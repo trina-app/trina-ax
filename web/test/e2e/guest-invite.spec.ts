@@ -51,9 +51,9 @@ test('owner invites a guest into a group chat: name, AI with all three choices, 
   await expect(page.getByTestId('guest-invite-ready')).toBeVisible()
   await expect(page.getByRole('dialog')).toContainText('Alex님에게 보낼 링크')
   await expect(page.getByTestId('guest-invite-url')).toContainText('/invite/')
-  // Copy link is the dialog's main button, Done beside it
+  // Copy message is the main button (the message carries the link: guest walkthrough S7), Copy link beside it, Done
   await expect(page.getByTestId('guest-invite-copy')).toHaveText('링크 복사')
-  await expect(page.getByTestId('guest-invite-copy')).toHaveClass(/bg-accent/)
+  await expect(page.getByTestId('guest-invite-copy-message')).toHaveClass(/bg-accent/)
   await expect(page.getByTestId('guest-invite-done')).not.toHaveClass(/bg-accent/)
   // the invite list says who the link is for
   await page.goto('/admin/members')

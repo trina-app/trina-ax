@@ -32,7 +32,7 @@ import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-
 import { isRequestableService, type Integration, type IntegrationList } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
 import { connectionHref, connectorFor, connectorHref, connectorLogo, CONNECTORS, CONNECTORS_HOME, isConnected, servesAt, type Connector } from '../lib/connectors'
-import { aboutKey, builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, type BuiltInId } from '../lib/googleApps'
+import { aboutKey, builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, unavailableKeys, type BuiltInId } from '../lib/googleApps'
 import { connectionRowStatus, splitByScope } from '../lib/integrations'
 import { useLocale, useT } from '../i18n'
 import { putCached, readIntegrations, SHARED, useCachedRead } from '../store/listCache'
@@ -207,12 +207,26 @@ function ConnectorsHome() {
     state: isConnected(c, urls) ? 'added' as const : 'available' as const,
     onOpen: () => navigate(connectorHref(c.id)), onAdd: () => setDialog({ connector: c }),
   })) : []
+  // the team turned own connections off: a member who searches still finds a listed service, with "Ask admin to add it"
+  // in place of + (its page has the button), never "Nothing matches" (QA TC-2932); not in Discover without a search
+  const askable: Card[] = personalAllowed === false && !admin && q ? CONNECTORS.filter((c) => isRequestableService(c.id) && !isConnected(c, urls)).map((c) => ({
+    id: c.id, name: c.name, line: t(`integrations.catalog.${c.id}`), logo: connectorLogo(c), state: 'off' as const,
+    offLine: t(asks.stateOf(c.id) !== 'none' ? 'serviceRequest.asked' : 'serviceRequest.ask'),
+    onOpen: () => navigate(connectorHref(c.id)), onAdd: () => navigate(connectorHref(c.id)),
+  })) : []
+  // a Google app that is not available yet (Google's review) or not on this kind of server stays, with its short line on
+  // the right, instead of disappearing (QA TC-2958)
+  const offLineOf = (c: Card): string | null => {
+    const v = c.state === 'off' ? google.apps?.find((x) => x.id === c.id) : undefined
+    const k = v && (v.reason === 'service_limited' || v.reason === 'unsupported') ? unavailableKeys(v.reason, admin)?.short : null
+    return k ? t(k) : null
+  }
   // Discover: only what is not connected yet (connected ones are in Your connectors). The Google ones first, always in
   // their order (Drive, Gmail, Calendar, Docs, Sheets: QA TC-138), also one that cannot be connected yet because the
   // team has not set it up ("off"): an owner or admin sees "Set up", which goes to Admin, where it is set up; a member
   // sees "Not set up yet" ("Asked" once they asked), and its page has "Ask admin to add it".
-  const cards = [...builtIns, ...listed]
-    .filter((c) => c.state === 'available' || (c.state === 'off' && c.setUp))
+  const cards = [...builtIns.map((c) => { const offLine = offLineOf(c); return offLine ? { ...c, offLine } : c }), ...listed, ...askable]
+    .filter((c) => c.state === 'available' || (c.state === 'off' && (c.setUp || !!c.offLine)))
     .filter((c) => fits(q, c.name, c.line))
   const shownCards = q || all ? cards : cards.slice(0, POPULAR_FIRST)
 
@@ -265,9 +279,13 @@ function ConnectorsHome() {
         <MyRequests version={requests} onConnected={(i, signIn) => { actions.saved(i, signIn, !list.data?.items.some((x) => x.id === i.id)); navigate(connectionHref(i.id)) }} />
         {list.error && <ErrorNote onRetry={() => void list.reload()}>{list.error}</ErrorNote>}
         {/* a service a member looked for and did not find: where to go next (an owner or admin has Add above) */}
+        {/* the team turned own connections off: said once, whether or not this person has any (QA TC-2932) */}
+        {personalAllowed === false && (
+          <p role="note" className="rounded-xl bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="integrations-personal-off">{t('integrations.personalOff')}</p>
+        )}
         {loading ? <Skeleton lines={4} /> : nothing ? (
           <EmptyState title={t('integrations.noMatch', { q })}>
-            {personalAllowed && !admin && <p data-testid="connector-ask-admin">{t('integrations.discover.customHint')} {t('integrations.discover.askAdmin')}</p>}
+            {personalAllowed !== undefined && !admin && <p data-testid="connector-ask-admin">{t('integrations.discover.customHint')} {t('integrations.discover.askAdmin')}</p>}
           </EmptyState>
         ) : empty ? (
           <EmptyState title={t('connectors.none')}>
@@ -275,9 +293,6 @@ function ConnectorsHome() {
           </EmptyState>
         ) : (
           <>
-            {personalAllowed === false && mine.length > 0 && (
-              <p role="note" className="rounded-xl bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="integrations-personal-off">{t('integrations.personalOff')}</p>
-            )}
             {yours.length > 0 && (
               <section aria-labelledby="connectors-yours">
                 <h3 id="connectors-yours" className="mb-1 text-title-sm font-semibold">{t('connectors.yours')}</h3>
@@ -300,7 +315,7 @@ function ConnectorsHome() {
                   {shownCards.map((c) => <DiscoverCard key={c.id} c={c} admin={admin} />)}
                 </ul>
                 {/* members: the address form (kind, sign-in method, headers, scopes) is an admin's job */}
-                {personalAllowed && !admin && (
+                {personalAllowed !== undefined && !admin && (
                   <p className="mt-5 text-sm text-muted" data-testid="connector-not-listed">
                     {t('integrations.discover.customHint')} <span data-testid="connector-ask-admin">{t('integrations.discover.askAdmin')}</span>
                   </p>
@@ -369,7 +384,7 @@ function DrivePage() {
       actions={ask ? <AskAdminAction state={ask} busy={asks.busy === id} onAsk={() => void asks.ask(id, name, drive.load)} onWithdraw={() => void asks.withdraw(id)} />
         : inApp ? appActions
         : p.action}
-      status={(line || onComputer || askError || p.busy || p.shares.length > 0 || drive.d.error || drive.revokeWarning) ? <>
+      status={(line || onComputer || askError || p.busy || p.unverified || p.shares.length > 0 || drive.d.error || drive.revokeWarning) ? <>
         {line && <Note tone={p.reconnect ? 'warn' : undefined} testId={ask ? 'service-asked-note' : 'drive-detail-line'}>{line}</Note>}
         {onComputer && <Note testId="drive-on-computer">{onComputer}</Note>}
         {askError && <Note tone="warn" testId="service-ask-error">{askError}</Note>}

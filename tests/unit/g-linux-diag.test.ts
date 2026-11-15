@@ -69,7 +69,7 @@ describe('wording', () => {
     expect(lin.engineSetupToken.en).toContain('sudo /var/lib/mycel-a/root/set-claude-token < token-file')
     const hosted = render(hostMessages('hosted', { id: 'mycel', base: '/var/lib/mycel' }) as unknown as Record<string, unknown>)
     for (const k of ['launcherNotRunning.ko', 'firewallMissing.en', 'engineSetupToken.en', 'engineCodexLogin.ko']) expect(hosted[k]).not.toMatch(/sudo|systemctl|journalctl|mycel-ctl/)
-    expect(hosted['engineSetupToken.en']).toContain('Admin > Providers')
+    expect(hosted['engineSetupToken.en']).toContain('Admin > AI providers')
     // QA TC-3000: no hint, in any language or host, sends people to the old AI engines page (an "Admin > …" path;
     // "AI engine" as a word for the engine itself is fine)
     const OLD_PAGE = /(Admin|관리자|管理|Administración) (>|›) (AI engines|AI 엔진|Mesin AI|AIエンジン|Motores de IA|AI 引擎)/

@@ -57,6 +57,8 @@ import { readRooms } from './read-rooms'
 import { WEB_ACCESS_CHANGED } from '../admin/settings'
 import { isGuestUser } from '../credentials/guest-ai'
 import { GUEST_TURN_TOOLS } from './guest-tools'
+import { hideAllArgs, hideKeysInArgs, KEY_HIDING_TOOLS, KeyRefusal, UNCHECKED_REFUSAL } from '../integrations/connections/hide-args'
+import { completeRedactorFor } from '../integrations/connections/redact'
 
 export interface Tool {
   name: string
@@ -176,9 +178,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // a file sent from the computer in a chat shared with people (chat/chat-file-tool.ts): read as this person while they
   // see the chat; only where the chat holds such files or is shared with people
   if (chatFileOffered(exec)) add(chatFileTool(exec))
-  // the AI posts to one of the person's rooms, or a thread there, after their yes on one server card
-  // (chat/post-to-room.ts): only in their own chat, never in a shared, confidential, draft or template
-  // chat, a scheduled run or a question from Slack (postToRoomOff)
+  // the AI posts to one of the person's rooms, a thread there or a teammate, after their yes on one server card
+  // (chat/post-to-room.ts): in their own chat and in a shared one (as the turn's own person, SHARED_TOOLS), never in a
+  // confidential, draft or template chat, a scheduled run or a question from Slack (postToRoomOff)
   if (!postToRoomOff(exec)) add(postToRoomTool(exec))
   // edit_files is listed here so the engines and the model proxy allow it, but the MCP handler runs it
   // (mcp/protocol.ts editFiles): each file as its own edit call with the checks above. Never offered in confidential
@@ -216,6 +218,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // read their reads skip the room card and their writes ask on their own card (chat/turn.ts confirmRoomChange). Only
   // the integrations provider's, and only those that say: any other tool keeps the room card (fails closed)
   const connections = new Map<string, { readOnly: NonNullable<TurnTool['readOnly']>; card: boolean }>()
+  // every tool a provider added (they act at outside services): their arguments have stored keys hidden (hideKeys)
+  const outside = new Set<string>()
   const providers = exec.rt.ctx.services.turnToolProviders ?? []
   for (const p of confidential || exec.restricted || exec.shared || guest ? [] : providers) {
     let built: ReturnType<typeof p.build>
@@ -223,6 +227,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     catch (e) { exec.rt.log.warn('turn tool provider failed', { provider: p.name, err: e }); continue }
     for (const t of built.tools) {
       if (!add(wrapRegistered(exec, t))) continue
+      outside.add(t.name)
       if (t.label) labels.set(t.name, t.label.bind(t))
       if (t.card) cards.set(t.name, t.card.bind(t))
       if (p.name === 'integrations' && t.readOnly !== undefined) connections.set(t.name, { readOnly: t.readOnly, card: t.readsNeedCard === true })
@@ -249,6 +254,21 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     list: () => [...tools.values()].map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
     has: (n) => tools.has(n),
     callStarted: () => exec.ownCallStarted(),
+    // the person's stored connection keys in what a tool saves (a file, an artifact, a name): hidden before every
+    // other check, card and write (integrations/connections/hide-args.ts; QA TC-3041). write keeps a form the file it
+    // overwrites already holds
+    hideKeys: (name, args) => {
+      // a call to a connected service (an MCP tool, Gmail, Drive, Notion, api_request, Slack): every value, so the
+      // card shows exactly what is sent and the service never gets the key (QA TC-3081)
+      // Fails closed: a stored secret that cannot be read now stops the call (completeRedactorFor)
+      if (outside.has(name)) {
+        const r = completeRedactorFor(exec.rt.ctx, exec.spec.userId)
+        if (!r) throw new KeyRefusal(UNCHECKED_REFUSAL, 'stored keys could not be read')
+        return hideAllArgs(args, r)
+      }
+      if (!KEY_HIDING_TOOLS.includes(name)) return { args, hidden: false }
+      return hideKeysInArgs(name, args, exec.redactor(), (p) => exec.rt.files.textNow(exec.livePrincipal(), p))
+    },
     async call(name, args, caller) {
       const files = caller?.files ?? exec.files
       // a profile draft: the same site and at most 4 pages per answer, counted before the call starts
@@ -825,7 +845,9 @@ function bTools(exec: TurnExec): Tool[] {
         if (!a.success) return text(zodText(a.error), true)
         const clean = cleanMemoryText(a.data.text)
         if (!clean.ok) return clean.problem === 'empty' ? text('Invalid input: text is empty', true) : text(`Too long (${clean.length} characters). Keep a memory under ${MEMORY_ITEM_MAX} characters.`, true)
-        const value = clean.text
+        // the person's stored connection keys are hidden before the card asks and before it is saved, as in the answer
+        // and the steps (redact.ts; QA TC-2981: the step said [hidden key], the saved memory had the key)
+        const value = exec.redact(clean.text)
         let source: 'ai' | 'user' = 'ai'
         // the step's final words: patched onto it once (patchToolStep), or, when its card already changed it, onto the
         // same step again by its id

@@ -1,7 +1,7 @@
 // 팀장 넘기기 (docs/DECISIONS.md "W6"; web/src/components/handover/): the owner flags an invite "이 사람이 팀장이에요" (Admin
 // › Members, the welcome steps' invite step) and gets the one-person message; the flagged person joins; Home's card names
 // the owner's words beside the account's name, username and time; ✕ hides it while the Inbox notice stays; [넘기기] from
-// the Inbox opens the confirm with 받는 사람 and my connections ticked; a wrong password says so; the right one hands the
+// the Inbox opens the confirm with 받는 사람 and my connections kept unless ticked to disconnect; a wrong password says so; the right one hands the
 // role over (the old owner is an admin at once); the new owner's Inbox says so with [내보내기]. The "…" menu offers it
 // only for someone who signed in and changed their temporary password; a race says the owner changed already.
 import AxeBuilder from '@axe-core/playwright'
@@ -104,16 +104,23 @@ test('flag an invite, the lead joins, the card, ✕ keeps the Inbox notice, hand
   await expect(confirm).toContainText('넘기면 팀 이름·관리자 지정·업데이트와 백업은 박민준님이 맡고, 나는 관리자가 돼요.')
   const ai = confirm.getByTestId('handover-conn-team_ai-cred-claude')
   const drive = confirm.getByTestId('handover-conn-drive_share-share-acme')
-  await expect(ai).toBeChecked()
-  await expect(drive).toBeChecked()
-  await expect(confirm).toContainText("팀 AI '회사 Claude' (내 Claude 계정) · 넘기면 끊어요")
+  // everything is kept unless I tick "Disconnect when I hand over" (QA TC-3095)
+  await expect(ai).not.toBeChecked()
+  await expect(drive).not.toBeChecked()
+  await expect(confirm.getByTestId('handover-status-team_ai-cred-claude')).toHaveText(ko('handover.conn.kept'))
+  await expect(confirm.getByTestId('handover-status-drive_share-share-acme')).toHaveText(ko('handover.conn.kept'))
+  await expect(confirm.getByTestId('handover-row-team_ai-cred-claude')).toContainText(ko('handover.conn.endToggle'))
   await expect(confirm.getByTestId('handover-recovery')).toHaveText(ko('handover.recovery.server'))
-  // the drive is the company's own: kept
-  await drive.uncheck()
-  await expect(confirm).toContainText("드라이브 공유 'Acme 드라이브' (내 구글 계정) · 남겨요")
+  // the AI runs on my own Claude subscription: disconnect it; the drive is the company's own and stays
+  await ai.check()
+  await expect(confirm.getByTestId('handover-status-team_ai-cred-claude')).toHaveText(ko('handover.conn.willEnd'))
+  await expect(confirm.getByTestId('handover-status-drive_share-share-acme')).toHaveText(ko('handover.conn.kept'))
+  // the Transfer button stays disabled until the password is typed, then reads as the danger action
+  await expect(confirm.getByTestId('handover-submit')).toBeDisabled()
   await audit(page, 'the handover confirm')
   // a wrong password says so under the field, and nothing changes
   await confirm.getByTestId('handover-password').fill('wrong password')
+  await expect(confirm.getByTestId('handover-submit')).toBeEnabled()
   await confirm.getByTestId('handover-submit').click()
   await expect(confirm.getByRole('alert')).toHaveText('비밀번호가 맞지 않아요. 다시 입력해 주세요.')
   await confirm.getByTestId('handover-password').fill(OWNER.password)
@@ -173,8 +180,8 @@ test('"…" › 팀장 넘기기: only for someone who signed in and changed the
   await page.getByTestId('handover-member-bob').click()
   const confirm = page.getByRole('dialog', { name: 'Bob님을 팀장으로 정할까요?' })
   await expect(confirm.getByTestId('handover-check')).toHaveText('Bob(아이디 bob) · 팀장이 되면 나를 내보낼 수도 있어요.')
-  // my connections are listed here as on the card's path
-  await expect(confirm.getByTestId('handover-conn-team_ai-cred-claude')).toBeChecked()
+  // my connections are listed here as on the card's path, kept by default
+  await expect(confirm.getByTestId('handover-conn-team_ai-cred-claude')).not.toBeChecked()
   await confirm.getByTestId('handover-password').fill(OWNER.password)
   await confirm.getByTestId('handover-submit').click()
   await expect(page.getByTestId('toast').filter({ hasText: '이미 팀장이 바뀌었어요' })).toHaveCount(1)
@@ -184,9 +191,12 @@ test('"…" › 팀장 넘기기: only for someone who signed in and changed the
   // that list, so until then [넘기기] is disabled and Enter does nothing)
   await menuOf(page, 'Bob')
   await page.getByTestId('handover-member-bob').click()
-  await expect(confirm.getByTestId('handover-conn-team_ai-cred-claude')).toBeChecked()
+  await expect(confirm.getByTestId('handover-conn-team_ai-cred-claude')).not.toBeChecked()
   await confirm.getByTestId('handover-password').fill(OWNER.password)
+  const sent = page.waitForRequest((r) => r.method() === 'POST' && r.url().endsWith('/api/admin/transfer-ownership'))
   await confirm.getByTestId('handover-password').press('Enter')
+  // nothing touched: nothing is ended
+  expect((await sent).postDataJSON().end).toEqual([])
   await expect(page.getByTestId('toast').filter({ hasText: 'Bob님이 팀장이 되었어요 · 나는 관리자예요' })).toHaveCount(1)
   // an admin now: roles are read-only, and nobody's "…" offers the handover
   await expect(page.getByTestId('member-role-bob')).toHaveText('팀장')

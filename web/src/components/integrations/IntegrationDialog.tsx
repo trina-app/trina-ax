@@ -387,7 +387,8 @@ export function IntegrationDialog({ scope, existing, template, connector, choice
               </p>
               {accessOpen && (
                 <div className="mt-3">
-                  <AccessPicker value={f.access} onChange={(a) => change({ access: a }, 'access')} groups={groups.data ?? []} users={users.data ?? []} me={{ id: me.user.id, groupIds: me.groups.map((g) => g.id) }} error={errorOf('access')} template={asTemplate} />
+                  <AccessPicker value={f.access} onChange={(a) => change({ access: a }, 'access')} groups={groups.data ?? []} users={users.data ?? []} me={{ id: me.user.id, groupIds: me.groups.map((g) => g.id) }} error={errorOf('access')} template={asTemplate}
+                    note={asTemplate && f.method === 'oauth' ? t('integrations.template.accessNoteSignIn') : undefined} />
                 </div>
               )}
             </div>

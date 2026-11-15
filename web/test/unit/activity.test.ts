@@ -77,6 +77,25 @@ describe('grouped by day', () => {
     const [day] = groupActivity(items)
     expect(day!.runs.map((r) => r.entries.map((e) => e.id).join(''))).toEqual(['abc', 'd', 'e', 'f', 'g'])
   })
+  test('two quick edits of one connection that changed different things stay two rows; the same change twice folds (QA TC-2953)', () => {
+    const t = now.getTime()
+    const edit = (id: string, ago: number, detail: Record<string, unknown>) =>
+      entry(id, new Date(t - ago * min), { source: 'admin', action: 'integration.update', actor: { id: 'olga', name: 'Olga' }, target: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b', detail })
+    const base = { scope: 'team', kind: 'http', auth: 'bearer', name: 'Ledger', host: 'api.ledger.example' }
+    const [day] = groupActivity([
+      edit('a', 0, { ...base, changed: ['url'] }),
+      edit('b', 1, { ...base, name: 'Ledger old', changed: ['name'], secret: 'replaced' }),
+      edit('c', 2, { ...base, changed: ['tools'], enabled: false }),
+      edit('d', 3, { ...base, changed: ['tools'], enabled: false }),
+    ])
+    expect(day!.runs.map((r) => r.entries.map((e) => e.id).join(''))).toEqual(['a', 'b', 'cd'])
+  })
+  test('any kind folds only with the same details: two AI reads of different files stay two rows', () => {
+    const t = now.getTime()
+    const read = (id: string, ago: number, summary: string) => entry(id, new Date(t - ago * min), { source: 'tool', action: 'read', target: null, detail: { summary, ok: 1 } })
+    const [day] = groupActivity([read('a', 0, 'read a.md'), read('b', 1, 'read b.md'), read('c', 2, 'read b.md')])
+    expect(day!.runs.map((r) => r.entries.map((e) => e.id).join(''))).toEqual(['a', 'bc'])
+  })
   test('a new day starts a new group, and a run never crosses midnight', () => {
     const late = new Date(2026, 10, 4, 0, 5)
     const early = new Date(2026, 10, 3, 23, 58)
@@ -126,6 +145,24 @@ describe('what a row says', () => {
     } finally {
       useLocaleStore.setState({ locale: before })
     }
+  })
+  test('an API connection or template is named as the app names it ("API"), never "MCP"; an MCP one keeps its words (QA TC-3054)', () => {
+    const admin = (action: string, kind: string | undefined) => entry('a', at, { source: 'admin', action, target: 'x', detail: kind ? { scope: 'team', kind } : {} })
+    for (const l of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
+      const t = (k: Parameters<typeof translate>[1], p?: Parameters<typeof translate>[2]) => translate(l, k, p)
+      for (const action of ['integration.create', 'integration.update', 'integration.delete', 'integration_template.create', 'integration_template.update', 'integration_template.delete']) {
+        const api = actionLabel(t, admin(action, 'http'))
+        expect(api).not.toContain('MCP')
+        expect(api).toContain('API')
+        expect(actionLabel(t, admin(action, 'mcp'))).toBe(translate(l, `audit.act.${action}` as Parameters<typeof translate>[1]))
+        // an older row without a kind: as before
+        expect(actionLabel(t, admin(action, undefined))).toBe(translate(l, `audit.act.${action}` as Parameters<typeof translate>[1]))
+      }
+    }
+    const en = (k: Parameters<typeof translate>[1], p?: Parameters<typeof translate>[2]) => translate('en', k, p)
+    expect(actionLabel(en, admin('integration.create', 'http'))).toBe('Added an API connection')
+    // an action with no API words of its own keeps its line
+    expect(actionLabel(en, admin('integration.always_allow', 'http'))).toBe(translate('en', 'audit.act.integration.always_allow'))
   })
   test('an item that is an id: its name when the entry has one, else nothing; paths and usernames as they are', () => {
     const admin = (action: string, target: string | null, detail: Record<string, unknown> = {}) => entry('a', at, { source: 'admin', action, target, detail })

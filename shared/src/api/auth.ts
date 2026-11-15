@@ -69,6 +69,11 @@ export const Me = z.object({
     /** who may make team projects (Admin > Team settings projectCreators): a member sees "팀 프로젝트" only with
      * 'members'. Absent (older server) = admins only. */
     projectCreators: z.enum(['members', 'admins']).optional(),
+    /** an admin turned off "Always allow" for the team (Admin > Team settings roomAlwaysAllow): a member's own Always allow
+     * on a team connection is ignored, and an Always allow or a team connection set to run without asking asks again in
+     * a chat that read something from outside (server/src/integrations/connections/tools.ts gate). The connector pages
+     * say so. Absent: on (the default), or an older server. */
+    alwaysAllowOff: z.literal(true).optional(),
     /** the team's address for its members, an origin (https://acme.trina.app): what a new device puts in the app
      * (Settings › 앱 "팀 주소"). The relay address when the server is on a relay, else the public address it knows,
      * else for a server not on a relay the address it is reached at, with its port, http included
@@ -236,7 +241,7 @@ export type MyWebAccess = z.infer<typeof MyWebAccess>
  * team's limit shows only how full it is, not who used it. */
 const MyUsagePeriod = z.enum(['day', 'week', 'month'])
 export const MyUsageQuery = z.object({ period: MyUsagePeriod.default('month') })
-const MyUsageAmount = z.object({ turns: z.number().int(), inputTokens: z.number().int(), outputTokens: z.number().int(), costUsd: z.number(), unpricedTurns: z.number().int().optional() })
+const MyUsageAmount = z.object({ turns: z.number().int(), inputTokens: z.number().int(), outputTokens: z.number().int(), costUsd: z.number(), unpricedTurns: z.number().int().optional(), estimatedTurns: z.number().int().optional() })
 /** one engine and model the person's answers used (model null = the engine's default) */
 export const MyUsageRow = MyUsageAmount.extend({ key: z.string(), engine: z.string(), model: z.string().nullable() })
 export const MyUsageLimit = z.object({

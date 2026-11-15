@@ -352,7 +352,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `PATCH` | `/api/integrations/:id` | Signed in | Change a connection: the owner of a personal one, an admin for a team one. A new address drops the stored key. |
 | `DELETE` | `/api/integrations/:id` | Signed in | Delete a connection (OAuth: revocation is tried, the local tokens go first). |
 | `POST` | `/api/integrations/:id/refresh` | Signed in | Check the connection now; MCP: save its current tool list. |
-| `POST` | `/api/integrations/:id/authorize` | Signed in | Start signing in at the service (OAuth with PKCE) in a browser window: an MCP server, or an API with your own app. |
+| `POST` | `/api/integrations/:id/authorize` | Signed in | Start signing in at the service (OAuth with PKCE) in a browser window: an MCP server, or an API with your own app. From the desktop app, loopbackPort names its return address on this computer for services that take only that. |
 | `DELETE` | `/api/integrations/:id/always-allow` | Signed in | Ask again before the AI changes something at a team connection: ends my own Always allow there (never the team's rule). |
 | `POST` | `/api/integrations/:id/tools` | Signed in | Turn one tool of an MCP connection on or off for the AI (whoever manages the connection). New tools are on. |
 | `GET` | `/api/integrations/flows/:id` | Signed in | Poll a sign-in started by this same session. |
@@ -404,8 +404,8 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| `GET` | `/api/connectors/remote/requests/:id` | Signed in | Inspect an OAuth request, bound to this user and login session. |
-| `POST` | `/api/connectors/remote/requests/:id` | Signed in | Explicitly allow or deny an external app connection. The grant is mcp:read, plus mcp:write when `write` (left out: when the app asked for it), plus mcp:rooms (read my conversations) when `rooms` and mcp:rooms.write (send messages as me) when `rooms` and `roomsWrite` (left out: no), plus mcp:admin when the person is an owner or admin now, plus offline_access when asked. `admin` is ignored (an older page sent it). |
+| `GET` | `/api/connectors/remote/requests/:id` | Signed in | Inspect an OAuth request, bound to this user and login session. 404 with params.reason request_expired: the request expired, was decided, or another login session opened it. |
+| `POST` | `/api/connectors/remote/requests/:id` | Signed in | Explicitly allow or deny an external app connection. The grant is mcp:read, plus mcp:write when `write` (left out: when the app asked for it), plus mcp:rooms (read my conversations) when `rooms` and mcp:rooms.write (send messages as me) when `rooms` and `roomsWrite` (left out: no), plus mcp:admin when the person is an owner or admin now, plus offline_access when asked. `admin` is ignored (an older page sent it). 404 with params.reason request_expired as for GET. |
 | `GET` | `/api/connectors/remote` | Signed in | List only this user’s external connections. |
 | `DELETE` | `/api/connectors/remote/:id` | Signed in | Revoke an own external connection and all of its tokens. |
 
@@ -680,7 +680,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `POST` | `/api/integrations/service-requests` | Signed in | Ask the owner and admins to add an app the team has not set up (members only; 400 unknown_service, 409 can_connect or not_requestable, 429 after 10 a day). One open request per app; tells them in the app, never names an admin. |
 | `DELETE` | `/api/integrations/service-requests/:service` | Signed in | Take back my own open request for an app (nothing happens when there is none). It still counts toward the 10 a day. |
 | `GET` | `/api/admin/service-requests` | Admin | The open requests to add an app, by app: who asked and when (owners and admins). |
-| `POST` | `/api/admin/service-requests/:service/dismiss` | Admin | Close the open requests for an app without adding it (nobody is told; members may ask again). |
+| `POST` | `/api/admin/service-requests/:service/dismiss` | Admin | Close the open requests for an app without adding it (each member who asked gets a quiet notice that they may ask again). |
 
 ## List folders (my own folders for chats and conversations)
 

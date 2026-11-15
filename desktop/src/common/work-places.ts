@@ -70,13 +70,28 @@ export function windowsCloudPlaces(home: string, env: Readonly<Record<string, st
     const p = env[v]
     if (p && win32.isAbsolute(p)) add(p, cloudLabel(win32.basename(p)) ?? 'OneDrive')
   }
-  // SharePoint libraries synced by OneDrive: C:\Users\alex\Acme\Acme - Documents ("Acme – Documents")
-  for (const p of syncRoots) if (win32.isAbsolute(p)) add(p, cloudLabel(win32.basename(p)) ?? win32.basename(p).replace(/ - /, ' – '))
+  // SharePoint libraries synced by OneDrive: C:\Users\alex\Acme\Acme - Documents ("Acme – Documents"); a folder
+  // inside a place already listed (a shared folder added as a shortcut in OneDrive) is that place's
+  const within = (p: string) => { const k = win32.normalize(p).toLowerCase(); return [...seen].some((x) => k.startsWith(x.replace(/\\$/, '') + '\\')) }
+  for (const p of syncRoots) if (win32.isAbsolute(p) && !within(p)) add(p, cloudLabel(win32.basename(p)) ?? win32.basename(p).replace(/ - /, ' – '))
   for (const name of homeNames) {
     const label = cloudLabel(name)
     if (label && !/^OneDrive/i.test(label)) add(win32.join(home, name), label)
   }
   return out
+}
+
+/** The folders OneDrive syncs for this person (HKCU\Software\SyncEngines\Providers\OneDrive\*\MountPoint, one path a
+ * line as PowerShell prints them): the personal or work OneDrive and each synced SharePoint library. Only absolute local
+ * paths, at most 20. */
+export function parseSyncRoots(out: string): string[] {
+  const res: string[] = []
+  for (const line of out.split(/\r?\n/)) {
+    const t = line.trim()
+    const p = /^[A-Za-z]:\\$/.test(t) ? t : t.replace(/\\+$/, '')
+    if (/^[A-Za-z]:\\/.test(p) && !res.some((x) => x.toLowerCase() === p.toLowerCase())) res.push(p)
+  }
+  return res.slice(0, 20)
 }
 
 /** Each place's name once: a second "Google Drive" becomes "Google Drive (2)", and none takes a name the list keeps for

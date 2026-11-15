@@ -15,6 +15,7 @@ import { formatDateTime } from '../../lib/format'
 import { canSignIn, lastCheckNote, toolsShortfall } from '../../lib/integrations'
 import { mobileApp } from '../../lib/mobile'
 import { useLocale, useT } from '../../i18n'
+import { useMe } from '../../store/session'
 import { Badge, Button, Modal, Switch } from '../ui'
 import { AppDetail, Detail, ExtLink } from './AppDetail'
 import { CardMenu, type CardMenuItem } from './AppConnectorCard'
@@ -30,8 +31,10 @@ export const LISTED_TOOLS = 12
 /** What kind of trouble a check's reason code is (server/src/integrations/connections/text.ts Reason): the page says it
  * in one line of its own words with the one next step for its reader. A code not here (or an older server's connection
  * without one) shows the server's own words, which carry their own next step. */
-const REASON_KIND: Record<string, 'address' | 'key' | 'slow' | 'service'> = {
-  unreachable: 'address', private_address: 'address', blocked_port: 'address', redirect: 'address', not_mcp: 'address',
+const REASON_KIND: Record<string, 'address' | 'notMcp' | 'redirect' | 'key' | 'slow' | 'service'> = {
+  unreachable: 'address', private_address: 'address', blocked_port: 'address',
+  // the address answered: not as a connector, or by sending us elsewhere (QA TC-2939); its fix is still the address
+  not_mcp: 'notMcp', redirect: 'redirect',
   // the oauth_unsupported / oauth_no_registration / oauth_approved_apps_only codes need another way to connect (or none),
   // not a new key: the server's words
   refused: 'key', no_secret: 'key', sign_in: 'key', oauth_failed: 'key',
@@ -49,7 +52,7 @@ export function errorLine(t: ReturnType<typeof useT>, i: Pick<Integration, 'last
     : !who.manage ? (kind === 'slow' ? 'later' : 'askAdmin')
     : kind === 'slow' || kind === 'service' ? 'checkAgain'
     : who.phone ? 'onComputer'
-    : kind === 'address' ? 'editAddress'
+    : kind === 'address' || kind === 'notMcp' || kind === 'redirect' ? 'editAddress'
     : i.auth === 'oauth' && who.signIn ? 'signIn' : 'editKey'
   return `${t(`connectors.err.${kind}`)} ${t(`connectors.step.${step}`)}`
 }
@@ -129,15 +132,21 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
   const phone = !!mobileApp()
   const flow = actions.signIn.state?.id === i.id ? actions.signIn.state : null
   const checking = actions.checking === i.id
-  const failing = !!i.lastError && i.status !== 'connected'
-  const note = lastCheckNote(i)
+  const failing = !!i.lastError && i.status !== 'connected' && !i.personalOff
+  // off by the team: not used, so a failed check is not news (QA TC-2930)
+  const note = i.personalOff ? null : lastCheckNote(i)
   const short = toolsShortfall(i)
   const off = i.tools.filter((x) => x.enabled === false).length
-  const allowed = i.writePolicy === 'allow' || !!i.alwaysAllowedByMe
+  // the team's switch for Always allow is off: a member's own Always allow at a team connection asks (tools.ts gate), and
+  // a rule to run without asking asks again after something from outside (QA TC-2944)
+  const alwaysOff = useMe()?.team.alwaysAllowOff === true
+  const allowed = i.writePolicy === 'allow' || (!!i.alwaysAllowedByMe && !alwaysOff)
   // the person's own Always allow (a write card's choice), which "Ask every time" ends (QA TC-130); a team's "Run
   // without asking" is the admin's rule, changed in Edit
   const ownAllow = !!i.alwaysAllowedByMe || (i.scope === 'personal' && i.writePolicy === 'allow')
-  const signInHere = manage && canSignIn(i) && !phone
+  // the team has members' own connections off: kept, not used in chats, not signed in again (QA TC-2930)
+  const teamOff = !!i.personalOff
+  const signInHere = manage && canSignIn(i) && !phone && !teamOff
   const items: CardMenuItem[] = [
     ...(manage ? [{ label: t('integrations.refresh'), onSelect: () => void actions.refresh(i), disabled: checking, testId: 'integration-refresh' }] : []),
     ...(signInHere && i.status !== 'needs_auth' && !flow ? [{ label: t(i.hasSecret ? 'integrations.signInAgain' : 'integrations.signIn'), onSelect: () => void actions.signIn.start(i.id), testId: 'integration-signin-again' }] : []),
@@ -148,6 +157,8 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
   const status = checking ? (
     // Check again under way: said where the state is, until the answer comes (a toast then says how it went)
     <span role="status" className="flex items-center gap-1 text-xs text-muted" data-testid="connection-status" data-state="checking"><RefreshCw size={14} className="animate-spin" aria-hidden />{t('connectors.page.checking')}</span>
+  ) : teamOff ? (
+    <span className="text-xs text-muted" data-testid="connection-status" data-state="personal-off">{t('appConnectors.off')}</span>
   ) : i.status === 'connected' ? (
     <span className="flex items-center gap-1 text-xs text-ok" data-testid="connection-status" data-state="connected"><Check size={14} aria-hidden />{t('integrations.status.connected')}</span>
   ) : i.status === 'needs_auth' && signInHere ? (
@@ -198,9 +209,10 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
             {items.length > 0 && <div className="max-sm:ml-auto"><CardMenu label={t('appConnectors.more', { name: i.name })} testId="connection-menu" items={items} /></div>}
           </>
         )}
-        status={(flow || failing || note || alert) ? (
+        status={(flow || failing || note || alert || teamOff) ? (
           <>
-            {flow && <SignInPanel flow={flow} onRetry={() => void actions.signIn.start(i.id)} onCancel={actions.signIn.cancel} />}
+            {teamOff && <Note tone="warn" testId="integration-personal-off">{t('connectors.page.personalOff')}</Note>}
+            {flow && <SignInPanel flow={flow} name={i.name} onRetry={() => void actions.signIn.start(i.id)} onCancel={actions.signIn.cancel} />}
             {trouble && !flow && <Note tone="warn" testId="integration-error">{trouble}</Note>}
             {note && <Note tone="warn" testId="integration-check-failed">{t(note.key, { reason: note.reason, date: note.date ? formatDateTime(note.date, locale) : '' })}</Note>}
             {alert}
@@ -208,7 +220,7 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
         ) : undefined}
         about={about}
         canChange={canChange} asks={allowed ? 'allow' : 'ask'}
-        abilities={canChange && i.scope === 'team' && i.writePolicy === 'allow' ? t('connectors.page.teamAllowLine') : undefined}
+        abilities={canChange && i.scope === 'team' && i.writePolicy === 'allow' ? t(alwaysOff ? 'connectors.page.teamAllowLineOff' : 'connectors.page.teamAllowLine') : undefined}
         developer={c?.name} signIn={signInLine} links={links}
         more={<>
           {help}

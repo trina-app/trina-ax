@@ -215,7 +215,7 @@ export function TemplateRow({ tpl, groups, users, onEdit, onDeleted }: {
             </button>
             {isEmptyAccess(a) && <Badge tone="warn">{t('integrations.users.nobody')}</Badge>}
           </span>
-          <span className="mt-0.5 block truncate text-xs text-muted" data-testid="template-admin-line">{t('integrations.template.eachOwn')}</span>
+          <span className="mt-0.5 block truncate text-xs text-muted" data-testid="template-admin-line">{t(tpl.auth === 'oauth' ? 'integrations.template.eachSignIn' : 'integrations.template.eachOwn')}</span>
         </span>
       </div>
       <IconButton label={t('common.edit')} onClick={onEdit} data-testid="template-edit"><Pencil size={15} /></IconButton>

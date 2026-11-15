@@ -96,3 +96,18 @@ describe('the server says a connection went', () => {
     } finally { off() }
   })
 })
+
+describe('a save that may have replaced a waiting connection (QA TC-3048)', () => {
+  test('a new sign-in connection of my own: added, then the list loads again; a key one, a team one or a change: no reload', async () => {
+    const { box, m } = await withActions()
+    try {
+      const made = (over: Partial<Integration>) => ({ ...GONE, scope: 'personal', auth: 'oauth', status: 'needs_auth', ...over }) as Integration
+      await act(() => box.a!.saved(made({}), null, true))
+      expect(box.reloads).toBe(1)
+      await act(() => box.a!.saved(made({ auth: 'bearer', status: 'connected' }), null, true))
+      await act(() => box.a!.saved(made({ scope: 'team' }), null, true))
+      await act(() => box.a!.saved(made({}), null, false))
+      expect(box.reloads).toBe(1)
+    } finally { await m.unmount() }
+  })
+})

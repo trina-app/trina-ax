@@ -1033,6 +1033,7 @@ function Files() {
                 </Tooltip>
               </>
             )}
+            {!projectsTop && <FindWorkFilesEntry here={path} />}
             {!projectsTop && (
             <Tooltip label={t('files.upload')}>
               <Button size="sm" variant="primary" className={clsx(tree && !canWrite && 'max-md:hidden')} onClick={() => fileInput.current?.click()} disabled={!canWrite} aria-label={t('files.upload')} data-testid="upload-button">
@@ -1118,7 +1119,6 @@ function Files() {
           <FileUploads here={path} />
           <FolderUploads here={path} />
           <TeamFilesEntry here={path} />
-          <FindWorkFilesEntry here={path} />
           {/* computer files over the list go to this folder; over a folder row, into that folder (the row shows it) */}
           <div className={clsx('scroll-thin relative min-h-0 flex-1 overflow-y-auto px-2 pb-6 sm:px-4', drag && !over && 'bg-accent-soft/40 ring-2 ring-accent ring-inset')}>
             {phone && (
@@ -1214,7 +1214,7 @@ function Files() {
                           // (toProjectPage), so it says "Members only", as Folder permissions does, not "pass-through"
                           membersOnly={e.type === 'folder' && e.access === 'none' && isAdmin(me) && isProjectsFolder(e.path)}
                           onProject={(a) => navigate(`/projects/${a.project.id}`)}
-                          onSuggest={e.type === 'file' && e.path.startsWith(`users/${me.user.id}/`) && /\.(md|txt)$/i.test(e.name) ? () => setSuggesting(e.path) : null}
+                          onSuggest={me.user.role !== 'guest' && e.type === 'file' && e.path.startsWith(`users/${me.user.id}/`) && /\.(md|txt)$/i.test(e.name) ? () => setSuggesting(e.path) : null}
                           onAccess={e.type === 'folder' && offersFolderAccess(e.path, e.access, me.user.id, byFolder.get(e.path.normalize('NFC')) ?? null) ? () => setAccessFor({ path: e.path, access: e.access }) : null}
                         />
                       ))}

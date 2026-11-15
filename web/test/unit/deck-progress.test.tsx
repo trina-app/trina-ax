@@ -53,10 +53,11 @@ const localeBefore = useLocaleStore.getInitialState().locale
 afterEach(() => setLocale(localeBefore))
 
 describe('Korean particles after a filled-in value', () => {
-  test('(을)를 by the last syllable: 을 after a final consonant, 를 after a vowel; digits as read; Latin keeps both', () => {
+  test('(을)를 by the last syllable: 을 after a final consonant, 를 after a vowel; digits as read; a known Latin name as read, an unknown one keeps both', () => {
     expect(['숫자', '제품', '회사 소개', '연혁', '고객의 말'].map(koEul)).toEqual(['를', '을', '를', '을', '을'])
     expect(['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'].map(koEul)).toEqual(['을', '을', '를', '을', '를', '를', '을', '을', '을', '를'])
-    expect(koEul('Numbers')).toBe('(을)를')
+    expect(koEul('Quarterly')).toBe('(을)를')
+    expect(koEul('Numbers')).toBe('를')
     expect(format('{a}(을)를 {b}(으)로', { a: '숫자', b: '도넛 차트' }, 'ko')).toBe('숫자를 도넛 차트로')
     expect(format('{a}(을)를 {b}(으)로', { a: '하는 일', b: '층 도식' }, 'ko')).toBe('하는 일을 층 도식으로')
     // other languages carry no such marker; an unfilled one stays as written

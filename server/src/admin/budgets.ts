@@ -10,6 +10,7 @@ import { newId } from '../db'
 import { fail } from '../http/errors'
 import { msg } from '../auth/messages'
 import { teamTimeZone } from './settings'
+import { USAGE_AGG, turnAmount, withCounts, type TurnAmountRow } from './usage-amount'
 import { zonedDay, zonedParts, zonedToUtc } from '../system/time-zone'
 
 type In<T extends z.ZodType> = z.output<T>
@@ -167,15 +168,17 @@ function usageByLocalDay(db: Database, where: string, params: string[]): UsageRe
   const tz = teamTimeZone(db)
   const localDay = (d: Date) => zonedDay(d, tz)
   const days = new Map<string, UsageRes['rows'][number]>()
-  const rows = db.query(`SELECT t.started_at, t.input_tokens, t.output_tokens, t.cost_usd, t.usage_source FROM turns t WHERE ${where}`).all(...params) as { started_at: string; input_tokens: number | null; output_tokens: number | null; cost_usd: number | null; usage_source: string | null }[]
+  const rows = db.query(`SELECT t.started_at, t.input_tokens, t.output_tokens, t.cost_usd, t.est_cost_usd, t.usage_source FROM turns t WHERE ${where}`).all(...params) as ({ started_at: string } & TurnAmountRow)[]
   for (const r of rows) {
     const key = localDay(new Date(r.started_at))
     const d = days.get(key) ?? { key, label: key, turns: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 }
     d.turns++
     d.inputTokens += r.input_tokens ?? 0
     d.outputTokens += r.output_tokens ?? 0
-    d.costUsd += r.cost_usd ?? 0
-    if (r.usage_source === 'engine_unpriced') d.unpricedTurns = (d.unpricedTurns ?? 0) + 1
+    const a = turnAmount(r)
+    d.costUsd += a.usd
+    if (a.unpriced) d.unpricedTurns = (d.unpricedTurns ?? 0) + 1
+    if (a.estimated) d.estimatedTurns = (d.estimatedTurns ?? 0) + 1
     days.set(key, d)
   }
   return [...days.values()].sort((a, b) => a.key.localeCompare(b.key))
@@ -236,7 +239,7 @@ export function usage(db: Database, q: In<typeof UsageQuery>, now = new Date()):
   if (q.credential) { conds.push('t.credential_id = ?'); params.push(q.credential) }
   if (q.group) { conds.push('t.user_id IN (SELECT user_id FROM group_members WHERE group_id = ?)'); params.push(q.group) }
   const where = conds.join(' AND ')
-  const agg = 'COUNT(*) AS turns, COALESCE(SUM(t.input_tokens), 0) AS inputTokens, COALESCE(SUM(t.output_tokens), 0) AS outputTokens, COALESCE(SUM(t.cost_usd), 0) AS costUsd, COALESCE(SUM(CASE WHEN t.usage_source = \'engine_unpriced\' THEN 1 ELSE 0 END), 0) AS unpricedTurns'
+  const agg = USAGE_AGG
   let sql = ''
   switch (q.groupBy) {
     case 'user': sql = `SELECT t.user_id AS key, COALESCE(u.name, t.user_id) AS label, ${agg} FROM turns t LEFT JOIN users u ON u.id = t.user_id WHERE ${where} GROUP BY t.user_id ORDER BY costUsd DESC, turns DESC`; break
@@ -258,8 +261,8 @@ export function usage(db: Database, q: In<typeof UsageQuery>, now = new Date()):
   }
   const rows = q.groupBy === 'day' ? usageByLocalDay(db, where, params) : (db.query(sql).all(...(q.groupBy === 'skill' ? [...range, ...params] : params)) as UsageRes['rows'])
   const tot = db.query(`SELECT ${agg} FROM turns t WHERE ${where}`).get(...params) as UsageRes['totals']
-  // unpricedTurns: turns whose amount has an unknown part (API engine, no provider cost and no list price); only when any
-  const priced = <T extends { unpricedTurns?: number }>(r: T): T => { if (!r.unpricedTurns) delete r.unpricedTurns; return r }
+  // unpricedTurns / estimatedTurns (admin/usage-amount.ts): only when any
+  const priced = withCounts
   const res: UsageRes = { from: from.toISOString(), to: to.toISOString(), rows: rows.map(priced), totals: priced(tot) }
   if (q.series) res.series = usageSeries(db, q.groupBy, where, params)
   if (q.facets) res.facets = usageFacets(db, range)

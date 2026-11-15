@@ -38,6 +38,10 @@ test('a scheduled run says which task, in <bdi>; without a title (a deleted task
   expect(text(failure())).toBe(ko('notifications.event.schedule.failure'))
   expect(text(failure({ outcome: 'problems' }))).toBe(ko('notifications.event.schedule.problems'))
   expect(text(failure({ needsKey: { templateId: 't', name: 'Tasks' } }))).toBe(ko('notifications.event.schedule.needsKey', { name: 'Tasks' }))
+  // a template each member signs in to: sign in with your own account, never "your own key" (QA TC-3052)
+  expect(text(failure({ schedule, link: 'integrations', chatId: null, needsKey: { templateId: 't', name: 'Wiki', signIn: true } }))).toBe('&quot;<bdi>주간 보고</bdi>&quot; 예약 작업이 실행되지 않았어요. <bdi>Wiki</bdi>에 내 계정으로 로그인해야 해요.')
+  expect(text(failure({ schedule: { title: 'Weekly report' }, needsKey: { templateId: 't', name: 'Wiki', signIn: true } }), 'en')).toBe('Scheduled task &quot;<bdi>Weekly report</bdi>&quot; did not run: sign in to <bdi>Wiki</bdi> with your own account.')
+  expect(text(failure({ needsKey: { templateId: 't', name: 'Wiki', signIn: true } }), 'en')).toBe('A scheduled task did not run: sign in to Wiki with your own account.')
   expect(text(failure({ review: true, link: null, chatId: null, outcome: null }))).toBe(ko('notifications.event.schedule.review'))
   expect(text(notice({ eventType: 'connection.reconnect', code: 'connection.reconnect', link: 'connections', chatId: null, outcome: null }))).toBe(ko('notifications.event.connection.reconnect'))
 })
@@ -164,4 +168,26 @@ test('"tried to use Trina but it isn\'t set up yet": the name while the account 
   // the ask for an AI connection keeps its words
   expect(text(ask({ sourceId: 'u1', requester: { name: 'Mia' } }), 'en')).toBe(en('notifications.event.onboarding.ai_requestNamed', { name: 'Mia' }))
   expect(noticeLink(ask({ notReady: true }))?.to).toBe('/admin/providers')
+})
+
+test('a team template\'s notices follow how it signs in, and one no longer for me says so (QA TC-2980)', () => {
+  const tpl = (o: Partial<InboxNotification>) => notice({ eventType: 'integration.template', code: 'integration.template', chatId: null, link: 'integrations', outcome: null, ...o })
+  const re = (o: Partial<InboxNotification>) => tpl({ eventType: 'integration.template_reconnect', code: 'integration.template_reconnect', ...o })
+  const key = { id: 't1', name: 'Acme Tasks' }
+  const signIn = { id: 't2', name: 'Acme Wiki', signIn: true as const }
+  expect(text(tpl({ template: key }), 'en')).toBe('Acme Tasks is ready: connect it with your own key.')
+  expect(text(tpl({ template: signIn }), 'en')).toBe('Acme Wiki is ready: sign in with your own account.')
+  expect(text(re({ template: key }), 'en')).toBe('Acme Tasks changed its address or sign-in: enter your own key again.')
+  expect(text(re({ template: signIn }), 'en')).toBe('Acme Wiki changed its address or sign-in: sign in again with your own account.')
+  // a sign-in template never says "key"
+  for (const item of [tpl({ template: signIn }), re({ template: signIn })]) for (const l of ['en', 'ko'] as const) expect(text(item, l)).not.toMatch(/key|키/)
+  expect(text(re({ template: signIn }), 'ko')).toBe('Acme Wiki의 주소나 로그인 방식이 바뀌었어요. 내 계정으로 다시 로그인해 주세요.')
+  // no longer for me: one plain line, nothing to connect, no link
+  const left = re({ template: { id: 't3', name: 'Acme Board' }, templateLeft: true, link: null })
+  expect(text(left, 'en')).toBe('You no longer have access to Acme Board.')
+  expect(noticeLink(left)).toBeNull()
+  // the template gone: no name, and no key or sign-in named
+  expect(text(re({ templateLeft: true, link: null }), 'en')).toBe('You no longer have access to a team template.')
+  expect(text(re({ link: null }), 'en')).toBe('A team template changed: connect it again.')
+  expect(text(tpl({ link: null }), 'en')).toBe('A team template is ready to connect.')
 })

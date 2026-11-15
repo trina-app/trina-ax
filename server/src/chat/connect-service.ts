@@ -25,8 +25,8 @@ import { fail } from '../http/errors'
 import { getTeamSettings } from '../admin/settings'
 import { unsealOrFail } from '../credentials/service'
 import { credentialsOf } from '../credentials/store'
-import { cleanNotes, hiddenText, integrationsOf, MAX_PERSONAL, MAX_TEAM, normUrl, obviouslyPrivate, oneLine, personalFull } from '../integrations/connections/service'
-import { activeUser, disabledTools, getRow, isAdmin, mayUse, savedTools, selectRows, templateCovers, view, type Row, type Viewer } from '../integrations/connections/store'
+import { cleanNotes, hiddenText, integrationsOf, MAX_PERSONAL, MAX_PERSONAL_WAITING, MAX_TEAM, normUrl, obviouslyPrivate, oneLine } from '../integrations/connections/service'
+import { activeUser, disabledTools, getRow, isAdmin, mayUse, offByTeam, savedTools, selectRows, templateCovers, view, type Row, type Viewer } from '../integrations/connections/store'
 import type { Database } from 'bun:sqlite'
 import { say } from '../integrations/connections/text'
 import { googleDriveOf } from '../integrations/google-drive/oauth'
@@ -132,6 +132,15 @@ function templateCard(t: NonNullable<ReturnType<typeof getTemplate>>, why: strin
     template: { id: t.id, version: t.version }, ...(why ? { why } : {}), expiresAt,
   }
 }
+/** The answer for a person's own connection while the team has members' own connections off (store.ts offByTeam): it is
+ * kept but not used, so the AI says why and who can change it, never that its tools are there (QA TC-2930). */
+function ownOff(name: string, viewer: Viewer, L: Locale): string {
+  const why = `This person's own connection "${name}" is not used in chats now: this team has turned off members' own connections. Its tools are not offered, and it cannot be signed in again until that is turned back on.`
+  return isAdmin(viewer.role)
+    ? `${why} This person is an admin and can turn "Members can add their own connections" back on in ${SCREEN.adminSettings(L)}, or add it for the team instead (scope team). No card was shown.`
+    : `${why} ${refusal({ done: 'No card was shown.', why: { kind: 'permission', what: 'personal connections are off for the team', grant: ['an admin'], how: `in ${SCREEN.adminSettings(L)}` }, next: 'tell the person their team has turned off their own connections and to ask an admin' })}`
+}
+
 /** The person's own connection (not from a template, not a Google app, which signs in on its own page) that needs a new
  * sign-in or key (QA TC-127): the card offers it again for that connection. */
 export function ownNeedsSignIn(r: Row | null, userId: string): boolean {
@@ -200,8 +209,8 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
     if (!r || r.scope !== 'personal' || r.owner_user_id !== viewer.id) return early('No card: there is no such connection of this person. Use the id listed under "Connected services".', 'no connection')
     if (r.google_app) return early(`${r.name} signs in again on its own page: the person can do it in ${SCREEN.connectors(L, r.name)} (Reconnect). No card was shown.`, 'google app')
     if (r.template_id) return early(`"${r.name}" is made from a team template: call connect_service with template "${r.template_id}" instead.`, 'from template')
+    if (offByTeam(db, r)) return early(ownOff(r.name, viewer, L), 'personal connections off')
     if (!ownNeedsSignIn(r, viewer.id)) return early(`"${r.name}" does not need a new sign-in or key now (${stateOf(r)}). Its tools are yours in this chat; if you do not have them now, from the person's next message.`, 'connection fine', false)
-    if (!getTeamSettings(db).personalIntegrations) return early(`This person's own connection "${r.name}" needs a sign-in or a new key, but this team does not allow personal connections now (an admin turned them off), so no card was shown. Tell the person to ask an admin.`, 'personal connections off')
     existing = r
     card = reconnectCard(r, why, expiresAt())
   } else if (a.data.template) {
@@ -262,6 +271,9 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
     const usable = (r: Row) => r.scope === 'personal' || mayUse(db, r, viewer.id)
     const working = same.find(works)
     if (working && !usable(working)) return early(`A team connection to this address already exists and works, but this person is not among the people who may use it. An admin can change who may use it in ${SCREEN.adminMcp(L)}. No card was shown.`, 'already connected')
+    // a member's own one while the team has them off: kept, but its tools are not offered (store.ts usable), so the AI
+    // must not say they are (QA TC-2930)
+    if (working && offByTeam(db, working)) return early(ownOff(working.name, viewer, L), 'personal connections off')
     if (working) return early(`${working.scope === 'team' ? `A team connection, "${working.name}",` : `This person's own connection "${working.name}"`} is already connected to this service. Its tools are yours in this chat; if you do not have them now, from the person's next message. No card was shown.${note ? ` ${note}` : ''}`, 'already connected', false)
     const own = same.find((r) => r.scope === 'personal' && r.owner_user_id === viewer.id)
     const ownTemplate = own?.template_id ? getTemplate(db, own.template_id) : null
@@ -286,9 +298,11 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
         if (scope === 'personal' && !getTeamSettings(db).personalIntegrations) {
           return early(`This team does not allow personal connections now (an admin turned them off). ${isAdmin(viewer.role) ? 'This person is an admin and can add it for the team instead (scope team).' : refusal({ done: 'No card was shown.', why: { kind: 'permission', what: 'personal connections are off for the team', grant: ['an admin'], how: `in ${SCREEN.adminSettings(L)}` }, next: 'tell the person to ask an admin, or to ask for a team connection' })}`, 'personal connections off')
         }
-        const max = scope === 'personal' ? MAX_PERSONAL : MAX_TEAM
-        // the same limits Settings applies (service.ts personalFull): a sign-in connection also has the waiting cap
-        if (scope === 'personal' ? personalFull(db, viewer.id, input.data.auth) : count >= max) return early(`There are already ${max} ${scope} connections, the most there can be. One can be removed in ${scope === 'personal' ? SCREEN.connectors(L) : SCREEN.adminMcp(L)} first, then ask again.`, 'limit')
+        // the same limits Settings applies (service.ts personalRoom): waiting ones never fill the limit, and at their own
+        // cap the card's Connect replaces the oldest one that may go (only when none may go is there no card)
+        const room = scope === 'personal' ? svc.personalRoom(viewer.id, input.data.auth) : count >= MAX_TEAM ? 'working' : 'ok'
+        if (room === 'working') return early(`There are already ${scope === 'personal' ? `${MAX_PERSONAL} working personal` : `${MAX_TEAM} team`} connections, the most there can be. One can be removed in ${scope === 'personal' ? SCREEN.connectors(L) : SCREEN.adminMcp(L)} first, then ask again.`, 'limit')
+        if (room === 'waiting') return early(`${MAX_PERSONAL_WAITING} of this person's connections are still waiting for their first sign-in, and none of them can make room now (each was tried in the last hour, or has its own app). To add another, the person signs in to one of them or removes one in ${SCREEN.connectors(L)}, then asks again. No card was shown.`, 'limit')
         // one that does not work and is not this person's to fix (a team connection): an admin fixes it
         const dup = same[0]
         if (dup) {

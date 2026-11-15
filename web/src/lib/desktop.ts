@@ -66,3 +66,25 @@ export function usePaneState(): DesktopPaneState {
 /** What this window signs in as. The server offers browser tools only to turns sent from a desktop-app session
  * (its window has the pane), so sign-in inside the desktop app must say so. */
 export const clientKind = (): 'web' | 'desktop' | 'mobile' => (isDesktop() ? 'desktop' : mobileApp() ? 'mobile' : 'web')
+
+/** The desktop app's one-time return address for a connector sign-in (DesktopBridge.signInReturn: a service that takes
+ * only an app on the computer, such as Canva): its port, or null outside the desktop app, in an app from before it, or
+ * when the app could not open one. */
+export async function openSignInReturn(bridge: DesktopBridge | null = desktop()): Promise<number | null> {
+  try {
+    const port = await bridge?.signInReturn?.open()
+    return typeof port === 'number' && Number.isInteger(port) && port >= 1024 && port <= 65535 ? port : null
+  } catch {
+    return null
+  }
+}
+
+/** Close that return address (the sign-in did not need it, ended or was cancelled); it closes by itself after use too. */
+export function closeSignInReturn(port: number | null, bridge: DesktopBridge | null = desktop()) {
+  if (port === null) return
+  try {
+    bridge?.signInReturn?.close(port)
+  } catch {
+    /* the app closes it by itself after 10 minutes */
+  }
+}

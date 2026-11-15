@@ -195,6 +195,50 @@ describe('connect_service without a card', () => {
     expect(rowsAt(`${svc.base}/mcp-key`)).toEqual([])
   })
 
+  test('personal connections off, the person\'s own connection works: it says it is not used, never that its tools are there (QA TC-2930)', async () => {
+    const url = `${svc.base}/mcp-open?own=tc2930`
+    const mine = await h.api('alice').call(API.createIntegration, { body: { kind: 'mcp', name: 'Own board', url, auth: 'none', writePolicy: 'ask' } })
+    expect(mine.status).toBe('connected')
+    h.ctx.db.query("UPDATE settings SET value='false' WHERE key='personalIntegrations'").run()
+    try {
+      const t = await start('alice', { name: 'Board', kind: 'mcp', url, auth: 'none' }, { connection: mine.id, name: 'Own board' })
+      const m = await doneOf(t.messageId)
+      expect(cards(t.turnId)).toEqual([])
+      expect(m.content).toContain('own connection "Own board" is not used in chats now: this team has turned off members\' own connections')
+      expect(m.content.split('not used in chats now').length - 1).toBe(2)
+      expect(m.content).not.toContain('is already connected')
+      expect(m.content).not.toContain('Its tools are yours')
+      expect(m.content).toContain('an admin')
+      // the AI is not offered its tools either (store.ts usable)
+      expect(integrationsOf(h.ctx).usable('alice').some((r) => r.id === mine.id)).toBe(false)
+    } finally {
+      h.ctx.db.query("UPDATE settings SET value='true' WHERE key='personalIntegrations'").run()
+      await integrationsOf(h.ctx).remove(activeUser(h.ctx.db, 'alice')!, mine.id)
+    }
+  })
+
+  test('personal connections off, the same address asked for again: the address path says it is not used (QA TC-2930)', async () => {
+    const url = `${svc.base}/mcp-open?own=tc2930-address`
+    const mine = await h.api('alice').call(API.createIntegration, { body: { kind: 'mcp', name: 'Address board', url, auth: 'none', writePolicy: 'ask' } })
+    expect(mine.status).toBe('connected')
+    h.ctx.db.query("UPDATE settings SET value='false' WHERE key='personalIntegrations'").run()
+    try {
+      // only the address, no connection id: connect-service's working && offByTeam answer
+      const t = await start('alice', { name: 'Board', kind: 'mcp', url, auth: 'none' })
+      const m = await doneOf(t.messageId)
+      expect(cards(t.turnId)).toEqual([])
+      expect(m.content).toContain('own connection "Address board" is not used in chats now')
+      expect(m.content).not.toContain('is already connected')
+      expect(m.content).not.toContain('Its tools are yours')
+      expect(rowsAt(url)).toHaveLength(1)
+      const ev = h.ctx.db.query("SELECT summary FROM tool_events WHERE turn_id = ? AND tool = 'connect_service'").all(t.turnId) as { summary: string }[]
+      expect(ev.map((e) => e.summary)).toEqual(['connect_service -> no card (personal connections off)'])
+    } finally {
+      h.ctx.db.query("UPDATE settings SET value='true' WHERE key='personalIntegrations'").run()
+      await integrationsOf(h.ctx).remove(activeUser(h.ctx.db, 'alice')!, mine.id)
+    }
+  })
+
   test('personal connections off, Drive already connected: answers only', async () => {
     h.ctx.db.query("UPDATE settings SET value='false' WHERE key='personalIntegrations'").run()
     const drive = new FakeGoogleDrive()
@@ -999,5 +1043,65 @@ describe('a service the person already has (QA bug 2)', () => {
     } finally {
       await integrationsOf(h.ctx).remove(carol, team.id)
     }
+  })
+})
+
+describe('connections waiting for their first sign-in never block the card (QA TC-3048)', () => {
+  const ago = (ms: number) => new Date(Date.now() - ms).toISOString()
+  /** one of alice's own connections, made `age` ms ago; secret null: waiting for its first sign-in */
+  const insert = (id: string, auth: string, secret: string | null, age: number) => h.ctx.db.query(`INSERT INTO integrations (id, scope, owner_user_id, created_by, kind, name, slug, url, auth, status, secret_enc, created_at, updated_at)
+    VALUES (?, 'personal', 'alice', 'alice', 'mcp', ?, ?, ?, ?, 'needs_auth', ?, ?, ?)`).run(id, id, id, `${svc.base}/mcp-oauth?tc3048=${id}`, auth, secret, ago(age), ago(age))
+  /** a refused sign-in try of that connection, `age` ms ago */
+  const tried = (id: string, age: number) => h.ctx.db.query(`INSERT INTO integration_oauth_flows (id, integration_id, integration_version, user_id, session_id, state_hash, state, secret_enc, key_version, reason, expires_at, created_at)
+    VALUES (?, ?, 1, 'alice', 'tc3048', ?, 'failed', NULL, 1, 'refused', ?, ?)`).run(`flow-${id}`, id, `hash-${id}`, ago(age), ago(age))
+  const clean = () => h.ctx.db.query("DELETE FROM integrations WHERE id LIKE 'tc3048-%' OR url LIKE '%tc3048%'").run()
+  const id = (p: string, i: number) => `tc3048-${p}${String(i).padStart(2, '0')}`
+
+  test('20 waiting: the card is shown and its Connect replaces the oldest; all tried in the last hour: no card, said why', async () => {
+    clean()
+    session('alice', 'tc3048')
+    try {
+      for (let i = 0; i < 20; i++) { insert(id('w', i), 'oauth', null, (30 - i) * 3600_000); tried(id('w', i), (30 - i) * 3600_000) }
+      const url = `${svc.base}/mcp-oauth?tc3048=new`
+      const t = await start('alice', { name: 'Board', kind: 'mcp', url, auth: 'oauth' })
+      const card = await cardOf(t.turnId)
+      const r = await post('alice', t.turnId, { action: 'connect', requestId: card.requestId })
+      expect(r.body).toMatchObject({ state: 'sign_in', status: 'needs_auth' })
+      expect(rowsAt(url).length).toBe(1)
+      // the oldest is gone, with its flow; the others stay
+      expect(h.ctx.db.query('SELECT 1 FROM integrations WHERE id = ?').get(id('w', 0))).toBeNull()
+      expect(h.ctx.db.query('SELECT 1 FROM integration_oauth_flows WHERE id = ?').get(`flow-${id('w', 0)}`)).toBeNull()
+      // (alice may have waiting ones from earlier tests too: those are older and went first when there were)
+      expect(h.ctx.db.query('SELECT 1 FROM integrations WHERE id = ?').get(id('w', 19))).not.toBeNull()
+      expect((h.ctx.db.query("SELECT count(*) AS n FROM integrations WHERE scope = 'personal' AND owner_user_id = 'alice' AND template_id IS NULL AND google_app IS NULL AND auth = 'oauth' AND secret_enc IS NULL").get() as { n: number }).n).toBe(20)
+      await post('alice', t.turnId, { action: 'skip', requestId: card.requestId })
+      await doneOf(t.messageId)
+      // every waiting one tried within the hour: none may go, no card
+      clean()
+      for (let i = 0; i < 20; i++) insert(id('r', i), 'oauth', null, 7200_000)
+      // every waiting one of alice's, earlier tests' too
+      for (const w of h.ctx.db.query("SELECT id FROM integrations WHERE scope = 'personal' AND owner_user_id = 'alice' AND auth = 'oauth' AND secret_enc IS NULL").all() as { id: string }[]) tried(w.id, 600_000)
+      const t2 = await start('alice', { name: 'Board', kind: 'mcp', url, auth: 'oauth' })
+      const m = await doneOf(t2.messageId)
+      expect(cards(t2.turnId)).toEqual([])
+      expect(m.content).toContain('still waiting for their first sign-in')
+      // a key connection is never held up by waiting ones
+      const t3 = await start('alice', { name: 'Keyed', kind: 'mcp', url: `${svc.base}/mcp-key?tc3048=key`, auth: 'bearer' })
+      const keyed = await cardOf(t3.turnId)
+      await post('alice', t3.turnId, { action: 'skip', requestId: keyed.requestId })
+      await doneOf(t3.messageId)
+    } finally { clean() }
+  })
+
+  test('20 working: no card, and the answer says working connections', async () => {
+    clean()
+    try {
+      const own = h.ctx.db.query("SELECT count(*) AS n FROM integrations WHERE scope = 'personal' AND owner_user_id = 'alice' AND template_id IS NULL AND google_app IS NULL AND NOT (auth = 'oauth' AND secret_enc IS NULL)").get() as { n: number }
+      for (let i = own.n; i < 20; i++) insert(id('s', i), 'oauth', 'sealed', 3600_000)
+      const t = await start('alice', { name: 'Board', kind: 'mcp', url: `${svc.base}/mcp-oauth?tc3048=new`, auth: 'oauth' })
+      const m = await doneOf(t.messageId)
+      expect(cards(t.turnId)).toEqual([])
+      expect(m.content).toContain('20 working personal connections')
+    } finally { clean() }
   })
 })

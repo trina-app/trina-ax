@@ -3,6 +3,7 @@ import type { AppContext } from '../context'
 import type { RouteKit } from '../http/route'
 import { HttpError } from '../http/errors'
 import type { AppContextC } from '../http/env'
+import { googleReturnOf, googleReturnPage, type CallbackOutcome } from '../integrations/google-drive/callback-page'
 import { CALLBACK_PATH } from '../integrations/google-drive/config'
 import { googleDriveOf } from '../integrations/google-drive/oauth'
 import { driveAdminStatus, setDriveClient } from '../integrations/google-drive/admin-setup'
@@ -38,14 +39,15 @@ export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.updateDriveShare, ({ auth, params, body }) => safe(() => updateShare(ctx, auth.user.id, params.id, body)))
   kit.handle(API.stopDriveShare, ({ auth, params }) => safe(() => stopShare(ctx, auth.user.id, params.id)))
   kit.raw('GET', CALLBACK_PATH, async c => {
-    let ok = false
-    const auth = (c as unknown as AppContextC).get('auth')
-    try { ok = await googleDriveOf(ctx).callback({ state: c.req.query('state'), code: c.req.query('code'), error: c.req.query('error'), handoff: c.req.query('handoff') }, auth ? { userId: auth.user.id, sessionId: auth.session.id } : undefined) } catch {}
+    let r: CallbackOutcome = { ok: false, reason: 'provider_unavailable' }
+    const cc = c as unknown as AppContextC
+    const auth = cc.get('auth')
+    try { r = await googleDriveOf(ctx).callbackOutcome({ state: c.req.query('state'), code: c.req.query('code'), error: c.req.query('error'), handoff: c.req.query('handoff') }, auth ? { userId: auth.user.id, sessionId: auth.session.id } : undefined) } catch {}
     c.header('Cache-Control', 'no-store'); c.header('Referrer-Policy', 'no-referrer')
     c.header('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'")
-    // Only static same-origin navigation. Never carry code/state into a login return URL or a native deep link.
-    return c.html(ok
-      ? '<!doctype html><meta charset="utf-8"><title>Google Drive</title><p>Google authorization received. Return to your team app to confirm the account.</p>'
-      : '<!doctype html><meta charset="utf-8"><title>Google Drive</title><p>Google authorization could not be completed. <a href="/login" rel="noreferrer">Sign into the same team account in this browser</a>, then start again from your team app.</p>', ok ? 200 : 400)
+    // in the person's language, with why it did not work (google-drive/callback-page.ts); static words and a same-origin
+    // link only: never carry code or state into a link or a native deep link
+    const page = googleReturnPage(googleReturnOf(r, !!auth), cc.get('locale'))
+    return c.html(page.html, page.status)
   })
 }

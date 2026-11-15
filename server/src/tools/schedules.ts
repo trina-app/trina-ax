@@ -17,6 +17,7 @@ import { ToolError } from '../policy/errors'
 import { getChatRuntime } from '../chat/runtime'
 import { describeSchedule, needsReview, ScheduleInput, zonedParts, type ScheduleInput as ScheduleInputT, type ScheduleRow, type ScheduleRow as ScheduleRowT } from '../chat/schedules'
 import { namesTemplate } from '../integrations/connections/schedule-needs'
+import { redactorFor } from '../integrations/connections/redact'
 import { usable, type Row } from '../integrations/connections/store'
 import { egressOf, egressSettled } from './egress'
 import type { ToolRegistry } from './registry'
@@ -445,9 +446,14 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
       'A run sends or changes something at a connected service only when the task names that connection (in `connections`, or its name in the title or prompt) and the user allows it on the card; name one only when runs need to send there.',
     input: CreateInput,
     describe: (a) => `schedule_create ${a.repeat} ${a.time}`,
-    async run(a, t) {
+    async run(input, t) {
       const info = turnInfo(ctx, t)
       if (info.scheduled) throw new ToolError('a scheduled run cannot create scheduled tasks')
+      // the person's stored connection keys are hidden in the title and the prompt the AI wrote, before the card shows
+      // them and before they are saved, as in the answer and the steps (redact.ts; QA TC-2981). A run uses the stored
+      // connection, never a key written in its prompt.
+      const hide = redactorFor(ctx, t.user.id).hide
+      const a = { ...input, title: hide(input.title), prompt: hide(input.prompt) }
       const parsed = ScheduleInput.safeParse({ ...a, projectId: info.projectId ?? undefined })
       if (!parsed.success) throw new ToolError(parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '))
       // what would be refused anyway is refused before the person is asked

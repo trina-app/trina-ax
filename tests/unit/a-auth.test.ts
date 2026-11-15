@@ -7,6 +7,7 @@ import { passwordProblem, temporaryPassword } from '../../server/src/auth/passwo
 import { weakPasswordMessage } from '../../server/src/auth/messages'
 import { OWNER_PW, SETUP_TOKEN, addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 import { resolveLayout } from '../../server/src/system/layout'
+import { updateTeamSettings } from '../../server/src/admin/settings'
 import { FIELD_MESSAGES, type Locale } from '@mycel/shared/api'
 import { NAME_FORBIDDEN_FIELD } from '@mycel/shared'
 const SEALED = { kid: '0123456789abcdef', epk: 'A'.repeat(87), iv: 'A'.repeat(16), ct: 'A'.repeat(40) } // well-formed, never opened
@@ -59,6 +60,12 @@ describe('first-run setup', () => {
     expect(body.me.team).toEqual({ name: 'Acme', defaultLocale: 'en', browserAllowAll: true, webAllowAll: true, iconVersion: null, voiceInput: false, chatTrashRetentionDays: 7, projectCreators: 'members' })
     const me = await c.call('GET', '/api/me')
     expect(me.user.id).toBe('olga')
+    // the team's switch for Always allow off: the session says so, and the connector pages say it asks again after
+    // something from outside (QA TC-2944); on (the default): absent
+    expect(me.team.alwaysAllowOff).toBeUndefined()
+    updateTeamSettings(h.ctx.db, { roomAlwaysAllow: false })
+    try { expect((await c.call('GET', '/api/me')).team.alwaysAllowOff).toBe(true) }
+    finally { updateTeamSettings(h.ctx.db, { roomAlwaysAllow: true }) }
     for (const d of ['shared', 'skills', 'groups', 'projects', 'users/olga']) expect(fs.statSync(path.join(h.ctx.files.fx.root, d)).isDirectory()).toBe(true)
     const folders = await c.call('GET', '/api/admin/folders')
     const rules = Object.fromEntries(folders.items.map((f: any) => [f.path, f.rules.map((r: any) => `${r.subjectType}:${r.subjectId}:${r.access}`).sort()]))

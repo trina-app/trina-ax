@@ -12,7 +12,7 @@ import { Link } from 'react-router-dom'
 import { API, type GoogleAppId, type GoogleAppView } from '@mycel/shared/api'
 import { api } from '../../lib/api'
 import { mobileApp } from '../../lib/mobile'
-import { builtInLogo, builtInName, canChange, categoryKey, aboutKey, GOOGLE, GOOGLE_APP_ORDER, GOOGLE_PRIVACY, GOOGLE_TERMS, lineKey, toolWords, unavailableKeys, developerKey } from '../../lib/googleApps'
+import { builtInLogo, builtInName, canChange, categoryKey, aboutKey, GOOGLE, GOOGLE_APP_ORDER, GOOGLE_PRIVACY, GOOGLE_TERMS, lineKey, toolWords, unavailableKeys, developerKey, signInFailedKey, showUnverifiedHint } from '../../lib/googleApps'
 import { useT } from '../../i18n'
 import { isAdmin, useMe } from '../../store/session'
 import { toast } from '../../store/ui'
@@ -24,6 +24,7 @@ import { BrowserWait } from './BrowserWait'
 import { googleLink } from './googleLink'
 import { AppDetail } from './AppDetail'
 import { AskAdminAction, type AskState } from './AskAdmin'
+import { GoogleUnverifiedNote } from './GoogleUnverifiedNote'
 
 const opsFor = (app: GoogleAppId, current: () => Promise<GoogleAppView>): SignInOps<GoogleAppView> => ({
   authorize: () => api.call(API.authorizeGoogleApp, { params: { app }, body: {} }),
@@ -211,7 +212,9 @@ export function GoogleAppDetail({ v, g, ask }: { v: GoogleAppView; g: GoogleApps
               {admin && v.reason === 'not_set_up' && <> <Link to={`/admin/connectors?app=${v.id}`} className="font-medium text-accent-text underline underline-offset-2" data-testid="gapp-admin-link">{t('gapps.setUpLink', { name })}</Link></>}
             </Note>
           )}
-          <SignInSteps d={d} testId="gapp" failed={t(d.reason === 'scope_denied' ? 'gapps.scopeDenied' : 'drive.failed')} />
+          {/* before Google opens: Google may call Trina's shared app unverified (QA TC-2957) */}
+          {showUnverifiedHint(v) && v.available && !flow && !ask && !inApp && v.status !== 'connected' && <GoogleUnverifiedNote />}
+          <SignInSteps d={d} testId="gapp" failed={t(signInFailedKey(d.reason))} />
         </>}
         about={t(aboutKey(v.id))}
         canChange={canChange(v.tools)} asks={v.writePolicy}
@@ -236,9 +239,11 @@ export function Note({ children, tone, testId, reason }: { children: React.React
 function GoogleAppSettings({ v, busy, onPolicy, onClose }: { v: GoogleAppView; busy: boolean; onPolicy: (p: 'ask' | 'allow') => void; onClose: () => void }) {
   const t = useT()
   const name = builtInName(v.id)
+  // the team turned Always allow off: it asks again after something from outside (QA TC-2944)
+  const alwaysOff = useMe()?.team.alwaysAllowOff === true
   const opts = [
     { id: 'ask' as const, label: t('gapps.policy.ask'), line: t('gapps.policy.askLine') },
-    { id: 'allow' as const, label: t('gapps.policy.allow'), line: t('gapps.policy.allowLine', { name }) },
+    { id: 'allow' as const, label: t('gapps.policy.allow'), line: t(alwaysOff ? 'gapps.policy.allowLineOff' : 'gapps.policy.allowLine', { name }) },
   ]
   return (
     <Modal open title={t('gapps.settingsTitle', { name })} onClose={onClose} width={440}

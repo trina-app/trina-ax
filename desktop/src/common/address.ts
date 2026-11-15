@@ -161,6 +161,23 @@ export function originOf(url: string): string {
   }
 }
 
+/**
+ * A remembered team at a development address on this computer: `localhost` or `*.localhost` (`bun run dev`,
+ * http://localhost:19100, often not running). When the app opens it by itself at start and it does not answer, the
+ * first-run screen with the team list comes instead of the "cannot reach the team server" card (main/app-window.ts
+ * openLast). Loopback IPs are left out: the Office Mac's own server is http://127.0.0.1:47820 (scripts/install-macos.sh),
+ * a real team that may still be starting after a restart, so it keeps the card and its [다시 시도]. A team the person
+ * opens keeps the card too.
+ */
+export function onThisComputer(origin: string): boolean {
+  try {
+    const h = new URL(origin).hostname.toLowerCase().replace(/\.$/, '')
+    return h === 'localhost' || h.endsWith('.localhost')
+  } catch {
+    return false
+  }
+}
+
 /** The host to show for a team address: punycode, with its port (what the app connected to, never Unicode). */
 export function hostOf(origin: string): string {
   try {

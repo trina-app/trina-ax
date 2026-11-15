@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { PRODUCT } from '@mycel/shared'
+import { REMOTE_CONSENT_EXPIRED } from '@mycel/shared/api'
 import type { AppConfig } from '../../app-config'
 import type { AppContext } from '../../context'
 import type { AuthInfo } from '../../services'
@@ -278,7 +279,9 @@ export class RemoteOAuth {
     this.browser(auth)
     if (!this.origin) throw new OAuthError('invalid_request', 404)
     const r = this.db.query('SELECT * FROM remote_mcp_requests WHERE id=?').get(id) as Pending | null
-    if (!r || r.expires_at <= this.now() || (r.user_id !== null && (r.user_id !== auth.user.id || r.session_id !== auth.session.id))) throw new OAuthError('invalid_request', 404)
+    // gone (decided or cleared), expired, or opened by another login session: its own code, so the page can say so
+    // plainly instead of "not found or no access" (QA TC-2970)
+    if (!r || r.expires_at <= this.now() || (r.user_id !== null && (r.user_id !== auth.user.id || r.session_id !== auth.session.id))) throw new OAuthError(REMOTE_CONSENT_EXPIRED, 404)
     this.db.query('UPDATE remote_mcp_requests SET user_id=?,session_id=? WHERE id=? AND user_id IS NULL').run(auth.user.id, auth.session.id, id)
     return r
   }

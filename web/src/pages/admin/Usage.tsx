@@ -28,6 +28,7 @@ import { ENGINE_LABEL } from '../../components/chat/EngineMenu'
 import { AdminPageHeader, Loadable, OneLine, USAGE_LIMITS_LINK } from './common'
 import { usageCsv } from '../../lib/usage-csv'
 import { usageShares } from '../../lib/usage-share'
+import { costText } from '../../lib/usage-cost'
 import { Tooltip } from '../../components/Tooltip'
 import { AdminBarActions, BarAdd, BarMore } from './barActions'
 
@@ -235,7 +236,7 @@ export default function Usage() {
                   { label: t('usage.stat.in'), value: formatNumber(d.totals.inputTokens, locale), testId: 'usage-stat-in' },
                   { label: t('usage.stat.out'), value: formatNumber(d.totals.outputTokens, locale), testId: 'usage-stat-out' },
                   { label: t('usage.turns'), value: formatNumber(d.totals.turns, locale), testId: 'usage-stat-turns' },
-                  { label: t('usage.cost'), value: `${formatUsd(d.totals.costUsd, locale)}${d.totals.unpricedTurns ? ' +?' : ''}`, testId: 'usage-stat-cost' },
+                  { label: t('usage.cost'), value: costText(d.totals, locale, t('usage.noPrice')), testId: 'usage-stat-cost' },
                 ]}
               />
               <UsageChart
@@ -342,6 +343,7 @@ export default function Usage() {
                 <OneLine className="text-xs text-faint" testId="usage-cost-note">
                   {t('usage.costNote')}
                 </OneLine>
+                {!!d.totals.estimatedTurns && <p className="mt-1 text-xs text-faint" data-testid="usage-estimated-note">{t('usage.estimated', { n: d.totals.estimatedTurns })}</p>}
                 {!!d.totals.unpricedTurns && <p className="mt-1 text-xs text-warn" data-testid="usage-unpriced-note">{t('usage.unpriced', { n: d.totals.unpricedTurns })}</p>}
                 {groupBy === 'credential' && <p className="mt-1 text-xs text-faint">{t('usage.credentialNote')}</p>}
               </div>

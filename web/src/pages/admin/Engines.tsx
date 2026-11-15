@@ -1,4 +1,4 @@
-// Admin › Providers (/admin/providers, in the Connections group; it was "AI engines" plus a separate "AI connections"
+// Admin › AI providers (/admin/providers, in the Connections group; it was "AI engines" plus a separate "AI connections"
 // page, and /admin/engines and /admin/credentials lead here; QA TC-191 made it as quiet as Team settings): one row per
 // engine (Claude Code, Codex, API): its provider's mark, its name, one state and the on/off switch, what is missing in
 // one line. Under it, the provider's accounts in the order they are used, with Add account (the owner or an admin; the

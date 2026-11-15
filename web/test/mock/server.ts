@@ -97,7 +97,7 @@ import { serveWeb } from '../../../server/src/routes/web-static'
 import { TEXT as TEAM_ICON_TEXT } from '../../../server/src/admin/team-icon'
 import { msg as serverMsg } from '../../../server/src/auth/messages'
 import { folderKeep, isParkedRow, isTeamDefaultFolder } from '../../../server/src/admin/folder-keep'
-import { checkTeamIcon, CHAT_FILES_FOLDER, stepLabel, stepText, TEAM_ICON_MAX_BYTES, WEB_ALLOW_ALL_WARNING_VERSION, type TeamIconFile } from '@mycel/shared'
+import { checkTeamIcon, CHAT_FILES_FOLDER, FROM_COMPUTER_DIR, stepLabel, stepText, TEAM_ICON_MAX_BYTES, WEB_ALLOW_ALL_WARNING_VERSION, type TeamIconFile } from '@mycel/shared'
 import { MSG as FILE_MSG } from '../../../server/src/team-files/errors'
 import { TEXT as CHAT_TEXT } from '../../../server/src/chat/i18n'
 import { say as connectionSay } from '../../../server/src/integrations/connections/text'
@@ -189,6 +189,8 @@ function auditRows(): AuditEntry[] {
     { id: 'f1', source: 'file', at: at(12 * min), actor: olga, action: 'update', target: 'finance/2026/plan.md', turnId: null, detail: { size: 2048, sha256: 'c'.repeat(64), detail: null } },
     { id: 't1', source: 'tool', at: at(14 * min), actor: bob, action: 'read', target: null, turnId: null, detail: { summary: 'read hr/salaries.xlsx -> denied: no access', ok: 0 } },
     { id: 't2', source: 'tool', at: at(16 * min), actor: bob, action: 'read', target: null, turnId: null, detail: { summary: 'read marketing/plan.md', ok: 1 } },
+    // two quick edits of one team connection that changed different things (QA TC-2953: two rows, not "· 2 times")
+    ...[[18, { changed: ['url'] }], [19, { name: 'Ledger old', changed: ['name'], secret: 'replaced' }]].map(([m, d], i): AuditEntry => ({ id: `i${i}`, source: 'admin', at: at((m as number) * min), actor: olga, action: 'integration.update', target: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b', turnId: null, detail: { scope: 'team', kind: 'http', auth: 'bearer', name: 'Ledger', host: 'api.ledger.example', ...(d as object) } })),
     { id: 'k1', source: 'admin', at: at(day + 5 * min), actor: olga, action: 'skills.change', target: 'skills/weekly-team-report/SKILL.md', turnId: null, detail: null },
   ]
   for (let d = 2; d <= 121; d++) rows.push({ id: `o${d}`, source: 'auth', at: at(d * day), actor: olga, action: 'auth.login', target: 'olga', turnId: null, detail: { ip: '10.0.0.2' } })
@@ -987,6 +989,13 @@ export class MockServer {
     return RuleSet.fromWorld({ rows: [...this.folders.flatMap((f) => f.rules.filter((r) => r.access !== 'none').map((r) => ({ path: f.path, subject_type: r.subjectType, subject_id: r.subjectId, access: r.access }))), ...projectRules], limited })
   }
   explainPrincipal(u: User) { return { id: u.id, name: u.name, role: u.role, groups: u.groupIds } }
+  memberWelcomeFor(userId: string): MemberWelcome | null {
+    const w = this.memberWelcome
+    if (!w) return null
+    const from = `users/${userId}/${FROM_COMPUTER_DIR}/`
+    const files = [...this.files].some(([p, n]) => n.type === 'file' && p.startsWith(from))
+    return { ...w, steps: { ...w.steps, files }, ...(w.organizeFiles ? { organizeFiles: !this.filesOrganized } : {}) }
+  }
   isFolder(p: string) { return p === '' || this.files.get(p)?.type === 'folder' || this.folders.some((f) => f.path === p) }
   explainFolder(q: { path?: string; cursor?: string; limit?: string }): FolderAccessResponse {
     const input = folderInput(q.path)
@@ -1517,6 +1526,18 @@ export class MockServer {
     const used = this.users.filter((u) => u.role === 'guest' && u.status === 'active').length
     if (this.guestCap !== null && used >= this.guestCap) throw new Fail('plan_limit', 409, `The plan's guest limit (${this.guestCap}) is reached.`, undefined, { reason: 'guest_limit', limit: this.guestCap, changePlan: true, manageUrl: 'https://plans.example.com/acme' })
   }
+  /** guest links nobody used, turned off or let run out: each holds a guest place (server/src/auth/guest-invites.ts
+   * openGuestLinks; guest walkthrough M4) */
+  openGuestLinks(): number {
+    return this.invites.filter((i) => i.role === 'guest' && !i.usedAt && !(i as { deadReason?: string }).deadReason && Date.parse(i.expiresAt) > Date.now()).length
+  }
+  /** a new guest link needs a place no open link holds (assertGuestLinkFree) */
+  assertGuestLinkFree() {
+    this.assertGuestFree()
+    const used = this.users.filter((u) => u.role === 'guest' && u.status === 'active').length
+    const pending = this.openGuestLinks()
+    if (this.guestCap !== null && used + pending + 1 > this.guestCap) throw new Fail('plan_limit', 409, `Guests are limited to ${this.guestCap}, and counting invite links not used yet, every place is taken.`, undefined, { reason: 'guest_limit', limit: this.guestCap, pending, changePlan: true, manageUrl: 'https://plans.example.com/acme' })
+  }
 
   me(u: User, sid: string): Me {
     const prefs = { ...((u as User & { prefs?: Me['user']['prefs'] }).prefs ?? {}) }
@@ -1860,6 +1881,20 @@ export class MockServer {
         this.openAsks.delete(turnId)
         pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
       }
+    }
+    if (/connectdrive/i.test(prompt)) {
+      // like server/src/chat/connect-service.ts for Google Drive: the card for the person's own Drive (QA TC-2977); it
+      // stays until the turn's time for it runs out
+      const requestId = 'cd1'
+      const request: TurnRequest = {
+        kind: 'connect_service', requestId, target: 'google_drive', name: 'Google Drive', scope: 'personal',
+        why: 'You asked for a file in your Google Drive.', expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      }
+      this.openAsks.set(turnId, { turnId, chatId, messageId: assistant.id, request })
+      pub({ type: 'turn.request', data: { turnId, chatId, messageId: assistant.id, request } })
+      await Promise.race([new Promise((r) => this.pendingAsk.set(turnId, r)), sleep(60_000)])
+      this.openAsks.delete(turnId)
+      pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
     }
     if (/postroomcard/i.test(prompt)) {
       // like server/src/chat/post-to-room.ts: ONE card with the room and its people, the note apart (under my name), all
@@ -2339,7 +2374,8 @@ export class MockServer {
     // team chat rooms and the people directory (the sidebar and the phone's 대화 tab read them on every page): like a
     // server whose people are in no room yet, and the active people by name only (server/src/routes/people.ts)
     // a guest: their one room and their DMs only (server/src/auth/guests.ts)
-    listRooms: (c) => ({ items: c.user.role === 'guest' ? this.rooms.filter((r) => r.kind === 'dm' || r.id === this.guests.get(c.user.id)?.place.id) : this.rooms, alerts: { threadReplies: this.notifyPrefs.roomThreadReplies, quietHours: this.notifyPrefs.quietHours, timeZone: 'Asia/Seoul', messagePreview: this.notifyPrefs.messagePreview } }),
+    // a guest never renames a room (server/src/rooms/store.ts mayRename): canRename false for them
+    listRooms: (c) => ({ items: c.user.role === 'guest' ? this.rooms.filter((r) => r.kind === 'dm' || r.id === this.guests.get(c.user.id)?.place.id).map((r) => ({ ...r, canRename: false })) : this.rooms, alerts: { threadReplies: this.notifyPrefs.roomThreadReplies, quietHours: this.notifyPrefs.quietHours, timeZone: 'Asia/Seoul', messagePreview: this.notifyPrefs.messagePreview } }),
     // Slack (docs/SLACK.md): a team that uses Slack, nobody linked yet, "Sign in with Slack" not set up: Settings › 앱
     // 커넥터 shows the Slack line with how to get a link; Admin › Connected apps › Slack shows a connected app. POST
     // /__test/slack changes any of it (Add to Slack offered, added through the hosting service, removed in Slack, linked)
@@ -2467,7 +2503,9 @@ export class MockServer {
       // why it does not work (InviteInfo.reason), as POST /__test/invite-reason sets it; used = used
       const reason = (i as { deadReason?: string }).deadReason ?? (i!.usedAt ? 'used' : undefined)
       if (reason) return { teamName: this.settings.teamName, role: i!.role, expiresAt: i!.expiresAt, valid: false, reason: reason as 'used', inviterName: null }
-      return { teamName: this.settings.teamName, role: i!.role, expiresAt: i!.expiresAt, valid: !i!.usedAt, ...(i!.leadFor ? { lead: true } : {}), ...(i!.role === 'guest' ? { inviterName: i!.createdBy?.name ?? null } : {}), ...(named ? { guestPlace: { kind: named.kind, name: named.name } } : {}), ...(named && (i as { guestName?: string }).guestName ? { guestName: (i as { guestName?: string }).guestName } : {}) }
+      // a guest link while the guests are full keeps its inviter (guest walkthrough M3)
+      const guestsFull = i!.role === 'guest' && this.guestCap !== null && this.users.filter((u) => u.role === 'guest' && u.status === 'active').length >= this.guestCap
+      return { teamName: this.settings.teamName, role: i!.role, expiresAt: i!.expiresAt, valid: !i!.usedAt, ...(guestsFull ? { full: true } : {}), ...(i!.leadFor ? { lead: true } : {}), ...(i!.role === 'guest' ? { inviterName: i!.createdBy?.name ?? null } : {}), ...(named ? { guestPlace: { kind: named.kind, name: named.name } } : {}), ...(named && (i as { guestName?: string }).guestName ? { guestName: (i as { guestName?: string }).guestName } : {}) }
     },
     acceptInvite: (c) => {
       const i = this.invites.find((x) => x.token === c.params.token && !x.usedAt)
@@ -2638,7 +2676,7 @@ export class MockServer {
       return { status: 'sent', message, cut }
     },
     // the rooms' own reads: what was sent here, the room's people, no AI at work
-    getRoom: (c) => this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404),
+    getRoom: (c) => ((r) => (c.user.role === 'guest' ? { ...r, canRename: false } : r))(this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)),
     listRoomMessages: (c) => {
       const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
       return { items: this.roomMessages.get(room.id) ?? [], nextCursor: null }
@@ -2671,10 +2709,12 @@ export class MockServer {
       if (place.kind === 'room' && !this.rooms.some((r) => r.id === place.id && r.kind === 'group')) fail('forbidden', 403)
       if (place.kind === 'project') {
         const pr = this.projects.find((x) => x.id === place.id && !x.inTrash) ?? fail('not_found', 404)
+        // a personal project is no guest place until shared (server/src/auth/guest-invites.ts inviteMakerOk)
+        if (pr.folderPath.startsWith('users/')) fail('forbidden', 403)
         if (!staff && pr.createdBy?.id !== c.user.id) fail('forbidden', 403)
       }
       if (c.body.ai.mode === 'team' && !staff) fail('forbidden', 403)
-      this.assertGuestFree()
+      this.assertGuestLinkFree()
       const token = 'inv' + uuidv7().replace(/-/g, '')
       const i = { id: uuidv7(), role: 'guest' as const, groupIds: [] as string[], createdBy: { id: c.user.id, name: c.user.name }, createdAt: now(), expiresAt: new Date(Date.now() + (c.body.expiresInHours ?? 168) * 3600_000).toISOString(), usedAt: null, usedBy: null, leadFor: null, guestPlace: place, guestAi: c.body.ai as GuestAiChoice, ...(c.body.name ? { guestName: c.body.name as string } : {}), token }
       this.invites.push(i)
@@ -2685,7 +2725,9 @@ export class MockServer {
     guestInviteLimit: (c) => {
       const used = this.users.filter((u) => u.role === 'guest' && u.status === 'active').length
       const staff = c.user.role === 'owner' || c.user.role === 'admin'
-      return { full: this.guestCap !== null && used >= this.guestCap, limit: this.guestCap, ...(staff ? { used, seatsFull: this.seatsFull, manageUrl: 'https://plans.example.com/acme' } : {}),
+      const pending = this.guestCap === null ? 0 : this.openGuestLinks()
+      const full = this.guestCap !== null && used + pending >= this.guestCap
+      return { full, limit: this.guestCap, ...(full && pending && staff ? { pending } : {}), ...(staff ? { used, seatsFull: this.seatsFull, manageUrl: 'https://plans.example.com/acme' } : {}),
         ...(this.hostSignIn ? { guestAiUnavailable: 'host_sign_in' as const } : {}) }
     },
     updateGuestAi: (c) => {
@@ -2995,7 +3037,7 @@ export class MockServer {
     // a personal project becomes a team project: a new projects/<name> with the participants, its files copied there
     shareProject: (c) => {
       const p = this.projects.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
-      if (!p.folderPath.startsWith(`users/${c.user.id}/`)) fail('validation', 400, '팀 폴더로 복사해 공유하는 것은 내 프로젝트만 할 수 있어요.')
+      if (!p.folderPath.startsWith(`users/${c.user.id}/`)) fail('validation', 400, '팀 폴더로 복사해 공유하는 것은 내 프로젝트만 할 수 있어요.', { 'params.id': 'not a personal project' })
       const people = this.users.filter((u) => u.status === 'active' && (u.role !== 'member' || (c.body.participants ?? []).some((x: { subjectType: string; subjectId: string }) => (x.subjectType === 'user' ? x.subjectId === u.id : u.groupIds.includes(x.subjectId))))).filter((u) => u.id !== c.user.id)
       // (a member's dry run leaves the owner and admins out, as the server's)
       if (c.body.dryRun) return c.user.role === 'member' ? { viewersAdded: people.filter((u) => (c.body.participants ?? []).some((x: { subjectType: string; subjectId: string }) => (x.subjectType === 'user' ? x.subjectId === u.id : u.groupIds.includes(x.subjectId)))).length, adminsApart: true } : { viewersAdded: people.length }
@@ -3621,7 +3663,8 @@ export class MockServer {
       return { token, url: `/reset-password/${token}`, expiresAt }
     },
     // a guest link's project by name (server/src/auth/accounts.ts toInvite; never a room's)
-    listInvites: () => ({ items: this.invites.map(({ token: _t, ...i }) => ((pl) => (pl?.kind === 'project' ? { ...i, guestPlace: { ...pl, name: this.guestPlaceNamed(pl)?.name ?? '' } } : i))((i as { guestPlace?: { kind: 'room' | 'project'; id: string } }).guestPlace)) }),
+    // a guest link names its project or room (server/src/auth/accounts.ts toInvite)
+    listInvites: () => ({ items: this.invites.map(({ token: _t, ...i }) => ((pl) => (pl ? { ...i, guestPlace: { ...pl, name: this.guestPlaceNamed(pl)?.name ?? '' } } : i))((i as { guestPlace?: { kind: 'room' | 'project'; id: string } }).guestPlace)) }),
     createInvite: (c) => {
       const token = 'inv' + uuidv7().replace(/-/g, '')
       // 이 사람이 팀장이에요: the owner only; a member in the team group for 72 hours; the open lead invite before it stops
@@ -3824,11 +3867,12 @@ export class MockServer {
     getWelcome: () => ({ progress: this.welcome }),
     // an invited person's welcome card (shared/src/api/member-welcome.ts): none by default; Hide ends it, Ask marks its row
     // an admin's "팀 파일 정리하기" row goes once a folder plan was applied (server/src/onboarding/member-welcome.ts)
-    getMemberWelcome: () => ({ welcome: this.memberWelcome && { ...this.memberWelcome, ...(this.memberWelcome.organizeFiles ? { organizeFiles: !this.filesOrganized } : {}) } }),
+    // the desktop app's optional files row: a file in the caller's My files › From this computer (looked at on every read)
+    getMemberWelcome: (c) => ({ welcome: this.memberWelcomeFor(c.user.id) }),
     updateMemberWelcome: (c) => {
       if (c.body.hide) this.memberWelcome = null
       else if (c.body.asked && this.memberWelcome) this.memberWelcome = { ...this.memberWelcome, steps: { ...this.memberWelcome.steps, asked: true } }
-      return { welcome: this.memberWelcome }
+      return { welcome: this.memberWelcomeFor(c.user.id) }
     },
     updateWelcome: (c) => {
       const at = now()
@@ -4498,7 +4542,7 @@ export class MockServer {
     // e2e tests that need the other states answer these addresses themselves (test/e2e/drive.spec.ts).
     myDriveConnection: (c) => (this.driveClient === 'none'
       ? { configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null, personalAllowed: this.driveMembers, teamShares: [] }
-      : { configured: true, status: 'disconnected', account: null, scopes: [], expiresAt: null, personalAllowed: this.driveMembers,
+      : { configured: true, status: 'disconnected', account: null, scopes: [], expiresAt: null, personalAllowed: this.driveMembers, hostedApp: this.googleOwn.hosted && !this.googleOwn.active,
           teamShares: this.driveShares.filter((x) => x.status === 'connected' && this.driveShareCovers(x, c.user)).map((x) => ({ id: x.id, name: x.name, folders: x.folders, wholeDrive: x.wholeDrive })) }),
     authorizeDrive: () => {
       return { flowId: 'personal-flow', authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth?state=synthetic', expiresAt: new Date(Date.now() + 600_000).toISOString() }
@@ -4804,6 +4848,7 @@ export class MockServer {
     createIntegrationRequest: (c) => {
       if (!this.settings.personalIntegrations) fail('conflict', 409, '지금은 직원이 개인 연결을 추가할 수 없어요.')
       const member = this.users.find((u) => u.id === c.body.userId && u.status === 'active') ?? fail('validation', 400, '이 팀에서 쓰고 있는 계정이 아니에요.', { 'body.userId': 'not an active account' })
+      if (member.role === 'guest') fail('validation', 400, '게스트에게는 연결을 요청할 수 없어요.', { 'body.userId': '게스트에게는 연결을 요청할 수 없어요.' })
       if (privateHost(new URL(c.body.url).hostname)) fail('validation', 400, '사내망이나 이 컴퓨터의 주소는 쓸 수 없어요.', { 'body.url': 'private or local address' })
       if (this.integrationRequests.some((r) => r.user.id === member.id && r.url === c.body.url && this.requestState(r) === 'waiting')) fail('conflict', 409, '이 사람에게 같은 주소로 보낸 요청이 아직 기다리고 있어요.')
       const at = Date.now()
@@ -5343,7 +5388,9 @@ export class MockServer {
     const canManage = x.scope === 'personal' ? x.ownerId === u.id : u.role !== 'member'
     const { ownerId: _o, checks: _c, disabledTools: _d, ...rest } = x
     // like store.ts view: the own app is for whoever manages the connection (a template's app is the admin's)
-    return { ...rest, hasSecret: this.integrationSecrets.has(x.id), access: x.scope === 'team' && canManage ? x.access : null, canManage, oauthClient: canManage && !x.templateId ? x.oauthClient ?? null : null }
+    return { ...rest, hasSecret: this.integrationSecrets.has(x.id), access: x.scope === 'team' && canManage ? x.access : null, canManage, oauthClient: canManage && !x.templateId ? x.oauthClient ?? null : null,
+      // like store.ts offByTeam: a member's own one (not from a template) while the team has them off
+      ...(x.scope === 'personal' && !x.templateId && !this.settings.personalIntegrations ? { personalOff: true as const } : {}) }
   }
   /** like service.ts appFrom / nextApp: an own app is for sign-in; an API's sign-in needs one with both addresses; the
    * secret is write-only (kept while the client ID stays). `changed`: another ID, secret, address or scope. */
@@ -5931,9 +5978,12 @@ export class MockServer {
     // a team project as another person made it (members only: the owner and admins are not in it unless chosen)
     else if (p === '/__test/project') {
       const by = this.users.find((u) => u.id === String(body.by ?? 'bob')) ?? fail('validation', 400, 'no such person')
-      const folderPath = `projects/${String(body.name)}`
-      for (const d of ['projects', folderPath]) if (!this.files.has(d)) this.files.set(d, { type: 'folder', mtime: now() })
-      this.projectMembers.set(folderPath, { creator: by.id, participants: (body.participants as { subjectType: 'group' | 'user'; subjectId: string }[] | undefined) ?? [], version: 1 })
+      // `personal`: one of `by`'s personal projects (users/<by>/projects/<name>, no members)
+      const personal = body.personal === true
+      const parent = personal ? `users/${by.id}/projects` : 'projects'
+      const folderPath = `${parent}/${String(body.name)}`
+      for (const d of [...(personal ? [`users/${by.id}`] : []), parent, folderPath]) if (!this.files.has(d)) this.files.set(d, { type: 'folder', mtime: now() })
+      if (!personal) this.projectMembers.set(folderPath, { creator: by.id, participants: (body.participants as { subjectType: 'group' | 'user'; subjectId: string }[] | undefined) ?? [], version: 1 })
       const pr: Project = { id: uuidv7(), name: String(body.name), folderPath, instructions: String(body.instructions ?? ''), createdBy: { id: by.id, name: by.name }, createdAt: now(), canEdit: true }
       this.projects.push(pr)
       // made before the update to members-only projects (the card on Admin › Home, GET /api/projects/update-notice)

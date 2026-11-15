@@ -13,6 +13,7 @@ import { notifyConnectionReconnect, notifyDriveShareReconnect } from '../../noti
 import { onShareOwnerCheck, ownerOk, SHARE_CONTEXT, shareByName, shareRow, shareRows, shareWorks, teamSharesFor, type ShareRow } from './shares'
 import { getSetting, setSetting } from '../../admin/settings'
 import { brokerKey, driveBrokerFor, DriveBroker, type BrokerOptions } from './broker'
+import type { CallbackOutcome } from './callback-page'
 
 /** `broker`: sign in through the hosting service (broker.ts); left out, driveBrokerFor decides (broker URL set, no own client). */
 export interface DriveDeps { config?: DriveConfig | null; fetch?: DriveFetch; now?: () => number; broker?: BrokerOptions | null }
@@ -124,7 +125,8 @@ export class GoogleDrive {
       const row = this.store.connection(user)
       if (row) this.invalidate(row)
     }
-    return { ...status, personalAllowed: true, teamShares: this.enabled ? teamSharesFor(this.ctx.db, user, this.key) : [] }
+    // hostedApp: the hosting service's shared Google app signs in (not a company's own): Google may call it unverified
+    return { ...status, personalAllowed: true, teamShares: this.enabled ? teamSharesFor(this.ctx.db, user, this.key) : [], hostedApp: this.enabled && this.viaBroker }
   }
   /** Keep cancellation registered throughout a tool's download and conversion. */
   run<T>(user: string, signal: AbortSignal | undefined, fn: (signal: AbortSignal) => Promise<T>) { return this.operation(user, signal, fn) }
@@ -172,7 +174,8 @@ export class GoogleDrive {
     const now = this.now(), id = newId(), state = crypto.randomBytes(32).toString('base64url'), verifier = crypto.randomBytes(48).toString('base64url')
     // Bound creation rate without retaining a plaintext verifier or authorization URL.
     const n = (this.ctx.db.query('SELECT count(*) n FROM drive_oauth_flows WHERE user_id=? AND created_at>?').get(user, new Date(now - 3600_000).toISOString()) as { n: number }).n
-    if (n >= 20) throw new DriveError('rate_limited', 429)
+    // its own reason (not the hosting service's or Google's 'rate_limited'): the app says to wait about an hour (QA TC-3034)
+    if (n >= 20) throw new DriveError('signin_limit', 429)
     const sealed = this.store.seal(user, id, { verifier })
     const expiresAt = new Date(now + TTL).toISOString()
     this.ctx.db.transaction(() => {
@@ -191,6 +194,15 @@ export class GoogleDrive {
     this.store.ownFlow(user, session, id)
     this.ctx.db.query("UPDATE drive_oauth_flows SET state='failed',reason='cancelled',secret_enc=NULL,account=NULL WHERE id=? AND state!='completed'").run(id)
   }
+  /** The return page's answer (routes/drive.ts, callback-page.ts): ok, or why not (the reason the flow recorded, or the
+   * refusal before it started: an expired or used link, a browser not signed in as the same person). */
+  async callbackOutcome(input: { state?: string; code?: string; error?: string; handoff?: string }, browser?: { userId: string; sessionId: string }): Promise<CallbackOutcome> {
+    try {
+      if (await this.callback(input, browser)) return { ok: true }
+    } catch (e) { return { ok: false, reason: e instanceof DriveError ? e.reason : 'provider_unavailable' } }
+    const r = this.ctx.db.query('SELECT reason FROM drive_oauth_flows WHERE state_hash=?').get(hash(input.state!)) as { reason: string | null } | null
+    return { ok: false, reason: r?.reason ?? 'provider_unavailable' }
+  }
   /** Google's (direct) or the hosting service's (broker: `handoff` instead of `code`) return to this server. */
   async callback(input: { state?: string; code?: string; error?: string; handoff?: string }, browser?: { userId: string; sessionId: string }): Promise<boolean> {
     this.configured(); this.store.sweep()
@@ -204,7 +216,8 @@ export class GoogleDrive {
     this.store.session(r.user_id, r.session_id); this.busy(r.user_id)
     if (!this.ctx.db.query("UPDATE drive_oauth_flows SET state='exchanging' WHERE id=? AND state='pending'").run(r.id).changes) throw new DriveError('invalid_flow')
     try {
-      if (input.error) throw new DriveError(input.error === 'provider_error' ? 'provider_unavailable' : 'consent_denied')
+      // through the hosting service a refusal may be Google's (only some accounts for now), not the person's Cancel
+      if (input.error) throw new DriveError(input.error === 'provider_error' ? 'provider_unavailable' : this.viaBroker ? 'consent_denied_service' : 'consent_denied')
       const viaBroker = this.viaBroker
       if (viaBroker ? !input.handoff || !/^[A-Za-z0-9_-]{43}$/.test(input.handoff) : !input.code || input.code.length > 4096) throw new DriveError('invalid_flow')
       const s = this.store.open<FlowSecret>(r), cfg = this.config

@@ -6,6 +6,8 @@
 // asked in the round that ended last and how it ended ('added': members can connect it now, 'ended': the asks expired
 // or their members left). Someone who is no longer an owner or admin gets the app only, and no names.
 // service.ready (the member who asked; the source is the request's id): the app, to connect. Never who set it up.
+// service.closed (the member who asked; the source is the request's id): the app, and how the ask closed without it
+// ('expired' after 30 days, else an admin's Dismiss); they may ask again. Never which admin.
 import type { Database } from 'bun:sqlite'
 import { isRequestableService, plainLabel, type InboxNotification, type NotificationEventType } from '@mycel/shared/api'
 import { admins } from '../credentials/store'
@@ -19,6 +21,10 @@ export function serviceRequestOut(db: Database, row: NoticeRow): InboxNotificati
   if (row.event_type === 'service.ready') {
     const r = db.query('SELECT service FROM service_requests WHERE id = ? AND user_id = ?').get(row.source_id, row.user_id) as { service: string } | null
     return r && isRequestableService(r.service) ? { ...base, serviceRequest: { service: r.service } } : base
+  }
+  if (row.event_type === 'service.closed') {
+    const r = db.query('SELECT service, closed_reason FROM service_requests WHERE id = ? AND user_id = ?').get(row.source_id, row.user_id) as { service: string; closed_reason: string | null } | null
+    return r && isRequestableService(r.service) ? { ...base, serviceRequest: { service: r.service, closed: r.closed_reason === 'expired' ? 'expired' : 'dismissed' } } : base
   }
   const service = row.source_id
   if (!isRequestableService(service)) return base
