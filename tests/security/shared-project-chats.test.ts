@@ -264,7 +264,7 @@ describe('an existing private chat shared later', () => {
     // alice: a confirm that names her own folder and nobody (its audience: bob and carol, not the owner who is no member)
     const ask = await hit('alice', `/api/chats/${own}/share`, J({}))
     const c = JSON.parse(ask.text)
-    expect(c).toMatchObject({ status: 'confirm', audience: 2, provenance: { people: 2, places: [{ kind: 'mine' }] } })
+    expect(c).toMatchObject({ status: 'confirm', audience: 2, check: { added: 2, fileAnswers: 1 } })
     expect(NAMES.filter((n) => ask.text.includes(n))).toEqual([])
     expect(ask.text.includes(PRIVATE)).toBe(false)
     expect(ask.text.includes('todo.md')).toBe(false)
@@ -302,7 +302,7 @@ describe('an existing private chat shared later', () => {
     expect(ws.bob!.frames.slice(at.bob).some((f) => f.type === 'chat.updated' && f.data.chatId === own)).toBe(true)
     // the audit row: counts, no names
     const row = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'chat.share' AND target = ?").get(own) as { detail: string }
-    expect(JSON.parse(row.detail)).toEqual({ audience: 2, people: 2, unknown: false, memories: false, confirmed: true })
+    expect(JSON.parse(row.detail)).toEqual({ audience: 2, answers: 1, unchecked: 0, memories: false, confirmed: true })
   })
 })
 

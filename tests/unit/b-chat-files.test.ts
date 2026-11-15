@@ -156,7 +156,7 @@ describe('a file from the computer in a chat shared with people', () => {
     await ask('alice', c, `before\n${fake({ say: 'ok' })}`, [own.body.id])
     // the check says the file will be visible to them, and asks even when nothing else would
     const asked = await put('alice', c, [bob])
-    expect(asked).toMatchObject({ status: 'confirm', earlierFiles: 1 })
+    expect(asked).toMatchObject({ status: 'confirm', check: { earlierFiles: 1 } })
     const saved = await put('alice', c, [bob], asked.status === 'confirm' ? asked.confirmKey : undefined)
     expect(saved.status).toBe('saved')
     expect(saved.status === 'saved' && saved.filesNotCopied).toBeFalsy()
@@ -206,7 +206,7 @@ describe('a file from the computer in a chat shared with people', () => {
     await ask('alice', c, `two\n${fake({ say: 'ok' })}`, [kept.body.id, edited.body.id])
     fs.writeFileSync(path.join(h.team, ...edited.body.path.split('/')), 'changed later')
     const asked = await put('alice', c, [bob])
-    expect(asked).toMatchObject({ status: 'confirm', earlierFiles: 1 })
+    expect(asked).toMatchObject({ status: 'confirm', check: { earlierFiles: 1 } })
     const saved = await put('alice', c, [bob], asked.status === 'confirm' ? asked.confirmKey : undefined)
     expect(saved.status === 'saved' && saved.filesNotCopied).toBe(1)
     const seen = (await lastMessage('bob', c)).attachments
@@ -224,13 +224,13 @@ describe('a file from the computer in a chat shared with people', () => {
     // written since but the same bytes again: counted (read, its verdict kept)
     fs.writeFileSync(p, 'abcdefgh')
     fs.utimesSync(p, later, later)
-    expect(await put('alice', c, [bob])).toMatchObject({ status: 'confirm', earlierFiles: 1 })
+    expect(await put('alice', c, [bob])).toMatchObject({ status: 'confirm', check: { earlierFiles: 1 } })
     // edited to other bytes of the same size: read again (another state), not counted; the save says it did not go
     fs.writeFileSync(p, 'ABCDEFGH')
     const later2 = new Date(Date.now() + 9000)
     fs.utimesSync(p, later2, later2)
     const asked = await put('alice', c, [bob])
-    if (asked.status === 'confirm') expect(asked.earlierFiles).toBeUndefined()
+    if (asked.status === 'confirm') expect(asked.check.earlierFiles).toBeUndefined()
     const saved = asked.status === 'confirm' ? await put('alice', c, [bob], asked.confirmKey) : asked
     expect(saved.status === 'saved' && saved.filesNotCopied).toBe(1)
     expect((await lastMessage('bob', c)).attachments).toEqual([])

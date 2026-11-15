@@ -29411,6 +29411,56 @@ Canva, Intercom and Square refuse the team's https sign-in return address (not o
   (the listener), `web/test/unit/integration-desktop-signin.test.tsx`. Version impact: **minor** (a new way to connect,
   additive API and bridge fields).
 
+## Share in one press — the warning shows while picking, only when something is at stake (feat/share-dialog-one-press, 2026-11-15, product owner, QA TC-3092)
+
+Where: Team AX core (`server/src/chat/{audience-check,people-share,share-chat,widening,answer-share}.ts`,
+`server/src/routes/chats.ts`, `shared/src/api/chats.ts`, `web/src/components/{ShareWarning,ProjectMembersDialog,ProjectParticipants}.tsx`,
+`web/src/components/chat/{ChatShareDialog,ShareChat}.tsx`, `web/src/i18n/*`). Plan:
+`docs/AGENTS/plan/20261115-1400-share-dialog-one-press.md`. Supersedes "The check comes on Save, not while picking" in
+"Chats shared with people and groups: the Share dialog" (2026-11-14).
+
+- **One press, like Drive's warning for an outside person.** While the picks bring anyone new in, the Share dialog asks
+  `POST /api/chats/:id/audience/preview` 400 ms after every change of the list (adds, removals, groups). Share is off from
+  the first change until the answer for exactly those picks is here. The button never changes colour or words ("Share
+  anyway" is gone): pressing Share is the confirmation.
+- **Only what is at stake warns, specifically.** One check (`chat/audience-check.ts`) counts answers: that may have used
+  my personal memories (answers of the chat's private time written while I had a memory; a shared chat's turns never
+  carry them), that used files the new people can't open (each answer's own `message_sources`, the hash rule as before,
+  plus the answers whose recorded places they miss), older answers the read scope does not describe while a personal
+  connection or the in-app browser was on for me ("may have used your personal accounts"), other places the chat used
+  (named only where I may look), and team chat rooms it read without saying which ("rooms Mina may not be in" — a
+  warning, not an unknown). "Show answers ›" lists those answers (the widening list of one chat now also lists them).
+- **Unknowns are a grey line.** Answers the scope does not describe (without personal accounts) and answers that ran dev
+  environment commands: "N older answers couldn't be checked", no box, a normal button. The first share still records
+  them conservatively (`x: 1`), and `share_hidden` still refuses.
+- **The server stays the gate.** A save that brings in anyone new must carry the key of the check now
+  (`confirmMac` v2 over the list, the new people, the provenance keys, the sorted answer ids of every warning, the places,
+  rooms, the unchecked ids, the earlier uploads and every message id); no key or another state's: nothing saved, the
+  check comes back (`reason` 'unchecked' or 'changed'), shown in place with "Check this, then press Share again". A
+  failed preview is a grey line; Share then gets that answer: never a silent share. Removals alone need no key.
+- **The preview is no free probe.** Creator only (403/404 as a save), the save's refusals (chat_busy while a turn runs,
+  safe operations, unknown entries), the dry-run limit (60 a minute, as the project dry run), counts and places I may
+  look only, never who (the dialog names only what was picked), and a 60-second cache per who asks, chat state, list,
+  new people and folder rules (a save never reads it), so 60 a minute never hash big files 60 times.
+- **The project members' share of a private chat** says the same specific lines in its confirm (still one press: the
+  menu item opens it).
+- **Project Members dialog: one press when people are only added.** What they would see (how many, files, shared chats,
+  skills, "the people who see it now are told") shows in place under the count; Save waits for the dry run of the picks
+  and saves at once when its own dry run says the same. The confirm stays only where it guards something different that
+  a later save can't take back: people taken out (they lose access and their running turns stop; a guest's account is
+  switched off), a save that writes a rule nobody chose here (the floor rule, the creator's rule back), and "Add me"
+  (its members are told). A dry run that says more than the lines shown brings the confirm back.
+- **How it reads (coordinator, after the screenshots).** One finding per line in the box (a short list when there are
+  several), "Show answers ›" after them. In Korean a person takes 님 ("Bob 님이 열 수 없는 파일", "Bob 님은 열 수 없는 곳"); a group never
+  does: it reads as its people ("Sales 그룹 사람들이 열 수 없는 파일", "Sales 그룹 사람들은 열 수 없는 곳";
+  `share.who.person` / `share.who.group`, `whoNames`), and the lines' particle marks read right after either. Names the
+  server sends without saying person or group need no particle: "열 수 없는 사람: …", "공유 대상: …".
+- **My earlier files always show (security review).** When a first share copies my earlier computer uploads, their line
+  is always on screen, a line of its own, never folded into the "couldn't be checked" line. The Members dialog compares the
+  whole lines it showed with the save's dry run, not only counts.
+- Not here: Admin › Groups (someone joining a group widens silently, accepted 2026-11-14).
+- Version impact: **minor**.
+
 ## What the AI sends to a connected service never holds a stored key (fix/connection-tools-hide-keys, 2026-11-15)
 
 - **Problem (QA tracking TC-3081).** The AI could put a person's stored connection key into a call to a connected

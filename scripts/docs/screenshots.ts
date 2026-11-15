@@ -224,13 +224,13 @@ const SHOTS: Shot[] = [
   { file: 'chats/rooms-phone', set: 'acme', path: '/rooms', phone: true, as: JORDAN },
   { file: 'chats/projects-panel', set: 'acme', path: '/projects', as: JORDAN },
   { file: 'chats/project', set: 'acme', path: '/projects', as: JORDAN, prepare: async (p) => { await p.locator('[data-testid="project-card"]').first().click(); await p.waitForTimeout(1200); await restMouse(p) }, crop: 'main', maxHeight: 440 },
-  // Share (the brand-voice chat is shared with Priya; the campaign summary is not, and adding Priya shows the check)
+  // Share (the brand-voice chat is shared with Priya; the campaign summary is not, and adding Priya shows the check in place)
   { file: 'chats/share-dialog', set: 'acme', path: '/', as: JORDAN, prepare: async (p) => { await openShare(/brand voice/i)(p); await blur(p) }, crop: DIALOG },
   { file: 'chats/share-warning', set: 'acme', path: '/', as: JORDAN, prepare: async (p) => {
     await openShare(/Summarize November/i)(p)
     await p.locator('[data-testid="chat-share-picker-search"]').fill('Priya'); await p.waitForTimeout(600)
-    await p.locator('[data-testid="participant-add-user-priya"]').click(); await p.waitForTimeout(300)
-    await p.locator('[data-testid="chat-share-save"]').click(); await p.waitForTimeout(1500)
+    // one press (QA TC-3092): the warning shows in place while picking, before Share
+    await p.locator('[data-testid="participant-add-user-priya"]').click(); await p.waitForTimeout(1500)
     await blur(p)
   }, crop: DIALOG },
   { file: 'chats/shared-activity', set: 'acme', path: '/activity', as: PRIYA, clip: { x: 72, y: 0, width: 256, height: 220 } },
