@@ -1,8 +1,8 @@
 // A member and a team skill someone made from their own work (docs/DECISIONS.md "S"):
-// - joining with a link to a skill with a form: the join page keeps who made it for that form, which says so on top
-//   ("김지훈님이 만든 팀 스킬이에요 · 이 채팅은 민지님만 봐요"), until the form goes away;
-// - a skill without fields lands on its form too (its box starts with the skill's own example, docs/DECISIONS.md
-//   "W5"), never on Home (the link's starter is gone: docs/DECISIONS.md "DS3");
+// - joining with a link to a skill lands on Home, also when an older server's answer names the skill's form and its
+//   maker (docs/DECISIONS.md "A new member lands on Home"); nothing is held for a form;
+// - a form that was told who made it says so on top ("김지훈님이 만든 팀 스킬이에요 · 이 채팅은 나만 볼 수 있어요"), until
+//   the form goes away;
 // - the answer's receipt names the maker: "김지훈님의 팀 스킬 '견적서 쓰기' · 팀 파일 1개".
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
@@ -77,7 +77,7 @@ afterAll(() => {
 function Where() { const l = useLocation(); return <p data-testid="where">{`${l.pathname}${l.search}`}</p> }
 
 describe('a member and a team skill someone made', () => {
-  test('the join page keeps who made the link\'s skill for its form (not without a maker)', async () => {
+  test('joining with a link to a skill: Home, even when an older server names its form and maker; nothing held', async () => {
     const g = globalThis as Record<string, unknown>
     const was = { location: Object.getOwnPropertyDescriptor(g, 'location'), history: Object.getOwnPropertyDescriptor(g, 'history') }
     Object.defineProperty(g, 'location', { configurable: true, writable: true, value: { pathname: '/join', search: '', hash: `#t=${TOKEN}`, origin: 'https://acme.example', href: `https://acme.example/join#t=${TOKEN}` } })
@@ -88,41 +88,15 @@ describe('a member and a team skill someone made', () => {
     const m = await mount(<MemoryRouter initialEntries={['/join']}><Routes><Route path="/join" element={<TeamJoin />} /><Route path="*" element={<Where />} /></Routes></MemoryRouter>)
     try {
       await m.until(() => m.find('join-form'), 'the join form')
+      // the join page does not name the skill (the invite message does)
+      expect(m.html()).not.toContain(QUOTE.title)
       await m.type('invite-name', '민지')
       await m.type('invite-username', 'minji')
       await m.type('invite-password', 'tulip meadow 2026')
       await m.click('invite-submit')
       await m.until(() => m.find('where'), 'the next page')
-      expect(m.get('where').textContent).toBe(`/skills?run=${encodeURIComponent(QUOTE.path)}`)
-      expect(heldMadeBy('minji', QUOTE.path)).toBe('김지훈')
-      expect(heldMadeBy('minji', 'skills/general/other/SKILL.md')).toBeNull()
-    } finally {
-      await m.unmount()
-      delete routes['POST /api/team-link/info']
-      delete routes['POST /api/team-link/join']
-      for (const [k, d] of Object.entries(was)) { if (d) Object.defineProperty(g, k, d); else delete g[k] }
-    }
-  })
-
-  test('a skill without fields: the join lands on its form with who made it, never Home', async () => {
-    const g = globalThis as Record<string, unknown>
-    const was = { location: Object.getOwnPropertyDescriptor(g, 'location'), history: Object.getOwnPropertyDescriptor(g, 'history') }
-    Object.defineProperty(g, 'location', { configurable: true, writable: true, value: { pathname: '/join', search: '', hash: `#t=${TOKEN}`, origin: 'https://acme.example', href: `https://acme.example/join#t=${TOKEN}` } })
-    Object.defineProperty(g, 'history', { configurable: true, writable: true, value: { state: null, replaceState: () => {} } })
-    const form = `/skills?run=${encodeURIComponent(BRIEF.path)}`
-    routes['POST /api/team-link/info'] = () => json(200, { teamName: 'Acme', valid: true, problem: null, expiresAt: '2026-11-18T00:00:00.000Z', skillName: BRIEF.name, skillTitle: BRIEF.title })
-    routes['POST /api/team-link/join'] = () => json(201, { me: meOf('minji', '민지'), next: form, skillBy: '김지훈' })
-    useSession.setState({ signedIn: () => {} } as never)
-    const m = await mount(<MemoryRouter initialEntries={['/join']}><Routes><Route path="/join" element={<TeamJoin />} /><Route path="*" element={<Where />} /></Routes></MemoryRouter>)
-    try {
-      await m.until(() => m.find('join-form'), 'the join form')
-      await m.type('invite-name', '민지')
-      await m.type('invite-username', 'minji')
-      await m.type('invite-password', 'tulip meadow 2026')
-      await m.click('invite-submit')
-      await m.until(() => m.find('where'), 'the next page')
-      expect(m.get('where').textContent).toBe(form)
-      expect(heldMadeBy('minji', BRIEF.path)).toBe('김지훈')
+      expect(m.get('where').textContent).toBe('/')
+      expect(heldMadeBy('minji', QUOTE.path)).toBeNull()
     } finally {
       await m.unmount()
       delete routes['POST /api/team-link/info']
@@ -137,7 +111,7 @@ describe('a member and a team skill someone made', () => {
     const m = await mount(<MemoryRouter><SkillFormDialog path={QUOTE.path} onClose={() => {}} /></MemoryRouter>)
     try {
       await m.until(() => m.find('skill-form-by'), 'the line')
-      expect(m.get('skill-form-by').textContent).toBe('김지훈님이 만든 팀 스킬이에요 · 이 채팅은 민지님만 봐요')
+      expect(m.get('skill-form-by').textContent).toBe('김지훈님이 만든 팀 스킬이에요 · 이 채팅은 나만 볼 수 있어요')
       expect(m.get('skill-form').textContent).not.toContain('팀 양식으로 견적서를 만들어요')
       expect(m.find('skill-input-customer')).not.toBeNull()
     } finally { await m.unmount() }

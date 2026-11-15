@@ -1,7 +1,7 @@
 // The team invite link (onboarding stream E): an admin makes it on Admin › Members, copies the link and the
 // ready-made message; someone opens it in another browser, the token leaves the address bar, they join with name,
-// username and password (no second password field), and land on the form of the skill the link names. A revoked link
-// says to ask for a new one.
+// username and password (no second password field), and land on Home with the welcome card, never on the form of the
+// skill the link names (docs/DECISIONS.md "A new member lands on Home"). A revoked link says to ask for a new one.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
@@ -15,7 +15,7 @@ async function audit(page: Page, where: string) {
   expect(serious.map((v) => `${where}: ${v.id} — ${v.nodes.map((n) => n.target.join(' ')).slice(0, 3).join(', ')}`)).toEqual([])
 }
 
-test('make the team link, copy the message, join with it, land on the skill; a revoked link asks for a new one', async ({ page, browser }) => {
+test('make the team link, copy the message, join with it, land on Home; a revoked link asks for a new one', async ({ page, browser }) => {
   const errors = watchConsole(page)
   await reset(page)
   expect((await page.request.post('/__test/skills', { data: { files: [{ path: 'skills/광고-문구.md', name: '광고 문구', description: '광고 문구 세 줄' }] } })).ok()).toBe(true)
@@ -47,6 +47,8 @@ test('make the team link, copy the message, join with it, land on the skill; a r
   await expect(p2).toHaveURL(/\/join$/)
   const token = url.split('#t=')[1]!
   await expect(p2.getByTestId('invite-password2')).toHaveCount(0)
+  // the message names the skill; the join page does not
+  await expect(p2.getByText('광고 문구')).toHaveCount(0)
   await audit(p2, 'the join page')
   await p2.getByTestId('invite-name').fill('New Person')
   await p2.getByTestId('invite-username').fill('newbie')
@@ -54,12 +56,11 @@ test('make the team link, copy the message, join with it, land on the skill; a r
   await p2.getByTestId('invite-password-show').click()
   await expect(p2.getByTestId('invite-password')).toHaveAttribute('type', 'text')
   await p2.getByTestId('invite-submit').click()
-  await expect(p2).toHaveURL(/\/skills\?run=/)
-  expect(new URL(p2.url()).searchParams.get('run')).toBe('skills/광고-문구.md')
-  // the Skills page opens that skill's form (onboarding C), ready to run
-  await expect(p2.getByTestId('skill-form')).toBeVisible()
-  await expect(p2.getByTestId('skill-form')).toHaveAttribute('data-path', 'skills/광고-문구.md')
-  await expect(p2.getByTestId('skill-form-run')).toBeEnabled()
+  // Home: nothing opens by itself
+  await expect(p2.getByTestId('composer-input')).toBeVisible()
+  await expect(p2).toHaveURL(/\/$/)
+  await expect(p2.getByTestId('skill-form')).toHaveCount(0)
+  await expect(p2.getByRole('dialog')).toHaveCount(0)
   expect(requests.filter((r) => r.includes(token))).toEqual([])
   await other.close()
 

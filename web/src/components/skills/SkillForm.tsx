@@ -189,7 +189,7 @@ export function SkillForm({ path, skill: given, onDone, onSkip, skipLabel, onCom
   const advanced = inputs.filter((i) => i.advanced)
   return (
     <form onSubmit={(e) => void submit(e)} noValidate className="space-y-3" data-testid="skill-form" data-path={skill.path}>
-      {by && <p className="text-sm text-muted" data-testid="skill-form-by">{t('skillForm.madeBy', { by, name: me.user.name })}</p>}
+      {by && <p className="text-sm text-muted" data-testid="skill-form-by">{t('skillForm.madeBy', { by })}</p>}
       {description && !by && skill.description && <p className="text-sm text-muted">{skillSummary(skill)}</p>}
       {loadError && <ErrorNote>{loadError}</ErrorNote>}
       {clash && <p role="alert" className="rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn" data-testid="skill-form-clash">{t('skillForm.sameName', { name: skill.name, path: clash.path })}</p>}

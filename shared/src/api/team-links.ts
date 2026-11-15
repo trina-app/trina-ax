@@ -120,10 +120,11 @@ export type TeamLinkInfo = z.infer<typeof TeamLinkInfo>
 
 export const JoinTeamLinkBody = AcceptInviteBody.extend({ token: TeamLinkToken })
 export const JoinTeamLinkResponse = LoginResponse.extend({
-  /** where the new member goes first: `/skills?run=<path>` when the link names a skill they can read, else null (Home) */
+  /** where the new member goes first: always null now (Home, docs/DECISIONS.md "A new member lands on Home"). Kept, and
+   * still sent, because an older app requires it; earlier servers sent `/skills?run=<path>` for the link's skill */
   next: z.string().nullable(),
-  /** who made the link's skill (the name of the person whose save made its file's first version), for the line above
-   * its form: "{by}님이 만든 팀 스킬이에요". null or absent: not known, a starter pack skill, or no skill */
+  /** no longer sent (an earlier server named who made the link's skill, for the line above its form); kept optional so
+   * an answer from an older server still reads */
   skillBy: z.string().nullable().optional(),
 })
 export type JoinTeamLinkResponse = z.infer<typeof JoinTeamLinkResponse>

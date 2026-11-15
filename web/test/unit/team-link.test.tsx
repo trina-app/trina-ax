@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { TeamLinkResponse } from '@mycel/shared/api'
 import { DICTS, LOCALES, translate, useLocaleStore, type MessageKey } from '../../src/i18n'
-import { joinNext, readJoinToken, teamLinkMessage } from '../../src/lib/team-link'
+import { readJoinToken, teamLinkMessage } from '../../src/lib/team-link'
 import { namedProduct } from '../../src/lib/tabs'
 import { JoinForm, TeamJoin } from '../../src/pages/Auth'
 import { forgetPatched, joinsText, linkDiffers, markPatched, TeamLinkPanel, TeamLinkView } from '../../src/components/onboarding/TeamLinkPanel'
@@ -36,11 +36,6 @@ describe('the address', () => {
     expect(readJoinToken(loc('/join'))).toEqual({ token: null, cleanUrl: null })
   })
 
-  test('after joining: only the skill form the server named, else Home', () => {
-    const run = `/skills?run=${encodeURIComponent('skills/marketing/ad-copy/SKILL.md')}`
-    expect(joinNext(run)).toBe(run)
-    for (const bad of [null, undefined, '', '/admin', '//evil.example/skills?run=skills/x', 'https://evil.example/skills?run=skills/x', '/skills?run=users%2Fbob%2Fx.md', '/skills?run=skills/x&review=1', '/skills']) expect(joinNext(bad)).toBe('/')
-  })
 })
 
 describe('the ready-made message', () => {
@@ -262,7 +257,7 @@ describe('on screen', () => {
     } finally { await m.unmount() }
   })
 
-  test('/join: the token goes in a POST body, never a path or query, leaves the address bar, and the member lands on the skill', async () => {
+  test('/join: the token goes in a POST body, never a path or query, leaves the address bar, and the member lands on Home', async () => {
     const replaced: string[] = []
     const g = globalThis as Record<string, unknown>
     const was = { location: Object.getOwnPropertyDescriptor(g, 'location'), history: Object.getOwnPropertyDescriptor(g, 'history') }
@@ -285,8 +280,8 @@ describe('on screen', () => {
       m = await mount(<MemoryRouter initialEntries={['/join']}><Routes><Route path="/join" element={<TeamJoin />} /><Route path="*" element={<Where />} /></Routes></MemoryRouter>)
       await m!.until(() => m!.find('join-form'), 'the join form')
       expect(replaced).toEqual(['/join'])
-      // the skill's folder name as words when it has no title (never 'ad-copy')
-      expect(m!.html()).toContain('ad copy')
+      // the link's skill is not on the join page (the invite message names it), in no spelling
+      expect(m!.html()).not.toContain('ad copy')
       expect(m!.html()).not.toContain('ad-copy')
       expect(m!.find('invite-password2')).toBeNull()
       await m!.type('invite-name', '김하나')
@@ -294,7 +289,8 @@ describe('on screen', () => {
       await m!.type('invite-password', 'tulip meadow 2026')
       await m!.click('invite-submit')
       await m!.until(() => m!.find('where'), 'the next page')
-      expect(m!.get('where').textContent).toBe(run)
+      // an older server's skill form is not followed (docs/DECISIONS.md "A new member lands on Home")
+      expect(m!.get('where').textContent).toBe('/')
       // no request carries the token in its address (a health check may run beside them)
       for (const c of calls) expect(c.key.includes(TOKEN)).toBe(false)
       const ours = calls.filter((c) => c.key.includes('/team-link'))

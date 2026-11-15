@@ -55,16 +55,6 @@ export function teamLinkMessage(t: (key: MessageKey, params?: Params) => string,
   return t(o.ownAi ? 'teamLink.messageOwnAi' : 'teamLink.message', { ...product, name: o.name, team: o.team, url: o.url })
 }
 
-/** Where to go after joining: only the skill form the server named (`/skills?run=<path>`), anything else is Home. */
-export function joinNext(next: string | null | undefined): string {
-  if (!next || !next.startsWith('/skills?run=')) return '/'
-  try {
-    const u = new URL(next, 'http://x')
-    const run = u.searchParams.get('run')
-    return u.pathname === '/skills' && run && run.startsWith('skills/') && [...u.searchParams.keys()].length === 1 ? `/skills?run=${encodeURIComponent(run)}` : '/'
-  } catch { return '/' }
-}
-
 /**
  * Where the person who just joined goes, kept for the signed-in app's /join route (App.tsx AfterJoin). The join page
  * sets it right before the session switches to signed in: that switch re-renders /join as a signed-in page at once,
