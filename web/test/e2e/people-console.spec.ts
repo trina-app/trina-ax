@@ -91,10 +91,12 @@ test('Members: Invite links lists only the links that still work; no open link, 
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
-  // three member links: one used, one past its date (the list's answer is changed below), one open
+  // member links: one used, one past its date (the list's answer is changed below), one open
   const used = await post(page, '/api/admin/invites', { role: 'member', groupIds: [] })
   const old = await post(page, '/api/admin/invites', { role: 'member', groupIds: [] })
   const open = await post(page, '/api/admin/invites', { role: 'member', groupIds: [] })
+  // and one the list's answer turns into a guest link whose project went to the trash (Invite.stopped)
+  const stopped = await post(page, '/api/admin/invites', { role: 'member', groupIds: [] })
   const ctx = await browser.newContext()
   const accepted = await ctx.request.post(new URL(`/api/invites/${used.token}/accept`, page.url()).toString(), { data: { username: 'kim', name: 'Kim', password: 'kim password 1' }, headers: { [CSRF_HEADER]: '1' } })
   expect(accepted.ok()).toBeTruthy()
@@ -104,6 +106,7 @@ test('Members: Invite links lists only the links that still work; no open link, 
     const r = await route.fetch()
     const body = await r.json()
     for (const i of body.items) if (i.id === old.invite.id) i.expiresAt = new Date(Date.now() - 3600_000).toISOString()
+    for (const i of body.items) if (i.id === stopped.invite.id) Object.assign(i, { role: 'guest', groupIds: [], guestPlace: { kind: 'project', id: stopped.invite.id, name: 'Trashed plan' }, stopped: 'place_gone' })
     await route.fulfill({ response: r, json: body })
   })
   await page.goto('/admin/members')
@@ -111,8 +114,7 @@ test('Members: Invite links lists only the links that still work; no open link, 
   await expect(rows).toHaveCount(1)
   await expect(rows.first()).toContainText(t['role.member'])
   await expect(rows.first().getByRole('button', { name: t['members.revoke'], exact: true })).toBeVisible()
-  // the used one ("Used by Kim") and the expired one are gone
-  await expect(page.getByTestId('invite-links')).not.toContainText('Kim')
+  await expect(page.getByTestId('invite-links')).not.toContainText('Trashed plan')
   // the team has no guests: no Guests section, not even an empty row
   await expect(page.getByTestId('guests-section')).toHaveCount(0)
   // the Role filter's Guests still says there are none

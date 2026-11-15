@@ -28385,12 +28385,16 @@ QA on a private copy of QA-Acme in managed AI mode with a plan file of two guest
 - **Asked:** the owner saw every past link under **Invite links** ("Member · Joins no groups · Used by X", "Expired")
   and asked why; a lean page lists what can still be acted on.
 - **Invite links** shows the team invite link only while its state is `active`, and single-use links only while unused
-  and before their end date (`openInviteLinks`, `workingTeamLink` in `pages/admin/Members.tsx`). The server already
-  leaves revoked ones out. With no working link the section is not drawn. Who joined is in the member list and the
+  and before their end date, and not stopped by itself (`Invite.stopped`: a guest link whose room or project is gone or
+  in the trash, whose maker left it, or whose team AI account was removed; the same check the invite page and the
+  accept use, `makerReason` in `server/src/auth/accounts.ts`). `openInviteLinks`, `workingTeamLink` in
+  `pages/admin/Members.tsx`. The server already leaves revoked ones out. `Invite.stopped` and its line in `toInvite`
+  are the same as PR #907's (fix/guest-states-s2), so whichever lands first, the other rebases without a conflict. With no working link the section is not drawn. Who joined is in the member list and the
   Activity log; an expired or full team link is still explained in the header's **Team invite link** popup.
   `GET /api/admin/invites` is unchanged (it still returns used ones; other screens and the handover card read it).
 - **Guests:** a team with no guest at all has no **Guests** section (no "No guests yet" row). The Role filter's
   **Guests** still shows the section with its empty line, so picking it never shows a blank page. A search that finds
-  no guest in a team that has some keeps "No match".
+  no guest in a team that has some keeps "No match". A team whose guests were all removed still has the section
+  ("Show removed (N)"), since those accounts can be switched on or deleted only there.
 - The keys `members.usedBy` and `members.expired` had no other use and were removed in all languages.
 - Version impact: **patch** (fewer rows on one admin page).

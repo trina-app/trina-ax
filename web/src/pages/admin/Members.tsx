@@ -78,9 +78,11 @@ export function handoverTarget(u: User, me: Me | null): boolean {
 }
 
 /** Invite links lists only the links that still work (owner 11-15, a lean page): a single-use link nobody used before its
- * end date (the server leaves revoked ones out). Who joined through a used one is in the member list and Activity. */
+ * end date and that has not stopped by itself (Invite.stopped: a guest link whose room or project is gone, whose maker
+ * left it or whose team AI account was removed; the accept refuses it). The server leaves revoked ones out. Who joined
+ * through a used one is in the member list and Activity. */
 export function openInviteLinks(items: readonly Invite[] | null | undefined, now = Date.now()): Invite[] {
-  return (items ?? []).filter((i) => !i.usedAt && Date.parse(i.expiresAt) > now)
+  return (items ?? []).filter((i) => !i.usedAt && !i.stopped && Date.parse(i.expiresAt) > now)
 }
 
 /** the team invite link while it works (not past its date, uses left, its maker can still invite); an expired or full
@@ -542,22 +544,20 @@ export default function Members() {
             ))}
             {!!listedInvites?.length && (
               <ul className="divide-y divide-line" data-testid="invite-list">
-                {listedInvites.map((i) => {
-                  return (
-                    <li key={i.id} className="flex flex-wrap items-center gap-2 py-2.5">
-                      <Badge>{t(`role.${i.role}`)}</Badge>
-                      <span className="min-w-0 flex-1 text-xs text-muted" data-testid={i.leadFor ? 'invite-lead' : undefined}>
-                        {i.leadFor ? t('handover.inviteRow', { leadFor: i.leadFor }) : i.guestPlace ? [inviteGuestName(i), guestWhere(i.guestPlace)].filter(Boolean).join(' · ') : joinsText(t, i.groupIds, groups.data ?? [])} · {t('members.expires', { date: formatDateTime(i.expiresAt, locale, me.server.timeZone) })}
-                      </span>
-                      {/* a lead link is the owner's to revoke (the server refuses anyone else) */}
-                      {(!i.leadFor || isOwner(me)) && (
-                        <Button size="sm" variant="ghost" onClick={() => void revoke(i)} onKeyDown={noKeyRepeat} aria-disabled={revoking.busy !== null || undefined} className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50">
-                          {t('members.revoke')}
-                        </Button>
-                      )}
-                    </li>
-                  )
-                })}
+                {listedInvites.map((i) => (
+                  <li key={i.id} className="flex flex-wrap items-center gap-2 py-2.5">
+                    <Badge>{t(`role.${i.role}`)}</Badge>
+                    <span className="min-w-0 flex-1 text-xs text-muted" data-testid={i.leadFor ? 'invite-lead' : undefined}>
+                      {i.leadFor ? t('handover.inviteRow', { leadFor: i.leadFor }) : i.guestPlace ? [inviteGuestName(i), guestWhere(i.guestPlace)].filter(Boolean).join(' · ') : joinsText(t, i.groupIds, groups.data ?? [])} · {t('members.expires', { date: formatDateTime(i.expiresAt, locale, me.server.timeZone) })}
+                    </span>
+                    {/* a lead link is the owner's to revoke (the server refuses anyone else) */}
+                    {(!i.leadFor || isOwner(me)) && (
+                      <Button size="sm" variant="ghost" onClick={() => void revoke(i)} onKeyDown={noKeyRepeat} aria-disabled={revoking.busy !== null || undefined} className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50">
+                        {t('members.revoke')}
+                      </Button>
+                    )}
+                  </li>
+                ))}
               </ul>
             )}
           </div>

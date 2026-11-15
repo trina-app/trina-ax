@@ -49,7 +49,7 @@ Claude or OpenAI account. Each row shows whether that engine is ready.
 #### Invite the team
 Start with a small pilot group, then confirm roles and folder access. **Members & invites** also lists the team's [guests](#guests).
 Under the list, **Invite links** shows only the links that still work: the team invite link and invite links nobody
-has used yet. A used or expired link leaves the list; who joined is in the member list and in the [Activity log](#activity-log).
+has used yet. A used or expired link, or a guest link whose room or project is gone, leaves the list; who joined is in the member list and in the [Activity log](#activity-log).
 
 #### Add a first skill
 Copy a starter skill and review its result against the sources. [Read about skills](team-skills.md).

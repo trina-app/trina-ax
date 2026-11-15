@@ -1,5 +1,5 @@
 // Admin › Members & invites lists only the invite links that still work (pages/admin/Members.tsx openInviteLinks,
-// workingTeamLink): used and expired single-use links and a team link that stopped working are not listed.
+// workingTeamLink): used, expired and stopped single-use links and a team link that stopped working are not listed.
 import { describe, expect, test } from 'bun:test'
 import type { Invite, TeamLink } from '@mycel/shared/api'
 import { openInviteLinks, workingTeamLink } from '../../src/pages/admin/Members'
@@ -10,7 +10,7 @@ const invite = (id: string, over: Partial<Invite> = {}): Invite => ({
 })
 
 describe('openInviteLinks', () => {
-  test('keeps open member and guest links, drops used and expired ones', () => {
+  test('keeps open member and guest links, drops used, expired and stopped ones', () => {
     const items = [
       invite('open'),
       invite('guest', { role: 'guest', guestPlace: { kind: 'room', id: '01900000-0000-7000-8000-0000000000a1' } }),
@@ -18,6 +18,10 @@ describe('openInviteLinks', () => {
       invite('usedGuest', { role: 'guest', usedAt: '2026-11-14T10:00:00.000Z' }),
       invite('expired', { expiresAt: '2026-11-15T08:59:59.000Z' }),
       invite('endsNow', { expiresAt: '2026-11-15T09:00:00.000Z' }),
+      // a guest link that stopped by itself: its project in the trash, its maker left the room, its team AI removed
+      invite('placeGone', { role: 'guest', stopped: 'place_gone' }),
+      invite('makerLeft', { role: 'guest', stopped: 'inviter_gone' }),
+      invite('aiGone', { role: 'guest', stopped: 'ai_gone' }),
     ]
     expect(openInviteLinks(items, NOW).map((i) => i.id)).toEqual(['open', 'guest'])
   })
