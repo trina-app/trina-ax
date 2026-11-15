@@ -28434,6 +28434,7 @@ so a guest on a subscription connection was never stopped; tokens count with eve
 - **The guest link comes with a message** (S7): who sends it, the one place, their own AI account when that is their AI, the link and its end, in the inviter's language. Copy message is the main action.
 - **The guest's invite page** (S9, S10): on a phone Continue in the browser is the main button and the app a link; the page follows the browser's language (one of ours) unless one was picked, and the new account keeps it.
 - **A guest's AI switched off while signed in** (N7): one info toast; a deleted Team AI account (the guest keeps the AI place) says nothing new.
+- **Hands-on QA follow-ups (fix/guest-removed-language, TC-3223, 3225, 3226):** the guest's own screen after their account ended follows their browser's language (one of ours) unless they picked one here, like their invite page; it was the team's. A guest's `session.ended` asks `/api/me` first, so a guest who left never reads "no longer in" for a moment. `GuestInviteLimit.pending` only while the links are what fills the cap (the guests alone below it); guests alone at the cap get the plain words, as Create link's refusal does.
 - Version impact: **minor** (new optional API fields `GuestInviteLimit.pending`, error `params.pending`, 401 `params.guest`/`team`; `Invite.guestPlace.name` for rooms).
 
 ## Free plan removed (owner 2026-11-14): trial with a card only

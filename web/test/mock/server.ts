@@ -2734,7 +2734,7 @@ export class MockServer {
       const staff = c.user.role === 'owner' || c.user.role === 'admin'
       const pending = this.guestCap === null ? 0 : this.openGuestLinks()
       const full = this.guestCap !== null && used + pending >= this.guestCap
-      return { full, limit: this.guestCap, ...(full && pending && staff ? { pending } : {}), ...(staff ? { used, seatsFull: this.seatsFull, manageUrl: 'https://plans.example.com/acme', answerTokens: this.answerTokens } : {}),
+      return { full, limit: this.guestCap, ...(full && pending && staff && this.guestCap !== null && used < this.guestCap ? { pending } : {}), ...(staff ? { used, seatsFull: this.seatsFull, manageUrl: 'https://plans.example.com/acme', answerTokens: this.answerTokens } : {}),
         ...(this.hostSignIn ? { guestAiUnavailable: 'host_sign_in' as const } : {}) }
     },
     updateGuestAi: (c) => {

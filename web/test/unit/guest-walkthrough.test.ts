@@ -3,7 +3,7 @@
 // read with the links that hold a place (M4); a guest's AI switched off while signed in says so once (N7).
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { ApiError, type GuestInviteLimit, type Me } from '@mycel/shared/api'
-import { t, translate } from '../../src/i18n'
+import { t, translate, useLocaleStore } from '../../src/i18n'
 import { guestRemoval } from '../../src/lib/signedOut'
 import { removedFrom, removedHow, useSession } from '../../src/store/session'
 import { useUi } from '../../src/store/ui'
@@ -57,6 +57,32 @@ describe('a guest whose sign-in ended with their account (S5, S6)', () => {
     expect(status()).toEqual({ kind: 'signed-out', reason: 'left', team: 'Acme' })
     expect(removedHow()).toBe('left')
     expect(t('auth.guestLeftTitle', { team: 'Acme' })).toBe('You left Acme')
+  })
+
+  test("the guest's screen speaks their browser's language, not the team's, unless they picked one here", async () => {
+    const nav = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { languages: ['ko-KR', 'en-US'], language: 'ko-KR' } })
+    try {
+      useLocaleStore.getState().setLocale('en')
+      let n = 0
+      mockFetch(async () => (n++ === 0 ? unauthorized({ reason: 'account_removed', guest: 'removed', team: 'Acme' })() : Response.json({ needed: false, teamName: null, defaultLocale: 'en' })))
+      await session().load()
+      await settle()
+      expect(status()).toEqual({ kind: 'signed-out', reason: 'removed', team: 'Acme' })
+      expect(useLocaleStore.getState().locale).toBe('ko')
+      // picked on this browser: that stays
+      localStorage.setItem('mycel.locale', 'en')
+      useLocaleStore.getState().setLocale('en')
+      mockFetch(unauthorized({ reason: 'account_removed', guest: 'left', team: 'Acme' }))
+      session().signedOut('removed', 'Acme')
+      await settle()
+      expect(status()).toEqual({ kind: 'signed-out', reason: 'left', team: 'Acme' })
+      expect(useLocaleStore.getState().locale).toBe('en')
+    } finally {
+      if (nav) Object.defineProperty(globalThis, 'navigator', nav)
+      else Reflect.deleteProperty(globalThis, 'navigator')
+      useLocaleStore.getState().setLocale('en')
+    }
   })
 
   test('a removed member keeps the plain removed line', async () => {
