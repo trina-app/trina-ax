@@ -79,7 +79,7 @@ git push origin v0.3.0-beta.1
 | 2 | test | `ci.yml` 전체: typecheck, native, 단위, fuzz, 웹, 중계, 리눅스 T1(amd64·arm64), 리눅스 묶음 L19 + verify-bundle, 설치 T2 | 없음 |
 | 2 | build-linux | 리눅스 kit amd64(ubuntu-24.04)·arm64(ubuntu-24.04-arm): whisper, native, 웹, `build-bundle.ts --os linux --strict`(서명 없이) | 없음 |
 | 2 | build-office | 사무실 zip(macos-15, 또는 `mac_runner` 입력·레포 변수 `RELEASE_MAC_RUNNER`; 두 맥 프로세서 universal, `bun run build:office`) | 없음 |
-| 2 | build-windows | 윈도우 설치 파일 + `latest.yml`(windows-2025, `desktop dist:win`, 버전은 태그 것). 레포 변수 `WINDOWS_SIGNING_*`가 있으면 Microsoft Artifact Signing으로 서명하고 `signtool verify /pa`로 확인한다(11장), 없으면 서명 없이 | Azure 로그인(OIDC, 저장된 비밀번호 없음; 비밀값은 id 셋뿐) |
+| 2 | build-windows | 윈도우 설치 파일 + `latest.yml`(windows-2025, `desktop dist:win`, 버전은 태그 것). 레포 변수 `WINDOWS_SIGNING_*`가 있으면 Microsoft Artifact Signing으로 서명하고 `signtool verify /pa`로 확인한다(11장), 없으면 서명 없이 | Azure 로그인(OIDC, 저장된 비밀번호 없음; 비밀값은 id 둘뿐) |
 | 3 | publish | 리눅스 묶음 서명(manifest.sig) → 사무실 피드(`publish.ts`) → 서버 피드(`publish-server.ts`) → `SHA256SUMS` + `.sig` | 키 + Cloudflare 토큰 |
 | 4 | github-release | 태그 이름으로 Release. 자산: 리눅스 kit 2개, 사무실 zip, 윈도우 설치 파일, `SHA256SUMS`, `SHA256SUMS.sig`. beta는 prerelease | 없음(`contents: write`만) |
 | 5 | build-ami | stable만, publish와 github-release 뒤: 새 팀 서버 이미지(AMI)를 만드는 `team-image.yml`을 그 태그로 시작한다(10장). 레포 변수 `AWS_ROLE_ARN`이 없으면 notice만 남기고 끝난다. 실패해도 릴리스는 실패로 치지 않는다 | 없음(`actions: write`만) |
@@ -434,14 +434,14 @@ certificate does not skip it; an EV certificate would not either, and Artifact S
 
 - **Microsoft Artifact Signing**(옛 이름 Trusted Signing), **Basic** 등급: 월 정액(약 $9.99/월; 가격 페이지는 숫자를 스크립트로 채우므로 계정 생성 화면의 금액을 본다), 한 달 5,000번 서명, 인증서 프로필 종류마다 1개. 일할 계산 없음. 유료 구독(종량제)이 필요하고 무료·체험 구독은 안 된다.
 - 인증서는 Microsoft가 보관하고 매일 새로 발급한다(수명 3일). 키를 받지 않으므로 잃어버리거나 샐 키 파일이 없다. 서명에 RFC 3161 타임스탬프(`http://timestamp.acs.microsoft.com`)를 붙여 인증서가 끝난 뒤에도 서명은 유효하다.
-- 공개 신뢰(Public Trust) 조직 확인: 미국·캐나다·EU·영국·호주·뉴질랜드·일본·**대한민국**·싱가포르·스위스·노르웨이·이스라엘의 조직(2026-05 문서). 확인은 Azure 포털에서만 하고 1–20 영업일(서류를 더 달라면 더). 서류는 12개월 안에 발급된 것.
+- 공개 신뢰(Public Trust) 조직 확인: 미국·캐나다·EU·영국·호주·뉴질랜드·일본·**대한민국**·싱가포르·스위스·노르웨이·이스라엘의 조직(2026-05 문서). 확인은 Azure 포털에서만 하고 1–20 영업일(서류를 더 달라면 더). 서류는 12개월 안에 발급된 것, 추가 서류 시도는 세 번(모두 Microsoft 문서 2026-05 기준).
 
 ### 흐름
 
-1. release.yml `build-windows`(job 환경 `release`, 권한 `id-token: write`)가 레포 변수 셋을 `MYCEL_WIN_SIGN_ENDPOINT`·`_ACCOUNT`·`_PROFILE`로 넘긴다. 셋 다 비면 서명 단계는 모두 건너뛰고 지금처럼 서명 없는 설치 파일을 만든다. 하나라도 비면 빌드가 실패한다(실수로 서명 없이 나가지 않게).
+1. release.yml `build-windows`(job 환경 `release`, 권한 `id-token: write`; 그래서 서명을 켜지 않아도 이 job에 environment의 배포 대상 규칙이 걸린다. 릴리스 run은 늘 태그에서 돈다)가 레포 변수 셋을 `MYCEL_WIN_SIGN_ENDPOINT`·`_ACCOUNT`·`_PROFILE`로 넘긴다. 셋 다 비면 서명 단계는 모두 건너뛰고 지금처럼 서명 없는 설치 파일을 만든다. 하나라도 비면 빌드가 실패한다(실수로 서명 없이 나가지 않게).
 2. `ArtifactSigning` PowerShell 모듈을 고정 버전(0.1.8, Azure/artifact-signing-action v2.0.0과 같은 것)으로 설치한다. 모듈이 signtool과 서명 dlib(Microsoft.ArtifactSigning.Client)을 받아 쓴다.
-3. `azure/login`(OIDC)이 Azure CLI에 로그인한다. 저장된 비밀번호나 client secret은 없다: GitHub이 그 run에 준 토큰을 Entra 앱 등록의 federated credential이 받는다.
-4. electron-builder가 `win.signtoolOptions.sign`(`desktop/scripts/win-sign.ts` → `win-sign.ps1` → `Invoke-ArtifactSigning`)으로 앱 exe, 제거 프로그램, NSIS 설치 파일에 SHA-256 서명 하나씩을 한다. Azure CLI 자격만 쓰고(다른 자격은 모두 제외) 서명마다 `Get-AuthenticodeSignature`가 Valid이고 타임스탬프가 있는지 본다. `latest.yml`의 sha512는 서명된 파일의 것이다.
+3. `azure/login`(OIDC, `allow-no-subscriptions`: 서명에는 토큰만 필요하다)이 Azure CLI에 로그인한다. 저장된 비밀번호나 client secret은 없다: GitHub이 그 run에 준 토큰을 Entra 앱 등록의 federated credential이 받는다.
+4. electron-builder가 `win.signtoolOptions.sign`(`desktop/scripts/win-sign.ts` → `win-sign.ps1` → `Invoke-ArtifactSigning`)으로 앱 exe, 제거 프로그램, NSIS 설치 파일에 SHA-256 서명 하나씩을 한다. Azure CLI 자격만 쓰고(다른 자격은 모두 제외) 서명마다 `Get-AuthenticodeSignature`가 Valid이고 타임스탬프가 있는지 본다. 실패하면 두 번 더 해 본다(15초, 30초 뒤). `latest.yml`의 sha512는 서명된 파일의 것이다.
 5. 마지막 단계가 설치 파일과 `win-unpacked/*.exe`를 `signtool verify /pa /tw`로 다시 확인하고 서명자 이름을 로그에 남긴다.
 
 `publisherName`은 넣지 않았다: electron-updater는 지금처럼 윈도우 서명을 따로 요구하지 않고, 업데이트는 Ed25519로 서명된 릴리스와 맞는지로 확인한다(`desktop/src/common/update.ts`). 서명된 판이 퍼진 뒤 넣으면 그 뒤 업데이트는 서명자 이름이 맞아야만 설치된다(이름은 확인된 법인 이름 그대로여야 한다).
@@ -465,11 +465,10 @@ certificate does not skip it; an EV certificate would not either, and Artifact S
    ```
    즉 environment `release`에서 `v*` 태그의 release.yml만 서명할 수 있다(태그 ruleset·environment 대상 제한과 함께, 10장). 미리보기가 막히면 대안은 태그마다 정확한 subject의 credential을 하나씩 더하는 것(앱당 20개 한도)이다. client secret은 쓰지 않는다.
 8. **서명 권한**: 그 앱의 서비스 주체에 `Artifact Signing Certificate Profile Signer`를 인증서 프로필(또는 계정)에 준다.
-9. **GitHub에 넣는다** (id는 비밀이 아니지만 비밀값으로 둔다; 이름은 공개 레포 로그에 나오지 않게):
+9. **GitHub에 넣는다** (id는 비밀이 아니지만 비밀값으로 둔다: 공개 레포의 로그에 가려진다. 구독 id는 필요 없다):
    ```sh
    GH_TOKEN=$(gh auth token -u trina-app-admin) gh secret set AZURE_CLIENT_ID       --repo trina-app/trina-ax --env release
    GH_TOKEN=$(gh auth token -u trina-app-admin) gh secret set AZURE_TENANT_ID       --repo trina-app/trina-ax --env release
-   GH_TOKEN=$(gh auth token -u trina-app-admin) gh secret set AZURE_SUBSCRIPTION_ID --repo trina-app/trina-ax --env release
    GH_TOKEN=$(gh auth token -u trina-app-admin) gh variable set WINDOWS_SIGNING_ENDPOINT --repo trina-app/trina-ax --body https://krc.codesigning.azure.net
    GH_TOKEN=$(gh auth token -u trina-app-admin) gh variable set WINDOWS_SIGNING_ACCOUNT  --repo trina-app/trina-ax --body <계정 이름>
    GH_TOKEN=$(gh auth token -u trina-app-admin) gh variable set WINDOWS_SIGNING_PROFILE  --repo trina-app/trina-ax --body <프로필 이름>

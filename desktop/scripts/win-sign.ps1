@@ -29,10 +29,20 @@ $params = @{
   ExcludeAzureDeveloperCliCredential  = $true
   ExcludeInteractiveBrowserCredential = $true
 }
-Invoke-ArtifactSigning @params
-
-# a signature Windows trusts, with a timestamp (it stays valid after the short-lived certificate expires)
-$sig = Get-AuthenticodeSignature -LiteralPath $Path
-if ($sig.Status -ne 'Valid') { throw "signature of $Path is $($sig.Status): $($sig.StatusMessage)" }
-if ($null -eq $sig.TimeStamperCertificate) { throw "signature of $Path has no timestamp" }
-Write-Host "signed: $Path ($($sig.SignerCertificate.Subject))"
+# three tries: a passing hiccup of the signing service, the timestamp server or a package download should not fail
+# the release (electron-builder retries only a few file and DNS errors itself)
+for ($try = 1; ; $try++) {
+  try {
+    Invoke-ArtifactSigning @params
+    # a signature Windows trusts, with a timestamp (it stays valid after the short-lived certificate expires)
+    $sig = Get-AuthenticodeSignature -LiteralPath $Path
+    if ($sig.Status -ne 'Valid') { throw "signature of $Path is $($sig.Status): $($sig.StatusMessage)" }
+    if ($null -eq $sig.TimeStamperCertificate) { throw "signature of $Path has no timestamp" }
+    Write-Host "signed: $Path ($($sig.SignerCertificate.Subject))"
+    break
+  } catch {
+    if ($try -ge 3) { throw }
+    Write-Warning "signing $Path failed (try $try of 3): $_"
+    Start-Sleep -Seconds (15 * $try)
+  }
+}

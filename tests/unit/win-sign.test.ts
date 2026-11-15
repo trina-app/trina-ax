@@ -68,6 +68,7 @@ describe('the electron-builder hook', () => {
     expect(ps).toContain("TimestampRfc3161                    = 'http://timestamp.acs.microsoft.com'")
     expect(ps).toContain("if ($sig.Status -ne 'Valid')")
     expect(ps).toContain('TimeStamperCertificate')
+    expect(ps).toContain('if ($try -ge 3) { throw }')
   })
 })
 
@@ -97,7 +98,7 @@ describe('the release job', () => {
     expect(login.with).toEqual({
       'client-id': '${{ secrets.AZURE_CLIENT_ID }}',
       'tenant-id': '${{ secrets.AZURE_TENANT_ID }}',
-      'subscription-id': '${{ secrets.AZURE_SUBSCRIPTION_ID }}',
+      'allow-no-subscriptions': true,
     })
     expect(JSON.stringify(job)).not.toMatch(/CLIENT_SECRET|RELEASE_SIGNING_KEY|CLOUDFLARE_API_TOKEN/)
   })
