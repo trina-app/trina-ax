@@ -38,6 +38,10 @@ What stays on your computer:
 
 ![My files with the quiet line Find work files on this computer under the folder's name](../images/find-work-files/my-files-line.webp "The line on My files")
 
+If you joined the team lately, the welcome card on **Home** has the same thing as an optional row, **Bring work files
+from this computer** (in the desktop app only). It opens the same window and adds to the same place. The row shows done
+once a file is there, and it never holds up the rest of the card.
+
 The owner sees the same button in **Getting started › Team files**. There the files go to the team's home folder, as
 the rest of that step does.
 

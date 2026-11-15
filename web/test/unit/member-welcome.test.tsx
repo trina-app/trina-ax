@@ -253,6 +253,104 @@ describe('the card on Home', () => {
   })
 })
 
+describe('the desktop app\'s files row (optional, not counted)', () => {
+  const bridge = (version = 1, scan: () => Promise<unknown> = async () => ({ state: 'cancelled' })) => ({
+    bridgeVersion: 1,
+    workFiles: { version, scan, stop() {}, read: async () => ({ ok: false, reason: 'unknown' }), onProgress: () => () => {}, openSettings() {} },
+  })
+  const setApp = (b: unknown) => { g.mycelDesktop = b }
+  afterEach(() => { delete g.mycelDesktop })
+
+  test('a browser (no desktop app): no row; "1 of 3"', async () => {
+    signIn()
+    const m = await home()
+    try {
+      await m.until(() => m.find('member-welcome'), 'the card')
+      expect(m.find('member-welcome-files')).toBeNull()
+      expect(text(m, 'member-welcome-progress')).toBe('Get started · 1 of 3')
+    } finally { await m.unmount() }
+  })
+
+  test('an older desktop app (another bridge version) or one without workFiles (the Mac App Store build): no row', async () => {
+    for (const b of [bridge(2), { bridgeVersion: 1 }]) {
+      setApp(b)
+      signIn()
+      const m = await home()
+      try {
+        await m.until(() => m.find('member-welcome'), 'the card')
+        expect(m.find('member-welcome-files')).toBeNull()
+      } finally { await m.unmount() }
+      useMemberWelcome.getState().reset()
+    }
+  })
+
+  test('the desktop app: the row, optional, and still "1 of 3"; a phone\'s width: no row', async () => {
+    setApp(bridge())
+    signIn()
+    const m = await home()
+    try {
+      await m.until(() => m.find('member-welcome-files'), 'the files row')
+      expect(m.get('member-welcome-files').getAttribute('data-optional')).toBe('true')
+      expect(m.get('member-welcome-files').getAttribute('data-done')).toBeNull()
+      expect(text(m, 'member-welcome-files')).toContain('Bring work files from this computer')
+      expect(text(m, 'member-welcome-files')).toContain('only you see them in My files › From this computer')
+      expect(text(m, 'member-welcome-files-button')).toBe('Find files')
+      expect(text(m, 'member-welcome-progress')).toBe('Get started · 1 of 3')
+    } finally { await m.unmount() }
+    useMemberWelcome.getState().reset()
+    phoneWidth()
+    const p = await home()
+    try {
+      await p.until(() => p.find('member-welcome'), 'the card')
+      expect(p.find('member-welcome-files')).toBeNull()
+      expect(text(p, 'member-welcome-progress')).toBe('Get started · 1 of 3')
+    } finally { await p.unmount() }
+  })
+
+  test('done once a file is there (the server says): done, Open goes to My files › From this computer; never counted', async () => {
+    setApp(bridge())
+    welcome = card({ steps: { rooms: true, hi: false, photo: false, asked: false, files: true } })
+    signIn()
+    const m = await home()
+    try {
+      await m.until(() => m.find('member-welcome-files'), 'the files row')
+      expect(m.get('member-welcome-files').getAttribute('data-done')).toBe('true')
+      expect(m.find('member-welcome-files-button')).toBeNull()
+      expect(m.get('member-welcome-files-open').getAttribute('href')).toBe('/files?path=users%2Fmina%2FFrom%20this%20computer')
+      expect(text(m, 'member-welcome-progress')).toBe('Get started · 1 of 3')
+    } finally { await m.unmount() }
+  })
+
+  test('it never holds back "You\'re all set": hi and asked done, no files', async () => {
+    setApp(bridge())
+    welcome = card({ steps: { rooms: true, hi: true, photo: false, asked: true, files: false }, allSet: true })
+    signIn()
+    const m = await home()
+    try {
+      await m.until(() => m.find('member-welcome'), 'the card')
+      expect(m.get('member-welcome').getAttribute('data-state')).toBe('all-set')
+      expect(m.find('member-welcome-files')).toBeNull()
+    } finally { await m.unmount() }
+  })
+
+  test('Find files opens My files\' dialog; Cancel in the app\'s own window comes back to the card, which reads its rows again', async () => {
+    let answer: (v: unknown) => void = () => {}
+    setApp(bridge(1, () => new Promise((ok) => { answer = ok })))
+    signIn()
+    const m = await home()
+    try {
+      await m.until(() => m.find('member-welcome-files-button'), 'the button')
+      const reads = called('GET /api/me/welcome').length
+      await act(async () => { m.get('member-welcome-files-button').click() })
+      await m.until(() => document.querySelector('[data-testid="find-work"][data-screen="asking"]'), 'the app asks first')
+      await act(async () => { answer({ state: 'cancelled' }) })
+      await m.until(() => !document.querySelector('[data-testid="find-work"]'), 'the dialog closed')
+      expect(m.find('member-welcome-files')).not.toBeNull()
+      await m.until(() => called('GET /api/me/welcome').length > reads, 'the card read again')
+    } finally { await m.unmount() }
+  })
+})
+
 describe('no AI for the person', () => {
   test('ask the owner: the last row says so and tells them once ("Told them"); no separate no-AI card', async () => {
     signIn()
