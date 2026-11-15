@@ -1,5 +1,5 @@
 // Admin and Settings, reorganised (pages/admin/AdminLayout.tsx, pages/settingsTabs.ts, components/settings/SettingsDialog.tsx):
-// Admin's groups People · Connections · Activity · Team, one "Providers" page (first in Connections) instead of AI
+// Admin's groups People · Connections · Activity · Team, one "AI providers" page (first in Connections) instead of AI
 // engines plus AI connections (each provider with its own accounts and Add account), the old addresses leading there,
 // the team's AI settings in Team settings (#ai), Settings' named groups Account · Connections · App, and every page
 // saying whether it is for the whole team or just for you.
@@ -28,7 +28,7 @@ async function start(page: Page) {
   await signIn(page)
 }
 
-test('Admin: four groups, Providers first in Connections, no AI group and no AI connections; every page says it is for the whole team', async ({ page }) => {
+test('Admin: four groups, AI providers first in Connections, no AI group and no AI connections; every page says it is for the whole team', async ({ page }) => {
   const errors = watchConsole(page)
   await start(page)
   await page.goto('/admin')
@@ -55,7 +55,7 @@ test('Admin: four groups, Providers first in Connections, no AI group and no AI 
   expect(realErrors(errors)).toEqual([])
 })
 
-test('Providers: each engine row lists its own accounts with Add account for just its kinds', async ({ page }) => {
+test('AI providers: each engine row lists its own accounts with Add account for just its kinds', async ({ page }) => {
   await start(page)
   await page.goto('/admin/providers')
   await expect(page.getByTestId('engines-header')).toContainText(t['admin.providers'])
@@ -78,7 +78,7 @@ test('Providers: each engine row lists its own accounts with Add account for jus
   await expect(page.getByTestId('team-ai-settings').getByTestId('member-accounts')).toContainText(t['providers.memberAccounts'])
 })
 
-test('old addresses: AI engines and AI connections open Providers (with the provider open), their team tab opens Team settings, Settings › AI connections opens Providers', async ({ page }) => {
+test('old addresses: AI engines and AI connections open AI providers (with the provider open), their team tab opens Team settings, Settings › AI connections opens AI providers', async ({ page }) => {
   await start(page)
   await page.goto('/admin/engines?tab=team')
   await expect(page).toHaveURL(/\/admin\/settings#ai$/)
@@ -93,7 +93,7 @@ test('old addresses: AI engines and AI connections open Providers (with the prov
   await expect(page.getByTestId('my-providers')).toBeVisible()
 })
 
-test('Settings: named groups Account, Connections, App (Connectors, then Providers in Connections); every section says it is just for you', async ({ page }) => {
+test('Settings: named groups Account, Connections, App (Connectors, then AI providers in Connections); every section says it is just for you', async ({ page }) => {
   await start(page)
   await page.goto('/settings/profile')
   const list = page.getByTestId('settings-menu')
@@ -102,7 +102,7 @@ test('Settings: named groups Account, Connections, App (Connectors, then Provide
     await expect(g.getByText(t[`settings.group.${group}` as MessageKey], { exact: true })).toBeVisible()
     await expect(g.getByRole('link')).toHaveText(items.map((k) => t[k]))
   }
-  // no AI group any more: Providers is under Connections, Memory under Account
+  // no AI group any more: AI providers is under Connections, Memory under Account
   await expect(list.getByTestId('settings-group-ai')).toHaveCount(0)
   for (const path of ['/settings/profile', '/settings/providers']) {
     await page.goto(path)
@@ -128,7 +128,7 @@ test('phone width: the Admin list and the Settings list keep every item without 
 })
 
 for (const scheme of ['light', 'dark'] as const) {
-  test(`Providers, the AI groups of Team settings, the Admin menu and the Settings groups have no serious accessibility problems (${scheme})`, async ({ page }) => {
+  test(`AI providers, the AI groups of Team settings, the Admin menu and the Settings groups have no serious accessibility problems (${scheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme })
     await start(page)
     const audit = async () => {

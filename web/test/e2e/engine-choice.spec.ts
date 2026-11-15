@@ -114,7 +114,7 @@ test('the admin lets a member pick; the member sees the picker without reloading
   // Codex off: the fallback is off and cannot be turned on
   await page.reload()
   await expect(card.getByLabel('다른 AI로 대신 답하기')).toBeChecked()
-  // the switch is on Admin › Providers; back in Team settings the fallback follows it
+  // the switch is on Admin › AI providers; back in Team settings the fallback follows it
   await page.goto('/admin/providers')
   await page.locator('[data-engine="codex"] label').filter({ has: page.getByTestId('engine-switch-codex') }).click()
   await expect(page.getByTestId('engine-switch-codex')).not.toBeChecked()
