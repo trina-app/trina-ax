@@ -130,7 +130,11 @@ characters (and the note no hidden characters).
   `integration_template_offers` keeps a second notice from coming after the first is past its 30 days. When a new
   address, sign-in method or header drops a member's key, that member gets "Reconnect <name>"
   (`integration.template_reconnect`, one per change). Both open Settings › Connectors with the template's Connect
-  (`?template=<id>`); they carry its id and name only while it is still for that person, never an address or a key.
+  (`?template=<id>`) only while it is still for that person; they carry its id, name and `signIn` (a sign-in template:
+  "sign in again with your own account", else "enter your own key again") while it is there, never an address or a
+  key. A member whose connection went because the template is no longer for them (the admin narrowed who it is for,
+  alone or with a new address, or they left its group) gets one "You no longer have access to <name>" (the same table
+  and event type, source `<template>.left.<connection>`, `templateLeft`), with no link and no "connect it again".
 - In a chat, the AI is told which templates for this person are not connected yet (or whose key stopped working) and
   offers the connect card for them (`connect_service` with `template`, or found by the address the AI filled in). The
   card says "Connect your own key for <name>" and connects through the template's own path (`templates.ts connect`):

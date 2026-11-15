@@ -7,7 +7,8 @@
 // By case (lib/connectCard.ts): paste a key into the password box (sealed in this browser, lib/seal.ts, and sent only
 // to POST /api/turns/:id/connect; the box says where it goes and that the AI never sees it), sign in at the service
 // (a window reserved during the click, like Settings > External services: useSignIn), connect with nothing to give,
-// or the Google Drive flow of Settings (useDriveFlow). A team connection: who may use it, just the admin or everyone.
+// or the Google Drive flow of Settings (useDriveFlow; in the phone app, as there, one line to connect on a computer).
+// A team connection: who may use it, just the admin or everyone.
 // "Not now" skips. A failed check keeps the card and the box for another key. The card closes when the server sends
 // turn.request.closed, and right away here after a connected or skipped answer. Never answered from the message box.
 // Trust (lib/connectCard.ts cardTrust): a service in the app's list at exactly its official address says so; any other
@@ -20,6 +21,7 @@ import { useId, useState } from 'react'
 import type { TurnConnectResult } from '@mycel/shared/api'
 import { errorText, isApiError } from '../../lib/api'
 import { cardTrust, connectCase, notOfficialOf, connectWithKey, connectWithoutKey, finishConnect, hostOffName, skipConnect, type ConnectAccess, type ConnectServiceRequest } from '../../lib/connectCard'
+import { builtInName } from '../../lib/googleApps'
 import { mobileApp } from '../../lib/mobile'
 import { canSeal } from '../../lib/seal'
 import { useLocale, useT } from '../../i18n'
@@ -156,7 +158,8 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
       </Button>
     )
   ) : kase === 'google_drive' ? (
-    !drive.inProgress && (
+    // the phone app: no Google sign-in here, as on Settings › Connectors › Google Drive (QA TC-262, TC-2977)
+    !phone && !drive.inProgress && (
       <Button size="sm" variant="primary" busy={drive.busy} disabled={working} onClick={() => void drive.start()} data-testid="connect-drive">
         {t('drive.connect')}
       </Button>
@@ -314,8 +317,14 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
         {kase === 'google_drive' && (
           <>
             <p className="text-muted">{t('drive.description')}</p>
-            <p className="rounded-xl bg-subtle p-3 text-xs text-muted">{t('drive.privacy')}</p>
-            {phone && <p className="text-xs text-muted">{t('drive.mobileBrowserLogin')}</p>}
+            {/* what connecting sends where: said where it is connected (a computer, in the phone app) */}
+            {!phone && <p className="rounded-xl bg-subtle p-3 text-xs text-muted">{t('drive.privacy')}</p>}
+            {/* the phone app: the same one line as Settings › Connectors › Google Drive there (pages/Connectors.tsx) */}
+            {phone && (
+              <p className="text-muted" data-testid="connect-drive-on-computer">
+                {t(r.reconnect ? 'integrations.reconnectOnComputer' : 'integrations.onComputer', { name: builtInName('google-drive') })}
+              </p>
+            )}
             {drive.inProgress && drive.flow && <DriveFlowPanel d={drive} flow={drive.flow} />}
             {drive.error && <ErrorNote>{t('drive.failed')}</ErrorNote>}
           </>

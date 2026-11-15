@@ -60,6 +60,12 @@ const isTemplateEvent = (e: NotificationEventType): e is TemplateNoticeEvent => 
 /** a reconnect notice's source: the template and the version its address, sign-in method or header changed to (one
  * notice per change, never one per member's dropped row) */
 const reconnectSource = (templateId: string, version: number) => `${templateId}.v${version}`
+/** A member a template no longer covers lost their connection made from it (QA TC-2980): the reconnect notice's table and
+ * event type (so no new CHECK value), its own source: the template id and the connection that went */
+const leftSource = (templateId: string, connectionId: string) => `${templateId}.left.${connectionId}`
+const LEFT_SOURCE = /\.left\.[^.]+$/
+/** the template id of a template notice's source (reconnectSource, leftSource, or the bare id) */
+const templateOfSource = (sourceId: string) => sourceId.replace(LEFT_SOURCE, '').replace(/\.v\d+$/, '')
 export type ServiceRequestEvent = Extract<NotificationEventType, 'service.request' | 'service.ready'>
 const isServiceRequestEvent = (e: NotificationEventType): e is ServiceRequestEvent => e === 'service.request' || e === 'service.ready'
 export type HostingNoticeEvent = Extract<NotificationEventType, 'hosting.key_copied' | 'hosting.exported' | 'relay.address_moved'>
@@ -444,6 +450,12 @@ export class Notifications {
   templateReconnect(userId: string, templateId: string, version: number, at = new Date().toISOString()) {
     this.record(userId, 'integration.template_reconnect', reconnectSource(templateId, version), at, true)
   }
+  /** A template no longer covers the member (an admin narrowed who it is for, maybe with a new address, or they left one
+   * of its groups), so their own connection made from it went: one plain notice that they no longer have it, never a
+   * "connect it again". One per connection that went. Shown always, like the others. */
+  templateLeft(userId: string, templateId: string, connectionId: string, at = new Date().toISOString()) {
+    this.record(userId, 'integration.template_reconnect', leftSource(templateId, connectionId), at, true)
+  }
   /** A Drive shared with the team stopped (its admin left, or Google signed it out): every active admin is told to sign
    * in again, once per episode (`sourceId`: the share and its version). Shown always: members lose the folders. */
   driveShareReconnect(sourceId: string, at = new Date().toISOString()) {
@@ -700,14 +712,18 @@ export class Notifications {
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: shown ? 'admin_connectors' : null, outcome: null,
         ...(shown ? { driveShare: { id: share!.id, name: share!.name } } : {}) }
     }
-    // a connection template: its id and name while it is there and still for this person (Settings › MCP opens it);
-    // a reconnect notice's source is the template id and its version (reconnectSource)
+    // a connection template: its id, name and whether it is a sign-in while it is there (the words follow: sign in again
+    // or enter the key again; QA TC-2980), and a link (Settings › Connectors opens it) only while it is still for this
+    // person. One it no longer covers keeps its name, which they were told before. A reconnect notice's source is the
+    // template id and its version (reconnectSource); the "no longer for you" notice's, leftSource (templateLeft)
     if (isTemplateEvent(row.event_type)) {
-      const id = row.event_type === 'integration.template_reconnect' ? row.source_id.replace(/\.v\d+$/, '') : row.source_id
-      const t = this.ctx.db.query('SELECT id, name FROM integration_templates WHERE id=?').get(id) as { id: string; name: string } | null
-      const shown = t && templateCovers(this.ctx.db, t.id, row.user_id)
-      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: shown ? 'integrations' : null, outcome: null,
-        ...(shown ? { template: { id: t!.id, name: t!.name } } : {}) }
+      const id = row.event_type === 'integration.template_reconnect' ? templateOfSource(row.source_id) : row.source_id
+      const left = row.event_type === 'integration.template_reconnect' && LEFT_SOURCE.test(row.source_id)
+      const t = this.ctx.db.query('SELECT id, name, auth FROM integration_templates WHERE id=?').get(id) as { id: string; name: string; auth: string } | null
+      const linked = !!t && !left && templateCovers(this.ctx.db, t.id, row.user_id)
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: linked ? 'integrations' : null, outcome: null,
+        ...(t ? { template: { id: t.id, name: t.name, ...(t.auth === 'oauth' ? { signIn: true as const } : {}) } } : {}),
+        ...(left ? { templateLeft: true as const } : {}) }
     }
     // a scheduled run that did not start for want of the owner's own key for a template: which one (by the name it had
     // then), and Settings › MCP to connect it
@@ -951,6 +967,10 @@ export function notifyDriveShareReconnect(ctx: AppContext, _shareId: string, sou
 export function notifyTemplateReconnect(ctx: AppContext, userId: string, templateId: string, version: number) {
   try { notificationsOf(ctx).templateReconnect(userId, templateId, version) }
   catch { ctx.log.warn('template reconnect notice deferred') }
+}
+export function notifyTemplateLeft(ctx: AppContext, userId: string, templateId: string, connectionId: string) {
+  try { notificationsOf(ctx).templateLeft(userId, templateId, connectionId) }
+  catch { ctx.log.warn('template left notice deferred') }
 }
 /** A member asked to add an app: told to each owner and admin (one notice per person and app). */
 export function notifyServiceRequested(ctx: AppContext, userIds: Iterable<string>, service: string) {

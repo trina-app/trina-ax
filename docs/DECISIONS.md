@@ -28884,3 +28884,23 @@ need Full Disk Access?". Still conservative: recent (≤180 days), work-like, th
 - Tests: `tests/unit/remote-mcp-http.test.ts`, `web/test/unit/ai-app-connected.test.ts`,
   `web/test/unit/connector-consent-expired.test.ts`, `web/test/e2e/connectors.spec.ts`, `web/test/e2e/ai-apps.spec.ts`.
 - Version impact: **patch**.
+
+## Phone app Drive card says "connect on a computer"; template notices follow the sign-in type and tell people left out (fix/phone-drive-card-template-notices, 2026-11-15, QA TC-2977, TC-2980)
+
+- **The chat's Google Drive card follows Settings in the phone app.** Settings › Connectors › Google Drive there has no
+  Google sign-in, only "Connect Google Drive on a computer." (QA TC-262). The chat card offered "Connect Google account"
+  and a browser sign-in line. Now, with the same `mobileApp()` check, the card shows the same line ("Reconnect … on a
+  computer." for a reconnect card), no connect button and no privacy box (that is shown where it is connected); "Not
+  now" stays. A phone's browser keeps the sign-in. Removed: the string `drive.mobileBrowserLogin` (6 languages).
+- **Template notices say what to do for that template.** A sign-in template's notices say "sign in with your own
+  account" / "sign in again with your own account"; a key template's "connect it with your own key" / "enter your own
+  key again". The server adds `template.signIn`. Without a template (deleted) the words name no key or sign-in.
+- **Left out of a template: one plain notice.** When a connection goes because the template no longer covers its member
+  (`dropFromTemplate` `not_covered`: the admin narrowed who it is for, alone or with a new address, or they left its
+  group), the member gets "You no longer have access to <name>." It uses the reconnect notice's table and event type
+  with its own source (`<template>.left.<connection>`, `templateLeft: true`), so no migration; an older app shows it
+  with the reconnect words. No link, not under 요청. On a server rollback an older server shows it as "A team template
+  changed: connect it again." (it does not know the source form); harmless: the template is not for them, so its
+  Connect is not there to use.
+- **Template notices keep the name while the template is there**, also for someone it is no longer for (they were told
+  the name before); the link to its Connect stays only while it is for them.

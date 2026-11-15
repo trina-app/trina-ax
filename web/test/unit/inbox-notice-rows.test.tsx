@@ -165,3 +165,25 @@ test('"tried to use Trina but it isn\'t set up yet": the name while the account 
   expect(text(ask({ sourceId: 'u1', requester: { name: 'Mia' } }), 'en')).toBe(en('notifications.event.onboarding.ai_requestNamed', { name: 'Mia' }))
   expect(noticeLink(ask({ notReady: true }))?.to).toBe('/admin/providers')
 })
+
+test('a team template\'s notices follow how it signs in, and one no longer for me says so (QA TC-2980)', () => {
+  const tpl = (o: Partial<InboxNotification>) => notice({ eventType: 'integration.template', code: 'integration.template', chatId: null, link: 'integrations', outcome: null, ...o })
+  const re = (o: Partial<InboxNotification>) => tpl({ eventType: 'integration.template_reconnect', code: 'integration.template_reconnect', ...o })
+  const key = { id: 't1', name: 'Acme Tasks' }
+  const signIn = { id: 't2', name: 'Acme Wiki', signIn: true as const }
+  expect(text(tpl({ template: key }), 'en')).toBe('Acme Tasks is ready: connect it with your own key.')
+  expect(text(tpl({ template: signIn }), 'en')).toBe('Acme Wiki is ready: sign in with your own account.')
+  expect(text(re({ template: key }), 'en')).toBe('Acme Tasks changed its address or sign-in: enter your own key again.')
+  expect(text(re({ template: signIn }), 'en')).toBe('Acme Wiki changed its address or sign-in: sign in again with your own account.')
+  // a sign-in template never says "key"
+  for (const item of [tpl({ template: signIn }), re({ template: signIn })]) for (const l of ['en', 'ko'] as const) expect(text(item, l)).not.toMatch(/key|키/)
+  expect(text(re({ template: signIn }), 'ko')).toBe('Acme Wiki의 주소나 로그인 방식이 바뀌었어요. 내 계정으로 다시 로그인해 주세요.')
+  // no longer for me: one plain line, nothing to connect, no link
+  const left = re({ template: { id: 't3', name: 'Acme Board' }, templateLeft: true, link: null })
+  expect(text(left, 'en')).toBe('You no longer have access to Acme Board.')
+  expect(noticeLink(left)).toBeNull()
+  // the template gone: no name, and no key or sign-in named
+  expect(text(re({ templateLeft: true, link: null }), 'en')).toBe('You no longer have access to a team template.')
+  expect(text(re({ link: null }), 'en')).toBe('A team template changed: connect it again.')
+  expect(text(tpl({ link: null }), 'en')).toBe('A team template is ready to connect.')
+})

@@ -210,6 +210,26 @@ export function connectorsCases() {
       for (const id of ['drive-reconnect', 'drive-menu', 'drive-try']) await expect(page.getByTestId(id)).toHaveCount(0)
     })
 
+    test('a chat\'s Drive card says what Settings says: "connect on a computer", no Google sign-in (QA TC-2977)', async ({ page }) => {
+      const drive = await fakeDrive(page, disconnected)
+      await signIn(page, BOB)
+      await page.goto('/connectors/google-drive')
+      const line = tr('integrations.onComputer', { name: 'Google Drive' })
+      await expect(page.getByTestId('drive-detail').getByTestId('drive-on-computer')).toHaveText(line)
+      await page.goto('/')
+      await page.getByTestId('composer-input').fill('connectdrive find the budget file in my Drive')
+      await page.getByTestId('send').tap()
+      const card = page.getByTestId('connect-card')
+      await expect(card).toBeVisible()
+      await expect(card.getByTestId('connect-drive-on-computer')).toHaveText(line)
+      await expect(card.getByTestId('connect-drive')).toHaveCount(0)
+      await expect(card).not.toContainText(t['drive.connect'])
+      await expect(card.getByTestId('connect-skip')).toBeVisible()
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+      expect(drive.authorized).toBe(0)
+      expect(await sentToApp(page)).not.toContain('external-open')
+    })
+
     test('a Google app works the same: its + opens its page without Google; connected: Settings and Disconnect', async ({ page }) => {
       expect((await page.request.post('/__test/google-apps', { data: { app: 'gmail', client: 'app' } })).ok()).toBeTruthy()
       await signIn(page, BOB)
