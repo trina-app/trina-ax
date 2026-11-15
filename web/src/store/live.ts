@@ -278,7 +278,8 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
           // whether they left their place themselves or were taken out is the server's to say (the 401's params.guest):
           // asked first, so the screen never says "no longer in" for a moment before "You left" (QA TC-3225)
           const team = me!.team.name
-          const still = () => useSession.getState().status.kind === 'signed-in'
+          // (the link closing right after may have signed out as "expired" meanwhile: this event knows better)
+          const still = () => { const st = useSession.getState().status; return st.kind === 'signed-in' || (st.kind === 'signed-out' && (st.reason === 'expired' || st.reason === 'ended')) }
           api.call(API.me).then(
             () => { if (still()) useSession.getState().signedOut('removed', team) },
             (e) => { if (!still()) return; const g = guestRemoval(e); useSession.getState().signedOut(g?.how ?? 'removed', g?.team ?? team) },
