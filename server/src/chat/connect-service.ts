@@ -132,8 +132,6 @@ function templateCard(t: NonNullable<ReturnType<typeof getTemplate>>, why: strin
     template: { id: t.id, version: t.version }, ...(why ? { why } : {}), expiresAt,
   }
 }
-/** The person's own connection (not from a template, not a Google app, which signs in on its own page) that needs a new
- * sign-in or key (QA TC-127): the card offers it again for that connection. */
 /** The answer for a person's own connection while the team has members' own connections off (store.ts offByTeam): it is
  * kept but not used, so the AI says why and who can change it, never that its tools are there (QA TC-2930). */
 function ownOff(name: string, viewer: Viewer, L: Locale): string {
@@ -143,6 +141,8 @@ function ownOff(name: string, viewer: Viewer, L: Locale): string {
     : `${why} ${refusal({ done: 'No card was shown.', why: { kind: 'permission', what: 'personal connections are off for the team', grant: ['an admin'], how: `in ${SCREEN.adminSettings(L)}` }, next: 'tell the person their team has turned off their own connections and to ask an admin' })}`
 }
 
+/** The person's own connection (not from a template, not a Google app, which signs in on its own page) that needs a new
+ * sign-in or key (QA TC-127): the card offers it again for that connection. */
 export function ownNeedsSignIn(r: Row | null, userId: string): boolean {
   return !!r && r.scope === 'personal' && r.owner_user_id === userId && !r.template_id && !r.google_app && r.auth !== 'none'
     && (r.status === 'needs_auth' || !r.secret_enc || /^(refused|no_secret|sign_in)\b/.test(r.last_error ?? ''))

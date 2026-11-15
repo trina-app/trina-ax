@@ -130,7 +130,8 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
   const flow = actions.signIn.state?.id === i.id ? actions.signIn.state : null
   const checking = actions.checking === i.id
   const failing = !!i.lastError && i.status !== 'connected' && !i.personalOff
-  const note = lastCheckNote(i)
+  // off by the team: not used, so a failed check is not news (QA TC-2930)
+  const note = i.personalOff ? null : lastCheckNote(i)
   const short = toolsShortfall(i)
   const off = i.tools.filter((x) => x.enabled === false).length
   const allowed = i.writePolicy === 'allow' || !!i.alwaysAllowedByMe

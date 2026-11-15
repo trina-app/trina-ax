@@ -76,3 +76,11 @@ test('the switch\'s hint in Team settings says what keeps working while it is of
     for (const w of want) expect(hint, `${l}: ${w}`).toContain(w)
   }
 })
+
+test('a connected one whose last check failed: no "last check failed" line while it is off by the team', async () => {
+  const failed = { ...mine, lastError: 'The service did not answer.', lastErrorReason: 'timeout', toolsUpdatedAt: now }
+  const off = await page({ ...failed, personalOff: true })
+  try { expect(off.find('integration-check-failed')).toBeNull() } finally { await off.unmount() }
+  const on = await page(failed)
+  try { expect(on.find('integration-check-failed')).not.toBeNull() } finally { await on.unmount() }
+})
