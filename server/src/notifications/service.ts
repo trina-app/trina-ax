@@ -28,7 +28,7 @@ import { handoverNoticeOut, isHandoverEvent, type HandoverEvent } from '../admin
 import { serviceRequestOut } from '../integrations/service-request-notices'
 import { inPeopleAudience, isPeopleRow } from '../chat/chat-audience'
 import { redactorFor } from '../integrations/connections/redact'
-import { storedKeyFilesOf } from '../integrations/connections/file-scan'
+import { FILE_SCAN_VERSION, storedKeyFilesOf } from '../integrations/connections/file-scan'
 import { datedSql } from '../auth/deletion-requests'
 import { CHAT_ANSWER_COALESCE_MS, CHAT_ANSWER_PUSH_DELAY_MS, CHAT_CARD_PUSH_DELAY_MS, chatOpenFor, type ChatAnswerKind } from './chat-answers'
 
@@ -249,10 +249,11 @@ export class Notifications {
     this.record(userId, 'service.closed', requestId, at, true)
   }
   /** Files the AI saved earlier that still hold one of the person's stored connection keys (integrations/connections/
-   * file-scan.ts, QA TC-3082): one notice per person (source 'scan'), listing them when shown. Activity only, never an
-   * OS push, shown whatever the preferences say. */
+   * file-scan.ts, QA TC-3082): one notice per person and scan version (source `scan-v<version>`, so a later version of
+   * the scan can tell them again), listing them when shown. Activity only, never an OS push, shown whatever the
+   * preferences say. */
   storedKeyFiles(userId: string, at = new Date().toISOString()) {
-    this.record(userId, 'files.stored_key', 'scan', at, true)
+    this.record(userId, 'files.stored_key', `scan-v${FILE_SCAN_VERSION}`, at, true)
   }
   /** Who handles the asks changed (the 30-second check): someone no longer an active owner or admin loses the notices
    * (nothing there is theirs to do), and an owner or admin made since gets the notice of each app asked for now. */

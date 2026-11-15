@@ -86,6 +86,8 @@ describe('older AI-made files with a stored key (file-scan.ts)', () => {
     expect(mine).toHaveLength(1)
     expect(mine[0]!.keyFiles).toEqual({ n: 2, files: [{ path: 'users/alice/notes.md' }, { path: 'users/alice/report.docx' }] })
     expect(mine[0]!.link).toBeNull()
+    // one notice per scan version: a later version may tell again
+    expect(mine[0]!.sourceId).toBe('scan-v1')
     // never the key, in no form
     expect(JSON.stringify(mine)).not.toContain(KEY)
     expect(JSON.stringify(mine)).not.toContain(B64)
@@ -131,7 +133,7 @@ describe('older AI-made files with a stored key (file-scan.ts)', () => {
     }
   })
 
-  test('bounded: at most the newest `files` files per run, and a stopping server writes nothing', async () => {
+  test('bounded: at most the newest `files` files per run, a pause after `batch` files or `pauseBytes` read, and a stopping server writes nothing', async () => {
     const db = h.ctx.db
     db.query('DELETE FROM settings WHERE key = ?').run(FILE_SCAN_KEY)
     db.query("DELETE FROM stored_key_files WHERE user_id = 'alice'").run()
@@ -141,6 +143,10 @@ describe('older AI-made files with a stored key (file-scan.ts)', () => {
     expect(stopped.done).toBe(false)
     expect(db.query("SELECT COUNT(*) AS n FROM stored_key_files WHERE user_id = 'alice'").get()).toEqual({ n: 0 })
     expect(mark()).toBeNull()
+    // big files: it pauses after the bytes, not only after `batch` files (a stopping server is seen at the first pause)
+    const early = await findKeysInOldFiles(h.ctx, { limits: { ...limits, batch: 1000, pauseBytes: 1 }, stopped: () => true })
+    expect(early).toEqual({ scanned: 1, found: 1, people: 0, done: false })
+    expect(db.query("SELECT COUNT(*) AS n FROM stored_key_files WHERE user_id = 'alice'").get()).toEqual({ n: 0 })
     const r = await findKeysInOldFiles(h.ctx, { limits })
     expect(r).toEqual({ scanned: 3, found: 3, people: 1, done: true })
     expect((db.query("SELECT path FROM stored_key_files WHERE user_id = 'alice' ORDER BY path").all() as { path: string }[]).map((x) => x.path)).toEqual(['users/alice/many-3.md', 'users/alice/many-4.md', 'users/alice/many-5.md'])

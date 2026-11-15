@@ -5,7 +5,7 @@
 -- rewritten: the person is told.
 --   stored_key_files: the person whose key it is (whose AI turn saved the file) and the file's team path. Paths only,
 --     never the key or the text around it. Which of them the person may open is read when the notice is shown.
---   stored_key_file_notices: 'files.stored_key' to that person, one per person (source 'scan'). The same columns as
+--   stored_key_file_notices: 'files.stored_key' to that person, one per person and scan version (source 'scan-v1', 'scan-v2', …). The same columns as
 --     service_request_closed_notices (353), a table of its own because notification_inbox has a fixed event_type
 --     CHECK list and tables are never rebuilt. Activity only, never pushed.
 -- Additive only (reader 1): an older build does not know the tables.

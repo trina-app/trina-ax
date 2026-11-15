@@ -17,8 +17,10 @@ export const FILE_SCAN_KEY = 'files.storedKeyScan'
 export const FILE_SCAN_VERSION = 1
 
 /** What one run looks at, at most: the newest files the AI saved (the rest wait for no one: the run is still marked
- * done, see DECISIONS), and the text read of each file and of its search text. */
-export const FILE_SCAN_LIMITS = { files: 20_000, bytes: 4 * 1024 * 1024, batch: 50 }
+ * done, see DECISIONS), and the text read of each file and of its search text. It lets the server's other work run
+ * after every `batch` files and after every `pauseBytes` read (one big file is enough), so big files never hold the
+ * start-up (the dev server's health check) for long. */
+export const FILE_SCAN_LIMITS = { files: 20_000, bytes: 4 * 1024 * 1024, batch: 50, pauseBytes: 2 * 1024 * 1024 }
 
 export interface FileScanResult {
   /** files looked at (they exist and their person may still read them) */
@@ -33,14 +35,15 @@ export interface FileScanResult {
 
 const pause = () => new Promise<void>((r) => setImmediate(r))
 
-/** The text of a regular file up to `max` bytes, as UTF-8; null when there is none, it is bigger, or not text. */
-function textOf(abs: string, max: number): string | null {
+/** The text of a regular file up to `max` bytes, as UTF-8 (null when there is none, it is bigger, or not text), and
+ * how many bytes were read for it. */
+function textOf(abs: string, max: number): { text: string | null; read: number } {
   try {
     const st = fs.lstatSync(abs)
-    if (!st.isFile() || st.size > max) return null
+    if (!st.isFile() || st.size > max) return { text: null, read: 0 }
     const { bytes } = readRegular(abs, max)
-    return isUtf8(bytes) ? bytes.toString('utf8') : null
-  } catch { return null }
+    return { text: isUtf8(bytes) ? bytes.toString('utf8') : null, read: bytes.length }
+  } catch { return { text: null, read: 0 } }
 }
 
 /** The person's redactor, and whether it has every one of their keys (allSecretsFor); a failure is logged. */
@@ -81,12 +84,16 @@ export async function findKeysInOldFiles(ctx: AppContext, o: { limits?: typeof F
   const found = new Map<string, string[]>()
   const files = ctx.files
   const rules = files.rules()
+  /** files and bytes since the last pause */
+  let since = 0, sinceBytes = 0
   for (let i = 0; i < rows.length; i++) {
-    if (i && i % limits.batch === 0) {
+    if (since >= limits.batch || sinceBytes >= limits.pauseBytes) {
+      since = 0; sinceBytes = 0
       await pause()
       // the server is stopping: nothing is written, the next start looks again
       if (o.stopped?.()) return result
     }
+    since++
     const { user_id: userId, path: rel } = rows[i]!
     let who = people.get(userId)
     if (who === undefined) {
@@ -108,7 +115,9 @@ export async function findKeysInOldFiles(ctx: AppContext, o: { limits?: typeof F
       cache = files.office.cachePath(a.rel)
     } catch { continue }
     result.scanned++
-    const holds = [textOf(abs, limits.bytes), textOf(cache, limits.bytes)].some((t) => t !== null && t.search(who.r.re!) >= 0)
+    const texts = [textOf(abs, limits.bytes), textOf(cache, limits.bytes)]
+    sinceBytes += texts[0]!.read + texts[1]!.read
+    const holds = texts.some(({ text }) => text !== null && text.search(who.r.re!) >= 0)
     if (!holds) continue
     result.found++
     const list = found.get(userId) ?? []

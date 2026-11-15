@@ -25,7 +25,8 @@ In:
   push). The notice says how many and lists the files under it as links (`/files/view?path=…`), only the ones the
   person may open now, read when the notice is shown (no access is widened; a file that is gone drops off).
 - Marked done only when every stored key could be read (as #953); otherwise it runs again at the next start.
-- Bounded: at most 20,000 files and 4 MB of text per file per run, a pause between batches, logs only counts.
+- Bounded: at most 20,000 files and 4 MB of text per file per run, a pause after every 50 files and every 2 MB read,
+  logs only counts.
 
 Out: rewriting or deleting files or their text cache; files the person uploaded themselves; telling the team owner
 (they may not be allowed to open the person's files; open question in the PR).
@@ -54,4 +55,4 @@ web unit for the Activity row, `bun run test:web`, `bun run build:web`.
 
 Built as planned: file-scan.ts (once after start, bounded, done only when every key was read), migration 354, the
 `files.stored_key` notice with its files under the row (on a computer it opens beside the list), six languages,
-screenshots spec `web/test/e2e/shots-key-files-notice.spec.ts`. Not the team owner: open question in the PR.
+screenshots spec `web/test/e2e/shots-key-files-notice.spec.ts`. Not the team owner (it would show private file names; security review).

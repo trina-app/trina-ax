@@ -17,7 +17,7 @@ import { ME } from './rooms-fixtures'
 setDefaultTimeout(30_000)
 const en = (k: Parameters<typeof translate>[1], p?: Record<string, string | number>) => translate('en', k, p)
 const notice = (keyFiles?: InboxNotification['keyFiles']) => InboxNotification.parse({
-  id: uuidv7(), eventType: 'files.stored_key', sourceId: 'scan', code: 'files.stored_key', createdAt: new Date().toISOString(), readAt: null, chatId: null, link: null, outcome: null,
+  id: uuidv7(), eventType: 'files.stored_key', sourceId: 'scan-v1', code: 'files.stored_key', createdAt: new Date().toISOString(), readAt: null, chatId: null, link: null, outcome: null,
   ...(keyFiles ? { keyFiles } : {}),
 })
 const text = (item: InboxNotification, locale: 'en' | 'ko' = 'en') => renderToStaticMarkup(<>{noticeText(item, (k, p) => translate(locale, k, p), locale)}</>)

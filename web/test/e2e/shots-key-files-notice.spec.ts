@@ -15,7 +15,7 @@ const notice = (n: number, code: string, minutes: number, o: Record<string, unkn
 
 async function fakeRows(page: Page, me: string) {
   const items = [
-    notice(1, 'files.stored_key', 2, { sourceId: 'scan', keyFiles: { n: 3, files: [
+    notice(1, 'files.stored_key', 2, { sourceId: 'scan-v1', keyFiles: { n: 3, files: [
       { path: `users/${me}/API setup notes.md` }, { path: `users/${me}/reports/Q3 vendor report.docx` }, { path: 'shared/sales/Partner onboarding checklist.pdf' },
     ] } }),
     notice(2, 'service.closed', 40, { serviceRequest: { service: 'notion', closed: 'dismissed' } }),

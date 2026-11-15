@@ -29442,10 +29442,14 @@ Canva, Intercom and Square refuse the team's https sign-in return address (not o
   may not be allowed to open a member's files, and the key is the member's. The list is read when the notice is shown,
   as that person: a file that is gone or that they may no longer open drops off (no access is widened); none left says
   the files were moved or deleted. Uploaded files and files a person saved are not looked at. A file the AI saved in a
-  folder its person can no longer read is not reported to anyone (open question).
+  folder its person can no longer read is reported to nobody, also not to the team owner: such a list would show the
+  owner the names of files that may be private (security review of #983). One notice per person and scan version
+  (source `scan-v<FILE_SCAN_VERSION>`), so a later version of the scan can tell them again.
 - **Done, and cost.** Marked done only when every person's keys could be read; otherwise the keys that can be read are
   looked for and it runs again at the next start (as #953). At most the newest 20,000 such files and 4 MB of text per
-  file and per text cache in one run, a pause every 50 files, nothing written when the server stops meanwhile; the log
+  file and per text cache in one run; it lets the server's other work run after every 50 files and after every 2 MB
+  read (so after each big file), so big files never hold the start (the dev server's health check); nothing is written
+  when the server stops meanwhile; the log
   has counts only (scanned, found, people, done), never a path or a key.
 - Tests: `tests/unit/c-integrations-secret-old-files.test.ts`, web unit `key-files-notice.test.tsx`.
 - Version impact: **patch** (a security follow-up: one notice, one additive migration, no API removed).
