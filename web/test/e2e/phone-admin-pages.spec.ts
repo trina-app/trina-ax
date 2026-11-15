@@ -7,7 +7,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
 import { openTab } from './nav'
-import { DICTS } from '../../src/i18n'
+import { DICTS, translate } from '../../src/i18n'
 
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, locale: 'en-US' })
 
@@ -352,7 +352,7 @@ test('TC-269 step 6: page intros (English): the line is not cut beside a button;
   // the team's versions of what the 나 list has for the person
   await expect(page.getByTestId('admin-row-providers')).toContainText(t['admin.team.providers'])
   await expect(page.getByTestId('admin-row-connectors')).toContainText(t['admin.team.integrations'])
-  await expect(page.getByTestId('admin-row-ai-apps')).toContainText(t['admin.team.aiApps'])
+  await expect(page.getByTestId('admin-row-ai-apps')).toContainText(translate('en', 'admin.team.aiApps'))
 })
 
 test('TC-269 (ADM-19): Team settings › General: the logo in phone words; the update window as two time pickers', async ({ page }) => {
