@@ -19,14 +19,15 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { TEAM_FILES_LIMITS, type TeamFileReason, type TreeResponse } from '@mycel/shared/api'
-import type { WorkFileScan, WorkRootId, WorkRootResult } from '@mycel/shared'
+import type { WorkFileScan, WorkFolderId, WorkRootId, WorkRootResult } from '@mycel/shared'
 import { api, API, errorText } from '../../lib/api'
 import { desktop } from '../../lib/desktop'
 import type { FolderPlan, FolderUpload } from '../../lib/folderUpload'
 import { taggedRun, useRuns, type Run } from '../../lib/folderRuns'
 import { formatSize, intlTag } from '../../lib/format'
 import { findAlready, findDocs, rankEntries, tick, type LocalDoc } from '../../lib/teamFiles'
-import { companyMatch, docsFromScan, forAiRecent, FROM_COMPUTER, isRecentDoc, overBytes, ROOT_FOLDER, rootNotes, runFolder, selectAll, touched, undoRun, WorkFileReadError, workFilesBridge, workList, type CompanyWordsLike, type RunMade, type WorkFilesBridge } from '../../lib/workFiles'
+import { companyMatch, docsFromScan, FIND_WORK_FILES_GUIDE, forAiRecent, FROM_COMPUTER, isRecentDoc, lookWords, offersWide, overBytes, ROOT_FOLDER, rootNotes, runFolder, selectAll, touched, undoRun, WorkFileReadError, workFilesBridge, workList, type CompanyWordsLike, type RunMade, type WorkFilesBridge } from '../../lib/workFiles'
+import { FullDiskAccess } from './FullDiskAccess'
 import { useFolderWords } from '../../lib/folderLabels'
 import { currentLocale, t as tNow, useLocale, useT, type MessageKey } from '../../i18n'
 import { useMeStrict } from '../../store/session'
@@ -41,21 +42,33 @@ const L = TEAM_FILES_LIMITS
 const TAG = 'find-work-files' as const
 /** rows drawn per group at most (the rest: found by name) */
 const ROWS_SHOWN = 200
-/** the Mac guide (docs/site/use/find-work-files.md): the app's question, macOS's question per folder, turning access on */
-export const FIND_WORK_FILES_GUIDE = 'https://ax.trina.app/docs/use/find-work-files/'
+export { FIND_WORK_FILES_GUIDE } from '../../lib/workFiles'
 const quietLink = 'font-medium text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink disabled:opacity-50'
 
-const ROOT_WORD: Record<WorkRootId, MessageKey> = { documents: 'files.findWork.root.documents', desktop: 'files.findWork.root.desktop', downloads: 'files.findWork.root.downloads' }
-const ROOT_OF: Record<string, WorkRootId> = Object.fromEntries(Object.entries(ROOT_FOLDER).map(([id, name]) => [name, id as WorkRootId]))
+const ROOT_WORD: Record<WorkFolderId, MessageKey> = { documents: 'files.findWork.root.documents', desktop: 'files.findWork.root.desktop', downloads: 'files.findWork.root.downloads' }
+const ROOT_OF: Record<string, WorkFolderId> = Object.fromEntries(Object.entries(ROOT_FOLDER).map(([id, name]) => [name, id as WorkFolderId]))
 const REASON: Record<TeamFileReason, MessageKey> = {
   form: 'welcome.teamFiles.reason.form', intro: 'welcome.teamFiles.reason.intro', report: 'welcome.teamFiles.reason.report', minutes: 'welcome.teamFiles.reason.minutes',
   brand: 'welcome.teamFiles.reason.brand', policy: 'welcome.teamFiles.reason.policy', training: 'welcome.teamFiles.reason.training', proposal: 'welcome.teamFiles.reason.proposal',
 }
 
-/** A root in words: "Documents", "Documents (OneDrive)". */
+const isFolder = (id: WorkRootId): id is WorkFolderId => id === 'documents' || id === 'desktop' || id === 'downloads'
+
+/** A place in words (part 5): "OneDrive – Acme", "Projects", "KakaoTalk downloads", "Home folder", "D:". */
+function usePlaceName() {
+  const t = useT()
+  return (p: { kind: WorkRootId; label: string }) =>
+    p.kind === 'home' ? t('files.findWork.place.home') : p.kind === 'messenger' ? t('files.findWork.place.messenger', { name: p.label }) : p.label
+}
+
+/** A root in words: "Documents", "Documents (OneDrive)", or a place's name. */
 function useRootName() {
   const t = useT()
-  return (r: Pick<WorkRootResult, 'id' | 'oneDrive'>) => (r.oneDrive ? t('files.findWork.root.oneDrive', { folder: t(ROOT_WORD[r.id]) }) : t(ROOT_WORD[r.id]))
+  const placeName = usePlaceName()
+  return (r: Pick<WorkRootResult, 'id' | 'oneDrive' | 'place'>) => {
+    if (!isFolder(r.id)) return placeName({ kind: r.id, label: r.place ?? '' })
+    return r.oneDrive ? t('files.findWork.root.oneDrive', { folder: t(ROOT_WORD[r.id]) }) : t(ROOT_WORD[r.id])
+  }
 }
 
 const NO_WORDS: CompanyWordsLike = { names: [], domains: [], people: [] }
@@ -74,9 +87,12 @@ function relative(at: number, locale: string): string {
 
 /** Only one look at a time in this tab (a second mount while one runs waits for the same answer). */
 let scanning: Promise<WorkFileScan> | null = null
-const scanOnce = (b: WorkFilesBridge) => (scanning ??= b.scan().finally(() => { scanning = null }))
+const scanOnce = (b: WorkFilesBridge, ask?: { wide: boolean; words: string[] }) => (scanning ??= (ask?.wide ? b.scan(ask) : b.scan()).finally(() => { scanning = null }))
 
-type Phase = { s: 'asking' } | { s: 'looking'; root: WorkRootId; checked: number; docs: number; done?: number } | { s: 'list' } | { s: 'none' } | { s: 'error'; text: string }
+type Phase = { s: 'asking' } | { s: 'looking'; root: WorkRootId; place?: string; checked: number; docs: number; done?: number } | { s: 'list' } | { s: 'none' } | { s: 'error'; text: string }
+/** How this look goes (part 5): wide (the places beyond the three folders: Windows, a Mac with Full Disk Access) or the
+ * three folders with macOS's question for each (an older app, or "Not now" on the Mac's Full Disk Access screen). */
+type Mode = { wide: boolean }
 
 export interface FindWorkFilesProps {
   bridge: WorkFilesBridge
@@ -95,17 +111,23 @@ export interface FindWorkFilesProps {
   phone?: boolean
 }
 
-/** The steps; "Look again" (every folder kept out, after the person let the app in) starts them over with a new look. */
+/** The steps; "Look again" (every folder kept out, after the person let the app in) starts them over with a new look.
+ * Part 5: a Mac app that offers the wide look shows the Full Disk Access screen first when the app has none (its
+ * "Not now" is the three folders with macOS's question for each); Windows looks wide at once. */
 export function FindWorkFiles(props: FindWorkFilesProps) {
   const [round, setRound] = useState(0)
-  return <FindWorkFilesRound key={round} {...props} onAgain={() => setRound((n) => n + 1)} />
+  const wide = offersWide(props.bridge)
+  const [mode, setMode] = useState<Mode | null>(() => (!wide ? { wide: false } : props.bridge.fullDisk ? null : { wide: true }))
+  if (!mode) return <FullDiskAccess bridge={props.bridge} onGo={(w) => setMode({ wide: w })} phone={props.phone} />
+  return <FindWorkFilesRound key={round} {...props} mode={mode} onAgain={() => setRound((n) => n + 1)} />
 }
 
-function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAdd, onClose, onAgain, phone = false }: FindWorkFilesProps & { onAgain: () => void }) {
+function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAdd, onClose, onAgain, mode, phone = false }: FindWorkFilesProps & { onAgain: () => void; mode: Mode }) {
   const t = useT()
   const locale = useLocale()
   const ids = useId()
   const rootName = useRootName()
+  const placeWord = usePlaceName()
   const [phase, setPhase] = useState<Phase>({ s: 'asking' })
   const [docs, setDocs] = useState<LocalDoc[]>([])
   const [roots, setRoots] = useState<WorkRootResult[]>([])
@@ -139,11 +161,14 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
 
   useEffect(() => {
     const off = bridge.onProgress((p) => { if (live.current) setPhase((x) => (x.s === 'asking' || x.s === 'looking' ? { s: 'looking', ...p } : x)) })
-    // the company's words (names, domains, people), asked for while the app looks; none when they cannot be read
+    // the company's words (names, domains, people); none when they cannot be read. A wide look gives the app the names
+    // first (they name the home folder's work folders: "Acme", "Globex"), so it waits for them (a second at most)
     const wordsP = api.call(API.companyWords).catch((): CompanyWordsLike => NO_WORDS)
     void (async () => {
       let r: WorkFileScan
-      try { r = await scanOnce(bridge) } catch { r = { state: 'unavailable' } }
+      const ask = mode.wide ? { wide: true, words: lookWords(await Promise.race([wordsP, new Promise<CompanyWordsLike>((ok) => setTimeout(() => ok(NO_WORDS), 1000))])) } : undefined
+      if (!live.current) return
+      try { r = await scanOnce(bridge, ask) } catch { r = { state: 'unavailable' } }
       if (!live.current) return
       // the app is still busy with a question or a look (asked again too soon): said, nothing else happens
       if (r.state === 'busy') return setPhase({ s: 'error', text: t('files.findWork.busy') })
@@ -212,11 +237,13 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
     const reason = picks?.get(d.key)
     const m = companyMatch(d, words)
     const root = ROOT_OF[d.pick]
-    const where = [root ? t(ROOT_WORD[root]) : d.pick, ...(d.folder ? d.folder.split('/') : [])].join(' › ')
+    // each row names its place: "OneDrive – Acme › Clients", "KakaoTalk downloads", "Documents › Plans"
+    const top = d.place ? placeWord(d.place) : root ? t(ROOT_WORD[root]) : d.pick
+    const where = [top, ...(d.folder ? d.folder.split('/') : [])].join(' › ')
     const when = touched(d)
     const ago = relative(when.at, locale)
     const matchText = !m ? null : m.kind === 'name' ? t('files.findWork.match.name', { name: m.word }) : m.kind === 'from' ? t('files.findWork.match.from', { host: m.host }) : t('files.findWork.match.by', { name: m.who })
-    return [reason ? t(REASON[reason]) : null, matchText, t(when.opened ? 'files.findWork.opened' : 'files.findWork.changed', { when: ago }), where].filter(Boolean).join(' · ')
+    return [reason ? t(REASON[reason]) : null, matchText, t(when.opened ? 'files.findWork.opened' : 'files.findWork.changed', { when: ago }), where, d.cloud ? t('files.findWork.inCloud') : null].filter(Boolean).join(' · ')
   }
   const personalNote = (d: LocalDoc) => (d.personal && ticks.has(d.key)
     ? <span className="mt-0.5 block text-label text-warn" data-testid="find-work-personal-ticked">{audience === 'me' ? t('files.findWork.personalTickedMe') : t('welcome.teamFiles.personalTicked', { team: audience })}</span>
@@ -232,7 +259,7 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
   )
 
   if (phase.s === 'asking' || phase.s === 'looking') {
-    const title = phase.s === 'asking' ? t('files.findWork.asking') : t('files.findWork.looking', { folder: t(ROOT_WORD[phase.root]) })
+    const title = phase.s === 'asking' ? t('files.findWork.asking') : t('files.findWork.looking', { folder: isFolder(phase.root) ? t(ROOT_WORD[phase.root]) : placeWord({ kind: phase.root, label: phase.place ?? '' }) })
     // the folders' stages as the app measures them (the AI's pick runs while the list already shows)
     const value = phase.s === 'looking' ? (phase.done ?? 0) : 0
     return (
@@ -261,7 +288,7 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
   /** "Choose it yourself": the system's folder window opens at the folder macOS kept the app out of; the pick is the
    * person's permission (no trip to System Settings, where a refused app may not even be listed). Its files join the
    * list. An app without it (older) offers Settings. */
-  const choose = async (id: WorkRootId) => {
+  const choose = async (id: WorkFolderId) => {
     if (!bridge.pickRoot || picking) return
     setPicking(id)
     try {
@@ -279,7 +306,7 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
   }
   const allow = (id: WorkRootId | null) => (
     <>
-      {bridge.pickRoot && id ? (
+      {bridge.pickRoot && id && isFolder(id) ? (
         <button type="button" className={quietLink} disabled={!!picking} onClick={() => void choose(id)} data-testid="find-work-choose" data-root={id}>{t('files.findWork.chooseYourself')}</button>
       ) : (
         <button type="button" className={quietLink} onClick={() => bridge.openSettings()} data-testid="find-work-settings">{t('files.findWork.allowInSettings')}</button>
@@ -293,12 +320,12 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
   const lines = (
     <div className="space-y-1.5" data-testid="find-work-notes">
       {notes.blocked.map((r) => (
-        <p key={r.id} className="text-sm text-ink" role="status" data-testid="find-work-blocked" data-root={r.id}>
+        <p key={`${r.id}:${r.place ?? ''}`} className="text-sm text-ink" role="status" data-testid="find-work-blocked" data-root={r.id}>
           {t('files.findWork.blocked', { app: PRODUCT.displayName, folder: rootName(r) })}{' · '}{allow(r.id)}
         </p>
       ))}
-      {notes.cut.map((r) => <p key={r.id} className="text-label text-muted" data-testid="find-work-cut" data-root={r.id}>{t('files.findWork.cut', { folder: rootName(r) })}</p>)}
-      {notes.left.map((r) => <p key={r.id} className="text-label text-muted" data-testid="find-work-left" data-root={r.id}>{t('files.findWork.leftOut', { folder: rootName(r) })}</p>)}
+      {notes.cut.map((r) => <p key={`${r.id}:${r.place ?? ''}`} className="text-label text-muted" data-testid="find-work-cut" data-root={r.id}>{t('files.findWork.cut', { folder: rootName(r) })}</p>)}
+      {notes.left.map((r) => <p key={`${r.id}:${r.place ?? ''}`} className="text-label text-muted" data-testid="find-work-left" data-root={r.id}>{t('files.findWork.leftOut', { folder: rootName(r) })}</p>)}
       {stopped && <p className="text-label text-muted" data-testid="find-work-stopped">{t('files.findWork.stopped')}</p>}
       {notes.tooBig > 0 && <p className="text-label text-muted" data-testid="find-work-too-big">{t('welcome.teamFiles.tooBig', { n: notes.tooBig })}</p>}
       {already > 0 && <p className="text-label text-muted" data-testid="find-work-already">{t('files.findWork.already', { n: already, place: placeName })}</p>}

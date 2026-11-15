@@ -34,6 +34,8 @@ import { storeBuild } from '../common/update'
 import { windowsAppUserModelId } from '../common/app-id'
 import { AppWindow, type AllowAllOutcome } from './app-window'
 import { workFilesVersion } from './work-files'
+import { scanAsk } from '../common/work-files'
+import { WORK_FILES_WIDE_VERSION } from '@mycel/shared'
 import { debug } from './debug'
 import { HostClassifier } from './pane/classify'
 import { asSiteAccess } from '../common/site-permissions'
@@ -260,7 +262,7 @@ function registerIpc() {
   // team page bridge (shared/src/desktop-bridge.ts); store: a Mac App Store or Microsoft Store build, where Settings >
   // Apps offers no installer
   ipcMain.on('bridge:info', (e) => {
-    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process), workFiles: workFilesVersion({ platform: process.platform, mas: process.mas }) } : null
+    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process), workFiles: workFilesVersion({ platform: process.platform, mas: process.mas }), workFilesWide: workFilesVersion({ platform: process.platform, mas: process.mas }) ? WORK_FILES_WIDE_VERSION : 0 } : null
   })
   ipcMain.handle('bridge:browser-run', async (e, raw: unknown) => {
     const call = BrowserCall.safeParse(raw)
@@ -328,7 +330,13 @@ function registerIpc() {
 
   // "Find work files on this computer" (main/work-files.ts): the page only asks; the app shows its own dialog, looks in
   // this process and hands out ids, never paths. A read takes an id of the latest look of the asking origin only.
-  ipcMain.handle('bridge:work-files-scan', (e) => (fromApp(e) && e.senderFrame ? win!.workFiles.scan(e.senderFrame.origin) : { state: 'unavailable' }))
+  // part 5: the page may ask for the wide look and give the company's names (a flag and short words, never a path);
+  // the app decides what it can see and lists every place in its own dialog first
+  ipcMain.handle('bridge:work-files-scan', (e, ask: unknown) => (fromApp(e) && e.senderFrame ? win!.workFiles.scan(e.senderFrame.origin, scanAsk(ask)) : { state: 'unavailable' }))
+  // part 5, a Mac: Full Disk Access (a probe that reads nothing), its Settings pane, a restart
+  ipcMain.handle('bridge:work-files-full-disk', (e) => (fromApp(e) ? win!.workFiles.fullDisk() : 'unknown'))
+  ipcMain.on('bridge:work-files-full-disk-settings', (e) => fromApp(e) && win!.workFiles.openFullDiskSettings())
+  ipcMain.on('bridge:work-files-relaunch', (e) => { if (fromApp(e)) void win!.workFiles.relaunch() })
   ipcMain.on('bridge:work-files-stop', (e) => fromApp(e) && win!.workFiles.stop())
   ipcMain.handle('bridge:work-files-read', (e, id: unknown) => (fromApp(e) && e.senderFrame ? win!.workFiles.read(e.senderFrame.origin, String(id ?? '').slice(0, 100)) : { ok: false, reason: 'unknown' }))
   ipcMain.on('bridge:work-files-settings', (e) => fromApp(e) && win!.workFiles.openSettings())

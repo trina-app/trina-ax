@@ -32,7 +32,7 @@ export function TickRow({ id, name, meta, note, checked, onChange, disabled, fir
       ) : <Check size={16} className="mt-0.5 shrink-0 text-faint" aria-hidden />}
       <label htmlFor={tickable ? id : undefined} className={clsx('min-w-0 flex-1', tickable && 'cursor-pointer')}>
         <span className="block truncate text-sm font-medium text-ink">{name}</span>
-        <span className="mt-0.5 block truncate text-label text-muted">{meta}</span>
+        <span className="mt-0.5 line-clamp-2 break-words text-label text-muted">{meta}</span>
         {note}
       </label>
     </li>
