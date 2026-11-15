@@ -1,12 +1,13 @@
 /* The desktop app's own screens: welcome / team list and the browser pane toolbar. The values are the web app's tokens
    (web/src/theme.edition.css, docs/DESIGN-SYSTEM.md): --bg = --c-canvas, --panel = --c-surface, --chrome = --c-subtle,
-   --hover = --c-hover, --text = --c-ink, --accent-ink = text on the accent, --accent-text = the accent as text,
+   --hover = --c-hover, --text = --c-ink, --muted = --c-muted, --faint = --c-faint, --accent-ink = text on the accent, --accent-text = the accent as text,
    --field-border = the edge of a field or a bordered button (>= 3:1), --warn-bg = --c-warn-soft. */
 :root {
   --bg: #fcfbf8;
   --panel: #ffffff;
   --text: #14110f;
   --muted: #514b45;
+  --faint: #6b645d;
   --line: #e9e3d8;
   --field-border: #8c8378;
   --hover: #eee8dd;
@@ -27,6 +28,7 @@
     --panel: #171412;
     --text: #f6f2ea;
     --muted: #b3aaa0;
+    --faint: #958c82;
     --line: #2c2723;
     --field-border: #776e64;
     --hover: #26211d;
@@ -159,50 +161,151 @@ h1 {
   color: var(--muted);
   font-size: 13px;
 }
-.teams {
-  margin-top: 22px;
-  border-top: 1px solid var(--line);
-  padding-top: 14px;
-}
-.teams h2 {
-  font-size: 13px;
-  color: var(--muted);
-  margin: 0 0 8px;
-  font-weight: 600;
+/* the remembered teams: the web app's list rows (web/src/components/list/List.tsx ListRow, index.css text-row 15px,
+   text-meta 13px in --faint, an 8px rounded --hover fill); the row's own 12px inset reaches out past the card's text
+   column, so names line up with the heading */
+.teams h1 {
+  margin-bottom: 8px;
 }
 .teams ul {
   list-style: none;
-  margin: 0;
+  margin: 0 -12px;
   padding: 0;
 }
 .teams li {
+  position: relative;
+}
+.team-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 0;
-}
-.teams .open {
-  flex: 1;
-  text-align: left;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 6px 44px 6px 12px;
   border: none;
+  border-radius: 8px;
   background: transparent;
-  padding: 6px 4px;
+  text-align: left;
+}
+.team-row:hover,
+.teams li.menu-open .team-row {
+  background: var(--hover);
+}
+.team-row:focus-visible {
+  outline-offset: -2px;
+}
+.team-row .initial {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--hover);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+.team-row:hover .initial,
+.teams li.menu-open .initial {
+  background: var(--panel);
+}
+.team-row .words {
+  flex: 1;
   min-width: 0;
 }
-.teams .open .origin {
+.team-row .name,
+.team-row .origin {
   display: block;
-  color: var(--muted);
-  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tag {
-  font-size: 11px;
-  border: 1px solid var(--accent);
-  color: var(--accent-text);
-  border-radius: 999px;
-  padding: 0 6px;
+.team-row .name {
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 500;
+}
+.team-row .origin {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--faint);
+}
+/* the team open behind this screen: a quiet check and one word, not a badge */
+.team-row .current {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--faint);
+}
+/* the row's "···": at its right, faint until the row is hovered or focused (full on a touch screen) */
+.teams .more {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--faint);
+  opacity: 0.45;
+}
+.teams li:hover .more,
+.teams li:focus-within .more,
+.teams li.menu-open .more {
+  opacity: 1;
+}
+.teams .more:hover,
+.teams .more[aria-expanded='true'] {
+  background: var(--panel);
+  color: var(--text);
+}
+@media (pointer: coarse) {
+  .teams .more {
+    opacity: 1;
+  }
+}
+.row-menu {
+  position: absolute;
+  right: 8px;
+  top: calc(100% - 4px);
+  z-index: 2;
+  min-width: 180px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.14);
+}
+.row-menu button {
+  display: block;
+  width: 100%;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  padding: 6px 10px;
+  text-align: left;
+  color: var(--danger);
+}
+.row-menu button:hover,
+.row-menu button:focus-visible {
+  background: var(--hover);
+}
+/* "다른 팀에 들어가기": a small heading over the box when teams are listed */
+h2.another {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  margin: 24px 0 8px;
 }
 .confirm {
   background: var(--warn-bg);
@@ -219,12 +322,17 @@ h1 {
   flex-wrap: wrap;
 }
 
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 20px;
+}
 .language {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 8px;
-  margin-top: 18px;
   font-size: 12px;
   color: var(--muted);
 }
@@ -249,6 +357,16 @@ button.link {
 .help-links {
   margin: 4px 0 0;
   color: var(--muted);
+}
+/* the bottom line's [돌아가기]: small, muted, no underline until hovered */
+button.link.quiet {
+  font-size: 12px;
+  color: var(--muted);
+  text-decoration: none;
+}
+button.link.quiet:hover {
+  color: var(--text);
+  text-decoration: underline;
 }
 .steps {
   margin: 4px 0 18px;

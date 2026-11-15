@@ -60,7 +60,9 @@ async function storedOnShop(app: ElectronApplication) {
 async function removeOnlyTeam(app: ElectronApplication, page: Awaited<ReturnType<typeof addTeam>>) {
   await page.evaluate(() => (window as any).mycelDesktop.openTeams())
   const w = await welcome(app)
-  await w.getByTestId('team').first().getByRole('button', { name: /목록에서 지우기/ }).click()
+  const row = w.getByTestId('team').first()
+  await row.getByRole('button', { name: /메뉴$/ }).click()
+  await row.getByRole('menuitem', { name: /목록에서 지우기/ }).click()
   await w.getByTestId('remove-confirm').getByRole('button', { name: '지우기' }).click()
 }
 

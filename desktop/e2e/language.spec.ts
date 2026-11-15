@@ -22,7 +22,7 @@ test('fresh install on a Korean system: English; a pick on the team list applies
     await expect(w.getByRole('heading', { name: 'Join your team' })).toBeVisible()
     await expect(w.locator('html')).toHaveAttribute('lang', 'en')
     await expect(w.getByTestId('ui-locale')).toHaveValue('en')
-    await expect(w.getByTestId('ui-locale').locator('option')).toHaveText(['English', '한국어', 'Bahasa Indonesia', '日本語', 'Español'])
+    await expect(w.getByTestId('ui-locale').locator('option')).toHaveText(['English', '한국어', 'Bahasa Indonesia', '日本語', 'Español', '简体中文'])
     expect(await menuLabels(app)).toContain('View')
     const expectDomain = async () => {
       await expect(w.locator('.sub')).toContainText('acme')
