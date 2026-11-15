@@ -784,6 +784,14 @@ function Update() {
   const state = useLoad(() => api.call(API.updateStatus))
   const install = useUpdateInstall({ version: state.data?.available?.version, previous: state.data?.previous, running: state.data?.running, onDone: () => void state.reload() })
   const setAsk = install.ask
+  // while an update waits for running tasks, look again every 10 seconds: the line says the wait ended (or the restart came)
+  // when it did, also for an update this page did not start (root's, or another admin's)
+  const waiting = !!state.data?.waiting
+  useEffect(() => {
+    if (!waiting) return
+    const id = setInterval(() => void state.reload(), 10_000)
+    return () => clearInterval(id)
+  }, [waiting, state.reload])
   // a phone: what is done on the server computer (its command, its installer) says so, without the command (QA TC-270)
   const phone = useMediaQuery(PHONE)
   // a phone's list: the version, or the new one waiting
