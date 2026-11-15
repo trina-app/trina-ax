@@ -120,7 +120,7 @@ export function GuestAiChoices({ value, onChange, admin, connections, noGuestAi 
 /** A team mode choice that can be sent: an account picked and a limit above 0. */
 export const aiChoiceReady = (v: GuestAiChoice) => v.mode !== 'team' || (!!v.credentialId && v.limitUsd > 0)
 
-/** The team's AI accounts a guest may be given (Admin › AI accounts, team ones), read only for the owner and admins
+/** The team's AI accounts a guest may be given (Admin › AI providers, team ones), read only for the owner and admins
  * (`list` null while they load), and `noGuestAi`: this server runs its AI on its own sign-in (an Office Mac, local
  * login), where a guest is never answered (CredentialsResponse.guestAiUnavailable 'host_sign_in'). */
 export function useTeamConnections(enabled: boolean): { list: Credential[] | null; noGuestAi: boolean } {

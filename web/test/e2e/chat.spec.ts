@@ -280,7 +280,7 @@ test('an error answer offers retry', async ({ page }) => {
 })
 
 // owner decision 2026-11-11: the AI cannot start. A member reads "not ready yet" with [Tell an admin] (then "Told"); the
-// owner reads their own words with [Connect AI], which opens Admin › AI accounts. "Try again" stays for both.
+// owner reads their own words with [Connect AI], which opens Admin › AI providers. "Try again" stays for both.
 test('the AI cannot start: a member tells an admin with one button', async ({ page }) => {
   await reset(page)
   await signIn(page, BOB)

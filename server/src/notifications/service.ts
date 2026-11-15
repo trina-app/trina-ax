@@ -673,7 +673,7 @@ export class Notifications {
         ...(n ? { firstRun: { member: u?.name ?? null, skill: goalSkillTitle(this.ctx, row.user_id, n.skill_path), runners: n.runners, target: GOAL_PEOPLE } } : {}) }
     }
     // an admin's change to the team's AI, told to the owners, or to a member's own connection: who, what, the name (the
-    // text is the page's); the owners' open Admin › Providers
+    // text is the page's); the owners' open Admin › AI providers
     if (row.event_type === 'credential.change') {
       const n = this.ctx.db.query('SELECT actor_name, action, subject FROM credential_change_notices WHERE id=?').get(row.id) as { actor_name: string; action: string; subject: string } | null
       const own = !!n && n.action.startsWith('personal_')

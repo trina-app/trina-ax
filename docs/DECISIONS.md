@@ -28763,6 +28763,23 @@ Disk Access) are part 5.
   managedNoneDetail, QA TC-3009) already point to "Add account" below since #944, not to the page they are on.
 - Version impact: **patch** (wording only; no API or data change).
 
+## Admin and Settings: one name, "AI providers" (chore/rename-ai-providers, 2026-11-15)
+
+Owner, 2026-11-15: "Shouldn't it match the personal settings? How about AI provider?" **Supersedes** the split in the
+entry above (admin "Providers", Settings "AI accounts") and "Plain words for members" (2026-11-11).
+
+- Both pages are **AI providers** (ko AI 제공사, ja AIプロバイダー, es Proveedores de IA, id Penyedia AI, zh AI 提供商):
+  `admin.providers` (en was "Providers") and `settings.providers` (was "AI accounts" and its translations), the Admin
+  Home tile, every hint and server message that names either page, and the docs and docs site in en and zh (the
+  docs page `use/ai-accounts.md` keeps its address, its title is AI providers).
+- The pages differ in whose they are, not in name: Admin lists the team's connections, Settings your own. Where one
+  list shows both (a phone's Settings, with the admin list inside it) the team's is **Team AI providers**
+  (`admin.team.providers`; ko 팀 AI 제공사), as Team connected apps is.
+- Rows inside still say "account" where they mean an account: the Add account button, "Your AI account ...", the
+  guest's AI account. Settings search finds the page by "AI accounts" and "providers" too (`settings.find.credentials`).
+- Kept: the stored legacy chat-error words in `shared/src/api/errors.ts`.
+- Version impact: **patch** (wording only).
+
 ## Find work files, part 5: wider places, Full Disk Access first on a Mac (feat/find-work-files-wide, 2026-11-15)
 
 Owner, 2026-11-15: "Documents, Desktop and Downloads aren't where real company files are", then "doesn't this mean we

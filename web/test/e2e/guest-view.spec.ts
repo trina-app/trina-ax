@@ -109,7 +109,7 @@ test.describe('computer', () => {
     // nothing answers yet: no starters (Catch up …), only the line that connects their AI
     await expect(side.getByTestId('side-chat-empty')).toBeVisible()
     await expect(side.getByTestId('side-chat-starters')).toHaveCount(0)
-    // Settings › AI accounts: their own Claude sign-in, in place
+    // Settings › AI providers: their own Claude sign-in, in place
     await page.goto('/settings/providers')
     // only their own account answers them: no word of team or company accounts
     await expect(page.getByText('내 질문에는 내 계정만 써요. 여기서 Claude나 ChatGPT 계정을 연결해 주세요.')).toBeVisible()

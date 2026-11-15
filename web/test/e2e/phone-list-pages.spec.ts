@@ -2,9 +2,9 @@
 // docs/AGENTS/plan/20261110-1336-phone-admin-list.md), at 390×844 in a real browser: no page is wider than the screen
 // (also in Spanish), each page's main button is on the first screen, and its filters open from one Filters button.
 // Then each page's own fix: Groups' compact rows, Folder permissions' switch under Filters beside By folder / By
-// person, Providers' accounts on tap, Connectors' rows with a 44 px +, AI apps' 44 px targets (Plugins' page is #388's
+// person, AI providers' accounts on tap, Connectors' rows with a 44 px +, AI apps' 44 px targets (Plugins' page is #388's
 // cards now), Slack's 44 px targets, Usage's range with Filters and Group by in the breakdown, Activity log's kinds under
-// Filters, Settings › Providers named in the bar, Settings › Usage's period under its line. A computer keeps every page
+// Filters, Settings › AI providers named in the bar, Settings › Usage's period under its line. A computer keeps every page
 // as it was.
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { DICTS } from '../../src/i18n'
@@ -107,7 +107,7 @@ test.describe('each page', () => {
     await expect(page.getByTestId('access-person-search')).toBeVisible()
   })
 
-  test('Providers: one row per engine; its accounts and Add account are on its own page', async ({ page }) => {
+  test('AI providers: one row per engine; its accounts and Add account are on its own page', async ({ page }) => {
     await page.goto('/admin/providers')
     // a row that opens the engine's page (TC-267: no accordion on a phone)
     const claude = page.locator('[data-testid="engine-row"][data-engine="claude-code"]')
@@ -120,7 +120,7 @@ test.describe('each page', () => {
     await expect(page.getByTestId('provider-add-claude')).toBeVisible()
   })
 
-  test('Providers: an account that needs a look stays in sight under a closed row', async ({ page }) => {
+  test('AI providers: an account that needs a look stays in sight under a closed row', async ({ page }) => {
     // the team's one Claude account needs signing in again (the mock has none, so the list is answered here)
     await page.route('**/api/admin/credentials', async (route) => {
       const res = await route.fetch()
@@ -215,7 +215,7 @@ test.describe('each page', () => {
     await expect(page).toHaveURL(/\/admin\/audit$/)
   })
 
-  test('Settings › Providers: the bar names it, and the card has no frame', async ({ page }) => {
+  test('Settings › AI providers: the bar names it, and the card has no frame', async ({ page }) => {
     await page.goto('/settings/providers')
     await expect(page.getByTestId('settings-section-title')).toHaveText(t['settings.providers'])
     const card = page.getByTestId('my-providers').locator('xpath=ancestor::section[1]')
