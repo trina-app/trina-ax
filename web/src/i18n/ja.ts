@@ -222,7 +222,7 @@ export const ja: Record<MessageKey, string> = {
   'auth.passwordRule': "パスワードは8文字以上で設定してください。",
   'auth.passwordMismatch': "パスワードが一致しません。",
   'auth.name': "名前",
-  'auth.forgot': "パスワードをお忘れですか？チームオーナーまたは管理者にリセットを依頼してください。",
+  'auth.forgot': "パスワードをお忘れですか？チームオーナーまたは管理者にリセットを依頼してください。ゲストの方は、招待してくれた人に伝えてください。",
   'auth.alreadyJoined': "すでに参加している場合はログインしてください。",
   'auth.haveAccount': "すでに参加していますか？",
   'auth.openInApp': "アプリで開く",

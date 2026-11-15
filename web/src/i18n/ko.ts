@@ -225,7 +225,7 @@ export const ko = {
   'auth.passwordRule': '비밀번호는 8자 이상이어야 해요.',
   'auth.passwordMismatch': '두 비밀번호가 서로 달라요.',
   'auth.name': '이름',
-  'auth.forgot': '비밀번호를 잊었다면 팀장이나 관리자에게 재설정을 요청하세요.',
+  'auth.forgot': '비밀번호를 잊었다면 팀장이나 관리자에게 재설정을 요청하세요. 게스트라면 초대한 분께 말해 주세요.',
   'auth.alreadyJoined': "이미 가입했다면 로그인하세요.",
   'auth.haveAccount': "이미 가입했어요?",
   'auth.openInApp': "앱에서 열기",

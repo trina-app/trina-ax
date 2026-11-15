@@ -222,7 +222,7 @@ export const zh: Record<MessageKey, string> = {
   "auth.passwordRule": "密码至少需要 8 个字符。",
   "auth.passwordMismatch": "两次输入的密码不一致。",
   "auth.name": "姓名",
-  "auth.forgot": "忘记密码？请让团队所有者或管理员重置。",
+  "auth.forgot": "忘记密码？请让团队所有者或管理员重置。如果你是访客，请告诉邀请你的人。",
   "auth.alreadyJoined": "如果你已经加入，请登录。",
   "auth.haveAccount": "已经加入？",
   "auth.openInApp": "在应用中打开",

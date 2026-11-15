@@ -222,7 +222,7 @@ export const es: Record<MessageKey, string> = {
   'auth.passwordRule': "La contraseña debe tener al menos 8 caracteres.",
   'auth.passwordMismatch': "Las contraseñas no coinciden.",
   'auth.name': "Nombre",
-  'auth.forgot': "¿Olvidó su contraseña? Pida al propietario del equipo o a un administrador que la restablezca.",
+  'auth.forgot': "¿Olvidó su contraseña? Pida al propietario del equipo o a un administrador que la restablezca. Si es invitado, pídaselo a quien le invitó.",
   'auth.alreadyJoined': "Si ya se unió, inicie sesión.",
   'auth.haveAccount': "¿Ya se unió?",
   'auth.openInApp': "Abrir en la app",

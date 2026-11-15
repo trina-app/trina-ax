@@ -2,7 +2,7 @@
 // screens, simpler"): Guests in the Role filter, removed guests out of sight behind "Show removed", used guest links
 // gone, a project guest link named; "Make team member" reads the seats before its dialog (full: says so with See plans,
 // nothing to confirm) and says the AI then follows the team's settings; "Change AI" has one title and Team AI is off
-// without a team AI account.
+// without a team AI account; a guest's row can reset their password.
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER, uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
@@ -52,6 +52,17 @@ test('a removed guest is out of sight until "Show removed"', async ({ page }) =>
   await expect(page.getByTestId('guest-row-rhea')).toBeVisible()
   await page.getByTestId('guests-show-removed').click()
   await expect(page.getByTestId('guest-row-rhea')).toHaveCount(0)
+})
+
+test('Reset password on a guest row: a temporary password to hand over (a guest has no e-mail to ask by)', async ({ page }) => {
+  await start(page)
+  await menu(page, 'gina').click()
+  await expect(page.getByTestId('guest-reset-gina')).toHaveText(/비밀번호 재설정/)
+  await page.getByTestId('guest-reset-gina').click()
+  await expect(page.getByRole('dialog')).toContainText('Gina')
+  await page.getByTestId('reset-temp-submit').click()
+  await expect(page.getByTestId('handover-note')).toContainText('까지')
+  await expect(page.getByRole('dialog')).toContainText('gina')
 })
 
 test('Make team member with every seat taken: the dialog says so first, with See plans and nothing to confirm', async ({ page }) => {

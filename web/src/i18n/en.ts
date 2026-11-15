@@ -226,7 +226,7 @@ export const en: Record<MessageKey, string> = {
   'auth.passwordRule': 'Passwords need at least 8 characters.',
   'auth.passwordMismatch': "The two passwords don't match.",
   'auth.name': 'Name',
-  'auth.forgot': 'Forgot your password? Ask the team owner or an admin to reset it.',
+  'auth.forgot': "Forgot your password? Ask the team owner or an admin to reset it. If you're a guest, ask the person who invited you.",
   'auth.alreadyJoined': "If you already joined, sign in.",
   'auth.haveAccount': "Already joined?",
   'auth.openInApp': "Open in the app",

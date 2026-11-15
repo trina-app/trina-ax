@@ -1,6 +1,7 @@
 // Admin › Members › Guests (docs/DECISIONS.md "Guests: only what they were invited to"): the people from outside the
 // team, each in one room or project, who take no seat. A row says who, where they are and their AI; its "…" changes the
-// AI (PATCH /api/admin/users/:id/guest-ai), makes them a team member (POST
+// AI (PATCH /api/admin/users/:id/guest-ai), resets their password (a guest has no e-mail: Members' dialog, a temporary
+// password to hand over; the sign-in page tells a guest to ask whoever invited them), makes them a team member (POST
 // /api/admin/users/:id/convert-guest: takes a seat, 409 plan_limit reason seat_limit when none is free) or removes them
 // (their account is turned off: PATCH status disabled; a removed guest's "…" deletes the account for good, as for a
 // member). Guests are invited from a room's or a project's "Add people", not here. The members table above leaves them
@@ -13,7 +14,7 @@
 // (nobody is removed: only new invites wait). A removed guest's "…" switches them back on while their place is there
 // (their row says why not otherwise: left it, its project in the trash, or gone), makes them a team member (switched on
 // with it) or deletes the account. A switch-on the server refuses (409 guest_no_place) says why, with Make team member.
-import { ArrowUpCircle, Bot, RotateCcw, Trash2, UserRoundX } from 'lucide-react'
+import { ArrowUpCircle, Bot, KeyRound, RotateCcw, Trash2, UserRoundX } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -44,7 +45,7 @@ function aiWords(t: ReturnType<typeof useT>, ai: GuestAiChoice | null, connectio
   return [t('guest.ai.team'), label, t('guest.admin.upTo', { n: ai.limitUsd })].filter(Boolean).join(' · ')
 }
 
-export function GuestsSection({ guests, filtered = false, connections, focusId, onChanged, onDelete, deletionRequested = [], deletionDue = {} }: {
+export function GuestsSection({ guests, filtered = false, connections, focusId, onChanged, onDelete, onResetPassword, deletionRequested = [], deletionDue = {} }: {
   guests: User[]
   /** the page's search narrowed `guests`: "No match" instead of "No guests yet" */
   filtered?: boolean
@@ -54,6 +55,8 @@ export function GuestsSection({ guests, filtered = false, connections, focusId, 
   onChanged: () => Promise<void> | void
   /** delete a removed guest's account for good (Members' own delete, with its confirm or password) */
   onDelete: (u: User) => void
+  /** reset an active guest's password (Members' own dialog: a temporary password to hand over; a guest has no e-mail to ask by) */
+  onResetPassword: (u: User) => void
   /** ids who asked to delete their account, and when it happens (GET /api/admin/users): said in the row, like the red mark of a member */
   deletionRequested?: readonly string[]
   deletionDue?: Record<string, string>
@@ -105,6 +108,7 @@ export function GuestsSection({ guests, filtered = false, connections, focusId, 
   const items = (u: User): MemberMenuItem[] => u.status === 'active'
     ? [
         { label: t('guest.admin.changeAi'), icon: <Bot size={14} aria-hidden />, onSelect: () => setAiFor(u), testId: `guest-ai-${u.username}` },
+        { label: t('members.reset'), icon: <KeyRound size={14} aria-hidden />, onSelect: () => onResetPassword(u), testId: `guest-reset-${u.username}` },
         { label: t('guest.makeMember'), icon: <ArrowUpCircle size={14} aria-hidden />, onSelect: () => setConverting(u), testId: `guest-convert-${u.username}` },
         { label: t('guest.admin.remove'), icon: <UserRoundX size={14} aria-hidden />, onSelect: () => void remove(u), danger: true, testId: `guest-remove-${u.username}` },
       ]

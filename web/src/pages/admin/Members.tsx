@@ -492,7 +492,7 @@ export default function Members() {
       </section>
 
       {/* the people from outside the team (docs/DECISIONS.md "Guests: only what they were invited to") */}
-      {users.data && (roleFilter === 'all' || roleFilter === 'guest') && <GuestsSection guests={shown(users.data.items.filter((u) => u.role === 'guest'))} filtered={!!query.trim()} connections={connections.data} focusId={focusId} onChanged={() => users.reload()} onDelete={(u) => void remove(u)} deletionRequested={users.data.deletionRequested} deletionDue={users.data.deletionDue} />}
+      {users.data && (roleFilter === 'all' || roleFilter === 'guest') && <GuestsSection guests={shown(users.data.items.filter((u) => u.role === 'guest'))} filtered={!!query.trim()} connections={connections.data} focusId={focusId} onChanged={() => users.reload()} onDelete={(u) => void remove(u)} onResetPassword={resetPassword} deletionRequested={users.data.deletionRequested} deletionDue={users.data.deletionDue} />}
 
       <ScheduleReviews />
 
