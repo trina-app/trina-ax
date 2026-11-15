@@ -1956,7 +1956,7 @@ export const id: Record<MessageKey, string> = {
   'apps.noDownloadsOwnerHosted': 'Server tim mengunduhnya dari feed rilis yang ditandatangani setiap kali diperbarui. Kalau tidak muncul, Admin › Sistem › Diagnostik menjelaskan alasannya ("Aplikasi Windows").',
   'apps.thisComputer': 'Untuk komputer ini',
   'apps.winHow': 'Buka file yang diunduh ({productFile}-Setup-….exe). Langsung terpasang tanpa kata sandi administrator dan {product} terbuka.',
-  'apps.winSmartScreen': 'Kalau muncul jendela biru "Windows protected your PC", klik Info selengkapnya → Tetap jalankan. Build ini belum punya tanda tangan yang terverifikasi, jadi Windows memperingatkan sekali.',
+  'apps.winSmartScreen': 'Kalau muncul jendela biru "Windows protected your PC", klik Info selengkapnya → Tetap jalankan. Build ini belum punya tanda tangan yang terverifikasi, jadi Windows memperingatkan sekali. Kalau Windows bilang aplikasi diblokir dan tidak ada tombol Tetap jalankan (Smart App Control), aplikasi tidak bisa dipasang di PC itu: buka tim lewat browser, atau tanya admin Anda.',
   'apps.macHow': 'Buka file .dmg yang diunduh, seret {product} ke folder Applications, lalu buka {product} dari Applications.',
   'apps.macGatekeeper': 'Kalau macOS bilang aplikasi tidak bisa dibuka, klik Selesai, buka Pengaturan Sistem → Privasi & Keamanan, klik Tetap Buka di bagian bawah, lalu Tetap Buka sekali lagi.',
   'apps.macStore': 'Aplikasi ini dari Mac App Store. Pembaruannya juga lewat App Store.',
