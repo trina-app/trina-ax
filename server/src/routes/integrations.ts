@@ -24,6 +24,7 @@ const viewer = (auth: AuthInfo) => ({ id: auth.user.id, role: auth.user.role })
  * here (no session in this browser, a used link) says to sign in to the team account */
 const FAILED_TEXT: Record<FlowFailure, TextKey> = {
   client: 'callbackClient', client_template: 'callbackClientTemplate', limit: 'callbackLimit', denied: 'callbackDenied', changed: 'callbackChanged', exchange: 'callbackExchange', invalid: 'callbackExchange', superseded: 'callbackChanged', cancelled: 'callbackCancelled',
+  expired: 'callbackExpired',
 }
 
 export function registerIntegrationRoutes(kit: RouteKit, ctx: AppContext) {
