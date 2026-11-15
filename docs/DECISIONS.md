@@ -29542,6 +29542,38 @@ Where: Team AX core (`server/src/chat/{audience-check,people-share,share-chat,wi
 - Tests: `tests/unit/c-integrations-secret-sends.test.ts` (a fake MCP connection and a fake HTTP API through net.ts
   testAllow). Version impact: **patch** (a security fix; no new feature or API change).
 
+## The web tools, the browser and the dev shell never carry a stored key out (fix/web-tools-hide-keys, 2026-11-15)
+
+- **Problem (QA tracking TC-3097).** The entry above stopped a stored connection key from reaching a connected
+  service, but the built-in tools that reach outside hosts still sent it: web_fetch (a key in the address goes to any
+  host), save_url, the browser pane tools (an address, typed text, a form value, a script) and box_shell.
+- **Decision: refused, not sent hidden.** An address, a typed text or a command with [hidden key] in it is useless (a
+  wrong page, a wrong login), so these calls are not sent at all. The same hook runs first (`TurnToolSet.hideKeys`, in
+  mcp/protocol.ts), now also calling `refuseKeysSentOut` (integrations/connections/hide-args.ts) for web_fetch (every
+  value), save_url (`url`; `save_as` is a team path and keeps being saved hidden), intro_deck (`urls`), every browser
+  pane tool (every value and field name, also inside browser_batch) and box_shell (every value: the command and
+  `request_sites`). A value refuses the call when it holds any form of a stored key as written (the redactor's forms:
+  escaped, base64, …), with its whitespace taken out, or with its %-escapes decoded ("+" as a space): a key cut by a
+  space, a line break, %20 or + is caught too. The AI gets a plain line ("Nothing was sent: …"; box_shell: "Nothing was
+  run: …"), no card is raised, and the audit line says "not sent (a stored key in what it sends out)" or "(… in the
+  command)". The step line hides every whole form of the key as before (chat/turn.ts redactStep).
+- **Fails closed.** Checked with `completeRedactorFor`, as connection tools: when one of the person's stored secrets
+  cannot be read now, every such call (also box_shell, also one without a key) is refused with UNCHECKED_REFUSAL and the
+  audit line "not sent (stored keys could not be read)". Other tools never read the secrets for this.
+- **box_shell: every command, not a list of programs.** The security review of #971 accepted that a run is the
+  person's own developer environment as it is. Refusing only curl and wget would be easy to get around (node -e,
+  python -c, git, a DNS lookup), and write already saves [hidden key] in place of a key, so any command that holds a
+  stored key is refused. Known limits, left as they are: a key the AI builds from pieces (string joins in a script or
+  a command), and a key that is already in a file the command reads (`curl -d @.env`): the box runs the person's own
+  environment.
+- **Checked, not changed.** generate_video (Higgsfield): its arguments are already hidden (the saving tools' list).
+  promo_video reads team files only. make_file and artifact do not fetch outside addresses. The server's plugins make
+  no outbound calls of their own. A key split across a line break in a step line is not hidden there (the redactor's
+  patterns do not cross whitespace; see #984), but such a call is never sent.
+- Tests: `tests/unit/c-integrations-secret-web.test.ts` (a local server as the outside host through web_fetch's test
+  allowance, a desktop window as a test socket), `tests/unit/dev-env-srt.test.ts` "box_shell never runs a command that
+  holds a stored key". Version impact: **patch** (a security fix; no new feature or API change).
+
 ## Connector follow-ups: the sign-in push opens its connection, API rows in the log, sign-in words on a skipped run (fix/connector-small-followups, 2026-11-15, tracking TC-3052, TC-3053, TC-3054)
 
 - **A sign-in push opens its connection** (TC-3053). The `connection.reconnect` phone push opened the Inbox

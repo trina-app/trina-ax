@@ -141,3 +141,57 @@ export function hideAllArgs(args: unknown, r: Redactor): HiddenArgs {
   const out = walk(args)
   return hidden ? { args: out, hidden: true, note: KEYS_SENT_HIDDEN_NOTE } : { args, hidden: false }
 }
+
+/** a stored key in what a web tool, the browser or the dev shell would send out: never sent (an address or a typed
+ * text with [hidden key] in it is useless, so nothing is sent hidden either) */
+export const SENT_OUT_REFUSAL = `Nothing was sent: what you gave this tool holds one of the user's stored connection keys, and a web address, a page or a form must never carry it to another site. Tell the user it was not sent; do not try it another way and never write the key out.`
+/** box_shell: any program in the dev environment can reach the network, so a command that holds a key is not run */
+export const SHELL_REFUSAL = `Nothing was run: this command holds one of the user's stored connection keys, and a command in the dev environment can send it to another site. Never put a stored key in a command; tell the user it was not run.`
+
+/** %-escapes decoded where they decode ("+" as a space, as a form sends it); a broken escape stays as written */
+const decoded = (s: string) => s.replace(/\+/g, ' ').replace(/(?:%[0-9a-fA-F]{2})+/g, (m) => { try { return decodeURIComponent(m) } catch { return m } })
+
+/** Whether any form of a stored key is in this text: as written (the redactor's forms: escaped, base64, …), with its
+ * whitespace taken out (a key cut by a space or a line break), or with its %-escapes decoded (a key cut by %20 or +). */
+export function holdsKey(s: string, r: Redactor): boolean {
+  if (!r.re || !s) return false
+  const has = (x: string) => r.hide(x) !== x
+  if (has(s) || has(s.replace(/\s+/g, ''))) return true
+  const d = decoded(s)
+  return d !== s && (has(d) || has(d.replace(/\s+/g, '')))
+}
+
+/** whether any string or field name in a JSON-like value holds a stored key (holdsKey) */
+export function anyKeyIn(v: unknown, r: Redactor): boolean {
+  if (!r.re) return false
+  if (typeof v === 'string') return holdsKey(v, r)
+  if (Array.isArray(v)) return v.some((x) => anyKeyIn(x, r))
+  if (isObj(v)) return Object.entries(v).some(([k, x]) => holdsKey(k, r) || anyKeyIn(x, r))
+  return false
+}
+
+/**
+ * The built-in tools that reach outside hosts (QA TC-3097), and what of their arguments goes out: web_fetch's address,
+ * save_url's address (its `save_as` is a team path, hidden by hideKeysInArgs), intro_deck's addresses, every value of a
+ * browser pane tool (an address, typed text, a form value, a script, also inside browser_batch) and box_shell's command
+ * and the sites it asks for. `browser`: the names of the browser pane tools. null: a tool that sends nothing out.
+ */
+export function sentOutOf(name: string, args: unknown, browser: ReadonlySet<string>): { what: unknown; refusal: string } | null {
+  const a = isObj(args) ? args : {}
+  if (name === 'web_fetch' || browser.has(name)) return { what: args, refusal: SENT_OUT_REFUSAL }
+  if (name === 'save_url') return { what: a.url, refusal: SENT_OUT_REFUSAL }
+  if (name === 'intro_deck') return { what: a.urls, refusal: SENT_OUT_REFUSAL }
+  if (name === 'box_shell') return { what: args, refusal: SHELL_REFUSAL }
+  return null
+}
+
+/** Throws KeyRefusal when what a call to `name` sends out holds a stored key (sentOutOf). `redactor`: the person's
+ * complete redactor (completeRedactorFor), read only for such a call; null (a secret that cannot be read now) refuses
+ * every such call. */
+export function refuseKeysSentOut(name: string, args: unknown, redactor: () => Redactor | null, browser: ReadonlySet<string>): void {
+  const out = sentOutOf(name, args, browser)
+  if (!out) return
+  const r = redactor()
+  if (!r) throw new KeyRefusal(UNCHECKED_REFUSAL, 'stored keys could not be read')
+  if (anyKeyIn(out.what, r)) throw new KeyRefusal(out.refusal, name === 'box_shell' ? 'a stored key in the command' : 'a stored key in what it sends out')
+}

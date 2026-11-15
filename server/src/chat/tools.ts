@@ -10,7 +10,7 @@ import type { BrowserToolName, ConfirmDetail, Locale, Step, TurnRequest } from '
 import type { McpContent, TurnToolSet } from '../turns'
 import type { ToolCard, TurnTool, TurnToolContext } from '../services'
 import { newId } from '../db'
-import { PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
+import { BROWSER_TOOL_NAMES, PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
 import { browserUrl, isPrivateHost, staticPrivateHost } from '../realtime/private-net'
 import { cleanMemoryText, MEMORY_ITEM_MAX, neutralizeTags, skillBlock } from './prompt'
 import { isPersonalSkill, listSkills, readSkill, skillFolder, type Skill } from './skills'
@@ -57,7 +57,7 @@ import { readRooms } from './read-rooms'
 import { WEB_ACCESS_CHANGED } from '../admin/settings'
 import { isGuestUser } from '../credentials/guest-ai'
 import { GUEST_TURN_TOOLS } from './guest-tools'
-import { hideAllArgs, hideKeysInArgs, KEY_HIDING_TOOLS, KeyRefusal, UNCHECKED_REFUSAL } from '../integrations/connections/hide-args'
+import { hideAllArgs, hideKeysInArgs, KEY_HIDING_TOOLS, KeyRefusal, refuseKeysSentOut, UNCHECKED_REFUSAL } from '../integrations/connections/hide-args'
 import { completeRedactorFor } from '../integrations/connections/redact'
 
 export interface Tool {
@@ -266,6 +266,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         if (!r) throw new KeyRefusal(UNCHECKED_REFUSAL, 'stored keys could not be read')
         return hideAllArgs(args, r)
       }
+      // a built-in tool that reaches outside hosts (web_fetch, save_url's address, the browser, intro_deck's addresses,
+      // box_shell): a stored key in what it sends out refuses the call, as an address with [hidden key] in it is useless
+      // (QA TC-3097). Fails closed like the connections above
+      refuseKeysSentOut(name, args, () => completeRedactorFor(exec.rt.ctx, exec.spec.userId), BROWSER_TOOL_NAMES)
       if (!KEY_HIDING_TOOLS.includes(name)) return { args, hidden: false }
       return hideKeysInArgs(name, args, exec.redactor(), (p) => exec.rt.files.textNow(exec.livePrincipal(), p))
     },
