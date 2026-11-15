@@ -1,7 +1,7 @@
 // Preload of the team page (sandboxed, contextIsolation). Exposes window.mycelDesktop (shared/src/desktop-bridge.ts)
 // and nothing else: browser relay functions, pane open/close/state, connection state, notifications (a click opens the
 // address the page named; Settings › Notifications' test notification), the dock badge, the window's focus, a picture put on the clipboard (이미지 복사), team list and the teams menu, and
-// Settings > Browser (read the site setting, back to asking, remove / clear always-allowed sites; "all" only asks the
+// a connector sign-in's one-time return address (its port only), Settings > Browser (read the site setting, back to asking, remove / clear always-allowed sites; "all" only asks the
 // main process, which shows its own confirmation dialog).
 // The main process re-checks every call: top frame only, team origin only (main/main.ts, common/trust.ts).
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
@@ -80,6 +80,11 @@ const bridge: DesktopBridge = {
         },
       }
     : {}),
+  // a connector sign-in's one-time return address on 127.0.0.1 (common/sign-in-return.ts): its port, never its requests
+  signInReturn: {
+    open: () => ipcRenderer.invoke('bridge:sign-in-return-open'),
+    close: (port) => ipcRenderer.send('bridge:sign-in-return-close', Number(port)),
+  },
   browserSettings: {
     get: () => ipcRenderer.invoke('bridge:browser-settings'),
     onChange: on('bridge:browser-settings'),

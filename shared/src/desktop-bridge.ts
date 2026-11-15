@@ -290,6 +290,16 @@ export interface DesktopBridge {
     /** macOS: System Settings › Privacy & Security › Files & Folders, where the person lets the app into a folder again */
     openSettings(): void
   }
+  /** A connector sign-in at a service that takes only an app on the computer as the place to come back to (Canva,
+   * Intercom, Square; RFC 8252): open() gives the port of a one-time return address on 127.0.0.1 that the page passes to
+   * POST /api/integrations/:id/authorize (`loopbackPort`); the service sends the browser there and the app sends it on
+   * to this team's own return page, then the address closes (desktop/src/common/sign-in-return.ts). One at a time; it
+   * closes by itself after 10 minutes. null when none can be opened. close(port): the sign-in did not need it, or was
+   * cancelled. Optional: desktop apps before this addition do not have it (the page sends no port). */
+  signInReturn?: {
+    open(): Promise<number | null>
+    close(port: number): void
+  }
   /**
    * Settings > Browser: the same setting as the pane's ⚙ panel, and nothing else. The page can read it, go back to
    * asking, remove an always-allowed site and clear them all. setAccess('all') only asks: the desktop app shows its

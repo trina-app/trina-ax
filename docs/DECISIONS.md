@@ -28454,6 +28454,39 @@ QA on a private copy of QA-Acme in managed AI mode with a plan file of two guest
 - The keys `members.usedBy` and `members.expired` had no other use and were removed in all languages.
 - Version impact: **patch** (fewer rows on one admin page).
 
+## Guests from Invite people (feat/invite-people-guest, owner 2026-11-15)
+
+- **Asked:** the owner opened **Invite people** (the team menu, ⌘K, the phone's 나 tab: `TeamMenu.tsx`
+  `TeamInviteDialog`) and found no guest option; #959 had added it to Admin › Invite to team only.
+- The Guest half of #959 moved out of Admin into one shared file, `components/GuestInviteChoice.tsx`
+  (`InviteKindTabs`, `useGuestChoice`, `GuestChoicePanel`, `GuestChoiceButtons`, `GuestChoiceForm`, and
+  `GuestPlacePicker`, moved from `pages/admin/`). Admin's Invite to team and Invite people both use it, so the line, the
+  places, the limit, See plans and the guest form (`GuestInviteDialog`, unchanged) are the same in both. No new
+  endpoint, no new words.
+- **New conversation** (the chats panel's +, /rooms?new=1, ⌘K's people, a DM's 초대하기) starts with the same
+  **Invite a guest** row as a group chat's add list, for everyone but a guest (meta "Outside the team · joins one group
+  chat or project"). It opens `GuestInviteFlow`: the Guest half on its own (title "Invite a guest", the line, the places
+  or the limit), then the guest form. Picking the place was simpler and clearer than making a group chat first.
+- A group chat's or a DM's header **⋯** now has **Invite people** (after the pin), the same add list as the room info's
+  (`Room.tsx invitePeople`), whose first row in a group chat is Invite a guest. Before this the add list was only behind
+  the chat's name at the top, which is why the owner could not find it in a group chat. A row's ⋯ in a list has none.
+- Invite people starts on **Team member** (the team link's message, `InviteStep`, unchanged). Guest's Cancel / Close and
+  See plans sit in the same row under the content where Team member has Done (the dialog has no footer bar).
+- The places are what the server accepts from the caller (`inviteMakerOk`): group chats they are in; projects whose
+  members they may change (`membersEditable`: the creator, the owner and admins). The picker is role-blind, so it
+  stays right if a member ever opens it.
+- The team link's invite step (`InviteStep`) outside that dialog — the owner's welcome steps (where Invite people sends
+  an owner while the steps are unfinished: the QA-Acme owner landed there, so the owner on qa.trina.app likely did
+  too), Home's goal card [Invite teammates] — gets one quiet line under the message:
+  "Someone from outside the team? **Invite a guest**" (`GuestInviteFlow`). Not tabs there: those screens are about
+  colleagues using the team's skills, and the welcome steps stay one task per step. Invite people's own dialog has the
+  tabs, so its InviteStep has no line (`guestLine={false}`); nor has the invite right after sharing a team skill (its
+  message is about that skill; review). In New conversation, Cancel on the places goes back to the people list; Done
+  closes everything.
+- **Left as they are:** Invite people stays the owner's and admins' (the team link is theirs; a member invites a guest
+  from New conversation, a group chat's ⋯ or a project's add list). Admin's team invite link card stays team members
+  only (one link for many people; a guest's link is for one person and one place). - Version impact: **minor** (a new way in to an existing feature).
+
 ## Guests from Admin › Invite to team (feat/admin-invite-guest, owner 2026-11-15)
 
 - **Asked:** admins coming from Slack start at **Admin › Members & invites › Invite to team**, which had no guest
@@ -29129,3 +29162,25 @@ DMG and its first screen was "팀 서버에 연결할 수 없어요 — http://l
   (no line in a plain browser or an app without `hostLine`; the address and Switch team under the card; 1440/390 light and
   dark pictures), `web/test/unit/nav-menus.test.tsx`.
 - Version impact: patch (a first-start fix; an optional bridge method, no API change).
+
+## Connectors that take only an app on the computer sign in from the desktop app (feat/connector-desktop-loopback-signin, 2026-11-15)
+
+Canva, Intercom and Square refuse the team's https sign-in return address (not on their list) but take
+`http://127.0.0.1:<port>/callback`, the address apps on a computer use (RFC 8252); Figma refuses both. Decided:
+- The desktop app signs in at them through a one-time listener on 127.0.0.1 that sends the browser on to the team's own
+  return page (`desktop/src/common/sign-in-return.ts`); the server finishes the sign-in exactly as for any other (state,
+  PKCE, the same person's browser session). The order stays: registered app for https → metadata document → 127.0.0.1,
+  only when both were refused.
+- The port counts only from a desktop session. A forged session kind gains nothing: the code goes only to the person's
+  own computer, is useless without the verifier the server keeps, and finishes only that person's own sign-in.
+- The web and the phone app say "<service> only lets you sign in from an app on your computer. Open the Trina desktop
+  app and connect it there." (`oauth_desktop_only`) with Get the desktop app (the phone app: "Connect Canva on a
+  computer."), when one probe registration for 127.0.0.1 shows it would work. Whether a sign-in server takes 127.0.0.1
+  is remembered an hour, keyed by that server only, and only spares the probe: the usual client choice (with the
+  metadata document from a public address) always runs first (security review of #977).
+- Not now: passing the return through the app's own session (the system browser must be signed in, as for every desktop
+  sign-in), `localhost`, the Mac App Store build (its sandbox has no `network.server`; adding it is a store-review
+  decision for the release owner).
+- Tests: `tests/unit/c-integrations-desktop-signin.test.ts` (recorded service shapes), `tests/unit/e-desktop-sign-in-return.test.ts`
+  (the listener), `web/test/unit/integration-desktop-signin.test.tsx`. Version impact: **minor** (a new way to connect,
+  additive API and bridge fields).
