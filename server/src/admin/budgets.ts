@@ -5,7 +5,7 @@
 import type { Database } from 'bun:sqlite'
 import type { z } from 'zod'
 import type { Budget, BudgetBody, Locale, UsageQuery, UsageResponse } from '@mycel/shared/api'
-import { limitResetText } from '@mycel/shared'
+import { ANSWER_AVERAGE_DAYS, DEFAULT_TOKENS_PER_ANSWER, MIN_ANSWERS_FOR_AVERAGE, limitResetText } from '@mycel/shared'
 import { newId } from '../db'
 import { fail } from '../http/errors'
 import { msg } from '../auth/messages'
@@ -137,6 +137,23 @@ export function budgetBlock(db: Database, userId: string, locale: Locale, now = 
   // resetsAt: when the limit starts again (the start of the next period in the team's time zone), for screens that
   // word it themselves (a guest's "It resets on Dec 1": web components/chat/Messages.tsx)
   return { budget: hit.budget, message, resetsAt: end.toISOString() }
+}
+
+/**
+ * Tokens one answer takes on average in this team (input + output, as a budget counts them): the turns of the last
+ * ANSWER_AVERAGE_DAYS days that used any. With fewer than MIN_ANSWERS_FOR_AVERAGE of them, DEFAULT_TOKENS_PER_ANSWER
+ * (shared/src/guest-tokens.ts). The mean, not the median: tokens of the limit / the mean = how many answers fit.
+ */
+export function answerTokens(db: Database, now = new Date()): { tokens: number; from: 'team' | 'default' } {
+  const since = new Date(now.getTime() - ANSWER_AVERAGE_DAYS * 86_400_000).toISOString()
+  const r = db.query('SELECT COUNT(*) AS n, COALESCE(SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)), 0) AS tokens FROM turns WHERE started_at >= ? AND COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0) > 0').get(since) as { n: number; tokens: number }
+  if (r.n < MIN_ANSWERS_FOR_AVERAGE) return { tokens: DEFAULT_TOKENS_PER_ANSWER, from: 'default' }
+  return { tokens: Math.max(1, Math.round(r.tokens / r.n)), from: 'team' }
+}
+
+/** A guest's Team AI limit: their own 'block' budget for the month, in tokens (no money limit: limit_usd 0). */
+export function insertGuestBudget(db: Database, userId: string, limitTokens: number): void {
+  db.query("INSERT INTO budgets (id, subject_type, subject_id, period, limit_usd, limit_tokens, action) VALUES (?, 'user', ?, 'month', 0, ?, 'block')").run(newId(), userId, limitTokens)
 }
 
 // ---------------- usage ----------------

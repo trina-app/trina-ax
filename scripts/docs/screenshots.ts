@@ -155,7 +155,7 @@ const GUEST_SEED = async (control: (what: string, data: unknown) => Promise<void
   const at = new Date(Date.now() - 3 * 3600_000).toISOString()
   await control('rooms', { rooms: [{ ...GUEST_ROOM, id: QUOTE_ROOM, kind: 'group', name: 'Quote prep', memberCount: 3, peers: [{ id: 'bob', name: 'Bob' }, ALEX], createdAt: at, activityAt: at }] })
   await control('guest', { id: ALEX.id, name: ALEX.name, place: { kind: 'room', id: QUOTE_ROOM } })
-  await control('guest', { id: 'sam', name: 'Sam Park', place: { kind: 'project', name: 'Launch plan' }, ai: { mode: 'team', credentialId: 'c1', limitUsd: 20 } })
+  await control('guest', { id: 'sam', name: 'Sam Park', place: { kind: 'project', name: 'Launch plan' }, ai: { mode: 'team', credentialId: 'c1', limitTokens: 5_000_000 }, usedTokens: 1_800_000 })
 }
 /** the room's messages (the mock server keeps none it did not share from a chat): answered in the browser */
 const quoteMessages = async (p: Page) => {

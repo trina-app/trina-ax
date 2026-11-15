@@ -77,8 +77,8 @@ test('a project invite stops when the project goes to the trash; AI team needs a
   expect(await status(accept(h.client(), tokenOf(inv), 'gus'))).toBe(410)
   const p2 = await mia.client.call('POST', '/api/projects', { name: 'Second', scope: 'team' })
   // a member cannot give a guest the team's AI; an admin cannot with a connection that does not exist
-  expect(await status(invite(mia.client, { kind: 'project', id: p2.id }, { mode: 'team', credentialId: 'x', limitUsd: 5 }))).toBe(403)
-  expect(await status(invite(ada.client, { kind: 'project', id: p2.id }, { mode: 'team', credentialId: 'x', limitUsd: 5 }))).toBe(403)
+  expect(await status(invite(mia.client, { kind: 'project', id: p2.id }, { mode: 'team', credentialId: 'x', limitTokens: 5000 }))).toBe(403)
+  expect(await status(invite(ada.client, { kind: 'project', id: p2.id }, { mode: 'team', credentialId: 'x', limitTokens: 5000 }))).toBe(403)
   // their own sign-in is fine from a member
   expect((await invite(mia.client, { kind: 'project', id: p2.id }, { mode: 'own' })).invite.role).toBe('guest')
 })

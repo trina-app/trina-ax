@@ -6,18 +6,19 @@
 // (GET /api/guest-invites/limit): a full plan says so at the top in place of the form, with "See plans" for the owner
 // and admins and "Ask an admin" for members.
 // The AI choice (GuestAiChoices) is the same control Admin › Members › Guests uses to change it later. Team AI's own
-// fields (the account, the monthly limit) sit right under it; without a team AI account it is off, with "Add an AI
-// account".
+// fields (the account, the monthly limit in tokens: a few presets or another amount, with "about N answers" next to
+// it) sit right under it; without a team AI account it is off, with "Add an AI account".
 // A guest already in another place is greyed out in the add lists (GuestElsewhere: "In 'Quote prep'", no tick), with
 // "Make team member" for the owner and admins.
 import { Check, Copy, UserRoundPlus } from 'lucide-react'
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import type { Credential, GuestAiChoice, GuestInviteLimit, Person } from '@mycel/shared/api'
+import type { Credential, GuestAiChoice, GuestAiChoiceBody, GuestInviteLimit, Locale, Person } from '@mycel/shared/api'
+import { DEFAULT_TOKENS_PER_ANSWER, GUEST_TOKEN_PRESETS, GUEST_TOKENS_DEFAULT, answersFor } from '@mycel/shared'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { GUEST_LIMIT, GUEST_ONE_PLACE, type GuestPlaceView, type PlaceKind } from '../lib/guests'
 import { noPurchaseLinks } from '../lib/desktop'
-import { formatDateTime } from '../lib/format'
+import { formatDateTime, formatNumber, formatUsd } from '../lib/format'
 import { useLocale, useT } from '../i18n'
 import { useNavigate } from 'react-router-dom'
 import { isAdmin, useMe } from '../store/session'
@@ -55,9 +56,11 @@ export function InviteGuestRow({ place, onOpen }: { place: PlaceKind | 'any'; on
  * the team's AI accounts (for team; null while they load). Team AI's account and monthly limit sit right under it; with
  * no team AI account it cannot be picked and says where to add one. `legend`: false where the dialog's title already
  * says it ("AI for Alex"). */
-export function GuestAiChoices({ value, onChange, admin, connections, noGuestAi = false, legend = true }: { value: GuestAiChoice; onChange: (v: GuestAiChoice) => void; admin: boolean; connections: Credential[] | null
+export function GuestAiChoices({ value, onChange, admin, connections, noGuestAi = false, legend = true, answerTokens }: { value: GuestAiChoice; onChange: (v: GuestAiChoice) => void; admin: boolean; connections: Credential[] | null
   /** this server runs its AI on its own sign-in (an Office Mac): a guest gets no AI here, so only No AI can be picked */
-  noGuestAi?: boolean; legend?: boolean }) {
+  noGuestAi?: boolean; legend?: boolean
+  /** the team's tokens per answer (GuestInviteLimit.answerTokens), for "about N answers"; absent: the default */
+  answerTokens?: GuestInviteLimit['answerTokens'] }) {
   const t = useT()
   const id = useId()
   const modes = (admin ? ['none', 'team', 'own'] : ['none', 'own']) as GuestAiChoice['mode'][]
@@ -66,7 +69,7 @@ export function GuestAiChoices({ value, onChange, admin, connections, noGuestAi 
   useEffect(() => { if (noGuestAi && value.mode !== 'none') onChange({ mode: 'none' }) }, [noGuestAi]) // eslint-disable-line react-hooks/exhaustive-deps
   const pick = (mode: GuestAiChoice['mode']) => {
     if (mode === value.mode) return
-    if (mode === 'team') onChange({ mode, credentialId: connections?.[0]?.id ?? '', limitUsd: 20 })
+    if (mode === 'team') onChange({ mode, credentialId: connections?.[0]?.id ?? '', limitTokens: GUEST_TOKENS_DEFAULT })
     else onChange({ mode })
   }
   // Team AI picked before the accounts were read: the first one, once they are (the list shows it chosen)
@@ -98,19 +101,14 @@ export function GuestAiChoices({ value, onChange, admin, connections, noGuestAi 
                 </p>
               )}
               {m === 'team' && value.mode === 'team' && !noAccount && (
-                <div className="grid gap-3 pt-1 pb-2 pl-7 sm:grid-cols-[minmax(0,1fr)_9rem]" data-testid="guest-ai-team-fields">
+                <div className="grid gap-3 pt-1 pb-2 pl-7" data-testid="guest-ai-team-fields">
                   <label className="block min-w-0">
                     <span className="mb-1 block text-xs font-medium text-muted">{t('guest.ai.account')}</span>
                     <select className={inputCls} value={value.credentialId} onChange={(e) => onChange({ ...value, credentialId: e.target.value })} disabled={!connections} data-testid="guest-ai-account">
                       {(connections ?? []).map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
                     </select>
                   </label>
-                  <label className="block">
-                    <span className="mb-1 block text-xs font-medium text-muted">{t('guest.ai.limit')}</span>
-                    <input type="number" inputMode="decimal" min={1} step={1} className={inputCls} value={Number.isFinite(value.limitUsd) ? value.limitUsd : ''}
-                      onChange={(e) => onChange({ ...value, limitUsd: Number(e.target.value) })} data-testid="guest-ai-limit" />
-                    <span className="mt-1 block text-xs text-muted" data-testid="guest-ai-limit-hint">{t('guest.ai.limitHint')}</span>
-                  </label>
+                  <TokenLimit value={value} onChange={onChange} answerTokens={answerTokens} />
                 </div>
               )}
             </div>
@@ -123,8 +121,69 @@ export function GuestAiChoices({ value, onChange, admin, connections, noGuestAi 
   )
 }
 
-/** A team mode choice that can be sent: an account picked and a limit above 0. */
-export const aiChoiceReady = (v: GuestAiChoice) => v.mode !== 'team' || (!!v.credentialId && v.limitUsd > 0)
+/** A team mode choice that can be sent: an account picked and a token limit above 0 (an older guest's US dollar limit
+ * is shown, but changing Team AI picks tokens). */
+export const aiChoiceReady = (v: GuestAiChoice): v is GuestAiChoiceBody => v.mode !== 'team' || (!!v.credentialId && Number.isInteger(v.limitTokens) && v.limitTokens! > 0)
+
+/** "5M tokens" / "500만 토큰": a token amount in the reader's words. */
+export function tokensText(t: ReturnType<typeof useT>, n: number, locale: Locale): string {
+  return t('guest.ai.tokens', { amount: formatNumber(n, locale, { notation: 'compact', maximumFractionDigits: 1 }) })
+}
+
+/** "about 60 answers" for `tokens` at the team's tokens per answer (or the default). */
+export function answersText(t: ReturnType<typeof useT>, tokens: number, perAnswer: number | undefined): string {
+  const n = answersFor(tokens, perAnswer ?? DEFAULT_TOKENS_PER_ANSWER)
+  return n > 0 ? t('guest.ai.answers', { n }) : t('guest.ai.answersUnderOne')
+}
+
+/** Team AI's monthly limit: the presets and Other (a number of tokens), then "5M tokens · about 60 answers" and what a
+ * token is. An older guest's US dollar limit is said as it is, with nothing picked, until a token amount is. */
+function TokenLimit({ value, onChange, answerTokens }: { value: Extract<GuestAiChoice, { mode: 'team' }>; onChange: (v: GuestAiChoice) => void; answerTokens?: GuestInviteLimit['answerTokens'] }) {
+  const t = useT()
+  const locale = useLocale()
+  const id = useId()
+  const tokens = value.limitTokens
+  const [other, setOther] = useState(() => tokens !== undefined && !(GUEST_TOKEN_PRESETS as readonly number[]).includes(tokens))
+  const set = (n: number) => onChange({ mode: 'team', credentialId: value.credentialId, limitTokens: n })
+  const pick = (v: string) => {
+    if (v === 'other') { setOther(true); if (tokens === undefined) set(GUEST_TOKENS_DEFAULT); return }
+    setOther(false)
+    set(Number(v))
+  }
+  const ok = tokens !== undefined && Number.isInteger(tokens) && tokens > 0
+  return (
+    <div className="min-w-0" data-testid="guest-ai-limit-box">
+      {value.limitUsd !== undefined && tokens === undefined && (
+        <p className="mb-1.5 text-xs leading-5 break-keep text-muted" data-testid="guest-ai-limit-usd">{t('guest.ai.nowUsd', { amount: formatUsd(value.limitUsd, locale) })}</p>
+      )}
+      <div className="grid gap-2 sm:grid-cols-2">
+        <label className="block min-w-0">
+          <span className="mb-1 block text-xs font-medium text-muted">{t('guest.ai.limit')}</span>
+          <select className={inputCls} value={tokens === undefined ? '' : other ? 'other' : String(tokens)} onChange={(e) => pick(e.target.value)} data-testid="guest-ai-limit">
+            {tokens === undefined && <option value="" disabled>{'—'}</option>}
+            {GUEST_TOKEN_PRESETS.map((n) => <option key={n} value={String(n)}>{tokensText(t, n, locale)}</option>)}
+            <option value="other">{t('guest.ai.custom')}</option>
+          </select>
+        </label>
+        {other && (
+          <label className="block min-w-0" htmlFor={`${id}-other`}>
+            <span className="mb-1 block text-xs font-medium text-muted">{t('guest.ai.customLabel')}</span>
+            <input id={`${id}-other`} type="number" inputMode="numeric" min={1} step={100_000} className={inputCls} value={tokens !== undefined && Number.isFinite(tokens) ? tokens : ''}
+              onChange={(e) => set(e.target.value === '' ? Number.NaN : Math.round(Number(e.target.value)))} data-testid="guest-ai-limit-other" />
+          </label>
+        )}
+      </div>
+      {ok && (
+        <p className="mt-1.5 text-sm text-ink" data-testid="guest-ai-estimate">
+          {tokensText(t, tokens, locale)} · {answersText(t, tokens, answerTokens?.tokens)}
+        </p>
+      )}
+      <p className="mt-1 text-xs leading-5 break-keep text-muted" data-testid="guest-ai-limit-hint">
+        {t(answerTokens?.from === 'team' ? 'guest.ai.estimateTeam' : 'guest.ai.estimateDefault')} {t('guest.ai.limitHint')}
+      </p>
+    </div>
+  )
+}
 
 /** The team's AI accounts a guest may be given (Admin › AI providers, team ones), read only for the owner and admins
  * (`list` null while they load), and `noGuestAi`: this server runs its AI on its own sign-in (an Office Mac, local
@@ -324,7 +383,7 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose, onFull }
           <Field label={t('guest.invite.name')}>
             <input autoFocus value={name} onChange={(e) => setName(e.target.value)} maxLength={100} placeholder={t('guest.invite.namePlaceholder')} className={inputCls} data-testid="guest-invite-name" />
           </Field>
-          <GuestAiChoices value={ai} onChange={setAi} admin={admin} connections={connections} noGuestAi={noGuestAi} />
+          <GuestAiChoices value={ai} onChange={setAi} admin={admin} connections={connections} noGuestAi={noGuestAi} answerTokens={limit?.answerTokens} />
           <LinkExpiry iso={until} />
           {error && <p role="alert" className="text-sm break-keep text-danger" data-testid="guest-invite-error">{error}</p>}
         </form>

@@ -232,7 +232,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `POST` | `/api/admin/invites` | Admin | New invite link (copy it; no mail in v1). |
 | `POST` | `/api/guest-invites` | Signed in | Invite a guest into one place: a group chat the caller is in, or a project the caller created (the owner and admins: any project). 409 plan_limit reason guest_limit over the plan's guests. |
 | `GET` | `/api/guest-invites/limit` | Signed in | Whether the plan has room for one more guest (and, for the owner and admins, whether every seat is taken), so the invite and Make team member dialogs say so before the form. |
-| `PATCH` | `/api/admin/users/:id/guest-ai` | Admin | Change a guest's AI: none, own sign-in, or a team connection with a monthly limit. |
+| `PATCH` | `/api/admin/users/:id/guest-ai` | Admin | Change a guest's AI: none, own sign-in, or a team connection with a monthly token limit. |
 | `POST` | `/api/admin/users/:id/convert-guest` | Admin | Make a guest a team member (takes a seat: 409 plan_limit reason seat_limit when none is free). They keep their place. |
 | `DELETE` | `/api/admin/invites/:id` | Admin | Revoke an unused invite. |
 | `GET` | `/api/admin/groups` | Admin | Groups with members. |

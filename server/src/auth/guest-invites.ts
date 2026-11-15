@@ -25,13 +25,18 @@ import { authOf } from './service'
 
 type In<T extends z.ZodType> = z.output<T>
 
-/** The AI choice as stored in invites.guest_ai (null on member invites). */
+/** The AI choice as stored in invites.guest_ai (null on member invites): Team AI with its token limit, or, on a link
+ * made before 2026-11-15 and not used yet, its US dollar limit (accepting it then gives the guest that limit, like the
+ * guests who had joined already: docs/DECISIONS.md "Guest Team AI: a token limit"). */
 export function parseGuestAi(s: string | null): GuestAiChoice {
   if (!s) return { mode: 'none' }
   try {
     const v = JSON.parse(s) as GuestAiChoice
     if (v.mode === 'own') return { mode: 'own' }
-    if (v.mode === 'team' && typeof v.credentialId === 'string' && typeof v.limitUsd === 'number' && v.limitUsd > 0) return { mode: 'team', credentialId: v.credentialId, limitUsd: v.limitUsd }
+    if (v.mode === 'team' && typeof v.credentialId === 'string') {
+      if (Number.isInteger(v.limitTokens) && v.limitTokens! > 0) return { mode: 'team', credentialId: v.credentialId, limitTokens: v.limitTokens }
+      if (typeof v.limitUsd === 'number' && v.limitUsd > 0) return { mode: 'team', credentialId: v.credentialId, limitUsd: v.limitUsd }
+    }
   } catch { /* fail closed */ }
   return { mode: 'none' }
 }
