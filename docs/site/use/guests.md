@@ -64,7 +64,7 @@ place the guest joins: a group chat you are in, or a team project. Then fill in 
 their AI, **Create link** and **Copy link**. If your plan has no room for more guests, the dialog says so instead of
 listing places.
 
-![Invite to team with Guest picked: Someone from outside the team who joins one room or project only, then the group chats and projects to pick from](../images/guests/admin-invite.webp "Invite a guest from Admin")
+![Invite to team with Guest picked: Someone from outside the team who joins one group chat or project only, then the group chats and projects to pick from](../images/guests/admin-invite.webp "Invite a guest from Admin")
 
 ## What the guest sees
 

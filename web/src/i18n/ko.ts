@@ -2136,7 +2136,7 @@ export const ko = {
   'members.inviteKind': '누구를 초대하나요?',
   'members.inviteKindMember': '팀원',
   'members.inviteKindGuest': '게스트',
-  'members.inviteGuestLine': '팀 밖의 사람이에요. 방이나 프로젝트 한 곳에만 들어와요.',
+  'members.inviteGuestLine': '팀 밖의 사람이에요. 그룹 대화나 프로젝트 한 곳에만 들어와요.',
   'members.inviteReady': '초대 링크를 만들었어요',
   'members.inviteLink': '초대 링크',
   'members.inviteLinkNote': '이 창을 닫으면 링크를 다시 볼 수 없어요. 지금 복사해 두세요.',

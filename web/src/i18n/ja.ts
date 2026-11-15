@@ -2106,7 +2106,7 @@ export const ja: Record<MessageKey, string> = {
   'members.inviteKind': "誰を招待しますか？",
   'members.inviteKindMember': "チームメンバー",
   'members.inviteKindGuest': "ゲスト",
-  'members.inviteGuestLine': "チーム外の人で、ルームかプロジェクトの1か所だけに参加します。",
+  'members.inviteGuestLine': "チーム外の人で、グループチャットかプロジェクトの1か所だけに参加します。",
   'members.inviteReady': "招待リンクを作成しました",
   'members.inviteLink': "招待リンク",
   'members.inviteLinkNote': "このウィンドウを閉じるとリンクを再表示できません。今コピーしてください。",

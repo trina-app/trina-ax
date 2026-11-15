@@ -2103,7 +2103,7 @@ export const zh: Record<MessageKey, string> = {
   "members.inviteKind": "你要邀请谁？",
   "members.inviteKindMember": "团队成员",
   "members.inviteKindGuest": "访客",
-  "members.inviteGuestLine": "团队外的人，只加入一个聊天室或项目。",
+  "members.inviteGuestLine": "团队外的人，只加入一个群聊或项目。",
   "members.inviteReady": "已创建邀请链接",
   "members.inviteLink": "邀请链接",
   "members.inviteLinkNote": "关闭此窗口后将无法再看到这个链接。请现在复制。",

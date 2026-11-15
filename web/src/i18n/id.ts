@@ -2137,7 +2137,7 @@ export const id: Record<MessageKey, string> = {
   'members.inviteKind': 'Siapa yang Anda undang?',
   'members.inviteKindMember': 'Anggota tim',
   'members.inviteKindGuest': 'Tamu',
-  'members.inviteGuestLine': 'Orang dari luar tim yang hanya masuk ke satu ruang atau proyek.',
+  'members.inviteGuestLine': 'Orang dari luar tim yang hanya masuk ke satu obrolan grup atau proyek.',
   'members.inviteReady': 'Link undangan dibuat',
   'members.inviteLink': 'Link undangan',
   'members.inviteLinkNote': 'Setelah jendela ini ditutup, link tidak bisa dilihat lagi. Salin sekarang.',

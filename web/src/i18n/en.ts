@@ -2138,7 +2138,7 @@ export const en: Record<MessageKey, string> = {
   'members.inviteKind': 'Who are you inviting?',
   'members.inviteKindMember': 'Team member',
   'members.inviteKindGuest': 'Guest',
-  'members.inviteGuestLine': 'Someone from outside the team who joins one room or project only.',
+  'members.inviteGuestLine': 'Someone from outside the team who joins one group chat or project only.',
   'members.inviteReady': 'Invite link created',
   'members.inviteLink': 'Invite link',
   'members.inviteLinkNote': "You won't see this link again after closing this window. Copy it now.",

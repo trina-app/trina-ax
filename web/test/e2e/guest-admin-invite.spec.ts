@@ -35,7 +35,7 @@ async function openGuest(page: Page) {
   await expect(page.getByRole('tab', { name: '팀원' })).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByTestId('invite-create')).toBeVisible()
   await page.getByRole('tab', { name: '게스트' }).click()
-  await expect(page.getByTestId('invite-guest-line')).toHaveText('팀 밖의 사람이에요. 방이나 프로젝트 한 곳에만 들어와요.')
+  await expect(page.getByTestId('invite-guest-line')).toHaveText('팀 밖의 사람이에요. 그룹 대화나 프로젝트 한 곳에만 들어와요.')
   await expect(page.getByTestId('invite-create')).toHaveCount(0)
 }
 

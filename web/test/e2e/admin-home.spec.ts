@@ -44,7 +44,8 @@ test('admin opens on Home: problems first, then one card per area, each opening 
   await expect(menu.getByRole('link', { name: t['admin.home'], exact: true })).toHaveAttribute('aria-current', 'page')
   for (const [group, items] of MENU) {
     const g = menu.getByRole('group', { name: t[group] })
-    await expect(g.getByRole('link')).toHaveText(items.map((k) => t[k]))
+    // a label may name the product ("{product} MCP"): as the menu shows it
+    await expect(g.getByRole('link')).toHaveText(items.map((k) => t[k].replace('{product}', PRODUCT.displayName)))
     await expect(g.getByText(t[group], { exact: true })).toBeVisible()
   }
 

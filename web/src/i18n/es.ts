@@ -2106,7 +2106,7 @@ export const es: Record<MessageKey, string> = {
   'members.inviteKind': "¿A quién invitas?",
   'members.inviteKindMember': "Miembro del equipo",
   'members.inviteKindGuest': "Invitado",
-  'members.inviteGuestLine': "Alguien de fuera del equipo que entra solo en una sala o un proyecto.",
+  'members.inviteGuestLine': "Alguien de fuera del equipo que entra solo en un chat de grupo o un proyecto.",
   'members.inviteReady': "Enlace de invitación creado",
   'members.inviteLink': "Enlace de invitación",
   'members.inviteLinkNote': "No volverá a ver este enlace al cerrar la ventana. Cópielo ahora.",
