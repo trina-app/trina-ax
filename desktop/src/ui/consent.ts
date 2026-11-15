@@ -114,10 +114,14 @@ addEventListener('keydown', (e: KeyboardEvent) => {
     buttons[next]!.focus()
     return
   }
-  // the arrows scroll the list from a button
-  if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && buttons.length) {
-    const scroller = document.querySelector<HTMLElement>('.consent-body-scroll')
-    if (scroller) scroller.scrollBy({ top: e.key === 'ArrowDown' ? 40 : -40 })
+  // the arrows and Page Up / Page Down scroll the list from a button (the list itself, clicked, scrolls on its own)
+  const scroller = document.querySelector<HTMLElement>('.consent-body-scroll')
+  if (!scroller || !buttons.length || document.activeElement === scroller || e.altKey || e.metaKey || e.ctrlKey) return
+  const page = Math.max(40, scroller.clientHeight - 40)
+  const by = { ArrowDown: 40, ArrowUp: -40, PageDown: page, PageUp: -page }[e.key]
+  if (by) {
+    e.preventDefault()
+    scroller.scrollBy({ top: by })
   }
 })
 const view = api?.view()

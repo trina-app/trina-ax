@@ -5025,7 +5025,7 @@ export const en: Record<MessageKey, string> = {
   "files.findWork.byAi": "Picked by your team's AI from file names",
   "files.findWork.byNames": "Sorted by file names",
   "files.findWork.bytes": "Up to 1 GB at a time · Untick some files",
-  "files.findWork.cancelled": "Cancelled. Nothing on this computer was looked at.",
+  "files.findWork.cancelled": "Cancelled. Nothing was added.",
   "files.findWork.morePlaces": "Look in more places (Full Disk Access)",
   "files.findWork.addRefused": "The app didn't take these files. Press Add again, or look again if this list is over an hour old.",
   "files.findWork.add": "Add {n, plural, one {# file} other {# files}}",
