@@ -734,8 +734,10 @@ export class Notifications {
     // then), and Settings › MCP to connect it
     if (row.event_type === 'schedule.failure') {
       const skip = this.ctx.db.query('SELECT template_id, template_name, schedule_id FROM schedule_template_skips WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { template_id: string; template_name: string; schedule_id: string } | null
-      if (skip) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'integrations', outcome: 'failed', needsKey: { templateId: skip.template_id, name: skip.template_name },
-        ...this.scheduleOf(row.user_id, skip.schedule_id) }
+      // a template members sign in to (OAuth) says so, not "your own key" (QA TC-3052); a removed template keeps the key words
+      const signIn = skip ? (this.ctx.db.query('SELECT auth FROM integration_templates WHERE id=?').get(skip.template_id) as { auth: string } | null)?.auth === 'oauth' : false
+      if (skip) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'integrations', outcome: 'failed',
+        needsKey: { templateId: skip.template_id, name: skip.template_name, ...(signIn ? { signIn: true as const } : {}) }, ...this.scheduleOf(row.user_id, skip.schedule_id) }
       // a run whose project its owner no longer sees: says so, no link (the project is not theirs to open now)
       const gone = this.ctx.db.query('SELECT schedule_id, project_id FROM schedule_project_skips WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { schedule_id: string; project_id: string } | null
       if (gone) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: 'failed', projectGone: true,

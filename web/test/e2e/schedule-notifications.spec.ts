@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { reset, signIn } from './helpers'
+import { activityRows } from './nav'
 import { TOP_FOLDER_LABELS } from '@mycel/shared'
 import { CSRF_HEADER, ERROR_MESSAGES, type Schedule } from '@mycel/shared/api'
 import { ko } from '../../src/i18n/ko'
@@ -259,3 +260,21 @@ for (const [locale, dict] of [['ko', ko], ['en', en], ['id', id]] as const) {
     expect(requests[2]).toEqual(requests[0])
   })
 }
+
+test('a scheduled run that needed a sign-in template asks the member to sign in with their own account, a key template keeps the key words (QA TC-3052)', async ({ page }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await signIn(page)
+  const at = new Date().toISOString()
+  const skipped = (id: string, name: string, signIn: boolean) => ({ id, eventType: 'schedule.failure', code: 'schedule.failure', sourceId: `s-${id}`, createdAt: at, readAt: null, chatId: null, link: 'integrations', outcome: 'failed',
+    needsKey: { templateId: `tpl-${id}`, name, ...(signIn ? { signIn: true } : {}) }, schedule: { title: `Weekly ${name}` } })
+  await page.route('**/api/notifications?*', (r) => r.fulfill({ json: { unreadCount: 2, nextCursor: null, items: [skipped('n1', 'Wiki', true), skipped('n2', 'Tasks', false)] } }))
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto('/activity')
+    const items = await activityRows(page)
+    await expect(items.filter({ hasText: 'Scheduled task "Weekly Wiki" did not run: sign in to Wiki with your own account.' })).toBeVisible()
+    await expect(items.filter({ hasText: 'Wiki' })).not.toContainText('key')
+    await expect(items.filter({ hasText: 'Scheduled task "Weekly Tasks" did not run: it needs your own key for Tasks.' })).toBeVisible()
+    if (process.env.SHOTS_DIR) await page.screenshot({ path: `${process.env.SHOTS_DIR}/inbox-needs-signin-${width}.png` })
+  }
+})
