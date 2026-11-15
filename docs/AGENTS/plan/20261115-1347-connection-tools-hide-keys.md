@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-15 13:47
 - Branch: `fix/connection-tools-hide-keys`
-- Status: planned
+- Status: done
 - Where: server/src/integrations/connections/hide-args.ts, server/src/chat/tools.ts (the turn's tool set, the hook
   #971 added in mcp/protocol.ts), server/src/chat/turn.ts (the live answer at a tool call). Why: the calls to outside
   services are server work (see docs/REPOSITORY-RULES.md)
@@ -25,9 +25,8 @@ In:
   file), and the AI is told why.
 - The connection's own credentials are not arguments (headers and the sign-in layer: service.ts authHeaders, a team
   admin's query in the connection address) and keep working. Checked: no tool takes a stored key in its arguments.
-- Two cheap points from the #971 review: write looks up the file it overwrites under the path it really writes (the
-  hidden one); a tool call no longer lets out held answer text that could be the start of an encoded key (it waits for
-  the next piece or the end, as between text pieces).
+- Two points from the #971 review: write looks up the file it overwrites under the path it really writes (the hidden
+  one); a tool call letting out held answer text (see Result: not changed).
 
 Out:
 - TC-3082 (a start-up scan that reports AI-made files holding a stored key): its own PR (reads every AI-made file and
@@ -49,3 +48,11 @@ send their own stored key somewhere gets [hidden key] sent; that is the intent (
 ## Tests
 
 `bun run typecheck`, `bun run check:i18n`, `bun run check:docs`, tests/unit c-integrations-*, chat-*, mcp-*.
+
+## Result
+
+Built as planned: chat/tools.ts gives every provider tool's arguments to hideAllArgs in the #971 hook; the AI gets a
+"sent as [hidden key]" note; base64 data that holds a key refuses the call. write's lookup uses the hidden path.
+Not changed: holding answer text across a tool call. The engines put a blank line between the text before and after a
+call (claude-parse.ts, codex-parse.ts), so a base64 form cut by a call is two pieces either way; hiding it needs
+base64 patterns that allow line breaks (hide.ts), a change of its own. TC-3082 (the start-up scan): its own PR.
