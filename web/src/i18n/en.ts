@@ -1078,6 +1078,8 @@ export const en: Record<MessageKey, string> = {
   'folderAccess.staleLoaded': "Someone else changed this just now.",
   'folderAccess.showTheirs': "Show theirs",
   'folderAccess.changedNow': "This changed just now. Check the list and save again.",
+  'folderAccess.linkPeople': "{n, plural, one {# person has} other {# people have}} files here by link.",
+  'folderAccess.removeLinks': "Remove those links too",
   'folderAccess.keepOne': "This folder needs a setting of its own. Choose one under General access.",
   'folderAccess.discardTitle': "Discard your changes?",
   'folderAccess.discardBody': "Nothing you changed here is saved. Who can open the folder stays as it was.",

@@ -1054,6 +1054,8 @@ export const ja: Record<MessageKey, string> = {
   'folderAccess.staleLoaded': "たった今ほかの人が変更しました。",
   'folderAccess.showTheirs': "変更後の内容を表示",
   'folderAccess.changedNow': "たった今変更がありました。一覧を確認してもう一度保存してください。",
+  'folderAccess.linkPeople': "リンクでここのファイルを見られる人が{n, plural, one {#人} other {#人}}います。",
+  'folderAccess.removeLinks': "そのリンクも削除する",
   'folderAccess.keepOne': "このフォルダーには独自の設定が必要です。一般的なアクセスで選んでください。",
   'folderAccess.discardTitle': "変更を破棄しますか？",
   'folderAccess.discardBody': "ここでの変更は保存されません。開ける人はそのままです。",

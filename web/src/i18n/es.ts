@@ -1054,6 +1054,8 @@ export const es: Record<MessageKey, string> = {
   'folderAccess.staleLoaded': "Otra persona acaba de cambiar esto.",
   'folderAccess.showTheirs': "Ver su cambio",
   'folderAccess.changedNow': "Algo cambió hace un momento. Revise la lista y vuelva a guardar.",
+  'folderAccess.linkPeople': "{n, plural, one {# persona tiene} other {# personas tienen}} archivos de aquí por enlace.",
+  'folderAccess.removeLinks': "Quitar también esos enlaces",
   'folderAccess.keepOne': "Esta carpeta necesita su propio ajuste. Elija uno en Acceso general.",
   'folderAccess.discardTitle': "¿Descartar los cambios?",
   'folderAccess.discardBody': "No se guarda nada de lo que cambió aquí. Quién puede abrir la carpeta sigue igual.",

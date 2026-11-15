@@ -217,6 +217,65 @@ describe('the link follows its file', () => {
     expect((await bob.raw('GET', `/api/files/shared/${l.id}/download`)).status).toBe(404)
   })
 
+  test('BLOCKER (review of #979): a file deleted outside the app and a NEW file uploaded at its path: the new one opens for nobody by the old link or grant', async () => {
+    const p = `users/${ids.alice}/reused.txt`
+    await put(alice, p, 'A content')
+    const { link: l } = await share(alice, p, [user(ids.bob)])
+    fs.unlinkSync(path.join(h.ctx.files.fx.root, ...p.split('/')))
+    // B, uploaded by alice at the same path (a new file: no "replaced")
+    const fd = new FormData()
+    fd.set('folder', `users/${ids.alice}`)
+    fd.set('file', new File(['B secret content'], 'reused.txt'))
+    const up = await h.fetch('/api/files/upload', { method: 'POST', headers: { cookie: alice.cookie!, 'x-mycel-csrf': '1' }, body: fd })
+    expect(up.status).toBe(201)
+    expect((await page(bob, l.id)).status).toBe('no_access')
+    expect((await bob.raw('GET', `/api/files/shared/${l.id}/download`)).status).toBe(404)
+    // the old row is dead, its grant gone; B has no link and nobody but alice
+    expect(h.ctx.db.query('SELECT state FROM file_shares WHERE id = ?').get(l.id)).toEqual({ state: 'dead' })
+    expect(h.ctx.db.query('SELECT COUNT(*) n FROM file_share_grants WHERE share_id = ?').get(l.id)).toEqual({ n: 0 })
+    const fresh = await alice.call('GET', '/api/files/shares' + q(p))
+    expect(fresh.link).toBeNull()
+    expect(fresh.people).toEqual([])
+    // and a save at a path whose file went (a plain create) does the same
+    const p2 = `users/${ids.alice}/reused2.txt`
+    await put(alice, p2, 'A2')
+    const l2 = (await share(alice, p2, [user(ids.bob)])).link
+    fs.unlinkSync(path.join(h.ctx.files.fx.root, ...p2.split('/')))
+    await put(alice, p2, 'B2')
+    expect((await page(bob, l2.id)).status).toBe('no_access')
+  })
+
+  test('an upload over the file (replace) and a version restore keep the link: the same file', async () => {
+    const p = `users/${ids.alice}/same.txt`
+    await put(alice, p, 'one')
+    const { link: l } = await share(alice, p, [user(ids.bob)])
+    const fd = new FormData()
+    fd.set('folder', `users/${ids.alice}`)
+    fd.set('onExists', 'replace')
+    fd.set('file', new File(['two, longer'], 'same.txt'))
+    expect((await h.fetch('/api/files/upload', { method: 'POST', headers: { cookie: alice.cookie!, 'x-mycel-csrf': '1' }, body: fd })).status).toBe(201)
+    await Bun.sleep(5)
+    expect(await (await bob.raw('GET', `/api/files/shared/${l.id}/download`)).text()).toBe('two, longer')
+    const hist = await alice.call('GET', '/api/files/history' + q(p))
+    await alice.call('POST', '/api/files/restore', { path: p, versionId: hist.items[0].id })
+    await Bun.sleep(5)
+    expect(await (await bob.raw('GET', `/api/files/shared/${l.id}/download`)).text()).toBe('one')
+  })
+
+  test('a changed file outside the app: the size says so at once (no hash), and the row stays dead', async () => {
+    const p = `users/${ids.alice}/size.txt`
+    await put(alice, p, 'same size?')
+    const { link: l } = await share(alice, p, [user(ids.bob)])
+    const abs = path.join(h.ctx.files.fx.root, ...p.split('/'))
+    fs.rmSync(abs)
+    fs.writeFileSync(abs, 'a different length entirely')
+    expect((await page(bob, l.id)).status).toBe('no_access')
+    expect(h.ctx.db.query('SELECT state FROM file_shares WHERE id = ?').get(l.id)).toEqual({ state: 'dead' })
+    // the same bytes put back do not bring it back: dead stays dead
+    fs.writeFileSync(abs, 'same size?')
+    expect((await page(bob, l.id)).status).toBe('no_access')
+  })
+
   test('someone else\'s move to where fewer people can open it removes the grants, audits and tells the owner', async () => {
     await put(alice, 'shared/narrow.txt', 'n')
     const { link: l } = await share(alice, 'shared/narrow.txt', [user(ids.bob)])
@@ -229,6 +288,38 @@ describe('the link follows its file', () => {
     expect(JSON.parse(a.detail)).toMatchObject({ reason: 'moved_narrower', path: 'sales/narrow.txt' })
     const n = (await notices(alice)).find((x) => x.eventType === 'file.unshared_by_move')
     expect(n.fileShare).toMatchObject({ by: 'CARL', name: 'narrow.txt' })
+  })
+
+  test('an admin narrowing a folder: the preview says how many have files there by link; "Remove those links too" removes them in the save', async () => {
+    fs.mkdirSync(path.join(h.ctx.files.fx.root, 'shared', 'open-box'), { recursive: true })
+    await put(alice, 'shared/open-box/doc.txt', 'd')
+    const { link: l } = await share(alice, 'shared/open-box/doc.txt', [user(ids.bob)])
+    const rules = [{ subjectType: 'user', subjectId: ids.alice, access: 'write' }]
+    const pv = await admin.call('POST', '/api/admin/access/edit-preview', { path: 'shared/open-box', rules, limited: true })
+    expect(pv.less).toBeGreaterThan(0)
+    expect(pv.linkPeople).toBe(1)
+    // a save without it keeps the link
+    const f = await admin.call('POST', '/api/admin/folders', { path: 'shared/open-box', create: false, rules, limited: true, expectedHash: pv.hash })
+    expect((await page(bob, l.id)).status).toBe('open')
+    const pv2 = await admin.call('POST', '/api/admin/access/edit-preview', { path: 'shared/open-box', rules: [], limited: true })
+    expect(pv2.linkPeople).toBe(1)
+    await admin.call('PUT', `/api/admin/folders/${f.id}/rules`, { rules: [], limited: true, expectedHash: pv2.hash, removeFileLinks: true })
+    expect((await page(bob, l.id)).status).toBe('no_access')
+    const a = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'file.unshare' AND target = 'shared/open-box' ORDER BY id DESC").get() as { detail: string }
+    expect(JSON.parse(a.detail)).toMatchObject({ reason: 'folder_narrowed', files: 1 })
+  })
+
+  test('the narrowing move\'s grant removal is part of the move: a failure undoes both', async () => {
+    await put(alice, 'shared/atomic.txt', 'a')
+    const { link: l } = await share(alice, 'shared/atomic.txt', [user(ids.bob)])
+    // the audit insert fails inside the move's step: the move fails, the file and its grants stay
+    h.ctx.db.exec("CREATE TRIGGER fail_unshare BEFORE INSERT ON audit_log WHEN NEW.action = 'file.unshare' BEGIN SELECT RAISE(ABORT, 'boom'); END")
+    try {
+      const r = await carl.try('POST', '/api/files/move', { from: 'shared/atomic.txt', to: 'sales/atomic.txt' })
+      expect(r.status).toBeGreaterThanOrEqual(400)
+    } finally { h.ctx.db.exec('DROP TRIGGER fail_unshare') }
+    expect(fs.existsSync(path.join(h.ctx.files.fx.root, 'shared', 'atomic.txt'))).toBe(true)
+    expect((await page(bob, l.id)).status).toBe('open')
   })
 
   test('the owner\'s own move keeps the grants; the move confirm says how many have it by its link', async () => {

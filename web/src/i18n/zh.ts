@@ -1053,6 +1053,8 @@ export const zh: Record<MessageKey, string> = {
   "folderAccess.staleLoaded": "其他人刚刚更改了这里。",
   "folderAccess.showTheirs": "查看他们的版本",
   "folderAccess.changedNow": "这里刚刚有更改。请检查列表后重新保存。",
+  "folderAccess.linkPeople": "有{n, plural, one {#人} other {#人}}通过链接拿到这里的文件。",
+  "folderAccess.removeLinks": "同时移除这些链接",
   "folderAccess.keepOne": "此文件夹需要有自己的设置。请在“一般权限”下选择一个。",
   "folderAccess.discardTitle": "放弃你的更改？",
   "folderAccess.discardBody": "你在这里的更改都不会保存。谁可以打开此文件夹保持不变。",

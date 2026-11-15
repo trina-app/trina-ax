@@ -395,6 +395,12 @@ P1 built on `feat/file-share-links` (PR #979). What differs from the plan and wh
 - **share_file** returns the `/f/<id>` link for a file's preview; folders and downloads keep the path link.
 - **Deleted accounts:** their file-share notices, requests and grants go (`registerFileShareCleanup`).
 - **Web:** Share shows on every file's ⋯ (the list does not know each file's owner; the dialog says why when the viewer
-  cannot share). The TC-3092 `ShareWarning` is not merged yet, so the dialog has no warning line.
+  cannot share). TC-3092's `ShareWarning` (merged as #976) is not used: its lines are about a chat's answers
+  (memories, accounts, files the answers used), none of which a single file has; left for P2 if a file warning appears.
+- **Security review of #979, fixed:** a new file at a shared file's old path no longer inherits its link (only same-file
+  events re-pin; a new file makes the row dead); a changed file is judged by size, then mtime, the hash at most once
+  (32 MB cap), never per request; a non-owner's narrowing move removes the grants inside the move's step; an admin
+  narrowing a folder sees "N people have files here by link" with "Remove those links too" (ticked); `file.shared` names
+  who gave that person access; a told admin who cannot edit the file cannot close the request.
 - Tests: `tests/unit/c-file-shares.test.ts`, `tests/security/file-shares.test.ts`, `tests/unit/b-share-with-person.test.ts`,
   `web/test/e2e/file-share-links.spec.ts` (screenshots of every surface at 1440/390, light and dark).

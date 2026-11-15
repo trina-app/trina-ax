@@ -6120,6 +6120,7 @@ export class MockServer {
   fileCreators = new Map<string, string>()
   fileRequests: { id: string; linkId: string; path: string; userId: string; ownerId: string | null; note: string | null; at: string; state: 'pending' | 'approved' | 'declined' | 'closed' }[] = []
   fileRequestLimit = Infinity
+  lastRemoveFileLinks: boolean | null = null
   readonly fileSharesInstalled = this.installFileShares()
 
   fileOwner(path: string): string | null {
@@ -6280,6 +6281,32 @@ export class MockServer {
         throw e
       }
     }
+    // the folder Share dialog: a change that takes access away also says how many people have files there by their
+    // link (FolderEditPreview.linkPeople), and its save removes those links when asked (removeFileLinks; the last
+    // save's value kept in `lastRemoveFileLinks` for tests: null when the field was not sent)
+    const linkPeopleUnder = (folder: string) => new Set([...this.fileGrants].filter(([p]) => folder === '' || p === folder || p.startsWith(folder + '/')).flatMap(([, l]) => l.map((x) => `${x.subjectType}:${x.subjectId}`))).size
+    const dropLinksUnder = (folder: string) => { for (const p of [...this.fileGrants.keys()]) if (folder === '' || p === folder || p.startsWith(folder + '/')) this.fileGrants.delete(p) }
+    const basePreview = h.previewFolderEdit!
+    h.previewFolderEdit = async (c) => {
+      const out = (await basePreview(c)) as FolderEditPreview
+      const people = out.less > 0 ? linkPeopleUnder(c.body.path) : 0
+      return people ? { ...out, linkPeople: people } : out
+    }
+    const basePut = h.putFolderRules!
+    h.putFolderRules = async (c) => {
+      const res = await basePut(c)
+      this.lastRemoveFileLinks = c.body.removeFileLinks ?? null
+      const f = this.folders.find((x) => x.id === c.params.id)
+      if (c.body.removeFileLinks === true && f) dropLinksUnder(f.path)
+      return res
+    }
+    const baseCreate = h.createFolder!
+    h.createFolder = async (c) => {
+      const res = await baseCreate(c)
+      this.lastRemoveFileLinks = c.body.removeFileLinks ?? null
+      if (c.body.removeFileLinks === true) dropLinksUnder(c.body.path)
+      return res
+    }
     const baseItem = this.inboxItem.bind(this)
     this.inboxItem = (n) => {
       if (n.kind !== 'file_share') return baseItem(n)
@@ -6304,11 +6331,14 @@ export class MockServer {
       this.fileCreators = new Map()
       this.fileRequests = []
       this.fileRequestLimit = Infinity
+      this.lastRemoveFileLinks = null
       baseReset(o)
     }
     const baseControl = this.testControl.bind(this)
     this.testControl = async (p, req) => {
       if (p !== '/__test/file-shares') return baseControl(p, req)
+      // GET: what the last folder rules save sent as removeFileLinks (null: not sent)
+      if (req.method === 'GET') return Response.json({ lastRemoveFileLinks: this.lastRemoveFileLinks })
       const body = (await req.json().catch(() => ({}))) as { off?: boolean; limit?: number }
       if (body.off) this.settings = { ...this.settings, memberFileShares: false }
       if (body.limit !== undefined) this.fileRequestLimit = body.limit

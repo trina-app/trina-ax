@@ -3,6 +3,7 @@
 // CREDENTIALS (AI connections, registered from ./credentials.ts, the same owner)
 // Contract: shared/src/api/admin.ts, shared/src/api/credentials.ts
 // Nothing here returns chat or memory contents: admins manage people, folders and engines, not conversations.
+import { linkPeopleIn, removeLinksIn } from '../files/shares'
 import { API, EngineId, OWNER_ONLY_SETTINGS, type EngineId as EngineIdT } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { newId } from '../db'
@@ -181,6 +182,7 @@ export const adminRoutes: RouteModule = {
         const row = ensureFolderRow(ctx.db, p)
         if (!(body.limited ?? row.limited === 1)) body.rules = raiseToAbove(ctx.files.rules(), p, body.rules)
         writeFolderAccess(ctx.db, row.id, { rules: body.rules, limited: body.limited }, auth.user.id)
+        if (body.removeFileLinks) removeLinksIn(ctx.db, auth.user.id, p)
         audit(ctx.db, { actor: auth.user.id, action: 'folder.create', target: p, detail: { created, rules: body.rules, ...(body.limited !== undefined ? { limited: body.limited } : {}) } })
         return row
       })()
@@ -247,6 +249,8 @@ export const adminRoutes: RouteModule = {
         // not limited: a rule lower than the folders above give is stored at that level (12-A at save time)
         if (!(body.limited ?? now.limited === 1)) body.rules = raiseToAbove(ctx.files.rules(), f.path, body.rules)
         writeFolderAccess(ctx.db, f.id, { rules: body.rules, limited: body.limited }, auth.user.id)
+        // "Remove those links too": in the save's own step (files/shares.ts)
+        if (body.removeFileLinks) removeLinksIn(ctx.db, auth.user.id, f.path)
         const limitedNow = isLimited(ctx.db, f.id)
         audit(ctx.db, { actor: auth.user.id, action: 'folder.rules', target: f.path, detail: { before: old, after: body.rules, ...(limitedNow !== wasLimited ? { limited: { before: wasLimited, after: limitedNow } } : { limited: limitedNow }) } })
       })()
@@ -282,7 +286,11 @@ export const adminRoutes: RouteModule = {
     kit.handle(API.previewFolderEdit, ({ c, body }) => {
       assertNotInProject(body.path, c.get('locale'))
       onlyGrants(body.rules, c.get('locale'))
-      return explainEdit(ctx, body, c.get('locale'))
+      const r = explainEdit(ctx, body, c.get('locale'))
+      // files at or under it shared one by one: how many people keep them by their links when someone loses access here
+      // (files/shares.ts; the dialog offers "Remove those links too")
+      const n = r.less > 0 && r.exists ? linkPeopleIn(ctx.db, r.path) : 0
+      return n > 0 ? { ...r, linkPeople: n } : r
     })
 
     // ---------------- team skills: who manages them, what changed (skills/managers.ts, skills/changes.ts) ----------------

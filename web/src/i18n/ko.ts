@@ -1077,6 +1077,8 @@ export const ko = {
   'folderAccess.staleLoaded': "방금 다른 사람이 바꿨어요.",
   'folderAccess.showTheirs': "바뀐 내용 보기",
   'folderAccess.changedNow': "방금 바뀐 내용이 있어요. 목록을 확인하고 다시 저장해 주세요.",
+  'folderAccess.linkPeople': "링크로 이 폴더의 파일을 볼 수 있는 사람이 {n}명 있어요.",
+  'folderAccess.removeLinks': "그 링크도 없애기",
   'folderAccess.keepOne': "이 폴더는 공개 범위를 따로 정해야 해요.",
   'folderAccess.discardTitle': "바꾼 내용을 버릴까요?",
   'folderAccess.discardBody': "여기서 바꾼 내용은 저장되지 않아요. 열 수 있는 사람은 그대로예요.",

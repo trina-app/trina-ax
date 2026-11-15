@@ -33,7 +33,7 @@ import { FileError, fileError } from './errors'
 import { checkRegular, copyTeamFile, freeName, hashFile, installFile, moveIntoTrash, restoredName, snapshotVersion, splitExt, treeSize } from './place'
 import { AI_TRASH_MAX_ENTRIES, AiTrashChanged, TrashStranded, aiSkillPath, holdsSkillRoot, instructionFile, sameStamps, stampTree, type Stamp } from './ai-trash'
 import crypto from 'node:crypto'
-import { fileSharesOf, linkPeopleUnder, sharesForgotten, sharesMoved, sharesPurged, sharesRestored, sharesTrashed } from '../files/shares'
+import { fileSharesOf, linkPeopleIn, sharesForgotten, sharesMoved, sharesNarrowedByMove, sharesPurged, sharesRestored, sharesTrashed, type UnsharedByMove } from '../files/shares'
 
 /** Files the file screen treats as binary (rendered by the client from /download, never edited as text). */
 const BINARY_EXT = new Set(['docx', 'doc', 'pptx', 'ppt', 'xlsx', 'xls', 'odt', 'ods', 'odp', 'pdf', 'hwp', 'hwpx', 'zip', 'gz', 'tgz', '7z', 'rar',
@@ -538,7 +538,7 @@ export class TeamFiles {
     if (target[0] === 'users' && !(fr.segs[0] === 'users' && fr.segs[1] === target[1])) {
       narrowed = this.lostViewers(rules, user.id, fr.segs, target)
       // (the move confirm also says how many people have files here by their link: files/shares.ts)
-      if (narrowed > 0 && !o.confirm) { const linked = linkPeopleUnder(this.ctx.db, fr.rel); fileError('conflict', 'audienceNarrowed', undefined, { reason: 'audience_narrowed', lostViewers: narrowed, ...(linked ? { linkPeople: linked } : {}) }) }
+      if (narrowed > 0 && !o.confirm) { const linked = linkPeopleIn(this.ctx.db, fr.rel); fileError('conflict', 'audienceNarrowed', undefined, { reason: 'audience_narrowed', lostViewers: narrowed, ...(linked ? { linkPeople: linked } : {}) }) }
     }
     // the other way (QA TC-115): an item out of a personal folder to where more people can read it must be confirmed
     // too, when the client asks (askWiden: the Files screen). The AI's own moves ask on their cards (tools/file-moves.ts)
@@ -554,6 +554,8 @@ export class TeamFiles {
     if (switchOn?.names.length && !o.skillsOk) fileError('conflict', 'projectSkillsOn', undefined, { reason: 'project_skills_on', skills: switchOn.names.slice(0, 20).join('\n'), count: switchOn.names.length })
     const toRel = target.join('/')
     const readers = this.readersOf(rules, fr.segs)
+    /** shared files whose grants this move removed (relocate), for their owners' notices once it is done */
+    const unshared: UnsharedByMove[] = []
     // the skills below a moved folder whose place as a skill changes with it: each recorded once moved, on or off
     const carried = isDir ? this.carriedSkills(fr, target) : []
     // "I" and a skill's folder renamed (skill_files): the bytes its card showed, made ready as new files beside the
@@ -569,7 +571,7 @@ export class TeamFiles {
       // the old bytes of a changed file as a version, in the move's own transaction (after its history was moved, so at
       // the new path)
       const inTx = changed.length ? () => { for (const c of changed) saveVersion(this.ctx.db, this.root, [...target, ...c.segs].join('/'), c.old, { userId, turnId: o.turnId ?? null }) } : undefined
-      aside = this.relocate(userId, fr, target, isDir, { ...o, narrowed, widened, ...(fresh ? { fresh } : {}), ...(inTx ? { inTx } : {}) })
+      aside = this.relocate(userId, fr, target, isDir, { ...o, narrowed, widened, readers, unshared, ...(fresh ? { fresh } : {}), ...(inTx ? { inTx } : {}) })
     } catch (e) { if (fresh) fs.rmSync(fresh, { recursive: true, force: true }); throw e }
     // what was moved: the files the card showed go; anything else (written after the last check) goes to the trash
     if (aside && grant?.fresh) {
@@ -584,10 +586,9 @@ export class TeamFiles {
     }
     if (carried.length) recordCarriedSkills(this.ctx, userId, carried, { turnId: o.turnId ?? null, tool: o.tool ?? null })
     const after = this.rules()
-    const lost = readers.filter((p) => !atLeast(after.access(p, target), 'read'))
-    this.dropSessionsOf(lost, { path: fr.rel, to: toRel })
-    // fewer people can read it where it went: the grants someone else's file had go (files/shares.ts afterMove)
-    try { fileSharesOf(this.ctx).afterMove(userId, toRel, lost.length > 0) } catch (e) { this.ctx.log.warn('file shares after a move failed', { err: e }) }
+    this.dropSessionsOf(readers.filter((p) => !atLeast(after.access(p, target), 'read')), { path: fr.rel, to: toRel })
+    // the owners of shared files whose grants the move removed are told (the removal itself was in the move's step)
+    if (unshared.length) fileSharesOf(this.ctx).tellUnshared(unshared)
     // the folder's rules moved with it: who could see where it was is judged by the rules loaded before the move
     this.publish([{ path: toRel, from: fr.rel, action: 'move', by: this.by(userId), turnId: o.turnId ?? null }], rules)
     return { entry: this.entry(user, rules, target) }
@@ -754,7 +755,7 @@ export class TeamFiles {
    * trash items of the moved path follow it, two file events record it, then the rename and the text cache. move()
    * checks the caller's access first; archiveFolder() is the server's own move of a deleted member's folder.
    */
-  private relocate(userId: string, fr: { rel: string; segs: string[]; abs: string }, target: string[], isDir: boolean, o: By & { narrowed?: number; widened?: number; fresh?: string; inTx?: () => void; onto?: true }): string | null {
+  private relocate(userId: string, fr: { rel: string; segs: string[]; abs: string }, target: string[], isDir: boolean, o: By & { narrowed?: number; widened?: number; fresh?: string; inTx?: () => void; onto?: true; readers?: Principal[]; unshared?: UnsharedByMove[] }): string | null {
     const toRel = target.join('/')
     const narrowed = o.narrowed ?? 0
     const widened = o.widened ?? 0
@@ -818,6 +819,13 @@ export class TeamFiles {
       re('file_versions', 'conflict_path')
       // a shared file's link follows it (files/shares.ts)
       sharesMoved(db, fr.rel, toRel)
+      // fewer people can read it where it goes (the readers before, judged by the rules as they are inside this step,
+      // the moved folder's rules moved already): the grants of shared files someone else owns go, audited, in this same
+      // step, so a move never commits with grants that widen past the new place (review of #979; files/shares.ts)
+      if (o.readers?.length) {
+        const after = RuleSet.load(db)
+        if (o.readers.some((p) => !atLeast(after.access(p, target), 'read'))) o.unshared?.push(...sharesNarrowedByMove(db, userId, toRel))
+      }
       re('attachments', 'path')
       // items trashed from inside the moved folder: their place to go back to moves with it. Otherwise the trash checks
       // write access on the old path (no rule there any more: the group stops seeing its own trash), and a restore

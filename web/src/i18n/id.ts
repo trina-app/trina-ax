@@ -1078,6 +1078,8 @@ export const id: Record<MessageKey, string> = {
   'folderAccess.staleLoaded': "Orang lain baru saja mengubah ini.",
   'folderAccess.showTheirs': "Tampilkan milik mereka",
   'folderAccess.changedNow': "Ada yang baru berubah. Periksa daftar lalu simpan lagi.",
+  'folderAccess.linkPeople': "{n} orang punya file di sini lewat link.",
+  'folderAccess.removeLinks': "Hapus juga link itu",
   'folderAccess.keepOne': "Folder ini perlu pengaturan sendiri. Pilih di Akses umum.",
   'folderAccess.discardTitle': "Buang perubahan Anda?",
   'folderAccess.discardBody': "Perubahan di sini tidak disimpan. Yang bisa membuka folder tetap sama.",

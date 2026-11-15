@@ -157,11 +157,43 @@ describe('4. a grant never widens past what its owner chose', () => {
   })
 })
 
+describe('4b. review of #979', () => {
+  test('a new file uploaded where a shared file was deleted outside the app never opens by the old link', async () => {
+    const p = `users/${ids.alice}/inherit.txt`
+    await put(alice, p, 'the shared one')
+    const id = (await alice.call('PUT', '/api/files/shares', { path: p, add: [user(ids.bob)], remove: [] })).link.id
+    fs.unlinkSync(path.join(h.ctx.files.fx.root, ...p.split('/')))
+    const fd = new FormData()
+    fd.set('folder', `users/${ids.alice}`)
+    fd.set('file', new File(['a private new file'], 'inherit.txt'))
+    expect((await h.fetch('/api/files/upload', { method: 'POST', headers: { cookie: alice.cookie!, 'x-mycel-csrf': '1' }, body: fd })).status).toBe(201)
+    expect((await bob.call('GET', `/api/files/shared/${id}`)).status).toBe('no_access')
+    const r = await bob.raw('GET', `/api/files/shared/${id}/download`)
+    expect(r.status).toBe(404)
+    expect(await r.text()).not.toContain('a private new file')
+  })
+
+  test('someone told of a request who may not share the file now changes nothing by answering it', async () => {
+    fs.mkdirSync(path.join(h.ctx.files.fx.root, 'shared', 'ro'), { recursive: true })
+    // only alice opens it (and edits it), so carl has to ask
+    const f = await admin.call('POST', '/api/admin/folders', { path: 'shared/ro', create: false, limited: true, rules: [{ subjectType: 'user', subjectId: ids.alice, access: 'write' }] })
+    await put(alice, 'shared/ro/plan.txt', 'p')
+    const id = (await alice.call('POST', '/api/files/link', { path: 'shared/ro/plan.txt' })).id
+    expect((await carl.call('POST', `/api/files/shared/${id}/request`, {})).status).toBe('sent')
+    const n = ((await alice.call('GET', '/api/notifications?limit=50')).items as any[]).find((x) => x.eventType === 'file.access_requested' && x.fileShare?.by === 'CARL')
+    // alice keeps reading the folder, but no longer edits it
+    await admin.call('PUT', `/api/admin/folders/${f.id}/rules`, { limited: true, rules: [{ subjectType: 'user', subjectId: ids.alice, access: 'read' }], expectedHash: f.rulesHash })
+    const r = await alice.try('POST', `/api/files/requests/${n.fileShare.requestId}`, { answer: 'decline' })
+    expect(r.status).toBe(403)
+    expect(h.ctx.db.query('SELECT state FROM file_access_requests WHERE id = ?').get(n.fileShare.requestId)).toEqual({ state: 'pending' })
+  })
+})
+
 describe('5. requests are capped and plain; admins gain nothing on personal files', () => {
   test('a note is stored as plain text, capped, control characters out; one waiting per person and file', async () => {
     const r = await carl.call('POST', `/api/files/shared/${linkId}/request`, { message: '<img src=x onerror=alert(1)>\u0007 please' })
     expect(r.status).toBe('sent')
-    const row = h.ctx.db.query('SELECT message FROM file_access_requests WHERE requester_id = ?').get(ids.carl) as { message: string }
+    const row = h.ctx.db.query('SELECT message FROM file_access_requests WHERE requester_id = ? AND share_id = ?').get(ids.carl, linkId) as { message: string }
     expect(row.message).toBe('<img src=x onerror=alert(1)> please')
     expect((await carl.call('POST', `/api/files/shared/${linkId}/request`, {})).status).toBe('already')
     expect((await carl.try('POST', `/api/files/shared/${linkId}/request`, { message: 'x'.repeat(501) })).status).toBe(400)
