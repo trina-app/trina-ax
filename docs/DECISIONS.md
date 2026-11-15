@@ -28722,3 +28722,20 @@ Disk Access) are part 5.
   names, Korean, hosts and authors, the score, the list's rule and its 50, what goes to the AI),
   `web/test/e2e/find-work-files.spec.ts` (the list before the AI, 50 shown and the rest by search, Choose it yourself).
 - Version impact: **minor** (a new API route; what the list shows changes).
+
+## Admin: "AI accounts" is called "Providers" (fix/admin-providers-rename, 2026-11-15, QA TC-192 / tracking TC-742)
+
+- **Reverses** "Plain words for members" (2026-11-11) for the admin page only, decided 2026-11-15 (admin side, the
+  scope recommended in closed draft #693): Admin › AI accounts is called **Providers** (ko **AI 제공사**, id Penyedia
+  AI, ja AIプロバイダー, es Proveedores de IA, zh AI 提供商), as the QA report asked. Korean: "AI 제공사" is the word
+  the Korean strings already use for Anthropic and OpenAI ("AI 제공사(Anthropic·OpenAI)"). Every pointer follows: the
+  sidebar, the page title, the phone's admin list and ‹ label (was "Team AI accounts": the names differ now, so no
+  "Team" is needed), Members' no-AI hints, the welcome line, the file list problem, handover, the server's messages that
+  name the page (`system/messages*.ts`, `chat/i18n.ts`, `credentials/i18n.ts`; the Linux ones still said "AI engines"),
+  the guides and docs/site. The "queue is long" message points to Team settings, where "Answers at the same time" is.
+- Kept: the members' own Settings page (`settings.providers`) is still **AI accounts** (ko AI 계정): members see only
+  their own accounts, not providers. The stored chat-error words in `shared/src/api/errors.ts` keep their old text
+  (they match saved answers).
+- The two server lines shown under an engine on this page itself (`admin/engines.ts` managedNone /
+  managedNoneDetail, QA TC-3009) already point to "Add account" below since #944, not to the page they are on.
+- Version impact: **patch** (wording only; no API or data change).

@@ -69,7 +69,7 @@ describe('wording', () => {
     expect(lin.engineSetupToken.en).toContain('sudo /var/lib/mycel-a/root/set-claude-token < token-file')
     const hosted = render(hostMessages('hosted', { id: 'mycel', base: '/var/lib/mycel' }) as unknown as Record<string, unknown>)
     for (const k of ['launcherNotRunning.ko', 'firewallMissing.en', 'engineSetupToken.en', 'engineCodexLogin.ko']) expect(hosted[k]).not.toMatch(/sudo|systemctl|journalctl|mycel-ctl/)
-    expect(hosted['engineSetupToken.en']).toContain('Admin > AI engines')
+    expect(hosted['engineSetupToken.en']).toContain('Admin > Providers')
     expect(hosted['launcherDown.ko']).toContain('호스팅 지원팀')
   })
 })

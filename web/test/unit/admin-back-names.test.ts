@@ -47,10 +47,10 @@ describe('barFit: the label whole, the title centred when both fit', () => {
   const back = (label: number) => 42 + label
   test('a short label beside a centred title', () => {
     expect(barFit({ bar, back: back(43), title: 96, right: 44 })).toBe('centred') // ‹ Admin · Activity log
-    expect(barFit({ bar, back: back(121), title: 54, right: 44 })).toBe('centred') // ‹ Team AI accounts · Codex
+    expect(barFit({ bar, back: back(121), title: 54, right: 44 })).toBe('centred') // ‹ Providers · Codex
   })
   test('a long label: the title moves over, the label stays whole', () => {
-    expect(barFit({ bar, back: back(121), title: 100, right: 44 })).toBe('moved') // ‹ Team AI accounts · Claude Code
+    expect(barFit({ bar, back: back(121), title: 100, right: 44 })).toBe('moved') // ‹ Providers · Claude Code
     expect(barFit({ bar, back: back(96), title: 120, right: 44 })).toBe('moved') // ‹ Team settings · Members and AI
     expect(barFit({ bar, back: back(151), title: 123, right: 44 })).toBe('moved') // ‹ Team connected apps · Google Calendar
   })
