@@ -4985,6 +4985,7 @@ export const en: Record<MessageKey, string> = {
   "files.findWork.add": "Add {n, plural, one {# file} other {# files}}",
   "files.findWork.addNone": "Add files",
   "files.findWork.entry": "Find work files on this computer",
+  "files.findWork.entryButton": "Find work files",
   "files.findWork.dialogTitle": "Find work files on this computer",
   "files.findWork.myPlace": "My files › From this computer",
   "files.findWork.added": "Added {n, plural, one {# file} other {# files}} to {place}",

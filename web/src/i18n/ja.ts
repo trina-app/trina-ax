@@ -4940,6 +4940,7 @@ export const ja: Record<MessageKey, string> = {
   "files.findWork.add": "{n, plural, one {#件} other {#件}}を追加",
   "files.findWork.addNone": "ファイルを追加",
   "files.findWork.entry": "このコンピューターで仕事のファイルを探す",
+  "files.findWork.entryButton": "仕事のファイルを探す",
   "files.findWork.dialogTitle": "このコンピューターで仕事のファイルを探す",
   "files.findWork.myPlace": "自分のファイル › このコンピューターから",
   "files.findWork.added": "{place}に{n, plural, one {#件} other {#件}}追加しました",

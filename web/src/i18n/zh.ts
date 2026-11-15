@@ -4918,6 +4918,7 @@ export const zh: Record<MessageKey, string> = {
   "files.findWork.add": "添加{n, plural, one {#个文件} other {#个文件}}",
   "files.findWork.addNone": "添加文件",
   "files.findWork.entry": "在这台电脑上查找工作文件",
+  "files.findWork.entryButton": "查找工作文件",
   "files.findWork.dialogTitle": "在这台电脑上查找工作文件",
   "files.findWork.myPlace": "我的文件 › 来自这台电脑",
   "files.findWork.added": "已将{n, plural, one {#个文件} other {#个文件}}添加到{place}",
