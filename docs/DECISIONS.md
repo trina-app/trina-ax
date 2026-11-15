@@ -29272,8 +29272,11 @@ Canva, Intercom and Square refuse the team's https sign-in return address (not o
   MCP rows and older rows without a kind keep their words.
 - **A skipped run for a sign-in template asks for a sign-in** (TC-3052). `InboxNotification.needsKey.signIn` (true when
   the template, still there, signs in): "Scheduled task "…" did not run: sign in to {name} with your own account." A key
-  template and a removed template keep the key words. The Scheduled page's own reason lines are unchanged (open).
+  template and a removed template keep the key words. The Scheduled page says it the same way: `Schedule.lastNeed.signIn`
+  and `ScheduleRun.needSignIn` (chat/schedules.ts `templateSignsIn`) pick "Needs your sign-in" on the card, "Needs you to
+  sign in to {name}" on the run, the next step "Sign in to {name} with your own account in Settings › Connectors, then
+  use Run now." and the link "Sign in to {name}".
 - Tests: `tests/unit/c-connection-reconnect-notice.test.ts`, `c-template-chat-schedule.test.ts`, `mobile-push.test.ts`,
-  `push-native.test.ts`; web unit `push-worker`, `activity`, `inbox-notice-rows`; e2e `activity-log`,
+  `push-native.test.ts`; web unit `push-worker`, `activity`, `inbox-notice-rows`, `scheduled-view`; e2e `activity-log`,
   `schedule-notifications`.
 - Version impact: **patch** (where a tap lands and wrong words; one optional API field, nothing removed).

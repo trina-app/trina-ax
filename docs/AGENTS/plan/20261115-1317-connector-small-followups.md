@@ -22,7 +22,7 @@
 In: the native push path (server push-events.ts) and the Web Push click (sw.js) for `connection.reconnect`; the
 Activity log label for `integration.*` and `integration_template.create/update/delete` rows whose detail says
 `kind: http`; `needsKey.signIn` on the Inbox notice and its words.
-Out: the Scheduled page's own reason lines (another screen; noted in the PR).
+Out: nothing else (the Scheduled page's lines were added after review, see Result).
 
 ## Steps
 
@@ -52,5 +52,6 @@ Activity log.
 
 Built as planned. One difference: a Web Push click for Google Drive's notice stays on the Inbox, because the
 signed-in notice does not say it is Drive's (the native push does open Drive's page). Activity log rows also cover API
-templates. The Scheduled page's own "Needs your own key" reason line for a sign-in template is left for a follow-up.
+templates. Added on review: the Scheduled page's card, run line, next step and link use the same sign-in words
+(`Schedule.lastNeed.signIn`, `ScheduleRun.needSignIn`).
 PR: see the PR that links this plan.

@@ -279,3 +279,22 @@ test('a scheduled run that needed a sign-in template asks the member to sign in 
     if (process.env.SHOTS_DIR) await page.screenshot({ path: `${process.env.SHOTS_DIR}/inbox-needs-signin-${width}.png` })
   }
 })
+
+test('the Scheduled page of a run held back by a sign-in template asks for a sign-in, never a key (QA TC-3052)', async ({ page }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await signIn(page)
+  const at = new Date().toISOString()
+  const task = { id: 'task-needs-signin', title: 'Weekly wiki', prompt: 'Summarise my Wiki', repeat: 'daily', time: '09:00', weekday: null, day: null, date: null, projectId: null, enabled: true, nextRunAt: at, lastRunAt: at, lastChatId: null, templateId: null, templateVersion: null, sourcePath: null, outputPath: null, pendingDueAt: null, retryAt: null, deferredCount: 0,
+    lastOutcome: 'needs_key', lastOutcomeAt: at, lastNeed: { templateId: 'tpl-wiki', name: 'Wiki', signIn: true } }
+  await page.route('**/api/schedules', (r) => r.request().method() === 'GET' ? r.fulfill({ json: { items: [task], timeZone: 'Asia/Seoul' } }) : r.fallback())
+  await page.route(`**/api/schedules/${task.id}/runs*`, (r) => r.fulfill({ json: { items: [{ id: 'run-1', status: 'needs_key', startedAt: at, endedAt: null, chatId: null, error: null, needName: 'Wiki', needSignIn: true }], nextCursor: null } }))
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto(`/scheduled/${task.id}`)
+    await expect(page.getByTestId('schedule-outcome-reason')).toContainText('Needs you to sign in to Wiki')
+    await expect(page.getByTestId('schedule-next-step')).toContainText('Sign in to Wiki with your own account in Settings › Connectors, then use Run now.')
+    await expect(page.getByTestId('schedule-connect-template')).toHaveText('Sign in to Wiki')
+    await expect(page.locator('main')).not.toContainText('your own key')
+    if (process.env.SHOTS_DIR) await page.screenshot({ path: `${process.env.SHOTS_DIR}/scheduled-needs-signin-${width}.png` })
+  }
+})
