@@ -128,7 +128,7 @@ test.describe('computer', () => {
     await expect(page.getByTestId('guests-over')).toHaveText("This plan allows 1 guest. Everyone here keeps working, but you can't invite more until you remove guests or change the plan.")
     await expect(page.getByTestId('guest-row-gina')).toBeVisible()
     await expect(page.getByTestId('guest-row-rhea')).toBeVisible()
-    await shoot(page, 'admin-guests-over', async () => { await page.goto('/admin/members#guests'); await expect(page.getByTestId('guests-over')).toBeVisible(); await page.getByTestId('guests-section').scrollIntoViewIfNeeded() })
+    await shoot(page, 'admin-guests-over', async () => { await page.goto('/admin/members#guests'); await expect(page.getByTestId('guests-over')).toBeVisible(); await expect(page.getByTestId('guests-count')).toHaveText('2 of 1 guest'); await page.getByTestId('guest-row-rhea').scrollIntoViewIfNeeded() })
   })
 
   test('removed guests: switched back on while their place is there; the row says why not otherwise; a refused switch-on says why, with Make team member', async ({ page }) => {
