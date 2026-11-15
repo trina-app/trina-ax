@@ -3259,6 +3259,7 @@ export const ko = {
   'integrations.signIn.reason.limit': "작동하는 내 연결이 이미 최대 개수예요. 하나를 지운 뒤 다시 로그인해 주세요.",
   'integrations.signIn.expired': '로그인 시간이 지났어요. 다시 시도해 주세요.',
   'integrations.signIn.badUrl': '서비스가 보낸 로그인 주소가 안전하지 않아서 열지 않았어요.',
+  'integrations.signIn.getDesktop': "데스크톱 앱 받기",
   'integrations.signIn.phone': '로그인은 컴퓨터의 브라우저나 데스크톱 앱에서 해 주세요.',
   "integrations.onComputer": "{name} 연결은 컴퓨터에서 해요.",
   "integrations.reconnectOnComputer": "{name} 다시 연결은 컴퓨터에서 해요.",

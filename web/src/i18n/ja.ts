@@ -3216,6 +3216,7 @@ export const ja: Record<MessageKey, string> = {
   'integrations.signIn.reason.limit': "使える個人接続がすでに上限に達しています。1件削除してから、もう一度ログインしてください。",
   'integrations.signIn.expired': "ログインがタイムアウトしました。再試行してください。",
   'integrations.signIn.badUrl': "サービスから返されたログインアドレスが安全でないため、開きませんでした。",
+  'integrations.signIn.getDesktop': "デスクトップアプリを入手",
   'integrations.signIn.phone': "コンピューターのブラウザーまたはデスクトップアプリからログインしてください。",
   "integrations.onComputer": "{name}の接続はパソコンで行います。",
   "integrations.reconnectOnComputer": "{name}の再接続はパソコンで行います。",

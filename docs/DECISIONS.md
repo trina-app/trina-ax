@@ -29119,3 +29119,25 @@ address box comes under the list as "Add another team" (no hint paragraph there)
 unchanged ("Join your team" and the box). Back stays, as a small muted link left of Language (a click on the Current
 row does the same; Esc does not, so a half-typed address is never lost); nothing is focused when the screen opens with saved teams (no ring on a row nobody picked; Tab reaches the first row), the box is when none is saved. Desktop only: the phone app keeps
 one team and the web has no such screen. Code: `desktop/src/ui/welcome.ts`, `ui.css`. Version impact: **patch**.
+
+## Connectors that take only an app on the computer sign in from the desktop app (feat/connector-desktop-loopback-signin, 2026-11-15)
+
+Canva, Intercom and Square refuse the team's https sign-in return address (not on their list) but take
+`http://127.0.0.1:<port>/callback`, the address apps on a computer use (RFC 8252); Figma refuses both. Decided:
+- The desktop app signs in at them through a one-time listener on 127.0.0.1 that sends the browser on to the team's own
+  return page (`desktop/src/common/sign-in-return.ts`); the server finishes the sign-in exactly as for any other (state,
+  PKCE, the same person's browser session). The order stays: registered app for https → metadata document → 127.0.0.1,
+  only when both were refused.
+- The port counts only from a desktop session. A forged session kind gains nothing: the code goes only to the person's
+  own computer, is useless without the verifier the server keeps, and finishes only that person's own sign-in.
+- The web and the phone app say "<service> only lets you sign in from an app on your computer. Open the Trina desktop
+  app and connect it there." (`oauth_desktop_only`) with Get the desktop app (the phone app: "Connect Canva on a
+  computer."), when one probe registration for 127.0.0.1 shows it would work. Whether a sign-in server takes 127.0.0.1
+  is remembered an hour, keyed by that server only, and only spares the probe: the usual client choice (with the
+  metadata document from a public address) always runs first (security review of #977).
+- Not now: passing the return through the app's own session (the system browser must be signed in, as for every desktop
+  sign-in), `localhost`, the Mac App Store build (its sandbox has no `network.server`; adding it is a store-review
+  decision for the release owner).
+- Tests: `tests/unit/c-integrations-desktop-signin.test.ts` (recorded service shapes), `tests/unit/e-desktop-sign-in-return.test.ts`
+  (the listener), `web/test/unit/integration-desktop-signin.test.tsx`. Version impact: **minor** (a new way to connect,
+  additive API and bridge fields).

@@ -3211,6 +3211,7 @@ export const zh: Record<MessageKey, string> = {
   "integrations.signIn.reason.limit": "你已有的可用个人连接数已达上限。请删除一个，然后重新登录。",
   "integrations.signIn.expired": "登录超时。请重试。",
   "integrations.signIn.badUrl": "该服务发送的登录地址不安全，因此未打开。",
+  'integrations.signIn.getDesktop': "获取桌面应用",
   "integrations.signIn.phone": "请在电脑上通过浏览器或桌面应用登录。",
   "integrations.onComputer": "请在电脑上连接{name}。",
   "integrations.reconnectOnComputer": "请在电脑上重新连接{name}。",

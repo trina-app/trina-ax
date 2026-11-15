@@ -3260,6 +3260,7 @@ export const id: Record<MessageKey, string> = {
   'integrations.signIn.reason.limit': "Anda sudah punya koneksi pribadi yang berfungsi sebanyak batas maksimum. Hapus satu, lalu login lagi.",
   'integrations.signIn.expired': 'Waktu masuk habis. Silakan coba lagi.',
   'integrations.signIn.badUrl': 'Alamat masuk dari layanan tidak aman, jadi tidak dibuka.',
+  'integrations.signIn.getDesktop': "Unduh aplikasi desktop",
   'integrations.signIn.phone': 'Masuklah dari komputer, lewat browser atau aplikasi desktop.',
   "integrations.onComputer": "Hubungkan {name} di komputer.",
   "integrations.reconnectOnComputer": "Hubungkan kembali {name} di komputer.",

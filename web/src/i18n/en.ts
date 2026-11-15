@@ -3261,6 +3261,7 @@ export const en: Record<MessageKey, string> = {
   'integrations.signIn.reason.limit': "You already have as many working connections of your own as you can. Remove one, then sign in again.",
   'integrations.signIn.expired': 'The sign-in timed out. Please try again.',
   'integrations.signIn.badUrl': 'The sign-in address the service sent is not safe, so it was not opened.',
+  'integrations.signIn.getDesktop': "Get the desktop app",
   'integrations.signIn.phone': 'Sign in from a computer, in a browser or the desktop app.',
   "integrations.onComputer": "Connect {name} on a computer.",
   "integrations.reconnectOnComputer": "Reconnect {name} on a computer.",

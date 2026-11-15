@@ -2,6 +2,7 @@
 // refusals and why a connection check failed (lastError, stored as a code and put into words for each reader).
 import type { Locale } from '@mycel/shared/api'
 import { dropDoubleHonorifics } from '@mycel/shared/honorific'
+import { KO_PARTICLE_PATTERN, koParticle } from '@mycel/shared/ko-particle'
 
 type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): T => ({ ko, en, id, ja, es, zh })
@@ -155,6 +156,15 @@ export const TEXT = {
     'Layanan ini hanya mengizinkan login dari aplikasi yang sudah disetujuinya, dan aplikasi ini belum disetujui. Hanya layanan itu yang bisa mengubahnya, jadi untuk sekarang layanan ini belum bisa dihubungkan di sini.',
     "このサービスは承認したアプリだけにログインを許可しており、このアプリはまだ承認されていません。変更できるのはサービス側だけのため、今はここで接続できません。",
     "Este servicio solo permite iniciar sesión a las aplicaciones que ha aprobado, y todavía no ha aprobado esta. Solo el servicio puede cambiarlo, así que por ahora no se puede conectar aquí.", "这项服务只允许它批准过的应用登录，而这个应用还没有获得批准。只有该服务能改变这一点，所以目前无法在这里连接。"),
+  // the service refused every app for the team's https address but takes one on the person's computer (Canva, Intercom,
+  // Square: oauth.ts loopbackClient), and this sign-in came from the web or the phone app: the desktop app connects it.
+  // {name}: the connection's name
+  oauth_desktop_only: t('{name}은(는) 컴퓨터에 설치한 앱에서만 로그인할 수 있어요. 트리나 데스크톱 앱을 열고 거기서 연결해 주세요.',
+    '{name} only lets you sign in from an app on your computer. Open the Trina desktop app and connect it there.',
+    '{name} hanya mengizinkan login dari aplikasi di komputer Anda. Buka aplikasi desktop Trina dan hubungkan di sana.',
+    "{name}には、パソコンにインストールしたアプリからしかログインできません。トリナのデスクトップアプリを開いて、そこで接続してください。",
+    "{name} solo permite iniciar sesión desde una aplicación instalada en su computadora. Abra la aplicación de escritorio de Trina y conéctelo allí.",
+    "{name}只允许从电脑上安装的应用登录。请打开 Trina 桌面应用，在那里连接。"),
   // the registration answered 429 (oauth.ts register): too many apps registered there just now
   oauth_busy: t('서비스가 지금 너무 바빠요. 몇 분 뒤에 다시 연결해 주세요.', 'The service is too busy right now. Try connecting again in a few minutes.', 'Layanan sedang terlalu sibuk. Coba hubungkan lagi beberapa menit lagi.', "サービスが現在混み合っています。数分後にもう一度接続してください。", "El servicio está demasiado ocupado ahora. Vuelva a conectarlo en unos minutos.", "服务现在太忙了。请过几分钟再连接。"),
   oauth_failed: t('로그인을 마치지 못했어요. 다시 시도해 주세요.', 'Signing in did not finish. Try again.', 'Login tidak selesai. Coba lagi.', "ログインを完了できませんでした。再試行してください。", "No se completó el inicio de sesión. Vuelva a intentarlo.", "登录没有完成。请重试。"),
@@ -195,29 +205,37 @@ export const FIELD_WORDS: Record<string, T> = {
 }
 /** a reason a connection check failed (integrations.last_error holds "<reason>" or "<reason>:<status>") */
 export type Reason = 'unreachable' | 'timeout' | 'list_timeout' | 'private_address' | 'blocked_port' | 'tls' | 'refused' | 'no_secret' | 'sign_in' | 'redirect'
-  | 'http_status' | 'not_mcp' | 'too_large' | 'oauth_unsupported' | 'oauth_no_registration' | 'oauth_no_registration_member' | 'oauth_approved_apps_only' | 'oauth_busy' | 'oauth_failed' | 'key_unsafe'
+  | 'http_status' | 'not_mcp' | 'too_large' | 'oauth_unsupported' | 'oauth_no_registration' | 'oauth_no_registration_member' | 'oauth_approved_apps_only' | 'oauth_desktop_only' | 'oauth_busy' | 'oauth_failed' | 'key_unsafe'
+
+/** a placeholder and a Korean particle mark right after it ("{name}은(는)"), as the web app's i18n format reads them */
+const PARTICLE_AFTER = new RegExp(`\\{(\\w+)\\}(${KO_PARTICLE_PATTERN})?`, 'g')
 
 export const say = (key: TextKey, locale: Locale, vars: Record<string, string | number> = {}) =>
-  // no second honorific after a name that has one ("{by}님이" with 대표님, shared/src/honorific.ts)
-  dropDoubleHonorifics(TEXT[key][locale] ?? TEXT[key].en, vars).replace(/\{(\w+)\}/g, (all, k: string) => (k in vars ? String(vars[k]) : all))
+  // no second honorific after a name that has one ("{by}님이" with 대표님, shared/src/honorific.ts); a Korean particle
+  // after a value in the form the value takes when read aloud ("Canva는", "Intercom은": shared/src/ko-particle.ts)
+  dropDoubleHonorifics(TEXT[key][locale] ?? TEXT[key].en, vars).replace(PARTICLE_AFTER, (all, k: string, mark?: string) => {
+    if (!(k in vars)) return all
+    const v = String(vars[k])
+    return v + (mark ? (locale === 'ko' ? koParticle(v, mark) : mark) : '')
+  })
 
 /** Reasons whose fix is the connection's address (or that read as such: a reason this server does not know). */
 const ADDRESS_REASONS: ReadonlySet<string> = new Set<Reason>(['unreachable', 'private_address', 'blocked_port', 'redirect', 'not_mcp'])
 /** Reasons whose fix is the connection's key or sign-in. */
-const KEY_REASONS: ReadonlySet<string> = new Set<Reason>(['refused', 'no_secret', 'sign_in', 'oauth_unsupported', 'oauth_no_registration', 'oauth_approved_apps_only', 'oauth_failed'])
+const KEY_REASONS: ReadonlySet<string> = new Set<Reason>(['refused', 'no_secret', 'sign_in', 'oauth_unsupported', 'oauth_no_registration', 'oauth_approved_apps_only', 'oauth_desktop_only', 'oauth_failed'])
 
 /**
  * The stored code in words ("refused:401" -> "The service did not accept the key ... (HTTP 401)"), for a reader who can
- * fix it. `can`: what this reader can change (store.ts view): the address (whoever manages the connection, not on one
+ * fix it (`name`: the connection's, for a reason that names it). `can`: what this reader can change (store.ts view): the address (whoever manages the connection, not on one
  * made from a team template) and the key or sign-in (whoever manages it). A reason only someone else can fix says what
  * happened and "Tell your admin." instead of "Check the address" (QA TC-235).
  */
-export function reasonText(code: string | null, locale: Locale, can: { address: boolean; key: boolean } = { address: true, key: true }): string | null {
+export function reasonText(code: string | null, locale: Locale, can: { address: boolean; key: boolean } = { address: true, key: true }, name?: string): string | null {
   if (!code) return null
   const [reason, status] = code.split(':')
   const known = !!reason && reason in TEXT
   if (!can.address && (!known || ADDRESS_REASONS.has(reason!))) return say('addressMember', locale)
   if (!can.key && KEY_REASONS.has(reason!)) return say('keyMember', locale)
   if (!known) return say('unreachable', locale)
-  return say(reason as TextKey, locale, { status: status ?? '?' })
+  return say(reason as TextKey, locale, { status: status ?? '?', ...(name ? { name } : {}) })
 }
