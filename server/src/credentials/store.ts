@@ -335,12 +335,12 @@ export function markNeedsReconnect(cc: CredCtx, id: string, code: string) {
   cc.db.query("UPDATE engine_credentials SET status = 'needs_reconnect', status_code = ?, updated_at = ? WHERE id = ?").run(code, new Date(cc.now()).toISOString(), id)
   notifyAboutConnection(cc, r, { level: 'error', code: 'credential_needs_reconnect', message: ctAll('nNeedsReconnect', { label: r.label }), link: '/admin/credentials' }, ctAll('nOwnNeedsReconnect', { label: r.label }))
 }
-/** Where a person manages their own AI connections (Settings › AI accounts; a member cannot open Admin). */
+/** Where a person manages their own AI connections (Settings › AI providers; a member cannot open Admin). */
 export const OWN_CONNECTIONS_LINK = '/settings/providers'
 /**
  * A notice about one connection, at most once per `everyMs` for that connection and code. The owner and admins get `n`
- * (Admin › AI accounts). The person whose own connection it is gets `own` with a link to their Settings › AI accounts
- * instead: a member was told to fix their own key in Admin › AI accounts, a page they cannot open (QA 2026-11-13).
+ * (Admin › AI providers). The person whose own connection it is gets `own` with a link to their Settings › AI providers
+ * instead: a member was told to fix their own key in Admin › AI providers, a page they cannot open (QA 2026-11-13).
  */
 export function notifyAboutConnection(cc: CredCtx, r: Pick<CredRow, 'id' | 'owner_user_id'>, n: Notice, own: Notice['message'] = n.message, everyMs = 3600_000) {
   const k = `${r.id}|${n.code}`

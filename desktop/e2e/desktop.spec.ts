@@ -470,7 +470,11 @@ test.describe('office network and allowed sites', () => {
       await (await view(app, (u) => u.startsWith(BETA))).evaluate(() => (window as any).mycelDesktop.openTeams())
       const w = await welcome(app)
       const acmeRow = w.getByTestId('team').filter({ hasText: 'acme' })
-      await acmeRow.getByRole('button', { name: /목록에서 지우기/ }).click()
+      // the open team: a quiet "지금 사용 중" on its row only
+      await expect(w.getByTestId('team').filter({ hasText: 'beta' }).getByTestId('team-current')).toHaveText('지금 사용 중')
+      await expect(acmeRow.getByTestId('team-current')).toHaveCount(0)
+      await acmeRow.getByRole('button', { name: /메뉴$/ }).click()
+      await acmeRow.getByRole('menuitem', { name: /목록에서 지우기/ }).click()
       await w.getByTestId('remove-confirm').getByRole('button', { name: '지우기' }).click()
       await expect(w.getByTestId('team')).toHaveCount(1)
       expect(teamsJson(userData).teams.map((x) => x.origin)).toEqual([BETA])

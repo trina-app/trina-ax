@@ -101,7 +101,7 @@ admin switched them on or off in the meantime. Renaming the chat or project chan
 |---|---|---|
 | **No AI** (the default) | They talk with people only. | Anyone who invites |
 | **Team AI** | They use one of the team's AI accounts, up to a monthly amount in US dollars that you set. | The owner and admins |
-| **Their own sign-in** | They connect their own Claude or ChatGPT account in **Settings › AI accounts** and use that. It is their own plan, so the team pays nothing. | Anyone who invites |
+| **Their own sign-in** | They connect their own Claude or ChatGPT account in **Settings › AI providers** and use that. It is their own plan, so the team pays nothing. | Anyone who invites |
 
 A guest who uses up their monthly amount is told the day it starts again. If the team AI account a guest uses is
 deleted, the guest reads that AI can't answer them now, and their row in **Admin › Members & invites** says the
