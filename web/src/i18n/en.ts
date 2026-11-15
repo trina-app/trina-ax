@@ -1953,7 +1953,7 @@ export const en: Record<MessageKey, string> = {
   'apps.noDownloadsOwnerHosted': 'The team server downloads it from the signed release feed after each update. If it does not appear, Admin › System › Diagnostics says why ("Windows app").',
   'apps.thisComputer': 'For this computer',
   'apps.winHow': 'Open the downloaded file ({productFile}-Setup-….exe). It installs right away without an administrator password and opens {product}.',
-  'apps.winSmartScreen': 'If a blue "Windows protected your PC" window appears, click More info → Run anyway. This build has no verified signature, so Windows warns once.',
+  'apps.winSmartScreen': 'If a blue "Windows protected your PC" window appears, click More info → Run anyway. This build has no verified signature, so Windows warns once. If Windows says the app was blocked and offers no Run anyway button (Smart App Control), it cannot be installed on that PC: open the team in a browser instead, or ask your admin.',
   'apps.macHow': 'Open the downloaded .dmg, drag {product} into the Applications folder, then open {product} from Applications.',
   'apps.macGatekeeper': 'If macOS says it cannot open the app, click Done, go to System Settings → Privacy & Security, click Open Anyway near the bottom, then Open Anyway once more.',
   'apps.macStore': 'This app is from the Mac App Store. It updates there.',

@@ -1924,7 +1924,7 @@ export const es: Record<MessageKey, string> = {
   'apps.noDownloadsOwnerHosted': "El servidor del equipo la descarga del canal de versiones firmado después de cada actualización. Si no aparece, Administración › Sistema › Diagnóstico indica el motivo («Aplicación de Windows»).",
   'apps.thisComputer': "Para esta computadora",
   'apps.winHow': "Abra el archivo descargado ({productFile}-Setup-….exe). Se instala de inmediato sin contraseña de administrador y abre {product}.",
-  'apps.winSmartScreen': "Si aparece una ventana azul con \"Windows protegió su PC\", haga clic en Más información → Ejecutar de todas formas. Esta compilación no tiene una firma verificada, por lo que Windows muestra una advertencia una vez.",
+  'apps.winSmartScreen': "Si aparece una ventana azul con \"Windows protegió su PC\", haga clic en Más información → Ejecutar de todas formas. Esta compilación no tiene una firma verificada, por lo que Windows muestra una advertencia una vez. Si Windows dice que la aplicación se bloqueó y no ofrece el botón Ejecutar de todas formas (Smart App Control), no se puede instalar en ese equipo: abra el equipo en un navegador o consulte a su administrador.",
   'apps.macHow': "Abra el .dmg descargado, arrastre {product} a la carpeta Aplicaciones y abra {product} desde allí.",
   'apps.macGatekeeper': "Si macOS indica que no puede abrir la aplicación, haga clic en Listo, vaya a Ajustes del Sistema → Privacidad y seguridad, haga clic en Abrir igualmente cerca del final y confirme de nuevo.",
   'apps.macStore': "Esta aplicación se instaló desde el Mac App Store y se actualiza allí.",
