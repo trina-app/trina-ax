@@ -244,7 +244,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   // a guest has no 파일 screen: their project's files screen, or no button (their own folder has no screen)
   const guestFolder = useGuestFolderHref()
   const filesHref = teamPath === null ? null
-    : guestFolder ? guestFolder(parentPath(teamPath))
+    : guestFolder ? guestFolder(parentPath(teamPath), teamPath)
     : `/files?path=${encodeURIComponent(parentPath(teamPath))}&select=${encodeURIComponent(file.name)}`
   const openInFiles = () => {
     if (!filesHref) return

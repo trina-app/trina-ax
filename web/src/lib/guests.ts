@@ -35,7 +35,9 @@ export const placePath = (place: GuestPlaceView): string | null => (place.id ? (
 /** Where the signed-in guest opens (Me.guest.places): their group chat, else their project; null for anyone else or
  * before the server names it. A guest opens straight into it (Slack's single-channel guests). */
 export function guestPlacePath(me: Me | null | undefined): string | null {
-  const first = meGuest(me)?.places[0]
+  // the group chat first, then the project (QA TC-3359), whatever order the server sent them in
+  const g = meGuest(me)
+  const first = g?.room ?? g?.project ?? g?.places[0]
   return first ? placePath(first) : null
 }
 
@@ -93,20 +95,22 @@ export const GUEST_NO_PLACE = 'guest_no_place'
  * that holds it (`/projects/<id>/files?dir=…`, Projects.tsx ProjectFiles); null for any other folder, their own
  * users/<id>/ included (no screen lists it: its files open in the preview panel only).
  */
-export function guestFolderHref(path: string, projects: readonly { id: string; folderPath: string }[]): string | null {
+export function guestFolderHref(path: string, projects: readonly { id: string; folderPath: string }[], select?: string): string | null {
   const clean = path.replace(/^\/+|\/+$/g, '')
   const p = projects.find((x) => x.folderPath && (clean === x.folderPath || clean.startsWith(`${x.folderPath}/`)))
   if (!p) return null
   const dir = clean === p.folderPath ? '' : clean.slice(p.folderPath.length + 1)
-  return `/projects/${p.id}/files${dir ? `?dir=${encodeURIComponent(dir)}` : ''}`
+  // `select`: a file in it to show picked (its full path, as the 파일 screen's ?select= takes it)
+  const q = [dir ? `dir=${encodeURIComponent(dir)}` : '', select ? `select=${encodeURIComponent(select)}` : ''].filter(Boolean).join('&')
+  return `/projects/${p.id}/files${q ? `?${q}` : ''}`
 }
 
 /** An in-app address as a guest opens it: a /files address goes to their project's files screen (guestFolderHref, via
  * `folder`) or nowhere (null); any other address stays as it is. */
-export function guestAppHref(href: string, folder: (path: string) => string | null): string | null {
+export function guestAppHref(href: string, folder: (path: string, select?: string) => string | null): string | null {
   // (the router matches addresses without regard to case: /FILES is /files)
   if (!/^\/files(\/|\?|#|$)/i.test(href)) return href
   const u = new URL(href, 'http://app.invalid')
   const path = u.pathname.toLowerCase() === '/files' ? u.searchParams.get('path') : null
-  return path ? folder(path) : null
+  return path ? folder(path, u.searchParams.get('select') ?? undefined) : null
 }

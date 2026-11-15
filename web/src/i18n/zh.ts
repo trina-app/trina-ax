@@ -403,6 +403,7 @@ export const zh: Record<MessageKey, string> = {
   "search.attn.error": "无法正常工作",
   "search.team": "团队",
   "search.filesHint": "输入内容以在文件中搜索。",
+  'search.filesHintGuest': '输入文件或文件夹的名称。',
   "search.openFiles": "打开文件",
   "search.newScheduled": "新建定时任务",
   "search.addMcp": "连接应用",

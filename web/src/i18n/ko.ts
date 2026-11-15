@@ -414,6 +414,7 @@ export const ko = {
   'search.attn.error': '동작하지 않아요',
   'search.team': '팀',
   'search.filesHint': '입력하면 파일 내용에서 찾아요.',
+  'search.filesHintGuest': '파일이나 폴더 이름을 입력해 보세요.',
   'search.openFiles': '파일 열기',
   'search.newScheduled': '새 예약 작업',
   'search.addMcp': "서비스 연결하기",

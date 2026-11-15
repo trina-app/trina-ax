@@ -415,6 +415,7 @@ export const en: Record<MessageKey, string> = {
   'search.attn.error': 'Not working',
   'search.team': 'Team',
   'search.filesHint': 'Type to search inside files.',
+  'search.filesHintGuest': 'Type a file or folder name.',
   'search.openFiles': 'Open Files',
   'search.newScheduled': 'New scheduled task',
   'search.addMcp': "Connect an app",
