@@ -2467,7 +2467,7 @@ export class MockServer {
       // why it does not work (InviteInfo.reason), as POST /__test/invite-reason sets it; used = used
       const reason = (i as { deadReason?: string }).deadReason ?? (i!.usedAt ? 'used' : undefined)
       if (reason) return { teamName: this.settings.teamName, role: i!.role, expiresAt: i!.expiresAt, valid: false, reason: reason as 'used', inviterName: null }
-      return { teamName: this.settings.teamName, role: i!.role, expiresAt: i!.expiresAt, valid: !i!.usedAt, ...(i!.role === 'guest' ? { inviterName: i!.createdBy?.name ?? null } : {}), ...(named ? { guestPlace: { kind: named.kind, name: named.name } } : {}), ...(named && (i as { guestName?: string }).guestName ? { guestName: (i as { guestName?: string }).guestName } : {}) }
+      return { teamName: this.settings.teamName, role: i!.role, expiresAt: i!.expiresAt, valid: !i!.usedAt, ...(i!.leadFor ? { lead: true } : {}), ...(i!.role === 'guest' ? { inviterName: i!.createdBy?.name ?? null } : {}), ...(named ? { guestPlace: { kind: named.kind, name: named.name } } : {}), ...(named && (i as { guestName?: string }).guestName ? { guestName: (i as { guestName?: string }).guestName } : {}) }
     },
     acceptInvite: (c) => {
       const i = this.invites.find((x) => x.token === c.params.token && !x.usedAt)

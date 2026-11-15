@@ -33,6 +33,7 @@ import { clipboardPng } from '../common/context-menu'
 import { storeBuild } from '../common/update'
 import { windowsAppUserModelId } from '../common/app-id'
 import { AppWindow, type AllowAllOutcome } from './app-window'
+import { workFilesVersion } from './work-files'
 import { debug } from './debug'
 import { HostClassifier } from './pane/classify'
 import { asSiteAccess } from '../common/site-permissions'
@@ -259,7 +260,7 @@ function registerIpc() {
   // team page bridge (shared/src/desktop-bridge.ts); store: a Mac App Store or Microsoft Store build, where Settings >
   // Apps offers no installer
   ipcMain.on('bridge:info', (e) => {
-    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process) } : null
+    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process), workFiles: workFilesVersion({ platform: process.platform, mas: process.mas }) } : null
   })
   ipcMain.handle('bridge:browser-run', async (e, raw: unknown) => {
     const call = BrowserCall.safeParse(raw)
@@ -324,6 +325,13 @@ function registerIpc() {
   // the welcome steps' team files: the folder picked last gave nothing to read; 'mac-blocked' when macOS privacy kept the
   // app out of it (a word, never the error's text)
   ipcMain.handle('bridge:folder-problem', (e, name: unknown) => (fromApp(e) && e.senderFrame ? win!.folderProblem(e.senderFrame.origin, String(name ?? '').slice(0, 1024)) : null))
+
+  // "Find work files on this computer" (main/work-files.ts): the page only asks; the app shows its own dialog, looks in
+  // this process and hands out ids, never paths. A read takes an id of the latest look of the asking origin only.
+  ipcMain.handle('bridge:work-files-scan', (e) => (fromApp(e) && e.senderFrame ? win!.workFiles.scan(e.senderFrame.origin) : { state: 'unavailable' }))
+  ipcMain.on('bridge:work-files-stop', (e) => fromApp(e) && win!.workFiles.stop())
+  ipcMain.handle('bridge:work-files-read', (e, id: unknown) => (fromApp(e) && e.senderFrame ? win!.workFiles.read(e.senderFrame.origin, String(id ?? '').slice(0, 100)) : { ok: false, reason: 'unknown' }))
+  ipcMain.on('bridge:work-files-settings', (e) => fromApp(e) && win!.workFiles.openSettings())
 
   // Settings > Browser on the team page (shared/src/desktop-bridge.ts DesktopBrowserSettings): read the setting, go
   // back to asking, remove one always-allowed site, clear them all. Nothing here makes the browser more open: "all" is
