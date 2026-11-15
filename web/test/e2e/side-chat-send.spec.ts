@@ -326,3 +326,24 @@ test('a phone: ‹ and ✦ again open a new chat over the room; the one asked is
   await openedShot(page, 'reopen')
   await expect(await historyTitles(again)).toHaveText([/^한 줄로 정리해 줘/])
 })
+
+// The AI limit used up, asked from the side chat: the same calm notice as under the full chat's box (a status line with
+// the pause icon, the words of the limit), the question kept in the box, and no warning toast in the corner (QA TC-2895).
+test('a question over the usage limit shows a calm notice under the side chat box, keeps the text and raises no toast', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await routeRoom(page, { members: [BEN, { id: 'cy', name: '씨와이' }], messages: [{ id: MSG, author: BEN, body: ASKED }] })
+  await page.goto(`/rooms/${ROOM_ID}`)
+  await page.getByTestId('room-side-chat-button').click()
+  const side = page.getByTestId('room-side-chat')
+  await ask(side, 'one more, over my limit')
+  const notice = side.getByTestId('side-chat-limit')
+  await expect(notice).toContainText('오늘 AI 사용 한도를 다 썼어요')
+  await expect(notice).toHaveAttribute('role', 'status')
+  await expect(notice.locator('svg')).toHaveCount(1)
+  await expect(side.getByTestId('side-chat-input')).toHaveValue('one more, over my limit')
+  await expect(page.getByTestId('toast')).toHaveCount(0)
+  // typing again takes the notice away
+  await side.getByTestId('side-chat-input').fill('one more, over my limit.')
+  await expect(notice).toHaveCount(0)
+})
