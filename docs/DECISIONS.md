@@ -28388,9 +28388,11 @@ QA on a private copy of QA-Acme in managed AI mode with a plan file of two guest
   and before their end date, and not stopped by itself (`Invite.stopped`: a guest link whose room or project is gone or
   in the trash, whose maker left it, or whose team AI account was removed; the same check the invite page and the
   accept use, `makerReason` in `server/src/auth/accounts.ts`). `openInviteLinks`, `workingTeamLink` in
-  `pages/admin/Members.tsx`. The server already leaves revoked ones out. `Invite.stopped` and its line in `toInvite`
-  are the same as PR #907's (fix/guest-states-s2), so whichever lands first, the other rebases without a conflict. With no working link the section is not drawn. Who joined is in the member list and the
-  Activity log; an expired or full team link is still explained in the header's **Team invite link** popup.
+  `pages/admin/Members.tsx`. The server already leaves revoked ones out. This replaces "Guest states, round 3"'s
+  stopped row ("No longer works: …" instead of a date): such a link is now left out, and its three
+  `members.stopped*` keys were removed. Admin's dates stay in the team's time zone. With no working link the section
+  is not drawn. Who joined is in the member list and the Activity log; an expired or full team link is still
+  explained in the header's **Team invite link** popup.
   `GET /api/admin/invites` is unchanged (it still returns used ones; other screens and the handover card read it).
 - **Guests:** a team with no guest at all has no **Guests** section (no "No guests yet" row). The Role filter's
   **Guests** still shows the section with its empty line, so picking it never shows a blank page. A search that finds
