@@ -60,17 +60,50 @@ test("a guest's turn: the guest section with their place and inviter, and no tea
   for (const [name, d] of Object.entries(tools)) for (const w of MEMBER_WORDS) expect({ name, w: String(w), hit: w.test(d) }).toEqual({ name, w: String(w), hit: false })
 })
 
-test("a guest's room side chat says it cannot read the room, and never names room_read", async () => {
+test("a guest's room side chat reads their room: the side-panel section, room_read and room_file, no rooms list or posting", async () => {
   const db = h.ctx.db
-  // erin's place becomes the group chat for this test
-  const room = { id: roomId }
-  db.query("UPDATE guests SET place_kind = 'room', place_id = ? WHERE user_id = 'erin'").run(room.id)
+  db.query("UPDATE guests SET place_kind = 'room', place_id = ? WHERE user_id = 'erin'").run(roomId)
   try {
-    const { system } = await given('erin', erin, { sideRoomId: room.id })
+    const { system, tools } = await given('erin', erin, { sideRoomId: roomId })
     expect(system).toContain('Their places in the team: the group chat "Client talk".')
-    expect(system).toContain('You cannot read that room\'s messages or files from here')
-    expect(system).not.toContain('room_read')
+    expect(system).toContain('with room_read, and a file sent there with room_file')
+    expect(system).toContain(`Read it with room_read (room "${roomId}")`)
+    expect(system).not.toContain('save_room_file')
+    expect(Object.keys(tools)).toEqual(expect.arrayContaining(['room_read', 'room_file']))
+    for (const no of ['rooms', 'save_room_file', 'post_to_room']) expect(Object.keys(tools)).not.toContain(no)
+    expect(tools.room_file).not.toContain('save_room_file')
     for (const w of MEMBER_WORDS) expect({ w: String(w), hit: w.test(outsideGuest(system)) }).toEqual({ w: String(w), hit: false })
+  } finally {
+    db.query("UPDATE guests SET place_kind = 'project', place_id = ? WHERE user_id = 'erin'").run(projectId)
+  }
+})
+
+test("security: a guest's AI reads only the rooms the guest is in, never another room, even by its id", async () => {
+  const db = h.ctx.db
+  // rooms erin is not in: a group chat of alice and bob, and the marketing team room
+  const other = (await h.api('alice').call(API.createRoom, { body: { kind: 'group', userIds: ['bob', 'carol'], name: 'Pricing inside' } }) as Room).id
+  await h.api('alice').call(API.sendRoomMessage, { params: { id: other }, body: { body: 'SECRET-PRICE-991', clientMessageId: 'cm-' + crypto.randomUUID(), fileIds: [] } })
+  await h.api('alice').call(API.sendRoomMessage, { params: { id: roomId }, body: { body: 'HELLO-ERIN-17', clientMessageId: 'cm-' + crypto.randomUUID(), fileIds: [] } })
+  const team = (db.query("SELECT id FROM rooms WHERE kind = 'team' AND archived_at IS NULL LIMIT 1").get() as { id: string }).id
+  const everyone = (db.query("SELECT id FROM rooms WHERE kind = 'all' LIMIT 1").get() as { id: string } | null)?.id
+  // a guest is in their one group chat only (the harness made erin a member first: her other rooms go, as an invite has none)
+  db.query('DELETE FROM room_members WHERE user_id = ? AND room_id != ?').run('erin', roomId)
+  db.query("UPDATE guests SET place_kind = 'room', place_id = ? WHERE user_id = 'erin'").run(roomId)
+  try {
+    const side = await h.api('erin').call(API.createChat, { body: { engine: 'claude-code', sideRoomId: roomId } })
+    const read = (room: string) => fake({ tool: 'room_read', args: { room }, sayResult: true })
+    const own = String((await ask(h, erin, 'erin', side.id, read(roomId))).done.content)
+    expect(own).toContain('HELLO-ERIN-17')
+    const file = await h.api('erin').call(API.createChat, { body: { engine: 'claude-code', sideRoomId: roomId } })
+    const viaFile = String((await ask(h, erin, 'erin', file.id, fake({ tool: 'room_file', args: { room: other, file: 'plan.pdf' }, sayResult: true }))).done.content)
+    expect(viaFile).toContain('Ask the user which one')
+    for (const ref of [other, team, ...(everyone ? [everyone] : []), 'Pricing inside', 'Marketing', 'everyone']) {
+      const chat = await h.api('erin').call(API.createChat, { body: { engine: 'claude-code', sideRoomId: roomId } })
+      const r = String((await ask(h, erin, 'erin', chat.id, read(ref))).done.content)
+      expect({ ref, leaked: r.includes('SECRET-PRICE-991') || r.includes('<room_messages') }).toEqual({ ref, leaked: false })
+      // and the AI is not sent to a rooms tool a guest does not have
+      expect({ ref, rooms: r.includes('Call rooms') }).toEqual({ ref, rooms: false })
+    }
   } finally {
     db.query("UPDATE guests SET place_kind = 'project', place_id = ? WHERE user_id = 'erin'").run(projectId)
   }
