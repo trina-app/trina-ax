@@ -17293,8 +17293,8 @@ transferOwnership, `auth/accounts.ts` invites, `shared/src/api/handover.ts`, mig
   Drive shares signed in with their Google account; team connections to services, an MCP server such as Higgsfield,
   whose OAuth sign-in is theirs, read from `team_sign_ins` alone (written by the sign-in, cleared when it ends; a sign-in
   from before that record is unknown and neither listed nor ended); team API keys and keys typed into a connection
-  are the team's and never listed), each ticked "넘기면
-  끊어요" (untick the company's own seat), the line on who can still reset passwords (hosted, the office server Mac, a
+  are the team's and never listed), each kept by default
+  with its own opt-in "넘길 때 끊기" (QA TC-3095, below; it was ticked "넘기면 끊어요" at first), the line on who can still reset passwords (hosted, the office server Mac, a
   self-installed server), and the password. The rule: settings move with the role; connections in a person's own name
   are ended by that person, at the handover. Which ones is written in the transfer's own write (`owner_transfers.to_end`,
   only what is the caller's then), and they are ended **after the commit** (`owner.transfer.disconnect` per connection;
@@ -29004,3 +29004,16 @@ address still fold. Code: `web/src/lib/activity.ts` sameEvent. Version impact: *
   already did. box_shell (developer environments) runs its command as given; its shown command is already hidden.
 - Tests: `tests/unit/c-integrations-secret-files.test.ts`, `c-integrations-secret-echo.test.ts`.
 - Version impact: **patch** (a security fix; no new feature or API change).
+
+## Owner transfer keeps every connection unless asked (fix/owner-transfer-keep-default, 2026-11-15, QA TC-3095)
+
+- **Problem.** The transfer confirm listed the connections made with the owner's own accounts with a box ticked by
+  default ("disconnected on transfer"); an unticked box read "kept". The owner could not tell what the box meant, and
+  the default ended the team's own AI seat.
+- **Decision (product owner).** Kept is the default: a team account stays with the team. Each row says **Kept** or
+  **Will be disconnected**, and its box is the action, **Disconnect when I hand over**, off by default; a box left
+  unticked never sits beside the word "kept". [Transfer] without touching anything ends nothing. The server already
+  treats a missing `end` as "keep" (`TransferOwnershipBody.end` defaults to `[]`), now pinned by a test. The new owner
+  can still disconnect anything later in Admin › Providers or Connected apps.
+- The [Transfer] button keeps the shared `danger` variant of every destructive confirm; it is disabled until the
+  password is typed (the screenshot was that state).

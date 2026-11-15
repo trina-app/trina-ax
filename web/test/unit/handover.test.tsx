@@ -1,6 +1,6 @@
 // 팀장 넘기기 (docs/DECISIONS.md "W6"; src/components/handover/): the confirm's lines (the owner's own words for whom the
 // link was, or the account's name and username; never "님님" or a particle glued after a label like "김팀장 대표님"),
-// the connections ticked by default, who can still reset passwords; how a refused transfer is told apart; who gets
+// the connections kept by default (QA TC-3095: a tick is the action "Disconnect when I hand over"), who can still reset passwords; how a refused transfer is told apart; who gets
 // "팀장 넘기기" in Admin › Members' "…"; the Home card's and the Inbox rows' words; the flag only for the owner and only
 // where the server offers it; the realtime notices.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
@@ -39,7 +39,7 @@ const html = async (ui: ReactNode) => {
   try { return m.html() } finally { await m.unmount() }
 }
 const view = (o: Partial<Parameters<typeof HandoverView>[0]> = {}) => html(
-  <HandoverView target={{ id: 'u1', name: '박민준', username: 'minjun.park' }} connections={CONNS} recovery={null} kept={new Set()} onToggle={() => {}} {...o} />,
+  <HandoverView target={{ id: 'u1', name: '박민준', username: 'minjun.park' }} connections={CONNS} recovery={null} ending={new Set()} onToggle={() => {}} {...o} />,
 )
 const text = (html: string) => html.replace(/<[^>]+>/g, '').replace(/&#x27;/g, "'").replace(/&amp;/g, '&')
 const JOINED = '2026-11-08T06:12:00.000Z'
@@ -73,19 +73,28 @@ describe('the confirm', () => {
     for (const leadFor of ['김팀장 대표님', 'Acme', '이사님']) for (const name of ['김 대표님', 'Acme', '민준']) expect(text(await view({ leadFor, target: { id: 'u', name, username: 'x' } }))).not.toContain('님님')
   })
 
-  test('each of my connections is a ticked line; an unticked one says it is kept; none listed, no heading', async () => {
-    const m = await mount(<HandoverView target={{ id: 'u1', name: '박민준', username: 'minjun.park' }} connections={CONNS} recovery={null} kept={new Set()} onToggle={() => {}} />)
+  test('each of my connections is kept unless I tick "Disconnect when I hand over"; none listed, no heading', async () => {
+    const m = await mount(<HandoverView target={{ id: 'u1', name: '박민준', username: 'minjun.park' }} connections={CONNS} recovery={null} ending={new Set()} onToggle={() => {}} />)
     try {
       const h = text(m.html())
-      expect(h).toContain('내 계정으로 연결된 것은 지금 내가 정해요 · 남긴 것은 박민준님이 나중에 끊을 수 있어요')
-      expect(h).toContain("팀 AI '회사 Claude' (내 Claude 계정) · 넘기면 끊어요")
-      expect(h).toContain("팀 AI 'GPT 팀' (내 ChatGPT 계정) · 넘기면 끊어요")
-      expect(h).toContain("드라이브 공유 'Acme 드라이브' (내 구글 계정) · 넘기면 끊어요")
-      for (const id of ['team_ai-c1', 'team_ai-c2', 'drive_share-s1']) expect((m.get(`handover-conn-${id}`) as unknown as { checked: boolean }).checked).toBe(true)
+      expect(h).toContain(ko('handover.connections', { name: '박민준' }))
+      expect(h).toContain('내 계정으로 연결한 것 · 팀에서 그대로 쓰여요 · 나중에 박민준님이 끊을 수 있어요')
+      // by default nothing is ticked and every row says it is kept; the box is labelled with the action, not "kept"
+      for (const id of ['team_ai-c1', 'team_ai-c2', 'drive_share-s1']) {
+        expect((m.get(`handover-conn-${id}`) as unknown as { checked: boolean }).checked).toBe(false)
+        expect(m.get(`handover-status-${id}`).textContent).toBe(ko('handover.conn.kept'))
+        expect(m.get(`handover-row-${id}`).textContent).toContain(ko('handover.conn.endToggle'))
+      }
+      expect(h).toContain("팀 AI '회사 Claude' (내 Claude 계정)")
+      expect(h).not.toContain(ko('handover.conn.willEnd'))
     } finally { await m.unmount() }
-    const kept = await view({ kept: new Set(['drive_share:s1']) })
-    expect(text(kept)).toContain("드라이브 공유 'Acme 드라이브' (내 구글 계정) · 남겨요")
-    expect(text(kept)).toContain("팀 AI '회사 Claude' (내 Claude 계정) · 넘기면 끊어요")
+    const ending = text(await view({ ending: new Set(['drive_share:s1']) }))
+    expect(ending).toContain(`드라이브 공유 'Acme 드라이브' (내 구글 계정)${ko('handover.conn.willEnd')}`)
+    expect(ending).toContain(`팀 AI '회사 Claude' (내 Claude 계정)${ko('handover.conn.kept')}`)
+    // English reads as a choice too: "Kept" / "Will be disconnected" beside "Disconnect when I hand over"
+    expect(en('handover.conn.kept')).toBe('Kept')
+    expect(en('handover.conn.willEnd')).toBe('Will be disconnected')
+    expect(en('handover.conn.endToggle')).toBe('Disconnect when I hand over')
     expect(await view({ connections: [] })).not.toContain('handover-connections')
     // the list could not be read: the transfer still works, the line says where to end them
     expect(text(await view({ connections: null, failed: true }))).toContain('내 계정으로 연결된 것을 읽지 못했어요')
