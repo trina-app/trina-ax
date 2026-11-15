@@ -178,13 +178,12 @@ function DesktopTeamLine() {
       off()
     }
   }, [shown, bridge])
-  const drawn = shown && !!host
+  // said at once (not after the address arrives) and not taken back on leaving: the app keeps it for this team, so a
+  // later sign-in page of the same team (a sign-out, a reload) opens without the strip jumping in and out
   useEffect(() => {
-    if (!drawn || !bridge?.hostLine) return
-    bridge.hostLine(true)
-    return () => bridge.hostLine?.(false)
-  }, [drawn, bridge])
-  if (!drawn) return null
+    if (shown) bridge?.hostLine?.(true)
+  }, [shown, bridge])
+  if (!shown || !host) return null
   return (
     <p className="mt-4 flex flex-wrap items-center justify-center gap-x-2 text-center text-xs text-muted" data-testid="auth-team-line">
       <span className="sr-only">{t('system.address')}: </span>

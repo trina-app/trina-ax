@@ -4,7 +4,7 @@
 // Pure: no Electron, unit-tested in tests/unit/e-desktop-common.test.ts and tests/unit/team-link.test.ts.
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { PRODUCT, SOURCE_CODE } from '@mycel/shared'
-import { isLoopbackHost, mayBeAsleep, parseTeamInput, readAppLink, relayAnswer, relayRename, wakeTeam, type RelayAnswer, type TeamInput, type TeamInputError, type TeamInputOptions, type WakeAnswer, type WakeSteps } from '@mycel/shared/team-link'
+import { mayBeAsleep, parseTeamInput, readAppLink, relayAnswer, relayRename, wakeTeam, type RelayAnswer, type TeamInput, type TeamInputError, type TeamInputOptions, type WakeAnswer, type WakeSteps } from '@mycel/shared/team-link'
 
 export { hostLineNow, hostLineShown, isLoopbackHost, isSignInPath } from '@mycel/shared/team-link'
 
@@ -162,14 +162,17 @@ export function originOf(url: string): string {
 }
 
 /**
- * A remembered team on this computer (localhost, *.localhost, a loopback IP): a developer's `bun run dev` server, which
- * is often not running. When the app opens it by itself at start and it does not answer, the first-run screen with the
- * team list comes instead of the "cannot reach the team server" card (main/app-window.ts openLast). A team the person
- * opens keeps that card and its [다시 시도].
+ * A remembered team at a development address on this computer: `localhost` or `*.localhost` (`bun run dev`,
+ * http://localhost:19100, often not running). When the app opens it by itself at start and it does not answer, the
+ * first-run screen with the team list comes instead of the "cannot reach the team server" card (main/app-window.ts
+ * openLast). Loopback IPs are left out: the Office Mac's own server is http://127.0.0.1:47820 (scripts/install-macos.sh),
+ * a real team that may still be starting after a restart, so it keeps the card and its [다시 시도]. A team the person
+ * opens keeps the card too.
  */
 export function onThisComputer(origin: string): boolean {
   try {
-    return isLoopbackHost(new URL(origin).hostname)
+    const h = new URL(origin).hostname.toLowerCase().replace(/\.$/, '')
+    return h === 'localhost' || h.endsWith('.localhost')
   } catch {
     return false
   }

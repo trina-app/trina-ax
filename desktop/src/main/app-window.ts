@@ -174,8 +174,8 @@ export class AppWindow {
   /** the team answered GET /api/me for a signed-in person (fetchTeamInfo); until then the host strip is on, on every
    * page (a page can look like a sign-in page at any address) */
   private signedIn = false
-  /** the team page draws the address and "Switch team" under its sign-in card (DesktopBridge.hostLine): no strip above
-   * it on the sign-in paths. Set by this document only: a new document starts without it. */
+  /** this team's pages draw the address and "Switch team" under their sign-in card (DesktopBridge.hostLine): no strip
+   * above them on the sign-in paths. Kept until another team is opened, so a sign-out or reload does not jump. */
   private pageHostLine = false
   /** the team openLast opened at start when its address is on this computer (common/address.ts onThisComputer): until
    * its page loads, a failed load goes to the first-run screen with the team list, not to the offline card */
@@ -609,10 +609,7 @@ export class AppWindow {
       }
     })
     app.webContents.on('did-navigate', (_e, url) => {
-      if (this.app !== app) return
-      // a new document: its own line (if any) says so again
-      this.pageHostLine = false
-      this.pageAt(url)
+      if (this.app === app) this.pageAt(url)
     })
 
     const browserSes = session.fromPartition(partitionFor(id, 'browser'))
@@ -660,6 +657,8 @@ export class AppWindow {
     // the team page is on screen: macOS's one question about notifications comes now, not with the first notification
     // (that one only comes while the window is in the back, when nobody sees the question)
     if (this.app === app) this.notifier.ask()
+    // the team went back to the list meanwhile (a dev team on this computer that did not answer at start)
+    if (this.app !== app) return
     this.scheduleRecheck()
     void this.learnDirect()
   }
@@ -1399,14 +1398,15 @@ export class AppWindow {
     this.updateTitle()
   }
 
-  /** The team page moved: the host strip shows on its sign-in pages, and on every page until /api/me answered. */
-  /** The team page shows (true) or left (false) its own address line under the sign-in card (DesktopBridge.hostLine). */
+  /** This team's pages draw (true) or no longer draw (false) their own address line under the sign-in card
+   * (DesktopBridge.hostLine). */
   setPageHostLine(drawn: boolean) {
     if (!this.app || drawn === this.pageHostLine) return
     this.pageHostLine = drawn
     this.layout()
   }
 
+  /** The team page moved: the host strip shows on its sign-in pages, and on every page until /api/me answered. */
   private pageAt(url: string) {
     let path = ''
     try {

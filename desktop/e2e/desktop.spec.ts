@@ -117,7 +117,7 @@ test.describe('team address and window', () => {
       const w = await welcome(app)
       // opened by the app itself at start, on this computer (a dev server left in the settings, 0.5.7 DMG): the
       // first-run screen with the team list and a line, never the offline card as the first screen
-      await expect(w.getByTestId('address-error')).toHaveText('이 컴퓨터의 gone.localhost:19159가 응답하지 않아요. 팀을 고르거나 새로 참여하세요.')
+      await expect(w.getByTestId('address-error')).toHaveText('이 컴퓨터의 gone.localhost:19159 서버가 응답하지 않아요. 팀을 고르거나 새로 참여하세요.')
       await expect(w.getByTestId('offline')).toHaveCount(0)
       await expect(w.locator('#address')).toBeVisible()
       await expect(w.getByTestId('team')).toHaveCount(1)
@@ -151,11 +151,16 @@ test.describe('switching team (owner 2026-11-15)', () => {
       // signed out on a sign-in path: the app's strip shows the address
       await beta.evaluate(() => history.pushState(null, '', '/login'))
       await expect.poll(() => strip(app)).toBe(36)
-      // the page draws the address and "Switch team" under its card: the strip goes, and comes back when it leaves
+      // the page draws the address and "Switch team" under its card: the strip goes, also after a reload (no jump), and
+      // comes back when the page says it no longer draws it
       await beta.evaluate(() => (window as any).mycelDesktop.hostLine(true))
+      await expect.poll(() => strip(app)).toBe(0)
+      await beta.reload()
+      await beta.evaluate(() => history.pushState(null, '', '/login'))
       await expect.poll(() => strip(app)).toBe(0)
       await beta.evaluate(() => (window as any).mycelDesktop.hostLine(false))
       await expect.poll(() => strip(app)).toBe(36)
+      await beta.evaluate(() => (window as any).mycelDesktop.hostLine(true))
       // off the sign-in paths the page's word does not hide the strip
       await beta.evaluate(() => { history.pushState(null, '', '/signin'); (window as any).mycelDesktop.hostLine(true) })
       await expect.poll(() => strip(app)).toBe(36)
@@ -171,6 +176,8 @@ test.describe('switching team (owner 2026-11-15)', () => {
         await expect(w.getByTestId('team')).toHaveCount(2)
         await expect(w.getByRole('button', { name: '돌아가기' })).toBeVisible()
         await w.getByRole('button', { name: '돌아가기' }).click()
+        // back on the team it came from
+        await expect.poll(() => app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.contentView.children.map((c: any) => new URL(c.webContents?.getURL() ?? 'about:blank').host).filter((h: string) => h && h !== 'app'))).toContain('beta.localhost:19152')
         await expect.poll(() => app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.contentView.children.some((c: any) => c.webContents?.getURL().endsWith('/welcome.html')))).toBe(false)
       }
       expect(await app.evaluate(() => (globalThis as any).__popups)).toBe(0)

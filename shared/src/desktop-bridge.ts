@@ -231,10 +231,11 @@ export interface DesktopBridge {
   /** Older pages' "다른 팀으로 전환": desktop apps up to 0.5.7 showed a menu of teams under the pointer; since 2026-11-15
    * the app opens its team screen here too (as openTeams). Pages call openTeams. Optional: older desktop apps. */
   teamMenu?(): void
-  /** The page draws the team address and "Switch team" under its sign-in card (true while it shows them, false when it
-   * leaves the sign-in page): the app then leaves out its own strip above the page on the sign-in paths, so the address
-   * is not shown twice. The address the page shows is the bridge's connection teamAddress, never location.host.
-   * Optional: older desktop apps keep their strip, and the page then draws no line. */
+  /** true: this team's pages draw the team address and "Switch team" under their sign-in card. The app then leaves out
+   * its own strip above the page on the sign-in paths for this team until another team is opened (false undoes it), so
+   * the address is not shown twice and a later sign-in page does not jump. The address the page shows is the bridge's
+   * connection teamAddress, never location.host. Optional: older desktop apps keep their strip, and the page then draws
+   * no line. */
   hostLine?(drawn: boolean): void
   /** The language the team page shows now (the person's choice, else the team default): the desktop app's own
    * screens, menus and prompts follow it. Optional: desktop apps before this addition do not have it. */
