@@ -2002,7 +2002,7 @@ export const ko = {
   'apps.noDownloadsOwnerHosted': '팀 서버가 업데이트될 때마다 서명된 릴리스 피드에서 받아 와요. 나타나지 않으면 관리자 › 시스템 › 진단의 "Windows 앱" 줄에 이유가 있어요.',
   'apps.thisComputer': '이 컴퓨터용',
   'apps.winHow': '내려받은 파일({productFile}-Setup-….exe)을 여세요. 관리자 암호 없이 바로 설치되고 {product} 앱이 열려요.',
-  'apps.winSmartScreen': '"Windows의 PC 보호" 파란 창이 나오면 추가 정보 → 실행을 누르세요. 서명 확인이 안 된 빌드라 처음 한 번 나오는 경고예요.',
+  'apps.winSmartScreen': '"Windows의 PC 보호" 파란 창이 나오면 추가 정보 → 실행을 누르세요. 서명 확인이 안 된 빌드라 처음 한 번 나오는 경고예요. 앱이 차단되었다고 나오고 실행 버튼이 없으면(스마트 앱 컨트롤) 그 PC에는 설치할 수 없어요. 브라우저로 팀을 열거나 관리자에게 물어보세요.',
   'apps.macHow': '내려받은 .dmg를 열고 {product} 앱을 응용 프로그램 폴더로 끌어 놓은 뒤, 응용 프로그램에서 {product} 앱을 여세요.',
   'apps.macGatekeeper': '"열 수 없습니다" 경고가 나오면 완료를 누르고 시스템 설정 → 개인정보 보호 및 보안 아래쪽의 그래도 열기를 누른 뒤, 한 번 더 그래도 열기를 누르세요.',
   'apps.macStore': '이 앱은 Mac App Store에서 설치했어요. 업데이트도 App Store에서 받아요.',
@@ -2363,6 +2363,9 @@ export const ko = {
   'budgets.usedTokensMonth': '이번 달 토큰 {limit} 중 {used} 사용',
   'budgets.usedUsdToday': '오늘 {limit} 중 {used} 사용',
   'budgets.usedUsdMonth': '이번 달 {limit} 중 {used} 사용',
+  'budgets.duplicate': '{who}에게는 이 기간의 사용 한도가 이미 있어요. 목록에서 그 한도를 바꿔 주세요.',
+  'budgets.duplicateTeam': '팀 전체에 이 기간의 사용 한도가 이미 있어요. 목록에서 그 한도를 바꿔 주세요.',
+  'budgets.duplicatePerson': '{who}에게는 이 기간의 사용 한도가 이미 있어요. 이 창을 닫고 다시 열어 그 한도를 바꿔 주세요.',
 
   'teamSettings.nameOwnerOnly': '팀 이름은 팀장만 바꿀 수 있어요.',
   'teamSettings.ownerOnlyField': '팀장만 바꿀 수 있어요.',
