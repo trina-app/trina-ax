@@ -28417,3 +28417,30 @@ QA on a private copy of QA-Acme in managed AI mode with a plan file of two guest
 - **Not done.** The state lives in that one history entry (a reload or Back to it keeps it): moving to another page
   drops the control (the setup row is the way back from there).
 - Tests: web/test/unit/setup-return.test.tsx, web/test/e2e/welcome-exits.spec.ts.
+
+## W6 follow-up: after the setup (fix/onboarding-after-setup, 2026-11-15, review of the onboarding re-check §7 lane A 4)
+
+- **Removed.** The AI step's and Home's no-AI card's line "Other AI services such as OpenRouter: Admin › AI accounts"
+  (`welcome.ai.enginesLine`, all languages): an expert page on a non-developer's first screen. Other providers stay in
+  Admin › AI accounts; the way back from a page a step links to (SetupReturn, the W6 follow-up above) stays for the
+  team files step's project and any later link. Not built: an OpenRouter choice in the key dialog (no credential kind
+  for it, the API engine needs a password; the MIT cloud contract would change).
+- **End screen.** The first-result button is the skill's own verb title, per kept skill (`FIRST_RESULT_SKILLS.verb`:
+  "Make promo cards", "Make a company slide deck", "Make a promo video"; 자연스러운 글 keeps "Try '{skill}'");
+  `welcome.done.make` ("Make a '{skill}'") is gone. The path list under the put-off steps (`welcome.done.laterHint`,
+  "Admin › Team settings › Company profile, Skills, …") is removed: the setup row is the way back now.
+- **Setup row after the end.** Supersedes "W6 follow-up: never brings back the setup row after finish" (it was a "Not
+  done", not an owner rejection). While the steps are finished and counted steps were put off (`lib/welcome.ts
+  putOffSteps`: answered as skipped; never the AI step, never 도구 연결 on a phone nor 내 스킬 put off for a computer),
+  the row reads "Still to do: Team files · Tools" with no count and opens the first of them as itself (the
+  `setupReturnState` ask; `Welcome.tsx` opens a step asked back after the end only when it was put off, and ending it
+  says nothing again). ✕ hides it as before (`dismissedAt`, with its undo). Without AI it stays out (Home's no-AI card
+  first); on a phone not on Home, as the unfinished row.
+- **Home: one thing.** The owner's "Ready in your team" (TeamPrepared) stays out while the goal card shows (HomeGoal
+  `onShown`; it waits for that answer, so nothing flashes). Admins and members unchanged.
+- **Goal title.** What the trial counts, the leader included: "3 people using 'Promo cards' this week" (`goal.titleSkills`
+  with `target`; "3 people using a team skill this week" without a skill). It names the goal's own skill only
+  (`GOAL_TITLE_SKILLS` 1): supersedes the owner's 2026-11-11 title with up to three of the team's skills, because the
+  goal is one skill used by three people.
+- Tests: web/test/unit/setup-row.test.tsx, welcome.test.tsx, goal-card.test.tsx, setup-return.test.tsx,
+  connect-ai.test.tsx; web/test/e2e/welcome-exits.spec.ts, no-ai.spec.ts.

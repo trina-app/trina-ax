@@ -35,7 +35,7 @@ import { setupSite } from '../lib/setupLink'
 import { skillRunLink } from '../lib/skillForm'
 import { uploadFile, type UploadProgress } from '../lib/upload'
 import { aiName } from '../lib/tabs'
-import { countedSteps, firstResultSkill, historyName, inviteSkill, markStepsSeen, needsAi, nextStep, offeredHere, phoneSkips, prevStep, resumeStep, setupReturnStep, skillNameOf, stepPosition, wantsTeam } from '../lib/welcome'
+import { countedSteps, firstResultSkill, historyName, inviteSkill, markStepsSeen, needsAi, nextStep, offeredHere, phoneSkips, prevStep, putOffSteps, resumeStep, setupReturnStep, skillNameOf, stepPosition, wantsTeam } from '../lib/welcome'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useAiAccess } from '../store/aiAccess'
 import { isOwner, useMeStrict } from '../store/session'
@@ -132,6 +132,8 @@ function WelcomeSteps() {
   // being left for good (their entries go: nothing of theirs is shown on the way)
   const settling = useRef<Screen | null>(null)
   const leaving = useRef(false)
+  // the steps were finished when they opened (a put-off step asked back by the setup row): ending it says nothing new
+  const finishedBefore = useRef(false)
 
   /** Show a step: on a phone also its own history entry (a push). A step already under this one in the history is gone
    * back to instead (lib/screenHistory.ts). */
@@ -187,6 +189,7 @@ function WelcomeSteps() {
     try {
       const w = useWelcome.getState()
       let p = await w.loadRecent()
+      finishedBefore.current = !!p?.finishedAt
       // the first visit starts the progress, with the setup link's website (the profile step on any device)
       const site = setupSite()
       if (!p || (site && !p.site)) p = await w.update(site ? { site } : {})
@@ -198,7 +201,7 @@ function WelcomeSteps() {
       // where the steps resume, decided before a phone's walk past 도구 연결 is recorded: that record can finish the setup,
       // and the step the owner came back for (an invite put off, say) still opens then
       const s = askedInvite && !p.finishedAt ? 'invite'
-        : askedBack && !p.finishedAt && offeredHere(askedBack, here) && !(needsAi(askedBack) && !useAiAccess.getState().usable) ? askedBack
+        : askedBack && (!p.finishedAt || putOffSteps(p, useAiAccess.getState().usable, here).includes(askedBack)) && offeredHere(askedBack, here) && !(needsAi(askedBack) && !useAiAccess.getState().usable) ? askedBack
           : resumeStep(p, useAiAccess.getState().usable, here)
       // a phone resuming past 도구 연결: put off there (docs/DECISIONS.md "W6"), so the setup can end on the phone
       for (const id of phoneSkips(p, null, here)) p = await w.update({ step: { id, state: 'skipped' } })
@@ -271,7 +274,7 @@ function WelcomeSteps() {
     const n = nextStep(p, from, computer)
     if (n) { show(n); return true }
     if (!p.doneShownAt) { show('done'); return true }
-    if (p.finishedAt) toast({ level: 'success', text: t('welcome.finished') })
+    if (p.finishedAt && !finishedBefore.current) toast({ level: 'success', text: t('welcome.finished') })
     exit('/')
     return true
   }
@@ -778,7 +781,7 @@ function DoneStep({ progress, aiReady, computer, onStep, onExit }: { progress: W
   const named = (title?: string | null) => (own ? skillLabel({ name: skillNameOf(own), title }) : null)
   const [title, setTitle] = useState<string | null>(() => { const x = progress.shared?.skills.find((s) => s.path === own)?.title; return x ? named(x) : null })
   // the kept skill to make a first result with, from the team's skills (undefined: being read)
-  const [kept, setKept] = useState<{ path: string; title: string; write: boolean } | null | undefined>(own ? null : undefined)
+  const [kept, setKept] = useState<{ path: string; title: string; verb: MessageKey | null } | null | undefined>(own ? null : undefined)
   useEffect(() => {
     if (!progress.doneShownAt) void useWelcome.getState().update({ doneShown: true }).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -790,7 +793,7 @@ function DoneStep({ progress, aiReady, computer, onStep, onExit }: { progress: W
       if (!live) return
       if (own) { const s = r.items.find((x) => x.path === own); setTitle(s ? skillLabel(s) : named()); return }
       const k = firstResultSkill(r.items.filter((x) => !x.personal && !x.group))
-      setKept(k ? { path: k.skill.path, title: skillLabel(k.skill), write: k.write } : null)
+      setKept(k ? { path: k.skill.path, title: skillLabel(k.skill), verb: k.verb } : null)
     }, () => { if (!live) return; if (own) setTitle(named()); else setKept(null) })
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -813,7 +816,7 @@ function DoneStep({ progress, aiReady, computer, onStep, onExit }: { progress: W
           </Button>
         ) : make ? (
           <Button variant="primary" className="max-sm:w-full" onClick={() => onExit(skillRunLink(kept.path))} data-testid="welcome-done-make" data-skill={kept.path}>
-            {t(kept.write ? 'welcome.done.write' : 'welcome.done.make', { skill: kept.title })}
+            {kept.verb ? t(kept.verb) : t('welcome.done.write', { skill: kept.title })}
           </Button>
         ) : kept === undefined ? (
           <Skeleton lines={1} />
@@ -835,7 +838,6 @@ function DoneStep({ progress, aiReady, computer, onStep, onExit }: { progress: W
               </li>
             ))}
           </ul>
-          <p className="mt-2 text-xs text-faint">{t('welcome.done.laterHint')}</p>
         </div>
       )}
     </div>

@@ -147,23 +147,14 @@ describe('the way back to the welcome steps', () => {
     }
   })
 
-  test('the AI step\'s engines line carries the step only on /welcome', async () => {
+  test('no line to Admin › AI accounts under the ways (fix/onboarding-after-setup), on the steps or on Home', async () => {
     signIn('owner')
-    for (const [path, carried] of [['/welcome', true], ['/', false]] as const) {
-      const m = await mount(
-        <MemoryRouter initialEntries={[path]}>
-          <Routes>
-            <Route path="/admin/providers" element={<Where />} />
-            <Route path="*" element={<ConnectAiPanel />} />
-          </Routes>
-        </MemoryRouter>,
-      )
+    for (const path of ['/welcome', '/']) {
+      const m = await mount(<MemoryRouter initialEntries={[path]}><Routes><Route path="*" element={<ConnectAiPanel />} /></Routes></MemoryRouter>)
       try {
-        await m.until(() => m.find('welcome-ai-engines'), 'the line')
-        expect(m.get('welcome-ai-engines').getAttribute('href')).toBe('/admin/providers')
-        await act(async () => { m.get('welcome-ai-engines').dispatchEvent(leftClick()) })
-        await m.until(() => m.find('where'), 'the engines page')
-        expect(m.get('where').textContent).toBe(`/admin/providers|${carried ? JSON.stringify(setupReturnState('ai')) : 'null'}`)
+        await m.until(() => m.find('welcome-ai-claude'), 'the ways')
+        expect(m.find('welcome-ai-engines')).toBeNull()
+        expect(m.html()).not.toContain('/admin/providers')
       } finally { await m.unmount() }
     }
   })

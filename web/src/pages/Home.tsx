@@ -143,7 +143,12 @@ function HomePage() {
   // stays out while it does, so one block sits under the box at a time
   const [prepared, setPrepared] = useState<boolean | null>(null)
   // a project's new chat is about that project: the team's goal and setup row stay on Home itself
-  const top = !noAi && extras && admin && !projectId && ai.loaded && welcomeKnown && !welcomeCard && <HomeTop owner={isOwner(me)} />
+  // the owner's goal card on screen (HomeTop, null: not known yet): "Ready in your team" stays out while it is, one thing
+  // on Home (the owner just chose those skills; fix/onboarding-after-setup); it waits for the answer, so nothing flashes
+  const owner = isOwner(me)
+  const [goalShown, setGoalShown] = useState<boolean | null>(null)
+  const top = !noAi && extras && admin && !projectId && ai.loaded && welcomeKnown && !welcomeCard && <HomeTop owner={owner} onGoal={setGoalShown} />
+  const preparedHere = !owner || !top || goalShown === false
   // someone joined with the owner's lead link (docs/DECISIONS.md "W6"): while its card shows, it is the one thing at the
   // top, in place of the setup row or the goal and of the no-AI card
   const lead = useLeadCard(extras && !projectId)
@@ -203,7 +208,7 @@ function HomePage() {
             {demo && !projectId && <DemoQuestions info={demo.info} persona={demo.persona} />}
             {/* "팀에 준비된 것" (W6.3), once the chats are known (the files row and the ready question are for no chats);
                 read-only under a member's no-AI card */}
-            {(suggest || (noAi && !admin && !projectId)) && chatsLoaded && welcomeKnown && !welcomeCard && <TeamPrepared key={`prepared-${me.user.id}`} firstTime={firstTime} chats={chats.length} readOnly={noAi} onCompose={choose} onShown={setPrepared} />}
+            {(suggest || (noAi && !admin && !projectId)) && chatsLoaded && welcomeKnown && !welcomeCard && preparedHere && <TeamPrepared key={`prepared-${me.user.id}`} firstTime={firstTime} chats={chats.length} readOnly={noAi} onCompose={choose} onShown={setPrepared} />}
             {/* what my group often asks, in the same place once "팀에 준비된 것" has nothing (one block at a time) */}
             {suggest && chatsLoaded && prepared === false && <OftenAsked key={`asked-${me.user.id}`} onChoose={choose} />}
           </div>
@@ -250,7 +255,7 @@ function NotesLine({ notes }: { notes: NotesHint }) {
  * "W5"). The owner's waits for the steps' progress so the goal card never shows for a moment first on a phone; a failed
  * read counts as "nothing to continue". Exported for its test.
  */
-export function HomeTop({ owner }: { owner: boolean }) {
+export function HomeTop({ owner, onGoal }: { owner: boolean; onGoal?: (shown: boolean) => void }) {
   const loaded = useWelcome((s) => s.loaded)
   const progress = useWelcome((s) => s.progress)
   const aiReady = useAiAccess((s) => s.loaded && s.usable)
@@ -264,9 +269,12 @@ export function HomeTop({ owner }: { owner: boolean }) {
   useEffect(() => {
     if (aiPutOff) void useWelcome.getState().update({ step: { id: 'ai', state: 'done' } }).catch(() => {})
   }, [aiPutOff])
-  if (!owner || computer) return <HomeGoal />
+  // a phone's unfinished steps show their row instead of the goal: no goal card then
+  const resumeRow = owner && !computer && loaded && showResume(progress, false)
+  useEffect(() => { if (resumeRow) onGoal?.(false) }, [resumeRow, onGoal])
+  if (!owner || computer) return <HomeGoal onShown={onGoal} />
   if (!loaded) return null
-  if (showResume(progress, false)) return <WelcomeResume />
+  if (resumeRow) return <WelcomeResume />
   // 내 스킬 put off for a computer: the phone keeps the step's promise in one quiet line, above the goal
-  return <><SkillsOnComputer /><HomeGoal /></>
+  return <><SkillsOnComputer /><HomeGoal onShown={onGoal} /></>
 }

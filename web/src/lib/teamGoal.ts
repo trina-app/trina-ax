@@ -83,8 +83,9 @@ export function resendText(t: T, locale: string, o: { first: string; more: numbe
   return o.more ? t('goal.resendMany', { skill, url: o.url }) : t('goal.resendOne', { name: o.first, skill, url: o.url })
 }
 
-/** How many of the team's skills the goal's title names (owner 2026-11-11: two to four; three keeps it to one line). */
-export const GOAL_TITLE_SKILLS = 3
+/** How many of the team's skills the goal's title names: the goal's own one (fix/onboarding-after-setup: the goal is
+ * the same skill used by three people, the leader counted; before, owner 2026-11-11, up to three names). */
+export const GOAL_TITLE_SKILLS = 1
 
 /** The skill names the goal's title invites people to make things with: the goal's own skill first (the one people
  * run, or the team link's), then the team's other skills in the order Home lists them, each once, by the name people
@@ -102,14 +103,12 @@ export function goalTitleSkills(first: string | null, skills: readonly { path: s
   return out
 }
 
-/** The goal's title: an invitation to make documents with colleagues with the team's own skills ("동료와 함께 문서 만들어
- * 보기: '견적 만들기', '카드뉴스', '광고 문구'"); without a skill to name, the plain invitation. The count and the days
- * stay out of it (they follow it, small). */
-export function goalTitleText(t: T, locale: string, names: readonly string[]): string {
-  if (names.length === 0) return t('goal.title')
-  const quoted = names.map((n) => skillQuote(locale, n))
-  const skills = locale === 'ko' ? quoted.join(', ') : locale === 'ja' ? quoted.join('') : new Intl.ListFormat(locale, { type: 'conjunction' }).format(quoted)
-  return t('goal.titleSkills', { skills })
+/** The goal's title, what the trial counts: "3 people using 'Promo cards' this week" (the goal's own skill; the leader
+ * is one of the people), without a skill to name "3 people using a team skill this week". The count and the days
+ * follow it, small. */
+export function goalTitleText(t: T, locale: string, names: readonly string[], target: number): string {
+  const name = names[0]
+  return name ? t('goal.titleSkills', { skills: skillQuote(locale, name), target }) : t('goal.title', { target })
 }
 
 /** "2/3" up to the target, then "4명" (more people than the goal needs). */
