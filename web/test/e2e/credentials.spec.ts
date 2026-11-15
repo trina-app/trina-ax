@@ -386,6 +386,57 @@ test('a sign-in in the way: the dialog says whose it is, Stop it ends it, and th
   await expect(page.getByTestId('claude-open')).toBeVisible()
 })
 
+// QA TC-2581: one sign-in slot for the whole server. A member blocked by someone else's reads a plain wait with the real
+// minutes (never the raw error, never whose); their own left over from a closed tab says so and is stopped and started
+// again in one press; a tab that closes while its sign-in runs stops it (the slot is free for everyone at once).
+test('the one sign-in slot: a member reads a true wait, stops their own leftover, and a closed tab frees it', async ({ page, context }) => {
+  await reset(page)
+  await signIn(page)
+  const call = (method: 'patch' | 'post', url: string, data: object) => page.request[method](url, { headers: { [CSRF_HEADER]: '1' }, data })
+  expect((await call('patch', '/api/admin/credential-settings', { sharedSubscriptions: true, acknowledgedSharedSubscriptionRisk: true })).ok()).toBe(true)
+  const running = await call('post', '/api/admin/credential-logins', { kind: 'anthropic-oauth', label: 'Elsewhere', assignments: [], priority: 100, acknowledgedPlanNotice: true })
+  expect(running.status()).toBe(202)
+  const ownerLogin = (await running.json()) as { loginId: string }
+  await context.clearCookies()
+  await signIn(page, { username: 'bob', password: 'bob password 1' })
+  // Claude's sign-in waits for the pasted code, so it keeps running (the test server's ChatGPT one ends by itself)
+  const openOwn = async (p = page) => {
+    await p.goto('/settings/providers')
+    await p.getByTestId('my-credential-add-claude').click()
+    await p.getByTestId('kind-anthropic-oauth').check()
+    await p.getByTestId('credential-label').fill('Bob Claude')
+    await p.getByTestId('plan-notice-ack').check()
+    await p.getByTestId('credential-submit').click()
+  }
+  await openOwn()
+  const busy = page.getByTestId('login-busy')
+  await expect(busy).toContainText(DICTS.ko['credentials.loginBusyMember'])
+  await expect(busy.getByTestId('login-busy-left')).toHaveText(/(15|16)분/)
+  await expect(busy).not.toContainText('Olga')
+  await expect(busy.getByTestId('login-busy-stop')).toHaveCount(0)
+  await expect(page.getByTestId('dialog-error')).toHaveCount(0)
+  // the owner's ends (here: stopped through the API as the owner would); bob starts his own and "closes the tab"
+  await context.clearCookies()
+  await signIn(page)
+  expect((await page.request.delete(`/api/admin/credential-logins/${ownerLogin.loginId}`, { headers: { [CSRF_HEADER]: '1' } })).status()).toBe(204)
+  await context.clearCookies()
+  await signIn(page, { username: 'bob', password: 'bob password 1' })
+  await openOwn()
+  await expect(page.getByTestId('claude-open')).toBeVisible()
+  // a second tab of bob's: his own leftover, stopped and started again in one press
+  const tab2 = await context.newPage()
+  await openOwn(tab2)
+  await expect(tab2.getByTestId('login-busy')).toContainText(DICTS.ko['credentials.loginBusyMine'])
+  await tab2.getByTestId('login-busy-stop').click()
+  await expect(tab2.getByTestId('claude-open')).toBeVisible()
+  // closing that tab while it runs stops it: the first tab can start at once
+  const bye = page.waitForRequest((r) => r.method() === 'DELETE' && /\/api\/me\/credential-logins\//.test(r.url()))
+  await tab2.close({ runBeforeUnload: true })
+  await bye
+  await openOwn()
+  await expect(page.getByTestId('claude-open')).toBeVisible()
+})
+
 // A member's own ChatGPT sign-in (Settings › AI accounts) asked them to sign in "with the account the team will use":
 // it is their own account, so the step says so; the team's sign-in in Admin keeps the team wording (test above).
 test('my own ChatGPT sign-in asks for my own account, not the team\'s', async ({ page }) => {

@@ -110,7 +110,8 @@ export function GuestAiChoices({ value, onChange, admin, connections, noGuestAi 
           )
         })}
       </div>
-      {noGuestAi && <p className="mt-1 pl-1 text-xs leading-5 break-keep text-muted" data-testid="guest-ai-host">{t('guest.ai.hostSignIn')}</p>}
+      {/* a member cannot reinstall the server: only the first sentence (the .pkg way is for whoever runs it) */}
+      {noGuestAi && <p className="mt-1 pl-1 text-xs leading-5 break-keep text-muted" data-testid="guest-ai-host">{t(admin ? 'guest.ai.hostSignIn' : 'guest.ai.hostSignInMember')}</p>}
     </fieldset>
   )
 }
@@ -186,8 +187,11 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose }: { plac
   const [name, setName] = useState('')
   const [ai, setAi] = useState<GuestAiChoice>({ mode: 'none' })
   // the team's AI accounts, read at once for the owner and admins: without one, Team AI is off before anyone picks it
-  const { list: connections, noGuestAi } = useTeamConnections(admin)
+  const { list: connections, noGuestAi: adminNoGuestAi } = useTeamConnections(admin)
   const limit = useGuestLimit()
+  // no guest AI on this server (an Office Mac): read for everyone with the cap (a member cannot read the AI accounts),
+  // so a member is never offered "Their own sign-in" for a guest who would then read "AI isn't on for you" (TC-2580)
+  const noGuestAi = adminNoGuestAi || limit?.guestAiUnavailable === 'host_sign_in'
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [url, setUrl] = useState<string | null>(null)

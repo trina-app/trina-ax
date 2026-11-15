@@ -131,10 +131,12 @@ export const DuplicateCredentialParams = z.object({
   movable: z.boolean().optional(),
 })
 export type DuplicateCredentialParams = z.infer<typeof DuplicateCredentialParams>
-/** The 409/busy `params` of a sign-in start for an owner or an admin: a sign-in is already running (one at a time on a
- * server). Whose it is and whether it is the team's or a member's own, so it can be stopped from the dialog
- * (DELETE /api/admin/credential-logins/:id works for any of them). A member starting their own gets none of this. */
-export const LoginBusyParams = z.object({ reason: z.literal('login_busy'), loginId: z.string(), personal: z.boolean(), starter: z.string() })
+/** The 409/busy `params` of a sign-in start: a sign-in is already running (one at a time on a server). Everyone hears
+ * `expiresAt`, when it ends at the latest (sooner when its browser goes away). The starter themselves (`mine`) also
+ * get its `loginId` and `personal` (which door stops it), since their tab may be gone. The owner and admins (the admin
+ * door) also hear whose it is (`starter`) and whether it is the team's or a member's own, so it can be stopped from
+ * the dialog (DELETE /api/admin/credential-logins/:id works for any of them). A member never hears whose it is. */
+export const LoginBusyParams = z.object({ reason: z.literal('login_busy'), expiresAt: IsoTime.optional(), mine: z.boolean().optional(), loginId: z.string().optional(), personal: z.boolean().optional(), starter: z.string().optional() })
 export type LoginBusyParams = z.infer<typeof LoginBusyParams>
 export const CredentialSettings = z.object({ memberOwn: z.boolean(), sharedSubscriptions: z.boolean() })
 export const UpdateCredentialSettingsBody = CredentialSettings.partial().extend({

@@ -27359,6 +27359,36 @@ with the store app get phone pushes: "저거 해보자" (2026-11-14).
   deletion requests work as a member's, the answer-share check counts a guest as someone who cannot see team files
   and skills/.
 
+## Office Mac guest AI for members, the one sign-in slot, a switched-off account's sign-in (fix/office-signin-slot, 2026-11-15, QA TC-2580..2582)
+
+Builds on "Guests: only what they were invited to" and "Claude 구독 연결: 브라우저에서".
+
+- **A member's invite dialog knows a guest gets no AI here** (TC-2580): `GET /api/guest-invites/limit` (any non-guest)
+  carries `guestAiUnavailable: 'host_sign_in'` on a server that is not managed, the same flag as
+  `GET /api/admin/credentials`, which only the owner and admins read. The dialog takes it from either, keeps No AI
+  picked and greys out the rest. A member reads only "On this server, guests can't use AI.", because they cannot
+  reinstall the server; the owner and admins also read the `.pkg` sentence. `POST /api/guest-invites` still accepts the
+  other choices (no change in what the server allows: the guest's AI never runs there, `credentials/guest-ai.ts`).
+- **The one sign-in slot is not held by a browser that went away** (TC-2581, `credentials/login.ts`): every sign-in
+  keeps `seenAt`, updated by its start, the code, and every read of it (the dialog's 3-second poll is the heartbeat).
+  When someone asks for the slot, a running sign-in not heard from for `LOGIN_IDLE_MS` (2 minutes) is ended `expired`
+  with reason `idle`. One storing its token is never ended this way. We only free it when someone asks: a phone that
+  paused the page while its person approved elsewhere keeps its sign-in when nobody is waiting. The dialog also says
+  goodbye itself: on `pagehide` (not a page kept for the back button) it sends the DELETE with `keepalive`
+  (`ApiClient` `keepalive`). Back on the page, the starter reads "This sign-in stopped because this page was away
+  for a while and someone else needed to sign in. Start again."
+- **The busy answer tells everyone the truth** (`LoginBusyParams`, now for every caller): `expiresAt` (the latest end)
+  for everyone; `mine`, `loginId` and `personal` for its own starter, who may stop it ("Stop it and start again" stops
+  it through its door and starts the new one); `starter` only for the owner and admins at the admin door, as before. A
+  member never learns whose it is. The dialog shows that line in place of the server's raw message.
+- **A switched-off account with its right password is told the truth** (TC-2582, `auth/accounts.ts` login): 401 with
+  `params.reason 'account_off'` and "This account was turned off. Ask the person who invited you." (a guest) or "…Ask
+  the team owner or an admin." (anyone else). A wrong password and an unknown username still get the generic words
+  with no reason, so nothing says which usernames exist. The try is still counted (the limiter hold is kept), it makes
+  no session, and the audit row is the same `auth.login_failed` with `disabled: true`. The trade-off, asked for in
+  QA: someone who already has the password learns the account is off. That opens nothing.
+- Version impact: **patch**.
+
 ## Guest invites, phase 2: the screens — 게스트 초대 화면 (feat/guest-invites-p2, 2026-11-14, the owner)
 
 넣을 곳: Team AX core (`web/src/components/GuestInvite.tsx`, `GuestTag.tsx`, `GuestView.tsx`, `web/src/lib/guests.ts`, `web/src/pages/admin/Guests.tsx`), 이유: people, rooms and projects are core. Builds on phase 1 (the server security core, `docs/AGENTS/plan/20261114-1016-guest-invites-p1.md`, "Guests: only what they were invited to"); the server decides what a guest reaches, the screens only label guests and leave out what is not theirs.

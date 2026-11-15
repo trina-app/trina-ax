@@ -2325,6 +2325,10 @@ export class MockServer {
       const loc = Locale.safeParse(c.req.headers.get(LOCALE_HEADER)).data ?? this.settings.defaultLocale
       const wrong = { ko: '아이디나 비밀번호가 맞지 않아요.', en: 'Wrong username or password.', id: 'Nama pengguna atau kata sandi salah.', ja: 'ユーザー名またはパスワードが正しくありません。', es: 'El nombre de usuario o la contraseña son incorrectos.', zh: '用户名或密码不正确。' }[loc]
       if (!u || this.passwords.get(u.username) !== c.body.password) fail('unauthorized', 401, wrong)
+      // like the server: a switched-off account with its right password hears the truth (who can switch it back on)
+      if (u!.status !== 'active') fail('unauthorized', 401, u!.role === 'guest'
+        ? { ko: '이 계정은 꺼져 있어요. 초대한 사람에게 물어봐 주세요.', en: 'This account was turned off. Ask the person who invited you.' }[loc === 'ko' ? 'ko' : 'en']
+        : { ko: '이 계정은 꺼져 있어요. 팀장이나 관리자에게 물어봐 주세요.', en: 'This account was turned off. Ask the team owner or an admin.' }[loc === 'ko' ? 'ko' : 'en'], undefined, { reason: 'account_off' })
       if (u!.mustChangePassword) this.tempLogins.add(u!.id)
       else this.tempLogins.delete(u!.id)
       u!.lastSeenAt = now()
@@ -2681,7 +2685,8 @@ export class MockServer {
     guestInviteLimit: (c) => {
       const used = this.users.filter((u) => u.role === 'guest' && u.status === 'active').length
       const staff = c.user.role === 'owner' || c.user.role === 'admin'
-      return { full: this.guestCap !== null && used >= this.guestCap, limit: this.guestCap, ...(staff ? { used, seatsFull: this.seatsFull, manageUrl: 'https://plans.example.com/acme' } : {}) }
+      return { full: this.guestCap !== null && used >= this.guestCap, limit: this.guestCap, ...(staff ? { used, seatsFull: this.seatsFull, manageUrl: 'https://plans.example.com/acme' } : {}),
+        ...(this.hostSignIn ? { guestAiUnavailable: 'host_sign_in' as const } : {}) }
     },
     updateGuestAi: (c) => {
       const u = this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
@@ -5249,9 +5254,15 @@ export class MockServer {
   /** a ChatGPT sign-in: the code after a moment, then the connection. A Claude sign-in: the authorize address after a
    * moment, then it waits for the pasted code (good-code#good-state connects, anything else is a wrong code). */
   startLogin(user: User, label: string, personal: boolean, reconnectId?: string, kind: CredentialLogin['kind'] = 'chatgpt'): CredentialLogin {
-    // one sign-in at a time (like the server): the owner or an admin is told whose it is and can stop it
+    // one sign-in at a time (like the server, credentials/login.ts): everyone hears when it ends at the latest; its
+    // starter gets its id to stop it; the owner or an admin (the admin door) is told whose it is and can stop it
     const running = [...this.credLogins.values()].find((x) => x.state === 'starting' || x.state === 'code' || x.state === 'checking')
-    if (running) fail('busy', 409, '다른 AI 로그인이 진행 중이에요. 하나씩만 할 수 있어요.', undefined, user.role !== 'member' && !personal ? { reason: 'login_busy', loginId: running.loginId, personal: running.personal, starter: this.users.find((u) => u.id === running.userId)?.name ?? '' } : undefined)
+    if (running) {
+      const mine = running.userId === user.id
+      const staff = user.role !== 'member' && !personal
+      fail('busy', 409, '다른 AI 로그인이 진행 중이에요. 하나씩만 할 수 있어요.', undefined, { reason: 'login_busy', expiresAt: running.expiresAt, ...(mine ? { mine: true } : {}),
+        ...(mine || staff ? { loginId: running.loginId, personal: running.personal } : {}), ...(staff ? { starter: this.users.find((u) => u.id === running.userId)?.name ?? '' } : {}) })
+    }
     const loginId = 'login' + uuidv7().replace(/-/g, '')
     const l = { loginId, kind, state: 'starting' as CredentialLogin['state'], url: null as string | null, code: null as string | null, expiresAt: new Date(Date.now() + 16 * 60_000).toISOString(), credential: null as Credential | null, reason: null as string | null, userId: user.id, personal, label, reconnectId }
     this.credLogins.set(loginId, l)

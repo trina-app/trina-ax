@@ -326,15 +326,27 @@ describe('password change and forced change', () => {
     expect((await h.client().try('POST', '/api/auth/login', { username: 'paul', password: m.password })).status).toBe(401)
     await h.client().login('paul', 'purple new garden 99')
   })
-  test('disabling an account ends its sessions now; sign-in then fails like a wrong password', async () => {
+  test('disabling an account ends its sessions now; its right password then hears the truth, a wrong one the usual words (QA TC-2582)', async () => {
     const m = await addMember(h, owner, { username: 'dora' })
     h.hub.events = []
     await owner.call('PATCH', `/api/admin/users/${m.id}`, { status: 'disabled' })
     expect(h.hub.events).toContainEqual({ kind: 'disconnectUser', target: m.id, data: 'disabled' })
     expect((await m.client.try('GET', '/api/me')).status).toBe(401)
+    // the right password: who can switch it back on (it still opens nothing: no session)
     const r = await h.client().try('POST', '/api/auth/login', { username: 'dora', password: m.password })
     expect(r.status).toBe(401)
-    expect(r.body.error.message).toContain('아이디 또는 비밀번호')
+    expect(r.body.error.message).toBe('이 계정은 꺼져 있어요. 팀장이나 관리자에게 물어봐 주세요.')
+    expect(r.body.error.params).toEqual({ reason: 'account_off' })
+    expect(r.headers.get('set-cookie')).toBeNull()
+    expect(r.body.me).toBeUndefined()
+    // a wrong password for it, and a username nobody has: the same generic words, no reason (nothing says who exists)
+    const wrong = await h.client().try('POST', '/api/auth/login', { username: 'dora', password: 'not her password 1' })
+    const nobody = await h.client().try('POST', '/api/auth/login', { username: 'nobody-here', password: m.password })
+    for (const x of [wrong, nobody]) {
+      expect(x.status).toBe(401)
+      expect(x.body.error.message).toContain('아이디 또는 비밀번호')
+      expect(x.body.error.params).toBeUndefined()
+    }
   })
   test('password rule: 8-128 characters, not the username, not a common one; nothing else', () => {
     expect(passwordProblem('short12')).toBe('at least 8 characters')
@@ -390,6 +402,19 @@ describe('rate limits (per account and per real client IP)', () => {
     // success cleared the account's failures
     expect((await attempt('amy', 'wrong password!', '198.51.100.9')).status).toBe(401)
     expect((await attempt('amy', 'apple orange tree 11', '198.51.100.9')).status).toBe(200)
+  })
+  test('a switched-off account: its right password still counts toward the account limit (QA TC-2582)', async () => {
+    h.advance(DEFAULT_LIMITS.windowMs + 1000)
+    const m = await addMember(h, owner, { username: 'cleo', password: 'calm river stone 33' })
+    await owner.call('PATCH', `/api/admin/users/${m.id}`, { status: 'disabled' })
+    for (let i = 0; i < DEFAULT_LIMITS.perAccount; i++) {
+      const r = await attempt('cleo', 'calm river stone 33', `198.51.100.${50 + i}`)
+      expect(r.status).toBe(401)
+      expect(((await r.json()) as any).error.params).toEqual({ reason: 'account_off' })
+    }
+    // locked like any account: the same 429 for the right and a wrong password, nothing more said
+    expect((await attempt('cleo', 'calm river stone 33', '198.51.100.99')).status).toBe(429)
+    expect((await attempt('cleo', 'wrong password!', '198.51.100.98')).status).toBe(429)
   })
   test('one IP is limited across accounts; X-Forwarded-For / CF-Connecting-IP are ignored; other IPs still work', async () => {
     h.advance(DEFAULT_LIMITS.windowMs + 1000)

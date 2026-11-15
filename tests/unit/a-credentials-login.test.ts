@@ -153,3 +153,58 @@ describe('a member\'s own ChatGPT sign-in over HTTP', () => {
     } finally { setSetting(h.ctx.db, MEMBER_OWN_KEY, true) }
   })
 })
+
+describe('the one sign-in slot is not held by a browser that went away (QA TC-2581)', () => {
+  const startOver = (who: string, label: string) => h.req(who, '/api/me/credential-logins', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ label, acknowledgedPlanNotice: true }) })
+  const errorOf = async (r: Response) => ((await r.json()) as { error: { code: string; message: string; params?: Record<string, unknown> } }).error
+  test('busy: a member hears when it ends at the latest, never whose; its starter can stop it from a new tab', async () => {
+    setLogin({ FAKE_LOGIN_ACCOUNT: 'acc-slot', FAKE_LOGIN_WAIT_MS: '20000' })
+    const r = await h.api('alice').call(API.startMyCredentialLogin, { body: { label: 'Alice slot', acknowledgedPlanNotice: true } })
+    await alice.next('credential.login', (f) => f.data.loginId === r.loginId && f.data.state === 'code', 20_000)
+    // another member: the truth in plain words and the real end time, nothing about whose it is or its id
+    const other = await errorOf(await startOver('bob', 'Bob wants it'))
+    expect(other.code).toBe('busy')
+    expect(other.params).toEqual({ reason: 'login_busy', expiresAt: r.expiresAt })
+    expect(other.message).not.toMatch(/cancel/i)
+    // the starter themselves (their tab closed, a new one opened): theirs, with its id and door, and they may stop it
+    const mine = await errorOf(await startOver('alice', 'Alice again'))
+    expect(mine.params).toEqual({ reason: 'login_busy', expiresAt: r.expiresAt, mine: true, loginId: r.loginId, personal: true })
+    expect((await h.req('bob', `/api/me/credential-logins/${r.loginId}`, { method: 'DELETE' })).status).toBe(404)
+    expect((await h.req('alice', `/api/me/credential-logins/${r.loginId}`, { method: 'DELETE' })).status).toBe(204)
+    expect(await final(alice, r.loginId)).toMatchObject({ state: 'cancelled' })
+    setLogin({})
+  })
+  test('a starter whose dialog stopped reading for 2 minutes loses the slot to the next one who asks; one still reading keeps it', async () => {
+    setLogin({ FAKE_LOGIN_ACCOUNT: 'acc-idle', FAKE_LOGIN_WAIT_MS: '20000' })
+    const r = await h.api('alice').call(API.startMyCredentialLogin, { body: { label: 'Alice idle', acknowledgedPlanNotice: true } })
+    await alice.next('credential.login', (f) => f.data.loginId === r.loginId && f.data.state === 'code', 20_000)
+    const l = logins().all.get(r.loginId)!
+    // quiet for a minute and a half, then its 3-second read: still there, the slot stays taken
+    l.seenAt -= 90_000
+    await h.api('alice').call(API.getMyCredentialLogin, { params: { id: r.loginId } })
+    expect((await startOver('bob', 'Bob too early')).status).toBe(409)
+    // no read for over 2 minutes (the tab is gone): the next start ends it and gets the slot
+    l.seenAt -= 2 * 60_000 + 1000
+    const got = await startOver('bob', 'Bob gets it')
+    expect(got.status).toBe(202)
+    const bobs = (await got.json()) as CredentialLogin
+    expect(await final(alice, r.loginId)).toMatchObject({ state: 'expired', reason: 'idle' })
+    // its starter, back later, reads how it ended (the dialog says why and offers to start again)
+    expect(await h.api('alice').call(API.getMyCredentialLogin, { params: { id: r.loginId } })).toMatchObject({ state: 'expired', reason: 'idle' })
+    expect((await h.req('bob', `/api/me/credential-logins/${bobs.loginId}`, { method: 'DELETE' })).status).toBe(204)
+    expect(await final(bob, bobs.loginId)).toMatchObject({ state: 'cancelled' })
+    expect(await waitFor(() => leftovers().length === 0, { timeoutMs: 10_000 })).toBe(true)
+    setLogin({})
+  })
+  test('a token being stored is never ended for being quiet', async () => {
+    setLogin({ FAKE_LOGIN_ACCOUNT: 'acc-store', FAKE_LOGIN_WAIT_MS: '20000' })
+    const r = await h.api('alice').call(API.startMyCredentialLogin, { body: { label: 'Alice storing', acknowledgedPlanNotice: true } })
+    await alice.next('credential.login', (f) => f.data.loginId === r.loginId && f.data.state === 'code', 20_000)
+    const l = logins().all.get(r.loginId)!
+    l.storing = true; l.seenAt -= 10 * 60_000
+    try { expect((await startOver('bob', 'Bob waits')).status).toBe(409) } finally { l.storing = false }
+    expect((await h.req('alice', `/api/me/credential-logins/${r.loginId}`, { method: 'DELETE' })).status).toBe(204)
+    expect(await final(alice, r.loginId)).toMatchObject({ state: 'cancelled' })
+    setLogin({})
+  })
+})
