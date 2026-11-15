@@ -131,10 +131,15 @@ test.describe('computer', () => {
     await page.goto('/')
     await expect(page.getByTestId('composer-input')).toBeVisible()
     await expect(page.getByTestId('ai-access-banner')).toHaveCount(0)
-    // and their room's ✦ side chat has its starters
+    // and their room's ✦ side chat opens with its box, but no room starters and no "Looking at" line: a guest's AI
+    // cannot read the room (docs/DECISIONS.md "The AI tells a guest the truth"); the line says to quote or paste
     await page.goto(`/rooms/${GROUP}`)
     await page.getByTestId('room-side-chat-button').click()
-    await expect(page.getByTestId('side-chat-panel').getByTestId('side-chat-starters')).toBeVisible()
+    const panel = page.getByTestId('side-chat-panel')
+    await expect(panel.getByTestId('side-chat-empty')).toBeVisible()
+    await expect(panel.getByTestId('side-chat-starters')).toHaveCount(0)
+    await expect(panel.getByTestId('side-chat-context')).toHaveCount(0)
+    await expect(panel.getByTestId('side-chat-empty')).toContainText('인용하거나 붙여 넣고')
   })
 
   test('a guest with their own sign-in connects it from the line above the box', async ({ page }) => {

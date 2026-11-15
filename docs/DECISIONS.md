@@ -27387,9 +27387,12 @@ Builds on "Guests: only what they were invited to" and "Guest invites, phase 2: 
 - **Left out of a guest's turn:** the team folder lines, the company profile, team rules, the team skill list, the
   connected-services text, both browser sections, source links to /files/view (not a guest's page) and the member
   wording of the trash and placement rules; the "Where you run" text has a guest version. In a shared project chat the
-  "not available here" line names only what sharing takes away. Tool descriptions go through `guestToolDescription`:
-  a sentence about Admin, plugins, skills, connecting services, the desktop app or browser, shared/ or groups/ is left out
-  (fails closed). The `list` tool now says "the team files" for everyone.
+  "not available here" line names only what sharing takes away. A guest's turn loads no `/skill`, skill hints or skill
+  changes (a project's own skills included). Tool descriptions go through `guestToolDescription`: exact rewrites of the
+  member-only parts (the Hangul plugin sentence, a template under skills/, "the team drive"), then any sentence still
+  about Admin, plugins, connect_service, the desktop app or save_url is left out (fails closed); a test checks that what
+  each tool does survives. The `list` tool now says "the team files" for everyone. The trash rule tells a guest they
+  cannot get their own folder's files back (they have no trash screen; the project's people can restore project files).
 - **A guest's room side chat:** a guest's turn has no room tools, so the side-panel section says the AI sees only what
   the person writes, pastes, attaches or quotes, and asks them to quote or paste (a room file: attach it). The panel
   shows a guest no "Looking at <room>" line, no Catch up / Anything for me / Summarize starters and no quick asks about a
