@@ -11,7 +11,7 @@ import { lstat, open, opendir, realpath } from 'node:fs/promises'
 import { app, dialog, shell, type BaseWindow } from 'electron'
 import { addView, consentView, covered, memoryKey, PERSON_INPUT_MS, placeKeys, type ConsentMemory, type ConsentView } from '../common/work-consent'
 import type { ConsentAsk } from './work-consent-window'
-import { WORK_FILES_BRIDGE_VERSION, WORK_FILES_WIDE_VERSION, type FullDiskState, type WorkFileAdd, type WorkFileRead, type WorkFileScan, type WorkFolderId, type WorkRootId } from '@mycel/shared'
+import { WORK_FILES_BRIDGE_VERSION, WORK_FILES_WIDE_VERSION, type FullDiskState, type WorkCloudProvider, type WorkFileAdd, type WorkFileRead, type WorkFileScan, type WorkFolderId, type WorkRootId } from '@mycel/shared'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { opensHome } from '../common/folder-access'
 import { inOneDrive, lookRoots, lookWide, WORK_ROOTS, WorkFileSessions, type WorkFs, type WorkRoot, type WorkStat } from '../common/work-files'
@@ -20,7 +20,7 @@ import { considered, neverListed } from '@mycel/shared/file-scan'
 import { macPath, parseMdfind, RECENT_DAYS, type IndexedFile, type WindowsLook } from '../common/work-index'
 import type { Place } from '../common/work-places'
 import { macHints, windowsFixedDrives, windowsIndex } from './work-index-run'
-import { fullDiskState, macDatalessSet, macPlaceIndex, macRecent, MAC_FULL_DISK_SETTINGS, widePlaces } from './work-places-run'
+import { fullDiskState, macCloudOnly, macDatalessSet, macPlaceIndex, macRecent, MAC_FULL_DISK_SETTINGS, widePlaces } from './work-places-run'
 import type { MeResult } from '../common/browser-owner'
 import { FOLDER_SYSTEM } from './security'
 
@@ -83,6 +83,8 @@ export const NODE_WORK_FS: WorkFs = {
       close: () => h.close(),
     }
   },
+  // a Mac tells an online-only file by its flags; on Windows the look's index said so (common/work-files.ts Found.late)
+  ...(process.platform === 'darwin' ? { cloudOnly: macCloudOnly } : {}),
 }
 
 /** A Mac without the wide look: the documents Spotlight says were opened lately in one folder the person let the app see
@@ -407,14 +409,15 @@ export class WorkFilesController {
     if (this.busy) this.stopped = true
   }
 
-  async read(origin: string, id: string): Promise<WorkFileRead> {
+  /** `onCloud`: the file is being downloaded from its cloud first (the page says so while it waits). */
+  async read(origin: string, id: string, onCloud?: (cloud: WorkCloudProvider) => void): Promise<WorkFileRead> {
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) return { ok: false, reason: 'unknown' }
     // only an added file is ever read (WorkFileSessions); each such read shows the strip while it runs
     if (!this.sessions.isAdded(origin, id)) return this.sessions.read(origin, id)
     this.inFlight++
     this.tellReading(true)
     try {
-      return await this.sessions.read(origin, id)
+      return await this.sessions.read(origin, id, onCloud)
     } finally {
       this.inFlight--
       this.pending.delete(id)

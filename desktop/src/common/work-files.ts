@@ -11,10 +11,10 @@
 // tests/unit/e-desktop-work-files.test.ts; desktop/src/main/work-files.ts wires it to Electron and node:fs.
 import { posix, win32 } from 'node:path'
 import { considered, fileExt, neverListed, savedPage, softwareFolder, tooSmall, WORK_FILES_LIMITS } from '@mycel/shared/file-scan'
-import type { WorkFileMeta, WorkFileRead, WorkFolderId, WorkRootId, WorkRootResult } from '@mycel/shared'
+import type { WorkCloudProvider, WorkFileMeta, WorkFileRead, WorkFolderId, WorkRootId, WorkRootResult } from '@mycel/shared'
 import { browserOwnerChange, type MeResult } from './browser-owner'
 import { isRecent, MIN_BYTES, type IndexedFile } from './work-index'
-import { placeOf, type Place } from './work-places'
+import { cloudProviderOf, placeOf, type Place } from './work-places'
 import { folderKey, macBlocked } from './folder-access'
 
 export type { Found }
@@ -48,6 +48,9 @@ export interface WorkFs {
   realpath(path: string): Promise<string>
   /** open read only, never through a link at the last part */
   open(path: string): Promise<WorkHandle>
+  /** a Mac: whether the file's content is in the cloud only (SF_DATALESS), so a read downloads it first. Absent: not
+   * known before the read (Windows, where the look's index said so: Found.late) */
+  cloudOnly?(path: string): Promise<boolean>
 }
 
 /** A folder to look through: its place (app.getPath) and, on Windows, whether OneDrive keeps it ("Documents (OneDrive)"). */
@@ -87,6 +90,10 @@ function within<T>(p: Promise<T>, ms: number): Promise<T> {
 export const FIRST_READ_MS = 120_000
 /** A read of one file (at most 50 MB) gives up after this long: the next read waits behind it. */
 export const READ_MS = 60_000
+/** A read of a file in a cloud's folder (cloudProviderOf) that the app could not tell was online only, still going after
+ * this long: it is taken to be downloading, and the page says so. A guess: a large file there on a slow disk (or under a
+ * virus scan) says so too, and one that stalls a minute there ends as cloudTimeout. */
+export const CLOUD_HINT_MS = 1500
 /** Every later call gets the time left for the folder, but at least this (a call answered in time is never cut short). */
 const CALL_MIN_MS = 1000
 
@@ -685,7 +692,7 @@ export class WorkFileSessions {
     private readonly fs: WorkFs,
     private readonly platform: string,
     private readonly now: () => number = () => Date.now(),
-    private readonly limits: Partial<Record<'readFiles' | 'readBytes' | 'sessionMs' | 'readMs', number>> = {},
+    private readonly limits: Partial<Record<'readFiles' | 'readBytes' | 'sessionMs' | 'readMs' | 'cloudHintMs', number>> = {},
   ) {}
 
   private get lim() {
@@ -740,14 +747,15 @@ export class WorkFileSessions {
     return true
   }
 
-  /** The bytes of one file of this origin's latest look, by its id. Reads run one after the other. */
-  read(origin: string, id: string): Promise<WorkFileRead> {
-    const next = this.queue.then(() => this.readNow(origin, id))
+  /** The bytes of one file of this origin's latest look, by its id. Reads run one after the other. `onCloud`: the file's
+   * content is in the cloud only and is being downloaded first (said once, when its read starts). */
+  read(origin: string, id: string, onCloud?: (cloud: WorkCloudProvider) => void): Promise<WorkFileRead> {
+    const next = this.queue.then(() => this.readNow(origin, id, onCloud))
     this.queue = next.catch(() => {})
     return next
   }
 
-  private async readNow(origin: string, id: string): Promise<WorkFileRead> {
+  private async readNow(origin: string, id: string, onCloud?: (cloud: WorkCloudProvider) => void): Promise<WorkFileRead> {
     const s = this.sessions.get(origin)
     if (!s) return { ok: false, reason: 'unknown' }
     if (this.now() - s.at > this.lim.sessionMs) {
@@ -767,8 +775,22 @@ export class WorkFileSessions {
       s.read.add(id)
       s.bytes += f.size
     }
-    // a file on a drive that stops answering gives up after READ_MS, so the reads behind it are not held forever
-    const r = await within(this.readFile(f), this.limits.readMs ?? READ_MS).catch((): WorkFileRead => ({ ok: false, reason: 'unreadable' }))
+    // a file on a drive that stops answering gives up after READ_MS, so the reads behind it are not held forever; one
+    // that was coming from the cloud says so (the person can open it once to download it, then add it again)
+    let cloud: WorkCloudProvider | null = null
+    let late: ReturnType<typeof setTimeout> | undefined
+    // the answer is given (a read that gave up goes on in the background): nothing more is said of it
+    let over = false
+    const fetching = (c: WorkCloudProvider) => {
+      clearTimeout(late)
+      if (cloud || over) return
+      cloud = c
+      try { onCloud?.(c) } catch { /* the page's listener: nothing of it stops the read */ }
+    }
+    const maybe = (c: WorkCloudProvider) => { if (!over) late = setTimeout(() => fetching(c), this.limits.cloudHintMs ?? CLOUD_HINT_MS) }
+    const r = await within(this.readFile(f, fetching, maybe), this.limits.readMs ?? READ_MS)
+      .catch((): WorkFileRead => (cloud ? { ok: false, reason: 'cloudTimeout', cloud } : { ok: false, reason: 'unreadable' }))
+      .finally(() => { over = true; clearTimeout(late) })
     // a session that changed while this read (a new look, a sign-out) gives nothing
     if (this.sessions.get(origin) !== s) return { ok: false, reason: 'unknown' }
     if (!r.ok && !again) {
@@ -778,8 +800,10 @@ export class WorkFileSessions {
     return r
   }
 
-  /** The file found again where the look found it, the same one, its bytes. */
-  private async readFile(f: Found): Promise<WorkFileRead> {
+  /** The file found again where the look found it, the same one, its bytes. `fetching`: its content is in the cloud only
+   * and the read downloads it (a Mac's flag, or Windows' index at the look); `maybe`: it is in a cloud's folder, and a read
+   * still going after a moment is taken for a download. */
+  private async readFile(f: Found, fetching: (c: WorkCloudProvider) => void, maybe: (c: WorkCloudProvider) => void): Promise<WorkFileRead> {
     const p = this.platform
     const path = join(p, f.root, ...f.parts)
     // found again where it was: no part of the way is a link now (the real path is the same path), still a file
@@ -793,6 +817,11 @@ export class WorkFileSessions {
     } catch {
       return { ok: false, reason: 'unreadable' }
     }
+    // online only: the open or the read makes the provider download it, which can take a while
+    const provider = cloudProviderOf(path, p)
+    const cloudOnly = p === 'win32' ? !!f.late : await this.fs.cloudOnly?.(path).catch(() => false)
+    if (cloudOnly) fetching(provider ?? (p === 'darwin' ? 'icloud' : 'cloud'))
+    else if (provider) maybe(provider)
     let h: WorkHandle
     try {
       h = await this.fs.open(path)

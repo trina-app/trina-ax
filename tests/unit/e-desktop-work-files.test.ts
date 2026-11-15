@@ -315,6 +315,77 @@ describe('reading a listed file afterwards', () => {
     expect(next.ok).toBe(true)
   })
 
+  describe('a file whose content is in the cloud only', () => {
+    test('a Mac\'s online-only file: the page hears "from iCloud" once, before the bytes; a file on the disk says nothing', async () => {
+      const { f, sessions, id } = await looked()
+      const asked: string[] = []
+      f.fs.cloudOnly = async (p) => { asked.push(p); return p.endsWith('b.pdf') }
+      const heard: string[] = []
+      const r = await sessions.read(TEAM, id('b.pdf'), (c) => heard.push(`${c} ${f.calls.filter((x) => x.startsWith('open')).length}`))
+      expect(r.ok && r.bytes.byteLength).toBe(20)
+      // said before the file was opened (the open or the read downloads it)
+      expect(heard).toEqual(['icloud 0'])
+      const quiet: string[] = []
+      expect((await sessions.read(TEAM, id('c.pdf'), (c) => quiet.push(c))).ok).toBe(true)
+      expect(quiet).toEqual([])
+      expect(asked).toEqual(['/Users/alex/Documents/b.pdf', '/Users/alex/Documents/c.pdf'])
+    })
+
+    test('the download takes longer than the read\'s minute: cloudTimeout names the cloud, and nothing is said after the answer', async () => {
+      const { f, sessions, id } = await looked({}, { readMs: 40 })
+      f.fs.cloudOnly = async (p) => p.endsWith('b.pdf')
+      const open = f.fs.open
+      let release = () => {}
+      f.fs.open = (p) => (p.endsWith('b.pdf') ? new Promise((ok) => { release = () => ok(open(p)) }) : open(p))
+      const heard: string[] = []
+      expect(await sessions.read(TEAM, id('b.pdf'), (c) => heard.push(c))).toEqual({ ok: false, reason: 'cloudTimeout', cloud: 'icloud' })
+      release()
+      await new Promise((r) => setTimeout(r, 10))
+      expect(heard).toEqual(['icloud'])
+      // the file did not count against the look's limits; the next read goes
+      expect((await sessions.read(TEAM, id('c.pdf'))).ok).toBe(true)
+    })
+
+    test('a stuck drive that is no cloud\'s stays "unreadable"', async () => {
+      const { f, sessions, id } = await looked({}, { readMs: 30 })
+      f.fs.cloudOnly = async () => false
+      f.fs.open = () => new Promise(() => {})
+      const heard: string[] = []
+      expect(await sessions.read(TEAM, id('b.pdf'), (c) => heard.push(c))).toEqual({ ok: false, reason: 'unreadable' })
+      expect(heard).toEqual([])
+    })
+
+    test('a check that fails is no cloud: the read goes on as for any file', async () => {
+      const { f, sessions, id } = await looked()
+      f.fs.cloudOnly = async () => { throw new Error('stat did not answer') }
+      const heard: string[] = []
+      expect((await sessions.read(TEAM, id('b.pdf'), (c) => heard.push(c))).ok).toBe(true)
+      expect(heard).toEqual([])
+    })
+
+    test('in a cloud\'s folder, a read still going after a moment is taken for a download; a quick one says nothing', async () => {
+      const icloud = '/Users/alex/Library/Mobile Documents/com~apple~CloudDocs'
+      const f = fakeFs({ Users: dir({ alex: dir({ Library: dir({ 'Mobile Documents': dir({ 'com~apple~CloudDocs': dir({ 'slow.pdf': file(10), 'quick.pdf': file(10) }) }) }) }) }) })
+      const sessions = new WorkFileSessions(f.fs, 'darwin', undefined, { cloudHintMs: 10 })
+      const r = await scanRoots([{ id: 'documents', path: icloud, oneDrive: false }], f.fs, opts())
+      sessions.begin(TEAM, r.found)
+      sessions.allow(TEAM, [...r.found.keys()])
+      const id = (name: string) => r.files.find((x) => x.name === name)!.id
+      const open = f.fs.open
+      f.fs.open = async (p) => { if (p.endsWith('slow.pdf')) await new Promise((x) => setTimeout(x, 60)); return open(p) }
+      const heard: string[] = []
+      expect((await sessions.read(TEAM, id('quick.pdf'), (c) => heard.push(`quick ${c}`))).ok).toBe(true)
+      expect((await sessions.read(TEAM, id('slow.pdf'), (c) => heard.push(`slow ${c}`))).ok).toBe(true)
+      expect(heard).toEqual(['slow icloud'])
+    })
+
+    test('a listener that throws does not stop the read', async () => {
+      const { f, sessions, id } = await looked()
+      f.fs.cloudOnly = async () => true
+      expect((await sessions.read(TEAM, id('b.pdf'), () => { throw new Error('page gone') })).ok).toBe(true)
+    })
+  })
+
   test('the documents\' lstat stops at the time left and at Stop (a slow drive): the folder is cut', async () => {
     const docs: Record<string, Node> = {}
     for (let i = 0; i < 40; i++) docs[`d${i}.pdf`] = file()

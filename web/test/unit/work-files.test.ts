@@ -137,6 +137,52 @@ describe('the run: read when it goes, the folders it made', () => {
     // only the folders the run made, never the one that was there
     expect(log.made).toEqual(['users/u1/From this computer/Documents'])
   })
+
+  test('a file the app gets from its cloud first: the run says where from while it does, then uploads it', async () => {
+    const seen: { cloud?: string; phase: unknown }[] = []
+    let release = () => {}
+    const reads: { id: string; cloud: boolean }[] = []
+    const read = (id: string, o?: { onCloud?: (c: 'icloud') => void }): Promise<WorkFileRead> => {
+      reads.push({ id, cloud: !!o?.onCloud })
+      o?.onCloud?.('icloud')
+      return new Promise((ok) => { release = () => ok({ ok: true, bytes: new Uint8Array([1, 2]) }) })
+    }
+    const [doc] = docsFromScan([meta('plan.pdf', { size: 2 })], read)
+    const { c } = calls(new Set())
+    let run: FolderUpload | null = null
+    run = new FolderUpload({ files: [{ rel: 'From this computer/Documents/plan.pdf', size: 2, open: doc!.open }], folders: [], unreadable: [], skipped: 0 }, 'users/u1', c, () => { const a = run?.view.active[0]; if (a) seen.push({ cloud: a.cloud, phase: a.phase }) })
+    const going = run.start()
+    for (let i = 0; i < 20 && !reads.length; i++) await new Promise((r) => setTimeout(r, 0))
+    expect(reads).toEqual([{ id: 'id-plan.pdf', cloud: true }])
+    expect(run.view.active).toEqual([{ name: 'From this computer/Documents/plan.pdf', phase: null, loaded: 0, total: 2, cloud: 'icloud' }])
+    expect(run.rows()[0]).toMatchObject({ state: 'active', cloud: 'icloud' })
+    release()
+    await going
+    expect(run.view).toMatchObject({ done: 1, failed: 0 })
+    // once read, it says nothing of a cloud any more
+    expect(seen.at(-1)?.cloud).toBeUndefined()
+    expect(run.rows()[0]!.cloud).toBeUndefined()
+  })
+
+  test('a cloud download over the read\'s minute fails the file with the cloud\'s name, not tried again', async () => {
+    const [doc] = docsFromScan([meta('plan.pdf', { size: 2 })], async (_id, o) => { o?.onCloud?.('onedrive'); return { ok: false, reason: 'cloudTimeout', cloud: 'onedrive' } })
+    const { c } = calls(new Set())
+    const run = new FolderUpload({ files: [{ rel: 'From this computer/Documents/plan.pdf', size: 2, open: doc!.open }], folders: [], unreadable: [], skipped: 0 }, 'users/u1', c)
+    await run.start()
+    const row = run.rows()[0]!
+    expect(row).toMatchObject({ state: 'failed', local: 'unreadable' })
+    expect(row.cloud).toBeUndefined()
+    expect(row.error).toBeInstanceOf(WorkFileReadError)
+    expect(row.error).toMatchObject({ reason: 'cloudTimeout', cloud: 'onedrive' })
+    expect(run.view.active).toEqual([])
+  })
+
+  test('an older app never says "cloud": the read goes as before', async () => {
+    // an app before onCloud ignores the second argument
+    const [doc] = docsFromScan([meta('plan.pdf', { size: 2 })], async () => ({ ok: true, bytes: new Uint8Array([1, 2]) }))
+    expect((await doc!.open({ onCloud: () => { throw new Error('never') } })).size).toBe(2)
+    expect((await doc!.open()).size).toBe(2)
+  })
 })
 
 describe('Undo', () => {

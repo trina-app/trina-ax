@@ -7,7 +7,7 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  APP_DATA_ALLOWED, appDataAllowed, cloudLabel, homeExcluded, macCloudPlaces, macDataless, messengerPlaces, parseBookmark, parseLnk, parseOfficeBookmarks,
+  APP_DATA_ALLOWED, appDataAllowed, cloudLabel, cloudProviderOf, homeExcluded, macCloudPlaces, macDataless, messengerPlaces, parseBookmark, parseLnk, parseOfficeBookmarks,
   parseSharedFileList, parseStatFlags, parseSyncRoots, placeOf, windowsCloudPlaces, winPlaceholder, workFolders, WORK_FOLDER_WORDS,
 } from '../../desktop/src/common/work-places'
 import { parseWindowsSearch, windowsSearchScript, type IndexedFile } from '../../desktop/src/common/work-index'
@@ -148,6 +148,22 @@ describe('online-only files', () => {
     expect(winPlaceholder(0x00001000)).toBe(true) // OFFLINE
     expect(winPlaceholder(0x20 | 0x400)).toBe(false) // archive + reparse point (a pinned file)
     expect(parseStatFlags('40000000\t/Users/alex/Library/CloudStorage/OneDrive-Acme/a b.pdf\n0\t/x.pdf\nnoise\n')).toEqual(new Map([['/Users/alex/Library/CloudStorage/OneDrive-Acme/a b.pdf', 0x40000000], ['/x.pdf', 0]]))
+  })
+
+  test('which cloud a file comes from, by where it is (the page says "Getting it from iCloud")', () => {
+    expect(cloudProviderOf('/Users/alex/Library/Mobile Documents/com~apple~CloudDocs/Plans/a.pdf', 'darwin')).toBe('icloud')
+    expect(cloudProviderOf('/Users/alex/Library/CloudStorage/OneDrive-Acme/a.pdf', 'darwin')).toBe('onedrive')
+    expect(cloudProviderOf('/Users/alex/Library/CloudStorage/GoogleDrive-alex@acme.com/My Drive/a.pdf', 'darwin')).toBe('googleDrive')
+    expect(cloudProviderOf('/Users/alex/Library/CloudStorage/Dropbox/a.pdf', 'darwin')).toBe('dropbox')
+    expect(cloudProviderOf('/Users/alex/Library/CloudStorage/Box-Box/a.pdf', 'darwin')).toBe('box')
+    // a Mac's Documents kept in iCloud are not told by the path (the read's flag tells), nor is an app's own folder
+    expect(cloudProviderOf('/Users/alex/Documents/a.pdf', 'darwin')).toBeNull()
+    expect(cloudProviderOf('/Users/alex/Library/CloudStorage/SomeApp/a.pdf', 'darwin')).toBeNull()
+    expect(cloudProviderOf('C:\\Users\\alex\\OneDrive - Acme\\Documents\\a.docx', 'win32')).toBe('onedrive')
+    expect(cloudProviderOf('C:\\Users\\alex\\Dropbox (Acme)\\a.docx', 'win32')).toBe('dropbox')
+    expect(cloudProviderOf('C:\\Users\\alex\\iCloudDrive\\a.docx', 'win32')).toBe('icloud')
+    expect(cloudProviderOf('G:\\My Drive\\Plans\\a.docx', 'win32')).toBe('googleDrive')
+    expect(cloudProviderOf('C:\\Users\\alex\\Documents\\a.docx', 'win32')).toBeNull()
   })
 })
 

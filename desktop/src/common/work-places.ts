@@ -8,6 +8,7 @@
 // Photos, Safari and any other app's data are never a place, and a recent list's entry that points there is dropped
 // (homeExcluded). A file in the cloud (online only) is listed from its metadata and never opened by the look.
 import { posix, win32 } from 'node:path'
+import type { WorkCloudProvider } from '@mycel/shared'
 import { neverListed } from '@mycel/shared/file-scan'
 
 // ---------------------------------------------------------------- a place
@@ -248,6 +249,33 @@ export const WIN_RECALL_ON_DATA_ACCESS = 0x00400000
 export const WIN_RECALL_ON_OPEN = 0x00040000
 export const WIN_OFFLINE = 0x00001000
 export const winPlaceholder = (attrs: number) => (attrs & (WIN_RECALL_ON_DATA_ACCESS | WIN_RECALL_ON_OPEN | WIN_OFFLINE)) !== 0
+
+/** Which cloud a file's content comes from, by where it is (null: no cloud's folder): iCloud Drive's folder on a Mac
+ * (~/Library/Mobile Documents), a cloud drive's folder (a Mac's ~/Library/CloudStorage/OneDrive-Acme, Windows' OneDrive -
+ * Acme, Google Drive, Dropbox, Box in the path). A Mac's Desktop and Documents kept in iCloud are not told by the path: an
+ * online-only file there is iCloud's (the read says so). */
+export function cloudProviderOf(path: string, platform: string): WorkCloudProvider | null {
+  const parts = (platform === 'win32' ? win32.normalize(path).split('\\') : posix.normalize(path).split('/')).map((x) => x.normalize('NFC'))
+  if (platform === 'darwin') {
+    const lib = parts.findIndex((x, i) => x === 'Library' && i > 0)
+    if (lib >= 0 && parts[lib + 1] === 'Mobile Documents') return 'icloud'
+    const cs = lib >= 0 && parts[lib + 1] === 'CloudStorage' ? parts[lib + 2] : undefined
+    return cs && cloudStorageRoot(cs) ? providerOfLabel(cloudLabel(cs)) : null
+  }
+  if (platform === 'win32') {
+    for (const x of parts) {
+      if (/^iCloud ?Drive$/i.test(x)) return 'icloud'
+      const p = providerOfLabel(cloudLabel(x))
+      if (p) return p
+    }
+    // Google Drive for desktop: a drive of its own, "My Drive" / "Shared drives" at its top
+    if (parts.length > 2 && /^[a-z]:$/i.test(parts[0]!) && /^(my drive|shared drives)$/i.test(parts[1]!)) return 'googleDrive'
+  }
+  return null
+}
+
+const providerOfLabel = (label: string | null): WorkCloudProvider | null =>
+  !label ? null : /^OneDrive/.test(label) ? 'onedrive' : /^Google Drive/.test(label) ? 'googleDrive' : /^Dropbox/.test(label) ? 'dropbox' : /^Box/.test(label) ? 'box' : null
 
 /** `/usr/bin/stat -f '%Xf%t%N' <paths>`'s lines (the flags in hex, a tab, the path) → path → flags. */
 export function parseStatFlags(out: string): Map<string, number> {

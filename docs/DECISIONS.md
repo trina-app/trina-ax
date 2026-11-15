@@ -29849,3 +29849,14 @@ Two follow-ups to "asked once, reads only what is added":
   has counts only (scanned, found, people, done), never a path or a key.
 - Tests: `tests/unit/c-integrations-secret-old-files.test.ts`, web unit `key-files-notice.test.tsx`.
 - Version impact: **patch** (a security follow-up: one notice, one additive migration, no API removed).
+
+## Find work files: a cloud-only file says where it comes from (perf/upload-parallel-chunks, 2026-11-15, QA TC-3247, TC-3248)
+
+When the desktop app reads a file of Find work files whose content is only in the cloud (a Mac's SF_DATALESS, checked with
+`/usr/bin/stat` just before the open; on Windows the look's index attributes, Found.late), or a read in a cloud's folder
+still going after 1.5 s, it tells the page which cloud (`workFiles.read(id, { onCloud })`, the event
+`bridge:work-files-reading` to the asking frame; older apps never call it). The run, the upload row and the welcome
+step's row say "Getting <name> from iCloud…" (OneDrive, Google Drive, Dropbox, Box, or "the cloud") instead of
+"Preparing"/"Uploading". The 60 s read limit stays; a cloud read that runs out answers `cloudTimeout` with the cloud,
+and the file's reason says it did not come down within a minute and to open it once, then add it again (it stays "not
+tried again", as an unreadable file). Copy in en first, then ko, ja, zh, es, id. Version impact: **patch**.

@@ -159,9 +159,18 @@ export type WorkFileScan =
   | { state: 'cancelled' | 'busy' | 'unavailable' }
   | { state: 'done'; stopped: boolean; roots: WorkRootResult[]; files: WorkFileMeta[] }
 
+/** Where a file whose content is in the cloud only comes from while the app reads it: iCloud Drive (a Mac's Desktop and
+ * Documents too), a cloud drive's folder, or 'cloud' when the app cannot tell which. */
+export type WorkCloudProvider = 'icloud' | 'onedrive' | 'googleDrive' | 'dropbox' | 'box' | 'cloud'
+
 /** read(): the bytes, or why not: unknown (not an id of this look) · expired (the look is over an hour old) · limit (100
- * files or 1 GB read from this look) · changed (moved, replaced, a link now, another size or date) · unreadable. */
-export type WorkFileRead = { ok: true; bytes: Uint8Array } | { ok: false; reason: 'unknown' | 'expired' | 'limit' | 'changed' | 'unreadable' }
+ * files or 1 GB read from this look) · changed (moved, replaced, a link now, another size or date) · unreadable ·
+ * cloudTimeout (its content was coming from `cloud` and did not arrive within the read's minute; older apps say
+ * unreadable). */
+export type WorkFileRead =
+  | { ok: true; bytes: Uint8Array }
+  | { ok: false; reason: 'unknown' | 'expired' | 'limit' | 'changed' | 'unreadable' }
+  | { ok: false; reason: 'cloudTimeout'; cloud: WorkCloudProvider }
 
 /** add(): added (these files can be read now) · refused (no key or mouse press of the person's on the page in the 2 s
  * before, an id not of this page's latest look, named twice, the look over an hour old, or over 100 files or 1 GB with
@@ -303,8 +312,10 @@ export interface DesktopBridge {
      * within 2 s of the person's own key or mouse press on the page (no window); read() then gives these files' bytes and
      * never a file not added. Absent in version 1. */
     add?(ids: string[]): Promise<WorkFileAdd>
-    /** the bytes of a file added (version 2; version 1: any file of the look) */
-    read(id: string): Promise<WorkFileRead>
+    /** the bytes of a file added (version 2; version 1: any file of the look). `onCloud`: the file's content is in the
+     * cloud only, and the app is getting it from there first (a slow read that explains itself); called at most once,
+     * before the answer. Older apps never call it. */
+    read(id: string, o?: { onCloud?: (cloud: WorkCloudProvider) => void }): Promise<WorkFileRead>
     /** macOS: System Settings › Privacy & Security › Files & Folders, where the person lets the app into a folder again */
     openSettings(): void
   }
