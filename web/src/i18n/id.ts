@@ -1570,6 +1570,7 @@ export const id: Record<MessageKey, string> = {
   "aiApps.notYet": "Belum terhubung. Ulangi langkah-langkahnya di aplikasi, lalu periksa lagi.",
   "aiApps.checkAgain": "Periksa lagi",
   'aiApps.connected': "Terhubung: {name}",
+  'aiApps.otherConnected': "{name} terhubung. Masih menunggu {app}.",
   'aiApps.connectedBadge': "Terhubung",
   'aiApps.mineSummary': "Anda punya {n} koneksi: {names}.",
   'aiApps.manage': "Kelola",

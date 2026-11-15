@@ -1542,6 +1542,7 @@ export const es: Record<MessageKey, string> = {
   "aiApps.notYet": "Aún no está conectada. Repite los pasos en la app y vuelve a comprobar.",
   "aiApps.checkAgain": "Comprobar de nuevo",
   'aiApps.connected': "Conectada: {name}",
+  'aiApps.otherConnected': "Se conectó {name}. Seguimos esperando a {app}.",
   'aiApps.connectedBadge': "Conectada",
   'aiApps.mineSummary': "{n, plural, one {Tiene # conexión:} other {Tiene # conexiones:}} {names}.",
   'aiApps.manage': "Gestionar",

@@ -28867,3 +28867,20 @@ need Full Disk Access?". Still conservative: recent (≤180 days), work-like, th
   (callback reason `expired`), only to a browser signed in as the person who started it, as "cancelled" is; anyone else
   gets the generic page as before. The page keeps the request's language like the other return pages.
 - Version impact: **patch** (wording, an optional field, a refusal of a sign-in that was already unused).
+
+## AI app connections: plain lines for an expired request, the connector off, the Connect dialog (fix/mcp-consent-plain-lines, 2026-11-15, QA TC-2970, TC-2971, tracking TC-3032)
+
+- **Expired consent request.** The consent request lookup (`server/src/connectors/remote-mcp/oauth.ts` `pending`) gives
+  a request that is gone (decided, cleared), expired, or claimed by another login session its own reason: the browser
+  routes answer `not_found` (still 404, same code, so older pages and apps behave the same) with
+  `params.reason = 'request_expired'` (`REMOTE_CONSENT_EXPIRED` in `shared/src/api/remote-mcp.ts`). The page shows
+  `connectors.expired` and drops the request with Allow / Deny, on load and after Allow or Deny. A real no access
+  (a guest, a temporary login: 403) and the connector off keep their own answers.
+- **Connector off.** Settings › AI apps shows the "connect again" lines (conversations, group management) only while the
+  connector is on; off, the off line above says why and old connections keep Disconnect.
+- **Connect dialog.** A new connection counts only when it belongs to the dialog's app (`appIdFor`; the generic row takes
+  every unnamed app). Another app's new connection gets one line ("{name} connected. Still waiting for {app}.") and the
+  wait goes on. Chosen over showing "Connected" for any app: it never claims the wrong app is done.
+- Tests: `tests/unit/remote-mcp-http.test.ts`, `web/test/unit/ai-app-connected.test.ts`,
+  `web/test/unit/connector-consent-expired.test.ts`, `web/test/e2e/connectors.spec.ts`, `web/test/e2e/ai-apps.spec.ts`.
+- Version impact: **patch**.

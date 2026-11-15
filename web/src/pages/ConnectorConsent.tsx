@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { REMOTE_MCP, type RemoteConsentInfo } from '@mycel/shared/api'
-import { api, errorText } from '../lib/api'
+import { REMOTE_CONSENT_EXPIRED, REMOTE_MCP, type RemoteConsentInfo } from '@mycel/shared/api'
+import { api, ApiError, errorText } from '../lib/api'
 import { useLocale, useT } from '../i18n'
 import { Button, ErrorNote, Skeleton } from '../components/ui'
 import { isGuestMe } from '../lib/guests'
@@ -14,6 +14,8 @@ const WRITE_SCOPE = 'mcp:write', ROOMS_SCOPE = 'mcp:rooms', ROOMS_WRITE_SCOPE = 
 /** where a decision may send the browser: Claude's and ChatGPT's own callbacks (server policy.ts HOSTED), or an app on
  * this computer */
 const HOSTED_CALLBACKS = ['https://claude.ai/api/mcp/auth_callback', 'https://chatgpt.com/connector_platform_oauth_redirect']
+/** The request expired, was decided, or another login session opened it (QA TC-2970): the server's 404 says so */
+export const consentExpired = (e: unknown) => e instanceof ApiError && e.code === 'not_found' && e.body.params?.reason === REMOTE_CONSENT_EXPIRED
 
 /** One optional permission: a checkbox with its name and a plain line on what it allows. */
 function Choice({ testId, checked, disabled, onChange, title, hint }: { testId: string; checked: boolean; disabled: boolean; onChange: (v: boolean) => void; title: string; hint: string }) {
@@ -52,7 +54,7 @@ function ConnectorConsentForm() {
     if (!/^[A-Za-z0-9_-]{43}$/.test(id)) { setError(t('connectors.expired')); return () => { life.current++ } }
     void api.call(REMOTE_MCP.getRemoteConnectorConsent, { params: { id } }).then(value => {
       if (generation === life.current) { setRequest(value); setWrite(value.scopes.includes(WRITE_SCOPE)) }
-    }).catch(e => { if (generation === life.current) setError(errorText(e, locale, t('error.network'))) })
+    }).catch(e => { if (generation === life.current) setError(consentExpired(e) ? t('connectors.expired') : errorText(e, locale, t('error.network'))) })
     return () => { life.current++ }
     // Locale is presentation only; it must not reset or unlock a pending consent decision.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -73,8 +75,11 @@ function ConnectorConsentForm() {
       const native = target.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(target.hostname) && target.pathname === '/callback'
       if (target.username || target.password || target.hash || (!hosted && !native)) throw new Error('Invalid callback')
       window.location.assign(target.href)
-    } catch (e) { if (generation === life.current) setError(errorText(e, locale, t('error.network'))) }
-    finally { if (generation === life.current) { writing.current = false; setBusy(false) } }
+    } catch (e) {
+      if (generation !== life.current) return
+      // expired while the page was open (or decided in another tab): the old request with Allow / Deny goes away
+      if (consentExpired(e)) { setRequest(null); setError(t('connectors.expired')) } else setError(errorText(e, locale, t('error.network')))
+    } finally { if (generation === life.current) { writing.current = false; setBusy(false) } }
   }
   // its own scroll inside the app shell (which does not scroll), with Allow / Deny kept in view at the bottom: the page
   // is longer than a 1280x720 window or a phone (QA TC-168)

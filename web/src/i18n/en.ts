@@ -1570,6 +1570,7 @@ export const en: Record<MessageKey, string> = {
   'aiApps.notYet': "Not connected yet. Do the steps again in the app, then check again.",
   'aiApps.checkAgain': "Check again",
   'aiApps.connected': "Connected: {name}",
+  'aiApps.otherConnected': "{name} connected. Still waiting for {app}.",
   'aiApps.connectedBadge': "Connected",
   'aiApps.mineSummary': "{n, plural, one {You have # connection:} other {You have # connections:}} {names}.",
   'aiApps.manage': "Manage",

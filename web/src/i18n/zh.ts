@@ -1541,6 +1541,7 @@ export const zh: Record<MessageKey, string> = {
   "aiApps.notYet": "尚未连接。请在应用中重新完成这些步骤，然后再次检查。",
   "aiApps.checkAgain": "再次检查",
   "aiApps.connected": "已连接：{name}",
+  "aiApps.otherConnected": "{name} 已连接。仍在等待 {app}。",
   "aiApps.connectedBadge": "已连接",
   "aiApps.mineSummary": "{n, plural, one {你有#个连接：} other {你有#个连接：}}{names}。",
   "aiApps.manage": "管理",
