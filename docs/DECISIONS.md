@@ -29437,7 +29437,8 @@ low reading still refuses as before. The Go helpers (mycel-ctl) read statfs corr
 Version impact: **patch**.
 
 Follow-up (fix/intel-mac-free-space-2, 2026-11-15): df never runs on a request's path. It runs async in the background
-(one run per path at a time, killed after 5 s), sync readers only read its cache (a reading older than 10 s starts a
-refresh), and only the one-shot gates (backup, update room check, Admin diagnostics) wait, at most about 6 s, for a
+(one run per path at a time, killed after 5 s; no second one while a stuck one is still alive), sync readers only
+read its cache (a reading older than 10 s starts a refresh, one older than 60 s is unknown; both folders are primed at
+start), and only the one-shot gates (backup, update room check, Admin diagnostics) wait, at most about 6 s, for a
 fresh answer (`primeDiskStat`). A df stuck on a dead mount therefore means "unknown", never a stalled server. On Linux
 each readable disk keeps its level check when the other cannot be read. The "unknown" warning is logged once per change.
