@@ -526,19 +526,21 @@ export function MakeMemberButton({ guest }: { guest: { id: string; name: string 
 }
 
 /** The add list's guests who are in another place already, by participant key (`user:<id>`), for ParticipantPicker's
- * `unavailable`: where they are, and "Make team member" for the owner and admins. */
-export function useGuestsElsewhere(here: { kind: PlaceKind; id: string }): ReadonlyMap<string, { text: string; action?: ReactNode }> {
+ * `unavailable`: where they are, and "Make team member" for the owner and admins. `here.id` left out: a place still to
+ * be made (a new project): only a guest who has one of that kind already. `anyPlace`: every guest who has a place at
+ * all (a personal project shared to the team: the server lets no guest in there, auth/guests.ts claimGuestProject). */
+export function useGuestsElsewhere(here: { kind: PlaceKind; id?: string }, anyPlace = false): ReadonlyMap<string, { text: string; action?: ReactNode }> {
   const t = useT()
   const admin = isAdmin(useMe())
   const people = usePeopleList()
   return useMemo(() => {
     const m = new Map<string, { text: string; action?: ReactNode }>()
     for (const p of people ?? []) {
-      const away = guestElsewhere(p, here)
+      const away = anyPlace ? (p.guest ? p.guestPlaces?.[0] ?? null : null) : guestElsewhere(p, here)
       if (away) m.set(`user:${p.id}`, { text: elsewhereText(t, away), ...(admin ? { action: <MakeMemberButton guest={p} /> } : {}) })
     }
     return m
-  }, [people, here.kind, here.id, admin, t]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [people, here.kind, here.id, anyPlace, admin, t]) // eslint-disable-line react-hooks/exhaustive-deps
 }
 
 /** "Make Alex a team member?" (Admin › Members › Guests, and a greyed-out guest's row in an add list): the seats are read first; with every seat taken it says so, with "See plans" (when the

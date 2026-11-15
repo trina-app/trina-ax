@@ -1611,7 +1611,7 @@ function ShareProjectDialog({ project, chats, onClose, onShared }: { project: Pr
       }
     >
       <div className="space-y-3">
-        <ProjectPeopleField label={t('projects.participants')} value={participants} onChange={setParticipants} note={note} countAlways />
+        <ProjectPeopleField label={t('projects.participants')} value={participants} onChange={setParticipants} note={note} countAlways anyGuestOut />
         {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       </div>
     </Modal>

@@ -260,7 +260,7 @@ test("a project's members dialog: a guest of another project shows greyed out in
   const r = await page.request.post('/__test/project', { data: { name: '견적 준비', by: 'bob' } })
   const { id } = (await r.json()) as { id: string }
   await page.goto(`/projects/${id}`)
-  await page.getByTestId('project-members-manage').click()
+  await page.getByTestId('project-share').click()
   await page.getByTestId('project-participants-search').fill('Gina')
   const row = page.getByTestId('participant-elsewhere-user-gina')
   await expect(row).toContainText('게스트는 그룹 대화 하나와 프로젝트 하나까지 들어갈 수 있어요')
