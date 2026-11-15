@@ -357,7 +357,9 @@ describe('a project not changed here', () => {
       // (its creator no longer changes them: the member reads that an admin does)
       const m = await mount(<MemoryRouter><ProjectMembersDialog project={project({ folderPath: 'shared/acme', creatorChangesMembers: false })} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
       const line = await m.until(() => m.find('project-members-locked'), 'the line', 2000)
-      expect(line.textContent).toBe(role === 'admin' ? en('projects.legacyNote') : en('projects.membersByAdmins'))
+      // an admin: where to change it, with the way there (it moved here from the page's old Members line)
+      expect(line.textContent).toBe(role === 'admin' ? `${en('projects.legacyNote')} ${en('projects.otherRulesLink')}` : en('projects.membersByAdmins'))
+      if (role === 'admin') expect(line.querySelector('a')?.getAttribute('href')).toBe(`/admin/folders?folder=${encodeURIComponent('shared/acme')}`)
       // no folder path in the words
       expect(line.textContent).not.toContain('shared/acme')
       expect(m.find('project-participants')).toBeNull()

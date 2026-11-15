@@ -27,7 +27,7 @@
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import type { Project, ProjectAccess, ProjectAccessPreview, ProjectOtherRule, ProjectParticipant, WideningAnswer } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError } from '../lib/api'
 import { useLocale, useT } from '../i18n'
@@ -339,7 +339,7 @@ export function ProjectMembersDialog({ project, onClose, onSaved, initial }: { p
         {/* changed elsewhere meanwhile (a folder moved), or a project made before outside projects/: who changes it */}
         {(access ? !editable : !manages) && (
           <p className="text-sm break-keep text-muted" data-testid="project-members-locked">
-            {!admin ? (project.creatorChangesMembers && project.createdBy ? t('projects.membersByCreator', { name: project.createdBy.name }) : t('projects.membersByAdmins')) : isProjectsFolder(project.folderPath) ? t('projects.membersFolderMissing') : t('projects.legacyNote')}
+            {!admin ? (project.creatorChangesMembers && project.createdBy ? t('projects.membersByCreator', { name: project.createdBy.name }) : t('projects.membersByAdmins')) : isProjectsFolder(project.folderPath) ? t('projects.membersFolderMissing') : <>{t('projects.legacyNote')} <Link to={`/admin/folders?folder=${encodeURIComponent(project.folderPath)}`} onClick={onClose} className="text-accent-text underline">{t('projects.otherRulesLink')}</Link></>}
           </p>
         )}
         {!manages && people === null && <Skeleton lines={3} />}

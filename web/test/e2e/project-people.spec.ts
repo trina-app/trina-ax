@@ -37,8 +37,10 @@ test('the owner: faces under the name and on the 멤버 line; the dialog counts 
   await expect(header.getByTestId('project-header-face')).toHaveCount(4)
   await expect(header.getByTestId('project-header-more')).toHaveText('+1')
   await expect(header.getByTestId('project-header-open')).toHaveAccessibleName(/^멤버: Olga, /)
-  // the 멤버 line keeps its number only: the faces are under the name, once
-  await expect(page.getByTestId('project-members')).toHaveText('멤버5명관리')
+  // the title row: the faces, once, then Share (docs/DECISIONS.md "Share in the project's title row"); no Members line
+  await expect(page.getByTestId('project-share-row').getByTestId('project-share')).toHaveText('공유')
+  await expect(page.getByTestId('project-who-sees')).toHaveCount(0)
+  await expect(page.getByTestId('project-members')).toHaveCount(0)
   await expect(header.getByTestId('project-header-face').first()).toHaveCSS('width', '24px')
 
   await header.getByTestId('project-header-open').click()
@@ -88,4 +90,7 @@ test('a personal project shows no faces', async ({ page }) => {
   await page.goto(`/projects/${((await r.json()) as { id: string }).id}`)
   await expect(page.getByTestId('project-chats')).toBeVisible()
   await expect(page.getByTestId('project-people-header')).toHaveCount(0)
+  // who sees it in words, and Share
+  await expect(page.getByTestId('project-who-sees')).toHaveText('나만 봐요')
+  await expect(page.getByTestId('project-share')).toBeVisible()
 })

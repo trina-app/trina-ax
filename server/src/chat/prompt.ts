@@ -18,6 +18,8 @@ import { zonedParts } from '../system/time-zone'
 import { MAX_CONCURRENT_SUBAGENTS } from '../engine/claude'
 import { PROFILE_PATH, profileFactLines, readCompanyProfile } from '../onboarding/profile'
 import { getTeamSettings } from '../admin/settings'
+import { serverWhere, situationSection, type Situation } from './situation'
+import type { RunKind } from '../system/deployment'
 import { htmlPdfUnavailable } from '../files/html-pdf'
 import { notFoundNext, SCREEN } from '../policy/refusal'
 import type { GuestPrompt } from './guest-tools'
@@ -73,6 +75,10 @@ export interface PromptInput {
   confidential?: 'server' | 'chat' | null
   /** the team's file lists run and exist (file-list/service.ts): the AI is told to grep them first (FILE_LIST_RULE) */
   fileList?: boolean
+  /** who the person is and where (chat/situation.ts): the "About this person and place" block; absent: none */
+  situation?: Situation | null
+  /** how this server runs (system/deployment.ts runKindOf): "Where you run" says where the server is; absent: own server */
+  runKind?: RunKind
   /** a guest from outside the team (chat/guest-tools.ts guestPromptOf): their places and who invited them. The
    * instructions say what a guest can and cannot do (guestSection) and leave out what only team members have */
   guest?: GuestPrompt | null
@@ -346,16 +352,21 @@ export function historyBlock(history: { role: 'user' | 'assistant'; content: str
  * Where the engine runs. Without this the model talked as if it were on the user's own computer ("saved to your
  * Desktop", "open it in Finder"), but it runs on the team server and the person is somewhere else on their own device.
  */
-export const ENVIRONMENT = [
+export function environmentSection(kind: RunKind = 'selfhost'): string {
+  return [
   '## Where you run',
-  `You run on the team's ${PRODUCT.displayName} server (a computer in the office), NOT on the user's computer. The user talks to you from their own device (web browser, desktop app or phone) and may be anywhere.`,
+  // a hosted team's server is not "in the office" (it said so to every hosted team; chat/situation.ts serverWhere)
+  `You run on the team's ${PRODUCT.displayName} server (${serverWhere(kind)}), NOT on the user's computer. The user talks to you from their own device (web browser, desktop app or phone) and may be anywhere.`,
   '- You cannot see or open anything on the user\'s device: no local files, Desktop, Downloads, apps, clipboard or screen. Files from their device reach you only when they attach them; they can also attach files from the team drive.',
   '- Everything you save goes to the team drive on the server. Say where with the team path (e.g. users/<id>/report.docx); the user opens or downloads it from the file card under your answer or the Files screen. Never say you saved or opened something on their computer.',
   '- You have no access to the server itself (its other folders, programs or settings) beyond the tools offered here.',
   // Codex runs with `-s read-only` (its own disk sandbox) and then refused to save team files ("the environment is
   // read-only") without calling write (staging 2026-10-22)
   '- If your environment says the sandbox is read-only or that approvals are off, that is about the server\'s own disk only. Saving team files with the write and edit tools is allowed: the server checks each call and answers if access is denied.',
-].join('\n')
+  ].join('\n')
+}
+/** "Where you run" of a team's own server (the default; tests read it) */
+export const ENVIRONMENT = environmentSection()
 
 /** Where the engine runs, for a guest (guestSection): no "team drive" and no Files screen, which a guest does not have. */
 export const GUEST_ENVIRONMENT = [
@@ -750,7 +761,7 @@ export function subagentPromptSections(files: FileService, i: PromptInput, tools
   // person like the memories, which children never get; the same read check and the same facts framing
   return [
     { id: 'rules', text: [...base, '', ...personLines(files, i, true)].filter((l) => l !== '').join('\n') },
-    { id: 'environment', text: ENVIRONMENT },
+    { id: 'environment', text: environmentSection(i.runKind) },
     { id: 'company', text: companyProfileBlock(files, i.user, i.shared ? i.roomReadable : null) },
     { id: 'teamRules', text: rules ? `## Team rules (from skills/)\n${rules}` : '' },
     { id: 'skills', text: skills },
@@ -806,11 +817,12 @@ export const SHARED_PROMPT_SECTIONS: Readonly<Record<PromptSectionId, boolean>> 
   hangul: true,
   skillChanges: true,
   sideRoom: false, // a side chat is one person's own, never shared
+  situation: false, // the person's role, AI account and app are not the chat's people's to know (chat/situation.ts)
   guest: true, // who the guest is and what they can do: nothing the project's people do not know
   shared: true,
   history: true, // the chat's transcript, each message with who wrote it
 }
-export type PromptSectionId = 'rules' | 'guest' | 'context' | 'environment' | 'memories' | 'company' | 'teamRules' | 'skills' | 'project' | 'connected' | 'browser' | 'subagents' | 'hangul' | 'skillChanges' | 'sideRoom' | 'shared' | 'history'
+export type PromptSectionId = 'rules' | 'guest' | 'context' | 'environment' | 'situation' | 'memories' | 'company' | 'teamRules' | 'skills' | 'project' | 'connected' | 'browser' | 'subagents' | 'hangul' | 'skillChanges' | 'sideRoom' | 'shared' | 'history'
 interface Section { id: PromptSectionId; text: string }
 /** Which allowlist a prompt goes by: a shared project chat's, or none. */
 export type PromptMode = 'shared' | null
@@ -881,7 +893,9 @@ export function turnPromptSections(files: FileService, i: PromptInput): Section[
   return [
     { id: 'rules', text: [...base, '', ...personLines(files, i)].filter((l) => l !== '').join('\n') },
     { id: 'guest', text: i.guest ? guestSection(i.guest, i.user.id, i.tools.includes('room_read')) : '' },
-    { id: 'environment', text: i.guest ? GUEST_ENVIRONMENT : ENVIRONMENT },
+    { id: 'environment', text: i.guest ? GUEST_ENVIRONMENT : environmentSection(i.runKind) },
+    // a guest: only the app line (chat/situation.ts; what a guest can do is the Guest section's)
+    { id: 'situation', text: i.situation ? situationSection(i.situation, i.locale) : '' },
     { id: 'memories', text: memoryBlock(i.memories) },
     // a guest: none of the team's own knowledge (the company profile, team rules, team skills), also where the folder
     // rules would let one through
@@ -921,7 +935,8 @@ export function turnContextSections(files: FileService, i: PromptInput): Section
     { id: 'sideRoom', text: i.sideRoom ? (i.guest && !guestReadsRoom(i, i.tools.includes('room_read')) ? guestSideRoomSection(i.sideRoom, i.locale) : sideRoomSection(i.sideRoom, i.locale, i.tools.includes('post_to_room'))) : '' },
     { id: 'shared', text: i.shared ? sharedSection(i.shared, i.locale, i.tools.includes('post_to_room'), !!i.guest) : '' },
     { id: 'connected', text: i.connected && !i.guest ? neutralizeTags(i.connected) : '' },
-    { id: 'environment', text: i.guest ? GUEST_ENVIRONMENT : ENVIRONMENT },
+    { id: 'environment', text: i.guest ? GUEST_ENVIRONMENT : environmentSection(i.runKind) },
+    { id: 'situation', text: i.situation ? situationSection(i.situation, i.locale) : '' },
     { id: 'browser', text: browserSection(i) },
     // a session started before sub-agents existed (or while they were off) lacks this in its first instructions
     { id: 'subagents', text: i.subagents ? `## Sub-agents\n${subagentRule()}` : '' },

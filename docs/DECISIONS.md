@@ -29933,6 +29933,42 @@ stay as they are.
   `tests/unit/c-file-shares.test.ts`, `tests/security/file-shares.test.ts`, `tests/unit/b-share-with-person.test.ts`,
   web e2e `file-share-links.spec.ts`. Version impact: **minor** (a feature, endpoints, a migration).
 
+## Share in the title row — 공유 버튼은 제목 줄 오른쪽에 (feat/project-share-button, 2026-11-15, the owner, QA TC-3283 and the next row)
+
+넣을 곳: `web/src/components/HeaderShare.tsx`, `web/src/pages/Projects.tsx` (`ProjectShareRow`), `web/src/pages/Chat.tsx`,
+`web/src/components/NewProjectDialog.tsx`, `web/src/components/ProjectPeopleField.tsx`. 이유: a user could not find how to
+share a project (a small "Members · Add people" line at the bottom of the side column) or a chat (only in its title
+menu). Plan: `docs/AGENTS/plan/20261115-1549-project-share-button.md`, with one independent review. Amends "Making a
+project: a name, only me, people later" (People in New project) and "Project members in one panel" (no Members line).
+
+- **One place, top right.** `HeaderShare` puts who can see it ("Only me", a count, or the faces of who is in it) and
+  **Share** at the right of a title row, as Drive, Notion and Claude projects do. The project page's title row and the
+  chat's header use it; on a phone the project has it as the row under the bar, a chat as the Share icon in the top bar
+  (beside ✦; the line under the box says who sees a chat).
+- **What Share opens is what was there before**, no logic of its own: a personal project's share dialog, a team
+  project's members dialog (#976 reworks that dialog; this entry point inherits it), a chat's title-menu Share
+  (`shareKindOf`: the Share dialog, the members' share of a private team-project chat, the personal-project
+  explanation), a shared project chat's members dialog for whoever may change them.
+- **Decision: can't share → hidden, not read-only.** A Share that opens a dialog where nothing can be shared is a dead
+  end; the faces or words beside it open the read-only list and say who changes the members. The rules did not change:
+  a personal project for its creator when they may make team projects (`projectCreators`, admins always), a team project
+  with `Project.membersEditable`, a chat as `shareKindOf` says, nothing in the trash. A personal project in a team where
+  only admins share says so in one faint line under the row (a tooltip cannot be found by touch).
+- **Removed:** the side column's Members line (`MembersRow`) and "Only me · Add people", the separate faces line under
+  the name, and Share in a chat's title menu. The admin's link to Admin › Folder permissions for a project made outside
+  `projects/` moved into the members dialog's note. The list rows' ⋯ Members / Share stay (shortcuts on a list).
+- **New project: People (optional)** for whoever may share, from the Projects panel, the Projects page and Search (not
+  from Move to project, whose Undo deletes only a project still mine alone). Nobody picked: a personal project, as
+  before. People picked: the count, what sharing does ("can't go back to only you"), and Create makes a team project
+  (`POST /api/projects` scope team: `assertMayCreateTeamProject`, `checkParticipants`, `newProjectRules`,
+  `validateRules`, the same as a later share; no folder move since it is empty). Create is the yes (one press). The field
+  is outside the name's form (Enter in the search never creates). Every guest is greyed out there and in the share
+  dialog with where they are: a guest is in one place already. One component, `ProjectPeopleField`, for both.
+- The AI's "change members" card says "Projects › {name} › Share".
+- Tests: web unit `project-new-people`, `who-sees` (the title row), `project-members-only`, `chat-title-pin`; e2e
+  `project-share-button` (1440 and 390, light and dark) and the specs that used the old line or menu item.
+- Version impact: **minor** (where sharing is, a new optional field; no API or data change).
+
 ## Find work files: a cloud-only file says where it comes from (perf/upload-parallel-chunks, 2026-11-15, QA TC-3247, TC-3248)
 
 When the desktop app reads a file of Find work files whose content is only in the cloud (a Mac's SF_DATALESS, checked with
@@ -29946,7 +29982,7 @@ tried again", as an unreadable file). Copy in en first, then ko, ja, zh, es, id.
 
 ## Guests in Admin: a Home card, left or removed; one name for each thing (fix/guest-walk-b, 2026-11-15, guest walkthrough)
 - **Admin Home › Guests card** (S2): shown once the team has any guest (a team without guests sees no extra card).
-  "1 of 3 guests" (active guests against the plan's cap, GET /api/guest-invites/limit; "1 guest" without a cap) and the
+  "1 of 3" under the card title (active guests against the plan's cap, GET /api/guest-invites/limit; "1 guest" without a cap; QA 11-16: never "Guests" twice) and the
   active guests' names; it opens `/admin/members?role=guest` (Members reads `?role=guest` as its first Role filter). The
   Members card (and the phone's Admin list value) counts team members only, as the Members page header does. No
   sidebar item: it would open the same page as Members & invites, which is not lean.
@@ -29974,3 +30010,28 @@ tried again", as an unreadable file). Copy in en first, then ko, ja, zh, es, id.
   cannot read (most Latin words) left the mark. Texts with a name people type (projects, files, schedules, folders,
   connection labels, dev sites, attachments, search words) now put the particle after a fixed word ("'{name}' 프로젝트를")
   or put the name after a colon. People's names in share lines are left as they are (Korean names resolve).
+
+## The AI knows who it is talking to (fix/ai-knows-the-person, 2026-11-15, product owner)
+
+- **Problem.** The instructions named the person's role in a word ("role member") and nothing else about them. The AI
+  answered as if everyone were the owner at a computer: it sent members to Admin pages they cannot open, did not know
+  whether they were on the web, the phone app or the desktop app, whose AI account answered, or that an admin had
+  turned off personal AI sign-ins or personal connected services, and it told hosted teams their server was "a
+  computer in the office".
+- **Decision.** Every own chat's instructions (and a resumed session's turn context) carry a short **About this
+  person and place** block built from real state (`server/src/chat/situation.ts`): the role and whether it may open
+  Admin (a member: never sent to an Admin page; the owner or an admin does team-wide changes), the app (web, phone with
+  Settings under the Me tab, desktop with or without its browser, Slack, a scheduled run), whose AI account answers
+  (their own, one the team set up, or the server computer's own sign-in), whether they may add their own AI sign-in and
+  their own connected services, where their usage is, and for the owner and admins the team's plan from the plan file.
+  "Where you run" says where the server is by the way it runs (hosted: in the cloud; office: a Mac in the office; else
+  a computer the team runs itself).
+- Screen names come from `SCREEN` (`server/src/policy/refusal.ts`) in English and in the person's language; a test
+  compares them with the web app's labels, so a renamed screen fails the test instead of misleading the AI.
+- **Kept out.** Anything about other people (no admin names, as in "Refusals say why, who and what next"), connection
+  or account names, secrets, and numbers that change every answer (usage left): the block stays the same from turn to
+  turn. A shared chat leaves it out (the person's role is not the chat's people's to know). A guest gets only the app
+  line: what a guest can do is the guest part of the instructions. Whose AI answers follows the engine the turn starts
+  with, decided as the turn decides it (Codex runs on the team's AI connections on an installed server whatever
+  engine.authMode says); a limit that hands the answer to the other engine midway changes the next turn's block. No
+  card is offered in Slack or a scheduled run, and no web tools are named where the chat has none.
