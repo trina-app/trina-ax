@@ -251,6 +251,34 @@ describe('the card on Home', () => {
       expect(text(m, 'member-welcome-rooms')).toContain('Your team\'s rooms are in Chats')
     } finally { await m.unmount() }
   })
+
+  test('a phone: one greeting, the card\'s; the big one only for screen readers, back for "You\'re all set"; a computer keeps it', async () => {
+    signIn()
+    const greeting = (m: Awaited<ReturnType<typeof home>>) => m.container.querySelector('h1')
+    phoneWidth()
+    const m = await home()
+    try {
+      await m.until(() => m.find('member-welcome'), 'the card')
+      expect(text(m, 'member-welcome')).toContain('Welcome to')
+      expect(greeting(m)?.getAttribute('class')).toContain('sr-only')
+    } finally { await m.unmount() }
+    useMemberWelcome.getState().reset()
+    welcome = card({ steps: { rooms: true, hi: true, photo: false, asked: true }, allSet: true })
+    const n = await home()
+    try {
+      await n.until(() => n.find('member-welcome'), 'the card')
+      expect(n.get('member-welcome').getAttribute('data-state')).toBe('all-set')
+      expect(greeting(n)?.getAttribute('class')).not.toContain('sr-only')
+    } finally { await n.unmount() }
+    useMemberWelcome.getState().reset()
+    welcome = card()
+    g.matchMedia = computerMedia
+    const c = await home()
+    try {
+      await c.until(() => c.find('member-welcome'), 'the card')
+      expect(greeting(c)?.getAttribute('class')).not.toContain('sr-only')
+    } finally { await c.unmount() }
+  })
 })
 
 describe('no AI for the person', () => {

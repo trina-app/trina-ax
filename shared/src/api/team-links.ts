@@ -39,8 +39,8 @@ export const TeamLink = z.object({
    * a new one to copy it again */
   url: z.string().nullable(),
   groupIds: z.array(Uuid7),
-  /** the team skill new members land on after joining (`/skills?run=<path>`); name and title null when the viewer
-   * cannot read it any more. `title`: the name people read (its metadata title, else its name; absent from an older
+  /** the team skill the link names (the invite message names it; people who join land on Home: docs/DECISIONS.md "A new
+   * member lands on Home"); name and title null when the viewer cannot read it any more. `title`: the name people read (its metadata title, else its name; absent from an older
    * server), for the card and the ready-made message */
   skill: z.object({ path: z.string(), name: z.string().nullable(), title: z.string().nullable().optional() }).nullable(),
   maxUses: z.number().int().positive(),
@@ -108,9 +108,11 @@ export const TeamLinkInfo = z.object({
   /** null while valid */
   problem: TeamLinkProblem.nullable(),
   expiresAt: IsoTime,
-  /** the skill the link names, when someone joining with the link's groups can open it */
+  /** the skill the link names, when someone joining with the link's groups can open it. Kept only for older apps,
+   * whose join page names it; this app's join page no longer does (docs/DECISIONS.md "A new member lands on Home") */
   skillName: z.string().nullable(),
-  /** the same skill as people read its name (its metadata title, else its name); absent from an older server */
+  /** the same skill as people read its name (its metadata title, else its name); absent from an older server. Kept only
+   * for older apps, as skillName */
   skillTitle: z.string().nullable().optional(),
   /** who made the link ("{inviter} invited you to {team}"), only while it is valid; null: not known any more. Absent
    * from an older server */

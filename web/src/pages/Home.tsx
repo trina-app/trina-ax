@@ -196,9 +196,9 @@ function HomePage() {
                 · {t('home.inProject')}
               </p>
             )}
-            {/* a phone under the welcome card: the greeting only for screen readers (the card says hello), so the card and
-                the box fit */}
-            {demo && !projectId ? <DemoIntro persona={demo.persona} /> : <h1 className={clsx('mb-6 text-center text-hero font-semibold tracking-tight text-balance max-md:mb-0', phone && welcomeCard && 'sr-only')}>{t('home.greeting', { name: me.user.name })}</h1>}
+            {/* a phone under the welcome card while it says hello ("Welcome to {team}"): the greeting only for screen
+                readers, so the card and the box fit. "You're all set" greets nobody, so the greeting stays then */}
+            {demo && !projectId ? <DemoIntro persona={demo.persona} /> : <h1 className={clsx('mb-6 text-center text-hero font-semibold tracking-tight text-balance max-md:mb-0', phone && welcomeCard && !welcome?.allSet && 'sr-only')}>{t('home.greeting', { name: me.user.name })}</h1>}
             {extras && notes && !projectId && <NotesLine notes={notes} />}
           </div>
           {!phone && dock}
