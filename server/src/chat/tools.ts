@@ -825,7 +825,9 @@ function bTools(exec: TurnExec): Tool[] {
         if (!a.success) return text(zodText(a.error), true)
         const clean = cleanMemoryText(a.data.text)
         if (!clean.ok) return clean.problem === 'empty' ? text('Invalid input: text is empty', true) : text(`Too long (${clean.length} characters). Keep a memory under ${MEMORY_ITEM_MAX} characters.`, true)
-        const value = clean.text
+        // the person's stored connection keys are hidden before the card asks and before it is saved, as in the answer
+        // and the steps (redact.ts; QA TC-2981: the step said [hidden key], the saved memory had the key)
+        const value = exec.redact(clean.text)
         let source: 'ai' | 'user' = 'ai'
         // the step's final words: patched onto it once (patchToolStep), or, when its card already changed it, onto the
         // same step again by its id
