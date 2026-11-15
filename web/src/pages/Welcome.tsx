@@ -801,8 +801,10 @@ function DoneStep({ progress, aiReady, computer, onStep, onExit }: { progress: W
   // out of the steps (on a phone their entries go: Back from where this leads never walks them again)
   const home = () => onExit('/')
   // a skill's form from here closes back to Home (Skills.tsx closeRun reads `state.back`, PR #909), never stranding the
-  // owner on Team skills; the end screen shows once, so Home is where they would go next
-  const runSkill = (path: string) => onExit(skillRunLink(path), { back: '/' })
+  // owner on Team skills; the end screen shows once, so Home is where they would go next. Computers only: on a phone
+  // `exit` already leaves Home right under the form, so Back walks there, and a `state.back` there made the form's
+  // closing on Back a second step back on top of the Back itself (out of the app, to the page before Home)
+  const runSkill = (path: string) => onExit(skillRunLink(path), phoneNow() ? undefined : { back: '/' })
   // the steps put off (still counted as answered, docs/DECISIONS.md "W6"): named, each with a way back now (QA TC-206)
   const later = countedSteps(progress, aiReady).filter((s) => s !== 'ai' && progress.steps[s] === 'skipped' && offeredHere(s, computer))
   const tryOwn = aiReady && !!own

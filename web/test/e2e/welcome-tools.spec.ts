@@ -260,7 +260,7 @@ test('Notion in one click (QA TC-136): the same card as Connectors, the owner\'s
   expect(realErrors(errors)).toEqual([])
 })
 
-test('준비 끝: "\'카드뉴스\' 만들어 보기" for the first kept skill in the team; it opens that skill\'s form on 팀 스킬 only, nothing runs; closing the form stays on 팀 스킬', async ({ page }) => {
+test('준비 끝: "\'카드뉴스\' 만들어 보기" for the first kept skill in the team; it opens that skill\'s form on 팀 스킬 only, nothing runs; closing the form goes Home (#918)', async ({ page }) => {
   const errors = watchConsole(page)
   await reset(page)
   await signIn(page)
@@ -281,10 +281,10 @@ test('준비 끝: "\'카드뉴스\' 만들어 보기" for the first kept skill i
   // the form's defaults read the company intro (its own placeholder); nothing was sent from 준비 끝
   await expect(form.getByPlaceholder('비워 두면 회사 소개 전체')).toBeVisible()
   expect(((await (await page.request.get('/api/chats')).json()).items as unknown[]).length).toBe(chats)
-  // closing the form: 팀 스킬, nothing ran
+  // closing the form: Home (the end screen's link says where it came from, #918 with #909's state.back), nothing ran
   await page.keyboard.press('Escape')
   await expect(form).toHaveCount(0)
-  await expect(page).toHaveURL(/\/skills$/)
+  await expect(page).toHaveURL(/\/$/)
   expect(((await (await page.request.get('/api/chats')).json()).items as unknown[]).length).toBe(chats)
   expect(realErrors(errors)).toEqual([])
 })
