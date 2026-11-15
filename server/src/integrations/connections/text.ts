@@ -163,7 +163,7 @@ export const TEXT = {
     '{name} only lets you sign in from an app on your computer. Open the Trina desktop app and connect it there.',
     '{name} hanya mengizinkan login dari aplikasi di komputer Anda. Buka aplikasi desktop Trina dan hubungkan di sana.',
     "{name}には、パソコンにインストールしたアプリからしかログインできません。トリナのデスクトップアプリを開いて、そこで接続してください。",
-    "{name} solo permite iniciar sesión desde una aplicación instalada en su computadora. Abra la aplicación de escritorio de Trina y conéctelo allí.",
+    "{name} solo permite iniciar sesión desde una aplicación instalada en su ordenador. Abra la aplicación de escritorio de Trina y conéctelo allí.",
     "{name}只允许从电脑上安装的应用登录。请打开 Trina 桌面应用，在那里连接。"),
   // the registration answered 429 (oauth.ts register): too many apps registered there just now
   oauth_busy: t('서비스가 지금 너무 바빠요. 몇 분 뒤에 다시 연결해 주세요.', 'The service is too busy right now. Try connecting again in a few minutes.', 'Layanan sedang terlalu sibuk. Coba hubungkan lagi beberapa menit lagi.', "サービスが現在混み合っています。数分後にもう一度接続してください。", "El servicio está demasiado ocupado ahora. Vuelva a conectarlo en unos minutos.", "服务现在太忙了。请过几分钟再连接。"),

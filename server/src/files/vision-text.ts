@@ -17,7 +17,7 @@ export const VISION_TEXT = {
     en: 'The AI engine of this chat (the API engine) reads text only, so the image cannot be shown. Use Claude or Codex to look at images.',
     id: 'Mesin AI percakapan ini (mesin API) hanya membaca teks, jadi gambar tidak dapat ditampilkan. Gunakan Claude atau Codex untuk melihat gambar.',
     ja: 'このチャットの AI エンジン（API エンジン）はテキストのみを読み取るため、画像を表示できません。画像を見るには Claude または Codex を使用してください。',
-    es: 'El motor de IA de este chat (el motor API) solo lee texto, por lo que la imagen no se puede mostrar. Usa Claude o Codex para ver imágenes.',
+    es: 'El motor de IA de este chat (el motor API) solo lee texto, por lo que la imagen no se puede mostrar. Use Claude o Codex para ver imágenes.',
     zh: '这个对话的 AI 引擎（API 引擎）只能读文字，所以无法显示图片。要查看图片，请使用 Claude 或 Codex。',
   },
   connection: {
@@ -81,7 +81,7 @@ export const VISION_TEXT = {
     en: 'Many images are being converted right now. Read it again in a moment.',
     id: 'Saat ini banyak gambar sedang dikonversi. Baca lagi sebentar lagi.',
     ja: '現在、多くの画像を変換しています。しばらくしてからもう一度読み取ってください。',
-    es: 'Se están convirtiendo muchas imágenes en este momento. Vuelve a leerla en un momento.',
+    es: 'Se están convirtiendo muchas imágenes en este momento. Vuelva a leerla en un momento.',
     zh: '现在有很多图片正在转换。请稍后再读取一次。',
   },
   scanned: {

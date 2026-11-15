@@ -109,7 +109,7 @@ no pueden firmar: su Webhook URL es la única clave, así que manténgalo en pri
 ### Otras apps
 
 Una herramienta que pide un **Slack, Discord or JANDI webhook URL** (URL de webhook de Slack, Discord o JANDI) puede publicar aquí: pegue el Webhook URL de Trina en ese campo.
-Las herramientas que no tienen ninguno de los dos se pueden conectar a través de Zapier o Make; **¿No ves tu app?** en la guía explica un
+Las herramientas que no tienen ninguno de los dos se pueden conectar a través de Zapier o Make; **¿No ve su app?** en la guía explica un
 ejemplo de cada uno.
 
 Funciona cualquier cosa que pueda enviar un mensaje a un Webhook URL (Zapier, Make, Grafana, Uptime Kuma, sus propios scripts). Pegue
