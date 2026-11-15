@@ -18,7 +18,8 @@ import { waitFor } from '../lib/wait'
 import { CONFIRMED } from '../lib/schedule-card'
 import { roomsOf } from '../../server/src/rooms/service'
 import type { TurnTool } from '../../server/src/services'
-import { postToRoomOff } from '../../server/src/chat/post-to-room'
+import { namesRecipient, postRefusal, postToRoomOff } from '../../server/src/chat/post-to-room'
+import { HttpError } from '../../server/src/http/errors'
 import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
 import { ROOMS_SEEN_READ_ONLY_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
 import { ROOMS_POST_RULE, sharedSection, sideRoomSection } from '../../server/src/chat/prompt'
@@ -804,5 +805,39 @@ describe('a shared chat: as the person whose turn it is, behind their card', () 
       const words = await turn('bob', `Tess Yoon에게 내일 10시라고 보내줘\n${post({ room: dm, text: '내일 10시예요', own_words: true })}`, { chat: chatId, answer: 'no' })
       expect(words.card!.origin).toBe('server')
     } finally { dropAlways(h.ctx.db, 'bob', 'card:post_to_room') }
+  })
+
+  test('who the asker named (namesRecipient): whole words outside Hangul, a part inside it; the ending rule only for a person\'s Hangul name', () => {
+    const person = (...names: string[]) => ({ names, person: true })
+    const room = (...names: string[]) => ({ names, person: false })
+    // Latin script: whole words only
+    expect(namesRecipient('send it to Jo please', 'Jo', person('Jo Han', 'jo'))).toBe(true)
+    expect(namesRecipient('please join us', 'Jo', person('Jo Han', 'jo'))).toBe(false)
+    expect(namesRecipient('the redesign is done', 'design', room('design'))).toBe(false)
+    expect(namesRecipient('post it in design, thanks', 'design', room('design'))).toBe(true)
+    expect(namesRecipient('send to Bob.', 'Bob', person('Bob Lee', 'bob'))).toBe(true)
+    // a Korean particle after a Latin name is no part of the word
+    expect(namesRecipient('Bob에게 보내줘', 'Bob', person('Bob Lee', 'bob'))).toBe(true)
+    expect(namesRecipient('Bobby에게 보내줘', 'Bob', person('Bob Lee', 'bob'))).toBe(false)
+    expect(namesRecipient('the job is done', 'ob', person('Bob Lee', 'bob'))).toBe(false)
+    // Hangul: a particle may follow
+    expect(namesRecipient('대현에게 보내줘', '대현', person('남대현', 'dh'))).toBe(true)
+    expect(namesRecipient('남대현님한테 공유해줘', '남대현', person('남대현', 'dh'))).toBe(true)
+    // the ending rule: a person's Hangul name only, never a room's or group's
+    expect(namesRecipient('디자인팀에 올려줘', '디자인팀', room('제품디자인팀'))).toBe(false)
+    expect(namesRecipient('제품디자인팀에 올려줘', '제품디자인팀', room('제품디자인팀'))).toBe(true)
+    expect(namesRecipient('crew에 보내', 'crew', room('Zeta crew'))).toBe(true)
+    expect(namesRecipient('screw it', 'crew', room('Zeta crew'))).toBe(false)
+    // nothing said, or only an id
+    expect(namesRecipient('', 'Bob', person('Bob Lee'))).toBe(false)
+    expect(namesRecipient('send person:bob', 'person:bob', person('Bob Lee'))).toBe(false)
+  })
+
+  test('a refusal with the server\'s own words: in a shared chat the AI gets a generic line, never the message (it could name a room)', () => {
+    const e = new HttpError('conflict', 'Cannot post to Zeta crew (Carol Park, Erin Yoo)')
+    const shared = postRefusal(e, '"Zeta"', 'r1', true)
+    expect(shared.content[0]!.text).toBe('Nothing was posted: the post could not be checked. Tell the user it was not sent; they can ask again.')
+    expect(JSON.stringify(shared)).not.toContain('Zeta crew')
+    expect(postRefusal(e, '#x', 'r1', false).content[0]!.text).toContain('Zeta crew')
   })
 })

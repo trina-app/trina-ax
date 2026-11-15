@@ -394,43 +394,62 @@ export function postToRoomTool(exec: TurnExec): Tool {
     },
   }
 
-  /** A check's refusal (HttpError) as a reason and a next step for the AI. */
-  function refusalOf(e: unknown, title: string, roomId: string) {
-    if (!(e instanceof HttpError)) throw e
-    const reason = e.extra.params?.reason
-    if (e.code === 'rate_limited') return no(`Nothing was posted: the user has sent many messages in a short time (the sending limit). Try again in ${e.retryAfter ?? 1} seconds, or tell the user to post it a little later.`, 'refused: sending budget')
-    if (reason === 'confidential') return no('Nothing was posted: this is a confidential conversation (safe operations), and nothing of it goes to a room. Tell the user its content stays here.', 'refused: confidential chat')
-    if (reason === 'answer_share_hidden') return no(`Nothing was posted: this content used earlier room answers that some people in ${title} cannot see (answers hidden from them), so it never goes there, confirmed or not. Tell the user; they can post to a room whose people can see those answers, or write the message without that content.`, 'refused: hidden answers')
-    if (reason === 'thread_root') return no(`Nothing was posted: that message's thread in ${title} cannot take a reply (the message may have been deleted). If the user wants it in the room instead, call post_to_room again with room "${roomId}" and no thread_id.`, 'refused: thread root')
-    if (e.code === 'not_found') return no('Nothing was posted: that room is archived or the user is no longer in it. Call rooms to see the rooms they are in now.', 'refused: not my room')
-    return no(`Nothing was posted: ${e.message || 'the post could not be checked'}. Tell the user.`, `refused: ${e.code}`)
-  }
+  function refusalOf(e: unknown, title: string, roomId: string) { return postRefusal(e, title, roomId, !!exec.shared) }
+}
+
+/** A check's refusal (HttpError) as a reason and a next step for the AI; `shared`: a shared chat. */
+export function postRefusal(e: unknown, title: string, roomId: string, shared: boolean) {
+  const no = (t: string, summary: string) => ({ ...text(t, true), summary: `post_to_room -> ${summary}` })
+  if (!(e instanceof HttpError)) throw e
+  const reason = e.extra.params?.reason
+  if (e.code === 'rate_limited') return no(`Nothing was posted: the user has sent many messages in a short time (the sending limit). Try again in ${e.retryAfter ?? 1} seconds, or tell the user to post it a little later.`, 'refused: sending budget')
+  if (reason === 'confidential') return no('Nothing was posted: this is a confidential conversation (safe operations), and nothing of it goes to a room. Tell the user its content stays here.', 'refused: confidential chat')
+  if (reason === 'answer_share_hidden') return no(`Nothing was posted: this content used earlier room answers that some people in ${title} cannot see (answers hidden from them), so it never goes there, confirmed or not. Tell the user; they can post to a room whose people can see those answers, or write the message without that content.`, 'refused: hidden answers')
+  if (reason === 'thread_root') return no(`Nothing was posted: that message's thread in ${title} cannot take a reply (the message may have been deleted). If the user wants it in the room instead, call post_to_room again with room "${roomId}" and no thread_id.`, 'refused: thread root')
+  if (e.code === 'not_found') return no('Nothing was posted: that room is archived or the user is no longer in it. Call rooms to see the rooms they are in now.', 'refused: not my room')
+  // (a shared chat: no server words, which could name a room, reach the transcript everyone there reads)
+  if (shared) return no('Nothing was posted: the post could not be checked. Tell the user it was not sent; they can ask again.', `refused: ${e.code}`)
+  return no(`Nothing was posted: ${e.message || 'the post could not be checked'}. Tell the user.`, `refused: ${e.code}`)
 }
 
 /** The names that stand for where a post goes, as matched: a teammate's name and username; a 1:1 chat's other
- * person's; a team room's or group chat's own name (a team room's group name too). */
-export function recipientNames(db: import('bun:sqlite').Database, me: string, room: RoomRow | null, to: Teammate | null): string[] {
+ * person's; a team room's or group chat's own name (a team room's group name too). `person`: they are a person's. */
+export function recipientNames(db: import('bun:sqlite').Database, me: string, room: RoomRow | null, to: Teammate | null): { names: string[]; person: boolean } {
   if (to) {
     const u = db.query('SELECT name, username FROM users WHERE id = ?').get(to.id) as { name: string; username: string } | null
-    return [to.name, u?.username ?? ''].filter(Boolean)
+    return { names: [to.name, u?.username ?? ''].filter(Boolean), person: true }
   }
-  if (!room) return []
-  if (room.kind === 'dm') return (db.query('SELECT u.name, u.username FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? AND m.user_id <> ?').all(room.id, me) as { name: string; username: string }[]).flatMap((u) => [u.name, u.username])
-  return [room.name ?? '', room.kind === 'team' ? groupName(db, room) ?? '' : ''].filter(Boolean)
+  if (!room) return { names: [], person: false }
+  if (room.kind === 'dm') return { names: (db.query('SELECT u.name, u.username FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? AND m.user_id <> ?').all(room.id, me) as { name: string; username: string }[]).flatMap((u) => [u.name, u.username]), person: true }
+  return { names: [room.name ?? '', room.kind === 'team' ? groupName(db, room) ?? '' : ''].filter(Boolean), person: false }
 }
 
 const fold = (s: string) => s.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim()
-/** Does the asker's own message (`messageId`, the turn's question) name the recipient? A matched name or username in it,
- * or the words the AI gave (`ref`, 님/씨 dropped) when they are in it and are that name in full, one word of it, or its
- * end (a Korean given name: "대현" for "남대현"), two letters at least. Fails closed. */
-export function namedByAsker(db: import('bun:sqlite').Database, messageId: string, ref: string | undefined, names: readonly string[]): boolean {
-  const said = fold((db.query('SELECT content FROM messages WHERE id = ?').get(messageId) as { content: string | null } | null)?.content ?? '')
-  if (!said) return false
-  const ns = names.map(fold).filter((n) => n.length >= 2)
-  if (ns.some((n) => said.includes(n))) return true
+const HANGUL = /\p{Script=Hangul}/u
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+/** `n` is in `said`: Hangul as a part (particles follow a name: "대현에게"), any other script as whole words only
+ * ("jo" is not in "join", "design" not in "redesign"): no letter or digit right before or after it, but a Hangul one
+ * (a particle after a Latin name: "Bob에게") */
+const WORD_EDGE = '(?!\\p{Script=Hangul})[\\p{L}\\p{N}]'
+const holds = (said: string, n: string) => HANGUL.test(n) ? said.includes(n) : new RegExp(`(?<!${WORD_EDGE})${escapeRe(n)}(?!${WORD_EDGE})`, 'u').test(said)
+
+/** Does `said` (the asker's own message) name the recipient? A matched name or username in it, or the words the AI gave
+ * (`ref`, 님/씨 dropped) when they are in it and are that name in full or one word of it, or, for a person's Hangul
+ * name only, its end (a given name: "대현" for "남대현"); two letters at least (holds: whole words outside Hangul). A
+ * room or group name matches only in full or by a whole word. Fails closed. */
+export function namesRecipient(said: string, ref: string | undefined, r0: { names: readonly string[]; person: boolean }): boolean {
+  const text = fold(said)
+  if (!text) return false
+  const ns = r0.names.map(fold).filter((n) => n.length >= 2)
+  if (ns.some((n) => holds(text, n))) return true
   const r = fold((ref ?? '').replace(/\s*(님|씨)$/u, ''))
-  if (r.length < 2 || r.startsWith(PERSON_REF) || !said.includes(r)) return false
-  return ns.some((n) => n === r || n.split(' ').includes(r) || n.endsWith(r))
+  if (r.length < 2 || r.startsWith(PERSON_REF) || !holds(text, r)) return false
+  return ns.some((n) => n === r || n.split(' ').includes(r) || (r0.person && HANGUL.test(r) && HANGUL.test(n) && n.endsWith(r)))
+}
+
+/** namesRecipient on the turn's own question (`messageId`). */
+export function namedByAsker(db: import('bun:sqlite').Database, messageId: string, ref: string | undefined, r0: { names: readonly string[]; person: boolean }): boolean {
+  return namesRecipient((db.query('SELECT content FROM messages WHERE id = ?').get(messageId) as { content: string | null } | null)?.content ?? '', ref, r0)
 }
 
 /** The questions above an answer on its branch, the nearest first: the first line or so of each (all a quote's thread

@@ -29041,9 +29041,13 @@ address still fold. Code: `web/src/lib/activity.ts` sameEvent. Version impact: *
     runs never offer it.
 - **Always allow, narrowed in shared chats** (security review of #980). Other people's messages are in the AI's
   context there, so the asker's "Always allow" for posts counts only when the asker's own latest message names the
-  recipient as matched (`namedByAsker`: the person's name or username, a 1:1 chat's other person, a room's or its
-  group's name; or the words the AI gave when they are in the message and are that name in full, one word of it or its
-  end, like "대현" for "남대현"; two letters at least; fails closed). Otherwise the card shows (without the "Always
+  recipient as matched (`namesRecipient`: the person's name or username, a 1:1 chat's other person, a room's or its
+  group's name; or the words the AI gave when they are in the message and are that name in full or one word of it, or,
+  for a person's Hangul name only, its end, like "대현" for "남대현"; two letters at least; fails closed). Outside
+  Hangul a name counts only as whole words ("jo" is not in "join", "design" not in "redesign"; a Korean particle after
+  it is fine: "Bob에게"); in Hangul a part counts, so particles match ("대현에게"). Rooms and group names never use the
+  ending rule. A check's refusal in a shared chat gives the AI a generic line, never the server's own message (it could
+  name a room). Otherwise the card shows (without the "Always
   allow" choice). `own_words` never goes without the card there, and a card that offers files always asks, as
   everywhere. In the asker's own chat nothing changes.
 - **Prompt.** `sharedSection(…, post)`: with the tool, one line says to use post_to_room for "send/share this with
