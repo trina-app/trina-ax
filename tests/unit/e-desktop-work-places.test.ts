@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   APP_DATA_ALLOWED, appDataAllowed, cloudLabel, homeExcluded, macCloudPlaces, macDataless, messengerPlaces, parseBookmark, parseLnk, parseOfficeBookmarks,
-  parseSharedFileList, parseStatFlags, placeOf, windowsCloudPlaces, winPlaceholder, workFolders, WORK_FOLDER_WORDS,
+  parseSharedFileList, parseStatFlags, parseSyncRoots, placeOf, windowsCloudPlaces, winPlaceholder, workFolders, WORK_FOLDER_WORDS,
 } from '../../desktop/src/common/work-places'
 import { parseWindowsSearch, windowsSearchScript, type IndexedFile } from '../../desktop/src/common/work-index'
 import { filesFromIndex, lookWide, scanAsk, scanRoots, WorkFileSessions, type WorkFs, type WorkRoot, type WorkStat } from '../../desktop/src/common/work-files'
@@ -169,6 +169,16 @@ describe('the places', () => {
     ])
     const win = windowsCloudPlaces('C:\\Users\\alex', { OneDriveCommercial: 'C:\\Users\\alex\\OneDrive - Acme', OneDrive: 'C:\\Users\\alex\\OneDrive - Acme' }, ['Dropbox', 'Google Drive', 'Documents', 'OneDrive - Acme'])
     expect(win.map((p) => p.label)).toEqual(['OneDrive – Acme', 'Dropbox', 'Google Drive'])
+    // OneDrive's sync roots (the registry's MountPoint lines): each SharePoint library is a place; OneDrive itself once,
+    // and a shared folder added inside OneDrive is OneDrive's
+    const roots = parseSyncRoots('C:\\Users\\alex\\OneDrive - Acme\r\nC:\\Users\\alex\\Acme\\Acme - Documents\r\nC:\\Users\\alex\\OneDrive - Acme\\Shared plans\r\n\r\nhttps://acme.sharepoint.com/x\r\nc:\\users\\alex\\acme\\acme - documents\r\n')
+    expect(roots).toEqual(['C:\\Users\\alex\\OneDrive - Acme', 'C:\\Users\\alex\\Acme\\Acme - Documents', 'C:\\Users\\alex\\OneDrive - Acme\\Shared plans'])
+    const sp = windowsCloudPlaces('C:\\Users\\alex', { OneDriveCommercial: 'C:\\Users\\alex\\OneDrive - Acme' }, [], roots)
+    expect(sp.map((p) => [p.path, p.label])).toEqual([['C:\\Users\\alex\\OneDrive - Acme', 'OneDrive – Acme'], ['C:\\Users\\alex\\Acme\\Acme - Documents', 'Acme – Documents']])
+    expect(parseSyncRoots('')).toEqual([])
+    // a trailing backslash is the same folder; a library that only starts with OneDrive's name is its own place
+    expect(parseSyncRoots('C:\\X\\\r\nC:\\X\r\nD:\\')).toEqual(['C:\\X', 'D:\\'])
+    expect(windowsCloudPlaces('C:\\Users\\alex', { OneDrive: 'C:\\Users\\alex\\OneDrive - Acme' }, [], ['C:\\Users\\alex\\OneDrive - Acme Corp']).map((p) => p.label)).toEqual(['OneDrive – Acme', 'OneDrive – Acme Corp'])
   })
 
   test('work folders at the top of home: work words in six languages and the company\'s names, never a system or cloud folder', () => {
@@ -482,7 +492,7 @@ describe('review of part 5', () => {
   test('Reopen only after Open Settings, while the app still has no access, never during a look; the index asks for documents only', () => {
     const ctl = readFileSync(join(import.meta.dir, '../../desktop/src/main/work-files.ts'), 'utf8')
     expect(ctl).toMatch(/async relaunch\(\) \{\s*if \(process\.platform !== 'darwin' \|\| this\.busy \|\| !this\.fullDiskSettingsAt \|\| Date\.now\(\) - this\.fullDiskSettingsAt > 15 \* 60_000\) return\s*if \(\(await this\.fullDisk\(\)\) === 'granted'\) return/)
-    expect(windowsSearchScript(['C:\\Users\\a'])).toContain("System.FileExtension IN (''.pdf'',")
+    expect(windowsSearchScript(['C:\\Users\\a'])).toContain("(System.FileExtension = ''.pdf'' OR")
   })
 })
 
