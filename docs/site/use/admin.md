@@ -23,7 +23,7 @@ permissions, invite your team, prepare a team skill, make the first backup. A fi
 | **Activity** | Usage, Activity log |
 | **Team** | Team settings, System |
 
-**Members & invites** also lists the guests: people from outside the team who are in one chat or project. [Read about guests](guests.md).
+**Members & invites** also lists the guests: people from outside the team who are in one group chat or project. [Read about guests](guests.md).
 
 :::note
 Earlier versions had the AI accounts on their own **AI connections** page, next to **AI engines**. Both are one
@@ -49,7 +49,7 @@ Claude or OpenAI account. Each row shows whether that engine is ready.
 #### Invite the team
 Start with a small pilot group, then confirm roles and folder access. **Members & invites** also lists the team's [guests](#guests).
 Under the list, **Invite links** shows only the links that still work: the team invite link and invite links nobody
-has used yet. A used or expired link, or a guest link whose room or project is gone, leaves the list; who joined is in the member list and in the [Activity log](#activity-log).
+has used yet. A used or expired link, or a guest link whose group chat or project is gone, leaves the list; who joined is in the member list and in the [Activity log](#activity-log).
 
 #### Add a first skill
 Copy a starter skill and review its result against the sources. [Read about skills](team-skills.md).
@@ -83,14 +83,15 @@ was last used. The **⋯** menu of an account has Check again, Move up / down, r
 
 ## Guests
 
-**Admin › Members & invites** ends with **Guests**: people from outside the team, each in one room or one project, who
+**Admin › Members & invites** ends with **Guests**: people from outside the team, each in one group chat or one project, who
 do not take seats. Each row says where the guest is and which AI they have. Its **⋯** menu has **Change AI** (no AI,
 their own sign-in, or a team AI account with a monthly limit), **Make team member** and **Remove guest**. Members invite
-guests themselves from a group conversation or a project ([Guests](chats-and-projects.md#guests)). Owners and admins can
-also choose **Invite to team** › **Guest** here and pick the one group chat or project ([Guests: From Admin](guests.md#from-admin)). A team with no guests
-has no **Guests** section; pick **Guests** in the list of roles to check.
+guests themselves from a group chat or a project ([Guests](chats-and-projects.md#guests)). Owners and admins can
+also choose **Invite people** › **Guest** here and pick the one group chat or project ([Guests: From Admin](guests.md#from-admin)). A team with no guests
+has no **Guests** section; pick **Guests** in the list of roles to check. On Admin **Home**, the **Guests** card opens
+Members & invites with only the guests listed.
 
-![Admin › Members & invites › Guests on a phone: Morgan Reyes, in the room Launch email, with No AI](../images/admin/guests.webp "Guests")
+![Admin › Members & invites › Guests on a phone: Morgan Reyes, in the Launch email group chat, with No AI](../images/admin/guests.webp "Guests")
 
 ## Connected apps
 
@@ -127,6 +128,6 @@ From 0.4.0. In 0.3.0 and earlier, all of this and the engines are on one **AI en
 
 ## System
 
-**Admin › System** shows the team's storage, the version and updates, the server's health, how the team reaches the server, connected folders, backups and export, as plain sections. Storage counts the files of deleted chats and rooms in **Team files** ("Includes 120 MB from deleted chats and rooms, removed after 30 days"): they are kept 30 days so they can be brought back. Health lists what needs attention first, such as a missing engine, a failed check or disabled automatic updates; the checks that passed fold into one line with **Show details**. An admin who is not the owner sees the plan, storage and, on an office Mac, the automatic updates. To keep a small disk from filling, backups leave out folders that are rebuilt automatically, and caches nobody used for 14 days are cleared. Your own files are never touched. When an update waits for running tasks to finish, System says so; it offers **Wait, then update** or **Update now anyway**.
+**Admin › System** shows the team's storage, the version and updates, the server's health, how the team reaches the server, connected folders, backups and export, as plain sections. Storage counts the files of deleted chats and conversations in **Team files** ("Includes 120 MB from deleted chats and conversations, removed after 30 days"): they are kept 30 days so they can be brought back. Health lists what needs attention first, such as a missing engine, a failed check or disabled automatic updates; the checks that passed fold into one line with **Show details**. An admin who is not the owner sees the plan, storage and, on an office Mac, the automatic updates. To keep a small disk from filling, backups leave out folders that are rebuilt automatically, and caches nobody used for 14 days are cleared. Your own files are never touched. When an update waits for running tasks to finish, System says so; it offers **Wait, then update** or **Update now anyway**.
 
 ![Admin on a phone: one list of the admin areas, with the five tabs at the bottom](../images/admin/admin-phone.webp "Admin on a phone")

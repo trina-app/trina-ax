@@ -138,7 +138,9 @@ export function useAdminOverview() {
   const act = useAction()
 
   const item = (name: string, state: string) => t('adminHome.item', { name, state })
-  const active = users.data?.items.filter((u) => u.status === 'active') ?? []
+  // team members only (the Members page's own count); guests take no seat and have their own card (Home)
+  const active = users.data?.items.filter((u) => u.status === 'active' && u.role !== 'guest') ?? []
+  const guests = users.data?.items.filter((u) => u.role === 'guest') ?? []
   const noAiPeople = users.data ? users.data.items.filter((u) => users.data?.noAi?.includes(u.id)) : []
   const noAi = noAiPeople.map((u) => u.name)
   // every one of them only waits for a limit to end (noAiUntil): the line says until when (the last end: all have AI then)
@@ -213,7 +215,7 @@ export function useAdminOverview() {
 
   return {
     owner, users, engines, credentials, services, plugins, usage, audit, storage, diagnostics,
-    active, openInvites, noAi, badEngines, noEngine, limitedEngines, badCredentials, badServices, storageBad, checksToLook,
+    active, guests, openInvites, noAi, badEngines, noEngine, limitedEngines, badCredentials, badServices, storageBad, checksToLook,
     allChecksOk, attention, ready, unchecked, defaultEngine, latest, install, toFix,
   }
 }

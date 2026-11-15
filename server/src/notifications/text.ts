@@ -28,9 +28,9 @@ export const TEXT = {
     id: 'Ada pesan baru untuk Anda.', ja: "新しいメッセージが届きました。", es: "Tiene un mensaje nuevo.", zh: "你有一条新消息。",
   },
   'room.mention': {
-    ko: '대화방에서 나를 언급한 메시지가 있어요.',
-    en: 'Someone mentioned you in a room.',
-    id: 'Seseorang menyebut Anda di ruang obrolan.', ja: "ルームであなたがメンションされました。", es: "Alguien le mencionó en una sala.", zh: "有人在群聊中提到了你。",
+    ko: '대화에서 나를 언급한 메시지가 있어요.',
+    en: 'Someone mentioned you in a conversation.',
+    id: 'Seseorang menyebut Anda di percakapan.', ja: "トークであなたがメンションされました。", es: "Alguien le mencionó en una conversación.", zh: "有人在聊天中提到了你。",
   },
   // 팀장 넘기기: someone joined with the owner's lead link; who it was stays in the app
   'owner.lead_joined': {
@@ -61,9 +61,9 @@ export const TEXT = {
   // an app in a room I manage paused for the day (room_app_notices): never the app's or the room's name (the push
   // gateway has the same words: push-gateway/src/text.ts)
   'room_app.paused': {
-    ko: '대화방의 앱이 오늘 하루 멈췄어요.',
-    en: 'An app in a room was paused for today.',
-    id: 'Sebuah aplikasi di ruang obrolan dijeda untuk hari ini.', ja: 'ルームのアプリが今日は一時停止されました。', es: 'Una aplicación de una sala se pausó por hoy.', zh: '群聊中的一个应用今天已暂停。',
+    ko: '대화에 추가한 앱이 오늘 하루 멈췄어요.',
+    en: 'An app in a conversation was paused for today.',
+    id: 'Sebuah aplikasi di percakapan dijeda untuk hari ini.', ja: 'トークのアプリが今日は一時停止されました。', es: 'Una aplicación de una conversación se pausó por hoy.', zh: '聊天中的一个应用今天已暂停。',
   },
 } satisfies Record<'title' | PushEventType, Record<Locale, string>>
 /** The line under the sharer's name (the title) when an iPhone's notification extension names them

@@ -78,7 +78,7 @@ for (const vp of SIZES) {
       await (await menuItem(page)).click()
       await page.getByTestId('apps-pick-other').click()
       await expect(page.getByTestId('apps-title')).toHaveText('Connect another app')
-      await expect(page.getByTestId('apps-address')).toHaveText("Copying makes this room's own Webhook URL")
+      await expect(page.getByTestId('apps-address')).toHaveText("Copying makes this conversation's own Webhook URL")
       // before the first Copy: nothing to wait for and no URL to keep private yet
       await expect(page.getByTestId('apps-status')).toHaveText('Nothing is added yet. Copy the Webhook URL to start.')
       await expect(page.getByTestId('apps-address-private')).toHaveCount(0)

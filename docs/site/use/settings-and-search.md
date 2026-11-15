@@ -58,10 +58,10 @@ Press **Esc** or choose **✕**. You are back where you were.
 
 ![The Settings window: sections on the left, the Profile section on the right with photo, name, job title, email, username, role, Delete account and language](../images/settings/settings.webp "The Settings window")
 
-**Allowed for Trina** lists what you picked **Always allow** for on a confirmation card, and the room folders you
-allowed new files in. Delete one and you are asked again next time.
+**Allowed for Trina** lists what you picked **Always allow** for on a confirmation card, and the folders you
+allowed new files in from conversations. Delete one and you are asked again next time.
 
-**Browser** (in the desktop app, and on the web while **Allow all websites** is on) has **Allow all websites**. When it is on, the AI opens public websites without asking when you ask it, in your chats and in rooms. Scheduled tasks still ask. Addresses with long hard-to-read strings or a long query still ask, but that catches obvious tokens only: a hidden instruction in a document, page or room message can make the AI send anything it can read to any site. You can also turn it on from an address card ("Allow all websites (turn off in Settings)"). In the desktop app the same switch covers the app's own browser, which asks once more in its own window. The section is there while your team allows it.
+**Browser** (in the desktop app, and on the web while **Allow all websites** is on) has **Allow all websites**. When it is on, the AI opens public websites without asking when you ask it, in your chats and in conversations. Scheduled tasks still ask. Addresses with long hard-to-read strings or a long query still ask, but that catches obvious tokens only: a hidden instruction in a document, page or conversation message can make the AI send anything it can read to any site. You can also turn it on from an address card ("Allow all websites (turn off in Settings)"). In the desktop app the same switch covers the app's own browser, which asks once more in its own window. The section is there while your team allows it.
 
 On a phone, Settings fills the screen. The section list comes first, and **←** goes back to it.
 
@@ -71,7 +71,7 @@ On a phone, Settings fills the screen. The section list comes first, and **←**
 
 ## Notifications
 
-**Settings › Notifications** chooses what reaches you: messages in conversations (direct and group conversations and
+**Settings › Notifications** chooses what reaches you: messages in conversations (direct messages, group chats and
 mentions, every new message, or nothing), replies in your threads, **Do not disturb** hours, scheduled tasks,
 connections, team skills and **Chats shared with me**. Under **Phone**, **Phone notifications only when I'm away** keeps
 your phone quiet while you use Trina on a computer. **This device** has the sound and, in a browser, **Browser
@@ -106,4 +106,4 @@ Press **⌘K** (Ctrl+K on Windows), or choose **Search** under **Ask Trina**.
 - **Every word counts**, in any order: "견적서 보내" finds "견적서를 보내드렸어요" in messages, chats and file names.
 - **Keys:** ↑ and ↓ move, Enter opens, ← and → change the tab, Esc closes.
 
-![Search finding a word in a room message: who wrote it, in which room, and when](../images/search/messages.webp "Search finds messages too")
+![Search finding a word in a message: who wrote it, in which conversation, and when](../images/search/messages.webp "Search finds messages too")

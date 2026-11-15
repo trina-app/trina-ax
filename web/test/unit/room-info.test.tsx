@@ -31,7 +31,7 @@ test('a group chat I manage: my name row, invite, a menu on every row but mine; 
     expect(m.find('room-name')).toBeTruthy()
     expect(m.find('room-invite')).toBeTruthy()
     expect(m.find('room-leave')).toBeNull()
-    expect(m.get('room-manager').textContent).toContain('Manager')
+    expect(m.get('room-manager').textContent).toContain('Chat manager')
     expect(menus(m)).toBe(2)
   } finally { await m.unmount() }
 })
