@@ -55,17 +55,15 @@ describe('text helpers', () => {
     expect(skillTopic('ja', '広告コピー', 'x')).toBe('「広告コピー」')
     expect(skillTopic('en', null, 'a team skill')).toBe('a team skill')
   })
-  test('the title: what the goal counts, the goal\'s own skill (the first given), never a skipped path; "N people" per language', () => {
+  test('the title: up to three skill names, the first given first, each once, never a skipped path; "N people" per language', () => {
     const list = [{ path: 'a', name: '신청서' }, { path: 'deck', name: '회사 소개서' }, { path: 'b', name: '광고 문구' }, { path: 'c', name: '견적' }, { path: 'd', name: '카드뉴스' }]
-    expect(goalTitleSkills('광고 문구', list, ['deck'])).toEqual(['광고 문구'])
-    expect(goalTitleSkills(null, list, ['a'])).toEqual(['회사 소개서'])
-    expect(goalTitleSkills(null, list.slice(1), ['deck'])).toEqual(['광고 문구'])
+    expect(goalTitleSkills('광고 문구', list, ['deck'])).toEqual(['광고 문구', '신청서', '견적'])
     expect(goalTitleSkills(null, [], [])).toEqual([])
-    expect(goalTitleText(ko, 'ko', ['광고 문구'], 3)).toBe("이번 주에 3명이 '광고 문구' 써 보기")
-    expect(goalTitleText(en, 'en', ['Promo cards'], 3)).toBe("3 people using 'Promo cards' this week")
+    expect(goalTitleText(ko, 'ko', ['광고 문구', '견적'], 3)).toBe("이번 주에 3명이 '광고 문구', '견적' 써 보기")
+    expect(goalTitleText(en, 'en', ['Ad copy', 'Quotes', 'Promo cards'], 3)).toBe("3 people using 'Ad copy', 'Quotes', and 'Promo cards' this week")
     expect(goalTitleText(en, 'en', [], 3)).toBe('3 people using a team skill this week')
     expect(goalTitleText(en, 'en', ['Promo cards'], 1)).toBe("1 person using 'Promo cards' this week")
-    expect(goalTitleText((k, p) => translate('ja', k, p), 'ja', ['広告'], 3)).toBe('今週3人で「広告」を使ってみる')
+    expect(goalTitleText((k, p) => translate('ja', k, p), 'ja', ['広告', '見積'], 3)).toBe('今週3人で「広告」「見積」を使ってみる')
   })
   test('progress up to the target, then a count; three names with "·", then +N (deleted people counted, never named)', () => {
     expect(goalProgressText(ko, 2, 3)).toBe('2/3')
@@ -283,7 +281,7 @@ describe('the card: a title, one line, one button', () => {
       } finally { await m.unmount() }
     } finally { globalThis.fetch = realFetch }
   })
-  test("the title names the goal's own skill only (the team's others are read, never named; never the intro deck); the count small", async () => {
+  test("the title names a few of this team's own skills (GET /api/skills/examples): the goal's one first, then the others, never the intro deck; the count small", async () => {
     const realFetch = globalThis.fetch
     const s = (path: string, name: string, title: string) => ({ path, name, title, summary: '' })
     const skills = [s('skills/general/intro-deck/SKILL.md', 'intro-deck', '회사 소개서'), s('skills/forms/SKILL.md', 'forms', '신청서'), s(AD, 'ad-copy', '광고 문구'), s('skills/quote-maker/SKILL.md', 'quote-maker', 'quote-maker'), s('skills/card-news/SKILL.md', 'card-news', '카드뉴스')]
@@ -297,9 +295,8 @@ describe('the card: a title, one line, one button', () => {
       const m = await card(goal({ joined: 1, waiting: { first: '민지', more: 0 } }), LINK)
       try {
         const title = () => m.get('team-goal').querySelectorAll('h2')[0]!.textContent
-        await m.until(() => asked > 0 || null, 'the team\'s skills read')
-        await m.settle(30)
-        expect(title()).toBe("이번 주에 3명이 '광고 문구' 써 보기 · 1/3 · 5일 남음")
+        await m.until(() => (asked > 0 && title()!.includes('신청서')) || null, 'the team\'s skills in the title')
+        expect(title()).toBe("이번 주에 3명이 '광고 문구', '신청서', 'quote maker' 써 보기 · 1/3 · 5일 남음")
         expect(m.get('team-goal-progress').className).toContain('text-xs')
       } finally { await m.unmount() }
     } finally { globalThis.fetch = realFetch }

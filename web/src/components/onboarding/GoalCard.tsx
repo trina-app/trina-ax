@@ -160,8 +160,8 @@ export function GoalCard({ goal, onDismiss, link: given, hasSkills: givenSkills 
       )
     }
   }
-  // what the goal counts: the goal's own skill used by that many people this week (never the intro deck); the count and
-  // the days follow it, small
+  // how many people use the team's skills this week, naming a few of this team's own skills (the goal's one first; owner
+  // 2026-11-11), never the intro deck; the count and the days follow it, small
   const deckPaths = [GENERAL_DECK_SKILL, ...(welcome?.general?.introDeckPath ? [welcome.general.introDeckPath] : [])]
   const titleNames = goalTitleSkills(named?.name ?? null, (prepared?.skills ?? []).map((p) => ({ path: p.path, name: skillLabel({ name: p.name, title: p.title }) })), deckPaths)
   const titleText = goalTitleText(t, locale, titleNames, goal.target)

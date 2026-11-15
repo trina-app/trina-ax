@@ -1,4 +1,4 @@
 - **Getting started › Connect AI** and Home's connect card no longer show the "Other AI services such as OpenRouter: Admin › AI accounts" line. Other AI services stay in Admin › AI accounts.
 - The end screen's button says what it makes, for example **Make promo cards** (it said "Make a 'Promo cards'"), and the list of Admin places under the steps you put off is gone.
 - After getting started, the setup row in the sidebar stays while steps you put off are left ("Still to do: Team files · Tools") and opens the first of them; ✕ hides it. Phones never name Tools.
-- Home shows the owner one thing: the goal card, now titled "3 people using 'Promo cards' this week", without the "Ready in your team" list under it.
+- Home shows the owner one thing: the goal card, now titled by how many people use the team's skills ("3 people using 'Promo cards' and 'Promo video' this week"), without the "Ready in your team" list under it.

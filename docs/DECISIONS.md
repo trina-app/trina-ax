@@ -28438,9 +28438,9 @@ QA on a private copy of QA-Acme in managed AI mode with a plan file of two guest
   first); on a phone not on Home, as the unfinished row.
 - **Home: one thing.** The owner's "Ready in your team" (TeamPrepared) stays out while the goal card shows (HomeGoal
   `onShown`; it waits for that answer, so nothing flashes). Admins and members unchanged.
-- **Goal title.** What the trial counts, the leader included: "3 people using 'Promo cards' this week" (`goal.titleSkills`
-  with `target`; "3 people using a team skill this week" without a skill). It names the goal's own skill only
-  (`GOAL_TITLE_SKILLS` 1): supersedes the owner's 2026-11-11 title with up to three of the team's skills, because the
-  goal is one skill used by three people.
+- **Goal title.** The counting word only: "3 people using 'Promo cards', 'Promo video', and 'Natural writing' this
+  week" (`goal.titleSkills` with `target`; "3 people using a team skill this week" without a skill). "People", never
+  "teammates": the leader is one of the three. The owner's 2026-11-11 choice stays: up to three of the team's own
+  skills named, the goal's one first (`GOAL_TITLE_SKILLS` 3).
 - Tests: web/test/unit/setup-row.test.tsx, welcome.test.tsx, goal-card.test.tsx, setup-return.test.tsx,
   connect-ai.test.tsx; web/test/e2e/welcome-exits.spec.ts, no-ai.spec.ts.
