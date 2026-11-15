@@ -850,7 +850,7 @@ describe('teamax update status', () => {
 describe('desktop updater configuration', () => {
   test('Windows packaged = electron-updater; Mac = notice; store builds and unpacked = off (tests can force a mode)', () => {
     expect(updateMode('win32', true)).toBe('auto-install')
-    expect(updateMode('darwin', true)).toBe('auto-install') // the Developer ID signed dmg (since 0.5.5)
+    expect(updateMode('darwin', true)).toBe('notice') // an unsigned dmg; the Developer ID build: g-mac-app.test.ts
     expect(updateMode('linux', true)).toBe('off')
     expect(updateMode('win32', false)).toBe('off')
     expect(updateMode('darwin', false, 'auto-install')).toBe('auto-install')

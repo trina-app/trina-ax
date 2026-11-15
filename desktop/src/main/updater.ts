@@ -19,7 +19,7 @@ import { DEV_SESSION_COOKIE, SESSION_COOKIE } from '@mycel/shared/api'
 import { APP_DOWNLOADS } from '@mycel/shared'
 import { t, type UiLocale } from '../common/i18n'
 import { partitionFor } from '../common/teams'
-import { CHECK_EVERY_MS, FIRST_CHECK_MS, feedUrlFor, genericFeed, macNotice, storeBuild, updateMode, type UpdateMode } from '../common/update'
+import { CHECK_EVERY_MS, FIRST_CHECK_MS, feedUrlFor, genericFeed, macNotice, selfUpdatingMac, storeBuild, updateMode, type UpdateMode } from '../common/update'
 import { manifestSources, verificationRequired, verifyInstaller } from '../common/update-verify'
 import { debug } from './debug'
 
@@ -58,7 +58,9 @@ export class DesktopUpdater {
   constructor(private host: UpdaterHost, private trust: { keys?: readonly string[]; product?: string; platform?: NodeJS.Platform } = {}) {
     const platform = trust.platform ?? process.platform
     this.mac = platform === 'darwin'
-    this.mode = updateMode(platform, app.isPackaged, process.env.MYCEL_DESKTOP_UPDATE_TEST, storeBuild(process))
+    let pkg: unknown = null
+    if (this.mac && app.isPackaged) { try { pkg = JSON.parse(readFileSync(join(app.getAppPath(), 'package.json'), 'utf8')) } catch {} }
+    this.mode = updateMode(platform, app.isPackaged, process.env.MYCEL_DESKTOP_UPDATE_TEST, storeBuild(process), selfUpdatingMac(pkg))
   }
 
   start() {
@@ -84,8 +86,12 @@ export class DesktopUpdater {
     this.busy = true
     try {
       if (this.mode === 'auto-install' && this.mac) {
-        // a team server that offers no Mac update feed yet (older than 0.5.5, or no Mac app in its release): the notice
-        try { await this.checkWindows(team) } catch (e) { debug('mac update feed', (e as Error).message); await this.checkMac(team) }
+        // a team server that offers no Mac update feed yet (older than 0.5.5, or no Mac app in its release): the notice.
+        // Only then: a download that broke off is simply tried again at the next check
+        try { await this.checkWindows(team) } catch (e) {
+          debug('mac update feed', (e as Error).message)
+          if ((e as { code?: string }).code === 'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND') await this.checkMac(team)
+        }
       } else if (this.mode === 'auto-install') await this.checkWindows(team)
       else if (this.mode === 'notice') await this.checkMac(team)
     } catch (e) {
@@ -152,6 +158,9 @@ export class DesktopUpdater {
           console.warn(`[desktop] update ${version} not installed: ${(e as Error).message}`)
           this.refused.add(version) // not downloaded again in this run (an app run from the dmg or a read-only folder)
           this.verified = null
+          // the person still hears of the new version (Settings › Apps), as before this updater
+          const team = this.host.team()
+          if (team) void this.checkMac(team).catch((e) => debug('update notice', (e as Error).message))
           return
         }
         this.ready = version

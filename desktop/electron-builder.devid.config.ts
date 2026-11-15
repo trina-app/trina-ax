@@ -20,6 +20,9 @@ for (const k of ['APPLE_API_KEY', 'APPLE_API_KEY_ID', 'APPLE_API_ISSUER']) {
 
 export default {
   ...base,
+  // the app updates itself on the Mac only in this build (desktop/src/common/update.ts selfUpdatingMac): Squirrel.Mac
+  // takes an update only for an app signed by a real team, so an unsigned dmg (dist:mac, office kits) keeps the notice
+  extraMetadata: { ...base.extraMetadata, macSelfUpdate: true },
   mac: {
     ...base.mac,
     target: [{ target: 'dmg', arch: ['universal'] }, { target: 'zip', arch: ['universal'] }],

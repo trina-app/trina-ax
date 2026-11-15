@@ -30,14 +30,20 @@ export function storeBuild(p: { mas?: boolean; windowsStore?: boolean }): boolea
   return p.mas === true || p.windowsStore === true
 }
 
-/** what this build does: electron-updater in a packaged Windows or Mac app, never in a store build
- * (MYCEL_DESKTOP_UPDATE_TEST forces a mode in development and tests, not in a store build) */
-export function updateMode(platform: string, packaged: boolean, forced?: string, store = false): UpdateMode {
+/** the packaged app's package.json says it is the Developer ID build (electron-builder.devid.config.ts extraMetadata) */
+export function selfUpdatingMac(pkg: unknown): boolean {
+  return !!pkg && typeof pkg === 'object' && (pkg as { macSelfUpdate?: unknown }).macSelfUpdate === true
+}
+
+/** what this build does: electron-updater in a packaged Windows app and in the Developer ID signed Mac app (`macSigned`),
+ * the notice in any other packaged Mac app (an unsigned dmg: Squirrel.Mac would refuse every update), never in a store
+ * build (MYCEL_DESKTOP_UPDATE_TEST forces a mode in development and tests, not in a store build) */
+export function updateMode(platform: string, packaged: boolean, forced?: string, store = false, macSigned = false): UpdateMode {
   if (store) return 'off'
   if (forced === 'auto-install' || forced === 'notice' || forced === 'off') return forced
   if (!packaged) return 'off'
   if (platform === 'win32') return 'auto-install'
-  if (platform === 'darwin') return 'auto-install'
+  if (platform === 'darwin') return macSigned ? 'auto-install' : 'notice'
   return 'off'
 }
 

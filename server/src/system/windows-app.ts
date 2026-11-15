@@ -35,7 +35,7 @@ import { PRODUCT } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
 import type { AppConfig } from '../app-config'
 import { DEFAULT_FEED, OFFICE_RELEASE_KEYS, ReleaseError, type Channel, type OfficeRelease } from '../office/release'
-import { fetchManifest, NotPublished, offerMac, offerWindows, readIndex, signedTextOf, UpdateFailure, type FetchLike, type StatfsLike } from '../office/update'
+import { fetchManifest, manifestForFolder, NotPublished, offerMac, offerWindows, readIndex, UpdateFailure, type FetchLike, type StatfsLike } from '../office/update'
 import { isHosted } from './deployment'
 import { compareVersions } from './update'
 
@@ -201,7 +201,7 @@ export async function refreshWindowsApp(o: WindowsAppOptions): Promise<WindowsAp
     const f = mac.failed
     if (!o.force && f && f.version === m.version && now().getTime() - Date.parse(f.at) < WINDOWS_HOLD_MS) return record({ kind: 'held', version: m.version, message: f.message })
     try {
-      const res = await offerMac(o.downloadsDir ?? downloadsDirOf(o.dataDir), path.join(work, 'mac'), m, { fetch: o.fetch ?? ((u, i) => fetch(u, i)), log }, { statfs: o.statfs, signed: signedTextOf(r) })
+      const res = await offerMac(o.downloadsDir ?? downloadsDirOf(o.dataDir), path.join(work, 'mac'), m, { fetch: o.fetch ?? ((u, i) => fetch(u, i)), log }, { statfs: o.statfs, signed: manifestForFolder(o.downloadsDir ?? downloadsDirOf(o.dataDir), r) })
       if (res.kind === 'no-room') return record({ kind: 'no-room', version: m.version, message: res.message })
       if (res.kind === 'offered') mac.failed = null
       record({ kind: res.kind, version: res.version, message: null })
@@ -244,7 +244,7 @@ export async function refreshWindowsApp(o: WindowsAppOptions): Promise<WindowsAp
     const f = st.failed
     if (!o.force && f && f.version === w.version && now().getTime() - Date.parse(f.at) < WINDOWS_HOLD_MS) return done({ kind: 'held', version: w.version, message: `failed at ${f.at} (${f.message}); tried again a day later` })
     try {
-      const res = await offerWindows(o.downloadsDir ?? downloadsDirOf(o.dataDir), path.join(work, 'windows'), w, { fetch: o.fetch ?? ((u, i) => fetch(u, i)), log }, { statfs: o.statfs, signed: signedTextOf(r) })
+      const res = await offerWindows(o.downloadsDir ?? downloadsDirOf(o.dataDir), path.join(work, 'windows'), w, { fetch: o.fetch ?? ((u, i) => fetch(u, i)), log }, { statfs: o.statfs, signed: manifestForFolder(o.downloadsDir ?? downloadsDirOf(o.dataDir), r) })
       if (res.kind === 'no-room') return done({ kind: 'no-room', version: w.version, message: res.message })
       if (res.kind === 'offered') st.failed = null
       return done({ kind: res.kind, version: res.version, message: res.kind === 'newer' ? `newer than the release's ${w.version}` : null })

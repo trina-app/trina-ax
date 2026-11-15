@@ -31,6 +31,18 @@ on:
         required: false
         default: 7
         type: number
+    # a called workflow sees only the secrets it declares (release.yml passes these five)
+    secrets:
+      MAC_DEVELOPER_ID_P12_BASE64:
+        required: true
+      MAC_DEVELOPER_ID_P12_PASSWORD:
+        required: true
+      APPLE_API_KEY_ID:
+        required: true
+      APPLE_API_ISSUER_ID:
+        required: true
+      APPLE_API_KEY_P8:
+        required: true
   workflow_dispatch:
     inputs:
       version:
@@ -88,7 +100,8 @@ jobs:
           security create-keychain -p "$pw" "$kc"
           security set-keychain-settings -lut 7200 "$kc"
           security unlock-keychain -p "$pw" "$kc"
-          security import "$RUNNER_TEMP/devid.p12" -k "$kc" -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security > /dev/null
+          # -x: the private key cannot be exported from the keychain (not even by a build step); only codesign may use it
+          security import "$RUNNER_TEMP/devid.p12" -k "$kc" -P "$P12_PASSWORD" -x -T /usr/bin/codesign > /dev/null
           rm -f "$RUNNER_TEMP/devid.p12"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$pw" "$kc" > /dev/null
           security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
@@ -131,4 +144,6 @@ jobs:
             desktop/release/latest-mac.yml
           if-no-files-found: error
           overwrite: true # a re-run of the job replaces its own artifact
-          retention-days: ${{ github.event_name == 'workflow_dispatch' && 3 || inputs.retention-days }}
+          # release.yml passes 7; "Run workflow" here passes none (3 days). Not github.event_name: in a called workflow
+          # that is the caller's event (a release started by hand)
+          retention-days: ${{ inputs.retention-days || 3 }}

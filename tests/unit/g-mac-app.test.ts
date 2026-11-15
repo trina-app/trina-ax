@@ -8,12 +8,12 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileUrl, OFFICE_PRODUCT, publicKeyOf, signRelease, verifyRelease, type OfficeRelease } from '../../server/src/office/release'
-import { checkLatestMacYml, offerMac, type StatfsLike } from '../../server/src/office/update'
+import { checkLatestMacYml, fetchManifest, manifestForFolder, offerMac, type StatfsLike } from '../../server/src/office/update'
 import { macOfferedIn, MAC_ZIP_RE } from '../../server/src/office/desktop'
 import { serveDownload } from '../../server/src/routes/downloads'
 import { readWindowsState, refreshWindowsApp, type WindowsAppOptions } from '../../server/src/system/windows-app'
 import { verifyInstaller } from '../../desktop/src/common/update-verify'
-import { updateMode } from '../../desktop/src/common/update'
+import { selfUpdatingMac, updateMode } from '../../desktop/src/common/update'
 import { rewriteDmgEntry } from '../../scripts/release/mac-app'
 import { WORK } from '../lib/env'
 
@@ -185,9 +185,35 @@ describe('the publisher and the desktop app', () => {
     // dropping the Mac app on a re-run is no addition either
     expect(() => versionManifestAction(p.signed, noMac as OfficeRelease, ctx)).toThrow(/other files/)
   })
-  test('a packaged Mac app updates itself now (not a store build)', () => {
-    expect(updateMode('darwin', true)).toBe('auto-install')
-    expect(updateMode('darwin', true, undefined, true)).toBe('off')
-    expect(updateMode('darwin', false)).toBe('off')
+  test('only the Developer ID Mac build updates itself; an unsigned dmg keeps the notice; a store build neither', () => {
+    expect(updateMode('darwin', true, undefined, false, true)).toBe('auto-install')
+    expect(updateMode('darwin', true)).toBe('notice')
+    expect(updateMode('darwin', true, undefined, true, true)).toBe('off')
+    expect(updateMode('darwin', false, undefined, false, true)).toBe('off')
+    expect(selfUpdatingMac({ name: '@mycel/desktop', macSelfUpdate: true })).toBe(true)
+    expect(selfUpdatingMac({ name: '@mycel/desktop' })).toBe(false)
+    expect(selfUpdatingMac({ macSelfUpdate: 'true' })).toBe(false)
+    expect(selfUpdatingMac(null)).toBe(false)
+    // the devid build config sets it; the base config (unsigned dist:mac) does not
+    const devid = fs.readFileSync(path.join(import.meta.dir, '../../desktop/electron-builder.devid.config.ts'), 'utf8')
+    expect(devid).toMatch(/macSelfUpdate: true/)
+    expect(fs.readFileSync(path.join(import.meta.dir, '../../desktop/electron-builder.config.ts'), 'utf8')).not.toMatch(/macSelfUpdate/)
+  })
+
+  test('the folder keeps the manifest of a newer app it offers (the other platform, the other channel)', async () => {
+    const s = server('manifest')
+    const newer = publish('0.5.7')
+    await refreshWindowsApp(opts(s, newer.files, { version: '0.5.7' }))
+    expect(fs.readFileSync(path.join(s.downloads, 'stable.json'), 'utf8')).toBe(newer.signed)
+    // an older release (no Mac app newer than what is offered): its manifest does not replace the one naming 0.5.7
+    const old = await fetchManifest(FEED, 'stable', { fetch: fakeFetch(publish('0.5.6').files) }, KEYS)
+    expect(manifestForFolder(s.downloads, old)).toBeUndefined()
+    // the same release, or a newer one: placed
+    const same = await fetchManifest(FEED, 'stable', { fetch: fakeFetch(newer.files) }, KEYS)
+    expect(manifestForFolder(s.downloads, same)?.text).toBe(newer.signed)
+    // an empty folder takes any release's
+    expect(manifestForFolder(path.join(s.data, 'empty'), old)?.channel).toBe('stable')
+    // a release whose manifest was never read from a feed has none to place
+    expect(manifestForFolder(s.downloads, newer.r)).toBeUndefined()
   })
 })
