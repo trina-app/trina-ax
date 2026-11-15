@@ -377,7 +377,7 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
       await m.click(within(card(m, 'Acme legal'), 'project-card-delete')!)
       const dialog = await m.until(() => m.container.ownerDocument!.body.querySelector('[role="dialog"]'), 'the confirm')
       expect(dialog.textContent).toContain(ko('projects.trashTitle', { name: 'Acme legal' }))
-      expect(ko('projects.trashTitle', { name: 'Acme legal' })).toBe("'Acme legal'을(를) 휴지통으로 옮길까요?")
+      expect(ko('projects.trashTitle', { name: 'Acme legal' })).toBe("'Acme legal' 프로젝트를 휴지통으로 옮길까요?")
       expect(dialog.textContent).toContain(ko('projects.trashBody'))
       // what happens, and who can bring it back (QA TC-1062: its creator too)
       expect(ko('projects.trashBody')).toBe('관리자나 만든 사람이 되돌릴 때까지 멤버도 파일과 공유 채팅을 열 수 없어요.')

@@ -76,7 +76,7 @@ test('initial consonants find a room, first on 전체; Enter opens it', async ({
   await signIn(page)
   await open(page)
   await input(page).fill('ㄷㅈㅇ')
-  await expect(people(page).getByText('대화방·사람')).toBeVisible()
+  await expect(people(page).getByText('대화·사람')).toBeVisible()
   const rows = people(page).getByRole('option')
   await expect(rows).toHaveCount(2)
   // the latest activity first; the first row of the palette, highlighted

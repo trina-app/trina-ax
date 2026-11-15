@@ -89,12 +89,12 @@ test('the room header\'s "⋯" by kind; 초대하기 (the add list); 알림 설�
   await page.goto(`/rooms/${GROUP}`)
   await expect(page.getByTestId('room-title')).toHaveText('디자인 리뷰')
   await page.getByTestId('room-menu').click()
-  await expect(items).toHaveText(['상단에 고정', '초대하기', '알림 설정', '이름 바꾸기', '앱 추가', '링크 복사', '대화방 나가기'])
+  await expect(items).toHaveText(['상단에 고정', '그룹 대화에 추가', '알림 설정', '이름 바꾸기', '앱 추가', '링크 복사', '그룹 대화 나가기'])
   // 이름 바꾸기: the info's name field in a prompt, the members' names where it is empty; the room's info has no 나가기
   await page.getByTestId('room-menu-rename').click()
   const prompt = page.getByRole('dialog', { name: '이름 바꾸기' })
   await expect(prompt.getByText('비우면 멤버 이름으로 보여요.')).toBeVisible()
-  const field = prompt.getByRole('textbox', { name: '대화방 이름' })
+  const field = prompt.getByRole('textbox', { name: '그룹 대화 이름' })
   await expect(field).toHaveValue('디자인 리뷰')
   await expect(field).toBeFocused()
   await expect(field).toHaveAttribute('placeholder', '김소라, 이민수')
@@ -110,7 +110,7 @@ test('the room header\'s "⋯" by kind; 초대하기 (the add list); 알림 설�
   await expect(page.getByTestId('room-leave')).toHaveCount(0)
   await page.keyboard.press('Escape')
   await page.getByTestId('room-menu').click()
-  await expect(items).toHaveText(['상단에 고정', '초대하기', '알림 설정', '이름 바꾸기', '앱 추가', '링크 복사', '대화방 나가기'])
+  await expect(items).toHaveText(['상단에 고정', '그룹 대화에 추가', '알림 설정', '이름 바꾸기', '앱 추가', '링크 복사', '그룹 대화 나가기'])
   // 알림 설정: the bell's own four levels, the keyboard in them
   await page.getByTestId('room-menu-notify').click()
   await expect(page.getByRole('menuitemradio')).toHaveCount(4)
@@ -125,14 +125,14 @@ test('the room header\'s "⋯" by kind; 초대하기 (the add list); 알림 설�
   // leaving asks first; then the room is gone
   await page.getByTestId('room-menu').click()
   await page.getByTestId('room-menu-leave').click()
-  await page.getByRole('dialog').getByRole('button', { name: '대화방 나가기' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: '그룹 대화 나가기' }).click()
   await expect.poll(() => state.left).toEqual([GROUP])
   await expect(page).toHaveURL(/\/rooms$/)
 
   // a DM: hide; hiding the room on screen goes to the list
   await page.goto(`/rooms/${DM}`)
   await page.getByTestId('room-menu').click()
-  await expect(items).toHaveText(['상단에 고정', '초대하기', '알림 설정', '앱 추가', '링크 복사', '대화 숨기기'])
+  await expect(items).toHaveText(['상단에 고정', '그룹 대화에 추가', '알림 설정', '앱 추가', '링크 복사', '대화 숨기기'])
   await page.getByTestId('room-menu-hide').click()
   await expect(page).toHaveURL(/\/rooms$/)
   await expect.poll(() => state.hidden).toEqual([{ roomId: DM, hidden: true }])
@@ -338,7 +338,7 @@ test.describe('phone', () => {
     await expect(page.getByTestId('room-notify')).toHaveCount(0)
     await page.getByTestId('room-menu').click()
     // the header's "⋯" also has 초대하기 (the add list), after the pin
-    await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText(['상단에 고정', '초대하기', /^알림 설정\s*· \S/, '앱 추가', '링크 복사', '대화 숨기기'])
+    await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText(['상단에 고정', '그룹 대화에 추가', /^알림 설정\s*· \S/, '앱 추가', '링크 복사', '대화 숨기기'])
   })
 })
 

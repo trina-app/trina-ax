@@ -168,7 +168,7 @@ test('the first row: its word and how many it notifies; found by any word, not b
   await m.until(() => m.find('mention-menu'), 'the @ list', WAIT)
   expect(rows(m)).toEqual([`all:전체${ko('rooms.mentionAllHint', { n: 2 })}`, 'BBen', 'CCy Park'])
   // everyone but me (QA N3: the header's "멤버 3명" counts me too, so the words say "다른")
-  expect(ko('rooms.mentionAllHint', { n: 2 })).toBe('이 방의 다른 2명에게 알림')
+  expect(ko('rooms.mentionAllHint', { n: 2 })).toBe('이 대화의 다른 2명에게 알림')
   expect(en('rooms.mentionAllHint', { n: 2 })).toBe('notify the other 2 people here')
   for (const q of ['all', 'channel', 'everyone', '전체']) {
     await act(async () => { setValue.call(box, ''); box.setSelectionRange(0, 0); box.dispatchEvent(new FakeEvent('input', { bubbles: true })); box.dispatchEvent(new FakeEvent('keyup', { bubbles: true })) })

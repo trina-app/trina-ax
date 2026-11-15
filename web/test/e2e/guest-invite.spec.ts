@@ -31,11 +31,11 @@ async function openRoomAdd(page: Page) {
 test('owner invites a guest into a group chat: name, AI with all three choices, a one-time link with Copy', async ({ page }) => {
   await start(page)
   await openRoomAdd(page)
-  await expect(page.getByTestId('invite-guest-row')).toContainText('게스트 초대하기')
+  await expect(page.getByTestId('invite-guest-row')).toContainText('게스트 초대')
   await page.getByTestId('invite-guest-row').click()
   const dialog = page.getByTestId('guest-invite-dialog')
   await expect(dialog).toBeVisible()
-  await expect(page.getByTestId('guest-invite-where')).toContainText("'견적 준비' 방만")
+  await expect(page.getByTestId('guest-invite-where')).toContainText("'견적 준비' 그룹 대화만")
   // AI is off by default; the owner sees all three. Without a team AI account, Team AI is off and says where to add one
   await expect(page.getByTestId('guest-ai-none')).toBeChecked()
   await expect(page.getByTestId('guest-ai-team')).toBeVisible()

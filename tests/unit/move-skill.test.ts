@@ -411,7 +411,7 @@ describe('in the app: the Skills page and the AI', () => {
     h.ctx.db.query('UPDATE chats SET rooms_seen = 1 WHERE id = ?').run(chat.id)
     const r = await h.api('carol').call(API.sendMessage, { params: { id: chat.id }, body: { content: moveCall({ skill: 'ops', to: 'project' }), clientMessageId: cm(), attachmentIds: [] } })
     const c = await socks.carol!.next('turn.request', (f) => f.data.turnId === r.turnId)
-    expect((c.data.request as { question: string }).question).toMatch(/^여기에 대화방 메시지\(다른 사람이 쓴 글\)가 들어와서, 무언가를 바꾸기 전에 먼저 물어봐요\.\n\n"ops" 스킬을 옮길까요\?/)
+    expect((c.data.request as { question: string }).question).toMatch(/^여기에 대화 메시지\(다른 사람이 쓴 글\)가 들어와서, 무언가를 바꾸기 전에 먼저 물어봐요\.\n\n"ops" 스킬을 옮길까요\?/)
     await h.api('carol').call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: c.data.request.requestId, answer: 'skip' } })
     await socks.carol!.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 30_000)
     expect(socks.carol!.frames.filter((f) => f.type === 'turn.request' && f.data.turnId === r.turnId)).toHaveLength(1)

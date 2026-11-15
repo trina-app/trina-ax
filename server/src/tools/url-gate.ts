@@ -616,12 +616,12 @@ export const TEXT = {
   },
   /** the line of the fourth answer; the risk sentence (shared WEB_ALLOW_ALL_RISK) follows it */
   all: {
-    en: 'If you allow all websites, the AI opens public websites without asking when you ask it, in your chats and in rooms, until you turn it off in Settings. Addresses with long hard-to-read strings or a lot of text at the end still ask, but that only catches what is easy to spot.',
-    ko: '모든 사이트를 허용하면 설정에서 끌 때까지, 내가 물을 때는 내 채팅과 대화방에서 AI가 공개 웹사이트를 묻지 않고 열어요. 알아보기 어려운 긴 글자나 긴 내용이 붙은 주소는 계속 묻지만, 눈에 띄는 것만 걸러요.',
-    id: 'Jika semua situs web diizinkan, AI membuka situs web publik tanpa bertanya saat Anda memintanya, di chat Anda dan di ruang obrolan, sampai Anda mematikannya di Pengaturan. Alamat dengan teks panjang yang sulit dibaca atau teks panjang di akhir tetap ditanyakan, tetapi itu hanya menangkap yang mudah terlihat.',
-    ja: 'すべてのサイトを許可すると、設定でオフにするまで、あなたが頼んだときはチャットでもトークルームでもAIが公開Webサイトを確認なしで開きます。読み取りにくい長い文字列や末尾に長い内容が付いたアドレスは引き続き確認しますが、見つけられるのは目立つものだけです。',
-    es: 'Si permite todos los sitios web, la IA abre sitios públicos sin preguntar cuando usted se lo pide, en sus chats y en las salas, hasta que lo desactive en Configuración. Las direcciones con cadenas largas difíciles de leer o mucho texto al final siguen preguntando, pero eso solo detecta lo que salta a la vista.',
-    zh: '如果允许所有网站，你让 AI 打开公共网站时，它会不经询问直接打开，在你的对话和群聊中都是如此，直到你在设置中关闭。带有难以看懂的长字符串或末尾有很多文字的地址仍会询问，但这只能拦住容易发现的情况。',
+    en: 'If you allow all websites, the AI opens public websites without asking when you ask it, in your chats and conversations, until you turn it off in Settings. Addresses with long hard-to-read strings or a lot of text at the end still ask, but that only catches what is easy to spot.',
+    ko: '모든 사이트를 허용하면 설정에서 끌 때까지, 내가 물을 때는 내 채팅과 대화에서 AI가 공개 웹사이트를 묻지 않고 열어요. 알아보기 어려운 긴 글자나 긴 내용이 붙은 주소는 계속 묻지만, 눈에 띄는 것만 걸러요.',
+    id: 'Jika semua situs web diizinkan, AI membuka situs web publik tanpa bertanya saat Anda memintanya, di chat Anda dan di percakapan, sampai Anda mematikannya di Pengaturan. Alamat dengan teks panjang yang sulit dibaca atau teks panjang di akhir tetap ditanyakan, tetapi itu hanya menangkap yang mudah terlihat.',
+    ja: 'すべてのサイトを許可すると、設定でオフにするまで、あなたが頼んだときはチャットでもトークでもAIが公開Webサイトを確認なしで開きます。読み取りにくい長い文字列や末尾に長い内容が付いたアドレスは引き続き確認しますが、見つけられるのは目立つものだけです。',
+    es: 'Si permite todos los sitios web, la IA abre sitios públicos sin preguntar cuando usted se lo pide, en sus chats y conversaciones, hasta que lo desactive en Configuración. Las direcciones con cadenas largas difíciles de leer o mucho texto al final siguen preguntando, pero eso solo detecta lo que salta a la vista.',
+    zh: '如果允许所有网站，你让 AI 打开公共网站时，它会不经询问直接打开，在你的对话和聊天中都是如此，直到你在设置中关闭。带有难以看懂的长字符串或末尾有很多文字的地址仍会询问，但这只能拦住容易发现的情况。',
   },
   allowAll: {
     en: 'Allow all websites (turn off in Settings)', ko: '모든 사이트 허용 (설정에서 끌 수 있어요)', id: 'Izinkan semua situs web (matikan di Pengaturan)',

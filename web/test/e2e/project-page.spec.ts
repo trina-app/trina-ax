@@ -251,7 +251,7 @@ test('a project in the trash: its note with Restore and Delete for good, no name
   // the item says what it does, as its confirm asks (QA TC-1064)
   await expect(page.getByRole('menuitem')).toHaveText(['이름 바꾸기', '휴지통으로 옮기기'])
   await page.getByTestId('project-delete').click()
-  await expect(page.getByRole('dialog').getByRole('heading')).toHaveText("'Falcon'을(를) 휴지통으로 옮길까요?")
+  await expect(page.getByRole('dialog').getByRole('heading')).toHaveText("'Falcon' 프로젝트를 휴지통으로 옮길까요?")
   // only what happens: no "its files and chats go with it" (her own chats there stay hers)
   await expect(page.getByRole('dialog')).toContainText('관리자나 만든 사람이 되돌릴 때까지 멤버도 파일과 공유 채팅을 열 수 없어요.')
   await page.getByTestId('dialog-confirm').click()

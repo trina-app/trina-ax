@@ -103,7 +103,7 @@ describe('the card, and the post', () => {
     expect(m.mentions).toEqual([])
     expect(JSON.parse(r.content)).toMatchObject({ status: 'sent', room: '#전체', room_id: rooms.all, message_id: m.id })
     const step = r.steps.find((s) => s.tool === 'post_to_room')!
-    expect(step.label).toBe('대화방에 보내기 · #전체')
+    expect(step.label).toBe('대화에 보내기 · #전체')
     // where it went, for the step's 보기
     expect(step.posted).toEqual({ roomId: rooms.all, messageId: m.id })
     const a = audits('bob')
@@ -114,7 +114,7 @@ describe('the card, and the post', () => {
 
   test('where a post went (Step.posted) is the runner\'s alone: another viewer of a shared chat gets the step without it', () => {
     const posted = { roomId: rooms.all, messageId: uuidv7() }
-    const steps = [{ id: 'p1', kind: 'tool' as const, tool: 'post_to_room', label: '대화방에 보내기 · #전체', status: 'ok' as const, startedAt: new Date().toISOString(), endedAt: new Date().toISOString(), posted }]
+    const steps = [{ id: 'p1', kind: 'tool' as const, tool: 'post_to_room', label: '대화에 보내기 · #전체', status: 'ok' as const, startedAt: new Date().toISOString(), endedAt: new Date().toISOString(), posted }]
     const store = h.rt().store
     const chat = { chat_id: uuidv7(), turn_id: null }
     expect(store.viewSteps(chat, steps)[0]!.posted).toEqual(posted)
@@ -130,7 +130,7 @@ describe('the card, and the post', () => {
     expect(r.card!.details).toEqual([{ label: '내 이름으로 보일 한마디', text: '공유드려요' }, { label: '보낼 내용', text: '보내지 말 것' }])
     expect(r.content).toContain('The user chose not to send it, so nothing was posted to #전체')
     expect(r.content).toContain('Do not post it another way unless the user asks again')
-    expect(r.steps.find((s) => s.tool === 'post_to_room')).toMatchObject({ label: '대화방에 보내기 · #전체', detail: '보내지 않았어요' })
+    expect(r.steps.find((s) => s.tool === 'post_to_room')).toMatchObject({ label: '대화에 보내기 · #전체', detail: '보내지 않았어요' })
     const t = await turn('bob', post({ room: rooms.all, text: '아무도 안 누름' }), { answer: null })
     expect(t.content).toContain('the card got no answer in time')
     expect(authored(rooms.all, 'bob')).toBe(before)
@@ -158,7 +158,7 @@ describe('the card, and the post', () => {
     const text = 'Plan: [launch-plan.md](/files/view?path=groups/marketing/launch-plan.md)'
     const r = await turn('alice', [fake({ tool: 'read', args: { file_path: 'groups/marketing/launch-plan.md' } }), post({ room: rooms.all, text })].join('\n'), { answer: 'send_files' })
     // bob may read neither (carol and dana are admins): one line each, and what attaching the file changes
-    expect(r.card!.question).toBe("Send this to #Everyone (5 people)?\n\n1 person there can't see some of the sources of this (groups/marketing/).\n1 person can't open 1 linked file.\nWith the files: 1 person there can't see some of the sources of this (groups/marketing/).\nEveryone in this room will see it, including people who join later.")
+    expect(r.card!.question).toBe("Send this to #Everyone (5 people)?\n\n1 person there can't see some of the sources of this (groups/marketing/).\n1 person can't open 1 linked file.\nWith the files: 1 person there can't see some of the sources of this (groups/marketing/).\nEveryone in this conversation will see it, including people who join later.")
     // no "Always allow" on a card that offers the linked files (review of #678): three buttons as before
     expect(r.card!.options!.map((x) => x.value)).toEqual(['send', 'send_files', 'no'])
     expect(r.card!.buttons).toBe(true)
@@ -188,7 +188,7 @@ describe('where it may not post', () => {
     // the reason, when reached anyway
     const off = postToRoomOff({ restricted: false, templateRun: false, rt: h.rt() as never, spec: { clientKind: 'schedule', chatId, locale: 'ko' } as never })
     expect(off!.text).toContain('Nothing was posted: a scheduled run has nobody to answer the card')
-    expect(off!.text).toContain('"대화방에 보내기"')
+    expect(off!.text).toContain('"대화에 보내기"')
   })
 
   test('a confidential chat: not offered, and refused with the reason when it turned confidential during the answer', async () => {
@@ -227,7 +227,7 @@ describe('where it may not post', () => {
     const text = (o: Parameters<typeof off>[0]) => postToRoomOff({ restricted: !!o.restricted, templateRun: !!o.templateRun, rt: h.rt() as never, spec: { clientKind: o.clientKind ?? 'web', chatId: chatId.id, locale: 'ko' } as never })!.text
     expect(text({ clientKind: 'slack' })).toContain('"Post to channel"')
     expect(text({ clientKind: 'slack' })).toContain('Tell the user to ask in the app')
-    expect(text({ clientKind: 'schedule' })).toContain('"대화방에 보내기"')
+    expect(text({ clientKind: 'schedule' })).toContain('"대화에 보내기"')
     expect(text({ restricted: true })).toContain('Tell the user to ask in one of their own chats')
     expect(text({ templateRun: true })).toBe(text({ restricted: true }))
   })
@@ -255,7 +255,7 @@ describe('where it may not post', () => {
     expect(h.ctx.db.query('SELECT rooms_seen FROM chats WHERE id = ?').get(r.chatId)).toEqual({ rooms_seen: 1 })
     // the first and only card is post_to_room's, with the room card's line on top (docs/DECISIONS.md "내 AI 채팅에서 대화방
     // 읽기", fewer cards after a room read) and what the finance room's messages mean for the others
-    expect(r.card!.question).toMatch(/^여기에 대화방 메시지\(다른 사람이 쓴 글\)가 들어와서, 무언가를 바꾸기 전에 먼저 물어봐요\.\n\n#전체\(5명\)에 보낼까요\?\n\n\d명은 이 내용의 일부 출처\(Finance 대화방\)를 볼 수 없어요\.\n나중에 들어오는 사람을 포함해 이 대화방의 모두가 보게 돼요\.$/)
+    expect(r.card!.question).toMatch(/^여기에 대화 메시지\(다른 사람이 쓴 글\)가 들어와서, 무언가를 바꾸기 전에 먼저 물어봐요\.\n\n#전체\(5명\)에 보낼까요\?\n\n\d명은 이 내용의 일부 출처\(Finance 대화\)를 볼 수 없어요\.\n나중에 들어오는 사람을 포함해 이 대화의 모두가 보게 돼요\.$/)
     expect(JSON.parse(r.content.slice(r.content.indexOf('{"status"')))).toMatchObject({ status: 'sent' })
   })
 
@@ -389,7 +389,7 @@ describe('injection, retries and changes', () => {
       },
     })
     try {
-      expect(r.card!.question).toBe("Send this to #Everyone (5 people)?\n\n1 person there can't see some of the sources of this (groups/marketing/).\nEveryone in this room will see it, including people who join later.")
+      expect(r.card!.question).toBe("Send this to #Everyone (5 people)?\n\n1 person there can't see some of the sources of this (groups/marketing/).\nEveryone in this conversation will see it, including people who join later.")
       expect(r.content).toContain('changed while the card waited')
       expect(r.content).toContain('call post_to_room again so they see a new card')
       expect(authored(rooms.all, 'alice')).toBe(before)
@@ -467,7 +467,7 @@ describe('to a teammate by name', () => {
     expect(JSON.parse(r.content)).toMatchObject({ status: 'sent', room_id: dm, message_id: msgs[0]!.id })
     expect(JSON.parse(r.content).note).toContain('a new 1:1 chat, made now')
     expect(JSON.parse(r.content).note).toContain('in their own words (no AI quote)')
-    expect(r.steps.find((s) => s.tool === 'post_to_room')).toMatchObject({ label: 'Send to room · 1:1 chat with Gina Han', posted: { roomId: dm, messageId: msgs[0]!.id } })
+    expect(r.steps.find((s) => s.tool === 'post_to_room')).toMatchObject({ label: 'Send to conversation · 1:1 chat with Gina Han', posted: { roomId: dm, messageId: msgs[0]!.id } })
     const a = audits('alice')
     expect(a.length).toBe(before + 1)
     // the 1:1 chat by its kind only, never its id or the other person
