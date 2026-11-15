@@ -3829,6 +3829,7 @@ export const en: Record<MessageKey, string> = {
   "teamLink.noSeats": "No seats left. Turn off an account that is no longer used, or change the plan.",
   "teamLink.noSeatsStore": "No seats left. Turn off an account that is no longer used. The team owner manages the plan on the web.",
   "teamLink.replaceNote": "Making a new link stops the current one at once.",
+  "teamLink.guestLine": "Someone from outside the team?",
   "teamLink.create": "Make invite link",
   "teamLink.stepTitle": "Invite your team",
   "teamLink.stepDesc": "Send this message to the people you want to invite. It ends with the team link.",

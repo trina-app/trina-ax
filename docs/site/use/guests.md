@@ -62,6 +62,7 @@ A link works only while the person who made it can still invite. If they leave t
 - **New conversation** (the **+** above your conversations): the first row is **Invite a guest**.
 - **Invite people** (owners and admins: the team menu under the team's logo, search, or **Me** on a phone): choose
   **Guest** at the top of the dialog (**Team member** is picked to start with).
+- **Invite your team** (the getting-started steps and the team goal on Home): under the message, **Invite a guest**.
 
 Both list the one place the guest can join: the group chats you are in, and the projects whose members you can change
 (the ones you made; owners and admins: any team project). Pick one, then fill in the same dialog as above. If there is

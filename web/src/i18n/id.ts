@@ -3828,6 +3828,7 @@ export const id: Record<MessageKey, string> = {
   "teamLink.noSeats": "Tidak ada kursi tersisa. Matikan akun yang tidak dipakai lagi, atau ubah paket.",
   "teamLink.noSeatsStore": "Tidak ada kursi tersisa. Matikan akun yang tidak dipakai lagi. Pemilik tim mengelola paket di web.",
   "teamLink.replaceNote": "Membuat tautan baru langsung menghentikan tautan yang sekarang.",
+  "teamLink.guestLine": "Orang dari luar tim?",
   "teamLink.create": "Buat tautan undangan",
   "teamLink.stepTitle": "Undang tim Anda",
   "teamLink.stepDesc": "Kirim pesan ini ke orang yang ingin Anda undang. Tautan tim ada di akhir pesan.",

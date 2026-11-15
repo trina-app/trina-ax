@@ -3,11 +3,13 @@
 // - "Invite people" (the team menu, ⌘K, the phone's 나 tab; owners and admins): Team member (picked first, the team link's
 //   message as before) or Guest: one line, the one place they join, then the rooms' and projects' guest form;
 // - "New conversation" (the chats panel's +, /rooms?new=1): its first row is "Invite a guest", which picks the place first;
-// - a room's header "⋯": 초대하기, the add list whose first row is "Invite a guest".
+// - a room's header "⋯": 초대하기, the add list whose first row is "Invite a guest";
+// - the team link's invite step elsewhere (the owner's welcome steps, where Invite people sends an owner while they are
+//   unfinished): one quiet line "Invite a guest", the same place-first flow.
 // The places are the ones the server accepts from the caller: group chats they are in; projects they may change the
 // members of (a member: the ones they made).
 import { expect, test, type Page } from '@playwright/test'
-import { uuidv7 } from '@mycel/shared/api'
+import { CSRF_HEADER, uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
 
 test.use({ viewport: { width: 1440, height: 900 } })
@@ -131,4 +133,32 @@ test('a member with no group chat and no project of theirs: a plain line instead
   await page.goto('/rooms?new=1')
   await page.getByTestId('invite-guest-row').click()
   await expect(page.getByTestId('guest-place-none')).toContainText('게스트를 초대할 방이나 프로젝트가 아직 없어요')
+})
+
+test("the owner's welcome steps: Invite people lands on the invite step, whose line opens Invite a guest", async ({ page }) => {
+  await start(page)
+  await signIn(page)
+  const H = { [CSRF_HEADER]: '1' }
+  await page.request.fetch('/api/onboarding/welcome/team', { method: 'POST', headers: H, data: {} })
+  for (const id of ['ai', 'profile', 'result', 'skills', 'files', 'tools']) await page.request.fetch('/api/onboarding/welcome', { method: 'PATCH', headers: H, data: { step: { id, state: 'skipped' } } })
+  await page.goto('/welcome')
+  await expect(page.getByTestId('invite-step')).toBeVisible()
+  await expect(page.getByTestId('invite-step-guest')).toContainText('팀 밖의 사람인가요?')
+  await page.getByTestId('invite-step-guest-open').click()
+  await expect(page.getByTestId('guest-invite-flow')).toBeVisible()
+  await page.getByTestId('guest-place-room').click()
+  await expect(page.getByTestId('guest-invite-where')).toContainText("'견적 준비' 방만")
+  // Done/Cancel leaves the welcome step where it was
+  await page.getByRole('button', { name: '취소' }).click()
+  await page.getByRole('button', { name: '취소' }).click()
+  await expect(page.getByTestId('invite-step')).toBeVisible()
+})
+
+test('Invite people has no second guest line under Team member (the Guest tab is right there)', async ({ page }) => {
+  await start(page)
+  await signIn(page)
+  await page.getByTestId('team-menu').click()
+  await page.getByTestId('team-menu-invite').click()
+  await expect(page.getByTestId('invite-step')).toBeVisible()
+  await expect(page.getByTestId('invite-step-guest')).toHaveCount(0)
 })

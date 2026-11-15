@@ -3827,6 +3827,7 @@ export const ko = {
   "teamLink.noSeats": "남은 자리가 없어요. 쓰지 않는 계정을 끄거나 요금제를 바꿔 주세요.",
   "teamLink.noSeatsStore": "남은 자리가 없어요. 쓰지 않는 계정을 끄세요. 요금제는 팀장이 웹에서 관리해요.",
   "teamLink.replaceNote": "새 링크를 만들면 지금 링크는 바로 멈춰요.",
+  "teamLink.guestLine": "팀 밖의 사람인가요?",
   "teamLink.create": "초대 링크 만들기",
   "teamLink.stepTitle": "팀원을 초대해요",
   "teamLink.stepDesc": "초대할 사람에게 이 메시지를 보내세요. 팀 링크가 끝에 들어 있어요.",

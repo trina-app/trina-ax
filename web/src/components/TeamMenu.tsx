@@ -221,7 +221,7 @@ function InvitePeople({ returnTo, onClose }: { returnTo: HTMLElement | null; onC
         </div>
       ) : (
         <TabPanel base={kinds} value="member">
-          <InviteStep title={null} onDone={onClose} />
+          <InviteStep title={null} onDone={onClose} guestLine={false} />
         </TabPanel>
       )}
     </Modal>

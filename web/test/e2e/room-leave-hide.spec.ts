@@ -82,14 +82,14 @@ test('sidebar: a hidden room is in no row or count; a row\'s "⋯" on hover, foc
   await expect(roomRowMenu(team)).toBeFocused()
 })
 
-test('the room header\'s "⋯" by kind; 알림 설정 opens the bell\'s levels; 이름 바꾸기; 링크 복사', async ({ page }) => {
+test('the room header\'s "⋯" by kind; 초대하기 (the add list); 알림 설정 opens the bell\'s levels; 이름 바꾸기; 링크 복사', async ({ page }) => {
   const state = await start(page)
   const items = page.getByRole('menu').getByRole('menuitem')
   // a group chat: rename (its members may), leave (with the confirm)
   await page.goto(`/rooms/${GROUP}`)
   await expect(page.getByTestId('room-title')).toHaveText('디자인 리뷰')
   await page.getByTestId('room-menu').click()
-  await expect(items).toHaveText(['상단에 고정', '알림 설정', '이름 바꾸기', '앱 추가', '링크 복사', '대화방 나가기'])
+  await expect(items).toHaveText(['상단에 고정', '초대하기', '알림 설정', '이름 바꾸기', '앱 추가', '링크 복사', '대화방 나가기'])
   // 이름 바꾸기: the info's name field in a prompt, the members' names where it is empty; the room's info has no 나가기
   await page.getByTestId('room-menu-rename').click()
   const prompt = page.getByRole('dialog', { name: '이름 바꾸기' })
@@ -110,7 +110,7 @@ test('the room header\'s "⋯" by kind; 알림 설정 opens the bell\'s levels; 
   await expect(page.getByTestId('room-leave')).toHaveCount(0)
   await page.keyboard.press('Escape')
   await page.getByTestId('room-menu').click()
-  await expect(items).toHaveText(['상단에 고정', '알림 설정', '이름 바꾸기', '앱 추가', '링크 복사', '대화방 나가기'])
+  await expect(items).toHaveText(['상단에 고정', '초대하기', '알림 설정', '이름 바꾸기', '앱 추가', '링크 복사', '대화방 나가기'])
   // 알림 설정: the bell's own four levels, the keyboard in them
   await page.getByTestId('room-menu-notify').click()
   await expect(page.getByRole('menuitemradio')).toHaveCount(4)
@@ -132,7 +132,7 @@ test('the room header\'s "⋯" by kind; 알림 설정 opens the bell\'s levels; 
   // a DM: hide; hiding the room on screen goes to the list
   await page.goto(`/rooms/${DM}`)
   await page.getByTestId('room-menu').click()
-  await expect(items).toHaveText(['상단에 고정', '알림 설정', '앱 추가', '링크 복사', '대화 숨기기'])
+  await expect(items).toHaveText(['상단에 고정', '초대하기', '알림 설정', '앱 추가', '링크 복사', '대화 숨기기'])
   await page.getByTestId('room-menu-hide').click()
   await expect(page).toHaveURL(/\/rooms$/)
   await expect.poll(() => state.hidden).toEqual([{ roomId: DM, hidden: true }])

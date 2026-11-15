@@ -3774,6 +3774,7 @@ export const zh: Record<MessageKey, string> = {
   "teamLink.noSeats": "没有剩余席位。请停用不再使用的账号，或更改套餐。",
   "teamLink.noSeatsStore": "没有剩余席位。请停用不再使用的账号。团队所有者在网页上管理套餐。",
   "teamLink.replaceNote": "创建新链接后，当前链接会立即停用。",
+  "teamLink.guestLine": "是团队外的人？",
   "teamLink.create": "创建邀请链接",
   "teamLink.stepTitle": "邀请你的团队",
   "teamLink.stepDesc": "把这条消息发给你想邀请的人。团队链接在消息末尾。",

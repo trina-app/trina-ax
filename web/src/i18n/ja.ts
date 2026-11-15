@@ -3784,6 +3784,7 @@ export const ja: Record<MessageKey, string> = {
   "teamLink.noSeats": "空き席がありません。使っていないアカウントを無効にするか、プランを変更してください。",
   "teamLink.noSeatsStore": "空き席がありません。使っていないアカウントを無効にしてください。プランはチームオーナーがウェブで管理します。",
   "teamLink.replaceNote": "新しいリンクを作成すると、今のリンクはすぐに停止します。",
+  "teamLink.guestLine": "チーム外の人ですか？",
   "teamLink.create": "招待リンクを作成",
   "teamLink.stepTitle": "チームを招待しましょう",
   "teamLink.stepDesc": "招待したい人にこのメッセージを送ってください。最後にチームのリンクが入っています。",

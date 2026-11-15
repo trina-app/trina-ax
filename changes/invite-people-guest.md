@@ -4,3 +4,5 @@
 - **New conversation** starts with **Invite a guest**, which asks where the guest joins first.
 - A group chat's **⋯** has **Invite people**, so the add list with **Invite a guest** is no longer only behind the chat's
   name.
+- The team link's invite step (the welcome steps, Home's goal card) has one line for someone from outside the team:
+  **Invite a guest**.
