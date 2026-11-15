@@ -311,6 +311,12 @@ Mac 데스크톱 DMG는 배포하지 않습니다. Windows 설치 파일은 GitH
 5. 새 버전이 `http://127.0.0.1:<앱 포트>/api/health`에 그 버전으로 답하고 15초 뒤에도 답해야 성공입니다. 2분 30초 안에
    답하지 않거나 곧 멈추면 **이전 버전으로 저절로 되돌립니다**(`app` → `app.failed`, `app.previous` → `app`, 다시 시작).
    되돌린 버전은 밤마다 다시 시도하지 않습니다(`teamax update now`로만).
+   **되돌릴 수 없는 경우(QA TC-335):** 새 버전이 데이터베이스를 이전 버전이 읽지 못하는 단계(schema reader level)로 바꿨다면
+   이전 버전은 시작할 수 없습니다(종료 코드 75). 그래서 새 설치 프로그램은 그 `app.previous`를 `app.unreadable`로 옮기고,
+   업데이트는 되돌리지 않고 새 버전을 한 번 더 시작합니다. 0.4.0처럼 이 기능이 없는 이전 버전의 업데이트 에이전트는 되돌리려다
+   `app.previous`가 없어서 멈추고(새 버전은 그대로), 서버를 멈춘 채로 끝납니다. 그러면 15분 안에 새 버전의 업데이트 에이전트가
+   서버를 다시 시작합니다(`update/heal.json`). 서버 감독(`office.js run`)도 75로 끝난 서버를 다시 띄우지 않습니다: 읽을 수 있는
+   새 버전이 `app.failed`에 있으면 그 버전으로 앞으로 가고, 없으면 한 줄 안내를 남기고 멈춥니다.
    **큰 데이터베이스:** 새 버전이 데이터베이스를 바꿔야 하면(마이그레이션) 먼저 사본을 만들고(`data/backups/pre-migrate-*.db`)
    마이그레이션을 적용한 뒤에 시작합니다. 데이터베이스가 몇 GB면 몇 분에서 수십 분 걸릴 수 있습니다. 그동안 새 버전은
    `/api/health`에 503 "migrating"(진행: 남은 마이그레이션, 복사 중이면 복사한 MB)으로 답하고, 업데이트는 그 답이 오는 동안
@@ -392,6 +398,7 @@ bun scripts/release/publish.ts --channel stable --build --version 0.2.1
 | 공유기를 바꿔 주소 대역이 달라짐 (예: 192.168.0.x → 192.168.1.x) | 인증서가 새 대역을 이름에 넣지 못합니다. `teamax stop` → `mv ~/TeamAX/tls ~/TeamAX/tls.old` → `teamax start` → 새 카드 인쇄 → 데스크마다 인증서 다시 설치 |
 | 포트가 이미 쓰이는 중 | 설치기의 안내대로 `--lan-port 9443` 등 다른 번호 |
 | 관리자 > 시스템 "이전 버전으로 되돌렸어요" | 새 버전이 제대로 뜨지 않아 자동으로 되돌림(데이터 그대로). `~/TeamAX/logs/update.log` 끝과 `teamax update status`를 관리자나 프로젝트 이슈 트래커에 보내 주세요. 원인을 고친 뒤 `teamax update now`로 다시 시도합니다 |
+| 업데이트 뒤 팀 서버가 안 뜸, `teamax logs`에 "database needs schema reader level 8 … this build reads level 4"가 반복 | 새 버전이 데이터베이스를 바꾼 뒤 옛 버전으로 되돌아갔습니다(QA TC-335). 옛 zip을 다시 설치해도 **소용없습니다**. 받아 둔 **가장 새 zip**(실패한 업데이트의 버전 이상)으로 같은 설치 폴더에 `bash <푼 폴더>/office-install.sh --prefix ~/TeamAX`를 실행하세요(데이터 그대로). 이 수정이 들어간 버전부터는 감독이 같은 상황에서 새 버전으로 스스로 앞으로 가거나 이 안내를 `teamax logs`와 `teamax update status`에 남기고 멈춥니다. 다시 설치하면 `teamax update status`의 옛 실패 안내도 지워집니다 |
 | 자동 업데이트가 안 됨 | `teamax update status`: "설치 안 됨"이면 새 zip(0.2.0 이상)으로 `office-install.sh`를 한 번(6장), "꺼짐"이면 `teamax update resume`, 마지막 결과가 `failed`면 이유(인터넷·설정한 피드 주소 차단 등)가 함께 나옵니다 |
 
 명령 모음(`~/TeamAX/teamax …`): `status`, `info`(주소·지문, `~/TeamAX/ADDRESSES.txt`와 같음), `card`, `logs [n]`,

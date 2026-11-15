@@ -74,12 +74,15 @@ import { ensureOfficeTls, fingerprints, lanInfo, localHostName, type LanInfo } f
 import { certCheckDue, daysLeft, findTailscaleBin, readNode, readServePorts, refreshTailnetCert, runner, tailnetCertPaths, type Run, type TailnetNode } from './tailscale'
 import { TOKEN_RE } from '../proxy/subscription'
 import { reloadMarkedUpdateAgent, removeUpdateAgent, syncUpdateAgent, updateCommand } from './update-cli'
-import { updateView } from './update'
+import { clearStaleFailure, noteRecovery, updateView } from './update'
+import { dbReaderLevel, exit75Decision, type Exit75Decision, extraWaitSeconds, goForward, releaseIn, setAsideUnreadablePrevious, unreadablePrevious, updateRunning, writeHealMarker } from './forward'
 import { isMigrating, MIGRATE_WAIT_MS, probeHealth } from './health'
 import { claudeMcpCommand, headline, scanClaudeMcp } from './claude-mcp'
 import { PRODUCT } from '@mycel/shared'
 
 const CHECK_MS = 30_000
+/** main.ts EXIT.schemaTooNew (not imported: main.ts is the server's entry point) */
+export const EXIT_SCHEMA_TOO_NEW = 75
 const TLS_RECHECK_MS = 6 * 3600_000
 const STOP_GRACE_MS = 12_000
 
@@ -293,6 +296,8 @@ export async function run(home: string): Promise<never> {
     say(`server started (pid ${me.pid})`)
     void me.exited.then(async (code) => {
       if (stopping || restarting || child !== me) return
+      // QA TC-335: 75 = the database is newer than this build. Restarting it can never help.
+      if (code === EXIT_SCHEMA_TOO_NEW && schemaTooNew()) return
       failures = Date.now() - startedAt > 60_000 ? 1 : failures + 1
       const wait = Math.min(30_000, 1000 * 2 ** Math.min(failures, 5))
       say(`server exited (${code}); starting it again in ${wait / 1000} s (see ${p.serverLogs})`)
@@ -307,10 +312,38 @@ export async function run(home: string): Promise<never> {
     const done = await Promise.race([c.exited.then(() => true), Bun.sleep(STOP_GRACE_MS).then(() => false)])
     if (!done) { c.kill('SIGKILL'); await c.exited }
   }
+  // exit 75: go forward to a newer kept release that reads the database (launchd starts the supervisor again from the
+  // new app/), or stop starting the server with one message (the check below looks again every 30 s: a restored
+  // backup or a reinstall ends it). true = handled, do not restart.
+  let blocked: string | null = null
+  const schemaTooNew = (): boolean => {
+    let d: Exit75Decision
+    try { d = exit75Decision(home) } catch (e) { say(`exit 75 check failed: ${(e as Error).message}`); return false }
+    if (d.kind === 'restart') { if (blocked) say(`the database can be read again (${d.reason}): starting the server`); blocked = null; return false }
+    if (d.kind === 'forward') {
+      if (updateRunning(home)) { blocked = 'an update run is busy'; return true }
+      let line: string
+      try { line = goForward(home, d.to) } catch (e) { say(`going forward to ${d.to.version} failed: ${(e as Error).message}`); blocked = 'forward failed'; return true }
+      const msg = `the server exited 75: ${d.from?.version ?? 'app/'} cannot read the database (it needs schema level ${d.need}); went forward: ${line}`
+      say(`${msg}; the supervisor starts again from the new app/`)
+      noteRecovery(home, { kind: 'updated', version: d.to.version, message: msg })
+      stopping = true
+      clearInterval(timer)
+      helper?.stop(true)
+      process.exit(0) // KeepAlive: launchd runs app/server/src/office.js run again, now the new version
+    }
+    if (blocked !== d.message) {
+      say(`${d.message} (checked again every ${CHECK_MS / 1000} s)`)
+      noteRecovery(home, { kind: 'failed', version: null, message: d.message })
+    }
+    blocked = d.message
+    return true
+  }
   spawnServer()
 
   const check = async () => {
     if (stopping || restarting) return
+    if (blocked && !schemaTooNew()) spawnServer()
     startHelper()
     try { const r = reloadMarkedUpdateAgent(s); if (r) say(r) } catch (e) { say(`update agent reload failed: ${(e as Error).message}`) }
     const host = localHostName()
@@ -1007,9 +1040,30 @@ export async function main(argv: string[]): Promise<number> {
       lines(`LaunchAgent ${p.plist(s.label)}: ${agent.start()}`)
       lines('waiting for the server ...')
       // an updater that knows "migrating" (TEAMAX_UPDATER_WAITS_MIGRATING) waits for it itself: hand it over at once
-      const up = await waitHealthy(s, 90, { migratingIsUp: process.env.TEAMAX_UPDATE_RUN === '1', updaterMs: process.env.TEAMAX_UPDATER_WAITS_MIGRATING === '1' ? 0 : undefined, say: lines })
+      const underUpdater = process.env.TEAMAX_UPDATE_RUN === '1'
+      const waitOpts = { migratingIsUp: underUpdater, updaterMs: process.env.TEAMAX_UPDATER_WAITS_MIGRATING === '1' ? 0 : undefined, say: lines }
+      let up = await waitHealthy(s, 90, waitOpts)
+      // QA TC-335: this version migrated the database past what app.previous reads. A rollback to it can never start,
+      // and the updater that runs this install may be an old one that rolls back anyway (and then loops on exit 75).
+      const stuck = unreadablePrevious(home)
+      let handOver = false
+      if (stuck) {
+        if (!up && underUpdater) {
+          const extra = extraWaitSeconds(process.env.TEAMAX_INSTALLER_STARTED, Date.now())
+          if (extra > 0) { lines(`the server did not answer within 90 s; ${stuck.version} cannot read the database any more, so waiting ${extra} s more`); up = await waitHealthy(s, extra, waitOpts) }
+        }
+        lines(setAsideUnreadablePrevious(home))
+        if (underUpdater) {
+          const version = releaseIn(home, 'app')?.version ?? '?'
+          writeHealMarker(home, { at: new Date().toISOString(), version, previous: stuck.version, reason: `${stuck.version} reads schema level ${stuck.level}, the database needs ${dbReaderLevel(home)}` })
+          // exit 0: the updater keeps waiting for this version; a rollback would find no app.previous
+          handOver = !up
+        }
+      }
       if (up === 'still-migrating') { lines(`the server was still updating its database after ${Math.round(MIGRATE_WAIT_MS / 60_000)} min; see ${p.officeLog} and ${p.serverLogs}`); return 1 }
-      if (!up) { lines(`the server did not answer within 90 s; see ${p.officeLog} and ${p.serverLogs}`); return 1 }
+      if (!up && !handOver) { lines(`the server did not answer within 90 s; see ${p.officeLog} and ${p.serverLogs}`); return 1 }
+      if (handOver) lines(`the server does not answer yet; there is nothing to roll back to, so the updater goes on waiting for it (see ${p.officeLog} and ${p.serverLogs})`)
+      if (up === 'up' && !underUpdater) { const c = clearStaleFailure(home); if (c) lines(c) }
       if (up === 'migrating') lines('the server is updating its database before it starts; the update waits for it')
       const tl = await syncTunnelAgent(s)
       if (tl) lines(tl)

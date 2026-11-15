@@ -52,6 +52,9 @@
 # the installers it lists (same name and SHA-256) are offered. Later: <prefix>/teamax desktop add <file>.
 set -euo pipefail
 umask 022
+# when this run started: office.js install keeps its extra wait (QA TC-335) inside the updater's 10 minutes
+TEAMAX_INSTALLER_STARTED=$(date +%s)
+export TEAMAX_INSTALLER_STARTED
 
 SRC=$(cd "$(dirname "$0")" && pwd)
 PREFIX="$HOME/TeamAX"
