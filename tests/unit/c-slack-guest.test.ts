@@ -3,7 +3,7 @@
 // runs as them. Unlinked, their Slack account is never matched by e-mail: it gets the same connect prompt as anyone's
 // (so nothing tells whether an address is a guest's), and the link page and Sign in with Slack refuse the guest. A link
 // row of a guest (made by hand) counts for nothing and the next question, in a channel or a DM, gets one plain line that
-// says nothing about the account. This harness signs people in with test sessions, so the guest is
+// says nothing about the account. A guest cannot block a member's link with the member's e-mail. This harness signs people in with test sessions, so the guest is
 // marked as the invite accept marks one: users.guest = 1 and its guests row. No real Slack is contacted.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from 'bun:test'
 import { sealSecret } from '../../web/src/lib/seal'
@@ -152,6 +152,22 @@ test('a link row for the guest (made by hand or before): it counts for nothing, 
   expect(slackTurns()).toBe(turns)
   expect(fake.of('chat.postMessage')).toEqual([])
   expect(h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'slack.unlinked' AND target = 'erin'").get()).toMatchObject({ detail: expect.stringContaining('"reason":"guest"') })
+})
+
+test('a guest cannot block a member\'s Slack link with the member\'s e-mail: refused in Profile, and one given first (or by an admin, or old data) proves nothing either way', async () => {
+  // Settings › Profile: the member's address is refused (docs/DECISIONS.md "A guest can't take an e-mail used in the team")
+  const refused = await call('erin', 'PATCH', '/api/me', { email: 'Bob@acme.example' })
+  expect(refused.status).toBe(409)
+  expect(refused.json.error.params.reason).toBe('email_in_use')
+  // the address there anyway (the guest gave it before bob did): bob's link still passes the e-mail proof
+  h.ctx.db.query("UPDATE users SET email = 'bob@acme.example' WHERE id = 'erin'").run()
+  try {
+    mention('U0BOB', 'hi')
+    const token = linkTokenFrom((await waitFor(() => ephemeralsTo('U0BOB').find((c) => linkTokenFrom(c))))!)!
+    expect((await call('bob', 'POST', '/api/slack/link/preview', { token })).json.emailCheck).toBe('match')
+    expect((await call('bob', 'POST', '/api/slack/link/confirm', { token })).status).toBe(200)
+    expect(h.ctx.db.query("SELECT slack_user_id FROM slack_links WHERE user_id = 'bob'").get()).toEqual({ slack_user_id: 'U0BOB' })
+  } finally { h.ctx.db.query("UPDATE users SET email = 'erin@acme.example' WHERE id = 'erin'").run() }
 })
 
 test('a member whose e-mail matches still gets the connect link (only guests are refused)', async () => {
