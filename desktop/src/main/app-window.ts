@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { applyMePolicy } from '../common/me-policy'
 import { PRODUCT, WEB_ALLOW_ALL_RISK, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
 import { Health, Me } from '@mycel/shared/api'
-import { asksOutside, checkTeam, desktopPagePath, firstRunLinks, hostLineNow, hostOf, originOf, parseTeamAddress, readDesktopLink, teamLabel, type AddressError, type HealthAnswer } from '../common/address'
+import { asksOutside, checkTeam, desktopPagePath, firstRunLinks, hostLineNow, hostOf, isSignInPath, onThisComputer, originOf, parseTeamAddress, readDesktopLink, teamLabel, type AddressError, type HealthAnswer } from '../common/address'
 import { LinkGate, type WakeAnswer } from '@mycel/shared/team-link'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { teamHostnames } from '../common/browser-block'
@@ -174,6 +174,12 @@ export class AppWindow {
   /** the team answered GET /api/me for a signed-in person (fetchTeamInfo); until then the host strip is on, on every
    * page (a page can look like a sign-in page at any address) */
   private signedIn = false
+  /** this team's pages draw the address and "Switch team" under their sign-in card (DesktopBridge.hostLine): no strip
+   * above them on the sign-in paths. Kept until another team is opened, so a sign-out or reload does not jump. */
+  private pageHostLine = false
+  /** the team openLast opened at start when its address is on this computer (common/address.ts onThisComputer): until
+   * its page loads, a failed load goes to the first-run screen with the team list, not to the offline card */
+  private startupLocal: string | null = null
   /** /api/me answered for this team page (either way), and the short wait after the page loaded is over: until one of
    * them, a page that is not a sign-in page gets no strip yet, so a signed-in open does not jump (shared hostLineNow) */
   private meAnswered = false
@@ -182,6 +188,8 @@ export class AppWindow {
   /** screen ④: the link from outside that waits for a yes (shared/src/team-link.ts LinkGate) */
   private linkGate = new LinkGate()
   private linkError: string | null = null
+  /** the "isn't answering" line (offline.localStart) and the team it names: the line goes when that team leaves the list */
+  private localStart: { team: string; line: string } | null = null
   /** addTeam is waiting for a sleeping trial team to start (WelcomeState.waking) */
   private waking = false
   /** that wait, which Cancel stops (cancelWake, or No on ④) */
@@ -438,6 +446,12 @@ export class AppWindow {
   async removeTeam(id: string): Promise<void> {
     const team = findTeam(this.teams, id)
     if (!team) return
+    // the "isn't answering" line named this team: it goes with it (QA of #990: it stayed after the last team was removed)
+    if (this.localStart?.team === id) {
+      // only while that line is still the one shown (a refused link may have replaced it)
+      if (this.linkError === this.localStart.line) this.linkError = null
+      this.localStart = null
+    }
     if (this.team?.id === id) {
       this.disposeTeam()
       this.team = undefined
@@ -471,14 +485,16 @@ export class AppWindow {
 
   async openLast() {
     const last = findTeam(this.teams, this.teams.lastTeamId) ?? this.teamList()[0]
-    if (last) await this.openTeam(last.id)
+    if (last) await this.openTeam(last.id, '/', { startup: true })
     else this.showWelcome()
   }
 
-  /** Open a remembered team; `entryPath` is the page a pasted link leads to ('/invite/<t>', '/join#t=<t>'), else '/'. */
-  async openTeam(id: string, entryPath = '/') {
+  /** Open a remembered team; `entryPath` is the page a pasted link leads to ('/invite/<t>', '/join#t=<t>'), else '/'.
+   * `startup`: the app opens it by itself at start (openLast), nobody picked it. */
+  async openTeam(id: string, entryPath = '/', o: { startup?: boolean } = {}) {
     const team = findTeam(this.teams, id)
     if (!team) return
+    this.startupLocal = o.startup && onThisComputer(team.origin) ? id : null
     // a team view takes over: a link that waited on ④ waits no more (it would come back confirmable later)
     this.linkGate.clear()
     this.linkError = null
@@ -500,6 +516,7 @@ export class AppWindow {
     this.stripWaited = false
     clearTimeout(this.stripTimer)
     this.stripTimer = undefined
+    this.pageHostLine = false
     this.sendHostbar()
 
     const appSes = session.fromPartition(partitionFor(id, 'app'))
@@ -523,6 +540,20 @@ export class AppWindow {
         }
         this.directOrigin = null
         void this.loadOrigin(this.team.origin, path)
+        return
+      }
+      // the app opened a team on this computer by itself at start (a developer's server, often not running, e.g. data
+      // a dev build left in the same settings folder): the first-run screen with the team list and a line, not the
+      // offline card. The team stays in the list; opening it from there shows the card with [다시 시도].
+      if (this.startupLocal === this.team.id) {
+        const address = hostOf(this.team.origin)
+        this.startupLocal = null
+        const line = t(this.o.locale(), 'offline.localStart', { address })
+        this.localStart = { team: this.team.id, line }
+        this.disposeTeam()
+        this.team = undefined
+        this.linkError = line
+        this.showWelcome()
         return
       }
       this.mode = 'offline'
@@ -558,6 +589,8 @@ export class AppWindow {
       ).catch(() => false)
       if (this.app !== app || app.webContents.isDestroyed() || navigation !== loaded || navigationFailed) return
       if (offline === true) { failedNavigation(url); return }
+      // the team answered: a later failure is the offline card, as for any team
+      if (originOf(url)) this.startupLocal = null
       if (this.mode === 'offline' && originOf(app.webContents.getURL())) this.mode = 'team'
       this.layout()
       // A request started before navigation may still carry the signed-out/previous session.
@@ -634,6 +667,8 @@ export class AppWindow {
     // the team page is on screen: macOS's one question about notifications comes now, not with the first notification
     // (that one only comes while the window is in the back, when nobody sees the question)
     if (this.app === app) this.notifier.ask()
+    // the team went back to the list meanwhile (a dev team on this computer that did not answer at start)
+    if (this.app !== app) return
     this.scheduleRecheck()
     void this.learnDirect()
   }
@@ -1189,7 +1224,10 @@ export class AppWindow {
     const pw = this.pane?.open ? paneWidthFor(this.paneFraction, w) : 0
     // the team address above the page (drawn by the app): on the sign-in pages, and on every page until the team said
     // who is signed in
-    const top = hostLineNow({ path: this.pagePath, signedIn: this.signedIn, answered: this.meAnswered, waited: this.stripWaited }) ? HOSTBAR_HEIGHT : 0
+    // A sign-in page that draws the address and "Switch team" under its card itself (hostLine) gets no strip: the
+    // address once, next to the form (owner 2026-11-15). Off the sign-in paths the strip stays until /api/me answers.
+    const pageLine = this.pageHostLine && isSignInPath(this.pagePath)
+    const top = !pageLine && hostLineNow({ path: this.pagePath, signedIn: this.signedIn, answered: this.meAnswered, waited: this.stripWaited }) ? HOSTBAR_HEIGHT : 0
     if (top) show(this.hostbar, { x: 0, y: 0, width: Math.max(0, w - pw), height: top })
     else hide(this.hostbar)
     show(this.app, { x: 0, y: top, width: Math.max(0, w - pw), height: Math.max(0, h - top) })
@@ -1368,6 +1406,14 @@ export class AppWindow {
     this.send(this.chrome, 'ui:locale', payload)
     this.send(this.hostbar, 'ui:locale', payload)
     this.updateTitle()
+  }
+
+  /** This team's pages draw (true) or no longer draw (false) their own address line under the sign-in card
+   * (DesktopBridge.hostLine). */
+  setPageHostLine(drawn: boolean) {
+    if (!this.app || drawn === this.pageHostLine) return
+    this.pageHostLine = drawn
+    this.layout()
   }
 
   /** The team page moved: the host strip shows on its sign-in pages, and on every page until /api/me answered. */

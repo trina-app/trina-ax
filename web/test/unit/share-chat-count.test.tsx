@@ -13,8 +13,10 @@ const realFetch = globalThis.fetch
 const locale = useLocaleStore.getState().locale
 beforeAll(() => {
   installDom()
-  // the share check: two other people in the project, one of them cannot see something the chat used
-  globalThis.fetch = (async () => new Response(JSON.stringify({ status: 'confirm', audience: 2, provenance: { people: 1, places: [], otherPlaces: false }, memories: false, confirmKey: 'k' }), { status: 200, headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch
+  // the share check: two other people in the project; one answer used files some of them can't open, two older ones
+  // could not be checked
+  const check = { added: 2, memoryAnswers: 0, fileAnswers: 1, accountAnswers: 0, places: [], otherPlaces: false, roomsUnseen: false, unchecked: 2 }
+  globalThis.fetch = (async () => new Response(JSON.stringify({ status: 'confirm', audience: 2, check, confirmKey: 'k' }), { status: 200, headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch
 })
 afterAll(() => {
   globalThis.fetch = realFetch
@@ -39,13 +41,14 @@ test('the dialog counts me in, like the line under the box and the copy-link toa
 })
 
 for (const l of ['en', 'ko'] as const) {
-  test(`${l}: the confirm's title says 3 for two others; the provenance line still counts the others who cannot see`, async () => {
+  test(`${l}: the confirm's title says 3 for two others; the warning names the answers, the unchecked ones are a grey line`, async () => {
     useLocaleStore.setState({ locale: l })
     const m = await mount(<ShareChatFlow chatId={CHAT} onClose={() => {}} />)
     try {
       const dialog = await m.until(() => m.container.ownerDocument!.body.querySelector('[role="dialog"]'), 'the confirm')
       expect(dialog.querySelector('h2')!.textContent).toBe(translate(l, 'chat.shareChat.title', { n: 3 }))
-      expect(m.get('share-chat-provenance').textContent).toBe(translate(l, 'chat.shareChat.provenanceNoPlace', { m: 1 }))
+      expect(m.get('share-chat-warning').textContent).toContain(translate(l, 'share.warn.files', { n: 1, names: translate(l, 'share.who.project') }))
+      expect(m.get('share-chat-warning-grey').textContent).toBe(translate(l, 'share.grey.unchecked', { n: 2 }))
     } finally {
       await m.unmount()
     }

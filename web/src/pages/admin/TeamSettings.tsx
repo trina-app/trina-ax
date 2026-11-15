@@ -274,7 +274,7 @@ export default function TeamSettingsPage() {
               }
             </Loadable>
           )}
-          {/* the team's AI: defaults, who picks the engine, members' own accounts, usage limits (were Providers' second
+          {/* the team's AI: defaults, who picks the engine, members' own accounts, usage limits (were AI providers' second
               tab). After the form has loaded, so a link to #ai or #ai-limits lands where the page will stay; a phone
               shows them as two groups of their own (no form above them) */}
           {!phone && state.data && <TeamAiSettings />}

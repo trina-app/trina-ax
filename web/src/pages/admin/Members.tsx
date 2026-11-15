@@ -38,7 +38,7 @@ import { toast } from '../../store/ui'
 import { LOCALES, useLocale, useT, type MessageKey } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
 import QrCode from '../../components/QrCode'
-import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../../components/ui'
+import { Badge, Button, CopyButton, Field, IconButton, Modal, TabPanel, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../../components/ui'
 import { PageActions } from '../../components/PageActions'
 import { PhoneFilters } from '../../components/PhoneFilters'
 import { CompactRow } from '../../components/CompactRow'
@@ -60,6 +60,7 @@ import { AdminBarActions, BarAdd, BarMore } from './barActions'
 import { confirmOriginKept } from './originKept'
 import { loadAdminInvites, readAdmin, useAdminGroups, useAdminRead, useAdminUsersNoAi } from '../../store/adminPeople'
 import { GuestsSection } from './Guests'
+import { GuestChoiceButtons, GuestChoiceForm, GuestChoicePanel, InviteKindTabs, useGuestChoice, type InviteKind } from '../../components/GuestInviteChoice'
 import { BudgetForm, budgetExceeded, budgetLimitText, budgetUsedText, loadBudgets, personBudgets } from './BudgetForm'
 import { inviteGuestName } from '../../lib/guests'
 import { useProjects } from '../../store/projects'
@@ -156,8 +157,9 @@ export default function Members() {
   const roomTitle = useRoomTitle()
   const guestWhere = (pl: NonNullable<Invite['guestPlace']>) => {
     const room = pl.kind === 'room' ? myRooms.find((r) => r.id === pl.id) : undefined
-    // a project's name comes with the link (Invite.guestPlace.name); a room's only when I am in it
-    const name = pl.kind === 'project' ? pl.name || projectsById[pl.id]?.name : room && roomTitle(room)
+    // the place's name comes with the link (Invite.guestPlace.name; an older server sent a project's only); a room
+    // with no name of its own: its title when I am in it (guest walkthrough S8)
+    const name = pl.name || (pl.kind === 'project' ? projectsById[pl.id]?.name : room && roomTitle(room))
     return name ? t(pl.kind === 'room' ? 'guest.admin.room' : 'guest.admin.project', { place: name }) : t(pl.kind === 'room' ? 'guest.admin.inviteRoom' : 'guest.admin.inviteProject')
   }
   // only the links that still work: a used or expired one says nothing new (the person is in the lists below)
@@ -576,6 +578,10 @@ export default function Members() {
             setCreated(c)
             void invites.reload()
           }}
+          onGuestDone={() => {
+            setInviteOpen(false)
+            void invites.reload()
+          }}
         />
       )}
       {created && <InviteCreated invite={created} onClose={() => setCreated(null)} />}
@@ -744,10 +750,18 @@ function ScheduleReviews() {
   )
 }
 
-function InviteDialog({ groups, onClose, onCreated }: { groups: Group[]; onClose: () => void; onCreated: (c: CreatedInvite) => void }) {
+/** Invite to team: a team member (a link with a role, groups and how long it works) or a guest (docs/DECISIONS.md "Guests
+ * from Admin › Invite to team"): the shared Guest half (components/GuestInviteChoice.tsx, also in "Invite people"): the
+ * one place they join, then the guest invite form of the rooms and projects, whose Cancel comes back here. A full plan
+ * says so in place of the places. */
+function InviteDialog({ groups, onClose, onCreated, onGuestDone }: { groups: Group[]; onClose: () => void; onCreated: (c: CreatedInvite) => void; onGuestDone: () => void }) {
   const t = useT()
   const act = useAction()
   const me = useMeStrict()
+  const [kind, setKind] = useState<InviteKind>('member')
+  const kinds = useId()
+  const guest = kind === 'guest'
+  const choice = useGuestChoice(guest)
   const [role, setRole] = useState<MemberRole>('member')
   const [groupIds, setGroupIds] = useState<string[]>([])
   const [days, setDays] = useState(7)
@@ -766,12 +780,13 @@ function InviteDialog({ groups, onClose, onCreated }: { groups: Group[]; onClose
   }, [offered])
   const leadGroupId = welcome?.teamGroup?.id
   const shownGroupIds = flagged ? (leadGroupId && groups.some((g) => g.id === leadGroupId) ? [leadGroupId] : []) : groupIds
+  if (choice.place) return <GuestChoiceForm choice={choice} onDone={onGuestDone} />
   return (
     <Modal
       open
       onClose={onClose}
-      title={t('members.invite')}
-      footer={
+      title={t('members.inviteToTeam')}
+      footer={guest ? <GuestChoiceButtons choice={choice} admin onClose={onClose} /> : (
         <>
           <Button variant="ghost" onClick={onClose}>
             {t('common.cancel')}
@@ -792,9 +807,11 @@ function InviteDialog({ groups, onClose, onCreated }: { groups: Group[]; onClose
             <Plus size={14} aria-hidden /> {t(flagged ? 'handover.makeLink' : 'members.createLink')}
           </Button>
         </>
-      }
+      )}
     >
-      <div className="space-y-4">
+      <InviteKindTabs value={kind} onChange={setKind} panels={kinds} />
+      {guest ? <GuestChoicePanel choice={choice} panels={kinds} admin /> : (
+      <TabPanel base={kinds} value="member" className="space-y-4">
         {offered && <LeadFlag checked={lead} onChecked={setLead} label={leadFor} onLabel={setLeadFor} />}
         <fieldset disabled={flagged} className="space-y-4 disabled:opacity-60" data-testid="invite-settings">
           <Field label={t('members.role')}>
@@ -822,7 +839,8 @@ function InviteDialog({ groups, onClose, onCreated }: { groups: Group[]; onClose
             <NewPersonPreview role={role} groupIds={groupIds} groups={groups} />
           </>
         )}
-      </div>
+      </TabPanel>
+      )}
     </Modal>
   )
 }

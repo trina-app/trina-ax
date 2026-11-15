@@ -85,6 +85,7 @@ import { makeHandler } from '../mcp/protocol'
 import { hasCredentialFor, resolveCredential, type CredEngine } from '../credentials/resolve'
 import { connectionRoute } from '../credentials/access'
 import { isGuestUser } from '../credentials/guest-ai'
+import { guestPromptOf } from './guest-tools'
 import { credentialsOf, getRow, metaOf } from '../credentials/store'
 import { dummyAuthJson } from '../credentials/codex-home'
 import { afterUsage } from '../admin/budget-watch'
@@ -768,6 +769,7 @@ export class TurnExec {
     const confidential = confidentialChat(rt.db, spec.chatId)
     // a guest: no web search and no sub-agents (their project's data never goes out in search queries; security review)
     const guestTurn = isGuestUser(rt.db, spec.userId)
+    const guestPrompt = guestTurn ? guestPromptOf(rt.db, spec.userId) ?? { places: [], inviter: null } : null
     const webSearch = !this.templateScope && !this.restricted && !confidential && !guestTurn
     const subagents = !!claude && !guestTurn && !this.templateScope && !this.restricted && getTeamSettings(rt.db).aiSubagents
       && !(claude.authMode === 'local-login' && confidential && !LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS)
@@ -798,6 +800,8 @@ export class TurnExec {
       confidential: confidential ? (safeOpsEnabled() ? 'server' : 'chat') : null,
       // the file lists (file-list/service.ts): only while the feature is on and this person has one
       fileList: fileListPromptOn(rt.ctx, this.principal!),
+      // a guest: their places and who invited them (prompt.ts guestSection), no team-wide text
+      guest: guestPrompt,
     })
     // what a general-purpose sub-agent may use, and the instructions every sub-agent gets (memories and history never)
     let turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]
@@ -833,7 +837,8 @@ export class TurnExec {
     // scope like a file the AI read. The list is that of the person who runs the turn (the sender; for a scheduled run
     // the schedule owner): team skills they can read and their own personal skills
     // the sender's own skill of that name (in a shared chat, one some of its people cannot read asks first, below)
-    let invoked = this.restricted ? null : invokedSkill(allSkills, userMsg.content)
+    // a guest uses no skills (docs/DECISIONS.md "Guests: only what they were invited to"), a project's own included
+    let invoked = this.restricted || guestTurn ? null : invokedSkill(allSkills, userMsg.content)
     // a shared project chat: a skill some of its people cannot read goes in only after the person's yes
     let skillNotShared = ''
     const skillNo = invoked && this.shared ? await this.sharedReadRefusal('skill', { path: skillFolder(invoked.skill.path) }, { step: false }) : null
@@ -865,7 +870,7 @@ export class TurnExec {
     const continued = cutOff ? `${continuationBlock(cutOff)}\n\n` : ''
     // the skill list is cut (more skills than fit): the few whose words match this message go in front of it, so the
     // AI does not miss one only because it is listed by name only (not for a "/name" message: that skill is given)
-    const hints = !invoked && !this.restricted && skillList.cut ? skillHintsBlock(hintSkills(skills, userMsg.content, { scores: skillScores })) : ''
+    const hints = !invoked && !this.restricted && !guestTurn && skillList.cut ? skillHintsBlock(hintSkills(skills, userMsg.content, { scores: skillScores })) : ''
     // rooms the person picked with "#" (#[name](room:<id>), shared/src/api/rooms.ts): the AI is told their ids, so it
     // reads exactly those (room_read checks membership when it reads). A title is a room's name, which any member of a
     // group chat sets: it reaches the AI only inside the data block, the message says "[#room N]"
@@ -888,7 +893,7 @@ export class TurnExec {
       if (!resumed || this.restricted) return message
       const before = listedFor(rt.db, spec.chatId, sessionId, spec.userId)
       const changes = skillChangesText(before === 'stale' ? 'stale' : skillChanges(before, skills), neutralizeTags)
-      return `${buildTurnContext(rt.files, { ...promptInput(false), connected: toolSet.context.join('\n\n') || null, skillChanges: changes })}\n\n${message}`
+      return `${buildTurnContext(rt.files, { ...promptInput(false), connected: toolSet.context.join('\n\n') || null, skillChanges: guestTurn ? '' : changes })}\n\n${message}`
     }
     // the API engine always answers with the owner's one model: the turn records it (usage by model), never empty
     const { turn, token } = core.turns.create(spec.userId, spec.chatId, engine, api ? api.model : chosenModel, spec.turnId)
@@ -1288,7 +1293,7 @@ export class TurnExec {
     const L = this.spec.locale
     if (ev.type === 'lockdown') return this.stopAtLockdown(ev.reason, 'proxy')
     if (ev.type === 'auth') this.proxyError = engineError('auth', L)
-    else if (ev.type === 'budget') this.proxyError = ((b) => ({ code: 'budget_exceeded' as const, message: b?.message ?? tr('errBudget', L), ...(b ? { params: { resetsAt: b.resetsAt } } : {}) }))(budgetBlock(this.rt.db, this.spec.userId, L))
+    else if (ev.type === 'budget') this.proxyError = ((b) => ({ code: 'budget_exceeded' as const, message: b?.message ?? tr('errBudget', L), ...(b ? { params: b.params } : {}) }))(budgetBlock(this.rt.db, this.spec.userId, L))
     else if (ev.type === 'credential') {
       this.proxyError = ev.reason === 'over_limit' ? { code: 'budget_exceeded', message: tr('errCredentialLimit', L) } : engineError('credential_unusable', L)
     } else {
@@ -1368,7 +1373,7 @@ export class TurnExec {
     let b: ReturnType<typeof budgetBlock> = null
     try { b = budgetBlock(this.rt.db, this.spec.userId, this.spec.locale) } catch (e) { this.rt.log.warn('budget check failed', { err: e, turn: this.id }); return }
     if (!b) return
-    this.budgetHit = { code: 'budget_exceeded', message: b.message, params: { resetsAt: b.resetsAt } }
+    this.budgetHit = { code: 'budget_exceeded', message: b.message, params: b.params }
     this.proxyError ??= this.budgetHit
     this.rt.log.info('answer stopped: budget used up', { turn: this.id, budget: b.budget.id })
     this.halt()

@@ -14,7 +14,7 @@ export function registerChatAccountCleanup(ctx: AppContext): void {
       'project_notices.user_id', 'room_notices.user_id', 'room_app_notices.user_id', 'room_app_leaver_notices.user_id', 'room_thread_follows.user_id', 'room_hidden_answers.user_id', 'room_ai_grants.user_id',
       'schedule_outcomes.user_id', 'schedule_project_skips.user_id', 'schedule_template_requests.user_id', 'schedule_template_skips.user_id', 'schedules.user_id',
       'dev_env_jobs.user_id', 'dev_env_notices.user_id', 'dev_env_runs.user_id', 'dev_env_site_grants.user_id', 'dev_env_user_net.user_id',
-      'suggestion_dismissals.user_id', 'skill_notices.user_id', 'skill_merge_notices.user_id', 'service_request_notices.user_id',
+      'suggestion_dismissals.user_id', 'skill_notices.user_id', 'skill_merge_notices.user_id', 'service_request_notices.user_id', 'service_request_closed_notices.user_id', 'stored_key_file_notices.user_id',
       'integration_request_notices.user_id', 'integration_template_notices.user_id', 'integration_template_offers.user_id', 'drive_share_notices.user_id',
       'onboarding_file_ranks.user_id', 'onboarding_goal_notices.user_id', 'onboarding_notices.user_id', 'onboarding_profile_drafts.user_id', 'onboarding_skill_drafts.user_id',
       // chats shared with people and groups (chat/people-share.ts): their "Hide from my list" rows, their Inbox notices and

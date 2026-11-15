@@ -5,6 +5,22 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+## 0.5.7 — 2026-11-15
+
+- **Admin › Members & invites › Invite to team** now asks **Team member** or **Guest** first. Guest lists the group chats you are in and the team projects, and picking one opens the usual guest invite (name, AI, a one-time link).
+- **Admin › AI accounts is called Providers** (Korean: AI 제공사) in the admin sidebar, the page title, the phone's admin list and every hint that sends an owner or admin there. The members' own page in Settings keeps the name AI accounts. The "questions are waiting" message now points to Team settings, where "Answers at the same time" is.
+- **Adding a team in the desktop and phone apps**: an address with a one-word name such as `https://macmini` or `macmini:8443` now says it is not a whole address and to type the whole address (for example `macmini.local:8443`) or paste the link your admin sent. An IPv6 address such as `https://[::1]` is read as an address without a port too. The phone app gets this with its next store version.
+- **Rooms**: when saving an edited message fails, the message now says your edit was not saved, then why.
+- **Find work files on this computer** now also looks in your cloud drives' folders (OneDrive, Google Drive, Dropbox, Box), work folders named like your company or a client, messenger downloads (KakaoTalk, Telegram, WhatsApp …), and the files you opened lately anywhere in your home folder (on Windows also other drives and network drives). Each file says where it is. Files that are only in the cloud are not downloaded until you add them; mail, messages, photos and other apps' data are never looked at.
+- On a Mac, the app first asks for **Full Disk Access** (one switch in System Settings) instead of a question per folder; **Not now** keeps the three folders with macOS's questions as before.
+- Korean screens put the right particle after a service name: "Canva를 연결하면", "Notion을", "Gmail이", "Slack은", instead of the form-style "을(를)". Names whose Korean reading is not known keep "을(를)".
+- Admin › Providers: when every account of a provider is switched off, the line now says so and to switch one on below, instead of listing "refused, expired or at their limit".
+- A connection key you asked the AI to remember, or wrote into a scheduled task through the AI, is now saved as **[hidden key]**, as answers and steps already show it. Memories the AI saved earlier with a stored key are cleaned once when the server starts.
+- When a team turns off **Members can add their own connections**, a member's own connection now says **Off** in Settings › Connectors and on its page, with a line that it is not used in chats, and it can no longer be signed in again until the switch is back on. The AI no longer says such a connection "is ready in this chat"; it says the team turned members' own connections off and to ask an admin.
+- The switch's hint in Team settings now says that connections set up from a team template and Google apps such as Gmail and Drive keep working while it is off.
+- A connector's sign-in window allowed after more than 10 minutes now says the sign-in expired and to connect again from the app, instead of asking you to sign in to the team account.
+- Admin › Connected apps › Slack: with the official Trina Slack app, a connection problem no longer sends you to Replace tokens or Slack's app settings (you have neither). It says to add the app to Slack again, with the button in the line. When Slack limits requests, the page now says Slack is busy and tries again by itself, not that the server cannot reach Slack.
+
 ## 0.5.6 — 2026-11-15
 
 - **Admin › Members & invites** is shorter: **Invite links** lists only the links that still work (the team invite link and invite links nobody has used yet), and goes away when there are none. Used and expired links, and guest links whose room or project is gone, are no longer listed; who joined is in the member list and the Activity log. A team with no guests has no **Guests** section.

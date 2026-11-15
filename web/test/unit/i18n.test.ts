@@ -144,7 +144,9 @@ describe('translations', () => {
     // a bare {count} right before a plural noun: none left (limits that are never 1 and numbers written with
     // separators, which no plural rule reads, are listed; welcome.ai.why is "{product} uses it …", a verb, not a count)
     const bare = /\{\w+\} (?:more |other |unread )?(?:people|times|uses|files|items|rows|lines|notifications|questions|tokens|members|chats|skills|personas|veces|usos|archivos|elementos|filas|líneas|notificaciones|preguntas|seleccionados|caracteres)(?![\p{L}])/u
-    const notCounts = new Set(['preview.sheetRowsCut', 'ask.skillLines', 'composer.answerTooLong', 'memory.hint', 'memory.tooLong', 'budgets.tokensPerDay', 'budgets.tokensPerMonth', 'budgets.usedTokensToday', 'budgets.usedTokensMonth', 'welcome.ai.why'])
+    const notCounts = new Set(['preview.sheetRowsCut', 'ask.skillLines', 'composer.answerTooLong', 'memory.hint', 'memory.tooLong', 'budgets.tokensPerDay', 'budgets.tokensPerMonth', 'budgets.usedTokensToday', 'budgets.usedTokensMonth',
+      // a guest's Team AI limit: an amount written compact ("5M"), never a bare 1
+      'guest.ai.tokens', 'guest.admin.upTo', 'guest.aiLimitTokens', 'welcome.ai.why'])
     for (const loc of ['en', 'es'] as const) for (const [k, v] of Object.entries(DICTS[loc])) expect({ loc, k, bare: !notCounts.has(k) && bare.test(v) }).toEqual({ loc, k, bare: false })
   })
   test('steps of older answers follow the language on screen', () => {
@@ -181,6 +183,22 @@ describe('translations', () => {
     // other languages have no such marker; a value left unfilled stays as written
     expect(translate('en', 'files.restored', { version: 1 })).toBe('Restored v1.')
     expect(format('{x}(으)로', {}, 'ko')).toBe('{x}(으)로')
+  })
+  test('Korean particles after a service name read as it is said: Canva를, Notion을, Gmail이; unknown names keep 을(를)', () => {
+    expect(translate('ko', 'connectors.mcp.about', { name: 'Canva' })).toBe('Canva를 연결하면 AI가 내 계정으로 대화에서 사용해요.')
+    expect(translate('ko', 'connectors.mcp.about', { name: 'Notion' })).toBe('Notion을 연결하면 AI가 내 계정으로 대화에서 사용해요.')
+    expect(translate('ko', 'connectors.mcp.aboutTeam', { name: 'Figma' })).toMatch(/^Figma는 팀이/)
+    expect(translate('ko', 'connectors.mcp.aboutTeam', { name: 'Slack' })).toMatch(/^Slack은 팀이/)
+    expect(translate('ko', 'notifications.event.integration.templateNamed', { name: 'Gmail' })).toMatch(/^Gmail이 준비됐어요/)
+    expect(translate('ko', 'notifications.event.integration.templateNamed', { name: 'Linear' })).toMatch(/^Linear가 준비됐어요/)
+    expect(translate('ko', 'connectors.mcp.about', { name: 'Acmewidget' })).toMatch(/^Acmewidget을\(를\) 연결하면/)
+    // a closing quote between the placeholder and the particle: the value decides, the quote stays
+    expect(translate('ko', 'folderAccess.teamViewsAbove', { team: 'Acme', folder: '마케팅' })).toBe("Acme의 모든 사용자가 '마케팅'을 볼 수 있음")
+    expect(translate('ko', 'folderAccess.teamViewsAbove', { team: 'Acme', folder: '자료' })).toBe("Acme의 모든 사용자가 '자료'를 볼 수 있음")
+    expect(translate('ko', 'picker.noResults', { q: 'Canva' })).toBe('"Canva"와 맞는 파일이 없어요.')
+    // other languages carry no marks; a quote after an unfilled placeholder stays as written
+    expect(translate('en', 'connectors.mcp.about', { name: 'Canva' })).toBe('Connect Canva so the AI can use it in your chats with your own account.')
+    expect(format("'{x}'을(를)", {}, 'ko')).toBe("'{x}'을(를)")
   })
   test('a name that already ends with an honorific does not get a second one: 대표님, never 대표님님', () => {
     expect(translate('ko', 'home.greeting', { name: '대표님' })).toBe('대표님, 무엇을 도와드릴까요?')

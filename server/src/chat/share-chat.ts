@@ -7,14 +7,13 @@
 // transcript (chat/turn.ts, chat/shared.ts stashWrittenBy), so the visible messages are what gets disclosed: the same
 // informed decision as "대화방에 보내기" (chat/answer-share.ts, its provenance line), with its code.
 //
-// The check, over every branch (viewers switch branches): every answer's files (message_sources, each with its sha256),
-// the session's read scope when it describes every answer (else "not all known": an answer from before the newest first
-// answer, whose session emptied the scope), and personal memories when a turn here ran while the person had one. Left
-// out: what everyone in the audience reads now, and by the hash rule identical content a turn of this chat saved where
-// the whole audience reads it now. Nothing left: shared at once. Otherwise "confirm" with the provenance line (places
-// named only where the creator may look, never who), the memory note and an opaque key over the audience, the sources,
-// the memories and every message of every branch; sent back while nothing changed, it shares. Every request takes from
-// the room-send budget first, as "대화방에 보내기" does: the check is no free probe of who may read what.
+// The check is the Share dialog's (chat/audience-check.ts, docs/DECISIONS.md "Share in one press"): answer by answer,
+// every branch, what the project's people would see that they could not before (my memories, files they can't open,
+// my personal accounts, other places named only where the creator may look, rooms it read without saying which), and
+// what nobody could check (a grey line, no warning). Something at stake (or the menu's `ask`): "confirm" with those
+// counts and an opaque key over the audience, the sources, the answer ids of every warning and every message of every
+// branch; sent back while nothing changed, it shares. Every request takes from the room-send budget first, as
+// "대화방에 보내기" does: the check is no free probe of who may read what.
 //
 // Sharing sets chats.shared_at; forgets the chat's engine session (a resumed private session keeps the memories of its
 // instructions and tool results the transcript does not have; the creator's next turn starts from the visible
@@ -23,7 +22,6 @@
 // start, and these turns were just checked); and is audited (chat.share: counts and whether it was confirmed; no names,
 // no content). Nothing unshares it (D1). The steps of the earlier answers show their words alone to everyone but the
 // person whose turn it was (chat/store.ts viewSteps): their labels can name paths, addresses or a remembered text.
-import { instructionFiles } from './prompt'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
@@ -39,7 +37,8 @@ import { SHARED_LATER, type ChatRow, type ProjectRow } from './store'
 import { canSeeProject } from './projects'
 import { isInternalChat } from './internal-chats'
 import { chatAudienceOf, chatView, projectCanShare, type ChatAccess } from './shared'
-import { confirmMac, provenanceChecker, useOf, withSkillReads, type BranchUse } from './answer-share'
+import { confirmMac, useOf, type BranchUse } from './answer-share'
+import { atStake, checkAudience, findingsState } from './audience-check'
 import { sourceKey, sourceOf, type ReadSource } from './read-scope'
 import type { ReadGroup } from './shared-answers'
 import { tr } from './i18n'
@@ -60,21 +59,6 @@ function scopeDescribesAll(db: Database, chatId: string): boolean {
 export function chatUse(db: Database, chatId: string): BranchUse {
   const answers = (db.query("SELECT id FROM messages WHERE chat_id = ? AND role = 'assistant' ORDER BY created_at, rowid").all(chatId) as { id: string }[]).map((r) => r.id)
   return useOf(db, chatId, answers, scopeDescribesAll(db, chatId))
-}
-
-/**
- * Did the person's memories go into this chat's answers? Every turn of a person's own chat has their memories in its
- * instructions (chat/turn.ts promptInput; a shared chat's and a room's never), so: an answer here was written while they
- * had a memory. A memory is deleted for good, so one deleted since this chat's first answer counts as one they had
- * (memory.delete and memory.clear are audited; the AI's forget is a step of an answer of theirs).
- */
-export function memoriesInPlay(db: Database, chatId: string, userId: string): boolean {
-  const span = db.query("SELECT MIN(created_at) AS first, MAX(updated_at) AS last FROM messages WHERE chat_id = ? AND role = 'assistant'").get(chatId) as { first: string | null; last: string | null }
-  if (!span.first) return false
-  return !!db.query('SELECT 1 FROM memories WHERE user_id = ? AND created_at <= ? LIMIT 1').get(userId, span.last ?? span.first)
-    || !!db.query("SELECT 1 FROM audit_log WHERE actor_id = ? AND action IN ('memory.delete', 'memory.clear') AND at >= ? LIMIT 1").get(userId, span.first)
-    || !!db.query(`SELECT 1 FROM messages m JOIN chats c ON c.id = m.chat_id WHERE c.user_id = ? AND m.role = 'assistant' AND m.created_at >= ?
-      AND m.steps LIKE '%"tool":"forget"%' LIMIT 1`).get(userId, span.first)
 }
 
 /** A scheduled task's run made this chat (or ran in it). */
@@ -137,29 +121,31 @@ export async function shareChat(ctx: AppContext, rt: ChatRuntime, userId: string
   for (let round = 0; round < 3; round++) {
     const before = stateOf(ctx, rt, userId, a.row.id, locale)
     const { project, audience, messages } = before
-    // a guest among the project's people: what the chat took from skills/ counts too (answer-share.ts withSkillReads)
-    const sender = loadPrincipal(db, userId)
-    const use = withSkillReads(db, chatUse(db, a.row.id), audience, sender ? instructionFiles(ctx.files, sender) : [])
-    const prov = await provenanceChecker(ctx, userId, audience, use.answers).of([use], new Set())
-    // (also with nobody else in the project now: whoever gets access later sees the whole chat)
-    const memories = memoriesInPlay(db, a.row.id, userId)
+    // what the project's people would see that they could not before (chat/audience-check.ts: the Share dialog's check,
+    // with a guest's skills/ reads too)
+    const f = await checkAudience(ctx, userId, a.row.id, audience, { sharedAt: null })
     // (from here on nothing waits: the state read now is the one shared)
     const now = stateOf(ctx, rt, userId, a.row.id, locale)
     if (now.project.id !== project.id || !sameList(now.audience, audience) || !sameList(now.messages, messages)) continue
-    const key = confirmMac(ctx, { kind: 'chat.share', v: 1, userId, chatId: a.row.id, projectId: project.id, audience, sources: prov.keys, places: prov.places, otherPlaces: prov.otherPlaces, unknown: prov.unknown, memories, messages })
+    const key = confirmMac(ctx, { kind: 'chat.share', v: 2, userId, chatId: a.row.id, projectId: project.id, audience, ...findingsState(f), messages })
     // a member who would see a room it read but for old answers hidden from them: never shown it, confirmed or not
-    if (audience.length && prov.hidden) fail('conflict', tr('chatShareHidden', locale), { params: { reason: 'share_hidden' } })
-    const people = prov.unknown ? audience.length : prov.missing.size
-    const applies = people > 0 || memories
+    if (audience.length && f.hidden) fail('conflict', tr('chatShareHidden', locale), { params: { reason: 'share_hidden' } })
+    const applies = audience.length > 0 && atStake(f)
     // `ask` (the title menu): the question comes first even when nothing applies; the key then shares. A key that is
     // sent must be this state's, whatever applies: a yes to "share with 3 people?" is no yes once 30 would see it
     if ((applies || body.ask || body.confirmKey !== undefined) && body.confirmKey !== key) {
       return {
-        status: 'confirm', audience: audience.length, memories, confirmKey: key,
-        provenance: people > 0 ? { people, places: prov.places, otherPlaces: prov.otherPlaces, ...(prov.unknown ? { unknown: true as const } : {}) } : null,
+        status: 'confirm', audience: audience.length, confirmKey: key,
+        check: {
+          added: audience.length, memoryAnswers: f.memoryAnswers.length, fileAnswers: f.fileAnswers.length, accountAnswers: f.accountAnswers.length,
+          places: f.places, otherPlaces: f.otherPlaces, roomsUnseen: f.roomsUnseen, unchecked: f.unchecked.length,
+        },
         ...(body.confirmKey !== undefined ? { reason: 'changed' as const } : {}),
       }
     }
+    const use = f.use
+    const memories = f.memoryAnswers.length > 0
+    const notAll = f.unchecked.length > 0 || f.accountAnswers.length > 0 || f.roomsUnseen || memories
     // shared, with nothing in between: stateOf just checked the chat and its project again (no turn queued or running),
     // and nothing can start a turn before the update (a turn of the private chat would run without the read card)
     const at = new Date().toISOString()
@@ -173,10 +159,10 @@ export async function shareChat(ctx: AppContext, rt: ChatRuntime, userId: string
       const rules = ctx.files.rules()
       const places = new Map<string, ReadSource>()
       for (const s of [...use.other, ...use.files.map((f) => sourceOf(db, rules, f.path))]) places.set(sourceKey(s), s)
-      const group: ReadGroup = { c: [...new Set([...audience, userId])].sort(), s: [...places.values()], ...(!use.known || use.roomsUnseen || memories ? { x: 1 as const } : {}) }
+      const group: ReadGroup = { c: [...new Set([...audience, userId])].sort(), s: [...places.values()], ...(notAll ? { x: 1 as const } : {}) }
       const add = db.query('INSERT OR IGNORE INTO shared_answer_reads (message_id, chat_id, reads) VALUES (?, ?, ?)')
       for (const id of use.answers) add.run(id, a.row.id, JSON.stringify([group]))
-      audit(db, { actor: userId, action: 'chat.share', target: a.row.id, detail: { audience: audience.length, people, unknown: prov.unknown, memories, confirmed: body.confirmKey !== undefined } })
+      audit(db, { actor: userId, action: 'chat.share', target: a.row.id, detail: { audience: audience.length, answers: new Set([...f.fileAnswers, ...f.memoryAnswers, ...f.accountAnswers]).size, unchecked: f.unchecked.length, memories, confirmed: body.confirmKey !== undefined } })
     })()
     // the private session's stash (its instructions held the memories): the next turn starts from the visible transcript
     fs.rmSync(path.join(ctx.config.dataDir, 'sessions', a.row.id), { recursive: true, force: true })

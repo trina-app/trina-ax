@@ -82,8 +82,10 @@ describe('subscription connection behind the proxy', () => {
     expect(seen.at(-1)!.path).toBe('/v1/messages?beta=true')
     // what comes back never carries the real token
     expect(JSON.stringify([...r.headers]) + await r.text()).not.toContain(REAL)
-    const tr = env.db.query('SELECT input_tokens, output_tokens, cost_usd, usage_source, credential_id FROM turns WHERE id = ?').get(turnId) as any
-    expect(tr).toEqual({ input_tokens: 100, output_tokens: 10, cost_usd: 0, usage_source: 'proxy', credential_id: CRED }) // subscription: no price
+    const tr = env.db.query('SELECT input_tokens, output_tokens, cost_usd, est_cost_usd, usage_source, credential_id FROM turns WHERE id = ?').get(turnId) as any
+    // subscription: no price, so no money spent; the usage screens show its API list price as an estimate (an unknown
+    // model at the family's most expensive row: 100 in x $10 + 10 out x $50 per million)
+    expect(tr).toEqual({ input_tokens: 100, output_tokens: 10, cost_usd: 0, est_cost_usd: 0.0015, usage_source: 'proxy', credential_id: CRED })
     // the connection's own day of use and last use
     const d = env.db.query('SELECT requests, input_tokens, output_tokens, cost_usd FROM credential_usage_daily WHERE credential_id = ?').get(CRED) as any
     expect(d).toEqual({ requests: 1, input_tokens: 100, output_tokens: 10, cost_usd: 0 })

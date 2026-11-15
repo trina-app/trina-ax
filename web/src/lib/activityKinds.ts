@@ -14,8 +14,10 @@ const TRINA: readonly string[] = ['schedule.success', 'schedule.failure', 'dev_e
 const REQUESTS: readonly string[] = ['skill.suggested', 'integration.request', 'onboarding.ai_request', 'service.request', 'account.deletion_request', 'drive.share_reconnect', 'integration.template_reconnect', 'connection.reconnect', 'skills.merge_waiting']
 
 /** the chip a notice belongs to besides 전체 (null: 전체 only) */
-export function chipOf(item: Pick<InboxNotification, 'code'>): Exclude<ActivityChip, 'all'> | null {
+export function chipOf(item: Pick<InboxNotification, 'code' | 'templateLeft'>): Exclude<ActivityChip, 'all'> | null {
   if (TRINA.includes(item.code)) return 'trina'
+  // a team template that is no longer for me: nothing to do (QA TC-2980)
+  if (item.templateLeft) return null
   if (REQUESTS.includes(item.code)) return 'requests'
   return null
 }
@@ -23,7 +25,7 @@ export function chipOf(item: Pick<InboxNotification, 'code'>): Exclude<ActivityC
 /** the chips a person sees: 요청 for the owner and admins */
 export const chipsFor = (admin: boolean): readonly ActivityChip[] => (admin ? ['all', 'trina', 'requests'] : ['all', 'trina'])
 
-export const inChip = (item: Pick<InboxNotification, 'code'>, chip: ActivityChip) => chip === 'all' || chipOf(item) === chip
+export const inChip = (item: Pick<InboxNotification, 'code' | 'templateLeft'>, chip: ActivityChip) => chip === 'all' || chipOf(item) === chip
 
 /** Unread first (newest first among them), then the read ones (newest first): the list's order. `unread`: whether a
  * row counts as unread here (the list keeps a row read since it showed among the unread ones). */

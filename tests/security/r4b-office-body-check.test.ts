@@ -14,7 +14,7 @@ import net from 'node:net'
 import path from 'node:path'
 import tls from 'node:tls'
 import { execFileSync } from 'node:child_process'
-import { refreshBody, refreshCertificates, startRefreshTerminator, REFRESH_HOST, type RefreshTerminator } from '../../server/src/proxy/refresh-terminator'
+import { refreshBody, refreshCertificates, startRefreshTerminator, REFRESH_HOST, REFRESH_PLACEHOLDER, type RefreshTerminator } from '../../server/src/proxy/refresh-terminator'
 import { makeEnv } from '../lib/env'
 import { issueProxyToken, OWN_LOGIN_TURN_HEADER, OWN_LOGIN_UPSTREAM, startModelProxy, type ProxyTurnEvent } from '../../server/src/proxy/model-proxy'
 import { CLAUDE_CONNECT_HOSTS } from '../../server/src/proxy/connect'
@@ -155,20 +155,66 @@ describe('TC-359: the refresh host\'s tunnel ends at the refresh terminator', ()
   const dir = path.join(env.fx.base, 'refresh-ca')
   let term: RefreshTerminator
   let proxy: Awaited<ReturnType<typeof startModelProxy>>
+  // office (TC-358): the real refresh token is held by the launcher's broker; the engine has the placeholder
+  const held = { token: 'REAL-REFRESH-1', rotated: [] as unknown[], ok: true }
+  let heldTerm: RefreshTerminator
+  let heldProxy: Awaited<ReturnType<typeof startModelProxy>>
   beforeAll(async () => {
     term = startRefreshTerminator({ db, dir, upstream: `http://127.0.0.1:${refreshUp.port}` })
     proxy = await startModelProxy({ db, broker: null, ownLogin: {}, connect: { claudeHosts: CLAUDE_CONNECT_HOSTS, terminate: { hosts: CLAUDE_CONNECT_HOSTS, dial: term.dial } } })
+    heldTerm = startRefreshTerminator({ db, dir, upstream: `http://127.0.0.1:${refreshUp.port}`, login: {
+      refreshToken: async () => held.token, rotated: async (t) => { held.rotated.push(t); return held.ok } } })
+    heldProxy = await startModelProxy({ db, broker: null, ownLogin: {}, connect: { claudeHosts: CLAUDE_CONNECT_HOSTS, terminate: { hosts: CLAUDE_CONNECT_HOSTS, dial: heldTerm.dial } } })
   })
-  afterAll(async () => { await proxy?.stop(); term?.stop(); refreshUp.stop(true) })
+  afterAll(async () => { await proxy?.stop(); term?.stop(); await heldProxy?.stop(); heldTerm?.stop(); refreshUp.stop(true) })
+
+  test('TC-358: the engine\'s placeholder becomes the real refresh token; the new one stays with the broker', async () => {
+    refreshSeen.length = 0; held.rotated.length = 0
+    const r = await through('POST', '/v1/oauth/token', JSON.stringify({ grant_type: 'refresh_token', refresh_token: REFRESH_PLACEHOLDER, client_id: 'cli', extra: 'x' }), 'application/json', heldProxy, heldTerm)
+    expect(r.split('\r\n')[0]).toBe('HTTP/1.1 200 OK')
+    // only the fields of a refresh grant go out, with the real token
+    expect(JSON.parse(refreshSeen[0]!.body)).toEqual({ grant_type: 'refresh_token', refresh_token: 'REAL-REFRESH-1', client_id: 'cli' })
+    const answer = JSON.parse(r.slice(r.indexOf('\r\n\r\n') + 4))
+    expect(answer).toEqual({ access_token: 'new-access', refresh_token: REFRESH_PLACEHOLDER, expires_in: 28800 })
+    expect(r).not.toContain('new-refresh')
+    expect(held.rotated).toEqual([expect.objectContaining({ refreshToken: 'new-refresh', accessToken: 'new-access' })])
+    // a real (or another account's) refresh token from the engine is refused: the engine never holds one
+    refreshSeen.length = 0
+    const bad = await through('POST', '/v1/oauth/token', JSON.stringify({ grant_type: 'refresh_token', refresh_token: 'sk-ant-ort01-other' }), 'application/json', heldProxy, heldTerm)
+    expect(bad.split('\r\n')[0]).toBe('HTTP/1.1 403 Forbidden')
+    expect(refreshSeen).toEqual([])
+    // a form body too
+    const form = await through('POST', '/v1/oauth/token', `grant_type=refresh_token&refresh_token=${REFRESH_PLACEHOLDER}`, 'application/x-www-form-urlencoded', heldProxy, heldTerm)
+    expect(form.split('\r\n')[0]).toBe('HTTP/1.1 200 OK')
+    expect(new URLSearchParams(refreshSeen[0]!.body).get('refresh_token')).toBe('REAL-REFRESH-1')
+    expect(form).not.toContain('new-refresh')
+    // two refreshes at once go one after the other, the second with the token the first saved
+    refreshSeen.length = 0; held.rotated.length = 0
+    let n = 0
+    held.token = 'REAL-A'
+    const orig = held.rotated.push.bind(held.rotated)
+    held.rotated.push = (...t: unknown[]) => { held.token = 'REAL-' + (++n); return orig(...t) }
+    const body = JSON.stringify({ grant_type: 'refresh_token', refresh_token: REFRESH_PLACEHOLDER })
+    await Promise.all([through('POST', '/v1/oauth/token', body, 'application/json', heldProxy, heldTerm), through('POST', '/v1/oauth/token', body, 'application/json', heldProxy, heldTerm)])
+    expect(refreshSeen.map((r) => JSON.parse(r.body).refresh_token)).toEqual(['REAL-A', 'REAL-1'])
+    held.rotated.push = orig
+    // the launcher does not take the rotated login: the next refresh uses it and hands it over again
+    held.token = 'REAL-OLD'; held.ok = false; refreshSeen.length = 0; held.rotated.length = 0
+    await through('POST', '/v1/oauth/token', body, 'application/json', heldProxy, heldTerm)
+    held.ok = true
+    await through('POST', '/v1/oauth/token', body, 'application/json', heldProxy, heldTerm)
+    // (this stand-in launcher does not change its token on rotated: what matters is the hand-over before the refresh)
+    expect(held.rotated.map((t) => (t as { refreshToken: string }).refreshToken).slice(0, 2)).toEqual(['new-refresh', 'new-refresh'])
+  })
 
   /** CONNECT platform.claude.com:443 as the turn, TLS with the engine's trust (the terminator's CA), one request */
-  async function through(method: string, p: string, body: string, ct = 'application/json'): Promise<string> {
-    const raw = net.connect(proxy.port, '127.0.0.1')
+  async function through(method: string, p: string, body: string, ct = 'application/json', viaProxy = proxy, viaTerm = term): Promise<string> {
+    const raw = net.connect(viaProxy.port, '127.0.0.1')
     await new Promise((r) => raw.once('connect', r))
     raw.write(`CONNECT ${REFRESH_HOST}:443 HTTP/1.1\r\nProxy-Authorization: Basic ${Buffer.from('turn:' + tokenFor()).toString('base64')}\r\n\r\n`)
     const head = await new Promise<string>((r) => raw.once('data', (d) => r(d.toString())))
     expect(head.split('\r\n')[0]).toBe('HTTP/1.1 200 Connection Established')
-    const s = tls.connect({ socket: raw, servername: REFRESH_HOST, ca: term.caPem })
+    const s = tls.connect({ socket: raw, servername: REFRESH_HOST, ca: viaTerm.caPem })
     await new Promise((r, j) => { s.once('secureConnect', r); s.once('error', j) })
     s.write(`${method} ${p} HTTP/1.1\r\nHost: ${REFRESH_HOST}\r\nContent-Type: ${ct}\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`)
     // the whole answer (headers + Content-Length bytes); Bun 1.3.12 does not close after "Connection: close"

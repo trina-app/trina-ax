@@ -64,8 +64,9 @@ describe('the stream redactor (redact.ts)', () => {
     const s = new RedactingText(() => r)
     expect(s.push('see QA-FA')).toBe('see ')
     expect(s.held).toBe('QA-FA')
-    expect(s.push('X-')).toBe('QA-FAX-') // not the key after all
-    expect(s.flush()).toBe('')
+    // not the key after all; the word at the end still waits: it could start an encoded form (formCarryLength)
+    expect(s.push('X- and')).toBe('QA-FAX- ')
+    expect(s.flush()).toBe('and')
   })
 
   test('placeholder title: a stored key is cut out like a secret-looking one; a line left with one word is skipped', () => {

@@ -115,6 +115,38 @@ test('connector denial and malformed requests cannot silently authorize', async 
   expect(decisions).toEqual([{ allow: false }])
 })
 
+test('an expired request, or one another login session opened, says so in one line and hides the old request (QA TC-2970)', async ({ page }) => {
+  await reset(page)
+  const EXPIRED = '요청이 만료됐거나 다른 로그인 세션에서 열렸어요. 앱에서 다시 연결해 주세요.'
+  const gone = { status: 404, json: { error: { code: 'not_found', message: '찾을 수 없거나 접근 권한이 없어요.', params: { reason: 'request_expired' } } } }
+  let mode: 'expired' | 'late' | 'plain' = 'expired'
+  await page.route('**/api/connectors/remote/requests/*', route => {
+    if (mode === 'plain') return route.fulfill({ status: 404, json: { error: { code: 'not_found', message: '찾을 수 없거나 접근 권한이 없어요.' } } })
+    if (mode === 'late' && route.request().method() === 'GET') return route.fulfill({ json: consent })
+    return route.fulfill(gone)
+  })
+  await signIn(page)
+  const pane = page.getByTestId('connector-consent')
+  // opened by another login session (or expired) when the page loads
+  await page.goto('/connectors/authorize?id=' + id)
+  await expect(pane).toContainText(EXPIRED)
+  await expect(pane).not.toContainText('찾을 수 없거나')
+  await expect(pane.getByTestId('connector-allow')).toHaveCount(0)
+  // expired while the page was open: after Allow the old request with Allow / Deny goes away
+  mode = 'late'
+  await page.goto('/connectors/authorize?id=' + 'b'.repeat(43))
+  await expect(pane).toContainText('Synthetic Claude')
+  await pane.getByTestId('connector-allow').click()
+  await expect(pane).toContainText(EXPIRED)
+  await expect(pane).not.toContainText('Synthetic Claude')
+  await expect(pane.getByTestId('connector-allow')).toHaveCount(0)
+  await expect(pane.getByTestId('connector-deny')).toHaveCount(0)
+  // a 404 without that reason keeps the server's words
+  mode = 'plain'
+  await page.goto('/connectors/authorize?id=' + 'c'.repeat(43))
+  await expect(pane).toContainText('찾을 수 없거나 접근 권한이 없어요.')
+})
+
 test('own connector settings show the address and revoke the selected connection', async ({ page }) => {
   await reset(page)
   let revoked = false

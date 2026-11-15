@@ -35,6 +35,15 @@ export const TeamsFile = z.object({
 })
 export type TeamsFile = z.infer<typeof TeamsFile>
 
+/**
+ * The settings folder's name under the system's app data folder. A development run (`bun run app`, not packaged) has
+ * its own: it remembered http://localhost:19100 in the same folder as the installed app, and the installed app then
+ * opened that team at start on the developer's Mac (0.5.7 DMG, "cannot reach the team server" as its first screen).
+ */
+export function dataDirName(name: string, packaged: boolean): string {
+  return packaged ? name : `${name} (dev)`
+}
+
 export const emptyTeams = (): TeamsFile => ({ version: 1, teams: [], lastTeamId: null })
 
 /** Parse a stored file; anything unreadable starts empty (the user just adds the team again). */

@@ -133,7 +133,7 @@ test('a member makes a team project with a person, then adds one more: the confi
   await expect(b.getByRole('dialog').getByTestId('project-participants')).toHaveCount(0)
   await b.getByRole('dialog').getByRole('button', { name: '취소' }).click()
 
-  // someone else put a file there; Bob adds Jiwoo from the 멤버 line: the confirm first
+  // someone else put a file there; Bob adds Jiwoo from the 멤버 line: what she will see, in place
   expect((await page.request.post('/__test/file', { data: { path: 'projects/주간 보고/notes.md', text: '# notes\n' } })).ok()).toBeTruthy()
   expect((await page.request.post('/__test/file', { data: { path: 'projects/주간 보고/skills/견적서/SKILL.md', text: '---\nname: 견적서\ndescription: 견적서 초안\n---\n' } })).ok()).toBeTruthy()
   await b.getByTestId('project-members-manage').click()
@@ -143,13 +143,13 @@ test('a member makes a team project with a person, then adds one more: the confi
   await b.getByTestId('project-participants-search').fill('지우')
   await b.getByTestId('participant-add-user-jiwoo').click()
   await expect(b.getByTestId('participant-user-jiwoo')).toHaveAttribute('data-state', 'new')
-  await b.getByTestId('project-members-save').click()
-  const confirm = b.getByTestId('project-widen-confirm')
-  await expect(confirm).toContainText('1명이 새로 이 프로젝트를 보게 돼요.')
-  await expect(confirm).toContainText('파일 1개 (다른 사람이 올린 1개 포함)')
+  // one press (QA TC-3092): what Jiwoo will see is in place before Save, no confirm after it
+  const inline = b.getByTestId('project-widen-inline')
+  await expect(inline).toContainText('1명이 새로 이 프로젝트를 보게 돼요.')
+  await expect(inline).toContainText('파일 1개 (다른 사람이 올린 1개 포함)')
   // the project's skills by name: the people added use them in its chats
-  await expect(confirm).toContainText('프로젝트 스킬 1개(견적서)도 1명이 더 쓰게 돼요')
-  await b.getByTestId('dialog-confirm').click()
+  await expect(inline).toContainText('프로젝트 스킬 1개(견적서)도 1명이 더 쓰게 돼요')
+  await b.getByTestId('project-members-save').click()
   await expect(b.getByRole('dialog')).toHaveCount(0)
   const access = await (await b.request.get(`/api/projects/${id}/access`)).json() as { participants: { subjectId: string }[] }
   expect(access.participants.map((x) => x.subjectId)).toEqual(['bob', 'sora', 'jiwoo'])
@@ -169,7 +169,7 @@ test('a member makes a team project with a person, then adds one more: the confi
   // deleting it moves it to the trash with its folder (no box to tick); its creator keeps it there, with Restore (QA TC-1062)
   await b.getByTestId('project-menu').click()
   await b.getByTestId('project-delete').click()
-  await expect(b.getByRole('dialog')).toContainText("'주간 보고'을(를) 휴지통으로 옮길까요?")
+  await expect(b.getByRole('dialog')).toContainText("'주간 보고'를 휴지통으로 옮길까요?")
   await expect(b.getByRole('dialog')).toContainText('관리자나 만든 사람이 되돌릴 때까지 멤버도 파일과 공유 채팅을 열 수 없어요.')
   await expect(b.getByTestId('project-delete-trash-folder')).toHaveCount(0)
   await b.getByTestId('dialog-confirm').click()

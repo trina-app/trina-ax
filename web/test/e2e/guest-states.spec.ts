@@ -64,8 +64,10 @@ test.describe('computer', () => {
     await shoot(page, 'invite-dialog', open)
     await page.getByTestId('guest-invite-name').fill('Alex at Acme')
     await page.getByTestId('guest-invite-create').click()
-    await expect(page.getByTestId('guest-invite-once')).toContainText('It works once, for 7 days (until ')
-    await expect(page.getByTestId('guest-invite-once')).toContainText(day)
+    // the message says until when (guest walkthrough S7); the line under it only how to send it
+    await expect(page.getByTestId('guest-invite-message')).toContainText('It works once, until ')
+    await expect(page.getByTestId('guest-invite-message')).toContainText(day)
+    await expect(page.getByTestId('guest-invite-once')).toHaveText('It works once. Send it to them yourself, by email or chat.')
     await shoot(page, 'invite-link')
   })
 
@@ -83,7 +85,8 @@ test.describe('computer', () => {
       ['inviter_gone', 'The person who made this link can no longer invite you. Ask them or someone else on the team for a new link.'],
       ['place_gone', 'The room or project this link was for is no longer there. Ask the person who invited you.'],
     ]
-    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, timezoneId: 'Asia/Seoul' })
+    // a guest's page speaks the guest's browser language (guest walkthrough S10): an English browser here
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, timezoneId: 'Asia/Seoul', locale: 'en-US' })
     const g = await ctx.newPage()
     for (const [reason, words] of cases) {
       const t = await token()
@@ -138,7 +141,7 @@ test.describe('computer', () => {
     await guest(page, { id: 'lena', name: 'Lena', status: 'disabled', out: 'left' })
     await guest(page, { id: 'tara', name: 'Tara', status: 'disabled', out: 'trashed', place: { kind: 'project', id: proj.id } })
     await guest(page, { id: 'gwen', name: 'Gwen', status: 'disabled', out: 'gone' })
-    const team: GuestAiChoice = { mode: 'team', credentialId: 'c1', limitUsd: 20 }
+    const team: GuestAiChoice = { mode: 'team', credentialId: 'c1', limitTokens: 5_000_000 }
     await guest(page, { id: 'abel', name: 'Abel', ai: team, teamAiGone: true })
     await signIn(page)
     await page.goto('/admin/members')
@@ -244,7 +247,7 @@ test.describe('admin rows', () => {
 
 test.describe('guest', () => {
   test.use({ viewport: { width: 1440, height: 900 } })
-  const TEAM_AI: GuestAiChoice = { mode: 'team', credentialId: 'c1', limitUsd: 20 }
+  const TEAM_AI: GuestAiChoice = { mode: 'team', credentialId: 'c1', limitTokens: 5_000_000 }
   async function signInGuest(page: Page, id: string) {
     await page.goto('/login')
     await page.getByTestId('login-username').fill(id)
@@ -260,7 +263,7 @@ test.describe('guest', () => {
     await page.goto('/')
     await page.getByTestId('composer-input').fill('error:budget\nhello')
     await page.getByTestId('composer-input').press('Enter')
-    const line = page.getByText("You've used this month's AI limit. It resets on Dec 1. Ask the person who invited you if you need more.")
+    const line = page.getByText("You've used this month's AI limit (5M tokens). It resets on Dec 1. Ask the person who invited you if you need more.")
     await expect(line).toBeVisible()
     // a known state, not a failure: a calm notice, no red box and nothing to try again (it would be refused)
     await expect(page.getByTestId('answer-limit')).toContainText('It resets on Dec 1')

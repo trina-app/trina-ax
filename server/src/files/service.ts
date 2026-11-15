@@ -1224,6 +1224,17 @@ export class FileService {
     if (this.virtualPath(ctx, p)) throw new ToolError(`'${FILE_LIST_NAME}' here is the file list the server keeps every night: it cannot be written or edited`, 'file_list')
   }
 
+  /** The text of a file this person may read now, or null (none, a folder, too big, not UTF-8 text). For the key hiding
+   * of a write (integrations/connections/hide-args.ts): a key form the file already holds is kept. */
+  textNow(user: Principal, input: string): string | null {
+    try {
+      const r = authorize(this.fx, this.rules(), user, input, 'read')
+      if (!r.exists || !r.st!.isFile()) return null
+      const { bytes } = readRegular(r.abs, readMaxBytes())
+      return isUtf8(bytes) ? Buffer.from(bytes).toString('utf8') : null
+    } catch { return null }
+  }
+
   write(ctx: ToolCtx, a: { file_path: string; content: string }): ToolOutput {
     this.notTheList(ctx, a.file_path)
     const data = Buffer.from(a.content, 'utf8')

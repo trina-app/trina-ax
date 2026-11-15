@@ -274,7 +274,7 @@ function SystemSections({ office, shown, focus }: { office: Office; shown: Syste
 function Health({ rev }: { rev: number }) {
   const t = useT()
   const locale = useLocale()
-  // with the engines whose version or lockdown test only shows here (Home and Providers leave it out, plain.ts); the
+  // with the engines whose version or lockdown test only shows here (Home and AI providers leave it out, plain.ts); the
   // phone's Admin list keeps the checks for a minute (overview.tsx): this read makes those old
   const state = useLoad(async () => {
     const [d, e] = await Promise.all([api.call(API.diagnostics), api.call(API.engines).catch(() => null)])

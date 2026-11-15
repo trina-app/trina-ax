@@ -42,7 +42,7 @@ test('a member on My files: the app asks first; Cancel does nothing; nothing tic
   await reset(page)
   await signIn(page, BOB)
   await openMine(page)
-  await expect(page.getByTestId('files-find-work-entry')).toHaveText('이 컴퓨터에서 업무 파일 찾기')
+  await expect(page.getByTestId('files-find-work-entry')).toHaveText('업무 파일 찾기')
   // Cancel in the app's own dialog: the page closes, nothing was looked at or sent
   await page.getByTestId('files-find-work-entry').click()
   await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'asking')

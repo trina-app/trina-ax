@@ -19,12 +19,31 @@ test('a member cannot share a chat with a guest; a guest named in the table stil
   const room = await groupChat(mia.client, [nora.id, otto.id])
   const g = await addGuest(h, mia.client, { username: 'gus', place: { kind: 'room', id: room } })
   const chat = await mia.client.call('POST', '/api/chats', {})
-  const put = (subjects: unknown[]) => mia.client.try('PUT', `/api/chats/${chat.id}/audience`, { subjects })
-  const refused = await put([{ subjectType: 'user', subjectId: g.id }])
+  const put = (subjects: unknown[], confirmKey?: string) => mia.client.try('PUT', `/api/chats/${chat.id}/audience`, { subjects, ...(confirmKey ? { confirmKey } : {}) })
+  const preview = (subjects: unknown[]) => mia.client.try('POST', `/api/chats/${chat.id}/audience/preview`, { subjects })
+  const guest = [{ subjectType: 'user', subjectId: g.id }]
+  const noraOnly = [{ subjectType: 'user', subjectId: nora.id }]
+  // the guest is refused before any key is looked at: by the save, by the preview, and with a key of another list
+  const refused = await put(guest)
   expect(refused.status).toBe(400)
   expect(refused.body.error.params.reason).toBe('unknown_subject')
-  const ok = await put([{ subjectType: 'user', subjectId: nora.id }])
+  const refusedPreview = await preview(guest)
+  expect(refusedPreview.status).toBe(400)
+  expect(refusedPreview.body.error.params.reason).toBe('unknown_subject')
+  const noraKey = (await preview(noraOnly)).body.previewKey as string
+  expect(noraKey).toBeTruthy()
+  const keyed = await put(guest, noraKey)
+  expect(keyed.status).toBe(400)
+  expect(keyed.body.error.params.reason).toBe('unknown_subject')
+  // members share as before, the way the app does it (docs/DECISIONS.md "Share in one press"): without the check's
+  // key nothing is saved; the preview's key saves it
+  const unchecked = await put(noraOnly)
+  expect(unchecked.status).toBe(200)
+  expect(unchecked.body).toMatchObject({ status: 'confirm', reason: 'unchecked' })
+  expect((await nora.client.try('GET', `/api/chats/${chat.id}`)).status).toBe(404)
+  const ok = await put(noraOnly, noraKey)
   expect(ok.status).toBe(200)
+  expect(ok.body.status).toBe('saved')
   expect((await nora.client.try('GET', `/api/chats/${chat.id}`)).status).toBe(200)
   // a row naming the guest written past the check (an older build, a restored backup): still no reader
   h.ctx.db.query("INSERT INTO chat_audience (chat_id, subject_type, subject_id, added_at) VALUES (?, 'user', ?, ?)").run(chat.id, g.id, new Date().toISOString())

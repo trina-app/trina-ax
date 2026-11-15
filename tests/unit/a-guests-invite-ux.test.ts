@@ -31,7 +31,7 @@ test("the people list names a guest's place to the people who share it; nobody e
   expect(((await mia.client.call('GET', '/api/people')).people as { id: string; guestPlace?: unknown }[]).find((p) => p.id === nora.id)?.guestPlace).toBeUndefined()
 })
 
-test('the invite page carries the typed name; a project link names its project, a room link does not name the room', async () => {
+test('the invite page carries the typed name; a link names its project or room', async () => {
   h = await harness('a-guests-ux-invite')
   const owner = await withOwner(h)
   const mia = await addMember(h, owner, { username: 'mia' })
@@ -48,8 +48,8 @@ test('the invite page carries the typed name; a project link names its project, 
   expect('guestName' in (await h.client().call('GET', `/api/invites/${String(plain.url).split('/invite/')[1]}`))).toBe(false)
   const items = (await owner.call('GET', '/api/admin/invites')).items as { id: string; guestPlace?: { kind: string; id: string; name?: string } }[]
   expect(items.find((i) => i.id === named.invite.id)?.guestPlace?.name).toBe('Quote prep')
-  // the owner is not in the room: its name stays out of the list
-  expect(items.find((i) => i.id === plain.invite.id)?.guestPlace).toEqual({ kind: 'room', id: room })
+  // a room too, though the owner is not in it: Admin names a guest's room on their row as well (guest walkthrough S8)
+  expect(items.find((i) => i.id === plain.invite.id)?.guestPlace).toEqual({ kind: 'room', id: room, name: 'Secret room' })
   // a used link no longer says the name
   await h.client().call('POST', `/api/invites/${token}/accept`, { username: 'kim', name: 'Kim', password: 'guest river lamp 77' })
   expect('guestName' in (await h.client().call('GET', `/api/invites/${token}`))).toBe(false)
@@ -70,9 +70,9 @@ test('the guest limit: full or not for anyone who may invite; seats and the plan
   const seats = (await owner.call('GET', '/api/admin/users')).items.filter((u: { role: string }) => u.role !== 'guest').length
   setPlanForTests(plan({ maxGuests: 1, maxActiveMembers: seats, account: 'https://plans.example.com/acme' }))
   expect(await mia.client.call('GET', '/api/guest-invites/limit')).toEqual({ full: true, limit: 1, ...host })
-  expect(await owner.call('GET', '/api/guest-invites/limit')).toEqual({ full: true, limit: 1, used: 1, seatsFull: true, manageUrl: 'https://plans.example.com/acme', ...host })
+  expect(await owner.call('GET', '/api/guest-invites/limit')).toEqual({ full: true, limit: 1, used: 1, seatsFull: true, manageUrl: 'https://plans.example.com/acme', answerTokens: { tokens: 80_000, from: 'default' }, ...host })
   setPlanForTests(plan({ maxGuests: 2, maxActiveMembers: seats + 1 }))
-  expect(await owner.call('GET', '/api/guest-invites/limit')).toEqual({ full: false, limit: 2, used: 1, seatsFull: false, ...host })
+  expect(await owner.call('GET', '/api/guest-invites/limit')).toEqual({ full: false, limit: 2, used: 1, seatsFull: false, answerTokens: { tokens: 80_000, from: 'default' }, ...host })
   // a guest never invites: the endpoint is off their list
   expect((await g.client.try('GET', '/api/guest-invites/limit')).status).toBe(403)
 })

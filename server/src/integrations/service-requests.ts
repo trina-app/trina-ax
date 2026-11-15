@@ -15,7 +15,8 @@
 //   - Requests close (settleServiceRequests): 'added' once members can connect the app (right after an admin's setup or
 //     members' switch, and on a 30-second check for a setup made elsewhere: the operator's file, the hosting service's
 //     Google sign-in coming up), with a 'service.ready' notice to the member; 'left' when the member left the team or
-//     became an owner or admin; 'expired' after the inbox's 30 days (they may ask again). With none left for an app,
+//     became an owner or admin; 'expired' after the inbox's 30 days, with a 'service.closed' notice to the member that
+//     they may ask again (QA TC-2946). With none left for an app,
 //     the admins' notice counts as read. The same check keeps the admins' notices with the people who are owners and
 //     admins now (notifications/service.ts syncServiceRequests).
 //   - An app whose setup is not the admins' to make (a hosted team's, an operator's) cannot be asked for: nobody could
@@ -28,7 +29,7 @@ import { newId } from '../db'
 import { HttpError } from '../http/errors'
 import { audit } from '../admin/audit'
 import { admins } from '../credentials/store'
-import { NOTIFICATION_RETENTION_MS, notifyServiceReady, notifyServiceRequested, settleServiceRequestNotices, syncServiceRequestNotices } from '../notifications/service'
+import { NOTIFICATION_RETENTION_MS, notifyServiceClosed, notifyServiceReady, notifyServiceRequested, settleServiceRequestNotices, syncServiceRequestNotices } from '../notifications/service'
 import { googleDriveOf } from './google-drive/oauth'
 import { googleAppsOf } from './google-apps/service'
 import { setupOf } from './google-apps/config'
@@ -122,6 +123,7 @@ export function settleServiceRequests(ctx: AppContext, service?: RequestableServ
     return states.get(key)
   }
   const ready: { userId: string; id: string }[] = []
+  const expired: { userId: string; id: string }[] = []
   const touched = new Set<string>()
   let closed = 0
   db.transaction(() => {
@@ -133,9 +135,13 @@ export function settleServiceRequests(ctx: AppContext, service?: RequestableServ
       closed++
       touched.add(r.service)
       if (reason === 'added') ready.push({ userId: r.user_id, id: r.id })
+      // the page said "We'll tell you when it is ready": an ask that ran out is told too (not one for an app no longer
+      // on the list, which its notice could not name)
+      if (reason === 'expired' && isRequestableService(r.service)) expired.push({ userId: r.user_id, id: r.id })
     }
   })()
   for (const x of ready) notifyServiceReady(ctx, x.userId, x.id)
+  for (const x of expired) notifyServiceClosed(ctx, x.userId, x.id)
   for (const s of touched) if (!db.query('SELECT 1 FROM service_requests WHERE service = ? AND closed_at IS NULL').get(s)) settleServiceRequestNotices(ctx, s)
   return closed
 }
@@ -165,14 +171,17 @@ export function teamServiceRequests(ctx: AppContext): { items: TeamServiceReques
   return { items: [...by.values()] }
 }
 
-/** An owner or admin closes the open requests for an app without adding it: nobody is told, the members may ask again.
- * Audited; the admins' notice counts as read. */
+/** An owner or admin closes the open requests for an app without adding it: each member who asked gets one quiet notice
+ * that it was closed and that they may ask again (their page had said "We'll tell you when it is ready", QA TC-2946),
+ * never which admin. Closed with no reason, as a withdrawn one (migration 343's CHECK). Audited; the admins' notice
+ * counts as read. */
 export function dismissServiceRequests(ctx: AppContext, actor: string, raw: string) {
   if (!isRequestableService(raw)) refuse('bad_request', 'unknown_service')
-  const n = ctx.db.query('UPDATE service_requests SET closed_at = ? WHERE service = ? AND closed_at IS NULL').run(new Date().toISOString(), raw).changes
-  if (!n) return
-  audit(ctx.db, { actor, action: 'service_request.dismiss', detail: { service: raw, requests: n } })
+  const closed = ctx.db.query('UPDATE service_requests SET closed_at = ? WHERE service = ? AND closed_at IS NULL RETURNING id, user_id').all(new Date().toISOString(), raw) as { id: string; user_id: string }[]
+  if (!closed.length) return
+  audit(ctx.db, { actor, action: 'service_request.dismiss', detail: { service: raw, requests: closed.length } })
   settleServiceRequestNotices(ctx, raw)
+  for (const r of closed) notifyServiceClosed(ctx, r.user_id, r.id)
 }
 
 /** A team connection was made or changed (its address, who may use it): requests for the listed service at that

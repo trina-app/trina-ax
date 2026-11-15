@@ -342,7 +342,7 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onLate
                 {x.templateId ? <CircleCheck size={18} className="shrink-0 text-ok" aria-hidden /> : <CircleAlert size={18} className="shrink-0 text-danger" aria-hidden />}
                 <span className="min-w-0 flex-1">
                   <span className="text-sm font-medium text-ink">{x.name}</span>
-                  <span className={clsx('block text-label', x.templateId ? 'text-muted' : 'text-danger')}>{x.templateId ? t('welcome.skills.doneTool') : x.error}</span>
+                  <span className={clsx('block text-label', x.templateId ? 'text-muted' : 'text-danger')}>{x.templateId ? t(x.auth === 'oauth' ? 'welcome.skills.doneToolSignIn' : 'welcome.skills.doneTool') : x.error}</span>
                 </span>
               </li>
             ))}
@@ -511,7 +511,7 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onLate
               <input id={`${ids}-tools`} type="checkbox" checked={toolsOn} onChange={(e) => setToolsOn(e.target.checked)} disabled={applying} className="touch-hit mt-0.5 size-4.5 shrink-0 accent-[var(--c-accent)] dark:[color-scheme:dark]" data-testid="skills-tools-check" />
               <label htmlFor={`${ids}-tools`} className="min-w-0 flex-1 cursor-pointer">
                 <span className="text-sm font-medium text-ink">{t('welcome.skills.tools', { n: tools.length, names: tools.map((x) => x.name).join(', ') })}</span>
-                <span className="mt-0.5 block text-label text-muted">{t('welcome.skills.toolsNote')}</span>
+                <span className="mt-0.5 block text-label text-muted">{t(tools.every((x) => x.auth === 'oauth') ? 'welcome.skills.toolsNoteSignIn' : tools.some((x) => x.auth === 'oauth') ? 'welcome.skills.toolsNoteMixed' : 'welcome.skills.toolsNote')}</span>
                 {/* each address as it will be stored, so a key in it can be seen before it goes to the team */}
                 <ul className="mt-1 space-y-0.5 text-label text-muted" data-testid="skills-tools-urls">
                   {tools.map((x) => <li key={x.name} className="min-w-0 font-mono break-all">{x.name} · {x.url}</li>)}

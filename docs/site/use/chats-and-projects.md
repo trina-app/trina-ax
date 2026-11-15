@@ -115,10 +115,10 @@ Press **Share** (**Save** when it was shared already). Leaving with changes you 
 
 ![The Share dialog of a chat: Add people and groups, then People with access with Jordan Lee (Started this chat) and Priya Nair with ✕, a note that everyone here sees the whole chat, and Save](../images/chats/share-dialog.webp "Share a chat")
 
-- **Before new people are added**, the app checks what they would start seeing. If the chat used places some of them
-  can't open, it says so, for example "1 person can't open some of what this chat used: groups/Marketing/". When it
-  names answers ("2 answers here used places Priya can't open"), **Show answers** lists them. **Share anyway** shares
-  the chat; **Cancel** leaves it as it was.
+- **While you add people**, the app checks what they would start seeing, and a warning shows right away, only when
+  something is at stake: for example "2 answers may have used your personal memories" or "3 answers used files Priya
+  can't open". **Show answers** lists those answers. When nothing is at stake there is no warning; older answers that
+  can't be checked get one small grey line. Pressing **Share** once shares the chat; **Cancel** leaves it as it was.
 - **Files.** Files you attached from your computer before sharing become visible to the people you add, and the dialog
   says how many. A file you changed since you attached it stays yours: it is not counted, and the others don't see it.
   In a shared chat anyone in it can attach a file from the computer (at most 50 MB a file): it is kept with the chat,
@@ -140,7 +140,7 @@ Press **Share** (**Save** when it was shared already). Leaving with changes you 
 - A chat in a personal project stays yours: **Share** offers to move it out first. A chat in a team project is shared
   with the project's members (see [Projects](#projects)).
 
-![The Share dialog after Share: Priya Nair marked New, a warning that 1 person can't open some of what this chat used (groups/Marketing/), and the Share anyway button](../images/chats/share-warning.webp "Before new people are added")
+![The Share dialog while adding people: Priya Nair marked New, a warning that answers used files Priya can't open with Show answers, and the Share button](../images/chats/share-warning.webp "Before new people are added")
 
 ![Activity: Jordan Lee shared a chat with you, with the chat's title under it](../images/chats/shared-activity.webp "What the other person sees in Activity")
 

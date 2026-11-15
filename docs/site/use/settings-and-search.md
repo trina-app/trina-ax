@@ -35,10 +35,10 @@ Everything in it is just for you; what applies to the whole team is in Admin.
 | Group | Sections |
 |---|---|
 | **Account** | Profile, Security & devices, Usage, Memory, Allowed for Trina (and Browser, see below) |
-| **Connections** | Connectors, AI accounts (when the team lets members add their own accounts), Trina AX MCP |
+| **Connections** | Connectors, AI providers (when the team lets members add their own accounts), Trina AX MCP |
 | **App** | Notifications, Apps, About |
 
-A [guest](guests.md) sees only their own sections, such as Profile and Notifications. A guest who uses their own sign-in connects their Claude or ChatGPT account in **AI accounts**.
+A [guest](guests.md) sees only their own sections, such as Profile and Notifications. A guest who uses their own sign-in connects their Claude or ChatGPT account in **AI providers**.
 
 **Connectors** holds your connections to other services: Google Drive, Gmail and the other Google apps, Slack, and the
 listed services. Open one to connect it, see what the AI may do with it, or disconnect it; **Connectors** above its name
@@ -99,7 +99,7 @@ Press **⌘K** (Ctrl+K on Windows), or choose **Search** under **Ask Trina**.
 ![The search window: a search box, type tabs from All to Apps, and quick actions](../images/search/palette.webp "Search")
 
 - **Tabs** narrow the search: All, Chats, History, Projects, Files, Skills, Scheduled and Apps.
-- **With nothing typed**, it shows what needs your attention, your recent chats and projects, and quick actions such as **New chat**.
+- **With nothing typed**, it shows what needs your attention, your recent chats and projects, and quick actions such as **Ask Trina**.
 - **Conversations and people** by name come first on the All tab: type part of a name, or a Korean name's initial consonants ("ㄱㅈ" finds "견적"). A conversation opens. A person opens your 1:1 chat with them; if you have none yet, the new-chat list opens with them ticked, and the chat starts only when you press its button.
 - **Messages** in your conversations (team rooms, the everyone room, 1:1 and group chats) are found on the All tab, after your chats: who wrote it, where, when and the words around what you typed. Only what you would see by opening that conversation now is found. Choose one to open the conversation at that message (a reply opens its thread); **Jump to recent** takes you back to the newest. Part of a word works too: "견적" finds "견적서를".
 - **Files sent in conversations** are found by name on the All and Files tabs, after your team's files: the file, who sent it, where and when. Only files of messages you can see are found. Choose one to open the conversation at the message it was sent with.
