@@ -28785,6 +28785,9 @@ Disk Access) are part 5.
   unchanged), `tests/unit/push-label-gateway.test.ts` (the team server's key and the older-gateway fallback),
   `tests/unit/push-label.test.ts` (an Android device with a key: `label` on the push, the same answer),
   `tests/unit/mobile-labels.test.ts` (the hash on Android), `tests/unit/mobile-push-label-android.test.ts` (the plugin,
-  the manifest, the Kotlin's rules). The Kotlin compiles in a prebuild (`./gradlew :push-label:compileDebugKotlin`); it
-  is not run on a device by CI.
+  the manifest, the Kotlin's rules). No CI job builds Android: the first full compile is a
+  release build (`mobile/scripts/android-release.sh`). At the PR, `Label.kt`, `LabelStore.kt` and
+  `LabelMessagingService.kt` were compiled with kotlinc against stubs of the expo-notifications and Firebase
+  signatures they use, and the pure helpers (plain, teamOrigin, named, title) were run on the JVM;
+  `PushLabelModule.kt`, the manifest merge and `assembleDebug` were not (they need NDK 27.1).
 - Version impact: **minor** (a new optional gateway key, a new phone behaviour; no migration).

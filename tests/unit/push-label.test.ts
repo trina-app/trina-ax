@@ -238,8 +238,12 @@ test('Android: a phone with a label key gets room pushes as label (the app build
   expect(toMia.payload.label).toBeUndefined()
   expect(miaPhone.id).toBeTruthy()
 
-  // an iPhone with a label key never gets label (its extension names the APNs push)
-  for (const s of w.sent.filter(x => x.device.platform === 'ios')) expect(s.payload.label).toBeUndefined()
+  // an iPhone with a label key never gets label (its extension names the APNs push): nora's
+  const toNora = await w.send(w.mia.client, (await w.mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: w.nora.id })).id, 'hi nora')
+  await w.pushed(toNora.id)
+  const ios = w.sent.filter(x => x.device.platform === 'ios')
+  expect(ios.length).toBeGreaterThan(0)
+  for (const s of ios) expect(s.payload.label).toBeUndefined()
 })
 
 test('the label key is the app\'s: registering again with it changes nothing; without it the key is gone', async () => {
