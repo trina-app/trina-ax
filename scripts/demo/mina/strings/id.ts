@@ -59,9 +59,9 @@ export const id: Strings = {
   rooms: {
     everyone: [
       { from: 'daniel', text: 'Hari ini Mina Lee gabung di tim Marketing. Yuk sapa dulu! 🎉' },
-      { from: 'tom', text: 'Selamat datang, Mina! Soal order atau pengiriman, langsung colek Ops aja ya.' },
+      { from: 'tom', text: 'Halo Mina, selamat bergabung! Soal order atau pengiriman, langsung colek Ops aja ya.' },
       { from: 'aiko', text: 'Halo Mina ☺️ ngopi bareng minggu ini yuk?' },
-      { from: 'omar', text: 'Selamat datang! Kabari aku ya kalau ada banner yang perlu dipasang di toko.' },
+      { from: 'omar', text: 'Senang ada kamu, Mina! Kabari aku ya kalau ada banner yang perlu dipasang di toko.' },
     ],
     marketing: [
       { from: 'leo', text: 'Draft pertama banner peluncuran udah aku taruh di proyek. Kasih masukan yang jujur ya 😅' },
