@@ -5,7 +5,8 @@
 - Status: done
 - Where: server/src/notifications, web/pwa/sw.js, web/src (Inbox, Admin › Activity log), i18n. Why: three small
   follow-ups to connector work (tracking TC-3052, TC-3053, TC-3054)
-- Version impact: patch: wording and where a tap lands; no API removed (one optional field added)
+- Version impact: minor: three new optional API fields (`needsKey.signIn`, `lastNeed.signIn`, `ScheduleRun.needSignIn`)
+  and a new push tap target (docs/RELEASE-CI.md "Version numbers")
 
 ## Goal
 

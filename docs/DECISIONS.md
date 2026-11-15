@@ -29266,7 +29266,8 @@ Canva, Intercom and Square refuse the team's https sign-in return address (not o
   removed one opens the Inbox as before. A Web Push click (web/pwa/sw.js) opens the same page from the signed-in notice
   (never the payload); Drive's Web Push stays on the Inbox there, because the notice does not say Drive (the Inbox row
   links a notice without a connection to Drive's page). The push words stay generic (gateway privacy design).
-- **API connections in the Activity log** (TC-3054). `integration.create/update/delete` and
+- **API connections in the Activity log** (TC-3054). The Always allow card's own write-rule record (connections/tools.ts
+  keepAlwaysAllow) now saves the connection's scope and kind as the other records do. `integration.create/update/delete` and
   `integration_template.create/update/delete` rows whose details say `kind: http` read "Added an API connection",
   "Created an API template", … (the app calls that kind "API", `integrations.kind.http`), keys `audit.act.<action>.http`.
   MCP rows and older rows without a kind keep their words.
@@ -29279,4 +29280,5 @@ Canva, Intercom and Square refuse the team's https sign-in return address (not o
 - Tests: `tests/unit/c-connection-reconnect-notice.test.ts`, `c-template-chat-schedule.test.ts`, `mobile-push.test.ts`,
   `push-native.test.ts`; web unit `push-worker`, `activity`, `inbox-notice-rows`, `scheduled-view`; e2e `activity-log`,
   `schedule-notifications`.
-- Version impact: **patch** (where a tap lands and wrong words; one optional API field, nothing removed).
+- Version impact: **minor** (three new optional API fields, `needsKey.signIn`, `lastNeed.signIn`, `ScheduleRun.needSignIn`,
+  and a new push tap target; nothing removed).

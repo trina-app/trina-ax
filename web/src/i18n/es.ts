@@ -4001,7 +4001,7 @@ export const es: Record<MessageKey, string> = {
   "scheduled.runReason.user_unavailable": "La cuenta del propietario no estaba activa",
   "scheduled.runReason.needs_key": "Necesita tu propia clave para una plantilla del equipo",
   "scheduled.runReason.needs_keyNamed": "Necesita tu propia clave para {name}",
-  "scheduled.runReason.needs_signInNamed": "Necesita que inicies sesión en {name}",
+  "scheduled.runReason.needs_signInNamed": "Necesita que inicie sesión en {name}",
   "scheduled.runReason.project_gone": "No podías ver su proyecto",
   "scheduled.runReason.members_only": "Ahora solo los miembros del proyecto pueden usarla",
   "rooms.roomNotIn": "una conversación en la que no está",

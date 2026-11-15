@@ -749,7 +749,7 @@ export const en: Record<MessageKey, string> = {
   "connect.fromTeam": "From your team",
   "connect.templateNote": "Your team set up this service. Your key goes only to this address and is used only in your chats.",
   "scheduleTemplates.outcome.needs_key": "Needs your own key",
-  "scheduleTemplates.outcome.needs_signIn": "Needs your sign-in",
+  "scheduleTemplates.outcome.needs_signIn": "Needs your sign‑in",
   "scheduled.reason.needs_key": "It needs your own key for a team template, so the run did not start. Connect it in Settings › Connectors, then use Run now.",
   "scheduled.reason.needs_keyNamed": "Needs your own key for {name}: connect it in Settings › Connectors, then use Run now.",
   "scheduled.reason.needs_signInNamed": "Sign in to {name} with your own account in Settings › Connectors, then use Run now.",

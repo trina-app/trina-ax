@@ -4001,7 +4001,7 @@ export const ja: Record<MessageKey, string> = {
   "scheduled.runReason.user_unavailable": "所有者のアカウントが有効ではありませんでした",
   "scheduled.runReason.needs_key": "チームのテンプレートに自分のキーが必要です",
   "scheduled.runReason.needs_keyNamed": "{name} に自分のキーが必要です",
-  "scheduled.runReason.needs_signInNamed": "{name} に自分のアカウントでログインが必要です",
+  "scheduled.runReason.needs_signInNamed": "{name}に自分のアカウントでログインが必要です",
   "scheduled.runReason.project_gone": "このタスクのプロジェクトが見えませんでした",
   "scheduled.runReason.members_only": "今はプロジェクトのメンバーだけが使えます",
   "rooms.roomNotIn": "参加していないトーク",

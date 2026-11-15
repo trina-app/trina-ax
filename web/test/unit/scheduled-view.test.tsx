@@ -220,7 +220,8 @@ describe('scheduled task page', () => {
     expect(block).toContain(t('scheduled.reason.needs_signInNamed', { name: 'Demo Wiki' }))
     expect(block).toContain(t('connect.signIn', { name: 'Demo Wiki' }))
     expect(block).not.toMatch(/your own key/i)
-    expect(outcomeLabel(task, t)).toBe('Needs your sign-in')
+    // a non-breaking hyphen: "sign‑in" never splits at a phone's width
+    expect(outcomeLabel(task, t)).toBe('Needs your sign\u2011in')
     expect(outcomeReason(task, t)).toBe('Sign in to Demo Wiki with your own account in Settings › Connectors, then use Run now.')
     // a key template: as before
     const keyTask = { ...daily, lastOutcome: 'needs_key' as const, lastNeed: { templateId: 'tpl', name: 'Demo Wiki' } }
