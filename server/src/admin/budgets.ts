@@ -123,7 +123,16 @@ export function budgetBlock(db: Database, userId: string, locale: Locale, now = 
   // a guest does not know the team's admins: the person who invited them (docs/DECISIONS.md "Guests: only what they
   // were invited to"); the same date
   const guest = !!(db.query('SELECT guest FROM users WHERE id = ?').get(userId) as { guest: number } | null)?.guest
-  const message = guest ? {
+  // a guest's own token limit says its amount, as the web's in-chat notice does ("this month's AI limit (5M tokens)"):
+  // the composer, a room's AI side chat and every other place show this text as it is (QA TC-3310)
+  const own = guest && hit.budget.subjectType === 'user' && hit.budget.limitTokens !== null && hit.budget.limitTokens > 0 && !(hit.budget.limitUsd > 0)
+  const n = own ? new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 }).format(hit.budget.limitTokens!) : ''
+  const message = own ? {
+    ko: `${p} AI 한도(${n} 토큰)를 다 썼어요. ${at}부터 다시 쓸 수 있어요. 더 필요하면 초대한 분께 물어봐 주세요.`,
+    en: `You have used up ${p} AI limit (${n} tokens). You can use it again from ${at}. Ask the person who invited you if you need more.`,
+    id: `Batas AI ${p} (${n} token) sudah habis. Kamu bisa memakainya lagi mulai ${at}. Tanyakan ke orang yang mengundangmu jika perlu lebih.`, ja: `${p}のAIの上限（${n}トークン）を使い切りました。${at}から再び使用できます。追加が必要な場合は、招待してくれた人に聞いてください。`, es: `Agotó el límite de IA ${p} (${n} tokens). Podrá volver a usarla a partir de ${at}. Si necesita más, pregunte a quien le invitó.`,
+    zh: `${p}AI额度（${n} token）已用完。从${at}起可以再次使用。如果需要更多，请询问邀请你的人。`,
+  }[locale] : guest ? {
     ko: `${p} AI 사용 한도를 다 썼어요. ${at}부터 다시 쓸 수 있어요. 더 필요하면 초대한 분께 물어봐 주세요.`,
     en: `You have used up ${p} AI usage limit. You can use it again from ${at}. Ask the person who invited you if you need more.`,
     id: `Batas penggunaan AI ${p} sudah habis. Kamu bisa memakainya lagi mulai ${at}. Tanyakan ke orang yang mengundangmu jika perlu lebih.`, ja: `${p}のAI使用量上限を使い切りました。${at}から再び使用できます。追加が必要な場合は、招待してくれた人に聞いてください。`, es: `Agotó el límite de uso de IA ${p}. Podrá volver a usarla a partir de ${at}. Si necesita más, pregunte a quien le invitó.`,

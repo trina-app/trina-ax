@@ -28353,6 +28353,14 @@ so a guest on a subscription connection was never stopped; tokens count with eve
   tokens). It resets on Dec 1. …" only when their own limit stopped it (`params.own` on budget_exceeded); a team or
   group limit, and a dollar guest, read the old words. A guest budget with both limits cleared in Admin › AI limits
   is no limit (`guestHasBlockBudget`), so Team AI is off rather than unlimited.
+- **Hands-on QA (TC-3310, fix/guest-limit-notice-tokens):** a send refused before a chat exists (the main chat box,
+  a room's AI side chat) shows the server's `budget_exceeded` message as it is, which still said "this month's AI usage
+  limit" without the amount. The server's message for a guest stopped by their own token limit now names it ("You have
+  used up this month's AI limit (5M tokens). You can use it again from …"); a dollar guest and a team or group limit
+  keep the old words. Two smaller findings of the same run: on a phone the Admin row's two lines cut "AI limit used up" (it had
+  moved to the end), so it is again right after where the guest is, and the account's name now comes after the limit
+  and what is left; Change AI showed "about N answers" from the default before the team's number was read, so it
+  waits for that read (a skeleton, as the invite dialog does).
 - Tests: `tests/unit/a-guests-ai-tokens.test.ts` (stored, enforced at no cost, last month not counted, Change AI
   replaces a dollar limit, dollar bodies refused, an old link, the team's mean and the default, rounding); the guest
   unit tests now use tokens; e2e `guest-ai-tokens.spec.ts` (invite presets/Other/estimate, Admin rows, Change AI on a

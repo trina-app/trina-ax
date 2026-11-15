@@ -53,6 +53,9 @@ test('Team AI stores a token limit, counts every token toward it and blocks at i
   answer(g.id, 500, 500)
   const b = budgetBlock(h.ctx.db, g.id, 'en')!
   expect(b.resetsAt).toBe(resetsAt)
+  // the words every place shows as they are (the composer, a room's AI side chat) name the amount (QA TC-3310)
+  expect(b.message).toStartWith("You have used up this month's AI limit (10K tokens). You can use it again from ")
+  expect(budgetBlock(h.ctx.db, g.id, 'ko')!.message).toStartWith('이번 달 AI 한도(1만 토큰)를 다 썼어요. ')
   expect((await row()).aiUsedUp).toBe(true)
   const r = await g.client.try('POST', '/api/chats', { message: 'hello' })
   expect(r.body.error.code).toBe('budget_exceeded')
@@ -73,7 +76,8 @@ test('Change AI sets a token limit and replaces an older guest\'s US dollar one;
   answer(g.id, 5_000_000, 0, 0)
   expect(budgetBlock(h.ctx.db, g.id, 'en')).toBeNull()
   answer(g.id, 10, 10, 20)
-  expect(budgetBlock(h.ctx.db, g.id, 'en')).not.toBeNull()
+  // a dollar guest reads the words without an amount
+  expect(budgetBlock(h.ctx.db, g.id, 'en')!.message).toStartWith("You have used up this month's AI usage limit.")
   // the API takes tokens only: dollars, a fraction, 0 or over the cap are refused and nothing changes
   const url = `/api/admin/users/${g.id}/guest-ai`
   for (const body of [{ limitUsd: 20 }, { limitTokens: 5_000_000, limitUsd: 20 }, { limitTokens: 1.5 }, { limitTokens: 0 }, { limitTokens: 2_000_000_000 }, {}])
@@ -106,6 +110,7 @@ test('a team limit that stops a guest is not said as their own amount (params.ow
   const b = budgetBlock(h.ctx.db, g.id, 'en')!
   expect(b.budget.subjectType).toBe('team')
   expect(b.params.own).toBeUndefined()
+  expect(b.message).not.toContain('tokens)')
 })
 
 test('a guest link made before tokens, used now, gives its US dollar limit as it was', async () => {
