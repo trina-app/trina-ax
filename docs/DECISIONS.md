@@ -28342,6 +28342,19 @@ it makes are the hosted speech keys.
 - Version impact: **minor** (an endpoint, a tenant command and visible lines removed).
 
 
+## A guest who forgot their password (fix/guest-password-reset, 2026-11-15, guest-states QA TC-2301)
+
+QA found that the only reset an admin could not do from the screen was a guest's: the server already resets any account's
+password (`POST /api/admin/users/:id/reset-password`), but the guest's row in Admin › Members & invites › Guests had no
+**Reset password**. A guest has no e-mail and is often invited by a plain member, so the sign-in page's "ask the team
+owner or an admin" reached nobody they know.
+
+- **Reset password** is in an active guest's "…" menu (`web/src/pages/admin/Guests.tsx`), and opens Members' own dialog
+  (a temporary password to hand over, the same words as for a member). A removed guest has no such item: they cannot sign in.
+- The sign-in page's forgot-password line adds one sentence in all six languages: a guest asks the person who invited
+  them (who can pass it to an admin). Nothing about who may reset changes; the server check is the same.
+- Version impact: **patch**.
+
 ## Guest states, hands-on QA round 1 (fix/guest-states-qa-s1, 2026-11-15, QA TC-2189–2206, 2491)
 
 넣을 곳: Team AX core (`server/src/auth/guests.ts`, `web/src/pages/admin/Guests.tsx`, `web/src/components/chat/Composer.tsx`, `Messages.tsx`), 이유: guests and the AI limit are core.

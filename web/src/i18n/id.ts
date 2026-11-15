@@ -225,7 +225,7 @@ export const id: Record<MessageKey, string> = {
   'auth.passwordRule': 'Kata sandi minimal 8 karakter.',
   'auth.passwordMismatch': 'Kedua kata sandi tidak sama.',
   'auth.name': 'Nama',
-  'auth.forgot': 'Lupa kata sandi? Minta owner atau admin untuk meresetnya.',
+  'auth.forgot': 'Lupa kata sandi? Minta owner atau admin untuk meresetnya. Jika Anda tamu, tanyakan ke orang yang mengundang Anda.',
   'auth.alreadyJoined': "Jika sudah bergabung, silakan masuk.",
   'auth.haveAccount': "Sudah bergabung?",
   'auth.openInApp': "Buka di aplikasi",
