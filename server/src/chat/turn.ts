@@ -86,6 +86,8 @@ import { hasCredentialFor, resolveCredential, type CredEngine } from '../credent
 import { connectionRoute } from '../credentials/access'
 import { isGuestUser } from '../credentials/guest-ai'
 import { situationOf } from './situation'
+import { appMapView } from './app-map'
+import { isManaged } from '../app-config'
 import { runKindOf } from '../system/deployment'
 import { guestPromptOf } from './guest-tools'
 import { credentialsOf, getRow, metaOf } from '../credentials/store'
@@ -795,6 +797,10 @@ export class TurnExec {
     // whatever engine.authMode says)
     const managedEngine = engine === 'claude-code' ? claude?.authMode === 'managed' && !!claude.modelProxy : engine === 'codex' ? codex?.auth === 'managed' : false
     const situation = this.shared ? null : situationOf(rt.ctx, { userId: spec.userId, role: this.principal.role, clientKind: spec.clientKind, browser: this.browser, engine, locale: spec.locale, managed: managedEngine, webSearch })
+    // where things are in the app (chat/app-map.ts): none for a guest or a scheduled run (nobody to point anywhere);
+    // guest AI by the install, as Admin says it (routes/credentials.ts guestAiUnavailable), not by this turn's engine
+    const appMap = guestTurn || spec.clientKind === 'schedule' || this.templateScope ? null
+      : { view: appMapView(this.principal.role, !!this.shared), managed: isManaged(rt.ctx.config), devEnv: devEnvFlag(), office: !!rt.ctx.config.office }
     const runKind = runKindOf(rt.ctx.config)
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone,
@@ -809,7 +815,7 @@ export class TurnExec {
       confidential: confidential ? (safeOpsEnabled() ? 'server' : 'chat') : null,
       // the file lists (file-list/service.ts): only while the feature is on and this person has one
       fileList: fileListPromptOn(rt.ctx, this.principal!),
-      situation, runKind,
+      situation, appMap, runKind,
       // a guest: their places and who invited them (prompt.ts guestSection), no team-wide text
       guest: guestPrompt,
     })
