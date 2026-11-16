@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16 05:00
 - Branch: `fix/ai-file-link-labels`
-- Status: in progress
+- Status: done
 - Where: server/src/chat/prompt.ts. Why: the wording of the in-app AI's answers is set by its system prompt.
 - Version impact: patch, a wording fix of the AI's answers
 
@@ -38,4 +38,7 @@ Out: a post-processor that rewrites backticked paths into links (see Decisions).
 
 ## Result
 
-(filled in at the end)
+SOURCE_LINK_RULE, both "Say where" lines, FIND_FILE_RULE ("list the closest as links") and the Slack app line
+("also where you link it") changed; tests/unit/b-prompt-file-links.test.ts. Scenario re-run of the 11 related cases:
+answers with a backticked team path 9 → 1 (the one left repeats the path the person typed), passes 1 → 6 (run 1) and
+3 of 9 in run 2; the rest fail on other words ("서버", "HTML", skill ids: PR #1057) or wrong claims.
