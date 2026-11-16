@@ -25,6 +25,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { FILE_STEP_VERB, isUuid7, RoomFileInput, RoomReadInput, RoomsInput, SaveRoomFileInput } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
+import { SMALL_UPLOAD_MAX } from '@mycel/shared/api'
 import type { McpContent } from '../turns'
 import type { TurnFiles } from '../files/service'
 import { ext, extractText, looksScanned } from '../files/extract'
@@ -496,7 +497,10 @@ async function saveRoomFile(exec: TurnExec, files: TurnFiles, a: SaveArgs, named
   const work = fs.mkdtempSync(path.join(workRoot, 'room-file-'))
   try {
     const tmp = path.join(work, 'file')
-    const bytes = readRegular(abs, 1024 * 1024 * 1024).bytes
+    // read whole (the safety check reads the bytes): only up to 50 MB, what a room file could be before rooms took
+    // files of up to 10 GB; a larger one is for the person to download and put in Files themselves
+    if (file.size > SMALL_UPLOAD_MAX) return { ...text(`Not saved: "${neutralizeTags(file.name.replace(/[\r\n"]+/g, ' ').slice(0, 200))}" is larger than 50 MB, which is the most that can be copied from a room here. Tell the user to download it from the room and upload it on the Files screen.`, true), summary: 'save_room_file -> refused: too large' }
+    const bytes = readRegular(abs, SMALL_UPLOAD_MAX).bytes
     rt.files.quarantine.assertBytes(bytes)
     fs.writeFileSync(tmp, bytes, { mode: 0o600 })
     const c: ToolCtx = { user: exec.livePrincipal(), turnId: spec.turnId, files, signal: exec.abort.signal, confirmWidening: (t, s, b) => exec.confirmWidening(t, s, b, call),
