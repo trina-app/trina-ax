@@ -72,5 +72,11 @@ describe('review: reads, refusals and loose matches keep the card', () => {
     expect(writtenByAsker({ parent: 'https://evil.example/p', status: '계약' }, said)).toBe(false)
     expect(writtenByAsker({ recipient_id: 'u1', status: '계약' }, said)).toBe(false)
     expect(writtenByAsker({ row_id: 'r-3', title: '약' }, said)).toBe(false)
+    // an id inside a recipient-like key picks where it goes
+    expect(writtenByAsker({ parent: { page_id: 'evilpage' }, status: '계약' }, said)).toBe(false)
+    expect(writtenByAsker({ folder: { id: 'X1' }, status: '계약' }, said)).toBe(false)
+    expect(asksFor(POST_ASK, "what's the latest post in marketing?")).toBe(false)
+    expect(asksFor(POST_ASK, 'post it to #marketing')).toBe(true)
+    expect(asksFor(POST_ASK, '\uBCF4\uB0B4\uC8FC\uC2DC\uB294 \uBD84')).toBe(false)
   })
 })
