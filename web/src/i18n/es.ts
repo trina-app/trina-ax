@@ -2817,6 +2817,8 @@ export const es: Record<MessageKey, string> = {
   'skills.replacesGroup': "en lugar de la del grupo",
   'skills.fromProject': 'Del proyecto {project}',
   'skills.projectHint': 'Solo en los chats de este proyecto · solo añade nombres nuevos',
+  'skills.fromGroupManaged': 'Del grupo {group} (no eres miembro)',
+  'skills.managedGroupHint': 'Los gestionas como administrador · solo funcionan para los miembros del grupo',
   'skills.projectBadge': 'Habilidad del proyecto {project}: solo se usa en sus chats',
   'skills.replacesProject': 'en lugar de la habilidad del proyecto',
   'skills.sameName': 'Mismo nombre: {where}',

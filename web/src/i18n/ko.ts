@@ -2857,6 +2857,8 @@ export const ko = {
   'skills.replacesGroup': "부서 스킬 대신",
   'skills.fromProject': '{project} 프로젝트 스킬',
   'skills.projectHint': '이 프로젝트 채팅에서만 · 새 이름만 더할 수 있어요',
+  'skills.fromGroupManaged': '{group} 부서 스킬 (내가 속하지 않은 부서)',
+  'skills.managedGroupHint': '관리자로서 관리하는 스킬이에요 · 그 부서 멤버에게만 적용돼요',
   'skills.projectBadge': '{project} 프로젝트의 스킬: 이 프로젝트 채팅에서만 써요',
   'skills.replacesProject': '프로젝트 스킬 대신',
   'skills.sameName': '같은 이름: {where}',

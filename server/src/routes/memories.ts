@@ -13,7 +13,7 @@ import { tr } from '../chat/i18n'
 import { newId } from '../db'
 import { audit } from '../admin/audit'
 import { decodeCursor, encodeCursor } from '../chat/store'
-import { projectSkillSections, scanSkillsWithShadowed, skillInfo, skillIssues, type ShadowedBy } from '../chat/skills'
+import { otherGroupSkills, projectSkillSections, scanSkillsWithShadowed, skillInfo, skillIssues, type ShadowedBy } from '../chat/skills'
 import { levelLabel, moveOptions, runMove } from '../skills/move'
 import { teamRuleFiles } from '../chat/prompt'
 import { popularSkills } from '../skills/popular'
@@ -160,7 +160,9 @@ export const memoriesRoutes: RouteModule = {
       const shadow = (b: ShadowedBy) => (b.tier === 'group' ? { tier: 'group' as const, group: { id: b.group.id, name: b.group.name } } : { tier: b.tier })
       const one = (s: (typeof items)[number], extra: object = {}) => { const i = skillInfo(s); const who = by.get(s.path); const r = replaces.get(s.path); return { ...i, ...(who ? { suggestedBy: who } : {}), ...(r ? { replaces: r } : {}), ...extra } }
       const listed = new Set([...items.map((s) => s.path), ...lost.map((l) => l.skill.path)])
-      return { items: [...items.map((s) => one(s)), ...lost.map((l) => one(l.skill, { shadowedBy: shadow(l.by) })),
+      // ?groups=1, owner and admins: the skills of the groups they are not in, to manage them (never to run)
+      const others = query?.groups ? otherGroupSkills(ctx.files, p) : []
+      return { items: [...items.map((s) => one(s)), ...lost.map((l) => one(l.skill, { shadowedBy: shadow(l.by) })), ...others.map((s) => ({ ...skillInfo(s), notMember: true })),
         ...sections.filter((x) => !listed.has(x.skill.path)).map((x) => ({ ...skillInfo(x.skill), ...(x.by ? { shadowedBy: shadow(x.by) } : {}) }))] }
     })
     // "옮기기" on the Skills page (skills/move.ts): where a skill can go, then the move as seen

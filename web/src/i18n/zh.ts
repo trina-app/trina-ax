@@ -2812,6 +2812,8 @@ export const zh: Record<MessageKey, string> = {
   "skills.replacesGroup": "取代小组技能",
   "skills.fromProject": "来自项目{project}",
   "skills.projectHint": "仅在此项目的对话中 · 只添加新名称",
+  "skills.fromGroupManaged": "小组{group}的技能(你不在该组)",
+  "skills.managedGroupHint": "你以管理员身份管理这些技能 · 只对该组成员生效",
   "skills.projectBadge": "项目{project}的技能：仅在其对话中使用",
   "skills.replacesProject": "取代项目技能",
   "skills.sameName": "同名：{where}",
