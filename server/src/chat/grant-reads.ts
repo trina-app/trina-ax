@@ -45,6 +45,12 @@ function roomCameIn(exec: GrantReadExec): boolean {
   return !!chat?.side_room_id || (!!exec.spec.assistantId && quotesOnBranch(db, exec.spec.assistantId))
 }
 
+/** The chat's "rooms seen" mark came from a file shared with the person alone (no room's words came in): the places a
+ * card names say "a file shared with you", not "direct messages and group chats" (chat/post-to-room.ts). */
+export function grantOnly(exec: GrantReadExec): boolean {
+  try { return readByGrant(exec) && !roomCameIn(exec) } catch { return false }
+}
+
 const FILE_WORDS = { roomsSeenWhy: 'sharedFileSeenWhy', roomsSeenConfirm: 'sharedFileSeenConfirm', roomsSeenConfirmRead: 'sharedFileSeenConfirmRead' } as const
 /** The sentence that says why this chat asks first: about a file shared with the person when that is the cause and no
  * room's words came in, else the room sentence as before. Never throws (words only: the room sentence on any doubt). */

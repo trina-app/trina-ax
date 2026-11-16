@@ -188,6 +188,9 @@ export const TEXT = {
   roomsSeenWhy: t('여기에 대화 메시지(다른 사람이 쓴 글)가 들어와서, 무언가를 바꾸기 전에 먼저 물어봐요.', 'Messages from your conversations (other people\'s words) came in here, so changes are asked first.', 'Chat ini berisi pesan dari percakapan Anda (tulisan orang lain), jadi perubahan ditanyakan dulu.', "このチャットにはトークのメッセージ（ほかの人が書いたもの）が含まれているため、変更の前に確認します。", "Este chat contiene mensajes de sus conversaciones (palabras de otras personas), así que los cambios se consultan antes.", "这里收到了你聊天中的消息（其他人说的话），所以修改前会先问你。"),
   /** a share or post card that comes although "Always allow" is on, because content someone else wrote was read (chat/share-words.ts othersWordsCard) */
   othersWordsWhy: t('이 채팅에서 다른 사람이 쓴 내용을 읽어서 먼저 물어봐요. 메시지에 파일과 받는 사람을 이름으로 적으면 카드 없이 진행돼요.', 'Something other people wrote was read in this chat, so this is asked first. To skip the card, name the file and who gets it in your message.', 'Chat ini membaca sesuatu yang ditulis orang lain, jadi ini ditanyakan dulu. Agar tanpa kartu, sebutkan nama berkas dan penerimanya di pesan Anda.', 'このチャットでほかの人が書いた内容を読んだため、先に確認します。メッセージにファイル名と送り先を書くと、カードなしで進みます。', 'En este chat se leyó algo escrito por otras personas, así que esto se consulta antes. Para omitir la tarjeta, indique en su mensaje el archivo y quién lo recibe.', '这个对话读取了其他人写的内容，所以会先问你。在消息里写明文件和接收人的名字，就不会再出现卡片。'),
+  /** a share or post card raised because what it acts on came from what is open on the screen (looking_at), not from
+   * the person's own words (chat/looking-at.ts): said in place of othersWordsWhy */
+  lookedWhy: t('메시지에 이름이 없어서 지금 화면에 열려 있는 것을 보고 골랐어요. 그래서 먼저 물어봐요.', 'Your message didn\'t name this, so it was taken from what is open on your screen. That is why this is asked first.', 'Pesan Anda tidak menyebut namanya, jadi ini diambil dari yang terbuka di layar Anda. Karena itu ini ditanyakan dulu.', 'メッセージに名前がなかったため、いま画面で開いているものから選びました。そのため先に確認します。', 'Su mensaje no lo nombraba, así que se tomó de lo que tiene abierto en la pantalla. Por eso se consulta antes.', '你的消息没有写名称，所以是根据你屏幕上打开的内容选的。因此会先问你。'),
   /** "Send to Trina" in an answer's thread, as the web app names it (chat.thread.sendToAi; chat/share-words.ts) */
   threadSendToAi: t('{name}에게 보내기', 'Send to {name}', 'Kirim ke {name}', '{name}に送る', 'Enviar a {name}', '发送给{name}'),
   /** the same three sentences when the cause is a file someone shared with the person, read through its share, and no
@@ -281,6 +284,11 @@ export const TEXT = {
   // the same 1:1 message when the team turned off members' file sharing (files/share-fixes.ts forSwitch): {file} is the
   // file's name (an admin may not be able to open it), {setting} the switch as Admin › Team settings names it
   fixAskAdminSwitch: t('{file} 파일을 공유하고 싶은데, 멤버 파일 공유가 꺼져 있어요. 관리자 › 팀 설정에서 \'{setting}\'을 켜 주실 수 있나요?', 'I’d like to share the file {file}, but members’ file sharing is turned off. Could you turn on “{setting}” in Admin › Team settings?', 'Saya ingin membagikan berkas {file}, tetapi berbagi berkas oleh anggota sedang dimatikan. Bisakah Anda menyalakan “{setting}” di Admin › Pengaturan tim?', 'ファイル {file} を共有したいのですが、メンバーによるファイル共有がオフになっています。管理 › チーム設定で「{setting}」をオンにしていただけますか？', 'Me gustaría compartir el archivo {file}, pero el uso compartido de archivos por los miembros está desactivado. ¿Podría activar «{setting}» en Administración › Configuración del equipo?', '我想共享文件 {file}，但成员共享文件的功能已关闭。可以在 管理 › 团队设置 里打开“{setting}”吗？'),
+  /** the buttons of the offers under an answer, exactly as the app labels them (web stepFix.letView / askOwner /
+   * askAdmin): what the AI is told to point at (chat/share-next-steps.ts) */
+  fixButtonLetView: t('볼 수 있게 하기', 'Let them view', 'Izinkan melihat', '見られるようにする', 'Permitir que lo vean', '允许查看'),
+  fixButtonAskOwner: t('{owner} 님에게 요청', 'Ask {owner}', 'Minta ke {owner}', '{owner} さんに頼む', 'Pedir a {owner}', '请 {owner} 共享'),
+  fixButtonAskAdmin: t('관리자에게 요청', 'Ask an admin', 'Minta ke admin', '管理者に頼む', 'Pedir a un administrador', '请管理员处理'),
   /** the switch's name as Admin › Team settings shows it (web teamSettings.memberFileShares) */
   fixSwitchName: t('멤버가 자기 파일을 공유할 수 있음', 'Members can share files they own', 'Anggota bisa membagikan file milik mereka', 'メンバーが自分のファイルを共有できる', 'Los miembros pueden compartir sus propios archivos', '成员可以共享自己的文件'),
   fileShareNotShared: t('공유하지 않았어요', 'Not shared', 'Tidak dibagikan', '共有していません', 'No se compartió', '未共享'),
@@ -298,6 +306,10 @@ export const TEXT = {
   postRoomDm: t('{name}님과의 1:1 대화', '1:1 chat with {name}', 'obrolan 1:1 dengan {name}', '{name}さんとの1:1', 'chat 1:1 con {name}', '与{name}的私信'),
   postRoomTeamFolder: t('팀 폴더', 'Team folder', 'Folder tim', 'チームフォルダー', 'Carpeta del equipo', '团队文件夹'),
   postRoomMine: t('내 폴더', 'My folder', 'Folder saya', '自分のフォルダー', 'Mi carpeta', '我的文件夹'),
+  /** the place of a source when it is a file shared with the person (a grant read; chat/grant-reads.ts grantOnly) */
+  postRoomPlaceSharedFile: t('나에게 공유된 파일', 'a file shared with you', 'berkas yang dibagikan kepada Anda', 'あなたに共有されたファイル', 'un archivo compartido con usted', '共享给你的文件'),
+  /** a post linking a file the sender has only through a share (/f/ link): people in the room who cannot open it */
+  postRoomSharedFileCant: t('{n}명은 {file} 파일을 열 수 없어요. 나에게만 공유된 파일이에요.', "{n, plural, one {# person} other {# people}} there can't open {file}: it was shared with you, not with them.", '{n} orang di sana tidak bisa membuka {file}: berkas itu dibagikan kepada Anda, bukan kepada mereka.', '{n, plural, one {#人} other {#人}}は「{file}」を開けません。あなたに共有されたファイルで、その人たちには共有されていません。', '{n, plural, one {# persona} other {# personas}} no {n, plural, one {puede} other {pueden}} abrir {file}: se compartió con usted, no con ellas.', '{n, plural, one {#人} other {#人}}打不开“{file}”：它只共享给了你，没有共享给他们。'),
   postRoomPlaceRoom: t('{name} 대화', '{name} conversation', 'Percakapan {name}', 'トーク「{name}」', 'Conversación {name}', '聊天“{name}”'),
   postRoomConversation: t('1:1 대화·그룹 대화', 'Direct messages and group chats', 'Pesan langsung dan obrolan grup', '1:1トーク・グループトーク', 'Mensajes directos y chats de grupo', '私信和群聊'),
   roomSharedAnswerEdit: t('대화에 보낸 AI 답변은 고칠 수 없어요. 지우고 다시 보내 주세요.', 'An AI answer sent to a conversation cannot be edited. Delete it and send it again.', 'Jawaban AI yang dikirim ke percakapan tidak bisa diubah. Hapus lalu kirim lagi.', "トークに送ったAIの回答は編集できません。削除してから送り直してください。", "Una respuesta de la IA enviada a una conversación no se puede editar. Elimínela y vuelva a enviarla.", "发送到聊天的AI回答无法编辑。请删除后重新发送。"),

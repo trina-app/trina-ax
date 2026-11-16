@@ -239,6 +239,12 @@ describe('who_can_open, the tool', () => {
     expect(admin.content).toContain('Erin Yoo')
     expect(admin.content).toContain('Bob Lee cannot open it')
     expect(fixesOf(admin.steps, 'who_can_open')).toEqual([])
+    // a plain "who can open it?" (nobody asked about) is a question: no "Ask an admin", whose message would ask to share
+    // the folder with more people (the coordinator's fix 6, 2026-11-16)
+    const plainQ = await turn('alice', who({ path: 'groups/marketing' }))
+    expect(fixesOf(plainQ.steps, 'who_can_open')).toEqual([])
+    expect(plainQ.content).not.toContain('"Ask an admin"')
+    expect(plainQ.content).toContain('Only the team\'s owner and admins can change who can open a team folder.')
   })
 
   test('this chat: private says only me; in a team project it offers "Share with project"; once shared the offer reads done', async () => {
@@ -294,6 +300,7 @@ describe('post to a room: who cannot open the file, and one tap', () => {
     const out = JSON.parse(r.content)
     expect(out.status).toBe('sent')
     expect(out.cannot_open).toContain('1 person there cannot open the file yet')
+    expect(out.cannot_open).toContain('labelled "Let them view"')
     expect(out.cannot_open).not.toContain('Erin')
     const [fix] = fixesOf(r.steps, 'post_to_room')
     expect(fix).toMatchObject({ kind: 'let_view', file: 'offer.txt', people: ['Erin Yoo'], count: 1, guests: 1, state: 'open' })
@@ -345,7 +352,8 @@ describe('post to a room: who cannot open the file, and one tap', () => {
     // bob and tess cannot open it (carol and dana are admins, erin is in Marketing)
     expect(fix).toMatchObject({ kind: 'ask_owner', file: 'erins-rates.txt', owner: 'Erin Yoo', count: 2, state: 'open' })
     expect(fix!.people).toBeUndefined()
-    expect(JSON.parse(r.content).cannot_open).toContain('"Ask the owner"')
+    // the button by its own label (the coordinator's fix 3)
+    expect(JSON.parse(r.content).cannot_open).toContain('labelled "Ask Erin Yoo"')
     expect(await run('alice', fix!.id)).toMatchObject({ state: 'done', doneCount: 2 })
     expect(grants('groups/marketing/erins-rates.txt')).toEqual([])
     const asked = (h.ctx.db.query("SELECT requester_id FROM file_access_requests WHERE asked_by = 'alice' AND share_id = (SELECT id FROM file_shares WHERE path = 'groups/marketing/erins-rates.txt') ORDER BY requester_id").all() as { requester_id: string }[]).map((x) => x.requester_id)
@@ -460,9 +468,19 @@ describe('a file shared with me (by a grant only): share and post', () => {
   test('post its /f/ link to a room: the people there who cannot open it get "Ask <owner>"', async () => {
     const id = shares().liveRow('users/erin/erin-deck.txt')!.id
     const r = await turn('alice', post({ room: rooms.all, text: `Deck: [erin-deck.txt](/f/${id})` }), { answer: 'send' })
-    expect(JSON.parse(r.content).status).toBe('sent')
+    const out = JSON.parse(r.content)
+    expect(out.status).toBe('sent')
     const fix = fixesOf(r.steps, 'post_to_room').find((f) => f.kind === 'ask_owner')
     expect(fix).toMatchObject({ kind: 'ask_owner', file: 'erin-deck.txt', owner: 'Erin Yoo', state: 'open' })
     expect(fix!.count).toBeGreaterThan(0)
+    // the AI is given the button's own label (fix 3)
+    expect(out.cannot_open).toContain('labelled "Ask Erin Yoo"')
+    expect(out.cannot_open).not.toContain('Ask the owner')
+    // the card said, in plain words, that people there cannot open the shared file (fix 5)
+    const card = socks.alice!.frames.find((f) => f.type === 'turn.request' && (f as { data: { turnId?: string } }).data.turnId === r.turnId) as { data: { request: { question: string } } } | undefined
+    expect(card!.data.request.question).toMatch(/can't open erin-deck\.txt: it was shared with you, not with them\./)
+    // the posted card's record says what went (fix 7)
+    const step = r.steps.find((s) => s.tool === 'post_to_room') as { posted?: { preview?: string } }
+    expect(step.posted!.preview).toContain('Deck: erin-deck.txt')
   })
 })

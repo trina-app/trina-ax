@@ -38,6 +38,19 @@
     people in the room who cannot open it (the room's own check reads only team-path links). Found in the real-AI run.
   - **Nobody new got access.** When a share added nobody (also in a shared chat, where the check before the card is
     skipped), the result card says who could already open it instead of "Shared … with".
+  - **After the coordinator's review (2026-11-16):**
+    - A "which thread" option whose value holds a thread_id is labelled by the server: who started the thread and its
+      first words (`threadOptionWords`, read with the rooms' own checks); the rule tells the AI to put the thread_id in
+      the value.
+    - A post card shows a link to a team file as its name and place in words; the message keeps the link.
+    - After a post, the AI is told each offer's button by its exact label, in the person's language (an owner's name
+      is left out in a chat others read).
+    - A card raised because its target came from `looking_at` says so (`lookedWhy`), not "other people's words".
+    - A post linking a file the sender has only through a share says, before sending, that people there can't open
+      it; a place the "rooms seen" mark got from a shared file alone reads "a file shared with you".
+    - `who_can_open` offers "Ask an admin" for a folder only when one teammate who cannot open it was asked about.
+    - The "Posted in" card shows the posted message's first words and its files (`posted.preview`, `posted.files`).
+    - On a wider screen a toast moves above a message box that sits under the toasts' column.
   - **Same-name files (TC-4091).** To read or summarise, the AI may answer for each file, each part labelled by its place
     and, for a shared file, who shared it and when. To act on one (share, post, edit, delete, move, rename) it asks which.
 - **Why:** the plan's principle, "a refusal always offers a next step", only holds if that step is one button the person

@@ -16,7 +16,7 @@ import { buildTurnPrompt, ROOMS_POST_RULE, sharedSection, SOURCE_LINK_RULE, type
 import { POST_TO_ROOM_DESCRIPTION, postRefusal } from '../../server/src/chat/post-to-room'
 import { SHARE_WITH_PERSON_DESCRIPTION } from '../../server/src/chat/share-with-person'
 import {
-  CARD_WORDS_RULE, fileWords, optionWords, OTHERS_WORDS_RULE, othersWordsCard, pathsToWords, plainQuote, POST_FILE_DESCRIPTION, POST_FILE_RULE, POST_NO, REFUSAL_NEXT_RULE, SAME_NAME_RULE,
+  CARD_WORDS_RULE, cardTextWords, fileWords, optionWords, threadOptionWords, OTHERS_WORDS_RULE, othersWordsCard, pathsToWords, plainQuote, POST_FILE_DESCRIPTION, POST_FILE_RULE, POST_NO, REFUSAL_NEXT_RULE, SAME_NAME_RULE,
   sendNotConnectedRule, SHARE_ALREADY_NOTE, SHARE_FOLDER_DESCRIPTION, SHARE_NO, shareableIn, sharedCommentsLine, threadSendToAi, WHICH_THREAD_RULE,
 } from '../../server/src/chat/share-words'
 import { TEXT, tr } from '../../server/src/chat/i18n'
@@ -254,6 +254,39 @@ describe('place words on cards', () => {
     // not a path: a sentence that only starts like one, a path that steps up (shown as given, as placeWords does)
     expect(pathsToWords(db, 'shared with Jun last week', 'en', 'u-bob')).toBe('shared with Jun last week')
     expect(pathsToWords(db, 'shared/../users/u-mina/x', 'en', 'u-bob')).toBe('shared/../users/u-mina/x')
+  })
+
+  // (the coordinator's fixes, 2026-11-16: TC-4054, TC-4059; docs/decisions/20261116-ai-sharing-integration.md)
+  test('which thread: an option whose value is a thread is labelled by who started it and its first words (TC-4054)', () => {
+    db.run('CREATE TABLE IF NOT EXISTS room_messages (id TEXT PRIMARY KEY, room_id TEXT NOT NULL)')
+    const A = '01a1c84e-2360-728e-a7ce-f5897018250a', B = '01a1c84e-2360-728e-a7ce-f5897018250b', C = '01a1c84e-2360-728e-a7ce-f5897018250c'
+    db.run(`INSERT OR IGNORE INTO room_messages VALUES ('${A}', 'r1'), ('${B}', 'r1'), ('${C}', 'r2')`)
+    const roots: Record<string, { author: string; body: string }> = {
+      [A]: { author: 'Mina Seo', body: '**Can someone confirm** the venue for the December offsite? We need it by Friday at the latest please' },
+      [B]: { author: 'Jun Park', body: 'Budget draft for Q1 is ready' },
+    }
+    const look = (_room: string, id: string) => roots[id] ?? null
+    const out = threadOptionWords(db, [
+      { label: 'A thread in the QA-Team3 team room (latest activity 23:09)', value: A },
+      { label: 'The budget thread', value: `thread_id ${B}` },
+      { label: 'A thread I cannot see', value: C },
+      { label: 'Neither', value: 'no' },
+    ], look)
+    expect(out.map((o) => o.label)).toEqual([
+      'Mina Seo: “Can someone confirm the venue for the December offsite? We …”',
+      'Jun Park: “Budget draft for Q1 is ready”',
+      'A thread I cannot see', 'Neither',
+    ])
+    expect(out.map((o) => o.value)).toEqual([A, `thread_id ${B}`, C, 'no'])
+    // the rule tells the AI to put the thread_id in the value
+    expect(WHICH_THREAD_RULE).toContain('Give each option the thread_id of its thread as its value')
+  })
+
+  test('a post card\'s text: a link to a team file reads as its place and name; outside links and other text stay (TC-4059)', () => {
+    const t = 'Here it is: [B1 Price list.md](/files/view?path=users%2Fu-bob%2FWork%2FB1%20Price%20list.md) and /files/view?path=shared%2FSales%2FQuote.pdf, see https://example.com/files/view?path=x too.'
+    expect(cardTextWords(db, t, 'en', 'u-bob')).toBe('Here it is: My folder › Work › B1 Price list.md and Company-wide › Sales › Quote.pdf, see https://example.com/files/view?path=x too.')
+    // a link that steps up or names no team path stays as written
+    expect(cardTextWords(db, '[x](/files/view?path=..%2Fetc)', 'en', 'u-bob')).toBe('[x](/files/view?path=..%2Fetc)')
   })
 
   test('two options never read the same: a label that words would make equal to another keeps what the AI wrote', () => {

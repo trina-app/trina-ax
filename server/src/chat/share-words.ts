@@ -28,7 +28,7 @@ import type { CardAlwaysKind } from '@mycel/shared/api'
 /** After ROOMS_POST_RULE (MAN-013): a file goes to a room as a link in `text`; the card then offers the file itself. */
 export const POST_FILE_RULE = 'To post a file to a room or a person, link it in text ([name](/files/view?path=<team path, URL-encoded>)) with one short line; never paste the file\'s content, and no own_words for it: the card then offers to send the file with it.'
 /** After ROOMS_POST_RULE (MAN-015): no thread named, none quoted: ask, never the newest. */
-export const WHICH_THREAD_RULE = '"That thread" or "that message" with none named or quoted: never guess the newest. Read the room, then ask which one, offering two or three by who wrote it and its first words.'
+export const WHICH_THREAD_RULE = '"That thread" or "that message" with none named or quoted: never guess the newest. Read the room, then ask which one, offering two or three by who wrote it and its first words. Give each option the thread_id of its thread as its value: the card then shows who started it and its first words.'
 /** With the share and post tools (the plan's "거절에는 다음 단계"): a refusal is passed on with its next step. */
 export const REFUSAL_NEXT_RULE = 'When a share or a post is refused, do not stop at "I can\'t": say why in one plain sentence and offer the next step its result names. A whole folder cannot be shared yet: offer to share the files in it; a team folder is shared by the team owner or an admin with Share on the folder in Files. When the person already has access, say so: that is not a refusal.'
 /** With the share and post tools (docs/decisions/20261116-always-allow-more-cards.md "Content written by others"): once
@@ -160,6 +160,48 @@ export function plainQuote(s: string): string {
     .replace(/`+([^`\n]+)`+/g, '$1')
     .replace(/^\s{0,3}(?:#{1,6}\s+|>\s?|[-*+]\s+|\d+[.)]\s+)/gm, '')
     .replace(/\*\*|__|~~|`/g, '')
+}
+
+// ---- which thread: an option the AI gives for a thread, as the person knows it (QA TC-4054) ----
+
+const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+/** The thread root an ask_user option points at (its value holds the root's id), as the asker may see it now: who
+ * wrote it and its first words, or null (no id, not a thread root they can see). `see(roomId, id)` is the rooms' own
+ * check (rooms/service.ts threadRootOf for the asker). */
+export type ThreadLook = (roomId: string, id: string) => { author: string; body: string } | null
+/** ask_user's options that name a thread: labelled by who started it and its first words ("Mina Seo: “Can someone
+ * confirm the venue…”"), from the room's own record, never the AI's words. Two options never read the same: a label
+ * that would equal another keeps what the AI wrote. The values go back unchanged. */
+export function threadOptionWords<T extends { label: string; value: string }>(db: Database, options: readonly T[], look: ThreadLook): T[] {
+  const worded = options.map((o) => {
+    const id = UUID.exec(o.value)?.[0]
+    if (!id) return o.label
+    const row = db.query('SELECT room_id FROM room_messages WHERE id = ?').get(id.toLowerCase()) as { room_id: string } | null
+    const root = row ? look(row.room_id, id.toLowerCase()) : null
+    if (!root) return o.label
+    const first = plainQuote(root.body).replace(/\s+/g, ' ').trim()
+    const words = first.length > 60 ? `${first.slice(0, 59)}…` : first
+    return words ? `${root.author}: “${words}”` : o.label
+  })
+  const count = new Map<string, number>()
+  for (const w of worded) count.set(w, (count.get(w) ?? 0) + 1)
+  return options.map((o, i) => (worded[i] !== o.label && count.get(worded[i]!) === 1 ? { ...o, label: worded[i]! } : o))
+}
+
+// ---- a post card's text: links to team files said by name and place (QA TC-4059) ----
+
+const FILE_LINK = /\[([^\]\n]*)\]\((?:\/api\/files\/download|\/files\/view)\?([^)\s]*)\)|(?<![\w(/])(?:\/api\/files\/download|\/files\/view)\?([^\s)\]"'<>]+)/g
+/** A post's text as its card shows it: a link to a team file ([name](/files/view?path=…) or the bare address) as the
+ * file's name and place in words; the message that goes keeps the link. Anything else stays as written (an outside
+ * address stays, with the card's marks). */
+export function cardTextWords(db: Database, s: string, L: Locale, me: string): string {
+  return s.replace(FILE_LINK, (all, label: string | undefined, q1: string | undefined, q2: string | undefined) => {
+    let rel: string | null = null
+    try { rel = new URLSearchParams((q1 ?? q2 ?? '').replace(/&amp;/g, '&')).get('path') } catch { rel = null }
+    const clean = rel?.replace(/^\/+|\/+$/g, '')
+    if (!clean || !isTeamPath(clean)) return all
+    return fileWords(db, clean, L, me)
+  })
 }
 
 // ---- a folder's files the user could share instead ----

@@ -212,7 +212,7 @@ function OpenFile({ id, view }: { id: string; view: Extract<SharedFileView, { st
         </div>
         <Tooltip label={t('files.askAi', { name: aiName(t) })}>
           <Button variant="secondary" onClick={askAi} className="shrink-0" data-testid="file-link-ask-ai">
-            <AiMark place="nav" /> <span className="max-sm:sr-only">{t('files.askAiShort', { name: aiName(t) })}</span>
+            <AiMark place="nav" /> <span>{t('files.askAiShort', { name: aiName(t) })}</span>
           </Button>
         </Tooltip>
         <Tooltip label={t('common.download')}>

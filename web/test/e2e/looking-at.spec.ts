@@ -91,6 +91,13 @@ test('Ask Trina on a shared file\'s page opens a new chat with the file\'s link 
   const [a, d] = await Promise.all([ask.boundingBox(), page.getByTestId('file-link-download').boundingBox()])
   expect(Math.round(a!.height)).toBe(Math.round(d!.height))
   expect(a!.x + a!.width).toBeLessThanOrEqual(d!.x)
+  // on a phone too: the icon with its short label, not the icon alone (the coordinator's fix 8); nothing off the screen
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(ask.getByText(/Ask Trina/)).toBeVisible()
+  const phone = (await ask.boundingBox())!
+  expect(phone.x + phone.width).toBeLessThanOrEqual(390)
+  await expect(page.getByTestId('file-link-name')).toBeVisible()
+  await page.setViewportSize({ width: 1440, height: 900 })
   if (SHOTS) {
     for (const [w, h] of [[1440, 900], [390, 844]] as const) {
       await page.setViewportSize({ width: w, height: h })

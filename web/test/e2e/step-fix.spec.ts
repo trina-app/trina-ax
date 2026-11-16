@@ -107,6 +107,11 @@ for (const width of [1440, 390]) {
       await dialog.getByTestId('chat-project-save').click()
       const toast = page.getByTestId('toast').filter({ hasText: 'Only you can see it' })
       await expect(toast).toContainText('Moved to Launch. Only you can see it.')
+      // the toast sits above the message box and the line under it, at every width (the coordinator's fix 9)
+      await page.waitForTimeout(300)
+      const tb = (await toast.boundingBox())!
+      const bars = await page.locator('[data-bottom-bar]').evaluateAll((els) => els.map((el) => el.getBoundingClientRect()).filter((r) => r.height > 0).map((r) => ({ top: r.top, left: r.left, right: r.right })))
+      for (const b of bars) if (b.right > tb.x && b.left < tb.x + tb.width) expect(tb.y + tb.height).toBeLessThanOrEqual(b.top + 1)
       await shot(page, 'moved-toast')
       await toast.getByRole('button', { name: 'Share with project' }).click()
       await expect(page.getByTestId('share-chat-ask')).toBeVisible()

@@ -436,7 +436,13 @@ export const Step = z.object({
   sources: z.array(z.object({ title: z.string(), url: z.string() })).max(50).optional(),
   /** a post_to_room step that posted (server/src/chat/post-to-room.ts): where the message went, for the step's 보기 (the
    * room at the message, or the thread at the reply), as the button's sent line has it */
-  posted: z.object({ roomId: Uuid7, messageId: Uuid7, threadRootId: Uuid7.optional() }).optional(),
+  posted: z.object({
+    roomId: Uuid7, messageId: Uuid7, threadRootId: Uuid7.optional(),
+    /** what went, for the card: the message's first words (plain, one line) and the names of the files sent with it,
+     * read from the posted message itself (never the AI's words about it) */
+    preview: z.string().max(120).optional(),
+    files: z.array(z.string().max(255)).max(10).optional(),
+  }).optional(),
   /** a share_with_person or stop_sharing step: what it did, for its card (api/share-card.ts). Only for the person whose
    * turn it was; absent for every other viewer of a shared chat */
   shared: StepShared.optional(),

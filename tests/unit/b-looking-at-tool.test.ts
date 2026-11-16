@@ -19,6 +19,7 @@ import { fileSharesOf } from '../../server/src/files/shares'
 import { loadPrincipal } from '../../server/src/policy/access'
 import { OWN_CHAT_TEAM_TOOLS, OWN_WORDS_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
 import { roomsOf } from '../../server/src/rooms/service'
+import { tr } from '../../server/src/chat/i18n'
 
 setDefaultTimeout(60_000)
 const cm = () => 'cm-' + crypto.randomUUID()
@@ -328,6 +329,11 @@ describe('share_with_person: a file or person that came from looking_at keeps th
       expect(r.card!.details!.map((d) => d.text.split(' › ').pop())).toEqual(['photo-1.png'])
       // no "Always allow" on a card for something the asker did not name
       expect(r.card!.options!.map((x) => x.value)).toEqual(['share', 'no'])
+      // why it asks: the target came from the screen, not "other people's words" (the coordinator's fix 4)
+      const why = (r.card as unknown as { share: { why?: string } }).share.why!
+      expect((['ko', 'en', 'id', 'ja', 'es', 'zh'] as const).some((L) => why === tr('lookedWhy', L))).toBe(true)
+      expect(r.card!.question.startsWith(why)).toBe(true)
+      for (const L of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect(r.card!.question).not.toContain(tr('othersWordsWhy', L))
       expect(r.content).toContain('The user chose not to share them')
       expect(h.ctx.db.query("SELECT 1 FROM file_shares WHERE path = 'users/bob/photo-1.png'").get()).toBeNull()
       // the asker names the file and the person themselves: their word, no card (the chat holds other people's words

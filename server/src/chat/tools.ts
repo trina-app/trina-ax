@@ -25,7 +25,8 @@ import { addSources, sourceOf, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
 import { atLeast, isStaff, type Principal } from '../policy/access'
 import { tr } from './i18n'
-import { optionWords } from './share-words'
+import { optionWords, threadOptionWords } from './share-words'
+import { threadLook } from './thread-look'
 import { alwaysHere, withAlways } from './always-allow'
 import { fromAsker, othersWordsIn } from './shared-actions'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
@@ -971,7 +972,8 @@ function bTools(exec: TurnExec): Tool[] {
         const request: TurnRequest = {
           kind: 'ask_user', requestId: uuidv7(), question: a.data.question,
           // a label that is a team path is said in place words (chat/share-words.ts); the values stay as the AI gave them
-          ...(a.data.options ? { options: optionWords(rt.db, a.data.options, L, spec.userId) } : {}), ...(a.data.multiple !== undefined ? { multiple: a.data.multiple } : {}),
+          // (and an option that points at a thread: by who started it and its first words, QA TC-4054)
+          ...(a.data.options ? { options: threadOptionWords(rt.db, optionWords(rt.db, a.data.options, L, spec.userId), threadLook(rt.ctx, spec.userId)) } : {}), ...(a.data.multiple !== undefined ? { multiple: a.data.multiple } : {}),
           ...(a.data.allowText !== undefined ? { allowText: a.data.allowText } : {}),
           expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
         }

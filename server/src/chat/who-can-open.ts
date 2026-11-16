@@ -201,11 +201,14 @@ export function whoCanOpenTool(exec: TurnExec): Tool {
               target = who.id
             }
           }
-          if (!d.full) {
-            const fix = shareFixesOf(ctx).forFolder(spec.userId, spec.chatId, d.path, target ? [target] : [])
+          // "Ask an admin" only when one teammate was asked about and cannot open it: its message asks to let exactly them
+          // in. A plain "who can open it?" is a question, not a request: no button (its message would ask to share the
+          // folder with more people, which nobody asked for)
+          if (!d.full && target && !accessRouteFor(ctx, target, d.path)) {
+            const fix = shareFixesOf(ctx).forFolder(spec.userId, spec.chatId, d.path, [target])
             if (fix) { fixes = [fix]; lines.push(`Only the team's owner and admins can change who can open a team folder. ${BUTTON}: "Ask an admin" (it sends ${safe(fix.owner ?? 'an admin', 120)} a message from the user; nothing changes by itself). Tell them in one short sentence.`) }
             else lines.push('Only the team\'s owner and admins can change who can open a team folder.')
-          }
+          } else if (!d.full) lines.push('Only the team\'s owner and admins can change who can open a team folder.')
           return ok(lines, `folder${d.people !== null ? `, ${d.people} people` : ''}`)
         }
 

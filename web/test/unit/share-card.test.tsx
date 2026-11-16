@@ -204,7 +204,17 @@ test('a post to a room uses the same card frame and keeps View (the way the step
     expect(m.get('posted-card-view').textContent).toBe('View')
     await m.click('posted-card-view')
     expect(went).toEqual([posted])
+    // nothing about what went: no lines
+    expect(m.find('posted-card-preview')).toBeNull()
   } finally { await m.unmount() }
+  // what went, from the posted message: its first words and the files sent with it (the coordinator's fix 7)
+  const full = { ...posted, preview: 'Here is the price list for December', files: ['Price list.md'] }
+  const w = await mount(<StepPostView.Provider value={(p) => went.push(p)}><PostedCard posted={full} /></StepPostView.Provider>)
+  try {
+    expect(w.get('posted-card-preview').textContent).toBe('“Here is the price list for December”')
+    expect(w.get('posted-card-file').textContent).toContain('Price list.md')
+    expect(w.get('posted-card-view').textContent).toBe('View')
+  } finally { await w.unmount() }
 })
 
 test('a file the viewer can no longer open: the card keeps its words and has no button', async () => {

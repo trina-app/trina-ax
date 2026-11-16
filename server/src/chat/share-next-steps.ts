@@ -19,6 +19,7 @@ import type { StepFix } from '@mycel/shared/api'
 import { accessRouteFor, folderAccess, nameOf, routeWords } from '../files/access-routes'
 import { shareFixesOf } from '../files/share-fixes'
 import { fileSharesOf } from '../files/shares'
+import { tr } from './i18n'
 import { findPeople } from '../rooms/reader'
 import type { PreparedShare } from './answer-share'
 import type { TurnExec } from './turn'
@@ -38,27 +39,49 @@ export async function fixesAfterPost(exec: Exec, p: PreparedShare, attached: Rea
   // a file someone shared with the sender, linked as /f/<id> (shared_with_me gives those links): the members of the room
   // who cannot open it (the room check reads only team-path links; docs/decisions/20261116-ai-sharing-integration.md)
   const byLink = new Map<string, string[]>()
-  const shares = fileSharesOf(ctx)
-  for (const m of p.body.matchAll(/(?:^|[\s(<"'])(?:https?:\/\/[^/\s]+)?\/f\/([A-Za-z0-9_-]{22})(?![A-Za-z0-9_-])/g)) {
-    const id = m[1]!
-    if (byLink.has(id) || byLink.size >= 10) continue
-    const s = shares.row(id)
-    const mine = s ? shares.open(exec.spec.userId, id) : null
-    if (!s || s.state !== 'live' || !mine || mine.kind !== 'open') continue
-    const members = (ctx.db.query('SELECT user_id FROM room_members WHERE room_id = ? AND user_id <> ?').all(o.roomId, exec.spec.userId) as { user_id: string }[]).map((r) => r.user_id)
-    const missing = members.filter((u) => shares.open(u, id).kind !== 'open')
-    if (!missing.length) continue
-    // a file the sender reads by the folder rules (their own one too) goes by its path: "Let them view" when theirs to
-    // share; one they have only through a share goes by its link id: "Ask <owner>"
-    if (mine.by === 'grant') byLink.set(id, missing)
-    else if (!attached.has(s.path)) add(s.path, missing)
+  // a file the sender reads by the folder rules (their own one too) goes by its path: "Let them view" when theirs to
+  // share; one they have only through a share goes by its link id: "Ask <owner>"
+  for (const g of fileLinksCant(exec, p.body, o.roomId)) {
+    if (g.byGrant) byLink.set(g.id, g.missing)
+    else if (!attached.has(g.path)) add(g.path, g.missing)
   }
   if (!by.size && !byLink.size) return { fixes: [], note: '' }
   const fixes = shareFixesOf(ctx).forFiles(exec.spec.userId, exec.spec.chatId, [...[...by].map(([path, people]) => ({ path, people: [...people] })), ...[...byLink].map(([share, people]) => ({ share, people }))], o)
   if (!fixes.length) return { fixes, note: '' }
   const n = fixes.reduce((x, f) => Math.max(x, f.count), 0)
-  const buttons = [...new Set(fixes.map((f) => (f.kind === 'let_view' ? '"Let them view"' : '"Ask the owner"')))].join(' and ')
-  return { fixes, note: `${n} ${n === 1 ? 'person' : 'people'} there cannot open ${fixes.length === 1 && !fixes[0]!.moreFiles ? 'the file' : 'some of the files'} yet. The user has a button under this step for it (${buttons}); tell them so in one short sentence, without naming anyone.` }
+  // each button by the label the person sees on it, in their language (in a chat others read, an owner's name is left out)
+  const L = exec.spec.locale
+  const shared = !!exec.rt.store.chatRow(exec.spec.chatId)?.people_shared_at
+  const label = (f: StepFix) => f.kind === 'let_view' ? tr('fixButtonLetView', L) : f.kind === 'ask_owner' && f.owner && !shared ? tr('fixButtonAskOwner', L, { owner: f.owner }) : f.kind === 'ask_owner' && f.owner ? 'the button that asks the file\'s owner' : tr('fixButtonAskAdmin', L)
+  const buttons = [...new Set(fixes.map((f) => `"${label(f)}"`))].join(' and ')
+  return { fixes, note: `${n} ${n === 1 ? 'person' : 'people'} there cannot open ${fixes.length === 1 && !fixes[0]!.moreFiles ? 'the file' : 'some of the files'} yet. The user has a button under this step for it, labelled ${buttons}; tell them so in one short sentence, calling the button by exactly that label, without naming the people who cannot open it.` }
+}
+
+/** The /f/<id> links in a post's text to files the sender opens now, with the room's members (not the sender) who
+ * cannot open each: at most 10 files. `byGrant`: the sender has it only through a share. */
+function fileLinksCant(exec: Exec, body: string, roomId: string): { id: string; path: string; name: string; byGrant: boolean; missing: string[] }[] {
+  const ctx = exec.rt.ctx
+  const shares = fileSharesOf(ctx)
+  const out: { id: string; path: string; name: string; byGrant: boolean; missing: string[] }[] = []
+  const seen = new Set<string>()
+  for (const m of body.matchAll(/(?:^|[\s(<"'])(?:https?:\/\/[^/\s]+)?\/f\/([A-Za-z0-9_-]{22})(?![A-Za-z0-9_-])/g)) {
+    const id = m[1]!
+    if (seen.has(id) || seen.size >= 10) continue
+    seen.add(id)
+    const s = shares.row(id)
+    const mine = s ? shares.open(exec.spec.userId, id) : null
+    if (!s || s.state !== 'live' || !mine || mine.kind !== 'open') continue
+    const members = (ctx.db.query('SELECT user_id FROM room_members WHERE room_id = ? AND user_id <> ?').all(roomId, exec.spec.userId) as { user_id: string }[]).map((r) => r.user_id)
+    const missing = members.filter((u) => shares.open(u, id).kind !== 'open')
+    if (missing.length) out.push({ id, path: s.path, name: mine.name, byGrant: mine.by === 'grant', missing })
+  }
+  return out
+}
+
+/** For the post card: the files linked as /f/<id> that the sender has only through a share, by name, and how many in
+ * the room cannot open each (a file the sender may share is the room check's own line). */
+export function grantedLinksCant(exec: Exec, body: string, roomId: string): { name: string; missing: string[] }[] {
+  try { return fileLinksCant(exec, body, roomId).filter((g) => g.byGrant).map((g) => ({ name: g.name, missing: g.missing })) } catch { return [] }
 }
 
 /** The teammates `refs` name, when each names exactly one (a name that matches several, a group, or nobody is left

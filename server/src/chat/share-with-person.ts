@@ -238,11 +238,11 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
           && who.every((w) => namedInFull(said, recipientWords(db, w)))
           && plan.every((f) => mine.has(f.path) || namesFileLoose(said, f.path))
         const reply = explicit ? 'share' : await withAlways(alwaysOk && !fromLook ? exec.alwaysPlace?.() : null, 'share_files', [{ label: tr('fileShareYes', L), value: 'share' }, { label: tr('fileShareNo', L), value: 'no' }], 'share', (options, more) => exec.waitForPerson({
-          kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: othersWordsCard(exec, 'share_files', alwaysOk) ? `${tr('othersWordsWhy', L)}\n\n${question}` : question, multiple: false, allowText: false, options, ...more,
+          kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: fromLook ? `${tr('lookedWhy', L)}\n\n${question}` : othersWordsCard(exec, 'share_files', alwaysOk) ? `${tr('othersWordsWhy', L)}\n\n${question}` : question, multiple: false, allowText: false, options, ...more,
           // each file by its name and place in words, never a team path: two files of one name read differently
           details: [{ label: tr('fileShareFiles', L), text: plan.map((f) => fileWords(db, f.path, L, spec.userId)).join('\n'), noSize: true }],
           // the same rows as the result card: the card that asks turns into the card that says what was done
-          share: { op: 'share', files: plan.map((f) => cardFile(db, f.path, L, spec.userId)), ...cardPeople(db, who), ...(cardOwner(plan[0]?.owner, spec.userId) ? { owner: cardOwner(plan[0]?.owner, spec.userId) } : {}), ...(seenLine || othersWordsCard(exec, 'share_files', alwaysOk) ? { why: seenLine || tr('othersWordsWhy', L) } : {}) },
+          share: { op: 'share', files: plan.map((f) => cardFile(db, f.path, L, spec.userId)), ...cardPeople(db, who), ...(cardOwner(plan[0]?.owner, spec.userId) ? { owner: cardOwner(plan[0]?.owner, spec.userId) } : {}), ...(fromLook ? { why: tr('lookedWhy', L) } : seenLine || othersWordsCard(exec, 'share_files', alwaysOk) ? { why: seenLine || tr('othersWordsWhy', L) } : {}) },
           expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
         } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() }))
         const v = Array.isArray(reply) && reply.length === 1 ? reply[0] : reply
