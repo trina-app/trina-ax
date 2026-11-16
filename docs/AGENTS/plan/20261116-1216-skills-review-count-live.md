@@ -61,3 +61,5 @@ proposals had the same gap on dismiss, on an apply that only merges, and on a mo
 Tests: `tests/unit/skill-review-live.test.ts`, a case in `tests/unit/group-skill-shares.test.ts`, a case in
 `web/test/unit/member-contribute.test.tsx`. By hand on a private copy of the QA team (two reviewers, one elsewhere):
 the count dropped within two seconds of the other reviewer's turn-down, with no toast and no inbox entry.
+
+PR: https://github.com/trina-app/trina-ax/pull/1122
