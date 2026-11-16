@@ -46,7 +46,7 @@ export function MembersDialog({ open, onClose, room, members, meId, onInvite }: 
             with the dialog's 20px (16px on a phone) */}
         {(group || room?.kind === 'dm') && !isGuestMe(me) && (
           <ul className="px-2 py-1 max-sm:px-1">
-            <ListRow onClick={onInvite} face icon={<Plus />} name={<span className="text-ink">{t('rooms.info.invite')}</span>} testId="room-invite" />
+            <ListRow onClick={onInvite} face icon={<Plus />} name={<span className="text-ink">{t(group ? 'rooms.info.invite' : 'rooms.info.addPeople')}</span>} testId="room-invite" />
           </ul>
         )}
         {!sorted ? (

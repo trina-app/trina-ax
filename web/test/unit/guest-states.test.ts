@@ -25,10 +25,10 @@ test("a dead link's reason only while it does not work; an older server says non
 })
 
 test('a Team AI guest whose account was deleted stays Team AI for their own screens; Admin reads why a removed guest is out', () => {
-  const me = { user: { role: 'guest' }, guest: { place: { kind: 'room', id: 'r', name: 'Quote prep' }, ai: { mode: 'none' }, teamAiGone: true } } as unknown as Me
+  const me = { user: { role: 'guest' }, guest: { places: [{ kind: 'room', id: 'r', name: 'Quote prep' }], ai: { mode: 'none' }, teamAiGone: true } } as unknown as Me
   expect(meGuest(me)?.ai).toBe('team')
-  const u = { role: 'guest', status: 'disabled', guest: { place: { kind: 'project', id: 'p', name: 'Launch' }, ai: { mode: 'none' }, placeOut: 'trashed', teamAiGone: true } } as unknown as User
+  const u = { role: 'guest', status: 'disabled', guest: { places: [{ kind: 'project', id: 'p', name: 'Launch', out: 'trashed' }], ai: { mode: 'none' }, placeOut: 'trashed', teamAiGone: true } } as unknown as User
   expect(userGuest(u)).toMatchObject({ out: 'trashed', aiGone: true })
-  const plain = { role: 'guest', status: 'active', guest: { place: { kind: 'room', id: 'r', name: 'x' }, ai: { mode: 'none' } } } as unknown as User
+  const plain = { role: 'guest', status: 'active', guest: { places: [{ kind: 'room', id: 'r', name: 'x' }], ai: { mode: 'none' } } } as unknown as User
   expect(userGuest(plain)).toMatchObject({ out: null, aiGone: false })
 })

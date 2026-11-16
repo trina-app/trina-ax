@@ -3,7 +3,7 @@
 // read with the links that hold a place (M4); a guest's AI switched off while signed in says so once (N7).
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { ApiError, type GuestInviteLimit, type Me } from '@mycel/shared/api'
-import { t, translate } from '../../src/i18n'
+import { t, translate, useLocaleStore } from '../../src/i18n'
 import { guestRemoval } from '../../src/lib/signedOut'
 import { removedFrom, removedHow, useSession } from '../../src/store/session'
 import { useUi } from '../../src/store/ui'
@@ -59,6 +59,32 @@ describe('a guest whose sign-in ended with their account (S5, S6)', () => {
     expect(t('auth.guestLeftTitle', { team: 'Acme' })).toBe('You left Acme')
   })
 
+  test("the guest's screen speaks their browser's language, not the team's, unless they picked one here", async () => {
+    const nav = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { languages: ['ko-KR', 'en-US'], language: 'ko-KR' } })
+    try {
+      useLocaleStore.getState().setLocale('en')
+      let n = 0
+      mockFetch(async () => (n++ === 0 ? unauthorized({ reason: 'account_removed', guest: 'removed', team: 'Acme' })() : Response.json({ needed: false, teamName: null, defaultLocale: 'en' })))
+      await session().load()
+      await settle()
+      expect(status()).toEqual({ kind: 'signed-out', reason: 'removed', team: 'Acme' })
+      expect(useLocaleStore.getState().locale).toBe('ko')
+      // picked on this browser: that stays
+      localStorage.setItem('mycel.locale', 'en')
+      useLocaleStore.getState().setLocale('en')
+      mockFetch(unauthorized({ reason: 'account_removed', guest: 'left', team: 'Acme' }))
+      session().signedOut('removed', 'Acme')
+      await settle()
+      expect(status()).toEqual({ kind: 'signed-out', reason: 'left', team: 'Acme' })
+      expect(useLocaleStore.getState().locale).toBe('en')
+    } finally {
+      if (nav) Object.defineProperty(globalThis, 'navigator', nav)
+      else Reflect.deleteProperty(globalThis, 'navigator')
+      useLocaleStore.getState().setLocale('en')
+    }
+  })
+
   test('a removed member keeps the plain removed line', async () => {
     mockFetch(unauthorized({ reason: 'account_removed' }))
     session().signedOut('removed')
@@ -71,14 +97,14 @@ describe('a guest link and the cap (S7, M4)', () => {
   test('the message names who sends it, the one place, their own AI when it is theirs, and the link with its end', () => {
     const place = { kind: 'room' as const, id: 'r', name: 'Quote prep' }
     const m = guestLinkMessage(t, { name: 'Mia', place, url: 'https://acme.example/invite/abc', until: 'Nov 22', ownAi: false })
-    expect(m.split('\n')[0]).toContain("Hi, it's Mia. I'm inviting you to our 'Quote prep' room on ")
-    expect(m).toContain("You'll see only this room.")
+    expect(m.split('\n')[0]).toContain("Hi, it's Mia. I'm inviting you to our 'Quote prep' group chat on ")
+    expect(m).toContain("You'll see only this group chat.")
     expect(m.endsWith('until Nov 22:\nhttps://acme.example/invite/abc')).toBe(true)
     const own = guestLinkMessage(t, { name: '', place: { ...place, kind: 'project' }, url: 'u', until: 'd', ownAi: true })
     expect(own.startsWith("Hi! I'm inviting you to our 'Quote prep' project on ")).toBe(true)
     expect(own).toContain(t('teamLink.msg.ownAi'))
     const ko = guestLinkMessage((k, p) => translate('ko', k, p), { name: '미아', place, url: 'u', until: '11월 22일', ownAi: false })
-    expect(ko).toContain("'Quote prep' 방에 초대할게요. 이 방만 보여요.")
+    expect(ko).toContain("'Quote prep' 그룹 대화에 초대할게요. 이 그룹 대화만 보여요.")
   })
 
   test('the links that hold a place come with a full cap, from the read and from a refused Create link', () => {
@@ -99,7 +125,7 @@ describe("a guest's AI switched off while signed in (N7)", () => {
       team: { name: 'Acme', defaultLocale: 'en' }, groups: [],
       session: { id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', expiresAt: '2030-01-01T00:00:00.000Z' },
       server: { version: 'test', dev: true },
-      guest: { place: { kind: 'room', id: 'r', name: 'Quote prep' }, ai: ai === 'team' ? { mode: 'team', credentialId: 'c', limitUsd: 20 } : { mode: ai }, ...extra },
+      guest: { places: [{ kind: 'room', id: 'r', name: 'Quote prep' }], ai: ai === 'team' ? { mode: 'team', credentialId: 'c', limitUsd: 20 } : { mode: ai }, ...extra },
     }) as unknown as Me
     const toasts = () => useUi.getState().toasts.map((x) => x.text)
     useUi.setState({ toasts: [] })

@@ -35,7 +35,7 @@ const guestMe = (place: { kind: 'room' | 'project'; id: string; name: string }, 
   user: { id: 'gina', username: 'gina', name: 'Gina', email: null, role: 'guest', locale: 'en', localeChoice: null, mustChangePassword: false, prefs: {} },
   groups: [], team: { name: 'Acme', defaultLocale: 'en', chatTrashRetentionDays: 14 }, session: { id: '01900000-0000-7000-8000-00000000000a', client: 'web', expiresAt: '2026-12-04T00:00:00.000Z' },
   server: { version: '0', dev: false, deployment: 'hosted' },
-  guest: { place, ai: ai === 'team' ? { mode: 'team', credentialId: 'c1', limitUsd: 20 } : { mode: ai } },
+  guest: { places: [place], ai: ai === 'team' ? { mode: 'team', credentialId: 'c1', limitUsd: 20 } : { mode: ai } },
 } as unknown as Me)
 
 describe("a guest's delete-account page", () => {

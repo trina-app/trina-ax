@@ -190,7 +190,7 @@ test.describe('1440 wide, rename', () => {
     await page.getByTestId('room-menu').click()
     await page.getByTestId('room-menu-rename').click()
     const prompt = page.getByRole('dialog', { name: '이름 바꾸기' })
-    const field = prompt.getByRole('textbox', { name: '대화방 이름' })
+    const field = prompt.getByRole('textbox', { name: '그룹 대화 이름' })
     await field.fill('디자인 리뷰 2차')
     await field.press('Enter')
     await expect.poll(() => patch.count()).toBe(1)

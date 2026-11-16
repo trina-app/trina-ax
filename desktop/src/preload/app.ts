@@ -65,7 +65,13 @@ const bridge: DesktopBridge = {
           scan: (o?: { wide?: boolean; words?: string[] }) => ipcRenderer.invoke('bridge:work-files-scan', o && typeof o === 'object' ? { wide: o.wide === true, words: Array.isArray(o.words) ? o.words.slice(0, 20).map(String) : [] } : {}),
           stop: () => ipcRenderer.send('bridge:work-files-stop'),
           onProgress: on('bridge:work-files-progress'),
-          read: (id: string) => ipcRenderer.invoke('bridge:work-files-read', String(id)),
+          add: (ids: string[]) => ipcRenderer.invoke('bridge:work-files-add', Array.isArray(ids) ? ids.slice(0, 101).map(String) : []),
+          // `onCloud`: the app is getting this file from its cloud first (bridge:work-files-reading, for this id only)
+          read: (id: string, o?: { onCloud?: (cloud: any) => void }) => {
+            const onCloud = typeof o?.onCloud === 'function' ? o.onCloud : null
+            const off = onCloud ? on('bridge:work-files-reading')((p) => { if (p && p.id === String(id) && typeof p.cloud === 'string') onCloud(p.cloud) }) : null
+            return ipcRenderer.invoke('bridge:work-files-read', String(id)).finally(() => off?.())
+          },
           openSettings: () => ipcRenderer.send('bridge:work-files-settings'),
           pickRoot: (id: 'documents' | 'desktop' | 'downloads') => ipcRenderer.invoke('bridge:work-files-pick', String(id)),
           ...(info.workFilesWide && info.platform === 'darwin'

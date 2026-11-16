@@ -111,7 +111,7 @@ describe('the save model and every exit', () => {
 
   test('a guest is never offered (a chat shared with people is no place of theirs); a member is', async () => {
     routesWith(audience())
-    routes['GET /api/people'] = () => json(200, { people: [...PEOPLE.people, { id: 'gina', name: 'Gina Park', guest: true, guestPlace: { kind: 'room', id: 'r1', name: 'Quote prep' } }] })
+    routes['GET /api/people'] = () => json(200, { people: [...PEOPLE.people, { id: 'gina', name: 'Gina Park', guest: true, guestPlaces: [{ kind: 'room', id: 'r1', name: 'Quote prep' }] }] })
     const m = await open()
     await m.type('chat-share-picker-search', 'park')
     expect(m.find('participant-add-user-gina')).toBeNull()

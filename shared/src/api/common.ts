@@ -64,7 +64,8 @@ export type TeamRole = z.infer<typeof TeamRole>
 /** How a guest's AI runs: off (default), team connections assigned to them under a limit, or their own sign-in. */
 export const GuestAi = z.enum(['none', 'team', 'own'])
 export type GuestAi = z.infer<typeof GuestAi>
-/** A guest's one place (owner, 2026-11-14): one group chat (`room`) or one project, never several. */
+/** A guest's place: one group chat (`room`) or one project. A guest is in at most one of each kind at a time (owner,
+ * 2026-11-15); an invite opens one place. */
 export const GuestPlace = z.object({ kind: z.enum(['room', 'project']), id: z.string().min(1).max(64) })
 export type GuestPlace = z.infer<typeof GuestPlace>
 /** The most a guest's monthly token limit can be (10억 tokens): far above any preset, below anything that overflows. */
@@ -91,13 +92,22 @@ export type GuestAiChoiceBody = z.infer<typeof GuestAiChoiceBody>
 export type GuestAiChoice = z.infer<typeof GuestAiChoice>
 /** A guest's place with its name, as screens show it (Me.guest, User.guest). */
 export const GuestPlaceNamed = GuestPlace.extend({ name: z.string() })
-/** A guest's details: their one place and their AI (Me.guest for the guest, User.guest for admins). */
+/** Why a guest is not in a place of theirs now: 'left' = taken out of it or left it, 'trashed' = the project is in the
+ * trash (restoring it brings them back), 'gone' = the group chat was closed or the project deleted for good. */
+export const GuestPlaceOut = z.enum(['left', 'trashed', 'gone'])
+/** A guest's details: their places and their AI (Me.guest for the guest, User.guest for admins). */
 export const GuestDetail = z.object({
-  place: GuestPlaceNamed, ai: GuestAiChoice,
-  /** a removed guest (account off) who is not in their place now: 'left' = taken out of it or left it, 'trashed' = the
-   * project is in the trash (restoring it brings them back), 'gone' = the room was closed or the project deleted for
-   * good. Absent for an active guest and for a removed one who could be switched back on */
-  placeOut: z.enum(['left', 'trashed', 'gone']).optional(),
+  /** the group chat and/or the project they are in (at most one of each kind; the group chat first). An active guest:
+   * the places they are in now. A removed guest (account off): each place they were last in, with `out` saying why
+   * they are not in it now. */
+  places: z.array(GuestPlaceNamed.extend({ out: GuestPlaceOut.optional() })).max(2),
+  ai: GuestAiChoice,
+  /** a removed guest (account off) who is in none of their places now, the reason that decides whether switching them
+   * on can work ('trashed' when their project is in the trash, else 'left' when a place is still there, else 'gone').
+   * Absent for an active guest and for a removed one who could be switched back on */
+  placeOut: GuestPlaceOut.optional(),
+  /** placeOut 'left' because they left it on their own (Admin: "Left"); absent when someone took them out ("Removed") */
+  leftThemselves: z.literal(true).optional(),
   /** Team AI was picked for them, but that team AI account was deleted since: `ai` reads No AI, and the guest is told
    * that AI can't answer them now (not that it is off) */
   teamAiGone: z.literal(true).optional(),

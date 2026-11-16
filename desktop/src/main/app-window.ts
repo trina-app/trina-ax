@@ -20,6 +20,7 @@ import { SitePermissions, type SiteSettings } from '../common/site-permissions'
 import { browserOwnerChange, type MeResult } from '../common/browser-owner'
 import { addTeam, findTeam, partitionFor, removeTeam, sortedTeams, touchTeam, updateTeam, type DirectInfo, type TeamEntry, type TeamsFile } from '../common/teams'
 import { isTrustedAppSender, UI_ORIGIN } from '../common/trust'
+import { askConsent, consentMemoryFile } from './work-consent-window'
 import { openDialogChoice } from '../common/file-chooser'
 import { makeNotifier, platformNotifyDeps, type NotifyInput } from '../common/notify'
 import { directFromConnectInfo, fetchConnectInfo, lanFailureCode, lanFailureToReport, mirrorSessionCookie, pinCertificates, probeDirect, reportLanFailure, type ProbeResult } from './direct'
@@ -134,7 +135,22 @@ export class AppWindow {
     win: () => (this.win.isDestroyed() ? null : this.win),
     locale: () => this.o.locale(),
     progress: (p) => this.send(this.app, 'bridge:work-files-progress', p),
+    consent: (parent, view) => askConsent({ parent, preload: join(this.o.distDir, 'preload-consent.cjs'), view }),
+    lastInput: () => this.appInputAt,
+    assistive: () => electronApp.accessibilitySupportEnabled,
+    memory: consentMemoryFile(join(electronApp.getPath('userData'), 'work-files-consent.json')),
+    reading: (n) => {
+      if (n === this.reading) return
+      this.reading = n
+      this.layout()
+      this.sendHostbar()
+    },
   })
+  /** when the person last pressed a key or the mouse on the team page (Electron's input events: no page script makes
+   * them); Find work files reads it (WorkFilesController.add, a remembered yes) */
+  private appInputAt = 0
+  /** files added by Find work files and still being read: the strip above the page says so while there are any */
+  private reading = 0
   /** system notifications for the team page (common/notify.ts): unfocused only, one per tag, a click opens its
    * address; a team switch closes them all */
   private notifier = makeNotifier({
@@ -380,8 +396,16 @@ export class AppWindow {
   }
 
   /** The host strip's state: the team address the app connected to (punycode), never the office-network address. */
-  hostbarState(): { host: string } | null {
-    return this.team ? { host: hostOf(this.team.origin) } : null
+  hostbarState(): { host: string; reading?: number } | null {
+    if (!this.team) return null
+    // the strip is the team address on the sign-in pages; else, while Find work files reads added files, that
+    return this.hostLine() || !this.reading ? { host: hostOf(this.team.origin) } : { host: hostOf(this.team.origin), reading: this.reading }
+  }
+  private hostLine() {
+    // A sign-in page that draws the address and "Switch team" under its card itself (hostLine) gets no strip: the
+    // address once, next to the form (owner 2026-11-15). Off the sign-in paths the strip stays until /api/me answers.
+    const pageLine = this.pageHostLine && isSignInPath(this.pagePath)
+    return !pageLine && hostLineNow({ path: this.pagePath, signedIn: this.signedIn, answered: this.meAnswered, waited: this.stripWaited })
   }
 
   private sendWelcome() {
@@ -524,6 +548,8 @@ export class AppWindow {
     const app = new WebContentsView({ webPreferences: { ...APP_WEB_PREFERENCES, session: appSes, preload: join(this.o.distDir, 'preload-app.cjs') } })
     app.setBackgroundColor('#FFFFFF')
     this.app = app
+    // a press on another team's page never counts for this one (Find work files: WorkFilesController.add)
+    this.appInputAt = 0
     this.watchKeys(app, false)
     // a right-click: copy a photo, a link or text (Electron shows no menu of its own)
     attachContextMenu(app.webContents, { window: this.win, locale: this.o.locale, allowedOrigins: () => this.allowedOrigins() })
@@ -1224,10 +1250,8 @@ export class AppWindow {
     const pw = this.pane?.open ? paneWidthFor(this.paneFraction, w) : 0
     // the team address above the page (drawn by the app): on the sign-in pages, and on every page until the team said
     // who is signed in
-    // A sign-in page that draws the address and "Switch team" under its card itself (hostLine) gets no strip: the
-    // address once, next to the form (owner 2026-11-15). Off the sign-in paths the strip stays until /api/me answers.
-    const pageLine = this.pageHostLine && isSignInPath(this.pagePath)
-    const top = !pageLine && hostLineNow({ path: this.pagePath, signedIn: this.signedIn, answered: this.meAnswered, waited: this.stripWaited }) ? HOSTBAR_HEIGHT : 0
+    // or, while Find work files reads the files the person added, "Trina is reading N files from this computer"
+    const top = this.hostLine() || this.reading ? HOSTBAR_HEIGHT : 0
     if (top) show(this.hostbar, { x: 0, y: 0, width: Math.max(0, w - pw), height: top })
     else hide(this.hostbar)
     show(this.app, { x: 0, y: top, width: Math.max(0, w - pw), height: Math.max(0, h - top) })
@@ -1269,9 +1293,11 @@ export class AppWindow {
     // where the person acts: a key or a mouse press in this view
     wc.on('before-input-event', (_e, i) => {
       if (i.type !== 'keyUp') this.personActed(inPane)
+      if (i.type === 'keyDown' && view === this.app) this.appInputAt = Date.now()
     })
     wc.on('before-mouse-event', (_e, m) => {
       if (m.type !== 'mouseDown') return
+      if (view === this.app) this.appInputAt = Date.now()
       if (view === this.chrome) {
         // the view took the keyboard for this very press (its focus event came just before, and no other press in it
         // since), or had it already

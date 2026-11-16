@@ -48,7 +48,10 @@
 // (subagents.ts PARENT_ONLY_TOOLS). Reached anyway (the chat became confidential during the answer, a sub-agent's call)
 // it refuses with why and what to do, as it does for a room that is archived or not mine, a gone thread, content that
 // used earlier answers hidden from some member, a text too long for one message and the sending budget.
-import { alwaysHere, withAlways } from './always-allow'
+import { withAlways } from './always-allow'
+import { actionOff, askerPicks, mainOnly, namedByAsker } from './shared-actions'
+// (moved to chat/shared-actions.ts, kept here for the tests and older imports)
+export { namedByAsker, namesRecipient } from './shared-actions'
 import { isUuid7, ownFolderLabel, ownFolderWord, PostToRoomInput, uuidv7 } from '@mycel/shared'
 import type { Step } from '@mycel/shared/api'
 import { opaqueParts } from '../tools/url-gate'
@@ -60,7 +63,6 @@ import { findPeople, findRoom, localTime, PERSON_REF, titleOf, type Teammate } f
 import { roomsOf } from '../rooms/service'
 import { groupName, roomRow, type MemberRow, type RoomRow } from '../rooms/store'
 import { historyKinds } from '../rooms/history'
-import { confidentialChat } from '../safe-ops/confidential'
 import { keyRoomOf, keyRoomOfPair, preparePendingDm, prepareShare, sendShare, shareChoice, type PendingShare, type PreparedShare } from './answer-share'
 import { tr } from './i18n'
 import { neutralizeTags } from './prompt'
@@ -81,10 +83,12 @@ export const POST_TEXT_FOLD = 600
 /** Why post_to_room is not offered in this turn (and refused when reached anyway), or null: it is. */
 export function postToRoomOff(exec: Pick<TurnExec, 'restricted' | 'templateRun' | 'spec' | 'rt'> & Partial<Pick<TurnExec, 'alwaysPlace'>>): { text: string; summary: string } | null {
   const button = `"${SIDE_CHAT_SEND.room[exec.spec.locale] ?? SIDE_CHAT_SEND.room.en}"`
-  if (exec.spec.clientKind === 'schedule' && alwaysHere(exec.alwaysPlace?.(), 'post_to_room') !== 'on') return { text: `Nothing was posted: a scheduled run has nobody to answer the card every post to a room needs. Tell the user to ask for it in one of their own chats, or to share the answer with ${button} under it.`, summary: 'post_to_room -> refused: scheduled run' }
-  if (confidentialChat(exec.rt.db, exec.spec.chatId)) return { text: 'Nothing was posted: this is a confidential conversation (safe operations), and nothing of it goes to a room. Tell the user its content stays here; to post something else, they can ask in another chat of theirs.', summary: 'post_to_room -> refused: confidential chat' }
-  if (exec.spec.clientKind === 'slack') return { text: 'Nothing was posted: this question came from Slack, where "Post to channel" shares an answer. Tell the user to ask in the app to post to a room.', summary: 'post_to_room -> refused: Slack' }
-  if (exec.restricted || exec.templateRun) return { text: 'Nothing was posted: this run is limited to one task and cannot post to rooms. Tell the user to ask in one of their own chats.', summary: 'post_to_room -> refused: not here' }
+  // (the rules every action that reaches others follows: chat/shared-actions.ts)
+  const off = actionOff(exec, 'post_to_room')
+  if (off === 'schedule') return { text: `Nothing was posted: a scheduled run has nobody to answer the card every post to a room needs. Tell the user to ask for it in one of their own chats, or to share the answer with ${button} under it.`, summary: 'post_to_room -> refused: scheduled run' }
+  if (off === 'confidential') return { text: 'Nothing was posted: this is a confidential conversation (safe operations), and nothing of it goes to a room. Tell the user its content stays here; to post something else, they can ask in another chat of theirs.', summary: 'post_to_room -> refused: confidential chat' }
+  if (off === 'slack') return { text: 'Nothing was posted: this question came from Slack, where "Post to channel" shares an answer. Tell the user to ask in the app to post to a room.', summary: 'post_to_room -> refused: Slack' }
+  if (off === 'restricted') return { text: 'Nothing was posted: this run is limited to one task and cannot post to rooms. Tell the user to ask in one of their own chats.', summary: 'post_to_room -> refused: not here' }
   return null
 }
 
@@ -153,8 +157,9 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const off = postToRoomOff(exec)
         if (off) return { ...text(off.text, true), summary: off.summary }
         // only the main AI: the person answers its cards (a sub-agent never gets the tool: subagents.ts)
-        if (files !== exec.files) return no('Nothing was posted: only the main assistant can post to a room, after the user\'s yes on its card. Give the text to post in your result instead.', 'refused: sub-agent')
-        try { exec.livePrincipal() } catch { return no('Access denied: this account is disabled.', 'denied: account disabled') }
+        const main = mainOnly(exec, files)
+        if (main === 'sub-agent') return no('Nothing was posted: only the main assistant can post to a room, after the user\'s yes on its card. Give the text to post in your result instead.', 'refused: sub-agent')
+        if (main === 'disabled') return no('Access denied: this account is disabled.', 'denied: account disabled')
         // what this answer read so far joins the chat's read scope first: the check counts every place of it
         exec.noteReads()
         const rooms = roomsOf(ctx)
@@ -201,11 +206,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
               ...asked.map((t) => ({ label: tr('postRoomDm', L, { name: oneLine(t.name, 40) }), value: `${PERSON_REF}${t.id}` })),
               { label: tr('postRoomDont', L), value: 'no' },
             ]
-            const v0 = await exec.waitForPerson({
-              kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: tr('postRoomPick', L, { ref: oneLine(ref, 60) }), options, multiple: false, allowText: false,
-              expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
-            } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() })
-            const v = Array.isArray(v0) && v0.length === 1 ? v0[0] : v0
+            const v = await askerPicks(exec, tr('postRoomPick', L, { ref: oneLine(ref, 60) }), options)
             const room = typeof v === 'string' && v.startsWith('room:') ? roomsListed.find((r) => `room:${r.room.id}` === v) : undefined
             const person = typeof v === 'string' && v.startsWith(PERSON_REF) ? asked.find((t) => `${PERSON_REF}${t.id}` === v) : undefined
             if (!room && !person) {
@@ -422,35 +423,6 @@ export function recipientNames(db: import('bun:sqlite').Database, me: string, ro
   if (!room) return { names: [], person: false }
   if (room.kind === 'dm') return { names: (db.query('SELECT u.name, u.username FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? AND m.user_id <> ?').all(room.id, me) as { name: string; username: string }[]).flatMap((u) => [u.name, u.username]), person: true }
   return { names: [room.name ?? '', room.kind === 'team' ? groupName(db, room) ?? '' : ''].filter(Boolean), person: false }
-}
-
-const fold = (s: string) => s.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim()
-const HANGUL = /\p{Script=Hangul}/u
-const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-/** `n` is in `said`: Hangul as a part (particles follow a name: "대현에게"), any other script as whole words only
- * ("jo" is not in "join", "design" not in "redesign"): no letter or digit right before or after it, but a Hangul one
- * (a particle after a Latin name: "Bob에게") */
-const WORD_EDGE = '(?!\\p{Script=Hangul})[\\p{L}\\p{N}]'
-const holds = (said: string, n: string) => HANGUL.test(n) ? said.includes(n) : new RegExp(`(?<!${WORD_EDGE})${escapeRe(n)}(?!${WORD_EDGE})`, 'u').test(said)
-
-/** Does `said` (the asker's own message) name the recipient? A matched name or username in it, or the words the AI gave
- * (`ref`, 님/씨 dropped) when they are in it and are that name in full or one word of it, or, for a person's Hangul
- * name only, its end (a given name: "대현" for "남대현"); two letters at least (holds: whole words outside Hangul). A
- * room or group name matches only in full or by a whole word. Fails closed. */
-export function namesRecipient(said: string, ref: string | undefined, r0: { names: readonly string[]; person: boolean }): boolean {
-  const text = fold(said)
-  if (!text) return false
-  const ns = r0.names.map(fold).filter((n) => n.length >= 2)
-  if (ns.some((n) => holds(text, n))) return true
-  // (the Korean honorifics nim and ssi after a name, as escapes: no Korean text outside the language tables)
-  const r = fold((ref ?? '').replace(/\s*(\uB2D8|\uC528)$/u, ''))
-  if (r.length < 2 || r.startsWith(PERSON_REF) || !holds(text, r)) return false
-  return ns.some((n) => n === r || n.split(' ').includes(r) || (r0.person && HANGUL.test(r) && HANGUL.test(n) && n.endsWith(r)))
-}
-
-/** namesRecipient on the turn's own question (`messageId`). */
-export function namedByAsker(db: import('bun:sqlite').Database, messageId: string, ref: string | undefined, r0: { names: readonly string[]; person: boolean }): boolean {
-  return namesRecipient((db.query('SELECT content FROM messages WHERE id = ?').get(messageId) as { content: string | null } | null)?.content ?? '', ref, r0)
 }
 
 /** The questions above an answer on its branch, the nearest first: the first line or so of each (all a quote's thread

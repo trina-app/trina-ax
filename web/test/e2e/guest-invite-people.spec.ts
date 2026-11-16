@@ -38,7 +38,7 @@ async function openInvitePeopleGuest(page: Page) {
   // Team member: the team link's message, as before
   await expect(page.getByTestId('invite-step')).toBeVisible()
   await page.getByRole('tab', { name: '게스트' }).click()
-  await expect(page.getByTestId('invite-guest-line')).toHaveText('팀 밖의 사람이에요. 그룹 대화나 프로젝트 한 곳에만 들어와요.')
+  await expect(page.getByTestId('invite-guest-line')).toHaveText('팀 밖의 사람이에요. 그룹 대화나 프로젝트에 들어와요.')
   await expect(page.getByTestId('invite-step')).toHaveCount(0)
 }
 
@@ -48,7 +48,7 @@ test('the owner: Invite people › Guest › a group chat › the guest form, Ca
   await openInvitePeopleGuest(page)
   await expect(page.getByTestId('guest-place-room')).toHaveCount(1)
   await page.getByTestId('guest-place-room').filter({ hasText: '견적 준비' }).click()
-  await expect(page.getByTestId('guest-invite-where')).toContainText("'견적 준비' 방만")
+  await expect(page.getByTestId('guest-invite-where')).toContainText("'견적 준비' 그룹 대화만")
   await page.getByRole('button', { name: '취소' }).click()
   await expect(page.getByRole('tab', { name: '게스트' })).toHaveAttribute('aria-selected', 'true')
   await page.getByTestId('guest-place-room').click()
@@ -85,11 +85,11 @@ test('the owner: New conversation starts with Invite a guest, which picks the pl
   await start(page)
   await signIn(page)
   await page.goto('/rooms?new=1')
-  await expect(page.getByTestId('invite-guest-row')).toContainText('게스트 초대하기')
+  await expect(page.getByTestId('invite-guest-row')).toContainText('게스트 초대')
   await page.getByTestId('invite-guest-row').click()
   await expect(page.getByTestId('guest-invite-flow')).toBeVisible()
   await page.getByTestId('guest-place-room').click()
-  await expect(page.getByTestId('guest-invite-where')).toContainText("'견적 준비' 방만")
+  await expect(page.getByTestId('guest-invite-where')).toContainText("'견적 준비' 그룹 대화만")
   // Cancel goes back to the places, and Cancel there back to the people list
   await page.getByRole('button', { name: '취소' }).click()
   await expect(page.getByTestId('guest-invite-flow')).toBeVisible()
@@ -104,9 +104,9 @@ test("the owner: a group chat's ⋯ has 초대하기, the add list with Invite a
   await page.goto(`/rooms/${GROUP}`)
   await page.getByTestId('room-menu').click()
   await page.getByTestId('room-menu-invite').click()
-  await expect(page.getByTestId('invite-guest-row')).toContainText('이 방만')
+  await expect(page.getByTestId('invite-guest-row')).toContainText('이 그룹 대화만')
   await page.getByTestId('invite-guest-row').click()
-  await expect(page.getByTestId('guest-invite-where')).toContainText("'견적 준비' 방만")
+  await expect(page.getByTestId('guest-invite-where')).toContainText("'견적 준비' 그룹 대화만")
 })
 
 test('a member: no Invite people; New conversation offers their group chats and the projects they made only', async ({ page }) => {
@@ -135,7 +135,7 @@ test('a member with no group chat and no project of theirs: a plain line instead
   await signIn(page, BOB)
   await page.goto('/rooms?new=1')
   await page.getByTestId('invite-guest-row').click()
-  await expect(page.getByTestId('guest-place-none')).toContainText('게스트를 초대할 방이나 프로젝트가 아직 없어요')
+  await expect(page.getByTestId('guest-place-none')).toContainText('게스트를 초대할 그룹 대화나 프로젝트가 아직 없어요')
 })
 
 test("the owner's welcome steps: Invite people lands on the invite step, whose line opens Invite a guest", async ({ page }) => {
@@ -150,7 +150,7 @@ test("the owner's welcome steps: Invite people lands on the invite step, whose l
   await page.getByTestId('invite-step-guest-open').click()
   await expect(page.getByTestId('guest-invite-flow')).toBeVisible()
   await page.getByTestId('guest-place-room').click()
-  await expect(page.getByTestId('guest-invite-where')).toContainText("'견적 준비' 방만")
+  await expect(page.getByTestId('guest-invite-where')).toContainText("'견적 준비' 그룹 대화만")
   // Done/Cancel leaves the welcome step where it was
   await page.getByRole('button', { name: '취소' }).click()
   await page.getByRole('button', { name: '취소' }).click()

@@ -32,6 +32,8 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   'chat_file',
   // "send these to bob" (chat/post-to-room.ts): as the turn's own person, behind their card
   'post_to_room',
+  // "share these photos with bob" (chat/share-with-person.ts): the turn's own person's files, behind their card
+  'share_with_person',
 ])
 
 /** The arguments that name where a call writes, per tool: a shared chat's read card counts them only when something
@@ -88,7 +90,7 @@ export const PATH_ARGS: readonly string[] = ['file_path', 'path', 'source', 'out
  * 줄이기").
  */
 export const ROOMS_SEEN_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
-  ...ROOM_READ_ONLY_TOOLS, 'rooms', 'room_read', 'room_file', 'set_title', 'remember', 'post_to_room', 'change_project_members', 'find_tools', 'schedule_list', 'drive_search', 'drive_list', 'drive_read',
+  ...ROOM_READ_ONLY_TOOLS, 'rooms', 'room_read', 'room_file', 'set_title', 'remember', 'post_to_room', 'share_with_person', 'change_project_members', 'find_tools', 'schedule_list', 'drive_search', 'drive_list', 'drive_read',
 ])
 /** ...and the in-app browser's reading tools, only in a turn that has the browser (by name otherwise: no exemption) */
 export const ROOMS_SEEN_BROWSER_READ_TOOLS: ReadonlySet<string> = new Set(['read_page', 'get_page_text', 'find', 'tabs_context', 'read_console_messages', 'read_network_requests'])

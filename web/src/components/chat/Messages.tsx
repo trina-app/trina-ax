@@ -158,7 +158,7 @@ export function AttachmentView({ a, align = 'end', chatId }: { a: Attachment; al
   // for a file that is gone. No 트리나에게 묻기: this chat is the place to ask
   const fileMenu = useFileMenu(team && a.unavailable ? null : kept
     ? { name: a.name, image: picture ? itemImage(item()) : null, download: () => startDownload(chatFileUrl(chatId!, a.id, { download: '1' }), a.name) }
-    : { name: a.name, image: picture ? itemImage(attachmentItem(a)) : null, link: teamFileLink(a.path), download: () => startDownload(fileUrl(a.path), a.name) })
+    : { name: a.name, image: picture ? itemImage(attachmentItem(a)) : null, link: teamFileLink(a.path), teamFile: a.path, download: () => startDownload(fileUrl(a.path), a.name) })
   // a team file that was deleted or that the person can no longer open: the server sent nothing about it
   if (team && a.unavailable)
     return (
@@ -722,7 +722,8 @@ export function AssistantMessage({
     }, testId: 'side-answer-copy' }] : []),
     // (not while an answer runs: the icon is disabled then, and a sheet item cannot be)
     ...(canRetry && !busy ? [{ label: t('chat.regenerate'), icon: <RotateCcw size={14} aria-hidden />, onSelect: () => onRegenerate(m), testId: 'side-answer-regenerate' }] : []),
-    ...(canSuggest && finished ? [{ label: t('suggest.button'), icon: <BookmarkPlus size={14} aria-hidden />, onSelect: () => setSuggesting(true), testId: 'side-answer-suggest' }] : []),
+    // a guest has no skills (docs/DECISIONS.md "Guests: only what they were invited to")
+    ...(canSuggest && !guest && finished ? [{ label: t('suggest.button'), icon: <BookmarkPlus size={14} aria-hidden />, onSelect: () => setSuggesting(true), testId: 'side-answer-suggest' }] : []),
   ] : []
 
   if (m.withheld) {
@@ -860,7 +861,7 @@ export function AssistantMessage({
                   <RotateCcw size={13} />
                 </IconButton>
               )}
-              {canSuggest && m.content && m.status === 'done' && (
+              {canSuggest && !guest && m.content && m.status === 'done' && (
                 <IconButton label={t('suggest.button')} onClick={() => setSuggesting(true)} className="touch-hit" data-testid="suggest-skill">
                   <BookmarkPlus size={13} />
                 </IconButton>

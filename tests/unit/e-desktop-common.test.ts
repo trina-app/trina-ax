@@ -126,7 +126,9 @@ describe('first run: what the team address answered, the help screens, the host 
     for (const p of ['/login', '/join', '/setup', '/invite/abc', '/reset-password/abc']) expect(isSignInPath(p)).toBe(true)
     for (const p of ['/', '/chats/1', '/invite', '/joined', '/settings/apps']) expect(isSignInPath(p)).toBe(false)
     const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
-    expect(win).toContain('const top = !pageLine && hostLineNow({ path: this.pagePath, signedIn: this.signedIn, answered: this.meAnswered, waited: this.stripWaited }) ? HOSTBAR_HEIGHT : 0')
+    expect(win).toContain('return !pageLine && hostLineNow({ path: this.pagePath, signedIn: this.signedIn, answered: this.meAnswered, waited: this.stripWaited })')
+    // the same strip says "Trina is reading N files" while Find work files reads added files (never over the host line)
+    expect(win).toContain('const top = this.hostLine() || this.reading ? HOSTBAR_HEIGHT : 0')
     // a team whose sign-in pages draw the address under the card (DesktopBridge.hostLine) gets no strip, only on the
     // sign-in paths, until another team is opened (owner 2026-11-15)
     expect(win).toContain('const pageLine = this.pageHostLine && isSignInPath(this.pagePath)')

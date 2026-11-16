@@ -826,6 +826,20 @@ describe('the card, the answer, the audit and the restore', () => {
         expect({ L, leftover: /[{}#]/.test(c.question + c.details.map((d) => d.label + d.text).join('')) }).toEqual({ L, leftover: false })
         for (const k of Object.keys(DELETE_TEXT) as (keyof typeof DELETE_TEXT)[]) expect({ L, k, empty: !DELETE_TEXT[k][L].trim() }).toEqual({ L, k, empty: false })
       }
+      // a guest's card (docs/DECISIONS.md "A guest's AI reads their own rooms"): no Files › Trash, no admin; project
+      // files can be brought back by the project's people, files of their own folder by nobody
+      const guestCard = (items: typeof plan.items) => deleteCard({ ...plan, lost: 0, items }, 'en', 'Asia/Seoul', Date.parse('2026-11-10T03:00:00Z'), (p) => p, 'erin').question
+      const ownItem = { ...plan.items[0]!, rel: 'users/erin/notes.md' }
+      expect(guestCard(plan.items)).toBe('The AI wants to move 1 item to the trash. People who can change the project\'s files can bring project files back until December 10, 2026. Move it to the trash?')
+      expect(guestCard([ownItem])).toBe('The AI wants to move 1 item to the trash. Files from your own folder can\'t be brought back. Move it to the trash?')
+      expect(guestCard([plan.items[0]!, ownItem])).toContain('until December 10, 2026. Files from your own folder can\'t be brought back.')
+      const fill = (x: string, d: string) => x.replace('{date}', d)
+      for (const L of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
+        const q = deleteCard({ ...plan, items: [plan.items[0]!, ownItem] }, L, 'Asia/Seoul', Date.now(), (p) => p, 'erin').question
+        // none of the member's restore line (Files › Trash, an admin emptying it), in any language
+        const memberLine = fill(DELETE_TEXT.until[L], 'x')
+        expect({ L, member: q.includes(memberLine.split('x').filter(Boolean).sort((a, b) => b.length - a.length)[0]!.trim()), where: q.includes(DELETE_TEXT.where[L]), leftover: /[{}#]/.test(q) }).toEqual({ L, member: false, where: false, leftover: false })
+      }
       // never folded behind "전체 보기", however long: the AI picks the order of the list
       const long = { ...plan, items: Array.from({ length: 200 }, (_, i) => ({ ...plan.items[0]!, rel: `users/alice/${'long-name-'.repeat(8)}${i}.md` })) }
       const listed = deleteCard(long, 'en', 'UTC').details[0]!

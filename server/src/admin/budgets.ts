@@ -53,10 +53,25 @@ function checkSubject(db: Database, t: Budget['subjectType'], id: string | null,
   if (t === 'user' && !db.query('SELECT 1 FROM users WHERE id = ? AND deleted_at IS NULL').get(id)) bad()
 }
 
+/**
+ * One limit per subject and period: a second one for the same person, group or team and period is refused (409
+ * budget_duplicate). Admin › Members edits a person's limit for the period picked (web pages/admin/BudgetForm.tsx), so a
+ * second one would never be seen there. Duplicates already in a database are kept and keep counting (no unique index,
+ * nothing deleted); only a new one, or an edit that moves a limit onto a taken subject and period, is refused.
+ */
+function checkNoDuplicate(db: Database, t: Budget['subjectType'], subjectId: string | null, period: Budget['period'], exceptId: string | null, locale: Locale): void {
+  const taken = db.query('SELECT 1 FROM budgets WHERE subject_type = ? AND subject_id IS ? AND period = ? AND id IS NOT ? LIMIT 1').get(t, t === 'team' ? null : subjectId, period, exceptId)
+  if (taken) fail('conflict', msg('budgetDuplicate', locale), { params: { reason: 'budget_duplicate' } })
+}
+
 export function createBudget(db: Database, b: In<typeof BudgetBody>, locale: Locale): Budget {
   checkSubject(db, b.subjectType, b.subjectId, locale)
   const id = newId()
-  db.query(`INSERT INTO budgets (${COLS}) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(id, b.subjectType, b.subjectId, b.period, b.limitUsd, b.limitTokens ?? null, b.action)
+  // the check and the insert in one transaction, so two saves at once can't both pass the check
+  db.transaction(() => {
+    checkNoDuplicate(db, b.subjectType, b.subjectId, b.period, null, locale)
+    db.query(`INSERT INTO budgets (${COLS}) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(id, b.subjectType, b.subjectId, b.period, b.limitUsd, b.limitTokens ?? null, b.action)
+  }).immediate()
   return toBudget(db, db.query(`SELECT ${COLS} FROM budgets WHERE id = ?`).get(id) as BudgetRow)
 }
 
@@ -72,8 +87,13 @@ export function updateBudget(db: Database, id: string, b: Partial<In<typeof Budg
     action: b.action ?? cur.action,
   }
   checkSubject(db, next.subject_type, next.subject_id, locale)
-  db.query('UPDATE budgets SET subject_type = ?, subject_id = ?, period = ?, limit_usd = ?, limit_tokens = ?, action = ? WHERE id = ?')
-    .run(next.subject_type, next.subject_id, next.period, next.limit_usd, next.limit_tokens, next.action, id)
+  // an existing duplicate can still be edited in place; moving a limit onto a subject and period that has one is refused
+  const moved = next.subject_type !== cur.subject_type || next.subject_id !== cur.subject_id || next.period !== cur.period
+  db.transaction(() => {
+    if (moved) checkNoDuplicate(db, next.subject_type, next.subject_id, next.period, id, locale)
+    db.query('UPDATE budgets SET subject_type = ?, subject_id = ?, period = ?, limit_usd = ?, limit_tokens = ?, action = ? WHERE id = ?')
+      .run(next.subject_type, next.subject_id, next.period, next.limit_usd, next.limit_tokens, next.action, id)
+  }).immediate()
   return toBudget(db, { id, ...next })
 }
 
@@ -123,7 +143,16 @@ export function budgetBlock(db: Database, userId: string, locale: Locale, now = 
   // a guest does not know the team's admins: the person who invited them (docs/DECISIONS.md "Guests: only what they
   // were invited to"); the same date
   const guest = !!(db.query('SELECT guest FROM users WHERE id = ?').get(userId) as { guest: number } | null)?.guest
-  const message = guest ? {
+  // a guest's own token limit says its amount, as the web's in-chat notice does ("this month's AI limit (5M tokens)"):
+  // the composer, a room's AI side chat and every other place show this text as it is (QA TC-3310)
+  const own = guest && hit.budget.subjectType === 'user' && hit.budget.limitTokens !== null && hit.budget.limitTokens > 0 && !(hit.budget.limitUsd > 0)
+  const n = own ? new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 }).format(hit.budget.limitTokens!) : ''
+  const message = own ? {
+    ko: `${p} AI 한도(${n} 토큰)를 다 썼어요. ${at}부터 다시 쓸 수 있어요. 더 필요하면 초대한 분께 물어봐 주세요.`,
+    en: `You have used up ${p} AI limit (${n} tokens). You can use it again from ${at}. Ask the person who invited you if you need more.`,
+    id: `Batas AI ${p} (${n} token) sudah habis. Anda bisa memakainya lagi mulai ${at}. Tanyakan ke orang yang mengundang Anda jika perlu lebih.`, ja: `${p}のAIの上限（${n}トークン）を使い切りました。${at}から再び使用できます。追加が必要な場合は、招待してくれた人に聞いてください。`, es: `Agotó el límite de IA ${p} (${n} tokens). Podrá volver a usarla a partir de ${at}. Si necesita más, pregunte a quien le invitó.`,
+    zh: `${p}AI额度（${n} token）已用完。从${at}起可以再次使用。如果需要更多，请询问邀请你的人。`,
+  }[locale] : guest ? {
     ko: `${p} AI 사용 한도를 다 썼어요. ${at}부터 다시 쓸 수 있어요. 더 필요하면 초대한 분께 물어봐 주세요.`,
     en: `You have used up ${p} AI usage limit. You can use it again from ${at}. Ask the person who invited you if you need more.`,
     id: `Batas penggunaan AI ${p} sudah habis. Anda bisa memakainya lagi mulai ${at}. Tanyakan ke orang yang mengundang Anda jika perlu lebih.`, ja: `${p}のAI使用量上限を使い切りました。${at}から再び使用できます。追加が必要な場合は、招待してくれた人に聞いてください。`, es: `Agotó el límite de uso de IA ${p}. Podrá volver a usarla a partir de ${at}. Si necesita más, pregunte a quien le invitó.`,

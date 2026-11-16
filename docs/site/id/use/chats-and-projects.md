@@ -202,8 +202,8 @@ lalu klik **✕** (atau pilih **Hapus pratinjau** di menu pesan).
 
 ### Tamu
 
-Orang dari luar tim, misalnya agensi atau klien, bisa bergabung ke **satu** obrolan grup atau **satu** proyek sebagai
-tamu. Di obrolan grup, buka anggotanya (nama di bagian atas), **Undang orang**, lalu **Undang tamu**; di
+Orang dari luar tim, misalnya agensi atau klien, bisa bergabung ke obrolan grup atau proyek sebagai
+tamu, dan berada di paling banyak satu obrolan grup dan satu proyek. Di obrolan grup, buka anggotanya (nama di bagian atas), **Undang orang**, lalu **Undang tamu**; di
 proyek, **Tambah orang** di **Anggota**. Tuliskan untuk siapa tautan itu dan apakah ia mendapat AI, lalu **Buat tautan**. Tautan itu
 hanya bisa dipakai satu kali: kirimkan sendiri kepadanya.
 

@@ -498,10 +498,14 @@ export function guestInviteLimit(c: Context<AppEnv>, ctx: AppContext): GuestInvi
   // assertGuestLinkFree), so the dialog says it is full before its form, as Create link would
   const max = guestLimit()
   const pending = max === null ? 0 : openGuestLinks(ctx.db, authOf(ctx).now())
-  const full = max !== null && guestsUsed(ctx.db) + pending >= max
-  // how many links wait is the owner's and admins' (they can cancel one), like `used`
+  const used = guestsUsed(ctx.db)
+  const full = max !== null && used + pending >= max
+  // how many links wait is the owner's and admins' (they can cancel one), like `used`; only while the links are what
+  // fills it (the guests alone below the cap: cancelling one frees a place). Guests alone at the cap: the plain words,
+  // as Create link's refusal (QA TC-3223)
   const staff = role === 'owner' || role === 'admin'
-  return { full, limit: max, ...(full && pending && staff ? { pending } : {}), ...(staff ? { used: guestsUsed(ctx.db), seatsFull: seatsFull(ctx.db), ...(url ? { manageUrl: url } : {}),
+  const holding = max !== null && used < max ? pending : 0
+  return { full, limit: max, ...(full && holding && staff ? { pending: holding } : {}), ...(staff ? { used: guestsUsed(ctx.db), seatsFull: seatsFull(ctx.db), ...(url ? { manageUrl: url } : {}),
     // answerTokens: the Team AI limit's "about N answers" (only the owner and admins give Team AI)
     answerTokens: answerTokensCached(ctx.db) } : {}),
     // a guest's AI never runs on this server's own sign-in (credentials/guest-ai.ts): a member's invite dialog says so too
@@ -546,8 +550,10 @@ async function acceptGuestInvite(c: Context<AppEnv>, ctx: AppContext, r: InviteR
     if (res.changes !== 1) return 'gone'
     insertUser(ctx.db, { id, username: b.username, name: b.name, passwordHash, role: 'member', locale: b.locale ?? null, mustChangePassword: false, groupIds: [] })
     ctx.db.query('UPDATE users SET guest = 1 WHERE id = ?').run(id)
-    ctx.db.query('INSERT INTO guests (user_id, place_kind, place_id, ai, team_credential_id, invited_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(id, place!.kind, place!.id, ai.mode, ai.mode === 'team' ? ai.credentialId : null, r.created_by, now)
+    // place_kind / place_id: the place this invite opened (kept as it is); room_id / project_id: the guest's group chat
+    // and project slots (migration 126), the invite's place taking its own kind's slot
+    ctx.db.query('INSERT INTO guests (user_id, place_kind, place_id, room_id, project_id, ai, team_credential_id, invited_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, place!.kind, place!.id, place!.kind === 'room' ? place!.id : null, place!.kind === 'project' ? place!.id : null, ai.mode, ai.mode === 'team' ? ai.credentialId : null, r.created_by, now)
     // Team AI's monthly limit: tokens; a link made before tokens keeps its US dollars (guest-invites.ts parseGuestAi)
     if (ai.mode === 'team') {
       if (ai.limitTokens) insertGuestBudget(ctx.db, id, ai.limitTokens)

@@ -174,7 +174,7 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
     if (sets.length) ctx.db.query(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...args, id)
     // a guest switched on or off by hand (also "off" again while the server had them off): an admin decided, so a
     // restored place never switches them on by itself (admin/guests.ts returnGuestsWithPlace)
-    if (b.status !== undefined && target.role === 'guest') ctx.db.query('UPDATE guests SET off_with_place = NULL WHERE user_id = ?').run(id)
+    if (b.status !== undefined && target.role === 'guest') ctx.db.query('UPDATE guests SET off_with_place = NULL, left_at = NULL WHERE user_id = ?').run(id)
     // their own open reset links end with the account (and stay ended if it is enabled again), and with a new role: a
     // link the owner or the server Mac made for a member would otherwise sign its holder in as the new admin
     if (changed.status === 'disabled' || changed.role !== undefined) revokeResetLinksFor(ctx.db, id, authOf(ctx).now())

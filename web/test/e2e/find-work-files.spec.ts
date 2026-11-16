@@ -48,6 +48,8 @@ test('a member on My files: the app asks first; Cancel does nothing; nothing tic
   await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'asking')
   await answer(page, 'cancel')
   await expect(page.getByTestId('find-work')).toHaveCount(0)
+  // Not now, Esc or closing the app's window (the app answers 'cancelled' for each): the page says so (TC-3491)
+  await expect(page.getByTestId('toast').filter({ hasText: '취소했어요. 아무것도 넣지 않았어요.' })).toBeVisible()
   expect((await app(page)).reads).toEqual([])
   expect(await (await page.request.get('/__test/file-rank')).json()).toEqual([])
   // Look: Downloads blocked by macOS, Desktop cut (big), the list with nothing ticked
@@ -115,6 +117,10 @@ test('Add: only the ticked files are read, they land in My files › From this c
   const work = page.getByTestId('find-work-work')
   await work.getByTestId('find-work-row').filter({ hasText: 'Quote template 2026.xlsx' }).getByTestId('find-work-check').check()
   await work.getByTestId('find-work-row').filter({ hasText: 'Northwind proposal.pptx' }).getByTestId('find-work-check').check()
+  // ticked, then unticked: never named to the app, never read (TC-3300)
+  const brand = work.getByTestId('find-work-row').filter({ hasText: 'Brand guide v3.pdf' }).getByTestId('find-work-check')
+  await brand.check()
+  await brand.uncheck()
   await expect(page.getByTestId('find-work-add')).toHaveText('2개 넣기')
   // slow uploads: the dialog is closed while they go, and the line opens on the same run (its Undo stays reachable)
   await page.request.post('/__test/upload-delay', { data: { ms: 1500 } })
@@ -127,7 +133,8 @@ test('Add: only the ticked files are read, they land in My files › From this c
   expect((await app(page)).scans).toBe(1)
   await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-status', 'done', { timeout: 15_000 })
   await expect(page.getByTestId('find-work-run-title')).toHaveText('내 파일 › 이 컴퓨터에서에 2개를 넣었어요')
-  // exactly the two ticked files were read, each once
+  // exactly the two ticked files were named to the app at Add (TC-3300) and read, each once
+  expect((await app(page)).adds.map((a) => [...a].sort())).toEqual([['id0', 'id3']])
   expect((await app(page)).reads.sort()).toEqual(['id0', 'id3'])
   expect((await tree(page, 'users/bob/From this computer/Documents')).map((e) => e.name).sort()).toEqual(['Clients', 'Sales'])
   // the older copy is not replaced: the new one gets a name of its own
@@ -152,7 +159,7 @@ test('Select all: never a personal file, at most 100, and it says so; no AI: the
   await signIn(page, BOB)
   await openMine(page)
   // without AI only the company's files are listed (here by the team's name in the file name)
-  await look(page, [...Array.from({ length: 120 }, (_, i) => ({ name: `Acme report ${i}.pdf` })), { name: 'Acme Tax Return 2025.pdf' }, { name: 'random notes.pdf' }])
+  await look(page, [...Array.from({ length: 120 }, (_, i) => ({ name: `Acme report q${'abcdefghijkl'[i % 12]}${'mnopqrstuv'[Math.floor(i / 12)]}.pdf` })), { name: 'Acme Tax Return 2025.pdf' }, { name: 'random notes.pdf' }])
   await page.getByTestId('files-find-work-entry').click()
   await answer(page, 'look')
   await expect(page.getByTestId('find-work-ai')).toHaveText('AI 없이 파일 이름으로 정렬했어요')

@@ -31,11 +31,11 @@ async function openRoomAdd(page: Page) {
 test('owner invites a guest into a group chat: name, AI with all three choices, a one-time link with Copy', async ({ page }) => {
   await start(page)
   await openRoomAdd(page)
-  await expect(page.getByTestId('invite-guest-row')).toContainText('게스트 초대하기')
+  await expect(page.getByTestId('invite-guest-row')).toContainText('게스트 초대')
   await page.getByTestId('invite-guest-row').click()
   const dialog = page.getByTestId('guest-invite-dialog')
   await expect(dialog).toBeVisible()
-  await expect(page.getByTestId('guest-invite-where')).toContainText("'견적 준비' 방만")
+  await expect(page.getByTestId('guest-invite-where')).toContainText("'견적 준비' 그룹 대화만")
   // AI is off by default; the owner sees all three. Without a team AI account, Team AI is off and says where to add one
   await expect(page.getByTestId('guest-ai-none')).toBeChecked()
   await expect(page.getByTestId('guest-ai-team')).toBeVisible()
@@ -163,7 +163,7 @@ test("a project's creator invites from the members dialog; the link's page says 
   const r = await page.request.post('/__test/project', { data: { name: '견적 준비', by: 'olga' } })
   const { id } = (await r.json()) as { id: string }
   await page.goto(`/projects/${id}`)
-  await page.getByTestId('project-members-manage').click()
+  await page.getByTestId('project-share').click()
   await page.getByTestId('invite-guest-row').click()
   await expect(page.getByTestId('guest-invite-where')).toContainText("'견적 준비' 프로젝트만")
   await page.getByTestId('guest-invite-name').fill('Alex at Acme')
@@ -194,14 +194,14 @@ test("a project's creator invites from the members dialog; the link's page says 
   await ctx.close()
 })
 
-test('a guest already in another place is greyed out in the add list: where they are, no tick, Make team member for the owner', async ({ page }) => {
+test('a guest already in another group chat is greyed out in the add list: where they are, no tick, Make team member for the owner', async ({ page }) => {
   await start(page)
-  const r = await page.request.post('/__test/project', { data: { name: '다른 프로젝트', by: 'olga' } })
-  const { id } = (await r.json()) as { id: string }
-  expect((await page.request.post('/__test/guest', { data: { id: 'gina', name: 'Gina', place: { kind: 'project', id } } })).ok()).toBeTruthy()
+  const other = uuidv7()
+  expect((await page.request.post('/__test/rooms', { data: { rooms: [...ROOMS, { ...base, id: other, kind: 'group', name: '다른 대화', groupId: null, memberCount: 2, peers: [{ id: 'olga', name: 'Olga' }], createdAt: at, activityAt: at }] } })).ok()).toBeTruthy()
+  expect((await page.request.post('/__test/guest', { data: { id: 'gina', name: 'Gina', place: { kind: 'room', id: other } } })).ok()).toBeTruthy()
   await openRoomAdd(page)
   const row = page.getByTestId('people-row-elsewhere').filter({ hasText: 'Gina' })
-  await expect(row).toContainText("'다른 프로젝트' 프로젝트에 있어요")
+  await expect(row).toContainText("'다른 대화' 그룹 대화에 있어요")
   await expect(row.getByTestId('picker-tick')).toHaveCount(0)
   // Make team member opens its dialog right here; once done, Gina can be ticked
   await row.getByTestId('guest-elsewhere-convert').click()
@@ -211,7 +211,17 @@ test('a guest already in another place is greyed out in the add list: where they
   await expect(page.getByTestId('people-row-elsewhere')).toHaveCount(0)
 })
 
-test('a new chat: a guest can be in a 1:1 chat, not a new group', async ({ page }) => {
+test('a guest in a project only can be added to a group chat: a project is the other kind of place', async ({ page }) => {
+  await start(page)
+  const r = await page.request.post('/__test/project', { data: { name: '다른 프로젝트', by: 'olga' } })
+  const { id } = (await r.json()) as { id: string }
+  expect((await page.request.post('/__test/guest', { data: { id: 'gina', name: 'Gina', place: { kind: 'project', id } } })).ok()).toBeTruthy()
+  await openRoomAdd(page)
+  await expect(page.getByTestId('people-row').filter({ hasText: 'Gina' }).getByTestId('picker-tick')).toBeVisible()
+  await expect(page.getByTestId('people-row-elsewhere')).toHaveCount(0)
+})
+
+test('a new chat: a guest in a group chat can be in a 1:1 chat, not a new group', async ({ page }) => {
   await start(page, { username: 'bob', password: 'bob password 1' })
   expect((await page.request.post('/__test/guest', { data: { id: 'gina', name: 'Gina', place: { kind: 'room', id: GROUP } } })).ok()).toBeTruthy()
   await page.goto('/rooms?new=1')
@@ -222,7 +232,7 @@ test('a new chat: a guest can be in a 1:1 chat, not a new group', async ({ page 
   await page.getByTestId('people-row').filter({ hasText: 'Gina' }).getByTestId('picker-tick').uncheck()
   // with someone else ticked first, Gina is greyed out
   await page.getByTestId('people-row').filter({ hasText: 'Olga' }).getByTestId('picker-tick').check()
-  await expect(page.getByTestId('people-row-elsewhere').filter({ hasText: 'Gina' })).toContainText("'견적 준비' 방에 있어요")
+  await expect(page.getByTestId('people-row-elsewhere').filter({ hasText: 'Gina' })).toContainText("'견적 준비' 그룹 대화에 있어요")
 })
 
 test('a refused add (409 guest_one_place) still says why', async ({ page }) => {
@@ -238,19 +248,34 @@ test('a refused add (409 guest_one_place) still says why', async ({ page }) => {
   const row = page.getByTestId('people-row').first()
   await row.getByTestId('picker-tick').check()
   await page.getByTestId('picker-go').click()
-  await expect(page.getByTestId('guest-one-place')).toContainText('게스트는 방이나 프로젝트 한 곳에만 들어갈 수 있어요')
+  await expect(page.getByTestId('guest-one-place')).toContainText('게스트는 그룹 대화 하나와 프로젝트 하나까지 들어갈 수 있어요')
 })
 
-test("a project's members dialog: a guest of a room shows greyed out in the search, with no Add; a member sees no Make team member", async ({ page }) => {
+test("a project's members dialog: a guest of another project shows greyed out in the search, with no Add; a member sees no Make team member", async ({ page }) => {
+  await start(page, { username: 'bob', password: 'bob password 1' })
+  const o = await page.request.post('/__test/project', { data: { name: '다른 프로젝트', by: 'olga' } })
+  const other = ((await o.json()) as { id: string }).id
+  // Bob shares the group chat with Gina, so he sees her; her project is not his, so its name is not his to see
+  expect((await page.request.post('/__test/guest', { data: { id: 'gina', name: 'Gina', place: { kind: 'room', id: GROUP }, also: { kind: 'project', id: other } } })).ok()).toBeTruthy()
+  const r = await page.request.post('/__test/project', { data: { name: '견적 준비', by: 'bob' } })
+  const { id } = (await r.json()) as { id: string }
+  await page.goto(`/projects/${id}`)
+  await page.getByTestId('project-share').click()
+  await page.getByTestId('project-participants-search').fill('Gina')
+  const row = page.getByTestId('participant-elsewhere-user-gina')
+  await expect(row).toContainText('게스트는 그룹 대화 하나와 프로젝트 하나까지 들어갈 수 있어요')
+  await expect(row).not.toContainText('다른 프로젝트')
+  await expect(row.getByText('추가', { exact: true })).toHaveCount(0)
+  await expect(row.getByTestId('guest-elsewhere-convert')).toHaveCount(0)
+})
+
+test("a project's members dialog: a guest of a group chat only can be added (one group chat and one project)", async ({ page }) => {
   await start(page, { username: 'bob', password: 'bob password 1' })
   expect((await page.request.post('/__test/guest', { data: { id: 'gina', name: 'Gina', place: { kind: 'room', id: GROUP } } })).ok()).toBeTruthy()
   const r = await page.request.post('/__test/project', { data: { name: '견적 준비', by: 'bob' } })
   const { id } = (await r.json()) as { id: string }
   await page.goto(`/projects/${id}`)
-  await page.getByTestId('project-members-manage').click()
+  await page.getByTestId('project-share').click()
   await page.getByTestId('project-participants-search').fill('Gina')
-  const row = page.getByTestId('participant-elsewhere-user-gina')
-  await expect(row).toContainText("'견적 준비' 방에 있어요")
-  await expect(row.getByText('추가', { exact: true })).toHaveCount(0)
-  await expect(row.getByTestId('guest-elsewhere-convert')).toHaveCount(0)
+  await expect(page.getByTestId('participant-elsewhere-user-gina')).toHaveCount(0)
 })

@@ -20,7 +20,7 @@ import { msg } from '../auth/messages'
 import { userRef } from '../auth/users'
 import { audit } from './audit'
 import { teamDefaultLocale } from './settings'
-import { failOnePlace, guestPlace, guestsAmong, projectFolder } from '../auth/guests'
+import { claimGuestProject, guestsAmong } from '../auth/guests'
 import { folderKeep, isParkedRow, type FolderKeep } from './folder-keep'
 import { shownSegs } from './access-rows'
 import { rulesHash, rulesHashV1 } from './access-edit'
@@ -229,8 +229,9 @@ export function writeFolderAccess(db: Database, folderId: string, next: { rules:
 }
 
 /**
- * One place per guest (docs/DECISIONS.md "Guests: only what they were invited to"): a person rule that gives a guest
- * access is written only at or below their own project's folder. A new one anywhere else (the members panel, the AI's
+ * One project per guest (docs/DECISIONS.md "Guests: one group chat and one project"): a person rule that gives a guest
+ * access is written only at or below the project they hold, or, holding none, on a live project's own folder, which
+ * then becomes theirs (auth/guests.ts claimGuestProject). A new one anywhere else (the members panel, the AI's
  * change_project_members, Admin › Folder permissions, a new project's people) is refused in the same write with 409
  * guest_one_place; a rule they already have there may be kept or changed.
  */
@@ -238,9 +239,7 @@ function guestRulesInPlace(db: Database, folderPath: string, folderId: string, r
   const named = rules.filter((r) => r.subjectType === 'user' && r.subjectId && r.access !== 'none').map((r) => r.subjectId!)
   for (const id of guestsAmong(db, named)) {
     if (db.query("SELECT 1 FROM folder_rules WHERE folder_id = ? AND subject_type = 'user' AND subject_id = ? AND access <> 'none'").get(folderId, id)) continue
-    const place = guestPlace(db, id)
-    const own = place?.kind === 'project' ? projectFolder(db, place.id) : null
-    if (!own || !(folderPath === own || folderPath.startsWith(own + '/'))) failOnePlace(teamDefaultLocale(db))
+    claimGuestProject(db, id, folderPath, teamDefaultLocale(db))
   }
 }
 

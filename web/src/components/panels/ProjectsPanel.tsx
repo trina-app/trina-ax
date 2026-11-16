@@ -52,7 +52,7 @@ export function NewProjectRow(_: { phone?: boolean } = {}) {
       <button type="button" onClick={() => setOpen(true)} className={clsx(panelRow, 'font-medium')} data-testid="projects-panel-new">
         <ListIcon><Plus /></ListIcon> <span className="truncate">{t('projects.new')}</span>
       </button>
-      {open && <NewProjectDialog onClose={() => setOpen(false)} onMade={(p) => { setOpen(false); navigate(`/projects/${p.id}`) }} />}
+      {open && <NewProjectDialog people onClose={() => setOpen(false)} onMade={(p) => { setOpen(false); navigate(`/projects/${p.id}`) }} />}
     </>
   )
 }

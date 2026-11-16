@@ -1,5 +1,5 @@
 // Rooms and guests (docs/DECISIONS.md "Guests: only what they were invited to"): who a guest may reach in rooms, and
-// switching a guest off when they leave their one place (a group chat). The rules live in auth/guests.ts.
+// switching a guest off when they are in no place any more (out of their group chat, and of their project too). The rules live in auth/guests.ts.
 import type { Database } from 'bun:sqlite'
 import type { AppContext } from '../context'
 import { isGuest, placePeople } from '../auth/guests'

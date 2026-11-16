@@ -129,7 +129,7 @@ const labels = (done: { steps?: { tool?: string; label: string }[] }, tool: stri
 const WHY = "Messages from your conversations (other people's words) came in here, so changes are asked first. "
 const OWN = 'saved without asking: your own folder'
 const ONCE = 'allowed once in this answer'
-const ALWAYS = 'allowed: always in this room'
+const ALWAYS = 'allowed: always in this conversation'
 const WEB = { webSearch: { query: 'q4 news', hits: [{ title: 'News', url: 'https://news.example/a' }] } }
 
 describe('my own folder after a room read', () => {

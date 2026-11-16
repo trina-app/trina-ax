@@ -43,7 +43,7 @@ export const SAFE_OPS_TEXT = {
   },
   workflow: {
     ja: "この返答で安全なPowerPointの上限（元ファイル32個、1ファイル32 MiB、返答ごとの保存上限）に達しました。新しいメッセージで続けてください。ファイルは保存していません。",
-    es: "Esta respuesta alcanzó un límite de PowerPoint seguro (como máximo 32 archivos de origen, 32 MiB por archivo y el límite de escritura de la respuesta). Envía un mensaje nuevo para continuar. No se guardó nada.",
+    es: "Esta respuesta alcanzó un límite de PowerPoint seguro (como máximo 32 archivos de origen, 32 MiB por archivo y el límite de escritura de la respuesta). Envíe un mensaje nuevo para continuar. No se guardó nada.",
     zh: "这次回复已达到 PowerPoint 安全上限（最多32个源文件，每个文件32 MiB，以及回复的写入上限）。请发送新消息继续。没有保存任何内容。",
     ko: "이 답에서 안전한 PowerPoint 한도(원본 파일 32개, 파일 하나 32 MiB, 답 하나의 저장 한도)에 도달했어요. 새 메시지로 이어서 요청해 주세요. 파일은 저장하지 않았어요.",
     en: "This reply reached a safe PowerPoint limit (at most 32 source files, 32 MiB per file and the reply's write limit). Send a new message to continue. Nothing was saved.",
@@ -139,7 +139,7 @@ export const SAFE_OPS_TEXT = {
   },
   hourLimit: {
     ja: "安全なPowerPoint処理は1人あたり1時間に8回までです（変換を始める前に止まった試行は数えません）。約{minutes}分後にもう一度作成できます。ファイルは保存していません。",
-    es: "Alcanzaste el límite de 8 trabajos seguros de PowerPoint por hora (los intentos que se detuvieron antes de convertir no cuentan). Podrás crear otro en unos {minutes} min. No se guardó nada.",
+    es: "Alcanzó el límite de 8 trabajos seguros de PowerPoint por hora (los intentos que se detuvieron antes de convertir no cuentan). Podrá crear otro en unos {minutes} min. No se guardó nada.",
     zh: "你已达到每小时8个安全 PowerPoint 任务的上限（还没开始转换就停止的尝试不计入）。大约{minutes}分钟后可以再做一个。没有保存任何内容。",
     ko: "안전한 PowerPoint 작업은 한 사람당 1시간에 8번까지 할 수 있어요(변환을 시작하기 전에 멈춘 시도는 세지 않아요). 약 {minutes}분 뒤에 다시 만들 수 있어요. 파일은 저장하지 않았어요.",
     en: "You have reached the limit of 8 safe PowerPoint jobs per hour (tries that stopped before converting anything do not count). You can make another in about {minutes} min. Nothing was saved.",
@@ -147,7 +147,7 @@ export const SAFE_OPS_TEXT = {
   },
   turnLimit: {
     ja: "1回の返答で実行できる安全なPowerPoint処理は4回までです。新しいメッセージでもう一度依頼してください。ファイルは保存していません。",
-    es: "Una respuesta puede ejecutar como máximo 4 trabajos seguros de PowerPoint. Envía un mensaje nuevo para intentarlo otra vez. No se guardó nada.",
+    es: "Una respuesta puede ejecutar como máximo 4 trabajos seguros de PowerPoint. Envíe un mensaje nuevo para intentarlo otra vez. No se guardó nada.",
     zh: "一次回复最多运行4个安全 PowerPoint 任务。请发送新消息后重试。没有保存任何内容。",
     ko: "한 번의 답에서는 안전한 PowerPoint 작업을 4번까지 할 수 있어요. 새 메시지로 다시 요청해 주세요. 파일은 저장하지 않았어요.",
     en: "One reply can run at most 4 safe PowerPoint jobs. Send a new message to try again. Nothing was saved.",
@@ -155,7 +155,7 @@ export const SAFE_OPS_TEXT = {
   },
   budget: {
     ja: "この返答で使える1時間あたりの安全な変換量（変換24ステップ、CPU 10分、ファイル512 MiB）を使い切りました。新しいメッセージで依頼するか、約{minutes}分待ってください。ファイルは保存していません。",
-    es: "Esta respuesta agotó su cuota horaria de conversión segura (24 pasos de conversión, 10 minutos de CPU y 512 MiB de archivos). Envía un mensaje nuevo o espera unos {minutes} min. No se guardó nada.",
+    es: "Esta respuesta agotó su cuota horaria de conversión segura (24 pasos de conversión, 10 minutos de CPU y 512 MiB de archivos). Envíe un mensaje nuevo o espere unos {minutes} min. No se guardó nada.",
     zh: "这次回复已用完每小时的安全转换额度（24个转换步骤、10分钟 CPU 时间和512 MiB 文件）。请发送新消息，或等待大约{minutes}分钟。没有保存任何内容。",
     ko: "이 답에서 쓸 수 있는 1시간 안전 변환량(변환 단계 24개, CPU 10분, 파일 512 MiB)을 다 썼어요. 새 메시지로 요청하거나 약 {minutes}분 뒤에 다시 시도해 주세요. 파일은 저장하지 않았어요.",
     en: "This reply used up its hourly safe conversion budget (24 conversion steps, 10 CPU minutes and 512 MiB of files). Send a new message, or wait about {minutes} min. Nothing was saved.",

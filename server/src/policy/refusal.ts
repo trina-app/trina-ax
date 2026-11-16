@@ -129,7 +129,8 @@ export function cardNext(end: CardEnd, where = 'in a chat'): string {
 type L5 = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): L5 => ({ ko, en, id, ja, es, zh })
 // the web app's own labels (web/src/i18n: sidebar.files, files.trash, sidebar.settings, admin.title, admin.folders,
-// admin.groups, rooms.title, sideChat.open, integrations.title, admin.integrations)
+// admin.groups, rooms.title, sideChat.open, integrations.title, admin.integrations, tabs.me, settings.providers,
+// settings.usage, admin.system; tests/unit/ai-situation.test.ts compares them)
 const LABEL = {
   files: t('파일', 'Files', 'File', 'ファイル', 'Archivos', '文件'),
   trash: t('휴지통', 'Trash', 'Sampah', 'ゴミ箱', 'Papelera', '回收站'),
@@ -143,6 +144,15 @@ const LABEL = {
   connectors: t('커넥터', 'Connectors', 'Konektor', 'コネクター', 'Conectores', '连接器'),
   // the team's: Admin › Connected apps (web admin.integrations)
   connected: t('연결한 서비스', 'Connected apps', 'Aplikasi terhubung', '連携サービス', 'Apps conectadas', '已连接的应用'),
+  // the phone's tab where Settings and Admin are (web tabs.me)
+  me: t('나', 'Me', 'Saya', '自分', 'Yo', '我'),
+  // Settings › AI providers (the person's own AI sign-in) and Admin › AI providers (the team's): web settings.providers,
+  // admin.providers
+  providers: t('AI 제공사', 'AI providers', 'Penyedia AI', 'AIプロバイダー', 'Proveedores de IA', 'AI 提供商'),
+  // Settings › Usage (web settings.usage)
+  usage: t('사용량', 'Usage', 'Penggunaan', '使用量', 'Uso', '用量'),
+  // Admin › System (web admin.system)
+  system: t('시스템', 'System', 'Sistem', 'システム', 'Sistema', '系统'),
   // a shared project chat's title menu (web chat.continuePrivately)
   continuePrivately: t('나만 보는 채팅에서 이어 하기', 'Continue in a chat only you see', 'Lanjutkan di obrolan yang hanya Anda lihat', '自分だけのチャットで続ける', 'Continuar en un chat que solo ve usted', '在只有你能看到的对话中继续'),
 } satisfies Record<string, L5>
@@ -162,6 +172,13 @@ export const SCREEN = {
   adminFolders: (L: Locale) => `Admin › Folder permissions ("${LABEL.admin[L]} › ${LABEL.folders[L]}")`,
   adminGroups: (L: Locale) => `Admin › Groups ("${LABEL.admin[L]} › ${LABEL.groups[L]}")`,
   adminSettings: (L: Locale) => `Admin ("${LABEL.admin[L]}")`,
+  /** Settings itself: on a phone the Me tab ("나") holds it */
+  settings: (L: Locale) => `Settings ("${LABEL.settings[L]}")`,
+  meTab: (L: Locale) => `the Me tab ("${LABEL.me[L]}")`,
+  ownProviders: (L: Locale) => `Settings › AI providers ("${LABEL.settings[L]} › ${LABEL.providers[L]}")`,
+  adminProviders: (L: Locale) => `Admin › AI providers ("${LABEL.admin[L]} › ${LABEL.providers[L]}")`,
+  usage: (L: Locale) => `Settings › Usage ("${LABEL.settings[L]} › ${LABEL.usage[L]}")`,
+  adminSystem: (L: Locale) => `Admin › System ("${LABEL.admin[L]} › ${LABEL.system[L]}")`,
   rooms: (L: Locale) => `Conversations ("${LABEL.rooms[L]}")`,
   sideChat: (L: Locale) => `the room's side panel ("${LABEL.sideChat[L].replace('{name}', AI_NAME[L])}")`,
   ownChat: (_L: Locale) => 'a chat of their own (a new AI chat)',

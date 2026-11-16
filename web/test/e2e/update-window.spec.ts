@@ -63,7 +63,6 @@ test('saving Share while Trina updates says so, keeps the picks and saves by its
   await reset(page)
   await signIn(page)
   const chatId = await chatWithAnswer(page)
-  await page.getByTestId('chat-menu').click()
   await page.getByTestId('chat-share').click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByTestId('chat-share-picker')).toBeVisible()

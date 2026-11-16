@@ -294,6 +294,13 @@ export const PostToRoomInput = z.strictObject({
   thread_id: z.string().min(1).max(100).optional().describe('Post as a reply in this message\'s thread: the id of the thread\'s first message (from room_read, or the thread_id in a question that quotes a message).'),
   own_words: z.boolean().optional().describe('true when the user dictated the message ("tell bob the meeting is at 10"): text then goes as the user\'s own message, exactly as written, with no AI-answer quote; write it in their voice and keep their words. Leave it out to share something you wrote (a summary, an answer), which is quoted as the AI\'s answer. Not with note.'),
 })
+/** share_with_person (server/src/chat/share-with-person.ts; docs/DECISIONS.md "A member shares their own files"):
+ * the user's own files (view only) for teammates or groups, after the user's yes on the server's card. Names as the user
+ * wrote them; an id only from the candidates the tool gave back. */
+export const ShareWithPersonInput = z.strictObject({
+  paths: z.array(relPath).min(1).max(10).describe('The files to share (1-10): files only, never a folder. Only files the user owns and can edit.'),
+  people: z.array(z.string().min(1).max(200)).min(1).max(10).describe('Who gets them: a teammate\'s or a group\'s name as the user wrote it, or person:<id> / group:<id> from the candidates a previous call gave.'),
+})
 /** change_project_members in a person's own chat (server/src/chat/project-members.ts): people and groups added to or
  * removed from a team project after their yes on the server's card. Names as the user wrote them; an id only from the
  * candidates the tool gave back for that name. */
@@ -311,7 +318,7 @@ export const ToolError = z.object({ error: z.object({ code: z.string(), message:
 export const TextOutput = z.object({ text: z.string() })
 
 export const FILE_TOOLS = {
-  list: { input: ListInput, description: 'List a folder in the team drive. Only things you are allowed to see are shown. Folders end with "/".' },
+  list: { input: ListInput, description: 'List a folder of the team files. Only things you are allowed to see are shown. Folders end with "/".' },
   glob: { input: GlobInput, description: 'Find files by name pattern (e.g. "**/*.pdf"). Returns paths relative to the team root. Folders you cannot access are skipped.' },
   grep: { input: GrepInput, description: 'Search file contents with a regular expression (ripgrep). Also searches text extracted from .docx/.pptx/.xlsx/.pdf. Images have no searchable text, and scanned PDF pages may have none: read them to see them. Folders you cannot access are skipped.' },
   read: { input: ReadInput, description: 'Read a file. Text returns numbered lines (cat -n style); use offset/limit for long files. Word/Excel/PowerPoint files are converted to text. Images (PNG, JPEG, GIF, WebP, HEIC, TIFF, BMP) are shown to you as images. PDFs: give pages (e.g. "1-5"; at most 20 per call, required over 10 pages); pages with text come back as text, pages without a text layer (scans) as images; as_images also shows text pages as images. Videos (mp4, mov, m4v, webm, mkv, avi, 3gp) come back as frames (pictures with their times) and a timed transcript of the sound; audio files (mp3, m4a, wav, aac, flac, ogg, opus, amr, aiff, caf, wma) as a timed transcript. Use time (e.g. "1:00-2:30") to look at a part, frames for how many pictures, transcript: false to skip the sound.' },
@@ -346,6 +353,7 @@ export const OTHER_TOOLS = {
   chat_file: { input: ChatFileInput, output: TextOutput },
   save_room_file: { input: SaveRoomFileInput, output: TextOutput },
   post_to_room: { input: PostToRoomInput, output: TextOutput },
+  share_with_person: { input: ShareWithPersonInput, output: TextOutput },
   change_project_members: { input: ChangeProjectMembersInput, output: TextOutput },
 } as const
 

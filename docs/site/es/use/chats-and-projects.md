@@ -203,8 +203,8 @@ y haga clic en **✕** (o elija **Quitar vista previa** en el menú del mensaje)
 
 ### Invitados
 
-Una persona de fuera del equipo, como una agencia o un cliente, puede unirse a **una** conversación de grupo o a **un** proyecto como
-invitado. En una conversación de grupo, abra sus miembros (el nombre de arriba), **Invitar personas** y luego **Invitar a un invitado**; en
+Una persona de fuera del equipo, como una agencia o un cliente, puede unirse a una conversación de grupo o a un proyecto como
+invitado, y estar como máximo en una conversación de grupo y en un proyecto. En una conversación de grupo, abra sus miembros (el nombre de arriba), **Invitar personas** y luego **Invitar a un invitado**; en
 un proyecto, **Añadir personas** en **Miembros**. Indique para quién es el enlace y si tendrá IA, y luego pulse **Crear enlace**. El enlace
 funciona una sola vez: envíeselo usted mismo.
 

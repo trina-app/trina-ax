@@ -35,7 +35,7 @@ async function openGuest(page: Page) {
   await expect(page.getByRole('tab', { name: '팀원' })).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByTestId('invite-create')).toBeVisible()
   await page.getByRole('tab', { name: '게스트' }).click()
-  await expect(page.getByTestId('invite-guest-line')).toHaveText('팀 밖의 사람이에요. 그룹 대화나 프로젝트 한 곳에만 들어와요.')
+  await expect(page.getByTestId('invite-guest-line')).toHaveText('팀 밖의 사람이에요. 그룹 대화나 프로젝트에 들어와요.')
   await expect(page.getByTestId('invite-create')).toHaveCount(0)
 }
 
@@ -45,7 +45,7 @@ test('the owner invites a guest into a group chat from Admin › Invite to team'
   // the group chat, never the DM
   await expect(page.getByTestId('guest-place-room')).toHaveCount(1)
   await page.getByTestId('guest-place-room').filter({ hasText: '견적 준비' }).click()
-  await expect(page.getByTestId('guest-invite-where')).toContainText("'견적 준비' 방만")
+  await expect(page.getByTestId('guest-invite-where')).toContainText("'견적 준비' 그룹 대화만")
   // the owner gets all three AI choices; the 7-day, one-use line
   await expect(page.getByTestId('guest-ai-team')).toBeVisible()
   await expect(page.getByTestId('guest-invite-expiry')).toBeVisible()

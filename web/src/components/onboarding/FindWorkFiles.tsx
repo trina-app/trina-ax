@@ -27,16 +27,17 @@ import type { FolderPlan, FolderUpload } from '../../lib/folderUpload'
 import { taggedRun, useRuns, type Run } from '../../lib/folderRuns'
 import { formatSize, intlTag } from '../../lib/format'
 import { findAlready, findDocs, rankEntries, tick, type LocalDoc } from '../../lib/teamFiles'
-import { companyMatch, docsFromScan, FIND_WORK_FILES_GUIDE, forAiRecent, FROM_COMPUTER, isRecentDoc, lookWords, offersWide, overBytes, ROOT_FOLDER, rootNotes, runFolder, selectAll, touched, undoRun, WorkFileReadError, workFilesBridge, workList, type CompanyWordsLike, type RunMade, type WorkFilesBridge } from '../../lib/workFiles'
+import { cloudName, companyMatch, confirmAdd, docsFromScan, fullDiskLater, setFullDiskLater, FIND_WORK_FILES_GUIDE, forAiRecent, FROM_COMPUTER, isRecentDoc, lookWords, offersWide, overBytes, ROOT_FOLDER, rootNotes, runFolder, selectAll, touched, undoRun, WorkFileReadError, workFilesBridge, workList, type CompanyWordsLike, type RunMade, type WorkFilesBridge } from '../../lib/workFiles'
 import { takeResume } from '../../lib/workFilesResume'
 import { FullDiskAccess } from './FullDiskAccess'
 import { useFolderWords } from '../../lib/folderLabels'
 import { currentLocale, t as tNow, useLocale, useT, type MessageKey } from '../../i18n'
-import { useMeStrict } from '../../store/session'
+import { useMe, useMeStrict } from '../../store/session'
 import { isGuestMe } from '../../lib/guests'
 import { toast } from '../../store/ui'
 import { startFolderUpload, stopFolderUpload } from '../FolderUploads'
 import { Tooltip } from '../Tooltip'
+import { FromCloudLine } from '../FromCloud'
 import { Button, ErrorNote, Modal, ProgressBar, useMediaQuery } from '../ui'
 import { storagePlansAction } from '../StoragePlansLink'
 import { TickFold, TickRow, TickSearch } from './TickList'
@@ -114,18 +115,45 @@ export interface FindWorkFilesProps {
   phone?: boolean
 }
 
+/** While the app says whether it has Full Disk Access (the same line as the screen's own check) */
+function AccessChecking() {
+  const t = useT()
+  return <p className="flex items-center gap-2 text-sm text-muted" role="status" data-testid="find-work-access" data-screen="checking"><Loader2 size={14} className="animate-spin" aria-hidden /> {t('files.findWork.access.checking')}</p>
+}
+
 /** The steps; "Look again" (every folder kept out, after the person let the app in) starts them over with a new look.
  * Part 5: a Mac app that offers the wide look shows the Full Disk Access screen first when the app has none (its
  * "Not now" is the three folders with macOS's question for each); Windows looks wide at once. */
 export function FindWorkFiles(props: FindWorkFilesProps) {
+  // whose "Not now" (none before sign-in: nothing remembered)
+  const uid = useMe()?.user.id ?? ''
   const [round, setRound] = useState(0)
   const wide = offersWide(props.bridge)
-  const [mode, setMode] = useState<Mode | null>(() => (!wide ? { wide: false } : props.bridge.fullDisk ? null : { wide: true }))
-  if (!mode) return <FullDiskAccess bridge={props.bridge} onGo={(w) => setMode({ wide: w })} from={props.rank} phone={props.phone} />
-  return <FindWorkFilesRound key={round} {...props} mode={mode} onAgain={() => setRound((n) => n + 1)} />
+  const fd = wide ? props.bridge.fullDisk : undefined
+  // "Not now" on that screen within 30 days (this team, this person): straight to the three folders, unless the app has
+  // Full Disk Access by now (asked first; nothing shows meanwhile)
+  const [later, setLater] = useState(() => !!fd && !!uid && fullDiskLater(uid))
+  const [mode, setMode] = useState<Mode | null>(() => (!wide ? { wide: false } : fd ? null : { wide: true }))
+  // the person was not known yet at the first render: their Not now counts as soon as they are
+  useEffect(() => { if (!mode && fd && uid && !later && fullDiskLater(uid)) setLater(true) }, [uid])  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!later || mode || !fd) return
+    let live = true
+    fd.state().then((x) => { if (live) setMode({ wide: x === 'granted' }) }, () => { if (live) setMode({ wide: false }) })
+    // an app that does not answer: the three folders after a moment
+    const slow = setTimeout(() => { if (live) setMode({ wide: false }) }, 3000)
+    return () => { live = false; clearTimeout(slow) }
+  }, [later, mode, fd])
+  if (!mode) {
+    if (later) return <AccessChecking />
+    return <FullDiskAccess bridge={props.bridge} onGo={(w) => { if (!w && uid) setFullDiskLater(uid, true); setMode({ wide: w }) }} from={props.rank} phone={props.phone} />
+  }
+  // the list's quiet "Look in more places (Full Disk Access)": the screen again, the "Not now" forgotten
+  const morePlaces = fd && !mode.wide ? () => { if (uid) setFullDiskLater(uid, false); setLater(false); setMode(null); setRound((n) => n + 1) } : undefined
+  return <FindWorkFilesRound key={round} {...props} mode={mode} onAgain={() => setRound((n) => n + 1)} onMorePlaces={morePlaces} />
 }
 
-function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAdd, onClose, onAgain, mode, phone = false }: FindWorkFilesProps & { onAgain: () => void; mode: Mode }) {
+function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAdd, onClose, onAgain, onMorePlaces, mode, phone = false }: FindWorkFilesProps & { onAgain: () => void; onMorePlaces?: () => void; mode: Mode }) {
   const t = useT()
   const locale = useLocale()
   const ids = useId()
@@ -136,10 +164,23 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
   const [roots, setRoots] = useState<WorkRootResult[]>([])
   const [stopped, setStopped] = useState(false)
   const [picks, setPicks] = useState<Map<string, TeamFileReason> | null>(null)
+  /** the files the AI was shown: its answer decides for them (a file it left out is not shown) */
+  const [sentKeys, setSentKeys] = useState<Set<string> | null>(null)
   const [noAi, setNoAi] = useState(false)
   const [already, setAlready] = useState(0)
   const [ticks, setTicks] = useState<Set<string>>(() => new Set())
   const [capped, setCapped] = useState(false)
+  // Add: the ticked files are named to the desktop app first, which reads nothing else (TC-3300, confirmAdd)
+  const [adding, setAdding] = useState(false)
+  const [refused, setRefused] = useState(false)
+  const addTicked = async () => {
+    const picked = docs.filter((d) => ticks.has(d.key))
+    setAdding(true)
+    setRefused(false)
+    const r = await confirmAdd(bridge, picked).finally(() => setAdding(false))
+    if (r === 'added') onAdd(picked)
+    else if (r === 'refused') setRefused(true)
+  }
   const [q, setQ] = useState('')
   const [openPersonal, setOpenPersonal] = useState(false)
   const [words, setWords] = useState<CompanyWordsLike>(NO_WORDS)
@@ -175,8 +216,12 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
       if (!live.current) return
       // the app is still busy with a question or a look (asked again too soon): said, nothing else happens
       if (r.state === 'busy') return setPhase({ s: 'error', text: t('files.findWork.busy') })
-      // the person said no in the app's own window: nothing happened, the page closes
-      if (r.state !== 'done') return onClose()
+      // the person said no in the app's own window (Not now, Esc, closing it: the app answers the same), or no app: the
+      // page closes, and says it was cancelled and nothing was added (TC-3491; also true when a team switch stopped a look)
+      if (r.state !== 'done') {
+        if (r.state === 'cancelled') toast({ level: 'info', text: t('files.findWork.cancelled') })
+        return onClose()
+      }
       setRoots(r.roots)
       setStopped(r.stopped)
       const all = docsFromScan(r.files, bridge.read)
@@ -206,7 +251,9 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
         if (res.ai === 'done') got = new Map(res.picks.flatMap((p) => { const k = keyOf.get(p.id); return k ? [[k, p.reason] as const] : [] }))
       } catch { got = null } finally { clearTimeout(timer) }
       if (!live.current) return
-      setPicks(got && got.size ? got : null)
+      // the AI's picks decide for the files it was shown (its no is a no; an answer with no pick: the rules, workList)
+      setSentKeys(got ? new Set(sent.map((d) => d.key)) : null)
+      setPicks(got)
       setNoAi(!got)
       setAiWait(null)
     })()
@@ -219,7 +266,7 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
   /** Looks like work (docs/DECISIONS.md part 4): recent, and the company's or the AI's pick; the best 50 */
   // ticked files stay in the list (the AI's late picks never push one out of sight); recomputed with the AI's answer
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const list = useMemo(() => workList(docs, words, picks, Date.now(), ticks), [docs, words, picks])
+  const list = useMemo(() => workList(docs, words, picks, Date.now(), ticks, sentKeys ?? undefined), [docs, words, picks, sentKeys])
   const work = list.shown
   const personal = useMemo(() => docs.filter((d) => d.personal && isRecentDoc(d)), [docs])
   /** looked at but in neither group: found by name */
@@ -356,6 +403,7 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
         <h2 className="text-display font-semibold text-ink" data-testid="find-work-title">{title}</h2>
         <p className="text-sm text-balance text-muted">{audience === 'me' ? t('files.findWork.descMe', { place: placeName }) : t('files.findWork.descTeam', { place: placeName })}</p>
         {!work.length && <p className="text-sm text-muted" data-testid="find-work-search-hint">{t('files.findWork.searchHint', { n: docs.length })}</p>}
+        {onMorePlaces && <button type="button" className={clsx(quietLink, 'text-label')} onClick={onMorePlaces} data-testid="find-work-more-places">{t('files.findWork.morePlaces')}</button>}
       </div>
       {lines}
       <TickSearch value={q} onChange={setQ} placeholder={t('welcome.teamFiles.search')} pad="px-0" testId="find-work-search" />
@@ -399,9 +447,10 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
       ) : <p className="text-label text-muted" data-testid="find-work-ai">{noAi ? t('files.findWork.noAi') : picks ? t('files.findWork.byAi') : t('files.findWork.byNames')}</p>}
       {capped && <p className="text-label text-warn" role="status" data-testid="find-work-cap">{t('welcome.teamFiles.cap', { n: L.perUpload })}</p>}
       {tooMuch && <p className="text-label text-warn" role="status" data-testid="find-work-bytes">{t('files.findWork.bytes')}</p>}
+      {refused && <p className="text-label text-warn" role="status" data-testid="find-work-add-refused">{t('files.findWork.addRefused')}</p>}
       <div className={phone ? 'space-y-2' : 'flex flex-wrap items-center justify-end gap-3'}>
         <Button variant="ghost" className={phone ? 'w-full' : undefined} onClick={onClose} data-testid="find-work-cancel">{t('common.cancel')}</Button>
-        <Button variant="primary" className={phone ? 'w-full' : undefined} disabled={!ticks.size || tooMuch} onClick={() => onAdd(docs.filter((d) => ticks.has(d.key)))} data-testid="find-work-add">
+        <Button variant="primary" className={phone ? 'w-full' : undefined} disabled={!ticks.size || tooMuch} busy={adding} onClick={() => void addTicked()} data-testid="find-work-add">
           {ticks.size ? t('files.findWork.add', { n: ticks.size }) : t('files.findWork.addNone')}
         </Button>
       </div>
@@ -415,6 +464,7 @@ export function failedReason(r: { local?: string; error?: unknown }, t: ReturnTy
   if (r.error instanceof WorkFileReadError) {
     if (r.error.reason === 'changed') return t('files.findWork.why.changed')
     if (r.error.reason === 'limit') return t('files.findWork.why.limit')
+    if (r.error.reason === 'cloudTimeout') return t('files.findWork.why.cloudTimeout', { provider: cloudName(r.error.cloud ?? 'cloud', t) })
     return t('files.findWork.why.lookAgain')
   }
   if (r.local === 'unreadable') return t('files.folderUpload.unreadable')
@@ -559,6 +609,7 @@ function RunResult({ run: start, onClose, onUndone, phone }: { run: Run; onClose
       <h2 className="text-display font-semibold text-ink" role="status" data-testid="find-work-run-title">
         {undo.s === 'done' && undo.n > 0 ? t('files.findWork.undone', { n: undo.n }) : undo.s === 'done' ? t('files.findWork.undoFailed', { n: undo.failed }) : running ? t('welcome.teamFiles.uploading', { k: v.done, n: v.total }) : t('files.findWork.added', { n: v.done, place: words.path(folder, ' › ') })}
       </h2>
+      {running && <FromCloudLine active={v.active} />}
       {undo.s === 'done' && undo.until && <p className="text-sm text-muted" data-testid="find-work-undone-until">{t('files.findWork.undoneUntil', { date: until(undo.until)! })}</p>}
       {undo.s === 'done' && undo.n > 0 && undo.failed > 0 && <ErrorNote>{t('files.findWork.undoFailed', { n: undo.failed })}</ErrorNote>}
       {undo.s === 'error' && <ErrorNote>{undo.text}</ErrorNote>}
