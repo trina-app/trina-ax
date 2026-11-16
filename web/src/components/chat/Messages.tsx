@@ -683,6 +683,8 @@ export function AssistantMessage({
   // only when their own limit stopped it (params.own); a team or group limit has another amount
   const guestTokens = guestAi?.mode === 'team' && m.error?.params?.own === true ? guestAi.limitTokens : undefined
   const role = guest ? undefined : myRole
+  // the AI could not start on the server: the owner and admins read that trying again won't help, so no "Try again" (TC-3840)
+  const adminWords = role === 'owner' || role === 'admin'
   const noAi = useAiAccess((s) => s.loaded && !s.usable)
   // a guest is not told to ask an admin they do not know: the person who invited them
   // at the limit: when it resets (the server's date, params.resetsAt, in the team's time zone: QA TC-2201)
@@ -794,7 +796,7 @@ export function AssistantMessage({
             {/* at least ~12rem for the text: on a phone the buttons go to their own line instead of squeezing it; one
                 line of text is as tall as the buttons, so text, icon and buttons share a centre line */}
             <span className="min-w-0 flex-[1_1_12rem] py-1 leading-6">{errText ?? t('chat.answerFailed')}</span>
-            {isLast && canRegenerate && (
+            {isLast && canRegenerate && !(reason === 'engine_start_failed' && adminWords) && (
               <span className="ml-auto flex flex-wrap justify-end gap-2">
                 {isNoAiReason(reason) && (!guest || guestOwn) && <AiAccessButton />}
                 {reason === 'engine_missing' && <NotReadyButton role={role} />}
@@ -869,7 +871,7 @@ export function AssistantMessage({
               )}
             </span>
             <BranchNav m={m} onSelect={onSelectBranch} disabled={busy} />
-            {(m.model || m.engine) && <AnsweredBy m={m} className={clsx(untilTap && UNTIL_TAP)} />}
+            {(m.model || m.engine) && !(m.status === 'error' && reason === 'engine_start_failed') && <AnsweredBy m={m} className={clsx(untilTap && UNTIL_TAP)} />}
           </div>
         )}
         {sendHere && shareable && !streaming && <SendHereNote answerId={m.id} />}
