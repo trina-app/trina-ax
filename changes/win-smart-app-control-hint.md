@@ -1,1 +1,0 @@
-- **Settings › Apps** (Windows): the install hint now also says what to do when Windows 11 blocks the installer outright with no "Run anyway" button (Smart App Control): open the team in a browser or ask the admin. The hint is in all six languages.
