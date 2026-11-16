@@ -39,10 +39,10 @@ for (const width of [1440, 390]) {
     test.use({ viewport: { width, height: width > 400 ? 900 : 844 }, locale: 'en-US', reducedMotion: 'reduce' })
 
     test('after a post: the people by name, Let them view; one press, then what happened; a reload keeps it', async ({ page }) => {
-      await reset(page, { teamLocale: 'en' })
+      await reset(page, { teamLocale: 'en', usersFollowTeam: true })
       const errors = watchConsole(page)
       await signIn(page)
-      await ask(page, 'nextstep view post the quote to #Sales')
+      await ask(page, 'nextstep view')
       const fix = page.getByTestId('step-fix')
       await expect(fix).toHaveAttribute('data-state', 'open')
       await expect(fix.getByTestId('step-fix-text')).toHaveText("Jun Park, Mina Seo, Leo Kim and 1 more in #Sales can't open Quote.pdf yet. Guests can't be given files.")
@@ -64,9 +64,9 @@ for (const width of [1440, 390]) {
     })
 
     test('someone else\'s file: counted, not named; Ask <owner>', async ({ page }) => {
-      await reset(page, { teamLocale: 'en' })
+      await reset(page, { teamLocale: 'en', usersFollowTeam: true })
       await signIn(page)
-      await ask(page, 'nextstep owner post the quote to #Sales')
+      await ask(page, 'nextstep owner')
       const fix = page.getByTestId('step-fix')
       await expect(fix.getByTestId('step-fix-text')).toHaveText("3 people in #Sales can't open Quote.pdf yet. It's Mina Seo's file, so only they can share it.")
       await expect(fix.getByTestId('step-fix-button')).toHaveText('Ask Mina Seo')
@@ -77,9 +77,9 @@ for (const width of [1440, 390]) {
     })
 
     test('a team folder: Ask an admin says who gets the message', async ({ page }) => {
-      await reset(page, { teamLocale: 'en' })
+      await reset(page, { teamLocale: 'en', usersFollowTeam: true })
       await signIn(page)
-      await ask(page, 'nextstep admin why can Jun not open Contracts')
+      await ask(page, 'nextstep admin')
       const fix = page.getByTestId('step-fix')
       await expect(fix.getByTestId('step-fix-text')).toHaveText('Only admins can share the folder Contracts. This sends Dana Choi a message from you.')
       await expect(fix.getByTestId('step-fix-button')).toHaveText('Ask an admin')
@@ -89,7 +89,7 @@ for (const width of [1440, 390]) {
     })
 
     test('a chat moved into a team project: the toast says only I see it, with Share with project; the AI\'s offer opens the same share flow', async ({ page }) => {
-      await reset(page, { teamLocale: 'en' })
+      await reset(page, { teamLocale: 'en', usersFollowTeam: true })
       await signIn(page)
       const r = await post(page, '/api/projects', { name: 'Launch', scope: 'team', folderPath: 'marketing', instructions: '' })
       expect(r.status()).toBe(201)
@@ -112,7 +112,7 @@ for (const width of [1440, 390]) {
       await expect(page.getByTestId('share-chat-ask')).toBeVisible()
       await page.getByTestId('share-chat-cancel').click()
       // "why can't Bob see this chat?": the AI's step offers the same flow, and reads done once the chat is shared
-      await ask(page, 'nextstep project why can Bob not see this chat')
+      await ask(page, 'nextstep project')
       const fix = page.getByTestId('step-fix')
       await expect(fix.getByTestId('step-fix-text')).toHaveText('Only you can see this chat.')
       await expect(fix.getByTestId('step-fix-button')).toHaveText('Share with project')
