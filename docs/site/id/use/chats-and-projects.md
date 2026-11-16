@@ -52,7 +52,7 @@ Di komputer, **Trina** di bilah kiri membuka daftar chat Trina Anda di samping h
 
 | Bagian | Isinya |
 |---|---|
-| **Menunggu jawabanmu** | Hanya tampil selama ada chat yang menunggu jawaban Anda, dan membuka chat itu |
+| **Menunggu jawaban Anda** | Hanya tampil selama ada chat yang menunggu jawaban Anda, dan membuka chat itu |
 | **Disematkan** | Chat yang Anda sematkan |
 | **Riwayat Trina** | Semua chat Anda yang lain, yang terbaru di atas. Chat di dalam proyek menampilkan nama proyeknya di ujung barisnya |
 
