@@ -393,6 +393,8 @@ export class Hub implements RealtimeHub {
     const s = this.users.get(userId)?.sockets.get(windowId)
     return !!s && !s.closed
   }
+  /** the sign-in (session) a window is on: its desktop app's computer report is per sign-in (realtime/presence.ts) */
+  sessionOfWindow(userId: string, windowId: string): string | undefined { return this.users.get(userId)?.sockets.get(windowId)?.sessionId }
   connectedWindows(userId: string): string[] { return [...(this.users.get(userId)?.sockets.keys() ?? [])] }
   lastSeq(userId: string): number { return this.users.get(userId)?.seq ?? 0 }
   onClientFrame(h: ClientFrameHandler) { this.frameHandlers.push(h) }

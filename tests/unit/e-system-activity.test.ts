@@ -49,16 +49,47 @@ test('reporter: nothing while signed out, with no team open, or when the system 
   expect(m.posts).toEqual([])
 })
 
-test('reporter: an older server (404) is not asked again until a team is opened; a 401 asks the app to check its session', async () => {
+test('reporter: an older server (404) or a refusal (403) is not asked again until a team is opened; a 401 asks the app to check its session', async () => {
   const m = reporter({ origin: 'https://old.example', signedIn: true }, 404)
   await m.r.report({ locked: false, idleMs: 0 })
   await m.r.report({ locked: false, idleMs: 0 })
   expect(m.posts).toHaveLength(1)
   m.r.reset()
-  m.o.status = 401
+  m.o.status = 403
+  await m.r.report({ locked: false, idleMs: 0 })
   await m.r.report({ locked: false, idleMs: 0 })
   expect(m.posts).toHaveLength(2)
+  expect(m.signedOut()).toBe(0)
+  m.r.reset()
+  m.o.status = 401
+  await m.r.report({ locked: false, idleMs: 0 })
+  expect(m.posts).toHaveLength(3)
   expect(m.signedOut()).toBe(1)
+})
+
+test('reporter: a lock while a tick is on its way is not lost: the newest word goes right after', async () => {
+  const posts: SystemActivity[] = []
+  let release!: () => void
+  const r = new ComputerReporter({
+    team: () => ({ origin: 'https://acme.example', signedIn: true }),
+    post: async (_o, body) => { posts.push(body); if (posts.length === 1) await new Promise<void>((ok) => { release = ok }); return 204 },
+  })
+  const first = r.report({ locked: false, idleMs: 1000 })
+  await r.report({ locked: false, idleMs: 2000 })
+  await r.report({ locked: true, idleMs: 0 })
+  release()
+  await first
+  expect(posts).toEqual([{ locked: false, idleMs: 1000 }, { locked: true, idleMs: 0 }])
+})
+
+test('reporter: leaving the team tells it at once that this computer is not at it (idle at the threshold)', async () => {
+  const m = reporter({ origin: 'https://acme.example', signedIn: true })
+  m.r.farewell()
+  await Promise.resolve()
+  expect(m.posts).toEqual([{ origin: 'https://acme.example', body: { locked: false, idleMs: SYSTEM_IDLE_THRESHOLD_S * 1000 } }])
+  m.o.team = { origin: 'https://acme.example', signedIn: false }
+  m.r.farewell()
+  expect(m.posts).toHaveLength(1)
 })
 
 test('reporter: an unreachable server is no error, and the next tick tries again', async () => {

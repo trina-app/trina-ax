@@ -77,7 +77,7 @@ export const peopleRoutes: RouteModule = {
     // like a window in the back, so a person working in another app still counts as at the computer for the phone rule
     // (notifications/away.ts). Memory only, never told to anyone; a server without the chat runtime just drops it.
     kit.handle(API.reportMyComputer, ({ auth, body }) => {
-      presenceFor(ctx)?.computer(auth.user.id, body)
+      presenceFor(ctx)?.computer(auth.user.id, auth.session.id, body)
     })
 
     // my status message (docs/DECISIONS.md "상태 메시지"): only my own; the team is told only when what it sees changed

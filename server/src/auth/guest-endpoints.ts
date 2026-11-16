@@ -21,6 +21,8 @@ export const GUEST_ENDPOINTS: ReadonlySet<Endpoint> = new Set<Endpoint>([
   API.setMyStatus,
   API.clearMyStatus,
   API.setMyAway,
+  // their computer in use keeps their own phone quiet (notifications/away.ts), as for a member
+  API.reportMyComputer,
   API.myDeletionRequest,
   API.requestAccountDeletion,
   API.cancelAccountDeletion,

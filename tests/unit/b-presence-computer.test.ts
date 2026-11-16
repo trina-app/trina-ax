@@ -15,6 +15,8 @@ import { phoneDecision } from '../../server/src/notifications/away'
 import { presenceFor } from '../../server/src/realtime/presence'
 import { getChatRuntime } from '../../server/src/chat/runtime'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
+import { addGuest, groupChat } from './guest-lib'
+import { lastActivity, setLastActivity } from '../../server/src/system/activity'
 
 setDefaultTimeout(60_000)
 
@@ -42,7 +44,10 @@ class FakeClock implements PresenceClock {
 function machine(o: { away?: string[] } = {}) {
   const clock = new FakeClock()
   const away = new Set(o.away ?? [])
+  /** each window's sign-in: 'mac' unless named '<sign-in>:<window>' */
+  const sessionOf = (_u: string, w: string) => (w.includes(':') ? w.split(':')[0] : 'mac')
   const p = new Presence({
+    sessionOf,
     send: () => {},
     recipients: () => ['ana', 'bob'],
     isPerson: (id) => id === 'ana' || id === 'bob',
@@ -63,7 +68,7 @@ describe('presence: the computer in use, Trina in the back', () => {
     // before the fix: left out as silent
     expect(m.p.inUse('ana')).toBe(false)
     // the desktop app's main process: input 4 s ago, screen unlocked
-    m.p.computer('ana', { idleMs: 4000, locked: false })
+    m.p.computer('ana', 'mac', { idleMs: 4000, locked: false })
     expect(m.p.inUse('ana')).toBe(true)
     // still in use 50 s later (the next report comes every 30 s)
     m.clock.advance(50_000)
@@ -72,7 +77,7 @@ describe('presence: the computer in use, Trina in the back', () => {
 
   test('the desktop app running with no window connected at all (the socket dropped): recent OS input still counts', () => {
     const m = machine()
-    m.p.computer('ana', { idleMs: 0, locked: false })
+    m.p.computer('ana', 'mac', { idleMs: 0, locked: false })
     expect(m.p.inUse('ana')).toBe(true)
   })
 
@@ -80,34 +85,50 @@ describe('presence: the computer in use, Trina in the back', () => {
     const m = machine()
     m.p.open('ana', 'w1')
     m.clock.advance(PRESENCE_SILENT_MS + 1)
-    m.p.computer('ana', { idleMs: PRESENCE_COMPUTER_IDLE_MS + 1000, locked: false })
+    m.p.computer('ana', 'mac', { idleMs: PRESENCE_COMPUTER_IDLE_MS + 1000, locked: false })
     expect(m.p.inUse('ana')).toBe(false)
-    m.p.computer('ana', { idleMs: PRESENCE_COMPUTER_IDLE_MS - 10_000, locked: false })
+    m.p.computer('ana', 'mac', { idleMs: PRESENCE_COMPUTER_IDLE_MS - 10_000, locked: false })
     expect(m.p.inUse('ana')).toBe(true)
     // 20 s later (no new report yet) the computer has been idle for 10 minutes and 10 s
     m.clock.advance(20_000)
     expect(m.p.inUse('ana')).toBe(false)
   })
 
+  test('two computers: one locked or idle never makes the other one\'s use count as away', () => {
+    const m = machine()
+    // the office Mac locked, Trina open on it; the laptop in use with Trina in front
+    m.p.open('ana', 'mac:w1')
+    m.p.open('ana', 'laptop:w2')
+    m.p.computer('ana', 'mac', { idleMs: 0, locked: true })
+    expect(m.p.inUse('ana')).toBe(true)
+    // the laptop's own report too: in use, whichever came last
+    m.p.computer('ana', 'laptop', { idleMs: 1000, locked: false })
+    m.p.computer('ana', 'mac', { idleMs: 0, locked: true })
+    expect(m.p.inUse('ana')).toBe(true)
+    // the laptop left alone for 11 minutes, its window still active and talking: away now
+    m.p.computer('ana', 'laptop', { idleMs: 11 * 60_000, locked: false })
+    expect(m.p.inUse('ana')).toBe(false)
+  })
+
   test('a locked screen is away, even with a window that still counts as active', () => {
     const m = machine()
-    m.p.open('ana', 'w1') // active and heard from just now
+    m.p.open('ana', 'w1') // active and heard from just now, on the 'mac' sign-in
     expect(m.p.inUse('ana')).toBe(true)
-    m.p.computer('ana', { idleMs: 0, locked: true })
+    m.p.computer('ana', 'mac', { idleMs: 0, locked: true })
     expect(m.p.inUse('ana')).toBe(false)
     // unlocked: in use again
-    m.p.computer('ana', { idleMs: 0, locked: false })
+    m.p.computer('ana', 'mac', { idleMs: 0, locked: false })
     expect(m.p.inUse('ana')).toBe(true)
   })
 
   test('no window and no report: not in use; an old report (the app quit, the computer slept) counts no more', () => {
     const m = machine()
     expect(m.p.inUse('ana')).toBe(false)
-    m.p.computer('ana', { idleMs: 0, locked: false })
+    m.p.computer('ana', 'mac', { idleMs: 0, locked: false })
     m.clock.advance(PRESENCE_COMPUTER_FRESH_MS + 1)
     expect(m.p.inUse('ana')).toBe(false)
     // an old locked report does not keep a window in use away either
-    m.p.computer('ana', { idleMs: 0, locked: true })
+    m.p.computer('ana', 'mac', { idleMs: 0, locked: true })
     m.clock.advance(PRESENCE_COMPUTER_FRESH_MS + 1)
     m.p.open('ana', 'w1')
     expect(m.p.inUse('ana')).toBe(true)
@@ -115,14 +136,14 @@ describe('presence: the computer in use, Trina in the back', () => {
 
   test('manual away wins over the computer, with or without a window; one person\'s computer never counts for another', () => {
     const m = machine({ away: ['ana'] })
-    m.p.computer('ana', { idleMs: 0, locked: false })
+    m.p.computer('ana', 'mac', { idleMs: 0, locked: false })
     expect(m.p.inUse('ana')).toBe(false)
     m.p.open('ana', 'w1')
     expect(m.p.inUse('ana')).toBe(false)
-    m.p.computer('bob', { idleMs: 0, locked: false })
+    m.p.computer('bob', 'mac', { idleMs: 0, locked: false })
     expect(m.p.inUse('bob')).toBe(true)
     // a report for a non-account (the AI, a deleted account) never makes anyone in use
-    m.p.computer('ghost', { idleMs: 0, locked: false })
+    m.p.computer('ghost', 'mac', { idleMs: 0, locked: false })
     expect(m.p.inUse('ghost')).toBe(false)
   })
 
@@ -135,7 +156,7 @@ describe('presence: the computer in use, Trina in the back', () => {
 
   test('the computer report changes no dot: only the phone rule reads it', () => {
     const m = machine()
-    m.p.computer('ana', { idleMs: 0, locked: false })
+    m.p.computer('ana', 'mac', { idleMs: 0, locked: false })
     m.clock.advance(10_000)
     expect(m.p.current('ana')).toBe('offline')
     expect(m.p.list()).toEqual([])
@@ -150,6 +171,7 @@ describe('on the real app: POST /api/me/computer and phoneDecision', () => {
     h = await harness('presence-computer')
     const owner = await withOwner(h)
     const nora = await addMember(h, owner, { username: 'nora' })
+    const mia = await addMember(h, owner, { username: 'mia' })
     getChatRuntime(h.ctx)
     const pr = presenceFor(h.ctx)!
     // the warm-up after a start: wait (decided at its end)
@@ -158,14 +180,14 @@ describe('on the real app: POST /api/me/computer and phoneDecision', () => {
     await nora.client.call('POST', '/api/me/computer', { idleMs: 3000, locked: false })
     expect(phoneDecision(h.ctx, nora.id)).toEqual({ kind: 'cancel' })
     // someone else's computer never quiets nora's phone
-    expect(phoneDecision(h.ctx, owner.id)).toEqual({ kind: 'send' })
+    expect(phoneDecision(h.ctx, mia.id)).toEqual({ kind: 'send' })
     await nora.client.call('POST', '/api/me/computer', { idleMs: PRESENCE_COMPUTER_IDLE_MS + 1, locked: false })
     expect(phoneDecision(h.ctx, nora.id)).toEqual({ kind: 'send' })
     await nora.client.call('POST', '/api/me/computer', { idleMs: 0, locked: true })
     expect(phoneDecision(h.ctx, nora.id)).toEqual({ kind: 'send' })
     // only the caller's own: another person's id in the body changes nothing for them
-    await nora.client.try('POST', '/api/me/computer', { idleMs: 0, locked: false, userId: owner.id })
-    expect(phoneDecision(h.ctx, owner.id)).toEqual({ kind: 'send' })
+    await nora.client.try('POST', '/api/me/computer', { idleMs: 0, locked: false, userId: mia.id })
+    expect(phoneDecision(h.ctx, mia.id)).toEqual({ kind: 'send' })
     // a bad body is refused and the last report stands
     await nora.client.call('POST', '/api/me/computer', { idleMs: 0, locked: true })
     expect((await nora.client.try('POST', '/api/me/computer', { idleMs: -5, locked: false })).status).toBe(400)
@@ -174,6 +196,17 @@ describe('on the real app: POST /api/me/computer and phoneDecision', () => {
     const forged = await nora.client.raw('POST', '/api/me/computer', { idleMs: 0, locked: false }, { 'x-mycel-csrf': '' })
     expect(forged.status).toBe(403)
     expect(phoneDecision(h.ctx, nora.id)).toEqual({ kind: 'send' })
+    // a guest has push too: their computer counts for their own phone
+    const room = await groupChat(owner, [nora.id, mia.id])
+    const gus = await addGuest(h, owner, { username: 'gus', place: { kind: 'room', id: room } })
+    expect((await gus.client.try('POST', '/api/me/computer', { idleMs: 0, locked: false })).status).toBe(204)
+    expect(phoneDecision(h.ctx, gus.id)).toEqual({ kind: 'cancel' })
+    // an app left open is no use of the team (system/activity.ts): the report never keeps a trial server awake
+    setLastActivity(1000)
+    await nora.client.call('POST', '/api/me/computer', { idleMs: 0, locked: false })
+    expect(lastActivity()).toBe(1000)
+    await nora.client.call('GET', '/api/me')
+    expect(lastActivity()).toBeGreaterThan(1000)
     // signed out: refused
     const anon = await h.fetch('/api/me/computer', { method: 'POST', headers: { 'content-type': 'application/json', 'x-mycel-csrf': '1' }, body: JSON.stringify({ idleMs: 0, locked: false }) })
     expect(anon.status).toBe(401)

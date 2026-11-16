@@ -286,10 +286,15 @@ export class AppWindow {
     const onUnlock = () => tellSystem(readSystemActivity(powerMonitor) ?? { locked: false, idleMs: 0 })
     powerMonitor.on('lock-screen', onLock)
     powerMonitor.on('unlock-screen', onUnlock)
+    // going to sleep without a lock: nobody at it either (the phone must not wait for the report to go stale)
+    powerMonitor.on('suspend', onLock)
+    powerMonitor.on('resume', onUnlock)
     this.win.on('closed', () => {
       clearInterval(systemActivity)
       powerMonitor.off('lock-screen', onLock)
       powerMonitor.off('unlock-screen', onUnlock)
+      powerMonitor.off('suspend', onLock)
+      powerMonitor.off('resume', onUnlock)
     })
     void this.shell.webContents.loadURL(`${UI_ORIGIN}/welcome.html`)
     void this.chrome.webContents.loadURL(`${UI_ORIGIN}/pane.html`)
@@ -557,10 +562,11 @@ export class AppWindow {
     this.directOrigin = null
     this.pagePath = ''
     this.signedIn = false
-    this.computerReporter.reset()
     this.meAnswered = false
     this.stripWaited = false
     clearTimeout(this.stripTimer)
+    // a server updated since the last open may have the computer report now (common/system-activity.ts)
+    this.computerReporter.reset()
     this.stripTimer = undefined
     this.pageHostLine = false
     this.sendHostbar()
@@ -786,6 +792,8 @@ export class AppWindow {
 
   private disposeTeam() {
     clearInterval(this.recheckTimer)
+    // this computer leaves the team: its server hears it at once, not after the last report goes stale (phone rule)
+    this.computerReporter.farewell()
     // a look of this team page: its ids read nothing any more, one still running gives nothing
     this.workFiles.forget()
     // the team's notifications name its chats and open its addresses: none outlives the team page (session markers),
@@ -1484,6 +1492,8 @@ export class AppWindow {
     this.signedIn = signedIn
     this.meAnswered = true
     this.layout()
+    // signed in to the open team: its server hears about this computer now, not at the next 30 s tick
+    if (signedIn) void this.computerReporter.report(readSystemActivity(powerMonitor))
   }
 
   private sendHostbar() {

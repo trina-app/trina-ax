@@ -80,6 +80,8 @@ export interface PresenceOptions {
   activeIds(): ReadonlySet<string>
   /** they set themselves away (kept in their account) */
   awayOf(userId: string): boolean
+  /** the sign-in (session) an open window is on: a computer report says locked or idle for that device's windows only */
+  sessionOf?(userId: string, windowId: string): string | undefined
   clock?: PresenceClock
   settleMs?: number
   graceMs?: number
@@ -104,9 +106,10 @@ interface Person {
 
 export class Presence {
   private people = new Map<string, Person>()
-  /** each person's last desktop report and when it came (clock ms): only for inUse, never told; not tied to a window
-   * (a window in the back may be silent for minutes while its app's main process still reports) */
-  private computers = new Map<string, ComputerReport & { at: number }>()
+  /** each person's last desktop report per sign-in (one per computer: its app's session) and when it came (clock ms):
+   * only for inUse, never told; not tied to a window (a window in the back may be silent for minutes while its app's
+   * main process still reports) */
+  private computers = new Map<string, Map<string, ComputerReport & { at: number }>>()
   private outgoing = new Map<string, PresenceState>()
   private flushTimer: unknown = null
   private stopped = false
@@ -167,18 +170,21 @@ export class Presence {
 
   /** The desktop app reports the computer it runs on (POST /api/me/computer): how long it has had no input, whether
    * its screen is locked. Kept for PRESENCE_COMPUTER_FRESH_MS, for inUse only. */
-  computer(userId: string, r: ComputerReport): void {
+  computer(userId: string, sessionId: string, r: ComputerReport): void {
     if (this.stopped || !Number.isFinite(r.idleMs) || r.idleMs < 0) return
-    this.computers.set(userId, { idleMs: r.idleMs, locked: r.locked, at: this.clock.now() })
+    let mine = this.computers.get(userId)
+    if (!mine) this.computers.set(userId, (mine = new Map()))
+    mine.set(sessionId, { idleMs: r.idleMs, locked: r.locked, at: this.clock.now() })
   }
 
   /** Is the person at Trina now, for their phone's pushes (notifications/away.ts; docs/decisions/20261116-away-os-idle.md)?
-   * - A fresh desktop report (within PRESENCE_COMPUTER_FRESH_MS) of a locked screen: away, whatever the windows say
-   *   (a window in the back may not have said idle yet).
-   * - A fresh desktop report of input within PRESENCE_COMPUTER_IDLE_MS: in use, with the Trina window in front, behind
-   *   other apps or minimized (a window in the back is throttled and may send nothing for minutes).
+   * - A fresh desktop report (within PRESENCE_COMPUTER_FRESH_MS) of input within PRESENCE_COMPUTER_IDLE_MS: in use,
+   *   with the Trina window in front, behind other apps or minimized (a window in the back is throttled and may send
+   *   nothing for minutes).
    * - A window of theirs in use (active, and heard from within PRESENCE_SILENT_MS), or one closed while in use within
-   *   the grace. A browser tab counts only while visible (web/src/lib/presence.ts).
+   *   the grace. A browser tab counts only while visible (web/src/lib/presence.ts). Not a window on a sign-in whose
+   *   fresh report says its screen is locked or the computer idle (that window may not have said idle yet); another
+   *   device's windows and reports still count.
    * Not when they set themselves away. Only this server's memory; nothing of it is shown to anyone. Right after a
    * start windows are still reconnecting: ask warmingUntil first. */
   inUse(userId: string): boolean {
@@ -186,14 +192,25 @@ export class Presence {
     const now = this.clock.now()
     const p = this.people.get(userId)
     if (p?.away) return false
-    const c = this.computers.get(userId)
-    if (c && now - c.at > PRESENCE_COMPUTER_FRESH_MS) this.computers.delete(userId)
-    else if (c) {
-      if (c.locked) return false
-      if (c.idleMs + (now - c.at) < PRESENCE_COMPUTER_IDLE_MS && (p || this.manualAwayOf(userId) === false)) return true
+    // sign-ins whose computer is locked or idle now: their windows do not count
+    const notUsed = new Set<string>()
+    const mine = this.computers.get(userId)
+    if (mine) {
+      for (const [sid, c] of mine) {
+        if (now - c.at > PRESENCE_COMPUTER_FRESH_MS) { mine.delete(sid); continue }
+        if (!c.locked && c.idleMs + (now - c.at) < PRESENCE_COMPUTER_IDLE_MS) {
+          if (p || this.manualAwayOf(userId) === false) return true
+        } else notUsed.add(sid)
+      }
+      if (!mine.size) this.computers.delete(userId)
     }
     if (!p) return false
-    for (const [w, state] of p.windows) if (state === 'active' && now - (p.seen.get(w) ?? 0) <= PRESENCE_SILENT_MS) return true
+    for (const [w, state] of p.windows) {
+      if (state !== 'active' || now - (p.seen.get(w) ?? 0) > PRESENCE_SILENT_MS) continue
+      const sid = notUsed.size ? this.o.sessionOf?.(userId, w) : undefined
+      if (sid && notUsed.has(sid)) continue
+      return true
+    }
     for (const [w, until] of p.closedInUse) {
       if (until > now) return true
       p.closedInUse.delete(w)
@@ -393,6 +410,7 @@ export function startPresence(hub: Hub, ctx: AppContext, o: Partial<PresenceOpti
     isPerson: (id) => !!ctx.db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(id),
     activeIds: () => new Set((ctx.db.query("SELECT id FROM users WHERE status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((r) => r.id)),
     awayOf: (id) => parsePrefs((ctx.db.query('SELECT prefs FROM users WHERE id = ?').get(id) as { prefs: string } | null)?.prefs).away === true,
+    sessionOf: (userId, windowId) => hub.sessionOfWindow(userId, windowId),
     ...o,
     send,
   })
