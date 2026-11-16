@@ -10,6 +10,7 @@ import { makeEnv } from '../lib/env'
 import { fakeJwt, testCredCtx } from '../lib/credentials'
 import { FILE_TOKEN_KEY, importCodexAuth, importEngineAccounts, importTokenFile, migrateCredentials, MIGRATED_KEY } from '../../server/src/credentials/migrate'
 import { getRow, listRows, metaOf, secretOf, stateOf } from '../../server/src/credentials/store'
+import { deleteCredential } from '../../server/src/credentials/service'
 import { markTokenRejected, tokenFile } from '../../server/src/proxy/subscription'
 import { getSetting, setSetting } from '../../server/src/admin/settings'
 import { SHARED_SUBSCRIPTIONS_KEY } from '../../server/src/credentials/policy'
@@ -53,6 +54,48 @@ describe('the owner\'s token file', () => {
     env.db.query('DELETE FROM engine_credentials').run()
     expect(importTokenFile(t.cc, secrets)).toBe('same')
     expect(listRows(env.db)).toEqual([])
+  })
+})
+
+describe('deleting the connection made from the token file (QA 2026-11-16: the token stayed on disk)', () => {
+  const owner = () => (env.db.query("SELECT id FROM users WHERE role = 'owner' LIMIT 1").get() as { id: string } | null)?.id ?? 'owner'
+  test('the file goes too: overwritten, then removed; the import does not bring the connection back', () => {
+    const TOK2 = 'sk-ant-oat01-' + 'H'.repeat(50)
+    fs.writeFileSync(tokenFile(secrets), TOK2 + '\n', { mode: 0o600 })
+    expect(importTokenFile(t.cc, secrets)).toBe('imported')
+    const id = (getSetting<{ id: string }>(env.db, FILE_TOKEN_KEY))!.id
+    // the bytes are overwritten before the unlink: a second name for the same file (a hard link) shows it
+    const other = path.join(env.fx.base, 'token-hardlink')
+    fs.linkSync(tokenFile(secrets), other)
+    deleteCredential(t.cc, id, owner())
+    expect(fs.existsSync(tokenFile(secrets))).toBe(false)
+    const left = fs.readFileSync(other)
+    expect(left.length).toBe(TOK2.length + 1)
+    expect(left.every((b) => b === 0)).toBe(true)
+    fs.rmSync(other)
+    expect(importTokenFile(t.cc, secrets)).toBe('none')
+    expect(listRows(env.db)).toEqual([])
+    const a = env.db.query("SELECT detail FROM audit_log WHERE action = 'credential.delete' AND target = ?").get(id) as { detail: string }
+    expect(JSON.parse(a.detail).tokenFile).toBe('removed')
+  })
+  test('a file with another token (put in after the import), or a link, is left', () => {
+    const A = 'sk-ant-oat01-' + 'J'.repeat(50), B = 'sk-ant-oat01-' + 'K'.repeat(50)
+    fs.writeFileSync(tokenFile(secrets), A + '\n', { mode: 0o600 })
+    expect(importTokenFile(t.cc, secrets)).toBe('imported')
+    const id = (getSetting<{ id: string }>(env.db, FILE_TOKEN_KEY))!.id
+    fs.writeFileSync(tokenFile(secrets), B + '\n', { mode: 0o600 })
+    deleteCredential(t.cc, id, owner())
+    expect(fs.readFileSync(tokenFile(secrets), 'utf8')).toBe(B + '\n')
+    // a link to a file with the deleted token: not followed, not removed
+    expect(importTokenFile(t.cc, secrets)).toBe('imported')
+    const id2 = (getSetting<{ id: string }>(env.db, FILE_TOKEN_KEY))!.id
+    const target = path.join(env.fx.base, 'elsewhere-token')
+    fs.writeFileSync(target, B + '\n', { mode: 0o600 })
+    fs.rmSync(tokenFile(secrets)); fs.symlinkSync(target, tokenFile(secrets))
+    deleteCredential(t.cc, id2, owner())
+    expect(fs.lstatSync(tokenFile(secrets)).isSymbolicLink()).toBe(true)
+    expect(fs.readFileSync(target, 'utf8')).toBe(B + '\n')
+    fs.rmSync(tokenFile(secrets)); fs.rmSync(target)
   })
 })
 

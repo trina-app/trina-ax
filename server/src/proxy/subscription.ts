@@ -49,6 +49,26 @@ export class TokenReader {
   }
 }
 
+/**
+ * Remove the token file when it holds the token with fingerprint `fp` (the AI connection made from it was deleted in
+ * Admin › AI providers): its bytes are overwritten with zeros, then it is unlinked, so the token is not left on disk
+ * (QA 2026-11-16: the file stayed after the delete). A file with another token (a newer one put in since), a link or
+ * anything that is not a regular file is left. Returns whether it was removed.
+ */
+export function removeTokenFile(secretsDir: string, fp: string): boolean {
+  const file = tokenFile(secretsDir)
+  const token = new TokenReader(file).read()
+  if (!token || fingerprint(token) !== fp) return false
+  const fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW)
+  try {
+    const size = fs.fstatSync(fd).size
+    if (size > 0) fs.writeSync(fd, Buffer.alloc(size), 0, size, 0)
+    fs.fsyncSync(fd)
+  } finally { fs.closeSync(fd) }
+  fs.unlinkSync(file)
+  return true
+}
+
 export type TokenState = 'missing' | 'malformed' | 'ok' | 'expiring' | 'expired' | 'invalid'
 export interface TokenStatus { state: TokenState; expiresAt: string | null }
 

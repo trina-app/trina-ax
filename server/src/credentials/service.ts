@@ -20,6 +20,7 @@ import {
 import { formatProblem, verifySecret } from './validate'
 import { ensureFresh } from './chatgpt-tokens'
 import { forgetSignIn, recordSignIn } from '../auth/team-sign-ins'
+import { removeTokenFile } from '../proxy/subscription'
 
 type ApiKind = Exclude<CredentialKind, 'chatgpt'>
 const secretOfKind = (kind: ApiKind, s: string): Secrets[ApiKind] => (kind === 'anthropic-oauth' ? { token: s } : { key: s })
@@ -291,7 +292,13 @@ export function deleteCredential(cc: CredCtx, id: string, actor: string, onlyOwn
   cc.db.query('DELETE FROM engine_credentials WHERE id = ?').run(id)
   forgetSignIn(cc.db, 'team_ai', id)
   cc.cache.delete(id)
-  audit(cc.db, { actor, action: 'credential.delete', target: id, detail: { kind: row.kind, label: row.label, scope: row.owner_user_id ? 'personal' : 'team' } })
+  // the token file (root/set-claude-token, office --claude-token-file) this connection was imported from goes too: the
+  // owner removed the token, so it must not stay readable on disk (QA 2026-11-16). Only when the file holds this token.
+  let tokenFile = false
+  if (row.kind === 'anthropic-oauth' && !row.owner_user_id && cc.secretsDir) {
+    try { tokenFile = removeTokenFile(cc.secretsDir, row.fingerprint) } catch (e) { cc.log.error('could not remove the Claude token file of a deleted AI connection', { err: e }) }
+  }
+  audit(cc.db, { actor, action: 'credential.delete', target: id, detail: { kind: row.kind, label: row.label, scope: row.owner_user_id ? 'personal' : 'team', ...(tokenFile ? { tokenFile: 'removed' } : {}) } })
   if (!row.owner_user_id) noticeOwners(cc, actor, 'removed', row.label)
   else noticeMember(cc, row.owner_user_id, actor, 'personal_removed', row.label)
 }
