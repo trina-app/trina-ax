@@ -5251,7 +5251,7 @@ export const id: Record<MessageKey, string> = {
   "share.grey.checking": "Memeriksa apa yang akan mereka lihat…",
   "share.grey.failed": "Chat ini belum bisa diperiksa. Anda akan melihat apa yang dipertaruhkan sebelum dibagikan.",
   "share.again": "Periksa ini, lalu tekan Bagikan sekali lagi.",
-  "share.linkAfterSave": "Orang yang kamu tambahkan bisa membuka tautan setelah kamu menekan {button}.",
+  "share.linkAfterSave": "Orang yang Anda tambahkan bisa membuka tautan setelah Anda menekan {button}.",
   "share.who.project": "sebagian anggota proyek",
   "share.who.person": "{name}",
   "share.who.group": "{name}",
