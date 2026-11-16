@@ -70,7 +70,7 @@ const REVIEWED: Record<string, { n: Counts; why: string }> = {
   "server/src/chat/share-places.ts": { n: {"access": 1, "users/": 1}, why: "card labels" },
   "server/src/chat/shared-answers.ts": { n: {"viewersOf": 1, "import:viewersOf": 1}, why: "viewersOf" },
   "server/src/chat/shared.ts": { n: {"access": 5}, why: "who sees a project's shared chats: projects are never shared" },
-  "server/src/chat/side-room.ts": { n: {"users/": 1}, why: "a side chat's default save folder (saves are asked by confirmWidening)" },
+  "server/src/chat/side-room.ts": { n: {"access": 2, "users/": 1}, why: "a side chat's default save folder (saves are asked by confirmWidening); saveInFor's two access checks look only at group folders and shared/, which are never folder-shared (shares are of folders in users/), and the fallback users/<id> is checked by nobody" },
   "server/src/chat/skill-list.ts": { n: {"users/": 1}, why: "a skill's name from its path" },
   "server/src/chat/skills.ts": { n: {"access": 6}, why: "skill roots: never shared (D3); the caller's own access" },
   "server/src/chat/tools.ts": { n: {"access": 2, "users/": 1}, why: "the caller's own sight; audit wording" },
