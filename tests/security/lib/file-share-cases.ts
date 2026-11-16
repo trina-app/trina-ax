@@ -92,6 +92,25 @@ export const FILE_SHARE_SPECS: Record<string, Spec> = {
   sharedBatch: { build: async (c, w) => c.get(`/api/files/shared-batch/${await bobPressForAlice(w)}`), scope: 'own-alice' },
   requestFileAccess: { build: (c) => c.post('/api/files/shared/AAAAAAAAAAAAAAAAAAAAAA/request', {}), scope: 'nobody' },
   answerFileRequest: { build: (c) => c.post(`/api/files/requests/${crypto.randomUUID()}`, { answer: 'approve' }), scope: 'nobody' },
+  // AI sharing (docs/decisions/20261116-ai-share-card-and-stop.md, 20261116-ai-share-who-can-open.md) and folder
+  // sharing (the gate closed): an undo id, a step's next step and a shared folder's link that nobody made are 404 for
+  // everyone; a share card's files read as `gone` for everyone but alice, with nothing about her file; the path-link
+  // lookup answers everyone, null for alice's file (she opens it through her folder, nobody through a share)
+  undoFileShares: { build: (c) => c.post('/api/files/shares/undo', { id: 'AAAAAAAAAAAAAAAAAAAAAA' }), scope: 'nobody' },
+  runShareFix: { build: (c) => c.post(`/api/share-fixes/${crypto.randomUUID()}/run`, {}), scope: 'nobody' },
+  sharedFolderList: { build: (c) => c.get('/api/files/shared/AAAAAAAAAAAAAAAAAAAAAA/list'), scope: 'nobody' },
+  sharedFolderEntry: { build: (c) => c.get('/api/files/shared/AAAAAAAAAAAAAAAAAAAAAA/entry?sub=a.md'), scope: 'nobody' },
+  shareCards: {
+    build: async (c, w) => c.post('/api/files/shares/cards', { ids: [await aliceLink(w)] }), scope: 'self',
+    check: (r, _w, who) => {
+      nothingOfAlice(r.text, who, 'a share card')
+      if (who !== 'memberIn' && r.status === 200 && r.json?.items?.[0]?.gone !== true) throw new Error(`${who}: a share card of alice's file was not gone`)
+    },
+  },
+  grantedFileLink: {
+    build: (c) => c.get('/api/files/granted-link?path=users%2Falice%2Ftodo.md'), scope: 'self',
+    check: (r, _w, who) => { if (r.status === 200 && r.json?.id !== null) throw new Error(`${who}: the path link of alice's file answered a link id`) },
+  },
   fileSharesCount: { build: (c) => c.get('/api/admin/file-shares'), scope: 'byLevel' },
   // the team owner's Remove all: an admin is refused (owner_only)
   removeAllFileShares: { build: (c) => c.del('/api/admin/file-shares'), scope: 'own-owner' },
