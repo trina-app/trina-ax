@@ -18,6 +18,7 @@ export const APP_MAP_LABELS: Readonly<Record<string, Readonly<Record<Locale, str
   "rooms.menu.label": { ko: "더 보기", en: "More", id: "Lainnya", ja: "その他", es: "Más", zh: "更多" },
   "roomApps.menuAdd": { ko: "앱 추가", en: "Add an app", id: "Tambah aplikasi", ja: "アプリを追加", es: "Añadir una app", zh: "添加应用" },
   "roomApps.listTitle": { ko: "연동", en: "Integrations", id: "Integrasi", ja: "連携", es: "Integraciones", zh: "集成" },
+  "roomApps.listSection": { ko: "앱", en: "Apps", id: "Aplikasi", ja: "アプリ", es: "Aplicaciones", zh: "应用" },
   "roomApps.address": { ko: "Webhook URL", en: "Webhook URL", id: "Webhook URL", ja: "Webhook URL", es: "Webhook URL", zh: "Webhook URL" },
   "rooms.menu.notify": { ko: "알림 설정", en: "Notification settings", id: "Pengaturan notifikasi", ja: "通知設定", es: "Ajustes de notificaciones", zh: "通知设置" },
   "rooms.notify.all": { ko: "모든 메시지", en: "All messages", id: "Semua pesan", ja: "すべてのメッセージ", es: "Todos los mensajes", zh: "所有消息" },

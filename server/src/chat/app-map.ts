@@ -30,7 +30,7 @@ export const APP_MAP_KEYS = [
   // cards and allowances (the card's own "Always allow" is the server's: chat/i18n.ts cardAlways)
   'settings.allowances', 'settings.allowancesAi',
   // rooms
-  'rooms.menu.label', 'roomApps.menuAdd', 'roomApps.listTitle', 'roomApps.address', 'rooms.menu.notify',
+  'rooms.menu.label', 'roomApps.menuAdd', 'roomApps.listTitle', 'roomApps.listSection', 'roomApps.address', 'rooms.menu.notify',
   'rooms.notify.all', 'rooms.notify.mentions', 'rooms.notify.off',
   // Settings
   'notifications.title', 'notifications.quiet', 'settings.apps', 'settings.about', 'aiApps.title', 'settings.profile',
@@ -83,7 +83,7 @@ export function appMapSection(o: AppMapInput, L: Locale): string {
     'Asked where or how to do something in the app, or if it can, answer from this map with its labels. Not here: say you are not sure; do not guess that it does not exist.',
     `- Chat title menu: ${q('chat.rename')}. Chat list: ${q('navFolders.new')}, ${q('navFolders.moveTo')}. Answer: ${q('chat.regenerate')}; own message: ${q('chat.edit')}.`,
     `- ${tr('cardAlways', L)} on a card: that kind is not asked again; see or undo in ${allowed}.`,
-    `- Room ⋯ › ${q('roomApps.menuAdd')}: Google Forms, GitHub, Sentry or any service with a ${q('roomApps.address')} posts into the room (list: ${q('roomApps.listTitle')}); group chat and 1:1 people add them, team rooms owners and admins.`,
+    `- Room ⋯ › ${q('roomApps.menuAdd')}: Google Forms, GitHub, Sentry or any service with a ${q('roomApps.address')} posts into the room (list: ${q('roomApps.listTitle')} › ${q('roomApps.listSection')}); group chat and 1:1 people add them, team rooms owners and admins.`,
     `- Room bell or ⋯ › ${q('rooms.menu.notify')}: ${q('rooms.notify.all')} / ${q('rooms.notify.mentions')} / ${q('rooms.notify.off')}. Defaults, ${q('notifications.quiet')}: ${set('notifications.title')}.`,
     `- ${set('settings.apps')}: phone, Mac and Windows apps. ${set('settings.about')}: version.`,
     `- ${set('aiApps.title')}: team files from Claude or another AI app on their computer.`,
@@ -100,10 +100,10 @@ export function appMapSection(o: AppMapInput, L: Locale): string {
     `- ${q('admin.members')}: invites, roles; owner: ${q('handover.menu')} on a person's ⋯; ${q('guest.admin.title')}.`,
     o.managed
       ? `- Guest AI (${q('guest.invite.ai')}, at invite or on their row): ${q('guest.ai.none')} / ${q('guest.ai.own')} / ${q('guest.ai.team')} with a monthly limit.`
-      : '- Guest AI: none on this install (it runs on this computer\'s own sign-in).',
+      : `- Guest AI: none on this install (it runs on this computer's own sign-in); installs on team AI connections offer ${q('guest.ai.none')} / ${q('guest.ai.own')} / ${q('guest.ai.team')} there.`,
     `- ${q('admin.usage')}: who used how much. ${q('admin.audit')}: who did what (deleted a file, changed a setting).`,
     `- ${q('admin.settings')}: ${q('teamSettings.section.general')} (${q('teamSettings.timeZone')}, the zone in your Now line), ${q('budgets.title')} (per person, group, team), ${q('speech.title')}, ${q('teamSettings.group.engine')} (team AI and model, who may pick)${o.devEnv ? `, ${q('devEnv.title')} (AI running programs)` : ''}.`,
-    ...(o.devEnv ? [] : ['- No dev environment (AI running programs) on this install; only some Linux servers have it.']),
+    ...(o.devEnv ? [] : ['- No dev environment (AI running programs) on this install; only some Linux installs have it.']),
     `- ${q('admin.plugins')}: Hangul (HWP) writing, add-ons. ${q('admin.providers')}: team AI accounts.`,
     `- ${q('admin.system')}: ${q('storage.title')}, ${q('system.updates')}; owner also ${q('system.backups')}, ${q('system.export')}, ${q('system.connection')} (${q('system.address')} for use from outside).`,
   )
