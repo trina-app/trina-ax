@@ -36,6 +36,7 @@ import { badSegment, hiddenEntry } from '../policy/names'
 import { TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
 import { fileSharesOf } from '../files/shares'
+import { sharedFoldersWith, withSharedFolders } from '../files/shared-folder-reads'
 import { SERVER_OWN_FOLDERS } from '../files/own-folders'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, instructionFiles, neutralizeTags, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
 import { sideRoomOf } from './side-room'
@@ -828,6 +829,8 @@ export class TurnExec {
     // never in a scheduled run: nobody watches it, and a file another member shared must not act there
     this.files.grantReads = !this.shared && !guestPrompt && !this.restricted && !confidential && !this.slackChat && !this.templateScope && spec.clientKind !== 'schedule'
     if (this.files.grantReads) { try { sharedWithMe = fileSharesOf(rt.ctx).sharedWith(spec.userId) } catch {} }
+    // ...and the folders shared with them, which list and read open by link (files/shared-folder-reads.ts)
+    if (this.files.grantReads) { try { sharedWithMe = withSharedFolders(sharedWithMe, sharedFoldersWith(rt.ctx, spec.userId)) } catch {} }
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone,
       // personal memories are not part of a shared project chat

@@ -79,7 +79,7 @@ export const SHARED_WITH_MAX = 20
 /** grant rows looked at for that list, newest first */
 const SHARED_WITH_SCAN = 500
 /** `to`: how it reaches the person: shared with them, with a group they are in (its name), or with everyone on the team */
-export interface SharedWithFile { id: string; name: string; url: string; sharedBy: string | null; at: string; to: { kind: 'you' } | { kind: 'group'; name: string } | { kind: 'everyone' } }
+export interface SharedWithFile { id: string; name: string; url: string; sharedBy: string | null; at: string; to: { kind: 'you' } | { kind: 'group'; name: string } | { kind: 'everyone' }; /** a folder shared from its owner's files (files/shared-folder-reads.ts) */ kind?: 'folder' }
 /** The link id in a file link the AI was given: /f/<id>, f/<id> or https://<any host>/f/<id> (a query or # after it
  * is fine), or null. */
 export function linkIdOf(input: string): string | null {
