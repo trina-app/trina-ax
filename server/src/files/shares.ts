@@ -952,6 +952,27 @@ export class FileShares {
     } catch (err) { this.ctx.log.warn('file share notice failed', { err }) }
   }
 
+  /** An access request notice's source (`<shareId>:<requesterId>`) as its receiver sees it now: the live share, the
+   * newest request of that person for it, and whether the receiver may answer it now (Share / Decline). Null: the share,
+   * the request or the receiver is gone, or the file is no longer where it was. Reads only. */
+  private askedOf(userId: string, sourceId: string) {
+    const [shareId, requester] = sourceId.split(':')
+    const s = shareId ? this.row(shareId) : null
+    const q = s && requester ? this.db.query('SELECT id, message, state FROM file_access_requests WHERE share_id = ? AND requester_id = ? ORDER BY created_at DESC LIMIT 1').get(s.id, requester) as { id: string; message: string | null; state: 'pending' | 'approved' | 'declined' | 'closed' } | null : null
+    const me = this.principal(userId)
+    if (!s || !q || !requester || !me || s.state !== 'live') return null
+    const rules = this.rules()
+    const r = this.resolve(s.path, rules)
+    if (!r) return null
+    return { share: s, request: q, requester, may: this.shareRight(me, rules, r.segs).may }
+  }
+  /** The push of an access request (files/share-push.ts): only while the request still waits and this person may answer
+   * it now (an admin or the owner answered, the file went, the person lost the right to share it: no push). */
+  requestWaitsOn(userId: string, sourceId: string): boolean {
+    const a = this.askedOf(userId, sourceId)
+    return !!a && a.may && a.request.state === 'pending'
+  }
+
   /** An Activity row's details for its viewer (notifications/service.ts out). Names read now; nothing about the file
    * once it is gone or the viewer may no longer see it. */
   noticeOut(row: { id: string; user_id: string; event_type: string; source_id: string; created_at: string; read_at: string | null }): InboxNotification {
@@ -976,17 +997,10 @@ export class FileShares {
       return { ...base, link: 'file', fileShare: { by: name(g?.granted_by ?? null), name: plainLabel(o.name, 120), linkId: s.id } }
     }
     if (row.event_type === 'file.access_requested') {
-      const [shareId, requester] = row.source_id.split(':')
-      const s = shareId ? this.row(shareId) : null
-      const q = s && requester ? this.db.query('SELECT id, message, state FROM file_access_requests WHERE share_id = ? AND requester_id = ? ORDER BY created_at DESC LIMIT 1').get(s.id, requester) as { id: string; message: string | null; state: 'pending' | 'approved' | 'declined' | 'closed' } | null : null
-      const me = this.principal(row.user_id)
-      if (!s || !q || !me || s.state !== 'live') return gone
-      const rules = this.rules()
-      const r = this.resolve(s.path, rules)
-      if (!r) return gone
-      const may = this.shareRight(me, rules, r.segs).may
-      if (!may && s.owner_id !== me.id) return gone
-      return { ...base, link: 'file', fileShare: { by: name(requester ?? null), name: plainLabel(baseName(s.path), 120), linkId: s.id, ...(q.message ? { note: q.message } : {}), requestId: q.id, state: q.state, ...(may && q.state === 'pending' ? { canAnswer: true as const } : {}) } }
+      const a = this.askedOf(row.user_id, row.source_id)
+      if (!a || (!a.may && a.share.owner_id !== row.user_id)) return gone
+      const { share: s, request: q, requester, may } = a
+      return { ...base, link: 'file', fileShare: { by: name(requester), name: plainLabel(baseName(s.path), 120), linkId: s.id, ...(q.message ? { note: q.message } : {}), requestId: q.id, state: q.state, ...(may && q.state === 'pending' ? { canAnswer: true as const } : {}) } }
     }
     if (row.event_type === 'file.unshared_by_move') {
       const a = this.db.query('SELECT actor_id, target FROM audit_log WHERE id = ?').get(Number(row.source_id)) as { actor_id: string | null; target: string | null } | null

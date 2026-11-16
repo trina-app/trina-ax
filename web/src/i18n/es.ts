@@ -4398,6 +4398,8 @@ export const es: Record<MessageKey, string> = {
   "notifications.chatAnswersDesc": "Cuando termina una respuesta que pidió o Trina le necesita, y no está viendo ese chat.",
   "notifications.chatShares": "Chats compartidos conmigo",
   "notifications.chatSharesDesc": "Una notificación en el teléfono o el navegador cuando alguien comparte un chat con usted por su nombre. Lo compartido con un grupo solo aparece en Actividad.",
+  "notifications.fileShares": "Archivos compartidos",
+  "notifications.fileSharesDesc": "Una notificación en el teléfono o el navegador cuando alguien comparte un archivo con usted por su nombre o pide abrir un archivo suyo. Lo compartido con un grupo o con todo el equipo solo aparece en Actividad.",
   "notifications.section.phone": "Teléfono",
   "notifications.phoneAway": "Avisos en el teléfono solo cuando no estoy",
   "notifications.phoneAwayDesc": "Mientras usa Trina, los avisos aparecen ahí y no en su teléfono. Su teléfono los recibe cuando no está usando Trina en su ordenador. Desactivado: su teléfono también los recibe al momento.",
