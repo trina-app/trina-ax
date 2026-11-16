@@ -197,7 +197,7 @@ describe('the tab bar', () => {
 
   // the stores' current state needs a client render (a server render reads their first state)
   test('one count per kind: conversations with unread messages on 대화 (muted rooms left out, as the rail), unread Inbox notices on 나', async () => {
-    useRooms.setState({ rooms: [room({ unreadCount: 3 }), room({ unreadCount: 2, muted: true }), room({ unreadCount: 120, kind: 'dm' })] })
+    useRooms.setState({ rooms: [room({ kind: 'group', unreadCount: 3 }), room({ unreadCount: 4 }), room({ unreadCount: 2, muted: true }), room({ unreadCount: 120, kind: 'dm' })] })
     inboxCount = 4
     const m = await mount(<MemoryRouter initialEntries={['/']}><BottomTabs /></MemoryRouter>)
     try {

@@ -532,7 +532,7 @@ describe('handleEvent', () => {
   test('what I read on my phone or in another window reaches this one: the count, the "@", a followed thread, the 대화 tab total', () => {
     const root = uuidv7()
     const a = room({ name: 'acme-a', unreadCount: 2, mentioned: true, lastSeq: 4, lastReadSeq: 2, threadsUnread: 1, nextThreadId: root })
-    const b = room({ name: 'acme-b', unreadCount: 1, lastSeq: 1 })
+    const b = room({ name: 'acme-b', kind: 'group', unreadCount: 1, lastSeq: 1 })
     useRooms.setState({ rooms: [a, b], loaded: true })
     const get = () => useRooms.getState().rooms.find((r) => r.id === a.id)!
     expect(totalUnread(useRooms.getState().rooms)).toBe(4)
