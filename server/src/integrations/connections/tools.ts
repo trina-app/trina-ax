@@ -134,7 +134,7 @@ function noteAnswer(ctx: AppContext, chat: string, row: Row) {
     // account shared with the team is a team connection: its answer may reach the people its rule includes
     addSources(ctx.db, chat, row.google_app && row.scope === 'personal' ? [{ type: 'user', id: row.owner_user_id!, via: 'connection' }, { type: 'integration', id: row.id }]
       : [row.scope === 'personal' ? { type: 'user', id: row.owner_user_id!, via: 'connection' } : { type: 'integration', id: row.id }])
-    ctx.db.query('UPDATE chats SET session_tainted = 1 WHERE id = ?').run(chat)
+    ctx.db.query('UPDATE chats SET session_tainted = 1, others_words = 1 WHERE id = ?').run(chat)
   })()
 }
 
@@ -144,7 +144,9 @@ function noteAnswer(ctx: AppContext, chat: string, row: Row) {
  * 내용 그대로 보기" (ConfirmDetail.exact); `request`: an HTTP API call (the card names a request). */
 interface Sent { text: string; fields: { name: string; value: string }[]; dest?: string[] | null; raw?: unknown; lines?: (L: Locale) => { fields: { name: string; value: string }[]; exact: boolean }; request?: boolean
   /** the service's tool name (an MCP tool's call; none for api_request) */
-  tool?: string }
+  tool?: string
+  /** the team files this call attaches, by their team paths (team-attach.ts) */
+  attach?: string[] }
 
 /** The lines of a call's arguments for the card: every value labelled, or the recipients alone in words when lines
  * cannot show all of it (cardLines null: the JSON stays open). */
@@ -409,7 +411,11 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
     || (row.scope === 'personal' && row.owner_user_id === b.userId && row.write_policy === 'allow')
     || (teamOn && memberAllows(ctx.db, row, b.userId)))
   const outside = !b.scheduled && !freely && (roomsSeen || outsideSeen(ctx.db, b.chatId))
-  if (allowed && !outside) return false
+  // a team file to attach, in a chat that holds content another person wrote, that the person's own message of this
+  // turn did not bring (named, attached, or made in this answer): the card, also where this connection sends without
+  // asking (TurnPerson.attachAsks; docs/decisions/20261116-mail-attach-team-file.md "Sends without asking")
+  const attachAsks = !!sent.attach?.length && !b.scheduled && !!tc.files.person?.attachAsks?.(sent.attach)
+  if (allowed && !outside && !attachAsks) return false
   // the person's own connection in a scheduled run whose task's card listed it: only to the recipients it pinned (Q2 a)
   const pins = b.scheduled && row.scope === 'personal' ? pinsFor(ctx, b.turnId, row) : null
   if (pins) {
@@ -622,7 +628,7 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         if (!t.readOnly || (tc.files.person?.roomsSeen && !tool.readOnly)) {
           // the files to attach come first on the card, by name, size and place; the rest shows the handles as sent
           const withFiles = (L: Locale, l: { fields: { name: string; value: string }[]; exact: boolean }) => (files.length ? { ...l, fields: [...attachedLines(ctx, files, L, tc.userId), ...l.fields] } : l)
-          const answer = await gate(ctx, current, () => toolTitle(t), { text: JSON.stringify(args ?? {}, null, 2), fields: withFiles(tc.locale, { fields: recipientFields(args), exact: false }).fields, dest: pinTargets(args), raw: args, lines: (L) => withFiles(L, argLines(args ?? {}, L)), tool: t.name }, b, tc)
+          const answer = await gate(ctx, current, () => toolTitle(t), { text: JSON.stringify(args ?? {}, null, 2), fields: withFiles(tc.locale, { fields: recipientFields(args), exact: false }).fields, dest: pinTargets(args), raw: args, lines: (L) => withFiles(L, argLines(args ?? {}, L)), tool: t.name, ...(files.length ? { attach: files.map((f) => f.rel) } : {}) }, b, tc)
           confirmed = answer !== false
           // the card may have waited for minutes: rules, settings and the connection are read again
           const asked = current.version

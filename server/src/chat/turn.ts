@@ -39,6 +39,7 @@ import { fileSharesOf } from '../files/shares'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, instructionFiles, neutralizeTags, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
 import { sideRoomOf } from './side-room'
 import { quotesAppOnBranch, readRooms, withoutQuoteLines } from './read-rooms'
+import { seenWhy } from './grant-reads'
 import { componentC } from '../team-files/component'
 import { looseArea, placementNote } from './file-placement'
 import { buildAgentDefinitions, initProblem, LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS, PARENT_ONLY_TOOLS, SUBTASK_STEPS_KEPT, subtaskSummary } from './subagents'
@@ -106,7 +107,7 @@ import { shareMergeOf, shareMergeSystemPrompt, type ShareMergeScope } from '../s
 import { backdateChat, DEMO_REPLAY_TOOL, demoReplayFor, runReplay } from '../demo/replay'
 import { getUser } from '../auth/users'
 import { findRoomFile, localTime } from '../rooms/reader'
-import { namedPaths, OWN_CHAT_TEAM_TOOLS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_OWN_CARD_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
+import { namedPaths, OWN_CHAT_TEAM_TOOLS, OWN_WORDS_TOOLS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_OWN_CARD_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
 import { auditOnceUse, authorsWrite, everyoneWrites, folderAudience, folderId, grantFor, grantsOn, readersOf, ruledBetween, within } from '../rooms/ai-grants'
 import { wouldSeeFrom } from '../rooms/history'
 import { isOwnerOrAdmin, roomRow } from '../rooms/store'
@@ -754,7 +755,7 @@ export class TurnExec {
     if (!resume && userMsg.parent_id === null) this.newSession()
     // outside content the instructions themselves carry (a Slack thread asked from, integrations/slack/read.ts): in
     // the read scope and marked, after a new session cleared the marks
-    if (toolSet.seen.length) { addSources(rt.db, spec.chatId, toolSet.seen); this.taint() }
+    if (toolSet.seen.length) { addSources(rt.db, spec.chatId, toolSet.seen); this.taint(); this.markOthersWords() }
     // a shared project chat: other people's messages on this branch are outside content (remember protection; no
     // memories are kept here anyway), and the folder lists, skills, team rules and company profile the AI is shown are
     // only what everyone who sees the chat may read (chat/shared.ts)
@@ -774,7 +775,7 @@ export class TurnExec {
     this.projectFolder = project?.folderPath ?? null
     // a project's own skills: only in its chats, as the person sees the project now
     this.skillProject = project ? { id: project.id, name: project.name, folderPath: project.folderPath } : null
-    if (rt.projectTaints(project, spec.userId)) this.taint()
+    if (rt.projectTaints(project, spec.userId)) { this.taint(); this.markOthersWords() }
     // project instructions go into the prompt: their folder joins the read scope (tab 7)
     if (project && project.instructions.trim()) addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), project.folderPath)])
     if (hasAttachments(userMsg)) this.taint() // attached files are outside content too (tab 3 "remember 보호")
@@ -824,7 +825,8 @@ export class TurnExec {
     // when the AI asks (chat/shared-with-me-tool.ts: no list in every turn): only in the person's own chat
     // (not from Slack: the answer may go to a channel; not a template run: its reads stay inside its own folder by the
     // folder rules)
-    this.files.grantReads = !this.shared && !guestPrompt && !this.restricted && !confidential && !this.slackChat && !this.templateScope
+    // never in a scheduled run: nobody watches it, and a file another member shared must not act there
+    this.files.grantReads = !this.shared && !guestPrompt && !this.restricted && !confidential && !this.slackChat && !this.templateScope && spec.clientKind !== 'schedule'
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone,
       // personal memories are not part of a shared project chat
@@ -893,7 +895,7 @@ export class TurnExec {
     // (chat/runtime.ts projectTaints) and as the skill tool's load is (chat/tools.ts): a team, group or project skill
     // (anyone who may write its folder may have written it). Only the person's own personal skill is their own words
     // (QA TC-326: "/weekly-report" of a group skill kept a memory with no card)
-    if (invoked && !ownPersonalSkill(invoked.skill.path, spec.userId)) this.taint()
+    if (invoked && !ownPersonalSkill(invoked.skill.path, spec.userId)) { this.taint(); this.markOthersWords() }
     else if (invoked) this.noteOwnSkill(invoked.skill.path)
     // a scheduled task's run: nobody is watching (waitForPerson answers at once), and the AI is told so
     let scheduled = ''
@@ -1880,7 +1882,7 @@ export class TurnExec {
    * sessions that carry the branch history keep the mark: the history holds what was seen before. */
   private newSession() {
     // the mark of outside sources goes with the read scope
-    this.rt.db.query('UPDATE chats SET session_tainted = 0, room_outside = 0 WHERE id = ?').run(this.spec.chatId)
+    this.rt.db.query('UPDATE chats SET session_tainted = 0, room_outside = 0, others_words = 0 WHERE id = ?').run(this.spec.chatId)
     clearScope(this.rt.db, this.spec.chatId)
   }
   taint() { this.rt.db.query('UPDATE chats SET session_tainted = 1 WHERE id = ?').run(this.spec.chatId); this.syncOutsideMark() }
@@ -1897,6 +1899,77 @@ export class TurnExec {
   markOutside() {
     this.rt.db.query('UPDATE chats SET room_outside = 1 WHERE id = ? AND room_outside = 0').run(this.spec.chatId)
     this.syncOutsideMark()
+  }
+
+  /**
+   * Content another person wrote came into this chat (chats.others_words, migration 410; docs/decisions/
+   * 20261116-always-allow-more-cards.md "Content written by others"): a team file someone else wrote or changed, a
+   * file shared with the person, a web page or search, a connected service's answer, a room's file, another person's
+   * skill or project instructions. Kept until a new session, as the session carries what was read. From then on an
+   * action that reaches other people goes without its card under the person's "Always allow" only for what their own
+   * message names (chat/shared-actions.ts othersWordsIn). Narrower than `tainted`: the person's own uploads and
+   * attachments, and their own files an AI turn of theirs wrote on nothing from others, are not other people's words.
+   */
+  markOthersWords() {
+    try { this.rt.db.query('UPDATE chats SET others_words = 1 WHERE id = ? AND others_words = 0').run(this.spec.chatId) } catch (e) { this.rt.log.warn('others-words mark failed', { err: e, turn: this.id }) }
+  }
+  /** ...read each time (a tool can set it during the turn); a chat row that is gone counts as marked */
+  get othersWords(): boolean {
+    try {
+      const c = this.rt.db.query('SELECT others_words AS o FROM chats WHERE id = ?').get(this.spec.chatId) as { o: number } | null
+      return !c || !!c.o
+    } catch { return true }
+  }
+  /** A tool that may bring in what another person wrote (rooms/ai-tools.ts OWN_WORDS_TOOLS: anything not listed, fails
+   * closed). A connection's own tools mark the chat when the service answers (connections/tools.ts noteAnswer): the
+   * call that sends is not yet something read. */
+  private noteOthersTool(tool: string) {
+    if (OWN_WORDS_TOOLS.has(tool) || this.toolSet?.connection(tool)) return
+    this.markOthersWords()
+  }
+  /**
+   * Files whose content went to the model (TurnFiles.readPaths, a team attachment): one that someone other than this
+   * person wrote or changed marks the chat (markOthersWords). A file read through a share grant always does, counts
+   * as a room read for the rest of the chat (markRoomsSeen) and as something from outside the chat's rooms
+   * (markOutside: no room card is skipped after it).
+   */
+  private noteOthersReads(paths: Iterable<string>) {
+    if (this.files.grantReadPaths.size) {
+      // a file another member put in front of this person, as a room message is: the chat counts as having read rooms
+      // for good (chats.rooms_seen: no new session clears it), so every gate of a room read applies from here on
+      // (readRooms: the room card, delete_files, skill_files, remember, a connection's write, project members)
+      this.files.grantReadPaths.clear()
+      this.markOthersWords()
+      this.markRoomsSeen()
+      this.markOutside()
+    }
+    if (this.othersWords) return
+    const budget = { left: OWN_HASH_BUDGET }
+    for (const p of paths) if (this.othersWroteFile(p, budget)) return this.markOthersWords()
+  }
+  /**
+   * Did someone other than this person write what `rel` holds? Every event that gave the file content (back through
+   * moves and renames, a copy's source too) must be this person's own; one by another person, a history cut short or
+   * a file outside their own folder with no known history counts as someone else's. A version an AI turn of theirs
+   * wrote carries what that turn's chat had seen (fileOutsideLevel: anything but this chat's own branch).
+   */
+  private othersWroteFile(rel: string, budget: { left: number }, depth = 0): boolean {
+    if (depth > 4) return true
+    const me = this.spec.userId
+    try {
+      const { entries, cut } = fileTimelineWalk(this.rt.db, rel, { limit: FILE_TIMELINE_MAX })
+      if (cut) return true
+      let known = false
+      for (const e of entries) {
+        if (!CONTENT_KINDS.has(e.kind)) continue
+        known = true
+        if (e.userId !== me) return true
+        if (e.kind === 'copied' && e.from && this.othersWroteFile(e.from, budget, depth + 1)) return true
+      }
+      // no known history: the person's own folder is theirs (a sync, a change outside the app); anywhere else is not
+      if (!known && rel !== `users/${me}` && !rel.startsWith(`users/${me}/`)) return true
+      return depth === 0 && this.fileOutsideLevel(rel, 0, budget) >= 1
+    } catch { return true }
   }
 
   /**
@@ -1947,7 +2020,9 @@ export class TurnExec {
    * imported stays theirs), so planted text cannot come back through a skill the AI saved (QA TC-326). */
   noteOwnSkill(rel: string) {
     if (!ownPersonalSkill(rel, this.spec.userId)) return
-    this.applyOutside(this.fileOutsideLevel(rel))
+    const level = this.fileOutsideLevel(rel)
+    if (level >= 1) this.markOthersWords()
+    this.applyOutside(level)
   }
 
   /** What an own-folder read or name carried (noteOwnReads, noteOwnNames): 1 taints the chat, 2 also marks it outside. */
@@ -2232,6 +2307,7 @@ export class TurnExec {
   }
   /** web results, browser pages, files outside the person's own folder = content someone else wrote */
   noteTaint(tool: string, input: unknown) {
+    this.noteOthersTool(tool)
     // what the in-app browser showed (pages the person is signed in to) counts as seen by this person only (tab 7)
     if (BROWSER_TOOL_NAMES.has(tool)) addSources(this.rt.db, this.spec.chatId, [{ type: 'user', id: this.spec.userId, via: 'browser' }])
     if (tool === 'WebSearch' || tool === 'web_search' || tool === 'web_fetch' || BROWSER_TOOL_NAMES.has(tool)) return this.taint()
@@ -2427,7 +2503,7 @@ export class TurnExec {
     }
     if (need) {
       // the room's card too: "Always allow" for saving wider alone never skips it (both choices are needed; review of #678)
-      const no = await this.askWidening(need, { details, extra: instruction, lead: `${tr('roomsSeenWhy', L)} `, room: true })
+      const no = await this.askWidening(need, { details, extra: instruction, lead: `${tr(seenWhy(this, 'roomsSeenWhy'), L)} `, room: true })
       // one card for both: the room's reason and next step (a save elsewhere needs the same card here), and where it saves
       if (no) return refuse(no.end, { also: `The same card also asked because more people can see '${need.segs.join('/')}' (${need.viewers}) than can see what this chat read; do not save it anywhere else that more people can see`, names: [need.segs.join('/')] })
       this.roomAllowed.add(key)
@@ -2444,9 +2520,9 @@ export class TurnExec {
     // connected service says it reads and asks to allow it; it changes nothing (QA TC-285)
     const reads = this.readsOnly(tool, input)
     const question = target
-      ? `${tr('roomsSeenWhy', L)} ` + tr(target.isNew ? 'roomAiConfirmNew' : 'roomAiConfirmMade', L, { ai: aiCalled(L), folder: this.place(target.segs.slice(0, -1).join('/')), file: target.segs.at(-1)! })
-      : reads ? tr('roomsSeenConfirmRead', L, { what, ai: aiCalled(L) })
-      : tr('roomsSeenConfirm', L, { what, ai: aiCalled(L) })
+      ? `${tr(seenWhy(this, 'roomsSeenWhy'), L)} ` + tr(target.isNew ? 'roomAiConfirmNew' : 'roomAiConfirmMade', L, { ai: aiCalled(L), folder: this.place(target.segs.slice(0, -1).join('/')), file: target.segs.at(-1)! })
+      : reads ? tr(seenWhy(this, 'roomsSeenConfirmRead'), L, { what, ai: aiCalled(L) })
+      : tr(seenWhy(this, 'roomsSeenConfirm'), L, { what, ai: aiCalled(L) })
     const { value: answer, missing } = await this.askPerson({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: question + instruction,
       options: [{ label: tr('roomAiConfirmYes', L), value: 'allow' }, ...(always ? [{ label: tr('cardAlways', L), value: ALWAYS_VALUE }] : []), { label: tr('roomAiConfirmNo', L), value: 'skip' }],
@@ -3073,6 +3149,9 @@ export class TurnExec {
     addSources(this.rt.db, this.spec.chatId, add)
     // a file of the person's own folder carries what the chat that wrote it had seen, as when the AI reads it
     if (given.length) this.noteOwnReads(given)
+    // a team file the person attached that someone else wrote: its content is other people's words (which file to send
+    // is still the person's own choice: chat/shared-actions.ts fromAsker)
+    if (given.length) this.noteOthersReads(given)
     return refused.size ? now.map((a) => (refused.has(a.id) ? blankTeamAttachment(a) : a)) : now
   }
 
@@ -3087,6 +3166,8 @@ export class TurnExec {
     // the names of the person's own files and folders the AI was shown carry what the chat that made them had seen
     // (noteOwnNames), in every chat (a listing alone too)
     this.noteOwnNames(this.files.namePaths, this.files.listedNames, paths)
+    // a file someone else wrote is other people's words; a read through a share grant counts whatever else was read
+    this.noteOthersReads(paths)
     if (!paths.size && !names?.size && !listed?.size) return
     const rules = this.rt.files.rules()
     // reads the answer's source list records (with their sha256: "대화방에 보내기" goes by those files) apart from the

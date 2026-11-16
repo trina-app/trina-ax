@@ -13,6 +13,9 @@
 // own message names every recipient (post_to_room's rule, namesRecipient), and one difference stays, because this grants
 // access: there each file must be one the asker attached to their message, named in it, or that the AI made or changed
 // in this turn (otherwise another member's message could point the AI at the asker's files), with or without the card.
+// In the person's own chat that read content someone else wrote (a teammate's team file, a file shared with them, a web
+// page, a connected service's answer: TurnExec.othersWords) the choice counts only when their own message names every
+// recipient and every file (or they attached it, or the AI made it in this answer); otherwise the card shows.
 import { ShareWithPersonInput } from '@mycel/shared'
 import { fileLinkUrl, type Step } from '@mycel/shared/api'
 import { z } from 'zod'
@@ -23,8 +26,9 @@ import { fileSharesOf } from '../files/shares'
 import { isStaff } from '../policy/access'
 import { tr } from './i18n'
 import { neutralizeTags } from './prompt'
-import { actionOff, askerPicks, askerText, attachedPaths, madeInTurn, mainOnly, namesFile, namesFileLoose, namedInFull, namesRecipient, ownWords, asksFor, SHARE_ASK } from './shared-actions'
+import { actionOff, askerPicks, askerText, asksToSend, attachedPaths, fromAsker, madeInTurn, mainOnly, namesFile, namesFileLoose, namedInFull, namesRecipient, ownWords, asksFor, SHARE_ASK } from './shared-actions'
 import { readRooms } from './read-rooms'
+import { seenWhy } from './grant-reads'
 import { lookedFile, lookedPerson } from './looking-at'
 import { withAlways } from './always-allow'
 import type { Tool } from './tools'
@@ -88,6 +92,10 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         // other people's words are in this turn: a shared chat, a chat others wrote in, or one that read rooms (a side chat,
         // room_read, a quoted room message; read now, as a room read can come in this turn)
         const others = !!exec.shared || exec.otherAuthors || readRooms(exec)
+        // ...or content someone else wrote was read here (a teammate's file, a file shared with the user, a page, a
+        // connected service: TurnExec.othersWords): no refusal, but "Always allow" then counts only for what the asker's
+        // own message names (docs/decisions/20261116-always-allow-more-cards.md "Content written by others")
+        const content = !others && !!exec.othersWords
         const asked = others ? askerText(db, spec.userMessageId) : ''
         const attached = others ? attachedPaths(db, spec.userMessageId) : new Set<string>()
         const plan: { path: string; name: string }[] = []
@@ -138,11 +146,14 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         // own message names every recipient (another member's message must not pick who gets the asker's files) ----
         const one = who.length === 1 ? who[0]! : null
         const question = [
-          exec.roomsSeen ? tr('roomsSeenWhy', L) : '',
+          exec.roomsSeen ? tr(seenWhy(exec, 'roomsSeenWhy'), L) : '',
           one?.subjectType === 'user' ? tr('fileShareAsk', L, { who: oneLine(one.name, 40), n: String(plan.length) }) : one ? tr('fileShareAskGroup', L, { who: oneLine(one.name, 40), n: String(plan.length) }) : tr('fileShareAskMany', L, { who: oneLine(whoLine, 80), n: String(plan.length) }),
           tr('fileShareView', L),
         ].filter(Boolean).join('\n\n')
-        const alwaysOk = !others || who.every((w) => namesRecipient(asked, w.name, { names: recipientWords(db, w), person: w.subjectType === 'user' }))
+        // (their own words: a quoted line is someone else's, for who gets it and for which file)
+        const typed = others || content ? ownWords(askerText(db, spec.userMessageId)) : ''
+        const alwaysOk = (!others && !content) || (who.every((w) => namesRecipient(typed, w.name, { names: recipientWords(db, w), person: w.subjectType === 'user' }))
+          && fromAsker(db, spec, plan.map((f) => f.path)) && asksToSend(db, spec.userMessageId))
         // no card when the asker's own message of this turn asked for exactly this share (docs/decisions/
         // 20261116-no-card-after-explicit-ask.md, QA TC-3812): a share word, every person or group named, every file named
         // or attached by them. Nobody else's words chose who gets which file then; never in a run nobody watches

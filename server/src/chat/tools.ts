@@ -14,7 +14,7 @@ import { newId } from '../db'
 import { PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
 import { browserUrl, isPrivateHost, staticPrivateHost } from '../realtime/private-net'
 import { cleanMemoryText, MEMORY_ITEM_MAX, neutralizeTags, skillBlock } from './prompt'
-import { isGroupSkill, isPersonalSkill, isProjectSkill, listSkills, readSkill, sameSkillName, skillAlias, skillFolder, skillIssues, type Skill, otherGroupSkills } from './skills'
+import { isGroupSkill, isPersonalSkill, isProjectSkill, listSkills, ownPersonalSkill, readSkill, sameSkillName, skillAlias, skillFolder, skillIssues, type Skill, otherGroupSkills } from './skills'
 import { changeLine, editorsLine, levelFor, levelLabel, levelRef, levelsOf, MOVE_MAX_BYTES, MOVE_MAX_FILES, MOVE_TEXT_MAX, peopleNames, peopleText, planMove, raisesTrust, runCopy, runMove, seesWho, skillAt, type Level, type MovePlan } from '../skills/move'
 import { st as skillText } from '../skills/text'
 import { audit as auditLog } from '../admin/audit'
@@ -26,6 +26,7 @@ import { authorize } from '../policy/authorize'
 import { atLeast, isStaff, type Principal } from '../policy/access'
 import { tr } from './i18n'
 import { alwaysHere, withAlways } from './always-allow'
+import { fromAsker, othersWordsIn } from './shared-actions'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
 import type { StoredStep } from './store'
 import { cardEndShort, endOfText, readOnlyNote, type CardOutcome } from '../policy/refusal'
@@ -59,6 +60,7 @@ import { mergeTargets, SHARE_MERGE_REFUSAL } from '../skills/share-merge'
 import { deleteFilesTool } from './delete-files'
 import { projectMembersTool } from './project-members'
 import { readRooms } from './read-rooms'
+import { seenWhy } from './grant-reads'
 import { WEB_ACCESS_CHANGED } from '../admin/settings'
 import { isGuestUser } from '../credentials/guest-ai'
 import { GUEST_ROOM_TOOLS, GUEST_TURN_TOOLS, guestToolDescription } from './guest-tools'
@@ -541,6 +543,9 @@ export function turnPerson(exec: TurnExec): TurnPerson {
     // steps shown as they run (not a scheduled run, a Slack question, a draft or a turn the server started). Rooms,
     // shared chats and chats that read rooms too (the owner's call, 2026-11-11)
     allSitesHere: () => LIVE_CLIENTS.has(exec.spec.clientKind ?? '') && !exec.restricted,
+    // a team file attached to a connection's send (integrations/connections/tools.ts): in a chat that holds other
+    // people's words, a file the person's own message did not bring keeps the card (chat/shared-actions.ts)
+    attachAsks: (paths) => othersWordsIn(exec) && !fromAsker(exec.rt.db, exec.spec, paths),
     webAccessChanged: () => exec.rt.hub.publish(exec.spec.userId, WEB_ACCESS_CHANGED),
     ...(exec.profileDraft ? { unattendedLabel: 'company profile draft answer', scope: (url: string) => draftUrlRefusal(exec.profileDraft!.scope, url), ...(exec.profileDraft.pages ? { pages: exec.profileDraft.pages } : {}) } : {}),
   }
@@ -551,7 +556,7 @@ export function turnPerson(exec: TurnExec): TurnPerson {
  * of its own shows what the room card would have (the folder and every file of a move, a video's file), so its one yes
  * is given seeing all of it. */
 function roomLinePerson(exec: TurnExec, p: TurnPerson, call: { tool: string; args: unknown }): TurnPerson {
-  const lead = `${tr('roomsSeenWhy', p.locale)}\n\n`
+  const lead = `${tr(seenWhy(exec, 'roomsSeenWhy'), p.locale)}\n\n`
   const extra = (e?: ConfirmExtra): ConfirmExtra => (e?.details?.length ? e : { ...e, details: exec.roomCardDetails(call.tool, call.args) })
   return {
     ...p, roomsSeen: true,
@@ -651,6 +656,8 @@ function skillTools(exec: TurnExec): Tool[] {
           }
         }
         exec.noteTaint('read', { file_path: skill.path })
+        // a skill someone else may have written is other people's words (chat/turn.ts markOthersWords)
+        if (!ownPersonalSkill(skill.path, spec.userId)) exec.markOthersWords()
         // the person's own personal skill: what an AI turn that wrote it had seen comes with it (chat/turn.ts noteOwnSkill)
         exec.noteOwnSkill(skill.path)
         // like a "/name" skill: its folder joins the chat's read scope (what is saved from it asks before going wider)
@@ -809,7 +816,7 @@ function moveSkillTool(exec: TurnExec): Tool {
         : skillText('moveConfirm', L, { name: plan.skill.name, from, to: dest })
       // after a room read this card is the call's only one (chat/turn.ts ownCard): it leads with the room card's line
       const question = [
-        exec.ownCard('move_skill') ? tr('roomsSeenWhy', L) : '',
+        exec.ownCard('move_skill') ? tr(seenWhy(exec, 'roomsSeenWhy'), L) : '',
         `${head}\n${changeLine(plan, L)}\n${editorsLine(plan, L)}`,
         plan.shadows ? skillText('moveShadows', L, { name: plan.name, where: plan.shadows }) : '',
         why,

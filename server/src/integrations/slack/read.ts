@@ -367,7 +367,7 @@ function readTools(ctx: AppContext, s: SlackConnector, userId: string): TurnTool
     try {
       ctx.db.transaction(() => {
         addSources(ctx.db, chatId, sources)
-        ctx.db.query('UPDATE chats SET session_tainted = 1 WHERE id = ?').run(chatId)
+        ctx.db.query('UPDATE chats SET session_tainted = 1, others_words = 1 WHERE id = ?').run(chatId)
       })()
     } catch (e) { s.log.warn('slack read scope failed', { err: String(e) }) }
   }

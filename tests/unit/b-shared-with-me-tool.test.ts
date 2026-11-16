@@ -10,14 +10,15 @@ import { uuidv7 } from '@mycel/shared'
 import { API, FILE_SHARE_EVERYONE, type Room } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { dropAlways, keepAlways } from '../../server/src/chat/always-allow'
-import { readByGrant } from '../../server/src/chat/grant-reads'
+import { readByGrant, seenWhy } from '../../server/src/chat/grant-reads'
+import { tr } from '../../server/src/chat/i18n'
 import { GUEST_TURN_TOOLS } from '../../server/src/chat/guest-tools'
 import { readRooms } from '../../server/src/chat/read-rooms'
 import { addSources, sourceOf } from '../../server/src/chat/read-scope'
 import { SHARED_WITH_ME_MAX, sharedWithMeOff } from '../../server/src/chat/shared-with-me-tool'
 import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
 import { RuleSet } from '../../server/src/policy/access'
-import { ROOMS_SEEN_READ_ONLY_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
+import { OWN_WORDS_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
 import { roomsOf } from '../../server/src/rooms/service'
 
 setDefaultTimeout(60_000)
@@ -76,7 +77,7 @@ async function turn(who: string, content: string, o: { chat?: string; answer?: s
 }
 
 describe('the list', () => {
-  test('nothing shared: says so; then each file with its name, who shared it, how it reaches the person, the day and its link, newest first', async () => {
+  test('nothing shared: says so; then each file with its name, who shared it, how it reaches the person, the day and its link, by-name shares first', async () => {
     expect((await turn('bob', LIST())).content).toContain('No file is shared with the user one by one right now')
     await shareFile('alice', 'users/alice/quote.md', [user('bob')])
     // (a member shares with their own groups; carol, an admin, with any)
@@ -87,10 +88,12 @@ describe('the list', () => {
     const r = await turn('bob', LIST())
     const lines = r.content.split('\n').filter((l) => l.startsWith('- '))
     const day = new Date().toISOString().slice(0, 10)
+    // the list's own order (files/shares.ts sharedWithMe): shared with them by name first, then through a group or the
+    // whole team, the newest first in each part
     expect(lines).toEqual([
+      `- "quote.md" from "Alice Kim", shared with the user, ${day}: /f/${ids.quote}`,
       `- "menu.md" from "Alice Kim", shared with everyone on the team, ${day}: /f/${ids.menu}`,
       `- "notes-for-finance.md" from "Carol Park", shared with the group "Finance", ${day}: /f/${ids.notes}`,
-      `- "quote.md" from "Alice Kim", shared with the user, ${day}: /f/${ids.quote}`,
     ])
     // never the path of a file the folder rules do not show them
     expect(r.content).not.toContain('users/alice')
@@ -163,11 +166,11 @@ describe('where it is offered', () => {
     expect((await turn('bob', fake({ echo: 'message' }))).content).not.toContain('quote.md')
   })
 
-  test('off: a shared chat, a template or restricted run, Slack, a confidential chat, a guest; on in the person\'s own scheduled run', async () => {
+  test('off: a shared chat, a template or restricted run, Slack, a scheduled run, a confidential chat, a guest', async () => {
     const base = { rt: h.rt(), spec: { userId: 'bob', chatId: 'none', clientKind: 'web' }, shared: null, restricted: false, templateRun: false, fromSlack: false }
     const off = (over: Record<string, unknown>) => sharedWithMeOff({ ...base, ...over } as never)
     expect(off({})).toBeNull()
-    expect(off({ spec: { ...base.spec, clientKind: 'schedule' } })).toBeNull()
+    expect(off({ spec: { ...base.spec, clientKind: 'schedule' } })).toBe('a scheduled run')
     expect(off({ shared: { kind: 'project' } })).toBe('a shared chat')
     expect(off({ restricted: true })).toBe('a run limited to one task')
     expect(off({ templateRun: true })).toBe('a run limited to one task')
@@ -190,7 +193,7 @@ describe('where it is offered', () => {
 describe('a file read through a grant is other people\'s words', () => {
   const exec = (chatId: string, who = 'bob', readPaths: string[] = []) => ({ rt: h.rt(), spec: { userId: who, chatId, assistantId: '' }, roomsSeen: false, files: { readPaths: new Set(readPaths) } }) as never
 
-  test('readByGrant: a place the person\'s own folder rules do not open, in this turn\'s reads or in the chat\'s read scope', async () => {
+  test('readByGrant and the card\'s words: a place the person\'s own folder rules do not open, in this turn\'s reads or in the chat\'s read scope', async () => {
     const chat = (await h.api('bob').call(API.createChat, { body: {} })).id
     expect(readByGrant(exec(chat))).toBe(false)
     // his own folders: not a grant read
@@ -204,12 +207,47 @@ describe('a file read through a grant is other people\'s words', () => {
     expect(readByGrant(exec(chat))).toBe(false)
     addSources(h.ctx.db, chat, [sourceOf(h.ctx.db, rules, 'users/alice/quote.md')])
     expect(readByGrant(exec(chat))).toBe(true)
-    // the one rule every gate asks
-    expect(readRooms(exec(chat))).toBe(true)
+    // only the card's words go by this (seenWhy): the gates ask the chat's marks (turn.ts noteOthersReads)
+    expect(readRooms(exec(chat))).toBe(false)
+    expect(seenWhy(exec(chat), 'roomsSeenWhy')).toBe('sharedFileSeenWhy')
+    expect(seenWhy(exec(chat), 'roomsSeenConfirm')).toBe('sharedFileSeenConfirm')
+    expect(seenWhy(exec(chat), 'roomsSeenConfirmRead')).toBe('sharedFileSeenConfirmRead')
+    // a room's words came in too: the room sentence, as before
+    addSources(h.ctx.db, chat, [{ type: 'room', id: financeRoom }])
+    expect(seenWhy(exec(chat), 'roomsSeenWhy')).toBe('roomsSeenWhy')
     // the owner's own chat that read the same file: her own folder, no grant
     const hers = (await h.api('alice').call(API.createChat, { body: {} })).id
     addSources(h.ctx.db, hers, [sourceOf(h.ctx.db, rules, 'users/alice/quote.md')])
     expect(readByGrant(exec(hers, 'alice'))).toBe(false)
+    expect(seenWhy(exec(hers, 'alice'), 'roomsSeenWhy')).toBe('roomsSeenWhy')
+  })
+
+  test('the marks: the list itself (names other people wrote) and a grant read mark the chat; the grant read also counts as a room read for good', async () => {
+    expect(OWN_WORDS_TOOLS.has('shared_with_me')).toBe(false)
+    const marks = (chat: string) => h.ctx.db.query('SELECT others_words o, rooms_seen r FROM chats WHERE id = ?').get(chat) as { o: number; r: number }
+    const listed = await turn('bob', LIST())
+    expect(marks(listed.chatId)).toEqual({ o: 1, r: 0 })
+    const id = await linkOf('alice', 'users/alice/quote.md')
+    const read = await turn('bob', fake({ tool: 'read', args: { file_path: `/f/${id}` } }))
+    expect(marks(read.chatId)).toEqual({ o: 1, r: 1 })
+  })
+
+  test('the card after a grant read says a shared file was read, not "messages from your conversations", in all six languages', async () => {
+    const id = await linkOf('alice', 'users/alice/quote.md')
+    const read = fake({ tool: 'read', args: { file_path: `/f/${id}` } })
+    const write = fake({ tool: 'write', args: { file_path: 'groups/finance/after-shared.md', content: 'x' }, sayResult: true })
+    const r = await turn('bob', `${read}\n${write}`, { answer: null })
+    // (bob's language in the fixture is Korean)
+    expect(r.card!.question).toContain(tr('sharedFileSeenWhy', 'ko').slice(0, 20))
+    expect(r.card!.question).not.toContain(tr('roomsSeenWhy', 'ko').slice(0, 12))
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
+      for (const k of ['sharedFileSeenWhy', 'sharedFileSeenConfirm', 'sharedFileSeenConfirmRead'] as const) {
+        expect(tr(k, l).length).toBeGreaterThan(10)
+        expect(tr(k, l)).not.toBe(tr(k.replace('sharedFile', 'rooms') as 'roomsSeenWhy', l))
+      }
+      expect(tr('sharedFileSeenConfirm', l, { ai: 'AI', what: 'W' })).toContain('W')
+    }
+    expect(tr('sharedFileSeenWhy', 'en')).toBe("A file someone shared with you (other people's words) was read here, so changes are asked first.")
   })
 
   test('share_with_person under "Always allow": after a grant read in the same answer the card shows unless the asker named the people; a planted instruction shares nothing unseen', async () => {

@@ -17,7 +17,7 @@ import { LOOKING_AT_RULE, turnPromptSections, type PromptInput } from '../../ser
 import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
 import { fileSharesOf } from '../../server/src/files/shares'
 import { loadPrincipal } from '../../server/src/policy/access'
-import { OWN_CHAT_TEAM_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
+import { OWN_CHAT_TEAM_TOOLS, OWN_WORDS_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
 import { roomsOf } from '../../server/src/rooms/service'
 
 setDefaultTimeout(60_000)
@@ -265,6 +265,16 @@ describe('where it is offered', () => {
     expect(off({ spec: { ...base.spec, userId: 'gus' } })).toBe('a guest')
   })
 
+  test('its names are other people\'s words: a call marks the chat (chats.others_words), as any tool not known to bring only the person\'s own', async () => {
+    expect(OWN_WORDS_TOOLS.has('looking_at')).toBe(false)
+    await look(bob1, 'bob', W1, { screen: 'room', roomId: rooms.finance })
+    const mark = (chat: string) => (h.ctx.db.query('SELECT others_words o FROM chats WHERE id = ?').get(chat) as { o: number }).o
+    const plain = await turn('bob', fake({ say: 'hello' }))
+    expect(mark(plain.chatId)).toBe(0)
+    const r = await turn('bob', LOOK)
+    expect(mark(r.chatId)).toBe(1)
+  })
+
   test('never a sub-agent\'s, a shared chat\'s or a guest\'s tool; after a room read it goes on without the room card; it marks the chat as outside (fails closed)', () => {
     expect(PARENT_ONLY_TOOLS.has('looking_at')).toBe(true)
     expect(SHARED_TOOLS.has('looking_at')).toBe(false)
@@ -319,8 +329,9 @@ describe('share_with_person: a file or person that came from looking_at keeps th
       expect(r.card!.options!.map((x) => x.value)).toEqual(['share', 'no'])
       expect(r.content).toContain('The user chose not to share them')
       expect(h.ctx.db.query("SELECT 1 FROM file_shares WHERE path = 'users/bob/photo-1.png'").get()).toBeNull()
-      // the asker names the file themselves: their word, no card
-      const named = await turn('bob', `share photo-1.png with the person from before\n${LOOK}\n${share({ paths: ['users/bob/photo-1.png'], people: ['Tess Yoon'] })}`)
+      // the asker names the file and the person themselves: their word, no card (the chat holds other people's words
+      // after looking_at, so "Always allow" needs both named: docs/decisions/20261116-always-allow-more-cards.md)
+      const named = await turn('bob', `share photo-1.png with Tess Yoon\n${LOOK}\n${share({ paths: ['users/bob/photo-1.png'], people: ['Tess Yoon'] })}`)
       expect(named.cards).toBe(0)
       const out = JSON.parse(named.content.slice(named.content.lastIndexOf('{"status"')))
       expect(out.status).toBe('shared')
@@ -369,7 +380,7 @@ describe('post_to_room: a room or thread that came from looking_at keeps the car
       expect(r.card!.question).toContain('#Finance')
       expect(r.card!.options!.map((x) => x.value)).toEqual(['send', 'no'])
       expect(authored(rooms.finance, 'bob')).toBe(before + 1)
-      const named = await turn('bob', `put a note in Finance\n${LOOK}\n${post({ room: rooms.finance, text: 'note, named' })}`)
+      const named = await turn('bob', `send a note to Finance\n${LOOK}\n${post({ room: rooms.finance, text: 'note, named' })}`)
       expect(named.cards).toBe(0)
       expect(authored(rooms.finance, 'bob')).toBe(before + 2)
     } finally { dropAlways(h.ctx.db, 'bob', 'card:post_to_room') }
@@ -397,7 +408,8 @@ describe('post_to_room: a room or thread that came from looking_at keeps the car
     await clearLooks()
     keepAlways(h.ctx.db, 'alice', 'post_files', null)
     try {
-      put('groups/marketing/look-plan.md', '# Plan\ndate')
+      // (saved by alice herself through the app: her own words, so reading it brings in nobody else's)
+      await h.api('alice').call(API.saveContent, { body: { path: 'groups/marketing/look-plan.md', content: '# Plan\ndate', baseSha256: null } })
       const text = 'Plan: [look-plan.md](/files/view?path=groups/marketing/look-plan.md)'
       const read = fake({ tool: 'read', args: { file_path: 'groups/marketing/look-plan.md' } })
       await look(alice, 'alice', WA, { screen: 'room', roomId: rooms.all })

@@ -3,5 +3,5 @@
   or posting something found this way always shows you a card first.
 - "The file Mina shared with me" finds the shared file, also when one of your own files has the same name. A shared
   file's page has an **Ask Trina** button that opens a new chat with that file ready.
-- After Trina reads a file someone shared with you, changes in that chat ask you first, as they do after reading a
-  conversation: the file's text is someone else's words.
+- After Trina reads a file someone shared with you, the card that asks before a change now says so ("A file someone
+  shared with you was read here"). It said messages from your conversations had come in.

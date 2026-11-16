@@ -47,6 +47,7 @@ import { PROJECT_COLS, type ProjectRow } from './store'
 import { tr } from './i18n'
 import { neutralizeTags } from './prompt'
 import { readRooms } from './read-rooms'
+import { seenWhy } from './grant-reads'
 import { ROOM_REF_RE } from '@mycel/shared/api'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
@@ -290,7 +291,7 @@ const panel = (L: Locale, name = '…') => `the project's page ("${say('where', 
 const ownChat = 'the user can ask in a chat of their own (a new AI chat)'
 
 /** What change_project_members needs of the chat turn (chat/turn.ts TurnExec): narrow, so the rules are tested alone. */
-export type MembersExec = Pick<TurnExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'files' | 'rt' | 'askPerson' | 'openRequests' | 'livePrincipal'> & Partial<Pick<TurnExec, 'alwaysPlace'>>
+export type MembersExec = Pick<TurnExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'files' | 'rt' | 'askPerson' | 'openRequests' | 'livePrincipal'> & Partial<Pick<TurnExec, 'othersWords'>> & Partial<Pick<TurnExec, 'alwaysPlace'>>
 
 /** Why the tool is refused in this turn whatever is asked (refusal() text and a short reason), or null: the person's own
  * chat with them there. */
@@ -448,7 +449,7 @@ export function projectMembersTool(exec: MembersExec): Tool {
     const folded = foldName(words.text)
     // the project: this chat's, or one the person named themselves (its own name, never the AI's alias of it)
     const projectSaid = found.own || said(folded, r.name)
-    const card = membersCard(p, { L, admin: isAdminRole(user), words: folded, projectSaid, readRooms: roomsRead })
+    const card = membersCard(p, { L, admin: isAdminRole(user), words: folded, projectSaid, readRooms: roomsRead, why: seenWhy(exec, 'roomsSeenWhy') })
     const requestId = uuidv7()
     const base = { projectId: r.id, add: p.adds.map(keyOf), remove: p.removes.map(keyOf), gained: p.plan.gained.length, lost: p.plan.lost.length, notSaid: card.notSaid, readRooms: roomsRead, requestId }
     // counted and marked open before the card goes out: a second call while it waits is refused (busy), not queued
@@ -457,7 +458,10 @@ export function projectMembersTool(exec: MembersExec): Tool {
     let answer: Awaited<ReturnType<MembersExec['askPerson']>>
     try {
       let missing: typeof answer.missing = null
-      const value = await withAlways(exec.alwaysPlace?.(), 'project_members', [{ label: MEMBERS_TEXT.yes[L], value: 'change' }, { label: MEMBERS_TEXT.no[L], value: 'skip' }], 'change', async (options, more) => {
+      // a chat that holds other people's words (it read rooms, or content someone else wrote: TurnExec.othersWords):
+      // the card, also under "Always allow" (a name in the person's messages may be the content's author, not an ask)
+      const steered = roomsRead || !!exec.othersWords
+      const value = await withAlways(steered ? null : exec.alwaysPlace?.(), 'project_members', [{ label: MEMBERS_TEXT.yes[L], value: 'change' }, { label: MEMBERS_TEXT.no[L], value: 'skip' }], 'change', async (options, more) => {
         const r = await exec.askPerson({
           kind: 'ask_user', origin: 'server', requestId, question: card.question, multiple: false, allowText: false,
           options, details: card.details, ...more,
@@ -659,7 +663,7 @@ const isAdminRole = (p: Pick<Principal, 'role'>) => p.role === 'owner' || p.role
  * count, "같은 이름 N명"), and the red mark on a name not in the person's own messages (and on a project other than the
  * chat's). `notSaid`: how many of those.
  */
-export function membersCard(p: Pick<MembersPlan, 'r' | 'adds' | 'removes' | 'plan' | 'everyone' | 'members'>, o: { L: Locale; admin: boolean; words: string; projectSaid: boolean; readRooms: boolean }): { question: string; details: ConfirmDetail[]; notSaid: number } {
+export function membersCard(p: Pick<MembersPlan, 'r' | 'adds' | 'removes' | 'plan' | 'everyone' | 'members'>, o: { L: Locale; admin: boolean; words: string; projectSaid: boolean; readRooms: boolean; why?: Parameters<typeof tr>[0] }): { question: string; details: ConfirmDetail[]; notSaid: number } {
   const { L } = o
   const { plan } = p
   const before = plan.before.length, after = plan.after.length, gained = plan.gained.length, lost = plan.lost.length
@@ -696,7 +700,7 @@ export function membersCard(p: Pick<MembersPlan, 'r' | 'adds' | 'removes' | 'pla
   const projectLine = `${shownName(p.r.name)} (${p.r.folder_path})`
   const notSaid = alerts.add.length + alerts.remove.length + (o.projectSaid ? 0 : 1)
   const question = [
-    o.readRooms ? tr('roomsSeenWhy', L) : '',
+    o.readRooms ? tr(o.why ?? 'roomsSeenWhy', L) : '',
     [
       say('ask', L, { project: shownName(p.r.name) }),
       gained && lost ? say('both', L, { gained, lost, before, after }) : gained ? say('gain', L, { gained, before, after }) : lost ? say('lose', L, { lost, before, after }) : say('same', L, { n: after }),

@@ -20,6 +20,7 @@ import type { TurnRequest } from '@mycel/shared/api'
 import { PERSON_REF } from '../rooms/reader'
 import { confidentialChat } from '../safe-ops/confidential'
 import { alwaysHere } from './always-allow'
+import { readRooms, withoutQuoteLines } from './read-rooms'
 import type { TurnExec } from './turn'
 
 /** Why an action that reaches others is not offered in this turn, or null: it is. `scheduleKind`: the Always allow
@@ -102,9 +103,44 @@ export function attachedPaths(db: Database, messageId: string): Set<string> {
   return out
 }
 
-/** The AI made or changed the file at `rel` in this turn (its own write, upload or move there). */
+/** The AI made the file at `rel` in this turn: a new file it wrote there (its own write or upload), with nothing at
+ * that path before the turn. Not a file moved, renamed or copied into place (its content was there before: the
+ * event's movedFrom / sourcePaths), and not an edit of a file that existed before the turn: neither makes an older
+ * file one the asker brought. */
 export function madeInTurn(db: Database, turnId: string, rel: string): boolean {
-  return !!db.query("SELECT 1 FROM file_events WHERE turn_id = ? AND path = ? AND action IN ('create','update','upload') LIMIT 1").get(turnId, rel)
+  return !!db.query(`SELECT 1 FROM file_events e WHERE e.turn_id = ?1 AND e.path = ?2 AND e.action IN ('create','upload')
+      AND (e.detail IS NULL OR NOT json_valid(e.detail) OR (json_extract(e.detail, '$.movedFrom') IS NULL AND json_extract(e.detail, '$.sourcePaths') IS NULL AND json_extract(e.detail, '$.copiedFrom') IS NULL))
+      AND NOT EXISTS (SELECT 1 FROM file_events p WHERE p.path = ?2 AND p.id < e.id AND (p.turn_id IS NULL OR p.turn_id <> ?1))
+    LIMIT 1`).get(turnId, rel)
+}
+
+// ---- content written by others (docs/decisions/20261116-always-allow-more-cards.md "Content written by others") ----
+/**
+ * Other people's words are in this turn: a shared chat, a chat others wrote in, one that read rooms (a side chat,
+ * room_read, a quoted message), or one that read content someone else wrote (TurnExec.othersWords: a teammate's team
+ * file, a file shared with the person, a web page, a connected service's answer…). Any of it can ask for an action, so
+ * the person's "Always allow" for an action that reaches other people then counts only for what their own message
+ * names. Read at the call: a read can come in this very turn.
+ */
+export function othersWordsIn(exec: Pick<TurnExec, 'shared' | 'otherAuthors' | 'roomsSeen' | 'spec' | 'rt'> & Partial<Pick<TurnExec, 'othersWords'>>): boolean {
+  return !!exec.shared || !!exec.otherAuthors || readRooms(exec) || !!exec.othersWords
+}
+
+/** Every file is one the asker brought into this turn themselves: attached to their own message, named in it (quoted
+ * lines left out; a Hangul name also without its separators), or made or changed by the AI in this answer. */
+/** The asker's own message of this turn (quoted lines left out) asks to share, send or post something: the request
+ * form of one of those verbs and no "don't". Naming a person is not asking to send to them ("summarise the notes Tess
+ * wrote"), so where other people's words are in the chat "Always allow" also needs this. */
+export function asksToSend(db: Database, messageId: string): boolean {
+  const said = withoutQuoteLines(askerText(db, messageId))
+  return asksFor(SHARE_ASK, said) || asksFor(POST_ASK, said)
+}
+
+export function fromAsker(db: Database, spec: { userMessageId: string; turnId: string }, paths: Iterable<string>): boolean {
+  const said = withoutQuoteLines(askerText(db, spec.userMessageId))
+  const attached = attachedPaths(db, spec.userMessageId)
+  for (const p of paths) if (!(attached.has(p) || namesFileLoose(said, p) || madeInTurn(db, spec.turnId, p))) return false
+  return true
 }
 
 // ---- "no card after an explicit ask" (docs/decisions/20261116-no-card-after-explicit-ask.md, QA TC-3812) ----
