@@ -6,7 +6,7 @@
 // (their account is turned off: PATCH status disabled; a removed guest's "…" deletes the account for good, as for a
 // member). Guests are invited from a room's or a project's "Add people", not here. The members table above leaves them
 // out. ?member=<id> marks and scrolls to a guest's row too (a refused "add to a second place" opens it: GuestInvite.tsx).
-// Over the list, one team setting: the largest file a guest may upload (GuestFileLimit; 100 MB, 1 GB or 10 GB).
+// Over the list, one team setting: the largest file a guest may upload (GuestFileLimit; 100 MB or 1 GB, never above a member's 1 GB).
 // Removed guests stay out of sight behind "Show removed (N)". "Make team member" reads the seats before its dialog
 // (GET /api/guest-invites/limit): with every seat taken the dialog says so, with "See plans", and has nothing to confirm.
 // Its words say that their AI then follows the team's settings, like any member's (the guest AI choice ends).
