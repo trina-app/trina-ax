@@ -414,7 +414,7 @@ function header(ctx: Ctx, page: Page | null): string {
   return `<header class="site-header">
   <div class="bar">
     <button class="menu-button icon-button" type="button" aria-label="${ui.openNav}" aria-controls="sidebar" aria-expanded="false">${icon('menu')}</button>
-    <a class="brand" href="${pageUrl(ctx, 'index')}"><img src="${ctx.root}/assets/favicon.svg" alt="" width="24" height="24"><span>${esc(ctx.nav.title)}</span></a>
+    <a class="brand" href="${pageUrl(ctx, 'index')}"><img class="brand-light" src="${ctx.root}/assets/mark-light.svg" alt="" width="24" height="24"><img class="brand-dark" src="${ctx.root}/assets/mark-dark.svg" alt="" width="24" height="24"><span>${esc(ctx.nav.title)}</span></a>
     ${searchBox(ctx)}
     <nav class="bar-links" aria-label="${ui.links}">
       ${langSwitch(ctx, page, 'lang-switch')}<a class="quiet-link" href="${ctx.nav.repo}" rel="noopener">GitHub</a>
@@ -521,6 +521,8 @@ export function build(argv: string[]) {
   const assets = path.join(import.meta.dir, 'assets')
   for (const f of fs.readdirSync(assets)) fs.copyFileSync(path.join(assets, f), path.join(o.out, 'assets', f))
   fs.copyFileSync(path.join(ROOT, 'web/public/favicon.svg'), path.join(o.out, 'assets/favicon.svg'))
+  // the header's logo: the primary (light) mark, the dark one on the dark theme (editions/trina/branding/logo/README.md)
+  for (const t of ['light', 'dark']) fs.copyFileSync(path.join(ROOT, `editions/trina/branding/logo/mark-${t}.svg`), path.join(o.out, `assets/mark-${t}.svg`))
   if (siteNav) {
     fs.mkdirSync(path.join(o.out, 'assets/site-nav'), { recursive: true })
     for (const f of [...(siteNav.css ?? []), ...(siteNav.assets ?? [])]) fs.copyFileSync(path.join(path.dirname(o.siteNav), f), path.join(o.out, 'assets/site-nav', f))

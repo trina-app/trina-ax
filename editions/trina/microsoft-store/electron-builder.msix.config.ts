@@ -52,7 +52,7 @@ export default {
     applicationId: 'TrinaAX',
     // the reserved name in Partner Center
     displayName: PRODUCT.displayName,
-    backgroundColor: '#14110f',
+    backgroundColor: '#f6f2ea',
     // store listings: English (default) and Korean; the app itself still has its five languages
     languages: ['en-US', 'ko-KR'],
     minVersion: '10.0.17763.0',
