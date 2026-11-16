@@ -550,6 +550,10 @@ export const SPECS: Record<string, Spec> = {
   getJob: { build: (c, w) => c.get(`/api/jobs/${w.ids.jobAlice}`), scope: 'own-alice' },
   cancelJob: { build: (c, w) => c.post(`/api/jobs/${w.ids.jobAlice}/cancel`), scope: 'own-alice' },
   transcribe: { build: (c, w) => c.req('POST', '/api/transcribe', undefined, { form: tform(w.ids.chatA) }), scope: 'own-alice-chat' },
+  // meeting notes (desktop app): any signed-in member for themselves; guests are not on the allow-list. The world has
+  // voice input off, so a piece is refused (409) for an allowed caller too: covered by the deny matrix
+  meetingStatus: { build: (c) => c.get('/api/meetings/status'), scope: 'self' },
+  meetingPiece: { skipPositive: true, build: (c) => c.req('POST', '/api/meetings/piece', undefined, { form: tform(undefined) }), scope: 'self' },
 
   // ---- browser relay (own session/window) ----
   pollCalls: { build: (c) => c.get('/api/browser/calls?windowId=win-xxxxxxxx&waitMs=1'), scope: 'self' },
@@ -788,7 +792,7 @@ export const SPECS: Record<string, Spec> = {
 // multipart helpers
 function uform(folder: string, name: string): FormData { const f = new FormData(); f.set('folder', folder); f.set('name', name); f.set('file', new File([Buffer.from('x')], name)); return f }
 function aform(chatId: string, name: string): FormData { const f = new FormData(); f.set('chatId', chatId); f.set('name', name); f.set('file', new File([png()], name, { type: 'image/png' })); return f }
-function tform(chatId: string): FormData { const f = new FormData(); f.set('chatId', chatId); f.set('file', new File([Buffer.from('RIFF')], 'a.wav', { type: 'audio/wav' })); return f }
+function tform(chatId: string | undefined): FormData { const f = new FormData(); if (chatId) f.set('chatId', chatId); f.set('file', new File([Buffer.from('RIFF')], 'a.wav', { type: 'audio/wav' })); return f }
 const png = () => Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
 
 export function allCases(): Case[] {

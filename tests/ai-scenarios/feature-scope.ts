@@ -40,6 +40,7 @@ export const FEATURE_SCOPE: Record<string, Scope> = {
   'chat.decks': { reach: 'acts', tools: ['intro_deck', 'make_file'] },
   'chat.promo-video': { reach: 'acts', tools: ['promo_video', 'generate_video'] },
   'chat.voice': { reach: 'acts', tools: ['read'], why: 'an audio file in the team folder is read as a transcript' },
+  'chat.meeting-notes': { reach: 'none', why: 'server calls only so far (desktop app slices 2-4 add the entry); becomes explains with its cases when people can start it' },
   'chat.browser': { reach: 'acts', tools: ['browser_*'], why: 'desktop app only; on a web chat the AI explains' },
   'chat.web-access': { reach: 'acts', tools: ['web_fetch', 'save_url'] },
   'chat.memory': { reach: 'acts', tools: ['remember', 'forget'] },
