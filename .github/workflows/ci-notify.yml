@@ -1,7 +1,10 @@
-# CI notify: posts to Discord every time CI on main finishes (passed, failed, or green again after a failure).
-# It runs after CI (workflow_run), so ci.yml keeps using no secret. The only secret is DISCORD_WEBHOOK_URL
-# (Settings → Secrets and variables → Actions); without it this workflow does nothing and passes.
-# The Mac's CI autofix watcher (outside this repo) posts its own progress to the same channel.
+# CI notify: posts every time CI on main finishes (passed, failed, or green again after a failure), to Discord and to a
+# Trina room. It runs after CI (workflow_run), so ci.yml keeps using no secret. Secrets (Settings → Secrets and
+# variables → Actions), each optional; without both this workflow does nothing and passes:
+#   DISCORD_WEBHOOK_URL  Discord #trina-ax-ci
+#   TRINA_ROOM_URL       a Trina room app's address (room menu → Add an app → Other: https://<team>/in/tax_in_…)
+# The Mac's CI autofix watcher (outside this repo) posts its own progress to the same places; in the Trina room it
+# uses the same thread (ci-run-<run id>), so a run's result and its fix stay together.
 name: CI notify
 
 on:
@@ -20,9 +23,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Post to Discord
+      - name: Post to Discord and the Trina room
         env:
           WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TRINA_ROOM: ${{ secrets.TRINA_ROOM_URL }}
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.event.workflow_run.id }}
@@ -34,17 +38,17 @@ jobs:
           STARTED: ${{ github.event.workflow_run.run_started_at }}
           UPDATED: ${{ github.event.workflow_run.updated_at }}
         run: |
-          if [ -z "$WEBHOOK" ]; then echo "DISCORD_WEBHOOK_URL is not set; nothing to post"; exit 0; fi
-
-          # the main CI run before this one (cancelled runs are skipped: they say nothing about main)
-          previous=$(gh run list -R "$REPO" --workflow ci.yml --branch main --event push --status completed --limit 10 \
-            --json databaseId,conclusion --jq "[.[] | select(.databaseId < $RUN_ID and .conclusion != \"cancelled\")][0].conclusion // \"\"")
+          if [ -z "$WEBHOOK" ] && [ -z "$TRINA_ROOM" ]; then echo "DISCORD_WEBHOOK_URL and TRINA_ROOM_URL are not set; nothing to post"; exit 0; fi
 
           case "$CONCLUSION" in
             failure|timed_out|startup_failure) ;;
             success) ;;
             *) echo "conclusion $CONCLUSION; nothing to post"; exit 0 ;;
           esac
+
+          # the main CI run before this one (cancelled runs are skipped: they say nothing about main)
+          previous=$(gh run list -R "$REPO" --workflow ci.yml --branch main --event push --status completed --limit 10 \
+            --json databaseId,conclusion --jq "[.[] | select(.databaseId < $RUN_ID and .conclusion != \"cancelled\")][0].conclusion // \"\"")
 
           minutes=$(( ( $(date -d "$UPDATED" +%s) - $(date -d "$STARTED" +%s) ) / 60 ))
           if [ "$CONCLUSION" = success ]; then
@@ -57,14 +61,31 @@ jobs:
               --jq '[.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | "• " + .name] | join("\n")' || true)
           fi
 
-          payload=$(jq -n \
-            --arg head "$head" --arg url "$RUN_URL" --arg title "$TITLE" --arg author "$AUTHOR" \
-            --arg sha "${SHA:0:8}" --arg mins "$minutes" --arg failed "$failed" --argjson color "$color" \
-            '{username: "Trina AX CI", allowed_mentions: {parse: []}, embeds: [{
-               title: $head, url: $url, color: $color,
-               description: ("`" + $sha + "` " + ($title | .[0:200]) + "\nby " + $author + " · " + $mins + " min"
-                             + (if $failed == "" then "" else "\n\n**Failed jobs**\n" + $failed end)),
-               footer: {text: (if $failed == "" then "trina-app/trina-ax" else "Claude on the Mac is picking this up" end)}
-             }]}')
-          curl -fsS -X POST -H 'Content-Type: application/json' --data "$payload" "$WEBHOOK" -o /dev/null
-          echo "posted: $head"
+          if [ -n "$WEBHOOK" ]; then
+            payload=$(jq -n \
+              --arg head "$head" --arg url "$RUN_URL" --arg title "$TITLE" --arg author "$AUTHOR" \
+              --arg sha "${SHA:0:8}" --arg mins "$minutes" --arg failed "$failed" --argjson color "$color" \
+              '{username: "Trina AX CI", allowed_mentions: {parse: []}, embeds: [{
+                 title: $head, url: $url, color: $color,
+                 description: ("`" + $sha + "` " + ($title | .[0:200]) + "\nby " + $author + " · " + $mins + " min"
+                               + (if $failed == "" then "" else "\n\n**Failed jobs**\n" + $failed end)),
+                 footer: {text: (if $failed == "" then "trina-app/trina-ax" else "Claude on the Mac is picking this up" end)}
+               }]}')
+            curl -fsS -X POST -H 'Content-Type: application/json' --data "$payload" "$WEBHOOK" -o /dev/null
+            echo "discord: posted $head"
+          fi
+
+          # Trina room app (Other): plain text, one thread per run. A failed post warns; it never fails the job.
+          if [ -n "$TRINA_ROOM" ]; then
+            room=$(jq -n \
+              --arg head "$head" --arg url "$RUN_URL" --arg title "$TITLE" --arg author "$AUTHOR" \
+              --arg sha "${SHA:0:8}" --arg mins "$minutes" --arg failed "$failed" --arg thread "ci-run-$RUN_ID" \
+              '{title: $head, link: $url, thread: $thread,
+                text: ($sha + " " + ($title | .[0:200]) + "\nby " + $author + " · " + $mins + " min"
+                       + (if $failed == "" then "" else "\n\nFailed jobs\n" + $failed + "\n\nClaude on the Mac is picking this up." end))}')
+            if curl -fsS --retry 2 --retry-delay 3 -X POST -H 'Content-Type: application/json' --data "$room" "$TRINA_ROOM" -o /dev/null; then
+              echo "trina: posted $head"
+            else
+              echo "::warning::the Trina room did not take the CI notice"
+            fi
+          fi
