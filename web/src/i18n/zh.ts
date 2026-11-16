@@ -4384,6 +4384,8 @@ export const zh: Record<MessageKey, string> = {
   "notifications.chatAnswersDesc": "当你请求的回答已准备好或 Trina 需要你，而你没有在看那个对话时。",
   "notifications.chatShares": "与我共享的对话",
   "notifications.chatSharesDesc": "有人指名与你共享对话时，在手机或浏览器上通知你。通过小组共享的只显示在动态中。",
+  "notifications.fileShares": "文件共享",
+  "notifications.fileSharesDesc": "有人指名与你共享文件或请求打开你的文件时，在手机或浏览器上通知你。通过小组或与团队所有人共享的只显示在动态中。",
   "notifications.section.phone": "手机",
   "notifications.phoneAway": "仅在我离开时通知手机",
   "notifications.phoneAwayDesc": "你在使用 Trina 时，通知会显示在那里，而不是手机上。当你离开电脑上的 Trina 时，手机才会收到通知。关闭后：手机也会立即收到通知。",

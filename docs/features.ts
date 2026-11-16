@@ -101,7 +101,7 @@ export const FEATURES: Feature[] = [
   { id: 'rooms.hide-pin', name: 'Hide and pin conversations', area: 'Rooms', endpoints: ['setRoomHidden', 'pinRoom', 'unpinRoom'] },
   { id: 'rooms.files', name: 'Files in a room', area: 'Rooms', endpoints: ['uploadRoomFile', 'attachRoomTeamFile', 'roomFile', 'roomFileHwpPreview'] },
   { id: 'rooms.search', name: 'Search messages and files of rooms', area: 'Rooms', endpoints: ['searchRoomMessages', 'searchRoomFiles'] },
-  { id: 'rooms.activity', name: 'Activity: mentions and thread replies', area: 'Rooms', screens: ['/activity'] },
+  { id: 'rooms.activity', name: 'Activity: mentions and thread replies', area: 'Rooms', screens: ['/activity', '/activity/:noticeId'] },
   { id: 'rooms.apps', name: 'Apps posting in rooms (Sentry, GitHub, Google Forms, Notion, Typeform, Tally, Jotform, Stripe, Shopify, Zendesk, Jira, HubSpot; more services: Toss Payments, Channel Talk, PortOne; other services in Slack, Discord or JANDI format; added from a conversation menu or from "Add to a conversation" in Connectors)', area: 'Rooms', endpoints: ['listRoomApps', 'createRoomApp', 'getRoomAppAddress', 'updateRoomApp', 'setRoomAppSecret', 'rotateRoomApp', 'resumeRoomApp', 'exampleRoomApp', 'deleteRoomApp', 'putRoomAppIcon', 'setRoomAppEmoji', 'deleteRoomAppIcon', 'roomAppIcon'], screens: ['/rooms/:roomId'] },
 
   // ---------------- Skills ----------------

@@ -4398,6 +4398,8 @@ export const ja: Record<MessageKey, string> = {
   "notifications.chatAnswersDesc": "お願いした回答が終わったときや、トリナがあなたを待っているときに通知します。そのチャットを見ているときは通知しません。",
   "notifications.chatShares": "自分に共有されたチャット",
   "notifications.chatSharesDesc": "誰かがあなたを指定してチャットを共有したときに、スマートフォンやブラウザに通知します。グループへの共有はアクティビティにだけ表示されます。",
+  "notifications.fileShares": "ファイル共有",
+  "notifications.fileSharesDesc": "誰かがあなたを指定してファイルを共有したときや、あなたのファイルを開くリクエストを送ったときに、スマートフォンやブラウザに通知します。グループやチームの全員への共有はアクティビティにだけ表示されます。",
   "notifications.section.phone": "スマートフォン",
   "notifications.phoneAway": "離れているときだけスマートフォンに通知",
   "notifications.phoneAwayDesc": "トリナを使っている間は、通知はスマートフォンではなく使っている画面に届きます。パソコンでトリナを使っていないときはスマートフォンに届きます。オフにするとスマートフォンにもすぐ届きます。",
