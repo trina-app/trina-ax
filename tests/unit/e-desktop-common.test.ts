@@ -1001,7 +1001,7 @@ describe('quitting', () => {
 
 describe('the Mac dmg window', () => {
   test('opens on the Trina background with the two icons over its spots', async () => {
-    type Dmg = { background: string; window: { width: number; height: number }; iconSize: number; contents: { x: number; y: number; type: string; path?: string }[] }
+    type Dmg = { background: string; window?: unknown; iconSize: number; contents: { x: number; y: number; type: string; path?: string }[] }
     const base = (await import('../../desktop/electron-builder.config')).default as { dmg: Dmg }
     const dmg = base.dmg
     const size = (f: string) => {
@@ -1012,10 +1012,10 @@ describe('the Mac dmg window', () => {
     expect(dmg.background).toBe('build-resources/background.png')
     const one = size(dmg.background), two = size(dmg.background.replace('.png', '@2x.png'))
     expect(two).toEqual({ w: one.w * 2, h: one.h * 2 })
-    // the window is as wide as the art; its height counts the title bar (32 points on macOS 26) and the art is taller
-    // than what shows, so no white edge on any system
-    expect(dmg.window.width).toBe(one.w)
-    expect(one.h).toBeGreaterThanOrEqual(dmg.window.height - 32)
+    // electron-builder makes the window the picture's size, title bar (32 points on macOS 26) included: no `window`, and
+    // the picture is the 420 points of art plus 32
+    expect(dmg.window).toBeUndefined()
+    expect(one).toEqual({ w: 660, h: 420 + 32 })
     // the app on the left, Applications on the right, on the art's two spots (scripts/dmg-background.svg)
     expect(dmg.contents).toEqual([
       { x: 180, y: 190, type: 'file' },

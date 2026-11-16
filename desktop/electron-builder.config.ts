@@ -63,14 +63,10 @@ export default {
     sign: false,
     title: `${PRODUCT.displayName} \${version}`,
     artifactName: `${A}-\${version}-mac-\${arch}.\${ext}`,
-    // the window it opens on: scripts/dmg-background.svg rendered at 660×440 and 1320×880 (background@2x.png, which
-    // electron-builder joins with this file into one retina TIFF). Finder takes the height with the title bar (32 points
-    // on macOS 26), so 452 shows the art's 420; the art runs 20 lower for the shorter title bar of older systems. The icon
-    // centres (points from the top left of the art) sit over the art's two spots.
+    // the window it opens on: scripts/dmg-background.svg rendered at 660×452 and 1320×904 (background@2x.png, which
+    // electron-builder joins with this file into one retina TIFF). electron-builder makes the window the picture's size,
+    // title bar included, so no `window` here; the art's spots are the icon centres below (points from its top left).
     background: 'build-resources/background.png',
-    // No x/y: with a background, electron-builder 26.0.12 ignores them and writes x 400, y (1440 - height) / 2 from the
-    // bottom of the screen; on a smaller screen macOS keeps the title bar below the menu bar.
-    window: { width: 660, height: 452 },
     iconSize: 128,
     iconTextSize: 12,
     contents: [

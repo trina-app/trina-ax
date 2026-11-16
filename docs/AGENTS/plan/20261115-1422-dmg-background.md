@@ -18,10 +18,10 @@ wordmark top left, a cream arrow from the app to Applications, and "Drag Trina A
 In:
 - `desktop/scripts/dmg-background.svg`: the source art (text outlined from Geist, so it renders with no fonts), with
   the render command in the file, as `trina-icon.svg` does.
-- `desktop/build-resources/background.png` (660×440) and `background@2x.png` (1320×880), rendered with rsvg-convert.
-  The art is laid out on 660×420; the canvas runs 20 points lower in plain orange (see Result).
+- `desktop/build-resources/background.png` (660×452) and `background@2x.png` (1320×904), rendered with rsvg-convert.
+  The art is laid out on 660×420; the canvas runs 32 points lower in plain orange (see Result).
 - Base `dmg` settings in `desktop/electron-builder.config.ts` (the Developer ID config spreads them): background,
-  window size, icon size, label size, and the two icons' positions over the art.
+  icon size, label size, and the two icons' positions over the art.
 - The orange is a mid tone on purpose: Finder writes the icon names in black in light mode and white in dark mode, and
   the background cannot follow, so the names must read on it both ways (about 4.5:1 each).
 
@@ -46,13 +46,13 @@ sizes, the window and the icon spots); the dmg build and the two screenshots.
 
 ## Result
 
-Built as planned, with one change found in the real build (`dist:mac:arm64` on macOS 26.6, mounted read-only from a
-copy):
-- Finder takes the window size with the title bar: with 660×420 its window was 660×420 in all, so the art's bottom was
-  cut. The title bar is 32 points on macOS 26 (28 before), so the window is 660×452 and the canvas is 660×440, the extra
-  20 points plain orange, so an older system shows a little more orange instead of a white edge.
-- electron-builder 26.0.12 joins `background.png` and `background@2x.png` into one TIFF with `tiffutil -cathidpicheck`
-  (`.background/*.tiff` in the dmg holds 660×440 and 1320×880); the dmg's `.DS_Store` has the window bounds, icon size
-  128, label size 12 and the two icons at (180,190) and (480,190).
-- With a background, electron-builder ignores the window's x/y, so they are not set.
+Built as planned, with two changes found in real builds (mounted read-only from a copy, macOS 26.6):
+- electron-builder 26.0.12 makes the dmg as APFS with an old dmgbuild, and Finder showed no background at all, in our
+  dmg and in the released 0.5.7 dmg. With 26.15.3 (HFS+, newer dmgbuild) it shows. So this branch sits on the
+  electron-builder 26.15.3 update (its own PR, `chore/electron-builder-26-15`).
+- Finder counts the title bar in the window size (32 points on macOS 26, 28 before), and 26.15.3 makes the window the
+  picture's size and ignores `window` when there is a background. So there is no `window`, and the canvas is 660×452:
+  the 420 points of art and 32 points of plain orange below, so an older system shows a little more orange.
+- electron-builder joins `background.png` and `background@2x.png` into one TIFF (`tiffutil -cathidpicheck`); the
+  dmg's `.DS_Store` has icon size 128, label size 12 and the two icons at (180,190) and (480,190).
 - Geist's notice is in NOTICE and docs/THIRD-PARTY-NOTICES.md (outlines only, no font file).
