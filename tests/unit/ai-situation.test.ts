@@ -115,7 +115,7 @@ describe('the block per state', () => {
     expect(say({ app: 'desktop-browser' })).toContain('desktop app, with its browser next to the chat')
     const slack = say({ app: 'slack' })
     expect(slack).toContain('they asked from Slack')
-    expect(slack).toContain('name any file you save by its team path')
+    expect(slack).toContain('give the team path of any file you save, next to its link')
     expect(say({ app: 'schedule' })).toContain('scheduled task\'s run; nobody is watching')
     // nobody can answer a card in Slack or a scheduled run: none is offered there
     for (const app of ['slack', 'schedule'] as const) expect(say({ app })).not.toContain('card in this chat')
@@ -246,5 +246,15 @@ describe('built from real state', () => {
     expect(buildTurnPrompt(h.ctx.files, input)).not.toContain('About this person and place')
     expect(buildTurnContext(h.ctx.files, input)).not.toContain('About this person and place')
     expect(buildTurnPrompt(h.ctx.files, { ...input, shared: null })).toContain('About this person and place')
+  })
+
+  test('where things are in the app (chat/app-map.ts): in the first instructions, never for a guest, never in the per-turn context', () => {
+    const input: PromptInput = {
+      user: h.ctx.files.principal('alice'), groupNames: [], locale: 'en', timeZone: 'UTC', memories: [], project: null, browser: false, tools: [], history: null,
+      appMap: { view: 'member', managed: false, devEnv: false, office: false },
+    }
+    expect(buildTurnPrompt(h.ctx.files, input)).toContain('## Where things are in the app')
+    expect(buildTurnContext(h.ctx.files, input)).not.toContain('Where things are in the app')
+    expect(buildTurnPrompt(h.ctx.files, { ...input, guest: { places: [], inviter: null } })).not.toContain('Where things are in the app')
   })
 })

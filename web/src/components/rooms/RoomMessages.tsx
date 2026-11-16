@@ -58,6 +58,7 @@ import { MenuButton, useLongPress, type MenuItem } from './MenuButton'
 import { MessageHoverBar } from './MessageHoverBar'
 import { reactable, ReactionChips, ReactionPanel, ReactionStrip } from './Reactions'
 import { LinkedText } from './MessageText'
+import { ThreadLine } from '../ThreadLine'
 import type { MessageMention } from '../../lib/messageMarkdown'
 import { MENTION_ALL_WORDS, pickedInMessage, useMentionMenu } from './useMentionMenu'
 import { Tooltip } from '../Tooltip'
@@ -330,31 +331,6 @@ function RunAvatar({ m }: { m: RoomMessage }) {
 
 /** A root's thread under it: up to 3 faces, "답글 3개", the last reply's time; a dot when a thread I follow has replies I
  * have not read. One tap opens the thread. */
-function ThreadLine({ m, onOpen }: { m: RoomMessage; onOpen: () => void }) {
-  const t = useT()
-  const locale = useLocale()
-  const th = m.thread
-  if (!th || th.replyCount <= 0) return null
-  return (
-    <button type="button" onClick={onOpen} className="touch-hit group/thread mt-1 -ml-1 flex max-w-full items-center gap-1.5 rounded-md px-1 py-0.5 text-left text-xs hover:bg-hover" data-testid="room-thread-line" data-new={th.newReplies ? '' : undefined}>
-      {th.repliers.length > 0 && (
-        <span className="flex shrink-0 gap-0.5" aria-hidden>
-          {th.repliers.map((u) => <ReplierFace key={u.id} user={u} />)}
-        </span>
-      )}
-      {th.newReplies && <span className="size-1.5 shrink-0 rounded-full bg-accent" aria-hidden />}
-      <span className="shrink-0 font-medium text-accent-text group-hover/thread:underline">{t('rooms.threadReplies', { n: th.replyCount })}</span>
-      {th.newReplies && <span className="sr-only">{t('rooms.threadNew')}</span>}
-      {th.lastReplyAt && <span className="truncate text-faint">· {t('rooms.threadLast', { time: timeOf(th.lastReplyAt, locale) })}</span>}
-    </button>
-  )
-}
-
-function ReplierFace({ user }: { user: UserRef }) {
-  const u = useAvatarOf(user)
-  return u ? <Avatar user={u} size={18} /> : <span className="size-[18px] rounded-full bg-hover" />
-}
-
 function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = false, flash, highlighted = false, onEdit, onEditDone, onEditAgain, onThread, onAskTrina, variant, onJump, barBelow = false }: { roomId: string; m: RoomMessage; mine: boolean; names: Map<string, string>; members: UserRef[]; meId: string | null; editing: boolean; /** being edited in the box at the bottom (a phone): marked */ inBox?: boolean; flash: boolean; highlighted?: boolean; onEdit: () => void; onEditDone: () => void; onEditAgain: () => void; onThread?: (rootId: string, focus?: boolean) => void; onAskTrina?: (m: RoomMessage) => void; variant: ListVariant; onJump?: () => void; barBelow?: boolean }) {
   const t = useT()
   const locale = useLocale()
@@ -490,7 +466,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = fa
       )}
       </ViewerMeta>
       {!deleted && <ReactionChips roomId={roomId} m={m} />}
-      {variant === 'timeline' && onThread && !m.threadRootId && <ThreadLine m={m} onOpen={() => onThread(m.id)} />}
+      {variant === 'timeline' && onThread && !m.threadRootId && <ThreadLine summary={m.thread} onOpen={() => onThread(m.id)} testId="room-thread-line" />}
       {/* computers: the hover bar (reactions, reply in thread, ⋮); touch screens and phones: a long press opens the same
           as a sheet, with six emoji and "More emoji" on top (its own button never shows) */}
       {menuOn && (

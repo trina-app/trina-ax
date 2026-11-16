@@ -126,8 +126,9 @@ export const JPX_SCAN: PdfImage = {
   ),
 }
 
-/** Objects 1..n (each a string, or string and byte parts) with a correct xref table. */
-function writePdf(objs: (string | (string | Uint8Array)[])[]): Uint8Array {
+/** Objects 1..n (each a string, or string and byte parts) with a correct xref table. `trailer`: more trailer entries
+ * (an /Encrypt dictionary). */
+export function writePdf(objs: (string | (string | Uint8Array)[])[], trailer = ''): Uint8Array {
   const enc = new TextEncoder()
   const parts: Uint8Array[] = []
   let size = 0
@@ -146,7 +147,7 @@ function writePdf(objs: (string | (string | Uint8Array)[])[]): Uint8Array {
   })
   const xref = size
   put(`xref\n0 ${objs.length + 1}\n0000000000 65535 f \n` + offs.map((o) => String(o).padStart(10, '0') + ' 00000 n \n').join(''))
-  put(`trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`)
+  put(`trailer\n<< /Size ${objs.length + 1} /Root 1 0 R${trailer ? ` ${trailer}` : ''} >>\nstartxref\n${xref}\n%%EOF\n`)
   const out = new Uint8Array(size)
   let at = 0
   for (const p of parts) {

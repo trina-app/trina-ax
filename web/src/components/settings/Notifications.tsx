@@ -145,6 +145,9 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   // a chat shared with me (docs/DECISIONS.md "Chats shared with people and groups"): who shared it while their account is
   // there; one I no longer see says so (no title, no link)
   if (item.code === 'chat.shared' && item.chatShared) return item.chatShared.gone ? t('notifications.event.chat.sharedGone') : item.chatShared.name ? t('notifications.event.chat.sharedNamed', { name: item.chatShared.name }) : t('notifications.event.chat.shared')
+  // a reply in a thread I follow under an AI answer of a shared chat: who and which chat while I still see it; else it
+  // says so with nothing of it
+  if (item.code === 'chat.thread_reply') return !item.chatThread || item.chatThread.gone ? t('notifications.event.chat.thread_replyGone') : item.chatThread.name && item.chatThread.title ? isolate(locale, 'notifications.event.chat.thread_replyNamed', { name: item.chatThread.name, title: item.chatThread.title }, ['name', 'title']) : t('notifications.event.chat.thread_reply')
   if (item.code.startsWith('file.')) return fileShareText(item, t)
   if (item.code === 'onboarding.first_run') return firstRunText(t, locale, item)
   if (item.code === 'account.deletion_request') return deletionNoticeText(t, item, locale)
@@ -206,6 +209,8 @@ export function fileShareText(item: InboxNotification, t: T): string {
  * rest. Null: nowhere (a source I may no longer read, a notice that only tells), and its row is no link. */
 export function noticeLink(item: InboxNotification): { to: string; testId: string } | null {
   if (item.link === 'chat' && item.chatId) return { to: `/c/${encodeURIComponent(item.chatId)}`, testId: 'notification-chat-link' }
+  // a chat thread's reply opens the thread (/c/<chat>/t/<answer>) while I still see it
+  if (item.link === 'chat_thread' && item.chatThread?.chatId && item.chatThread.rootId && !item.chatThread.gone) return { to: `/c/${encodeURIComponent(item.chatThread.chatId)}/t/${encodeURIComponent(item.chatThread.rootId)}`, testId: 'notification-chat-thread-link' }
   // a file shared with me, or one of mine moved: its link page while it is there (a request answers in the row instead)
   if (item.link === 'file' && item.fileShare?.linkId && !item.fileShare.gone && item.code !== 'file.access_requested') return { to: fileLinkUrl(item.fileShare.linkId), testId: 'notification-file-link' }
   // several files in one press: their list

@@ -159,7 +159,8 @@ export const systemRoutes: RouteModule = {
       }
       // turnAt: when the staged roll-out reaches this server (system/rollout.ts), while hold is 'rollout'
       const turnAt = ops().rolloutTurnAt()
-      return { ...u.status(), auto: ops().autoUpdates, managed: !feature(ctx.config, 'selfUpdate'), ...ops().updateWindowStatus(), hold: ops().updateHold(), ...(turnAt !== undefined ? { turnAt } : {}),
+      const hold = ops().updateHold()
+      return { ...u.status(), auto: ops().autoUpdates, managed: !feature(ctx.config, 'selfUpdate'), ...ops().updateWindowStatus(), hold, ...(hold === 'failed' || hold === 'root_failed' ? { holdReason: ops().updateHoldReason() } : {}), ...(turnAt !== undefined ? { turnAt } : {}),
         running: ops().queue().running, waiting: updateWaitingFor(ctx.config) }
     })
 

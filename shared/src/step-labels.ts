@@ -24,6 +24,10 @@ export const FILE_STEP_VERB: Record<string, T> = {
   edit_files: t('여러 파일 수정', 'Edit files', 'Ubah beberapa berkas', "複数のファイルを編集", "Editar archivos", "编辑多个文件"),
   make_file: t('파일 만들기', 'Make file', 'Buat berkas', "ファイルを作成", "Crear archivo", "创建文件"),
   edit_hwp: t('한글 문서 고치기', 'Edit Hangul document', 'Ubah dokumen Hangul', "ハングル文書を編集", "Editar documento Hangul", "编辑韩文（HWP）文档"),
+  stamp_pdf: t('PDF에 이미지 찍기', 'Stamp PDF', 'Bubuhkan gambar ke PDF', "PDFに画像を押す", "Estampar en PDF", "在PDF上盖图"),
+  edit_pdf: t('PDF 고치기', 'Edit PDF', 'Ubah PDF', "PDFを編集", "Editar PDF", "编辑PDF"),
+  merge_pdfs: t('PDF 합치기', 'Merge PDFs', 'Gabungkan PDF', "PDFを結合", "Combinar PDF", "合并PDF"),
+  split_pdf: t('PDF 나누기', 'Split PDF', 'Pisahkan PDF', "PDFを分割", "Dividir PDF", "拆分PDF"),
   share_file: t('파일 공유 링크', 'Share link', 'Tautan berkas', "リンクを共有", "Compartir enlace", "分享链接"),
   move_files: t('파일 옮기기', 'Move files', 'Pindahkan berkas', "ファイルを移動", "Mover archivos", "移动文件"),
   copy_files: t('파일 복사', 'Copy files', 'Salin berkas', "ファイルをコピー", "Copiar archivos", "复制文件"),
@@ -264,6 +268,12 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     }
     case 'make_file': return `${verb} · ${clip(a.output, 90)}`
     case 'edit_hwp': return `${verb} · ${clip(a.output ?? a.file_path, 90)}`
+    case 'stamp_pdf': case 'edit_pdf': case 'split_pdf': return `${verb} · ${clip(a.file_path, 90)}`
+    case 'merge_pdfs': {
+      // the first file and how many more ("+2": a number, the same in every language)
+      const files = Array.isArray(a.files) ? a.files.map((f: unknown) => (typeof f === 'string' ? f : (f as { path?: string } | null)?.path ?? '')) : []
+      return files.length ? `${verb} · ${clip(files[0], 80)}${files.length > 1 ? ` +${files.length - 1}` : ''}` : verb!
+    }
     case 'share_file': return `${verb} · ${clip(a.path, 90)}`
     case 'move_files': case 'copy_files': return `${verb} · ${clip(a.to_folder, 90)}`
     case 'rename_file': return `${verb} · ${clip(a.path, 90)}`
@@ -371,7 +381,7 @@ export function placeName(path: string, locale: Locale): string | null {
 }
 
 /** Tools whose step line ends in a team path ("<verb> · <path>"; edit_files adds "+N", hwp_render "#page"). */
-const PATH_STEP_TOOLS = new Set(['list', 'glob', 'grep', 'search', 'knowledge_explore', 'read', 'write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'share_file', 'move_files', 'copy_files', 'rename_file', 'delete_files', 'save_url', 'hwp_render'])
+const PATH_STEP_TOOLS = new Set(['list', 'glob', 'grep', 'search', 'knowledge_explore', 'read', 'write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'share_file', 'move_files', 'copy_files', 'rename_file', 'delete_files', 'save_url', 'hwp_render'])
 
 /**
  * A step line (already in the language on screen, localizeStep) with its team path in words, and that path for a

@@ -32,6 +32,7 @@ import { FILE_SCAN_VERSION, storedKeyFilesOf } from '../integrations/connections
 import { datedSql } from '../auth/deletion-requests'
 import { CHAT_ANSWER_COALESCE_MS, CHAT_ANSWER_PUSH_DELAY_MS, CHAT_CARD_PUSH_DELAY_MS, chatOpenFor, type ChatAnswerKind } from './chat-answers'
 import { fileSharesOf } from '../files/shares'
+import { CHAT_THREAD_PUSH_DELAY_MS, chatThreadNoticeOut } from '../chat/threads'
 
 /** At most this many template notices per 30-second backstop pass (security review 2, #1). */
 const OFFER_BATCH = 500
@@ -74,7 +75,7 @@ export type HostingNoticeEvent = Extract<NotificationEventType, 'hosting.key_cop
 const isHostingEvent = (e: NotificationEventType): e is HostingNoticeEvent => e === 'hosting.key_copied' || e === 'hosting.exported' || e === 'relay.address_moved'
 export type FileShareEvent = Extract<NotificationEventType, 'file.shared' | 'file.access_requested' | 'file.access_answered' | 'file.unshared_by_move'>
 const isFileShareEvent = (e: NotificationEventType): e is FileShareEvent => e === 'file.shared' || e === 'file.access_requested' || e === 'file.access_answered' || e === 'file.unshared_by_move'
-const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_answer_notices' : isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : e === 'account.deletion_due' ? 'account_deletion_due_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : e === 'chat.shared' ? 'chat_share_notices' : e === 'service.closed' ? 'service_request_closed_notices' : e === 'files.stored_key' ? 'stored_key_file_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : e === 'account.reset_link' ? 'reset_link_notices' : isHostingEvent(e) ? 'hosting_notices' : e === 'engine.start_failed' ? 'engine_start_notices' : e === 'room_app.paused' ? 'room_app_notices' : e === 'room_app.leaver' ? 'room_app_leaver_notices' : isFileShareEvent(e) ? 'file_share_notices' : 'notification_inbox'
+const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_answer_notices' : isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : e === 'account.deletion_due' ? 'account_deletion_due_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : e === 'chat.shared' ? 'chat_share_notices' : e === 'service.closed' ? 'service_request_closed_notices' : e === 'files.stored_key' ? 'stored_key_file_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : e === 'account.reset_link' ? 'reset_link_notices' : isHostingEvent(e) ? 'hosting_notices' : e === 'engine.start_failed' ? 'engine_start_notices' : e === 'room_app.paused' ? 'room_app_notices' : e === 'room_app.leaver' ? 'room_app_leaver_notices' : isFileShareEvent(e) ? 'file_share_notices' : e === 'chat.thread_reply' ? 'chat_thread_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
  * requests to connect a service (migration 220), a member's request for an AI connection (migration 231), joins
  * through the team invite link (migration 111), a member's first run of a team skill during the 7-day team goal
@@ -88,7 +89,7 @@ const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_a
  * that could not start on this server (migration 127), and an
  * app in a room that paused for the day (migration 299) and someone who left who still knows an app's address (migration 352)
  * have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
-const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'account_deletion_due_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'service_request_closed_notices', 'stored_key_file_notices', 'reset_link_notices', 'hosting_notices', 'engine_start_notices', 'room_app_notices', 'room_app_leaver_notices', 'chat_answer_notices', 'chat_share_notices', 'file_share_notices'] as const
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'account_deletion_due_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'service_request_closed_notices', 'stored_key_file_notices', 'reset_link_notices', 'hosting_notices', 'engine_start_notices', 'room_app_notices', 'room_app_leaver_notices', 'chat_answer_notices', 'chat_share_notices', 'file_share_notices', 'chat_thread_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 const INBOX = union(NOTICE_TABLES)
 /** What the Inbox lists and counts besides the rooms' notices, newest first: every other notice. The rooms' notices
@@ -119,6 +120,21 @@ export class Notifications {
     const r = this.ctx.db.query(`INSERT INTO ${tableOf(event)}(id,user_id,event_type,source_id,created_at,suppressed) VALUES(?,?,?,?,?,?) ON CONFLICT(user_id,event_type,source_id) DO NOTHING`)
       .run(newId(), userId, event, sourceId, at, enabled ? 0 : 1)
     if (r.changes && enabled) this.signal(userId)
+  }
+  /** Something changed in this person's Inbox that the app should read again (chat/threads.ts: a thread read, a
+   * notice gone with its reply). Metadata only. */
+  changed(userId: string) { this.signal(userId) }
+  /** A reply in a thread I follow under an AI answer of a shared chat (chat/threads.ts sendReply; the caller checked that
+   * I still see the thread). One unread notice per thread: while one is open, a new reply updates it in place (the
+   * newest replier and reply; its time and push stay those of the first), so a burst of replies is one row and one
+   * push; once read, the next reply makes a new one. Shown always; the push waits CHAT_THREAD_PUSH_DELAY_MS and follows
+   * "Replies in threads I'm part of" (chat/threads.ts chatThreadWanted). */
+  chatThreadReply(userId: string, o: { chatId: string; rootId: string; replyId: string; by: string }, at = new Date().toISOString()) {
+    if (!this.active(userId)) return
+    const up = this.ctx.db.query('UPDATE chat_thread_notices SET by_user=?, reply_id=? WHERE user_id=? AND source_id=? AND read_at IS NULL').run(o.by, o.replyId, userId, o.rootId)
+    if (!up.changes) this.ctx.db.query(`INSERT INTO chat_thread_notices(id,user_id,event_type,source_id,chat_id,by_user,reply_id,created_at,push_at,suppressed)
+      VALUES(?,?,'chat.thread_reply',?,?,?,?,?,?,0)`).run(newId(), userId, o.rootId, o.chatId, o.by, o.replyId, at, new Date(Date.parse(at) + CHAT_THREAD_PUSH_DELAY_MS).toISOString())
+    this.signal(userId)
   }
   /** A file shared with me, an access request to answer, a decline of mine, or my file's grants removed by someone
    * else's move (files/shares.ts; docs/DECISIONS.md "A member shares their own files"). Activity only, shown always.
@@ -658,6 +674,9 @@ export class Notifications {
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: sees ? c!.id : null, link: sees ? 'chat' : null, outcome: null,
         chatShared: { name: u?.name ?? null, title: title || null, ...(sees ? {} : { gone: true as const }) } }
     }
+    // a reply in a thread I follow under an AI answer of a shared chat: who and which chat, read now while I still see the
+    // thread (chat/threads.ts); else no name, title or link
+    if (row.event_type === 'chat.thread_reply') return chatThreadNoticeOut(this.ctx, row)
     // who started to see a project, and the project while the reader still sees it (its contents' rule, canSeeProject)
     if (row.event_type === 'project.joined') {
       const a = this.ctx.db.query("SELECT detail FROM audit_log WHERE id = ? AND action = 'project.member_gained'").get(Number(row.source_id)) as { detail: string | null } | null

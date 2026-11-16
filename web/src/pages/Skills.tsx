@@ -16,7 +16,7 @@ import clsx from 'clsx'
 import { Bot, History, Lightbulb, Search, Trash2, Users } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { skillLabel, type SkillChange, type SkillShare, type SkillSuggestion, type SkillsOverview } from '@mycel/shared/api'
+import { isSkillName, skillLabel, type SkillChange, type SkillShare, type SkillSuggestion, type SkillsOverview } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
 import { FILES_TRASH, navigateTo } from '../lib/nav'
@@ -362,8 +362,9 @@ function ChangeList({ items }: { items: SkillChange[] | null }) {
   )
 }
 
-/** A skill folder's name as the server takes it (skills/<name>/SKILL.md): lowercase letters, digits and hyphens. */
-export const FOLDER_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+/** A skill folder's name as the server takes it (skills/<name>/SKILL.md; shared isSkillName): lowercase letters in any
+ * language and digits in words joined by single hyphens, at most 64. */
+export const folderNameOk = (raw: string) => isSkillName(raw.trim().normalize('NFC'))
 
 function ReviewDialog({ s, folders, onClose, onDone }: { s: SkillSuggestion; folders: string[]; onClose: () => void; onDone: () => void }) {
   const t = useT()
@@ -398,7 +399,7 @@ function ReviewDialog({ s, folders, onClose, onDone }: { s: SkillSuggestion; fol
   const phone = useMediaQuery('(max-width: 767.98px)')
   const [busy, setBusy] = useState<'approve' | 'reject' | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const nameBad = isDir ? !!name.trim() && !(FOLDER_NAME.test(name.trim()) && name.trim().length <= 64) : name.includes('/')
+  const nameBad = isDir ? !!name.trim() && !folderNameOk(name) : name.includes('/')
   const ready = !!name.trim() && !nameBad && !!content.trim()
   const run = async (what: 'approve' | 'reject') => {
     let note: string | null = null

@@ -10,6 +10,7 @@
 //   filter + frozen header. A data cell that starts with "=" becomes a formula (R2-GEN-02); "'=" keeps it as text.
 //   A formula that can reach outside the workbook (external workbook refs, DDE, HYPERLINK, WEBSERVICE, INDIRECT, ...)
 //   is refused and nothing is saved. Simple formulas also store their result (formula-values.ts); Excel / LibreOffice calculate every one on open.
+//   `charts`: native Excel charts over a range of a sheet, added to the zip after exceljs wrote it (xlsx-chart.ts).
 // Converters run isolated (tools/isolate.ts) in an empty work folder. Images the document refers to by a relative
 // path are copied into the work folder only if the person may read them; anything else fails the conversion.
 // The output goes through the policy function; an existing file is never overwritten silently: it gets a conflict
@@ -32,6 +33,7 @@ import { addFormulaResults } from './formula-values'
 import fs from 'node:fs'
 import path from 'node:path'
 import ExcelJS from 'exceljs'
+import { addCharts, placeCharts, type ChartSheet, type ChartSpec } from './xlsx-chart'
 import type { z } from 'zod'
 import type { MakeFileInput } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
@@ -69,7 +71,7 @@ import { safeText } from '../safe-ops/strings'
 type Input = z.output<typeof MakeFileInput>
 /** a PDF printed from HTML: its pages, what the page referred to but did not get, and whether it has scripts (off) */
 export interface FromHtml { pages: number; blocked: string[]; blockedCount: number; scripts: boolean }
-export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; deck?: Deck; formulas?: number; stored?: number; html?: FromHtml }
+export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; deck?: Deck; formulas?: number; stored?: number; charts?: number; html?: FromHtml }
 /** the sources make_file prints as a page (format pdf only) */
 export const HTML_SOURCE_EXT = new Set(['html', 'htm'])
 
@@ -253,7 +255,8 @@ export class MakeFile {
       let shape: DeckShape | null = null
       let formulas: number | undefined
       let stored = 0
-      if (a.format === 'xlsx') { const x = await this.xlsx(text, kind, produced); formulas = x.formulas; stored = x.stored }
+      let charts = 0
+      if (a.format === 'xlsx') { const x = await this.xlsx(text, kind, produced, a.charts ?? []); formulas = x.formulas; stored = x.stored; charts = x.charts }
       else if (a.format === 'hwpx') await this.hwpx(c, a, text, kind, work, produced, sources)
       else {
         if (!this.conv.pandoc) throw new ToolError(missingConverter('pandoc'))
@@ -313,7 +316,7 @@ export class MakeFile {
       // only now are all the files known whose bytes are in the output (images come out of pandoc's tree)
       await this.checkWidening(c, out.rel, out.segs, sources)
       const made = await this.place(c, out.segs, produced)
-      return deck ? { ...made, deck } : formulas !== undefined ? { ...made, formulas, stored } : made
+      return deck ? { ...made, deck } : formulas !== undefined ? { ...made, formulas, stored, ...(charts ? { charts } : {}) } : made
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }
 
@@ -484,8 +487,9 @@ export class MakeFile {
     if (r.code !== 0) throw new ToolError(convertError('typst', r.stderr, r.killed, work))
   }
 
-  /** Writes the workbook; returns the number of formula cells and how many of them have their result stored. */
-  private async xlsx(text: string, kind: 'markdown' | 'csv' | 'tsv', out: string): Promise<{ formulas: number; stored: number }> {
+  /** Writes the workbook and its charts (xlsx-chart.ts); returns the number of formula cells, how many of them have
+   * their result stored, and the number of charts. */
+  private async xlsx(text: string, kind: 'markdown' | 'csv' | 'tsv', out: string, charts: ChartSpec[]): Promise<{ formulas: number; stored: number; charts: number }> {
     const sheets: { name: string; rows: string[][] }[] = []
     if (kind === 'markdown') {
       const tables = markdownTables(text)
@@ -499,9 +503,11 @@ export class MakeFile {
     wb.calcProperties.fullCalcOnLoad = true
     const used = new Set<string>()
     let formulas = 0, stored = 0
+    const written: ChartSheet[] = []
     for (const s of sheets) {
-      let name = s.name.replace(/[\\/?*[\]:'"|]/g, ' ').trim().slice(0, 31) || 'Sheet'
-      for (let i = 2; used.has(name.toLowerCase()); i++) name = `${name.slice(0, 28)} ${i}`
+      // at most 31 UTF-16 units, never half of a surrogate pair (an emoji)
+      let name = s.name.replace(/[\\/?*[\]:'"|]/g, ' ').trim().slice(0, 31).replace(/[\uD800-\uDBFF]$/, '') || 'Sheet'
+      for (let i = 2; used.has(name.toLowerCase()); i++) name = `${name.slice(0, 28).replace(/[\uD800-\uDBFF]$/, '')} ${i}`
       used.add(name.toLowerCase())
       const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', ySplit: s.rows.length > 1 ? 1 : 0 }] })
       // the values first, then the results of the simple formulas (formula-values.ts) so a preview shows numbers
@@ -513,6 +519,7 @@ export class MakeFile {
         return cv
       }))
       addFormulaResults(grid)
+      written.push({ name, title: s.name, rows: grid })
       for (const row of grid) for (const c of row) if (typeof c === 'object' && c !== null && 'formula' in c && (c as { result?: unknown }).result !== undefined) stored++
       for (const row of grid) ws.addRow(row)
       if (s.rows.length) {
@@ -525,8 +532,11 @@ export class MakeFile {
         }
       }
     }
+    // a chart that does not fit the sheets is refused before anything is written
+    if (charts.length) placeCharts(charts, written)
     await wb.xlsx.writeFile(out)
-    return { formulas, stored }
+    if (charts.length) fs.writeFileSync(out, addCharts(new Uint8Array(fs.readFileSync(out)), charts, written))
+    return { formulas, stored, charts: charts.length }
   }
 
   private place(c: ToolCtx, segs: string[], produced: string): Promise<MadeFile> {

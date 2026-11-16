@@ -77,7 +77,7 @@ del equipo**, luego **Historial de Trina** (primero sus chats fijados y después
 
 Los chats de Trina no tienen carpetas. Para mantener juntos los chats sobre un mismo trabajo, póngalos en un [proyecto](#proyectos).
 
-La lista **Chats** tiene **Carpetas de chats** para las salas y los mensajes directos. Una carpeta solo ordena su lista:
+La lista **Chats** tiene **Carpetas de chats** para los canales y los mensajes directos. Una carpeta solo ordena su lista:
 no contiene archivos y nunca cambia quién ve una conversación. Cree una con **Nueva carpeta** y luego use **···** ›
 **Mover a una carpeta** en una conversación. El menú **···** de una carpeta le cambia el nombre, la sube o la baja, o la elimina; al eliminar una carpeta,
 sus conversaciones se quedan en su lista.
@@ -152,24 +152,24 @@ título, en un ordenador y en un teléfono. La página de un proyecto también m
 chats fijados. **Dejar de fijar** devuelve un chat a su sitio. Un chat fijado lo es solo para usted, también en un chat compartido de un proyecto,
 y deja de estarlo cuando el chat se elimina o usted ya no puede verlo. Puede fijar hasta 50 chats.
 
-Las conversaciones de **Chats** (salas, mensajes directos y chats de grupo) se fijan de la misma forma, desde el **···** de una fila o el propio
-**···** de la sala: las fijadas aparecen primero, con una pequeña chincheta después del nombre, en todas las listas de conversaciones, en un ordenador y en la pestaña **Chats** del teléfono.
-Solo usted ve lo que ha fijado. Una conversación deja de estar fijada cuando sale de la sala o la oculta. Puede fijar hasta 50 conversaciones.
+Las conversaciones de **Chats** (canales y mensajes directos, incluidos los chats de grupo) se fijan de la misma forma, desde el **···** de una fila o el propio
+**···** de la conversación: las fijadas aparecen primero, con una pequeña chincheta después del nombre, en todas las listas de conversaciones, en un ordenador y en la pestaña **Chats** del teléfono.
+Solo usted ve lo que ha fijado. Una conversación deja de estar fijada cuando sale de la conversación o la oculta. Puede fijar hasta 50 conversaciones.
 
-La lista **Chats** muestra todas las conversaciones: las fijadas, sus carpetas y luego **Salas de equipo** (primero la sala de todos y después
-por nombre), **Conversaciones de grupo** y **Mensajes directos** (la más reciente primero). Las conversaciones que ocultó están en **Conversaciones ocultas (N)**.
+La lista **Chats** muestra todas las conversaciones: las fijadas, sus carpetas y luego **Canales** (primero el canal Todos y después
+por nombre) y **Mensajes directos** (los chats 1:1 y los chats de grupo juntos, el más reciente primero, cada uno con las caras de sus miembros). Las conversaciones que ocultó están en **Conversaciones ocultas (N)**.
 
 Un chat directo con alguien que dejó el equipo dice "<nombre> dejó el equipo" y no tiene cuadro de mensaje. El historial se puede seguir leyendo.
 
 ## Chat del equipo
 
-**Chats** en la barra de la izquierda (en un teléfono, la pestaña **Chats**) es donde las personas hablan entre sí: **Salas de equipo**
-(todo el equipo, y una sala por grupo), **Conversaciones de grupo** y **Mensajes directos**. **Menciones e hilos**,
+**Chats** en la barra de la izquierda (en un teléfono, la pestaña **Chats**) es donde las personas hablan entre sí: **Canales**
+(uno para todo el equipo, y uno por grupo) y **Mensajes directos** (chats 1:1 y chats de grupo). **Menciones e hilos**,
 arriba, reúne los mensajes que le mencionan y los hilos que sigue.
 
 Para traer a alguien de fuera del equipo, elija **Invitar a un invitado** al añadir personas a un chat de grupo o a un proyecto. [Más información sobre los invitados](guests.md).
 
-![La lista Chats: Menciones e hilos, Salas de equipo con Todos (Everyone) y Marketing, y un mensaje directo](../../images/chats/rooms-list.webp "La lista Chats")
+![La lista Chats: Menciones e hilos, Canales con Todos (Everyone) y Marketing, y un mensaje directo](../../images/chats/rooms-list.webp "La lista Chats")
 
 #### Preguntar a Trina junto a una sala
 
@@ -178,7 +178,7 @@ responde con lo que usted puede abrir. Cuando vale la pena compartir una respues
 (**Enviar al hilo** si preguntó sobre un mensaje). Si algunas personas de la sala no pueden abrir un archivo que usó la respuesta,
 la app se lo dice antes y espera su confirmación.
 
-![La sala Marketing: un mensaje que menciona a Jordan, un hilo con 2 respuestas y la respuesta de Trina enviada desde el chat lateral](../../images/chats/room.webp "Una sala de equipo")
+![El canal Marketing: un mensaje que menciona a Jordan, un hilo con 2 respuestas y la respuesta de Trina enviada desde el chat lateral](../../images/chats/room.webp "Un canal")
 
 #### Responder en un hilo
 
@@ -190,7 +190,7 @@ respuestas tiene un hilo; **Enviar también a la sala** pone una respuesta tambi
 #### Enlazar a un mensaje
 
 **Copiar enlace** en el menú **⋯** de un mensaje (en un teléfono, mantenga pulsado el mensaje) copia su dirección. Péguela en cualquier
-sala, conversación de grupo, mensaje directo o hilo: se muestra como el nombre de la conversación, y el mensaje aparece debajo
+canal, conversación de grupo, mensaje directo o hilo: se muestra como el nombre de la conversación, y el mensaje aparece debajo
 como una tarjeta con quién lo escribió, cuándo, su texto y sus archivos. Haga clic en la tarjeta para abrir el mensaje.
 
 Cada persona ve la tarjeta solo si puede ver ese mensaje. Para los demás, el enlace sigue siendo un enlace normal, y al abrirlo
@@ -199,7 +199,7 @@ antes de enviar: **Mostrar solo el enlace** (la opción predeterminada) envía s
 marcada como compartida por usted. La copia desaparece si se elimina el original. Para quitar una tarjeta de su propio mensaje, señálela
 y haga clic en **✕** (o elija **Quitar vista previa** en el menú del mensaje).
 
-![Chats en un teléfono: Menciones e hilos, salas de equipo, una conversación de grupo y un mensaje directo, con las cinco pestañas abajo](../../images/chats/rooms-phone.webp "Chats en un teléfono")
+![Chats en un teléfono: Menciones e hilos, canales, una conversación de grupo y un mensaje directo, con las cinco pestañas abajo](../../images/chats/rooms-phone.webp "Chats en un teléfono")
 
 ### Invitados
 
@@ -248,6 +248,11 @@ Empiece un chat desde la página del proyecto, o lleve un chat a él con **Mover
 - Un proyecto también puede tener uno o más invitados: personas de fuera del equipo que solo ven este proyecto. Sus miembros pueden ver los chats que un invitado tiene allí. [Más información sobre los invitados](guests.md).
 - Solo los miembros de un proyecto ven lo que contiene. El propietario y los administradores pueden cambiar sus miembros, pero no ven sus
   chats, archivos e instrucciones salvo que sean miembros.
+- **Para cambiar el nombre de un proyecto**, haga clic en su nombre arriba de su página, escriba el nuevo nombre y pulse
+  Intro (Esc cancela). También puede elegir **Cambiar nombre** en el **···** del proyecto en la lista **Proyectos** (o con
+  clic derecho), o en el menú del nombre arriba de la página. En un teléfono, toque el nombre del proyecto en la barra
+  superior. Solo pueden hacerlo quien creó el proyecto, el propietario y los administradores; los demás ven el nombre
+  como texto normal. Cambiar el nombre del proyecto no cambia el de su carpeta.
 - Una carpeta contiene un solo proyecto. Una vez que es un proyecto, solo un administrador mueve, cambia el nombre o elimina la carpeta.
 - **Mover a la papelera** en el menú de un proyecto del equipo lo pone en la papelera con sus archivos. Sus miembros conservan su tarjeta, marcada
   **en la papelera**: su página dice quién lo movió allí y cuándo, y que un administrador o quien lo creó puede restaurarlo. Nadie

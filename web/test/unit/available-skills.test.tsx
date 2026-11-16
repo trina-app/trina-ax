@@ -76,6 +76,18 @@ describe('Available skills', () => {
     expect(html).not.toContain('data-testid="skill-shadowed"')
   })
 
+  test('an admin\'s skills of a group they are not in: their own section, not run from here, with the way to move them', () => {
+    setLocale('en')
+    try {
+      as('admin')
+      const html = render([...items, { path: 'groups/finance/skills/payroll/SKILL.md', name: 'payroll', description: 'Monthly payroll', group: { id: 'finance', name: 'Finance' }, notMember: true }])
+      expect(html).toContain('data-testid="skill-managed-group-finance"')
+      expect(html).toContain(`>${translate('en', 'skills.fromGroupManaged', { group: 'Finance' })}<`)
+      expect(html).not.toContain('data-testid="skill-group-finance"')
+      expect(html).toContain('data-path="groups/finance/skills/payroll/SKILL.md"')
+    } finally { as(null) }
+  })
+
   test('search: by name or description, and it says so when nothing matches', () => {
     setLocale('en')
     expect((render(items, 'FRIDAY').match(/data-testid="skill-row"/g) ?? []).length).toBe(1)

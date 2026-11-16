@@ -258,7 +258,7 @@ function useHereProject(): string | null | undefined {
   const { pathname } = useLocation()
   const [at] = useState(pathname)
   const page = matchPath('/projects/:projectId/*', at)?.params.projectId
-  const chatId = matchPath('/c/:chatId', at)?.params.chatId
+  const chatId = (matchPath('/c/:chatId', at) ?? matchPath('/c/:chatId/t/:messageId', at))?.params.chatId
   const known = useChats((s) => (chatId ? s.chats.find((c) => c.id === chatId) ?? s.others[chatId] : undefined))
   const [read, setRead] = useState<string | null | undefined>(undefined)
   const missing = !!chatId && !known && !page

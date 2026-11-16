@@ -100,7 +100,7 @@ describe('listing and reading (real folder rules)', () => {
     expect(a).toContain(MINE)
     expect(a).toContain(`- Weekly [personal]: ${MINE}`)
     expect(a).not.toContain('- Weekly: team weekly report')
-    expect(a).toContain('users/alice/skills/<short-name>.md')
+    expect(a).toContain('users/alice/skills/<name>/SKILL.md')
     expect(b).toContain(FIN)
     expect(b).toContain('- Weekly: team weekly report')
     for (const s of [b, c]) { expect(s).not.toContain(MINE); expect(s).not.toContain(MINE_PKG); expect(s).not.toContain('users/alice') }
@@ -170,8 +170,15 @@ describe('project skills by folder rules (docs/DECISIONS.md "Project skills")', 
       e.db.query('DELETE FROM folder_rules WHERE id = ?').run(rule)
     }
     // the prompt's "save one for this project" line follows the same rule
-    expect(skillsSection(e.files, who('alice'), undefined, null, { project: FALCON })).toContain('projects/falcon/skills/<short-name>/SKILL.md')
-    expect(skillsSection(e.files, who('bob'), undefined, null, { project: FALCON })).not.toContain('projects/falcon/skills/<short-name>/SKILL.md')
+    expect(skillsSection(e.files, who('alice'), undefined, null, { project: FALCON })).toContain('projects/falcon/skills/<name>/SKILL.md')
+    expect(skillsSection(e.files, who('bob'), undefined, null, { project: FALCON })).not.toContain('projects/falcon/skills/<name>/SKILL.md')
+    // alice writes only the project (no skills/, no group's skills here): the project line is the first save line, so it
+    // spells out the header and her personal line refers to it
+    const own = skillsSection(e.files, who('alice'), undefined, null, { project: FALCON })
+    expect(own).toContain('You cannot save under skills/.')
+    expect(own).not.toContain('for one of the user\'s groups only')
+    expect(own).toContain('write projects/falcon/skills/<name>/SKILL.md (a folder per skill), starting with a header: a line "---", "name: <name>" (the folder name: lowercase words joined by hyphens, no spaces, dots or underscores)')
+    expect(own).toContain('write users/alice/skills/<name>/SKILL.md, with the same header.')
   })
 
   test('a rule on projects/<name>/skills narrows who gets them, within the project', () => {
