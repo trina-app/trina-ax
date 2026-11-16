@@ -97,6 +97,10 @@ cards still came every time: FL-02 and FL-13 (sharing), FL-05 (a web address), F
   - A group counts as named only as a group (`namesGroup`): its name with a group word next to it (영업팀, 영업 그룹,
     "the Sales team", @Sales) or a name that is one already ("Sales Team"); "the sales report" does not name the
     group Sales. This holds for "Always allow" and for the no-card explicit ask.
+  - A person, group or room counts as named only by a name that stands on its own in the person's words: never one
+    inside the ask's own words (share … with, 공유해줘, 보내줘, send … to), never a short common word (with, to, this …),
+    and a Hangul name only with no letter before it and nothing but a particle or honorific after it (김대리한테,
+    민수씨). A first name the person used still counts when the AI passed it on as given.
   - A post from a shared chat under "Always allow" needs the asker's own message to name the place and ask to post,
     and to bring every linked file, as in an own chat.
   Left as follow-ups (QA rows): the person's own uploads and inline attachments do not set the mark; the explicit-ask

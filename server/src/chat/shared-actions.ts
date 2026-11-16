@@ -62,33 +62,54 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const WORD_EDGE = '(?!\\p{Script=Hangul})[\\p{L}\\p{N}]'
 const holds = (said: string, n: string) => HANGUL.test(n) ? said.includes(n) : new RegExp(`(?<!${WORD_EDGE})${escapeRe(n)}(?!${WORD_EDGE})`, 'u').test(said)
 
+/** Korean particles and honorifics that may follow a name (에게, 한테, 께, 님, 씨, 이랑, 와/과, 도, 의, 에, 이/가, 은/는,
+ * 을/를, 으로/로, 에서, 방, 팀, 그룹, 부서, 본부, 만, 하고, 더러), as escapes */
+const NAME_TAIL = '(\\uC774\\uC5D0\\uAC8C|\\uC774\\uD558\\uACE0|\\uC774\\uD55C\\uD14C|\\uC73C\\uB85C|\\uC774\\uB791|\\uD55C\\uD14C|\\uC5D0\\uC11C|\\uB2D8\\uAED8|\\uC5D0\\uAC8C|\\uC774\\uB3C4|\\uC774\\uC758|\\uD558\\uACE0|\\uC528\\uAED8|\\uB354\\uB7EC|\\uC774\\uB294|\\uC774\\uB97C|\\uBD80\\uC11C|\\uADF8\\uB8F9|\\uBCF8\\uBD80|\\uC774\\uAC00|\\uAED8|\\uC5D0|\\uB294|\\uB3C4|\\uB9CC|\\uB85C|\\uBC29|\\uC640|\\uC528|\\uB791|\\uB2D8|\\uAC00|\\uB97C|\\uACFC|\\uC774|\\uC740|\\uC758|\\uD300|\\uC744)'
+/** A person's, group's or room's name in `said` (folded): whole words outside Hangul (holds); a Hangul name with no
+ * letter right before it, and after it nothing, a non-letter, a Latin letter or a particle ("김대리한테", never the
+ * "해줘" of "공유해줘"). Never a name inside the ask's own words (nameText). */
+const holdsName = (said: string, n: string) => !HANGUL.test(n) ? holds(said, n)
+  : new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(n)}(?=$|[^\\p{L}\\p{N}]|[a-z0-9]|${NAME_TAIL})`, 'u').test(said)
+/** Short words a name that is one of them never counts as (a person may call themselves anything) */
+const NOT_A_NAME = new Set(['with', 'to', 'and', 'the', 'this', 'that', 'it', 'me', 'my', 'our', 'for', 'of', 'file', 'files', 'share', 'send', 'post', 'please', 'dengan', 'ke', 'ini', 'itu'])
+/** The asker's words for matching names: folded, with the ask's own words taken out ("share … with", 공유해줘, 보내줘,
+ * "send … to": a name inside them is the verb, not a recipient) */
+function nameText(said: string): string {
+  let t = fold(said)
+  for (const r of [SHARE_ASK, POST_ASK]) t = t.replace(new RegExp(r.source, 'giu'), ' ')
+  return t
+}
+const nameOk = (n: string) => n.length >= 2 && !NOT_A_NAME.has(n)
+
 /** Does `said` (the asker's own message) name the recipient? A matched name or username in it, or the words the AI gave
  * (`ref`, 님/씨 dropped) when they are in it and are that name in full or one word of it, or, for a person's Hangul
  * name only, its end (a given name: "대현" for "남대현"); two letters at least (holds: whole words outside Hangul). A
  * room or group name matches only in full or by a whole word. Fails closed. */
 export function namesRecipient(said: string, ref: string | undefined, r0: { names: readonly string[]; person: boolean }): boolean {
-  const text = fold(said)
-  if (!text) return false
-  const ns = r0.names.map(fold).filter((n) => n.length >= 2)
-  if (ns.some((n) => holds(text, n))) return true
+  const text = nameText(said)
+  if (!text.trim()) return false
+  const ns = r0.names.map(fold).filter(nameOk)
+  if (ns.some((n) => holdsName(text, n))) return true
   // (the Korean honorifics nim and ssi after a name, as escapes: no Korean text outside the language tables)
   const r = fold((ref ?? '').replace(/\s*(\uB2D8|\uC528)$/u, ''))
-  if (r.length < 2 || r.startsWith(PERSON_REF) || !holds(text, r)) return false
+  if (!nameOk(r) || r.startsWith(PERSON_REF) || !holdsName(text, r)) return false
   return ns.some((n) => n === r || n.split(' ').includes(r) || (r0.person && HANGUL.test(r) && HANGUL.test(n) && n.endsWith(r)))
 }
 
 /** A group named in `said` as a group: its full name with a group word next to it (영업팀, 영업 그룹, "Sales team",
- * "group Sales", @Sales), or a name that is itself one ("Sales Team", 영업본부). A group name is often an ordinary word
+ * "tim Sales", @Sales), or a name that is itself one ("Sales Team", 영업본부). A group name is often an ordinary word
  * ("sales", 영업): "the sales report" does not name the group. Fails closed. */
 const GROUP_WORD = '(team|group|department|dept|tim|grup|\\uD300|\\uADF8\\uB8F9|\\uBD80\\uC11C|\\uBCF8\\uBD80)'
 export function namesGroup(said: string, name: string): boolean {
-  const text = fold(said)
+  const text = nameText(said)
   const n = fold(name)
-  if (n.length < 2 || !holds(text, n)) return false
+  if (!nameOk(n) || !holdsName(text, n)) return false
   if (new RegExp(`(^|\\s)${GROUP_WORD}$`, 'iu').test(n) || new RegExp(`\\p{Script=Hangul}${GROUP_WORD}$`, 'u').test(n)) return true
   const e = escapeRe(n)
   // (not a team's member or lead: 팀원, 팀장; not a longer Latin word: "timeline")
-  return new RegExp(`@${e}(?![a-z0-9])|${e}\\s?${GROUP_WORD}(?![a-z0-9\\uC7A5\\uC6D0])|\\b(team|group|grup|tim)\\s(of\\s)?${e}`, 'iu').test(text)
+  const L = '(?<![\\p{L}\\p{N}])'
+  const R = HANGUL.test(n) ? '' : '(?![\\p{L}\\p{N}])'
+  return new RegExp(`@${e}${R}|${L}${e}\\s?${GROUP_WORD}(?![a-z0-9\\uC7A5\\uC6D0])|\\b(grup|tim)\\s${e}${R}`, 'iu').test(text)
 }
 
 /** The turn's own question (`messageId`): its text. */
@@ -222,8 +243,8 @@ export function namesFileLoose(said: string, rel: string): boolean {
 /** A person or place named in full in the person's words (a full name, a username, a room's name; two letters at
  * least, whole words outside Hangul): never by a part ("하나" in "파일 하나" is not 최하나). */
 export function namedInFull(said: string, names: readonly string[]): boolean {
-  const text = fold(said)
-  return names.map(fold).some((n) => n.length >= 2 && holds(text, n))
+  const text = nameText(said)
+  return names.map(fold).some((n) => nameOk(n) && holdsName(text, n))
 }
 
 /** Keys whose value says who or where else sees what is sent: the asker must have written that value themselves. */

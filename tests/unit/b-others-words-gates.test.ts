@@ -12,7 +12,7 @@ import { API, type Room } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { dropAlways, keepAlways } from '../../server/src/chat/always-allow'
 import { fileSharesOf } from '../../server/src/files/shares'
-import { fromAsker, madeInTurn, namesGroup, othersWordsIn } from '../../server/src/chat/shared-actions'
+import { fromAsker, madeInTurn, namedInFull, namesGroup, namesRecipient, othersWordsIn } from '../../server/src/chat/shared-actions'
 import { shareWithPersonTool } from '../../server/src/chat/share-with-person'
 import { OWN_CHAT_TEAM_TOOLS, OWN_WORDS_TOOLS } from '../../server/src/rooms/ai-tools'
 import { roomsOf } from '../../server/src/rooms/service'
@@ -452,5 +452,19 @@ describe('second review: what "made in this answer" means, and a chat that read 
       ['share it with the Sales Team', 'Sales Team', true],
     ]
     for (const [said, name, named] of cases) expect([said, namesGroup(said, name)]).toEqual([said, named])
+  })
+
+  test('a name inside the ask\'s own words, or a common word, never counts as naming someone; a first name the AI was given does', () => {
+    // (Korean as escapes: 보고서.md 김민수한테 공유해줘 / 해줘 / 공유 / 요약 영업방에 보내줘 / 보내 / 보고서 민수씨한테 공유해줘)
+    const ko = '\uBCF4\uACE0\uC11C.md \uAE40\uBBFC\uC218\uD55C\uD14C \uACF5\uC720\uD574\uC918'
+    expect(namedInFull(ko, ['\uD574\uC918'])).toBe(false)
+    expect(namedInFull(ko, ['\uACF5\uC720'])).toBe(false)
+    expect(namedInFull(ko, ['\uAE40\uBBFC\uC218'])).toBe(true)
+    expect(namedInFull('share report.md with Jun', ['with'])).toBe(false)
+    expect(namedInFull('share report.md with Jun', ['Jun'])).toBe(true)
+    expect(namesRecipient('\uC694\uC57D \uC601\uC5C5\uBC29\uC5D0 \uBCF4\uB0B4\uC918', '\uBCF4\uB0B4', { names: ['\uBCF4\uB0B4'], person: false })).toBe(false)
+    expect(namesRecipient('\uBCF4\uACE0\uC11C \uBBFC\uC218\uC528\uD55C\uD14C \uACF5\uC720\uD574\uC918', '\uBBFC\uC218', { names: ['\uAE40\uBBFC\uC218'], person: true })).toBe(true)
+    expect(namesGroup('presales team sales numbers', 'Sales')).toBe(false)
+    expect(namesGroup('team salesforce export sales deck', 'Sales')).toBe(false)
   })
 })

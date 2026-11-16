@@ -57,7 +57,7 @@ export function shareWithPersonOff(exec: Pick<TurnExec, 'restricted' | 'template
   return null
 }
 
-interface Who { subjectType: 'user' | 'group'; subjectId: string; name: string }
+interface Who { subjectType: 'user' | 'group'; subjectId: string; name: string; /** the words the AI gave for them */ ref?: string }
 
 export function shareWithPersonTool(exec: TurnExec): Tool {
   const { rt, spec } = exec
@@ -135,7 +135,7 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
               return no(`Nothing was shared: several people or groups match "${refAi}". Ask the user which one they mean (name them), then call share_with_person again with its person:<id> or group:<id>:\n${lines.join('\n')}`, `refused: ${cands.length} match`)
             }
           }
-          if (!who.some((w) => w.subjectType === pick!.subjectType && w.subjectId === pick!.subjectId)) who.push(pick)
+          if (!who.some((w) => w.subjectType === pick!.subjectType && w.subjectId === pick!.subjectId)) who.push({ ...pick, ref })
         }
         const whoLine = who.map((w) => w.name).join(', ')
         named = oneLine(whoLine, 60)
@@ -155,7 +155,7 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         // are in the chat (others, content); elsewhere the person's "it" is theirs to say.
         const typed = ownWords(askerText(db, spec.userMessageId))
         const alwaysOk = asksToSend(db, spec.userMessageId)
-          && who.every((w) => w.subjectType === 'group' ? namesGroup(typed, w.name) : namesRecipient(typed, w.name, { names: recipientWords(db, w), person: true }))
+          && who.every((w) => w.subjectType === 'group' ? namesGroup(typed, w.name) : namesRecipient(typed, w.ref, { names: recipientWords(db, w), person: true }))
           && ((!others && !content) || fromAsker(db, spec, plan.map((f) => f.path)))
         // (a group counts as named only as a group, namesGroup: "the sales report" does not name the group Sales)
         // no card when the asker's own message of this turn asked for exactly this share (docs/decisions/
