@@ -603,14 +603,17 @@ export class AppWindow {
 
   /** Open a remembered team; `entryPath` is the page a pasted link leads to ('/invite/<t>', '/join#t=<t>'), else '/'.
    * `startup`: the app opens it by itself at start (openLast), nobody picked it. */
+  /** a meeting belongs to the open team: another team waits until it is stopped (said in the app's own dialog) */
+  private meetingHolds(id: string): boolean {
+    if (!this.meeting.running() || this.team?.id === id) return false
+    if (!this.win.isDestroyed()) void dialog.showMessageBox(this.win, { type: 'info', message: t(this.o.locale(), 'meeting.switchBusy'), noLink: true })
+    return true
+  }
+
   async openTeam(id: string, entryPath = '/', o: { startup?: boolean } = {}) {
     const team = findTeam(this.teams, id)
     if (!team) return
-    // a meeting belongs to the open team: another team waits until it is stopped
-    if (this.meeting.running() && this.team?.id !== id) {
-      if (!this.win.isDestroyed()) void dialog.showMessageBox(this.win, { type: 'info', message: t(this.o.locale(), 'meeting.switchBusy'), noLink: true })
-      return
-    }
+    if (this.meetingHolds(id)) return
     this.startupLocal = o.startup && onThisComputer(team.origin) ? id : null
     // a team view takes over: a link that waited on ④ waits no more (it would come back confirmable later)
     this.linkGate.clear()
