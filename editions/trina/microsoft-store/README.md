@@ -6,7 +6,7 @@
 
 - [electron-builder.msix.config.ts](electron-builder.msix.config.ts): `desktop/electron-builder.config.ts`를 그대로 쓰고 스토어에 필요한 것만 바꿉니다. `appx` 대상(MSIX 파일), Partner Center가 준 패키지 ID, 스토어 버전, 타일 이미지, 매니페스트입니다. 기본 설정의 appId는 바꾸지 않습니다. NSIS 앱이 그 값으로 설치된 앱을 알아봅니다.
 - [build-resources/appxmanifest.xml](build-resources/appxmanifest.xml): electron-builder 기본 매니페스트에 마이크 권한(채팅 음성 입력) 한 줄을 더한 것입니다.
-- [build-resources/appx/](build-resources/appx/): 시작 메뉴·작업 표시줄 타일 이미지입니다. 트리나 마크(`editions/trina/branding/mobile/icon.svg`)로 만들었고, 넓은 타일은 [build-resources/wide-tile.svg](build-resources/wide-tile.svg)입니다. 다시 만들 때: `rsvg-convert -w <크기> -h <크기> <svg> -o <파일>.png`.
+- [build-resources/appx/](build-resources/appx/): 시작 메뉴·작업 표시줄 타일 이미지입니다. 밝은 앱 아이콘(`editions/trina/branding/mobile/icon.svg`)으로 만들었고, 넓은 타일은 [build-resources/wide-tile.svg](build-resources/wide-tile.svg)입니다. 다시 만들 때: `python3 editions/trina/branding/logo/make.py <Geist 글꼴>`([logo/README.md](../branding/logo/README.md)).
 - [listing.md](listing.md): 스토어 등록 문구(영어, 한국어)와 제출 화면에 넣을 답입니다.
 
 스토어 빌드는 앱 자체 업데이트를 하지 않습니다(`process.windowsStore`, `desktop/src/common/update.ts`). 팀 페이지의 설정 › 앱도 스토어 빌드 안에서는 설치 파일을 보여 주지 않습니다. 윈도우 줄은 "이 앱"과 "Microsoft Store에서 업데이트돼요" 한 줄이고, 맥 줄은 App Store로 갑니다(데스크톱 브리지의 `store` 값, `web/src/lib/apps.ts`).
