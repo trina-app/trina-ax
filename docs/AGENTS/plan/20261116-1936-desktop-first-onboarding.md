@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16 19:36
 - Branch: `feat/desktop-first-onboarding`
-- Status: in progress
+- Status: done
 - Where: `server/src/auth/` (one-time app sign-in code), `shared/src/api/auth.ts`, `shared/src/team-link.ts` (+ its
   phone copy), `desktop/src/common/address.ts`, `desktop/src/main/app-window.ts`, `web/src/pages/OpenApp.tsx`,
   `web/src/lib/open-app.ts`, the files step and My files, `editions/trina/branding/apps.json`. Why: sign-in and sessions
@@ -72,4 +72,16 @@ lib; a targeted web e2e spec with screenshots.
 
 ## Result
 
-(filled in at the end)
+Built as planned on `feat/desktop-first-onboarding` (not pushed; no PR yet). Endpoints `POST /api/auth/app-signin` and
+`POST /api/auth/app-signin/redeem`, migration `128_a_app_signin_codes.sql`, pages `/open-app` and `/app-signin`
+(web/src/pages/OpenApp.tsx), the shared line (web/src/components/onboarding/OpenAppLine.tsx), the desktop link reading
+(`appSignIn` option, `readDesktopLink`, `retypablePath`), Settings › Apps' Mac row, six languages, decision
+docs/decisions/20261116-desktop-first-onboarding.md, changelog changes/desktop-first-onboarding.md.
+
+Differences from the plan:
+- The screen also shows on plain http to this machine (development and the e2e mock); the app refuses such links,
+  which only matters for development.
+- From the files line, "Continue in the browser" goes back to where the line was (after setup it goes to the welcome
+  steps).
+- The code is spent with `UPDATE … RETURNING user_id` (one row or none) instead of reading `changes`.
+- The office Mac's owner hint in Settings › Apps now says Macs get the app "from the link above" (it said the App Store).
