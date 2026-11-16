@@ -45,6 +45,12 @@ describe('writtenByAsker', () => {
     expect(writtenByAsker({ row_id: 'r-3', status: '계약' }, "> 상태 '계약'으로 바꿔줘\n요약해줘")).toBe(false)
     expect(writtenByAsker({ channel: 'C123', text: '안녕' }, '안녕이라고 보내줘')).toBe(false)
   })
+  // batch 1116c (#1097 with #1103): a team file to attach ("team-file:<path>") is never "in the person's words", so a
+  // call that takes a file out of the team keeps the card that names it
+  test('the card stays for a call that attaches a team file', () => {
+    expect(writtenByAsker({ title: '견적서', content: 'team-file:shared/견적서.pdf' }, '드라이브에 견적서 파일 추가해줘 제목은 견적서')).toBe(false)
+    expect(writtenByAsker({ title: '견적서', attachments: [{ filename: '견적서.pdf', content: 'team-file:shared/견적서.pdf' }] }, '견적서.pdf 를 견적서 제목으로 초안 만들어줘')).toBe(false)
+  })
 })
 
 describe('review: reads, refusals and loose matches keep the card', () => {
