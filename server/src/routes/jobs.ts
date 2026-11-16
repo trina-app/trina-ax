@@ -3,6 +3,8 @@
 // init() installs the JobService (ctx.services.jobs) that G's backup / restore / update / export also use.
 import { API } from '@mycel/shared/api'
 import { HttpError } from '../http/errors'
+import { JobFailure } from '../jobs/service'
+import { MeetingGone, MeetingInFlight } from '../jobs/meeting-piece'
 import { mapErrors } from '../team-files/errors'
 import { componentC, startComponentC } from '../team-files/component'
 import type { RouteModule } from './module'
@@ -36,6 +38,23 @@ export const jobsRoutes: RouteModule = {
       const name = body.file.name || 'audio.webm'
       // the recording is on disk already (http/multipart.ts); the job takes the file over, or the kit removes it
       return { jobId: C.startTranscribe(auth.user.id, body.file.path, name, { language: body.fields.language, chatId }) }
+    }))
+    // meeting notes (desktop app): a piece of a meeting's sound, answered at once; 429 while the person has two under way
+    kit.handle(API.meetingStatus, () => C.meetingStatus())
+    kit.handle(API.meetingPiece, ({ c, body, auth }) => mapErrors(c.get('locale'), async () => {
+      try {
+        return await C.meetingPiece(auth.user.id, body.file.path, { language: body.fields.language, signal: c.req.raw.signal })
+      } catch (e) {
+        // what the app does with a refusal (desktop meeting notes): 429 in_flight and 503 busy / not_ready are sent
+        // again after retryAfter; 409 (off, no_key, too_slow) and 403 confidential stop the meeting with the sentence
+        if (e instanceof MeetingInFlight) throw new HttpError('rate_limited', undefined, { params: { reason: 'in_flight' }, retryAfter: 2 })
+        if (e instanceof MeetingGone) throw new HttpError('bad_request')
+        if (e instanceof JobFailure) {
+          const again = e.reason === 'busy' || e.reason === 'not_ready'
+          throw new HttpError(e.code, e.messages[c.get('locale')], { ...(e.reason ? { params: { reason: e.reason } } : {}), ...(again ? { retryAfter: 5 } : {}) })
+        }
+        throw e
+      }
     }))
   },
 }
