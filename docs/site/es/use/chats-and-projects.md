@@ -169,7 +169,7 @@ arriba, reúne los mensajes que le mencionan y los hilos que sigue.
 
 Para traer a alguien de fuera del equipo, elija **Invitar a un invitado** al añadir personas a un chat de grupo o a un proyecto. [Más información sobre los invitados](guests.md).
 
-![La lista Chats: Menciones e hilos, Canales con Todos (Everyone) y Marketing, y un mensaje directo](../../images/chats/rooms-list.webp "La lista Chats")
+![La lista Chats: Menciones e hilos, Canales con Todos (Everyone) y Marketing, y Mensajes directos con una conversación de grupo y un mensaje directo](../../images/chats/rooms-list.webp "La lista Chats")
 
 #### Preguntar a Trina junto a una sala
 
