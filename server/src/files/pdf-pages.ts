@@ -164,8 +164,10 @@ export function pruneResources(doc: PDFDocument, indices: number[]) {
     const node = doc.getPage(i).node
     let text = ''
     try {
-      const c = ctx.lookup(node.get(PDFName.of('Contents')))
-      const streams = c instanceof PDFArray ? c.asArray().map((x) => ctx.lookup(x)) : [c]
+      // a page without /Contents (a blank page) uses nothing: everything is pruned
+      const ref = node.get(PDFName.of('Contents'))
+      const c = ref === undefined ? undefined : ctx.lookup(ref)
+      const streams = c === undefined ? [] : c instanceof PDFArray ? c.asArray().map((x) => ctx.lookup(x)) : [c]
       for (const s of streams) {
         // a stream read from the file, or one drawn here (our q … Q, a stamp, text: not yet encoded)
         if (s instanceof PDFRawStream) text += Buffer.from(decodePDFRawStream(s).decode()).toString('latin1') + '\n'

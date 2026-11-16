@@ -155,6 +155,11 @@ describe('edit_pdf: each operation, as a new file next to the original', () => {
       // still drawn: the picture of page 1 is on page 1
       if (pdftotext) expect(text(out, 1)).toContain('XOBJ-SECRET-1')
     }
+    // a blank kept page (no /Contents, as scanned separator pages are) keeps none of the shared pictures
+    put(`${D}/shared-blank.pdf`, writePdf(objs.map((o, i) => (i === 2 ? '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] >>' : o))))
+    const blank = await call('edit_pdf', { file_path: `${D}/shared-blank.pdf`, operations: [{ keep_pages: '1' }], output: `${D}/sr-blank.pdf` })
+    expect(blank.isError, blank.text).toBe(false)
+    expect(await streams(`${D}/sr-blank.pdf`)).not.toContain('XOBJ-SECRET')
   })
 
   test('keep (extract), reorder, rotate, insert: in order, each on the pages as they are then', async () => {
