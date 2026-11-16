@@ -152,6 +152,10 @@ jobs:
         run: bun run features:check
       - name: Onboarding documentation contracts
         run: bun run check:docs
+      # two migrations with one number stop the server at start; on a pull request a new number must also be above
+      # the base branch's highest of its component (the base is fetched the way changelog:check fetches it)
+      - name: Migration numbers
+        run: bun run check:migrations
       - name: Native build (darwin + linux, amd64 + arm64), go vet and go test
         run: |
           ARCHS="amd64 arm64" bash native/build.sh
