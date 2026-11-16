@@ -265,7 +265,8 @@ test('Stripe: one card per payment (Checkout then its intent edits nothing new),
   ms = await messages()
   expect(ms[0].appCard.status).toBe(status(appText('statusRefunded', L)))
   expect((await thread(ms[0].id))[0].appCard.title).toBe(appText('refundedAmount', L, { amount }))
-  expect(JSON.stringify(ms)).not.toContain('4242')
+  // only the visible fields: the message JSON also holds random ids that can contain "4242"
+  expect(JSON.stringify(ms.map((m) => ({ body: m.body, appCard: m.appCard })))).not.toContain('4242')
   // a dispute joins the thread and shows in the room too
   expect((await post(token, fixture('stripe/dispute-created.json'))).status).toBe(200)
   await settle()
@@ -316,7 +317,9 @@ test('Shopify: the order card without email, phone or street; payment edits its 
   expect(ms[0].appCard).toMatchObject({ kind: appText('newOrder', L, { order: '#9999' }), title: appText('orderItemsMany', L, { total, n: 4 }),
     details: [appText('orderLine', L, { n: 1, title: 'Aviator sunglasses' }), appText('orderLine', L, { n: 2, title: 'Mid-century lounger' }), 'Jamie · Ottawa'],
     status: status(appText('statusPending', L)), link: { url: 'https://admin.shopify.com/store/acme-shop/orders/5820982911946154' } })
-  for (const leak of ['jamie@example.com', '555', 'Fake Street', 'Rivera']) expect(JSON.stringify(ms[0])).not.toContain(leak)
+  // only the visible fields (the message JSON also holds random ids, e.g. "…-555e1f806f89"); the phone is checked by its digits
+  const visible = JSON.stringify({ body: ms[0].body, appCard: ms[0].appCard })
+  for (const leak of ['jamie@example.com', '555-0100', '555-5555', '555', 'Fake Street', 'Rivera']) expect(visible).not.toContain(leak)
   // paid: the status line only, no reply
   const paid = JSON.stringify({ ...JSON.parse(order), financial_status: 'paid' })
   expect((await post(token, paid, hdr('orders/paid', 'e2'))).status).toBe(200)
