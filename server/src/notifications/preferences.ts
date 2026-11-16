@@ -116,6 +116,8 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     case 'hosting.key_copied': case 'hosting.exported': case 'relay.address_moved': return true
     // the AI could not start on this server (shown always, Notifications.engineStartNotice): every answer fails until it is fixed
     case 'engine.start_failed': return true
+    // the team's disk is filling (shown always, Notifications.storageNotice): only the owners and admins can free it
+    case 'storage.filling': return true
     // a reply in a thread I follow under an AI answer of a shared chat (shown always; its push follows "Replies in threads
     // I'm part of": pushEventEnabled)
     case 'chat.thread_reply': return true

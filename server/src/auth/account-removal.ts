@@ -74,7 +74,7 @@ export const REMOVED_BY_REMOVE_ACCOUNT: readonly string[] = [
 
 /** Columns that hold a person's id without a foreign key to users(id) (the coverage test reads them with the ones that
  * have one, so they are decided too). */
-export const USER_COLUMNS_WITHOUT_FK: readonly string[] = ['room_app_viewers.user_id', 'chat_thread_replies.author_id', 'chat_thread_notices.by_user', 'access_requests.owner_id', 'access_requests.decided_by']
+export const USER_COLUMNS_WITHOUT_FK: readonly string[] = ['room_app_viewers.user_id', 'chat_thread_replies.author_id', 'chat_thread_notices.by_user', 'access_requests.owner_id', 'access_requests.decided_by', 'storage_notices.by_user']
 
 /**
  * Columns that point at users(id) and stay after the account is deleted, with the reason (the coverage test checks
@@ -100,6 +100,7 @@ export const KEPT_WITH_ACCOUNT: Record<string, string> = {
   'chat_thread_notices.by_user': 'other people\'s Inbox notices name the newest replier only while that account is active (chat/threads.ts chatThreadNoticeOut); the id alone stays until the notice is read or ages out',
   'access_requests.owner_id': 'whose chat or project another person asked to open: the key of the per-owner daily limit (chat/access-requests.ts), never shown; the request goes with the asker\'s account or ages with its target',
   'access_requests.decided_by': 'who answered another person\'s request (Share or Decline), never shown to anyone; the audit log has the history',
+  'storage_notices.by_user': 'the admin who asked people to clean up (the next step of docs/decisions/20261116-storage-full-notices.md), named only while that account is active; the id alone stays until the notice ages out',
   'chat_thread_replies.author_id': 'replies they wrote under answers of shared chats stay, under the tombstone name, as room messages (the delete page says so); also on a self-requested deletion',
   'room_messages.visible_to': 'a room AI answer only they could see: shown to nobody else, goes with the room (room messages are never deleted one by one)',
   'room_members.user_id': 'a direct conversation keeps its member row so the other person still sees who it was with',
@@ -133,7 +134,7 @@ export function registerAccountsCleanup(ctx: AppContext): void {
       'sessions.user_id', 'login_nets.user_id', 'card_always_allow.user_id', 'user_web_access.user_id',
       'member_welcome.user_id', 'group_member_since.user_id',
       'account_deletion_notices.user_id', 'account_deletion_due_notices.user_id', 'reset_link_notices.user_id', 'handover_notices.user_id',
-      'hosting_notices.user_id', 'engine_start_notices.user_id', 'credential_change_notices.user_id', 'team_join_notices.user_id',
+      'hosting_notices.user_id', 'engine_start_notices.user_id', 'storage_notices.user_id', 'credential_change_notices.user_id', 'team_join_notices.user_id',
       // a deleted guest's place and AI choice (docs/DECISIONS.md "Guests: only what they were invited to")
       'guests.user_id',
     ],

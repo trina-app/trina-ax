@@ -78,7 +78,7 @@ export type FileShareEvent = Extract<NotificationEventType, 'file.shared' | 'fil
 const isFileShareEvent = (e: NotificationEventType): e is FileShareEvent => e === 'file.shared' || e === 'file.access_requested' || e === 'file.access_answered' || e === 'file.unshared_by_move'
 export type AccessRequestEvent = Extract<NotificationEventType, 'access.requested' | 'access.answered'>
 const isAccessRequestEvent = (e: NotificationEventType): e is AccessRequestEvent => e === 'access.requested' || e === 'access.answered'
-const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_answer_notices' : isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : e === 'account.deletion_due' ? 'account_deletion_due_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : e === 'chat.shared' ? 'chat_share_notices' : e === 'service.closed' ? 'service_request_closed_notices' : e === 'files.stored_key' ? 'stored_key_file_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : e === 'account.reset_link' ? 'reset_link_notices' : isHostingEvent(e) ? 'hosting_notices' : e === 'engine.start_failed' ? 'engine_start_notices' : e === 'room_app.paused' ? 'room_app_notices' : e === 'room_app.leaver' ? 'room_app_leaver_notices' : isFileShareEvent(e) ? 'file_share_notices' : isAccessRequestEvent(e) ? 'access_request_notices' : e === 'chat.thread_reply' ? 'chat_thread_notices' : 'notification_inbox'
+const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_answer_notices' : isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : e === 'account.deletion_due' ? 'account_deletion_due_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : e === 'chat.shared' ? 'chat_share_notices' : e === 'service.closed' ? 'service_request_closed_notices' : e === 'files.stored_key' ? 'stored_key_file_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : e === 'account.reset_link' ? 'reset_link_notices' : isHostingEvent(e) ? 'hosting_notices' : e === 'engine.start_failed' ? 'engine_start_notices' : e === 'storage.filling' ? 'storage_notices' : e === 'room_app.paused' ? 'room_app_notices' : e === 'room_app.leaver' ? 'room_app_leaver_notices' : isFileShareEvent(e) ? 'file_share_notices' : isAccessRequestEvent(e) ? 'access_request_notices' : e === 'chat.thread_reply' ? 'chat_thread_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
  * requests to connect a service (migration 220), a member's request for an AI connection (migration 231), joins
  * through the team invite link (migration 111), a member's first run of a team skill during the 7-day team goal
@@ -89,10 +89,10 @@ const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_a
  * a transfer, a locked password check: migration 270), someone who started to see a team project (migration 284) and
  * a member's ask to add an app with its answer (migration 343), a password reset link made for the person (migration 119)
  * and the hosting service's copies of the team's key or data, or the team address moved away (migration 120), the AI
- * that could not start on this server (migration 127), and an
+ * that could not start on this server (migration 127), the team's disk filling up (migration 702), and an
  * app in a room that paused for the day (migration 299) and someone who left who still knows an app's address (migration 352)
  * have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
-const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'account_deletion_due_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'service_request_closed_notices', 'stored_key_file_notices', 'reset_link_notices', 'hosting_notices', 'engine_start_notices', 'room_app_notices', 'room_app_leaver_notices', 'chat_answer_notices', 'chat_share_notices', 'file_share_notices', 'chat_thread_notices', 'access_request_notices'] as const
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'account_deletion_due_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'service_request_closed_notices', 'stored_key_file_notices', 'reset_link_notices', 'hosting_notices', 'engine_start_notices', 'storage_notices', 'room_app_notices', 'room_app_leaver_notices', 'chat_answer_notices', 'chat_share_notices', 'file_share_notices', 'chat_thread_notices', 'access_request_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 const INBOX = union(NOTICE_TABLES)
 /** What the Inbox lists and counts besides the rooms' notices, newest first: every other notice. The rooms' notices
@@ -341,6 +341,19 @@ export class Notifications {
    * answer of the team fails until an owner or admin has the server fixed (QA TC-3521). */
   engineStartNotice(userId: string, sourceId: string, createdAt = new Date().toISOString()) {
     this.record(userId, 'engine.start_failed', sourceId, createdAt, true)
+  }
+  /** The team's disk is 80 % or 95 % full (system/storage.ts checkAlert; source: '<80|95>:<time>'). Shown always: the
+   * owner and admins are the only ones who can free the space, and the live toast missed whoever was away. Inbox only,
+   * no push. `roomsBytes`: the files in conversations as last measured (one number, never a name). */
+  storageNotice(userId: string, sourceId: string, percent: number, roomsBytes: number | null, createdAt = new Date().toISOString()) {
+    if (!this.active(userId) || createdAt < this.cutoff()) return
+    const id = newId()
+    const r = this.ctx.db.query("INSERT INTO storage_notices(id,user_id,event_type,source_id,created_at,suppressed,percent,rooms_bytes) VALUES(?,?,'storage.filling',?,?,0,?,?) ON CONFLICT(user_id,event_type,source_id) DO NOTHING")
+      .run(id, userId, sourceId, createdAt, Math.max(0, Math.min(100, Math.round(percent))), roomsBytes === null ? null : Math.max(0, Math.floor(roomsBytes)))
+    if (!r.changes) return
+    // one current fact: a full disk for days is one unread row, not one a day (the older ones count as read)
+    this.ctx.db.query("UPDATE storage_notices SET read_at=? WHERE user_id=? AND event_type='storage.filling' AND read_at IS NULL AND id<>?").run(createdAt, userId, id)
+    this.signal(userId)
   }
   /** 팀장 넘기기 (admin/handover.ts): a join with the owner's lead link (source: the invite; also pushed), a transfer
    * (source: the transfer, to both people and the other admins), a locked password check (source: its window). Shown
@@ -773,6 +786,14 @@ export class Notifications {
     }
     // the AI could not start on this server: the words say what to do, no link (the health page is the owner's only)
     if (row.event_type === 'engine.start_failed') return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null }
+    // the disk filling: how full it was and the files in conversations then, and the storage card, while the reader is
+    // still the owner or an admin; one demoted since gets the plain words only (no number of the team's files, no link)
+    if (row.event_type === 'storage.filling') {
+      const staff = isStaff(this.ctx.db, row.user_id)
+      const n = staff ? this.ctx.db.query('SELECT percent, rooms_bytes FROM storage_notices WHERE id=?').get(row.id) as { percent: number | null; rooms_bytes: number | null } | null : null
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: staff ? 'admin_storage' : null, outcome: null,
+        ...(n && n.percent !== null ? { storage: { percent: n.percent, roomsBytes: n.rooms_bytes } } : {}) }
+    }
     if (isHostingEvent(row.event_type)) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null }
     if (row.event_type === 'account.reset_link') {
       const r = this.ctx.db.query('SELECT created_by, expires_at, used_at FROM password_resets WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { created_by: string | null; expires_at: string; used_at: string | null } | null
@@ -1021,6 +1042,15 @@ export function notifyEngineStartFailed(ctx: AppContext, turnId: string) {
     const at = new Date().toISOString()
     for (const id of ids) notificationsOf(ctx).engineStartNotice(id, turnId, at)
   } catch { ctx.log.warn('engine start notification recording failed') }
+}
+/** The team's disk is filling (system/storage.ts checkAlert): one Inbox notice to each active owner and admin (never a
+ * member or guest: they cannot free the space). The caller decides how often (once a day per threshold). Never throws:
+ * the toast and the audit row happened anyway. */
+export function notifyStorageFilling(ctx: AppContext, threshold: 80 | 95, percent: number, roomsBytes: number | null, at = new Date().toISOString()) {
+  try {
+    const ids = (ctx.db.query(`SELECT id FROM users WHERE role IN ('owner', 'admin') AND status = 'active' AND deleted_at IS NULL AND ${roleSql()} IN ('owner', 'admin')`).all() as { id: string }[]).map((u) => u.id)
+    for (const id of ids) notificationsOf(ctx).storageNotice(id, `${threshold}:${at}`, percent, roomsBytes, at)
+  } catch { ctx.log.warn('storage notification recording failed') }
 }
 /** The owner or an admin (the guest-aware role: auth/guests.ts roleSql). */
 function isStaff(db: AppContext['db'], userId: string): boolean {
