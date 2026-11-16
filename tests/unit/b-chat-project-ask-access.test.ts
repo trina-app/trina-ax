@@ -210,6 +210,16 @@ describe('a chat link', () => {
     expect((await view(carl, 'project', team)).body.askedAt).not.toBeNull()
     expect((await view(carl, 'chat', chatId)).body).toEqual({ status: 'no_access', canAsk: true, askedAt: null })
     const row = (await activity(alice)).find((x) => x.sourceId === `project:${team}:${ids.carl}`)
+    // asking again on the chat's link: a fresh ask's answer (sent, today's date), never "already" with the project's
+    // date (security re-check of #1140); the project's own link says already, with its date
+    const projectAsk = await ask(carl, 'project', team)
+    expect(projectAsk.body.status).toBe('already')
+    const again = await ask(carl, 'chat', chatId)
+    expect(again.status).toBe(200)
+    expect(Object.keys(again.body).sort()).toEqual(['askedAt', 'status'])
+    expect(again.body.status).toBe('sent')
+    expect(again.body.askedAt).not.toBe(projectAsk.body.askedAt)
+    expect(h.ctx.db.query("SELECT COUNT(*) n FROM access_requests WHERE kind = 'project' AND target_id = ? AND requester_id = ? AND state = 'pending'").get(team, ids.carl)).toEqual({ n: 1 })
     expect(row.accessRequest).toMatchObject({ kind: 'project', name: 'Launch plan', canAnswer: true })
     expect((await approve(alice, q.id)).body).toEqual({ state: 'approved' })
     expect((await view(carl, 'chat', chatId)).body).toEqual({ status: 'open' })
@@ -240,6 +250,49 @@ describe('a chat link', () => {
     try {
       expect((await answer(alice, requestOf('chat', later, ids.dina)!.id, 'approve')).body).toEqual({ state: 'closed' })
     } finally { h.ctx.db.query('UPDATE users SET guest = 0 WHERE id = ?').run(ids.dina) }
+  })
+})
+
+describe('requests that can no longer be answered', () => {
+  test('a chat that became confidential, or safe operations switched on: its waiting request closes', async () => {
+    const one = await chatOf(alice, 'Turns confidential')
+    expect((await ask(bob, 'chat', one)).body.status).toBe('sent')
+    h.ctx.db.query('INSERT INTO safe_ops_chats(chat_id, material) VALUES (?, 1) ON CONFLICT(chat_id) DO UPDATE SET material = 1').run(one)
+    try {
+      await view(bob, 'chat', one)
+      expect(requestOf('chat', one, ids.bob)!.state).toBe('closed')
+    } finally { h.ctx.db.query('DELETE FROM safe_ops_chats WHERE chat_id = ?').run(one) }
+    const two = await chatOf(alice, 'Safe ops on')
+    expect((await ask(bob, 'chat', two)).body.status).toBe('sent')
+    const before = process.env.MYCEL_SAFE_OPS_1A
+    process.env.MYCEL_SAFE_OPS_1A = '1'
+    try {
+      await view(bob, 'chat', two)
+      expect(requestOf('chat', two, ids.bob)!.state).toBe('closed')
+    } finally { if (before === undefined) delete process.env.MYCEL_SAFE_OPS_1A; else process.env.MYCEL_SAFE_OPS_1A = before }
+  })
+
+  test("a project whose answerers are all gone for a moment keeps its waiting request; trashed, it closes", async () => {
+    const fay = await addMember(h, owner, { username: 'fay2' })
+    const id = await teamProject(fay.client, 'Answerers away', [])
+    const asker = await addMember(h, owner, { username: 'gus' })
+    expect((await ask(asker.client, 'project', id)).body.status).toBe('sent')
+    // its creator and every admin switched off for a moment: the request still waits
+    const staff = (h.ctx.db.query("SELECT id FROM users WHERE role IN ('owner','admin') AND status = 'active'").all() as { id: string }[]).map((r) => r.id)
+    for (const u of [fay.id, ...staff]) h.ctx.db.query("UPDATE users SET status = 'disabled' WHERE id = ?").run(u)
+    try {
+      await view(asker.client, 'project', id)
+      expect(requestOf('project', id, asker.id)!.state).toBe('pending')
+    } finally { for (const u of [fay.id, ...staff]) h.ctx.db.query("UPDATE users SET status = 'active' WHERE id = ?").run(u) }
+    expect((await view(asker.client, 'project', id)).body).toEqual({ status: 'no_access', canAsk: true, askedAt: expect.any(String) })
+    h.ctx.db.query("UPDATE projects SET trashed_with = 'trash-y' WHERE id = ?").run(id)
+    try {
+      await ask(asker.client, 'project', id)
+      const row = h.ctx.db.query(`SELECT ${'id'} FROM access_requests WHERE kind = 'project' AND target_id = ? AND requester_id = ?`).get(id, asker.id) as { id: string }
+      // read by the answerer's Activity: settled closed
+      await activity(fay.client)
+      expect((h.ctx.db.query('SELECT state FROM access_requests WHERE id = ?').get(row.id) as { state: string }).state).toBe('closed')
+    } finally { h.ctx.db.query('UPDATE projects SET trashed_with = NULL WHERE id = ?').run(id) }
   })
 })
 

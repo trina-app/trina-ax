@@ -34,8 +34,12 @@
     lead to a refusal.
   - the owner or an admin on a team project they manage is "open" (the page loads it for them to manage, with Add me),
     and on a team project chat they keep the existing "add yourself in Projects" line: they never need to ask.
-- **A request nobody can answer any more** (its chat moved into a project or deleted, its project trashed or gone, its
-  answerers gone) is closed on the next read; one whose asker opens it now is approved.
+- **A request that can no longer be answered** is closed on the next read: a chat moved into a project, deleted, made
+  confidential, safe operations on, its creator gone; a project gone, trashed or no longer a team project. A project
+  whose answerers are all gone for a moment keeps its requests. One whose asker opens it now is approved.
+- **An ask of the other kind:** asking on a chat's link while an ask for its project waits (or the other way round)
+  answers as a fresh ask would (`sent`, today's date, after the same limits), never `already` with the other ask's
+  date, so the chat is never tied to its project (security re-check of #1140); nothing new is stored or told.
 - **Security review of #1140:** the no-ask reasons are no longer told apart (no `why`), `askedAt` follows the link's
   kind, trashed projects' chats are `unknown`, the read is limited and cheap, unanswerable requests close.
 - **Who can't ask:** guests (403), switched-off and removed accounts (they cannot sign in; a waiting request of an

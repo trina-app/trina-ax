@@ -143,14 +143,16 @@ export class AccessRequests {
     return { ...chat, ...NOBODY }
   }
 
-  /** Whether anyone can still answer this request (its target there, shareable, someone to answer it). */
+  /** Whether this request can still be answered: a chat still shareable (not moved into a project, deleted,
+   * confidential, safe operations off) with its creator there; a project still there, out of the trash and a team
+   * project. A project whose answerers are all gone for a moment keeps its requests (an admin may come back). */
   private answerable(q: RequestRow): boolean {
     if (q.kind === 'chat') {
       const r = this.rt.store.chatRow(q.target_id)
-      return !!r && !peopleShareRefusal(this.ctx, r) && this.chatAnswerers(r).length > 0
+      return !!r && !peopleShareRefusal(this.ctx, r) && !safeOpsEnabled() && !confidentialChat(this.db, r.id) && this.chatAnswerers(r).length > 0
     }
     const r = this.rt.store.projectRow(q.target_id)
-    return !!r && r.trashed_with === null && isTeamProject(r) && this.projectAnswerers(r, true).length > 0
+    return !!r && r.trashed_with === null && isTeamProject(r)
   }
 
   /** The person's own access to the link now (the route checked kind and the id's shape). */
@@ -222,7 +224,10 @@ export class AccessRequests {
     const answerers = t.answerers()
     if (!answerers.length) return fail('forbidden', msg('requestOff', L), { params: { reason: 'access_request_off' } })
     const waiting = this.waiting(t.kind, t.id, userId)
-    if (waiting) return { status: 'already', askedAt: waiting.created_at }
+    // a waiting ask of this link's own kind: its date. One of the other kind (a project's, asked from a chat's link or
+    // the other way round) is never told: the answer is a fresh ask's, after the same limits, so a chat's link never
+    // shows that it belongs to the project asked for (security re-check of #1140)
+    if (waiting && t.kind === kind) return { status: 'already', askedAt: waiting.created_at }
     // the file requests' limits, counted over both tables (files/shares.ts request)
     const at = Date.now()
     const hourAgo = new Date(at - 3600_000).toISOString(), dayAgo = new Date(at - 86400_000).toISOString()
@@ -232,6 +237,8 @@ export class AccessRequests {
     const day = count('SELECT COUNT(*) n FROM access_requests WHERE requester_id = ? AND owner_id = ? AND created_at > ?', userId, t.owner, dayAgo)
       + count("SELECT COUNT(*) n FROM file_access_requests WHERE requester_id = ? AND COALESCE(owner_id, '') = ? AND created_at > ?", userId, t.owner, dayAgo)
     if (hour >= FILE_REQUESTS_PER_HOUR || day >= FILE_REQUESTS_PER_OWNER_DAY) return fail('rate_limited', msg('tooMany', L), { retryAfter: 3600 })
+    // (the other kind's ask already waits: nothing new is stored or told, the answer is a fresh ask's)
+    if (waiting) return { status: 'sent', askedAt: now() }
     const note = message?.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').trim().slice(0, 500) || null
     const created = now()
     this.db.query('INSERT INTO access_requests (id, kind, target_id, requester_id, owner_id, message, state, created_at) VALUES (?,?,?,?,?,?,?,?)')
