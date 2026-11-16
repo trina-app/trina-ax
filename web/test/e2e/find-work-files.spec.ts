@@ -240,6 +240,54 @@ test('the share step with "Everyone on the team": the first option, the line bef
   await ctx.close()
 })
 
+test('the share step at 390 (QA TC-3522): with files ticked, a person and "Everyone on the team" picked, Share and Not now stay fully in sight in the sheet\'s footer; the list scrolls', async ({ page }) => {
+  await fakeApp(page)
+  await reset(page)
+  await signIn(page, BOB)
+  await openMine(page)
+  await look(page, WORK)
+  await page.getByTestId('files-find-work-entry').click()
+  await answer(page, 'look')
+  await expect(page.getByTestId('find-work-ai')).toBeVisible()
+  await page.getByTestId('find-work-select-all').click()
+  await page.getByTestId('find-work-add').click()
+  await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-stage', 'share', { timeout: 15_000 })
+  await page.setViewportSize({ width: 390, height: 844 })
+  for (const c of await page.getByTestId('find-work-share-check').all()) await c.check()
+  await page.getByTestId('find-work-share-picker-search').fill('Olga')
+  await page.getByTestId('participant-add-user-olga').click()
+  // "Everyone on the team" too: its line shows in the scrolling body, above the footer (QA TC-3509)
+  await page.getByTestId('find-work-share-picker-search').click()
+  await page.getByTestId(`participant-add-group-${FILE_SHARE_EVERYONE}`).click()
+  await page.getByTestId('find-work-share-picker-search').blur()
+  await expect(page.getByTestId('find-work-share-everyone-line')).toBeAttached()
+  // the buttons are in the dialog's footer row, below the scrolling body, whole and on screen without scrolling
+  const footer = page.getByRole('dialog').getByTestId('modal-footer')
+  for (const id of ['find-work-share-go', 'find-work-share-skip']) {
+    await expect(footer.getByTestId(id)).toBeInViewport({ ratio: 1 })
+  }
+  const box = (await footer.boundingBox())!
+  expect(box.y + box.height).toBeLessThanOrEqual(844)
+  if (process.env.FIND_SHARE_390_SHOTS) {
+    for (const scheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: scheme })
+      await page.waitForTimeout(200)
+      await page.screenshot({ path: `${process.env.FIND_SHARE_390_SHOTS}/390-${scheme}-picked.png` })
+    }
+    await page.setViewportSize({ width: 1440, height: 900 })
+    for (const scheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: scheme })
+      await page.waitForTimeout(200)
+      await page.screenshot({ path: `${process.env.FIND_SHARE_390_SHOTS}/1440-${scheme}-picked.png` })
+    }
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.emulateMedia({ colorScheme: 'light' })
+  }
+  // Not now from the footer: the result
+  await footer.getByTestId('find-work-share-skip').click()
+  await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-stage', 'result')
+})
+
 test('the share step is skipped when the team turned off members\' file sharing', async ({ page }) => {
   await fakeApp(page)
   await reset(page)

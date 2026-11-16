@@ -16,7 +16,7 @@ import { useMe } from '../../store/session'
 import { ParticipantPicker, participantKey, useParticipantOptions } from '../ProjectParticipants'
 import { whoNames } from '../ShareWarning'
 import { EveryoneLine, isEveryone, useWithEveryone } from '../ShareEveryone'
-import { Button } from '../ui'
+import { Button, ModalFooter } from '../ui'
 import { TickRow } from './TickList'
 
 const REASON: Record<TeamFileReason, MessageKey> = {
@@ -100,12 +100,15 @@ export function ShareFoundFiles({ paths, reasons, where, phone, added, onShared,
       {chosen.length > 0 && <EveryoneLine picks={picks} files={chosen.length} testId="find-work-share-everyone-line" />}
       {going ? <p className="text-label text-muted" role="status" data-testid="find-work-share-going">{t('files.findWork.share.going', { n: going.n })}</p>
         : chosen.length > 0 && !picks.length ? <p className="text-label text-muted" data-testid="find-work-share-who">{t('files.findWork.share.who')}</p> : null}
-      <div className={phone ? 'flex flex-col-reverse gap-2 [&>*]:w-full' : 'flex flex-wrap items-center justify-end gap-3'}>
-        <Button variant="ghost" className={clsx(phone && 'w-full')} disabled={!!going} onClick={onSkip} data-testid="find-work-share-skip">{t('files.findWork.share.skip')}</Button>
-        <Button variant="primary" className={clsx(phone && 'w-full')} disabled={!chosen.length || !picks.length} busy={!!going} onClick={() => void share()} data-testid="find-work-share-go">
-          {chosen.length ? t('files.findWork.share.go', { n: chosen.length }) : t('files.findWork.share.goNone')}
-        </Button>
-      </div>
+      {/* the buttons in the dialog's footer row: always in sight under the list, which scrolls (QA TC-3522) */}
+      <ModalFooter>
+        <div className={phone ? 'flex w-full flex-col-reverse gap-2 [&>*]:w-full' : 'flex flex-wrap items-center justify-end gap-3'}>
+          <Button variant="ghost" className={clsx(phone && 'w-full')} disabled={!!going} onClick={onSkip} data-testid="find-work-share-skip">{t('files.findWork.share.skip')}</Button>
+          <Button variant="primary" className={clsx(phone && 'w-full')} disabled={!chosen.length || !picks.length} busy={!!going} onClick={() => void share()} data-testid="find-work-share-go">
+            {chosen.length ? t('files.findWork.share.go', { n: chosen.length }) : t('files.findWork.share.goNone')}
+          </Button>
+        </div>
+      </ModalFooter>
     </div>
   )
 }

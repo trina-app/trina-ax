@@ -539,6 +539,9 @@ export const Room = z.object({
   /** a group chat's manager (방장): its maker while they are in it, else the member who joined first. They, and owners
    * and admins in it, may take someone out. null for the other kinds */
   managerId: UserId.nullable(),
+  /** may I add and manage this room's apps (the server's rooms/store.ts mayManageApps: a team room's and the everyone
+   * room's owners and admins, a 1:1's and a group chat's members, never a guest). Older servers omit it */
+  canManageApps: z.boolean().optional(),
   groupId: Uuid7.nullable(),
   memberCount: z.number().int().nonnegative(),
   /** up to 4 other members, for the avatars; a DM: the other person */
@@ -807,7 +810,7 @@ export const AnswerShareConfirm = z.object({
 export type AnswerShareConfirm = z.infer<typeof AnswerShareConfirm>
 
 export const ROOMS = {
-  listRooms: endpoint({ method: 'GET', path: '/api/rooms', auth: 'user', owner: 'B', response: z.object({ items: z.array(Room), alerts: RoomAlertSettings.optional() }), summary: 'The rooms I am in (my team rooms, everyone, DMs, group chats), most recent activity first, with my unread count, the last message, my notification level and my pin (pinnedAt; the app lists my pinned rooms first); alerts: what else decides whether a message rings (thread replies, quiet hours, the team time zone).' }),
+  listRooms: endpoint({ method: 'GET', path: '/api/rooms', auth: 'user', owner: 'B', response: z.object({ items: z.array(Room), alerts: RoomAlertSettings.optional() }), summary: 'The rooms I am in (my team rooms, everyone, DMs, group chats), most recent activity first, with my unread count, the last message, my notification level, my pin (pinnedAt; the app lists my pinned rooms first) and whether I may add apps there (canManageApps, the same rule as the apps routes); alerts: what else decides whether a message rings (thread replies, quiet hours, the team time zone).' }),
   createRoom: endpoint({ method: 'POST', path: '/api/rooms', auth: 'user', owner: 'B', status: 201, body: CreateRoomBody, response: Room, summary: 'Open the DM with a person (the existing one when there is one), or make a group chat with two or more people. Not audited: admins do not learn who talks to whom.' }),
   getRoom: endpoint({ method: 'GET', path: '/api/rooms/:id', auth: 'user', owner: 'B', response: Room, summary: 'One room I am in (404 for anyone else, admins included).' }),
   updateRoom: endpoint({ method: 'PATCH', path: '/api/rooms/:id', auth: 'user', owner: 'B', body: UpdateRoomBody, response: Room, summary: 'Set my notification level for a room (all, mentions, off, or my default), or rename it (group chats: any member; team and everyone rooms: owner or admin members; never a DM).' }),

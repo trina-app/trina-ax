@@ -15,6 +15,7 @@
 // Jotform, Stripe, Shopify, Zendesk; phase 4 Jira, HubSpot and, under "Show more services", Toss Payments, Channel Talk,
 // PortOne) and reads Slack-, Discord- and JANDI-shaped messages.
 import { z } from 'zod'
+import type { CatalogServiceId } from '../service-catalog'
 import { IsoTime } from './common'
 import { empty, endpoint } from './endpoint'
 import { UserRef } from './entities'
@@ -87,6 +88,19 @@ export const ROOM_APP_PRESET_SIGNING: Record<RoomAppPreset, { signing: 'none' } 
   // PortOne V2 signs by Standard Webhooks: the key in base64, "whsec_" before it or not ("웹훅 시크릿 발급")
   portone: { signing: 'paste', shape: /^(whsec_)?[A-Za-z0-9+/]{22,200}={0,2}$/ },
 }
+
+/** A named service an app can be set up as: a kind but Other, or a preset (the web's screens call it a "service"). */
+export type RoomAppService = Exclude<RoomAppKind, 'other'> | RoomAppPreset
+
+/** The AI connectors (shared/src/service-catalog.ts, Settings › Connectors) whose service also has a conversation app:
+ * their row offers "Add to a conversation", which opens that app's guide in a conversation the person picks
+ * (docs/decisions/20261116-connector-card-room-apps.md). Atlassian's connector is Jira's and Confluence's; only Jira
+ * posts. The one place both lists meet: a new preset with a listed connector is added here. */
+export const ROOM_APP_FOR_CATALOG: Partial<Record<CatalogServiceId, RoomAppService>> = {
+  sentry: 'sentry', notion: 'notion', stripe: 'stripe', atlassian: 'jira',
+}
+/** The conversation app of a listed connector, or null (most have none). */
+export const roomAppForCatalog = (id: string): RoomAppService | null => ROOM_APP_FOR_CATALOG[id as CatalogServiceId] ?? null
 
 /** What a preset needs on the service's side ("Needs: …" on the picker row and the guide's header): the key of the
  * web app's words (roomApps.needs.*), absent when anyone can set it up. */

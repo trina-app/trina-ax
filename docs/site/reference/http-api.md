@@ -558,7 +558,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| `GET` | `/api/rooms` | Signed in | The rooms I am in (my team rooms, everyone, DMs, group chats), most recent activity first, with my unread count, the last message, my notification level and my pin (pinnedAt; the app lists my pinned rooms first); alerts: what else decides whether a message rings (thread replies, quiet hours, the team time zone). |
+| `GET` | `/api/rooms` | Signed in | The rooms I am in (my team rooms, everyone, DMs, group chats), most recent activity first, with my unread count, the last message, my notification level, my pin (pinnedAt; the app lists my pinned rooms first) and whether I may add apps there (canManageApps, the same rule as the apps routes); alerts: what else decides whether a message rings (thread replies, quiet hours, the team time zone). |
 | `POST` | `/api/rooms` | Signed in | Open the DM with a person (the existing one when there is one), or make a group chat with two or more people. Not audited: admins do not learn who talks to whom. |
 | `GET` | `/api/rooms/:id` | Signed in | One room I am in (404 for anyone else, admins included). |
 | `PATCH` | `/api/rooms/:id` | Signed in | Set my notification level for a room (all, mentions, off, or my default), or rename it (group chats: any member; team and everyone rooms: owner or admin members; never a DM). |
