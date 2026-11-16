@@ -1,0 +1,47 @@
+# Release Mac jobs on a self-hosted office Mac
+
+- Date (UTC): 2026-11-16 19:24
+- Branch: `ci/mac-self-hosted-runner`
+- Status: in progress
+- Where: `.github/workflows/`, `scripts/macos/release-runner/`, `docs/RELEASE-CI.md`. Why: GitHub's hosted macOS pools have no runners and the 0.5.10 Mac release jobs keep getting cancelled; the owner asked to use our Mac.
+- Version impact: none (CI and host setup only)
+
+## Goal
+
+The release's Mac jobs (office zip, Mac app, whisper-cli) can run on one office Mac, without letting a public repo run
+code on a Mac that holds other work and credentials.
+
+## Scope
+
+In: a hidden standard account `_trinaci` with its own quota'd APFS volume, a sandbox and pf rules; the runner as a
+LaunchDaemon of that account with only the label `trina-mac-release`; job-started hook (host-side gate: release.yml at a
+v* tag of trina-app/trina-ax only) and job-completed hook (wipes work, tool cache, HOME); guard steps in the self-hosted
+jobs; mac-app.yml (and #1090's mac-whisper.yml) take `RELEASE_MAC_RUNNER` only when release.yml calls them at a tag;
+fork PR approval for all outside contributors; setup and removal in docs/RELEASE-CI.md 13.
+Out: runner groups (Free plan), `--ephemeral` re-registration (needs an admin token on the Mac).
+
+## Steps
+
+1. Workflows: guard step, runs-on of mac-app.yml; patch for #1090 sent to its owner.
+2. `scripts/macos/release-runner/` setup.sh, remove.sh, run.sh, hooks, runner.sb, pf.anchor, pf-load.sh.
+3. Independent security review of host setup and workflow diff; fix findings.
+4. Release coordinator's OK on the workflow diff, PR to dev; owner runs setup.sh with sudo.
+
+## Decisions
+
+[docs/decisions/20261116-mac-self-hosted-runner.md](../../decisions/20261116-mac-self-hosted-runner.md)
+
+## Risks
+
+A public repo with a self-hosted runner: untrusted workflows must never start a step there (label without defaults,
+host-side hook, guard steps, fork approval, tag ruleset). Shared machine: own account, no staff group, deny ACL,
+sandbox, pf, quota volume, no certificates at rest. Disk: 60 GB quota.
+
+## Tests
+
+actionlint on the workflows; the sandbox profile exercised by hand; setup.sh's own PASS/FAIL checks as `_trinaci`;
+the first real job is the re-run of the 0.5.10 Mac jobs.
+
+## Result
+
+(filled in at the end)
