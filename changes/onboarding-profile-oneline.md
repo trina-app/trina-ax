@@ -1,2 +1,0 @@
-- **Getting started › About the company** always fills the one-line intro, which team invitations use to introduce the team. When you answer the three questions, AI writes the intro and the company name from your answers (your answers stay as you typed them); without AI, the intro starts as the first line of what you sell.
-- Reloading the page while the company profile is being read, or while you check it, comes back to it with your edits instead of starting again at the website question.

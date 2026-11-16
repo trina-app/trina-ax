@@ -1,1 +1,0 @@
-- Admin › Connected apps: a team template that uses sign-in now says "Each member signs in with their own account" under its row, and its "Who it is for" note says the same. It said each member connects their own key. Sharing skills says the same for the tools that sign in.
