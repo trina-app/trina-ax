@@ -39,6 +39,7 @@ import { ToolError } from '../policy/errors'
 import { getSetting, setSetting, teamTimeZone } from '../admin/settings'
 import { limitsActive, planDiskBytes, planManageUrl } from './limits'
 import { zonedParts } from './time-zone'
+import { cleanupAskedAt } from './storage-cleanup'
 import { diskStat } from './disk-stat'
 
 const MIB = 1024 * 1024
@@ -427,6 +428,7 @@ export class StorageMonitor {
       writesRefused: state.writesRefused, graceEndsAt: state.graceEndsAt,
       breakdown: this.breakdown, measuredAt: this.measuredAt,
       planDiskGiB: disk === null ? null : disk / 1024 ** 3,
+      cleanupAskedAt: cleanupAskedAt(this.o.db, new Date(this.now())),
     }
   }
 }

@@ -291,6 +291,8 @@ Start a chat from the project's page, or move a chat in with **Move to project**
 
 Press ⌘K (Ctrl+K on Windows) or choose **Search** under **Ask Trina** to find chats, messages in your conversations, projects, files, skills, scheduled tasks and MCP connections. [Read about search and settings](settings-and-search.md).
 
+**Files you sent.** Type "Files you sent" in Search, or open it from a notice, to see the files you sent in your conversations, largest first, with the space they take. Deleting one deletes the message it was sent with, for everyone in the conversation.
+
 ## Deleted chats
 
 Deleting a chat moves it to **Deleted history**, where you can bring it back for 7 days by default. Admins can choose 1 to 365 days.

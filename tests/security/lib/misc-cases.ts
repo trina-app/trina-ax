@@ -229,6 +229,8 @@ export const MISC_SPECS: Record<string, Spec> = {
   // the files sent there, by name: the DM's file is found by its two people and by nobody else (the canary check)
   searchRoomFiles: { build: (c) => c.get(`/api/room-files?q=${encodeURIComponent(C.dmFileName)}`), scope: 'self',
     check: (r, _w, who) => { if ((who === 'memberIn' || who === 'other') && !r.text.includes(C.dmFileName)) throw new Error(`${who} does not find the DM's file`) } },
+  // "Files you sent": my own files only, whoever asks (the DM's file appears for its sender alone: the canary check)
+  listMyRoomFiles: { build: (c) => c.get('/api/room-files/mine'), scope: 'self' },
   // away: only my own (a body naming someone else is refused)
   setMyAway: { build: (c) => c.put('/api/me/away', { away: false }), scope: 'self',
     check: async (r, w, who) => {

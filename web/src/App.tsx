@@ -73,6 +73,7 @@ const ProjectHome = lazy(() => import('./pages/Projects').then((m) => ({ default
 const ProjectFiles = lazy(() => import('./pages/Projects').then((m) => ({ default: m.ProjectFiles })))
 const AdminLayout = lazy(() => import('./pages/admin/AdminLayout'))
 const Trash = lazy(() => import('./pages/Trash'))
+const SentFiles = lazy(() => import('./pages/SentFiles'))
 const Skills = lazy(() => import('./pages/Skills'))
 const SkillSharePage = lazy(() => import('./pages/SkillSharePage'))
 const ScheduledList = lazy(() => import('./pages/Scheduled').then((m) => ({ default: m.ScheduledList })))
@@ -386,6 +387,8 @@ function Gate() {
           {/* a team connection's page in Admin › Connectors (/admin/connectors/mcp/<id>) */}
           <Route path="admin/:section/:sub/:item" element={<NotForGuests><AdminLayout /></NotForGuests>} />
           <Route path="trash" element={<Trash />} />
+          {/* my own files in conversations ("Files you sent"), guests too: no menu item */}
+          <Route path="sent-files" element={<SentFiles />} />
           <Route path="skills" element={<NotForGuests><Skills /></NotForGuests>} />
           {/* a share proposal of the owner's or admin's own (내 스킬 가져오기): the Claude Code notice leads here */}
           <Route path="skills/share/:id" element={<NotForGuests><SkillSharePage /></NotForGuests>} />

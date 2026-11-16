@@ -118,6 +118,8 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     case 'engine.start_failed': return true
     // the team's disk is filling (shown always, Notifications.storageNotice): only the owners and admins can free it
     case 'storage.filling': return true
+    // asked to tidy my files in conversations (shown always, Notifications.storageCleanupNotice)
+    case 'storage.cleanup': return true
     // a reply in a thread I follow under an AI answer of a shared chat (shown always; its push follows "Replies in threads
     // I'm part of": pushEventEnabled)
     case 'chat.thread_reply': return true

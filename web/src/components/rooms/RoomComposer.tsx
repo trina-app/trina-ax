@@ -627,7 +627,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                     // the reason (announced), then its links in the same run of text, outside the live region
                     <span className={FAILED_REASON}>
                       <span role="status">{failedText(f)}</span>
-                      <RefusalLinks full={!!f.full && staff} plans={f.plans} />
+                      <RefusalLinks full={!!f.full && staff} plans={f.plans} mine={!!f.full && !staff} />
                     </span>
                   ) : (
                     <span role="status" className={f.status === 'uploading' && says(f) ? 'text-faint tabular-nums' : 'sr-only'}>
@@ -642,7 +642,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                   {f.status === 'failed' ? (
                     <span className={FAILED_REASON}>
                       <span role="status">{failedText(f)}</span>
-                      <RefusalLinks full={!!f.full && staff} plans={f.plans} />
+                      <RefusalLinks full={!!f.full && staff} plans={f.plans} mine={!!f.full && !staff} />
                     </span>
                   ) : (
                     <span role="status" className="text-faint">
