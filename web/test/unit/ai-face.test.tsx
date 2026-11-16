@@ -2,7 +2,7 @@
 // is named after its AI, the star of trina.app on the neutral circle, one gradient per drawing; elsewhere the sparkle on
 // the accent circle. Beside the AI's answers and in the head of an answer shared into a room, never beside people. A button that asks it (the room header, a message's hover bar
 // and menu, the image viewer, and "트리나에게 묻기" in the Trina list, ⌘K and a phone AI chat's header) has the mark without a
-// circle, drawn larger than the icons beside it. Always decorative.
+// circle, drawn larger than the icons beside it; so has every entry of Files that asks it (QA TC-4007). Always decorative.
 import { expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { PRODUCT_NAMED_AFTER_AI, uuidv7 } from '@mycel/shared/api'
@@ -67,8 +67,9 @@ test('@트리나 in a room: the star on the neutral circle where the product is 
 
 test('a button that asks the AI: the mark without a circle, drawn larger than the icons beside it, in the slot it had', () => {
   // [place, star, its margin, sparkle, its margin]: the slot is the drawn size less twice the margin (20 in the header
-  // as before, 14 in a menu as its other icons, 16 in a row of 16 px icons; the hover bar's 28 px button is fixed)
-  for (const [place, star, starFit, sparkle, sparkleFit] of [['toolbar', 24, '-m-0.5', 18, '-m-px'], ['bar', 22, null, 18, null], ['menu', 18, '-m-0.5', 16, '-m-px'], ['nav', 18, '-m-px', 16, null]] as const) {
+  // as before, 14 in a menu as its other icons, 16 in a row of 16 px icons; the hover bar's 28 px button is fixed; the
+  // file preview's button: 14 beside its label, on a phone drawn 24 alone in the header's 16 px slot)
+  for (const [place, star, starFit, sparkle, sparkleFit] of [['toolbar', 24, '-m-0.5', 18, '-m-px'], ['bar', 22, null, 18, null], ['menu', 18, '-m-0.5', 16, '-m-px'], ['nav', 18, '-m-px', 16, null], ['label', 18, '-m-0.5 max-md:size-6 max-md:-m-1', 14, 'max-md:size-4']] as const) {
     const named = renderToStaticMarkup(<AiMark place={place} named />)
     expect(named).toStartWith(`<svg width="${star}" height="${star}"`)
     expect(named).toContain('data-trina-star')

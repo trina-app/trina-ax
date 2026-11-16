@@ -986,6 +986,18 @@ cases:
       prompt: 라마바카페 건 대화방에 올라온 견적서 초안 이 프로젝트 폴더로 가져와줘
       expect: { outcome: explain, good: Room files are not read from a shared chat; says so plainly and that she can do it in her own chat or the side chat., checks: [] }
 
+- id: SHR-03
+  title: Find files people shared with me
+  features: [files.shared-with-me]
+  lang: en
+  context: personal
+  as: daniel
+  prompt: A teammate shared a file with me last week and I can't find it. Where do I see the files people have shared with me?
+  expect:
+    outcome: explain
+    good: Plain steps to Files › Shared with me, which lists files others shared with him, newest first, with who shared each; a file he can already open in its folder shows there only when it was shared with him by name.
+    checks: []
+
 - id: SHR-01
   title: Share a file with a group
   features: [files.share-links]

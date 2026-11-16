@@ -140,12 +140,17 @@ export class Notifications {
    * else's move (files/shares.ts; docs/DECISIONS.md "A member shares their own files"). Activity only, shown always.
    * `rearm`: the same source again brings its row back up as unread (a new request, a share again after a removal).
    * `named`: a file shared with the person by name (not through a group or the whole team): that notice is also pushed
-   * (push-service.ts, files/share-push.ts; migration 356). Several files in one press are one notice (source 'b:<id>'). */
+   * (push-service.ts, files/share-push.ts; migration 356), as a request to open a file is (named or not). Several files in one press are one notice (source 'b:<id>'). */
   fileShareNotice(userId: string, event: FileShareEvent, sourceId: string, rearm: boolean, named = false) {
     if (!this.active(userId)) return
     const at = new Date().toISOString()
     const r = this.ctx.db.query('INSERT INTO file_share_notices(id,user_id,event_type,source_id,created_at,suppressed,named) VALUES(?,?,?,?,?,0,?) ON CONFLICT(user_id,event_type,source_id) DO ' + (rearm ? 'UPDATE SET created_at = excluded.created_at, read_at = NULL, named = MAX(named, excluded.named)' : 'NOTHING'))
       .run(newId(), userId, event, sourceId, at, named ? 1 : 0)
+    // a new request to open the same file (the last one answered or closed: request() makes no second waiting one) is
+    // pushed again: the finished deliveries of the row's earlier request go, so the next round queues it anew. Bounded
+    // by the request limits (files/shares.ts: one waiting per file and asker, 5 a day per owner, 20 an hour per asker)
+    if (r.changes && rearm && event === 'file.access_requested') this.ctx.db.query(`DELETE FROM file_share_push_deliveries WHERE state IN ('sent','failed','cancelled')
+      AND notification_id = (SELECT id FROM file_share_notices WHERE user_id = ? AND event_type = ? AND source_id = ?)`).run(userId, event, sourceId)
     if (r.changes) this.signal(userId)
   }
   /** A skill suggestion to review, or the review result of an own suggestion. The source is the suggestion id only. */

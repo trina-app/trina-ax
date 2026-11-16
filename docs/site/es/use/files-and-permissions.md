@@ -63,6 +63,23 @@ Después de la actualización que hizo que el acceso se sume, algunas carpetas m
 
 ![Lo que puede abrir una persona: cada carpeta con Lector o Editor y el motivo, y luego lo que no puede abrir](../../images/files/by-person.webp "Lo que puede abrir una persona")
 
+## Compartir un archivo
+
+Puede compartir un archivo suyo con las personas que elija, sin cambiar quién puede abrir su carpeta: **Archivos › ⋯ de un archivo › Compartir**. Añada personas o grupos y pulse **Compartir**. Pueden ver el archivo y descargarlo; no ven el resto de la carpeta. Cada persona que añada lo ve en **Actividad**.
+
+- **Todo el equipo** es la primera opción en **Añadir personas o grupos**. Antes de pulsar **Compartir**, una línea avisa de que todo el equipo podrá abrir el archivo, también quienes se unan después. Los invitados nunca. Cuenta como una de las 50 personas y grupos con los que se puede compartir un archivo.
+- Si comparte varios archivos a la vez (por ejemplo en el último paso de **Buscar archivos de trabajo en este ordenador**), cada persona recibe un solo aviso en **Actividad**, «Mina compartió 5 archivos con usted», que abre la lista de esos archivos. Quien añada por su nombre recibe además un aviso en el teléfono.
+- **Personas con acceso** muestra al propietario y a cada persona o grupo con **Puede ver**. **✕** quita el acceso (antes pregunta).
+- Un archivo del equipo también lo abren todas las personas que pueden abrir su carpeta.
+- **Copiar enlace** da el enlace propio del archivo. Quienes tienen acceso lo abren; los demás ven **Necesita acceso** y pueden **Pedir acceso** con una nota. La solicitud llega al propietario en **Actividad** con **Compartir** y **Rechazar**. La página del enlace nunca muestra el nombre del archivo a quien no puede abrirlo.
+- Al mover un archivo a un lugar que menos personas pueden abrir, se le dice cuántas personas lo tienen por su enlace.
+
+Los propietarios y administradores pueden compartir cualquier archivo del equipo. En **Administración › Ajustes del equipo**, **Los miembros pueden compartir sus propios archivos** desactiva el uso compartido para los miembros (lo ya compartido sigue funcionando). El propietario del equipo puede **Quitar todos los archivos compartidos** allí de una vez.
+
+### Archivos compartidos con usted
+
+**Archivos › Compartidos conmigo** muestra los archivos que otras personas han compartido con usted, los más recientes primero, con quién lo compartió y cuándo. Un archivo que usted ya puede abrir en su carpeta aparece aquí solo cuando alguien le añadió por su nombre. Abra un archivo desde allí para verlo o descargarlo; **‹ Compartidos conmigo** le devuelve a la lista. Al abrir un archivo, su aviso en **Actividad** se marca como leído. Un archivo sale de la lista cuando usted pierde el acceso (su propietario le quitó, lo movió a la papelera o ya no puede editarlo).
+
 ## Trabajar con archivos
 
 ![La pantalla Archivos: la carpeta del equipo con Toda la empresa, Grupos, Proyectos, Habilidades del equipo y Personal](../../images/files/files.webp "La pantalla Archivos")

@@ -767,7 +767,7 @@ export const AnswerSharePlace = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('service'), name: z.string() }),
   /** a team room by its group's name, or the everyone room (name '') */
   z.object({ kind: z.literal('room'), name: z.string() }),
-  /** a 1:1 or group conversation (never named: its name is people's names) */
+  /** a 1:1 or group chat (never named: its name is people's names) */
   z.object({ kind: z.literal('conversation') }),
 ])
 export type AnswerSharePlace = z.infer<typeof AnswerSharePlace>

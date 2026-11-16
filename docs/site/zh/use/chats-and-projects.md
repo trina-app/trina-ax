@@ -128,7 +128,7 @@ Trina 对话列表中的每个对话，最多在这一行的右端显示一个�
 
 要请团队外部的人加入，在群聊或项目中添加人时选择 **邀请访客**。[了解访客](guests.md)。
 
-![聊天列表：提及与话题，包含 Everyone 和 Marketing 的频道，以及一条私信](../../images/zh/chats/rooms-list.webp "聊天列表")
+![聊天列表：提及与话题，包含 Everyone 和 Marketing 的频道，以及私信下的一个群聊和一条私信](../../images/zh/chats/rooms-list.webp "聊天列表")
 
 #### 在群聊旁边问 Trina
 

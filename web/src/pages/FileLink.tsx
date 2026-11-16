@@ -7,21 +7,59 @@
 //   one line, no button. An unknown link: the same kind of line.
 // - trashed (its owner only): it is in the trash, with the way to Files › Trash.
 // A centered card like the chat's "not found" page (pages/Chat.tsx), full width on a phone.
+// Opened from Files › Shared with me (router state `from`, pages/SharedFiles.tsx): "‹ Shared with me" goes back there
+// (a phone: the phone's bar; a computer: a quiet link above the page). Opened from anywhere else (Slack, Activity), no
+// such way back shows.
 import { Tooltip } from '../components/Tooltip'
-import { Download, Lock, Trash2 } from 'lucide-react'
+import { ChevronLeft, Download, Lock, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import { FILE_REQUEST_NOTE_MAX, type SharedFileView } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError, startDownload } from '../lib/api'
 import { formatDate, formatSize } from '../lib/format'
 import { previewKind, previewLimit } from '../lib/preview'
 import { useLocale, useT } from '../i18n'
 import FileBody, { type FileBlob } from '../components/FileBody'
-import { Button, ErrorNote, Skeleton, inputCls } from '../components/ui'
+import { Button, ErrorNote, Skeleton, inputCls, useMediaQuery } from '../components/ui'
+import { PhonePageBar } from '../components/phone/PhonePageBar'
+import { useBackLink, useGoBack } from '../lib/back'
+import { FILES_SHARED as SHARED_WITH_ME } from '../lib/nav'
 
 type View = SharedFileView | { status: 'guest' }
 
 export default function FileLink() {
+  // only the list's own address is a way back (the state is the app's, but it is never taken as any address)
+  const from = (useLocation().state as { from?: unknown } | null)?.from === SHARED_WITH_ME ? SHARED_WITH_ME : null
+  if (!from) return <LinkPage />
+  return (
+    <div className="flex h-full flex-col" data-testid="file-link-from-shared">
+      <BackToShared />
+      <div className="min-h-0 flex-1">
+        <LinkPage />
+      </div>
+    </div>
+  )
+}
+
+/** "‹ Shared with me": the phone's bar, or a quiet link on a computer (back in history when the list is the entry
+ * before, else the list in place of this page) */
+function BackToShared() {
+  const t = useT()
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const back = useGoBack(SHARED_WITH_ME)
+  const backLink = useBackLink()
+  if (phone) return <PhonePageBar onBack={back} backLabel={t('fileLink.backToShared')} title="" backTestId="file-link-back" />
+  return (
+    <div className="mx-auto w-full max-w-5xl px-6 pt-3">
+      <Link to={SHARED_WITH_ME} replace onClick={backLink} className="-ml-1 inline-flex min-h-8 items-center gap-0.5 rounded text-sm text-muted hover:text-ink pointer-coarse:min-h-11" data-testid="file-link-back">
+        <ChevronLeft size={16} aria-hidden />
+        {t('fileLink.backToShared')}
+      </Link>
+    </div>
+  )
+}
+
+function LinkPage() {
   const { id = '' } = useParams()
   const t = useT()
   const locale = useLocale()
@@ -159,7 +197,7 @@ function OpenFile({ id, view }: { id: string; view: Extract<SharedFileView, { st
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-title font-semibold text-ink" title={view.name} data-testid="file-link-name">{view.name}</h1>
           <p className="truncate text-sm text-muted" data-testid="file-link-meta">
-            {[view.sharedBy ? t('fileLink.sharedBy', { name: view.sharedBy }) : null, formatSize(view.size, locale)].filter(Boolean).join(' · ')}
+            {[view.sharedBy ? t('fileLink.sharedBy', { name: view.sharedBy }) : view.formerSharer ? t('fileLink.sharedByFormer') : null, formatSize(view.size, locale)].filter(Boolean).join(' · ')}
           </p>
         </div>
         <Tooltip label={t('common.download')}>
