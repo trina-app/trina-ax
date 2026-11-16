@@ -78,6 +78,7 @@ export const FEATURE_SCOPE: Record<string, Scope> = {
   'rooms.hide-pin': { reach: 'explains' },
   'rooms.files': { reach: 'acts', tools: ['room_file', 'save_room_file'] },
   'rooms.search': { reach: 'acts', tools: ['room_read', 'rooms'] },
+  'rooms.sent-files': { reach: 'explains' },
   'rooms.activity': { reach: 'explains' },
   'rooms.apps': { reach: 'explains' },
   // Skills
