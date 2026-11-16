@@ -419,8 +419,9 @@ test.describe('a computer keeps every section as it was', () => {
     await expect(page.getByTestId('notifications-activity')).toBeVisible()
     await expect(page.getByTestId('notification-room-level').locator('input[type="radio"]')).toHaveCount(3)
     await page.goto('/settings/profile')
-    await expect(page.getByTestId('locale-en')).toHaveAttribute('role', 'radio')
-    expect(await page.getByTestId('locale-en').evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('1px')
+    // a computer: the language is one select (owner 2026-11-16), not the phone's checkmark list
+    await expect(page.getByTestId('profile-locale')).toHaveJSProperty('tagName', 'SELECT')
+    await expect(page.getByTestId('locale-en')).toHaveCount(0)
     await expect(page.getByTestId('theme-dark')).toHaveCount(0)
   })
 })

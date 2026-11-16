@@ -36,6 +36,7 @@ import { peekCached, rememberCached } from '../store/listCache'
 import { useEngines } from '../store/engines'
 import { ENGINE_LABEL } from '../components/chat/EngineMenu'
 import { PhoneChoiceRow } from '../components/phone/PhoneChoice'
+import { LanguageSelect } from '../components/LanguageSelect'
 import { toast } from '../store/ui'
 import { ChangePasswordForm } from './Auth'
 import { MyCredentials } from './admin/Credentials'
@@ -339,26 +340,10 @@ function Profile() {
         </PhoneSection>
       ) : (
       <Section title={t('settings.language')} desc={t('settings.languageHint')}>
-        <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t('settings.language')}>
-          {[null, ...LOCALES.map((l) => l.id)].map((choice) => {
-            const checked = (me.user.localeChoice ?? null) === choice
-            const label = choice ? LOCALES.find((l) => l.id === choice)!.label : t('settings.languageTeam', { language: LOCALES.find((l) => l.id === me.team.defaultLocale)?.label ?? me.team.defaultLocale })
-            return (
-              <button
-                key={choice ?? 'team'}
-                type="button"
-                role="radio"
-                aria-checked={checked}
-                lang={choice ?? undefined}
-                onClick={() => void setLocale(choice).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))}
-                className={clsx('rounded-lg border px-3 py-2 text-sm max-md:min-h-11', checked ? 'border-accent bg-accent-soft font-medium' : 'border-line hover:bg-hover')}
-                data-testid={`locale-${choice ?? 'team'}`}
-              >
-                {label}
-              </button>
-            )
-          })}
-        </div>
+        {/* one select, not a row of every language (owner 2026-11-16) */}
+        <LanguageSelect className="md:w-64" label={t('settings.language')} testId="profile-locale" value={me.user.localeChoice ?? 'team'}
+          teamDefault={t('settings.languageTeam', { language: LOCALES.find((l) => l.id === me.team.defaultLocale)?.label ?? me.team.defaultLocale })}
+          onChange={(choice) => void setLocale(choice === 'team' ? null : choice).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))} />
       </Section>
       )}
       {canChooseEngine(me) && <MyEngine />}
