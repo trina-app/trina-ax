@@ -134,6 +134,17 @@ Tekan **Bagikan** (**Simpan** jika chat sudah pernah dibagikan). Jika Anda kelua
   dengan Anda", juga saat ia membuka tautannya nanti; apa yang sedang ia ketik di dalamnya tetap ada dengan **Salin**. Orang
   yang Anda keluarkan berdasarkan nama tetapi juga ada di grup yang Anda bagikan tetap memiliki chat itu lewat grup tersebut, dan dialog menyebutkannya.
   Mengeluarkan semua orang membuat chat kembali hanya milik Anda.
+- **Minta akses.** Rekan tim yang membuka tautan chat yang tidak bisa ia lihat mendapat **Minta akses**, dengan tempat untuk
+  catatan; halamannya tidak menampilkan apa pun tentang chat itu, baik judulnya maupun siapa yang ada di dalamnya. Setelah
+  ditekan, tombolnya menjadi **Sudah diminta**. Anda menerima permintaannya di **Aktivitas** dengan **Bagikan** dan **Tolak**,
+  serta notifikasi di ponsel dan browser (**Pengaturan › Notifikasi › Berbagi**; paling banyak 10 sehari, dihitung bersama
+  permintaan membuka file). **Bagikan** menambahkannya dengan nama, setelah pemeriksaan yang sama seperti dialog Bagikan;
+  **Tolak** hanya memberi tahu bahwa permintaannya tidak disetujui, dan ia boleh meminta lagi. Tautan proyek bekerja sama:
+  permintaan masuk ke orang yang bisa mengubah anggotanya, dan **Tambahkan** menjadikan orang itu anggota. Chat bersama di proyek
+  tim meminta untuk bergabung ke proyek itu. Jika permintaan tidak mungkin (chat yang tidak pernah dibagikan, seperti chat di
+  proyek pribadi, atau tidak ada yang bisa menjawab), halamannya hanya mengatakan bahwa Anda tidak bisa meminta, tanpa tombol
+  dan tanpa alasan. Tamu tidak bisa meminta, dan orang yang sudah bisa
+  membukanya langsung masuk.
 - **Hal pribadi tetap di luar.** Di chat bersama, AI tidak memakai memori, browser, email, atau
   jadwal Anda. Untuk memakainya, pilih **Lanjutkan di obrolan yang hanya Anda lihat** di menu chat.
 - Chat di proyek pribadi tetap milik Anda: **Bagikan** menawarkan untuk memindahkannya keluar lebih dulu. Chat di proyek tim dibagikan
@@ -166,9 +177,11 @@ Obrolan langsung dengan seseorang yang sudah keluar dari tim menampilkan "<nama>
 (satu untuk semua orang di tim, dan satu per grup) dan **Pesan langsung** (obrolan 1:1 dan obrolan grup). **Mention & thread**
 di bagian atas mengumpulkan pesan yang menyebut nama Anda dan utas yang Anda ikuti.
 
+Untuk mengirim pesan ke satu orang, klik foto atau namanya di samping pesan (@mention orang itu, atau barisnya di daftar anggota percakapan, juga bisa). Sebuah kartu kecil terbuka dengan nama dan jabatannya: **Kirim pesan** membuka obrolan 1:1 Anda dengan orang itu. Di ponsel, kartu terbuka dari bawah layar. Kartu Anda sendiri berisi **Edit profil**. Aplikasi dan orang yang sudah tidak ada di tim tidak punya kartu; tamu hanya bisa mengirim pesan ke orang di obrolan grup atau proyeknya.
+
 Untuk mengajak orang dari luar tim, pilih **Undang tamu** saat Anda menambahkan orang ke obrolan grup atau proyek. [Baca tentang tamu](guests.md).
 
-![Daftar Obrolan: Mentions & threads, Saluran dengan Everyone dan Marketing, dan satu pesan langsung](../../images/chats/rooms-list.webp "Daftar Obrolan")
+![Daftar Obrolan: Mentions & threads, Saluran dengan Everyone dan Marketing, lalu Pesan langsung dengan satu obrolan grup dan satu pesan langsung](../../images/chats/rooms-list.webp "Daftar Obrolan")
 
 #### Bertanya ke Trina di samping ruang obrolan
 
@@ -207,9 +220,9 @@ tamu, dan berada di paling banyak satu obrolan grup dan satu proyek. Di obrolan 
 proyek, **Tambah orang** di **Anggota**. Tuliskan untuk siapa tautan itu dan apakah ia mendapat AI, lalu **Buat tautan**. Tautan itu
 hanya bisa dipakai satu kali: kirimkan sendiri kepadanya.
 
-![Undang tamu: ia hanya akan melihat ruang 'Launch email', kotak untuk siapa undangan ini, dan AI untuknya: No AI atau Their own sign-in](../../images/chats/invite-guest.webp "Undang tamu")
+![Undang tamu: ia hanya akan melihat obrolan grup 'Launch email', kotak untuk siapa undangan ini, dan AI untuknya: No AI atau Their own sign-in](../../images/chats/invite-guest.webp "Undang tamu")
 
-- Tamu hanya melihat tempat itu: tanpa File, tanpa ruang obrolan atau proyek lain, tanpa area tim.
+- Tamu hanya melihat tempat itu: tanpa File, tanpa obrolan grup atau proyek lain, tanpa area tim.
 - AI-nya mati kecuali Anda memilih **Masuk dengan akun sendiri**, atau admin memberinya akun **AI tim** dengan batas bulanan.
 - Label **Tamu** tampil di samping namanya, dan bagian atas menampilkan **Termasuk 1 tamu**.
 - Admin melihat setiap tamu di **Admin › Anggota & undangan › Tamu** ([Admin](admin.md#tamu)).

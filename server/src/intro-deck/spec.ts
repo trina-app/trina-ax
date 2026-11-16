@@ -145,7 +145,7 @@ export async function checkDeckInput(ctx: AppContext, t: ToolCtx, a: IntroDeckIn
     // a file this tool made (downloaded and put back) would let the deck prove its own numbers
     try {
       const x = authorize(ctx.files.fx, ctx.files.rules(), t.user, raw.replace(/^\/+/, ''), 'read', { mustExist: true })
-      if (own(crypto.createHash('sha256').update(readRegular(x.abs, 60 * 1024 * 1024).bytes).digest('hex'))) problems.push(`source "${raw}" is an intro deck this tool made; name the material it was made from instead`)
+      if (own(crypto.createHash('sha256').update(readRegular(x.abs, 60 * 1024 * 1024, x.st).bytes).digest('hex'))) problems.push(`source "${raw}" is an intro deck this tool made; name the material it was made from instead`)
     } catch { /* sourceText said why */ }
   }
   const profile = (() => { try { return readCompanyProfile(ctx.files, t.user) } catch { return null } })()

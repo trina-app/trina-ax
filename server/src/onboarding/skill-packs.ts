@@ -97,7 +97,7 @@ export function placeSkill(ctx: AppContext, userId: string, rel: string, name: s
   if (r.exists) {
     if (!r.st?.isFile()) return { path: r.rel, status: 'blocked' }
     try {
-      const bytes = readRegular(r.abs, SKILL_FILE_MAX_BYTES).bytes
+      const bytes = readRegular(r.abs, SKILL_FILE_MAX_BYTES, r.st).bytes
       return { path: r.rel, status: [text, ...earlierPackTexts(text)].some((t) => bytes.equals(Buffer.from(t, 'utf8'))) ? 'present' : 'kept' }
     } catch (e) {
       if (refused(e)) return { path: r.rel, status: 'kept' }

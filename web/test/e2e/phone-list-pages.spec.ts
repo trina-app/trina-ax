@@ -8,7 +8,7 @@
 // as it was.
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { DICTS } from '../../src/i18n'
-import { reset, signIn } from './helpers'
+import { phoneTabs, reset, signIn } from './helpers'
 
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, locale: 'en-US' })
 
@@ -95,15 +95,16 @@ test.describe('each page', () => {
 
   test('Folder permissions: Folders / What a person can open on their own row, the search under them', async ({ page }) => {
     await page.goto('/admin/folders')
-    const views = page.getByRole('tablist', { name: t['admin.folders'] })
+    // the row, or the picker where this font has no room for the words (helpers.ts phoneTabs)
+    const views = await phoneTabs(page, t['admin.folders'])
     // the two views take the row
-    expect(Math.round((await box(views)).width)).toBeGreaterThanOrEqual(390 - 34)
+    expect(Math.round((await box(views.control)).width)).toBeGreaterThanOrEqual(390 - 34)
     await expect(page.getByTestId('folders-search')).toBeInViewport()
     await expect(page.locator('[data-testid="folders-row"][data-path="finance"]')).toBeVisible()
     await tall(page.locator('[data-testid="folders-row"][data-path="finance"]').getByTestId('folders-share'))
     await fits(page)
     // the views still switch, with no history added (PR 1a)
-    await views.getByRole('tab', { name: t['folders.tabPerson'] }).click()
+    await views.choose(t['folders.tabPerson'])
     await expect(page.getByTestId('access-person-search')).toBeVisible()
   })
 
@@ -147,8 +148,15 @@ test.describe('each page', () => {
       await page.goto(path)
       const card = page.locator('[data-testid="connector-card"][data-id="notion"]')
       await expect(card).toBeVisible()
-      // the Connectors page's row (a 44 px tap and its hairline)
-      expect((await box(card)).height).toBeLessThanOrEqual(72)
+      // the Connectors page's row (a 44 px tap and its hairline); Notion also has a conversation app, so since #1043 its
+      // "Add to a conversation" line sits under the row, inside the card (docs/decisions/20261116-connector-card-room-apps.md)
+      const row = card.getByTestId('connector-open').locator('xpath=..')
+      expect((await box(row)).height).toBeLessThanOrEqual(72)
+      const roomApp = card.getByTestId('connector-room-app')
+      await expect(roomApp).toHaveAttribute('data-service', 'notion')
+      // under the row (it tucks 6 px into the row's bottom padding: -mt-1.5)
+      expect((await box(roomApp)).y).toBeGreaterThanOrEqual((await box(row)).y + (await box(row)).height - 8)
+      expect((await box(card)).height).toBeLessThanOrEqual((await box(row)).height + (await box(roomApp)).height + 2)
       expect(await card.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgba(0, 0, 0, 0)')
       await tall(card.getByTestId('connector-add'))
     }

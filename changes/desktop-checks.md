@@ -1,1 +1,0 @@
-- Every pull request that touches the desktop app now builds and tests it on a Mac and on Windows before it is merged: the desktop tests, the Mac download (opened and looked into) and the Windows installer (installed, updated over and removed). Desktop breaks show up in review instead of at release time.

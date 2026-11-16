@@ -76,6 +76,7 @@ import { AppSender } from './apps/AppSender'
 import { appPlainText, serviceOf, unescapeAppBody } from '../../lib/roomApps'
 import { mayManageApps } from '../../store/roomApps'
 import { GuestTagFor } from '../GuestTag'
+import { PersonButton } from '../PersonCard'
 import { copyLinkOf } from '../../lib/messageLinks'
 import { MessageLinkCard } from './MessageLinkCard'
 import { MessageLinkPreviews, useLinkHosts, usePlaceLabel } from './MessageLinkChip'
@@ -231,15 +232,16 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
             <div className="flex gap-3 pt-2" data-testid="room-run">
               <RunAvatar m={first} />
               <div className="min-w-0 flex-1">
-                <p className="flex items-baseline gap-2" data-testid="room-run-head">
+                {/* (a <div>: a person's name is a button with its card under it, components/PersonCard.tsx) */}
+                <div className="flex items-baseline gap-2" data-testid="room-run-head">
                   {/* an app's message: its name (who set it up, a tap away) and the "App" tag, never a person */}
-                  {first.app ? <AppSender roomId={roomId} app={first.app} /> : <span className="truncate text-sm font-medium text-ink">{first.authorKind === 'ai' ? t('rooms.aiName') : (nameOf(first.author) ?? t('rooms.goneUser'))}</span>}
+                  {first.app ? <AppSender roomId={roomId} app={first.app} /> : first.authorKind === 'ai' || !first.author ? <span className="truncate text-sm font-medium text-ink">{first.authorKind === 'ai' ? t('rooms.aiName') : t('rooms.goneUser')}</span> : <PersonButton user={first.author} look="name" className="text-sm font-medium text-ink" boxClassName="flex min-w-0" testId="room-run-name">{nameOf(first.author)}</PersonButton>}
                   {first.authorKind !== 'ai' && first.author && <StatusEmoji userId={first.author.id} tap className="-ml-1 self-center text-sm select-none" />}
                   {!first.app && first.authorKind !== 'ai' && first.author && <GuestTagFor userId={first.author.id} />}
                   <time dateTime={first.createdAt} title={formatDateTime(first.createdAt, locale)} className={clsx('shrink-0 text-xs text-faint', repeats[i] && 'max-md:hidden')} data-repeat={repeats[i] ? '' : undefined}>
                     {timeOf(first.createdAt, locale)}
                   </time>
-                </p>
+                </div>
                 {run.messages.map((m) => m.withheld ? (
                   <WithheldRow key={m.id} m={m} flash={flash === m.id || lit === m.id} onJump={m.replyTo && loaded.has(m.replyTo.id) ? () => jump(m.replyTo!.id) : undefined} />
                 ) : (
@@ -326,7 +328,8 @@ function RunAvatar({ m }: { m: RoomMessage }) {
   const user = useAvatarOf(m.author)
   if (m.app) return <AppTile service={serviceOf(m.app)} app={m.app} size="face" className="mt-0.5" />
   if (m.authorKind === 'ai') return <AiFace size={32} className="mt-0.5" />
-  return user ? <Avatar user={user} size={32} className="mt-0.5 select-none" /> : <span aria-hidden className="mt-0.5 size-8 shrink-0 rounded-full bg-hover" />
+  // a person's photo opens their card (components/PersonCard.tsx); someone with none: the photo as it was
+  return user ? <PersonButton user={user} look="face" boxClassName="mt-0.5 shrink-0 self-start select-none" testId="room-run-face"><Avatar user={user} size={32} /></PersonButton> : <span aria-hidden className="mt-0.5 size-8 shrink-0 rounded-full bg-hover" />
 }
 
 /** A root's thread under it: up to 3 faces, "답글 3개", the last reply's time; a dot when a thread I follow has replies I

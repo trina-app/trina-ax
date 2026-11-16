@@ -423,6 +423,9 @@ test('"스킬로 제안" from an answer → the manager reviews, edits and regis
   await lastAnswer(page).getByTestId('suggest-skill').click()
   const dialog = page.getByTestId('suggest-dialog')
   await expect(dialog).toContainText('제안은 바로 팀 스킬이 되지 않아요')
+  // the folder choice says places, as the Team skills page does, never "skills/"
+  await expect(dialog.getByTestId('suggest-folder')).toContainText('팀 스킬')
+  await expect(dialog.getByTestId('suggest-folder')).not.toContainText('skills')
   await expect(dialog.getByTestId('suggest-content')).toHaveValue(/the answer/)
   await dialog.getByTestId('suggest-name').fill('주간/보고')
   await expect(dialog).toContainText('슬래시(/)는 쓸 수 없어요')
@@ -440,7 +443,7 @@ test('"스킬로 제안" from an answer → the manager reviews, edits and regis
   await expect(mine).toContainText('주간 보고')
   await expect(page.getByRole('tab', { name: /검토 대기/ })).toHaveCount(0) // bob manages nothing
 
-  // the owner manages skills/: a count on the review tab (the sidebar's count is the Inbox's), the review dialog, edit,
+  // the owner manages skills/: a count on the review tab (and on the 팀 스킬 row: skills-review-tab.spec.ts), the review dialog, edit,
   // 등록
   const ctx = await browser.newContext({ baseURL: page.url().replace(/\/skills.*$/, ''), locale: 'ko-KR' })
   const owner = await ctx.newPage()
@@ -453,7 +456,9 @@ test('"스킬로 제안" from an answer → the manager reviews, edits and regis
   await review.getByTestId('review-name').fill('주간 보고서')
   await owner.getByTestId('review-approve').click()
   await expect(owner.getByText('스킬을 등록했어요: skills/주간-보고서.md')).toBeVisible()
-  await expect(owner.getByTestId('review-list').getByTestId('suggestion')).toHaveAttribute('data-status', 'approved')
+  // registered: it leaves the list (검토 대기 shows only what waits) and folds under "검토한 제안"
+  await expect(owner.getByTestId('review-open')).toHaveCount(0)
+  await expect(owner.getByTestId('reviewed-section')).toBeVisible()
   await ctx.close()
 
   // the suggester hears it and sees it registered

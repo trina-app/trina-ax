@@ -68,6 +68,10 @@ test('a phone: the profile\'s row opens the page full width; asking and cancelli
   await signIn(page, BOB)
   await openPage(page)
   const request = page.getByTestId('account-deletion-request')
+  // the button comes after what goes and what stays, on purpose (read before asking): at 390 × 760 it is on the first
+  // screen in a phone's font, under it in the Linux CI's wider DejaVu Sans since #1060 added the threads clause. Either
+  // way it is reached by scrolling the page, not cut off
+  await request.scrollIntoViewIfNeeded()
   await expect(request).toBeInViewport()
   const box = (await page.getByTestId('account-deletion').boundingBox())!
   expect(box.x).toBeGreaterThanOrEqual(0)

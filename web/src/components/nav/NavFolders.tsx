@@ -14,15 +14,16 @@
 import clsx from 'clsx'
 import { ArrowDown, ArrowUp, Folder, FolderMinus, FolderPlus, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useId, useState, type DragEvent, type ReactNode, type RefObject } from 'react'
-import { graphemeCount, NAV_FOLDER_NAME_MAX, NavFolderName, type NavFolder, type NavFolderKind, type Room } from '@mycel/shared/api'
+import { graphemeCount, NAV_FOLDER_NAME_MAX, NavFolderName, type NavFolder, type NavFolderKind, type CountedRoomFields } from '@mycel/shared/api'
 import { errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { aiName } from '../../lib/tabs'
-import { roomUnread } from '../../lib/rooms'
+import { badgeText, roomCounts } from '../../lib/rooms'
 import { createFolder, deleteFolder, fileChat, fileRoom, foldersOf, moveFolder, nameTaken, renameFolder, useNavFolders, watchNavFolders } from '../../store/navFolders'
 import { toast } from '../../store/ui'
 import { confirmDialog, promptDialog } from '../ui'
 import { MenuButton, type MenuItem } from '../rooms/MenuButton'
+import { CountPill } from '../CountPill'
 import { Tooltip } from '../Tooltip'
 import { panelRowBox } from '../panels/PanelFrame'
 
@@ -246,24 +247,26 @@ export function useDropTarget(kind: NavFolderKind, onDrop: (id: string) => void)
 /** how a folder looks while a row is held over it */
 export const DROP_OVER = 'rounded-lg bg-accent-soft ring-2 ring-accent ring-inset'
 
-/** A folded room folder's (or 대화 section's) one pill: the strongest of its rooms, "@" (an unread mention) › how many of its rooms have
- * unread messages. Muted rooms are left out, as the 대화 count leaves them. */
+/** A folded room folder's (or 대화 section's) one pill: the strongest of its rooms, "@" (an unread mention) › how many of its rooms
+ * count (shared roomCounts, as the 대화 count: muted rooms left out, a room at 멘션만 only with a mention or a followed reply). */
 export type RoomFolderPill = { kind: 'mention' } | { kind: 'unread'; n: number }
-export function roomFolderPill(rooms: Pick<Room, 'mentioned' | 'muted' | 'unreadCount' | 'threadsUnread'>[]): RoomFolderPill | null {
-  const loud = rooms.filter((r) => !r.muted && roomUnread(r) > 0)
-  if (loud.some((r) => r.mentioned)) return { kind: 'mention' }
+export function roomFolderPill(rooms: CountedRoomFields[]): RoomFolderPill | null {
+  const loud = rooms.map(roomCounts).filter((c) => c.counts)
+  if (loud.some((c) => c.mention)) return { kind: 'mention' }
   return loud.length ? { kind: 'unread', n: loud.length } : null
 }
+
+/** A folded room folder's (or 대화 section's) name is bold while one of its rooms is (roomCounts `bold`), muted ones left
+ * out: a room at 멘션만 with only plain messages has no pill but still makes it bold, as its row is. */
+export const roomFolderBold = (rooms: CountedRoomFields[]): boolean => rooms.some((r) => {
+  const c = roomCounts(r)
+  return c.bold && !c.quiet
+})
 
 /** The pill of a folded room folder or a folded section of the 대화 list (List.tsx ListSection `pill`): the rows' own
  * badge look; its words for a screen reader. */
 export function RoomFolderPillView({ pill, className, testId = 'room-folder-pill' }: { pill: RoomFolderPill; className?: string; testId?: string }) {
   const t = useT()
   const words = pill.kind === 'mention' ? t('rooms.mentionedYou') : t('navFolders.unreadRooms', { n: pill.n })
-  return (
-    <span className={clsx('shrink-0 rounded-full bg-accent px-1.5 text-micro font-medium text-accent-ink', className)} data-testid={testId} data-kind={pill.kind}>
-      <span aria-hidden>{pill.kind === 'mention' ? '@' : pill.n > 99 ? '99+' : pill.n}</span>
-      <span className="sr-only">{words}</span>
-    </span>
-  )
+  return <CountPill text={pill.kind === 'mention' ? '@' : badgeText(pill.n)} label={words} className={className} testId={testId} data-kind={pill.kind} />
 }

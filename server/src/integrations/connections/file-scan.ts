@@ -37,11 +37,11 @@ const pause = () => new Promise<void>((r) => setImmediate(r))
 
 /** The text of a regular file up to `max` bytes, as UTF-8 (null when there is none, it is bigger, or not text), and
  * how many bytes were read for it. */
-function textOf(abs: string, max: number): { text: string | null; read: number } {
+function textOf(abs: string, max: number, seen?: fs.Stats): { text: string | null; read: number } {
   try {
     const st = fs.lstatSync(abs)
     if (!st.isFile() || st.size > max) return { text: null, read: 0 }
-    const { bytes } = readRegular(abs, max)
+    const { bytes } = readRegular(abs, max, seen)
     return { text: isUtf8(bytes) ? bytes.toString('utf8') : null, read: bytes.length }
   } catch { return { text: null, read: 0 } }
 }
@@ -107,15 +107,17 @@ export async function findKeysInOldFiles(ctx: AppContext, o: { limits?: typeof F
     }
     if (!who) continue
     let abs: string
+    let seen: fs.Stats
     let cache: string
     try {
       const a = authorize(files.fx, rules, who.p, rel, 'read')
       if (!a.exists || !a.st?.isFile()) continue
       abs = a.abs
+      seen = a.st
       cache = files.office.cachePath(a.rel)
     } catch { continue }
     result.scanned++
-    const texts = [textOf(abs, limits.bytes), textOf(cache, limits.bytes)]
+    const texts = [textOf(abs, limits.bytes, seen), textOf(cache, limits.bytes)]
     sinceBytes += texts[0]!.read + texts[1]!.read
     const holds = texts.some(({ text }) => text !== null && text.search(who.r.re!) >= 0)
     if (!holds) continue

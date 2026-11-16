@@ -727,6 +727,9 @@ export const UploadTarget = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('attachment'), chatId: Uuid7, name: z.string().min(1).max(255) }),
   /** audio for transcription (not kept in the team folder); chatId as in TranscribeFields */
   z.object({ kind: z.literal('transcribe'), name: z.string().min(1).max(255), chatId: Uuid7.optional() }),
+  /** a file to send in a room the caller is in (at most ROOM_FILE_MAX): kept as their unsent upload there, like
+   * POST /api/rooms/:id/files; membership checked at create and at complete */
+  z.object({ kind: z.literal('room'), roomId: Uuid7, name: z.string().min(1).max(255) }),
 ])
 export type UploadTarget = z.infer<typeof UploadTarget>
 export const UploadSession = z.object({
@@ -866,6 +869,9 @@ export const TeamSettings = z.object({
    * live only in projects/"): 'members' (default: anyone, like a chat channel) or 'admins' (the owner and admins only).
    * Personal projects are never limited. */
   projectCreators: z.enum(['members', 'admins']),
+  /** the largest file a guest may upload: in a room, to their project's folder, to an AI chat (GUEST_FILE_MAX; default
+   * 100 MB; docs/decisions/20261116-guest-room-file-limit.md). Members are not held to it. */
+  guestFileMax: z.enum(['100mb', '1gb', '10gb']),
   /** "Show what the team often asks" (default on; docs/DECISIONS.md "Home: what my group often asks"): Home lists
    * generic questions that 3 or more people of a group or the team asked, rewritten once a day on the owner's AI. Off:
    * the lists are deleted for everyone, no run starts, and questions sent while it is off never count. */

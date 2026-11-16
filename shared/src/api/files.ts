@@ -5,6 +5,7 @@ import { HwpPreviewPage, HwpPreviewQuery } from '../hwp'
 import { Uuid7 } from '../ids'
 import { Access, IsoTime, PageQuery, QueryBool, RelPath, SMALL_UPLOAD_MAX, UPLOAD_CHUNK_SIZE, UPLOAD_SESSION_MAX, page } from './common'
 import { binary, endpoint, empty, multipart, stream } from './endpoint'
+import { RoomFile } from './rooms'
 import { Attachment, AudienceSplit, FileEntry, FileHistoryEvent, FileVersion, SourceLoc, TrashItem, UploadSession, UploadTarget, UserRef } from './entities'
 
 export const PathQuery = z.object({ path: RelPath })
@@ -194,6 +195,8 @@ export const UploadComplete = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('attachment'), attachment: Attachment }),
   /** transcribe target: the job that was started */
   z.object({ kind: z.literal('transcribe'), jobId: Uuid7 }),
+  /** room target: the caller's unsent upload in that room (sent by id in a message) */
+  z.object({ kind: z.literal('room'), file: RoomFile }),
 ])
 export type UploadComplete = z.infer<typeof UploadComplete>
 
@@ -336,7 +339,7 @@ export const FILES = {
   moveSuggestions: endpoint({ method: 'POST', path: '/api/files/move-suggestions', auth: 'user', owner: 'C', body: MoveSuggestBody, response: MoveSuggestions, summary: 'Where files being moved could go (the Move picker): up to 3 folders the caller can write whose names, files and file-list lines fit the files\' names, with a confidence; and up to 3 folders the caller recently moved or saved into. No AI call. Paths the caller cannot read: 404.' }),
   dismissMoveSuggestion: endpoint({ method: 'POST', path: '/api/files/move-suggestions/dismiss', auth: 'user', owner: 'C', body: DismissMoveSuggestionBody, response: empty, status: 204, summary: 'Stop suggesting this folder to the caller for files named like these (per person, kept on the server).' }),
   recentFiles: endpoint({ method: 'GET', path: '/api/files/recent', auth: 'user', owner: 'C', query: RecentFilesQuery, response: FileList, summary: 'Recently changed files the caller can read (for the attach picker).' }),
-  createUploadSession: endpoint({ method: 'POST', path: '/api/upload-sessions', auth: 'user', owner: 'C', status: 201, body: CreateUploadSessionBody, response: UploadSession, summary: `Start a chunked upload (${UPLOAD_CHUNK_SIZE / 1024 / 1024} MB chunks). Expires 24 h after the last chunk arrived, at most 7 days after the start.` }),
+  createUploadSession: endpoint({ method: 'POST', path: '/api/upload-sessions', auth: 'user', owner: 'C', status: 201, body: CreateUploadSessionBody, response: UploadSession, summary: `Start a chunked upload (${UPLOAD_CHUNK_SIZE / 1024 / 1024} MB chunks). Expires 24 h after the last chunk arrived (one hour while no chunk has arrived), at most 7 days after the start.` }),
   uploadChunk: endpoint({ method: 'PUT', path: '/api/upload-sessions/:id/chunks/:n', auth: 'user', owner: 'C', body: binary(UPLOAD_CHUNK_SIZE), response: ChunkResult, summary: 'Store chunk n (0-based). Re-sending a stored chunk is a no-op.' }),
   getUploadSession: endpoint({ method: 'GET', path: '/api/upload-sessions/:id', auth: 'user', owner: 'C', response: UploadSession, summary: 'Which chunks arrived (to resume after a disconnect).' }),
   completeUploadSession: endpoint({ method: 'POST', path: '/api/upload-sessions/:id/complete', auth: 'user', owner: 'C', response: UploadComplete, summary: 'Verify sha256 and move the file into place.' }),

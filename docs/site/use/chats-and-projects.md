@@ -135,6 +135,19 @@ Press **Share** (**Save** when it was shared already). Leaving with changes you 
   shared with you", also when they open its link later; what they were typing in it stays there with **Copy**. Someone
   you take out by name who is also in a group you shared it with keeps it through that group, and the dialog says so.
   Taking everyone out makes it yours alone again.
+- **Send the link.** **Copy link** at the bottom left of the Share dialog copies the chat's address, and after you
+  share, the message that says it is shared offers **Copy link** too. The link opens the chat only for people who can
+  already see it; a teammate who can't gets **Ask for access** (below), with nothing of the chat on it. People you just added
+  can use it once you press **Share** (or **Save**). The project's **Members** dialog has **Copy link** for the project too.
+- **Ask for access.** A teammate who opens the link of a chat they can't see gets **Ask for access**, with room for a
+  note; the page shows nothing of the chat, not its title and not who is in it. After they press it, the button reads
+  **Requested**. You get the request in **Activity** with **Share** and **Decline**, and a notification on your phone and
+  in your browser (**Settings › Notifications › Sharing**; at most 10 a day, counted together with requests to open
+  files). **Share** adds them by name, after the same check as the Share dialog; **Decline** tells them only that it
+  wasn't approved, and they may ask again. A project's link works the same way: whoever changes its members gets the
+  request, and **Add** makes the person a member. A shared chat of a team project asks to join that project. Where no
+  request is possible (a chat that is never shared, such as one in a personal project, or nobody left to answer), the
+  page says only that they can't ask, without the button and without saying why. Guests can't ask, and someone who can already open it is simply let in.
 - **Personal things stay out.** In a shared chat the AI does not use your memories, your browser, your email or your
   schedules. To use them, choose **Continue in a chat only you see** in the chat's menu.
 - A chat in a personal project stays yours: **Share** offers to move it out first. A chat in a team project is shared
@@ -167,9 +180,11 @@ A direct chat with someone who left the team says "<name> left the team" and has
 (one for everyone in the team, and one per group) and **Direct messages** (one-to-one chats and group chats). **Mentions & threads**
 at the top collects the messages that name you and the threads you follow.
 
+To message one person, click their photo or name beside a message (an @mention of them, or their row in a conversation's member list, works too). A small card opens with their name and title: **Message** opens your direct message with them. On a phone the card opens from the bottom of the screen. Your own card has **Edit profile** instead. Apps, and people who are no longer in the team, have no card; a guest can message only the people in their group chat or project.
+
 To bring in someone from outside the team, choose **Invite a guest** when you add people to a group chat or a project. [Read about guests](guests.md).
 
-![The Chats list: Mentions & threads, Channels with Everyone and Marketing, and a direct message](../images/chats/rooms-list.webp "The Chats list")
+![The Chats list: Mentions & threads, Channels with Everyone and Marketing, then Direct messages with a group chat and a direct message](../images/chats/rooms-list.webp "The Chats list")
 
 #### Ask Trina beside a conversation
 
