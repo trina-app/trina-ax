@@ -26,7 +26,11 @@ import { ROOMS_POST_RULE, sharedSection, sideRoomSection } from '../../server/sr
 
 setDefaultTimeout(60_000)
 const cm = () => 'cm-' + crypto.randomUUID()
-const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
+// the fake engine's directives sit in the person's message: their strings spelled as JSON escapes, so the person's own
+// words are only what the test writes around them (the explicit-ask rule reads those: docs/decisions/
+// 20261116-no-card-after-explicit-ask.md)
+const opaque = (j: string) => j.replace(/"(?:[^"\\]|\\.)*"/g, (q) => q.replace(/\\.|[\p{L}\p{N}]/gu, (c) => (c.length > 1 ? c : `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)))
+const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + opaque(JSON.stringify(d))).join('\n')
 const post = (args: Record<string, unknown>) => fake({ tool: 'post_to_room', args, sayResult: true })
 
 let h: Harness
@@ -209,6 +213,22 @@ describe('"Always send with the files" (post_files)', () => {
   })
 })
 
+describe('no card right after an explicit ask (QA TC-3812)', () => {
+  test('"방에 올려줘" in the room\'s side chat: posted with no card; a card that tells something stays; no post word asks', async () => {
+    const r = await turn('alice', `할 일 표로 정리해서 방에 올려줘\n${post({ text: '| 할 일 | 담당 |' })}`, { side: rooms.marketing })
+    expect(r.card).toBeNull()
+    expect(JSON.parse(r.content)).toMatchObject({ status: 'sent' })
+    expect((await messagesAs('erin', rooms.marketing)).at(-1)!.body).toBe('| 할 일 | 담당 |')
+    // a linked file erin cannot open: the card (it tells who would miss it)
+    put('users/alice/private-plan.md', 'x')
+    const lines = await turn('alice', `방에 올려줘\n${post({ text: 'See [p](/files/view?path=users/alice/private-plan.md)' })}`, { side: rooms.marketing, answer: 'no' })
+    expect(lines.card).not.toBeNull()
+    // no post word in my own words: the card
+    const plain = await turn('alice', `정리해줘\n${post({ text: 'x' })}`, { side: rooms.marketing, answer: 'no' })
+    expect(plain.card).not.toBeNull()
+  })
+})
+
 describe('where it may not post', () => {
   test('never offered in a scheduled run, and the refusal says why and what to do', async () => {
     const rt = h.rt()
@@ -314,17 +334,17 @@ describe('a side chat: this room, or the asked message\'s thread', () => {
   test('a question about a message posts to its thread; a follow-up keeps it; an explicit room goes to the room; a deleted root is refused', async () => {
     const root = await h.api('alice').call(API.sendRoomMessage, { params: { id: rooms.marketing }, body: { body: 'Venue sent the exhibitor rules.', clientMessageId: cm(), mentions: [], fileIds: [] } })
     const quote = `> Alice Kim · Nov 9, 2026, 7:04 PM${threadRefToken(root.id)}\n> Venue sent the exhibitor rules.\n\n`
-    const first = await turn('alice', quote + 'Summarize it and post it to the thread\n' + post({ text: 'Summary: rules are in.' }), { side: rooms.marketing, answer: 'send' })
+    const first = await turn('alice', quote + 'Summarize it for the thread\n' + post({ text: 'Summary: rules are in.' }), { side: rooms.marketing, answer: 'send' })
     expect(first.card!.question).toBe("Send this to the thread of 'Venue sent the exhibitor rules.' in #Marketing (2 people)?")
     const thread = await threadAs('erin', rooms.marketing, root.id)
     expect(thread.at(-1)).toMatchObject({ body: 'Summary: rules are in.', threadRootId: root.id, sharedAnswer: { at: 0, cut: false } })
     expect(JSON.parse(first.content)).toMatchObject({ status: 'sent', thread_id: root.id })
     // a follow-up without a quote keeps the thread
-    const again = await turn('alice', 'shorter, and post it\n' + post({ text: 'Rules are in.' }), { chat: first.chatId, answer: 'send' })
+    const again = await turn('alice', 'shorter\n' + post({ text: 'Rules are in.' }), { chat: first.chatId, answer: 'send' })
     expect(again.card!.question).toContain("thread of 'Venue sent the exhibitor rules.'")
     expect((await threadAs('erin', rooms.marketing, root.id)).at(-1)!.body).toBe('Rules are in.')
     // naming the room: the room itself
-    const toRoom = await turn('alice', 'post to the room\n' + post({ room: rooms.marketing, text: 'For everyone here.' }), { chat: first.chatId, answer: 'send' })
+    const toRoom = await turn('alice', 'the room itself this time\n' + post({ room: rooms.marketing, text: 'For everyone here.' }), { chat: first.chatId, answer: 'send' })
     expect(toRoom.card!.question).toBe('Send this to #Marketing (2 people)?')
     const inRoom = (await messagesAs('erin', rooms.marketing)).at(-1)!
     expect(inRoom.body).toBe('For everyone here.')

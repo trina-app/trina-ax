@@ -49,7 +49,7 @@
 // it refuses with why and what to do, as it does for a room that is archived or not mine, a gone thread, content that
 // used earlier answers hidden from some member, a text too long for one message and the sending budget.
 import { withAlways } from './always-allow'
-import { actionOff, askerPicks, mainOnly, namedByAsker } from './shared-actions'
+import { actionOff, askerPicks, askerText, fold, mainOnly, namedByAsker, namesRecipient, ownWords, POST_ASK } from './shared-actions'
 // (moved to chat/shared-actions.ts, kept here for the tests and older imports)
 export { namedByAsker, namesRecipient } from './shared-actions'
 import { isUuid7, ownFolderLabel, ownFolderWord, PostToRoomInput, uuidv7 } from '@mycel/shared'
@@ -331,7 +331,18 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // when the asker's own latest message names the recipient as matched, and never for own_words (a message in the
         // asker's own words always shows them the card)
         const alwaysOk = !exec.shared || (!plain && namedByAsker(db, spec.userMessageId, a.data.room, recipientNames(db, spec.userId, mine?.room ?? null, pendingTo)))
-        const reply = await withAlways(alwaysOk ? exec.alwaysPlace?.() : null, all ? 'post_files' : 'post_to_room', options, all ? 'send_files' : 'send', (opts, more) => exec.waitForPerson({
+        // no card when the asker's own message of this turn asked for exactly this post (docs/decisions/
+        // 20261116-no-card-after-explicit-ask.md, QA TC-3812): a post word and the place in their words (or, in a room's
+        // side chat, no place given: that room), and the card would tell nothing more (no line about people who cannot see
+        // a source or open a file, no files to choose). Never in a run nobody watches
+        const said = ownWords(askerText(db, spec.userMessageId))
+        // own words: only when the message is their words as written; a chat others write in (shared, or others wrote in
+        // it): only then too, since there another member's message may have shaped the text the AI wrote
+        const theirText = plain && fold(said).includes(fold(shown))
+        const explicit = spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && !all && !linesNone.length && !laterLine && POST_ASK.test(said)
+          && (plain ? theirText : !exec.shared && !exec.otherAuthors)
+          && (a.data.room === undefined ? !!side : namesRecipient(said, a.data.room, recipientNames(db, spec.userId, mine?.room ?? null, pendingTo)))
+        const reply = explicit ? 'send' : await withAlways(alwaysOk ? exec.alwaysPlace?.() : null, all ? 'post_files' : 'post_to_room', options, all ? 'send_files' : 'send', (opts, more) => exec.waitForPerson({
           kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, options: opts, multiple: false, allowText: false, ...(more.note ? { note: more.note } : {}),
           details: [
             // the note goes as the person's own words, the text as the AI's answer: apart, as the room shows them
