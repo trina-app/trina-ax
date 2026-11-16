@@ -8,7 +8,7 @@
 // { remove_pages: "2" } the old page 3 is page 2. Positions are said as the page is shown (its CropBox with /Rotate
 // applied), from its top-left corner, in mm. A page's own drawing is wrapped in q … Q before anything is drawn on it.
 import fontkit from '@pdf-lib/fontkit'
-import { decodePDFRawStream, degrees, PDFArray, PDFDict, PDFDocument, PDFFlateStream, PDFName, PDFRawStream, popGraphicsState, pushGraphicsState, rgb, StandardFonts, type PDFFont, type PDFPage } from 'pdf-lib'
+import { decodePDFRawStream, degrees, PDFArray, PDFDict, PDFDocument, PDFFlateStream, PDFName, PDFNull, PDFObjectCopier, PDFPage, PDFPageLeaf, PDFPageTree, PDFRawStream, PDFRef, PDFStream, popGraphicsState, pushGraphicsState, rgb, StandardFonts, type PDFContext, type PDFFont, type PDFObject } from 'pdf-lib'
 import { ToolError } from '../policy/errors'
 import { decodeHwpxRequest, encodeHwpxRequest } from './hwpx-check'
 import { imageKind, imageSize, mmToPt, ptToMm, shownRect, STAMP_DEFAULT_MARGIN_MM, STAMP_DEFAULT_WIDTH_MM, STAMP_IMAGE_SIDE_MAX, type StampPosition } from './pdf-stamp'
@@ -152,44 +152,253 @@ function removePage(doc: PDFDocument, index: number) {
   ;(doc as unknown as { pageCache: { invalidate(): void } }).pageCache.invalidate()
 }
 
+const latin1 = (b: Uint8Array) => Buffer.from(b.buffer, b.byteOffset, b.byteLength).toString('latin1')
+const UNREADABLE = 'a page of this PDF is damaged (what it draws cannot be read), so pages cannot be taken out of it safely; nothing was saved'
+
+/** What a content stream says. '' for what draws nothing (no object, null, not a stream); null for a stream that
+ * cannot be decoded. */
+function contentText(s: PDFObject | undefined): string | null {
+  try {
+    // a stream read from the file, or one drawn here (our q … Q, a stamp, text: not yet encoded)
+    if (s instanceof PDFRawStream) return latin1(decodePDFRawStream(s).decode())
+    if (s instanceof PDFFlateStream) return latin1(s.getUnencodedContents())
+  } catch { return null }
+  return ''
+}
+
+const nameOf = (raw: string) => raw.replace(/#([0-9a-fA-F]{2})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)))
+/** the resource names a content stream uses: pictures and forms (`/Name Do`), fonts (`/Name 12 Tf`), and every name
+ * written at all (for the other lists: /ExtGState, /ColorSpace, /Pattern, /Shading, /Properties) */
+function namesUsed(text: string) {
+  const xobject = new Set<string>(), font = new Set<string>(), any = new Set<string>()
+  for (const m of text.matchAll(/\/([^\s/<>\[\](){}%]+)\s+Do\b/g)) xobject.add(nameOf(m[1]!))
+  for (const m of text.matchAll(/\/([^\s/<>\[\](){}%]+)\s+[-+\d.]+\s+Tf\b/g)) font.add(nameOf(m[1]!))
+  for (const m of text.matchAll(/\/([^\s/<>\[\](){}%]+)/g)) any.add(nameOf(m[1]!))
+  return { xobject, font, any }
+}
+
+/** streams whose own /Resources were cut down already (a form shared by many pages, a document split into parts) */
+const cut = new WeakSet<PDFStream>()
+
 /**
- * Give each of these pages its own /Resources whose /XObject and /Font hold only the names its content streams use
- * (`/Name Do`, `/Name Tf`), before the pages are copied into a new document: a /Resources shared by many pages (on the
- * page tree, common in scanner and generator output) would otherwise carry a removed page's pictures into the result
- * (review of feat/edit-pdf). A page whose content cannot be decoded keeps its resources as they are.
+ * A copy of `res` whose lists hold only the names `text` uses. A form the text draws that has no /Resources of its
+ * own draws with these (PDF 1.1 style), so what it says counts too.
  */
-export function pruneResources(doc: PDFDocument, indices: number[]) {
+function cutResources(ctx: PDFContext, res: PDFDict, text: string, strict: boolean): PDFDict {
+  const xobjects = ctx.lookup(res.get(PDFName.of('XObject')))
+  if (xobjects instanceof PDFDict) {
+    const seen = new Set<string>()
+    for (let more = true; more;) {
+      more = false
+      for (const n of namesUsed(text).xobject) {
+        if (seen.has(n)) continue
+        seen.add(n)
+        const x = ctx.lookup(xobjects.get(PDFName.of(n)))
+        if (!(x instanceof PDFStream) || x.dict.get(PDFName.of('Subtype')) !== PDFName.of('Form') || x.dict.has(PDFName.of('Resources'))) continue
+        const t = contentText(x)
+        if (t === null) { if (strict) throw new ToolError(UNREADABLE, 'pdf_invalid'); continue }
+        text += '\n' + t
+        more = true
+      }
+    }
+  }
+  const used = namesUsed(text)
+  const own = res.clone(ctx)
+  for (const [key, value] of res.entries()) {
+    const dict = ctx.lookup(value)
+    if (!(dict instanceof PDFDict)) continue
+    const names = key === PDFName.of('XObject') ? used.xobject : key === PDFName.of('Font') ? used.font : used.any
+    const kept = PDFDict.withContext(ctx)
+    for (const [name, v] of dict.entries()) if (names.has(name.decodeText())) kept.set(name, v)
+    own.set(key, kept)
+  }
+  return own
+}
+
+/**
+ * Give each of these pages its own /Resources whose lists hold only the names its content streams use, before the
+ * pages are copied into a new document: a /Resources shared by many pages (on the page tree, common in scanner and
+ * generator output) would otherwise carry a removed page's pictures into the result (review of feat/edit-pdf). The
+ * same for everything the page then still reaches that draws with a /Resources of its own (forms, tiling patterns,
+ * soft masks, annotation appearances): a generator may point those at the shared list too.
+ *
+ * A /Contents that is no stream (null, a reference to nothing) draws nothing and uses nothing (TC-3793: such a page
+ * used to keep the whole shared list). A stream that cannot be decoded: with `strict` (pages are being taken out) the
+ * job is refused, since nobody can say what the page uses; else its resources stay as they are.
+ */
+export function pruneResources(doc: PDFDocument, indices: number[], strict = true) {
   const ctx = doc.context
+  const walked = new Set<PDFObject>()
   for (const i of new Set(indices)) {
     const node = doc.getPage(i).node
-    let text = ''
-    try {
-      // a page without /Contents (a blank page) uses nothing: everything is pruned
-      const ref = node.get(PDFName.of('Contents'))
-      const c = ref === undefined ? undefined : ctx.lookup(ref)
-      const streams = c === undefined ? [] : c instanceof PDFArray ? c.asArray().map((x) => ctx.lookup(x)) : [c]
-      for (const s of streams) {
-        // a stream read from the file, or one drawn here (our q … Q, a stamp, text: not yet encoded)
-        if (s instanceof PDFRawStream) text += Buffer.from(decodePDFRawStream(s).decode()).toString('latin1') + '\n'
-        else if (s instanceof PDFFlateStream) text += Buffer.from(s.getUnencodedContents()).toString('latin1') + '\n'
-        else throw new Error('not a stream')
+    const ref = node.get(PDFName.of('Contents'))
+    const c = ref === undefined ? undefined : ctx.lookup(ref)
+    const texts = (c instanceof PDFArray ? c.asArray().map((x) => ctx.lookup(x)) : [c]).map(contentText)
+    const todo: (PDFObject | undefined)[] = [node.get(PDFName.of('Annots'))]
+    if (texts.includes(null)) {
+      if (strict) throw new ToolError(UNREADABLE, 'pdf_invalid')
+      todo.push(node.Resources())
+    } else {
+      const res = node.Resources()
+      if (res) {
+        const own = cutResources(ctx, res, texts.join('\n'), strict)
+        node.set(PDFName.of('Resources'), own)
+        todo.push(own)
       }
-    } catch { continue }
-    const res = node.Resources()
-    if (!res) continue
-    const own = res.clone(ctx)
-    for (const [key, op] of [['XObject', 'Do'], ['Font', 'Tf']] as const) {
-      const dict = own.lookupMaybe(PDFName.of(key), PDFDict)
-      if (!dict) continue
-      const used = new Set<string>()
-      const re = key === 'XObject' ? /\/([^\s/<>\[\]()]+)\s+Do\b/g : /\/([^\s/<>\[\]()]+)\s+[-+\d.]+\s+Tf\b/g
-      for (const m of text.matchAll(re)) used.add(m[1]!)
-      const kept = PDFDict.withContext(ctx)
-      for (const [name, v] of dict.entries()) if (used.has(name.decodeText())) kept.set(name, v)
-      own.set(PDFName.of(key), kept)
     }
-    node.set(PDFName.of('Resources'), own)
+    // everything the page still reaches, other pages apart
+    while (todo.length) {
+      let o = todo.pop()
+      if (o instanceof PDFRef) o = ctx.lookup(o)
+      if (!o || walked.has(o) || o instanceof PDFPageLeaf || o instanceof PDFPageTree) continue
+      walked.add(o)
+      if (o instanceof PDFArray) todo.push(...o.asArray())
+      else if (o instanceof PDFDict) todo.push(...o.values())
+      else if (o instanceof PDFStream) {
+        const res = ctx.lookup(o.dict.get(PDFName.of('Resources')))
+        if (res instanceof PDFDict && !cut.has(o)) {
+          const t = contentText(o)
+          if (t === null) { if (strict) throw new ToolError(UNREADABLE, 'pdf_invalid') } else {
+            o.dict.set(PDFName.of('Resources'), cutResources(ctx, res, t, strict))
+            cut.add(o)
+          }
+        }
+        todo.push(...o.dict.values())
+      }
+    }
   }
+}
+
+/**
+ * Copies of these pages of `src` for `out` (to add or insert there). As pdf-lib's copyPages, but the copier is told
+ * first where each of these pages goes: pdf-lib 1.17.1 does not remember a page it copied, so a link from one copied
+ * page to another (and every annotation's /P, its own page) made a second, unseen copy of that page in the file, and
+ * the link led to the copy (`traversedObjects` is a private field of that pinned version; checked by
+ * tests/unit/pdf-pages-removed-content.test.ts, "page 3's link still leads to page 1").
+ */
+async function copiesOf(out: PDFDocument, src: PDFDocument, indices: number[]): Promise<PDFPage[]> {
+  await src.flush()
+  const copier = PDFObjectCopier.for(src.context, out.context)
+  const seen = (copier as unknown as { traversedObjects: Map<PDFObject, PDFObject> }).traversedObjects
+  const pages = indices.map((i) => src.getPage(i))
+  const refs = pages.map((p) => { const r = (seen.get(p.ref) as PDFRef | undefined) ?? out.context.nextRef(); seen.set(p.ref, r); return r })
+  return pages.map((p, k) => {
+    const copied = copier.copy(p.node)
+    out.context.assign(refs[k]!, copied)
+    return PDFPage.of(copied, refs[k]!, out)
+  })
+}
+
+/**
+ * The document's pages become these of its pages (1-based), in this order. The page objects themselves are moved, not
+ * copied, so links between them go on leading to them. What a page took from its place in the page tree (/Resources,
+ * /MediaBox, /CropBox, /Rotate) is written onto it first.
+ */
+function arrange(doc: PDFDocument, pages: number[]) {
+  const keep = pages.map((p) => doc.getPage(p - 1))
+  for (const page of keep) {
+    for (const k of PDFPageLeaf.InheritableEntries) {
+      const key = PDFName.of(k)
+      const v = page.node.getInheritableAttribute(key)
+      if (!page.node.get(key) && v) page.node.set(key, v)
+    }
+  }
+  for (let p = doc.getPageCount() - 1; p >= 0; p--) removePage(doc, p)
+  for (const page of keep) doc.addPage(page)
+}
+
+const isType = (o: PDFObject | undefined, type: string): o is PDFDict => o instanceof PDFDict && o.get(PDFName.of('Type')) === PDFName.of(type)
+
+/**
+ * After pages were copied into the new document `out`, and before it is saved: nothing of a page that is not one of
+ * its pages stays. pdf-lib copies everything a page points at, so a link to a removed page, or a form field with
+ * another part on a removed page, brought that whole page along (its text, pictures, notes, thumbnail), unseen but in
+ * the file. Here:
+ *  - a page object that is not in `out`'s page tree is cut loose, with its annotations and form-field parts;
+ *  - a link on a kept page that led there is removed (it would lead nowhere); article threads (/B) are removed;
+ *  - a form field left without any part is removed, up the field tree;
+ *  - then every object that `out`'s own pages no longer reach is deleted, so save (always a full rewrite, never an
+ *    appended update) writes only what the kept pages use.
+ */
+export function dropUnreachable(out: PDFDocument) {
+  const ctx = out.context
+  const K = (k: string) => PDFName.of(k)
+  const treeRef = out.catalog.get(K('Pages'))
+  const inTree = new Set<PDFObject | undefined>([treeRef])
+  out.catalog.Pages().traverse((_, ref) => { inTree.add(ref) })
+  const all = () => ctx.enumerateIndirectObjects()
+  const dictOf = (o: PDFObject | undefined) => (o instanceof PDFDict ? o : o instanceof PDFStream ? o.dict : undefined)
+  const annotsOf = (page: PDFDict) => { const a = ctx.lookup(page.get(K('Annots'))); return a instanceof PDFArray ? a.asArray() : [] }
+
+  const strayPages = new Set<PDFObject>()
+  const keptAnnots = new Set<PDFObject>()
+  for (const [ref, o] of all()) {
+    if (!(o instanceof PDFPageLeaf || o instanceof PDFPageTree || isType(o, 'Page') || isType(o, 'Pages'))) continue
+    if (!inTree.has(ref)) strayPages.add(ref)
+    else if (ref !== treeRef) { o.delete(K('B')); for (const a of annotsOf(o)) keptAnnots.add(a) }
+  }
+  /** what is cut loose: the stray pages and what belongs to them */
+  const dead = new Set<PDFObject>(strayPages)
+  for (const p of strayPages) for (const a of annotsOf(ctx.lookup(p) as PDFDict)) if (!keptAnnots.has(a)) dead.add(a)
+  for (const [ref, o] of all()) {
+    const d = dictOf(o)
+    if (d && !keptAnnots.has(ref) && !inTree.has(ref) && strayPages.has(d.get(K('P'))!)) dead.add(ref)
+  }
+  // a link (or another annotation with an action) on a kept page that goes to a stray page
+  const goes = (dest: PDFObject | undefined): boolean => {
+    const d = ctx.lookup(dest)
+    return d instanceof PDFArray ? strayPages.has(d.get(0)) : d instanceof PDFDict ? goes(d.get(K('D'))) : false
+  }
+  for (const a of keptAnnots) {
+    const d = dictOf(ctx.lookup(a))
+    if (!d) continue
+    const act = ctx.lookup(d.get(K('A')))
+    if (goes(d.get(K('Dest'))) || (act instanceof PDFDict && goes(act.get(K('D'))))) dead.add(a)
+  }
+
+  /** take every reference to something dead out of every object: a list loses the entry (a destination array keeps
+   * its shape with null), a dictionary loses the key */
+  const unlink = (o: PDFObject | undefined, seen: Set<PDFObject>) => {
+    if (!o || seen.has(o)) return
+    seen.add(o)
+    if (o instanceof PDFArray) {
+      for (let i = o.size() - 1; i >= 0; i--) {
+        const v = o.get(i)
+        if (strayPages.has(v)) o.set(i, PDFNull)
+        else if (dead.has(v)) o.remove(i)
+        else unlink(v, seen)
+      }
+    } else {
+      const d = dictOf(o)
+      if (d) for (const [k, v] of d.entries()) { if (dead.has(v)) d.delete(k); else unlink(v, seen) }
+    }
+  }
+  for (;;) {
+    const seen = new Set<PDFObject>()
+    for (const [ref, o] of all()) if (!dead.has(ref)) unlink(o, seen)
+    // a form field whose parts are all gone
+    let more = false
+    for (const [ref, o] of all()) {
+      if (dead.has(ref) || inTree.has(ref) || !(o instanceof PDFDict)) continue
+      const kids = ctx.lookup(o.get(K('Kids')))
+      if (kids instanceof PDFArray && kids.size() === 0 && (o.has(K('T')) || o.has(K('Parent')) || o.has(K('FT')))) { dead.add(ref); more = true }
+    }
+    if (!more) break
+  }
+
+  // what the document still reaches, from its trailer; the rest is not written
+  const live = new Set<PDFObject>()
+  const todo: (PDFObject | undefined)[] = Object.values(ctx.trailerInfo)
+  while (todo.length) {
+    const o = todo.pop()
+    if (!o || live.has(o)) continue
+    live.add(o)
+    if (o instanceof PDFRef) todo.push(ctx.lookup(o))
+    else if (o instanceof PDFArray) todo.push(...o.asArray())
+    else if (o instanceof PDFDict) todo.push(...o.values())
+    else if (o instanceof PDFStream) todo.push(...o.dict.values())
+  }
+  for (const [ref] of all()) if (!live.has(ref)) ctx.delete(ref)
 }
 
 const wrapped = new WeakSet<PDFPage>()
@@ -254,9 +463,10 @@ export async function pdfPagesRequest(input: Uint8Array): Promise<Uint8Array> {
       signed ||= has(parts[f.part]!, '/ByteRange')
       const pages = f.pages ? parsePages(f.pages, src.getPageCount()) : Array.from({ length: src.getPageCount() }, (_, i) => i + 1)
       tooMany(out.getPageCount() + pages.length)
-      pruneResources(src, pages.map((x) => x - 1))
-      for (const p of await out.copyPages(src, pages.map((x) => x - 1))) out.addPage(p)
+      pruneResources(src, pages.map((x) => x - 1), pages.length < src.getPageCount())
+      for (const p of await copiesOf(out, src, pages.map((x) => x - 1))) out.addPage(p)
     }
+    dropUnreachable(out)
     return finish([{ bytes: await save(out), pages: out.getPageCount() }], signed)
   }
 
@@ -280,9 +490,10 @@ export async function pdfPagesRequest(input: Uint8Array): Promise<Uint8Array> {
     const files: { bytes: Uint8Array; pages: number }[] = []
     for (const spec of job.parts) {
       const pages = parsePages(spec, doc.getPageCount())
-      pruneResources(doc, pages.map((x) => x - 1))
+      pruneResources(doc, pages.map((x) => x - 1), pages.length < doc.getPageCount())
       const part = await PDFDocument.create()
-      for (const p of await part.copyPages(doc, pages.map((x) => x - 1))) part.addPage(p)
+      for (const p of await copiesOf(part, doc, pages.map((x) => x - 1))) part.addPage(p)
+      dropUnreachable(part)
       files.push({ bytes: await save(part), pages: part.getPageCount() })
     }
     return finish(files, signed)
@@ -291,6 +502,8 @@ export async function pdfPagesRequest(input: Uint8Array): Promise<Uint8Array> {
   // edit: the operations in order, on one document
   /** pages were taken out (remove, keep, reorder): the result is built fresh, see below */
   let dropped = false
+  /** pages were left out (remove, a keep that is not every page): a page that cannot be read then stops the job */
+  let leftOut = false
   let font: PDFFont | null = null
   let cjk: PDFFont | null = null
   let cjkFont: ReturnType<typeof fontkit.create> | null = null
@@ -313,23 +526,20 @@ export async function pdfPagesRequest(input: Uint8Array): Promise<Uint8Array> {
     const step = `operation ${i + 1}`
     try {
       if ('remove_pages' in op) {
-        dropped = true
+        dropped = leftOut = true
         const pages = parsePages(op.remove_pages, n)
         if (pages.length >= n) throw new ToolError('that would remove every page; a PDF needs at least one page')
         for (const p of [...pages].sort((a, b) => b - a)) removePage(doc, p - 1)
       } else if ('keep_pages' in op) {
         dropped = true
         const pages = parsePages(op.keep_pages, n)
-        const copies = await doc.copyPages(doc, pages.map((x) => x - 1))
-        for (let p = n - 1; p >= 0; p--) removePage(doc, p)
-        for (const c of copies) doc.addPage(c)
+        if (pages.length < n) leftOut = true
+        arrange(doc, pages)
       } else if ('reorder_pages' in op) {
         dropped = true
         const pages = parsePages(op.reorder_pages, n)
         if (pages.length !== n) throw new ToolError(`reorder_pages lists every page once (the PDF has ${n}); to leave pages out, use keep_pages or remove_pages`)
-        const copies = await doc.copyPages(doc, pages.map((x) => x - 1))
-        for (let p = n - 1; p >= 0; p--) removePage(doc, p)
-        for (const c of copies) doc.addPage(c)
+        arrange(doc, pages)
       } else if ('rotate_pages' in op) {
         const by = rotationOf(op.rotate_pages.degrees)
         for (const p of parsePages(op.rotate_pages.pages ?? 'all', n)) {
@@ -343,7 +553,11 @@ export async function pdfPagesRequest(input: Uint8Array): Promise<Uint8Array> {
         const after = f.after === 'last' ? n : f.after
         if (!Number.isInteger(after) || after < 0 || after > n) throw new ToolError(`"after" is a page from 0 (before the first) to ${n} (the last), or "last"`)
         tooMany(n + pages.length)
-        const copies = await doc.copyPages(other, pages.map((x) => x - 1))
+        // only some of its pages: the others' content must not come along (the result is then built fresh, see below)
+        const some = pages.length < other.getPageCount()
+        if (some) dropped = leftOut = true
+        pruneResources(other, pages.map((x) => x - 1), some)
+        const copies = await copiesOf(doc, other, pages.map((x) => x - 1))
         copies.forEach((c, k) => doc.insertPage(after + k, c))
       } else if ('stamp_image' in op) {
         const s = op.stamp_image
@@ -418,11 +632,13 @@ export async function pdfPagesRequest(input: Uint8Array): Promise<Uint8Array> {
   }
   // pdf-lib's save writes every object the document holds, so a removed page's content would still be inside the file
   // (review of feat/edit-pdf: "remove the salary page" left its text in the result). After a removal the final pages
-  // are copied into a new document, which holds only what they use. (Its outline and form fields are not carried over.)
+  // are copied into a new document, and what they do not use is taken out of it (pruneResources before the copy,
+  // dropUnreachable after). Its outline, named destinations, attachments and form (AcroForm) are not carried over.
   if (dropped) {
     const fresh = await PDFDocument.create()
-    pruneResources(doc, doc.getPageIndices())
-    for (const p of await fresh.copyPages(doc, doc.getPageIndices())) fresh.addPage(p)
+    pruneResources(doc, doc.getPageIndices(), leftOut)
+    for (const p of await copiesOf(fresh, doc, doc.getPageIndices())) fresh.addPage(p)
+    dropUnreachable(fresh)
     return finish([{ bytes: await save(fresh), pages: fresh.getPageCount() }], signed)
   }
   return finish([{ bytes: await save(doc), pages: doc.getPageCount() }], signed)
