@@ -214,6 +214,8 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `GET` | `/api/jobs/:id` | Signed in | Own job (jobs of nobody, e.g. system backups: the owner). Result when done. |
 | `POST` | `/api/jobs/:id/cancel` | Signed in | Cancel a queued or running own job. |
 | `POST` | `/api/transcribe` | Signed in | Voice input / recordings up to 50 MB (larger: upload session with target transcribe). Result: TranscribeResult. |
+| `GET` | `/api/meetings/status` | Signed in | Meeting notes (desktop app): whether they can start now with the team's voice input setting; on a server that turns speech into text itself, starts the first-use model download and says how far it is. |
+| `POST` | `/api/meetings/piece` | Signed in | Meeting notes (desktop app): one piece of a meeting's sound (16 kHz mono 16-bit WAV, at most 15.5 s) turned into text with the team's voice input setting, answered at once. The sound is deleted after; nothing is kept. Send again after Retry-After only for the reasons in MEETING_RETRY_REASONS (in_flight, busy, not_ready), never by status code; any other refusal ends the meeting with its sentence. |
 
 ## In-app browser
 
