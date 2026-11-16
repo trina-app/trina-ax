@@ -70,6 +70,9 @@ const reads = (): Row[] => [
   { route: 'GET /api/chats/:id/artifacts', run: (w) => hit(w, `/api/chats/${chatId}/artifacts`), allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },
   { route: 'GET /api/chats/:id/messages/:messageId/sources', run: (w) => hit(w, `/api/chats/${chatId}/messages/${answerId}/sources`), allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },
   { route: 'POST /api/chats/:id/seen', run: (w) => hit(w, `/api/chats/${chatId}/seen`, J({})), allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },
+  // threads on AI answers (chat/threads.ts threadAccess): the chat's audience, the one 404 for everyone else
+  { route: 'GET /api/chats/:id/messages/:messageId/thread', run: (w) => hit(w, `/api/chats/${chatId}/messages/${answerId}/thread`), allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },
+  { route: 'POST /api/chats/:id/messages/:messageId/thread', run: (w) => hit(w, `/api/chats/${chatId}/messages/${answerId}/thread`, J({ text: `reply by ${w}`, clientId: cm() })), allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },
   { route: 'GET /api/chats (list)', run: async (w) => { const r = await hit(w, `/api/chats?projectId=${projectId}`); return r.text.includes(chatId) ? r : { status: 404, text: r.text } }, allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },
 ]
 /** the writing routes, one person at a time */
@@ -81,6 +84,10 @@ const writes = (): Row[] => [
   // alice's own answer goes on to the room's checks (no such room: refused there); everyone else is stopped before
   { route: 'POST /api/chats/:id/messages/:messageId/share-to-room', run: (w) => hit(w, `/api/chats/${chatId}/messages/${answerId}/share-to-room`, J({ roomId: uuidv7(), note: '', clientMessageId: cm() })), allow: [], deny: { bob: 404, carol: 404, dana: 404, erin: 404 } },
   { route: 'POST /api/attachments/team-file', run: (w) => hit(w, '/api/attachments/team-file', J({ chatId, path: 'projects/falcon/plan.md' })), allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },
+  // a read mark on a reply alice just wrote: the audience; a reply's delete: its author or a moderator (alice made the
+  // chat; carol may edit the project as an admin member), bob 403, the rest the one 404
+  { route: 'POST /api/chats/:id/messages/:messageId/thread/read', run: async (w) => { const r = JSON.parse((await hit('alice', `/api/chats/${chatId}/messages/${answerId}/thread`, J({ text: 'to read', clientId: cm() }))).text); return hit(w, `/api/chats/${chatId}/messages/${answerId}/thread/read`, J({ upTo: r.id })) }, allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },
+  { route: 'DELETE /api/chats/:id/thread-replies/:replyId', run: async (w) => { const r = JSON.parse((await hit('alice', `/api/chats/${chatId}/messages/${answerId}/thread`, J({ text: 'to delete', clientId: cm() }))).text); return hit(w, `/api/chats/${chatId}/thread-replies/${r.id}`, { method: 'DELETE', headers: { [CSRF_HEADER]: '1' } }) }, allow: ['alice', 'carol'], deny: { bob: 403, dana: 404, erin: 404 } },
   // into the project folder (uploads/shared-chat.ts): who may write it; bob only reads it (403 shared_upload_read_only)
   { route: 'POST /api/uploads (computer file)', run: (w) => { const f = new FormData(); f.set('chatId', chatId); f.set('file', new File(['x'], 'x.txt', { type: 'text/plain' })); return hit(w, '/api/uploads', { method: 'POST', headers: { [CSRF_HEADER]: '1' }, body: f }) }, allow: ['alice', 'carol'], deny: { bob: 403, dana: 404, erin: 404 } },
   { route: 'POST /api/chats/:id/branch', run: (w) => hit(w, `/api/chats/${chatId}/branch`, J({ messageId: answerId })), allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },

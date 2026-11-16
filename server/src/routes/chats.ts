@@ -38,6 +38,7 @@ import { chatEnginesFor, checkChatEngineChange, newChatEngine, turnEngine, type 
 import { budgetBlock } from '../admin/budgets'
 import { viewSources } from '../files/sources'
 import { shareAnswerToRoom } from '../chat/answer-share'
+import { deleteReply, listThread, markRead as markThreadRead, sendReply, threadSummaries } from '../chat/threads'
 import { roomsOf } from '../rooms/service'
 import { confirmMac } from '../chat/confirm-key'
 import { WIDENING_PAGE } from '../chat/widening'
@@ -190,7 +191,10 @@ function messagesPage(rt: ChatRuntime, chat: ChatRow, cursor: string | undefined
   }
   const start = Math.max(0, end - limit)
   const slice = pathRows.slice(start, end)
-  return { items: slice.map((m) => messageFor(rt, chat, m, viewer, locale, view)), nextCursor: start > 0 ? encodeCursor({ before: slice[0]!.id }) : null }
+  const items = slice.map((m) => messageFor(rt, chat, m, viewer, locale, view))
+  // threads under the finished answers I see (chat/threads.ts): their summaries, read once for the page
+  const threads = threadSummaries(rt.db, items.filter((m) => m.role === 'assistant' && !m.withheld && (m.status === 'done' || m.status === 'stopped')).map((m) => m.id), viewer)
+  return { items: threads.size ? items.map((m) => { const th = threads.get(m.id); return th ? { ...m, thread: th } : m }) : items, nextCursor: start > 0 ? encodeCursor({ before: slice[0]!.id }) : null }
 }
 
 /** The turn's engine and model: the chat's (or the team default when the admin switched it off); a choice in the
@@ -650,6 +654,25 @@ export const chatsRoutes: RouteModule = {
       // (also once it stopped being shared after others wrote in it: their answers are not mine to post)
       if ((a.shared || severalAuthors(ctx.db, a.row.id)) && (!m.turn_id || rt.store.turnUser(m.turn_id) !== auth.user.id)) fail('not_found')
       return shareAnswerToRoom(ctx, auth.user.id, a.row, m, body, c.get('locale'))
+    })
+
+    // threads on AI answers in shared chats (chat/threads.ts: the chat first, as for every chat route, then one gate,
+    // threadAccess, for the answer and the rest; people only, the AI never reads them)
+    kit.handle(API.listChatThread, ({ c, params, query, auth }) => {
+      chatOf(rt, c, auth, params.id, 'view', { deleted: true })
+      return listThread(rt, auth.user.id, params.id, params.messageId, query, c.get('locale'))
+    })
+    kit.handle(API.sendChatThreadReply, ({ c, params, body, auth }) => {
+      chatOf(rt, c, auth, params.id, 'continue')
+      return sendReply(ctx, rt, auth.user.id, params.id, params.messageId, body, c.get('locale'))
+    })
+    kit.handle(API.deleteChatThreadReply, ({ c, params, auth }) => {
+      chatOf(rt, c, auth, params.id, 'view')
+      deleteReply(ctx, rt, auth.user.id, params.id, params.replyId, c.get('locale'))
+    })
+    kit.handle(API.markChatThreadRead, ({ c, params, body, auth }) => {
+      chatOf(rt, c, auth, params.id, 'view', { deleted: true })
+      markThreadRead(ctx, rt, auth.user.id, params.id, params.messageId, body.upTo, c.get('locale'))
     })
 
     // "프로젝트 멤버와 공유": my private chat in a team project that shares its chats becomes a shared chat, after a check

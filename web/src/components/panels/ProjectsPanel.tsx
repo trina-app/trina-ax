@@ -93,7 +93,8 @@ export function ProjectsList(_: { phone?: boolean } = {}) {
   // the project on screen: its page (and its files), or the chat of it opened from here (프로젝트 still lit)
   const { pathname } = useLocation()
   const place = useRailHere()
-  const chatId = matchPath('/c/:chatId', pathname)?.params.chatId
+  // (a thread beside the chat: still that chat)
+  const chatId = (matchPath('/c/:chatId', pathname) ?? matchPath('/c/:chatId/t/:messageId', pathname))?.params.chatId
   const chatProject = useChats((s) => (chatId && place === 'projects' ? s.chats.find((c) => c.id === chatId)?.projectId ?? s.others[chatId]?.projectId ?? null : null))
   const lit = matchPath('/projects/:projectId/*', pathname)?.params.projectId ?? chatProject
 

@@ -29,7 +29,8 @@ function useRailPanelShown(): { has: boolean; state: ReturnType<typeof panelStat
   const has = !!item && !notMine.has(item)
   const wide = useMediaQuery(`(min-width: ${PANEL_ALWAYS_PX}px)`)
   const roomId = matchPath('/rooms/:roomId/*', pathname)?.params.roomId ?? null
-  const thread = !!matchPath('/rooms/:roomId/t/:messageId', pathname)
+  // a thread beside a room or beside an AI chat (docs/decisions/20261116-chat-answer-threads.md)
+  const thread = !!matchPath('/rooms/:roomId/t/:messageId', pathname) || !!matchPath('/c/:chatId/t/:messageId', pathname)
   const side = useRooms((s) => !!roomId && s.side[roomId] === 'trina')
   const panel = !!useSidePanel()
   const hidden = useRailPanel((s) => s.hidden)

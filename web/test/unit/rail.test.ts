@@ -38,6 +38,7 @@ const DECIDED: Record<string, RailItem | null> = {
   '': 'ai',
   new: 'ai',
   'c/:chatId': 'ai',
+  'c/:chatId/t/:messageId': 'ai',
   rooms: 'chats',
   'rooms/:roomId': 'chats',
   'rooms/:roomId/t/:messageId': 'chats',

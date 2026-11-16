@@ -74,6 +74,10 @@ import { Button, CopyButton, EmptyState, IconButton, Skeleton, confirmDialog, us
 import { LoadError } from '../components/LoadError'
 import { Tooltip } from '../components/Tooltip'
 import { FileDropZone } from '../components/FileDropZone'
+import { RoomSideColumn } from '../components/rooms/RoomSideColumn'
+import { ChatThreadPanel } from '../components/chat/ChatThreadPanel'
+import { closeSidePanel, useSidePanel } from '../lib/sidePanel'
+import { useAiAccess } from '../store/aiAccess'
 import { AiMark } from '../components/rooms/AiFace'
 import { useFolderWords } from '../lib/folderLabels'
 
@@ -81,14 +85,15 @@ import { useFolderWords } from '../lib/folderLabels'
 const SLOT = '\u0000'
 
 export default function ChatPage() {
-  const { chatId } = useParams()
+  const { chatId, messageId } = useParams()
   // ?answer= read again when it changes on the same chat (an answer of the widening list opened from this chat's own
   // Share dialog on a phone)
   const [params] = useSearchParams()
-  return <ChatView key={`${chatId}:${params.get('answer') ?? ''}`} chatId={chatId!} />
+  // /c/:chatId/t/:messageId: the thread under that answer, beside the chat (the same view: the chat stays as it was)
+  return <ChatView key={`${chatId}:${params.get('answer') ?? ''}`} chatId={chatId!} threadRoot={messageId ?? null} />
 }
 
-function ChatView({ chatId }: { chatId: string }) {
+function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string | null }) {
   // ?answer=: this view shows that answer's branch; what is in memory for the chat may be another branch, so it is read
   // again (before the first read below)
   const [params] = useSearchParams()
@@ -123,7 +128,8 @@ function ChatView({ chatId }: { chatId: string }) {
   const chatFromList = useChats((s) => s.chats.find((c) => c.id === chatId) ?? s.others[chatId])
   // a chat opened from a list that already holds it (a project page's rows: someone else's shared chat is not in my list
   // yet) shows its title, crumb and people on the first frame, before the read comes back (QA TC-1293)
-  const handed = (useLocation().state as { chat?: Chat } | null)?.chat
+  const location = useLocation()
+  const handed = (location.state as { chat?: Chat } | null)?.chat
   const [chat, setChat] = useState<Chat | null>(chatFromList ?? (handed?.id === chatId ? handed : null))
   const thread = useChats((s) => s.threads[chatId]) ?? emptyThread()
   const { loadThread, loadOlder, send, stop, regenerate, edit, selectBranch, upsertChat, discardLocal } = useChats.getState()
@@ -480,6 +486,34 @@ function ChatView({ chatId }: { chatId: string }) {
     composer.current?.prepareDraft(path ? t('files.summary.askOwnFolderPromptFiles', { path: folderWords.path(path, ' › ') }) : t('files.summary.askOwnFolderHiddenPromptFiles'))
   }
 
+  // threads on a shared chat's answers (docs/decisions/20261116-chat-answer-threads.md): opened from this chat it is one
+  // step back from it (‹, ✕, Esc, the browser's back); from a link or a notice it closes to the chat in its place. One
+  // thing beside the chat at a time: a thread closes a file or artifact panel, and one of those closes the thread
+  const fromChat = !!(location.state as { fromChat?: boolean } | null)?.fromChat
+  const threadFocus = !!(location.state as { focus?: boolean } | null)?.focus
+  const openThread = (id: string, focus: boolean) => {
+    closeSidePanel()
+    navigate(`/c/${chatId}/t/${id}`, { replace: !!threadRoot, state: { fromChat: threadRoot ? fromChat : true, focus } })
+  }
+  const closeThread = useCallback(() => {
+    if (fromChat) navigate(-1)
+    else navigate(`/c/${chatId}`, { replace: true })
+  }, [fromChat, navigate, chatId])
+  const sidePanel = useSidePanel()
+  useEffect(() => {
+    if (sidePanel && threadRoot) closeThread()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sidePanel])
+  // the chat's box can send the thread as my question now: the chat can be continued (not in the trash, not read-only),
+  // my AI is on, and no answer of mine runs; else Send to Trina is not offered (the panel's own line says why)
+  const noAiHere = useAiAccess((s) => s.loaded && !s.usable)
+  const boxSends = !!shared && !chat?.deletedAt && !readOnly && !guestNoAi && !noAiHere && !runningMine
+  const sendToTrina = (draft: string) => {
+    // a phone: back to the chat, whose box (still there under the thread) takes the draft
+    if (phone) closeThread()
+    requestAnimationFrame(() => composer.current?.prepareDraft(draft))
+  }
+
   // a shared chat of a project in the trash, to one of its members: the server says so (and only to them), and the page
   // says what the project's page says (QA TC-1060)
   if (loadError && isApiError(loadError, 'not_found') && loadError.body.params?.reason === 'project_in_trash' && typeof loadError.body.params.projectId === 'string')
@@ -535,7 +569,8 @@ function ChatView({ chatId }: { chatId: string }) {
     )
 
   return (
-    <FileDropZone className="flex h-full flex-col" empty={chat?.deletedAt ? t('drop.trashed') : undefined} data-testid="chat-drop">
+    <div className="flex h-full" data-testid="chat-page">
+    <FileDropZone className={clsx('flex h-full min-w-0 flex-1 flex-col', threadRoot && chat && 'max-md:hidden')} empty={chat?.deletedAt ? t('drop.trashed') : undefined} data-testid="chat-drop">
       {backToSharing && (
         <div className="flex h-11 shrink-0 items-center border-b border-line bg-surface px-1">
           {/* like the system Back: the screen that opened the dialog, which opens it again on the list (WideningDraftHost) */}
@@ -609,7 +644,7 @@ function ChatView({ chatId }: { chatId: string }) {
               const switchedFrom = prevAssistant?.engine && m.engine && prevAssistant.engine !== m.engine ? (prevAssistant.engine as EngineId) : null
               return (
                 <ViewerMeta key={m.id} sender={{ kind: 'ai' }} at={m.createdAt}>
-                  <AssistantMessage m={m} chatId={chatId} isLast={i === messages.length - 1} busy={rowsBusy} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} onContinue={chat?.deletedAt || readOnly || !mine(askedBy(m)) ? undefined : onContinue} shareable={shareable && mine(askedBy(m))} shareRoomId={chat?.sideRoomId ?? undefined} canRegenerate={!readOnly && mine(askedBy(m))} canSuggest={!shared} />
+                  <AssistantMessage m={m} chatId={chatId} isLast={i === messages.length - 1} busy={rowsBusy} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} onContinue={chat?.deletedAt || readOnly || !mine(askedBy(m)) ? undefined : onContinue} shareable={shareable && mine(askedBy(m))} shareRoomId={chat?.sideRoomId ?? undefined} canRegenerate={!readOnly && mine(askedBy(m))} canSuggest={!shared} onThread={shared && !chat?.sideRoomId ? (focus) => openThread(m.id, focus) : undefined} />
                 </ViewerMeta>
               )
             })}
@@ -681,6 +716,13 @@ function ChatView({ chatId }: { chatId: string }) {
         />
       )}
     </FileDropZone>
+    {/* the thread in the address (a shared chat's answer): a column beside the chat on a computer, the screen on a phone */}
+    {threadRoot && chat && (
+      <RoomSideColumn label={t('rooms.thread')} testId="chat-thread-column" divider="thread">
+        <ChatThreadPanel key={threadRoot} chat={chat} rootId={threadRoot} meId={me.user.id} onClose={closeThread} onShownBranch={messages.some((m) => m.id === threadRoot)} focusBox={threadFocus} onSendToTrina={boxSends ? sendToTrina : undefined} />
+      </RoomSideColumn>
+    )}
+    </div>
   )
 }
 
