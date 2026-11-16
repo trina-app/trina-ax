@@ -11,8 +11,8 @@
 #   options: --base DIR (install folder; default: the folder above this script's root/)
 #
 # The token lands in <install>/secrets/claude-oauth-token, owned by the server account, mode 600, in the server's 700
-# secrets folder: the engine account (_axagent) can never read it. The server reads it on every model request, so no
-# restart is needed; the model proxy puts it on the requests of every Claude turn (the engine only ever sees a
+# secrets folder: the engine account (_axagent) can never read it. The server watches the folder and takes a new token
+# within seconds (at most 5 minutes), so no restart is needed; the model proxy puts it on the requests of every Claude turn (the engine only ever sees a
 # per-turn token). Root never writes through what a role account could have planted there: the same safe-fs helpers
 # as the installer (no symbolic link on the way, written in a root-only folder and renamed into place).
 set -euo pipefail
@@ -68,4 +68,4 @@ TOKEN=$(head -c 4096 | head -n 1 | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's
 printf '%s\n' "$TOKEN" > "$ITMP/token"
 unset TOKEN
 put "$ITMP/token" "$SRV_USER" "$SRV_GRP" 600 "$DEST"
-echo "set-claude-token: stored for $SRV_USER (mode 600); Claude answers with it from the next message, valid for one year"
+echo "set-claude-token: stored for $SRV_USER (mode 600); the server takes it within a few seconds (at most 5 minutes, no restart), valid for one year"

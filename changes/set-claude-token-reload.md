@@ -1,0 +1,1 @@
+- Linux and macOS: after `sudo …/root/set-claude-token`, the server now takes the new token within a few seconds, without a restart. It checked the file only every 5 minutes, and screens kept the old state, although the command said "from the next message". The command now says "within a few seconds (at most 5 minutes, no restart)".
