@@ -432,7 +432,7 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // no card when the person's own message of this turn asked for this change and everything it writes is in their words
   // (docs/decisions/20261116-no-card-after-explicit-ask.md, QA TC-3812; shared-actions.ts writtenByAsker): only a
   // service tool that adds or changes content (explicitWriteTool: not api_request, never one that sends, deletes or shares), only in a turn the person watches from their own app
-  if (person && !person.unattended && live && sent.tool && !sent.request && explicitWriteTool(sent.tool) && writeAsked(ctx, b.turnId, sent.raw)) return true
+  if (person && !person.unattended && live && !attachAsks && sent.tool && !sent.request && explicitWriteTool(sent.tool) && writeAsked(ctx, b.turnId, sent.raw)) return true
   if (!person || person.unattended) {
     throw new CallError(refusal({
       done: `Nothing was sent to ${row.name}.`, why: cardReason('unattended'),
@@ -456,7 +456,8 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // Send once, Always allow, Don't send (TC-130): the person's own choice for this connection (Settings turns it back),
   // offered only in a turn they watch from their own app while the team lets people choose it, and not where outside
   // content still asks (a Slack question)
-  if (person.choose && freely && !allowed) {
+  // (not for a send whose attached team files keep the card: TurnPerson.attachAsks; the choice would not count there)
+  if (person.choose && freely && !allowed && !attachAsks) {
     // the values of the yes / no card (chat/tools.ts confirmWhy: 'allow', 'deny'), so a client that answers those still works
     const v = await person.choose(question, [{ label: say('once', L), value: 'allow' }, { label: say('alwaysAllow', L), value: 'always' }, { label: say('no', L), value: 'deny' }], { details, buttons: true, note: say('alwaysNote', L, { name: row.name }) })
     if (v === 'allow') return true

@@ -87,6 +87,8 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
 
         // ---- which files: the user's own, each checked as the Share dialog checks it ----
         const paths = [...new Set(a.data.paths)]
+        // what this answer read so far is counted first (a read whose marking failed is caught up here, as post_to_room does)
+        try { exec.noteReads() } catch (e) { rt.log.warn('read scope before a share failed', { err: e }) }
         // other people's words are in this turn: a shared chat, a chat others wrote in, or one that read rooms (a side chat,
         // room_read, a quoted room message; read now, as a room read can come in this turn)
         const others = !!exec.shared || exec.otherAuthors || readRooms(exec)
