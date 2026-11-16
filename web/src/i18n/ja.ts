@@ -4263,7 +4263,7 @@ export const ja: Record<MessageKey, string> = {
   "rooms.editNotSaved": "編集内容は保存されていません。{reason}",
   "rooms.editingNow": "メッセージを編集中",
   "rooms.placeholder": "メッセージを入力",
-  "rooms.placeholderEmptySide": "メッセージ · ✦で個別に質問",
+  "rooms.placeholderEmptySide": "メッセージ · ✦で質問",
   "rooms.removeFile": "{name}を外す",
   "rooms.uploading": "{name}をアップロード中…",
   "rooms.tooBig": "{name}は{max}を超えているため送信できません。",
