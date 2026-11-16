@@ -26,6 +26,8 @@ export function teamContentTools(): ReadonlySet<string> {
   'search', 'knowledge_explore',
   // the promo video (promo-video/tool.ts): it reads team files and makes the chat's artifact, nothing from outside
   PROMO_TOOL,
+  // the promo video saved as a file (promo-video/save.ts): the same render, placed in the team folder
+  'save_promo_video',
   // the intro deck (intro-deck/tool.ts): the same, team files in, the chat's artifact out
   DECK_TOOL,
   // a sub-task: its own steps are checked one by one

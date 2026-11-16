@@ -44,6 +44,7 @@ const KEEP: Record<string, readonly string[]> = {
   save_room_file: ['room', 'file'],
   generate_video: [],
   promo_video: ['sources', 'logo'],
+  save_promo_video: [],
   intro_deck: ['urls'],
 }
 export const KEY_HIDING_TOOLS: readonly string[] = Object.keys(KEEP)
