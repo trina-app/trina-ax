@@ -13,6 +13,7 @@ atau skill tim. Tamu tidak memakai kursi di paket Anda.
 | **File tim** | Folder yang boleh mereka buka | Hanya file proyek mereka (tidak ada di obrolan grup) |
 | **AI** | Pengaturan AI tim | Tanpa AI, kecuali ada AI yang dipilih untuk mereka |
 | **Kursi** | Memakai satu | Tidak memakai |
+| **Berkas terbesar yang bisa diunggah** | 10 GB di chat, 20 GB di Berkas | 100 MB, kecuali pemilik atau admin menaikkannya (1 GB atau 10 GB) di **Admin › Anggota & undangan**, di atas daftar **Tamu** |
 
 Di samping nama tamu Anda melihat tanda **Tamu**, dan obrolan atau proyek yang memiliki tamu menyebutkannya di bagian
 atas ("Termasuk 1 tamu").
