@@ -125,6 +125,15 @@ async function open(bytes: Uint8Array, name: string): Promise<PDFDocument> {
     throw new ToolError(`'${name}' could not be opened as a PDF (it is damaged or not a PDF); nothing was saved`, 'pdf_invalid')
   }
   if (doc.isEncrypted) throw new ToolError(`'${name}' is locked with a password or protected against changes, so it cannot be changed here; nothing was saved`, 'pdf_encrypted')
+  // a kid of the page tree that pdf-lib does not take for a page (no /Type): viewers show it, so page numbers here
+  // would not be the numbers the person sees ("remove page 2" took out another page)
+  const odd = (kids: PDFObject | undefined, depth: number): boolean => kids instanceof PDFArray && kids.asArray().some((k) => {
+    const o = doc.context.lookup(k)
+    return o instanceof PDFPageTree ? depth < 50 && odd(doc.context.lookup(o.get(PDFName.of('Kids'))), depth + 1) : !(o instanceof PDFPageLeaf)
+  })
+  let bad = false
+  try { bad = odd(doc.context.lookup(doc.catalog.Pages().get(PDFName.of('Kids'))), 0) } catch { bad = true }
+  if (bad) throw new ToolError(`'${name}' has a page list that cannot be read reliably (it may be damaged); nothing was saved`, 'pdf_invalid')
   if (doc.getPageCount() < 1) throw new ToolError(`'${name}' has no pages that can be read (it may be damaged); nothing was saved`, 'pdf_invalid')
   return doc
 }
@@ -160,56 +169,89 @@ const UNREADABLE = 'a page of this PDF is damaged (what it draws cannot be read)
 function contentText(s: PDFObject | undefined): string | null {
   try {
     // a stream read from the file, or one drawn here (our q … Q, a stamp, text: not yet encoded)
-    if (s instanceof PDFRawStream) return latin1(decodePDFRawStream(s).decode())
+    if (s instanceof PDFRawStream) {
+      // pdf-lib's decoders do not apply /DecodeParms (a predictor): what they give is then not what the stream says
+      if (s.dict.has(PDFName.of('DecodeParms')) || s.dict.has(PDFName.of('DP'))) return null
+      return latin1(decodePDFRawStream(s).decode())
+    }
     if (s instanceof PDFFlateStream) return latin1(s.getUnencodedContents())
   } catch { return null }
   return ''
 }
 
 const nameOf = (raw: string) => raw.replace(/#([0-9a-fA-F]{2})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)))
-/** the resource names a content stream uses: pictures and forms (`/Name Do`), fonts (`/Name 12 Tf`), and every name
- * written at all (for the other lists: /ExtGState, /ColorSpace, /Pattern, /Shading, /Properties) */
-function namesUsed(text: string) {
-  const xobject = new Set<string>(), font = new Set<string>(), any = new Set<string>()
-  for (const m of text.matchAll(/\/([^\s/<>\[\](){}%]+)\s+Do\b/g)) xobject.add(nameOf(m[1]!))
-  for (const m of text.matchAll(/\/([^\s/<>\[\](){}%]+)\s+[-+\d.]+\s+Tf\b/g)) font.add(nameOf(m[1]!))
-  for (const m of text.matchAll(/\/([^\s/<>\[\](){}%]+)/g)) any.add(nameOf(m[1]!))
-  return { xobject, font, any }
+const NAME = '\\/([^\\s\\0/<>\\[\\](){}%]+)'
+/** between two tokens: white space (NUL is white space in a PDF) and comments */
+const GAP = '(?:[\\s\\0]|%[^\\r\\n]*(?:[\\r\\n]|$))+'
+const END = '(?![^\\s\\0/<>\\[\\](){}%])'
+/** a name right before one of these operators */
+const before = (ops: string) => new RegExp(`${NAME}${GAP}(?:${ops})${END}`, 'g')
+const TF = new RegExp(`${NAME}${GAP}[-+\\d.]+${GAP}Tf${END}`, 'g')
+const ANY = new RegExp(NAME, 'g')
+/** the lists whose names are read by their operator; in the others (/ColorSpace, /Properties, …) a name counts when
+ * the content writes it anywhere */
+const BY_OPERATOR: Record<string, RegExp> = { XObject: before('Do'), Font: TF, ExtGState: before('gs'), Shading: before('sh'), Pattern: before('scn|SCN') }
+/** colour spaces a page uses without naming them in its content */
+const ALWAYS = ['DefaultGray', 'DefaultRGB', 'DefaultCMYK']
+/** the resource names a content stream uses, for the list `key` */
+function namesUsed(text: string, key: string): Set<string> {
+  const out = new Set<string>(BY_OPERATOR[key] ? [] : ALWAYS)
+  for (const m of text.matchAll(BY_OPERATOR[key] ?? ANY)) out.add(nameOf(m[1]!))
+  return out
+}
+
+/** what the glyphs of a Type 3 font draw (its /CharProcs), or undefined when `o` is no Type 3 font; null: unreadable */
+function glyphText(ctx: PDFContext, o: PDFObject | undefined): string | null | undefined {
+  if (!(o instanceof PDFDict) || o.get(PDFName.of('Subtype')) !== PDFName.of('Type3')) return undefined
+  const procs = ctx.lookup(o.get(PDFName.of('CharProcs')))
+  if (!(procs instanceof PDFDict)) return ''
+  const texts = procs.values().map((v) => contentText(ctx.lookup(v)))
+  return texts.includes(null) ? null : texts.join('\n')
 }
 
 /** streams whose own /Resources were cut down already (a form shared by many pages, a document split into parts) */
 const cut = new WeakSet<PDFStream>()
+const cutDicts = new WeakSet<PDFDict>()
 
 /**
- * A copy of `res` whose lists hold only the names `text` uses. A form the text draws that has no /Resources of its
- * own draws with these (PDF 1.1 style), so what it says counts too.
+ * A copy of `res` whose lists hold only the names `text` uses. A form the text draws, or a Type 3 font it writes
+ * with, that has no /Resources of its own draws with these, so what it says counts too.
  */
 function cutResources(ctx: PDFContext, res: PDFDict, text: string, strict: boolean): PDFDict {
-  const xobjects = ctx.lookup(res.get(PDFName.of('XObject')))
-  if (xobjects instanceof PDFDict) {
-    const seen = new Set<string>()
-    for (let more = true; more;) {
-      more = false
-      for (const n of namesUsed(text).xobject) {
-        if (seen.has(n)) continue
-        seen.add(n)
-        const x = ctx.lookup(xobjects.get(PDFName.of(n)))
-        if (!(x instanceof PDFStream) || x.dict.get(PDFName.of('Subtype')) !== PDFName.of('Form') || x.dict.has(PDFName.of('Resources'))) continue
-        const t = contentText(x)
-        if (t === null) { if (strict) throw new ToolError(UNREADABLE, 'pdf_invalid'); continue }
-        text += '\n' + t
-        more = true
-      }
+  const list = (k: string) => { const d = ctx.lookup(res.get(PDFName.of(k))); return d instanceof PDFDict ? d : undefined }
+  const xobjects = list('XObject'), fonts = list('Font')
+  const seen = new Set<string>()
+  for (let more = true; more;) {
+    more = false
+    const texts: (string | null | undefined)[] = []
+    for (const n of namesUsed(text, 'XObject')) {
+      if (seen.has(`x${n}`)) continue
+      seen.add(`x${n}`)
+      const x = ctx.lookup(xobjects?.get(PDFName.of(n)))
+      if (x instanceof PDFStream && x.dict.get(PDFName.of('Subtype')) === PDFName.of('Form') && !x.dict.has(PDFName.of('Resources'))) texts.push(contentText(x))
+    }
+    for (const n of namesUsed(text, 'Font')) {
+      if (seen.has(`f${n}`)) continue
+      seen.add(`f${n}`)
+      const f = ctx.lookup(fonts?.get(PDFName.of(n)))
+      if (f instanceof PDFDict && !f.has(PDFName.of('Resources'))) texts.push(glyphText(ctx, f))
+    }
+    for (const t of texts) {
+      if (t === undefined) continue
+      if (t === null) { if (strict) throw new ToolError(UNREADABLE, 'pdf_invalid'); continue }
+      text += '\n' + t
+      more = true
     }
   }
-  const used = namesUsed(text)
   const own = res.clone(ctx)
   for (const [key, value] of res.entries()) {
     const dict = ctx.lookup(value)
     if (!(dict instanceof PDFDict)) continue
-    const names = key === PDFName.of('XObject') ? used.xobject : key === PDFName.of('Font') ? used.font : used.any
+    const names = namesUsed(text, key.decodeText())
     const kept = PDFDict.withContext(ctx)
-    for (const [name, v] of dict.entries()) if (names.has(name.decodeText())) kept.set(name, v)
+    // pdf-lib reads a name as written (`I#6d1`) and would write its # as #23: the name is decoded here, so it is
+    // compared, and written again, as the name it is (`Im1`)
+    for (const [name, v] of dict.entries()) { const n = nameOf(name.decodeText()); if (names.has(n)) kept.set(PDFName.of(n), v) }
     own.set(key, kept)
   }
   return own
@@ -220,7 +262,7 @@ function cutResources(ctx: PDFContext, res: PDFDict, text: string, strict: boole
  * pages are copied into a new document: a /Resources shared by many pages (on the page tree, common in scanner and
  * generator output) would otherwise carry a removed page's pictures into the result (review of feat/edit-pdf). The
  * same for everything the page then still reaches that draws with a /Resources of its own (forms, tiling patterns,
- * soft masks, annotation appearances): a generator may point those at the shared list too.
+ * soft masks, annotation appearances, Type 3 fonts): a generator may point those at the shared list too.
  *
  * A /Contents that is no stream (null, a reference to nothing) draws nothing and uses nothing (TC-3793: such a page
  * used to keep the whole shared list). A stream that cannot be decoded: with `strict` (pages are being taken out) the
@@ -234,7 +276,7 @@ export function pruneResources(doc: PDFDocument, indices: number[], strict = tru
     const ref = node.get(PDFName.of('Contents'))
     const c = ref === undefined ? undefined : ctx.lookup(ref)
     const texts = (c instanceof PDFArray ? c.asArray().map((x) => ctx.lookup(x)) : [c]).map(contentText)
-    const todo: (PDFObject | undefined)[] = [node.get(PDFName.of('Annots'))]
+    const todo: (PDFObject | undefined)[] = []
     if (texts.includes(null)) {
       if (strict) throw new ToolError(UNREADABLE, 'pdf_invalid')
       todo.push(node.Resources())
@@ -246,15 +288,24 @@ export function pruneResources(doc: PDFDocument, indices: number[], strict = tru
         todo.push(own)
       }
     }
-    // everything the page still reaches, other pages apart
+    // everything the page still reaches (through any of its keys), other pages apart
+    todo.push(...node.values())
     while (todo.length) {
       let o = todo.pop()
       if (o instanceof PDFRef) o = ctx.lookup(o)
       if (!o || walked.has(o) || o instanceof PDFPageLeaf || o instanceof PDFPageTree) continue
       walked.add(o)
       if (o instanceof PDFArray) todo.push(...o.asArray())
-      else if (o instanceof PDFDict) todo.push(...o.values())
-      else if (o instanceof PDFStream) {
+      else if (o instanceof PDFDict) {
+        // a Type 3 font: its glyphs draw with its /Resources
+        const res = ctx.lookup(o.get(PDFName.of('Resources')))
+        const t = res instanceof PDFDict && !cutDicts.has(o) ? glyphText(ctx, o) : undefined
+        if (t === null) { if (strict) throw new ToolError(UNREADABLE, 'pdf_invalid') } else if (t !== undefined) {
+          o.set(PDFName.of('Resources'), cutResources(ctx, res as PDFDict, t, strict))
+          cutDicts.add(o)
+        }
+        todo.push(...o.values())
+      } else if (o instanceof PDFStream) {
         const res = ctx.lookup(o.dict.get(PDFName.of('Resources')))
         if (res instanceof PDFDict && !cut.has(o)) {
           const t = contentText(o)
@@ -335,19 +386,31 @@ export function dropUnreachable(out: PDFDocument) {
   for (const [ref, o] of all()) {
     if (!(o instanceof PDFPageLeaf || o instanceof PDFPageTree || isType(o, 'Page') || isType(o, 'Pages'))) continue
     if (!inTree.has(ref)) strayPages.add(ref)
-    else if (ref !== treeRef) { o.delete(K('B')); for (const a of annotsOf(o)) keptAnnots.add(a) }
+    else if (ref !== treeRef) {
+      // threads and document parts are trees over the whole document
+      o.delete(K('B')); o.delete(K('DPart'))
+      for (const a of annotsOf(o)) {
+        keptAnnots.add(a)
+        const popup = dictOf(ctx.lookup(a))?.get(K('Popup'))
+        if (popup) keptAnnots.add(popup)
+      }
+    }
   }
   /** what is cut loose: the stray pages and what belongs to them */
   const dead = new Set<PDFObject>(strayPages)
   for (const p of strayPages) for (const a of annotsOf(ctx.lookup(p) as PDFDict)) if (!keptAnnots.has(a)) dead.add(a)
+  // and every annotation (a note, a link, a form-field part: something with a /Rect) that is on none of the kept
+  // pages: /P is optional, so one of a removed page can arrive through a form field's /Kids or a note's /IRT with no
+  // sign of its page (review of this change: a removed page's field value stayed that way)
   for (const [ref, o] of all()) {
     const d = dictOf(o)
-    if (d && !keptAnnots.has(ref) && !inTree.has(ref) && strayPages.has(d.get(K('P'))!)) dead.add(ref)
+    if (!d || keptAnnots.has(ref) || inTree.has(ref) || o instanceof PDFStream) continue
+    if (strayPages.has(d.get(K('P'))!) || (d.has(K('Rect')) && (d.get(K('Type')) === K('Annot') || d.has(K('Subtype'))))) dead.add(ref)
   }
   // a link (or another annotation with an action) on a kept page that goes to a stray page
-  const goes = (dest: PDFObject | undefined): boolean => {
+  const goes = (dest: PDFObject | undefined, depth = 0): boolean => {
     const d = ctx.lookup(dest)
-    return d instanceof PDFArray ? strayPages.has(d.get(0)) : d instanceof PDFDict ? goes(d.get(K('D'))) : false
+    return d instanceof PDFArray ? strayPages.has(d.get(0)) : d instanceof PDFDict && depth < 8 ? goes(d.get(K('D')), depth + 1) : false
   }
   for (const a of keptAnnots) {
     const d = dictOf(ctx.lookup(a))
@@ -370,7 +433,11 @@ export function dropUnreachable(out: PDFDocument) {
       }
     } else {
       const d = dictOf(o)
-      if (d) for (const [k, v] of d.entries()) { if (dead.has(v)) d.delete(k); else unlink(v, seen) }
+      if (!d) return
+      // a structure destination and a thread action lead into trees over the whole document
+      d.delete(K('SD'))
+      if (d.get(K('S')) === K('Thread')) { d.delete(K('D')); d.delete(K('B')) }
+      for (const [k, v] of d.entries()) { if (dead.has(v)) d.delete(k); else unlink(v, seen) }
     }
   }
   for (;;) {

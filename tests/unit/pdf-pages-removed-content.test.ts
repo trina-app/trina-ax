@@ -222,6 +222,116 @@ describe('a page taken out of a PDF takes its content out of the file', () => {
     expect((await PDFDocument.load(whole!)).getPageCount()).toBe(4)
   })
 
+  describe('found by the independent review of this change', () => {
+    const T = (s: string, y = 780) => `BT /F1 12 Tf 72 ${y} Td (${s}) Tj ET`
+    /** three pages with one shared list; page 2 draws /Im2 (the secret picture) */
+    const three = (over: Record<string, Part | Part[]>) => build({
+      catalog: '<< /Type /Catalog /Pages @pages >>',
+      pages: '<< /Type /Pages /Kids [@p1 @p2 @p3] /Count 3 /MediaBox [0 0 595 842] /Resources @res >>',
+      p1: '<< /Type /Page /Parent @pages /Contents @c1 >>',
+      p2: '<< /Type /Page /Parent @pages /Contents @c2 >>',
+      p3: '<< /Type /Page /Parent @pages /Contents @c3 >>',
+      res: '<< /XObject << /Im2 @image >> /Font << /F1 @helv >> >>',
+      c1: stream('', T('PUBLIC-ONE')),
+      c2: stream('', `${T('PAGE-SECRET')} q 200 0 0 300 72 400 cm /Im2 Do Q`),
+      c3: stream('', T('PUBLIC-THREE')),
+      image: stream('/Type /XObject /Subtype /Image /Width 200 /Height 300 /ColorSpace /DeviceGray /BitsPerComponent 8', PIXELS),
+      helv: '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+      ...over,
+    })
+    const clean = async (src: Uint8Array, kept: string[]) => {
+      for (const [name, job, parts] of ways(src)) {
+        const [out] = await run(job, parts)
+        const all = await dump(out!)
+        expect(all.match(/[A-Z]+-SECRET[A-Z-]*/g) ?? [], name).toEqual([])
+        for (const s of kept) expect(all, `${name}: ${s}`).toContain(s)
+        expect((await objects(out!)).unreached, name).toBe(0)
+        if (pdftotext) for (const s of kept.filter((k) => k === 'PUBLIC-ONE' || k === 'PUBLIC-THREE')) expect(shownText(out!), `${name}: ${s} drawn`).toContain(s)
+      }
+    }
+
+    test('a form field with a part on the removed page and no /P anywhere: the part, its value and its picture go', async () => {
+      await clean(three({
+        p1: '<< /Type /Page /Parent @pages /Contents @c1 /Annots [@w1 @note1] >>',
+        p2: '<< /Type /Page /Parent @pages /Contents @c2 /Annots [@w2 @w3 @note2] >>',
+        root: '<< /T (form) /Kids [@w1 @w2 @grp] >>',
+        w1: '<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /V (PUBLIC-FIELD) /Parent @root /Rect [72 600 300 620] >>',
+        w2: '<< /Type /Annot /Subtype /Widget /FT /Tx /T (salary) /V (FIELD-SECRET) /DV (DV-SECRET) /Parent @root /Rect [72 600 300 620] /AP << /N @ap >> >>',
+        ap: stream('/Type /XObject /Subtype /Form /BBox [0 0 228 20] /Resources @res', '/Im2 Do % AP-SECRET'),
+        grp: '<< /T (group) /FT /Tx /V (GROUP-SECRET) /Parent @root /Kids [@w3] >>',
+        w3: '<< /Type /Annot /Subtype /Widget /Parent @grp /Rect [72 500 300 520] >>',
+        // a reply on page 1 to a note of page 2, and a button that names page 2's part
+        note1: '<< /Type /Annot /Subtype /Text /Rect [10 10 30 30] /Contents (PUBLIC-NOTE) /IRT @note2 /A << /S /Hide /T [@w2] >> >>',
+        note2: '<< /Type /Annot /Subtype /Text /Rect [10 10 30 30] /Contents (NOTE-SECRET) /T (AUTHOR-SECRET) >>',
+      }), ['PUBLIC-ONE', 'PUBLIC-THREE', 'PUBLIC-FIELD', 'PUBLIC-NOTE'])
+    })
+
+    test('a Type 3 font of a kept page: its /Resources are cut too; one without /Resources draws with the page\'s', async () => {
+      const glyph = (body: string) => stream('', `500 0 0 0 500 700 d1 ${body}`)
+      const t3 = (rest: string) => `<< /Type /Font /Subtype /Type3 /FontBBox [0 0 500 700] /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs << /a @glyph >> /Encoding << /Type /Encoding /Differences [97 /a] >> /FirstChar 97 /LastChar 97 /Widths [500] ${rest} >>`
+      const page1 = stream('', `${T('PUBLIC-ONE')} BT /T3 12 Tf 72 700 Td (a) Tj ET`)
+      // the font points at the shared list (with page 2's picture); its glyph draws page 1's own small picture
+      const src = (fontRes: string) => three({
+        res: '<< /XObject << /Im2 @image /Im9 @small >> /Font << /F1 @helv /T3 @t3 >> >>',
+        c1: page1, t3: t3(fontRes), glyph: glyph('q 400 0 0 400 0 0 cm /Im9 Do Q'),
+        small: stream('/Type /XObject /Subtype /Image /Width 1 /Height 12 /ColorSpace /DeviceGray /BitsPerComponent 8', 'PUBLIC-GLYPH'),
+      })
+      await clean(src('/Resources @res'), ['PUBLIC-ONE', 'PUBLIC-THREE', 'PUBLIC-GLYPH'])
+      await clean(src(''), ['PUBLIC-ONE', 'PUBLIC-THREE', 'PUBLIC-GLYPH'])
+    })
+
+    test('kept as before: a default colour space, a name written with #xx in the list, a comment or NUL before the operator', async () => {
+      const src = three({
+        res: '<< /XObject << /Im2 @image /I#6d9 @small >> /Font << /F1 @helv /F9 @helv >> /ColorSpace << /DefaultRGB [/ICCBased @icc] /CsSecret [/ICCBased @iccSecret] >> >>',
+        c1: stream('', 'BT /F9 % a comment\n12 Tf 72 780 Td (PUBLIC-ONE) Tj ET q 9 0 0 9 9 9 cm /Im9\0Do Q'),
+        c2: stream('', `${T('PAGE-SECRET')} /CsSecret cs /Im2 Do`),
+        small: stream('/Type /XObject /Subtype /Image /Width 1 /Height 12 /ColorSpace /DeviceGray /BitsPerComponent 8', 'PUBLIC-SMALL'),
+        icc: stream('/N 3', 'PUBLIC-PROFILE'),
+        iccSecret: stream('/N 3', 'PROFILE-SECRET'),
+      })
+      await clean(src, ['PUBLIC-ONE', 'PUBLIC-THREE', 'PUBLIC-SMALL', 'PUBLIC-PROFILE'])
+      const [out] = await run({ kind: 'edit', ops: [{ remove_pages: '2' }], font: null }, [src])
+      const res = (await PDFDocument.load(out!)).getPage(0).node.Resources()!
+      expect(res.lookup(PDFName.of('XObject'), PDFDict).keys().map(String)).toEqual(['/Im9'])
+      expect(res.lookup(PDFName.of('Font'), PDFDict).keys().map(String)).toEqual(['/F9'])
+    })
+
+    test('whole-document trees do not come along from a kept page: document parts, a thread action, a structure destination', async () => {
+      await clean(three({
+        p1: '<< /Type /Page /Parent @pages /Contents @c1 /DPart @dp1 /Annots [@thread @toThree] >>',
+        p3: '<< /Type /Page /Parent @pages /Contents @c3 >>',
+        dpRoot: '<< /Type /DPartRoot /DPartRootNode @dpTop >>',
+        dpTop: '<< /Type /DPart /Parent @dpRoot /DParts [[@dp1 @dp2]] >>',
+        dp1: '<< /Type /DPart /Parent @dpTop /Start @p1 /DPM << /Who (PUBLIC-PART) >> >>',
+        dp2: '<< /Type /DPart /Parent @dpTop /Start @p2 /DPM << /Who (DPM-SECRET) >> >>',
+        thread: '<< /Type /Annot /Subtype /Link /Rect [1 1 9 9] /A << /S /Thread /D @th >> >>',
+        th: '<< /Type /Thread /F @bead /I << /Title (THREAD-SECRET) >> >>',
+        bead: '<< /Type /Bead /T @th /N @bead /V @bead /P @p2 /R [0 0 9 9] >>',
+        toThree: '<< /Type /Annot /Subtype /Link /Rect [1 20 9 29] /A << /S /GoTo /D [@p3 /Fit] /SD [@se3 /Fit] >> >>',
+        sroot: '<< /Type /StructTreeRoot /K [@se2 @se3] >>',
+        se2: '<< /Type /StructElem /S /P /P @sroot /Pg @p2 /Alt (STRUCT-SECRET) /K 0 >>',
+        se3: '<< /Type /StructElem /S /P /P @sroot /Pg @p3 /K 0 >>',
+      }), ['PUBLIC-ONE', 'PUBLIC-THREE'])
+    })
+
+    test('refused, nothing saved: a content stream with a predictor (not decoded here); a page the page list does not mark as a page', async () => {
+      const predictor = three({ c1: stream('/Filter /FlateDecode /DecodeParms << /Predictor 12 /Columns 4 >>', Bun.deflateSync(new TextEncoder().encode(T('PUBLIC-ONE')))) })
+      const untyped = three({ p3: '<< /Parent @pages /Contents @c3 >>' })
+      for (const [src, words] of [[predictor, 'cannot be taken out of it safely; nothing was saved'], [untyped, 'has a page list that cannot be read reliably']] as const) {
+        for (const [name, job, parts] of ways(src)) {
+          const err = await run(job, parts).then(() => null, (e: Error) => e)
+          expect(err?.message ?? '', name).toContain(words)
+        }
+      }
+    })
+
+    test('a destination that points at itself does not hang', async () => {
+      const src = three({ p1: '<< /Type /Page /Parent @pages /Contents @c1 /Annots [@a] >>', a: '<< /Type /Annot /Subtype /Link /Rect [1 1 9 9] /Dest @cyc >>', cyc: '<< /D @cyc >>' })
+      const [out] = await run({ kind: 'edit', ops: [{ remove_pages: '2' }], font: null }, [src])
+      expect((await PDFDocument.load(out!)).getPageCount()).toBe(2)
+    })
+  })
+
   test('the saved file is one full rewrite: one %%EOF, no earlier version underneath', async () => {
     const src = secretPdf()
     for (const [name, job, parts] of ways(src)) {
