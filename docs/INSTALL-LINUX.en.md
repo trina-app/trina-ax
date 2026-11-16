@@ -150,7 +150,7 @@ Use this when the server reaches the internet only through a company proxy (chec
    sudo systemctl restart mycel-server
    ```
 
-   Without this, the AI key check stays at "Checking…" and answers stay at "Thinking…". With it, the AI calls go through the proxy. The release feed check uses the same variables: if Admin › System still says "Not checked yet" some minutes after the restart, check that the proxy allows `updates.trina.app`.
+   Without this, the AI key check stays at "Checking…" and answers stay at "Thinking…". With it, the AI calls go through the proxy. The release feed check uses the same variables: if Admin › System says "Could not reach the update server", check that the proxy allows `updates.trina.app`.
 
 4. The root update timer (`mycel-update.service`) does not read `/etc/default/mycel`. Give it the proxy with a drop-in:
 
@@ -160,7 +160,7 @@ Use this when the server reaches the internet only through a company proxy (chec
    sudo systemctl daemon-reload
    ```
 
-Not through the proxy yet: the server's check of its own public address (`https://updates.trina.app/ip`) and the web pages the AI opens connect directly. Behind a proxy that is the only way out, Admin › System says "Public address of the server: Not known": every web address the AI opens asks a person, and scheduled tasks open none. Admin › System says "Not checked yet" instead of "You are on the latest version" while the server has not reached the release feed since it started.
+Not through the proxy yet: the server's check of its own public address (`https://updates.trina.app/ip`) and the web pages the AI opens connect directly. Behind a proxy that is the only way out, Admin › System says "Public address of the server: Not known": every web address the AI opens asks a person, and scheduled tasks open none. Admin › System says "Not checked yet" before the server's first check of the release feed, and "Could not reach the update server" when a check failed (for example when the proxy does not allow `updates.trina.app`).
 
 ## First run
 

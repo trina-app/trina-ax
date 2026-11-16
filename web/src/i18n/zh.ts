@@ -2693,7 +2693,7 @@ export const zh: Record<MessageKey, string> = {
   "system.installUpdate": "安装更新",
   "system.checkFailed": "无法连接更新服务器。此页面稍后会重试。",
   "system.upToDate": "已是最新版本。",
-  "system.notCheckedYet": "尚未检查：服务器启动后还没有连上更新服务器。如果使用公司代理，请为服务器设置代理（Linux 安装指南“Behind an HTTP proxy”）。",
+  "system.notCheckedYet": "尚未检查。服务器启动后不久会检查新版本。",
   "system.noFeed": "这台服务器不会在线查找新版本。要更新，请在服务器Mac上用新版本重新运行安装程序；它会切换到新版本，并保留当前版本以便回退。",
   "system.rollback": "回退到上一版本（{version}）",
   "system.updateNote": "会先备份数据库，然后重启服务器。如果有回答正在进行，会在其完成后安装。",

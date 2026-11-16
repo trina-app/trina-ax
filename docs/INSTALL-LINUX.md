@@ -181,7 +181,7 @@ sudo ./install-linux.sh install --from . --engine claude --engine codex
 3. 서버: 같은 변수를 `/etc/default/mycel`에 넣고 `sudo systemctl restart mycel-server`. `NO_PROXY`에 `127.0.0.1,localhost`를 남기세요. 이게 없으면 AI 키 확인이 "확인 중…", 답이 "생각 중…"에서 멈춰요.
 4. 루트 업데이트 타이머(`mycel-update.service`)는 `/etc/default/mycel`을 읽지 않아요: systemd drop-in으로 `HTTPS_PROXY`를 주세요.
 
-아직 프록시를 쓰지 않는 것: 서버의 공인 주소 확인(`https://updates.trina.app/ip`)과 AI가 여는 웹 페이지는 직접 연결해요. 프록시로만 나갈 수 있으면 공인 주소가 "알 수 없음"이 되고, AI가 여는 웹 주소마다 사람에게 묻고 예약 작업은 열지 않아요. 서버가 시작한 뒤 업데이트 서버에 한 번도 닿지 못했으면 관리 › 시스템은 "최신 버전"이 아니라 "아직 확인하지 못했어요"라고 해요.
+아직 프록시를 쓰지 않는 것: 서버의 공인 주소 확인(`https://updates.trina.app/ip`)과 AI가 여는 웹 페이지는 직접 연결해요. 프록시로만 나갈 수 있으면 공인 주소가 "알 수 없음"이 되고, AI가 여는 웹 주소마다 사람에게 묻고 예약 작업은 열지 않아요. 관리 › 시스템은 첫 확인 전에는 "아직 확인하지 않았어요", 확인이 실패하면 "업데이트 서버에 연결하지 못했어요"라고 해요(프록시가 `updates.trina.app`을 허용하는지 확인하세요).
 
 ## 5. 첫 설정
 

@@ -2736,7 +2736,7 @@ export const ko = {
   'system.installUpdate': '업데이트 설치',
   'system.checkFailed': '업데이트 서버에 연결하지 못했어요. 나중에 다시 확인해요.',
   'system.upToDate': '최신 버전이에요.',
-  'system.notCheckedYet': '아직 확인하지 못했어요: 서버가 시작한 뒤 업데이트 서버에 한 번도 연결하지 못했어요. 회사 프록시를 쓰면 서버에 프록시를 설정하세요(Linux 설치 안내 "Behind an HTTP proxy").',
+  'system.notCheckedYet': '아직 확인하지 않았어요. 서버는 시작하고 곧 새 버전을 확인해요.',
   'system.noFeed': '이 서버는 새 버전을 온라인에서 찾지 않아요. 업데이트하려면 서버 맥에서 새 릴리스로 설치 프로그램을 다시 실행하세요. 새 버전으로 바뀌고 지금 버전은 되돌리기용으로 남아요.',
   'system.rollback': '이전 버전({version})으로 되돌리기',
   'system.updateNote': '설치 전에 데이터베이스를 백업하고, 서버가 다시 시작돼요. 진행 중인 답변이 있으면 끝난 뒤에 설치해요.',
