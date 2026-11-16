@@ -224,8 +224,10 @@ flows:
   mocked: true
   features: [connectors.google-apps, rooms.apps, skills.list]
   steps:
-    - say: a mail arrives in the room through the mail app
-      event: { type: app_post, app: 메일 알림, text: "새 메일 · buyer@lamaba.example · RE: 수정 견적서 · 27,000원이면 연간 계약 진행하겠습니다. 첫 달은 25박스로 부탁드립니다." }
+    # the mail is already in the mock mailbox (mock-services/server.ts, mail.inbox m1). A room app ("Other") would bring
+    # it into the room too, but a room app needs the server's internet address, which a local dev server has not.
+    - say: a teammate notes in the room that the client answered by mail
+      event: { type: room_message, as: minho, text: "라마바카페에서 메일 답장 왔어요. 소라님 확인 부탁해요." }
     - say: sora asks for an answer the way we usually do
       ask: { as: sora, chat: s1, prompt: "라마바카페 구매담당 메일 답장 써줘. 우리 늘 하던 식으로, 정중하게. 지메일 받은편지함에 있어" }
       checks:
@@ -508,23 +510,23 @@ flows:
   fixInProgress: edit_pdf tool (other agent's PR)
   features: [files.edit, rooms.files]
   steps:
-    - say: minho asks to drop the blank page
-      ask: { as: minho, chat: m1, prompt: "라마바카페 계약서 서명본 스캔에 빈 페이지 빼줘" }
+    - say: sora asks to drop the blank page
+      ask: { as: sora, chat: s1, prompt: "라마바카페 계약서 서명본 스캔에 빈 페이지 빼줘" }
       checks:
         - { type: pdf_pages, file: "**/*.pdf", min: 3, max: 3 }
-    - say: minho asks to put the cover letter in front
-      ask: { as: minho, chat: m1, prompt: "그 앞에 계약서 송부 커버레터 붙여서 한 파일로 만들어줘" }
+    - say: sora asks to put the cover letter in front
+      ask: { as: sora, chat: s1, prompt: "그 앞에 계약서 송부 커버레터 붙여서 한 파일로 만들어줘" }
       checks:
         - { type: pdf_pages, file: "**/*.pdf", min: 4, max: 4 }
-    - say: minho asks to seal the last page
-      ask: { as: minho, chat: m1, prompt: "마지막 장에 회사 직인 찍어줘" }
+    - say: sora asks to seal the last page
+      ask: { as: sora, chat: s1, prompt: "마지막 장에 회사 직인 찍어줘" }
       checks:
         - { type: pdf_image_on_page, file: "**/*.pdf", page: 4 }
-    - say: minho asks for page numbers
-      ask: { as: minho, chat: m1, prompt: "쪽번호도 넣어줘" }
+    - say: sora asks for page numbers
+      ask: { as: sora, chat: s1, prompt: "쪽번호도 넣어줘" }
       checks:
         - { type: pdf_text, file: "**/*.pdf", page: 2, text: "2" }
-    - say: minho asks to share it in the room
-      ask: { as: minho, chat: m1, prompt: "완성본 라마바카페 건 방에 올려줘" }
+    - say: sora asks to share it in the room
+      ask: { as: sora, chat: s1, prompt: "완성본 라마바카페 건 방에 올려줘" }
       checks:
         - { type: tool_used, any: [post_to_room, share_with_person] }

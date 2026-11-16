@@ -33,5 +33,16 @@
 - **Not in CI.** A run uses real model turns (the product's default model, about $0.3–0.5 list price per case) and
   takes about an hour for the first pass, so it runs by hand: before a release, and after changes to the AI's tools or
   instructions.
+- **Flows on top of cases** (owner, the same day: "whole flows, not single commands"):
+  - `tests/ai-scenarios/flows.yaml` holds multi-step work by several people. Other people's actions go through the
+    real API as fake users, never the database.
+  - Checks run after every step. The report names the first broken step, the cost, and every prompt each person saw.
+  - A second run picks "Always allow" wherever a card has it, to show what asking is left.
+- **Connected services are mocks, said so:**
+  - A small MCP server with made-up data (Notion, Google Sheets, Docs and Slides, Linear, a mailbox) runs behind a
+    cloudflared quick tunnel. Connections must be public https.
+  - It is connected through the product's real connection path, so its cards and Always allow are the product's own.
+  - Real Google OAuth, Slack and Drive are not exercised. A room app (a mail into a room) needs the server's internet
+    address, which a local dev server lacks.
 - **Tests:** `bun run ai:scenarios coverage` checks the catalog against the feature map without a server. The first
-  run's report is `tests/ai-scenarios/reports/2026-11-16-first-run.md`.
+  run's reports are `tests/ai-scenarios/reports/2026-11-16-first-run.md` and `…/2026-11-16-flows.md`.

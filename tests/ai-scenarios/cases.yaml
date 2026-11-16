@@ -616,7 +616,7 @@ cases:
   features: [files.edit]
   lang: ko
   context: personal
-  as: minho
+  as: sora
   prompt: 계약서 스캔본에서 서명 페이지만 따로 PDF로 빼줘
   expect:
     outcome: do
@@ -693,7 +693,7 @@ cases:
   features: [files.edit]
   lang: ko
   context: personal
-  as: minho
+  as: sora
   prompt: 계약서 스캔본에 쪽번호 넣어줘. 아래 가운데에 1/4 이런 식으로
   expect:
     outcome: do
