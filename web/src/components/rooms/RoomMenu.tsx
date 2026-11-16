@@ -86,7 +86,7 @@ export function useRoomMenuItems(room: Room, onNotify: () => void, phone?: Phone
     const name = await promptDialog({
       title: t('rooms.info.rename'),
       body: t(room.kind === 'group' ? 'rooms.info.nameHintGroup' : 'rooms.info.nameHintTeam'),
-      label: t('rooms.info.nameLabel'),
+      label: t(room.kind === 'group' ? 'rooms.info.nameLabel' : 'rooms.info.nameLabelChannel'),
       initial: typed ?? room.name ?? '',
       placeholder: fallbackOf(room),
       allowEmpty: true,

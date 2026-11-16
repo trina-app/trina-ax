@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16
 - Branch: `feat/sidebar-channels-dms`
-- Status: in progress
+- Status: done
 - Where: trina-ax (Team AX core: web/src/components/nav, web/src/components/panels, web/src/pages/Rooms.tsx, the
   language tables, server/src/chat/i18n.ts, docs/site). Why: the Chats list is a core chat feature
   (docs/REPOSITORY-RULES.md)
