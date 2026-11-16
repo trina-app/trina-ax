@@ -6431,6 +6431,7 @@ export const zh: Record<MessageKey, string> = {
   "fileLink.shareAction": "共享…",
   "fileLink.sharedBy": "由 {name} 共享",
   "fileLink.sharedByFormer": "由前成员共享",
+  "fileLink.askPrompt": "关于共享给我的这个文件：{name}（{link}）\n",
   "fileLink.backToShared": "与我共享的文件",
   "fileLink.needAccess": "你需要访问权限",
   "fileLink.needAccessBody": "请求访问权限，或用有权限的账号登录。",

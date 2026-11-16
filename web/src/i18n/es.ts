@@ -6459,6 +6459,7 @@ export const es: Record<MessageKey, string> = {
   "fileLink.shareAction": "Compartir…",
   "fileLink.sharedBy": "Compartido por {name}",
   "fileLink.sharedByFormer": "Compartido por un antiguo miembro",
+  "fileLink.askPrompt": "Sobre este archivo que me compartieron: {name} ({link})\n",
   "fileLink.backToShared": "Compartidos conmigo",
   "fileLink.needAccess": "Necesita acceso",
   "fileLink.needAccessBody": "Pida acceso o inicie sesión con una cuenta que lo tenga.",

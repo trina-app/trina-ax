@@ -11,9 +11,9 @@
 // (a phone: the phone's bar; a computer: a quiet link above the page). Opened from anywhere else (Slack, Activity), no
 // such way back shows.
 import { Tooltip } from '../components/Tooltip'
-import { ChevronLeft, Download, Lock, Trash2 } from 'lucide-react'
+import { ChevronLeft, Download, Lock, Sparkles, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Link, useLocation, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { FILE_REQUEST_NOTE_MAX, type SharedFileView } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError, startDownload } from '../lib/api'
 import { formatDate, formatSize } from '../lib/format'
@@ -24,6 +24,8 @@ import { Button, ErrorNote, Skeleton, inputCls, useMediaQuery } from '../compone
 import { PhonePageBar } from '../components/phone/PhonePageBar'
 import { useBackLink, useGoBack } from '../lib/back'
 import { FILES_SHARED as SHARED_WITH_ME } from '../lib/nav'
+import { newChatPath } from '../lib/newChat'
+import { aiName } from '../lib/tabs'
 
 type View = SharedFileView | { status: 'guest' }
 
@@ -191,6 +193,11 @@ function OpenFile({ id, view }: { id: string; view: Extract<SharedFileView, { st
     return () => ro.disconnect()
   }, [])
   const download = () => startDownload(url('attachment'), view.name)
+  // "Ask Trina": a new chat of my own with this file's link ready in the box, so the AI reads exactly this file (its
+  // read opens a /f/ link; docs/decisions/20261116-ai-screen-and-shared-tools.md). The link, never a path: this page
+  // knows none.
+  const navigate = useNavigate()
+  const askAi = () => navigate(newChatPath({ prompt: t('fileLink.askPrompt', { name: view.name, link: `${window.location.origin}/f/${id}` }) }))
   return (
     <div className="mx-auto flex h-full w-full max-w-5xl min-w-0 flex-col gap-3 px-6 py-5 max-md:px-4 max-md:py-3" data-testid="file-link-page" data-state="open">
       <div className="flex min-w-0 items-start gap-3">
@@ -200,6 +207,11 @@ function OpenFile({ id, view }: { id: string; view: Extract<SharedFileView, { st
             {[view.sharedBy ? t('fileLink.sharedBy', { name: view.sharedBy }) : view.formerSharer ? t('fileLink.sharedByFormer') : null, formatSize(view.size, locale)].filter(Boolean).join(' · ')}
           </p>
         </div>
+        <Tooltip label={t('files.askAi', { name: aiName(t) })}>
+          <Button variant="secondary" onClick={askAi} className="shrink-0" data-testid="file-link-ask-ai">
+            <Sparkles size={16} aria-hidden /> <span className="max-sm:sr-only">{t('files.askAiShort', { name: aiName(t) })}</span>
+          </Button>
+        </Tooltip>
         <Tooltip label={t('common.download')}>
           <Button variant="secondary" onClick={download} className="shrink-0" data-testid="file-link-download">
             <Download size={16} aria-hidden /> <span className="max-sm:sr-only">{t('common.download')}</span>

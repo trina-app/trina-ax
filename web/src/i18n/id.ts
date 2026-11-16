@@ -6503,6 +6503,7 @@ export const id: Record<MessageKey, string> = {
   "fileLink.shareAction": "Bagikan…",
   "fileLink.sharedBy": "Dibagikan oleh {name}",
   "fileLink.sharedByFormer": "Dibagikan oleh mantan anggota",
+  "fileLink.askPrompt": "Tentang berkas yang dibagikan kepada saya ini: {name} ({link})\n",
   "fileLink.backToShared": "Dibagikan ke saya",
   "fileLink.needAccess": "Anda perlu akses",
   "fileLink.needAccessBody": "Minta akses, atau masuk dengan akun yang punya akses.",

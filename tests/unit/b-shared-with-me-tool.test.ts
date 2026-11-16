@@ -1,0 +1,264 @@
+// shared_with_me (server/src/chat/shared-with-me-tool.ts; docs/decisions/20261116-ai-screen-and-shared-tools.md; QA
+// "Manual AI tests" MAN-020): the files shared with the person, listed when the AI asks (no list in every turn), each row
+// asked again with FileShares.open. And the gate that goes with reading one: a file read through a grant is other
+// people's words (server/src/chat/grant-reads.ts), so the share and post tools keep their card after it and changes ask.
+// The fixture team: alice and erin in marketing, bob in finance, carol admin, dana owner (b-harness people), tess added.
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import fs from 'node:fs'
+import path from 'node:path'
+import { uuidv7 } from '@mycel/shared'
+import { API, FILE_SHARE_EVERYONE, type Room } from '@mycel/shared/api'
+import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { dropAlways, keepAlways } from '../../server/src/chat/always-allow'
+import { readByGrant } from '../../server/src/chat/grant-reads'
+import { GUEST_TURN_TOOLS } from '../../server/src/chat/guest-tools'
+import { readRooms } from '../../server/src/chat/read-rooms'
+import { addSources, sourceOf } from '../../server/src/chat/read-scope'
+import { SHARED_WITH_ME_MAX, sharedWithMeOff } from '../../server/src/chat/shared-with-me-tool'
+import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
+import { RuleSet } from '../../server/src/policy/access'
+import { ROOMS_SEEN_READ_ONLY_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
+import { roomsOf } from '../../server/src/rooms/service'
+
+setDefaultTimeout(60_000)
+const cm = () => 'cm-' + crypto.randomUUID()
+const opaque = (j: string) => j.replace(/"(?:[^"\\]|\\.)*"/g, (q) => q.replace(/\\.|[\p{L}\p{N}]/gu, (c) => (c.length > 1 ? c : `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)))
+const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + opaque(JSON.stringify(d))).join('\n')
+const LIST = (args: Record<string, unknown> = {}) => fake({ tool: 'shared_with_me', args, sayResult: true })
+
+let h: Harness
+const socks: Record<string, TestSocket> = {}
+let finance = '', marketing = '', financeRoom = ''
+let clock = Date.now()
+const put = (rel: string, body: string) => { const abs = path.join(h.ctx.files.fx.root, ...rel.split('/')); fs.mkdirSync(path.dirname(abs), { recursive: true }); fs.writeFileSync(abs, body) }
+type Subject = { subjectType: 'user' | 'group'; subjectId: string }
+const shareFile = (owner: string, p: string, add: Subject[], remove: Subject[] = []) => h.api(owner).call(API.putFileShares, { body: { path: p, add, remove } })
+const user = (id: string): Subject => ({ subjectType: 'user', subjectId: id })
+const group = (id: string): Subject => ({ subjectType: 'group', subjectId: id })
+const linkOf = async (owner: string, p: string) => ((await h.api(owner).call(API.fileLink, { body: { path: p } })) as { id: string }).id
+
+beforeAll(async () => {
+  h = await startHarness({ name: 'b-shared-with-me-tool', askUserTimeoutMs: 6000, stallTimeoutMs: 60_000 })
+  const db = h.ctx.db
+  db.exec('PRAGMA foreign_keys = OFF')
+  for (const g of ['marketing', 'finance']) {
+    const id = uuidv7()
+    if (g === 'finance') finance = id; else marketing = id
+    for (const sql of ['UPDATE groups SET id = ?1 WHERE id = ?2', 'UPDATE group_members SET group_id = ?1 WHERE group_id = ?2', "UPDATE folder_rules SET subject_id = ?1 WHERE subject_type = 'group' AND subject_id = ?2", 'UPDATE rooms SET group_id = ?1 WHERE group_id = ?2'])
+      db.query(sql).run(id, g)
+  }
+  db.exec('PRAGMA foreign_keys = ON')
+  db.query("INSERT INTO users (id, username, name, role, status, deleted_at) VALUES ('tess', 'tess', 'Tess Yoon', 'member', 'active', NULL)").run()
+  roomsOf(h.ctx).clock = () => (clock += 10_000)
+  financeRoom = ((await h.api('bob').call(API.listRooms)).items as Room[]).find((r) => r.kind === 'team' && r.name === 'Finance')!.id
+  for (const u of ['alice', 'bob', 'erin']) { socks[u] = await h.ws(u, { windowId: `win-swm-${u}` }); await socks[u]!.next('hello') }
+  // a shared file with the same name as a file in bob's own folders (MAN-020)
+  put('users/alice/quote.md', 'ALICE-QUOTE: acme 1,200')
+  put('groups/finance/quote.md', 'FINANCE-QUOTE: internal 900')
+  put('users/alice/menu.md', 'menu')
+  put('users/bob/payroll.md', 'bob payroll')
+})
+afterAll(async () => { for (const s of Object.values(socks)) s.close(); await h?.close() })
+
+type Card = { question: string; origin?: string; options?: { label: string; value: string }[]; details?: { label: string; text: string }[] }
+async function turn(who: string, content: string, o: { chat?: string; answer?: string | null } = {}) {
+  const chatId = o.chat ?? (await h.api(who).call(API.createChat, { body: {} })).id
+  const r = await h.api(who).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
+  let card = null as Card | null
+  if (o.answer !== undefined) {
+    const c = await socks[who]!.next('turn.request', (f) => f.data.turnId === r.turnId)
+    card = c.data.request as unknown as Card
+    if (o.answer !== null) await h.api(who).call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: c.data.request.requestId, answer: o.answer } })
+  }
+  const done = await socks[who]!.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 30_000)
+  const cards = socks[who]!.frames.filter((f) => f.type === 'turn.request' && (f as { data: { turnId?: string } }).data.turnId === r.turnId).length
+  return { chatId, turnId: r.turnId as string, content: done.data.message.content as string, card, cards }
+}
+
+describe('the list', () => {
+  test('nothing shared: says so; then each file with its name, who shared it, how it reaches the person, the day and its link, newest first', async () => {
+    expect((await turn('bob', LIST())).content).toContain('No file is shared with the user one by one right now')
+    await shareFile('alice', 'users/alice/quote.md', [user('bob')])
+    // (a member shares with their own groups; carol, an admin, with any)
+    await h.api('carol').call(API.saveContent, { body: { path: 'users/carol/notes-for-finance.md', content: 'notes', baseSha256: null } })
+    await shareFile('carol', 'users/carol/notes-for-finance.md', [group(finance)])
+    await shareFile('alice', 'users/alice/menu.md', [group(FILE_SHARE_EVERYONE)])
+    const ids = { quote: await linkOf('alice', 'users/alice/quote.md'), notes: await linkOf('carol', 'users/carol/notes-for-finance.md'), menu: await linkOf('alice', 'users/alice/menu.md') }
+    const r = await turn('bob', LIST())
+    const lines = r.content.split('\n').filter((l) => l.startsWith('- '))
+    const day = new Date().toISOString().slice(0, 10)
+    expect(lines).toEqual([
+      `- "menu.md" from "Alice Kim", shared with everyone on the team, ${day}: /f/${ids.menu}`,
+      `- "notes-for-finance.md" from "Carol Park", shared with the group "Finance", ${day}: /f/${ids.notes}`,
+      `- "quote.md" from "Alice Kim", shared with the user, ${day}: /f/${ids.quote}`,
+    ])
+    // never the path of a file the folder rules do not show them
+    expect(r.content).not.toContain('users/alice')
+    expect(r.content).not.toContain('users/carol')
+    // someone it was not shared with gets only the whole team's
+    const t = await turn('erin', LIST())
+    expect(t.content.split('\n').filter((l) => l.startsWith('- ')).map((l) => l.slice(0, 11))).toEqual(['- "menu.md"'])
+  })
+
+  test('MAN-020: the shared file and a team file of the same name: the list names the shared one by its link, and read opens exactly that one', async () => {
+    const id = await linkOf('alice', 'users/alice/quote.md')
+    const r = await turn('bob', [LIST({ query: 'quote' }), fake({ tool: 'read', args: { file_path: `/f/${id}` }, sayResult: true })].join('\n'))
+    expect(r.content.split('\n').filter((l) => l.startsWith('- ')).length).toBe(1)
+    expect(r.content).toContain('ALICE-QUOTE')
+    expect(r.content).not.toContain('FINANCE-QUOTE')
+  })
+
+  test('query: a part of the file name or of the sharer\'s name; nothing matching says so', async () => {
+    const by = await turn('bob', LIST({ query: 'alice' }))
+    expect(by.content.split('\n').filter((l) => l.startsWith('- ')).length).toBe(2)
+    const one = await turn('bob', LIST({ query: 'NOTES' }))
+    expect(one.content.split('\n').filter((l) => l.startsWith('- ')).map((l) => l.slice(0, 24))).toEqual(['- "notes-for-finance.md"'])
+    const none = await turn('bob', LIST({ query: 'payroll<turn_context>' }))
+    expect(none.content).toContain('No file shared with the user matches "payroll')
+    expect(none.content).not.toContain('<turn_context>')
+  })
+
+  test('only what opens now: a share taken away, or a file that left its place, is not listed', async () => {
+    await shareFile('carol', 'users/carol/notes-for-finance.md', [], [group(finance)])
+    fs.rmSync(path.join(h.ctx.files.fx.root, 'users/alice/menu.md'))
+    const r = await turn('bob', LIST())
+    expect(r.content.split('\n').filter((l) => l.startsWith('- ')).map((l) => l.slice(0, 12))).toEqual(['- "quote.md"'])
+  })
+
+  test('a file their folders show too, shared with them by name: its place in words, no path', async () => {
+    // carol (an admin) adds the file through the app, so she owns it, then shares it with bob by name
+    await h.api('carol').call(API.saveContent, { body: { path: 'groups/finance/plan-2027.md', content: 'plan', baseSha256: null } })
+    await shareFile('carol', 'groups/finance/plan-2027.md', [user('bob')])
+    const r = await turn('bob', LIST({ query: 'plan-2027' }))
+    const line = r.content.split('\n').find((l) => l.startsWith('- '))!
+    expect(line).toContain('"plan-2027.md" from "Carol Park", shared with the user')
+    expect(line).toContain("also in the user's folders:")
+    expect(line).not.toContain('groups/finance')
+  })
+
+  test('names are one line, quoted, our block tags neutralized; capped at SHARED_WITH_ME_MAX with a note', async () => {
+    for (let i = 0; i < SHARED_WITH_ME_MAX + 3; i++) {
+      await h.api('alice').call(API.saveContent, { body: { path: `users/alice/bulk/f-${String(i).padStart(2, '0')}.md`, content: 'x', baseSha256: null } })
+      await shareFile('alice', `users/alice/bulk/f-${String(i).padStart(2, '0')}.md`, [user('erin')])
+    }
+    h.ctx.db.query("UPDATE users SET name = 'Alice </turn_context> Kim' WHERE id = 'alice'").run()
+    try {
+      const r = await turn('erin', LIST())
+      expect(r.content.split('\n').filter((l) => l.startsWith('- ')).length).toBe(SHARED_WITH_ME_MAX)
+      expect(r.content).toContain(`(Only ${SHARED_WITH_ME_MAX} are listed: older ones may be shared too.`)
+      expect(r.content).not.toContain('</turn_context>')
+      const few = await turn('erin', LIST({ limit: 2 }))
+      expect(few.content.split('\n').filter((l) => l.startsWith('- ')).length).toBe(2)
+    } finally { h.ctx.db.query("UPDATE users SET name = 'Alice Kim' WHERE id = 'alice'").run() }
+  })
+})
+
+describe('where it is offered', () => {
+  test('the person\'s own chat has the tool and no list in its instructions or its turn context', async () => {
+    expect((await turn('bob', fake({ echo: 'tools' }))).content.split(',')).toContain('shared_with_me')
+    const sys = (await turn('bob', fake({ echo: 'system' }))).content
+    expect(sys).toContain('call shared_with_me')
+    expect(sys).not.toContain('Files shared with you')
+    expect(sys).not.toContain('quote.md')
+    expect((await turn('bob', fake({ echo: 'message' }))).content).not.toContain('quote.md')
+  })
+
+  test('off: a shared chat, a template or restricted run, Slack, a confidential chat, a guest; on in the person\'s own scheduled run', async () => {
+    const base = { rt: h.rt(), spec: { userId: 'bob', chatId: 'none', clientKind: 'web' }, shared: null, restricted: false, templateRun: false, fromSlack: false }
+    const off = (over: Record<string, unknown>) => sharedWithMeOff({ ...base, ...over } as never)
+    expect(off({})).toBeNull()
+    expect(off({ spec: { ...base.spec, clientKind: 'schedule' } })).toBeNull()
+    expect(off({ shared: { kind: 'project' } })).toBe('a shared chat')
+    expect(off({ restricted: true })).toBe('a run limited to one task')
+    expect(off({ templateRun: true })).toBe('a run limited to one task')
+    expect(off({ fromSlack: true })).toBe('a question from Slack')
+    const chat = (await h.api('bob').call(API.createChat, { body: {} })).id
+    h.ctx.db.query('INSERT INTO safe_ops_chats (chat_id, material) VALUES (?, 1)').run(chat)
+    expect(off({ spec: { ...base.spec, chatId: chat } })).toBe('a confidential chat')
+    h.ctx.db.query("INSERT INTO users (id, username, name, role, status, guest) VALUES ('gus', 'gus', 'Gus Guest', 'member', 'active', 1)").run()
+    expect(off({ spec: { ...base.spec, userId: 'gus' } })).toBe('a guest')
+  })
+
+  test('never a sub-agent\'s, a shared chat\'s or a guest\'s tool; after a room read it goes on without the room card', () => {
+    expect(PARENT_ONLY_TOOLS.has('shared_with_me')).toBe(true)
+    expect(SHARED_TOOLS.has('shared_with_me')).toBe(false)
+    expect(GUEST_TURN_TOOLS.has('shared_with_me')).toBe(false)
+    expect(ROOMS_SEEN_READ_ONLY_TOOLS.has('shared_with_me')).toBe(true)
+  })
+})
+
+describe('a file read through a grant is other people\'s words', () => {
+  const exec = (chatId: string, who = 'bob', readPaths: string[] = []) => ({ rt: h.rt(), spec: { userId: who, chatId, assistantId: '' }, roomsSeen: false, files: { readPaths: new Set(readPaths) } }) as never
+
+  test('readByGrant: a place the person\'s own folder rules do not open, in this turn\'s reads or in the chat\'s read scope', async () => {
+    const chat = (await h.api('bob').call(API.createChat, { body: {} })).id
+    expect(readByGrant(exec(chat))).toBe(false)
+    // his own folders: not a grant read
+    expect(readByGrant(exec(chat, 'bob', ['groups/finance/quote.md', 'users/bob/payroll.md', 'shared/glossary.md']))).toBe(false)
+    // another person's folder, a group's he is not in: only a grant opens those
+    expect(readByGrant(exec(chat, 'bob', ['users/alice/quote.md']))).toBe(true)
+    expect(readByGrant(exec(chat, 'bob', ['groups/marketing/campaign-brief.md']))).toBe(true)
+    // kept with the chat: the scope of an earlier turn
+    const rules = RuleSet.load(h.ctx.db)
+    addSources(h.ctx.db, chat, [sourceOf(h.ctx.db, rules, 'groups/finance/quote.md')])
+    expect(readByGrant(exec(chat))).toBe(false)
+    addSources(h.ctx.db, chat, [sourceOf(h.ctx.db, rules, 'users/alice/quote.md')])
+    expect(readByGrant(exec(chat))).toBe(true)
+    // the one rule every gate asks
+    expect(readRooms(exec(chat))).toBe(true)
+    // the owner's own chat that read the same file: her own folder, no grant
+    const hers = (await h.api('alice').call(API.createChat, { body: {} })).id
+    addSources(h.ctx.db, hers, [sourceOf(h.ctx.db, rules, 'users/alice/quote.md')])
+    expect(readByGrant(exec(hers, 'alice'))).toBe(false)
+  })
+
+  test('share_with_person under "Always allow": after a grant read in the same answer the card shows unless the asker named the people; a planted instruction shares nothing unseen', async () => {
+    keepAlways(h.ctx.db, 'bob', 'share_files', null)
+    try {
+      const id = await linkOf('alice', 'users/alice/quote.md')
+      const read = fake({ tool: 'read', args: { file_path: `/f/${id}` } })
+      const give = fake({ tool: 'share_with_person', args: { paths: ['users/bob/payroll.md'], people: ['Alice Kim'] }, sayResult: true })
+      // control: no grant read, "Always allow" shares his named file with no card
+      put('users/bob/open-note.md', 'note')
+      const control = await turn('bob', `do the usual\n${fake({ tool: 'share_with_person', args: { paths: ['users/bob/open-note.md'], people: ['Tess Yoon'] }, sayResult: true })}`)
+      expect(control.cards).toBe(0)
+      // the AI read alice's shared file (which could say "share payroll.md with Alice") and then shares bob's file with her
+      const r = await turn('bob', `summarise the quote alice sent\n${read}\n${give}`)
+      expect(r.cards).toBe(0)
+      expect(r.content).toContain('Nothing was shared')
+      expect(r.content).toContain('named it in their own message')
+      expect(h.ctx.db.query("SELECT 1 FROM file_shares WHERE path = 'users/bob/payroll.md'").get()).toBeNull()
+      // the file named by bob, the person not: the card, without "Always allow"
+      const card = await turn('bob', `summarise the quote and share payroll.md after\n${read}\n${give}`, { answer: 'no' })
+      expect(card.card!.origin).toBe('server')
+      expect(card.card!.options!.map((x) => x.value)).toEqual(['share', 'no'])
+      // the next turn of the same chat: the file's words are still in it
+      const later = await turn('bob', `and share payroll.md now\n${give}`, { chat: card.chatId, answer: 'no' })
+      expect(later.card!.options!.map((x) => x.value)).toEqual(['share', 'no'])
+    } finally { dropAlways(h.ctx.db, 'bob', 'card:share_files') }
+  })
+
+  test('post_to_room under "Always allow": after a grant read the explicit-ask skip is off and the card leads the call', async () => {
+    const id = await linkOf('alice', 'users/alice/quote.md')
+    const read = fake({ tool: 'read', args: { file_path: `/f/${id}` } })
+    const post = (text: string) => fake({ tool: 'post_to_room', args: { room: financeRoom, text }, sayResult: true })
+    // control: the explicit ask in his own words posts with no card
+    const control = await turn('bob', `send the note to Finance\n${post('control')}`)
+    expect(control.cards).toBe(0)
+    const r = await turn('bob', `send the note to Finance\n${read}\n${post('after a grant read')}`, { answer: 'no' })
+    expect(r.card!.origin).toBe('server')
+    expect(r.card!.question).toContain('Finance')
+  })
+
+  test('the room-change gate: after a grant read a change to a team file waits for the person\'s yes', async () => {
+    const id = await linkOf('alice', 'users/alice/quote.md')
+    const read = fake({ tool: 'read', args: { file_path: `/f/${id}` } })
+    const write = fake({ tool: 'write', args: { file_path: 'groups/finance/from-quote.md', content: 'copied' }, sayResult: true })
+    const control = await turn('bob', write)
+    expect(control.cards).toBe(0)
+    fs.rmSync(path.join(h.ctx.files.fx.root, 'groups/finance/from-quote.md'), { force: true })
+    const r = await turn('bob', `${read}\n${write}`, { answer: null })
+    expect(r.card!.origin).toBe('server')
+    expect(fs.existsSync(path.join(h.ctx.files.fx.root, 'groups/finance/from-quote.md'))).toBe(false)
+  })
+})
