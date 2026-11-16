@@ -66,9 +66,6 @@ export const MEETING_NOT_READY = () => fail(
   'unavailable', 'not_ready')
 /** the person already has MEETING_PIECES_IN_FLIGHT pieces under way: the app sends this one again shortly */
 export class MeetingInFlight extends Error { constructor() { super('in_flight'); this.name = 'MeetingInFlight' } }
-/** Refusals that will not go away by sending again (off, no key, too slow, confidential): the app stops the meeting
- * and says why. Busy and not-ready (503) and in-flight (429) are sent again. */
-export const MEETING_FINAL_REASONS: ReadonlySet<string> = new Set(['off', 'no_key', 'too_slow', 'confidential'])
 /** voice input is off here (no provider, no whisper-cli): a final refusal with its reason */
 const OFF = () => { const f = SPEECH_OFF(); return new JobFailure('conflict', f.messages, 'off') }
 const NO_KEY = () => { const f = SPEECH_NO_KEY(); return new JobFailure('conflict', f.messages, 'no_key') }
@@ -149,8 +146,8 @@ export async function meetingStatus(deps: MeetingDeps): Promise<MeetingStatus> {
   if (deps.speed.tooSlow()) return { state: 'too_slow' }
   if (await modelReady(deps.stt)) return { state: 'ready' }
   // a failed download is not started again by every look of every member's app
-  if (Date.now() - modelFailedAt < MEETING_MODEL_RETRY_MS) return { state: 'off' }
   const spec = deps.stt.modelOverride ?? WHISPER_MODELS[deps.stt.model]
+  if (Date.now() - modelFailedAt < MEETING_MODEL_RETRY_MS) return { state: 'getting_ready', modelMb: Math.round(spec.size / 1_000_000), progress: 0, failed: true }
   void ensureModel(deps.stt).catch(() => { modelFailedAt = Date.now() })
   let have = 0
   try { have = fs.statSync(path.join(deps.stt.modelDir, spec.file + '.part')).size } catch { /* not started */ }

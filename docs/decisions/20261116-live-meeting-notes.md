@@ -26,10 +26,13 @@ Plan: [docs/AGENTS/plan/20261116-1903-live-meeting-notes.md](../AGENTS/plan/2026
   summed, for the pieces of the last 10 minutes, from 3 pieces on; the first piece after a quiet spell (the model
   loading) is not counted. Above 0.45 s per second `GET /api/meetings/status` says `too_slow` and pieces are refused;
   the measure forgets old pieces, so a busy spell does not turn meetings off for good. A missing model makes the status
-  start the first-use download and report its progress (`getting_ready`); after a failed download it says `off` for 5
-  minutes before another try.
-- **What the app does with a refusal:** 429 `in_flight` and 503 `busy` / `not_ready` are sent again after
-  `Retry-After`; 409 (`off`, `no_key`, `too_slow`) and 403 `confidential` end the meeting with the sentence.
+  start the first-use download and report its progress (`getting_ready`); after a failed download it waits 5
+  minutes before another try (`getting_ready`, `failed`).
+- **What the app does with a refusal:** it sends a piece again after `Retry-After` only for the reasons in
+  `MEETING_RETRY_REASONS` (`in_flight` 429, `busy` / `not_ready` 503), never by status code: free hours used up and
+  OpenRouter's own limits are 429 / 503 too and are final. Anything else (409 `off` / `no_key` / `too_slow`, 403
+  `confidential`, …) ends the meeting with its sentence. While a failed first-use download waits, the status says
+  `getting_ready` with `failed`, not `off`.
 - **No changing words.** Each re-reading of an open piece would be another paid request; lines land at each pause.
 - **Language:** none by default (whisper guesses per piece); a fixed one turns English lines into Korean in mixed
   meetings.

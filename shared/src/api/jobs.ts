@@ -36,7 +36,12 @@ export const MeetingStatus = z.object({
   state: z.enum(['ready', 'off', 'confidential', 'too_slow', 'getting_ready']),
   modelMb: z.number().int().positive().optional(),
   progress: z.number().min(0).max(1).optional(),
+  /** the last download failed; another try starts within 5 minutes */
+  failed: z.literal(true).optional(),
 })
+/** Refusals of a piece that the app sends again after Retry-After (by `reason`, never by status code: free hours used
+ * up and OpenRouter's own limits are 429 / 503 too, and they are final). Anything else ends the meeting with its sentence. */
+export const MEETING_RETRY_REASONS: readonly string[] = ['in_flight', 'busy', 'not_ready']
 export type MeetingStatus = z.infer<typeof MeetingStatus>
 
 export const JOBS = {
@@ -44,5 +49,5 @@ export const JOBS = {
   cancelJob: endpoint({ method: 'POST', path: '/api/jobs/:id/cancel', auth: 'user', owner: 'C', response: Job, summary: 'Cancel a queued or running own job.' }),
   transcribe: endpoint({ method: 'POST', path: '/api/transcribe', auth: 'user', owner: 'C', status: 202, body: multipart(TranscribeFields, SMALL_UPLOAD_MAX), response: JobAccepted, summary: 'Voice input / recordings up to 50 MB (larger: upload session with target transcribe). Result: TranscribeResult.' }),
   meetingStatus: endpoint({ method: 'GET', path: '/api/meetings/status', auth: 'user', owner: 'C', response: MeetingStatus, summary: 'Meeting notes (desktop app): whether they can start now with the team\'s voice input setting; on a server that turns speech into text itself, starts the first-use model download and says how far it is.' }),
-  meetingPiece: endpoint({ method: 'POST', path: '/api/meetings/piece', auth: 'user', owner: 'C', body: multipart(MeetingPieceFields, MEETING_PIECE_MAX_BYTES), response: MeetingPieceResult, summary: "Meeting notes (desktop app): one piece of a meeting's sound (16 kHz mono 16-bit WAV, at most 15.5 s) turned into text with the team's voice input setting, answered at once. The sound is deleted after; nothing is kept. Send again after retryAfter on 429 (reason in_flight) and 503 (busy, not_ready); 409 (off, no_key, too_slow) and 403 (confidential) end the meeting." }),
+  meetingPiece: endpoint({ method: 'POST', path: '/api/meetings/piece', auth: 'user', owner: 'C', body: multipart(MeetingPieceFields, MEETING_PIECE_MAX_BYTES), response: MeetingPieceResult, summary: "Meeting notes (desktop app): one piece of a meeting's sound (16 kHz mono 16-bit WAV, at most 15.5 s) turned into text with the team's voice input setting, answered at once. The sound is deleted after; nothing is kept. Send again after Retry-After only for the reasons in MEETING_RETRY_REASONS (in_flight, busy, not_ready), never by status code; any other refusal ends the meeting with its sentence." }),
 } as const
