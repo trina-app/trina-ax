@@ -501,4 +501,24 @@ describe('second review: what "made in this answer" means, and a chat that read 
       expect(namedInFull('share e.txt with the team', soleNames(db, 'm4'))).toBe(false)
     } finally { db.query("DELETE FROM users WHERE id IN ('m1', 'm2', 'm3', 'm4')").run() }
   })
+
+  test('words joined to a file, departments and group names are not a person; a chain of the call\'s own recipients is', () => {
+    // (Korean as escapes: 보고서와 견적서 김대리한테 공유해줘 / 보고서 / 김대리 / 이 파일도 김대리한테 공유해줘 / 파일 /
+    // 급여표 인사팀한테 공유해줘 / 인사팀 / 김대리와 이과장한테 공유해줘 / 이과장)
+    expect(namedInFull('\uBCF4\uACE0\uC11C\uC640 \uACAC\uC801\uC11C \uAE40\uB300\uB9AC\uD55C\uD14C \uACF5\uC720\uD574\uC918', ['\uBCF4\uACE0\uC11C'], { peers: ['\uAE40\uB300\uB9AC'] })).toBe(false)
+    expect(namedInFull('\uC774 \uD30C\uC77C\uB3C4 \uAE40\uB300\uB9AC\uD55C\uD14C \uACF5\uC720\uD574\uC918', ['\uD30C\uC77C'], { peers: ['\uAE40\uB300\uB9AC'] })).toBe(false)
+    expect(namedInFull('share the notes and slides with Tess Yoon', ['slides'], { peers: ['Tess Yoon'] })).toBe(false)
+    expect(namedInFull('send the contract to legal', ['legal'])).toBe(false)
+    expect(namedInFull('share it with my boss', ['my boss'])).toBe(false)
+    expect(namedInFull('\uAE09\uC5EC\uD45C \uC778\uC0AC\uD300\uD55C\uD14C \uACF5\uC720\uD574\uC918', ['\uC778\uC0AC\uD300'])).toBe(false)
+    const both = '\uAE40\uB300\uB9AC\uC640 \uC774\uACFC\uC7A5\uD55C\uD14C \uACF5\uC720\uD574\uC918'
+    expect(namedInFull(both, ['\uAE40\uB300\uB9AC'], { peers: ['\uC774\uACFC\uC7A5'] })).toBe(true)
+    expect(namedInFull(both, ['\uAE40\uB300\uB9AC'])).toBe(false)
+    expect(namedInFull('send it to tess, bob and carl', ['carl'], { peers: ['tess', 'bob'] })).toBe(true)
+    expect(namesRecipient('post this to everyone', 'Everyone', { names: ['Everyone'], person: false })).toBe(true)
+    // a member who takes a group's name: named by their username only
+    const db = h.ctx.db
+    db.query("INSERT INTO users (id, username, name, role, status, deleted_at) VALUES ('f1', 'mal6', 'Finance', 'member', 'active', NULL)").run()
+    try { expect(soleNames(db, 'f1')).toEqual(['mal6']) } finally { db.query("DELETE FROM users WHERE id = 'f1'").run() }
+  })
 })

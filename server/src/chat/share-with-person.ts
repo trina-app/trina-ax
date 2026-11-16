@@ -153,9 +153,11 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         // (a shared file's, a folder's) reaches the AI in a chat that read nothing, so a chat without the mark is not free
         // of other people's words. Which file: named, attached or newly written in this answer where other people's words
         // are in the chat (others, content); elsewhere the person's "it" is theirs to say.
+        // (the names of the call's other recipients: "to tess and bob", "김대리와 이과장한테" name each in a chain)
+        const peersOf = (w: Who) => who.filter((x) => x !== w).flatMap((x) => x.subjectType === 'group' ? [x.name] : recipientWords(db, x))
         const typed = ownWords(askerText(db, spec.userMessageId))
         const alwaysOk = asksToSend(db, spec.userMessageId)
-          && who.every((w) => w.subjectType === 'group' ? namesGroup(typed, w.name) : namesRecipient(typed, w.ref, { names: recipientWords(db, w), person: true }))
+          && who.every((w) => w.subjectType === 'group' ? namesGroup(typed, w.name) : namesRecipient(typed, w.ref, { names: recipientWords(db, w), person: true, peers: peersOf(w) }))
           && ((!others && !content) || fromAsker(db, spec, plan.map((f) => f.path)))
         // (a group counts as named only as a group, namesGroup: "the sales report" does not name the group Sales)
         // no card when the asker's own message of this turn asked for exactly this share (docs/decisions/
@@ -164,7 +166,7 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         const said = ownWords(askerText(db, spec.userMessageId))
         const mine = attachedPaths(db, spec.userMessageId)
         const explicit = spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && asksFor(SHARE_ASK, said)
-          && who.every((w) => w.subjectType === 'group' ? namesGroup(said, w.name) : namedInFull(said, recipientWords(db, w)))
+          && who.every((w) => w.subjectType === 'group' ? namesGroup(said, w.name) : namedInFull(said, recipientWords(db, w), { peers: peersOf(w) }))
           && plan.every((f) => mine.has(f.path) || namesFileLoose(said, f.path))
         // where the choice does not count the card shows; it still offers "Always allow" on its first showing in a chat with
         // nobody else's words (the owner's rule), never where other people's words are, nor once the choice is made

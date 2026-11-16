@@ -71,7 +71,9 @@ const NAME_TAIL = '(\\uC774\\uC5D0\\uAC8C|\\uC774\\uD558\\uACE0|\\uC774\\uD55C\\
 const holdsName = (said: string, n: string) => !HANGUL.test(n) ? holds(said, n)
   : new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(n)}(?=$|[^\\p{L}\\p{N}]|[a-z0-9]|${NAME_TAIL})`, 'u').test(said)
 /** Short words a name that is one of them never counts as (a person may call themselves anything) */
-const NOT_A_NAME = new Set(['with', 'to', 'and', 'the', 'this', 'that', 'it', 'me', 'my', 'our', 'for', 'of', 'file', 'files', 'share', 'send', 'post', 'please', 'dengan', 'ke', 'ini', 'itu',
+const NOT_A_NAME = new Set(['with', 'to', 'and', 'the', 'this', 'that', 'it', 'me', 'my', 'our', 'for', 'of', 'file', 'files', 'share', 'send', 'post', 'please', 'dengan', 'ke', 'ini', 'itu'])
+/** ...nor, for a person, a title, a pronoun or a group word */
+const NOT_A_PERSON_NAME = new Set([
   // titles, pronouns and group words people use for whoever holds them ("대표님께", "share with the team")
   'everyone', 'everybody', 'all', 'them', 'us', 'you', 'him', 'her', 'team', 'the team', 'group', 'boss', 'manager', 'admin', 'owner', 'ceo', 'cto', 'cfo', 'hr', 'semua', 'tim', 'bos',
   // (대표, 사장, 부장, 과장, 차장, 대리, 팀장, 실장, 이사, 상무, 전무, 본부장, 주임, 사원, 선배, 후배, 매니저, 선생님, 고객, 모두, 다들, 전체, 우리, 저, 나, 팀, 그룹)
@@ -85,38 +87,54 @@ function nameText(said: string): string {
   for (const r of [SHARE_ASK, POST_ASK]) t = t.replace(new RegExp(r.source.replace(/\{0,80\}/g, '{0,80}?'), 'giu'), ' ')
   return t
 }
-const nameOk = (n: string) => n.length >= 2 && !NOT_A_NAME.has(n) && !NOT_A_NAME.has(n.replace(TITLE_NIM, '')) && !NOT_A_NAME.has(n.replace(/^the /, ''))
-/** Where a recipient's name stands: right after a word that says who or where something goes (to, with, and, a comma,
- * &, @; in, into, on, # for a place; ke, dengan, dan, di), or, after the name (and 님/씨 for a person), a Korean particle
- * that says so: 에게, 한테, 께, 더러, 와/과, (이)랑, 하고, 도, "(가) 볼 수 / 보게" for a person; 에, 에다(가), 방에, 방으로 … for a place. A
- * word like 파일 or "report" that someone took as their name is never in such a place in "이 파일 김대리한테 공유해줘". */
-const BEFORE_PERSON = '(?:(?:^|[^\\p{L}\\p{N}])(?:to|with|and|cc|ke|dengan|dan)\\s+|[,&(]\\s*|@)'
-const BEFORE_PLACE = '(?:(?:^|[^\\p{L}\\p{N}])(?:to|in|into|on|ke|di)\\s+(?:the\\s+)?|[,&(]\\s*|[@#])'
-const AFTER_PERSON = '(?:\\s?(?:\\uB2D8|\\uC528))?(?:\\uC774\\uD558\\uACE0|\\uC774\\uD55C\\uD14C|\\uC774\\uC5D0\\uAC8C|\\uD55C\\uD14C|\\uC774\\uB791|\\uB354\\uB7EC|\\uC774\\uB3C4|\\uC5D0\\uAC8C|\\uD558\\uACE0|\\uB3C4|\\uACFC|\\uAED8|\\uB791|\\uC640|(?:\\uC774|\\uAC00)?\\s?(?:\\uBCFC\\s?\\uC218|\\uBCF4\\uAC8C|\\uBCF4\\uB3C4\\uB85D))'
+const nameOk = (n: string) => n.length >= 2 && !NOT_A_NAME.has(n)
+/** A person's name: nameOk, and not a department, an outside party or a phrase about someone ("legal", "my boss",
+ * 인사팀, 거래처): a member may call themselves that, and the person's words mean the department, not them. */
+const NOT_A_PERSON = new Set(['legal', 'finance', 'accounting', 'sales', 'marketing', 'support', 'client', 'clients', 'customer', 'customers', 'vendor', 'partner', 'partners', 'investor', 'investors', 'it', 'ops', 'design', 'engineering', 'product', 'payroll', 'reception', 'security', 'management', 'board', 'staff', 'keuangan', 'klien',
+  // (거래처, 고객, 고객사, 회계, 인사, 총무, 법무, 재무, 영업, 마케팅, 개발, 디자인, 관리자, 담당자)
+  '\uAC70\uB798\uCC98', '\uACE0\uAC1D', '\uACE0\uAC1D\uC0AC', '\uD68C\uACC4', '\uC778\uC0AC', '\uCD1D\uBB34', '\uBC95\uBB34', '\uC7AC\uBB34', '\uC601\uC5C5', '\uB9C8\uCF00\uD305', '\uAC1C\uBC1C', '\uB514\uC790\uC778', '\uAD00\uB9AC\uC790', '\uB2F4\uB2F9\uC790'])
+const personOk = (n: string) => nameOk(n) && !NOT_A_PERSON_NAME.has(n) && !NOT_A_PERSON_NAME.has(n.replace(TITLE_NIM, '')) && !NOT_A_PERSON_NAME.has(n.replace(/^the /, '')) && !NOT_A_PERSON.has(n.replace(/^(the|my|our) /, '')) && !/^(my|our|your|his|her|their) /.test(n)
+  && !/ (team|group|department|dept|division|office)$/.test(n) && !/(\uBD80\uC11C|\uADF8\uB8F9|\uBCF8\uBD80|\uD300)$/u.test(n)
+/** Where a recipient's name stands in the person's words (folded), so that a word someone took as their name (파일,
+ * report, 보고서) is not one in an ordinary request: right after to, with, cc, @ or "(" (in, into, on, @, # or "(" for a
+ * place), or before a Korean particle that says who gets it (한테, 에게, 께, 더러, after 님/씨; "(가) 볼 수 / 보게") or
+ * where it goes (에, 에다, 방에 … for a place). A name joined by and, a comma, 와/과, (이)랑 or 하고 counts only in a
+ * chain of other recipients of the same call that ends at such a word ("to tess and bob", "김대리와 이과장한테"). */
+const BEFORE_PERSON = '(?:(?:^|[^\\p{L}\\p{N}])(?:to|with|cc|ke|dengan|kepada)\\s+@?|[(@]\\s*)'
+const BEFORE_PLACE = '(?:(?:^|[^\\p{L}\\p{N}])(?:to|in|into|on|ke|di)\\s+(?:the\\s+)?[@#]?|[(@#]\\s*)'
+const HONORIFIC = '(?:\\s?(?:\\uB2D8|\\uC528))?'
+const AFTER_PERSON = `${HONORIFIC}(?:\\uC774\\uC5D0\\uAC8C|\\uC774\\uD55C\\uD14C|\\uB354\\uB7EC|\\uC5D0\\uAC8C|\\uD55C\\uD14C|\\uAED8|(?:\\uC774|\\uAC00)?\\s?(?:\\uBCFC\\s?\\uC218|\\uBCF4\\uAC8C|\\uBCF4\\uB3C4\\uB85D))`
+const JOIN_KO = '(?:\\uC774\\uD558\\uACE0|\\uC774\\uB791|\\uD558\\uACE0|\\uB791|\\uC640|\\uACFC|,)'
 const AFTER_PLACE = '(?:\\uC5D0\\uB2E4\\uAC00|\\uBC29\\uC73C\\uB85C|\\uCC44\\uB110\\uC5D0|\\uC5D0\\uB2E4|\\uD55C\\uD14C|\\uBC29\\uC5D0|\\uC5D0\\uAC8C|\\uC5D0|\\uAED8)'
-function holdsAsRecipient(text: string, n: string, place: boolean): boolean {
+function holdsAsRecipient(text: string, n: string, place: boolean, peers: readonly string[] = []): boolean {
   if (!holdsName(text, n)) return false
   const e = escapeRe(n)
   const L = '(?<![\\p{L}\\p{N}])'
-  const R = '(?![\\p{L}\\p{N}])'
-  const before = new RegExp(`${place ? BEFORE_PLACE : BEFORE_PERSON}${e}(?:${R}|(?=\\p{Script=Hangul}))`, 'u')
-  const after = new RegExp(`${L}${e}${place ? AFTER_PLACE : AFTER_PERSON}`, 'u')
-  return before.test(text) || after.test(text)
+  const R = '(?:(?![\\p{L}\\p{N}])|(?=\\p{Script=Hangul}))'
+  if (new RegExp(`${place ? BEFORE_PLACE : BEFORE_PERSON}${e}${R}`, 'u').test(text)) return true
+  if (new RegExp(`${L}${e}${place ? AFTER_PLACE : AFTER_PERSON}`, 'u').test(text)) return true
+  const ps = peers.map(fold).filter((p) => p.length >= 2 && p !== n).map(escapeRe)
+  if (place || !ps.length) return false
+  const P = `(?:${ps.join('|')})`
+  // in a chain: "to tess, bob and n" / "n와 P한테", "P와 n과 Q한테"
+  if (new RegExp(`${BEFORE_PERSON}(?:${P}\\s*(?:,|&|and)\\s*(?:and\\s+)?){1,8}${e}${R}`, 'u').test(text)) return true
+  return new RegExp(`${L}${e}${HONORIFIC}(?:${JOIN_KO}\\s?${P}${HONORIFIC}){1,8}${AFTER_PERSON}`, 'u').test(text)
 }
 
 /** Does `said` (the asker's own message) name the recipient? A matched name or username in it, or the words the AI gave
  * (`ref`, 님/씨 dropped) when they are in it and are that name in full or one word of it, or, for a person's Hangul
  * name only, its end (a given name: "대현" for "남대현"); two letters at least (holds: whole words outside Hangul). A
  * room or group name matches only in full or by a whole word. Fails closed. */
-export function namesRecipient(said: string, ref: string | undefined, r0: { names: readonly string[]; person: boolean }): boolean {
+export function namesRecipient(said: string, ref: string | undefined, r0: { names: readonly string[]; person: boolean; peers?: readonly string[] }): boolean {
   const text = fold(said)
   if (!text) return false
   const place = !r0.person
-  const ns = r0.names.map(fold).filter(nameOk)
-  if (ns.some((n) => holdsAsRecipient(text, n, place))) return true
+  const ok = place ? nameOk : personOk
+  const ns = r0.names.map(fold).filter(ok)
+  if (ns.some((n) => holdsAsRecipient(text, n, place, r0.peers))) return true
   // (the Korean honorifics nim and ssi after a name, as escapes: no Korean text outside the language tables)
   const r = fold((ref ?? '').replace(/\s*(\uB2D8|\uC528)$/u, ''))
-  if (!nameOk(r) || r.startsWith(PERSON_REF) || !holdsAsRecipient(text, r, place)) return false
+  if (!ok(r) || r.startsWith(PERSON_REF) || !holdsAsRecipient(text, r, place, r0.peers)) return false
   return ns.some((n) => n === r || n.split(' ').includes(r) || (r0.person && HANGUL.test(r) && HANGUL.test(n) && n.endsWith(r)))
 }
 
@@ -144,10 +162,14 @@ export function soleNames(db: Database, userId: string): string[] {
   // (compared on letters and digits only, without 님/씨 at the end: "Tess Yoon." is "Tess Yoon"; a name inside another's
   // counts as the same: "Hana" in "Hana Kimura", 민수 in 김민수)
   const bare = (x: string | null) => fold((x ?? '').replace(/\s*(\uB2D8|\uC528)\s*$/u, '')).replace(/[^\p{L}\p{N}]+/gu, ' ').trim().replace(/\s*(\uB2D8|\uC528)$/u, '')
-  const others = (db.query('SELECT name, username FROM users WHERE id <> ?').all(userId) as { name: string | null; username: string | null }[])
-    .flatMap((o) => [bare(o.name), bare(o.username)]).filter(Boolean)
+  const others = [...(db.query('SELECT name, username FROM users WHERE id <> ?').all(userId) as { name: string | null; username: string | null }[])
+    .flatMap((o) => [bare(o.name), bare(o.username)]),
+  // (a group's or a room's name is not a person's either: "share it with Finance" means the group)
+  ...(db.query('SELECT name FROM groups').all() as { name: string | null }[]).map((g) => bare(g.name)),
+  ...(db.query("SELECT name FROM rooms WHERE name IS NOT NULL AND kind <> 'dm'").all() as { name: string | null }[]).map((r) => bare(r.name))].filter(Boolean)
   const inside = (n: string, o: string) => o === n || (HANGUL.test(n) ? o.startsWith(n) || o.endsWith(n) : o.startsWith(n + ' ') || o.endsWith(' ' + n) || o.includes(' ' + n + ' '))
-  // the display name and the username each count only when no other member's name or username is, or holds, the same
+  // the display name and the username each count only when no other member's name or username, group or room name is,
+  // or holds, the same
   const theirs = (x: string | null) => { const n = bare(x); return n.length >= 2 && !others.some((o) => inside(n, o)) }
   return [...(theirs(u.name) ? [u.name] : []), ...(theirs(u.username) ? [u.username] : [])]
 }
@@ -282,9 +304,10 @@ export function namesFileLoose(said: string, rel: string): boolean {
 
 /** A person or place named in full in the person's words (a full name, a username, a room's name; two letters at
  * least, whole words outside Hangul): never by a part ("하나" in "파일 하나" is not 최하나). */
-export function namedInFull(said: string, names: readonly string[], o: { place?: boolean } = {}): boolean {
+export function namedInFull(said: string, names: readonly string[], o: { place?: boolean; peers?: readonly string[] } = {}): boolean {
   const text = fold(said)
-  return names.map(fold).some((n) => nameOk(n) && holdsAsRecipient(text, n, !!o.place))
+  const ok = o.place ? nameOk : personOk
+  return names.map(fold).some((n) => ok(n) && holdsAsRecipient(text, n, !!o.place, o.peers))
 }
 
 /** Keys whose value says who or where else sees what is sent: the asker must have written that value themselves. */

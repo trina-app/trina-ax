@@ -97,13 +97,15 @@ cards still came every time: FL-02 and FL-13 (sharing), FL-05 (a web address), F
   - A group counts as named only as a group (`namesGroup`): its name with a group word next to it (영업팀, 영업 그룹,
     "the Sales team", @Sales) or a name that is one already ("Sales Team"); "the sales report" does not name the
     group Sales. This holds for "Always allow" and for the no-card explicit ask.
-  - A person or room counts as named only where a recipient stands in the person's words: right after to, with, and,
-    a comma or @ (in, into, on, # for a place), or before a particle that says where it goes (김대리한테, 최하나님께,
-    영업방에). A word someone took as their name (파일, report, 해줘) is not in such a place in an ordinary request, and
-    short common words (with, to, this …), titles and group words (대표, 팀장, everyone, the team …) never count. A
-    display name or username counts only when no other member's name or username is the same or holds it (compared on
-    letters and digits: "Tess Yoon." is "Tess Yoon"): a member cannot take a colleague's name, or a word of it, to be
-    named in place of them. A first name the person used still counts when the AI passed it on as given.
+  - A person or room counts as named only where a recipient stands in the person's words: right after to, with, cc,
+    @ or "(" (in, into, on, # for a place), or before a particle that says who gets it (김대리한테, 최하나님께, "(가) 볼
+    수 있게") or where it goes (영업방에). A name joined by and, a comma, 와/과, (이)랑 or 하고 counts only in a chain of
+    the same call's other recipients that ends there ("to tess and bob", 김대리와 이과장한테). A word someone took as
+    their name (파일, report, 보고서) is not in such a place in an ordinary request. Short common words, titles,
+    pronouns, departments and group words (대표, 팀장, 인사팀, 거래처, everyone, legal, "my boss" …) never name a
+    person. A display name or username counts only when no other member's name or username, and no group or room
+    name, is the same or holds it (compared on letters and digits): a member cannot take a colleague's or a group's
+    name to be named in place of them. A first name the person used still counts when the AI passed it on as given.
   - A post from a shared chat under "Always allow" needs the asker's own message to name the place and ask to post,
     and to bring every linked file, as in an own chat.
   Left as follow-ups (QA rows): the person's own uploads and inline attachments do not set the mark; the explicit-ask
