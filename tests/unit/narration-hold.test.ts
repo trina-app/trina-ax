@@ -33,6 +33,8 @@ describe('NarrationHold', () => {
     // Korean text first, then an English line before a call: the Korean keeps its separator to what follows
     expect(run(ko(), [{ text: '사진 두 장을 확인할게요.' }, 'tool', { text: '\n\nFollowing the existing naming pattern (매장-전경.jpg).' }, 'tool', { text: '\n\nNow renaming.' }, 'tool', { text: '\n\n이름을 바꿨습니다.' }, 'end']))
       .toBe('사진 두 장을 확인할게요.\n\n이름을 바꿨습니다.')
+    // a quoted file name is not a quote (ORG-01, second run)
+    expect(run(ko(), [{ text: 'Existing pattern: "매장-전경.jpg" (hyphenated Korean).' }, 'tool', { text: '\n\n이름을 바꿨습니다.' }, 'end'])).toBe('이름을 바꿨습니다.')
     // a Korean file name alone does not make the line Korean; Korean words do
     expect(run(ko(), [{ text: '`매장-전경.jpg` 이름을 따를게요.' }, 'tool', { text: '\n\n끝.' }, 'end'])).toBe('`매장-전경.jpg` 이름을 따를게요.\n\n끝.')
   })

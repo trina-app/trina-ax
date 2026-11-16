@@ -42,16 +42,20 @@ export function narrationScript(locale: Locale, message: string): AnswerScript |
   return locale
 }
 
+/** The piece without `code` and file names, quoted or not ("Existing pattern: "매장-전경.jpg" (hyphenated Korean)."):
+ * a Korean file name does not make a line Korean, and quote marks around a file name do not make it a quote. */
+const withoutNames = (s: string) => s.replace(/(?<!`)`[^`\n]+`(?!`)/g, '')
+  .replace(/["“'‘「『][^"”'’」』\n]*\.[A-Za-z0-9]{1,5}["”'’」』]/g, '')
+  .replace(/[^\s()"“”'‘’「」『』]+\.[A-Za-z0-9]{1,5}(?=[\s).,;:!?"”'’」』]|$)/g, '')
+
 /** The piece is surely not a status line: long, in the answer's script, or content (code, a quote, a link, a table). */
 function mustKeep(piece: string, script: AnswerScript, partial = false): boolean {
   const t = piece.trim()
-  // while the piece streams, its last word may be a file name still coming: it counts once it is whole
-  const words = partial ? piece.replace(/\S+$/, '') : t
   if (t.length > NARRATION_MAX_CHARS) return true
-  // the answer's script in the words themselves: a file name or `code` in it does not count ("Following the existing
-  // naming pattern (매장-전경.jpg).")
-  if (SCRIPT_LETTER[script].test(words.replace(/`[^`\n]*`/g, '').replace(/[^\s()]+\.[A-Za-z0-9]{1,5}(?=[\s).,;:!?]|$)/g, ''))) return true
-  if (/```|~~~|["“”«»「」『』]|\]\(|\|/.test(t)) return true
+  // while the piece streams, its last word may be a file name still coming: it counts once it is whole
+  const words = withoutNames(partial ? piece.replace(/\S+$/, '') : t)
+  if (SCRIPT_LETTER[script].test(words)) return true
+  if (/```|~~~|\]\(|\|/.test(t) || /["“”«»「」『』]/.test(words)) return true
   if (/^\s*>/m.test(t)) return true
   if (t.split('\n').filter((l) => l.trim()).length > NARRATION_MAX_LINES) return true
   if ((t.match(/[.!?;:](?=\s|$)/g) ?? []).length > NARRATION_MAX_SENTENCES) return true
