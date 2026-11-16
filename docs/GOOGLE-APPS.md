@@ -204,7 +204,9 @@ same rule. The answer says `revoked`, `unavailable` or `not_needed`.
   tools that need full Drive access). Read or change by the library's own mark and ours (a change if either says so);
   `get_gmail_attachment_content` counts as a read. A `send_gmail_message` or `draft_gmail_message` call whose
   attachments use a `url` or a `path` is refused before anything is sent (the library would fetch the address or read a
-  file on the server).
+  file on the server). A team file is attached by its handle (`"content": "team-file:<path in the team folder>"`
+  with a `filename`): the server puts the file there after the card, which names it (docs/INTEGRATIONS.md "Reads,
+  writes and the confirmation card"; the two tools' descriptions say how).
 - **Rooms**: the integrations provider gets `room: true` and offers only the asker's own Google apps there; their
   answers add the connection to the read scope as `integration`, so `rooms/ai.ts` decide() keeps the answer private.
 

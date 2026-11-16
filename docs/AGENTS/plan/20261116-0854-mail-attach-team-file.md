@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16
 - Branch: `feat/mail-attach-team-file`
-- Status: in progress
+- Status: done
 - Where: server/src/integrations/connections (the connection tools of Team AX core). Why: connections, their write
   card and the file permissions are core (docs/REPOSITORY-RULES.md), and the gap is in the core's MCP tool path.
 - Version impact: minor: the AI can do something new (attach a team file); no setting, no migration.
@@ -43,4 +43,5 @@ docs/decisions/20261116-mail-attach-team-file.md
 
 ## Result
 
-(filled in at the end)
+The handle `team-file:<path>` is swapped for the file's base64 after the connection's own card, which names the file
+first. 15 unit tests in tests/unit/c-integrations-attach.test.ts. A real-AI run of FL-08's mail step is in the PR.
