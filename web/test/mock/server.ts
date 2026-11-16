@@ -345,6 +345,8 @@ export class MockServer {
     | { kind: 'lead_joined'; inviteId: string; leadFor: string; joinerId: string; joinedAt: string }
     | { kind: 'transferred'; me: 'from' | 'to' | 'other'; fromId: string; toId: string; fromName: string; toName: string; ended: { teamAi: number; driveShares: number; failed: number } }
     | { kind: 'reauth_locked' }
+    // the team's disk filling (server/src/notifications/service.ts storageNotice): owners and admins
+    | { kind: 'storage_filling'; percent: number; roomsBytes: number | null }
     // a member's ask to add an app (server/src/integrations/service-requests.ts): one per owner or admin and app, and
     // the member's "ready" once they can connect it
     | { kind: 'service_request'; service: RequestableService }
@@ -564,6 +566,8 @@ export class MockServer {
   integrationTemplates: (Omit<IntegrationTemplate, 'connected'> & { version: number })[] = []
   /** Team AX Cloud (server/src/system/deployment.ts): /__test/cloud switches it on until the next reset */
   cloud = false
+  /** POST /__test/storage-full: room files refused for a full disk ('plan': 507 storage_full; 'disk': 413 disk_full) */
+  storageFull: false | 'plan' | 'disk' = false
   /** the 7-day team goal Home shows owners and admins (onboarding G): none unless /__test/team-goal sets one */
   teamGoal: TeamGoal | null = null
   /** Home's frequent skills (GET /api/skills/popular): none unless /__test/popular-skills names some by path */
@@ -657,6 +661,7 @@ export class MockServer {
     this.serverVersion = '0.1.0'
     this.aiList = undefined
     this.cloud = false
+    this.storageFull = false
     this.teamGoal = null
     this.popular = []
     this.oftenAsked = { team: [], groups: {} }
@@ -1454,6 +1459,7 @@ export class MockServer {
   inboxItem(n: MockServer['inbox'][number]): InboxNotification {
     if (n.kind === 'service_request' || n.kind === 'service_ready') return this.serviceNoticeItem(n)
     const viewer = this.users.find((x) => x.id === n.userId)
+    if (n.kind === 'storage_filling') return { id: n.id, eventType: 'storage.filling', sourceId: `80:${n.createdAt}`, code: 'storage.filling', createdAt: n.createdAt, readAt: n.readAt, chatId: null, link: viewer && (viewer.role === 'owner' || viewer.role === 'admin') ? 'admin_storage' : null, outcome: null, storage: { percent: n.percent, roomsBytes: n.roomsBytes } }
     if (n.kind === 'chat_shared') {
       // who shared it while the account is there; the chat while the reader still sees it (link 'chat' then), else gone
       const who = this.users.find((x) => x.id === n.byId)
@@ -5985,6 +5991,12 @@ export class MockServer {
         body = parsed.data
         file = fd.get('file') as File
       }
+      // POST /__test/storage-full: the team's disk refuses new files (server/src/system/storage.ts assertStorageRoom, 507;
+      // `disk: true`: a Mac without a plan, the upload session's 413 with reason disk_full)
+      if (this.storageFull && (route.name === 'uploadRoomFile' || route.name === 'attachRoomTeamFile' || (route.name === 'createUploadSession' && body?.target?.kind === 'room'))) {
+        if (this.storageFull === 'disk') fail('payload_too_large', 413, 'The server is running out of disk space.', undefined, { reason: 'disk_full' })
+        fail('storage_full', 507, 'The storage is full. Empty the trash or clean up files.', undefined, { reason: 'storage_full', freeBytes: 0, ...(this.cloud ? { manageUrl: 'https://app.teamax.example/billing' } : {}) })
+      }
       const out = await h({ user: user!, params, query, body, req, file })
       if (out instanceof Response) return out
       const o = (out && typeof out === 'object' && ('body' in (out as Json) || 'cookie' in (out as Json)) && !('id' in (out as Json)) ? out : { body: out }) as { status?: number; body: unknown; cookie?: string }
@@ -6059,6 +6071,9 @@ export class MockServer {
       this.deckTier = body.tier === 'standard' || body.tier === 'deep' ? body.tier : 'quick'
     }
     else if (p === '/__test/cloud') this.cloud = body.on !== false
+    else if (p === '/__test/storage-full') this.storageFull = body.on === false ? false : body.disk ? 'disk' : 'plan'
+    // {percent, roomsBytes?}: the 80 % / 95 % notice in every owner's and admin's Inbox (server/src/notifications/service.ts notifyStorageFilling)
+    else if (p === '/__test/storage-notice') for (const u of this.users.filter((x) => (x.role === 'owner' || x.role === 'admin') && x.status === 'active')) this.note(u.id, { kind: 'storage_filling', percent: Number(body.percent), roomsBytes: body.roomsBytes == null ? null : Number(body.roomsBytes) })
     else if (p === '/__test/google-apps') { this.googleApps.control(body); this.settleServiceRequests() }
     else if (p === '/__test/plugin-previous') this.plugins.control(body as { id: string; version: string; trusted: boolean; untrusted?: boolean })
     else if (p === '/__test/member-welcome') this.memberWelcome = (body.welcome as MemberWelcome | null | undefined) ?? null
