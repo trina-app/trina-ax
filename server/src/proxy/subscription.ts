@@ -20,6 +20,8 @@ export const SETUP_TOKEN_LIFETIME_MS = 365 * 24 * 3600_000
 /** diagnostics warn this long before that */
 export const SETUP_TOKEN_WARN_MS = 14 * 24 * 3600_000
 export const TOKEN_RE = /^sk-ant-oat\d{2}-[A-Za-z0-9_-]{20,1000}$/
+/** settings row: the connection made from the token file and that token's fingerprint (credentials/migrate.ts) */
+export const FILE_TOKEN_KEY = 'credentials.fileToken'
 /** settings row: the upstream answered 401 for the token with this fingerprint */
 export const REJECTED_KEY = 'subscription_token_rejected'
 

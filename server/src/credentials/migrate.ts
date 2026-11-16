@@ -12,14 +12,14 @@ import type { Locale } from '@mycel/shared/api'
 import { audit } from '../admin/audit'
 import { getSetting, getTeamSettings, setSetting } from '../admin/settings'
 import { codexExport, codexLogout } from '../native'
-import { REJECTED_KEY, TokenReader, tokenFile } from '../proxy/subscription'
+import { FILE_TOKEN_KEY, REJECTED_KEY, TokenReader, tokenFile } from '../proxy/subscription'
 import { accessExpiry, accountRef, idClaims, maskEmail } from './openai-oauth'
 import { duplicateOf, insertRow } from './service'
 import { CLAUDE_TOKEN_LIFETIME_MS, fingerprintOf, getRow, metaOf, writeSecret, type CredCtx, type Secrets } from './store'
 import { ANTHROPIC_KEY_RE, CLAUDE_TOKEN_RE } from './validate'
 
 export const MIGRATED_KEY = 'credentials.migratedV1'
-export const FILE_TOKEN_KEY = 'credentials.fileToken'
+export { FILE_TOKEN_KEY }
 export interface Migrated { at: string; claudeFile?: string; accounts?: string[]; codexAuth?: 'done' | 'failed' | 'none' | 'pending' }
 
 const LABELS: Record<string, Record<Locale, string>> = {

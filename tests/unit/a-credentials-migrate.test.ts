@@ -75,6 +75,12 @@ describe('deleting the connection made from the token file (QA 2026-11-16: the t
     fs.rmSync(other)
     expect(importTokenFile(t.cc, secrets)).toBe('none')
     expect(listRows(env.db)).toEqual([])
+    // the same token stored again (set-claude-token after a delete by mistake): imported again
+    fs.writeFileSync(tokenFile(secrets), TOK2 + '\n', { mode: 0o600 })
+    expect(importTokenFile(t.cc, secrets)).toBe('imported')
+    const again = (getSetting<{ id: string }>(env.db, FILE_TOKEN_KEY))!.id
+    deleteCredential(t.cc, again, owner())
+    expect(fs.existsSync(tokenFile(secrets))).toBe(false)
     const a = env.db.query("SELECT detail FROM audit_log WHERE action = 'credential.delete' AND target = ?").get(id) as { detail: string }
     expect(JSON.parse(a.detail).tokenFile).toBe('removed')
   })
