@@ -4,6 +4,8 @@
 - Status: accepted
 - Supersedes: none
 - Branch: fix/room-upload-followups (the owner, after rooms began to take files of up to 10 GB)
+- Limit changed: a room now takes files of up to 1 GB, and a guest at most 1 GB; the 10 GB in this file no longer
+  holds ([A file sent in a room is at most 1 GB, for everyone](20261116-room-file-limit-1gb.md)).
 
 - **Ask:** rooms now take files of up to 10 GB ([Uploads are written to disk as they arrive](20261116-room-file-upload-memory.md)).
   A guest is someone from outside the team; should they be able to fill the team's storage with 10 GB files?
