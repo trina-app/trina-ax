@@ -21,6 +21,10 @@ export const Check = z.discriminatedUnion('type', [
   z.object({ type: z.literal('no_file_created'), file: z.string().default('**') }),
   z.object({ type: z.literal('pdf_image_on_page'), file: z.string(), page: z.number().int().positive() }),
   z.object({ type: z.literal('pdf_pages'), file: z.string(), min: z.number().int().positive().optional(), max: z.number().int().positive().optional() }),
+  /** the text of a page (or of every page) has `text`: page numbers, a watermark, an added line (pdftotext) */
+  z.object({ type: z.literal('pdf_text'), file: z.string(), text: z.string(), page: z.number().int().positive().optional() }),
+  /** page N is shown turned by `deg` (0 = upright): the page's own rotation, or a page laid out the other way round */
+  z.object({ type: z.literal('pdf_upright'), file: z.string(), page: z.number().int().positive() }),
   z.object({ type: z.literal('xlsx'), file: z.string(), header: z.string().optional(), formula: z.boolean().optional(), chart: z.boolean().optional(), cell: z.object({ ref: z.string(), equals: z.union([z.string(), z.number()]) }).optional() }),
   z.object({ type: z.literal('docx_contains'), file: z.string(), text: z.string() }),
   z.object({ type: z.literal('pptx_slides'), file: z.string(), min: z.number().int().positive() }),
@@ -79,13 +83,22 @@ export type Case = z.infer<typeof Case>
  * here replace the base case's (kind defaults to refuse for a refusal, install when the install differs, else context) */
 export const Variant = z.object({
   key: z.string().regex(/^[a-z0-9-]+$/),
-  ...Object.fromEntries(Object.entries(CaseFields).map(([k, v]) => [k, (v as z.ZodType).optional()])) as { [K in keyof typeof CaseFields]: z.ZodOptional<z.ZodType<z.output<(typeof CaseFields)[K]>>> },
+  // without the base fields' defaults: a field the variant leaves out comes from the base case, not from the default
+  ...Object.fromEntries(Object.entries(CaseFields).map(([k, v]) => [k, (v instanceof z.ZodDefault ? (v.unwrap() as z.ZodType) : (v as z.ZodType)).optional()])) as { [K in keyof typeof CaseFields]: z.ZodOptional<z.ZodType<z.output<(typeof CaseFields)[K]>>> },
 })
 export const CaseInput = z.object({ id: z.string().regex(/^[A-Z]+-\d{2,3}$/), ...CaseFields, variants: z.array(Variant).default([]) })
 export const Catalog = z.object({ version: z.number().int().positive(), cases: z.array(CaseInput) })
 
 export interface ToolCall { name: string; input: unknown; ok: boolean; result?: string }
-export interface CardSeen { kind: string; origin: 'server' | 'ai' | 'n/a'; question: string; answer: string | null }
+export interface CardSeen {
+  kind: string
+  origin: 'server' | 'ai' | 'n/a'
+  question: string
+  answer: string | null
+  /** the choices the card offered (labels), and whether one of them was "always allow" for this kind of action */
+  options?: string[]
+  hasAlways?: boolean
+}
 export interface TurnRecord {
   prompt: string
   status: string
@@ -105,6 +118,8 @@ export interface CaseResult {
   commit: string
   startedAt: string
   chatId: string | null
+  /** the chat is shared with other people (a team project's members): what the server says, not what the case meant */
+  chatShared?: boolean
   turns: TurnRecord[]
   /** team paths created or changed during the case */
   changed: string[]

@@ -61,6 +61,23 @@ function one(check: Check, ctx: Ctx): { ok: boolean; detail: string } {
         const n = Number(/Pages:\s+(\d+)/.exec(sh(['pdfinfo', f]).out)?.[1] ?? 0)
         return { ok: n > 0 && (!check.min || n >= check.min) && (!check.max || n <= check.max), detail: `${n} pages` }
       })
+    case 'pdf_text':
+      if (!has('pdftotext')) return { ok: false, detail: 'skipped: pdftotext (poppler) is not installed' }
+      return onEach(ctx, check.file, (f) => {
+        const t = sh(['pdftotext', '-layout', ...(check.page ? ['-f', String(check.page), '-l', String(check.page)] : []), f, '-']).out
+        return { ok: t.includes(check.text), detail: t.includes(check.text) ? `has "${check.text}"` : `no "${check.text}"${check.page ? ` on page ${check.page}` : ''}` }
+      })
+    case 'pdf_upright':
+      return onEach(ctx, check.file, (f) => {
+        // a portrait page with rotation 0 (or a landscape one turned back by 90/270) reads upright
+        const line = sh(['pdfinfo', '-f', String(check.page), '-l', String(check.page), f]).out
+        const size = /Page\s+\d+ size:\s+([\d.]+) x ([\d.]+)/.exec(line)
+        const rot = Number(/Page\s+\d+ rot:\s+(\d+)/.exec(line)?.[1] ?? 0)
+        if (!size) return { ok: false, detail: `no page ${check.page}` }
+        const portrait = Number(size[1]) < Number(size[2])
+        const upright = portrait ? rot % 180 === 0 : rot % 180 === 90
+        return { ok: upright, detail: `page ${check.page}: ${portrait ? 'portrait' : 'landscape'}, turned ${rot}` }
+      })
     case 'xlsx':
       return onEach(ctx, check.file, (f) => {
         let wb: XLSX.WorkBook

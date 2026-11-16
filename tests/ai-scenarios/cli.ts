@@ -184,7 +184,7 @@ async function run() {
 function writeResult(dir: string, r: CaseResult) { fs.writeFileSync(path.join(dir, `${r.id}.json`), JSON.stringify(r, null, 1)) }
 function readResults(id: string): CaseResult[] {
   const dir = runDir(id)
-  return fs.readdirSync(dir).filter((f) => /^[A-Z]+-\d+\.json$/.test(f)).map((f) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) as CaseResult)
+  return fs.readdirSync(dir).filter((f) => /^[A-Z]+-\d+(\.[a-z0-9-]+)?\.json$/.test(f)).map((f) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) as CaseResult)
 }
 
 async function judgeRun(id: string) {

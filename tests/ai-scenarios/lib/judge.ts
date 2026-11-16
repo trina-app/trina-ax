@@ -70,6 +70,7 @@ export function judgeInput(c: Case, r: CaseResult, people: string): string {
     `Asked by: ${c.as} (${people})`,
     `Place: ${PLACE[c.context]}`,
     `Install: ${c.install}`,
+    `Chat shared with other people (the server's own flag): ${r.chatShared === undefined ? 'unknown' : r.chatShared ? 'yes' : 'no'}`,
     `Expected outcome: ${c.expect.outcome}. A good answer: ${c.expect.good}`,
     '',
     turns || '(no turn ran)',

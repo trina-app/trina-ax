@@ -15,7 +15,8 @@ export function expand(raw: unknown): Case[] {
     out.push(Case.parse(base))
     for (const { key, ...v } of variants) {
       const set = Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined))
-      const merged = { ...base, ...set, id: `${base.id}.${key}` } as Record<string, unknown>
+      // pass1 is the variant's own: a base in the first pass does not take all its variants with it
+      const merged = { ...base, ...set, id: `${base.id}.${key}`, pass1: v.pass1 ?? false } as Record<string, unknown>
       if (!('kind' in set)) {
         const m = merged as { expect: { outcome: string }; install: string }
         merged.kind = m.expect.outcome === 'refuse' && base.expect.outcome !== 'refuse' ? 'refuse' : m.install !== base.install ? 'install' : 'context'

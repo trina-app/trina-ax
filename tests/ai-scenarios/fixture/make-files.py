@@ -283,6 +283,53 @@ def receipt_pdf(path, n):
     c.save()
 
 
+def scanned_contract(path):
+    """A four-page scan of the signed contract: page 2 is blank (the back of page 1), page 4 is sideways."""
+    W, H = 1240, 1754
+    f = ImageFont.truetype(FONT, 34, index=0)
+    fb = ImageFont.truetype(FONT, 50, index=6)
+    pages = []
+    for n, lines in enumerate([
+        [('물품 공급 계약서 (서명본, 가상)', fb), ('갑: 가나다오피스 주식회사', f), ('을: 라마바카페', f), ('제1조 (목적) 사무용품 공급', f), ('제2조 (계약 기간) 2026.12.1 - 2027.11.30', f)],
+        [],
+        [('제3조 (대금) 월말 정산, 익월 말 지급', f), ('제4조 (납품) 발주 후 영업일 3일 이내', f), ('제5조 (해지) 14일 내 시정 없으면 해지', f)],
+        [('서명', fb), ('갑 대표이사 김지우 (서명)', f), ('을 대표 최라마 (서명)', f)],
+    ]):
+        im = Image.new('L', (W, H), 238)
+        d = ImageDraw.Draw(im)
+        y = 180
+        for t, font in lines:
+            d.text((120, y), t, font=font, fill=35)
+            y += 80
+        if n == 3:
+            im = im.rotate(90, expand=True, fillcolor=238)
+        px = im.load()
+        for _ in range(9000):
+            px[random.randrange(im.size[0]), random.randrange(im.size[1])] = random.randint(170, 250)
+        pages.append(im.convert('RGB'))
+    from reportlab.lib.utils import ImageReader
+    c = canvas.Canvas(path, pagesize=A4)
+    for im in pages:
+        buf = io.BytesIO()
+        im.save(buf, 'JPEG', quality=65)
+        w, h = (A4[1], A4[0]) if im.size[0] > im.size[1] else A4
+        c.setPageSize((w, h))
+        c.drawImage(ImageReader(io.BytesIO(buf.getvalue())), 0, 0, width=w, height=h)
+        c.showPage()
+    c.save()
+
+
+def cover_letter(path):
+    c = canvas.Canvas(path, pagesize=A4)
+    c.setFont('KRB', 16)
+    c.drawString(60, 780, '계약서 송부의 건')
+    c.setFont('KR', 11)
+    for i, t in enumerate(['라마바카페 구매담당 귀하', '서명한 물품공급계약서를 보내 드립니다.', '확인 후 회신 부탁드립니다.', '가나다오피스 영업팀 이소라 드림']):
+        c.drawString(60, 740 - i * 22, t)
+    c.showPage()
+    c.save()
+
+
 def main():
     # the text files next to these (Markdown, CSV, skills) are written by hand and kept
     os.makedirs(OUT, exist_ok=True)
@@ -299,6 +346,8 @@ def main():
     photo(out('groups/마케팅/사진/IMG_2041.jpg'), '신제품 볼펜 (예시)', [(240, 240, 235), (30, 60, 160), (220, 60, 60), (40, 40, 40)])
     photo(out('groups/마케팅/사진/IMG_2042.jpg'), '재생지 박스 (예시)', [(200, 190, 160), (120, 100, 70), (240, 230, 200), (90, 120, 60)])
     scanned_pdf(out('projects/라마바카페-납품/방문보고서-스캔.pdf'))
+    scanned_contract(out('projects/라마바카페-납품/계약서-서명본-스캔.pdf'))
+    cover_letter(out('groups/영업/계약서/계약서-송부-커버레터.pdf'))
     shutil.copy(os.path.join(REPO, 'tests/fixtures/hwp/agreement.hwpx'), out('shared/양식/업무협약서-초안.hwpx'))
     shutil.copy(os.path.join(REPO, 'tests/fixtures/hwp/notice.hwpx'), out('shared/양식/공문-박람회-협조요청.hwpx'))
     print('written to', OUT)

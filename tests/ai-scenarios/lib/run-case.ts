@@ -86,9 +86,20 @@ function transcriptLines(dataDir: string, chatId: string): string[] {
   return files.flatMap((f) => fs.readFileSync(f, 'utf8').split('\n').filter((l) => l.trim()))
 }
 
+export type CardMode = 'once' | 'always' | 'decline'
+const isAlways = (o: { label: string; value: string }) => /always|항상/i.test(`${o.value} ${o.label}`)
+/** the answer to a server card: once = go ahead this time only; always = the "always allow" choice when the card has one
+ * (else go ahead); decline = the card's no (its last choice, as the app orders them) */
+export function pickCard(opts: { label: string; value: string }[], mode: CardMode): string | null {
+  if (!opts.length) return null
+  if (mode === 'decline') return opts[opts.length - 1]!.value
+  if (mode === 'always') { const a = opts.find(isAlways); if (a) return a.value }
+  return goAhead(opts.filter((o) => !isAlways(o))) ?? goAhead(opts)
+}
+
 const GO_ON = { ko: '네, 그렇게 해주세요. 알아서 정해서 진행해 주세요.', en: 'Yes, please go ahead and use your best judgement.' }
 
-async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string, prompt: string, seenLines: number): Promise<{ rec: TurnRecord; lines: number }> {
+export async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string, prompt: string, seenLines: number): Promise<{ rec: TurnRecord; lines: number }> {
   const started = Date.now()
   let sent: { assistantMessage: { id: string } }
   try {
@@ -114,8 +125,14 @@ async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string, prompt
       answered.add(req.requestId)
       if (req.kind === 'ask_user') {
         const server = req.origin === 'server'
-        const answer = server ? goAhead(req.options ?? []) : req.options?.length && !req.allowText ? req.options[0]!.value : (c.reply ?? GO_ON[c.lang])
-        cards.push({ kind: server ? 'server-card' : 'ai-question', origin: server ? 'server' : 'ai', question: req.question.slice(0, 400), answer })
+        // a flow step may say no on the server's cards (the person declines); a case always goes ahead
+        // a flow step may say no on the server's cards; so does a case that expects a refusal (a person who wants it
+        // done would say yes, but a refusal case checks what the AI does on its own, not what a yes unlocks)
+        const mode = (c as { cardMode?: CardMode }).cardMode ?? ((c as { declineCards?: boolean }).declineCards === true || c.expect?.outcome === 'refuse' ? 'decline' : 'once')
+        const decline = mode === 'decline'
+        const opts = req.options ?? []
+        const answer = server ? pickCard(opts, mode) : decline ? null : req.options?.length && !req.allowText ? req.options[0]!.value : (c.reply ?? GO_ON[c.lang])
+        cards.push({ kind: server ? 'server-card' : 'ai-question', origin: server ? 'server' : 'ai', question: req.question.slice(0, 400), answer, options: opts.map((o) => o.label), hasAlways: opts.some(isAlways) })
         await api.call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: req.requestId, answer } }).catch(() => {})
       } else if (req.kind === 'dev_env_site' || req.kind === 'browser_site') {
         cards.push({ kind: req.kind, origin: 'server', question: 'host' in req ? String(req.host) : '', answer: 'once' })
@@ -129,10 +146,16 @@ async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string, prompt
     m = page.items.find((x) => x.id === answerId)
     if (m && m.status !== 'streaming') break
   }
-  // the transcript is written as the turn goes; give the last lines a moment
-  await Bun.sleep(1500)
-  const all = transcriptLines(env.dataDir, chatId)
-  const t = readTranscript(all.slice(seenLines))
+  // the transcript can land a little after the answer ends: wait for this turn's lines (up to 20 s)
+  let all = transcriptLines(env.dataDir, chatId)
+  let t = readTranscript(all.slice(seenLines))
+  for (let i = 0; i < 20 && t.usage.apiCalls === 0; i++) {
+    await Bun.sleep(1000)
+    all = transcriptLines(env.dataDir, chatId)
+    t = readTranscript(all.slice(seenLines))
+  }
+  // still none: the steps the app shows under the answer (names and ok only, no inputs)
+  if (!t.tools.length && m?.steps.length) t = { ...t, tools: m.steps.filter((x) => x.tool).map((x) => ({ name: x.tool!.replace(/^mcp__[^_]+__/, ''), input: { label: x.label }, ok: x.status === 'ok' })) }
   const rec: TurnRecord = {
     prompt,
     status: m?.status ?? 'timeout',
@@ -149,12 +172,12 @@ async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string, prompt
   return { rec, lines: all.length }
 }
 
-async function login(base: string, username: string): Promise<ApiClient> {
+export async function login(base: string, username: string): Promise<ApiClient> {
   const r = await new ApiClient({ baseUrl: base }).call(API.login, { body: { username, password: PASSWORD, client: 'web', tokenMode: 'bearer' } })
   return new ApiClient({ baseUrl: base, token: r.token! })
 }
 
-async function openChat(api: ApiClient, env: Env, c: Case): Promise<string> {
+export async function openChat(api: ApiClient, env: Env, c: Case): Promise<string> {
   const f = env.fixture
   try { return await openChatIn(api, f, c) } catch (e) {
     // the app refused to open the chat (a guest outside their place): a chat of their own, so the refusal shows on send
@@ -177,6 +200,15 @@ async function roomText(api: ApiClient, env: Env, since: string): Promise<string
   } catch { return '' }
 }
 
+/** the team paths that changed between two snapshots */
+export const diffOf = (before: Map<string, string>, after: Map<string, string>) => [...new Set([...after.keys(), ...before.keys()])].filter((k) => before.get(k) !== after.get(k))
+/** of those, the ones this chat's turns saved or named in their tool calls (other work runs at the same time) */
+export function attributed(diff: string[], turns: TurnRecord[]): string[] {
+  const saved = new Set(turns.flatMap((t) => t.saved.map((p) => p.normalize('NFC'))))
+  const named = turns.flatMap((t) => t.tools.map((x) => JSON.stringify(x.input))).join('\n').normalize('NFC')
+  return diff.filter((k) => saved.has(k) || named.includes(k) || named.includes(k.split('/').pop()!)).sort()
+}
+
 export async function runCase(c: Case, env: Env): Promise<CaseResult> {
   const res: CaseResult = { id: c.id, runId: env.runId, commit: env.commit, startedAt: new Date().toISOString(), chatId: null, turns: [], changed: [], checks: [], jargon: [], error: null }
   const before = snapshot(env.teamRoot)
@@ -185,6 +217,7 @@ export async function runCase(c: Case, env: Env): Promise<CaseResult> {
     api = await login(env.base, c.as)
     const chatId = await openChat(api, env, c)
     res.chatId = chatId
+    try { res.chatShared = !!(await api.call(API.getChat, { params: { id: chatId } })).shared } catch {}
     let lines = 0
     for (const p of [c.prompt, ...c.followUps]) {
       const r = await oneTurn(api, env, c, chatId, p, lines)
@@ -199,7 +232,12 @@ export async function runCase(c: Case, env: Env): Promise<CaseResult> {
   }
   const after = snapshot(env.teamRoot)
   // made or changed, and fixture files that are gone (renamed, moved, deleted)
-  res.changed = [...new Set([...after.keys(), ...before.keys()])].filter((k) => before.get(k) !== after.get(k)).sort()
+  // Only what THIS case did: other cases run at the same time on the same team folder. A path counts when the server
+  // says this chat saved it, or when this case's own tool calls name it (a rename, a move, a delete).
+  const diff = [...new Set([...after.keys(), ...before.keys()])].filter((k) => before.get(k) !== after.get(k))
+  const saved = new Set(res.turns.flatMap((t) => t.saved.map((p) => p.normalize('NFC'))))
+  const named = res.turns.flatMap((t) => t.tools.map((x) => JSON.stringify(x.input))).join('\n').normalize('NFC')
+  res.changed = diff.filter((k) => saved.has(k) || named.includes(k) || named.includes(k.split('/').pop()!)).sort()
   const room = api && c.expect.checks.some((k) => k.type === 'room_message' || k.type === 'no_room_message') ? await roomText(api, env, res.startedAt) : ''
   res.checks = await runChecks([{ type: 'answered' }, ...c.expect.checks], { teamRoot: env.teamRoot, changed: res.changed, turns: res.turns, room })
   res.jargon = jargonIn(res.turns.map((t) => t.answer).join('\n'))
