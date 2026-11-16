@@ -6523,6 +6523,7 @@ export const es: Record<MessageKey, string> = {
   "audit.act.file.share": "Compartió un archivo con personas",
   "audit.act.file.unshare": "Quitó personas de un archivo compartido",
   "audit.act.file.access_request": "Pidió abrir un archivo",
+  "audit.act.share.fix": "Usó un paso siguiente bajo una respuesta de la IA (permitir ver, pedir al propietario o a un administrador)",
   "audit.act.file.access_approved": "Compartió un archivo a petición",
   "audit.act.file.access_declined": "Rechazó una solicitud para abrir un archivo",
   "audit.act.file.shares_removed_all": "Quitó todos los archivos compartidos",

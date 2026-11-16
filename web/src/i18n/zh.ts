@@ -6495,6 +6495,7 @@ export const zh: Record<MessageKey, string> = {
   "audit.act.file.share": "与他人共享了文件",
   "audit.act.file.unshare": "从共享文件中移除了人员",
   "audit.act.file.access_request": "请求打开文件",
+  "audit.act.share.fix": "执行了 AI 回答下方的后续步骤（允许查看、向所有者或管理员请求）",
   "audit.act.file.access_approved": "应请求共享了文件",
   "audit.act.file.access_declined": "拒绝了打开文件的请求",
   "audit.act.file.shares_removed_all": "移除了所有文件共享",

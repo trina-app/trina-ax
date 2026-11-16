@@ -6567,6 +6567,7 @@ export const ko = {
   "audit.act.file.share": "파일을 사람에게 공유함",
   "audit.act.file.unshare": "공유한 파일에서 사람을 뺌",
   "audit.act.file.access_request": "파일 열람을 요청함",
+  "audit.act.share.fix": "AI 답변 아래의 다음 단계를 실행함 (보게 하기, 주인·관리자에게 요청)",
   "audit.act.file.access_approved": "요청을 받아 파일을 공유함",
   "audit.act.file.access_declined": "파일 열람 요청을 거절함",
   "audit.act.file.shares_removed_all": "모든 파일 공유를 없앰",

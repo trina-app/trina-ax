@@ -6569,6 +6569,7 @@ export const en: Record<MessageKey, string> = {
   "audit.act.file.share": "Shared a file with people",
   "audit.act.file.unshare": "Removed people from a shared file",
   "audit.act.file.access_request": "Asked to open a file",
+  "audit.act.share.fix": "Used a next step under an AI answer (let people view, asked the owner or an admin)",
   "audit.act.file.access_approved": "Shared a file on request",
   "audit.act.file.access_declined": "Declined a request to open a file",
   "audit.act.file.shares_removed_all": "Removed all file shares",

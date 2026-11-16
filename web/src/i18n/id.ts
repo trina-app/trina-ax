@@ -6567,6 +6567,7 @@ export const id: Record<MessageKey, string> = {
   "audit.act.file.share": "Membagikan file dengan orang",
   "audit.act.file.unshare": "Menghapus orang dari file yang dibagikan",
   "audit.act.file.access_request": "Meminta untuk membuka file",
+  "audit.act.share.fix": "Menjalankan langkah lanjutan di bawah jawaban AI (izinkan melihat, minta ke pemilik atau admin)",
   "audit.act.file.access_approved": "Membagikan file atas permintaan",
   "audit.act.file.access_declined": "Menolak permintaan membuka file",
   "audit.act.file.shares_removed_all": "Menghapus semua berbagi file",

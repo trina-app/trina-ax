@@ -6523,6 +6523,7 @@ export const ja: Record<MessageKey, string> = {
   "audit.act.file.share": "ファイルをユーザーと共有",
   "audit.act.file.unshare": "共有ファイルからユーザーを削除",
   "audit.act.file.access_request": "ファイルを開くリクエストを送信",
+  "audit.act.share.fix": "AI の回答の下の次のステップを実行（閲覧を許可、所有者や管理者に依頼）",
   "audit.act.file.access_approved": "リクエストに応じてファイルを共有",
   "audit.act.file.access_declined": "ファイルを開くリクエストを断った",
   "audit.act.file.shares_removed_all": "ファイルの共有をすべて削除",
