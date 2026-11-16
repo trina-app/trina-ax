@@ -87,12 +87,21 @@ export function pruneRoomUploads(mine: (roomId: string) => boolean): void {
   for (const [place, list] of gone) for (const f of list) void stop(place, f, true)?.catch(() => {})
 }
 
+/** how long signing out waits for the server to drop the uploads' pieces before it goes on */
+export const SIGN_OUT_WAIT_MS = 2000
+
 /** Signing out (lib/logout.ts), before the session ends: every upload stops, the pieces the server holds of the large
  * ones are dropped, and no chip is left for whoever signs in next on this computer. */
-export async function dropRoomUploads(): Promise<void> {
+export async function dropRoomUploads(waitMs = SIGN_OUT_WAIT_MS): Promise<void> {
   const all = Object.entries(useRoomUploads.getState().byPlace)
   useRoomUploads.setState({ byPlace: {} })
-  await Promise.all(all.flatMap(([place, list]) => list.map((f) => stop(place, f, true))))
+  // every upload is stopped here and now; the drops are asked of the server at once and go on by themselves
+  const drops = Promise.all(all.flatMap(([place, list]) => list.map((f) => stop(place, f, true)))).then(() => {}, () => {})
+  // ...but signing out does not wait for them: the server answers a drop only after a file it is putting in place is
+  // there (a file of several GB: tens of seconds), and the person asked to leave now
+  let timer: ReturnType<typeof setTimeout> | undefined
+  await Promise.race([drops, new Promise<void>((resolve) => { timer = setTimeout(resolve, waitMs) })])
+  clearTimeout(timer)
 }
 
 // while a file is on its way: an "upload" for lib/busy.ts (no reload by itself), and the browser asks before the tab

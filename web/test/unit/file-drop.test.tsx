@@ -19,7 +19,9 @@ import { TEAM_FILE_DRAG_TYPE, forgetTeamAttach } from '../../src/lib/teamAttach'
 import RoomPage from '../../src/pages/Room'
 import { useChats } from '../../src/store/chats'
 import { useRooms } from '../../src/store/rooms'
-import { dropRoomUploads, forgetRoomUploads, setPlaceUploads, uploadingIn, useRoomUploads } from '../../src/store/roomUploads'
+import { dropRoomUploads, forgetRoomUploads, setPlaceUploads, SIGN_OUT_WAIT_MS, uploadingIn, useRoomUploads } from '../../src/store/roomUploads'
+import { fingerprint } from '../../src/lib/upload'
+import { UPLOADS_KEY } from '../../src/lib/localData'
 import type { UploadProgress } from '../../src/lib/upload'
 import { isBusy } from '../../src/lib/busy'
 import { RoomUploadMark } from '../../src/components/nav/RoomsList'
@@ -545,6 +547,40 @@ describe('the room page', () => {
       expect(m.find('room-file-progress')).toBeNull()
       await chip({ phase: 'uploading', loaded: 10, total: 100 }, small)
       expect(shown()).toBe('10%')
+    } finally { await m.unmount() }
+  })
+
+  // the server answers a drop only after a file it is putting in place is there: signing out must not sit and wait
+  test('signing out does not wait for the server to drop a large upload: 2 s at most, the uploads stopped at once', async () => {
+    signIn()
+    serve()
+    heldRoomUploads = []
+    xhrAborts = 0
+    const m = await mount(<RoomComposer roomId={r.id} members={[ME, BEN]} meId={ME.id} onSent={() => {}} />)
+    try {
+      await dropOn(m.get('room-composer'), [pdf('offsite.mov')])
+      await m.until(() => roomChips(m)[0]?.getAttribute('data-status') === 'uploading', 'the chip, going up')
+      // the server never answers the drop (it is still finishing the file)
+      const store = (globalThis as { localStorage?: Storage }).localStorage
+      const kept = new Map<string, string>()
+      ;(globalThis as { localStorage?: unknown }).localStorage = { getItem: (k: string) => kept.get(k) ?? null, setItem: (k: string, v: string) => void kept.set(k, v), removeItem: (k: string) => void kept.delete(k) }
+      const f = useRoomUploads.getState().byPlace[r.id]![0]!
+      kept.set(UPLOADS_KEY, JSON.stringify({ [fingerprint(f.file, { kind: 'room', roomId: r.id, name: f.file.name })]: uuidv7() }))
+      const deletes: string[] = []
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => { if (init?.method === 'DELETE') deletes.push(String(input)); return new Promise<Response>(() => {}) }) as unknown as typeof fetch
+      try {
+        const started = Date.now()
+        let done = false
+        const out = act(async () => { await dropRoomUploads(60); done = true })
+        // stopped and gone before the wait is over
+        expect(xhrAborts).toBe(1)
+        expect(useRoomUploads.getState().byPlace).toEqual({})
+        await out
+        expect(done).toBe(true)
+        expect(Date.now() - started).toBeLessThan(1500)
+        expect(deletes).toHaveLength(1)
+        expect(SIGN_OUT_WAIT_MS).toBeLessThanOrEqual(2000)
+      } finally { (globalThis as { localStorage?: unknown }).localStorage = store }
     } finally { await m.unmount() }
   })
 

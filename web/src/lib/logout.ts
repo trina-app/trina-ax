@@ -14,6 +14,8 @@ export function useLogoutTo() {
   const navigate = useNavigate()
   return async (to?: string) => {
     // uploads still on their way in rooms stop here, while the session can still drop what the server holds of them
+    // (asked at once, waited for 2 s at most: store/roomUploads.ts). The sign-out below ends the session on the server,
+    // so nothing more of them can arrive
     await dropRoomUploads().catch(() => {})
     await api.call(API.logout).catch(() => {})
     clearLocalData()
