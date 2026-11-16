@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16 03:24
 - Branch: `fix/post-update-engine-check`
-- Status: in progress
+- Status: done
 - Where: `native/` (bootstrap, launcher, mycel-ctl). Why: the post-switch health check and the roll-back live in the
   bootstrap, and only the launcher runs as the engine account (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a safety check on the update path; it takes effect with root files that carry the new
@@ -61,4 +61,7 @@ Out: the version folder modes and a start-up repair (the release coordinator's 0
 
 ## Result
 
-Filled in at the end.
+Built as planned. Also: `scripts/install-linux.sh`'s switch wait gets the same "still pending" wait as mycel-ctl, and
+`docker/test.sh` gets a step with the real server and engine accounts. A missing launcher socket is skipped at once (a
+socket that does not accept yet is tried for 30 s), so installs and tests without a launcher are not slowed down. The
+check folder's own errors are reported as skipped, not as a failed version. PR: fix/post-update-engine-check into dev.
