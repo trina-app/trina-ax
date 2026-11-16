@@ -292,6 +292,8 @@ test('TC-020: why a sign-in failed, in words in every language; an unknown code 
   expect(flowReasonKey('client')).toBe('integrations.signIn.reason.client')
   expect(flowReasonKey('client_template')).toBe('integrations.signIn.reason.clientTemplate')
   expect(flowReasonKey('denied')).toBe('integrations.signIn.reason.denied')
+  // QA TC-3859: Cancel or Deny at the service is a stopped sign-in, with the way to try again
+  expect(translate('en', 'integrations.signIn.reason.denied')).toBe('The sign-in was stopped at the service. To connect, sign in again and allow it to connect.')
   expect(flowReasonKey('changed')).toBe('integrations.signIn.reason.changed')
   expect(flowReasonKey('superseded')).toBe('integrations.signIn.reason.superseded')
   expect(flowReasonKey('exchange')).toBe('integrations.signIn.reason.exchange')

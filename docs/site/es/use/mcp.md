@@ -221,7 +221,7 @@ Usted solo inicia sesión o pega la clave en la tarjeta. La clave nunca llega a 
 |---|---|
 | **Se requiere iniciar sesión** | El inicio de sesión terminó o la clave se revocó en la app. Abra la conexión y elija **Volver a iniciar sesión**, o **Reemplazar clave**. |
 | **El inicio de sesión aún no ha terminado.** | La ventana de inicio de sesión se cerró o está detrás de otra ventana. Elija **Abrir ventana de inicio de sesión**, o cancele y vuelva a intentarlo. |
-| **No se permitió el acceso en el servicio.** | Eligió Cancel o Deny en la página de la app. Vuelva a iniciar sesión y permítalo. |
+| **El inicio de sesión se detuvo en el servicio.** | Eligió Cancel o Deny en la página de la app. Vuelva a iniciar sesión y permítalo. |
 | **No se pudo comprobar la conexión.** con "401" o "unauthorized" en el motivo | La clave es incorrecta, caducó o se copió con un espacio. Cópiela de nuevo con el botón de copiar de la app. Para un encabezado distinto de Bearer, revise el **Nombre del encabezado** letra por letra. |
 | **El servicio no indicó ninguna herramienta.** | La dirección no es una dirección MCP (a menudo se pegó la página de inicio de la app). Use la dirección de la página de ayuda MCP de la app. |
 | Un miembro no encuentra la app | Los miembros solo conectan apps desde **Descubrir**. Pida a un administrador que la añada por su dirección, o como plantilla. |

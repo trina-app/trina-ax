@@ -222,7 +222,7 @@ hanya perlu masuk atau menempelkan kunci ke kartu itu. Kuncinya tidak pernah sam
 |---|---|
 | **Perlu masuk** | Masa masuk berakhir atau kunci dicabut di aplikasi. Buka koneksinya dan pilih **Masuk lagi**, atau **Ganti kunci**. |
 | **Proses masuk belum selesai.** | Jendela masuk sudah ditutup atau tertutup jendela lain. Pilih **Buka jendela masuk**, atau batalkan lalu coba lagi. |
-| **Akses tidak diizinkan di layanan.** | Anda memilih Cancel atau Deny di halaman aplikasi. Masuk lagi dan izinkan. |
+| **Login dihentikan di layanan.** | Anda memilih Cancel atau Deny di halaman aplikasi. Masuk lagi dan izinkan. |
 | **Koneksi tidak bisa diperiksa.** dengan "401" atau "unauthorized" di alasannya | Kuncinya salah, kedaluwarsa, atau tersalin dengan spasi. Salin lagi dengan tombol salin milik aplikasi. Untuk header selain Bearer, periksa **Nama header** huruf demi huruf. |
 | **Layanan ini tidak memberi alat apa pun.** | Alamatnya bukan alamat MCP (sering kali yang ditempel adalah halaman beranda aplikasi). Pakai alamat dari halaman bantuan MCP aplikasi itu. |
 | Anggota tidak menemukan aplikasinya | Anggota hanya bisa menghubungkan aplikasi dari **Jelajahi**. Minta admin menambahkannya lewat alamatnya, atau sebagai templat. |
