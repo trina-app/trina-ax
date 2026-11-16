@@ -300,6 +300,30 @@ describe('a scheduled run (nobody answers a card)', () => {
   })
 })
 
+describe('a chat other members wrote in that is no longer shared', () => {
+  test('Always allow needs no own ask there (shared chats only, as on dev); a file the asker did not bring is still refused', async () => {
+    const t = await turn('bob', `ledger-3.txt please\n${fake({ say: 'ok' })}`)
+    const userMessageId = (h.ctx.db.query('SELECT user_message_id AS m FROM turns WHERE id = ?').get(t.turnId) as { m: string }).m
+    const files = {}
+    let cards = 0
+    const exec = {
+      rt: h.rt(), files, shared: null, restricted: false, templateRun: false, roomsSeen: false, otherAuthors: true, othersWords: true,
+      spec: { clientKind: 'web', userId: 'bob', chatId: t.chatId, locale: 'en', assistantId: null, userMessageId, turnId: t.turnId },
+      livePrincipal: () => h.ctx.files.principal('bob'), patchToolStep: () => {}, noteReads: () => {},
+      waitForPerson: async () => { cards++; return null },
+      alwaysPlace: () => ({ db: h.ctx.db, userId: 'bob', chatId: t.chatId, turnId: t.turnId, locale: 'en', clientKind: 'web' }),
+    }
+    h.ctx.db.query("DELETE FROM file_shares WHERE path LIKE 'users/bob/ledger-%'").run()
+    const call = async (n: number) => (await shareWithPersonTool(exec as never).call({ paths: [`users/bob/ledger-${n}.txt`], people: ['Tess Yoon'] }, files as never)).content.map((c) => (c.type === 'text' ? c.text : '')).join('')
+    // named file, nobody named and no ask word: no card under Always allow
+    expect(JSON.parse(await call(3)).status).toBe('shared')
+    expect(cards).toBe(0)
+    // a file bob did not bring: refused, as on dev
+    expect(await call(4)).toContain('a file is shared only when the user named it in their own message')
+    expect(cards).toBe(0)
+  })
+})
+
 describe('a file read through a share grant', () => {
   const chatRow = (chatId: string) => h.ctx.db.query('SELECT rooms_seen AS r, others_words AS o FROM chats WHERE id = ?').get(chatId) as { r: number; o: number }
   const grantRead = fake({ tool: 'read', args: { file_path: 'users/alice/for-bob.md' }, sayResult: true })

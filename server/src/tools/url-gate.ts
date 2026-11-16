@@ -154,9 +154,6 @@ export interface TurnPerson {
   attachAsks?(paths: readonly string[]): boolean
   /** the chat holds other people's words (chat/shared-actions.ts othersWordsIn): the explicit-ask skip never applies */
   othersWords?(): boolean
-  /** other members' messages are in the chat (shared, or others wrote in it): the person's own Always allow covers no
-   * attached team file there, as share_with_person's file rule */
-  otherMembers?(): boolean
   /** how a refusal names an unattended run that is not a scheduled task (a company profile draft's answer) */
   unattendedLabel?: string
   /** a narrower set of addresses this turn may open at all (a company profile draft: the typed site, onboarding/

@@ -10,8 +10,8 @@
 **Always allow is final (owner decision 2026-11-13); the guards apply only where the person hasn't chosen Always allow.** (docs/decisions/20261116-always-allow-final-rule-a.md, Rule A.) Once the person picks "Always allow"
 for sharing, room posts, posts with files, project members or a connection, the card is not raised for them again in
 their own chat, whatever the chat read (rooms, a teammate's file, a file shared with them, a page, a connected service)
-and in their scheduled runs. In a chat with other members' messages (a shared chat, or one others wrote in) the choice
-counts only for their own ask, as on dev (QA TC-3091). The lines below about content written by others, the "Second
+and in their scheduled runs. In a shared chat (shared now) the choice counts only for their own ask, as on dev (QA
+TC-3091); a chat no longer shared is their own chat for it. The lines below about content written by others, the "Second
 review" and "Always allow covers the person's own asks" now decide only the explicit-ask skip, the card's offer and the
 file refusal where the person has not chosen Always allow.
 
