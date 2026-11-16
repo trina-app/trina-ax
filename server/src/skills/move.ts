@@ -18,7 +18,7 @@ import { audit } from '../admin/audit'
 import { atLeast, type Principal } from '../policy/access'
 import { authorize } from '../policy/authorize'
 import { foldKey } from '../policy/names'
-import { checkSkill, groupSkillRoots, isPersonalSkill, isSkillManifest, listGroupSkills, listSkills, listTeamSkills, liveProjectRoots, personalSkillsDir, projectOfFolder, projectSkillSections, readSkill, sameSkillName, SKILL_NAME_MAX, SKILL_NAME_RE, skillFolder, skillTier, widerSkillsNamed, type Skill } from '../chat/skills'
+import { checkSkill, groupSkillRoots, isPersonalSkill, isSkillManifest, listGroupSkills, listSkills, listTeamSkills, liveProjectRoots, personalSkillsDir, projectOfFolder, projectSkillSections, readSkill, sameSkillName, isSkillName, skillNameNFC, skillFolder, skillTier, widerSkillsNamed, type Skill } from '../chat/skills'
 import { mayEditProject } from '../chat/projects'
 import { HttpError } from '../http/errors'
 import { componentC } from '../team-files/component'
@@ -185,9 +185,10 @@ function skillFiles(ctx: AppContext, user: Principal, from: string, L: Locale): 
   return out
 }
 
-/** A copy's name: what the skill parser takes as a SKILL.md folder's name (chat/skills.ts SKILL_NAME_RE, at most
- * SKILL_NAME_MAX): lowercase letters and digits in words joined by single hyphens. */
-export const copyNameOk = (name: string) => name.length <= SKILL_NAME_MAX && SKILL_NAME_RE.test(name)
+/** A copy's or a renamed skill folder's name: what the skill parser takes as a SKILL.md folder's name (chat/skills.ts
+ * isSkillName: lowercase letters in any language and digits in words joined by single hyphens, at most SKILL_NAME_MAX),
+ * in NFC as the parser compares it. */
+export const copyNameOk = (name: string) => isSkillName(skillNameNFC(name))
 
 /** SKILL.md (or a single-file skill) with its header's name set to `name`; null when it has no header name. Only the
  * name changes: its line, and the indented lines under it when the name was written as a block (`name: >-`). The

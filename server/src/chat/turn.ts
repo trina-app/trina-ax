@@ -3253,7 +3253,7 @@ export class TurnExec {
     auditLog(this.rt.db, { actor: this.spec.userId, action: 'skills.ai_write_refused', target: r.rel, detail: { tool, turnId: this.id, chatId: this.spec.chatId, answer: answer === null || answer === undefined ? 'none' : picked === 'rename' || picked === 'fix' ? picked : 'declined', ...(group ? { group: { id: group.id, name: group.name } } : {}), ...(project ? { project: { id: project.project.id, name: project.project.name } } : {}) } })
     if (dead && picked === 'rename') {
       return {
-        refusal: `Nothing was saved to '${r.rel}': a skill called "${neutralizeTags(skill!.name)}" is already in ${neutralizeTags(same!.whereEn)}, and that one runs in this project's chats (a project skill only adds new names). The user wants it saved under another name: pick a new name (lowercase a-z, 0-9 and hyphens; the folder takes the same name), or ask the user for one, and save it again (the user confirms on a new card).`,
+        refusal: `Nothing was saved to '${r.rel}': a skill called "${neutralizeTags(skill!.name)}" is already in ${neutralizeTags(same!.whereEn)}, and that one runs in this project's chats (a project skill only adds new names). The user wants it saved under another name: pick a new name (lowercase words joined by hyphens, in any language; the folder takes the same name), or ask the user for one, and save it again (the user confirms on a new card).`,
         summary: `${tool} -> not saved: the name is taken (rename)`,
       }
     }

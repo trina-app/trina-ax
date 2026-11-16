@@ -14,7 +14,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import { isMap, isScalar, parseDocument } from 'yaml'
-import { parseSkillInputs, readSkillTitle, SKILL_EXAMPLE_MAX, type SkillInput } from '@mycel/shared/api'
+import { isSkillName, parseSkillInputs, readSkillTitle, SKILL_EXAMPLE_MAX, SKILL_NAME_MAX, SKILL_NAME_RE, skillNameSkeleton, type SkillInput } from '@mycel/shared/api'
 import type { FileService } from '../files/service'
 import { readRegular } from '../files/store'
 import { atLeast, type Principal, type RuleSet } from '../policy/access'
@@ -58,10 +58,10 @@ export const MAX_FILES = 1000
 export const SKILL_BODY_MAX = 16_000
 export const SKILL_FILE_MAX_BYTES = 128 * 1024
 const HEADER_MAX = 8 * 1024
-export const SKILL_NAME_MAX = 64
-/** What a SKILL.md folder's name (and its header's `name`) may be: lowercase letters and digits in words joined by
- * single hyphens (checkSkill; a renamed copy uses it too, skills/move.ts). */
-export const SKILL_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+/** The name rule of a SKILL.md folder (shared/src/api/skills.ts isSkillName; docs/decisions/20261116-skill-names-unicode.md). */
+export { isSkillName, SKILL_NAME_MAX, SKILL_NAME_RE }
+/** The NFC form a name is checked and compared in (a folder name read from disk may be NFD). */
+export const skillNameNFC = (n: string) => n.normalize('NFC')
 const LEGACY_NAME_MAX = 60
 const LEGACY_DESCRIPTION_MAX = 300
 const DESCRIPTION_MAX = 1024
@@ -322,9 +322,10 @@ export function checkSkill(text: string, rel?: string): SkillCheck {
     const header = standardFields(headerText!)
     if (!header) return no('header')
     const { fields } = header
-    const name = fields.get('name'), description = fields.get('description')
-    if (!name || name.length > SKILL_NAME_MAX || !SKILL_NAME_RE.test(name)) return no('name')
-    if (name !== parts.at(-2)) return no('name_folder')
+    const written = fields.get('name'), description = fields.get('description')
+    const name = written === undefined ? undefined : skillNameNFC(written)
+    if (!name || !isSkillName(name)) return no('name')
+    if (name !== skillNameNFC(parts.at(-2)!)) return no('name_folder')
     if (!description?.trim() || [...description].length > DESCRIPTION_MAX) return no('description')
     const compatibility = fields.get('compatibility')
     if (compatibility !== undefined && (!compatibility.trim() || [...compatibility].length > 500)) return no('compatibility')
@@ -422,7 +423,7 @@ export function skillWriteNote(root: string, rel: string, data: Buffer): string 
       ? 'a project\'s skills are folders with a SKILL.md (skills/<name>/SKILL.md in the project folder), not single .md files'
       : `SKILL.md must be in its own folder inside the skill folder, at most ${MAX_DEPTH} levels down`,
     name: isSkillManifest(rel)
-      ? `the name must have only lowercase a to z, 0 to 9 and hyphens, at most ${SKILL_NAME_MAX} characters, and be the same as the folder name; if the folder name has other characters, change the folder name too`
+      ? `the name must be lowercase letters (any language) and digits in words joined by single hyphens, no spaces, dots or capitals, at most ${SKILL_NAME_MAX} characters, and be the same as the folder name; if the folder name has other characters, change the folder name too`
       : `the name must be present, at most ${LEGACY_NAME_MAX} characters, with no /`,
     name_folder: 'the name must be the same as the folder name',
     description: `the description must be present, at most ${DESCRIPTION_MAX} characters`,
@@ -646,14 +647,15 @@ function pickWinners(all: readonly Skill[], wider: readonly Skill[] = all): { sk
   // a name the sender has at a higher tier)
   const byName = new Map<string, Skill[]>(), byAlias = new Map<string, Skill[]>()
   const add = (m: Map<string, Skill[]>, k: string, s: Skill) => m.set(k, [...(m.get(k) ?? []), s])
-  for (const s of wider) if (skillTier(s) < 3) { add(byName, nameKey(s.name), s); add(byAlias, nameKey(skillAlias(s.path)), s) }
+  // keyed by the look-alike skeleton: a project skill "quоte" (Cyrillic о) is no new name next to a wider "quote"
+  for (const s of wider) if (skillTier(s) < 3) { add(byName, skillNameSkeleton(s.name), s); add(byAlias, skillNameSkeleton(skillAlias(s.path)), s) }
   const byPath = (a: Skill, b: Skill) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path)
   const named = (s: Skill) => skillTier(s) !== best.get(nameKey(s.name))
-  const givesWay = (s: Skill) => skillTier(s) === 3 && (byName.has(nameKey(s.name)) || byAlias.has(nameKey(s.name)))
+  const givesWay = (s: Skill) => skillTier(s) === 3 && (byName.has(skillNameSkeleton(s.name)) || byAlias.has(skillNameSkeleton(s.name)))
   const skills = all.filter((s) => !named(s) && !givesWay(s)).sort(byPath)
   const lost = all.filter((s) => named(s) || givesWay(s)).sort(byPath).map((s) => {
     const to = named(s) ? skills.filter((w) => sameSkillName(w.name, s.name)) : []
-    return { skill: s, to: to.length ? to : [...(byName.get(nameKey(s.name)) ?? []), ...(byAlias.get(nameKey(s.name)) ?? [])].sort((a, b) => skillTier(a) - skillTier(b) || byPath(a, b)) }
+    return { skill: s, to: to.length ? to : [...(byName.get(skillNameSkeleton(s.name)) ?? []), ...(byAlias.get(skillNameSkeleton(s.name)) ?? [])].sort((a, b) => skillTier(a) - skillTier(b) || byPath(a, b)) }
   })
   return { skills, lost }
 }
@@ -694,11 +696,11 @@ export function scanSkillsWithShadowed(files: FileService, user: Principal, scop
 }
 
 /** Every personal, group and team skill `user` sees (the ones that run and the ones a better tier hides) whose name, or
- * whose file or folder name, is `name`, but `except`: what a project skill of that name would give way to (a project only
+ * whose file or folder name, is `name` or looks like it (skillNameSkeleton: "quоte" with a Cyrillic о is "quote"), but `except`: what a project skill of that name would give way to (a project only
  * adds names), widest first. For the save and move cards (docs/DECISIONS.md "Project skills"). */
 export function widerSkillsNamed(files: FileService, user: Principal, name: string, except?: string): Skill[] {
   const { skills, shadowed } = scanSkillsWithShadowed(files, user)
-  return [...skills, ...shadowed.map((x) => x.skill)].filter((s) => s.path !== except && skillTier(s) < 3 && (sameSkillName(s.name, name) || sameSkillName(skillAlias(s.path), name)))
+  return [...skills, ...shadowed.map((x) => x.skill)].filter((s) => s.path !== except && skillTier(s) < 3 && (skillNameSkeleton(s.name) === skillNameSkeleton(name) || skillNameSkeleton(skillAlias(s.path)) === skillNameSkeleton(name)))
     .sort((a, b) => skillTier(a) - skillTier(b) || a.path.localeCompare(b.path))
 }
 
@@ -785,7 +787,9 @@ export function skillIssues(files: FileService, user: Principal, o: { rules?: { 
  * group skill before a team skill; between two groups' skills the group that comes first in groupOrder (its name,
  * letter case ignored, then its id), then the path. Folder skills never acquire a shared /SKILL alias. */
 export function invokedSkill(skills: Skill[], content: string): { skill: Skill; input: string } | null {
-  const t = content.trimStart()
+  // NFC, as names are compared: "/거래처-응대" typed in NFD (some Mac input) still runs it, and the input is cut at
+  // the same place
+  const t = content.trimStart().normalize('NFC')
   if (!t.startsWith('/')) return null
   const rest = t.slice(1)
   const fold = (s: string) => s.normalize('NFC').toLowerCase()
