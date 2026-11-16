@@ -355,6 +355,9 @@ function registerIpc() {
   ipcMain.handle('bridge:meeting-start', (e) => (fromApp(e) && !process.mas ? win!.meeting.start() : 'unavailable'))
   ipcMain.handle('bridge:meeting-stop', (e) => (fromApp(e) ? win!.meeting.stop() : []))
   ipcMain.on('bridge:meeting-sound-settings', (e) => fromApp(e) && win!.meeting.openSoundSettings())
+  // the lines of a meeting the page has not saved yet (the window closed, the app quit) and the page's word that it has
+  ipcMain.handle('bridge:meeting-unsaved', (e) => (fromApp(e) ? win!.meeting.unsaved() : null))
+  ipcMain.on('bridge:meeting-saved', (e, startedAt: unknown) => fromApp(e) && typeof startedAt === 'number' && win!.meeting.saved(startedAt))
 
   // "Find work files on this computer" (main/work-files.ts): the page only asks; the app shows its own dialog, looks in
   // this process and hands out ids, never paths. A read takes an id of the latest look of the asking origin only.

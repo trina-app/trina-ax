@@ -106,7 +106,7 @@ export interface DesktopMeetingState {
   callSound?: boolean
   callApps?: string[]
   waiting?: number
-  problem?: 'no_call_sound' | 'stopped' | 'helper'
+  problem?: 'no_call_sound' | 'stopped' | 'helper' | 'silence' | 'too_long'
   message?: string
 }
 
@@ -353,6 +353,10 @@ export interface DesktopBridge {
     onState(cb: (s: DesktopMeetingState) => void): () => void
     /** macOS Settings › Privacy & Security, where the call's sound is allowed */
     openSoundSettings(): void
+    /** the last meeting's lines when the page has not said they were saved (the window closed, the app quit) */
+    unsaved(): Promise<{ startedAt: number; lines: DesktopMeetingLine[] } | null>
+    /** the note of the meeting that started at `startedAt` is in the person's folder: the app forgets its lines */
+    saved(startedAt: number): void
   }
   /** A connector sign-in at a service that takes only an app on the computer as the place to come back to (Canva,
    * Intercom, Square; RFC 8252): open() gives the port of a one-time return address on 127.0.0.1 that the page passes to

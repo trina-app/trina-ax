@@ -26,18 +26,21 @@ function fakeHelper(dir: string, callApps: string[]) {
   return helper
 }
 
-function control(o: { yes: boolean; helper: string | null; team?: boolean }) {
+function control(o: { yes: boolean; helper: string | null; team?: boolean; input?: number }) {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'meetd-'))
   const states: DesktopMeetingState[] = []
   const lines: unknown[] = []
   let asked = 0
   const fetch = async () => Response.json({ lines: [{ start: 0, end: 1, text: 'hello' }] })
+  const session = { fetch } as any
   const c = new MeetingControl({
     win: () => null, locale: () => 'en',
-    team: () => (o.team === false ? null : { origin: 'https://team.example', session: { fetch } as any }),
+    team: () => (o.team === false ? null : { origin: 'https://team.example', session }),
     state: (s) => states.push(s), lines: (l) => lines.push(...l),
     ask: async () => { asked++; return o.yes }, tray: false, helper: () => o.helper,
+    lastInput: () => o.input ?? Date.now(), dataDir,
   })
-  return { c, states, lines, asked: () => asked }
+  return { c, states, lines, asked: () => asked, dataDir }
 }
 
 describe('meeting notes behind the bridge', () => {
@@ -52,8 +55,17 @@ describe('meeting notes behind the bridge', () => {
     const { c, states, asked } = control({ yes: false, helper: fakeHelper(dir, []) })
     expect(await c.start()).toBe('cancelled')
     expect(asked()).toBe(1)
+    // asked again at once (a page script looping after a Cancel): no dialog
+    expect(await c.start()).toBe('cancelled')
+    expect(asked()).toBe(1)
     expect(c.running()).toBe(false)
     expect(states).toEqual([])
+  })
+  test('no key or click of the person just before: no dialog at all', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'meetc-'))
+    const { c, asked } = control({ yes: true, helper: fakeHelper(dir, []), input: Date.now() - 60_000 })
+    expect(await c.start()).toBe('cancelled')
+    expect(asked()).toBe(0)
   })
   test('yes: listening, lines reach the page, a second start is busy, stop returns the lines and goes idle', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'meetc-'))
@@ -67,6 +79,13 @@ describe('meeting notes behind the bridge', () => {
     expect(states.some((s) => s.microphone === true)).toBe(true)
     expect(states.at(-1)!.state).toBe('idle')
     expect(c.lines().map((l) => l.text)).toEqual(['hello'])
+    // the lines stay on this computer until the page says the note is saved
+    const u = c.unsaved()!
+    expect(u.lines.map((l) => l.text)).toEqual(['hello'])
+    c.saved(u.startedAt + 1)
+    expect(c.unsaved()).not.toBeNull()
+    c.saved(u.startedAt)
+    expect(c.unsaved()).toBeNull()
   })
   test('no team open (signed out): unavailable', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'meetc-'))
@@ -86,6 +105,31 @@ describe('meeting notes behind the bridge', () => {
     expect(c.state().problem).toBeUndefined()
     await c.stop()
   })
+  test('a browser or Slack being open is not a call: no warning in a meeting room', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'meetc-'))
+    const { c, states } = control({ yes: true, helper: fakeHelper(dir, ['com.google.Chrome', 'com.tinyspeck.slackmacgap']) })
+    await c.start()
+    for (let i = 0; i < 100 && !states.some((s) => s.callApps?.length); i++) await Bun.sleep(20)
+    ;(c as any).heard.since -= NO_CALL_SOUND_MS + 1
+    ;(c as any).level('me', 0.2)
+    expect(c.state().problem).toBeUndefined()
+    await c.stop()
+  })
+})
+
+describe('the team changes while the dialog is open', () => {
+  test('another team (or a sign-out) by the time of the yes: nothing starts', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'meetc-'))
+    let origin = 'https://a.example'
+    const session = { fetch: async () => Response.json({ lines: [] }) } as any
+    const c = new MeetingControl({
+      win: () => null, locale: () => 'en', team: () => ({ origin, session }), state: () => {}, lines: () => {},
+      ask: async () => { origin = 'https://b.example'; return true }, tray: false, helper: () => fakeHelper(dir, []),
+      lastInput: () => Date.now(), dataDir: dir,
+    })
+    expect(await c.start()).toBe('cancelled')
+    expect(c.running()).toBe(false)
+  })
 })
 
 describe('the bridge object', () => {
@@ -93,6 +137,7 @@ describe('the bridge object', () => {
     const src = fs.readFileSync(path.join(import.meta.dir, '../../desktop/src/preload/app.ts'), 'utf8')
     expect(src).toContain("...(info?.meeting")
     expect(src).toContain("start: () => ipcRenderer.invoke('bridge:meeting-start')")
+    expect(src).toContain("onLines: on('bridge:meeting-lines-changed')")
     const main = fs.readFileSync(path.join(import.meta.dir, '../../desktop/src/main/main.ts'), 'utf8')
     expect(main).toMatch(/bridge:meeting-start', \(e\) => \(fromApp\(e\) && !process\.mas/)
     expect(main).toContain('meeting: process.mas ? 0 :')

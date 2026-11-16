@@ -96,9 +96,11 @@ const bridge: DesktopBridge = {
           start: () => ipcRenderer.invoke('bridge:meeting-start'),
           stop: () => ipcRenderer.invoke('bridge:meeting-stop'),
           lines: () => ipcRenderer.invoke('bridge:meeting-lines'),
-          onLines: on('bridge:meeting-lines'),
-          onState: on('bridge:meeting-state'),
+          onLines: on('bridge:meeting-lines-changed'),
+          onState: on('bridge:meeting-state-changed'),
           openSoundSettings: () => ipcRenderer.send('bridge:meeting-sound-settings'),
+          unsaved: () => ipcRenderer.invoke('bridge:meeting-unsaved'),
+          saved: (startedAt: number) => ipcRenderer.send('bridge:meeting-saved', Number(startedAt)),
         },
       }
     : {}),
