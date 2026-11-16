@@ -74,6 +74,19 @@ export function skillExample(s: { description: string; example?: string | null }
   return quoted && !HIDDEN_CHARS.test(quoted) ? quoted : null
 }
 /** The longest metadata `title` a skill may have (characters); a longer one is ignored and the name shows. */
+/** A SKILL.md folder's name (and its header's `name`), at most this many characters (code points). */
+export const SKILL_NAME_MAX = 64
+/** What a SKILL.md folder's name may be: words of lowercase letters in any script (a letter of a script without case,
+ * such as Hangul, counts; a capital never does), with their combining marks, and digits, joined by single hyphens
+ * (docs/decisions/20261116-skill-names-unicode.md; the Agent Skills reference validator accepts the same). No space,
+ * dot, slash or other sign. isSkillName adds the length and the Unicode form. */
+export const SKILL_NAME_RE = /^[\p{Ll}\p{Lm}\p{Lo}\p{Nd}][\p{Ll}\p{Lm}\p{Lo}\p{Nd}\p{M}]*(?:-[\p{Ll}\p{Lm}\p{Lo}\p{Nd}][\p{Ll}\p{Lm}\p{Lo}\p{Nd}\p{M}]*)*$/u
+/** A SKILL.md folder's name as the skill loader takes it (server/src/chat/skills.ts checkSkill), and every new name a
+ * skill folder gets (a renamed or moved copy, a rename, a share, a suggestion, the Skills page's field): SKILL_NAME_RE,
+ * at most SKILL_NAME_MAX characters, in NFC and the same in NFKC (no full-width or other compatibility forms: "ａ" is not
+ * "a"). A name typed in another form is normalized with .normalize('NFC') first. */
+export const isSkillName = (n: string) => n === n.normalize('NFC') && n === n.normalize('NFKC') && [...n].length <= SKILL_NAME_MAX && SKILL_NAME_RE.test(n)
+
 export const SKILL_TITLE_MAX = 60
 /** A SKILL.md's metadata `title` as people read it, or null when it is not one: empty, more than one line, longer
  * than SKILL_TITLE_MAX, or holding control or text-direction characters (it reaches the join page and the copied
