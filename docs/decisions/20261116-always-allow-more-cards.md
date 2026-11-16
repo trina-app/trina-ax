@@ -79,6 +79,50 @@ cards still came every time: FL-02 and FL-13 (sharing), FL-05 (a web address), F
   Known limits: a file the AI makes in the answer may hold what it read; a file or folder name, a skill's description
   in the skill list and a connected service's tool descriptions can carry words; the text of a post to a place the
   person named is the AI's. The mark is cleared with the session (an edited first message), as the other marks are.
+  **Second review (in):** after eight independent review rounds kept finding new wordings by which text someone else
+  chose (a display name, a username, a group's or a file's name) counted as the person naming a recipient, the rule is
+  now structural: in a chat with other people's words (a shared chat, others writing in it, a room read, a room's side
+  chat, content someone else wrote: `othersWordsIn` / the chat mark), a share, a post to a conversation and a team file
+  attached to a send always show the card. Neither "Always allow" nor the explicit ask skips it there, and the card does
+  not offer "Always allow". In a chat without such words both keep working as below, and the name rules below only
+  decide those. More rules from the same review:
+  - "Always allow" covers the person's own asks in every chat, marked or not: a share needs their own message to ask
+    to share or send and to name every recipient; a post needs the place named (or the side chat's own room) and the
+    ask; a project's members need every name in their messages; a team file attached to a send needs the person to
+    have brought it (named or attached it, or the AI wrote it new in this answer). A name a teammate chose (a shared
+    file's, a folder's) reaches the AI in a chat that read nothing, so no chat is free of other people's words. Which
+    file to share stays the person's "it" in a chat without the mark. A card that shows where the choice does not
+    count still offers "Always allow" on its first showing in a chat without other people's words.
+  - "Written new by the AI" is one rule for every gate (`shared-actions.ts WROTE_IT_SQL`, also answer-share.ts): a
+    create by write, or by make_file from the AI's own text, with nothing at the path before. A file any tool built
+    from another file, a page or a room (make_file with a source, stamp_pdf, edit_pdf, split_pdf, merge_pdfs, edit_hwp,
+    comment_docx, save_url, save_room_file, a video) is not; nor is one whose folder, or a folder above it, was moved,
+    renamed or made after it was written (a folder rename logs events at the folder's path only).
+  - The ask words are the share and post request forms only (share … with, send … to, post, 공유해줘, 보내줘, 올려줘,
+    전달해줘 …). Words that only mention telling or a message ("let me know", "tell me", "the DM") are not an ask.
+  - A group counts as named only as a group (`namesGroup`): its name with a group word next to it (영업팀, 영업 그룹,
+    "the Sales team", @Sales) or a name that is one already ("Sales Team"); "the sales report" does not name the
+    group Sales. This holds for "Always allow" and for the no-card explicit ask.
+  - A person or room counts as named only where a recipient stands in the person's words: right after to, with, cc,
+    @ or "(" (in, into, on, # for a place), or before a particle that says who gets it (김대리한테, 최하나님께, "(가) 볼
+    수 있게") or where it goes (영업방에). A name joined by and or a comma counts only in a chain of the same call's other
+    recipients after to or with that ends with it ("to tess and bob"; not "with tess and the notes with bob"); one
+    joined by 와/과, (이)랑 or 하고 only with 님 or 씨 on it (김대리님과 이과장님한테; 김대리와 이과장한테 shows the card,
+    since such a list is as often one of files). Phrases that point at a thing (the …, this …, 이 파일, 이거) never name
+    a person, and only the first 4,000 characters of the message are read for names. A "to"/"with" right after a
+    recipient already named is a purpose or a manner, not a second person ("with tess to review", "to tess with
+    comments"), and "볼 수 있게 / 보게" names a person only with 이/가 or 님/씨 on the name ("바로 볼 수 있게" does
+    not). Company titles and roles (책임, 수석, 프로, 인턴, 변호사, QA, intern …) are not people's names. A word someone took as
+    their name (파일, report, 보고서) is not in such a place in an ordinary request. Short common words, titles,
+    pronouns, departments and group words (대표, 팀장, 인사팀, 거래처, everyone, legal, "my boss" …) never name a
+    person. A display name or username counts only when no other member's name or username, and no group or room
+    name, is the same or holds it (compared on letters and digits): a member cannot take a colleague's or a group's
+    name to be named in place of them. A first name the person used still counts when the AI passed it on as given.
+  - A post from a shared chat under "Always allow" needs the asker's own message to name the place and ask to post,
+    and to bring every linked file, as in an own chat.
+  Left as follow-ups (QA rows): the person's own uploads and inline attachments do not set the mark; the explicit-ask
+  words may sit anywhere in a long pasted message; find_tools descriptions; a file the AI writes itself may repeat
+  text it read (in a chat with other people's words it still needs the person's ask and the recipient named).
   **Independent review:** one must-fix (a file copied or renamed in the answer counted as made in it) and the
   should-fix items (the request word, find_skills, the order of the grant check) are in.
 - **Where it still never applies:** as before (always-allow.ts): a Slack question, a company profile draft and other

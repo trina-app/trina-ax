@@ -48,8 +48,8 @@
 // (subagents.ts PARENT_ONLY_TOOLS). Reached anyway (the chat became confidential during the answer, a sub-agent's call)
 // it refuses with why and what to do, as it does for a room that is archived or not mine, a gone thread, content that
 // used earlier answers hidden from some member, a text too long for one message and the sending budget.
-import { withAlways } from './always-allow'
-import { actionOff, asksFor, askerPicks, askerText, asksToSend, fold, fromAsker, mainOnly, namedInFull, namesRecipient as namesPlace, othersWordsIn, ownWords, POST_ASK } from './shared-actions'
+import { alwaysHere, withAlways } from './always-allow'
+import { actionOff, asksFor, askerPicks, askerText, asksToSend, fold, fromAsker, mainOnly, namedInFull, namesRecipient as namesPlace, othersWordsIn, soleNames, ownWords, POST_ASK } from './shared-actions'
 import { readRooms } from './read-rooms'
 import { grantOnly, seenWhy } from './grant-reads'
 import { lookedPlace } from './looking-at'
@@ -364,8 +364,13 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // room, and only when that message asks to send or post; and the linked files go along without the card only when they brought each one
         // (named or attached it, or the AI made it in this answer). Own words may go there under the choice, as before.
         const mineNamed = () => namesPlace(ownWords(askerText(db, spec.userMessageId)), a.data.room, recipientNames(db, spec.userId, mine?.room ?? null, pendingTo))
-        const alwaysOk = exec.shared ? !plain && mineNamed()
-          : !othersWordsIn(exec) || ((sideRoomOf(db, spec.chatId, spec.userId)?.id === roomId || mineNamed()) && asksToSend(db, spec.userMessageId) && (!all || fromAsker(db, spec, first.offered)))
+        // In every own chat the place must be the person's: named in their own message, which asks to send or post, or
+        // the side chat's own room (a name a teammate chose reaches the AI in a chat that read nothing too)
+        // (a shared chat too: other members' messages are in it, so the asker's own message must ask and bring the files)
+        // where other people's words are in the chat (shared, others write in it, rooms read, content someone else wrote:
+        // othersWordsIn) the card always shows: neither "Always allow" nor the explicit ask skips it there
+        const marked = othersWordsIn(exec)
+        const alwaysOk = !marked && (sideRoomOf(db, spec.chatId, spec.userId)?.id === roomId || mineNamed()) && asksToSend(db, spec.userMessageId)
         // no card when the asker's own message of this turn asked for exactly this post (docs/decisions/
         // 20261116-no-card-after-explicit-ask.md, QA TC-3812): a post word and the place in their words (or, in a room's
         // side chat, no place given: that room), and the card would tell nothing more (no line about people who cannot see
@@ -379,15 +384,19 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const theirText = plain && fold(said).includes(fold(shown))
         const noteOk = first.at === 0 || fold(said).includes(fold(first.body.slice(0, first.at)))
         const place = a.data.room === undefined ? !!side && a.data.thread_id === undefined
-          : !readRooms(exec) && a.data.thread_id === undefined && namedInFull(said, recipientNames(db, spec.userId, mine?.room ?? null, pendingTo).names)
+          : !readRooms(exec) && a.data.thread_id === undefined && (() => { const r = recipientNames(db, spec.userId, mine?.room ?? null, pendingTo); return namedInFull(said, r.names, { place: !r.person }) })()
         // a room, a thread or a 1:1 chat's person the AI learned from looking_at in this turn is not the asker's word
         // (chat/looking-at.ts): unless their own message names it, the card shows, "Always allow" or not
         const fromLook = lookedPlace(exec, { roomId: roomId || null, threadRootId: threadRootId ?? null, names: recipientNames(db, spec.userId, mine?.room ?? null, pendingTo).names }, said)
-        const explicit = !fromLook && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && !all && !linesNone.length && !laterLine && asksFor(POST_ASK, said)
+        // #1109's rule: where other people's words are (marked) the card always shows; the screen target too (fromLook)
+        const explicit = !marked && !fromLook && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && !all && !linesNone.length && !laterLine && asksFor(POST_ASK, said)
           && (plain ? theirText : !exec.shared && !exec.otherAuthors) && noteOk && place
+        // (where the choice does not count the card shows; it still offers "Always allow" on its first showing in a chat
+        // with nobody else's words, never where other people's words are, nor once the choice is made, nor for a screen target)
+        const place1 = fromLook ? null : alwaysOk || (!marked && alwaysHere(exec.alwaysPlace?.(), all ? 'post_files' : 'post_to_room') === 'offer') ? exec.alwaysPlace?.() : null
         // why the card asks first: one line, the reason that matters most (chat/share-words.ts whyFirst)
         const whyLine = whyFirst(L, { fromLook, seenLine, others: othersWordsCard(exec, all ? 'post_files' : 'post_to_room', alwaysOk) })
-        const reply = explicit ? 'send' : await withAlways(alwaysOk && !fromLook ? exec.alwaysPlace?.() : null, all ? 'post_files' : 'post_to_room', options, all ? 'send_files' : 'send', (opts, more) => exec.waitForPerson({
+        const reply = explicit ? 'send' : await withAlways(place1, all ? 'post_files' : 'post_to_room', options, all ? 'send_files' : 'send', (opts, more) => exec.waitForPerson({
           kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: whyLine ? `${whyLine}\n\n${question}` : question, options: opts, multiple: false, allowText: false, ...(more.note ? { note: more.note } : {}),
           details: [
             // the note goes as the person's own words, the text as the AI's answer: apart, as the room shows them
@@ -482,11 +491,10 @@ export function postRefusal(e: unknown, title: string, roomId: string, shared: b
  * person's; a team room's or group chat's own name (a team room's group name too). `person`: they are a person's. */
 export function recipientNames(db: import('bun:sqlite').Database, me: string, room: RoomRow | null, to: Teammate | null): { names: string[]; person: boolean } {
   if (to) {
-    const u = db.query('SELECT name, username FROM users WHERE id = ?').get(to.id) as { name: string; username: string } | null
-    return { names: [to.name, u?.username ?? ''].filter(Boolean), person: true }
+    return { names: soleNames(db, to.id), person: true }
   }
   if (!room) return { names: [], person: false }
-  if (room.kind === 'dm') return { names: (db.query('SELECT u.name, u.username FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? AND m.user_id <> ?').all(room.id, me) as { name: string; username: string }[]).flatMap((u) => [u.name, u.username]), person: true }
+  if (room.kind === 'dm') return { names: (db.query('SELECT m.user_id AS id FROM room_members m WHERE m.room_id = ? AND m.user_id <> ?').all(room.id, me) as { id: string }[]).flatMap((u) => soleNames(db, u.id)), person: true }
   return { names: [room.name ?? '', room.kind === 'team' ? groupName(db, room) ?? '' : ''].filter(Boolean), person: false }
 }
 

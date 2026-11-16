@@ -120,7 +120,7 @@ describe('in my own chat', () => {
 
   test('no card right after an explicit ask: a share word, the person and the file in my own words (QA TC-3812)', async () => {
     put('users/bob/거래처-목록.csv', 'a,b')
-    const r = await turn('bob', `거래처 목록 테스한테도 tess 볼 수 있게 공유해줘\n${share({ paths: ['users/bob/거래처-목록.csv'], people: ['Tess Yoon'] })}`)
+    const r = await turn('bob', `거래처 목록 테스한테도 tess가 볼 수 있게 공유해줘\n${share({ paths: ['users/bob/거래처-목록.csv'], people: ['Tess Yoon'] })}`)
     expect(cardsTo('bob', r.turnId)).toBe(0)
     const out = JSON.parse(r.content)
     expect(out.status).toBe('shared')
@@ -232,16 +232,16 @@ describe('in a shared chat (the same rules as post_to_room)', () => {
     expect(h.ctx.db.query("SELECT 1 FROM file_shares WHERE path = 'users/bob/salary.pdf'").get()).toBeNull()
   })
 
-  test('Always allow in a shared chat: counts only when the asker\'s own message names the person', async () => {
+  test('Always allow in a shared chat does not skip the card, also when the asker\'s own message names the person', async () => {
     const { keepAlways, dropAlways } = await import('../../server/src/chat/always-allow')
     put('users/bob/photo-5.png', 'png five')
     keepAlways(h.ctx.db, 'bob', 'share_files', null)
     try {
-      // named by bob: no card
+      // named by bob: the card all the same (a shared chat holds other people's words); shared on his yes
       // (the fake engine's directive is in bob's message too: the name spelled with a JSON escape, so only his words count)
       const hidden = (args: Record<string, unknown>) => share(args).replace('Tess Yoon', '\\u0054ess Yoon')
-      const named = await turn('bob', `photo-5.png Tess한테 공유해줘\n${hidden({ paths: ['users/bob/photo-5.png'], people: ['Tess Yoon'] })}`, { chat: chatId })
-      expect(cardsTo('bob', named.turnId)).toBe(0)
+      const named = await turn('bob', `photo-5.png Tess한테 공유해줘\n${hidden({ paths: ['users/bob/photo-5.png'], people: ['Tess Yoon'] })}`, { chat: chatId, answer: 'share' })
+      expect(cardsTo('bob', named.turnId)).toBe(1)
       expect(JSON.parse(named.content).status).toBe('shared')
       // alice names the person, bob's own message does not: the card, without "Always allow"
       // (a file Tess cannot open yet: one she can already open is said so and never asked about, chat/share-next-steps.ts)

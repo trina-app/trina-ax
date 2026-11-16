@@ -1911,10 +1911,13 @@ export class TurnExec {
    * attachments, and their own files an AI turn of theirs wrote on nothing from others, are not other people's words.
    */
   markOthersWords() {
-    try { this.rt.db.query('UPDATE chats SET others_words = 1 WHERE id = ? AND others_words = 0').run(this.spec.chatId) } catch (e) { this.rt.log.warn('others-words mark failed', { err: e, turn: this.id }) }
+    // (a mark that could not be kept still counts for this turn: fails closed)
+    try { this.rt.db.query('UPDATE chats SET others_words = 1 WHERE id = ? AND others_words = 0').run(this.spec.chatId) } catch (e) { this.othersWordsUnkept = true; this.rt.log.warn('others-words mark failed', { err: e, turn: this.id }) }
   }
+  private othersWordsUnkept = false
   /** ...read each time (a tool can set it during the turn); a chat row that is gone counts as marked */
   get othersWords(): boolean {
+    if (this.othersWordsUnkept) return true
     try {
       const c = this.rt.db.query('SELECT others_words AS o FROM chats WHERE id = ?').get(this.spec.chatId) as { o: number } | null
       return !c || !!c.o
@@ -1968,7 +1971,7 @@ export class TurnExec {
       }
       // no known history: the person's own folder is theirs (a sync, a change outside the app); anywhere else is not
       if (!known && rel !== `users/${me}` && !rel.startsWith(`users/${me}/`)) return true
-      return depth === 0 && this.fileOutsideLevel(rel, 0, budget) >= 1
+      return this.fileOutsideLevel(rel, 0, budget) >= 1
     } catch { return true }
   }
 

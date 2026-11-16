@@ -26,11 +26,11 @@ import { fileSharesOf, linkIdOf } from '../files/shares'
 import { isStaff } from '../policy/access'
 import { tr } from './i18n'
 import { neutralizeTags } from './prompt'
-import { actionOff, askerPicks, askerText, asksToSend, attachedPaths, fromAsker, madeInTurn, mainOnly, namesFile, namesFileLoose, namedInFull, namesRecipient, ownWords, asksFor, SHARE_ASK } from './shared-actions'
+import { actionOff, askerPicks, askerText, asksToSend, attachedPaths, fromAsker, madeInTurn, mainOnly, namesFile, namesFileLoose, namedInFull, namesGroup, namesRecipient, ownWords, soleNames, asksFor, SHARE_ASK } from './shared-actions'
 import { readRooms } from './read-rooms'
 import { seenWhy } from './grant-reads'
 import { lookedFile, lookedPerson } from './looking-at'
-import { withAlways } from './always-allow'
+import { alwaysHere, withAlways } from './always-allow'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
 import { uuidv7 } from '@mycel/shared'
@@ -62,7 +62,7 @@ export function shareWithPersonOff(exec: Pick<TurnExec, 'restricted' | 'template
   return null
 }
 
-interface Who { subjectType: 'user' | 'group'; subjectId: string; name: string }
+interface Who { subjectType: 'user' | 'group'; subjectId: string; name: string; /** the words the AI gave for them */ ref?: string }
 
 export function shareWithPersonTool(exec: TurnExec): Tool {
   const { rt, spec } = exec
@@ -96,6 +96,8 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
 
         // ---- which files: the user's own, each checked as the Share dialog checks it ----
         const paths = [...new Set(a.data.paths)]
+        // what this answer read so far is counted first (a read whose marking failed is caught up here, as post_to_room does)
+        try { exec.noteReads() } catch (e) { rt.log.warn('read scope before a share failed', { err: e }) }
         // other people's words are in this turn: a shared chat, a chat others wrote in, or one that read rooms (a side chat,
         // room_read, a quoted room message; read now, as a room read can come in this turn)
         const others = !!exec.shared || exec.otherAuthors || readRooms(exec)
@@ -190,7 +192,7 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
               return no(`Nothing was shared: several people or groups match "${refAi}". Ask the user which one they mean (name them), then call share_with_person again with its person:<id> or group:<id>:\n${lines.join('\n')}`, `refused: ${cands.length} match`)
             }
           }
-          if (!who.some((w) => w.subjectType === pick!.subjectType && w.subjectId === pick!.subjectId)) who.push(pick)
+          if (!who.some((w) => w.subjectType === pick!.subjectType && w.subjectId === pick!.subjectId)) who.push({ ...pick, ref })
         }
         // someone who can already open every one of the files is told so, not shared with again (chat/share-next-steps.ts
         // accessRouteFor: "Jun can already open it through Sales"); a group is shared with as asked (its later members)
@@ -220,10 +222,20 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
           one?.subjectType === 'user' ? tr('fileShareAsk', L, { who: oneLine(one.name, 40), n: String(plan.length) }) : one ? tr('fileShareAskGroup', L, { who: oneLine(one.name, 40), n: String(plan.length) }) : tr('fileShareAskMany', L, { who: oneLine(whoLine, 80), n: String(plan.length) }),
           tr(plan.length === 1 ? 'fileShareViewOne' : 'fileShareView', L),
         ].filter(Boolean).join('\n\n')
-        // (their own words: a quoted line is someone else's, for who gets it and for which file)
-        const typed = others || content ? ownWords(askerText(db, spec.userMessageId)) : ''
-        const alwaysOk = (!others && !content) || (who.every((w) => namesRecipient(typed, w.name, { names: recipientWords(db, w), person: w.subjectType === 'user' }))
-          && fromAsker(db, spec, plan.map((f) => f.path)) && asksToSend(db, spec.userMessageId))
+        // "Always allow" covers the person's own asks: their own message of this turn (quoted lines left out: a quote is
+        // someone else's words) must ask to share or send and name every recipient. A name a teammate chose (a shared
+        // file's, a folder's) reaches the AI in a chat that read nothing, so this holds in a chat without the mark too;
+        // which file stays the person's "it" there.
+        // (the names of the call's other recipients: "to tess and bob", "김대리와 이과장한테" name each in a chain)
+        const peersOf = (w: Who) => who.filter((x) => x !== w).flatMap((x) => x.subjectType === 'group' ? [x.name] : recipientWords(db, x))
+        const typed = ownWords(askerText(db, spec.userMessageId))
+        // Where other people's words are in the chat (a shared chat, others writing in it, rooms read, content someone
+        // else wrote: others, content) the card always shows: neither "Always allow" nor the explicit ask skips it there
+        // (docs/decisions/20261116-always-allow-more-cards.md "Second review")
+        const marked = others || content
+        const alwaysOk = !marked && asksToSend(db, spec.userMessageId)
+          && who.every((w) => w.subjectType === 'group' ? namesGroup(typed, w.name) : namesRecipient(typed, w.ref, { names: recipientWords(db, w), person: true, peers: peersOf(w) }))
+        // (a group counts as named only as a group, namesGroup: "the sales report" does not name the group Sales)
         // no card when the asker's own message of this turn asked for exactly this share (docs/decisions/
         // 20261116-no-card-after-explicit-ask.md, QA TC-3812): a share word, every person or group named, every file named
         // or attached by them. Nobody else's words chose who gets which file then; never in a run nobody watches
@@ -233,13 +245,18 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         // their own message names it, the card shows, "Always allow" or not (a file's text must not get "what is open"
         // shared)
         const fromLook = plan.some((f) => lookedFile(exec, f.path, said, mine)) || who.some((w) => w.subjectType === 'user' && lookedPerson(exec, w.subjectId, recipientWords(db, w), said))
-        const explicit = !fromLook && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && asksFor(SHARE_ASK, said)
-          && who.every((w) => namedInFull(said, recipientWords(db, w)))
+        // #1109's rule: where other people's words are (marked) the card always shows; the screen target too (fromLook)
+        const explicit = !marked && !fromLook && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && asksFor(SHARE_ASK, said)
+          && who.every((w) => w.subjectType === 'group' ? namesGroup(said, w.name) : namedInFull(said, recipientWords(db, w), { peers: peersOf(w) }))
           && plan.every((f) => mine.has(f.path) || namesFileLoose(said, f.path))
+        // where the choice does not count the card shows; it still offers "Always allow" on its first showing in a chat with
+        // nobody else's words (the owner's rule), never where other people's words are, nor once the choice is made, nor for a
+        // target that came from the screen
+        const place = fromLook ? null : alwaysOk || (!marked && alwaysHere(exec.alwaysPlace?.(), 'share_files') === 'offer') ? exec.alwaysPlace?.() : null
         // why the card asks first, ONE line for the reason that matters most: the target came from the screen, then rooms or a
         // shared file read here, then content someone else wrote (docs/decisions/20261116-ai-sharing-integration.md)
         const whyLine = whyFirst(L, { fromLook, seenLine, others: othersWordsCard(exec, 'share_files', alwaysOk) })
-        const reply = explicit ? 'share' : await withAlways(alwaysOk && !fromLook ? exec.alwaysPlace?.() : null, 'share_files', [{ label: tr('fileShareYes', L), value: 'share' }, { label: tr('fileShareNo', L), value: 'no' }], 'share', (options, more) => exec.waitForPerson({
+        const reply = explicit ? 'share' : await withAlways(place, 'share_files', [{ label: tr('fileShareYes', L), value: 'share' }, { label: tr('fileShareNo', L), value: 'no' }], 'share', (options, more) => exec.waitForPerson({
           kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: whyLine ? `${whyLine}\n\n${question}` : question, multiple: false, allowText: false, options, ...more,
           // each file by its name and place in words, never a team path: two files of one name read differently
           details: [{ label: tr('fileShareFiles', L), text: plan.map((f) => fileWords(db, f.path, L, spec.userId)).join('\n'), noSize: true }],
@@ -305,8 +322,7 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
 /** The words that name a recipient in the asker's message: a person's name and username, a group's name. */
 export function recipientWords(db: import('bun:sqlite').Database, w: Who): string[] {
   if (w.subjectType === 'group') return [w.name]
-  const u = db.query('SELECT username FROM users WHERE id = ?').get(w.subjectId) as { username: string } | null
-  return [w.name, u?.username ?? ''].filter(Boolean)
+  return soleNames(db, w.subjectId)
 }
 
 const isGuest = (db: import('bun:sqlite').Database, id: string) => !!db.query('SELECT 1 FROM users WHERE id = ? AND guest = 1').get(id)

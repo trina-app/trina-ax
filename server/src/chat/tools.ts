@@ -552,9 +552,11 @@ export function turnPerson(exec: TurnExec): TurnPerson {
     // steps shown as they run (not a scheduled run, a Slack question, a draft or a turn the server started). Rooms,
     // shared chats and chats that read rooms too (the owner's call, 2026-11-11)
     allSitesHere: () => LIVE_CLIENTS.has(exec.spec.clientKind ?? '') && !exec.restricted,
-    // a team file attached to a connection's send (integrations/connections/tools.ts): in a chat that holds other
-    // people's words, a file the person's own message did not bring keeps the card (chat/shared-actions.ts)
-    attachAsks: (paths) => othersWordsIn(exec) && !fromAsker(exec.rt.db, exec.spec, paths),
+    // a team file attached to a connection's send (integrations/connections/tools.ts): a file the person's own
+    // message did not bring (named or attached it, or the AI wrote it new in this answer) keeps the card, in every
+    // chat: a file name a teammate chose reaches the AI in a chat that read nothing too (chat/shared-actions.ts)
+    // ...and always where other people's words are in the chat (othersWordsIn): no skip there
+    attachAsks: (paths) => othersWordsIn(exec) || !fromAsker(exec.rt.db, exec.spec, paths),
     webAccessChanged: () => exec.rt.hub.publish(exec.spec.userId, WEB_ACCESS_CHANGED),
     ...(exec.profileDraft ? { unattendedLabel: 'company profile draft answer', scope: (url: string) => draftUrlRefusal(exec.profileDraft!.scope, url), ...(exec.profileDraft.pages ? { pages: exec.profileDraft.pages } : {}) } : {}),
   }

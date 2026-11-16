@@ -77,6 +77,7 @@ import { confirmMac, confirmSecret } from './confirm-key'
 import { tr } from './i18n'
 import { sharePlaceOf } from './share-places'
 import type { ChatRow, MessageRow } from './store'
+import { WROTE_IT_SQL } from './shared-actions'
 
 /** Every this many linked files past the first take one more send from the budget (a row per file is a count per file). */
 export const LINKS_PER_TOKEN = 10
@@ -508,9 +509,6 @@ export async function shareAnswerToRoom(ctx: AppContext, userId: string, chat: C
   return await sendShare(ctx, userId, p, b, locale)
 }
 
-/** file_events detail keys that say a file's content came from somewhere else than the AI's own writing */
-const MADE_FROM_ELSEWHERE = ['sourcePaths', 'conflictCopyOf', 'copiedFrom', 'movedFrom', 'via', 'url', 'from', 'originalPath', 'pieces', 'pages', 'files', 'copy']
-
 /** The linked files some member cannot open, when every one of them may go as a copy and was written, as it is now, by
  * a turn of this answer's branch (the AI made it from what the branch read, which the provenance counts); else null. */
 async function madeHereOnly(ctx: AppContext, chatId: string, p: PreparedShare): Promise<Set<string> | null> {
@@ -527,9 +525,8 @@ async function madeHereOnly(ctx: AppContext, chatId: string, p: PreparedShare): 
     if (!sha) return null
     // written new by this branch (a file there before, an edit of one, a copy, a move, a conflict copy, a file built from
     // other files or fetched: never, since their content did not come from what the branch read; review of #PR)
-    const made = ctx.db.query(`SELECT e.id FROM file_events e WHERE e.path = ? AND e.sha256 = ? AND e.action = 'create' AND e.turn_id IN (${turns.map(() => '?').join(',')})
-      AND COALESCE(json_extract(e.detail, '$.tool'), '') IN ('write', 'make_file')
-      AND ${MADE_FROM_ELSEWHERE.map((k) => `json_extract(e.detail, '$.${k}') IS NULL`).join(' AND ')} ORDER BY e.id LIMIT 1`).get(r.rel!, sha, ...turns) as { id: number } | null
+    const made = ctx.db.query(`SELECT e.id FROM file_events e WHERE e.path = ? AND e.sha256 = ? AND e.turn_id IN (${turns.map(() => '?').join(',')})
+      AND ${WROTE_IT_SQL} ORDER BY e.id LIMIT 1`).get(r.rel!, sha, ...turns) as { id: number } | null
     if (!made) return null
     // nothing was at that path then: no event before it, or the last one removed the file (a delete; one there before
     // and since removed is another file)

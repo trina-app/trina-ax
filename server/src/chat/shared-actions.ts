@@ -62,19 +62,130 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const WORD_EDGE = '(?!\\p{Script=Hangul})[\\p{L}\\p{N}]'
 const holds = (said: string, n: string) => HANGUL.test(n) ? said.includes(n) : new RegExp(`(?<!${WORD_EDGE})${escapeRe(n)}(?!${WORD_EDGE})`, 'u').test(said)
 
+/** Korean particles and honorifics that may follow a name (에게, 한테, 께, 님, 씨, 이랑, 와/과, 도, 의, 에, 이/가, 은/는,
+ * 을/를, 으로/로, 에서, 방, 팀, 그룹, 부서, 본부, 만, 하고, 더러), as escapes */
+const NAME_TAIL = '(\\uC774\\uC5D0\\uAC8C|\\uC774\\uD558\\uACE0|\\uC774\\uD55C\\uD14C|\\uC73C\\uB85C|\\uC774\\uB791|\\uD55C\\uD14C|\\uC5D0\\uC11C|\\uB2D8\\uAED8|\\uC5D0\\uAC8C|\\uC774\\uB3C4|\\uC774\\uC758|\\uD558\\uACE0|\\uC528\\uAED8|\\uB354\\uB7EC|\\uC774\\uB294|\\uC774\\uB97C|\\uBD80\\uC11C|\\uADF8\\uB8F9|\\uBCF8\\uBD80|\\uC774\\uAC00|\\uAED8|\\uC5D0|\\uB294|\\uB3C4|\\uB9CC|\\uB85C|\\uBC29|\\uC640|\\uC528|\\uB791|\\uB2D8|\\uAC00|\\uB97C|\\uACFC|\\uC774|\\uC740|\\uC758|\\uD300|\\uC744)'
+/** A person's, group's or room's name in `said` (folded): whole words outside Hangul (holds); a Hangul name with no
+ * letter right before it, and after it nothing, a non-letter, a Latin letter or a particle ("김대리한테", never the
+ * "해줘" of "공유해줘"). Never a name inside the ask's own words (nameText). */
+const holdsName = (said: string, n: string) => !HANGUL.test(n) ? holds(said, n)
+  : new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(n)}(?=$|[^\\p{L}\\p{N}]|[a-z0-9]|${NAME_TAIL})`, 'u').test(said)
+/** Short words a name that is one of them never counts as (a person may call themselves anything) */
+const NOT_A_NAME = new Set(['with', 'to', 'and', 'the', 'this', 'that', 'it', 'me', 'my', 'our', 'for', 'of', 'file', 'files', 'share', 'send', 'post', 'please', 'dengan', 'ke', 'ini', 'itu'])
+/** ...nor, for a person, a title, a pronoun or a group word */
+const NOT_A_PERSON_NAME = new Set([
+  // titles, pronouns and group words people use for whoever holds them ("대표님께", "share with the team")
+  'everyone', 'everybody', 'all', 'them', 'us', 'you', 'him', 'her', 'team', 'the team', 'group', 'boss', 'manager', 'admin', 'owner', 'ceo', 'cto', 'cfo', 'hr', 'semua', 'tim', 'bos',
+  // (대표, 사장, 부장, 과장, 차장, 대리, 팀장, 실장, 이사, 상무, 전무, 본부장, 주임, 사원, 선배, 후배, 매니저, 선생님, 고객, 모두, 다들, 전체, 우리, 저, 나, 팀, 그룹)
+  '\uB300\uD45C', '\uB300\uD45C\uB2D8', '\uC0AC\uC7A5', '\uBD80\uC7A5', '\uACFC\uC7A5', '\uCC28\uC7A5', '\uB300\uB9AC', '\uD300\uC7A5', '\uC2E4\uC7A5', '\uC774\uC0AC', '\uC0C1\uBB34', '\uC804\uBB34', '\uBCF8\uBD80\uC7A5', '\uC8FC\uC784', '\uC0AC\uC6D0', '\uC120\uBC30', '\uD6C4\uBC30', '\uB9E4\uB2C8\uC800', '\uC120\uC0DD\uB2D8', '\uACE0\uAC1D', '\uBAA8\uB450', '\uB2E4\uB4E4', '\uC804\uCCB4', '\uC6B0\uB9AC', '\uC800', '\uB098', '\uD300', '\uADF8\uB8F9'])
+/** ...nor a Hangul name that is a title with 님 (대표님) */
+const TITLE_NIM = /\uB2D8$/u
+/** The asker's words for matching names: folded, with the ask's own words taken out ("share … with", 공유해줘, 보내줘,
+ * "send … to": a name inside them is the verb, not a recipient) */
+function nameText(said: string): string {
+  let t = fold(said.slice(0, NAME_SCAN))
+  for (const r of [SHARE_ASK, POST_ASK]) t = t.replace(new RegExp(r.source.replace(/\{0,80\}/g, '{0,80}?'), 'giu'), ' ')
+  return t
+}
+/** How much of the person's message the name checks read (a request is short; a name past it shows the card) */
+const NAME_SCAN = 4000
+const nameOk = (n: string) => n.length >= 2 && !NOT_A_NAME.has(n)
+/** A person's name: nameOk, and not a department, an outside party or a phrase about someone ("legal", "my boss",
+ * 인사팀, 거래처): a member may call themselves that, and the person's words mean the department, not them. */
+const NOT_A_PERSON = new Set(['qa', 'pm', 'po', 'dev', 'devs', 'intern', 'interns', 'assistant', 'director', 'lawyer', 'accountant', 'designer', 'developer', 'engineer', 'reviewer', 'review', 'approver', 'editor',
+  // (책임, 수석, 선임, 프로, 파트장, 그룹장, 센터장, 소장, 원장, 회장, 부사장, 고문, 인턴, 비서, 연구원, 팀원, 직원, 변호사, 세무사, 회계사, 노무사, 교수, 기자, 작가, 디자이너, 개발자)
+  '\uCC45\uC784', '\uC218\uC11D', '\uC120\uC784', '\uD504\uB85C', '\uD30C\uD2B8\uC7A5', '\uADF8\uB8F9\uC7A5', '\uC13C\uD130\uC7A5', '\uC18C\uC7A5', '\uC6D0\uC7A5', '\uD68C\uC7A5', '\uBD80\uC0AC\uC7A5', '\uACE0\uBB38', '\uC778\uD134', '\uBE44\uC11C', '\uC5F0\uAD6C\uC6D0', '\uD300\uC6D0', '\uC9C1\uC6D0', '\uBCC0\uD638\uC0AC', '\uC138\uBB34\uC0AC', '\uD68C\uACC4\uC0AC', '\uB178\uBB34\uC0AC', '\uAD50\uC218', '\uAE30\uC790', '\uC791\uAC00', '\uB514\uC790\uC774\uB108', '\uAC1C\uBC1C\uC790',
+  'legal', 'finance', 'accounting', 'sales', 'marketing', 'support', 'client', 'clients', 'customer', 'customers', 'vendor', 'partner', 'partners', 'investor', 'investors', 'it', 'ops', 'design', 'engineering', 'product', 'payroll', 'reception', 'security', 'management', 'board', 'staff', 'keuangan', 'klien',
+  // (거래처, 고객, 고객사, 회계, 인사, 총무, 법무, 재무, 영업, 마케팅, 개발, 디자인, 관리자, 담당자)
+  '\uAC70\uB798\uCC98', '\uACE0\uAC1D', '\uACE0\uAC1D\uC0AC', '\uD68C\uACC4', '\uC778\uC0AC', '\uCD1D\uBB34', '\uBC95\uBB34', '\uC7AC\uBB34', '\uC601\uC5C5', '\uB9C8\uCF00\uD305', '\uAC1C\uBC1C', '\uB514\uC790\uC778', '\uAD00\uB9AC\uC790', '\uB2F4\uB2F9\uC790'])
+const personOk = (n: string) => nameOk(n) && !NOT_A_PERSON_NAME.has(n) && !NOT_A_PERSON_NAME.has(n.replace(TITLE_NIM, '')) && !NOT_A_PERSON_NAME.has(n.replace(/^the /, '')) && !NOT_A_PERSON.has(n.replace(/^(the|my|our) /, '')) && !/^(my|our|your|his|her|their|the|this|these|those|that|a|an|some|any|every|other|another) /.test(n)
+  // (not a phrase that points at a thing: 이 파일, 그 보고서, 이거, 그거, 저거, 이것, 그것)
+  && !/^(\uC774|\uADF8|\uC800) /u.test(n) && !/^(\uC774|\uADF8|\uC800)(\uAC70|\uAC83)/u.test(n)
+  && !/ (team|group|department|dept|division|office)$/.test(n) && !/(\uBD80\uC11C|\uADF8\uB8F9|\uBCF8\uBD80|\uD300)$/u.test(n)
+/** Where a recipient's name stands in the person's words (folded), so that a word someone took as their name (파일,
+ * report, 보고서) is not one in an ordinary request: right after to, with, cc, @ or "(" (in, into, on, @, # or "(" for a
+ * place), or before a Korean particle that says who gets it (한테, 에게, 께, 더러, after 님/씨; "(가) 볼 수 / 보게") or
+ * where it goes (에, 에다, 방에 … for a place). A name joined by and, a comma, 와/과, (이)랑 or 하고 counts only in a
+ * chain of other recipients of the same call that ends at such a word ("to tess and bob", "김대리와 이과장한테"). */
+const BEFORE_PERSON = '(?:(?:^|[^\\p{L}\\p{N}])(?:to|with|cc|ke|dengan|kepada)\\s+@?|[(@]\\s*)'
+/** ...but not a "to"/"with" right after a recipient already named ("with tess to review", "to tess with comments": a
+ * purpose or a manner, not a second person): one to three words after an earlier to/with/cc, none of them a verb that
+ * starts a new ask ("I want to share it with bob" keeps bob) */
+const AFTER_ONE_NAMED = '(?<!(?:^|[^\\p{L}\\p{N}])(?:to|with|cc)\\s+@?(?:(?!(?:share|send|post|forward|give|show|pass|email|mail|bagikan|kirim)\\b)[\\p{L}\\p{N}._\'-]+\\s+){0,2}(?!(?:share|send|post|forward|give|show|pass|email|mail|bagikan|kirim)\\b)[\\p{L}\\p{N}._\'-]+)'
+const BEFORE_PLACE = '(?:(?:^|[^\\p{L}\\p{N}])(?:to|in|into|on|ke|di)\\s+(?:the\\s+)?[@#]?|[(@#]\\s*)'
+const HONORIFIC = '(?:\\s?(?:\\uB2D8|\\uC528))?'
+const AFTER_PERSON = `${HONORIFIC}(?:\\uC774\\uC5D0\\uAC8C|\\uC774\\uD55C\\uD14C|\\uB354\\uB7EC|\\uC5D0\\uAC8C|\\uD55C\\uD14C|\\uAED8|(?:\\uC774|\\uAC00)\\s?(?:\\uBCFC\\s?\\uC218(?!\\s?\\uC5C6)|\\uBCF4\\uAC8C|\\uBCF4\\uB3C4\\uB85D))`
+/** "(가) 볼 수 / 보게" names a person only with 이/가 or 님/씨 on the name ("바로 볼 수 있게" is an adverb) */
+const SEES_AFTER_HONORIFIC = '\\s?(?:\\uB2D8|\\uC528)(?:\\uC774|\\uAC00)?\\s?(?:\\uBCFC\\s?\\uC218(?!\\s?\\uC5C6)|\\uBCF4\\uAC8C|\\uBCF4\\uB3C4\\uB85D)'
+const JOIN_KO = '(?:\\uC774\\uD558\\uACE0|\\uC774\\uB791|\\uD558\\uACE0|\\uB791|\\uC640|\\uACFC)'
+const AFTER_PLACE = '(?:\\uC5D0\\uB2E4\\uAC00|\\uBC29\\uC73C\\uB85C|\\uCC44\\uB110\\uC5D0|\\uC5D0\\uB2E4|\\uD55C\\uD14C|\\uBC29\\uC5D0|\\uC5D0\\uAC8C|\\uC5D0|\\uAED8)'
+function holdsAsRecipient(text: string, n: string, place: boolean, peers: readonly string[] = []): boolean {
+  if (!holdsName(text, n)) return false
+  const e = escapeRe(n)
+  const L = '(?<![\\p{L}\\p{N}])'
+  const R = '(?:(?![\\p{L}\\p{N}])|(?=\\p{Script=Hangul}))'
+  if (new RegExp(`${place ? BEFORE_PLACE : AFTER_ONE_NAMED + BEFORE_PERSON}${e}${R}`, 'u').test(text)) return true
+  if (new RegExp(`${L}${e}(?:${place ? AFTER_PLACE : `${AFTER_PERSON}|${SEES_AFTER_HONORIFIC}`})`, 'u').test(text)) return true
+  const ps = [...new Set(peers.map(fold))].filter((p) => p.length >= 2 && p !== n).slice(0, 10).map(escapeRe)
+  if (place || !ps.length) return false
+  const P = `(?:${ps.join('|')})`
+  // in a chain: "to tess, bob and n" with nothing after n but the end of the phrase (never "… and the notes with bob");
+  // "n님과 P한테" with 님 or 씨 on n (a Korean list joined by 와/과 is as often one of things: 보고서와 견적서)
+  if (new RegExp(`${BEFORE_PERSON}(?:${P}\\s*(?:,|&|and)\\s*(?:and\\s+)?){1,4}${e}(?=\\s*(?:$|[.!?;:)\\n,&]|and\\b|please\\b|too\\b))`, 'u').test(text)) return true
+  return new RegExp(`${L}${e}\\s?(?:\\uB2D8|\\uC528)(?:${JOIN_KO}\\s?${P}${HONORIFIC}){1,4}${AFTER_PERSON}`, 'u').test(text)
+}
+
 /** Does `said` (the asker's own message) name the recipient? A matched name or username in it, or the words the AI gave
  * (`ref`, 님/씨 dropped) when they are in it and are that name in full or one word of it, or, for a person's Hangul
  * name only, its end (a given name: "대현" for "남대현"); two letters at least (holds: whole words outside Hangul). A
  * room or group name matches only in full or by a whole word. Fails closed. */
-export function namesRecipient(said: string, ref: string | undefined, r0: { names: readonly string[]; person: boolean }): boolean {
-  const text = fold(said)
+export function namesRecipient(said: string, ref: string | undefined, r0: { names: readonly string[]; person: boolean; peers?: readonly string[] }): boolean {
+  const text = fold(said.slice(0, NAME_SCAN))
   if (!text) return false
-  const ns = r0.names.map(fold).filter((n) => n.length >= 2)
-  if (ns.some((n) => holds(text, n))) return true
+  const place = !r0.person
+  const ok = place ? nameOk : personOk
+  const ns = r0.names.map(fold).filter(ok)
+  if (ns.some((n) => holdsAsRecipient(text, n, place, r0.peers))) return true
   // (the Korean honorifics nim and ssi after a name, as escapes: no Korean text outside the language tables)
   const r = fold((ref ?? '').replace(/\s*(\uB2D8|\uC528)$/u, ''))
-  if (r.length < 2 || r.startsWith(PERSON_REF) || !holds(text, r)) return false
+  if (!ok(r) || r.startsWith(PERSON_REF) || !holdsAsRecipient(text, r, place, r0.peers)) return false
   return ns.some((n) => n === r || n.split(' ').includes(r) || (r0.person && HANGUL.test(r) && HANGUL.test(n) && n.endsWith(r)))
+}
+
+/** A group named in `said` as a group: its full name with a group word next to it (영업팀, 영업 그룹, "Sales team",
+ * "tim Sales", @Sales), or a name that is itself one ("Sales Team", 영업본부). A group name is often an ordinary word
+ * ("sales", 영업): "the sales report" does not name the group. Fails closed. */
+const GROUP_WORD = '(team|group|department|dept|tim|grup|\\uD300|\\uADF8\\uB8F9|\\uBD80\\uC11C|\\uBCF8\\uBD80)'
+export function namesGroup(said: string, name: string): boolean {
+  const text = nameText(said)
+  const n = fold(name)
+  if (!nameOk(n) || !holdsName(text, n)) return false
+  if (new RegExp(`(^|\\s)${GROUP_WORD}$`, 'iu').test(n) || new RegExp(`\\p{Script=Hangul}${GROUP_WORD}$`, 'u').test(n)) return true
+  const e = escapeRe(n)
+  // (not a team's member or lead: 팀원, 팀장; not a longer Latin word: "timeline")
+  const L = '(?<![\\p{L}\\p{N}])'
+  const R = HANGUL.test(n) ? '' : '(?![\\p{L}\\p{N}])'
+  return new RegExp(`@${e}${R}|${L}${e}\\s?${GROUP_WORD}(?![a-z0-9\\uC7A5\\uC6D0])|\\b(grup|tim)\\s${e}${R}`, 'iu').test(text)
+}
+
+/** A person's names that point at them alone: their username, and their display name only when no other member of
+ * the team has the same one or one that holds it (a member may take a colleague's name; then only the username counts). */
+export function soleNames(db: Database, userId: string): string[] {
+  const u = db.query('SELECT name, username FROM users WHERE id = ?').get(userId) as { name: string; username: string } | null
+  if (!u) return []
+  // (compared on letters and digits only, without 님/씨 at the end: "Tess Yoon." is "Tess Yoon"; a name inside another's
+  // counts as the same: "Hana" in "Hana Kimura", 민수 in 김민수)
+  const bare = (x: string | null) => fold((x ?? '').replace(/\s*(\uB2D8|\uC528)\s*$/u, '')).replace(/[^\p{L}\p{N}]+/gu, ' ').trim().replace(/\s*(\uB2D8|\uC528)$/u, '')
+  const others = [...(db.query('SELECT name, username FROM users WHERE id <> ?').all(userId) as { name: string | null; username: string | null }[])
+    .flatMap((o) => [bare(o.name), bare(o.username)]),
+  // (a group's or a room's name is not a person's either: "share it with Finance" means the group)
+  ...(db.query('SELECT name FROM groups').all() as { name: string | null }[]).map((g) => bare(g.name)),
+  ...(db.query("SELECT name FROM rooms WHERE name IS NOT NULL AND kind <> 'dm'").all() as { name: string | null }[]).map((r) => bare(r.name))].filter(Boolean)
+  const inside = (n: string, o: string) => o === n || (HANGUL.test(n) ? o.startsWith(n) || o.endsWith(n) : o.startsWith(n + ' ') || o.endsWith(' ' + n) || o.includes(' ' + n + ' '))
+  // the display name and the username each count only when no other member's name or username, group or room name is,
+  // or holds, the same
+  const theirs = (x: string | null) => { const n = bare(x); return n.length >= 2 && !others.some((o) => inside(n, o)) }
+  return [...(theirs(u.name) ? [u.name] : []), ...(theirs(u.username) ? [u.username] : [])]
 }
 
 /** The turn's own question (`messageId`): its text. */
@@ -103,15 +214,42 @@ export function attachedPaths(db: Database, messageId: string): Set<string> {
   return out
 }
 
-/** The AI made the file at `rel` in this turn: a new file it wrote there (its own write or upload), with nothing at
- * that path before the turn. Not a file moved, renamed or copied into place (its content was there before: the
- * event's movedFrom / sourcePaths), and not an edit of a file that existed before the turn: neither makes an older
- * file one the asker brought. */
+/** file_events detail keys that say a file's content came from somewhere else than the AI's own writing: a copy, a
+ * move, a conflict copy, a file built from other files, a page or a room (one list for every place that asks "did the
+ * AI write this itself": madeInTurn here, chat/answer-share.ts madeHereOnly) */
+export const MADE_FROM_ELSEWHERE = ['sourcePaths', 'conflictCopyOf', 'copiedFrom', 'movedFrom', 'via', 'url', 'from', 'originalPath', 'pieces', 'pages', 'files', 'copy'] as const
+/** ...as SQL on a file_events row `alias`: an event of the AI's own writing: write or edit, or make_file from its own
+ * text alone (detail.own, which make_file sets only when no file's bytes went into the output: no source, embedded
+ * image or template), with none of those keys. Every other tool that places a file builds it from something else
+ * (make_file with a source, stamp_pdf, edit_pdf, split_pdf, merge_pdfs, edit_hwp, comment_docx, save_url,
+ * save_room_file, a video), and an event without the mark (an older build's, a publication's) is not counted: fails
+ * closed. */
+const ownWritingSql = (alias: string) => `${alias}.detail IS NOT NULL AND json_valid(${alias}.detail)
+  AND (COALESCE(json_extract(${alias}.detail, '$.tool'), '') IN ('write', 'edit') OR (json_extract(${alias}.detail, '$.tool') = 'make_file' AND json_extract(${alias}.detail, '$.own') = 1))
+  AND ${MADE_FROM_ELSEWHERE.map((k) => `json_extract(${alias}.detail, '$.${k}') IS NULL`).join(' AND ')}`
+/** A file_events row `e` by which the AI wrote a new file itself. */
+export const WROTE_IT_SQL = `e.action = 'create' AND ${ownWritingSql('e')}`
+
+/** The AI made the file at `rel` in this turn: a new file it wrote itself there (WROTE_IT_SQL), with nothing at that
+ * path before (no event, or the last one removed the file), and nothing but its own writing of this turn at that path
+ * since (a tool that built the same output from another file, a copy over it, a person's save: not the AI's file any
+ * more). Not a file moved, renamed or copied into place, not one a tool built from another file, a page or a room, and
+ * not an edit of a file that existed before the turn: none of them makes an older file, or someone else's content,
+ * one the asker brought. Fails closed. */
 export function madeInTurn(db: Database, turnId: string, rel: string): boolean {
-  return !!db.query(`SELECT 1 FROM file_events e WHERE e.turn_id = ?1 AND e.path = ?2 AND e.action IN ('create','upload')
-      AND (e.detail IS NULL OR NOT json_valid(e.detail) OR (json_extract(e.detail, '$.movedFrom') IS NULL AND json_extract(e.detail, '$.sourcePaths') IS NULL AND json_extract(e.detail, '$.copiedFrom') IS NULL))
-      AND NOT EXISTS (SELECT 1 FROM file_events p WHERE p.path = ?2 AND p.id < e.id AND (p.turn_id IS NULL OR p.turn_id <> ?1))
-    LIMIT 1`).get(turnId, rel)
+  try {
+    const made = db.query(`SELECT e.id FROM file_events e WHERE e.turn_id = ? AND e.path = ? AND ${WROTE_IT_SQL} ORDER BY e.id LIMIT 1`).get(turnId, rel) as { id: number } | null
+    if (!made) return false
+    const prev = db.query("SELECT action FROM file_events WHERE path = ? AND id < ? AND action <> 'rejected' ORDER BY id DESC LIMIT 1").get(rel, made.id) as { action: string } | null
+    if (prev && prev.action !== 'delete') return false
+    if (db.query(`SELECT 1 FROM file_events p WHERE p.path = ?1 AND p.id > ?2 AND p.action <> 'rejected'
+      AND NOT (p.turn_id IS NOT NULL AND p.turn_id = ?3 AND p.action IN ('create', 'update') AND ${ownWritingSql('p')}) LIMIT 1`).get(rel, made.id, turnId)) return false
+    // a folder above it moved, renamed, removed or made since: what is at the path now may be another file (a folder
+    // rename logs events at the folder's path only, never at the paths of the files inside)
+    const segs = rel.split('/')
+    const above = segs.slice(0, -1).map((_, i) => segs.slice(0, i + 1).join('/'))
+    return !above.length || !db.query(`SELECT 1 FROM file_events WHERE id > ? AND action <> 'rejected' AND path IN (${above.map(() => '?').join(',')}) LIMIT 1`).get(made.id, ...above)
+  } catch { return false }
 }
 
 // ---- content written by others (docs/decisions/20261116-always-allow-more-cards.md "Content written by others") ----
@@ -183,9 +321,10 @@ export function namesFileLoose(said: string, rel: string): boolean {
 
 /** A person or place named in full in the person's words (a full name, a username, a room's name; two letters at
  * least, whole words outside Hangul): never by a part ("하나" in "파일 하나" is not 최하나). */
-export function namedInFull(said: string, names: readonly string[]): boolean {
-  const text = fold(said)
-  return names.map(fold).some((n) => n.length >= 2 && holds(text, n))
+export function namedInFull(said: string, names: readonly string[], o: { place?: boolean; peers?: readonly string[] } = {}): boolean {
+  const text = fold(said.slice(0, NAME_SCAN))
+  const ok = o.place ? nameOk : personOk
+  return names.map(fold).some((n) => ok(n) && holdsAsRecipient(text, n, !!o.place, o.peers))
 }
 
 /** Keys whose value says who or where else sees what is sent: the asker must have written that value themselves. */

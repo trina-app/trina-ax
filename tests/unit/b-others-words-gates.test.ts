@@ -12,10 +12,12 @@ import { API, type Room } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { dropAlways, keepAlways } from '../../server/src/chat/always-allow'
 import { fileSharesOf } from '../../server/src/files/shares'
-import { fromAsker, othersWordsIn } from '../../server/src/chat/shared-actions'
+import { fromAsker, madeInTurn, namedInFull, namesGroup, namesRecipient, othersWordsIn, soleNames } from '../../server/src/chat/shared-actions'
 import { shareWithPersonTool } from '../../server/src/chat/share-with-person'
 import { OWN_CHAT_TEAM_TOOLS, OWN_WORDS_TOOLS } from '../../server/src/rooms/ai-tools'
 import { roomsOf } from '../../server/src/rooms/service'
+import { turnPerson } from '../../server/src/chat/tools'
+import type { TurnExec } from '../../server/src/chat/turn'
 
 setDefaultTimeout(90_000)
 const cm = () => 'cm-' + crypto.randomUUID()
@@ -77,27 +79,27 @@ async function turn(user: string, content: string, chat?: string) {
   const done = await socks[user]!.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 40_000)
   const cards = socks[user]!.frames.filter((f) => f.type === 'turn.request' && (f as { data: { turnId?: string } }).data.turnId === r.turnId)
     .map((f) => (f as unknown as { data: { request: { options?: { value: string }[] } } }).data.request)
-  return { chatId, turnId: r.turnId as string, content: done.data.message.content as string, cards }
+  return { chatId, turnId: r.turnId as string, messageId: r.userMessage!.id as string, content: done.data.message.content as string, cards }
 }
 const sharedRow = (p: string) => h.ctx.db.query('SELECT 1 FROM file_shares WHERE path = ?').get(p)
 // (the file's and the person's names as JSON escapes: bob's own words name neither)
 const unnamed = (n: number) => share({ paths: [`users/bob/ledger-${n}.txt`], people: ['Tess Yoon'] })
 
 describe('share_with_person with "Always allow" on, in my own chat', () => {
-  test('a clean chat: no card (the owner\'s rule)', async () => {
-    const r = await turn('bob', `go on\n${unnamed(1)}`)
+  test('a clean chat, my message asks and names the person: no card (the owner\'s rule), whatever the file', async () => {
+    const r = await turn('bob', `send it to tess\n${unnamed(1)}`)
     expect(r.cards).toHaveLength(0)
     expect(JSON.parse(r.content).status).toBe('shared')
   })
 
   test('after reading my own file: still no card', async () => {
-    const r = await turn('bob', `go on\n${read('users/bob/own-notes.md')}\n${unnamed(2)}`)
+    const r = await turn('bob', `send it to tess\n${read('users/bob/own-notes.md')}\n${unnamed(2)}`)
     expect(r.cards).toHaveLength(0)
     expect(JSON.parse(r.content).status).toBe('shared')
   })
 
   test('after reading a teammate\'s team file, in the same answer: a share my message did not name keeps its card', async () => {
-    const r = await turn('bob', `go on\n${read('shared/alice-notes.md')}\n${unnamed(3)}`)
+    const r = await turn('bob', `send it to tess\n${read('shared/alice-notes.md')}\n${unnamed(3)}`)
     expect(r.cards).toHaveLength(1)
     // (no "Always allow" where it would not count)
     expect(r.cards[0]!.options!.map((x) => x.value)).toEqual(['share', 'no'])
@@ -106,7 +108,7 @@ describe('share_with_person with "Always allow" on, in my own chat', () => {
 
   test('...and in a later answer of the same chat', async () => {
     const first = await turn('bob', `read it\n${read('shared/alice-notes.md')}`)
-    const r = await turn('bob', `go on\n${unnamed(4)}`, first.chatId)
+    const r = await turn('bob', `send it to tess\n${unnamed(4)}`, first.chatId)
     expect(r.cards).toHaveLength(1)
     expect(sharedRow('users/bob/ledger-4.txt')).toBeNull()
   })
@@ -122,16 +124,16 @@ describe('share_with_person with "Always allow" on, in my own chat', () => {
     expect(sharedRow('users/bob/ledger-5.txt')).toBeNull()
   })
 
-  test('what my own message names stays card-free after such a read: an explicit ask, and Always allow with the file and the person named', async () => {
+  test('after such a read the card always shows: neither an explicit ask nor Always allow skips it', async () => {
     const first = await turn('bob', `read it\n${read('shared/alice-notes.md')}`)
-    // an explicit ask (docs/decisions/20261116-no-card-after-explicit-ask.md)
+    // an explicit ask (docs/decisions/20261116-no-card-after-explicit-ask.md): the card, in a chat with other people's words
     const explicit = await turn('bob', `share ledger-6.txt with tess\n${unnamed(6)}`, first.chatId)
-    expect(explicit.cards).toHaveLength(0)
-    expect(JSON.parse(explicit.content).status).toBe('shared')
-    // a send word, the file and the person in my words: my Always allow counts
+    expect(explicit.cards).toHaveLength(1)
+    expect(sharedRow('users/bob/ledger-6.txt')).toBeNull()
+    // a send word, the file and the person in my words: still the card
     const named = await turn('bob', `send ledger-7.txt to tess\n${unnamed(7)}`, first.chatId)
-    expect(named.cards).toHaveLength(0)
-    expect(JSON.parse(named.content).status).toBe('shared')
+    expect(named.cards).toHaveLength(1)
+    expect(sharedRow('users/bob/ledger-7.txt')).toBeNull()
     // the person named, the file not: the card
     const half = await turn('bob', `send it to tess\n${unnamed(8)}`, first.chatId)
     expect(half.cards).toHaveLength(1)
@@ -146,8 +148,8 @@ describe('share_with_person with "Always allow" on, in my own chat', () => {
 describe('post_to_room with "Always allow" on, in my own chat', () => {
   // (the room's id as JSON escapes; bob's words name no place)
   const toEveryone = (text: string) => post({ room: everyone, text })
-  test('a clean chat: no card', async () => {
-    const r = await turn('bob', `go on\n${toEveryone('hello one')}`)
+  test('a clean chat, my message asks and names the place: no card', async () => {
+    const r = await turn('bob', `send this to tess\n${post({ room: 'Tess Yoon', text: 'hello one' })}`)
     expect(r.cards).toHaveLength(0)
     expect(JSON.parse(r.content).status).toBe('sent')
   })
@@ -158,10 +160,10 @@ describe('post_to_room with "Always allow" on, in my own chat', () => {
     expect(r.content).not.toContain('"status":"sent"')
   })
 
-  test('...and a place my message names goes without the card', async () => {
+  test('...and a place my message names keeps the card too', async () => {
     const r = await turn('bob', `send this one to tess\n${read('shared/alice-notes.md')}\n${post({ room: 'Tess Yoon', text: 'hello three' })}`)
-    expect(r.cards).toHaveLength(0)
-    expect(JSON.parse(r.content).status).toBe('sent')
+    expect(r.cards).toHaveLength(1)
+    expect(r.content).not.toContain('"status":"sent"')
   })
 })
 
@@ -246,10 +248,11 @@ describe('a file the AI did not write in this answer is not one the asker brough
     const edited = await turn('bob', `send the summary to tess\n${readIt}\n${read('users/bob/payroll-c.txt')}\n${fake({ tool: 'edit', args: { file_path: 'users/bob/payroll-c.txt', old_string: 'pay c', new_string: 'pay c.' } })}\n${to('users/bob/payroll-c.txt')}`)
     expect(sharedRow('users/bob/payroll-c.txt')).toBeNull()
     expect(edited.content).not.toContain('"status":"shared"')
-    // a new file the AI wrote in this answer: shared without the card
+    // a new file the AI wrote in this answer: one the asker brought (fromAsker), though the card shows in this chat
     const made = await turn('bob', `send the summary to tess\n${readIt}\n${fake({ tool: 'write', args: { file_path: 'users/bob/new-summary.md', content: 'summary' } })}\n${to('users/bob/new-summary.md')}`)
-    expect(made.cards).toHaveLength(0)
-    expect(JSON.parse(made.content).status).toBe('shared')
+    expect(fromAsker(h.ctx.db, { userMessageId: made.messageId, turnId: made.turnId }, ['users/bob/new-summary.md'])).toBe(true)
+    expect(fromAsker(h.ctx.db, { userMessageId: copied.messageId, turnId: copied.turnId }, ['users/bob/out-a/payroll-a.txt'])).toBe(false)
+    expect(made.cards).toHaveLength(1)
   })
 })
 
@@ -273,13 +276,15 @@ describe('a scheduled run (nobody answers a card)', () => {
 
   test('a clean run shares under the person\'s choice; after content by others only what the task\'s own text names', async () => {
     h.ctx.db.query("DELETE FROM file_shares WHERE path = 'users/bob/ledger-9.txt'").run()
-    expect(JSON.parse(await run('weekly task', false, 9)).status).toBe('shared')
+    expect(JSON.parse(await run('send the weekly file to tess', false, 9)).status).toBe('shared')
+    // a task whose text names nobody shares nothing, also in a clean run
+    expect(await run('weekly task', false, 1)).toContain('Nothing was shared: the card got no answer in time')
     h.ctx.db.query("DELETE FROM file_shares WHERE path LIKE 'users/bob/ledger-9.txt'").run()
-    // the run read a teammate's file, and the task's text names neither the file nor the person: nothing is shared
-    const steered = await run('weekly task', true, 1)
+    // the run read a teammate's file, and the task's text does not name the file: nothing is shared
+    const steered = await run('send the weekly file to tess', true, 1)
     expect(steered).toContain('Nothing was shared: the card got no answer in time')
-    // the task's own text names both: shared
-    expect(JSON.parse(await run('send ledger-9.txt to tess every week', true, 9)).status).toBe('shared')
+    // the task's own text names both: still nothing without an answer (the card always shows after content by others)
+    expect(await run('send ledger-9.txt to tess every week', true, 9)).toContain('Nothing was shared: the card got no answer in time')
   })
 })
 
@@ -309,5 +314,235 @@ describe('a file read through a share grant', () => {
     const done = await socks.bob!.next('message.done', (f) => f.data.message.turnId === started.turnId, 30_000)
     expect(done.data.message.content).not.toContain('a file alice shares with bob')
     expect(chatRow(chat).r).toBe(0)
+  })
+})
+
+describe('second review: what "made in this answer" means, and a chat that read nothing', () => {
+  test('madeInTurn: only a new file the AI wrote itself (write, or make_file from its own text); never one a tool built from another file, a page or a room', () => {
+    const db = h.ctx.db
+    const ev = (turn: string, p: string, detail: unknown, action = 'create') => db.query('INSERT INTO file_events (turn_id, user_id, path, action, detail) VALUES (?, ?, ?, ?, ?)').run(turn, 'bob', p, action, detail === null ? null : JSON.stringify(detail))
+    const cases: [string, unknown, boolean][] = [
+      ['w.md', { tool: 'write' }, true],
+      ['m.docx', { tool: 'make_file', own: true }, true],
+      ['m-old.docx', { tool: 'make_file' }, false],
+      ['m-safe.pptx', { tool: 'make_file', safeOpsJob: 'j', quarantined: true }, false],
+      ['from-source.pdf', { tool: 'make_file', from: 'users/bob/payroll.xlsx', pages: 2 }, false],
+      ['printed.pdf', { tool: 'make_file', from: 'a.md', pages: 1, files: ['b.png'] }, false],
+      ['stamped.pdf', { tool: 'stamp_pdf' }, false],
+      ['edited.pdf', { tool: 'edit_pdf' }, false],
+      ['split.pdf', { tool: 'split_pdf' }, false],
+      ['merged.pdf', { tool: 'merge_pdfs' }, false],
+      ['out.hwpx', { tool: 'edit_hwp' }, false],
+      ['commented.docx', { tool: 'comment_docx' }, false],
+      ['page.html', { tool: 'save_url', url: 'https://example.com/', type: 'text/html' }, false],
+      ['room.pdf', { tool: 'save_room_file', type: 'application/pdf' }, false],
+      ['video.mp4', { tool: 'generate_video' }, false],
+      ['copied.txt', { tool: 'copy_files', sourcePaths: ['users/bob/x.txt'] }, false],
+      ['moved.txt', { tool: 'move_files', movedFrom: 'users/bob/x.txt' }, false],
+      ['no-detail.txt', null, false],
+    ]
+    for (const [name, detail, made] of cases) {
+      const rel = `users/bob/made/${name}`
+      ev('turn-made-1', rel, detail)
+      expect([name, madeInTurn(db, 'turn-made-1', rel)]).toEqual([name, made])
+      // not this turn's
+      expect(madeInTurn(db, 'turn-made-other', rel)).toBe(false)
+    }
+    // a file that was there before the turn and is written again: not new
+    ev('turn-made-0', 'users/bob/made/old.md', { tool: 'write' })
+    ev('turn-made-1', 'users/bob/made/old.md', { tool: 'write' }, 'update')
+    expect(madeInTurn(db, 'turn-made-1', 'users/bob/made/old.md')).toBe(false)
+    // written new in this turn, then changed by something else: not what the AI wrote
+    const later: [string, string, unknown, string][] = [
+      ['stamped-over.pdf', 'turn-made-1', { tool: 'stamp_pdf' }, 'update'],
+      ['built-over.xlsx', 'turn-made-1', { tool: 'make_file', from: 'users/bob/payroll.xlsx' }, 'update'],
+      ['copied-over.txt', 'turn-made-1', { tool: 'copy_files', sourcePaths: ['users/bob/x.txt'] }, 'create'],
+      ['person-over.txt', 'turn-made-9', { tool: 'file-screen' }, 'update'],
+    ]
+    for (const [name, t, detail, action] of later) {
+      const rel = `users/bob/made/${name}`
+      ev('turn-made-1', rel, { tool: 'write' })
+      ev(t, rel, detail, action)
+      expect([name, madeInTurn(db, 'turn-made-1', rel)]).toEqual([name, false])
+    }
+    // ...its own edit afterwards keeps it
+    ev('turn-made-1', 'users/bob/made/edited-own.md', { tool: 'write' })
+    ev('turn-made-1', 'users/bob/made/edited-own.md', { tool: 'edit' }, 'update')
+    expect(madeInTurn(db, 'turn-made-1', 'users/bob/made/edited-own.md')).toBe(true)
+    // deleted earlier, then written new in this turn: new
+    ev('turn-made-0', 'users/bob/made/again.md', { tool: 'write' })
+    ev('turn-made-0', 'users/bob/made/again.md', null, 'delete')
+    ev('turn-made-1', 'users/bob/made/again.md', { tool: 'write' })
+    expect(madeInTurn(db, 'turn-made-1', 'users/bob/made/again.md')).toBe(true)
+    // a folder above it renamed or made since (a rename logs events at the folder's path only): not what the AI wrote
+    ev('turn-made-1', 'users/bob/made/dir/f.xlsx', { tool: 'make_file', own: true })
+    expect(madeInTurn(db, 'turn-made-1', 'users/bob/made/dir/f.xlsx')).toBe(true)
+    ev('turn-made-1', 'users/bob/made/dir', { tool: 'rename_file' }, 'delete')
+    ev('turn-made-1', 'users/bob/made/dir', { tool: 'rename_file', movedFrom: 'users/bob/made/stage' })
+    expect(madeInTurn(db, 'turn-made-1', 'users/bob/made/dir/f.xlsx')).toBe(false)
+    db.query("DELETE FROM file_events WHERE turn_id IN ('turn-made-0', 'turn-made-1', 'turn-made-9')").run()
+  })
+
+  test('the real tools: a file make_file built from another file, or wrote over its own new file from one, is not made in this answer', async () => {
+    put('users/bob/payroll-z.csv', 'name,pay\nbob,1\n', 'bob')
+    const readIt = read('shared/alice-notes.md')
+    const to = (p: string) => share({ paths: [p], people: ['Tess Yoon'] })
+    const built = await turn('bob', `send the summary to tess\n${readIt}\n${fake({ tool: 'make_file', args: { source: 'users/bob/payroll-z.csv', format: 'xlsx', output: 'users/bob/out-z.xlsx' } })}\n${to('users/bob/out-z.xlsx')}`)
+    expect(fs.existsSync(path.join(h.ctx.files.fx.root, 'users/bob/out-z.xlsx'))).toBe(true)
+    expect(built.content).not.toContain('"status":"shared"')
+    expect(sharedRow('users/bob/out-z.xlsx')).toBeNull()
+    // its own new file first, then the same output built from the other file
+    const over = await turn('bob', `send the summary to tess\n${readIt}\n${fake({ tool: 'make_file', args: { content: 'a,b\n1,2\n', format: 'xlsx', output: 'users/bob/out-y.xlsx' } })}\n${fake({ tool: 'make_file', args: { source: 'users/bob/payroll-z.csv', format: 'xlsx', output: 'users/bob/out-y.xlsx' } })}\n${to('users/bob/out-y.xlsx')}`)
+    expect(over.content).not.toContain('"status":"shared"')
+    expect(sharedRow('users/bob/out-y.xlsx')).toBeNull()
+    // its own text alone: made in this answer
+    const own = await turn('bob', `send the summary to tess\n${readIt}\n${fake({ tool: 'make_file', args: { content: 'a,b\n1,2\n', format: 'xlsx', output: 'users/bob/out-x.xlsx' } })}\n${to('users/bob/out-x.xlsx')}`)
+    expect(fs.existsSync(path.join(h.ctx.files.fx.root, 'users/bob/out-x.xlsx'))).toBe(true)
+    // (one the asker brought, fromAsker; the card shows anyway in a chat with other people's words)
+    expect(fromAsker(h.ctx.db, { userMessageId: own.messageId, turnId: own.turnId }, ['users/bob/out-x.xlsx'])).toBe(true)
+    expect(fromAsker(h.ctx.db, { userMessageId: built.messageId, turnId: built.turnId }, ['users/bob/out-z.xlsx'])).toBe(false)
+    expect(own.cards).toHaveLength(1)
+  })
+
+  test('a chat that read nothing from others: "Always allow" still needs my own message to ask and to name who or where', async () => {
+    // a share: nobody named in my words, the card
+    const none = await turn('bob', `go on\n${unnamed(1)}`)
+    expect(none.cards).toHaveLength(1)
+    expect(none.cards[0]!.options!.map((x) => x.value)).toEqual(['share', 'no'])
+    // the person named but nothing asked: the card
+    const about = await turn('bob', `what did tess say?\n${unnamed(1)}`)
+    expect(about.cards).toHaveLength(1)
+    // asked and named (the file need not be named here): no card
+    const asked = await turn('bob', `send it to tess\n${unnamed(1)}`)
+    expect(asked.cards).toHaveLength(0)
+    expect(JSON.parse(asked.content).status).toBe('shared')
+    // a post: a place my words do not name, the card; named and asked, no card
+    const post1 = await turn('bob', `go on\n${post({ room: everyone, text: 'hello four' })}`)
+    expect(post1.cards).toHaveLength(1)
+    const post2 = await turn('bob', `send this to tess\n${post({ room: 'Tess Yoon', text: 'hello five' })}`)
+    expect(post2.cards).toHaveLength(0)
+    expect(JSON.parse(post2.content).status).toBe('sent')
+  })
+
+  test('a team file attached to a send: in a chat that read nothing, a file built from another file keeps the card; one I named or the AI wrote itself does not', async () => {
+    put('users/bob/payroll-w.csv', 'name,pay\nbob,1\n', 'bob')
+    const built = await turn('bob', `make the summary\n${fake({ tool: 'make_file', args: { source: 'users/bob/payroll-w.csv', format: 'xlsx', output: 'users/bob/out-w.xlsx' } })}\n${fake({ tool: 'make_file', args: { content: 'a,b\n1,2\n', format: 'xlsx', output: 'users/bob/out-v.xlsx' } })}`)
+    expect(fs.existsSync(path.join(h.ctx.files.fx.root, 'users/bob/out-w.xlsx'))).toBe(true)
+    // (the chat holds nothing written by others)
+    expect((h.ctx.db.query("SELECT others_words AS o FROM chats WHERE id = ?").get(built.chatId) as { o: number }).o).toBe(0)
+    const person = turnPerson({ spec: { userMessageId: built.messageId, turnId: built.turnId, locale: 'en', userId: 'bob', chatId: built.chatId }, rt: { db: h.ctx.db } } as unknown as TurnExec)
+    expect(person.attachAsks!(['users/bob/out-w.xlsx'])).toBe(true)
+    expect(person.attachAsks!(['users/bob/out-v.xlsx'])).toBe(false)
+    // a file my message did not name, made before this answer: the card
+    expect(person.attachAsks!(['users/bob/ledger-5.txt'])).toBe(true)
+    // a chat with other people's words: the card for every attached file, also one the AI wrote itself
+    const marked = turnPerson({ spec: { userMessageId: built.messageId, turnId: built.turnId, locale: 'en', userId: 'bob', chatId: built.chatId }, rt: { db: h.ctx.db }, othersWords: true } as unknown as TurnExec)
+    expect(marked.attachAsks!(['users/bob/out-v.xlsx'])).toBe(true)
+  })
+
+  test('words that only mention telling or sharing are not an ask to send', async () => {
+    for (const [i, w] of ['read the notes and let me know what tess thinks', 'what did tess say in the message?', 'tell me about tess'].entries()) {
+      const r = await turn('bob', `${w}\n${share({ paths: [`users/bob/ledger-${6 + i}.txt`], people: ['Tess Yoon'] })}`)
+      expect([w, r.cards.length]).toEqual([w, 1])
+    }
+  })
+
+  test('namesGroup: a group is named as a group, not by an ordinary word that is also its name', () => {
+    const cases: [string, string, boolean][] = [
+      ['\uC601\uC5C5 \uBCF4\uACE0\uC11C \uAE40\uB300\uB9AC\uD55C\uD14C \uACF5\uC720\uD574\uC918', '\uC601\uC5C5', false],
+      ['\uB450 \uBA54\uBAA8 \uC601\uC5C5\uD300 \uADF8\uB8F9\uC774 \uBCFC \uC218 \uC788\uAC8C \uACF5\uC720\uD574\uC918', '\uC601\uC5C5', true],
+      ['\uC601\uC5C5\uD300\uC7A5\uB2D8\uD55C\uD14C \uACF5\uC720\uD574\uC918', '\uC601\uC5C5', false],
+      ['Share the sales report with Kim', 'Sales', false],
+      ['share it with the Sales team', 'Sales', true],
+      ['share it with @sales', 'Sales', true],
+      ['share it with the Sales Team', 'Sales Team', true],
+    ]
+    for (const [said, name, named] of cases) expect([said, namesGroup(said, name)]).toEqual([said, named])
+  })
+
+  test('a name inside the ask\'s own words, or a common word, never counts as naming someone; a first name the AI was given does', () => {
+    // (Korean as escapes: 보고서.md 김민수한테 공유해줘 / 해줘 / 공유 / 요약 영업방에 보내줘 / 보내 / 보고서 민수씨한테 공유해줘)
+    const ko = '\uBCF4\uACE0\uC11C.md \uAE40\uBBFC\uC218\uD55C\uD14C \uACF5\uC720\uD574\uC918'
+    expect(namedInFull(ko, ['\uD574\uC918'])).toBe(false)
+    expect(namedInFull(ko, ['\uACF5\uC720'])).toBe(false)
+    expect(namedInFull(ko, ['\uAE40\uBBFC\uC218'])).toBe(true)
+    expect(namedInFull('share report.md with Jun', ['with'])).toBe(false)
+    expect(namedInFull('share report.md with Jun', ['Jun'])).toBe(true)
+    expect(namesRecipient('\uC694\uC57D \uC601\uC5C5\uBC29\uC5D0 \uBCF4\uB0B4\uC918', '\uBCF4\uB0B4', { names: ['\uBCF4\uB0B4'], person: false })).toBe(false)
+    expect(namesRecipient('\uBCF4\uACE0\uC11C \uBBFC\uC218\uC528\uD55C\uD14C \uACF5\uC720\uD574\uC918', '\uBBFC\uC218', { names: ['\uAE40\uBBFC\uC218'], person: true })).toBe(true)
+    expect(namesGroup('presales team sales numbers', 'Sales')).toBe(false)
+    expect(namesGroup('team salesforce export sales deck', 'Sales')).toBe(false)
+  })
+
+  test('a recipient is named only where a recipient stands, by a name that points at them alone', () => {
+    // (Korean as escapes: 이 파일 김대리한테 공유해줘 / 파일 / 김대리 / 거래처 목록 CSV 최하나님한테 볼 수 있게 공유해줘 / 있게 / 최하나)
+    const ko1 = '\uC774 \uD30C\uC77C \uAE40\uB300\uB9AC\uD55C\uD14C \uACF5\uC720\uD574\uC918'
+    expect(namedInFull(ko1, ['\uD30C\uC77C'])).toBe(false)
+    expect(namedInFull(ko1, ['\uAE40\uB300\uB9AC'])).toBe(true)
+    const ko2 = '\uAC70\uB798\uCC98 \uBAA9\uB85D CSV \uCD5C\uD558\uB098\uB2D8\uD55C\uD14C \uBCFC \uC218 \uC788\uAC8C \uACF5\uC720\uD574\uC918'
+    for (const w of ['\uC788\uAC8C', 'csv']) expect([w, namedInFull(ko2, [w])]).toEqual([w, false])
+    expect(namedInFull(ko2, ['\uCD5C\uD558\uB098'])).toBe(true)
+    expect(namedInFull('post this report to tess', ['report'])).toBe(false)
+    for (const said of ['send it to tess', 'send it to tess to review', 'share the report with tess, along with notes']) expect([said, namesRecipient(said, 'Tess Yoon', { names: ['Tess Yoon', 'tess'], person: true })]).toEqual([said, true])
+    expect(namedInFull('send this to Hana Kimura', ['Hana Kimura'])).toBe(true)
+    // a member who takes a colleague's name (or a part of it) is named by neither display name; usernames still count
+    const db = h.ctx.db
+    db.query("INSERT INTO users (id, username, name, role, status, deleted_at) VALUES ('kim1', 'kimd', '\uAE40\uB300\uB9AC', 'member', 'active', NULL), ('kim2', 'mal', '\uAE40\uB300\uB9AC\uB2D8', 'member', 'active', NULL), ('hana9', 'mal2', 'Tess', 'member', 'active', NULL)").run()
+    try {
+      expect(soleNames(db, 'kim1')).toEqual(['kimd'])
+      expect(soleNames(db, 'kim2')).toEqual(['mal'])
+      expect(soleNames(db, 'hana9')).toEqual(['mal2'])
+      // (Tess's username is now another member's display name: only her display name counts)
+      expect(soleNames(db, 'tess')).toEqual(['Tess Yoon'])
+    } finally { db.query("DELETE FROM users WHERE id IN ('kim1', 'kim2', 'hana9')").run() }
+    expect(soleNames(db, 'tess')).toEqual(['Tess Yoon', 'tess'])
+    // a username that is a colleague's first name, a copy with punctuation, a title as a name
+    db.query("INSERT INTO users (id, username, name, role, status, deleted_at) VALUES ('m1', 'yoon', 'Mal One', 'member', 'active', NULL), ('m2', 'mal3', 'Tess Yoon.', 'member', 'active', NULL), ('m3', 'mal4', '\uB300\uD45C', 'member', 'active', NULL), ('m4', 'mal5', 'the team', 'member', 'active', NULL)").run()
+    try {
+      expect(soleNames(db, 'm1')).toEqual(['Mal One'])
+      expect(soleNames(db, 'm2')).toEqual(['mal3'])
+      // (a copy of her full name holds her username too: neither names her, the card shows)
+      expect(soleNames(db, 'tess')).toEqual([])
+      expect(namedInFull('d.txt \uB300\uD45C\uB2D8\uAED8 \uACF5\uC720\uD574\uC918', soleNames(db, 'm3'))).toBe(false)
+      expect(namedInFull('share e.txt with the team', soleNames(db, 'm4'))).toBe(false)
+    } finally { db.query("DELETE FROM users WHERE id IN ('m1', 'm2', 'm3', 'm4')").run() }
+  })
+
+  test('words joined to a file, departments and group names are not a person; a chain of the call\'s own recipients is', () => {
+    // (Korean as escapes: 보고서와 견적서 김대리한테 공유해줘 / 보고서 / 김대리 / 이 파일도 김대리한테 공유해줘 / 파일 /
+    // 급여표 인사팀한테 공유해줘 / 인사팀 / 김대리와 이과장한테 공유해줘 / 이과장)
+    expect(namedInFull('\uBCF4\uACE0\uC11C\uC640 \uACAC\uC801\uC11C \uAE40\uB300\uB9AC\uD55C\uD14C \uACF5\uC720\uD574\uC918', ['\uBCF4\uACE0\uC11C'], { peers: ['\uAE40\uB300\uB9AC'] })).toBe(false)
+    expect(namedInFull('\uC774 \uD30C\uC77C\uB3C4 \uAE40\uB300\uB9AC\uD55C\uD14C \uACF5\uC720\uD574\uC918', ['\uD30C\uC77C'], { peers: ['\uAE40\uB300\uB9AC'] })).toBe(false)
+    expect(namedInFull('share the notes and slides with Tess Yoon', ['slides'], { peers: ['Tess Yoon'] })).toBe(false)
+    expect(namedInFull('send the contract to legal', ['legal'])).toBe(false)
+    expect(namedInFull('share it with my boss', ['my boss'])).toBe(false)
+    expect(namedInFull('\uAE09\uC5EC\uD45C \uC778\uC0AC\uD300\uD55C\uD14C \uACF5\uC720\uD574\uC918', ['\uC778\uC0AC\uD300'])).toBe(false)
+    // 김대리님과 이과장님한테: a Korean chain needs 님 or 씨 on the name (김대리와 이과장한테 shows the card for 김대리)
+    const both = '\uAE40\uB300\uB9AC\uB2D8\uACFC \uC774\uACFC\uC7A5\uB2D8\uD55C\uD14C \uACF5\uC720\uD574\uC918'
+    expect(namedInFull(both, ['\uAE40\uB300\uB9AC'], { peers: ['\uC774\uACFC\uC7A5'] })).toBe(true)
+    expect(namedInFull(both, ['\uAE40\uB300\uB9AC'])).toBe(false)
+    // a thing next to a real recipient is not one: "… and the notes with bob", "보고서, 김대리한테", "계약서랑 김대리한테"
+    expect(namedInFull('share the slides with tess and the notes with bob', ['the notes'], { peers: ['tess', 'bob'] })).toBe(false)
+    expect(namedInFull('share the slides with tess and notes with bob', ['notes'], { peers: ['tess', 'bob'] })).toBe(false)
+    expect(namedInFull('\uBCF4\uACE0\uC11C, \uAE40\uB300\uB9AC\uD55C\uD14C \uACF5\uC720\uD574\uC918', ['\uBCF4\uACE0\uC11C'], { peers: ['\uAE40\uB300\uB9AC'] })).toBe(false)
+    expect(namedInFull('\uACC4\uC57D\uC11C\uB791 \uAE40\uB300\uB9AC\uD55C\uD14C \uACF5\uC720\uD574\uC918', ['\uACC4\uC57D\uC11C'], { peers: ['\uAE40\uB300\uB9AC'] })).toBe(false)
+    expect(namedInFull('send it to tess and bob', ['bob'], { peers: ['tess'] })).toBe(true)
+    expect(namedInFull('send it to tess, bob and carl', ['carl'], { peers: ['tess', 'bob'] })).toBe(true)
+    expect(namesRecipient('post this to everyone', 'Everyone', { names: ['Everyone'], person: false })).toBe(true)
+    // a member who takes a group's name: named by their username only
+    const db = h.ctx.db
+    db.query("INSERT INTO users (id, username, name, role, status, deleted_at) VALUES ('f1', 'mal6', 'Finance', 'member', 'active', NULL)").run()
+    try { expect(soleNames(db, 'f1')).toEqual(['mal6']) } finally { db.query("DELETE FROM users WHERE id = 'f1'").run() }
+  })
+
+  test('a purpose, a manner or an adverb next to a named recipient is not another one; titles are not people', () => {
+    // (Korean as escapes: 보고서 김대리한테 바로 볼 수 있게 공유해줘 / 바로 / 이 보고서 책임님께 공유해줘 / 책임 / tess가 볼 수 있게)
+    expect(namedInFull('\uBCF4\uACE0\uC11C \uAE40\uB300\uB9AC\uD55C\uD14C \uBC14\uB85C \uBCFC \uC218 \uC788\uAC8C \uACF5\uC720\uD574\uC918', ['\uBC14\uB85C'], { peers: ['\uAE40\uB300\uB9AC'] })).toBe(false)
+    for (const [said, w] of [['share budget.txt with tess to approve', 'approve'], ['send the report to tess with comments', 'comments'], ['share it with Tess Yoon to sign', 'sign']] as const) expect([said, namedInFull(said, [w], { peers: ['tess', 'Tess Yoon'] })]).toEqual([said, false])
+    expect(namedInFull('\uC774 \uBCF4\uACE0\uC11C \uCC45\uC784\uB2D8\uAED8 \uACF5\uC720\uD574\uC918', ['\uCC45\uC784'])).toBe(false)
+    expect(namedInFull('send the bug report to QA', ['qa'])).toBe(false)
+    expect(namedInFull('I want to share it with bob', ['bob'])).toBe(true)
+    expect(namedInFull('share budget.txt with tess to review', ['tess'])).toBe(true)
+    expect(namedInFull('tess\uAC00 \uBCFC \uC218 \uC788\uAC8C \uACF5\uC720\uD574\uC918', ['tess'])).toBe(true)
   })
 })

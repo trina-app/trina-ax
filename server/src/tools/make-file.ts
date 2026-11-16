@@ -351,7 +351,7 @@ export class MakeFile {
       }
       // only now are all the files known whose bytes are in the output (images come out of pandoc's tree)
       await this.checkWidening(c, out.rel, out.segs, sources)
-      const made = await this.place(c, out.segs, produced)
+      const made = await this.place(c, out.segs, produced, sources)
       return deck ? { ...made, deck } : formulas !== undefined ? { ...made, formulas, stored, ...(charts ? { charts } : {}) } : made
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }
@@ -625,8 +625,11 @@ export class MakeFile {
     return { formulas, stored, charts: charts.length }
   }
 
-  private place(c: ToolCtx, segs: string[], produced: string): Promise<MadeFile> {
-    return placeProduced(this.ctx, this.files, c, segs, produced)
+  /** `sources`: the team files whose bytes are in the output (the source, embedded images, a template). The event says
+   * so: with none, the file is the AI's own text alone (`own`: chat/shared-actions.ts ownWritingSql counts only that
+   * as written by the AI); else where it came from. */
+  private place(c: ToolCtx, segs: string[], produced: string, sources: readonly string[]): Promise<MadeFile> {
+    return placeProduced(this.ctx, this.files, c, segs, produced, 'make_file', undefined, { detail: sources.length ? { from: sources[0], files: sources.slice(1, 51) } : { own: true } })
   }
 }
 

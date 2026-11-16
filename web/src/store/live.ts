@@ -223,6 +223,11 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
         for (const id of ev.data.message.split(',')) if (id) projectPeopleChanged.emit(id)
         return
       }
+      if (ev.data.code === 'guest_file_limit_changed') {
+        // an admin changed the largest file a guest may send in a chat: this guest's room box follows (Me.team.uploadMaxBytes)
+        void useSession.getState().refreshMe()
+        return
+      }
       if (ev.data.code === 'speech_changed') {
         // an admin turned voice input on or off: the composer shows or hides the mic (Me.team.voiceInput)
         void useSession.getState().refreshMe()

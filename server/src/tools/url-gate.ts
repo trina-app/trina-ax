@@ -147,9 +147,8 @@ export interface TurnPerson {
    * card (chat/turn.ts ownCard): the tool asks on its card every time, also where it would not ask otherwise (a
    * connection set to send without asking, a move that changes nobody's access); its cards lead with the room line */
   roomsSeen?: boolean
-  /** Team files a connection's send would attach (their team paths): true when the chat holds content another person
-   * wrote and the person's own message of this turn did not bring every one of them (named, attached, or made in this
-   * answer). The send then asks on its card, also where the connection sends without asking (docs/decisions/
+  /** Team files a connection's send would attach (their team paths): true when the person's own message of this turn
+   * did not bring every one of them (named or attached it, or the AI wrote it new in this answer). The send then asks on its card, also where the connection sends without asking (docs/decisions/
    * 20261116-mail-attach-team-file.md). */
   attachAsks?(paths: readonly string[]): boolean
   /** how a refusal names an unattended run that is not a scheduled task (a company profile draft's answer) */
