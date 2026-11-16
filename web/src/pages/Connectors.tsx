@@ -253,7 +253,7 @@ function ConnectorsHome() {
       // never "Connected" or "Reconnect"
       const c = connectorFor(i.url)
       return { name: i.name, row: (
-        <ConnectorRow key={i.id} id={i.id} logo={c ? connectorLogo(c) : undefined} name={i.name}
+        <ConnectorRow key={i.id} id={i.id} catalogId={c?.id} logo={c ? connectorLogo(c) : undefined} name={i.name}
           status={connectionRowStatus(i)} onOpen={() => navigate(connectionHref(i.id))} />
       ) }
     }),

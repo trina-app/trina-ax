@@ -10,10 +10,11 @@ import { api, API } from '../lib/api'
 import type { Room, RoomApp, RoomAppList, UpdateRoomAppBody } from '@mycel/shared/api'
 import type { AppService } from '../lib/roomApps'
 
-/** May I manage this room's apps (the server's rooms/store.ts mayManageApps)? A room I see is a room I am in. Never a
- * guest (QA TC-1922): the server refuses them every apps route. */
-export const mayManageApps = (room: Pick<Room, 'kind'> | null | undefined, me: Pick<Me, 'user'> | null | undefined): boolean =>
-  !!room && !!me && me.user.role !== 'guest' && (room.kind === 'dm' || room.kind === 'group' || me.user.role === 'owner' || me.user.role === 'admin')
+/** May I manage this room's apps? The server says so on each room (Room.canManageApps, its rooms/store.ts
+ * mayManageApps); an older server's rooms do not, and then its rule is read here. A room I see is a room I am in. Never
+ * a guest (QA TC-1922): the server refuses them every apps route. */
+export const mayManageApps = (room: (Pick<Room, 'kind'> & Partial<Pick<Room, 'canManageApps'>>) | null | undefined, me: Pick<Me, 'user'> | null | undefined): boolean =>
+  !!room && !!me && me.user.role !== 'guest' && (room.canManageApps ?? (room.kind === 'dm' || room.kind === 'group' || me.user.role === 'owner' || me.user.role === 'admin'))
 
 /** Which screen the apps dialog starts on: the picker (or the list when there are apps), one app's settings, or a kind's
  * guide (a new app, or one being set up again). */

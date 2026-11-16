@@ -48,6 +48,7 @@ import { ImageGroup } from '../components/ImageViewer'
 import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
 import { RoomMenu } from '../components/rooms/RoomMenu'
 import { mayManageApps, useRoomApps } from '../store/roomApps'
+import { isAppService } from '../lib/roomApps'
 import { RoomNotifyMenu, roomNotify } from '../components/rooms/RoomNotifyMenu'
 import { ThreadPanel } from '../components/rooms/ThreadPanel'
 import { roomLeft, SideChatPanel, threadClosedOn, type SideSeed } from '../components/rooms/SideChatPanel'
@@ -171,13 +172,16 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // thread when one is open, else in the timeline
   const target = useMemo(() => { const m = new URLSearchParams(location.search).get('m'); return m && isUuid7(m) ? m : null }, [location.search])
   // the room's apps (docs/DECISIONS.md "Apps posting in rooms"), for those who manage them: the ⋯ says how many post
-  // here; ?apps=<app id> (the paused notice's "Open settings") opens that app's settings, once
+  // here; ?apps=<app id> (the paused notice's "Open settings") opens that app's settings, ?apps=add:<service>
+  // (Connectors' "Add to a conversation") that service's Add an app guide, once
   const manages = mayManageApps(room, me)
   useEffect(() => { if (manages) void useRoomApps.getState().load(roomId).catch(() => {}) }, [manages, roomId])
   const appsParam = useMemo(() => new URLSearchParams(location.search).get('apps'), [location.search])
   useEffect(() => {
     if (!appsParam || !manages) return
-    useRoomApps.getState().open(roomId, isUuid7(appsParam) || /^[A-Za-z0-9_-]{1,64}$/.test(appsParam) ? { view: 'settings', appId: appsParam } : { view: 'auto' })
+    const add = appsParam.startsWith('add:') ? appsParam.slice(4) : null
+    useRoomApps.getState().open(roomId, add !== null ? (isAppService(add) ? { view: 'guide', service: add } : { view: 'auto' })
+      : isUuid7(appsParam) || /^[A-Za-z0-9_-]{1,64}$/.test(appsParam) ? { view: 'settings', appId: appsParam } : { view: 'auto' })
     navigate({ pathname: location.pathname, search: '' }, { replace: true, state: location.state })
   }, [appsParam, manages, roomId, navigate, location.pathname, location.state])
   // a thread opened from this room is one step back from it (the back arrow, the browser's back, a phone's back

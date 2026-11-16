@@ -22,6 +22,10 @@ primera tarjeta cambia a medida que avanzan las cosas.
    Si pasan dos minutos sin nada, **¿Aún no llega nada?** muestra los errores habituales de ese servicio y cómo enviar una prueba.
    **Ver un ejemplo** muestra, dentro de la guía, cómo se verán sus mensajes. No se publica nada.
 
+También puede empezar desde **Configuración › Conectores**. Sentry, Notion, Stripe y Atlassian (para Jira) tienen
+**Añadir a una conversación** debajo de su fila. Solo muestra las conversaciones donde usted puede añadir
+apps; elija una y se abre con la guía de ese servicio. Si aún no tiene ninguna, empiece una con **Nueva conversación**.
+
 ![Añadir una app: sus mensajes aparecen en la sala para todos los que están en ella; luego Formularios de Google, Otra app, GitHub y Sentry](../../images/room-apps/picker.webp "Añadir una app")
 
 Quién puede hacerlo: en una sala de equipo o en la sala de todos, sus propietarios y administradores; en un chat 1:1 o de grupo, cualquiera que esté en él.
