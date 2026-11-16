@@ -13,6 +13,7 @@ import { integrationsOf } from '../../server/src/integrations/connections/servic
 import { hwpPluginOn, setHwpPlugin } from '../lib/hwp-plugin'
 import { employmentForm } from '../lib/hwpx'
 import { labeledPath } from '@mycel/shared'
+import { mp4Available } from '../../server/src/promo-video/render'
 
 // a team path as the cards say it (server/src/chat/place-words.ts; docs/DECISIONS.md "Plain words in errors, cards and steps")
 const W = (p: string) => labeledPath(p.replace(/\/+$/, ''), 'en', 'alice', ' › ')
@@ -35,7 +36,10 @@ describe('B turns use C tools', () => {
   test('a web turn is offered the file tools, B tools and every C tool (set_title: a new chat\'s first message)', async () => {
     const chat = await h.api('alice').call(API.createChat, { body: {} })
     const r = await ask(h, alice, 'alice', chat.id, fake({ echo: 'tools' }))
-    expect(r.done.content.split(',')).toEqual(['artifact', 'ask_user', 'change_project_members', 'connect_service', 'copy_files', 'delete_files', 'edit', 'edit_files', 'edit_hwp', 'edit_pdf', 'find_skills', 'forget', 'glob', 'grep', 'intro_deck', 'list', 'make_file', 'merge_pdfs', 'move_files', 'move_skill', 'post_to_room', 'promo_video', 'read', 'remember', 'rename_file', 'room_file', 'room_read', 'rooms', 'save_room_file', 'save_url', 'schedule_create', 'schedule_delete', 'schedule_list', 'set_title', 'share_file', 'share_with_person', 'skill', 'skill_files', 'split_pdf', 'stamp_pdf', 'web_fetch', 'write'])
+    // save_promo_video only where this server can render the MP4 (promo-video/render.ts mp4Available: a Mac dev server)
+    const offered: string[] = r.done.content.split(',')
+    expect(offered.includes('save_promo_video')).toBe(mp4Available(h.ctx))
+    expect(offered.filter((n) => n !== 'save_promo_video')).toEqual(['artifact', 'ask_user', 'change_project_members', 'comment_docx', 'connect_service', 'copy_files', 'delete_files', 'edit', 'edit_files', 'edit_hwp', 'edit_pdf', 'find_skills', 'forget', 'glob', 'grep', 'intro_deck', 'list', 'make_file', 'merge_pdfs', 'move_files', 'move_skill', 'post_to_room', 'promo_video', 'read', 'remember', 'rename_file', 'room_file', 'room_read', 'rooms', 'save_room_file', 'save_url', 'schedule_create', 'schedule_delete', 'schedule_list', 'set_title', 'share_file', 'share_with_person', 'skill', 'skill_files', 'split_pdf', 'stamp_pdf', 'web_fetch', 'write'])
   })
 
   test('Hangul writing follows the HWP plugin in a turn: off, no edit_hwp and no .hwpx in the instructions, make_file .hwpx refused before any card; on again, both back', async () => {

@@ -2,6 +2,7 @@ import { confidentialChat, localTool } from "../safe-ops/confidential"
 // The tools of one turn besides the six file tools: B's remember / forget / ask_user / connect_service / set_title and the browser pane tools
 // (desktop window only), plus whatever other components registered in ctx.services.turnTools (C: make_file,
 // share_file, artifact, web_fetch). Served over the same MCP connection as the file tools (mcp__team__<name>).
+import { commentDocxOutput } from '../tools/comment-docx'
 import { chatFileOffered, chatFileTool } from './chat-file-tool'
 import path from 'node:path'
 import { z } from 'zod'
@@ -13,7 +14,7 @@ import { newId } from '../db'
 import { PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
 import { browserUrl, isPrivateHost, staticPrivateHost } from '../realtime/private-net'
 import { cleanMemoryText, MEMORY_ITEM_MAX, neutralizeTags, skillBlock } from './prompt'
-import { isGroupSkill, isPersonalSkill, isProjectSkill, listSkills, readSkill, sameSkillName, skillAlias, skillFolder, skillIssues, type Skill, otherGroupSkills } from './skills'
+import { isGroupSkill, isPersonalSkill, isProjectSkill, listSkills, ownPersonalSkill, readSkill, sameSkillName, skillAlias, skillFolder, skillIssues, type Skill, otherGroupSkills } from './skills'
 import { changeLine, editorsLine, levelFor, levelLabel, levelRef, levelsOf, MOVE_MAX_BYTES, MOVE_MAX_FILES, MOVE_TEXT_MAX, peopleNames, peopleText, planMove, raisesTrust, runCopy, runMove, seesWho, skillAt, type Level, type MovePlan } from '../skills/move'
 import { st as skillText } from '../skills/text'
 import { audit as auditLog } from '../admin/audit'
@@ -25,6 +26,7 @@ import { authorize } from '../policy/authorize'
 import { atLeast, isStaff, type Principal } from '../policy/access'
 import { tr } from './i18n'
 import { alwaysHere, withAlways } from './always-allow'
+import { fromAsker, othersWordsIn } from './shared-actions'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
 import type { StoredStep } from './store'
 import { cardEndShort, endOfText, readOnlyNote, type CardOutcome } from '../policy/refusal'
@@ -452,6 +454,8 @@ export function widenOf(name: string, args: unknown, hwpTarget?: (args: unknown)
     const target = hwpTarget ? hwpTarget(a) : typeof a.output === 'string' ? hwpOutputPath(a.output, typeof a.file_path === 'string' ? a.file_path : '') : a.file_path
     return typeof target === 'string' ? { target, extra: typeof a.output === 'string' && typeof a.file_path === 'string' ? [a.file_path] : [] } : undefined
   }
+  // comment_docx (tools/comment-docx.ts): the document itself, or a new .docx made from it
+  if (name === 'comment_docx' && typeof a.file_path === 'string') return typeof a.output === 'string' ? { target: commentDocxOutput(a.output), extra: [a.file_path] } : { target: a.file_path, extra: [] }
   return undefined
 }
 
@@ -531,6 +535,13 @@ export function turnPerson(exec: TurnExec): TurnPerson {
     // steps shown as they run (not a scheduled run, a Slack question, a draft or a turn the server started). Rooms,
     // shared chats and chats that read rooms too (the owner's call, 2026-11-11)
     allSitesHere: () => LIVE_CLIENTS.has(exec.spec.clientKind ?? '') && !exec.restricted,
+    // a team file attached to a connection's send (integrations/connections/tools.ts): a file the person's own
+    // message did not bring (named or attached it, or the AI wrote it new in this answer) keeps the card, in every
+    // chat: a file name a teammate chose reaches the AI in a chat that read nothing too (chat/shared-actions.ts)
+    // ...and any team file where other people's words are in the chat (othersWordsIn); the person's own Always allow for
+    // the connection still goes without the card (docs/decisions/20261116-always-allow-final-rule-a.md)
+    attachAsks: (paths) => othersWordsIn(exec) || !fromAsker(exec.rt.db, exec.spec, paths),
+    othersWords: () => othersWordsIn(exec),
     webAccessChanged: () => exec.rt.hub.publish(exec.spec.userId, WEB_ACCESS_CHANGED),
     ...(exec.profileDraft ? { unattendedLabel: 'company profile draft answer', scope: (url: string) => draftUrlRefusal(exec.profileDraft!.scope, url), ...(exec.profileDraft.pages ? { pages: exec.profileDraft.pages } : {}) } : {}),
   }
@@ -641,6 +652,8 @@ function skillTools(exec: TurnExec): Tool[] {
           }
         }
         exec.noteTaint('read', { file_path: skill.path })
+        // a skill someone else may have written is other people's words (chat/turn.ts markOthersWords)
+        if (!ownPersonalSkill(skill.path, spec.userId)) exec.markOthersWords()
         // the person's own personal skill: what an AI turn that wrote it had seen comes with it (chat/turn.ts noteOwnSkill)
         exec.noteOwnSkill(skill.path)
         // like a "/name" skill: its folder joins the chat's read scope (what is saved from it asks before going wider)

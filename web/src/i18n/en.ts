@@ -748,6 +748,8 @@ export const en: Record<MessageKey, string> = {
   'allowances.card.project_members': "Changing project members",
   'allowances.card.video': "Making AI videos (uses credits)",
   'allowances.card.big_download': "Downloading files over 1 GB",
+  'allowances.card.share_files': "Sharing my files with people",
+  'allowances.card.post_files': "Sending linked files with posts to conversations",
   'teamSettings.roomAlways': "\"Always allow\" on confirmation cards",
   'teamSettings.row.roomAlwaysDesc': "When on, people can pick \"Always allow\" on a confirmation card and are not asked about that kind of change again. Off: it asks every time.",
   'ask.ownAnswer': 'Your answer',

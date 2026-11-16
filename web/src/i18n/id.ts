@@ -748,6 +748,8 @@ export const id: Record<MessageKey, string> = {
   'allowances.card.project_members': "Mengubah anggota proyek",
   'allowances.card.video': "Membuat video AI (memakai kredit)",
   'allowances.card.big_download': "Mengunduh file di atas 1 GB",
+  'allowances.card.share_files': "Membagikan file saya kepada orang lain",
+  'allowances.card.post_files': "Mengirim file yang ditautkan bersama posting ke percakapan",
   'teamSettings.roomAlways': "\"Selalu izinkan\" di kartu konfirmasi",
   'teamSettings.row.roomAlwaysDesc': "Jika aktif, orang dapat memilih \"Selalu izinkan\" pada kartu konfirmasi dan tidak ditanya lagi untuk perubahan jenis itu. Nonaktif: selalu ditanya.",
   'ask.ownAnswer': 'Jawaban Anda',

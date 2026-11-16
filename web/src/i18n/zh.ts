@@ -728,6 +728,8 @@ export const zh: Record<MessageKey, string> = {
   "allowances.card.project_members": "更改项目成员",
   "allowances.card.video": "制作 AI 视频（消耗额度）",
   "allowances.card.big_download": "下载超过 1 GB 的文件",
+  'allowances.card.share_files': "与他人共享我的文件",
+  'allowances.card.post_files': "发到对话时一并发送链接的文件",
   "teamSettings.roomAlways": "确认卡片上的“始终允许”",
   "teamSettings.row.roomAlwaysDesc": "开启后，大家可以在确认卡片上选择“始终允许”，之后不会再被问到同类更改。关闭：每次都会询问。",
   "ask.ownAnswer": "你的回答",

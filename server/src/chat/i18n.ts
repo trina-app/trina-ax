@@ -153,6 +153,11 @@ export const TEXT = {
     '{ai} membaca konten yang hanya bisa dilihat lebih sedikit orang ({sources}) dan sekarang ingin menyimpan ke {target}, yang bisa dilihat {n} orang. Simpan?', "{ai}は閲覧できる人が少ない内容（{sources}）を読み取り、{n}人が閲覧できる{target}に保存しようとしています。保存しますか？", "{ai} leyó contenido que menos personas pueden ver ({sources}) y quiere guardarlo en {target}, visible para {n, plural, one {# persona} other {# personas}}. ¿Guardarlo?", "{ai}读取了可见范围更小的内容（{sources}），现在想保存到{target}，那里有{n, plural, one {#人} other {#人}}可以看到。要保存吗？"),
   widenSave: t('저장하기', 'Save', 'Simpan', "保存", "Guardar", "保存"),
   widenDont: t('저장하지 않기', 'Don’t save', 'Jangan simpan', "保存しない", "No guardar", "不保存"),
+  /** the skill card's line when the same save also goes where more people can see (chat/turn.ts confirmSkillWrite): what
+   * the wider-audience card (widenConfirm) says, on the one card; {target} as it names the place */
+  skillWiden: t('{ai}가 읽은 내용({sources})은 볼 수 있는 사람이 더 적어요. {target}에 저장하면 {n}명이 볼 수 있어요.',
+    '{ai} read content fewer people can see ({sources}) before this save. {n, plural, one {# person} other {# people}} can see {target}.',
+    '{ai} membaca konten yang hanya bisa dilihat lebih sedikit orang ({sources}) sebelum menyimpan ini. {target} bisa dilihat {n} orang.', "{ai}は閲覧できる人が少ない内容（{sources}）を読んでから保存しようとしています。{target}は{n}人が閲覧できます。", "{ai} leyó contenido que menos personas pueden ver ({sources}) antes de guardar esto. {target} es visible para {n, plural, one {# persona} other {# personas}}.", "{ai}在保存前读取了可见范围更小的内容（{sources}）。{target}有{n, plural, one {#人} other {#人}}可以看到。"),
   scopeMine: t('내 개인 폴더나 앱 안 브라우저', 'your personal folder or the in-app browser', 'folder pribadi Anda atau browser di aplikasi', "自分の個人フォルダーまたはアプリ内ブラウザー", "su carpeta personal o el navegador integrado", "你的个人文件夹或应用内浏览器"),
   scopeRoot: t('팀 폴더 맨 위', 'the top of the team folder', 'bagian atas folder tim', "チームフォルダーの最上位", "la raíz de la carpeta del equipo", "团队文件夹顶层"),
   // a team path on a card, in words (place-words.ts): the team folder's top, and another person's folder by their name
@@ -194,6 +199,7 @@ export const TEXT = {
   cardAlways: t('항상 허용', 'Always allow', 'Selalu izinkan', "常に許可", "Permitir siempre", "始终允许"),
   /** the skill-save card's own wording of it (owner 2026-11-16, docs/decisions/20261116-shared-chat-skill-edits.md) */
   cardAlwaysSkills: t('내가 요청한 스킬 수정은 항상 허용', 'Always allow skill edits I ask for', 'Selalu izinkan perubahan skill yang saya minta', "自分が頼んだスキルの変更は常に許可", "Permitir siempre los cambios de habilidades que pido", "始终允许我要求的技能修改"),
+  cardAlwaysFiles: t('항상 파일도 함께 보내기', 'Always send with the files', 'Selalu kirim bersama file', "常にファイルも一緒に送る", "Enviar siempre con los archivos", "始终连同文件一起发送"),
   cardAlwaysNote: t('항상 허용하면 웹페이지나 파일을 읽은 뒤에도 이런 확인은 다시 묻지 않아요. 설정 › 트리나에게 허용한 것에서 되돌릴 수 있어요.', "With Always allow, Trina won't ask about this kind of change again, even after reading web pages or files. Undo it in Settings › Allowed for Trina.", 'Dengan Selalu izinkan, Trina tidak akan menanyakan perubahan seperti ini lagi, bahkan setelah membaca halaman web atau file. Batalkan di Pengaturan › Diizinkan untuk Trina.', "常に許可すると、Webページやファイルを読んだ後でも、この種類の確認は二度と聞きません。設定 › トリナに許可したこと で元に戻せます。", "Con Permitir siempre, Trina no volverá a preguntar por este tipo de cambio, ni siquiera tras leer páginas web o archivos. Puede deshacerlo en Configuración › Permisos para Trina.", "选择始终允许后，即使读过网页或文件，Trina也不会再就这类修改询问你。可以在设置 › 允许Trina做的事中撤销。"),
   /** the step of a call a room grant let through, after its own words */
   roomGrantStep: STEP_TEXT.roomGrantStep,

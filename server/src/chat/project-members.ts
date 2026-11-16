@@ -290,7 +290,7 @@ const panel = (L: Locale, name = '…') => `the project's page ("${say('where', 
 const ownChat = 'the user can ask in a chat of their own (a new AI chat)'
 
 /** What change_project_members needs of the chat turn (chat/turn.ts TurnExec): narrow, so the rules are tested alone. */
-export type MembersExec = Pick<TurnExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'files' | 'rt' | 'askPerson' | 'openRequests' | 'livePrincipal'> & Partial<Pick<TurnExec, 'alwaysPlace'>>
+export type MembersExec = Pick<TurnExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'files' | 'rt' | 'askPerson' | 'openRequests' | 'livePrincipal'> & Partial<Pick<TurnExec, 'othersWords'>> & Partial<Pick<TurnExec, 'alwaysPlace'>>
 
 /** Why the tool is refused in this turn whatever is asked (refusal() text and a short reason), or null: the person's own
  * chat with them there. */
@@ -452,6 +452,8 @@ export function projectMembersTool(exec: MembersExec): Tool {
     const requestId = uuidv7()
     const base = { projectId: r.id, add: p.adds.map(keyOf), remove: p.removes.map(keyOf), gained: p.plan.gained.length, lost: p.plan.lost.length, notSaid: card.notSaid, readRooms: roomsRead, requestId }
     // counted and marked open before the card goes out: a second call while it waits is refused (busy), not queued
+    // the person's "Always allow" for members changes is final (owner 2026-11-13, docs/decisions/
+    // 20261116-always-allow-final-rule-a.md): no card, also after room reads or content someone else wrote
     if (always !== 'on') s.shown++
     s.open = true
     let answer: Awaited<ReturnType<MembersExec['askPerson']>>
