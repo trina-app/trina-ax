@@ -2276,7 +2276,7 @@ export const en: Record<MessageKey, string> = {
   'groups.none': 'No groups yet.',
   'groups.noMembers': 'No members',
   'groups.deleteTitle': 'Delete the group "{name}"?',
-  'groups.deleteBody': 'Folder permissions given to this group are removed too.',
+  'groups.deleteBody': 'Folder permissions given to this group are removed too. Its conversation closes, and files sent there are removed after 30 days.',
   'groups.deleteAiOff': 'AI connections only this group uses are switched off: {names}',
 
   'rules.everyone': 'Everyone',

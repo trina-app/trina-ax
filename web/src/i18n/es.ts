@@ -2243,7 +2243,7 @@ export const es: Record<MessageKey, string> = {
   'groups.none': "Aún no hay grupos.",
   'groups.noMembers': "Sin miembros",
   'groups.deleteTitle': "¿Eliminar el grupo \"{name}\"?",
-  'groups.deleteBody': "También se eliminarán los permisos de carpetas asignados a este grupo.",
+  'groups.deleteBody': "También se eliminarán los permisos de carpetas asignados a este grupo. Su conversación se cierra y los archivos enviados allí se borran a los 30 días.",
   'groups.deleteAiOff': "Se desactivan las conexiones de IA que solo usa este grupo: {names}",
   'rules.everyone': "Todos",
   'rules.group': "Grupo",
