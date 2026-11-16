@@ -11,7 +11,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { makeCApp, sha256hex as sha256, type CApp } from '../lib/c-app'
 import { readRegular, sha256Regular } from '../../server/src/files/store'
-import { authorize } from '../../server/src/policy/authorize'
+import { authorize, visiblePath } from '../../server/src/policy/authorize'
+import { SearchAdmission } from '../../server/src/files/search-admission'
 
 const CHECKED = 'the file that was checked\n'.repeat(40)
 const OTHER = 'a file that was never checked\n'.repeat(40)
@@ -43,6 +44,11 @@ function savedMeanwhile(dir: string) {
   fs.renameSync(mine(`${dir}/.saving`), mine(`${dir}/report.txt`))
 }
 
+function docx(md: string, out: string) {
+  const p = Bun.spawnSync(['pandoc', '-f', 'markdown', '-o', out], { stdin: new TextEncoder().encode(md) })
+  if (p.exitCode !== 0) throw new Error('pandoc failed: ' + p.stderr.toString())
+}
+
 const realOpen = fs.openSync
 /** run `change` once, right before the first open of a path that ends with `/<dir>/<name>` */
 function atOpen(dir: string, change: (dir: string) => void, name = 'report.txt') {
@@ -64,6 +70,8 @@ beforeAll(async () => {
   fs.mkdirSync(elsewhere, { recursive: true })
   fs.writeFileSync(path.join(elsewhere, 'report.txt'), OTHER)
   fs.mkdirSync(mine(''), { recursive: true })
+  docx('# Report\n\nthe document that was checked\n', path.join(elsewhere, 'placeholder.docx'))
+  docx('# Report\n\na document that was never checked\n', path.join(elsewhere, 'report.docx'))
 }, 120_000)
 afterAll(async () => { await a?.close() }, 120_000)
 
@@ -210,5 +218,35 @@ describe('a normal save between the check and the open', () => {
     const again = await panel(`${dir}/report.txt`)
     expect(again.status).toBe(200)
     expect(again.body).toMatchObject({ content: SAVED, sha256: sha256(Buffer.from(SAVED)), size: SAVED.length })
+  })
+})
+
+describe('the search index reads the file that was checked', () => {
+  const visible = (rel: string) => () => visiblePath(a.ctx.files.fx, a.ctx.files.rules(), a.ctx.files.principal('alice'), `users/alice/${rel}`)
+
+  test('its reader: the checked file as before; a folder on the way that became a link: nothing', () => {
+    const dir = folder()
+    const r = check(`${dir}/report.txt`)
+    const plain = new SearchAdmission().read(r.abs, visible(`${dir}/report.txt`))
+    expect(plain?.bytes.toString()).toBe(CHECKED)
+    atOpen(dir, folderBecomesLink)
+    const swapped = new SearchAdmission().read(r.abs, visible(`${dir}/report.txt`))
+    expect(swapped?.bytes.toString() ?? '').not.toContain('never checked')
+    expect(swapped).toBeNull()
+  })
+
+  test('office text for search: the checked document, never the other one', async () => {
+    const office = a.ctx.files.office
+    const ok = folder()
+    fs.copyFileSync(path.join(elsewhere, 'placeholder.docx'), mine(`${ok}/report.docx`))
+    await office.update(`users/alice/${ok}/report.docx`)
+    expect(fs.readFileSync(office.cachePath(`users/alice/${ok}/report.docx`), 'utf8')).toContain('the document that was checked')
+
+    const dir = folder()
+    fs.copyFileSync(path.join(elsewhere, 'placeholder.docx'), mine(`${dir}/report.docx`))
+    atOpen(dir, folderBecomesLink, 'report.docx')
+    await office.update(`users/alice/${dir}/report.docx`).catch(() => {})
+    const cached = (() => { try { return fs.readFileSync(office.cachePath(`users/alice/${dir}/report.docx`), 'utf8') } catch { return '' } })()
+    expect(cached).not.toContain('never checked')
   })
 })

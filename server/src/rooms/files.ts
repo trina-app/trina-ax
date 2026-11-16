@@ -337,7 +337,7 @@ export class RoomFiles {
     if (st.size > HWP_LIMITS.inputBytes) throw new HwpError('limit')
     const read = admission.read(f.abs, () => {
       try { const now = checked(); return now.abs === f.abs && now.sha256 === f.sha256 && checkRegular(now.abs) } catch { return false }
-    }, HWP_LIMITS.inputBytes)
+    }, HWP_LIMITS.inputBytes, { serverOwned: true })
     if (!read) throw new HwpError('changed')
     const hash = sha256(read.bytes)
     if (hash !== f.sha256) throw new HwpError('changed')
