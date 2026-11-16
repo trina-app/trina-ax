@@ -13,6 +13,7 @@ import { hwpPluginOn } from '../lib/hwp-plugin'
 import { setWebAllowAll } from '../../server/src/tools/web-allow-all'
 import { buildTurnContext, buildTurnPrompt, NO_BROWSER_RULE, type PromptInput } from '../../server/src/chat/prompt'
 import { loadPrincipal } from '../../server/src/policy/access'
+import { mp4Available } from '../../server/src/promo-video/render'
 
 setDefaultTimeout(30_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -75,7 +76,11 @@ describe('browser tools', () => {
     const d = await web.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
     // file tools, B's tools (set_title: the chat's first message; edit_files) and C's registered tools (make_file, edit_hwp, share_file,
     // artifact, web_fetch, save_url, schedule_*, promo_video, intro_deck, move_skill, post_to_room), skill and find_skills; no browser tools
-    expect(d.data.message.content).toBe('artifact,ask_user,change_project_members,comment_docx,connect_service,copy_files,delete_files,edit,edit_files,edit_hwp,edit_pdf,find_skills,forget,glob,grep,intro_deck,list,make_file,merge_pdfs,move_files,move_skill,post_to_room,promo_video,read,remember,rename_file,room_file,room_read,rooms,save_promo_video,save_room_file,save_url,schedule_create,schedule_delete,schedule_list,set_title,share_file,share_with_person,skill,skill_files,split_pdf,stamp_pdf,web_fetch,write')
+    // save_promo_video only where this server can render the MP4 (promo-video/render.ts mp4Available: a Mac dev server),
+    // so a Linux CI runner does not get it
+    const got = d.data.message.content.split(',')
+    expect(got.includes('save_promo_video')).toBe(mp4Available(h.ctx))
+    expect(got.filter((x: string) => x !== 'save_promo_video').join(',')).toBe('artifact,ask_user,change_project_members,comment_docx,connect_service,copy_files,delete_files,edit,edit_files,edit_hwp,edit_pdf,find_skills,forget,glob,grep,intro_deck,list,make_file,merge_pdfs,move_files,move_skill,post_to_room,promo_video,read,remember,rename_file,room_file,room_read,rooms,save_room_file,save_url,schedule_create,schedule_delete,schedule_list,set_title,share_file,share_with_person,skill,skill_files,split_pdf,stamp_pdf,web_fetch,write')
     const r2 = await send(fake({ echo: 'tools' }), { window: 'win-desk-gone1', client: 'desktop' })(chat.id)
     const d2 = await web.next('message.done', (f) => f.data.messageId === r2.assistantMessage.id, 20_000)
     expect(d2.data.message.content).not.toContain('navigate')
