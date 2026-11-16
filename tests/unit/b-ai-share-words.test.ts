@@ -423,7 +423,8 @@ describe('through the tools', () => {
     try {
       put('users/bob/ledger.txt', 'ledger')
       // nothing by others read: the choice counts, no card
-      const plain = await turn('bob', `go on\n${share({ paths: ['users/bob/ledger.txt'], people: ['Tess Yoon'] })}`)
+      // (#1109's rule: "Always allow" counts where the person's own message names the recipient)
+      const plain = await turn('bob', `share it with Tess Yoon\n${share({ paths: ['users/bob/ledger.txt'], people: ['Tess Yoon'] })}`)
       expect(JSON.parse(plain.content).status).toBe('shared')
       // a teammate's file read in this answer, and the message names neither file nor person: the card, with the line
       put('users/bob/ledger-2.txt', 'ledger 2')

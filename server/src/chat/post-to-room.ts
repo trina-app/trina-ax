@@ -387,7 +387,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
           : !readRooms(exec) && a.data.thread_id === undefined && (() => { const r = recipientNames(db, spec.userId, mine?.room ?? null, pendingTo); return namedInFull(said, r.names, { place: !r.person }) })()
         // a room, a thread or a 1:1 chat's person the AI learned from looking_at in this turn is not the asker's word
         // (chat/looking-at.ts): unless their own message names it, the card shows, "Always allow" or not
-        const fromLook = lookedPlace(exec, { roomId: roomId || null, threadRootId: threadRootId ?? null, names: recipientNames(db, spec.userId, mine?.room ?? null, pendingTo).names }, said)
+        const fromLook = (() => { const r = recipientNames(db, spec.userId, mine?.room ?? null, pendingTo); return lookedPlace(exec, { roomId: roomId || null, threadRootId: threadRootId ?? null, names: r.names, person: r.person }, said) })()
         // #1109's rule: where other people's words are (marked) the card always shows; the screen target too (fromLook)
         const explicit = !marked && !fromLook && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && !all && !linesNone.length && !laterLine && asksFor(POST_ASK, said)
           && (plain ? theirText : !exec.shared && !exec.otherAuthors) && noteOk && place

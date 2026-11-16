@@ -319,7 +319,9 @@ describe('share_with_person: a file or person that came from looking_at keeps th
     try {
       await look(bob1, 'bob', W1, { screen: 'file', filePath: 'users/bob/photo-1.png' })
       // control: no looking_at in the turn, "Always allow" shares with no card (the rule before this change)
-      const control = await turn('bob', `share it with the person from before\n${share({ paths: ['users/bob/photo-2.png'], people: ['Tess Yoon'] })}`)
+      // (#1109's final rule, inherited by the integration branch: looking_at marks the chat as holding other people's words,
+      // and there the card always shows; "Always allow" counts only where the person's own message names the recipient)
+      const control = await turn('bob', `share it with Tess Yoon\n${share({ paths: ['users/bob/photo-2.png'], people: ['Tess Yoon'] })}`)
       expect(control.cards).toBe(0)
       expect(JSON.parse(control.content).status).toBe('shared')
       // the AI looked, then shares what was open: the asker never named it, so the card shows (and "no" shares nothing)
@@ -338,8 +340,8 @@ describe('share_with_person: a file or person that came from looking_at keeps th
       expect(h.ctx.db.query("SELECT 1 FROM file_shares WHERE path = 'users/bob/photo-1.png'").get()).toBeNull()
       // the asker names the file and the person themselves: their word, no card (the chat holds other people's words
       // after looking_at, so "Always allow" needs both named: docs/decisions/20261116-always-allow-more-cards.md)
-      const named = await turn('bob', `share photo-1.png with Tess Yoon\n${LOOK}\n${share({ paths: ['users/bob/photo-1.png'], people: ['Tess Yoon'] })}`)
-      expect(named.cards).toBe(0)
+      const named = await turn('bob', `share photo-1.png with Tess Yoon\n${LOOK}\n${share({ paths: ['users/bob/photo-1.png'], people: ['Tess Yoon'] })}`, { answer: 'share' })
+      expect(named.cards).toBe(1)
       const out = JSON.parse(named.content.slice(named.content.lastIndexOf('{"status"')))
       expect(out.status).toBe('shared')
       // (integrated with B2: no links in the result; the card carries the file)
@@ -354,9 +356,9 @@ describe('share_with_person: a file or person that came from looking_at keeps th
     await look(bob1, 'bob', W1, { screen: 'file', filePath: 'users/bob/photo-5.png' })
     const r = await turn('bob', `share this with Tess Yoon\n${LOOK}\n${share({ paths: ['users/bob/photo-5.png'], people: ['Tess Yoon'] })}`, { answer: 'no' })
     expect(r.card!.question).toContain('Tess Yoon')
-    // and with the file named, the same sentence goes without a card (the explicit ask, unchanged)
-    const named = await turn('bob', `share photo-5.png with Tess Yoon\n${LOOK}\n${share({ paths: ['users/bob/photo-5.png'], people: ['Tess Yoon'] })}`)
-    expect(named.cards).toBe(0)
+    // with the file named the card still shows: after looking_at the chat holds other people's words (#1109's rule)
+    const named = await turn('bob', `share photo-5.png with Tess Yoon\n${LOOK}\n${share({ paths: ['users/bob/photo-5.png'], people: ['Tess Yoon'] })}`, { answer: 'no' })
+    expect(named.cards).toBe(1)
   })
 
   test('a person from looking_at (the 1:1 chat on the screen): "share photo-2.png with them" asks', async () => {
@@ -397,7 +399,9 @@ describe('post_to_room: a room or thread that came from looking_at keeps the car
       await look(bob1, 'bob', W1, { screen: 'room', roomId: rooms.finance })
       const before = authored(rooms.finance, 'bob')
       // control: "Always allow" without looking_at posts with no card
-      const control = await turn('bob', `the usual place\n${post({ room: rooms.finance, text: 'control post' })}`)
+      // (#1109's final rule, inherited by the integration branch: looking_at marks the chat as holding other people's words,
+      // and there the card always shows; "Always allow" counts only where the person's own message names the recipient)
+      const control = await turn('bob', `post this to Finance\n${post({ room: rooms.finance, text: 'control post' })}`)
       expect(control.cards).toBe(0)
       expect(authored(rooms.finance, 'bob')).toBe(before + 1)
       const r = await turn('bob', `put a note here\n${LOOK}\n${post({ room: rooms.finance, text: 'note from looking' })}`, { answer: 'no' })
@@ -405,8 +409,8 @@ describe('post_to_room: a room or thread that came from looking_at keeps the car
       expect(r.card!.question).toContain('#Finance')
       expect(r.card!.options!.map((x) => x.value)).toEqual(['send', 'no'])
       expect(authored(rooms.finance, 'bob')).toBe(before + 1)
-      const named = await turn('bob', `send a note to Finance\n${LOOK}\n${post({ room: rooms.finance, text: 'note, named' })}`)
-      expect(named.cards).toBe(0)
+      const named = await turn('bob', `send a note to Finance\n${LOOK}\n${post({ room: rooms.finance, text: 'note, named' })}`, { answer: 'send' })
+      expect(named.cards).toBe(1)
       expect(authored(rooms.finance, 'bob')).toBe(before + 2)
     } finally { dropAlways(h.ctx.db, 'bob', 'card:post_to_room') }
   })
@@ -437,11 +441,15 @@ describe('post_to_room: a room or thread that came from looking_at keeps the car
       await h.api('alice').call(API.saveContent, { body: { path: 'groups/marketing/look-plan.md', content: '# Plan\ndate', baseSha256: null } })
       const text = 'Plan: [look-plan.md](/files/view?path=groups/marketing/look-plan.md)'
       const read = fake({ tool: 'read', args: { file_path: 'groups/marketing/look-plan.md' } })
-      await look(alice, 'alice', WA, { screen: 'room', roomId: rooms.all })
-      const control = await turn('alice', `the usual\n${read}\n${post({ room: rooms.all, text })}`)
+      await look(alice, 'alice', WA, { screen: 'room', roomId: rooms.marketing })
+      // (the everyone room has no name a message can say, so the team room Marketing)
+      // (#1109's final rule, inherited by the integration branch: looking_at marks the chat as holding other people's words,
+      // and there the card always shows; "Always allow" counts only where the person's own message names the recipient)
+      const control = await turn('alice', `post it to Marketing\n${read}\n${post({ room: rooms.marketing, text })}`)
       expect(control.cards).toBe(0)
-      const r = await turn('alice', `send it here\n${LOOK}\n${read}\n${post({ room: rooms.all, text: `${text} (2)` })}`, { answer: 'no' })
-      expect(r.card!.options!.map((x) => x.value)).toEqual(['send', 'send_files', 'no'])
+      const r = await turn('alice', `send it here\n${LOOK}\n${read}\n${post({ room: rooms.marketing, text: `${text} (2)` })}`, { answer: 'no' })
+      // (everyone in Marketing can open the file, so no "with the files"; never "Always allow" for a screen target)
+      expect(r.card!.options!.map((x) => x.value)).toEqual(['send', 'no'])
     } finally { dropAlways(h.ctx.db, 'alice', 'card:post_files') }
   })
 })

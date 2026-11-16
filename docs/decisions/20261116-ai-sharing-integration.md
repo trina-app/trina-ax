@@ -51,6 +51,15 @@
     - `who_can_open` offers "Ask an admin" for a folder only when one teammate who cannot open it was asked about.
     - The "Posted in" card shows the posted message's first words and its files (`posted.preview`, `posted.files`).
     - On a wider screen a toast moves above a message box that sits under the toasts' column.
+  - **One "asked first" line** (`whyFirst`): the screen target, then rooms or a shared file read here, then other
+    people's words. A post's sources line counts, for a shared file, the same people as its file line. The Posted card
+    names a team room with "#". Names are joined per language (`listWords`: "QA Owner and QA Admin"; Korean with commas).
+  - **#1109's final rule is inherited, not extended.** This branch merges `batch/prompts-1116` at 2a76697d9: in a chat
+    with other people's words, share_with_person and post_to_room always show the card, and neither "Always allow" nor
+    the explicit ask skips it. That reverses the owner's 2026-11-13 decision ("Always allow" on every card) and waits for
+    the owner's call; this branch goes with whatever the owner decides on #1109. Nothing of ours adds the rule elsewhere:
+    stop_sharing keeps its no-card path when the person's own words name the file and the person, and who_can_open and
+    the one-tap offers are unchanged. Tests that assumed "Always allow" without a named recipient now name one.
   - **Same-name files (TC-4091).** To read or summarise, the AI may answer for each file, each part labelled by its place
     and, for a shared file, who shared it and when. To act on one (share, post, edit, delete, move, rename) it asks which.
 - **Why:** the plan's principle, "a refusal always offers a next step", only holds if that step is one button the person

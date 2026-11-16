@@ -75,11 +75,12 @@ export function lookedFile(exec: object, path: string, said: string, attached: R
 /** A room or thread that came from looking_at in this turn and that the asker's own message does not name: the room
  * by its name in full (or, a 1:1 chat, the other person's), a thread only by its own token in their words (a quoted
  * question's thread_id): "that thread" never names one. */
-export function lookedPlace(exec: object, o: { roomId: string | null; threadRootId?: string | null; names: readonly string[] }, said: string): boolean {
+export function lookedPlace(exec: object, o: { roomId: string | null; threadRootId?: string | null; names: readonly string[]; person?: boolean }, said: string): boolean {
   const l = peek(exec)
   if (!l) return false
   if (o.threadRootId && l.threads.has(o.threadRootId)) return threadRefOf(said) !== o.threadRootId
-  return !!o.roomId && l.rooms.has(o.roomId) && !namedInFull(said, o.names)
+  // (a room is named as a place, a 1:1 chat by its person: shared-actions.ts namedInFull)
+  return !!o.roomId && l.rooms.has(o.roomId) && !namedInFull(said, o.names, { place: !o.person })
 }
 /** A person who came from looking_at in this turn (the other side of a 1:1 chat on the screen) and whom the asker's
  * own message does not name in full. */

@@ -278,6 +278,9 @@ describe('a scheduled run (nobody answers a card)', () => {
     h.ctx.db.query("DELETE FROM file_shares WHERE path = 'users/bob/ledger-9.txt'").run()
     expect(JSON.parse(await run('send the weekly file to tess', false, 9)).status).toBe('shared')
     // a task whose text names nobody shares nothing, also in a clean run
+    // (ledger-1 was shared with tess earlier: someone who can already open it is told so before any card, AI sharing
+    // integration; a fresh file keeps this about the card)
+    h.ctx.db.query("DELETE FROM file_shares WHERE path = 'users/bob/ledger-1.txt'").run()
     expect(await run('weekly task', false, 1)).toContain('Nothing was shared: the card got no answer in time')
     h.ctx.db.query("DELETE FROM file_shares WHERE path LIKE 'users/bob/ledger-9.txt'").run()
     // the run read a teammate's file, and the task's text does not name the file: nothing is shared
@@ -405,7 +408,8 @@ describe('second review: what "made in this answer" means, and a chat that read 
   })
 
   test('a chat that read nothing from others: "Always allow" still needs my own message to ask and to name who or where', async () => {
-    // a share: nobody named in my words, the card
+    // a share: nobody named in my words, the card (a file nobody has yet: "already open" is said before any card)
+    h.ctx.db.query("DELETE FROM file_shares WHERE path = 'users/bob/ledger-1.txt'").run()
     const none = await turn('bob', `go on\n${unnamed(1)}`)
     expect(none.cards).toHaveLength(1)
     expect(none.cards[0]!.options!.map((x) => x.value)).toEqual(['share', 'no'])
