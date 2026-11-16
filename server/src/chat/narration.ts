@@ -40,9 +40,10 @@ const NARRATION_MAX_LINES = 2
  * exists; check it.", "Existing pattern: …"). Content written before a call ("Hi team, …", "Total: 42 files",
  * "Work smarter, together.") does not. */
 const STATUS_OPENING = /^(?:let me|let's|let us|i'll|i will|i'm|i am|i need|i should|i can|i see|now|next|first|then|checking|check|looking|reading|searching|opening|trying|only|found|verify|verifying|ok|okay|good|great|alright|done|following|existing|same|still|nothing|no )\b/i
-/** a plan in the first person anywhere ("The existing file uses the pattern …, so I'll match it."), unless the piece
+/** a plan in the first person, an order to itself ("…; check it.") or the person named "the user", anywhere ("The
+ * existing file uses the pattern …, so I'll match it.", "User's own dictated words."), unless the piece
  * opens like a message to someone ("Hi team, I'll be out Friday.") */
-const STATUS_PLAN = /\b(?:i'll|i will|i'm going to|let me|let's)\b/i
+const STATUS_PLAN = /\b(?:i'll|i will|i'm going to|let me|let's)\b|\b(?:check|verify|confirm) (?:it|this|that|them|both)\b|\bthe user(?:'s)?\b|^user(?:'s)?\b/i
 const GREETING = /^(?:hi|hello|hey|dear|thanks|thank you|good (?:morning|afternoon|evening))\b/i
 /** typographic dashes, apostrophes and ellipses count as ASCII (the model writes "—" and "I’ll") */
 const plainPunct = (s: string) => s.replace(/[\u2013\u2014]/g, '-').replace(/[\u2018\u2019]/g, "'").replace(/\u2026/g, '...')

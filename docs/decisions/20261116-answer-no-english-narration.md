@@ -18,7 +18,8 @@ Plan: docs/AGENTS/plan/20261116-0459-answer-no-english-narration.md.
   held while it could still be a status line: it is not streamed and not saved. The next event decides it:
   - a tool call of the main AI (or a thinking block: more comes after it) drops it only when **all** hold: it starts
     like a status line (Let me, I'll, I'm, Now, Next, First, Then, Checking, Looking, Reading, Only, Found, Verify, OK,
-    Following, Existing …) or has a plan in the first person anywhere (I'll, I will, let me, let's) without opening as a
+    Following, Existing …) or has, anywhere, a plan in the first person (I'll, I will, let me, let's), an order to itself (check it, verify
+    this) or the person named "the user" ("User's own dictated words."), without opening as a
     greeting (Hi, Hello, Dear, Thanks …); it is ASCII only (typographic dashes and apostrophes count as ASCII) once file names (quoted or not) and `code` are taken out; it is short (at
     most 200 characters, 2 sentences, 2 lines); it has no link or address, no Markdown (heading, list, bold, table,
     code, quote), no quote marks and no number with a unit or currency. The dropped piece's separator takes the place
@@ -41,7 +42,7 @@ Plan: docs/AGENTS/plan/20261116-0459-answer-no-english-narration.md.
 - **Why not the prompt alone:** the rule was in the prompt and the model still wrote the lines (random, a few cases a
   run). Sub-agents' text never reached the answer, so only the main AI's pieces are held.
 - **Known gap:** a status line that only describes ("The Saturday delivery question is in the thread under …", seen
-  once in the scenario runs) is kept: no rule tells it from content that starts with "The".
+  once in the scenario runs, run 6) is kept: no rule tells it from content that starts with "The".
 - **Not done:** a status line in the answer's own language is kept ("파일을 확인할게요."). A short English line asked for
   without saying "English", written before a tool call, is dropped (rare: the AI writes such content as the final answer
   or into a file). The log says how many pieces an answer dropped (`status lines left out of the answer`), never their
