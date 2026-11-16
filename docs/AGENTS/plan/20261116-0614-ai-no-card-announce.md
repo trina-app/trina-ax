@@ -31,3 +31,8 @@ Out: removing text the AI already streamed before a call (server side).
 Built as planned. CON-02 re-run 8 times: no card announced in any run; connect_service was the first call after the
 title every time. 4 of 8 passed the judge; the others failed on things this does not touch (an English answer to a
 Korean request twice, "서버 운영자" from the Drive result's "server's operator" wording, a garbled name). CON-03 passes.
+
+Review round (independent review): the rule names a *connect* card only (other cards are still mentioned); a pasted key
+→ "call connect_service (without the key) so they enter a new one on the card"; docs/INTEGRATIONS.md ("Connecting from
+a chat" and the pasted-key line) updated; the card point is kept in one place (CONNECT_RULE and the refusal text), so
+the sentence in the connect_service description was dropped.
