@@ -1,5 +1,6 @@
 // Chunked uploads (tab 4 "큰 업로드"): create (target, size, sha256) -> PUT 8 MB chunks in any order, resumable
-// -> complete (sha256 check, then through the policy function into place). Chunks are written straight into one
+// -> complete (sha256 check, then through the policy function into place; a room target: into the room's own folder,
+// rooms/files.ts). Chunks are written straight into one
 // sparse part file at their offset (<data>/uploads/<id>.part), so nothing is buffered beyond one network read and
 // completing needs no assembly. While chunks arrive in order the sha256 is computed on the way, so complete only
 // hashes what came out of order. An unfinished session is removed 24 hours after its last chunk (a laptop that slept
@@ -22,6 +23,8 @@ import type { TeamFiles } from '../team-files/service'
 import type { Attachments } from './attachments'
 import { defaultChunkGate, type ChunkGate } from './chunk-gate'
 import { diskStat } from '../system/disk-stat'
+import { roomFilesOf } from '../rooms/files'
+import { roomsOf } from '../rooms/service'
 
 /** idle expiry: every accepted chunk moves expires_at to now + this */
 export const SESSION_TTL_MS = 24 * 3600_000
@@ -102,6 +105,11 @@ export class UploadSessions {
       this.attachments.assertUploadChat(userId, t.chatId, sha256, size)
       const bad = t.name.includes('/') ? 'names cannot contain "/"' : badSegment(t.name.normalize('NFC'))
       if (bad) fileError('validation', 'badName', { name: bad })
+    } else if (t.kind === 'room') {
+      // in the room now, a name that can be kept, at most 10 GB: refused here, before a byte is sent (rooms/files.ts)
+      // the room as the person may use it now (rooms/service.ts: a DM closed since answers like one that is not there)
+      roomsOf(this.ctx).get(userId, t.roomId)
+      roomFilesOf(this.ctx).assertUpload(userId, t.roomId, t.name, size ?? 0)
     } else if (isGuestUser(this.ctx.db, userId)) {
       // a guest: no speech to text (a team cost outside the guest's own limit; POST /api/transcribe is off their list too)
       throw new HttpError('forbidden')
@@ -200,6 +208,17 @@ export class UploadSessions {
       result = { kind: 'path', entry }
     } else if (target.kind === 'attachment') {
       result = { kind: 'attachment', attachment: await this.attachments.create(userId, target.chatId, target.name, this.part(id), sha) }
+    } else if (target.kind === 'room') {
+      // checked again (create: in the room now); the part file is moved into the room's folder, never read whole
+      try {
+        roomsOf(this.ctx).get(userId, target.roomId)
+        result = { kind: 'room', file: await roomFilesOf(this.ctx).create(userId, target.roomId, target.name, this.part(id), sha) }
+      } catch (e) {
+        // refused for good (the room left or closed meanwhile, a photo that cannot be read, its bytes taken away): this
+        // session can never finish, so it ends here and its part file gives its disk room back at once
+        if ((e instanceof HttpError && (e.code === 'not_found' || e.code === 'validation')) || !fs.existsSync(this.part(id))) this.drop(id)
+        throw e
+      }
     } else {
       if (!this.transcribe) throw new HttpError('unavailable')
       // checked again here: the chat may be gone or locked confidential during a long upload; refused, nothing of the
@@ -220,14 +239,20 @@ export class UploadSessions {
   async cancel(userId: string, id: string) {
     const r = this.row(userId, id)
     const running = this.completing.get(id)
+    const target = JSON.parse(r.target) as UploadTarget
+    // a room file whose chip was taken out while it was put in place, or just after: the unsent upload is removed (a
+    // sent one stays: discardUnsent only takes files not in a message)
+    const dropRoomFile = (done: UploadComplete | null) => { if (target.kind === 'room' && done?.kind === 'room') roomFilesOf(this.ctx).discardUnsent(userId, target.roomId, [done.file.id]) }
     if (running) {
-      if ((JSON.parse(r.target) as UploadTarget).kind !== 'attachment') fileError('conflict', 'completing')
+      if (target.kind !== 'attachment' && target.kind !== 'room') fileError('conflict', 'completing')
       const done = await running.catch(() => null)
-      this.attachments.discardSaved(userId, done?.kind === 'attachment' ? done.attachment : null)
+      if (target.kind === 'room') { dropRoomFile(done); if (this.ctx.db.query('SELECT 1 FROM upload_sessions WHERE id = ?').get(id)) this.drop(id) }
+      else this.attachments.discardSaved(userId, done?.kind === 'attachment' ? done.attachment : null)
       return
     }
     const done = r.result ? JSON.parse(r.result) as UploadComplete : null
     if (done?.kind === 'attachment') this.attachments.discardSaved(userId, done.attachment)
+    dropRoomFile(done)
     this.drop(id)
   }
   private drop(id: string) {

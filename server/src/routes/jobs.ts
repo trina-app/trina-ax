@@ -1,13 +1,10 @@
 // Route module "jobs" — owner: component C (docs/WORKPLAN.md).
 // Implements: JOBS (get, cancel, transcribe). Contract: shared/src/api/jobs.ts. Logic: server/src/jobs/*.
 // init() installs the JobService (ctx.services.jobs) that G's backup / restore / update / export also use.
-import fs from 'node:fs'
-import path from 'node:path'
 import { API } from '@mycel/shared/api'
 import { HttpError } from '../http/errors'
 import { mapErrors } from '../team-files/errors'
 import { componentC, startComponentC } from '../team-files/component'
-import { writeTemp } from '../team-files/place'
 import type { RouteModule } from './module'
 
 export const jobsRoutes: RouteModule = {
@@ -37,10 +34,8 @@ export const jobsRoutes: RouteModule = {
       // a confidential chat's recording never goes to OpenRouter: refused before it is written anywhere
       C.checkTranscribe(auth.user.id, chatId)
       const name = body.file.name || 'audio.webm'
-      const p = await writeTemp(path.join(ctx.config.dataDir, 'work'), body.file)
-      try {
-        return { jobId: C.startTranscribe(auth.user.id, p, name, { language: body.fields.language, chatId }) }
-      } catch (e) { fs.rmSync(p, { force: true }); throw e }
+      // the recording is on disk already (http/multipart.ts); the job takes the file over, or the kit removes it
+      return { jobId: C.startTranscribe(auth.user.id, body.file.path, name, { language: body.fields.language, chatId }) }
     }))
   },
 }
