@@ -241,7 +241,7 @@ function ChoiceField({ id, input, label, value, error, onChange }: { id: string;
             <label
               key={o.value}
               className={clsx(
-                'relative inline-flex min-h-9 cursor-pointer items-center rounded-full border px-3.5 text-sm transition has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent',
+                'relative inline-flex min-h-9 cursor-pointer items-center rounded-full border px-3.5 text-sm transition has-focus-visible:ring-2 has-focus-visible:ring-accent',
                 on ? 'border-accent bg-accent-soft font-medium text-accent-text' : 'border-line text-ink hover:bg-hover',
               )}
               data-testid={`skill-choice-${input.name}-${o.value}`}

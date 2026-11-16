@@ -4,6 +4,10 @@
 /* dark mode follows the .dark class on <html> (lib/theme.ts: light / dark / system) */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* The focus ring is the keyboard's only (lib/inputModality.ts): after a mouse click or a tap, <html data-input="pointer">
+   and nothing a focus-visible: class draws shows; after Tab it does. The base rule below follows the same. */
+@custom-variant focus-visible (&:focus-visible:where(:root:not([data-input="pointer"]) *));
+
 /* Semantic colour tokens. Text on canvas/surface keeps ≥ 4.5:1; focus rings, strong borders and the edge of a text
    field ≥ 3:1 (WCAG 2.2 AA, 1.4.11). --c-line is for cards and dividers (decoration, softer); --c-field-border is the
    edge of inputs, selects and text areas, ≥ 3:1 against canvas, surface and subtle (test/unit/field-contrast.test.ts). */
@@ -307,7 +311,9 @@ textarea[data-token-input]::selection { -webkit-text-fill-color: transparent; ba
 /* one visible focus style everywhere (3:1 against both themes) */
 /* (in the base layer, so a field inside a framed box can turn it off with outline-none and let the box show focus) */
 @layer base {
-  :focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
+  /* (never after a mouse click or a tap: lib/inputModality.ts) */
+  :where(:root:not([data-input="pointer"])) :focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
+  :where(:root[data-input="pointer"]) :focus-visible { outline: none; }
 }
 
 /* Every single-choice <select> draws its own arrow, 0.75em in from the right edge. The browser's own arrow sits on the
