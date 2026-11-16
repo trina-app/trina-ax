@@ -406,16 +406,20 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   const live = !!tc.files.person?.allSitesHere?.()
   const teamOn = teamAllowsAlways(ctx.db)
   const freely = live && teamOn
-  const allowed = !b.scheduled && (
-    (row.scope === 'team' && row.write_policy === 'allow')
-    || (row.scope === 'personal' && row.owner_user_id === b.userId && row.write_policy === 'allow')
-    || (teamOn && memberAllows(ctx.db, row, b.userId)))
+  // the person's own choice (their own connection's rule, or their own Always allow for a team connection)
+  const ownAllow = (row.scope === 'personal' && row.owner_user_id === b.userId && row.write_policy === 'allow')
+    || (teamOn && memberAllows(ctx.db, row, b.userId))
+  const allowed = !b.scheduled && ((row.scope === 'team' && row.write_policy === 'allow') || ownAllow)
   const outside = !b.scheduled && !freely && (roomsSeen || outsideSeen(ctx.db, b.chatId))
-  // a team file to attach, in a chat that holds content another person wrote, that the person's own message of this
-  // turn did not bring (named, attached, or made in this answer): the card, also where this connection sends without
-  // asking (TurnPerson.attachAsks; docs/decisions/20261116-mail-attach-team-file.md "Sends without asking")
+  // a team file to attach that the person's own message of this turn did not bring (named, attached, or made in this
+  // answer), or any team file in a chat that holds other people's words (TurnPerson.attachAsks): the card, also where
+  // an admin's rule sends without asking, and never the explicit-ask skip. The person's own Always allow for this
+  // connection is final (owner 2026-11-13; docs/decisions/20261116-mail-attach-team-file.md "Sends without asking",
+  // 20261116-always-allow-final-rule-a.md): no card then, with files too
   const attachAsks = !!sent.attach?.length && !b.scheduled && !!tc.files.person?.attachAsks?.(sent.attach)
-  if (allowed && !outside && !attachAsks) return false
+  // (not in a chat other members wrote in: there another member's message may have picked the file)
+  const ownCovers = ownAllow && !tc.files.person?.otherMembers?.()
+  if (allowed && !outside && (!attachAsks || ownCovers)) return false
   // the person's own connection in a scheduled run whose task's card listed it: only to the recipients it pinned (Q2 a)
   const pins = b.scheduled && row.scope === 'personal' ? pinsFor(ctx, b.turnId, row) : null
   if (pins) {
@@ -432,7 +436,8 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // no card when the person's own message of this turn asked for this change and everything it writes is in their words
   // (docs/decisions/20261116-no-card-after-explicit-ask.md, QA TC-3812; shared-actions.ts writtenByAsker): only a
   // service tool that adds or changes content (explicitWriteTool: not api_request, never one that sends, deletes or shares), only in a turn the person watches from their own app
-  if (person && !person.unattended && live && !attachAsks && sent.tool && !sent.request && explicitWriteTool(sent.tool) && writeAsked(ctx, b.turnId, sent.raw)) return true
+  // (our own text match, not the person's choice: never where other people's words are in the chat)
+  if (person && !person.unattended && live && !attachAsks && !person.othersWords?.() && sent.tool && !sent.request && explicitWriteTool(sent.tool) && writeAsked(ctx, b.turnId, sent.raw)) return true
   if (!person || person.unattended) {
     throw new CallError(refusal({
       done: `Nothing was sent to ${row.name}.`, why: cardReason('unattended'),
@@ -456,8 +461,9 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // Send once, Always allow, Don't send (TC-130): the person's own choice for this connection (Settings turns it back),
   // offered only in a turn they watch from their own app while the team lets people choose it, and not where outside
   // content still asks (a Slack question)
-  // (not for a send whose attached team files keep the card: TurnPerson.attachAsks; the choice would not count there)
-  if (person.choose && freely && !allowed && !attachAsks) {
+  // (also on a card that shows because of attached team files where an admin's rule sends without asking: the person's
+  // own choice counts there)
+  if (person.choose && freely && !ownCovers && (!allowed || attachAsks) && !(attachAsks && person.otherMembers?.())) {
     // the values of the yes / no card (chat/tools.ts confirmWhy: 'allow', 'deny'), so a client that answers those still works
     const v = await person.choose(question, [{ label: say('once', L), value: 'allow' }, { label: say('alwaysAllow', L), value: 'always' }, { label: say('no', L), value: 'deny' }], { details, buttons: true, note: say('alwaysNote', L, { name: row.name }) })
     if (v === 'allow') return true

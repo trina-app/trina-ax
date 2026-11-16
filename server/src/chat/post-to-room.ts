@@ -48,7 +48,7 @@
 // (subagents.ts PARENT_ONLY_TOOLS). Reached anyway (the chat became confidential during the answer, a sub-agent's call)
 // it refuses with why and what to do, as it does for a room that is archived or not mine, a gone thread, content that
 // used earlier answers hidden from some member, a text too long for one message and the sending budget.
-import { alwaysHere, withAlways } from './always-allow'
+import { withAlways } from './always-allow'
 import { actionOff, asksFor, askerPicks, askerText, asksToSend, fold, fromAsker, mainOnly, namedInFull, namesRecipient as namesPlace, othersWordsIn, soleNames, ownWords, POST_ASK } from './shared-actions'
 import { readRooms } from './read-rooms'
 import { grantOnly, seenWhy } from './grant-reads'
@@ -354,23 +354,17 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // card. A card that also offers the linked files has its own kind, post_files (docs/decisions/
         // 20261116-always-allow-more-cards.md; the owner's rule: every card offers it on its first showing): its "Always
         // send with the files" sends them this time, and later such posts go with their files and no card
-        // A shared chat (QA TC-3091 review): other people's messages are in the AI's context, so "Always allow" counts only
-        // when the asker's own latest message names the recipient as matched, and never for own_words (a message in the
-        // asker's own words always shows them the card)
-        // The same holds in the person's own chat once other people's words are in it (it read rooms, or content
-        // someone else wrote: a teammate's file, a file shared with them, a page, a connected service; shared-actions.ts
-        // othersWordsIn; docs/decisions/20261116-always-allow-more-cards.md "Content written by others"): the choice
-        // counts only for a place their own message names (quoted lines left out), or, in a room's side chat, that
-        // room, and only when that message asks to send or post; and the linked files go along without the card only when they brought each one
-        // (named or attached it, or the AI made it in this answer). Own words may go there under the choice, as before.
+        // The person's choice is final in their own chat, whatever it read (rooms, a teammate's file, a page, a connected
+        // service; the owner 2026-11-13, docs/decisions/20261116-always-allow-final-rule-a.md). A shared chat (QA TC-3091
+        // review) or one other members wrote in: their messages are in the AI's context, so "Always allow" counts only for this person's own
+        // ask: their own message of this turn (quoted lines left out) names the place and asks to send or post, brings
+        // every linked file (named or attached it, or the AI made it in this answer), and never for own_words
         const mineNamed = () => namesPlace(ownWords(askerText(db, spec.userMessageId)), a.data.room, recipientNames(db, spec.userId, mine?.room ?? null, pendingTo))
-        // In every own chat the place must be the person's: named in their own message, which asks to send or post, or
-        // the side chat's own room (a name a teammate chose reaches the AI in a chat that read nothing too)
-        // (a shared chat too: other members' messages are in it, so the asker's own message must ask and bring the files)
+        // (a chat other members wrote in, also one no longer shared, is the same: exec.otherAuthors)
+        const alwaysOk = !(exec.shared || exec.otherAuthors) || (!plain && mineNamed() && asksToSend(db, spec.userMessageId) && (!all || fromAsker(db, spec, first.offered)))
         // where other people's words are in the chat (shared, others write in it, rooms read, content someone else wrote:
-        // othersWordsIn) the card always shows: neither "Always allow" nor the explicit ask skips it there
+        // othersWordsIn) the explicit-ask skip below (our own text match, not the person's choice) never applies
         const marked = othersWordsIn(exec)
-        const alwaysOk = !marked && (sideRoomOf(db, spec.chatId, spec.userId)?.id === roomId || mineNamed()) && asksToSend(db, spec.userMessageId)
         // no card when the asker's own message of this turn asked for exactly this post (docs/decisions/
         // 20261116-no-card-after-explicit-ask.md, QA TC-3812): a post word and the place in their words (or, in a room's
         // side chat, no place given: that room), and the card would tell nothing more (no line about people who cannot see
@@ -386,14 +380,14 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const place = a.data.room === undefined ? !!side && a.data.thread_id === undefined
           : !readRooms(exec) && a.data.thread_id === undefined && (() => { const r = recipientNames(db, spec.userId, mine?.room ?? null, pendingTo); return namedInFull(said, r.names, { place: !r.person }) })()
         // a room, a thread or a 1:1 chat's person the AI learned from looking_at in this turn is not the asker's word
-        // (chat/looking-at.ts): unless their own message names it, the card shows, "Always allow" or not
+        // (chat/looking-at.ts): unless their own message names it, the explicit ask does not skip the card
         const fromLook = (() => { const r = recipientNames(db, spec.userId, mine?.room ?? null, pendingTo); return lookedPlace(exec, { roomId: roomId || null, threadRootId: threadRootId ?? null, names: r.names, person: r.person }, said) })()
-        // #1109's rule: where other people's words are (marked) the card always shows; the screen target too (fromLook)
+        // where other people's words are (marked) the explicit ask never skips the card; nor for a screen target (fromLook)
         const explicit = !marked && !fromLook && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && !all && !linesNone.length && !laterLine && asksFor(POST_ASK, said)
           && (plain ? theirText : !exec.shared && !exec.otherAuthors) && noteOk && place
-        // (where the choice does not count the card shows; it still offers "Always allow" on its first showing in a chat
-        // with nobody else's words, never where other people's words are, nor once the choice is made, nor for a screen target)
-        const place1 = fromLook ? null : alwaysOk || (!marked && alwaysHere(exec.alwaysPlace?.(), all ? 'post_files' : 'post_to_room') === 'offer') ? exec.alwaysPlace?.() : null
+        // (where the choice counts, the card offers "Always allow" on its first showing; where it does not, the card shows.
+        // Once on it is final, Rule A (#1143): a screen target only stops the explicit-ask skip above)
+        const place1 = alwaysOk ? exec.alwaysPlace?.() : null
         // why the card asks first: one line, the reason that matters most (chat/share-words.ts whyFirst)
         const whyLine = whyFirst(L, { fromLook, seenLine, others: othersWordsCard(exec, all ? 'post_files' : 'post_to_room', alwaysOk) })
         const reply = explicit ? 'send' : await withAlways(place1, all ? 'post_files' : 'post_to_room', options, all ? 'send_files' : 'send', (opts, more) => exec.waitForPerson({

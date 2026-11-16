@@ -34,11 +34,13 @@
   - **Sends without asking:** a connection that already sends without the card for this person (the team's rule, or
     their own Always allow, whose card says it covers every send there) attaches without a card too, but only in a
     turn the person watches from their own app; a question asked elsewhere (Slack) attaches nothing without a card.
-    The card decides as it did (docs/DECISIONS.md "Always allow on every card"), with one addition made in the batch:
-    a file the person's own message did not bring (named or attached it, or the AI wrote it new in this answer: not a
-    file a tool built from another one) keeps the card, in every chat, and in a chat with other people's words every
-    attached team file keeps it (`TurnPerson.attachAsks`;
-    docs/decisions/20261116-always-allow-more-cards.md "Content written by others"). The text of a send still follows the connection's rule there, as before.
+    The card decides as it did (docs/DECISIONS.md "Always allow on every card"). **Always allow is final (owner decision 2026-11-13); the guards apply only where the person hasn't chosen Always allow.** With the
+    person's own Always allow for the connection (their own connection's rule, or their row for a team connection),
+    attached team files go without a card too. Where only an admin's team rule sends without asking, one addition made
+    in the batch: a file the person's own message did not bring (named or attached it, or the AI wrote it new in this
+    answer: not a file a tool built from another one) keeps the card, and in a chat with other people's words every
+    attached team file keeps it (`TurnPerson.attachAsks`; docs/decisions/20261116-always-allow-more-cards.md "Content
+    written by others"); that card offers Always allow. Without any Always allow the card shows the attached files. The text of a send still follows the connection's rule there, as before.
     The audit line names every file that left.
   - **Stored keys:** a file whose bytes hold one of the person's stored connection keys (as text, as UTF-16, or cut by
     white space) is not sent (as base64 the AI writes itself, `hide-args.ts`); when the keys cannot be read just then,

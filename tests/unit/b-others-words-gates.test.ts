@@ -1,8 +1,9 @@
 // The share and room-post gates count file content written by others (docs/decisions/20261116-always-allow-more-cards.md
 // "Content written by others", 20261116-shared-files-for-the-ai.md, 20261116-no-card-after-explicit-ask.md): once a
 // person's own chat has read something another person wrote (a teammate's team file, a file shared with them, a page,
-// a connected service), their "Always allow" for shares and room posts counts only for what their own message names.
-// What they name themselves, and a chat that read only their own files, stay card-free.
+// a connected service), the explicit-ask skip (our own text match) no longer applies there. Their own "Always allow" is
+// final (owner 2026-11-13, docs/decisions/20261116-always-allow-final-rule-a.md): with it on, shares and room posts go
+// without the card in their own chat whatever it read; the guards apply only where they have not chosen it.
 // The fixture team: alice and erin in marketing, bob in finance, carol admin, dana owner (b-harness people), tess added.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
@@ -98,50 +99,48 @@ describe('share_with_person with "Always allow" on, in my own chat', () => {
     expect(JSON.parse(r.content).status).toBe('shared')
   })
 
-  test('after reading a teammate\'s team file, in the same answer: a share my message did not name keeps its card', async () => {
+  test('after reading a teammate\'s team file, in the same answer: my Always allow is final, no card', async () => {
     const r = await turn('bob', `send it to tess\n${read('shared/alice-notes.md')}\n${unnamed(3)}`)
-    expect(r.cards).toHaveLength(1)
-    // (no "Always allow" where it would not count)
-    expect(r.cards[0]!.options!.map((x) => x.value)).toEqual(['share', 'no'])
-    expect(sharedRow('users/bob/ledger-3.txt')).toBeNull()
+    expect(r.cards).toHaveLength(0)
+    expect(JSON.parse(r.content).status).toBe('shared')
   })
 
-  test('...and in a later answer of the same chat', async () => {
+  test('...and in a later answer of the same chat, also when my message names nobody', async () => {
     const first = await turn('bob', `read it\n${read('shared/alice-notes.md')}`)
-    const r = await turn('bob', `send it to tess\n${unnamed(4)}`, first.chatId)
-    expect(r.cards).toHaveLength(1)
-    expect(sharedRow('users/bob/ledger-4.txt')).toBeNull()
+    const r = await turn('bob', `go on\n${unnamed(4)}`, first.chatId)
+    expect(r.cards).toHaveLength(0)
+    expect(sharedRow('users/bob/ledger-4.txt')).not.toBeNull()
   })
 
-  test('after reading a file shared with me (a share grant): nothing my message did not name is shared', async () => {
+  test('after reading a file shared with me (a share grant): my Always allow still holds', async () => {
     fileSharesOf(h.ctx).change('alice', 'users/alice/for-bob.md', [{ subjectType: 'user', subjectId: 'bob' }], [], 'en')
     const r = await turn('bob', `go on\n${fake({ tool: 'read', args: { file_path: 'users/alice/for-bob.md' }, sayResult: true })}\n${unnamed(5)}`)
     // (the grant read worked: the file's text came back)
     expect(r.content).toContain('a file alice shares with bob')
-    // such a read counts as a room read: a file my own message did not bring is refused, with or without the card
-    expect(r.content).toContain('a file is shared only when the user named it in their own message')
     expect(r.cards).toHaveLength(0)
-    expect(sharedRow('users/bob/ledger-5.txt')).toBeNull()
+    expect(sharedRow('users/bob/ledger-5.txt')).not.toBeNull()
   })
 
-  test('after such a read the card always shows: neither an explicit ask nor Always allow skips it', async () => {
-    const first = await turn('bob', `read it\n${read('shared/alice-notes.md')}`)
-    // an explicit ask (docs/decisions/20261116-no-card-after-explicit-ask.md): the card, in a chat with other people's words
-    const explicit = await turn('bob', `share ledger-6.txt with tess\n${unnamed(6)}`, first.chatId)
-    expect(explicit.cards).toHaveLength(1)
-    expect(sharedRow('users/bob/ledger-6.txt')).toBeNull()
-    // a send word, the file and the person in my words: still the card
-    const named = await turn('bob', `send ledger-7.txt to tess\n${unnamed(7)}`, first.chatId)
-    expect(named.cards).toHaveLength(1)
-    expect(sharedRow('users/bob/ledger-7.txt')).toBeNull()
-    // the person named, the file not: the card
-    const half = await turn('bob', `send it to tess\n${unnamed(8)}`, first.chatId)
-    expect(half.cards).toHaveLength(1)
-    expect(sharedRow('users/bob/ledger-8.txt')).toBeNull()
-    // both named, but as what to read, not as an ask to send (the person named may be who wrote the content): the card
-    const about = await turn('bob', `look at ledger-9.txt and what tess wrote\n${unnamed(9)}`, first.chatId)
-    expect(about.cards).toHaveLength(1)
-    expect(sharedRow('users/bob/ledger-9.txt')).toBeNull()
+  test('without Always allow, after such a read the card always shows: the explicit ask does not skip it', async () => {
+    dropAlways(h.ctx.db, 'bob', 'card:share_files')
+    try {
+      const first = await turn('bob', `read it\n${read('shared/alice-notes.md')}`)
+      // an explicit ask (docs/decisions/20261116-no-card-after-explicit-ask.md): the card, in a chat with other people's words
+      const explicit = await turn('bob', `share ledger-6.txt with tess\n${unnamed(6)}`, first.chatId)
+      expect(explicit.cards).toHaveLength(1)
+      // (the card offers "Always allow": the person's choice counts here)
+      expect(explicit.cards[0]!.options!.map((x) => x.value)).toEqual(['share', '__always', 'no'])
+      expect(sharedRow('users/bob/ledger-6.txt')).toBeNull()
+      // a send word, the file and the person in my words: still the card
+      const named = await turn('bob', `send ledger-7.txt to tess\n${unnamed(7)}`, first.chatId)
+      expect(named.cards).toHaveLength(1)
+      expect(sharedRow('users/bob/ledger-7.txt')).toBeNull()
+      // a chat that read rooms (a share grant read counts as one): a file my own message did not bring is refused
+      const grant = await turn('bob', `go on\n${fake({ tool: 'read', args: { file_path: 'users/alice/for-bob.md' }, sayResult: true })}\n${unnamed(8)}`)
+      expect(grant.content).toContain('a file is shared only when the user named it in their own message')
+      expect(grant.cards).toHaveLength(0)
+      expect(sharedRow('users/bob/ledger-8.txt')).toBeNull()
+    } finally { keepAlways(h.ctx.db, 'bob', 'share_files', null) }
   })
 })
 
@@ -154,16 +153,19 @@ describe('post_to_room with "Always allow" on, in my own chat', () => {
     expect(JSON.parse(r.content).status).toBe('sent')
   })
 
-  test('after reading a teammate\'s team file: a post to a place my message did not name keeps its card', async () => {
+  test('after reading a teammate\'s team file: my Always allow is final, also for a place my message did not name', async () => {
     const r = await turn('bob', `go on\n${read('shared/alice-notes.md')}\n${toEveryone('hello two')}`)
-    expect(r.cards).toHaveLength(1)
-    expect(r.content).not.toContain('"status":"sent"')
+    expect(r.cards).toHaveLength(0)
+    expect(JSON.parse(r.content).status).toBe('sent')
   })
 
-  test('...and a place my message names keeps the card too', async () => {
-    const r = await turn('bob', `send this one to tess\n${read('shared/alice-notes.md')}\n${post({ room: 'Tess Yoon', text: 'hello three' })}`)
-    expect(r.cards).toHaveLength(1)
-    expect(r.content).not.toContain('"status":"sent"')
+  test('without Always allow: after such a read the explicit ask keeps the card', async () => {
+    dropAlways(h.ctx.db, 'bob', 'card:post_to_room')
+    try {
+      const r = await turn('bob', `send this one to tess\n${read('shared/alice-notes.md')}\n${post({ room: 'Tess Yoon', text: 'hello three' })}`)
+      expect(r.cards).toHaveLength(1)
+      expect(r.content).not.toContain('"status":"sent"')
+    } finally { keepAlways(h.ctx.db, 'bob', 'post_to_room', null) }
   })
 })
 
@@ -233,6 +235,10 @@ describe('what counts as content written by others', () => {
 })
 
 describe('a file the AI did not write in this answer is not one the asker brought', () => {
+  // (without Always allow: the card is what the person decides on; fromAsker is the helper every "made in this answer"
+  // skip or refusal uses)
+  beforeAll(() => { dropAlways(h.ctx.db, 'bob', 'card:share_files') })
+  afterAll(() => { keepAlways(h.ctx.db, 'bob', 'share_files', null) })
   test('an older file copied, renamed or edited in the answer keeps its card; a new file the AI wrote goes', async () => {
     put('users/bob/payroll-a.txt', 'pay a', 'bob'); put('users/bob/payroll-b.txt', 'pay b', 'bob'); put('users/bob/payroll-c.txt', 'pay c', 'bob')
     const readIt = read('shared/alice-notes.md')
@@ -252,7 +258,9 @@ describe('a file the AI did not write in this answer is not one the asker brough
     const made = await turn('bob', `send the summary to tess\n${readIt}\n${fake({ tool: 'write', args: { file_path: 'users/bob/new-summary.md', content: 'summary' } })}\n${to('users/bob/new-summary.md')}`)
     expect(fromAsker(h.ctx.db, { userMessageId: made.messageId, turnId: made.turnId }, ['users/bob/new-summary.md'])).toBe(true)
     expect(fromAsker(h.ctx.db, { userMessageId: copied.messageId, turnId: copied.turnId }, ['users/bob/out-a/payroll-a.txt'])).toBe(false)
-    expect(made.cards).toHaveLength(1)
+    expect(fromAsker(h.ctx.db, { userMessageId: renamed.messageId, turnId: renamed.turnId }, ['users/bob/summary-b.txt'])).toBe(false)
+    expect(fromAsker(h.ctx.db, { userMessageId: edited.messageId, turnId: edited.turnId }, ['users/bob/payroll-c.txt'])).toBe(false)
+    for (const t of [copied, renamed, edited, made]) expect(t.cards).toHaveLength(1)
   })
 })
 
@@ -274,20 +282,21 @@ describe('a scheduled run (nobody answers a card)', () => {
     return r.content.map((c) => (c.type === 'text' ? c.text : '')).join('')
   }
 
-  test('a clean run shares under the person\'s choice; after content by others only what the task\'s own text names', async () => {
-    h.ctx.db.query("DELETE FROM file_shares WHERE path = 'users/bob/ledger-9.txt'").run()
+  test('the person\'s Always allow covers their scheduled runs (owner 2026-11-14), also after content by others; without it nothing is shared', async () => {
+    h.ctx.db.query("DELETE FROM file_shares WHERE path LIKE 'users/bob/ledger-%'").run()
     expect(JSON.parse(await run('send the weekly file to tess', false, 9)).status).toBe('shared')
-    // a task whose text names nobody shares nothing, also in a clean run
-    // (ledger-1 was shared with tess earlier: someone who can already open it is told so before any card, AI sharing
-    // integration; a fresh file keeps this about the card)
-    h.ctx.db.query("DELETE FROM file_shares WHERE path = 'users/bob/ledger-1.txt'").run()
-    expect(await run('weekly task', false, 1)).toContain('Nothing was shared: the card got no answer in time')
-    h.ctx.db.query("DELETE FROM file_shares WHERE path LIKE 'users/bob/ledger-9.txt'").run()
-    // the run read a teammate's file, and the task's text does not name the file: nothing is shared
-    const steered = await run('send the weekly file to tess', true, 1)
-    expect(steered).toContain('Nothing was shared: the card got no answer in time')
-    // the task's own text names both: still nothing without an answer (the card always shows after content by others)
-    expect(await run('send ledger-9.txt to tess every week', true, 9)).toContain('Nothing was shared: the card got no answer in time')
+    expect(JSON.parse(await run('weekly task', false, 1)).status).toBe('shared')
+    h.ctx.db.query("DELETE FROM file_shares WHERE path LIKE 'users/bob/ledger-%'").run()
+    // the run read a teammate's file: the person's choice is final there too
+    expect(JSON.parse(await run('send the weekly file to tess', true, 1)).status).toBe('shared')
+    h.ctx.db.query("DELETE FROM file_shares WHERE path LIKE 'users/bob/ledger-%'").run()
+    // without Always allow: not offered in a scheduled run at all
+    dropAlways(h.ctx.db, 'bob', 'card:share_files')
+    try {
+      expect(await run('send ledger-9.txt to tess every week', false, 9)).toContain('Nothing was shared: a scheduled run has nobody to answer the card')
+      expect(await run('send ledger-9.txt to tess every week', true, 9)).toContain('Nothing was shared: a scheduled run has nobody to answer the card')
+      expect(sharedRow('users/bob/ledger-9.txt')).toBeNull()
+    } finally { keepAlways(h.ctx.db, 'bob', 'share_files', null) }
   })
 })
 
@@ -387,6 +396,9 @@ describe('second review: what "made in this answer" means, and a chat that read 
   })
 
   test('the real tools: a file make_file built from another file, or wrote over its own new file from one, is not made in this answer', async () => {
+    // (without Always allow: the card is the person's decision; fromAsker is what a "made in this answer" skip uses)
+    dropAlways(h.ctx.db, 'bob', 'card:share_files')
+    try {
     put('users/bob/payroll-z.csv', 'name,pay\nbob,1\n', 'bob')
     const readIt = read('shared/alice-notes.md')
     const to = (p: string) => share({ paths: [p], people: ['Tess Yoon'] })
@@ -405,27 +417,20 @@ describe('second review: what "made in this answer" means, and a chat that read 
     expect(fromAsker(h.ctx.db, { userMessageId: own.messageId, turnId: own.turnId }, ['users/bob/out-x.xlsx'])).toBe(true)
     expect(fromAsker(h.ctx.db, { userMessageId: built.messageId, turnId: built.turnId }, ['users/bob/out-z.xlsx'])).toBe(false)
     expect(own.cards).toHaveLength(1)
+    } finally { keepAlways(h.ctx.db, 'bob', 'share_files', null) }
   })
 
-  test('a chat that read nothing from others: "Always allow" still needs my own message to ask and to name who or where', async () => {
-    // a share: nobody named in my words, the card (a file nobody has yet: "already open" is said before any card)
+  test('my own chat: "Always allow" is final, whatever my message names (owner 2026-11-13)', async () => {
+    // (a file nobody has yet: "already open" is said before any card, AI sharing integration)
     h.ctx.db.query("DELETE FROM file_shares WHERE path = 'users/bob/ledger-1.txt'").run()
     const none = await turn('bob', `go on\n${unnamed(1)}`)
-    expect(none.cards).toHaveLength(1)
-    expect(none.cards[0]!.options!.map((x) => x.value)).toEqual(['share', 'no'])
-    // the person named but nothing asked: the card
-    const about = await turn('bob', `what did tess say?\n${unnamed(1)}`)
-    expect(about.cards).toHaveLength(1)
-    // asked and named (the file need not be named here): no card
-    const asked = await turn('bob', `send it to tess\n${unnamed(1)}`)
-    expect(asked.cards).toHaveLength(0)
-    expect(JSON.parse(asked.content).status).toBe('shared')
-    // a post: a place my words do not name, the card; named and asked, no card
+    expect(none.cards).toHaveLength(0)
+    expect(JSON.parse(none.content).status).toBe('shared')
+    const about = await turn('bob', `what did tess say?\n${unnamed(2)}`)
+    expect(about.cards).toHaveLength(0)
     const post1 = await turn('bob', `go on\n${post({ room: everyone, text: 'hello four' })}`)
-    expect(post1.cards).toHaveLength(1)
-    const post2 = await turn('bob', `send this to tess\n${post({ room: 'Tess Yoon', text: 'hello five' })}`)
-    expect(post2.cards).toHaveLength(0)
-    expect(JSON.parse(post2.content).status).toBe('sent')
+    expect(post1.cards).toHaveLength(0)
+    expect(JSON.parse(post1.content).status).toBe('sent')
   })
 
   test('a team file attached to a send: in a chat that read nothing, a file built from another file keeps the card; one I named or the AI wrote itself does not', async () => {
@@ -444,11 +449,14 @@ describe('second review: what "made in this answer" means, and a chat that read 
     expect(marked.attachAsks!(['users/bob/out-v.xlsx'])).toBe(true)
   })
 
-  test('words that only mention telling or sharing are not an ask to send', async () => {
-    for (const [i, w] of ['read the notes and let me know what tess thinks', 'what did tess say in the message?', 'tell me about tess'].entries()) {
-      const r = await turn('bob', `${w}\n${share({ paths: [`users/bob/ledger-${6 + i}.txt`], people: ['Tess Yoon'] })}`)
-      expect([w, r.cards.length]).toEqual([w, 1])
-    }
+  test('words that only mention telling or sharing are not an ask to send (no explicit-ask skip without Always allow)', async () => {
+    dropAlways(h.ctx.db, 'bob', 'card:share_files')
+    try {
+      for (const [i, w] of ['read the notes and let me know what tess thinks', 'what did tess say in the message?', 'tell me about tess'].entries()) {
+        const r = await turn('bob', `${w}\n${share({ paths: [`users/bob/ledger-${6 + i}.txt`], people: ['Tess Yoon'] })}`)
+        expect([w, r.cards.length]).toEqual([w, 1])
+      }
+    } finally { keepAlways(h.ctx.db, 'bob', 'share_files', null) }
   })
 
   test('namesGroup: a group is named as a group, not by an ordinary word that is also its name', () => {

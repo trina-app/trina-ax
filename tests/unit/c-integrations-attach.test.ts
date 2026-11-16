@@ -44,12 +44,12 @@ afterAll(async () => { fake?.stop(); await A?.close() })
 type Asked = { answer: boolean; questions: string[]; details: ConfirmDetail[][]; beforeAnswer?: () => void | Promise<void> }
 const ask = (answer: boolean): Asked => ({ answer, questions: [], details: [] })
 
-function turn(user: Person, o: { person?: Asked; scheduled?: boolean; unattended?: boolean; locale?: 'en' | 'ko'; live?: boolean; attachAsks?: (paths: readonly string[]) => boolean } = {}) {
+function turn(user: Person, o: { person?: Asked; scheduled?: boolean; unattended?: boolean; locale?: 'en' | 'ko'; live?: boolean; attachAsks?: (paths: readonly string[]) => boolean; otherMembers?: boolean } = {}) {
   const chat = A.chat(user)
   const turnId = A.turn(user, chat)
   const built = integrationToolProvider(A.ctx).build({ userId: user, chatId: chat, turnId, browser: false, scheduled: !!o.scheduled })
   const files = { user: A.ctx.files.principal(user), turnId, files: new TurnFiles() } as TurnToolContext['files']
-  if (o.person) { const p = o.person; files.person = { locale: o.locale ?? 'en', async confirm(q, _a, _d, extra) { p.questions.push(q); p.details.push(extra?.details ?? []); await p.beforeAnswer?.(); return p.answer }, *turnUrls() {}, ...(o.unattended ? { unattended: true } : {}), ...(o.live ? { allSitesHere: () => true } : {}), ...(o.attachAsks ? { attachAsks: o.attachAsks } : {}) } }
+  if (o.person) { const p = o.person; files.person = { locale: o.locale ?? 'en', async confirm(q, _a, _d, extra) { p.questions.push(q); p.details.push(extra?.details ?? []); await p.beforeAnswer?.(); return p.answer }, *turnUrls() {}, ...(o.unattended ? { unattended: true } : {}), ...(o.live ? { allSitesHere: () => true } : {}), ...(o.attachAsks ? { attachAsks: o.attachAsks } : {}), ...(o.otherMembers ? { otherMembers: () => true } : {}) } }
   const tc: TurnToolContext = { turnId, chatId: chat, userId: user, messageId: 'm', locale: o.locale ?? 'en', signal: new AbortController().signal, files }
   const tools = new Map(built.tools.map((t) => [t.name, t]))
   const call = async (name: string, args: unknown) => {
@@ -247,6 +247,26 @@ describe('a team file attached to a mail', () => {
     const plain = ask(true)
     expect((await turn('alice', { person: plain, live: true, attachAsks: () => true }).call('team_teammail__send_mail', { to: 'a@b.example', subject: 's', body: 'b' })).isError).toBe(false)
     expect(plain.questions).toHaveLength(0)
+  })
+
+  test('the person\'s own Always allow for the connection is final: no card for attached team files, also where they keep the card otherwise', async () => {
+    // alice's own connection set to send without asking (her Always allow on its card)
+    A.ctx.db.query("UPDATE integrations SET write_policy = 'allow', version = version + 1 WHERE id = ?").run(mail.id)
+    try {
+      const before = sent().length
+      const p = ask(false)
+      const r = await turn('alice', { person: p, live: true, attachAsks: () => true }).call('my_mail__send_mail', sendArgs(QUOTE))
+      expect(r.isError).toBe(false)
+      expect(p.questions).toHaveLength(0)
+      expect(sent().length).toBe(before + 1)
+      expect(sent().at(-1)!.args.attachments[0].content_base64).toBe(quoteBytes.toString('base64'))
+      // a chat other members wrote in: another member's message may have picked the file, so the card (no Always offer)
+      const m = ask(false)
+      const r2 = await turn('alice', { person: m, live: true, attachAsks: () => true, otherMembers: true }).call('my_mail__send_mail', sendArgs(QUOTE))
+      expect(r2.isError).toBe(true)
+      expect(m.questions).toHaveLength(1)
+      expect(sent().length).toBe(before + 1)
+    } finally { A.ctx.db.query("UPDATE integrations SET write_policy = 'ask', version = version + 1 WHERE id = ?").run(mail.id) }
   })
 
   test('a service\'s answer marks the chat as holding content written by others', async () => {
