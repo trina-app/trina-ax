@@ -36,9 +36,9 @@ export const TEAM_ROOT_ON_PHONE = TEAM_TOP_ON_PHONE
  * folder's top, the 팀 폴더 label, for whoever may read it) */
 const APART = new Set(['projects', 'users', SKILLS_DIR])
 
-/** the keys of the three views: a folder row's key is its path, so a bare 'shared' was the team folder Company-wide too
+/** the keys of the three views and my own folder's row: a folder row's key is its path, so a bare 'shared' was the team folder Company-wide too
  * (both rows lit, QA TC-3973); a path never has a colon, so these cannot meet one */
-export const VIEW_KEY = { recent: 'view:recent', shared: 'view:shared', trash: 'view:trash' } as const
+export const VIEW_KEY = { recent: 'view:recent', shared: 'view:shared', trash: 'view:trash', mine: 'view:mine' } as const
 
 type Place = { key: string; to: string; label: string; icon: typeof Folder; path?: string; testId: string }
 
@@ -118,7 +118,7 @@ function FilesPlaces({ phone = false }: { phone?: boolean }) {
   const own = me ? `users/${me}` : null
   const team: Place[] = (top ?? []).map((e) => ({ key: e.path, to: `/files?path=${encodeURIComponent(e.path)}`, label: words.name(e.path, e.name), icon: Folder, path: e.path, testId: 'files-panel-team' }))
   const projectRows: Place[] = projects.map((p) => ({ key: p.id, to: `/files?path=${encodeURIComponent(p.folderPath)}`, label: p.name, icon: SquareKanban, path: p.folderPath, testId: 'files-panel-project' }))
-  const mine: Place | null = own ? { key: 'mine', to: `/files?path=${encodeURIComponent(own)}`, label: words.name(own, own), icon: User, path: own, testId: 'files-panel-mine' } : null
+  const mine: Place | null = own ? { key: VIEW_KEY.mine, to: `/files?path=${encodeURIComponent(own)}`, label: words.name(own, own), icon: User, path: own, testId: 'files-panel-mine' } : null
 
   // which row is the place on screen: 최근 파일, 휴지통, or the deepest folder row the open folder (or file) is in
   const { pathname, search } = useLocation()

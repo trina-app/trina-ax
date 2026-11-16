@@ -29,7 +29,7 @@ beforeAll(() => {
     const url = new URL(String(input), 'http://x')
     const key = `${init?.method ?? 'GET'} ${url.pathname}`
     if (key === 'GET /api/projects') return json({ items: [] })
-    if (key === 'GET /api/files/tree') return json({ path: '', access: 'write', entries: [folder('groups'), folder('shared')], nextCursor: null } as TreeResponse)
+    if (key === 'GET /api/files/tree') return json({ path: '', access: 'write', entries: [folder('groups'), folder('shared'), folder('mine'), folder('recent'), folder('trash')], nextCursor: null } as TreeResponse)
     return json({ error: { code: 'internal', message: `no route ${key}` } }, 500)
   }) as unknown as typeof fetch
 })
@@ -69,6 +69,25 @@ for (const [where, ui] of [['computer', <FilesPanel />], ['phone', <PhoneFilesHo
       const m = await at(url)
       try {
         expect(marked(m)).toEqual(['files-panel-team:/files?path=shared'])
+      } finally {
+        await m.unmount()
+      }
+    }
+  })
+
+  test(`${where}: root folders named mine, recent and trash do not light up the own folder or the views`, async () => {
+    for (const name of ['mine', 'recent', 'trash']) {
+      const m = await at(`/files?path=${name}`)
+      try {
+        expect(marked(m)).toEqual([`files-panel-team:/files?path=${name}`])
+      } finally {
+        await m.unmount()
+      }
+    }
+    for (const [url, row] of [['/files?view=recent', 'files-panel-recent'], ['/files?view=trash', 'files-panel-trash'], ['/files?path=users%2Fmina', 'files-panel-mine']] as const) {
+      const m = await at(url)
+      try {
+        expect(marked(m).map((x) => x.split(':')[0])).toEqual([row])
       } finally {
         await m.unmount()
       }
