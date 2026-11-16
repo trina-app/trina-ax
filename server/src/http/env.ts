@@ -16,8 +16,8 @@ export interface AppBindings {
   tunnel?: boolean
   /** direct: the request came in on the office Tailscale listener (config.tailnet) */
   tailnet?: boolean
-  /** the request Bun.serve handed over, when app.fetch got a rewritten copy (tunnel: https URL); Bun upgrades only
-   * its own request object to a WebSocket */
+  /** the request Bun.serve handed over, when app.fetch got a copy (http/tunnel.ts withPublicUrl's fallback only; the
+   * public address normally keeps Bun's own object); Bun upgrades only its own request object to a WebSocket */
   upgradeReq?: Request
 }
 
