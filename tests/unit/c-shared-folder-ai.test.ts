@@ -119,6 +119,10 @@ describe('list and read by link, never by path', () => {
     // a percent-encoded path inside works too
     wr(`${dir}/two words.md`, 'two words\n')
     expect((await call('read', { file_path: `/f/${id}/two%20words.md` }, ctxFor('bob'))).text).toContain('two words')
+    // the folder page's address of the file (what the answer links) reads the same file
+    expect((await call('read', { file_path: `/f/${id}?f=${encodeURIComponent('q4/notes.md')}` }, ctxFor('bob'))).text).toContain('notes inside the sub-folder')
+    // and the listing tells the AI that form for its answer
+    expect((await call('list', { path: `/f/${id}/q4` }, ctxFor('bob'))).text).toContain(`/f/${id}?f=<its path inside the shared folder, URL-encoded> (here: q4%2F<name>)`)
     // a folder by read: use list
     const f = await call('read', { file_path: `/f/${id}/q4` }, ctxFor('bob'))
     expect(f.isError).toBe(true)
@@ -267,6 +271,10 @@ describe('the turn\'s "Files shared with you" block', () => {
     expect(folderLinkOf(`f/${id}/a/b.md`)).toEqual({ id, sub: 'a/b.md', link: `/f/${id}/a/b.md` })
     expect(folderLinkOf(`https://x.example/f/${id}/a/`)).toEqual({ id, sub: 'a', link: `/f/${id}/a` })
     expect(folderLinkOf(`/f/${id}?x=1`)).toEqual({ id, sub: '', link: `/f/${id}` })
+    // the folder page's own address of a place inside (what an answer links)
+    expect(folderLinkOf(`/f/${id}?f=${encodeURIComponent('Q4/two words.md')}`)).toEqual({ id, sub: 'Q4/two words.md', link: `/f/${id}/Q4/two words.md` })
+    expect(folderLinkOf(`/f/${id}?p=Q4`)).toEqual({ id, sub: 'Q4', link: `/f/${id}/Q4` })
+    expect(folderLinkOf(`/f/${id}?f=%E0%A4`)).toBeNull()
     expect(folderLinkOf('users/alice/x')).toBeNull()
     expect(folderLinkOf(`/f/short/a`)).toBeNull()
   })
