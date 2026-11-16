@@ -4,7 +4,7 @@
 // address gets the list put under it; a page pushed from the list starts at the top; the 나 list's sections push too, so
 // Back returns to the list instead of leaving Settings. From 768 px Admin is a sidebar (a rail of icons on a tablet).
 import { expect, test, type Page } from '@playwright/test'
-import { reset, signIn } from './helpers'
+import { phoneTabs, reset, signIn } from './helpers'
 import { openTab } from './nav'
 import { DICTS } from '../../src/i18n'
 
@@ -12,6 +12,9 @@ test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true
 
 const t = DICTS.en
 const historyLength = (page: Page) => page.evaluate(() => history.length)
+/** where the page is in the app's history (React Router's index): what Back steps from, unlike history.length, which
+ * also counts entries ahead (a closed sheet's) */
+const historyIndex = (page: Page) => page.evaluate(() => (history.state as { idx?: number } | null)?.idx)
 const scrollTop = (page: Page) => page.getByTestId('admin-content').evaluate((el) => el.scrollTop)
 
 async function openAdmin(page: Page) {
@@ -139,12 +142,14 @@ test('Folder permissions: Folders ↔ What a person can open adds no history on 
   await openAdmin(page)
   await page.getByTestId('admin-row-folders').click()
   await expect(page).toHaveURL(/\/admin\/folders$/)
-  const length = await historyLength(page)
-  await page.getByRole('tab', { name: t['folders.tabPerson'] }).click()
+  const index = await historyIndex(page)
+  // the row, or the picker where this font has no room for the words (helpers.ts phoneTabs)
+  const views = await phoneTabs(page, t['admin.folders'])
+  await views.choose(t['folders.tabPerson'])
   await expect(page).toHaveURL(/view=people/)
-  await page.getByRole('tab', { name: t['folders.tabFolders'] }).click()
+  await views.choose(t['folders.tabFolders'])
   await expect(page).not.toHaveURL(/view=people/)
-  expect(await historyLength(page)).toBe(length)
+  expect(await historyIndex(page)).toBe(index)
   await page.goBack()
   await expect(page).toHaveURL(/\/admin$/)
 })

@@ -29,7 +29,7 @@ import { audit } from '../admin/audit'
 import { authorize } from '../policy/authorize'
 import { loadPrincipal } from '../policy/access'
 import { badSegment } from '../policy/names'
-import { checkRegular } from '../team-files/place'
+import { checkRegular, openChecked } from '../team-files/place'
 import { mimeOf } from '../team-files/service'
 import { attachmentKind } from '../uploads/attachments'
 import { displaySize, makeThumbnail } from '../uploads/image'
@@ -279,20 +279,27 @@ export class ChatFiles {
     if (!who) throw new Error('sender gone')
     // the file as its sender may read it now (moved or deleted on the Files screen: left as it was)
     const src = authorize(this.ctx.files.fx, rules, who, att.path, 'read')
-    const h = await fs.promises.open(src.abs, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW)
+    if (!src.st?.isFile() || src.st.nlink > 1) throw new Error('not a plain file')
+    // the very file the check saw (team-files/place.ts openChecked), read from that one descriptor
+    const { fd, st } = openChecked(src.abs, src.st)
     let bytes: Uint8Array
     let key = ''
     try {
-      const st = await h.stat()
-      if (!st.isFile() || st.nlink > 1) throw new Error('not a plain file')
       if (st.size > CHAT_FILE_MAX) throw new Error('too large')
       assertStorageRoom(st.size)
       key = earlierKey({ abs: src.abs, ino: st.ino, size: st.size, mtimeMs: st.mtimeMs }, att)
       // known not to go in this very state: not read again
       if (this.earlier.get(key) === false) throw new Error('known not to be copied')
-      bytes = new Uint8Array(await h.readFile())
-      if (bytes.byteLength !== st.size) throw new Error('changed while read')
-    } finally { await h.close() }
+      const buf = Buffer.alloc(st.size)
+      let off = 0
+      while (off < buf.length) {
+        const n = await new Promise<number>((res, rej) => fs.read(fd, buf, off, buf.length - off, off, (err, k) => (err ? rej(err) : res(k))))
+        if (!n) break
+        off += n
+      }
+      if (off !== st.size) throw new Error('changed while read')
+      bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
+    } finally { fs.closeSync(fd) }
     const keep = (ok: boolean) => {
       if (this.earlier.size >= EARLIER_VERDICT_MAX) this.earlier.delete(this.earlier.keys().next().value!)
       this.earlier.set(key, ok)

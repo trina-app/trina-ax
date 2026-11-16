@@ -11,7 +11,7 @@
 // phone-admin-bar.webkit.spec.ts) and Chromium (Android's: phone-admin-bar.spec.ts).
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
-import { reset, signIn } from './helpers'
+import { phoneTabs, reset, signIn } from './helpers'
 import { openTab } from './nav'
 import { DICTS } from '../../src/i18n'
 
@@ -230,19 +230,22 @@ export function adminBarCases() {
   test('TC-379 Folder permissions: Folders / What a person can open on a row of their own; each tab\'s search under them', async ({ page }) => {
     await openAdmin(page, 'folders', /\/admin\/folders$/)
     await expect(page.getByTestId('folders-list')).toBeVisible()
-    const views = page.getByRole('tablist', { name: t['admin.folders'] })
+    // the row, or the picker where this font has no room for the words in half the row (helpers.ts phoneTabs): never cut
+    const tabs = await phoneTabs(page, t['admin.folders'])
+    const views = tabs.control
     await fullWidth(views)
     // both words whole on one line
-    for (const tab of await views.getByRole('tab').all()) {
+    for (const tab of await tabs.tabs.all()) {
       expect(await tab.evaluate((el) => { const s = el.querySelector('span')!; return s.scrollWidth <= s.clientWidth + 1 })).toBe(true)
       expect(Math.round((await box(tab)).height)).toBeLessThanOrEqual(48)
     }
+    if (!tabs.isRow) expect(Math.round((await box(views)).height)).toBeLessThanOrEqual(48)
     const folders = page.getByTestId('folders-search')
     await fullWidth(folders)
     expect((await box(folders)).y).toBeGreaterThanOrEqual((await box(views)).y + (await box(views)).height)
     await fits(page)
     // What a person can open: its search under the two views, full width; nothing in the bar
-    await views.getByRole('tab', { name: t['folders.tabPerson'] }).click()
+    await tabs.choose(t['folders.tabPerson'])
     const search = page.getByTestId('access-person-search')
     await expect(search).toBeVisible()
     await fullWidth(search)

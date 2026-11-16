@@ -38,9 +38,12 @@ test('a used or unknown invite: the reason, "이미 가입했다면 로그인하
   await expect(p2).not.toHaveURL(/\/invite\//)
   await other.close()
   const p3 = await (await page.context().browser()!.newContext({ locale: 'ko-KR' })).newPage()
-  for (const path of [`/invite/${token}`, '/invite/AAAAAAAAAAAAAAAAAAAAAA']) {
+  // the used link says so (InviteInfo.reason, QA TC-2219); a link the server does not know has no reason to give: the general line
+  for (const [path, line, reason] of [[`/invite/${token}`, 'invite.reason.used', 'used'], ['/invite/AAAAAAAAAAAAAAAAAAAAAA', 'invite.invalid', null]] as const) {
     await p3.goto(path)
-    await expect(p3.getByText(ko('invite.invalid'))).toBeVisible()
+    await expect(p3.getByTestId('invite-invalid')).toHaveText(ko(line))
+    if (reason) await expect(p3.getByTestId('invite-invalid')).toHaveAttribute('data-reason', reason)
+    else await expect(p3.getByTestId('invite-invalid')).not.toHaveAttribute('data-reason')
     await expect(p3.getByText(ko('auth.alreadyJoined'))).toBeVisible()
     const button = p3.getByTestId('invalid-signin')
     await expect(button).toBeVisible()

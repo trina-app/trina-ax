@@ -21,6 +21,7 @@ import { badSegment } from '../policy/names'
 import { resolveLayout } from '../system/layout'
 import { currentPlan } from '../system/limits'
 import { storageRoom } from '../system/storage'
+import { openedPath } from './place'
 
 export const CONNECTED_ROOT = 'connected'
 const FILE_MAX = 100 * 1024 * 1024
@@ -322,14 +323,8 @@ function realFolder(p: string): boolean {
   }
 }
 
-/** Where an open file really is, read from the open file and not from its path: Linux /proc/self/fd; macOS /dev/fd
- * (Bun resolves it with F_GETPATH). null when the system does not tell. */
-export function openedPath(fd: number): string | null {
-  try {
-    const p = process.platform === 'linux' ? fs.readlinkSync(`/proc/self/fd/${fd}`) : fs.realpathSync(`/dev/fd/${fd}`)
-    return p.startsWith('/') && !p.startsWith('/dev/fd/') && !p.startsWith('/proc/') ? p : null
-  } catch { return null }
-}
+// where an open file really is (place.ts); named here too for what already imports it from this file
+export { openedPath }
 
 /** Copy one source file without ever following a link: not in its last name (O_NOFOLLOW), and not in a folder on the
  * way that was swapped for a link after the listing (the opened file must really be inside the source). O_NONBLOCK:

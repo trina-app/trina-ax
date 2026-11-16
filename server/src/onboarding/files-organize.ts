@@ -112,7 +112,7 @@ async function textOf(ctx: AppContext, userId: string, p: string, signal: AbortS
   try {
     const r = authorize(ctx.files.fx, ctx.files.rules(), ctx.files.principal(userId), p, 'read', { mustExist: true })
     if (!r.st?.isFile() || r.st.size > READ_MAX_BYTES) return ''
-    const { bytes } = readRegular(r.abs, READ_MAX_BYTES)
+    const { bytes } = readRegular(r.abs, READ_MAX_BYTES, r.st)
     const c = ctx.engineConfig
     const text = await extractText(r.rel, bytes, { pandoc: c.pandoc ?? null, pdftotext: c.pdftotext ?? null, ocr: c.ocr ?? null, quarantine: ctx.files.quarantine, textLayerOnly: true }, signal)
     return text.replace(/\s+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim().slice(0, ORGANIZE_LIMITS.textChars)
