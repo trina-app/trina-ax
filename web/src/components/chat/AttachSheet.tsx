@@ -18,10 +18,11 @@
 // menus; this sheet is not drawn there.
 import { Camera, FileText, FolderOpen, Images, Loader2 } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { useLocale, useT } from '../../i18n'
+import { useLocale, useT, type MessageKey } from '../../i18n'
 import { holdHistory } from '../../lib/backCloses'
 import { markBusy } from '../../lib/busy'
 import { formatSize } from '../../lib/format'
+import { mediaKindOf } from '../../lib/preview'
 import { appPicksPhotos, PHOTO_PICK_LIMITS, pickPhotosFromApp } from '../../lib/mobile'
 import { toast } from '../../store/ui'
 import { useMe } from '../../store/session'
@@ -38,6 +39,14 @@ export const filesAccept = () => (iosWebKit() ? 'application/octet-stream' : und
 /** How long the history stays held for a pick's bytes once the picker answered (AttachSheet): 15 s, and 1 s more per
  * MiB (a full 200 MiB pick: the 120 s cap). */
 export const bytesHoldMs = (bytes: number) => Math.min(120_000, 15_000 + Math.ceil(bytes / (1024 * 1024)) * 1000)
+
+/** The line for what the app's photo picker left out as too big, by what it is (lib/preview.ts mediaKindOf): `limit`
+ * where the box takes no bigger file, `other` where its input can (it offers that). */
+export const TOO_BIG_WORDS = {
+  photo: { limit: 'composer.photosTooBig', other: 'composer.photosTooBigOther' },
+  video: { limit: 'composer.videosTooBig', other: 'composer.videosTooBigOther' },
+  file: { limit: 'composer.filesTooBig', other: 'composer.filesTooBigOther' },
+} as const satisfies Record<ReturnType<typeof mediaKindOf>, { limit: MessageKey; other: MessageKey }>
 
 export function AttachSheet({ onFiles, room, fileMax, onTeam, computer = true, icon, testId, filesTestId = 'attach-files-input', buttonClassName }: {
   /** files picked from the phone (pictures, a photo just taken, files) */
@@ -108,8 +117,10 @@ export function AttachSheet({ onFiles, room, fileMax, onTeam, computer = true, i
         // one line for all left out: a file over 50 MB, or past 200 MB in one pick. A box that takes bigger files offers
         // the input, which has no such limit (a long video from the library)
         const names = tooBig.join(', ')
-        if (tooBig.length && (fileMax === undefined || fileMax > PHOTO_PICK_LIMITS.file)) toast({ level: 'warn', ms: 12_000, text: t('composer.photosTooBigOther', { names }), action: { label: t('composer.photosPickOther'), run: () => photos.current?.click(), primary: true } })
-        else if (tooBig.length) toast({ level: 'warn', text: t('composer.photosTooBig', { names, max: formatSize(PHOTO_PICK_LIMITS.file, locale), total: formatSize(PHOTO_PICK_LIMITS.pick, locale) }) })
+        // the line names what they are where the language says it (ko "이 동영상은"): never a video called a photo
+        const words = TOO_BIG_WORDS[mediaKindOf(tooBig)]
+        if (tooBig.length && (fileMax === undefined || fileMax > PHOTO_PICK_LIMITS.file)) toast({ level: 'warn', ms: 12_000, text: t(words.other, { names }), action: { label: t('composer.photosPickOther'), run: () => photos.current?.click(), primary: true } })
+        else if (tooBig.length) toast({ level: 'warn', text: t(words.limit, { names, max: formatSize(PHOTO_PICK_LIMITS.file, locale), total: formatSize(PHOTO_PICK_LIMITS.pick, locale) }) })
         if (picked.length) latest.current(picked)
       }, (e: unknown) => {
         // a box that went away (another page, another room) says nothing. Cancelled in the picker is no error either:

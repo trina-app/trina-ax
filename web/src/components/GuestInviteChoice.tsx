@@ -160,7 +160,7 @@ export function GuestPlacePicker({ onPick }: { onPick: (place: InvitePlace) => v
               <p className={label}>{t('guest.invite.groupChats')}</p>
               <ul data-testid="guest-place-rooms">
                 {shownRooms.map((r) => (
-                  <ListRow key={r.id} face icon={<MessagesSquare />} name={r.name} meta={t('rooms.picker.groupCount', { n: r.count })} onClick={() => onPick({ kind: 'room', id: r.id, name: r.name })} testId="guest-place-room" />
+                  <ListRow key={r.id} face icon={<MessagesSquare />} name={r.name} meta={t('rooms.members', { n: r.count })} onClick={() => onPick({ kind: 'room', id: r.id, name: r.name })} testId="guest-place-room" />
                 ))}
               </ul>
             </>

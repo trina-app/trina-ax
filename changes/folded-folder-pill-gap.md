@@ -1,0 +1,1 @@
+- Chats list: a folded folder with a long name now leaves a small gap between the cut name and its unread pill on a computer, instead of the name running right up to it.

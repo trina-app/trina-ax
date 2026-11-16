@@ -1,4 +1,5 @@
-// "새 대화": the team's people (GET /api/people) and groups with a search box; tick people (a group ticks its people
+// "새 대화": the team's people (GET /api/people) and the channels (a group's team room, listed under the Chats list's
+// "Channels" word, with the channel's own member count as its header says it) with a search box; tick people (a group ticks its people
 // now: a snapshot, the chat does not follow the group later, docs/DECISIONS.md "그룹 대화와 방 이름"). One person: our
 // DM (POST /api/rooms, the existing one when there is one); two or more: a new group chat of me and them, with an
 // optional name that shows only then. The same list invites people into a group chat (mode invite: the people in it
@@ -111,11 +112,24 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
     const list = needle ? others.filter((p) => hit(p.name) || hit(p.title)) : others
     return [...list].sort((a, b) => a.name.localeCompare(b.name))
   }, [others, needle])
+  // a channel's count is the one its header shows (rooms.members: the team room's memberCount, me included); a group
+  // whose channel is not in my list (an owner or admin outside it) counts its active people the same way (TC-3935)
+  const teamRooms = useRooms((s) => s.rooms)
+  const directory = useMemo(() => new Set((people ?? []).map((p) => p.id)), [people])
   // a group ticks the people of it that can be picked now; one with nobody left to pick is not listed
   const groupRows = useMemo(() => (groups ?? [])
-    .map((g) => ({ ...g, ids: g.memberIds.filter((id) => active.has(id)) }))
+    .map((g) => {
+      const channel = teamRooms.find((r) => r.kind === 'team' && r.groupId === g.id)
+      return {
+        ...g,
+        // the channel's name as the Chats list shows it (a renamed channel too)
+        name: channel ? roomTitle(channel) : g.name,
+        ids: g.memberIds.filter((id) => active.has(id)),
+        count: channel?.memberCount ?? g.memberIds.filter((id) => id === meId || directory.has(id)).length,
+      }
+    })
     .filter((g) => g.ids.length > 0 && (!needle || g.name.toLocaleLowerCase().includes(needle)))
-    .sort((a, b) => a.name.localeCompare(b.name)), [groups, active, needle])
+    .sort((a, b) => a.name.localeCompare(b.name)), [groups, active, needle, teamRooms, directory, meId, roomTitle])
 
   // a guest starts 1:1 chats only (a group chat would be a second place: the server refuses it)
   const max = inviting ? ROOM_GROUP_MAX - (room?.memberCount ?? 1) : isGuestMe(me) ? 1 : ROOM_GROUP_MAX - 1
@@ -198,7 +212,7 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
         <div className="-mx-5 -mb-5 pb-2 max-sm:-mx-4">
           {groupRows.length > 0 && (
             <>
-              <p className={label}>{t('rooms.picker.groups')}</p>
+              <p className={label}>{t('rooms.section.team')}</p>
               {/* the lists' rows (components/list/List.tsx): a list of people's face box, each row the label of its tick */}
               <ul className={list} data-testid="picker-groups">
                 {groupRows.map((g) => (
@@ -208,7 +222,7 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
                     face
                     icon={<Hash />}
                     name={g.name}
-                    meta={t('rooms.picker.groupCount', { n: g.ids.length })}
+                    meta={t('rooms.members', { n: g.count })}
                     end={<Tick checked={allIn(g.ids)} disabled={busy} onChange={() => toggleGroup(g.ids)} />}
                     testId="picker-group"
                   />

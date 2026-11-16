@@ -456,7 +456,7 @@ export class MockServer {
   /** Settings › Notifications (one person's, like the rest of this mock's per-person state) */
   notifyPrefs = MockServer.notifyPrefsDefault()
   static notifyPrefsDefault() {
-    return { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true, roomLevel: 'direct' as 'direct' | 'all' | 'none', roomThreadReplies: true, messagePreview: true, chatAnswers: true, phoneWhen: 'away' as 'away' | 'always', quietHours: { on: false, start: '22:00', end: '08:00', weekends: false } }
+    return { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true, roomLevel: 'direct' as 'direct' | 'all' | 'none', roomThreadReplies: true, messagePreview: true, chatAnswers: true, chatShares: true, fileShares: true, phoneWhen: 'away' as 'away' | 'always', quietHours: { on: false, start: '22:00', end: '08:00', weekends: false } }
   }
   budgets: Budget[] = []
   files = new Map<string, FileNode>()
@@ -6214,6 +6214,8 @@ export class MockServer {
   fileLinks = new Map<string, string>()
   fileGrants = new Map<string, { subjectType: 'user' | 'group'; subjectId: string }[]>()
   fileCreators = new Map<string, string>()
+  /** who added each grant and when ("<path>\u0000<type>:<id>"), for Shared with me's "who · when" */
+  fileGrantMeta = new Map<string, { by: string; at: string }>()
   fileRequests: { id: string; linkId: string; path: string; userId: string; ownerId: string | null; note: string | null; at: string; state: 'pending' | 'approved' | 'declined' | 'closed' }[] = []
   fileRequestLimit = Infinity
   lastRemoveFileLinks: boolean | null = null
@@ -6293,6 +6295,7 @@ export class MockServer {
         if (x.subjectType === 'user' && (!u || u.role === 'guest')) fail('validation', 400, undefined, undefined, { reason: 'unknown_subject' })
         if (list.some((y) => key(y) === key(x))) continue
         list.push({ subjectType: x.subjectType, subjectId: x.subjectId })
+        this.fileGrantMeta.set(`${path}\u0000${key(x)}`, { by: c.user.id, at: now() })
         const to = x.subjectType === 'user' ? [x.subjectId] : x.subjectId === FILE_SHARE_EVERYONE ? this.users.filter((y) => y.role !== 'guest' && y.status === 'active').map((y) => y.id) : this.groups.find((g) => g.id === x.subjectId)?.memberIds ?? []
         for (const id of to) if (id !== c.user.id) { if (c.quiet) c.quiet.add(id); else this.note(id, { kind: 'file_share', code: 'file.shared', byId: c.user.id, path, linkId: this.fileLinkOf(path) }) }
       }
@@ -6333,14 +6336,41 @@ export class MockServer {
       const files = b!.paths.filter((p) => this.files.has(p) && opens(p, c.user)).map((p) => ({ linkId: this.fileLinkOf(p), name: p.slice(p.lastIndexOf('/') + 1), size: this.files.get(p)!.data?.byteLength ?? 0 }))
       return { by: this.users.find((u) => u.id === b!.byId)?.name ?? null, files }
     }
+    // who shared it with `u` (files/shares.ts sharerFor): their grant by name when there is one, else (only when the
+    // folder does not let them read the file) the newest group or whole-team grant; null: none. `named`: by name.
+    const sharerOf = (path: string, u: User): { name: string | null; at: string; named: boolean } | null => {
+      const readable = this.access(path, u) !== 'none'
+      const reaching = (this.fileGrants.get(path) ?? []).filter((x) => (x.subjectType === 'user' ? x.subjectId === u.id : !readable && (x.subjectId === FILE_SHARE_EVERYONE ? u.role !== 'guest' && u.status === 'active' : u.groupIds.includes(x.subjectId))))
+      if (!reaching.length) return null
+      const named = reaching.filter((x) => x.subjectType === 'user')
+      const metas = (named.length ? named : reaching).map((x) => this.fileGrantMeta.get(`${path}\u0000${x.subjectType}:${x.subjectId}`) ?? { by: this.fileOwner(path) ?? '', at: '2026-11-01T09:00:00.000Z' })
+      const newest = metas.sort((a, b) => b.at.localeCompare(a.at))[0]!
+      return { name: this.users.find((x) => x.id === newest.by)?.name ?? null, at: newest.at, named: named.length > 0 }
+    }
+    // Files › Shared with me (files/shares.ts sharedWithMe, short): a file a grant gives me, not mine; a file the folder
+    // lets me read only when the grant is by name; the qualifying grant names who and when; the files shared by name
+    // first, then the group ones, each newest first; one page
+    h.sharedWithMe = (c) => {
+      if (c.user.role === 'guest') fail('forbidden', 403)
+      const items: { linkId: string; name: string; sharedBy: string | null; sharedAt: string; named: boolean }[] = []
+      for (const path of this.fileGrants.keys()) {
+        if (!this.files.has(path) || this.fileOwner(path) === c.user.id) continue
+        const by = sharerOf(path, c.user)
+        if (by) items.push({ linkId: this.fileLinkOf(path), name: path.slice(path.lastIndexOf('/') + 1), sharedBy: by.name, sharedAt: by.at, named: by.named })
+      }
+      items.sort((a, b) => Number(b.named) - Number(a.named) || b.sharedAt.localeCompare(a.sharedAt) || b.linkId.localeCompare(a.linkId))
+      return { items: items.slice(0, 50).map(({ named: _, ...i }) => i), next: null }
+    }
     h.sharedFile = (c) => {
       if (c.user.role === 'guest') fail('forbidden', 403)
       const path = this.fileLinks.get(c.params.id!)
       if (!path || !this.files.has(path)) return { status: 'unknown' }
       if (opens(path, c.user)) {
+        // opening it marks my "shared with you" notice of it read (files/shares.ts page)
+        for (const x of this.inbox) if (x.userId === c.user.id && x.kind === 'file_share' && x.code === 'file.shared' && x.linkId === c.params.id && !x.readAt) x.readAt = now()
         const n = this.files.get(path)!
         const ownerId = this.fileOwner(path)
-        const by = this.access(path, c.user) === 'none' && ownerId ? this.users.find((u) => u.id === ownerId)?.name ?? null : null
+        const by = ownerId === c.user.id ? null : sharerOf(path, c.user)?.name ?? null
         return { status: 'open', name: path.slice(path.lastIndexOf('/') + 1), size: n.data?.byteLength ?? 0, mime: mimeOf(path) ?? null, sharedBy: by, mine: ownerId === c.user.id }
       }
       const waiting = this.fileRequests.find((r) => r.path === path && r.userId === c.user.id && r.state === 'pending')
@@ -6468,6 +6498,7 @@ export class MockServer {
       this.fileLinks = new Map()
       this.fileGrants = new Map()
       this.fileCreators = new Map()
+      this.fileGrantMeta = new Map()
       this.fileRequests = []
       this.fileRequestLimit = Infinity
       this.lastRemoveFileLinks = null
@@ -6479,8 +6510,15 @@ export class MockServer {
       if (p !== '/__test/file-shares') return baseControl(p, req)
       // GET: what the last folder rules save sent as removeFileLinks (null: not sent)
       if (req.method === 'GET') return Response.json({ lastRemoveFileLinks: this.lastRemoveFileLinks })
-      const body = (await req.json().catch(() => ({}))) as { off?: boolean; limit?: number }
+      const body = (await req.json().catch(() => ({}))) as { off?: boolean; limit?: number; grants?: { path: string; to: string; by: string; at: string; text?: string }[] }
       if (body.off) this.settings = { ...this.settings, memberFileShares: false }
+      // Shared with me's fixtures: a file shared by name by `by` at `at` (the file made when missing), with its notice
+      for (const g of body.grants ?? []) {
+        if (!this.files.has(g.path)) this.putFile(g.path, g.text ?? `# ${g.path.slice(g.path.lastIndexOf('/') + 1)}\n`)
+        this.fileGrants.set(g.path, [...(this.fileGrants.get(g.path) ?? []).filter((x) => !(x.subjectType === 'user' && x.subjectId === g.to)), { subjectType: 'user', subjectId: g.to }])
+        this.fileGrantMeta.set(`${g.path}\u0000user:${g.to}`, { by: g.by, at: g.at })
+        this.note(g.to, { kind: 'file_share', code: 'file.shared', byId: g.by, path: g.path, linkId: this.fileLinkOf(g.path) })
+      }
       if (body.limit !== undefined) this.fileRequestLimit = body.limit
       if (!this.files.has('users/olga/notes.md')) {
         for (const d of ['users/bob']) this.files.set(d, { type: 'folder', mtime: now() })

@@ -27,7 +27,8 @@ const PAGES: Record<RailItem, readonly string[]> = {
   projects: ['/projects', '/projects/:projectId', '/projects/:projectId/files'],
   // a file's link page (/f/<id>, QA TC-3093) is the file's: Files is lit
   files: ['/files', '/files/view', '/f/:id', '/f/batch/:id'],
-  activity: ['/activity'],
+  // one notice by its id (/activity/<id>, a phone notification's tap) goes on to /activity?n=<id>
+  activity: ['/activity', '/activity/:noticeId'],
 }
 
 /**

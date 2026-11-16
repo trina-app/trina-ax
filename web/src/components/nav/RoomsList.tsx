@@ -9,6 +9,7 @@ import { useT } from '../../i18n'
 import { pinnedRooms, roomBadge, roomUnread } from '../../lib/rooms'
 import { RoomIcon, RoomName, useRoomTitle } from '../rooms/RoomIcon'
 import { RoomMenu, useRowMenu } from '../rooms/RoomMenu'
+import { CountPill } from '../CountPill'
 import { PresenceText } from '../Presence'
 import { dragRow } from './NavFolders'
 import { rowBox, rowName } from '../list/List'
@@ -46,15 +47,7 @@ export function UnreadBadge({ room, className, testId }: { room: Room; className
   const t = useT()
   const n = roomUnread(room)
   if (n <= 0) return null
-  return (
-    <span className={clsx('shrink-0 rounded-full px-1.5 text-micro font-medium', room.muted ? 'bg-hover text-muted' : 'bg-accent text-accent-ink', className)} data-testid={testId} data-muted={room.muted ? '' : undefined}>
-      <span aria-hidden>{roomBadge(room)}</span>
-      <span className="sr-only">
-        {t('rooms.unread', { n })}
-        {room.mentioned && `, ${t('rooms.mentionedYou')}`}
-      </span>
-    </span>
-  )
+  return <CountPill text={roomBadge(room)} label={`${t('rooms.unread', { n })}${room.mentioned ? `, ${t('rooms.mentionedYou')}` : ''}`} quiet={room.muted} className={className} testId={testId} data-muted={room.muted ? '' : undefined} />
 }
 
 /** A pinned room's mark after its name (docs/DECISIONS.md "Pinned conversations"): the AI chats' pin, named 고정됨 for

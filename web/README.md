@@ -10,6 +10,9 @@ bun run --cwd web build      # vite build + scripts/build-vendor.ts (artifact li
 bun run --cwd web typecheck
 bun run --cwd web test       # unit tests (bun test test/unit)
 bun run --cwd web e2e        # Playwright against the mock team server (test/mock), needs a build first
+                             # and, for the Hangul preview specs, the pinned renderer: bun run prepare:hwp (from the repo root);
+                             # on Linux a phone's font as sans-serif, as the Feature map workflow does: the fonts-roboto-unhinted
+                             # package and test/e2e/fonts/phone-font.conf in /etc/fonts/conf.d/ (DejaVu Sans draws every phone wider)
 bun run --cwd web mock       # the mock server by itself on :19143 (sign in as olga / "correct horse battery")
 ```
 

@@ -123,6 +123,7 @@ El propietario y los administradores ven quiénes son bajo el encabezado **Habil
 Los miembros y los demás responsables de habilidades no ven esta línea.
 
 - Los miembros pueden **sugerir** una habilidad personal al equipo. Un responsable de habilidades de la carpeta de destino la revisa.
+- Lo que espera su revisión aparece como un número junto a **Habilidades del equipo** en la lista de Trina (y en el menú del teléfono), como los mensajes sin leer de un chat. **Por revisar** muestra solo lo que sigue esperando; lo que registró o rechazó está en **Revisadas**, al final de esa pestaña.
 - Cada cambio en `skills/` se registra, y el propietario y los administradores reciben un aviso con un enlace al historial de versiones.
 - Las habilidades de un grupo las cambian los miembros del grupo (consulte [Habilidades de grupo](#habilidades-de-grupo)); sus cambios se registran y se notifican de la misma forma.
 
