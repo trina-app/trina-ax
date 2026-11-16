@@ -115,6 +115,32 @@ test('a code exchanged without the matching verifier fails; expired flows and ch
   expect(everything()).not.toContain(MCP_KEY)
 })
 
+test('Cancel or Deny at the service ("access_denied") is a stopped sign-in, said so; any other error from the service is not (QA TC-3859)', async () => {
+  const c = await create()
+  let f = await olga.call('POST', `/api/integrations/${c.id}/authorize`, {})
+  let cb = fake.authorize(f.authorizationUrl)
+  const tokenCalls = () => fake.seen.filter((x) => x.path === '/as/token').length
+  const tokensBefore = tokenCalls()
+  const stopped = await olga.raw('GET', callback({ state: cb.state, error: 'access_denied' }))
+  expect(stopped.status).toBe(400)
+  const page = await stopped.text()
+  expect(page).toContain('로그인이 취소됐어요')
+  expect(page).not.toContain('허용하지 않았')
+  expect(await olga.call('GET', `/api/integrations/flows/${f.flowId}`)).toMatchObject({ state: 'failed', reason: 'denied' })
+  // nothing was refused and nothing is kept: the connection waits for a sign-in as before, with no sign-in saved
+  expect(getRow(h.ctx.db, c.id)).toMatchObject({ status: 'needs_auth', last_error: 'sign_in', secret_enc: null })
+  expect((await olga.call('GET', '/api/integrations')).items.find((i: any) => i.id === c.id)).toMatchObject({ status: 'needs_auth', lastErrorReason: 'sign_in', hasSecret: false })
+  // the service's own trouble with the request: the sign-in did not finish there (not "you stopped it")
+  f = await olga.call('POST', `/api/integrations/${c.id}/authorize`, {})
+  cb = fake.authorize(f.authorizationUrl)
+  expect((await olga.raw('GET', callback({ state: cb.state, error: 'server_error' }))).status).toBe(400)
+  expect(await olga.call('GET', `/api/integrations/flows/${f.flowId}`)).toMatchObject({ state: 'failed', reason: 'exchange' })
+  expect(tokenCalls()).toBe(tokensBefore)
+  // and the person can sign in again
+  f = await olga.call('POST', `/api/integrations/${c.id}/authorize`, {})
+  expect((await olga.raw('GET', callback(fake.authorize(f.authorizationUrl)))).status).toBe(200)
+})
+
 test('Cancel in the app (or a wait that ran out): the flow is cancelled there, a window left open cannot finish it, only its own session may (QA TC-1417)', async () => {
   const c = await create()
   const f = await olga.call('POST', `/api/integrations/${c.id}/authorize`, {})

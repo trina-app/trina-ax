@@ -61,6 +61,7 @@ export const FEATURE_SCOPE: Record<string, Scope> = {
   'files.versions': { reach: 'explains' },
   'files.trash': { reach: 'acts', tools: ['delete_files'] },
   'files.share-links': { reach: 'acts', tools: ['share_file', 'share_with_person'] },
+  'files.shared-with-me': { reach: 'explains' },
   'files.search': { reach: 'acts', tools: ['glob', 'grep'] },
   'files.attach': { reach: 'acts', tools: ['chat_file', 'read'] },
   'files.file-list': { reach: 'acts', tools: ['read', 'grep'] },

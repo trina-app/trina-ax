@@ -25,7 +25,7 @@ import type { NavFolder, Room } from '@mycel/shared/api'
 import { useLocale, useT } from '../../i18n'
 import { pinnedRooms, shownInLists } from '../../lib/rooms'
 import { useRooms } from '../../store/rooms'
-import { DROP_OVER, FolderIcon, FolderMenu, FoldersLabelWords, NewFolderButton, NewFolderRow, RoomFolderPillView, roomFolderPill, useFolderActions, useFolders, useDropTarget } from '../nav/NavFolders'
+import { DROP_OVER, FolderIcon, FolderMenu, FoldersLabelWords, NewFolderButton, NewFolderRow, RoomFolderPillView, roomFolderBold, roomFolderPill, useFolderActions, useFolders, useDropTarget } from '../nav/NavFolders'
 import { RoomRow, roomSections, SECTION_WORD } from '../nav/RoomsList'
 import { useRoomTitle } from '../rooms/RoomIcon'
 import { groupHead, groupRows, PanelSection, panelRowBox } from './PanelFrame'
@@ -174,11 +174,12 @@ function RoomRows({ rooms, section }: { rooms: Room[]; section: Section['key'] }
   )
 }
 
-/** A folded section's look in the 대화 list (here and on the phone's 대화 tab): bold with the pill of what waits in
- * its rooms (roomFolderPill), nothing when all is read. Spread on a ListSection. */
+/** A folded section's look in the 대화 list (here and on the phone's 대화 tab): bold while one of its rooms is
+ * (roomFolderBold), with the pill of what waits in its rooms (roomFolderPill), nothing when all is read. Spread on a
+ * ListSection. */
 export function foldedLook(rooms: Room[], testId: string) {
   const pill = roomFolderPill(rooms)
-  return { unread: !!pill, pill: pill ? <RoomFolderPillView pill={pill} testId={testId} /> : undefined }
+  return { unread: !!pill || roomFolderBold(rooms), pill: pill ? <RoomFolderPillView pill={pill} testId={testId} /> : undefined }
 }
 
 /** One room folder: its header (fold ▾ with the name, the pill of what it holds while folded, its "⋯") and its rooms; a
@@ -191,18 +192,25 @@ function RoomFolder({ folder, rooms, count, shown, folded, onFold }: { folder: N
     if (!rooms.some((r) => r.id === id)) void act.file(id, folder)
   })
   const pill = folded ? roomFolderPill(rooms) : null
+  const bold = folded && (!!pill || roomFolderBold(rooms))
   return (
     <section aria-label={folder.name} className={clsx(drop.over && DROP_OVER)} {...drop.props} data-testid="room-folder" data-folded={folded ? '' : undefined}>
-      <div className={clsx(groupHead, 'pr-9')} data-testid="room-folder-head">
+      <div className={clsx(groupHead, pill ? 'pr-3 pointer-coarse:pr-10 max-md:pr-10' : 'pr-9')} data-testid="room-folder-head">
         {/* the ▸ and the name both fold it (aria-expanded), as a disclosure */}
-        <button type="button" aria-expanded={!folded} aria-controls={listId} onClick={onFold} className={clsx('flex h-full min-w-0 items-center gap-1 rounded', pill && 'font-bold')} data-testid="room-folder-fold">
+        <button type="button" aria-expanded={!folded} aria-controls={listId} onClick={onFold} className={clsx('flex h-full min-w-0 items-center gap-1 rounded', bold && 'font-bold')} data-testid="room-folder-fold">
           <span className="touch-hit flex size-6 shrink-0 items-center justify-center text-muted">
             <ChevronRight size={14} className={clsx('transition-transform motion-reduce:transition-none', !folded && 'rotate-90')} aria-hidden />
           </span>
           <FolderIcon className="mr-0.5 text-muted" />
           <span className="truncate" title={folder.name} data-testid="room-folder-name">{folder.name}</span>
         </button>
-        {pill && <RoomFolderPillView pill={pill} className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 group-hover/head:opacity-0 group-has-[:focus-visible]/head:opacity-0 pointer-coarse:right-10 max-md:right-10" />}
+        {/* the pill in the row's flow, as ListSection's (List.tsx): a cut name ends a gap before it (QA TC-3780); it
+            gives its place to the "⋯" on hover */}
+        {pill && (
+          <span className="pointer-events-none ml-auto flex shrink-0 items-center pl-1 group-hover/head:opacity-0 group-has-[:focus-visible]/head:opacity-0">
+            <RoomFolderPillView pill={pill} />
+          </span>
+        )}
         <FolderMenu
           folder={folder}
           count={count}

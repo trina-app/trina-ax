@@ -56,6 +56,6 @@ if [ "$DELETE" = 1 ]; then
   rm -rf "$PREFIX"
   echo "office-uninstall: removed $LABEL and $PREFIX"
 else
-  rm -rf "$PREFIX/app" "$PREFIX/app.previous" "$PREFIX/app.new" "$PREFIX/app.failed" "$PREFIX/app.unreadable" "$PREFIX/update" "$PREFIX/browser" "$PREFIX/teamax" "$PREFIX/ADDRESSES.txt" "$PREFIX/config/server.json"
+  rm -rf "$PREFIX/app" "$PREFIX/app.previous" "$PREFIX/app.new" "$PREFIX/app.failed" "$PREFIX/app.unreadable" "$PREFIX/bin" "$PREFIX/update" "$PREFIX/browser" "$PREFIX/teamax" "$PREFIX/ADDRESSES.txt" "$PREFIX/config/server.json"
   echo "office-uninstall: removed $LABEL and the program; kept $PREFIX/{data,team,tls,config,logs} (--delete-data removes them)"
 fi

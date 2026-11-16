@@ -60,11 +60,12 @@ describe('fileBody', () => {
     }
   })
 
-  test('through the team address (relayed) the body stays the lazily read Bun.file on every system, never read whole', async () => {
+  test('through the team address (relayed) the body is read lazily from the open file on every system, never read whole', async () => {
     const { abs, bytes } = makeFile('relayed.bin', 3 * 1024 * 1024 + 7)
     const before = heldBytes()
     const whole = await fileBody(abs, 0, bytes.length, { sendfile: false, relayed: true })
-    expect(whole).toBeInstanceOf(Blob)
+    // our stream over the one descriptor (download-checked-descriptor.test.ts), not a file opened again by its name
+    expect(whole).toBeInstanceOf(ReadableStream)
     expect(heldBytes()).toBe(before)
     expect(Buffer.from(await new Response(whole).arrayBuffer()).equals(Buffer.from(bytes))).toBe(true)
     const tail = await fileBody(abs, 100, bytes.length, { sendfile: false, relayed: true })

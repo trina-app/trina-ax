@@ -402,7 +402,7 @@ export class FileService {
     const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'read')
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
     // the plan's read limit (system/limits.ts readMaxBytes; 200 MB without a plan, as before)
-    const { bytes } = readRegular(r.abs, readMaxBytes())
+    const { bytes } = readRegular(r.abs, readMaxBytes(), r.st)
     const text = await extractText(r.rel, bytes, { pandoc: this.cfg.pandoc, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr, quarantine: this.quarantine }, ctx.signal)
     const hash = sha256(bytes)
     ctx.files.readHashes.set(r.rel, hash)
@@ -632,7 +632,7 @@ export class FileService {
 
   /** The file's bytes, bound to the path that was authorized (same inode, size and times), not quarantined. */
   private boundSource(ctx: ToolCtx, r: Authorized, cap: number): BoundSource {
-    const { bytes, st } = readRegular(r.abs, cap)
+    const { bytes, st } = readRegular(r.abs, cap, r.st)
     if (identity(st) !== identity(r.st!)) throw new Denied(safeText(this.db, ctx.user.id, 'changed'))
     this.quarantine.assertBytes(bytes)
     return { rel: r.rel, bytes, hash: sha256(bytes), identity: identity(st) }
@@ -1256,7 +1256,7 @@ export class FileService {
     try {
       const r = authorize(this.fx, this.rules(), user, input, 'read')
       if (!r.exists || !r.st!.isFile()) return null
-      const { bytes } = readRegular(r.abs, readMaxBytes())
+      const { bytes } = readRegular(r.abs, readMaxBytes(), r.st)
       return isUtf8(bytes) ? Buffer.from(bytes).toString('utf8') : null
     } catch { return null }
   }
@@ -1274,7 +1274,7 @@ export class FileService {
     this.limits(ctx, r.rel, data.length)
     if (r.exists) {
       if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`, 'is_folder')
-      const cur = readRegular(r.abs).bytes
+      const cur = readRegular(r.abs, undefined, r.st).bytes
       if (tool === 'write') refuseLegacyText(r.rel, cur)
       const before = seen.get(r.rel)
       if (!before) throw new ToolError(`read '${r.rel}' first (with read) before overwriting it`, 'not_read')
@@ -1305,7 +1305,7 @@ export class FileService {
     const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'write', { mustExist: true })
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`, 'is_folder')
     if (isOffice(r.rel) || BINARY_WRITE.has(ext(r.rel))) throw new ToolError('only text files can be edited')
-    const cur = readRegular(r.abs).bytes
+    const cur = readRegular(r.abs, undefined, r.st).bytes
     if (cur.subarray(0, 8000).includes(0)) throw new ToolError('binary file; cannot edit')
     refuseLegacyText(r.rel, cur)
     const before = ctx.files.readHashes.get(r.rel)
@@ -1381,7 +1381,7 @@ export class FileService {
     const user = this.principal(userId)
     const r = authorize(this.fx, this.rules(), user, rel, 'write', { mustExist: true })
     if (r.st!.isDirectory()) throw new ToolError('folders cannot be deleted with this call')
-    return moveToTrash(this.db, this.fx.root, r.segs, { userId, turnId })
+    return moveToTrash(this.db, this.fx.root, r.segs, { userId, turnId }, r.st)
   }
   restoreTrash(userId: string, trashId: string) {
     const user = this.principal(userId)

@@ -18,6 +18,7 @@ import { noteRecent } from '../lib/emoji'
 import { optimistic, optimisticPending } from '../lib/optimistic'
 import { mentionsMe, newestSeq, type PickedMention } from '../lib/rooms'
 import { draftKey, readDraft, writeDraft } from '../lib/localData'
+import { pruneRoomUploads } from './roomUploads'
 import { navigateTo } from '../lib/nav'
 import { lastHeard, LIVE_QUIET_MS } from '../lib/realtime'
 import { currentLocale, t } from '../i18n'
@@ -1538,3 +1539,10 @@ useRooms.subscribe(() => {
 if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
   window.addEventListener('storage', (e) => onDeviceChange(e.key, e.newValue))
 }
+
+// my room list changed: the uploads of a room that is no longer in it stop (store/roomUploads.ts). Only once the list is
+// loaded: an empty list before that says nothing about my rooms.
+useRooms.subscribe((s, before) => {
+  if (!s.loaded || s.rooms === before.rooms) return
+  pruneRoomUploads((id) => s.rooms.some((r) => r.id === id))
+})

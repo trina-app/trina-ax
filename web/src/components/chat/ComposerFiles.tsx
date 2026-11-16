@@ -37,7 +37,7 @@ import { dragKind, type DropKind } from '../../lib/fileDrop'
 import { attachmentItem, localItem } from '../../lib/imageViewer'
 import { useFolderWords } from '../../lib/folderLabels'
 import { useLocale, useT } from '../../i18n'
-import { useMe } from '../../store/session'
+import { myUploadMaxNow, useMe } from '../../store/session'
 import { isGuestMe } from '../../lib/guests'
 import { UploadLabel } from '../UploadLabel'
 import { ChipRemove, FAILED_REASON, isLocalImage, PictureTile } from '../ChipThumb'
@@ -125,10 +125,12 @@ export function useComposerFiles({ userId, draftId, ensureChat, onError, reload 
     onError(null)
     // a file over what the server takes is refused here, before anything is read or sent (the sha256 of a huge file
     // would take minutes before the server could say no)
-    const { fit, tooBig } = splitOversize(all)
+    // (a guest: the team's guest limit)
+    const max = myUploadMaxNow(UPLOAD_SESSION_MAX)
+    const { fit, tooBig } = splitOversize(all, max)
     const list = fit.slice(0, Math.max(0, room()))
     if (list.length < fit.length) onError(t('composer.tooMany', { n: MESSAGE_ATTACHMENTS_MAX }))
-    else if (tooBig) onError(t('composer.fileTooBig', { name: tooBig.name, max: formatSize(UPLOAD_SESSION_MAX, locale) }))
+    else if (tooBig) onError(t('composer.fileTooBig', { name: tooBig.name, max: formatSize(max, locale) }))
     if (!list.length) return
     const items: Pending[] = list.map((file) => ({ id: uuidv7(), source: 'upload', name: file.name, file, size: file.size, status: 'uploading', progress: null, abort: new AbortController() }))
     setFiles((p) => [...p, ...items])

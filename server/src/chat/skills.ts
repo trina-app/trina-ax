@@ -518,7 +518,7 @@ function readSkillIn(files: FileService, user: Principal, inputPath: string, sca
     const project = r.segs[0] === PROJECTS ? projectRootOf(projects, r.segs) : null
     if (r.segs[0] === PROJECTS && (!project || !isSkillManifest(r.rel))) return null
     if (r.segs.length > root + MAX_DEPTH || !r.rel.endsWith('.md') || isSkillResource(files.fx.root, r.rel)) return null
-    const text = readRegular(r.abs, SKILL_FILE_MAX_BYTES).bytes.toString('utf8')
+    const text = readRegular(r.abs, SKILL_FILE_MAX_BYTES, r.st).bytes.toString('utf8')
     const skill = parseSkill(text, r.rel)
     return skill ? { path: r.rel, ...skill, body: skill.body.slice(0, SKILL_BODY_MAX), ...(group ? { group: { id: group.id, name: group.name } } : {}), ...(project ? { project: { id: project.id, name: project.name } } : {}) } : null
   } catch { return null }
@@ -609,7 +609,7 @@ export function skillEntriesOnDisk(root: string, rootRel: string, as = rootRel):
       if (st.isDirectory()) { if (depth < MAX_DEPTH) walk(child, childRel, depth + 1); continue }
       if (!st.isFile() || st.nlink > 1 || !n.endsWith('.md') || project) continue
       let text: string
-      try { text = readRegular(child, SKILL_FILE_MAX_BYTES).bytes.toString('utf8') } catch { continue }
+      try { text = readRegular(child, SKILL_FILE_MAX_BYTES, st).bytes.toString('utf8') } catch { continue }
       const sk = parseSkill(text, `${as}/${childRel}`)
       if (sk) out.push({ path: childRel, kind: 'skill', name: sk.name })
       else if (team && depth === 1 && !isSkillManifest(n) && !hasFrontmatter(text)) out.push({ path: childRel, kind: 'rule', name: n })
@@ -805,7 +805,7 @@ export function skillIssues(files: FileService, user: Principal, o: { rules?: { 
       if (isSkillResource(files.fx.root, r.rel)) return
       if (!r.st?.isFile()) return
       if (r.st.size > SKILL_FILE_MAX_BYTES) { out.push({ path: r.rel, problem: 'too_large' }); return }
-      const text = readRegular(r.abs, SKILL_FILE_MAX_BYTES).bytes.toString('utf8')
+      const text = readRegular(r.abs, SKILL_FILE_MAX_BYTES, r.st).bytes.toString('utf8')
       const problem = loadProblem(text, r.rel)
       if (problem) out.push({ path: r.rel, problem })
       else if (isSkillManifest(r.rel) && skillInputsProblem(text, r.rel)) out.push({ path: r.rel, problem: 'inputs' })

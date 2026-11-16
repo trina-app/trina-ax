@@ -75,7 +75,7 @@ function relayout(ctx: AppContext, r: Row, o: { webp: boolean }): { out: DeckOut
     let b: Uint8Array | null = null
     try {
       const a = authorize(ctx.files.fx, ctx.files.rules(), user, src, 'read', { mustExist: true })
-      b = new Uint8Array(readRegular(a.abs, 20 * 1024 * 1024).bytes)
+      b = new Uint8Array(readRegular(a.abs, 20 * 1024 * 1024, a.st).bytes)
     } catch { b = null }
     bytes.set(src, b)
     return b

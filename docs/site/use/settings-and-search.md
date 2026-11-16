@@ -73,13 +73,19 @@ On a phone, Settings fills the screen. The section list comes first, and **←**
 
 **Settings › Notifications** chooses what reaches you: messages in conversations (direct messages, group chats and
 mentions, every new message, or nothing), replies in your threads, **Do not disturb** hours, scheduled tasks,
-connections, team skills and **Chats shared with me**. Under **Phone**, **Phone notifications only when I'm away** keeps
+connections, team skills, **Chats shared with me** and **Sharing** (a file shared with you by name, or someone
+asking to open your file, chat or project). Under **Phone**, **Phone notifications only when I'm away** keeps
 your phone quiet while you use Trina on a computer. **This device** has the sound and, in a browser, **Browser
 notifications**.
 
 For the owner and admins, **Phone › Phone notifications** chooses where the whole team's phone notifications go:
 **Trina AX push (default)**, **Off**, or **Custom**, the address of your own push service for your own build of the
 phone app. Notifications on a phone never hold file or conversation content.
+
+Each conversation's bell picks its own level: **All messages**, **Mentions only** or **Off**. Channels are at
+**Mentions only** unless you change them, direct messages and group chats at **All messages**. At **Mentions only**
+a new message makes the conversation's name bold but adds no number, in the list, on **Chats** or on the app icon; a
+message that mentions you shows **@** and counts. At **Off** the number is grey and counts nowhere.
 
 ![Settings › Notifications for the owner: the Phone section with Phone notifications only when I'm away and Phone notifications set to Trina AX push (default), then This device](../images/settings/notifications.webp "Notifications")
 

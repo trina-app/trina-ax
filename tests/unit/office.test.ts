@@ -15,7 +15,9 @@ import { sessionCookie } from '../../server/src/auth/service'
 import { ipKeys, limitIp, RateLimiter, tokenIpKeys } from '../../server/src/auth/rate-limit'
 import { hostAllowed, originsFor, peerAllowed } from '../../server/src/http/middleware'
 import { peerIp } from '../../server/src/main'
-import { agentPlist, archiveSummary, backupSummary, configure, helperOrigins, portProblems, prepare, swapInRestore } from '../../server/src/office/cli'
+import { agentPlist, agentStatusLines, archiveSummary, backupSummary, configure, helperOrigins, portProblems, prepare, startAgent, swapInRestore } from '../../server/src/office/cli'
+import { AGENT_PROGRAM_TEXT, agentCommand, ensureAgentProgram, loginItemState } from '../../server/src/office/login-item'
+import { updatePlist } from '../../server/src/office/update'
 import { deskCard, HELPER_PATHS, helperFetch, windowsThumbprint, type HelperState } from '../../server/src/office/helper'
 import { allowedHosts, allowedPeers, cidr, deskOrigins, officePaths, parseAllowFrom, parseEnvFile, serverConfig, settingsFrom } from '../../server/src/office/settings'
 import { caConstraintsFor, certNames, dnsPermitted, ensureOfficeTls, ipPermitted, lanInfo, normIp, PRIVATE_V4, serverCertProblem, tldWideConstraint, tlsPaths, wantedNames } from '../../server/src/office/tls'
@@ -23,6 +25,7 @@ import { parseTeamAddress } from '../../desktop/src/common/address'
 import { bundleManifest, missingFromStage } from '../../scripts/build-office'
 import { connectionStatus } from '../../server/src/system/connection'
 import { M } from '../../server/src/system/messages'
+import { PRODUCT } from '@mycel/shared'
 import { harness, type Harness } from './a-lib'
 import { WORK } from '../lib/env'
 
@@ -517,6 +520,71 @@ describe('teamax command', () => {
 })
 
 describe('LaunchAgent and restore', () => {
+  // QA TC-3451: the Mac showed 'Software from "Jarred Sumner"' (bun's signer) under Login Items
+  test('the agents run <home>/bin/<product name>, which starts app/bin/bun; without the bundle they run bun as before', () => {
+    const home = path.join(BASE, 'login-item-home')
+    fs.mkdirSync(path.join(home, 'app', 'bin'), { recursive: true })
+    expect(ensureAgentProgram(home)).toBeNull() // no app/bin/bun: a checkout
+    expect(agentCommand(home)).toBe(path.join(home, 'app', 'bin', 'bun'))
+    const s0 = settingsFrom(home, {})
+    expect(updatePlist(s0, '/usr/bin:/bin')).toContain(`<array><string>${home}/app/bin/bun</string><string>${home}/app/server/src/office.js</string><string>update</string>`)
+    // a stand-in for bun that prints its arguments
+    fs.writeFileSync(path.join(home, 'app', 'bin', 'bun'), '#!/bin/sh\nprintf "%s|" "$0" "$@"\n', { mode: 0o755 })
+    const file = ensureAgentProgram(home)!
+    expect(file).toBe(path.join(home, 'bin', PRODUCT.displayName))
+    expect(fs.statSync(file).mode & 0o777).toBe(0o755)
+    expect(fs.readFileSync(file, 'utf8')).toBe(AGENT_PROGRAM_TEXT)
+    const ino = fs.statSync(file).ino
+    expect(ensureAgentProgram(home)).toBe(file) // unchanged: not written again
+    expect(fs.statSync(file).ino).toBe(ino)
+    expect(agentCommand(home)).toBe(file)
+    const run = Bun.spawnSync([file, 'office.js', 'run', '--home', 'a b'], { cwd: os.tmpdir() })
+    expect(run.exitCode).toBe(0)
+    expect(run.stdout.toString()).toBe(`${home}/bin/../app/bin/bun|office.js|run|--home|a b|`)
+    const s = settingsFrom(home, {})
+    expect(agentPlist(s, file)).toContain(`<array><string>${file}</string><string>${home}/app/server/src/office.js</string><string>run</string>`)
+    expect(updatePlist(s, '/usr/bin:/bin')).toContain(`<array><string>${file}</string><string>${home}/app/server/src/office.js</string><string>update</string><string>run</string>`)
+    // a product name that is not one plain file name never becomes a path
+    for (const bad of ['a/b', '../x', '.hidden', ' x', '']) { expect(ensureAgentProgram(home, bad)).toBeNull(); expect(agentCommand(home, bad)).toBe(path.join(home, 'app', 'bin', 'bun')) }
+    // the file cannot be written (a folder has its name): no error, the agents run bun itself
+    fs.mkdirSync(path.join(home, 'bin', 'taken'))
+    expect(ensureAgentProgram(home, 'taken')).toBeNull()
+    expect(agentCommand(home, 'taken')).toBe(path.join(home, 'app', 'bin', 'bun'))
+  })
+  test('login item state: 1 = on, 2 = switched off; no answer, an error or another system claim nothing', () => {
+    const calls: string[][] = []
+    const ans = (code: number | null, out: string) => (cmd: string[]) => { calls.push(cmd); return { code, out } }
+    expect(loginItemState('/a/x.plist', ans(0, '1\n'), 'darwin')).toBe('on')
+    expect(calls[0]!.slice(0, 3)).toEqual(['/usr/bin/osascript', '-l', 'JavaScript'])
+    expect(calls[0]!.at(-1)).toBe('/a/x.plist') // the path is an argument, never part of the script
+    expect(loginItemState('/a/x.plist', ans(0, '2\n'), 'darwin')).toBe('off')
+    for (const [code, out] of [[0, '0'], [0, '3'], [0, ''], [1, '2'], [null, '']] as const) expect(loginItemState('/a/x.plist', ans(code, out), 'darwin')).toBe('unknown')
+    expect(loginItemState('/a/x.plist', () => { throw new Error('no osascript') }, 'darwin')).toBe('unknown')
+    expect(loginItemState('/a/x.plist', ans(0, '2'), 'linux')).toBe('unknown')
+  })
+  test('teamax status and start say when the owner switched the job off in System Settings, and only then', () => {
+    const home = path.join(BASE, 'login-item-status')
+    fs.mkdirSync(home, { recursive: true })
+    const plistFile = path.join(home, 'office.plist')
+    fs.writeFileSync(plistFile, agentPlist(settingsFrom(home, {}), path.join(home, 'bin', PRODUCT.displayName)))
+    const base = { plistFile, home, pid: null }
+    expect(agentStatusLines({ ...base, installed: false, loaded: false, state: () => 'off' })).toEqual(['not installed'])
+    expect(agentStatusLines({ ...base, installed: true, loaded: true, pid: 7, state: () => 'off' })).toEqual(['running (pid 7)'])
+    expect(agentStatusLines({ ...base, installed: true, loaded: false, state: () => 'on' })).toEqual(['installed, stopped (teamax start)'])
+    expect(agentStatusLines({ ...base, installed: true, loaded: false, state: () => 'unknown' })).toEqual(['installed, stopped (teamax start)'])
+    const off = agentStatusLines({ ...base, installed: true, loaded: false, state: () => 'off' })
+    expect(off[0]).toBe('installed, switched off in System Settings')
+    expect(off[1]).toContain(`${PRODUCT.displayName} is switched off in this Mac's settings, so the team server does not start.`)
+    expect(off[1]).toContain(`System Settings > General > Login Items & Extensions > "Allow in the Background", switch on every ${PRODUCT.displayName} entry (an older installation shows it as "Jarred Sumner" or bun), then run: ${home}/teamax start`)
+    expect(off[1]).toContain('시스템 설정 > 일반 > 로그인 항목 및 확장 프로그램')
+    expect(off[1]).not.toMatch(/launchctl|LaunchAgent|plist|bootstrap/)
+    // start: launchd's error stays unless the job is switched off
+    const fails = { start: (): string => { throw new Error('launchctl bootstrap failed: 5: Input/output error') } }
+    expect(() => startAgent(fails, plistFile, home, () => 'on')).toThrow('launchctl bootstrap failed')
+    expect(() => startAgent(fails, plistFile, home, () => 'unknown')).toThrow('launchctl bootstrap failed')
+    expect(() => startAgent(fails, plistFile, home, () => 'off')).toThrow(/is switched off in this Mac's settings/)
+    expect(startAgent({ start: () => 'started' }, plistFile, home, () => 'off')).toBe('started')
+  })
   test('agent: own label, runs office.js run, kept alive, logs to logs/office.log', () => {
     const s = settingsFrom('/Users/x/TeamAX', { TEAMAX_LABEL: 'app.team-ax.office', TEAMAX_CLAUDE_BIN: '/Users/x/.local/bin/claude' })
     const text = agentPlist(s, '/Users/x/TeamAX/app/bin/bun')

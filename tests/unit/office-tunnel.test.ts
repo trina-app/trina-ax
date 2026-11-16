@@ -33,9 +33,10 @@ describe('which requests came through the tunnel (CF-Connecting-IP trust)', () =
   const req = (host: string, h: Record<string, string> = {}) => new Request(`http://${host}/api/health?x=1`, { headers: { host, 'cf-connecting-ip': '203.0.113.9', ...h } })
 
   test('app port + loopback peer + Host = public host: https URL, client IP from CF-Connecting-IP', () => {
-    const t = tunnelRequest(cfg, req(HOST), '127.0.0.1', 47830)!
-    expect(t.req.url).toBe(`${PUB}/api/health?x=1`)
-    expect(t.req.headers.get('host')).toBe(HOST)
+    const r = req(HOST)
+    const t = tunnelRequest(cfg, r, '127.0.0.1', 47830)!
+    expect(t.url).toBe(`${PUB}/api/health?x=1`)
+    expect(r.url).toBe(`http://${HOST}/api/health?x=1`) // only read here: directFetch sets it (tunnel-body-memory.test.ts)
     expect(t.ip).toBe('203.0.113.9')
     expect(tunnelRequest(cfg, req(HOST.toUpperCase()), '127.0.0.1', 47830)?.ip).toBe('203.0.113.9')
     expect(tunnelRequest(cfg, req(HOST, { 'cf-connecting-ip': '2001:db8::7' }), '127.0.0.1', 47830)?.ip).toBe('2001:db8::7')

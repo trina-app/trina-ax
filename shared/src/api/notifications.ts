@@ -28,6 +28,10 @@ export const NotificationPreferences = z.object({
   /** a push when someone shares a chat with me by name ("Chats shared with me", default on; docs/DECISIONS.md "Chats
    * shared with me: a push that names the sharer"). The Inbox row stays whatever it says. Older servers omit it. */
   chatShares: z.boolean().optional(),
+  /** a push when someone shares a file with me by name or asks to open a file I answer for ("File sharing", default on;
+   * migration 358, docs/decisions/20261116-file-share-push-gaps.md). The Activity rows stay whatever it says. Older
+   * servers omit it. */
+  fileShares: z.boolean().optional(),
   /** "Phone notifications only when I'm away" (docs/DECISIONS.md "Phone notifications when I'm away"): 'away' (default)
    * cancels a push to the phone app when, at the moment it would go, I am using Trina in a window (the computer showed
    * it; nothing is sent later); 'always' sends it as before. Older servers omit it (they always send). */
@@ -67,8 +71,17 @@ export function plainLabel(s: string, max = 80): string {
 /** file.shared: someone gave me a file, or several in one press (file_share_notices with their own deliveries,
  * file_share_push_deliveries, migration 356; docs/decisions/20261116-file-share-everyone.md). Listed in the Inbox always;
  * pushed only for a share by name (a group's or the whole team's people get the Inbox row alone), outside quiet hours,
- * while a file still opens for me. */
-export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention', 'owner.lead_joined', 'owner.reauth_locked', 'chat.answer_done', 'chat.shared', 'room_app.paused', 'file.shared', 'chat.thread_reply'])
+ * while a file still opens for me, with "File sharing" (fileShares) on. */
+/** file.access_requested: someone asked to open a file the person answers for (its owner, or for a team file whoever
+ * answers for it; file_share_notices, the same deliveries; docs/decisions/20261116-file-share-push-gaps.md). Listed in
+ * Activity always; pushed while the request still waits and the person may still answer it, outside quiet hours, with
+ * "File sharing" (fileShares) on. Never the file's name, the asker or the note. */
+/** access.requested: someone asked to open a chat or a team project the person answers for (the chat's creator, or
+ * whoever changes the project's members; access_request_notices with their own deliveries, access_request_push_deliveries,
+ * migration 411; docs/decisions/20261116-chat-project-ask-access.md). Listed in Activity always; pushed while the request
+ * still waits and the person may still answer it, outside quiet hours, with "File sharing" (fileShares) on, at most
+ * FILE_REQUEST_PUSHES_PER_DAY a day together with the file requests. Never the title, the asker or the note. */
+export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention', 'owner.lead_joined', 'owner.reauth_locked', 'chat.answer_done', 'chat.shared', 'room_app.paused', 'file.shared', 'chat.thread_reply', 'file.access_requested', 'access.requested'])
 /** The room notices among them (server/src/rooms/notices.ts). */
 export const ROOM_PUSH_EVENTS = ['room.dm', 'room.mention'] as const
 export type PushEventType = z.infer<typeof PushEventType>
@@ -101,7 +114,7 @@ export type PushEventType = z.infer<typeof PushEventType>
  * (room_app_notices; a push too: PushEventType), and room_app.leaver to the people who may manage an app in a room
  * when someone who was shown its address can no longer manage it (room_app_leaver_notices, migration 352; docs/DECISIONS.md
  * "Apps posting in rooms"). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'service.closed', 'files.stored_key', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'engine.start_failed', 'account.deletion_due', 'room_app.leaver', 'file.access_requested', 'file.access_answered', 'file.unshared_by_move'])
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'service.closed', 'files.stored_key', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'engine.start_failed', 'account.deletion_due', 'room_app.leaver', 'file.access_answered', 'file.unshared_by_move', 'access.answered'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
@@ -236,6 +249,19 @@ export const InboxNotification = z.object({
     /** file.shared for several files in one press (docs/decisions/20261116-file-share-everyone.md): how many of them the
      * viewer can open now, and the press's id (link 'file' opens /f/batch/<batchId>); `name` is then null */
     count: z.number().int().positive().optional(), batchId: z.string().optional(),
+  }).optional(),
+  /** 'access.requested' and 'access.answered' (docs/decisions/20261116-chat-project-ask-access.md, access_request_notices).
+   * access.requested (to whoever answers it): `by` asked to open the chat or project `name` (its title now), their
+   * `note` (plain text), `kind`, `targetId` (the chat or project: link 'chat' / 'project' while the viewer may open it),
+   * `requestId` and `state` (pending until someone answers; Share / Decline while pending and the viewer may share it).
+   * access.answered (to the asker): `state` declined (nothing about the chat or project: no name, no link), or approved
+   * for a project they were added to (its name and link while they see it). Names are read now; `gone`: the chat,
+   * project or request is no longer there (no name, no link). Older servers omit it */
+  accessRequest: z.object({
+    kind: z.enum(['chat', 'project']).nullable(), by: z.string().nullable(), name: z.string().nullable(), targetId: z.string().nullable(),
+    note: z.string().optional(), requestId: z.string().optional(),
+    state: z.enum(['pending', 'approved', 'declined', 'closed']).optional(),
+    canAnswer: z.literal(true).optional(), gone: z.literal(true).optional(),
   }).optional(),
   /** 'skill.suggested' for a batch of skill folders a member sent (docs/DECISIONS.md "MC"; for the owners and admins):
    * who sent it, while their account is there, and how many skills it held. "민준 님이 스킬 2개를 팀에 올리자고 했어요";

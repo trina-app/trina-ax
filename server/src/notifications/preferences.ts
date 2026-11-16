@@ -6,9 +6,9 @@ export type Preferences = Required<NotificationPreferences>
 type Row = {
   schedule_success: number; schedule_failure: number; connection_reconnect: number; skill_suggestions: number; room_messages: number
   room_level: string; room_thread_replies: number; message_preview: number; quiet_on: number; quiet_start: number; quiet_end: number; quiet_weekends: number
-  chat_answers: number; phone_when: string; chat_shares: number
+  chat_answers: number; phone_when: string; chat_shares: number; file_shares: number
 }
-const COLS = 'schedule_success, schedule_failure, connection_reconnect, skill_suggestions, room_messages, room_level, room_thread_replies, message_preview, quiet_on, quiet_start, quiet_end, quiet_weekends, chat_answers, phone_when, chat_shares'
+const COLS = 'schedule_success, schedule_failure, connection_reconnect, skill_suggestions, room_messages, room_level, room_thread_replies, message_preview, quiet_on, quiet_start, quiet_end, quiet_weekends, chat_answers, phone_when, chat_shares, file_shares'
 const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
 const mins = (s: string) => Number(s.slice(0, 2)) * 60 + Number(s.slice(3, 5))
 
@@ -26,6 +26,7 @@ export function preferencesOf(row: Row | null): Preferences {
     scheduleSuccess: row ? !!row.schedule_success : true, scheduleFailure: row ? !!row.schedule_failure : true, connectionReconnect: row ? !!row.connection_reconnect : true, skillSuggestions: row ? !!row.skill_suggestions : true,
     roomMessages: level !== 'none', roomLevel: level, roomThreadReplies: row ? !!row.room_thread_replies : true, messagePreview: row ? !!row.message_preview : true, quietHours,
     chatAnswers: row ? !!row.chat_answers : true, phoneWhen: row?.phone_when === 'always' ? 'always' : 'away', chatShares: row ? !!row.chat_shares : true,
+    fileShares: row ? !!row.file_shares : true,
   }
 }
 export function getPreferences(db: Database, userId: string): Preferences {
@@ -46,12 +47,12 @@ export function getPreferencesOf(db: Database, userIds: readonly string[]): Map<
 export function savePreferences(db: Database, userId: string, patch: Partial<NotificationPreferences>): Preferences {
   const before = getPreferences(db, userId)
   const level: RoomNotifyDefault = patch.roomLevel ?? (patch.roomMessages === false ? 'none' : patch.roomMessages === true && before.roomLevel === 'none' ? 'direct' : before.roomLevel)
-  const p: Preferences = { ...before, ...patch, roomLevel: level, roomMessages: level !== 'none', quietHours: patch.quietHours ?? before.quietHours, roomThreadReplies: patch.roomThreadReplies ?? before.roomThreadReplies, messagePreview: patch.messagePreview ?? before.messagePreview, chatAnswers: patch.chatAnswers ?? before.chatAnswers, phoneWhen: patch.phoneWhen ?? before.phoneWhen, chatShares: patch.chatShares ?? before.chatShares }
-  db.query(`INSERT INTO notification_preferences(user_id,${COLS}) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  const p: Preferences = { ...before, ...patch, roomLevel: level, roomMessages: level !== 'none', quietHours: patch.quietHours ?? before.quietHours, roomThreadReplies: patch.roomThreadReplies ?? before.roomThreadReplies, messagePreview: patch.messagePreview ?? before.messagePreview, chatAnswers: patch.chatAnswers ?? before.chatAnswers, phoneWhen: patch.phoneWhen ?? before.phoneWhen, chatShares: patch.chatShares ?? before.chatShares, fileShares: patch.fileShares ?? before.fileShares }
+  db.query(`INSERT INTO notification_preferences(user_id,${COLS}) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(user_id) DO UPDATE SET schedule_success=excluded.schedule_success,schedule_failure=excluded.schedule_failure,connection_reconnect=excluded.connection_reconnect,skill_suggestions=excluded.skill_suggestions,room_messages=excluded.room_messages,
-    room_level=excluded.room_level,room_thread_replies=excluded.room_thread_replies,message_preview=excluded.message_preview,quiet_on=excluded.quiet_on,quiet_start=excluded.quiet_start,quiet_end=excluded.quiet_end,quiet_weekends=excluded.quiet_weekends,chat_answers=excluded.chat_answers,phone_when=excluded.phone_when,chat_shares=excluded.chat_shares`)
+    room_level=excluded.room_level,room_thread_replies=excluded.room_thread_replies,message_preview=excluded.message_preview,quiet_on=excluded.quiet_on,quiet_start=excluded.quiet_start,quiet_end=excluded.quiet_end,quiet_weekends=excluded.quiet_weekends,chat_answers=excluded.chat_answers,phone_when=excluded.phone_when,chat_shares=excluded.chat_shares,file_shares=excluded.file_shares`)
     .run(userId, Number(p.scheduleSuccess), Number(p.scheduleFailure), Number(p.connectionReconnect), Number(p.skillSuggestions), Number(level !== 'none'),
-      level, Number(p.roomThreadReplies), Number(p.messagePreview), Number(p.quietHours.on), mins(p.quietHours.start), mins(p.quietHours.end), Number(p.quietHours.weekends), Number(p.chatAnswers), p.phoneWhen, Number(p.chatShares))
+      level, Number(p.roomThreadReplies), Number(p.messagePreview), Number(p.quietHours.on), mins(p.quietHours.start), mins(p.quietHours.end), Number(p.quietHours.weekends), Number(p.chatAnswers), p.phoneWhen, Number(p.chatShares), Number(p.fileShares))
   return p
 }
 /** Did a change touch what decides room alerts (the app reloads its rooms then: each one's level, the quiet hours, the
@@ -102,8 +103,12 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     case 'service.request': case 'service.ready': case 'service.closed': return true
     // older AI-made files with one of the person's stored keys in them (shown always, connections/file-scan.ts)
     case 'files.stored_key': return true
-    // a file shared with me, an access request to my file, its answer, my file's grants removed by a move (files/shares.ts)
+    // a file shared with me, an access request to my file, its answer, my file's grants removed by a move (files/shares.ts):
+    // shown always; the push of a share by name and of a request follows "File sharing" (pushEventEnabled)
     case 'file.shared': case 'file.access_requested': case 'file.access_answered': case 'file.unshared_by_move': return true
+    // a request to open my chat or project, and its answer to the asker (chat/access-requests.ts): shown always; the
+    // request's push follows "File sharing" (pushEventEnabled), as a request to open a file does
+    case 'access.requested': case 'access.answered': return true
     // a password reset link was made for the person (shown always, Notifications.resetLinkMade)
     case 'account.reset_link': return true
     // the hosting service copied the team's key or data, or the team address moved to another server (shown always,
@@ -118,10 +123,13 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
 }
 /** May this event go to OS push? eventEnabled, except where the Inbox row is shown always but its push has a switch of
  * its own: a chat shared with me by name ("Chats shared with me"; older apps never send it: on), a reply in a chat thread I
- * follow ("Replies in threads I'm part of"). */
+ * follow ("Replies in threads I'm part of"), a file shared with me by name or a request to open my file ("File sharing"). */
 export function pushEventEnabled(p: NotificationPreferences, event: NotificationEventType) {
   if (event === 'chat.shared') return p.chatShares ?? true
   // a reply in a thread under an AI answer of a shared chat: the one thread setting, as rooms' threads (older apps: on)
   if (event === 'chat.thread_reply') return p.roomThreadReplies ?? true
+  // a file shared with me by name, or someone asking to open a file I answer for: "File sharing" (migration 358; older
+  // apps never send it: on)
+  if (event === 'file.shared' || event === 'file.access_requested' || event === 'access.requested') return p.fileShares ?? true
   return eventEnabled(p, event)
 }

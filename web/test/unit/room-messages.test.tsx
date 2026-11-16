@@ -310,9 +310,9 @@ test('reactions: a chip per emoji with its count, mine marked and pressed, who r
 test("a room's badge counts the threads I follow with new replies; '@' when one of them mentions me", async () => {
   const { UnreadBadge } = await import('../../src/components/nav/RoomsList')
   const { room } = await import('./rooms-fixtures')
-  expect(renderToStaticMarkup(<UnreadBadge room={room({ unreadCount: 0, threadsUnread: 2 })} testId="b" />)).toContain('<span aria-hidden="true">2</span>')
-  expect(renderToStaticMarkup(<UnreadBadge room={room({ unreadCount: 1, threadsUnread: 2 })} testId="b" />)).toContain('<span aria-hidden="true">3</span>')
-  expect(renderToStaticMarkup(<UnreadBadge room={room({ unreadCount: 0, threadsUnread: 1, mentioned: true })} testId="b" />)).toContain('<span aria-hidden="true">@</span>')
+  expect(renderToStaticMarkup(<UnreadBadge room={room({ kind: 'group', unreadCount: 0, threadsUnread: 2 })} testId="b" />)).toContain('<span aria-hidden="true">2</span>')
+  expect(renderToStaticMarkup(<UnreadBadge room={room({ kind: 'group', unreadCount: 1, threadsUnread: 2 })} testId="b" />)).toContain('<span aria-hidden="true">3</span>')
+  expect(renderToStaticMarkup(<UnreadBadge room={room({ kind: 'group', unreadCount: 0, threadsUnread: 1, mentioned: true })} testId="b" />)).toContain('<span aria-hidden="true">@</span>')
 })
 
 test('an old answer hidden from me is one faint line: who asked it, no text, menu, reactions, thread or sources', () => {

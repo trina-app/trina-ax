@@ -6,6 +6,7 @@
 // AI or not) and announced to the owner and admins (an in-app banner with a link to the file's version history,
 // where the previous version can be restored). Hooked on files/store.ts fileEvent: every team-file change records
 // one, so none is missed.
+import fs from 'node:fs'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import { Locale, type Page, type SkillChange } from '@mycel/shared/api'
@@ -58,7 +59,8 @@ function kindOf(ctx: AppContext, rel: string): SkillChange['kind'] {
   if (!rel.toLowerCase().endsWith('.md')) return 'other'
   try {
     verifyChain(ctx.files.fx.root, rel.split('/'))
-    const { bytes } = readRegular(path.join(ctx.files.fx.root, ...rel.split('/')), SKILL_FILE_MAX_BYTES)
+    const abs = path.join(ctx.files.fx.root, ...rel.split('/'))
+    const { bytes } = readRegular(abs, SKILL_FILE_MAX_BYTES, fs.lstatSync(abs))
     return skillFileKind(ctx.files.fx.root, rel, bytes.toString('utf8'))
   } catch { return null }
 }

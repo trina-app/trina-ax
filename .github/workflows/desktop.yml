@@ -53,7 +53,12 @@ env:
 jobs:
   e2e-mac:
     name: Desktop e2e (macOS)
-    runs-on: macos-15
+    # macos-15-intel, not macos-15: after 2026-11-16 08:30 UTC no arm64 macos-15 job of this workflow got a runner, each
+    # was cancelled unstarted ("The job was not acquired by Runner of type hosted even after multiple attempts"; "Due to
+    # capacity constraints, jobs targeting macOS arm64 runners may experience longer queue times"), as the release's
+    # office zip was on 2026-11-02..04 and 11-12..13 (docs/RELEASE-CI.md). The Intel Macs are another pool; the
+    # repository variable DESKTOP_MAC_RUNNER (e.g. macos-15) switches back without a commit.
+    runs-on: ${{ vars.DESKTOP_MAC_RUNNER || 'macos-15-intel' }}
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -66,13 +71,13 @@ jobs:
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.bun/install/cache
-          key: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
-          restore-keys: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-
+          key: bun-store-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-store-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/Library/Caches/electron
-          key: electron-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: electron-${{ runner.os }}-
+          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
+          restore-keys: electron-${{ runner.os }}-${{ runner.arch }}-
       - run: bun install --frozen-lockfile
       # the fake teams' names (helpers.ts ACME, BETA, LAN, BAD; desktop.spec's gone.localhost): Chromium maps *.localhost
       # to 127.0.0.1 itself, the specs' own fetch() goes through the system resolver, which on these runners does not
@@ -85,7 +90,7 @@ jobs:
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: native/bin/hwp
-          key: rhwp-${{ runner.os }}-${{ hashFiles('resources/hwp/manifest.json') }}
+          key: rhwp-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('resources/hwp/manifest.json') }}
       - name: Web build and the pinned Hangul renderer
         run: |
           bun run build:web
@@ -112,7 +117,8 @@ jobs:
     name: Mac dmg (unsigned build, mount and look)
     # pull requests (path-filtered) and runs by hand; not on the push to dev
     if: github.event_name != 'push'
-    runs-on: macos-15
+    # the same runner as the e2e job (see there)
+    runs-on: ${{ vars.DESKTOP_MAC_RUNNER || 'macos-15-intel' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -124,15 +130,15 @@ jobs:
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.bun/install/cache
-          key: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
-          restore-keys: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-
+          key: bun-store-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-store-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/Library/Caches/electron
             ~/Library/Caches/electron-builder
-          key: electron-builder-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: electron-builder-${{ runner.os }}-
+          key: electron-builder-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
+          restore-keys: electron-builder-${{ runner.os }}-${{ runner.arch }}-
       - run: bun install --frozen-lockfile
       - name: Build the dmg (universal, like the release; unsigned)
         env:
@@ -169,15 +175,15 @@ jobs:
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.bun/install/cache
-          key: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
-          restore-keys: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-
+          key: bun-store-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-store-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/AppData/Local/electron/Cache
             ~/AppData/Local/electron-builder/Cache
-          key: electron-builder-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: electron-builder-${{ runner.os }}-
+          key: electron-builder-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
+          restore-keys: electron-builder-${{ runner.os }}-${{ runner.arch }}-
       - run: bun install --frozen-lockfile
       - name: Two unsigned installers of this commit (an old and a new version)
         run: |

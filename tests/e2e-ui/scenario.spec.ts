@@ -59,12 +59,12 @@ test('step 1: first owner, language, groups, members (invite + direct), folder r
 
   // language: English (saved on the account), then back to the team default (Korean)
   await page.goto(`${DIRECT}/settings`)
-  await expect(page.getByTestId('locale-team')).toHaveAttribute('aria-checked', 'true')
-  await page.getByTestId('locale-en').click()
+  await expect(page.getByTestId('profile-locale')).toHaveValue('team')
+  await page.getByTestId('profile-locale').selectOption('en')
   await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible()
   await page.reload()
   await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible()
-  await page.getByTestId('locale-team').click()
+  await page.getByTestId('profile-locale').selectOption('team')
   await expect(page.getByRole('heading', { name: '설정', exact: true })).toBeVisible()
 
   // groups
