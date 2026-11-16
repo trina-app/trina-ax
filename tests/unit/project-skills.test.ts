@@ -210,9 +210,9 @@ describe('the level, by path and by the chat\'s project', () => {
     expect(alice).toContain(`- launch [project: Falcon]: ${LAUNCH}`)
     expect(alice).toContain('Entries marked [project: <name>] are skills of this chat\'s project')
     expect(alice).toContain('They only add new names')
-    expect(alice).toContain('write projects/falcon/skills/<short-name>/SKILL.md')
+    expect(alice).toContain('write projects/falcon/skills/<name>/SKILL.md')
     // bob reads the project only: no save line
-    expect(skillsSection(e.files, who('bob'), undefined, null, { project: FALCON })).not.toContain('projects/falcon/skills/<short-name>')
+    expect(skillsSection(e.files, who('bob'), undefined, null, { project: FALCON })).not.toContain('projects/falcon/skills/<name>')
     // outside the project: nothing of it
     expect(skillsSection(e.files, who('alice'))).not.toContain(LAUNCH)
   })

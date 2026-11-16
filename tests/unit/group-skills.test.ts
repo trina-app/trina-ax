@@ -161,7 +161,7 @@ describe('discovery and precedence (real folder rules)', () => {
     expect(text).toContain('Entries marked [group: <name>] are skills of that group of the user')
     expect(text).toContain('any member may have written them')
     // alice may write her group's skills folder: how to save one there, with the card
-    expect(text).toContain('groups/marketing/skills/<short-name>.md for the group "Marketing"')
+    expect(text).toContain('groups/marketing/skills/<name>/SKILL.md for the group "Marketing"')
     // bob has no group skill of marketing in his prompt
     expect(skillsSection(e.files, who('bob'))).not.toContain(MKT_QUOTE)
     const quote = list('alice').find((s) => s.path === 'groups/marketing/skills/quote/SKILL.md')!

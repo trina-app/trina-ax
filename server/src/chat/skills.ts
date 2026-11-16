@@ -409,12 +409,19 @@ export function skillFileProblem(root: string, rel: string, text: string): Skill
 }
 
 /** One line for the AI after it saved a skill file that does not load, so it can tell the person and fix the file.
- * Empty when the file is not a problem. Tool results are in English; the screens use the codes. */
-export function skillWriteNote(root: string, rel: string, data: Buffer): string {
+ * Empty when the file is not a problem. Tool results are in English; the screens use the codes. `created`: the write
+ * made a new file: a new single .md skill (a header, not SKILL.md) loads, as older ones do, but new skills are folders
+ * (prompt.ts skillsSection), so the note says that for the next one. */
+export function skillWriteNote(root: string, rel: string, data: Buffer, o: { created?: boolean } = {}): string {
   const problem = skillFileProblem(root, rel, data.toString('utf8'))
   if (!problem) {
-    const form = isSkillManifest(rel) && skillRootLength(rel.split('/')) !== null && !isSkillResource(root, rel) ? skillInputsProblem(data.toString('utf8'), rel) : null
-    return form ? `\nWarning: the skill loads, but its form (metadata inputs) does not: ${form}. It runs without its form until the value is a JSON list of inputs. Tell the user, and fix it if they want the form.` : ''
+    const inRoot = skillRootLength(rel.split('/')) !== null && !isSkillResource(root, rel)
+    const form = isSkillManifest(rel) && inRoot ? skillInputsProblem(data.toString('utf8'), rel) : null
+    if (form) return `\nWarning: the skill loads, but its form (metadata inputs) does not: ${form}. It runs without its form until the value is a JSON list of inputs. Tell the user, and fix it if they want the form.`
+    if (o.created && inRoot && rel.endsWith('.md') && !isSkillManifest(rel) && parseSkill(data.toString('utf8'), rel)) {
+      return `\nNote: this single-file skill works, but a new skill should be a folder: ${path.posix.dirname(rel)}/<name>/SKILL.md, the name line the same as the folder name. Save the next new skill that way; leave this one unless the user asks.`
+    }
+    return ''
   }
   const how: Record<SkillProblem, string> = {
     too_large: `the file is larger than ${SKILL_FILE_MAX_BYTES / 1024} KB`,

@@ -1295,7 +1295,7 @@ export class FileService {
     seen.set(r.rel, sha256(data))
     ctx.files.bytesWritten += data.length
     ctx.files.filesWritten.add(r.rel)
-    const note = tool === 'write' ? skillWriteNote(this.fx.root, r.rel, data) : ''
+    const note = tool === 'write' ? skillWriteNote(this.fx.root, r.rel, data, { created: !r.exists }) : ''
     return { text: `${r.exists ? 'Updated' : 'Created'} ${r.rel} (${human(data.length)})${note}`, summary: `${tool} ${r.rel} -> ${r.exists ? 'update' : 'create'} ${data.length}B` }
   }
 
