@@ -22,6 +22,7 @@ import { toast } from '../store/ui'
 import { Avatar } from './Avatar'
 import { ListHeading, ListRow } from './list/List'
 import { ParticipantPicker, participantKey, useParticipantOptions, type ParticipantOption } from './ProjectParticipants'
+import { ShareCopyLink } from './ShareCopyLink'
 import { EveryoneLine, useWithEveryone } from './ShareEveryone'
 import { Button, ErrorNote, IconButton, Modal, Skeleton, confirmDialog, menuOpener, useCopy } from './ui'
 
@@ -134,7 +135,7 @@ export function FileShareDialog({ path, onClose, returnTo }: { path: string; onC
       footer={
         <>
           {error && <p role="alert" className="mr-auto w-full text-sm break-keep text-danger" data-testid="file-share-error">{error}</p>}
-          <Button variant="secondary" onClick={() => void copyLink(path)} className="mr-auto" data-testid="file-share-copy-link">{t('rooms.menu.copyLink')}</Button>
+          <ShareCopyLink onCopy={() => void copyLink(path)} unsaved={canShare && picks.length > 0 ? t('fileShare.share') : null} testId="file-share-copy-link" />
           {canShare && picks.length > 0
             ? <Button variant="primary" busy={busy} onClick={() => void share()} data-testid="file-share-save">{t('fileShare.share')}</Button>
             : <Button variant="primary" onClick={onClose} data-testid="file-share-done">{t('common.done')}</Button>}

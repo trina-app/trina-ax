@@ -135,6 +135,10 @@ Press **Share** (**Save** when it was shared already). Leaving with changes you 
   shared with you", also when they open its link later; what they were typing in it stays there with **Copy**. Someone
   you take out by name who is also in a group you shared it with keeps it through that group, and the dialog says so.
   Taking everyone out makes it yours alone again.
+- **Send the link.** **Copy link** at the bottom left of the Share dialog copies the chat's address, and after you
+  share, the message that says it is shared offers **Copy link** too. The link opens the chat only for people who can
+  already see it; anyone else sees "This chat can't be opened", with nothing of the chat on it. People you just added
+  can use it once you press **Share** (or **Save**). The project's **Members** dialog has **Copy link** for the project too.
 - **Personal things stay out.** In a shared chat the AI does not use your memories, your browser, your email or your
   schedules. To use them, choose **Continue in a chat only you see** in the chat's menu.
 - A chat in a personal project stays yours: **Share** offers to move it out first. A chat in a team project is shared

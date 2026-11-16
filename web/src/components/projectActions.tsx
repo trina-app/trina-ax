@@ -15,14 +15,15 @@ import { useMe } from '../store/session'
 import { hideProject, showProject, unhideProject, useProjects } from '../store/projects'
 import { projectNow } from './ProjectMembersDialog'
 import { leaveItems, useLeaveProject } from './LeaveProject'
+import { projectLink } from './ShareCopyLink'
 import { confirmDialog, menuOpener, promptDialog, useCopy } from './ui'
 import type { MenuItem } from './rooms/MenuButton'
 
 /** A project's longest name (the server's UpdateProjectBody) */
 export const PROJECT_NAME_MAX = 100
 
-/** The address of a project's page (the app's own route; someone who cannot see the project gets "not found"). */
-export const projectLink = (id: string) => `${typeof location === 'undefined' ? '' : location.origin}/projects/${id}`
+/** The address of a project's page (components/ShareCopyLink.tsx, kept there for its Copy link). */
+export { projectLink }
 
 /** Who may rename and delete it, also without reading it (Project.canManage; older servers: whoever may edit it). */
 export const mayManage = (p: Project) => p.canManage ?? p.canEdit
