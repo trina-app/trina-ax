@@ -355,6 +355,8 @@ export class MockServer {
     | { kind: 'chat_shared'; chatId: string; byId: string; named: boolean }
     // a file shared with me, an ask to open a file of mine, a decline, one of mine moved (server/src/files/shares.ts)
     | { kind: 'file_share'; code: 'file.shared' | 'file.access_requested' | 'file.access_answered' | 'file.unshared_by_move'; byId?: string; path?: string; linkId?: string; requestId?: string; batchId?: string }
+    // an ask to open a chat or project of mine, and the answer to mine (server/src/chat/access-requests.ts)
+    | { kind: 'access_request'; code: 'access.requested' | 'access.answered'; requestId: string }
   ))[] = []
   /** a member's asks to add an app the team has not set up (server/src/integrations/service-requests.ts) */
   serviceRequests: { id: string; userId: string; service: RequestableService; createdAt: string; closedAt: string | null; reason: 'added' | 'left' | null }[] = []
@@ -1468,6 +1470,7 @@ export class MockServer {
     }
     // (a file notice is the file shares layer's: installFileShares)
     if (n.kind === 'file_share') throw new Error('file notices are read by installFileShares')
+    if (n.kind === 'access_request') throw new Error('access request notices are read by installAccessRequests')
     const code = n.kind === 'lead_joined' ? 'owner.lead_joined' : n.kind === 'transferred' ? 'owner.transferred' : 'owner.reauth_locked'
     const base = { id: n.id, eventType: code, sourceId: n.id, code, createdAt: n.createdAt, readAt: n.readAt, chatId: null, link: null } as const
     if (n.kind === 'reauth_locked') return { ...base, handover: { kind: 'reauth_locked' } }
@@ -6221,6 +6224,14 @@ export class MockServer {
   lastRemoveFileLinks: boolean | null = null
   readonly fileSharesInstalled = this.installFileShares()
 
+  // ---------------- Ask for access on a chat's or project's link (server/src/chat/access-requests.ts, short) ----------
+  // GET /api/link-access/:kind/:id says open / no_access (canAsk, askedAt, why) / unknown and nothing of the chat or
+  // project; the ask goes to a chat's creator (a chat outside projects; a shared chat of a team project asks for its
+  // project), or a team project's creator (none active: the owner and admins). Share goes through the dialogs' own
+  // saves here too (putChatAudience, with its confirm; putProjectParticipants); Decline says nothing. Never for guests.
+  accessRequests: { id: string; kind: 'chat' | 'project'; targetId: string; userId: string; note: string | null; at: string; state: 'pending' | 'approved' | 'declined' | 'closed' }[] = []
+  readonly accessRequestsInstalled = this.installAccessRequests()
+
   fileOwner(path: string): string | null {
     if (path.startsWith('users/')) return path.split('/')[1] ?? null
     return this.fileCreators.get(path) ?? null
@@ -6541,6 +6552,107 @@ export class MockServer {
       }
       return Response.json({ ok: true, open: FILE_LINK_OPEN, ask: FILE_LINK_ASK })
     }
+  }
+
+  private installAccessRequests() {
+    const h = this.handlers
+    const ctxOf = (u: User, params: Record<string, string>, body?: unknown, query: Record<string, string> = {}): Ctx => ({ user: u, params, query, body, req: new Request('http://mock.local/') })
+    const opens = async (kind: 'chat' | 'project', id: string, u: User) => {
+      try { await (kind === 'chat' ? h.getChat! : h.getProject!)(ctxOf(u, { id }, undefined, kind === 'project' ? { manage: '1' } : {})); return true } catch { return false }
+    }
+    const active = (id: string | undefined) => this.users.find((u) => u.id === id && u.status === 'active' && u.role !== 'guest')
+    const staff = () => this.users.filter((u) => u.status === 'active' && (u.role === 'owner' || u.role === 'admin'))
+    const projectAnswerers = (p: Project) => { const c = active(p.createdBy?.id); return c ? [c.id] : staff().map((u) => u.id) }
+    /** what a link's ask is about for `me` (null: unknown) */
+    const targetOf = (kind: 'chat' | 'project', id: string, me: User): { kind: 'chat' | 'project'; id: string; answerers: string[]; why?: 'not_shareable' } | null => {
+      if (kind === 'project') {
+        const p = this.projects.find((x) => x.id === id)
+        if (!p) return null
+        if (p.folderPath.startsWith('users/')) return { kind, id, answerers: [], why: 'not_shareable' }
+        return { kind, id, answerers: me.role === 'owner' || me.role === 'admin' ? [] : projectAnswerers(p) }
+      }
+      const chat = this.chats.find((x) => x.id === id)
+      if (!chat || chat.deletedAt) return null
+      const shared = this.sharedChats.get(id)
+      if (chat.projectId) {
+        const p = this.projects.find((x) => x.id === chat.projectId)
+        if (!p || p.folderPath.startsWith('users/') || !shared) return { kind, id, answerers: [], why: 'not_shareable' }
+        return { kind: 'project', id: p.id, answerers: me.role === 'owner' || me.role === 'admin' ? [] : projectAnswerers(p) }
+      }
+      const owner = active(this.chatOwners.get(id) ?? shared?.by.id)
+      return { kind, id, answerers: owner ? [owner.id] : [] }
+    }
+    const waiting = (kind: string, id: string, userId: string) => this.accessRequests.find((r) => r.kind === kind && r.targetId === id && r.userId === userId && r.state === 'pending')
+    const kindOf = (k: string | undefined) => (k === 'chat' || k === 'project' ? k : fail('validation', 400, undefined, { 'params.kind': 'chat or project' }))
+    h.linkAccess = async (c) => {
+      if (c.user.role === 'guest') fail('forbidden', 403, undefined, undefined, { reason: 'access_request_off' })
+      const kind = kindOf(c.params.kind)
+      if (await opens(kind, c.params.id!, c.user)) return { status: 'open' }
+      const t = targetOf(kind, c.params.id!, c.user)
+      if (!t) return { status: 'unknown' }
+      const w = waiting(t.kind, t.id, c.user.id)
+      return { status: 'no_access', canAsk: !t.why && t.answerers.length > 0, askedAt: w?.at ?? null, ...(t.why ? { why: t.why } : {}) }
+    }
+    h.requestLinkAccess = async (c) => {
+      if (c.user.role === 'guest') fail('forbidden', 403, undefined, undefined, { reason: 'access_request_off' })
+      const kind = kindOf(c.params.kind)
+      if (await opens(kind, c.params.id!, c.user)) return { status: 'open' }
+      const t = targetOf(kind, c.params.id!, c.user) ?? fail('not_found', 404)
+      if (t.why || !t.answerers.length) fail('forbidden', 403, "You can't ask for access here. Ask the person who sent the link.", undefined, { reason: 'access_request_off' })
+      const w = waiting(t.kind, t.id, c.user.id)
+      if (w) return { status: 'already', askedAt: w.at }
+      const r = { id: uuidv7(), kind: t.kind, targetId: t.id, userId: c.user.id, note: c.body?.message ?? null, at: now(), state: 'pending' as const }
+      this.accessRequests.push(r)
+      for (const id of t.answerers) this.note(id, { kind: 'access_request', code: 'access.requested', requestId: r.id })
+      return { status: 'sent', askedAt: r.at }
+    }
+    const mayAnswer = (r: MockServer['accessRequests'][number], u: User) => {
+      if (r.kind === 'chat') return (this.chatOwners.get(r.targetId) ?? this.sharedChats.get(r.targetId)?.by.id) === u.id
+      const p = this.projects.find((x) => x.id === r.targetId)
+      return !!p && (p.createdBy?.id === u.id || u.role === 'owner' || u.role === 'admin')
+    }
+    h.answerAccessRequest = async (c) => {
+      const r = this.accessRequests.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      if (!mayAnswer(r, c.user)) fail('not_found', 404)
+      if (r.state !== 'pending') return { state: r.state }
+      const asker = this.users.find((u) => u.id === r.userId)
+      if (!asker || asker.status !== 'active') { r.state = 'closed'; return { state: 'closed' } }
+      if (await opens(r.kind, r.targetId, asker)) { r.state = 'approved'; return { state: 'approved' } }
+      if (c.body.answer === 'decline') {
+        r.state = 'declined'
+        this.note(r.userId, { kind: 'access_request', code: 'access.answered', requestId: r.id })
+        return { state: 'declined' }
+      }
+      if (r.kind === 'chat') {
+        const subjects = [...(this.peopleShared.get(r.targetId)?.subjects ?? []), { subjectType: 'user' as const, subjectId: r.userId }]
+        const out = (await h.putChatAudience!(ctxOf(c.user, { id: r.targetId }, { subjects, ...(c.body.confirmKey ? { confirmKey: c.body.confirmKey } : {}) }))) as { status: string; check?: unknown; confirmKey?: string }
+        if (out.status === 'confirm') return { state: 'confirm', check: out.check, confirmKey: out.confirmKey }
+      } else {
+        const a = (await h.getProjectAccess!(ctxOf(c.user, { id: r.targetId }))) as { participants: { subjectType: 'user' | 'group'; subjectId: string }[]; rulesHash: string }
+        await h.putProjectParticipants!(ctxOf(c.user, { id: r.targetId }, { participants: [...a.participants.map((x) => ({ subjectType: x.subjectType, subjectId: x.subjectId })), { subjectType: 'user', subjectId: r.userId }], expectedHash: a.rulesHash }))
+        this.note(r.userId, { kind: 'access_request', code: 'access.answered', requestId: r.id })
+      }
+      r.state = 'approved'
+      return { state: 'approved' }
+    }
+    const baseItem = this.inboxItem.bind(this)
+    this.inboxItem = (n) => {
+      if (n.kind !== 'access_request') return baseItem(n)
+      const base = { id: n.id, eventType: n.code, sourceId: n.id, code: n.code, createdAt: n.createdAt, readAt: n.readAt, chatId: null }
+      const r = this.accessRequests.find((x) => x.id === n.requestId)
+      const gone = { ...base, link: null, accessRequest: { kind: null, by: null, name: null, targetId: null, gone: true as const } }
+      if (!r) return gone
+      const nameOf = (kind: 'chat' | 'project', id: string) => (kind === 'chat' ? this.chats.find((x) => x.id === id)?.title : this.projects.find((x) => x.id === id)?.name) ?? null
+      if (n.code === 'access.answered') {
+        if (r.state !== 'approved' || r.kind !== 'project') return { ...base, link: null, accessRequest: { kind: null, by: null, name: null, targetId: null, state: 'declined' as const } }
+        return { ...base, link: 'project' as const, accessRequest: { kind: 'project' as const, by: null, name: nameOf('project', r.targetId), targetId: r.targetId, state: 'approved' as const } }
+      }
+      const viewer = this.users.find((u) => u.id === n.userId)
+      const may = !!viewer && mayAnswer(r, viewer)
+      return { ...base, link: null, accessRequest: { kind: r.kind, by: this.users.find((u) => u.id === r.userId)?.name ?? null, name: nameOf(r.kind, r.targetId), targetId: r.targetId, ...(r.note ? { note: r.note } : {}), requestId: r.id, state: r.state, ...(may && r.state === 'pending' ? { canAnswer: true as const } : {}) } }
+    }
+    const baseReset = this.reset.bind(this)
+    this.reset = (o) => { this.accessRequests = []; baseReset(o) }
   }
 
   private installPeopleShared() {

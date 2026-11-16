@@ -1,9 +1,9 @@
 // Copy link in the Share dialogs (docs/decisions/20261116-chat-share-copy-link.md, QA TC-3933): bottom left of a chat's
 // Share dialog and a project's Share / Members dialog, as in the file's. It copies the chat's /c/<id> (the project's
 // /projects/<id>) with the toast that says who opens it; with people picked and not saved, one line says they open it
-// after the save; after the save the toast offers Copy link again. Someone who can't see it gets the plain not-found
-// page, with no title and no name. At 1440 and 390, light and dark, as owner, member and guest; SHOT_DIR keeps
-// screenshots.
+// after the save; after the save the toast offers Copy link again. Someone who can't see it gets Ask for access
+// (docs/decisions/20261116-chat-project-ask-access.md), with no title and no name. At 1440 and 390, light and dark, as
+// owner, member and guest; SHOT_DIR keeps screenshots.
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { CSRF_HEADER, uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
@@ -57,7 +57,7 @@ const noSideScroll = (p: Page) => p.evaluate(() => document.documentElement.scro
 
 for (const width of [1440, 390]) {
   test.describe(`at ${width}`, () => {
-    test('chat: Copy link while private, the unsaved line, Save then Copy link from the toast; outsiders get the bare not-found page', async ({ page, browser }) => {
+    test('chat: Copy link while private, the unsaved line, Save then Copy link from the toast; outsiders get Ask for access with nothing of the chat', async ({ page, browser }) => {
       await reset(page, { teamLocale: 'en', usersFollowTeam: true })
       await signIn(page)
       expect((await page.request.post('/api/admin/users', { headers: H, data: { id: 'sora', username: 'sora', name: 'Sora Kim', role: 'member', groupIds: [], temporaryPassword: SORA.password } })).ok()).toBeTruthy()
@@ -112,24 +112,21 @@ for (const width of [1440, 390]) {
       await bob.goto(`/c/${chatId}`)
       await expect(bob.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
 
-      // Sora (a member not in it): the not-found page, nothing of the chat on it
+      // Sora (a member not in it): Ask for access, nothing of the chat on it (docs/decisions/
+      // 20261116-chat-project-ask-access.md); an address that was never a chat keeps the plain not-found page
       const sora = await soraIn(browser, width)
       await sora.goto(`/c/${chatId}`)
-      await expect(sora.getByTestId('chat-not-found')).toBeVisible()
-      const text = `${await sora.title()} ${await sora.getByTestId('chat-not-found').innerText()}`
+      await expect(sora.getByTestId('link-access-ask')).toBeVisible()
+      const text = `${await sora.title()} ${await sora.getByTestId('link-access-ask').innerText()}`
       for (const leak of [TITLE, 'Olga', 'Bob', 'Summarise']) expect(text).not.toContain(leak)
-      // the same page as an address that was never a chat
-      const words = await sora.getByTestId('chat-not-found').innerText()
       await sora.goto(`/c/${uuidv7()}`)
       await expect(sora.getByTestId('chat-not-found')).toBeVisible()
-      expect(await sora.getByTestId('chat-not-found').innerText()).toBe(words)
-      await sora.goto(`/c/${chatId}`)
-      await expect(sora.getByTestId('chat-not-found')).toBeVisible()
+      for (const leak of [TITLE, 'Olga', 'Bob', 'Summarise']) expect(await sora.getByTestId('chat-not-found').innerText()).not.toContain(leak)
       await shots(sora, `chat-not-found-member-${width}`)
       for (const p of [olga, bob, sora]) await p.context().close()
     })
 
-    test('project: Copy link in the members dialog (owner, member read only; a guest has none); an outsider gets the bare not-found page', async ({ page, browser }) => {
+    test('project: Copy link in the members dialog (owner, member read only; a guest has none); an outsider gets Ask for access with nothing of the project', async ({ page, browser }) => {
       await reset(page, { teamLocale: 'en', usersFollowTeam: true })
       await signIn(page)
       expect((await page.request.post('/api/admin/users', { headers: H, data: { id: 'sora', username: 'sora', name: 'Sora Kim', role: 'member', groupIds: [], temporaryPassword: SORA.password } })).ok()).toBeTruthy()
@@ -179,11 +176,12 @@ for (const width of [1440, 390]) {
       await shots(gina, `project-guest-${width}`)
       await gina.context().close()
 
-      // Sora (not in it): the not-found page without its name or people
+      // Sora (not in it): nothing of its name or people
       const sora = await soraIn(browser, width)
       await sora.goto(`/projects/${id}`)
-      await expect(sora.getByTestId('project-missing')).toBeVisible()
-      const text = `${await sora.title()} ${await sora.getByTestId('project-missing').innerText()}`
+      // (Ask for access since docs/decisions/20261116-chat-project-ask-access.md)
+      await expect(sora.getByTestId('link-access-ask')).toBeVisible()
+      const text = `${await sora.title()} ${await sora.getByTestId('link-access-ask').innerText()}`
       for (const leak of ['Launch plan', 'Olga', 'Bob']) expect(text).not.toContain(leak)
       await shots(sora, `project-not-found-member-${width}`)
       await sora.context().close()

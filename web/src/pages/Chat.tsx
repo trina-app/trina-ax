@@ -53,6 +53,7 @@ import { isGuestMe } from '../lib/guests'
 import { emptyThread, rowButtonsWait, runningMessage, type ViewMessage } from '../store/thread'
 import { QueueFull, useSendQueue } from '../store/sendQueue'
 import { toast } from '../store/ui'
+import { LinkAskAccess } from '../components/LinkAskAccess'
 import Composer, { type ComposerHandle, type EngineChoice } from '../components/chat/Composer'
 import { changeChat, trashChat, useChatActions } from '../components/chat/chatActions'
 import { AssistantMessage, UserMessage } from '../components/chat/Messages'
@@ -557,8 +558,10 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
   // (the server says so only to someone who was in it: QA TC-2009). What I was typing there stays, with Copy (TC-2032)
   if (loadError && isApiError(loadError, 'not_found') && (wasSharedWithMe.current || noLongerSharedWith(loadError)))
     return <NoLongerShared userId={me.user.id} chatId={chatId} />
+  // a teammate's link to a chat I am not in: Ask for access when the chat can be shared with me (QA TC-4185,
+  // docs/decisions/20261116-chat-project-ask-access.md); else, and for an address that was never a chat, the one page
   if (loadError && isApiError(loadError, 'not_found'))
-    return (
+    return <LinkAskAccess kind="chat" id={chatId} onOpen={() => { setLoading(true); void load() }} fallback={
       <div className="flex h-full flex-col justify-center" data-testid="chat-not-found">
         <EmptyState screen title={t('chat.notFound')}>
           {/* one text for every chat that cannot be opened (a chat only its creator sees, one deleted, one of a project
@@ -589,7 +592,7 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
           </Link>
         </EmptyState>
       </div>
-    )
+    } />
 
   return (
     <div className="flex h-full" data-testid="chat-page">

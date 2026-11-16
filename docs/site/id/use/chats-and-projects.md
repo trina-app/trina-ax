@@ -134,6 +134,16 @@ Tekan **Bagikan** (**Simpan** jika chat sudah pernah dibagikan). Jika Anda kelua
   dengan Anda", juga saat ia membuka tautannya nanti; apa yang sedang ia ketik di dalamnya tetap ada dengan **Salin**. Orang
   yang Anda keluarkan berdasarkan nama tetapi juga ada di grup yang Anda bagikan tetap memiliki chat itu lewat grup tersebut, dan dialog menyebutkannya.
   Mengeluarkan semua orang membuat chat kembali hanya milik Anda.
+- **Minta akses.** Rekan tim yang membuka tautan chat yang tidak bisa ia lihat mendapat **Minta akses**, dengan tempat untuk
+  catatan; halamannya tidak menampilkan apa pun tentang chat itu, baik judulnya maupun siapa yang ada di dalamnya. Setelah
+  ditekan, tombolnya menjadi **Sudah diminta**. Anda menerima permintaannya di **Aktivitas** dengan **Bagikan** dan **Tolak**,
+  serta notifikasi di ponsel dan browser (**Pengaturan › Notifikasi › Berbagi**; paling banyak 10 sehari, dihitung bersama
+  permintaan membuka file). **Bagikan** menambahkannya dengan nama, setelah pemeriksaan yang sama seperti dialog Bagikan;
+  **Tolak** hanya memberi tahu bahwa permintaannya tidak disetujui, dan ia boleh meminta lagi. Tautan proyek bekerja sama:
+  permintaan masuk ke orang yang bisa mengubah anggotanya, dan **Tambahkan** menjadikan orang itu anggota. Chat bersama di proyek
+  tim meminta untuk bergabung ke proyek itu. Chat yang tidak pernah bisa dibagikan (chat di proyek pribadi, chat dari tugas
+  terjadwal, chat samping sebuah obrolan) mengatakannya, tanpa tombol. Tamu tidak bisa meminta, dan orang yang sudah bisa
+  membukanya langsung masuk.
 - **Hal pribadi tetap di luar.** Di chat bersama, AI tidak memakai memori, browser, email, atau
   jadwal Anda. Untuk memakainya, pilih **Lanjutkan di obrolan yang hanya Anda lihat** di menu chat.
 - Chat di proyek pribadi tetap milik Anda: **Bagikan** menawarkan untuk memindahkannya keluar lebih dulu. Chat di proyek tim dibagikan
