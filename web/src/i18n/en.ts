@@ -2393,6 +2393,8 @@ export const en: Record<MessageKey, string> = {
   'speech.openrouter': "OpenRouter (cloud)",
   'speech.local': "On this server (private)",
   'speech.localHint': "Audio stays on this server. It is slow on small servers (10 seconds to a minute for a short clip).",
+  'speech.localHintMac': "Sound stays on this Mac and turns into text in a second or two.",
+  'speech.localFirstDownload': "The first time, it downloads the speech model (about {mb} MB).",
   'speech.localMissing': "Voice input is off: this server does not have {tools}.",
   'speech.mediaTranscripts': "Turn video sound into text",
   'speech.mediaTranscriptsLocal': "When the AI reads a video or audio file (a meeting recording, for example), this server turns its sound into text. The sound never leaves the server. It works in pieces of {sec, plural, one {# second} other {# seconds}}: one read turns as much as fits in its time, and reading again goes on from there.",

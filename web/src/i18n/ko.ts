@@ -2391,6 +2391,8 @@ export const ko = {
   'speech.openrouter': "OpenRouter (클라우드)",
   'speech.local': "이 서버에서 (비공개)",
   'speech.localHint': "음성이 이 서버 밖으로 나가지 않아요. 작은 서버에서는 느려요(짧은 녹음에 10초–1분).",
+  'speech.localHintMac': "음성이 이 맥 밖으로 나가지 않고 1–2초 만에 글로 바뀌어요.",
+  'speech.localFirstDownload': "처음 한 번은 음성 인식 모델(약 {mb}MB)을 내려받아요.",
   'speech.localMissing': "이 서버에 {tools} 프로그램이 없어서 음성 입력이 꺼져 있어요.",
   'speech.mediaTranscripts': "영상 소리를 글로 바꾸기",
   'speech.mediaTranscriptsLocal': "AI가 영상·오디오 파일(회의 녹음 등)을 읽을 때 소리를 이 서버에서 글로 바꿔요. 소리는 서버 밖으로 나가지 않아요. 소리를 {sec}초씩 나눠 바꾸는데, 한 번 읽을 때 시간 안에 끝나는 만큼만 바꾸고 다시 읽으면 그다음부터 이어서 바꿔요.",
