@@ -17,6 +17,10 @@ export const EMBEDDED_DATA = [
   // the web app's emoji picker: emojibase-data (MIT) carries the emoji names and keywords of Unicode CLDR (Unicode-3.0)
   { id: 'unicode-emoji', name: 'Unicode CLDR emoji names and keywords', package: 'emojibase-data', license: 'Unicode-3.0', source: 'https://github.com/unicode-org/cldr',
     dir: 'resources/notices/unicode-emoji', files: ['NOTICE.txt', 'Unicode-3.0.txt'] },
+  // edit_pdf's text font: @pdf-lib/fontkit (MIT by its package.json) ships no licence file at all; the project keeps
+  // fontkit's MIT text (docs/THIRD-PARTY-NOTICES.md)
+  { id: 'pdf-lib-fontkit', name: '@pdf-lib/fontkit (a fork of fontkit)', package: '@pdf-lib/fontkit', license: 'MIT', source: 'https://github.com/Hopding/fontkit',
+    dir: 'resources/notices/pdf-lib-fontkit', files: ['NOTICE.txt', 'LICENSE.txt'] },
 ] as const
 /**
  * Third-party data copied into the project's own source, not a package of the closure: the project keeps its notice

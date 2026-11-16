@@ -102,7 +102,7 @@ import { shareMergeOf, shareMergeSystemPrompt, type ShareMergeScope } from '../s
 import { backdateChat, DEMO_REPLAY_TOOL, demoReplayFor, runReplay } from '../demo/replay'
 import { getUser } from '../auth/users'
 import { findRoomFile, localTime } from '../rooms/reader'
-import { OWN_CHAT_TEAM_TOOLS, PATH_ARGS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_OWN_CARD_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
+import { namedPaths, OWN_CHAT_TEAM_TOOLS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_OWN_CARD_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
 import { auditOnceUse, authorsWrite, everyoneWrites, folderAudience, folderId, grantFor, grantsOn, readersOf, ruledBetween, within } from '../rooms/ai-grants'
 import { wouldSeeFrom } from '../rooms/history'
 import { isOwnerOrAdmin, roomRow } from '../rooms/store'
@@ -2753,14 +2753,13 @@ export class TurnExec {
     }
     const exists = (p: string) => { try { return authorize(fx, rules, me, p, 'list').exists } catch { return false } }
     const writes = new Set(WRITE_TARGET_ARGS[tool] ?? [])
-    for (const k of PATH_ARGS) {
+    // every path the call names, nested ones too (edit_pdf's operations, merge_pdfs' list: namedPaths)
+    for (const { key: k, value: v } of namedPaths(tool, a)) {
       // a listing's own folder: below, by the names it shows
       if (tool === 'list' && k === 'path') continue
-      for (const v of Array.isArray(a[k]) ? a[k] as unknown[] : [a[k]]) {
-        if (typeof v !== 'string' || /^[a-z][a-z0-9+.-]*:/i.test(v)) continue
-        if (writes.has(k) && !exists(v)) continue
-        for (const p of this.roomNames(v)) note(p)
-      }
+      if (/^[a-z][a-z0-9+.-]*:/i.test(v)) continue
+      if (writes.has(k) && !exists(v)) continue
+      for (const p of this.roomNames(v)) note(p)
     }
     if (SEARCH_TOOLS.has(tool) || tool === 'list') {
       const fold = (p: string) => { const n = p.normalize('NFC'); return fx.caseInsensitive ? n.toLowerCase() : n }
@@ -2921,9 +2920,9 @@ export class TurnExec {
     if (!this.shared) return { label }
     const a = input && typeof input === 'object' ? input as Record<string, unknown> : {}
     const paths = new Set<string>()
-    for (const k of PATH_ARGS) for (const v of Array.isArray(a[k]) ? a[k] as unknown[] : [a[k]]) {
+    for (const { value: v } of namedPaths(tool, a)) {
       // as typed and as spelled on disk (another case or Unicode form): a viewer must be able to see every spelling
-      if (typeof v === 'string' && v && !/^[a-z][a-z0-9+.-]*:/i.test(v)) for (const p of this.roomNames(v)) paths.add(p)
+      if (v && !/^[a-z][a-z0-9+.-]*:/i.test(v)) for (const p of this.roomNames(v)) paths.add(p)
     }
     if (!paths.size) return { label }
     return { label: FILE_STEP_VERB[tool]?.[this.spec.locale] ?? label.split(' · ')[0] ?? tool, sv: { label, paths: [...paths] } }

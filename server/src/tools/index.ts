@@ -1,10 +1,13 @@
 // The non-file engine tools of component C, registered into the MCP tool registry of this server instance:
-// make_file, edit_hwp (tools/edit-hwp.ts; Hangul writing only while the HWP plugin is on, tools/hwp-writing.ts), share_file, artifact, web_fetch (design tab 3 "도구 목록"), save_url (tools/save-url.ts), and move_files / copy_files / rename_file
+// make_file, edit_hwp (tools/edit-hwp.ts; Hangul writing only while the HWP plugin is on, tools/hwp-writing.ts), stamp_pdf
+// (tools/stamp-pdf.ts: an image on a page of an existing PDF), share_file, artifact, web_fetch (design tab 3 "도구 목록"), save_url (tools/save-url.ts), and move_files / copy_files / rename_file
 // (tools/file-moves.ts). Inputs are the shared contracts
 // (shared/src/tools.ts); the engine sees mcp__team__<name>.
 import { registerHwpRender } from './hwp-render'
-import { ArtifactInput, EditHwpInput, MakeFileInput, SaveUrlInput, ShareFileInput, WebFetchInput } from '@mycel/shared'
+import { ArtifactInput, EditHwpInput, MakeFileInput, SaveUrlInput, ShareFileInput, StampPdfInput, EditPdfInput, MergePdfsInput, SplitPdfInput, WebFetchInput } from '@mycel/shared'
 import { editHwpFile, editHwpFileText } from './edit-hwp'
+import { STAMP_PDF_DESCRIPTION, stampPdfFile, stampPdfText } from './stamp-pdf'
+import { EDIT_PDF_DESCRIPTION, editPdfFile, MERGE_PDFS_DESCRIPTION, mergePdfFiles, pdfResultText, SPLIT_PDF_DESCRIPTION, splitPdfFile, type PdfResult } from './pdf-tools'
 import { hwpWritingOffTextFor, hwpWritingOn, MakeFileInputWithoutHwpx, writesHangul } from './hwp-writing'
 import { fileShareUrl } from '@mycel/shared/api'
 import { fileSharesOf } from '../files/shares'
@@ -29,7 +32,7 @@ import { redirectGuard, webEcho } from './connection-urls'
 import { precheckTarget, webFetch, wrapExternal, type FetchOptions } from './web-fetch'
 import { SAVE_URL_DESCRIPTION, saveUrl, type SaveUrlOptions } from './save-url'
 
-export const C_TOOL_NAMES = ['hwp_render', 'make_file', 'edit_hwp', 'share_file', 'artifact', 'web_fetch', 'save_url'] as const
+export const C_TOOL_NAMES = ['hwp_render', 'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'share_file', 'artifact', 'web_fetch', 'save_url'] as const
 
 const human = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`)
 
@@ -139,6 +142,58 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
         summary: `edit_hwp ${r.source} -> ${r.path} ${r.size}B ${a.changes.length} changes${r.inPlace ? ' (new version)' : ''}${r.conflictCopyOf ? ' (conflict copy)' : ''}`,
         structured: { path: r.path, size: r.size, sha256: r.sha256, ...(r.conflictCopyOf ? { conflictCopyOf: r.conflictCopyOf } : {}) },
       }
+    },
+  })
+
+  reg.register({
+    name: 'stamp_pdf',
+    description: STAMP_PDF_DESCRIPTION,
+    input: StampPdfInput,
+    describe: (a) => `stamp_pdf ${a.file_path} + ${a.image}${a.output ? ` -> ${a.output}` : ''} (page ${a.page ?? 'last'})`,
+    async run(a, t) {
+      const r = await stampPdfFile(ctx, c.files, t, a)
+      const link = `[${r.path.split('/').pop()}](${fileShareUrl(r.path, 'preview')})`
+      return {
+        text: stampPdfText(r, link),
+        summary: `stamp_pdf ${r.source} + ${r.image} -> ${r.path} ${r.size}B page ${r.report.page}/${r.report.pages}${r.conflictCopyOf ? ' (conflict copy)' : ''}`,
+        structured: { path: r.path, size: r.size, sha256: r.sha256, page: r.report.page, pages: r.report.pages, ...(r.conflictCopyOf ? { conflictCopyOf: r.conflictCopyOf } : {}) },
+      }
+    },
+  })
+
+  // edit_pdf, merge_pdfs, split_pdf (tools/pdf-tools.ts): page work on existing PDFs, new files
+  const pdfLink = (p: string) => `[${p.split('/').pop()}](${fileShareUrl(p, 'preview')})`
+  const pdfStructured = (r: PdfResult) => ({ paths: r.made.map((m) => m.path), pages: r.pages })
+  const pdfSummary = (tool: string, r: PdfResult) => `${tool} ${r.sources.join(' + ')} -> ${r.made.map((m, i) => `${m.path} ${m.size}B ${r.pages[i]}p${m.conflictCopyOf ? ' (conflict copy)' : ''}`).join(', ')}`.slice(0, 1000)
+  reg.register({
+    name: 'edit_pdf',
+    description: EDIT_PDF_DESCRIPTION,
+    input: EditPdfInput,
+    describe: (a) => `edit_pdf ${a.file_path} (${a.operations.map((o) => Object.keys(o)[0]).join(', ')})${a.replace ? ' replace' : a.output ? ` -> ${a.output}` : ''}`,
+    async run(a, t) {
+      const r = await editPdfFile(ctx, c.files, t, a)
+      const drew = a.operations.some((o) => 'stamp_image' in o || 'add_text' in o || 'watermark' in o || 'page_numbers' in o)
+      return { text: pdfResultText('edit_pdf', r, pdfLink, drew), summary: pdfSummary('edit_pdf', r), structured: pdfStructured(r) }
+    },
+  })
+  reg.register({
+    name: 'merge_pdfs',
+    description: MERGE_PDFS_DESCRIPTION,
+    input: MergePdfsInput,
+    describe: (a) => `merge_pdfs ${a.files.length} files${a.output ? ` -> ${a.output}` : ''}`,
+    async run(a, t) {
+      const r = await mergePdfFiles(ctx, c.files, t, a)
+      return { text: pdfResultText('merge_pdfs', r, pdfLink, false), summary: pdfSummary('merge_pdfs', r), structured: pdfStructured(r) }
+    },
+  })
+  reg.register({
+    name: 'split_pdf',
+    description: SPLIT_PDF_DESCRIPTION,
+    input: SplitPdfInput,
+    describe: (a) => `split_pdf ${a.file_path} (${a.parts ? `${a.parts.length} parts` : `every ${a.every}`})`,
+    async run(a, t) {
+      const r = await splitPdfFile(ctx, c.files, t, a)
+      return { text: pdfResultText('split_pdf', r, pdfLink, false), summary: pdfSummary('split_pdf', r), structured: pdfStructured(r) }
     },
   })
 
