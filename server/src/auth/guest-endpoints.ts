@@ -78,6 +78,8 @@ export const GUEST_ENDPOINTS: ReadonlySet<Endpoint> = new Set<Endpoint>([
   API.attachRoomTeamFile,
   API.roomFile,
   API.roomFileHwpPreview,
+  // an app's icon on the messages they see (never its settings: managing apps stays 403)
+  API.roomAppIcon,
   API.setRoomFolder,
   // Projects (read only: their one project)
   API.listProjects,

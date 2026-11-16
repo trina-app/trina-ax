@@ -6,6 +6,7 @@ import { noticeWanted } from '../rooms/alerts'
 import { chatAnswerPath } from './chat-answers'
 import { chatSharePath } from './chat-shares'
 import { roomAppPushPath } from '../rooms/apps/notice'
+import { fileSharePushPath } from '../files/share-push'
 import { chatThreadPath } from '../chat/threads'
 type Stop = (scope: { userId?: string; sessionId?: string }) => void
 const listeners = new WeakMap<AppContext, Stop>()
@@ -76,6 +77,8 @@ pushPaths.set('chat.shared', chatSharePath)
 pushPaths.set('chat.thread_reply', chatThreadPath)
 // an app's paused notice opens the app's room (/rooms/<roomId>) while the person is still in it (rooms/apps/notice.ts)
 pushPaths.set('room_app.paused', roomAppPushPath)
+// a file shared with me by name opens its link page, several in one press their list (files/share-push.ts)
+pushPaths.set('file.shared', fileSharePushPath)
 // the owner's locked password check opens the Inbox (the notice there says what to do), as the older events do
 pushPaths.set('owner.reauth_locked', () => '/settings/notifications')
 export function registerPushPath(code: string, path: PushPath) { pushPaths.set(code, path) }

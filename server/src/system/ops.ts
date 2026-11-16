@@ -45,6 +45,10 @@ import { getChatRuntime } from '../chat/runtime'
 import { egressSettled, egressStatus, EXIT_ADDRESS_URL, exitAddressCheckOff } from '../tools/egress'
 import { diskStat, unknownChanged } from './disk-stat'
 
+/** the bootstrap's history detail of a version kept although the AI engine could not start on this server
+ * (native/cmd/mycel-bootstrap/enginecheck.go engineHostDetail; the same words) */
+export const ENGINE_HOST_DETAIL = 'kept, but the AI engine could not start on this server: '
+
 /** after a failed nightly backup, the next try waits this long */
 export const DAILY_BACKUP_RETRY_MS = 60 * 60_000
 
@@ -642,6 +646,8 @@ export class OpsService {
       else if (h && recent && h.result === 'rolled_back' && h.from && h.to === this.ctx.version && compareVersions(h.from, h.to) < 0) add('update', 'update', t(M.update), 'ok', t(M.goBackBounced(h.from, h.to, !this.updates.canRead(h.from), h.detail ?? '')))
       else if (h && recent && h.result !== 'ok') add('update', 'update', t(M.update), 'warn', t(M.updateRolledBack(h.to, h.detail ?? '')))
       // went forward again after a failed start (detail "started again after …"): the version plus that it recovered
+      // kept although the AI engine could not start, for a reason of this server (native/cmd/mycel-bootstrap engineHostDetail)
+      else if (h && recent && h.result === 'ok' && h.detail?.startsWith(ENGINE_HOST_DETAIL)) add('update', 'update', t(M.update), 'warn', t(M.updateEngineHost(this.ctx.version, h.detail.slice(ENGINE_HOST_DETAIL.length))))
       else if (h && recent && h.result === 'ok' && h.detail?.startsWith('started again')) add('update', 'update', t(M.update), 'ok', `${t(M.updateOk(this.ctx.version))}. ${t(h.detail === 'started again after it was stopped' ? M.updateRestarted : M.updateRecovered)}`)
       else add('update', 'update', t(M.update), 'ok', t(M.updateOk(this.ctx.version)))
       const us = this.updates.status()

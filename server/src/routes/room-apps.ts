@@ -8,6 +8,7 @@ import type { AppContextC } from '../http/env'
 import { publicAddressRefusal, visitorScheme } from '../http/middleware'
 import { NOT_FOUND, roomAppInbound } from '../rooms/apps/inbound'
 import { roomAppsOf } from '../rooms/apps/service'
+import { IMAGE_HEADERS } from './people'
 
 export const roomAppsRoutes: RouteModule = {
   name: 'room-apps',
@@ -33,6 +34,20 @@ export const roomAppsRoutes: RouteModule = {
     kit.handle(API.resumeRoomApp, ({ c, auth, params }) => apps.resume(auth.user.id, params.id, params.appId, c.get('locale')))
     kit.handle(API.exampleRoomApp, ({ auth, params }) => { apps.example(auth.user.id, params.id, params.appId) })
     kit.handle(API.deleteRoomApp, ({ auth, params }) => { apps.remove(auth.user.id, params.id, params.appId) })
+    // an Other app's own icon (docs/decisions/20261116-other-app-icon.md): set by the people who manage the room's apps,
+    // shown to anyone in the room, as an image only (the profile photo's headers)
+    kit.handle(API.putRoomAppIcon, ({ c, auth, params, query, body }) => apps.setIconImage(auth.user.id, params.id, params.appId, body, query.type, c.get('locale')))
+    kit.handle(API.setRoomAppEmoji, ({ c, auth, params, body }) => apps.setIconEmoji(auth.user.id, params.id, params.appId, body, c.get('locale')))
+    kit.handle(API.deleteRoomAppIcon, ({ c, auth, params }) => apps.removeIcon(auth.user.id, params.id, params.appId, c.get('locale')))
+    kit.handle(API.roomAppIcon, ({ c, auth, params, query }) => {
+      const a = apps.iconImageFor(auth.user.id, params.id, params.appId)
+      const etag = `"${a.version}"`
+      // the current version in the address: cached for good; anything else only briefly (it would show an old icon)
+      const cache = query.v === String(a.version) ? 'private, max-age=31536000, immutable' : 'private, max-age=0, must-revalidate'
+      const headers = { ...IMAGE_HEADERS, 'content-type': a.type, 'cache-control': cache, etag }
+      if (c.req.header('if-none-match') === etag) return new Response(null, { status: 304, headers })
+      return new Response(a.bytes as Uint8Array<ArrayBuffer>, { headers })
+    })
 
     // the public address. A request through the server's own public address with a country or network list got here
     // only through the /in/ exemption (http/middleware.ts hostCheck): it gets the stricter limit for unknown tokens

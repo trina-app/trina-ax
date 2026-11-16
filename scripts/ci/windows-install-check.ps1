@@ -1,0 +1,196 @@
+# The Windows installer as a person and the updater use it (docs/RELEASE-CI.md "데스크톱 검사"), on a GitHub windows
+# runner, never on a real PC. Two unsigned NSIS installers of the same app, built by the desktop workflow with versions
+# -OldVersion and -NewVersion:
+#
+#   pwsh scripts/ci/windows-install-check.ps1 -Old <Setup-old.exe> -New <Setup-new.exe> -OldVersion 0.5.8-ci.1 `
+#     -NewVersion 0.5.8-ci.2 -Product "Trina AX" -Scheme trina-ax -DataDir "Team AX" -LogDir <folder>
+#
+#   1. nothing of the app is installed (a fresh runner profile)
+#   2. silent install (/S): the uninstall entry (version, quiet uninstall), the app files, the Start menu and desktop
+#      shortcuts; both exes' signature status is reported (NotSigned on a pull request, Valid in a signed release;
+#      a broken signature fails)
+#   3. the app starts, keeps running, writes its data folder (%APPDATA%\<DataDir>, the runner's own throw-away profile)
+#      and the <Scheme>:// link handler that points at the installed exe; then it is stopped
+#   4. install over it the way the updater does (electron-updater NsisUpdater: --updated /S --force-run): one uninstall
+#      entry with the new version, the new exe, the link handler kept (installer.nsh skips an update), the app started
+#      again by --force-run
+#   5. silent uninstall (the entry's QuietUninstallString): entry, files, shortcuts and the link handler are gone; the
+#      app's data folder stays (deleteAppDataOnUninstall: false: a reinstall finds the person's teams)
+#
+# Every step is logged to -LogDir (the workflow uploads it). Only processes started from the install folder are
+# stopped. Exits non-zero on the first failed check.
+param(
+  [Parameter(Mandatory)] [string] $Old,
+  [Parameter(Mandatory)] [string] $New,
+  [Parameter(Mandatory)] [string] $OldVersion,
+  [Parameter(Mandatory)] [string] $NewVersion,
+  [Parameter(Mandatory)] [string] $Product,
+  [Parameter(Mandatory)] [string] $Scheme,
+  # PRODUCT.desktopDataDir: the packaged app keeps its data in %APPDATA%\<this> (desktop/src/main/main.ts)
+  [Parameter(Mandatory)] [string] $DataDir,
+  # what built the installers (e.g. "electron-builder 26.0.12"), named in the summary and in an installer crash report
+  [string] $Builder = 'unknown',
+  [Parameter(Mandatory)] [string] $LogDir
+)
+$ErrorActionPreference = 'Stop'
+New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+Start-Transcript -Path (Join-Path $LogDir 'install-check.log') | Out-Null
+$summary = [System.Collections.Generic.List[string]]::new()
+$started = Get-Date
+
+function Ok([string] $what) { Write-Host "ok   $what"; $summary.Add("ok   $what") }
+function Fail([string] $what) {
+  Write-Host "FAIL $what"; $summary.Add("FAIL $what")
+  throw "check failed: $what"
+}
+function Check([bool] $cond, [string] $what) { if ($cond) { Ok $what } else { Fail $what } }
+function Write-Summary {
+  if ($env:GITHUB_STEP_SUMMARY) {
+    $secs = [int]((Get-Date) - $started).TotalSeconds
+    Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "## Windows install / update check ($secs s)`n`n``````"
+    Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $summary
+    Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '```'
+  }
+}
+function Wait-Until([scriptblock] $cond, [int] $seconds, [string] $what) {
+  $end = (Get-Date).AddSeconds($seconds)
+  while ((Get-Date) -lt $end) { if (& $cond) { return $true }; Start-Sleep -Milliseconds 500 }
+  Write-Host "(waited $seconds s for: $what)"
+  return $false
+}
+
+$uninstallRoot = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall'
+# electron-builder's entry: DisplayName "<productName> <version>" under a GUID made from the appId
+function Get-Entries {
+  @(Get-ChildItem $uninstallRoot -ErrorAction SilentlyContinue | ForEach-Object { Get-ItemProperty $_.PSPath } |
+    Where-Object { $_.DisplayName -like "$Product *" -or $_.DisplayName -eq $Product })
+}
+$linkKey = "HKCU:\Software\Classes\$Scheme\shell\open\command"
+function Get-Link { (Get-ItemProperty -Path $linkKey -ErrorAction SilentlyContinue).'(default)' }
+$desktopLnk = Join-Path ([Environment]::GetFolderPath('Desktop')) "$Product.lnk"
+$startLnk = Join-Path ([Environment]::GetFolderPath('Programs')) "$Product.lnk"
+
+function Get-AppProcs([string] $dir) {
+  @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($dir, [StringComparison]::OrdinalIgnoreCase) })
+}
+function Stop-App([string] $dir) {
+  foreach ($p in Get-AppProcs $dir) { try { Stop-Process -Id $p.Id -Force -ErrorAction Stop } catch { } }
+  Check (Wait-Until { (Get-AppProcs $dir).Count -eq 0 } 30 'the app to stop') 'the app stopped'
+}
+function Signature([string] $file) {
+  $s = Get-AuthenticodeSignature -LiteralPath $file
+  $who = if ($s.SignerCertificate) { $s.SignerCertificate.Subject } else { 'no signer' }
+  # NotSigned: a pull request's build (no secrets); Valid: a signed release. Anything else (HashMismatch, NotTrusted …)
+  # means a signature that is there but broken.
+  Check ($s.Status -in 'NotSigned', 'Valid') "signature of $(Split-Path -Leaf $file): $($s.Status) ($who)"
+}
+function Asar-Version([string] $asar) {
+  # the packaged package.json's version (electron-builder's -c.extraMetadata.version). The exe's ProductVersion is only
+  # the numeric 0.5.8.0 for every pre-release, so it cannot tell two builds apart. asar: a pickle (8 bytes: 4, header
+  # size), the header (4 bytes pickle size, 4 bytes JSON length, the JSON), then the files from 8 + header size.
+  $fs = [System.IO.File]::OpenRead($asar)
+  try {
+    $r = New-Object System.IO.BinaryReader($fs)
+    $fs.Position = 4; $headerSize = $r.ReadUInt32()
+    $fs.Position = 12; $jsonLen = $r.ReadUInt32()
+    $header = [System.Text.Encoding]::UTF8.GetString($r.ReadBytes($jsonLen)) | ConvertFrom-Json
+    $pkg = $header.files.'package.json'
+    $fs.Position = 8 + $headerSize + [int64] $pkg.offset
+    ([System.Text.Encoding]::UTF8.GetString($r.ReadBytes([int] $pkg.size)) | ConvertFrom-Json).version
+  } finally { $fs.Dispose() }
+}
+function Run-Installer([string] $exe, [string[]] $argv) {
+  Write-Host "> $(Split-Path -Leaf $exe) $($argv -join ' ')"
+  $since = Get-Date
+  $p = Start-Process -FilePath $exe -ArgumentList $argv -PassThru -Wait
+  if ($p.ExitCode -ne 0) {
+    # what to know about a crash (0xC0000005 once, 2026-11-16, QA TC-3590): which build, which file, what Windows logged
+    $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash
+    $summary.Add(("     installer {0}: built by {1}, sha256 {2}, exit 0x{3:X8}" -f (Split-Path -Leaf $exe), $Builder, $hash, $p.ExitCode))
+    try {
+      Get-WinEvent -FilterHashtable @{ LogName = 'Application'; StartTime = $since.AddSeconds(-5) } -ErrorAction Stop |
+        Where-Object { $_.ProviderName -in 'Application Error', 'Windows Error Reporting', '.NET Runtime' } |
+        Format-List TimeCreated, ProviderName, Id, Message | Out-String | Tee-Object -FilePath (Join-Path $LogDir 'installer-crash-events.txt') | Write-Host
+    } catch { Write-Host "no Application events: $_" }
+  }
+  Check ($p.ExitCode -eq 0) "$(Split-Path -Leaf $exe) $($argv -join ' ') exited $($p.ExitCode)"
+}
+
+$data = Join-Path $env:APPDATA $DataDir
+Remove-Item Env:MYCEL_DESKTOP_USER_DATA -ErrorAction SilentlyContinue
+
+try {
+# 1. a fresh profile
+Ok "installers built by $Builder"
+Check (-not (Test-Path $data)) "no app data before the install ($data)"
+Check ((Get-Entries).Count -eq 0) 'no uninstall entry before the install'
+Check (-not (Test-Path $desktopLnk) -and -not (Test-Path $startLnk)) 'no shortcuts before the install'
+Check (-not (Get-Link)) "no ${Scheme}:// handler before the install"
+Signature $Old
+Signature $New
+
+# 2. silent install
+Run-Installer $Old @('/S')
+Check (Wait-Until { (Get-Entries).Count -eq 1 } 60 'the uninstall entry') 'one uninstall entry after the install'
+$entry = (Get-Entries)[0]
+$entry | Format-List | Out-String | Write-Host
+Check ($entry.DisplayVersion -eq $OldVersion) "entry version $($entry.DisplayVersion) (expected $OldVersion)"
+Check ([bool] $entry.QuietUninstallString) "quiet uninstall: $($entry.QuietUninstallString)"
+$dir = $entry.InstallLocation
+if (-not $dir) { $dir = Split-Path -Parent (($entry.UninstallString -split '"')[1]) }
+$exe = Join-Path $dir "$Product.exe"
+Check (Test-Path $exe) "the app at $exe"
+Check (Test-Path (Join-Path $dir 'resources\app.asar')) 'resources\app.asar'
+Check (Test-Path (Join-Path $dir "Uninstall $Product.exe")) "Uninstall $Product.exe"
+Check (Test-Path $startLnk) "Start menu shortcut $startLnk"
+Check (Test-Path $desktopLnk) "desktop shortcut $desktopLnk"
+Signature $exe
+Ok "exe product version $((Get-Item $exe).VersionInfo.ProductVersion)"
+$asar = Join-Path $dir 'resources\app.asar'
+$v = Asar-Version $asar
+Check ($v -eq $OldVersion) "the installed app's version $v (expected $OldVersion)"
+Get-ChildItem $dir | Out-String | Write-Host
+
+# 3. it starts (a window, no team), keeps running, writes its data and the link handler
+$app = Start-Process -FilePath $exe -PassThru
+Check (Wait-Until { (Get-ChildItem $data -Force -ErrorAction SilentlyContinue).Count -gt 0 } 60 'the app to write its data folder') "the app writes its data folder ($data)"
+Check (Wait-Until { (Get-Link) -like "*$exe*" } 30 'the link handler') "${Scheme}:// handler: $(Get-Link)"
+Start-Sleep -Seconds 5
+Check (-not $app.HasExited) "the app is still running after start (pid $($app.Id))"
+Stop-App $dir
+
+# 4. install over it like the updater
+Run-Installer $New @('--updated', '/S', '--force-run')
+Check (Wait-Until { $e = Get-Entries; $e.Count -eq 1 -and $e[0].DisplayVersion -eq $NewVersion } 120 'the new version in the entry') "one uninstall entry, version $NewVersion"
+Check (Test-Path $exe) 'the app is still at the same place'
+$v = Asar-Version $asar
+Check ($v -eq $NewVersion) "the installed app's version $v (expected $NewVersion)"
+Check ((Get-Link) -like "*$exe*") "${Scheme}:// handler kept over the update"
+Check (Wait-Until { (Get-AppProcs $dir).Count -gt 0 } 60 'the app started by --force-run') 'the app runs again after the update (--force-run)'
+Start-Sleep -Seconds 5
+Check ((Get-AppProcs $dir).Count -gt 0) 'the updated app is still running'
+Stop-App $dir
+
+# 5. silent uninstall
+$quiet = (Get-Entries)[0].QuietUninstallString
+Write-Host "> $quiet"
+# "<path>\Uninstall <app>.exe" /currentuser /S: the quoted exe and its arguments (through cmd.exe the quotes broke)
+$m = [regex]::Match($quiet, '^\s*"([^"]+)"\s*(.*)$')
+Check $m.Success "the quiet uninstall names a quoted exe"
+$p = Start-Process -FilePath $m.Groups[1].Value -ArgumentList $m.Groups[2].Value -PassThru -Wait
+Check ($p.ExitCode -eq 0) "uninstall exited $($p.ExitCode)"
+# the uninstaller copies itself to %TEMP% and runs from there: wait for its result, not its first process
+Check (Wait-Until { (Get-Entries).Count -eq 0 } 120 'the entry to go') 'no uninstall entry after the uninstall'
+Check (Wait-Until { -not (Test-Path $exe) } 60 'the app files to go') 'the app files are gone'
+Check (-not (Test-Path $startLnk) -and -not (Test-Path $desktopLnk)) 'the shortcuts are gone'
+Check (-not (Get-Link)) "the ${Scheme}:// handler is gone"
+Check (Test-Path $data) 'the data folder stays (deleteAppDataOnUninstall: false)'
+if (Test-Path $dir) { Get-ChildItem $dir -Recurse -Force | Out-String | Write-Host }
+
+Write-Host "every install check passed in $([int]((Get-Date) - $started).TotalSeconds) s"
+} finally {
+  # also after a failed check: what the app wrote and the summary are what tells why
+  if (Test-Path $data) { Copy-Item -Recurse -Force $data (Join-Path $LogDir 'app-data') -ErrorAction SilentlyContinue }
+  Write-Summary
+  Stop-Transcript | Out-Null
+}

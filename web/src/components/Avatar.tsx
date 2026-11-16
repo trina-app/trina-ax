@@ -7,6 +7,7 @@
 import clsx from 'clsx'
 import { useEffect, useState } from 'react'
 import { avatarUrl } from '@mycel/shared'
+import { firstLetter } from '../lib/appTone'
 
 export interface AvatarUser { id: string; name: string; avatarVersion?: number | null }
 
@@ -21,7 +22,7 @@ export function Avatar({ user, size = 24, className }: { user: AvatarUser; size?
   }
   return (
     <span style={style} className={clsx('flex shrink-0 items-center justify-center rounded-full bg-hover font-semibold text-muted', box, className)} aria-hidden>
-      {Array.from(user.name.trim())[0]?.toUpperCase() ?? '?'}
+      {firstLetter(user.name)}
     </span>
   )
 }

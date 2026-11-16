@@ -5,32 +5,16 @@
 // (fixtures/work-files-main.ts), in a made-up home folder inside a temporary folder: HOME and every app.getPath point
 // there, nothing of this computer's home is touched. Run on a Mac by hand: `bunx playwright test -c e2e/rtc-native.config.ts`.
 import { expect, test } from '@playwright/test'
-import { execFile, spawn } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { fixtureResult } from './fixture-run'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 const exec = promisify(execFile)
 
 const QUOTE = 'QUOTE'.padEnd(4096, '.')
-
-/** Run the fixture until it prints its WORK_RESULT line (then stop it), or fail after `ms`. */
-function resultOf(cmd: string, args: string[], env: NodeJS.ProcessEnv, ms: number): Promise<string> {
-  return new Promise((done, fail) => {
-    const p = spawn(cmd, args, { env })
-    let out = ''
-    let err = ''
-    const timer = setTimeout(() => { p.kill('SIGKILL'); fail(new Error(`no WORK_RESULT within ${ms} ms\n${err.slice(-2000)}`)) }, ms)
-    p.stdout.on('data', (b) => {
-      out += String(b)
-      const line = out.split('\n').find((l) => l.startsWith('WORK_RESULT '))
-      if (line && out.slice(out.indexOf(line)).includes('\n')) { clearTimeout(timer); p.kill('SIGKILL'); done(out) }
-    })
-    p.stderr.on('data', (b) => { err += String(b) })
-    p.on('exit', (code) => { clearTimeout(timer); if (!out.includes('WORK_RESULT ')) fail(new Error(`fixture exited ${code} without WORK_RESULT\n${err.slice(-2000)}`)) })
-  })
-}
 
 /** A made-up home: Documents with work files, a link to home and one to the made-up secret; a big Downloads (over 5,000
  * documents: cut); app data; the secret. */
@@ -66,8 +50,7 @@ test('the app asks first, looks without following links, and reads only ids of i
     const env = { ...process.env, HOME: home, FOLDER_TEST_HOME: home, FOLDER_TEST_PROFILE: join(dir, 'profile') }
     // the result line is enough: the app is stopped once it is printed (on a busy Mac, Electron's own exit can take
     // minutes, which said nothing about the look)
-    const stdout = await resultOf(electron, [output], env, 90_000)
-    const { out, asked } = JSON.parse(stdout.split('\n').find((line) => line.startsWith('WORK_RESULT '))!.slice(12))
+    const { out, asked } = await fixtureResult(electron, [output], env, 'WORK_RESULT', 90_000)
     // no: nothing looked at; asked again at once, the app does not raise its dialog again
     expect(out.cancelled).toEqual({ state: 'cancelled' })
     expect(out.again).toEqual({ state: 'busy' })

@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto'
 import { creatorOf, fileSharesOf } from '../../server/src/files/shares'
 import { fileEvent } from '../../server/src/files/store'
 import { updateTeamSettings } from '../../server/src/admin/settings'
+import { roomsOf } from '../../server/src/rooms/service'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 
 let h: Harness
@@ -383,6 +384,9 @@ describe('the link follows its file', () => {
 })
 
 describe('asking for access', () => {
+  // the tests above spent alice's send budget on purpose (refused names cost a token since the security review of
+  // #1038): a fresh budget for the answers here, as a minute later would give
+  beforeAll(() => { (roomsOf(h.ctx) as unknown as { sendBudget: Map<string, unknown> }).sendBudget.clear() })
   test('ask, owner sees it with the note, Share grants and answers it; Decline tells the requester without naming the file', async () => {
     const p = `users/${ids.alice}/ask.txt`
     await put(alice, p, 'ask')

@@ -8,7 +8,7 @@ import { createContext, type AppContext } from '../../server/src/context'
 import { openDb } from '../../server/src/db'
 import { silentLogger } from '../../server/src/log'
 import { resolveLayout } from '../../server/src/system/layout'
-import { OpsService } from '../../server/src/system/ops'
+import { ENGINE_HOST_DETAIL, OpsService } from '../../server/src/system/ops'
 
 const ROOT = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'mycel-update-text-')))
 const base = path.join(ROOT, 'srv')
@@ -59,6 +59,22 @@ describe('Health › Updates after the bootstrap stopped the server', () => {
     const c = await line()
     expect(c.status).toBe('warn')
     expect(c.detail).toBe('The new version did not start properly, so the server went back to 0.5.0-beta.1: exited 3 times before it was healthy')
+  })
+})
+
+describe('Health › Updates after a version kept although the AI engine could not start on this server (QA TC-3523)', () => {
+  const why = 'bwrap: setting up uid map: Permission denied (exit status 1)'
+  test('warns with the reason; the version runs and was not rolled back', async () => {
+    history({ from: '0.5.0-beta.1', to: '0.5.0-beta.2', result: 'ok', detail: ENGINE_HOST_DETAIL + why })
+    const c = await line()
+    expect(c.status).toBe('warn')
+    expect(c.detail).toBe(`Version ${ctx.version} runs, but the AI engine could not start on this server. The cause is the server, not the update, so it was not rolled back. AI answers may fail until this is fixed: ${why}`)
+    expect((await line('ko')).detail).toContain(why)
+  })
+
+  test('the bootstrap writes the same words', () => {
+    const go = fs.readFileSync(path.resolve(import.meta.dir, '..', '..', 'native', 'cmd', 'mycel-bootstrap', 'enginecheck.go'), 'utf8')
+    expect(go).toContain(`const engineHostDetail = ${JSON.stringify(ENGINE_HOST_DETAIL)}`)
   })
 })
 

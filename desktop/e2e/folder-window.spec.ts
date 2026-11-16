@@ -9,6 +9,7 @@ import { expect, test } from '@playwright/test'
 import { execFile } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { fixtureResult } from './fixture-run'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -40,8 +41,7 @@ test('a folder picked in the window is readable by the team page, read only; nev
     await exec('bun', ['build', join(import.meta.dirname, 'fixtures/folder-main.ts'), '--target=node', '--format=cjs', '--external=electron', `--outfile=${output}`])
     const electron = createRequire(import.meta.url)('electron') as string
     const env = { ...process.env, HOME: home, FOLDER_TEST_HOME: home, FOLDER_TEST_PROFILE: join(dir, 'profile') }
-    const { stdout } = await exec(electron, [output], { env, timeout: 60_000 })
-    const { out, fromChromium, restricted, told } = JSON.parse(stdout.split('\n').find((line) => line.startsWith('FOLDER_RESULT '))!.slice(14))
+    const { out, fromChromium, restricted, told } = await fixtureResult(electron, [output], env, 'FOLDER_RESULT', 60_000)
     const none = { state: 'handle', kind: 'directory', read: 'denied', write: 'denied', listError: 'NotAllowedError' }
     const refused = { state: 'error', error: 'AbortError' }
     // a handle that did not come from the folder window reads nothing

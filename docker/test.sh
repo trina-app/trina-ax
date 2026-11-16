@@ -2,7 +2,7 @@
 # Build the Trina AX image, start it with docker-compose.yml and check it (docs/INSTALL-DOCKER.md "Test").
 # Then stop it and remove the container, the test volume and the test network.
 #
-#   TRINA_AX_VERSION=0.5.8 bash docker/test.sh             published release kit (signed)
+#   TRINA_AX_VERSION=0.5.9 bash docker/test.sh             published release kit (signed)
 #   TRINA_AX_KIT=local bash docker/test.sh                 docker/kit-local/ (an unpacked kit; unsigned is accepted)
 #   KEEP=1 ...                                             leave the test project running
 #
@@ -93,6 +93,23 @@ ok=d.get("sandbox")=="bwrap" and d.get("landlockMode")=="required" and (d.get("l
 print("sandbox=%s landlock=%s/%s seccomp=%s firewall=%s cgroup=%s" % (d.get("sandbox"),d.get("landlockMode"),d.get("landlockAbi"),d.get("seccomp"),fw,d.get("cgroup")))
 sys.exit(0 if ok else 1)' "$L" || fail "launcher is not ready for turns: $L"
 pass "launcher ready for turns"
+# the engine check the bootstrap asks after an update (QA TC-3523): as axagent, the turn's sandbox launch with the bridge
+# of app/current. It passes on the running version and fails once the version has the modes an update left on
+# 2026-11-16 (folders and programs 0750, files 0640); the modes come back after. A kit older than the check: skipped.
+SC='import socket,sys
+s=socket.socket(socket.AF_UNIX); s.settimeout(30); s.connect("/var/lib/mycel/run-launcher/launcher.sock")
+s.sendall(b"{\"op\":\"sandbox-check\"}\n"); sys.stdout.write(s.makefile().readline())'
+R=$(X runuser -u axserver -- python3 -I -c "$SC") || fail "engine check request"
+case "$R" in
+  *'"ev":"sandbox-check"'*'"ok":true'*)
+    X bash -c 'd=$(readlink -f /var/lib/mycel/app/current) && find "$d" ! -type l -printf "%m %p\n" > /root/engine-check-modes &&
+      find "$d" -type d -exec chmod 0750 {} + && find "$d" -type f -perm -u+x -exec chmod 0750 {} + && find "$d" -type f ! -perm -u+x -exec chmod 0640 {} +'
+    B=$(X runuser -u axserver -- python3 -I -c "$SC" || true)
+    X bash -c 'set -e; while read -r m p; do chmod "$m" "$p"; done < /root/engine-check-modes; rm /root/engine-check-modes' || fail "engine check: the version's modes could not be put back"
+    case "$B" in *'"ok":false'*) pass "engine check: passes on the running version, fails on one left 0750/0640" ;; *) fail "engine check passed a 0750/0640 version: $B" ;; esac ;;
+  *'bad request'*) echo "test: skip the engine check (the launcher of this kit does not know it)" ;;
+  *) fail "engine check on the running version: $R" ;;
+esac
 
 # first-run setup through the published port (the token is not printed)
 LINK=$(X trina-ax-setup-link) || fail "setup link"

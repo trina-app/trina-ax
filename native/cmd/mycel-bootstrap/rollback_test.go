@@ -54,7 +54,11 @@ func newFakeInstall(t *testing.T) *fakeInstall {
 
 	saved := []any{*appDir, *configFile, *healthTimeout, *maxAttempts, *allowUnsigned, *updateLog, retryDelay, blockedPoll, healthEvery}
 	savedMigrate, savedMigrateLog := *migrateTimeout, migrateLogEvery
+	savedOS, savedSock, savedConnect := bootOS, *launcherSock, engineConnectWait
+	// no launcher in these tests unless one says so (enginecheck_test.go): on Linux the engine check is skipped at once
+	engineConnectWait = 50 * time.Millisecond
 	t.Cleanup(func() {
+		bootOS, *launcherSock, engineConnectWait = savedOS, savedSock, savedConnect
 		*migrateTimeout, migrateLogEvery = savedMigrate, savedMigrateLog
 		*appDir, *configFile, *healthTimeout, *maxAttempts = saved[0].(string), saved[1].(string), saved[2].(time.Duration), saved[3].(int)
 		*allowUnsigned, *updateLog = saved[4].(bool), saved[5].(string)
@@ -82,6 +86,8 @@ func (f *fakeInstall) version(v, body string) {
 	script := fmt.Sprintf("#!/bin/sh\nN=$(( $(cat %q 2>/dev/null || echo 0) + 1 ))\necho $N > %q\necho %s >> %q\n%s\n",
 		count, count, v, f.starts, body)
 	os.WriteFile(filepath.Join(d, "bin", "bun"), []byte(script), 0o755)
+	os.MkdirAll(filepath.Join(d, "native"), 0o755)
+	os.WriteFile(filepath.Join(d, "native", "mycel-bridge"), []byte("bridge "+v), 0o755)
 	if err := bundle.WriteManifest(d, v, nil); err != nil {
 		f.t.Fatal(err)
 	}
