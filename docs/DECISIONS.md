@@ -30113,7 +30113,7 @@ Builds on "Guests: only what they were invited to" and the Slack connector's e-m
   so copying a member's address silently blocked that member's link, and the different answer told anyone who can set a
   Slack e-mail whether that address is a guest's here. So "one plain line" holds for a linked guest; an unlinked one sees
   the generic prompt, which leads nowhere for them.
-- **The e-mail proof still counts a guest's e-mail as "the same e-mail on another active account"** (unchanged): leaving
+- **The e-mail proof still counts a guest's e-mail as "the same e-mail on another active account"** (unchanged; Superseded 2026-11-16 by "A guest can't take an e-mail used in the team": guests are now left out): leaving
   guests out would let a member pass the proof with an address that only a guest also gives, so a guest's Slack account
   could be linked to a member who confirms the guest's forwarded link. The cost: a guest who copies a member's e-mail
   blocks that member's link until one of them changes it (open question for the owner).
@@ -30121,3 +30121,30 @@ Builds on "Guests: only what they were invited to" and the Slack connector's e-m
   Google apps and personal MCP connections are signed in by the person through endpoints closed to guests, and the
   connection store refuses guests (`mayUse`, `shareCovers`); room apps post as the app, never as a person.
 - Slash commands are acknowledged and do nothing (unchanged). Tests: `tests/unit/c-slack-guest.test.ts`.
+
+## A guest can't take an e-mail used in the team — 게스트는 팀에서 쓰는 이메일을 못 쓴다 (fix/guest-email-unique, 2026-11-16, the owner)
+
+Follows "Guests never use Slack" (its open question).
+
+- **Ask:** a guest sets their own e-mail (Settings › Profile, `PATCH /api/me`). The Slack e-mail proof refuses an address
+  that another active account also gives ("it proves nobody in particular"), so a guest who copied a member's address
+  blocked that member's Slack link. The owner: a guest can't set an e-mail another account in the team already uses.
+- **Rule:** `PATCH /api/me` from a guest (`users.guest = 1`, read from the database, not the session's role) with an
+  address another account gives (not deleted, any state: a switched-off member can come back), compared as the e-mail
+  proof compares (NFC, trimmed, lower case), is 409 `conflict`, `params.reason: 'email_in_use'`, field `body.email`, with
+  one plain line: "This e-mail is already used in this team." (ko "이 팀에서 이미 쓰고 있는 이메일이에요."). It names
+  nobody. Clearing it or giving an unused address works as before.
+- **Members unchanged:** members could already share an address and still may (an owner and an admin sometimes share a
+  team mailbox); for them the e-mail proof keeps refusing an address another member gives. A guest's invite accept
+  takes no e-mail.
+- **The Slack e-mail proof leaves guests out** of "the same e-mail on another active account" (independent review
+  must-fix): the PATCH check alone does not stop a guest who sets a member's address before the member does, nor an
+  address an admin gave or old data. A guest is never linked (`bindable()`), so their address proves nothing either way.
+  Accepted residual (reviewed, and the reason "Guests never use Slack" first kept guests in): a member who sets their
+  e-mail to an address only a guest gives, and then confirms a one-time link the guest forwarded from their own Slack,
+  links the guest's Slack account to the member. That takes the member's own deliberate steps, like sharing a password.
+- **Not an address oracle:** a guest may give at most 10 addresses an hour (`GUEST_EMAIL_TRIES`, any answer, clearing
+  not counted; 429 `rate_limited`, reason `email_tries`), so the refusal cannot be used to find who is in the team. In
+  memory, per process: a restart starts it again (enough for typos, too few to probe).
+- **Left as is:** an owner or admin setting a guest's e-mail in Admin › Members (an admin is trusted, and an admin's
+  change counts as no proof for 7 days anyway).
