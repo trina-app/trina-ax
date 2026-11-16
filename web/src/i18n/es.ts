@@ -724,6 +724,8 @@ export const es: Record<MessageKey, string> = {
   'allowances.card.project_members': "Cambiar miembros del proyecto",
   'allowances.card.video': "Crear videos con IA (usa créditos)",
   'allowances.card.big_download': "Descargar archivos de más de 1 GB",
+  'allowances.card.share_files': "Compartir mis archivos con personas",
+  'allowances.card.post_files': "Enviar los archivos enlazados con las publicaciones en conversaciones",
   'teamSettings.roomAlways': "«Permitir siempre» en las tarjetas de confirmación",
   'teamSettings.row.roomAlwaysDesc': "Si está activado, las personas pueden elegir «Permitir siempre» en una tarjeta de confirmación y no se les vuelve a preguntar por ese tipo de cambio. Desactivado: pregunta cada vez.",
   'ask.ownAnswer': "Su respuesta",

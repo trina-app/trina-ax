@@ -159,15 +159,53 @@ describe('the card, and the post', () => {
     const r = await turn('alice', [fake({ tool: 'read', args: { file_path: 'groups/marketing/launch-plan.md' } }), post({ room: rooms.all, text })].join('\n'), { answer: 'send_files' })
     // bob may read neither (carol and dana are admins): one line each, and what attaching the file changes
     expect(r.card!.question).toBe("Send this to #Everyone (5 people)?\n\n1 person there can't see some of the sources of this (groups/marketing/).\n1 person can't open 1 linked file.\nWith the files: 1 person there can't see some of the sources of this (groups/marketing/).\nEveryone in this conversation will see it, including people who join later.")
-    // no "Always allow" on a card that offers the linked files (review of #678): three buttons as before
-    expect(r.card!.options!.map((x) => x.value)).toEqual(['send', 'send_files', 'no'])
-    expect(r.card!.buttons).toBe(true)
+    // "Always allow" on a card that offers the linked files too, as "Always send with the files" (its own kind,
+    // post_files: docs/decisions/20261116-always-allow-more-cards.md); four answers, no buttons
+    expect(r.card!.options!.map((x) => [x.label, x.value])).toEqual([['Send', 'send'], ['Send with the files', 'send_files'], ['Always send with the files', '__always'], ["Don't send", 'no']])
+    expect(r.card!.buttons).toBeUndefined()
     // the file that [파일도 함께 보내기] attaches, by its path
     expect(r.card!.details!.map((d) => [d.label, d.text])).toEqual([['What will be sent', text], ['Attached with “Send with the files”', 'groups/marketing/launch-plan.md']])
     const m = (await messagesAs('alice', rooms.all)).at(-1)!
     expect(m.body).toBe(text)
     expect(m.files.map((f) => f.name)).toEqual(['launch-plan.md'])
     expect(audits('alice').at(-1)).toMatchObject({ target: m.id, confirmed: true, files: 1, via: 'ai' })
+  })
+})
+
+describe('"Always send with the files" (post_files)', () => {
+  test('picked on the card: this post goes with its files, the next such post goes with its files and no card; a plain post still asks once', async () => {
+    const { dropAlways, alwaysOn } = await import('../../server/src/chat/always-allow')
+    put('groups/marketing/launch-plan-2.md', '# Launch 2\nsecret date')
+    const text = 'Plan: [launch-plan-2.md](/files/view?path=groups/marketing/launch-plan-2.md)'
+    const read = fake({ tool: 'read', args: { file_path: 'groups/marketing/launch-plan-2.md' } })
+    try {
+      const r = await turn('alice', [read, post({ room: rooms.all, text })].join('\n'), { answer: '__always' })
+      expect(r.card!.options!.map((x) => x.value)).toContain('__always')
+      expect(alwaysOn(h.ctx.db, 'alice', 'post_files')).toBe(true)
+      expect(alwaysOn(h.ctx.db, 'alice', 'post_to_room')).toBe(false)
+      expect((await messagesAs('alice', rooms.all)).at(-1)!.files.map((f) => f.name)).toEqual(['launch-plan-2.md'])
+      const again = await turn('alice', [read, post({ room: rooms.all, text: `${text} (again)` })].join('\n'))
+      expect(again.card).toBeNull()
+      const m = (await messagesAs('alice', rooms.all)).at(-1)!
+      expect(m.files.map((f) => f.name)).toEqual(['launch-plan-2.md'])
+      expect(audits('alice').at(-1)).toMatchObject({ target: m.id, files: 1, via: 'ai' })
+      // a post with no file to offer is the other kind (post_to_room): its own first card, with "Always allow"
+      const plain = await turn('alice', post({ room: rooms.all, text: 'no files here' }), { answer: 'no' })
+      expect(plain.card!.options!.map((x) => x.value)).toEqual(['send', '__always', 'no'])
+    } finally { dropAlways(h.ctx.db, 'alice', 'card:post_files') }
+  })
+
+  test('after a room read (a side chat): "Always send with the files" holds there too (the owner: no teammate guard that asks again)', async () => {
+    const { keepAlways, dropAlways } = await import('../../server/src/chat/always-allow')
+    put('groups/marketing/launch-plan-3.md', '# Launch 3\nsecret date')
+    const side = (await h.api('alice').call(API.createChat, { body: { sideRoomId: rooms.all } })).id
+    const text = 'Plan: [launch-plan-3.md](/files/view?path=groups/marketing/launch-plan-3.md)'
+    keepAlways(h.ctx.db, 'alice', 'post_files', null)
+    try {
+      const r = await turn('alice', `고친 거 방에 올려줘\n${[fake({ tool: 'read', args: { file_path: 'groups/marketing/launch-plan-3.md' } }), post({ text })].join('\n')}`, { chat: side })
+      expect(r.card).toBeNull()
+      expect((await messagesAs('alice', rooms.all)).at(-1)!.files.map((f) => f.name)).toEqual(['launch-plan-3.md'])
+    } finally { dropAlways(h.ctx.db, 'alice', 'card:post_files') }
   })
 })
 
@@ -680,7 +718,9 @@ describe('a shared chat: as the person whose turn it is, behind their card', () 
   test('two photos from my folder to a teammate: the card is the asker\'s alone, with the person, the text and the file names; on [파일도 함께 보내기] they go to our new 1:1 chat as my message', async () => {
     expect(dmOf('bob', 'tess')).toBeNull()
     const text = '사진 두 장 보내요: [photo-1.png](/files/view?path=users%2Fbob%2Fphoto-1.png) [photo-2.png](/files/view?path=users%2Fbob%2Fphoto-2.png)'
-    const r = await turn('bob', `저것들 테스도 볼 수 있게 공유해줘\n${post({ room: 'Tess Yoon', text })}`, { chat: chatId, answer: 'send_files' })
+    // (the fake engine's directive is in bob's message: the name spelled with a JSON escape, so his own words do not name
+    // Tess and "Always allow" is not offered in this shared chat)
+    const r = await turn('bob', `저것들 테스도 볼 수 있게 공유해줘\n${post({ room: 'Tess Yoon', text }).replace('Tess Yoon', '\\u0054ess Yoon')}`, { chat: chatId, answer: 'send_files' })
     expect(r.card!.origin).toBe('server')
     expect(r.card!.question.split('\n')[0]).toBe('Tess Yoon님과의 새 1:1 대화로 보낼까요?')
     expect(r.card!.options!.map((x) => x.value)).toEqual(['send', 'send_files', 'no'])

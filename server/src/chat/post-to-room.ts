@@ -324,12 +324,14 @@ export function postToRoomTool(exec: TurnExec): Tool {
           { label: tr('postRoomDont', L), value: 'no' },
         ]
         // "Always allow" for posts to rooms (chat/always-allow.ts; the owner, 2026-11-13): on, the text goes without the
-        // card. Not on a card that also offers the linked files (review of #678): that choice is the person's each time
+        // card. A card that also offers the linked files has its own kind, post_files (docs/decisions/
+        // 20261116-always-allow-more-cards.md; the owner's rule: every card offers it on its first showing): its "Always
+        // send with the files" sends them this time, and later such posts go with their files and no card
         // A shared chat (QA TC-3091 review): other people's messages are in the AI's context, so "Always allow" counts only
         // when the asker's own latest message names the recipient as matched, and never for own_words (a message in the
         // asker's own words always shows them the card)
-        const alwaysOk = !all && (!exec.shared || (!plain && namedByAsker(db, spec.userMessageId, a.data.room, recipientNames(db, spec.userId, mine?.room ?? null, pendingTo))))
-        const reply = await withAlways(alwaysOk ? exec.alwaysPlace?.() : null, 'post_to_room', options, 'send', (opts, more) => exec.waitForPerson({
+        const alwaysOk = !exec.shared || (!plain && namedByAsker(db, spec.userMessageId, a.data.room, recipientNames(db, spec.userId, mine?.room ?? null, pendingTo)))
+        const reply = await withAlways(alwaysOk ? exec.alwaysPlace?.() : null, all ? 'post_files' : 'post_to_room', options, all ? 'send_files' : 'send', (opts, more) => exec.waitForPerson({
           kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, options: opts, multiple: false, allowText: false, ...(more.note ? { note: more.note } : {}),
           details: [
             // the note goes as the person's own words, the text as the AI's answer: apart, as the room shows them
@@ -342,7 +344,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
           ],
           ...(opts.length === 3 ? { buttons: true as const } : {}),
           expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
-        } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() }))
+        } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() }), all ? 'cardAlwaysFiles' : 'cardAlways')
         const v = Array.isArray(reply) && reply.length === 1 ? reply[0] : reply
         if (v !== 'send' && v !== 'send_files') {
           detail = tr('postRoomNotSent', L)
