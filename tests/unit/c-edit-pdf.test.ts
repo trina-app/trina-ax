@@ -160,6 +160,17 @@ describe('edit_pdf: each operation, as a new file next to the original', () => {
     const blank = await call('edit_pdf', { file_path: `${D}/shared-blank.pdf`, operations: [{ keep_pages: '1' }], output: `${D}/sr-blank.pdf` })
     expect(blank.isError, blank.text).toBe(false)
     expect(await streams(`${D}/sr-blank.pdf`)).not.toContain('XOBJ-SECRET')
+    // the same for a kept page whose /Contents points at nothing, or is null (TC-3793: such a page kept the whole list);
+    // more in tests/unit/pdf-pages-removed-content.test.ts
+    for (const [k, contents] of ['[99 0 R]', 'null'].entries()) {
+      put(`${D}/shared-odd-${k}.pdf`, writePdf(objs.map((o, i) => (i === 2 ? `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents ${contents} >>` : o))))
+      const odd = await call('edit_pdf', { file_path: `${D}/shared-odd-${k}.pdf`, operations: [{ remove_pages: '2' }], output: `${D}/sr-odd-${k}.pdf` })
+      expect(odd.isError, odd.text).toBe(false)
+      const s = await streams(`${D}/sr-odd-${k}.pdf`)
+      expect(s, contents).toContain('XOBJ-SECRET-3')
+      expect(s, contents).not.toContain('XOBJ-SECRET-2')
+      expect(s, contents).not.toContain('XOBJ-SECRET-1')
+    }
   })
 
   test('keep (extract), reorder, rotate, insert: in order, each on the pages as they are then', async () => {

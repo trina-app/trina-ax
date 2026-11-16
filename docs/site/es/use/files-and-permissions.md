@@ -69,12 +69,17 @@ Puede compartir un archivo suyo con las personas que elija, sin cambiar quién p
 
 - **Todo el equipo** es la primera opción en **Añadir personas o grupos**. Antes de pulsar **Compartir**, una línea avisa de que todo el equipo podrá abrir el archivo, también quienes se unan después. Los invitados nunca. Cuenta como una de las 50 personas y grupos con los que se puede compartir un archivo.
 - Si comparte varios archivos a la vez (por ejemplo en el último paso de **Buscar archivos de trabajo en este ordenador**), cada persona recibe un solo aviso en **Actividad**, «Mina compartió 5 archivos con usted», que abre la lista de esos archivos. Quien añada por su nombre recibe además un aviso en el teléfono.
-- **Personas con acceso** muestra al propietario y a cada persona o grupo con **Puede ver**. **✕** quita el acceso (antes pregunta).
+- **Personas con acceso** muestra al propietario y a cada persona o grupo con **Puede ver**. **✕** quita el acceso (antes pregunta). El propietario del archivo siempre puede quitar a personas, también cuando el equipo ha desactivado que los miembros compartan.
+- Quien haya perdido el acceso ve «Mina dejó de compartir este archivo» al abrir el enlace del archivo, y puede pedir acceso de nuevo. No recibe ningún aviso.
+- También puede pedírselo a Trina en un chat: «comparte el presupuesto con Jun» o «deja de compartir el presupuesto con Jun». Una tarjeta bajo la respuesta dice qué cambió: el archivo y dónde está, quién puede verlo y un botón. Tras compartir, el botón es **Gestionar acceso**, que abre este cuadro. Tras dejar de compartir es **Deshacer**, y la tarjeta dice quién aún puede abrir el archivo y por qué (por ejemplo, por un grupo con el que sigue compartido, o porque puede abrir su carpeta). Trina pregunta antes de compartir un archivo, salvo que su mensaje nombrara el archivo y a la persona. Dejar de compartir no necesita pregunta si su mensaje nombró a la persona. Si alguien ya puede abrir el archivo, la tarjeta lo dice y para esa persona no cambia nada.
+- Cuando Trina no puede compartir un archivo, la tarjeta explica por qué y pone el siguiente paso como su único botón: **Pedir a Mina** si el archivo es de Mina (ella recibe la solicitud en **Actividad** y decide), o **Pedir a un administrador** cuando el equipo desactivó que los miembros compartan (el propietario y los administradores del equipo reciben un mensaje suyo pidiendo volver a activarlo).
 - Un archivo del equipo también lo abren todas las personas que pueden abrir su carpeta.
 - **Copiar enlace** da el enlace propio del archivo. Quienes tienen acceso lo abren; los demás ven **Necesita acceso** y pueden **Pedir acceso** con una nota. La solicitud llega al propietario en **Actividad** con **Compartir** y **Rechazar**. La página del enlace nunca muestra el nombre del archivo a quien no puede abrirlo.
 - Al mover un archivo a un lugar que menos personas pueden abrir, se le dice cuántas personas lo tienen por su enlace.
+- Pregunte a Trina **«¿quién puede abrir este archivo?»** o **«¿por qué Jun no puede abrirlo?»**. Le dice cómo entra cada persona (compartido por nombre, por un grupo, por su carpeta). Verá los nombres en sus propios archivos; en el archivo de otra persona verá su propio acceso y a quién preguntar.
+- Después de que Trina publique en una sala, le avisa si algunas personas de allí no pueden abrir un archivo de la publicación. **Permitir que lo vean** comparte su archivo solo con las personas nombradas en esa línea. Si el archivo es de otra persona, el botón con el nombre del propietario (como **Pedir a Mina**) le envía una solicitud en **Actividad** («Alice le pidió que comparta Quote.pdf con Jun») con **Compartir** y **Rechazar**. Para una carpeta del equipo, un miembro ve **Pedir a un administrador**, que envía un mensaje suyo al propietario y a los administradores del equipo.
 
-Los propietarios y administradores pueden compartir cualquier archivo del equipo. En **Administración › Ajustes del equipo**, **Los miembros pueden compartir sus propios archivos** desactiva el uso compartido para los miembros (lo ya compartido sigue funcionando). El propietario del equipo puede **Quitar todos los archivos compartidos** allí de una vez.
+Los propietarios y administradores pueden compartir cualquier archivo del equipo. En **Administración › Ajustes del equipo**, **Los miembros pueden compartir sus propios archivos** desactiva el uso compartido para los miembros (lo ya compartido sigue funcionando, y su propietario aún puede dejar de compartirlo). El propietario del equipo puede **Quitar todos los archivos compartidos** allí de una vez.
 
 ### Compartir una carpeta de Mis archivos
 
@@ -102,6 +107,12 @@ carpetas**, y **Quitar todos los archivos compartidos** cuenta archivos y carpet
 ### Archivos compartidos con usted
 
 **Archivos › Compartidos conmigo** muestra los archivos que otras personas han compartido con usted, los más recientes primero, con quién lo compartió y cuándo. Un archivo que usted ya puede abrir en su carpeta aparece aquí solo cuando alguien le añadió por su nombre. Abra un archivo desde allí para verlo o descargarlo; **‹ Compartidos conmigo** le devuelve a la lista. Al abrir un archivo, su aviso en **Actividad** se marca como leído. Un archivo sale de la lista cuando usted pierde el acceso (su propietario le quitó, lo movió a la papelera o ya no puede editarlo).
+
+Trina también puede usar estos archivos. Pida «resume el archivo que Mina compartió conmigo» y lo busca entre lo que se compartió con usted, también cuando un archivo de sus propias carpetas tiene el mismo nombre. En la página de un archivo compartido, **Preguntar a Trina** abre un chat nuevo con ese archivo ya en el cuadro de texto. Trina puede ver un archivo compartido, no modificarlo.
+
+### «Este archivo», «ese hilo»
+
+Cuando dice «resume esto» o «responde en ese hilo» sin dar un nombre, Trina mira qué tiene abierto en la aplicación: el archivo, la sala, el hilo o el chat que hay en su pantalla, empezando por la ventana en la que está escribiendo. Solo lo hace cuando señala algo sin nombrarlo, y pregunta cuando podrían ser dos cosas. Todo lo que comparta o publique por usted de este modo le muestra antes una tarjeta, también cuando eligió **Permitir siempre**. No se guarda nada de su pantalla: una ventana cerrada se olvida, y un chat confidencial nunca se menciona.
 
 ## Trabajar con archivos
 

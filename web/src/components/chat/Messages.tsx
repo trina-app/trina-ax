@@ -49,6 +49,8 @@ import { isNoAiReason } from '../../lib/aiAccess'
 import { adminPath, chatErrorText } from '../../lib/chatErrors'
 import { Button, CopyButton, IconButton, inputCls, useCopy, useMediaQuery } from '../ui'
 import AskCard from './AskCard'
+import ShareCard from './ShareCard'
+import PostedCard from './PostedCard'
 import ConnectCard from './ConnectCard'
 import { SecretWarning, useSecretHold } from './SecretWarning'
 import SuggestSkillDialog from '../SuggestSkillDialog'
@@ -58,6 +60,7 @@ import { MenuButton, useLongPress, type MenuItem } from '../rooms/MenuButton'
 import { keepThreadRef, type SendTarget } from '../../lib/sideChatSend'
 import FileSummary from './FileSummary'
 import SourcesList from './SourcesList'
+import { StepFixes } from './StepFix'
 import Steps, { StepPostView } from './Steps'
 import DeckProgress from './DeckProgress'
 import { SkillChip } from './SkillChip'
@@ -789,7 +792,12 @@ export function AssistantMessage({
             {t('chatux.waitingForYou')}
           </p>
         )}
+        {/* what the AI did for the person, from the server's record on the step (a share, a stop, a post): where its
+            confirmation card was, so that card reads as turning into this one */}
+        {m.steps.map((s) => (s.shared && !s.parentId ? <ShareCard key={s.id} shared={s.shared} fixes={s.fixes} /> : s.posted && !s.parentId ? <PostedCard key={s.id} posted={s.posted} /> : null))}
         {requests.map((r) => (r.request.kind === 'connect_service' ? <ConnectCard key={r.request.requestId} request={r.request} /> : <AskCard key={r.request.requestId} req={r} />))}
+        {/* the server's next steps for this answer (Step.fixes): "3 people can't open it yet. [Let them view]" */}
+        <StepFixes steps={m.steps} />
         {m.files && <FileSummary files={m.files} onAskOwnFolder={onAskOwnFolder} disabled={busy} />}
         {!streaming && m.sourceCount ? <SourcesList chatId={chatId} messageId={m.id} count={m.sourceCount} /> : null}
         {atLimit && (

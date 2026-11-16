@@ -46,13 +46,17 @@ import { registerAccountCleanup } from '../auth/account-removal'
 import { onAccessChange } from '../admin/folders'
 import { notificationsOf } from '../notifications/service'
 import { roomsOf } from '../rooms/service'
-import { FILE_REQUESTS_PER_HOUR, FILE_REQUESTS_PER_OWNER_DAY, FILE_SHARE_EVERYONE, FILE_SHARE_MAX, fileLinkUrl, plainLabel, type FileLink, type FileShareRow, type FileShares as FileSharesView, type InboxNotification, type Locale, type SharedBatchView, type SharedFileView, type SharedWithMe, type SharedWithMeItem, type ShareFilesBatchResult } from '@mycel/shared/api'
+import { FILE_REQUESTS_PER_HOUR, FILE_REQUESTS_PER_OWNER_DAY, FILE_SHARE_EVERYONE, FILE_SHARE_MAX, fileLinkUrl, plainLabel, type FileLink, type FileShareRow, type FileShares as FileSharesView, type InboxNotification, type Locale, type ShareCardState, type SharedBatchView, type SharedFileView, type SharedWithMe, type SharedWithMeItem, type ShareFilesBatchResult } from '@mycel/shared/api'
 
 /** `kind`, `folder_id`, `paused_at` (migration 360): a folder in a person's own files (files/folder-shares.ts) */
 export interface ShareRow { id: string; path: string; ino: number | null; dev: number | null; sha256: string | null; size: number | null; mtime_ms: number | null; ctime_ms: number | null; owner_id: string | null; state: 'live' | 'trashed' | 'dead'; trash_id: string | null; created_by: string; created_at: string; kind: 'file' | 'folder'; folder_id: string | null; paused_at: string | null }
 export const COLS = 'id, path, ino, dev, sha256, size, mtime_ms, ctime_ms, owner_id, state, trash_id, created_by, created_at, kind, folder_id, paused_at'
 export type Subject = { subjectType: 'user' | 'group'; subjectId: string }
 export type Via = 'dialog' | 'ai' | 'request'
+/** accounts looked at for "who can still open it" after a stop (stillOpens) */
+export const RESIDUAL_SCAN = 200
+/** A person who can still open a file after being taken off it, and through what (stillOpens). */
+export interface StillOpens { userId: string; name: string; avatarVersion?: number; through: { kind: 'folder' } | { kind: 'group'; name: string } | { kind: 'everyone' } }
 
 const now = () => new Date().toISOString()
 const segsOf = (p: string) => (p ? p.split('/') : [])
@@ -74,6 +78,8 @@ function sha256File(abs: string): string {
 /** 16 random bytes, base64url: 22 characters, never guessed */
 export const newLinkId = () => randomBytes(16).toString('base64url')
 
+/** people one "Ask <owner>" may ask for (FileShares.requestFor) */
+export const FILE_REQUEST_FOR_MAX = 20
 /** files listed in the AI's turn context ("Files shared with you") */
 export const SHARED_WITH_MAX = 20
 /** grant rows looked at for that list, newest first */
@@ -311,9 +317,9 @@ export function registerFileShareCleanup(ctx: AppContext): void {
   registerAccountCleanup(ctx, {
     name: 'file-shares',
     // (file_shares.owner_id: the shares of their files go, and with them their grants, requests and notices' rows)
-    rows: ['file_share_notices.user_id', 'file_access_requests.requester_id', 'file_shares.owner_id', 'file_share_batches.by_user', 'file_share_undos.user_id'],
+    rows: ['file_share_notices.user_id', 'file_access_requests.requester_id', 'file_shares.owner_id', 'file_share_batches.by_user', 'file_share_undos.user_id', 'share_fix_offers.user_id'],
     // (the people a removed share reached learn it from file_shares_changed: their Shared with me reads again)
-    after: (c, userId) => { c.db.query("DELETE FROM file_share_grants WHERE subject_type = 'user' AND subject_id = ?").run(userId); fileSharesOf(c).changedSoon() },
+    after: (c, userId) => { c.db.query("DELETE FROM file_share_grants WHERE subject_type = 'user' AND subject_id = ?").run(userId); c.db.query("DELETE FROM file_share_stops WHERE (subject_type = 'user' AND subject_id = ?) OR stopped_by = ?").run(userId, userId); fileSharesOf(c).changedSoon() },
   })
 }
 
@@ -554,19 +560,21 @@ export class FileShares {
   }
 
   /** What `me` may do with the people on the file at `rel` (a regular file they can read). `may`: add (its owner with
-   * edit access, a member only while the team switch is on; the team owner and admins for a team file). `mayRemove`:
-   * take people off and stop: the same people WHATEVER the team switch says, so an owner can always stop their own
-   * share (docs/decisions/20261116-folder-share-server.md). */
-  shareRight(me: Principal, rules: RuleSet, segs: string[]): { may: boolean; mayRemove: boolean; owner: string | null; off: boolean } {
+   * edit access, a member only while the team switch is on; the team owner and admins for a team file). `stop` (also
+   * `mayRemove`): take people off and stop: whoever may share, and the file's owner always: with the team's switch off
+   * or without edit access they can still end what they started (docs/decisions/20261116-folder-share-server.md,
+   * docs/decisions/20261116-ai-share-card-and-stop.md). */
+  shareRight(me: Principal, rules: RuleSet, segs: string[]): { may: boolean; mayRemove: boolean; stop: boolean; owner: string | null; off: boolean } {
     const rel = segs.join('/')
     const owner = this.liveAt(rel)?.owner_id ?? ownerOf(this.db, rel)
     const team = segs[0] !== 'users'
     const edits = atLeast(rules.access(me, segs), 'write')
-    if (me.role === 'guest' || !edits) return { may: false, mayRemove: false, owner, off: false }
-    if (team && isStaff(me)) return { may: true, mayRemove: true, owner, off: false }
-    if (owner !== me.id) return { may: false, mayRemove: false, owner, off: false }
+    const mine = me.role !== 'guest' && owner === me.id
+    if (me.role === 'guest' || !edits) return { may: false, mayRemove: mine, stop: mine, owner, off: false }
+    if (team && isStaff(me)) return { may: true, mayRemove: true, stop: true, owner, off: false }
+    if (owner !== me.id) return { may: false, mayRemove: false, stop: false, owner, off: false }
     const off = !this.teamOn()
-    return { may: !off, mayRemove: true, owner, off }
+    return { may: !off, mayRemove: true, stop: true, owner, off }
   }
 
   /** The dialog's state for a file the caller can open. */
@@ -587,9 +595,9 @@ export class FileShares {
     const people = s ? this.rows(s.id, L) : []
     // the rows: for whoever may share, and for someone on the list (they see who else has it; the whole team: everyone
     // but a guest, and a guest never gets here)
-    const listed = right.may || right.owner === me.id || people.some((p) => (p.subjectType === 'user' && p.subjectId === me.id) || (p.subjectType === 'group' && (me.groups.includes(p.subjectId) || p.subjectId === ALL)))
+    const listed = right.may || right.stop || right.owner === me.id || people.some((p) => (p.subjectType === 'user' && p.subjectId === me.id) || (p.subjectType === 'group' && (me.groups.includes(p.subjectId) || p.subjectId === ALL)))
     return {
-      path: r.rel, link: s ? { id: s.id, url: fileLinkUrl(s.id) } : null, canShare: right.may,
+      path: r.rel, link: s ? { id: s.id, url: fileLinkUrl(s.id) } : null, canShare: right.may, canStop: right.stop,
       owner: right.owner && ownerName ? { id: right.owner, name: ownerName } : null, mine: right.owner === me.id,
       teamFile: r.segs[0] !== 'users', ...(right.off ? { off: true as const } : {}), people: listed ? people : [],
       // a file inside a shared folder: the folders above that share it (its owner only)
@@ -634,7 +642,7 @@ export class FileShares {
     if (o.resume) throw new HttpError('validation')
     return this.change(userId, rel0, add, remove, L, via, o)
   }
-  change(userId: string, rel0: string, add: readonly Subject[], remove0: readonly Subject[], L: Locale, via: Via = 'dialog', o: { quiet?: boolean; tokenTaken?: boolean; stop?: boolean; stepId?: string | null } = {}): { view: FileSharesView; added: string[]; share: ShareRow } {
+  change(userId: string, rel0: string, add: readonly Subject[], remove0: readonly Subject[], L: Locale, via: Via = 'dialog', o: { quiet?: boolean; tokenTaken?: boolean; stop?: boolean; stepId?: string | null } = {}): { view: FileSharesView; added: string[]; removed: Subject[]; share: ShareRow } {
     const me = this.principal(userId)
     if (!me || me.role === 'guest') throw new HttpError('not_found')
     if (o.stop && add.length) throw new HttpError('validation')
@@ -669,6 +677,9 @@ export class FileShares {
       // what the removal takes is kept for its Undo (files/share-undo.ts)
       undo = saveUndo(this.db, userId, share.id, gone, o.stepId ?? null)
       for (const s of gone) this.db.query('DELETE FROM file_share_grants WHERE share_id = ? AND subject_type = ? AND subject_id = ?').run(share.id, s.subjectType, s.subjectId)
+      // who stopped it, for the link page of the people it reached ("<name> stopped sharing this file"); an add ends it
+      for (const s of gone) this.db.query('INSERT INTO file_share_stops (share_id, subject_type, subject_id, stopped_by, stopped_at) VALUES (?,?,?,?,?) ON CONFLICT(share_id, subject_type, subject_id) DO UPDATE SET stopped_by = excluded.stopped_by, stopped_at = excluded.stopped_at').run(share.id, s.subjectType, s.subjectId, userId, at)
+      for (const s of fresh) this.db.query('DELETE FROM file_share_stops WHERE share_id = ? AND subject_type = ? AND subject_id = ?').run(share.id, s.subjectType, s.subjectId)
       // a waiting request of someone now added is answered by the add
       if (fresh.length) for (const req of this.db.query("SELECT id, requester_id FROM file_access_requests WHERE share_id = ? AND state = 'pending'").all(share.id) as { id: string; requester_id: string }[]) {
         if (this.grantedTo(share.id, req.requester_id)) this.db.query("UPDATE file_access_requests SET state = 'approved', decided_by = ?, decided_at = ? WHERE id = ?").run(userId, at, req.id)
@@ -683,7 +694,72 @@ export class FileShares {
     }
     const named = new Set(fresh.filter((s) => s.subjectType === 'user').map((s) => s.subjectId))
     if (!o.quiet) for (const id of added) this.notify(id, 'file.shared', share.id, true, named.has(id))
-    return { view: { ...this.view(userId, r.rel, L), ...(undo ? { undo } : {}) }, added, share: this.row(share.id)! }
+    return { view: { ...this.view(userId, r.rel, L), ...(undo ? { undo } : {}) }, added, removed: gone.map((s) => ({ subjectType: s.subjectType, subjectId: s.subjectId })), share: this.row(share.id)! }
+  }
+
+  /**
+   * After a stop (the AI's result card, chat/stop-sharing.ts): the people among `removed` who can still open the file,
+   * and through what: its folder's rules, a group still on it, or the whole team. A person taken off by name, and a
+   * removed group's members (the first RESIDUAL_SCAN accounts looked at). Read as the server, for the card of whoever
+   * may stop the share (they see the file's list of people anyway); never a guest, never the owner.
+   */
+  stillOpens(share: ShareRow, removed: readonly Subject[]): StillOpens[] {
+    const segs = segsOf(share.path)
+    const rules = this.rules()
+    const ids = new Set<string>()
+    for (const s of removed) {
+      if (ids.size >= RESIDUAL_SCAN) break
+      if (s.subjectType === 'user') { ids.add(s.subjectId); continue }
+      const rows = s.subjectId === ALL
+        ? this.db.query(`SELECT id FROM users WHERE status = 'active' AND deleted_at IS NULL AND guest = 0 ORDER BY id LIMIT ${RESIDUAL_SCAN}`).all() as { id: string }[]
+        : this.db.query(`SELECT user_id id FROM group_members WHERE group_id = ? ORDER BY user_id LIMIT ${RESIDUAL_SCAN}`).all(s.subjectId) as { id: string }[]
+      for (const r of rows) { if (ids.size >= RESIDUAL_SCAN) break; ids.add(r.id) }
+    }
+    const grants = this.ownerStillEdits(share, rules, segs)
+      ? this.db.query('SELECT subject_type, subject_id FROM file_share_grants WHERE share_id = ?').all(share.id) as { subject_type: string; subject_id: string }[]
+      : []
+    const everyone = grants.some((g) => g.subject_type === 'group' && g.subject_id === ALL)
+    const groups = grants.filter((g) => g.subject_type === 'group' && g.subject_id !== ALL).map((g) => g.subject_id)
+    const out: StillOpens[] = []
+    for (const id of ids) {
+      if (id === share.owner_id) continue
+      const p = this.principal(id)
+      if (!p || p.role === 'guest') continue
+      const u = this.db.query('SELECT u.name, p.avatar_version FROM users u LEFT JOIN user_profiles p ON p.user_id = u.id WHERE u.id = ? AND u.deleted_at IS NULL').get(id) as { name: string; avatar_version: number | null } | null
+      if (!u) continue
+      const who = { userId: id, name: u.name, ...(u.avatar_version ? { avatarVersion: u.avatar_version } : {}) }
+      if (atLeast(rules.access(p, segs), 'read')) { out.push({ ...who, through: { kind: 'folder' } }); continue }
+      if (grants.some((g) => g.subject_type === 'user' && g.subject_id === id)) continue // still on it by name: not a leftover
+      const gid = groups.find((g) => p.groups.includes(g))
+      if (gid) {
+        const name = (this.db.query('SELECT name FROM groups WHERE id = ?').get(gid) as { name: string } | null)?.name
+        if (name) { out.push({ ...who, through: { kind: 'group', name } }); continue }
+      }
+      if (everyone) out.push({ ...who, through: { kind: 'everyone' } })
+    }
+    return out
+  }
+
+  /**
+   * POST /api/files/shares/cards: the files of an AI share card as the caller may see them now, by their link ids (the
+   * card stores ids; chat/share-card.ts). A file the folder rules let the caller read and whose people they may change
+   * (add or take off): its path (for the Share dialog), the people on it and what the caller may do. Anything else (no
+   * such link, a dead or trashed one, a file they cannot read by the rules or may not change) is `gone`, with nothing
+   * about it.
+   */
+  cards(userId: string, ids: readonly string[], L: Locale): ShareCardState[] {
+    return [...new Set(ids)].map((id): ShareCardState => {
+      const s = this.row(id)
+      if (!s || s.state !== 'live' || s.kind === 'folder') return { id, gone: true }
+      try {
+        const v = this.view(userId, s.path, L)
+        // (the row is this file's: the path's live row is the one asked for)
+        if (v.link?.id !== id) return { id, gone: true }
+        // only for whoever may act on it (the card's button): a reader of the folder learns nothing new from a link id
+        if (!v.canShare && !v.canStop) return { id, gone: true }
+        return { id, path: v.path, name: plainLabel(baseName(v.path), 200), canShare: v.canShare, canStop: !!v.canStop, people: v.people }
+      } catch { return { id, gone: true } }
+    })
   }
   takeToken(userId: string) {
     roomsOf(this.ctx).takeSendToken(userId)
@@ -970,7 +1046,17 @@ export class FileShares {
     }
     const me = this.principal(userId)
     const asked = o.share ? this.db.query("SELECT created_at FROM file_access_requests WHERE share_id = ? AND requester_id = ? AND state = 'pending'").get(o.share.id, userId) as { created_at: string } | null : null
-    return { status: 'no_access', canAsk: !!me && me.role !== 'guest' && !!o.share && this.requestTargets(o.share).length > 0, askedAt: asked?.created_at ?? null }
+    const stoppedBy = me && me.role !== 'guest' && o.share ? this.stoppedFor(me, o.share.id) : null
+    return { status: 'no_access', canAsk: !!me && me.role !== 'guest' && !!o.share && this.requestTargets(o.share).length > 0, askedAt: asked?.created_at ?? null, ...(stoppedBy ? { stoppedBy } : {}) }
+  }
+
+  /** Who took `me` off the share (by name, with a group they are in, or with the whole team), newest first: their name,
+   * only while no grant reaches `me` again. null: nobody did, or that account is gone. */
+  private stoppedFor(me: Principal, shareId: string): string | null {
+    const r = this.reachSql(me, 'g', false)
+    if (this.db.query(`SELECT 1 FROM file_share_grants g WHERE g.share_id = ? AND ${r.sql} LIMIT 1`).get(shareId, ...r.args)) return null
+    const row = this.db.query(`SELECT u.name FROM file_share_stops g JOIN users u ON u.id = g.stopped_by AND u.deleted_at IS NULL WHERE g.share_id = ? AND ${r.sql} ORDER BY g.stopped_at DESC LIMIT 1`).get(shareId, ...r.args) as { name: string } | null
+    return row?.name ?? null
   }
 
   /** Who answers a request on this share: its owner while they can still edit the file and are active (a member only
@@ -1005,9 +1091,10 @@ export class FileShares {
     const waiting = this.db.query("SELECT created_at FROM file_access_requests WHERE share_id = ? AND requester_id = ? AND state = 'pending'").get(s.id, userId) as { created_at: string } | null
     if (waiting) return { status: 'already', askedAt: waiting.created_at }
     const t = Date.now()
-    const hour = (this.db.query('SELECT COUNT(*) n FROM file_access_requests WHERE requester_id = ? AND created_at > ?').get(userId, new Date(t - 3600_000).toISOString()) as { n: number }).n
+    // (a request someone else asked for this person, requestFor, is not theirs: asked_by IS NULL)
+    const hour = (this.db.query('SELECT COUNT(*) n FROM file_access_requests WHERE requester_id = ? AND asked_by IS NULL AND created_at > ?').get(userId, new Date(t - 3600_000).toISOString()) as { n: number }).n
     const ownerKey = s.owner_id ?? ''
-    const day = (this.db.query('SELECT COUNT(*) n FROM file_access_requests WHERE requester_id = ? AND owner_id = ? AND created_at > ?').get(userId, ownerKey, new Date(t - 86400_000).toISOString()) as { n: number }).n
+    const day = (this.db.query('SELECT COUNT(*) n FROM file_access_requests WHERE requester_id = ? AND asked_by IS NULL AND owner_id = ? AND created_at > ?').get(userId, ownerKey, new Date(t - 86400_000).toISOString()) as { n: number }).n
     if (hour >= FILE_REQUESTS_PER_HOUR || day >= FILE_REQUESTS_PER_OWNER_DAY) throw new HttpError('rate_limited', msg('tooMany', L), { retryAfter: 3600 })
     const note = message?.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').trim().slice(0, 500) || null
     const rid = newId()
@@ -1021,7 +1108,7 @@ export class FileShares {
 
   /** POST /api/files/requests/:id: Share or Decline by whoever may share the file now. */
   answer(userId: string, requestId: string, answer: 'approve' | 'decline', L: Locale): { state: 'approved' | 'declined' | 'closed' } {
-    const q = this.db.query('SELECT id, share_id, requester_id, state FROM file_access_requests WHERE id = ?').get(requestId) as { id: string; share_id: string; requester_id: string; state: 'pending' | 'approved' | 'declined' | 'closed' } | null
+    const q = this.db.query('SELECT id, share_id, requester_id, state, asked_by FROM file_access_requests WHERE id = ?').get(requestId) as { id: string; share_id: string; requester_id: string; state: 'pending' | 'approved' | 'declined' | 'closed'; asked_by: string | null } | null
     if (!q) throw new HttpError('not_found')
     const s = this.row(q.share_id)
     const me = this.principal(userId)
@@ -1049,8 +1136,73 @@ export class FileShares {
     }
     this.db.query("UPDATE file_access_requests SET state = 'declined', decided_by = ?, decided_at = ? WHERE id = ?").run(userId, now(), q.id)
     audit(this.db, { actor: userId, action: 'file.access_declined', target: this.auditTarget(s), detail: { ...this.auditPath(s) } })
-    this.notify(q.requester_id, 'file.access_answered', q.id, false)
+    // (asked for them by someone else, requestFor: the one who asked is told)
+    this.notify(q.asked_by ?? q.requester_id, 'file.access_answered', q.id, false)
     return { state: 'declined' }
+  }
+
+  // ---- one-tap next steps (files/share-fixes.ts; docs/decisions/20261116-ai-share-who-can-open.md) ----
+
+  /** The live link row of the file at `rel` (a team path as stored), or null. No access is checked here. */
+  liveRow(rel: string): ShareRow | null { return this.liveAt(teamPathOf(rel)) }
+
+  /** The link id of the file at `rel` when it opens for `userId` by a grant and NOT by the folder rules (a path link in
+   * a room message, opened by someone the file was shared with): the app then opens /f/<id>. Else null, the same for a
+   * path with nothing shared, a file they can read anyway and one they may not open. */
+  grantedLinkId(userId: string, rel: string): string | null {
+    if (typeof rel !== 'string' || !rel || rel.length > 4096) return null
+    const s = this.liveAt(teamPathOf(rel))
+    if (!s) return null
+    const o = this.open(userId, s.id)
+    return o.kind === 'open' && o.by === 'grant' ? s.id : null
+  }
+
+  /** Who a request on this share would go to (the owner, else the team owner and admins), for someone who can open
+   * the file; none when nobody can be asked. `owner`: it is the file's owner alone. */
+  askable(userId: string, shareId: string): { ids: string[]; owner: boolean } {
+    const o = this.open(userId, shareId)
+    if (o.kind !== 'open') return { ids: [], owner: false }
+    const ids = this.requestTargets(o.share).filter((id) => id !== userId)
+    return { ids, owner: ids.length === 1 && ids[0] === o.share.owner_id }
+  }
+
+  /**
+   * "Ask <owner>" for other people (after a post to a room, or under a refused share): `askerId`, who can open the file
+   * but may not share it, asks whoever answers its requests (requestTargets) to give `forIds` view access. One request
+   * row per person (asked_by = the asker), so the owner's Share / Decline are the existing ones, and an approval is the
+   * existing view-only grant. Only active members who are not guests and cannot open the file now; nobody is added.
+   * One ask (all its people) counts once toward the asker's budget (FILE_REQUESTS_PER_HOUR, _PER_OWNER_DAY).
+   */
+  requestFor(askerId: string, shareId: string, forIds: readonly string[], L: Locale): { asked: string[]; already: string[]; to: string[] } {
+    const me = this.principal(askerId)
+    const o = this.open(askerId, shareId)
+    if (!me || me.role === 'guest' || o.kind !== 'open') throw new HttpError('not_found')
+    const s = o.share
+    const rules = this.rules()
+    const segs = segsOf(s.path)
+    // someone who may share it shares it (Let them view): asking is for the others
+    if (this.shareRight(me, rules, segs).may) throw new HttpError('conflict', msg('requestOff', L), { params: { reason: 'file_request_can_share' } })
+    const to = this.requestTargets(s).filter((id) => id !== askerId)
+    if (!to.length) throw new HttpError('forbidden', msg('requestOff', L), { params: { reason: 'file_request_off' } })
+    const t = Date.now()
+    const ownerKey = s.owner_id ?? ''
+    const asks = (since: number, owner?: string) => (this.db.query(`SELECT COUNT(DISTINCT created_at) n FROM file_access_requests WHERE COALESCE(asked_by, requester_id) = ? AND created_at > ?${owner !== undefined ? ' AND owner_id = ?' : ''}`)
+      .get(...[askerId, new Date(since).toISOString(), ...(owner !== undefined ? [owner] : [])]) as { n: number }).n
+    if (asks(t - 3600_000) >= FILE_REQUESTS_PER_HOUR || asks(t - 86400_000, ownerKey) >= FILE_REQUESTS_PER_OWNER_DAY) throw new HttpError('rate_limited', msg('tooMany', L), { retryAfter: 3600 })
+    const at = now()
+    const asked: string[] = [], already: string[] = []
+    for (const id of [...new Set(forIds)].slice(0, FILE_REQUEST_FOR_MAX)) {
+      if (id === askerId) continue
+      const p = this.principal(id)
+      if (!p || p.role === 'guest') continue
+      if (this.grantOpens(p, rules, s, segs, () => this.grantedTo(s.id, id))) continue
+      if (this.db.query("SELECT 1 FROM file_access_requests WHERE share_id = ? AND requester_id = ? AND state = 'pending'").get(s.id, id)) { already.push(id); continue }
+      this.db.query('INSERT INTO file_access_requests (id, share_id, requester_id, owner_id, message, state, created_at, asked_by) VALUES (?,?,?,?,?,?,?,?)').run(newId(), s.id, id, ownerKey, null, 'pending', at, askerId)
+      asked.push(id)
+      for (const target of to) this.notify(target, 'file.access_requested', `${s.id}:${id}`, true)
+    }
+    if (asked.length) audit(this.db, { actor: askerId, action: 'file.access_request', target: this.auditTarget(s), detail: { ...this.auditPath(s), for: asked.length, via: 'ai' } })
+    return { asked, already, to }
   }
 
   /** The owners of shared files whose grants a move removed (sharesNarrowedByMove, inside the move) are told. */
@@ -1156,7 +1308,7 @@ export class FileShares {
   private askedOf(userId: string, sourceId: string) {
     const [shareId, requester] = sourceId.split(':')
     const s = shareId ? this.row(shareId) : null
-    const q = s && requester ? this.db.query('SELECT id, message, state FROM file_access_requests WHERE share_id = ? AND requester_id = ? ORDER BY created_at DESC LIMIT 1').get(s.id, requester) as { id: string; message: string | null; state: 'pending' | 'approved' | 'declined' | 'closed' } | null : null
+    const q = s && requester ? this.db.query('SELECT id, message, state, asked_by FROM file_access_requests WHERE share_id = ? AND requester_id = ? ORDER BY created_at DESC LIMIT 1').get(s.id, requester) as { id: string; message: string | null; state: 'pending' | 'approved' | 'declined' | 'closed'; asked_by: string | null } | null : null
     const me = this.principal(userId)
     if (!s || !q || !requester || !me || s.state !== 'live') return null
     const rules = this.rules()
@@ -1205,7 +1357,9 @@ export class FileShares {
       const a = this.askedOf(row.user_id, row.source_id)
       if (!a || (!a.may && a.share.owner_id !== row.user_id)) return gone
       const { share: s, request: q, requester, may } = a
-      return { ...base, link: 'file', fileShare: { by: name(requester), name: plainLabel(baseName(s.path), 120), linkId: s.id, ...(q.message ? { note: q.message } : {}), requestId: q.id, state: q.state, ...(may && q.state === 'pending' ? { canAnswer: true as const } : {}) } }
+      // asked for the person by someone else (requestFor): `by` is who asked, `for` who would get it
+      const forName = q.asked_by ? name(requester ?? null) : null
+      return { ...base, link: 'file', fileShare: { by: name(q.asked_by ?? requester ?? null), name: plainLabel(baseName(s.path), 120), linkId: s.id, ...(forName ? { for: plainLabel(forName, 120) } : {}), ...(q.message ? { note: q.message } : {}), requestId: q.id, state: q.state, ...(may && q.state === 'pending' ? { canAnswer: true as const } : {}) } }
     }
     if (row.event_type === 'file.unshared_by_move') {
       const a = this.db.query('SELECT actor_id, action, target FROM audit_log WHERE id = ?').get(Number(row.source_id)) as { actor_id: string | null; action: string; target: string | null } | null

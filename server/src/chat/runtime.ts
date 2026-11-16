@@ -17,6 +17,7 @@ import { Hub, type HubOptions } from '../realtime/hub'
 import { BrowserRelay, type BrowserRelayOptions } from '../realtime/browser-relay'
 import { startPresence, type Presence, type PresenceOptions } from '../realtime/presence'
 import { startRoomTyping } from '../rooms/typing'
+import { startLooking, type Looking } from '../realtime/looking'
 import { ChatStore, type ChatRow, type MessageRow } from './store'
 import { LocalEngines, safeModel, type EngineProvider } from './engines'
 import { STALL_TIMEOUT_MS, TurnExec, composeMessage, type LauncherStop, type TurnSpec } from './turn'
@@ -205,6 +206,8 @@ export class ChatRuntime {
   readonly hub: Hub
   readonly relay: BrowserRelay
   readonly presence: Presence
+  /** what each open window shows now, in memory only (realtime/looking.ts): the AI's looking_at tool reads it */
+  readonly looking: Looking
   readonly engines: EngineProvider
   /** how long an engine that has the turn may produce nothing before the turn ends (STALL_TIMEOUT_MS; a test may
    * change it). One answer has no time limit (docs/DECISIONS.md "No time limit on one answer"). */
@@ -305,6 +308,7 @@ export class ChatRuntime {
     this.presence = startPresence(this.hub, ctx, o.presence)
     // "Alice is typing…" in rooms, on the same sockets (docs/DECISIONS.md "입력 중 표시")
     startRoomTyping(this.hub, ctx)
+    this.looking = startLooking(this.hub, ctx)
     this.engines = o.engines ?? new LocalEngines(ctx)
     this.stallTimeoutMs = o.stallTimeoutMs ?? STALL_TIMEOUT_MS
     this.longAnswerMs = o.longAnswerMs ?? LONG_ANSWER_MS
@@ -942,6 +946,8 @@ export class ChatRuntime {
     })()
     const spec: TurnSpec & QueueTiming = { turnId, chatId: chat.id, userId: o.userId, assistantId, userMessageId, windowId: o.windowId, clientKind: o.clientKind, engine: o.engine, model: o.model, locale: o.locale,
       queueSeq, ...(o.substitutedFrom ? { substitutedFrom: o.substitutedFrom } : {}) }
+    // what the sending window shows at this moment, for looking_at (realtime/looking.ts; never for a scheduled run)
+    if (o.windowId && !o.scheduled) this.looking.snapshot(turnId, o.userId, o.windowId)
     // as the person who sent it sees them (a shared chat: chat/shared.ts messageFor)
     const asSender = (id: string) => messageFor(this, chat, this.store.messageRow(id)!, o.userId, o.locale)
     const userMessage = o.user ? asSender(userMessageId) : null

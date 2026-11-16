@@ -1959,6 +1959,23 @@ export class MockServer {
       this.openAsks.delete(turnId)
       pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
     }
+    if (/nextstep (view|owner|admin|project)/i.test(prompt)) {
+      // like server/src/files/share-fixes.ts (docs/decisions/20261116-ai-share-who-can-open.md): a step with one offer the
+      // server wrote (Step.fixes); POST /api/share-fixes/:id/run answers what it became. "nextstep view": after a post,
+      // people named, Let them view; "owner": someone else's file, counted, Ask <owner>; "admin": a team folder, Ask an
+      // admin; "project": this chat is private in a team project, Share with project (the app's own share flow)
+      const kind = /nextstep (view|owner|admin|project)/i.exec(prompt)![1]!.toLowerCase()
+      const id = uuidv7()
+      const fix: import('@mycel/shared/api').StepFix = kind === 'view' ? { id, kind: 'let_view', file: 'Quote.pdf', place: '#Sales', people: ['Jun Park', 'Mina Seo', 'Leo Kim'], count: 4, guests: 1, state: 'open' }
+        : kind === 'owner' ? { id, kind: 'ask_owner', file: 'Quote.pdf', place: '#Sales', owner: 'Mina Seo', count: 3, state: 'open' }
+          : kind === 'admin' ? { id, kind: 'ask_admin', file: 'Contracts', owner: 'Dana Choi', people: ['Jun Park'], count: 1, state: 'open' }
+            : { id, kind: 'share_project', file: this.projects.find((p) => p.id === this.chats.find((c) => c.id === chatId)?.projectId)?.name ?? 'Launch', chatId, count: 0, state: 'open' }
+      this.stepFixes.set(id, { userId: user.id, messageId: assistant.id, left: kind === 'view' ? 1 : 0 })
+      const tool = kind === 'view' || kind === 'owner' ? 'post_to_room' : 'who_can_open'
+      const x = step({ id: 'N1', kind: 'tool', tool, label: tool === 'post_to_room' ? 'Send to conversation · #Sales' : 'Check who can open it', status: 'ok', endedAt: now(), fixes: [fix] })
+      assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]
+      pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } })
+    }
     if (/postroomcard/i.test(prompt)) {
       // like server/src/chat/post-to-room.ts: ONE card with the room and its people, the note apart (under my name), all
       // of the text (folded past 600), the lines that apply, the files [파일도 함께 보내기] attaches; after a yes the step
@@ -2043,6 +2060,63 @@ export class MockServer {
       return Array.isArray(answer) ? answer[0] : answer
     }
     const chatProject = () => this.projects.find((x) => x.id === this.chats.find((c) => c.id === chatId)?.projectId)
+    if (/sharecard/i.test(prompt)) {
+      // like server/src/chat/share-with-person.ts and stop-sharing.ts (docs/decisions/20261116-ai-share-card-and-stop.md):
+      // ONE card. "sharecard": the confirmation card with the record's rows, then the step keeps what was done
+      // (Step.shared) and the grant is really made here, so Manage access shows it; "sharecard stop": no card (a stop only
+      // narrows), the grant removed, who can still open it; "sharecard many": four files, no card; "sharecard refused":
+      // someone else's file. The record is the asker's alone (sharedBy, stripped for other viewers in listMessages).
+      const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
+      const ko = (user.localeChoice ?? this.settings.defaultLocale) === 'ko'
+      const place = ko ? '내 파일 › 업무' : 'My files › Work'
+      for (const n of ['Quote.pdf', 'Budget.xlsx', 'Notes.docx', 'Plan.md']) if (!this.files.has(`users/${user.id}/${n}`)) this.putFile(`users/${user.id}/${n}`, `# ${n}\n`)
+      const bob = this.users.find((u) => u.id === 'bob')!
+      const who = [{ subjectType: 'user' as const, subjectId: bob.id, name: bob.name }]
+      const row = (n: string) => ({ linkId: this.fileLinkOf(`users/${user.id}/${n}`), name: n, place })
+      const grant = (n: string, on: boolean) => { const p = `users/${user.id}/${n}`; const rest = (this.fileGrants.get(p) ?? []).filter((x) => !(x.subjectType === 'user' && x.subjectId === bob.id)); this.fileGrants.set(p, on ? [...rest, { subjectType: 'user', subjectId: bob.id }] : rest) }
+      const many = /many/i.test(prompt), stop = /stop/i.test(prompt), refusedCase = /refused/i.test(prompt)
+      const tool = stop ? 'stop_sharing' : 'share_with_person'
+      const verb = stop ? (ko ? '공유 중지' : 'Stop sharing') : (ko ? '파일 공유' : 'Share files')
+      put(step({ id: 'S1', kind: 'tool', tool, label: verb }))
+      this.sharedBy.set(`${assistant.id}:S1`, user.id)
+      let shared: NonNullable<Step['shared']> | undefined
+      let fixes: Step['fixes']
+      let said = ''
+      if (refusedCase) {
+        // like server/src/chat/share-with-person.ts: the refusal's next step is the server's stored offer on the same step
+        // (Step.fixes), named by the card's record (next.fixId); the card shows it as its button, never again under the answer
+        const fid = uuidv7()
+        this.stepFixes.set(fid, { userId: user.id, messageId: assistant.id, left: 0 })
+        fixes = [{ id: fid, kind: 'ask_owner', file: 'Quote.xlsx', owner: 'Mina', people: [bob.name], count: 1, state: 'open' }]
+        shared = { op: 'share', outcome: 'refused', files: [], failed: [{ linkId: this.fileLinkOf(`users/${user.id}/Quote.pdf`), name: 'Quote.xlsx', place: ko ? '팀 폴더 › 영업' : 'Team folder › Sales' }], who: [], level: 'view', refusal: { reason: 'not_owner', file: 'Quote.xlsx', owner: 'Mina' }, next: { kind: 'ask_owner', fixId: fid, name: 'Mina' } }
+        said = ko ? '그 파일은 Mina님의 파일이라 공유하지 못했어요.' : "I couldn't share it: that file is Mina's."
+      } else if (stop) {
+        grant('Quote.pdf', false)
+        shared = { op: 'stop', outcome: 'done', files: [row('Quote.pdf')], who, level: 'view', still: [{ userId: bob.id, name: bob.name, through: 'group', group: ko ? '영업' : 'Sales', files: 1 }] }
+        said = ko ? `공유를 중지했어요.` : 'Done, sharing is stopped.'
+      } else if (many) {
+        const names = ['Quote.pdf', 'Budget.xlsx', 'Notes.docx', 'Plan.md']
+        for (const n of names) grant(n, true)
+        shared = { op: 'share', outcome: 'done', files: names.map(row), who, level: 'view', notified: [bob.id] }
+        said = ko ? '공유했어요.' : 'Done, they are shared.'
+      } else {
+        const answer = await ask({
+          kind: 'ask_user', origin: 'server', requestId: 'sc1', allowText: false, multiple: false,
+          question: ko ? `${bob.name}님에게 파일 1개를 공유할까요?` : `Share 1 file with ${bob.name}?`,
+          options: [{ label: ko ? '공유하기' : 'Share', value: 'share' }, { label: ko ? '공유하지 않기' : "Don't share", value: 'no' }],
+          details: [{ label: ko ? '공유할 파일' : 'Files', text: 'Quote.pdf', noSize: true }],
+          share: { op: 'share', files: [{ name: 'Quote.pdf', place }], who },
+        })
+        if (answer === 'share') {
+          grant('Quote.pdf', true)
+          shared = { op: 'share', outcome: 'done', files: [row('Quote.pdf')], who, level: 'view', notified: [bob.id] }
+          said = ko ? '공유했어요.' : `Done, ${bob.name} can view it now.`
+        } else said = ko ? '공유하지 않았어요.' : 'Okay, nothing was shared.'
+      }
+      put(step({ id: 'S1', kind: 'tool', tool, label: shared && !refusedCase ? `${verb} · ${bob.name}` : verb, status: refusedCase ? 'error' : 'ok', endedAt: now(), ...(shared ? { shared } : { detail: ko ? '공유하지 않았어요' : 'Not shared' }), ...(fixes ? { fixes } : {}) }))
+      finish(said)
+      return
+    }
     if (/projectskillsave/i.test(prompt)) {
       const project = chatProject() ?? this.projects[0]
       const name = /projectskillsave\s+([a-z0-9-]+)/i.exec(prompt)?.[1] ?? 'quote'
@@ -6218,7 +6292,11 @@ export class MockServer {
   fileGrantMeta = new Map<string, { by: string; at: string }>()
   fileRequests: { id: string; linkId: string; path: string; userId: string; ownerId: string | null; note: string | null; at: string; state: 'pending' | 'approved' | 'declined' | 'closed' }[] = []
   fileRequestLimit = Infinity
+  /** the offers of "nextstep …" answers (Step.fixes): who may run each, and the answer it is on */
+  stepFixes = new Map<string, { userId: string; messageId: string; left: number }>()
   lastRemoveFileLinks: boolean | null = null
+  /** who ran a share step ("<messageId>:<stepId>"): its record (Step.shared) is theirs alone (chat/store.ts viewSteps) */
+  sharedBy = new Map<string, string>()
   readonly fileSharesInstalled = this.installFileShares()
 
   // ---------------- a member shares a folder in their own files (server/src/files/folder-shares.ts, short) ----------------
@@ -6266,6 +6344,8 @@ export class MockServer {
     const ownerId = this.fileOwner(path)
     const owner = ownerId ? this.users.find((x) => x.id === ownerId) : undefined
     const canShare = this.canShareFile(path, u)
+    // taking people off: whoever may share, and the file's owner always (files/shares.ts shareRight `stop`)
+    const canStop = canShare || (u.role !== 'guest' && ownerId === u.id)
     const rows = (this.fileGrants.get(path) ?? []).flatMap((x): FileShareRow[] => {
       if (x.subjectType === 'group' && x.subjectId === FILE_SHARE_EVERYONE) return [{ subjectType: 'group' as const, subjectId: FILE_SHARE_EVERYONE, name: (u.localeChoice ?? this.settings.defaultLocale) === 'ko' ? '\ud300 \uc804\uccb4' : 'Everyone on the team', everyone: true as const }]
       if (x.subjectType === 'group') { const g = this.groups.find((y) => y.id === x.subjectId); return g ? [{ subjectType: 'group' as const, subjectId: g.id, name: g.name }] : [] }
@@ -6274,7 +6354,7 @@ export class MockServer {
     })
     const linkId = [...this.fileLinks].find(([, p]) => p === path)?.[0]
     return {
-      path, link: linkId ? { id: linkId, url: fileLinkUrl(linkId) } : null, canShare,
+      path, link: linkId ? { id: linkId, url: fileLinkUrl(linkId) } : null, canShare, canStop,
       owner: owner ? { id: owner.id, name: owner.name } : null, mine: ownerId === u.id, teamFile: !path.startsWith('users/'),
       ...(u.role === 'member' && ownerId === u.id && !this.settings.memberFileShares ? { off: true as const } : {}),
       people: canShare || this.grantedFile(path, u) || ownerId === u.id ? rows : [],
@@ -6303,7 +6383,9 @@ export class MockServer {
       const path: string = c.body.path
       fileAt(path)
       if (this.access(path, c.user) === 'none') fail('not_found', 404)
-      if (!this.canShareFile(path, c.user)) {
+      // (a call that only takes people off passes for the file's owner: files/shares.ts)
+      const stopOnly = !(c.body.add as unknown[]).length && this.fileOwner(path) === c.user.id && c.user.role !== 'guest'
+      if (!this.canShareFile(path, c.user) && !stopOnly) {
         if (this.fileOwner(path) === c.user.id && !this.settings.memberFileShares) fail('forbidden', 403, 'Your team turned off sharing files for members.', undefined, { reason: 'file_shares_off' })
         fail('forbidden', 403, 'Only the owner can share this file.', undefined, { reason: 'file_share_not_owner' })
       }
@@ -6322,6 +6404,23 @@ export class MockServer {
       this.fileGrants.set(path, list.filter((x) => !out.has(key(x))))
       if (list.length) this.fileLinkOf(path)
       return this.fileSharesView(path, c.user)
+    }
+    // an AI share card's files as the caller may see them now (files/shares.ts cards): by link id; `gone` for anything
+    // the folder rules do not let them read
+    h.shareCards = (c) => ({
+      items: [...new Set(c.body.ids as string[])].map((id) => {
+        const path = this.fileLinks.get(id)
+        if (!path || !this.files.has(path) || this.access(path, c.user) === 'none') return { id, gone: true as const }
+        const v = this.fileSharesView(path, c.user)
+        if (!v.canShare && !v.canStop) return { id, gone: true as const }
+        return { id, path, name: path.slice(path.lastIndexOf('/') + 1), canShare: v.canShare, canStop: v.canStop, people: v.people }
+      }),
+    })
+    // a share step's record (Step.shared) and the names in its label are its runner's alone (chat/store.ts viewSteps)
+    const baseList = h.listMessages
+    h.listMessages = (c) => {
+      const out = baseList!(c) as { items: Message[] }
+      return { ...out, items: out.items.map((m) => (m.steps?.some((s) => s.shared) ? { ...m, steps: m.steps.map((s) => { if (!s.shared || this.sharedBy.get(`${m.id}:${s.id}`) === c.user.id) return s; const { shared: _sh, detail: _d, ...rest } = s; return { ...rest, label: s.label.split(' · ')[0]! } }) } : m)) }
     }
     // several files in one press (files/shares.ts shareMany): each as the PUT's add, refusals listed; one notice per person
     h.shareFilesBatch = (c) => {
@@ -6405,6 +6504,20 @@ export class MockServer {
       const name = path!.slice(path!.lastIndexOf('/') + 1)
       return new Response(n.data! as unknown as BodyInit, { headers: { 'content-type': mimeOf(path!) ?? 'application/octet-stream', 'content-length': String(n.data!.byteLength), 'content-disposition': `${c.query.disposition === 'inline' ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(name)}`, 'x-content-type-options': 'nosniff', 'content-security-policy': "sandbox; default-src 'none'" } })
     }
+    // one-tap next steps (server/src/files/share-fixes.ts): once, only for the person the offer was made for
+    h.runShareFix = (c) => {
+      const o = this.stepFixes.get(c.params.id!)
+      if (!o || o.userId !== c.user.id) fail('not_found', 404)
+      for (const m of this.messages) for (const s of m.steps ?? []) for (const f of s.fixes ?? []) {
+        if (f.id !== c.params.id) continue
+        if (f.kind === 'share_project') return { state: f.state }
+        if (/refuse/i.test(f.file)) fail('forbidden', 403, 'Only the file\'s owner can share it.', undefined, { reason: 'file_share_not_owner' })
+        if (f.state === 'open') { f.state = 'done'; f.doneCount = f.kind === 'let_view' ? f.count : f.kind === 'ask_admin' ? 1 : f.count; if (o!.left) f.left = o!.left }
+        return { state: f.state, ...(f.doneCount !== undefined ? { doneCount: f.doneCount } : {}), ...(f.left ? { left: f.left } : {}) }
+      }
+      return fail('not_found', 404)
+    }
+    h.grantedFileLink = () => ({ id: null })
     h.requestFileAccess = (c) => {
       if (c.user.role === 'guest') fail('forbidden', 403)
       const path = this.fileLinks.get(c.params.id!)
