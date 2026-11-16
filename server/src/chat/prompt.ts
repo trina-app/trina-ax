@@ -413,9 +413,12 @@ const browserSection = (i: PromptInput) => i.guest ? '' : i.browser ? BROWSER_RU
  * repeated them as they were ("수정 2026-10-20 23:09" for a file saved at 08:09 in Seoul), so it is told to convert.
  * The room tools give their times in the team's time zone and say so (rooms/reader.ts localTime): those are not
  * converted again (a file sent at 17:39 in Jakarta was told as "00:39 WIB" the next day).
+ * The zone is the team setting (runtime.ts timeZone: teamTimeZone, what Admin › Team settings shows), and the line says
+ * so (QA TC-3700, docs/decisions/20261116-time-zone-team-setting.md): asked "is our time zone Seoul?", the AI
+ * said it had not opened the setting and still answered "yes, Seoul" from this line, 5 of 6 answers.
  */
 export function timeLine(now: Date, timeZone: string): string {
-  return `Now: ${localTimeText(now, timeZone)} (${timeZone}); ${now.toISOString()} UTC. Times in tool results are UTC unless the result says they are in the team's time zone (those are in ${timeZone} already): when you mention a time to the user, give it in ${timeZone}.`
+  return `Now: ${localTimeText(now, timeZone)} (${timeZone}); ${now.toISOString()} UTC. ${timeZone} is the team time zone, read from the team settings. Times in tool results are UTC unless the result says they are in the team's time zone (those are in ${timeZone} already): when you mention a time to the user, give it in ${timeZone}.`
 }
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
