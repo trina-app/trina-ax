@@ -59,6 +59,7 @@
     "demo": "bun scripts/demo/start.ts",
     "check:docs": "bun scripts/check-onboarding-docs.ts && bun run check:tooltips && bun run changelog:check && bun run decisions:check",
     "check:migrations": "bun scripts/check-migrations.ts",
+    "check:prepush": "bun scripts/check-prepush.ts",
     "check:tooltips": "bun web/scripts/check-icon-tooltips.ts",
     "features:check": "bun scripts/features/cli.ts",
     "ai:scenarios": "bun tests/ai-scenarios/cli.ts",

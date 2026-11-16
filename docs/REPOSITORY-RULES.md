@@ -18,6 +18,15 @@ PR은 `CHANGELOG.md`를 고치지 않는다. 사용자에게 보이는 변경은
 - GitHub 이름 변경·생성·공개, 기록 재작성·force push, 코어 main 병합·푸시, 고객 서버 접속, 결제·AWS·Cloudflare 계정 변경은 대표 승인 뒤에 한다.
 - 코어에서 받아 올 때 다음 경로는 가져오지 않는다(비공개 코어에만 둔다): 코어의 `CLAUDE.md`, `docs/OWNER-TODO.md`, `docs/TODO.md`, `docs/TEST-ENV.md`, `docs/PUBLIC-MIRROR.md`, `docs/SECURITY-AUDIT.md`, `scripts/public-mirror/`, `scripts/check-public-mirror.sh`, `scripts/sync-public-mirror.sh`, `tests/public-mirror/`, `ee/`, `editions/trina/`(단 `branding/` 제외).
 
+## PR을 올리기 전에
+
+- PR을 푸시하기 전에 `bun run check:prepush`를 돌린다. origin/dev를 가져와 CI의 "typecheck, docs, native" 빠른 검사(마이그레이션 번호·변경 기록·docs)와 i18n·제품 이름·한글 리터럴·도구 목록 테스트를 dev 기준으로 돌린다. 브랜치가 dev보다 뒤처졌으면 "origin/dev를 먼저 병합하라"고 알려 준다.
+- 서버 테스트는 CI와 같은 Bun 1.3.12로 돌린다(`bun:sqlite` 동작이 버전마다 다르다).
+- 도구를 추가하는 PR은 테스트의 정확한 도구 목록(`c-tools`, `i-wiring`, `b-browser`)도 함께 고친다.
+- 주석과 코드에 제품 이름을 쓰지 않고 `<app>`이라고 쓴다.
+- 서버 코드에 한글 리터럴을 넣지 않는다. 화면 글은 i18n 표에서 가져온다(인도네시아어는 "kamu"가 아니라 "Anda").
+- dev를 병합한 뒤에는 다시 돌린다. 병합이 새 i18n 키·도구·마이그레이션 번호를 가져온다. 다른 열린 PR이 쓰는 번호는 경고로 알려 준다.
+
 ## 공개 기여 / Public contributions
 
 외부 기여자는 이 공개 저장소에 이슈·PR을 제출하면 됩니다. 비공개 코어 접근은 필요하지 않으며 유지보수자가 코어 반영 경로를 처리합니다. External contributors submit here; maintainers handle upstream routing. [개발·검증](DEVELOPMENT.md).
