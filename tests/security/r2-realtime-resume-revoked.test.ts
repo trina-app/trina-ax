@@ -114,9 +114,7 @@ describe('realtime resume after access was revoked', () => {
     live.close()
   })
 
-  // KNOWN FAILING on dev (QA TC-3837): after a group removal the resume answers resumed:false, so the notice is not
-  // replayed. The fix is PR #1081 (server/src/realtime/hub.ts); when it is merged, turn this back into test().
-  test.skip('the access_changed notice published with the change is still replayed to a window that saw everything before it', async () => {
+  test('the access_changed notice published with the change is still replayed to a window that saw everything before it', async () => {
     await owner.ok('PATCH', `/api/admin/groups/${fin.id}`, { memberIds: ['carol', 'bob'] })
     const s0 = await open(bob, { windowId: `win-bob-${++n}` })
     const hello = await s0.next('hello')
