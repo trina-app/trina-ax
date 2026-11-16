@@ -550,6 +550,16 @@ export async function waitHealthy(s: Pick<OfficeSettings, 'appPort'>, seconds: n
     await Bun.sleep(o.pollMs ?? 1000)
   }
 }
+/** `office.js install` run by hand: the LaunchAgent is loaded but the server did not answer within the wait. Not 0 (the
+ * setup link and the rest are not printed, and a script must not take it for an install that answers), and not 1 (the
+ * server may be up a minute later: office-install.sh says "still starting", not "did not start"). */
+export const INSTALL_STILL_STARTING = 3
+/** What `office.js install` says and returns when its wait ended with no answer and nothing is handed to an updater.
+ * Pure. Under the updater, or with the LaunchAgent gone: 1, as before (the updater rolls back). */
+export function installNoAnswer(o: { underUpdater: boolean; agentLoaded: boolean; teamax: string; logs: string }): { code: number; line: string } {
+  if (o.underUpdater || !o.agentLoaded) return { code: 1, line: `the server did not answer within 90 s; see ${o.logs}` }
+  return { code: INSTALL_STILL_STARTING, line: `the server has not answered yet (waited 90 s). It may still be starting: check with ${o.teamax} status in a minute; see ${o.logs}` }
+}
 /** how long `office.js install` under the updater waits for a migrating server itself: the updater kills the installer
  * after 10 minutes (update.ts), which may spend 4 of them on a new headless browser before it stops the server */
 export const UPDATER_MIGRATE_WAIT_MS = 4 * 60_000
@@ -1061,7 +1071,20 @@ export async function main(argv: string[]): Promise<number> {
       }
       const handOver = pd.exitZero
       if (up === 'still-migrating') { lines(`the server was still updating its database after ${Math.round(MIGRATE_WAIT_MS / 60_000)} min; see ${p.officeLog} and ${p.serverLogs}`); return 1 }
-      if (!up && !handOver) { lines(`the server did not answer within 90 s; see ${p.officeLog} and ${p.serverLogs}`); return 1 }
+      // not answering yet is not "did not start": a first start after a big update, or a slow Mac, can take longer than
+      // this wait, and the LaunchAgent keeps starting it (QA TC-3761). By hand: INSTALL_STILL_STARTING, which
+      // office-install.sh says in its own words; under the updater 1 as before (it rolls back).
+      if (!up && !handOver) {
+        const r = installNoAnswer({ underUpdater, agentLoaded: agent.loaded(), teamax: path.join(s.home, 'teamax'), logs: `${p.officeLog} and ${p.serverLogs}` })
+        lines(r.line)
+        // still starting: the internet address and the automatic updates are set up all the same (the cloudflared
+        // agent was stopped above), so a server that answers a minute later is whole without a second run
+        if (r.code === INSTALL_STILL_STARTING) {
+          try { const tl = await syncTunnelAgent(s); if (tl) lines(tl) } catch (e) { lines(`cloudflared not started: ${(e as Error).message}`) }
+          try { const ul = syncUpdateAgent(s, agentPath(s)); if (ul) lines(ul) } catch (e) { lines(`update agent not installed: ${(e as Error).message}`) }
+        }
+        return r.code
+      }
       if (handOver) lines(`the server does not answer yet; there is nothing to roll back to, so the updater goes on waiting for it (see ${p.officeLog} and ${p.serverLogs})`)
       if (up === 'up' && !underUpdater) { const c = clearStaleFailure(home); if (c) lines(c) }
       if (up === 'migrating') lines('the server is updating its database before it starts; the update waits for it')

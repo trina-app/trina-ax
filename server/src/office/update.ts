@@ -349,6 +349,17 @@ export interface OfficeUpdateView {
   desktop: UpdateState['desktop']
 }
 
+/** A result that is over: an update to `about` that failed or was rolled back, while a newer version than
+ * `about` is installed now (office-install.sh by hand after it). clearStaleFailure clears the record only when the
+ * installer saw the server answer, and only a run that got as far as installing (lastUpdate); a server that answered
+ * after the installer's wait, or a run that failed at its backup, left "last: failed 0.5.7" under a running 0.5.8
+ * (QA TC-3761). The same version is not over: a failed update can leave its own version in app/ with no way back.
+ * 'refused' is never over: it is today's answer about a feed that offers an older version (no downgrades). */
+export function resultIsOver(current: string | null, kind: string, about: string | null): boolean {
+  if (!current || !about || !VERSION_RE.test(current) || !VERSION_RE.test(about)) return false
+  return (kind === 'failed' || kind === 'rolled-back') && compareVersions(current, about) > 0
+}
+
 export function updateView(home: string, o: { now?: Date; agentInstalled?: boolean } = {}): OfficeUpdateView {
   const set = readUpdateSettings(home)
   const st = readUpdateState(home)
@@ -361,7 +372,11 @@ export function updateView(home: string, o: { now?: Date; agentInstalled?: boole
   return {
     current, channel: set.channel, paused: set.paused, time: sched.window.slice(0, 5), window: sched.window, windowSource: sched.source, timeZone: sched.timeZone,
     nextWindowAt: agentInstalled && next ? next.toISOString() : null,
-    lastCheckAt: st.lastCheckAt, last: st.last, available, lastUpdate: st.lastUpdate,
+    lastCheckAt: st.lastCheckAt,
+    // what is shown is the current result: never an old failed update under a newer installed version
+    last: st.last && resultIsOver(current, st.last.kind, st.last.version) ? null : st.last,
+    available,
+    lastUpdate: st.lastUpdate && resultIsOver(current, st.lastUpdate.result, st.lastUpdate.to) ? null : st.lastUpdate,
     running: st.running ? { since: st.running.since, step: st.running.step ?? 'check', phase: st.running.phase, target: st.running.target } : null,
     requested: fs.existsSync(updatePaths(home).request), agentInstalled, desktop: st.desktop,
   }

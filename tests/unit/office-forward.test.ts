@@ -13,10 +13,10 @@ import {
   exit75Decision, extraWaitSeconds, goForward, healDecision, previousDecision, healFile, readHealMarker, recoveryAdvice, releaseIn, setAsideUnreadablePrevious,
   unreadablePrevious, UNREADABLE, writeHealMarker, type HealMarker,
 } from '../../server/src/office/forward'
-import { clearStaleFailure, NoRollback, patchUpdateState, readUpdateState, rollBack, type UpdateDeps } from '../../server/src/office/update'
-import { healAfterRefusedRollback } from '../../server/src/office/update-cli'
+import { clearStaleFailure, NoRollback, patchUpdateState, readUpdateState, resultIsOver, rollBack, updateView, type UpdateDeps } from '../../server/src/office/update'
+import { healAfterRefusedRollback, viewText } from '../../server/src/office/update-cli'
 import { settingsFrom } from '../../server/src/office/settings'
-import { EXIT_SCHEMA_TOO_NEW } from '../../server/src/office/cli'
+import { EXIT_SCHEMA_TOO_NEW, INSTALL_STILL_STARTING, installNoAnswer } from '../../server/src/office/cli'
 import { EXIT } from '../../server/src/main'
 import { PRODUCT } from '@mycel/shared'
 import { WORK } from '../lib/env'
@@ -187,6 +187,48 @@ test('previousDecision: what office.js install does with app.previous after its 
   expect(previousDecision({ ...b, underUpdater: false, up: false, need: 8 })).toEqual({ setAside: true, why: 'the database needs level 8', marker: false, exitZero: false })
   expect(previousDecision({ ...b, underUpdater: false, up: 'migrating' })).toMatchObject({ setAside: false })
   expect(previousDecision({ ...b, up: false, need: 8, prevLevel: null })).toMatchObject({ setAside: false })
+})
+
+test('TC-3761: no answer after the wait, by hand: "still starting" with its own exit code; under the updater 1 as before', () => {
+  const o = { teamax: '/h/teamax', logs: '/h/logs/office.log and /h/data/logs' }
+  expect(installNoAnswer({ ...o, underUpdater: false, agentLoaded: true })).toEqual({ code: INSTALL_STILL_STARTING, line: 'the server has not answered yet (waited 90 s). It may still be starting: check with /h/teamax status in a minute; see /h/logs/office.log and /h/data/logs' })
+  expect(INSTALL_STILL_STARTING).not.toBe(0)
+  expect(INSTALL_STILL_STARTING).not.toBe(1)
+  // the updater's rollback rule is the old one; so is an agent that is not there at all
+  expect(installNoAnswer({ ...o, underUpdater: true, agentLoaded: true })).toMatchObject({ code: 1, line: 'the server did not answer within 90 s; see /h/logs/office.log and /h/data/logs' })
+  expect(installNoAnswer({ ...o, underUpdater: false, agentLoaded: false })).toMatchObject({ code: 1 })
+})
+
+test('TC-3761: an old failed update is not the current result once a newer version is installed', () => {
+  const h = home()
+  release(h, 'app', '0.5.8-qa1', 9)
+  // failed at its backup: no lastUpdate, so clearStaleFailure has nothing to clear, and the installer may never have
+  // seen the server answer
+  patchUpdateState(h, (x) => { x.last = { kind: 'failed', at: '2026-11-15T05:59:00Z', version: '0.5.7', message: 'the pre-update backup failed (nothing was changed)' } })
+  expect(clearStaleFailure(h)).toBe('')
+  expect(updateView(h, { agentInstalled: true }).last).toBeNull()
+  expect(viewText(updateView(h, { agentInstalled: true }))).not.toContain('failed')
+  // a run that got as far as installing: its line goes too
+  patchUpdateState(h, (x) => { x.lastUpdate = { from: '0.4.0', to: '0.5.7', at: '2026-11-15T05:59:00Z', result: 'rolled-back', error: 'no answer' } })
+  expect(updateView(h, { agentInstalled: true }).lastUpdate).toBeNull()
+  // the record itself is kept (the view only chooses what is current)
+  expect(readUpdateState(h).last).toMatchObject({ kind: 'failed', version: '0.5.7' })
+  // the same version, or a newer one, failed: still the current result
+  for (const v of ['0.5.8-qa1', '0.5.9']) {
+    patchUpdateState(h, (x) => { x.last = { kind: 'failed', at: 'x', version: v, message: 'm' }; x.lastUpdate = { from: '0.5.8-qa1', to: v, at: '2026-11-15T05:59:00Z', result: 'failed', error: 'm' } })
+    expect(updateView(h, { agentInstalled: true }).last).toMatchObject({ kind: 'failed', version: v })
+    expect(updateView(h, { agentInstalled: true }).lastUpdate).toMatchObject({ to: v })
+  }
+  // results that are not failures stay, whatever their version
+  patchUpdateState(h, (x) => { x.last = { kind: 'updated', at: 'x', version: '0.5.7', message: null }; x.lastUpdate = { from: '0.4.0', to: '0.5.7', at: '2026-11-15T05:59:00Z', result: 'updated', error: null } })
+  expect(updateView(h, { agentInstalled: true }).last).toMatchObject({ kind: 'updated' })
+  expect(updateView(h, { agentInstalled: true }).lastUpdate).toMatchObject({ result: 'updated' })
+  expect(resultIsOver('0.5.8', 'failed', null)).toBe(false)
+  expect(resultIsOver('?', 'failed', '0.5.7')).toBe(false)
+  // a feed that offers an older version is refused today: that is the current result
+  expect(resultIsOver('0.5.8', 'refused', '0.5.7')).toBe(false)
+  patchUpdateState(h, (x) => { x.last = { kind: 'refused', at: 'x', version: '0.5.7', message: 'never installed (no downgrades)' } })
+  expect(updateView(h, { agentInstalled: true }).last).toMatchObject({ kind: 'refused', version: '0.5.7' })
 })
 
 test('extraWaitSeconds: inside the updater\'s 10 minutes, at most 240 s, 0 without a start time', () => {
