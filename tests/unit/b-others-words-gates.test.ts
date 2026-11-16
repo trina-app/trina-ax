@@ -12,7 +12,7 @@ import { API, type Room } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { dropAlways, keepAlways } from '../../server/src/chat/always-allow'
 import { fileSharesOf } from '../../server/src/files/shares'
-import { fromAsker, madeInTurn, namedInFull, namesGroup, namesRecipient, othersWordsIn } from '../../server/src/chat/shared-actions'
+import { fromAsker, madeInTurn, namedInFull, namesGroup, namesRecipient, othersWordsIn, soleNames } from '../../server/src/chat/shared-actions'
 import { shareWithPersonTool } from '../../server/src/chat/share-with-person'
 import { OWN_CHAT_TEAM_TOOLS, OWN_WORDS_TOOLS } from '../../server/src/rooms/ai-tools'
 import { roomsOf } from '../../server/src/rooms/service'
@@ -466,5 +466,27 @@ describe('second review: what "made in this answer" means, and a chat that read 
     expect(namesRecipient('\uBCF4\uACE0\uC11C \uBBFC\uC218\uC528\uD55C\uD14C \uACF5\uC720\uD574\uC918', '\uBBFC\uC218', { names: ['\uAE40\uBBFC\uC218'], person: true })).toBe(true)
     expect(namesGroup('presales team sales numbers', 'Sales')).toBe(false)
     expect(namesGroup('team salesforce export sales deck', 'Sales')).toBe(false)
+  })
+
+  test('a recipient is named only where a recipient stands, by a name that points at them alone', () => {
+    // (Korean as escapes: 이 파일 김대리한테 공유해줘 / 파일 / 김대리 / 거래처 목록 CSV 최하나님한테 볼 수 있게 공유해줘 / 있게 / 최하나)
+    const ko1 = '\uC774 \uD30C\uC77C \uAE40\uB300\uB9AC\uD55C\uD14C \uACF5\uC720\uD574\uC918'
+    expect(namedInFull(ko1, ['\uD30C\uC77C'])).toBe(false)
+    expect(namedInFull(ko1, ['\uAE40\uB300\uB9AC'])).toBe(true)
+    const ko2 = '\uAC70\uB798\uCC98 \uBAA9\uB85D CSV \uCD5C\uD558\uB098\uB2D8\uD55C\uD14C \uBCFC \uC218 \uC788\uAC8C \uACF5\uC720\uD574\uC918'
+    for (const w of ['\uC788\uAC8C', 'csv']) expect([w, namedInFull(ko2, [w])]).toEqual([w, false])
+    expect(namedInFull(ko2, ['\uCD5C\uD558\uB098'])).toBe(true)
+    expect(namedInFull('post this report to tess', ['report'])).toBe(false)
+    for (const said of ['send it to tess', 'send it to tess to review', 'share the report with tess, along with notes']) expect([said, namesRecipient(said, 'Tess Yoon', { names: ['Tess Yoon', 'tess'], person: true })]).toEqual([said, true])
+    expect(namedInFull('send this to Hana Kimura', ['Hana Kimura'])).toBe(true)
+    // a member who takes a colleague's name (or a part of it) is named by neither display name; usernames still count
+    const db = h.ctx.db
+    db.query("INSERT INTO users (id, username, name, role, status, deleted_at) VALUES ('kim1', 'kimd', '\uAE40\uB300\uB9AC', 'member', 'active', NULL), ('kim2', 'mal', '\uAE40\uB300\uB9AC\uB2D8', 'member', 'active', NULL), ('hana9', 'mal2', 'Tess', 'member', 'active', NULL)").run()
+    try {
+      expect(soleNames(db, 'kim1')).toEqual(['kimd'])
+      expect(soleNames(db, 'kim2')).toEqual(['mal'])
+      expect(soleNames(db, 'hana9')).toEqual(['mal2'])
+      expect(soleNames(db, 'tess')).toEqual(['Tess Yoon', 'tess'])
+    } finally { db.query("DELETE FROM users WHERE id IN ('kim1', 'kim2', 'hana9')").run() }
   })
 })

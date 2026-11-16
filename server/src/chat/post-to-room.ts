@@ -49,7 +49,7 @@
 // it refuses with why and what to do, as it does for a room that is archived or not mine, a gone thread, content that
 // used earlier answers hidden from some member, a text too long for one message and the sending budget.
 import { alwaysHere, withAlways } from './always-allow'
-import { actionOff, asksFor, askerPicks, askerText, asksToSend, fold, fromAsker, mainOnly, namedInFull, namesRecipient as namesPlace, othersWordsIn, ownWords, POST_ASK } from './shared-actions'
+import { actionOff, asksFor, askerPicks, askerText, asksToSend, fold, fromAsker, mainOnly, namedInFull, namesRecipient as namesPlace, othersWordsIn, soleNames, ownWords, POST_ASK } from './shared-actions'
 import { readRooms } from './read-rooms'
 // (moved to chat/shared-actions.ts, kept here for the tests and older imports)
 export { namedByAsker, namesRecipient } from './shared-actions'
@@ -357,7 +357,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const theirText = plain && fold(said).includes(fold(shown))
         const noteOk = first.at === 0 || fold(said).includes(fold(first.body.slice(0, first.at)))
         const place = a.data.room === undefined ? !!side && a.data.thread_id === undefined
-          : !readRooms(exec) && a.data.thread_id === undefined && namedInFull(said, recipientNames(db, spec.userId, mine?.room ?? null, pendingTo).names)
+          : !readRooms(exec) && a.data.thread_id === undefined && (() => { const r = recipientNames(db, spec.userId, mine?.room ?? null, pendingTo); return namedInFull(said, r.names, { place: !r.person }) })()
         const explicit = spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && !all && !linesNone.length && !laterLine && asksFor(POST_ASK, said)
           && (plain ? theirText : !exec.shared && !exec.otherAuthors) && noteOk && place
         // (where the choice does not count the card shows; it still offers "Always allow" on its first showing in a chat
@@ -451,11 +451,10 @@ export function postRefusal(e: unknown, title: string, roomId: string, shared: b
  * person's; a team room's or group chat's own name (a team room's group name too). `person`: they are a person's. */
 export function recipientNames(db: import('bun:sqlite').Database, me: string, room: RoomRow | null, to: Teammate | null): { names: string[]; person: boolean } {
   if (to) {
-    const u = db.query('SELECT name, username FROM users WHERE id = ?').get(to.id) as { name: string; username: string } | null
-    return { names: [to.name, u?.username ?? ''].filter(Boolean), person: true }
+    return { names: soleNames(db, to.id), person: true }
   }
   if (!room) return { names: [], person: false }
-  if (room.kind === 'dm') return { names: (db.query('SELECT u.name, u.username FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? AND m.user_id <> ?').all(room.id, me) as { name: string; username: string }[]).flatMap((u) => [u.name, u.username]), person: true }
+  if (room.kind === 'dm') return { names: (db.query('SELECT m.user_id AS id FROM room_members m WHERE m.room_id = ? AND m.user_id <> ?').all(room.id, me) as { id: string }[]).flatMap((u) => soleNames(db, u.id)), person: true }
   return { names: [room.name ?? '', room.kind === 'team' ? groupName(db, room) ?? '' : ''].filter(Boolean), person: false }
 }
 

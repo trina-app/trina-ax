@@ -26,7 +26,7 @@ import { fileSharesOf } from '../files/shares'
 import { isStaff } from '../policy/access'
 import { tr } from './i18n'
 import { neutralizeTags } from './prompt'
-import { actionOff, askerPicks, askerText, asksToSend, attachedPaths, fromAsker, madeInTurn, mainOnly, namesFile, namesFileLoose, namedInFull, namesGroup, namesRecipient, ownWords, asksFor, SHARE_ASK } from './shared-actions'
+import { actionOff, askerPicks, askerText, asksToSend, attachedPaths, fromAsker, madeInTurn, mainOnly, namesFile, namesFileLoose, namedInFull, namesGroup, namesRecipient, ownWords, soleNames, asksFor, SHARE_ASK } from './shared-actions'
 import { readRooms } from './read-rooms'
 import { alwaysHere, withAlways } from './always-allow'
 import type { Tool } from './tools'
@@ -208,8 +208,7 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
 /** The words that name a recipient in the asker's message: a person's name and username, a group's name. */
 function recipientWords(db: import('bun:sqlite').Database, w: Who): string[] {
   if (w.subjectType === 'group') return [w.name]
-  const u = db.query('SELECT username FROM users WHERE id = ?').get(w.subjectId) as { username: string } | null
-  return [w.name, u?.username ?? ''].filter(Boolean)
+  return soleNames(db, w.subjectId)
 }
 
 const isGuest = (db: import('bun:sqlite').Database, id: string) => !!db.query('SELECT 1 FROM users WHERE id = ? AND guest = 1').get(id)
