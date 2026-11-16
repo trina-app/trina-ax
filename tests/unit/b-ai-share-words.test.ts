@@ -48,8 +48,10 @@ describe('the rules', () => {
   })
 
   test('several files of one name: the one of this chat without asking; otherwise choices by name, place and who shared it', () => {
-    expect(SAME_NAME_RULE).toContain('if one was made, read or attached in this chat, or is the only one they may share, use it without asking and say which')
-    expect(SAME_NAME_RULE).toContain('each choice labelled by its name, its place in words and, for a file shared with the user, who shared it and when')
+    expect(SAME_NAME_RULE).toContain('if one was made, read or attached in this chat, use it without asking and say which')
+    // TC-4091 (the owner's rule, 2026-11-16): reading may answer each one, labelled; an action always asks which one
+    expect(SAME_NAME_RULE).toContain('to only read or summarise, you may answer for each of them, each part labelled by its place in words and, for a file shared with the user, who shared it and when')
+    expect(SAME_NAME_RULE).toContain('To act on one (share, post, edit, delete, move, rename), never pick: ask which one')
   })
 
   test('no team path in a card\'s question or options either; every option reads differently', () => {
@@ -351,7 +353,8 @@ describe('through the tools', () => {
     expect((await turn('bob', share({ paths: ['shared/alices.txt'], people: ['Tess Yoon'] }))).content).toBe(SHARE_NO.notOwner('alices.txt', 'Alice Kim'))
     updateTeamSettings(h.ctx.db, { memberFileShares: false })
     try {
-      expect((await turn('bob', share({ paths: ['users/bob/Work/Quote.pdf'], people: ['Tess Yoon'] }))).content).toBe(SHARE_NO.off('Quote.pdf', 'ko', false))
+      // (integrated: the card has the server's "Ask an admin" offer, so the words point at it)
+      expect((await turn('bob', share({ paths: ['users/bob/Work/Quote.pdf'], people: ['Tess Yoon'] }))).content).toBe(SHARE_NO.off('Quote.pdf', 'ko', false, true))
     } finally { updateTeamSettings(h.ctx.db, { memberFileShares: true }) }
     expect((await turn('bob', share({ paths: ['users/bob/Work/Quote.pdf'], people: ['Nobody Here'] }))).content).toBe(SHARE_NO.nobody('Nobody Here'))
   })
@@ -363,10 +366,14 @@ describe('through the tools', () => {
     const out = JSON.parse(two.content)
     expect(out.status).toBe('shared')
     expect(out.already_had_access).toBeUndefined()
-    const again = await turn('bob', `(to the person I said before)\n${share({ paths: ['users/bob/Work/Quote.pdf'], people: ['Tess Yoon'] })}`, { answer: 'share' })
+    // (integrated: who can already open it is found before the card, so no card and nothing changes; the card's record
+    // says who already had it)
+    const again = await turn('bob', `(to the person I said before)\n${share({ paths: ['users/bob/Work/Quote.pdf'], people: ['Tess Yoon'] })}`)
+    expect(again.card).toBeNull()
     const out2 = JSON.parse(again.content)
-    expect(out2).toMatchObject({ status: 'shared', already_had_access: true, note: SHARE_ALREADY_NOTE })
-    expect(out2.links).toHaveLength(1)
+    expect(out2.status).toBe('already_open')
+    expect(out2.note).toContain('Tess Yoon can already open it')
+    expect(SHARE_ALREADY_NOTE).toContain('Nobody new got access')
     // alice (English): one file reads "it"
     put('users/alice/one.md', 'x')
     const one = await turn('alice', `(to the person I said before)\n${share({ paths: ['users/alice/one.md'], people: ['Tess Yoon'] })}`, { answer: 'no' })
@@ -385,6 +392,9 @@ describe('through the tools', () => {
       put('users/bob/ledger-2.txt', 'ledger 2')
       const r = await turn('bob', `go on\n${fake({ tool: 'read', args: { file_path: 'shared/alices.txt' } })}\n${share({ paths: ['users/bob/ledger-2.txt'], people: ['Tess Yoon'] })}`, { answer: 'no' })
       expect(r.card!.question.startsWith(`${tr('othersWordsWhy', 'ko')}\n\nTess Yoon님에게 파일 1개를 공유할까요?`)).toBe(true)
+      // the card's rows (which the app shows in place of the question) carry the same one line, once
+      expect((r.card as unknown as { share: { why?: string } }).share.why).toBe(tr('othersWordsWhy', 'ko'))
+      expect(r.card!.question.split(tr('othersWordsWhy', 'ko')).length).toBe(2)
     } finally { dropAlways(h.ctx.db, 'bob', 'card:share_files') }
   })
 

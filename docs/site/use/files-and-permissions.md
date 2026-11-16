@@ -82,7 +82,10 @@ You can share a file you own with chosen people, without changing who can open i
   **Manage access**, which opens this dialog. After a stop it is **Undo**, and the card says who can still open the
   file and why (for example through a group it is still shared with, or because they can open its folder). Trina asks
   first before it shares a file, unless your message named the file and the person. Stopping needs no question when
-  your message named them.
+  your message named them. When someone can already open the file, the card says so and nothing changes for them.
+- When Trina can't share a file, the card says why and has the next step as its one button: **Ask Mina** for a file
+  Mina owns (she gets the request in **Activity** and decides), or **Ask an admin** when the team turned off member
+  sharing (the team's owner and admins get a message from you asking to turn it back on).
 - A team file also opens for everyone who can open its folder.
 - **Copy link** gives the file's own link. People with access open it; anyone else sees **You need access** and can **Ask for access** with a note. The request comes to the owner in **Activity** with **Share** and **Decline**, and as a phone notification. The link page never shows the file's name to someone who can't open it.
 - Moving a file somewhere fewer people can open says how many people have it by its link.

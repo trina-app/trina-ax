@@ -40,8 +40,9 @@ export const OTHERS_WORDS_RULE = 'A share or a post may show its card although t
  * line (roomsSeenWhy), and a shared chat never had the choice count this way. */
 export const othersWordsCard = (exec: { shared?: unknown; roomsSeen?: unknown; othersWords?: unknown; alwaysPlace?: () => AlwaysPlace }, kind: CardAlwaysKind, alwaysOk: boolean): boolean =>
   !alwaysOk && !exec.shared && !exec.roomsSeen && !!exec.othersWords && alwaysHere(exec.alwaysPlace?.(), kind) === 'on'
-/** Next to FIND_FILE_RULE (UX B): several files of one name. */
-export const SAME_NAME_RULE = 'Several files fit the name the user gave: if one was made, read or attached in this chat, or is the only one they may share, use it without asking and say which. Otherwise ask, each choice labelled by its name, its place in words and, for a file shared with the user, who shared it and when.'
+/** Next to FIND_FILE_RULE (UX B): several files of one name (QA TC-4091, the owner's rule 2026-11-16): to read or
+ * summarise, answering for each one is fine when each is labelled; to act on one (share, post, edit, delete, move), ask. */
+export const SAME_NAME_RULE = 'Several files fit the name the user gave: if one was made, read or attached in this chat, use it without asking and say which. Otherwise, to only read or summarise, you may answer for each of them, each part labelled by its place in words and, for a file shared with the user, who shared it and when. To act on one (share, post, edit, delete, move, rename), never pick: ask which one, each choice labelled the same way.'
 /** After SOURCE_LINK_RULE (UX A): the same on a card. */
 export const CARD_WORDS_RULE = 'The same in a question or an option you put on a card (ask_user): never a team path. Say the place in words, by the names in quotes under "Team folders" and the folder names below them (the user\'s own folder › Work), and give every option a different label.'
 /** An own chat (the plan's "Gmail 미연결"): how to connect, and a draft meanwhile. */
@@ -67,20 +68,27 @@ const q = (s: string) => `"${s}"`
 export const SHARE_NO = {
   /** not found, or not one the user can open (the same answer for both, on purpose) */
   notFile: (file: string, why: string) => `Nothing was shared: ${q(file)} ${why}. Next step: look for the file by its name (glob, or list its folder) and call share_with_person again with the one that fits; if none fits, tell the user you could not find it among the files they can open and ask which file they mean.`,
-  /** someone else's file. `owner` null: not known, or a shared chat */
-  notOwner: (file: string, owner: string | null) => owner
-    ? `Nothing was shared: ${q(file)} is ${owner}'s file, so only ${owner} can add people to it. Next step: tell the user that in one sentence and offer to ask ${owner}: with the user's yes, send ${owner} a short message with the file's link (share_file, then post_to_room to ${owner}) asking them to share it with the people the user named.`
-    : `Nothing was shared: ${q(file)} is someone else's file, so only its owner can add people to it (a team owner or admin can too, for a team file). Next step: tell the user that in one sentence and offer to write a short request with the file's link (share_file) that they can send to its owner or an admin.`,
+  /** someone else's file. `owner` null: not known, or a shared chat. `ask`: the card has the server's button for the
+   * next step (chat/share-next-steps.ts: "Ask <owner>", or "Ask an admin" when nobody owns it now); null: no button, the
+   * AI offers to write the request */
+  notOwner: (file: string, owner: string | null, ask: 'owner' | 'admin' | null = null) => ask
+    ? `Nothing was shared: ${q(file)} is ${owner ? `${owner}'s file, so only ${owner}` : 'someone else\'s file, so only its owner'} can add people to it. Next step: the user sees a card with an "${ask === 'owner' ? `Ask ${owner ?? 'the owner'}` : 'Ask an admin'}" button that sends the request for the people they named (view only; ${ask === 'owner' ? 'the owner' : 'an admin'} decides). Tell them that in one short sentence and point at the button; do not send a message yourself.`
+    : owner
+      ? `Nothing was shared: ${q(file)} is ${owner}'s file, so only ${owner} can add people to it. Next step: tell the user that in one sentence and offer to ask ${owner}: with the user's yes, send ${owner} a short message with the file's link (share_file, then post_to_room to ${owner}) asking them to share it with the people the user named.`
+      : `Nothing was shared: ${q(file)} is someone else's file, so only its owner can add people to it (a team owner or admin can too, for a team file). Next step: tell the user that in one sentence and offer to write a short request with the file's link (share_file) that they can send to its owner or an admin.`,
   /** the user's own file in a place they can no longer edit (sharing needs edit access) */
-  noEdit: (file: string) => `Nothing was shared: the user can open ${q(file)} but can no longer change it there, and sharing a file needs edit access to it. Next step: tell the user that in one sentence and offer to write a short request to the team owner or an admin, who can share a team file or give the user edit access to its folder.`,
-  /** the team's switch for members is off. `staff`: the user is the team owner or an admin */
-  off: (file: string, L: Locale, staff: boolean) => `Nothing was shared: the team turned off file sharing by members, so ${q(file)} cannot be shared with chosen people now (what was shared before still opens). Next step: tell the user that in one sentence and ${staff ? `that they can turn it back on themselves in ${SCREEN.adminSettings(L)}, team settings, the switch for members sharing files they own; offer to share again once it is on` : `that the team owner or an admin can turn it back on in ${SCREEN.adminSettings(L)}, team settings; offer to write that request for them`}.`,
+  noEdit: (file: string, ask = false) => `Nothing was shared: the user can open ${q(file)} but can no longer change it there, and sharing a file needs edit access to it. Next step: tell the user that in one sentence and ${ask ? 'that the card has an "Ask an admin to share it" button, which sends the request for the people they named (an admin decides); do not send a message yourself' : 'offer to write a short request to the team owner or an admin, who can share a team file or give the user edit access to its folder'}.`,
+  /** the team's switch for members is off. `staff`: the user is the team owner or an admin. `ask`: the card has the
+   * "Ask an admin" button (files/share-fixes.ts forSwitch) */
+  off: (file: string, L: Locale, staff: boolean, ask = false) => `Nothing was shared: the team turned off file sharing by members, so ${q(file)} cannot be shared with chosen people now (what was shared before still opens). Next step: tell the user that in one sentence and ${staff ? `that they can turn it back on themselves in ${SCREEN.adminSettings(L)}, team settings, the switch for members sharing files they own; offer to share again once it is on` : ask ? `that the card has an "Ask an admin" button, which sends the team's admins a message from them asking to turn it back on; do not send a message yourself` : `that the team owner or an admin can turn it back on in ${SCREEN.adminSettings(L)}, team settings; offer to write that request for them`}.`,
   /** a folder. `files`: the files right in it the user can share now (team paths, for the next call), null when not counted */
-  folder: (name: string | null, o: { files: string[] | null; more: number; teamFolder: boolean; staff: boolean }) => {
+  folder: (name: string | null, o: { files: string[] | null; more: number; teamFolder: boolean; staff: boolean; askAdmin?: boolean }) => {
     const n = o.files === null ? null : o.files.length + o.more
     const lead = `Nothing was shared: ${name === null ? 'that' : q(name)} is a folder, and a whole folder cannot be shared yet (files put in it later would not follow).`
     const team = o.teamFolder
-      ? (o.staff ? ' It is a team folder, and the user is the team owner or an admin: they can share the whole folder with people or groups themselves, with Share on the folder in Files.' : ' It is a team folder: the team owner or an admin can share the whole folder with people or groups, with Share on the folder in Files.')
+      ? (o.staff ? ' It is a team folder, and the user is the team owner or an admin: they can share the whole folder with people or groups themselves, with Share on the folder in Files.'
+        : o.askAdmin ? ' It is a team folder: only the team owner or an admin can share the whole folder. The user has an "Ask an admin" button under your answer, which sends an admin a message from them naming the folder and the people (nothing changes by itself); mention it in one short sentence and do not send a message yourself.'
+        : ' It is a team folder: the team owner or an admin can share the whole folder with people or groups, with Share on the folder in Files.')
       : ''
     if (n === null) return `${lead}${team} Next step: tell the user "I can't share the whole folder yet, but I can share the files in it", list the folder to see them, and with the user's yes call share_with_person again with those files (at most 10 a call).`
     if (n === 0) return `${lead}${team} There is no file right in it that the user can share (it is empty, or holds only folders or other people's files). Next step: tell the user that in one sentence and ask which files they want to share.`

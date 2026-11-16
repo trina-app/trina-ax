@@ -13,7 +13,7 @@
 // server leaves it out for every other viewer of a shared chat), so nobody else sees this card.
 import { Users } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
-import type { ShareCardAsk, ShareCardFile, ShareCardNext, ShareCardState, ShareCardWho, StepShared } from '@mycel/shared/api'
+import type { ShareCardAsk, ShareCardFile, ShareCardNext, ShareCardState, ShareCardWho, StepFix, StepShared } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isConnectionError } from '../../lib/api'
 import { askHeadline, isRestored, liveFiles, shareHeadline, shareNotes } from '../../lib/shareCard'
 import { useLocale, useT } from '../../i18n'
@@ -27,7 +27,7 @@ import { FileKindIcon } from './TeamFilePicker'
 
 /** The button of a refusal's next step (`Step.shared.next`), by its kind. Another module fills it:
  * `registerShareNext('ask_owner', ({ next, shared }) => <Button …>Ask {next.name}</Button>)`. */
-export type ShareNextButton = (p: { next: ShareCardNext; shared: StepShared }) => ReactNode
+export type ShareNextButton = (p: { next: ShareCardNext; shared: StepShared; fix?: StepFix }) => ReactNode
 const nextButtons: Partial<Record<ShareCardNext['kind'], ShareNextButton>> = {}
 export function registerShareNext(kind: ShareCardNext['kind'], button: ShareNextButton | null): void {
   if (button) nextButtons[kind] = button
@@ -60,6 +60,7 @@ export function ShareAskRows({ ask, titleId }: { ask: ShareCardAsk; titleId: str
   const locale = useLocale()
   return (
     <div data-testid="share-ask" data-op={ask.op}>
+      {ask.why && <p className="mt-1 text-xs break-keep text-muted [overflow-wrap:anywhere]" data-testid="share-ask-why">{ask.why}</p>}
       <p id={titleId} className="mt-1 text-sm font-medium break-keep [overflow-wrap:anywhere]" data-testid="share-ask-title">{askHeadline(t, locale, ask)}</p>
       <ActionRows testId="share-ask-rows">
         {ask.files.map((f, i) => <FileRow key={i} file={f} owner={ask.owner?.name} />)}
@@ -83,7 +84,8 @@ function useLive(ids: readonly string[]): { live: ShareCardState[] | null; reloa
   return { live, reload }
 }
 
-export default function ShareCard({ shared }: { shared: StepShared }) {
+/** `fixes`: the step's server offers (Step.fixes); the one the record's `next.fixId` names is this card's button. */
+export default function ShareCard({ shared, fixes }: { shared: StepShared; fixes?: readonly StepFix[] }) {
   const t = useT()
   const locale = useLocale()
   const ids = useMemo(() => shared.files.map((f) => f.linkId).filter((x): x is string => !!x), [shared])
@@ -120,7 +122,7 @@ export default function ShareCard({ shared }: { shared: StepShared }) {
 
   const Next = refused && shared.next ? nextButtons[shared.next.kind] : undefined
   const button = refused
-    ? (Next && shared.next ? Next({ next: shared.next, shared }) : null)
+    ? (Next && shared.next ? Next({ next: shared.next, shared, fix: fixes?.find((f) => f.id === shared.next?.fixId) }) : null)
     : !mine.length ? null
     : stop
       ? <Button size="sm" variant="secondary" busy={busy} onClick={() => void undo()} data-testid="share-card-undo">{t('shareCard.undo')}</Button>

@@ -363,6 +363,22 @@ describe('share_with_person: a file or person that came from looking_at keeps th
   })
 })
 
+describe('stop_sharing: a file that came from looking_at keeps the card (integration of B2 and B4)', () => {
+  const stopT = (args: Record<string, unknown>) => fake({ tool: 'stop_sharing', args, sayResult: true })
+  test('"stop sharing this with Tess Yoon" with the file from looking_at asks; with the file named it goes', async () => {
+    await clearLooks()
+    put('users/bob/photo-7.png', 'png seven')
+    fileSharesOf(h.ctx).change('bob', 'users/bob/photo-7.png', [{ subjectType: 'user', subjectId: 'tess' }], [], 'en')
+    await look(bob1, 'bob', W1, { screen: 'file', filePath: 'users/bob/photo-7.png' })
+    const r = await turn('bob', `stop sharing this with Tess Yoon\n${LOOK}\n${stopT({ paths: ['users/bob/photo-7.png'], people: ['Tess Yoon'] })}`, { answer: 'no' })
+    expect(r.card!.origin).toBe('server')
+    expect(h.ctx.db.query("SELECT 1 FROM file_share_grants g JOIN file_shares s ON s.id = g.share_id WHERE s.path = 'users/bob/photo-7.png' AND g.subject_id = 'tess'").get()).not.toBeNull()
+    const named = await turn('bob', `stop sharing photo-7.png with Tess Yoon\n${LOOK}\n${stopT({ paths: ['users/bob/photo-7.png'], people: ['Tess Yoon'] })}`)
+    expect(named.cards).toBe(0)
+    expect(h.ctx.db.query("SELECT 1 FROM file_share_grants g JOIN file_shares s ON s.id = g.share_id WHERE s.path = 'users/bob/photo-7.png' AND g.subject_id = 'tess'").get()).toBeNull()
+  })
+})
+
 describe('post_to_room: a room or thread that came from looking_at keeps the card', () => {
   const authored = (roomId: string, user: string) => (h.ctx.db.query('SELECT COUNT(*) n FROM room_messages WHERE room_id = ? AND author_id = ?').get(roomId, user) as { n: number }).n
   test('"Always allow" is on: a room the asker did not name asks; named in their own words it goes', async () => {

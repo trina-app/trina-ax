@@ -135,7 +135,7 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
               ...(fix && (fix.kind === 'ask_owner' || fix.kind === 'ask_admin') ? { next: { kind: fix.kind, fixId: fix.id, ...(fix.owner ? { name: fix.owner } : {}) } } : {}),
             }
             if (v.off) return no(SHARE_NO.off(fileAi, L, isStaff(me as never), !!fix), 'refused: switched off')
-            if (v.mine) return no(SHARE_NO.noEdit(fileAi), 'refused: not the owner')
+            if (v.mine) return no(SHARE_NO.noEdit(fileAi, !!fix), 'refused: not the owner')
             return no(SHARE_NO.notOwner(fileAi, !exec.shared && v.owner ? neutralizeTags(oneLine(v.owner.name, 40)) : null, fix ? (fix.owner ? 'owner' : 'admin') : null), 'refused: not the owner')
           }
           // another member's message must not pick the asker's files: in a chat others wrote in, a file the asker brought
@@ -181,8 +181,11 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         const have = others || content ? [] : alreadyOpen(exec, plan.map((f) => f.path), who.filter((w) => w.subjectType === 'user').map((w) => w.subjectId))
         const haveIds = new Set(have.map((h) => h.id))
         const haveNote = have.map((h) => neutralizeTags(h.words)).join('; ')
+        // the card's record of who could already open the files (nobody new got access through them)
+        const already = who.filter((w) => w.subjectType === 'user' && haveIds.has(w.subjectId))
         if (have.length && who.every((w) => w.subjectType === 'user' && haveIds.has(w.subjectId))) {
           named = oneLine(who.map((w) => w.name).join(', '), 60)
+          shared = { op: 'share', outcome: 'done', files: plan.map((f) => cardFile(db, f.path, L, spec.userId, cardLink(shares, spec.userId, f.path))), who: [], already: cardPeople(db, already).who, level: 'view', ...(cardOwner(plan[0]?.owner, spec.userId) ? { owner: cardOwner(plan[0]?.owner, spec.userId) } : {}) }
           return { ...text(JSON.stringify({ status: 'already_open', note: `${haveNote}. Nothing was shared again and nothing changed. Tell the user that in one short sentence.` })), summary: `share_with_person -> already open for ${have.length}` }
         }
         if (have.length) for (let i = who.length - 1; i >= 0; i--) if (who[i]!.subjectType === 'user' && haveIds.has(who[i]!.subjectId)) who.splice(i, 1)
@@ -192,8 +195,11 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         // ---- the card, with "Always allow" (kind share_files); in a chat others wrote in, it counts only when the asker's
         // own message names every recipient (another member's message must not pick who gets the asker's files) ----
         const one = who.length === 1 ? who[0]! : null
+        // why the card asks although "Always allow" may be on: rooms or a shared file read here (seenWhy), or content
+        // someone else wrote (othersWordsWhy). One line for one cause: othersWordsCard is never true once rooms were seen
+        const seenLine = exec.roomsSeen ? tr(seenWhy(exec, 'roomsSeenWhy'), L) : ''
         const question = [
-          exec.roomsSeen ? tr(seenWhy(exec, 'roomsSeenWhy'), L) : '',
+          seenLine,
           one?.subjectType === 'user' ? tr('fileShareAsk', L, { who: oneLine(one.name, 40), n: String(plan.length) }) : one ? tr('fileShareAskGroup', L, { who: oneLine(one.name, 40), n: String(plan.length) }) : tr('fileShareAskMany', L, { who: oneLine(whoLine, 80), n: String(plan.length) }),
           tr(plan.length === 1 ? 'fileShareViewOne' : 'fileShareView', L),
         ].filter(Boolean).join('\n\n')
@@ -218,7 +224,7 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
           // each file by its name and place in words, never a team path: two files of one name read differently
           details: [{ label: tr('fileShareFiles', L), text: plan.map((f) => fileWords(db, f.path, L, spec.userId)).join('\n'), noSize: true }],
           // the same rows as the result card: the card that asks turns into the card that says what was done
-          share: { op: 'share', files: plan.map((f) => cardFile(db, f.path, L, spec.userId)), ...cardPeople(db, who), ...(cardOwner(plan[0]?.owner, spec.userId) ? { owner: cardOwner(plan[0]?.owner, spec.userId) } : {}) },
+          share: { op: 'share', files: plan.map((f) => cardFile(db, f.path, L, spec.userId)), ...cardPeople(db, who), ...(cardOwner(plan[0]?.owner, spec.userId) ? { owner: cardOwner(plan[0]?.owner, spec.userId) } : {}), ...(seenLine || othersWordsCard(exec, 'share_files', alwaysOk) ? { why: seenLine || tr('othersWordsWhy', L) } : {}) },
           expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
         } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() }))
         const v = Array.isArray(reply) && reply.length === 1 ? reply[0] : reply
@@ -241,6 +247,7 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
           ...(failedAt !== undefined ? { failed: plan.slice(failedAt).map((f) => cardFile(db, f.path, L, spec.userId)), refusal: { reason: reason ?? 'failed', file: cardFile(db, plan[failedAt]!.path, L, spec.userId).name } } : {}),
           ...(cardOwner(plan[0]?.owner, spec.userId) ? { owner: cardOwner(plan[0]?.owner, spec.userId) } : {}),
           ...cardPeople(db, who), level: 'view', ...(told.size ? { notified: [...told].slice(0, 50) } : {}),
+          ...(already.length ? { already: cardPeople(db, already).who } : {}),
         })
         const soFar = () => (done.length ? ` ${done.length} of ${plan.length} files were shared before that.` : '')
         for (let i = 0; i < plan.length; i++) {

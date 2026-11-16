@@ -28,6 +28,7 @@ import { tr } from './i18n'
 import { neutralizeTags } from './prompt'
 import { CARD_SAYS_IT, cardFile, cardLink, cardOwner, cardPeople, cardStill, type CardSubject } from './share-card'
 import { recipientWords } from './share-with-person'
+import { lookedFile, lookedPerson } from './looking-at'
 import { actionOff, askerPicks, askerText, attachedPaths, mainOnly, namedInFull, namesFile, namesFileLoose, othersWordsIn, ownWords, saysDont } from './shared-actions'
 import { readRooms } from './read-rooms'
 import type { Tool } from './tools'
@@ -180,7 +181,10 @@ export function stopSharingTool(exec: TurnExec): Tool {
         // chat, one others wrote in, a room read, or content someone else wrote: chats.others_words) "everyone on it" is
         // not a name: the stop runs without the card only when the message names the file AND every person
         const marked = othersWordsIn(exec)
-        const explicit = !saysDont(said)
+        // a file or person the AI learned from looking_at in this turn is not the asker's word (chat/looking-at.ts, B4's
+        // rule, as in share_with_person and post_to_room): unless their own message names it, the card shows
+        const fromLook = todo.some((f) => lookedFile(exec, f.path, said, attached)) || who.some((w) => w.subjectType === 'user' && lookedPerson(exec, w.subjectId, recipientWords(db, w), said))
+        const explicit = !fromLook && !saysDont(said)
           && todo.every((f) => attached.has(f.path) || namesFileLoose(said, f.path))
           && (refs.length ? who.every((w) => namedInFull(said, w.subjectId === FILE_SHARE_EVERYONE ? [w.name, ...EVERYONE_WORDS] : recipientWords(db, w))) : !marked)
         const owner = cardOwner(todo[0]?.owner, spec.userId)

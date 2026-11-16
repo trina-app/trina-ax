@@ -395,6 +395,9 @@ export const StepFix = z.object({
   count: z.number().int().min(0),
   /** guests among the people who cannot open it: never given a file */
   guests: z.number().int().min(0).optional(),
+  /** ask_admin: why an admin is asked. folder (or absent): a team folder only admins share; switch: the team turned off
+   * members' file sharing (the admins are asked to turn it on) */
+  reason: z.enum(['folder', 'switch']).optional(),
   /** who is asked: the file's owner, or the admin(s) */
   owner: z.string().max(200).optional(),
   chatId: z.string().max(64).optional(),

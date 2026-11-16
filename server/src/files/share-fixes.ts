@@ -32,6 +32,7 @@ import { newId } from '../db'
 import { accessRouteFor, nameOf } from './access-routes'
 import { fileSharesOf } from './shares'
 import { tr } from '../chat/i18n'
+import { getTeamSettings } from '../admin/settings'
 
 /** names shown on the line (the rest is the count) */
 export const FIX_NAMES = 3
@@ -46,7 +47,9 @@ const KEEP_MS = 30 * 86400_000
 interface FileOf { share: string; people: string[] }
 type Payload =
   | { kind: 'let_view' | 'ask_owner'; files: FileOf[]; roomId?: string }
-  | { kind: 'ask_admin'; folder: string; people: string[]; admins: string[] }
+  | { kind: 'ask_admin'; reason?: 'folder'; folder: string; people: string[]; admins: string[] }
+  // the team turned off members' file sharing: ask to turn it on, for the person's own file (by its link id)
+  | { kind: 'ask_admin'; reason: 'switch'; share: string; admins: string[] }
   | { kind: 'share_project'; projectId: string }
 interface Row { id: string; user_id: string; chat_id: string; kind: StepFix['kind']; payload: string; state: StepFix['state']; done_count: number | null }
 
@@ -165,7 +168,26 @@ export class ShareFixes {
     if (!admins.length) return null
     const who = [...new Set(people)].filter((id) => id !== userId && isMember(this.db, id) && !accessRouteFor(this.ctx, id, folder)).slice(0, FIX_PEOPLE_MAX)
     const id = this.save(userId, chatId, { kind: 'ask_admin', folder: segs.join('/'), people: who, admins })
-    return { id, kind: 'ask_admin', file: plainLabel(baseName(folder), 200), count: who.length, ...(who.length ? { people: this.names(who) } : {}), owner: plainLabel(admins.map((a) => nameOf(this.ctx, a) ?? '').filter(Boolean).join(', '), 200), state: 'open' }
+    return { id, kind: 'ask_admin', reason: 'folder', file: plainLabel(baseName(folder), 200), count: who.length, ...(who.length ? { people: this.names(who) } : {}), owner: plainLabel(admins.map((a) => nameOf(this.ctx, a) ?? '').filter(Boolean).join(', '), 200), state: 'open' }
+  }
+
+  /** "Ask an admin" when the team turned off members' file sharing and the person's own file could not be shared:
+   * the admins get the person's 1:1 message asking to turn it back on, naming the file. Null: nothing to ask (the
+   * switch is on, the person is an admin, it is not their file, no admin to ask). */
+  forSwitch(userId: string, chatId: string, path: string): StepFix | null {
+    const me = loadPrincipal(this.db, userId)
+    if (!me || me.role === 'guest' || isStaff(me)) return null
+    const shares = fileSharesOf(this.ctx)
+    let link: string
+    try {
+      const v = shares.view(userId, path, 'en')
+      if (!v.off || !v.mine) return null
+      link = shares.linkFor(userId, v.path).id
+    } catch { return null }
+    const admins = this.admins(userId)
+    if (!admins.length) return null
+    const id = this.save(userId, chatId, { kind: 'ask_admin', reason: 'switch', share: link, admins })
+    return { id, kind: 'ask_admin', reason: 'switch', file: plainLabel(baseName(path), 200), count: 0, owner: plainLabel(admins.map((a) => nameOf(this.ctx, a) ?? '').filter(Boolean).join(', '), 200), state: 'open' }
   }
 
   /** "Share with project": the person's own private chat in a team project (the app's flow does the share and its
@@ -251,14 +273,26 @@ export class ShareFixes {
   /** The person's own 1:1 message to each admin, written here: the folder by name with a link to it, and the people
    * who cannot open it. Returns how many admins got it. */
   private askAdmin(userId: string, offerId: string, p: Extract<Payload, { kind: 'ask_admin' }>, L: Locale): number {
-    // still theirs to ask about: they can open the folder and are no admin (an admin shares it themselves)
     const me = loadPrincipal(this.db, userId)!
-    if (isStaff(me) || !accessRouteFor(this.ctx, userId, p.folder)) return 0
+    if (isStaff(me)) return 0
+    let body: string, path: string, people: string[] = []
+    if (p.reason === 'switch') {
+      // still worth asking: the switch is still off and the file is still theirs (else nothing to do)
+      const s = fileSharesOf(this.ctx).row(p.share)
+      if (!s || s.state !== 'live' || s.owner_id !== userId || getTeamSettings(this.db).memberFileShares !== false) return 0
+      path = s.path
+      // the file by its name only: an admin may not be able to open it (a personal folder), and nothing is shared by this
+      body = tr('fixAskAdminSwitch', L, { file: plainLabel(baseName(s.path), 120), setting: tr('fixSwitchName', L) })
+    } else {
+      // still theirs to ask about: they can open the folder and are no admin (an admin shares it themselves)
+      if (!accessRouteFor(this.ctx, userId, p.folder)) return 0
+      path = p.folder
+      people = p.people.filter((id) => isMember(this.db, id) && !accessRouteFor(this.ctx, id, p.folder)).map((id) => nameOf(this.ctx, id) ?? '').filter(Boolean)
+      const name = plainLabel(baseName(p.folder), 120).replace(/[\[\]()]/g, ' ')
+      const link = `[${name}](/files/view?path=${encodeURIComponent(p.folder)})`
+      body = people.length ? tr('fixAskAdminPeople', L, { folder: link, people: people.join(', ') }) : tr('fixAskAdmin', L, { folder: link })
+    }
     const rooms = roomsOf(this.ctx)
-    const people = p.people.filter((id) => isMember(this.db, id) && !accessRouteFor(this.ctx, id, p.folder)).map((id) => nameOf(this.ctx, id) ?? '').filter(Boolean)
-    const name = plainLabel(baseName(p.folder), 120).replace(/[\[\]()]/g, ' ')
-    const link = `[${name}](/files/view?path=${encodeURIComponent(p.folder)})`
-    const body = people.length ? tr('fixAskAdminPeople', L, { folder: link, people: people.join(', ') }) : tr('fixAskAdmin', L, { folder: link })
     let sent = 0
     for (const admin of p.admins.slice(0, FIX_ADMINS_MAX)) {
       const a = loadPrincipal(this.db, admin)
@@ -268,7 +302,7 @@ export class ShareFixes {
       rooms.send(userId, room.id, { body, mentions: [], fileIds: [], clientMessageId: `fix-${offerId}-${sent}`, threadRootId: null }, { locale: L })
       sent++
     }
-    if (sent) audit(this.db, { actor: userId, action: 'share.fix', target: `share-fix:${offerId}`, detail: { kind: 'ask_admin', path: p.folder, admins: sent, people: people.length, via: 'ai' } })
+    if (sent) audit(this.db, { actor: userId, action: 'share.fix', target: `share-fix:${offerId}`, detail: { kind: 'ask_admin', reason: p.reason ?? 'folder', path, admins: sent, people: people.length, via: 'ai' } })
     return sent
   }
 }

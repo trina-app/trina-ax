@@ -38,6 +38,11 @@ export function shareHeadline(t: T, locale: Locale, s: StepShared, restored = fa
   const who = whoWords(t, locale, s.who, s.whoMore)
   if (s.outcome === 'refused') return t(`shareCard.refused.${s.op}`, { file: s.refusal?.file ?? s.failed?.[0]?.name ?? '' })
   if (s.outcome === 'partial') return t(`shareCard.partial.${s.op}`, { n: s.files.length, total: s.files.length + (s.failed?.length ?? 0), who })
+  // nobody new: everyone named could already open the files (the server checked before the card)
+  if (s.op === 'share' && !s.who.length && s.already?.length) {
+    const had = whoWords(t, locale, s.already)
+    return s.files.length === 1 ? t('shareCard.already.one', { who: had, file: s.files[0]!.name, n: s.already.length }) : t('shareCard.already.many', { who: had, n: s.files.length, people: s.already.length })
+  }
   if (restored) return s.files.length === 1 ? t('shareCard.restored.one', { file: s.files[0]!.name, who }) : t('shareCard.restored.many', { n: s.files.length, who })
   return s.files.length === 1 ? t(`shareCard.done.${s.op}.one`, { file: s.files[0]!.name, who }) : t(`shareCard.done.${s.op}.many`, { n: s.files.length, who, names: fileNames(t, locale, s.files) })
 }
@@ -64,6 +69,8 @@ export function shareNotes(t: T, locale: Locale, s: StepShared, restored = false
     const people = s.who.filter((w) => w.subjectType === 'user')
     if (told.length && !s.whoMore && people.length === s.who.length && people.every((w) => told.includes(w.subjectId))) out.push(t('shareCard.note.notified', { who: listOf(locale, people.map((w) => w.name)), n: people.length }))
     else if (told.length) out.push(t('shareCard.note.notifiedCount', { n: told.length }))
+    // some of the people named could already open them: said under the rows, not shared again
+    if (s.who.length && s.already?.length) out.push(t('shareCard.note.already', { who: whoWords(t, locale, s.already), n: s.already.length }))
   }
   if (s.op === 'stop' && s.outcome !== 'refused' && !restored) {
     const one = s.files.length === 1

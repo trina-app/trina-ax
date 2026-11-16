@@ -158,18 +158,33 @@ describe('in my own chat', () => {
 
   test('a refusal is a record for the card: someone else\'s file names its owner and the next step; the team switch off says so', async () => {
     // someone else's file: whose it is, its link and "ask the owner" as data (the app's button comes from it)
+    // (integrated, docs/decisions/20261116-ai-sharing-integration.md: the next step is the server's stored offer of the
+    // same step, Step.fixes, named by next.fixId; none when nobody named needs it, and the words then offer a request)
     const other = await turn('bob', share({ paths: ['shared/alices.txt'], people: ['Tess Yoon'] }))
-    expect(other.content).toContain('one short sentence')
+    expect(other.content).toContain('is Alice Kim\'s file, so only Alice Kim can add people to it. Next step:')
     const rec = (await sharedOf('bob', other.chatId, other.answerId))!
-    expect(rec).toMatchObject({ op: 'share', outcome: 'refused', files: [], who: [], refusal: { reason: 'not_owner', file: 'alices.txt', owner: 'Alice Kim' }, next: { kind: 'ask_owner', userId: 'alice', name: 'Alice Kim' } })
-    expect(rec.next!.linkId).toMatch(/^[A-Za-z0-9_-]{22}$/)
+    expect(rec).toMatchObject({ op: 'share', outcome: 'refused', files: [], who: [], refusal: { reason: 'not_owner', file: 'alices.txt', owner: 'Alice Kim' } })
+    expect(rec.failed![0]!.linkId).toMatch(/^[A-Za-z0-9_-]{22}$/)
     expect(rec.failed![0]!.place).not.toContain('shared/')
     // the team turned members' sharing off: the reason, and "ask an admin"
     const { updateTeamSettings } = await import('../../server/src/admin/settings')
     updateTeamSettings(h.ctx.db, { memberFileShares: false })
     try {
       const off = await turn('bob', share({ paths: ['users/bob/photo-1.png'], people: ['Tess Yoon'] }))
-      expect((await sharedOf('bob', off.chatId, off.answerId))!).toMatchObject({ outcome: 'refused', refusal: { reason: 'switched_off', file: 'photo-1.png' }, next: { kind: 'ask_admin' } })
+      const offRec = (await sharedOf('bob', off.chatId, off.answerId))!
+      expect(offRec).toMatchObject({ outcome: 'refused', refusal: { reason: 'switched_off', file: 'photo-1.png' }, next: { kind: 'ask_admin' } })
+      // one "Ask an admin" kind: the switch's reason on the server's offer, its id on the card
+      const step = (await h.api('bob').call(API.listMessages, { params: { id: off.chatId }, query: {} })).items.find((x) => x.id === off.answerId)!.steps!.find((s) => s.tool === 'share_with_person')!
+      expect(step.fixes).toHaveLength(1)
+      expect(step.fixes![0]).toMatchObject({ kind: 'ask_admin', reason: 'switch', file: 'photo-1.png', state: 'open' })
+      expect(offRec.next!.fixId).toBe(step.fixes![0]!.id)
+      expect(off.content).toContain('the card has an "Ask an admin" button')
+      // the tap sends each admin the person's own 1:1 message asking to turn sharing on, naming the file; audited via ai
+      const res = await h.api('bob').call(API.runShareFix, { params: { id: step.fixes![0]!.id } })
+      expect(res).toMatchObject({ state: 'done' })
+      const msgs = h.ctx.db.query("SELECT m.body FROM room_messages m JOIN rooms r ON r.id = m.room_id WHERE m.author_id = 'bob' AND r.kind = 'dm' ORDER BY m.seq DESC LIMIT 1").all() as { body: string }[]
+      expect(msgs[0]!.body).toContain('photo-1.png')
+      expect(h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'share.fix' ORDER BY id DESC LIMIT 1").get()).toMatchObject({ detail: expect.stringContaining('"reason":"switch"') })
     } finally { updateTeamSettings(h.ctx.db, { memberFileShares: true }) }
   })
 })

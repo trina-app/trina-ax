@@ -2080,9 +2080,15 @@ export class MockServer {
       put(step({ id: 'S1', kind: 'tool', tool, label: verb }))
       this.sharedBy.set(`${assistant.id}:S1`, user.id)
       let shared: NonNullable<Step['shared']> | undefined
+      let fixes: Step['fixes']
       let said = ''
       if (refusedCase) {
-        shared = { op: 'share', outcome: 'refused', files: [], failed: [{ linkId: this.fileLinkOf(`users/${user.id}/Quote.pdf`), name: 'Quote.xlsx', place: ko ? '팀 폴더 › 영업' : 'Team folder › Sales' }], who: [], level: 'view', refusal: { reason: 'not_owner', file: 'Quote.xlsx', owner: 'Mina' }, next: { kind: 'ask_owner', userId: 'mina', name: 'Mina' } }
+        // like server/src/chat/share-with-person.ts: the refusal's next step is the server's stored offer on the same step
+        // (Step.fixes), named by the card's record (next.fixId); the card shows it as its button, never again under the answer
+        const fid = uuidv7()
+        this.stepFixes.set(fid, { userId: user.id, messageId: assistant.id, left: 0 })
+        fixes = [{ id: fid, kind: 'ask_owner', file: 'Quote.xlsx', owner: 'Mina', people: [bob.name], count: 1, state: 'open' }]
+        shared = { op: 'share', outcome: 'refused', files: [], failed: [{ linkId: this.fileLinkOf(`users/${user.id}/Quote.pdf`), name: 'Quote.xlsx', place: ko ? '팀 폴더 › 영업' : 'Team folder › Sales' }], who: [], level: 'view', refusal: { reason: 'not_owner', file: 'Quote.xlsx', owner: 'Mina' }, next: { kind: 'ask_owner', fixId: fid, name: 'Mina' } }
         said = ko ? '그 파일은 Mina님의 파일이라 공유하지 못했어요.' : "I couldn't share it: that file is Mina's."
       } else if (stop) {
         grant('Quote.pdf', false)
@@ -2107,7 +2113,7 @@ export class MockServer {
           said = ko ? '공유했어요.' : `Done, ${bob.name} can view it now.`
         } else said = ko ? '공유하지 않았어요.' : 'Okay, nothing was shared.'
       }
-      put(step({ id: 'S1', kind: 'tool', tool, label: shared && !refusedCase ? `${verb} · ${bob.name}` : verb, status: refusedCase ? 'error' : 'ok', endedAt: now(), ...(shared ? { shared } : { detail: ko ? '공유하지 않았어요' : 'Not shared' }) }))
+      put(step({ id: 'S1', kind: 'tool', tool, label: shared && !refusedCase ? `${verb} · ${bob.name}` : verb, status: refusedCase ? 'error' : 'ok', endedAt: now(), ...(shared ? { shared } : { detail: ko ? '공유하지 않았어요' : 'Not shared' }), ...(fixes ? { fixes } : {}) }))
       finish(said)
       return
     }

@@ -393,15 +393,23 @@ describe('share_with_person: already open, and someone else\'s file', () => {
     expect(out.status).toBe('already_open')
     expect(out.note).toContain('Bob Lee can already open it: the file is shared with them by name')
     expect(grants('users/alice/quote.txt')).toEqual(before)
+    // the card's record says it (docs/decisions/20261116-ai-sharing-integration.md): nobody added, who already had it
+    const rec = r.steps.find((s) => s.tool === 'share_with_person')!.shared!
+    expect(rec).toMatchObject({ op: 'share', outcome: 'done', who: [], already: [{ subjectType: 'user', subjectId: 'bob', name: 'Bob Lee' }], files: [{ name: 'quote.txt' }] })
+    expect(rec.files[0]!.linkId).toMatch(/^[A-Za-z0-9_-]{22}$/)
   })
 
   test('someone else\'s file: the refusal carries "Ask <owner> to share it" for the people named', async () => {
     put('groups/marketing/erins-deck.txt', 'deck', 'erin')
     const r = await turn('alice', share({ paths: ['groups/marketing/erins-deck.txt'], people: ['Bob Lee'] }))
-    expect(r.content).toContain('only its owner can share it')
-    expect(r.content).toContain('to share it')
+    // (integrated with the card, docs/decisions/20261116-ai-sharing-integration.md: the offer is the refusal card's button,
+    // and the words point at it)
+    expect(r.content).toContain('so only Erin Yoo can add people to it')
+    expect(r.content).toContain('a card with an "Ask Erin Yoo" button')
     const [fix] = fixesOf(r.steps, 'share_with_person')
     expect(fix).toMatchObject({ kind: 'ask_owner', file: 'erins-deck.txt', owner: 'Erin Yoo', people: ['Bob Lee'] })
+    const card = r.steps.find((s) => s.tool === 'share_with_person')!.shared!
+    expect(card).toMatchObject({ outcome: 'refused', refusal: { reason: 'not_owner' }, next: { kind: 'ask_owner', fixId: fix!.id, name: 'Erin Yoo' } })
     expect(await run('alice', fix!.id)).toMatchObject({ state: 'done', doneCount: 1 })
     expect(notificationsOf(h.ctx)).toBeTruthy()
   })

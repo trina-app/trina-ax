@@ -6,6 +6,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, expect, setDefaultTimeout, test } from 'bun:test'
 import type { InboxNotification, Step, StepFix } from '@mycel/shared/api'
 import { fixDone, fixLabel, fixText, NextStep, StepFixes, StepFixRow } from '../../src/components/chat/StepFix'
+import ShareCard from '../../src/components/chat/ShareCard'
 import { fileShareText } from '../../src/components/settings/Notifications'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { useUi } from '../../src/store/ui'
@@ -149,6 +150,47 @@ test('StepFixes: every offer of an answer\'s steps, nothing for steps without on
   try { expect(none.container.querySelector('[data-testid="step-fix"]')).toBeNull() } finally { await none.unmount() }
   const two = await mount(<StepFixes steps={[step('a', [view]), step('b'), step('c', [owner])]} />)
   try { expect(two.container.querySelectorAll('[data-testid="step-fix"]').length).toBe(2) } finally { await two.unmount() }
+})
+
+// ---- the integration of the share card (B2) and the offers (B3): docs/decisions/20261116-ai-sharing-integration.md ----
+
+const switchFix: StepFix = { id: 'f9', kind: 'ask_admin', reason: 'switch', file: 'photo-1.png', owner: 'Dana Choi', count: 0, state: 'open' }
+
+test('"Ask an admin" for the switch: its own words, the same button', () => {
+  expect(fixText(switchFix, t)).toBe("The team turned off file sharing for members, so photo-1.png can't be shared now.")
+  expect(fixLabel(switchFix, t)).toBe('Ask an admin')
+  expect(fixDone({ ...switchFix, state: 'done', doneCount: 1 }, t)).toBe('Asked Dana Choi to turn file sharing back on.')
+  expect(fixDone({ ...switchFix, owner: undefined, state: 'done' }, t)).toBe('Asked an admin to turn file sharing back on.')
+  // the folder's words stay as they were
+  expect(fixText({ ...admin, reason: 'folder' }, t)).toBe(fixText(admin, t))
+  for (const L of ['ko', 'ja', 'zh', 'es', 'id'] as const) {
+    const tl = ((k: string, v?: Record<string, unknown>) => translate(L, k as never, v as never)) as never
+    expect(fixText(switchFix, tl)).toContain('photo-1.png')
+    expect(fixDone({ ...switchFix, state: 'done' }, tl)).toContain('Dana Choi')
+    expect(fixText(switchFix, tl)).not.toBe(fixText(switchFix, t))
+  }
+})
+
+test('a refusal card shows its step\'s offer as its one button; StepFixes leaves that offer out (never twice)', async () => {
+  const shared: Step['shared'] = { op: 'share', outcome: 'refused', files: [], failed: [{ name: 'photo-1.png', place: 'My files' }], who: [], level: 'view', refusal: { reason: 'switched_off', file: 'photo-1.png' }, next: { kind: 'ask_admin', fixId: 'f9', name: 'Dana Choi' } }
+  const step: Step = { id: 's1', kind: 'tool', tool: 'share_with_person', label: 'x', status: 'ok', startedAt: '2026-11-16T00:00:00.000Z', endedAt: '2026-11-16T00:00:01.000Z', shared, fixes: [switchFix] }
+  const under = await mount(<StepFixes steps={[step]} />)
+  try { expect(under.container.querySelector('[data-testid="step-fix"]')).toBeNull() } finally { await under.unmount() }
+  // another offer on the same answer still shows under it
+  const other = await mount(<StepFixes steps={[step, { ...step, id: 's2', shared: undefined, fixes: [view] }]} />)
+  try { expect(other.container.querySelectorAll('[data-testid="step-fix"]').length).toBe(1) } finally { await other.unmount() }
+  answer = { status: 200, body: { state: 'done', doneCount: 1 } }
+  const card = await mount(<ShareCard shared={shared} fixes={step.fixes} />)
+  try {
+    expect(card.get('share-card-next').textContent).toBe('Ask an admin')
+    await card.click('share-card-next')
+    expect(calls.filter((c) => c.method === 'POST').map((c) => c.url)).toEqual(['/api/share-fixes/f9/run'])
+    expect(card.get('share-card-next-done').textContent).toBe('Asked Dana Choi to turn file sharing back on.')
+    expect(card.find('share-card-next')).toBeNull()
+  } finally { await card.unmount() }
+  // a record whose offer is not on the step (an older answer): no button
+  const bare = await mount(<ShareCard shared={shared} />)
+  try { expect(bare.find('share-card-next')).toBeNull() } finally { await bare.unmount() }
 })
 
 test('Activity: a request asked for someone else names who asked and who would get it', () => {

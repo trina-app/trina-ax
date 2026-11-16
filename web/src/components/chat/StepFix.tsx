@@ -21,6 +21,7 @@ import { toast } from '../../store/ui'
 import { useChats } from '../../store/chats'
 import { Button } from '../ui'
 import { openShareChat } from './ShareChat'
+import { registerShareNext, type ShareNextButton } from './ShareCard'
 
 type TFunction = ReturnType<typeof useT>
 
@@ -58,6 +59,7 @@ const fileOf = (f: StepFix, t: TFunction) => (f.moreFiles ? t('stepFix.fileMore'
 export function fixText(f: StepFix, t: TFunction): string {
   const file = fileOf(f, t)
   if (f.kind === 'share_project') return t('stepFix.chatPrivate')
+  if (f.kind === 'ask_admin' && f.reason === 'switch') return t('stepFix.switchOff', { file })
   if (f.kind === 'ask_admin') return [t('stepFix.folderOnlyAdmins', { file }), f.owner ? t('stepFix.folderAsk', { owner: f.owner }) : ''].filter(Boolean).join(' ')
   const cant = f.people?.length
     ? (f.place ? t('stepFix.cantOpenNamedIn', { who: whoOf(f, t), place: f.place, file }) : t('stepFix.cantOpenNamed', { who: whoOf(f, t), file }))
@@ -73,13 +75,14 @@ export function fixDone(f: StepFix, t: TFunction): string {
   if (f.state === 'gone') return t('stepFix.gone')
   const file = fileOf(f, t)
   if (f.kind === 'share_project') return t('stepFix.chatShared', { file: f.file })
+  if (f.kind === 'ask_admin' && f.reason === 'switch') return f.owner ? t('stepFix.switchAsked', { owner: f.owner }) : t('stepFix.switchAskedAdmins')
   if (f.kind === 'ask_admin') return f.owner ? t('stepFix.folderAsked', { owner: f.owner, file }) : t('stepFix.askedAdmins', { file })
   if (f.kind === 'ask_owner') return f.owner ? t('stepFix.askedOwner', { owner: f.owner, file }) : t('stepFix.askedAdmins', { file })
   return [t('stepFix.viewDone', { n: f.doneCount ?? f.count, file }), f.left ? t('stepFix.left', { n: f.left }) : ''].filter(Boolean).join(' ')
 }
 
-/** One offer of the server: its line, its button, and what it became. */
-export function StepFixRow({ fix }: { fix: StepFix }) {
+/** An offer as it is now in this window, and what its button does. */
+function useStepFix(fix: StepFix): { f: StepFix; action: () => Promise<void> } {
   const t = useT()
   const locale = useLocale()
   const [now, setNow] = useState(fix)
@@ -98,12 +101,50 @@ export function StepFixRow({ fix }: { fix: StepFix }) {
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     }
   }
+  return { f, action: async () => { await action() } }
+}
+
+/** One offer of the server: its line, its button, and what it became. */
+export function StepFixRow({ fix }: { fix: StepFix }) {
+  const t = useT()
+  const { f, action } = useStepFix(fix)
   return <NextStep text={fixText(f, t)} label={fixLabel(f, t)} action={action} done={f.state === 'open' ? undefined : fixDone(f, t)} testId="step-fix" />
 }
 
-/** Every offer on an answer's steps, under the answer. */
+/** The same offer as a share card's button (ShareCard.tsx registerShareNext): the card already says what is in the
+ * way, so only the button, and once it ran, what it became. */
+export function StepFixButton({ fix }: { fix: StepFix }) {
+  const t = useT()
+  const { f, action } = useStepFix(fix)
+  const [busy, setBusy] = useState(false)
+  if (f.state !== 'open') {
+    return (
+      <span role="status" className="mr-auto flex min-w-0 items-center gap-1.5 text-xs break-keep text-muted" data-testid="share-card-next-done">
+        <Check size={14} className="shrink-0 text-ok" aria-hidden />{fixDone(f, t)}
+      </span>
+    )
+  }
+  const run = async () => {
+    if (busy) return
+    setBusy(true)
+    try { await action() } finally { setBusy(false) }
+  }
+  return <Button size="sm" variant="primary" busy={busy} onClick={() => void run()} data-testid="share-card-next">{fixLabel(f, t)}</Button>
+}
+
+/** The offers a share card shows as its button (`Step.shared.next.fixId`): not shown again under the answer. */
+export const onCard = (steps: readonly Step[]): Set<string> => new Set(steps.flatMap((s) => (s.shared?.next?.fixId ? [s.shared.next.fixId] : [])))
+
+/** Every offer on an answer's steps, under the answer (those a share card shows as its button left out). */
 export function StepFixes({ steps }: { steps: Step[] }) {
-  const fixes = steps.flatMap((s) => s.fixes ?? [])
+  const card = onCard(steps)
+  const fixes = steps.flatMap((s) => s.fixes ?? []).filter((f) => !card.has(f.id))
   if (!fixes.length) return null
   return <>{fixes.map((f) => <StepFixRow key={f.id} fix={f} />)}</>
 }
+
+// A refusal card's next step (ShareCard.tsx `Step.shared.next`) is the server's stored offer on the same step: one
+// mechanism for both places. A record without its offer (an older answer) shows no button.
+const cardButton: ShareNextButton = ({ fix }) => (fix ? <StepFixButton fix={fix} /> : null)
+registerShareNext('ask_owner', cardButton)
+registerShareNext('ask_admin', cardButton)

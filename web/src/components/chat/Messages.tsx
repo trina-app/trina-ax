@@ -794,7 +794,7 @@ export function AssistantMessage({
         )}
         {/* what the AI did for the person, from the server's record on the step (a share, a stop, a post): where its
             confirmation card was, so that card reads as turning into this one */}
-        {m.steps.map((s) => (s.shared && !s.parentId ? <ShareCard key={s.id} shared={s.shared} /> : s.posted && !s.parentId ? <PostedCard key={s.id} posted={s.posted} /> : null))}
+        {m.steps.map((s) => (s.shared && !s.parentId ? <ShareCard key={s.id} shared={s.shared} fixes={s.fixes} /> : s.posted && !s.parentId ? <PostedCard key={s.id} posted={s.posted} /> : null))}
         {requests.map((r) => (r.request.kind === 'connect_service' ? <ConnectCard key={r.request.requestId} request={r.request} /> : <AskCard key={r.request.requestId} req={r} />))}
         {/* the server's next steps for this answer (Step.fixes): "3 people can't open it yet. [Let them view]" */}
         <StepFixes steps={m.steps} />

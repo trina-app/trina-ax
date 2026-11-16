@@ -123,7 +123,7 @@ for (const width of [1440, 390]) {
       await page.getByTestId('file-share-done').click()
     })
 
-    test('a refusal: what and why from the record, no button of its own', async ({ page }) => {
+    test('a refusal: what and why from the record; its next step is the server\'s offer, on the card only', async ({ page }) => {
       await start(page)
       await ask(page, 'sharecard refused Quote.xlsx with Bob')
       await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done')
@@ -132,8 +132,14 @@ for (const width of [1440, 390]) {
       await expect(result.getByTestId('action-card-title')).toHaveText("Couldn't share Quote.xlsx.")
       await expect(result.getByTestId('share-card-note')).toHaveText("It's Mina's file, so only Mina can add people.")
       await expect(result.getByTestId('share-card-file-place')).toHaveText('Team folder › Sales')
-      await expect(result.getByRole('button')).toHaveCount(0)
+      // the step's stored offer (Step.fixes) is the card's one button, and is not shown again under the answer
+      await expect(result.getByRole('button')).toHaveCount(1)
+      await expect(result.getByTestId('share-card-next')).toHaveText('Ask Mina')
+      await expect(lastAnswer(page).getByTestId('step-fix')).toHaveCount(0)
       await shot(page, 'refused')
+      await result.getByTestId('share-card-next').click()
+      await expect(result.getByTestId('share-card-next-done')).toContainText('Asked Mina')
+      await expect(result.getByTestId('share-card-next')).toHaveCount(0)
     })
 
     test('another viewer of a shared chat sees the verb alone: no card, no name, no file', async ({ page, browser }) => {

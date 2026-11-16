@@ -6,7 +6,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from 'bun:test'
 import type { ShareCardState, StepShared, TurnRequest } from '@mycel/shared/api'
 import AskCard from '../../src/components/chat/AskCard'
-import ShareCard, { registerShareNext } from '../../src/components/chat/ShareCard'
+import ShareCard, { registerShareNext, ShareAskRows } from '../../src/components/chat/ShareCard'
 import { FileShareHost } from '../../src/components/FileShareDialog'
 import { askHeadline, isRestored, shareHeadline, shareNotes } from '../../src/lib/shareCard'
 import { translate, useLocaleStore, type MessageKey } from '../../src/i18n'
@@ -54,6 +54,26 @@ test('the words, from the record alone (the plan\'s copy)', () => {
     expect(h).toContain('Quote.pdf')
     expect(h).not.toContain('shareCard.')
   }
+})
+
+test('already open (checked before the card): the headline says who could already open it; a partial says it under the rows', () => {
+  const all: StepShared = { op: 'share', outcome: 'done', files: [file(L1, 'Quote.pdf')], who: [], already: [jun], level: 'view' }
+  expect(shareHeadline(t, 'en', all)).toBe('Jun can already open Quote.pdf')
+  expect(shareNotes(t, 'en', all)).toEqual([])
+  const some: StepShared = { ...sharedOne, who: [{ subjectType: 'user', subjectId: 'bo', name: 'Bo' }], notified: ['bo'], already: [jun] }
+  expect(shareHeadline(t, 'en', some)).toBe('Shared Quote.pdf with Bo')
+  expect(shareNotes(t, 'en', some)).toEqual(['Bo got a notification.', 'Jun could already open it, so nothing changed for them.'])
+})
+
+test('the confirmation rows carry the server\'s "why it asks" line (Always allow on, other people\'s words read): one line', async () => {
+  const why = 'A file someone shared with you (other people\'s words) was read here, so changes are asked first.'
+  const m = await mount(<ShareAskRows ask={{ op: 'share', files: [file(L1, 'Quote.pdf')], who: [jun], why }} titleId="q1" />)
+  try {
+    expect(m.container.querySelectorAll('[data-testid="share-ask-why"]').length).toBe(1)
+    expect(m.get('share-ask-why').textContent).toBe(why)
+  } finally { await m.unmount() }
+  const none = await mount(<ShareAskRows ask={{ op: 'share', files: [file(L1, 'Quote.pdf')], who: [jun] }} titleId="q2" />)
+  try { expect(none.find('share-ask-why')).toBeNull() } finally { await none.unmount() }
 })
 
 test('isRestored: a stop is undone once every person of the card is on every file the viewer still sees', () => {

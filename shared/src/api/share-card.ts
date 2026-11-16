@@ -52,10 +52,12 @@ export const ShareCardRefusal = z.object({
 export type ShareCardRefusal = z.infer<typeof ShareCardRefusal>
 
 /** The next step a refusal offers, as data: the app shows a button for a kind it knows (web components/chat/ShareCard.tsx
- * registerShareNext) and nothing for one it does not. ask_owner: ask the file's owner (`userId`, `name`) to share it,
- * by its link (`linkId`); ask_admin: ask an admin. */
+ * registerShareNext) and nothing for one it does not. ask_owner: ask the file's owner (`name`) to share it; ask_admin:
+ * ask an admin (why: the offer's `reason`). `fixId`: the server's stored offer on the same step (`Step.fixes`, server
+ * files/share-fixes.ts) the button runs; the app shows that offer on the card and not again under the answer. */
 export const ShareCardNext = z.object({
   kind: z.enum(['ask_owner', 'ask_admin']),
+  fixId: z.string().max(64).optional(),
   linkId: LinkId.optional(),
   userId: z.string().max(64).optional(),
   name: z.string().max(200).optional(),
@@ -70,6 +72,9 @@ export const ShareCardAsk = z.object({
   whoMore: z.number().int().positive().optional(),
   /** whose files they are, when not the asker's own (an admin and a team file someone else added) */
   owner: z.object({ id: z.string().max(64), name: z.string().max(200) }).optional(),
+  /** why the card asks although the person may have chosen "Always allow": the server's own sentence (rooms or a
+   * shared file read in this chat, or content someone else wrote), absent when nothing like that happened */
+  why: z.string().max(500).optional(),
 })
 export type ShareCardAsk = z.infer<typeof ShareCardAsk>
 
@@ -93,6 +98,9 @@ export const StepShared = z.object({
   /** a stop: the people taken off who can still open a file, and through what */
   still: z.array(ShareCardStill).max(SHARE_CARD_STILL_MAX).optional(),
   stillMore: z.number().int().positive().optional(),
+  /** a share: people named who could already open every file (through a group, the folder, the whole team), so they
+   * were not added again (server chat/share-next-steps.ts alreadyOpen); with an empty `who`, nobody new got access */
+  already: z.array(ShareCardWho).max(SHARE_CARD_PEOPLE_MAX).optional(),
   refusal: ShareCardRefusal.optional(),
   next: ShareCardNext.optional(),
 })
