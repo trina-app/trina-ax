@@ -34,6 +34,7 @@ import { checkRegular, copyTeamFile, freeName, hashFile, installFile, moveIntoTr
 import { AI_TRASH_MAX_ENTRIES, AiTrashChanged, TrashStranded, aiSkillPath, holdsSkillRoot, instructionFile, sameStamps, stampTree, type Stamp } from './ai-trash'
 import crypto from 'node:crypto'
 import { folderSharesOf } from '../files/folder-shares'
+import { readerCheck, shareAbove, shareReaders } from '../files/share-readers'
 import { fileSharesOf, linkPeopleIn, sharesForgotten, sharesMoved, sharesNarrowedByMove, sharesPurged, sharesRestored, sharesTrashed, type UnsharedByMove } from '../files/shares'
 
 /** Files the file screen treats as binary (rendered by the client from /download, never edited as text). */
@@ -220,7 +221,9 @@ export class TeamFiles {
     try { authorize(this.fx, rules, user, r.rel, 'write'); writable = true } catch { writable = false }
     if (!writable) return { path: r.rel, access }
     const active = activePeople(this.ctx.db)
-    const readers = active.filter((p) => atLeast(rules.access(p, r.segs), 'read'))
+    // (the owner's own shared folder: its people count too, files/share-readers.ts)
+    const reads = readerCheck(this.ctx.db, rules)
+    const readers = active.filter((p) => reads(p, r.segs))
     const people = readers.length
     // the count apart (by its rules, by role only): the owner and admins only. Beside `people`, a member would learn how
     // many see it only as the owner or an admin (docs/DECISIONS.md "Who sees it: the project's own people first")
@@ -423,16 +426,19 @@ export class TeamFiles {
   /** Active people other than `self` who can read `from` now but could not read `to` (counted, never named). */
   private lostViewers(rules: RuleSet, self: string, from: string[], to: string[]): number {
     let n = 0
+    const reads = readerCheck(this.ctx.db, rules)
     for (const p of activePeople(this.ctx.db)) {
       if (p.id === self) continue
-      if (atLeast(rules.access(p, from), 'read') && !atLeast(rules.access(p, to), 'read')) n++
+      if (reads(p, from) && !reads(p, to)) n++
     }
     return n
   }
 
   /** Active people who can read `segs` under `rules` (before a move or delete, to see who lost it after). */
   private readersOf(rules: RuleSet, segs: string[]): Principal[] {
-    return activePeople(this.ctx.db).filter((p) => atLeast(rules.access(p, segs), 'read'))
+    // (a folder share's people too: a move or delete out of a shared folder resets their sessions, files/share-readers.ts)
+    const reads = readerCheck(this.ctx.db, rules)
+    return activePeople(this.ctx.db).filter((p) => reads(p, segs))
   }
   /**
    * People who could read a file and no longer can after a move or delete: their chats start a fresh engine session
@@ -550,6 +556,13 @@ export class TeamFiles {
     if (o.askWiden && fr.segs[0] === 'users' && !(target[0] === 'users' && target[1] === fr.segs[1])) {
       widened = this.viewersAdded(rules, user.id, fr.segs, target)
       if (widened > 0 && !o.confirm) fileError('conflict', 'audienceWidened', undefined, { reason: 'audience_widened', viewersAdded: widened })
+    }
+    // into a folder the owner shares (files/folder-shares.ts), from where its people could not open it (another of the
+    // owner's folders, a hidden folder inside it, a rename of a hidden name to a plain one): confirmed whatever the
+    // client says (W7: an older or other client sends no askWiden). The AI's move_files passes confirm after its card
+    else if (target[0] === 'users' && shareAbove(this.ctx.db, target)) {
+      widened = this.viewersAdded(rules, user.id, fr.segs, target)
+      if (widened > 0 && !o.confirm) fileError('conflict', 'sharedFolderWidened', undefined, { reason: 'audience_widened', viewersAdded: widened })
     }
     // a project's folder moved to projects/<name> from elsewhere: the project follows it, and the skills in its skills/
     // folder start to count in its chats (docs/DECISIONS.md "Project skills"). Said first, with their names (409
@@ -905,12 +918,14 @@ export class TeamFiles {
     if (to.exists && !to.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
     let added = 0, lost = 0
     const audience: string[] = []
+    // the folder rules, and a folder share's people (a private file moved into a folder its owner shares: "N more")
+    const reads = readerCheck(this.ctx.db, rules)
     for (const p of activePeople(this.ctx.db)) {
       if (p.id === user.id) continue
-      const sees = atLeast(rules.access(p, to.segs), 'read')
-      audience.push(JSON.stringify([p.id, sees, srcs.map(s => atLeast(rules.access(p, s), 'read'))]))
-      if (sees && srcs.some((s) => !atLeast(rules.access(p, s), 'read'))) added++
-      if (mode === 'move' && !sees && srcs.some((s) => atLeast(rules.access(p, s), 'read'))) lost++
+      const sees = reads(p, to.segs)
+      audience.push(JSON.stringify([p.id, sees, srcs.map(s => reads(p, s))]))
+      if (sees && srcs.some((s) => !reads(p, s))) added++
+      if (mode === 'move' && !sees && srcs.some((s) => reads(p, s))) lost++
     }
     // Compare identities as well as counts without exposing reader names to the tool.
     const fingerprint = crypto.createHash('sha256').update(JSON.stringify(audience.sort())).digest('hex')
@@ -958,9 +973,11 @@ export class TeamFiles {
   /** Active people other than `self` who could read `to` and cannot read `from` (counted, never named). */
   private viewersAdded(rules: RuleSet, self: string, from: string[], to: string[]): number {
     let n = 0
+    // (a folder share's people count as readers: files/share-readers.ts)
+    const reads = readerCheck(this.ctx.db, rules)
     for (const p of activePeople(this.ctx.db)) {
       if (p.id === self) continue
-      if (atLeast(rules.access(p, to), 'read') && !atLeast(rules.access(p, from), 'read')) n++
+      if (reads(p, to) && !reads(p, from)) n++
     }
     return n
   }
@@ -1570,10 +1587,12 @@ export class TeamFiles {
    * it), with a hash of who they are, what they may do and their role. */
   private aiAudience(rules: RuleSet, self: string, segs: string[]): { fingerprint: string; readers: string[]; writers: string[] } {
     const rows: string[] = [], readers: string[] = [], writers: string[] = []
+    // (a folder share's people read it too, never write it: files/share-readers.ts)
+    const shared = shareReaders(this.ctx.db, segs)
     for (const p of activePeople(this.ctx.db)) {
       if (p.id === self) continue
       const a = rules.access(p, segs)
-      const read = atLeast(a, 'read'), write = a === 'write'
+      const read = atLeast(a, 'read') || shared.has(p.id), write = a === 'write'
       rows.push(JSON.stringify([p.id, p.role, read, write]))
       if (read) readers.push(p.id)
       if (write) writers.push(p.id)
@@ -1860,12 +1879,16 @@ export class TeamFiles {
     return { abs, name: `${base} (v${v.version})${x}`, size: st.size }
   }
 
-  async restoreVersion(userId: string, rel: string, versionId: string): Promise<SaveResult> {
+  async restoreVersion(userId: string, rel: string, versionId: string, o: { confirm?: boolean } = {}): Promise<SaveResult> {
     const user = this.principal(userId)
     const rules = this.rules()
     const r = authorize(this.fx, rules, user, rel, 'write', { createDirs: true })
     const v = this.versionRow(user, rules, versionId)
     if (v.path !== r.rel) throw new HttpError('not_found')
+    // a file inside a folder the owner shares: a version from before someone got the share (or saved somewhere else
+    // before the file came into the folder) is something those people never had. Confirmed first (409 audience_widened)
+    const newly = this.sharedSince(r.segs, v.path_at_save === r.rel ? v.created_at : null)
+    if (newly > 0 && !o.confirm) fileError('conflict', 'sharedFolderWidened', undefined, { reason: 'audience_widened', viewersAdded: newly })
     // the version's folder is in the trash (its rules parked under .system/trash): the live rules no longer have them,
     // so write access fell back to the folder above (shared/: everyone write) and the restored file came back with no
     // rule at all, readable and writable by the whole team (security round 4). The folder comes back first, with its
@@ -2071,7 +2094,16 @@ export class TeamFiles {
     }
   }
 
-  restoreTrash(userId: string, id: string, o: { manager?: true } = {}): { entry: FileEntry } {
+  /** How many people a folder share at or above `segs` lets in now that no share there let in at `at` (null: anyone it
+   * lets in now; the content was somewhere else then). Grants removed and given again count as new. */
+  private sharedSince(segs: readonly string[], at: string | null): number {
+    const now = shareReaders(this.ctx.db, segs)
+    if (!now.size || at === null) return now.size
+    const then = shareReaders(this.ctx.db, segs, { upTo: at })
+    return [...now].filter((id) => !then.has(id)).length
+  }
+
+  restoreTrash(userId: string, id: string, o: { manager?: true; confirm?: boolean } = {}): { entry: FileEntry } {
     const person = this.principal(userId)
     const rules = this.rules()
     const t = this.trashRow(id)
@@ -2092,6 +2124,11 @@ export class TeamFiles {
     // a folder's rules were parked with it (remove) and come back with it, also under a " (복원됨)" name
     const r = authorize(this.fx, rules, user, [...pw.segs, name].join('/'), 'write', { mustExist: false, createDirs: true })
     if (r.exists) fileError('conflict', 'restoreTaken')
+    // it lands inside a folder its owner shared after it went to the trash (or with people added since): they would see
+    // something they never had. Confirmed first (409 audience_widened with the count). The item's own shares come back
+    // with it (its people had it), and are not counted: they are parked with the item until the restore
+    const newly = this.sharedSince(r.segs, t.deleted_at)
+    if (newly > 0 && !o.confirm) fileError('conflict', 'sharedFolderWidened', undefined, { reason: 'audience_widened', viewersAdded: newly })
     if (isDir) {
       const under = "path = ? OR substr(path, 1, length(?) + 1) = ? || '/'"
       const parked = this.ctx.db.query(`SELECT 1 FROM folders WHERE ${under} LIMIT 1`).get(t.storage_path, t.storage_path, t.storage_path)

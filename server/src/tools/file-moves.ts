@@ -140,8 +140,10 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
           throw new ToolError('the audience changed while this call waited; nothing was changed for this item. Ask again with the current audience.')
         }
         if (mode === 'move') {
-          // confirm only what the person saw: a narrowing that appears after the question fails this item
-          const r = svc.move(tc.user.id, p, join(folder, nameOf(p)), 'rename', { confirm: confirmed && lost > 0, turnId: tc.turnId, tool })
+          // confirm only what the person saw: a narrowing that appears after the question fails this item (the audience
+          // was compared just above); a move into a folder its owner shares asks on this same card (added > 0), and
+          // move() asks for that whatever the client says (W7), so the card's yes is passed on
+          const r = svc.move(tc.user.id, p, join(folder, nameOf(p)), 'rename', { confirm: confirmed && (lost > 0 || added > 0), turnId: tc.turnId, tool })
           done.push({ from: p, to: r.entry.path })
         } else {
           const r = await svc.copy(tc.user.id, p, join(folder, nameOf(p)), { onExists: 'rename', turnId: tc.turnId, tool })

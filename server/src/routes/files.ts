@@ -235,9 +235,9 @@ export const filesRoutes: RouteModule = {
     kit.handle(API.answerFileRequest, ({ c, params, body, auth }) => mapErrors(c.get('locale'), () => shares.answer(auth.user.id, params.id, body.answer, c.get('locale'))))
     kit.handle(API.fileSharesCount, ({ c }) => mapErrors(c.get('locale'), () => shares.counts()))
     kit.handle(API.removeAllFileShares, ({ c, auth }) => mapErrors(c.get('locale'), () => shares.removeAll(auth.user.id, c.get('locale'))))
-    kit.handle(API.restoreVersion, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.restoreVersion(auth.user.id, body.path, body.versionId)))
+    kit.handle(API.restoreVersion, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.restoreVersion(auth.user.id, body.path, body.versionId, { confirm: body.confirm === true })))
     kit.handle(API.trash, ({ c, query, auth }) => mapErrors(c.get('locale'), () => svc.trash(auth.user.id, { mine: query.mine, cursor: query.cursor, limit: query.limit })))
-    kit.handle(API.restoreTrash, ({ c, params, auth }) => mapErrors(c.get('locale'), () => svc.restoreTrash(auth.user.id, params.id)))
+    kit.handle(API.restoreTrash, ({ c, params, query, auth }) => mapErrors(c.get('locale'), () => svc.restoreTrash(auth.user.id, params.id, { confirm: query.confirm === true })))
     kit.handle(API.purgeTrash, ({ c, params, auth }) => mapErrors(c.get('locale'), () => {
       // a team project's own folder: deleted for good as the project is (DELETE /api/projects/:id), its shared chats to
       // their creators' trash and its row gone, never only its folder (docs/DECISIONS.md "A team project in the trash")

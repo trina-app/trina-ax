@@ -51,6 +51,8 @@ import {
 import { COLS, fileSharesOf, markDead, msg, newLinkId, REACHES, sharesTouched, type ShareRow, type Subject, type Via } from './shares'
 import { childSegs, hiddenName, neverShared, personalProjectFolders, receiverSees, sharePlaceBlock, withinPathLimits } from './share-places'
 import { saveUndo } from './share-undo'
+import { devRunAlive } from '../devenv/srt/alive'
+import { shareGrantees } from './share-readers'
 
 const now = () => new Date().toISOString()
 const segsOf = (p: string) => (p ? p.split('/') : [])
@@ -70,11 +72,20 @@ const WITH_PEOPLE = 'EXISTS(SELECT 1 FROM file_share_grants g WHERE g.share_id =
 /** who tells an owner that the server paused or ended their share: set by the service of that database */
 const tellers = new WeakMap<Database, (owner: string, auditId: number) => void>()
 const tellOwner = (db: Database, owner: string | null, auditId: number) => { if (owner) tellers.get(db)?.(owner, auditId) }
+/** who starts a fresh AI session for people who stopped reaching a folder share (a resumed session may hold what they
+ * read there: T16 of the design): set by the service of that database */
+const resetters = new WeakMap<Database, (ids: readonly string[]) => void>()
+/** People who may have stopped reaching a shared folder: their chats start a fresh engine session at the next turn. */
+export function folderReadersLost(db: Database, ids: Iterable<string>): void {
+  const list = [...new Set(ids)]
+  if (list.length) resetters.get(db)?.(list)
+}
 
 /** The share is paused: the folder at its path is not the one shared (`identity`), or a new folder was made there
  * (`new_folder`). No access from now on; the people on it stay; its owner is told once. */
 export function pauseFolderShare(db: Database, row: Pick<ShareRow, 'id' | 'owner_id'>, reason: 'identity' | 'new_folder'): void {
   if (!db.query("UPDATE file_shares SET paused_at = ? WHERE id = ? AND kind = 'folder' AND paused_at IS NULL").run(now(), row.id).changes) return
+  folderReadersLost(db, shareGrantees(db, row.id))
   const id = audit(db, { actor: null, action: 'folder_share.paused', target: `file-share:${row.id}`, detail: { personal: true, reason } })
   tellOwner(db, row.owner_id, id)
   sharesTouched(db)
@@ -91,7 +102,9 @@ export function folderRowsLanded(db: Database, to: string): void {
     const block = ownerIn(segs) !== r.owner_id || !r.owner_id ? 'left' : sharePlaceBlock(db, segs)
     if (!block) continue
     const removed = (db.query('SELECT COUNT(*) n FROM file_share_grants WHERE share_id = ?').get(r.id) as { n: number }).n
+    const lost = shareGrantees(db, r.id)
     markDead(db, r.id)
+    folderReadersLost(db, lost)
     const id = audit(db, { actor: r.owner_id, action: 'folder_share.ended', target: `file-share:${r.id}`, detail: { personal: true, removed, reason: block === 'left' || block === 'team_folder' || block === 'root' ? 'left_personal' : block === 'project' ? 'project' : 'moved_excluded' } })
     if (removed) tellOwner(db, r.owner_id, id)
   }
@@ -127,6 +140,12 @@ export class FolderShares {
     // (after the step that paused or ended a share has returned: the notice is not part of its transaction)
     tellers.set(ctx.db, (owner, auditId) => queueMicrotask(() => {
       try { notificationsOf(this.ctx).fileShareNotice(owner, 'file.unshared_by_move', String(auditId), true) } catch (err) { this.ctx.log.warn('folder share notice failed', { err }) }
+    }))
+    // (after the step: a reset is not part of its transaction; the chat runtime is loaded only when it is needed)
+    resetters.set(ctx.db, (ids) => queueMicrotask(() => {
+      void import('../chat/runtime').then(({ resetEngineSessions }) => {
+        for (const id of ids) { try { resetEngineSessions(this.ctx, id) } catch (err) { this.ctx.log.warn('session reset after a folder share ended failed', { err }) } }
+      })
     }))
   }
   private get db() { return this.ctx.db }
@@ -278,10 +297,14 @@ export class FolderShares {
       const gone: Subject[] = o.stop ? held.map((g) => ({ subjectType: g.subject_type, subjectId: g.subject_id })) : remove0.filter((x) => have.has(`${x.subjectType}:${x.subjectId}`))
       if (!gone.length) return view()
       let undo: { id: string; until: string } | null = null
+      const before = this.reached(r.segs)
       this.db.transaction(() => {
         undo = saveUndo(this.db, me.id, s.id, gone, o.stepId ?? null)
         for (const x of gone) this.db.query('DELETE FROM file_share_grants WHERE share_id = ? AND subject_type = ? AND subject_id = ?').run(s.id, x.subjectType, x.subjectId)
       })()
+      // the people who no longer reach the folder (by name, through a group or the whole team) start fresh sessions
+      const after = this.reached(r.segs)
+      folderReadersLost(this.db, [...before].filter((id) => !after.has(id)))
       const all = gone.length === held.length
       audit(this.db, { actor: me.id, action: o.stop || all ? 'folder_share.stop' : 'folder_share.remove', target: `file-share:${s.id}`, detail: { personal: true, removed: gone.length, ...(o.stop || all ? { keptOwn: this.ownShares(r.rel)?.files ?? 0, keptOwnFolders: this.ownShares(r.rel)?.folders ?? 0 } : {}), via } })
       this.shares.changedSoon()
@@ -292,6 +315,9 @@ export class FolderShares {
     const block = place ?? (saveFolderId(this.fx, r.segs) === null ? 'disk' : null)
     if (block) this.refusePlace(block, L)
     if (!this.shares.teamOn()) throw new HttpError('forbidden', msg('off', L), { params: { reason: 'file_shares_off' } })
+    // a dev environment run of the owner that is alive now keeps the view it started with, which can write here: the
+    // folder becomes read-only only for runs started after the share (devenv/srt/access.ts, D11)
+    if (devRunAlive(this.db, me.id)) throw new HttpError('conflict', msg('folderRunActive', L), { params: { reason: 'folder_share_run_active' } })
     // the room sending budget before the people are checked: an add is no free probe of who exists (as for a file)
     if (!o.tokenTaken) this.shares.takeToken(me.id)
     this.shares.checkSubjects(me, add, L)
@@ -308,7 +334,7 @@ export class FolderShares {
       const n = (this.db.query(`SELECT COUNT(*) n FROM file_shares s WHERE s.kind = 'folder' AND s.state = 'live' AND s.owner_id = ? AND ${WITH_PEOPLE}`).get(me.id) as { n: number }).n
       if (n >= FOLDER_SHARES_PER_OWNER) throw new HttpError('validation', msg('foldersMany', L), { params: { reason: 'folder_shares_full' } })
     }
-    const before = fresh.length ? this.reached(r.segs) : null
+    const before = fresh.length || gone.length ? this.reached(r.segs) : null
     const at = now()
     let undo: { id: string; until: string } | null = null
     this.db.transaction(() => {
@@ -321,7 +347,9 @@ export class FolderShares {
       }
     })()
     // newly reached: people no shared folder at or above this one let in before
-    const added = before ? [...this.reached(r.segs)].filter((id) => !before.has(id) && id !== me.id) : []
+    const after = before || gone.length ? this.reached(r.segs) : null
+    const added = before && after ? [...after].filter((id) => !before.has(id) && id !== me.id) : []
+    if (gone.length && after) folderReadersLost(this.db, [...(before ?? [])].filter((id) => !after.has(id)))
     if (fresh.length || gone.length) {
       this.shares.changedSoon()
       const everyone = fresh.some((x) => x.subjectType === 'group' && x.subjectId === '*')
@@ -393,8 +421,10 @@ export class FolderShares {
     // a team folder (admins share those in their own dialog), or a folder inside another person's files that the
     // caller happens to read: never shared here, and nothing about it is said
     if (!mine) return { ...base, link: null, canShare: false, people: [], blocked: 'team_folder' }
-    const block = this.blockOf(r.segs)
-    let s = block && block !== 'disk' ? null : this.liveAt(r.rel)
+    const placed = this.blockOf(r.segs)
+    let s = placed && placed !== 'disk' ? null : this.liveAt(r.rel)
+    // a dev environment run alive now could write here (devenv/srt/alive.ts): adds wait for it
+    const block: FolderShareBlock | null = placed ?? (devRunAlive(this.db, me.id) ? 'run_active' : null)
     if (s && !s.paused_at && this.pin(s, r.segs) === 'differs') { pauseFolderShare(this.db, s, 'identity'); s = this.shares.row(s.id) }
     const off = !this.shares.teamOn()
     const own = this.ownShares(r.rel)

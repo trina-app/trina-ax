@@ -39,7 +39,7 @@ import { mimeOf } from '../team-files/service'
 import { newId } from '../db'
 import { onFileEvent } from './store'
 import { FILE_SHARE_TEXT } from './share-text'
-import { folderMadeAt, folderRowsLanded, folderSharesOf } from './folder-shares'
+import { folderMadeAt, folderReadersLost, folderRowsLanded, folderSharesOf } from './folder-shares'
 import { saveUndo, undosClosed } from './share-undo'
 import { registerAccountCleanup } from '../auth/account-removal'
 import { onAccessChange } from '../admin/folders'
@@ -1064,12 +1064,16 @@ export class FileShares {
     const me = this.principal(userId)
     if (!me || me.role !== 'owner') throw new HttpError('forbidden', msg('ownerOnly', L), { params: { reason: 'owner_only' } })
     const c = this.counts()
+    // the people folder shares let in: fresh engine sessions once their grants are gone (files/folder-shares.ts)
+    const lost = new Set<string>()
+    for (const r of this.db.query("SELECT DISTINCT g.share_id id FROM file_share_grants g JOIN file_shares s ON s.id = g.share_id WHERE s.kind = 'folder'").all() as { id: string }[]) for (const u of this.grantees(r.id)) lost.add(u)
     this.db.transaction(() => {
       this.db.query('DELETE FROM file_share_grants').run()
       this.db.query("UPDATE file_access_requests SET state = 'closed', decided_by = ?, decided_at = ? WHERE state = 'pending'").run(userId, now())
       // a removal made before this can no longer be undone
       undosClosed(this.db)
     })()
+    folderReadersLost(this.db, lost)
     audit(this.db, { actor: userId, action: 'file.shares_removed_all', target: null, detail: { files: c.files, people: c.people, ...(c.folders !== undefined ? { folders: c.folders } : {}) } })
     this.changedSoon()
     return c
