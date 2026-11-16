@@ -542,6 +542,24 @@ describe('linked files: a row each, the switch, attaching', () => {
     expect((await share('alice', a, { roomId: rooms.marketing })).json).toMatchObject({ files: [{ attach: 'yes', unable: 1 }], provenance: null })
   })
 
+  test('a file this answer itself made, when nobody would miss anything with it attached: it goes as a copy with no dialog (QA TC-3832)', async () => {
+    // notes the side chat saved into my folder from a room's own link: the answer read nothing private
+    const at = 'users/alice/room-notes-auto.md'
+    const a = answer('alice', `회의록 저장했어요: ${link(at)}`, { scope: [], listed: true, saved: [{ path: at, sha256: put(at, '# 회의록\n') }] })
+    const r = await share('alice', a, { roomId: rooms.all })
+    expect(r.json.status).toBe('sent')
+    const m = r.json.message as RoomMessage
+    expect(m.files.map((f) => f.name)).toEqual(['room-notes-auto.md'])
+    expect(audit(m.id)).toMatchObject({ people: 0, confirmed: true, files: 1 })
+    // the same, but the answer read the marketing brief (bob cannot read it): the dialog as before
+    const b = answer('alice', `요약: ${link('users/alice/room-notes-auto-2.md')}`, { read: [BRIEF], scope: [], listed: true, saved: [{ path: 'users/alice/room-notes-auto-2.md', sha256: put('users/alice/room-notes-auto-2.md', '# 요약\n') }] })
+    expect((await share('alice', b, { roomId: rooms.all })).json.status).toBe('confirm')
+    // a file it made that was changed since (another content): the dialog
+    const c = answer('alice', `메모: ${link('users/alice/room-notes-auto-3.md')}`, { scope: [], listed: true, saved: [{ path: 'users/alice/room-notes-auto-3.md', sha256: put('users/alice/room-notes-auto-3.md', 'one\n') }] })
+    put('users/alice/room-notes-auto-3.md', 'two\n')
+    expect((await share('alice', c, { roomId: rooms.all })).json.status).toBe('confirm')
+  })
+
   test('a linked file read by the answer and attached is left out of the line; link only, it counts', async () => {
     const at = 'users/alice/read-and-linked.md'
     const s1 = put(at, '# 읽은 파일\n')

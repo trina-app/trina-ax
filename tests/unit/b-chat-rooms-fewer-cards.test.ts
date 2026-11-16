@@ -132,6 +132,31 @@ const ONCE = 'allowed once in this answer'
 const ALWAYS = 'allowed: always in this conversation'
 const WEB = { webSearch: { query: 'q4 news', hits: [{ title: 'News', url: 'https://news.example/a' }] } }
 
+describe('an explicit "save it" (docs/decisions/20261116-room-link-save-one-prompt.md, QA TC-3830)', () => {
+  test('the side chat saves a new file into the room\'s folder with no card; an existing file, a skill or a request without "save" still ask', async () => {
+    const roomId = await teamRoom()
+    await send('erin', roomId, '회의록: 부스 2개, 배너 1개')
+    const dir = folder()
+    const tag = uuidv7().slice(-6)
+    const chat = await sideChat('alice', roomId)
+    const saved = await run('alice', chat, `방금 회의록 파일로 저장해줘\n${fake(roomRead(roomId), write(`${dir}/notes-${tag}.md`, '부스 2개\n'), { say: 'saved' })}`)
+    expect(saved.cards).toHaveLength(0)
+    expect(read(`${dir}/notes-${tag}.md`)).toBe('부스 2개\n')
+    // an existing file: the card (an explicit save adds files, it never overwrites one without the person)
+    put(`${dir}/old-${tag}.md`, 'old\n')
+    const over = await run('alice', chat, `회의록 저장해줘\n${fake(write(`${dir}/old-${tag}.md`, 'new\n'), { say: 'x' })}`)
+    expect(over.cards).toHaveLength(1)
+    expect(read(`${dir}/old-${tag}.md`)).toBe('old\n')
+    // a skill: the card
+    const skill = await run('alice', chat, `save it\n${fake(write(`users/alice/skills/s-${tag}/SKILL.md`, '---\nname: s\ndescription: x\n---\nx\n'), { say: 'x' })}`)
+    expect(skill.cards).toHaveLength(1)
+    // no save in the person's own words: the card
+    const plain = await run('alice', chat, `요약해줘\n${fake(write(`${dir}/other-${tag}.md`, 'x\n'), { say: 'x' })}`)
+    expect(plain.cards).toHaveLength(1)
+    expect(exists(`${dir}/other-${tag}.md`)).toBe(false)
+  })
+})
+
 describe('my own folder after a room read', () => {
   test('flow (a): the side chat sums up the room into my folder: no card, the step says why; a fix of that file in the same answer too', async () => {
     const roomId = await teamRoom()

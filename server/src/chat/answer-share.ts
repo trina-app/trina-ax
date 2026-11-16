@@ -492,7 +492,36 @@ export async function shareAnswerToRoom(ctx: AppContext, userId: string, chat: C
   const content = redactorFor(ctx, userId).hide(message.content ?? '')
   if (message.status !== 'done' || !content.trim()) fail('conflict', tr('answerShareNotReady', locale), { params: { reason: 'answer_not_finished' } })
   const p = await prepareShare(ctx, userId, chat.id, { messageId: message.id, content }, b, locale)
-  return p.status === 'sent' ? p : await sendShare(ctx, userId, p, b, locale)
+  if (p.status === 'sent') return p
+  // the button's first press (no key yet): when what holds it back is only linked files the answer itself made, and
+  // with them attached nobody misses anything, they go as copies with no dialog (docs/decisions/
+  // 20261116-room-link-save-one-prompt.md, QA TC-3832: notes saved from the room's own link looked like "my files")
+  if (p.applies && b.confirmKey === undefined && b.confirm === undefined && !b.attach?.length) {
+    const auto = await madeHereOnly(ctx, chat.id, p)
+    if (auto) {
+      const choice = await shareChoice(ctx, userId, p, auto)
+      if (choice.people === 0) return await sendShare(ctx, userId, p, { ...b, confirmKey: choice.key, attach: [...auto] }, locale)
+    }
+  }
+  return await sendShare(ctx, userId, p, b, locale)
+}
+
+/** The linked files some member cannot open, when every one of them may go as a copy and was written, as it is now, by
+ * a turn of this answer's branch (the AI made it from what the branch read, which the provenance counts); else null. */
+async function madeHereOnly(ctx: AppContext, chatId: string, p: PreparedShare): Promise<Set<string> | null> {
+  const rows = p.check.rows.filter((r) => r.unable.length > 0)
+  if (!rows.length || rows.some((r) => r.attach !== 'yes' || !r.rel)) return null
+  const turns = turnsOf(ctx.db, branchUse(ctx.db, chatId, p.messageId).answers)
+  if (!turns.length) return null
+  const out = new Set<string>()
+  for (const r of rows) {
+    const sha = await hashFile(path.join(ctx.files.fx.root, ...r.rel!.split('/'))).catch(() => null)
+    if (!sha) return null
+    const made = ctx.db.query(`SELECT 1 FROM file_events WHERE path = ? AND sha256 = ? AND action IN ('create','update') AND turn_id IN (${turns.map(() => '?').join(',')}) LIMIT 1`).get(r.rel!, sha, ...turns)
+    if (!made) return null
+    out.add(r.rel!)
+  }
+  return out
 }
 
 /** One share, checked up to the question whether it may go: the room and me, the message it becomes (`body`, where the

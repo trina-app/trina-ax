@@ -36,7 +36,7 @@ import { TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, instructionFiles, neutralizeTags, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
 import { sideRoomOf } from './side-room'
-import { quotesAppOnBranch, readRooms } from './read-rooms'
+import { quotesAppOnBranch, readRooms, withoutQuoteLines } from './read-rooms'
 import { componentC } from '../team-files/component'
 import { looseArea, placementNote } from './file-placement'
 import { buildAgentDefinitions, initProblem, LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS, PARENT_ONLY_TOOLS, SUBTASK_STEPS_KEPT, subtaskSummary } from './subagents'
@@ -235,6 +235,10 @@ export type LauncherStop = 'update' | 'update-root' | 'restart'
 function launcherStopOf(signal: unknown): LauncherStop | null {
   return signal === 'update' ? 'update' : signal === 'update-root' ? 'update-root' : signal === 'shutdown' ? 'restart' : null
 }
+
+/** Words of a request to save or write something down, in the product's languages (the person's own message: an
+ * explicit save; docs/decisions/20261116-room-link-save-one-prompt.md). Escapes: no Korean text outside the language tables. */
+const SAVE_ASK = new RegExp(['\\uC800\\uC7A5', '\\uD30C\\uC77C\\uB85C', '\\uAE30\\uB85D\\uD574', '\\uC801\\uC5B4', '\\bsave\\b', '\\bwrite (it|this|that) down\\b', '\\bsimpan\\b', '\\u4FDD\\u5B58', '\\bguard(a|ar|e)\\b'].join('|'), 'iu')
 
 export class TurnExec {
   content = ''
@@ -2361,6 +2365,14 @@ export class TurnExec {
     })
     // the same call needs the wider-audience card too: that one card, with what the call writes; its yes is the room's
     const need = o.widen && !o.noCover ? this.widenNeed(o.widen.target, o.widen.extra, undefined, o.widen.read) : null
+    // the person's own message of this turn asks to save (docs/decisions/20261116-room-link-save-one-prompt.md, QA
+    // TC-3830): a NEW file where no more people can see it than can see what this chat read (no widening card) goes
+    // without the room card. It overwrites nothing and widens nothing, so a room message steering it can only add a
+    // file the same people could read anyway; an existing file, a skill or instruction file still asks
+    if (!need && !o.noCover && this.askedToSave() && this.newPlainFile(tool, input, o.widen)) {
+      this.roomAllowed.add(key)
+      return null
+    }
     // the person's "Always allow" for changes after a room read (chat/always-allow.ts; the owner, 2026-11-13): no room
     // card; a save where more people can see still has its own card (with its own "Always allow")
     const roomAlways = alwaysHere(this.alwaysPlace(), 'room_change')
@@ -2527,6 +2539,26 @@ export class TurnExec {
    * (instructionLike), never in a confidential chat. A file that was there before this answer always asks, and so do save_url (the name it saves
    * under comes from what it downloads), edit_files, moves, copies, renames and every other tool. Fails closed.
    */
+  /** The person's own message of this turn asks to save or write down something ("파일로 저장해줘", "save it"). */
+  private askedToSave(): boolean {
+    const said = (this.rt.db.query('SELECT content FROM messages WHERE id = ?').get(this.spec.userMessageId) as { content: string | null } | null)?.content ?? ''
+    return SAVE_ASK.test(withoutQuoteLines(said))
+  }
+
+  /** A write of a file that is not there yet (no skill, instruction file, hidden name or project folder): what an
+   * explicit save may add without the room card. */
+  private newPlainFile(tool: string, input: unknown, widen?: WidenOf): boolean {
+    try {
+      if (confidentialChat(this.rt.db, this.spec.chatId)) return false
+      const t = tool === 'save_room_file' ? (widen?.target ? { path: widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input, (src) => this.sourceRel(src))
+      if (!t?.mayBeNew) return false
+      const r = authorize(this.rt.files.fx, this.rt.files.rules(), this.livePrincipal(), t.path, 'write', { createDirs: true })
+      if (r.exists || componentC(this.rt.ctx).files.aiTrashed(r.rel)) return false
+      if (r.segs.some((x) => x.startsWith('.')) || inSkills(r.rel) || instructionLike(r.rel) || this.inProjectFolder(r.rel)) return false
+      return true
+    } catch { return false }
+  }
+
   private ownFolderTarget(tool: string, input: unknown, widen?: WidenOf): string[] | null {
     try {
       if (confidentialChat(this.rt.db, this.spec.chatId)) return null
