@@ -3,7 +3,7 @@
 // computer is idle and nothing on screen could be lost. There is no "Restart" question any more.
 //
 // macOS: Squirrel.Mac's ShipIt installs only after every copy of the app has quit, and it gives up for good ("App Still
-// Running Error", the update is dropped) when the app is opened again during the ~20 s it takes. Reproduced on
+// Running Error", the update is dropped) when the app is opened again during the 10–70 s it takes. Reproduced on
 // 2026-11-16 with the released 0.5.7 → 0.5.9: Restart, then a Dock click 0.3 s later, left 0.5.7. So an app that
 // starts while ShipIt is still installing it steps aside at once (launchDecision 'wait') and a small shell waiter
 // opens the app again when ShipIt is done: the click still ends in the new version.
@@ -83,10 +83,10 @@ export function launchctlPid(out: string): number | null {
 }
 
 /** The macOS waiter that a start which stepped aside leaves behind (/bin/sh -c, $0 = label, $1 = app bundle): wait while
- * ShipIt runs (at most 60 s; it installs in about 20), then open the app. When ShipIt relaunched it already, `open` only
+ * ShipIt runs (at most 180 s; it took 9–66 s on a test Mac), then open the app. When ShipIt relaunched it already, `open` only
  * brings it forward. */
 export const MAC_WAITER =
-  'i=0; while [ $i -lt 60 ] && /bin/launchctl list "$0" 2>/dev/null | /usr/bin/grep -q \'"PID" =\'; do sleep 1; i=$((i+1)); done; sleep 1; /usr/bin/open "$1"'
+  'i=0; while [ $i -lt 180 ] && /bin/launchctl list "$0" 2>/dev/null | /usr/bin/grep -q \'"PID" =\'; do sleep 1; i=$((i+1)); done; sleep 1; /usr/bin/open "$1"'
 
 /** the .app bundle of a macOS executable (…/X.app/Contents/MacOS/X), or null */
 export function bundleOf(execPath: string): string | null {

@@ -29,7 +29,7 @@
   - The run that made an update ready writes `update-pending.json` (version, time). The next start (right after the
     single-instance lock, before any window) reads it: the new version → forget it; ShipIt's launchd job
     (`<bundle id>.ShipIt`) has a process → this start quits at once and leaves a `/bin/sh` waiter that opens the app when
-    ShipIt is done (at most 60 s; it installs in about 20), so a Dock click right after quit still ends in the new
+    ShipIt is done (at most 3 minutes; installing took 9–66 s on the test Mac), so a Dock click right after quit still ends in the new
     version; at most once per staged version, so a stuck ShipIt cannot keep delaying starts; still the old version with
     nothing installing → retried quietly (download, install on the next quit), and after the second such start one
     plain line, "couldn't update to X", with the website's download page (an edition without one: Settings › Apps).
@@ -44,8 +44,8 @@
   starts on the old version. The NSIS installer closes a copy opened during the install itself, so no waiter there.
 - **Why not a splash in the reopened app:** ShipIt counts every running copy of the bundle, a splash included, and gives
   up. The second copy has to be gone within a second; only something outside the bundle can wait.
-- **Left out:** a progress window during ShipIt's ~20 s (would need a separate helper app); a restart while the person
-  uses the computer; a `trina-ax://` link that starts the app during those ~20 s is not handed on (the app opens
+- **Left out:** a progress window while ShipIt installs (would need a separate helper app); a restart while the person
+  uses the computer; a `trina-ax://` link that starts the app during the install is not handed on (the app opens
   without it).
 - **Tests:** tests/unit/desktop-update-guard.test.ts (start decisions, waiter, resume, idle rule),
   tests/unit/office-update-desktop-updater.test.ts (no dialog when ready, pending record, move and download lines, idle
