@@ -4292,6 +4292,7 @@ export const id: Record<MessageKey, string> = {
   "rooms.placeholderEmptySide": "Pesan · ✦ tanya pribadi",
   "rooms.removeFile": "Hapus {name}",
   "rooms.uploading": "Mengunggah {name}…",
+  "rooms.uploadingMark": "Mengunggah berkas",
   "rooms.tooBig": "{name} lebih besar dari {max} dan tidak bisa dikirim.",
   "rooms.teamFileWiden": "Jika berkas tim dikirim, {n} orang lagi bisa melihatnya",
   "rooms.teamFileWidenAtLeast": "Jika berkas tim dikirim, setidaknya {n} orang lagi bisa melihatnya",

@@ -4293,6 +4293,7 @@ export const en: Record<MessageKey, string> = {
   "rooms.placeholderEmptySide": "Message · ✦ ask privately",
   "rooms.removeFile": "Remove {name}",
   "rooms.uploading": "Uploading {name}…",
+  "rooms.uploadingMark": "Uploading a file",
   "rooms.tooBig": "{name} is larger than {max} and can't be sent.",
   "rooms.teamFileWiden": "Sending the team file lets {n, plural, one {# more person} other {# more people}} see it",
   "rooms.teamFileWidenAtLeast": "Sending the team files lets at least {n, plural, one {# more person} other {# more people}} see them",

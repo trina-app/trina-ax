@@ -33,7 +33,7 @@ import { toast } from '../store/ui'
 import { useMe } from '../store/session'
 import { PeoplePicker } from '../components/rooms/PeoplePicker'
 import { RoomIcon, RoomName, useRoomTitle } from '../components/rooms/RoomIcon'
-import { ROW_MENU_BUTTON, ROW_MENU_SHOWN, RoomPinIcon, SECTION_WORD, UnreadBadge } from '../components/nav/RoomsList'
+import { ROW_MENU_BUTTON, ROW_MENU_SHOWN, RoomPinIcon, RoomUploadMark, SECTION_WORD, UnreadBadge } from '../components/nav/RoomsList'
 import { useFolders } from '../components/nav/NavFolders'
 import { roomsByKind } from '../components/panels/RoomsByKind'
 import { RoomMenu, useRowMenu } from '../components/rooms/RoomMenu'
@@ -243,6 +243,7 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
             </>
           )}
           <RoomPinIcon room={room} />
+          <RoomUploadMark roomId={room.id} />
           {m && <span className={clsx('ml-auto shrink-0 pl-2 text-xs text-faint', ROW_MENU_SHOWN)}>{listTime(m.createdAt, locale, t('sidebar.yesterday'))}</span>}
         </span>
         <span className="flex min-w-0 items-center gap-2">

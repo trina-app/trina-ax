@@ -4234,6 +4234,7 @@ export const zh: Record<MessageKey, string> = {
   "rooms.placeholderEmptySide": "发消息 · ✦ 私下提问",
   "rooms.removeFile": "移除{name}",
   "rooms.uploading": "正在上传{name}…",
+  "rooms.uploadingMark": "正在上传文件",
   "rooms.tooBig": "{name}超过{max}，无法发送。",
   "rooms.teamFileWiden": "发送这个团队文件会让{n, plural, one {另外#人} other {另外#人}}看到它",
   "rooms.teamFileWidenAtLeast": "发送这些团队文件会让至少{n, plural, one {另外#人} other {另外#人}}看到它们",

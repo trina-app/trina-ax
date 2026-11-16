@@ -34,16 +34,17 @@ import { composerInset, composerRadius } from '../chat/composerBox'
 import { useGuestNoAi } from '../GuestView'
 import clsx from 'clsx'
 import { ArrowUp, Check, FileText, FolderOpen, Loader2, Paperclip, Pencil, X } from 'lucide-react'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ROOM_FILE_MAX, ROOM_FILES_MAX, ROOM_MESSAGE_MAX, SMALL_UPLOAD_MAX, type FileEntry, type RoomFile, type UserRef } from '@mycel/shared/api'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { ROOM_FILE_MAX, ROOM_FILES_MAX, ROOM_MESSAGE_MAX, SMALL_UPLOAD_MAX, type FileEntry, type UserRef } from '@mycel/shared/api'
 import { api, API, errorText, roomFileUrl } from '../../lib/api'
 import { markBusy } from '../../lib/busy'
 import { formatSize } from '../../lib/format'
-import { cancelUpload, uploadFile, uploadPercent, type UploadProgress } from '../../lib/upload'
+import { NO_UPLOADS, nextUploadKey, roomTarget as targetOf, setPlaceUploads, useRoomUploads, type RoomUpload } from '../../store/roomUploads'
+import { cancelUpload, uploadFile, uploadPercent } from '../../lib/upload'
 import { pastedFiles } from '../../lib/paste'
 import { useVoiceInput } from '../../lib/useVoiceInput'
 import { micState, voiceBlockedInRoom } from '../../lib/voice'
-import { useLocale, useT } from '../../i18n'
+import { currentLocale, translate, useLocale, useT } from '../../i18n'
 import { useMe } from '../../store/session'
 import { findMessage, keepRoomDraft, onRoomDraftElsewhere, placeKey, restoreRoomDraft, roomDraftMentions, roomDrafts as drafts, useRooms } from '../../store/rooms'
 import { failedEdits, hasRoomBox, registerRoomBox, useRoomEdit } from '../../store/roomEdit'
@@ -71,23 +72,7 @@ import { sendTyping, TypingSender } from '../../lib/roomTyping'
 import { RoomTypingLine } from './RoomTypingLine'
 import { MessageLinkChoice, useLinkChoice } from './MessageLinkChoice'
 
-interface Upload {
-  key: number
-  file: File
-  status: 'uploading' | 'done' | 'failed'
-  roomFile?: RoomFile
-  /** how far a file from this computer is (a large one goes in pieces and shows its percent) */
-  progress?: UploadProgress
-  error?: string
-  /** a storage-full refusal: the plan page it names, linked for the owner and admins (StoragePlansLink.tsx) */
-  plans?: string
-  abort: AbortController
-  /** a team file (the attach sheet's 팀 파일): its team path, and once copied how many other members cannot open it */
-  teamPath?: string
-  unable?: number
-}
-
-let uploadKey = 0
+type Upload = RoomUpload
 
 /** the team files copied in this tab (by the copy's id): their team path and how many more people they reach, so a send
  * the server refused brings them back into the box with the line under the files */
@@ -120,7 +105,10 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     return drafts.get(key) ?? ''
   })
   const [alsoInRoom, setAlsoInRoom] = useState(false)
-  const [files, setFiles] = useState<Upload[]>([])
+  // the place's files live above the box (store/roomUploads.ts): one that is still going up when the person opens
+  // another room or page goes on, and is here when they come back. Nothing is sent before they press send here
+  const files = useRoomUploads((s) => s.byPlace[key] ?? NO_UPLOADS)
+  const setFiles = useCallback((next: Upload[] | ((list: Upload[]) => Upload[])) => setPlaceUploads(key, next), [key])
   const input = useRef<HTMLTextAreaElement>(null)
   const picker = useRef<HTMLInputElement>(null)
   // below 768px: the attach sheet (and its team-file picker) instead of the clip's file input
@@ -222,7 +210,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     useRooms.getState().takeReturned(key)
     mention.putBack(back.body, back.mentions, !!back.mentionsAll)
     if (back.alsoInRoom) setAlsoInRoom(true)
-    if (back.files.length) setFiles((list) => [...back.files.map((f) => ({ key: ++uploadKey, file: { name: f.name, size: f.size } as File, status: 'done' as const, roomFile: f, abort: new AbortController(), ...(teamCopies.has(f.id) ? { teamPath: teamCopies.get(f.id)!.path, unable: teamCopies.get(f.id)!.unable } : {}) })), ...list])
+    if (back.files.length) setFiles((list) => [...back.files.map((f) => ({ key: nextUploadKey(), file: { name: f.name, size: f.size } as File, status: 'done' as const, roomFile: f, abort: new AbortController(), ...(teamCopies.has(f.id) ? { teamPath: teamCopies.get(f.id)!.path, unable: teamCopies.get(f.id)!.unable } : {}) })), ...list])
     input.current?.focus()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [back, editing, backAgain])
@@ -290,12 +278,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   useEffect(() => {
     if (autoFocus) input.current?.focus({ preventScroll: true })
   }, [autoFocus])
-  // leaving the room stops uploads still on their way (they would never be sent)
-  const current = useRef(files)
-  current.current = files
-  useEffect(() => () => current.current.forEach((f) => f.status === 'uploading' && f.abort.abort()), [])
-
-  const roomTarget = (file: File) => ({ kind: 'room' as const, roomId, name: file.name })
+  const roomTarget = (file: File) => targetOf(roomId, file)
   const upload = async (u: Upload) => {
     try {
       // a small file in one request, a larger one (up to 10 GB) in 8 MB pieces that go on after a lost connection
@@ -304,10 +287,11 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
       if (r.kind !== 'room') throw new Error('unexpected upload result')
       setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'done', roomFile: r.file, progress: undefined } : x)))
     } catch (e) {
-      // taken out, or the room left, while its pieces went up: what the server holds of it is dropped (lib/upload.ts
-      // cancelUpload; nothing to do for a small file)
+      // taken out while its pieces went up: what the server holds of it is dropped (lib/upload.ts cancelUpload; nothing
+      // to do for a small file). Leaving the room does not stop it (store/roomUploads.ts)
       if (u.abort.signal.aborted) { void cancelUpload(u.file, roomTarget(u.file), api); return }
-      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'failed', error: errorText(e, locale, t('error.network')), plans: storagePlansUrl(e) } : x)))
+      // the box may be gone by now (another room): the reason in the language of this moment
+      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'failed', error: errorText(e, currentLocale(), translate(currentLocale(), 'error.network')), plans: storagePlansUrl(e) } : x)))
     }
   }
 
@@ -321,7 +305,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
         toast({ level: 'warn', text: t('rooms.tooBig', { name: file.name, max: formatSize(ROOM_FILE_MAX, locale) }) })
         continue
       }
-      added.push({ key: ++uploadKey, file, status: 'uploading', abort: new AbortController() })
+      added.push({ key: nextUploadKey(), file, status: 'uploading', abort: new AbortController() })
     }
     if (!added.length) return
     setFiles((list) => [...list, ...added])
@@ -337,7 +321,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
       setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'done', roomFile: r.file, unable: r.unable, file: { name: r.file.name, size: r.file.size } as File } : x)))
     } catch (e) {
       if (u.abort.signal.aborted) return
-      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'failed', error: errorText(e, locale, t('error.network')), plans: storagePlansUrl(e) } : x)))
+      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'failed', error: errorText(e, currentLocale(), translate(currentLocale(), 'error.network')), plans: storagePlansUrl(e) } : x)))
     }
   }
   const addTeamFiles = (picked: FileEntry[]) => {
@@ -349,7 +333,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
         toast({ level: 'warn', text: t('rooms.tooBig', { name: f.name, max: formatSize(SMALL_UPLOAD_MAX, locale) }) })
         continue
       }
-      added.push({ key: ++uploadKey, file: { name: f.name, size: f.size ?? 0 } as File, status: 'uploading', abort: new AbortController(), teamPath: f.path })
+      added.push({ key: nextUploadKey(), file: { name: f.name, size: f.size ?? 0 } as File, status: 'uploading', abort: new AbortController(), teamPath: f.path })
     }
     if (!added.length) return
     setFiles((list) => [...list, ...added])

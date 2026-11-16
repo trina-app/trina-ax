@@ -4291,6 +4291,7 @@ export const ko = {
   "rooms.placeholderEmptySide": "메시지 · ✦로 따로 묻기",
   "rooms.removeFile": "{name} 빼기",
   "rooms.uploading": "{name} 올리는 중…",
+  "rooms.uploadingMark": "파일 올리는 중",
   "rooms.tooBig": "{max}보다 큰 파일은 보낼 수 없어요: {name}",
   "rooms.teamFileWiden": "팀 파일을 보내면 {n}명이 더 보게 돼요",
   "rooms.teamFileWidenAtLeast": "팀 파일을 보내면 {n}명 이상이 더 보게 돼요",

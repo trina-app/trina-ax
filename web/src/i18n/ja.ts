@@ -4248,6 +4248,7 @@ export const ja: Record<MessageKey, string> = {
   "rooms.placeholderEmptySide": "メッセージ · ✦で個別に質問",
   "rooms.removeFile": "{name}を外す",
   "rooms.uploading": "{name}をアップロード中…",
+  "rooms.uploadingMark": "ファイルをアップロード中",
   "rooms.tooBig": "{name}は{max}を超えているため送信できません。",
   "rooms.teamFileWiden": "チームのファイルを送ると、さらに{n, plural, one {#人} other {#人}}が見られるようになります",
   "rooms.teamFileWidenAtLeast": "チームのファイルを送ると、少なくともさらに{n, plural, one {#人} other {#人}}が見られるようになります",
