@@ -19,6 +19,7 @@ import type { FileShares } from '../files/shares'
 import { hiddenEntry } from '../policy/names'
 import { SCREEN } from '../policy/refusal'
 import { placeWords } from './place-words'
+import { tr } from './i18n'
 import { alwaysHere, type AlwaysPlace } from './always-allow'
 import type { CardAlwaysKind } from '@mycel/shared/api'
 
@@ -47,8 +48,7 @@ export const CARD_WORDS_RULE = 'The same in a question or an option you put on a
 export const sendNotConnectedRule = (locale: Locale, connect: boolean) => `Asked to send something by Gmail or another service that is not connected: say in one sentence that it is not connected yet, ${connect ? 'show the connect card (connect_service)' : `say where to connect it (${SCREEN.connectors(locale)})`} and offer to draft the text meanwhile.`
 
 /** "Send to Trina" in an answer's thread (web chat.thread.sendToAi, with the AI's name filled in). */
-const SEND_TO_AI: Record<Locale, string> = { ko: '{name}에게 보내기', en: 'Send to {name}', id: 'Kirim ke {name}', ja: '{name}に送る', es: 'Enviar a {name}', zh: '发送给{name}' }
-export const threadSendToAi = (locale: Locale, aiName: string) => (SEND_TO_AI[locale] ?? SEND_TO_AI.en).replace('{name}', aiName)
+export const threadSendToAi = (locale: Locale, aiName: string) => tr('threadSendToAi', locale, { name: aiName })
 /** A shared chat (MAN-003a; docs/decisions/20261116-chat-answer-threads.md: replies are people's words, the AI does not
  * read them): the AI says so and names the button that brings them to it. */
 export const sharedCommentsLine = (asker: string, locale: Locale, aiName: string) => `- People can comment under an answer here (its thread, beside the chat). You cannot read those comments. When ${asker} asks about one, say so and that "${threadSendToAi(locale, aiName)}" in that thread puts the comments in the message box, for ${asker} to send to you.`
