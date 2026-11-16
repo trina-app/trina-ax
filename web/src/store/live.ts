@@ -16,6 +16,7 @@ import { setTypingOut } from '../lib/roomTyping'
 import { t } from '../i18n'
 import { useChats } from './chats'
 import { useDeckBuilds } from './deckBuilds'
+import { useChatThreads } from './chatThreads'
 import { useAiAccess } from './aiAccess'
 import { useEngines } from './engines'
 import { transferredHere, useHandover } from './handover'
@@ -101,6 +102,10 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
     case 'turn.request.closed':
     case 'artifact.updated':
       useChats.getState().handleEvent(ev)
+      return
+    case 'chat.thread':
+      // a thread under an AI answer of a shared chat (store/chatThreads.ts): its replies and the line under the answer
+      useChatThreads.getState().handleEvent(ev.data)
       return
     case 'deck.progress':
       // an intro deck being built (docs/DECISIONS.md "D2", round 2): the chat's block and the panel (its end is told

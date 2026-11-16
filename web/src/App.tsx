@@ -13,6 +13,7 @@ import { ApiError, errorText, isServerUpdating, isTeamWaking, setMediaKey } from
 import { useWakeWait } from './lib/wakeWait'
 import { useLocale, useT } from './i18n'
 import { useChats } from './store/chats'
+import { useChatThreads } from './store/chatThreads'
 import { useDeckBuilds } from './store/deckBuilds'
 import { useSendQueue } from './store/sendQueue'
 import { useProjects } from './store/projects'
@@ -138,6 +139,7 @@ function dropPersonStores() {
   // the changes still on their way to the server (lib/optimistic.ts) write nothing into the next person's stores
   resetOptimistic()
   useChats.getState().reset()
+  useChatThreads.getState().reset()
   useDeckBuilds.getState().reset()
   useSendQueue.getState().reset()
   useProjects.getState().reset()
@@ -353,6 +355,8 @@ function Gate() {
               computer's goes to / (pages/Home.tsx) */}
           <Route path="new" element={<Home />} />
           <Route path="c/:chatId" element={<ChatPage />} />
+          {/* a thread under a shared chat's answer, beside the chat (docs/decisions/20261116-chat-answer-threads.md) */}
+          <Route path="c/:chatId/t/:messageId" element={<ChatPage />} />
           {/* the team chat rooms: the list (the 대화 tab on phones) and one room (the mobile app links here) */}
           <Route path="rooms" element={<Rooms />} />
           <Route path="rooms/:roomId" element={<RoomPage />} />

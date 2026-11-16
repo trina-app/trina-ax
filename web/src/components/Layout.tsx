@@ -189,7 +189,7 @@ export default function Layout() {
         </main>
         {panel && (
           // beside an open thread (a file a reply links to) the panel leaves the room and the thread their minimums
-          <SidePanelFrame besideThread={!!matchPath('/rooms/:roomId/t/:messageId', location.pathname)} expanded={big}>
+          <SidePanelFrame besideThread={!!(matchPath('/rooms/:roomId/t/:messageId', location.pathname) || matchPath('/c/:chatId/t/:messageId', location.pathname))} expanded={big}>
             <ChunkErrorBoundary resetKey={panel.kind === 'file' ? `file:${panel.key}` : panel.kind === 'artifact' ? `artifact:${panel.chatId}:${panel.artifactKey}:${panel.versionId ?? ''}` : panel.kind}>
               <Suspense fallback={<Spinner className="p-6" />}>
                 {panel.kind === 'artifact' && <ArtifactPanel chatId={panel.chatId} artifactKey={panel.artifactKey} versionId={panel.versionId} onClose={closeSidePanel} />}
