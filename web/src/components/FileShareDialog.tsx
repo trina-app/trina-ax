@@ -7,7 +7,8 @@
 // offered only their own groups, never a guest), and one press saves the picks (PUT /api/files/shares add); "People with
 // access": the owner, then each person or group with "Can view" and ✕ (asked first: "Remove access for Bob?"); a team
 // file's one grey line that the folder's people open it too. Footer: Copy link and Share (with picks) or Done. Someone who
-// may not share sees who has it, the reason in one grey line, and Copy link. Not here: general access, roles, notify,
+// may not share sees who has it, the reason in one grey line, and Copy link; the file's owner keeps ✕ even then (the
+// team's switch off, edit access lost: docs/decisions/20261116-ai-share-card-and-stop.md). Not here: general access, roles, notify,
 // message. "Everyone on the team" (QA TC-3509) is the search's first option, with one line before the press that the
 // whole team, also people who join later, will be able to open it. A refusal (403 not the owner or sharing off, 400, 429) says why in the server's words.
 // A folder in the person's own files (folder sharing, docs/AGENTS/plan/20261116-1330-folder-share-web.md) opens this same
@@ -169,8 +170,9 @@ export function FileShareDialog({ path, onClose, returnTo }: { path: string; onC
   const folder = shares?.kind === 'folder'
   const paused = !!shares?.paused
   const canShare = !!shares?.canShare && !paused
-  // taking people off is always the owner's (also with the team switch off, also while paused); a team file's staff too
-  const mayRemove = !!shares && (shares.canShare || shares.mine)
+  // taking people off: whoever may share, and the file's owner always (the team's switch off, edit access lost, also
+  // while paused); a team file's staff too
+  const mayRemove = !!shares && (shares.canShare || shares.mine || !!shares.canStop)
   const blocked = shares?.blocked
   const ownerRow = shares?.owner
   return (

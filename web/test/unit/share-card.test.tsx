@@ -1,0 +1,239 @@
+// The AI share card (components/chat/ShareCard.tsx, lib/shareCard.ts; docs/decisions/20261116-ai-share-card-and-stop.md):
+// its words come from the server's record alone, in the plan's copy; the confirmation card (AskCard) shows the same rows
+// and answers with the server's values; the result card's one button is Manage access after a share (the file's Share
+// dialog) and Undo after a stop (the same people added again through the dialog's endpoint, then the card says so); a
+// refusal has no button unless a next step was registered for its kind; no path is ever on the card.
+import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from 'bun:test'
+import type { ShareCardState, StepShared, TurnRequest } from '@mycel/shared/api'
+import AskCard from '../../src/components/chat/AskCard'
+import ShareCard, { registerShareNext, ShareAskRows } from '../../src/components/chat/ShareCard'
+import { FileShareHost } from '../../src/components/FileShareDialog'
+import { askHeadline, isRestored, shareHeadline, shareNotes } from '../../src/lib/shareCard'
+import { translate, useLocaleStore, type MessageKey } from '../../src/i18n'
+import { installDom, mount, removeDom } from './dom-host'
+
+const t = (key: MessageKey, params?: Record<string, string | number>) => translate('en', key, params)
+const L1 = 'aaaaaaaaaaaaaaaaaaaaa1', L2 = 'aaaaaaaaaaaaaaaaaaaaa2', L3 = 'aaaaaaaaaaaaaaaaaaaaa3', L4 = 'aaaaaaaaaaaaaaaaaaaaa4'
+const jun = { subjectType: 'user' as const, subjectId: 'jun', name: 'Jun' }
+const sales = { subjectType: 'group' as const, subjectId: 'g-sales', name: 'Sales', members: 6 }
+const file = (linkId: string, name: string) => ({ linkId, name, place: 'My files › Work' })
+const sharedOne: StepShared = { op: 'share', outcome: 'done', files: [file(L1, 'Quote.pdf')], who: [jun], level: 'view', notified: ['jun'] }
+const sharedMany: StepShared = { op: 'share', outcome: 'done', files: [file(L1, 'Quote.pdf'), file(L2, 'Budget.xlsx'), file(L3, 'Notes.docx'), file(L4, 'Plan.md')], who: [jun], level: 'view', notified: ['jun'] }
+const stopped: StepShared = { op: 'stop', outcome: 'done', files: [file(L1, 'Quote.pdf')], who: [jun], level: 'view', still: [{ userId: 'jun', name: 'Jun', through: 'group', group: 'Sales', files: 1 }] }
+const refused: StepShared = { op: 'share', outcome: 'refused', files: [], failed: [{ linkId: L1, name: 'Quote.xlsx', place: 'Team folder › Sales' }], who: [], level: 'view', refusal: { reason: 'not_owner', file: 'Quote.xlsx', owner: 'Mina' }, next: { kind: 'ask_owner', linkId: L1, userId: 'mina', name: 'Mina' } }
+
+test('the words, from the record alone (the plan\'s copy)', () => {
+  expect(askHeadline(t, 'en', { op: 'share', files: [file(L1, 'Quote.pdf')], who: [jun] })).toBe('Share Quote.pdf with Jun?')
+  expect(askHeadline(t, 'en', { op: 'stop', files: sharedMany.files, who: [jun] })).toBe('Stop sharing 4 files with Jun?')
+  expect(shareHeadline(t, 'en', sharedOne)).toBe('Shared Quote.pdf with Jun')
+  expect(shareNotes(t, 'en', sharedOne)).toEqual(['Jun got a notification.'])
+  // several files: one card
+  expect(shareHeadline(t, 'en', sharedMany)).toBe('Shared 4 files with Jun: Quote.pdf, Budget.xlsx, Notes.docx and 1 more')
+  // a group, with its size; new members get it too; the people told are counted
+  const group: StepShared = { op: 'share', outcome: 'done', files: [file(L1, 'Q4 plan.md')], who: [sales], level: 'view', notified: ['a', 'b', 'c'] }
+  expect(shareHeadline(t, 'en', group)).toBe('Shared Q4 plan.md with the Sales group (6 people)')
+  expect(shareNotes(t, 'en', group)).toEqual(['New members of the group get it too.', '3 people got a notification.'])
+  // a stop, and who can still open it through what
+  expect(shareHeadline(t, 'en', stopped)).toBe('Stopped sharing Quote.pdf with Jun')
+  expect(shareNotes(t, 'en', stopped)).toEqual(['Jun can still open it through the Sales group.'])
+  expect(shareNotes(t, 'en', { ...stopped, files: [file(L1, 'a'), file(L2, 'b'), file(L3, 'c')], still: [{ userId: 'jun', name: 'Jun', through: 'group', group: 'Sales', files: 2 }], stillMore: 1 }))
+    .toEqual(['Jun can still open 2 files through the Sales group.', '1 more person can still open it.'])
+  expect(shareNotes(t, 'en', { ...stopped, still: [{ userId: 'jun', name: 'Jun', through: 'folder', files: 1 }] })).toEqual(['Jun can still open it because they can open its folder.'])
+  // a refusal: what, and why with whose file it is
+  expect(shareHeadline(t, 'en', refused)).toBe("Couldn't share Quote.xlsx.")
+  expect(shareNotes(t, 'en', refused)).toEqual(["It's Mina's file, so only Mina can add people."])
+  // a partial result names what was done and where it stopped
+  const partial: StepShared = { op: 'share', outcome: 'partial', files: [file(L1, 'a.txt')], failed: [{ name: 'b.txt', place: 'My files' }], who: [jun], level: 'view', refusal: { reason: 'limit', file: 'b.txt' } }
+  expect(shareHeadline(t, 'en', partial)).toBe('Shared 1 of 2 files with Jun')
+  expect(shareNotes(t, 'en', partial)).toEqual(["Couldn't share b.txt. You've shared a lot in a short time. Try again in a minute."])
+  // every language has the headline (no key falls back to its name)
+  for (const l of ['ko', 'ja', 'zh', 'es', 'id'] as const) {
+    const tl = (key: MessageKey, params?: Record<string, string | number>) => translate(l, key, params)
+    const h = shareHeadline(tl, l, sharedMany)
+    expect(h).toContain('Jun')
+    expect(h).toContain('Quote.pdf')
+    expect(h).not.toContain('shareCard.')
+  }
+})
+
+test('already open (checked before the card): the headline says who could already open it; a partial says it under the rows', () => {
+  const all: StepShared = { op: 'share', outcome: 'done', files: [file(L1, 'Quote.pdf')], who: [], already: [jun], level: 'view' }
+  expect(shareHeadline(t, 'en', all)).toBe('Jun can already open Quote.pdf')
+  expect(shareNotes(t, 'en', all)).toEqual([])
+  const some: StepShared = { ...sharedOne, who: [{ subjectType: 'user', subjectId: 'bo', name: 'Bo' }], notified: ['bo'], already: [jun] }
+  expect(shareHeadline(t, 'en', some)).toBe('Shared Quote.pdf with Bo')
+  expect(shareNotes(t, 'en', some)).toEqual(['Bo got a notification.', 'Jun could already open it, so nothing changed for them.'])
+})
+
+test('the confirmation rows carry the server\'s "why it asks" line (Always allow on, other people\'s words read): one line', async () => {
+  const why = 'A file someone shared with you (other people\'s words) was read here, so changes are asked first.'
+  const m = await mount(<ShareAskRows ask={{ op: 'share', files: [file(L1, 'Quote.pdf')], who: [jun], why }} titleId="q1" />)
+  try {
+    expect(m.container.querySelectorAll('[data-testid="share-ask-why"]').length).toBe(1)
+    expect(m.get('share-ask-why').textContent).toBe(why)
+  } finally { await m.unmount() }
+  const none = await mount(<ShareAskRows ask={{ op: 'share', files: [file(L1, 'Quote.pdf')], who: [jun] }} titleId="q2" />)
+  try { expect(none.find('share-ask-why')).toBeNull() } finally { await none.unmount() }
+})
+
+test('isRestored: a stop is undone once every person of the card is on every file the viewer still sees', () => {
+  const on = (id: string, people: { subjectType: 'user' | 'group'; subjectId: string; name: string }[]): ShareCardState => ({ id, path: `users/me/${id}`, name: id, canShare: true, canStop: true, people })
+  expect(isRestored(stopped, null)).toBe(false)
+  expect(isRestored(stopped, [on(L1, [])])).toBe(false)
+  expect(isRestored(stopped, [on(L1, [jun])])).toBe(true)
+  expect(isRestored(stopped, [{ id: L1, gone: true }])).toBe(false)
+  expect(isRestored(sharedOne, [on(L1, [jun])])).toBe(false)
+})
+
+// ---- the components ----
+type Ask = Extract<TurnRequest, { kind: 'ask_user' }>
+const realFetch = globalThis.fetch
+const locale = useLocaleStore.getState().locale
+let live: ShareCardState[] = []
+const calls: { url: string; method: string; body: unknown }[] = []
+beforeAll(() => { installDom() })
+afterAll(() => { removeDom(); globalThis.fetch = realFetch })
+beforeEach(() => {
+  calls.length = 0
+  useLocaleStore.setState({ locale: 'en' })
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input)
+    const body = init?.body ? JSON.parse(String(init.body)) : null
+    calls.push({ url, method: init?.method ?? 'GET', body })
+    const json = (v: unknown) => new Response(JSON.stringify(v), { status: 200, headers: { 'content-type': 'application/json' } })
+    if (url.includes('/api/files/shares/cards')) return json({ items: live.filter((x) => (body as { ids: string[] }).ids.includes(x.id)) })
+    if (url.includes('/api/files/shares') && init?.method === 'PUT') {
+      const b = body as { path: string; add: { subjectType: 'user' | 'group'; subjectId: string }[] }
+      live = live.map((x) => ('path' in x && x.path === b.path ? { ...x, people: [...x.people, ...b.add.map((a) => ({ ...a, name: 'Jun' }))] } : x))
+      return json({ path: b.path, link: null, canShare: true, canStop: true, owner: null, mine: true, teamFile: false, people: [] })
+    }
+    if (url.includes('/api/files/shares')) return json({ path: 'users/me/Quote.pdf', link: null, canShare: true, canStop: true, owner: null, mine: true, teamFile: false, people: [] })
+    return json({})
+  }) as unknown as typeof fetch
+})
+afterEach(() => { useLocaleStore.setState({ locale }); registerShareNext('ask_owner', null) })
+const mine = (id: string, name: string, people: ShareCardState extends infer S ? S extends { people: infer P } ? P : never : never = []): ShareCardState => ({ id, path: `users/me/${name}`, name, canShare: true, canStop: true, people })
+
+test('the confirmation card shows the record\'s rows (file, place, person, Can view) and answers with the server\'s values', async () => {
+  const answers: unknown[] = []
+  const ask: Ask = {
+    kind: 'ask_user', origin: 'server', requestId: 'r1', question: 'Share 1 file with Jun?', multiple: false, allowText: false,
+    options: [{ label: 'Share', value: 'share' }, { label: "Don't share", value: 'no' }],
+    details: [{ label: 'Files', text: 'Quote.pdf', noSize: true }],
+    share: { op: 'share', files: [{ name: 'Quote.pdf', place: 'My files › Work' }], who: [jun] },
+  }
+  const m = await mount(<AskCard req={{ request: ask }} onAnswer={async (_id, body) => void answers.push(body)} />)
+  try {
+    expect(m.get('share-ask-title').textContent).toBe('Share Quote.pdf with Jun?')
+    expect(m.get('share-card-file-name').textContent).toBe('Quote.pdf')
+    expect(m.get('share-card-file-place').textContent).toBe('My files › Work')
+    expect(m.get('share-card-person').textContent).toContain('Jun')
+    expect(m.get('share-card-person').textContent).toContain('Can view')
+    // the rows replace the plain question and the plain file list
+    expect(m.find('ask-detail-text')).toBeNull()
+    expect(m.html()).not.toContain('Share 1 file with Jun?')
+    await m.click('ask-yes')
+    expect(answers).toEqual([{ kind: 'ask_user', answer: 'share' }])
+  } finally { await m.unmount() }
+})
+
+test('after a share: the headline, the rows, who was told, and Manage access opens the file\'s Share dialog', async () => {
+  live = [mine(L1, 'Quote.pdf', [jun])]
+  const m = await mount(<><ShareCard shared={sharedOne} /><FileShareHost /></>)
+  try {
+    expect(m.get('share-card').getAttribute('data-state')).toBe('done')
+    expect(m.get('action-card-title').textContent).toBe('Shared Quote.pdf with Jun')
+    expect(m.get('share-card-file-place').textContent).toBe('My files › Work')
+    expect(m.get('share-card-person').textContent).toContain('Can view')
+    expect(m.get('share-card-note').textContent).toBe('Jun got a notification.')
+    // no path on the card, only words
+    expect(m.get('share-card').innerHTML).not.toContain('users/')
+    await m.until(() => m.find('share-card-manage'), 'Manage access')
+    expect(m.find('share-card-undo')).toBeNull()
+    await m.click('share-card-manage')
+    expect((await m.until(() => m.find('file-share-dialog'), 'the Share dialog')).getAttribute('data-path')).toBe('users/me/Quote.pdf')
+  } finally { await m.unmount() }
+})
+
+test('several files: one card; Manage access lists them, each opens its own dialog', async () => {
+  live = [mine(L1, 'Quote.pdf', [jun]), mine(L2, 'Budget.xlsx', [jun]), mine(L3, 'Notes.docx', [jun]), mine(L4, 'Plan.md', [jun])]
+  const m = await mount(<><ShareCard shared={sharedMany} /><FileShareHost /></>)
+  try {
+    expect(m.get('action-card-title').textContent).toBe('Shared 4 files with Jun: Quote.pdf, Budget.xlsx, Notes.docx and 1 more')
+    expect(m.find('share-card-file')).toBeNull()
+    await m.until(() => m.find('share-card-manage'), 'Manage access')
+    await m.click('share-card-manage')
+    const rows = m.get('share-card-rows').querySelectorAll('[data-testid="share-card-file"]')
+    expect(rows).toHaveLength(4)
+    await m.click(rows[1]!)
+    expect((await m.until(() => m.find('file-share-dialog'), 'the Share dialog')).getAttribute('data-path')).toBe('users/me/Budget.xlsx')
+  } finally { await m.unmount() }
+})
+
+test('after a stop: who can still open it, and Undo shares it with the same people again; the card then says so', async () => {
+  live = [mine(L1, 'Quote.pdf', [])]
+  const m = await mount(<ShareCard shared={stopped} />)
+  try {
+    expect(m.get('action-card-title').textContent).toBe('Stopped sharing Quote.pdf with Jun')
+    expect(m.get('share-card-note').textContent).toBe('Jun can still open it through the Sales group.')
+    // (nobody is listed with "Can view" on a stop)
+    expect(m.find('share-card-person')).toBeNull()
+    await m.until(() => m.find('share-card-undo'), 'Undo')
+    expect(m.find('share-card-manage')).toBeNull()
+    await m.click('share-card-undo')
+    await m.until(() => m.get('share-card').getAttribute('data-state') === 'restored', 'the card to say it is shared again')
+    const put = calls.find((c) => c.method === 'PUT')!
+    expect(put.body).toEqual({ path: 'users/me/Quote.pdf', add: [{ subjectType: 'user', subjectId: 'jun' }], remove: [] })
+    expect(m.get('action-card-title').textContent).toBe('Shared Quote.pdf with Jun again')
+    expect(m.find('share-card-undo')).toBeNull()
+    expect(m.find('share-card-manage')).not.toBeNull()
+    expect(m.get('share-card-person').textContent).toContain('Can view')
+  } finally { await m.unmount() }
+})
+
+test('a post to a room uses the same card frame and keeps View (the way the step row goes)', async () => {
+  const { default: PostedCard } = await import('../../src/components/chat/PostedCard')
+  const { StepPostView } = await import('../../src/components/chat/Steps')
+  const posted = { roomId: '019a5f00-0000-7000-8000-00000000a001', messageId: '019a5f00-0000-7000-8000-00000000a002' }
+  const went: unknown[] = []
+  const m = await mount(<StepPostView.Provider value={(p) => went.push(p)}><PostedCard posted={posted} /></StepPostView.Provider>)
+  try {
+    // a room the viewer does not have in their list is not named (the record holds ids alone)
+    expect(m.get('posted-card').getAttribute('data-kind')).toBe('post')
+    expect(m.get('action-card-title').textContent).toBe('Posted to a conversation')
+    expect(m.get('posted-card-view').textContent).toBe('View')
+    await m.click('posted-card-view')
+    expect(went).toEqual([posted])
+  } finally { await m.unmount() }
+})
+
+test('a file the viewer can no longer open: the card keeps its words and has no button', async () => {
+  live = [{ id: L1, gone: true }]
+  const m = await mount(<ShareCard shared={sharedOne} />)
+  try {
+    await m.settle(50)
+    expect(m.get('action-card-title').textContent).toBe('Shared Quote.pdf with Jun')
+    expect(m.find('share-card-manage')).toBeNull()
+    expect(m.find('action-card-footer')).toBeNull()
+  } finally { await m.unmount() }
+})
+
+test('a refusal: what and why from the record; a button only for a next step someone registered', async () => {
+  live = []
+  const bare = await mount(<ShareCard shared={refused} />)
+  try {
+    expect(bare.get('share-card').getAttribute('data-state')).toBe('refused')
+    expect(bare.get('action-card-title').textContent).toBe("Couldn't share Quote.xlsx.")
+    expect(bare.get('share-card-note').textContent).toBe("It's Mina's file, so only Mina can add people.")
+    expect(bare.get('share-card-file-place').textContent).toBe('Team folder › Sales')
+    expect(bare.find('action-card-footer')).toBeNull()
+  } finally { await bare.unmount() }
+  const got: unknown[] = []
+  registerShareNext('ask_owner', ({ next }) => <button type="button" data-testid="next-ask-owner" onClick={() => got.push(next)}>Ask {next.name}</button>)
+  const m = await mount(<ShareCard shared={refused} />)
+  try {
+    expect(m.get('next-ask-owner').textContent).toBe('Ask Mina')
+    await m.click('next-ask-owner')
+    expect(got).toEqual([{ kind: 'ask_owner', linkId: L1, userId: 'mina', name: 'Mina' }])
+  } finally { await m.unmount() }
+})

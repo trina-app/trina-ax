@@ -483,7 +483,9 @@ describe('a chat row\'s "…"', () => {
       await m.click('chat-project-save')
       await m.until(() => useChats.getState().chats.find((c) => c.id === id)?.projectId === P, 'the chat in the project')
       expect(sent).toEqual([{ projectId: P }])
-      expect(useUi.getState().toasts.at(-1)?.text).toBe(ko('chat.project.moved', { name: 'Acme launch' }))
+      // into a team project it arrives private: the toast says so, with the way to share it (docs/decisions/20261116-ai-share-who-can-open.md)
+      expect(useUi.getState().toasts.at(-1)?.text).toBe(ko('chat.project.movedPrivate', { name: 'Acme launch' }))
+      expect(useUi.getState().toasts.at(-1)?.action?.label).toBe(ko('stepFix.shareProject'))
       await m.until(() => !m.find('chat-project-choices'), 'the dialog to close')
       // Group by: None by default (docs/DECISIONS.md "Trina history: Group by defaults to None"): the row stays in the
       // one list, no project header

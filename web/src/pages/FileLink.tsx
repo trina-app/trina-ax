@@ -19,7 +19,7 @@
 import { Tooltip } from '../components/Tooltip'
 import { ChevronLeft, ChevronRight, Download, Folder, Lock, Trash2 } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { FILE_REQUEST_NOTE_MAX, fileLinkUrl, type SharedFileView, type SharedFolderEntry, type SharedFolderList } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError, startDownload } from '../lib/api'
 import { formatDate, formatSize } from '../lib/format'
@@ -34,6 +34,9 @@ import { ListRow } from '../components/list/List'
 import { FileKindIcon } from '../components/chat/TeamFilePicker'
 import { EmptyState } from '../components/ui'
 import { fileSharesChanged } from '../store/live'
+import { newChatPath } from '../lib/newChat'
+import { aiName } from '../lib/tabs'
+import { AiMark } from '../components/rooms/AiFace'
 
 type View = SharedFileView | { status: 'guest' }
 
@@ -102,10 +105,11 @@ function LinkPage() {
         <Link to="/files?view=trash" className="font-medium text-accent-text underline" data-testid="file-link-open-trash">{t('fileLink.openTrash')}</Link>
       </Centered>
     )
-  if (view.status === 'no_access' && view.canAsk) return <AskAccess id={id} askedAt={view.askedAt} />
+  if (view.status === 'no_access' && view.canAsk) return <AskAccess id={id} askedAt={view.askedAt} stoppedBy={view.stoppedBy} />
   return (
     <Centered testId="file-link-closed" state={view.status}>
       <Lock size={28} className="text-faint" aria-hidden />
+      {view.status === 'no_access' && view.stoppedBy && <p className="text-title-sm font-semibold text-ink" data-testid="file-link-stopped">{t('fileLink.stoppedBy', { name: view.stoppedBy })}</p>}
       <p className="text-sm break-keep text-muted" data-testid="file-link-closed-line">{t(view.status === 'unknown' ? 'fileLink.unknown' : 'fileLink.cantAsk')}</p>
     </Centered>
   )
@@ -122,7 +126,7 @@ function Centered({ children, testId, state }: { children: ReactNode; testId?: s
   )
 }
 
-function AskAccess({ id, askedAt: asked }: { id: string; askedAt: string | null }) {
+function AskAccess({ id, askedAt: asked, stoppedBy }: { id: string; askedAt: string | null; stoppedBy?: string }) {
   const t = useT()
   const locale = useLocale()
   const [note, setNote] = useState('')
@@ -147,7 +151,8 @@ function AskAccess({ id, askedAt: asked }: { id: string; askedAt: string | null 
   return (
     <Centered testId="file-link-ask">
       <Lock size={28} className="text-faint" aria-hidden />
-      <p className="text-title-sm font-semibold text-ink">{t('fileLink.needAccess')}</p>
+      {/* someone took the viewer off this file: who (nothing about the file); asking again stays possible */}
+      <p className="text-title-sm font-semibold text-ink" data-testid={stoppedBy ? 'file-link-stopped' : undefined}>{stoppedBy ? t('fileLink.stoppedBy', { name: stoppedBy }) : t('fileLink.needAccess')}</p>
       {askedAt ? (
         <p role="status" className="text-sm break-keep text-muted" data-testid={sent ? 'file-link-sent' : 'file-link-waiting'}>
           {sent ? t('fileLink.sent') : t('fileLink.asked', { date: formatDate(askedAt, locale) })}
@@ -205,6 +210,11 @@ function OpenFile({ id, view, sub, above }: { id: string; view: { name: string; 
     return () => ro.disconnect()
   }, [])
   const download = () => startDownload(url('attachment'), view.name)
+  // "Ask Trina": a new chat of my own with this file's link ready in the box, so the AI reads exactly this file (its
+  // read opens a /f/ link; docs/decisions/20261116-ai-screen-and-shared-tools.md). The link, never a path: this page
+  // knows none.
+  const navigate = useNavigate()
+  const askAi = () => navigate(newChatPath({ prompt: t('fileLink.askPrompt', { name: view.name, link: `${window.location.origin}/f/${id}` }) }))
   return (
     <div className="mx-auto flex h-full w-full max-w-5xl min-w-0 flex-col gap-3 px-6 py-5 max-md:px-4 max-md:py-3" data-testid="file-link-page" data-state="open">
       {above}
@@ -215,6 +225,11 @@ function OpenFile({ id, view, sub, above }: { id: string; view: { name: string; 
             {[view.sharedBy ? t('fileLink.sharedBy', { name: view.sharedBy }) : view.formerSharer ? t('fileLink.sharedByFormer') : null, formatSize(view.size, locale)].filter(Boolean).join(' · ')}
           </p>
         </div>
+        <Tooltip label={t('files.askAi', { name: aiName(t) })}>
+          <Button variant="secondary" onClick={askAi} className="shrink-0" data-testid="file-link-ask-ai">
+            <AiMark place="nav" /> <span className="max-sm:sr-only">{t('files.askAiShort', { name: aiName(t) })}</span>
+          </Button>
+        </Tooltip>
         <Tooltip label={t('common.download')}>
           <Button variant="secondary" onClick={download} className="shrink-0" data-testid="file-link-download">
             <Download size={16} aria-hidden /> <span className="max-sm:sr-only">{t('common.download')}</span>

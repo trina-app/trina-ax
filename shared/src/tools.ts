@@ -392,6 +392,26 @@ export const ShareWithPersonInput = z.strictObject({
   paths: z.array(relPath).min(1).max(10).describe('The files to share (1-10): files only, never a folder. Only files the user owns and can edit.'),
   people: z.array(z.string().min(1).max(200)).min(1).max(10).describe('Who gets them: a teammate\'s or a group\'s name as the user wrote it, or person:<id> / group:<id> from the candidates a previous call gave.'),
 })
+/** stop_sharing (server/src/chat/stop-sharing.ts; docs/decisions/20261116-ai-share-card-and-stop.md): take people or
+ * groups off files that were shared one by one. Only narrows. Names as the user wrote them, matched among the people
+ * already on the files. */
+export const StopSharingInput = z.strictObject({
+  paths: z.array(relPath).min(1).max(10).describe('The files to stop sharing (1-10): files the user owns, or team files for an admin.'),
+  people: z.array(z.string().min(1).max(200)).min(1).max(10).optional().describe('Who loses access: a teammate\'s or a group\'s name as the user wrote it, or person:<id> / group:<id> from the candidates a previous call gave. Leave it out to stop sharing the files with everyone they were shared with.'),
+})
+/** who_can_open (server/src/chat/who-can-open.ts; docs/decisions/20261116-ai-share-who-can-open.md): read-only. Who
+ * can open a file, a folder or this chat and how, or whether one teammate can. */
+export const WhoCanOpenInput = z.strictObject({
+  path: z.string().min(1).max(4096).optional().describe('The file or folder: its team path, or a file link (/f/<id>). Leave it out to ask who can see this chat.'),
+  person: z.string().min(1).max(200).optional().describe('One teammate, by the name the user wrote (or person:<id> from the candidates a previous call gave): the answer then says whether they can open it, and why or why not.'),
+})
+/** shared_with_me (server/src/chat/shared-with-me-tool.ts): the files shared with the user one by one, newest first */
+export const SharedWithMeInput = z.strictObject({
+  query: z.string().trim().min(1).max(100).optional().describe('A part of the file name or of the name of the person who shared it ("quote", "Mina"). Leave it out for the newest ones.'),
+  limit: z.number().int().min(1).max(20).optional().describe('How many to list (default and most: 20).'),
+})
+/** looking_at (server/src/chat/looking-at.ts): what the user has open in the app now; no parameters */
+export const LookingAtInput = z.strictObject({})
 /** change_project_members in a person's own chat (server/src/chat/project-members.ts): people and groups added to or
  * removed from a team project after their yes on the server's card. Names as the user wrote them; an id only from the
  * candidates the tool gave back for that name. */
@@ -449,7 +469,11 @@ export const OTHER_TOOLS = {
   save_room_file: { input: SaveRoomFileInput, output: TextOutput },
   post_to_room: { input: PostToRoomInput, output: TextOutput },
   share_with_person: { input: ShareWithPersonInput, output: TextOutput },
+  stop_sharing: { input: StopSharingInput, output: TextOutput },
+  shared_with_me: { input: SharedWithMeInput, output: TextOutput },
+  looking_at: { input: LookingAtInput, output: TextOutput },
   change_project_members: { input: ChangeProjectMembersInput, output: TextOutput },
+  who_can_open: { input: WhoCanOpenInput, output: TextOutput },
 } as const
 
 /** Exactly what the engine may have, in addition to mcp__team__<file tool>. Lockdown test asserts this. */

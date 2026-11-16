@@ -69,12 +69,17 @@ Anda bisa membagikan file milik Anda kepada orang tertentu tanpa mengubah siapa 
 
 - **Semua orang di tim** adalah pilihan pertama di **Tambahkan orang atau grup**. Sebelum Anda menekan **Bagikan**, satu baris memberi tahu bahwa semua orang di tim akan bisa membuka file itu, termasuk yang bergabung nanti. Tamu tidak pernah bisa. Pilihan ini dihitung sebagai salah satu dari 50 orang dan grup yang bisa diberi akses ke satu file.
 - Kalau Anda membagikan beberapa file sekaligus (misalnya di langkah terakhir **Cari file kerja di komputer ini**), setiap orang menerima satu pemberitahuan di **Aktivitas**, "Mina membagikan 5 file dengan Anda", yang membuka daftar file tersebut. Orang yang Anda tambahkan dengan nama juga mendapat notifikasi di ponsel.
-- **Orang yang punya akses** menampilkan pemilik dan setiap orang atau grup dengan **Bisa melihat**. **✕** mencabut akses seseorang (Anda ditanya dulu).
+- **Orang yang punya akses** menampilkan pemilik dan setiap orang atau grup dengan **Bisa melihat**. **✕** mencabut akses seseorang (Anda ditanya dulu). Pemilik file selalu bisa mencabut akses orang, juga saat tim mematikan berbagi oleh anggota.
+- Orang yang aksesnya Anda cabut melihat "Mina berhenti membagikan file ini" saat membuka tautan file, dan bisa meminta akses lagi. Mereka tidak mendapat pemberitahuan apa pun.
+- Anda juga bisa meminta Trina lewat chat: "bagikan penawaran ke Jun", atau "berhenti membagikan penawaran ke Jun". Sebuah kartu di bawah jawaban menjelaskan apa yang berubah: file dan lokasinya, siapa yang bisa melihatnya, dan satu tombol. Setelah berbagi, tombolnya **Kelola akses**, yang membuka dialog ini. Setelah berhenti berbagi, tombolnya **Urungkan**, dan kartu menyebut siapa yang masih bisa membuka file dan alasannya (misalnya lewat grup yang masih diberi akses, atau karena mereka bisa membuka foldernya). Trina bertanya dulu sebelum membagikan file, kecuali pesan Anda sudah menyebut file dan orangnya. Berhenti berbagi tidak perlu ditanyakan kalau pesan Anda menyebut orangnya. Kalau seseorang sudah bisa membuka file itu, kartu menyebutnya dan tidak ada yang berubah bagi mereka.
+- Kalau Trina tidak bisa membagikan file, kartu menjelaskan alasannya dan memberi langkah berikutnya sebagai satu-satunya tombol: **Minta ke Mina** untuk file milik Mina (ia menerima permintaan di **Aktivitas** dan memutuskan), atau **Minta ke admin** kalau tim mematikan berbagi oleh anggota (owner dan admin tim menerima pesan dari Anda yang meminta untuk menyalakannya lagi).
 - File tim juga bisa dibuka semua orang yang bisa membuka foldernya.
 - **Salin tautan** memberi tautan khusus untuk file itu. Orang yang punya akses bisa membukanya; yang lain melihat **Anda perlu akses** dan bisa **Minta akses** dengan catatan. Permintaannya masuk ke pemilik di **Aktivitas** dengan tombol **Bagikan** dan **Tolak**. Halaman tautan tidak pernah menampilkan nama file kepada orang yang tidak bisa membukanya.
 - Kalau Anda memindahkan file ke tempat yang bisa dibuka lebih sedikit orang, Anda diberi tahu berapa orang yang memegang file itu lewat tautannya.
+- Tanyakan ke Trina **"siapa yang bisa membuka file ini?"** atau **"kenapa Jun tidak bisa membukanya?"**. Ia menjelaskan bagaimana tiap orang bisa masuk (dibagikan dengan nama, lewat grup, lewat folder). Untuk file milik Anda, nama-nama terlihat; untuk file milik orang lain, Anda melihat akses Anda sendiri dan siapa yang perlu ditanya.
+- Setelah Trina memposting ke sebuah ruang, ia memberi tahu kalau ada orang di sana yang tidak bisa membuka file dari postingan itu. **Izinkan melihat** membagikan file Anda persis kepada orang yang disebut di baris itu. Untuk file milik orang lain, tombol dengan nama pemiliknya (seperti **Minta ke Mina**) mengirim permintaan ke pemiliknya di **Aktivitas** ("Alice meminta Anda membagikan Quote.pdf ke Jun") dengan **Bagikan** dan **Tolak**. Untuk folder tim, anggota melihat **Minta ke admin**, yang mengirim pesan dari Anda ke owner dan admin tim.
 
-Owner dan admin bisa membagikan file tim mana pun. Di **Admin › Pengaturan tim**, **Anggota bisa membagikan file milik mereka** mematikan pembagian untuk anggota (yang sudah dibagikan tetap berfungsi). Owner tim bisa **Hapus semua berbagi file** di sana sekaligus.
+Owner dan admin bisa membagikan file tim mana pun. Di **Admin › Pengaturan tim**, **Anggota bisa membagikan file milik mereka** mematikan pembagian untuk anggota (yang sudah dibagikan tetap berfungsi, dan pemiliknya masih bisa menghentikannya). Owner tim bisa **Hapus semua berbagi file** di sana sekaligus.
 
 ### Membagikan folder di File saya
 
@@ -102,6 +107,12 @@ semua berbagi file** menghitung file dan folder secara terpisah.
 ### File yang dibagikan kepada Anda
 
 **File › Dibagikan ke saya** menampilkan file yang dibagikan orang lain kepada Anda, yang terbaru di atas, lengkap dengan siapa yang membagikan dan kapan. File yang sudah bisa Anda buka di foldernya hanya muncul di sini kalau seseorang menambahkan Anda dengan nama. Buka file dari sini untuk melihat atau mengunduhnya; **‹ Dibagikan ke saya** membawa Anda kembali ke daftar. Saat Anda membuka file, pemberitahuannya di **Aktivitas** ditandai sudah dibaca. File hilang dari daftar kalau akses Anda hilang (pemiliknya mencabutnya, memindahkannya ke sampah, atau sudah tidak bisa mengeditnya).
+
+Trina juga bisa memakai file-file ini. Minta "ringkas file yang Mina bagikan ke saya" dan ia mencarinya di antara yang dibagikan kepada Anda, juga saat ada file di folder Anda sendiri dengan nama yang sama. Di halaman file yang dibagikan, **Tanya Trina** membuka chat baru dengan file itu sudah siap di kotak pesan. Trina bisa melihat file yang dibagikan, tidak bisa mengubahnya.
+
+### "File ini", "thread itu"
+
+Ketika Anda berkata "ringkas ini" atau "balas di thread itu" tanpa menyebut nama, Trina melihat apa yang sedang Anda buka di aplikasi: file, ruang, thread, atau chat di layar Anda, dengan jendela tempat Anda menulis lebih dulu. Ini hanya dilakukan saat Anda menunjuk sesuatu tanpa menyebut namanya, dan ia bertanya kalau ada dua hal yang mungkin dimaksud. Apa pun yang dibagikan atau diposting untuk Anda dengan cara ini tetap menampilkan kartu dulu, juga saat Anda memilih **Selalu izinkan**. Tidak ada tentang layar Anda yang disimpan: jendela yang ditutup dilupakan, dan chat rahasia tidak pernah dilaporkan.
 
 ## Bekerja dengan file
 

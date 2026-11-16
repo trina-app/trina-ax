@@ -40,6 +40,7 @@ import { SERVER_OWN_FOLDERS } from '../files/own-folders'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, instructionFiles, neutralizeTags, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
 import { sideRoomOf } from './side-room'
 import { quotesAppOnBranch, readRooms, withoutQuoteLines } from './read-rooms'
+import { seenWhy } from './grant-reads'
 import { componentC } from '../team-files/component'
 import { looseArea, placementNote } from './file-placement'
 import { buildAgentDefinitions, initProblem, LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS, PARENT_ONLY_TOOLS, SUBTASK_STEPS_KEPT, subtaskSummary } from './subagents'
@@ -821,13 +822,12 @@ export class TurnExec {
     const appMap = guestTurn || spec.clientKind === 'schedule' || this.templateScope ? null
       : { view: appMapView(this.principal.role, !!this.shared), managed: isManaged(rt.ctx.config), devEnv: devEnvFlag(), office: !!rt.ctx.config.office }
     const runKind = runKindOf(rt.ctx.config)
-    let sharedWithMe: PromptInput['sharedWithMe'] = null
-    // (the same turns may read them: FileService.readAuth)
-    // (not from Slack: the answer may go to a channel and the block's names are no tool read; not a template run: its
-    // reads stay inside its own folder by the folder rules)
+    // the read tools open a file shared with the person one by one (FileService.readAuth), and shared_with_me lists them
+    // when the AI asks (chat/shared-with-me-tool.ts: no list in every turn): only in the person's own chat
+    // (not from Slack: the answer may go to a channel; not a template run: its reads stay inside its own folder by the
+    // folder rules)
     // never in a scheduled run: nobody watches it, and a file another member shared must not act there
     this.files.grantReads = !this.shared && !guestPrompt && !this.restricted && !confidential && !this.slackChat && !this.templateScope && spec.clientKind !== 'schedule'
-    if (this.files.grantReads) { try { sharedWithMe = fileSharesOf(rt.ctx).sharedWith(spec.userId) } catch {} }
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone,
       // personal memories are not part of a shared project chat
@@ -842,9 +842,6 @@ export class TurnExec {
       // the file lists (file-list/service.ts): only while the feature is on and this person has one
       fileList: fileListPromptOn(rt.ctx, this.principal!),
       situation, appMap, runKind,
-      // the files teammates shared with the person one by one (files/shares.ts): never in a shared chat, for a guest, a
-      // restricted run or a confidential chat (docs/decisions/20261116-shared-files-for-the-ai.md)
-      sharedWithMe,
       // a guest: their places and who invited them (prompt.ts guestSection), no team-wide text
       guest: guestPrompt,
     })
@@ -2507,7 +2504,7 @@ export class TurnExec {
     }
     if (need) {
       // the room's card too: "Always allow" for saving wider alone never skips it (both choices are needed; review of #678)
-      const no = await this.askWidening(need, { details, extra: instruction, lead: `${tr('roomsSeenWhy', L)} `, room: true })
+      const no = await this.askWidening(need, { details, extra: instruction, lead: `${tr(seenWhy(this, 'roomsSeenWhy'), L)} `, room: true })
       // one card for both: the room's reason and next step (a save elsewhere needs the same card here), and where it saves
       if (no) return refuse(no.end, { also: `The same card also asked because more people can see '${need.segs.join('/')}' (${need.viewers}) than can see what this chat read; do not save it anywhere else that more people can see`, names: [need.segs.join('/')] })
       this.roomAllowed.add(key)
@@ -2524,9 +2521,9 @@ export class TurnExec {
     // connected service says it reads and asks to allow it; it changes nothing (QA TC-285)
     const reads = this.readsOnly(tool, input)
     const question = target
-      ? `${tr('roomsSeenWhy', L)} ` + tr(target.isNew ? 'roomAiConfirmNew' : 'roomAiConfirmMade', L, { ai: aiCalled(L), folder: this.place(target.segs.slice(0, -1).join('/')), file: target.segs.at(-1)! })
-      : reads ? tr('roomsSeenConfirmRead', L, { what, ai: aiCalled(L) })
-      : tr('roomsSeenConfirm', L, { what, ai: aiCalled(L) })
+      ? `${tr(seenWhy(this, 'roomsSeenWhy'), L)} ` + tr(target.isNew ? 'roomAiConfirmNew' : 'roomAiConfirmMade', L, { ai: aiCalled(L), folder: this.place(target.segs.slice(0, -1).join('/')), file: target.segs.at(-1)! })
+      : reads ? tr(seenWhy(this, 'roomsSeenConfirmRead'), L, { what, ai: aiCalled(L) })
+      : tr(seenWhy(this, 'roomsSeenConfirm'), L, { what, ai: aiCalled(L) })
     const { value: answer, missing } = await this.askPerson({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: question + instruction,
       options: [{ label: tr('roomAiConfirmYes', L), value: 'allow' }, ...(always ? [{ label: tr('cardAlways', L), value: ALWAYS_VALUE }] : []), { label: tr('roomAiConfirmNo', L), value: 'skip' }],
@@ -2913,7 +2910,10 @@ export class TurnExec {
   sharedSources(tool: string, input: unknown): ReadSource[] {
     // share_with_person reads nothing into the chat: it grants the asker's own files to someone, behind their own card,
     // and gives back only the names the asker gave and the links (chat/share-with-person.ts)
-    if (tool === 'share_with_person') return []
+    if (tool === 'share_with_person' || tool === 'stop_sharing') return []
+    // who_can_open reads no file: in a shared chat it answers only about the chat itself and a file the asker named or
+    // attached in their own message (chat/who-can-open.ts)
+    if (tool === 'who_can_open') return []
     const a = input && typeof input === 'object' ? input as Record<string, unknown> : {}
     const fx = this.rt.files.fx, rules = this.rt.files.rules()
     let me: Principal

@@ -11,6 +11,7 @@ import { fileSharesOf, registerFileShareCleanup } from '../files/shares'
 import { folderSharesOf } from '../files/folder-shares'
 import { undoShares } from '../files/share-undo'
 import { streamChecked } from '../team-files/stream-checked'
+import { shareFixesOf } from '../files/share-fixes'
 import { contentDisposition, streamFile } from '../team-files/download'
 import { embedNarrower } from '../team-files/embed'
 import { htmlPdfDownload, saveHtmlPdf } from '../team-files/html-pdf-save'
@@ -211,6 +212,7 @@ export const filesRoutes: RouteModule = {
     kit.handle(API.fileShares, ({ c, query, auth }) => mapErrors(c.get('locale'), () => shares.view(auth.user.id, query.path, c.get('locale'))))
     kit.handle(API.putFileShares, ({ c, body, auth }) => mapErrors(c.get('locale'), () => shares.put(auth.user.id, body.path, body.add, body.remove, c.get('locale'), 'dialog', { stop: body.stop, resume: body.resume }).view))
     kit.handle(API.undoFileShares, ({ c, body, auth }) => mapErrors(c.get('locale'), () => undoShares(ctx, auth.user.id, body.id, c.get('locale'))))
+    kit.handle(API.shareCards, ({ c, body, auth }) => mapErrors(c.get('locale'), () => ({ items: shares.cards(auth.user.id, body.ids, c.get('locale')) })))
     kit.handle(API.shareFilesBatch, ({ c, body, auth }) => mapErrors(c.get('locale'), () => shares.shareMany(auth.user.id, body.paths, body.add, c.get('locale'))))
     kit.handle(API.sharedBatch, ({ c, params, auth }) => mapErrors(c.get('locale'), () => shares.batchPage(auth.user.id, params.id)))
     kit.handle(API.sharedWithMe, ({ c, query, auth }) => mapErrors(c.get('locale'), () => shares.sharedWithMe(auth.user.id, query.cursor, query.limit)))
@@ -233,6 +235,9 @@ export const filesRoutes: RouteModule = {
     kit.handle(API.sharedFolderEntry, ({ c, params, query, auth }) => mapErrors(c.get('locale'), () => folders.entry(auth.user.id, params.id, query.sub, c.get('locale'))))
     kit.handle(API.requestFileAccess, ({ c, params, body, auth }) => mapErrors(c.get('locale'), () => shares.request(auth.user.id, params.id, body.message, c.get('locale'))))
     kit.handle(API.answerFileRequest, ({ c, params, body, auth }) => mapErrors(c.get('locale'), () => shares.answer(auth.user.id, params.id, body.answer, c.get('locale'))))
+    // one-tap next steps under an AI step (files/share-fixes.ts), and a path link opened through a share
+    kit.handle(API.runShareFix, ({ c, params, auth }) => mapErrors(c.get('locale'), () => shareFixesOf(ctx).run(auth.user.id, params.id, c.get('locale'))))
+    kit.handle(API.grantedFileLink, ({ c, query, auth }) => mapErrors(c.get('locale'), () => ({ id: shares.grantedLinkId(auth.user.id, query.path) })))
     kit.handle(API.fileSharesCount, ({ c }) => mapErrors(c.get('locale'), () => shares.counts()))
     kit.handle(API.removeAllFileShares, ({ c, auth }) => mapErrors(c.get('locale'), () => shares.removeAll(auth.user.id, c.get('locale'))))
     kit.handle(API.restoreVersion, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.restoreVersion(auth.user.id, body.path, body.versionId, { confirm: body.confirm === true })))

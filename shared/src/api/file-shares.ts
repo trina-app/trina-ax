@@ -10,6 +10,7 @@
 import { z } from 'zod'
 import { RelPath } from './common'
 import { endpoint, stream } from './endpoint'
+import { RunStepFixResult } from './entities'
 import { ProjectParticipant } from './chats'
 
 /** A link id: 22 base64url characters (16 random bytes). */
@@ -89,6 +90,9 @@ export const FileShares = z.object({
   mine: z.boolean(),
   teamFile: z.boolean(),
   off: z.literal(true).optional(),
+  /** the caller may take people off (never add): whoever may share, and the file's owner always, also with the team's
+   * switch off or without edit access (docs/decisions/20261116-ai-share-card-and-stop.md); older servers omit it */
+  canStop: z.boolean().optional(),
   /** the rows: for whoever may share, and for the people in it (they see who else has it) */
   people: z.array(FileShareRow),
   // ---- every field below is optional: an older app still parses the answer ----
@@ -142,7 +146,8 @@ const SharedFileForms = z.discriminatedUnion('status', [
   // `sharedBy`: who shared it with the caller (the newest grant that counts for them, docs/decisions/
   // 20261116-files-shared-with-me.md); `formerSharer`: that grant's sharer's account is gone ("a former member")
   z.object({ status: z.literal('open'), kind: z.literal('file').optional(), name: z.string(), size: z.number().int().nonnegative(), mime: z.string().nullable(), sharedBy: z.string().nullable(), formerSharer: z.literal(true).optional(), mine: z.boolean() }),
-  z.object({ status: z.literal('no_access'), canAsk: z.boolean(), askedAt: z.string().nullable() }),
+  // `stoppedBy`: who stopped sharing it with the caller (their name), while nothing shares it with them again
+  z.object({ status: z.literal('no_access'), canAsk: z.boolean(), askedAt: z.string().nullable(), stoppedBy: z.string().optional() }),
   z.object({ status: z.literal('trashed') }),
   z.object({ status: z.literal('unknown') }),
 ])
@@ -212,6 +217,20 @@ export const SharedWithMe = z.object({ items: z.array(SharedWithMeItem), next: z
 export type SharedWithMe = z.infer<typeof SharedWithMe>
 export const SharedWithMeQuery = z.object({ cursor: z.string().max(200).optional(), limit: z.coerce.number().int().min(1).max(50).default(50) })
 
+/** POST /api/files/shares/cards: the files of an AI share card (api/share-card.ts) as the caller may see them now, by
+ * link id. `gone`: no such link, the file is gone, the folder rules do not let the caller read it, or the caller may
+ * neither add nor take off people (nothing about it). */
+export const ShareCardsBody = z.object({ ids: z.array(FileLinkId).min(1).max(10) }).strict()
+export const ShareCardState = z.union([
+  z.object({ id: FileLinkId, gone: z.literal(true) }),
+  z.object({ id: FileLinkId, path: RelPath, name: z.string(), canShare: z.boolean(), canStop: z.boolean(), people: z.array(FileShareRow) }),
+])
+export type ShareCardState = z.infer<typeof ShareCardState>
+export const ShareCardStates = z.object({ items: z.array(ShareCardState) })
+/** GET /api/files/granted-link */
+export const GrantedFileLink = z.object({ id: z.string().nullable() })
+export type GrantedFileLink = z.infer<typeof GrantedFileLink>
+
 /** Admin › Team settings: how many file shares there are (the team owner's "Remove all file shares" confirm). */
 export const FileSharesCount = z.object({ files: z.number().int().nonnegative(), people: z.number().int().nonnegative(),
   /** how many shared folders there are (counted apart from `files`) */
@@ -220,8 +239,9 @@ export const FileSharesCount = z.object({ files: z.number().int().nonnegative(),
 export const FILE_SHARES = {
   fileLink: endpoint({ method: 'POST', path: '/api/files/link', auth: 'user', owner: 'C', body: FileLinkBody, response: FileLink, summary: 'The /f/<id> link of a file the caller can open (made on first use; making it never makes anyone the owner). A folder in the caller\'s own files, once folder sharing is on: its owner only, and only a folder that can be shared (400 folder_share_place, folder_share_disk); every other folder: 400 is_folder.' }),
   fileShares: endpoint({ method: 'GET', path: '/api/files/shares', auth: 'user', owner: 'C', query: FileSharesQuery, response: FileShares, summary: 'Who a file the caller can open is shared with, whether they may change it, and its owner. A folder in the caller\'s own files, once folder sharing is on: the same with kind folder, what it holds, and why it cannot be shared when it cannot (blocked); every other folder: 400 is_folder.' }),
-  putFileShares: endpoint({ method: 'PUT', path: '/api/files/shares', auth: 'user', owner: 'C', body: PutFileSharesBody, response: FileShares, summary: 'Add or remove people and groups on a file (view only). Its owner (edit access now), or the team owner and admins for a team file; never a folder (400 is_folder), never a guest (400 unknown_subject). 403 file_share_not_owner, file_shares_off. Takes from the room sending budget (429) before the people are checked, once the file is one the caller may share. Audited; each person added gets an Activity notice. Removing people and `stop` (everyone) are always the owner\'s, also while members\' sharing is off, and answer with `undo`. A folder in the caller\'s own files (view only for the people added, files added later included): 400 folder_shares_soon until folder sharing is on, folder_share_place, folder_share_disk, file_share_full; `resume` for a paused folder.' }),
+  putFileShares: endpoint({ method: 'PUT', path: '/api/files/shares', auth: 'user', owner: 'C', body: PutFileSharesBody, response: FileShares, summary: 'Add or remove people and groups on a file (view only). Its owner (edit access now), or the team owner and admins for a team file; never a folder (400 is_folder), never a guest (400 unknown_subject). 403 file_share_not_owner, file_shares_off. Takes from the room sending budget (429) before the people are checked, once the file is one the caller may share. Audited; each person added gets an Activity notice. Removing people and `stop` (everyone) are always the owner\'s, also while members\' sharing is off or without edit access, and answer with `undo`. A folder in the caller\'s own files (view only for the people added, files added later included): 400 folder_shares_soon until folder sharing is on, folder_share_place, folder_share_disk, file_share_full; `resume` for a paused folder.' }),
   undoFileShares: endpoint({ method: 'POST', path: '/api/files/shares/undo', auth: 'user', owner: 'C', body: ShareUndoBody, response: ShareUndoResult, summary: 'Put back the people and groups a removal took off a file or folder, by the undo id that removal answered with: for 10 minutes, once, only for the person who removed them. Restores those still valid (an active member, a group that exists), dated at the undo (they had no access in between), tells nobody, takes no sending budget and does not ask the team switch; says how many it skipped. 404 for an id that is unknown, someone else\'s, used, expired, or older than the team owner\'s Remove all.' }),
+  shareCards: endpoint({ method: 'POST', path: '/api/files/shares/cards', auth: 'user', owner: 'C', body: ShareCardsBody, response: ShareCardStates, summary: 'The files of an AI share card as the caller may see them now, by link id: path, people and whether the caller may add or take people off; `gone` for anything the folder rules do not let them read or whose people they may not change. Reads only.' }),
   shareFilesBatch: endpoint({ method: 'POST', path: '/api/files/shares/batch', auth: 'user', owner: 'C', body: ShareFilesBatchBody, response: ShareFilesBatchResult, summary: 'Share up to 100 files with the same people and groups in one press (Find work files\' step): each file as PUT /api/files/shares add (owner, team switch, 50, never a guest), the files refused listed with the server\'s words. One send token per 10 files, taken first (429); the people are checked only when one of the files is one the caller may share. Audited per file; each person newly given access gets one notice for the press (one push when added by name).' }),
   sharedBatch: endpoint({ method: 'GET', path: '/api/files/shared-batch/:id', auth: 'user', owner: 'C', response: SharedBatchView, summary: 'The files of one Share press that the caller can open now (a notice\'s "shared 5 files with you" list), for someone that press told; 404 otherwise.' }),
   sharedWithMe: endpoint({ method: 'GET', path: '/api/files/shared-with-me', auth: 'user', owner: 'C', query: SharedWithMeQuery, response: SharedWithMe, summary: 'Files › Shared with me: the files people shared with the caller that open for them now, newest first (by name always; through a group or the whole team only when the folder does not already let them read it). Name, who shared it and when; no path, folder or owner. Never for guests (403). A bad cursor is 400.' }),
@@ -231,6 +251,9 @@ export const FILE_SHARES = {
   sharedFolderEntry: endpoint({ method: 'GET', path: '/api/files/shared/:id/entry', auth: 'user', owner: 'C', query: SharedFolderEntryQuery, response: SharedFolderEntry, summary: 'One file inside a shared folder by the link and its path inside the folder: name, size and type. 404 when the link or the path does not open for the caller; 429 as the listing.' }),
   requestFileAccess: endpoint({ method: 'POST', path: '/api/files/shared/:id/request', auth: 'user', owner: 'C', body: FileAccessRequestBody, response: FileAccessRequestResult, summary: 'Ask the file\'s owner (or, with none, the team owner and admins) to open it. One waiting request per person and file; 5 a day to one owner and 20 an hour in all (429). Not for guests, nor for a member\'s file while members\' file sharing is off (403 file_request_off); unknown links 404.' }),
   answerFileRequest: endpoint({ method: 'POST', path: '/api/files/requests/:id', auth: 'user', owner: 'C', body: FileRequestAnswerBody, response: FileRequestAnswer, summary: 'Share or Decline on an access request (whoever may share the file now). A request already answered keeps its answer; the file gone: closed.' }),
+  // one-tap next steps under an AI step, and a path link opened through a share (docs/decisions/20261116-ai-share-who-can-open.md)
+  runShareFix: endpoint({ method: 'POST', path: '/api/share-fixes/:id/run', auth: 'user', owner: 'C', response: RunStepFixResult, summary: 'Run the next step the server offered under one of my AI steps (Step.fixes): "Let them view" shares the files with exactly the people the offer listed who are still in the room, active, no guests and still unable to open them (the Share dialog\'s own checks as me, via ai, audited); "Ask <owner>" sends the owner the access request for them; "Ask an admin" sends my 1:1 message about the folder to the team owner and admins. Once; only for the person the offer was made for (404 otherwise). Answers what it became: done (how many people, and how many in the room still cannot open it and were not listed), or gone (nothing left to do). A refusal of the action (403 file_share_not_owner, 429) leaves the offer open.' }),
+  grantedFileLink: endpoint({ method: 'GET', path: '/api/files/granted-link', auth: 'user', owner: 'C', query: FileSharesQuery, response: GrantedFileLink, summary: 'The /f/<id> link id of the file at a team path when it opens for the caller through a file share and not through the folder (a path link in a room message, opened by someone the file was shared with); id null for everything else, a missing path and a file they may not open alike.' }),
   fileSharesCount: endpoint({ method: 'GET', path: '/api/admin/file-shares', auth: 'admin', owner: 'C', response: FileSharesCount, summary: 'How many files and folders are shared one by one and with how many people (the team owner\'s Remove all).' }),
   removeAllFileShares: endpoint({ method: 'DELETE', path: '/api/admin/file-shares', auth: 'admin', owner: 'C', response: FileSharesCount, summary: 'The team owner removes every file and folder share and waiting request at once (403 owner_only for admins); removals made before it can no longer be undone. Audited with the counts.' }),
 } as const

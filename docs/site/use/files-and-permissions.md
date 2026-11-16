@@ -74,11 +74,30 @@ You can share a file you own with chosen people, without changing who can open i
   person gets one notice in **Activity**, "Mina shared 5 files with you", which opens the list of those files. A
   person you add by name also gets a phone notification (**Settings › Notifications › File sharing** turns these off).
 - **People with access** lists the owner and each person or group with **Can view**. **✕** removes someone's access (asked first).
+  The file's owner can always remove people, also while member sharing is turned off for the team.
+- Someone you removed sees "Mina stopped sharing this file" when they open the file's link, and can ask for access
+  again. They get no notice about it.
+- You can also ask Trina in a chat: "share the quote with Jun", or "stop sharing the quote with Jun". A card under the
+  answer says what changed: the file and where it is, who can view it, and one button. After a share the button is
+  **Manage access**, which opens this dialog. After a stop it is **Undo**, and the card says who can still open the
+  file and why (for example through a group it is still shared with, or because they can open its folder). Trina asks
+  first before it shares a file, unless your message named the file and the person. Stopping needs no question when
+  your message named them. When someone can already open the file, the card says so and nothing changes for them.
+- When Trina can't share a file, the card says why and has the next step as its one button: **Ask Mina** for a file
+  Mina owns (she gets the request in **Activity** and decides), or **Ask an admin** when the team turned off member
+  sharing (the team's owner and admins get a message from you asking to turn it back on).
 - A team file also opens for everyone who can open its folder.
 - **Copy link** gives the file's own link. People with access open it; anyone else sees **You need access** and can **Ask for access** with a note. The request comes to the owner in **Activity** with **Share** and **Decline**, and as a phone notification. The link page never shows the file's name to someone who can't open it.
 - Moving a file somewhere fewer people can open says how many people have it by its link.
+- Ask Trina **"who can open this file?"** or **"why can't Jun open it?"**. She tells you how each person gets in (shared
+  by name, through a group, through its folder). You see the names for your own files; for someone else's file you see
+  your own access and who to ask.
+- After Trina posts to a room, she tells you when people there can't open a file of the post. **Let them view** shares
+  your file with exactly the people named on that line. For someone else's file, **Ask** sends its owner a request in
+  **Activity** ("Alice asked you to share Quote.pdf with Jun") with **Share** and **Decline**. For a team folder, a
+  member gets **Ask an admin**, which sends the team's owner and admins a message from you.
 
-Owners and admins can share any team file. In **Admin › Team settings**, **Members can share files they own** turns sharing off for members (shares already made keep working). The team owner can **Remove all file shares** there at once.
+Owners and admins can share any team file. In **Admin › Team settings**, **Members can share files they own** turns sharing off for members (shares already made keep working, and their owner can still stop them). The team owner can **Remove all file shares** there at once.
 
 ### Share a folder in My files
 
@@ -109,6 +128,18 @@ you can already open in its folder shows here only when someone added you by nam
 download it; **‹ Shared with me** takes you back to the list. Opening a file also marks its notice in **Activity** as
 read. A file leaves the list when you lose access to it (its owner removed you, moved it to the trash or can no longer
 edit it).
+
+Trina can use these files too. Ask "summarise the file Mina shared with me" and it looks through what was shared with
+you, also when a file in your own folders has the same name. On a shared file's page, **Ask Trina** opens a new chat
+with that file ready in the box. Trina can view a shared file, not change it.
+
+### "This file", "that thread"
+
+When you say "summarise this" or "reply in that thread" without a name, Trina checks what you have open in the app:
+the file, room, thread or chat on your screen, the window you are writing in first. It only does this when you point at
+something without naming it, and it asks when two things could be meant. Anything it shares or posts for you this way
+still shows you a card first, also when you chose **Always allow**. Nothing about your screen is kept: a closed window
+is forgotten, and a confidential chat is never reported.
 
 ## Working with files
 
