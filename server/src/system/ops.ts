@@ -193,12 +193,13 @@ export class OpsService {
       if (!feed) return null
       const v = feed.version
       const rootFail = this.rootUpdateFailure()
-      const h = [...this.updates.history()].reverse().find((x) => x.result !== 'ok' && (x.to === v || (x.result === 'rolled_back' && x.from === v)) && x.detail)
+      const within = (at: string) => this.now().getTime() - Date.parse(at) < 7 * 86_400_000
+      const h = [...this.updates.history()].reverse().find((x) => within(x.at) && x.result !== 'ok' && (x.to === v || (x.result === 'rolled_back' && x.from === v)) && x.detail)
       let detail = h?.detail ?? null
       if (!detail && rootFail?.version === v) {
         try { const j = JSON.parse(fs.readFileSync(path.join(this.layout.rootDir!, 'update-failed.json'), 'utf8')) as { detail?: unknown }; detail = typeof j.detail === 'string' && j.detail ? j.detail : null } catch {}
       }
-      return detail ? detail.slice(0, 300) : null
+      return detail ? (detail.length > 300 ? `${detail.slice(0, 299)}…` : detail) : null
     } catch { return null }
   }
 

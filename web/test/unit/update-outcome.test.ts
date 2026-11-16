@@ -102,7 +102,7 @@ describe('a release on hold after a failed try (QA TC-3843)', () => {
     expect(releaseHeld(null)).toBe(false)
   })
   test('the words say held, why, and the retry asks first', () => {
-    expect(translate('en', 'system.held', { version: '0.5.8' })).toContain('on hold')
+    expect(translate('en', 'system.held', { version: '0.5.8' })).toContain('tried again by itself')
     expect(translate('en', 'system.heldWhy', { reason: 'health check failed' })).toBe('Why it failed: health check failed')
     expect(translate('en', 'system.retryShort')).toBe('Try this version again')
   })

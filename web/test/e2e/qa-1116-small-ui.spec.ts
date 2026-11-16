@@ -117,7 +117,7 @@ test('TC-3843: a held version says why, has no Install update, and "Try this ver
     await page.goto('/admin/system/updates')
     // a phone opens the list first
     if (w < 500) await page.getByText(t['system.updates'], { exact: true }).first().click()
-    await expect(page.getByTestId('update-held')).toContainText('on hold')
+    await expect(page.getByTestId('update-held')).toContainText('tried again by itself later')
     await expect(page.getByTestId('update-held-why')).toContainText('verify failed')
     await expect(page.getByRole('button', { name: t['system.installUpdate'] })).toHaveCount(0)
     await expect(page.getByTestId('update-retry')).toHaveText(t['system.retryShort'])
@@ -136,6 +136,12 @@ test('TC-3843: a held version says why, has no Install update, and "Try this ver
   await expect(page.getByRole('dialog')).toContainText('0.5.8')
   await expect(page.getByRole('dialog')).toContainText('failed')
   await shots(page, '3843-retry-confirm')
+  // Admin Home offers the same retry, with the same confirm
+  await page.goto('/admin')
+  await expect(page.getByTestId('home-update-install')).toHaveText(t['system.retryShort'])
+  await page.getByTestId('home-update-install').click()
+  await expect(page.getByRole('dialog')).toContainText('Try version 0.5.8 again?')
+  await page.keyboard.press('Escape')
   // an unheld version still offers Install update
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).toHaveCount(0)
