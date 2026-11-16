@@ -293,5 +293,10 @@ describe('the note in a chat turn', () => {
     const other = await ask(h, socks.alice!, 'alice', await chat('alice'), fake(
       { tool: 'read', args: { file_path: 'groups/marketing/team-deck.md' } }, write('groups/marketing/new-deck.html', '<h1>x</h1>\n')))
     expect(other.done.content).toContain(`${NOTE} "groups/marketing/new-deck.html" was saved directly in "groups/marketing/"`)
+    // a file of the same kind read in another folder (a subfolder) does not count: the note comes
+    put('groups/marketing/campaigns/plan.md', '# Plan\n')
+    const away = await ask(h, socks.alice!, 'alice', await chat('alice'), fake(
+      { tool: 'read', args: { file_path: 'groups/marketing/campaigns/plan.md' } }, write('groups/marketing/plan-copy.md')))
+    expect(away.done.content).toContain(`${NOTE} "groups/marketing/plan-copy.md" was saved directly in "groups/marketing/"`)
   })
 })

@@ -84,6 +84,8 @@ test('a group chat saves where its people can open it (the smallest group they s
   const designPath = (h.ctx.db.query("SELECT f.path FROM groups g JOIN folders f ON f.id = g.folder_id WHERE g.name = 'design'").get() as { path: string }).path
   expect(await saveIn({ kind: 'group', userIds: [nora.id, owner1], name: 'with boss' })).toBe(designPath)
   // the Everyone room is the company's: shared/, also when everyone in it today happens to share one group (#1094's rule)
+  // (everyone but the owner is put into studio first: otto was in no group, so the group rule would pick studio)
+  await owner.call('PATCH', `/api/admin/groups/${design.id}`, { memberIds: [mia.id, nora.id, pia.id, otto.id] })
   const everyone = ((await mia.client.call('GET', '/api/rooms')).items as any[]).find((r) => r.kind === 'all')
   expect(everyone).toBeTruthy()
   const side = await mia.client.call('POST', '/api/chats', { sideRoomId: everyone.id })

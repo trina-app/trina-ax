@@ -3714,14 +3714,18 @@ export class TurnExec {
   }
 
   // ---------------- files ----------------
-  /** A file of the same folder and kind (`ext`) that this turn's agents read, other than `rel` and other than files this
-   * turn made (allReads holds the hashes of reads and of the turn's own writes). */
+  /** A file of the same folder and kind (`ext`) whose content this turn's agents read (the source list, not the hashes
+   * an edit or write leaves), other than `rel` and other than files this turn made, and still there. */
   private readBeside(rel: string, folder: string, ext: string): boolean {
-    const made = new Set((this.rt.db.query("SELECT path FROM file_events WHERE turn_id = ? AND action IN ('create', 'upload')").all(this.id) as { path: string }[]).map((x) => x.path))
-    for (const f of this.files.allReads.keys()) {
-      if (f === rel || made.has(f)) continue
+    let made: Set<string> | null = null
+    for (const e of this.files.sources.entries()) {
+      const f = e.path
+      if (f === rel || !e.via.has('read')) continue
       const n = f.slice(f.lastIndexOf('/') + 1), i = n.lastIndexOf('.')
-      if (f.split('/').slice(0, -1).join('/') === folder && i > 0 && n.slice(i).toLowerCase() === ext) return true
+      if (f.split('/').slice(0, -1).join('/') !== folder || i <= 0 || n.slice(i).toLowerCase() !== ext) continue
+      made ??= new Set((this.rt.db.query("SELECT path FROM file_events WHERE turn_id = ? AND action IN ('create', 'upload')").all(this.id) as { path: string }[]).map((x) => x.path))
+      if (made.has(f)) continue
+      try { if (fs.statSync(path.join(this.rt.files.fx.root, ...f.split('/'))).isFile()) return true } catch { /* gone */ }
     }
     return false
   }
