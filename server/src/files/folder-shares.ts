@@ -37,6 +37,7 @@ import type { AppContext } from '../context'
 import { audit } from '../admin/audit'
 import { alwaysOn, teamAllowsAlways } from '../chat/always-allow'
 import { saveFolderId } from './folder-id'
+import { folderSharesOpen } from './folder-share-gate'
 import { HttpError } from '../http/errors'
 import type { Principal, RuleSet } from '../policy/access'
 import { authorize, type Authorized } from '../policy/authorize'
@@ -133,7 +134,7 @@ export class FolderShares {
   private get fx() { return this.ctx.files.fx }
   private get shares() { return fileSharesOf(this.ctx) }
   /** the rollout gate (app-config.ts folderShares): off on every server until the web part opens it */
-  gateOn(): boolean { return this.ctx.config.folderShares === true }
+  gateOn(): boolean { return folderSharesOpen(this.ctx.config) }
 
   /** Does a call about the folder at `segs` come here? With the gate closed nothing does but a change on the caller's
    * own files (answered `folder_shares_soon`): the dialog's read and the link answer is_folder, as before this work.

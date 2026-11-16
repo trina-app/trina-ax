@@ -34,6 +34,9 @@ export const UserPrefs = z.object({
   /** the one-time line under a room's header ("✦ Ask Trina about this room. Only you see it.") was closed, or ✦ was
    * used: it never shows again (docs/DECISIONS.md "A welcome for invited people") */
   roomAskHint: z.literal('seen').optional().catch(undefined),
+  /** an owner's or admin's one-time line on Admin › Home that members can now share folders in their own files
+   * (docs/AGENTS/plan/20261116-1330-folder-share-web.md) was closed: it never shows again */
+  folderShareNotice: z.literal('seen').optional().catch(undefined),
   /** my lists' folds (ListFolds); a stored value that does not read reads as absent, never hiding the other preferences */
   listFolds: ListFolds.optional().catch(undefined),
 })
