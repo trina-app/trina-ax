@@ -100,7 +100,9 @@ export function AppsDialog({ roomId, start }: { roomId: string; start: AppsStart
   const room = useRooms((s) => s.rooms.find((r) => r.id === roomId) ?? null)
   const roomTitle = useRoomTitle()
   const [error, setError] = useState<string | null>(null)
-  const [stack, setStack] = useState<View[]>(start.view === 'auto' ? [] : [start])
+  // a new app's guide opened from elsewhere (Connectors: ?apps=add:<service>) has the picker under it, so Back offers
+  // the other services
+  const [stack, setStack] = useState<View[]>(start.view === 'auto' ? [] : start.view === 'guide' && !start.appId ? [{ view: 'pick' }, start] : [start])
   const pickerPlace = useRef<PickerPlace>({ more: null, scroll: 0 })
   const close = () => useRoomApps.getState().close()
   // the list once when the dialog opens (and for another room); after that only useLive polls, while an app waits.

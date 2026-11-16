@@ -103,15 +103,15 @@ export function useFromTeam({ team, latest, version, query, onOpen, onConnected 
   const logoOf = (url: string) => { const c = connectorFor(url); return c ? connectorLogo(c) : undefined }
   const rows: { name: string; row: ReactNode }[] = [
     ...(team ?? []).filter((i) => matchesQuery(i, query)).map((i) => ({ name: i.name, row: (
-      <ConnectorRow key={i.id} id={i.id} logo={logoOf(i.url)} name={i.name} team status={i.status === 'connected' ? 'connected' : 'attention'} onOpen={() => onOpen(i)} />
+      <ConnectorRow key={i.id} id={i.id} catalogId={connectorFor(i.url)?.id} logo={logoOf(i.url)} name={i.name} team status={i.status === 'connected' ? 'connected' : 'attention'} onOpen={() => onOpen(i)} />
     ) })),
     ...items.filter((x) => !q || x.name.toLocaleLowerCase().includes(q)).map((x) => {
       const conn = x.connection && (latest?.find((i) => i.id === x.connection!.id) ?? x.connection)
       return { name: x.name, row: conn ? (
-        <ConnectorRow key={x.id} id={conn.id} logo={logoOf(conn.url)} name={conn.name} team
+        <ConnectorRow key={x.id} id={conn.id} catalogId={connectorFor(conn.url)?.id} logo={logoOf(conn.url)} name={conn.name} team
           status={connectionRowStatus(conn)} onOpen={() => onOpen(conn)} />
       ) : (
-        <ConnectorRow key={x.id} id={x.id} logo={logoOf(x.url)} name={x.name} team status="connect" testId="template-row" onOpen={() => setOpen(x)} onConnect={() => setOpen(x)} />
+        <ConnectorRow key={x.id} id={x.id} catalogId={connectorFor(x.url)?.id} logo={logoOf(x.url)} name={x.name} team status="connect" testId="template-row" onOpen={() => setOpen(x)} onConnect={() => setOpen(x)} />
       ) }
     }),
   ].sort((a, b) => a.name.localeCompare(b.name))
