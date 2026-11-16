@@ -66,11 +66,12 @@ export const FILE_SHARE_SPECS: Record<string, Spec> = {
       // the answer lists each refused path as the caller sent it (failed[].path is the caller's own input, not a finding):
       // look for alice's file in everything else, and require the words for her file to be the words for a file that does
       // not exist at all (no existence, name or size oracle)
-      nothingOfAlice(JSON.stringify(r.json?.failed ? { ...r.json, failed: r.json.failed.map((f: { message: string; reason?: string }) => ({ message: f.message, reason: f.reason })) } : r.json ?? r.text), who, 'a press')
+      nothingOfAlice(JSON.stringify(r.json?.failed ? { ...r.json, failed: r.json.failed.map(({ path: _echo, ...rest }: Record<string, unknown>) => rest) } : r.json ?? r.text), who, 'a press')
       if (who !== 'memberIn' && r.status === 200) {
         const none = await w.as[who].post('/api/files/shares/batch', { paths: ['users/alice/never-made.md'], add: [{ subjectType: 'user', subjectId: await guestOf(w) }] })
         const a = r.json?.failed?.[0], b = none.json?.failed?.[0]
-        if (!a || !b || a.message !== b.message || a.reason !== b.reason) throw new Error(`${who}: a press of alice's file answered differently from a file that does not exist: ${JSON.stringify(a)} vs ${JSON.stringify(b)}`)
+        const bare = ({ path: _echo, ...rest }: Record<string, unknown> = {}) => JSON.stringify(rest)
+        if (!a || !b || bare(a) !== bare(b)) throw new Error(`${who}: a press of alice's file answered differently from a file that does not exist: ${JSON.stringify(a)} vs ${JSON.stringify(b)}`)
       }
       if (who === 'memberIn' && r.status !== 400) throw new Error(`alice: a press naming a guest answered ${r.status}`)
       if (who !== 'memberIn' && r.status === 200 && (r.json?.shared?.length || r.json?.failed?.length !== 1)) throw new Error(`${who}: a press of alice's file shared ${JSON.stringify(r.json?.shared)}`)
