@@ -63,8 +63,11 @@ test('the 팀 스킬 row counts what waits for my review: it comes with a sugges
   await owner.goto('/')
   const drawer = await openPhoneDrawer(owner)
   await expect(drawer.getByTestId('nav-skills').getByTestId('nav-skills-count')).toHaveText(/^2/)
+  // the row opens Team skills from the drawer (the drawer closes itself: no step back left to race the next page)
+  await drawer.getByTestId('nav-skills').click()
+  await expect(owner).toHaveURL(/\/skills/)
+  await expect(owner.getByTestId('review-list')).toBeVisible()
   await owner.setViewportSize({ width: 1360, height: 860 })
-  await owner.goto('/skills')
 
   // registered: it leaves the list, the count drops
   await owner.getByRole('tab', { name: '검토 대기 (2)' }).click()
