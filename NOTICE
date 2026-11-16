@@ -36,7 +36,9 @@ Component-specific scope:
 - Meeting notes cut sound into pieces at pauses with rules ported from Yogurt
   (github.com/FrigadeHQ/yogurt, app/src/main/asr/chunker.ts), MIT License,
   Copyright (c) 2026 Frigade: desktop/src/common/meeting/chunker.ts says so at
-  its top. The MIT permission notice: Permission is hereby granted, free of
+  its top. desktop/native/meeting-audio/main.swift follows Yogurt's idea
+  (app/native/yogurt-audio) and is written for this repository. The MIT
+  permission notice: Permission is hereby granted, free of
   charge, to any person obtaining a copy of this software and associated
   documentation files, to deal in the Software without restriction, subject to
   including the copyright notice and this permission notice in all copies or
