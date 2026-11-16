@@ -30,7 +30,7 @@ propietarios y administradores también encuentran **Invitado** en **Invitar a p
 Miembros e invitaciones › Invitar al equipo**. Vea [Sin abrir el chat ni el proyecto](#sin-abrir-el-chat-ni-el-proyecto)
 y [Desde Administración](#desde-administración) más abajo.
 
-Los invitados nunca están en las **Salas de equipo** (la sala de todos y las salas de cada grupo). Un invitado puede
+Los invitados nunca están en los **Canales** (el canal Todos y los canales de cada grupo). Un invitado puede
 enviar mensajes directos, pero solo a las personas de su propio chat o proyecto.
 
 ## Invitar a un invitado
@@ -107,7 +107,7 @@ usó, se desactivó, la persona que lo creó ya no puede invitarle, o el chat o 
 ![La página de invitación: Olga le invitó a Acme, solo se unirá a la sala de chat 'Quote prep', y después Nombre, Nombre de usuario y Contraseña](../../images/guests/invite-page.webp "La página que abre el invitado")
 
 Cuando inicia sesión, Trina abre su chat o proyecto. La barra de la izquierda solo tiene lo que puede usar: no hay
-**Archivos**, ni proyectos o salas del equipo, ni **Trina** cuando su IA está desactivada. Su **Configuración** solo
+**Archivos**, ni proyectos o canales del equipo, ni **Trina** cuando su IA está desactivada. Su **Configuración** solo
 tiene sus propias cosas, como su perfil y sus notificaciones.
 
 ![La vista de un invitado: la lista de Chats solo muestra la conversación de grupo Quote prep, y la barra de la izquierda solo tiene Chats y Actividad](../../images/guests/guest-room.webp "Lo que ve un invitado")

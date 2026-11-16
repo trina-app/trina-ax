@@ -35,7 +35,7 @@ import { budgetBlock } from '../admin/budgets'
 import { newChatEngine, turnEngine } from '../admin/engine-choice'
 import { aiAccessFor } from '../credentials/access'
 import { memberOwnAllowed } from '../credentials/policy'
-import { listGroupSkills, listSkills, listTeamSkills, readSkill, sameSkillName, SKILL_NAME_MAX, writableGroupSkillRoots, type GroupSkillRoot } from '../chat/skills'
+import { listGroupSkills, listSkills, listTeamSkills, isSkillName, readSkill, sameSkillName, writableGroupSkillRoots, type GroupSkillRoot } from '../chat/skills'
 import { forgetPurgedChats } from '../chat/forget'
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
@@ -130,7 +130,7 @@ const TEXT = {
   },
   denied: {
     ko: '팀 스킬 폴더에 넣을 권한이 없어요.', en: 'You may not save into the team skills folder.',
-    id: 'Kamu tidak boleh menyimpan ke folder skill tim.', ja: 'チームのスキルフォルダーに保存する権限がありません。', es: 'No puede guardar en la carpeta de habilidades del equipo.', zh: '你不能保存到团队技能文件夹。',
+    id: 'Anda tidak boleh menyimpan ke folder skill tim.', ja: 'チームのスキルフォルダーに保存する権限がありません。', es: 'No puede guardar en la carpeta de habilidades del equipo.', zh: '你不能保存到团队技能文件夹。',
   },
   notSaved: {
     ko: '팀 스킬에 넣지 못했어요: {path}에 이미 파일이 있거나 바뀌었어요.', en: 'It could not be saved to the team skills: a file at {path} is already there or changed.',
@@ -588,7 +588,7 @@ export function dismissSkillShare(ctx: AppContext, rt: ChatRuntime, userId: stri
 // ---------------------------------------------------------------- apply
 
 const applying = new Set<string>()
-const VALID_NAME = (n: string) => n.length <= SKILL_NAME_MAX && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(n)
+const VALID_NAME = (n: string) => isSkillName(n.normalize('NFC'))
 type Failure = { code: 'forbidden' | 'conflict' | 'budget_exceeded' | 'validation' | 'internal'; message: string; reason: string }
 class Refused extends Error { constructor(readonly f: Failure) { super(f.reason) } }
 const refused = (code: Failure['code'], message: string, reason: string) => new Refused({ code, message, reason })
@@ -677,7 +677,7 @@ export function applySkillShare(ctx: AppContext, rt: ChatRuntime, auth: { user: 
     else if (c.group === 'excluded') fields[`body.skills.${i}.name`] = 'excluded'
     else if (asked.has(s.name)) fields[`body.skills.${i}.name`] = 'twice'
     else if (s.action === 'merge' && !(c.sameName ?? c.similar)) fields[`body.skills.${i}.action`] = 'no team skill to merge into'
-    else if (s.action === 'separate' && s.as !== undefined && !VALID_NAME(s.as)) fields[`body.skills.${i}.as`] = 'lowercase letters, digits and hyphens, at most 64'
+    else if (s.action === 'separate' && s.as !== undefined && !VALID_NAME(s.as)) fields[`body.skills.${i}.as`] = 'lowercase letters (any language), digits and hyphens, at most 64'
     asked.add(s.name)
   })
   if (body.rule && !res.rule?.text) fields['body.rule'] = 'no team rule in this share'

@@ -29,7 +29,7 @@ You don't have to open the chat or project first: **New conversation** starts wi
 admins also find **Guest** in **Invite people** and in **Admin › Members & invites › Invite people**. See
 [Without opening the chat or project](#without-opening-the-chat-or-project) and [From Admin](#from-admin) below.
 
-Guests are never in **Team rooms** (the room for everyone and the rooms of each group). A guest can send direct
+Guests are never in **Channels** (the Everyone channel and the channel of each group). A guest can send direct
 messages, but only to the people in their own chat or project.
 
 ## Invite a guest
@@ -101,7 +101,7 @@ was turned off, the person who made it can no longer invite them, or the group c
 ![The invite page: Olga invited you to Acme, You'll join only the 'Quote prep' group chat, then Name, Username and Password](../images/guests/invite-page.webp "The page the guest opens")
 
 After they sign in, Trina opens their group chat or project. The bar on the left only has what they can use: there is no
-**Files**, no team projects or team rooms, and no **Trina** when their AI is off. Their **Settings** has only their own
+**Files**, no team projects or channels, and no **Trina** when their AI is off. Their **Settings** has only their own
 things, such as their profile and notifications.
 
 ![A guest's view: the Chats list shows only the Quote prep group chat, and the bar on the left has only Chats and Activity](../images/guests/guest-room.webp "What a guest sees")

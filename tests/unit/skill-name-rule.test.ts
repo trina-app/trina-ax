@@ -1,4 +1,5 @@
-// R2-SKILL-03: a SKILL.md whose name breaks the rule (lowercase a to z, 0 to 9, hyphens, the same as the folder name).
+// R2-SKILL-03: a SKILL.md whose name breaks the rule (lowercase words in any language joined by hyphens, the same as
+// the folder name; "acme_견적" has an underscore).
 // The warning reaches everyone who can read the file and nobody else, a save warns before and after, and a SKILL.md
 // outside the skill roots gets no warning: a project folder can hold one for another tool.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
@@ -20,12 +21,12 @@ const md = (name: string) => `---\nname: ${name}\ndescription: Makes a quote.\n-
 /** The acme cases, the same name in a personal folder, in a finance-only folder and outside the skill roots. */
 function layout(team: string, db: import('bun:sqlite').Database) {
   const put = (rel: string, text: string) => { fs.mkdirSync(path.dirname(path.join(team, rel)), { recursive: true }); fs.writeFileSync(path.join(team, rel), text) }
-  put('skills/acme-견적/SKILL.md', md('acme-견적'))
-  put('skills/acme-quote/SKILL.md', md('acme-견적'))
+  put('skills/acme_견적/SKILL.md', md('acme_견적'))
+  put('skills/acme-quote/SKILL.md', md('acme_견적'))
   put('skills/acme-ok/SKILL.md', md('acme-ok'))
-  put('skills/finance/acme-견적/SKILL.md', md('acme-견적'))
-  put('users/alice/skills/acme-견적/SKILL.md', md('acme-견적'))
-  put('projects/acme-video/skills/acme-견적/SKILL.md', md('acme-견적'))
+  put('skills/finance/acme_견적/SKILL.md', md('acme_견적'))
+  put('users/alice/skills/acme_견적/SKILL.md', md('acme_견적'))
+  put('projects/acme-video/skills/acme_견적/SKILL.md', md('acme_견적'))
   put('shared/SKILL.md', md('shared'))
   const folder = 'f_skills_finance_' + newId()
   db.query('INSERT INTO folders (id, path, limited) VALUES (?, ?, 1)').run(folder, 'skills/finance')
@@ -35,10 +36,10 @@ function layout(team: string, db: import('bun:sqlite').Database) {
 
 const TEAM = [
   { path: 'skills/acme-quote/SKILL.md', problem: 'name' },
-  { path: 'skills/acme-견적/SKILL.md', problem: 'name' },
+  { path: 'skills/acme_견적/SKILL.md', problem: 'name' },
 ]
-const FINANCE = { path: 'skills/finance/acme-견적/SKILL.md', problem: 'name' }
-const ALICE = { path: 'users/alice/skills/acme-견적/SKILL.md', problem: 'name' }
+const FINANCE = { path: 'skills/finance/acme_견적/SKILL.md', problem: 'name' }
+const ALICE = { path: 'users/alice/skills/acme_견적/SKILL.md', problem: 'name' }
 
 describe('who sees the warning', () => {
   let h: Harness
@@ -75,14 +76,14 @@ describe('at the save', () => {
   test('the check gives the same answer as the warning, and nothing outside the skill roots', () => {
     const root = env.fx.team
     expect(skillIssues(env.files, env.files.principal('carol'))).toEqual(expect.arrayContaining(TEAM))
-    expect(skillFileProblem(root, 'skills/acme-견적/SKILL.md', md('acme-견적'))).toBe('name')
+    expect(skillFileProblem(root, 'skills/acme_견적/SKILL.md', md('acme_견적'))).toBe('name')
     expect(skillFileProblem(root, 'skills/acme-quote/SKILL.md', md('other-name'))).toBe('name_folder')
     expect(skillFileProblem(root, 'skills/acme-ok/SKILL.md', md('acme-ok'))).toBeNull()
     expect(skillFileProblem(root, 'skills/rule.md', 'A rule without a header')).toBeNull()
     // a project's skills folder is a skill root (docs/DECISIONS.md "Project skills"): the same rule; a SKILL.md for
     // another tool anywhere else is just a file
-    expect(skillFileProblem(root, 'projects/acme-video/skills/acme-견적/SKILL.md', md('acme-견적'))).toBe('name')
-    expect(skillFileProblem(root, 'shared/acme-video/skills/acme-견적/SKILL.md', md('acme-견적'))).toBeNull()
+    expect(skillFileProblem(root, 'projects/acme-video/skills/acme_견적/SKILL.md', md('acme_견적'))).toBe('name')
+    expect(skillFileProblem(root, 'shared/acme-video/skills/acme_견적/SKILL.md', md('acme_견적'))).toBeNull()
     expect(skillFileProblem(root, 'projects/acme-video/notes.md', '---\nbroken\n---\nBody')).toBeNull()
   })
 
@@ -94,7 +95,7 @@ describe('at the save', () => {
       livePrincipal: () => env.files.principal('carol'),
       waitForPerson: async (card: TurnRequest) => { cards.push(card); return 'save' },
     })
-    await exec.confirmSkillWrite('write', { file_path: 'skills/acme-new/SKILL.md', content: md('acme-견적') })
+    await exec.confirmSkillWrite('write', { file_path: 'skills/acme-new/SKILL.md', content: md('acme_견적') })
     expect(cards.at(-1)).toMatchObject({ preview: { path: 'skills/acme-new/SKILL.md', skillName: null, problem: 'name' } })
     await exec.confirmSkillWrite('write', { file_path: 'skills/acme-new2/SKILL.md', content: md('acme-new2') })
     expect(cards.at(-1)).toMatchObject({ preview: { skillName: 'acme-new2' } })
@@ -108,12 +109,12 @@ describe('at the save', () => {
       return env.ctx(user, id)
     }
     const c = turn('name-rule-team', 'carol')
-    const rel = 'skills/acme-saved/SKILL.md', content = md('acme-견적')
+    const rel = 'skills/acme-saved/SKILL.md', content = md('acme_견적')
     c.files.skillApprovals.set(rel, sha256(content))
     const saved = await env.files.call('write', { file_path: rel, content }, c)
     expect(saved.isError).toBeFalsy()
     expect(saved.text).toContain('does not load')
-    expect(saved.text).toContain('lowercase a to z, 0 to 9 and hyphens')
+    expect(saved.text).toContain('lowercase letters (any language) and digits in words joined by single hyphens')
 
     const a = turn('name-rule-own', 'alice')
     const own = 'users/alice/skills/mine/SKILL.md'

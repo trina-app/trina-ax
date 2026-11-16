@@ -41,6 +41,6 @@ test('the sound switch is on by default, stays on this device, and plays the chi
   expect(await page.evaluate(() => (window as any).__notes.length)).toBe(0)
 
   await page.getByTestId('notification-sound').check({ force: true })
-  await expect.poll(() => page.evaluate(() => (window as any).__notes.length)).toBe(4)
+  await expect.poll(() => page.evaluate(() => (window as any).__notes.length)).toBe(2)
   expect(await page.evaluate(() => localStorage.getItem('mycel.roomSound'))).toBeNull()
 })

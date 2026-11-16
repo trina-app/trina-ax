@@ -14,7 +14,7 @@ async function main() {
   if (!WORKER_EXT.has(ext) && !EXTRA_MODES.has(ext) && !WRITE_MODES.has(ext)) { process.stderr.write(`unknown format ${ext}\n`); process.exit(2) }
   const bytes = new Uint8Array(await Bun.stdin.arrayBuffer())
   let out: string | Uint8Array
-  try { out = WRITE_MODES.has(ext) ? officeWrite(ext, bytes) : officeText(ext, bytes) } catch (e) {
+  try { out = WRITE_MODES.has(ext) ? await officeWrite(ext, bytes) : officeText(ext, bytes) } catch (e) {
     if (e instanceof ToolError) { process.stderr.write(e.message.slice(0, 1500)); process.exit(TOOL_ERROR_EXIT) }
     process.stderr.write(String((e as Error)?.stack ?? e).slice(0, 2000))
     process.exit(1)

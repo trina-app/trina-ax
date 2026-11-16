@@ -217,7 +217,7 @@ se abre en **En Google Cloud** con las direcciones nuevas para copiar. Hasta ent
 | Qué ve | Qué hacer |
 |---|---|
 | **`redirect_uri_mismatch`** en la página de Google | Falta una dirección de regreso en Google Cloud o difiere en una letra. Abra [Clients](https://console.cloud.google.com/auth/clients), elija su cliente y pegue de nuevo las dos direcciones desde el paso **En Google Cloud** del cuadro. Lo guardado puede tardar unos minutos en funcionar. |
-| **"No se marcaron algunos permisos. Vuelve a conectar y deja todas las casillas marcadas."** | La persona desmarcó una casilla en la pantalla de Google, o falta un permiso en **Data access**. Compruebe que todo el bloque de arriba aparece allí y vuelva a conectar con todas las casillas marcadas. |
+| **"No se marcaron algunos permisos. Vuelva a conectar y deje todas las casillas marcadas."** | La persona desmarcó una casilla en la pantalla de Google, o falta un permiso en **Data access**. Compruebe que todo el bloque de arriba aparece allí y vuelva a conectar con todas las casillas marcadas. |
 | **`admin_policy_enforced`** | La Admin console de su empresa bloquea la app. Márquela como de confianza (vea [más arriba](#opcional-marcar-la-app-como-de-confianza-en-la-admin-console)). |
 | Se rechaza **una cuenta de fuera de la empresa** (Google dice que la app solo se puede usar dentro de su organización) | Eso es lo que significa **Internal**. Use una cuenta de su empresa. Las cuentas de Google compartidas también deben ser cuentas de la empresa. |
 

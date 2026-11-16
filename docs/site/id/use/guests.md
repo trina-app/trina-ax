@@ -29,7 +29,7 @@ Anda tidak perlu membuka obrolan atau proyeknya lebih dulu: **Obrolan baru** dia
 serta admin juga menemukan **Tamu** di **Undang orang** dan di **Admin › Anggota & undangan › Undang ke tim**. Lihat
 [Tanpa membuka obrolan atau proyek](#tanpa-membuka-obrolan-atau-proyek) dan [Dari Admin](#dari-admin) di bawah.
 
-Tamu tidak pernah berada di **Ruang tim** (ruang untuk semua orang dan ruang setiap grup). Tamu bisa mengirim pesan
+Tamu tidak pernah berada di **Saluran** (saluran Semua dan saluran setiap grup). Tamu bisa mengirim pesan
 langsung, tetapi hanya ke orang-orang di obrolan atau proyeknya sendiri.
 
 ## Mengundang tamu
@@ -103,7 +103,7 @@ dimatikan, orang yang membuatnya sudah tidak bisa mengundang mereka, atau obrola
 ![Halaman undangan: Olga invited you to Acme, You'll join only the 'Quote prep' chat room, lalu Name, Username, dan Password](../../images/guests/invite-page.webp "Halaman yang dibuka tamu")
 
 Setelah mereka masuk, Trina membuka obrolan atau proyek mereka. Bilah kiri hanya berisi apa yang bisa mereka pakai: tidak
-ada **File**, tidak ada proyek atau ruang tim, dan tidak ada **Trina** jika AI mereka mati. **Pengaturan** mereka hanya
+ada **File**, tidak ada proyek atau saluran, dan tidak ada **Trina** jika AI mereka mati. **Pengaturan** mereka hanya
 berisi hal milik mereka sendiri, seperti profil dan notifikasi.
 
 ![Tampilan tamu: daftar Chats hanya menampilkan percakapan grup Quote prep, dan bilah kiri hanya berisi Chats dan Activity](../../images/guests/guest-room.webp "Yang dilihat tamu")

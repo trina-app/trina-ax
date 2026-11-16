@@ -1,9 +1,12 @@
 // Phone notifications only when I'm away from Trina (docs/DECISIONS.md "Phone notifications when I'm away"), Slack's
 // default: while you are active on the computer, mobile gets no push. Decided once per notice, when its push to the
-// phone app would go (push-service.ts): the person at Trina then (realtime/presence.ts inUse: a window in use, which in
-// the desktop app also counts the computer's own input and a locked screen; a window closed while in use within the
-// grace; nothing silent for over a minute) means the computer showed it, and that phone push is cancelled, not held.
-// Away (or no window) means it goes to the phone as before. Nothing waits and nothing catches up later. Settings ›
+// phone app would go (push-service.ts): the person at Trina then (realtime/presence.ts inUse) means the computer showed
+// it, and that phone push is cancelled, not held. "Using Trina" (docs/decisions/20261116-away-os-idle.md):
+// - the desktop app running and signed in to this team, and the computer had input within 10 minutes (its main
+//   process reports the system's idle time every 30 s: the Trina window may be behind other apps or minimized);
+// - or a window in use (a browser tab: visible and within 10 minutes of its own input; nothing silent for over a
+//   minute), or one closed while in use within the grace.
+// A locked screen is away (the phone rings), and so are an idle computer and no app or window at all. Nothing waits and nothing catches up later. Settings ›
 // Notifications › "Phone notifications only when I'm away": 'away' (default) or 'always' (at once, as before). The
 // owner's locked password check is never cancelled (a security warning).
 import type { AppContext } from '../context'

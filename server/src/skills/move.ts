@@ -18,7 +18,7 @@ import { audit } from '../admin/audit'
 import { atLeast, type Principal } from '../policy/access'
 import { authorize } from '../policy/authorize'
 import { foldKey } from '../policy/names'
-import { checkSkill, groupSkillRoots, isPersonalSkill, isSkillManifest, listGroupSkills, listSkills, listTeamSkills, liveProjectRoots, personalSkillsDir, projectOfFolder, projectSkillSections, readSkill, sameSkillName, SKILL_NAME_MAX, SKILL_NAME_RE, skillFolder, skillTier, widerSkillsNamed, type Skill } from '../chat/skills'
+import { checkSkill, groupSkillRoots, isPersonalSkill, isSkillManifest, listGroupSkills, listSkills, listTeamSkills, liveProjectRoots, personalSkillsDir, projectOfFolder, projectSkillSections, readSkill, sameSkillName, isSkillName, skillNameNFC, skillFolder, skillTier, widerSkillsNamed, type Skill, movableGroupSkillRoots, SKILL_NAME_MAX, SKILL_NAME_RE } from '../chat/skills'
 import { mayEditProject } from '../chat/projects'
 import { HttpError } from '../http/errors'
 import { componentC } from '../team-files/component'
@@ -69,7 +69,8 @@ export function levelOfPath(ctx: AppContext, user: Principal, rel: string): Leve
     const p = projectOfFolder(ctx.db, root.folder)
     return p ? { level: 'project', root: p.root, folder: p.folder, project: { id: p.id, name: p.name } } : null
   }
-  const g = groupSkillRoots(ctx.db, user).find((x) => foldKey(rel).startsWith(foldKey(x.root) + '/'))
+  // the owner and admins also have the skills of groups they are not in (to move them back or elsewhere)
+  const g = movableGroupSkillRoots(ctx.db, user).find((x) => foldKey(rel).startsWith(foldKey(x.root) + '/'))
   return g ? { level: 'group', root: g.root, group: { id: g.id, name: g.name } } : null
 }
 
@@ -80,7 +81,8 @@ export function levelsOf(ctx: AppContext, user: Principal): Level[] {
     .map((p): Level => ({ level: 'project', root: p.root, folder: p.folder, project: { id: p.id, name: p.name } }))
   return [
     { level: 'team', root: SKILLS_DIR },
-    ...groupSkillRoots(ctx.db, user).map((g): Level => ({ level: 'group', root: g.root, group: { id: g.id, name: g.name } })),
+    // the owner and admins may move a skill into any group (they write every folder); members only into their own
+    ...movableGroupSkillRoots(ctx.db, user).map((g): Level => ({ level: 'group', root: g.root, group: { id: g.id, name: g.name } })),
     ...projects,
     { level: 'personal', root: personalSkillsDir(user.id) },
   ]
@@ -158,7 +160,7 @@ export function skillAt(ctx: AppContext, user: Principal, rel: string): { skill:
   const level = levelOfPath(ctx, user, rel)
   if (!level) return null
   if (level.level === 'project' && !atLeast(ctx.files.rules().access(user, level.folder.split('/')), 'read')) return null
-  const skill = readSkill(ctx.files, user, rel, level.level === 'project' ? { project: { id: level.project.id, name: level.project.name, folderPath: level.folder } } : {})
+  const skill = readSkill(ctx.files, user, rel, level.level === 'project' ? { project: { id: level.project.id, name: level.project.name, folderPath: level.folder } } : { anyGroup: true })
   return skill ? { skill, level } : null
 }
 
@@ -185,9 +187,10 @@ function skillFiles(ctx: AppContext, user: Principal, from: string, L: Locale): 
   return out
 }
 
-/** A copy's name: what the skill parser takes as a SKILL.md folder's name (chat/skills.ts SKILL_NAME_RE, at most
- * SKILL_NAME_MAX): lowercase letters and digits in words joined by single hyphens. */
-export const copyNameOk = (name: string) => name.length <= SKILL_NAME_MAX && SKILL_NAME_RE.test(name)
+/** A copy's or a renamed skill folder's name: what the skill parser takes as a SKILL.md folder's name (chat/skills.ts
+ * isSkillName: lowercase letters in any language and digits in words joined by single hyphens, at most SKILL_NAME_MAX),
+ * in NFC as the parser compares it. */
+export const copyNameOk = (name: string) => isSkillName(skillNameNFC(name))
 
 /** SKILL.md (or a single-file skill) with its header's name set to `name`; null when it has no header name. Only the
  * name changes: its line, and the indented lines under it when the name was written as a block (`name: >-`). The
@@ -250,7 +253,7 @@ function widerSameName(ctx: AppContext, user: Principal, name: string, except: s
 /** The skills already at level `l` (for the name check), as `user` sees them. */
 function skillsAtLevel(ctx: AppContext, user: Principal, l: Level): Skill[] {
   if (l.level === 'team') return listTeamSkills(ctx.files, user)
-  if (l.level === 'group') return listGroupSkills(ctx.files, user, l.group.id)
+  if (l.level === 'group') return listGroupSkills(ctx.files, user, l.group.id, { anyGroup: true })
   if (l.level === 'project') return listSkills(ctx.files, user, { project: { id: l.project.id, name: l.project.name, folderPath: l.folder } }).filter((s) => s.project?.id === l.project.id)
   return listSkills(ctx.files, user).filter((s) => isPersonalSkill(s.path))
 }

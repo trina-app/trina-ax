@@ -46,7 +46,7 @@ La página de Slack muestra el nombre del espacio de trabajo en la esquina super
 puede ver y hacer allí. Compruebe primero el espacio de trabajo: Slack se abre en el último que usó, que puede no ser el
 que quiere. Si hace falta, cámbielo en esa esquina y después elija **Allow**.
 
-#### Vuelve a la página de Slack en Trina AX
+#### Vuelva a la página de Slack en Trina AX
 Dice "Añadida a Slack. Invite la aplicación a los canales donde se usará." La línea muestra su espacio de trabajo y la
 app, **Conectando** durante unos segundos y después **Conectado**. No hay nada que copiar ni pegar. Mientras Trina AX
 espera la ventana de Slack, están **Volver a intentar** y **Cancelar**; la espera termina sola a los cinco minutos.

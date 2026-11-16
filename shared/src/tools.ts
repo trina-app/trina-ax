@@ -74,10 +74,18 @@ export const MakeFileInput = z.strictObject({
   template: optRelPath.describe('Template file under skills/ (.docx, .pptx or .hwpx, the same format as the output)'),
   expected_slides: z.number().int().min(1).max(500).optional().describe('pptx only: the number of slides the user asked for, title slide included. Give it whenever the user names a number; a different result is an error and nothing is saved.'),
   expected_notes: z.number().int().min(0).max(500).optional().describe('pptx only: how many slides must have speaker notes (e.g. the slide count when the user wants notes on every slide)'),
+  charts: z.array(z.strictObject({
+    type: z.enum(['column', 'bar', 'line', 'pie']).describe('column = vertical bars, bar = horizontal bars'),
+    range: z.string().min(3).max(80).describe('e.g. "A1:D5" or "\'Q3 sales\'!A1:D5": first column = labels, first row = series names, each other column = one series (pie: one)'),
+    sheet: z.string().max(100).optional().describe('Sheet name (the table\'s heading); default the first sheet'),
+    title: z.string().max(200).optional(),
+    anchor: z.string().max(10).optional().describe('Top-left cell of the chart, e.g. "G2"; default right of the data'),
+  })).min(1).max(10).optional().describe('xlsx only: native Excel charts over the cells of a sheet you write'),
   expected_layouts: z.array(z.enum(['Title Slide','Title and Content','Section Header','Two Content','Comparison','Content with Caption','Blank'])).min(1).max(30).optional().describe('Safe PowerPoint only: required bundled layout for each slide in order. A mismatch saves nothing. One ## heading per ordinary slide; columns select Two Content, text then image selects Content with Caption.'),
 }).refine((v) => (v.source === undefined) !== (v.content === undefined), { message: 'give exactly one of source or content' })
+  .refine((v) => v.format === 'xlsx' || v.charts === undefined, { message: 'charts are only for format "xlsx"' })
   .refine((v) => v.format === 'pptx' || (v.expected_slides === undefined && v.expected_notes === undefined && v.expected_layouts === undefined), { message: 'expected_slides and expected_notes are only for format "pptx"' })
-export const MakeFileOutput = z.object({ path: z.string(), size: z.number(), sha256: z.string(), slides: z.number().optional(), notes: z.number().optional(), pages: z.number().optional() })
+export const MakeFileOutput = z.object({ path: z.string(), size: z.number(), sha256: z.string(), slides: z.number().optional(), notes: z.number().optional(), pages: z.number().optional(), charts: z.number().optional() })
 
 /** edit_hwp: the text of an existing Hangul document (.hwp or .hwpx) changed, the rest of the file kept as it was
  * (server/src/tools/edit-hwp.ts, server/src/files/hwpx-edit.ts, server/src/files/hwp-edit.ts). */
@@ -117,6 +125,89 @@ export const EditHwpInput = z.strictObject({
   output: optRelPath.describe('Save the result as this new file (same format as file_path) instead of a new version of file_path'),
 })
 export const EditHwpOutput = z.object({ path: z.string(), size: z.number(), sha256: z.string(), conflictCopyOf: z.string().optional() })
+
+/** stamp_pdf: an image (a seal, a signature, a logo) put on one page of an existing PDF, saved as a new file
+ * (server/src/tools/stamp-pdf.ts, server/src/files/pdf-stamp.ts). */
+export const STAMP_POSITIONS = ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center'] as const
+export const StampPdfInput = z.strictObject({
+  file_path: relPath.describe('The PDF to put the image on'),
+  image: relPath.describe('The image to put on it: a PNG (transparent parts stay see-through) or a JPG in the team folder'),
+  page: z.union([z.number().int().min(1).max(100_000), z.literal('last')]).optional().describe('The page: a number (1 = the first page) or "last" (default "last")'),
+  position: z.union([
+    z.enum(STAMP_POSITIONS),
+    z.strictObject({
+      x_mm: z.number().min(0).max(5000).describe('From the left edge of the page to the left edge of the image, in mm'),
+      y_mm: z.number().min(0).max(5000).describe('From the top edge of the page to the top edge of the image, in mm'),
+    }),
+  ]).optional().describe('Where on the page: a corner or "center", or { x_mm, y_mm } from the top-left corner of the page as it is shown (default "bottom-right")'),
+  width_mm: z.number().min(3).max(1000).optional().describe('The image\'s width on the page in mm (default 30); its height follows the image\'s shape'),
+  margin_mm: z.number().min(0).max(200).optional().describe('For a corner or the centre: the space to the page edges in mm (default 15)'),
+  output: optRelPath.describe('Where to save the new PDF (default: "<name> (stamped).pdf" next to the original). An existing file is never overwritten unless you read it in this turn'),
+})
+/** edit_pdf, merge_pdfs, split_pdf: page work on existing PDFs, saved as new files (server/src/tools/pdf-tools.ts,
+ * server/src/files/pdf-pages.ts). Pages are written like "1,3-5,last", "2-last" or "all". */
+const pdfPages = z.string().min(1).max(500)
+const TEXT_POSITIONS = ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right', 'center'] as const
+const textPosition = z.union([z.enum(TEXT_POSITIONS), z.strictObject({ x_mm: z.number().min(0).max(5000), y_mm: z.number().min(0).max(5000) })])
+const textColor = z.enum(['black', 'gray', 'red', 'blue'])
+export const EditPdfOperation = z.union([
+  z.strictObject({ remove_pages: pdfPages.describe('Pages to delete, e.g. "2,4" or "3-5"') }),
+  z.strictObject({ keep_pages: pdfPages.describe('Keep only these pages, in this order (extract), e.g. "1,3-5"') }),
+  z.strictObject({ reorder_pages: pdfPages.describe('Every page once, in the new order, e.g. "3,1,2,4-last"') }),
+  z.strictObject({ rotate_pages: z.strictObject({ pages: pdfPages.optional().describe('Default "all"'), degrees: z.number().int().min(-360).max(360).describe('90, 180 or 270 clockwise; -90 turns left') }) }),
+  z.strictObject({ insert_pdf: z.strictObject({
+    file: relPath.describe('Another PDF in the team folder'),
+    pages: pdfPages.optional().describe('Its pages to insert (default all)'),
+    after: z.union([z.number().int().min(0).max(100_000), z.literal('last')]).describe('Insert after this page; 0 = before the first page'),
+  }) }),
+  z.strictObject({ stamp_image: z.strictObject({
+    image: relPath.describe('A PNG or JPG (a seal, signature or logo)'),
+    page: z.union([z.number().int().min(1).max(100_000), z.literal('last')]).optional().describe('Default "last"'),
+    position: z.union([z.enum(STAMP_POSITIONS), z.strictObject({ x_mm: z.number().min(0).max(5000), y_mm: z.number().min(0).max(5000) })]).optional().describe('A corner, "center", or the image\'s top-left in mm from the page\'s top-left (default "bottom-right")'),
+    width_mm: z.number().min(3).max(1000).optional().describe('Default 30'),
+    margin_mm: z.number().min(0).max(200).optional().describe('For a corner or the centre (default 15)'),
+  }) }),
+  z.strictObject({ add_text: z.strictObject({
+    text: z.string().min(1).max(500).describe('One line, e.g. a date or "Approved"'),
+    pages: pdfPages.optional().describe('Default "all"'),
+    position: textPosition.optional().describe('A preset, or the text\'s top-left in mm from the page\'s top-left (default "top-right")'),
+    size_pt: z.number().min(4).max(200).optional().describe('Default 12'),
+    color: textColor.optional(),
+    opacity: z.number().min(0.05).max(1).optional(),
+  }) }),
+  z.strictObject({ watermark: z.strictObject({
+    text: z.string().min(1).max(100).describe('e.g. "DRAFT", written large and light across the page'),
+    pages: pdfPages.optional().describe('Default "all"'),
+    color: textColor.optional().describe('Default gray'),
+    opacity: z.number().min(0.05).max(1).optional().describe('Default 0.2'),
+  }) }),
+  z.strictObject({ page_numbers: z.strictObject({
+    format: z.string().min(1).max(100).optional().describe('With {n} for the number and {total} for the count, e.g. "{n} / {total}" (default "{n}")'),
+    pages: pdfPages.optional().describe('Pages that get a number (default "all"); the first of them shows start'),
+    position: textPosition.optional().describe('Default "bottom-center"'),
+    start: z.number().int().min(0).max(100_000).optional().describe('The first number (default 1)'),
+    size_pt: z.number().min(4).max(72).optional().describe('Default 10'),
+  }) }),
+])
+export const EditPdfInput = z.strictObject({
+  file_path: relPath.describe('The PDF to change'),
+  operations: z.array(EditPdfOperation).min(1).max(30).describe('Applied in order; page numbers in each are the pages at that moment'),
+  output: optRelPath.describe('Where to save the new PDF (default: "<name> (edited).pdf" next to the original)'),
+  replace: z.boolean().optional().describe('true only when the user explicitly asks to replace the original (read it in this turn first; its old version stays in its history)'),
+})
+export const MergePdfsInput = z.strictObject({
+  files: z.array(z.union([relPath, z.strictObject({ path: relPath, pages: pdfPages.optional() })])).min(2).max(20).describe('The PDFs in the order they go in; a { path, pages } takes only those pages'),
+  output: optRelPath.describe('Where to save (default: "<first name> (merged).pdf" next to the first file)'),
+})
+export const SplitPdfInput = z.strictObject({
+  file_path: relPath.describe('The PDF to split'),
+  parts: z.array(pdfPages).min(1).max(50).optional().describe('One page list per new file, e.g. ["1-3", "4-last"]'),
+  every: z.number().int().min(1).max(10_000).optional().describe('Or: a new file every this many pages'),
+  output_folder: optRelPath.describe('Where the parts go (default: next to the original); named "<name> (part 1).pdf" …'),
+}).refine((v) => (v.parts === undefined) !== (v.every === undefined), { message: 'give exactly one of parts or every' })
+export const PdfFilesOutput = z.object({ paths: z.array(z.string()), pages: z.array(z.number()) })
+
+export const StampPdfOutput = z.object({ path: z.string(), size: z.number(), sha256: z.string(), page: z.number(), pages: z.number(), conflictCopyOf: z.string().optional() })
 
 export const ShareFileInput = z.strictObject({ path: relPath, mode: z.enum(['preview', 'download']) })
 export const ShareFileOutput = z.object({ url: z.string() })
@@ -186,7 +277,7 @@ export const MoveSkillInput = z.strictObject({
   group: z.string().min(1).max(200).optional().describe('For "group": the group\'s name.'),
   project: z.string().min(1).max(300).optional().describe('For "project": the project\'s name or folder; without it, this chat\'s project.'),
   keep: z.boolean().optional().describe('true when the user asked for a copy: the original stays where it is and a copy goes to the level.'),
-  name: z.string().min(1).max(64).optional().describe('Only with keep: the copy\'s new name (lowercase a-z, 0-9 and hyphens, at most 64). Needed for a project copy of a skill the user keeps at a wider level under the same name.'),
+  name: z.string().min(1).max(128).optional().describe('Only with keep: the copy\'s new name (lowercase words joined by hyphens, in any language, at most 64). Needed for a project copy of a skill the user keeps at a wider level under the same name.'),
 })
 
 /** skill_files (server/src/chat/skill-files.ts): one move, copy or rename of a file or folder that touches a skill folder,
@@ -331,6 +422,10 @@ export const OTHER_TOOLS = {
   hwp_render: { input: HwpRenderInput, output: HwpPage },
   make_file: { input: MakeFileInput, output: MakeFileOutput },
   edit_hwp: { input: EditHwpInput, output: EditHwpOutput },
+  stamp_pdf: { input: StampPdfInput, output: StampPdfOutput },
+  edit_pdf: { input: EditPdfInput, output: PdfFilesOutput },
+  merge_pdfs: { input: MergePdfsInput, output: PdfFilesOutput },
+  split_pdf: { input: SplitPdfInput, output: PdfFilesOutput },
   share_file: { input: ShareFileInput, output: ShareFileOutput },
   move_files: { input: MoveFilesInput, output: MoveFilesOutput },
   copy_files: { input: CopyFilesInput, output: CopyFilesOutput },

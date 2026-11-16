@@ -19,7 +19,7 @@ import {
   SHARE_IMAGE_EXTENSIONS, SHARE_SCRIPT_EXTENSIONS, SHARE_TEXT_EXTENSIONS, SKILL_SHARE_LIMITS,
   type CreateSkillShare, type ShareCandidate, type ShareExcludedIn, type ShareExcludedReason, type ShareSkillIn, type ShareTool,
 } from '@mycel/shared/api'
-import { checkSkill, sameSkillName, SKILL_NAME_MAX } from '../chat/skills'
+import { checkSkill, isSkillName, sameSkillName, SKILL_NAME_MAX } from '../chat/skills'
 import { badSegment } from '../policy/names'
 import { romanize } from '../onboarding/skill-draft'
 
@@ -62,14 +62,15 @@ export function oneLine(v: unknown, max: number): string {
 // ---------------------------------------------------------------- names
 
 /**
- * The folder name a sent skill is saved under: lowercase a–z, 0–9 and hyphens, at most 64 characters, as the team's
- * reader wants it (chat/skills.ts checkSkill). A valid name stays; another one becomes a slug (Hangul romanized, accents
+ * The folder name a sent skill is saved under, as the team's reader wants it (isSkillName: lowercase words in any
+ * language joined by hyphens, at most 64 characters; docs/decisions/20261116-skill-names-unicode.md). A valid name stays
+ * (거래처-응대 too, so it meets the team's skill of that name); another one becomes a slug (Hangul romanized, accents
  * dropped, anything else a hyphen); nothing left: "skill". A name the team folder refuses as a segment (CON, NUL …)
  * gets "-skill".
  */
 export function validSkillName(raw: string): string {
   const clean = raw.normalize('NFKC').replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, '').trim()
-  let name = clean.length <= SKILL_NAME_MAX && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(clean) ? clean
+  let name = isSkillName(clean.normalize('NFC')) ? clean.normalize('NFC')
     : romanize(clean.normalize('NFC')).normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
       .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, SKILL_NAME_MAX).replace(/-+$/g, '')
   if (!name) name = 'skill'

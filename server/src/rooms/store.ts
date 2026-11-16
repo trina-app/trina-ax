@@ -17,6 +17,7 @@
 // shared/src/api/rooms.ts RoomReactionEmoji), counted for current members only, never anywhere else.
 import type { Database } from 'bun:sqlite'
 import { getPreferences, type Preferences } from '../notifications/preferences'
+import { loadPrincipal, RuleSet } from '../policy/access'
 import { roomNotifyOut } from './alerts'
 import { parseStored, unescapeMarkdown } from './apps/card'
 import { iconsOf } from './apps/icon'
@@ -536,8 +537,28 @@ export function roomNaming(db: Database, room: RoomRow, viewerId: string): Pick<
   return { name, memberCount, peers: peers.map((p) => ({ id: p.id, name: p.name })) }
 }
 
-/** `prefs`: the viewer's notification preferences when the caller has them (a list of rooms), else read here. */
-export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: Preferences = getPreferences(db, viewer.user_id)): Room {
+/** A team room's group folder (its folders row's path, e.g. `groups/leads`) when this person may open it: the folder
+ * rules as the Files page judges a folder (RuleSet.canList, the same test as listing it), no other path. null for the
+ * other kinds, a group without a folder and someone the rules keep out (Room.groupFolder, the header's Files button;
+ * docs/decisions/20261116-room-group-folder-button.md). `rules`: the caller's set when it judges many rooms at once. */
+export function groupFolderFor(db: Database, room: Pick<RoomRow, 'kind' | 'group_id'>, userId: string, rules?: () => RuleSet): string | null {
+  if (room.kind !== 'team' || !room.group_id) return null
+  const f = (db.query('SELECT f.path FROM groups g JOIN folders f ON f.id = g.folder_id WHERE g.id = ?').get(room.group_id) as { path: string } | null)?.path
+  if (!f) return null
+  const who = loadPrincipal(db, userId)
+  if (!who) return null
+  return (rules ? rules() : RuleSet.load(db)).canList(who, f.split('/')) ? f : null
+}
+
+/** The folder rules read once, when a team room first needs them (a list or a fan-out of rooms: groupFolderFor). */
+export function rulesOnce(db: Database): () => RuleSet {
+  let rules: RuleSet | undefined
+  return () => (rules ??= RuleSet.load(db))
+}
+
+/** `prefs`: the viewer's notification preferences when the caller has them (a list of rooms), else read here. `rules`:
+ * the folder rules when the caller judges many rooms at once (groupFolderFor). */
+export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: Preferences = getPreferences(db, viewer.user_id), rules?: () => RuleSet): Room {
   const { name, memberCount, peers } = roomNaming(db, room, viewer.user_id)
   const unread = unreadCount(db, room.id, viewer)
   const threads = threadsUnread(db, room.id, viewer)
@@ -547,6 +568,7 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
   const pinned = pinOf(db, room.id, viewer)
   // and the viewer's own list folder (chat/nav-folders.ts): none while hidden, and only one filed during this membership
   const folder = folderOf(db, room.id, viewer)
+  const groupFolder = groupFolderFor(db, room, viewer.user_id, rules)
   return {
     id: room.id, kind: room.kind, name, canRename: mayRename(db, room, viewer.user_id), managerId: managerOf(db, room), canManageApps: mayManageApps(db, room, viewer.user_id), groupId: room.kind === 'team' ? room.group_id : null, memberCount,
     peers,
@@ -558,6 +580,7 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
     ...(pinned ? { pinnedAt: pinned } : {}),
     ...(folder ? { folderId: folder } : {}),
     ...(dmPeerGone(db, room) ? { gone: true as const } : {}),
+    ...(groupFolder ? { groupFolder } : {}),
   }
 }
 

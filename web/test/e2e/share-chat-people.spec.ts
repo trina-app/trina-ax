@@ -100,7 +100,7 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await pick(page, 'Bob', 'bob')
       // a group adds the line that whoever joins it later sees the chat too
       await pick(page, '재무팀', (await (await page.request.get('/api/me')).json() as { groups: { id: string }[] }).groups[0]!.id, 'group')
-      await expect(dialog.getByTestId('chat-share-grey')).toHaveText('그룹을 추가하면 나중에 그 그룹에 들어오는 사람도 이 채팅을 보게 돼요.')
+      await expect(dialog.getByTestId('chat-share-grey')).toHaveText('부서를 추가하면 나중에 그 부서에 들어오는 사람도 이 채팅을 보게 돼요.')
       await audit(page, 'share dialog, with picks')
       const groupId = (await (await page.request.get('/api/me')).json() as { groups: { id: string }[] }).groups[0]!.id
       await dialog.getByTestId(`participant-remove-group-${groupId}`).click()
@@ -281,7 +281,7 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await expect(dialog.getByTestId('chat-share-grey')).toHaveText('아직 이 채팅을 확인하지 못했어요. 공유하기 전에 무엇이 공개되는지 보여 드릴게요.')
       await dialog.getByTestId('chat-share-save').click()
       await expect(dialog.getByTestId('chat-share-warning')).toContainText('이전 답 1개가 내 개인 계정을 참고했을 수 있어요.')
-      await expect(dialog.getByTestId('chat-share-warning')).toContainText('이 채팅은 Bob 님이 없을 수도 있는 팀 대화방을 읽었어요.')
+      await expect(dialog.getByTestId('chat-share-warning')).toContainText('이 채팅은 Bob 님이 없을 수도 있는 채널을 읽었어요.')
       await expect(dialog.getByTestId('chat-share-changed')).toHaveText('내용을 확인하고 공유를 한 번 더 눌러 주세요.')
       await expect(dialog.getByTestId('chat-share-save')).toHaveText('공유')
       await expect(page.getByTestId('chat-shared')).toHaveCount(0)

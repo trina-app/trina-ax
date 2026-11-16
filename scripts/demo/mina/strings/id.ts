@@ -204,7 +204,7 @@ export const id: Strings = {
       emails: 'Email terkirim',
     },
     usually: 'biasanya ~2 hari',
-    signup: 'Lihat paket & mulai gratis',
+    signup: 'Lihat paket',
     explore: 'Lihat-lihat dulu',
     popupTitle: 'Itulah hari pertama Mina 🎉',
     popupLine: 'Kampanye peluncuran selesai dalam {time}. Biasanya sekitar 2 hari.',

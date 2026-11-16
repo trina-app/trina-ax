@@ -28,7 +28,7 @@ satu dan percakapan itu terbuka dengan panduan layanan tersebut. Jika belum ada,
 
 ![Add an app: pesannya muncul di ruang obrolan untuk semua orang di sana, lalu Google Forms, Other app, GitHub dan Sentry](../../images/room-apps/picker.webp "Tambah aplikasi")
 
-Siapa yang bisa melakukannya: di ruang tim atau ruang semua orang, owner dan admin ruang itu; di obrolan 1:1 atau obrolan grup, siapa pun di dalamnya.
+Siapa yang bisa melakukannya: di saluran (termasuk saluran Semua), owner dan admin saluran itu; di pesan langsung (obrolan 1:1 atau obrolan grup), siapa pun di dalamnya.
 Semua orang lain di ruang obrolan melihat kartunya, membalas di utasnya, dan bertanya ke Trina tentangnya. Mengetuk nama aplikasi
 menunjukkan siapa yang memasangnya.
 
@@ -113,7 +113,7 @@ tidak bisa menandatangani: Webhook URL mereka adalah satu-satunya kunci, jadi ra
 ### Aplikasi lain
 
 Alat yang meminta **webhook URL Slack, Discord, atau JANDI** bisa mengirim ke sini: tempelkan Webhook URL Trina di kolom itu.
-Alat yang tidak punya keduanya bisa dihubungkan lewat Zapier atau Make; **Aplikasimu tidak ada?** di panduan menunjukkan satu
+Alat yang tidak punya keduanya bisa dihubungkan lewat Zapier atau Make; **Aplikasi Anda tidak ada?** di panduan menunjukkan satu
 contoh untuk masing-masing.
 
 Apa pun yang bisa mengirim pesan ke Webhook URL (Zapier, Make, Grafana, Uptime Kuma, skrip Anda sendiri) bisa dipakai. Tempelkan

@@ -28,8 +28,8 @@ Se abre la propia página de inicio de sesión de Google (en la app de escritori
 
 #### Deje todas las casillas marcadas
 Google enumera lo que Trina AX puede hacer, como "Leer, redactar y enviar correos". Deje **todas** las casillas marcadas
-y elija **Continue**. Un inicio de sesión con una casilla sin marcar se rechaza: "No se marcaron algunos permisos. Vuelve
-a conectar y deja todas las casillas marcadas."
+y elija **Continue**. Un inicio de sesión con una casilla sin marcar se rechaza: "No se marcaron algunos permisos. Vuelva
+a conectar y deje todas las casillas marcadas."
 
 #### Confirme la cuenta
 De vuelta en Trina AX, compruebe la cuenta que aparece ("¿Conectar esta cuenta?") y elija **Confirmar esta cuenta**. La
@@ -120,8 +120,8 @@ modo que las personas vean el nombre de la empresa y ningún aviso en la pantall
 
 | Qué ve | Qué hacer |
 |---|---|
-| **No se marcaron algunos permisos. Vuelve a conectar y deja todas las casillas marcadas.** | Vuelva a conectar y deje marcadas todas las casillas de la pantalla de Google. |
-| **Google te pide que inicies sesión de nuevo.** | Elija **Volver a conectar** en la página de la app. Ocurre después de un cambio de contraseña, o cuando el administrador de su empresa retiró el acceso. |
+| **No se marcaron algunos permisos. Vuelva a conectar y deje todas las casillas marcadas.** | Vuelva a conectar y deje marcadas todas las casillas de la pantalla de Google. |
+| **Google le pide que inicie sesión de nuevo.** | Elija **Volver a conectar** en la página de la app. Ocurre después de un cambio de contraseña, o cuando el administrador de su empresa retiró el acceso. |
 | **`redirect_uri_mismatch`** en la página de Google (servidores propios) | Una dirección de regreso en Google Cloud difiere de la que muestra Trina AX. Cópiela de nuevo desde el cuadro **Configurar**. |
 | **"This app is blocked"** o **`admin_policy_enforced`** | El administrador de Google de su empresa limita qué apps pueden usar las cuentas de Google. Pídale que marque la app como de confianza: vea [Marcar la app como de confianza en la Admin console](google-own-app.md#opcional-marcar-la-app-como-de-confianza-en-la-admin-console). |
 | **Google hasn't verified this app** | Una app External en Testing. Elija **Advanced** › **Go to …** solo si su administrador creó la app; o pídale que cambie a la app propia de su empresa. |

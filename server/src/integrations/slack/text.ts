@@ -58,7 +58,7 @@ export const TEXT = {
   placeConnection: t('내 개인 연결', 'your personal connections', 'koneksi pribadi Anda', "あなたの個人用の連携", "sus conexiones personales", "你的个人连接"),
   placeRoom: t('{name} 대화', 'the {name} conversation', 'percakapan {name}', "トーク「{name}」", "la conversación {name}", "聊天“{name}”"),
   placeEveryone: t('전체 대화방', 'the everyone room', 'ruang Semua', "全員のトーク", "la sala Todos", "所有人群聊"),
-  placeConversation: t('1:1·그룹 대화', '1:1 and group conversations', 'percakapan 1:1 dan grup', "1:1・グループの会話", "conversaciones 1:1 y de grupo", "私信和群组对话"),
+  placeConversation: t('1:1·그룹 대화', '1:1 and group conversations', 'percakapan 1:1 dan grup', "1:1・グループの会話", "conversaciones 1:1 y de grupo", "私信和群聊"),
   placeOther: t('그 밖의 자료', 'other material', 'materi lain', "その他の資料", "otro material", "其他资料"),
 }
 export type TextKey = keyof typeof TEXT
