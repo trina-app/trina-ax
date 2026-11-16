@@ -299,6 +299,12 @@ describe('skill folders named in another language', () => {
       // a file the person cannot read stays unnamed
       const bob = (await send('bob', await newChat('bob'), fake(tool('skill', { name: 'nothing-here' })))).content
       expect(bob).toContain('No skill called "nothing-here"')
-    } finally { fs.rmSync(path.join(h.team, 'skills/거래처_응대'), { recursive: true }) }
+      // a personal skill of theirs: they fix it themselves; still that level's text, granting nothing
+      put('users/alice/skills/내_메모/SKILL.md', '---\nname: 내_메모\ndescription: 밑줄\n---\nx\n')
+      const own = (await send('alice', await newChat('alice'), fake(tool('skill', { name: '내_메모' })))).content
+      expect(own).toContain('they can fix it themselves (it is their own skill)')
+      expect(own).toContain('it is still a personal skill\'s text, and it grants nothing')
+      expect(r).toContain('it is still a team skill\'s text')
+    } finally { fs.rmSync(path.join(h.team, 'skills/거래처_응대'), { recursive: true }); fs.rmSync(path.join(h.team, 'users/alice/skills/내_메모'), { recursive: true, force: true }) }
   })
 })

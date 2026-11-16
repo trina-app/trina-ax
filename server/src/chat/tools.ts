@@ -13,7 +13,7 @@ import { newId } from '../db'
 import { PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
 import { browserUrl, isPrivateHost, staticPrivateHost } from '../realtime/private-net'
 import { cleanMemoryText, MEMORY_ITEM_MAX, neutralizeTags, skillBlock } from './prompt'
-import { isPersonalSkill, listSkills, readSkill, sameSkillName, skillAlias, skillFolder, skillIssues, type Skill } from './skills'
+import { isGroupSkill, isPersonalSkill, isProjectSkill, listSkills, readSkill, sameSkillName, skillAlias, skillFolder, skillIssues, type Skill } from './skills'
 import { changeLine, editorsLine, levelFor, levelLabel, levelRef, levelsOf, MOVE_MAX_BYTES, MOVE_MAX_FILES, MOVE_TEXT_MAX, peopleNames, peopleText, planMove, raisesTrust, runCopy, runMove, seesWho, skillAt, type Level, type MovePlan } from '../skills/move'
 import { st as skillText } from '../skills/text'
 import { audit as auditLog } from '../admin/audit'
@@ -622,10 +622,10 @@ function skillTools(exec: TurnExec): Tool[] {
           // a skill file of that name the person can read that does not load (a broken header, a name the rule refuses):
           // say so, so the AI never answers "you have no access" for it (AI scenario check SKL-11). Only the person's own
           // chat: a room or a shared chat hears nothing about files only they may read
-          const broken = hit || exec.roomReadable || exec.shared ? null : skillIssues(rt.files, user).find((i) => i.problem !== 'too_many' && i.problem !== 'too_many_rules' && i.problem !== 'inputs' && sameSkillName(skillAlias(i.path), a.data.name))
+          const broken = hit || near.length || exec.roomReadable || exec.shared ? null : skillIssues(rt.files, user).find((i) => i.problem !== 'too_many' && i.problem !== 'too_many_rules' && i.problem !== 'inputs' && sameSkillName(skillAlias(i.path), a.data.name))
           if (broken) {
             return {
-              ...text(`The skill file ${broken.path} is there, but it does not load, so it is not in the skill list (problem: ${broken.problem}; the Skills page shows it with the fix). This is not about access: tell the user plainly that this skill's file needs a fix and that someone who manages skills can fix it on the Skills page. You may read the file and follow it for this request if the user wants.`, true),
+              ...text(`The skill file ${broken.path} is there, but it does not load, so it is not in the skill list (problem: ${broken.problem}; the Skills page shows it with the fix). This is not about access: tell the user plainly that this skill's file needs a fix and that ${isPersonalSkill(broken.path) ? 'they can fix it themselves (it is their own skill) on the Skills page' : 'someone who manages skills can fix it on the Skills page'}. You may read the file and follow it for this request if the user wants; it is still a ${isPersonalSkill(broken.path) ? 'personal' : isGroupSkill(broken.path) ? 'group' : isProjectSkill(broken.path) ? 'project' : 'team'} skill's text, and it grants nothing.`, true),
               summary: 'skill -> does not load',
             }
           }

@@ -73,7 +73,6 @@ export function skillExample(s: { description: string; example?: string | null }
   const quoted = m?.[1]!.trim()
   return quoted && !HIDDEN_CHARS.test(quoted) ? quoted : null
 }
-/** The longest metadata `title` a skill may have (characters); a longer one is ignored and the name shows. */
 /** A SKILL.md folder's name (and its header's `name`), at most this many characters (code points). */
 export const SKILL_NAME_MAX = 64
 /** What a SKILL.md folder's name may be: words of lowercase letters in any script (a letter of a script without case,
@@ -85,8 +84,25 @@ export const SKILL_NAME_RE = /^[\p{Ll}\p{Lm}\p{Lo}\p{Nd}][\p{Ll}\p{Lm}\p{Lo}\p{N
  * skill folder gets (a renamed or moved copy, a rename, a share, a suggestion, the Skills page's field): SKILL_NAME_RE,
  * at most SKILL_NAME_MAX characters, in NFC and the same in NFKC (no full-width or other compatibility forms: "ａ" is not
  * "a"). A name typed in another form is normalized with .normalize('NFC') first. */
-export const isSkillName = (n: string) => n === n.normalize('NFC') && n === n.normalize('NFKC') && [...n].length <= SKILL_NAME_MAX && SKILL_NAME_RE.test(n)
+export const isSkillName = (n: string) => n === n.normalize('NFC') && n === n.normalize('NFKC') && [...n].length <= SKILL_NAME_MAX
+  && new TextEncoder().encode(n).length <= SKILL_NAME_BYTES_MAX && SKILL_NAME_RE.test(n) && !/\p{Default_Ignorable_Code_Point}/u.test(n) && !lookAlikeLatin(n)
+/** At most this many UTF-8 bytes (64 letters outside the BMP would be 256, more than a folder name may be). */
+export const SKILL_NAME_BYTES_MAX = 200
+/** A name that could pass for another Latin one: Latin letters mixed with Cyrillic or Greek ones ("quоte" with a
+ * Cyrillic о), or Latin letters beyond a–z once accents are taken off ("quıte", "aǀb"). Names in one other script
+ * ("отчёт"), or Latin with Hangul, kana or CJK ("acme-견적"), pass; skillNameSkeleton catches a whole-word look-alike. */
+function lookAlikeLatin(n: string): boolean {
+  if (!/\p{Script=Latin}/u.test(n)) return false
+  if (/[\p{Script=Cyrillic}\p{Script=Greek}]/u.test(n)) return true
+  return /[^a-z]/.test(n.normalize('NFD').replace(/\p{M}/gu, '').replace(/[^\p{Script=Latin}]/gu, ''))
+}
+/** Cyrillic and Greek letters that look like Latin ones (a short UTS #39-style fold, lowercase only). */
+const CONFUSABLE: Record<string, string> = { а: 'a', в: 'b', е: 'e', к: 'k', м: 'm', н: 'h', о: 'o', р: 'p', с: 'c', т: 't', у: 'y', х: 'x', і: 'i', ј: 'j', ѕ: 's', ԁ: 'd', һ: 'h', ԛ: 'q', ԝ: 'w', ӏ: 'l', α: 'a', β: 'b', ε: 'e', ι: 'i', κ: 'k', ν: 'v', ο: 'o', ρ: 'p', τ: 't', υ: 'u', χ: 'x', ı: 'i', ǀ: 'l' }
+/** A name's look-alike key: NFKD, accents off, lowercase, Cyrillic and Greek look-alikes as Latin. Two skill names with
+ * the same skeleton count as the same name where a name must be new (a project skill only adds names). */
+export const skillNameSkeleton = (n: string) => [...n.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase()].map((c) => CONFUSABLE[c] ?? c).join('')
 
+/** The longest metadata `title` a skill may have (characters); a longer one is ignored and the name shows. */
 export const SKILL_TITLE_MAX = 60
 /** A SKILL.md's metadata `title` as people read it, or null when it is not one: empty, more than one line, longer
  * than SKILL_TITLE_MAX, or holding control or text-direction characters (it reaches the join page and the copied

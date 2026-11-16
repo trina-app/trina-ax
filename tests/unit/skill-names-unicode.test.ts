@@ -4,6 +4,8 @@
 import { describe, expect, test } from 'bun:test'
 import { checkSkill, invokedSkill, isSkillName, SKILL_NAME_MAX, skillWriteNote, type Skill } from '../../server/src/chat/skills'
 import { copyNameOk } from '../../server/src/skills/move'
+import { validSkillName } from '../../server/src/skills/share-check'
+import { skillNameSkeleton } from '@mycel/shared/api'
 import { isSkillName as sharedRule } from '@mycel/shared/api'
 const folderNameOk = (raw: string) => sharedRule(raw.trim().normalize('NFC')) // the Skills page's check (web/src/pages/Skills.tsx)
 
@@ -11,7 +13,11 @@ const md = (name: string) => `---\nname: ${name}\ndescription: 거래처 문의�
 
 describe('the name rule', () => {
   const ok = ['거래처-응대', 'quote-writer', '견적-2026', 'スキル-データ', '报价单', 'отчёт-за-месяц', 'हिंदी-रिपोर्ट', 'ภาษา-ไทย', 'é-mail', '가'.repeat(SKILL_NAME_MAX)]
-  const bad = ['Quote', '거래처 응대', '거래처.응대', '거래처_응대', '거래처--응대', '-응대', '응대-', 'ａｂ', 'a/b', '', '가'.repeat(SKILL_NAME_MAX + 1), '견적​서', 'Отчёт']
+  const bad = ['Quote', '거래처 응대', '거래처.응대', '거래처_응대', '거래처--응대', '-응대', '응대-', 'ａｂ', 'a/b', '', '가'.repeat(SKILL_NAME_MAX + 1), '견적​서', 'Отчёт',
+    // look-alikes of a Latin name: a Cyrillic о or Greek ο among Latin letters, a dotless ı, a click letter
+    'qu\u043ete', 'qu\u03bfte', 'qu\u0131te', 'a\u01c0b',
+    // invisible: the Hangul fillers (letters to the regex); more UTF-8 bytes than a folder name may have
+    'quote\u115f', '견적\u3164', '\u{20000}'.repeat(SKILL_NAME_MAX)]
   test('lowercase letters of any script, marks and digits, joined by single hyphens; no capitals, signs or compatibility forms', () => {
     for (const n of ok) expect([n, isSkillName(n)]).toEqual([n, true])
     for (const n of bad) expect([n, isSkillName(n)]).toEqual([n, false])
@@ -47,5 +53,20 @@ describe('"/name" and a renamed copy', () => {
     expect(copyNameOk('견적-팔콘'.normalize('NFD'))).toBe(true)
     expect(copyNameOk('견적 팔콘')).toBe(false)
     expect(copyNameOk('Quote')).toBe(false)
+  })
+})
+
+describe('look-alikes and skills sent from Claude Code', () => {
+  test('a whole-word Cyrillic copy of a name has the same skeleton; real other names do not', () => {
+    expect(skillNameSkeleton('\u0441\u0435\u0440')).toBe(skillNameSkeleton('cep'))
+    expect(skillNameSkeleton('quote')).toBe('quote')
+    expect(skillNameSkeleton('거래처-응대')).not.toBe(skillNameSkeleton('거래처-응답'))
+    expect(skillNameSkeleton('é-mail')).toBe('e-mail')
+  })
+  test('"Bring my skills" keeps a name the rule takes and romanizes only the rest', () => {
+    expect(validSkillName('거래처-응대')).toBe('거래처-응대')
+    expect(validSkillName('거래처-응대'.normalize('NFD'))).toBe('거래처-응대')
+    expect(validSkillName('주간 업무 보고')).toBe('jugan-eopmu-bogo')
+    expect(validSkillName('qu\u043ete')).not.toContain('\u043e')
   })
 })

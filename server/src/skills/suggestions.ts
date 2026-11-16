@@ -61,7 +61,8 @@ const staff = (p: Principal) => p.role === 'owner' || p.role === 'admin'
 function reviews(ctx: AppContext, p: Principal, r: Row, rules: RuleSet): boolean {
   return managesSkillFolder(ctx, p, r.target_folder, rules) && (!isFolder(r) || staff(p))
 }
-/** A skill folder's name: lowercase a–z, 0–9 and hyphens, at most 64 (chat/skills.ts checkSkill wants it so). */
+/** A skill folder's name: lowercase words in any language joined by hyphens, at most 64 (shared isSkillName, as
+ * chat/skills.ts checkSkill wants it). */
 const VALID_NAME = (n: string) => isSkillName(n)
 /** The suggester's suggestions that still wait (every kind counts towards CONTRIBUTE_LIMITS.open). */
 const openOf = (db: Database, userId: string) => (db.query("SELECT COUNT(*) AS n FROM skill_suggestions WHERE suggester_id = ? AND status = 'pending'").get(userId) as { n: number }).n

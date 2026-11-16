@@ -14,7 +14,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import { isMap, isScalar, parseDocument } from 'yaml'
-import { isSkillName, parseSkillInputs, readSkillTitle, SKILL_EXAMPLE_MAX, SKILL_NAME_MAX, SKILL_NAME_RE, type SkillInput } from '@mycel/shared/api'
+import { isSkillName, parseSkillInputs, readSkillTitle, SKILL_EXAMPLE_MAX, SKILL_NAME_MAX, SKILL_NAME_RE, skillNameSkeleton, type SkillInput } from '@mycel/shared/api'
 import type { FileService } from '../files/service'
 import { readRegular } from '../files/store'
 import { atLeast, type Principal, type RuleSet } from '../policy/access'
@@ -647,14 +647,15 @@ function pickWinners(all: readonly Skill[], wider: readonly Skill[] = all): { sk
   // a name the sender has at a higher tier)
   const byName = new Map<string, Skill[]>(), byAlias = new Map<string, Skill[]>()
   const add = (m: Map<string, Skill[]>, k: string, s: Skill) => m.set(k, [...(m.get(k) ?? []), s])
-  for (const s of wider) if (skillTier(s) < 3) { add(byName, nameKey(s.name), s); add(byAlias, nameKey(skillAlias(s.path)), s) }
+  // keyed by the look-alike skeleton: a project skill "quоte" (Cyrillic о) is no new name next to a wider "quote"
+  for (const s of wider) if (skillTier(s) < 3) { add(byName, skillNameSkeleton(s.name), s); add(byAlias, skillNameSkeleton(skillAlias(s.path)), s) }
   const byPath = (a: Skill, b: Skill) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path)
   const named = (s: Skill) => skillTier(s) !== best.get(nameKey(s.name))
-  const givesWay = (s: Skill) => skillTier(s) === 3 && (byName.has(nameKey(s.name)) || byAlias.has(nameKey(s.name)))
+  const givesWay = (s: Skill) => skillTier(s) === 3 && (byName.has(skillNameSkeleton(s.name)) || byAlias.has(skillNameSkeleton(s.name)))
   const skills = all.filter((s) => !named(s) && !givesWay(s)).sort(byPath)
   const lost = all.filter((s) => named(s) || givesWay(s)).sort(byPath).map((s) => {
     const to = named(s) ? skills.filter((w) => sameSkillName(w.name, s.name)) : []
-    return { skill: s, to: to.length ? to : [...(byName.get(nameKey(s.name)) ?? []), ...(byAlias.get(nameKey(s.name)) ?? [])].sort((a, b) => skillTier(a) - skillTier(b) || byPath(a, b)) }
+    return { skill: s, to: to.length ? to : [...(byName.get(skillNameSkeleton(s.name)) ?? []), ...(byAlias.get(skillNameSkeleton(s.name)) ?? [])].sort((a, b) => skillTier(a) - skillTier(b) || byPath(a, b)) }
   })
   return { skills, lost }
 }
@@ -695,11 +696,11 @@ export function scanSkillsWithShadowed(files: FileService, user: Principal, scop
 }
 
 /** Every personal, group and team skill `user` sees (the ones that run and the ones a better tier hides) whose name, or
- * whose file or folder name, is `name`, but `except`: what a project skill of that name would give way to (a project only
+ * whose file or folder name, is `name` or looks like it (skillNameSkeleton: "quоte" with a Cyrillic о is "quote"), but `except`: what a project skill of that name would give way to (a project only
  * adds names), widest first. For the save and move cards (docs/DECISIONS.md "Project skills"). */
 export function widerSkillsNamed(files: FileService, user: Principal, name: string, except?: string): Skill[] {
   const { skills, shadowed } = scanSkillsWithShadowed(files, user)
-  return [...skills, ...shadowed.map((x) => x.skill)].filter((s) => s.path !== except && skillTier(s) < 3 && (sameSkillName(s.name, name) || sameSkillName(skillAlias(s.path), name)))
+  return [...skills, ...shadowed.map((x) => x.skill)].filter((s) => s.path !== except && skillTier(s) < 3 && (skillNameSkeleton(s.name) === skillNameSkeleton(name) || skillNameSkeleton(skillAlias(s.path)) === skillNameSkeleton(name)))
     .sort((a, b) => skillTier(a) - skillTier(b) || a.path.localeCompare(b.path))
 }
 

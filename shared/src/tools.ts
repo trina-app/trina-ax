@@ -186,7 +186,7 @@ export const MoveSkillInput = z.strictObject({
   group: z.string().min(1).max(200).optional().describe('For "group": the group\'s name.'),
   project: z.string().min(1).max(300).optional().describe('For "project": the project\'s name or folder; without it, this chat\'s project.'),
   keep: z.boolean().optional().describe('true when the user asked for a copy: the original stays where it is and a copy goes to the level.'),
-  name: z.string().min(1).max(64).optional().describe('Only with keep: the copy\'s new name (lowercase words joined by hyphens, in any language, at most 64). Needed for a project copy of a skill the user keeps at a wider level under the same name.'),
+  name: z.string().min(1).max(128).optional().describe('Only with keep: the copy\'s new name (lowercase words joined by hyphens, in any language, at most 64). Needed for a project copy of a skill the user keeps at a wider level under the same name.'),
 })
 
 /** skill_files (server/src/chat/skill-files.ts): one move, copy or rename of a file or folder that touches a skill folder,

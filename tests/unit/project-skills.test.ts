@@ -110,6 +110,19 @@ describe('the level, by path and by the chat\'s project', () => {
     expect(paths(listSkills(e.files, who('bob'), { project: FALCON }))).toContain('projects/falcon/skills/brief/SKILL.md')
   })
 
+  test('a project skill whose name only looks new (a Cyrillic copy of a team skill\'s name) gives way too', () => {
+    const cyr = '\u0441\u043e\u0440\u0435' // "соре": Cyrillic letters only, so the name rule takes it
+    const team = path.join(e.fx.team, 'skills/cope'), proj = path.join(e.fx.team, `projects/falcon/skills/${cyr}`)
+    fs.mkdirSync(team, { recursive: true }); fs.writeFileSync(path.join(team, 'SKILL.md'), md('cope', 'team cope'))
+    fs.mkdirSync(proj, { recursive: true }); fs.writeFileSync(path.join(proj, 'SKILL.md'), md(cyr, 'a look-alike'))
+    try {
+      const alice = scanSkillsWithShadowed(e.files, who('alice'), { project: FALCON })
+      expect(paths(alice.skills)).toContain('skills/cope/SKILL.md')
+      expect(paths(alice.skills)).not.toContain(`projects/falcon/skills/${cyr}/SKILL.md`)
+      expect(alice.shadowed.find((x) => x.skill.path === `projects/falcon/skills/${cyr}/SKILL.md`)?.by).toEqual({ tier: 'team' })
+    } finally { fs.rmSync(team, { recursive: true }); fs.rmSync(proj, { recursive: true }) }
+  })
+
   test('"/name": a wider skill wins over a project skill of the same length, by name or by alias', () => {
     const team: Skill = { path: 'skills/report.md', name: 'Monthly report', description: '', body: 'team' }
     const proj: Skill = { path: 'projects/falcon/skills/report/SKILL.md', name: 'report', description: '', body: 'project', project: { id: 'p', name: 'P' } }

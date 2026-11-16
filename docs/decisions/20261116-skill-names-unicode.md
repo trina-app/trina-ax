@@ -14,7 +14,12 @@
   and Devanagari have no case and pass. No space, dot, underscore, slash or other sign; no hyphen at either end or
   twice. At most 64 characters (code points, not bytes). The name is NFC and the same in NFKC (full-width `ａｂ` and
   other compatibility forms are refused, so two names never differ only by such a form). The folder name and the
-  `name:` line are compared after NFC, so a folder made in NFD on a Mac is the same skill. One function holds it,
+  `name:` line are compared after NFC, so a folder made in NFD on a Mac is the same skill. Also refused: invisible
+  (default-ignorable) characters such as the Hangul filler, more than 200 UTF-8 bytes (64 letters outside the BMP),
+  and Latin look-alikes: Latin mixed with Cyrillic or Greek letters (`quоte` with a Cyrillic о), or Latin letters
+  beyond a-z once accents are off (`quıte`, `aǀb`). Where a name must be new (a project skill only adds names), a
+  look-alike skeleton is compared (`skillNameSkeleton`: accents off, Cyrillic and Greek look-alikes as Latin), so a
+  whole-word Cyrillic copy of a team skill's name is no new name either. One function holds it,
   `isSkillName` in `server/src/chat/skills.ts`; the loader, the write note, a renamed or moved copy (`copyNameOk`, also
   skill_files' rename), skill shares and suggestions, and the Skills page's folder-name check
   (`web/src/pages/Skills.tsx folderNameOk`) use it. "/거래처-응대" runs the skill; what was typed is compared in NFC.
@@ -26,12 +31,16 @@
   another script is another name, as it would be as a title today (`metadata.title` was already free text).
 - **The AI never says "no access" for a skill that does not load:** when the skill tool is asked for a name that a
   readable skill file has but that file does not load (a broken header, a name this rule still refuses), its result
-  names the file, says it does not load and that this is not about access, and that someone who manages skills can fix
-  it on the Skills page (which shows the reason to everyone who can read the file). Only in the person's own chat; a
+  names the file, says it does not load and that this is not about access, and who can fix it on the Skills page (the
+  person for their own skill, else someone who manages skills); if the AI follows the file anyway, it is still that
+  level's text and grants nothing (which shows the reason to everyone who can read the file). Only in the person's own chat; a
   room or a shared chat hears the usual "no skill" answer.
-- **Left out:** names the server makes itself stay ASCII slugs as before (a skill drafted from a chat or a form, a skill
-  sent from Claude Code or Codex: `onboarding/skill-draft.ts`, `skills/share-check.ts validSkillName` romanize Hangul).
-  Plugin manifests (`shared/src/plugins.ts`) are another format and keep their rule.
+- **Skills sent from Claude Code or Codex** ("Bring my skills", `skills/share-check.ts validSkillName`) keep a name that
+  passes this rule (a sent `거래처-응대` stays `거래처-응대` and meets the team's skill of that name); only another name
+  is romanized into a slug, as before.
+- **Left out:** a skill drafted from a chat or a form gets a slug the server makes (`onboarding/skill-draft.ts`), ASCII
+  as before. Plugin manifests (`shared/src/plugins.ts` `SkillName`) are another format and stay ASCII
+  (`^[a-z0-9]+(?:-[a-z0-9]+)*$`).
 - **Tests:** `tests/unit/skill-names-unicode.test.ts` (the rule, NFC, "/name", the write note, a renamed copy, the web
   check), `tests/unit/b-skill-tools.test.ts` (the skill tool and "/거래처-응대" through the runtime; the "does not load"
   answer), `tests/unit/skill-name-rule.test.ts` (an invalid name still warns).
