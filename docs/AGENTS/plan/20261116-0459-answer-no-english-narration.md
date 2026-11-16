@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16 04:59
 - Branch: `fix/answer-no-english-narration`
-- Status: in progress
+- Status: done
 - Where: server/src/chat. Why: the answer text is put together from the engine's events in chat/turn.ts.
 - Version impact: patch, a fix in how the answer text is kept; no API or data change
 
@@ -47,4 +47,7 @@ tests, under Bun 1.3.12 too.
 
 ## Result
 
-(filled in at the end)
+Built as planned in chat/narration.ts and chat/turn.ts. LANGUAGE_RULE is unchanged (no prompt cost). Added after
+the second scenario run: a file name, quoted or not, does not make a line Korean or a quote ("Existing pattern:
+"매장-전경.jpg" (hyphenated Korean)." leaked once in ORG-01). Scenario runs 1-4: no English-only line in a Korean
+answer after the fix.

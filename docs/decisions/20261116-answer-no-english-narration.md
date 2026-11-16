@@ -18,7 +18,7 @@ Plan: docs/AGENTS/plan/20261116-0459-answer-no-english-narration.md.
   person's message written in it), a piece is held while it could still be a status line: it is not streamed and not
   saved. The next event decides it:
   - a tool call of the main AI drops it when it is short (at most 200 characters, 2 sentences, 2 lines), has Latin
-    letters and none of the answer's script (a file name or `code` in it does not count), and is not content: no code
+    letters and none of the answer's script (a file name, quoted or not, or `code` in it does not count), and is not content: no code
     block, quote marks, `> ` quote, link or table. The dropped piece's separator takes the place of the next one's;
   - anything else (Korean words, longer text, content) lets it out at once, as it was;
   - the end of the answer lets out what is held. The last piece is never dropped: an English email the person asked
