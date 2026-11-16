@@ -3,7 +3,7 @@
 // written beside it. `presence`: a DM's picture carries the other person's online dot (components/Presence.tsx; the
 // caller says the state in words after the name, PresenceText). A group chat has none, as in Slack. `faces`: in the
 // lists, where group chats sit among the direct messages (docs/decisions/20261116-sidebar-channels-dms.md), a group chat
-// shows its people's faces (the shared FaceStack, two of them) instead of the speech bubbles.
+// shows two of its people's faces in one picture's box (the shared FaceStack's `fit`) instead of the speech bubbles.
 import { Hash, MessagesSquare, Users } from 'lucide-react'
 import { Fragment, useCallback } from 'react'
 import type { Room } from '@mycel/shared/api'
@@ -81,8 +81,8 @@ export function RoomIcon({ room, size, glyph, tile, presence, faces, selected, o
   const faceOf = useFaceOf()
   if (faces && room.kind === 'group' && room.peers.length) {
     const people = room.peers.slice(0, GROUP_FACES).map(faceOf)
-    // the stack's face size nearest the row's icon (20 in the 대화 panel, 28 for the phone list's 32)
-    return <FaceStack people={people} count={people.length} shown={GROUP_FACES} phoneShown={GROUP_FACES} size={size >= 28 ? 28 : size >= 24 ? 24 : 20} on={on} hoverRing selected={selected} testId="room-group" />
+    // in the box of one picture, so the name lines up with a 1:1's
+    return <FaceStack people={people} count={people.length} fit={size} on={on} hoverRing selected={selected} testId="room-group" />
   }
   if (room.kind === 'dm') return peer ? (presence ? <PresenceFace user={peer} size={size} /> : <Avatar user={peer} size={size} />) : <span aria-hidden className="shrink-0 rounded-full bg-hover" style={{ width: size, height: size }} />
   const Icon = room.kind === 'all' ? Users : room.kind === 'group' ? MessagesSquare : Hash

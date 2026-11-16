@@ -20,8 +20,9 @@
 - **Rule: no Group chats section.** Group chats are in **Direct messages** with the 1:1s, in one list by latest activity
   (the order the DM section already had). Since that section now holds more than 1:1s, its ko and ja names become Slack's
   "다이렉트 메시지" and "ダイレクトメッセージ" (were "1:1 대화", "1:1トーク"); en, zh, id and es were already Slack's.
-  A group chat's row shows two of its people's faces (the shared `FaceStack`, ringed in the row's colour) in place of the
-  speech bubbles, and its name as before: its own name, or its people's names cut with "…". A group chat with nobody
+  A group chat's row shows two of its people's faces in place of the speech bubbles, drawn in one picture's box as
+  Slack draws a group DM (the shared `FaceStack`'s new `fit` option: two smaller faces overlapped, the front one ringed
+  in the row's colour, the back one without its letter), so its name lines up with a 1:1's; and its name as before: its own name, or its people's names cut with "…". A group chat with nobody
   else left keeps the bubbles. The room header is unchanged.
 - **Unchanged:** pins, conversation folders, unread and "@" badges, mute, the row's "⋯" (rename, leave, hide, notify,
   copy link), new group chats (they appear in Direct messages), and the word "group chat" for one of them (guests, invites,

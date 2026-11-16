@@ -51,6 +51,10 @@ test('every conversation by kind, no "더 보기"; the hidden ones behind one ro
   expect(await namesIn(page, 'dm')).toEqual(['Sam', '주간회의', '점심 모임', 'Eve'])
   await expect(panel(page).getByTestId('room-group-people')).toHaveCount(2)
   await expect(panel(page).getByTestId('room-group-people').first().locator(':scope > *')).toHaveCount(2)
+  // the faces take one picture's box: a group chat's name starts where a 1:1's does
+  const nameX = async (name: string) => (await panel(page).locator(`[data-testid="sidebar-room-row"][data-section="dm"] span[title="${name}"]`).boundingBox())!.x
+  expect(await nameX('주간회의')).toBe(await nameX('Sam'))
+  expect((await panel(page).getByTestId('room-group-people').first().boundingBox())!.width).toBe(20)
   await expect(panel(page).getByTestId('rooms-more')).toHaveCount(0)
   await expect(panel(page).getByTestId('rooms-all')).toHaveCount(0)
   // 멘션·스레드 stays the first row
