@@ -43,6 +43,9 @@ export function chatErrorText(reason: ChatErrorReason, role: Role, noAi: boolean
   // the AI cannot start (owner decision 2026-11-11): "Trina isn't ready yet" for a member with [Tell an admin], the
   // owner and admins' own words with [Connect AI] (components/chat/NotReadyButton.tsx); no menu path in either
   if (reason === 'engine_missing') return { key: role === 'owner' || role === 'admin' ? 'chat.error.admin.engine_missing' : 'chat.error.engine_missing', where: null }
+  // the AI could not start on the server (QA TC-3521): the owner and admins read that a retry won't help and who fixes
+  // it; no menu path, the health page does not show it
+  if (reason === 'engine_start_failed' && (role === 'owner' || role === 'admin')) return { key: 'chat.error.admin.engine_start_failed', where: null }
   const where = ADMIN_FIX[reason]
   const fixes = where === 'health' ? role === 'owner' : role === 'owner' || role === 'admin'
   if (where && fixes) return { key: `chat.error.admin.${reason}` as MessageKey, where }

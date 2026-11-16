@@ -357,7 +357,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       exec.noteReads()
       exec.afterTool()
       // a new file left loose at the top of shared/, a group's folder or the team root: the server's note (chat/file-placement.ts)
-      const note = exec.placementNote(tools.has('move_files'))
+      const placed = exec.placementNote(tools.has('move_files'))
+      // a skill saved in a shared chat (make_file, edit_hwp into a skill folder): one quiet line in the answer
+      const skillNote = name === 'make_file' || name === 'edit_hwp' ? exec.sharedSkillNote(name, args, !!out.isError) : null
+      const note = placed && skillNote ? `${placed}\n${skillNote}` : placed || skillNote
       // the audit line (tool_events) never repeats a stored connection secret (integrations/connections/redact.ts), and
       // in a chat that read team chat rooms keeps of an address only its site (tools/audit-url.ts): admins read it
       const summary = exec.redact(out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}`)
@@ -375,7 +378,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // a read-only refusal: who can give write access, and the person's own folder (B2, policy/refusal.ts); the
       // tool's own text stays as it is (the same for every caller)
       if (isError && text) { const ro = readOnlyFor(exec, text); if (ro) return ro }
-      return exec.placementNote(tools.has('move_files'))
+      // a skill saved in a shared chat: one quiet line in the answer that the people here can see it
+      const skillNote = exec.sharedSkillNote(name, args, isError)
+      const placed = exec.placementNote(tools.has('move_files'))
+      return skillNote && placed ? `${placed}\n${skillNote}` : skillNote || placed
     },
     // edit_files (mcp/protocol.ts): after a room read one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {

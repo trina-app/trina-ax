@@ -1,9 +1,11 @@
 // Background work of the AI connections in a running managed-mode server (docs/DECISIONS.md "AI 연결"):
 //   at start      the older credentials become connections (migrate.ts; the Codex login through the launcher in prod)
-//   every 5 min   the token file again (root/set-claude-token may have put a new token there)
+//   token file    again when it changes (a watch on the secrets folder: root/set-claude-token puts a new token there
+//                 and says "within a few seconds"), and every 5 minutes in case the watch missed it
 //   once a day    ChatGPT sign-ins nobody used for 8 days are refreshed; Claude tokens ending within 14 days are
 //                 announced to the owner and admins
 // plus the broker of this server and its usage hooks (budget notices, monthly connection limits).
+import fs from 'node:fs'
 import type { AppContext } from '../context'
 import { afterUsage } from '../admin/budget-watch'
 import { resolveLayout } from '../system/layout'
@@ -12,7 +14,8 @@ import { refreshIdle } from './chatgpt-tokens'
 import { ctAll, fmtDate } from './i18n'
 import { afterCredentialUsage } from './limits'
 import { importTokenFile, migrateCredentials } from './migrate'
-import { credentialsOf, EXPIRING_MS, listRows, notifyAboutConnection, type CredCtx } from './store'
+import { CLAUDE_OAUTH_TOKEN_FILE } from '../proxy/subscription'
+import { connectionsChanged, credentialsOf, EXPIRING_MS, listRows, notifyAboutConnection, type CredCtx } from './store'
 
 const FILE_EVERY_MS = 5 * 60_000
 const DAILY_MS = 24 * 3600_000
@@ -41,6 +44,34 @@ export function expiringNotices(cc: CredCtx) {
   }
 }
 
+/** The token file once: imported or its new token taken; then every copy of the connections' state is dropped and open
+ * screens ask again, so the next message uses it (no restart; QA 2026-11-16 needed one) */
+export function tokenFileTick(cc: CredCtx, secretsDir: string): ReturnType<typeof importTokenFile> {
+  const r = importTokenFile(cc, secretsDir)
+  if (r === 'imported' || r === 'updated') {
+    cc.log.info('AI connections: the Claude token file was taken', { result: r })
+    connectionsChanged(cc)
+  }
+  return r
+}
+
+/** Call onChange shortly after the token file in secretsDir is written, replaced or removed (root/set-claude-token
+ * renames a new file into place). Returns the stop function; a folder that cannot be watched returns a no-op (the
+ * 5-minute check still runs). */
+export function watchTokenFile(secretsDir: string, onChange: () => void, delayMs = 250): () => void {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  let w: fs.FSWatcher
+  try {
+    w = fs.watch(secretsDir, { persistent: false }, (_ev, name) => {
+      if (name && String(name) !== CLAUDE_OAUTH_TOKEN_FILE) return
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => { timer = null; onChange() }, delayMs)
+    })
+    w.on('error', () => { try { w.close() } catch {} })
+  } catch { return () => {} }
+  return () => { if (timer) clearTimeout(timer); try { w.close() } catch {} }
+}
+
 export function startCredentialMaintenance(ctx: AppContext) {
   const cc = credentialsOf(ctx)
   const secretsDir = resolveLayout(ctx.config).secretsDir
@@ -48,12 +79,13 @@ export function startCredentialMaintenance(ctx: AppContext) {
   const run = (what: string, fn: () => unknown) => { try { const r = fn(); if (r instanceof Promise) r.catch((e) => ctx.log.warn(`AI connections: ${what} failed`, { err: e })) } catch (e) { ctx.log.warn(`AI connections: ${what} failed`, { err: e }) } }
   run('migration', () => migrateCredentials(cc, { secretsDir, dataDir: ctx.config.dataDir, launcherSock }))
   const timers = [
-    setInterval(() => run('token file', () => importTokenFile(cc, secretsDir)), FILE_EVERY_MS),
+    setInterval(() => run('token file', () => tokenFileTick(cc, secretsDir)), FILE_EVERY_MS),
     setInterval(() => { run('idle refresh', () => refreshIdle(cc)); run('expiry notices', () => expiringNotices(cc)) }, DAILY_MS),
   ]
   for (const t of timers) (t as { unref?: () => void }).unref?.()
   // the first daily round shortly after start (not during it)
   const first = setTimeout(() => { run('idle refresh', () => refreshIdle(cc)); run('expiry notices', () => expiringNotices(cc)) }, 60_000)
   ;(first as { unref?: () => void }).unref?.()
-  ctx.onClose(() => { for (const t of timers) clearInterval(t); clearTimeout(first) })
+  const unwatch = watchTokenFile(secretsDir, () => run('token file', () => tokenFileTick(cc, secretsDir)))
+  ctx.onClose(() => { for (const t of timers) clearInterval(t); clearTimeout(first); unwatch() })
 }

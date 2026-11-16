@@ -106,6 +106,10 @@ export const RestorePending = z.object({
   requestedBy: z.string().nullable(),
   /** when the backup was made (what Admin › System and the activity log say after the restore); older files have none */
   backupCreatedAt: z.string().nullable().optional(),
+  /** the staged copy's reader level (db.ts requiredReaderLevel): mycel-ctl lets an older release start when it can read
+   * the copy the next start puts back (docs/BACKUP-RESTORE.md "Going back to the version before an update", QA
+   * TC-2859). Older files have none; older versions ignore it (zod drops unknown keys). */
+  readerLevel: z.number().int().positive().optional(),
 })
 export type RestorePending = z.infer<typeof RestorePending>
 

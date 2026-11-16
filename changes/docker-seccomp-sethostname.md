@@ -1,0 +1,1 @@
+- Docker: AI answers work again. The container's seccomp profile refused the turn's hostname, so every answer stopped with "The answer stopped partway" (server log: `bwrap: Can't set hostname to mycel-turn`). Recreate the container after you update the `docker/` folder: `docker compose up -d --force-recreate` (QA TC-2853).

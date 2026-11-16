@@ -14,7 +14,11 @@ export interface MockApp {
   createdBy: { id: string; name: string } | null; createdAt: string; firstOkAt: string | null; lastOkAt: string | null
   lastRefusal: { at: string; reason: 'signature' | 'format' | 'too_big' } | null; pausedUntil: string | null; canResume: boolean; today: number; leaverKnows?: true; eventsSeen?: string[]
   pausedBy?: 'app' | 'team'; pausedCap?: number; timeZone?: string; rotatedAt?: string | null; signingPending?: true
+  /** a plain Other app's own icon (docs/decisions/20261116-other-app-icon.md) */
+  icon?: { image: string } | { emoji: string }
 }
+/** A small square PNG the mock serves as an uploaded icon (a 2×2 teal picture, scaled by the tile). */
+const ICON_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGPgndIBRAwQCgAengSlav/z8AAAAABJRU5ErkJggg==', 'base64')
 const SWITCHES: Record<Kind, Record<string, boolean>> = {
   sentry: { new_issue: true, came_back: true, resolved: true, alert: false, assigned: false, metric: false },
   github: { pull_request: true, issue: true, checks_failed: true, release: true, push: false },
@@ -41,8 +45,10 @@ export function mockApp(kind: Kind, o: Partial<MockApp> = {}): MockApp {
 export interface AppsState {
   apps: MockApp[]
   available: boolean
-  /** what the screens asked, in order: "create:other", "patch:<id>:{…}", "rotate:<id>", "delete:<id>", … */
+  /** what the screens asked, in order: "create:other", "patch:<id>:{…}", "rotate:<id>", "delete:<id>", "icon:<id>:image/webp", … */
   calls: string[]
+  /** the next icon change is refused with this status (403: the person's right was taken away meanwhile) */
+  refuseIconNext?: number
   /** the next GET of the list shows this app as connected (the first message arrived) */
   connectNext: () => void
   /** the next GET shows this refusal on the last app */
@@ -78,7 +84,7 @@ export async function routeRoomApps(page: Page, o: { apps?: MockApp[]; available
       state.apps.push(app)
       return route.fulfill(json({ app, address: ADDRESS(n) }, 201))
     }
-    const m = /^\/api\/rooms\/[^/]+\/apps\/([^/]+)(?:\/(address|secret|rotate|resume|example))?$/.exec(path)
+    const m = /^\/api\/rooms\/[^/]+\/apps\/([^/]+)(?:\/(address|secret|rotate|resume|example|icon|icon\/emoji))?$/.exec(path)
     const app = m && state.apps.find((a) => a.id === m[1])
     if (!m || !app) return route.fulfill(json({ error: { code: 'not_found', message: 'not found' } }, 404))
     const what = m[2]
@@ -103,6 +109,27 @@ export async function routeRoomApps(page: Page, o: { apps?: MockApp[]; available
       if (app.lastRefusal?.reason === 'signature') app.lastRefusal = null
       return route.fulfill(json({ app, ...(b.generate ? { secret: `tax_whs_${'s'.repeat(43)}` } : {}) }))
     }
+    // an Other app's icon: the image, its upload, an emoji, Remove icon (only plain Other apps, as the server)
+    if (what === 'icon' && method === 'GET') return app.icon && 'image' in app.icon ? route.fulfill({ status: 200, contentType: 'image/png', body: ICON_PNG }) : route.fulfill(json({ error: { code: 'not_found', message: 'not found' } }, 404))
+    if ((what === 'icon' || what === 'icon/emoji') && (method === 'PUT' || method === 'DELETE')) {
+      const refuse = state.refuseIconNext
+      state.refuseIconNext = undefined
+      if (refuse) return route.fulfill(json({ error: { code: refuse === 403 ? 'forbidden' : 'validation', message: refuse === 403 ? 'You no longer manage the apps here.' : 'Refused.' } }, refuse))
+      if (app.kind !== 'other' || app.preset) return route.fulfill(json({ error: { code: 'validation', message: 'Only an "Other app" can have its own icon.', params: { reason: 'not_other' } } }, 400))
+      if (what === 'icon/emoji') {
+        const b = req.postDataJSON() as { emoji: string }
+        state.calls.push(`emoji:${app.id}:${b.emoji}`)
+        app.icon = { emoji: b.emoji }
+      } else if (method === 'PUT') {
+        const type = new URL(req.url()).searchParams.get('type') ?? ''
+        state.calls.push(`icon:${app.id}:${type}:${(req.postDataBuffer()?.byteLength ?? 0) > 0 ? 'bytes' : 'empty'}`)
+        app.icon = { image: `${base}/${app.id}/icon?v=${Date.now()}` }
+      } else {
+        state.calls.push(`icon-remove:${app.id}`)
+        delete app.icon
+      }
+      return route.fulfill(json(app))
+    }
     if (what === 'rotate' && method === 'POST') { state.calls.push(`rotate:${app.id}`); app.rotatedAt = new Date().toISOString(); return route.fulfill(json({ app, address: ADDRESS(90 + ++n) })) }
     if (what === 'resume' && method === 'POST') { state.calls.push(`resume:${app.id}`); app.pausedUntil = null; app.canResume = false; return route.fulfill(json(app)) }
     if (what === 'example' && method === 'POST') { state.calls.push(`example:${app.id}`); return route.fulfill({ status: 204, body: '' }) }
@@ -125,11 +152,11 @@ export async function routeRoomApps(page: Page, o: { apps?: MockApp[]; available
 }
 
 /** A message an app posted, as routeRoom's `extra` (author null, the app and its card). */
-export function appMessage(app: Pick<MockApp, 'id' | 'kind' | 'name' | 'preset'> & { by?: { id: string; name: string } | null; quiet?: boolean; example?: boolean }, card: { kind?: string; title: string; details?: string[]; status?: string; link?: { url: string; host: string } }, more: Record<string, unknown> = {}) {
+export function appMessage(app: Pick<MockApp, 'id' | 'kind' | 'name' | 'preset' | 'icon'> & { by?: { id: string; name: string } | null; quiet?: boolean; example?: boolean }, card: { kind?: string; title: string; details?: string[]; status?: string; link?: { url: string; host: string } }, more: Record<string, unknown> = {}) {
   const text = [[card.kind, card.title].filter(Boolean).join(' · '), ...(card.details ?? []), card.status ?? ''].filter(Boolean).join('\n')
   return {
     author: null,
-    app: { id: app.id, name: app.name, kind: app.kind, ...(app.preset ? { preset: app.preset } : {}), by: app.by === undefined ? { id: 'mina', name: 'Mina' } : app.by, ...(app.quiet ? { quiet: true } : {}), ...(app.example ? { example: true } : {}) },
+    app: { id: app.id, name: app.name, kind: app.kind, ...(app.preset ? { preset: app.preset } : {}), ...(app.icon ? { icon: app.icon } : {}), by: app.by === undefined ? { id: 'mina', name: 'Mina' } : app.by, ...(app.quiet ? { quiet: true } : {}), ...(app.example ? { example: true } : {}) },
     appCard: { details: [], ...card },
     body: `${app.name}: ${text}`,
     ...more,

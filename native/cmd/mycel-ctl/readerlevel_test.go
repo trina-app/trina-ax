@@ -213,3 +213,72 @@ func TestScheduledUpdateLeavesAReleaseThatCannotReadTheDatabase(t *testing.T) {
 		t.Fatalf("newer release: %d %+v switched %q", code, res, r.switched)
 	}
 }
+
+// stageRestore writes data/restore-pending.json as stageDbRestore does (server/src/system/backup.ts), with the staged
+// copy's reader level (lvl 0: none, as a version before the field wrote it); link: the staged copy is a symlink.
+func stageRestore(t *testing.T, base string, lvl int, link bool) {
+	t.Helper()
+	data := filepath.Join(base, "data")
+	must(t, os.MkdirAll(data, 0o700))
+	staged := filepath.Join(data, "restore-staged.db")
+	os.Remove(staged)
+	if link {
+		other := filepath.Join(t.TempDir(), "x.db")
+		must(t, os.WriteFile(other, []byte("db"), 0o600))
+		must(t, os.Symlink(other, staged))
+	} else {
+		must(t, os.WriteFile(staged, []byte("db"), 0o600))
+	}
+	p := map[string]any{"format": 1, "file": staged, "backupId": "pre-migrate-2026-11-16T03-00-00-000Z-1-x", "requestedAt": "2026-11-16T03:01:52.982Z", "requestedBy": nil}
+	if lvl > 0 {
+		p["readerLevel"] = lvl
+	}
+	b, _ := json.Marshal(p)
+	must(t, os.WriteFile(filepath.Join(data, "restore-pending.json"), b, 0o600))
+}
+
+// QA TC-2859, docs/BACKUP-RESTORE.md "Going back to the version before an update": 0.5.7 updated the database to level
+// 8; the administrator staged the pre-update copy (level 7) and asks for 0.5.4 (level 7). The staged copy is what the
+// next start opens, so 0.5.4 is taken. Without a usable staged level the refusal stays: no restore staged, one staged
+// by a version that wrote no level, a staged copy that is a link, a pending file that names another file.
+func TestUpdateByHandTakesAnOlderReleaseWhenARestoreIsStaged(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		stage func(t *testing.T, base string)
+		ok    bool
+	}{
+		{"staged level 7", func(t *testing.T, b string) { stageRestore(t, b, 7, false) }, true},
+		{"nothing staged", func(*testing.T, string) {}, false},
+		{"staged copy still level 8", func(t *testing.T, b string) { stageRestore(t, b, 8, false) }, false},
+		{"staged without a level", func(t *testing.T, b string) { stageRestore(t, b, 0, false) }, false},
+		{"staged copy is a link", func(t *testing.T, b string) { stageRestore(t, b, 7, true) }, false},
+		{"pending names another file", func(t *testing.T, b string) {
+			stageRestore(t, b, 7, false)
+			pf := filepath.Join(b, "data", "restore-pending.json")
+			raw, _ := os.ReadFile(pf)
+			must(t, os.WriteFile(pf, []byte(strings.Replace(string(raw), "restore-staged.db", "app.db", 1)), 0o600))
+		}, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFeedServer(t)
+			f.publishLevel("/server/stable.json", "0.5.4", 7, 7)
+			f.publishLevel("/server/0.5.4/release.json", "0.5.4", 7, 7)
+			tb, switched := levelBase(t, f, "0.5.7", 8)
+			c.stage(t, tb.base)
+			code, r := tb.update(t, "--version", "0.5.4", "--pubkey", f.key)
+			if c.ok {
+				if code != 0 || r.Result != "ok" || r.Skipped || *switched != "0.5.4" {
+					t.Fatalf("%d %+v switched %q", code, r, *switched)
+				}
+				return
+			}
+			if code != 1 || !strings.Contains(r.Detail, "cannot open this server's data yet") || !strings.Contains(r.Detail, "Nothing was changed") || *switched != "" {
+				t.Fatalf("%d %+v switched %q", code, r, *switched)
+			}
+			if c.name == "staged copy still level 8" && !strings.Contains(r.Detail, "the restore staged now (data/restore-pending.json) puts back a database of level 8") {
+				t.Fatalf("message: %s", r.Detail)
+			}
+			tb.unchanged(t, "0.5.7")
+		})
+	}
+}
