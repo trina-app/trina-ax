@@ -50,4 +50,8 @@ by the AI (PR 7).
 
 ## Result
 
-(Filled in when the work is done.)
+Built as scoped; the departures are in [the decision file](../../decisions/20261116-folder-share-widening.md). Checks
+(2026-11-16, Bun 1.3.12): `c-folder-share-widening` 23 pass, `c-reader-counters` 3 pass, 25 related test files 554 pass
+0 fail; `typecheck`, `check:docs`, `check:i18n`, `check:migrations` clean. `features:check` reports two PR 2 endpoints
+with no feature (from the base branch, not this one). QA TC-4218..4226 added (Pass); notes on TC-4081, 4082, 4103,
+4104. A second security review of this diff comes before the PR.
