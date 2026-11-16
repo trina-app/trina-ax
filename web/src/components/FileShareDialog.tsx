@@ -250,6 +250,7 @@ export function FileShareDialog({ path, onClose, returnTo }: { path: string; onC
                   meta={t('fileShare.through', { folder: f.name })}
                   tag={t('fileShare.canView')}
                   li={{ 'data-testid': `file-share-through-${row.subjectType}-${row.subjectId}` }}
+                  // no-tooltip: an invisible spacer (the rows with ✕ above end at the same edge), never focused or pressed
                   actions={mayRemove && shares.people.length ? <span className="invisible" aria-hidden><IconButton label="" tip={false} tabIndex={-1} className="touch-hit shrink-0"><X size={14} /></IconButton></span> : undefined}
                 />
               )))}
