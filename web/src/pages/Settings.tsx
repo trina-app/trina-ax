@@ -326,17 +326,17 @@ function Profile() {
         )}
       </Section>
       {phone ? (
-        // a phone: the language as a checkmark list (the team's default first)
+        // a phone: one row "Language   한국어 ›" whose sheet holds the languages (owner 2026-11-16: no list of every language
+        // on the page), as the AI row below and Team settings' default language
         <PhoneSection className="-mt-6" testId="profile-language-part">
-          <PhoneChecks title={t('settings.language')} footer={t('settings.languageHint')} label={t('settings.language')} testId="profile-language"
-            value={me.user.localeChoice ?? 'team'}
-            options={(['team', ...LOCALES.map((l) => l.id)] as const).map((choice) => ({
-              value: choice,
-              label: choice === 'team' ? t('settings.languageTeam', { language: LOCALES.find((l) => l.id === me.team.defaultLocale)?.label ?? me.team.defaultLocale }) : LOCALES.find((l) => l.id === choice)!.label,
-              lang: choice === 'team' ? undefined : choice,
-              testId: `locale-${choice}`,
-            }))}
-            onChange={(choice) => void setLocale(choice === 'team' ? null : choice).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))} />
+          <PhoneListGroup footer={t('settings.languageHint')} testId="profile-language">
+            <PhoneChoiceRow list title={t('settings.language')} testId="profile-locale" value={me.user.localeChoice ?? 'team'}
+              options={(['team', ...LOCALES.map((l) => l.id)] as const).map((choice) => ({
+                value: choice,
+                label: choice === 'team' ? t('settings.languageTeam', { language: LOCALES.find((l) => l.id === me.team.defaultLocale)?.label ?? me.team.defaultLocale }) : LOCALES.find((l) => l.id === choice)!.label,
+              }))}
+              onChange={(choice) => void setLocale(choice === 'team' ? null : choice).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))} />
+          </PhoneListGroup>
         </PhoneSection>
       ) : (
       <Section title={t('settings.language')} desc={t('settings.languageHint')}>
