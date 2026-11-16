@@ -100,7 +100,7 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await pick(page, 'Bob', 'bob')
       // a group adds the line that whoever joins it later sees the chat too
       await pick(page, '재무팀', (await (await page.request.get('/api/me')).json() as { groups: { id: string }[] }).groups[0]!.id, 'group')
-      await expect(dialog.getByTestId('chat-share-grey')).toHaveText('그룹을 추가하면 나중에 그 그룹에 들어오는 사람도 이 채팅을 보게 돼요.')
+      await expect(dialog.getByTestId('chat-share-grey')).toHaveText('부서를 추가하면 나중에 그 부서에 들어오는 사람도 이 채팅을 보게 돼요.')
       await audit(page, 'share dialog, with picks')
       const groupId = (await (await page.request.get('/api/me')).json() as { groups: { id: string }[] }).groups[0]!.id
       await dialog.getByTestId(`participant-remove-group-${groupId}`).click()

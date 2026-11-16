@@ -204,7 +204,7 @@ export const es: Strings = {
       emails: 'Correo enviado',
     },
     usually: 'normalmente ~2 días',
-    signup: 'Ver planes y empezar gratis',
+    signup: 'Ver planes',
     explore: 'Echar un vistazo',
     popupTitle: 'Así fue el primer día de Mina 🎉',
     popupLine: 'Campaña de lanzamiento lista en {time}. Normalmente lleva unos 2 días.',

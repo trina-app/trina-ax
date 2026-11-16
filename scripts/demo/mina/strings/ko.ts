@@ -200,7 +200,7 @@ export const ko: Strings = {
       emails: '보낸 메일',
     },
     usually: '보통은 2일 정도',
-    signup: '요금제 보고 무료로 시작하기',
+    signup: '요금제 보기',
     explore: '둘러보기',
     popupTitle: '미나의 첫날 끝 🎉',
     popupLine: '런칭 캠페인을 {time} 만에 끝냈어요. 보통은 2일 정도 걸려요.',
