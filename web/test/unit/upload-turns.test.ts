@@ -1,6 +1,7 @@
 // Large files take turns (lib/upload.ts SESSIONS_AT_ONCE): each is an upload session on the server, and a person may
 // hold ten unfinished ones. Eleven files of 10 MB dropped on a room at once asked for eleven sessions, the last were
-// refused (429) and failed after about 15 s.
+// refused (429) and failed after about 15 s. Also here: a file taken out while its session is being made leaves none
+// behind.
 import { describe, expect, test } from 'bun:test'
 import { ApiClient, uuidv7, type UploadSession, type UploadTarget } from '@mycel/shared/api'
 import { SESSIONS_AT_ONCE, uploadFile } from '../../src/lib/upload'
@@ -60,7 +61,7 @@ describe('large files take turns', () => {
     for (const n of names.slice(SESSIONS_AT_ONCE)) expect([...phases.get(n)!][0]).toBe('queued')
   })
 
-  test('a waiting file taken out leaves the line at once; a failed one gives its turn on', async () => {
+  test('a waiting file taken out leaves the line at once, and the one behind it still gets its turn', async () => {
     const s = server({ max: 3 })
     const abort = new AbortController()
     const firsts = ['a.mov', 'b.mov', 'c.mov'].map((n) => uploadFile(file(n), target(n), opts(s)))
@@ -85,5 +86,29 @@ describe('large files take turns', () => {
     const client = new ApiClient({ baseUrl: 'http://t', fetch: fetchFn })
     await Promise.all(Array.from({ length: 6 }, (_, i) => uploadFile(file(`s${i}.txt`, 4), target(`s${i}.txt`), { ...opts(s), client })))
     expect(seen).toEqual(Array(6).fill(`/api/rooms/${ROOM}/files`))
+  })
+})
+
+describe('a file taken out while its session is being made', () => {
+  test('the session the server made after all is dropped, and not remembered for a resume', async () => {
+    let letCreate!: () => void
+    const gate = new Promise<void>((r) => { letCreate = r })
+    const s = server({ createGate: () => gate })
+    const kept = new Map<string, string>()
+    const storage = { getItem: (k: string) => kept.get(k) ?? null, setItem: (k: string, v: string) => void kept.set(k, v), removeItem: (k: string) => void kept.delete(k) }
+    const abort = new AbortController()
+    const p = uploadFile(file('gone.mov'), target('gone.mov'), { ...opts(s), storage, signal: abort.signal })
+    // the request is on its way; the person takes the chip out; then the server answers with a new session
+    while (!s.calls.includes('POST /api/upload-sessions')) await tick()
+    abort.abort()
+    letCreate()
+    await expect(p).rejects.toThrow()
+    await tick(5)
+    expect(s.calls).toContain('DELETE /api/upload-sessions/:id')
+    expect(s.open.size).toBe(0)
+    expect([...kept.values()].join('')).not.toContain('gone.mov')
+    // its turn was given back: the next large file starts
+    const next = await uploadFile(file('next.mov'), target('next.mov'), { ...opts(server()), storage: null })
+    expect(next.kind).toBe('room')
   })
 })

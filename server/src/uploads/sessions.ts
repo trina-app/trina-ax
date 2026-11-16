@@ -3,7 +3,7 @@
 // rooms/files.ts). Chunks are written straight into one
 // sparse part file at their offset (<data>/uploads/<id>.part), so nothing is buffered beyond one network read and
 // completing needs no assembly. While chunks arrive in order the sha256 is computed on the way, so complete only
-// hashes what came out of order. An unfinished session is removed 24 hours after its last chunk (a laptop that slept
+// hashes what came out of order. A session with no chunk yet is removed after an hour; an unfinished session is removed 24 hours after its last chunk (a laptop that slept
 // overnight resumes where it stopped), and at the latest 7 days after it started (its part file holds disk room).
 import { isGuestUser } from '../credentials/guest-ai'
 import fs from 'node:fs'
@@ -28,6 +28,10 @@ import { roomsOf } from '../rooms/service'
 
 /** idle expiry: every accepted chunk moves expires_at to now + this */
 export const SESSION_TTL_MS = 24 * 3600_000
+/** A session that has not received a chunk yet lives this long: nothing of it could be resumed, and until it goes it
+ * holds its whole size of team disk room and one of the person's MAX_OPEN_SESSIONS (a tab closed right after it
+ * started, a file taken out as the session was made). The first chunk gives it the 24 hours. */
+export const SESSION_EMPTY_TTL_MS = 3600_000
 /** absolute cap from created_at: a trickling upload can't keep its reserved disk room forever */
 export const SESSION_MAX_MS = 7 * 24 * 3600_000
 export const MAX_OPEN_SESSIONS = 10
@@ -64,7 +68,7 @@ export class UploadSessions {
       this.drop(id)
       // the words name the limit that ended it (QA TC-230: a 7-day upload was told "24 h" seconds after a chunk)
       const started = r.created_at ? Date.parse(r.created_at) : NaN
-      fileError('gone', Number.isFinite(started) && Date.now() >= started + SESSION_MAX_MS ? 'expiredMax' : 'expired')
+      fileError('gone', Number.isFinite(started) && Date.now() >= started + SESSION_MAX_MS ? 'expiredMax' : neverStarted(r, started) ? 'expiredEmpty' : 'expired')
     }
     return r
   }
@@ -89,7 +93,8 @@ export class UploadSessions {
     const fd = fs.openSync(this.part(id), fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600)
     try { fs.ftruncateSync(fd, size) } finally { fs.closeSync(fd) }
     const now = Date.now()
-    const expires = expiry(now, now)
+    // no chunk yet: an hour (SESSION_EMPTY_TTL_MS); each accepted chunk then moves it to 24 h from that chunk
+    const expires = new Date(now + SESSION_EMPTY_TTL_MS).toISOString()
     db.query('INSERT INTO upload_sessions (id, user_id, target, size, sha256, chunk_size, received, expires_at, created_at) VALUES (?,?,?,?,?,?,?,?,?)')
       .run(id, userId, JSON.stringify(target), size, sha256, UPLOAD_CHUNK_SIZE, '[]', expires, new Date(now).toISOString())
     return this.get(userId, id)
@@ -277,6 +282,10 @@ export class UploadSessions {
     return n
   }
 }
+
+/** It ended within its first hour with no chunk: it never started (a session whose chunks were thrown away after a
+ * checksum mismatch had started, and ends in the 24 hour words). */
+const neverStarted = (r: Pick<Row, 'received' | 'expires_at'>, started: number) => r.received === '[]' && Number.isFinite(started) && Date.parse(r.expires_at) - started <= SESSION_EMPTY_TTL_MS
 
 export const chunkCount = (size: number, chunk: number) => (size === 0 ? 0 : Math.ceil(size / chunk))
 

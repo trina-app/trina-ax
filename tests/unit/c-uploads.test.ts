@@ -229,7 +229,8 @@ describe('upload sessions', () => {
     const data = blob(10, 3)
     const ended = async (created: number) => {
       const s = await create({ kind: 'path', path: `shared/end-${created}.bin` }, data)
-      A.ctx.db.query('UPDATE upload_sessions SET created_at = ?, expires_at = ? WHERE id = ?').run(new Date(created).toISOString(), new Date(Date.now() - 1000).toISOString(), s.body.id)
+      // a chunk had arrived (a session with none ends after an hour, in its own words: c-uploads-empty-session.test.ts)
+      A.ctx.db.query("UPDATE upload_sessions SET created_at = ?, expires_at = ?, received = '[0]' WHERE id = ?").run(new Date(created).toISOString(), new Date(Date.now() - 1000).toISOString(), s.body.id)
       const r = await put(s.body.id, 0, data)
       expect(r.status).toBe(410)
       return r.body.error.message as string
