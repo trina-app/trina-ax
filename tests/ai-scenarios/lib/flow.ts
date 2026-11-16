@@ -80,7 +80,12 @@ export const Flow = z.object({
 export type Flow = z.infer<typeof Flow>
 export const FlowCatalog = z.object({ version: z.number().int().positive(), flows: z.array(Flow) })
 
-export interface StepResult { index: number; say: string; kind: 'ask' | 'event'; as: string; turn?: TurnRecord; error?: string; changed: string[]; checks: CheckResult[]; jargon: string[] }
+export interface StepResult {
+  index: number; say: string; kind: 'ask' | 'event'; as: string; turn?: TurnRecord; error?: string; changed: string[]; checks: CheckResult[]; jargon: string[]
+  /** an ask: the chat it ran in, its place, the prompts said in that chat so far (this one last), and every address
+   * seen by then in that chat's prompts and in the group chat's messages (normalized) */
+  chat?: string; context?: string; prompts?: string[]; seenUrls?: string[]
+}
 export interface FlowResult { id: string; runId: string; commit: string; startedAt: string; cardMode: string; steps: StepResult[]; firstBroken: number | null; judge?: unknown }
 export const FlowVerdict = z.object({
   pass: z.boolean(),
@@ -110,7 +115,8 @@ function appAddress(env: Env, name: string): Promise<string> {
 
 /** {{file:<team path>}} -> the app's link to that team file; {{chat:<flow chat name>}} -> the link to that chat */
 function fill(env: Env, text: string, chats: Map<string, { id: string }>): string {
-  return text.replace(/\{\{file:([^}]+)\}\}/g, (_m, p: string) => `${env.base}/files/view?path=${encodeURIComponent(p)}`)
+  return text.replace(/\{\{mock:([^}]+)\}\}/g, (_m, p: string) => `${env.mockUrl ?? 'https://mock.invalid'}${p}`)
+    .replace(/\{\{file:([^}]+)\}\}/g, (_m, p: string) => `${env.base}/files/view?path=${encodeURIComponent(p)}`)
     .replace(/\{\{chat:([^}]+)\}\}/g, (_m, k: string) => `${env.base}/c/${chats.get(k)?.id ?? 'unknown'}`)
 }
 async function dmRoom(api: ApiClient, userId: string): Promise<string> {
@@ -229,6 +235,7 @@ async function flowChecks(env: Env, checks: FlowCheck[], step: { turns: TurnReco
 export async function runFlow(f: Flow, env: Env): Promise<FlowResult> {
   const res: FlowResult = { id: f.id, runId: env.runId, commit: env.commit, startedAt: new Date().toISOString(), cardMode: env.cardMode ?? 'once', steps: [], firstBroken: null }
   const chats = new Map<string, { id: string; as: string; lines: number }>()
+  const said_ = new Map<string, string[]>()
   for (const [i, s] of f.steps.entries()) {
     const since = new Date().toISOString()
     const before = snapshot(env.teamRoot)
@@ -239,6 +246,12 @@ export async function runFlow(f: Flow, env: Env): Promise<FlowResult> {
         const a = s.ask
         const api = await as(env, a.as)
         const pseudo = { id: `${f.id}-${i + 1}`, lang: /[가-힣]/.test(a.prompt) ? 'ko' : 'en', context: a.context, as: a.as, reply: a.reply, cardMode: a.decline ? 'decline' : env.cardMode ?? 'once', capMs: a.heavy ? 180_000 : 10 * 60_000 } as never
+        const said = [...(said_.get(a.chat) ?? []), fill(env, a.prompt, chats)]
+        said_.set(a.chat, said)
+        let roomUrls: string[] = []
+        try { roomUrls = (await (await as(env, 'sora')).call(API.listRoomMessages, { params: { id: env.fixture.roomId }, query: {} })).items.flatMap((m) => urlsIn(m.body)) } catch {}
+        r.chat = a.chat; r.context = a.context; r.prompts = said
+        r.seenUrls = [...new Set([...said.flatMap(urlsIn), ...roomUrls].map(normUrl))]
         let chat = chats.get(a.chat)
         if (!chat) { chat = { id: await openChat(api, env, pseudo), as: a.as, lines: 0 }; chats.set(a.chat, chat) }
         if (chat.as !== a.as) throw new Error(`chat "${a.chat}" belongs to ${chat.as}, not ${a.as}`)
@@ -263,6 +276,20 @@ export async function runFlow(f: Flow, env: Env): Promise<FlowResult> {
     if (res.firstBroken === null && r.checks.some((c) => !c.ok)) res.firstBroken = r.index
   }
   return res
+}
+
+export const urlsIn = (t: string): string[] => t.match(/https?:\/\/[^\s)<>\]"'`]+/g) ?? []
+/** an address as people mean it: host in lower case, no fragment, no tracking query (utm_*, fbclid, gclid), no
+ * trailing slash */
+export function normUrl(u: string): string {
+  try {
+    const x = new URL(u.replace(/[.,;!?]+$/, ''))
+    x.hash = ''
+    for (const k of [...x.searchParams.keys()]) if (/^utm_|^fbclid$|^gclid$/i.test(k)) x.searchParams.delete(k)
+    let s = `${x.protocol}//${x.host.toLowerCase()}${x.pathname.replace(/\/+$/, '')}`
+    if ([...x.searchParams.keys()].length) s += `?${x.searchParams.toString()}`
+    return s
+  } catch { return u }
 }
 
 /** every team path a flow's steps made or changed (for the clean-up after it) */

@@ -234,9 +234,9 @@ async function runFlows(): Promise<string> {
   fs.mkdirSync(dir, { recursive: true })
   const flows = selectedFlows(loadFlows())
   // the mock services are needed by the mocked flows; their data starts fresh for each run
-  const mocks = flows.some((f) => f.mocked) ? await mocksUp({ home: HOME, base: BASE, log: say }) : readMocks(HOME)
+  const mocks = flows.some((f) => f.mocked || JSON.stringify(f.steps).includes('{{mock:')) ? await mocksUp({ home: HOME, base: BASE, log: say }) : readMocks(HOME)
   if (mocks) mocksReset(HOME)
-  const env = { base: BASE, dataDir: DATA, teamRoot: TEAM, fixture, runId: id, commit: commit(), log: say, mockState: mocks?.state, cardMode: always ? 'always' as const : 'once' as const }
+  const env = { base: BASE, dataDir: DATA, teamRoot: TEAM, fixture, runId: id, commit: commit(), log: say, mockState: mocks?.state, mockUrl: mocks?.url, cardMode: always ? 'always' as const : 'once' as const }
   say(`flows ${id}: ${flows.length} flows (cards: ${env.cardMode}), results in ${dir}`)
   const queue = [...flows]
   const jobs = Math.max(1, Number(opt('--jobs') ?? 2))

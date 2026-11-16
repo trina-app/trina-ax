@@ -127,6 +127,13 @@ export const SERVICES: Record<string, { title: string; tools: Tool[] }> = {
   },
 }
 
+/** the shared meeting-notes page of FL-28 (fictional) */
+const NOTES_PAGE = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>주간 영업 회의 - AI 회의록</title></head><body>
+<h1>주간 영업 회의 (2026-11-16)</h1><p>참석: 이소라, Daniel Kim, 박민호 (가상의 회의)</p>
+<h2>요약</h2><ul><li>라마바카페 연간 계약: 27,000원으로 확정, 계약서 금요일 발송</li><li>사아자 베이커리 미수금 620,000원 12/5까지 입금</li><li>신제품 샘플 30개는 금요일 오전 Daniel이 전달</li></ul>
+<h2>할 일</h2><ol><li>이소라: 계약서 최종본 발송 (11/20)</li><li>Daniel: 샘플 전달 (11/20 오전)</li><li>박민호: 결제 조건 확인 (11/19)</li></ol>
+</body></html>`
+
 function arg(n: string) { const i = process.argv.indexOf(`--${n}`); return i >= 0 ? process.argv[i + 1] : undefined }
 
 if (import.meta.main) {
@@ -140,6 +147,9 @@ if (import.meta.main) {
     port, hostname: '127.0.0.1',
     async fetch(req) {
       const url = new URL(req.url)
+      // a public page, as a meeting-notes service (Tiro-style) shares one: no key, any query (utm …) ignored
+      const note = /^\/pub\/notes\/([A-Za-z0-9]+)\/?$/.exec(url.pathname)?.[1]
+      if (note) return new Response(NOTES_PAGE, { headers: { 'content-type': 'text/html; charset=utf-8' } })
       const svc = /^\/([a-z]+)\/mcp$/.exec(url.pathname)?.[1]
       const def = svc ? SERVICES[svc] : undefined
       if (!def) return new Response('not found', { status: 404 })

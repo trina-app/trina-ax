@@ -530,3 +530,22 @@ flows:
       ask: { as: sora, chat: s1, prompt: "완성본 라마바카페 건 방에 올려줘" }
       checks:
         - { type: tool_used, any: [post_to_room, share_with_person] }
+
+# ================================================================ the real case (owner 2026-11-16)
+- id: FL-28
+  title: "A teammate's meeting-notes link in the room: save the notes, then reply in its thread"
+  group: sharing
+  why: Owner, 2026-11-16 - five permission prompts to save a teammate's meeting-notes link from a room.
+  features: [rooms.messages, rooms.threads, chat.web-access, files.upload, chat.share]
+  steps:
+    # a Tiro-style shared notes link with tracking noise; served by the mock server's public page behind its tunnel
+    - say: daniel posts the meeting-notes link in the room
+      event: { type: room_message, as: daniel, text: "Today's meeting notes (AI notes): {{mock:/pub/notes/kR3x9Tq?utm_source=tiro&utm_medium=share&fbclid=IwAR0x#summary}}" }
+    - say: sora asks her side chat to save the notes
+      ask: { as: sora, chat: s2, context: room-side, prompt: "다니엘이 올린 회의록 링크 내용 회의록 폴더에 저장해줘" }
+      checks:
+        - { type: file_created, file: "shared/회의록/**" }
+    - say: sora asks to reply in that message's thread with a summary
+      ask: { as: sora, chat: s2, context: room-side, prompt: "저장한 회의록 요약해서 다니엘 메시지 스레드에 답글로 달아줘" }
+      checks:
+        - { type: tool_used, any: [post_to_room] }
