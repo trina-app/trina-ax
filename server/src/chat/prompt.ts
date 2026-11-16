@@ -355,13 +355,16 @@ export function historyBlock(history: { role: 'user' | 'assistant'; content: str
  * Where the engine runs. Without this the model talked as if it were on the user's own computer ("saved to your
  * Desktop", "open it in Finder"), but it runs on the team server and the person is somewhere else on their own device.
  */
-export function environmentSection(kind: RunKind = 'selfhost'): string {
+export function environmentSection(kind: RunKind = 'selfhost', subagent = false): string {
   return [
   '## Where you run',
   // a hosted team's server is not "in the office" (it said so to every hosted team; chat/situation.ts serverWhere)
   `You run on the team's ${PRODUCT.displayName} server (${serverWhere(kind)}), NOT on the user's computer. The user talks to you from their own device (web browser, desktop app or phone) and may be anywhere.`,
   '- You cannot see or open anything on the user\'s device: no local files, Desktop, Downloads, apps, clipboard or screen. Files from their device reach you only when they attach them; they can also attach files from the team drive.',
-  '- Everything you save goes to the team drive on the server. Say where with the team path (e.g. users/<id>/report.docx); the user opens or downloads it from the file card under your answer or the Files screen. Never say you saved or opened something on their computer.',
+  // a sub-agent reports to the assistant, which needs the team paths (subagentPromptSections); the person reads names
+  subagent
+    ? '- Everything you save goes to the team drive on the server. Give the team path of what you save in your report. Never say you saved or opened something on their computer.'
+    : '- Everything you save goes to the team drive on the server. Say where by its link and folder name, not its path (e.g. [report.docx](/files/view?path=…) in their own folder); the user opens or downloads it from the file card under your answer or the Files screen. Never say you saved or opened something on their computer.',
   '- You work only through the tools offered here: nothing else on the server (its other folders or settings) is open to you.',
   // Codex runs with `-s read-only` (its own disk sandbox) and then refused to save team files ("the environment is
   // read-only") without calling write (staging 2026-10-22)
@@ -376,7 +379,7 @@ export const GUEST_ENVIRONMENT = [
   '## Where you run',
   `You run on the team's ${PRODUCT.displayName} server, NOT on the user's computer. The user talks to you from their own device (web browser, desktop app or phone) and may be anywhere.`,
   '- You cannot see or open anything on the user\'s device: no local files, Desktop, Downloads, apps, clipboard or screen. Files from their device reach you only when they attach them.',
-  '- Everything you save stays on the server, in the folders listed above. Say where with its path (e.g. users/<id>/report.docx); the user opens or downloads it from the file card under your answer. Never say you saved or opened something on their computer.',
+  '- Everything you save stays on the server, in the folders listed above. Say where by the file and folder names, not the path; the user opens or downloads it from the file card under your answer. Never say you saved or opened something on their computer.',
   '- You work only through the tools offered here: nothing else on the server (its other folders or settings) is open to you.',
   '- If your environment says the sandbox is read-only or that approvals are off, that is about the server\'s own disk only. Saving files with the write and edit tools is allowed: the server checks each call and answers if access is denied.',
 ].join('\n')
@@ -545,7 +548,7 @@ export const BULK_REPORT_RULE = 'After changing many files or items, also list i
  * 정리해줘", a skill or a scheduled run that saves its output) must still make one. Folder names too, and the
  * other language in contents: an English file in a folder named 외주. About 120 tokens on Claude's tokenizer: keep it
  * that short. */
-export const FIND_FILE_RULE = 'Asked for a file, even by name only, find the existing one first: glob file and folder names, grep contents, with other words, both languages and variants (final, v2, old, copy); open likely ones, images and PDFs too. Found or not, never make or copy one instead unless asked to. If nothing matches, say so and list the closest with paths; only then ask where it is. Never search the web for team files.'
+export const FIND_FILE_RULE = 'Asked for a file, even by name only, find the existing one first: glob file and folder names, grep contents, with other words, both languages and variants (final, v2, old, copy); open likely ones, images and PDFs too. Found or not, never make or copy one instead unless asked to. If nothing matches, say so and list the closest as links; only then ask where it is. Never search the web for team files.'
 
 /** The file list (server/src/file-list/, docs/AGENTS/plan/20261111-0630-file-list.md): a `_FILES.md` per access folder
  * with one line per file saying what it really is. Measured on a 2,238-file test folder: with this line the AI used the
@@ -589,6 +592,8 @@ function personLines(files: FileService, i: PromptInput, subagent = false): stri
     readable.length ? `Read-only folders: ${readable.join(', ')}` : '',
     // a guest: none of the team's folders (shared/, groups/, skills/) are theirs to be told about (guestSection)
     ...(i.guest ? [] : folderPurposeLines(i.locale, i.user.id, templates?.path ?? null)),
+    // others read a shared chat's answers: "내 폴더" there would be the reader's own folder (SOURCE_LINK_RULE)
+    !subagent && !i.guest && i.shared ? sharedOwnFolderLine(roomLine(i.shared.asker), i.locale) : '',
     WRITE_ACCESS_RULE,
     subagent ? '' : i.guest ? (i.guest.places.some((p) => p.kind === 'project') ? GUEST_PLACEMENT_RULE : GUEST_OWN_PLACEMENT_RULE) : filePlacementRule(i.tools.includes('move_files'), templates ? ARCHIVE_FOLDER[templates.locale] : null, i.tools.includes('delete_files')),
     i.tools.includes('delete_files') ? '' : i.guest ? GUEST_NO_DELETE_RULE : deleteRule(i.locale),
@@ -599,6 +604,9 @@ function personLines(files: FileService, i: PromptInput, subagent = false): stri
     subagent ? SUBAGENT_LANGUAGE_RULE : LANGUAGE_RULE,
   ].filter((l) => l !== '')
 }
+
+/** In a shared chat the asker's own folder is theirs by name, not "내 폴더" (the reader's own folder). */
+export const sharedOwnFolderLine = (asker: string, locale: Locale) => `Others see this chat: in your answer, call ${asker}'s own folder ${asker}'s folder (in the answer's language), not ${JSON.stringify(ownFolderLabel(locale))}.`
 
 /** The chat's project as a skill listing takes it (its own skills join), or null. */
 const chatProjectOf = (i: PromptInput): ChatProject | null => (i.project?.id ? { id: i.project.id, name: i.project.name, folderPath: i.project.folderPath } : null)
@@ -765,7 +773,7 @@ export function subagentPromptSections(files: FileService, i: PromptInput, tools
   // person like the memories, which children never get; the same read check and the same facts framing
   return [
     { id: 'rules', text: [...base, '', ...personLines(files, i, true)].filter((l) => l !== '').join('\n') },
-    { id: 'environment', text: environmentSection(i.runKind) },
+    { id: 'environment', text: environmentSection(i.runKind, true) },
     { id: 'company', text: companyProfileBlock(files, i.user, i.shared ? i.roomReadable : null) },
     { id: 'teamRules', text: rules ? `## Team rules (from skills/)\n${rules}` : '' },
     { id: 'skills', text: skills },
@@ -776,8 +784,11 @@ export function subagentPromptSections(files: FileService, i: PromptInput, tools
 }
 
 /** Answers name the team files they used with links to the place (docs/DECISIONS.md "Sources under each answer"); the
- * list under the answer is the server's own record, not the AI's. */
-const SOURCE_LINK_RULE = 'When your answer relies on a team file, link it where you mention it: /files/view?path=<team path, URL-encoded>, adding &page=N for a PDF page, &slide=N for a slide or &sheet=<sheet name, URL-encoded> for a sheet you actually looked at. grep and read show these places as [p.12], `=== Slide 3 ===` and `# sheet: name · A1:F40`.'
+ * list under the answer is the server's own record, not the AI's. A file or folder is named by a link with the name the
+ * Files screen shows: answers told office workers where things are with `groups/영업/견적서/` in code formatting (AI
+ * scenario check 2026-11-16, docs/AGENTS/plan/20261116-0500-ai-file-link-labels.md). A folder link opens the Files screen there
+ * (web/src/lib/markdown.ts classifyLink). Exported for tests. */
+export const SOURCE_LINK_RULE = 'Name a team file or folder by a link labelled with its shown name, not by its path: [report.docx](/files/view?path=<team path, URL-encoded>); a folder links the same way, a top folder or the user\'s own folder labelled with the name shown in quotes under "Team folders" (without the quotes). In your answer, never write a team path as text or in code unless the user asks for it (or the App line says otherwise). When your answer relies on a team file, link it where you mention it, adding &page=N for a PDF page, &slide=N for a slide or &sheet=<sheet name, URL-encoded> for a sheet you actually looked at. grep and read show these places as [p.12], `=== Slide 3 ===` and `# sheet: name · A1:F40`.'
 
 /**
  * How the AI talks about what it cannot do (owner 2026-11-16): the people are office workers, so no words about how it
