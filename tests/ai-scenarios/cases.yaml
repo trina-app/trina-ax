@@ -2189,7 +2189,7 @@ cases:
       prompt: 우리 팀 시간대 서울로 설정돼 있어?
       expect:
         outcome: do
-        good: Says the team time zone is set to Seoul (Asia/Seoul), and where to see or change it (Admin › Team settings); never says it could not check while also answering.
+        good: Says the team time zone is set to Seoul (Asia/Seoul) and that an owner or admin changes it in Admin; never says it could not check while also answering.
         checks: [{ type: answer_matches, pattern: "서울|Seoul" }]
 
 - id: ADM-06

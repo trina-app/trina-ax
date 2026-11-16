@@ -18,9 +18,10 @@
 - **Measured** (ai:scenarios runner, local dev server, fictional team, real AI): ADM-05 and the new variant ADM-05.ask
   ("우리 팀 시간대 서울로 설정돼 있어?"). Before: 5 of 6 answers said "not checked / not seen directly" and also "yes,
   Seoul" or "probably Seoul". After: 0 of 21 (three runs each of three prompt versions, the last one this change alone,
-  9 of 9): "팀 시간대는 이미 서울(Asia/Seoul)로 설정되어 있어서 바꿀 필요가 없습니다 … 관리자 › 팀 설정 › 일반 › 팀
-  시간대". About 25 tokens per call (measured on a one-call answer: 56,825 → 56,848–56,854 input tokens), cached
-  with the rest of the instructions.
+  9 of 9). The owner (ADM-05): "팀 시간대는 이미 서울(Asia/Seoul)로 설정되어 있어서 바꿀 필요가 없습니다 … 관리자 › 팀
+  설정 › 일반 › 팀 시간대"; a member (ADM-05.ask): "네, 팀 시간대는 서울(Asia/Seoul)로 설정돼 있습니다 … 팀 소유자나
+  관리자에게 요청해 주세요". About 25 tokens per call (measured on a one-call answer: 56,825 → 56,848–56,854 input
+  tokens). They are not cached: the time line changes every minute and sits near the end for that reason.
 - **Not done: interim notes in the answer language (TC-3702, TC-3711).** The suggested prompt change was tried and
   measured, and it did not help, so it is not in this change. Korean answers that keep an English line (#1066 keeps
   descriptive ones on purpose), over the same 69 Korean single-turn cases (ROOM-03, ORG-01, EDIT-04, FLOW-01, PDF-05,
