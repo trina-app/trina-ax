@@ -190,3 +190,17 @@ for (const width of [1440, 390]) {
     })
   })
 }
+
+test('the team address is not the page\'s: Copy link copies the chat on the team address (the desktop app on the office network)', async ({ page }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  expect((await page.request.post('/__test/team-address', { data: { address: 'https://acme.example.com' } })).ok()).toBeTruthy()
+  await signIn(page)
+  const chatId = await chatOf(page, TITLE)
+  await page.goto(`/c/${chatId}`)
+  await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
+  await page.getByTestId('chat-share').click()
+  await page.getByRole('dialog').getByTestId('chat-share-copy-link').click()
+  await expect(page.getByTestId('toast').filter({ hasText: 'Link copied' })).toBeVisible()
+  expect(await clipboard(page)).toBe(`https://acme.example.com/c/${chatId}`)
+  await expect(page.getByTestId('local-link-note')).toHaveCount(0)
+})

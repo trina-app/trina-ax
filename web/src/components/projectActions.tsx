@@ -15,8 +15,8 @@ import { useMe } from '../store/session'
 import { hideProject, showProject, unhideProject, useProjects } from '../store/projects'
 import { projectNow } from './ProjectMembersDialog'
 import { leaveItems, useLeaveProject } from './LeaveProject'
-import { projectLink } from './ShareCopyLink'
-import { confirmDialog, menuOpener, promptDialog, useCopy } from './ui'
+import { projectLink, useCopyLink, useTeamOrigin } from './ShareCopyLink'
+import { confirmDialog, menuOpener, promptDialog } from './ui'
 import type { MenuItem } from './rooms/MenuButton'
 
 /** A project's longest name (the server's UpdateProjectBody) */
@@ -223,7 +223,8 @@ export const mayRename = (p: Project) => !!mayManage(p) && !p.inTrash
  * for a member. `select` wraps each item (the keyboard back on the "…"); `testId` prefixes the items' test ids. */
 export function useProjectMenuItems(p: Project, o: { testId: string; select: (fn: () => unknown) => () => void; onRenamed?: (p: Project) => void; onDeleted: (d: Exclude<Deleted, null>) => void; onMembers: () => void }): MenuItem[] {
   const t = useT()
-  const { copy } = useCopy()
+  const copyHref = useCopyLink()
+  const origin = useTeamOrigin()
   const remove = useDeleteProject()
   const renameProject = useRenameProject()
   const leaveProject = useLeaveProject()
@@ -243,7 +244,8 @@ export function useProjectMenuItems(p: Project, o: { testId: string; select: (fn
     if (d && !(d === 'gone' && gone)) o.onDeleted(d)
   }
   const copyLink = async () => {
-    await copy(projectLink(p.id))
+    // on the team address (components/ShareCopyLink.tsx), and no "copied" when the browser refused it
+    if (!(await copyHref(projectLink(p.id, origin)))) return
     toast({ level: 'success', text: t('rooms.menu.linkCopied') })
   }
   return [

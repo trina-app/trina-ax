@@ -267,7 +267,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
   // my earlier files from the computer a first share copies: a line of its own whenever there are any
   const filesLine = shareFilesLine(t, check)
   const label = saved.length ? t('common.save') : t('chat.share.share')
-  const copyButton = <ShareCopyLink onCopy={() => void copyLink(known ?? chat)} unsaved={editable && adding.length ? label : null} testId="chat-share-copy-link" />
+  const copyButton = <ShareCopyLink onCopy={() => void copyLink(known ?? chat, { inDialog: true })} unsaved={editable && adding.length ? label : null} testId="chat-share-copy-link" />
   return (
     <Modal
       key={sheet}

@@ -22,9 +22,9 @@ import { toast } from '../store/ui'
 import { Avatar } from './Avatar'
 import { ListHeading, ListRow } from './list/List'
 import { ParticipantPicker, participantKey, useParticipantOptions, type ParticipantOption } from './ProjectParticipants'
-import { ShareCopyLink } from './ShareCopyLink'
+import { ShareCopyLink, useCopyLink, useTeamOrigin } from './ShareCopyLink'
 import { EveryoneLine, useWithEveryone } from './ShareEveryone'
-import { Button, ErrorNote, IconButton, Modal, Skeleton, confirmDialog, menuOpener, useCopy } from './ui'
+import { Button, ErrorNote, IconButton, Modal, Skeleton, confirmDialog, menuOpener } from './ui'
 
 const nameOfPath = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 
@@ -33,10 +33,11 @@ function refusal(e: unknown, locale: ReturnType<typeof useLocale>, fallback: str
   return e instanceof ApiError && !isConnectionError(e) && e.status < 500 ? errorText(e, locale, fallback) : fallback
 }
 
-/** The file's /f/<id> address on this page's origin (made on first use: POST /api/files/link). */
-export async function fileLinkHref(path: string): Promise<string> {
+/** The file's /f/<id> address on `origin` (the team origin: components/ShareCopyLink.tsx useTeamOrigin; made on first
+ * use: POST /api/files/link). */
+export async function fileLinkHref(path: string, origin = location.origin): Promise<string> {
   const r = await api.call(API.fileLink, { body: { path } })
-  return `${location.origin}${r.url}`
+  return `${origin}${r.url}`
 }
 
 /**
@@ -47,12 +48,14 @@ export function useCopyTeamFileLink() {
   const t = useT()
   const locale = useLocale()
   const me = useMe()
-  const { copy } = useCopy()
+  const origin = useTeamOrigin()
+  const copy = useCopyLink()
   return async (path: string) => {
     const own = !!me && path.startsWith(`users/${me.user.id}/`)
     try {
-      const [href, shares] = await Promise.all([fileLinkHref(path), own ? api.call(API.fileShares, { query: { path } }) : Promise.resolve(null)])
-      await copy(href)
+      const [href, shares] = await Promise.all([fileLinkHref(path, origin), own ? api.call(API.fileShares, { query: { path } }) : Promise.resolve(null)])
+      // refused by the browser: its own toast with the link, never "Link copied"
+      if (!(await copy(href))) return
       if (shares && !shares.people.length) toast({ level: 'success', text: t('fileLink.copiedOnlyYou'), ms: 10_000, action: { label: t('fileLink.shareAction'), run: () => openFileShare(path) } })
       else toast({ level: 'success', text: t('fileLink.copied') })
     } catch (e) {
