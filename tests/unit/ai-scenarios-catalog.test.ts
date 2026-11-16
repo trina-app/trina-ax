@@ -8,6 +8,7 @@ import { FEATURES } from '../../docs/features'
 import { FEATURE_SCOPE } from '../ai-scenarios/feature-scope'
 import { coverage, firstPass, loadCatalog, problems } from '../ai-scenarios/lib/catalog'
 import { COMPANY, FIXTURE_FILES, GUEST } from '../ai-scenarios/fixture/seed'
+import { loadFlows } from '../ai-scenarios/cli'
 
 const cases = loadCatalog()
 
@@ -30,5 +31,14 @@ describe('AI scenario catalog', () => {
     expect(coverage(cases).filter((c) => c.level === 'none').map((c) => c.id)).toEqual([])
     const first = cases.filter((c) => firstPass(cases).has(c.id))
     expect(reach.filter((f) => !first.some((c) => c.features.includes(f)))).toEqual([])
+  })
+
+  test('the flows parse and name known features and people', () => {
+    const known = new Set(FEATURES.map((f) => f.id))
+    const people = new Set([...COMPANY.people.map((p) => p.username), GUEST.username, 'buyer2'])
+    for (const f of loadFlows()) {
+      for (const x of f.features) expect(known.has(x)).toBe(true)
+      for (const s of f.steps) if (s.ask) expect(people.has(s.ask.as)).toBe(true)
+    }
   })
 })

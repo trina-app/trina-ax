@@ -192,3 +192,48 @@ Results go to `tests/.work/ai-scenarios/<run>/` (git-ignored):
 
 The first run's report is kept in [`reports/`](reports/), and every failure has a row in the QA sheet that names its
 case id.
+
+## Flows: whole pieces of work, several people
+
+[`flows.yaml`](flows.yaml) holds about 27 multi-step flows. Each step is one of two kinds:
+- **ask:** a person's turn with the AI, in a named chat that later steps can continue;
+- **event:** something another person or a service does through the real API, as that fake user. The events are a
+  room message or thread reply, a DM with a file, a team file sent into the room, an edited copy posted in reply, a
+  file edited or added, someone added to the room, a guest joining, and a mail arriving through a room app.
+
+Checks run after **every** step: the case checks above, plus `card_shown`/`no_card`, `notified`, and `mock`/`no_mock`
+on the mock services' data. Placeholders `{{file:<team path>}}` and `{{chat:<chat name>}}` put the app's real links
+into messages.
+
+```bash
+bun run ai:scenarios flows run [--flow FL-01,FL-08] [--group sharing] [--jobs 2]   # then judged by Sonnet
+bun run ai:scenarios flows run --always        # the same, the people choosing "Always allow" wherever a card has it
+bun run ai:scenarios flows report              # the latest default run plus the latest --always run
+```
+
+- **Groups:** sharing and links (first), office, people, making (a proposal, a deck, a video, a report, all kept
+  small), spreadsheets, documents, connectors, PDF, guest.
+- **Heavy steps** (`heavy: true`) are stopped after about 3 minutes and marked slow.
+- **The report** gives, per flow:
+  - the first step that broke and why;
+  - the time and the cost;
+  - every prompt each person saw (cards, confirmations, AI questions).
+- **Prompt-fatigue flags:**
+  - the same kind of card again for one person;
+  - a card with no "Always allow" choice;
+  - (judge) a card asking about what the person had plainly just asked for.
+- **The two runs:** comparing the default run with the `--always` run shows what is left after "Always allow".
+
+## Mock services (connectors)
+
+Real Google, Notion, Linear or Slack accounts are not used. [`mock-services/server.ts`](mock-services/server.ts) is a
+set of small MCP servers with made-up data: Notion, Google Sheets, Google Docs, Google Slides, Linear and a mailbox
+("Gmail"). `bun run ai:scenarios mocks` sets them up:
+- they run behind a cloudflared quick tunnel, because a connection must be public https;
+- they are connected for jiwoo, minho, sora, daniel and hana as their own MCP connections, through the public API
+  (bearer key, "ask before changing").
+
+So the AI reaches them through the product's real connection path: the tool listing, the card before a change, and
+Always allow. Flows that use them are marked **mocked** in the report. The real Google apps integration (OAuth), Slack
+linking and Drive are not exercised; their cases test the not-connected path. `bun run ai:scenarios mocks down` stops
+the mock server and the tunnel (their pids only).

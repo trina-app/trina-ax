@@ -9,7 +9,9 @@ import { z } from 'zod'
 import { API, ApiClient } from '../../../shared/src/api'
 import { GUEST, PASSWORD } from '../fixture/seed'
 import { runChecks } from './checks'
-import { attributed, diffOf, jargonIn, login, oneTurn, openChat, snapshot, type Env } from './run-case'
+import { attributed, diffOf, jargonIn, login, oneTurn, openChat, snapshot, type CardMode, type Env as CaseEnv } from './run-case'
+/** a flow run: a case run's environment plus how every person answers the server's cards in it */
+export type Env = CaseEnv & { cardMode?: CardMode }
 import { Check, Context, type CheckResult, type TurnRecord } from './types'
 
 /** checks that only a flow has: the cards this step showed its person, and a person's notifications since the step */
@@ -18,6 +20,9 @@ const FlowCheck = z.union([
   z.object({ type: z.literal('card_shown'), pattern: z.string() }),
   z.object({ type: z.literal('no_card'), pattern: z.string().default('.') }),
   z.object({ type: z.literal('notified'), as: z.string(), pattern: z.string() }),
+  /** the MOCK services' data (mock-services/server.ts State) at a dotted path matches: mail.sent, notion.pages … */
+  z.object({ type: z.literal('mock'), path: z.string(), pattern: z.string() }),
+  z.object({ type: z.literal('no_mock'), path: z.string(), pattern: z.string() }),
 ])
 type FlowCheck = z.infer<typeof FlowCheck>
 
@@ -30,6 +35,8 @@ const Ask = z.object({
   reply: z.string().optional(),
   /** say no on the server's cards in this turn (the person declines) */
   decline: z.boolean().default(false),
+  /** a heavy step (a deck, a video, a long document): stopped and marked slow after about 3 minutes */
+  heavy: z.boolean().default(false),
 })
 const Event = z.discriminatedUnion('type', [
   /** a person writes in the fixture's group chat (a thread reply under the latest message of `threadOf` text) */
@@ -40,6 +47,14 @@ const Event = z.discriminatedUnion('type', [
   z.object({ type: z.literal('file_add'), as: z.string(), path: z.string(), text: z.string() }),
   /** a service posts into the group chat through a room app ("Other", Slack format): how a mail or a form arrives */
   z.object({ type: z.literal('app_post'), app: z.string(), text: z.string() }),
+  /** a room member adds someone to the fixture's group chat */
+  z.object({ type: z.literal('room_invite'), as: z.string(), user: z.string() }),
+  /** a direct message from one person to another (opened if needed), optionally with a team file sent along */
+  z.object({ type: z.literal('dm'), as: z.string(), to: z.string(), text: z.string(), file: z.string().optional() }),
+  /** a team file sent into the group chat with a line */
+  z.object({ type: z.literal('room_file'), as: z.string(), path: z.string(), text: z.string() }),
+  /** a teammate answers in the group chat with an edited copy of a team text file (every from -> to) */
+  z.object({ type: z.literal('room_edited_file'), as: z.string(), path: z.string(), from: z.string(), to: z.string(), name: z.string(), text: z.string() }),
   /** a guest joins one place through an invite link */
   z.object({ type: z.literal('guest_join'), username: z.string(), name: z.string(), place: z.enum(['project', 'room']) }),
 ])
@@ -56,13 +71,17 @@ export const Flow = z.object({
   features: z.array(z.string()).min(1),
   why: z.string().optional(),
   fixInProgress: z.string().optional(),
+  /** uses the MOCK services (mock-services/): the report marks it "mocked" */
+  mocked: z.boolean().default(false),
+  /** core everyday group the owner asked for first: sharing and links */
+  group: z.enum(['office', 'making', 'spreadsheets', 'documents', 'connectors', 'pdf', 'sharing', 'people', 'guest']).default('office'),
   steps: z.array(Step).min(2),
 })
 export type Flow = z.infer<typeof Flow>
 export const FlowCatalog = z.object({ version: z.number().int().positive(), flows: z.array(Flow) })
 
 export interface StepResult { index: number; say: string; kind: 'ask' | 'event'; as: string; turn?: TurnRecord; error?: string; changed: string[]; checks: CheckResult[]; jargon: string[] }
-export interface FlowResult { id: string; runId: string; commit: string; startedAt: string; steps: StepResult[]; firstBroken: number | null; judge?: FlowVerdict }
+export interface FlowResult { id: string; runId: string; commit: string; startedAt: string; cardMode: string; steps: StepResult[]; firstBroken: number | null; judge?: unknown }
 export const FlowVerdict = z.object({
   pass: z.boolean(),
   first_broken_step: z.number().int().nullable(),
@@ -89,8 +108,47 @@ function appAddress(env: Env, name: string): Promise<string> {
   return apps.get(name)!
 }
 
-async function doEvent(env: Env, e: z.infer<typeof Event>): Promise<string[]> {
+/** {{file:<team path>}} -> the app's link to that team file; {{chat:<flow chat name>}} -> the link to that chat */
+function fill(env: Env, text: string, chats: Map<string, { id: string }>): string {
+  return text.replace(/\{\{file:([^}]+)\}\}/g, (_m, p: string) => `${env.base}/files/view?path=${encodeURIComponent(p)}`)
+    .replace(/\{\{chat:([^}]+)\}\}/g, (_m, k: string) => `${env.base}/c/${chats.get(k)?.id ?? 'unknown'}`)
+}
+async function dmRoom(api: ApiClient, userId: string): Promise<string> {
+  return (await api.call(API.createRoom, { body: { kind: 'dm', userId } })).id
+}
+async function teamFileInRoom(api: ApiClient, roomId: string, p: string): Promise<string> {
+  return (await api.call(API.attachRoomTeamFile, { params: { id: roomId }, body: { path: p } })).file.id
+}
+
+async function doEvent(env: Env, e: z.infer<typeof Event>, chats: Map<string, { id: string }>): Promise<string[]> {
+  if ('text' in e) e = { ...e, text: fill(env, e.text, chats) }
   switch (e.type) {
+    case 'room_invite': {
+      const api = await as(env, e.as)
+      await api.call(API.inviteRoomMembers, { params: { id: env.fixture.roomId }, body: { userIds: [env.fixture.people[e.user]!.id] } })
+      return []
+    }
+    case 'dm': {
+      const api = await as(env, e.as)
+      const room = await dmRoom(api, env.fixture.people[e.to]!.id)
+      const fileIds = e.file ? [await teamFileInRoom(api, room, e.file)] : []
+      await api.call(API.sendRoomMessage, { params: { id: room }, body: { body: e.text, mentions: [], clientMessageId: crypto.randomUUID(), ...(fileIds.length ? { fileIds } : {}) } })
+      return []
+    }
+    case 'room_file': {
+      const api = await as(env, e.as)
+      const fid = await teamFileInRoom(api, env.fixture.roomId, e.path)
+      await api.call(API.sendRoomMessage, { params: { id: env.fixture.roomId }, body: { body: e.text, fileIds: [fid], mentions: [], clientMessageId: crypto.randomUUID() } })
+      return []
+    }
+    case 'room_edited_file': {
+      const api = await as(env, e.as)
+      const now = fs.readFileSync(path.join(env.teamRoot, e.path), 'utf8')
+      if (!now.includes(e.from)) throw new Error(`${e.path} has no "${e.from}"`)
+      const f = await api.call(API.uploadRoomFile, { params: { id: env.fixture.roomId }, body: { fields: {}, file: new Blob([now.split(e.from).join(e.to)], { type: 'text/markdown' }), filename: e.name } })
+      await api.call(API.sendRoomMessage, { params: { id: env.fixture.roomId }, body: { body: e.text, fileIds: [f.id], mentions: [], clientMessageId: crypto.randomUUID() } })
+      return []
+    }
     case 'room_message': {
       const api = await as(env, e.as)
       let threadRootId: string | undefined
@@ -137,7 +195,7 @@ async function doEvent(env: Env, e: z.infer<typeof Event>): Promise<string[]> {
 }
 
 async function flowChecks(env: Env, checks: FlowCheck[], step: { turns: TurnRecord[]; changed: string[]; since: string }): Promise<CheckResult[]> {
-  const plain = checks.filter((c): c is Check => Check.safeParse(c).success && !['card_shown', 'no_card', 'notified'].includes(c.type))
+  const plain = checks.filter((c): c is Check => Check.safeParse(c).success && !['card_shown', 'no_card', 'notified', 'mock', 'no_mock'].includes(c.type))
   let room = ''
   if (plain.some((k) => k.type === 'room_message' || k.type === 'no_room_message')) {
     const api = await as(env, 'sora')
@@ -149,6 +207,12 @@ async function flowChecks(env: Env, checks: FlowCheck[], step: { turns: TurnReco
       const cards = step.turns.flatMap((t) => t.cards.map((k) => `${k.kind}: ${k.question}`))
       const hit = cards.some((k) => new RegExp(c.pattern, 'i').test(k))
       out.push({ check: c as unknown as Check, ok: c.type === 'card_shown' ? hit : !hit, detail: cards.length ? cards.join(' | ').slice(0, 300) : 'no card' })
+    } else if (c.type === 'mock' || c.type === 'no_mock') {
+      let v: unknown = null
+      try { v = c.path.split('.').reduce<unknown>((o, k) => (o as Record<string, unknown>)?.[k], JSON.parse(fs.readFileSync(env.mockState ?? '', 'utf8'))) } catch {}
+      const t = JSON.stringify(v ?? null)
+      const hit = new RegExp(c.pattern, 'i').test(t)
+      out.push({ check: c as unknown as Check, ok: c.type === 'mock' ? hit : !hit, detail: `${c.path}: ${t.slice(0, 160)}` })
     } else if (c.type === 'notified') {
       try {
         const api = await as(env, c.as)
@@ -163,7 +227,7 @@ async function flowChecks(env: Env, checks: FlowCheck[], step: { turns: TurnReco
 }
 
 export async function runFlow(f: Flow, env: Env): Promise<FlowResult> {
-  const res: FlowResult = { id: f.id, runId: env.runId, commit: env.commit, startedAt: new Date().toISOString(), steps: [], firstBroken: null }
+  const res: FlowResult = { id: f.id, runId: env.runId, commit: env.commit, startedAt: new Date().toISOString(), cardMode: env.cardMode ?? 'once', steps: [], firstBroken: null }
   const chats = new Map<string, { id: string; as: string; lines: number }>()
   for (const [i, s] of f.steps.entries()) {
     const since = new Date().toISOString()
@@ -174,17 +238,17 @@ export async function runFlow(f: Flow, env: Env): Promise<FlowResult> {
       if (s.ask) {
         const a = s.ask
         const api = await as(env, a.as)
-        const pseudo = { id: `${f.id}-${i + 1}`, lang: /[가-힣]/.test(a.prompt) ? 'ko' : 'en', context: a.context, as: a.as, reply: a.reply, declineCards: a.decline } as never
+        const pseudo = { id: `${f.id}-${i + 1}`, lang: /[가-힣]/.test(a.prompt) ? 'ko' : 'en', context: a.context, as: a.as, reply: a.reply, cardMode: a.decline ? 'decline' : env.cardMode ?? 'once', capMs: a.heavy ? 180_000 : 10 * 60_000 } as never
         let chat = chats.get(a.chat)
         if (!chat) { chat = { id: await openChat(api, env, pseudo), as: a.as, lines: 0 }; chats.set(a.chat, chat) }
         if (chat.as !== a.as) throw new Error(`chat "${a.chat}" belongs to ${chat.as}, not ${a.as}`)
-        const t = await oneTurn(api, env, pseudo, chat.id, a.prompt, chat.lines)
+        const t = await oneTurn(api, env, pseudo, chat.id, fill(env, a.prompt, chats), chat.lines)
         chat.lines = t.lines
         r.turn = t.rec
         r.jargon = jargonIn(t.rec.answer)
         env.log(`${f.id} step ${i + 1} (${a.as}): ${t.rec.status} in ${Math.round(t.rec.ms / 1000)} s, ${t.rec.tools.length} tool calls${t.rec.cards.length ? `, ${t.rec.cards.length} cards` : ''}`)
       } else {
-        touched = await doEvent(env, s.event!)
+        touched = await doEvent(env, s.event!, chats)
         env.log(`${f.id} step ${i + 1}: ${s.event!.type} done`)
       }
     } catch (e) {

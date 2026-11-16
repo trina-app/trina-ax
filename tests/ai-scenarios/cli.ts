@@ -8,6 +8,10 @@
 //   bun run ai:scenarios all [--jobs 3]               up --reset, run, judge, report
 //   bun run ai:scenarios down                         stop the server this tool started (by its pid, nothing else)
 //   bun run ai:scenarios list [--feature …] [--first-pass]   the cases, one line each
+//   bun run ai:scenarios flows run [--flow FL-01,…] [--group sharing] [--always] [--jobs 2] [--no-judge]
+//                                                   the multi-step flows (flows.yaml); --always: people choose "Always allow"
+//   bun run ai:scenarios flows judge|report|list   judge a flow run; the report (default run + the latest --always run)
+//   bun run ai:scenarios mocks [down]               the MOCK services behind a quick tunnel, connected for the people
 //   bun run ai:scenarios coverage [--out <file>]      coverage per feature of docs/features.ts (feature-scope.ts)
 //
 // Environment: AISCEN_HOME (default ~/.trina-aiscen), AISCEN_PORT (default 19871). Results: tests/.work/ai-scenarios/<run>/.
@@ -19,6 +23,9 @@ import { API, ApiClient } from '../../shared/src/api'
 import { DEV_ENV_SRT_WARNING_VERSION } from '../../shared/src/api/dev-env'
 import { PASSWORD, seedFixture, fixtureFile, type FixtureState } from './fixture/seed'
 import { judge } from './lib/judge'
+import { FlowCatalog, flowChanged, runFlow, type Flow, type FlowResult } from './lib/flow'
+import { judgeFlow, writeFlowReport } from './lib/flow-report'
+import { mocksDown, mocksReset, mocksUp, readMocks } from './mock-services/up'
 import { writeReport } from './lib/report'
 import { runCase, type Env } from './lib/run-case'
 import { coverageMarkdown, firstPass, loadCatalog } from './lib/catalog'
@@ -204,6 +211,59 @@ async function judgeRun(id: string) {
   }))
 }
 
+// ---------------- flows ----------------
+export const FLOWS_FILE = path.join(import.meta.dir, 'flows.yaml')
+export function loadFlows(): Flow[] {
+  const fl = FlowCatalog.parse(Bun.YAML.parse(fs.readFileSync(FLOWS_FILE, 'utf8'))).flows
+  const ids = new Set<string>()
+  for (const f of fl) { if (ids.has(f.id)) throw new Error(`duplicate flow id ${f.id}`); ids.add(f.id) }
+  return fl
+}
+function selectedFlows(all: Flow[]): Flow[] {
+  const ids = opt('--flow')?.split(',').map((s) => s.trim())
+  const group = opt('--group')
+  return all.filter((f) => (!ids || ids.includes(f.id)) && (!group || f.group === group))
+}
+
+async function runFlows(): Promise<string> {
+  if (!(await healthy())) throw new Error(`no server on ${BASE}: run \`bun run ai:scenarios up\` first`)
+  const fixture = JSON.parse(fs.readFileSync(STATE, 'utf8')) as FixtureState
+  const always = flag('--always')
+  const id = opt('--run') ?? `flows-${always ? 'always-' : ''}${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}`
+  const dir = runDir(id)
+  fs.mkdirSync(dir, { recursive: true })
+  const flows = selectedFlows(loadFlows())
+  // the mock services are needed by the mocked flows; their data starts fresh for each run
+  const mocks = flows.some((f) => f.mocked) ? await mocksUp({ home: HOME, base: BASE, log: say }) : readMocks(HOME)
+  if (mocks) mocksReset(HOME)
+  const env = { base: BASE, dataDir: DATA, teamRoot: TEAM, fixture, runId: id, commit: commit(), log: say, mockState: mocks?.state, cardMode: always ? 'always' as const : 'once' as const }
+  say(`flows ${id}: ${flows.length} flows (cards: ${env.cardMode}), results in ${dir}`)
+  const queue = [...flows]
+  const jobs = Math.max(1, Number(opt('--jobs') ?? 2))
+  await Promise.all(Array.from({ length: Math.min(jobs, queue.length) }, async () => {
+    for (let f = queue.shift(); f; f = queue.shift()) {
+      const r = await runFlow(f, env)
+      fs.writeFileSync(path.join(dir, `${f.id}.json`), JSON.stringify(r, null, 1))
+      await cleanUp({ changed: flowChanged(r) } as CaseResult)
+      say(`${f.id}: ${r.firstBroken ? `first failed check at step ${r.firstBroken}` : 'every check passed'}`)
+    }
+  }))
+  return id
+}
+const readFlowResults = (id: string): FlowResult[] => fs.readdirSync(runDir(id)).filter((f) => /^FL-\d+\.json$/.test(f)).map((f) => JSON.parse(fs.readFileSync(path.join(runDir(id), f), 'utf8')))
+async function judgeFlows(id: string) {
+  const flows = new Map(loadFlows().map((f) => [f.id, f]))
+  const todo = readFlowResults(id).filter((r) => flows.has(r.id) && (flag('--again') || !r.judge))
+  say(`judging ${todo.length} flows of ${id} with Sonnet`)
+  const queue = [...todo]
+  await Promise.all(Array.from({ length: Math.min(4, queue.length) }, async () => {
+    for (let r = queue.shift(); r; r = queue.shift()) {
+      try { r.judge = await judgeFlow(flows.get(r.id)!, r); fs.writeFileSync(path.join(runDir(id), `${r.id}.json`), JSON.stringify(r, null, 1)); const v = r.judge as { pass: boolean; first_broken_step: number | null }; say(`${r.id}: ${v.pass ? 'pass' : `broke at step ${v.first_broken_step}`}`) } catch (e) { say(`${r.id}: judge failed: ${e instanceof Error ? e.message : e}`) }
+    }
+  }))
+}
+const latestFlowRun = (always: boolean) => { const l = fs.readdirSync(RUNS).filter((d) => d.startsWith(always ? 'flows-always-' : 'flows-') && (always || !d.startsWith('flows-always-'))).sort(); return l[l.length - 1] }
+
 async function main() {
   switch (cmd) {
     case 'up': await up(); break
@@ -213,6 +273,20 @@ async function main() {
     case 'report': { const all = loadCatalog(); const f = writeReport(all, readResults(opt('--run') ?? latestRun()), runDir(opt('--run') ?? latestRun()), all); say(`report: ${f}`); break }
     case 'all': { await up(); const id = await run(); await judgeRun(id); say(`report: ${writeReport(loadCatalog(), readResults(id), runDir(id))}`); break }
     case 'list': for (const c of selected(loadCatalog())) console.log(`${c.id}\t${c.features[0]}\t${c.kind}\t${c.context}\t${c.as}\t${c.install}\t${c.expect.outcome}${c.fixInProgress ? '\t(fix in progress)' : ''}\t${c.title}`); break
+    case 'mocks': if (args[1] === 'down') mocksDown(HOME, say); else await mocksUp({ home: HOME, base: BASE, log: say }); break
+    case 'flows': {
+      const sub = args[1] ?? 'run'
+      if (sub === 'run') { const id = await runFlows(); if (!flag('--no-judge')) await judgeFlows(id); break }
+      if (sub === 'judge') { await judgeFlows(opt('--run') ?? latestFlowRun(flag('--always'))!); break }
+      if (sub === 'report') {
+        const main = opt('--run') ?? latestFlowRun(false)!, al = opt('--always-run') ?? latestFlowRun(true)
+        const runs = [{ label: main, results: readFlowResults(main) }, ...(al ? [{ label: al, results: readFlowResults(al) }] : [])]
+        say(`report: ${writeFlowReport(loadFlows(), runs, path.join(runDir(main), 'flows-report.md'))}`)
+        break
+      }
+      if (sub === 'list') { for (const f of selectedFlows(loadFlows())) console.log(`${f.id}\t${f.group}\t${f.steps.length} steps${f.mocked ? '\tmocked' : ''}${f.fixInProgress ? '\t(fix in progress)' : ''}\t${f.title}`); break }
+      throw new Error(`flows ${sub}?`)
+    }
     case 'coverage': { const md = coverageMarkdown(loadCatalog()); if (opt('--out')) fs.writeFileSync(opt('--out')!, md); console.log(md); break }
     default: console.log(fs.readFileSync(import.meta.path, 'utf8').split('\n').filter((l) => l.startsWith('//')).map((l) => l.slice(3)).join('\n'))
   }

@@ -12,7 +12,7 @@ import { PASSWORD, type FixtureState } from '../fixture/seed'
 import { runChecks } from './checks'
 import type { Case, CaseResult, CardSeen, ToolCall, TurnRecord } from './types'
 
-export interface Env { base: string; dataDir: string; teamRoot: string; fixture: FixtureState; runId: string; commit: string; log: (s: string) => void }
+export interface Env { base: string; dataDir: string; teamRoot: string; fixture: FixtureState; runId: string; commit: string; log: (s: string) => void; mockState?: string }
 
 /** Every file under the team folder (team path -> size:mtime); hidden folders (versions, trash) left out. */
 export function snapshot(root: string): Map<string, string> {
@@ -113,7 +113,9 @@ export async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string,
   const answerId = sent.assistantMessage.id
   const cards: CardSeen[] = []
   const answered = new Set<string>()
-  const until = Date.now() + 15 * 60_000
+  // a flow's heavy step has a cap (about 3 minutes): past it the turn is stopped and marked slow
+  const capMs = (c as { capMs?: number }).capMs ?? 15 * 60_000
+  const until = Date.now() + capMs
   let m: Message | undefined
   while (Date.now() < until) {
     await Bun.sleep(2000)
@@ -146,6 +148,16 @@ export async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string,
     m = page.items.find((x) => x.id === answerId)
     if (m && m.status !== 'streaming') break
   }
+  let slow = false
+  if (m?.status === 'streaming' || !m) {
+    slow = true
+    await api.call(API.stop, { params: { id: chatId } }).catch(() => {})
+    for (let i = 0; i < 20; i++) {
+      await Bun.sleep(1000)
+      m = (await api.call(API.listMessages, { params: { id: chatId }, query: { limit: 50 } })).items.find((x) => x.id === answerId)
+      if (m && m.status !== 'streaming') break
+    }
+  }
   // the transcript can land a little after the answer ends: wait for this turn's lines (up to 20 s)
   let all = transcriptLines(env.dataDir, chatId)
   let t = readTranscript(all.slice(seenLines))
@@ -158,8 +170,8 @@ export async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string,
   if (!t.tools.length && m?.steps.length) t = { ...t, tools: m.steps.filter((x) => x.tool).map((x) => ({ name: x.tool!.replace(/^mcp__[^_]+__/, ''), input: { label: x.label }, ok: x.status === 'ok' })) }
   const rec: TurnRecord = {
     prompt,
-    status: m?.status ?? 'timeout',
-    error: m?.error ? `${m.error.code}: ${m.error.message}` : m ? null : 'no answer within 15 minutes',
+    status: slow ? 'slow' : m?.status ?? 'timeout',
+    error: slow ? `stopped after ${Math.round(capMs / 1000)} s (slow)` : m?.error ? `${m.error.code}: ${m.error.message}` : m ? null : 'no answer within 15 minutes',
     // an answer that ended in an error shows the app's message where the answer would be: that is what the person reads
     answer: m?.content?.trim() ? m.content : m?.error ? `[app message] ${m.error.message}` : '',
     tools: t.tools,
