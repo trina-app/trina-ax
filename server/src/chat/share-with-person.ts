@@ -8,14 +8,14 @@
 // offered in a scheduled run (unless that person chose Always allow), a template or restricted run, a confidential chat or a question from Slack; in a shared
 // chat several matches are picked on the asker's card (never listed to the AI) and a refusal carries no server words.
 // The card offers "Always allow" on its first showing (kind share_files, chat/always-allow.ts; docs/decisions/
-// 20261116-always-allow-more-cards.md, the owner's 11-11 rule): once picked, shares go without the card, also in a
-// scheduled run of that person's (actionOff). In a chat someone else wrote in or that read rooms, the choice counts only when the asker's
-// own message names every recipient (post_to_room's rule, namesRecipient), and one difference stays, because this grants
-// access: there each file must be one the asker attached to their message, named in it, or that the AI made or changed
-// in this turn (otherwise another member's message could point the AI at the asker's files), with or without the card.
-// In the person's own chat that read content someone else wrote (a teammate's team file, a file shared with them, a web
-// page, a connected service's answer: TurnExec.othersWords) the choice counts only when their own message names every
-// recipient and every file (or they attached it, or the AI made it in this answer); otherwise the card shows.
+// 20261116-always-allow-more-cards.md, the owner's 11-11 rule): once picked, shares go without the card, also after room
+// reads, after content someone else wrote and in a scheduled run of that person's (actionOff): the choice is final
+// (docs/decisions/20261116-always-allow-final-rule-a.md). In a chat with other members' messages (shared, or others wrote
+// in it) the choice counts only when the asker's own message asks and names every recipient (post_to_room's rule,
+// namesRecipient), and each file must be one the asker attached to their message, named in it, or that the AI made in
+// this turn (otherwise another member's message could point the AI at the asker's files), with or without the card; the
+// same file rule holds after a room read while the choice is not on. The explicit-ask skip (no card when the person's
+// own message asked for exactly this share) is our own text match, so it never applies where other people's words are.
 import { ShareWithPersonInput } from '@mycel/shared'
 import { fileLinkUrl, type Step } from '@mycel/shared/api'
 import { z } from 'zod'
@@ -26,7 +26,7 @@ import { fileSharesOf } from '../files/shares'
 import { isStaff } from '../policy/access'
 import { tr } from './i18n'
 import { neutralizeTags } from './prompt'
-import { actionOff, askerPicks, askerText, asksToSend, attachedPaths, fromAsker, madeInTurn, mainOnly, namesFile, namesFileLoose, namedInFull, namesGroup, namesRecipient, ownWords, soleNames, asksFor, SHARE_ASK } from './shared-actions'
+import { actionOff, askerPicks, askerText, asksToSend, attachedPaths, madeInTurn, mainOnly, namesFile, namesFileLoose, namedInFull, namesGroup, namesRecipient, ownWords, soleNames, asksFor, SHARE_ASK } from './shared-actions'
 import { readRooms } from './read-rooms'
 import { alwaysHere, withAlways } from './always-allow'
 import type { Tool } from './tools'
@@ -91,11 +91,17 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         try { exec.noteReads() } catch (e) { rt.log.warn('read scope before a share failed', { err: e }) }
         // other people's words are in this turn: a shared chat, a chat others wrote in, or one that read rooms (a side chat,
         // room_read, a quoted room message; read now, as a room read can come in this turn)
-        const others = !!exec.shared || exec.otherAuthors || readRooms(exec)
+        // (other members' messages in the chat: a shared chat or one others wrote in; the choice used is this person's own
+        // ask there, never another member's, as on dev)
+        const members = !!exec.shared || exec.otherAuthors
+        const others = members || readRooms(exec)
         // ...or content someone else wrote was read here (a teammate's file, a file shared with the user, a page, a
-        // connected service: TurnExec.othersWords): no refusal, but "Always allow" then counts only for what the asker's
-        // own message names (docs/decisions/20261116-always-allow-more-cards.md "Content written by others")
+        // connected service: TurnExec.othersWords): no refusal, and the explicit ask does not skip the card there
+        // (docs/decisions/20261116-always-allow-more-cards.md "Content written by others")
         const content = !others && !!exec.othersWords
+        // the person's own "Always allow" for shares is final (owner 2026-11-13, docs/DECISIONS.md "Always allow on every
+        // card"; docs/decisions/20261116-always-allow-final-rule-a.md): the guards below apply only where it is not on
+        const on = alwaysHere(exec.alwaysPlace?.(), 'share_files') === 'on'
         const asked = others ? askerText(db, spec.userMessageId) : ''
         const attached = others ? attachedPaths(db, spec.userMessageId) : new Set<string>()
         const plan: { path: string; name: string }[] = []
@@ -105,7 +111,7 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
           if (!v.canShare) return no(`Nothing was shared: the user cannot share "${neutralizeTags(oneLine(v.path, 120))}" (${v.off ? 'the team turned off sharing files for members' : 'only its owner can share it, with edit access'}). Tell the user; they can send its link (share_file) so its owner gets asked for access.`, v.off ? 'refused: switched off' : 'refused: not the owner')
           // another member's message must not pick the asker's files: in a chat others wrote in, a file the asker brought
           // into this turn only
-          if (others && !(attached.has(v.path) || namesFile(asked, v.path) || madeInTurn(db, spec.turnId, v.path))) {
+          if ((members || (others && !on)) && !(attached.has(v.path) || namesFile(asked, v.path) || madeInTurn(db, spec.turnId, v.path))) {
             return no(`Nothing was shared: in a chat other people write in, a file is shared only when the user named it in their own message, attached it, or you made it in this answer. Ask the user to say which file to share.`, 'refused: file not from the asker')
           }
           plan.push({ path: v.path, name: v.path.split('/').pop() ?? v.path })
@@ -150,31 +156,28 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
           one?.subjectType === 'user' ? tr('fileShareAsk', L, { who: oneLine(one.name, 40), n: String(plan.length) }) : one ? tr('fileShareAskGroup', L, { who: oneLine(one.name, 40), n: String(plan.length) }) : tr('fileShareAskMany', L, { who: oneLine(whoLine, 80), n: String(plan.length) }),
           tr('fileShareView', L),
         ].filter(Boolean).join('\n\n')
-        // "Always allow" covers the person's own asks: their own message of this turn (quoted lines left out: a quote is
-        // someone else's words) must ask to share or send and name every recipient. A name a teammate chose (a shared
-        // file's, a folder's) reaches the AI in a chat that read nothing, so this holds in a chat without the mark too;
-        // which file stays the person's "it" there.
+        // "Always allow" (kind share_files) is final for the person's own chat, whatever it read (the owner's rule: once
+        // picked, shares go without the card, also after room reads and outside content). In a chat with other members'
+        // messages (shared, others wrote in it) the choice counts only for this person's own ask: their own message of
+        // this turn (quoted lines left out) asks to share or send and names every recipient (dev's rule, TC-3091)
         // (the names of the call's other recipients: "to tess and bob", "김대리와 이과장한테" name each in a chain)
         const peersOf = (w: Who) => who.filter((x) => x !== w).flatMap((x) => x.subjectType === 'group' ? [x.name] : recipientWords(db, x))
         const typed = ownWords(askerText(db, spec.userMessageId))
-        // Where other people's words are in the chat (a shared chat, others writing in it, rooms read, content someone
-        // else wrote: others, content) the card always shows: neither "Always allow" nor the explicit ask skips it there
-        // (docs/decisions/20261116-always-allow-more-cards.md "Second review")
-        const marked = others || content
-        const alwaysOk = !marked && asksToSend(db, spec.userMessageId)
-          && who.every((w) => w.subjectType === 'group' ? namesGroup(typed, w.name) : namesRecipient(typed, w.ref, { names: recipientWords(db, w), person: true, peers: peersOf(w) }))
+        const alwaysOk = !members || (asksToSend(db, spec.userMessageId)
+          && who.every((w) => w.subjectType === 'group' ? namesGroup(typed, w.name) : namesRecipient(typed, w.ref, { names: recipientWords(db, w), person: true, peers: peersOf(w) })))
         // (a group counts as named only as a group, namesGroup: "the sales report" does not name the group Sales)
         // no card when the asker's own message of this turn asked for exactly this share (docs/decisions/
         // 20261116-no-card-after-explicit-ask.md, QA TC-3812): a share word, every person or group named, every file named
-        // or attached by them. Nobody else's words chose who gets which file then; never in a run nobody watches
+        // or attached by them. Our own text match, not the person's choice: never where other people's words are in the
+        // chat (others, content: the person did not choose to skip the card there), never in a run nobody watches
+        const marked = others || content
         const said = ownWords(askerText(db, spec.userMessageId))
         const mine = attachedPaths(db, spec.userMessageId)
         const explicit = !marked && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && asksFor(SHARE_ASK, said)
           && who.every((w) => w.subjectType === 'group' ? namesGroup(said, w.name) : namedInFull(said, recipientWords(db, w), { peers: peersOf(w) }))
           && plan.every((f) => mine.has(f.path) || namesFileLoose(said, f.path))
-        // where the choice does not count the card shows; it still offers "Always allow" on its first showing in a chat with
-        // nobody else's words (the owner's rule), never where other people's words are, nor once the choice is made
-        const place = alwaysOk || (!marked && alwaysHere(exec.alwaysPlace?.(), 'share_files') === 'offer') ? exec.alwaysPlace?.() : null
+        // the card offers "Always allow" on its first showing wherever the choice counts
+        const place = alwaysOk ? exec.alwaysPlace?.() : null
         const reply = explicit ? 'share' : await withAlways(place, 'share_files', [{ label: tr('fileShareYes', L), value: 'share' }, { label: tr('fileShareNo', L), value: 'no' }], 'share', (options, more) => exec.waitForPerson({
           kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, multiple: false, allowText: false, options, ...more,
           details: [{ label: tr('fileShareFiles', L), text: plan.map((f) => f.name).join('\n'), noSize: true }],

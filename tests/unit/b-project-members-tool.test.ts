@@ -373,7 +373,7 @@ describe('"Always allow" (docs/DECISIONS.md "Always allow on every card", review
     } finally { h.ctx.db.query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run() }
   })
 
-  test('after the chat read a file someone else wrote: the card shows, also under "Always allow"; a clean chat goes without it', async () => {
+  test('after the chat read a file someone else wrote: "Always allow" is final (owner 2026-11-13), no card', async () => {
     const p = await project('alice', 'Steered', [user('erin')])
     const abs = path.join(h.ctx.files.fx.root, 'shared', 'someone-elses-notes.md')
     fs.mkdirSync(path.dirname(abs), { recursive: true })
@@ -381,18 +381,9 @@ describe('"Always allow" (docs/DECISIONS.md "Always allow on every card", review
     h.ctx.db.query("INSERT INTO card_always_allow (user_id, kind, created_at) VALUES ('alice', 'project_members', ?)").run(new Date().toISOString())
     try {
       const readIt = fake({ tool: 'read', args: { file_path: 'shared/someone-elses-notes.md' } })
-      const steered = await turn('alice', `summarise it\n${readIt}\n${hidden({ add: [{ name: 'Bob Lee' }] }, ['Bob Lee'])}`, { projectId: p.id, answer: 'skip' })
-      expect(steered.cards).toHaveLength(1)
-      expect(steered.cards[0]!.options!.map((x) => x.value)).toEqual(['change', 'skip'])
-      expect(members(p.folderPath)).toEqual(['alice', 'erin'])
-      // a name in my message may be the content's author, not an ask: the card there too, and its yes changes the members
-      const named = await turn('alice', `Bob Lee\n${hidden({ add: [{ name: 'Bob Lee' }] }, ['Bob Lee'])}`, { chat: steered.chatId, projectId: p.id, answer: 'change' })
-      expect(named.cards).toHaveLength(1)
+      const steered = await turn('alice', `summarise it\n${readIt}\n${hidden({ add: [{ name: 'Bob Lee' }] }, ['Bob Lee'])}`, { projectId: p.id })
+      expect(steered.cards).toEqual([])
       expect(members(p.folderPath)).toEqual(['alice', 'bob', 'erin'])
-      // a chat that read nothing from others: no card, as before
-      const clean = await turn('alice', `Jun Park\n${hidden({ add: [{ name: 'Jun Park' }] }, ['Jun Park'])}`, { projectId: p.id })
-      expect(clean.cards).toEqual([])
-      expect(members(p.folderPath)).toEqual(['alice', 'bob', 'erin', 'jun'])
     } finally { h.ctx.db.query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run() }
   })
 })

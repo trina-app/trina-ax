@@ -46,8 +46,7 @@ import { confidentialChat } from '../safe-ops/confidential'
 import { PROJECT_COLS, type ProjectRow } from './store'
 import { tr } from './i18n'
 import { neutralizeTags } from './prompt'
-import { readRooms, withoutQuoteLines } from './read-rooms'
-import { askerText } from './shared-actions'
+import { readRooms } from './read-rooms'
 import { ROOM_REF_RE } from '@mycel/shared/api'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
@@ -453,18 +452,14 @@ export function projectMembersTool(exec: MembersExec): Tool {
     const requestId = uuidv7()
     const base = { projectId: r.id, add: p.adds.map(keyOf), remove: p.removes.map(keyOf), gained: p.plan.gained.length, lost: p.plan.lost.length, notSaid: card.notSaid, readRooms: roomsRead, requestId }
     // counted and marked open before the card goes out: a second call while it waits is refused (busy), not queued
-    // "Always allow" covers the person's own asks: in a chat that holds other people's words (it read rooms, or content
-    // someone else wrote: TurnExec.othersWords) the card shows; elsewhere every name and the project must be in their
-    // own message of this turn (quoted lines left out), not only somewhere earlier in the chat
-    const turnWords = foldName(withoutQuoteLines(askerText(db, spec.userMessageId)))
-    const steered = roomsRead || !!exec.othersWords || card.notSaid > 0
-      || membersCard(p, { L, admin: isAdminRole(user), words: turnWords, projectSaid: found.own || said(turnWords, r.name), readRooms: roomsRead }).notSaid > 0
-    if (always !== 'on' || steered) s.shown++
+    // the person's "Always allow" for members changes is final (owner 2026-11-13, docs/decisions/
+    // 20261116-always-allow-final-rule-a.md): no card, also after room reads or content someone else wrote
+    if (always !== 'on') s.shown++
     s.open = true
     let answer: Awaited<ReturnType<MembersExec['askPerson']>>
     try {
       let missing: typeof answer.missing = null
-      const value = await withAlways(steered ? null : exec.alwaysPlace?.(), 'project_members', [{ label: MEMBERS_TEXT.yes[L], value: 'change' }, { label: MEMBERS_TEXT.no[L], value: 'skip' }], 'change', async (options, more) => {
+      const value = await withAlways(exec.alwaysPlace?.(), 'project_members', [{ label: MEMBERS_TEXT.yes[L], value: 'change' }, { label: MEMBERS_TEXT.no[L], value: 'skip' }], 'change', async (options, more) => {
         const r = await exec.askPerson({
           kind: 'ask_user', origin: 'server', requestId, question: card.question, multiple: false, allowText: false,
           options, details: card.details, ...more,

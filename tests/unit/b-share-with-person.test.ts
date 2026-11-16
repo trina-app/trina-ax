@@ -180,16 +180,16 @@ describe('in a shared chat (the same rules as post_to_room)', () => {
     expect(h.ctx.db.query("SELECT 1 FROM file_shares WHERE path = 'users/bob/salary.pdf'").get()).toBeNull()
   })
 
-  test('Always allow in a shared chat does not skip the card, also when the asker\'s own message names the person', async () => {
+  test('Always allow in a shared chat counts only for the asker\'s own ask: named by them, no card; asked by another member, the card', async () => {
     const { keepAlways, dropAlways } = await import('../../server/src/chat/always-allow')
     put('users/bob/photo-5.png', 'png five')
     keepAlways(h.ctx.db, 'bob', 'share_files', null)
     try {
-      // named by bob: the card all the same (a shared chat holds other people's words); shared on his yes
+      // named by bob in his own ask: his Always allow holds, no card
       // (the fake engine's directive is in bob's message too: the name spelled with a JSON escape, so only his words count)
       const hidden = (args: Record<string, unknown>) => share(args).replace('Tess Yoon', '\\u0054ess Yoon')
-      const named = await turn('bob', `photo-5.png Tess한테 공유해줘\n${hidden({ paths: ['users/bob/photo-5.png'], people: ['Tess Yoon'] })}`, { chat: chatId, answer: 'share' })
-      expect(cardsTo('bob', named.turnId)).toBe(1)
+      const named = await turn('bob', `photo-5.png Tess한테 공유해줘\n${hidden({ paths: ['users/bob/photo-5.png'], people: ['Tess Yoon'] })}`, { chat: chatId })
+      expect(cardsTo('bob', named.turnId)).toBe(0)
       expect(JSON.parse(named.content).status).toBe('shared')
       // alice names the person, bob's own message does not: the card, without "Always allow"
       await turn('alice', `Bob, share photo-5.png with Tess.\n${fake({ say: 'ok' })}`, { chat: chatId })
@@ -210,23 +210,27 @@ describe('in a shared chat (the same rules as post_to_room)', () => {
 })
 
 describe('after a room read (a side chat): other people\'s words are in the turn (review of fix/always-allow-more-cards)', () => {
-  test('with Always allow on: a file the asker did not bring is refused, a recipient the asker did not name gets the card', async () => {
+  test('with Always allow on the share goes (the owner\'s rule); without it a file the asker did not bring is refused and the rest gets the card', async () => {
     const { keepAlways, dropAlways } = await import('../../server/src/chat/always-allow')
     put('users/bob/budget.xlsx', 'numbers')
     put('users/bob/photo-6.png', 'png six')
     const room = (await h.api('bob').call(API.createRoom, { body: { kind: 'dm', userId: 'tess' } })).id
     const chatId = (await h.api('bob').call(API.createChat, { body: { sideRoomId: room } })).id
+    const hidden = (args: Record<string, unknown>) => share(args).replace('Tess Yoon', '\\u0054ess Yoon').replace('budget', '\\u0062udget').replace('photo-6', '\\u0070hoto-6')
+    // without the choice: a room message asked for it, bob's own words name no file: refused before any card
+    const steered = await turn('bob', `요약해줘\n${hidden({ paths: ['users/bob/budget.xlsx'], people: ['Tess Yoon'] })}`, { chat: chatId })
+    expect(steered.content).toContain('a file is shared only when the user named it in their own message')
+    expect(cardsTo('bob', steered.turnId)).toBe(0)
+    // bob names the file in an explicit ask: the card all the same (the chat holds the room's words), offering "Always allow"
+    const card = await turn('bob', `photo-6.png Tess한테 공유해줘\n${hidden({ paths: ['users/bob/photo-6.png'], people: ['Tess Yoon'] })}`, { chat: chatId, answer: 'no' })
+    expect(card.card!.options!.map((x) => x.value)).toEqual(['share', '__always', 'no'])
+    expect(h.ctx.db.query("SELECT 1 FROM file_shares WHERE path = 'users/bob/budget.xlsx'").get()).toBeNull()
     keepAlways(h.ctx.db, 'bob', 'share_files', null)
     try {
-      const hidden = (args: Record<string, unknown>) => share(args).replace('Tess Yoon', '\\u0054ess Yoon').replace('budget', '\\u0062udget').replace('photo-6', '\\u0070hoto-6')
-      // a room message asked for it; bob's own words name no file: refused before any card
-      const steered = await turn('bob', `요약해줘\n${hidden({ paths: ['users/bob/budget.xlsx'], people: ['Tess Yoon'] })}`, { chat: chatId })
-      expect(steered.content).toContain('a file is shared only when the user named it in their own message')
-      expect(cardsTo('bob', steered.turnId)).toBe(0)
-      // bob names the file but not the person: the card, without "Always allow"
-      const card = await turn('bob', `photo-6.png 공유해줘\n${hidden({ paths: ['users/bob/photo-6.png'], people: ['Tess Yoon'] })}`, { chat: chatId, answer: 'no' })
-      expect(card.card!.options!.map((x) => x.value)).toEqual(['share', 'no'])
-      expect(h.ctx.db.query("SELECT 1 FROM file_shares WHERE path = 'users/bob/budget.xlsx'").get()).toBeNull()
+      // with it: final, no card and no refusal, also after the room read
+      const went = await turn('bob', `요약해줘\n${hidden({ paths: ['users/bob/budget.xlsx'], people: ['Tess Yoon'] })}`, { chat: chatId })
+      expect(cardsTo('bob', went.turnId)).toBe(0)
+      expect(JSON.parse(went.content).status).toBe('shared')
     } finally { dropAlways(h.ctx.db, 'bob', 'card:share_files') }
   })
 })

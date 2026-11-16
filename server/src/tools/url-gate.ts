@@ -148,9 +148,12 @@ export interface TurnPerson {
    * connection set to send without asking, a move that changes nobody's access); its cards lead with the room line */
   roomsSeen?: boolean
   /** Team files a connection's send would attach (their team paths): true when the person's own message of this turn
-   * did not bring every one of them (named or attached it, or the AI wrote it new in this answer). The send then asks on its card, also where the connection sends without asking (docs/decisions/
-   * 20261116-mail-attach-team-file.md). */
+   * did not bring every one of them (named or attached it, or the AI wrote it new in this answer), or the chat holds
+   * other people's words. The send then asks on its card, also where an admin's rule sends without asking; the
+   * person's own Always allow for the connection still goes without it (docs/decisions/20261116-mail-attach-team-file.md). */
   attachAsks?(paths: readonly string[]): boolean
+  /** the chat holds other people's words (chat/shared-actions.ts othersWordsIn): the explicit-ask skip never applies */
+  othersWords?(): boolean
   /** how a refusal names an unattended run that is not a scheduled task (a company profile draft's answer) */
   unattendedLabel?: string
   /** a narrower set of addresses this turn may open at all (a company profile draft: the typed site, onboarding/

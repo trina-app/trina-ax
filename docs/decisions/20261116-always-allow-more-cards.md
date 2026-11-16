@@ -7,6 +7,14 @@
   "an unknown exit address" exception of "Allow all websites covers the AI's web reads"
 - Branch: fix/always-allow-more-cards (QA TC-3809, TC-3810, TC-3811)
 
+**Always allow is final (owner decision 2026-11-13); the guards apply only where the person hasn't chosen Always allow.** (docs/decisions/20261116-always-allow-final-rule-a.md, Rule A.) Once the person picks "Always allow"
+for sharing, room posts, posts with files, project members or a connection, the card is not raised for them again in
+their own chat, whatever the chat read (rooms, a teammate's file, a file shared with them, a page, a connected service)
+and in their scheduled runs. In a chat with other members' messages (a shared chat, or one others wrote in) the choice
+counts only for their own ask, as on dev (QA TC-3091). The lines below about content written by others, the "Second
+review" and "Always allow covers the person's own asks" now decide only the explicit-ask skip, the card's offer and the
+file refusal where the person has not chosen Always allow.
+
 The AI flow check of 2026-11-16 (tests/ai-scenarios, report 2026-11-16-flows) found three cards with no "Always allow",
 against the owner's rule (2026-11-11 and 11-14: "Always allow" ends the asking for its scope, offered on the first card,
 the caller's own switch, also in rooms, side chats and scheduled runs). In the flows that pick "Always allow" these
@@ -79,7 +87,8 @@ cards still came every time: FL-02 and FL-13 (sharing), FL-05 (a web address), F
   Known limits: a file the AI makes in the answer may hold what it read; a file or folder name, a skill's description
   in the skill list and a connected service's tool descriptions can carry words; the text of a post to a place the
   person named is the AI's. The mark is cleared with the session (an edited first message), as the other marks are.
-  **Second review (in):** after eight independent review rounds kept finding new wordings by which text someone else
+  **Second review (in; narrowed by Rule A, docs/decisions/20261116-always-allow-final-rule-a.md: the card shows only
+  where the person has not chosen Always allow):** after eight independent review rounds kept finding new wordings by which text someone else
   chose (a display name, a username, a group's or a file's name) counted as the person naming a recipient, the rule is
   now structural: in a chat with other people's words (a shared chat, others writing in it, a room read, a room's side
   chat, content someone else wrote: `othersWordsIn` / the chat mark), a share, a post to a conversation and a team file

@@ -37,7 +37,10 @@ content may have been chosen by someone else's text, the person's words do not h
 conversation and a team file attached to a send, the rule applies only in a chat with nobody else's words in it. In a
 shared chat, a chat others wrote in, a chat that read a room (a room's side chat too), or one that read content someone
 else wrote (a teammate's file, a file shared with the person, a web page, a connected service), those cards always show:
-neither this rule nor "Always allow" skips them (docs/decisions/20261116-always-allow-more-cards.md "Second review").
+this rule does not skip them (docs/decisions/20261116-always-allow-more-cards.md "Second review"), nor the connector
+write card there (TurnPerson.othersWords). **Always allow is final (owner decision 2026-11-13); the guards apply only where the person hasn't chosen Always allow.** This rule is our own text match, not the person's
+choice, so where other people's words are in the chat it never removes a card; a person who chose "Always allow" gets
+no card there by their own choice (docs/decisions/20261116-always-allow-final-rule-a.md).
 Matching which words of a message name a recipient cannot be made safe against a name or a text someone else chose, so
 it only removes cards where the worst case is the person's own words. A quoted line names neither a file nor a person.
 

@@ -538,8 +538,10 @@ export function turnPerson(exec: TurnExec): TurnPerson {
     // a team file attached to a connection's send (integrations/connections/tools.ts): a file the person's own
     // message did not bring (named or attached it, or the AI wrote it new in this answer) keeps the card, in every
     // chat: a file name a teammate chose reaches the AI in a chat that read nothing too (chat/shared-actions.ts)
-    // ...and always where other people's words are in the chat (othersWordsIn): no skip there
+    // ...and any team file where other people's words are in the chat (othersWordsIn); the person's own Always allow for
+    // the connection still goes without the card (docs/decisions/20261116-always-allow-final-rule-a.md)
     attachAsks: (paths) => othersWordsIn(exec) || !fromAsker(exec.rt.db, exec.spec, paths),
+    othersWords: () => othersWordsIn(exec),
     webAccessChanged: () => exec.rt.hub.publish(exec.spec.userId, WEB_ACCESS_CHANGED),
     ...(exec.profileDraft ? { unattendedLabel: 'company profile draft answer', scope: (url: string) => draftUrlRefusal(exec.profileDraft!.scope, url), ...(exec.profileDraft.pages ? { pages: exec.profileDraft.pages } : {}) } : {}),
   }

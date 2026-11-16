@@ -249,6 +249,20 @@ describe('a team file attached to a mail', () => {
     expect(plain.questions).toHaveLength(0)
   })
 
+  test('the person\'s own Always allow for the connection is final: no card for attached team files, also where they keep the card otherwise', async () => {
+    // alice's own connection set to send without asking (her Always allow on its card)
+    A.ctx.db.query("UPDATE integrations SET write_policy = 'allow', version = version + 1 WHERE id = ?").run(mail.id)
+    try {
+      const before = sent().length
+      const p = ask(false)
+      const r = await turn('alice', { person: p, live: true, attachAsks: () => true }).call('my_mail__send_mail', sendArgs(QUOTE))
+      expect(r.isError).toBe(false)
+      expect(p.questions).toHaveLength(0)
+      expect(sent().length).toBe(before + 1)
+      expect(sent().at(-1)!.args.attachments[0].content_base64).toBe(quoteBytes.toString('base64'))
+    } finally { A.ctx.db.query("UPDATE integrations SET write_policy = 'ask', version = version + 1 WHERE id = ?").run(mail.id) }
+  })
+
   test('a service\'s answer marks the chat as holding content written by others', async () => {
     const t = turn('alice', { person: ask(true), live: true })
     const mark = () => (A.ctx.db.query('SELECT others_words AS o FROM chats WHERE id = ?').get(t.chat) as { o: number }).o
