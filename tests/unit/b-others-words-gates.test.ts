@@ -12,7 +12,7 @@ import { API, type Room } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { dropAlways, keepAlways } from '../../server/src/chat/always-allow'
 import { fileSharesOf } from '../../server/src/files/shares'
-import { fromAsker, othersWordsIn } from '../../server/src/chat/shared-actions'
+import { fromAsker, madeInTurn, othersWordsIn } from '../../server/src/chat/shared-actions'
 import { shareWithPersonTool } from '../../server/src/chat/share-with-person'
 import { OWN_CHAT_TEAM_TOOLS, OWN_WORDS_TOOLS } from '../../server/src/rooms/ai-tools'
 import { roomsOf } from '../../server/src/rooms/service'
@@ -84,20 +84,20 @@ const sharedRow = (p: string) => h.ctx.db.query('SELECT 1 FROM file_shares WHERE
 const unnamed = (n: number) => share({ paths: [`users/bob/ledger-${n}.txt`], people: ['Tess Yoon'] })
 
 describe('share_with_person with "Always allow" on, in my own chat', () => {
-  test('a clean chat: no card (the owner\'s rule)', async () => {
-    const r = await turn('bob', `go on\n${unnamed(1)}`)
+  test('a clean chat, my message asks and names the person: no card (the owner\'s rule), whatever the file', async () => {
+    const r = await turn('bob', `send it to tess\n${unnamed(1)}`)
     expect(r.cards).toHaveLength(0)
     expect(JSON.parse(r.content).status).toBe('shared')
   })
 
   test('after reading my own file: still no card', async () => {
-    const r = await turn('bob', `go on\n${read('users/bob/own-notes.md')}\n${unnamed(2)}`)
+    const r = await turn('bob', `send it to tess\n${read('users/bob/own-notes.md')}\n${unnamed(2)}`)
     expect(r.cards).toHaveLength(0)
     expect(JSON.parse(r.content).status).toBe('shared')
   })
 
   test('after reading a teammate\'s team file, in the same answer: a share my message did not name keeps its card', async () => {
-    const r = await turn('bob', `go on\n${read('shared/alice-notes.md')}\n${unnamed(3)}`)
+    const r = await turn('bob', `send it to tess\n${read('shared/alice-notes.md')}\n${unnamed(3)}`)
     expect(r.cards).toHaveLength(1)
     // (no "Always allow" where it would not count)
     expect(r.cards[0]!.options!.map((x) => x.value)).toEqual(['share', 'no'])
@@ -106,7 +106,7 @@ describe('share_with_person with "Always allow" on, in my own chat', () => {
 
   test('...and in a later answer of the same chat', async () => {
     const first = await turn('bob', `read it\n${read('shared/alice-notes.md')}`)
-    const r = await turn('bob', `go on\n${unnamed(4)}`, first.chatId)
+    const r = await turn('bob', `send it to tess\n${unnamed(4)}`, first.chatId)
     expect(r.cards).toHaveLength(1)
     expect(sharedRow('users/bob/ledger-4.txt')).toBeNull()
   })
@@ -146,8 +146,8 @@ describe('share_with_person with "Always allow" on, in my own chat', () => {
 describe('post_to_room with "Always allow" on, in my own chat', () => {
   // (the room's id as JSON escapes; bob's words name no place)
   const toEveryone = (text: string) => post({ room: everyone, text })
-  test('a clean chat: no card', async () => {
-    const r = await turn('bob', `go on\n${toEveryone('hello one')}`)
+  test('a clean chat, my message asks and names the place: no card', async () => {
+    const r = await turn('bob', `send this to tess\n${post({ room: 'Tess Yoon', text: 'hello one' })}`)
     expect(r.cards).toHaveLength(0)
     expect(JSON.parse(r.content).status).toBe('sent')
   })
@@ -273,10 +273,12 @@ describe('a scheduled run (nobody answers a card)', () => {
 
   test('a clean run shares under the person\'s choice; after content by others only what the task\'s own text names', async () => {
     h.ctx.db.query("DELETE FROM file_shares WHERE path = 'users/bob/ledger-9.txt'").run()
-    expect(JSON.parse(await run('weekly task', false, 9)).status).toBe('shared')
+    expect(JSON.parse(await run('send the weekly file to tess', false, 9)).status).toBe('shared')
+    // a task whose text names nobody shares nothing, also in a clean run
+    expect(await run('weekly task', false, 1)).toContain('Nothing was shared: the card got no answer in time')
     h.ctx.db.query("DELETE FROM file_shares WHERE path LIKE 'users/bob/ledger-9.txt'").run()
-    // the run read a teammate's file, and the task's text names neither the file nor the person: nothing is shared
-    const steered = await run('weekly task', true, 1)
+    // the run read a teammate's file, and the task's text does not name the file: nothing is shared
+    const steered = await run('send the weekly file to tess', true, 1)
     expect(steered).toContain('Nothing was shared: the card got no answer in time')
     // the task's own text names both: shared
     expect(JSON.parse(await run('send ledger-9.txt to tess every week', true, 9)).status).toBe('shared')
@@ -309,5 +311,105 @@ describe('a file read through a share grant', () => {
     const done = await socks.bob!.next('message.done', (f) => f.data.message.turnId === started.turnId, 30_000)
     expect(done.data.message.content).not.toContain('a file alice shares with bob')
     expect(chatRow(chat).r).toBe(0)
+  })
+})
+
+describe('second review: what "made in this answer" means, and a chat that read nothing', () => {
+  test('madeInTurn: only a new file the AI wrote itself (write, or make_file from its own text); never one a tool built from another file, a page or a room', () => {
+    const db = h.ctx.db
+    const ev = (turn: string, p: string, detail: unknown, action = 'create') => db.query('INSERT INTO file_events (turn_id, user_id, path, action, detail) VALUES (?, ?, ?, ?, ?)').run(turn, 'bob', p, action, detail === null ? null : JSON.stringify(detail))
+    const cases: [string, unknown, boolean][] = [
+      ['w.md', { tool: 'write' }, true],
+      ['m.docx', { tool: 'make_file', own: true }, true],
+      ['m-old.docx', { tool: 'make_file' }, false],
+      ['m-safe.pptx', { tool: 'make_file', safeOpsJob: 'j', quarantined: true }, false],
+      ['from-source.pdf', { tool: 'make_file', from: 'users/bob/payroll.xlsx', pages: 2 }, false],
+      ['printed.pdf', { tool: 'make_file', from: 'a.md', pages: 1, files: ['b.png'] }, false],
+      ['stamped.pdf', { tool: 'stamp_pdf' }, false],
+      ['edited.pdf', { tool: 'edit_pdf' }, false],
+      ['split.pdf', { tool: 'split_pdf' }, false],
+      ['merged.pdf', { tool: 'merge_pdfs' }, false],
+      ['out.hwpx', { tool: 'edit_hwp' }, false],
+      ['commented.docx', { tool: 'comment_docx' }, false],
+      ['page.html', { tool: 'save_url', url: 'https://example.com/', type: 'text/html' }, false],
+      ['room.pdf', { tool: 'save_room_file', type: 'application/pdf' }, false],
+      ['video.mp4', { tool: 'generate_video' }, false],
+      ['copied.txt', { tool: 'copy_files', sourcePaths: ['users/bob/x.txt'] }, false],
+      ['moved.txt', { tool: 'move_files', movedFrom: 'users/bob/x.txt' }, false],
+      ['no-detail.txt', null, false],
+    ]
+    for (const [name, detail, made] of cases) {
+      const rel = `users/bob/made/${name}`
+      ev('turn-made-1', rel, detail)
+      expect([name, madeInTurn(db, 'turn-made-1', rel)]).toEqual([name, made])
+      // not this turn's
+      expect(madeInTurn(db, 'turn-made-other', rel)).toBe(false)
+    }
+    // a file that was there before the turn and is written again: not new
+    ev('turn-made-0', 'users/bob/made/old.md', { tool: 'write' })
+    ev('turn-made-1', 'users/bob/made/old.md', { tool: 'write' }, 'update')
+    expect(madeInTurn(db, 'turn-made-1', 'users/bob/made/old.md')).toBe(false)
+    // written new in this turn, then changed by something else: not what the AI wrote
+    const later: [string, string, unknown, string][] = [
+      ['stamped-over.pdf', 'turn-made-1', { tool: 'stamp_pdf' }, 'update'],
+      ['built-over.xlsx', 'turn-made-1', { tool: 'make_file', from: 'users/bob/payroll.xlsx' }, 'update'],
+      ['copied-over.txt', 'turn-made-1', { tool: 'copy_files', sourcePaths: ['users/bob/x.txt'] }, 'create'],
+      ['person-over.txt', 'turn-made-9', { tool: 'file-screen' }, 'update'],
+    ]
+    for (const [name, t, detail, action] of later) {
+      const rel = `users/bob/made/${name}`
+      ev('turn-made-1', rel, { tool: 'write' })
+      ev(t, rel, detail, action)
+      expect([name, madeInTurn(db, 'turn-made-1', rel)]).toEqual([name, false])
+    }
+    // ...its own edit afterwards keeps it
+    ev('turn-made-1', 'users/bob/made/edited-own.md', { tool: 'write' })
+    ev('turn-made-1', 'users/bob/made/edited-own.md', { tool: 'edit' }, 'update')
+    expect(madeInTurn(db, 'turn-made-1', 'users/bob/made/edited-own.md')).toBe(true)
+    // deleted earlier, then written new in this turn: new
+    ev('turn-made-0', 'users/bob/made/again.md', { tool: 'write' })
+    ev('turn-made-0', 'users/bob/made/again.md', null, 'delete')
+    ev('turn-made-1', 'users/bob/made/again.md', { tool: 'write' })
+    expect(madeInTurn(db, 'turn-made-1', 'users/bob/made/again.md')).toBe(true)
+    db.query("DELETE FROM file_events WHERE turn_id IN ('turn-made-0', 'turn-made-1', 'turn-made-9')").run()
+  })
+
+  test('the real tools: a file make_file built from another file, or wrote over its own new file from one, is not made in this answer', async () => {
+    put('users/bob/payroll-z.csv', 'name,pay\nbob,1\n', 'bob')
+    const readIt = read('shared/alice-notes.md')
+    const to = (p: string) => share({ paths: [p], people: ['Tess Yoon'] })
+    const built = await turn('bob', `send the summary to tess\n${readIt}\n${fake({ tool: 'make_file', args: { source: 'users/bob/payroll-z.csv', format: 'xlsx', output: 'users/bob/out-z.xlsx' } })}\n${to('users/bob/out-z.xlsx')}`)
+    expect(fs.existsSync(path.join(h.ctx.files.fx.root, 'users/bob/out-z.xlsx'))).toBe(true)
+    expect(built.content).not.toContain('"status":"shared"')
+    expect(sharedRow('users/bob/out-z.xlsx')).toBeNull()
+    // its own new file first, then the same output built from the other file
+    const over = await turn('bob', `send the summary to tess\n${readIt}\n${fake({ tool: 'make_file', args: { content: 'a,b\n1,2\n', input_format: 'csv', format: 'xlsx', output: 'users/bob/out-y.xlsx' } })}\n${fake({ tool: 'make_file', args: { source: 'users/bob/payroll-z.csv', format: 'xlsx', output: 'users/bob/out-y.xlsx' } })}\n${to('users/bob/out-y.xlsx')}`)
+    expect(over.content).not.toContain('"status":"shared"')
+    expect(sharedRow('users/bob/out-y.xlsx')).toBeNull()
+    // its own text alone: made in this answer
+    const own = await turn('bob', `send the summary to tess\n${readIt}\n${fake({ tool: 'make_file', args: { content: 'a,b\n1,2\n', input_format: 'csv', format: 'xlsx', output: 'users/bob/out-x.xlsx' } })}\n${to('users/bob/out-x.xlsx')}`)
+    expect(fs.existsSync(path.join(h.ctx.files.fx.root, 'users/bob/out-x.xlsx'))).toBe(true)
+    expect(own.cards).toHaveLength(0)
+    expect(JSON.parse(own.content).status).toBe('shared')
+  })
+
+  test('a chat that read nothing from others: "Always allow" still needs my own message to ask and to name who or where', async () => {
+    // a share: nobody named in my words, the card
+    const none = await turn('bob', `go on\n${unnamed(1)}`)
+    expect(none.cards).toHaveLength(1)
+    expect(none.cards[0]!.options!.map((x) => x.value)).toEqual(['share', 'no'])
+    // the person named but nothing asked: the card
+    const about = await turn('bob', `what did tess say?\n${unnamed(1)}`)
+    expect(about.cards).toHaveLength(1)
+    // asked and named (the file need not be named here): no card
+    const asked = await turn('bob', `send it to tess\n${unnamed(1)}`)
+    expect(asked.cards).toHaveLength(0)
+    expect(JSON.parse(asked.content).status).toBe('shared')
+    // a post: a place my words do not name, the card; named and asked, no card
+    const post1 = await turn('bob', `go on\n${post({ room: everyone, text: 'hello four' })}`)
+    expect(post1.cards).toHaveLength(1)
+    const post2 = await turn('bob', `send this to tess\n${post({ room: 'Tess Yoon', text: 'hello five' })}`)
+    expect(post2.cards).toHaveLength(0)
+    expect(JSON.parse(post2.content).status).toBe('sent')
   })
 })

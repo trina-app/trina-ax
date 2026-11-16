@@ -674,7 +674,8 @@ describe('to a teammate by name', () => {
     keepAlways(h.ctx.db, 'alice', 'post_to_room', null)
     try {
       const text = 'See [notes.md](/files/view?path=users/alice/notes.md)'
-      const r = await turn('alice', post({ room: 'person:hanak', text, own_words: true }))
+      // (her own message asks to send and names the person: "Always allow" covers her own asks)
+      const r = await turn('alice', `send this to Hana Kimura\n${post({ room: 'person:hanak', text, own_words: true })}`)
       expect(r.card).toBeNull()
       const dm = dmOf('alice', 'hanak')!
       expect(dm).toBeTruthy()

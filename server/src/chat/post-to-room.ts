@@ -48,7 +48,7 @@
 // (subagents.ts PARENT_ONLY_TOOLS). Reached anyway (the chat became confidential during the answer, a sub-agent's call)
 // it refuses with why and what to do, as it does for a room that is archived or not mine, a gone thread, content that
 // used earlier answers hidden from some member, a text too long for one message and the sending budget.
-import { withAlways } from './always-allow'
+import { alwaysHere, withAlways } from './always-allow'
 import { actionOff, asksFor, askerPicks, askerText, asksToSend, fold, fromAsker, mainOnly, namedInFull, namesRecipient as namesPlace, othersWordsIn, ownWords, POST_ASK } from './shared-actions'
 import { readRooms } from './read-rooms'
 // (moved to chat/shared-actions.ts, kept here for the tests and older imports)
@@ -338,8 +338,11 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // room, and only when that message asks to send or post; and the linked files go along without the card only when they brought each one
         // (named or attached it, or the AI made it in this answer). Own words may go there under the choice, as before.
         const mineNamed = () => namesPlace(ownWords(askerText(db, spec.userMessageId)), a.data.room, recipientNames(db, spec.userId, mine?.room ?? null, pendingTo))
+        // In every own chat the place must be the person's: named in their own message, which asks to send or post, or
+        // the side chat's own room (a name a teammate chose reaches the AI in a chat that read nothing too)
         const alwaysOk = exec.shared ? !plain && mineNamed()
-          : !othersWordsIn(exec) || ((sideRoomOf(db, spec.chatId, spec.userId)?.id === roomId || mineNamed()) && asksToSend(db, spec.userMessageId) && (!all || fromAsker(db, spec, first.offered)))
+          : (sideRoomOf(db, spec.chatId, spec.userId)?.id === roomId || mineNamed()) && asksToSend(db, spec.userMessageId)
+            && (!all || !othersWordsIn(exec) || fromAsker(db, spec, first.offered))
         // no card when the asker's own message of this turn asked for exactly this post (docs/decisions/
         // 20261116-no-card-after-explicit-ask.md, QA TC-3812): a post word and the place in their words (or, in a room's
         // side chat, no place given: that room), and the card would tell nothing more (no line about people who cannot see
@@ -356,7 +359,10 @@ export function postToRoomTool(exec: TurnExec): Tool {
           : !readRooms(exec) && a.data.thread_id === undefined && namedInFull(said, recipientNames(db, spec.userId, mine?.room ?? null, pendingTo).names)
         const explicit = spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && !all && !linesNone.length && !laterLine && asksFor(POST_ASK, said)
           && (plain ? theirText : !exec.shared && !exec.otherAuthors) && noteOk && place
-        const reply = explicit ? 'send' : await withAlways(alwaysOk ? exec.alwaysPlace?.() : null, all ? 'post_files' : 'post_to_room', options, all ? 'send_files' : 'send', (opts, more) => exec.waitForPerson({
+        // (where the choice does not count the card shows; it still offers "Always allow" on its first showing in a chat
+        // with nobody else's words, never where other people's words are, nor once the choice is made)
+        const place1 = alwaysOk || (!othersWordsIn(exec) && alwaysHere(exec.alwaysPlace?.(), all ? 'post_files' : 'post_to_room') === 'offer') ? exec.alwaysPlace?.() : null
+        const reply = explicit ? 'send' : await withAlways(place1, all ? 'post_files' : 'post_to_room', options, all ? 'send_files' : 'send', (opts, more) => exec.waitForPerson({
           kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, options: opts, multiple: false, allowText: false, ...(more.note ? { note: more.note } : {}),
           details: [
             // the note goes as the person's own words, the text as the AI's answer: apart, as the room shows them

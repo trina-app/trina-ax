@@ -79,6 +79,20 @@ cards still came every time: FL-02 and FL-13 (sharing), FL-05 (a web address), F
   Known limits: a file the AI makes in the answer may hold what it read; a file or folder name, a skill's description
   in the skill list and a connected service's tool descriptions can carry words; the text of a post to a place the
   person named is the AI's. The mark is cleared with the session (an edited first message), as the other marks are.
+  **Second review (in):** two more rules.
+  - "Always allow" covers the person's own asks in every chat, marked or not: a share needs their own message to ask
+    to share or send and to name every recipient; a post needs the place named (or the side chat's own room) and the
+    ask; a project's members need every name in their messages; a team file attached to a send needs the person to
+    have brought it (named or attached it, or the AI wrote it new in this answer). A name a teammate chose (a shared
+    file's, a folder's) reaches the AI in a chat that read nothing, so no chat is free of other people's words. Which
+    file to share stays the person's "it" in a chat without the mark. A card that shows where the choice does not
+    count still offers "Always allow" on its first showing in a chat without other people's words.
+  - "Written new by the AI" is one rule for every gate (`shared-actions.ts WROTE_IT_SQL`, also answer-share.ts): a
+    create by write, or by make_file from the AI's own text, with nothing at the path before. A file any tool built
+    from another file, a page or a room (make_file with a source, stamp_pdf, edit_pdf, split_pdf, merge_pdfs, edit_hwp,
+    comment_docx, save_url, save_room_file, a video) is not.
+  Left as follow-ups (QA rows): the person's own uploads and inline attachments do not set the mark; the explicit-ask
+  words may sit anywhere in a long pasted message; find_tools descriptions.
   **Independent review:** one must-fix (a file copied or renamed in the answer counted as made in it) and the
   should-fix items (the request word, find_skills, the order of the grant check) are in.
 - **Where it still never applies:** as before (always-allow.ts): a Slack question, a company profile draft and other

@@ -103,15 +103,37 @@ export function attachedPaths(db: Database, messageId: string): Set<string> {
   return out
 }
 
-/** The AI made the file at `rel` in this turn: a new file it wrote there (its own write or upload), with nothing at
- * that path before the turn. Not a file moved, renamed or copied into place (its content was there before: the
- * event's movedFrom / sourcePaths), and not an edit of a file that existed before the turn: neither makes an older
- * file one the asker brought. */
+/** file_events detail keys that say a file's content came from somewhere else than the AI's own writing: a copy, a
+ * move, a conflict copy, a file built from other files, a page or a room (one list for every place that asks "did the
+ * AI write this itself": madeInTurn here, chat/answer-share.ts madeHereOnly) */
+export const MADE_FROM_ELSEWHERE = ['sourcePaths', 'conflictCopyOf', 'copiedFrom', 'movedFrom', 'via', 'url', 'from', 'originalPath', 'pieces', 'pages', 'files', 'copy'] as const
+/** ...as SQL on a file_events row `alias`: an event of the AI's own writing: write or edit, or make_file from its own
+ * text alone (detail.own, which make_file sets only when no file's bytes went into the output: no source, embedded
+ * image or template), with none of those keys. Every other tool that places a file builds it from something else
+ * (make_file with a source, stamp_pdf, edit_pdf, split_pdf, merge_pdfs, edit_hwp, comment_docx, save_url,
+ * save_room_file, a video), and an event without the mark (an older build's, a publication's) is not counted: fails
+ * closed. */
+const ownWritingSql = (alias: string) => `${alias}.detail IS NOT NULL AND json_valid(${alias}.detail)
+  AND (COALESCE(json_extract(${alias}.detail, '$.tool'), '') IN ('write', 'edit') OR (json_extract(${alias}.detail, '$.tool') = 'make_file' AND json_extract(${alias}.detail, '$.own') = 1))
+  AND ${MADE_FROM_ELSEWHERE.map((k) => `json_extract(${alias}.detail, '$.${k}') IS NULL`).join(' AND ')}`
+/** A file_events row `e` by which the AI wrote a new file itself. */
+export const WROTE_IT_SQL = `e.action = 'create' AND ${ownWritingSql('e')}`
+
+/** The AI made the file at `rel` in this turn: a new file it wrote itself there (WROTE_IT_SQL), with nothing at that
+ * path before (no event, or the last one removed the file), and nothing but its own writing of this turn at that path
+ * since (a tool that built the same output from another file, a copy over it, a person's save: not the AI's file any
+ * more). Not a file moved, renamed or copied into place, not one a tool built from another file, a page or a room, and
+ * not an edit of a file that existed before the turn: none of them makes an older file, or someone else's content,
+ * one the asker brought. Fails closed. */
 export function madeInTurn(db: Database, turnId: string, rel: string): boolean {
-  return !!db.query(`SELECT 1 FROM file_events e WHERE e.turn_id = ?1 AND e.path = ?2 AND e.action IN ('create','upload')
-      AND (e.detail IS NULL OR NOT json_valid(e.detail) OR (json_extract(e.detail, '$.movedFrom') IS NULL AND json_extract(e.detail, '$.sourcePaths') IS NULL AND json_extract(e.detail, '$.copiedFrom') IS NULL))
-      AND NOT EXISTS (SELECT 1 FROM file_events p WHERE p.path = ?2 AND p.id < e.id AND (p.turn_id IS NULL OR p.turn_id <> ?1))
-    LIMIT 1`).get(turnId, rel)
+  try {
+    const made = db.query(`SELECT e.id FROM file_events e WHERE e.turn_id = ? AND e.path = ? AND ${WROTE_IT_SQL} ORDER BY e.id LIMIT 1`).get(turnId, rel) as { id: number } | null
+    if (!made) return false
+    const prev = db.query("SELECT action FROM file_events WHERE path = ? AND id < ? AND action <> 'rejected' ORDER BY id DESC LIMIT 1").get(rel, made.id) as { action: string } | null
+    if (prev && prev.action !== 'delete') return false
+    return !db.query(`SELECT 1 FROM file_events p WHERE p.path = ?1 AND p.id > ?2 AND p.action <> 'rejected'
+      AND NOT (p.turn_id IS NOT NULL AND p.turn_id = ?3 AND p.action IN ('create', 'update') AND ${ownWritingSql('p')}) LIMIT 1`).get(rel, made.id, turnId)
+  } catch { return false }
 }
 
 // ---- content written by others (docs/decisions/20261116-always-allow-more-cards.md "Content written by others") ----
@@ -133,7 +155,7 @@ export function othersWordsIn(exec: Pick<TurnExec, 'shared' | 'otherAuthors' | '
  * wrote"), so where other people's words are in the chat "Always allow" also needs this. */
 export function asksToSend(db: Database, messageId: string): boolean {
   const said = withoutQuoteLines(askerText(db, messageId))
-  return asksFor(SHARE_ASK, said) || asksFor(POST_ASK, said)
+  return asksFor(SHARE_ASK, said) || asksFor(POST_ASK, said) || asksFor(TELL_ASK, said)
 }
 
 export function fromAsker(db: Database, spec: { userMessageId: string; turnId: string }, paths: Iterable<string>): boolean {
@@ -161,6 +183,10 @@ export const WRITE_ASK = re([`(\\uBC14\\uAFD4|\\uACE0\\uCCD0|\\uB123\\uC5B4|\\uB
   '\\b(update|change|add|create|make|set|move|write|edit|fix|comment|ubah|tambah|buat)\\b'])
 /** "don't" in the person's words: -지 마 / -지 말 / 하지 않, 안 해, don't, do not, never, jangan, no … */
 const ASK_NOT = re(['\\uC9C0\\s?\\uB9C8', '\\uC9C0\\s?\\uB9D0', '\\uC9C0\\s?\\uC54A', "\\b(don'?t|do not|never|jangan)\\b"])
+
+/** ...more ways to ask that something goes to someone, for "Always allow" only (never for the explicit-ask rule, which
+ * skips a card that was not chosen away): tell, forward, notify, let … know, message, DM; 전해줘, 말해줘, 공유해 */
+const TELL_ASK = re(['\\b(tell|forward|notify|message|dm)\\b', '\\blet\\b[^\\n]{0,40}\\bknow\\b', `(\\uC804\\uD574|\\uB9D0\\uD574)${ASK_END}`, '\\uACF5\\uC720\\s?\\uD574'])
 
 /** The asker's own words of this turn without quoted lines (a quote is someone else's words). */
 export function ownWords(said: string): string {

@@ -28,7 +28,7 @@ import { tr } from './i18n'
 import { neutralizeTags } from './prompt'
 import { actionOff, askerPicks, askerText, asksToSend, attachedPaths, fromAsker, madeInTurn, mainOnly, namesFile, namesFileLoose, namedInFull, namesRecipient, ownWords, asksFor, SHARE_ASK } from './shared-actions'
 import { readRooms } from './read-rooms'
-import { withAlways } from './always-allow'
+import { alwaysHere, withAlways } from './always-allow'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
 import { uuidv7 } from '@mycel/shared'
@@ -148,10 +148,15 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
           one?.subjectType === 'user' ? tr('fileShareAsk', L, { who: oneLine(one.name, 40), n: String(plan.length) }) : one ? tr('fileShareAskGroup', L, { who: oneLine(one.name, 40), n: String(plan.length) }) : tr('fileShareAskMany', L, { who: oneLine(whoLine, 80), n: String(plan.length) }),
           tr('fileShareView', L),
         ].filter(Boolean).join('\n\n')
-        // (their own words: a quoted line is someone else's, for who gets it and for which file)
-        const typed = others || content ? ownWords(askerText(db, spec.userMessageId)) : ''
-        const alwaysOk = (!others && !content) || (who.every((w) => namesRecipient(typed, w.name, { names: recipientWords(db, w), person: w.subjectType === 'user' }))
-          && fromAsker(db, spec, plan.map((f) => f.path)) && asksToSend(db, spec.userMessageId))
+        // "Always allow" covers the person's own asks: their own message of this turn (quoted lines left out: a quote is
+        // someone else's words) must ask to share or send and name every recipient, in every chat. A name a teammate chose
+        // (a shared file's, a folder's) reaches the AI in a chat that read nothing, so a chat without the mark is not free
+        // of other people's words. Which file: named, attached or newly written in this answer where other people's words
+        // are in the chat (others, content); elsewhere the person's "it" is theirs to say.
+        const typed = ownWords(askerText(db, spec.userMessageId))
+        const alwaysOk = asksToSend(db, spec.userMessageId)
+          && who.every((w) => namesRecipient(typed, w.name, { names: recipientWords(db, w), person: w.subjectType === 'user' }))
+          && ((!others && !content) || fromAsker(db, spec, plan.map((f) => f.path)))
         // no card when the asker's own message of this turn asked for exactly this share (docs/decisions/
         // 20261116-no-card-after-explicit-ask.md, QA TC-3812): a share word, every person or group named, every file named
         // or attached by them. Nobody else's words chose who gets which file then; never in a run nobody watches
@@ -160,7 +165,10 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         const explicit = spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && asksFor(SHARE_ASK, said)
           && who.every((w) => namedInFull(said, recipientWords(db, w)))
           && plan.every((f) => mine.has(f.path) || namesFileLoose(said, f.path))
-        const reply = explicit ? 'share' : await withAlways(alwaysOk ? exec.alwaysPlace?.() : null, 'share_files', [{ label: tr('fileShareYes', L), value: 'share' }, { label: tr('fileShareNo', L), value: 'no' }], 'share', (options, more) => exec.waitForPerson({
+        // where the choice does not count the card shows; it still offers "Always allow" on its first showing in a chat with
+        // nobody else's words (the owner's rule), never where other people's words are, nor once the choice is made
+        const place = alwaysOk || (!others && !content && alwaysHere(exec.alwaysPlace?.(), 'share_files') === 'offer') ? exec.alwaysPlace?.() : null
+        const reply = explicit ? 'share' : await withAlways(place, 'share_files', [{ label: tr('fileShareYes', L), value: 'share' }, { label: tr('fileShareNo', L), value: 'no' }], 'share', (options, more) => exec.waitForPerson({
           kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, multiple: false, allowText: false, options, ...more,
           details: [{ label: tr('fileShareFiles', L), text: plan.map((f) => f.name).join('\n'), noSize: true }],
           expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
