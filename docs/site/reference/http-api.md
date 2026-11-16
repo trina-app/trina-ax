@@ -194,7 +194,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `POST` | `/api/files/move-suggestions` | Signed in | Where files being moved could go (the Move picker): up to 3 folders the caller can write whose names, files and file-list lines fit the files' names, with a confidence; and up to 3 folders the caller recently moved or saved into. No AI call. Paths the caller cannot read: 404. |
 | `POST` | `/api/files/move-suggestions/dismiss` | Signed in | Stop suggesting this folder to the caller for files named like these (per person, kept on the server). |
 | `GET` | `/api/files/recent` | Signed in | Recently changed files the caller can read (for the attach picker). |
-| `POST` | `/api/upload-sessions` | Signed in | Start a chunked upload (8 MB chunks). Expires 24 h after the last chunk arrived, at most 7 days after the start. |
+| `POST` | `/api/upload-sessions` | Signed in | Start a chunked upload (8 MB chunks). Expires 24 h after the last chunk arrived (one hour while no chunk has arrived), at most 7 days after the start. |
 | `PUT` | `/api/upload-sessions/:id/chunks/:n` | Signed in | Store chunk n (0-based). Re-sending a stored chunk is a no-op. |
 | `GET` | `/api/upload-sessions/:id` | Signed in | Which chunks arrived (to resume after a disconnect). |
 | `POST` | `/api/upload-sessions/:id/complete` | Signed in | Verify sha256 and move the file into place. |

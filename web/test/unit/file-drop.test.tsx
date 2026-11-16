@@ -19,6 +19,12 @@ import { TEAM_FILE_DRAG_TYPE, forgetTeamAttach } from '../../src/lib/teamAttach'
 import RoomPage from '../../src/pages/Room'
 import { useChats } from '../../src/store/chats'
 import { useRooms } from '../../src/store/rooms'
+import { dropRoomUploads, forgetRoomUploads, setPlaceUploads, SIGN_OUT_WAIT_MS, uploadingIn, useRoomUploads } from '../../src/store/roomUploads'
+import { fingerprint } from '../../src/lib/upload'
+import { UPLOADS_KEY } from '../../src/lib/localData'
+import type { UploadProgress } from '../../src/lib/upload'
+import { isBusy } from '../../src/lib/busy'
+import { RoomUploadMark } from '../../src/components/nav/RoomsList'
 import { useSession } from '../../src/store/session'
 import { FakeEvent, installDom, mount, removeDom, type FakeElement, type Mounted } from './dom-host'
 import { CHAT } from './fixtures'
@@ -304,15 +310,21 @@ class FakeXhr {
     const a: Attachment | RoomFile = toRoom
       ? { id: uuidv7(), name, size: Number(body.get('size')), mime: 'application/pdf', kind: 'pdf', thumb: false }
       : { id: uuidv7(), name, path: `users/${ME.id}/.attachments/${chatId}/${name}`, size: Number(body.get('size')), mime: 'application/pdf', kind: 'pdf' }
-    setTimeout(() => {
+    const answer = () => {
       this.upload.onload?.()
       this.status = 201
       this.response = new Blob([JSON.stringify(a)], { type: 'application/json' })
       this.onload?.()
-    }, 0)
+    }
+    // a room upload that takes its time (heldRoomUploads): answered when the test lets it
+    if (toRoom && heldRoomUploads) heldRoomUploads.push(answer)
+    else setTimeout(answer, 0)
   }
-  abort() { this.onabort?.() }
+  abort() { xhrAborts++; this.onabort?.() }
 }
+/** room uploads wait here until a test answers them (null: answered at once) */
+let heldRoomUploads: (() => void)[] | null = null
+let xhrAborts = 0
 
 function serve() {
   roomUploads = []
@@ -367,6 +379,9 @@ describe('the room page', () => {
     useSession.setState({ status })
     useRooms.getState().reset()
     useChats.getState().reset()
+    // a box's files are kept above the room (store/roomUploads.ts): each test starts with none
+    useRoomUploads.setState({ byPlace: {} })
+    heldRoomUploads = null
     forgetTeamAttach()
   })
   const signIn = () => useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name }, server: { allChatsConfidential: false } } as unknown as Me } })
@@ -458,6 +473,164 @@ describe('the room page', () => {
       expect(roomUploads).toEqual(['on-the-box.pdf'])
       expect(box.getAttribute('class')).not.toContain('ring-2')
     } finally { await m.unmount() }
+  })
+
+  // a large file takes minutes: opening another room used to stop it and drop every piece the server had
+  test('a file still going up when I open another room goes on: its row says so, the other room\'s box is empty, and it waits in its own box, not sent', async () => {
+    signIn()
+    serve()
+    const sent: string[] = []
+    const inner = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') !== 'GET') sent.push(`${init!.method} ${new URL(String(input), 'http://team.localhost').pathname}`)
+      return inner(input, init)
+    }) as typeof fetch
+    heldRoomUploads = []
+    xhrAborts = 0
+    const other = room({ name: 'acme-sales', lastSeq: 1, lastReadSeq: 1 })
+    const box = (roomId: string) => mount(<><RoomUploadMark roomId={r.id} /><RoomComposer roomId={roomId} members={[ME, BEN]} meId={ME.id} onSent={() => {}} /></>)
+    let m = await box(r.id)
+    await dropOn(m.get('room-composer'), [pdf('town-hall.mov')])
+    await m.until(() => roomChips(m)[0]?.getAttribute('data-status') === 'uploading', 'the chip, going up')
+    expect(m.find('room-upload-mark')).not.toBeNull()
+    expect(isBusy('upload')).toBe(true)
+    // another room: the upload is not stopped, and nothing of it shows in that room's box
+    await m.unmount()
+    m = await box(other.id)
+    try {
+      expect(xhrAborts).toBe(0)
+      expect(roomChips(m)).toHaveLength(0)
+      expect(m.find('room-upload-mark')?.getAttribute('aria-label')).toBe(translate(useLocaleStore.getState().locale, 'rooms.uploadingMark'))
+      expect(uploadingIn(useRoomUploads.getState(), r.id)).toBe(true)
+      expect(uploadingIn(useRoomUploads.getState(), other.id)).toBe(false)
+      // it arrives while I am here
+      await act(async () => { heldRoomUploads!.forEach((answer) => answer()) })
+      await m.until(() => !m.find('room-upload-mark'), 'the mark to go')
+      expect(isBusy('upload')).toBe(false)
+      expect(roomChips(m)).toHaveLength(0)
+    } finally { await m.unmount() }
+    // back in its room: the chip is there, ready, and nothing was sent anywhere
+    m = await box(r.id)
+    try {
+      expect(roomChips(m).map((c) => c.getAttribute('data-status'))).toEqual(['done'])
+      expect(roomChips(m)[0]!.textContent).toContain('town-hall.mov')
+      expect(sent.filter((c) => c.endsWith('/messages'))).toEqual([])
+      expect(sent).toEqual([])
+    } finally { await m.unmount() }
+  })
+
+  // checking a file of several GB takes a minute, and so can the server's last step: a spinner alone looked stuck
+  test('a large file says what happens to it on its chip; a small one only spins', async () => {
+    signIn()
+    serve()
+    const en = (key: Parameters<typeof translate>[1]) => translate(useLocaleStore.getState().locale, key)
+    const big = { name: 'all-hands.mov', size: 3 * 1024 ** 3, type: 'video/quicktime' } as File
+    const chip = (progress: UploadProgress | undefined, file = big) => act(() => setPlaceUploads(r.id, [{ key: 1, file, status: 'uploading', abort: new AbortController(), progress }]))
+    const m = await mount(<RoomComposer roomId={r.id} members={[ME, BEN]} meId={ME.id} onSent={() => {}} />)
+    try {
+      const shown = () => m.find('room-file-progress')?.querySelector('[aria-hidden="true"]')?.textContent
+      await chip({ phase: 'queued', loaded: 0, total: big.size })
+      expect(shown()).toBe(en('files.waitingTurn'))
+      await chip({ phase: 'hashing', loaded: big.size / 2, total: big.size })
+      expect(shown()).toBe(en('files.checking'))
+      await chip({ phase: 'uploading', loaded: big.size * 0.42, total: big.size })
+      expect(shown()).toBe('42%')
+      await chip({ phase: 'waiting', loaded: big.size * 0.42, total: big.size })
+      expect(shown()).toBe(en('files.waitingConnection'))
+      await chip({ phase: 'finishing', loaded: big.size, total: big.size })
+      expect(shown()).toBe(en('files.finishing'))
+      // a screen reader hears one fixed line with the name, not each step
+      expect(m.find('room-file-progress')!.textContent).toContain(translate(useLocaleStore.getState().locale, 'rooms.uploading', { name: 'all-hands.mov' }))
+      // a small one only spins, until there is a percent to show (a slow connection)
+      const small = { name: 'note.txt', size: 100, type: 'text/plain' } as File
+      await chip({ phase: 'uploading', loaded: 0, total: 100 }, small)
+      expect(m.find('room-file-progress')).toBeNull()
+      await chip({ phase: 'uploading', loaded: 10, total: 100 }, small)
+      expect(shown()).toBe('10%')
+    } finally { await m.unmount() }
+  })
+
+  // the server answers a drop only after a file it is putting in place is there: signing out must not sit and wait
+  test('signing out does not wait for the server to drop a large upload: 2 s at most, the uploads stopped at once', async () => {
+    signIn()
+    serve()
+    heldRoomUploads = []
+    xhrAborts = 0
+    const m = await mount(<RoomComposer roomId={r.id} members={[ME, BEN]} meId={ME.id} onSent={() => {}} />)
+    try {
+      await dropOn(m.get('room-composer'), [pdf('offsite.mov')])
+      await m.until(() => roomChips(m)[0]?.getAttribute('data-status') === 'uploading', 'the chip, going up')
+      // the server never answers the drop (it is still finishing the file)
+      const store = (globalThis as { localStorage?: Storage }).localStorage
+      const kept = new Map<string, string>()
+      ;(globalThis as { localStorage?: unknown }).localStorage = { getItem: (k: string) => kept.get(k) ?? null, setItem: (k: string, v: string) => void kept.set(k, v), removeItem: (k: string) => void kept.delete(k) }
+      const f = useRoomUploads.getState().byPlace[r.id]![0]!
+      kept.set(UPLOADS_KEY, JSON.stringify({ [fingerprint(f.file, { kind: 'room', roomId: r.id, name: f.file.name })]: uuidv7() }))
+      const deletes: string[] = []
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => { if (init?.method === 'DELETE') deletes.push(String(input)); return new Promise<Response>(() => {}) }) as unknown as typeof fetch
+      try {
+        const started = Date.now()
+        let done = false
+        const out = act(async () => { await dropRoomUploads(60); done = true })
+        // stopped and gone before the wait is over
+        expect(xhrAborts).toBe(1)
+        expect(useRoomUploads.getState().byPlace).toEqual({})
+        await out
+        expect(done).toBe(true)
+        expect(Date.now() - started).toBeLessThan(1500)
+        expect(deletes).toHaveLength(1)
+        expect(SIGN_OUT_WAIT_MS).toBeLessThanOrEqual(2000)
+      } finally { (globalThis as { localStorage?: unknown }).localStorage = store }
+    } finally { await m.unmount() }
+  })
+
+  test('signing out stops every upload and leaves no chip for the next person', async () => {
+    signIn()
+    serve()
+    heldRoomUploads = []
+    xhrAborts = 0
+    const m = await mount(<RoomComposer roomId={r.id} members={[ME, BEN]} meId={ME.id} onSent={() => {}} />)
+    try {
+      await dropOn(m.get('room-composer'), [pdf('budget.pdf')])
+      await m.until(() => roomChips(m)[0]?.getAttribute('data-status') === 'uploading', 'the chip, going up')
+      await act(async () => { await dropRoomUploads() })
+      expect(xhrAborts).toBe(1)
+      expect(useRoomUploads.getState().byPlace).toEqual({})
+      expect(roomChips(m)).toHaveLength(0)
+      expect(isBusy('upload')).toBe(false)
+    } finally { await m.unmount() }
+  })
+
+  test('a sign-in that ends any other way, and a room I am no longer in: the upload stops and its chip goes', async () => {
+    signIn()
+    serve()
+    heldRoomUploads = []
+    xhrAborts = 0
+    const other = room({ name: 'acme-sales', lastSeq: 1, lastReadSeq: 1 })
+    useRooms.setState({ rooms: [r, other], loaded: true })
+    const start = async (name: string) => {
+      const m = await mount(<RoomComposer roomId={r.id} members={[ME, BEN]} meId={ME.id} onSent={() => {}} />)
+      await dropOn(m.get('room-composer'), [pdf(name)])
+      await m.until(() => roomChips(m)[0]?.getAttribute('data-status') === 'uploading', 'the chip, going up')
+      await m.unmount()
+    }
+    // taken out of the room (or it was archived) while I was elsewhere: no row is left to show it on
+    await start('minutes.pdf')
+    expect(uploadingIn(useRoomUploads.getState(), r.id)).toBe(true)
+    await act(async () => { useRooms.setState({ rooms: [other] }) })
+    expect(xhrAborts).toBe(1)
+    expect(useRoomUploads.getState().byPlace).toEqual({})
+    expect(isBusy('upload')).toBe(false)
+    // the session expired, the server ended it, or another person signs in here (App.tsx dropPersonStores)
+    useRooms.setState({ rooms: [r, other] })
+    await start('salaries.pdf')
+    forgetRoomUploads()
+    expect(xhrAborts).toBe(2)
+    expect(useRoomUploads.getState().byPlace).toEqual({})
+    expect(isBusy('upload')).toBe(false)
+    // the stopped upload's own ending writes nothing back
+    await act(async () => { await new Promise((res) => setTimeout(res, 5)) })
+    expect(useRoomUploads.getState().byPlace).toEqual({})
   })
 })
 
