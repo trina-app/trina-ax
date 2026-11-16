@@ -50,7 +50,7 @@ autorizada de Claude u OpenAI. Cada fila muestra si ese motor está listo.
 #### Invite al equipo
 Empiece con un grupo piloto pequeño y después confirme los roles y el acceso a las carpetas. **Miembros e invitaciones** también enumera a los [invitados](#invitados) del equipo.
 Debajo de la lista, **Enlaces de invitación** muestra solo los enlaces que aún funcionan: el enlace de invitación del equipo y los enlaces de
-invitación que nadie ha usado todavía. Un enlace usado o vencido, o un enlace de invitado cuya sala o proyecto ya no existe, sale de la lista; quién se unió aparece en la lista de miembros y en el [Registro de actividad](#registro-de-actividad).
+invitación que nadie ha usado todavía. Un enlace usado o vencido, o un enlace de invitado cuyo chat de grupo o proyecto ya no existe, sale de la lista; quién se unió aparece en la lista de miembros y en el [Registro de actividad](#registro-de-actividad).
 
 #### Añada una primera habilidad
 Copie una habilidad inicial y revise su resultado comparándolo con las fuentes. [Más información sobre las habilidades](team-skills.md).
@@ -86,16 +86,16 @@ cuenta tiene Volver a comprobar, Subir / Bajar, cambiar el nombre, reemplazar, d
 
 ## Invitados
 
-**Administración › Miembros e invitaciones** termina con **Invitados**: personas de fuera del equipo, cada una como máximo en una
-sala y en un proyecto, que no ocupan plazas. Cada fila indica dónde está el invitado y qué IA tiene. Su menú **⋯** tiene
+**Administración › Miembros e invitaciones** termina con **Invitados**: personas de fuera del equipo, cada una como máximo en un
+chat de grupo y en un proyecto, que no ocupan plazas. Cada fila indica dónde está el invitado y qué IA tiene. Su menú **⋯** tiene
 **Cambiar IA** (sin IA, su propio inicio de sesión o una cuenta de IA del equipo con un límite mensual), **Hacer miembro
-del equipo** y **Quitar invitado**. Los miembros invitan a los invitados ellos mismos desde una conversación de grupo o
+del equipo** y **Quitar invitado**. Los miembros invitan a los invitados ellos mismos desde un chat de grupo o
 un proyecto ([Invitados](chats-and-projects.md#invitados)). Los propietarios y los administradores también pueden elegir
 aquí **Invitar al equipo** › **Invitado** y elegir el chat de grupo o el proyecto ([Invitados: desde
 Administración](guests.md#desde-administración)). Un equipo sin invitados no tiene sección **Invitados**; para
 comprobarlo, elija **Invitados** en la lista de roles.
 
-![Administración › Miembros e invitaciones › Invitados en un teléfono: Morgan Reyes, en la sala Launch email, con Sin IA](../../images/admin/guests.webp "Invitados")
+![Administración › Miembros e invitaciones › Invitados en un teléfono: Morgan Reyes, en el chat de grupo Launch email, con Sin IA](../../images/admin/guests.webp "Invitados")
 
 ## Apps conectadas
 

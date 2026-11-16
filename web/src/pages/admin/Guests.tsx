@@ -6,6 +6,7 @@
 // (their account is turned off: PATCH status disabled; a removed guest's "…" deletes the account for good, as for a
 // member). Guests are invited from a room's or a project's "Add people", not here. The members table above leaves them
 // out. ?member=<id> marks and scrolls to a guest's row too (a refused "add to a second place" opens it: GuestInvite.tsx).
+// Over the list, one team setting: the largest file a guest may upload (GuestFileLimit; 100 MB, 1 GB or 10 GB).
 // Removed guests stay out of sight behind "Show removed (N)". "Make team member" reads the seats before its dialog
 // (GET /api/guest-invites/limit): with every seat taken the dialog says so, with "See plans", and has nothing to confirm.
 // Its words say that their AI then follows the team's settings, like any member's (the guest AI choice ends).
@@ -19,9 +20,9 @@
 // Restore project (restoring brings them back); the count beside the title is the active ones, as the plan counts them.
 import { ArrowUpCircle, Bot, KeyRound, RotateCcw, Trash2, UserRoundX } from 'lucide-react'
 import clsx from 'clsx'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { Credential, GuestAiChoice, Locale, User } from '@mycel/shared/api'
+import { GUEST_FILE_DEFAULT, GUEST_FILE_MAX, type Credential, type GuestAiChoice, type GuestFileMax, type Locale, type User } from '@mycel/shared/api'
 import { api, API, isApiError } from '../../lib/api'
 import { GUEST_NO_PLACE, guestRowState, trashedProjectOf, userGuest, type GuestPlaceOut, type GuestPlaceOutView } from '../../lib/guests'
 import { useLocale, useT } from '../../i18n'
@@ -29,8 +30,8 @@ import { isAdmin, useMeStrict } from '../../store/session'
 import { toast } from '../../store/ui'
 import { Avatar } from '../../components/Avatar'
 import { ListRow } from '../../components/list/List'
-import { Button, Modal, Skeleton, confirmDialog } from '../../components/ui'
-import { formatMonthDay, formatNumber, formatUsd } from '../../lib/format'
+import { Button, Modal, Skeleton, confirmDialog, inputCls } from '../../components/ui'
+import { formatMonthDay, formatNumber, formatSize, formatUsd } from '../../lib/format'
 import { aiChoiceReady, ConvertGuestDialog, GuestAiChoices, guestErrorText, useGuestLimit, useTeamConnections } from '../../components/GuestInvite'
 import { MemberMenu, type MemberMenuItem } from './RowMenu'
 import { OneLine, useAction } from './common'
@@ -55,6 +56,40 @@ function aiWords(t: ReturnType<typeof useT>, locale: Locale, g: NonNullable<Retu
   // the limit and what is left before the account's name: a phone's row shows two lines, and the account is the part
   // that may be cut (QA TC-3310)
   return [t('guest.ai.team'), limit, left, label].filter(Boolean).join(' · ')
+}
+
+/** The largest file a guest may upload, in a chat, their project's folder or an AI chat (TeamSettings.guestFileMax; docs/decisions/
+ * 20261116-guest-room-file-limit.md): 100 MB unless the owner or an admin picks more, saved as it is picked. Members
+ * are not held to it. One line over the guests' list, the team's only setting about all guests. */
+export function GuestFileLimit() {
+  const t = useT()
+  const locale = useLocale()
+  const act = useAction()
+  const [value, setValue] = useState<GuestFileMax | null>(null)
+  const [saving, setSaving] = useState(false)
+  useEffect(() => {
+    let alive = true
+    void api.call(API.settings).then((s) => { if (alive) setValue(s.guestFileMax ?? GUEST_FILE_DEFAULT) }, () => {})
+    return () => { alive = false }
+  }, [])
+  if (value === null) return null
+  const pick = async (next: GuestFileMax) => {
+    if (saving) return
+    const before = value
+    setValue(next)
+    setSaving(true)
+    const r = await act(() => api.call(API.updateSettings, { body: { guestFileMax: next } }), t('common.saved'))
+    setSaving(false)
+    if (!r) setValue(before)
+  }
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm" data-testid="guest-file-limit">
+      <label htmlFor="guest-file-max">{t('guest.admin.fileLimit')}</label>
+      <select id="guest-file-max" className={clsx(inputCls, 'w-auto min-w-28')} value={value} aria-busy={saving || undefined} onChange={(e) => void pick(e.target.value as GuestFileMax)} data-testid="guest-file-max">
+        {(Object.keys(GUEST_FILE_MAX) as GuestFileMax[]).map((k) => <option key={k} value={k}>{formatSize(GUEST_FILE_MAX[k], locale)}</option>)}
+      </select>
+    </div>
+  )
 }
 
 export function GuestsSection({ guests, filtered = false, connections, focusId, onChanged, onDelete, onResetPassword, deletionRequested = [], deletionDue = {} }: {
@@ -160,6 +195,7 @@ export function GuestsSection({ guests, filtered = false, connections, focusId, 
       </div>
       <OneLine className="mt-0.5 mb-2 text-xs text-muted">{t('guest.admin.desc')}</OneLine>
       {over && <p className="mb-2 text-sm leading-6 break-keep text-warn" role="status" data-testid="guests-over">{t('guest.admin.over', { m: cap })}</p>}
+      {!filtered && <GuestFileLimit />}
       {!sorted.length ? (
         <p className="border-y border-line py-4 text-sm text-faint" data-testid="guests-none">{filtered ? t('members.noMatch') : removedCount ? t('guest.admin.noneActive') : t('guest.admin.none')}</p>
       ) : (

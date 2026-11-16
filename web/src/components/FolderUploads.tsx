@@ -3,6 +3,7 @@
 // and the row is there when they come back. The work itself is lib/folderUpload.ts.
 import { FolderUp, Loader2, X } from 'lucide-react'
 import { UPLOAD_SESSION_MAX } from '@mycel/shared/api'
+import { myUploadMaxNow } from '../store/session'
 import { api, API, errorText } from '../lib/api'
 import { FolderUpload, type FolderFailure, type FolderPlan, type FolderUploadCalls } from '../lib/folderUpload'
 import { useRuns, type Run } from '../lib/folderRuns'
@@ -32,10 +33,12 @@ useRuns.subscribe((s) => {
   else window.removeEventListener('beforeunload', stay)
 })
 
+const fileMax = () => myUploadMaxNow(UPLOAD_SESSION_MAX)
 const target = (path: string) => ({ kind: 'path', path, onExists: 'rename' }) as const
 
 const calls: FolderUploadCalls = {
-  maxFileSize: UPLOAD_SESSION_MAX,
+  // a guest: the team's guest limit, as it is when the folder is dropped
+  get maxFileSize() { return fileMax() },
   mkdir: (path, signal) => api.call(API.mkdir, { body: { path }, signal }),
   isFolder: (path, signal) => api.call(API.tree, { query: { path, limit: 1 }, signal }).then(() => true, () => false),
   upload: (file, path, signal, onProgress) => uploadFile(file, target(path), { client: api, signal, onProgress }),
@@ -125,7 +128,7 @@ function FolderRow({ item, here }: { item: Run; here: string }) {
   const said = running ? (v.failed ? `${title}: ${failed}` : '') : `${title}: ${t('files.folderUpload.ended', { done: v.done, total: v.total })}${v.failed ? ` ${failed}` : ''}`
   const reason = (f: FolderFailure) => {
     if (f.local === 'unreadable') return t('files.folderUpload.unreadable')
-    if (f.local === 'tooLarge') return t('files.folderUpload.tooLarge', { size: formatSize(UPLOAD_SESSION_MAX, locale) })
+    if (f.local === 'tooLarge') return t('files.folderUpload.tooLarge', { size: formatSize(fileMax(), locale) })
     if (f.local) return t(`files.name.${f.local}`)
     return errorText(f.error, locale, t('error.network'))
   }
