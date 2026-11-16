@@ -33,6 +33,7 @@ import { guestAppHref } from '../lib/guests'
 import { useViewerItem } from './ImageViewer'
 import { teamImageItem } from '../lib/imageViewer'
 import { useDarkTheme } from '../lib/theme'
+import { useGrantedLink } from '../lib/grantedLink'
 import { keepPunctuation } from '../lib/keepPunctuation'
 
 const mathRemark = [remarkMath, { singleDollarTextMath: true }] as const
@@ -284,7 +285,7 @@ const useLinkTarget = (path: string) => teamLinkTarget(path, useContext(Openable
 function TeamFileLink({ path, at, children }: { path: string; at?: SourceLoc; children: ReactNode }) {
   const t = useT()
   const target = useLinkTarget(path)
-  if (target.kind === 'locked') return <LockedFile>{children}</LockedFile>
+  if (target.kind === 'locked') return <LockedFile path={path}>{children}</LockedFile>
   const copy = target.kind === 'copy' ? target.copy : null
   const canPreview = previewKind(copy?.name ?? path) !== null
   return (
@@ -314,9 +315,20 @@ function AppLink({ href, children }: { href: string; children: ReactNode }) {
   return to ? <Link to={to}>{children}</Link> : <span>{children}</span>
 }
 
-function LockedFile({ children }: { children: ReactNode }) {
+function LockedFile({ children, path }: { children: ReactNode; path?: string }) {
   const t = useT()
   const why = t('rooms.fileNoAccess')
+  // shared with me since (the sender's "Let them view", docs/decisions/20261116-ai-share-who-can-open.md): the folder
+  // still does not let me in, the file's own link does
+  const link = useGrantedLink(path)
+  if (link) {
+    return (
+      <Link to={`/f/${link}`} className="not-prose inline rounded-sm text-left font-medium text-accent-text underline decoration-accent-text/40 underline-offset-2 [overflow-wrap:anywhere] hover:decoration-accent-text" title={t('common.preview')} data-testid="team-file-shared-link">
+        <FileText className="mr-0.5 inline-block size-[0.95em] shrink-0 align-[-0.125em]" aria-hidden />
+        {children}
+      </Link>
+    )
+  }
   return (
     <Tooltip label={why} description>
       <button

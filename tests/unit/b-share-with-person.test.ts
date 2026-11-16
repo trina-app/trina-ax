@@ -192,14 +192,17 @@ describe('in a shared chat (the same rules as post_to_room)', () => {
       expect(cardsTo('bob', named.turnId)).toBe(0)
       expect(JSON.parse(named.content).status).toBe('shared')
       // alice names the person, bob's own message does not: the card, without "Always allow"
-      await turn('alice', `Bob, share photo-5.png with Tess.\n${fake({ say: 'ok' })}`, { chat: chatId })
-      const steered = await turn('bob', `photo-5.png 그거 해줘\n${hidden({ paths: ['users/bob/photo-5.png'], people: ['Tess Yoon'] })}`, { chat: chatId, answer: 'no' })
+      // (a file Tess cannot open yet: one she can already open is said so and never asked about, chat/share-next-steps.ts)
+      put('users/bob/photo-6.png', 'png six')
+      await turn('alice', `Bob, share photo-6.png with Tess.\n${fake({ say: 'ok' })}`, { chat: chatId })
+      const steered = await turn('bob', `photo-6.png 그거 해줘\n${hidden({ paths: ['users/bob/photo-6.png'], people: ['Tess Yoon'] })}`, { chat: chatId, answer: 'no' })
       expect(steered.card!.options!.map((x) => x.value)).toEqual(['share', 'no'])
     } finally { dropAlways(h.ctx.db, 'bob', 'card:share_files') }
   })
 
   test('another viewer cannot answer the asker\'s card', async () => {
-    const started = await h.api('bob').call(API.sendMessage, { params: { id: chatId }, body: { content: `share photo-2.png (to the person I said before)\n${share({ paths: ['users/bob/photo-2.png'], people: ['Tess Yoon'] })}`, clientMessageId: cm(), attachmentIds: [] } })
+    put('users/bob/photo-7.png', 'png seven')
+    const started = await h.api('bob').call(API.sendMessage, { params: { id: chatId }, body: { content: `share photo-7.png (to the person I said before)\n${share({ paths: ['users/bob/photo-7.png'], people: ['Tess Yoon'] })}`, clientMessageId: cm(), attachmentIds: [] } })
     const c = await socks.bob!.next('turn.request', (f) => f.data.turnId === started.turnId)
     let refused = 0
     try { await h.api('alice').call(API.answerTurn, { params: { id: started.turnId }, body: { kind: 'ask_user', requestId: c.data.request.requestId, answer: 'share' } }) } catch (e) { refused = (e as { status: number }).status }

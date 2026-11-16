@@ -1959,6 +1959,23 @@ export class MockServer {
       this.openAsks.delete(turnId)
       pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
     }
+    if (/nextstep (view|owner|admin|project)/i.test(prompt)) {
+      // like server/src/files/share-fixes.ts (docs/decisions/20261116-ai-share-who-can-open.md): a step with one offer the
+      // server wrote (Step.fixes); POST /api/share-fixes/:id/run answers what it became. "nextstep view": after a post,
+      // people named, Let them view; "owner": someone else's file, counted, Ask <owner>; "admin": a team folder, Ask an
+      // admin; "project": this chat is private in a team project, Share with project (the app's own share flow)
+      const kind = /nextstep (view|owner|admin|project)/i.exec(prompt)![1]!.toLowerCase()
+      const id = uuidv7()
+      const fix: import('@mycel/shared/api').StepFix = kind === 'view' ? { id, kind: 'let_view', file: 'Quote.pdf', place: '#Sales', people: ['Jun Park', 'Mina Seo', 'Leo Kim'], count: 4, guests: 1, state: 'open' }
+        : kind === 'owner' ? { id, kind: 'ask_owner', file: 'Quote.pdf', place: '#Sales', owner: 'Mina Seo', count: 3, state: 'open' }
+          : kind === 'admin' ? { id, kind: 'ask_admin', file: 'Contracts', owner: 'Dana Choi', people: ['Jun Park'], count: 1, state: 'open' }
+            : { id, kind: 'share_project', file: this.projects.find((p) => p.id === this.chats.find((c) => c.id === chatId)?.projectId)?.name ?? 'Launch', chatId, count: 0, state: 'open' }
+      this.stepFixes.set(id, { userId: user.id, messageId: assistant.id, left: kind === 'view' ? 1 : 0 })
+      const tool = kind === 'view' || kind === 'owner' ? 'post_to_room' : 'who_can_open'
+      const x = step({ id: 'N1', kind: 'tool', tool, label: tool === 'post_to_room' ? 'Send to conversation · #Sales' : 'Check who can open it', status: 'ok', endedAt: now(), fixes: [fix] })
+      assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]
+      pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } })
+    }
     if (/postroomcard/i.test(prompt)) {
       // like server/src/chat/post-to-room.ts: ONE card with the room and its people, the note apart (under my name), all
       // of the text (folded past 600), the lines that apply, the files [파일도 함께 보내기] attaches; after a yes the step
@@ -6218,6 +6235,8 @@ export class MockServer {
   fileGrantMeta = new Map<string, { by: string; at: string }>()
   fileRequests: { id: string; linkId: string; path: string; userId: string; ownerId: string | null; note: string | null; at: string; state: 'pending' | 'approved' | 'declined' | 'closed' }[] = []
   fileRequestLimit = Infinity
+  /** the offers of "nextstep …" answers (Step.fixes): who may run each, and the answer it is on */
+  stepFixes = new Map<string, { userId: string; messageId: string; left: number }>()
   lastRemoveFileLinks: boolean | null = null
   readonly fileSharesInstalled = this.installFileShares()
 
@@ -6384,6 +6403,20 @@ export class MockServer {
       const name = path!.slice(path!.lastIndexOf('/') + 1)
       return new Response(n.data! as unknown as BodyInit, { headers: { 'content-type': mimeOf(path!) ?? 'application/octet-stream', 'content-length': String(n.data!.byteLength), 'content-disposition': `${c.query.disposition === 'inline' ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(name)}`, 'x-content-type-options': 'nosniff', 'content-security-policy': "sandbox; default-src 'none'" } })
     }
+    // one-tap next steps (server/src/files/share-fixes.ts): once, only for the person the offer was made for
+    h.runShareFix = (c) => {
+      const o = this.stepFixes.get(c.params.id!)
+      if (!o || o.userId !== c.user.id) fail('not_found', 404)
+      for (const m of this.messages) for (const s of m.steps ?? []) for (const f of s.fixes ?? []) {
+        if (f.id !== c.params.id) continue
+        if (f.kind === 'share_project') return { state: f.state }
+        if (/refuse/i.test(f.file)) fail('forbidden', 403, 'Only the file\'s owner can share it.', undefined, { reason: 'file_share_not_owner' })
+        if (f.state === 'open') { f.state = 'done'; f.doneCount = f.kind === 'let_view' ? f.count : f.kind === 'ask_admin' ? 1 : f.count; if (o!.left) f.left = o!.left }
+        return { state: f.state, ...(f.doneCount !== undefined ? { doneCount: f.doneCount } : {}), ...(f.left ? { left: f.left } : {}) }
+      }
+      return fail('not_found', 404)
+    }
+    h.grantedFileLink = () => ({ id: null })
     h.requestFileAccess = (c) => {
       if (c.user.role === 'guest') fail('forbidden', 403)
       const path = this.fileLinks.get(c.params.id!)

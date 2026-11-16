@@ -19,6 +19,8 @@ import { useProjects } from '../../store/projects'
 import { toast } from '../../store/ui'
 import { Button, Modal, Skeleton } from '../ui'
 import { changeChat } from './chatActions'
+import { mayShareChat, openShareChat } from './ShareChat'
+import { useSession } from '../../store/session'
 import { NewProjectDialog } from '../NewProjectDialog'
 import { whoSeesProject } from '../projectWho'
 
@@ -185,7 +187,14 @@ export function MoveToProjectDialog({ chat, onClose, onMoved }: { chat: Chat; on
     // the row moves and the dialog closes at once; a refusal puts the chat back with the server's words in a toast
     onClose()
     const r = await moveChat(chat, selected, onMoved)
-    if (r.ok && r.newest) toast({ level: 'success', text })
+    if (!r.ok || !r.newest) return
+    // into a team project it arrives private (docs/DECISIONS.md "Team project chats shared by default": a moved chat is
+    // never shared by the move): said at the move, with the one way to share it (docs/decisions/
+    // 20261116-ai-share-who-can-open.md). The share flow asks before it shares: sharing cannot be undone
+    const st = useSession.getState().status
+    const safeOps = st.kind === 'signed-in' && !!st.me.server?.allChatsConfidential
+    if (to && mayShareChat({ ...chat, ...r.reply }, to, safeOps)) toast({ level: 'success', text: t('chat.project.movedPrivate', { name: to.name }), ms: 8000, action: { label: t('stepFix.shareProject'), run: () => openShareChat(chat.id) } })
+    else toast({ level: 'success', text })
   }
   if (making) return <NewProjectDialog initialName={chat.title ?? ''} onClose={() => setMaking(false)} onMade={(p) => void madeAndMove(p)} />
   return (

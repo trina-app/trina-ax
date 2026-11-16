@@ -201,6 +201,8 @@ export function fileShareText(item: InboxNotification, t: T): string {
   if (!f || f.gone || !f.name) return code === 'file.shared' ? t('notifications.event.file.gone') : t(`notifications.event.${code}`)
   if (!f.by) return t(`notifications.event.${code}`)
   if (code === 'file.shared') return t('notifications.event.file.sharedNamed', { by: f.by, name: f.name })
+  // asked for someone else ("Ask <owner>" under an AI step): who would get it
+  if (code === 'file.access_requested' && f.for) return t('notifications.event.file.access_requestedFor', { by: f.by, name: f.name, for: f.for })
   if (code === 'file.access_requested') return t('notifications.event.file.access_requestedNamed', { by: f.by, name: f.name })
   return t('notifications.event.file.unshared_by_moveNamed', { by: f.by, name: f.name })
 }
