@@ -7,7 +7,7 @@ type ByLocale = Record<PushLocale, string>
 
 export const DEFAULT_APP_TITLE = 'Trina AX'
 
-export const EVENT_TEXT: Record<'schedule.success' | 'schedule.failure' | 'connection.reconnect' | 'chat.answer_done' | 'chat.shared' | 'room_app.paused', ByLocale> = {
+export const EVENT_TEXT: Record<'schedule.success' | 'schedule.failure' | 'connection.reconnect' | 'chat.answer_done' | 'chat.shared' | 'room_app.paused' | 'chat.thread_reply', ByLocale> = {
   'schedule.success': {
     ko: '예약 작업이 완료됐어요.',
     en: 'A scheduled task completed.',
@@ -41,6 +41,12 @@ export const EVENT_TEXT: Record<'schedule.success' | 'schedule.failure' | 'conne
     ko: '대화에 추가한 앱이 오늘 하루 멈췄어요.',
     en: 'An app in a conversation was paused for today.',
     id: 'Sebuah aplikasi di percakapan dijeda untuk hari ini.', ja: 'トークのアプリが今日は一時停止されました。', es: 'Una aplicación de una conversación se pausó por hoy.', zh: '聊天中的一个应用今天已暂停。',
+  },
+  // a reply in a thread I follow under an AI answer of a shared chat: older team servers never send it; never who, the chat's title or the reply's text
+  'chat.thread_reply': {
+    ko: '스레드에 답글이 달렸어요.',
+    en: 'Someone replied in a thread.',
+    id: 'Seseorang membalas di utas.', ja: 'スレッドに返信がありました。', es: 'Alguien respondió en un hilo.', zh: '有人在话题中回复了。',
   },
 }
 

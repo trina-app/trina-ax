@@ -19,6 +19,7 @@ import { roomNoticeOut } from '../rooms/inbox'
 import { chatAnswerWanted } from './chat-answers'
 import { chatShareLabel, chatShareWanted } from './chat-shares'
 import { roomAppPushWanted } from '../rooms/apps/notice'
+import { chatThreadWanted } from '../chat/threads'
 import { readPushConfig, pushConfigKey, type PushConfig } from './push-config'
 import { bounded, createPushTransport, pushFailure, validatePushSubscription, type PushSubscription, type PushTransport } from './push-transport'
 import { pushBadge } from './push-badge'
@@ -62,6 +63,9 @@ const SOURCES=[
   // an app in a room the person manages paused for the day (migration 352): while unread, the app still paused and the
   // person still in its room (rooms/apps/notice.ts)
   {inbox:'room_app_notices',deliveries:'room_app_push_deliveries',only:'',unread:'read_at IS NULL',wanted:(_db:Database,id:string,now:number,ctx:AppContext)=>roomAppPushWanted(ctx,id,now),due:'?'},
+  // a reply in a chat thread I follow (migration 408): after its wait (someone with the thread on screen reads it
+  // first), while unread, its reply still there, outside my quiet hours and the thread still mine to see (chat/threads.ts)
+  {inbox:'chat_thread_notices',deliveries:'chat_thread_push_deliveries',only:'',unread:'read_at IS NULL',wanted:(_db:Database,id:string,now:number,ctx:AppContext)=>chatThreadWanted(ctx,id,now),due:'MAX(?,n.push_at)'},
 ] as const
 type Source=typeof SOURCES[number]
 export class PushService {

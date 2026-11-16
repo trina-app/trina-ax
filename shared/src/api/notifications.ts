@@ -60,7 +60,11 @@ export function plainLabel(s: string, max = 80): string {
 /** room_app.paused: an app in a room the person manages reached the day's cap and paused (room_app_notices with their
  * own deliveries, room_app_push_deliveries, migration 352; docs/DECISIONS.md "Apps posting in rooms"). No setting of its
  * own: pushed while the notice is unread, the app still paused and the person still in its room. */
-export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention', 'owner.lead_joined', 'owner.reauth_locked', 'chat.answer_done', 'chat.shared', 'room_app.paused'])
+/** chat.thread_reply: a reply under an AI answer of a shared chat, in a thread I follow (I asked the answer or replied;
+ * chat_thread_notices with their own deliveries, chat_thread_push_deliveries, migration 408; docs/decisions/
+ * 20261116-chat-answer-threads.md). One unread notice per thread; listed in the Inbox always, pushed while "Replies in
+ * threads I'm part of" (roomThreadReplies) is on. */
+export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention', 'owner.lead_joined', 'owner.reauth_locked', 'chat.answer_done', 'chat.shared', 'room_app.paused', 'chat.thread_reply'])
 /** The room notices among them (server/src/rooms/notices.ts). */
 export const ROOM_PUSH_EVENTS = ['room.dm', 'room.mention'] as const
 export type PushEventType = z.infer<typeof PushEventType>
@@ -96,7 +100,7 @@ export const NotificationEventType = z.enum([...PushEventType.options, 'skill.su
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
-  createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project', 'integrations', 'admin_credentials', 'room', 'admin_members', 'admin_connectors', 'account_deletion', 'file']).nullable(),
+  createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project', 'integrations', 'admin_credentials', 'room', 'admin_members', 'admin_connectors', 'account_deletion', 'file', 'chat_thread']).nullable(),
   /** scheduled runs only: succeeded / finished with problems / failed (the inbox text follows it; older servers omit it) */
   outcome: ScheduleRunOutcome.nullable().optional(),
   /** 'schedule.success' and 'schedule.failure' for one task's run (not `review`), while the task is the person's and
@@ -206,6 +210,12 @@ export const InboxNotification = z.object({
    * `title`: the chat's title, read now and only while I still see the chat (link 'chat' then opens it); `gone`: I no
    * longer see it ("This chat is no longer shared with you": no title, no link). Never stored text. Older servers omit it */
   chatShared: z.object({ name: z.string().nullable(), title: z.string().nullable(), gone: z.literal(true).optional() }).optional(),
+  /** 'chat.thread_reply' only (docs/decisions/20261116-chat-answer-threads.md; chat_thread_notices): someone replied in a
+   * thread I follow under an AI answer of a shared chat. Read now, while I still see that chat and answer (link
+   * 'chat_thread' then opens /c/<chatId>/t/<rootId>): `name`, the newest replier by display name while their account is
+   * there; `title`, the chat's title. `gone`: I no longer see it (no name, no title, no link). Never a reply's text.
+   * Older servers omit it */
+  chatThread: z.object({ chatId: z.string().nullable(), rootId: z.string().nullable(), name: z.string().nullable(), title: z.string().nullable(), gone: z.literal(true).optional() }).optional(),
   /** the 'file.*' notices (docs/DECISIONS.md "A member shares their own files", file_share_notices). file.shared:
    * `by` shared `name` with me (link 'file' opens /f/<linkId>). file.access_requested (to the file's owner, or the team
    * owner and admins for a file with no owner): `by` asked to open `name`, their `note` (plain text), `requestId` and

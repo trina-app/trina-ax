@@ -109,11 +109,17 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     // the hosting service copied the team's key or data, or the team address moved to another server (shown always,
     // Notifications.hostingNotice): only the owners and admins can tell whether they asked for it
     case 'hosting.key_copied': case 'hosting.exported': case 'relay.address_moved': return true
+    // a reply in a thread I follow under an AI answer of a shared chat (shown always; its push follows "Replies in threads
+    // I'm part of": pushEventEnabled)
+    case 'chat.thread_reply': return true
   }
 }
 /** May this event go to OS push? eventEnabled, except where the Inbox row is shown always but its push has a switch of
- * its own: a chat shared with me by name ("Chats shared with me"; older apps never send it: on). */
+ * its own: a chat shared with me by name ("Chats shared with me"; older apps never send it: on), a reply in a chat thread I
+ * follow ("Replies in threads I'm part of"). */
 export function pushEventEnabled(p: NotificationPreferences, event: NotificationEventType) {
   if (event === 'chat.shared') return p.chatShares ?? true
+  // a reply in a thread under an AI answer of a shared chat: the one thread setting, as rooms' threads (older apps: on)
+  if (event === 'chat.thread_reply') return p.roomThreadReplies ?? true
   return eventEnabled(p, event)
 }

@@ -71,6 +71,9 @@ const reads = (): Row[] => [
   { route: 'GET /api/chats/:id/files/:fileId?download=1', run: (w) => hit(w, `/api/chats/${chatId}/files/${chatFileId}?download=1`), allow: IN, deny: out404 },
   { route: 'GET /api/uploads/:id/thumbnail (chat file)', run: (w) => hit(w, `/api/uploads/${chatFileId}/thumbnail`), allow: IN, deny: out404 },
   { route: 'POST /api/chats/:id/seen', run: (w) => hit(w, `/api/chats/${chatId}/seen`, J({})), allow: IN, deny: out404 },
+  // threads on AI answers (chat/threads.ts threadAccess): everyone in it, the one 404 for everyone else
+  { route: 'GET /api/chats/:id/messages/:messageId/thread', run: (w) => hit(w, `/api/chats/${chatId}/messages/${answerId}/thread`), allow: IN, deny: out404 },
+  { route: 'POST /api/chats/:id/messages/:messageId/thread', run: (w) => hit(w, `/api/chats/${chatId}/messages/${answerId}/thread`, J({ text: `reply by ${w}`, clientId: cm() })), allow: IN, deny: out404 },
   { route: 'GET /api/chats (list)', run: async (w) => { const r = await hit(w, '/api/chats'); return r.text.includes(chatId) ? r : { status: 404, text: r.text } }, allow: IN, deny: out404 },
   { route: 'GET /api/chats/groups', run: async (w) => { const r = await hit(w, '/api/chats/groups'); return r.text.includes(chatId) ? r : { status: 404, text: r.text } }, allow: IN, deny: out404 },
   { route: 'GET /api/chats?q=', run: async (w) => { const r = await hit(w, `/api/chats?q=${CANARY}`); return r.text.includes(chatId) ? r : { status: 404, text: r.text } }, allow: IN, deny: out404 },
@@ -90,6 +93,10 @@ const writes = (): Row[] => [
   // a file from the computer is kept with the chat (chat/chat-files.ts): everyone in it, nobody else
   { route: 'POST /api/uploads (computer file)', run: (w) => { const f = new FormData(); f.set('chatId', chatId); f.set('file', new File(['x'], 'x.txt', { type: 'text/plain' })); return hit(w, '/api/uploads', { method: 'POST', headers: { [CSRF_HEADER]: '1' }, body: f }) }, allow: IN, deny: out404 },
   { route: 'POST /api/chats/:id/branch', run: (w) => hit(w, `/api/chats/${chatId}/branch`, J({ messageId: answerId })), allow: IN, deny: out404 },
+  // a read mark on a reply alice just wrote: everyone in it; deleting it: its author (alice, also the creator: the only
+  // moderator of a chat shared with people), 403 for the others in it, the one 404 for everyone else
+  { route: 'POST /api/chats/:id/messages/:messageId/thread/read', run: async (w) => { const r = JSON.parse((await hit('alice', `/api/chats/${chatId}/messages/${answerId}/thread`, J({ text: 'to read', clientId: cm() }))).text); return hit(w, `/api/chats/${chatId}/messages/${answerId}/thread/read`, J({ upTo: r.id })) }, allow: IN, deny: out404 },
+  { route: 'DELETE /api/chats/:id/thread-replies/:replyId', run: async (w) => { const r = JSON.parse((await hit('alice', `/api/chats/${chatId}/messages/${answerId}/thread`, J({ text: 'to delete', clientId: cm() }))).text); return hit(w, `/api/chats/${chatId}/thread-replies/${r.id}`, { method: 'DELETE', headers: { [CSRF_HEADER]: '1' } }) }, allow: ['alice'], deny: { bob: 403, erin: 403, ...out404 } },
   { route: 'POST /api/chats/:id/stop (idle)', run: (w) => hit(w, `/api/chats/${chatId}/stop`, J({})), allow: IN, deny: out404 },
   { route: 'POST /api/sharing/widening-answers (chat)', run: (w) => hit(w, '/api/sharing/widening-answers', J({ target: { kind: 'chat', chatId }, add: [{ subjectType: 'user', subjectId: 'carol' }] })), allow: ['alice'], deny: { bob: 403, erin: 403, ...out404 } },
   { route: 'DELETE /api/chats/:id', run: async (w) => { const r = await hit(w, `/api/chats/${chatId}`, { method: 'DELETE', headers: { [CSRF_HEADER]: '1' } }); if (r.status < 300) await hit('alice', `/api/chats/${chatId}/restore`, J({})); return r }, allow: ['alice'], deny: { bob: 403, erin: 403, ...out404 } },

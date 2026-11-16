@@ -6,6 +6,7 @@ import { noticeWanted } from '../rooms/alerts'
 import { chatAnswerPath } from './chat-answers'
 import { chatSharePath } from './chat-shares'
 import { roomAppPushPath } from '../rooms/apps/notice'
+import { chatThreadPath } from '../chat/threads'
 type Stop = (scope: { userId?: string; sessionId?: string }) => void
 const listeners = new WeakMap<AppContext, Stop>()
 export function onPushCancellation(ctx: AppContext, stop: Stop) { listeners.set(ctx, stop); return () => { if (listeners.get(ctx) === stop) listeners.delete(ctx) } }
@@ -23,6 +24,10 @@ export function cancelDisabledPushDeliveries(ctx: AppContext, userId: string, pr
   // a chat shared with me by name (migration 351): "Chats shared with me" off stops what waits for a push (the Inbox row stays)
   if (!pushEventEnabled(preferences, 'chat.shared')) ctx.db.query(`UPDATE chat_share_push_deliveries SET state='cancelled',lease_until=NULL WHERE state IN ('pending','sending') AND notification_id IN
     (SELECT id FROM chat_share_notices WHERE user_id=?)`).run(userId)
+  // a reply in a chat thread I follow (migration 408): "Replies in threads I'm part of" off stops what waits for a push
+  // (the Inbox row stays)
+  if (!pushEventEnabled(preferences, 'chat.thread_reply')) ctx.db.query(`UPDATE chat_thread_push_deliveries SET state='cancelled',lease_until=NULL WHERE state IN ('pending','sending') AND notification_id IN
+    (SELECT id FROM chat_thread_notices WHERE user_id=?)`).run(userId)
   // room notices have their own deliveries (migration 241); each room's level decides (rooms/alerts.ts noticeWanted), so
   // a default of 받지 않음 or a narrower level stops what waits for a push
   const waiting = ctx.db.query(`SELECT DISTINCT d.notification_id id FROM room_push_deliveries d JOIN room_notices n ON n.id=d.notification_id
@@ -67,6 +72,8 @@ pushPaths.set('owner.lead_joined', () => '/')
 pushPaths.set('chat.answer_done', chatAnswerPath)
 // a chat shared with me by name opens that chat while I still see it (notifications/chat-shares.ts)
 pushPaths.set('chat.shared', chatSharePath)
+// a reply in a chat thread I follow opens that thread (/c/<chatId>/t/<answerId>) while I still see it (chat/threads.ts)
+pushPaths.set('chat.thread_reply', chatThreadPath)
 // an app's paused notice opens the app's room (/rooms/<roomId>) while the person is still in it (rooms/apps/notice.ts)
 pushPaths.set('room_app.paused', roomAppPushPath)
 // the owner's locked password check opens the Inbox (the notice there says what to do), as the older events do

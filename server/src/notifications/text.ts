@@ -65,6 +65,12 @@ export const TEXT = {
     en: 'An app in a conversation was paused for today.',
     id: 'Sebuah aplikasi di percakapan dijeda untuk hari ini.', ja: 'トークのアプリが今日は一時停止されました。', es: 'Una aplicación de una conversación se pausó por hoy.', zh: '聊天中的一个应用今天已暂停。',
   },
+  // a reply in a thread I follow under an AI answer of a shared chat: never who, the chat's title or the reply's text
+  'chat.thread_reply': {
+    ko: '스레드에 답글이 달렸어요.',
+    en: 'Someone replied in a thread.',
+    id: 'Seseorang membalas di utas.', ja: 'スレッドに返信がありました。', es: 'Alguien respondió en un hilo.', zh: '有人在话题中回复了。',
+  },
 } satisfies Record<'title' | PushEventType, Record<Locale, string>>
 /** The line under the sharer's name (the title) when an iPhone's notification extension names them
  * (notifications/chat-shares.ts chatShareLabel). Never the chat's title. */
@@ -117,5 +123,6 @@ export function pushMessages(locale: Locale) {
     'chat.answer_done': TEXT['chat.answer_done'][locale],
     'chat.shared': TEXT['chat.shared'][locale],
     'room_app.paused': TEXT['room_app.paused'][locale],
+    'chat.thread_reply': TEXT['chat.thread_reply'][locale],
   }, markRead: MARK_READ[locale], chatSharedBy: CHAT_SHARED_BY[locale] }
 }
