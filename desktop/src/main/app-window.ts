@@ -7,11 +7,11 @@
 //   shell view (welcome.html) covers everything when no team is open, the team list is shown, or the team
 //   server cannot be reached.
 import { app as electronApp, BaseWindow, dialog, nativeTheme, net, Notification, powerMonitor, session, WebContentsView, type Session } from 'electron'
-import { readSystemActivity, SYSTEM_ACTIVITY_EVERY_MS, type SystemActivity } from '../common/system-activity'
+import { COMPUTER_REPORT_PATH, ComputerReporter, readSystemActivity, SYSTEM_ACTIVITY_EVERY_MS, type SystemActivity } from '../common/system-activity'
 import { join } from 'node:path'
 import { applyMePolicy } from '../common/me-policy'
 import { PRODUCT, WEB_ALLOW_ALL_RISK, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
-import { Health, Me } from '@mycel/shared/api'
+import { CSRF_HEADER, Health, Me } from '@mycel/shared/api'
 import { asksOutside, checkTeam, desktopPagePath, firstRunLinks, hostLineNow, hostOf, isSignInPath, onThisComputer, originOf, parseTeamAddress, readDesktopLink, teamLabel, type AddressError, type HealthAnswer } from '../common/address'
 import { LinkGate, type WakeAnswer } from '@mycel/shared/team-link'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
@@ -190,6 +190,22 @@ export class AppWindow {
   /** the team answered GET /api/me for a signed-in person (fetchTeamInfo); until then the host strip is on, on every
    * page (a page can look like a sign-in page at any address) */
   private signedIn = false
+  /** the computer's own use to the open team's server, while signed in (common/system-activity.ts ComputerReporter) */
+  private readonly computerReporter = new ComputerReporter({
+    team: () => (this.app && this.team && this.currentOrigin ? { origin: this.currentOrigin, signedIn: this.signedIn } : null),
+    post: async (origin, body) => {
+      const app = this.app
+      if (!app || app.webContents.isDestroyed()) return 0
+      const res = await app.webContents.session.fetch(origin + COMPUTER_REPORT_PATH, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', [CSRF_HEADER]: '1' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(5000),
+      })
+      return res.status
+    },
+    signedOut: () => { void this.refreshTeamInfo() },
+  })
   /** this team's pages draw the address and "Switch team" under their sign-in card (DesktopBridge.hostLine): no strip
    * above them on the sign-in paths. Kept until another team is opened, so a sign-out or reload does not jump. */
   private pageHostLine = false
@@ -257,8 +273,13 @@ export class AppWindow {
     nativeTheme.on('updated', themed)
     this.win.on('closed', () => nativeTheme.off('updated', themed))
     // the computer's own use for the team page's "in use" (common/system-activity.ts): another app in front or the
-    // in-app browser is still the person at the computer; a locked screen is not
-    const tellSystem = (a: SystemActivity | null) => { if (a && this.app && !this.win.isDestroyed()) this.send(this.app, 'bridge:system-activity', a) }
+    // in-app browser is still the person at the computer; a locked screen is not. Told to the page and, from here (a
+    // window in the back is throttled: its page may say nothing for minutes), to the open team's server while signed in
+    // (docs/decisions/20261116-away-os-idle.md: no phone push while the computer is in use)
+    const tellSystem = (a: SystemActivity | null) => {
+      if (a && this.app && !this.win.isDestroyed()) this.send(this.app, 'bridge:system-activity', a)
+      void this.computerReporter.report(a)
+    }
     const systemActivity = setInterval(() => tellSystem(readSystemActivity(powerMonitor)), SYSTEM_ACTIVITY_EVERY_MS)
     // a lock or an unlock is told at once, not at the next poll (macOS and Windows send these; elsewhere the poll sees it)
     const onLock = () => tellSystem({ locked: true, idleMs: 0 })
@@ -536,6 +557,7 @@ export class AppWindow {
     this.directOrigin = null
     this.pagePath = ''
     this.signedIn = false
+    this.computerReporter.reset()
     this.meAnswered = false
     this.stripWaited = false
     clearTimeout(this.stripTimer)
