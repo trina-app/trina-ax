@@ -6405,12 +6405,13 @@ export class MockServer {
   // fileLinks and its people in fileGrants, by the folder's path. Whatever is inside opens by the link and a path inside
   // it (sub) for the people on it, view only; nested shares add up; a paused share opens for nobody until its owner
   // resumes it. A removal answers an undo id (10 minutes, the remover only, once). Test-only: POST /__test/folder-shares
-  // {on?: the gate (closed until then, as on every server), world?: Bob's folders (users/bob/Work with Plan.md, Budget.csv,
+  // {on?: the gate (open by default, as on every server; on: false closes it), world?: Bob's folders (users/bob/Work with Plan.md, Budget.csv,
   // Q4/Notes.md and a hidden file; users/bob/Drafts; users/bob/downloads), paused?: [path] (the folder on the server is not
   // the one shared; the owner gets the notice), blocked?: {path: reason} (disk, run_active, project), wide?: the
   // caller has Always allow on for wider saves, undoExpired?: every undo has expired}.
-  /** the rollout gate (server/src/files/folder-share-gate.ts): closed until POST /__test/folder-shares {on: true} */
-  folderSharesOn = false
+  /** the rollout gate (server/src/files/folder-share-gate.ts): open, as on the server; POST /__test/folder-shares
+   * {on: false} closes it */
+  folderSharesOn = true
   /** shared folders whose folder on the server is not the one shared: nobody opens them until the owner resumes */
   folderPaused = new Set<string>()
   folderBlocks = new Map<string, FolderShareBlock>()
@@ -7078,7 +7079,7 @@ export class MockServer {
     }
     const baseReset = this.reset.bind(this)
     this.reset = (o) => {
-      this.folderSharesOn = false
+      this.folderSharesOn = true
       this.folderPaused = new Set()
       this.folderBlocks = new Map()
       this.folderWideSaves = false
