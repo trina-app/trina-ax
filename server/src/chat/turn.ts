@@ -802,7 +802,9 @@ export class TurnExec {
     const runKind = runKindOf(rt.ctx.config)
     let sharedWithMe: PromptInput['sharedWithMe'] = null
     // (the same turns may read them: FileService.readAuth)
-    this.files.grantReads = !this.shared && !guestPrompt && !this.restricted && !confidential
+    // (not from Slack: the answer may go to a channel and the block's names are no tool read; not a template run: its
+    // reads stay inside its own folder by the folder rules)
+    this.files.grantReads = !this.shared && !guestPrompt && !this.restricted && !confidential && !this.slackChat && !this.templateScope
     if (this.files.grantReads) { try { sharedWithMe = fileSharesOf(rt.ctx).sharedWith(spec.userId) } catch {} }
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone,

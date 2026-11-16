@@ -20,15 +20,20 @@
     with the team's address in front, `files/shares.ts linkIdOf`). The grant is checked as the link page checks it
     (`FileShares.open`: live, the same file as when shared, the owner still edits it, never a guest), at the read and
     again right before delivery (`recheckSource`). Only files the folder rules do not already let them read take this
-    path. A read by the link names the file by the link in its result, not by its path (the link page shows no path
-    either). Write, edit, moves and every other tool stay on the folder rules: nothing about changing the file widens.
+    path. A read by the link names the file by the link in our own words around it (the result's header, a refusal
+    such as "has N pages"), never by its path, and never rewrites the file's own text (the link page shows no path
+    either). The tool's audit summary keeps the real path (admins read the audit). Write, edit, moves and every other tool stay on the folder rules: nothing about changing the file widens.
   - **"Files shared with you"** (prompt.ts `sharedWithMeSection`): each turn of the person's own chat lists the files
     shared with them by a grant (their own or a group's) that open for them now and that the folder rules do not show,
-    newest first, at most 20, each with its name, who shared it, the day and its link, and says that list, glob and grep
-    do not show them. In the fresh instructions and in the per-message turn context (a resumed session gets it too).
+    newest first, at most 20, each with its name, who shared it, whom it was shared with (the person, a group of
+    theirs, or everyone on the team: the AI otherwise guessed "with you directly"), the day and its link, and says
+    that list, glob and grep do not show them. Shares to the person or their groups come before the whole team's, so
+    many "Everyone" shares never push out the person's own. Over 20, the block says older ones may exist. In the fresh instructions and in the per-message turn context (a resumed session gets it too).
     File and person names are quoted, on one line, with our block tags neutralized.
   - **Only in a turn of the person's own chat** (`TurnFiles.grantReads`, set by chat/turn.ts): a personal chat or a ✦
-    side chat. Never in a shared chat (its other viewers would read the answer; the section is in neither its prompt
+    side chat, and their own scheduled tasks (the read scope then decides where a run may save, as for any read).
+    Never from Slack (the answer may go to a channel, and the block's names are no tool read the post check sees),
+    never in a template run (its reads stay in its own folder by the rules), never in a shared chat (its other viewers would read the answer; the section is in neither its prompt
     allowlist, `SHARED_PROMPT_SECTIONS.sharedWithMe = false`, nor its read gate), for a guest, in a restricted run or a
     confidential chat, and never for a call without a chat turn (the remote connector): the folder rules alone decide
     there, as before.

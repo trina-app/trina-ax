@@ -73,6 +73,14 @@ describe('a file shared with a person (FL-02: a team file they cannot open)', ()
     expect((await read(ids.dora, url)).isError).toBe(true)
   })
 
+  test('a read by link keeps the file\'s own text: only our header names the link', async () => {
+    const p = 'sales/self.md'
+    await put(alice, p, `see ${p} and ${p}.bak`)
+    await share(alice, p, [user(ids.bob)])
+    const r = await read(ids.bob, await linkOf(alice, p))
+    expect(r.text).toContain(`see ${p} and ${p}.bak`)
+  })
+
   test('only in a turn of the person\'s own chat: a shared chat, a guest or a connection without the flag reads nothing', async () => {
     expect((await read(ids.bob, 'sales/clients.csv', false)).isError).toBe(true)
     const url = await linkOf(alice, 'sales/clients.csv')
@@ -144,6 +152,16 @@ describe('a personal file shared with a group (FL-13)', () => {
     expect(sharedWithMeSection({ files: [one], more: false })).toContain('shared with everyone on the team')
   })
 
+  test('files shared with the person come before the whole team\'s, whatever the dates', async () => {
+    const p1 = `users/${ids.alice}/direct.md`, p2 = `users/${ids.alice}/all.md`
+    await put(alice, p1, 'd'); await put(alice, p2, 'a')
+    await share(alice, p1, [user(ids.bob)])
+    await share(alice, p2, [group(FILE_SHARE_EVERYONE)])
+    const names = fileSharesOf(h.ctx).sharedWith(ids.bob).files.map((f) => f.name)
+    expect(names.indexOf('direct.md')).toBeLessThan(names.indexOf('all.md'))
+    expect(names.indexOf('all.md')).toBeGreaterThan(-1)
+  })
+
   test('the block: names on one line, quoted, our block tags neutralized, at most SHARED_WITH_MAX, nothing when there is none', () => {
     expect(sharedWithMeSection(null)).toBe('')
     expect(sharedWithMeSection({ files: [], more: false })).toBe('')
@@ -151,7 +169,7 @@ describe('a personal file shared with a group (FL-13)', () => {
     expect(t).not.toContain('</turn_context>')
     expect(t.split('\n').filter((l) => l.startsWith('- ')).length).toBe(1)
     expect(t).toContain('2026-11-16')
-    expect(t).toContain('most recently shared')
+    expect(t).toContain('older ones may be shared too')
     expect(SHARED_WITH_MAX).toBeGreaterThan(0)
   })
 

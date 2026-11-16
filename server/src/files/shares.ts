@@ -71,6 +71,8 @@ export const newLinkId = () => randomBytes(16).toString('base64url')
 
 /** files listed in the AI's turn context ("Files shared with you") */
 export const SHARED_WITH_MAX = 20
+/** grant rows looked at for that list, newest first */
+const SHARED_WITH_SCAN = 500
 /** `to`: how it reaches the person: shared with them, with a group they are in (its name), or with everyone on the team */
 export interface SharedWithFile { id: string; name: string; url: string; sharedBy: string | null; at: string; to: { kind: 'you' } | { kind: 'group'; name: string } | { kind: 'everyone' } }
 /** The link id in a file link the AI was given: /f/<id>, f/<id> or https://<any host>/f/<id> (a query or # after it
@@ -824,9 +826,12 @@ export class FileShares {
     const rows = this.db.query(`SELECT g.share_id id, MAX(g.granted_at) at, g.granted_by gb, g.subject_type st, g.subject_id sid
       FROM file_share_grants g JOIN file_shares s ON s.id = g.share_id
       WHERE s.state = 'live' AND ${REACHES('g')}
-      GROUP BY g.share_id ORDER BY at DESC, g.share_id LIMIT ?`).all(userId, userId, userId, max * 3 + 1) as { id: string; at: string; gb: string; st: 'user' | 'group'; sid: string }[]
+      GROUP BY g.share_id ORDER BY at DESC, g.share_id LIMIT ?`).all(userId, userId, userId, SHARED_WITH_SCAN) as { id: string; at: string; gb: string; st: 'user' | 'group'; sid: string }[]
+    // shared with them or a group of theirs first, then the whole team's (everyone's shares cannot push out the
+    // person's own); files the folder rules already show are skipped, so the scan goes on until `max` are found
+    rows.sort((x, y) => Number(x.st === 'group' && x.sid === ALL) - Number(y.st === 'group' && y.sid === ALL))
     const files: SharedWithFile[] = []
-    let more = false
+    let more = rows.length >= SHARED_WITH_SCAN
     for (const r of rows) {
       const o = this.open(userId, r.id)
       if (o.kind !== 'open' || o.by !== 'grant') continue

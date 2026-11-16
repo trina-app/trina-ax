@@ -208,9 +208,10 @@ export interface SharedReads {
   link(user: Principal, input: string): Authorized | null
 }
 
-/** A read made by a file's link names the file by that link, not by its path. */
+/** A read made by a file's link names the file by that link, not by its path: only in our own words around the file
+ * (its header, a quoted name), never inside the file's text. */
 function byLink(out: ToolOutput, rel: string, link: string): ToolOutput {
-  const swap = (t: string) => t.split(rel).join(link)
+  const swap = (t: string) => t.split(`PDF ${rel}:`).join(`PDF ${link}:`).split(`Image ${rel} `).join(`Image ${link} `).split(`'${rel}'`).join(`'${link}'`)
   return { ...out, text: swap(out.text), ...(out.content ? { content: out.content.map((c) => (c.type === 'text' ? { ...c, text: swap(c.text) } : c)) } : {}) }
 }
 
@@ -420,7 +421,15 @@ export class FileService {
     // a file shared with the person by its link (/f/<id>): read as its path, and the result names it by the link (the
     // link page shows no path either, docs/decisions/20261116-shared-files-for-the-ai.md)
     const link = ctx.files.grantReads ? this.shared?.link(ctx.user, a.file_path) ?? null : null
-    if (link) return byLink(await this.read(ctx, { ...a, file_path: link.rel }), link.rel, a.file_path.trim())
+    if (link) {
+      const l = a.file_path.trim()
+      try { return byLink(await this.read(ctx, { ...a, file_path: link.rel }), link.rel, l) } catch (e) {
+        // a refusal names the file by its link too ('<path>' has N pages, …)
+        if (e instanceof ToolError) throw new ToolError(e.message.split(`'${link.rel}'`).join(`'${l}'`), e.code)
+        if (e instanceof Denied) throw new Denied(e.message.split(`'${link.rel}'`).join(`'${l}'`))
+        throw e
+      }
+    }
     const e = ext(a.file_path)
     const kind = mediaKind(a.file_path)
     if ((a.pages !== undefined || a.as_images) && e !== 'pdf') throw new ToolError('pages and as_images are only for PDF files', 'bad_pages')
