@@ -3,7 +3,9 @@
 // DM (POST /api/rooms, the existing one when there is one); two or more: a new group chat of me and them, with an
 // optional name that shows only then. The same list invites people into a group chat (mode invite: the people in it
 // are left out), and a DM's "초대하기" opens it with the other person ticked (a new group chat; the DM stays). A
-// bottom sheet on phones (Modal), the action in its footer.
+// bottom sheet on phones (Modal), the action in its footer. Its first row is "Invite a guest" for everyone but a guest:
+// in a group chat's add list for that chat, in "New conversation" it picks the group chat or project first
+// (components/GuestInviteChoice.tsx GuestInviteFlow; docs/DECISIONS.md "Guests from Invite people").
 import clsx from 'clsx'
 import { Check, Hash, Search } from 'lucide-react'
 import { Fragment, useEffect, useMemo, useState } from 'react'
@@ -19,6 +21,7 @@ import { Avatar } from '../Avatar'
 import { ListRow } from '../list/List'
 import { Button, ErrorNote, inputCls, Modal, Skeleton } from '../ui'
 import { elsewhereText, GuestInviteDialog, guestElsewhere, InviteGuestRow, MakeMemberButton, OnePlaceNote, onePlaceOf } from '../GuestInvite'
+import { GuestInviteFlow } from '../GuestInviteChoice'
 import { GuestTagFor } from '../GuestTag'
 import { isGuestMe, personIsGuest } from '../../lib/guests'
 import { isAdmin } from '../../store/session'
@@ -86,9 +89,11 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
   // "Invite a guest" (components/GuestInvite.tsx): a group chat's add list only, for anyone in it but a guest; the
   // dialog takes this one's place
   const [guestInvite, setGuestInvite] = useState(false)
-  // a guest picked here is in another place already (409 guest_one_place): said under their row (or over the list)
+  // a guest picked here is in another group chat already (409 guest_one_place): said under their row (or over the list)
   const [onePlace, setOnePlace] = useState<{ guestId?: string } | null>(null)
   const mayInviteGuest = !!room && room.kind === 'group' && !isGuestMe(me)
+  // "New conversation" (no room yet): the same row, which picks the group chat or project first (GuestInviteFlow)
+  const mayInviteGuestAnywhere = !inviting && !isGuestMe(me)
   const roomTitle = useRoomTitle()
 
   // who may be picked: active people (the directory has no one else), never me, never someone already in the room
@@ -143,6 +148,7 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
     }
   }
   if (guestInvite && room) return <GuestInviteDialog place={{ kind: 'room', id: room.id, name: roomTitle(room) }} onClose={onClose} onCancel={() => setGuestInvite(false)} />
+  if (guestInvite && !inviting) return <GuestInviteFlow onClose={onClose} onCancel={() => setGuestInvite(false)} />
 
   const group = !inviting && picked.length >= 2
   const action = inviting ? t('rooms.picker.invite') : group ? t('rooms.picker.createGroup') : t('rooms.picker.start')
@@ -174,9 +180,9 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
           <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('rooms.people.search')} className={`${inputCls} pl-9`} data-testid="people-search" />
         </label>
       </div>
-      {mayInviteGuest && (
+      {(mayInviteGuest || mayInviteGuestAnywhere) && (
         <ul className="-mx-5 border-b border-line px-2 py-1 max-sm:-mx-4 max-sm:px-1" data-testid="picker-guest">
-          <InviteGuestRow place="room" onOpen={() => setGuestInvite(true)} />
+          <InviteGuestRow place={mayInviteGuest ? 'room' : 'any'} onOpen={() => setGuestInvite(true)} />
         </ul>
       )}
       {onePlace && !(onePlace.guestId && people?.some((p) => p.id === onePlace.guestId)) && <OnePlaceNote admin={isAdmin(me)} className="pt-3" />}
@@ -214,10 +220,11 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
           {shown.length > 0 && (
             <ul className={list} data-testid="people-list">
               {shown.map((p) => {
-                // a group chat's add list: a guest in another place already cannot be added (a guest is in one place
-                // only): greyed out with where they are, no tick; the owner and admins get "Make team member"
-                // a new chat: a guest can be in a 1:1 chat, never in a new group, so once someone else is picked
-                const away = inviting ? guestElsewhere(p, { kind: 'room', id: inviting }) : picked.length && !picked.includes(p.id) ? guestElsewhere(p) : null
+                // a group chat's add list: a guest in another group chat already cannot be added (a guest is in one
+                // group chat and one project at most): greyed out with where they are, no tick; the owner and admins
+                // get "Make team member". A new chat: a guest can be in a 1:1 chat, and in a new group only while they
+                // are in no group chat, so once someone else is picked
+                const away = inviting ? guestElsewhere(p, { kind: 'room', id: inviting }) : picked.length && !picked.includes(p.id) ? guestElsewhere(p, { kind: 'room' }) : null
                 if (away)
                   return (
                     <ListRow

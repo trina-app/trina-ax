@@ -40,7 +40,7 @@ import { afterPrune, pruneAssignments, type Pruned } from '../credentials/assign
 import { liveStatusOf, statusGoneWithAccount } from '../auth/status-messages'
 import { accountDeactivated } from '../tools/web-allow-all'
 import { pruneMemberAllows } from '../integrations/connections/store'
-import { GUEST_ONE_PLACE_MSG, GUEST_ROLE_MSG, assertGuestFree, placeOut, seenBy } from '../auth/guests'
+import { GUEST_ONE_PLACE_MSG, GUEST_ROLE_MSG, assertGuestFree, isGuest, placeOut, seenBy } from '../auth/guests'
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -174,7 +174,7 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
     if (sets.length) ctx.db.query(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...args, id)
     // a guest switched on or off by hand (also "off" again while the server had them off): an admin decided, so a
     // restored place never switches them on by itself (admin/guests.ts returnGuestsWithPlace)
-    if (b.status !== undefined && target.role === 'guest') ctx.db.query('UPDATE guests SET off_with_place = NULL WHERE user_id = ?').run(id)
+    if (b.status !== undefined && target.role === 'guest') ctx.db.query('UPDATE guests SET off_with_place = NULL, left_at = NULL WHERE user_id = ?').run(id)
     // their own open reset links end with the account (and stay ended if it is enabled again), and with a new role: a
     // link the owner or the server Mac made for a member would otherwise sign its holder in as the new admin
     if (changed.status === 'disabled' || changed.role !== undefined) revokeResetLinksFor(ctx.db, id, authOf(ctx).now())
@@ -214,6 +214,9 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
   if (changed.status === 'disabled') {
     // their "Allow all websites" for the AI's web reads goes off for good (audited when it was on)
     accountDeactivated(ctx.db, id, auth.user.id)
+    // a guest switched off: their window (open now, or opened later) shows the guest's screen before any password (guest
+    // walkthrough S6)
+    if (target.role === 'guest') noteRemovedSignIns(ctx, id, 'removed')
     authOf(ctx).endUserSessions(id, 'disabled')
     stopTurnsOf(ctx, id)
     resetEngineSessions(ctx, id)
@@ -467,7 +470,8 @@ export async function removeAccount(ctx: AppContext, o: RemoveAccountOptions): P
   afterPrune(ctx, actor, pruned)
   if (requested) settleDeletionRequestNotices(ctx, id)
   // their open windows are told on the sign-in page that the account was removed, not "signed out elsewhere" (TC-1974)
-  noteRemovedSignIns(ctx, id)
+  // a guest's window says so in the guest's words, with the team's name (guest walkthrough S6)
+  noteRemovedSignIns(ctx, id, isGuest(ctx.db, id) ? 'removed' : undefined)
   authOf(ctx).endUserSessions(id, 'revoked')
   stopTurnsOf(ctx, id)
   resetEngineSessions(ctx, id)
@@ -652,6 +656,8 @@ export function disableAccount(ctx: AppContext, id: string, actorId: string | nu
   ctx.services.realtime.forgetReplay(id)
   statusGoneWithAccount(ctx, !!liveStatusOf(ctx.db, id, new Date(), true), [seen])
   accountDeactivated(ctx.db, id, actorId)
+  // a guest out of their place: 'left' when they left it themselves (guest walkthrough S5), else taken out (S6)
+  if (isGuest(ctx.db, id)) noteRemovedSignIns(ctx, id, actorId === id ? 'left' : 'removed')
   authOf(ctx).endUserSessions(id, 'disabled')
   stopTurnsOf(ctx, id)
   resetEngineSessions(ctx, id)

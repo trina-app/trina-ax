@@ -21,13 +21,13 @@ describe('conflict copy notice', () => {
   test('the saver hears it in the first person, the other with the saver\'s name; the place in on-screen words', () => {
     useSession.setState({ status: { kind: 'signed-in', me: me('choi') } } as never)
     const mine = conflictText('shared/Notes/memo.txt', { id: 'choi', name: '최비' })
-    expect(mine).toBe('memo.txt이(가) 그사이 바뀌어서 내 내용은 사본으로 따로 저장했어요. (전사 공유 › Notes)')
+    expect(mine).toBe('"memo.txt" 파일이 그사이 바뀌어서 내 내용은 사본으로 따로 저장했어요. (전사 공유 › Notes)')
     useSession.setState({ status: { kind: 'signed-in', me: me('park') } } as never)
     const other = conflictText('shared/Notes/memo.txt', { id: 'choi', name: '최비' })
-    expect(other).toBe('memo.txt이(가) 동시에 바뀌어서 최비 님의 내용은 사본으로 따로 저장했어요. (전사 공유 › Notes)')
+    expect(other).toBe('"memo.txt" 파일이 동시에 바뀌어서 최비 님의 내용은 사본으로 따로 저장했어요. (전사 공유 › Notes)')
     for (const s of [mine, other]) expect(s).not.toContain('shared/')
     // the team root, and an unknown saver
-    expect(conflictText('plan.md', null)).toBe('plan.md이(가) 동시에 바뀌어서 작성자 모름 님의 내용은 사본으로 따로 저장했어요. (팀 폴더)')
+    expect(conflictText('plan.md', null)).toBe('"plan.md" 파일이 동시에 바뀌어서 작성자 모름 님의 내용은 사본으로 따로 저장했어요. (팀 폴더)')
     useLocaleStore.setState({ locale: 'en' })
     expect(conflictText('shared/Notes/memo.txt', { id: 'park', name: 'Park' })).toBe('memo.txt changed in the meantime, so your version was saved as a separate copy. (Company-wide › Notes)')
   })

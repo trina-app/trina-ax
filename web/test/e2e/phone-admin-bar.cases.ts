@@ -128,7 +128,7 @@ export function adminBarCases() {
     await expect(page.getByTestId('members-header-actions')).toHaveCount(0)
     // +: the invite
     await bar(page).getByTestId('invite-new').click()
-    await expect(page.getByRole('dialog', { name: t['members.inviteToTeam'] })).toBeVisible()
+    await expect(page.getByRole('dialog', { name: t['members.inviteTitleMember'] })).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(page.getByRole('dialog')).toHaveCount(0)
     // ⋯: the split button's other ways, as a bottom sheet

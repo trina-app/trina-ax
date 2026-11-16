@@ -86,7 +86,7 @@ for (const vp of VPS) {
     await expect(note).toContainText(t['projects.inTrash'])
     await expect(bob.getByTestId('project-trashed-by')).toContainText('Moved to the trash by Olga on')
     await expect(bob.getByTestId('project-trash-restores')).toHaveText(translate('en', 'projects.trashRestoresCreator', { name: 'Olga' }))
-    for (const id of ['project-restore', 'project-delete-for-good', 'project-chats', 'composer-input', 'project-members']) await expect(bob.getByTestId(id)).toHaveCount(0)
+    for (const id of ['project-restore', 'project-delete-for-good', 'project-chats', 'composer-input', 'project-share']) await expect(bob.getByTestId(id)).toHaveCount(0)
     await expect(bob.locator('body')).not.toContainText('secret dates')
     await audit(bob, 'member page')
     await shoot(bob, 'member-page', vp.name)

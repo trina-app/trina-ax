@@ -6,32 +6,39 @@
 // (GET /api/guest-invites/limit): a full plan says so at the top in place of the form, with "See plans" for the owner
 // and admins and "Ask an admin" for members.
 // The AI choice (GuestAiChoices) is the same control Admin › Members › Guests uses to change it later. Team AI's own
-// fields (the account, the monthly limit) sit right under it; without a team AI account it is off, with "Add an AI
-// account".
+// fields (the account, the monthly limit in tokens: a few presets or another amount, with "about N answers" next to
+// it) sit right under it; without a team AI account it is off, with "Add an AI account".
 // A guest already in another place is greyed out in the add lists (GuestElsewhere: "In 'Quote prep'", no tick), with
 // "Make team member" for the owner and admins.
-import { UserRoundPlus } from 'lucide-react'
+import { Check, Copy, UserRoundPlus } from 'lucide-react'
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import type { Credential, GuestAiChoice, GuestInviteLimit, Person } from '@mycel/shared/api'
+import { GUEST_TOKENS_MAX, type Credential, type GuestAiChoice, type GuestAiChoiceBody, type GuestInviteLimit, type Locale, type Person } from '@mycel/shared/api'
+import { DEFAULT_TOKENS_PER_ANSWER, GUEST_TOKEN_PRESETS, GUEST_TOKENS_DEFAULT, answersFor } from '@mycel/shared'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { GUEST_LIMIT, GUEST_ONE_PLACE, type GuestPlaceView, type PlaceKind } from '../lib/guests'
 import { noPurchaseLinks } from '../lib/desktop'
-import { formatDateTime } from '../lib/format'
+import { formatDateTime, formatNumber, formatUsd } from '../lib/format'
 import { useLocale, useT } from '../i18n'
 import { useNavigate } from 'react-router-dom'
 import { isAdmin, useMe } from '../store/session'
 import { usePeople, usePeopleList } from '../store/people'
-import { Button, Field, inputCls, Modal, Skeleton, useCopy } from './ui'
+import { Button, confirmDialog, Field, inputCls, Modal, Skeleton, useCopy } from './ui'
+import { projectSkillsOn } from '../lib/bulkFiles'
+import { aiName } from '../lib/tabs'
+import { useProjects } from '../store/projects'
 import { toast } from '../store/ui'
 import { ListRow } from './list/List'
 import { LocalLinkNote } from './LocalLinkNote'
 import { absoluteUrl } from './handover/LeadInvite'
+import { namedProduct } from '../lib/tabs'
 
-export interface InvitePlace { kind: PlaceKind; id: string; name: string }
+/** `personal`: one of my personal projects (GuestInviteChoice.tsx mayShareForGuest), shared before the link is made. */
+export interface InvitePlace { kind: PlaceKind; id: string; name: string; personal?: true }
 
-/** The row of an "Add people" list that opens the dialog (a ListRow, face box, like the room info's 초대하기). */
-export function InviteGuestRow({ place, onOpen }: { place: PlaceKind; onOpen: () => void }) {
+/** The row of an "Add people" list that opens the dialog (a ListRow, face box, like the room info's 초대하기). `any`: the
+ * "New conversation" list's, which picks the place first (GuestInviteChoice.tsx GuestInviteFlow). */
+export function InviteGuestRow({ place, onOpen }: { place: PlaceKind | 'any'; onOpen: () => void }) {
   const t = useT()
   return (
     <ListRow
@@ -39,7 +46,7 @@ export function InviteGuestRow({ place, onOpen }: { place: PlaceKind; onOpen: ()
       face
       icon={<UserRoundPlus />}
       name={<span className="text-ink">{t('guest.invite.row')}</span>}
-      meta={t(place === 'room' ? 'guest.invite.rowRoom' : 'guest.invite.rowProject')}
+      meta={t(place === 'room' ? 'guest.invite.rowRoom' : place === 'project' ? 'guest.invite.rowProject' : 'guest.invite.rowAny')}
       testId="invite-guest-row"
     />
   )
@@ -49,9 +56,11 @@ export function InviteGuestRow({ place, onOpen }: { place: PlaceKind; onOpen: ()
  * the team's AI accounts (for team; null while they load). Team AI's account and monthly limit sit right under it; with
  * no team AI account it cannot be picked and says where to add one. `legend`: false where the dialog's title already
  * says it ("AI for Alex"). */
-export function GuestAiChoices({ value, onChange, admin, connections, noGuestAi = false, legend = true }: { value: GuestAiChoice; onChange: (v: GuestAiChoice) => void; admin: boolean; connections: Credential[] | null
+export function GuestAiChoices({ value, onChange, admin, connections, noGuestAi = false, legend = true, answerTokens }: { value: GuestAiChoice; onChange: (v: GuestAiChoice) => void; admin: boolean; connections: Credential[] | null
   /** this server runs its AI on its own sign-in (an Office Mac): a guest gets no AI here, so only No AI can be picked */
-  noGuestAi?: boolean; legend?: boolean }) {
+  noGuestAi?: boolean; legend?: boolean
+  /** the team's tokens per answer (GuestInviteLimit.answerTokens), for "about N answers"; absent: the default */
+  answerTokens?: GuestInviteLimit['answerTokens'] }) {
   const t = useT()
   const id = useId()
   const modes = (admin ? ['none', 'team', 'own'] : ['none', 'own']) as GuestAiChoice['mode'][]
@@ -60,7 +69,7 @@ export function GuestAiChoices({ value, onChange, admin, connections, noGuestAi 
   useEffect(() => { if (noGuestAi && value.mode !== 'none') onChange({ mode: 'none' }) }, [noGuestAi]) // eslint-disable-line react-hooks/exhaustive-deps
   const pick = (mode: GuestAiChoice['mode']) => {
     if (mode === value.mode) return
-    if (mode === 'team') onChange({ mode, credentialId: connections?.[0]?.id ?? '', limitUsd: 20 })
+    if (mode === 'team') onChange({ mode, credentialId: connections?.[0]?.id ?? '', limitTokens: GUEST_TOKENS_DEFAULT })
     else onChange({ mode })
   }
   // Team AI picked before the accounts were read: the first one, once they are (the list shows it chosen)
@@ -92,19 +101,14 @@ export function GuestAiChoices({ value, onChange, admin, connections, noGuestAi 
                 </p>
               )}
               {m === 'team' && value.mode === 'team' && !noAccount && (
-                <div className="grid gap-3 pt-1 pb-2 pl-7 sm:grid-cols-[minmax(0,1fr)_9rem]" data-testid="guest-ai-team-fields">
+                <div className="grid gap-3 pt-1 pb-2 pl-7" data-testid="guest-ai-team-fields">
                   <label className="block min-w-0">
                     <span className="mb-1 block text-xs font-medium text-muted">{t('guest.ai.account')}</span>
                     <select className={inputCls} value={value.credentialId} onChange={(e) => onChange({ ...value, credentialId: e.target.value })} disabled={!connections} data-testid="guest-ai-account">
                       {(connections ?? []).map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
                     </select>
                   </label>
-                  <label className="block">
-                    <span className="mb-1 block text-xs font-medium text-muted">{t('guest.ai.limit')}</span>
-                    <input type="number" inputMode="decimal" min={1} step={1} className={inputCls} value={Number.isFinite(value.limitUsd) ? value.limitUsd : ''}
-                      onChange={(e) => onChange({ ...value, limitUsd: Number(e.target.value) })} data-testid="guest-ai-limit" />
-                    <span className="mt-1 block text-xs text-muted" data-testid="guest-ai-limit-hint">{t('guest.ai.limitHint')}</span>
-                  </label>
+                  <TokenLimit value={value} onChange={onChange} answerTokens={answerTokens} />
                 </div>
               )}
             </div>
@@ -117,8 +121,69 @@ export function GuestAiChoices({ value, onChange, admin, connections, noGuestAi 
   )
 }
 
-/** A team mode choice that can be sent: an account picked and a limit above 0. */
-export const aiChoiceReady = (v: GuestAiChoice) => v.mode !== 'team' || (!!v.credentialId && v.limitUsd > 0)
+/** A team mode choice that can be sent: an account picked and a token limit above 0 (an older guest's US dollar limit
+ * is shown, but changing Team AI picks tokens). */
+export const aiChoiceReady = (v: GuestAiChoice): v is GuestAiChoiceBody => v.mode !== 'team' || (!!v.credentialId && Number.isInteger(v.limitTokens) && v.limitTokens! > 0 && v.limitTokens! <= GUEST_TOKENS_MAX)
+
+/** "5M tokens" / "500만 토큰": a token amount in the reader's words. */
+export function tokensText(t: ReturnType<typeof useT>, n: number, locale: Locale): string {
+  return t('guest.ai.tokens', { amount: formatNumber(n, locale, { notation: 'compact', maximumFractionDigits: 1 }) })
+}
+
+/** "about 60 answers" for `tokens` at the team's tokens per answer (or the default). */
+export function answersText(t: ReturnType<typeof useT>, tokens: number, perAnswer: number | undefined): string {
+  const n = answersFor(tokens, perAnswer ?? DEFAULT_TOKENS_PER_ANSWER)
+  return n > 0 ? t('guest.ai.answers', { n }) : t('guest.ai.answersUnderOne')
+}
+
+/** Team AI's monthly limit: the presets and Other (a number of tokens), then "5M tokens · about 60 answers" and what a
+ * token is. An older guest's US dollar limit is said as it is, with nothing picked, until a token amount is. */
+function TokenLimit({ value, onChange, answerTokens }: { value: Extract<GuestAiChoice, { mode: 'team' }>; onChange: (v: GuestAiChoice) => void; answerTokens?: GuestInviteLimit['answerTokens'] }) {
+  const t = useT()
+  const locale = useLocale()
+  const id = useId()
+  const tokens = value.limitTokens
+  const [other, setOther] = useState(() => tokens !== undefined && !(GUEST_TOKEN_PRESETS as readonly number[]).includes(tokens))
+  const set = (n: number) => onChange({ mode: 'team', credentialId: value.credentialId, limitTokens: n })
+  const pick = (v: string) => {
+    if (v === 'other') { setOther(true); if (tokens === undefined) set(GUEST_TOKENS_DEFAULT); return }
+    setOther(false)
+    set(Number(v))
+  }
+  const ok = tokens !== undefined && Number.isInteger(tokens) && tokens > 0 && tokens <= GUEST_TOKENS_MAX
+  return (
+    <div className="min-w-0" data-testid="guest-ai-limit-box">
+      {value.limitUsd !== undefined && tokens === undefined && (
+        <p className="mb-1.5 text-xs leading-5 break-keep text-muted" data-testid="guest-ai-limit-usd">{t('guest.ai.nowUsd', { amount: formatUsd(value.limitUsd, locale) })}</p>
+      )}
+      <div className="grid gap-2 sm:grid-cols-2">
+        <label className="block min-w-0">
+          <span className="mb-1 block text-xs font-medium text-muted">{t('guest.ai.limit')}</span>
+          <select className={inputCls} value={tokens === undefined ? '' : other ? 'other' : String(tokens)} onChange={(e) => pick(e.target.value)} aria-describedby={`${id}-est`} data-testid="guest-ai-limit">
+            {tokens === undefined && <option value="" disabled>{'—'}</option>}
+            {GUEST_TOKEN_PRESETS.map((n) => <option key={n} value={String(n)}>{tokensText(t, n, locale)}</option>)}
+            <option value="other">{t('guest.ai.custom')}</option>
+          </select>
+        </label>
+        {other && (
+          <label className="block min-w-0" htmlFor={`${id}-other`}>
+            <span className="mb-1 block text-xs font-medium text-muted">{t('guest.ai.customLabel')}</span>
+            <input id={`${id}-other`} type="number" inputMode="numeric" min={1} max={GUEST_TOKENS_MAX} step={1} className={inputCls} aria-describedby={`${id}-est`} value={tokens !== undefined && Number.isFinite(tokens) ? tokens : ''}
+              onChange={(e) => set(e.target.value === '' ? Number.NaN : Math.round(Number(e.target.value)))} data-testid="guest-ai-limit-other" />
+          </label>
+        )}
+      </div>
+      {ok && (
+        <p id={`${id}-est`} className="mt-1.5 text-sm text-ink" data-testid="guest-ai-estimate">
+          {tokensText(t, tokens, locale)} · {answersText(t, tokens, answerTokens?.tokens)}
+        </p>
+      )}
+      <p className="mt-1 text-xs leading-5 break-keep text-muted" data-testid="guest-ai-limit-hint">
+        {t(answerTokens?.from === 'team' ? 'guest.ai.estimateTeam' : 'guest.ai.estimateDefault')} {t('guest.ai.limitHint')}
+      </p>
+    </div>
+  )
+}
 
 /** The team's AI accounts a guest may be given (Admin › AI providers, team ones), read only for the owner and admins
  * (`list` null while they load), and `noGuestAi`: this server runs its AI on its own sign-in (an Office Mac, local
@@ -137,11 +202,16 @@ export function useTeamConnections(enabled: boolean): { list: Credential[] | nul
   return v
 }
 
+/** The plan's guests are all taken: how many, the plan page when given, and how many open links hold a place
+ * (`pending`: each link nobody has used yet counts, guest walkthrough M4). */
+export interface GuestCap { n: number; manageUrl?: string; pending?: number }
+
 /** The plan's guest cap was reached (409 plan_limit reason guest_limit): how many, and the plan page when given. */
-export function guestCap(e: unknown): { n: number; manageUrl?: string } | null {
+export function guestCap(e: unknown): GuestCap | null {
   if (!isApiError(e, 'plan_limit') || e.body.params?.reason !== GUEST_LIMIT || typeof e.body.params.limit !== 'number') return null
   const url = e.body.params.manageUrl
-  return { n: e.body.params.limit, ...(typeof url === 'string' && /^https?:\/\//.test(url) ? { manageUrl: url } : {}) }
+  const pending = e.body.params.pending
+  return { n: e.body.params.limit, ...(typeof url === 'string' && /^https?:\/\//.test(url) ? { manageUrl: url } : {}), ...(typeof pending === 'number' && pending > 0 ? { pending } : {}) }
 }
 
 /** Words for a refused guest change: the plan's guest cap in the owner's words, else the server's. */
@@ -171,8 +241,8 @@ export function useGuestLimit(enabled = true): GuestInviteLimit | null | undefin
 }
 
 /** The plan's guests are all there, from the cap's read: how many and the plan page, or null. */
-export function guestsFullOf(limit: GuestInviteLimit | null | undefined): { n: number; manageUrl?: string } | null {
-  return limit?.full && limit.limit !== null ? { n: limit.limit, ...(limit.manageUrl ? { manageUrl: limit.manageUrl } : {}) } : null
+export function guestsFullOf(limit: GuestInviteLimit | null | undefined): GuestCap | null {
+  return limit?.full && limit.limit !== null ? { n: limit.limit, ...(limit.manageUrl ? { manageUrl: limit.manageUrl } : {}), ...(limit.pending ? { pending: limit.pending } : {}) } : null
 }
 
 /** "See plans", a dialog's main button beside Close when the plan is full (the owner and admins only). */
@@ -186,13 +256,15 @@ export function SeePlansLink({ url }: { url: string }) {
 }
 
 /** The plan's guests are all there: said at the top in place of the form. The owner and admins: what they can do and
- * "See plans" (when the server names a plan page); a member: ask an admin. */
-export function GuestsFull({ n, admin }: { n: number; admin: boolean }) {
+ * "See plans" (when the server names a plan page); a member: ask an admin. `pending`: links nobody has used yet hold
+ * some of the places (guest walkthrough M4), said in one line, and the owner and admins may cancel one. */
+export function GuestsFull({ n, admin, pending }: { n: number; admin: boolean; pending?: number }) {
   const t = useT()
   return (
     <div className="space-y-2" role="status" data-testid="guest-invite-full">
-      <p className="text-sm leading-6 font-medium break-keep text-ink">{t('guest.full', { n })}</p>
-      <p className="text-sm leading-6 break-keep text-muted" data-testid="guest-invite-full-next">{t(admin ? 'guest.fullAdmin' : 'guest.fullMember')}</p>
+      <p className="text-sm leading-6 font-medium break-keep text-ink">{t(pending ? 'guest.fullLinks' : 'guest.full', { n })}</p>
+      {!!pending && <p className="text-sm leading-6 break-keep text-ink" data-testid="guest-invite-full-pending">{t('guest.fullPending', { n: pending })}</p>}
+      <p className="text-sm leading-6 break-keep text-muted" data-testid="guest-invite-full-next">{admin && pending ? t('guest.fullAdminLinks', { path: [t('admin.title'), t('admin.members')].join(' › ') }) : t(admin ? 'guest.fullAdmin' : 'guest.fullMember')}</p>
     </div>
   )
 }
@@ -200,7 +272,7 @@ export function GuestsFull({ n, admin }: { n: number; admin: boolean }) {
 /** `onCancel`: Cancel and × before the link is made (back to the add list it was opened from); `onClose`: Done after it.
  * `onFull`: Create link was refused because the plan's guests are all there (another invite made meanwhile): the opener
  * shows the limit itself (Admin's Invite to team, whose place list would otherwise offer the same wall again). */
-export function GuestInviteDialog({ place, onClose, onCancel = onClose, onFull }: { place: InvitePlace; onClose: () => void; onCancel?: () => void; onFull?: (cap: { n: number; manageUrl?: string }) => void }) {
+export function GuestInviteDialog({ place, onClose, onCancel = onClose, onFull }: { place: InvitePlace; onClose: () => void; onCancel?: () => void; onFull?: (cap: GuestCap) => void }) {
   const t = useT()
   const locale = useLocale()
   const me = useMe()
@@ -222,19 +294,46 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose, onFull }
   // the plan's guests are all there: read when the dialog opens, or told by a refused Create link (409 plan_limit
   // reason guest_limit, another invite made meanwhile); the plan page only for the owner and admins (a store app's
   // answer has none: lib/api.ts storeSafeError)
-  const [refusedFull, setRefusedFull] = useState<{ n: number; manageUrl?: string } | null>(null)
+  const [refusedFull, setRefusedFull] = useState<GuestCap | null>(null)
   const full = refusedFull ?? guestsFullOf(limit)
+  // one of my personal projects: shared first, with nobody else yet, as its page's "Add people" does (POST
+  // /api/projects/:id/share: a team project in projects/<name> that still only I see, so it stays in My projects until
+  // the guest joins; docs/DECISIONS.md "Guests into a personal project"). Once only: a Create link refused after it
+  // (the plan filled up meanwhile) makes the link alone on the next try
+  const [personal, setPersonal] = useState(!!place.personal)
+  const share = async (skillsOk = false): Promise<boolean> => {
+    try {
+      const r = await api.call(API.shareProject, { params: { id: place.id }, body: { participants: [], ...(skillsOk ? { skillsOk } : {}) } })
+      if ('id' in r) useProjects.getState().put(r)
+      setPersonal(false)
+      return true
+    } catch (e) {
+      // shared meanwhile (another tab, its page's Add people): a team project already, so the link is all that is left
+      if (isApiError(e, 'validation') && e.body.fields?.['params.id'] === 'not a personal project') {
+        setPersonal(false)
+        return true
+      }
+      // its skills/ holds skills: they switch on in this project's chats once I say yes (as the page's share asks)
+      const skills = projectSkillsOn(e)
+      if (skills && !skillsOk) {
+        if (await confirmDialog({ title: t('files.skillsOnTitle'), body: t('projects.skillsOnBody', { n: skills.length, names: skills.join(', '), ai: aiName(t) }), confirm: t('guest.invite.create') })) return share(true)
+        return false
+      }
+      throw e
+    }
+  }
   const create = async () => {
     if (busy || !aiChoiceReady(ai) || full) return
     setBusy(true)
     setError(null)
     try {
+      if (personal && !(await share())) return
       const r = await api.call(API.createGuestInvite, { body: { place: { kind: place.kind, id: place.id }, ai, ...(name.trim() ? { name: name.trim() } : {}) } })
       setUrl(absoluteUrl(r.url))
       setExpiresAt(r.invite.expiresAt)
     } catch (e) {
       const cap = guestCap(e)
-      const shown = cap && { n: cap.n, ...(cap.manageUrl && !noPurchaseLinks() ? { manageUrl: cap.manageUrl } : {}) }
+      const shown = cap && { n: cap.n, ...(cap.manageUrl && !noPurchaseLinks() ? { manageUrl: cap.manageUrl } : {}), ...(cap.pending ? { pending: cap.pending } : {}) }
       if (shown && onFull) onFull(shown)
       else if (shown) setRefusedFull(shown)
       else setError(guestErrorText(e, locale, t))
@@ -243,7 +342,7 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose, onFull }
     }
   }
   const who = name.trim()
-  if (url) return <GuestLinkReady url={url} who={who} expiresAt={expiresAt ?? until} onClose={onClose} />
+  if (url) return <GuestLinkReady url={url} who={who} place={place} ownAi={ai.mode === 'own'} expiresAt={expiresAt ?? until} onClose={onClose} />
   // the plan is full: the limit at the top and nothing to fill in
   if (full)
     return (
@@ -259,7 +358,7 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose, onFull }
           </>
         }
       >
-        <GuestsFull n={full.n} admin={admin} />
+        <GuestsFull n={full.n} admin={admin} pending={full.pending} />
       </Modal>
     )
   return (
@@ -280,10 +379,11 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose, onFull }
           <p className="text-sm leading-6 break-keep text-muted" data-testid="guest-invite-where">
             {t(place.kind === 'room' ? 'guest.invite.whereRoom' : 'guest.invite.whereProject', { place: place.name })}
           </p>
+          {personal && <p className="text-sm leading-6 break-keep text-muted" data-testid="guest-invite-personal">{t('guest.invite.personalProject')} {t('projects.shareConfirmFinal')}</p>}
           <Field label={t('guest.invite.name')}>
             <input autoFocus value={name} onChange={(e) => setName(e.target.value)} maxLength={100} placeholder={t('guest.invite.namePlaceholder')} className={inputCls} data-testid="guest-invite-name" />
           </Field>
-          <GuestAiChoices value={ai} onChange={setAi} admin={admin} connections={connections} noGuestAi={noGuestAi} />
+          <GuestAiChoices value={ai} onChange={setAi} admin={admin} connections={connections} noGuestAi={noGuestAi} answerTokens={limit?.answerTokens} />
           <LinkExpiry iso={until} />
           {error && <p role="alert" className="text-sm break-keep text-danger" data-testid="guest-invite-error">{error}</p>}
         </form>
@@ -307,28 +407,60 @@ function LinkExpiry({ iso }: { iso: string }) {
   return <p className="text-xs leading-5 break-keep text-muted" data-testid="guest-invite-expiry">{t('guest.invite.expiry', { days: GUEST_LINK_HOURS / 24, date: useUntil(iso) })}</p>
 }
 
-/** The one-time link, made: the address, and "Copy link" as the dialog's main button (Done beside it). */
-function GuestLinkReady({ url, who, expiresAt, onClose }: { url: string; who: string; expiresAt: string; onClose: () => void }) {
+/** The message that goes with a guest link, ready to paste in an email or a chat (guest walkthrough S7, like the team
+ * link's and the lead link's): who sends it, the one place they will see, their own AI account when that is their AI,
+ * and the link with how long it works. In the inviter's language: they write to the guest. */
+export function guestLinkMessage(t: ReturnType<typeof useT>, o: { name: string; place: InvitePlace; url: string; until: string; ownAi: boolean }): string {
+  const product = namedProduct(t)
+  const name = o.name.trim()
+  const room = o.place.kind === 'room'
+  const hello = name
+    ? t(room ? 'guest.invite.msgRoom' : 'guest.invite.msgProject', { ...product, name, place: o.place.name })
+    : t(room ? 'guest.invite.msgRoomNoName' : 'guest.invite.msgProjectNoName', { ...product, place: o.place.name })
+  return [hello, o.ownAi && t('teamLink.msg.ownAi'), t('guest.invite.msgJoin', { date: o.until, url: o.url })].filter(Boolean).join('\n')
+}
+
+/** The one-time link, made: the message to send with it (ready to paste; the link in it), "Copy message" as the main
+ * action and "Copy link" for the address alone (as the lead link's), how long it works, and Done. */
+function GuestLinkReady({ url, who, place, ownAi, expiresAt, onClose }: { url: string; who: string; place: InvitePlace; ownAi: boolean; expiresAt: string; onClose: () => void }) {
   const t = useT()
+  const me = useMe()
   const until = useUntil(expiresAt)
-  const days = Math.max(1, Math.round((Date.parse(expiresAt) - Date.now()) / 86_400_000))
-  const { copied, copy } = useCopy()
+  const message = guestLinkMessage(t, { name: me?.user.name ?? '', place, url, until, ownAi })
+  const at = message.lastIndexOf(url)
+  const msg = useCopy()
+  const link = useCopy()
   return (
     <Modal
       open
       onClose={onClose}
       title={who ? t('guest.invite.readyFor', { name: who }) : t('guest.invite.ready')}
       width={440}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose} data-testid="guest-invite-done">{t('common.done')}</Button>
-          <Button variant="primary" onClick={() => void copy(url)} data-testid="guest-invite-copy">{copied ? t('common.copied') : t('members.copyLink')}</Button>
-        </>
-      }
+      footer={<Button variant="ghost" onClick={onClose} data-testid="guest-invite-done">{t('common.done')}</Button>}
     >
       <div className="space-y-3" data-testid="guest-invite-ready">
-        <code className="block rounded-lg border border-line bg-subtle px-3 py-2 font-mono text-sm break-all select-all" data-testid="guest-invite-url">{url}</code>
-        <p className="text-sm break-keep text-muted" data-testid="guest-invite-once">{t('guest.invite.onceUntil', { days, date: until })}</p>
+        <div>
+          <p className="text-xs font-medium text-muted">{t('teamLink.messagePreview')}</p>
+          <blockquote className="mt-2 border-l-2 border-line pl-3 text-sm leading-6 break-words whitespace-pre-wrap text-ink" data-testid="guest-invite-message">
+            {at < 0 ? message : (
+              <>
+                {message.slice(0, at)}
+                <span className="font-mono break-all select-all" data-testid="guest-invite-url">{url}</span>
+                {message.slice(at + url.length)}
+              </>
+            )}
+          </blockquote>
+        </div>
+        <div className="flex flex-wrap items-center gap-1">
+          <Button variant="primary" className="mr-1 max-sm:w-full" onClick={() => void msg.copy(message)} data-testid="guest-invite-copy-message">
+            {msg.copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />} {msg.copied ? t('common.copied') : t('teamLink.copyMessage')}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => void link.copy(url)} data-testid="guest-invite-copy">
+            {link.copied ? <Check size={14} className="text-ok" aria-hidden /> : <Copy size={14} aria-hidden />} {link.copied ? t('common.copied') : t('members.copyLink')}
+          </Button>
+        </div>
+        {/* the message says until when; this line only how to send it */}
+        <p className="text-sm break-keep text-muted" data-testid="guest-invite-once">{t('guest.invite.once')}</p>
         <LocalLinkNote url={url} />
       </div>
     </Modal>
@@ -364,11 +496,13 @@ export function OnePlaceNote({ guestId, admin, className }: { guestId?: string; 
 /** Admin › Members at the Guests section (and the guest's row, when known). */
 export const guestAdminPath = (id?: string) => `/admin/members${id ? `?member=${encodeURIComponent(id)}` : ''}#guests`
 
-/** A guest of the add list who is in another place already (Person.guestPlace): their one place, or null for anyone
- * else and for a guest of `here` (already in it). */
-export function guestElsewhere(p: Pick<Person, 'guest' | 'guestPlace'>, here?: { kind: PlaceKind; id: string }): GuestPlaceView | null {
-  if (!p.guest || !p.guestPlace) return null
-  return here && p.guestPlace.kind === here.kind && p.guestPlace.id === here.id ? null : p.guestPlace
+/** A guest of the add list who cannot be added to `here` (a group chat or a project; `id` left out: a new group chat):
+ * they are in another place of the same kind already (Person.guestPlaces: a guest is in at most one group chat and
+ * one project). That place (its name only when the viewer is in it too), or null for anyone else, for a guest of `here`
+ * and for a guest in a place of the other kind only. */
+export function guestElsewhere(p: Pick<Person, 'guest' | 'guestPlaces'>, here: { kind: PlaceKind; id?: string }): GuestPlaceView | null {
+  if (!p.guest) return null
+  return p.guestPlaces?.find((pl) => pl.kind === here.kind && (here.id === undefined || pl.id !== here.id)) ?? null
 }
 
 /** The words of a greyed-out guest's row: "In the 'Quote prep' room" (or project). */
@@ -392,19 +526,21 @@ export function MakeMemberButton({ guest }: { guest: { id: string; name: string 
 }
 
 /** The add list's guests who are in another place already, by participant key (`user:<id>`), for ParticipantPicker's
- * `unavailable`: where they are, and "Make team member" for the owner and admins. */
-export function useGuestsElsewhere(here: { kind: PlaceKind; id: string }): ReadonlyMap<string, { text: string; action?: ReactNode }> {
+ * `unavailable`: where they are, and "Make team member" for the owner and admins. `here.id` left out: a place still to
+ * be made (a new project): only a guest who has one of that kind already. `anyPlace`: every guest who has a place at
+ * all (a personal project shared to the team: the server lets no guest in there, auth/guests.ts claimGuestProject). */
+export function useGuestsElsewhere(here: { kind: PlaceKind; id?: string }, anyPlace = false): ReadonlyMap<string, { text: string; action?: ReactNode }> {
   const t = useT()
   const admin = isAdmin(useMe())
   const people = usePeopleList()
   return useMemo(() => {
     const m = new Map<string, { text: string; action?: ReactNode }>()
     for (const p of people ?? []) {
-      const away = guestElsewhere(p, here)
+      const away = anyPlace ? (p.guest ? p.guestPlaces?.[0] ?? null : null) : guestElsewhere(p, here)
       if (away) m.set(`user:${p.id}`, { text: elsewhereText(t, away), ...(admin ? { action: <MakeMemberButton guest={p} /> } : {}) })
     }
     return m
-  }, [people, here.kind, here.id, admin, t]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [people, here.kind, here.id, anyPlace, admin, t]) // eslint-disable-line react-hooks/exhaustive-deps
 }
 
 /** "Make Alex a team member?" (Admin › Members › Guests, and a greyed-out guest's row in an add list): the seats are read first; with every seat taken it says so, with "See plans" (when the

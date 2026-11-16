@@ -18,7 +18,7 @@ import { checkHostName, isLocalAddress, isPublicAddress } from '../../tools/web-
 import { secretHider } from './hide'
 import { MCP_LIST_TIMEOUT_MS, McpClient, McpError } from './mcp'
 import { NetError, serviceRequest, TIMEOUT_MS, type NetOptions, type NetResponse } from './net'
-import { authorizationUrl, CALLBACK_PATH, canonicalResource, chooseClient, discover, documentOrigins, GrantError, issuerMatches, manualServer, ownClient, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens, type OwnClient } from './oauth'
+import { authorizationUrl, CALLBACK_PATH, canonicalResource, chooseClient, discover, documentOrigins, GrantError, issuerMatches, loopbackClient, loopbackPortOk, manualServer, ownClient, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens, type OwnClient } from './oauth'
 import {
   accessOf, activeUser, clientAad, clientInfo, connectionAad, disabledTools, flowAad, getRow, isAdmin, MAX_DISABLED_TOOLS, mayUse, offByTeam, requestSignedIn, savedTools, SecretBox, secretHere, selectRows, setAccess, StoreError, templateClientAad, templateCovers, toolListsOf, usable, view,
   type ClientInfo, type FlowRow, type Row, type Viewer,
@@ -55,6 +55,12 @@ const FLOW_TTL = 10 * 60_000
 const FLOWS_PER_HOUR = 20
 /** the window FLOWS_PER_HOUR counts sign-in tries in */
 const FLOW_WINDOW_MS = 3600_000
+/** how long what a sign-in server said about the desktop app's 127.0.0.1 return address is remembered (clientFor) */
+const LOOPBACK_VERDICT_MS = 3600_000
+/** the port a web or phone sign-in's probe registration names (clientFor): the address is never opened */
+const PROBE_PORT = 49152
+/** loopbackSeen's key: the sign-in server (its issuer and registration address), never the team's address */
+const loopbackKey = (s: OAuthServer) => JSON.stringify([s.issuer, s.registrationEndpoint])
 const CLIENT_IDLE_MS = 10 * 60_000
 /** earlier secret values remembered per connection for hiding (OAuth tokens rotate; an old one may still work) */
 const RECENT_SECRETS = 16
@@ -184,6 +190,10 @@ export class Integrations {
   private clients = new Map<string, McpClient>()
   private refreshes = new Map<string, Promise<string>>()
   private recent = new Map<string, string[]>()
+  /** per sign-in server (issuer and registration address): 'desktop' when it refused every client for the https
+   * callback but took one for 127.0.0.1 (Canva, Intercom, Square), 'none' when it refused that too (Figma); with the time
+   * it was learned. Kept LOOPBACK_VERDICT_MS so repeated web Connects do not probe again and again (clientFor). */
+  private loopbackSeen = new Map<string, { verdict: 'desktop' | 'none'; at: number }>()
 
   constructor(readonly ctx: AppContext, deps: IntegrationDeps = {}) {
     this.now = deps.now ?? Date.now
@@ -997,7 +1007,11 @@ export class Integrations {
     this.db.query('DELETE FROM integration_oauth_flows WHERE expires_at<?').run(iso(this.now() - 86_400_000))
   }
 
-  async authorize(viewer: Viewer, session: string, id: string, origin: string, locale: Locale): Promise<{ flowId: string; authorizationUrl: string; expiresAt: string }> {
+  /** `from`: where the sign-in starts (routes/integrations.ts reads it from the session, never from the request alone):
+   * the desktop app with the port of its one-time return address on 127.0.0.1 (`loopbackPort`: desktop/src/common/
+   * sign-in-return.ts), else 'desktop' without one (an app from before it), 'web' or 'mobile'. The answer says
+   * `loopback` when the service is signed in at through that address, so the app keeps it open. */
+  async authorize(viewer: Viewer, session: string, id: string, origin: string, locale: Locale, from: { client: 'web' | 'desktop' | 'mobile'; loopbackPort?: number | null } = { client: 'web' }): Promise<{ flowId: string; authorizationUrl: string; expiresAt: string; loopback?: boolean }> {
     const L = locale
     const row = this.manageable(viewer, id)
     if (row.auth !== 'oauth') fail('validation', say('notOauth', L))
@@ -1037,7 +1051,7 @@ export class Integrations {
       // an own app is always the one set now; otherwise the app registered for this server (again), or the metadata
       // document when the service refuses that one (clientFor)
       const s = setup
-      client = app ? ownClient(app, redirectUri, s.authMethods) : await this.clientFor(row, s, origin, redirectUri, (c) => authorizationUrl({ ...s, client: c }, state, challenge))
+      client = app ? ownClient(app, redirectUri, s.authMethods) : await this.clientFor(row, s, origin, redirectUri, (c) => authorizationUrl({ ...s, client: c }, state, challenge), from)
     } catch (e) {
       if (e instanceof HttpError) throw e
       // a service that registers no apps: its own app is the fix, which a member of a template cannot set
@@ -1047,10 +1061,12 @@ export class Integrations {
       // reason would read as "the last check failed")
       if (!row.secret_enc) this.setStatus(row, 'needs_auth', reason)
       // a refusal of the app is a flow too (failed, nothing sealed): FLOWS_PER_HOUR bounds those tries (each opens the
-      // service's sign-in page); a service that is down or busy is not counted, so it never locks anyone out of signing in
-      if (reason === 'oauth_approved_apps_only') this.db.query(`INSERT INTO integration_oauth_flows (id, integration_id, integration_version, user_id, session_id, state_hash, state, secret_enc, key_version, reason, expires_at, created_at)
+      // service's sign-in page, and may register an app there); a service that is down or busy is not counted, so it
+      // never locks anyone out of signing in
+      if (reason === 'oauth_approved_apps_only' || reason === 'oauth_desktop_only') this.db.query(`INSERT INTO integration_oauth_flows (id, integration_id, integration_version, user_id, session_id, state_hash, state, secret_enc, key_version, reason, expires_at, created_at)
         VALUES (?,?,?,?,?,?,'failed',NULL,1,'refused',?,?)`).run(flowId, id, row.version, viewer.id, session, hash(state), iso(this.now()), iso(this.now()))
-      return fail('validation', say(reason as Reason, L, { status: e instanceof NetError ? e.status ?? '?' : '?' }))
+      // the desktop sentence names the service, and its code lets the page link the desktop app's download
+      return fail('validation', say(reason as Reason, L, { status: e instanceof NetError ? e.status ?? '?' : '?', name: row.name }), reason === 'oauth_desktop_only' ? { params: { reason } } : undefined)
     }
     // no token address remembered yet: this one is, once this sign-in worked (callback)
     const pinOnto = app?.clientSecret && !app.tokenUrl && !app.foundTokenUrl ? { json: app.stored.json, enc: app.stored.enc } : null
@@ -1063,15 +1079,50 @@ export class Integrations {
       this.db.query(`INSERT INTO integration_oauth_flows (id, integration_id, integration_version, user_id, session_id, state_hash, state, secret_enc, key_version, expires_at, created_at)
         VALUES (?,?,?,?,?,?,'pending',?,?,?,?)`).run(flowId, id, row.version, viewer.id, session, hash(state), sealed.enc, sealed.keyVersion, expiresAt, iso(this.now()))
     })()
-    return { flowId, authorizationUrl: authorizationUrl(secret, state, challenge), expiresAt }
+    return { flowId, authorizationUrl: authorizationUrl(secret, state, challenge), expiresAt, ...(client.redirectUri.startsWith('http://127.0.0.1:') ? { loopback: true } : {}) }
   }
 
   /** The client a sign-in without an own app uses (oauth.ts chooseClient): the app registered for the same server
-   * before is offered first, when there is one. */
-  private clientFor(row: Row, setup: { server: OAuthServer; metadataClients?: boolean }, origin: string, redirectUri: string, urlFor: (c: OAuthClient) => string): Promise<OAuthClient> {
+   * before is offered first, when there is one. chooseClient always runs first, from every address (whether it is
+   * refused depends on the address: the metadata document is offered only from a public one it is served at). Only when
+   * it is refused (`oauth_approved_apps_only`): from the desktop app with its return port, an app registered for
+   * 127.0.0.1 (loopbackClient); from the web or the phone app, one probe registration for 127.0.0.1 says whether the
+   * desktop app would get in (`oauth_desktop_only`) or not (stays `oauth_approved_apps_only`). The probe's app is never
+   * used. Whether a sign-in server takes the 127.0.0.1 address (a property of that server alone, not of the team's
+   * address) is remembered for LOOPBACK_VERDICT_MS (loopbackSeen): it only spares the web's probe, and a desktop try at a
+   * server that clearly refused 127.0.0.1 too, so at most one 127.0.0.1 registration happens per sign-in. A desktop app
+   * from before the return port gets the old reason (it cannot do what the desktop sentence asks). */
+  private async clientFor(row: Row, setup: { server: OAuthServer; metadataClients?: boolean }, origin: string, redirectUri: string, urlFor: (c: OAuthClient) => string, from: { client: 'web' | 'desktop' | 'mobile'; loopbackPort?: number | null }): Promise<OAuthClient> {
+    const port = from.client === 'desktop' && loopbackPortOk(from.loopbackPort) ? from.loopbackPort : null
+    const probe = from.client !== 'desktop'
     const old = row.secret_enc ? this.tryOpen(row) : null
     const again = old?.type === 'oauth' && old.server.issuer && old.server.issuer === setup.server.issuer && old.client.redirectUri === redirectUri ? old.client : null
-    return chooseClient(setup, origin, redirectUri, this.net, urlFor, again, documentOrigins(this.ctx.config))
+    try {
+      return await chooseClient(setup, origin, redirectUri, this.net, urlFor, again, documentOrigins(this.ctx.config))
+    } catch (e) {
+      if (!(e instanceof NetError) || e.reason !== 'oauth_approved_apps_only' || !setup.server.registrationEndpoint || (!port && !probe)) throw e
+      const key = loopbackKey(setup.server)
+      const seen = this.loopbackSeen.get(key)
+      const known = seen && this.now() - seen.at < LOOPBACK_VERDICT_MS ? seen.verdict : null
+      const remember = (verdict: 'desktop' | 'none') => {
+        if (this.loopbackSeen.size >= 1000) this.loopbackSeen.clear()
+        this.loopbackSeen.set(key, { verdict, at: this.now() })
+      }
+      // clearly refused at 127.0.0.1 too lately (Figma): nothing more to try
+      if (known === 'none') throw e
+      if (!port && known === 'desktop') throw new NetError('oauth_desktop_only')
+      try {
+        const c = await loopbackClient(setup.server, port ?? PROBE_PORT, this.net, urlFor)
+        remember('desktop')
+        if (port) return c
+      } catch (p) {
+        // a clear refusal is remembered and said; a service busy or down meanwhile says nothing either way (not
+        // remembered): from the web the old reason, from the desktop app its own (oauth_busy and the like)
+        if (p instanceof NetError && p.reason === 'oauth_approved_apps_only') { remember('none'); throw p }
+        throw port ? p : e
+      }
+      throw new NetError('oauth_desktop_only')
+    }
   }
 
   flow(userId: string, session: string, id: string): IntegrationFlow {
@@ -1202,7 +1253,7 @@ function statusOf(e: unknown): { status: Row['status']; reason: string } | null 
 /** where a connection's sign-in or key is fixed: a Google app on its page under Settings › Connectors; the person's own
  * on a card in the chat (connect_service, QA TC-127) or in Settings › Connectors; one made from a team template on the
  * template's card; a team connection by an admin */
-const fixWhere = (row: Pick<Row, 'google_app' | 'scope' | 'template_id' | 'id'>) => (row.google_app && row.scope === 'team' ? `Admin › Connectors › ${APP_NAMES[row.google_app]}, the shared account's Reconnect (only an owner or admin can: tell the user to ask one)`
+const fixWhere = (row: Pick<Row, 'google_app' | 'scope' | 'template_id' | 'id'>) => (row.google_app && row.scope === 'team' ? `Admin › Connected apps › ${APP_NAMES[row.google_app]}, the shared account's Reconnect (only an owner or admin can: tell the user to ask one)`
   : row.google_app ? `Settings › Connectors › ${APP_NAMES[row.google_app]} (Reconnect)`
   : row.scope === 'team' ? 'Admin › Connected apps (only an admin can: tell the user to ask one)'
   : row.template_id ? `a card in this chat: call connect_service with template "${row.template_id}" (not in a scheduled run), or Settings › Connectors`

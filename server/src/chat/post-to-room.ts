@@ -31,13 +31,27 @@
 // every 1:1 chat). `own_words`: what the user dictated goes as their own message, with no AI-answer quote (no
 // answer_at), the same checks; the card shows exactly that message.
 //
-// Never offered (postToRoomOff): a room's "@트리나" session (its answers go to the room by the room's rule), a shared
-// project chat, a draft / judge / merge chat, an approved scheduled template's run, a confidential chat, a scheduled run
+// In a shared chat (a project's, or one shared with people: docs/DECISIONS.md "Sending to a person or a room from a
+// shared chat", QA TC-3091) it is offered too and works the same way, as the person whose turn it is (a turn is its
+// sender's: spec.userId): their rooms and teammates, their redactor, their read access for every linked file and copy,
+// their sending budget, and the card goes to them alone (TurnExec.waitForPerson: the runner's cards). Other people's
+// messages in the chat are information (the shared prompt); one of them asking for a post still meets the asker's card.
+// What the AI writes there everyone in the chat reads, so the AI never gets a room's title there (a group chat's title is
+// its members' names): its results name the place by the words it gave, and when several match the asker picks on a
+// card only they get (no list for the AI). Other viewers see the step's verb alone (ChatStore.viewSteps). The asker's
+// "Always allow" counts there only when their own latest message names the recipient (namedByAsker), never for
+// own_words.
+//
+// Never offered (postToRoomOff): a room's "@트리나" session (its answers go to the room by the room's rule), a
+// draft / judge / merge chat, an approved scheduled template's run, a confidential chat, a scheduled run
 // (nobody answers a card) or a question asked from Slack (Slack has its own "Post to channel"); never to a sub-agent
 // (subagents.ts PARENT_ONLY_TOOLS). Reached anyway (the chat became confidential during the answer, a sub-agent's call)
 // it refuses with why and what to do, as it does for a room that is archived or not mine, a gone thread, content that
 // used earlier answers hidden from some member, a text too long for one message and the sending budget.
-import { alwaysHere, withAlways } from './always-allow'
+import { withAlways } from './always-allow'
+import { actionOff, askerPicks, mainOnly, namedByAsker } from './shared-actions'
+// (moved to chat/shared-actions.ts, kept here for the tests and older imports)
+export { namedByAsker, namesRecipient } from './shared-actions'
 import { isUuid7, ownFolderLabel, ownFolderWord, PostToRoomInput, uuidv7 } from '@mycel/shared'
 import type { Step } from '@mycel/shared/api'
 import { opaqueParts } from '../tools/url-gate'
@@ -49,7 +63,6 @@ import { findPeople, findRoom, localTime, PERSON_REF, titleOf, type Teammate } f
 import { roomsOf } from '../rooms/service'
 import { groupName, roomRow, type MemberRow, type RoomRow } from '../rooms/store'
 import { historyKinds } from '../rooms/history'
-import { confidentialChat } from '../safe-ops/confidential'
 import { keyRoomOf, keyRoomOfPair, preparePendingDm, prepareShare, sendShare, shareChoice, type PendingShare, type PreparedShare } from './answer-share'
 import { tr } from './i18n'
 import { neutralizeTags } from './prompt'
@@ -68,13 +81,14 @@ const oneLine = (s: string, n: number) => { const v = s.replace(/\s+/g, ' ').tri
 export const POST_TEXT_FOLD = 600
 
 /** Why post_to_room is not offered in this turn (and refused when reached anyway), or null: it is. */
-export function postToRoomOff(exec: Pick<TurnExec, 'shared' | 'restricted' | 'templateRun' | 'spec' | 'rt'> & Partial<Pick<TurnExec, 'alwaysPlace'>>): { text: string; summary: string } | null {
+export function postToRoomOff(exec: Pick<TurnExec, 'restricted' | 'templateRun' | 'spec' | 'rt'> & Partial<Pick<TurnExec, 'alwaysPlace'>>): { text: string; summary: string } | null {
   const button = `"${SIDE_CHAT_SEND.room[exec.spec.locale] ?? SIDE_CHAT_SEND.room.en}"`
-  if (exec.spec.clientKind === 'schedule' && alwaysHere(exec.alwaysPlace?.(), 'post_to_room') !== 'on') return { text: `Nothing was posted: a scheduled run has nobody to answer the card every post to a room needs. Tell the user to ask for it in one of their own chats, or to share the answer with ${button} under it.`, summary: 'post_to_room -> refused: scheduled run' }
-  if (confidentialChat(exec.rt.db, exec.spec.chatId)) return { text: 'Nothing was posted: this is a confidential conversation (safe operations), and nothing of it goes to a room. Tell the user its content stays here; to post something else, they can ask in another chat of theirs.', summary: 'post_to_room -> refused: confidential chat' }
-  if (exec.shared) return { text: `Nothing was posted: this is a shared project chat that its project's people see, and posting to a room is done from the user's own chat only. Tell the user to ask in one of their own chats, or to share the answer with ${button} under it.`, summary: 'post_to_room -> refused: shared chat' }
-  if (exec.spec.clientKind === 'slack') return { text: 'Nothing was posted: this question came from Slack, where "Post to channel" shares an answer. Tell the user to ask in the app to post to a room.', summary: 'post_to_room -> refused: Slack' }
-  if (exec.restricted || exec.templateRun) return { text: 'Nothing was posted: this run is limited to one task and cannot post to rooms. Tell the user to ask in one of their own chats.', summary: 'post_to_room -> refused: not here' }
+  // (the rules every action that reaches others follows: chat/shared-actions.ts)
+  const off = actionOff(exec, 'post_to_room')
+  if (off === 'schedule') return { text: `Nothing was posted: a scheduled run has nobody to answer the card every post to a room needs. Tell the user to ask for it in one of their own chats, or to share the answer with ${button} under it.`, summary: 'post_to_room -> refused: scheduled run' }
+  if (off === 'confidential') return { text: 'Nothing was posted: this is a confidential conversation (safe operations), and nothing of it goes to a room. Tell the user its content stays here; to post something else, they can ask in another chat of theirs.', summary: 'post_to_room -> refused: confidential chat' }
+  if (off === 'slack') return { text: 'Nothing was posted: this question came from Slack, where "Post to channel" shares an answer. Tell the user to ask in the app to post to a room.', summary: 'post_to_room -> refused: Slack' }
+  if (off === 'restricted') return { text: 'Nothing was posted: this run is limited to one task and cannot post to rooms. Tell the user to ask in one of their own chats.', summary: 'post_to_room -> refused: not here' }
   return null
 }
 
@@ -143,8 +157,9 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const off = postToRoomOff(exec)
         if (off) return { ...text(off.text, true), summary: off.summary }
         // only the main AI: the person answers its cards (a sub-agent never gets the tool: subagents.ts)
-        if (files !== exec.files) return no('Nothing was posted: only the main assistant can post to a room, after the user\'s yes on its card. Give the text to post in your result instead.', 'refused: sub-agent')
-        try { exec.livePrincipal() } catch { return no('Access denied: this account is disabled.', 'denied: account disabled') }
+        const main = mainOnly(exec, files)
+        if (main === 'sub-agent') return no('Nothing was posted: only the main assistant can post to a room, after the user\'s yes on its card. Give the text to post in your result instead.', 'refused: sub-agent')
+        if (main === 'disabled') return no('Access denied: this account is disabled.', 'denied: account disabled')
         // what this answer read so far joins the chat's read scope first: the check counts every place of it
         exec.noteReads()
         const rooms = roomsOf(ctx)
@@ -159,9 +174,12 @@ export function postToRoomTool(exec: TurnExec): Tool {
         let roomId = ''
         /** a teammate with no 1:1 chat with the user yet: the chat is made only on the yes (Rooms.openDm) */
         let pendingTo: Teammate | null = null
+        /** in a shared chat, how the AI names the place: the words it gave (never the room's title, which may be its
+         * members' names; the AI writes where everyone in the chat reads) */
+        let refAi = ''
         if (a.data.room !== undefined) {
           const ref = a.data.room
-          const refAi = neutralizeTags(oneLine(ref, 120))
+          refAi = neutralizeTags(oneLine(ref, 120))
           const f = ref.trim().startsWith(PERSON_REF) ? null : findRoom(db, spec.userId, ref)
           // the team's people too ("tell bob …"): alone when no room of mine matches; next to rooms that match, the people
           // those rooms do not already stand for (their 1:1 chat listed) are asked about when the room match is only a part
@@ -178,11 +196,32 @@ export function postToRoomTool(exec: TurnExec): Tool {
           // a 1:1 chat found by a part of the name only ("Al" for "Alice", who left; "민수" for "김민수 씨"), and no person
           // named so in full: a guess about who gets it, so the user is asked (with "Always allow" it would go unseen)
           const guessDm = !!f && 'one' in f && !f.exact && f.one.room.kind === 'dm' && !people.some((t) => t.exact && t.dmRoomId === f.one.room.id)
-          if (asked.length || (f && 'many' in f) || guessDm) {
+          const ambiguous = asked.length > 0 || (!!f && 'many' in f) || guessDm
+          if (ambiguous && exec.shared) {
+            // a shared chat (QA TC-3091 review): the AI never gets the list (a group chat's title is its members' names, and
+            // the AI writes where everyone in the chat reads). The asker picks on a card only they see; the AI learns
+            // only that one was picked
+            const options = [
+              ...roomsListed.map((r) => ({ label: roomTitleFor(db, r.room, rooms.mine(spec.userId, r.room.id).me, L), value: `room:${r.room.id}` })),
+              ...asked.map((t) => ({ label: tr('postRoomDm', L, { name: oneLine(t.name, 40) }), value: `${PERSON_REF}${t.id}` })),
+              { label: tr('postRoomDont', L), value: 'no' },
+            ]
+            const v = await askerPicks(exec, tr('postRoomPick', L, { ref: oneLine(ref, 60) }), options)
+            const room = typeof v === 'string' && v.startsWith('room:') ? roomsListed.find((r) => `room:${r.room.id}` === v) : undefined
+            const person = typeof v === 'string' && v.startsWith(PERSON_REF) ? asked.find((t) => `${PERSON_REF}${t.id}` === v) : undefined
+            if (!room && !person) {
+              detail = tr('postRoomNotSent', L)
+              return v === 'no'
+                ? no(`The user chose not to send it, so nothing was posted to "${refAi}". Do not post it another way unless the user asks again.`, 'not sent: the user said no')
+                : no(`Nothing was posted to "${refAi}": several rooms or people match, and the card that asked the user which one got no answer in time. Ask the user whether to send it.`, 'not sent: no answer')
+            }
+            if (room) roomId = room.room.id
+            else if (person!.dmRoomId) roomId = person!.dmRoomId
+            else pendingTo = person!
+          } else if (ambiguous) {
             const lines = [...roomsListed.map((r) => `- ${neutralizeTags(oneLine(titleOf(r.view), 80))} · last activity ${localTime(r.view.activityAt, rt.timeZone)} · room_id=${r.room.id}`), ...asked.map(personLine)]
             return no(`Nothing was posted: ${lines.length === 1 ? `only a part of the name matches "${refAi}"` : `several rooms or people match "${refAi}"`}. Ask the user which one they mean (name them), then call post_to_room again with its room_id or room="${PERSON_REF}<id>"${asked.length ? morePeople : ''}:\n${lines.join('\n')}`, `refused: ${lines.length} rooms or people match`)
-          }
-          if (f && 'one' in f) roomId = f.one.room.id
+          } else if (f && 'one' in f) roomId = f.one.room.id
           else if (people.length === 1) {
             const t = people[0]!
             if (t.dmRoomId) roomId = t.dmRoomId
@@ -194,9 +233,10 @@ export function postToRoomTool(exec: TurnExec): Tool {
         if (!pendingTo) try { mine = rooms.mine(spec.userId, roomId) } catch { return no('Nothing was posted: that room is archived or the user is no longer in it. Call rooms to see the rooms they are in now.', 'refused: not my room') }
         const title = mine ? roomTitleFor(db, mine.room, mine.me, L) : tr('postRoomDm', L, { name: oneLine(pendingTo!.name, 40) })
         named = title
-        // (for the AI: a group chat's name is any member's words)
-        const titleAi = neutralizeTags(title)
-        if (pendingTo && a.data.thread_id !== undefined) return no(`Nothing was posted: the user has no 1:1 chat with ${neutralizeTags(oneLine(pendingTo.name, 40))} yet, so there is no thread to reply in. Call post_to_room again without thread_id.`, 'refused: thread in a new 1:1 chat')
+        // (for the AI: a group chat's name is any member's words; in a shared chat only the words it gave, see refAi)
+        const titleAi = exec.shared ? (refAi ? `"${refAi}"` : 'the room the user named') : neutralizeTags(title)
+        const whoAi = (t: Teammate) => exec.shared ? titleAi : neutralizeTags(oneLine(t.name, 40))
+        if (pendingTo && a.data.thread_id !== undefined) return no(`Nothing was posted: the user has no 1:1 chat with ${whoAi(pendingTo)} yet, so there is no thread to reply in. Call post_to_room again without thread_id.`, 'refused: thread in a new 1:1 chat')
         let threadRootId: string | undefined
         if (a.data.thread_id !== undefined) {
           if (!isUuid7(a.data.thread_id)) return no('Nothing was posted: thread_id is the id of the thread\'s first message (from room_read, or the thread_id a quoted question names). Call again with that id, or without thread_id to post to the room.', 'refused: not a message id')
@@ -285,7 +325,11 @@ export function postToRoomTool(exec: TurnExec): Tool {
         ]
         // "Always allow" for posts to rooms (chat/always-allow.ts; the owner, 2026-11-13): on, the text goes without the
         // card. Not on a card that also offers the linked files (review of #678): that choice is the person's each time
-        const reply = await withAlways(all ? null : exec.alwaysPlace?.(), 'post_to_room', options, 'send', (opts, more) => exec.waitForPerson({
+        // A shared chat (QA TC-3091 review): other people's messages are in the AI's context, so "Always allow" counts only
+        // when the asker's own latest message names the recipient as matched, and never for own_words (a message in the
+        // asker's own words always shows them the card)
+        const alwaysOk = !all && (!exec.shared || (!plain && namedByAsker(db, spec.userMessageId, a.data.room, recipientNames(db, spec.userId, mine?.room ?? null, pendingTo))))
+        const reply = await withAlways(alwaysOk ? exec.alwaysPlace?.() : null, 'post_to_room', options, 'send', (opts, more) => exec.waitForPerson({
           kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, options: opts, multiple: false, allowText: false, ...(more.note ? { note: more.note } : {}),
           details: [
             // the note goes as the person's own words, the text as the AI's answer: apart, as the room shows them
@@ -330,7 +374,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
           try { roomId = rooms.openDm(spec.userId, pendingTo.id).id } catch (e) {
             if (!(e instanceof HttpError)) throw e
             detail = tr('postRoomNotSent', L)
-            return no(`Nothing was posted: ${neutralizeTags(oneLine(pendingTo.name, 40))} can no longer be reached (their account was turned off or removed from the team). Tell the user.`, 'refused: person not active')
+            return no(`Nothing was posted: ${whoAi(pendingTo)} can no longer be reached (their account was turned off or removed from the team). Tell the user.`, 'refused: person not active')
           }
           opened = !existed
           const real = await prepareIn(roomId, false)
@@ -351,17 +395,34 @@ export function postToRoomTool(exec: TurnExec): Tool {
     },
   }
 
-  /** A check's refusal (HttpError) as a reason and a next step for the AI. */
-  function refusalOf(e: unknown, title: string, roomId: string) {
-    if (!(e instanceof HttpError)) throw e
-    const reason = e.extra.params?.reason
-    if (e.code === 'rate_limited') return no(`Nothing was posted: the user has sent many messages in a short time (the sending limit). Try again in ${e.retryAfter ?? 1} seconds, or tell the user to post it a little later.`, 'refused: sending budget')
-    if (reason === 'confidential') return no('Nothing was posted: this is a confidential conversation (safe operations), and nothing of it goes to a room. Tell the user its content stays here.', 'refused: confidential chat')
-    if (reason === 'answer_share_hidden') return no(`Nothing was posted: this content used earlier room answers that some people in ${title} cannot see (answers hidden from them), so it never goes there, confirmed or not. Tell the user; they can post to a room whose people can see those answers, or write the message without that content.`, 'refused: hidden answers')
-    if (reason === 'thread_root') return no(`Nothing was posted: that message's thread in ${title} cannot take a reply (the message may have been deleted). If the user wants it in the room instead, call post_to_room again with room "${roomId}" and no thread_id.`, 'refused: thread root')
-    if (e.code === 'not_found') return no('Nothing was posted: that room is archived or the user is no longer in it. Call rooms to see the rooms they are in now.', 'refused: not my room')
-    return no(`Nothing was posted: ${e.message || 'the post could not be checked'}. Tell the user.`, `refused: ${e.code}`)
+  function refusalOf(e: unknown, title: string, roomId: string) { return postRefusal(e, title, roomId, !!exec.shared) }
+}
+
+/** A check's refusal (HttpError) as a reason and a next step for the AI; `shared`: a shared chat. */
+export function postRefusal(e: unknown, title: string, roomId: string, shared: boolean) {
+  const no = (t: string, summary: string) => ({ ...text(t, true), summary: `post_to_room -> ${summary}` })
+  if (!(e instanceof HttpError)) throw e
+  const reason = e.extra.params?.reason
+  if (e.code === 'rate_limited') return no(`Nothing was posted: the user has sent many messages in a short time (the sending limit). Try again in ${e.retryAfter ?? 1} seconds, or tell the user to post it a little later.`, 'refused: sending budget')
+  if (reason === 'confidential') return no('Nothing was posted: this is a confidential conversation (safe operations), and nothing of it goes to a room. Tell the user its content stays here.', 'refused: confidential chat')
+  if (reason === 'answer_share_hidden') return no(`Nothing was posted: this content used earlier room answers that some people in ${title} cannot see (answers hidden from them), so it never goes there, confirmed or not. Tell the user; they can post to a room whose people can see those answers, or write the message without that content.`, 'refused: hidden answers')
+  if (reason === 'thread_root') return no(`Nothing was posted: that message's thread in ${title} cannot take a reply (the message may have been deleted). If the user wants it in the room instead, call post_to_room again with room "${roomId}" and no thread_id.`, 'refused: thread root')
+  if (e.code === 'not_found') return no('Nothing was posted: that room is archived or the user is no longer in it. Call rooms to see the rooms they are in now.', 'refused: not my room')
+  // (a shared chat: no server words, which could name a room, reach the transcript everyone there reads)
+  if (shared) return no('Nothing was posted: the post could not be checked. Tell the user it was not sent; they can ask again.', `refused: ${e.code}`)
+  return no(`Nothing was posted: ${e.message || 'the post could not be checked'}. Tell the user.`, `refused: ${e.code}`)
+}
+
+/** The names that stand for where a post goes, as matched: a teammate's name and username; a 1:1 chat's other
+ * person's; a team room's or group chat's own name (a team room's group name too). `person`: they are a person's. */
+export function recipientNames(db: import('bun:sqlite').Database, me: string, room: RoomRow | null, to: Teammate | null): { names: string[]; person: boolean } {
+  if (to) {
+    const u = db.query('SELECT name, username FROM users WHERE id = ?').get(to.id) as { name: string; username: string } | null
+    return { names: [to.name, u?.username ?? ''].filter(Boolean), person: true }
   }
+  if (!room) return { names: [], person: false }
+  if (room.kind === 'dm') return { names: (db.query('SELECT u.name, u.username FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? AND m.user_id <> ?').all(room.id, me) as { name: string; username: string }[]).flatMap((u) => [u.name, u.username]), person: true }
+  return { names: [room.name ?? '', room.kind === 'team' ? groupName(db, room) ?? '' : ''].filter(Boolean), person: false }
 }
 
 /** The questions above an answer on its branch, the nearest first: the first line or so of each (all a quote's thread

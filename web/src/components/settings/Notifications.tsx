@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Bell } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { isGoogleRequestable, type InboxNotification, type Locale, type NotificationPreferences } from '@mycel/shared/api'
+import { fileLinkUrl, isGoogleRequestable, type InboxNotification, type Locale, type NotificationPreferences } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { connectionHref, connectorHref, CONNECTORS_HOME } from '../../lib/connectors'
 import { firstRunText } from '../../lib/teamGoal'
@@ -145,6 +145,7 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   // a chat shared with me (docs/DECISIONS.md "Chats shared with people and groups"): who shared it while their account is
   // there; one I no longer see says so (no title, no link)
   if (item.code === 'chat.shared' && item.chatShared) return item.chatShared.gone ? t('notifications.event.chat.sharedGone') : item.chatShared.name ? t('notifications.event.chat.sharedNamed', { name: item.chatShared.name }) : t('notifications.event.chat.shared')
+  if (item.code.startsWith('file.')) return fileShareText(item, t)
   if (item.code === 'onboarding.first_run') return firstRunText(t, locale, item)
   if (item.code === 'account.deletion_request') return deletionNoticeText(t, item, locale)
   if (item.code === 'account.deletion_due') return deletionDueText(t, item, locale)
@@ -155,13 +156,16 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'integration.request' && item.request) return t('notifications.event.integration.requestNamed', { name: item.request.name, host: item.request.host })
   if (item.code === 'drive.share_reconnect' && item.driveShare) return t('notifications.event.drive.share_reconnectNamed', { name: item.driveShare.name })
   if ((item.code === 'service.request' || item.code === 'service.ready' || item.code === 'service.closed') && item.serviceRequest) return serviceRequestText(item, item.serviceRequest, t)
+  // older AI-made files with a saved key in them (QA TC-3082): how many I may open now; none: they moved or went
+  if (item.code === 'files.stored_key' && item.keyFiles) return item.keyFiles.n ? t('notifications.event.files.stored_keyN', { n: item.keyFiles.n }) : t('notifications.event.files.stored_keyGone')
   // an own connection other than Google Drive that needs a sign-in again, by its name (QA TC-2945)
   if (item.code === 'connection.reconnect' && item.connection) return t('notifications.event.connection.reconnectNamed', { name: item.connection.name })
   if (item.code === 'integration.template' || item.code === 'integration.template_reconnect') return templateText(item, t)
   const title = item.schedule?.title
+  // a sign-in template: the member signs in with their own account; a key template: their own key (QA TC-3052)
   if (item.code === 'schedule.failure' && item.needsKey) return title
-    ? isolate(locale, 'notifications.event.schedule.needsKeyNamed', { title, name: item.needsKey.name }, ['title', 'name'])
-    : t('notifications.event.schedule.needsKey', { name: item.needsKey.name })
+    ? isolate(locale, item.needsKey.signIn ? 'notifications.event.schedule.needsSignInNamed' : 'notifications.event.schedule.needsKeyNamed', { title, name: item.needsKey.name }, ['title', 'name'])
+    : t(item.needsKey.signIn ? 'notifications.event.schedule.needsSignIn' : 'notifications.event.schedule.needsKey', { name: item.needsKey.name })
   // a task paused because only the project's members can use it now (the owner or an admin who may add themselves):
   // it starts again once they do (docs/DECISIONS.md "Projects from before the update: one card, Add me to these")
   if (item.code === 'schedule.failure' && item.projectGone && item.membersOnly) return title
@@ -183,10 +187,25 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   return t(`notifications.event.${item.code}`)
 }
 
+/** The 'file.*' notices (QA TC-3093, docs/DECISIONS.md "A member shares their own files"): who and which file while
+ * they are there; `gone`: the file (or the request) is no longer there, without its name. A decline names no file. */
+export function fileShareText(item: InboxNotification, t: T): string {
+  const f = item.fileShare
+  const code = item.code as 'file.shared' | 'file.access_requested' | 'file.access_answered' | 'file.unshared_by_move'
+  if (code === 'file.access_answered') return t('notifications.event.file.access_answered')
+  if (!f || f.gone || !f.name) return code === 'file.shared' ? t('notifications.event.file.gone') : t(`notifications.event.${code}`)
+  if (!f.by) return t(`notifications.event.${code}`)
+  if (code === 'file.shared') return t('notifications.event.file.sharedNamed', { by: f.by, name: f.name })
+  if (code === 'file.access_requested') return t('notifications.event.file.access_requestedNamed', { by: f.by, name: f.name })
+  return t('notifications.event.file.unshared_by_moveNamed', { by: f.by, name: f.name })
+}
+
 /** Where a notice of the app's own opens, with its link's test id: the result chat of a scheduled run, the page of the
  * rest. Null: nowhere (a source I may no longer read, a notice that only tells), and its row is no link. */
 export function noticeLink(item: InboxNotification): { to: string; testId: string } | null {
   if (item.link === 'chat' && item.chatId) return { to: `/c/${encodeURIComponent(item.chatId)}`, testId: 'notification-chat-link' }
+  // a file shared with me, or one of mine moved: its link page while it is there (a request answers in the row instead)
+  if (item.link === 'file' && item.fileShare?.linkId && !item.fileShare.gone && item.code !== 'file.access_requested') return { to: fileLinkUrl(item.fileShare.linkId), testId: 'notification-file-link' }
   // an app that paused: its settings in its room, while I am in it
   if (item.code === 'room_app.paused') { const to = pausedNoticeLink(item.roomApp); return to ? { to, testId: 'notification-room-app-link' } : null }
   if (item.code === 'room_app.leaver') { const to = leaverNoticeLink(item.roomAppLeaver); return to ? { to, testId: 'notification-room-app-leaver-link' } : null }

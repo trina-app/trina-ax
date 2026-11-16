@@ -10,6 +10,7 @@
 import type { AppContext } from '../context'
 import { hashToken } from './passwords'
 import { authOf, readToken } from './service'
+import { getTeamSettings } from '../admin/settings'
 
 export interface AccountCleanup {
   /** the area's name, for the log */
@@ -142,30 +143,42 @@ export function registerAccountsCleanup(ctx: AppContext): void {
 // reason 'account_removed'. Only the holder of that token can present it, so nobody else learns that the account was
 // removed (a wrong or unknown token gets the plain 401). Kept in memory: after a restart the plain line comes back.
 const REMOVED_SIGN_IN_TTL_MS = 24 * 60 * 60 * 1000
+// a guest switched off keeps the note for a week: an app opened days later still says why before any password (guest
+// walkthrough S6), as long as they are still off
+const GUEST_SIGN_IN_TTL_MS = 7 * REMOVED_SIGN_IN_TTL_MS
 const REMOVED_SIGN_IN_MAX = 5000
-const removedSignIns = new WeakMap<AppContext, Map<string, number>>()
+/** `guest`: a guest's account switched off or deleted, 'left' when they left their one place themselves */
+interface RemovedNote { until: number; userId: string; guest?: 'left' | 'removed'; team?: string }
+const removedSignIns = new WeakMap<AppContext, Map<string, RemovedNote>>()
 
-/** Before the sessions of a removed account are ended: remember their token hashes for a day. */
-export function noteRemovedSignIns(ctx: AppContext, userId: string): void {
+/** Before the sessions of a removed account are ended: remember their token hashes for a day. `guest`: the account is
+ * a guest's, switched off (guest walkthrough S5/S6: 'left' when they left their place themselves); the note then lasts
+ * a week and the 401 names the team, so their window shows the guest's own screen before any password. */
+export function noteRemovedSignIns(ctx: AppContext, userId: string, guest?: 'left' | 'removed'): void {
   const rows = ctx.db.query('SELECT token_hash FROM sessions WHERE user_id = ?').all(userId) as { token_hash: string }[]
   if (!rows.length) return
   let m = removedSignIns.get(ctx)
   if (!m) { m = new Map(); removedSignIns.set(ctx, m) }
   const now = authOf(ctx).now()
-  for (const [k, until] of m) if (until <= now) m.delete(k)
-  for (const r of rows) m.set(r.token_hash, now + REMOVED_SIGN_IN_TTL_MS)
+  for (const [k, n] of m) if (n.until <= now) m.delete(k)
+  const until = now + (guest ? GUEST_SIGN_IN_TTL_MS : REMOVED_SIGN_IN_TTL_MS)
+  const team = guest ? getTeamSettings(ctx.db).teamName : undefined
+  for (const r of rows) m.set(r.token_hash, { until, userId, ...(guest ? { guest, team } : {}) })
   // bounded: the oldest notes go first (Map keeps insertion order)
   while (m.size > REMOVED_SIGN_IN_MAX) m.delete(m.keys().next().value as string)
 }
 
-/** 'account_removed' when the request carries a sign-in that ended because its account was removed, else null. */
-export function removedSignInReason(ctx: AppContext, req: Request): 'account_removed' | null {
+/** When the request carries a sign-in that ended because its account was removed: that, and for a guest how (left or
+ * removed), else null. A guest's account that is on again (switched back on, made a member) is not removed any more. */
+export function removedSignIn(ctx: AppContext, req: Request): { guest?: 'left' | 'removed'; team?: string } | null {
   const m = removedSignIns.get(ctx)
   if (!m?.size) return null
   const t = readToken(req)
   if (!t) return null
-  const until = m.get(hashToken(t.token))
-  if (until === undefined) return null
-  if (until <= authOf(ctx).now()) { m.delete(hashToken(t.token)); return null }
-  return 'account_removed'
+  const key = hashToken(t.token)
+  const n = m.get(key)
+  if (n === undefined) return null
+  if (n.until <= authOf(ctx).now()) { m.delete(key); return null }
+  if (n.guest && ctx.db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(n.userId)) { m.delete(key); return null }
+  return n.guest ? { guest: n.guest, ...(n.team ? { team: n.team } : {}) } : {}
 }

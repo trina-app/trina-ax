@@ -18,6 +18,7 @@
 // No API calls here: the step gives them (the "이미 있어요" listing), so the tests need no server.
 import { TEAM_FILES_LIMITS, type RankFileEntry, type TeamFileReason } from '@mycel/shared/api'
 import { considered, neverListed } from '@mycel/shared/file-scan'
+import type { WorkCloudProvider } from '@mycel/shared'
 import { extOf, joinPath } from './paths'
 
 const L = TEAM_FILES_LIMITS
@@ -102,6 +103,8 @@ const metaOf = (f: File): FileMeta => ({ size: f.size, modified: f.lastModified 
  * `<place>/<pick>/<rel>` (the picked folder's own name first, as the file screen's folder upload does). */
 export interface LocalDoc {
   key: string
+  /** Find work files: the desktop app's id for it (workFiles.add / read) */
+  workId?: string
   pick: string
   rel: string
   name: string
@@ -110,11 +113,12 @@ export interface LocalDoc {
   ext: string
   size: number
   modified: number
-  /** its content, read when it goes up (never by the walk or the list) */
-  open: () => Promise<File>
+  /** its content, read when it goes up (never by the walk or the list); `onCloud`: the desktop app is getting it from its
+   * cloud first */
+  open: (o?: { onCloud?: (cloud: WorkCloudProvider) => void }) => Promise<File>
   personal: boolean
   /** what the computer's index knew of it (Find work files on this computer; absent from a folder walk) */
-  hints?: { used?: number; useCount?: number; origins?: string[]; authors?: string[]; org?: string }
+  hints?: { used?: number; useCount?: number; origins?: string[]; authors?: string[]; org?: string; listed?: boolean }
   /** Find work files, part 5: a place beyond Documents, Desktop and Downloads (its kind and how the list names it:
    * "OneDrive – Acme", "Projects", "KakaoTalk", "D:"; '' for the home folder) */
   place?: { kind: 'cloud' | 'folder' | 'messenger' | 'home' | 'drive'; label: string }

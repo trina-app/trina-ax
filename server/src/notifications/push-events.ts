@@ -38,6 +38,20 @@ type PushPath = (ctx: AppContext, notificationId: string) => string | null | und
 const PATH = /^\/(?:[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*)?$/
 // the existing events open the inbox, as a Web Push click does (web/pwa/sw.js)
 const pushPaths = new Map<string, PushPath>(['schedule.success', 'schedule.failure', 'connection.reconnect'].map(code => [code, () => '/settings/notifications']))
+// a connection that needs a sign-in again opens its own page, where "Sign in again" is (the Inbox row's link,
+// Notifications.tsx; QA TC-3053): a person's own connection while it is still theirs (connections/service.ts
+// tellSignInAgain, source "<id>_<ms>"): a Google app's page or the connection's; Google Drive's (source = its
+// drive_connections id) while that connection is theirs: Drive's page. A removed one: the Inbox, as before
+export const reconnectPushPath: PushPath = (ctx, id) => {
+  const n = ctx.db.query("SELECT user_id, source_id FROM notification_inbox WHERE id=? AND event_type='connection.reconnect'").get(id) as { user_id: string; source_id: string } | null
+  if (!n) return null
+  const own = /^(.+)_\d+$/.exec(n.source_id)?.[1]
+  const c = own ? ctx.db.query("SELECT id, google_app FROM integrations WHERE id=? AND scope='personal' AND owner_user_id=?").get(own, n.user_id) as { id: string; google_app: string | null } | null : null
+  if (c) return c.google_app ? `/settings/connectors/${c.google_app}` : `/settings/connectors/mcp/${c.id}`
+  const drive = ctx.db.query('SELECT 1 FROM drive_connections WHERE id=? AND user_id=?').get(n.source_id, n.user_id)
+  return drive ? '/settings/connectors/google-drive' : '/settings/notifications'
+}
+pushPaths.set('connection.reconnect', reconnectPushPath)
 // a room notice opens its room (the same page a Web Push click opens, web/pwa/sw.js), only while the person is still in
 // that room and it is not archived; a reply in a thread opens that thread (/rooms/<room>/t/<root>, ids only). The room
 // page checks membership and the thread's root again

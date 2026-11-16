@@ -1,7 +1,7 @@
 // Admin › Members › "Invite to team" (pages/admin/Members.tsx InviteDialog; docs/DECISIONS.md "Guests from Admin ›
 // Invite to team"): Team member (the default, the link with a role and groups) or Guest. Guest says who that is in one
 // line and lists the one place they may join: group chats the admin is in and team projects whose members they may
-// change (pages/admin/GuestPlacePicker.tsx). A place opens the rooms' and projects' guest invite form, whose Cancel comes
+// change (components/GuestInviteChoice.tsx GuestPlacePicker). A place opens the rooms' and projects' guest invite form, whose Cancel comes
 // back here. A full plan says so in place of the places.
 import { expect, test, type Page } from '@playwright/test'
 import { uuidv7 } from '@mycel/shared/api'
@@ -35,7 +35,7 @@ async function openGuest(page: Page) {
   await expect(page.getByRole('tab', { name: '팀원' })).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByTestId('invite-create')).toBeVisible()
   await page.getByRole('tab', { name: '게스트' }).click()
-  await expect(page.getByTestId('invite-guest-line')).toHaveText('팀 밖의 사람이에요. 그룹 대화나 프로젝트 한 곳에만 들어와요.')
+  await expect(page.getByTestId('invite-guest-line')).toHaveText('팀 밖의 사람이에요. 그룹 대화나 프로젝트에 들어와요.')
   await expect(page.getByTestId('invite-create')).toHaveCount(0)
 }
 
@@ -45,7 +45,7 @@ test('the owner invites a guest into a group chat from Admin › Invite to team'
   // the group chat, never the DM
   await expect(page.getByTestId('guest-place-room')).toHaveCount(1)
   await page.getByTestId('guest-place-room').filter({ hasText: '견적 준비' }).click()
-  await expect(page.getByTestId('guest-invite-where')).toContainText("'견적 준비' 방만")
+  await expect(page.getByTestId('guest-invite-where')).toContainText("'견적 준비' 그룹 대화만")
   // the owner gets all three AI choices; the 7-day, one-use line
   await expect(page.getByTestId('guest-ai-team')).toBeVisible()
   await expect(page.getByTestId('guest-invite-expiry')).toBeVisible()

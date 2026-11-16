@@ -70,6 +70,13 @@ describe('wording', () => {
     const hosted = render(hostMessages('hosted', { id: 'mycel', base: '/var/lib/mycel' }) as unknown as Record<string, unknown>)
     for (const k of ['launcherNotRunning.ko', 'firewallMissing.en', 'engineSetupToken.en', 'engineCodexLogin.ko']) expect(hosted[k]).not.toMatch(/sudo|systemctl|journalctl|mycel-ctl/)
     expect(hosted['engineSetupToken.en']).toContain('Admin > AI providers')
+    // QA TC-3000: no hint, in any language or host, sends people to the old AI engines page (an "Admin > …" path;
+    // "AI engine" as a word for the engine itself is fine)
+    const OLD_PAGE = /(Admin|관리자|管理|Administración) (>|›) (AI engines|AI 엔진|Mesin AI|AIエンジン|Motores de IA|AI 引擎)/
+    for (const h of ['linux', 'hosted'] as const) {
+      const all = { ...render(hostMessages(h, { id: 'mycel', base: '/var/lib/mycel' }) as unknown as Record<string, unknown>), ...render({ ...ENGINE_T, ...engineStatusMessages(h, '/var/lib/mycel') }) }
+      for (const [k, s] of Object.entries(all)) expect(OLD_PAGE.test(String(s)), `${h} ${k}: ${s}`).toBe(false)
+    }
     expect(hosted['launcherDown.ko']).toContain('호스팅 지원팀')
   })
 })

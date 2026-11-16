@@ -1,15 +1,16 @@
 // "Find work files on this computer" in the real Electron (src/main/work-files.ts, docs/DECISIONS.md "Find work files on
-// this computer"), with a hidden window and no person. The app's own dialog is a system window no test can answer, so
-// dialog.showMessageBox is replaced here by one that records the question and answers as the test says. The look and the
+// this computer"), with a hidden window and no person. The app's own consent window (main/work-consent-window.ts, tested
+// on its own in work-consent.spec.ts) is replaced here by one that records what it would show and answers as the test says. The look and the
 // reads then run on node:fs for real: lstat, links, realpath, O_NOFOLLOW. Everything happens in a made-up home folder
 // that work-files.spec.ts creates in a temporary folder (HOME and every app.getPath used point into it); this file refuses
 // to run against the computer's real home. Never point it there. Run WITHOUT Playwright: work-files.spec.ts builds and
 // starts this file.
-import { app, BrowserWindow, dialog } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import { realpathSync, renameSync, symlinkSync, utimesSync, writeFileSync, statSync } from 'node:fs'
 import { tmpdir, userInfo } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
 import { WorkFilesController } from '../../src/main/work-files'
+import type { ConsentMemory, ConsentView } from '../../src/common/work-consent'
 
 const home = process.env.FOLDER_TEST_HOME ?? ''
 const within = (dir: string, path: string) => {
@@ -39,15 +40,19 @@ void (async () => {
   for (const name of ['home', 'appData', 'desktop', 'documents', 'downloads'] as const) {
     if (!within(home, app.getPath(name))) throw new Error(`${name} is outside the made-up home`)
   }
-  const asked: { message: string; detail: string; buttons: string[] }[] = []
-  let answer = 1
-  ;(dialog as unknown as { showMessageBox: unknown }).showMessageBox = async (_w: unknown, o: { message: string; detail: string; buttons: string[] }) => {
-    asked.push({ message: o.message, detail: o.detail, buttons: o.buttons })
-    return { response: answer, checkboxChecked: false }
+  const asked: ConsentView[] = []
+  let answer = false
+  const consent = (_w: unknown, view: ConsentView) => {
+    asked.push(view)
+    return { result: Promise.resolve(answer), close: () => {} }
   }
   const win = new BrowserWindow({ show: false, width: 400, height: 300 })
   const progress: unknown[] = []
-  const ctl = new WorkFilesController({ win: () => win, locale: () => 'en', progress: (p) => progress.push(p) })
+  // the person's own presses on the team page (AppWindow: Electron's input events), the remembered yes, the strip
+  let inputAt = 0
+  let memory: ConsentMemory = {}
+  const reading: number[] = []
+  const ctl = new WorkFilesController({ win: () => win, locale: () => 'en', progress: (p) => progress.push(p), consent, lastInput: () => inputAt, assistive: () => app.accessibilitySupportEnabled, memory: { load: () => memory, save: (m) => { memory = m } }, reading: (n) => reading.push(n) })
   ctl.person({ signedIn: true, userId: 'u-alex' })
   const out: Record<string, unknown> = {}
 
@@ -55,7 +60,7 @@ void (async () => {
   out.cancelled = await ctl.scan(TEAM)
   out.again = await ctl.scan(TEAM)
   await new Promise((r) => setTimeout(r, 3100))
-  answer = 0
+  answer = true
   const r = await ctl.scan(TEAM)
   if (r.state !== 'done') throw new Error(`no look: ${r.state}`)
   out.roots = r.roots.map((x) => ({ id: x.id, state: x.state, cut: x.cut }))
@@ -68,7 +73,35 @@ void (async () => {
     const x = await ctl.read(origin, fid)
     return x.ok ? Buffer.from(x.bytes).toString('utf8') : x.reason
   }
+  // TC-3300: nothing is read before the page adds it, right after the person's own press; then only what was added
+  out.beforeAdd = await text(TEAM, id('Quote template.xlsx'))
+  out.addNoPress = (await ctl.add(TEAM, [id('Quote template.xlsx')])).state
+  inputAt = Date.now()
+  out.added = (await ctl.add(TEAM, [id('Quote template.xlsx'), id('proposal.pdf'), id('notes.txt')])).state
+  out.addOtherOrigin = (await ctl.add(OTHER, [id('Quote template.xlsx')])).state
   out.read = await text(TEAM, id('Quote template.xlsx'))
+  out.notAdded = await text(TEAM, r.files.find((f) => f.root === 'downloads')!.id)
+
+  // VoiceOver / Voice Control (assistive technology on, forced here): their "press" makes no key or mouse event. Then,
+  // and only then, the app's own window lists the files; No adds nothing, Add adds them
+  const dl = r.files.find((f) => f.root === 'downloads')!.id
+  inputAt = 0
+  out.a11yOff = (await ctl.add(TEAM, [dl])).state
+  app.setAccessibilitySupportEnabled(true)
+  out.a11yOn = app.accessibilitySupportEnabled
+  // one window at a time, never right after another (3 s after any answer, the look's included)
+  await new Promise((r) => setTimeout(r, 3100))
+  answer = false
+  out.a11yNo = (await ctl.add(TEAM, [dl])).state
+  out.a11yNoRead = await text(TEAM, dl)
+  out.a11yAtOnce = (await ctl.add(TEAM, [dl])).state
+  await new Promise((r) => setTimeout(r, 3100))
+  answer = true
+  out.a11yYes = (await ctl.add(TEAM, [dl])).state
+  out.a11yWindow = { kind: asked.at(-1)?.kind, places: asked.at(-1)?.places.map((p) => p.name), yes: asked.at(-1)?.yes }
+  const yesRead = await ctl.read(TEAM, dl)
+  out.a11yYesRead = yesRead.ok
+  app.setAccessibilitySupportEnabled(false)
   out.foreignId = await text(TEAM, 'AAAAAAAAAAAAAAAA')
   out.pathAsId = await text(TEAM, join(home, '.aws', 'credentials'))
   out.otherOrigin = await text(OTHER, id('Quote template.xlsx'))
@@ -88,6 +121,16 @@ void (async () => {
   symlinkSync(join(home, '.aws', 'credentials'), notes)
   out.swappedFile = await text(TEAM, id('notes.txt'))
 
+  out.reading = reading
+
+  // asked once: the yes is remembered for this team and person; with the person's press just now, no window
+  out.remembered = Object.keys(memory)
+  const askedBefore = asked.length
+  await new Promise((r) => setTimeout(r, 3100))
+  inputAt = Date.now()
+  out.secondLook = (await ctl.scan(TEAM)).state
+  out.askedAgain = asked.length - askedBefore
+
   // another person signs in: the look is forgotten
   ctl.person({ signedIn: true, userId: 'u-bo' })
   out.afterPerson = await text(TEAM, id('Quote template.xlsx'))
@@ -95,6 +138,8 @@ void (async () => {
   console.log('WORK_RESULT ' + JSON.stringify({ out, asked }))
   win.destroy()
   app.exit(0)
+  // on a busy machine Electron's exit sometimes did not end the process (the spec then waited for its time limit)
+  setTimeout(() => process.exit(0), 3000).unref()
 })().catch((error) => {
   console.error(error)
   app.exit(1)

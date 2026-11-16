@@ -163,7 +163,7 @@ test('group chats: a guest makes none; a member cannot put a guest into a second
   await mia.client.call('POST', `/api/rooms/${ok.id}/members`, { userIds: [nora.id] })
 })
 
-test('adding people: a guest adds only people of their place (an outsider: 403), not into another chat', async () => {
+test('adding people: a guest adds nobody (an outsider: 403), not into another chat', async () => {
   const { mia, nora, otto, pia, owner, gus } = await setup('a-guests-rooms-add')
   // a second group chat with gus's people but not gus
   const room2 = await groupChat(nora.client, [otto.id, mia.id], 'members only')

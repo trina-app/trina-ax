@@ -146,6 +146,24 @@ describe('what a row says', () => {
       useLocaleStore.setState({ locale: before })
     }
   })
+  test('an API connection or template is named as the app names it ("API"), never "MCP"; an MCP one keeps its words (QA TC-3054)', () => {
+    const admin = (action: string, kind: string | undefined) => entry('a', at, { source: 'admin', action, target: 'x', detail: kind ? { scope: 'team', kind } : {} })
+    for (const l of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
+      const t = (k: Parameters<typeof translate>[1], p?: Parameters<typeof translate>[2]) => translate(l, k, p)
+      for (const action of ['integration.create', 'integration.update', 'integration.delete', 'integration_template.create', 'integration_template.update', 'integration_template.delete']) {
+        const api = actionLabel(t, admin(action, 'http'))
+        expect(api).not.toContain('MCP')
+        expect(api).toContain('API')
+        expect(actionLabel(t, admin(action, 'mcp'))).toBe(translate(l, `audit.act.${action}` as Parameters<typeof translate>[1]))
+        // an older row without a kind: as before
+        expect(actionLabel(t, admin(action, undefined))).toBe(translate(l, `audit.act.${action}` as Parameters<typeof translate>[1]))
+      }
+    }
+    const en = (k: Parameters<typeof translate>[1], p?: Parameters<typeof translate>[2]) => translate('en', k, p)
+    expect(actionLabel(en, admin('integration.create', 'http'))).toBe('Added an API connection')
+    // an action with no API words of its own keeps its line
+    expect(actionLabel(en, admin('integration.always_allow', 'http'))).toBe(translate('en', 'audit.act.integration.always_allow'))
+  })
   test('an item that is an id: its name when the entry has one, else nothing; paths and usernames as they are', () => {
     const admin = (action: string, target: string | null, detail: Record<string, unknown> = {}) => entry('a', at, { source: 'admin', action, target, detail })
     expect(rowItem(admin('project.create', '01a1ad35-9e0e-72a0-8715-3bc4d3562bd4', { name: '출시 준비' }))).toEqual({ text: '출시 준비', code: false })

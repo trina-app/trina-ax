@@ -272,7 +272,7 @@ describe('the desktop app\'s files row (optional, not counted)', () => {
   })
 
   test('an older desktop app (another bridge version) or one without workFiles (the Mac App Store build): no row', async () => {
-    for (const b of [bridge(2), { bridgeVersion: 1 }]) {
+    for (const b of [bridge(99), { bridgeVersion: 1 }]) {
       setApp(b)
       signIn()
       const m = await home()
@@ -426,7 +426,7 @@ describe('the ✦ line in a room', () => {
     const m = await mount(<Hint />)
     try {
       await m.until(() => m.find('room-ask-hint'), 'the line')
-      expect(text(m, 'room-ask-hint')).toContain('✦ Ask Trina about this room. Only you see it.')
+      expect(text(m, 'room-ask-hint')).toContain('✦ Ask Trina about this conversation. Only you see it.')
       await m.click('room-ask-hint-close')
       expect(m.find('room-ask-hint')).toBeNull()
       await m.until(() => called('PATCH /api/me').length > 0 || null, 'saved')

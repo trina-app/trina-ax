@@ -22,7 +22,8 @@ import { isAdmin, isOwner, useMeStrict, useSession } from '../store/session'
 import { useWelcome } from '../store/welcome'
 import { INVITE_STEP_STATE } from './onboarding/GoalCard'
 import { InviteStep } from './onboarding/InviteStep'
-import { Modal } from './ui'
+import { GuestChoiceButtons, GuestChoiceForm, GuestChoicePanel, InviteKindTabs, useGuestChoice, type InviteKind } from './GuestInviteChoice'
+import { Modal, TabPanel } from './ui'
 
 /** The team's logo, cropped square as the settings previews do; the product's mark while there is none. */
 export function TeamLogo({ className, testId }: { className: string; testId?: string }) {
@@ -186,17 +187,43 @@ export async function openTeamInvite(navigate: NavigateFunction, returnTo: HTMLE
 const closeInvite = () => useTeamInvite.setState({ open: false, returnTo: null })
 
 export function TeamInviteDialog() {
-  const t = useT()
   const { open, returnTo } = useTeamInvite()
   const { pathname } = useLocation()
   // another page (a link in the dialog: 스킬 넣기, 팀 파일 넣기; ⇧⌘O) closes it, and so does a new mount (signed out and
   // in again): it never stays over a page it was not opened on
   useEffect(closeInvite, [pathname])
   if (!open) return null
-  const close = closeInvite
+  return <InvitePeople returnTo={returnTo} onClose={closeInvite} />
+}
+
+/** "Invite people" (docs/DECISIONS.md "Guests from Invite people"): Team member (picked first: the team link's message,
+ * InviteStep, as before) or Guest, the same Guest half as Admin › Invite to team (components/GuestInviteChoice.tsx): one
+ * line, the one place they join, then the rooms' and projects' guest invite form, whose Cancel comes back here. Opened
+ * fresh each time, so it always starts on Team member. */
+function InvitePeople({ returnTo, onClose }: { returnTo: HTMLElement | null; onClose: () => void }) {
+  const t = useT()
+  const admin = isAdmin(useMeStrict())
+  const [kind, setKind] = useState<InviteKind>('member')
+  const kinds = useId()
+  const guest = kind === 'guest'
+  const choice = useGuestChoice(guest)
+  if (choice.place) return <GuestChoiceForm choice={choice} onDone={onClose} />
   return (
-    <Modal open onClose={close} title={t('teamMenu.invite')} width={560} returnTo={returnTo}>
-      <InviteStep title={null} onDone={close} />
+    <Modal open onClose={onClose} title={t('teamMenu.invite')} width={560} returnTo={returnTo}>
+      <InviteKindTabs value={kind} onChange={setKind} panels={kinds} />
+      {guest ? (
+        <div className="space-y-4">
+          <GuestChoicePanel choice={choice} panels={kinds} admin={admin} />
+          {/* where the Team member half has Done: the same row under the content */}
+          <div className="flex flex-wrap justify-end gap-2 border-t border-line pt-4">
+            <GuestChoiceButtons choice={choice} admin={admin} onClose={onClose} />
+          </div>
+        </div>
+      ) : (
+        <TabPanel base={kinds} value="member">
+          <InviteStep title={null} onDone={onClose} guestLine={false} />
+        </TabPanel>
+      )}
     </Modal>
   )
 }

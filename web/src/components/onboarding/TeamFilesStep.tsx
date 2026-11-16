@@ -21,6 +21,7 @@
 import clsx from 'clsx'
 import { Check, CircleAlert, FolderOpen, FolderSearch, Loader2, Upload } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
+import { useLocation } from 'react-router-dom'
 import { create } from 'zustand'
 import { SHARED_HOME, TEAM_FILES_LIMITS, teamHome, type TeamFileReason, type TreeResponse, type WelcomeProgress } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
@@ -41,7 +42,8 @@ import { useAiAccess } from '../../store/aiAccess'
 import { retryFolderUpload, startFolderUpload, stopFolderUpload, useFolderUploadsSettled } from '../FolderUploads'
 import { useTeamPrepared } from './TeamPrepared'
 import { failedReason, FindWorkFiles } from './FindWorkFiles'
-import { workFilesBridge } from '../../lib/workFiles'
+import { cloudName, workFilesBridge } from '../../lib/workFiles'
+import { hasResume, takeResume } from '../../lib/workFilesResume'
 import { TickFold, TickRow, TickSearch } from './TickList'
 import { beginOrganize, OrganizeView, organizeWanted, RESUMED, rememberLanded, resumeOrganize, useOrganize } from './OrganizeFiles'
 import { Button, ErrorNote, Modal, useMediaQuery } from '../ui'
@@ -341,6 +343,13 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
     return () => { live = false }
   }, [team?.id, home?.id])
   const place = places.find((p) => p.id === draft.placeId) ?? places[0] ?? null
+  // back from "Restart <product>" on Find work files' Full Disk Access screen (lib/workFiles.ts saveResume): that screen
+  // again, which goes on by itself once the app has the access
+  const location = useLocation()
+  useEffect(() => {
+    if (computer && takeResume(me.user.id, 'team', location.pathname + location.search)) patch({ screen: 'computer', empty: false, blocked: null })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!computer, me.user.id, location.pathname, location.search])
   // the run is shown when the step opens with one and nothing else is under way here (F4/F5, never F1)
   useEffect(() => {
     const d = useDraft.getState()
@@ -768,7 +777,9 @@ function RunView({ run, places, nextLabel, busy, phone, onDone, onMore }: { run:
               {r.state === 'done' ? <Check size={14} className="shrink-0 text-ok" aria-hidden /> : r.state === 'failed' ? <CircleAlert size={14} className="shrink-0 text-danger" aria-hidden />
                 : r.state === 'active' ? <Loader2 size={14} className="shrink-0 animate-spin text-faint" aria-hidden /> : <span className="size-3.5 shrink-0" aria-hidden />}
               <span className="min-w-0 flex-1 truncate text-ink">{baseName(r.rel)}</span>
-              {running && r.state !== 'failed' ? (
+              {running && r.state === 'active' && r.cloud ? (
+                <span className="max-w-[50%] shrink-0 truncate text-xs text-muted" data-testid="team-file-from-cloud">{t('files.findWork.fromCloudShort', { provider: cloudName(r.cloud, t) })}</span>
+              ) : running && r.state !== 'failed' ? (
                 <span className="h-1 w-20 shrink-0 overflow-hidden rounded bg-subtle" aria-hidden><span className="block h-full bg-accent transition-[width]" style={{ width: `${pct(r)}%` }} /></span>
               ) : r.state !== 'done' && <span className="max-w-[50%] shrink-0 truncate text-xs text-danger" title={reason(r)}>{reason(r)}</span>}
             </li>
@@ -864,7 +875,9 @@ export function TeamFilesEntry({ here }: { here: string }) {
   const admin = me.user.role === 'owner' || me.user.role === 'admin'
   const progress = useWelcome((s) => s.progress)
   const settled = useFolderUploadsSettled()
-  const [open, setOpen] = useState(false)
+  const location = useLocation()
+  // open again after "Restart <product>" on the step's Find work files (the step takes the note and shows that screen)
+  const [open, setOpen] = useState(() => hasResume(me.user.id, 'team', location.pathname + location.search))
   // the team's home: shared/ since docs/DECISIONS.md "Team folder basics", else the team group's folder
   const folder = progress?.teamGroup ? teamHome(progress.teamGroup) : null
   useEffect(() => {

@@ -115,8 +115,8 @@ export const MEMBERS_TEXT = {
   opensAll: t('새로 보는 사람은 이 프로젝트의 파일과 채팅을 보게 돼요.', "The people who start seeing it will see its files and chats.", 'Orang yang mulai melihatnya akan melihat berkas dan obrolannya.', '新たに見られるようになる人は、このプロジェクトのファイルとチャットを見られます。', 'Quienes empiecen a verlo verán sus archivos y chats.', '开始能看到的人将能看到它的文件和对话。'),
   yes: t('멤버 바꾸기', 'Change members', 'Ubah anggota', 'メンバーを変更', 'Cambiar miembros', '修改成员'),
   no: t('바꾸지 않기', 'Don’t change', 'Jangan ubah', '変更しない', 'No cambiar', '不修改'),
-  /** where the person changes them (web: projects.title › the project › projects.participants) */
-  where: t('프로젝트 › {name} › 멤버', 'Projects › {name} › Members', 'Proyek › {name} › Anggota', 'プロジェクト › {name} › メンバー', 'Proyectos › {name} › Miembros', '项目 › {name} › 成员'),
+  /** where the person changes them (web: projects.title › the project › projects.share, its title row) */
+  where: t('프로젝트 › {name} › 공유', 'Projects › {name} › Share', 'Proyek › {name} › Bagikan', 'プロジェクト › {name} › 共有', 'Proyectos › {name} › Compartir', '项目 › {name} › 共享'),
 } satisfies Record<string, L5>
 const fill = (s: string, v: Record<string, string | number>, L: Locale) => fillPlurals(s, v, L).replace(/\{(\w+)\}/g, (_, k) => String(v[k] ?? ''))
 const say = (k: keyof typeof MEMBERS_TEXT, L: Locale, v: Record<string, string | number> = {}) => fill(MEMBERS_TEXT[k][L], v, L)

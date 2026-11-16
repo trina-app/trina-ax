@@ -3,6 +3,7 @@
 import { GuestLanding, NotForGuests, NotForRoomGuests, useGuestPlacePath } from './components/GuestView'
 import { ShareChatHost } from './components/chat/ShareChat'
 import { ChatShareHost } from './components/chat/ChatShareDialog'
+import { FileShareHost } from './components/FileShareDialog'
 import { WideningDraftHost } from './components/WideningDraftHost'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, Route, Routes, unstable_HistoryRouter as HistoryRouter, useLocation, useNavigate, useNavigationType, type Location } from 'react-router-dom'
@@ -50,6 +51,7 @@ import { ImageViewerHost } from './components/ImageViewer'
 import { RealPath } from './lib/realPath'
 import { noteLocation } from './lib/backStack'
 import { useAppNav } from './lib/appNav'
+import { resumePath } from './lib/workFilesResume'
 import { safeNext } from './lib/nav'
 import { isOldConnectorsPath, oldConnectorsTarget } from './lib/connectors'
 import { useLogoutTo } from './lib/logout'
@@ -62,6 +64,7 @@ import { RoomAppsHost } from './components/rooms/apps/AppsHost'
 const ChatPage = lazy(() => import('./pages/Chat'))
 const Files = lazy(() => import('./pages/Files'))
 const FileView = lazy(() => import('./pages/FileView'))
+const FileLink = lazy(() => import('./pages/FileLink'))
 const ProjectList = lazy(() => import('./pages/Projects').then((m) => ({ default: m.ProjectList })))
 const ProjectHome = lazy(() => import('./pages/Projects').then((m) => ({ default: m.ProjectHome })))
 const ProjectFiles = lazy(() => import('./pages/Projects').then((m) => ({ default: m.ProjectFiles })))
@@ -282,6 +285,17 @@ function Gate() {
     document.title = PRODUCT.displayName
   }, [])
 
+  // the desktop app restarted for Full Disk Access ("Restart <product>" on Find work files): it starts on Home, so the
+  // page the person was on opens again, where that dialog opens by itself (lib/workFiles.ts saveResume)
+  const navigate = useNavigate()
+  const signedInId = status.kind === 'signed-in' && !status.me.user.mustChangePassword ? status.me.user.id : null
+  useEffect(() => {
+    if (!signedInId || location.pathname !== '/' || location.search) return
+    const back = resumePath(signedInId)
+    if (back && back !== '/') navigate(back, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signedInId])
+
   if (status.kind === 'loading') return <Splash />
   if (status.kind === 'error') {
     // The plain hint always shows; the server's own words and the HTTP status are a small detail under it
@@ -347,6 +361,8 @@ function Gate() {
           <Route path="activity" element={<Activity key={`${status.me.user.id}:${status.me.session.id}`} />} />
           <Route path="files" element={<NotForGuests><Files /></NotForGuests>} />
           <Route path="files/view" element={<NotForGuests><FileView /></NotForGuests>} />
+          {/* a file's link (QA TC-3093): for a guest too, who gets "You can't open this file" (the server answers 403) */}
+          <Route path="f/:id" element={<FileLink />} />
           {/* a guest in a room has no projects: their room instead of an empty list (components/GuestView.tsx) */}
           <Route path="projects" element={<NotForRoomGuests><ProjectList /></NotForRoomGuests>} />
           <Route path="projects/:projectId" element={<ProjectHome />} />
@@ -425,6 +441,7 @@ export default function App() {
         <RoomAppsHost />
         <ShareChatHost />
         <ChatShareHost />
+        <FileShareHost />
         <WideningDraftHost />
         <StatusDialogHost />
         <ImageViewerHost />

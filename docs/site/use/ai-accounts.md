@@ -125,7 +125,7 @@ In **Admin › AI providers**, choose **Add account** in the **Codex** row, then
 ![Add account with ChatGPT plan chosen: Name, Used by, the notice with its checkbox and Start sign-in](../images/connect/ai-chatgpt.webp "ChatGPT plan")
 
 #### Enter the code at OpenAI
-Trina AX shows **Open this address** and **Enter this code (within 15 minutes)**. Open the address, sign in with the
+Trina AX shows **Open the ChatGPT sign-in page** and **Enter this code (within 15 minutes)**. Open the page, sign in with the
 ChatGPT account, type the code and approve.
 
 #### Done

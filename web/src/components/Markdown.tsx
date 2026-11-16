@@ -28,6 +28,8 @@ import { externalImageHintKey } from '../lib/appWording'
 import { toast } from '../store/ui'
 import { useCopy, useEdgeFade } from './ui'
 import { Tooltip } from './Tooltip'
+import { useGuestFolderHref } from './GuestView'
+import { guestAppHref } from '../lib/guests'
 import { useViewerItem } from './ImageViewer'
 import { teamImageItem } from '../lib/imageViewer'
 import { useDarkTheme } from '../lib/theme'
@@ -304,6 +306,14 @@ function TeamFileLink({ path, at, children }: { path: string; at?: SourceLoc; ch
  * Hover or keyboard focus says why ("열 수 없어요: 옮겨졌거나 지워졌거나 권한이 없어요"); a tap or click says it too (a toast:
  * touch has no tooltip). Nothing of the file is loaded and nothing says whether it exists, so the words name every
  * reason: a file moved after the message was sent is locked too (QA TC-063). */
+/** An address inside the app in an answer. A guest has no 파일 screen (App.tsx NotForGuests: /files goes Home): a folder
+ * link opens their project's files screen, or is plain text where no screen of theirs lists it. */
+function AppLink({ href, children }: { href: string; children: ReactNode }) {
+  const guestFolder = useGuestFolderHref()
+  const to = guestFolder ? guestAppHref(href, guestFolder) : href
+  return to ? <Link to={to}>{children}</Link> : <span>{children}</span>
+}
+
 function LockedFile({ children }: { children: ReactNode }) {
   const t = useT()
   const why = t('rooms.fileNoAccess')
@@ -384,7 +394,7 @@ const COMPONENTS: Components = {
   a: ({ href, children }) => {
     const l = classifyLink(href, origin())
     if (l.kind === 'team-file') return <TeamFileLink path={l.path} at={l.at}>{children}</TeamFileLink>
-    if (l.kind === 'app') return <Link to={l.href}>{children}</Link>
+    if (l.kind === 'app') return <AppLink href={l.href}>{children}</AppLink>
     if (l.kind === 'external')
       return (
         <a href={l.href} target="_blank" rel="noopener noreferrer nofollow" referrerPolicy="no-referrer">

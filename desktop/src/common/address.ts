@@ -37,9 +37,11 @@ export function readDesktopLink(raw: string): TeamInput | null {
 
 /** An id in a page address: the server's ids (uuidv7) and nothing that could move the path (no `.`, `%`, `/`, `\`). */
 const PAGE_ID = '[A-Za-z0-9_-]{1,64}'
+/** A file's link id (shared/src/api/file-shares.ts FileLinkId: 16 random bytes, base64url). */
+const FILE_LINK_ID = '[A-Za-z0-9_-]{22}'
 /** The team pages a link from outside may open in the app (web/src/App.tsx routes): a chat, a room, a room's thread,
- * a project. Nothing else (settings, admin, files, sign-in pages). */
-const PAGE_PATH = new RegExp(`^/(?:c/${PAGE_ID}|rooms/${PAGE_ID}(?:/t/${PAGE_ID})?|projects/${PAGE_ID})$`)
+ * a project, a file's link (/f/<id>, QA TC-3093). Nothing else (settings, admin, files, sign-in pages). */
+const PAGE_PATH = new RegExp(`^/(?:c/${PAGE_ID}|rooms/${PAGE_ID}(?:/t/${PAGE_ID})?|projects/${PAGE_ID}|f/${FILE_LINK_ID})$`)
 const ROOM_PATH = /^\/rooms\//
 const MESSAGE_ID = new RegExp(`^${PAGE_ID}$`)
 
@@ -158,6 +160,23 @@ export function originOf(url: string): string {
     return u.protocol === 'http:' || u.protocol === 'https:' ? u.origin : ''
   } catch {
     return ''
+  }
+}
+
+/**
+ * A remembered team at a development address on this computer: `localhost` or `*.localhost` (`bun run dev`,
+ * http://localhost:19100, often not running). When the app opens it by itself at start and it does not answer, the
+ * first-run screen with the team list comes instead of the "cannot reach the team server" card (main/app-window.ts
+ * openLast). Loopback IPs are left out: the Office Mac's own server is http://127.0.0.1:47820 (scripts/install-macos.sh),
+ * a real team that may still be starting after a restart, so it keeps the card and its [다시 시도]. A team the person
+ * opens keeps the card too.
+ */
+export function onThisComputer(origin: string): boolean {
+  try {
+    const h = new URL(origin).hostname.toLowerCase().replace(/\.$/, '')
+    return h === 'localhost' || h.endsWith('.localhost')
+  } catch {
+    return false
   }
 }
 

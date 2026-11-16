@@ -23,6 +23,7 @@ import { SKILL_SHARE_SPECS } from './skill-share-cases'
 import { ONBOARDING_FILES_SPECS } from './onboarding-files-cases'
 import { FILE_LIST_SPECS } from './file-list-cases'
 import { NAV_FOLDER_CANARY, NAV_FOLDER_SPECS } from './nav-folders-cases'
+import { FILE_SHARE_SPECS } from './file-share-cases'
 import { inviterOnlyByName, MISC_LAST_SPECS, MISC_SPECS } from './misc-cases'
 
 type Build = (c: Client, w: World) => Promise<Resp>
@@ -132,6 +133,7 @@ export const SPECS: Record<string, Spec> = {
   ...ONBOARDING_FILES_SPECS,
   ...FILE_LIST_SPECS,
   ...NAV_FOLDER_SPECS,
+  ...FILE_SHARE_SPECS,
   ...MISC_SPECS,
   // ---- auth / me (self or public) ----
   setupStatus: { build: (c) => c.get('/api/setup'), scope: 'byLevel' },
@@ -250,6 +252,14 @@ export const SPECS: Record<string, Spec> = {
       if (who !== 'memberIn' && who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found" about alice's chat: ${r.status}`)
       // (her chat is in her personal project: refused for that before the empty list is looked at)
       if (who === 'memberIn' && !['needs_people', 'project_personal'].includes(r.json?.error?.params?.reason)) throw new Error(`alice was refused for another reason: ${r.text}`)
+    } },
+  // the Share dialog's check while picking (QA TC-3092): never a probe for anyone but the chat's creator
+  previewChatAudience: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/audience/preview`, { subjects: [{ subjectType: 'user', subjectId: 'bob' }] }), scope: 'own-alice-chat',
+    check: (r, _w, who) => {
+      if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} previewed alice's chat`)
+      if (who !== 'memberIn' && who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found" about alice's chat: ${r.status}`)
+      // (her chat is in her personal project: refused for that, as a save)
+      if (who === 'memberIn' && r.json?.error?.params?.reason !== 'project_personal') throw new Error(`alice was refused for another reason: ${r.text}`)
     } },
   hideChat: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/hide`), scope: 'own-alice-chat',
     check: (r, _w, who) => {
