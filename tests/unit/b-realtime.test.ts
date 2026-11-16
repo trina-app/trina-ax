@@ -203,6 +203,38 @@ describe('hub', () => {
     hub.close()
   })
 
+  test('forgetReplay: a second forget in the same run keeps the loss notices the first change published (QA TC-3837)', async () => {
+    const hub = new Hub(fakeCtx())
+    const accessChanged: ServerEventInput = { type: 'notice', data: { level: 'info', code: 'access_changed', message: 'groups/finance' } }
+    const roomRemoved: ServerEventInput = { type: 'room.updated', data: { roomId: uuidv7(), change: 'removed', room: null } }
+    for (let i = 1; i <= 3; i++) hub.publish('alice', notice(i))
+    // one access change: afterAccessChange forgets and tells, then the rooms' sync forgets again and tells
+    hub.forgetReplay('alice')
+    hub.publish('alice', accessChanged) // seq 4
+    hub.forgetReplay('alice')
+    hub.publish('alice', roomRemoved) // seq 5
+    const r = await connect(hub, 'alice', 'windowId=win-alice-1&epoch=epoch-1&after=3')
+    expect(r.sent[0]).toMatchObject({ type: 'hello', resumed: true, seq: 5 })
+    expect(r.events().map((e) => e.seq)).toEqual([4, 5])
+    // from before the change: still resync (what came before the first forget is gone)
+    const old = await connect(hub, 'alice', 'windowId=win-alice-2&epoch=epoch-1&after=2')
+    expect(old.sent.map((f) => f.type)).toEqual(['hello', 'resync'])
+    // anything but a loss notice after the first forget is dropped by the second, and so is what came before it
+    hub.forgetReplay('alice')
+    hub.publish('alice', accessChanged) // seq 6
+    hub.publish('alice', notice(7)) // seq 7
+    hub.forgetReplay('alice')
+    const mid = await connect(hub, 'alice', 'windowId=win-alice-3&epoch=epoch-1&after=5')
+    expect(mid.sent.map((f) => f.type)).toEqual(['hello', 'resync'])
+    // a later run starts over: its forget drops the old notices too
+    await Bun.sleep(0)
+    hub.publish('alice', accessChanged) // seq 8
+    hub.forgetReplay('alice')
+    const later = await connect(hub, 'alice', 'windowId=win-alice-4&epoch=epoch-1&after=7')
+    expect(later.sent.map((f) => f.type)).toEqual(['hello', 'resync'])
+    hub.close()
+  })
+
   test('publishEach builds per person (only people the hub knows)', async () => {
     const hub = new Hub(fakeCtx())
     const a = await connect(hub, 'alice', 'windowId=win-alice-1')
