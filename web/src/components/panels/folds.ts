@@ -4,7 +4,7 @@
 // here (a private window may refuse: it just forgets). Folds kept only in this browser before (older versions) are sent
 // to the account once. Keys: `folder:<id>` (a Trina folder), `room-folder:<id>` (a room folder), `section:<list>:<key>`
 // (a section's label).
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useSyncExternalStore } from 'react'
 import { LIST_FOLDS_MAX, ListFoldKey, type ListFolds } from '@mycel/shared/api'
 import { useMeStrict, useSession } from '../../store/session'
 
@@ -43,6 +43,24 @@ const save = (v: ListFolds) => {
   }
 }
 
+// this browser's copy, one for every list on screen (a section's header and the list that draws its rows read the same)
+const copies = new Map<string, ListFolds>()
+const listeners = new Set<() => void>()
+const subscribe = (f: () => void) => {
+  listeners.add(f)
+  return () => void listeners.delete(f)
+}
+function copyOf(key: string): ListFolds {
+  let v = copies.get(key)
+  if (!v) copies.set(key, (v = readLocal(key)))
+  return v
+}
+function keepCopy(key: string, v: ListFolds) {
+  copies.set(key, v)
+  writeLocal(key, v)
+  for (const f of listeners) f()
+}
+
 /** people whose browser-only folds were sent up in this page's life (once each) */
 const sentUp = new Set<string>()
 
@@ -51,23 +69,21 @@ export function useFolds() {
   const userId = useMeStrict().user.id
   const key = foldKey(userId)
   const account = useSession((s) => (s.status.kind === 'signed-in' ? s.status.me.user.prefs?.listFolds : undefined))
-  // this browser's copy, read again when the person changes (another account in this window)
-  const [local, setLocal] = useState(() => ({ key, folds: readLocal(key) }))
-  const folds = account ?? (local.key === key ? local.folds : readLocal(key))
+  const local = useSyncExternalStore(subscribe, () => copyOf(key))
+  const folds = account ?? local
   // folds chosen in this browser before the account kept them: sent up once (the account then decides)
   useEffect(() => {
     if (account || sentUp.has(userId)) return
     sentUp.add(userId)
-    const local = readLocal(key)
-    if (Object.keys(local).length) save(local)
+    const kept = copyOf(key)
+    if (Object.keys(kept).length) save(kept)
   }, [account, key, userId])
   const set = useCallback(
     (group: string, v: Fold) => {
       const st = useSession.getState().status
-      const now = (st.kind === 'signed-in' ? st.me.user.prefs?.listFolds : undefined) ?? readLocal(key)
+      const now = (st.kind === 'signed-in' ? st.me.user.prefs?.listFolds : undefined) ?? copyOf(key)
       const next = withFold(now, group, v)
-      writeLocal(key, next)
-      setLocal({ key, folds: next })
+      keepCopy(key, next)
       save(next)
     },
     [key],

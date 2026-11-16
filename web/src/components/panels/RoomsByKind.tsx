@@ -70,7 +70,7 @@ export function RoomsByKind() {
   const { folds, set: setFold } = useFolds()
   const sections = roomsByKind(rooms, titleOf, locale, folders)
   // a folded folder or section draws no rows but the room on screen (it stays in sight, as in Slack's sidebar)
-  const isFolded = (s: Section) => (s.folder ? folds[`room-folder:${s.folder.id}`] === 'folded' : folds[`section:chats:${s.key}`] === 'folded')
+  const isFolded = (s: Section) => (s.folder ? folds['section:chats:folders'] === 'folded' || folds[`room-folder:${s.folder.id}`] === 'folded' : folds[`section:chats:${s.key}`] === 'folded')
   const drawnOf = (s: Section) => (isFolded(s) ? s.rooms.filter((r) => r.id === openId) : s.rooms)
   const flat = sections.flatMap(drawnOf)
   const [budget, setBudget] = useState(ROOMS_BUDGET)
