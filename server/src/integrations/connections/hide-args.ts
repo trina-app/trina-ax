@@ -36,6 +36,7 @@ const KEEP: Record<string, readonly string[]> = {
   edit: ['file_path', 'old_string', 'new_string'],
   make_file: ['source', 'template'],
   edit_hwp: ['file_path', 'changes'],
+  comment_docx: ['file_path'],
   artifact: ['edits'],
   rename_file: ['path'],
   move_files: ['paths'],

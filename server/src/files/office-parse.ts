@@ -10,6 +10,7 @@ import { ToolError } from '../policy/errors'
 import { hwpText, hwpxText } from './hwp'
 import { checkZip, isZip, tooComplex } from './zip-guard'
 import { docxExtraText, pptxExtraText } from './ooxml'
+import { DOCX_COMMENT_MODE, docxCommentRequest } from './docx-comment'
 import { hwpxWriteRequest } from './hwpx-write'
 import { hwpxEditRequest, hwpxVerifyRequest } from './hwpx-edit'
 import { hwpEditRequest, hwpVerifyRequest } from './hwp-edit'
@@ -157,6 +158,9 @@ export function sheetText(bytes: Uint8Array): string {
   return out.join('\n\n')
 }
 
+// comment_docx's mode: Word comments added to a .docx (docx-comment.ts), a write mode like the others above
+WRITE_MODES.add(DOCX_COMMENT_MODE)
+
 /** Text of one file of a WORKER_EXT format (or an EXTRA_MODES mode); ToolError for a file it cannot or will not read. */
 export function officeText(ext: string, bytes: Uint8Array): string {
   switch (ext) {
@@ -171,6 +175,7 @@ export function officeText(ext: string, bytes: Uint8Array): string {
 
 /** The bytes of the file a WRITE_MODES mode makes from its request; ToolError for a request it refuses. */
 export function officeWrite(mode: string, input: Uint8Array): Uint8Array {
+  if (mode === DOCX_COMMENT_MODE) return docxCommentRequest(input)
   if (mode === HWPX_WRITE_MODE) return hwpxWriteRequest(input)
   if (mode === HWPX_EDIT_MODE) return hwpxEditRequest(input)
   if (mode === HWPX_VERIFY_MODE) return hwpxVerifyRequest(input)

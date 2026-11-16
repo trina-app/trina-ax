@@ -44,17 +44,17 @@ const xmlOf = (p: Parts, name: string): string | null => {
 }
 
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
-const unescapeXml = (s: string) => s.replace(/&(#x[0-9a-f]+|#\d+|\w+);/gi, (m, e: string) =>
+export const unescapeXml = (s: string) => s.replace(/&(#x[0-9a-f]+|#\d+|\w+);/gi, (m, e: string) =>
   e[0] === '#' ? String.fromCodePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : Number(e.slice(1))) : (ENTITIES[e] ?? m))
 /** An attribute of a tag's attribute text (`head`). */
-const attr = (head: string, name: string) => {
+export const attr = (head: string, name: string) => {
   const m = new RegExp(`\\s${name}="([^"]*)"`).exec(head)
   return m ? unescapeXml(m[1]!) : undefined
 }
 
 // ---------------- linear XML scanning ----------------
 
-type Tag = { name: string; close: boolean; selfClose: boolean; head: string; start: number; end: number }
+export type Tag = { name: string; close: boolean; selfClose: boolean; head: string; start: number; end: number }
 
 /** The character after a tag name: white space, '>' or '/'. */
 const nameEnds = (c: number) => c === 0x20 || c === 0x09 || c === 0x0a || c === 0x0d || c === 0x3e || c === 0x2f
@@ -73,7 +73,7 @@ function tagAt(xml: string, s: number, gt: number): Tag {
  * Every tag of the XML in document order. The scan stops at the first '<' that has no '>' after it. A '<' in the text
  * before a tag (not valid XML) is skipped: the tag starts at the last '<' before its '>'.
  */
-function* tags(xml: string): Generator<Tag> {
+export function* tags(xml: string): Generator<Tag> {
   let pos = 0
   for (;;) {
     let s = xml.indexOf('<', pos)
