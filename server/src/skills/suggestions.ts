@@ -192,6 +192,7 @@ export function skillsOverview(ctx: AppContext, userId: string): SkillsOverview 
   return {
     managedFolders: managed,
     suggestFolders: suggest,
+    suggestGroups: Object.fromEntries(suggest.flatMap((f) => { const g = groupOfSkillFolder(ctx, f); return g ? [[f, g]] : [] })),
     pendingReview: pending.filter((r) => reviews(ctx, p, r, rules)).length,
     myPending: pending.filter((r) => r.suggester_id === userId).length,
     sharesToReview,

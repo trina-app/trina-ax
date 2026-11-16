@@ -26,6 +26,7 @@ import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
 import { FILES_TRASH, navigateTo } from '../lib/nav'
 import { useFolderWords } from '../lib/folderLabels'
+import { skillFolderWords, skillPlaceWords } from '../lib/skillPlaces'
 import { useLocale, useT } from '../i18n'
 import { readCached, useCachedRead } from '../store/listCache'
 import { skillsChanged } from '../store/live'
@@ -268,21 +269,8 @@ const appName = (app: 'claude' | 'codex') => (app === 'codex' ? 'Codex' : 'Claud
 /** The name a person reads: a skill folder's title (else its folder name as words); another suggestion's name. */
 const suggestionTitle = (s: SkillSuggestion) => (s.source.kind === 'folder' ? skillLabel({ name: s.name, title: s.folder?.title }) : s.name)
 
-/** A skills folder in words, never a path (the people here are not developers): skills/ is "팀 스킬", a group's
- * groups/<its folder>/skills/ is the group's folder name, folders inside follow after " › ". `path`: the folder words
- * of the person's language (lib/folderLabels.ts). */
-export function skillFolderWords(folder: string, path: (p: string, sep?: string) => string): string {
-  const g = /^groups\/([^/]+)\/skills(?:\/(.+))?$/.exec(folder)
-  return g ? [g[1]!, ...(g[2]?.split('/') ?? [])].join(' › ') : path(folder, ' › ')
-}
-
-/** Where a suggestion goes, in words: "Team skills" (and its folders), or a group's skills by the group's name now
- * ("Design skills"; its folder's name when the group is gone). The words of a row's line and of the server's notice
- * (server/src/skills/suggestions.ts placeWords). */
-export function skillPlaceWords(s: Pick<SkillSuggestion, 'targetFolder' | 'targetGroup'>, t: ReturnType<typeof useT>, path: (p: string, sep?: string) => string): string {
-  const g = /^groups\/([^/]+)\/skills(?:\/(.+))?$/.exec(s.targetFolder)
-  return g ? [t('skills.groupPlace', { group: s.targetGroup?.name ?? g[1]! }), ...(g[2]?.split('/') ?? [])].join(' › ') : path(s.targetFolder, ' › ')
-}
+// the places in words: lib/skillPlaces.ts (the suggestion dialog says them too)
+export { skillFolderWords, skillPlaceWords }
 
 /** The suggestions in groups by who sent them, in the order the list has them (waiting first). */
 export function byPerson(items: readonly SkillSuggestion[]): { id: string; name: string; items: SkillSuggestion[] }[] {
