@@ -1,1 +1,0 @@
-- The Spanish, Indonesian, Japanese, Korean and Chinese help pages now describe sharing a file and the Shared with me list, and the Guests page in all six languages says that guests don't receive or share file links.

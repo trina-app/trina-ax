@@ -1,1 +1,0 @@
-- Translations added after the last wording review now follow the same rules: one Spanish string that said "tú" (*no eres miembro*), one Chinese label that said 群组 for groups, and the Spanish/Chinese server replies about audio and video files. `check:i18n` now fails when a string breaks the agreed voice (usted, Anda, 부서, グループトーク, 小组) so new text stays in line.
