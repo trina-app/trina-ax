@@ -413,7 +413,7 @@ for (const legacy of [false, true]) {
       await expect(error).toContainText(text.ko)
       for (const locale of ['id', 'en'] as const) {
         await page.goto('/settings/profile')
-        await page.getByTestId(`locale-${locale}`).click()
+        await page.getByTestId('profile-locale').selectOption(locale)
         await expect(page.locator('html')).toHaveAttribute('lang', locale)
         await page.goto(chatUrl)
         await expect(error).toContainText(text[locale])
@@ -437,7 +437,7 @@ for (const [fixture, fallback] of [['unknown', 'Unknown upstream failure'], ['fu
     const chatUrl = page.url()
     for (const locale of ['id', 'en']) {
       await page.goto('/settings/profile')
-      await page.getByTestId(`locale-${locale}`).click()
+      await page.getByTestId('profile-locale').selectOption(locale)
       await expect(page.locator('html')).toHaveAttribute('lang', locale)
       await page.goto(chatUrl)
       await expect(lastAnswer(page).getByTestId('answer-error')).toContainText(fallback!)

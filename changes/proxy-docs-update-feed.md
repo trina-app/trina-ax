@@ -1,2 +1,0 @@
-- Linux install guide: new section "Behind an HTTP proxy": the apt proxy file, `sudo -E` for the installer, the proxy variables in `/etc/default/mycel` and a drop-in for the update timer (QA TC-2860).
-- Admin › System no longer says "You are on the latest version" before the server has checked for updates at all. It says "Not checked yet".

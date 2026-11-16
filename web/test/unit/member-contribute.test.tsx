@@ -13,16 +13,17 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
 import { act } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
-import type { ContributedSkills, InboxNotification, ResultSuggestion as Suggestion, SkillSuggestion } from '@mycel/shared/api'
+import type { ContributedSkills, InboxNotification, ResultSuggestion as Suggestion, ServerEvent, SkillSuggestion } from '@mycel/shared/api'
 import { translate, useLocaleStore, type MessageKey } from '../../src/i18n'
 import { ResultSuggestion } from '../../src/components/onboarding/ResultSuggestion'
 import { skillHead } from '../../src/components/skills/ContributeSheet'
 import { AvailableSkillsList } from '../../src/components/AvailableSkills'
 import { skillsLink } from '../../src/components/settings/Notifications'
 import Activity from '../../src/pages/Activity'
-import Skills, { byPerson, skillFolderWords } from '../../src/pages/Skills'
+import Skills, { byPerson, skillFolderWords, skillPlaceWords } from '../../src/pages/Skills'
 import { useListCache } from '../../src/store/listCache'
-import { skillsChanged } from '../../src/store/live'
+import { dispatch, skillsChanged } from '../../src/store/live'
+import { useUi } from '../../src/store/ui'
 import { useSkillsWaiting } from '../../src/store/skillsWaiting'
 import { folderWords } from '../../src/lib/folderLabels'
 import { useSession } from '../../src/store/session'
@@ -472,6 +473,51 @@ describe('Skills › 검토 shows only what waits', () => {
     expect(skillFolderWords('groups/north office/skills/quotes', path)).toBe('north office › quotes')
   })
 
+  test('a row\'s line: a waiting one says where it would go, a decided one only the place (no verb left to read as a to-do)', async () => {
+    // the place in words: Team skills, or a group's skills by the group's name now
+    const words = (lang: 'en' | 'ko', folder: string, group?: string) => skillPlaceWords({ targetFolder: folder, ...(group ? { targetGroup: { id: 'g', name: group } } : {}) }, ((k: MessageKey, v?: Record<string, string | number>) => translate(lang, k, v)) as never, folderWords(lang, 'dana').path)
+    expect(words('en', 'skills')).toBe('Team skills')
+    expect(words('ko', 'skills')).toBe('팀 스킬')
+    expect(words('en', 'groups/design/skills', 'Design')).toBe('Design skills')
+    expect(words('ko', 'groups/design/skills/briefs', '디자인')).toBe('디자인 스킬 › briefs')
+    expect(words('ko', 'groups/old-folder/skills')).toBe('old-folder 스킬')
+    expect(ko('skills.into', { folder: words('ko', 'skills') })).toBe('팀 스킬에 제안')
+    expect(ko('skills.into', { folder: words('ko', 'groups/design/skills', '디자인') })).toBe('디자인 스킬에 제안')
+    expect(translate('en', 'skills.into', { folder: words('en', 'skills') })).toBe('into Team skills')
+    // on the page (ko): suggestions from an answer, one waiting and two decided
+    const plain = (name: string, o: Partial<SkillSuggestion> = {}) => folderSuggestion(name, { source: { kind: 'message', path: null }, folder: undefined, batchId: undefined, ...o })
+    useListCache.getState().reset()
+    localStorage.clear()
+    signIn('owner')
+    review = [
+      plain('weekly'),
+      plain('done-one', { status: 'approved', resultPath: 'skills/done-one.md', reviewer: { id: 'dana', name: '대표' }, canReview: false }),
+      plain('no-one', { status: 'rejected', reviewer: { id: 'dana', name: '대표' }, canReview: false }),
+    ]
+    const m = await mount(skillsPage())
+    try {
+      await m.until(() => m.find('review-list'), 'the review list')
+      const waiting = m.get('review-list').querySelector('[data-testid="suggestion-meta"]')!
+      expect(waiting.textContent).toContain('팀 스킬에 제안 · ')
+      // a phone shows the whole line (two rows); a computer keeps one, cut
+      expect(waiting.className).toContain('md:truncate')
+      expect(waiting.className.split(' ')).not.toContain('truncate')
+      await m.click('panel-section-fold')
+      await m.until(() => m.find('reviewed-list'), 'the reviewed rows')
+      const lines = [...m.get('reviewed-list').querySelectorAll('[data-testid="suggestion-meta"]')].map((x) => x.textContent!)
+      expect(lines).toHaveLength(2)
+      for (const line of lines) {
+        expect(line.startsWith('팀 스킬 · ')).toBe(true)
+        expect(line).toContain(ko('skills.reviewedBy', { name: '대표' }))
+        expect(line).not.toContain('제안')
+        expect(line).not.toContain('넣기')
+      }
+      // the fold is remembered: folded again for the next test
+      await m.click('panel-section-fold')
+      await m.until(() => !m.find('reviewed-list'), 'folded again')
+    } finally { await m.unmount() }
+  })
+
   test('nothing waits: the empty state, and the decided ones folded under 검토한 제안 (not in the list)', async () => {
     useListCache.getState().reset()
     signIn('owner')
@@ -533,6 +579,24 @@ describe('Skills › 검토 shows only what waits', () => {
       await act(async () => { skillsChanged.emit() })
       await m.until(() => m.get('n').textContent === '0', 'none waiting')
       expect(called('GET /api/skills/overview').length).toBe(2)
+    } finally { await m.unmount() }
+  })
+
+  test('another reviewer turned one down: the server\'s quiet skills_changed reads the count again, with no toast (QA TC-4004)', async () => {
+    useListCache.getState().reset()
+    useUi.setState({ toasts: [] })
+    signIn('owner')
+    review = [folderSuggestion('weekly-report'), folderSuggestion('notes')]
+    function Count() { return <p data-testid="n">{useSkillsWaiting()}</p> }
+    const m = await mount(<Count />)
+    try {
+      await m.until(() => m.get('n').textContent === '2', 'two waiting')
+      review = [folderSuggestion('notes'), ...decided()]
+      const ev: ServerEvent = { type: 'notice', seq: 7, at: Date.now(), data: { level: 'info', code: 'skills_changed', message: '' } }
+      await act(async () => { dispatch(ev) })
+      await m.until(() => m.get('n').textContent === '1', 'one waiting')
+      expect(called('GET /api/skills/overview').length).toBe(2)
+      expect(useUi.getState().toasts).toEqual([])
     } finally { await m.unmount() }
   })
 })

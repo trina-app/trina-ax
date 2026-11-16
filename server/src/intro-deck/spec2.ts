@@ -162,7 +162,7 @@ export async function readSources(ctx: AppContext, t: ToolCtx, list: string[], p
   for (const raw of list) {
     try {
       const x = authorize(ctx.files.fx, ctx.files.rules(), t.user, raw.replace(/^\/+/, ''), 'read', { mustExist: true })
-      if (own(crypto.createHash('sha256').update(readRegular(x.abs, 60 * 1024 * 1024).bytes).digest('hex'))) problems.push(`source "${raw}" is an intro deck this tool made; name the material it was made from instead`)
+      if (own(crypto.createHash('sha256').update(readRegular(x.abs, 60 * 1024 * 1024, x.st).bytes).digest('hex'))) problems.push(`source "${raw}" is an intro deck this tool made; name the material it was made from instead`)
     } catch { /* sourceText said why */ }
   }
   return src

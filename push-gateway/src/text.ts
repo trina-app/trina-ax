@@ -7,7 +7,7 @@ type ByLocale = Record<PushLocale, string>
 
 export const DEFAULT_APP_TITLE = 'Trina AX'
 
-export const EVENT_TEXT: Record<'schedule.success' | 'schedule.failure' | 'connection.reconnect' | 'chat.answer_done' | 'chat.shared' | 'room_app.paused' | 'file.shared' | 'chat.thread_reply' | 'file.access_requested', ByLocale> = {
+export const EVENT_TEXT: Record<'schedule.success' | 'schedule.failure' | 'connection.reconnect' | 'chat.answer_done' | 'chat.shared' | 'room_app.paused' | 'file.shared' | 'chat.thread_reply' | 'file.access_requested' | 'access.requested', ByLocale> = {
   'schedule.success': {
     ko: '예약 작업이 완료됐어요.',
     en: 'A scheduled task completed.',
@@ -49,6 +49,13 @@ export const EVENT_TEXT: Record<'schedule.success' | 'schedule.failure' | 'conne
     ko: '누군가 파일을 열게 해 달라고 요청했어요.',
     en: 'Someone asked to open a file.',
     id: 'Seseorang meminta untuk membuka file.', ja: 'ファイルを開くリクエストが届きました。', es: 'Alguien pidió abrir un archivo.', zh: '有人请求打开文件。',
+  },
+  // someone asked to open a chat or project I answer for (docs/decisions/20261116-chat-project-ask-access.md; older team
+  // servers never send it): never the title, the asker or the note
+  'access.requested': {
+    ko: '누군가 채팅이나 프로젝트를 열게 해 달라고 요청했어요.',
+    en: 'Someone asked for access to a chat or project.',
+    id: 'Seseorang meminta akses ke obrolan atau proyek.', ja: 'チャットまたはプロジェクトへのアクセスリクエストが届きました。', es: 'Alguien pidió acceso a un chat o proyecto.', zh: '有人请求访问对话或项目。',
   },
   // an app in a room the person manages paused for the day; older team servers never send it
   'room_app.paused': {

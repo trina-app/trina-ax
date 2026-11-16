@@ -213,7 +213,8 @@ func Compute(p *Plan) Limits {
 }
 
 // Defaults are the limits without a plan file (self-install): the machine's (or container's) memory, turn cap
-// clamp(budget/2, 512, 2048), 16 concurrent turns, no unit MemoryMax.
+// clamp(budget/2, 512, 2048), 16 concurrent turns, no unit values here (the server unit template has its own
+// MemoryMax=75% safety net, scripts/linux/systemd/server.service.in).
 func Defaults(memMiB, cores int) Limits {
 	if memMiB <= 0 {
 		memMiB = 4096

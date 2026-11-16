@@ -125,6 +125,15 @@ export function iconKind(name: string, folder = false): FileIconKind {
   return 'other'
 }
 
+/** What some files are, in one word for a line about all of them (Korean names the kind: "이 사진은", "이 동영상은"):
+ * 'photo' when every name is a picture's, 'video' when every one is a video's, else 'file' (a mix, none, or a name
+ * that does not say). */
+export function mediaKindOf(names: readonly string[]): 'photo' | 'video' | 'file' {
+  const kinds = new Set(names.map((n) => iconKind(n)))
+  if (kinds.size !== 1) return 'file'
+  return kinds.has('image') ? 'photo' : kinds.has('video') ? 'video' : 'file'
+}
+
 /** A number or amount as a CSV cell holds it ("1200", "3,100", "-12.5", "45%", "₩9,900"); not a date ("2026-07"). */
 const isNumberText = (s: string) => /^[-+−]?[$€£¥₩]?\d[\d,]*(\.\d+)?%?$/.test(s.trim())
 

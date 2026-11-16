@@ -121,7 +121,7 @@ async function renderNow(ctx: AppContext, r: Row): Promise<void> {
       try {
         const a = authorize(ctx.files.fx, ctx.files.rules(), user, teamPathOf(src), 'read', { mustExist: true })
         const name = `img/${++n}.${pictureExt(a.rel)}`
-        fs.writeFileSync(path.join(work, name), readRegular(a.abs, 20 * 1024 * 1024).bytes)
+        fs.writeFileSync(path.join(work, name), readRegular(a.abs, 20 * 1024 * 1024, a.st).bytes)
         return name
       } catch { return null }
     }

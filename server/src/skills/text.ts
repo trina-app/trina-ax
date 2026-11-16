@@ -52,6 +52,9 @@ export const SKILL_TEXT = {
   changed: t('팀 스킬이 바뀌었어요: {path} ({who}{ai})', 'A team skill changed: {path} ({who}{ai})', 'Skill tim berubah: {path} ({who}{ai})', "チームスキルが変更されました：{path}（{who}{ai}）", "Cambió una habilidad del equipo: {path} ({who}{ai})", "团队技能已更改：{path}（{who}{ai}）"),
   viaAi: t(', AI가 저장', ', saved by the AI', ', disimpan oleh AI', "、AIが保存", ", guardado por la IA", "，由AI保存"),
   suggested: t('{who} 님이 스킬을 제안했어요: {name} → {folder}', '{who} suggested a skill: {name} → {folder}', '{who} mengusulkan skill: {name} → {folder}', "{who}がスキルを提案しました：{name} → {folder}", "{who} sugirió una habilidad: {name} → {folder}", "{who}建议了一个技能：{name} → {folder}"),
+  // where a suggestion goes, in words (never a path: the web's row says the same, pages/Skills.tsx skillPlaceWords)
+  placeTeam: t('팀 스킬', 'Team skills', 'Skill tim', "チームスキル", "Habilidades del equipo", "团队技能"),
+  placeGroup: t('{group} 스킬', '{group} skills', 'Skill {group}', "{group}のスキル", "Habilidades de {group}", "{group}的技能"),
   approved: t("제안한 스킬이 등록됐어요: {name}", "Your suggested skill was registered: {name}", "Skill yang Anda usulkan sudah didaftarkan: {name}", "提案したスキルが登録されました：{name}", "Se registró su habilidad sugerida: {name}", "你建议的技能已登记：{name}"),
   rejected: t('제안한 스킬이 거절됐어요: {name}{note}', 'Your suggested skill was turned down: {name}{note}', 'Skill yang Anda usulkan ditolak: {name}{note}', "提案したスキルは却下されました：{name}{note}", "Se rechazó su habilidad sugerida: {name}{note}", "你建议的技能未被采纳：{name}{note}"),
   // errors (HTTP)

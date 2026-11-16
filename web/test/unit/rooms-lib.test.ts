@@ -116,12 +116,19 @@ test('titles and the tab total', () => {
   expect(roomTitle(room({ kind: 'all', name: null, groupId: null }), words)).toBe('Everyone')
   expect(roomTitle(room({ kind: 'dm', name: null, groupId: null, peers: [BEN] }), words)).toBe('Ben')
   expect(roomTitle(room({ kind: 'dm', name: null, groupId: null, peers: [] }), words)).toBe('Unknown person')
-  expect(totalUnread([{ unreadCount: 2, muted: false }, { unreadCount: 0, muted: false }, { unreadCount: 5, muted: false }])).toBe(7)
+  const dm = (o: { unreadCount: number; muted?: boolean; mentioned?: boolean }) => ({ kind: 'dm' as const, muted: false, ...o })
+  expect(totalUnread([dm({ unreadCount: 2 }), dm({ unreadCount: 0 }), dm({ unreadCount: 5 })])).toBe(7)
   // a muted room's badge is grey and stays out of the 대화 tab's count
-  expect(totalUnread([{ unreadCount: 2, muted: false }, { unreadCount: 5, muted: true }])).toBe(2)
+  expect(totalUnread([dm({ unreadCount: 2 }), dm({ unreadCount: 5, muted: true })])).toBe(2)
+  // plain messages in a room at 멘션만 (a team room at its default) add nothing; a mention adds them
+  expect(totalUnread([dm({ unreadCount: 2 }), { kind: 'team', muted: false, unreadCount: 3 }])).toBe(2)
+  expect(totalUnread([{ kind: 'team', muted: false, unreadCount: 4, mentioned: true }])).toBe(4)
   // "@" alone when one of them mentions me ("@2" read like two mentions)
-  expect(roomBadge({ unreadCount: 2, mentioned: true })).toBe('@')
-  expect(roomBadge({ unreadCount: 120, mentioned: false })).toBe('99+')
+  expect(roomBadge(dm({ unreadCount: 2, mentioned: true }))).toBe('@')
+  expect(roomBadge(dm({ unreadCount: 120 }))).toBe('99+')
+  // a room at 멘션만 with plain messages only: no number (the row is only bold)
+  expect(roomBadge({ kind: 'dm', muted: false, unreadCount: 3, notify: { own: 'mentions', byDefault: 'all', level: 'mentions' } })).toBe('')
+  expect(roomBadge({ kind: 'team', muted: false, unreadCount: 3, mentioned: true })).toBe('@')
 })
 
 test("an AI answer's Markdown is one plain line in the rooms list", () => {

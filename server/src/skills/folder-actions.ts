@@ -232,7 +232,7 @@ function walk(ctx: AppContext, user: Principal, rules: RuleSet, rel: string): Fi
     if (st.nlink > 1) refuse(`'${relp}' is hard-linked to another file; replace it with a copy first`)
     if (!atLeast(rules.access(user, relp.split('/')), 'read')) refuse('something inside it is hidden from the user', ADMIN)
     if (out.length >= FOLDER_MAX_FILES || (total += st.size) > FOLDER_MAX_BYTES) refuse(`it is too large to show on one card (more than ${FOLDER_MAX_FILES} files or ${FOLDER_MAX_BYTES / 1024 / 1024} MB)`)
-    const bytes = readRegular(abs, FOLDER_MAX_BYTES).bytes
+    const bytes = readRegular(abs, FOLDER_MAX_BYTES, st).bytes
     out.push({ path: relp, size: bytes.length, sha: sha256(bytes), bytes, exec: (st.mode & 0o111) !== 0 })
   }
   visit(r.rel)

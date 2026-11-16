@@ -26,6 +26,7 @@ import { copyInTap } from '../lib/copy-in-tap'
 import { APP_LINKS } from '@mycel/shared/app-links'
 import { SourceCodeLink } from '../components/SourceCodeLink'
 import { Button, Field, IconButton, inputCls, TextAction } from '../components/ui'
+import { LanguageSelect } from '../components/LanguageSelect'
 import { isSignInPath } from '@mycel/shared/team-link'
 import { teamAddressHost } from '../lib/team-address'
 import { browserTimeZone } from '../lib/time-zones'
@@ -83,13 +84,7 @@ export function LanguageSwitcher() {
   return (
     <label className="mt-6 flex items-center justify-center gap-2 text-xs text-faint">
       {t('settings.language')}
-      <select className="rounded border border-field-border bg-surface px-1.5 py-1 text-xs text-ink max-md:min-h-11" value={locale} data-testid="auth-locale" onChange={(e) => pick(e.target.value as Locale)}>
-        {LOCALES.map((l) => (
-          <option key={l.id} value={l.id} lang={l.id}>
-            {l.label}
-          </option>
-        ))}
-      </select>
+      <LanguageSelect compact value={locale} testId="auth-locale" onChange={(l) => pick(l)} />
     </label>
   )
 }
@@ -465,22 +460,7 @@ export function Setup() {
           </Field>
           <Field label={t('setup.teamLocale')} hint={t('setup.teamLocaleHint')}>
             {/* the team language is the language on screen: picking one here switches this page too */}
-            <select
-              className={inputCls}
-              value={locale}
-              data-testid="setup-locale"
-              onChange={(e) => {
-                const l = e.target.value as Locale
-                storeLocale(l)
-                setLocale(l)
-              }}
-            >
-              {LOCALES.map((l) => (
-                <option key={l.id} value={l.id} lang={l.id}>
-                  {l.label}
-                </option>
-              ))}
-            </select>
+            <LanguageSelect value={locale} testId="setup-locale" onChange={(l) => { storeLocale(l); setLocale(l) }} />
           </Field>
         </FormSection>
         <FormSection title={t('setup.section.owner')} testId="setup-section-owner">

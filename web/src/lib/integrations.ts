@@ -332,7 +332,7 @@ export { canonicalService } from '@mycel/shared'
 
 /** Why a sign-in did not finish, as the server records it (server/src/integrations/connections/service.ts FlowFailure),
  * in words: an own app's Client ID or Secret refused (the person's own: check it under Advanced; a template's: ask who set
- * it up), access not allowed, the connection changed meanwhile, a newer
+ * it up), stopped at the service by the person (Cancel or Deny there), the connection changed meanwhile, a newer
  * sign-in. Any other code (an error at the token address, one this build does not know) is the plain "could not sign
  * in": a code is never shown. */
 export function flowReasonKey(reason: string | null): MessageKey {
