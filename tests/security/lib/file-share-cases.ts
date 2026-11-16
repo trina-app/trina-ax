@@ -63,18 +63,7 @@ export const FILE_SHARE_SPECS: Record<string, Spec> = {
   shareFilesBatch: {
     build: async (c, w) => c.post('/api/files/shares/batch', { paths: ['users/alice/todo.md'], add: [{ subjectType: 'user', subjectId: await guestOf(w) }] }), scope: 'self',
     check: async (r, w, who) => {
-      // the refused list names the path the caller sent (their own input, nothing learned): that echo is left out of
-      // the leak check, and its words must be the same as for a path that does not exist (no existence oracle)
-      let text = r.text
-      if (who !== 'memberIn' && r.status === 200) {
-        const f = r.json?.failed?.[0]
-        if (f?.path === 'users/alice/todo.md') {
-          const none = await w.as[who].req('POST', '/api/files/shares/batch', { paths: ['users/alice/no-such-file.md'], add: [{ subjectType: 'user', subjectId: await guestOf(w) }] })
-          if (none.json?.failed?.[0]?.message !== f.message) throw new Error(`${who}: a press told alice's file from a missing one: ${f.message} / ${none.json?.failed?.[0]?.message}`)
-          text = JSON.stringify({ ...r.json, failed: r.json.failed.map((x: { path: string }) => ({ ...x, path: '' })) })
-        }
-      }
-      nothingOfAlice(text, who, 'a press')
+      nothingOfAlice(r.text, who, 'a press')
       if (who === 'memberIn' && r.status !== 400) throw new Error(`alice: a press naming a guest answered ${r.status}`)
       if (who !== 'memberIn' && r.status === 200 && (r.json?.shared?.length || r.json?.failed?.length !== 1)) throw new Error(`${who}: a press of alice's file shared ${JSON.stringify(r.json?.shared)}`)
       const g = w.inst.ctx.db.query("SELECT COUNT(*) n FROM file_share_grants g JOIN file_shares s ON s.id = g.share_id WHERE s.path = 'users/alice/todo.md'").get() as { n: number }

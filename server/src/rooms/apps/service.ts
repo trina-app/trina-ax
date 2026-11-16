@@ -105,8 +105,6 @@ export function roomAppsOf(ctx: AppContext): RoomApps {
 export class RoomApps {
   /** the clock (tests move it) */
   clock: () => number = () => Date.now()
-  /** apps one person may add an hour (tests raise it: the security matrix adds more than 10 as the owner, TC-3846) */
-  addsPerHour = ROOM_APPS_PER_HOUR
   readonly limits = new AppLimits(() => this.clock())
   private added = new Map<string, number[]>()
   private examples = new Map<string, number[]>()
@@ -307,7 +305,7 @@ export class RoomApps {
     this.checkName(name, locale)
     const n = (this.db.query('SELECT COUNT(*) n FROM room_apps WHERE room_id = ?').get(room.id) as { n: number }).n
     if (n >= ROOM_APPS_MAX) fail('conflict', appText('full', locale, { max: ROOM_APPS_MAX }), { params: { reason: 'room_apps_full' } })
-    this.takeHourly(this.added, userId, this.addsPerHour, (minutes) => appText('addLimit', locale, { n: this.addsPerHour, minutes }))
+    this.takeHourly(this.added, userId, ROOM_APPS_PER_HOUR, (minutes) => appText('addLimit', locale, { n: ROOM_APPS_PER_HOUR, minutes }))
     const id = newId(), now = nowIso(), token = newToken()
     const s = this.seal(id, token, null)
     this.db.transaction(() => {

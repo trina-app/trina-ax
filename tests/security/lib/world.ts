@@ -17,7 +17,6 @@
 // Every private thing carries a canary string; a "deny" case also fails when its response contains one.
 import { API } from '@mycel/shared/api'
 import { componentC } from '../../../server/src/team-files/component'
-import { roomAppsOf } from '../../../server/src/rooms/apps/service'
 import fs from 'node:fs'
 import path from 'node:path'
 import { legacyProject, legacyProjectFolder } from '../../lib/legacy-project'
@@ -311,10 +310,6 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
   // ---------------- apps posting in rooms: one in the everyone room (the owner's), one in the DM of alice and erin ----------------
   // (an app needs an internet address: the instance gets a public one from here on)
   inst.ctx.config.publicOrigins = ['https://team.acme-corp.com']
-  // every case runs once per person, and the owner adds an app in several (setRoomAppSecret: six presets per allowed
-  // caller; deleteRoomApp: a fresh app for each of the 7 callers): past the 10 adds an hour a real person gets, which
-  // turned those cases into 429s (TC-3846). The limit itself is tested in tests/unit/b-room-apps-perms.test.ts.
-  roomAppsOf(inst.ctx).addsPerHour = 1000
   const allRoom = ((await alice.ok('GET', '/api/rooms')).items as { id: string; kind: string }[]).find((r) => r.kind === 'all')!.id
   const allApp = (await as.owner.ok('POST', `/api/rooms/${allRoom}/apps`, { kind: 'github' })).app.id
   const dmApp = (await alice.ok('POST', `/api/rooms/${dmRoom}/apps`, { kind: 'other', name: 'Deploys' })).app.id
