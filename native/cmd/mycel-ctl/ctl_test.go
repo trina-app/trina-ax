@@ -682,3 +682,27 @@ func TestUpdateWaitsForTheEngineCheck(t *testing.T) {
 		})
 	}
 }
+
+// The bootstrap's engine check never finishes (the version stays pending while it answers health): `update` gives up
+// at its deadline and says that, not "did not answer /api/health".
+func TestUpdateEngineCheckNotFinished(t *testing.T) {
+	tb := newTestBase(t, "0.1.0")
+	systemdRunDir = filepath.Join(t.TempDir(), "none")
+	t.Cleanup(func() { systemdRunDir = "/run/systemd/system" })
+	saved := engineCheckWait
+	engineCheckWait = time.Second
+	t.Cleanup(func() { engineCheckWait = saved })
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	k := base64.StdEncoding.EncodeToString(pub)
+	stf := filepath.Join(tb.base, "app/state.json")
+	updateHooks(t, tb, func(v string) {
+		os.WriteFile(stf, []byte(`{"format":1,"current":"0.1.0","previous":"0.1.0","pending":"`+v+`","pendingSince":"x","attempts":0,"history":[]}`), 0o644)
+		tb.health.Store(v)
+	})
+	arch := filepath.Join(t.TempDir(), "g.tar.zst")
+	mkArchive(t, signedBundle(t, "0.2.0", priv, "old launcher"), arch, nil)
+	code, out, errs := tb.ctl("", "update", "--bundle", arch, "--pubkey", k, "--json")
+	if code == 0 || !strings.Contains(out+errs, "AI engine check did not finish") || strings.Contains(out+errs, "did not answer /api/health") {
+		t.Fatalf("%d %s %s", code, out, errs)
+	}
+}

@@ -325,8 +325,9 @@ func stopChild(cmd *exec.Cmd, done <-chan error) {
 }
 
 // keepHealthy records that v came up and stays: a pending update that answered health (and passed the engine check), or
-// a forwarded version (started again after the version before could not read the database).
-func keepHealthy(st *appState, v string, forwarded bool) {
+// a forwarded version (started again after the version before could not read the database). note, when given, is the
+// history entry's detail (engineHostDetail).
+func keepHealthy(st *appState, v string, forwarded bool, note string) {
 	from := st.Current // the version before this update (the server left current alone when it switched)
 	if from != nil && *from == v {
 		from = nil
@@ -341,6 +342,9 @@ func keepHealthy(st *appState, v string, forwarded bool) {
 		}
 	} else if from != nil && st.Previous == nil {
 		st.Previous = from
+	}
+	if note != "" {
+		detail = note
 	}
 	st.Current, st.Pending, st.PendingSince, st.Attempts = sp(v), nil, nil, 0
 	record(st, from, v, "ok", detail)
@@ -626,7 +630,11 @@ func run() int {
 					logf("version %s: engine check skipped: %s", v, r.skipped)
 				}
 				st = readState()
-				keepHealthy(&st, v, false)
+				note := ""
+				if r.hostProblem {
+					note = engineHostDetail + r.skipped
+				}
+				keepHealthy(&st, v, false, note)
 				pending, healthyCh = false, nil
 			case <-healthyCh:
 				hs, progress := checkHealth(url, v)
@@ -648,7 +656,7 @@ func run() int {
 						continue
 					}
 					st = readState()
-					keepHealthy(&st, v, forwarded)
+					keepHealthy(&st, v, forwarded, "")
 					pending, forwarded, healthyCh = false, false, nil
 					continue
 				}

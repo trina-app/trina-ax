@@ -64,4 +64,7 @@ Out: the version folder modes and a start-up repair (the release coordinator's 0
 Built as planned. Also: `scripts/install-linux.sh`'s switch wait gets the same "still pending" wait as mycel-ctl, and
 `docker/test.sh` gets a step with the real server and engine accounts. A missing launcher socket is skipped at once (a
 socket that does not accept yet is tried for 30 s), so installs and tests without a launcher are not slowed down. The
-check folder's own errors are reported as skipped, not as a failed version. PR: fix/post-update-engine-check into dev.
+check folder's own errors are reported as skipped, not as a failed version. After review: only a failure that names the
+version's own files rolls back; a fault of this server (bwrap, the helper, sandbox-etc, Landlock) keeps the version and
+shows a warning in Admin › System (new text in the six app languages); a launch that does not end in 15 s is skipped;
+mycel-ctl and the installer say when the engine check did not finish by their deadline. PR: fix/post-update-engine-check into dev.

@@ -7,7 +7,10 @@
 // starts the engine's sandbox with this version once with a no-op (native/cmd/mycel-launcher/enginecheck.go: the same
 // launch code as a turn). A failed check is a failed update: the version is stopped and rolled back with the reason.
 //
-// The check proves a fault only when the launcher says it failed. Nothing to ask (not Linux), no launcher answering
+// The check proves a fault only when the launcher says it failed, which it does only for the version's own files. A fault
+// of this machine (bwrap broken by an OS upgrade or AppArmor, the sandbox helper, Landlock gone) breaks the version
+// before too: going back would not help and the update would be tried again and again, so the version is kept and the
+// history says what is wrong (Admin › System shows it as a warning). Nothing to ask (not Linux), no launcher answering
 // (no socket, or one that does not accept within engineConnectWait), or a launcher that does not know the request (one older than this bootstrap): the version
 // is kept as before and the log says the check was skipped.
 package main
@@ -27,7 +30,14 @@ import (
 type engineResult struct {
 	failed  string // the launcher's reason; the version must not stay
 	skipped string // why nothing was checked; the version stays
+	// hostProblem: the launch failed for a reason of this machine, not of the version (bwrap, the sandbox helper,
+	// Landlock): kept, and the history's ok entry says so (engineHostDetail) for Admin › System's warning
+	hostProblem bool
 }
+
+// engineHostDetail starts the detail of a kept version whose engine check failed on this machine's own fault
+// (server/src/system/ops.ts shows it as a warning)
+const engineHostDetail = "kept, but the AI engine could not start on this server: "
 
 // tunables (tests change them)
 var (
@@ -84,6 +94,7 @@ func checkEngine() engineResult {
 		Ev      string `json:"ev"`
 		Ok      bool   `json:"ok"`
 		Skipped string `json:"skipped"`
+		Host    bool   `json:"hostProblem"`
 		Error   string `json:"error"`
 		Message string `json:"message"`
 	}
@@ -101,6 +112,6 @@ func checkEngine() engineResult {
 		}
 		return engineResult{failed: why}
 	default:
-		return engineResult{skipped: ev.Skipped}
+		return engineResult{skipped: ev.Skipped, hostProblem: ev.Host && ev.Skipped != ""}
 	}
 }

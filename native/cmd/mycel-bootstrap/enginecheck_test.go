@@ -17,12 +17,13 @@ import (
 // fakeLauncher answers {"op":"sandbox-check"} on a socket of its own, as the engine account sees the version app/current
 // points to: neither its owner nor its group (the launcher runs as axagent, the version belongs to axserver). Like
 // bwrap binding <app>/current/native/mycel-bridge, every folder on the way needs search by others and the bridge read
-// and execute by others. old: answer like a launcher that does not know the request.
+// and execute by others. mode: "" checks like that; "old" answers like a launcher that does not know the request;
+// "host" answers like a launcher whose bwrap is broken on this machine; "timeout" like one whose launch did not end.
 type fakeLauncher struct {
 	asked atomic.Int32
 }
 
-func startFakeLauncher(t *testing.T, f *fakeInstall, old bool) *fakeLauncher {
+func startFakeLauncher(t *testing.T, f *fakeInstall, mode string) *fakeLauncher {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "lsk") // short: a unix socket path has at most 104 bytes on macOS
 	if err != nil {
@@ -50,13 +51,17 @@ func startFakeLauncher(t *testing.T, f *fakeInstall, old bool) *fakeLauncher {
 					Op string `json:"op"`
 				}
 				_ = json.Unmarshal(line, &req)
-				if old || req.Op != "sandbox-check" {
+				if mode == "old" || req.Op != "sandbox-check" {
 					c.Write([]byte(`{"ev":"error","message":"bad request"}` + "\n"))
 					return
 				}
 				fl.asked.Add(1)
 				ans := map[string]any{"ev": "sandbox-check", "ok": true}
-				if why := otherAccountReaches(f.app); why != "" {
+				if mode == "host" {
+					ans["skipped"], ans["hostProblem"] = "bwrap: setting up uid map: Permission denied (exit status 1)", true
+				} else if mode == "timeout" {
+					ans["skipped"] = "the engine sandbox did not end within 15s"
+				} else if why := otherAccountReaches(f.app); why != "" {
 					ans = map[string]any{"ev": "sandbox-check", "ok": false, "error": why}
 				}
 				b, _ := json.Marshal(ans)
@@ -120,7 +125,7 @@ func TestEngineCheckFailureRollsBack(t *testing.T) {
 	f.version("1.0.0", f.healthyBody("1.0.0"))
 	f.version("1.1.0", f.healthyBody("1.1.0"))
 	umask027(t, filepath.Join(f.app, "versions", "1.1.0"))
-	fl := startFakeLauncher(t, f, false)
+	fl := startFakeLauncher(t, f, "")
 	f.updating("1.0.0", "1.1.0")
 	stop := f.start()
 	st := f.waitFor("roll-back", func(st appState) bool { return len(st.History) == 1 })
@@ -159,7 +164,7 @@ func TestEngineCheckGoodVersionStays(t *testing.T) {
 			bootOS = "linux"
 			f.version("1.0.0", f.healthyBody("1.0.0"))
 			f.version("1.1.0", f.healthyBody("1.1.0"))
-			fl := startFakeLauncher(t, f, old)
+			fl := startFakeLauncher(t, f, map[bool]string{true: "old"}[old])
 			f.updating("1.0.0", "1.1.0")
 			stop := f.start()
 			st := f.waitFor("ok", func(st appState) bool { return len(st.History) == 1 })
@@ -192,7 +197,7 @@ func TestEngineCheckNoOpOffLinux(t *testing.T) {
 			umask027(t, filepath.Join(f.app, "versions", "1.1.0"))
 			var fl *fakeLauncher
 			if c.launcher {
-				fl = startFakeLauncher(t, f, false)
+				fl = startFakeLauncher(t, f, "")
 			} else {
 				*launcherSock = filepath.Join(t.TempDir(), "none.sock")
 			}
@@ -219,4 +224,38 @@ func waitStarts(t *testing.T, f *fakeInstall, want string) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("starts %v, want %s", f.startList(), want)
+}
+
+// A fault of this machine (bwrap broken by an OS upgrade, the helper, Landlock) breaks the version before as well: the
+// new version stays, and its history entry says what is wrong (Admin › System's warning). A launch that did not end in
+// time (a loaded machine) keeps it with no note. Both versions here have modes the engine could not use: only the
+// launcher's verdict counts.
+func TestEngineCheckHostFaultKeepsTheVersion(t *testing.T) {
+	for _, mode := range []string{"host", "timeout"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newFakeInstall(t)
+			bootOS = "linux"
+			f.version("1.0.0", f.healthyBody("1.0.0"))
+			f.version("1.1.0", f.healthyBody("1.1.0"))
+			umask027(t, filepath.Join(f.app, "versions", "1.1.0"))
+			fl := startFakeLauncher(t, f, mode)
+			f.updating("1.0.0", "1.1.0")
+			stop := f.start()
+			st := f.waitFor("ok", func(st appState) bool { return len(st.History) == 1 })
+			stop()
+			if got := results(st); got != "ok:1.0.0->1.1.0" {
+				t.Fatalf("history %s (%s)", got, str(st.History[0].Detail))
+			}
+			if str(st.Current) != "1.1.0" || str(st.Previous) != "1.0.0" || st.Pending != nil || fl.asked.Load() != 1 {
+				t.Fatalf("state %+v, asked %d", st, fl.asked.Load())
+			}
+			d := str(st.History[0].Detail)
+			if mode == "host" && d != engineHostDetail+"bwrap: setting up uid map: Permission denied (exit status 1)" {
+				t.Fatalf("detail %q", d)
+			}
+			if mode == "timeout" && d != "" {
+				t.Fatalf("detail %q", d)
+			}
+		})
+	}
 }

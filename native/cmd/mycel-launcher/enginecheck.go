@@ -3,7 +3,12 @@
 //
 //	{"op":"sandbox-check"} -> {"ev":"sandbox-check","ok":true}
 //	                          {"ev":"sandbox-check","ok":true,"skipped":"<why nothing was run>"}
+//	                          {"ev":"sandbox-check","ok":true,"skipped":"<what failed>","hostProblem":true}
 //	                          {"ev":"sandbox-check","ok":false,"error":"<what failed>"}
+//
+// ok:false only when the failure is about the version's own files (versionFault): the bootstrap rolls back only then.
+// A fault of this machine (bwrap, the sandbox helper, sandbox-etc, Landlock) breaks the version before as well, so it is
+// "hostProblem" (kept, shown as a warning); a launch that does not end in time is skipped (a loaded machine).
 //
 // The bootstrap asks this when a new version answers /api/health, before it keeps the version: on 2026-11-16 an update
 // left the new version folder 0750/0640, the engine account could not reach native/mycel-bridge, and every answer
@@ -38,30 +43,44 @@ var engineCheckMu sync.Mutex
 
 func sandboxCheckOp(o *out) {
 	skipped, err := engineCheck()
-	var fe folderError
-	if errors.As(err, &fe) {
-		// the check's own folder, not the version: no proof against it
-		skipped, err = fe.Error(), nil
-	}
+	o.send(checkAnswer(skipped, err))
+}
+
+// checkAnswer is the request's answer for engineCheck's result
+func checkAnswer(skipped string, err error) map[string]any {
+	var ve versionError
+	var to timeoutError
 	switch {
+	case errors.As(err, &ve):
+		// the version's own files: the only answer that makes the bootstrap roll back
+		return map[string]any{"ev": "sandbox-check", "ok": false, "error": ve.Error()}
+	case errors.As(err, &to):
+		// a loaded machine: no proof against the version, and nothing for an administrator to fix
+		return map[string]any{"ev": "sandbox-check", "ok": true, "skipped": to.Error()}
 	case err != nil:
-		o.send(map[string]any{"ev": "sandbox-check", "ok": false, "error": err.Error()})
+		// this machine's problem (bwrap after an OS upgrade or AppArmor, root/mycel-sandbox, sandbox-etc, Landlock
+		// gone, the agent root): the version before has it too, so going back would not help and the update would
+		// be tried again and again. Kept, and the bootstrap records it for Admin › System as a warning.
+		return map[string]any{"ev": "sandbox-check", "ok": true, "skipped": err.Error(), "hostProblem": true}
 	case skipped != "":
-		o.send(map[string]any{"ev": "sandbox-check", "ok": true, "skipped": skipped})
+		return map[string]any{"ev": "sandbox-check", "ok": true, "skipped": skipped}
 	default:
-		o.send(map[string]any{"ev": "sandbox-check", "ok": true})
+		return map[string]any{"ev": "sandbox-check", "ok": true}
 	}
 }
 
 // runEngineCheck starts the bridge of app/current through the turn's launch code in a fresh check folder and waits for
-// it. The error names what failed in the words of the program that failed (bwrap, mycel-sandbox or the bridge).
+// it. The error names what failed in the words of the program that failed (bwrap, mycel-sandbox or the bridge); it is a
+// versionError only when that is about the version's own files (versionFault), a timeoutError when the launch did not
+// end in time, else the machine's problem.
 func runEngineCheck() error {
 	engineCheckMu.Lock()
 	defer engineCheckMu.Unlock()
 	// resolved now, like a turn: an app-only update switches app/current under a running launcher
 	bridge, err := filepath.EvalSymlinks(*bridgePath)
 	if err != nil {
-		return fmt.Errorf("the engine account cannot reach %s: %v", *bridgePath, err)
+		// app/current or a folder of the version the engine account cannot enter (2026-11-16: 0750)
+		return versionError{fmt.Sprintf("the engine account cannot reach %s: %v", *bridgePath, err)}
 	}
 	dir := filepath.Join(filepath.Clean(*agentRoot), checkFolderName)
 	if err := os.RemoveAll(dir); err != nil {
@@ -74,7 +93,7 @@ func runEngineCheck() error {
 	t := checkTurnEnv(dir, bridge)
 	cmd, cleanup, err := t.command(bridge, []string{"-h"}, dir, dir)
 	if err != nil {
-		return err
+		return classify(err.Error(), bridge)
 	}
 	defer cleanup()
 	cmd.Dir = dir
@@ -83,7 +102,7 @@ func runEngineCheck() error {
 	var outBuf tailBuffer
 	cmd.Stdout, cmd.Stderr = &outBuf, &outBuf
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("cannot start %s: %v", filepath.Base(cmd.Path), err)
+		return classify(fmt.Sprintf("cannot start %s: %v", cmd.Path, err), bridge)
 	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
@@ -92,15 +111,64 @@ func runEngineCheck() error {
 	case <-time.After(engineCheckTimeout):
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		<-done
-		return fmt.Errorf("the engine sandbox did not end within %v", engineCheckTimeout)
+		return timeoutError{engineCheckTimeout}
 	}
 	if err != nil {
-		if msg := outBuf.last(); msg != "" {
-			return fmt.Errorf("%s (%v)", msg, err)
+		msg := err.Error()
+		if last := outBuf.last(); last != "" {
+			msg = fmt.Sprintf("%s (%v)", last, err)
 		}
-		return err
+		// the whole output decides, not only its last line
+		if versionFault(outBuf.all()+"\n"+msg, bridge) {
+			return versionError{msg}
+		}
+		return errors.New(msg)
 	}
 	return nil
+}
+
+func classify(msg, bridge string) error {
+	if versionFault(msg, bridge) {
+		return versionError{msg}
+	}
+	return errors.New(msg)
+}
+
+// versionFault: the failure names the version's own files, app/current/… (the configured bridge path) or
+// app/versions/<v>/… (where it resolves). bwrap ("Can't find source path …/native/mycel-bridge: Permission denied"),
+// mycel-sandbox ("exec …/mycel-bridge: permission denied") and the ELF check name the path they failed on; a host
+// fault (bwrap itself, the helper, sandbox-etc, the CA file, Landlock or seccomp missing) names none of these.
+func versionFault(text, bridge string) bool {
+	for _, p := range versionPaths(bridge) {
+		if strings.Contains(text, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// versionPaths: the version folder the bridge resolves to (…/versions/<v>, two levels above native/mycel-bridge) and
+// the folder app/current names (two levels above the configured bridge path), each with a trailing separator
+func versionPaths(bridge string) []string {
+	var out []string
+	for _, b := range []string{filepath.Clean(bridge), filepath.Clean(*bridgePath)} {
+		if v := filepath.Dir(filepath.Dir(b)); v != "/" && v != "." {
+			out = append(out, v+string(filepath.Separator))
+		}
+	}
+	return out
+}
+
+// versionError: the engine account cannot use the version's own files; the version must not stay
+type versionError struct{ msg string }
+
+func (v versionError) Error() string { return v.msg }
+
+// timeoutError: the launch did not end in time (a loaded machine); no proof against the version
+type timeoutError struct{ d time.Duration }
+
+func (t timeoutError) Error() string {
+	return fmt.Sprintf("the engine sandbox did not end within %v", t.d)
 }
 
 // folderError: the check folder could not be made (the agent root's problem, not the version's)
@@ -122,6 +190,13 @@ func (t *tailBuffer) Write(p []byte) (int, error) {
 		t.b = t.b[len(t.b)-2048:]
 	}
 	return len(p), nil
+}
+
+// all: everything kept
+func (t *tailBuffer) all() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return string(t.b)
 }
 
 // last: the last non-empty line, at most 300 bytes

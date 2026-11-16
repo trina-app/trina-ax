@@ -1564,6 +1564,10 @@ func (u *updater) updateApp(dir, v string) error {
 		u.res.Result, u.res.Detail = "rolled_back", rb
 		return nil
 	}
+	if checkSeen && u.stillPending(v) {
+		// healthy, but the bootstrap has not kept it yet: its engine check (QA TC-3523) did not finish
+		return fmt.Errorf("version %s answers /api/health, but the bootstrap's AI engine check did not finish within %v of the switch; the bootstrap keeps or rolls back the version when it does (sudo mycel-ctl status)", v, time.Since(switched).Round(time.Second))
+	}
 	if sawMigrating {
 		return fmt.Errorf("version %s did not finish updating its database and answer /api/health within %v of the switch", v, time.Since(switched).Round(time.Second))
 	}
