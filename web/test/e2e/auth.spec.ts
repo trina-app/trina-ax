@@ -40,6 +40,9 @@ test.describe('first-run setup in an English browser', () => {
     await page.getByRole('button', { name: '팀 만들고 시작하기' }).click()
     // the new team's owner goes to the welcome steps first (pages/Welcome.tsx); the sidebar's setup row then offers to
     // continue them on every other page (docs/DECISIONS.md "W5")
+    // a Mac or Windows browser (Playwright's Desktop Chrome says Windows) is first offered the desktop app (pages/OpenApp.tsx)
+    await expect(page).toHaveURL(/\/open-app$/)
+    await page.getByTestId('open-app-browser').click()
     await expect(page).toHaveURL(/\/welcome$/)
     // five steps (도구 연결 and the invite counted), and nothing above the first (no team question: every team gets its
     // start when it is left); no setup row on the steps themselves
@@ -85,6 +88,9 @@ test.describe('first-run setup in an English browser', () => {
     await page.getByLabel('Username').fill('kim')
     await page.getByLabel('Password', { exact: true }).fill('a long password 1')
     await page.getByRole('button', { name: 'Create team and start' }).click()
+    // a Mac or Windows browser (Playwright's Desktop Chrome says Windows) is first offered the desktop app (pages/OpenApp.tsx)
+    await expect(page).toHaveURL(/\/open-app$/)
+    await page.getByTestId('open-app-browser').click()
     await expect(page).toHaveURL(/\/welcome$/)
     await expect(page.getByTestId('welcome-progress')).toBeVisible()
     await page.goto('/')
@@ -105,6 +111,9 @@ test('the owner who left the steps lands on them when signing in again (a phone 
   await page.getByTestId('setup-username').fill('kim')
   await page.getByTestId('setup-password').fill('a long password 1')
   await page.getByTestId('setup-submit').click()
+  // a Mac or Windows browser (Playwright's Desktop Chrome says Windows) is first offered the desktop app (pages/OpenApp.tsx)
+  await expect(page).toHaveURL(/\/open-app$/)
+  await page.getByTestId('open-app-browser').click()
   await expect(page).toHaveURL(/\/welcome$/)
   // the first visit starts the progress on the server
   await expect(page.getByTestId('welcome-progress')).toContainText('1/5 회사 소개')
@@ -163,6 +172,9 @@ test.describe('first-run setup in a browser in Jakarta', () => {
     await page.getByLabel('Username').fill('kim')
     await page.getByLabel('Password', { exact: true }).fill('a long password 1')
     await page.getByRole('button', { name: 'Create team and start' }).click()
+    // a Mac or Windows browser (Playwright's Desktop Chrome says Windows) is first offered the desktop app (pages/OpenApp.tsx)
+    await expect(page).toHaveURL(/\/open-app$/)
+    await page.getByTestId('open-app-browser').click()
     await expect(page).toHaveURL(/\/welcome$/)
     await expect(page.getByTestId('welcome-progress')).toBeVisible()
     await page.goto('/admin/settings')
