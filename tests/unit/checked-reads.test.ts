@@ -229,7 +229,8 @@ describe('the search index reads the file that was checked', () => {
     const r = check(`${dir}/report.txt`)
     const plain = new SearchAdmission().read(r.abs, visible(`${dir}/report.txt`))
     expect(plain?.bytes.toString()).toBe(CHECKED)
-    atOpen(dir, folderBecomesLink)
+    // the change comes after the file was found and before its reader looks at it again
+    folderBecomesLink(dir)
     const swapped = new SearchAdmission().read(r.abs, visible(`${dir}/report.txt`))
     expect(swapped?.bytes.toString() ?? '').not.toContain('never checked')
     expect(swapped).toBeNull()
