@@ -49,6 +49,17 @@ Plan: [docs/AGENTS/plan/20261116-1903-live-meeting-notes.md](../AGENTS/plan/2026
 - **Sending pieces (slice 2):** at most two at once, in order; a refusal is sent again only for the reasons in
   `MEETING_RETRY_REASONS` (a network failure counts as `busy`); any other refusal stops the meeting once with the
   server's sentence; at most 40 pieces wait (the oldest is dropped beyond).
+- **The bridge (slice 3):** `DesktopBridge.meeting` (`MEETING_BRIDGE_VERSION` 1) only where the helper exists (a Mac,
+  macOS 14.4+, not the store build). `start()` makes the main process show its own dialog every time, Cancel the
+  default; nothing listens without that click. The meeting belongs to the main process (a reload keeps it); another team
+  is not opened while it runs. While listening, a menu bar item drawn by the app ("● 12:03", with Stop) shows it: a page
+  cannot hide it. "Can't hear the call": a call app runs and the microphone hears speech for 20 s while the call's
+  sound stays silent.
+- **The page (slice 4):** one button on My files and one card on every page while a meeting runs: the red dot and
+  time, Stop, the consent line with "Copy a message for the call's chat", and the words as they come. The note is
+  Markdown in My files › Meetings (`MEETINGS_DIR`), written every 2 minutes and at Stop (the same file, replaced).
+  Left out on purpose: a meetings list, a summary, speaker names, a language picker, a floating window, settings.
 - **Tests:** `tests/unit/c-meeting-piece.test.ts`, `tests/unit/e-desktop-meeting-chunker.test.ts`, `tests/unit/e-desktop-meeting-session.test.ts`,
-  `tests/unit/mac-permission-languages.test.ts`.
+  `tests/unit/mac-permission-languages.test.ts`, `tests/unit/e-desktop-meeting-control.test.ts`,
+  `web/test/unit/meetingNotes.test.ts`.
 - **Version impact:** minor (two new calls; the desktop side follows in the same plan).
