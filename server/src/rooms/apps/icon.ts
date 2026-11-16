@@ -1,4 +1,4 @@
-// A plain Other app's own icon (docs/decisions/20261116-other-app-icon.md, migration 356 room_app_icons): an image or
+// A plain Other app's own icon (docs/decisions/20261116-other-app-icon.md, migration 357 room_app_icons): an image or
 // one emoji, set in the app's settings ("Change icon") by the people who manage the room's apps. Without one the app
 // shows its name's first letter (the web app colours its tile from the app id). Never set from what a service sends:
 // a message cannot name another icon or sender (owner decision 3, the impersonation risk).

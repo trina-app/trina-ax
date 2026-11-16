@@ -25,7 +25,7 @@
   anyone not in the room 404. The owner's words were "the person who added it and owners/admins"; following the
   existing settings permission exactly, a group chat's other members may change it too, as they may rename it. The
   image is served to anyone in the room (guests too: they see the messages), 404 to everyone else.
-- **Storage:** `room_app_icons` (migration 356, C's range as asked): one row per app, an image or an emoji and a version
+- **Storage:** `room_app_icons` (migration 357, C's range as asked): one row per app, an image or an emoji and a version
   that only grows (the avatar's millisecond clock), so `GET /api/rooms/:id/apps/:appId/icon?v=<version>` is cached for
   a year and a new icon is a new address. The image goes out with the profile photo's image-only headers (`nosniff`,
   `default-src 'none'; sandbox`, inline). `ON DELETE CASCADE` from `room_apps`: removing the app, or its room, removes
