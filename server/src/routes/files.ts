@@ -16,6 +16,7 @@ import { searchFileContents } from '../team-files/content-search'
 import { findFiles, recentFiles } from '../team-files/find'
 import { dismissMoveSuggestion, moveSuggestions } from '../team-files/move-suggest'
 import type { SpooledFile } from '../http/multipart'
+import { assertGuestUploadSize } from '../uploads/guest-limit'
 import { registerCTools } from '../tools'
 import { HwpError } from '../files/hwp-engine'
 import { ToolError } from '../policy/errors'
@@ -183,6 +184,8 @@ export const filesRoutes: RouteModule = {
 
     kit.handle(API.upload, ({ c, body, auth }) => mapErrors(c.get('locale'), async () => {
       assertWhole(body.file, body.fields.size)
+      // a guest's own limit (one request carries at most 50 MB, under the smallest guest limit; kept in step with it)
+      assertGuestUploadSize(ctx.db, auth.user.id, body.file.size)
       assertStorageRoom(body.file.size)
       // the body is on disk already, hashed on the way (http/multipart.ts); the kit removes what is left of the temp file
       // the same file at that name already (a retry whose answer was lost, photos picked again): kept, no "(2)"
@@ -240,6 +243,7 @@ export const filesRoutes: RouteModule = {
     // ---------------- attachments ----------------
     kit.handle(API.uploadAttachment, ({ c, body, auth }) => mapErrors(c.get('locale'), async () => {
       assertWhole(body.file, body.fields.size)
+      assertGuestUploadSize(ctx.db, auth.user.id, body.file.size)
       assertStorageRoom(body.file.size)
       const a = await C.attachments.create(auth.user.id, body.fields.chatId, body.fields.name ?? (body.file.name || 'file'), body.file.path, body.file.sha256)
       // the request was dropped while the file was put in place (its chip taken out): the box never learns its id, so a
