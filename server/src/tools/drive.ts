@@ -65,7 +65,7 @@ export function registerDriveTools(ctx: AppContext, reg: ToolRegistry): boolean 
     source.fence(); turn(t)
     ctx.db.transaction(() => {
       addSources(ctx.db, chat, [source.share ? { type: 'drive_share', id: source.share.id } : { type: 'user', id: t.user.id, via: 'connection' }])
-      ctx.db.query('UPDATE chats SET session_tainted=1 WHERE id=?').run(chat)
+      ctx.db.query('UPDATE chats SET session_tainted=1, others_words=1 WHERE id=?').run(chat)
     })()
     const { mine, shares } = labels(t.user.id)
     const others = [...(mine ? ['mine'] : []), ...shares.map((r) => `team:${r.name}`)].filter((x) => x !== source.label)

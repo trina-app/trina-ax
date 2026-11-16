@@ -6,7 +6,7 @@ import { projectJoinsOfNewAccount } from '../chat/project-joins'
 import path from 'node:path'
 import type { Context } from 'hono'
 import type { z } from 'zod'
-import { tempPasswordCharsOk } from '@mycel/shared'
+import { ARCHIVE_DIR, tempPasswordCharsOk } from '@mycel/shared'
 import type { CreateUserBody, EndedConnection, HandoverConnectionRef, Locale, ResetPasswordBody, Role, UpdateUserBody, User } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { AppEnv } from '../http/env'
@@ -20,6 +20,8 @@ import { USER_COLS, deriveUserId, ensurePersonalFolder, existingGroups, getUser,
 import { audit } from './audit'
 import { cancelLoginsOf } from '../credentials/login'
 import { connectionsChanged, existingCredentialsOf } from '../credentials/store'
+import { folderReadersLost } from '../files/folder-shares'
+import { ownerFolderGrantees } from '../files/share-readers'
 import { afterAccessChange, captureState, foldersWithRuleOf, keepProjectFloors, originKeepers, resetEngineSessions } from './folders'
 import { forgetUserName, stopTurnsOf } from '../chat/runtime'
 import { getTeamSettings, LOCALE_CHANGED } from './settings'
@@ -224,6 +226,8 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
     authOf(ctx).endUserSessions(id, 'disabled')
     stopTurnsOf(ctx, id)
     resetEngineSessions(ctx, id)
+    // their folder shares open for nobody while they are off: the people on them start fresh AI sessions
+    folderReadersLost(ctx.db, ownerFolderGrantees(ctx.db, id))
   }
   // their running AI sign-ins: disabled, all of them; made a member, the team's (their own personal ones are theirs to keep)
   if (changed.status === 'disabled' || changed.role === 'member') { const cc = existingCredentialsOf(ctx); if (cc) cancelLoginsOf(cc, id, { teamOnly: changed.status !== 'disabled' }) }
@@ -266,7 +270,8 @@ export function revokeResetLinksBy(ctx: AppContext, userId: string): number {
   return ctx.db.query('UPDATE password_resets SET used_at = ? WHERE created_by = ? AND used_at IS NULL').run(new Date().toISOString(), userId).changes
 }
 
-export const ARCHIVE_DIR: Record<Locale, string> = { ko: '보관된 계정', en: 'Archived accounts', id: 'Akun diarsipkan', ja: "アーカイブ済みアカウント", es: "Cuentas archivadas", zh: "已归档账号" }
+// (the names live in shared/src/folder-labels.ts: files/share-places.ts reads the same table)
+export { ARCHIVE_DIR }
 
 /**
  * Personal folder of a deleted member: 'transfer' moves users/<id>/ into the owner's personal folder (only the
@@ -402,6 +407,8 @@ export async function removeAccount(ctx: AppContext, o: RemoveAccountOptions): P
   const target = liveUser(ctx, id)
   const before = captureState(ctx.db)
   const now = new Date(authOf(ctx).now()).toISOString()
+  // their folder shares end with the account: the people on them start fresh AI sessions (read before the rows go)
+  const shareLost = ownerFolderGrantees(ctx.db, id)
   // their sign-ins at services through connections made from templates: read now, the services told after the delete
   let revokeSignIns = () => {}
   try { revokeSignIns = integrationsOf(ctx).signInsToRevoke(id) } catch (e) { log.warn('sign-ins of a deleted member could not be read for revoking', { err: e, userId: id }) }
@@ -479,6 +486,7 @@ export async function removeAccount(ctx: AppContext, o: RemoveAccountOptions): P
   authOf(ctx).endUserSessions(id, 'revoked')
   stopTurnsOf(ctx, id)
   resetEngineSessions(ctx, id)
+  folderReadersLost(ctx.db, shareLost)
   revokeInvitesBy(ctx, id)
   revokeResetLinksBy(ctx, id)
   revokeTeamLinksBy(ctx, id)

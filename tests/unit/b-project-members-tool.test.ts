@@ -372,6 +372,20 @@ describe('"Always allow" (docs/DECISIONS.md "Always allow on every card", review
       expect(members(p.folderPath)).toEqual(['alice', 'jun'])
     } finally { h.ctx.db.query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run() }
   })
+
+  test('after the chat read a file someone else wrote: "Always allow" is final (owner 2026-11-13), no card', async () => {
+    const p = await project('alice', 'Steered', [user('erin')])
+    const abs = path.join(h.ctx.files.fx.root, 'shared', 'someone-elses-notes.md')
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, 'notes')
+    h.ctx.db.query("INSERT INTO card_always_allow (user_id, kind, created_at) VALUES ('alice', 'project_members', ?)").run(new Date().toISOString())
+    try {
+      const readIt = fake({ tool: 'read', args: { file_path: 'shared/someone-elses-notes.md' } })
+      const steered = await turn('alice', `summarise it\n${readIt}\n${hidden({ add: [{ name: 'Bob Lee' }] }, ['Bob Lee'])}`, { projectId: p.id })
+      expect(steered.cards).toEqual([])
+      expect(members(p.folderPath)).toEqual(['alice', 'bob', 'erin'])
+    } finally { h.ctx.db.query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run() }
+  })
 })
 
 describe('the attacks', () => {

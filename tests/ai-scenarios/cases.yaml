@@ -998,6 +998,18 @@ cases:
     good: Plain steps to Files › Shared with me, which lists files others shared with him, newest first, with who shared each; a file he can already open in its folder shows there only when it was shared with him by name.
     checks: []
 
+- id: SHR-04
+  title: Share a whole folder of my own files
+  features: [files.folder-share]
+  lang: en
+  context: personal
+  as: daniel
+  prompt: Can I share a whole folder in my files with Minho, so he can see everything in it, including what I add later?
+  expect:
+    outcome: explain
+    good: "Plain answer in a few lines, no paths: where folder sharing is on for the team, a folder in his own files can be shared view only (it covers what he adds later; he confirms on a card and can stop or Undo). Where it is not on yet, says so plainly and offers to share the files in the folder with Minho one by one instead. Never claims a folder was shared without a card."
+    checks: []
+
 - id: SHR-01
   title: Share a file with a group
   features: [files.share-links]
@@ -2174,7 +2186,7 @@ cases:
   prompt: 우리 팀 시간대 서울로 돼 있는지 확인하고 아니면 바꿔줘
   expect:
     outcome: explain
-    good: Where to see or change it (Admin › Team settings); no invented answer.
+    good: Says the team time zone is already Seoul (Asia/Seoul), so nothing needs changing, and where to see or change it (Admin › Team settings); no invented answer.
     checks: []
   variants:
     - key: member
@@ -2182,6 +2194,15 @@ cases:
       lang: en
       prompt: Change our team's time zone to Seoul.
       expect: { outcome: refuse, good: Only the owner or admins; plain words., checks: [] }
+    # TC-3700: the answer said it had not opened the setting and still said "yes, Seoul" (the zone in its
+    # instructions is the team setting; the instructions now say so)
+    - key: ask
+      as: sora
+      prompt: 우리 팀 시간대 서울로 설정돼 있어?
+      expect:
+        outcome: do
+        good: Says the team time zone is set to Seoul (Asia/Seoul) and that an owner or admin changes it in Admin; never says it could not check while also answering.
+        checks: [{ type: answer_matches, pattern: "서울|Seoul" }]
 
 - id: ADM-06
   title: Plugins and voice

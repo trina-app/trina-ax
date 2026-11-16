@@ -2,6 +2,7 @@
 // not raw rows. Server code maps rows -> these shapes; clients only ever see these.
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
+import { StepShared } from './share-card'
 import { Access, ApiErrorBody, ClientKind, EngineId, IsoTime, Locale, GuestDetail, GuestPlace, RelPath, Role, TeamRole, TextSize, Theme, UserStatus } from './common'
 
 // ---------------- people ----------------
@@ -34,6 +35,9 @@ export const UserPrefs = z.object({
   /** the one-time line under a room's header ("✦ Ask Trina about this room. Only you see it.") was closed, or ✦ was
    * used: it never shows again (docs/DECISIONS.md "A welcome for invited people") */
   roomAskHint: z.literal('seen').optional().catch(undefined),
+  /** an owner's or admin's one-time line on Admin › Home that members can now share folders in their own files
+   * (docs/AGENTS/plan/20261116-1330-folder-share-web.md) was closed: it never shows again */
+  folderShareNotice: z.literal('seen').optional().catch(undefined),
   /** my lists' folds (ListFolds); a stored value that does not read reads as absent, never hiding the other preferences */
   listFolds: ListFolds.optional().catch(undefined),
 })
@@ -369,6 +373,47 @@ export type Attachment = z.infer<typeof Attachment>
 /** At most this many attachments (uploads and team files together) per message. */
 export const MESSAGE_ATTACHMENTS_MAX = 20
 
+/** A next step under an AI step (Step.fixes): a line the server wrote, and one button that runs
+ * POST /api/share-fixes/:id/run as the person. Names are people's display names as the server read them.
+ * - let_view: `people` get view access to `file` (the person may share it). The list shown is the list granted.
+ * - ask_owner: the file's owner (`owner`) is asked to share `file` with `count` people (their names only when the
+ *   person asks for themselves or may see them).
+ * - ask_admin: an admin (`owner`: their name) gets a message about the folder `file`.
+ * - share_project: the app's own "Share with project members" flow for chat `chatId` opens (no server run).
+ * `state`: open (the button shows), done (`doneCount` people; the line says what happened), gone (nothing left to do:
+ * everyone can open it already, or the file or the room is gone). */
+export const StepFixKind = z.enum(['let_view', 'ask_owner', 'ask_admin', 'share_project'])
+export type StepFixKind = z.infer<typeof StepFixKind>
+export const StepFix = z.object({
+  id: z.string().max(64),
+  kind: StepFixKind,
+  /** the file's or the folder's name (one line), or the project's for share_project */
+  file: z.string().max(200),
+  /** more files of the same offer, when it is about several (the count beyond `file`) */
+  moreFiles: z.number().int().min(0).optional(),
+  /** where the people are, as the person sees it ("#Sales"); absent when the offer is not about a room */
+  place: z.string().max(200).optional(),
+  /** the first few people it is about, by name, and how many in all */
+  people: z.array(z.string().max(120)).max(5).optional(),
+  count: z.number().int().min(0),
+  /** guests among the people who cannot open it: never given a file */
+  guests: z.number().int().min(0).optional(),
+  /** ask_admin: why an admin is asked. folder (or absent): a team folder only admins share; switch: the team turned off
+   * members' file sharing (the admins are asked to turn it on) */
+  reason: z.enum(['folder', 'switch']).optional(),
+  /** who is asked: the file's owner, or the admin(s) */
+  owner: z.string().max(200).optional(),
+  chatId: z.string().max(64).optional(),
+  state: z.enum(['open', 'done', 'gone']),
+  doneCount: z.number().int().min(0).optional(),
+  /** after let_view ran: people in the room who still cannot open it and were not on the list (they joined since) */
+  left: z.number().int().min(0).optional(),
+})
+export type StepFix = z.infer<typeof StepFix>
+/** POST /api/share-fixes/:id/run: what the offer became (the app keeps the rest of the line it showed) */
+export const RunStepFixResult = z.object({ state: z.enum(['open', 'done', 'gone']), doneCount: z.number().int().min(0).optional(), left: z.number().int().min(0).optional() })
+export type RunStepFixResult = z.infer<typeof RunStepFixResult>
+
 /** messages.steps[]: what the AI did ("파일 검색 중"). Shown as a collapsible list under the answer. */
 export const StepKind = z.enum(['tool', 'thinking', 'web_search', 'browser', 'artifact', 'ask_user'])
 export const Step = z.object({
@@ -394,7 +439,20 @@ export const Step = z.object({
   sources: z.array(z.object({ title: z.string(), url: z.string() })).max(50).optional(),
   /** a post_to_room step that posted (server/src/chat/post-to-room.ts): where the message went, for the step's 보기 (the
    * room at the message, or the thread at the reply), as the button's sent line has it */
-  posted: z.object({ roomId: Uuid7, messageId: Uuid7, threadRootId: Uuid7.optional() }).optional(),
+  posted: z.object({
+    roomId: Uuid7, messageId: Uuid7, threadRootId: Uuid7.optional(),
+    /** what went, for the card: the message's first words (plain, one line) and the names of the files sent with it,
+     * read from the posted message itself (never the AI's words about it) */
+    preview: z.string().max(120).optional(),
+    files: z.array(z.string().max(255)).max(10).optional(),
+  }).optional(),
+  /** a share_with_person or stop_sharing step: what it did, for its card (api/share-card.ts). Only for the person whose
+   * turn it was; absent for every other viewer of a shared chat */
+  shared: StepShared.optional(),
+  /** next steps the server offers under this step (server/src/files/share-fixes.ts; docs/decisions/
+   * 20261116-ai-share-who-can-open.md): "3 people in #Sales can't open it yet" with one button. Written by the server
+   * from its own records, never from the AI's text; only the person whose turn it was gets them */
+  fixes: z.array(z.lazy(() => StepFix)).max(4).optional(),
   /** screenshot shared from the browser pane / images the AI shows: served via /api/files/download */
   images: z.array(z.object({ path: RelPath, alt: z.string().optional() })).max(20).optional(),
   /** a step a sub-agent took: the id of its sub-task step (tool 'agent'). Apps without this field show it in the flat
@@ -654,6 +712,9 @@ export const FileEntry = z.object({
    * that file was kept and nothing new was made (keepSame). Find work files' Undo takes back only files a run made
    * (docs/DECISIONS.md "Find work files on this computer"). Absent on every other entry and from older servers. */
   kept: z.literal(true).optional(),
+  /** in a listing of the caller's OWN files only (docs/decisions/20261116-folder-share-server.md): 'own' the entry has
+   * people of its own on it, 'through' a folder above it is shared. Absent everywhere else and from older servers. */
+  shared: z.enum(['own', 'through']).optional(),
 })
 export type FileEntry = z.infer<typeof FileEntry>
 
@@ -870,8 +931,9 @@ export const TeamSettings = z.object({
    * Personal projects are never limited. */
   projectCreators: z.enum(['members', 'admins']),
   /** the largest file a guest may upload: in a room, to their project's folder, to an AI chat (GUEST_FILE_MAX; default
-   * 100 MB; docs/decisions/20261116-guest-room-file-limit.md). Members are not held to it. */
-  guestFileMax: z.enum(['100mb', '1gb', '10gb']),
+   * 100 MB, at most 1 GB; docs/decisions/20261116-guest-room-file-limit.md, 20261116-room-file-limit-1gb.md). Members
+   * are not held to it. */
+  guestFileMax: z.enum(['100mb', '1gb']),
   /** "Show what the team often asks" (default on; docs/DECISIONS.md "Home: what my group often asks"): Home lists
    * generic questions that 3 or more people of a group or the team asked, rewritten once a day on the owner's AI. Off:
    * the lists are deleted for everyone, no run starts, and questions sent while it is off never count. */

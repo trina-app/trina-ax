@@ -34,6 +34,8 @@ import { storageRoom } from '../../system/storage'
 import { resolveLayout } from '../../system/layout'
 import { mayUseDevEnv, teamSetting } from '../setting'
 import { activePeople } from '../../team-files/service'
+import { ownSharedFolders, shareReaders } from '../../files/share-readers'
+import { startingRun } from './alive'
 import { projectZoneFolders } from '../../policy/zone'
 import { folderView, runSkillFolders, viewAccess, viewHash, type FolderView, type RunWrites } from './access'
 import { RUN_ID_RE, SRT_PATHS, chatWork, devPlatform, type DevPlatform, devenvPaths, isFull, personHome, personLogs, resolveRunCwd, runEnv, runIdOfUnit, settingsProblems, srtSettings, unitName } from './config'
@@ -175,7 +177,9 @@ export function personView(ctx: AppContext, userId: string, run?: RunWrites): Fo
   try { p = ctx.files.principal(userId) } catch { return null }
   // a project run reads only folders that everyone who sees the project may read (access.ts, QA TC-095)
   const root = ctx.files.fx.root
-  const v = folderView(ctx.files.rules(), p, run, run?.start ? activePeople(ctx.db) : undefined, projectZoneFolders(root).map((z) => z.join('/')))
+  // the person's shared folders are read-only in a run (access.ts; files/share-readers.ts)
+  const withShares = run ? { ...run, shared: ownSharedFolders(ctx.db, userId) } : undefined
+  const v = folderView(ctx.files.rules(), p, withShares, run?.start ? activePeople(ctx.db) : undefined, projectZoneFolders(root).map((z) => z.join('/')), (f) => shareReaders(ctx.db, f ? f.split('/') : []))
   const there = (rel: string) => { try { return fs.statSync(rel === '' ? root : path.join(root, rel)).isDirectory() } catch { return false } }
   return { read: v.read.filter(there), write: v.write.filter(there), denyRead: v.denyRead.filter(there), denyWrite: v.denyWrite.filter(there) }
 }
@@ -576,6 +580,9 @@ async function startRow(ctx: AppContext, row: RunRow): Promise<{ ok: true } | { 
   prepare(c, row.user_id)
   rm(log)
   const space = spaceOfRow(row)
+  // from the view's making (spawnRun) until the row says running, the run counts as alive: a folder share added in
+  // between would otherwise miss a run whose view lets it write there (alive.ts, files/folder-shares.ts)
+  const started = startingRun(row.user_id)
   try {
     const sp = await spawnRun(ctx, c, {
       runId, space, cwd: row.cwd, command, network: lim.l.network, once: parseOnce(row.once_domains ?? '', teamHosts(ctx)), limits: lim.l,
@@ -597,7 +604,7 @@ async function startRow(ctx: AppContext, row: RunRow): Promise<{ ok: true } | { 
     const m = (e as Error).message.slice(0, 300)
     endRow(ctx, row.id, { code: null, reason: /cannot use|cannot open/.test(m) ? 'setting' : 'lost', tail: m, lastLine: '' })
     return { ok: false, message: m }
-  }
+  } finally { started() }
 }
 /** the hash of the view the run started with (accessHash's format) */
 const accessHashFrom = (ctx: AppContext, userId: string, viewHashValue: string) => (mayUseDevEnv(ctx.db, ctx.files, userId) ? viewHashValue : 'off')

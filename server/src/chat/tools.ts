@@ -2,6 +2,7 @@ import { confidentialChat, localTool } from "../safe-ops/confidential"
 // The tools of one turn besides the six file tools: B's remember / forget / ask_user / connect_service / set_title and the browser pane tools
 // (desktop window only), plus whatever other components registered in ctx.services.turnTools (C: make_file,
 // share_file, artifact, web_fetch). Served over the same MCP connection as the file tools (mcp__team__<name>).
+import { commentDocxOutput } from '../tools/comment-docx'
 import { chatFileOffered, chatFileTool } from './chat-file-tool'
 import path from 'node:path'
 import { z } from 'zod'
@@ -13,7 +14,7 @@ import { newId } from '../db'
 import { PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
 import { browserUrl, isPrivateHost, staticPrivateHost } from '../realtime/private-net'
 import { cleanMemoryText, MEMORY_ITEM_MAX, neutralizeTags, skillBlock } from './prompt'
-import { isGroupSkill, isPersonalSkill, isProjectSkill, listSkills, readSkill, sameSkillName, skillAlias, skillFolder, skillIssues, type Skill, otherGroupSkills } from './skills'
+import { isGroupSkill, isPersonalSkill, isProjectSkill, listSkills, ownPersonalSkill, readSkill, sameSkillName, skillAlias, skillFolder, skillIssues, type Skill, otherGroupSkills } from './skills'
 import { changeLine, editorsLine, levelFor, levelLabel, levelRef, levelsOf, MOVE_MAX_BYTES, MOVE_MAX_FILES, MOVE_TEXT_MAX, peopleNames, peopleText, planMove, raisesTrust, runCopy, runMove, seesWho, skillAt, type Level, type MovePlan } from '../skills/move'
 import { st as skillText } from '../skills/text'
 import { audit as auditLog } from '../admin/audit'
@@ -24,7 +25,10 @@ import { addSources, sourceOf, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
 import { atLeast, isStaff, type Principal } from '../policy/access'
 import { tr } from './i18n'
+import { optionWords, threadOptionWords } from './share-words'
+import { threadLook } from './thread-look'
 import { alwaysHere, withAlways } from './always-allow'
+import { fromAsker, othersWordsIn } from './shared-actions'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
 import type { StoredStep } from './store'
 import { cardEndShort, endOfText, readOnlyNote, type CardOutcome } from '../policy/refusal'
@@ -49,13 +53,20 @@ import { hintsHere, roomHint } from './room-hint'
 import { skillFilesTool } from './skill-files'
 import { postToRoomOff, postToRoomTool } from './post-to-room'
 import { shareWithPersonOff, shareWithPersonTool } from './share-with-person'
+import { stopSharingOff, stopSharingTool } from './stop-sharing'
+import { shareFolderOff, shareFolderTool } from './share-folder'
+import { whoCanOpenOff, whoCanOpenTool } from './who-can-open'
+import { sharedWithMeOff, sharedWithMeTool } from './shared-with-me-tool'
+import { lookingAtOff, lookingAtTool } from './looking-at'
 import { hideUrls } from '../tools/audit-url'
 import { SHARE_JUDGE_REFUSAL } from '../skills/share-judge'
 import { FILE_RANK_REFUSAL } from '../onboarding/file-rank'
 import { mergeTargets, SHARE_MERGE_REFUSAL } from '../skills/share-merge'
 import { deleteFilesTool } from './delete-files'
 import { projectMembersTool } from './project-members'
+import { folderAccessOff, folderAccessTool } from './folder-access-tool'
 import { readRooms } from './read-rooms'
+import { seenWhy } from './grant-reads'
 import { WEB_ACCESS_CHANGED } from '../admin/settings'
 import { isGuestUser } from '../credentials/guest-ai'
 import { GUEST_ROOM_TOOLS, GUEST_TURN_TOOLS, guestToolDescription } from './guest-tools'
@@ -180,6 +191,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // shared, confidential or draft chats (add() above) nor in an approved template run, refused up front
   // everywhere else but the person's own chat with the person there
   if (!exec.templateRun) add(projectMembersTool(exec))
+  // a team folder's access for one person or group behind the server's card every time (chat/folder-access-tool.ts):
+  // only in the person's own chat (never shared, confidential, Slack, scheduled, template or restricted, a guest's)
+  if (!folderAccessOff(exec)) add(folderAccessTool(exec))
   // the person's own team chat rooms (chat/room-tools.ts): not in a shared, confidential or draft chat (add() above
   // keeps those to their own tools) nor in an approved scheduled template's run (its scope is fixed; it would refuse
   // them anyway)
@@ -194,6 +208,19 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // the person's own files for teammates, view only, after their yes on one server card every time
   // (chat/share-with-person.ts): the same places as post_to_room (SHARED_TOOLS in a shared chat), never a scheduled run
   if (!shareWithPersonOff(exec)) add(shareWithPersonTool(exec))
+  // ...and taking that access away again (chat/stop-sharing.ts): the same places, never a scheduled run
+  if (!stopSharingOff(exec)) add(stopSharingTool(exec))
+  // a folder in the person's own files (chat/share-folder.ts): only once folder sharing's gate is open; an add always
+  // behind its card; never a scheduled run, Slack, a confidential, template or restricted run, a guest
+  if (!shareFolderOff(exec)) add(shareFolderTool(exec))
+  // who can open a file, a folder or this chat, and how (chat/who-can-open.ts): read-only; in a shared chat only for
+  // the chat itself and a file the asker named or attached; never a scheduled run, Slack, a template or restricted run
+  if (!whoCanOpenOff(exec)) add(whoCanOpenTool(exec))
+  // the files shared with the person one by one, as a list the AI asks for (chat/shared-with-me-tool.ts), and what the
+  // person has open now (chat/looking-at.ts): only in the person's own chat (add() keeps them out of shared,
+  // confidential, guest and draft chats too)
+  if (!sharedWithMeOff(exec)) add(sharedWithMeTool(exec))
+  if (!lookingAtOff(exec)) add(lookingAtTool(exec))
   // edit_files is listed here so the engines and the model proxy allow it, but the MCP handler runs it
   // (mcp/protocol.ts editFiles): each file as its own edit call with the checks above. Never offered in confidential
   // chats (add() keeps to the local tools there). Reaching this call() means the handler did not: nothing is changed.
@@ -452,6 +479,8 @@ export function widenOf(name: string, args: unknown, hwpTarget?: (args: unknown)
     const target = hwpTarget ? hwpTarget(a) : typeof a.output === 'string' ? hwpOutputPath(a.output, typeof a.file_path === 'string' ? a.file_path : '') : a.file_path
     return typeof target === 'string' ? { target, extra: typeof a.output === 'string' && typeof a.file_path === 'string' ? [a.file_path] : [] } : undefined
   }
+  // comment_docx (tools/comment-docx.ts): the document itself, or a new .docx made from it
+  if (name === 'comment_docx' && typeof a.file_path === 'string') return typeof a.output === 'string' ? { target: commentDocxOutput(a.output), extra: [a.file_path] } : { target: a.file_path, extra: [] }
   return undefined
 }
 
@@ -531,6 +560,13 @@ export function turnPerson(exec: TurnExec): TurnPerson {
     // steps shown as they run (not a scheduled run, a Slack question, a draft or a turn the server started). Rooms,
     // shared chats and chats that read rooms too (the owner's call, 2026-11-11)
     allSitesHere: () => LIVE_CLIENTS.has(exec.spec.clientKind ?? '') && !exec.restricted,
+    // a team file attached to a connection's send (integrations/connections/tools.ts): a file the person's own
+    // message did not bring (named or attached it, or the AI wrote it new in this answer) keeps the card, in every
+    // chat: a file name a teammate chose reaches the AI in a chat that read nothing too (chat/shared-actions.ts)
+    // ...and any team file where other people's words are in the chat (othersWordsIn); the person's own Always allow for
+    // the connection still goes without the card (docs/decisions/20261116-always-allow-final-rule-a.md)
+    attachAsks: (paths) => othersWordsIn(exec) || !fromAsker(exec.rt.db, exec.spec, paths),
+    othersWords: () => othersWordsIn(exec),
     webAccessChanged: () => exec.rt.hub.publish(exec.spec.userId, WEB_ACCESS_CHANGED),
     ...(exec.profileDraft ? { unattendedLabel: 'company profile draft answer', scope: (url: string) => draftUrlRefusal(exec.profileDraft!.scope, url), ...(exec.profileDraft.pages ? { pages: exec.profileDraft.pages } : {}) } : {}),
   }
@@ -541,7 +577,7 @@ export function turnPerson(exec: TurnExec): TurnPerson {
  * of its own shows what the room card would have (the folder and every file of a move, a video's file), so its one yes
  * is given seeing all of it. */
 function roomLinePerson(exec: TurnExec, p: TurnPerson, call: { tool: string; args: unknown }): TurnPerson {
-  const lead = `${tr('roomsSeenWhy', p.locale)}\n\n`
+  const lead = `${tr(seenWhy(exec, 'roomsSeenWhy'), p.locale)}\n\n`
   const extra = (e?: ConfirmExtra): ConfirmExtra => (e?.details?.length ? e : { ...e, details: exec.roomCardDetails(call.tool, call.args) })
   return {
     ...p, roomsSeen: true,
@@ -641,6 +677,8 @@ function skillTools(exec: TurnExec): Tool[] {
           }
         }
         exec.noteTaint('read', { file_path: skill.path })
+        // a skill someone else may have written is other people's words (chat/turn.ts markOthersWords)
+        if (!ownPersonalSkill(skill.path, spec.userId)) exec.markOthersWords()
         // the person's own personal skill: what an AI turn that wrote it had seen comes with it (chat/turn.ts noteOwnSkill)
         exec.noteOwnSkill(skill.path)
         // like a "/name" skill: its folder joins the chat's read scope (what is saved from it asks before going wider)
@@ -799,7 +837,7 @@ function moveSkillTool(exec: TurnExec): Tool {
         : skillText('moveConfirm', L, { name: plan.skill.name, from, to: dest })
       // after a room read this card is the call's only one (chat/turn.ts ownCard): it leads with the room card's line
       const question = [
-        exec.ownCard('move_skill') ? tr('roomsSeenWhy', L) : '',
+        exec.ownCard('move_skill') ? tr(seenWhy(exec, 'roomsSeenWhy'), L) : '',
         `${head}\n${changeLine(plan, L)}\n${editorsLine(plan, L)}`,
         plan.shadows ? skillText('moveShadows', L, { name: plan.name, where: plan.shadows }) : '',
         why,
@@ -945,7 +983,9 @@ function bTools(exec: TurnExec): Tool[] {
         if (!a.success) return text(zodText(a.error), true)
         const request: TurnRequest = {
           kind: 'ask_user', requestId: uuidv7(), question: a.data.question,
-          ...(a.data.options ? { options: a.data.options } : {}), ...(a.data.multiple !== undefined ? { multiple: a.data.multiple } : {}),
+          // a label that is a team path is said in place words (chat/share-words.ts); the values stay as the AI gave them
+          // (and an option that points at a thread: by who started it and its first words, QA TC-4054)
+          ...(a.data.options ? { options: threadOptionWords(rt.db, optionWords(rt.db, a.data.options, L, spec.userId), threadLook(rt.ctx, spec.userId)) } : {}), ...(a.data.multiple !== undefined ? { multiple: a.data.multiple } : {}),
           ...(a.data.allowText !== undefined ? { allowText: a.data.allowText } : {}),
           expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
         }

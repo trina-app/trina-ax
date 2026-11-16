@@ -201,8 +201,15 @@ export function fileShareText(item: InboxNotification, t: T): string {
   // several files in one press (docs/decisions/20261116-file-share-everyone.md): "Mina shared 5 files with you"
   if (code === 'file.shared' && f && !f.gone && f.count && f.batchId) return f.by ? t('notifications.event.file.sharedMany', { by: f.by, n: f.count }) : t('notifications.event.file.sharedManyNoName', { n: f.count })
   if (!f || f.gone || !f.name) return code === 'file.shared' ? t('notifications.event.file.gone') : t(`notifications.event.${code}`)
+  // a folder (folder sharing): shared with me; to its owner, paused (the folder on the server is not the one shared) or
+  // ended (their move put it where nothing is shared)
+  if (f.folder === 'paused') return t('notifications.event.file.folderPaused', { name: f.name })
+  if (f.folder === 'ended') return t('notifications.event.file.folderEnded', { name: f.name })
   if (!f.by) return t(`notifications.event.${code}`)
+  if (code === 'file.shared' && f.folder === 'shared') return t('notifications.event.file.sharedFolder', { by: f.by, name: f.name })
   if (code === 'file.shared') return t('notifications.event.file.sharedNamed', { by: f.by, name: f.name })
+  // asked for someone else ("Ask <owner>" under an AI step): who would get it
+  if (code === 'file.access_requested' && f.for) return t('notifications.event.file.access_requestedFor', { by: f.by, name: f.name, for: f.for })
   if (code === 'file.access_requested') return t('notifications.event.file.access_requestedNamed', { by: f.by, name: f.name })
   return t('notifications.event.file.unshared_by_moveNamed', { by: f.by, name: f.name })
 }

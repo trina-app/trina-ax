@@ -23,6 +23,7 @@ import { SkillProblem } from './skills'
 import { Room, RoomMessage, RoomReaction, RoomThreadSummary } from './rooms'
 import { DeckBuild } from './intro-deck'
 import { PresenceState, WindowActivity } from './people'
+import { ShareCardAsk } from './share-card'
 
 export const WS_PATH = '/api/ws'
 export const WS_PING_INTERVAL_MS = 20_000
@@ -173,6 +174,9 @@ export const AskUserRequest = z.object({
   buttons: z.literal(true).optional(),
   /** a server check: one line under its buttons, what a choice covers */
   note: z.string().max(300).optional(),
+  /** a server check before files are shared or a share is stopped (api/share-card.ts): the files and people as rows.
+   * The card shows these in place of `question` and `details`, and turns into the result (`Step.shared`) */
+  share: ShareCardAsk.optional(),
 })
 /** browser wants to open an office-network (private) address: ask once / always / deny */
 export const BrowserSiteRequest = z.object({ kind: z.literal('browser_site'), requestId: z.string(), url: z.string(), host: z.string(), reason: z.string().optional() })
@@ -330,6 +334,12 @@ export const ServerFrame = z.union([ControlFrame, ServerEvent])
 export type ServerFrame = z.infer<typeof ServerFrame>
 
 // ---------------- client -> server ----------------
+/** the screens a window names in its `looking` frame (web lib/lookingAt.ts) */
+export const LOOKING_SCREENS = ['home', 'chat', 'rooms', 'room', 'files', 'file', 'shared_files', 'shared_file', 'projects', 'project', 'activity', 'skills', 'scheduled', 'trash', 'admin', 'settings', 'other'] as const
+export type LookingScreen = (typeof LOOKING_SCREENS)[number]
+/** a window sends `looking` at most this often (the last state wins) */
+export const LOOKING_EVERY_MS = 500
+export const LOOKING_PATH_MAX = 1024
 export const ClientFrame = z.discriminatedUnion('type', [
   z.object({ type: z.literal('ping'), t: z.number() }),
   /** the window received browser.call and started it (stops the server from re-sending after a reconnect) */
@@ -341,6 +351,19 @@ export const ClientFrame = z.discriminatedUnion('type', [
   /** I am writing in this room's box (threadRootId null) or this thread's box, or stopped (sent, emptied, left). At most
    * every ROOM_TYPING_EVERY_MS while typing; never queued while disconnected. The server relays it as RoomTypingFrame. */
   z.object({ type: z.literal('room.typing'), roomId: Uuid7, threadRootId: Uuid7.nullable(), typing: z.boolean() }),
+  /** what this window shows now, for the AI's looking_at tool (docs/decisions/20261116-ai-screen-and-shared-tools.md):
+   * the screen's name and ids only, never a title or text. Sent when the route or the side panel changes (at most one
+   * every LOOKING_EVERY_MS) and after each `hello`; never queued while disconnected. `screen` null: nothing to tell
+   * (a confidential chat is open): the server forgets what this window told before. Kept in memory only. */
+  z.object({
+    type: z.literal('looking'), screen: z.enum(LOOKING_SCREENS).nullable(),
+    chatId: Uuid7.optional(), projectId: z.string().min(1).max(64).optional(), roomId: Uuid7.optional(), threadRootId: Uuid7.optional(),
+    /** a team file open in the viewer or the side panel: its team path */
+    filePath: z.string().min(1).max(LOOKING_PATH_MAX).optional(),
+    /** a file link's page (/f/<id>) */
+    linkId: z.string().regex(/^[A-Za-z0-9_-]{22}$/).optional(),
+  }),
 ])
 export type ClientFrame = z.infer<typeof ClientFrame>
 
+export type LookingFrame = Extract<ClientFrame, { type: 'looking' }>

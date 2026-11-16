@@ -14,6 +14,7 @@ import { audit } from '../admin/audit'
 import { atLeast, isStaff, loadPrincipal, RuleSet, setProjectsCaseInsensitive, type Principal } from '../policy/access'
 import { authorize, type Authorized, type FsCtx } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
+import { shareReaders } from './share-readers'
 import { writeLimitText } from '../policy/refusal'
 import { badSegment, hiddenEntry } from '../policy/names'
 import { detectCaseInsensitive } from '../policy/resolve'
@@ -50,6 +51,8 @@ import { keepLongRetry, LONG_PIECE_SEC, longRetryLanguage } from '../jobs/speech
 import { pieceTurn, pieceWait } from '../jobs/whisper-turns'
 import * as media from './media'
 import { mediaText, personLocale, type MediaTextKey } from './media-text'
+import type { SharedChild } from './shared-folder-reads'
+import type { Locale } from '@mycel/shared/api'
 import { voiceInputOn, voiceInputOutside } from '../credentials/speech-key'
 import { isSharedChat } from '../chat/shared'
 import { diskStat } from '../system/disk-stat'
@@ -112,6 +115,15 @@ export class TurnFiles {
   /** saves under skills/ the person confirmed on the server's card in this turn: path -> sha256 of the confirmed
    * bytes, or '*' for a produced file (skills/guard.ts) */
   skillApprovals = new Map<string, string>()
+  /** the read tools may open files shared with the person one by one (FileService.shared): only a turn of the
+   * person's own chat sets it (chat/turn.ts; never a shared chat, a guest, a restricted run or a confidential chat,
+   * where the folder rules alone decide what goes into the answer) */
+  grantReads = false
+  /** files this turn read through a share grant (readAuth), until the turn counts them (chat/turn.ts noteOthersReads) */
+  grantReadPaths = new Set<string>()
+  /** a sub-agent's state (forAgent), or a call whose agent is not known: no folder share is listed or read there
+   * (files/shared-folder-reads.ts; the main AI passes what it needs on) */
+  readonly agentView: boolean = false
 
   // ---------------- sub-agents (docs/DECISIONS.md "Sub-agents") ----------------
   /** tool_use id -> the Agent call of the sub-agent that made it (null: the main AI), from the engine's stream */
@@ -169,8 +181,8 @@ export class TurnFiles {
   private view(agent: string | null = null): TurnFiles {
     const own = new ReadHashes(this.allReads)
     return new Proxy(this, {
-      get: (t, k) => (k === 'readHashes' ? own : k === 'agent' ? agent : Reflect.get(t, k, t)),
-      set: (t, k, v) => (k === 'readHashes' || k === 'agent' ? false : Reflect.set(t, k, v, t)),
+      get: (t, k) => (k === 'readHashes' ? own : k === 'agent' ? agent : k === 'agentView' ? true : Reflect.get(t, k, t)),
+      set: (t, k, v) => (k === 'readHashes' || k === 'agent' || k === 'agentView' ? false : Reflect.set(t, k, v, t)),
     })
   }
 }
@@ -179,6 +191,9 @@ export interface ToolCtx {
   signal?: AbortSignal
   user: Principal
   turnId: string | null
+  /** a read of a file inside a folder shared with the person (FileService.read): the owner's path its readers open,
+   * re-checked through the share on every open (files/shared-folder-reads.ts) */
+  sharedChild?: SharedChild
   files: TurnFiles
   /** the person of a chat turn (component B): confirmation cards the server raises inside a tool call (web_fetch) */
   person?: import('../tools/url-gate').TurnPerson
@@ -198,6 +213,26 @@ export interface ToolOutput { images?: { type: 'image'; mimeType: 'image/png' | 
 
 const BINARY_WRITE = new Set(['hwp', 'hwpx', 'docx', 'pptx', 'xlsx', 'xls', 'pdf', 'odt', 'ods', 'zip', 'png', 'jpg', 'jpeg', 'gif'])
 
+/** Files shared with a person one by one, for the read tools (files/shares.ts). */
+export interface SharedReads {
+  /** the file at this path shared with `user` by a grant (not one the folder rules let them read), or null */
+  at(user: Principal, input: string): Authorized | null
+  /** `input` is a file link (/f/<id>) shared with `user` by a grant: its file, or null */
+  link(user: Principal, input: string): Authorized | null
+  /** inside a folder shared with `user` (files/shared-folder-reads.ts): `input` a folder link, one level of its names
+   * (null: no folder link) */
+  folderList?(user: Principal, files: TurnFiles, input: unknown, L: Locale): { text: string; summary: string } | null
+  /** ...and a file inside it by its link (null: no folder link); throws when it does not open */
+  folderChild?(user: Principal, input: unknown, L: Locale): SharedChild | null
+}
+
+/** A read made by a file's link names the file by that link, not by its path: only in our own words around the file
+ * (its header, a quoted name), never inside the file's text. */
+function byLink(out: ToolOutput, rel: string, link: string): ToolOutput {
+  const swap = (t: string) => t.split(`PDF ${rel}:`).join(`PDF ${link}:`).split(`Image ${rel} `).join(`Image ${link} `).split(`'${rel}'`).join(`'${link}'`)
+  return { ...out, text: swap(out.text), ...(out.content ? { content: out.content.map((c) => (c.type === 'text' ? { ...c, text: swap(c.text) } : c)) } : {}) }
+}
+
 export class FileService {
   readonly quarantine: Quarantine
   readonly fx: FsCtx
@@ -215,6 +250,9 @@ export class FileService {
   readonly transcripts: media.TranscriptCache
   /** files the AI's tools show that are not on disk (the file list's _FILES.md, file-list/service.ts); null: none */
   virtual: VirtualFiles | null = null
+  /** files shared with a person one by one (files/shares.ts grantedFile, set by component C): the read tools open them
+   * by their link or path, view only (docs/decisions/20261116-shared-files-for-the-ai.md); null: none */
+  shared: SharedReads | null = null
   constructor(readonly db: Database, readonly cfg: ServerConfig) {
     db.exec('PRAGMA synchronous = FULL')
     this.quarantine = new Quarantine(db, cfg.teamRoot)
@@ -230,6 +268,28 @@ export class FileService {
   }
   rules() { return RuleSet.load(this.db) }
   principal(userId: string) { const p = loadPrincipal(this.db, userId); if (!p) throw new Denied('unknown or disabled user'); return p }
+  /** May this call list and read inside folders shared with the person (files/shared-folder-reads.ts)? Where a file
+   * shared one by one may be read (TurnFiles.grantReads: never a scheduled run), and never in a sub-agent. */
+  private folderReads(ctx: Pick<ToolCtx, 'files'>): boolean { return ctx.files.grantReads && !ctx.files.agentView }
+  /** A read tool's file: what the folder rules let `user` read, else a file shared with them by a grant (by its path;
+   * read() turns a link into the path first). The rules' own refusal stands when there is no grant. */
+  private readAuth(ctx: Pick<ToolCtx, 'files' | 'sharedChild'>, user: Principal, input: string): Authorized {
+    // a file inside a folder shared with the person, by its link (read): every check of openChild again, never the path
+    const child = ctx.sharedChild
+    if (child && input === child.rel) {
+      const g = child.open()
+      if (!g) throw new ToolError(`'${child.link}' was not found, or it is not shared with the user`, 'not_found')
+      ctx.files.grantReadPaths.add(g.rel)
+      return g
+    }
+    try { return authorize(this.fx, this.rules(), user, input, 'read') } catch (e) {
+      if (!this.shared || !ctx.files.grantReads || !(e instanceof Denied || e instanceof ToolError)) throw e
+      let g: Authorized | null = null
+      try { g = this.shared.at(user, input) } catch {}
+      if (g) { ctx.files.grantReadPaths.add(g.rel); return g }
+      throw e
+    }
+  }
 
   // ---------------- dispatcher used by the MCP server ----------------
   async call(tool: string, rawArgs: unknown, ctx: ToolCtx): Promise<ToolOutput> {
@@ -257,6 +317,9 @@ export class FileService {
 
   // ---------------- list ----------------
   list(ctx: ToolCtx, a: { path?: string }): ToolOutput {
+    // a folder shared with the person, by its link: one level of its names (files/shared-folder-reads.ts)
+    const shared = this.folderReads(ctx) ? this.shared?.folderList?.(ctx.user, ctx.files, a.path, personLocale(this.db, ctx.user.id)) ?? null : null
+    if (shared) return shared
     const rules = this.rules()
     const r = authorize(this.fx, rules, ctx.user, a.path ?? '', 'list')
     if (!r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a file; use read`, 'not_folder')
@@ -387,6 +450,31 @@ export class FileService {
       ctx.files.readPaths.add(vp.segs.slice(0, -1).join('/'))
       return numberedLines(vp.rel, vp.file.text, a)
     }
+    // a file inside a folder shared with the person, by its link (/f/<id>/<path inside>; files/shared-folder-reads.ts):
+    // read as its owner's path through every check of openChild, named by the link; the audit keeps the link id only
+    const child = this.folderReads(ctx) && !ctx.sharedChild ? this.shared?.folderChild?.(ctx.user, a.file_path, personLocale(this.db, ctx.user.id)) ?? null : null
+    if (child) {
+      try {
+        const out = byLink(await this.read({ ...ctx, sharedChild: child }, { ...a, file_path: child.rel }), child.rel, child.link)
+        return { ...out, summary: out.summary.split(child.rel).join(`/f/${child.id} (shared folder)`) }
+      } catch (e) {
+        if (e instanceof ToolError) throw new ToolError(e.message.split(child.rel).join(child.link), e.code)
+        if (e instanceof Denied) throw new Denied(e.message.split(child.rel).join(child.link))
+        throw e
+      }
+    }
+    // a file shared with the person by its link (/f/<id>): read as its path, and the result names it by the link (the
+    // link page shows no path either, docs/decisions/20261116-shared-files-for-the-ai.md)
+    const link = ctx.files.grantReads ? this.shared?.link(ctx.user, a.file_path) ?? null : null
+    if (link) {
+      const l = a.file_path.trim()
+      try { return byLink(await this.read(ctx, { ...a, file_path: link.rel }), link.rel, l) } catch (e) {
+        // a refusal names the file by its link too ('<path>' has N pages, …)
+        if (e instanceof ToolError) throw new ToolError(e.message.split(`'${link.rel}'`).join(`'${l}'`), e.code)
+        if (e instanceof Denied) throw new Denied(e.message.split(`'${link.rel}'`).join(`'${l}'`))
+        throw e
+      }
+    }
     const e = ext(a.file_path)
     const kind = mediaKind(a.file_path)
     if ((a.pages !== undefined || a.as_images) && e !== 'pdf') throw new ToolError('pages and as_images are only for PDF files', 'bad_pages')
@@ -399,10 +487,13 @@ export class FileService {
 
   /** Text of a file (Office files converted), numbered lines. */
   private async readText(ctx: ToolCtx, a: ReadArgs): Promise<ToolOutput> {
-    const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'read')
+    const r = this.readAuth(ctx, ctx.user, a.file_path)
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
     // the plan's read limit (system/limits.ts readMaxBytes; 200 MB without a plan, as before)
-    const { bytes } = readRegular(r.abs, readMaxBytes(), r.st)
+    // the open file must be the very file the check saw (#1131 checked descriptor, `r.st`)
+    const { bytes, st } = readRegular(r.abs, readMaxBytes(), r.st)
+    // inside a shared folder: the bytes come from the very file openChild checked (no swap in between)
+    if (ctx.sharedChild?.rel === r.rel && identity(st) !== identity(r.st!)) throw new Denied(safeText(this.db, ctx.user.id, 'changed'))
     const text = await extractText(r.rel, bytes, { pandoc: this.cfg.pandoc, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr, quarantine: this.quarantine }, ctx.signal)
     const hash = sha256(bytes)
     ctx.files.readHashes.set(r.rel, hash)
@@ -418,7 +509,7 @@ export class FileService {
    * connection without a chat turn: a Mac reads the text with Apple Vision then, a Linux server gives a short note.
    */
   private async readImage(ctx: ToolCtx, a: ReadArgs): Promise<ToolOutput> {
-    const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'read')
+    const r = this.readAuth(ctx, ctx.user, a.file_path)
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
     const block = visionBlock(this.db, ctx.turnId)
     if (block && this.cfg.ocr) return this.readText(ctx, a)
@@ -458,7 +549,7 @@ export class FileService {
    * scanned pages instead, a Linux server a note (scanned pages are not searchable there either).
    */
   private async readPdf(ctx: ToolCtx, a: ReadArgs): Promise<ToolOutput> {
-    const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'read')
+    const r = this.readAuth(ctx, ctx.user, a.file_path)
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
     const src = this.boundSource(ctx, r, readMaxBytes())
     const tools = this.visionTools()
@@ -638,10 +729,25 @@ export class FileService {
     return { rel: r.rel, bytes, hash: sha256(bytes), identity: identity(st) }
   }
 
+  /**
+   * A team file's own bytes for a tool that sends the file out of the team (a connection's attachment,
+   * integrations/connections/team-attach.ts), read as this person as they are now: read access, a regular file that is
+   * not held by the safety check, bound to the authorized path. Over `cap` bytes: its size only, nothing read.
+   * `recheckOutgoing` right before the bytes leave.
+   */
+  outgoingSource(ctx: ToolCtx, input: string, cap: number): BoundSource | { rel: string; tooLarge: number } {
+    const r = authorize(this.fx, this.rules(), this.principal(ctx.user.id), input, 'read')
+    if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`, 'is_folder')
+    if (r.st!.size > cap) return { rel: r.rel, tooLarge: r.st!.size }
+    return this.boundSource(ctx, r, cap)
+  }
+  /** Right before an outgoingSource's bytes leave: the account, its access now and the file's identity (synchronous). */
+  recheckOutgoing(ctx: ToolCtx, src: Pick<BoundSource, 'rel' | 'identity'>) { this.recheckSource(ctx, src) }
+
   /** Right before delivery: the account, its access now and the file's identity, read again (synchronous). */
   private recheckSource(ctx: ToolCtx, src: Pick<BoundSource, 'rel' | 'identity'>) {
     const user = this.principal(ctx.user.id)
-    const now = authorize(this.fx, this.rules(), user, src.rel, 'read')
+    const now = this.readAuth(ctx, user, src.rel)
     if (!now.st || identity(now.st) !== src.identity) throw new Denied(safeText(this.db, ctx.user.id, 'changed'))
   }
 
@@ -760,7 +866,7 @@ export class FileService {
    * quarantined, and access is checked again right before delivery. docs/DECISIONS.md "AI reads video and audio".
    */
   private async readMedia(ctx: ToolCtx, a: ReadArgs, kind: MediaKind): Promise<ToolOutput> {
-    const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'read')
+    const r = this.readAuth(ctx, ctx.user, a.file_path)
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
     const refuse = (key: MediaTextKey, why: string, vars: Record<string, string | number> = {}): ToolOutput =>
       ({ text: mediaText(this.db, ctx.user.id, key, vars), isError: true, summary: `read ${r.rel} -> ${kind} not read (${why})` })
@@ -1427,6 +1533,10 @@ export class FileService {
     if (!t) throw new ToolError('not in trash', 'not_found')
     const r = authorize(this.fx, this.rules(), user, t.original_path, 'write', { createDirs: true })
     if (r.exists) throw new ToolError('a file with that name exists again; rename it first')
+    // inside a folder its owner shared after it went to the trash: refused here (no confirm on this path; the Files
+    // screen's restore asks, team-files/service.ts restoreTrash)
+    const now = shareReaders(this.db, r.segs), then = shareReaders(this.db, r.segs, { upTo: t.deleted_at })
+    if ([...now].some((id) => !then.has(id))) throw new ToolError('the folder it goes back to is shared with more people now; restore it on the Files screen, which asks first', 'conflict')
     const bytes = fs.readFileSync(path.join(this.fx.root, ...t.storage_path.split('/')))
     atomicWrite(this.fx.root, r.segs, bytes, { createDirs: true })
     this.db.query('UPDATE trash_items SET restored_at = ? WHERE id = ?').run(new Date().toISOString(), trashId)
@@ -1436,7 +1546,7 @@ export class FileService {
 }
 
 type ReadArgs = { file_path: string; offset?: number; limit?: number; pages?: string; as_images?: boolean; time?: string; frames?: number; transcript?: boolean }
-interface BoundSource { rel: string; bytes: Buffer; hash: string; identity: string }
+export interface BoundSource { rel: string; bytes: Buffer; hash: string; identity: string }
 /** a provider's answer for a piece; `languageP`: how sure whisper.cpp was of the language it heard (not from
  * OpenRouter); OpenRouter's: how sure whisper was of its words, its generation id and provider (openrouter-stt.ts) */
 type MediaAnswer = OpenRouterAnswer & { languageP?: number }
