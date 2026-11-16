@@ -55,7 +55,7 @@ export const FEATURES: Feature[] = [
   { id: 'chat.edit-regenerate', name: 'Edit a question, regenerate, answer branches', area: 'AI chat', endpoints: ['editMessage', 'regenerate', 'selectBranch'] },
   { id: 'chat.cards', name: 'AI questions, confirmations and connect cards in a turn', area: 'AI chat', endpoints: ['listTurnRequests', 'answerTurn', 'connectTurn'] },
   { id: 'chat.sources', name: 'Answer sources', area: 'AI chat', endpoints: ['messageSources'] },
-  { id: 'chat.share', name: 'Share a chat (with its project, or with chosen people and groups) or an answer to a room', area: 'AI chat', endpoints: ['shareChat', 'shareAnswerToRoom', 'getChatAudience', 'putChatAudience', 'previewChatAudience', 'hideChat', 'unhideChat', 'userSharedChats', 'chatFile'] },
+  { id: 'chat.share', name: 'Share a chat (with its project, or with chosen people and groups) or an answer to a room', area: 'AI chat', endpoints: ['shareChat', 'shareAnswerToRoom', 'getChatAudience', 'putChatAudience', 'previewChatAudience', 'hideChat', 'unhideChat', 'userSharedChats', 'chatFile', 'linkAccess', 'requestLinkAccess', 'answerAccessRequest'] },
   { id: 'chat.threads', name: 'Threads on AI answers in shared chats (people talk under an answer, then send it to the AI)', area: 'AI chat', endpoints: ['listChatThread', 'sendChatThreadReply', 'deleteChatThreadReply', 'markChatThreadRead'], screens: ['/c/:chatId/t/:messageId'] },
   { id: 'chat.engine', name: 'Pick the AI engine and model', area: 'AI chat', endpoints: ['chatEngines'] },
   { id: 'chat.artifacts', name: 'Artifacts made in a chat (pages, documents)', area: 'AI chat', endpoints: ['listChatArtifacts', 'getArtifact'] },

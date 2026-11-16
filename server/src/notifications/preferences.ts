@@ -106,6 +106,9 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     // a file shared with me, an access request to my file, its answer, my file's grants removed by a move (files/shares.ts):
     // shown always; the push of a share by name and of a request follows "File sharing" (pushEventEnabled)
     case 'file.shared': case 'file.access_requested': case 'file.access_answered': case 'file.unshared_by_move': return true
+    // a request to open my chat or project, and its answer to the asker (chat/access-requests.ts): shown always; the
+    // request's push follows "File sharing" (pushEventEnabled), as a request to open a file does
+    case 'access.requested': case 'access.answered': return true
     // a password reset link was made for the person (shown always, Notifications.resetLinkMade)
     case 'account.reset_link': return true
     // the hosting service copied the team's key or data, or the team address moved to another server (shown always,
@@ -127,6 +130,6 @@ export function pushEventEnabled(p: NotificationPreferences, event: Notification
   if (event === 'chat.thread_reply') return p.roomThreadReplies ?? true
   // a file shared with me by name, or someone asking to open a file I answer for: "File sharing" (migration 358; older
   // apps never send it: on)
-  if (event === 'file.shared' || event === 'file.access_requested') return p.fileShares ?? true
+  if (event === 'file.shared' || event === 'file.access_requested' || event === 'access.requested') return p.fileShares ?? true
   return eventEnabled(p, event)
 }
