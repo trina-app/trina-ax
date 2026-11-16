@@ -34,10 +34,18 @@
     starts the app with a throw-away data folder and checks the `trina-ax://` handler. It installs over the app the way
     the updater does (`--updated /S --force-run`): the new version, the handler kept, the app started again. Then it
     uninstalls silently and checks the cleanup (installer.nsh removes the handler). The logs are uploaded.
-- **Not required checks.** The required check stays `ci.yml`'s. A desktop job that fails is red on the PR; the reviewer
+- **Every merge to dev runs the e2e job, unfiltered** (coordinator, 2026-11-16). The PR filter leaves out `web/src` so
+  most PRs stay fast, but the offline and HWP desktop specs run on the web build. A web change that breaks them is
+  caught on the dev push right after its merge, not at release. Only the e2e job runs on that push (the dmg and Windows
+  jobs depend only on desktop files, which the PR filter already covers). A newer merge cancels the run before it.
+- **An installer crash is a finding, not a flake to retry.** The Windows job has no retry. When an installer exits
+  non-zero, the job records which electron-builder built it (26.0.12 = the 0.5.7-era installers; #1036 moves to
+  26.15.3), the installer's sha256 and the Application event log (`installer-crash-events.txt`). Seen once on this PR
+  (0xC0000005 under `/S`): QA TC-3590.
+ The required check stays `ci.yml`'s. A desktop job that fails is red on the PR; the reviewer
   reads it before merging.
-- **Cost:** path filter, `cancel-in-progress` per PR, caches for bun's store and the Electron / electron-builder
-  downloads. Not on push to dev (the PR run covers it).
+- **Cost:** path filter on PRs, `cancel-in-progress` per PR and on dev, caches for bun's store and the Electron /
+  electron-builder downloads. On a push to dev only the e2e job runs.
 - **Left out:** signing and notarization (secrets; release-only, mac-app.yml / release.yml), the Mac App Store and
   Microsoft Store packages (msstore.yml), a true end-to-end self-update (needs a release signed with the release key,
   TC-2704). Also left out: a second Windows user profile; the fresh runner is the fresh profile.

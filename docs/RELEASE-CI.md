@@ -549,9 +549,9 @@ Desktop checks on pull requests: `.github/workflows/desktop.yml`. ci.yml은 리�
 - **Electron이 안 끝나도 job은 멈추지 않는다.** 단독 fixture는 `desktop/e2e/fixture-run.ts`로 돌린다: 결과 줄이 나오면 SIGKILL로 끝낸다
   (#1015). 로그는 `desktop/e2e/.work/logs/`.
 - **비용**: 공개 레포라 hosted runner는 무료. 경로 필터, PR마다 `cancel-in-progress`, bun 저장소와 Electron·electron-builder 내려받기 캐시.
-  dev push에는 돌지 않는다.
+  dev push에는 e2e job만 경로 필터 없이 돈다(PR 필터에서 빠진 `web/src` 변경이 offline·HWP 데스크톱 시험을 깨면 병합 직후에 보인다). 뒤의 병합이 앞의 run을 멈춘다.
 - **실패했을 때**: e2e는 artifact의 html 리포트와 fixture 로그를 본다. dmg는 step summary의 `FAIL` 줄이 설정의 어느 값과 다른지 말한다
-  (artifact의 dmg를 열어 본다; 서명이 없으니 우클릭 › 열기). 윈도우는 step summary와 `install-check.log`.
+  (artifact의 dmg를 열어 본다; 서명이 없으니 우클릭 › 열기). 윈도우는 step summary와 `install-check.log`. 설치 파일이 0이 아닌 코드로 끝나면 만든 electron-builder 버전, sha256, Application 이벤트 로그(`installer-crash-events.txt`)를 남긴다(QA TC-3590). 재시도는 없다: 설치 파일이 죽으면 사람에게도 죽을 수 있다.
 - 손으로 돌리기: `bun run --cwd desktop dist:mac:arm64 && bun scripts/ci/dmg-check.ts desktop/release` (맥),
   `cd desktop && bun build.ts && bunx playwright test -c e2e/ci.config.ts`.
 

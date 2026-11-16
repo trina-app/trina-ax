@@ -28,6 +28,8 @@ param(
   [Parameter(Mandatory)] [string] $Scheme,
   # PRODUCT.desktopDataDir: the packaged app keeps its data in %APPDATA%\<this> (desktop/src/main/main.ts)
   [Parameter(Mandatory)] [string] $DataDir,
+  # what built the installers (e.g. "electron-builder 26.0.12"), named in the summary and in an installer crash report
+  [string] $Builder = 'unknown',
   [Parameter(Mandatory)] [string] $LogDir
 )
 $ErrorActionPreference = 'Stop'
@@ -99,7 +101,18 @@ function Asar-Version([string] $asar) {
 }
 function Run-Installer([string] $exe, [string[]] $argv) {
   Write-Host "> $(Split-Path -Leaf $exe) $($argv -join ' ')"
+  $since = Get-Date
   $p = Start-Process -FilePath $exe -ArgumentList $argv -PassThru -Wait
+  if ($p.ExitCode -ne 0) {
+    # what to know about a crash (0xC0000005 once, 2026-11-16, QA TC-3590): which build, which file, what Windows logged
+    $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash
+    $summary.Add(("     installer {0}: built by {1}, sha256 {2}, exit 0x{3:X8}" -f (Split-Path -Leaf $exe), $Builder, $hash, $p.ExitCode))
+    try {
+      Get-WinEvent -FilterHashtable @{ LogName = 'Application'; StartTime = $since.AddSeconds(-5) } -ErrorAction Stop |
+        Where-Object { $_.ProviderName -in 'Application Error', 'Windows Error Reporting', '.NET Runtime' } |
+        Format-List TimeCreated, ProviderName, Id, Message | Out-String | Tee-Object -FilePath (Join-Path $LogDir 'installer-crash-events.txt') | Write-Host
+    } catch { Write-Host "no Application events: $_" }
+  }
   Check ($p.ExitCode -eq 0) "$(Split-Path -Leaf $exe) $($argv -join ' ') exited $($p.ExitCode)"
 }
 
@@ -108,6 +121,7 @@ Remove-Item Env:MYCEL_DESKTOP_USER_DATA -ErrorAction SilentlyContinue
 
 try {
 # 1. a fresh profile
+Ok "installers built by $Builder"
 Check (-not (Test-Path $data)) "no app data before the install ($data)"
 Check ((Get-Entries).Count -eq 0) 'no uninstall entry before the install'
 Check (-not (Test-Path $desktopLnk) -and -not (Test-Path $startLnk)) 'no shortcuts before the install'

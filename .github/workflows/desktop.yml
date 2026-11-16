@@ -29,6 +29,10 @@ on:
       - "package.json"
       - "bun.lock"
       - ".github/workflows/desktop.yml"
+  # every merge to dev, with no path filter, but only the e2e job: the PR filter leaves out web/src (most PRs), and the
+  # offline and HWP desktop specs run on the web build, so a web change that breaks them shows up right after its merge
+  push:
+    branches: [dev]
   workflow_dispatch:
 
 concurrency:
@@ -106,6 +110,8 @@ jobs:
 
   dmg-mac:
     name: Mac dmg (unsigned build, mount and look)
+    # pull requests (path-filtered) and runs by hand; not on the push to dev
+    if: github.event_name != 'push'
     runs-on: macos-15
     timeout-minutes: 30
     steps:
@@ -148,6 +154,8 @@ jobs:
 
   windows-install:
     name: Windows installer (install, update over, uninstall)
+    # pull requests (path-filtered) and runs by hand; not on the push to dev
+    if: github.event_name != 'push'
     # the release builds the installer on windows-2025 too (release.yml build-windows); windows-latest is the same image
     runs-on: windows-2025
     timeout-minutes: 40
@@ -178,6 +186,9 @@ jobs:
           echo "NEW_VERSION=$base-ci.2" >> "$GITHUB_ENV"
           echo "PRODUCT=$(bun -e 'console.log(require("./shared/src/product.ts").PRODUCT.displayName)')" >> "$GITHUB_ENV"
           echo "SCHEME=$(bun -e 'console.log(require("./shared/src/product.ts").PRODUCT.linkScheme)')" >> "$GITHUB_ENV"
+          # which electron-builder (and so which NSIS) made the installers: 26.0.12 made the 0.5.7-era installers, #1036
+          # moves to 26.15.3; an installer crash names it (windows-install-check.ps1)
+          echo "BUILDER=electron-builder $(bun -e 'console.log(require("./desktop/node_modules/electron-builder/package.json").version)')" >> "$GITHUB_ENV"
           echo "DATA_DIR=$(bun -e 'console.log(require("./shared/src/product.ts").PRODUCT.desktopDataDir)')" >> "$GITHUB_ENV"
           bun run --cwd desktop dist:win -- "-c.extraMetadata.version=$base-ci.1"
           # the same app packed again with the next version (electron-builder only; dist/ is already built)
@@ -190,7 +201,7 @@ jobs:
           $old = (Get-ChildItem "desktop/release/*-Setup-$env:OLD_VERSION-win-x64.exe").FullName
           $new = (Get-ChildItem "desktop/release/*-Setup-$env:NEW_VERSION-win-x64.exe").FullName
           ./scripts/ci/windows-install-check.ps1 -Old $old -New $new -OldVersion $env:OLD_VERSION -NewVersion $env:NEW_VERSION `
-            -Product $env:PRODUCT -Scheme $env:SCHEME -DataDir $env:DATA_DIR -LogDir "$env:RUNNER_TEMP/install-logs"
+            -Product $env:PRODUCT -Scheme $env:SCHEME -DataDir $env:DATA_DIR -Builder $env:BUILDER -LogDir "$env:RUNNER_TEMP/install-logs"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
