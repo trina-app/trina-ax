@@ -36,6 +36,7 @@ import { badSegment, hiddenEntry } from '../policy/names'
 import { TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
 import { fileSharesOf } from '../files/shares'
+import { SERVER_OWN_FOLDERS } from '../files/own-folders'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, instructionFiles, neutralizeTags, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
 import { sideRoomOf } from './side-room'
 import { quotesAppOnBranch, readRooms, withoutQuoteLines } from './read-rooms'
@@ -192,9 +193,8 @@ const HIDDEN_STEP_TOOLS = new Set(['set_title'])
 const OWN_HASH_MAX = 64 * 1024 * 1024
 /** the bytes of own files hashed for one call (noteOwnReads): more counts as outside, unhashed */
 const OWN_HASH_BUDGET = 128 * 1024 * 1024
-/** the folders right under users/<id>/ the server names itself (tools/save-url.ts, chat/room-tools.ts, video, exports,
- * personal projects): their names carry nobody's words (noteOwnNames) */
-const SERVER_OWN_FOLDERS: ReadonlySet<string> = new Set(['downloads', 'images', 'videos', 'exports', 'projects'])
+// the folders right under users/<id>/ the server names itself: their names carry nobody's words (noteOwnNames). The
+// list lives in files/own-folders.ts (files/share-places.ts reads the same one: none of them is ever shared)
 /** the names traced for one call (noteOwnNames: files and folders together, a listing's files included): more counts as
  * outside */
 const OWN_NAMES_MAX = 500

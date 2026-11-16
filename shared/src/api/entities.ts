@@ -654,6 +654,9 @@ export const FileEntry = z.object({
    * that file was kept and nothing new was made (keepSame). Find work files' Undo takes back only files a run made
    * (docs/DECISIONS.md "Find work files on this computer"). Absent on every other entry and from older servers. */
   kept: z.literal(true).optional(),
+  /** in a listing of the caller's OWN files only (docs/decisions/20261116-folder-share-server.md): 'own' the entry has
+   * people of its own on it, 'through' a folder above it is shared. Absent everywhere else and from older servers. */
+  shared: z.enum(['own', 'through']).optional(),
 })
 export type FileEntry = z.infer<typeof FileEntry>
 

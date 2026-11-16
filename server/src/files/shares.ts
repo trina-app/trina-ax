@@ -1022,7 +1022,7 @@ export class FileShares {
     const s = this.liveAt(teamPathOf(input))
     if (!s) return null
     const o = this.open(userId, s.id)
-    return o.kind === 'open' && o.by === 'grant' ? this.resolve(s.path) : null
+    return o.kind === 'open' && o.by === 'grant' ? this.resolve(s.path, this.rules()) : null
   }
 
   /** The file behind a file link (/f/<id>, any origin) the AI was given, when it opens for `userId` now (by the folder
@@ -1031,7 +1031,7 @@ export class FileShares {
     const id = typeof input === 'string' ? linkIdOf(input) : null
     if (!id) return null
     const o = this.open(userId, id)
-    return o.kind === 'open' ? this.resolve(o.share.path) : null
+    return o.kind === 'open' ? this.resolve(o.share.path, this.rules()) : null
   }
 
   /** The files shared with `userId` by a grant (their own, a group's, or the whole team's) that open for them now and that the folder

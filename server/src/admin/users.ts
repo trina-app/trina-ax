@@ -6,7 +6,7 @@ import { projectJoinsOfNewAccount } from '../chat/project-joins'
 import path from 'node:path'
 import type { Context } from 'hono'
 import type { z } from 'zod'
-import { tempPasswordCharsOk } from '@mycel/shared'
+import { ARCHIVE_DIR, tempPasswordCharsOk } from '@mycel/shared'
 import type { CreateUserBody, EndedConnection, HandoverConnectionRef, Locale, ResetPasswordBody, Role, UpdateUserBody, User } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { AppEnv } from '../http/env'
@@ -266,7 +266,8 @@ export function revokeResetLinksBy(ctx: AppContext, userId: string): number {
   return ctx.db.query('UPDATE password_resets SET used_at = ? WHERE created_by = ? AND used_at IS NULL').run(new Date().toISOString(), userId).changes
 }
 
-export const ARCHIVE_DIR: Record<Locale, string> = { ko: '보관된 계정', en: 'Archived accounts', id: 'Akun diarsipkan', ja: "アーカイブ済みアカウント", es: "Cuentas archivadas", zh: "已归档账号" }
+// (the names live in shared/src/folder-labels.ts: files/share-places.ts reads the same table)
+export { ARCHIVE_DIR }
 
 /**
  * Personal folder of a deleted member: 'transfer' moves users/<id>/ into the owner's personal folder (only the
