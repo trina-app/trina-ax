@@ -66,6 +66,12 @@ describe('which forms, their names (no server)', () => {
     expect(formKind('견적서 양식')).toBe('견적서')
     expect(formKind('Quote template')).toBe('Quote')
     expect(formKind('양식')).toBe('양식')
+    // what is left is not a name by itself: the whole name (QA TC-3455)
+    expect(formKind(formStem('Order form.docx'))).toBe('Order')
+    expect(formKind('Plantilla de pedido')).toBe('Plantilla de pedido')
+    expect(formKind('Form for orders')).toBe('Form for orders')
+    expect(formKind('Formulir pesanan')).toBe('pesanan')
+    expect(formKind('Design brief')).toBe('Design brief')
   })
 
   test('a name holding a company\'s or a person\'s name is a filled-in copy; the team\'s own name is fine', () => {

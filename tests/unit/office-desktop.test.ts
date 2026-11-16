@@ -368,6 +368,54 @@ describe('office-install.sh finds the installers next to the bundle', () => {
   })
 })
 
+describe('office-install.sh: a server that has not answered yet is "still starting", not "did not start" (QA TC-3761)', () => {
+  // the real script over a stand-in office.js: its install step ends with the code the test names
+  const run = (name: string, installCode: number) => {
+    const B = path.join(BASE, name, 'TeamAX-office-9.9.9')
+    fs.mkdirSync(path.join(B, 'app', 'bin', 'darwin-arm64'), { recursive: true })
+    fs.mkdirSync(path.join(B, 'app', 'native', 'bin', 'darwin-arm64'), { recursive: true })
+    fs.mkdirSync(path.join(B, 'app', 'server', 'src'), { recursive: true })
+    fs.writeFileSync(path.join(B, 'app', 'VERSION'), '9.9.9\n')
+    fs.symlinkSync(process.execPath, path.join(B, 'app', 'bin', 'darwin-arm64', 'bun'))
+    fs.writeFileSync(path.join(B, 'app', 'server', 'src', 'office.js'), `
+const fs = require('node:fs'), path = require('node:path')
+const [cmd, ...a] = process.argv.slice(2)
+const home = a[a.indexOf('--home') + 1]
+if (cmd === 'configure') { fs.mkdirSync(path.join(home, 'config'), { recursive: true }); fs.writeFileSync(path.join(home, 'config', 'office.env'), 'TEAMAX_LABEL=app.team-ax.test-tc3761-${name}\\n') }
+if (cmd === 'install') { console.log('waiting for the server ...'); process.exit(${installCode}) }
+process.exit(0)
+`)
+    fs.copyFileSync(path.join(REPO, 'scripts', 'office', 'office-install.sh'), path.join(B, 'office-install.sh'))
+    const claude = path.join(BASE, `claude-${name}`)
+    fs.writeFileSync(claude, `#!/bin/sh\n[ "$1 $2" = "auth status" ] && echo '{ "loggedIn": true }'\nexit 0\n`, { mode: 0o755 })
+    const prefix = path.join(BASE, name, 'inst')
+    const fakeHome = path.join(BASE, name, 'home')
+    fs.mkdirSync(fakeHome, { recursive: true })
+    const p = Bun.spawnSync(['bash', path.join(B, 'office-install.sh'), '--prefix', prefix, '--no-open', '--no-desktop'], {
+      stdout: 'pipe', stderr: 'pipe',
+      env: { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME: fakeHome, TEAMAX_TEST_UNAME: 'Darwin', TEAMAX_TEST_OSVERSION: '15.1', TEAMAX_TEST_ARCH: 'arm64', TEAMAX_CLAUDE_BIN: claude },
+    })
+    return { code: p.exitCode, out: p.stdout.toString(), err: p.stderr.toString(), prefix }
+  }
+  test.skipIf(process.platform !== 'darwin')('still starting: exit 3 and where to look; the closing "installed" text is not printed', () => {
+    const r = run('late', 3)
+    expect(r.code).toBe(3)
+    expect(r.err).toContain('9.9.9 is installed, but the server has not answered yet. It may still be starting.')
+    expect(r.err).toContain(`${r.prefix}/teamax status`)
+    expect(r.err).not.toContain('did not start')
+    expect(r.out).not.toContain('=== 설치 끝 / installed')
+  })
+  test.skipIf(process.platform !== 'darwin')('did not start: exit 1, said so; answering: exit 0 and the closing text', () => {
+    const bad = run('bad', 1)
+    expect(bad.code).toBe(1)
+    expect(bad.err).toContain('the server did not start')
+    expect(bad.err).not.toContain('still be starting')
+    const ok = run('ok', 0)
+    expect(ok.code).toBe(0)
+    expect(ok.out).toContain('=== 설치 끝 / installed: 9.9.9 ===')
+  })
+})
+
 describe('/downloads/*: signed-in people only, resumable, never cached by Cloudflare', () => {
   let h: Harness
   let owner: Client

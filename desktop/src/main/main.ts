@@ -234,6 +234,7 @@ function registerIpc() {
   ipcMain.on('ui:back', (e) => fromShell(e) && win!.back())
   ipcMain.on('ui:set-locale', (e, l: unknown) => fromShell(e) && setUiLocale(asUiLocale(l)))
   ipcMain.on('ui:retry', (e) => fromShell(e) && win!.retry())
+  ipcMain.on('ui:offline-left', (e) => fromShell(e) && win!.leftOffline())
   // pane toolbar
   ipcMain.handle('ui:pane-state', (e) => (fromChrome(e) ? (win!.pane?.state() ?? null) : null))
   ipcMain.on('ui:pane-navigate', (e, url: string) => fromChrome(e) && void win!.pane?.userNavigate(String(url)))
