@@ -16,7 +16,8 @@
   room list, one room and the `room.updated` fan-out agree; the list and a fan-out read the rules once.
 - **Not for:** the everyone room, 1:1s, group chats, side chats (no group, no folder). A member outside the group is not
   in the room, so never sees it. An admin in the group sees it (admins open every folder).
-- **Left out:** a rule change does not push a room update; the button follows on the next room list load. A click
+- **Left out:** a rule change does not push a room update; the button follows on the next room list load (since
+  [20261116-live-folder-button.md](20261116-live-folder-button.md) it follows live). A click
   after access was just taken lands on the Files page's own "can't open" state, like any old link.
 - **Tests:** `tests/unit/b-rooms-group-folder.test.ts` (member, admin, outside the group, the rules taking the group's
   access away, the other kinds, the fan-out, no folder row); web e2e `web/e2e/room-group-folder.spec.ts`.

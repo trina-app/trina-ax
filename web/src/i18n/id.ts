@@ -6553,6 +6553,7 @@ export const id: Record<MessageKey, string> = {
   "chat.thread.deleteBody": "Balasan ini dihapus untuk semua orang di obrolan ini. Tindakan ini tidak bisa dibatalkan.",
   "chat.thread.tooLong": "Balasan ini terlalu panjang.",
   "chat.thread.fast": "Anda mengirim terlalu cepat. Balasan akan terkirim sebentar lagi.",
+  "chat.thread.updating": "Trina sedang diperbarui. Balasan Anda akan terkirim saat sudah kembali.",
   "notifications.event.chat.thread_reply": "Seseorang membalas di utas.",
   "notifications.event.chat.thread_replyNamed": "{name} membalas di utas di {title}.",
   "notifications.event.chat.thread_replyGone": "Anda tidak bisa melihat ini lagi.",

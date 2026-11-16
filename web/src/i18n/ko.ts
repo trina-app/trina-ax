@@ -6553,6 +6553,7 @@ export const ko = {
   "chat.thread.deleteBody": "이 채팅의 모든 사람에게서 사라져요. 되돌릴 수 없어요.",
   "chat.thread.tooLong": "답글이 너무 길어요.",
   "chat.thread.fast": "너무 빨리 보내고 있어요. 잠시 뒤에 저절로 보내요.",
+  "chat.thread.updating": "트리나를 업데이트하고 있어요. 끝나면 답글이 저절로 보내져요.",
   "notifications.event.chat.thread_reply": "스레드에 답글이 달렸어요.",
   "notifications.event.chat.thread_replyNamed": "{name}님이 {title}의 스레드에 답글을 달았어요.",
   "notifications.event.chat.thread_replyGone": "더 이상 볼 수 없어요.",

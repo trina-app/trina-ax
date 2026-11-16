@@ -6509,6 +6509,7 @@ export const es: Record<MessageKey, string> = {
   "chat.thread.deleteBody": "Se elimina para todas las personas de este chat. No se puede deshacer.",
   "chat.thread.tooLong": "Esta respuesta es demasiado larga.",
   "chat.thread.fast": "Está enviando muy rápido. Sus respuestas se enviarán en un momento.",
+  "chat.thread.updating": "Trina se está actualizando. Su respuesta se enviará cuando vuelva.",
   "notifications.event.chat.thread_reply": "Alguien respondió en un hilo.",
   "notifications.event.chat.thread_replyNamed": "{name} respondió en un hilo de {title}.",
   "notifications.event.chat.thread_replyGone": "Ya no puede ver esto.",
