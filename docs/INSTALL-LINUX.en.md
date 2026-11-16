@@ -116,6 +116,52 @@ The installer takes its system packages from one list in the kit (`app/<version>
 - **Versions**: the distribution release is pinned (Debian 12 or 13, Ubuntu 24.04), and each package may have a minimum version that is checked after the install. The newest version of that release is installed, security updates included; exact versions are not pinned, because mirrors drop superseded versions.
 - `--minimal` is kept for `repair` and `update`; `--no-minimal` adds the default groups back. `--skip-apt` installs no packages (they must be there); the browser is still downloaded unless `--minimal`.
 
+### Behind an HTTP proxy
+
+Use this when the server reaches the internet only through a company proxy (checked on 2026-11-16 with squid on Debian 13, QA TC-2860). Replace `http://proxy.example:3128` with your proxy. The proxy must allow `CONNECT` to port 443 of these hosts: `cdn-aws.deb.debian.org` (or your distribution's mirror), `github.com`, `release-assets.githubusercontent.com`, `registry.npmjs.org`, `nodejs.org`, `storage.googleapis.com`, `pypi.org`, `files.pythonhosted.org`, `downloads.claude.ai`, `updates.trina.app`, and your AI provider (for example `api.anthropic.com`).
+
+1. apt: `sudo` does not pass your shell's proxy variables to apt. Give apt its own setting:
+
+   ```sh
+   printf 'Acquire::http::Proxy "http://proxy.example:3128";\nAcquire::https::Proxy "http://proxy.example:3128";\n' | sudo tee /etc/apt/apt.conf.d/95proxy
+   ```
+
+2. The installer: set the variables in your shell, then run it with `sudo -E` (without `-E`, `sudo` drops them and the engine and package downloads fail):
+
+   ```sh
+   export https_proxy=http://proxy.example:3128 http_proxy=http://proxy.example:3128 no_proxy=127.0.0.1,localhost
+   export HTTPS_PROXY=$https_proxy HTTP_PROXY=$http_proxy NO_PROXY=$no_proxy
+   sudo -E ./install-linux.sh install --from . --engine claude --engine codex
+   ```
+
+   Use `sudo -E` also for `repair`, `update` and `sudo -E mycel-ctl update`.
+
+3. The server: add the same variables to `/etc/default/mycel` (the server's environment file; `/etc/default/<id>` with `--id`), then restart the server. Keep `127.0.0.1,localhost` in `NO_PROXY`: the server talks to its own model proxy on 127.0.0.1.
+
+   ```sh
+   sudo tee -a /etc/default/mycel <<'ENV'
+   HTTPS_PROXY=http://proxy.example:3128
+   HTTP_PROXY=http://proxy.example:3128
+   NO_PROXY=127.0.0.1,localhost
+   https_proxy=http://proxy.example:3128
+   http_proxy=http://proxy.example:3128
+   no_proxy=127.0.0.1,localhost
+   ENV
+   sudo systemctl restart mycel-server
+   ```
+
+   Without this, the AI key check stays at "Checking…" and answers stay at "Thinking…". With it, the AI calls go through the proxy. The release feed check uses the same variables: if Admin › System still says "Not checked yet" some minutes after the restart, check that the proxy allows `updates.trina.app`.
+
+4. The root update timer (`mycel-update.service`) does not read `/etc/default/mycel`. Give it the proxy with a drop-in:
+
+   ```sh
+   sudo mkdir -p /etc/systemd/system/mycel-update.service.d
+   printf '[Service]\nEnvironment=HTTPS_PROXY=http://proxy.example:3128 NO_PROXY=127.0.0.1,localhost\n' | sudo tee /etc/systemd/system/mycel-update.service.d/proxy.conf
+   sudo systemctl daemon-reload
+   ```
+
+Not through the proxy yet: the server's check of its own public address (`https://updates.trina.app/ip`) and the web pages the AI opens connect directly. Behind a proxy that is the only way out, Admin › System says "Public address of the server: Not known": every web address the AI opens asks a person, and scheduled tasks open none. Admin › System says "Not checked yet" instead of "You are on the latest version" while the server has not reached the release feed since it started.
+
 ## First run
 
 The server has no screen, so you open the setup page from your own computer through an SSH tunnel:

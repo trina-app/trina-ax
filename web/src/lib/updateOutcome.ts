@@ -18,6 +18,11 @@ export const releasePaused = (u: Pick<UpdateStatus, 'hold'> | null | undefined):
  * button. */
 export const releaseCannotRead = (u: Pick<UpdateStatus, 'hold'> | null | undefined): boolean => u?.hold === 'cannot_read'
 
+/** Admin › System's line when no newer release is known: "latest version" only after the server reached the feed at
+ * least once (QA TC-2860: behind a proxy the feed was never reached and the page still said "latest version"). */
+export const updateCheckText = (u: Pick<UpdateStatus, 'checkFailed' | 'lastCheckedAt'>): 'system.checkFailed' | 'system.notCheckedYet' | 'system.upToDate' =>
+  u.checkFailed ? 'system.checkFailed' : !u.lastCheckedAt ? 'system.notCheckedYet' : 'system.upToDate'
+
 export type UpdateOutcome =
   | { kind: 'ok' }
   /** the version did not stay; message: the server's words (null: none, say it in the client's) */

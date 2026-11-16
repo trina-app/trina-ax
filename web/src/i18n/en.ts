@@ -2738,6 +2738,7 @@ export const en: Record<MessageKey, string> = {
   'system.installUpdate': 'Install update',
   'system.checkFailed': 'Could not reach the update server. This page tries again later.',
   'system.upToDate': 'You are on the latest version.',
+  'system.notCheckedYet': 'Not checked yet: the server has not reached the update server since it started. Behind a company proxy, set the proxy for the server (Linux install guide, "Behind an HTTP proxy").',
   'system.noFeed': 'This server does not look for new versions online. To update, run the installer again with the new release on the server Mac; it switches to the new version and keeps this one for roll-back.',
   'system.rollback': 'Go back to the previous version ({version})',
   'system.updateNote': 'The database is backed up first and the server restarts. If answers are running, it installs after they finish.',

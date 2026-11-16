@@ -2698,6 +2698,7 @@ export const es: Record<MessageKey, string> = {
   'system.installUpdate': "Instalar actualización",
   'system.checkFailed': "No se pudo conectar con el servidor de actualizaciones. Esta página lo intentará de nuevo más tarde.",
   'system.upToDate': "Tiene la versión más reciente.",
+  'system.notCheckedYet': 'Aún no se ha comprobado: el servidor no ha llegado al servidor de actualizaciones desde que se inició. Detrás de un proxy de empresa, configure el proxy para el servidor (guía de instalación de Linux, «Behind an HTTP proxy»).',
   'system.noFeed': "Este servidor no busca nuevas versiones en línea. Para actualizar, ejecute de nuevo el instalador de la nueva versión en la Mac del servidor; cambiará a ella y conservará la actual para poder volver atrás.",
   'system.rollback': "Volver a la versión anterior ({version})",
   'system.updateNote': "Primero se hace una copia de seguridad de la base de datos y se reinicia el servidor. Si hay respuestas en curso, se instala cuando terminen.",

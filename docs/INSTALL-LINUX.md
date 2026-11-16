@@ -172,6 +172,17 @@ sudo ./install-linux.sh install --from . --engine claude --engine codex
 `repair`와 `update`는 `--public-host`와 `--app-connectors`를 기억한다. Drive 클라이언트 파일은 기억하지 않고, 설치된 파일을
 그대로 둔다. 잘못된 값은 아무것도 바꾸기 전에 거절한다.
 
+### 회사 HTTP 프록시 뒤의 서버
+
+서버가 회사 프록시로만 인터넷에 나갈 때의 설정이에요(2026-11-16 Debian 13 + squid로 확인, QA TC-2860). 명령과 프록시가 허용할 호스트 목록은 영어 문서 [Behind an HTTP proxy](INSTALL-LINUX.en.md#behind-an-http-proxy)에 있어요. 요약:
+
+1. apt: `sudo`는 셸의 프록시 변수를 apt에 넘기지 않아요. `/etc/apt/apt.conf.d/95proxy`에 `Acquire::http::Proxy`, `Acquire::https::Proxy`를 쓰세요.
+2. 설치 프로그램: 셸에 `https_proxy`/`http_proxy`/`no_proxy`(대문자도)를 정하고 `sudo -E ./install-linux.sh install …`로 실행하세요. `repair`, `update`도 `sudo -E`로요.
+3. 서버: 같은 변수를 `/etc/default/mycel`에 넣고 `sudo systemctl restart mycel-server`. `NO_PROXY`에 `127.0.0.1,localhost`를 남기세요. 이게 없으면 AI 키 확인이 "확인 중…", 답이 "생각 중…"에서 멈춰요.
+4. 루트 업데이트 타이머(`mycel-update.service`)는 `/etc/default/mycel`을 읽지 않아요: systemd drop-in으로 `HTTPS_PROXY`를 주세요.
+
+아직 프록시를 쓰지 않는 것: 서버의 공인 주소 확인(`https://updates.trina.app/ip`)과 AI가 여는 웹 페이지는 직접 연결해요. 프록시로만 나갈 수 있으면 공인 주소가 "알 수 없음"이 되고, AI가 여는 웹 주소마다 사람에게 묻고 예약 작업은 열지 않아요. 서버가 시작한 뒤 업데이트 서버에 한 번도 닿지 못했으면 관리 › 시스템은 "최신 버전"이 아니라 "아직 확인하지 못했어요"라고 해요.
+
 ## 5. 첫 설정
 
 서버에는 화면이 없으므로 SSH 터널로 연다.

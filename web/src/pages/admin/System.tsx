@@ -31,7 +31,7 @@ import { isOwner, useMeStrict } from '../../store/session'
 import { safeHref } from '../../lib/safeLinks'
 import { noPurchaseLinks } from '../../lib/desktop'
 import { addressToTell, teamAddressShown } from '../../lib/team-address'
-import { goBackOffered, releaseCannotRead, releasePaused } from '../../lib/updateOutcome'
+import { goBackOffered, releaseCannotRead, releasePaused, updateCheckText } from '../../lib/updateOutcome'
 import { Tooltip } from '../../components/Tooltip'
 
 const STATUS_ICON = { ok: CheckCircle2, warn: CircleAlert, fail: CircleX, unknown: CircleHelp } as const
@@ -864,7 +864,7 @@ function Update() {
               ) : (
                 <Row label={t('system.row.status')} long>
                   {u.feed === false ? (phone ? <><span className="text-muted">{t('system.noFeedShort')}</span><OnComputer className="mt-2" text={t('admin.onComputerNoFeed')} testId="update-on-computer" /></>
-                    : <span className="text-muted"><LearnMore short={t('system.noFeedShort')} long={t('system.noFeed')} /></span>) : <span className="text-muted" data-testid={u.checkFailed ? 'update-check-failed' : undefined}>{t(u.checkFailed ? 'system.checkFailed' : 'system.upToDate')}</span>}
+                    : <span className="text-muted"><LearnMore short={t('system.noFeedShort')} long={t('system.noFeed')} /></span>) : <span className="text-muted" data-testid={u.checkFailed ? 'update-check-failed' : !u.lastCheckedAt ? 'update-not-checked' : undefined}>{t(updateCheckText(u))}</span>}
                 </Row>
               )}
               {u.auto && !u.managed && (
