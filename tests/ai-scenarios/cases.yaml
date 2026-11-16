@@ -1901,6 +1901,18 @@ cases:
     good: Plain steps for rename, list folders and regenerate/edit.
     checks: []
 
+- id: CHT-13
+  title: Talk under an answer (threads)
+  features: [chat.threads]
+  lang: en
+  context: personal
+  as: daniel
+  prompt: In our shared project chat, how do my teammates and I discuss one of your answers without starting a new chat, and then send what we agreed back to you?
+  expect:
+    outcome: explain
+    good: Plain steps for replying in the thread under that answer, and sending it on to the AI from there.
+    checks: []
+
 - id: CHT-12
   title: AI not available
   features: [chat.ai-access]

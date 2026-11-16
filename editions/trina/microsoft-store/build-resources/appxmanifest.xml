@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- electron-builder's appx manifest template (app-builder-lib 26.0.12, templates/appx/appxmanifest.xml) with one line
-     more: the microphone, for voice input in chats. electron-builder fills in the ${...} values. -->
+     more: the microphone, for voice input in chats. electron-builder fills in the ${...} values. Checked against
+     app-builder-lib 26.15.3: its template is the same except that it writes <Capabilities> from `appx.capabilities`
+     (${capabilities}); this file keeps its own block. -->
 <!--suppress XmlUnusedNamespaceDeclaration -->
 <Package
    xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"

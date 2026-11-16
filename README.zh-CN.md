@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="web/public/favicon.svg" width="64" alt="Trina AX Logo">
+<picture><source media="(prefers-color-scheme: dark)" srcset="editions/trina/branding/logo/mark-dark.svg"><img src="editions/trina/branding/logo/mark-light.svg" width="64" alt="Trina AX Logo"></picture>
 
 <h1>全队共用的 AI。</h1>
 

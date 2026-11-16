@@ -135,6 +135,11 @@ export const GUEST_ENDPOINTS: ReadonlySet<Endpoint> = new Set<Endpoint>([
   API.stop,
   API.shareAnswerToRoom,
   API.messageSources,
+  // threads on AI answers: a guest's own shared chat only (chat/threads.ts threadAccess → chatFor is the real check)
+  API.listChatThread,
+  API.sendChatThreadReply,
+  API.deleteChatThreadReply,
+  API.markChatThreadRead,
   API.regenerate,
   API.editMessage,
   API.selectBranch,

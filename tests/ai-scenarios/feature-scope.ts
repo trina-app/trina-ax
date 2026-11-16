@@ -30,6 +30,7 @@ export const FEATURE_SCOPE: Record<string, Scope> = {
   'chat.conversation': { reach: 'acts', tools: ['set_title', 'ask_user'] },
   'chat.list': { reach: 'explains' },
   'chat.list-folders': { reach: 'explains' },
+  'chat.threads': { reach: 'explains' },
   'chat.edit-regenerate': { reach: 'explains' },
   'chat.cards': { reach: 'acts', tools: ['ask_user'] },
   'chat.sources': { reach: 'acts', tools: ['read', 'grep'] },

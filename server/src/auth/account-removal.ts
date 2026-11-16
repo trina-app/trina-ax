@@ -74,7 +74,7 @@ export const REMOVED_BY_REMOVE_ACCOUNT: readonly string[] = [
 
 /** Columns that hold a person's id without a foreign key to users(id) (the coverage test reads them with the ones that
  * have one, so they are decided too). */
-export const USER_COLUMNS_WITHOUT_FK: readonly string[] = ['room_app_viewers.user_id']
+export const USER_COLUMNS_WITHOUT_FK: readonly string[] = ['room_app_viewers.user_id', 'chat_thread_replies.author_id']
 
 /**
  * Columns that point at users(id) and stay after the account is deleted, with the reason (the coverage test checks
@@ -97,6 +97,7 @@ export const KEPT_WITH_ACCOUNT: Record<string, string> = {
   'room_files.user_id': 'files they sent in shared rooms stay for the room, under the tombstone name',
   'room_messages.author_id': 'messages they sent in shared rooms stay, under the tombstone name (the delete page says so)',
   'room_messages.asked_by': 'as author_id',
+  'chat_thread_replies.author_id': 'replies they wrote under answers of shared chats stay, under the tombstone name, as room messages (the delete page says so); also on a self-requested deletion',
   'room_messages.visible_to': 'a room AI answer only they could see: shown to nobody else, goes with the room (room messages are never deleted one by one)',
   'room_members.user_id': 'a direct conversation keeps its member row so the other person still sees who it was with',
   'room_reactions.user_id': 'reactions in shared rooms, as messages',
