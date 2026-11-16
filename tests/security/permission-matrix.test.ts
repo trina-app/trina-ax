@@ -16,6 +16,7 @@ import { buildWorld, freshClient, PW, WHO, type World } from './lib/world'
 import { allCases } from './lib/cases'
 import { routeCoverage } from './lib/coverage'
 import { judge } from './lib/matrix'
+import { roomAppsOf } from '../../server/src/rooms/apps/service'
 
 setDefaultTimeout(180_000)
 const REPO = path.resolve(import.meta.dir, '..', '..') // worktree root
@@ -57,6 +58,10 @@ describe('permission matrix: every route x every persona', () => {
   const run = (k: (typeof cases)[number]) => test(`${k.label} [${k.exp}]`, async () => {
     // auth-flow / session-mutating routes run on a throwaway client so they cannot swap or destroy the shared
     // persona's session (login, accept-invite, logout, reauth); everything else uses the shared persona client.
+    // the room-app "10 apps an hour" limit is per person and lives in memory: the cases that add apps (and the one that
+    // adds six to try the presets) would use it up within one run, so each case starts with an empty window (test
+    // fixture only; the limit itself is checked in tests/unit/b-room-apps*.test.ts)
+    for (const m of ['added', 'examples', 'iconChanges']) (roomAppsOf(inst.ctx) as unknown as Record<string, Map<string, number[]>>)[m]!.clear()
     const client = k.skipPositive ? await freshClient(W, k.who) : W.as[k.who]
     const r = await k.run(client, W)
     const problems = judge(k, r)
