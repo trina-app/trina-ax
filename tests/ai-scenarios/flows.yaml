@@ -565,7 +565,9 @@ flows:
     - say: sora asks her side chat to save the notes
       ask: { as: sora, chat: s2, context: room-side, prompt: "다니엘이 올린 회의록 링크 내용 회의록 폴더에 저장해줘" }
       checks:
-        - { type: file_created, file: "shared/회의록/**" }
+        # the room is the group chat "라마바카페 건" (not the Everyone room): since #1162 its default place is the 영업
+        # folder its non-admin members share, so "회의록 폴더" may be 영업's own 회의록 folder or the company's
+        - { type: file_created, file: "{shared,groups/영업}/회의록/**" }
     - say: sora asks to reply in that message's thread with a summary
       ask: { as: sora, chat: s2, context: room-side, prompt: "저장한 회의록 요약해서 다니엘 메시지 스레드에 답글로 달아줘" }
       checks:
