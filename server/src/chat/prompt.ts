@@ -619,7 +619,7 @@ const GROUP_NAME_MAX = 40
 
 /** How a new skill's SKILL.md starts (skillsSection's save lines; chat/skills.ts checkSkill reads it): the name is its
  * folder's name. */
-const SKILL_HEADER = 'starting with a header: a line "---", "name: <name>" (the folder name: lowercase words joined by hyphens, no spaces), "description: <one sentence>", "---", then the steps'
+const SKILL_HEADER = 'starting with a header: a line "---", "name: <name>" (the folder name: lowercase words joined by hyphens, no spaces, dots or underscores), "description: <one sentence>", "---", then the steps'
 
 /** Item 5b: the skills the person may use (one line each: name, what it does; skill-list.ts), how to load one, and how
  * to make one. `user` is the person who runs this turn (the schedule owner for a scheduled run): the list holds the

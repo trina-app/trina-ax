@@ -45,5 +45,5 @@ Built as planned. The note is a hint, not a refusal: a refusal of new single-fil
 tests, and the prompt line is what fixes SKL-06 (after-run: the AI wrote skills/<name>/SKILL.md both times). Also fixed
 on the way: a member who cannot write skills/ got "with the same header" for their personal skills with no header said
 before it; the first save line now says the header. The AI picked a Korean folder name once
-(skills/업무협약서-초안/SKILL.md): that loads only with fix/skill-names-unicode, so that PR goes in first or together.
+(skills/업무협약서-초안/SKILL.md): that loads only with fix/skill-names-unicode, so #1069 must merge first (or together); this PR merges after #1069. Review follow-up: the header also says "no dots or underscores", and a test covers a project-only writer, whose project line carries the full header.
 
