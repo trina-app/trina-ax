@@ -68,7 +68,7 @@ import { FolderAccessChip, FolderAccessPanel, offersFolderAccess } from '../comp
 import { openFileShare, useCopyTeamFileLink } from '../components/FileShareDialog'
 import FolderUploads, { startFolderUpload, useFolderUploadsSettled } from '../components/FolderUploads'
 import { TeamFilesEntry } from '../components/onboarding/TeamFilesStep'
-import { FindWorkFilesEntry } from '../components/onboarding/FindWorkFiles'
+import { useFindWorkFilesEntry } from '../components/onboarding/FindWorkFiles'
 import SuggestSkillDialog from '../components/SuggestSkillDialog'
 import { SkillIssues } from '../components/SkillIssues'
 import { isSkillsPath } from '../lib/skillIssues'
@@ -166,6 +166,9 @@ function Files() {
   const [params, setParams] = useSearchParams()
   const path = params.get('path') ?? ''
   const select = params.get('select')
+  // Find work files on this computer: its button in the computer toolbar, its dialog below both headers (it stays open
+  // when the window is made phone-narrow: QA TC-3504)
+  const findWork = useFindWorkFilesEntry(path)
   // the team file open in the side panel: its row is marked
   const panel = useSidePanel()
   const openPath = panel?.kind === 'file' && panel.file.source === 'team' ? panel.file.path : null
@@ -1040,7 +1043,7 @@ function Files() {
                 </Tooltip>
               </>
             )}
-            {!projectsTop && <FindWorkFilesEntry here={path} />}
+            {!projectsTop && findWork.button}
             {!projectsTop && (
             <Tooltip label={t('files.upload')}>
               <Button size="sm" variant="primary" className={clsx(tree && !canWrite && 'max-md:hidden')} onClick={() => fileInput.current?.click()} disabled={!canWrite} aria-label={t('files.upload')} data-testid="upload-button">
@@ -1052,6 +1055,7 @@ function Files() {
         )}
       </div>
       )}
+      {findWork.dialog}
       {/* the pickers New folder / Upload open (the computer's toolbar, the phone's ⊕ sheet, an empty folder's button) */}
       <input
         ref={fileInput}
