@@ -1,0 +1,2 @@
+- A file sent in a chat room, a DM or a group chat can now be up to 1 GB (it was 10 GB), like Slack. A larger file is refused at once: "This file is too big to send in a chat. The limit is 1 GB." Files and folder uploads keep their 20 GB limit.
+- An owner or admin can raise the guests' file limit from 100 MB to 1 GB only; the 10 GB choice is gone. A team that had picked 10 GB now has 1 GB.

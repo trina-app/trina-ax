@@ -4,6 +4,8 @@
 - Status: accepted
 - Supersedes: none
 - Branch: fix/room-upload-followups (review of #1104, QA TC-3932)
+- Limit changed: a room now takes files of up to 1 GB; the 10 GB in this file no longer holds
+  ([A file sent in a room is at most 1 GB, for everyone](20261116-room-file-limit-1gb.md)).
 
 Follows [Uploads are written to disk as they arrive](20261116-room-file-upload-memory.md), which let a room take files
 of up to 10 GB.

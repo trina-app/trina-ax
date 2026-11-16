@@ -498,7 +498,7 @@ async function saveRoomFile(exec: TurnExec, files: TurnFiles, a: SaveArgs, named
   try {
     const tmp = path.join(work, 'file')
     // read whole (the safety check reads the bytes): only up to 50 MB, what a room file could be before rooms took
-    // files of up to 10 GB; a larger one is for the person to download and put in Files themselves
+    // larger files (up to 1 GB now); a larger one is for the person to download and put in Files themselves
     if (file.size > SMALL_UPLOAD_MAX) return { ...text(`Not saved: "${neutralizeTags(file.name.replace(/[\r\n"]+/g, ' ').slice(0, 200))}" is larger than 50 MB, which is the most that can be copied from a room here. Tell the user to download it from the room and upload it on the Files screen.`, true), summary: 'save_room_file -> refused: too large' }
     const bytes = readRegular(abs, SMALL_UPLOAD_MAX).bytes
     rt.files.quarantine.assertBytes(bytes)

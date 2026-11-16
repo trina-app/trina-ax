@@ -89,6 +89,9 @@ export function getTeamSettings(db: Database): TeamSettingsT {
     try { v = JSON.parse(r.value) } catch {}
     const field = TeamSettings.shape[r.key as keyof TeamSettingsT]
     if (field && field.safeParse(v).success) out[r.key] = v
+    // a guest limit of 10 GB picked before a room took at most 1 GB (docs/decisions/20261116-room-file-limit-1gb.md):
+    // read as the member limit, never above it and never back down to the default
+    else if (r.key === 'guestFileMax' && v === '10gb') out[r.key] = '1gb'
     // Do not turn an invalid old window into null: null permits the default 03:00-05:00 window.
     // Equal endpoints keep updates closed and let the admin read, replace or clear the setting.
     else if (r.key === 'updateWindow') out[r.key] = '00:00-00:00'

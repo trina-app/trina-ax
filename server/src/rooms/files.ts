@@ -8,7 +8,7 @@
 // nosniff, a sandbox CSP, a page or script type inline as text/plain); the app's preview panel reads those bytes and
 // draws them (an HTML page only in its sandbox frame), never as a page of this origin. A file whose bytes are on the
 // team's download-only list goes only as a download (no inline read, no thumbnail). A file of up to 50 MB arrives in one request (multipart, streamed to a temp
-// file and hashed on the way: http/multipart.ts), a larger one, up to ROOM_FILE_MAX (10 GB), through an upload session
+// file and hashed on the way: http/multipart.ts), a larger one, up to ROOM_FILE_MAX (1 GB), through an upload session
 // with target room (uploads/sessions.ts: 8 MB chunks written straight to disk, resumable). Either way the file is never
 // in memory whole; the storage check, the image size and thumbnail helpers and the quarantine list are the chat
 // attachments'. Only a picture of at most 50 MB is read whole (its metadata is cut out); a larger one is a plain file.
@@ -110,7 +110,7 @@ export class RoomFiles {
   }
 
   /** The largest file this person may send in a room now: ROOM_FILE_MAX, or for a guest the team's choice (100 MB
-   * unless the owner or an admin raised it: uploads/guest-limit.ts). Read at every upload, from their role then. */
+   * unless the owner or an admin raised it to 1 GB: uploads/guest-limit.ts). Read at every upload, from their role then. */
   maxFor(userId: string): number {
     return Math.min(ROOM_FILE_MAX, guestUploadMax(this.ctx.db, userId) ?? ROOM_FILE_MAX)
   }
