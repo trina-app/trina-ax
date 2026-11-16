@@ -47,7 +47,7 @@ Untuk memberi sebuah folder akses lebih sedikit daripada folder di atasnya, nyal
 
 Owner dan admin selalu bisa membuka folder tim, kecuali proyek yang tidak mereka ikuti. Mereka tampil sebagai satu baris **Pengelola**.
 
-Pemilik dan admin juga bisa meminta Trina di chat: "beri grup Sales akses lihat ke Reports", "biarkan Jun mengedit Sales/Q4", "hapus grup Desain dari Reports". Satu orang atau satu grup dan satu folder setiap kali. Kartu selalu bertanya dulu, juga saat Anda memilih **Selalu izinkan** di kartu lain: kartu menyebut siapa yang mendapat atau kehilangan akses dan berapa orang yang bisa membuka folder sebelum dan sesudahnya. Jika ada berkas di dalamnya yang dibagikan satu per satu kepada orang yang kehilangan folder itu, kartu menanyakan apakah bagikan itu ikut dihapus. Akses umum dan Batasi akses hanya diubah di dialog ini. Anggota yang meminta akan melihat **Minta ke admin**, yang mengirim pesan dari Anda kepada pemilik dan admin tim; folder yang tidak bisa Anda buka dijawab seolah-olah tidak ada.
+Pemilik dan admin juga bisa meminta Trina di chat: "beri grup Sales akses lihat ke Reports", "biarkan Jun mengedit Sales/Q4", "hapus grup Desain dari Reports". Satu orang atau satu grup dan satu folder setiap kali. Kartu bertanya dulu: kartu menyebut siapa yang mendapat atau kehilangan akses dan berapa orang yang bisa membuka folder sebelum dan sesudahnya. Jika ada berkas di dalamnya yang dibagikan satu per satu kepada orang yang kehilangan folder itu, kartu menanyakan apakah bagikan itu ikut dihapus. Kartu menawarkan **Selalu izinkan** untuk perubahan seperti ini; setelah Anda memilihnya, Trina mengubahnya tanpa bertanya dan berkas di dalamnya yang dibagikan satu per satu tetap dibagikan. Akses umum dan Batasi akses hanya diubah di dialog ini. Anggota yang meminta akan melihat **Minta ke admin**, yang mengirim pesan dari Anda kepada pemilik dan admin tim; folder yang tidak bisa Anda buka dijawab seolah-olah tidak ada.
 
 :::note
 Setelah pembaruan yang membuat akses bertambah, beberapa folder mencantumkan orangnya berdasarkan nama (ditandai **Ditambahkan saat folder berubah**), dan Izin folder menampilkan pemberitahuan satu kali yang menyebut nama mereka. Orang yang ditambahkan berdasarkan nama tetap punya akses jika nanti keluar dari grup. **Admin › Grup** dan halaman orang itu menyebutkannya sebelum menyimpan, dengan **Keluarkan sekarang**.
@@ -106,7 +106,7 @@ pernah melihat folder di atasnya.
 Di **Admin › Pengaturan tim**, sakelarnya adalah **Anggota bisa membagikan file dan folder milik mereka**, dan **Hapus
 semua berbagi file** menghitung file dan folder secara terpisah.
 
-Anda juga bisa meminta Trina: "bagikan folder Work dengan Jun". Trina selalu menampilkan kartu lebih dulu, berisi folder, lokasinya, dan isinya, juga saat Anda memilih **Selalu izinkan** untuk berbagi file. Berhenti membagikan langsung dijalankan bila pesan Anda menyebut folder itu dengan jelas (namanya dalam tanda kutip seperti `"Work"`, atau lokasinya), dan kartunya punya **Urungkan**.
+Anda juga bisa meminta Trina: "bagikan folder Work dengan Jun". Trina menampilkan kartu lebih dulu, berisi folder, lokasinya, dan isinya (**Selalu izinkan** untuk berbagi file tidak mencakup folder). Kartu menawarkan **Selalu izinkan** untuk berbagi folder; setelah Anda memilihnya, Trina membagikan folder Anda tanpa bertanya. Berhenti membagikan langsung dijalankan bila pesan Anda menyebut folder itu dengan jelas (namanya dalam tanda kutip seperti `"Work"`, atau lokasinya), dan kartunya punya **Urungkan**.
 
 ### File yang dibagikan kepada Anda
 
@@ -116,7 +116,7 @@ Trina juga bisa memakai file-file ini. Minta "ringkas file yang Mina bagikan ke 
 
 ### "File ini", "thread itu"
 
-Ketika Anda berkata "ringkas ini" atau "balas di thread itu" tanpa menyebut nama, Trina melihat apa yang sedang Anda buka di aplikasi: file, ruang, thread, atau chat di layar Anda, dengan jendela tempat Anda menulis lebih dulu. Ini hanya dilakukan saat Anda menunjuk sesuatu tanpa menyebut namanya, dan ia bertanya kalau ada dua hal yang mungkin dimaksud. Apa pun yang dibagikan atau diposting untuk Anda dengan cara ini tetap menampilkan kartu dulu, juga saat Anda memilih **Selalu izinkan**. Tidak ada tentang layar Anda yang disimpan: jendela yang ditutup dilupakan, dan chat rahasia tidak pernah dilaporkan.
+Ketika Anda berkata "ringkas ini" atau "balas di thread itu" tanpa menyebut nama, Trina melihat apa yang sedang Anda buka di aplikasi: file, ruang, thread, atau chat di layar Anda, dengan jendela tempat Anda menulis lebih dulu. Ini hanya dilakukan saat Anda menunjuk sesuatu tanpa menyebut namanya, dan ia bertanya kalau ada dua hal yang mungkin dimaksud. Apa pun yang dibagikan atau diposting untuk Anda dengan cara ini menampilkan kartu dulu, kecuali Anda memilih **Selalu izinkan** untuk jenis kartu itu. Tidak ada tentang layar Anda yang disimpan: jendela yang ditutup dilupakan, dan chat rahasia tidak pernah dilaporkan.
 
 ## Bekerja dengan file
 

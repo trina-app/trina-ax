@@ -228,6 +228,9 @@ export function whoCanOpenTool(exec: TurnExec): Tool {
         // ---- a file the person can open by the folder rules ----
         const file = f!
         const lines: string[] = []
+        // the shared folders above it (its owner only, with folder sharing's gate open; merge of AI and folder sharing)
+        let through: { name: string; people: { subjectType: 'user' | 'group'; subjectId: string; name: string; everyone?: boolean }[] }[] = []
+        if (file.mine && folderSharesOpen(ctx.config)) { try { through = fileSharesOf(ctx).view(spec.userId, file.path, spec.locale).through ?? [] } catch {} }
         const owner = file.mine ? 'the user\'s own file' : file.owner ? `${safe(file.owner.name, 80)}'s file` : 'a team file with no known owner'
         lines.push(`"${safe(file.name)}" in "${safe(file.place, 160)}" is ${owner}. The user can open it${file.self ? ` (${words(file.self)})` : ''}.`)
         if (file.full) {
@@ -235,12 +238,17 @@ export function whoCanOpenTool(exec: TurnExec): Tool {
             ? `Shared with (view only): ${file.shared.map((s) => s.kind === 'group' ? `the "${safe(s.who, 80)}" group (${people(s.people ?? 0)})` : s.kind === 'everyone' ? 'everyone on the team' : safe(s.who, 80)).join(', ')}.`
             : 'It is not shared with anyone by name or group.')
           if (file.byFolder) lines.push(`${people(file.byFolder.people)} besides the user can open it through its folder${file.byFolder.names ? `: ${file.byFolder.names.map((n) => safe(n, 80)).join(', ') || 'nobody'}${file.byFolder.people > file.byFolder.names.length ? ` and ${file.byFolder.people - file.byFolder.names.length} more` : ''}` : ''}.`)
-          if (file.total !== null) lines.push(`In all, ${people(file.total)} can open it now.`)
+          if (file.total !== null) lines.push(`In all, ${people(file.total)} can open it now${through.length ? ', besides the people of the shared folder below' : ''}.`)
+          // a file inside a folder the user shared (folder sharing; its owner only: FolderShares.throughOf)
+          for (const t of through) lines.push(`It is inside the user's shared folder "${safe(t.name, 80)}", so ${t.people.length ? t.people.slice(0, NAMES_MAX).map((p) => safe(p.name, 80)).join(', ') : 'nobody yet'} can view it too (view only; share_folder changes that).`)
         } else lines.push(file.owner ? `Who else can open it is for its owner (${safe(file.owner.name, 80)}) to see.` : 'Who else can open it is for the team\'s owner and admins to see.')
         if (who && who.id !== spec.userId) {
           if (file.full) {
             const r = accessRouteFor(ctx, who.id, file.path)
+            const inFolder = r ? null : through.find((t) => t.people.some((p) => p.subjectType === 'user' ? p.subjectId === who.id
+              : p.everyone || !!db.query('SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?').get(p.subjectId, who.id)))
             if (r) lines.push(`${whoName} can already open it: ${words(r)}.`)
+            else if (inFolder) lines.push(`${whoName} can already open it: through the shared folder "${safe(inFolder.name, 80)}" (view only).`)
             else if (file.canShare) lines.push(`${whoName} cannot open it: it is not shared with them or a group they are in, and its folder does not let them in. The user can share it with them (share_with_person, when the user asks: they get a card).`)
             else lines.push(`${whoName} cannot open it. ${file.shareOff ? 'The team turned off sharing files for members, so the user cannot share it; an admin can.' : 'The user cannot share it now.'}`)
           } else {

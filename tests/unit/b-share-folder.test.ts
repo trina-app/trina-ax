@@ -1,6 +1,8 @@
 // share_folder (server/src/chat/share-folder.ts; docs/decisions/20261116-share-folder-tool.md; the folder-sharing design's
 // PR 6 with security review M6, M7, M9; QA "Manual AI tests" MAN-019): the AI shares a folder in the asker's own files.
-// An add ALWAYS shows the server's card (no Always allow, no explicit-ask skip); a stop or removal narrows, so it runs
+// An add shows the server's card with "Always allow" for folder shares (kind share_folder, its own; once chosen it is
+// final: Rule A, docs/decisions/20261116-sharing-all-integration.md) and never the explicit-ask skip; a stop or removal
+// narrows, so it runs
 // without a card when the asker's own message names the folder, and its record carries the server's Undo. A folder is
 // named only by its path, its place in words, a quoted name or the app's own mention. Off where nobody can answer a
 // card; in a chat with other people's words only what the asker's own message names. With the gate closed the tool is
@@ -23,6 +25,7 @@ import { fileSharesOf } from '../../server/src/files/shares'
 import { folderSharesOf } from '../../server/src/files/folder-shares'
 import { undoShares } from '../../server/src/files/share-undo'
 import { keepAlways } from '../../server/src/chat/always-allow'
+import { tr } from '../../server/src/chat/i18n'
 import { roomsOf } from '../../server/src/rooms/service'
 
 setDefaultTimeout(60_000)
@@ -52,7 +55,7 @@ const folder = (owner: string, name: string) => { const d = `users/${owner}/${na
 const user = (id: string) => ({ subjectType: 'user' as const, subjectId: id })
 const peopleOn = (owner: string, dir: string) => fileSharesOf(h.ctx).view(owner, dir).people.map((p) => p.subjectId).sort()
 
-type Card = { question: string; origin?: string; options?: { label: string; value: string }[]; always?: unknown; share?: { op: string; files: { name: string; place: string; folder?: unknown }[]; who: { name: string }[] } }
+type Card = { question: string; origin?: string; options?: { label: string; value: string }[]; always?: unknown; note?: string; share?: { op: string; files: { name: string; place: string; folder?: unknown }[]; who: { name: string }[] } }
 async function turn(who: string, content: string, o: { chat?: string; answer?: string | null } = {}) {
   const chatId = o.chat ?? (await h.api(who).call(API.createChat, { body: {} })).id
   const r = await h.api(who).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
@@ -74,8 +77,8 @@ describe('sharing a folder: always the card', () => {
     const dir = folder('bob', 'QA-test')
     const r = await turn('bob', `Share the folder ${dir.split('/').pop()} with Tess Yoon as viewer\n${sf({ folder: dir, add: ['Tess Yoon'] })}`, { answer: 'yes' })
     expect(r.card!.origin).toBe('server')
-    expect(r.card!.always).toBeUndefined()
-    expect(r.card!.options!.map((x) => x.value)).toEqual(['yes', 'no'])
+    expect(r.card!.options!.map((x) => x.value)).toEqual(['yes', '__always', 'no'])
+    expect(r.card!.note).toBe(tr('cardAlwaysNoteShareFolder', 'ko'))
     // (bob reads Korean: the line that says files added later follow)
     expect(r.card!.question).toContain('나중에 넣는 파일까지')
     expect(r.card!.share).toMatchObject({ op: 'share', files: [{ name: dir.split('/').pop(), folder: { files: 2, folders: 1 } }], who: [{ name: 'Tess Yoon' }] })
@@ -101,7 +104,7 @@ describe('sharing a folder: always the card', () => {
     expect(peopleOn('bob', dir)).toEqual([])
   })
 
-  test('Always allow for shares on, and the folder and person named in a share request: the card still shows (no explicit-ask skip either)', async () => {
+  test('Always allow for FILE shares on, and the folder and person named in a share request: the folder card still shows (its own kind; no explicit-ask skip either)', async () => {
     keepAlways(h.ctx.db, 'bob', 'share_files', null)
     // (Always allow is really on: a file share asked the same way goes without its card)
     put('users/bob/plain-file.txt')
@@ -110,9 +113,36 @@ describe('sharing a folder: always the card', () => {
     const dir = folder('bob', 'Always')
     const r = await turn('bob', `share the folder ${dir} with Tess Yoon\n${sf({ folder: dir, add: ['Tess Yoon'] })}`, { answer: 'no' })
     expect(r.card).not.toBeNull()
-    expect(r.card!.always).toBeUndefined()
-    expect(r.card!.options!.map((o) => o.value)).toEqual(['yes', 'no'])
+    expect(r.card!.options!.map((o) => o.value)).toEqual(['yes', '__always', 'no'])
     expect(peopleOn('bob', dir)).toEqual([])
+  })
+
+  test('"Always allow" for folder shares: picked on the card it shares and is kept; then no card, also after other people\'s words in my own chat; a stop still asks unless named', async () => {
+    const kind = () => h.ctx.db.query("SELECT 1 FROM card_always_allow WHERE user_id = 'bob' AND kind = 'share_folder'").get()
+    try {
+      const one = folder('bob', 'AlwaysF')
+      const r = await turn('bob', `Share "${one.split('/').pop()}" with Tess Yoon\n${sf({ folder: one, add: ['Tess Yoon'] })}`, { answer: '__always' })
+      expect(r.card).not.toBeNull()
+      expect(peopleOn('bob', one)).toEqual(['tess'])
+      expect(kind()).not.toBeNull()
+      // the next share: no card
+      const two = folder('bob', 'AlwaysG')
+      const next = await turn('bob', `share it\n${sf({ folder: two, add: ['Tess Yoon'] })}`)
+      expect(cardsTo('bob', next.turnId)).toBe(0)
+      expect(JSON.parse(next.content).status).toBe('shared')
+      // my own chat that read something other people wrote: the choice is final (Rule A), no refusal, no card
+      const three = folder('bob', 'AlwaysH')
+      const chat = (await h.api('bob').call(API.createChat, { body: {} })).id
+      h.ctx.db.query('UPDATE chats SET others_words = 1 WHERE id = ?').run(chat)
+      const after = await turn('bob', `go on\n${sf({ folder: three, add: ['Tess Yoon'] })}`, { chat })
+      expect(cardsTo('bob', after.turnId)).toBe(0)
+      expect(peopleOn('bob', three)).toEqual(['tess'])
+      // a stop has no "Always allow": not named in my message, the card
+      const stop = await turn('bob', `stop it\n${sf({ folder: three, stop: true })}`, { answer: 'no' })
+      expect(stop.card).not.toBeNull()
+      expect(stop.card!.options!.map((o) => o.value)).toEqual(['yes', 'no'])
+      expect(peopleOn('bob', three)).toEqual(['tess'])
+    } finally { h.ctx.db.query("DELETE FROM card_always_allow WHERE user_id = 'bob' AND kind = 'share_folder'").run() }
   })
 
   test('never-shared places and the personal folder itself: refused with a plain next step, no card, a refusal record', async () => {
@@ -158,6 +188,16 @@ describe('sharing a folder: always the card', () => {
     expect(r.content).toContain('team folder')
     expect(r.content).toContain('call change_folder_access')
     expect(cardsTo('carol', r.turnId)).toBe(0)
+  })
+
+  // (the merge of AI sharing and folder sharing: who_can_open knew only file shares and the folder rules)
+  test('who_can_open on a file inside my shared folder: the folder\'s people are named, and a recipient "can already open it"', async () => {
+    const dir = folder('bob', 'WhoIn')
+    fileSharesOf(h.ctx).put('bob', dir, [{ subjectType: 'user', subjectId: 'tess' }], [], 'en')
+    const r = await turn('bob', fake({ tool: 'who_can_open', args: { path: `${dir}/a.md`, person: 'Tess Yoon' }, sayResult: true }))
+    expect(r.content).toContain(`inside the user's shared folder "${dir.split('/').pop()}"`)
+    expect(r.content).toContain('Tess Yoon can already open it: through the shared folder')
+    expect(r.content).not.toContain('Tess Yoon cannot open it')
   })
 
   test('the words: find a folder by looking at folders; a team folder asked for: call the tool, never answer from memory', () => {

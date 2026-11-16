@@ -746,6 +746,8 @@ export const id: Record<MessageKey, string> = {
   'allowances.card.big_download': "Mengunduh file di atas 1 GB",
   'allowances.card.share_files': "Membagikan file saya kepada orang lain",
   'allowances.card.post_files': "Mengirim file yang ditautkan bersama posting ke percakapan",
+  'allowances.card.share_folder': "Membagikan folder saya dengan orang",
+  'allowances.card.folder_access': "Mengubah siapa yang dapat membuka folder tim",
   'teamSettings.roomAlways': "\"Selalu izinkan\" di kartu konfirmasi",
   'teamSettings.row.roomAlwaysDesc': "Jika aktif, orang dapat memilih \"Selalu izinkan\" pada kartu konfirmasi dan tidak ditanya lagi untuk perubahan jenis itu. Nonaktif: selalu ditanya.",
   'ask.ownAnswer': 'Jawaban Anda',

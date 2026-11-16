@@ -47,7 +47,7 @@ To give a folder less than the folders above, turn on **Settings › Limit acces
 
 The owner and admins can always open team folders, except projects they are not a member of. They show as one **Manager** row.
 
-Owners and admins can also ask Trina in a chat: "give the Sales group view access to Reports", "let Jun edit Sales/Q4", "take the Design group off Reports". One person or group and one folder at a time. A card always asks first, also when you chose **Always allow** for other cards: it names who gets or loses access and how many people can open the folder before and after. When files inside are shared one by one with people who lose the folder, the card asks whether those shares go too. General access and Limit access stay in this dialog. A member who asks gets **Ask an admin**, which sends the team's owner and admins a message from you; a folder you can't open is answered as if it didn't exist.
+Owners and admins can also ask Trina in a chat: "give the Sales group view access to Reports", "let Jun edit Sales/Q4", "take the Design group off Reports". One person or group and one folder at a time. A card asks first: it names who gets or loses access and how many people can open the folder before and after. When files inside are shared one by one with people who lose the folder, the card asks whether those shares go too. The card offers **Always allow** for this kind of change; once you choose it, Trina makes these changes without asking, and files shared one by one inside stay shared. General access and Limit access stay in this dialog. A member who asks gets **Ask an admin**, which sends the team's owner and admins a message from you; a folder you can't open is answered as if it didn't exist.
 
 :::note
 After the update that made access add up, some folders list their people by name (tagged **Added when folders changed**), and Folder permissions shows a one-time notice naming them. People added by name keep access if they later leave the group. **Admin › Groups** and the person's page say so before saving, with **Remove now**.
@@ -123,7 +123,7 @@ dates, and each file to view or download. They never see the folders above it.
 In **Admin › Team settings**, the switch is **Members can share files and folders they own**, and **Remove all file
 shares** counts files and folders apart.
 
-You can also ask Trina: "share the folder Work with Jun". Trina always shows the card first, with the folder, where it is and what it holds, also when you chose **Always allow** for sharing files. Asking it to stop sharing (or to take someone off) works right away when your message names the folder: its name in quotes, like `"Work"`, or where it is, and the card that says so has **Undo**.
+You can also ask Trina: "share the folder Work with Jun". Trina shows a card first, with the folder, where it is and what it holds (choosing **Always allow** for sharing files does not cover folders). The card offers **Always allow** for folder shares; once you choose it, Trina shares your folders without asking. Asking it to stop sharing (or to take someone off) works right away when your message names the folder: its name in quotes, like `"Work"`, or where it is, and the card that says so has **Undo**.
 
 ### Files shared with you
 
@@ -142,7 +142,7 @@ with that file ready in the box. Trina can view a shared file, not change it.
 When you say "summarise this" or "reply in that thread" without a name, Trina checks what you have open in the app:
 the file, room, thread or chat on your screen, the window you are writing in first. It only does this when you point at
 something without naming it, and it asks when two things could be meant. Anything it shares or posts for you this way
-still shows you a card first, also when you chose **Always allow**. Nothing about your screen is kept: a closed window
+shows you a card first, unless you chose **Always allow** for that kind of card. Nothing about your screen is kept: a closed window
 is forgotten, and a confidential chat is never reported.
 
 ## Working with files

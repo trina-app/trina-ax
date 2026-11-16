@@ -727,6 +727,8 @@ export const ja: Record<MessageKey, string> = {
   'allowances.card.big_download': "1GBを超えるファイルのダウンロード",
   'allowances.card.share_files': "自分のファイルを人と共有する",
   'allowances.card.post_files': "トークに投稿するとき、リンクしたファイルも一緒に送る",
+  'allowances.card.share_folder': "自分のフォルダを人と共有する",
+  'allowances.card.folder_access': "チームフォルダを開ける人を変更する",
   'teamSettings.roomAlways': "確認カードの「常に許可」",
   'teamSettings.row.roomAlwaysDesc': "オンにすると、確認カードで「常に許可」を選んだ人には、その種類の変更を二度と確認しません。オフ：毎回確認します。",
   'ask.ownAnswer': "回答",

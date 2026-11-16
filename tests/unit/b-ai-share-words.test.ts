@@ -418,21 +418,19 @@ describe('through the tools', () => {
     expect(one.card!.details!.map((d) => d.text)).toEqual(['My folder › one.md'])
   })
 
-  test('"Always allow" is on, the chat read a teammate\'s file, the file is not named: the card comes with why and what skips it', async () => {
+  // Rule A (#1143, the owner's 11-13 rule): the person's own "Always allow" is final in their own chat, also after a
+  // teammate's file was read; the "why it asks" line for others' words is left for a chat others wrote in
+  // (docs/decisions/20261116-sharing-all-integration.md)
+  test('"Always allow" is on, the chat read a teammate\'s file, the file is not named: no card (Rule A)', async () => {
     keepAlways(h.ctx.db, 'bob', 'share_files', null)
     try {
       put('users/bob/ledger.txt', 'ledger')
-      // nothing by others read: the choice counts, no card
-      // (#1109's rule: "Always allow" counts where the person's own message names the recipient)
       const plain = await turn('bob', `share it with Tess Yoon\n${share({ paths: ['users/bob/ledger.txt'], people: ['Tess Yoon'] })}`)
       expect(JSON.parse(plain.content).status).toBe('shared')
-      // a teammate's file read in this answer, and the message names neither file nor person: the card, with the line
       put('users/bob/ledger-2.txt', 'ledger 2')
-      const r = await turn('bob', `go on\n${fake({ tool: 'read', args: { file_path: 'shared/alices.txt' } })}\n${share({ paths: ['users/bob/ledger-2.txt'], people: ['Tess Yoon'] })}`, { answer: 'no' })
-      expect(r.card!.question.startsWith(`${tr('othersWordsWhy', 'ko')}\n\nTess Yoon님에게 파일 1개를 공유할까요?`)).toBe(true)
-      // the card's rows (which the app shows in place of the question) carry the same one line, once
-      expect((r.card as unknown as { share: { why?: string } }).share.why).toBe(tr('othersWordsWhy', 'ko'))
-      expect(r.card!.question.split(tr('othersWordsWhy', 'ko')).length).toBe(2)
+      const r = await turn('bob', `go on\n${fake({ tool: 'read', args: { file_path: 'shared/alices.txt' } })}\n${share({ paths: ['users/bob/ledger-2.txt'], people: ['Tess Yoon'] })}`)
+      expect(r.card).toBeNull()
+      expect(r.content).toContain('"status":"shared"')
     } finally { dropAlways(h.ctx.db, 'bob', 'card:share_files') }
   })
 

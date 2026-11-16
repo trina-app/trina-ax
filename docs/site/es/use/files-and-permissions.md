@@ -47,7 +47,7 @@ Para dar a una carpeta menos acceso que las carpetas superiores, active **Config
 
 El propietario y los administradores siempre pueden abrir las carpetas del equipo, salvo los proyectos de los que no son miembros. Aparecen como una sola fila **Gestor**.
 
-Los propietarios y administradores también pueden pedírselo a Trina en un chat: «da al grupo Ventas acceso de lectura a Reports», «deja que Jun edite Sales/Q4», «quita al grupo Diseño de Reports». Una persona o un grupo y una carpeta cada vez. Siempre pregunta antes con una tarjeta, aunque haya elegido **Permitir siempre** en otras tarjetas: dice quién obtiene o pierde el acceso y cuántas personas pueden abrir la carpeta antes y después. Si dentro hay archivos compartidos uno a uno con personas que pierden la carpeta, la tarjeta pregunta si esos permisos también se quitan. El acceso general y Limitar acceso se cambian solo en este cuadro. Un miembro que lo pide ve **Pedir a un administrador**, que envía un mensaje suyo al propietario y a los administradores del equipo; una carpeta que no puede abrir se responde como si no existiera.
+Los propietarios y administradores también pueden pedírselo a Trina en un chat: «da al grupo Ventas acceso de lectura a Reports», «deja que Jun edite Sales/Q4», «quita al grupo Diseño de Reports». Una persona o un grupo y una carpeta cada vez. Pregunta antes con una tarjeta: dice quién obtiene o pierde el acceso y cuántas personas pueden abrir la carpeta antes y después. Si dentro hay archivos compartidos uno a uno con personas que pierden la carpeta, la tarjeta pregunta si esos permisos también se quitan. La tarjeta ofrece **Permitir siempre** para este tipo de cambio; si lo elige, Trina hace estos cambios sin preguntar y los archivos de dentro compartidos uno a uno siguen compartidos. El acceso general y Limitar acceso se cambian solo en este cuadro. Un miembro que lo pide ve **Pedir a un administrador**, que envía un mensaje suyo al propietario y a los administradores del equipo; una carpeta que no puede abrir se responde como si no existiera.
 
 :::note
 Después de la actualización que hizo que el acceso se sume, algunas carpetas muestran a sus personas por su nombre (con la etiqueta **Añadido cuando cambiaron las carpetas**), y Permisos de carpetas muestra una vez un aviso que las nombra. Las personas añadidas por su nombre conservan el acceso si más tarde dejan el grupo. **Administración › Grupos** y la página de la persona lo indican antes de guardar, con **Quitar ahora**.
@@ -106,7 +106,7 @@ las carpetas que hay por encima.
 En **Administración › Ajustes del equipo**, el interruptor es **Los miembros pueden compartir sus propios archivos y
 carpetas**, y **Quitar todos los archivos compartidos** cuenta archivos y carpetas por separado.
 
-También puede pedírselo a Trina: «comparte la carpeta Work con Jun». Trina siempre muestra antes la tarjeta con la carpeta, dónde está y lo que contiene, aunque haya elegido **Permitir siempre** para compartir archivos. Dejar de compartir se hace al momento cuando su mensaje nombra la carpeta (su nombre entre comillas, como `"Work"`, o dónde está), y la tarjeta que lo dice tiene **Deshacer**.
+También puede pedírselo a Trina: «comparte la carpeta Work con Jun». Trina muestra antes la tarjeta con la carpeta, dónde está y lo que contiene (**Permitir siempre** para compartir archivos no incluye las carpetas). La tarjeta ofrece **Permitir siempre** para compartir carpetas; si lo elige, Trina comparte sus carpetas sin preguntar. Dejar de compartir se hace al momento cuando su mensaje nombra la carpeta (su nombre entre comillas, como `"Work"`, o dónde está), y la tarjeta que lo dice tiene **Deshacer**.
 
 ### Archivos compartidos con usted
 
@@ -116,7 +116,7 @@ Trina también puede usar estos archivos. Pida «resume el archivo que Mina comp
 
 ### «Este archivo», «ese hilo»
 
-Cuando dice «resume esto» o «responde en ese hilo» sin dar un nombre, Trina mira qué tiene abierto en la aplicación: el archivo, la sala, el hilo o el chat que hay en su pantalla, empezando por la ventana en la que está escribiendo. Solo lo hace cuando señala algo sin nombrarlo, y pregunta cuando podrían ser dos cosas. Todo lo que comparta o publique por usted de este modo le muestra antes una tarjeta, también cuando eligió **Permitir siempre**. No se guarda nada de su pantalla: una ventana cerrada se olvida, y un chat confidencial nunca se menciona.
+Cuando dice «resume esto» o «responde en ese hilo» sin dar un nombre, Trina mira qué tiene abierto en la aplicación: el archivo, la sala, el hilo o el chat que hay en su pantalla, empezando por la ventana en la que está escribiendo. Solo lo hace cuando señala algo sin nombrarlo, y pregunta cuando podrían ser dos cosas. Todo lo que comparta o publique por usted de este modo le muestra antes una tarjeta, salvo que haya elegido **Permitir siempre** para ese tipo de tarjeta. No se guarda nada de su pantalla: una ventana cerrada se olvida, y un chat confidencial nunca se menciona.
 
 ## Trabajar con archivos
 

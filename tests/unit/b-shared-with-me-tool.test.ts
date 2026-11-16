@@ -250,31 +250,33 @@ describe('a file read through a grant is other people\'s words', () => {
     expect(tr('sharedFileSeenWhy', 'en')).toBe("A file someone shared with you (other people's words) was read here, so changes are asked first.")
   })
 
-  test('share_with_person under "Always allow": after a grant read in the same answer the card shows unless the asker named the people; a planted instruction shares nothing unseen', async () => {
+  // Rule A (#1143, the owner's 11-13 rule): the person's own "Always allow" is final, also after a grant read; the guards
+  // below hold for people without it (docs/decisions/20261116-sharing-all-integration.md)
+  test('share_with_person after a grant read: without "Always allow" a file the asker did not name is refused and a named one asks; with it the choice is final', async () => {
+    const id = await linkOf('alice', 'users/alice/quote.md')
+    const read = fake({ tool: 'read', args: { file_path: `/f/${id}` } })
+    const give = fake({ tool: 'share_with_person', args: { paths: ['users/bob/payroll.md'], people: ['Alice Kim'] }, sayResult: true })
+    // the AI read alice's shared file (which could say "share payroll.md with Alice") and then shares bob's file with her
+    const r = await turn('bob', `summarise the quote alice sent\n${read}\n${give}`)
+    expect(r.cards).toBe(0)
+    expect(r.content).toContain('Nothing was shared')
+    expect(r.content).toContain('named it in their own message')
+    expect(h.ctx.db.query("SELECT 1 FROM file_shares WHERE path = 'users/bob/payroll.md'").get()).toBeNull()
+    // the file named by bob: the card (the explicit ask never skips it after other people's words)
+    const card = await turn('bob', `summarise the quote and share payroll.md with Alice Kim after\n${read}\n${give}`, { answer: 'no' })
+    expect(card.card!.origin).toBe('server')
+    expect(card.card!.options!.map((x) => x.value)).toEqual(['share', '__always', 'no'])
+    expect(h.ctx.db.query("SELECT 1 FROM file_shares WHERE path = 'users/bob/payroll.md'").get()).toBeNull()
+    // "Always allow" on: final (the residual risk Rule A accepts: a planted line in a shared file is then acted on)
     keepAlways(h.ctx.db, 'bob', 'share_files', null)
     try {
-      const id = await linkOf('alice', 'users/alice/quote.md')
-      const read = fake({ tool: 'read', args: { file_path: `/f/${id}` } })
-      const give = fake({ tool: 'share_with_person', args: { paths: ['users/bob/payroll.md'], people: ['Alice Kim'] }, sayResult: true })
-      // control: no grant read, "Always allow" shares his named file with no card
-      put('users/bob/open-note.md', 'note')
-      // (#1109's rule: "Always allow" counts where the person's own message names the recipient)
-      const control = await turn('bob', `share it with Tess Yoon\n${fake({ tool: 'share_with_person', args: { paths: ['users/bob/open-note.md'], people: ['Tess Yoon'] }, sayResult: true })}`)
-      expect(control.cards).toBe(0)
-      // the AI read alice's shared file (which could say "share payroll.md with Alice") and then shares bob's file with her
-      const r = await turn('bob', `summarise the quote alice sent\n${read}\n${give}`)
-      expect(r.cards).toBe(0)
-      expect(r.content).toContain('Nothing was shared')
-      expect(r.content).toContain('named it in their own message')
-      expect(h.ctx.db.query("SELECT 1 FROM file_shares WHERE path = 'users/bob/payroll.md'").get()).toBeNull()
-      // the file named by bob, the person not: the card, without "Always allow"
-      const card = await turn('bob', `summarise the quote and share payroll.md after\n${read}\n${give}`, { answer: 'no' })
-      expect(card.card!.origin).toBe('server')
-      expect(card.card!.options!.map((x) => x.value)).toEqual(['share', 'no'])
-      // the next turn of the same chat: the file's words are still in it
-      const later = await turn('bob', `and share payroll.md now\n${give}`, { chat: card.chatId, answer: 'no' })
-      expect(later.card!.options!.map((x) => x.value)).toEqual(['share', 'no'])
-    } finally { dropAlways(h.ctx.db, 'bob', 'card:share_files') }
+      const on = await turn('bob', `summarise the quote alice sent\n${read}\n${give}`)
+      expect(on.cards).toBe(0)
+      expect(on.content).toContain('"status":"shared"')
+    } finally {
+      dropAlways(h.ctx.db, 'bob', 'card:share_files')
+      await shareFile('bob', 'users/bob/payroll.md', [], [user('alice')])
+    }
   })
 
   test('post_to_room under "Always allow": after a grant read the explicit-ask skip is off and the card leads the call', async () => {

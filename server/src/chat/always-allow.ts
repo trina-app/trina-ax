@@ -78,6 +78,11 @@ export function dropAlways(db: Database, userId: string, id: string): boolean {
  * linked files ("Always send with the files": which of its two yeses it keeps). */
 export type AlwaysLabel = 'cardAlways' | 'cardAlwaysSkills' | 'cardAlwaysFiles'
 
+/** A kind whose "Always allow" risk is said in its own words on the card (the folder cards). */
+const KIND_NOTE: Partial<Record<CardAlwaysKind, 'cardAlwaysNoteShareFolder' | 'cardAlwaysNoteFolderAccess'>> = {
+  share_folder: 'cardAlwaysNoteShareFolder', folder_access: 'cardAlwaysNoteFolderAccess',
+}
+
 /** The value a card's "Always allow" answer carries (never one of a card's own values). */
 export const ALWAYS_VALUE = '__always'
 
@@ -95,7 +100,7 @@ export async function withAlways(p: AlwaysPlace | null | undefined, kind: CardAl
   if (here !== 'offer' || options.length < 2) return ask(options, {})
   if (!p) return ask(options, {})
   const opts = [...options.slice(0, -1), { label: tr(label, p.locale), value: ALWAYS_VALUE }, options.at(-1)!]
-  const answer = await ask(opts, { ...(opts.length === 3 ? { buttons: true as const } : {}), note: tr('cardAlwaysNote', p.locale) })
+  const answer = await ask(opts, { ...(opts.length === 3 ? { buttons: true as const } : {}), note: tr(KIND_NOTE[kind] ?? 'cardAlwaysNote', p.locale) })
   const v = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
   if (v === ALWAYS_VALUE) {
     keepAlways(p.db, p.userId, kind, p.turnId)

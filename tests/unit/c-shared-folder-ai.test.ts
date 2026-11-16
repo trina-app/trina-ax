@@ -361,21 +361,28 @@ describe('the mark (T13): names and contents in a shared folder are the sharer\'
     expect(outsideSeen(db(), first.chatId)).toBe(true)
   })
 
-  test('(R) share_with_person with "Always allow" on still shows its card after a listing', async () => {
+  // Rule A (#1143, the owner's 11-13 rule): a person's own "Always allow" is final, also after a listing of a shared folder;
+  // without it the card shows and a planted file is refused (docs/decisions/20261116-sharing-all-integration.md). The
+  // security review's (R) "the card still shows under Always allow" is superseded by the owner's rule.
+  test('(R) after a listing: without "Always allow" the card shows and a planted file is refused; with it the choice is final', async () => {
     const dir = folder(), id = shareDir(dir)
     bucket()
-    // a clean chat: the person's "Always allow" holds (their own message names the file and the person: #1109's rule)
-    const clean = await turn(`share ledger-1.txt with Tess Yoon\n${fake({ tool: 'share_with_person', args: { paths: ['users/bob/ledger-1.txt'], people: ['Tess Yoon'] }, sayResult: true })}`)
-    expect(clean.cards).toHaveLength(0)
+    dropAlways(db(), 'bob', 'card:share_files')
+    try {
+      // after a listing of the shared folder, in the same answer: the card (and "no" shares nothing)
+      const after = await turn(`share ledger-2.txt with Tess Yoon\n${fake({ tool: 'list', args: { path: `/f/${id}` } }, { tool: 'share_with_person', args: { paths: ['users/bob/ledger-2.txt'], people: ['Tess Yoon'] }, sayResult: true })}`)
+      expect(after.cards).toHaveLength(1)
+      expect(shareRow('users/bob/ledger-2.txt')).toBeNull()
+      // ...and a file the person's message did not bring is refused outright (a planted "share all my files")
+      const planted = await turn(`go on\n${fake({ tool: 'share_with_person', args: { paths: ['users/bob/ledger-3.txt'], people: ['Tess Yoon'] }, sayResult: true })}`, after.chatId)
+      expect(planted.content).toContain('a file is shared only when the user named it in their own message')
+      expect(shareRow('users/bob/ledger-3.txt')).toBeNull()
+    } finally { keepAlways(db(), 'bob', 'share_files', null) }
+    // "Always allow" on: final, also after the listing (the residual risk Rule A accepts)
+    bucket()
+    const on = await turn(`share ledger-1.txt with Tess Yoon\n${fake({ tool: 'list', args: { path: `/f/${id}` } }, { tool: 'share_with_person', args: { paths: ['users/bob/ledger-1.txt'], people: ['Tess Yoon'] }, sayResult: true })}`)
+    expect(on.cards).toHaveLength(0)
     expect(shareRow('users/bob/ledger-1.txt')).not.toBeNull()
-    // after a listing of the shared folder, in the same answer: the card
-    const after = await turn(`share ledger-2.txt with Tess Yoon\n${fake({ tool: 'list', args: { path: `/f/${id}` } }, { tool: 'share_with_person', args: { paths: ['users/bob/ledger-2.txt'], people: ['Tess Yoon'] }, sayResult: true })}`)
-    expect(after.cards).toHaveLength(1)
-    expect(shareRow('users/bob/ledger-2.txt')).toBeNull()
-    // ...and a file the person's message did not bring is refused outright (a planted "share all my files")
-    const planted = await turn(`go on\n${fake({ tool: 'share_with_person', args: { paths: ['users/bob/ledger-3.txt'], people: ['Tess Yoon'] }, sayResult: true })}`, after.chatId)
-    expect(planted.content).toContain('a file is shared only when the user named it in their own message')
-    expect(shareRow('users/bob/ledger-3.txt')).toBeNull()
   })
 
   test('after a listing, a later answer: a team file change waits for the room card, delete_files refuses', async () => {

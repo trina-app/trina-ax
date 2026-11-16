@@ -746,6 +746,8 @@ export const en: Record<MessageKey, string> = {
   'allowances.card.big_download': "Downloading files over 1 GB",
   'allowances.card.share_files': "Sharing my files with people",
   'allowances.card.post_files': "Sending linked files with posts to conversations",
+  'allowances.card.share_folder': "Sharing my folders with people",
+  'allowances.card.folder_access': "Changing who can open team folders",
   'teamSettings.roomAlways': "\"Always allow\" on confirmation cards",
   'teamSettings.row.roomAlwaysDesc': "When on, people can pick \"Always allow\" on a confirmation card and are not asked about that kind of change again. Off: it asks every time.",
   'ask.ownAnswer': 'Your answer',

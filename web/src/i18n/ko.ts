@@ -745,6 +745,8 @@ export const ko = {
   'allowances.card.big_download': "1GB 넘는 파일 내려받기",
   'allowances.card.share_files': "내 파일을 사람에게 공유하기",
   'allowances.card.post_files': "대화에 올릴 때 링크된 파일도 함께 보내기",
+  'allowances.card.share_folder': "내 폴더를 사람에게 공유하기",
+  'allowances.card.folder_access': "팀 폴더를 열 수 있는 사람 바꾸기",
   'teamSettings.roomAlways': "\"항상 허용\" 쓰기",
   'teamSettings.row.roomAlwaysDesc': "켜 두면 사람들이 확인 카드에서 \"항상 허용\"을 골라 같은 종류의 확인을 다시 받지 않을 수 있어요. 끄면 매번 물어봐요.",
   'ask.ownAnswer': '직접 답하기',

@@ -54,7 +54,8 @@ import { placeWords } from './place-words'
 import { groupSubject, matchName, shownName, type Subject } from './project-members'
 import { neutralizeTags } from './prompt'
 import { readRooms, withoutQuoteLines } from './read-rooms'
-import { actionOff, askerText, attachedPaths, namedInFull, namesFolder, othersWordsIn } from './shared-actions'
+import { alwaysHere, withAlways } from './always-allow'
+import { actionOff, askerText, attachedPaths, namedInFull, namesFolder, namesGroup, othersWordsIn } from './shared-actions'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
 
@@ -259,11 +260,14 @@ export function folderAccessToolFor(exec: FolderExec): Tool {
     }
     const subject = m.one
 
-    // ---- after outside content: the admin's own message names the folder and the person (M8, M9) ----
-    if (othersWordsIn(exec) || !!exec.tainted) {
+    // ---- after outside content: the admin's own message names the folder and the person (M8, M9); not for an admin who
+    // chose "Always allow" for this card (Rule A, #1143: their choice is final; the tool is never offered in a chat with
+    // other members' messages, folderAccessOff) ----
+    const alwaysOn = alwaysHere(exec.alwaysPlace?.(), 'folder_access') === 'on'
+    if (!alwaysOn && (othersWordsIn(exec) || !!exec.tainted)) {
       const said = withoutQuoteLines(askerText(db, spec.userMessageId))
       const username = subject.subjectType === 'user' ? (db.query('SELECT username FROM users WHERE id = ?').get(subject.subjectId) as { username: string | null } | null)?.username ?? null : null
-      if (!namesFolder(said, path, { place: placeWords(db, path, L, spec.userId), attached: attachedPaths(db, spec.userMessageId) }) || !namedInFull(said, [subject.name, ...(subject.aliases ?? []), ...(username ? [username] : [])]))
+      if (!namesFolder(said, path, { place: placeWords(db, path, L, spec.userId), attached: attachedPaths(db, spec.userMessageId) }) || !(subject.subjectType === 'group' ? namesGroup(said, subject.name) : namedInFull(said, [subject.name, ...(subject.aliases ?? []), ...(username ? [username] : [])])))
         return refused('not_named', refusal({ done: NONE, why: { kind: 'mode', mode: 'a chat that holds other people\'s words (a room, a shared file, a web page or what is on the screen)', why: 'one of them could ask for the change' }, also: 'Ask the user to name the folder (its path, or its name in quotes) and the person or group in their own message', next: 'the user names both in a new message, or changes it on ' + SCREEN }), path)
     }
 
@@ -276,24 +280,34 @@ export function folderAccessToolFor(exec: FolderExec): Tool {
     if (state.shown >= MAX_FOLDER_CARDS) return refused('too_many', refusal({ done: NONE, why: { kind: 'limit', limit: `at most ${MAX_FOLDER_CARDS} folder access cards in one answer`, resets: 'with the user\'s next message' }, next: 'tell the user what is left; they can ask again in a new message' }), path)
     if (state.open || exec.openRequests().length) return refused('busy', refusal({ done: NONE, why: { kind: 'limit', limit: 'one card at a time: another card is waiting for the user\'s answer' }, next: 'wait for that answer, then call again' }), path)
 
-    // ---- the card: every time (no "Always allow" kind, no explicit-ask skip: M8) ----
+    // ---- the card, with "Always allow" (kind folder_access, the owner's 11-13 rule; Rule A: once chosen it is final, no
+    // card). No explicit-ask skip (M8). A narrowing that would take file links away is never decided by "Always allow":
+    // it keeps the links (removeFileLinks false), the person's choice is only ever theirs on the card ----
     const card = cardOf(p, L, readRooms(exec) ? tr('roomsSeenWhy', L) : null)
     const requestId = uuidv7()
-    const base = { subjectType: subject.subjectType, gained: p.gainedCount, lost: p.lostCount, requestId }
+    const base = { subjectType: subject.subjectType, gained: p.gainedCount, lost: p.lostCount, requestId, ...(alwaysOn ? { always: true } : {}) }
     state.shown++
     state.open = true
-    let answer: Awaited<ReturnType<FolderExec['askPerson']>>
+    // "Always allow" answers yes; where the card would ask about file links, that yes keeps them
+    const yes = p.linkPeople > 0 ? 'change_keep' : 'change'
+    let missing: Awaited<ReturnType<FolderExec['askPerson']>>['missing'] = null
+    let raw: unknown
     try {
-      answer = await exec.askPerson({
-        kind: 'ask_user', origin: 'server', requestId, question: card.question, multiple: false, allowText: false,
-        options: card.options, details: card.details, ...(card.options.length === 3 ? { buttons: true as const } : {}), ...(card.note ? { note: card.note } : {}),
-        expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
-      } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs(), exclusive: true })
+      raw = await withAlways(exec.alwaysPlace?.(), 'folder_access', card.options, yes, async (options, more) => {
+        const a = await exec.askPerson({
+          kind: 'ask_user', origin: 'server', requestId, question: card.question, multiple: false, allowText: false,
+          options, details: card.details, ...(options.length >= 3 ? { buttons: true as const } : {}),
+          ...(card.note || more.note ? { note: [card.note, more.note].filter(Boolean).join('\n\n') } : {}),
+          expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
+        } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs(), exclusive: true })
+        missing = a.missing
+        return a.value
+      })
     } finally { state.open = false }
-    const v = Array.isArray(answer.value) && answer.value.length === 1 ? answer.value[0] : answer.value
+    const v = Array.isArray(raw) && raw.length === 1 ? raw[0] : raw
     if (v !== 'change' && v !== 'change_remove' && v !== 'change_keep') {
       state.declined = true
-      const end: CardEnd = v === 'no' ? 'declined' : answer.missing ?? 'declined'
+      const end: CardEnd = v === 'no' ? 'declined' : missing ?? 'declined'
       auditCall({ ...base, outcome: end === 'declined' ? 'declined' : 'no_answer', end }, path)
       return result(refusal({ done: NONE, why: cardReason(end), also: end === 'declined' ? 'Do not change it another way, and ask no other folder access change in this answer' : undefined, next: end === 'declined' ? cardNext('declined') : `${cardNext(end)}; or they change it on ${SCREEN}` }), end === 'declined' ? 'not allowed by the user' : 'no answer')
     }

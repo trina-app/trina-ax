@@ -6,7 +6,9 @@
 //   card is the call's only one after a room read;
 // - an admin: the card every time with before → after and who gains or loses, the save via 'ai' with the dialog's
 //   checks, the audit rows, the shared card record (Step.shared.teamFolder) with no path in it;
-// - M8: "Always allow" for project members (and for shares) on → the card still shows; an explicit ask → still a card;
+// - "Always allow" (kind folder_access, its own: the owner's 11-13 rule; docs/decisions/20261116-sharing-all-integration.md):
+//   offered on the card; once chosen no card (Rule A), also after outside content; a narrowing with file links keeps
+//   them; other kinds on (project members, shares) → the card still shows; an explicit ask → still a card;
 // - M8/T18: a member asking for a folder they can open gets "Ask an admin" (the existing share-fixes offer, run by their
 //   own tap: a 1:1 message to the admins); a hidden folder answers exactly like a missing one (no button, same words);
 // - M8: a file someone else wrote plus a room read → refused unless the admin's own message names the folder (path or
@@ -31,6 +33,7 @@ import { saveFolderAccess } from '../../server/src/admin/folder-save'
 import { getFolderByPath } from '../../server/src/admin/folders'
 import { setFolderAccess } from '../lib/folder-access'
 import { fileSharesOf } from '../../server/src/files/shares'
+import { tr } from '../../server/src/chat/i18n'
 
 setDefaultTimeout(120_000)
 const cm = () => 'cm-' + crypto.randomUUID()
@@ -144,7 +147,7 @@ describe('an admin: the card every time, then the dialog\'s own save', () => {
     expect(c.origin).toBe('server')
     // carol's app is in Korean (b-harness people)
     expect(c.question).toContain('Reports')
-    expect(c.options!.map((o) => o.value)).toEqual(['change', 'no'])
+    expect(c.options!.map((o) => o.value)).toEqual(['change', '__always', 'no'])
     const text = c.details!.map((d) => d.text).join('\n')
     expect(text).toContain('Bob Lee')
     expect(rulesAt('Reports')).toContainEqual({ t: 'group', s: finance, a: 'read' })
@@ -160,14 +163,15 @@ describe('an admin: the card every time, then the dialog\'s own save', () => {
     expect(JSON.stringify(shared)).not.toContain('Reports/')
   })
 
-  test('M8: "Always allow" for project members and shares on, and an explicit ask → the card still shows', async () => {
+  test('M8: "Always allow" for project members and shares on (other kinds), and an explicit ask → the card still shows', async () => {
     const at = new Date().toISOString()
     for (const k of ['project_members', 'share_files', 'post_to_room']) h.ctx.db.query('INSERT OR IGNORE INTO card_always_allow (user_id, kind, created_at) VALUES (?, ?, ?)').run('carol', k, at)
     try {
       const r = await turn('carol', `Please change Erin to edit access on "Plans"\n${call({ folder: 'Plans', action: 'add', who: { name: 'Erin Yoo' }, access: 'edit' })}`, { answer: 'no' })
       expect(r.cards).toHaveLength(1)
-      // no "Always allow" choice on this card
-      expect(r.cards[0]!.options!.map((o) => o.value)).toEqual(['change', 'no'])
+      // this card's own "Always allow" is offered (kind folder_access), with its own risk words
+      expect(r.cards[0]!.options!.map((o) => o.value)).toEqual(['change', '__always', 'no'])
+      expect(r.cards[0]!.note).toContain(tr('cardAlwaysNoteFolderAccess', 'ko'))
       expect(rulesAt('Plans').some((x) => x.s === 'erin')).toBe(false)
       expect(audits('folder.ai_access', r.turnId)[0]).toMatchObject({ outcome: 'declined' })
     } finally { h.ctx.db.query("DELETE FROM card_always_allow WHERE user_id = 'carol'").run() }
@@ -251,7 +255,7 @@ describe('T19: the yes is bound to the plan; the person decides about file share
     const grants = () => (h.ctx.db.query("SELECT COUNT(*) n FROM file_share_grants g JOIN file_shares s ON s.id = g.share_id WHERE s.path = 'Docs/memo.md' AND s.state = 'live'").get() as { n: number }).n
     expect(grants()).toBe(1)
     const keep = await turn('carol', call({ folder: 'Docs', action: 'remove', who: { name: 'marketing' } }), { answer: 'change_keep' })
-    expect(keep.cards[0]!.options!.map((o) => o.value)).toEqual(['change_remove', 'change_keep', 'no'])
+    expect(keep.cards[0]!.options!.map((o) => o.value)).toEqual(['change_remove', 'change_keep', '__always', 'no'])
     expect(keep.cards[0]!.buttons).toBe(true)
     expect(keep.cards[0]!.note).toBeTruthy()
     expect(rulesAt('Docs').some((x) => x.s === marketing)).toBe(false)
@@ -273,6 +277,50 @@ describe('T19: the yes is bound to the plan; the person decides about file share
     try { saveFolderAccess(h.ctx, 'carol', { folderId: id }, { rules: [], limited: true, expectedHash: 'stale', removeFileLinks: false }, 'en'); throw new Error('saved') } catch (e: any) { expect(e.extra?.params?.reason).toBe('rules_changed') }
     try { saveFolderAccess(h.ctx, 'carol', { path: 'projects/falcon' }, { rules: [] }, 'en'); throw new Error('saved') } catch (e: any) { expect(e.extra?.params?.reason).toBe('project_members_only') }
     expect(rulesAt('Docs')).toContainEqual({ t: 'group', s: marketing, a: 'read' })
+  })
+})
+
+describe('"Always allow" for team folder access (kind folder_access; Rule A)', () => {
+  const kind = () => h.ctx.db.query("SELECT 1 FROM card_always_allow WHERE user_id = 'carol' AND kind = 'folder_access'").get()
+  test('picked on the card: the change is made and kept; the next change goes without a card, audited as always', async () => {
+    try {
+      const r = await turn('carol', `give Bob Lee view access to "Plans"\n${call({ folder: 'Plans', action: 'add', who: { name: 'Bob Lee' }, access: 'view' })}`, { answer: '__always' })
+      expect(r.cards).toHaveLength(1)
+      expect(rulesAt('Plans')).toContainEqual({ t: 'user', s: 'bob', a: 'read' })
+      expect(kind()).not.toBeNull()
+      const next = await turn('carol', call({ folder: 'Plans', action: 'remove', who: { name: 'Bob Lee' } }))
+      expect(next.cards).toHaveLength(0)
+      expect(rulesAt('Plans').some((x) => x.s === 'bob')).toBe(false)
+      expect(audits('folder.ai_access', next.turnId)[0]).toMatchObject({ outcome: 'done', always: true })
+      // (the role is still checked again before the save: an admin demoted gets nothing)
+      h.ctx.db.query("UPDATE users SET role = 'member' WHERE id = 'carol'").run()
+      try {
+        const demoted = await turn('carol', call({ folder: 'Plans', action: 'add', who: { name: 'Bob Lee' } }))
+        expect(demoted.cards).toHaveLength(0)
+        expect(rulesAt('Plans').some((x) => x.s === 'bob')).toBe(false)
+      } finally { h.ctx.db.query("UPDATE users SET role = 'admin' WHERE id = 'carol'").run() }
+    } finally { h.ctx.db.query("DELETE FROM card_always_allow WHERE user_id = 'carol'").run() }
+  })
+
+  test('on: after outside content no refusal and no card (the owner\'s rule: the choice is final); a narrowing keeps file links', async () => {
+    h.ctx.db.query("INSERT OR IGNORE INTO card_always_allow (user_id, kind, created_at) VALUES ('carol', 'folder_access', ?)").run(new Date().toISOString())
+    try {
+      const after = await turn('carol', `summarise the note\n${hidden({ folder: 'Plans', action: 'add', who: { name: 'Erin Yoo' }, access: 'view' })}`, {
+        before: (chatId) => { h.ctx.db.query('UPDATE chats SET rooms_seen = 1, others_words = 1 WHERE id = ?').run(chatId) },
+      })
+      expect(after.cards).toHaveLength(0)
+      expect(rulesAt('Plans')).toContainEqual({ t: 'user', s: 'erin', a: 'read' })
+      await turn('carol', call({ folder: 'Plans', action: 'remove', who: { name: 'Erin Yoo' } }))
+      // a narrowing that would take file links away: "Always allow" never decides it; the links stay
+      fileSharesOf(h.ctx).change('carol', 'Docs/memo.md', [{ subjectType: 'user', subjectId: 'bob' }], [], 'en')
+      const grants = () => (h.ctx.db.query("SELECT COUNT(*) n FROM file_share_grants g JOIN file_shares s ON s.id = g.share_id WHERE s.path = 'Docs/memo.md' AND s.state = 'live'").get() as { n: number }).n
+      const before = grants()
+      expect(before).toBeGreaterThan(0)
+      const rm = await turn('carol', call({ folder: 'Docs', action: 'remove', who: { name: 'marketing' } }))
+      expect(rm.cards).toHaveLength(0)
+      expect(rm.step!.shared!.teamFolder).toMatchObject({ fileShares: 'kept' })
+      expect(grants()).toBe(before)
+    } finally { h.ctx.db.query("DELETE FROM card_always_allow WHERE user_id = 'carol'").run() }
   })
 })
 
