@@ -209,9 +209,9 @@ tamu, dan berada di paling banyak satu obrolan grup dan satu proyek. Di obrolan 
 proyek, **Tambah orang** di **Anggota**. Tuliskan untuk siapa tautan itu dan apakah ia mendapat AI, lalu **Buat tautan**. Tautan itu
 hanya bisa dipakai satu kali: kirimkan sendiri kepadanya.
 
-![Undang tamu: ia hanya akan melihat ruang 'Launch email', kotak untuk siapa undangan ini, dan AI untuknya: No AI atau Their own sign-in](../../images/chats/invite-guest.webp "Undang tamu")
+![Undang tamu: ia hanya akan melihat obrolan grup 'Launch email', kotak untuk siapa undangan ini, dan AI untuknya: No AI atau Their own sign-in](../../images/chats/invite-guest.webp "Undang tamu")
 
-- Tamu hanya melihat tempat itu: tanpa File, tanpa ruang obrolan atau proyek lain, tanpa area tim.
+- Tamu hanya melihat tempat itu: tanpa File, tanpa obrolan grup atau proyek lain, tanpa area tim.
 - AI-nya mati kecuali Anda memilih **Masuk dengan akun sendiri**, atau admin memberinya akun **AI tim** dengan batas bulanan.
 - Label **Tamu** tampil di samping namanya, dan bagian atas menampilkan **Termasuk 1 tamu**.
 - Admin melihat setiap tamu di **Admin › Anggota & undangan › Tamu** ([Admin](admin.md#tamu)).

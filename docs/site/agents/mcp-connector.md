@@ -85,7 +85,7 @@ your own account such as **Google Drive**, is **Settings › Connectors** ([Goog
 
 ## Conversations
 
-With **Read conversations** the app reads your conversations (channels, including the Everyone channel, and direct messages, one-to-one and group) exactly as you see them in the app: the conversations you are in now, from when you joined, threads whose first message you see, and your own private AI previews but nobody else's.
+With **Read conversations** the app reads your conversations (channels, including the Everyone channel, and direct messages and group chats) exactly as you see them in the app: the conversations you are in now, from when you joined, threads whose first message you see, and your own private AI previews but nobody else's.
 
 | Tool | What it does |
 |---|---|

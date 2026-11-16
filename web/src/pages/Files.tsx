@@ -25,7 +25,7 @@
 // projects and files"); a question the server asks (who would lose or gain sight of it) is asked with the row already
 // moved, and a no puts it back.
 import clsx from 'clsx'
-import { ArchiveRestore, BookmarkPlus, ImageIcon, Link2, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, Paperclip, Pencil, Plus, Presentation, Search, Signpost, Sparkles, SquareCheck, RefreshCw, Trash2, Upload, UserPlus, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
+import { ArchiveRestore, BookmarkPlus, ImageIcon, Link2, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, Paperclip, Pencil, Plus, Presentation, Search, Signpost, SquareCheck, RefreshCw, Trash2, Upload, UserPlus, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { type Access, type FileEntry, type FileHistoryEvent, type FileVersion, type HistoryResponse, type TrashItem, type TreeResponse } from '@mycel/shared/api'
@@ -76,6 +76,7 @@ import { chatItemKey } from '../lib/appWording'
 import { isAdmin, useMeStrict } from '../store/session'
 import { Badge, Button, EmptyState, ErrorNote, IconButton, Modal, Skeleton, TabPanel, Tabs, confirmDialog, promptDialog, useMediaQuery } from '../components/ui'
 import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
+import { AiMark } from '../components/rooms/AiFace'
 import { PhonePageBar } from '../components/phone/PhonePageBar'
 import { LoadError } from '../components/LoadError'
 import { Tooltip } from '../components/Tooltip'
@@ -1444,7 +1445,7 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
     // a file: its /f/<id> link (QA TC-3093); a folder keeps its Files address
     { label: t('rooms.menu.copyLink'), icon: icon(Link2), onSelect: run(() => void (folder ? copyLink(teamFileLink(e.path)) : copyFileLink(e.path))), testId: 'file-copy-link' },
     ...(!folder ? [{ label: t('common.download'), icon: icon(Download), onSelect: run(() => startDownload(fileUrl(e.path), e.name)), testId: 'file-download' }] : []),
-    { label: t(chatItemKey(folder), { name: aiName(t) }), icon: icon(folder ? MessageSquarePlus : Sparkles), onSelect: run(onChat), disabled: aiOff, describedBy: aiWhy, testId: 'chat-with-file' },
+    { label: t(chatItemKey(folder), { name: aiName(t) }), icon: folder ? icon(MessageSquarePlus) : <AiMark place="menu" />, onSelect: run(onChat), disabled: aiOff, describedBy: aiWhy, testId: 'chat-with-file' },
     ...(!folder && onAddToChat ? [{ label: t('files.addToChatNamed', { title: chatTitle }), icon: icon(Paperclip), onSelect: run(onAddToChat), disabled: aiOff, describedBy: aiWhy, testId: 'add-to-chat' }] : []),
     ...(project ? [{ label: t('files.openProject'), icon: icon(FolderKanban), onSelect: run(() => onProject(project)), testId: 'open-project' }] : []),
     ...(onAccess ? [{ label: t('folderAccess.menu'), icon: icon(UserPlus), onSelect: run(onAccess), testId: 'folder-access-menu' }] : []),

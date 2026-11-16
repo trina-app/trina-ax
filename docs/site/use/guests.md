@@ -107,6 +107,8 @@ things, such as their profile and notifications.
 
 In a project, the project's members can see the chats a guest has there. A guest who can use AI is told this on the project's page.
 
+Guests don't receive or share file links. To give a guest a file, post it in their group chat or project.
+
 ## One group chat and one project
 
 A guest can be in one group chat and one project at the same time, never more. An invite opens one place. To bring a

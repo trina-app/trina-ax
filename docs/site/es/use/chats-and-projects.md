@@ -192,7 +192,7 @@ respuestas tiene un hilo; **Enviar también a la sala** pone una respuesta tambi
 #### Enlazar a un mensaje
 
 **Copiar enlace** en el menú **⋯** de un mensaje (en un teléfono, mantenga pulsado el mensaje) copia su dirección. Péguela en cualquier
-canal, conversación de grupo, mensaje directo o hilo: se muestra como el nombre de la conversación, y el mensaje aparece debajo
+canal, chat de grupo, mensaje directo o hilo: se muestra como el nombre de la conversación, y el mensaje aparece debajo
 como una tarjeta con quién lo escribió, cuándo, su texto y sus archivos. Haga clic en la tarjeta para abrir el mensaje.
 
 Cada persona ve la tarjeta solo si puede ver ese mensaje. Para los demás, el enlace sigue siendo un enlace normal, y al abrirlo
@@ -201,23 +201,23 @@ antes de enviar: **Mostrar solo el enlace** (la opción predeterminada) envía s
 marcada como compartida por usted. La copia desaparece si se elimina el original. Para quitar una tarjeta de su propio mensaje, señálela
 y haga clic en **✕** (o elija **Quitar vista previa** en el menú del mensaje).
 
-![Chats en un teléfono: Menciones e hilos, canales, una conversación de grupo y un mensaje directo, con las cinco pestañas abajo](../../images/chats/rooms-phone.webp "Chats en un teléfono")
+![Chats en un teléfono: Menciones e hilos, canales, un chat de grupo y un mensaje directo, con las cinco pestañas abajo](../../images/chats/rooms-phone.webp "Chats en un teléfono")
 
 ### Invitados
 
-Una persona de fuera del equipo, como una agencia o un cliente, puede unirse a una conversación de grupo o a un proyecto como
-invitado, y estar como máximo en una conversación de grupo y en un proyecto. En una conversación de grupo, abra sus miembros (el nombre de arriba), **Invitar personas** y luego **Invitar a un invitado**; en
+Una persona de fuera del equipo, como una agencia o un cliente, puede unirse a un chat de grupo o a un proyecto como
+invitado, y estar como máximo en un chat de grupo y en un proyecto. En un chat de grupo, abra sus miembros (el nombre de arriba), **Invitar personas** y luego **Invitar a un invitado**; en
 un proyecto, **Añadir personas** en **Miembros**. Indique para quién es el enlace y si tendrá IA, y luego pulse **Crear enlace**. El enlace
 funciona una sola vez: envíeselo usted mismo.
 
-![Invitar a un invitado: solo verá la sala 'Launch email', un cuadro para indicar para quién es y la IA para esa persona: Sin IA o Su propio inicio de sesión](../../images/chats/invite-guest.webp "Invitar a un invitado")
+![Invitar a un invitado: solo verá el chat de grupo 'Launch email', un cuadro para indicar para quién es y la IA para esa persona: Sin IA o Su propio inicio de sesión](../../images/chats/invite-guest.webp "Invitar a un invitado")
 
-- Un invitado solo ve ese lugar: no tiene Archivos, ni otras salas o proyectos, ni áreas del equipo.
+- Un invitado solo ve ese lugar: no tiene Archivos, ni otros chats de grupo o proyectos, ni áreas del equipo.
 - Su IA está desactivada, salvo que usted elija **Su propio inicio de sesión** o que un administrador le dé una cuenta de **IA del equipo** con un límite mensual.
 - Junto a su nombre aparece la etiqueta **Invitado**, y el encabezado dice **Incluye 1 invitado**.
 - Los administradores ven a todos los invitados en **Administración › Miembros e invitaciones › Invitados** ([Administración](admin.md#invitados)).
 
-![La conversación de grupo Launch email: 4 miembros · Incluye 1 invitado, y Morgan Reyes respondiendo con la etiqueta Invitado](../../images/chats/guest-room.webp "Un invitado en una conversación de grupo")
+![El chat de grupo Launch email: 4 miembros · Incluye 1 invitado, y Morgan Reyes respondiendo con la etiqueta Invitado](../../images/chats/guest-room.webp "Un invitado en un chat de grupo")
 
 ## Proyectos
 
