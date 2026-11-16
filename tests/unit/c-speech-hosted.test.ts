@@ -58,6 +58,8 @@ beforeAll(async () => {
   const t = C().transcribe
   t.openRouterUrl = `http://127.0.0.1:${fake.port}/api/v1/audio/transcriptions`
   t.ffmpegBin = null
+  // as on Linux: an Apple silicon Mac decodes with its own programs instead (mac-local-speech.test.ts)
+  t.mac = null
   A.ctx.db.query("UPDATE users SET locale = 'en' WHERE id IN ('alice','bob')").run()
   fs.mkdirSync(path.join(A.team, 'users/alice'), { recursive: true })
 })

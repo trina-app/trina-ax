@@ -123,7 +123,8 @@ beforeEach(() => {
   frameJpeg = () => jpeg()
   probe = video(18)
   updateTeamSettings(A.ctx.db, { speechProvider: 'local', aiVision: true, aiMediaTranscripts: null })
-  Object.assign(F().speech, { whisperBin: '/usr/bin/true', modelDir: A.data, sharedModelDir: null, modelOverride: { file: 'fake-model.bin', size: 4, sha256: 'x' } })
+  // the converters are the fakes above; a server without macOS's decoders (as on Linux), unless a test gives them
+  Object.assign(F().speech, { whisperBin: '/usr/bin/true', modelDir: A.data, sharedModelDir: null, modelOverride: { file: 'fake-model.bin', size: 4, sha256: 'x' }, mac: null })
   fs.writeFileSync(path.join(A.data, 'fake-model.bin'), 'abcd')
   cores = spyOn(os, 'availableParallelism').mockReturnValue(8)
   spies.push(
@@ -607,6 +608,38 @@ describe('who transcribes, and when sound may leave the server', () => {
       F().speech.whisperBin = null
       expect((await read({ file_path: put('nowhisper.mp4') })).out.text).toContain('The transcription tool is missing here')
     } finally { srv.stop(true); F().speech.baseUrl = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/' }
+  })
+  test('an Apple silicon Mac: the first read downloads the model in its time and goes on, or says it is downloading', async () => {
+    const body = 'ten bytes!'
+    let gate: Promise<void> | null = null
+    let open = () => {}
+    const dl: string[] = []
+    const srv = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(req) { dl.push(new URL(req.url).pathname); if (gate) await gate; return new Response(body) } })
+    const dir = path.join(A.data, 'models-first')
+    try {
+      Object.assign(F().speech, { mac: { afinfo: '/usr/bin/afinfo', afconvert: '/usr/bin/afconvert', avconvert: null }, baseUrl: `http://127.0.0.1:${srv.port}/`, modelDir: dir,
+        modelOverride: { file: 'first.bin', size: body.length, sha256: crypto.createHash('sha256').update(body).digest('hex') } })
+      // a chat turn: the download is quick here, and the read transcribes with it
+      let r = await read({ file_path: put('first-use.m4a') })
+      expect(dl).toEqual(['/first.bin'])
+      expect(fs.readFileSync(path.join(dir, 'first.bin'), 'utf8')).toBe(body)
+      expect(local.calls).toBeGreaterThan(0)
+      expect(r.out.text).toContain('words at 0')
+      // the model gone again and its download slow: a call without a chat turn (one minute) cannot wait for it
+      fs.rmSync(path.join(dir, 'first.bin'))
+      gate = new Promise((resolve) => { open = resolve })
+      local.calls = 0
+      r = await read({ file_path: put('first-slow.m4a') }, { turnId: null })
+      expect(r.out.text).toContain('The speech model (about 488 MB, needed only the first time) is downloading now')
+      expect(local.calls).toBe(0)
+      // it goes on without the read and lands
+      open()
+      for (let i = 0; i < 100 && !fs.existsSync(path.join(dir, 'first.bin')); i++) await Bun.sleep(20)
+      expect(fs.existsSync(path.join(dir, 'first.bin'))).toBe(true)
+    } finally {
+      open(); srv.stop(true)
+      Object.assign(F().speech, { mac: null, baseUrl: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/' })
+    }
   })
   test('this server on a hosted plan: 30-second pieces, at most 2 minutes of new sound a read', async () => {
     setPlanForTests({ cpuCores: 2 } as any)

@@ -25,13 +25,15 @@ const fake = Bun.serve({
     return reply()
   },
 })
-let saved: { url: string; ffmpeg: string | null; whisper: string | null }
+let saved: { url: string; ffmpeg: string | null; whisper: string | null; mac: ReturnType<typeof C>['transcribe']['mac'] }
 beforeAll(async () => {
   A = await makeCApp('c-speech-confidential')
   const t = C().transcribe
-  saved = { url: t.openRouterUrl, ffmpeg: t.ffmpegBin, whisper: t.whisperBin }
+  saved = { url: t.openRouterUrl, ffmpeg: t.ffmpegBin, whisper: t.whisperBin, mac: t.mac ?? null }
   t.openRouterUrl = `http://127.0.0.1:${fake.port}/api/v1/audio/transcriptions`
   t.ffmpegBin = null
+  // as on Linux: an Apple silicon Mac decodes with its own programs instead (mac-local-speech.test.ts)
+  t.mac = null
   A.ctx.db.query("UPDATE users SET locale = 'en' WHERE id IN ('alice', 'bob')").run()
 })
 afterAll(async () => {
@@ -39,6 +41,7 @@ afterAll(async () => {
   t.openRouterUrl = saved.url
   t.ffmpegBin = saved.ffmpeg
   t.whisperBin = saved.whisper
+  t.mac = saved.mac
   await A.close()
   fake.stop(true)
 })
