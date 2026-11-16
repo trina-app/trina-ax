@@ -12,6 +12,7 @@ import { originAllowed, originsFor } from '../http/middleware'
 import { atLeast, loadPrincipal, RuleSet } from '../policy/access'
 import { visibleChanges } from '../team-files/changes'
 import { isRoomMember } from '../rooms/store'
+import { threadVisibleTo } from '../chat/threads'
 
 /** Hard caps on top of the contract's "at least 2000 events / 5 minutes" (memory stays bounded per person). */
 export const REPLAY_MAX_EVENTS = 20_000
@@ -257,7 +258,8 @@ export class Hub implements RealtimeHub {
    * file and folder names from the buffer when HTTP already answers 404. Anything that no longer passes unchanged
    * turns the whole replay into a resync (the window reloads over REST, which checks again), so nothing is skipped
    * silently either. Room events (room.*) the same way: replayed only while the person is still in the room (a
-   * removed member gets resync; the rooms list over REST no longer has the room).
+   * removed member gets resync; the rooms list over REST no longer has the room). A chat thread's events (chat.thread)
+   * only while the person still sees the thread (chat/threads.ts threadVisibleTo).
    */
   private stillVisible(userId: string, entries: readonly Entry[]): boolean {
     const rooms = new Set<string>()
@@ -266,6 +268,20 @@ export class Hub implements RealtimeHub {
       for (const r of rooms) if (!isRoomMember(this.ctx.db, r, userId)) return false
     } catch (e) {
       this.ctx.log.error('replay room check failed', { err: e, user: userId })
+      return false
+    }
+    // a thread under an AI answer of a shared chat (chat.thread carries reply text): replayed only while the person still
+    // sees that chat and answer (chat/threads.ts threadAccess); access is worked out live, so someone taken out of the
+    // chat since (people-share.ts, admin/folders.ts) gets resync and reloads over REST
+    const threads = new Set<string>()
+    for (const { ev } of entries) if (ev.type === 'chat.thread') threads.add(`${ev.data.chatId} ${ev.data.rootId}`)
+    try {
+      for (const k of threads) {
+        const [chatId, rootId] = k.split(' ') as [string, string]
+        if (!threadVisibleTo(this.ctx, userId, chatId, rootId)) return false
+      }
+    } catch (e) {
+      this.ctx.log.error('replay thread check failed', { err: e, user: userId })
       return false
     }
     const files = entries.filter((e) => e.ev.type === 'files.changed' || e.ev.type === 'files.conflict')

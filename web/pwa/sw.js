@@ -61,7 +61,10 @@ const pushPending = new Set()
 // fetch of the notice, never from the payload)
 // chat.shared: someone shared a chat with me by name ("Chats shared with me"); the title is who shared it and a click opens
 // the chat, both from the signed-in fetch of the notice (never the chat's title, never from the payload)
-const PUSH_PREF = { 'schedule.success': 'scheduleSuccess', 'schedule.failure': 'scheduleFailure', 'connection.reconnect': 'connectionReconnect', 'chat.answer_done': 'chatAnswers', 'chat.shared': 'chatShares' }
+// chat.thread_reply: a reply in a thread I follow under an AI answer of a shared chat ("Replies in threads I'm part of");
+// a click opens that thread, its ids from the signed-in fetch of the notice (never the reply, the chat's title or the
+// payload)
+const PUSH_PREF = { 'schedule.success': 'scheduleSuccess', 'schedule.failure': 'scheduleFailure', 'connection.reconnect': 'connectionReconnect', 'chat.answer_done': 'chatAnswers', 'chat.shared': 'chatShares', 'chat.thread_reply': 'roomThreadReplies' }
 // room.dm / room.mention: a message or an @mention in a room. No switch of their own here: each room's level decides on
 // the server, which sends the push only while that level still asks for it (docs/DECISIONS.md "대화방 알림 설정"; a room
 // at its own level alerts even with the default 받지 않음, whose older switch roomMessages is then false)
@@ -192,6 +195,8 @@ self.addEventListener('push', event => {
       // an AI chat's answer opens its chat while the person may still open it (the same signed-in fetch); a chat they
       // can no longer open lands on the start page (the Inbox never lists these notices)
       const chatId = !roomId && (payload.code === 'chat.answer_done' || payload.code === 'chat.shared') && item.link === 'chat' && opaqueId(item.chatId) ? item.chatId : undefined
+      // a chat thread's reply opens that thread while the person still sees it (the same signed-in fetch)
+      const chatThread = payload.code === 'chat.thread_reply' && item.link === 'chat_thread' && item.chatThread?.gone !== true && opaqueId(item.chatThread?.chatId) && opaqueId(item.chatThread?.rootId) ? item.chatThread : undefined
       // a connection that needs a sign-in again opens its own page, where "Sign in again" is (the same signed-in fetch;
       // the Inbox row's link) while it is still the person's: a Google app's page or the connection's. Google Drive's and
       // a removed one's (no connection in the notice): the Inbox, as before
@@ -216,7 +221,7 @@ self.addEventListener('push', event => {
       const seq = roomId && Number.isSafeInteger(item.room?.seq) && item.room.seq >= 0 ? item.room.seq : undefined
       const markRead = typeof settings.messages?.markRead === 'string' && settings.messages.markRead ? settings.messages.markRead.slice(0, 40) : ''
       const actions = seq !== undefined && markRead ? [{ action: 'read', title: markRead }] : []
-      await self.registration.showNotification(shownTitle, { body: preview || (sharer && sharedBy) || body, tag, renotify: false, silent, ...(actions.length ? { actions } : {}), data: roomId ? { notificationId: payload.notificationId, roomId, ...(threadId ? { threadId } : {}), ...(seq !== undefined ? { seq } : {}) } : { notificationId: payload.notificationId, ...(chatId ? { chatId } : {}), ...(appRoomId ? { roomId: appRoomId } : {}), ...(connectionId ? { connectionId } : {}), ...(connectorId ? { connectorId } : {}), ...(fileBatch ? { fileBatch } : fileLink ? { fileLink } : {}), ...(HOME_CODES.has(payload.code) || (FILE_CODES.has(payload.code) && !fileBatch && !fileLink) || (payload.code === 'chat.answer_done' && !chatId) ? { home: true } : {}) } })
+      await self.registration.showNotification(shownTitle, { body: preview || (sharer && sharedBy) || body, tag, renotify: false, silent, ...(actions.length ? { actions } : {}), data: roomId ? { notificationId: payload.notificationId, roomId, ...(threadId ? { threadId } : {}), ...(seq !== undefined ? { seq } : {}) } : { notificationId: payload.notificationId, ...(chatId ? { chatId } : {}), ...(chatThread ? { chatId: chatThread.chatId, chatThreadId: chatThread.rootId } : {}), ...(appRoomId ? { roomId: appRoomId } : {}), ...(connectionId ? { connectionId } : {}), ...(connectorId ? { connectorId } : {}), ...(fileBatch ? { fileBatch } : fileLink ? { fileLink } : {}), ...(HOME_CODES.has(payload.code) || (FILE_CODES.has(payload.code) && !fileBatch && !fileLink) || (payload.code === 'chat.answer_done' && !chatId) ? { home: true } : {}) } })
       if (generation !== pushEpoch) {
         for (const item of await self.registration.getNotifications({ tag })) item.close()
         return
@@ -247,10 +252,10 @@ self.addEventListener('notificationclick', event => {
   event.waitUntil((async () => {
     // The payload cannot choose a URL or open a chat whose access has since changed. A room notice opens its room (the
     // id stored at show time from the authenticated notice; the room page checks membership again).
-    const roomId = event.notification.data?.roomId, threadId = event.notification.data?.threadId, chatId = event.notification.data?.chatId
+    const roomId = event.notification.data?.roomId, threadId = event.notification.data?.threadId, chatId = event.notification.data?.chatId, chatThreadId = event.notification.data?.chatThreadId
     const connectionId = event.notification.data?.connectionId, connectorId = event.notification.data?.connectorId
     const fileBatch = event.notification.data?.fileBatch, fileLink = event.notification.data?.fileLink
-    const target = new URL(opaqueId(roomId) ? (opaqueId(threadId) ? `/rooms/${roomId}/t/${threadId}` : `/rooms/${roomId}`) : opaqueId(chatId) ? `/c/${chatId}`
+    const target = new URL(opaqueId(roomId) ? (opaqueId(threadId) ? `/rooms/${roomId}/t/${threadId}` : `/rooms/${roomId}`) : opaqueId(chatId) ? (opaqueId(chatThreadId) ? `/c/${chatId}/t/${chatThreadId}` : `/c/${chatId}`)
       : opaqueId(fileBatch) ? `/f/batch/${fileBatch}` : opaqueId(fileLink) ? `/f/${fileLink}`
       : opaqueId(connectionId) ? `/settings/connectors/mcp/${connectionId}` : opaqueId(connectorId) ? `/settings/connectors/${connectorId}`
       : event.notification.data?.home === true ? '/' : '/settings/notifications', self.location.origin).href

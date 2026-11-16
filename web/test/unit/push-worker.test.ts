@@ -16,7 +16,7 @@ function worker(database = new IDBFactory(), pages: Page[] = [{}], nav?: BadgeNa
   const shown: { title: string; options: any; closed: boolean; close(): void }[] = []
   const requests: { path: string; options: RequestInit }[] = [], navigated: string[] = [], asked: unknown[] = [], closed = { n: 0 }
   let settings = { configured: true, enabled: true, subscriptionId: 'subscription-1', messages: pushMessages('en') }
-  let preferences = { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true, chatAnswers: true, chatShares: true }
+  let preferences = { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true, chatAnswers: true, chatShares: true, roomThreadReplies: true }
   // the signed-in notice names the task for the Inbox (schedule.title); the lock screen never shows it
   let item: any = { id: 'event-1', code: 'schedule.success', readAt: null, schedule: { title: 'PRIVATE TASK TITLE' } }
   let status = 200, gate: Promise<void> | null = null
@@ -255,6 +255,33 @@ test('a chat shared with me by name: the sharer as the title from the signed-in 
   off.preferences({ chatShares: false })
   off.item({ id: 'event-1', code: 'chat.shared', readAt: null, link: 'chat', chatId, chatShared: { name: 'Mia', title: null } })
   await off.push({ ...payload, code: 'chat.shared' })
+  expect(off.shown).toHaveLength(0)
+})
+
+test('a reply in a chat thread: the generic line, a click opens the thread from the signed-in notice; gone or the setting off shows nothing of it', async () => {
+  const chatId = '0190f5a0-0000-7000-8000-0000000000d1', rootId = '0190f5a0-0000-7000-8000-0000000000d2'
+  const w = worker()
+  w.configure({ messages: pushMessages('en') })
+  w.item({ id: 'event-1', code: 'chat.thread_reply', readAt: null, link: 'chat_thread', chatId, chatThread: { chatId, rootId, name: 'PRIVATE NAME', title: 'PRIVATE TITLE' } })
+  await w.push({ ...payload, code: 'chat.thread_reply', chatId: 'evil' })
+  expect(w.shown).toHaveLength(1)
+  expect(w.shown[0]!.title).toBe(pushMessages('en').title)
+  expect(w.shown[0]!.options).toMatchObject({ body: 'Someone replied in a thread.', data: { notificationId: 'event-1', chatId, chatThreadId: rootId } })
+  expect(JSON.stringify(w.shown)).not.toMatch(/PRIVATE/)
+  await w.clickShown()
+  expect(w.navigated).toEqual([`https://team.example/c/${chatId}/t/${rootId}`])
+  const gone = worker()
+  gone.configure({ messages: pushMessages('en') })
+  gone.item({ id: 'event-1', code: 'chat.thread_reply', readAt: null, link: null, chatId: null, chatThread: { chatId: null, rootId: null, name: null, title: null, gone: true } })
+  await gone.push({ ...payload, code: 'chat.thread_reply' })
+  expect(gone.shown[0]!.options.data).toEqual({ notificationId: 'event-1' })
+  await gone.clickShown()
+  expect(gone.navigated).toEqual(['https://team.example/settings/notifications'])
+  const off = worker()
+  off.configure({ messages: pushMessages('en') })
+  off.preferences({ roomThreadReplies: false })
+  off.item({ id: 'event-1', code: 'chat.thread_reply', readAt: null, link: 'chat_thread', chatId, chatThread: { chatId, rootId, name: null, title: null } })
+  await off.push({ ...payload, code: 'chat.thread_reply' })
   expect(off.shown).toHaveLength(0)
 })
 

@@ -16,7 +16,7 @@
 // there (Message.withheld: it used something I cannot open, and I did not see the chat then) is one faint line in its
 // place, the rooms' words ("볼 수 없는 자료를 참고한 답이라 가려졌어요"), with only its branch switch.
 import clsx from 'clsx'
-import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, Copy, History, Info, Loader2, MessageSquareShare, Paperclip, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
+import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, Copy, History, Info, Loader2, MessageSquareReply, MessageSquareShare, Paperclip, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, chatErrorReason, ERROR_MESSAGES, hideThreadRef, isDefaultErrorMessage, sideQuoteOf, skillLabel, type Attachment, type EngineId, type SideQuote, type Step, type UserRef } from '@mycel/shared/api'
@@ -70,6 +70,7 @@ import { useViewerItem } from '../ImageViewer'
 import { attachmentItem, chatFileItem } from '../../lib/imageViewer'
 import { itemImage, teamFileLink } from '../../lib/fileMenu'
 import { useFileMenu } from '../FileMenu'
+import { ThreadLine } from '../ThreadLine'
 
 export { ENGINE_LABEL }
 
@@ -620,6 +621,7 @@ export function AssistantMessage({
   canRegenerate = true,
   canSuggest: canSuggestHere = true,
   pressMenu = false,
+  onThread,
 }: {
   m: ViewMessage
   chatId: string
@@ -650,6 +652,10 @@ export function AssistantMessage({
    * does (usePhonePress); "스레드에 보내기" / "대화방에 보내기" stays under the answer (docs/DECISIONS.md "Trina side chat:
    * send here") */
   pressMenu?: boolean
+  /** a shared chat (docs/decisions/20261116-chat-answer-threads.md): "Reply in thread" on a finished answer and the
+   * thread's line under it; `focus` puts the caret in the thread's box. Absent: no thread (a chat of one person, a room's
+   * side chat: never shared) */
+  onThread?: (focus: boolean) => void
 }) {
   const t = useT()
   const locale = useLocale()
@@ -714,6 +720,8 @@ export function AssistantMessage({
   const canRetry = !(m.status === 'error' && isLast) && !limitNow && canRegenerate
   const finished = !!m.content && m.status === 'done'
   const sendHereOn = !!sendHere && shareable && finished
+  // an answer that can have a thread: finished (done or stopped), not hidden from me
+  const threadable = !!onThread && !m.withheld && (m.status === 'done' || m.status === 'stopped')
   const pressItems: MenuItem[] = pressMenu && !streaming ? [
     ...(m.content ? [{ label: t('chat.copyAnswer'), icon: <Copy size={14} aria-hidden />, onSelect: () => {
       let rich: string | undefined
@@ -851,6 +859,11 @@ export function AssistantMessage({
               </span>
             )}
             <span className={clsx('flex items-center gap-1 max-md:gap-3 md:contents', untilTap && UNTIL_TAP)} data-testid="answer-actions-tap-more">
+              {threadable && (
+                <IconButton label={t('rooms.replyInThread')} onClick={() => onThread!(true)} className="touch-hit" data-testid="reply-in-thread">
+                  <MessageSquareReply size={13} />
+                </IconButton>
+              )}
               {shareable && finished && !sendHere && (
                 <IconButton label={t('chat.shareToRoom')} onClick={() => setSharing(true)} className="touch-hit" data-testid="share-to-room">
                   <MessageSquareShare size={13} />
@@ -872,6 +885,8 @@ export function AssistantMessage({
             {(m.model || m.engine) && <AnsweredBy m={m} className={clsx(untilTap && UNTIL_TAP)} />}
           </div>
         )}
+        {/* the thread under it: always in sight (a phone too), the line opens it */}
+        {threadable && <ThreadLine summary={m.thread} onOpen={() => onThread!(false)} testId="chat-thread-line" />}
         {sendHere && shareable && !streaming && <SendHereNote answerId={m.id} />}
         {suggesting && (
           <SuggestSkillDialog source={{ kind: 'message', chatId, messageId: m.id }} initialContent={m.content} onClose={() => setSuggesting(false)} />

@@ -20,6 +20,8 @@ export function registerChatAccountCleanup(ctx: AppContext): void {
       // chats shared with people and groups (chat/people-share.ts): their "Hide from my list" rows, their Inbox notices and
       // that they were in one (chat_audience_past: chat/chat-audience.ts)
       'chat_list_hidden.user_id', 'chat_share_notices.user_id', 'chat_audience_past.user_id',
+      // threads on AI answers (chat/threads.ts): what they follow and their notices; their replies stay (KEPT_WITH_ACCOUNT)
+      'chat_thread_follows.user_id', 'chat_thread_notices.user_id',
     ],
     // and they leave every chat's audience they were named in (chat_audience: a subject, not a users(id) column; their
     // messages there stay under the tombstone name). removeAccount does it in its own write too; this covers accounts
