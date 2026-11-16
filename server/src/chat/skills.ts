@@ -17,7 +17,7 @@ import { isMap, isScalar, parseDocument } from 'yaml'
 import { parseSkillInputs, readSkillTitle, SKILL_EXAMPLE_MAX, type SkillInput } from '@mycel/shared/api'
 import type { FileService } from '../files/service'
 import { readRegular } from '../files/store'
-import { atLeast, type Principal, type RuleSet } from '../policy/access'
+import { atLeast, isStaff, type Principal, type RuleSet } from '../policy/access'
 import { authorize } from '../policy/authorize'
 import { PROJECTS_DIR, projectLevelPossible, projectSkillsDir } from '../skills/guard'
 
@@ -122,6 +122,16 @@ export function groupSkillRoots(db: Database, user: Pick<Principal, 'groups'>): 
     if (!out.some((g) => g.root === root)) out.push({ id: r.id, name: r.name, root })
   }
   return out
+}
+/** The skill roots of every group with a folder, for the owner and admins only (they write every group's folder);
+ * `groupSkillRoots` of anyone else. Used to pick where a skill may be moved to, never to list or run skills: those stay
+ * with the groups a person is in. */
+export function movableGroupSkillRoots(db: Database, user: Pick<Principal, 'groups' | 'role'> & { system?: true }): GroupSkillRoot[] {
+  if (!isStaff(user)) return groupSkillRoots(db, user)
+  try {
+    const ids = (db.query('SELECT id FROM groups').all() as { id: string }[]).map((r) => r.id)
+    return groupSkillRoots(db, { groups: ids })
+  } catch { return [] }
 }
 /** The group whose folder is `folder` (groups/<name>, as the folders row has it; letter case and Unicode form ignored
  * only when no row has it exactly), or null: a folder left behind by a deleted group, or no group's folder at all. */
@@ -604,9 +614,10 @@ export function listTeamSkills(files: FileService, user: Principal): Skill[] {
 
 /** The skills of one group of `user` (its groups/<folder>/skills/ only), whether or not a personal skill of theirs has
  * the same name; [] when they are not a member: for checks against a group's own skills (a share to that group). */
-export function listGroupSkills(files: FileService, user: Principal, groupId: string): Skill[] {
+export function listGroupSkills(files: FileService, user: Principal, groupId: string, o: { anyGroup?: boolean } = {}): Skill[] {
   const out: Skill[] = []
-  const groups = groupSkillRoots(files.db, user).filter((g) => g.id === groupId)
+  // anyGroup: the owner or an admin, who may move a skill into a group they are not in (skills/move.ts), checks its names
+  const groups = (o.anyGroup ? movableGroupSkillRoots(files.db, user) : groupSkillRoots(files.db, user)).filter((g) => g.id === groupId)
   if (!groups.length) return out
   const scan: Scan = { rules: files.rules(), dirs: new Map(), groups, projects: [] }
   walkSkillRoot(files, user, groups[0]!.root, (rel) => {

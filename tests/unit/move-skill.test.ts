@@ -85,6 +85,28 @@ describe('the plan: where it may go, who gains and who loses it', () => {
     expect(levelsOf(ctx, who('dana')).filter((l) => l.level === 'project')).toEqual([])
   })
 
+  test('SKL-08: the owner and admins may move a skill into any group; a member only into their own', () => {
+    const groupLevels = (u: string) => levelsOf(ctx, who(u)).flatMap((l) => (l.level === 'group' ? [l.group.id] : [])).sort()
+    // carol (admin) and dana (owner) are in no group and get both; alice (marketing) only her own; bob only finance
+    expect(groupLevels('carol')).toEqual(['finance', 'marketing'])
+    expect(groupLevels('dana')).toEqual(['finance', 'marketing'])
+    expect(groupLevels('alice')).toEqual(['marketing'])
+    expect(groupLevels('bob')).toEqual(['finance'])
+    const toGroup = (u: string, id: string) => levelsOf(ctx, who(u)).find((l) => l.level === 'group' && l.group.id === id)!
+    for (const u of ['carol', 'dana']) {
+      const p = planMove(ctx, who(u), skillAt(ctx, who(u), 'skills/ops/SKILL.md')!, toGroup(u, 'marketing'), 'en')
+      expect(p.blocked).toBeNull()
+      // only the group's members get it: no one outside gains it, and who loses it is counted as for any move
+      expect(p.readerIds).toEqual(['alice', 'erin'])
+    }
+    // the name check sees what is in the group, though the admin is not a member: "brief" is taken there
+    const dup = planMove(ctx, who('carol'), skillAt(ctx, who('carol'), 'skills/ops/SKILL.md')!, toGroup('carol', 'marketing'), 'en', { copy: true, name: 'brief' })
+    expect(dup.blocked?.key).toBe('moveTaken')
+    // a member cannot write the team's skills folder, so she gets no way in from there either
+    expect(planMove(ctx, who('alice'), skillAt(ctx, who('alice'), 'users/alice/skills/launch/SKILL.md')!, toGroup('alice', 'marketing'), 'en').blocked).toBeNull()
+    expect(levelsOf(ctx, who('alice')).some((l) => l.level === 'group' && l.group.id === 'finance')).toBe(false)
+  })
+
   test('a name already at the target is refused; a project gets SKILL.md folders only, and never a name a wider one has', () => {
     expect(plan('alice', 'users/alice/skills/launch/SKILL.md', 'project').blocked).toEqual({ key: 'moveTaken', vars: { to: 'Falcon project chats', name: 'launch' } })
     expect(plan('alice', 'users/alice/skills/memo.md', 'project').blocked?.key).toBe('moveNotFolder')
@@ -186,7 +208,9 @@ describe('the plan: where it may go, who gains and who loses it', () => {
     expect(o.from).toEqual({ label: 'whole team', people: 5, level: 'team' })
     expect(o.text).toContain('OPS-BODY-CANARY')
     // hawk is not offered: carol (admin) is not one of its members
-    expect(o.targets.map((x) => x.to.level).sort()).toEqual(['personal', 'project'])
+    // and every group, as carol is an admin (SKL-08: she is in none)
+    expect(o.targets.map((x) => x.to.level).sort()).toEqual(['group', 'group', 'personal', 'project'])
+    expect(o.targets.filter((x) => x.to.level === 'group').every((x) => x.token && !x.blocked)).toBe(true)
     expect(o.targets.find((x) => x.to.level === 'project')!.to).toMatchObject({ projectId: FALCON })
     for (const x of o.targets) expect(!!x.token).toBe(!x.blocked)
     // a skill the caller does not have: not found (no oracle)
@@ -386,9 +410,21 @@ describe('in the app: the Skills page and the AI', () => {
     // the project has a "launch" already
     const t = await turn('alice', moveCall({ skill: 'users/alice/skills/launch/SKILL.md', to: 'project' }))
     expect(t.content).toContain('Falcon project chats already has a skill "launch". Rename one of the two, or remove that one first.')
-    const g = await turn('carol', moveCall({ skill: 'ops', to: 'group', group: 'Finance' }))
+    // a member (alice is not in Finance) still gets only her own groups
+    const g = await turn('alice', moveCall({ skill: 'users/alice/skills/launch/SKILL.md', to: 'group', group: 'Finance' }))
     expect(g.content).toContain('is not one of the user\'s groups')
-    expect(g.content).toContain('The user\'s groups: none.')
+    expect(g.content).toContain('The user\'s groups: "Leads", "Marketing".')
+  })
+
+  test('an admin\'s move into a group they are not in is offered on a card (SKL-08); the group is judged by the team\'s groups', async () => {
+    // carol (admin) is in no group: the card for Finance appears (nothing moves before her yes)
+    const r = await turn('carol', moveCall({ skill: 'quote', to: 'group', group: 'Finance' }), { answer: 'skip' })
+    expect(r.content).not.toContain('is not one of the user\'s groups')
+    expect(r.card).not.toBeNull()
+    expect(fs.existsSync(path.join(h.team, 'skills/ops/SKILL.md'))).toBe(true)
+    // a group that does not exist is still refused, naming the team's groups
+    const none = await turn('carol', moveCall({ skill: 'quote', to: 'group', group: 'Nowhere' }))
+    expect(none.content).toContain('is not a group of this team')
   })
 
   test('a plain folder is not a project yet', async () => {
@@ -499,6 +535,22 @@ describe('in the app: the Skills page and the AI', () => {
     expect(a.target).toBe('groups/marketing/skills/brief/SKILL.md')
     expect(JSON.parse(a.detail).to).toMatchObject({ level: 'personal', path: null })
     expect(await status(h.api('alice').call(API.moveSkill, { body: { path: 'skills/quote/SKILL.md', to: { level: 'personal' }, token: 'x' } }))).toBe(409)
+  })
+
+  test('SKL-08, the Skills page: the owner moves a team skill into a group they are not in; a member cannot target one', async () => {
+    fs.mkdirSync(path.join(h.team, 'skills/qa-owner-move'), { recursive: true })
+    fs.writeFileSync(path.join(h.team, 'skills/qa-owner-move/SKILL.md'), md('qa-owner-move', 'owner move test'))
+    const rel = 'skills/qa-owner-move/SKILL.md'
+    const o = await h.api('dana').call(API.skillMoveOptions, { query: { path: rel } })
+    const fin = o.targets.find((x) => x.to.level === 'group' && x.to.groupId === 'finance')!
+    expect(fin.blocked).toBeUndefined()
+    const done = await h.api('dana').call(API.moveSkill, { body: { path: rel, to: fin.to, token: fin.token! } })
+    expect(done.path).toBe('groups/finance/skills/qa-owner-move/SKILL.md')
+    expect(fs.existsSync(path.join(h.team, 'groups/finance/skills/qa-owner-move/SKILL.md'))).toBe(true)
+    // a member is offered only her own group, and a hand-made request for another is refused
+    const a = await h.api('alice').call(API.skillMoveOptions, { query: { path: 'users/alice/skills/quote/SKILL.md' } })
+    expect(a.targets.filter((x) => x.to.level === 'group').map((x) => x.to.level === 'group' && x.to.groupId).sort()).toEqual(['leads', 'marketing'])
+    expect(await status(h.api('alice').call(API.moveSkill, { body: { path: 'users/alice/skills/quote/SKILL.md', to: { level: 'group', groupId: 'finance' }, token: 'x' } }))).toBe(404)
   })
 
   test('the Skills page: a project\'s first skill makes its skills folder; who gets it changing after the dialog refuses', async () => {

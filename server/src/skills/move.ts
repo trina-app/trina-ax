@@ -18,7 +18,7 @@ import { audit } from '../admin/audit'
 import { atLeast, type Principal } from '../policy/access'
 import { authorize } from '../policy/authorize'
 import { foldKey } from '../policy/names'
-import { checkSkill, groupSkillRoots, isPersonalSkill, isSkillManifest, listGroupSkills, listSkills, listTeamSkills, liveProjectRoots, personalSkillsDir, projectOfFolder, projectSkillSections, readSkill, sameSkillName, SKILL_NAME_MAX, SKILL_NAME_RE, skillFolder, skillTier, widerSkillsNamed, type Skill } from '../chat/skills'
+import { checkSkill, groupSkillRoots, isPersonalSkill, isSkillManifest, listGroupSkills, movableGroupSkillRoots, listSkills, listTeamSkills, liveProjectRoots, personalSkillsDir, projectOfFolder, projectSkillSections, readSkill, sameSkillName, SKILL_NAME_MAX, SKILL_NAME_RE, skillFolder, skillTier, widerSkillsNamed, type Skill } from '../chat/skills'
 import { mayEditProject } from '../chat/projects'
 import { HttpError } from '../http/errors'
 import { componentC } from '../team-files/component'
@@ -80,7 +80,8 @@ export function levelsOf(ctx: AppContext, user: Principal): Level[] {
     .map((p): Level => ({ level: 'project', root: p.root, folder: p.folder, project: { id: p.id, name: p.name } }))
   return [
     { level: 'team', root: SKILLS_DIR },
-    ...groupSkillRoots(ctx.db, user).map((g): Level => ({ level: 'group', root: g.root, group: { id: g.id, name: g.name } })),
+    // the owner and admins may move a skill into any group (they write every folder); members only into their own
+    ...movableGroupSkillRoots(ctx.db, user).map((g): Level => ({ level: 'group', root: g.root, group: { id: g.id, name: g.name } })),
     ...projects,
     { level: 'personal', root: personalSkillsDir(user.id) },
   ]
@@ -250,7 +251,7 @@ function widerSameName(ctx: AppContext, user: Principal, name: string, except: s
 /** The skills already at level `l` (for the name check), as `user` sees them. */
 function skillsAtLevel(ctx: AppContext, user: Principal, l: Level): Skill[] {
   if (l.level === 'team') return listTeamSkills(ctx.files, user)
-  if (l.level === 'group') return listGroupSkills(ctx.files, user, l.group.id)
+  if (l.level === 'group') return listGroupSkills(ctx.files, user, l.group.id, { anyGroup: true })
   if (l.level === 'project') return listSkills(ctx.files, user, { project: { id: l.project.id, name: l.project.name, folderPath: l.folder } }).filter((s) => s.project?.id === l.project.id)
   return listSkills(ctx.files, user).filter((s) => isPersonalSkill(s.path))
 }
