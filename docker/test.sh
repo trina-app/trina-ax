@@ -8,7 +8,8 @@
 #
 # Checks: health, the setup page, the setup link, first-run setup through the published port, the engine firewall
 # (axagent reaches only the model proxy), Landlock and seccomp inside a bubblewrap sandbox as axagent, the launcher status, and a restart
-# that does not run the installer again.
+# that does not run the installer again. The bubblewrap check passes --hostname mycel-turn as the launcher does for each
+# turn (TC-2853: without sethostname in seccomp.json every AI turn stopped with "Can't set hostname"). No real AI turn.
 set -euo pipefail
 cd "$(dirname "$0")"
 export COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-trina-ax-test}
@@ -76,13 +77,13 @@ pass "engine firewall: axagent reaches only 127.0.0.1:47821"
 P=$(X runuser -u axagent -- /var/lib/mycel/root/mycel-sandbox probe)
 case "$P" in *'"seccomp":true'*) ;; *) fail "seccomp not available: $P" ;; esac
 case "$P" in *'"landlockAbi":0'*|*'"landlockAbi":-'*) fail "no Landlock: $P" ;; esac
-X bash -c 'cd / && runuser -u axagent -- bwrap --unshare-all --unshare-user --disable-userns --die-with-parent --new-session --cap-drop ALL \
+X bash -c 'cd / && runuser -u axagent -- bwrap --unshare-all --unshare-user --disable-userns --die-with-parent --new-session --cap-drop ALL --hostname mycel-turn \
   --ro-bind /usr /usr --symlink usr/lib /lib --symlink usr/lib64 /lib64 --symlink usr/bin /bin --ro-bind /etc/ld.so.cache /etc/ld.so.cache \
   --proc /proc --dev /dev --tmpfs /tmp --ro-bind /var/lib/mycel/root/mycel-sandbox /tmp/s --remount-ro / --chdir /tmp -- \
   /tmp/s exec --landlock required --exec-allow /usr/bin --exec-allow /usr/lib -- /usr/bin/bash -c "
-    test \"\$(id -u)\" = 981 && test ! -e /var/lib/mycel && ! (exec 3<>/dev/tcp/1.1.1.1/443) 2>/dev/null && ! touch /usr/x 2>/dev/null"' \
+    test \"\$(id -u)\" = 981 && test \"\$(cat /proc/sys/kernel/hostname)\" = mycel-turn && test ! -e /var/lib/mycel && ! (exec 3<>/dev/tcp/1.1.1.1/443) 2>/dev/null && ! touch /usr/x 2>/dev/null"' \
   || fail "bubblewrap + Landlock sandbox as axagent"
-pass "sandbox: bubblewrap (user, pid, net namespaces) + Landlock + seccomp as axagent ($P)"
+pass "sandbox: bubblewrap (user, pid, net, UTS namespaces, hostname mycel-turn as each turn has) + Landlock + seccomp as axagent ($P)"
 # the launcher's own view (the answer the server's diagnostics show): bwrap, Landlock required, firewall loaded
 L=$(X runuser -u axserver -- python3 -I -c 'import socket,sys
 s=socket.socket(socket.AF_UNIX); s.settimeout(10); s.connect("/var/lib/mycel/run-launcher/launcher.sock")
