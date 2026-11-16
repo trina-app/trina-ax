@@ -20,7 +20,11 @@ import { skillHead } from '../../src/components/skills/ContributeSheet'
 import { AvailableSkillsList } from '../../src/components/AvailableSkills'
 import { skillsLink } from '../../src/components/settings/Notifications'
 import Activity from '../../src/pages/Activity'
-import Skills, { byPerson } from '../../src/pages/Skills'
+import Skills, { byPerson, skillFolderWords } from '../../src/pages/Skills'
+import { useListCache } from '../../src/store/listCache'
+import { skillsChanged } from '../../src/store/live'
+import { useSkillsWaiting } from '../../src/store/skillsWaiting'
+import { folderWords } from '../../src/lib/folderLabels'
 import { useSession } from '../../src/store/session'
 import type { ViewMessage } from '../../src/store/thread'
 import type { DirectoryHandleLike } from '../../src/lib/skillScan'
@@ -446,6 +450,90 @@ describe('Skills › 검토', () => {
     }
     expect(await selected('/skills', '-tab-review')).toEndWith('-tab-review')
     expect(await selected('/skills?catalog=open')).toEndWith('-tab-skills')
+  })
+})
+
+describe('Skills › 검토 shows only what waits', () => {
+  const skillsPage = () => (
+    <MemoryRouter initialEntries={['/skills?review=1']}>
+      <Routes><Route path="/skills" element={<Skills />} /></Routes>
+    </MemoryRouter>
+  )
+  const decided = () => [
+    folderSuggestion('old-report', { status: 'approved', resultPath: 'skills/old-report/SKILL.md', reviewer: { id: 'dana', name: '대표' }, canReview: false }),
+    folderSuggestion('old-notes', { status: 'rejected', reviewNote: '비슷한 스킬이 있어요', reviewer: { id: 'dana', name: '대표' }, canReview: false, suggester: { id: 'jin', name: '지은' } }),
+  ]
+
+  test('a skills folder is said in words, never as a path', () => {
+    const path = folderWords('en', 'dana').path
+    expect(skillFolderWords('skills', path)).toBe('Team skills')
+    expect(skillFolderWords('skills/sales', path)).toBe('Team skills › sales')
+    expect(skillFolderWords('groups/north office/skills', path)).toBe('north office')
+    expect(skillFolderWords('groups/north office/skills/quotes', path)).toBe('north office › quotes')
+  })
+
+  test('nothing waits: the empty state, and the decided ones folded under 검토한 제안 (not in the list)', async () => {
+    useListCache.getState().reset()
+    signIn('owner')
+    review = decided()
+    const m = await mount(skillsPage())
+    try {
+      await m.until(() => m.find('reviewed-section'), 'the reviewed section')
+      // nothing in the list to review, and no person heading
+      expect(m.find('review-list')).toBeNull()
+      expect(m.container.ownerDocument!.body.textContent).toContain(ko('skills.noReview'))
+      expect(m.find('review-group-head')).toBeNull()
+      // folded: its rows are not drawn until it is opened
+      expect(m.find('reviewed-list')).toBeNull()
+      expect(m.get('reviewed-head').textContent).toContain(ko('skills.reviewed'))
+      expect(m.get('reviewed-head').textContent).toContain('2')
+      await m.click('panel-section-fold')
+      await m.until(() => m.find('reviewed-list'), 'the reviewed rows')
+      const text = m.get('reviewed-list').textContent!
+      expect(text).toContain(ko('skills.status.approved'))
+      expect(text).toContain(ko('skills.status.rejected'))
+      expect(text).toContain('비슷한 스킬이 있어요')
+      // "등록됨: …" is a quiet line, not the accent colour (it read as an error)
+      const result = m.get('suggestion-result')
+      expect(result.className).toContain('text-muted')
+      expect(result.className).not.toContain('accent')
+      expect(result.className).not.toContain('danger')
+      // the settings sentence about folders is gone from the tab
+      expect(m.container.ownerDocument!.body.textContent).not.toContain('skills/,')
+    } finally { await m.unmount() }
+  })
+
+  test('one waiting row: no person heading, the person is in the row; decided ones stay out of the list', async () => {
+    useListCache.getState().reset()
+    // the reviewed section's fold is remembered: start folded again
+    localStorage.clear()
+    signIn('owner')
+    review = [folderSuggestion('weekly-report'), ...decided()]
+    const m = await mount(skillsPage())
+    try {
+      await m.until(() => m.find('review-list'), 'the review list')
+      const rows = [...m.get('review-list').querySelectorAll('[data-testid="suggestion"]')]
+      expect(rows.map((r) => r.getAttribute('data-status'))).toEqual(['pending'])
+      expect(m.find('review-group-head')).toBeNull()
+      expect(m.get('review-list').textContent).toContain('민준')
+      expect(m.get('review-list').textContent).not.toContain('old-report')
+    } finally { await m.unmount() }
+  })
+
+  test('the navigation\'s count: what waits for me, again when a suggestion comes or is reviewed, nothing asked on a timer', async () => {
+    useListCache.getState().reset()
+    signIn('owner')
+    review = [folderSuggestion('weekly-report'), folderSuggestion('notes'), ...decided()]
+    function Count() { return <p data-testid="n">{useSkillsWaiting()}</p> }
+    const m = await mount(<Count />)
+    try {
+      await m.until(() => m.get('n').textContent === '2', 'two waiting')
+      expect(called('GET /api/skills/overview').length).toBe(1)
+      review = decided()
+      await act(async () => { skillsChanged.emit() })
+      await m.until(() => m.get('n').textContent === '0', 'none waiting')
+      expect(called('GET /api/skills/overview').length).toBe(2)
+    } finally { await m.unmount() }
   })
 })
 

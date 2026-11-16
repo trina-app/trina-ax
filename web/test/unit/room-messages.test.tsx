@@ -174,9 +174,11 @@ test('a name changed since the messages were read shows at once: the directory h
     await act(async () => { usePeople.setState({ byId: { [BEN.id]: { id: BEN.id, name: 'Benjamin Park' } } as never }) })
     const html = m.html()
     // the run's name and the quote's; the @mention keeps the words Cy typed, still marked as a mention
-    expect(count(html, 'Benjamin Park')).toBe(2)
+    // (as words: Ben is in the directory now, so his photo, name and mention are also buttons named "About Benjamin
+    // Park", components/PersonCard.tsx)
+    expect(count(html, '>Benjamin Park<')).toBe(2)
     expect(html).not.toMatch(/>Ben</)
-    expect(html).toMatch(/<span class="[^"]*font-medium[^"]*">@Ben<\/span>/)
+    expect(html).toMatch(/<button[^>]*class="[^"]*font-medium[^"]*"[^>]*>@Ben<\/button>/)
   } finally {
     await m.unmount()
     usePeople.getState().reset()
