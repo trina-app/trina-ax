@@ -130,7 +130,7 @@ const TEXT = {
   },
   denied: {
     ko: '팀 스킬 폴더에 넣을 권한이 없어요.', en: 'You may not save into the team skills folder.',
-    id: 'Kamu tidak boleh menyimpan ke folder skill tim.', ja: 'チームのスキルフォルダーに保存する権限がありません。', es: 'No puede guardar en la carpeta de habilidades del equipo.', zh: '你不能保存到团队技能文件夹。',
+    id: 'Anda tidak boleh menyimpan ke folder skill tim.', ja: 'チームのスキルフォルダーに保存する権限がありません。', es: 'No puede guardar en la carpeta de habilidades del equipo.', zh: '你不能保存到团队技能文件夹。',
   },
   notSaved: {
     ko: '팀 스킬에 넣지 못했어요: {path}에 이미 파일이 있거나 바뀌었어요.', en: 'It could not be saved to the team skills: a file at {path} is already there or changed.',

@@ -6,6 +6,7 @@ import { createRef } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { GroupChevron, ListHeading, ListRow, ListSection, rowName } from '../../src/components/list/List'
 import { useSession } from '../../src/store/session'
+import { withFold } from '../../src/components/panels/folds'
 import { FakeEvent, installDom, mount, removeDom } from './dom-host'
 
 const before = useSession.getState().status
@@ -167,6 +168,66 @@ describe('ListSection and ListHeading', () => {
     } finally {
       await m.unmount()
     }
+  })
+  test('folded (docs/decisions/20261116-collapsible-chat-sections.md): the pill takes the count\'s place inside the button, the name turns bold, `keep` stays drawn', async () => {
+    const m = await mount(
+      <ListSection id="s2" foldKey="test:s2" label="Group chats" count={4} unread pill={<span data-testid="pill">@<span className="sr-only">one of them mentions you</span></span>} keep={<ul><li data-testid="kept">open room</li></ul>} labelTestId="label">
+        <ul>
+          <li data-testid="inside">x</li>
+          <li data-testid="kept">open room</li>
+        </ul>
+      </ListSection>,
+    )
+    try {
+      // open: no pill, the usual weight, every row
+      expect(m.find('pill')).toBeNull()
+      expect(m.get('label').querySelector('h3')?.className ?? '').toContain('font-semibold')
+      await m.click('panel-section-fold')
+      await m.until(() => m.find('inside') === null, 'the section folded')
+      expect(m.get('panel-section-fold').getAttribute('aria-expanded')).toBe('false')
+      // the pill is in the fold button (its words are the button's name), the count is not shown beside it
+      expect(m.get('panel-section-fold').contains(m.get('pill'))).toBe(true)
+      expect(m.find('panel-section-count')).toBeNull()
+      expect(m.get('label').querySelector('h3')?.className ?? '').toContain('font-bold text-ink')
+      expect(m.get('kept').textContent).toBe('open room')
+      await m.click('panel-section-fold')
+      await m.until(() => m.find('inside'), 'open again')
+      expect(m.find('pill')).toBeNull()
+    } finally {
+      await m.unmount()
+    }
+  })
+  test('the folds are the account\'s: a fold kept there starts folded on this device, and a choice is saved to the account', async () => {
+    const was = useSession.getState()
+    const saved: unknown[] = []
+    useSession.setState({
+      status: { kind: 'signed-in', me: { user: { id: 'mia', prefs: { listFolds: { 'section:test:s3': 'folded' } } } } },
+      updatePrefs: async (p: unknown) => { saved.push(p); return true },
+    } as never)
+    const m = await mount(
+      <ListSection id="s3" foldKey="test:s3" label="Team rooms" labelTestId="label">
+        <ul>
+          <li data-testid="inside">x</li>
+        </ul>
+      </ListSection>,
+    )
+    try {
+      expect(m.find('inside')).toBeNull()
+      await m.click('panel-section-fold')
+      await m.until(() => saved.length === 1, 'saved')
+      expect(saved[0]).toEqual({ listFolds: { 'section:test:s3': 'open' } })
+    } finally {
+      await m.unmount()
+      useSession.setState({ status: was.status, updatePrefs: was.updatePrefs })
+    }
+  })
+  test('withFold: the newest choice last, at most 200 kept (the oldest go)', () => {
+    let f = {}
+    for (let i = 0; i < 205; i++) f = withFold(f, `room-folder:f${i}`, 'folded')
+    expect(Object.keys(f)).toHaveLength(200)
+    expect(Object.keys(f)[0]).toBe('room-folder:f5')
+    f = withFold(f, 'room-folder:f5', 'open')
+    expect(Object.entries(f).at(-1)).toEqual(['room-folder:f5', 'open'])
   })
   test('a heading that does not fold has the same look', async () => {
     const m = await mount(<ListHeading as="h2" testId="h">고정됨</ListHeading>)

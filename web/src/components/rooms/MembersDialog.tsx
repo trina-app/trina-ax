@@ -22,6 +22,7 @@ import { ListRow } from '../list/List'
 import { useNameFallback, useRoomTitle } from './RoomIcon'
 import { GuestTagFor, isGuestNow } from '../GuestTag'
 import { isGuestMe } from '../../lib/guests'
+import { PersonButton } from '../PersonCard'
 
 export function MembersDialog({ open, onClose, room, members, meId, onInvite }: { open: boolean; onClose: () => void; room: Room | null; members: RoomMember[] | undefined; meId: string | null; onInvite: () => void }) {
   const t = useT()
@@ -64,12 +65,15 @@ export function MembersDialog({ open, onClose, room, members, meId, onInvite }: 
                   face
                   icon={<PresenceFace user={{ ...user, name, avatarVersion: p?.avatarVersion }} size="fill" />}
                   testId="room-member"
+                  // (the card's button reaches over the row; the row's own "…" stays above it)
+                  li={p ? { className: 'relative rounded-lg hover:bg-hover hover:[--presence-bg:var(--c-hover)] has-[[aria-expanded=true]]:bg-hover' } : undefined}
                   name={
                     // the name is cut first; the status, "· 나" and "· 매니저" always show
                     <span className="flex min-w-0 items-baseline gap-1">
-                      <span className="truncate" data-member-name>{name}</span>
+                      {/* the whole row opens the person's card (components/PersonCard.tsx): Message closes this dialog */}
+                      <PersonButton user={user} look="row" boxClassName="min-w-0" onGo={onClose} testId="room-member-person"><span data-member-name>{name}</span></PersonButton>
                       <GuestTagFor userId={user.id} />
-                      <StatusEmoji userId={user.id} tap className="shrink-0 self-center" />
+                      <StatusEmoji userId={user.id} tap className="relative shrink-0 self-center" />
                       <PresenceText userId={user.id} offline />
                       {user.id === meId && <span className="shrink-0 text-meta text-faint">· {t('rooms.you')}</span>}
                       {group && user.id === room?.managerId && <span className="shrink-0 text-meta text-faint" data-testid="room-manager">· {t('rooms.info.manager')}</span>}
@@ -131,7 +135,7 @@ function NameRow({ room }: { room: Room }) {
       }}
     >
       <label className="block">
-        <span className="sr-only">{t('rooms.info.nameLabel')}</span>
+        <span className="sr-only">{t(room.kind === 'group' ? 'rooms.info.nameLabel' : 'rooms.info.nameLabelChannel')}</span>
         <input
           autoFocus
           value={draft}

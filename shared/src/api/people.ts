@@ -60,6 +60,11 @@ export type WindowActivity = z.infer<typeof WindowActivity>
  * automatic. The answer is what is kept. */
 export const SetAwayBody = z.object({ away: z.boolean() }).strict()
 export type SetAwayBody = z.infer<typeof SetAwayBody>
+/** POST /api/me/computer: the desktop app's word on the computer it runs on (its main process, every 30 s and on a lock
+ * or an unlock): how long the computer has had no input and whether its screen is locked. Only for the phone rule
+ * (server/src/notifications/away.ts); never shown to anyone. */
+export const ComputerActivityBody = z.object({ idleMs: z.number().int().min(0).max(366 * 24 * 3600_000), locked: z.boolean() }).strict()
+export type ComputerActivityBody = z.infer<typeof ComputerActivityBody>
 
 export const PEOPLE = {
   listPeople: endpoint({ method: 'GET', path: '/api/people', auth: 'user', owner: 'A', response: PeopleResponse, summary: 'The people of the team (name, title, status, photo version); no emails, roles or groups; deactivated people left out.' }),
@@ -70,4 +75,5 @@ export const PEOPLE = {
   setMyStatus: endpoint({ method: 'PUT', path: '/api/me/status', auth: 'user', owner: 'A', body: SetStatusBody, response: MyStatus, summary: 'Set your status message: one emoji, up to 100 characters of text, and when it clears (30 minutes to 2 hours, the end of today or this week in the team\'s time zone, chosen days, or never); only your own. The team sees it beside your name.' }),
   clearMyStatus: endpoint({ method: 'DELETE', path: '/api/me/status', auth: 'user', owner: 'A', response: empty, status: 204, summary: 'Clear your status message (also one that starts later); only your own.' }),
   setMyAway: endpoint({ method: 'PUT', path: '/api/me/away', auth: 'user', owner: 'A', body: SetAwayBody, response: SetAwayBody, summary: 'Set yourself away (your dot shows away to the team until you change it) or back to automatic; only your own.' }),
+  reportMyComputer: endpoint({ method: 'POST', path: '/api/me/computer', auth: 'user', owner: 'A', body: ComputerActivityBody, response: empty, status: 204, summary: 'The desktop app tells how long its computer has had no input and whether the screen is locked (every 30 s): while the computer is in use, your phone gets no push. Kept in memory for a minute; shown to nobody.' }),
 } as const

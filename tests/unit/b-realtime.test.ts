@@ -52,6 +52,8 @@ const connect = async (hub: Hub, user: string | null, q: string, h: Record<strin
   await hub.attach(c, new Request(`http://team.localhost/api/ws?${q}`, { headers }), { ip: null, via: 'test' })
   return c
 }
+/** the person still sees every chat (a hub without a chat runtime refuses: the replay becomes a resync) */
+const SEES_CHAT = () => true
 const delta = (messageId: string, offset: number, text: string): ServerEventInput => ({ type: 'message.delta', data: { chatId: uuidv7(), messageId, offset, text } })
 const notice = (n: number): ServerEventInput => ({ type: 'notice', data: { level: 'info', code: 'n' + n, message: 'm' } })
 
@@ -113,7 +115,7 @@ describe('hub', () => {
   })
 
   test('consecutive deltas of one message are kept as one entry with the newest seq; replay covers the gap by offset', async () => {
-    const hub = new Hub(fakeCtx())
+    const hub = new Hub(fakeCtx(), { chatVisible: SEES_CHAT })
     const m = uuidv7()
     const live = await connect(hub, 'alice', 'windowId=win-alice-1')
     hub.publish('alice', delta(m, 0, 'Hel'))
@@ -128,8 +130,24 @@ describe('hub', () => {
     hub.close()
   })
 
+  test('a chat\'s events are replayed only while the person still sees the chat; with nothing to judge it by, resync (TC-3788)', async () => {
+    const seen = new Set<string>()
+    const m = uuidv7()
+    for (const [name, o] of [['no chat runtime', {}], ['taken out', { chatVisible: () => false }], ['still in', { chatVisible: (u: string) => { seen.add(u); return true } }]] as const) {
+      const hub = new Hub(fakeCtx(), o)
+      hub.publish('alice', notice(1))
+      hub.publish('alice', delta(m, 0, 'SECRET'))
+      const r = await connect(hub, 'alice', 'windowId=win-alice-9&epoch=epoch-1&after=1')
+      const types = r.sent.map((f) => f.type)
+      if (name === 'still in') expect({ name, types }).toEqual({ name, types: ['hello', 'message.delta'] })
+      else expect({ name, types, leaks: JSON.stringify(r.sent).includes('SECRET') }).toEqual({ name, types: ['hello', 'resync'], leaks: false })
+      hub.close()
+    }
+    expect([...seen]).toEqual(['alice'])
+  })
+
   test('a reset delta is not merged into the deltas before it; the deltas after it merge into it', async () => {
-    const hub = new Hub(fakeCtx())
+    const hub = new Hub(fakeCtx(), { chatVisible: SEES_CHAT })
     const m = uuidv7()
     hub.publish('alice', delta(m, 0, 'Hello'))
     hub.publish('alice', { type: 'message.delta', data: { chatId: uuidv7(), messageId: m, offset: 0, text: '', reset: true } })
@@ -200,6 +218,38 @@ describe('hub', () => {
     expect(r.events().map((e) => e.seq)).toEqual([93, 94, 95, 96, 97, 98, 99, 100])
     const old = await connect(hub, 'alice', 'windowId=win-alice-3&epoch=epoch-1&after=85')
     expect(old.sent.map((f) => f.type)).toEqual(['hello', 'resync'])
+    hub.close()
+  })
+
+  test('forgetReplay: a second forget in the same run keeps the loss notices the first change published (QA TC-3837)', async () => {
+    const hub = new Hub(fakeCtx())
+    const accessChanged: ServerEventInput = { type: 'notice', data: { level: 'info', code: 'access_changed', message: 'groups/finance' } }
+    const roomRemoved: ServerEventInput = { type: 'room.updated', data: { roomId: uuidv7(), change: 'removed', room: null } }
+    for (let i = 1; i <= 3; i++) hub.publish('alice', notice(i))
+    // one access change: afterAccessChange forgets and tells, then the rooms' sync forgets again and tells
+    hub.forgetReplay('alice')
+    hub.publish('alice', accessChanged) // seq 4
+    hub.forgetReplay('alice')
+    hub.publish('alice', roomRemoved) // seq 5
+    const r = await connect(hub, 'alice', 'windowId=win-alice-1&epoch=epoch-1&after=3')
+    expect(r.sent[0]).toMatchObject({ type: 'hello', resumed: true, seq: 5 })
+    expect(r.events().map((e) => e.seq)).toEqual([4, 5])
+    // from before the change: still resync (what came before the first forget is gone)
+    const old = await connect(hub, 'alice', 'windowId=win-alice-2&epoch=epoch-1&after=2')
+    expect(old.sent.map((f) => f.type)).toEqual(['hello', 'resync'])
+    // anything but a loss notice after the first forget is dropped by the second, and so is what came before it
+    hub.forgetReplay('alice')
+    hub.publish('alice', accessChanged) // seq 6
+    hub.publish('alice', notice(7)) // seq 7
+    hub.forgetReplay('alice')
+    const mid = await connect(hub, 'alice', 'windowId=win-alice-3&epoch=epoch-1&after=5')
+    expect(mid.sent.map((f) => f.type)).toEqual(['hello', 'resync'])
+    // a later run starts over: its forget drops the old notices too
+    await Bun.sleep(0)
+    hub.publish('alice', accessChanged) // seq 8
+    hub.forgetReplay('alice')
+    const later = await connect(hub, 'alice', 'windowId=win-alice-4&epoch=epoch-1&after=7')
+    expect(later.sent.map((f) => f.type)).toEqual(['hello', 'resync'])
     hub.close()
   })
 

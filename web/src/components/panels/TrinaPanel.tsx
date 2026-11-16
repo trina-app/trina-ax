@@ -1,7 +1,8 @@
 // 트리나's list panel beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1; docs/DECISIONS.md "The Trina
 // list: pinned, recent"). A fixed block on top that never scrolls away, as ChatGPT's and Claude's sidebars have it:
 // "트리나에게 묻기" (a new AI chat, ⇧⌘O; the one word for every AI action, §2.0), 검색 (⌘K), 예약 작업 and 팀 스킬
-// (as the phone's drawer has them: phone/TrinaDrawer.tsx), then
+// (as the phone's drawer has them: phone/TrinaDrawer.tsx; 팀 스킬 with how many wait for my review, as a room's unread
+// count: store/skillsWaiting.ts), then
 // the owner's setup row while it shows (onboarding/SetupRow.tsx, on every panel: docs/DECISIONS.md W5). Under them, in
 // its own scroll, the Trina list (panels/TrinaList.tsx: 답을 기다려요 · 고정 · 최근 기록; 삭제한 기록 is in 최근 기록's
 // "⋯", rarely needed). The header's filter button (status, last activity, group by, sort; Group by defaults to None,
@@ -14,10 +15,13 @@ import { BookMarked, CalendarClock, Search, X } from 'lucide-react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useT } from '../../i18n'
 import { platform } from '../../lib/pwa'
+import { badgeText } from '../../lib/rooms'
 import { aiName } from '../../lib/tabs'
+import { useSkillsWaiting } from '../../store/skillsWaiting'
 import { useUi } from '../../store/ui'
 import { useChatPeek } from '../nav/ChatItem'
 import { HistoryList, RecentsMenu, useRecentsView, viewWords, DEFAULT_RECENTS_VIEW } from '../nav/HistoryList'
+import { CountPill } from '../CountPill'
 import { Tooltip } from '../Tooltip'
 import { TrinaList } from './TrinaList'
 import { SetupRow } from '../onboarding/SetupRow'
@@ -34,6 +38,7 @@ const GROUP_CAPS = { projects: 5, rows: 3 }
 export function TrinaPanel() {
   const t = useT()
   const guest = isGuestMe(useMe())
+  const waiting = useSkillsWaiting(!guest)
   const navigate = useNavigate()
   const setSearchOpen = useUi((s) => s.setSearchOpen)
   const peek = useChatPeek()
@@ -63,6 +68,7 @@ export function TrinaPanel() {
               </NavLink>
               <NavLink to="/skills" className={panelRowActive} data-testid="nav-skills">
                 <BookMarked size={16} className="text-muted" aria-hidden /> <span className="truncate">{t('sidebar.skills')}</span>
+                {waiting > 0 && <CountPill text={badgeText(waiting)} label={t('skills.waitingReview', { n: waiting })} className="ml-auto" testId="nav-skills-count" />}
               </NavLink>
             </>
           )}

@@ -285,6 +285,36 @@ describe('sign-in and sessions', () => {
     h.ctx.db.query('UPDATE users SET prefs = ? WHERE id = ?').run(JSON.stringify({ theme: 'dark', textSize: 'huge' }), id)
     expect((await c.call('GET', '/api/me')).user.prefs).toEqual({ theme: 'dark' })
   })
+
+  test('my lists\' folds are kept on the account, beside the other preferences (docs/decisions/20261116-collapsible-chat-sections.md)', async () => {
+    const c = h.client()
+    await c.login('olga', OWNER_PW)
+    const id = (await c.call('GET', '/api/me')).user.id
+    h.ctx.db.query('UPDATE users SET prefs = ? WHERE id = ?').run(JSON.stringify({ theme: 'dark' }), id)
+    const folds = { 'section:chats:team': 'folded', 'room-folder:0193b6a2-7c1d-7000-8000-000000000001': 'folded', 'section:projects:other': 'open' }
+    let me = await c.call('PATCH', '/api/me', { prefs: { listFolds: folds } })
+    expect(me.user.prefs).toEqual({ theme: 'dark', listFolds: folds })
+    // another device (a second sign-in) reads them
+    const other = h.client()
+    await other.login('olga', OWNER_PW)
+    expect((await other.call('GET', '/api/me')).user.prefs.listFolds).toEqual(folds)
+    // a later save of another preference keeps them; a new map replaces the old one whole
+    me = await c.call('PATCH', '/api/me', { prefs: { theme: 'light' } })
+    expect(me.user.prefs.listFolds).toEqual(folds)
+    me = await c.call('PATCH', '/api/me', { prefs: { listFolds: { 'section:chats:team': 'open' } } })
+    expect(me.user.prefs.listFolds).toEqual({ 'section:chats:team': 'open' })
+    // refused: a value that is not open/folded, a key that is not a fold key, more than 200 folds
+    expect((await c.try('PATCH', '/api/me', { prefs: { listFolds: { 'section:chats:team': 'hidden' } } })).status).toBe(400)
+    expect((await c.try('PATCH', '/api/me', { prefs: { listFolds: { '<b>': 'open' } } })).status).toBe(400)
+    const many = Object.fromEntries(Array.from({ length: 201 }, (_, i) => [`room-folder:f${i}`, 'folded']))
+    expect((await c.try('PATCH', '/api/me', { prefs: { listFolds: many } })).status).toBe(400)
+    // null: forgotten
+    me = await c.call('PATCH', '/api/me', { prefs: { listFolds: null } })
+    expect(me.user.prefs.listFolds).toBeUndefined()
+    // a stored value that does not read reads as none and hides nothing else
+    h.ctx.db.query('UPDATE users SET prefs = ? WHERE id = ?').run(JSON.stringify({ theme: 'dark', listFolds: { x: 1 } }), id)
+    expect((await c.call('GET', '/api/me')).user.prefs).toEqual({ theme: 'dark' })
+  })
 })
 
 describe('password change and forced change', () => {

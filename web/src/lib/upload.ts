@@ -322,6 +322,11 @@ async function smallOnce(file: File, target: UploadTarget, o: UploadOptions, fin
       // how many bytes it received before that (QA TC-2023)
       kept(attachment.receivedSize ?? attachment.size)
       out = { kind: 'attachment', attachment }
+    } else if (target.kind === 'room') {
+      // a picture is stored without its place and camera (smaller), so the answer's size is not compared; the server
+      // checks the part against `size` before it keeps it
+      const file = await o.client.call(API.uploadRoomFile, { params: { id: target.roomId }, body: { fields: { name: target.name, size: String(total) }, file: body, filename: target.name }, ...request })
+      out = { kind: 'room', file }
     } else {
       const { jobId } = await o.client.call(API.transcribe, { body: { fields: target.chatId ? { chatId: target.chatId } : {}, file: body, filename: target.name }, ...request })
       out = { kind: 'transcribe', jobId }
