@@ -8,7 +8,7 @@
 // launch code as a turn). A failed check is a failed update: the version is stopped and rolled back with the reason.
 //
 // The check proves a fault only when the launcher says it failed. Nothing to ask (not Linux), no launcher answering
-// within engineConnectWait, or a launcher that does not know the request (one older than this bootstrap): the version
+// (no socket, or one that does not accept within engineConnectWait), or a launcher that does not know the request (one older than this bootstrap): the version
 // is kept as before and the log says the check was skipped.
 package main
 
@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -53,6 +54,11 @@ func checkEngine() engineResult {
 		return engineResult{} // no engine sandbox to check (macOS, development): nothing asked, nothing logged
 	}
 	sock := launcherSocket()
+	// no socket at all: this install has no launcher running here (or not yet); waiting would only delay every update.
+	// A socket that does not accept yet is a launcher restarting: tried again for engineConnectWait.
+	if _, err := os.Stat(sock); err != nil {
+		return engineResult{skipped: fmt.Sprintf("no launcher socket at %s", sock)}
+	}
 	var c net.Conn
 	var err error
 	for until := time.Now().Add(engineConnectWait); ; {

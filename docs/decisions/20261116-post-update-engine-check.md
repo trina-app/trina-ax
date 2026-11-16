@@ -27,7 +27,7 @@ Plan: [docs/AGENTS/plan/20261116-0324-post-update-engine-check.md](../AGENTS/pla
   `failed` with "Reason: …" (`settleUpdateJob`), the hold that stops the app's own updater from taking the same release
   again for a while, and `mycel-ctl update`'s `rolled_back` result (exit 10) with root's `update-failed.json` hold.
 - **Only a clear "no" rolls back.** Not Linux (an office Mac, Windows, development): nothing is asked. No launcher
-  answering within 30 s (it may be restarting after root files changed), no answer in 30 s, or a launcher older than
+  socket, a socket that does not accept within 30 s (a launcher restarting after root files changed), no answer in 30 s, or a launcher older than
   the bootstrap (it answers `bad request`): the version is kept as before and the bootstrap's log says the check was
   skipped and why. A launcher missing is not the new version's fault, and a roll-back for it would also hit the
   version before.
