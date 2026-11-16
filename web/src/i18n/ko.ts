@@ -5243,6 +5243,7 @@ export const ko = {
   "share.grey.checking": "무엇을 보게 되는지 확인하는 중…",
   "share.grey.failed": "아직 이 채팅을 확인하지 못했어요. 공유하기 전에 무엇이 공개되는지 보여 드릴게요.",
   "share.again": "내용을 확인하고 공유를 한 번 더 눌러 주세요.",
+  "share.linkAfterSave": "{button} 버튼을 누르면 추가한 사람도 링크를 열 수 있어요.",
   "share.who.project": "일부 프로젝트 멤버",
   "share.who.person": "{name} 님",
   "share.who.group": "{name} 그룹 사람들",

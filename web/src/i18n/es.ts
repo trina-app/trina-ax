@@ -5199,6 +5199,7 @@ export const es: Record<MessageKey, string> = {
   "share.grey.checking": "Revisando lo que verán…",
   "share.grey.failed": "Aún no se pudo revisar este chat. Verás lo que está en juego antes de compartirlo.",
   "share.again": "Revisa esto y vuelve a pulsar Compartir.",
+  "share.linkAfterSave": "Las personas que agregues podrán abrir el enlace cuando pulses {button}.",
   "share.who.project": "algunos miembros del proyecto",
   "share.who.person": "{name}",
   "share.who.group": "{name}",

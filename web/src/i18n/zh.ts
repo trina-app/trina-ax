@@ -5174,6 +5174,7 @@ export const zh: Record<MessageKey, string> = {
   "share.grey.checking": "正在检查他们会看到什么…",
   "share.grey.failed": "暂时无法检查这个对话。共享前会先显示哪些内容会被看到。",
   "share.again": "请确认后再按一次“共享”。",
+  "share.linkAfterSave": "按下“{button}”后，新添加的人才能打开此链接。",
   "share.who.project": "项目的部分成员",
   "share.who.person": "{name}",
   "share.who.group": "{name}",

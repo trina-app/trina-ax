@@ -5,7 +5,9 @@
 // has no ✕. Nothing is saved until Save (Share while the chat is not shared yet), which is off with no change; a picked
 // row says "new", a saved row taken out is struck through with Undo. ✕, Esc, the scrim and a phone's Back with unsaved
 // changes ask "Discard changes?" first ([Keep editing] [Discard]). A failed or offline save keeps the picks and says so
-// above the button.
+// above the button. Copy link at the bottom left (components/ShareCopyLink.tsx; docs/decisions/
+// 20261116-chat-share-copy-link.md): the chat's /c/<id> with the chat menu's toast, a line while picks are not saved, and
+// Copy link again on the toast after the save.
 //
 // One press (docs/DECISIONS.md "Share in one press", QA TC-3092): while the picks bring someone new in, the dialog asks
 // the server what they would see (POST /api/chats/:id/audience/preview) 400 ms after the last change of the list, any
@@ -46,6 +48,8 @@ import { CalmNotice } from '../LoadError'
 import { MoveToProjectDialog } from './ChatProject'
 import { GreyLine, ShareWarning, shareAtStake, shareFilesLine, shareGreyLine, shareWarningLines, whoNames } from '../ShareWarning'
 import { openShareChat } from './ShareChat'
+import { useCopyChatLink } from './copyChatLink'
+import { ShareCopyLink } from '../ShareCopyLink'
 
 /** The check for one list of picks (`for`: its audienceKey): asking, answered (with the key a save carries), or failed.
  * `again`: the save answered with the check instead of saving (no key: the preview failed; or something changed). */
@@ -98,6 +102,9 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
   const [sheet, setSheet] = useState(0)
   const [moving, setMoving] = useState(false)
   const reopened = useRef(false)
+  // Copy link (components/ShareCopyLink.tsx): the chat as this window knows it now (shared or not, how many), its toast says who opens it
+  const copyLink = useCopyChatLink()
+  const known = useChats((s) => s.chats.find((c) => c.id === chat.id))
 
   const shown = (a: ChatAudience) => {
     setAudience(a)
@@ -204,7 +211,8 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
       useChats.getState().upsertChat(keepFaces(before, r.chat))
       // the first share says with how many (when I may know it); any other save says it is saved
       const others = r.audience.count !== undefined ? r.audience.count - 1 : null
-      toast({ level: 'success', text: !saved.length && others ? t('chat.share.done', { n: others }) : t('chat.share.saved') })
+      // with Copy link: share, then send the link, in one go
+      toast({ level: 'success', text: !saved.length && others ? t('chat.share.done', { n: others }) : t('chat.share.saved'), ms: 10_000, action: { label: t('rooms.menu.copyLink'), run: () => void copyLink(r.chat) } })
       // a first share: my earlier files from the computer that could not go with it (too large, no room, changed since)
       if (r.filesNotCopied) toast({ level: 'warn', text: t('chat.share.filesNotCopied', { n: r.filesNotCopied }) })
       // someone taken out by name who still sees it through a group (QA TC-2264)
@@ -259,6 +267,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
   // my earlier files from the computer a first share copies: a line of its own whenever there are any
   const filesLine = shareFilesLine(t, check)
   const label = saved.length ? t('common.save') : t('chat.share.share')
+  const copyButton = <ShareCopyLink onCopy={() => void copyLink(known ?? chat, { inDialog: true })} unsaved={editable && adding.length ? label : null} testId="chat-share-copy-link" />
   return (
     <Modal
       key={sheet}
@@ -275,11 +284,15 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
         </span>
       ) : <span className="block min-w-0 truncate" data-testid="chat-share-title">{title}</span>}
       footer={listing ? undefined : personal || !editable ? (
-        <Button variant="ghost" onClick={onClose} data-testid="chat-share-close">{t('common.close')}</Button>
+        <>
+          {copyButton}
+          <Button variant="ghost" onClick={onClose} data-testid="chat-share-close">{t('common.close')}</Button>
+        </>
       ) : (
         <>
           {error && <p role="alert" className="mr-auto w-full text-sm break-keep text-danger" data-testid="chat-share-error">{error}</p>}
           {updating && !error && <CalmNotice className="mr-auto w-full" testId="chat-share-updating" state="updating" icon={<Loader2 size={16} className="animate-spin" />} title={t('chat.share.updating')} />}
+          {copyButton}
           {/* a visible way out besides ✕ (asks first with unsaved changes, as ✕ does) */}
           {/* a phone: Cancel as wide as its word, the main button the rest */}
           <Button variant="ghost" disabled={busy} onClick={() => void close()} className="max-sm:shrink-0" data-testid="chat-share-cancel">{t('common.cancel')}</Button>

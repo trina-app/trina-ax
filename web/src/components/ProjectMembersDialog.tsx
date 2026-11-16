@@ -32,12 +32,14 @@ import type { Project, ProjectAccess, ProjectAccessPreview, ProjectOtherRule, Pr
 import { api, API, ApiError, errorText, isApiError } from '../lib/api'
 import { useLocale, useT } from '../i18n'
 import { useProjects } from '../store/projects'
+import { toast } from '../store/ui'
 import { isAdmin, useMe } from '../store/session'
 import { refusalKey } from '../lib/sharedChat'
 import { isProjectsFolder } from '../lib/projectFolders'
 import { Button, ErrorNote, IconButton, Modal, Skeleton, confirmDialog, useMediaQuery } from './ui'
 import { answerHref, WideningList } from './WideningList'
 import { whoNames } from './ShareWarning'
+import { ShareCopyLink, useCopyProjectLink } from './ShareCopyLink'
 import { freshDraft, useWideningDraft, type WideningDraft } from '../store/wideningDraft'
 import { hasPeopleList, PeopleList, useProjectPeople } from './ProjectPeople'
 import { GuestInviteDialog, InviteGuestRow, OnePlaceNote, onePlaceOf, useGuestsElsewhere } from './GuestInvite'
@@ -206,6 +208,8 @@ export function ProjectMembersDialog({ project, onClose, onSaved, initial }: { p
   // the only place a leaver shows (owner, QA TC-1074); adding them by name takes the exception away
   const notes = useMemo(() => new Map((access?.participants ?? []).filter((x) => x.except?.length).map((x) => [participantKey(x), t('projects.except', { names: x.except!.map((u) => u.name).join(t('rooms.nameSep')) })])), [access, t])
   const editable = !!access?.editable
+  // Copy link (components/ShareCopyLink.tsx): the project's page, for whoever opens this dialog
+  const copyLink = useCopyProjectLink()
   const count = useAccessCount(participants, { projectId: project.id, enabled: editable, removeRules: removing })
   const changed = editable && (!sameParticipants(participants, current) || removing.length > 0)
   // the dry run of exactly these picks, shown in place; Save waits for it
@@ -258,6 +262,8 @@ export function ProjectMembersDialog({ project, onClose, onSaved, initial }: { p
       })
       useProjects.getState().put(next)
       onSaved(next)
+      // saved, with Copy link: change who sees it, then send the link, in one go
+      toast({ level: 'success', text: t('common.saved'), ms: 10_000, action: { label: t('rooms.menu.copyLink'), run: () => void copyLink(next) } })
       onClose()
     } catch (e) {
       // someone changed who sees it meanwhile: show what is there now
@@ -292,6 +298,7 @@ export function ProjectMembersDialog({ project, onClose, onSaved, initial }: { p
       width={560}
       footer={listing ? undefined :
         <>
+          <ShareCopyLink onCopy={() => void copyLink(project)} unsaved={editable && adding.length ? t('common.save') : null} testId="project-members-copy-link" />
           {/* read only (a member who does not manage it, or members changed elsewhere): 닫기 */}
           <Button variant="ghost" onClick={onClose}>{editable ? t('common.cancel') : t('common.close')}</Button>
           {editable && <Button variant="primary" busy={busy} disabled={!changed || checking} onClick={() => void save()} data-testid="project-members-save">{t('common.save')}</Button>}

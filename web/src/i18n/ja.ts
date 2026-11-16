@@ -5199,6 +5199,7 @@ export const ja: Record<MessageKey, string> = {
   "share.grey.checking": "見られる内容を確認しています…",
   "share.grey.failed": "まだこのチャットを確認できていません。共有する前に、何が見えるようになるかを表示します。",
   "share.again": "内容を確認して、もう一度「共有」を押してください。",
+  "share.linkAfterSave": "「{button}」を押すと、追加した人もリンクを開けるようになります。",
   "share.who.project": "プロジェクトメンバーの一部",
   "share.who.person": "{name}",
   "share.who.group": "{name}",
