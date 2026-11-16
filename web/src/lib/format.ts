@@ -48,6 +48,14 @@ export function formatMonthDay(iso: string | null | undefined, locale: Locale): 
   return new Intl.DateTimeFormat(TAG[locale], { month: 'long', day: 'numeric' }).format(new Date(iso))
 }
 
+/** "Nov 15" this year, "Nov 15, 2025" another year (a list's meta line: Files › Shared with me) */
+export function formatShortDate(iso: string | null | undefined, locale: Locale, now = new Date()): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (d.getFullYear() === now.getFullYear()) return new Intl.DateTimeFormat(TAG[locale], { month: 'short', day: 'numeric' }).format(d)
+  return new Intl.DateTimeFormat(TAG[locale], { dateStyle: 'medium' }).format(d)
+}
+
 export function formatDate(iso: string | null | undefined, locale: Locale): string {
   if (!iso) return ''
   return new Intl.DateTimeFormat(TAG[locale], { dateStyle: 'medium' }).format(new Date(iso))

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16 09:47
 - Branch: `feat/files-shared-with-me` (PR 1 of P2; QA TC-3093 "P2")
-- Status: in progress
+- Status: done
 - Where: Team AX core (`server/src/files/`, `shared/src/api/file-shares.ts`, web Files). Why: file sharing is core
   (docs/REPOSITORY-RULES.md: files and permissions go into the core first).
 - Version impact: **minor** (a list, one endpoint, one realtime notice code; no migration in PR 1).
@@ -302,4 +302,13 @@ Activity), mark read (single file, a press), guests (no tab, 403), roles (owner,
 
 ## Result
 
-(filled in at the end)
+PR 1 built as planned, with these differences:
+- The DB steps flag the team in memory and the file-share service sends `file_shares_changed` from a timer after the
+  step returns (no ctx is threaded into the move and trash steps); access changes reach it through the existing
+  `onAccessChange` hook, which covers both group-member saves and the folder save.
+- The list is ordered by the newest grant that reaches the caller; the row names the qualifying grant (the same in all
+  but the rare folder-readable case with a newer group grant).
+- On a phone the app's generic top bar steps aside on a file link page opened from the list, so only "‹ Shared with me"
+  shows.
+- Load more stays as a button under the list (the end of the list in view reads on by itself), for a page that came
+  back empty after the chained reads.

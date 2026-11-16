@@ -1,13 +1,14 @@
 // 파일's list panel beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1), like
 // Slack's Files: the places on the left, the folder or the file on the right (pages/Files.tsx).
-// 최근 파일 (pages/RecentFiles.tsx), 팀 폴더 (the team folder's top folders I can see, in the order the Files screen
+// 최근 파일 (pages/RecentFiles.tsx), Shared with me (pages/SharedFiles.tsx: files people shared with me; always shown to
+// a member, also while empty), 팀 폴더 (the team folder's top folders I can see, in the order the Files screen
 // shows them: 전사 공유, 부서, then the others; 팀 스킬 is 트리나's page, not a place here), 프로젝트 폴더 (the projects I can see, by name), then 내 파일 (my
 // own folder; "내 폴더" before, decision Q4) and 휴지통. The owner's setup row is on top while it shows. The row of the
 // place on screen is marked: the deepest place the open folder is in.
 // The same places are the root of a phone's 파일 tab (PhoneFilesHome below; docs/DECISIONS.md
 // "Phone tabs: 트리나 · 대화 · 파일 · 나"): its bar says 파일, with 🔍 for files; a place opens on its own screen.
 import clsx from 'clsx'
-import { ChevronRight, Clock, Folder, Search, SquareKanban, Trash2, User } from 'lucide-react'
+import { ChevronRight, Clock, Folder, Search, SquareKanban, Trash2, User, Users } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { SKILLS_DIR } from '@mycel/shared/skill-roots'
@@ -122,12 +123,15 @@ function FilesPlaces({ phone = false }: { phone?: boolean }) {
   const at = view ? null : (q.get('path') ?? '')
   const folderRows = [...team, ...projectRows, ...(mine ? [mine] : [])]
   const lit =
-    view === 'recent' ? 'recent' : view === 'trash' ? 'trash' : at !== null ? (folderRows.filter((r) => r.path && isInside(at, r.path) && at !== '').sort((a, b) => b.path!.length - a.path!.length)[0]?.key ?? null) : null
+    view === 'recent' ? 'recent' : view === 'shared' ? 'shared' : view === 'trash' ? 'trash' : at !== null ? (folderRows.filter((r) => r.path && isInside(at, r.path) && at !== '').sort((a, b) => b.path!.length - a.path!.length)[0]?.key ?? null) : null
 
   const row = (p: Place) => <ListRow key={p.key} to={p.to} selected={lit === p.key} icon={<p.icon />} name={p.label} nameTitle={p.label} testId={p.testId} />
   return (
     <>
-      <ul className="mb-4">{row({ key: 'recent', to: '/files?view=recent', label: t('filesPanel.recent'), icon: Clock, testId: 'files-panel-recent' })}</ul>
+      <ul className="mb-4">
+        {row({ key: 'recent', to: '/files?view=recent', label: t('filesPanel.recent'), icon: Clock, testId: 'files-panel-recent' })}
+        {row({ key: 'shared', to: '/files?view=shared', label: t('filesPanel.shared'), icon: Users, testId: 'files-panel-shared' })}
+      </ul>
       {top !== null && (
         // the label opens the team folder's top (files kept loose there, every top folder); a phone has no hover to show
         // it, so there it is a whole-width row with a ›, and the places are the computer's, no extra row

@@ -85,6 +85,7 @@ export const FEATURES: Feature[] = [
   { id: 'files.versions', name: 'File history and restore a version', area: 'Files', endpoints: ['history', 'versionDownload', 'restoreVersion'] },
   { id: 'files.trash', name: 'Files trash', area: 'Files', endpoints: ['trash', 'restoreTrash', 'purgeTrash'] },
   { id: 'files.share-links', name: 'Share a file with chosen people; its link and Ask for access', area: 'Files', endpoints: ['fileLink', 'fileShares', 'putFileShares', 'shareFilesBatch', 'sharedBatch', 'sharedFile', 'sharedFileDownload', 'requestFileAccess', 'answerFileRequest', 'fileSharesCount', 'removeAllFileShares'], screens: ['/f/:id', '/f/batch/:id'] },
+  { id: 'files.shared-with-me', name: 'Files shared with me', area: 'Files', endpoints: ['sharedWithMe'] },
   { id: 'files.search', name: 'Find files and search inside them; recent files', area: 'Files', endpoints: ['findFiles', 'searchFileContents', 'recentFiles'] },
   { id: 'files.attach', name: 'Attach files to a chat', area: 'Files', endpoints: ['uploadAttachment', 'attachmentThumbnail', 'attachTeamFile', 'discardAttachment'] },
   { id: 'files.file-list', name: 'File list (what each file is)', area: 'Files', endpoints: ['fileListStatus', 'runFileList'], screens: ['/admin/settings/file-list'] },
