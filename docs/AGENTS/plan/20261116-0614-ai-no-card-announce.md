@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16 06:14
 - Branch: `fix/ai-no-card-announce` (QA TC-3710)
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/chat/prompt.ts` CONNECT_RULE, `server/src/chat/tools.ts` connect_service description). Why: the AI's instructions are core.
 - Version impact: patch. Words only.
 
@@ -25,3 +25,9 @@ Out: removing text the AI already streamed before a call (server side).
 ## Steps
 
 1. This plan. 2. The words. 3. Unit test. 4. Changes fragment, checks, CON-02 ×5 and CON-03, PR.
+
+## Result
+
+Built as planned. CON-02 re-run 8 times: no card announced in any run; connect_service was the first call after the
+title every time. 4 of 8 passed the judge; the others failed on things this does not touch (an English answer to a
+Korean request twice, "서버 운영자" from the Drive result's "server's operator" wording, a garbled name). CON-03 passes.
