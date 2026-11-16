@@ -47,4 +47,4 @@ The repository is a Bun workspace. The product id in code is `mycel`.
 | Add an AI tool | `server/src/tools/` and its registry |
 | Change who can see what | `server/src/policy/` (read the [decisions](../../DECISIONS.md) first) |
 
-Design decisions are recorded in [`docs/DECISIONS.md`](../../DECISIONS.md). Ownership by area is in [`docs/WORKPLAN.md`](../../WORKPLAN.md).
+Design decisions are recorded one file each in [`docs/decisions/`](../../decisions/README.md) (since 2026-11-16; older ones in the archive [`docs/DECISIONS.md`](../../DECISIONS.md)). Ownership by area is in [`docs/WORKPLAN.md`](../../WORKPLAN.md).

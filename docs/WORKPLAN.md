@@ -2,7 +2,7 @@
 
 여러 에이전트가 같은 저장소(`main`)에서 동시에 일한다. 충돌을 없애는 원칙은 하나: **파일마다 주인이 하나**다.
 남의 파일을 고쳐야 하면 고치지 말고, 자기 파일에 새로 만들거나(새 스키마 파일, 새 마이그레이션) 주인에게 맡긴다.
-설계 기준은 설계서(Claude Docs, 탭 1–8)이고, 설계서에 없는 결정은 `docs/DECISIONS.md`에 적는다.
+설계 기준은 설계서(Claude Docs, 탭 1–8)이고, 설계서에 없는 결정은 `docs/decisions/<YYYYMMDD>-<topic>.md`에 한 파일씩 적는다(2026-11-16 전의 결정은 `docs/DECISIONS.md`).
 
 제품 표시 이름은 **Team AX**(`PRODUCT.displayName`), 코드 id는 `mycel`(`PRODUCT.id`, 폴더·소켓·환경 변수 `MYCEL_*`)이다.
 
@@ -190,7 +190,7 @@ export const chatsRoutes: RouteModule = {
 - `shared/src/api/index.ts`: 새 그룹 파일을 만들 때 import·spread·export 한 줄씩만.
 - `server/src/services.ts`: 인터페이스에 메서드를 **추가**할 때만, 기본값(fallback)도 같이.
 - `server/src/app.ts`, `main.ts`, `context.ts`, `http/*`, `routes/index.ts`, `db.ts`: 기반 파일. 꼭 필요하면 작은 단위로 고치고 커밋 메시지에 이유를 적는다.
-- `docs/DECISIONS.md`: 누구나 자기 절(`## A …` 등)을 추가해 결정을 적는다.
+- `docs/DECISIONS.md`: 2026-11-16 전 결정의 보관본. 절을 더하지 않는다. 새 결정은 `docs/decisions/<YYYYMMDD>-<topic>.md`에 새 파일로 적는다([docs/decisions/README.md](decisions/README.md)).
 
 ## 7. 커밋
 
