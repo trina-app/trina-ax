@@ -87,7 +87,7 @@ function transcriptLines(dataDir: string, chatId: string): string[] {
 }
 
 export type CardMode = 'once' | 'always' | 'decline'
-const isAlways = (o: { label: string; value: string }) => /always|항상/i.test(`${o.value} ${o.label}`)
+const isAlways = (o: { label: string; value: string }) => /always|항상|all_sites/i.test(`${o.value} ${o.label}`)
 /** the answer to a server card: once = go ahead this time only; always = the "always allow" choice when the card has one
  * (else go ahead); decline = the card's no (its last choice, as the app orders them) */
 export function pickCard(opts: { label: string; value: string }[], mode: CardMode): string | null {

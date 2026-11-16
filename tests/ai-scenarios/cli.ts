@@ -1,7 +1,8 @@
 // AI scenario runs: the catalog (cases.yaml) through the real team AI on a local server seeded with the fixture
 // company. README.md says what each step does.
 //
-//   bun run ai:scenarios up [--reset] [--devenv]     start this run's own dev server (port 19871, data ~/.trina-aiscen) and seed it
+//   bun run ai:scenarios up [--reset] [--devenv] [--no-relay]   start this run's own dev server (port 19871, its local
+//                                                   relay on 19872, data ~/.trina-aiscen) and seed it
 //   bun run ai:scenarios run [--case A-01,B-02] [--feature files] [--first-pass] [--jobs 3] [--run <id>] [--skip-fix-in-progress]
 //   bun run ai:scenarios judge [--run <id>] [--case …] [--jobs 4]
 //   bun run ai:scenarios report [--run <id>]
@@ -34,6 +35,9 @@ import type { Case, CaseResult } from './lib/types'
 const ROOT = path.resolve(import.meta.dir, '../..')
 const HOME = path.resolve(process.env.AISCEN_HOME ?? path.join(os.homedir(), '.trina-aiscen'))
 const PORT = Number(process.env.AISCEN_PORT ?? 19871)
+/** the server's own local relay: how a dev server learns its public exit address (server/src/main.ts). Without it
+ * every web address the AI opens gets the "device inside your network" card, which no real install shows. */
+const RELAY_PORT = Number(process.env.AISCEN_RELAY_PORT ?? 19872)
 const BASE = `http://127.0.0.1:${PORT}`
 const DATA = path.join(HOME, 'data')
 const TEAM = path.join(HOME, 'team')
@@ -70,12 +74,13 @@ async function up() {
   }
   fs.mkdirSync(HOME, { recursive: true, mode: 0o700 })
   if (!serverPid()) {
-    const env: Record<string, string> = { ...(process.env as Record<string, string>), TEAM_AX_DEV_DIR: HOME, TEAM_AX_DEV_PORT: String(PORT), NO_COLOR: '1' }
+    const env: Record<string, string> = { ...(process.env as Record<string, string>), TEAM_AX_DEV_DIR: HOME, TEAM_AX_DEV_PORT: String(PORT), TEAM_AX_DEV_RELAY_PORT: String(RELAY_PORT), NO_COLOR: '1' }
     if (flag('--devenv')) env.MYCEL_DEV_ENV = '1'
     else delete env.MYCEL_DEV_ENV
     fs.writeFileSync(path.join(HOME, 'devenv'), flag('--devenv') ? '1' : '0')
     const out = fs.openSync(LOG, 'a')
-    const child = Bun.spawn(['bun', 'run', 'scripts/dev.ts', '--no-relay'], { cwd: ROOT, env, stdout: out, stderr: out, stdin: 'ignore' })
+    fs.writeFileSync(path.join(HOME, 'relay'), flag('--no-relay') ? '0' : '1')
+    const child = Bun.spawn(['bun', 'run', 'scripts/dev.ts', ...(flag('--no-relay') ? ['--no-relay'] : [])], { cwd: ROOT, env, stdout: out, stderr: out, stdin: 'ignore' })
     child.unref()
     fs.writeFileSync(PID, String(child.pid))
     say(`server starting (pid ${child.pid}, log ${LOG})`)
@@ -86,7 +91,9 @@ async function up() {
   try { setupToken = fs.readFileSync(path.join(DATA, 'setup-token'), 'utf8').trim() || null } catch {}
   const state = await seedFixture({ base: BASE, setupToken, log: (s) => say(s) })
   fs.writeFileSync(STATE, JSON.stringify(state, null, 1))
-  say(`ready: ${BASE} (dev environment ${devEnvOn() ? 'on' : 'off'}); people ${Object.keys(state.people).join(', ')}; password in tests/ai-scenarios/fixture/seed.ts`)
+  let relayOn = false
+  try { relayOn = fs.readFileSync(path.join(HOME, 'relay'), 'utf8').trim() === '1' } catch {}
+  say(`ready: ${BASE} (dev environment ${devEnvOn() ? 'on' : 'off'}, relay ${relayOn ? `on (port ${RELAY_PORT}): the exit address is known` : 'OFF: every web address gets the in-network card'}); people ${Object.keys(state.people).join(', ')}; password in tests/ai-scenarios/fixture/seed.ts`)
 }
 
 const runDir = (id: string) => path.join(RUNS, id)

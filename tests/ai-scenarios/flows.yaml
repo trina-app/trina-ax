@@ -155,7 +155,8 @@ flows:
     - say: sora asks to mail it (mock Gmail)
       ask: { as: sora, chat: s1, prompt: "수정 견적서 사아자 베이커리 총무팀(office@saaja.example)에 메일로 보내줘" }
       checks:
-        - { type: mock, path: mail.sent, pattern: "saaja" }
+        # sent, and with the quote attached or linked (the mock takes files as base64 or links)
+        - { type: mock, path: mail.sent, pattern: "saaja[\\s\\S]*\"attachments\":\\[\\{" }
 
 - id: FL-09
   title: Meeting talk in the room, summarised, to-dos assigned, a member replies, revised
@@ -240,6 +241,10 @@ flows:
       ask: { as: sora, chat: s1, prompt: "좋아 이걸로 보내줘" }
       checks:
         - { type: mock, path: mail.sent, pattern: "lamaba" }
+    - say: sora saves the order sheet attached to the client's other mail
+      ask: { as: sora, chat: s1, prompt: "라마바카페가 보낸 12월 주문서 메일에 첨부파일 있지? 그거 영업 폴더에 저장해줘" }
+      checks:
+        - { type: file_created, file: "groups/영업/**/*.pdf" }
 
 - id: FL-13
   title: New files arrive, the AI suggests an order, they are shared, a teammate asks about them
@@ -533,7 +538,23 @@ flows:
 
 # ================================================================ the real case (owner 2026-11-16)
 - id: FL-28
-  title: "A teammate's meeting-notes link in the room: save the notes, then reply in its thread"
+  title: A teammate's meeting-notes link in the room, saved from the side chat, then sent to the thread (mocked)
+  group: sharing
+  mocked: true
+  why: Owner, 2026-11-16 - five permission prompts to save a teammate's meeting-notes link from a room (the person then pressed Send to thread under the answer).
+  features: [rooms.messages, chat.web-access, chat.cards, chat.share]
+  steps:
+    - say: minho posts a meeting-notes link with a tracking query in the room
+      event: { type: room_message, as: minho, text: "일요일 회의록이에요 {{mock}}/s/8LdgbR8hDYo2hLjRhVXF?utm_source=slack&utm_medium=share" }
+    - say: sora asks her side chat to save the meeting notes
+      ask: { as: sora, chat: s9, context: room-side, prompt: "민호님이 올린 일요일 회의록 링크 내용 파일로 저장해줘" }
+      checks:
+        - { type: answer_matches, pattern: "회의록|저장" }
+    - say: sora sends the answer to the thread of minho's message (the Send to thread button)
+      event: { type: share_answer, as: sora, chat: s9, threadOf: "일요일 회의록이에요" }
+
+- id: FL-29
+  title: "A meeting-notes link in the room: save the notes, then the AI replies in its thread"
   group: sharing
   why: Owner, 2026-11-16 - five permission prompts to save a teammate's meeting-notes link from a room.
   features: [rooms.messages, rooms.threads, chat.web-access, files.upload, chat.share]

@@ -74,7 +74,7 @@ export async function judgeFlow(f: Flow, r: FlowResult): Promise<FlowJudgement> 
 
 /** every prompt each person saw in a flow, and the fatigue flags */
 export function prompts(r: FlowResult) {
-  const list = r.steps.flatMap((s) => (s.turn?.cards ?? []).map((k) => ({ step: s.index, as: s.as, kind: k.kind, origin: k.origin, question: k.question.replace(/\s+/g, ' '), hasAlways: !!k.hasAlways, options: k.options ?? [] })))
+  const list = r.steps.flatMap((s) => [...(s.turn?.cards ?? []), ...(s.uiPrompts ?? [])].map((k) => ({ step: s.index, as: s.as, kind: k.kind, origin: k.origin, question: k.question.replace(/\s+/g, ' '), hasAlways: !!k.hasAlways, options: k.options ?? [] })))
   // the same kind of card again for one person: the first 30 characters of its question, numbers and names taken out
   const key = (q: string) => q.replace(/[0-9]+/g, '#').replace(/[«“"'].*?[»”"']/g, '…').slice(0, 30)
   const seen = new Map<string, number>()
@@ -189,7 +189,7 @@ export function absurdPrompts(r: FlowResult, o: { roomName: string; afterAlways?
   const seen = new Map<string, number>()
   let total = 0
   for (const s of r.steps) {
-    const cards = s.turn?.cards ?? []
+    const cards = [...(s.turn?.cards ?? []), ...(s.uiPrompts ?? [])]
     const prompt = s.prompts?.[s.prompts.length - 1] ?? ''
     for (const k of cards) {
       total++
@@ -214,7 +214,7 @@ export function absurdPrompts(r: FlowResult, o: { roomName: string; afterAlways?
   }
   if (total > 1) out.push({ step: 0, as: '', question: `${total} prompts in the flow`, reason: 'more than 1 prompt with the defaults' })
   if (o.afterAlways) {
-    const n = o.afterAlways.steps.reduce((a, s) => a + (s.turn?.cards.length ?? 0), 0)
+    const n = o.afterAlways.steps.reduce((a, s) => a + (s.turn?.cards.length ?? 0) + (s.uiPrompts?.length ?? 0), 0)
     if (n > 0) out.push({ step: 0, as: '', question: `${n} prompts after Always allow: ${o.afterAlways.steps.flatMap((s) => (s.turn?.cards ?? []).map((k) => `step ${s.index} ${k.question.replace(/\s+/g, ' ').slice(0, 50)}`)).join('; ')}`, reason: 'more than 0 prompts after Always allow' })
   }
   // one line per prompt and reason (a card that fails several rules is listed under each)
