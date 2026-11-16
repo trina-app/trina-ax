@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16 13:30
 - Branch: `feat/folder-share-web` (from `feat/folder-share-server`)
-- Status: in progress
+- Status: built, gate closed (pushed; no PR yet)
 - Where: Team AX core (`web/src/components/FileShareDialog.tsx`, `web/src/pages/FileLink.tsx`,
   `web/src/pages/SharedFiles.tsx`, `web/src/pages/Files.tsx`, `web/src/components/FolderAccess.tsx`,
   `web/src/pages/admin/`, `web/src/i18n/*`, `web/test/mock/server.ts`, `shared/src/api/auth.ts`,
@@ -60,4 +60,13 @@ None new: the design's rules. The gate stays closed in code until the manager sa
 
 ## Result
 
-(Filled in when the work is done.)
+- Built as scoped. The gate is one line, `FOLDER_SHARES_OPEN` in `server/src/files/folder-share-gate.ts` (closed);
+  `Me.server.folderShares` carries it to the web, and with it closed every screen is as before (unit and e2e tests).
+- Departures from the design: a file inside a shared folder opens at `/f/<id>?f=<path inside>` (a folder at `?p=`), so
+  the page knows which call to make; the header line inside a shared folder ("Shared with Jun and 2 others · Manage") is
+  the breadcrumb chip's accessible name and title instead of a second line (lean UI); a hidden name inside a shared folder
+  gets no "Shared" mark (receivers never see it; the server's `entryMarks` marks it, worth fixing there); the receiver's
+  closed-card words changed for files too ("You can't open this right now"), so a paused folder and a file read alike.
+- Checks: typecheck, check:i18n, check:docs, features:check, web unit `folder-share.test.tsx`, server unit
+  `c-folder-share-web.test.ts`, e2e `folder-share.spec.ts` with the existing file-share and Shared-with-me specs, and a
+  hands-on pass on a private copy of the QA team with the gate opened locally (QA TC-4077..4089).
