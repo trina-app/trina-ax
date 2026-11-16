@@ -18,6 +18,10 @@ test('a new file with a number the base has for another file is reported with th
   expect(takenOnBase(base, base)).toEqual([])
 })
 
+test('a new number below the base highest gets a hint', () => {
+  expect(migrationHints([...base, '409_b_late.sql'], base)[0]).toContain('below dev')
+})
+
 test('two new files on a taken number get different numbers to take', () => {
   const r = takenOnBase([...base, '410_b_one.sql', '411_b_two.sql'], base)
   expect(r.map((x) => x.use)).toEqual([412, 413])

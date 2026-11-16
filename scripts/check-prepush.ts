@@ -1,8 +1,8 @@
 // `bun run check:prepush`: run before pushing a pull request. It runs the fast checks of CI's job "typecheck, docs,
 // native" (.github/workflows/ci.yml: typecheck, features:check, check:docs, check:migrations) with the base set to
 // origin/dev, plus the unit-test files that kept failing a CI round after a dev merge or a new tool: the i18n
-// completeness and voice rules, the product-name and Korean-literal rules, and the exact tool lists. Nothing here is a
-// new rule; each step is a command or test file CI runs. The native build and the other unit tests stay in CI.
+// completeness and voice rules, the product-name and Korean-literal rules, and the exact tool lists (CI runs those in its
+// unit shards). `check:i18n` is the one extra: CI covers it through i18n-completeness.test.ts, it names the key sooner. The native build and the other unit tests stay in CI.
 //
 // - fetches origin/dev first; warns (never fails) when the branch is behind it ("merge origin/dev first");
 // - prints one hint line per failing step ("migration 410 is taken on dev, use 412");
@@ -64,7 +64,18 @@ export function takenOnBase(files: readonly string[], base: readonly string[]): 
 
 /** Hint lines for a failed check:migrations run, read from the files; the script's own messages stay above them. */
 export function migrationHints(files: readonly string[], base: readonly string[]): string[] {
-  return takenOnBase(files, base).map((t) => `migration ${t.number} is taken on dev (${t.file}), use ${t.use ?? 'a free number of its component'}`)
+  const lowOnes: string[] = []
+  const onBase = new Set(base)
+  const top = new Map<string, number>()
+  for (const f of base) { const p = parse(f); if (typeof p !== 'string') top.set(p.component, Math.max(top.get(p.component) ?? 0, p.number)) }
+  const taken = new Set(takenOnBase(files, base).map((t) => t.file))
+  for (const f of files) {
+    const p = parse(f)
+    if (typeof p === 'string' || onBase.has(f) || taken.has(f)) continue
+    const t = top.get(p.component)
+    if (t !== undefined && p.number < t) lowOnes.push(`migration ${p.number} (${f}) is below dev's highest ${t}: rename it to ${nextFree(p.component, [...top.values(), t]) ?? 'a free number'} or higher`)
+  }
+  return [...lowOnes, ...takenOnBase(files, base).map((t) => `migration ${t.number} is taken on dev (${t.file}), use ${t.use ?? 'a free number of its component'}`)]
 }
 
 /** Migration numbers that new files use and another open PR adds too: [number, PR numbers]. */
@@ -132,7 +143,7 @@ if (import.meta.main) {
   ]
   const failed: string[] = []
   // the tool-list tests start a real server that needs the native helpers (native/bin; the "native" part of CI's job)
-  if (!fs.existsSync(path.join(root, 'native', 'bin'))) {
+  if (!fs.existsSync(path.join(root, 'native', 'bin', `${process.platform}-${process.arch}`))) {
     console.log('native/bin is missing: building it once (bash native/build.sh), the tool-list tests need it')
     const b = run(root, ['bash', 'native/build.sh'])
     if (!b.ok) warnings.push(`native build failed (is Go installed?); the tool-list tests will fail for that reason, not for yours:\n${b.out.split('\n').slice(-5).join('\n')}`)
@@ -159,7 +170,8 @@ if (import.meta.main) {
   const base = lines(git(root, 'ls-tree', '--name-only', `${BASE}:${MIGRATIONS_PATH}`).stdout)
   if (mine.some((f) => !base.includes(f))) {
     const gh = spawnSync('gh', ['pr', 'list', '--repo', 'trina-app/trina-ax', '--base', 'dev', '--state', 'open', '--limit', '100', '--json', 'number,headRefName,files'], { cwd: root, encoding: 'utf8', timeout: 30000 })
-    if (gh.status === 0) {
+    if (gh.status !== 0) warnings.push('open-PR migration check skipped (gh missing, not signed in, or offline)')
+    else {
       try {
         const prs = JSON.parse(gh.stdout) as { number: number, headRefName: string, files: { path: string }[] }[]
         const current = git(root, 'rev-parse', '--abbrev-ref', 'HEAD').stdout.trim()
