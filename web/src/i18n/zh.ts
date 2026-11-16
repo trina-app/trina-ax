@@ -4108,6 +4108,7 @@ export const zh: Record<MessageKey, string> = {
   "rooms.search": "搜索聊天",
   "rooms.listEmpty": "暂无聊天。",
   "rooms.unread": "{n, plural, one {#条未读消息} other {#条未读消息}}",
+  "rooms.unreadNoCount": "有未读消息",
   "rooms.mentionedYou": "其中有提到你的消息",
   "rooms.muted": "通知已关闭",
   "rooms.back": "返回聊天",

@@ -27,7 +27,7 @@ import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import type { Room } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
 import { listTime } from '../lib/format'
-import { plainLine, roomUnread } from '../lib/rooms'
+import { plainLine, roomCounts } from '../lib/rooms'
 import { CHATS_ACTIVITY } from '../lib/screens'
 import { useLocale, useT } from '../i18n'
 import { useRooms } from '../store/rooms'
@@ -235,7 +235,7 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
   const nameOf = useNameOf()
   // an app's message: the app's name (docs/DECISIONS.md "Apps posting in rooms")
   const who = !m ? null : m.app ? m.app.name : m.author?.id === me?.user.id ? t('rooms.you') : room.kind === 'dm' ? null : nameOf(m.author)
-  const unread = roomUnread(room)
+  const { bold } = roomCounts(room)
   const menu = useRowMenu()
   return (
     <li className="group relative" {...menu.row}>
@@ -248,7 +248,7 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
       {/* the time on the name's line and the count on the preview's, so the preview has the whole width */}
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className={clsx('truncate', rowName({ unread: unread > 0 }))}><RoomName room={room} /></span>
+          <span className={clsx('truncate', rowName({ unread: bold }))}><RoomName room={room} /></span>
           {room.kind === 'dm' && room.peers[0] && <PresenceText userId={room.peers[0].id} />}
           {room.muted && (
             <>

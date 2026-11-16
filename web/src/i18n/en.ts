@@ -4167,6 +4167,7 @@ export const en: Record<MessageKey, string> = {
   "rooms.search": "Search conversations",
   "rooms.listEmpty": "No conversations yet.",
   "rooms.unread": "{n, plural, one {# unread message} other {# unread messages}}",
+  "rooms.unreadNoCount": "Unread messages",
   "rooms.mentionedYou": "one of them mentions you",
   "rooms.muted": "Notifications off",
   "rooms.back": "Back to conversations",
