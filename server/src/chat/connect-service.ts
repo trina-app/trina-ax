@@ -33,6 +33,7 @@ import { googleDriveOf } from '../integrations/google-drive/oauth'
 import { getTemplate, templatesOf } from '../integrations/connections/templates'
 import { DRIVE_TOOL_NAMES } from '../tools/drive'
 import { tr } from './i18n'
+import { seenWhy } from './grant-reads'
 import { refusal, SCREEN } from '../policy/refusal'
 import type { TurnExec } from './turn'
 
@@ -333,7 +334,7 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
     return { content: json({ skipped: true, reason: 'a scheduled run: nobody is there to finish a card. Say in the result that the person can ask you to connect it in a chat.' }), summary: `${CONNECT_TOOL} -> skipped (scheduled run)` }
   }
   // after a room read this card is the call's only one (chat/turn.ts ownCard): the room card's line goes on top
-  if (exec.ownCard(CONNECT_TOOL)) card = { ...card, lead: tr('roomsSeenWhy', L) }
+  if (exec.ownCard(CONNECT_TOOL)) card = { ...card, lead: tr(seenWhy(exec, 'roomsSeenWhy'), L) }
   // a reconnect card is for the person's own connection: another key or sign-in goes to it, and Not now never removes it
   const kept: ConnectCard = { integrationId: existing?.id ?? null, running: null, changed: false, version: existing?.version ?? null, created: false }
   exec.connectCards.set(card.requestId, kept)

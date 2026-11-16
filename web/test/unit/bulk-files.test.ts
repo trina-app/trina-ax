@@ -5,7 +5,7 @@
 // a chat), and where it may be dropped.
 import { describe, expect, test } from 'bun:test'
 import { ApiError, type FileEntry } from '@mycel/shared/api'
-import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, isFixed, moveMany, narrowedBy, projectSkillsOn, widenedBy, selectable, selectionState, shareMany, toggleAll, trashMany } from '../../src/lib/bulkFiles'
+import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, isFixed, moveMany, narrowedBy, projectSkillsOn, sendWidening, widenedBy, selectable, selectionState, shareMany, toggleAll, trashMany } from '../../src/lib/bulkFiles'
 import { TEAM_FILE_DRAG_TYPE } from '../../src/lib/teamAttach'
 
 const entry = (path: string, o: Partial<FileEntry> = {}): FileEntry => ({ name: path.slice(path.lastIndexOf('/') + 1), path, type: 'file', size: 1, mtime: '2026-10-28T00:00:00.000Z', mime: null, access: 'write', ...o })
@@ -267,5 +267,37 @@ describe('drag and drop', () => {
     // a read-only folder outside any movable selection: nothing to drag
     expect(dragPayload([locked], locked)).toBeNull()
     expect(chatDraggable(passage)).toBe(false)
+  })
+})
+
+// a folder its owner shares (folder sharing, second security review of PR 3, H-B): the server asks for the person's
+// yes on a copy or a restore into it (409 audience_widened) whatever the client did before
+describe('copies and restores into a shared folder', () => {
+  const widening = (n: number) => new ApiError(409, { code: 'conflict', message: 'widened', params: { reason: 'audience_widened', viewersAdded: n } })
+  test('shareMany sends the copies confirmed once the person said yes to more people seeing them', async () => {
+    const bodies: { confirm?: boolean; dryRun?: boolean }[] = []
+    await shareMany([entry('u/a.png')], 'users/me/Work', {
+      copy: async (body) => { bodies.push(body); return body.dryRun ? { viewersAdded: 2 } : { path: body.to, sha256: 'x' } },
+      confirmShare: async () => true,
+    })
+    expect(bodies.map((b) => [!!b.dryRun, !!b.confirm])).toEqual([[true, false], [false, true]])
+    // nobody more: no confirm sent
+    const plain: { confirm?: boolean }[] = []
+    await shareMany([entry('u/a.png')], 'users/me/Private', { copy: async (body) => { plain.push(body); return body.dryRun ? { viewersAdded: 0 } : { path: body.to, sha256: 'x' } }, confirmShare: async () => true })
+    expect(plain.map((b) => !!b.confirm)).toEqual([false, false])
+  })
+  test('sendWidening: a 409 audience_widened asks with the count, then sends again confirmed; a no throws it', async () => {
+    const sent: boolean[] = []
+    const asked: number[] = []
+    const send = async (confirm: boolean) => { sent.push(confirm); if (!confirm) throw widening(3); return 'ok' }
+    expect(await sendWidening(send, async (n) => (asked.push(n), true))).toBe('ok')
+    expect([sent, asked]).toEqual([[false, true], [3]])
+    sent.length = 0
+    await expect(sendWidening(send, async () => false)).rejects.toBeInstanceOf(ApiError)
+    expect(sent).toEqual([false])
+    // any other refusal is not asked about
+    let askedOther = false
+    await expect(sendWidening(async () => { throw new Error('x') }, async () => (askedOther = true))).rejects.toThrow('x')
+    expect(askedOther).toBe(false)
   })
 })

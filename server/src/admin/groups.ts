@@ -182,6 +182,9 @@ export function deleteGroupAs(ctx: AppContext, actorId: string, id: string, from
     // a project folder in projects/ never ends with no rules (admin/folders.ts keepProjectFloors)
     keepProjectFloors(ctx.db, ruled, actorId)
     ctx.db.query('DELETE FROM groups WHERE id = ?').run(id)
+    // files and folders shared with the group (files/shares.ts, folder-shares.ts): its entry goes with it, so nothing
+    // stays shared with a group nobody can see or manage (its members lose them unless they have them otherwise)
+    ctx.db.query("DELETE FROM file_share_grants WHERE subject_type = 'group' AND subject_id = ?").run(id)
     ctx.db.query("DELETE FROM budgets WHERE subject_type = 'group' AND subject_id = ?").run(id)
     // team connections' and templates' rules: a group nobody can see any more would block every later change of them
     ctx.db.query("DELETE FROM integration_access WHERE subject_type = 'group' AND subject_id = ?").run(id)
