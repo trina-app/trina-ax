@@ -8,13 +8,14 @@
 import clsx from 'clsx'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ProjectParticipant, TeamFileReason } from '@mycel/shared/api'
-import { api, API } from '../../lib/api'
-import { hintedFirst, shareEach, shareHint, type ShareOutcome } from '../../lib/shareFound'
-import { useT, type MessageKey } from '../../i18n'
+import { api, API, errorText } from '../../lib/api'
+import { hintedFirst, shareBatch, shareHint, type ShareOutcome } from '../../lib/shareFound'
+import { useLocale, useT, type MessageKey } from '../../i18n'
 import { usePeopleList } from '../../store/people'
 import { useMe } from '../../store/session'
 import { ParticipantPicker, participantKey, useParticipantOptions } from '../ProjectParticipants'
 import { whoNames } from '../ShareWarning'
+import { EveryoneLine, isEveryone, useWithEveryone } from '../ShareEveryone'
 import { Button } from '../ui'
 import { TickRow } from './TickList'
 
@@ -45,7 +46,9 @@ export function ShareFoundFiles({ paths, reasons, where, phone, added, onShared,
   const ids = useId()
   const me = useMe()
   const people = usePeopleList()
-  const options = useParticipantOptions()
+  const locale = useLocale()
+  // "Everyone on the team" first (QA TC-3509), then groups and people
+  const options = useWithEveryone(useParticipantOptions())
   const list = useMemo(() => hintedFirst(paths, reasons), [paths, reasons])
   const [ticks, setTicks] = useState<Set<string>>(() => new Set())
   const [picks, setPicks] = useState<ProjectParticipant[]>([])
@@ -62,12 +65,13 @@ export function ShareFoundFiles({ paths, reasons, where, phone, added, onShared,
 
   const share = async () => {
     if (!chosen.length || !picks.length || going) return
-    const names = whoNames(t, picks.flatMap((p) => { const o = byKey.get(participantKey(p)); return o ? [{ subjectType: o.subjectType, name: o.name }] : [] }))
+    // the whole team by its own words ("everyone on the team"), never as a group's people
+    const names = [...(picks.some(isEveryone) ? [t('fileShare.everyoneWho')] : []), whoNames(t, picks.filter((p) => !isEveryone(p)).flatMap((p) => { const o = byKey.get(participantKey(p)); return o ? [{ subjectType: o.subjectType, name: o.name }] : [] }))].filter(Boolean).join(t('rooms.nameSep'))
     setGoing({ k: 0, n: chosen.length })
-    const r = await shareEach(chosen, picks, {
-      put: (path, add) => api.call(API.putFileShares, { body: { path, add, remove: [] } }),
+    const r = await shareBatch(chosen, picks, {
+      post: (paths, add) => api.call(API.shareFilesBatch, { body: { paths, add } }),
+      words: (e) => errorText(e, locale, t('chat.share.saveFailed')),
       live: () => live.current,
-      onStep: (k) => { if (live.current) setGoing({ k, n: chosen.length }) },
     })
     if (!live.current) return
     setGoing(null)
@@ -93,7 +97,8 @@ export function ShareFoundFiles({ paths, reasons, where, phone, added, onShared,
             onChange={(on) => setTicks((s) => { const n = new Set(s); if (on) n.add(p); else n.delete(p); return n })} testId="find-work-share-row" checkTestId="find-work-share-check" />
         ))}
       </ul>
-      {going ? <p className="text-label text-muted" role="status" data-testid="find-work-share-going">{t('files.findWork.share.going', { k: going.k, n: going.n })}</p>
+      {chosen.length > 0 && <EveryoneLine picks={picks} files={chosen.length} testId="find-work-share-everyone-line" />}
+      {going ? <p className="text-label text-muted" role="status" data-testid="find-work-share-going">{t('files.findWork.share.going', { n: going.n })}</p>
         : chosen.length > 0 && !picks.length ? <p className="text-label text-muted" data-testid="find-work-share-who">{t('files.findWork.share.who')}</p> : null}
       <div className={phone ? 'flex flex-col-reverse gap-2 [&>*]:w-full' : 'flex flex-wrap items-center justify-end gap-3'}>
         <Button variant="ghost" className={clsx(phone && 'w-full')} disabled={!!going} onClick={onSkip} data-testid="find-work-share-skip">{t('files.findWork.share.skip')}</Button>

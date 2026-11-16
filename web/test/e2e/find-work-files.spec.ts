@@ -8,6 +8,8 @@
 // AI, a read the app refuses, every folder blocked, the owner's setup step (the team home), and an older app.
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { FILE_SHARE_EVERYONE } from '@mycel/shared/api'
+import { translate } from '../../src/i18n'
 
 import { answer, app, fakeApp, look, notNow, pickHolds, roots, type Meta } from './fake-work-files'
 
@@ -202,6 +204,40 @@ test('the share step: nothing ticked, a hint on the kinds teams keep, Share is t
   expect((await shares('users/bob/From this computer/Documents/Clients/Northwind/Northwind proposal.pptx')).people).toEqual([])
   await page.getByTestId('find-work-done').click()
   expect(own(errors)).toEqual([])
+})
+
+test('the share step with "Everyone on the team": the first option, the line before the press, one press; a teammate gets ONE notice for both files', async ({ page, browser }) => {
+  const ko = (k: Parameters<typeof translate>[1], p: Record<string, string | number> = {}) => translate('ko', k, p)
+  await fakeApp(page)
+  await reset(page)
+  await signIn(page, BOB)
+  await openMine(page)
+  await look(page, WORK)
+  await page.getByTestId('files-find-work-entry').click()
+  await answer(page, 'look')
+  await expect(page.getByTestId('find-work-ai')).toBeVisible()
+  const work = page.getByTestId('find-work-work')
+  await work.getByTestId('find-work-row').filter({ hasText: 'Quote template 2026.xlsx' }).getByTestId('find-work-check').check()
+  await work.getByTestId('find-work-row').filter({ hasText: 'Brand guide v3.pdf' }).getByTestId('find-work-check').check()
+  await page.getByTestId('find-work-add').click()
+  await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-stage', 'share', { timeout: 15_000 })
+  for (const c of await page.getByTestId('find-work-share-check').all()) await c.check()
+  await page.getByTestId('find-work-share-picker-search').click()
+  await expect(page.getByTestId('find-work-share-picker-results').getByRole('button').first()).toContainText(ko('fileShare.everyone'))
+  await page.getByTestId(`participant-add-group-${FILE_SHARE_EVERYONE}`).click()
+  await expect(page.getByTestId('find-work-share-everyone-line')).toHaveText(ko('fileShare.everyoneLineMany', { n: 2 }))
+  await page.getByTestId('find-work-share-go').click()
+  await expect(page.getByTestId('find-work-shared')).toHaveText(ko('files.findWork.share.done', { n: 2, names: ko('fileShare.everyoneWho') }))
+  // Olga (the team owner) gets one notice for the two files, which opens their list
+  const ctx = await browser.newContext({ baseURL: new URL(page.url()).origin, viewport: { width: 390, height: 844 }, locale: 'ko-KR' })
+  const olga = await ctx.newPage()
+  await signIn(olga)
+  await olga.goto('/activity')
+  const item = olga.getByTestId('notification-item').filter({ hasText: ko('notifications.event.file.sharedMany', { by: 'Bob', n: 2 }) })
+  await expect(item).toHaveCount(1)
+  await item.getByTestId('notification-file-batch-link').click()
+  await expect(olga.getByTestId('file-batch-row')).toHaveCount(2)
+  await ctx.close()
 })
 
 test('the share step is skipped when the team turned off members\' file sharing', async ({ page }) => {
