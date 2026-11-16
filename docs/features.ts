@@ -62,6 +62,7 @@ export const FEATURES: Feature[] = [
   { id: 'chat.decks', name: 'Intro decks (slides, PPTX, PDF)', area: 'AI chat', endpoints: ['*IntroDeck*', 'listDeckBuilds', 'deckBuildSlide'] },
   { id: 'chat.promo-video', name: 'Promo videos (MP4)', area: 'AI chat', endpoints: ['*PromoVideo'] },
   { id: 'chat.voice', name: 'Voice input and recordings to text', area: 'AI chat', endpoints: ['transcribe', 'getJob', 'cancelJob'] },
+  { id: 'chat.meeting-notes', name: 'Meeting notes from the desktop app (words of a call while people talk)', area: 'AI chat', endpoints: ['meetingStatus', 'meetingPiece'] },
   { id: 'chat.browser', name: 'The AI uses the browser (desktop app)', area: 'AI chat', endpoints: ['pollCalls', 'postResult'], screens: ['/settings/browser'] },
   { id: 'chat.web-access', name: 'Allow all websites for the AI', area: 'AI chat', endpoints: ['setMyWebAccess'] },
   { id: 'chat.memory', name: 'What the AI remembers about me', area: 'AI chat', endpoints: ['*Memor*'], screens: ['/settings/memory'] },
