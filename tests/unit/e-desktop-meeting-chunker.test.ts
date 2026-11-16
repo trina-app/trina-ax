@@ -50,8 +50,8 @@ describe('meeting pieces', () => {
     c.flush()
     expect(got.length).toBeGreaterThanOrEqual(3)
     for (const p of got) expect((p.samples.length * 1000) / RATE).toBeLessThanOrEqual(MAX_PIECE_MS)
-    // pieces follow each other on meeting time
-    for (let i = 1; i < got.length; i++) expect(got[i]!.startMs).toBeGreaterThanOrEqual(got[i - 1]!.startMs + 100)
+    // cut pieces follow each other back to back on meeting time
+    for (let i = 1; i < got.length; i++) expect(got[i]!.startMs).toBe(got[i - 1]!.startMs + got[i - 1]!.samples.length / 16)
   })
 
   test('a click is not sent (too little clear speech)', () => {

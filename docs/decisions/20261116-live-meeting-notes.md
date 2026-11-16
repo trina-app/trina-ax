@@ -21,13 +21,19 @@ Plan: [docs/AGENTS/plan/20261116-1903-live-meeting-notes.md](../AGENTS/plan/2026
   the second try, the hosting key's free-hours meter: meetings share the plan's free hours of transcription with voice
   input and video reads). Safe operations 1A (sound never leaves the server) refuses it (403 `confidential`).
 - **On the server:** whisper.cpp in a video piece's kind of turn (`pieceTurn`: voice input first, a piece waits at most
-  20 s, else 503 and the app sends it again), never `dictationTurn`. Meetings measure their own speed in memory (wall
-  time per second of sound, model loading included, after 3 pieces); above 0.45 s per second `GET /api/meetings/status`
-  says `too_slow` and new pieces are refused. A missing model makes the status start the first-use download and report
-  its progress (`getting_ready`).
+  20 s, else 503 `busy` and the app sends it again), never `dictationTurn`, without the temperature fallback (as video
+  pieces). Meetings measure their own speed in memory: whisper's time (not the wait for the turn) summed over the sound
+  summed, for the pieces of the last 10 minutes, from 3 pieces on; the first piece after a quiet spell (the model
+  loading) is not counted. Above 0.45 s per second `GET /api/meetings/status` says `too_slow` and pieces are refused;
+  the measure forgets old pieces, so a busy spell does not turn meetings off for good. A missing model makes the status
+  start the first-use download and report its progress (`getting_ready`); after a failed download it says `off` for 5
+  minutes before another try.
+- **What the app does with a refusal:** 429 `in_flight` and 503 `busy` / `not_ready` are sent again after
+  `Retry-After`; 409 (`off`, `no_key`, `too_slow`) and 403 `confidential` end the meeting with the sentence.
 - **No changing words.** Each re-reading of an open piece would be another paid request; lines land at each pause.
 - **Language:** none by default (whisper guesses per piece); a fixed one turns English lines into Korean in mixed
   meetings.
-- **Limits:** members only (the guest allow-list), two pieces under way per person (429), one piece at most 15.5 s.
+- **Limits:** members only (the guest allow-list), two pieces under way per person (429), one piece at most 15.5 s,
+  with the app's exact WAV header (RIFF size, byte rate, block align checked: the OpenRouter path forwards it as it is).
 - **Tests:** `tests/unit/c-meeting-piece.test.ts`, `tests/unit/e-desktop-meeting-chunker.test.ts`.
 - **Version impact:** minor (two new calls; the desktop side follows in the same plan).

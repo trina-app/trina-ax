@@ -25,17 +25,21 @@ export const MEETING_PIECES_IN_FLIGHT = 2
 export const MEETING_TURN_WAIT_MS = 20_000
 /** the longest a piece may take */
 export const MEETING_PIECE_TIMEOUT_MS = 60_000
-/** pieces measured before the speed counts (the first may load the model from disk) */
+/** pieces measured before the speed counts (the first after a pause loads the model from disk and is not counted) */
 const SPEED_MIN_PIECES = 3
+/** the speed is the sum of whisper time over the sum of sound of the pieces of the last MEETING_SPEED_WINDOW_MS */
+export const MEETING_SPEED_WINDOW_MS = 10 * 60_000
+/** after a failed first-use model download, the status says `off` this long before it tries again */
+export const MEETING_MODEL_RETRY_MS = 5 * 60_000
 
-export const MEETING_TOO_SLOW = () => fail(
+export const MEETING_TOO_SLOW = () => { const f = fail(
   '회의 기록에는 더 빠른 설정이 필요해요. 관리자에게 물어보세요.',
   'Meeting notes need a faster setup. Ask your admin.',
   'Catatan rapat memerlukan pengaturan yang lebih cepat. Tanyakan admin Anda.',
   '会議メモにはより速い設定が必要です。管理者に確認してください。',
   'Las notas de reunión necesitan una configuración más rápida. Pregunte a su administrador.',
   '会议记录需要更快的设置。请询问管理员。',
-  'unavailable', 'too_slow')
+  'unavailable', 'too_slow'); return new JobFailure('conflict', f.messages, 'too_slow') }
 export const MEETING_CONFIDENTIAL = () => fail(
   '이 팀은 소리를 팀 서버 밖으로 보내지 않아요. 회의 기록은 관리자가 음성 입력을 "이 서버에서"로 바꾸면 쓸 수 있어요.',
   'This team never sends sound outside its own server. Meeting notes work when an admin sets voice input to "On this server".',
@@ -52,6 +56,24 @@ export const MEETING_BUSY = () => fail(
   'El servidor del equipo está ocupado con otra voz. Este fragmento se enviará de nuevo en breve.',
   '团队服务器正在处理其他语音。这一段稍后会再次发送。',
   'unavailable', 'busy')
+export const MEETING_NOT_READY = () => fail(
+  '회의 기록 준비가 아직 끝나지 않았어요. 잠시 뒤 다시 보낼게요.',
+  'Meeting notes are still getting ready. This piece will be sent again shortly.',
+  'Catatan rapat masih disiapkan. Potongan ini akan dikirim lagi sebentar lagi.',
+  '会議メモの準備がまだ終わっていません。この部分は少し後でもう一度送ります。',
+  'Las notas de reunión aún se están preparando. Este fragmento se enviará de nuevo en breve.',
+  '会议记录还在准备中。这一段稍后会再次发送。',
+  'unavailable', 'not_ready')
+/** the person already has MEETING_PIECES_IN_FLIGHT pieces under way: the app sends this one again shortly */
+export class MeetingInFlight extends Error { constructor() { super('in_flight'); this.name = 'MeetingInFlight' } }
+/** Refusals that will not go away by sending again (off, no key, too slow, confidential): the app stops the meeting
+ * and says why. Busy and not-ready (503) and in-flight (429) are sent again. */
+export const MEETING_FINAL_REASONS: ReadonlySet<string> = new Set(['off', 'no_key', 'too_slow', 'confidential'])
+/** voice input is off here (no provider, no whisper-cli): a final refusal with its reason */
+const OFF = () => { const f = SPEECH_OFF(); return new JobFailure('conflict', f.messages, 'off') }
+const NO_KEY = () => { const f = SPEECH_NO_KEY(); return new JobFailure('conflict', f.messages, 'no_key') }
+/** the request was closed by the app before the answer */
+export class MeetingGone extends Error { constructor() { super('gone'); this.name = 'MeetingGone' } }
 const NOT_A_PIECE = () => fail(
   '회의 소리 조각을 읽을 수 없어요.', "This piece of the meeting's sound can't be read.", 'Potongan suara rapat ini tidak dapat dibaca.',
   '会議の音声の断片を読み取れません。', 'No se puede leer este fragmento del sonido de la reunión.', '无法读取这段会议声音。', 'bad_request', 'not_wav')
@@ -62,7 +84,8 @@ export function pieceSeconds(head: Uint8Array, size: number): number | null {
   if (head.length < 44 || size < 44) return null
   const b = Buffer.from(head.buffer, head.byteOffset, head.byteLength)
   if (b.toString('latin1', 0, 4) !== 'RIFF' || b.toString('latin1', 8, 12) !== 'WAVE' || b.toString('latin1', 12, 16) !== 'fmt ' || b.toString('latin1', 36, 40) !== 'data') return null
-  if (b.readUInt32LE(16) !== 16 || b.readUInt16LE(20) !== 1 || b.readUInt16LE(22) !== 1 || b.readUInt32LE(24) !== 16000 || b.readUInt16LE(34) !== 16) return null
+  if (b.readUInt32LE(4) !== size - 8) return null
+  if (b.readUInt32LE(16) !== 16 || b.readUInt16LE(20) !== 1 || b.readUInt16LE(22) !== 1 || b.readUInt32LE(24) !== 16000 || b.readUInt32LE(28) !== 32000 || b.readUInt16LE(32) !== 2 || b.readUInt16LE(34) !== 16) return null
   const data = b.readUInt32LE(40)
   if (data !== size - 44 || data % 2) return null
   const sec = data / 32_000
@@ -72,18 +95,30 @@ export function pieceSeconds(head: Uint8Array, size: number): number | null {
 /** whisper's marks for sound with no words ([BLANK_AUDIO], (music), [음악]) are not lines */
 const NOT_WORDS = /^\s*[[(（][^\])）]{0,40}[\])）]\s*$/
 
-/** This server's speed on meeting pieces: a moving average of wall time per second of sound, model loading included. */
+/** This server's speed on meeting pieces: whisper.cpp's time (not the wait for the turn) over the sound, summed over
+ * the pieces of the last MEETING_SPEED_WINDOW_MS (whisper reads a 30 s window whatever it gets, so a short piece's own
+ * ratio says little). The first piece after a quiet spell loads the model from disk and is not counted. Old pieces are
+ * forgotten, so a server that was busy for a while is not refused for good. */
 export class MeetingSpeed {
-  private avg = 0
-  private n = 0
+  private pieces: { at: number; ms: number; sec: number }[] = []
+  private lastAt = -Infinity
+  constructor(private now: () => number = Date.now) {}
   record(elapsedMs: number, seconds: number) {
-    if (!(seconds > 0)) return
-    const v = elapsedMs / 1000 / seconds
-    this.n++
-    this.avg = this.n === 1 ? v : this.avg * 0.8 + v * 0.2
+    if (!(seconds > 0) || !(elapsedMs >= 0)) return
+    const at = this.now()
+    const cold = at - this.lastAt > MEETING_SPEED_WINDOW_MS
+    this.lastAt = at
+    if (cold) return
+    this.pieces.push({ at, ms: elapsedMs, sec: seconds })
   }
-  /** null until a few pieces were measured */
-  secPerSec(): number | null { return this.n >= SPEED_MIN_PIECES ? this.avg : null }
+  /** null until SPEED_MIN_PIECES recent pieces were measured */
+  secPerSec(): number | null {
+    const from = this.now() - MEETING_SPEED_WINDOW_MS
+    this.pieces = this.pieces.filter((p) => p.at >= from)
+    if (this.pieces.length < SPEED_MIN_PIECES) return null
+    const ms = this.pieces.reduce((n, p) => n + p.ms, 0), sec = this.pieces.reduce((n, p) => n + p.sec, 0)
+    return ms / 1000 / sec
+  }
   tooSlow(): boolean { const v = this.secPerSec(); return v !== null && v > MEETING_LOCAL_MAX_SEC_PER_SEC }
 }
 
@@ -98,6 +133,8 @@ export interface MeetingDeps {
 }
 
 const inFlight = new Map<string, number>()
+/** the last failed first-use model download (meetingStatus waits MEETING_MODEL_RETRY_MS before another) */
+let modelFailedAt = -Infinity
 
 /** GET /api/meetings/status: whether meeting notes can start now. A local server without its model starts the
  * first-use download (one at a time) and says how far it is. */
@@ -111,8 +148,10 @@ export async function meetingStatus(deps: MeetingDeps): Promise<MeetingStatus> {
   if (!deps.stt.whisperBin) return { state: 'off' }
   if (deps.speed.tooSlow()) return { state: 'too_slow' }
   if (await modelReady(deps.stt)) return { state: 'ready' }
+  // a failed download is not started again by every look of every member's app
+  if (Date.now() - modelFailedAt < MEETING_MODEL_RETRY_MS) return { state: 'off' }
   const spec = deps.stt.modelOverride ?? WHISPER_MODELS[deps.stt.model]
-  void ensureModel(deps.stt).catch(() => { /* asked again by the next status */ })
+  void ensureModel(deps.stt).catch(() => { modelFailedAt = Date.now() })
   let have = 0
   try { have = fs.statSync(path.join(deps.stt.modelDir, spec.file + '.part')).size } catch { /* not started */ }
   return { state: 'getting_ready', modelMb: Math.round(spec.size / 1_000_000), progress: Math.min(1, have / spec.size) }
@@ -122,9 +161,11 @@ export async function meetingStatus(deps: MeetingDeps): Promise<MeetingStatus> {
  * an Error('busy') while the person has MEETING_PIECES_IN_FLIGHT pieces under way. */
 export async function meetingPiece(deps: MeetingDeps, userId: string, file: string, o: { language?: string; locale: Locale; signal?: AbortSignal }): Promise<MeetingPieceResult> {
   try {
-    if ((inFlight.get(userId) ?? 0) >= MEETING_PIECES_IN_FLIGHT) throw new Error('busy')
+    if ((inFlight.get(userId) ?? 0) >= MEETING_PIECES_IN_FLIGHT) throw new MeetingInFlight()
     const provider = deps.provider()
-    if (provider === 'off') throw SPEECH_OFF()
+    if (provider === 'off') throw OFF()
+    // sound never leaves this server (Safe operations 1A): refused before the piece is read
+    if (provider === 'openrouter' && deps.confidential()) throw MEETING_CONFIDENTIAL()
     let seconds: number | null = null
     let bytes: Buffer | null = null
     {
@@ -150,23 +191,25 @@ export async function meetingPiece(deps: MeetingDeps, userId: string, file: stri
     try {
       let r: { segments?: { start: number; end: number; text: string }[]; text: string; language: string | null }
       if (provider === 'openrouter') {
-        if (deps.confidential()) throw MEETING_CONFIDENTIAL()
         const or = deps.openRouter()
-        if (!or) throw SPEECH_NO_KEY()
+        if (!or) throw NO_KEY()
         r = await sendToOpenRouter(deps.stt, or.key, or.model, bytes!, 'wav', { language: lang, signal: ac.signal, seconds })
       } else {
-        if (!deps.stt.whisperBin) throw SPEECH_OFF()
+        if (!deps.stt.whisperBin) throw OFF()
         if (deps.speed.tooSlow()) throw MEETING_TOO_SLOW()
         const model = await modelReady(deps.stt)
-        if (!model) throw MEETING_TOO_SLOW()
-        const t0 = Date.now()
+        if (!model) throw MEETING_NOT_READY()
+        let t0 = 0
         const got = await pieceTurn(async (yieldSignal) => {
+          // whisper's own time: the wait for the turn is not the server's speed
+          t0 = Date.now()
           const both = AbortSignal.any([ac.signal, yieldSignal])
           fs.mkdirSync(deps.stt.workBase, { recursive: true, mode: 0o700 })
           const work = fs.realpathSync(fs.mkdtempSync(path.join(deps.stt.workBase, 'meet-')))
           try {
             fs.copyFileSync(file, path.join(work, 'piece.wav'), fs.constants.COPYFILE_FICLONE)
-            return await whisperFile(deps.stt, model, work, 'piece.wav', { language: lang, signal: both, timeoutMs: MEETING_PIECE_TIMEOUT_MS })
+            // no temperature fallback, as a video read's pieces (whisper-turns, transcribe.ts whisperFile noFallback)
+            return await whisperFile(deps.stt, model, work, 'piece.wav', { language: lang, signal: both, timeoutMs: MEETING_PIECE_TIMEOUT_MS, noFallback: true })
           } finally { fs.rmSync(work, { recursive: true, force: true }) }
         }, { signal: ac.signal, waitMs: MEETING_TURN_WAIT_MS })
         if (!got.ok) throw MEETING_BUSY()
@@ -174,12 +217,15 @@ export async function meetingPiece(deps: MeetingDeps, userId: string, file: stri
         r = got.value
       }
       const lines = (r.segments?.length ? r.segments : r.text ? [{ start: 0, end: seconds, text: r.text }] : [])
-        .map((l) => ({ start: Math.max(0, l.start), end: Math.max(l.start, l.end), text: l.text.replace(/\s+/g, ' ').trim() }))
+        .map((l) => { const start = Math.min(seconds!, Math.max(0, l.start)); return { start, end: Math.min(seconds!, Math.max(start, l.end)), text: l.text.replace(/\s+/g, ' ').trim() } })
         .filter((l) => l.text && !NOT_WORDS.test(l.text))
       return { lines, language: r.language }
     } catch (e) {
       if (e instanceof JobFailure) throw e
+      // the time limit (not the app going away): send it again later
       if (ac.signal.aborted && !o.signal?.aborted) throw MEETING_BUSY()
+      // the app went away: nobody reads the answer
+      if (o.signal?.aborted) throw new MeetingGone()
       throw e
     } finally {
       clearTimeout(timer)

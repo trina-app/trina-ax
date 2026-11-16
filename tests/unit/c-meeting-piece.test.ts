@@ -8,9 +8,10 @@ import { componentC } from '../../server/src/team-files/component'
 import { updateTeamSettings } from '../../server/src/admin/settings'
 import { credentialsOf } from '../../server/src/credentials/store'
 import { writeSpeechKey } from '../../server/src/credentials/speech-key'
-import { MeetingSpeed, meetingStatus, MEETING_LOCAL_MAX_SEC_PER_SEC, pieceSeconds, type MeetingDeps } from '../../server/src/jobs/meeting-piece'
+import { MeetingSpeed, meetingPiece, meetingStatus, MEETING_LOCAL_MAX_SEC_PER_SEC, MEETING_SPEED_WINDOW_MS, pieceSeconds, type MeetingDeps } from '../../server/src/jobs/meeting-piece'
 import { pieceWav } from '../../desktop/src/common/meeting/chunker'
 import { makeCApp, type CApp } from '../lib/c-app'
+import { isolation } from '../../server/src/tools/isolate'
 
 const KEY = 'sk-or-v1-FAKE-TEST-KEY-CANARY-0123456789abcdef'
 let A: CApp
@@ -73,10 +74,11 @@ describe('a piece through OpenRouter', () => {
     await send(piece(1))
     expect(hits[0].language).toBeUndefined()
   })
-  test('voice input off: refused, nothing sent', async () => {
+  test('voice input off: 409 with its reason (the app ends the meeting), nothing sent', async () => {
     updateTeamSettings(A.ctx.db, { speechProvider: 'off' })
     const r = await send(piece(1))
-    expect(r.status).toBeGreaterThanOrEqual(400)
+    expect(r.status).toBe(409)
+    expect(r.body.error.params).toEqual({ reason: 'off' })
     expect(hits).toEqual([])
     expect(leftovers()).toEqual([])
   })
@@ -104,6 +106,27 @@ describe('a piece through OpenRouter', () => {
       expect(r.status).toBeGreaterThanOrEqual(400)
       expect(JSON.stringify(r.body)).not.toContain(KEY)
     } finally { reply = () => Response.json({ text: 'ok', segments: [{ start: 0, end: 1, text: 'ok' }] }) }
+  })
+  test('a third piece while two are under way: 429 in_flight with a retry time, nothing left', async () => {
+    let release!: () => void
+    const held = new Promise<void>((r) => { release = r })
+    reply = () => Response.json({ text: 'x', segments: [{ start: 0, end: 1, text: 'x' }] })
+    const slow = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch() { await held; return Response.json({ text: 'x', segments: [{ start: 0, end: 1, text: 'x' }] }) } })
+    const t = C().transcribe
+    const url = t.openRouterUrl
+    t.openRouterUrl = `http://127.0.0.1:${slow.port}/`
+    try {
+      const a = send(piece(1)), b = send(piece(1))
+      await Bun.sleep(150)
+      const c = await send(piece(1))
+      expect(c.status).toBe(429)
+      expect(c.body.error.params).toEqual({ reason: 'in_flight' })
+      expect(c.res.headers.get('retry-after')).toBe('2')
+      release()
+      expect((await a).status).toBe(200)
+      expect((await b).status).toBe(200)
+    } finally { t.openRouterUrl = url; slow.stop(true) }
+    expect(leftovers()).toEqual([])
   })
   test('status: ready with a key, off without', async () => {
     expect((await A.json('/api/meetings/status', { as: 'alice' })).body).toEqual({ state: 'ready' })
@@ -140,11 +163,54 @@ describe('a piece on this server', () => {
     expect(d.speed.secPerSec()!).toBeGreaterThan(MEETING_LOCAL_MAX_SEC_PER_SEC)
     expect((await meetingStatus(d)).state).toBe('too_slow')
   })
-  test('the speed counts only after a few pieces', () => {
-    const s = new MeetingSpeed()
+  test('the speed counts only after a few pieces; the first (the model loading) is not counted', () => {
+    let now = 1_000_000
+    const s = new MeetingSpeed(() => now)
     s.record(60_000, 10)
+    s.record(500, 10); s.record(500, 10)
     expect(s.secPerSec()).toBeNull()
+    s.record(500, 10)
+    expect(s.secPerSec()).toBeCloseTo(0.05, 3)
+  })
+  test('a busy spell is forgotten: too slow becomes ready again after the window', () => {
+    let now = 1_000_000
+    const s = new MeetingSpeed(() => now)
+    for (let i = 0; i < 6; i++) { s.record(20_000, 15); now += 1000 }
+    expect(s.tooSlow()).toBe(true)
+    now += MEETING_SPEED_WINDOW_MS + 1
     expect(s.tooSlow()).toBe(false)
+    expect(s.secPerSec()).toBeNull()
+  })
+  test('sum over sum: a short piece does not count as a whole window', () => {
+    let now = 1_000_000
+    const s = new MeetingSpeed(() => now)
+    s.record(0, 1)
+    s.record(1000, 0.5); s.record(1000, 14.5); s.record(1000, 15)
+    expect(s.secPerSec()).toBeCloseTo(3 / 30, 3)
+  })
+  // macOS's sandbox lets only the named program run, not the shell a script needs; Linux CI runs it
+  test.skipIf(isolation() === 'sandbox-exec')('a fake whisper-cli: lines come back on piece time, without the fallback, nothing left behind', async () => {
+    const d = deps()
+    const bin = path.join(A.data, 'fake-whisper-cli')
+    // writes out.json as whisper.cpp does (-of out -oj) in its work folder (the only place the sandbox lets it write);
+    // its arguments come back as a third line, from 1.9 s
+    fs.writeFileSync(bin, `#!/bin/sh\nprintf '{"result":{"language":"en"},"transcription":[{"offsets":{"from":100,"to":1500},"text":" hi there"},{"offsets":{"from":1500,"to":1800},"text":"[BLANK_AUDIO]"},{"offsets":{"from":1900,"to":9000},"text":"ARGS %s"}]}' "$*" > out.json\n`, { mode: 0o755 })
+    d.stt.whisperBin = bin
+    fs.mkdirSync(d.stt.modelDir, { recursive: true })
+    fs.writeFileSync(path.join(d.stt.modelDir, 'm.bin'), Buffer.alloc(1000))
+    const f = path.join(A.data, 'piece-in.wav')
+    fs.writeFileSync(f, piece(2))
+    fs.mkdirSync(d.stt.workBase, { recursive: true })
+    const work = fs.readdirSync(d.stt.workBase).length
+    const r = await meetingPiece(d, 'alice', f, { locale: 'en' })
+    expect(r.lines[0]).toEqual({ start: 0.1, end: 1.5, text: 'hi there' })
+    expect(r.lines).toHaveLength(2)
+    // the end is kept within the piece (2 s), and no temperature fallback (-nf)
+    expect(r.lines[1]!.start).toBe(1.9)
+    expect(r.lines[1]!.end).toBe(2)
+    expect(r.lines[1]!.text).toContain('-nf')
+    expect(fs.existsSync(f)).toBe(false)
+    expect(fs.readdirSync(d.stt.workBase).length).toBe(work)
   })
 })
 
@@ -157,5 +223,9 @@ describe("the app's WAV", () => {
     expect(pieceSeconds(long.subarray(0, 44), long.length)).toBeNull()
     const stereo = piece(1); stereo[22] = 2
     expect(pieceSeconds(stereo.subarray(0, 44), stereo.length)).toBeNull()
+    const rate = piece(1); rate[29] = 0
+    expect(pieceSeconds(rate.subarray(0, 44), rate.length)).toBeNull()
+    const riff = piece(1); riff[4] = riff[4]! ^ 1
+    expect(pieceSeconds(riff.subarray(0, 44), riff.length)).toBeNull()
   })
 })
