@@ -7,6 +7,7 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## 0.5.10 — 2026-11-16
 
+- Windows: the first install no longer crashes at start (installer builder updated to electron-builder 26.15.3, #1036). The 0.5.9 installer could crash on a first install before anything was installed.
 - Owners and admins can now move a team skill into any group, also a group they are not in, on the Skills page and by asking the AI. Members can still move skills only into their own groups.
 - Owners and admins now see the skills of groups they are not in on the Skills page, in their own section per group, and can move them back or elsewhere (also by asking the AI).
 - Asked where something is in the app, Trina now names the real place by the words on screen (for example 설정 › 알림 for quiet hours, a room's ⋯ › 앱 추가 for a Google Forms app, 관리자 › 시스템 for storage and updates), instead of guessing or saying the feature does not exist. A member is told that the owner or an admin does team-wide changes.
