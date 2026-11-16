@@ -24,6 +24,8 @@ export function teamContentTools(): ReadonlySet<string> {
   // the steps of removed tools in older chats, search by meaning and the knowledge graph's (docs/DECISIONS.md,
   // 2026-11-11): their results were team files the person could read
   'search', 'knowledge_explore',
+  // Word comments on a team .docx (tools/comment-docx.ts): team files in and out
+  'comment_docx',
   // the promo video (promo-video/tool.ts): it reads team files and makes the chat's artifact, nothing from outside
   PROMO_TOOL,
   // the promo video saved as a file (promo-video/save.ts): the same render, placed in the team folder

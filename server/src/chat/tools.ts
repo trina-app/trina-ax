@@ -2,6 +2,7 @@ import { confidentialChat, localTool } from "../safe-ops/confidential"
 // The tools of one turn besides the six file tools: B's remember / forget / ask_user / connect_service / set_title and the browser pane tools
 // (desktop window only), plus whatever other components registered in ctx.services.turnTools (C: make_file,
 // share_file, artifact, web_fetch). Served over the same MCP connection as the file tools (mcp__team__<name>).
+import { commentDocxOutput } from '../tools/comment-docx'
 import { chatFileOffered, chatFileTool } from './chat-file-tool'
 import path from 'node:path'
 import { z } from 'zod'
@@ -452,6 +453,8 @@ export function widenOf(name: string, args: unknown, hwpTarget?: (args: unknown)
     const target = hwpTarget ? hwpTarget(a) : typeof a.output === 'string' ? hwpOutputPath(a.output, typeof a.file_path === 'string' ? a.file_path : '') : a.file_path
     return typeof target === 'string' ? { target, extra: typeof a.output === 'string' && typeof a.file_path === 'string' ? [a.file_path] : [] } : undefined
   }
+  // comment_docx (tools/comment-docx.ts): the document itself, or a new .docx made from it
+  if (name === 'comment_docx' && typeof a.file_path === 'string') return typeof a.output === 'string' ? { target: commentDocxOutput(a.output), extra: [a.file_path] } : { target: a.file_path, extra: [] }
   return undefined
 }
 

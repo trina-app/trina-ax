@@ -21,6 +21,7 @@ import { HTML_PDF_HINT, HTML_PDF_OFF_HINT, htmlPdfResultText } from './make-file
 import { htmlPdfUnavailable } from '../files/html-pdf'
 import { toolRegistry } from './registry'
 import { egressOf, egressSettled } from './egress'
+import { registerCommentDocx } from './comment-docx'
 import { registerHiggsfield } from './higgsfield'
 import { registerPromoVideo } from '../promo-video/tool'
 import { registerIntroDeck } from '../intro-deck/tool'
@@ -297,6 +298,9 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
     run: (a, t) => saveUrl(ctx, a, t, o.saveUrl ?? { lookup: o.fetch?.lookup, testAllow: o.fetch?.testAllow, insecureTlsForTests: o.fetch?.insecureTlsForTests }),
   })
   registerHwpRender(ctx, reg)
+  // Word comments on an existing .docx (tools/comment-docx.ts)
+  registerCommentDocx(ctx, reg)
+  exposeToTurns('comment_docx')
   for (const name of C_TOOL_NAMES) exposeToTurns(name)
   // moving, copying and renaming any kind of file (tools/file-moves.ts)
   registerFileMoveTools(ctx, reg)

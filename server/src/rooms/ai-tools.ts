@@ -11,6 +11,8 @@ import { FILE_TOOLS } from '@mycel/shared'
  * closed), counts as something from outside.
  */
 export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
+  // Word comments on a team .docx (tools/comment-docx.ts)
+  'comment_docx',
   ...Object.keys(FILE_TOOLS), 'edit_files', 'skill', 'find_skills', 'ask_user', 'agent',
   'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact',
   'room_file', 'save_room_file',

@@ -48,6 +48,7 @@ export const FILE_STEP_VERB: Record<string, T> = {
   drive_list: t('Google Drive 폴더 보기', 'List Google Drive folder', 'Lihat folder Google Drive', "Google ドライブのフォルダを表示", "Listar carpeta de Google Drive", "查看Google Drive文件夹"),
   drive_read: t('Google Drive 파일 읽기', 'Read Google Drive file', 'Baca berkas Google Drive', "Google ドライブのファイルを読む", "Leer archivo de Google Drive", "读取Google Drive文件"),
   generate_video: t('동영상 만들기', 'Generate video', 'Buat video', "動画を生成", "Generar video", "生成视频"),
+  comment_docx: t('워드 메모 달기', 'Add Word comments', 'Tambah komentar Word', "Wordにコメントを追加", "Añadir comentarios en Word", "添加 Word 批注"),
   promo_video: t('홍보 영상 만들기', 'Make promo video', 'Buat video promosi', "プロモーション動画を作成", "Crear vídeo promocional", "制作宣传视频"),
   save_promo_video: t('홍보 영상 파일로 저장', 'Save promo video as a file', 'Simpan video promosi sebagai berkas', "プロモーション動画をファイルに保存", "Guardar el vídeo promocional como archivo", "将宣传视频保存为文件"),
   intro_deck: t('회사 소개서 만들기', 'Make company profile', 'Buat profil perusahaan', "会社紹介資料を作成", "Crear presentación corporativa", "制作公司介绍"),
@@ -295,6 +296,7 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'schedule_delete': return verb!
     case 'drive_list': case 'drive_read': return verb!
     case 'generate_video': return `${verb} · ${clip(a.prompt, 80)}`
+    case 'comment_docx': return `${verb} · ${clip(a.file_path, 80)}`
     case 'promo_video': case 'intro_deck': return `${verb} · ${clip(a.title, 80)}`
     case 'save_promo_video': return a.save_as ? `${verb} · ${clip(a.save_as, 80)}` : verb!
     case 'skill': return `${verb} · ${clip(a.name, 80)}`
