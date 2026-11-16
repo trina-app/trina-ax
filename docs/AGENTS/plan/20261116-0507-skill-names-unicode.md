@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16 05:07
 - Branch: `fix/skill-names-unicode`
-- Status: in progress
+- Status: done
 - Where: server/src/chat/skills.ts, server/src/skills, web/src/pages/Skills.tsx. Why: the name rule lives in the
   skill loader and the places that check a new name (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, skills that were left out now load; no data change
@@ -47,4 +47,8 @@ in the team folder. Five app languages for the changed texts.
 tests; scenario SKL-11, FLOW-02, SKL-03.
 
 ## Result
+
+Built as planned, with the rule in shared (shared/src/api/skills.ts isSkillName) so the server and the Skills page use
+the same one. Added: the skill tool names a readable skill file that does not load and says it is not about access
+(the second half of SKL-11). After-run: SKL-11 loads 거래처-응대 with the skill tool in both runs.
 
