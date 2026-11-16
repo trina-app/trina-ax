@@ -18,11 +18,13 @@ description (2 runs) did not change it: the AI never thinks of rooms while it se
 
 ## Scope
 
-In: when the AI greps the team files in a turn that has the rooms tool (the person's own chat; never a shared chat,
-a guest or a scheduled template run, where it is not offered), the plain words of the pattern are searched in the
-rooms the person is in (rooms/search.ts searchRoomMessages: only messages they see). If any match, the grep result gets
-one line: how many messages in how many rooms, and to search them with rooms. No room name or text in the line. Once
-per word per turn.
+In: when the main AI (not a sub-agent) greps the team files in a turn that has the rooms tool (the person's own chat;
+never a shared, confidential, draft, template or guest chat, where it is not offered), and not in a scheduled run, a
+Slack chat or a room's side chat (a room read there is carried on further), the plain words of the pattern (3+
+characters, no stop words) are counted in the rooms the person is in as the rooms tool searches (rooms/reader.ts
+roomMatchCount: the same rooms and window, after they joined, no hidden answers). If any match, the grep result gets one
+line: how many messages in how many rooms, and, when looking for an answer the files do not hold, to search them with
+rooms. No room name or text in the line. Once per word, at most 8 lookups a turn.
 
 Out: glob, read; a pattern with regular-expression syntax beyond "a|b" (no hint).
 
@@ -35,3 +37,8 @@ Out: glob, read; a pattern with regular-expression syntax beyond "a|b" (no hint)
 
 Built as planned. FLOW-03 passed twice (it grepped "라마바|Lamaba", got the line, searched the rooms, read the thread and
 wrote "Saturday is courier-only"); ROOM-02, ROOM-02.not-member, ROOM-05 (3 variants) and FLOW-05 still pass.
+
+Review round (independent review): the hint is for the main AI only (afterFileTool gets the caller); no scheduled run,
+Slack or side chat; the person is checked and their rooms synced before the first lookup, as the rooms tool does; 3+
+character words, a stop list, 8 lookups a turn, a count-only query with searchRooms' window; narrower wording; state kept
+per turn outside the tool set.
