@@ -15,6 +15,9 @@ const prompts = async (app: ElectronApplication) => (await chrome(app)).getByTes
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 test.describe('the AI cannot carry data out of the in-app browser without the person', () => {
+  // one app for the group, and later tests use what earlier ones left (the pane open, allowed sites): a retry must
+  // run the whole group again from beforeAll, never one test in a fresh app
+  test.describe.configure({ mode: 'serial' })
   let app: ElectronApplication
   test.beforeAll(async () => {
     app = await launch(newUserData())

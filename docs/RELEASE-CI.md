@@ -529,13 +529,13 @@ certificate does not skip it; an EV certificate would not either, and Artifact S
 
 Desktop checks on pull requests: `.github/workflows/desktop.yml`. ci.yml은 리눅스만 돌므로, 데스크톱 앱이 바뀔 수 있는 PR
 (`desktop/**`, `shared/**`, `editions/trina/branding/**`, `scripts/release-notices.ts`, `scripts/ci/dmg-check.ts`,
-`scripts/ci/windows-install-check.ps1`, `package.json`, `bun.lock`, 이 워크플로)에만 아래 세 job이 돈다. 비밀값은 쓰지 않는다
+`scripts/ci/windows-install-check.ps1`, offline·hwp spec이 쓰는 `web/test/mock/**`·`web/test/e2e/offline-server.ts`, `package.json`, `bun.lock`, 이 워크플로)에만 아래 세 job이 돈다. 비밀값은 쓰지 않는다
 (서명 없음). 필수 검사가 아니다: 필수 검사는 ci.yml의 것 그대로다. 빨간 데스크톱 job은 병합 전에 읽는다.
 결정: `docs/decisions/20261116-desktop-checks.md`.
 
 | job | runner | 하는 일 | 실패 때 artifact |
 |---|---|---|---|
-| Desktop e2e (macOS) | macos-15 | `desktop/e2e/ci.config.ts`: 데스크톱 Playwright 전부(desktop.spec, work-files, work-files-wide, work-consent, folder-window …). 만든 홈·데이터 폴더만 쓴다. 전체 25분 한도, 재시도 1번 | `desktop-e2e-mac` (`desktop/e2e/.work/`: html 리포트, fixture 로그) |
+| Desktop e2e (macOS) | macos-15 | `desktop/e2e/ci.config.ts`: 데스크톱 Playwright 전부(desktop.spec, work-files, work-files-wide, work-consent, folder-window …). 만든 홈·데이터 폴더만 쓴다. 가짜 팀 이름(`acme.localhost` …)을 `/etc/hosts`에 넣고 web 빌드와 rhwp를 준비한다. 전체 25분 한도, 재시도 1번 | `desktop-e2e-mac` (`desktop/e2e/.work/`: html 리포트, fixture 로그) |
 | Mac dmg | macos-15 | 서명 없는 universal `dist:mac` → `scripts/ci/dmg-check.ts` | 늘 `desktop-dmg` (dmg, 3일) |
 | Windows installer | windows-2025 | 서명 없는 NSIS 둘(`<version>-ci.1`, `-ci.2`) → `scripts/ci/windows-install-check.ps1` | 늘 `desktop-windows-install-logs` |
 

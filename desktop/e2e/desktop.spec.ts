@@ -213,6 +213,9 @@ test.describe('switching team (owner 2026-11-15)', () => {
 })
 
 test.describe('browser tools over the team WebSocket', () => {
+  // one app for the group, and later tests use what earlier ones left (the pane open, allowed sites): a retry must
+  // run the whole group again from beforeAll, never one test in a fresh app
+  test.describe.configure({ mode: 'serial' })
   let app: ElectronApplication
   test.beforeAll(async () => {
     app = await launch(newUserData())
@@ -381,6 +384,9 @@ test.describe('browser tools over the team WebSocket', () => {
 })
 
 test.describe('what the in-app browser never opens', () => {
+  // one app for the group, and later tests use what earlier ones left (the pane open, allowed sites): a retry must
+  // run the whole group again from beforeAll, never one test in a fresh app
+  test.describe.configure({ mode: 'serial' })
   let app: ElectronApplication
   test.beforeAll(async () => {
     app = await launch(newUserData())

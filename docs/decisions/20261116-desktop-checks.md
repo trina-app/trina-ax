@@ -12,7 +12,7 @@
   are changing (#1036 electron-builder 26.15.3, HFS+; #985 the window background), and a broken dmg showed up only at
   release.
 - **Rule:** `.github/workflows/desktop.yml` runs three jobs on a pull request that changes `desktop/**`, `shared/**`,
-  `editions/trina/branding/**`, `scripts/release-notices.ts`, the two check scripts, `package.json`, `bun.lock` or the
+  `editions/trina/branding/**`, `scripts/release-notices.ts`, the two check scripts, the web mock team that offline.spec and hwp.spec use (`web/test/mock/**`, `web/test/e2e/offline-server.ts`), `package.json`, `bun.lock` or the
   workflow itself:
   - **Desktop e2e (macOS):** the whole desktop Playwright suite (`desktop/e2e/ci.config.ts`), including desktop.spec,
     work-files, work-files-wide, work-consent and the folder window. Only made-up homes and data folders

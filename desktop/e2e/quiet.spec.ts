@@ -13,6 +13,9 @@ import { ACME, activityLog, addTeam, answer, ATTACKER, bindWindow, call, chrome,
 const prompts = async (app: ElectronApplication) => (await chrome(app)).getByTestId('permission-prompt').count()
 
 test.describe('quiet browsing', () => {
+  // one app for the group, and later tests use what earlier ones left (the pane open, allowed sites): a retry must
+  // run the whole group again from beforeAll, never one test in a fresh app
+  test.describe.configure({ mode: 'serial' })
   let app: ElectronApplication
   test.beforeAll(async () => {
     app = await launch(newUserData())

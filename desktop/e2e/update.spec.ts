@@ -23,7 +23,7 @@ test('Mac: a newer Mac app in /downloads/index.json is announced once, with the 
     await expect.poll(() => app.evaluate(() => (globalThis as any).__boxes.length), { timeout: 20_000 }).toBe(1)
     const box = await app.evaluate(() => (globalThis as any).__boxes[0])
     expect(box.message).toContain('99.0.0')
-    expect(box.title).toBe('새 버전이 있어요')
+    expect(box.title).toBe('맥 앱 업데이트')
     expect(box.buttons).toEqual(['내려받기', '나중에'])
     expect((await hits()).slice(before)).toEqual(['session'])
     // Download: the team page goes to Settings > Apps (where the signed-in person downloads it)

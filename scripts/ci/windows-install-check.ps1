@@ -158,7 +158,10 @@ Stop-App $dir
 # 5. silent uninstall
 $quiet = (Get-Entries)[0].QuietUninstallString
 Write-Host "> $quiet"
-$p = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', $quiet -PassThru -Wait
+# "<path>\Uninstall <app>.exe" /currentuser /S: the quoted exe and its arguments (through cmd.exe the quotes broke)
+$m = [regex]::Match($quiet, '^\s*"([^"]+)"\s*(.*)$')
+Check $m.Success "the quiet uninstall names a quoted exe"
+$p = Start-Process -FilePath $m.Groups[1].Value -ArgumentList $m.Groups[2].Value -PassThru -Wait
 Check ($p.ExitCode -eq 0) "uninstall exited $($p.ExitCode)"
 # the uninstaller copies itself to %TEMP% and runs from there: wait for its result, not its first process
 Check (Wait-Until { (Get-Entries).Count -eq 0 } 120 'the entry to go') 'no uninstall entry after the uninstall'
