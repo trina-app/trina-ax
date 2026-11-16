@@ -2617,6 +2617,8 @@ export class MockServer {
     },
     redeemAppSignIn: (c) => {
       const a = this.appCodes.get(c.body.code)
+      // like the server: never in place of another person's sign-in, and the code stays unspent
+      if (a && a.until > Date.now() && c.user && c.user.id !== a.userId) fail('conflict', 409, 'This app is signed in as someone else on this team. Sign out first, then press the button in your browser again.', undefined, { reason: 'signed_in_as_other' })
       this.appCodes.delete(c.body.code)
       const u = a && a.until > Date.now() ? this.users.find((x) => x.id === a.userId && x.status === 'active') : undefined
       if (!u) fail('gone', 410, 'This link has expired. Press the button in your browser again, or sign in with your password.')

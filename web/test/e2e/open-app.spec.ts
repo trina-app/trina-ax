@@ -155,6 +155,27 @@ test.describe('in a Mac browser', () => {
     await app.close()
   })
 
+  test('/app-signin in an app signed in as someone else: refused, that person stays signed in, the code unspent', async ({ page, browser }) => {
+    // login CSRF: Bob sends his own code to Olga's app (server/src/auth/app-signin.ts)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+    await signIn(page, { username: 'bob', password: 'bob password 1' })
+    const code = await codeFor(page)
+    const app = await browser.newContext({ userAgent: MAC_CHROME, locale: 'en-US', viewport: { width: 1440, height: 900 } })
+    const p = await app.newPage()
+    await fakeDesktop(p)
+    await signIn(p)
+    await p.goto(`/app-signin#c=${code}`)
+    await expect(p.getByRole('heading', { name: 'Someone else is signed in here' })).toBeVisible()
+    expect(new URL(p.url()).hash).toBe('')
+    await shot(p, '1440-light-9-app-signin-other-person')
+    const me = await p.request.get('/api/me')
+    expect(((await me.json()) as { user: { id: string } }).user.id).toBe('olga')
+    await p.getByTestId('app-signin-continue').click()
+    await expect(p).not.toHaveURL(/app-signin/)
+    await app.close()
+  })
+
   test('right after setup in a Mac browser: /open-app, then the browser goes on to the welcome steps', async ({ page }) => {
     await reset(page, { setup: true, teamLocale: 'en' })
     await page.goto('/')

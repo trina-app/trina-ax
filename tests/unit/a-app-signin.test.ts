@@ -141,14 +141,57 @@ describe('app sign-in codes', () => {
     } finally { h.ctx.db.query("UPDATE users SET status = 'active' WHERE id = ?").run(m.id) }
   })
 
-  test('redeeming in a browser that holds another person\'s cookie replaces it', async () => {
+  test('a code never replaces another person\'s sign-in: refused, the code left unspent, that session kept', async () => {
+    // login CSRF: a member sends their own code to the owner, whose app is signed in to the same team
     const m = await addMember(h, owner, { username: 'lena' })
     const code = await mint(m.client)
-    const shared = h.client()
-    await shared.login('olga', OWNER_PW)
-    const r = await shared.call('POST', REDEEM, { code })
-    expect(r.me.user.id).toBe('lena')
-    expect((await shared.call('GET', '/api/me')).user.id).toBe('lena')
+    const ownersApp = h.client()
+    await ownersApp.login('olga', OWNER_PW)
+    const r = await ownersApp.try('POST', REDEEM, { code })
+    expect(r.status).toBe(409)
+    expect(r.body.error.params?.reason).toBe('signed_in_as_other')
+    expect((await ownersApp.call('GET', '/api/me')).user.id).toBe('olga')
+    // a bearer sign-in of someone else counts the same
+    const bearer = h.client()
+    await bearer.login('olga', OWNER_PW, 'bearer')
+    expect((await bearer.try('POST', REDEEM, { code })).status).toBe(409)
+    // unspent: the app of the person it is for (signed out here) still uses it
+    const fresh = h.client()
+    expect((await fresh.call('POST', REDEEM, { code })).me.user.id).toBe('lena')
+  })
+
+  test('the same person signed in already: the code signs the app in again as them', async () => {
+    const m = await addMember(h, owner, { username: 'sana' })
+    const code = await mint(m.client)
+    const app = h.client()
+    await app.login('sana', m.password)
+    expect((await app.call('POST', REDEEM, { code })).me.user.id).toBe('sana')
+  })
+
+  test('a code belongs to the browser sign-in that made it: signed out from another device, it is gone', async () => {
+    const m = await addMember(h, owner, { username: 'ines' })
+    const code = await mint(m.client)
+    const sid = (await m.client.call('GET', '/api/me')).session.id
+    const phone = h.client()
+    await phone.login('ines', m.password, 'bearer')
+    const res = await phone.raw('DELETE', `/api/me/sessions/${sid}`)
+    expect(res.status).toBe(204)
+    expect((h.ctx.db.query('SELECT COUNT(*) AS n FROM app_signin_codes WHERE user_id = ?').get(m.id) as { n: number }).n).toBe(0)
+    expect((await h.client().try('POST', REDEEM, { code })).status).toBe(410)
+  })
+
+  test('a code whose browser sign-in expired signs nobody in', async () => {
+    const m = await addMember(h, owner, { username: 'odin' })
+    const code = await mint(m.client)
+    h.ctx.db.query("UPDATE sessions SET expires_at = '2000-01-01T00:00:00.000Z' WHERE user_id = ?").run(m.id)
+    expect((await h.client().try('POST', REDEEM, { code })).status).toBe(410)
+  })
+
+  test('the session it makes is always a desktop one', async () => {
+    const code = await mint()
+    expect((await h.client().try('POST', REDEEM, { code, client: 'web' })).status).toBe(400)
+    expect((await h.client().try('POST', REDEEM, { code, client: 'mobile' })).status).toBe(400)
+    expect((await h.client().call('POST', REDEEM, { code, client: 'desktop' })).me.session.client).toBe('desktop')
   })
 
   test('the sweeper removes spent and expired codes', async () => {

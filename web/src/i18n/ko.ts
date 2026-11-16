@@ -25,6 +25,7 @@ export const ko = {
   "appSignIn.continue": "계속",
   "appSignIn.notMe": "제가 아니에요",
   "appSignIn.goneTitle": "이 링크는 만료됐어요",
+  "appSignIn.otherTitle": "이 앱에는 다른 사람이 로그인되어 있어요",
   "appSignIn.gone": "브라우저에서 버튼을 다시 누르거나 비밀번호로 로그인해 주세요.",
   "appSignIn.signIn": "비밀번호로 로그인",
   'devEnv.title': "개발 환경",

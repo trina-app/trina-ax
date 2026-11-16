@@ -102,7 +102,7 @@ const redeemOnce = (code: string) => {
 /** Continue was pressed: the page signed in with this answer lands where a sign-in lands, after the session switch. */
 let landing = false
 
-type SignInState = { s: 'outside' } | { s: 'working' } | { s: 'done'; me: Me } | { s: 'gone' } | { s: 'error'; text: string } | { s: 'none' }
+type SignInState = { s: 'outside' } | { s: 'working' } | { s: 'done'; me: Me } | { s: 'gone' } | { s: 'other'; text: string } | { s: 'error'; text: string } | { s: 'none' }
 
 /** /app-signin, signed in or out. */
 export function AppSignIn() {
@@ -123,7 +123,8 @@ export function AppSignIn() {
     if (inApp && code) {
       redeemOnce(code).then(
         (r) => { if (live.current) setState({ s: 'done', me: r.me }) },
-        (e) => { if (live.current) setState(isApiError(e) && e.status === 410 ? { s: 'gone' } : { s: 'error', text: errorText(e, locale, t('error.network')) }) },
+        // 409: this app is signed in as someone else on this team; the code never replaces that (server/src/auth/app-signin.ts)
+        (e) => { if (live.current) setState(isApiError(e) && e.status === 410 ? { s: 'gone' } : isApiError(e) && e.status === 409 ? { s: 'other', text: errorText(e, locale, t('error.network')) } : { s: 'error', text: errorText(e, locale, t('error.network')) }) },
       )
     }
     // a newer link while this page is open (the button pressed again; the app loads the same page with a new fragment,
@@ -170,9 +171,9 @@ export function AppSignIn() {
       </AuthFrame>
     )
   }
-  // expired, used or no code; or the request failed
+  // expired, used or no code; signed in as someone else here; or the request failed
   return (
-    <AuthFrame title={t('appSignIn.goneTitle')} sub={state.s === 'error' ? state.text : t('appSignIn.gone')} switcher={false}>
+    <AuthFrame title={t(state.s === 'other' ? 'appSignIn.otherTitle' : 'appSignIn.goneTitle')} sub={state.s === 'error' || state.s === 'other' ? state.text : t('appSignIn.gone')} switcher={false}>
       {signedInNow ? (
         <Button variant="primary" className="w-full" onClick={() => { landing = true; rerender((n) => n + 1) }} data-testid="app-signin-continue">{t('appSignIn.continue')}</Button>
       ) : (

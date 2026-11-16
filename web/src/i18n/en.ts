@@ -26,6 +26,7 @@ export const en: Record<MessageKey, string> = {
   "appSignIn.continue": "Continue",
   "appSignIn.notMe": "This isn't me",
   "appSignIn.goneTitle": "This link has expired",
+  "appSignIn.otherTitle": "Someone else is signed in here",
   "appSignIn.gone": "Press the button in your browser again, or sign in with your password.",
   "appSignIn.signIn": "Sign in with your password",
   'devEnv.title': "Dev environment",

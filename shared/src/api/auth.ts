@@ -234,10 +234,11 @@ export const CompletePasswordResetBody = z.object({
  * the app's page redeems it. 32 random bytes (base64url, 43 characters), 3 minutes, one use, one live code per person. */
 export const AppSignInCode = z.object({ code: z.string(), expiresAt: IsoTime })
 export type AppSignInCode = z.infer<typeof AppSignInCode>
-/** The body of the redeem, shaped like the sign-in's. Cookie only: the desktop app keeps its session in a cookie. */
+/** The body of the redeem, shaped like the sign-in's. Cookie only: the desktop app keeps its session in a cookie; and
+ * always a desktop session (a code lifted off the link makes no session that passes for a browser or a phone). */
 export const RedeemAppSignInBody = z.object({
   code: z.string().min(1).max(200),
-  client: ClientKind.default('desktop'),
+  client: z.literal('desktop').default('desktop'),
   tokenMode: z.enum(['cookie']).default('cookie'),
 })
 

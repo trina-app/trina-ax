@@ -26,6 +26,7 @@ export const es: Record<MessageKey, string> = {
   "appSignIn.continue": "Continuar",
   "appSignIn.notMe": "No soy yo",
   "appSignIn.goneTitle": "Este enlace venció",
+  "appSignIn.otherTitle": "Aquí hay otra persona con la sesión iniciada",
   "appSignIn.gone": "Vuelva a pulsar el botón en su navegador o inicie sesión con su contraseña.",
   "appSignIn.signIn": "Iniciar sesión con contraseña",
   'devEnv.title': "Entorno de desarrollo",

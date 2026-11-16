@@ -26,6 +26,7 @@ export const ja: Record<MessageKey, string> = {
   "appSignIn.continue": "続ける",
   "appSignIn.notMe": "自分ではありません",
   "appSignIn.goneTitle": "このリンクは期限切れです",
+  "appSignIn.otherTitle": "ここでは別の人がログインしています",
   "appSignIn.gone": "ブラウザーでもう一度ボタンを押すか、パスワードでログインしてください。",
   "appSignIn.signIn": "パスワードでログイン",
   'devEnv.title': "開発環境",

@@ -26,6 +26,7 @@ export const id: Record<MessageKey, string> = {
   "appSignIn.continue": "Lanjutkan",
   "appSignIn.notMe": "Ini bukan saya",
   "appSignIn.goneTitle": "Tautan ini sudah kedaluwarsa",
+  "appSignIn.otherTitle": "Orang lain sedang masuk di sini",
   "appSignIn.gone": "Tekan lagi tombolnya di browser, atau masuk dengan kata sandi.",
   "appSignIn.signIn": "Masuk dengan kata sandi",
   'devEnv.title': "Lingkungan pengembangan",

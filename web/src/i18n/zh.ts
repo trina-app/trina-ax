@@ -26,6 +26,7 @@ export const zh: Record<MessageKey, string> = {
   "appSignIn.continue": "继续",
   "appSignIn.notMe": "这不是我",
   "appSignIn.goneTitle": "此链接已过期",
+  "appSignIn.otherTitle": "这里已有其他人登录",
   "appSignIn.gone": "请在浏览器中再按一次按钮，或用密码登录。",
   "appSignIn.signIn": "用密码登录",
   "devEnv.title": "开发环境",
