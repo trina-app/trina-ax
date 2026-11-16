@@ -171,6 +171,8 @@ A direct chat with someone who left the team says "<name> left the team" and has
 (one for everyone in the team, and one per group) and **Direct messages** (one-to-one chats and group chats). **Mentions & threads**
 at the top collects the messages that name you and the threads you follow.
 
+To message one person, click their photo or name beside a message (an @mention of them, or their row in a conversation's member list, works too). A small card opens with their name and title: **Message** opens your direct message with them. On a phone the card opens from the bottom of the screen. Your own card has **Edit profile** instead. Apps, and people who are no longer in the team, have no card; a guest can message only the people in their group chat or project.
+
 To bring in someone from outside the team, choose **Invite a guest** when you add people to a group chat or a project. [Read about guests](guests.md).
 
 ![The Chats list: Mentions & threads, Channels with Everyone and Marketing, then Direct messages with a group chat and a direct message](../images/chats/rooms-list.webp "The Chats list")

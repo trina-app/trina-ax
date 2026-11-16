@@ -35,6 +35,9 @@ export const SMALL_UPLOAD_MAX = 50 * 1024 * 1024
 export const UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024
 /** Largest file accepted through an upload session. */
 export const UPLOAD_SESSION_MAX = 20 * 1024 * 1024 * 1024
+/** Largest file sent in a room (a DM, a group chat, a team room): up to SMALL_UPLOAD_MAX in one request, anything larger
+ * through an upload session (8 MB chunks, resumable), so it passes a proxy's request size limit. */
+export const ROOM_FILE_MAX = 10 * 1024 * 1024 * 1024
 /** Every ordinary API call must finish well inside Cloudflare's 100 s; long work becomes a job. */
 export const API_DEADLINE_MS = 90_000
 
