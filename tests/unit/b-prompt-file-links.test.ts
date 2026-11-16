@@ -4,7 +4,7 @@
 // folder is named by a link with the name the Files screen shows; Slack, where the app's cards do not show, keeps the
 // path. A folder link opens the Files screen there (web/test/unit/markdown.test.ts classifyLink).
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { buildTurnPrompt, ENVIRONMENT, environmentSection, FIND_FILE_RULE, GUEST_ENVIRONMENT, SOURCE_LINK_RULE, type PromptInput } from '../../server/src/chat/prompt'
+import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, ENVIRONMENT, environmentSection, FIND_FILE_RULE, GUEST_ENVIRONMENT, sharedOwnFolderLine, SOURCE_LINK_RULE, type PromptInput } from '../../server/src/chat/prompt'
 import { situationSection, type Situation } from '../../server/src/chat/situation'
 import { startHarness, type Harness } from '../lib/b-harness'
 
@@ -22,12 +22,13 @@ describe('files and folders are named by a link with their name', () => {
     const r = SOURCE_LINK_RULE
     expect(r).toContain('Name a team file or folder by a link labelled with its shown name, not by its path: [report.docx](/files/view?path=<team path, URL-encoded>)')
     // top folders and the person's own folder by the names folderPurposeLines puts in quotes (전사 공유, 내 폴더…)
-    expect(r).toContain('a top folder or the user\'s own folder labelled with its name in quotes under "Team folders"')
-    expect(r).toContain('Never write a team path as text or in code unless the user asks for it.')
+    expect(r).toContain('a top folder or the user\'s own folder labelled with the name shown in quotes under "Team folders" (without the quotes)')
+    // only the answer: paths stay in tool calls, sub-agent tasks, file contents and post_to_room text; Slack keeps them
+    expect(r).toContain('In your answer, never write a team path as text or in code unless the user asks for it (or the App line says otherwise).')
     // the source links with their place stay
     expect(r).toContain('When your answer relies on a team file, link it where you mention it, adding &page=N for a PDF page')
     // in every turn: about 150 tokens on Claude's tokenizer
-    expect(r.length).toBeLessThanOrEqual(640)
+    expect(r.length).toBeLessThanOrEqual(720)
   })
 
   test('in a person\'s own chat, next to the "Team folders" names it points to; not for a guest (no file page)', () => {
@@ -36,6 +37,30 @@ describe('files and folders are named by a link with their name', () => {
     expect(p).toContain('Team folders (the app shows them by the names in quotes')
     expect(p).toContain('("내 폴더")')
     expect(buildTurnPrompt(h.ctx.files, input({ shared: { project: 'Atlas', audience: 3, asker: 'Alice Kim' }, roomReadable: () => true }))).toContain(SOURCE_LINK_RULE)
+    // a guest has no file page (web App.tsx): no link rule
+    const guest = { places: [{ kind: 'project' as const, id: 'p1', name: 'Quote prep', folder: 'projects/quote-prep' }], inviter: 'Alice Kim' }
+    const g = buildTurnPrompt(h.ctx.files, input({ guest }))
+    expect(g).toContain('## Where you run')
+    expect(g).not.toContain(SOURCE_LINK_RULE)
+    expect(g).not.toContain('Name a team file or folder by a link')
+  })
+
+  test('a shared chat: the asker\'s own folder is theirs by name, not "내 폴더" (that is each reader\'s own)', () => {
+    const shared = { project: 'Atlas', audience: 3, asker: 'Alice Kim' }
+    const line = sharedOwnFolderLine('Alice Kim', 'ko')
+    expect(line).toBe('Others see this chat: in your answer, call Alice Kim\'s own folder Alice Kim\'s folder (in the answer\'s language), not "내 폴더".')
+    expect(buildTurnPrompt(h.ctx.files, input({ shared, roomReadable: () => true }))).toContain(line)
+    // the turn context too, so a chat shared after it started gets it
+    expect(buildTurnContext(h.ctx.files, input({ shared, roomReadable: () => true }))).toContain(line)
+    expect(buildTurnPrompt(h.ctx.files, input())).not.toContain('Others see this chat: in your answer')
+  })
+
+  test('a sub-agent reports team paths: its "Where you run" never says "not its path"', () => {
+    const p = buildSubagentPrompt(h.ctx.files, input({ shared: { project: 'Atlas', audience: 3, asker: 'Alice Kim' }, roomReadable: () => true }), ['read', 'write'])
+    expect(p).toContain('Give the team path of what you save in your report.')
+    expect(p).not.toContain('not its path')
+    expect(p).not.toContain(SOURCE_LINK_RULE)
+    expect(p).not.toContain('Others see this chat: in your answer')
   })
 
   test('"Where you run" says where by the link and folder name, never with a team path example', () => {
@@ -53,9 +78,8 @@ describe('files and folders are named by a link with their name', () => {
     expect(FIND_FILE_RULE).not.toContain('with paths')
   })
 
-  test('Slack keeps the team path (no cards there), also next to a link', () => {
+  test('Slack keeps the team path (no cards there), next to a link', () => {
     const s: Situation = { role: 'member', guest: false, app: 'slack', ai: 'team', ownAi: true, ownConnectors: true, plan: null, web: true }
-    expect(situationSection(s, 'ko')).toContain('so name any file you save by its team path, also where you link it.')
+    expect(situationSection(s, 'ko')).toContain('so give the team path of any file you save, next to its link.')
   })
-
 })
