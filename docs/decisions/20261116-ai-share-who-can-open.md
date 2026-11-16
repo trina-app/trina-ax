@@ -53,6 +53,13 @@
   - **"Jun can already open it through Sales":** `share_with_person` says so and shares nothing again when every person
     named can already open every file (`server/src/chat/share-next-steps.ts alreadyOpen`); a group is still shared with
     as asked (its later members).
+  - **Other people's words.** The tool's answer holds names other people chose (a person's, a group's, a folder's, a
+    file's), so every call marks the chat as holding other people's words (`chats.others_words`, the one mark of
+    docs/decisions/20261116-always-allow-more-cards.md; `who_can_open` is deliberately not in `OWN_WORDS_TOOLS`). The
+    person's "Always allow" for shares and posts then counts only for what their own message names. The offers are run
+    by the person's own press on the app's button, so they are not gated by the mark, and no tool of an AI turn runs
+    one. `share_with_person` says "already open" only in a turn with nobody else's words in it; elsewhere it goes on to
+    its usual gates, so a steered AI does not learn who can open which file.
   - **A path link opens through a share.** A room message links a file by its team path. Someone the file was shared
     with (not let in by the folder) gets the file's own `/f/<id>` link in place of the lock
     (`GET /api/files/granted-link`: null for a file they can read anyway, one they may not open and a missing one alike).

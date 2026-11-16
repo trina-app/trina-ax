@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16 11:50
 - Branch: `feat/ai-share-who-can-open`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`server/src/files`, `server/src/chat`, `web/src/components/chat`). Why: chat, permissions and
   files belong to the core (see docs/REPOSITORY-RULES.md)
 - Version impact: minor. A new AI tool, a new endpoint and one additive migration
@@ -76,4 +76,16 @@ tap's permission check, web unit tests and a Playwright spec for the buttons, ha
 
 ## Result
 
-(filled in at the end)
+Built as planned, on `origin/dev` + `batch/prompts-1116` + `batch/1116c` (no PR opened: the coordinator opens it once
+the batches are on dev).
+
+- `who_can_open`, `accessRouteFor`, the offers (`Step.fixes`, `share_fix_offers`, `POST /api/share-fixes/:id/run`), Let
+  them view, Ask <owner> (a request asked for other people), Ask an admin (a 1:1 message), Share with project, the move
+  toast, "already open" in `share_with_person`, a path link opened through a share.
+- Different from the plan: the offers show under the answer, not inside the step list (the list folds away once the
+  answer is done). `who_can_open` marks the chat as holding other people's words (the batch's `chats.others_words`,
+  added while this was built). "Already open" is said only where nobody else's words are in the turn.
+- Not built: a Connect button for a Google app under the AI's sentence, and "Ask an admin" for a connection a member
+  may not add (step 7 found the connect card of other services already finishes in the chat and goes on with the
+  request). No AI tool moves a chat into a project, so there is no "the AI moved it" line.
+- Checks: see the decision note's tests; hands-on on a private copy of the QA team with the scripted AI.
