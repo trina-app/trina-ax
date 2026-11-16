@@ -169,7 +169,7 @@ at the top collects the messages that name you and the threads you follow.
 
 To bring in someone from outside the team, choose **Invite a guest** when you add people to a group chat or a project. [Read about guests](guests.md).
 
-![The Chats list: Mentions & threads, Channels with Everyone and Marketing, and a direct message](../images/chats/rooms-list.webp "The Chats list")
+![The Chats list: Mentions & threads, Channels with Everyone and Marketing, then Direct messages with a group chat and a direct message](../images/chats/rooms-list.webp "The Chats list")
 
 #### Ask Trina beside a conversation
 

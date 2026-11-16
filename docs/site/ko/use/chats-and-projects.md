@@ -166,7 +166,7 @@ description: AI에게 묻고, AI가 한 일을 단계별로 보고, 반복되는
 
 팀 밖의 사람을 부르려면 그룹 대화나 프로젝트에 사람을 추가할 때 **게스트 초대하기**를 골라요. [게스트 알아보기](guests.md).
 
-![대화 목록: 멘션·스레드, Everyone과 Marketing이 있는 채널, 다이렉트 메시지 하나](../../images/chats/rooms-list.webp "대화 목록")
+![대화 목록: 멘션·스레드, Everyone과 Marketing이 있는 채널, 그리고 다이렉트 메시지 아래의 그룹 대화 하나와 다이렉트 메시지 하나](../../images/chats/rooms-list.webp "대화 목록")
 
 #### 대화방 옆에서 트리나에게 묻기
 
