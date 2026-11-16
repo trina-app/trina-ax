@@ -577,7 +577,7 @@ install: owner password recovery: sudo "/Library/Application Support/mycel/root/
     <li class="keep"><span class="n">2</span>복사한 상태 그대로 아래를 실행해요. 토큰은 명령줄에 쓰지 않고 클립보드에서 바로 넘겨요. <code>tr</code>가 복사하면서 섞인 줄바꿈·빈칸을 빼 줘요.
 <pre class="cmd">T="/Library/Application Support/mycel/root/set-claude-token"
 pbpaste | tr -d '[:space:]' | sudo "$T"</pre>
-<pre class="out" data-label="화면에 나오는 것">set-claude-token: stored for _axserver (mode 600); Claude answers with it from the next message, valid for one year</pre></li>
+<pre class="out" data-label="화면에 나오는 것">set-claude-token: stored for _axserver (mode 600); the server takes it within a few seconds (at most 5 minutes, no restart), valid for one year</pre></li>
     <li class="keep"><span class="n">3</span>저장됐는지 보고, 클립보드를 비워요.
 <pre class="cmd">sudo ls -l "/Library/Application Support/mycel/secrets/claude-oauth-token"
 pbcopy &lt; /dev/null</pre></li>
