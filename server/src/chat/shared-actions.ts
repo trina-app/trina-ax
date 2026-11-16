@@ -188,7 +188,7 @@ export function writtenByAsker(args: unknown, said: string): boolean {
     if (!t) return false
     if (t.length >= 2 && holds(text, t)) { theirs++; return true }
     const d = t.replace(/[^\d]/g, '')
-    if (/^[\d.,\s원₩$-]+$/.test(t) && d.length >= 3 && digits.includes(d)) { theirs++; return true }
+    if (/^[\d.,\s\uC6D0₩$-]+$/.test(t) && d.length >= 3 && digits.includes(d)) { theirs++; return true }
     return place && ID_LIKE.test(v)
   }
   const walk = (key: string, v: unknown, depth: number, under: boolean): boolean => {
