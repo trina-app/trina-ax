@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16 05:00
 - Branch: `fix/ai-wrong-claims`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/chat/prompt.ts`, `server/src/chat/schedule-scope.ts`, `server/src/tools/schedules.ts`,
   `server/src/chat/connect-service.ts`). Why: chat, permissions and scheduled tasks are core (docs/REPOSITORY-RULES.md).
 - Version impact: patch. Prompt words, tool result words, and a save folder that may be new (made on the person's yes).
@@ -42,3 +42,12 @@ Out: the edit dialog and "다시 확인" keep needing an existing folder (they n
 
 - Making a folder on the yes: the write check is the same authorize() as any write; the folder is made only after the
   yes and checked again (still missing, same rules) right before.
+
+## Result
+
+Built as planned (creating the folder on the yes, not suggestions only: the write check and the identity code were
+reused, an S change). Two hints moved from the instructions to the tool descriptions, where the AI reads them at the
+call: connect_service ("whether a card is shown is known only from this call's result") and rooms ("search it by name
+for what was said about a client, deal or project"). Scenario re-runs: SCH-02's wrong claim is gone; CON-02 passes 2 of
+4 runs after the change (the AI sometimes writes "I'll show a card" before it calls the tool); FLOW-03 still never
+searches the rooms (left for a follow-up).
