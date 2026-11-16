@@ -79,7 +79,7 @@ async function up() {
     else delete env.MYCEL_DEV_ENV
     fs.writeFileSync(path.join(HOME, 'devenv'), flag('--devenv') ? '1' : '0')
     const out = fs.openSync(LOG, 'a')
-    fs.writeFileSync(path.join(HOME, 'relay'), flag('--no-relay') ? '0' : '1')
+    fs.writeFileSync(path.join(HOME, 'relay-mode'), flag('--no-relay') ? '0' : '1')
     const child = Bun.spawn(['bun', 'run', 'scripts/dev.ts', ...(flag('--no-relay') ? ['--no-relay'] : [])], { cwd: ROOT, env, stdout: out, stderr: out, stdin: 'ignore' })
     child.unref()
     fs.writeFileSync(PID, String(child.pid))
@@ -92,7 +92,7 @@ async function up() {
   const state = await seedFixture({ base: BASE, setupToken, log: (s) => say(s) })
   fs.writeFileSync(STATE, JSON.stringify(state, null, 1))
   let relayOn = false
-  try { relayOn = fs.readFileSync(path.join(HOME, 'relay'), 'utf8').trim() === '1' } catch {}
+  try { relayOn = fs.readFileSync(path.join(HOME, 'relay-mode'), 'utf8').trim() === '1' } catch {}
   say(`ready: ${BASE} (dev environment ${devEnvOn() ? 'on' : 'off'}, relay ${relayOn ? `on (port ${RELAY_PORT}): the exit address is known` : 'OFF: every web address gets the in-network card'}); people ${Object.keys(state.people).join(', ')}; password in tests/ai-scenarios/fixture/seed.ts`)
 }
 
