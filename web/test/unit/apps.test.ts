@@ -106,10 +106,21 @@ describe('desktop apps', () => {
     expect(short(computerApps(ACME, desktop('mac'), []))).toEqual(['mac:store:this-app:this-device', 'windows:page'])
     // the Mac App Store build: "This app", nothing to get
     expect(short(computerApps(ACME, desktop('mac', true), [mac, win]))).toEqual(['mac:-:this-app:this-device', 'windows:page'])
-    // no App Store listing (another edition, a self-hosted build, only a download page): the server's installer, as before
+    // no App Store listing and no download page (a self-hosted build): the server's installer, as before
     expect(short(computerApps(NONE, web('mac'), [mac]))).toEqual(['mac:files:this-device'])
     expect(short(computerApps(NONE, desktop('mac'), [mac]))).toEqual(['mac:files:this-app:this-device'])
-    expect(short(computerApps({ ...NONE, page: ACME.page }, web('windows'), [mac]))).toEqual(['mac:files', 'windows:page:this-device'])
+  })
+  test("the Mac without a listing but with a download page: the page (the signed dmg), never the server's installer file", () => {
+    const PAGE_ONLY = { ...NONE, page: ACME.page }
+    expect(short(computerApps(PAGE_ONLY, web('windows'), [mac]))).toEqual(['mac:page', 'windows:page:this-device'])
+    expect(short(computerApps(PAGE_ONLY, web('mac'), [mac, win]))).toEqual(['mac:page:this-device', 'windows:files'])
+    expect(short(computerApps(PAGE_ONLY, desktop('mac'), [mac]))).toEqual(['mac:page:this-app:this-device', 'windows:page'])
+    // the Mac App Store build still has nothing to get on its own row
+    expect(short(computerApps(PAGE_ONLY, desktop('mac', true), [mac]))).toEqual(['mac:-:this-app:this-device', 'windows:page'])
+    const html = renderToStaticMarkup(createElement(ComputerApps, { links: PAGE_ONLY, client: web('mac'), downloads: [mac, win], owner: false }))
+    expect(html).toContain(`href="${ACME.page}"`)
+    expect(html).not.toContain('.dmg')
+    expect(html).not.toContain(inHtml('apps.macGatekeeper'))
   })
   test("what the Mac row renders with a listing: the App Store link, no installer file and no Gatekeeper warning", () => {
     for (const client of [web('mac'), web('windows'), desktop('mac'), phoneApp('ios')]) {

@@ -97,8 +97,8 @@ const OWNER_HINT: Record<DownloadsSource, MessageKey | null> = { office: 'apps.n
 const FEED_HOST = (() => { try { return new URL(RELEASE_CHANNEL.feed).host } catch { return RELEASE_CHANNEL.feed } })()
 
 /**
- * Desktop app: the Mac and Windows rows (lib/apps.ts computerApps). With the edition's App Store listing the Mac row
- * offers only the App Store, never the team server's installer file. Inside a store build its own row is "This app"
+ * Desktop app: the Mac and Windows rows (lib/apps.ts computerApps). With the edition's App Store listing or download
+ * page the Mac row offers only that, never the team server's installer file. Inside a store build its own row is "This app"
  * with the store's line (App Store on a Mac, Microsoft Store on Windows) and no installer is offered anywhere; the
  * desktop app's own row otherwise says how it updates. A browser on a Mac or a Windows PC marks this computer's row,
  * with the install steps under its installer, or says the server has no such app (and, in a browser that can install
@@ -110,8 +110,9 @@ export function ComputerApps({ links, client, downloads, owner, server = 'office
   const locale = useLocale()
   if (downloads === null && !client.store) return <Skeleton lines={2} />
   const rows = computerApps(links, client, Array.isArray(downloads) ? downloads : [])
-  // an office Mac server with a Mac App Store listing: only the Windows installer is the owner's to add
-  const hintKey = server === 'office' && links.mac ? 'apps.noDownloadsOwnerWindows' : OWNER_HINT[server]
+  // an office Mac server whose edition offers the Mac app itself (an App Store listing or the download page; lib/apps.ts
+  // computerApps): only the Windows installer is the owner's to add
+  const hintKey = server === 'office' && (links.mac || links.page) ? 'apps.noDownloadsOwnerWindows' : OWNER_HINT[server]
   const ownerHint = owner && hintKey && <p className="mt-2 text-xs text-muted" data-testid="apps-owner-hint">{t(hintKey, { feed: FEED_HOST })}</p>
   if (noComputerApps(rows, client))
     return (

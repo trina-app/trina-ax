@@ -1988,7 +1988,7 @@ export const es: Record<MessageKey, string> = {
   'apps.macArm64Only': "Solo para Mac con Apple Silicon (M1 o posterior)",
   'apps.macIntelOnly': "Solo para Mac con Intel",
   "apps.noDownloadsOwner": "Ponga los instaladores ({productFile}-Setup-…-x64.exe, {productFile}-…-mac-universal.dmg) en la carpeta del zip de oficina y ejecute office-install.sh de nuevo en el Mac del servidor para que aparezcan aquí.",
-  "apps.noDownloadsOwnerWindows": "Ponga el instalador de Windows ({productFile}-Setup-…-x64.exe) en la carpeta del zip de oficina y ejecute office-install.sh de nuevo en el Mac del servidor para que la aplicación de Windows aparezca aquí. En Mac, la aplicación se obtiene en la App Store.",
+  "apps.noDownloadsOwnerWindows": "Ponga el instalador de Windows ({productFile}-Setup-…-x64.exe) en la carpeta del zip de oficina y ejecute office-install.sh de nuevo en el Mac del servidor para que la aplicación de Windows aparezca aquí. En Mac, la aplicación se obtiene en el enlace de arriba.",
   'apps.noDownloadsFeed': "La aplicación de Windows aparece aquí sola unos 15 minutos después de que el servidor del equipo se inicie o se actualice.",
   'apps.noDownloadsOwnerFeed': "El servidor la descarga de {feed} y comprueba su firma; después, las aplicaciones de Windows se actualizan desde aquí. Si no aparece, Administración › Sistema › Diagnóstico indica el motivo («Aplicación de Windows»; docs/INSTALL-LINUX.en.md).",
   'apps.noDownloadsOwnerLinux': "Este servidor no tiene un canal de versiones. Copie los archivos de la versión al servidor y ejecute allí trina_admin desktop-refresh --from <folder> (docs/INSTALL-LINUX.en.md, «Windows app»).",

@@ -1988,7 +1988,7 @@ export const ja: Record<MessageKey, string> = {
   'apps.macArm64Only': "Apple Silicon（M1以降）のMacのみ",
   'apps.macIntelOnly': "Intel Macのみ",
   "apps.noDownloadsOwner": "インストーラー（{productFile}-Setup-…-x64.exe、{productFile}-…-mac-universal.dmg）をoffice zipと同じフォルダーに置き、チームサーバーのMacでoffice-install.shを再実行すると、ここに表示されます。",
-  "apps.noDownloadsOwnerWindows": "Windowsのインストーラー（{productFile}-Setup-…-x64.exe）をoffice zipと同じフォルダーに置き、チームサーバーのMacでoffice-install.shを再実行すると、Windowsアプリがここに表示されます。MacではApp Storeからアプリを入手します。",
+  "apps.noDownloadsOwnerWindows": "Windowsのインストーラー（{productFile}-Setup-…-x64.exe）をoffice zipと同じフォルダーに置き、チームサーバーのMacでoffice-install.shを再実行すると、Windowsアプリがここに表示されます。Macでは上のリンクからアプリを入手します。",
   'apps.noDownloadsFeed': "チームサーバーの起動または更新から約15分後に、Windowsアプリがここに自動で表示されます。",
   'apps.noDownloadsOwnerFeed': "サーバーが{feed}からダウンロードして署名を確認し、Windowsアプリはここから更新されます。表示されない場合は、管理 › システム › 診断の「Windowsアプリ」に理由が表示されます（docs/INSTALL-LINUX.en.md）。",
   'apps.noDownloadsOwnerLinux': "このサーバーにはリリースフィードがありません。リリースのファイルをサーバーにコピーし、サーバーでtrina_admin desktop-refresh --from <folder>を実行してください（docs/INSTALL-LINUX.en.md「Windows app」）。",

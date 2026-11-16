@@ -2017,7 +2017,7 @@ export const id: Record<MessageKey, string> = {
   'apps.macArm64Only': 'Hanya untuk Mac Apple Silicon (M1 ke atas)',
   'apps.macIntelOnly': 'Hanya untuk Mac Intel',
   "apps.noDownloadsOwner": "Taruh file installer ({productFile}-Setup-…-x64.exe, {productFile}-…-mac-universal.dmg) di folder yang sama dengan zip office, lalu jalankan office-install.sh lagi di Mac server tim. Aplikasinya akan muncul di sini.",
-  "apps.noDownloadsOwnerWindows": "Taruh installer Windows ({productFile}-Setup-…-x64.exe) di folder yang sama dengan zip office, lalu jalankan office-install.sh lagi di Mac server tim. Aplikasi Windows akan muncul di sini. Mac mendapatkan aplikasinya dari App Store.",
+  "apps.noDownloadsOwnerWindows": "Taruh installer Windows ({productFile}-Setup-…-x64.exe) di folder yang sama dengan zip office, lalu jalankan office-install.sh lagi di Mac server tim. Aplikasi Windows akan muncul di sini. Mac mendapatkan aplikasinya dari tautan di atas.",
   'apps.noDownloadsFeed': 'Aplikasi Windows muncul di sini dengan sendirinya sekitar 15 menit setelah server tim mulai atau diperbarui.',
   'apps.noDownloadsOwnerFeed': 'Server mengunduhnya dari {feed} dan memeriksa tanda tangannya, lalu aplikasi Windows diperbarui dari sini. Kalau tidak muncul, Admin › Sistem › Diagnostik menjelaskan alasannya ("Aplikasi Windows"; docs/INSTALL-LINUX.en.md).',
   'apps.noDownloadsOwnerLinux': 'Server ini tidak punya feed rilis. Salin file rilis ke server lalu jalankan trina_admin desktop-refresh --from <folder> di sana (docs/INSTALL-LINUX.en.md, "Windows app").',

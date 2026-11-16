@@ -1985,7 +1985,7 @@ export const zh: Record<MessageKey, string> = {
   "apps.macArm64Only": "仅限 Apple 芯片（M1 或更新）的 Mac",
   "apps.macIntelOnly": "仅限 Intel 芯片的 Mac",
   "apps.noDownloadsOwner": "把安装程序（{productFile}-Setup-…-x64.exe、{productFile}-…-mac-universal.dmg）放到 office zip 所在的文件夹，然后在团队服务器 Mac 上重新运行 office-install.sh，它们就会显示在这里。",
-  "apps.noDownloadsOwnerWindows": "把 Windows 安装程序（{productFile}-Setup-…-x64.exe）放到 office zip 所在的文件夹，然后在团队服务器 Mac 上重新运行 office-install.sh，Windows 应用就会显示在这里。Mac 从 App Store 获取应用。",
+  "apps.noDownloadsOwnerWindows": "把 Windows 安装程序（{productFile}-Setup-…-x64.exe）放到 office zip 所在的文件夹，然后在团队服务器 Mac 上重新运行 office-install.sh，Windows 应用就会显示在这里。Mac 从上面的链接获取应用。",
   "apps.noDownloadsFeed": "团队服务器启动或更新约15分钟后，Windows 应用会自动显示在这里。",
   "apps.noDownloadsOwnerFeed": "服务器会从{feed}下载并校验签名，之后 Windows 应用会从这里更新。如果没有显示，可在“管理 › 系统 › 诊断”中查看原因（“Windows app”；docs/INSTALL-LINUX.en.md）。",
   "apps.noDownloadsOwnerLinux": "此服务器没有发布源。请把发布文件复制到服务器，并在服务器上运行 trina_admin desktop-refresh --from <folder>（docs/INSTALL-LINUX.en.md，“Windows app”）。",
