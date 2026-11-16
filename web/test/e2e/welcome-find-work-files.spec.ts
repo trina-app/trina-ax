@@ -6,7 +6,7 @@
 // Close); a file added turns the row done, Undo turns it back; it never holds back "You're all set".
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
-import { answer, app, fakeApp, look, type Meta } from './fake-work-files'
+import { answer, app, fakeApp, look, notNow, type Meta } from './fake-work-files'
 
 const BOB = { username: 'bob', password: 'bob password 1' }
 const EVERYONE = '01900000-0000-7000-8000-0000000000a1'
@@ -96,6 +96,7 @@ test('the desktop app: the row (optional, not counted); Cancel in the app\'s win
   await page.getByTestId('find-work-row').filter({ hasText: 'Quote template 2026.xlsx' }).getByTestId('find-work-check').check()
   await page.getByTestId('find-work-add').click()
   await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-status', 'done', { timeout: 15_000 })
+  await notNow(page)
   await expect(row(page)).toHaveAttribute('data-done', 'true')
   await page.getByTestId('find-work-undo').click()
   await expect(page.getByTestId('find-work-undone-until')).toBeVisible()
@@ -109,6 +110,7 @@ test('the desktop app: the row (optional, not counted); Cancel in the app\'s win
   await page.getByTestId('find-work-row').filter({ hasText: 'Quote template 2026.xlsx' }).getByTestId('find-work-check').check()
   await page.getByTestId('find-work-add').click()
   await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-status', 'done', { timeout: 15_000 })
+  await notNow(page)
   await page.getByTestId('find-work-done').click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(row(page)).toHaveAttribute('data-done', 'true')
@@ -184,6 +186,7 @@ test('a run started on the card, its dialog closed while it uploads, is the one 
   await expect(page.getByTestId('find-work-run')).toBeVisible()
   expect((await app(page)).scans).toBe(1)
   await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-status', 'done', { timeout: 15_000 })
+  await notNow(page)
   await expect(page.getByTestId('find-work-undo')).toBeVisible()
 })
 
