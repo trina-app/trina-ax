@@ -6538,7 +6538,7 @@ export const ja: Record<MessageKey, string> = {
   "fileShare.holdsFiles": "{n, plural, one {ファイル#件} other {ファイル#件}}",
   "fileShare.holdsFolders": "{n, plural, one {フォルダー#件} other {フォルダー#件}}",
   "fileShare.holdsEmpty": "空のフォルダー",
-  "fileShare.holdsMany": "{n}件以上",
+  "fileShare.holdsMany": "{n, plural, one {#件} other {#件}}以上",
   "fileShare.folderLater": "追加した人は、中のものをすべて見られます。あとから追加するものも含みます。",
   "fileShare.everyoneLineFolder": "チーム全員が、あとから参加する人も含めて、このフォルダーの中身と今後追加されるものをすべて見られるようになります。",
   "fileShare.wideSaves": "より多くの人が見られる場所にも確認なしで保存できるようにしています。このフォルダーも対象で、予約したタスクでも同じです。",

@@ -6510,7 +6510,7 @@ export const zh: Record<MessageKey, string> = {
   "fileShare.holdsFiles": "{n, plural, one {# 个文件} other {# 个文件}}",
   "fileShare.holdsFolders": "{n, plural, one {# 个文件夹} other {# 个文件夹}}",
   "fileShare.holdsEmpty": "空文件夹",
-  "fileShare.holdsMany": "超过 {n} 项",
+  "fileShare.holdsMany": "超过 {n, plural, one {# 项} other {# 项}}",
   "fileShare.folderLater": "你添加的人可以查看其中的所有内容，包括你以后添加的内容。",
   "fileShare.everyoneLineFolder": "团队所有人（包括以后加入的人）都将看到此文件夹中的所有内容以及以后添加的内容。",
   "fileShare.wideSaves": "你已允许 Trina 在更多人可见的位置保存而不先询问。这也包括此文件夹，计划任务中也一样。",
