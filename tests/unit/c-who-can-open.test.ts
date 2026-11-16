@@ -479,6 +479,10 @@ describe('a file shared with me (by a grant only): share and post', () => {
     // the card said, in plain words, that people there cannot open the shared file (fix 5)
     const card = socks.alice!.frames.find((f) => f.type === 'turn.request' && (f as { data: { turnId?: string } }).data.turnId === r.turnId) as { data: { request: { question: string } } } | undefined
     expect(card!.data.request.question).toMatch(/can't open erin-deck\.txt: it was shared with you, not with them\./)
+    // its text on the card names the file, not its /f/ address (the message keeps the link)
+    const details = (card!.data.request as unknown as { details: { text: string }[] }).details.map((d) => d.text).join('\n')
+    expect(details).toContain('Deck: erin-deck.txt')
+    expect(details).not.toContain('/f/')
     // the posted card's record says what went (fix 7)
     const step = r.steps.find((s) => s.tool === 'post_to_room') as { posted?: { preview?: string } }
     expect(step.posted!.preview).toContain('Deck: erin-deck.txt')

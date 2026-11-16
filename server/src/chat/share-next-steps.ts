@@ -54,7 +54,7 @@ export async function fixesAfterPost(exec: Exec, p: PreparedShare, attached: Rea
   const shared = !!exec.rt.store.chatRow(exec.spec.chatId)?.people_shared_at
   const label = (f: StepFix) => f.kind === 'let_view' ? tr('fixButtonLetView', L) : f.kind === 'ask_owner' && f.owner && !shared ? tr('fixButtonAskOwner', L, { owner: f.owner }) : f.kind === 'ask_owner' && f.owner ? 'the button that asks the file\'s owner' : tr('fixButtonAskAdmin', L)
   const buttons = [...new Set(fixes.map((f) => `"${label(f)}"`))].join(' and ')
-  return { fixes, note: `${n} ${n === 1 ? 'person' : 'people'} there cannot open ${fixes.length === 1 && !fixes[0]!.moreFiles ? 'the file' : 'some of the files'} yet. The user has a button under this step for it, labelled ${buttons}; tell them so in one short sentence, calling the button by exactly that label, without naming the people who cannot open it.` }
+  return { fixes, note: `${n} ${n === 1 ? 'person' : 'people'} there cannot open ${fixes.length === 1 && !fixes[0]!.moreFiles ? 'the file' : 'some of the files'} yet. The user has a button under your answer for it, labelled ${buttons}; tell them so in one short sentence, calling the button by exactly that label, without naming the people who cannot open it.` }
 }
 
 /** The /f/<id> links in a post's text to files the sender opens now, with the room's members (not the sender) who

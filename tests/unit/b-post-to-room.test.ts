@@ -111,7 +111,7 @@ describe('the card, and the post', () => {
     const step = r.steps.find((s) => s.tool === 'post_to_room')!
     expect(step.label).toBe('대화에 보내기 · #전체')
     // where it went, for the step's 보기
-    expect(step.posted).toEqual({ roomId: rooms.all, messageId: m.id })
+    expect(step.posted).toEqual({ roomId: rooms.all, messageId: m.id, preview: '회의 요약 출시일: 12월 3일 담당: 영업팀' })
     const a = audits('bob')
     expect(a.length).toBe(before + 1)
     // nothing was at stake, but bob pressed 보내기 on the card: confirmed
@@ -172,7 +172,8 @@ describe('the card, and the post', () => {
     expect(r.card!.options!.map((x) => [x.label, x.value])).toEqual([['Send', 'send'], ['Send with the files', 'send_files'], ['Always send with the files', '__always'], ["Don't send", 'no']])
     expect(r.card!.buttons).toBeUndefined()
     // the file that [파일도 함께 보내기] attaches, by its place in words and its name (chat/share-words.ts)
-    expect(r.card!.details!.map((d) => [d.label, d.text])).toEqual([['What will be sent', text], ['Attached with “Send with the files”', 'Groups › marketing › launch-plan.md']])
+    // (the card says a linked team file by its place and name; the message keeps the link: QA TC-4059)
+    expect(r.card!.details!.map((d) => [d.label, d.text])).toEqual([['What will be sent', 'Plan: Groups › marketing › launch-plan.md'], ['Attached with “Send with the files”', 'Groups › marketing › launch-plan.md']])
     const m = (await messagesAs('alice', rooms.all)).at(-1)!
     expect(m.body).toBe(text)
     expect(m.files.map((f) => f.name)).toEqual(['launch-plan.md'])
@@ -766,7 +767,8 @@ describe('a shared chat: as the person whose turn it is, behind their card', () 
     expect(r.card!.origin).toBe('server')
     expect(r.card!.question.split('\n')[0]).toBe('Tess Yoon님과의 새 1:1 대화로 보낼까요?')
     expect(r.card!.options!.map((x) => x.value)).toEqual(['send', 'send_files', 'no'])
-    expect(r.card!.details!.map((d) => [d.label, d.text])).toEqual([['보낼 내용', text], ['[파일도 함께 보내기]로 첨부할 파일', '내 폴더 › photo-1.png\n내 폴더 › photo-2.png']])
+    // (linked team files by place and name on the card, QA TC-4059)
+    expect(r.card!.details!.map((d) => [d.label, d.text])).toEqual([['보낼 내용', '사진 두 장 보내요: 내 폴더 › photo-1.png 내 폴더 › photo-2.png'], ['[파일도 함께 보내기]로 첨부할 파일', '내 폴더 › photo-1.png\n내 폴더 › photo-2.png']])
     // the card went to bob, never to alice, who sees the chat
     expect(cardsTo('bob', r.turnId)).toBe(1)
     expect(cardsTo('alice', r.turnId)).toBe(0)

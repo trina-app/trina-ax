@@ -194,14 +194,23 @@ const FILE_LINK = /\[([^\]\n]*)\]\((?:\/api\/files\/download|\/files\/view)\?([^
 /** A post's text as its card shows it: a link to a team file ([name](/files/view?path=…) or the bare address) as the
  * file's name and place in words; the message that goes keeps the link. Anything else stays as written (an outside
  * address stays, with the card's marks). */
-export function cardTextWords(db: Database, s: string, L: Locale, me: string): string {
-  return s.replace(FILE_LINK, (all, label: string | undefined, q1: string | undefined, q2: string | undefined) => {
+export function cardTextWords(db: Database, s: string, L: Locale, me: string, link?: (id: string) => { path: string; byGrant: boolean; name: string } | null): string {
+  const out = s.replace(FILE_LINK, (all, label: string | undefined, q1: string | undefined, q2: string | undefined) => {
     let rel: string | null = null
     try { rel = new URLSearchParams((q1 ?? q2 ?? '').replace(/&amp;/g, '&')).get('path') } catch { rel = null }
     const clean = rel?.replace(/^\/+|\/+$/g, '')
     if (!clean || !isTeamPath(clean)) return all
     return fileWords(db, clean, L, me)
   })
+  if (!link) return out
+  // a file link (/f/<id>) that opens for the person: its place and name, or only its name for a file shared with them
+  // (its folder is the owner's); one that does not open stays as written
+  return out.replace(/\[([^\]\n]*)\]\(((?:https?:\/\/[^/\s)]+)?\/f\/([A-Za-z0-9_-]{22}))\)|(?<![\w(/[])((?:https?:\/\/[^/\s)]+)?\/f\/([A-Za-z0-9_-]{22}))(?![A-Za-z0-9_-])/g,
+    (all, _label: string | undefined, _u1: string | undefined, id1: string | undefined, _u2: string | undefined, id2: string | undefined) => {
+      const f = link((id1 ?? id2)!)
+      if (!f) return all
+      return f.byGrant ? f.name : fileWords(db, f.path, L, me)
+    })
 }
 
 // ---- a folder's files the user could share instead ----

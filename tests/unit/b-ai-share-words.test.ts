@@ -285,6 +285,10 @@ describe('place words on cards', () => {
   test('a post card\'s text: a link to a team file reads as its place and name; outside links and other text stay (TC-4059)', () => {
     const t = 'Here it is: [B1 Price list.md](/files/view?path=users%2Fu-bob%2FWork%2FB1%20Price%20list.md) and /files/view?path=shared%2FSales%2FQuote.pdf, see https://example.com/files/view?path=x too.'
     expect(cardTextWords(db, t, 'en', 'u-bob')).toBe('Here it is: My folder › Work › B1 Price list.md and Company-wide › Sales › Quote.pdf, see https://example.com/files/view?path=x too.')
+    // a /f/ link: its place and name, or only its name for a file shared with the person; one that does not open stays
+    const look = (id: string) => (id === 'aaaaaaaaaaaaaaaaaaaaa1' ? { path: 'users/u-bob/Work/Plan.md', byGrant: false, name: 'Plan.md' } : id === 'aaaaaaaaaaaaaaaaaaaaa2' ? { path: 'users/u-mina/Deals/Mina.md', byGrant: true, name: 'Mina.md' } : null)
+    expect(cardTextWords(db, 'See [Plan.md](/f/aaaaaaaaaaaaaaaaaaaaa1), [Mina.md](https://x.example/f/aaaaaaaaaaaaaaaaaaaaa2) and /f/aaaaaaaaaaaaaaaaaaaaa3.', 'en', 'u-bob', look))
+      .toBe('See My folder › Work › Plan.md, Mina.md and /f/aaaaaaaaaaaaaaaaaaaaa3.')
     // a link that steps up or names no team path stays as written
     expect(cardTextWords(db, '[x](/files/view?path=..%2Fetc)', 'en', 'u-bob')).toBe('[x](/files/view?path=..%2Fetc)')
   })
