@@ -22,12 +22,14 @@
 // role="menuitem" takes the keyboard as a row does, and `close` closes the menu and gives the keyboard back. `bare`: the
 // button has no look of its own (a face, a name in a sentence): only `buttonClassName`. `closeOnScroll`: a computer's
 // menu goes when anything behind it scrolls, instead of following its button. `inline`: the button sits in a line of
-// text (a mention in a message's paragraph): its box is a <span>, not a <div>.
+// text (a mention in a message's paragraph): its box is a <span>, not a <div>, and its menu is drawn outside the
+// paragraph (a portal into the dialog it is in, else <body>).
 import clsx from 'clsx'
 import { Check, MoreHorizontal } from 'lucide-react'
 import { Tooltip } from '../Tooltip'
 import { dismissKeyboard } from '../../lib/viewport'
 import { useOverlayEntry } from '../../lib/backCloses'
+import { createPortal } from 'react-dom'
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
 
 export interface MenuItem {
@@ -171,7 +173,8 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
     if (!window.matchMedia?.('(min-width: 48rem)').matches) dismissKeyboard()
     // the keyboard goes into the menu; a finger that opened it does not need a focus ring on the first item
     if (Date.now() - pressedAt.current > 1000) (menu.current?.querySelector<HTMLElement>('[aria-checked="true"]') ?? usable(menu.current)[0])?.focus({ preventScroll: true })
-    const h = (e: Event) => !box.current?.contains(e.target as Node) && setOpen(false)
+    // (the menu too: an `inline` one is drawn outside its box)
+    const h = (e: Event) => !box.current?.contains(e.target as Node) && !menu.current?.contains(e.target as Node) && setOpen(false)
     document.addEventListener('pointerdown', h)
     return () => document.removeEventListener('pointerdown', h)
   }, [open])
@@ -274,27 +277,9 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
     else if (e.key === 'Home') go(0)
     else if (e.key === 'End') go(-1)
   }
-  return (
-    <Box ref={box} className={clsx(className?.includes('absolute') || className?.includes('static') ? null : 'relative', className)} onKeyDown={onKey}>
-      {/* its name as a tooltip (components/Tooltip.tsx), not while its menu is open */}
-      <Tooltip label={tip ?? label}>
-        <button
-          ref={button}
-          type="button"
-          aria-label={label}
-          aria-describedby={describedBy}
-          aria-haspopup="menu"
-          aria-expanded={open}
-          onClick={toggle}
-          className={bare ? buttonClassName : clsx('inline-flex items-center justify-center rounded-md p-1.5 transition hover:bg-hover hover:text-ink max-sm:p-2', compact ? 'touch-hit' : 'max-md:min-h-11 max-md:min-w-11', muted ? 'text-muted' : 'text-faint', buttonClassName)}
-          data-testid={testId}
-        >
-          {icon ?? <MoreHorizontal size={16} aria-hidden />}
-        </button>
-      </Tooltip>
-      {dot && <span aria-hidden className="pointer-events-none absolute top-2 right-2 size-1.5 rounded-full bg-accent" data-testid={testId ? `${testId}-dot` : undefined} />}
-      {/* phones: a sheet from the bottom with 48px rows over a scrim (a tap on it closes), not a small menu by the finger */}
-      {/* (a finger held on it must not reach the message's own long press, which would open the sheet again) */}
+  /** the scrim (a phone) and the menu */
+  const panel = open && (
+    <>
       {open && <div aria-hidden className="fixed inset-0 z-30 bg-black/40 md:hidden" onPointerDown={(e) => e.stopPropagation()} onClick={() => Date.now() - pressedAt.current > 400 && close()} />}
       {open && (
         <div
@@ -356,6 +341,32 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
           {footer}
         </div>
       )}
+    </>
+  )
+  return (
+    <Box ref={box} className={clsx(className?.includes('absolute') || className?.includes('static') ? null : 'relative', className)} onKeyDown={onKey}>
+      {/* its name as a tooltip (components/Tooltip.tsx), not while its menu is open */}
+      <Tooltip label={tip ?? label}>
+        <button
+          ref={button}
+          type="button"
+          aria-label={label}
+          aria-describedby={describedBy}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={toggle}
+          className={bare ? buttonClassName : clsx('inline-flex items-center justify-center rounded-md p-1.5 transition hover:bg-hover hover:text-ink max-sm:p-2', compact ? 'touch-hit' : 'max-md:min-h-11 max-md:min-w-11', muted ? 'text-muted' : 'text-faint', buttonClassName)}
+          data-testid={testId}
+        >
+          {icon ?? <MoreHorizontal size={16} aria-hidden />}
+        </button>
+      </Tooltip>
+      {dot && <span aria-hidden className="pointer-events-none absolute top-2 right-2 size-1.5 rounded-full bg-accent" data-testid={testId ? `${testId}-dot` : undefined} />}
+      {/* phones: a sheet from the bottom with 48px rows over a scrim (a tap on it closes), not a small menu by the finger */}
+      {/* (a finger held on it must not reach the message's own long press, which would open the sheet again) */}
+      {/* `inline`: drawn outside the line of text it was opened from (a <div> may not stand in a <p>): in the dialog the
+          button is in (that dialog keeps the keyboard, and the menu stays over it), else in <body> */}
+      {inline && panel ? createPortal(panel, box.current?.closest<HTMLElement>('[role="dialog"]') ?? document.body) : panel}
     </Box>
   )
 }

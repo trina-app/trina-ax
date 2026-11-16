@@ -96,3 +96,25 @@ test('an @mention of a person the directory lists is that button, in a <span> (i
     expect(html.match(/<button/g)?.length).toBe(1)
   } finally { await m.unmount() }
 })
+
+test("a mention's card opens outside the paragraph: React reports no invalid nesting", async () => {
+  directory([{ id: BEN.id, name: 'Ben', title: 'Buyer' }, { id: ME.id, name: ME.name }])
+  const said: string[] = []
+  const error = console.error
+  console.error = (...a: unknown[]) => { said.push(a.map(String).join(' ')) }
+  const m = await mount(<MemoryRouter><PersonMarkdown text="Hi @Ben" mentions={[{ id: BEN.id, name: 'Ben' }]} /></MemoryRouter>)
+  try {
+    await m.click('room-mention-person')
+    const card = m.get('person-card')
+    // not in the paragraph (nor in the page's own box): in <body>, where a <div> may stand
+    const tags: string[] = []
+    for (let up = card.parentElement; up; up = up.parentElement) tags.push(up.tagName)
+    expect(tags).not.toContain('P')
+    expect(m.container.querySelector('[data-testid="person-card"]')).toBeNull()
+    expect(m.get('person-card-message').textContent).toBe('Message')
+    expect(said.filter((s) => /descendant|validateDOMNesting|cannot (contain|appear)|hydration/i.test(s))).toEqual([])
+  } finally {
+    console.error = error
+    await m.unmount()
+  }
+})

@@ -5,7 +5,7 @@
 // and closes it; a phone gets a bottom sheet. The room is answered through page.route (rooms-mock.ts); the 1:1 chat
 // here too.
 import { expect, test, type Page } from '@playwright/test'
-import { reset, signIn } from './helpers'
+import { reset, signIn, watchConsole } from './helpers'
 import { appMessage } from './room-apps-mock'
 import { ROOM_ID, routeRoom, type MockMessage } from './rooms-mock'
 
@@ -98,6 +98,34 @@ test('the name and an @mention open the same card; a click outside and a scroll 
     ;(box ?? el).dispatchEvent(new Event('scroll'))
   })
   await expect(card(page)).toHaveCount(0)
+})
+
+test("a mention's card is drawn outside the paragraph: no block inside a <p>, nothing on the console", async ({ page }) => {
+  const errors = watchConsole(page)
+  const asked = await openRoom(page)
+  const mention = page.getByTestId('room-mention-person')
+  await mention.click()
+  await expect(card(page).getByTestId('person-card-message')).toBeFocused()
+  // the button's box is a <span> in the paragraph; the card (a <div>) is not inside any <p>
+  expect(await mention.evaluate((el) => [el.parentElement!.tagName, !!el.closest('p')])).toEqual(['SPAN', true])
+  expect(await card(page).evaluate((el) => !!el.closest('p'))).toBe(false)
+  expect(await page.evaluate(() => document.querySelectorAll('p div, p p').length)).toBe(0)
+  // still by the mention: under it
+  const [m, c] = [await mention.boundingBox(), await card(page).boundingBox()]
+  expect(c!.y).toBeGreaterThanOrEqual(m!.y + m!.height)
+  expect(Math.abs(c!.x - m!.x)).toBeLessThan(12)
+  // Esc closes it and the keyboard is back on the mention; Message works from there
+  await page.keyboard.press('Escape')
+  await expect(card(page)).toHaveCount(0)
+  await expect(mention).toBeFocused()
+  await mention.click()
+  await card(page).getByTestId('person-card-message').click()
+  await expect(page).toHaveURL(new RegExp(`/rooms/${DM_ID}$`))
+  expect(asked).toEqual(['bob'])
+  // no nesting warning (React's "<div> cannot be a descendant of <p>"), no other error
+  expect(errors.filter((e) => /descendant|validateDOMNesting|cannot (contain|appear)|hydration/i.test(e))).toEqual([])
+  // (the mocks answer 401 before sign-in and 404 for what they do not have: no errors of the page)
+  expect(errors.filter((e) => !/^Failed to load resource/.test(e))).toEqual([])
 })
 
 test('yourself: no Message, Edit profile opens the profile settings', async ({ page }) => {
@@ -223,5 +251,24 @@ test.describe('a phone', () => {
     await card(page).getByTestId('person-card-message').tap()
     await expect(page).toHaveURL(new RegExp(`/rooms/${DM_ID}$`))
     expect(asked).toEqual(['bob'])
+  })
+
+  test('a long press on a mention opens the message menu, not the card; a tap opens the card', async ({ page }) => {
+    await openRoom(page)
+    const mention = page.getByTestId('room-mention-person')
+    // a finger held on the mention, then lifted: the browser's click follows
+    await mention.dispatchEvent('pointerdown', { button: 0, pointerType: 'touch', isPrimary: true, clientX: 100, clientY: 100 })
+    await page.waitForTimeout(650)
+    await mention.dispatchEvent('pointerup', { button: 0, pointerType: 'touch', isPrimary: true, clientX: 100, clientY: 100 })
+    await mention.dispatchEvent('click', { button: 0, detail: 1 })
+    await expect(page.getByTestId('message-copy')).toBeVisible()
+    await page.waitForTimeout(450)
+    await expect(card(page)).toHaveCount(0)
+    await expect(page.getByTestId('message-copy')).toBeVisible()
+    // the sheet closed (a tap on the dimmed page), a plain tap opens the card
+    await page.mouse.click(195, 60)
+    await expect(page.getByTestId('message-copy')).toHaveCount(0)
+    await mention.tap()
+    await expect(card(page).getByTestId('person-card-name')).toHaveText('Bob')
   })
 })
