@@ -16,7 +16,8 @@ cards still came every time: FL-02 and FL-13 (sharing), FL-05 (a web address), F
   on its first showing; once picked, shares go without the card. Every other check stays and runs without the card
   too: only the person's own files they may share, never a folder or a guest, the team's switch, the grant's own
   checks. A scheduled run of that person may share under it (only their own choice counts there, as for
-  post_to_room). In a chat someone else wrote in:
+  post_to_room). Where other people's words are in the turn (a shared chat, a chat others wrote in, or one that read
+  rooms: a ✦ side chat, room_read, a quoted room message; independent review):
   - the file must still come from the asker (named or attached in their own message, or made by the AI in this turn),
     with or without the card;
   - the choice counts only when the asker's own message names every recipient (post_to_room's rule, `namesRecipient`):
@@ -26,7 +27,11 @@ cards still came every time: FL-02 and FL-13 (sharing), FL-05 (a web address), F
   [파일도 함께 보내기] now offers "Always send with the files" / "항상 파일도 함께 보내기". Picking it sends this post with
   its files; later posts that can carry linked files go with them and no card. A post with no file to offer stays
   kind `post_to_room` (its own first card). Shared chats keep post_to_room's rule (the asker names the recipient; never
-  for own words). The card had both texts' people lines already; what each choice shares is shown as before.
+  for own words). It holds after a room read too (a side chat): the independent review suggested sharing's file-origin
+  rule here as well, but that would make "고친 제안서 방에 올려줘" (no file name) ask every time, and the owner's rule is
+  no teammate-injection guard that makes the person's own choice ask again; left to the owner.
+  The two kinds stay apart on purpose: "Always" on the files card can only mean "with the files" (nothing sends more
+  than the person picked), so a person who chose it on one kind still meets the other kind's first card once.
   This also covers the report's "room-read guard" card ("여기에 대화 메시지(다른 사람이 쓴 글)가 들어와서…") without
   "always": in FL-14 and FL-27 that was this same card (its first line is the room-read line), not another kind.
 - **A web address while the server's exit address is unknown (url-gate.ts, "Allow all websites").** The FL-05 card

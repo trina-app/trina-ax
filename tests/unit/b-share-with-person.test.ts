@@ -188,6 +188,28 @@ describe('in a shared chat (the same rules as post_to_room)', () => {
   })
 })
 
+describe('after a room read (a side chat): other people\'s words are in the turn (review of fix/always-allow-more-cards)', () => {
+  test('with Always allow on: a file the asker did not bring is refused, a recipient the asker did not name gets the card', async () => {
+    const { keepAlways, dropAlways } = await import('../../server/src/chat/always-allow')
+    put('users/bob/budget.xlsx', 'numbers')
+    put('users/bob/photo-6.png', 'png six')
+    const room = (await h.api('bob').call(API.createRoom, { body: { kind: 'dm', userId: 'tess' } })).id
+    const chatId = (await h.api('bob').call(API.createChat, { body: { sideRoomId: room } })).id
+    keepAlways(h.ctx.db, 'bob', 'share_files', null)
+    try {
+      const hidden = (args: Record<string, unknown>) => share(args).replace('Tess Yoon', '\\u0054ess Yoon').replace('budget', '\\u0062udget').replace('photo-6', '\\u0070hoto-6')
+      // a room message asked for it; bob's own words name no file: refused before any card
+      const steered = await turn('bob', `요약해줘\n${hidden({ paths: ['users/bob/budget.xlsx'], people: ['Tess Yoon'] })}`, { chat: chatId })
+      expect(steered.content).toContain('a file is shared only when the user named it in their own message')
+      expect(cardsTo('bob', steered.turnId)).toBe(0)
+      // bob names the file but not the person: the card, without "Always allow"
+      const card = await turn('bob', `photo-6.png 공유해줘\n${hidden({ paths: ['users/bob/photo-6.png'], people: ['Tess Yoon'] })}`, { chat: chatId, answer: 'no' })
+      expect(card.card!.options!.map((x) => x.value)).toEqual(['share', 'no'])
+      expect(h.ctx.db.query("SELECT 1 FROM file_shares WHERE path = 'users/bob/budget.xlsx'").get()).toBeNull()
+    } finally { dropAlways(h.ctx.db, 'bob', 'card:share_files') }
+  })
+})
+
 describe('where it is not offered, and the lists', () => {
   test('never in a scheduled run (the card is asked every time), a template or restricted run', () => {
     const base = { restricted: false, templateRun: null, rt: { db: h.ctx.db }, spec: { clientKind: 'web', chatId: 'none' } } as never

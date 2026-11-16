@@ -92,3 +92,16 @@ export function namesFile(said: string, rel: string): boolean {
   const stem = name.replace(/\.[^.]+$/, '')
   return [fold(rel), name, stem].some((n) => n.length >= 3 && holds(text, n))
 }
+
+/** The team files the asker attached to their own message of this turn. */
+export function attachedPaths(db: Database, messageId: string): Set<string> {
+  const row = db.query('SELECT attachments FROM messages WHERE id = ?').get(messageId) as { attachments: string | null } | null
+  const out = new Set<string>()
+  try { for (const a of JSON.parse(row?.attachments ?? '[]') as { path?: unknown }[]) if (typeof a?.path === 'string') out.add(a.path) } catch {}
+  return out
+}
+
+/** The AI made or changed the file at `rel` in this turn (its own write, upload or move there). */
+export function madeInTurn(db: Database, turnId: string, rel: string): boolean {
+  return !!db.query("SELECT 1 FROM file_events WHERE turn_id = ? AND path = ? AND action IN ('create','update','upload') LIMIT 1").get(turnId, rel)
+}

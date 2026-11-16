@@ -194,6 +194,19 @@ describe('"Always send with the files" (post_files)', () => {
       expect(plain.card!.options!.map((x) => x.value)).toEqual(['send', '__always', 'no'])
     } finally { dropAlways(h.ctx.db, 'alice', 'card:post_files') }
   })
+
+  test('after a room read (a side chat): "Always send with the files" holds there too (the owner: no teammate guard that asks again)', async () => {
+    const { keepAlways, dropAlways } = await import('../../server/src/chat/always-allow')
+    put('groups/marketing/launch-plan-3.md', '# Launch 3\nsecret date')
+    const side = (await h.api('alice').call(API.createChat, { body: { sideRoomId: rooms.all } })).id
+    const text = 'Plan: [launch-plan-3.md](/files/view?path=groups/marketing/launch-plan-3.md)'
+    keepAlways(h.ctx.db, 'alice', 'post_files', null)
+    try {
+      const r = await turn('alice', `고친 거 방에 올려줘\n${[fake({ tool: 'read', args: { file_path: 'groups/marketing/launch-plan-3.md' } }), post({ text })].join('\n')}`, { chat: side })
+      expect(r.card).toBeNull()
+      expect((await messagesAs('alice', rooms.all)).at(-1)!.files.map((f) => f.name)).toEqual(['launch-plan-3.md'])
+    } finally { dropAlways(h.ctx.db, 'alice', 'card:post_files') }
+  })
 })
 
 describe('where it may not post', () => {
