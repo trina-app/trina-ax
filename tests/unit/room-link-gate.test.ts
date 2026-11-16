@@ -4,7 +4,7 @@
 // allowed on a card it is not asked again. What still asks: a link of another room, an address with a part the known
 // one does not have, an unknown address. No name is looked up here (gateUrl decides from the text and the database).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
-import { API, uuidv7 } from '@mycel/shared/api'
+import { answerFilePaths, API, uuidv7 } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { recordSent } from '../../server/src/tools/connection-urls'
 import { gateUrl, noteRoomLinks, rememberUrls, sameLink, type TurnPerson } from '../../server/src/tools/url-gate'
@@ -104,5 +104,12 @@ describe('asked once', () => {
     expect(await gate(own, LINK, person(asked))).toBe('seen')
     expect(await gate(own, BARE, person(asked))).toBe('seen')
     expect(asked).toEqual([])
+  })
+})
+
+describe('answerFilePaths: a file name with parentheses (FL-28: "일요일 회의록 (11-15).md" made the dialog list a hidden file)', () => {
+  test('balanced parentheses stay in the address; the link\'s own closing one ends it', () => {
+    const body = '[내 파일에 저장했어요](/files/view?path=users%2Fsora%2F%EC%9D%BC%EC%9A%94%EC%9D%BC%20(11-15).md). 또 [a](/files/view?path=shared/a.md)'
+    expect(answerFilePaths(body)).toEqual(['users/sora/일요일 (11-15).md', 'shared/a.md'])
   })
 })

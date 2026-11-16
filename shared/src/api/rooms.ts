@@ -843,9 +843,16 @@ export const ROOMS = {
  * links name them (no slashes around): what RoomMessage.openable is checked from. */
 export function answerFilePaths(body: string, max = 100): string[] {
   const out = new Set<string>()
-  for (const m of body.matchAll(/(?:\/api\/files\/download|\/files\/view)\?([^\s)"'<>\]]+)/g)) {
+  for (const m of body.matchAll(/(?:\/api\/files\/download|\/files\/view)\?([^\s"'<>\]]+)/g)) {
+    // a Markdown link's address may hold balanced parentheses ("회의록 (11-15).md", as CommonMark reads it): it ends at
+    // the first ")" that closes nothing
+    let q = m[1]!, depth = 0
+    for (let i = 0; i < q.length; i++) {
+      if (q[i] === '(') depth++
+      else if (q[i] === ')' && depth-- === 0) { q = q.slice(0, i); break }
+    }
     let p: string | null = null
-    try { p = new URLSearchParams(m[1]!.replace(/&amp;/g, '&')).get('path') } catch { /* not a query */ }
+    try { p = new URLSearchParams(q.replace(/&amp;/g, '&')).get('path') } catch { /* not a query */ }
     const clean = p?.replace(/^\/+|\/+$/g, '')
     if (clean) out.add(clean)
     if (out.size >= max) break
