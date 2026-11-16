@@ -225,11 +225,15 @@ function OpenFile({ id, view, sub, above }: { id: string; view: { name: string; 
             {[view.sharedBy ? t('fileLink.sharedBy', { name: view.sharedBy }) : view.formerSharer ? t('fileLink.sharedByFormer') : null, formatSize(view.size, locale)].filter(Boolean).join(' · ')}
           </p>
         </div>
-        <Tooltip label={t('files.askAi', { name: aiName(t) })}>
-          <Button variant="secondary" onClick={askAi} className="shrink-0" data-testid="file-link-ask-ai">
-            <AiMark place="nav" /> <span>{t('files.askAiShort', { name: aiName(t) })}</span>
-          </Button>
-        </Tooltip>
+        {/* not for a file inside a shared folder: the AI reads a file by its own /f/ link, never a folder's (merge of
+            folder sharing and AI sharing) */}
+        {sub === undefined && (
+          <Tooltip label={t('files.askAi', { name: aiName(t) })}>
+            <Button variant="secondary" onClick={askAi} className="shrink-0" data-testid="file-link-ask-ai">
+              <AiMark place="nav" /> <span>{t('files.askAiShort', { name: aiName(t) })}</span>
+            </Button>
+          </Tooltip>
+        )}
         <Tooltip label={t('common.download')}>
           <Button variant="secondary" onClick={download} className="shrink-0" data-testid="file-link-download">
             <Download size={16} aria-hidden /> <span className="max-sm:sr-only">{t('common.download')}</span>

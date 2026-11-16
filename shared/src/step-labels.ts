@@ -90,6 +90,7 @@ export const FILE_STEP_VERB: Record<string, T> = {
   change_project_members: t('프로젝트 멤버 바꾸기', 'Change project members', 'Ubah anggota proyek', 'プロジェクトのメンバーを変更', 'Cambiar miembros del proyecto', "更改项目成员"),
   // the AI looks up who can open a file, a folder or the chat (server/src/chat/who-can-open.ts); never a path or a name
   who_can_open: t('누가 볼 수 있는지 확인', 'Check who can open it', 'Periksa siapa yang bisa membuka', '開ける人を確認', 'Comprobar quién puede abrirlo', '查看谁可以打开'),
+  change_folder_access: t('폴더 권한 바꾸기', 'Change folder access', 'Ubah akses folder', 'フォルダのアクセスを変更', 'Cambiar el acceso a la carpeta', '更改文件夹权限'),
 }
 
 /** Verb of an in-app browser step: "<verb> · <url>". */
@@ -318,6 +319,8 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'chat_file': return verb!
     case 'post_to_room': { const w = roomWord(a.room); return w ? `${verb} · ${clip(w, 60)}` : verb! }
     case 'change_project_members': return a.project ? `${verb} · ${clip(a.project, 60)}` : verb!
+    // the folder by its own name (its last part): the path stays out of the step
+    case 'change_folder_access': { const f = typeof a.folder === 'string' ? a.folder.replace(/\/+$/, '').split('/').pop() : ''; return f ? `${verb} · ${clip(f, 60)}` : verb! }
     case 'save_room_file': { const w = roomWord(a.file); return w ? `${verb} · ${clip(w, 60)}${a.save_as ? ` → ${clip(a.save_as, 60)}` : ''}` : verb! }
     case 'box_shell': return `${verb} · ${clip(String(a.command ?? '').split('\n')[0], 80)}${a.job ? ` (${STEP_TEXT.jobSuffix[locale]})` : a.background ? ` (${STEP_TEXT.backgroundSuffix[locale]})` : ''}`
     case 'ask_user': return stepText('asked', locale, { q: clip(a.question, 120) })

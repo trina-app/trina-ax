@@ -434,6 +434,19 @@ export const ChangeProjectMembersInput = z.strictObject({
   add: z.array(ProjectMemberRef).max(20).default([]).describe('People and groups to add.'),
   remove: z.array(ProjectMemberRef).max(20).default([]).describe('People and groups to take out.'),
 }).refine((x) => x.add.length + x.remove.length > 0, { message: 'name at least one person or group to add or remove', path: ['add'] })
+/** change_folder_access in a person's own chat (server/src/chat/folder-access-tool.ts; docs/decisions/
+ * 20261116-team-folder-ai-and-ask.md): ONE person or group on ONE team folder per call, after the owner's or an admin's
+ * yes on the server's card every time. A member gets an "Ask an admin" button instead. Never a personal folder, a
+ * project's folder, General access or Limit access. */
+export const ChangeFolderAccessInput = z.strictObject({
+  folder: z.string().trim().min(1).max(4096).describe('The team folder (its team path, e.g. "Sales/Reports"); not under users/, not a project\'s folder.'),
+  action: z.enum(['add', 'change', 'remove']).describe('add a person or group, change their level, or take them off.'),
+  who: z.strictObject({
+    name: z.string().trim().min(1).max(100).describe('The person or group as the user wrote it ("Jun Park", "Sales").'),
+    id: z.string().trim().min(1).max(64).optional().describe('Only the id the tool gave back among this name\'s candidates.'),
+  }),
+  access: z.enum(['view', 'edit']).optional().describe('For add and change. Default for add: view.'),
+})
 export const ToolError = z.object({ error: z.object({ code: z.string(), message: z.string() }) })
 /** File tools return plain text (like Claude Code's built-ins). */
 export const TextOutput = z.object({ text: z.string() })
@@ -485,6 +498,7 @@ export const OTHER_TOOLS = {
   looking_at: { input: LookingAtInput, output: TextOutput },
   change_project_members: { input: ChangeProjectMembersInput, output: TextOutput },
   who_can_open: { input: WhoCanOpenInput, output: TextOutput },
+  change_folder_access: { input: ChangeFolderAccessInput, output: TextOutput },
 } as const
 
 /** Exactly what the engine may have, in addition to mcp__team__<file tool>. Lockdown test asserts this. */

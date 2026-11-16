@@ -124,7 +124,7 @@ export const PATH_ARGS: readonly string[] = ['file_path', 'path', 'source', 'out
  * 줄이기").
  */
 export const ROOMS_SEEN_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
-  ...ROOM_READ_ONLY_TOOLS, 'rooms', 'room_read', 'room_file', 'set_title', 'remember', 'post_to_room', 'share_with_person', 'stop_sharing', 'share_folder', 'change_project_members', 'who_can_open', 'find_tools', 'schedule_list', 'drive_search', 'drive_list', 'drive_read',
+  ...ROOM_READ_ONLY_TOOLS, 'rooms', 'room_read', 'room_file', 'set_title', 'remember', 'post_to_room', 'share_with_person', 'stop_sharing', 'share_folder', 'change_project_members', 'change_folder_access', 'who_can_open', 'find_tools', 'schedule_list', 'drive_search', 'drive_list', 'drive_read',
   // they list names only and change nothing (chat/shared-with-me-tool.ts, chat/looking-at.ts)
   'shared_with_me', 'looking_at',
 ])
@@ -162,6 +162,6 @@ export const OWN_CHAT_TEAM_TOOLS: ReadonlySet<string> = new Set([...ROOM_FILE_TO
 export const OWN_WORDS_TOOLS: ReadonlySet<string> = new Set([
   ...Object.keys(FILE_TOOLS), 'edit_files', 'comment_docx', 'skill', 'ask_user', 'agent', 'Agent', 'Task',
   'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'delete_files', 'share_file', 'artifact',
-  'set_title', 'remember', 'forget', 'connect_service', 'post_to_room', 'share_with_person', 'stop_sharing', 'share_folder', 'change_project_members',
+  'set_title', 'remember', 'forget', 'connect_service', 'post_to_room', 'share_with_person', 'stop_sharing', 'share_folder', 'change_project_members', 'change_folder_access',
   'schedule_create', 'schedule_list', 'schedule_delete', 'move_skill', 'skill_files', 'generate_video', 'save_promo_video',
 ])
