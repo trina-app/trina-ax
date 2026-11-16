@@ -86,6 +86,13 @@ You can share a file you own with chosen people, without changing who can open i
 - A team file also opens for everyone who can open its folder.
 - **Copy link** gives the file's own link. People with access open it; anyone else sees **You need access** and can **Ask for access** with a note. The request comes to the owner in **Activity** with **Share** and **Decline**, and as a phone notification. The link page never shows the file's name to someone who can't open it.
 - Moving a file somewhere fewer people can open says how many people have it by its link.
+- Ask Trina **"who can open this file?"** or **"why can't Jun open it?"**. She tells you how each person gets in (shared
+  by name, through a group, through its folder). You see the names for your own files; for someone else's file you see
+  your own access and who to ask.
+- After Trina posts to a room, she tells you when people there can't open a file of the post. **Let them view** shares
+  your file with exactly the people named on that line. For someone else's file, **Ask** sends its owner a request in
+  **Activity** ("Alice asked you to share Quote.pdf with Jun") with **Share** and **Decline**. For a team folder, a
+  member gets **Ask an admin**, which sends the team's owner and admins a message from you.
 
 Owners and admins can share any team file. In **Admin › Team settings**, **Members can share files they own** turns sharing off for members (shares already made keep working, and their owner can still stop them). The team owner can **Remove all file shares** there at once.
 

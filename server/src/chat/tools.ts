@@ -53,6 +53,7 @@ import { skillFilesTool } from './skill-files'
 import { postToRoomOff, postToRoomTool } from './post-to-room'
 import { shareWithPersonOff, shareWithPersonTool } from './share-with-person'
 import { stopSharingOff, stopSharingTool } from './stop-sharing'
+import { whoCanOpenOff, whoCanOpenTool } from './who-can-open'
 import { hideUrls } from '../tools/audit-url'
 import { SHARE_JUDGE_REFUSAL } from '../skills/share-judge'
 import { FILE_RANK_REFUSAL } from '../onboarding/file-rank'
@@ -200,6 +201,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   if (!shareWithPersonOff(exec)) add(shareWithPersonTool(exec))
   // ...and taking that access away again (chat/stop-sharing.ts): the same places, never a scheduled run
   if (!stopSharingOff(exec)) add(stopSharingTool(exec))
+  // who can open a file, a folder or this chat, and how (chat/who-can-open.ts): read-only; in a shared chat only for
+  // the chat itself and a file the asker named or attached; never a scheduled run, Slack, a template or restricted run
+  if (!whoCanOpenOff(exec)) add(whoCanOpenTool(exec))
   // edit_files is listed here so the engines and the model proxy allow it, but the MCP handler runs it
   // (mcp/protocol.ts editFiles): each file as its own edit call with the checks above. Never offered in confidential
   // chats (add() keeps to the local tools there). Reaching this call() means the handler did not: nothing is changed.

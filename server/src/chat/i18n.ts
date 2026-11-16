@@ -269,6 +269,10 @@ export const TEXT = {
   fileShareFiles: t('공유할 파일', 'Files', 'Berkas', '共有するファイル', 'Archivos', '要共享的文件'),
   fileShareYes: t('공유하기', 'Share', 'Bagikan', '共有する', 'Compartir', '共享'),
   fileShareNo: t('공유하지 않기', "Don't share", 'Jangan bagikan', '共有しない', 'No compartir', '不共享'),
+  // "Ask an admin" under an AI step (files/share-fixes.ts): the person's own 1:1 message to an admin, written by the
+  // server; {folder} is a link to the folder, {people} the names of the people who cannot open it
+  fixAskAdminPeople: t('{folder} 폴더를 {people} 님도 볼 수 있게 해 주실 수 있나요? 폴더의 공유에서 추가할 수 있어요.', 'Could you let {people} open the folder {folder}? You can add them from the folder’s Share.', 'Bisakah {people} diberi akses ke folder {folder}? Anda bisa menambahkannya dari Bagikan di folder itu.', '{people} さんもフォルダ {folder} を開けるようにしていただけますか？フォルダの「共有」から追加できます。', '¿Podría dar acceso a {people} a la carpeta {folder}? Puede añadirlos desde Compartir en la carpeta.', '可以让 {people} 也能打开文件夹 {folder} 吗？可以在该文件夹的“共享”中添加。'),
+  fixAskAdmin: t('{folder} 폴더를 다른 사람과 공유하고 싶어요. 누가 볼 수 있는지 바꿔 주실 수 있나요?', 'I’d like to share the folder {folder} with more people. Could you change who can open it?', 'Saya ingin membagikan folder {folder} ke lebih banyak orang. Bisakah Anda mengubah siapa yang bisa membukanya?', 'フォルダ {folder} をほかの人と共有したいです。開ける人を変更していただけますか？', 'Me gustaría compartir la carpeta {folder} con más personas. ¿Podría cambiar quién puede abrirla?', '我想把文件夹 {folder} 共享给更多人。可以帮忙更改谁能打开它吗？'),
   fileShareNotShared: t('공유하지 않았어요', 'Not shared', 'Tidak dibagikan', '共有していません', 'No se compartió', '未共享'),
   fileSharePick: t("'{ref}'에 맞는 사람이 여러 명이에요. 누구에게 공유할까요?", "Several people match '{ref}'. Who should get it?", "Beberapa orang cocok dengan '{ref}'. Siapa yang menerimanya?", '「{ref}」に当てはまる人が複数います。誰に共有しますか？', "Varias personas coinciden con '{ref}'. ¿Quién lo recibe?", '有多个人与“{ref}”匹配。要共享给谁？'),
   // stop_sharing's card (chat/stop-sharing.ts): taking people off the asker's files

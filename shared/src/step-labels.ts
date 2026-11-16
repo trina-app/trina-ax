@@ -82,6 +82,8 @@ export const FILE_STEP_VERB: Record<string, T> = {
   // the AI changes a team project's members after the person's yes on its card (server/src/chat/project-members.ts):
   // "프로젝트 멤버 바꾸기 · 견적"
   change_project_members: t('프로젝트 멤버 바꾸기', 'Change project members', 'Ubah anggota proyek', 'プロジェクトのメンバーを変更', 'Cambiar miembros del proyecto', "更改项目成员"),
+  // the AI looks up who can open a file, a folder or the chat (server/src/chat/who-can-open.ts); never a path or a name
+  who_can_open: t('누가 볼 수 있는지 확인', 'Check who can open it', 'Periksa siapa yang bisa membuka', '開ける人を確認', 'Comprobar quién puede abrirlo', '查看谁可以打开'),
 }
 
 /** Verb of an in-app browser step: "<verb> · <url>". */

@@ -10,6 +10,7 @@
 import { z } from 'zod'
 import { RelPath } from './common'
 import { endpoint, stream } from './endpoint'
+import { RunStepFixResult } from './entities'
 import { ProjectParticipant } from './chats'
 
 /** A link id: 22 base64url characters (16 random bytes). */
@@ -145,6 +146,9 @@ export const ShareCardState = z.union([
 ])
 export type ShareCardState = z.infer<typeof ShareCardState>
 export const ShareCardStates = z.object({ items: z.array(ShareCardState) })
+/** GET /api/files/granted-link */
+export const GrantedFileLink = z.object({ id: z.string().nullable() })
+export type GrantedFileLink = z.infer<typeof GrantedFileLink>
 
 /** Admin › Team settings: how many file shares there are (the team owner's "Remove all file shares" confirm). */
 export const FileSharesCount = z.object({ files: z.number().int().nonnegative(), people: z.number().int().nonnegative() })
@@ -161,6 +165,9 @@ export const FILE_SHARES = {
   sharedFileDownload: endpoint({ method: 'GET', path: '/api/files/shared/:id/download', auth: 'user', owner: 'C', query: SharedFileDownloadQuery, response: stream(true), summary: 'The current bytes of a file by its link, for someone it opens for (checked on every request); 404 otherwise. No versions, history or text.' }),
   requestFileAccess: endpoint({ method: 'POST', path: '/api/files/shared/:id/request', auth: 'user', owner: 'C', body: FileAccessRequestBody, response: FileAccessRequestResult, summary: 'Ask the file\'s owner (or, with none, the team owner and admins) to open it. One waiting request per person and file; 5 a day to one owner and 20 an hour in all (429). Not for guests, nor for a member\'s file while members\' file sharing is off (403 file_request_off); unknown links 404.' }),
   answerFileRequest: endpoint({ method: 'POST', path: '/api/files/requests/:id', auth: 'user', owner: 'C', body: FileRequestAnswerBody, response: FileRequestAnswer, summary: 'Share or Decline on an access request (whoever may share the file now). A request already answered keeps its answer; the file gone: closed.' }),
+  // one-tap next steps under an AI step, and a path link opened through a share (docs/decisions/20261116-ai-share-who-can-open.md)
+  runShareFix: endpoint({ method: 'POST', path: '/api/share-fixes/:id/run', auth: 'user', owner: 'C', response: RunStepFixResult, summary: 'Run the next step the server offered under one of my AI steps (Step.fixes): "Let them view" shares the files with exactly the people the offer listed who are still in the room, active, no guests and still unable to open them (the Share dialog\'s own checks as me, via ai, audited); "Ask <owner>" sends the owner the access request for them; "Ask an admin" sends my 1:1 message about the folder to the team owner and admins. Once; only for the person the offer was made for (404 otherwise). Answers what it became: done (how many people, and how many in the room still cannot open it and were not listed), or gone (nothing left to do). A refusal of the action (403 file_share_not_owner, 429) leaves the offer open.' }),
+  grantedFileLink: endpoint({ method: 'GET', path: '/api/files/granted-link', auth: 'user', owner: 'C', query: FileSharesQuery, response: GrantedFileLink, summary: 'The /f/<id> link id of the file at a team path when it opens for the caller through a file share and not through the folder (a path link in a room message, opened by someone the file was shared with); id null for everything else, a missing path and a file they may not open alike.' }),
   fileSharesCount: endpoint({ method: 'GET', path: '/api/admin/file-shares', auth: 'admin', owner: 'C', response: FileSharesCount, summary: 'How many files are shared one by one and with how many people (the team owner\'s Remove all).' }),
   removeAllFileShares: endpoint({ method: 'DELETE', path: '/api/admin/file-shares', auth: 'admin', owner: 'C', response: FileSharesCount, summary: 'The team owner removes every file share and waiting request at once (403 owner_only for admins). Audited with the counts.' }),
 } as const

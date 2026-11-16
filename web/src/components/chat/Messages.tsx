@@ -60,6 +60,7 @@ import { MenuButton, useLongPress, type MenuItem } from '../rooms/MenuButton'
 import { keepThreadRef, type SendTarget } from '../../lib/sideChatSend'
 import FileSummary from './FileSummary'
 import SourcesList from './SourcesList'
+import { StepFixes } from './StepFix'
 import Steps, { StepPostView } from './Steps'
 import DeckProgress from './DeckProgress'
 import { SkillChip } from './SkillChip'
@@ -795,6 +796,8 @@ export function AssistantMessage({
             confirmation card was, so that card reads as turning into this one */}
         {m.steps.map((s) => (s.shared && !s.parentId ? <ShareCard key={s.id} shared={s.shared} /> : s.posted && !s.parentId ? <PostedCard key={s.id} posted={s.posted} /> : null))}
         {requests.map((r) => (r.request.kind === 'connect_service' ? <ConnectCard key={r.request.requestId} request={r.request} /> : <AskCard key={r.request.requestId} req={r} />))}
+        {/* the server's next steps for this answer (Step.fixes): "3 people can't open it yet. [Let them view]" */}
+        <StepFixes steps={m.steps} />
         {m.files && <FileSummary files={m.files} onAskOwnFolder={onAskOwnFolder} disabled={busy} />}
         {!streaming && m.sourceCount ? <SourcesList chatId={chatId} messageId={m.id} count={m.sourceCount} /> : null}
         {atLimit && (
