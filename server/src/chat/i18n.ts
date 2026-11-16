@@ -265,6 +265,13 @@ export const TEXT = {
   fileShareNo: t('공유하지 않기', "Don't share", 'Jangan bagikan', '共有しない', 'No compartir', '不共享'),
   fileShareNotShared: t('공유하지 않았어요', 'Not shared', 'Tidak dibagikan', '共有していません', 'No se compartió', '未共享'),
   fileSharePick: t("'{ref}'에 맞는 사람이 여러 명이에요. 누구에게 공유할까요?", "Several people match '{ref}'. Who should get it?", "Beberapa orang cocok dengan '{ref}'. Siapa yang menerimanya?", '「{ref}」に当てはまる人が複数います。誰に共有しますか？', "Varias personas coinciden con '{ref}'. ¿Quién lo recibe?", '有多个人与“{ref}”匹配。要共享给谁？'),
+  // stop_sharing's card (chat/stop-sharing.ts): taking people off the asker's files
+  fileStopAsk: t('{who}님과 파일 {n}개 공유를 중지할까요?', 'Stop sharing {n, plural, one {# file} other {# files}} with {who}?', 'Berhenti membagikan {n} berkas dengan {who}?', '{who}さんとのファイル{n}件の共有を停止しますか？', '¿Dejar de compartir {n, plural, one {# archivo} other {# archivos}} con {who}?', '要停止与{who}共享{n}个文件吗？'),
+  fileStopAskMany: t('파일 {n}개 공유를 중지할까요?', 'Stop sharing {n, plural, one {# file} other {# files}}?', 'Berhenti membagikan {n} berkas?', 'ファイル{n}件の共有を停止しますか？', '¿Dejar de compartir {n, plural, one {# archivo} other {# archivos}}?', '要停止共享{n}个文件吗？'),
+  fileStopYes: t('공유 중지', 'Stop sharing', 'Berhenti membagikan', '共有を停止', 'Dejar de compartir', '停止共享'),
+  fileStopNo: t('계속 공유', 'Keep sharing', 'Tetap bagikan', '共有を続ける', 'Seguir compartiendo', '继续共享'),
+  fileStopNotStopped: t('공유를 중지하지 않았어요', 'Still shared', 'Masih dibagikan', '共有を続けています', 'Se sigue compartiendo', '仍在共享'),
+  fileStopPick: t("'{ref}'에 맞는 사람이 여러 명이에요. 누구와의 공유를 중지할까요?", "Several people match '{ref}'. Who should lose access?", "Beberapa orang cocok dengan '{ref}'. Akses siapa yang dihentikan?", '「{ref}」に当てはまる人が複数います。誰との共有を停止しますか？', "Varias personas coinciden con '{ref}'. ¿Quién pierde el acceso?", '有多个人与“{ref}”匹配。要停止与谁共享？'),
   postRoomEveryone: t('전체', 'Everyone', 'Semua', '全員', 'Todos', '所有人'),
   postRoomTeam: t('채널', 'channel', 'saluran', 'チャンネル', 'canal', '频道'),
   postRoomGroup: t('그룹 대화', 'group chat', 'obrolan grup', 'グループトーク', 'chat de grupo', '群聊'),

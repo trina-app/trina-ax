@@ -83,7 +83,7 @@ export function stepsGotPast(steps: Step[]): Set<string> {
  * 'error', an interrupted answer too), and the failed steps the AI went on past (stepsGotPast). */
 /** Where a post's 보기 goes (a room's side chat passes its own; elsewhere the room's or the thread's page). */
 export const StepPostView = createContext<((p: NonNullable<Step['posted']>) => void) | null>(null)
-const postPath = (p: NonNullable<Step['posted']>) => (p.threadRootId ? `/rooms/${p.roomId}/t/${p.threadRootId}?m=${p.messageId}` : `/rooms/${p.roomId}?m=${p.messageId}`)
+export const postPath = (p: NonNullable<Step['posted']>) => (p.threadRootId ? `/rooms/${p.roomId}/t/${p.threadRootId}?m=${p.messageId}` : `/rooms/${p.roomId}?m=${p.messageId}`)
 
 export interface MarkContext { live: boolean; answerFailed: boolean; gotPast: ReadonlySet<string> }
 

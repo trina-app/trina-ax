@@ -65,6 +65,9 @@ export const FileShares = z.object({
   mine: z.boolean(),
   teamFile: z.boolean(),
   off: z.literal(true).optional(),
+  /** the caller may take people off (never add): whoever may share, and the file's owner always, also with the team's
+   * switch off or without edit access (docs/decisions/20261116-ai-share-card-and-stop.md); older servers omit it */
+  canStop: z.boolean().optional(),
   /** the rows: for whoever may share, and for the people in it (they see who else has it) */
   people: z.array(FileShareRow),
 })
@@ -87,7 +90,8 @@ export const SharedFileView = z.discriminatedUnion('status', [
   // `sharedBy`: who shared it with the caller (the newest grant that counts for them, docs/decisions/
   // 20261116-files-shared-with-me.md); `formerSharer`: that grant's sharer's account is gone ("a former member")
   z.object({ status: z.literal('open'), name: z.string(), size: z.number().int().nonnegative(), mime: z.string().nullable(), sharedBy: z.string().nullable(), formerSharer: z.literal(true).optional(), mine: z.boolean() }),
-  z.object({ status: z.literal('no_access'), canAsk: z.boolean(), askedAt: z.string().nullable() }),
+  // `stoppedBy`: who stopped sharing it with the caller (their name), while nothing shares it with them again
+  z.object({ status: z.literal('no_access'), canAsk: z.boolean(), askedAt: z.string().nullable(), stoppedBy: z.string().optional() }),
   z.object({ status: z.literal('trashed') }),
   z.object({ status: z.literal('unknown') }),
 ])
@@ -131,13 +135,25 @@ export const SharedWithMe = z.object({ items: z.array(SharedWithMeItem), next: z
 export type SharedWithMe = z.infer<typeof SharedWithMe>
 export const SharedWithMeQuery = z.object({ cursor: z.string().max(200).optional(), limit: z.coerce.number().int().min(1).max(50).default(50) })
 
+/** POST /api/files/shares/cards: the files of an AI share card (api/share-card.ts) as the caller may see them now, by
+ * link id. `gone`: no such link, the file is gone, the folder rules do not let the caller read it, or the caller may
+ * neither add nor take off people (nothing about it). */
+export const ShareCardsBody = z.object({ ids: z.array(FileLinkId).min(1).max(10) }).strict()
+export const ShareCardState = z.union([
+  z.object({ id: FileLinkId, gone: z.literal(true) }),
+  z.object({ id: FileLinkId, path: RelPath, name: z.string(), canShare: z.boolean(), canStop: z.boolean(), people: z.array(FileShareRow) }),
+])
+export type ShareCardState = z.infer<typeof ShareCardState>
+export const ShareCardStates = z.object({ items: z.array(ShareCardState) })
+
 /** Admin › Team settings: how many file shares there are (the team owner's "Remove all file shares" confirm). */
 export const FileSharesCount = z.object({ files: z.number().int().nonnegative(), people: z.number().int().nonnegative() })
 
 export const FILE_SHARES = {
   fileLink: endpoint({ method: 'POST', path: '/api/files/link', auth: 'user', owner: 'C', body: FileLinkBody, response: FileLink, summary: 'The /f/<id> link of a file the caller can open (made on first use; making it never makes anyone the owner). Folders: 400 is_folder.' }),
   fileShares: endpoint({ method: 'GET', path: '/api/files/shares', auth: 'user', owner: 'C', query: FileSharesQuery, response: FileShares, summary: 'Who a file the caller can open is shared with, whether they may change it, and its owner.' }),
-  putFileShares: endpoint({ method: 'PUT', path: '/api/files/shares', auth: 'user', owner: 'C', body: PutFileSharesBody, response: FileShares, summary: 'Add or remove people and groups on a file (view only). Its owner (edit access now), or the team owner and admins for a team file; never a folder (400 is_folder), never a guest (400 unknown_subject). 403 file_share_not_owner, file_shares_off. Takes from the room sending budget (429) before the people are checked, once the file is one the caller may share. Audited; each person added gets an Activity notice.' }),
+  putFileShares: endpoint({ method: 'PUT', path: '/api/files/shares', auth: 'user', owner: 'C', body: PutFileSharesBody, response: FileShares, summary: 'Add or remove people and groups on a file (view only). Its owner (edit access now), or the team owner and admins for a team file; a call that only removes also passes for the owner while member sharing is off or without edit access; never a folder (400 is_folder), never a guest (400 unknown_subject). 403 file_share_not_owner, file_shares_off. Takes from the room sending budget (429) before the people are checked, once the file is one the caller may share. Audited; each person added gets an Activity notice.' }),
+  shareCards: endpoint({ method: 'POST', path: '/api/files/shares/cards', auth: 'user', owner: 'C', body: ShareCardsBody, response: ShareCardStates, summary: 'The files of an AI share card as the caller may see them now, by link id: path, people and whether the caller may add or take people off; `gone` for anything the folder rules do not let them read or whose people they may not change. Reads only.' }),
   shareFilesBatch: endpoint({ method: 'POST', path: '/api/files/shares/batch', auth: 'user', owner: 'C', body: ShareFilesBatchBody, response: ShareFilesBatchResult, summary: 'Share up to 100 files with the same people and groups in one press (Find work files\' step): each file as PUT /api/files/shares add (owner, team switch, 50, never a guest), the files refused listed with the server\'s words. One send token per 10 files, taken first (429); the people are checked only when one of the files is one the caller may share. Audited per file; each person newly given access gets one notice for the press (one push when added by name).' }),
   sharedBatch: endpoint({ method: 'GET', path: '/api/files/shared-batch/:id', auth: 'user', owner: 'C', response: SharedBatchView, summary: 'The files of one Share press that the caller can open now (a notice\'s "shared 5 files with you" list), for someone that press told; 404 otherwise.' }),
   sharedWithMe: endpoint({ method: 'GET', path: '/api/files/shared-with-me', auth: 'user', owner: 'C', query: SharedWithMeQuery, response: SharedWithMe, summary: 'Files › Shared with me: the files people shared with the caller that open for them now, newest first (by name always; through a group or the whole team only when the folder does not already let them read it). Name, who shared it and when; no path, folder or owner. Never for guests (403). A bad cursor is 400.' }),

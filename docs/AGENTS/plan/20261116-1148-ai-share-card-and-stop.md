@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16 11:48
 - Branch: `feat/ai-share-card-and-stop`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`server/src/chat`, `server/src/files`, `shared/src/api`, `web/src/components/chat`). Why: chat,
   permissions and files belong to the core (docs/REPOSITORY-RULES.md).
 - Version impact: minor. A new AI tool, a new step field and one additive migration.
@@ -74,4 +74,20 @@ a Playwright spec, hands-on reruns of MAN-011, MAN-012 and MAN-017.
 
 ## Result
 
-(filled in at the end)
+Built as planned, on `feat/ai-share-card-and-stop` (no pull request yet: the branch holds two open batches).
+
+- `stop_sharing` (server/src/chat/stop-sharing.ts), the owner's stop in `FileShares.change`, `canStop`, `stillOpens`,
+  `cards`, migration 358 and the link page's "<name> stopped sharing this file".
+- `Step.shared` and `AskUserRequest.share` (shared/src/api/share-card.ts); `share_with_person` writes the record and
+  returns no links.
+- Web: `ActionCard`, `ShareCard` (confirm rows, result, refusal, `registerShareNext`), `PostedCard`, the dialog's ✕
+  for the owner.
+
+Differences from the plan:
+
+- A stop sends no Activity notice. The person taken off reads who stopped it on the file's link page.
+- A refusal's button is a slot (`registerShareNext`); the buttons' actions come with another branch.
+- The step row of a post keeps its own View as well as the card's.
+- Several files: the card lists the files only after **Manage access** is pressed (each row opens its own dialog).
+
+Checked with the real AI on a private copy of the QA team (MAN-011, MAN-012, MAN-017) and with the scripted AI.

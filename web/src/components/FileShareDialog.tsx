@@ -7,7 +7,8 @@
 // offered only their own groups, never a guest), and one press saves the picks (PUT /api/files/shares add); "People with
 // access": the owner, then each person or group with "Can view" and ✕ (asked first: "Remove access for Bob?"); a team
 // file's one grey line that the folder's people open it too. Footer: Copy link and Share (with picks) or Done. Someone who
-// may not share sees who has it, the reason in one grey line, and Copy link. Not here: general access, roles, notify,
+// may not share sees who has it, the reason in one grey line, and Copy link; the file's owner keeps ✕ even then (the
+// team's switch off, edit access lost: docs/decisions/20261116-ai-share-card-and-stop.md). Not here: general access, roles, notify,
 // message. "Everyone on the team" (QA TC-3509) is the search's first option, with one line before the press that the
 // whole team, also people who join later, will be able to open it. A refusal (403 not the owner or sharing off, 400, 429) says why in the server's words.
 import { Users, X } from 'lucide-react'
@@ -127,6 +128,8 @@ export function FileShareDialog({ path, onClose, returnTo }: { path: string; onC
   }
 
   const canShare = !!shares?.canShare
+  // taking people off: whoever may share, and the file's owner always (the team's switch off, edit access lost)
+  const canStop = canShare || !!shares?.canStop
   const ownerRow = shares?.owner
   return (
     <Modal
@@ -161,7 +164,7 @@ export function FileShareDialog({ path, onClose, returnTo }: { path: string; onC
                 <ListRow face icon={<Face row={{ subjectType: 'user', subjectId: ownerRow.id, name: ownerRow.name }} />} name={ownerRow.name} tag={t('fileShare.owner')} li={{ 'data-testid': 'file-share-owner' }}
                   // the rows below have ✕: an unseen one here keeps "Owner" at the edge "Can view" ends at
                   // no-tooltip: an invisible spacer, never focused or pressed
-                  actions={canShare && shares.people.length ? <span className="invisible" aria-hidden><IconButton label="" tip={false} tabIndex={-1} className="touch-hit shrink-0"><X size={14} /></IconButton></span> : undefined} />
+                  actions={canStop && shares.people.length ? <span className="invisible" aria-hidden><IconButton label="" tip={false} tabIndex={-1} className="touch-hit shrink-0"><X size={14} /></IconButton></span> : undefined} />
               )}
               {shares.people.map((row) => (
                 <ListRow
@@ -172,7 +175,7 @@ export function FileShareDialog({ path, onClose, returnTo }: { path: string; onC
                   meta={row.inactive ? t('fileShare.inactive') : row.title || undefined}
                   tag={t('fileShare.canView')}
                   li={{ 'data-testid': `file-share-row-${row.subjectType}-${row.subjectId}` }}
-                  actions={canShare ? (
+                  actions={canStop ? (
                     <IconButton label={t('fileShare.removeLabel', { name: row.name })} onClick={() => void remove(row)} className="touch-hit shrink-0" data-testid={`file-share-remove-${row.subjectType}-${row.subjectId}`}>
                       <X size={14} aria-hidden />
                     </IconButton>
