@@ -159,8 +159,9 @@ const MINE_FROM = `room_files f CROSS JOIN room_messages m ON m.id = f.message_i
     CROSS JOIN room_members mm ON mm.room_id = m.room_id AND mm.user_id = f.user_id`
 
 /** "Files you sent" (docs/decisions/20261116-room-files-cleanup.md): my files in the rooms I am in now, of my messages
- * I still see, largest first (then newest), by the index room_files_by_sender (migration 414); the cursor is the last
- * row's (size, rowid). totalBytes: all of them together. The same checks as the search on each row. */
+ * I still see, largest first (equal sizes oldest first: the index's own order), by the index room_files_by_sender
+ * (migration 414); the cursor is the last row's (size, rowid). totalBytes: all of them together, with the first page.
+ * The same checks as the search on each row. */
 export function listMyRoomFiles(db: Database, userId: string, o: { cursor?: string; limit?: number }): MyRoomFilesPage {
   const cur = decodeCursor(o.cursor, ['s', 'f'])
   if (o.cursor && (!cur || !/^\d{1,18}$/.test(cur.s) || !/^\d{1,18}$/.test(cur.f))) fail('validation', undefined, { fields: { 'query.cursor': 'invalid cursor' } })
@@ -169,12 +170,13 @@ export function listMyRoomFiles(db: Database, userId: string, o: { cursor?: stri
   if (!mine.size) return { items: [], rooms: [], nextCursor: null, totalBytes: 0 }
   const ids = JSON.stringify([...mine.keys()])
   const rows = db.query(`SELECT f.rowid AS fr, f.size AS fsize, f.id AS file_id, ${COLS} FROM ${MINE_FROM}
-    WHERE ${MINE_WHERE}${cur ? ' AND (f.size < ? OR (f.size = ? AND f.rowid < ?))' : ''} ORDER BY f.size DESC, f.rowid DESC LIMIT ?`)
+    WHERE ${MINE_WHERE}${cur ? ' AND (f.size < ? OR (f.size = ? AND f.rowid > ?))' : ''} ORDER BY f.size DESC, f.rowid LIMIT ?`)
     .all(userId, ids, ...(cur ? [Number(cur.s), Number(cur.s), Number(cur.f)] : []), limit + 1) as (MessageRow & { fr: number; fsize: number; file_id: string })[]
   const page = rows.slice(0, limit)
   const last = page.at(-1)
   const nextCursor = rows.length > limit && last ? encodeCursor({ s: String(last.fsize), f: String(last.fr) }) : null
-  const total = (db.query(`SELECT COALESCE(SUM(f.size), 0) AS n FROM ${MINE_FROM} WHERE ${MINE_WHERE}`).get(userId, ids) as { n: number }).n
+  // the total with the first page only (a later page answers 0: the app keeps the first one's)
+  const total = cur ? 0 : (db.query(`SELECT COALESCE(SUM(f.size), 0) AS n FROM ${MINE_FROM} WHERE ${MINE_WHERE}`).get(userId, ids) as { n: number }).n
   return { ...fileHits(db, userId, mine, page), nextCursor, totalBytes: total }
 }
 

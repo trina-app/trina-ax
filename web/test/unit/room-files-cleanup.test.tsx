@@ -20,7 +20,7 @@ test('the clean-up notice names who asked (or "An admin") and opens Files you se
 
 test('deleting a file says its message goes, and how many other files with it', () => {
   expect(en('sentFiles.confirmBody')).toBe('The message it was sent with is deleted too, for everyone in the conversation.')
-  expect(en('sentFiles.confirmBodyOthers', { n: 1 })).toBe('The message it was sent with is deleted too, with its text and 1 other file, for everyone in the conversation.')
+  expect(en('sentFiles.confirmBodyOthers', { n: 1 })).toBe('The message it was sent with is deleted too, with 1 other file, for everyone in the conversation.')
   expect(en('sentFiles.confirmBodyOthers', { n: 3 })).toContain('3 other files')
   expect(en('storage.askConfirmBody')).toContain("You won't see who.")
 })

@@ -30,7 +30,8 @@ export default function SentFiles() {
   const take = (p: MyRoomFilesPage, add: boolean) => {
     setItems((cur) => (add && cur ? [...cur, ...p.items.filter((x) => !cur.some((y) => y.file.id === x.file.id))] : p.items))
     setRooms((cur) => new Map([...(add ? cur : []), ...p.rooms.map((r) => [r.id, r] as const)]))
-    setTotal(p.totalBytes)
+    // the total comes with the first page
+    if (!add) setTotal(p.totalBytes)
     setNext(p.nextCursor)
   }
   const load = async () => {
@@ -55,7 +56,8 @@ export default function SentFiles() {
     catch (e) { toast({ level: 'error', text: errorText(e, locale, t('error.network')) }) }
     finally { setMore(false) }
   }
-  /** Delete: the whole message goes, so each file of it leaves the list and the total */
+  /** Delete: the whole message goes, so each file of it leaves the list; then the list is read again, for the true total
+   * (files of the message on pages not loaded yet count too) */
   const remove = async (h: RoomFileSearchHit) => {
     const others = (items ?? []).filter((x) => x.messageId === h.messageId && x.file.id !== h.file.id).length
     const ok = await confirmDialog({
@@ -67,11 +69,8 @@ export default function SentFiles() {
     setBusy((s) => new Set(s).add(h.messageId))
     try {
       await api.call(API.deleteRoomMessage, { params: { id: h.roomId, messageId: h.messageId } })
-      setItems((cur) => {
-        const gone = (cur ?? []).filter((x) => x.messageId === h.messageId)
-        setTotal((n) => Math.max(0, n - gone.reduce((a, x) => a + x.file.size, 0)))
-        return (cur ?? []).filter((x) => x.messageId !== h.messageId)
-      })
+      setItems((cur) => (cur ?? []).filter((x) => x.messageId !== h.messageId))
+      void load()
     } catch {
       toast({ level: 'error', text: t('sentFiles.deleteFailed') })
     } finally {
@@ -80,11 +79,12 @@ export default function SentFiles() {
   }
   return (
     <div className="flex h-full flex-col overflow-y-auto" data-testid="sent-files">
-      <PageHeader title={t('sentFiles.title')} desc={items && items.length ? t('sentFiles.total', { size: formatSize(total, locale) }) : undefined} />
+      <PageHeader title={t('sentFiles.title')} desc={t('sentFiles.desc')} />
       <div className={`${pageColumn} p-4 sm:p-6`}>
         {error && <ErrorNote onRetry={() => void load()}>{t('sentFiles.loadError')}</ErrorNote>}
         {!items && !error && <Skeleton lines={4} />}
-        {items && !items.length && <EmptyState screen icon={<Paperclip size={28} />} title={t('sentFiles.empty')} />}
+        {items && !items.length && !next && <EmptyState screen icon={<Paperclip size={28} />} title={t('sentFiles.empty')} />}
+        {items && items.length > 0 && <p className="mb-2 text-sm text-muted tabular-nums" data-testid="sent-files-total">{t('sentFiles.total', { size: formatSize(total, locale) })}</p>}
         {items && items.length > 0 && (
           <ul className="divide-y divide-line" data-testid="sent-files-list">
             {items.map((h) => {
@@ -94,7 +94,8 @@ export default function SentFiles() {
                 <ListRow
                   key={h.file.id}
                   scale="page"
-                  to={roomFileHref(h)}
+                  // while its message is being deleted: no way into it
+                  to={gone ? undefined : roomFileHref(h)}
                   icon={<Icon />}
                   name={h.file.name}
                   meta={[where(rooms.get(h.roomId), h.author?.id), listTime(h.createdAt, locale, t('sidebar.yesterday')), formatSize(h.file.size, locale)].filter(Boolean).join(' · ')}
@@ -110,7 +111,7 @@ export default function SentFiles() {
             })}
           </ul>
         )}
-        {next && items && items.length > 0 && (
+        {next && items && (
           <div className="mt-3 flex justify-center">
             <Button size="sm" busy={more} onClick={() => void loadMore()} data-testid="sent-files-more">{t('common.loadMore')}</Button>
           </div>

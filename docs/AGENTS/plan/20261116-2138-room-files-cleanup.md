@@ -26,7 +26,7 @@ conversations, so nobody can tidy. After this:
 In:
 1. **Server, the list.** `GET /api/room-files/mine` (new endpoint, `listMyRoomFiles`; guests may call it): my files of
    sent messages that are not deleted and not event lines, in conversations I am a member of now and that are not
-   archived; largest first (size DESC, then newest), a cursor of (size, rowid), at most 50 a page; each row the same
+   archived; largest first (size DESC, equal sizes oldest first), a cursor of (size, rowid), 20 a page by default (30 at most); each row the same
    `RoomFileSearchHit` the search gives (file, message, conversation, sender, time) and the conversations' names as
    the search gives them (`RoomSearchRoom`); `totalBytes`: the sum over all of them (not only the page). Built on the
    search's own checks (`myRooms`, `canSee`, `fileOut`), so it never lists what the person could not see by opening
@@ -35,10 +35,10 @@ In:
 2. **Index:** migration `414_b_room_files_by_sender.sql`: `room_files(user_id, size DESC) WHERE message_id IS NOT NULL` (413 is taken by an open branch).
 3. **Server, ask.** `POST /api/admin/storage/ask-cleanup` (owner and admins): picks the active people whose files in
    conversations (the rule of 1) take more than 1 GB in total, and records `storage.cleanup` (table `storage_notices`,
-   `by_user` = the asker) for each; at most once per 24 h for the team (settings key `system.storageCleanupAskedAt`; a
-   second press in that time sends nothing and answers the same). Answers `{ askedAt }` and nothing about recipients;
+   `by_user` = the asker) for each; at most once a day for the team, by the team's time zone (settings key
+   `system.storageCleanupAsked`; a second press that day sends nothing and answers the same). Answers `{ askedAt }` and nothing about recipients;
    audit row `storage.ask_cleanup` with the actor only (`detail: {}`). `GET /api/admin/storage` gains
-   `cleanupAskedAt` (optional), so the button reads "Asked today" for every admin for 24 h.
+   `cleanupAskedAt` (optional), so the button reads "Asked today" for every admin until the team's next day.
 4. **Notice** `storage.cleanup`: "{name} asked everyone with large files in conversations to delete what they no longer
    need. See the files you sent." ("An admin asked …" when the asker's account is gone); it opens Files you sent. Shown
    always, Activity only, no push. Plumbing as `storage.filling` (enum, `tableOf`, `out`, `eventEnabled`, a new link
@@ -50,13 +50,13 @@ In:
    in the conversation." Then `DELETE /api/rooms/:id/messages/:messageId` (author only, today's rule); the row goes and
    the total drops. States: loading (Skeleton), error ("Couldn't load your files." + Try again), empty ("You haven't sent
    any files in conversations."), a failed delete (toast "Couldn't delete. Try again.", the row stays), more pages
-   ("Show more"). Phone: the same page full width with the app's back.
+   ("Load more"). Phone: the same page full width with the app's back.
 6. **Ways in** (no new menu item): Search, an action "Files you sent" (listed on the Files type with no text, found by
    its words elsewhere); the `storage.cleanup` notice; a refused file in a conversation for a member or guest gets "See
    the files you sent" (the phase-2 chip, beside "Ask an admin…"); owners and admins keep "See what uses the space".
 7. **Web, the button** on the storage card under the breakdown (owner and admins): "Ask people to clean up" → confirm
    "Everyone whose files in conversations take more than 1 GB gets a notice asking them to delete what they no longer
-   need. You won't see who." [Ask] → "Asked today" (disabled) until 24 h after; failure: toast "Couldn't send. Try
+   need. You won't see who." [Ask] → "Asked today" (disabled) until the team's next day; failure: toast "Couldn't send. Try
    again." Only when the breakdown is there and `rooms` > 0. Phone: full width under the lines.
 
 Out: any list of other people's files or who was asked; bulk delete; removing a file but keeping its message; a files
@@ -78,7 +78,7 @@ once a day for the team; counted only where the person can still delete (a membe
 - A guest's own files: they see only conversations they are in now.
 - Deleting the message deletes its text and every file in it; the confirm says the message goes.
 - The total is the person's own; nothing shows other people's.
-- Migration number 413 (B's next); `check:migrations`, other open PRs.
+- Migration number 414 (413 is used by an open branch); `check:migrations`, other open PRs.
 
 ## Tests
 
@@ -104,4 +104,9 @@ Built, with the spec review's changes (a fresh subagent, against current code):
 - When nobody is over 1 GB, those over 100 MB are asked; the words say "the people whose files take the most space".
 - The Search action is outside the guests' guard (typed, and listed on the Files type).
 - Wording: "Your files in your conversations take …"; the confirm "People whose files … take the most space …".
-- A page modelled on `/trash` (shared PageHeader, ListRow, confirmDialog, EmptyState, ErrorNote, Skeleton).
+- A page modelled on `/trash` (shared PageHeader, ListRow, confirmDialog, EmptyState, ErrorNote, Skeleton), registered
+  with the phone's bar and the rail as a page of the conversations' tab.
+After the diff review (a second fresh subagent): the count for others follows the list's rules too (SEE_MEMBER_SQL,
+dmPairOk); a failed recording frees the day again; equal sizes go oldest first (the index's order) and the total comes
+with the first page only; after a delete the list is read again (the true total); a row being deleted is no link; Load
+more shows whenever there is more; "with its text" dropped; ko title particle; docs name "See the files you sent".

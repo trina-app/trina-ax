@@ -107,3 +107,29 @@ test('Ask people to clean up: over 1 GB (else over 100 MB), only where they can 
   expect(plain).toMatchObject({ cleanup: { by: null } })
   db.query("UPDATE users SET status = 'active' WHERE id = 'carol'").run()
 })
+
+test('Files you sent: equal sizes split across pages without a gap or a repeat; an archived conversation is out; a message with several files', async () => {
+  const r = await groupChat('bob', ['erin', 'carol'])
+  await sendFiles('bob', r, [['same-1.bin', 5 * MB]])
+  await sendFiles('bob', r, [['same-2.bin', 5 * MB]])
+  await sendFiles('bob', r, [['same-3.bin', 5 * MB]])
+  const two = await sendFiles('bob', r, [['pair-a.pdf', 2 * MB], ['pair-b.pdf', 2 * MB]])
+  const seen: string[] = []
+  let cursor: string | undefined
+  for (let i = 0; i < 5; i++) {
+    const p = await mine('bob', cursor)
+    seen.push(...names(p))
+    if (!p.nextCursor) break
+    cursor = p.nextCursor
+  }
+  expect(seen).toEqual(['same-1.bin', 'same-2.bin', 'same-3.bin', 'pair-a.pdf', 'pair-b.pdf'])
+  // both files of one message point at it (the page deletes it once, and both leave)
+  const first = await mine('bob')
+  expect(first.totalBytes).toBe(19 * MB)
+  await h.api('bob').call(API.deleteRoomMessage, { params: { id: r, messageId: two.message.id } })
+  expect((await mine('bob')).totalBytes).toBe(15 * MB)
+  // the conversation archived (nobody in it any more): none of it is listed or counted
+  h.ctx.db.query('UPDATE rooms SET archived_at = ? WHERE id = ?').run(new Date().toISOString(), r)
+  expect(await mine('bob')).toMatchObject({ items: [], totalBytes: 0 })
+  expect(peopleOver(h.ctx.db, 1)).not.toContain('bob')
+})

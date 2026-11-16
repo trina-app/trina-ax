@@ -685,7 +685,7 @@ export type RoomFileSearchPage = z.infer<typeof RoomFileSearchPage>
 /** "Files you sent" (docs/decisions/20261116-room-files-cleanup.md): my own files in the conversations I am in now, of
  * messages that are not deleted, largest first (`cursor` from the last page). */
 export const MyRoomFilesQuery = z.object({ cursor: z.string().max(500).optional(), limit: z.coerce.number().int().min(1).max(ROOM_SEARCH_PAGE_MAX).optional() })
-/** a page of them; `totalBytes`: all of them together, not only this page */
+/** a page of them; `totalBytes`: all of them together, not only this page (sent with the first page; 0 on the next ones) */
 export const MyRoomFilesPage = RoomFileSearchPage.extend({ totalBytes: z.number().nonnegative() })
 export type MyRoomFilesPage = z.infer<typeof MyRoomFilesPage>
 
