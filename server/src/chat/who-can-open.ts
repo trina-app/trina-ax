@@ -18,6 +18,12 @@
 // attached in their own message (its answer is read by everyone in that chat). Never for a guest, in a scheduled run,
 // from Slack, in a confidential chat, in a template's or a restricted run, or for a sub-agent (the gates of the actions
 // that reach others: chat/shared-actions.ts actionOff, mainOnly; chat/tools.ts add()).
+//
+// Its answer holds names other people chose (a person's, a group's, a folder's, a file's), so every call marks the chat
+// as holding other people's words (chats.others_words; it is deliberately NOT in rooms/ai-tools.ts OWN_WORDS_TOOLS,
+// which fails closed): the person's "Always allow" for shares and posts then counts only for what their own message
+// names. The offers it hangs under its step are run by the person's own press (POST /api/share-fixes/:id/run), never by
+// a tool: no AI turn can run one.
 import { WhoCanOpenInput } from '@mycel/shared'
 import type { Step, StepFix } from '@mycel/shared/api'
 import { z } from 'zod'

@@ -16,7 +16,7 @@ import { fileSharesOf } from '../../server/src/files/shares'
 import { whoCanOpenOff } from '../../server/src/chat/who-can-open'
 import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
 import { GUEST_TURN_TOOLS } from '../../server/src/chat/guest-tools'
-import { ROOMS_SEEN_READ_ONLY_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
+import { OWN_WORDS_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
 import { roomsOf } from '../../server/src/rooms/service'
 import { notificationsOf } from '../../server/src/notifications/service'
 import { getChatRuntime } from '../../server/src/chat/runtime'
@@ -168,6 +168,17 @@ describe('who_can_open, the tool', () => {
     expect(PARENT_ONLY_TOOLS.has('who_can_open')).toBe(true)
     expect(SHARED_TOOLS.has('who_can_open')).toBe(true)
     expect(ROOMS_SEEN_READ_ONLY_TOOLS.has('who_can_open')).toBe(true)
+    // its answer holds names other people chose (people, groups, folders, files): it is not one of the tools that bring
+    // nothing of others into the chat, so a call marks the chat (chats.others_words) like any tool not listed there
+    expect(OWN_WORDS_TOOLS.has('who_can_open')).toBe(false)
+  })
+
+  test('a call marks the chat as holding other people\'s words; no tool of a turn runs an offer', async () => {
+    const r = await turn('alice', who({ path: 'users/alice/quote.txt' }))
+    expect((h.ctx.db.query('SELECT others_words AS o FROM chats WHERE id = ?').get(r.chatId) as { o: number }).o).toBe(1)
+    // the offers are run by the person's own press (POST /api/share-fixes/:id/run): the AI has no tool for it
+    const tools = (await turn('alice', fake({ echo: 'tools' }))).content
+    expect(tools).not.toMatch(/fix/i)
   })
 
   test('my own file: who it is shared with; "Bob can already open it"; "Tess cannot, share it with them"; no path in the answer', async () => {

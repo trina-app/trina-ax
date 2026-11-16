@@ -152,10 +152,11 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         }
         // someone who can already open every one of the files is told so, not shared with again (chat/share-next-steps.ts
         // accessRouteFor: "Jun can already open it through Sales"); a group is shared with as asked (its later members)
-        const have = alreadyOpen(exec, plan.map((f) => f.path), who.filter((w) => w.subjectType === 'user').map((w) => w.subjectId))
+        // Only in a turn with nobody else's words in it (not a shared chat, a chat others wrote in, after a room read or
+        // after content someone else wrote): there the answer would tell a steered AI who can open which file
+        const have = others || content ? [] : alreadyOpen(exec, plan.map((f) => f.path), who.filter((w) => w.subjectType === 'user').map((w) => w.subjectId))
         const haveIds = new Set(have.map((h) => h.id))
-        // (a shared chat: no names or group names into the transcript everyone reads)
-        const haveNote = have.length ? (exec.shared ? `${have.length === who.length ? 'The people the user named' : 'Some of the people the user named'} can already open ${plan.length === 1 ? 'it' : 'them'}` : have.map((h) => neutralizeTags(h.words)).join('; ')) : ''
+        const haveNote = have.map((h) => neutralizeTags(h.words)).join('; ')
         if (have.length && who.every((w) => w.subjectType === 'user' && haveIds.has(w.subjectId))) {
           named = oneLine(who.map((w) => w.name).join(', '), 60)
           return { ...text(JSON.stringify({ status: 'already_open', note: `${haveNote}. Nothing was shared again and nothing changed. Tell the user that in one short sentence.` })), summary: `share_with_person -> already open for ${have.length}` }
