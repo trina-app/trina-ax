@@ -3736,9 +3736,9 @@ export class TurnExec {
         const d = parseJson(r.detail)
         const folderOf = (p: string) => p.split('/').slice(0, -1).join('/')
         const renamed = typeof d.movedFrom === 'string' && folderOf(d.movedFrom) === folderOf(r.path)
-        // made from a file in the same folder (make_file's PDF of a deck, a docx of a draft): it belongs next to its
-        // source, and the note made the AI move the source too into a folder nobody asked for (AI flow FL-15, 11-17)
-        const besideSource = [d.from, ...(Array.isArray(d.files) ? d.files : [])].some((f) => typeof f === 'string' && folderOf(f) === folderOf(r.path))
+        // made from a file in the same folder (make_file's PDF of a deck, a docx of a draft; its source only, not an
+        // embedded picture or template): it belongs next to its source, and the note made the AI move the source too into a folder nobody asked for (AI flow FL-15, 11-17)
+        const besideSource = typeof d.from === 'string' && folderOf(d.from) === folderOf(r.path)
         if (!d.folder && !d.conflictCopyOf && !d.conflictOf && !renamed && !besideSource) this.loosePlaced.push(r.path)
       }
     }

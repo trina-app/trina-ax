@@ -10,8 +10,8 @@
   PDF lay loose at the top of a group's folder, made a new folder "소개자료" nobody asked for, and moved both the PDF and
   the deck into it. People who had the deck's link or knew where it was lost it.
 - **Rule:**
-  - no loose-file note for a new file saved in the same folder as a file it was made from (make_file's `source`, or any
-    team file whose bytes are in it: the file event's `from`/`files`);
+  - no loose-file note for a new file saved in the same folder as a file it was made from (make_file's `source`: the file
+    event's `from`; not an embedded picture or a template);
   - the note says to move only the new file it names, never the file it was made from or other files there, unless the
     user asked;
   - the rule on where files go says a file made from another one goes next to it unless the user names another place,

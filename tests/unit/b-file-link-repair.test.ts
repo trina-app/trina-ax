@@ -103,6 +103,9 @@ describe('the resolver (the person\'s own access)', () => {
     const resolve = fileLinkResolver(h.ctx.files, () => h.ctx.files.principal('alice'), () => ['users/dana/비밀.md'])
     expect(resolve('users/dana/비밀-틀림.md', '비밀.md')).toBeNull()
     expect(resolve('users/alice/비밀.md', '비밀.md')).toBeNull()
+    // a folder the model wrote with '..' is never listed
+    expect(resolve('shared/../users/dana/x.md', '비밀.md')).toBeNull()
+    expect(resolve('../outside/x.md', 'x.md')).toBeNull()
   })
 })
 

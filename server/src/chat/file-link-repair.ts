@@ -106,8 +106,9 @@ export function fileLinkResolver(files: FileService, user: () => Principal, know
     if (!names.length) return null
     // the folder the link names (its folder part is usually right): an entry of that name
     const dir = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : ''
-    if (dir && !dir.includes('\uFFFD')) {
-      const segs = dir.split('/')
+    const segs = dir.split('/')
+    // a folder of the team only: no '..', hidden or odd name is listed (the model wrote it)
+    if (dir && !dir.includes('\uFFFD') && segs.every((g, i) => g && !badSegment(g) && !hiddenEntry(g, i))) {
       let ents: string[] = []
       try { ents = fs.readdirSync(path.join(files.fx.root, ...segs)) } catch { ents = [] }
       for (const n of names) {
