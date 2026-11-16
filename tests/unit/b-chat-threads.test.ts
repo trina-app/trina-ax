@@ -416,6 +416,19 @@ describe('every route answers the one 404 for a hidden answer and a chat in the 
     expect((await thread('alice', { chat: c.id, root })).replies.map((x) => x.canDelete)).toEqual([true])
   })
 
+  test('the notices are found by their answer and their chat through an index, never a scan of the table (TC-3785)', () => {
+    // (a statement of its own, finalized: a cached EXPLAIN of a DELETE left open would hold the server's next commit)
+    const plan = (sql: string) => {
+      const st = db().prepare(`EXPLAIN QUERY PLAN ${sql}`)
+      try { return (st.all('x') as { detail: string }[]).map((r) => r.detail).join(' | ') } finally { st.finalize() }
+    }
+    // what the triggers and settleNotices run
+    expect(plan('DELETE FROM chat_thread_notices WHERE source_id = ?')).toMatch(/USING (COVERING )?INDEX chat_thread_notices_source/)
+    expect(plan('DELETE FROM chat_thread_notices WHERE chat_id = ?')).toMatch(/USING (COVERING )?INDEX chat_thread_notices_chat/)
+    expect(plan('SELECT id FROM chat_thread_notices n WHERE n.source_id = ? AND n.read_at IS NULL')).toMatch(/USING (COVERING )?INDEX chat_thread_notices_(source|open)/)
+    for (const sql of ['DELETE FROM chat_thread_notices WHERE source_id = ?', 'DELETE FROM chat_thread_notices WHERE chat_id = ?']) expect(plan(sql)).not.toMatch(/^SCAN chat_thread_notices$/)
+  })
+
   test('a purged chat takes its thread notices with it (TC-3785)', async () => {
     const c = await h.api('alice').call(API.createChat, { body: { projectId } })
     const a = await ask('alice', c.id, fake({ say: 'to purge' }))
@@ -446,7 +459,11 @@ describe('every route answers the one 404 for a hidden answer and a chat in the 
       expect((await thread('alice', { chat: c.id, root })).replies.length).toBe(1)
       // and no line under it in bob's messages
       expect(await summaryOf('bob', c.id, root)).toBeUndefined()
-    } finally { if (before) setHiddenAnswersCutover(db(), before) }
+    } finally {
+      // put the setting back as it was, also when there was none
+      setHiddenAnswersCutover(db(), before)
+    }
+    expect(hiddenAnswersCutover(db())).toBe(before)
   })
 })
 

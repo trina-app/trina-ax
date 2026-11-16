@@ -107,3 +107,16 @@ test('a newest reply longer than the cap still goes in, cut with "…", every li
   expect(two).not.toContain('Minji')
   expect(two.trimEnd().split('\n').every((l) => l.startsWith('>'))).toBe(true)
 })
+
+test('a cut never splits a character: an emoji at the cut is left out whole before "…"', () => {
+  const o = { head: 'Thread', cut: '…(earlier replies left out)', time: () => '1:00 PM' }
+  // the cut lands inside a run of emoji (two UTF-16 units each), at every possible offset
+  for (let pad = 0; pad < 4; pad++) {
+    const d = chatThreadDraft([{ name: 'Jae', at: '2026-11-16T05:00:00Z', text: `${'a'.repeat(pad)}${'😀'.repeat(5000)}` }], o)
+    const body = d.trimEnd()
+    expect(body.endsWith('…')).toBe(true)
+    // no lone surrogate anywhere
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(body)).toBe(false)
+    expect(body.length).toBeLessThanOrEqual(CHAT_THREAD_DRAFT_MAX)
+  }
+})

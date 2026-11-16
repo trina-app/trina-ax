@@ -102,7 +102,8 @@ export function chatThreadDraft(replies: readonly ChatThreadDraftReply[], o: { h
       if (!blocks.length) {
         const room = max - size - 1 - (q(oneLineName(o.cut)).length + 1) - 1
         if (room > lines[0]!.length + 3) {
-          block = `${block.slice(0, room).replace(/\n>?$/, '').trimEnd()}…`
+          // (never half of a character: a cut that ends on a high surrogate drops it)
+          block = `${block.slice(0, room).replace(/[\uD800-\uDBFF]$/, '').replace(/\n>?$/, '').trimEnd()}…`
           blocks.unshift(block)
           size += block.length + 1
         }

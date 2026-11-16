@@ -95,13 +95,16 @@ export function threadVisibleTo(ctx: AppContext, userId: string, chatId: string,
 
 /** Does `userId` still see this chat (chatFor 'view', the trash too, for the chat's own windows): for the realtime
  * replay of a chat's events (realtime/hub.ts stillVisible, QA TC-3788). A chat that is gone or an old room AI session:
- * true (nothing of it to keep back; its events carry nothing new), and so with no chat runtime. Never throws. */
+ * true (nothing of it to keep back; its events carry nothing new). No chat runtime: false. Never throws. */
 export function chatVisibleTo(ctx: AppContext, userId: string, chatId: string): boolean {
-  // no chat runtime (a hub on its own): no chats, nothing to keep back
-  let rt: ChatRuntime
-  try { rt = getChatRuntime(ctx) } catch { return true }
   try {
+    // no chat runtime: nothing can say who sees the chat, so it is refused (the replay becomes a resync), as the file
+    // check refuses when it cannot judge
+    const rt = getChatRuntime(ctx)
     const r = rt.store.chatRow(chatId)
+    // a chat that is gone carries nothing to keep back. An old room AI session (chats.room_id, docs/DECISIONS.md "Room
+    // @트리나 code removed") is never one of a person's chats and nothing publishes its events (runtime.ts publishChat
+    // returns first), so there is nothing of it to judge either
     if (!r || r.room_id) return true
     chatFor(rt, userId, chatId, 'view', { deleted: true })
     return true

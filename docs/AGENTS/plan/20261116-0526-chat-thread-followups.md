@@ -43,4 +43,7 @@ reconnect of a busy window costs a few reads.
 
 ## Result
 
-As planned. `tests/security/r2-realtime-resume-revoked.test.ts` keeps its one failure, which fails the same on dev.
+As planned, then the review's fixes: indexes on `chat_thread_notices(source_id)` and `(chat_id)` before the
+triggers (a purge no longer scans the table once per message; checked with EXPLAIN QUERY PLAN), a cut that never splits
+an emoji, the replay check refusing when no chat runtime can judge (the hub's own tests hand in theirs), and the
+hidden-answer test putting the cutover setting back as it was. `tests/security/r2-realtime-resume-revoked.test.ts` keeps its one failure, which fails the same on dev.

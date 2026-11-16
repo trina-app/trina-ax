@@ -5,6 +5,10 @@
 -- a project deleted for good) left its rows behind: shown as "You can't see this anymore" until they aged out. These
 -- triggers delete them with the answer (also when a chat's messages go by its cascade) and with the chat; their pushes go
 -- by their own cascade. Additive only (reader 1): an older build just has the rows cleaned for it.
+-- the triggers (and chat/threads.ts settleNotices) look notices up by their answer and their chat: indexed, so a purge
+-- of a chat with thousands of messages does not scan the table once per message
+CREATE INDEX chat_thread_notices_source ON chat_thread_notices(source_id);
+CREATE INDEX chat_thread_notices_chat ON chat_thread_notices(chat_id);
 CREATE TRIGGER chat_thread_notices_answer_gone AFTER DELETE ON messages
 BEGIN
   DELETE FROM chat_thread_notices WHERE source_id = OLD.id;

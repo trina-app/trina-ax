@@ -48,8 +48,13 @@ export function hiddenAnswersCutover(db: Database): string | null {
   return v
 }
 
-/** Set the cutover (tests): the stored value and the one kept in memory. */
-export function setHiddenAnswersCutover(db: Database, at: string): void {
+/** Set the cutover (tests): the stored value and the one kept in memory; null removes both (as before migration 296). */
+export function setHiddenAnswersCutover(db: Database, at: string | null): void {
+  if (at === null) {
+    db.query('DELETE FROM settings WHERE key = ?').run(CUTOVER_KEY)
+    cutovers.delete(db)
+    return
+  }
   db.query('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(CUTOVER_KEY, at)
   cutovers.set(db, at)
 }

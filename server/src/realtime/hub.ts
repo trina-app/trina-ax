@@ -68,6 +68,9 @@ export interface HubOptions {
   replayMinMs?: number
   maxBufferedBytes?: number
   now?: () => number
+  /** does this person still see this chat, for the replay (chat/threads.ts chatVisibleTo; tests of the hub alone hand
+   * in their own) */
+  chatVisible?: (userId: string, chatId: string) => boolean
 }
 
 export class Hub implements RealtimeHub {
@@ -88,6 +91,7 @@ export class Hub implements RealtimeHub {
       replayMinMs: o.replayMinMs ?? WS_REPLAY_MIN_MS,
       maxBufferedBytes: o.maxBufferedBytes ?? WS_MAX_BUFFERED_BYTES,
       now: o.now ?? Date.now,
+      chatVisible: o.chatVisible ?? ((userId, chatId) => chatVisibleTo(this.ctx, userId, chatId)),
     }
     this.pinger = setInterval(() => this.pingAll(), this.o.pingIntervalMs)
     this.sweeper = setInterval(() => this.sweep(), 60_000)
@@ -284,7 +288,7 @@ export class Hub implements RealtimeHub {
       else if (ev.type === 'chat.updated' && ev.data.change !== 'deleted' && ev.data.change !== 'purged') chats.add(ev.data.chatId)
     }
     try {
-      for (const id of chats) if (!chatVisibleTo(this.ctx, userId, id)) return false
+      for (const id of chats) if (!this.o.chatVisible(userId, id)) return false
     } catch (e) {
       this.ctx.log.error('replay chat check failed', { err: e, user: userId })
       return false
