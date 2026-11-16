@@ -9,7 +9,8 @@ export interface WelcomeState {
   mode: 'welcome' | 'team' | 'offline'
   teams: { id: string; label: string; origin: string; current: boolean }[]
   canGoBack: boolean
-  offline: { address: string } | null
+  /** `auto`: the app looks again by itself and opens the team when it answers */
+  offline: { address: string; auto?: boolean } | null
   /** a kit build's team address to fill in on the first run */
   suggested?: string | null
   /** the "no team yet" screen offers [팀 만들기] (not in the Mac App Store build) */
@@ -70,6 +71,8 @@ export interface MycelUi {
     remove(id: string): Promise<void>
     back(): void
     retry(): void
+    /** "Other teams" on the cannot-reach card: the app stops trying that team again by itself */
+    leftOffline(): void
   }
   /** the team address above the team's sign-in pages */
   hostbar: {

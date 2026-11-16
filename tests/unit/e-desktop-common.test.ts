@@ -6,7 +6,7 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { runInNewContext } from 'node:vm'
-import { asksOutside, certTrouble, desktopPagePath, firstRunLinks, healthVerdict, officeCertPage, linkFromArgv, LINK_SCHEME, readDesktopLink, hostOf, INSTALL_DOCS, isGatewayDown, isLoopbackHost, isSignInPath, onThisComputer, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
+import { answersAgain, asksOutside, certTrouble, desktopPagePath, firstRunLinks, healthVerdict, officeCertPage, offlineRetryDelay, OFFLINE_RETRY_MS, linkFromArgv, LINK_SCHEME, readDesktopLink, hostOf, INSTALL_DOCS, isGatewayDown, isLoopbackHost, isSignInPath, onThisComputer, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
 import { errorResult, MAX_ITEMS, toBrowserResult } from '../../desktop/src/common/browser-result'
 import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, UI_LOCALES, type UiKey, type UiLocale } from '../../desktop/src/common/i18n'
 import { parseKeyCombo, redactUrl } from '../../desktop/src/common/input'
@@ -140,6 +140,29 @@ describe('first run: what the team address answered, the help screens, the host 
     expect(main[3]!.match(/rejectUnauthorized/g)?.length).toBe(1)
     const win = main[0]!
     expect(win).toMatch(/const trouble = certTrouble\(e\)\n\s+return trouble \? failCert\(trouble\) : fail\('unreachable'\)/)
+  })
+  test('TC-3453: the cannot-reach card looks again by itself after 5, 10, 20 and then every 30 s; only the team server\'s own answer opens the team', () => {
+    expect([0, 1, 2, 3, 4, 50].map(offlineRetryDelay)).toEqual([5_000, 10_000, 20_000, 30_000, 30_000, 30_000])
+    expect([-1, NaN, Infinity].map(offlineRetryDelay)).toEqual([5_000, 30_000, 30_000])
+    expect(Math.max(...OFFLINE_RETRY_MS)).toBeLessThanOrEqual(30_000)
+    expect(answersAgain(o, { status: 200, location: null, relayError: null, bodyOk: true })).toBe(true)
+    // the relay's or a tunnel's page while the server is off: not back
+    expect(answersAgain(o, { status: 503, location: null, relayError: 'team_offline', bodyOk: false })).toBe(false)
+    expect(answersAgain(o, { status: 530, location: null, relayError: null, bodyOk: false })).toBe(false)
+    for (const status of [502, 503, 504]) expect(answersAgain(o, { status, location: null, relayError: null, bodyOk: false })).toBe(false)
+    // anything else is not the team server back: another page, a paused or renamed team, and a sleeping trial team
+    // (the app's own look never wakes it)
+    expect(answersAgain(o, { status: 404, location: null, relayError: null, bodyOk: false })).toBe(false)
+    expect(answersAgain(o, { status: 200, location: null, relayError: null, bodyOk: false })).toBe(false)
+    expect(answersAgain(o, { status: 403, location: null, relayError: 'team_suspended', bodyOk: false })).toBe(false)
+    expect(answersAgain(o, { status: 308, location: `https://acme-corp.${TEAM_DOMAIN}/api/health`, relayError: null, bodyOk: false })).toBe(false)
+    expect(answersAgain(o, { status: 503, location: null, relayError: 'team_waking', bodyOk: false })).toBe(false)
+    for (const l of Object.keys(STRINGS) as UiLocale[]) expect(STRINGS[l]['offline.auto'].length).toBeGreaterThan(5)
+    // it stops when the card is left, and the person's own Try again takes over
+    const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
+    expect(win).toMatch(/showWelcome\(\) \{\n\s+this\.stopOfflineWatch\(\)/)
+    expect(win).toMatch(/private disposeTeam\(\) \{\n\s+clearInterval\(this\.recheckTimer\)\n\s+this\.stopOfflineWatch\(\)/)
+    expect(win).toMatch(/leftOffline\(\) \{\n\s+this\.stopOfflineWatch\(\)/)
   })
   test('a redirect is never followed by the network stack: only a relay rename to another name under the team domain', () => {
     // the health check reads the 3xx itself (app-window.ts fetchHealth: net.request with redirect 'manual')

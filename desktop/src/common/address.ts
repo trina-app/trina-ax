@@ -183,6 +183,20 @@ export function officeCertPage(origin: string): string | null {
   return `http://${u.hostname}:${port - 1}`
 }
 
+/** How long the full-page "cannot reach the team server" card waits before it looks again by itself, per try: 5, 10,
+ * 20 s, then every 30 s (QA TC-3453). One small GET /api/health each time. */
+export const OFFLINE_RETRY_MS = [5_000, 10_000, 20_000, 30_000] as const
+export function offlineRetryDelay(tries: number): number {
+  const i = Number.isFinite(tries) ? Math.min(Math.max(0, Math.floor(tries)), OFFLINE_RETRY_MS.length - 1) : OFFLINE_RETRY_MS.length - 1
+  return OFFLINE_RETRY_MS[i]!
+}
+/** The team server answers again: its own health answer, nothing else. A tunnel's or relay's error page, a Wi-Fi
+ * sign-in page, another kind of server, a renamed or paused team are not "back" (a reload would fail or show nothing
+ * new), and a sleeping trial team is not woken by the app looking: only a person's Try again loads the page. */
+export function answersAgain(origin: string, r: HealthAnswer): boolean {
+  return healthVerdict(origin, r).ok
+}
+
 /** Origin of a URL, or '' (about:blank, garbage). */
 export function originOf(url: string): string {
   try {

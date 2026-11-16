@@ -16,3 +16,6 @@
   certificate page to open (for `https://192.168.0.10:8443`, `http://192.168.0.10:8442`) and the desk card. It said
   "Check the address and your internet connection". Any other certificate problem says the certificate could not be
   checked. The app still never connects past a certificate error.
+- Desktop app: the full-page "Cannot reach the team server" now looks again by itself (after 5, 10 and 20 seconds, then
+  every 30) and opens your team when the server answers; the page says so. It stayed until you pressed Try again.
+  Choosing Other teams stops it.
