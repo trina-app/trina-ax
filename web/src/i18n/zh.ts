@@ -6479,6 +6479,7 @@ export const zh: Record<MessageKey, string> = {
   "chat.thread.deleteBody": "这条回复会对这个对话中的所有人删除。此操作无法撤销。",
   "chat.thread.tooLong": "这条回复太长了。",
   "chat.thread.fast": "你发送得太快了。回复稍后会自动发送。",
+  "chat.thread.updating": "Trina正在更新。恢复后会发送你的回复。",
   "notifications.event.chat.thread_reply": "有人在话题中回复了。",
   "notifications.event.chat.thread_replyNamed": "{name}在{title}的话题中回复了。",
   "notifications.event.chat.thread_replyGone": "你已无法查看此内容。",

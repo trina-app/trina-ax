@@ -6507,6 +6507,7 @@ export const ja: Record<MessageKey, string> = {
   "chat.thread.deleteBody": "このチャットの全員から削除されます。元に戻せません。",
   "chat.thread.tooLong": "返信が長すぎます。",
   "chat.thread.fast": "送信が速すぎます。少しあとに自動で送信します。",
+  "chat.thread.updating": "トリナを更新しています。戻りしだい返信が送信されます。",
   "notifications.event.chat.thread_reply": "スレッドに返信がありました。",
   "notifications.event.chat.thread_replyNamed": "{name}さんが{title}のスレッドに返信しました。",
   "notifications.event.chat.thread_replyGone": "これはもう表示できません。",

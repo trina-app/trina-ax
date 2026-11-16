@@ -6552,6 +6552,7 @@ export const en: Record<MessageKey, string> = {
   "chat.thread.deleteBody": "It's removed for everyone in this chat. This can't be undone.",
   "chat.thread.tooLong": "This reply is too long.",
   "chat.thread.fast": "You're sending fast. Your replies go out in a moment.",
+  "chat.thread.updating": "Trina is updating. Your reply will be sent when it's back.",
   "notifications.event.chat.thread_reply": "Someone replied in a thread.",
   "notifications.event.chat.thread_replyNamed": "{name} replied in a thread in {title}.",
   "notifications.event.chat.thread_replyGone": "You can't see this anymore.",
