@@ -56,6 +56,7 @@ export const FEATURES: Feature[] = [
   { id: 'chat.cards', name: 'AI questions, confirmations and connect cards in a turn', area: 'AI chat', endpoints: ['listTurnRequests', 'answerTurn', 'connectTurn'] },
   { id: 'chat.sources', name: 'Answer sources', area: 'AI chat', endpoints: ['messageSources'] },
   { id: 'chat.share', name: 'Share a chat (with its project, or with chosen people and groups) or an answer to a room', area: 'AI chat', endpoints: ['shareChat', 'shareAnswerToRoom', 'getChatAudience', 'putChatAudience', 'previewChatAudience', 'hideChat', 'unhideChat', 'userSharedChats', 'chatFile'] },
+  { id: 'chat.threads', name: 'Threads on AI answers in shared chats (people talk under an answer, then send it to the AI)', area: 'AI chat', endpoints: ['listChatThread', 'sendChatThreadReply', 'deleteChatThreadReply', 'markChatThreadRead'], screens: ['/c/:chatId/t/:messageId'] },
   { id: 'chat.engine', name: 'Pick the AI engine and model', area: 'AI chat', endpoints: ['chatEngines'] },
   { id: 'chat.artifacts', name: 'Artifacts made in a chat (pages, documents)', area: 'AI chat', endpoints: ['listChatArtifacts', 'getArtifact'] },
   { id: 'chat.decks', name: 'Intro decks (slides, PPTX, PDF)', area: 'AI chat', endpoints: ['*IntroDeck*', 'listDeckBuilds', 'deckBuildSlide'] },
@@ -83,7 +84,8 @@ export const FEATURES: Feature[] = [
   { id: 'files.organize', name: 'New folder, move, copy, delete', area: 'Files', endpoints: ['mkdir', 'move', 'copy', 'remove', 'moveSuggestions', 'dismissMoveSuggestion'] },
   { id: 'files.versions', name: 'File history and restore a version', area: 'Files', endpoints: ['history', 'versionDownload', 'restoreVersion'] },
   { id: 'files.trash', name: 'Files trash', area: 'Files', endpoints: ['trash', 'restoreTrash', 'purgeTrash'] },
-  { id: 'files.share-links', name: 'Share a file with chosen people; its link and Ask for access', area: 'Files', endpoints: ['fileLink', 'fileShares', 'putFileShares', 'sharedFile', 'sharedFileDownload', 'requestFileAccess', 'answerFileRequest', 'fileSharesCount', 'removeAllFileShares'], screens: ['/f/:id'] },
+  { id: 'files.share-links', name: 'Share a file with chosen people; its link and Ask for access', area: 'Files', endpoints: ['fileLink', 'fileShares', 'putFileShares', 'shareFilesBatch', 'sharedBatch', 'sharedFile', 'sharedFileDownload', 'requestFileAccess', 'answerFileRequest', 'fileSharesCount', 'removeAllFileShares'], screens: ['/f/:id', '/f/batch/:id'] },
+  { id: 'files.shared-with-me', name: 'Files shared with me', area: 'Files', endpoints: ['sharedWithMe'] },
   { id: 'files.search', name: 'Find files and search inside them; recent files', area: 'Files', endpoints: ['findFiles', 'searchFileContents', 'recentFiles'] },
   { id: 'files.attach', name: 'Attach files to a chat', area: 'Files', endpoints: ['uploadAttachment', 'attachmentThumbnail', 'attachTeamFile', 'discardAttachment'] },
   { id: 'files.file-list', name: 'File list (what each file is)', area: 'Files', endpoints: ['fileListStatus', 'runFileList'], screens: ['/admin/settings/file-list'] },
@@ -99,8 +101,8 @@ export const FEATURES: Feature[] = [
   { id: 'rooms.hide-pin', name: 'Hide and pin conversations', area: 'Rooms', endpoints: ['setRoomHidden', 'pinRoom', 'unpinRoom'] },
   { id: 'rooms.files', name: 'Files in a room', area: 'Rooms', endpoints: ['uploadRoomFile', 'attachRoomTeamFile', 'roomFile', 'roomFileHwpPreview'] },
   { id: 'rooms.search', name: 'Search messages and files of rooms', area: 'Rooms', endpoints: ['searchRoomMessages', 'searchRoomFiles'] },
-  { id: 'rooms.activity', name: 'Activity: mentions and thread replies', area: 'Rooms', screens: ['/activity'] },
-  { id: 'rooms.apps', name: 'Apps posting in rooms (Sentry, GitHub, Google Forms, Notion, Typeform, Tally, Jotform, Stripe, Shopify, Zendesk, Jira, HubSpot; more services: Toss Payments, Channel Talk, PortOne; other services in Slack, Discord or JANDI format; added from a conversation menu or from "Add to a conversation" in Connectors)', area: 'Rooms', endpoints: ['listRoomApps', 'createRoomApp', 'getRoomAppAddress', 'updateRoomApp', 'setRoomAppSecret', 'rotateRoomApp', 'resumeRoomApp', 'exampleRoomApp', 'deleteRoomApp'], screens: ['/rooms/:roomId'] },
+  { id: 'rooms.activity', name: 'Activity: mentions and thread replies', area: 'Rooms', screens: ['/activity', '/activity/:noticeId'] },
+  { id: 'rooms.apps', name: 'Apps posting in rooms (Sentry, GitHub, Google Forms, Notion, Typeform, Tally, Jotform, Stripe, Shopify, Zendesk, Jira, HubSpot; more services: Toss Payments, Channel Talk, PortOne; other services in Slack, Discord or JANDI format; added from a conversation menu or from "Add to a conversation" in Connectors)', area: 'Rooms', endpoints: ['listRoomApps', 'createRoomApp', 'getRoomAppAddress', 'updateRoomApp', 'setRoomAppSecret', 'rotateRoomApp', 'resumeRoomApp', 'exampleRoomApp', 'deleteRoomApp', 'putRoomAppIcon', 'setRoomAppEmoji', 'deleteRoomAppIcon', 'roomAppIcon'], screens: ['/rooms/:roomId'] },
 
   // ---------------- Skills ----------------
   { id: 'skills.list', name: 'Skills page: my, group and team skills', area: 'Skills', endpoints: ['listSkills', 'listSkillIssues', 'skillsOverview'], screens: ['/skills'] },
@@ -149,7 +151,7 @@ export const FEATURES: Feature[] = [
   // ---------------- Settings ----------------
   { id: 'settings.list', name: 'Settings list and search', area: 'Settings', screens: ['/settings'] },
   { id: 'settings.notifications', name: 'Notifications and inbox', area: 'Settings', endpoints: ['*Notification*'], screens: ['/settings/notifications'] },
-  { id: 'settings.push', name: 'Push notifications on phones and computers', area: 'Settings', endpoints: ['*Push*'] },
+  { id: 'settings.push', name: 'Push notifications on phones and computers', area: 'Settings', endpoints: ['*Push*', 'reportMyComputer'] },
   { id: 'settings.apps', name: 'Apps to install', area: 'Settings', screens: ['/settings/apps'] },
   { id: 'settings.about', name: 'About this app', area: 'Settings', screens: ['/settings/about'] },
 

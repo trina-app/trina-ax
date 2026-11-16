@@ -53,7 +53,7 @@ Nunca necesita todos. Busque la app que está conectando; el resto de la fila le
 | La app de Google de su empresa | El **archivo JSON** de Google Cloud (o **ID de cliente** y **Secreto del cliente**) | Google Cloud › Google Auth Platform › **Clients** |
 | Slack (equipos alojados) | Nada: **Añadir a Slack** | Un administrador del espacio de trabajo de Slack lo permite |
 | Slack (su propia app de Slack) | **Bot User OAuth Token** (`xoxb-`), **App-Level Token** (`xapp-`), **Client ID**, **Client Secret** | api.slack.com › su app |
-| Notion, Linear, Atlassian, Figma, Canva y las demás apps de Descubrir | Nada: inicia sesión en la página de la propia app | Su cuenta en esa app |
+| Notion, Linear, Atlassian, Figma, Canva y las demás apps de Descubrir | Nada: usted inicia sesión en la página de la propia app | Su cuenta en esa app |
 | GitHub | **Dirección** `https://api.githubcopilot.com/mcp/` y una **Clave** (un token de acceso personal) | [GitHub › Settings › Developer settings › Personal access tokens](https://github.com/settings/personal-access-tokens/new) |
 | Cualquier otra app que da una clave | **Dirección** y **Clave** (a veces **Nombre del encabezado**) | Las páginas de ayuda de la app ("MCP server", "API keys") |
 | La API de su empresa | **Dirección**, **Clave**, **Notas de uso** | Quien administra ese sistema |

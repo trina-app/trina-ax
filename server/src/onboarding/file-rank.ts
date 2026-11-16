@@ -57,7 +57,7 @@ const TEXT = {
   askOwn: {
     ko: '이 컴퓨터에서 찾은 파일 중 내 폴더에 넣을 업무 파일을 골라 주세요.', en: 'Pick the work files from my computer that belong in my own folder.',
     id: 'Pilih file kerja dari komputer saya yang sebaiknya masuk ke folder saya sendiri.', ja: 'このコンピューターで見つかったファイルから、自分のフォルダーに入れる仕事のファイルを選んでください。',
-    es: 'Elige los archivos de trabajo de mi equipo que deberían ir a mi propia carpeta.',
+    es: 'Elige los archivos de trabajo de mi ordenador que deberían ir a mi propia carpeta.',
     zh: '请从我电脑上找到的文件中，挑出应该放进我自己文件夹的工作文件。',
   },
   ask: {

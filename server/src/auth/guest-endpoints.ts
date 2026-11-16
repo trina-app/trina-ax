@@ -21,6 +21,8 @@ export const GUEST_ENDPOINTS: ReadonlySet<Endpoint> = new Set<Endpoint>([
   API.setMyStatus,
   API.clearMyStatus,
   API.setMyAway,
+  // their computer in use keeps their own phone quiet (notifications/away.ts), as for a member
+  API.reportMyComputer,
   API.myDeletionRequest,
   API.requestAccountDeletion,
   API.cancelAccountDeletion,
@@ -78,6 +80,8 @@ export const GUEST_ENDPOINTS: ReadonlySet<Endpoint> = new Set<Endpoint>([
   API.attachRoomTeamFile,
   API.roomFile,
   API.roomFileHwpPreview,
+  // an app's icon on the messages they see (never its settings: managing apps stays 403)
+  API.roomAppIcon,
   API.setRoomFolder,
   // Projects (read only: their one project)
   API.listProjects,
@@ -133,6 +137,11 @@ export const GUEST_ENDPOINTS: ReadonlySet<Endpoint> = new Set<Endpoint>([
   API.stop,
   API.shareAnswerToRoom,
   API.messageSources,
+  // threads on AI answers: a guest's own shared chat only (chat/threads.ts threadAccess → chatFor is the real check)
+  API.listChatThread,
+  API.sendChatThreadReply,
+  API.deleteChatThreadReply,
+  API.markChatThreadRead,
   API.regenerate,
   API.editMessage,
   API.selectBranch,

@@ -18,7 +18,7 @@ description: Sentry、GitHub、Google フォーム、Stripe、Jira、HubSpot な
 
 ![アプリを追加：メッセージはトークルームの全員に表示されるという説明、その下に Google フォーム、その他のアプリ、GitHub、Sentry](../../images/room-apps/picker.webp "アプリを追加")
 
-これができる人：チームのトークルームや全員のトークルームでは、そのトークルームのオーナーと管理者。1:1 トークやグループトークでは、参加している人なら誰でも。トークルームのほかの人は、カードを見て、そのスレッドで返信し、それについてトリナに聞けます。アプリの名前をタップすると、誰が設定したかが表示されます。
+これができる人：チャンネル（全員チャンネルを含む）では、そのチャンネルのオーナーと管理者。ダイレクトメッセージ（1:1 トークやグループトーク）では、参加している人なら誰でも。トークルームのほかの人は、カードを見て、そのスレッドで返信し、それについてトリナに聞けます。アプリの名前をタップすると、誰が設定したかが表示されます。
 
 アプリのメッセージは、あとから参加した人も含めて、トークルームの全員に見えます。トークルームは慎重に選んでください。エラーの報告やフォームの回答には、お客様のデータが含まれていることがあります。
 
@@ -59,7 +59,7 @@ Stripe、Shopify、Zendesk、Typeform、Tally は、送る内容に署名でき�
 選択画面の **その他のサービスを表示** を押すと、主に韓国で使われているサービスが開きます。一覧は全員に同じものが表示されます。
 
 - **Toss Payments**：デベロッパーセンターの **웹훅 › 웹훅 등록하기**（Webhooks › Register webhook）で Webhook URL を貼り付け、**PAYMENT_STATUS_CHANGED** にチェックを入れます（[Toss Payments の Webhook](https://docs.tosspayments.com/guides/v2/webhook)）。カードには金額、注文名、支払い方法が表示され、カード番号、口座、電話番号は表示されません。任意：デベロッパーセンターのセキュリティキー（**API 키 › 보안 키**、API keys › Security key）。
-- **Channel Talk**：**Settings › Webhook › Create new webhook** で Webhook URL を貼り付け、チャットとメッセージの通知をオンにします（[Channel Talk の Webhook](https://developers.channel.io/en/articles/Webhook-events-7bd9b8e2)）。新しいチャットにはお客様の名前と最初のメッセージが表示され、その後のメッセージ（オンにした場合はチームの返信も）はスレッドに入ります。チーム内のグループチャットは表示されません。任意：Webhook のトークン。
+- **Channel Talk**：**Settings › Webhook › Create new webhook** で Webhook URL を貼り付け、チャットとメッセージの通知をオンにします（[Channel Talk の Webhook](https://developers.channel.io/en/articles/Webhook-events-7bd9b8e2)）。新しいチャットにはお客様の名前と最初のメッセージが表示され、その後のメッセージ（オンにした場合はチームの返信も）はスレッドに入ります。チーム内のグループトークは表示されません。任意：Webhook のトークン。
 - **PortOne**（V2）：**결제 연동 › 연동 관리 › 결제알림(Webhook) 관리**（Payment integration › Integration settings › Payment notifications）で、Webhook のバージョン **결제모듈 V2**（Payment module V2）を選び、Webhook URL を貼り付けます（[PortOne の Webhook](https://developers.portone.io/opi/ko/integration/webhook/readme-v2)）。PortOne は支払いの ID と状態しか送らないため、カードには金額や名前は表示されません。任意：Webhook シークレット（**웹훅 시크릿 발급**、Issue webhook secret）。
 
 ### その他のアプリ
@@ -79,6 +79,8 @@ Webhook URL にメッセージを送れるものなら何でも使えます（Za
 ```bash
 curl -X POST -H 'Content-Type: application/json' -d '{"text":"Hello from my app"}' <Webhook URL>
 ```
+
+その他のアプリは名前の頭文字をアプリごとの色の上に表示するので、1 つのルームに複数あっても見分けられます。画像にするには、アプリの設定で **アイコンを変更** を押し、**画像をアップロード**（PNG、JPEG、WebP。正方形に切り抜かれます）か **絵文字を選ぶ** を選びます。**アイコンを削除** で頭文字に戻ります。アイコンはアプリの過去のメッセージにも表示されます。メッセージからアプリの名前やアイコンは変えられません。Slack の `username`、`icon_url`、`icon_emoji` や Discord の `avatar_url` は無視されるので、Webhook URL に送られたものが人や別のアプリになりすますことはできません。
 
 ### GitHub
 
@@ -110,6 +112,7 @@ Sentry では、これを内部インテグレーションと呼びます（[Sen
 - 誰が設定したかと、**つなぎ方**（もう一度手順を表示）。
 - **状態の行**：最後のメッセージ、*一時停止中*、*最初のメッセージを待っています*、または **再生成** のあと新しい URL に最初のメッセージが届くまでの *GitHubが新しい Webhook URL を使うのを待っています*（一覧の行にも表示されます）。
 - **警告**。それぞれに 1 つの操作がついています。最後に受け取ったものが表示されなかった理由（**シークレットを確認**）、*退出したメンバーがこの Webhook URL を知っています*（**再生成**）、そして署名できるのにまだシークレットがないサービスでは *署名なし: Webhook URL を知っている人なら誰でも投稿できます。*（**より安全にする**）。
+- **アイコンを変更**（その他のアプリ）：名前の頭文字の代わりに画像か絵文字を使います。**アイコンを削除** で元に戻ります。
 - **名前**：メッセージに表示される名前。
 - **このルームに表示**：投稿する更新の種類（複数の種類を送るアプリの場合）。サービスで設定していない任意のイベント（たとえば Shopify の返金）には *Shopify でまだ設定されていません* と、その手順へのリンクが表示されます。
 - **静かに投稿**：未読マークや通知のない、短い 1 行で投稿します。

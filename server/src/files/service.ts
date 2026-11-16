@@ -11,7 +11,7 @@ import { isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
 import type { ServerConfig } from '../config'
 import { getTeamSettings, teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { audit } from '../admin/audit'
-import { atLeast, loadPrincipal, RuleSet, setProjectsCaseInsensitive, type Principal } from '../policy/access'
+import { atLeast, isStaff, loadPrincipal, RuleSet, setProjectsCaseInsensitive, type Principal } from '../policy/access'
 import { authorize, type Authorized, type FsCtx } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { writeLimitText } from '../policy/refusal'
@@ -50,6 +50,8 @@ import { keepLongRetry, LONG_PIECE_SEC, longRetryLanguage } from '../jobs/speech
 import { pieceTurn, pieceWait } from '../jobs/whisper-turns'
 import * as media from './media'
 import { mediaText, personLocale, type MediaTextKey } from './media-text'
+import { voiceInputOn, voiceInputOutside } from '../credentials/speech-key'
+import { isSharedChat } from '../chat/shared'
 import { diskStat } from '../system/disk-stat'
 
 void ENGINE_BUILTIN_ALLOWED
@@ -400,7 +402,7 @@ export class FileService {
     const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'read')
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
     // the plan's read limit (system/limits.ts readMaxBytes; 200 MB without a plan, as before)
-    const { bytes } = readRegular(r.abs, readMaxBytes())
+    const { bytes } = readRegular(r.abs, readMaxBytes(), r.st)
     const text = await extractText(r.rel, bytes, { pandoc: this.cfg.pandoc, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr, quarantine: this.quarantine }, ctx.signal)
     const hash = sha256(bytes)
     ctx.files.readHashes.set(r.rel, hash)
@@ -630,7 +632,7 @@ export class FileService {
 
   /** The file's bytes, bound to the path that was authorized (same inode, size and times), not quarantined. */
   private boundSource(ctx: ToolCtx, r: Authorized, cap: number): BoundSource {
-    const { bytes, st } = readRegular(r.abs, cap)
+    const { bytes, st } = readRegular(r.abs, cap, r.st)
     if (identity(st) !== identity(r.st!)) throw new Denied(safeText(this.db, ctx.user.id, 'changed'))
     this.quarantine.assertBytes(bytes)
     return { rel: r.rel, bytes, hash: sha256(bytes), identity: identity(st) }
@@ -731,8 +733,15 @@ export class FileService {
     const refuse = (key: MediaTextKey, why: string, vars: Record<string, string | number> = {}): ToolOutput =>
       ({ text: mediaText(this.db, ctx.user.id, key, vars), isError: true, summary: `read ${r.rel} -> ${kind} not read (${why})` })
     const tools = this.mediaTools()
-    if (tools === 'mac') return refuse('mac', 'not on a Mac server yet')
-    if (tools === 'missing') return refuse('noTool', 'no ffmpeg')
+    // in the person's words (AI scenario check VIEW-08: "Linux servers can" became "switch the server to Linux"); the
+    // English line is for the AI
+    if (tools === 'mac') {
+      const out = refuse('mac', 'not on a Mac server yet')
+      const voice = this.micWorksInTurn(ctx) ? ' ' + mediaText(this.db, ctx.user.id, 'macVoice') : ''
+      return { ...out, text: out.text + voice + '\n(Pass this on in plain words: say "here", never "server" or "Mac". Do not suggest changing or moving the install.)' }
+    }
+    // what to install only for an owner or admin, and not where others read the answer
+    if (tools === 'missing') return refuse(isStaff(ctx.user) && !this.turnChatShared(ctx) ? 'noToolAdmin' : 'noTool', 'no ffmpeg')
     if (r.st!.size > media.MEDIA_INPUT_MAX) return refuse('tooLarge', 'too large', { gb: media.MEDIA_INPUT_MAX / 1024 ** 3 })
     if (a.frames === 0 && a.transcript === false) throw new ToolError('frames: 0 and transcript: false leave nothing to read', 'bad_media_args')
     const base = path.join(this.cfg.dataDir, 'work')
@@ -746,6 +755,22 @@ export class FileService {
       if (e instanceof ToolError && MEDIA_NOTE[e.code]) return refuse(MEDIA_NOTE[e.code]!, e.code, { h: media.MEDIA_MAX_SECONDS / 3600, gb: media.MEDIA_INPUT_MAX / 1024 ** 3 })
       throw e
     }
+  }
+
+  /** The chat's mic records in this turn (web/src/lib/voice.ts micState, voiceBlockedHere): voice input works here and
+   * the recording may go where it goes; a confidential chat keeps it from an outside service (a room-side AI chat is a
+   * chat of its own, so confidentialTurn covers Safe operations 1A too). No turn (the remote connector) or a scheduled
+   * task's: no mic. */
+  private micWorksInTurn(ctx: ToolCtx): boolean {
+    if (!ctx.turnId || !voiceInputOn(this.db, this.speech)) return false
+    // a scheduled task's turn has nobody at the mic
+    if (this.db.query('SELECT 1 FROM turns WHERE id = ? AND schedule_id IS NOT NULL').get(ctx.turnId)) return false
+    return !(voiceInputOutside(this.db) && confidentialTurn(this.db, ctx.turnId))
+  }
+  /** The turn's chat is seen by others (a shared project chat or a chat shared with people). */
+  private turnChatShared(ctx: ToolCtx): boolean {
+    const t = ctx.turnId ? this.db.query('SELECT chat_id FROM turns WHERE id = ?').get(ctx.turnId) as { chat_id: string } | null : null
+    return !!t && isSharedChat(this.db, t.chat_id)
   }
 
   private async readMediaNow(ctx: ToolCtx, a: ReadArgs, kind: MediaKind, r: Authorized, tools: media.MediaTools, base: string): Promise<ToolOutput> {
@@ -1231,7 +1256,7 @@ export class FileService {
     try {
       const r = authorize(this.fx, this.rules(), user, input, 'read')
       if (!r.exists || !r.st!.isFile()) return null
-      const { bytes } = readRegular(r.abs, readMaxBytes())
+      const { bytes } = readRegular(r.abs, readMaxBytes(), r.st)
       return isUtf8(bytes) ? Buffer.from(bytes).toString('utf8') : null
     } catch { return null }
   }
@@ -1249,7 +1274,7 @@ export class FileService {
     this.limits(ctx, r.rel, data.length)
     if (r.exists) {
       if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`, 'is_folder')
-      const cur = readRegular(r.abs).bytes
+      const cur = readRegular(r.abs, undefined, r.st).bytes
       if (tool === 'write') refuseLegacyText(r.rel, cur)
       const before = seen.get(r.rel)
       if (!before) throw new ToolError(`read '${r.rel}' first (with read) before overwriting it`, 'not_read')
@@ -1270,7 +1295,7 @@ export class FileService {
     seen.set(r.rel, sha256(data))
     ctx.files.bytesWritten += data.length
     ctx.files.filesWritten.add(r.rel)
-    const note = tool === 'write' ? skillWriteNote(this.fx.root, r.rel, data) : ''
+    const note = tool === 'write' ? skillWriteNote(this.fx.root, r.rel, data, { created: !r.exists }) : ''
     return { text: `${r.exists ? 'Updated' : 'Created'} ${r.rel} (${human(data.length)})${note}`, summary: `${tool} ${r.rel} -> ${r.exists ? 'update' : 'create'} ${data.length}B` }
   }
 
@@ -1280,7 +1305,7 @@ export class FileService {
     const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'write', { mustExist: true })
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`, 'is_folder')
     if (isOffice(r.rel) || BINARY_WRITE.has(ext(r.rel))) throw new ToolError('only text files can be edited')
-    const cur = readRegular(r.abs).bytes
+    const cur = readRegular(r.abs, undefined, r.st).bytes
     if (cur.subarray(0, 8000).includes(0)) throw new ToolError('binary file; cannot edit')
     refuseLegacyText(r.rel, cur)
     const before = ctx.files.readHashes.get(r.rel)
@@ -1356,7 +1381,7 @@ export class FileService {
     const user = this.principal(userId)
     const r = authorize(this.fx, this.rules(), user, rel, 'write', { mustExist: true })
     if (r.st!.isDirectory()) throw new ToolError('folders cannot be deleted with this call')
-    return moveToTrash(this.db, this.fx.root, r.segs, { userId, turnId })
+    return moveToTrash(this.db, this.fx.root, r.segs, { userId, turnId }, r.st)
   }
   restoreTrash(userId: string, trashId: string) {
     const user = this.principal(userId)

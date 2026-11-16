@@ -7,8 +7,11 @@
 //   a page under a tab (팀 스킬, a project, …): ‹ back · the page's name (the page keeps its heading for screen readers
 //                    only, so the name is not said twice), in the bar every phone page uses (phone/PhonePageBar.tsx);
 //                    the page's one action on the right ("+", "Edit": phone/PhoneBarAction.tsx); a detail page that
-//                    is named by its own name (one project) puts that name in the title (PhoneBarTitle)
+//                    is named by its own name (one project) puts that name in the title (PhoneBarTitle),
+//                    which a tap may act on (a project's: rename it)
 //   관리자 (/admin):  none here: Admin draws the same bar itself, with "‹ Admin" over its pages (admin/AdminLayout.tsx)
+//   a file link opened from 파일 › Shared with me (/f/<id>, router state from): none here: the page draws "‹ Shared
+//                    with me" itself (pages/FileLink.tsx)
 // Not in a room or an AI chat: their own header (with its ‹) is the bar there. ‹ goes back in the real history, or to
 // the page's parent (lib/screens.ts) in place of this entry (lib/back.ts), so the phone's own back never loops; it is
 // named after where it goes ("‹ 트리나", "‹ 설정": lib/backStack.ts useBackLabel). Every button is 44 px.
@@ -16,6 +19,7 @@ import { useCanStartChat } from './GuestView'
 import clsx from 'clsx'
 import { Menu, MessageCirclePlus, Search } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { FILES_SHARED } from '../lib/nav'
 import { useT } from '../i18n'
 import { useGoBack } from '../lib/back'
 import { useBackLabel } from '../lib/backStack'
@@ -28,14 +32,14 @@ import { useTrinaDrawer } from './phone/TrinaDrawer'
 import { IconButton } from './ui'
 import { PhonePageBar } from './phone/PhonePageBar'
 import { useSetupReturnShown } from './onboarding/SetupReturn'
-import { PhoneBarSlot, usePhoneBarTitle } from './phone/PhoneBarAction'
+import { PhoneBarSlot, usePhoneBarPress, usePhoneBarTitle } from './phone/PhoneBarAction'
 
 const icon = 'size-11 shrink-0'
 
 export function PhoneTopBar() {
   const t = useT()
   const navigate = useNavigate()
-  const { pathname: path, search } = useLocation()
+  const { pathname: path, search, state } = useLocation()
   const setSearchOpen = useUi((s) => s.setSearchOpen)
   const setDrawer = useTrinaDrawer((s) => s.setOpen)
   const attention = useAttention()
@@ -47,10 +51,13 @@ export function PhoneTopBar() {
   const backLabel = useBackLabel(up, () => null)
   // a page's own name for the bar (one project's page: phone/PhoneBarAction.tsx PhoneBarTitle)
   const pageTitle = usePhoneBarTitle()
+  // a tap on that name (a project's page: rename it, for whoever may)
+  const titlePress = usePhoneBarPress()
   // opened from the welcome steps: their way back (onboarding/SetupReturn.tsx) is the page's one back, no ‹ beside it
   const setupBack = useSetupReturnShown() !== null
   // 파일 draws its own bar, as Admin does
   if (hidesTabs(path) || path === '/files' || path.startsWith('/files/') || path === '/admin' || path.startsWith('/admin/')) return null
+  if (path.startsWith('/f/') && (state as { from?: unknown } | null)?.from === FILES_SHARED) return null
   // a project's new chat ("/?project=") is reached from the project: a way back there, not the history drawer
   const home = path === '/' && !new URLSearchParams(search).has('project')
   if (home)
@@ -76,7 +83,7 @@ export function PhoneTopBar() {
   // tab's screens, from search, keeps its ‹ back there)
   const root = !!rootTab(`${path}${search}`) && !stackNow()?.below
   if (!rooms)
-    return <PhonePageBar onBack={root || setupBack ? undefined : back} backLabel={backLabel} title={pageTitle ?? title} titleHidden={!!titleKey} action={<PhoneBarSlot />} backTestId="topbar-back" titleTestId="topbar-title" className="md:hidden" />
+    return <PhonePageBar onBack={root || setupBack ? undefined : back} backLabel={backLabel} title={pageTitle ?? title} titlePress={pageTitle ? titlePress : null} titleHidden={!!titleKey} action={<PhoneBarSlot />} backTestId="topbar-back" titleTestId="topbar-title" className="md:hidden" />
   return (
     <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-1 md:hidden" data-testid="phone-topbar">
       {/* as wide as the two buttons on the right and the gap between them, so the name stays in the middle */}

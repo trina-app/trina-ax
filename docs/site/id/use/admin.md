@@ -47,7 +47,7 @@ Claude atau OpenAI yang berwenang. Setiap baris menunjukkan apakah mesin itu sud
 #### Undang tim
 Mulailah dengan kelompok uji coba kecil, lalu pastikan peran dan akses folder sudah benar. **Anggota & undangan** juga mencantumkan [tamu](#tamu) tim.
 Di bawah daftar, **Link undangan** hanya menampilkan tautan yang masih berlaku: tautan undangan tim dan tautan undangan
-yang belum dipakai siapa pun. Tautan yang sudah dipakai atau kedaluwarsa, atau tautan tamu yang ruang atau proyeknya sudah tidak ada, hilang dari daftar; siapa yang bergabung tercatat di daftar anggota dan di [Log aktivitas](#log-aktivitas).
+yang belum dipakai siapa pun. Tautan yang sudah dipakai atau kedaluwarsa, atau tautan tamu yang obrolan grup atau proyeknya sudah tidak ada, hilang dari daftar; siapa yang bergabung tercatat di daftar anggota dan di [Log aktivitas](#log-aktivitas).
 
 #### Tambahkan skill pertama
 Salin skill awal dan periksa hasilnya terhadap sumbernya. [Baca tentang skill](team-skills.md).
@@ -82,15 +82,15 @@ terakhir dipakai. Menu **⋯** sebuah akun berisi Cek lagi, Naikkan / turunkan, 
 
 ## Tamu
 
-**Admin › Anggota & undangan** diakhiri dengan **Tamu**: orang dari luar tim, masing-masing di paling banyak satu ruang dan satu
+**Admin › Anggota & undangan** diakhiri dengan **Tamu**: orang dari luar tim, masing-masing di paling banyak satu obrolan grup dan satu
 proyek, yang tidak memakai kursi. Setiap baris menunjukkan di mana tamu itu berada dan AI apa yang dimilikinya. Menu
 **⋯**-nya berisi **Ubah AI** (tanpa AI, masuk dengan akun sendiri, atau akun AI tim dengan batas bulanan), **Jadikan
-anggota tim**, dan **Keluarkan tamu**. Anggota mengundang tamu sendiri dari percakapan grup atau proyek
+anggota tim**, dan **Keluarkan tamu**. Anggota mengundang tamu sendiri dari obrolan grup atau proyek
 ([Tamu](chats-and-projects.md#tamu)). Owner dan admin juga bisa memilih **Undang ke tim** › **Tamu** di sini lalu
 memilih satu obrolan grup atau proyek ([Tamu: Dari Admin](guests.md#dari-admin)). Tim yang tidak punya tamu
 tidak memiliki bagian **Tamu**; pilih **Tamu** di daftar peran untuk memeriksanya.
 
-![Admin › Anggota & undangan › Tamu di ponsel: Morgan Reyes, di ruang Launch email, dengan No AI](../../images/admin/guests.webp "Tamu")
+![Admin › Anggota & undangan › Tamu di ponsel: Morgan Reyes, di obrolan grup Launch email, dengan No AI](../../images/admin/guests.webp "Tamu")
 
 ## Aplikasi terhubung
 

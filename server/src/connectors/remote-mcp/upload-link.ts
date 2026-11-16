@@ -8,6 +8,7 @@ import type { Principal } from '../../policy/access'
 import { audit } from '../../admin/audit'
 import { boundedBody } from '../../http/route'
 import { HttpError } from '../../http/errors'
+import { endConnectionAfter } from '../../http/tunnel'
 import { hash, OAuthError, secret } from './policy'
 import { remoteOAuthOf, type Grant, type RemoteOAuth } from './oauth'
 import { checkUploadTarget, fail, isOutcome, placeConnectorUpload, uploadFailure, uploadTmp, writeNotes, type UploadOutcome } from './upload'
@@ -118,7 +119,7 @@ export async function linkUpload(ctx: AppContext, request: Request, token: strin
     touchActivity()
     const tooLarge = (size?: number) => { record(false, { reason: 'too_large', ...(size === undefined ? {} : { size }) }); return reply({ error: 'too_large', message: `File too large: an upload link takes at most ${mib(link.max_bytes)} MiB.` }, 413) }
     const length = request.headers.get('content-length')
-    if (length !== null && Number(length) > link.max_bytes) return tooLarge(Number(length))
+    if (length !== null && Number(length) > link.max_bytes) { endConnectionAfter(request); return tooLarge(Number(length)) }
     // Stream to disk: never more than one network read in memory.
     tmp = uploadTmp(ctx)
     const sha = crypto.createHash('sha256'), fh = await fs.promises.open(tmp, 'wx', 0o600)

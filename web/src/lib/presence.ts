@@ -10,9 +10,13 @@
 //   goes out.
 // - In the desktop app the computer's own use counts too (desktop/src/common/system-activity.ts, every 30 s): working
 //   in another app with Trina behind it, or in the in-app browser, is still in use; a locked screen is idle at once.
-//   The same state decides a push to the person's phone (docs/DECISIONS.md "Phone notifications when I'm away": in
-//   use = no phone push). A browser tab cannot see the computer: it is in use only while visible and within 10 minutes
-//   of its own input; a hidden tab is idle at once (it must not keep the phone quiet).
+//   The same state decides a push to the person's phone (docs/decisions/20261116-away-os-idle.md: in use = no phone
+//   push). A window in the back is throttled by the browser engine (its timers, the 20 s ping too, may not run for
+//   minutes), so each word from the desktop app sends this window's state again even when it has not changed: the
+//   server then still hears from it (its 60 s silence rule). Newer desktop apps also tell the server themselves
+//   (desktop/src/common/system-activity.ts ComputerReporter). A browser tab cannot see the computer: it is in use only
+//   while visible and within 10 minutes of its own input; a hidden tab is idle at once (it must not keep the phone
+//   quiet).
 // - An older desktop app (no word on the computer, e.g. the Mac App Store 0.4.0): macOS calls a Trina window hidden as
 //   soon as other windows cover it, so the browser rule would send the phone every notice while the person works in
 //   another app. There a hidden window keeps the 10-minute rule from its last input or focus instead (as Slack counts a
@@ -67,13 +71,16 @@ export class ActivityTracker {
   }
 
   /** The desktop app's word on the computer (every 30 s): its last input counts as this page's, a locked screen makes
-   * the window idle at once. Not on a phone (its own rule: visible is in use). */
+   * the window idle at once. The state goes out again even when unchanged (a window in the back sends nothing else:
+   * the server would take it as gone after 60 s). Not on a phone (its own rule: visible is in use). */
   system(a: { locked: boolean; idleMs: number }) {
     if (this.stopped || this.env.phone) return
     this.hasSystem = true
     this.locked = a.locked
     if (!a.locked && Number.isFinite(a.idleMs) && a.idleMs >= 0) this.last = Math.max(this.last, this.env.now() - a.idleMs)
+    const before = this.state
     this.update()
+    if (this.state === before) this.send(this.state)
   }
 
   /** the page was hidden or shown */

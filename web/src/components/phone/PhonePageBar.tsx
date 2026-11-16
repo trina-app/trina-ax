@@ -5,19 +5,22 @@
 // engine's page under "Team AI providers") keeps its name and the title moves over, centred in the room left, as iOS does
 // with a wide left button; only when even that does not fit is ‹ alone (never "Admin…": its name is still read out).
 // The title is cut last. Every button is 44 px. A tab's own top (Files at the team folder) has no ‹ (`onBack` left
-// out); `heading`: the title is the page's h1 (the page has no other).
+// out); `heading`: the title is the page's h1 (the page has no other). `titlePress`: a tap on the title acts (a
+// project's page renames the project there).
 import clsx from 'clsx'
 import { ChevronLeft } from 'lucide-react'
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useT } from '../../i18n'
 import { Tooltip } from '../Tooltip'
 
-export function PhonePageBar({ onBack, backLabel, title, titleHidden, heading, action, backTestId, titleTestId = 'phone-bar-title', className }: {
+export function PhonePageBar({ onBack, backLabel, title, titlePress, titleHidden, heading, action, backTestId, titleTestId = 'phone-bar-title', className }: {
   /** none: no ‹ (the top of a tab) */
   onBack?: () => void
   /** the name of where ‹ goes; none: ‹ alone */
   backLabel?: string | null
   title: ReactNode
+  /** a tap on the title does something (a project's page: rename it): the title is a button with this name */
+  titlePress?: { label: string; onPress: () => void } | null
   /** the page says its own name to screen readers (a heading): the bar's is for the eye only */
   titleHidden?: boolean
   /** the title is the page's heading (h1) */
@@ -91,7 +94,21 @@ export function PhonePageBar({ onBack, backLabel, title, titleHidden, heading, a
           </Tooltip>
         )}
       </div>
-      {heading ? (
+      {titlePress && !heading ? (
+        // the same words in the same place, a 44 px button to tap (its fill shows it is one)
+        <button
+          ref={setTitle}
+          type="button"
+          onClick={titlePress.onPress}
+          aria-label={titlePress.label}
+          aria-haspopup="dialog"
+          className="min-h-11 min-w-0 truncate rounded-md px-1 text-center text-sm font-semibold active:bg-hover"
+          data-testid={titleTestId}
+          data-press=""
+        >
+          {title}
+        </button>
+      ) : heading ? (
         <h1 ref={setTitle} className="min-w-0 truncate px-1 text-center text-sm font-semibold" data-testid={titleTestId}>
           {title}
         </h1>

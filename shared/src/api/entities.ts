@@ -9,6 +9,15 @@ import { Access, ApiErrorBody, ClientKind, EngineId, IsoTime, Locale, GuestDetai
 export const UserRef = z.object({ id: UserId, name: z.string() })
 export type UserRef = z.infer<typeof UserRef>
 
+/** How many folds a person's lists keep (ListFolds); a newer choice pushes out the oldest. */
+export const LIST_FOLDS_MAX = 200
+/** One fold's key: `section:<list>:<section>` (a list's section), `room-folder:<id>`, `folder:<id>` (my folders). */
+export const ListFoldKey = z.string().min(1).max(120).regex(/^[a-z][a-z-]*:[A-Za-z0-9:_-]+$/)
+/** The sections and folders of my lists I folded or opened (web components/panels/folds.ts), on every device I sign in
+ * on; a key not there starts as its list starts it (most open). */
+export const ListFolds = z.record(ListFoldKey, z.enum(['open', 'folded'])).refine((o) => Object.keys(o).length <= LIST_FOLDS_MAX, { message: `at most ${LIST_FOLDS_MAX} folds` })
+export type ListFolds = z.infer<typeof ListFolds>
+
 export const UserPrefs = z.object({
   theme: Theme.optional(),
   /** the person's text size on every device they sign in on (Settings > Profile); absent = default. A stored value this
@@ -25,6 +34,8 @@ export const UserPrefs = z.object({
   /** the one-time line under a room's header ("✦ Ask Trina about this room. Only you see it.") was closed, or ✦ was
    * used: it never shows again (docs/DECISIONS.md "A welcome for invited people") */
   roomAskHint: z.literal('seen').optional().catch(undefined),
+  /** my lists' folds (ListFolds); a stored value that does not read reads as absent, never hiding the other preferences */
+  listFolds: ListFolds.optional().catch(undefined),
 })
 export type UserPrefs = z.infer<typeof UserPrefs>
 
@@ -473,6 +484,31 @@ export type Usage = z.infer<typeof Usage>
  * messages. Conversations are trees: editing a user message or regenerating an answer adds a sibling with the
  * same parentId; the chat shows one path (chats.active_leaf_id). `branch` lets the UI show "< 2/3 >".
  */
+/** The talk under an AI answer of a shared chat (docs/decisions/20261116-chat-answer-threads.md), as I see it: how many
+ * replies, the time of the last one, up to 3 people who replied (the latest first) and whether a thread I follow (I
+ * asked the answer or replied) has a reply I have not read. The rooms' RoomThreadSummary, for chats. */
+export const ChatThreadSummary = z.object({
+  replyCount: z.number().int().nonnegative(),
+  lastReplyAt: IsoTime.nullable(),
+  repliers: z.array(UserRef),
+  newReplies: z.boolean(),
+})
+export type ChatThreadSummary = z.infer<typeof ChatThreadSummary>
+/** One reply under an answer of a shared chat: people's words only (the AI never writes or reads these). `author` null:
+ * an account that is gone and has no tombstone name. */
+export const ChatThreadReply = z.object({
+  id: Uuid7,
+  chatId: Uuid7,
+  rootId: Uuid7,
+  author: UserRef.nullable(),
+  /** plain text; links are made clickable by the app, nothing else is formatted */
+  content: z.string(),
+  createdAt: IsoTime,
+  /** I may delete it: my own, or I may moderate the chat (its creator; a project editor for a project chat) */
+  canDelete: z.boolean(),
+})
+export type ChatThreadReply = z.infer<typeof ChatThreadReply>
+
 export const Message = z.object({
   id: Uuid7,
   chatId: Uuid7,
@@ -511,6 +547,8 @@ export const Message = z.object({
    * nothing of it comes (no steps, files, sources, artifacts, model or error); its place in the branch stays. Never on
    * an answer of my own question */
   withheld: z.literal(true).optional(),
+  /** a finished answer of a shared chat with replies under it that I may see: the thread's summary (absent: none) */
+  thread: ChatThreadSummary.optional(),
 })
 export type Message = z.infer<typeof Message>
 
@@ -689,6 +727,9 @@ export const UploadTarget = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('attachment'), chatId: Uuid7, name: z.string().min(1).max(255) }),
   /** audio for transcription (not kept in the team folder); chatId as in TranscribeFields */
   z.object({ kind: z.literal('transcribe'), name: z.string().min(1).max(255), chatId: Uuid7.optional() }),
+  /** a file to send in a room the caller is in (at most ROOM_FILE_MAX): kept as their unsent upload there, like
+   * POST /api/rooms/:id/files; membership checked at create and at complete */
+  z.object({ kind: z.literal('room'), roomId: Uuid7, name: z.string().min(1).max(255) }),
 ])
 export type UploadTarget = z.infer<typeof UploadTarget>
 export const UploadSession = z.object({
@@ -828,6 +869,9 @@ export const TeamSettings = z.object({
    * live only in projects/"): 'members' (default: anyone, like a chat channel) or 'admins' (the owner and admins only).
    * Personal projects are never limited. */
   projectCreators: z.enum(['members', 'admins']),
+  /** the largest file a guest may upload: in a room, to their project's folder, to an AI chat (GUEST_FILE_MAX; default
+   * 100 MB; docs/decisions/20261116-guest-room-file-limit.md). Members are not held to it. */
+  guestFileMax: z.enum(['100mb', '1gb', '10gb']),
   /** "Show what the team often asks" (default on; docs/DECISIONS.md "Home: what my group often asks"): Home lists
    * generic questions that 3 or more people of a group or the team asked, rewritten once a day on the owner's AI. Off:
    * the lists are deleted for everyone, no run starts, and questions sent while it is off never count. */

@@ -206,7 +206,7 @@ export const zh: Strings = {
       emails: '已发邮件',
     },
     usually: '通常要 2 天左右',
-    signup: '查看套餐，免费开始',
+    signup: '查看套餐',
     explore: '随便看看',
     popupTitle: 'Mina 的第一天 🎉',
     popupLine: '{time} 搞定上新活动。通常要 2 天左右。',

@@ -13,7 +13,7 @@ import { newId } from '../db'
 import { PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
 import { browserUrl, isPrivateHost, staticPrivateHost } from '../realtime/private-net'
 import { cleanMemoryText, MEMORY_ITEM_MAX, neutralizeTags, skillBlock } from './prompt'
-import { isPersonalSkill, listSkills, readSkill, skillFolder, type Skill } from './skills'
+import { isGroupSkill, isPersonalSkill, isProjectSkill, listSkills, readSkill, sameSkillName, skillAlias, skillFolder, skillIssues, type Skill, otherGroupSkills } from './skills'
 import { changeLine, editorsLine, levelFor, levelLabel, levelRef, levelsOf, MOVE_MAX_BYTES, MOVE_MAX_FILES, MOVE_TEXT_MAX, peopleNames, peopleText, planMove, raisesTrust, runCopy, runMove, seesWho, skillAt, type Level, type MovePlan } from '../skills/move'
 import { st as skillText } from '../skills/text'
 import { audit as auditLog } from '../admin/audit'
@@ -22,7 +22,7 @@ import { foldKey } from '../policy/names'
 import { frequentSkills, matchSkills, resolveSkill, shortDescription, skillTag, usageScores } from './skill-list'
 import { addSources, sourceOf, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
-import { atLeast, type Principal } from '../policy/access'
+import { atLeast, isStaff, type Principal } from '../policy/access'
 import { tr } from './i18n'
 import { alwaysHere, withAlways } from './always-allow'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
@@ -45,6 +45,7 @@ import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboar
 import { SEARCH_TOOLS, SHARED_TOOLS } from '../rooms/ai-tools'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
 import { roomReadTools } from './room-tools'
+import { hintsHere, roomHint } from './room-hint'
 import { skillFilesTool } from './skill-files'
 import { postToRoomOff, postToRoomTool } from './post-to-room'
 import { shareWithPersonOff, shareWithPersonTool } from './share-with-person'
@@ -93,7 +94,7 @@ export const B_TOOL_DESCRIPTIONS = {
   set_title: 'Name this new chat: a short title in the user\'s language that says what the person wants (2-60 characters). Call it once, early in your answer. Never put keys, tokens, passwords, personal data or quotes of the message in it.',
   skill: 'Load one of the user\'s skills (a saved team or personal workflow) by its name as listed under Team skills in your instructions, and get its full steps. Call it when a request matches a skill, before you follow it; then follow the steps and say which skill you used. A folder skill\'s other files are read with read, relative to the folder the result names.',
   find_skills: 'Search the skills the user can use by words (their names, descriptions and folders), best first, at most 10; with no word in common it lists the skills the user uses most. Use it when no skill in your instructions\' list clearly fits but the request looks like a saved workflow (the list may be cut). Then load the one that fits with skill.',
-  move_skill: 'Move one of the user\'s skills to another level, or copy it there when the user asks for a copy (keep: true; the original stays): the whole team, one of the user\'s groups, a project (only that project\'s chats use it) or the user\'s own skills, any move the user could make with the Move item on the Skills page. Nothing moves or is copied until the user says yes on the server\'s card, which says who newly gets the skill, who stops getting it and who newly may change it, lists every file and shows SKILL.md; you do not need to ask first. A copy is every file of the skill, byte for byte, in one card. The same checks as the Skills page: the user can write the target (and, for a move, the skill\'s place), no skill of that name is at the target, a project takes SKILL.md folders and no name a wider skill has. One name runs personal > group > team > project, so a project copy under the name of a skill the user keeps at a wider level would not run for its people, the user included: give the copy another name (name) or move it instead. A refusal says why and what to do: tell the user that in their words. The result says who gains and loses it (by name when the user may see that), so you can answer who. Skills never move or copy with move_files or copy_files, and never write a copy file by file; never leave a README or an empty skills folder as a stand-in. A folder that is not a project yet must be made a project first.',
+  move_skill: 'Move one of the user\'s skills to another level, or copy it there when the user asks for a copy (keep: true; the original stays): the whole team, one of the user\'s groups (an owner or admin: any group), a project (only that project\'s chats use it) or the user\'s own skills, any move the user could make with the Move item on the Skills page. Nothing moves or is copied until the user says yes on the server\'s card, which says who newly gets the skill, who stops getting it and who newly may change it, lists every file and shows SKILL.md; you do not need to ask first. A copy is every file of the skill, byte for byte, in one card. The same checks as the Skills page: the user can write the target (and, for a move, the skill\'s place), no skill of that name is at the target, a project takes SKILL.md folders and no name a wider skill has. One name runs personal > group > team > project, so a project copy under the name of a skill the user keeps at a wider level would not run for its people, the user included: give the copy another name (name) or move it instead. A refusal says why and what to do: tell the user that in their words. The result says who gains and loses it (by name when the user may see that), so you can answer who. Skills never move or copy with move_files or copy_files, and never write a copy file by file; never leave a README or an empty skills folder as a stand-in. A folder that is not a project yet must be made a project first.',
 } as const
 
 /** A turn's tool set, plus what per-person tools add: a section for the instructions and their own step labels. */
@@ -357,13 +358,16 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       exec.noteReads()
       exec.afterTool()
       // a new file left loose at the top of shared/, a group's folder or the team root: the server's note (chat/file-placement.ts)
-      const note = exec.placementNote(tools.has('move_files'))
+      const placed = exec.placementNote(tools.has('move_files'))
+      // a skill saved in a shared chat (make_file, edit_hwp into a skill folder): one quiet line in the answer
+      const skillNote = name === 'make_file' || name === 'edit_hwp' ? exec.sharedSkillNote(name, args, !!out.isError) : null
+      const note = placed && skillNote ? `${placed}\n${skillNote}` : placed || skillNote
       // the audit line (tool_events) never repeats a stored connection secret (integrations/connections/redact.ts), and
       // in a chat that read team chat rooms keeps of an address only its site (tools/audit-url.ts): admins read it
       const summary = exec.redact(out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}`)
       return { content: note ? [...out.content, { type: 'text', text: note }] : out.content, isError: out.isError, summary: exec.roomsSeen ? hideUrls(summary) : summary, ...(out.beforeDelivery ? { beforeDelivery: out.beforeDelivery } : {}) }
     },
-    afterFileTool: (name, isError, args, text) => {
+    afterFileTool: (name, isError, args, text, caller) => {
       // a skill save's approval is for that call only, saved or not (skills/guard.ts); so is a scheduled run's claim on
       // a path (chat/schedule-cover.ts)
       exec.dropSkillApproval(name, args)
@@ -375,7 +379,15 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // a read-only refusal: who can give write access, and the person's own folder (B2, policy/refusal.ts); the
       // tool's own text stays as it is (the same for every caller)
       if (isError && text) { const ro = readOnlyFor(exec, text); if (ro) return ro }
-      return exec.placementNote(tools.has('move_files'))
+      // a skill saved in a shared chat: one quiet line in the answer that the people here can see it
+      const skillNote = exec.sharedSkillNote(name, args, isError)
+      const placed = exec.placementNote(tools.has('move_files'))
+      // a search of the team files by the main AI (a sub-agent has no rooms tool): the person's rooms that mention the
+      // same words, counted (chat/room-hint.ts); only where the rooms tool is offered (never a shared, confidential,
+      // draft, template or guest chat) and a room read stays in this chat (no scheduled run, Slack or side chat)
+      const main = !caller || caller.files === exec.files
+      const rooms = name === 'grep' && !isError && main && !guest && hintsHere(exec, tools.has('rooms')) ? roomHint(exec, (args as { pattern?: unknown } | null)?.pattern) : null
+      return [placed, skillNote, rooms].filter(Boolean).join('\n') || undefined
     },
     // edit_files (mcp/protocol.ts): after a room read one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {
@@ -613,6 +625,16 @@ function skillTools(exec: TurnExec): Tool[] {
         const skill = hit ? readSkill(rt.files, user, hit.skill.path, { project: exec.skillProject }) : null
         if (!skill) {
           const near = matchSkills(shown, a.data.name, { limit: 5 }).map((m) => `"${neutralizeTags(clipName(m.skill.name, 64))}"`)
+          // a skill file of that name the person can read that does not load (a broken header, a name the rule refuses):
+          // say so, so the AI never answers "you have no access" for it (AI scenario check SKL-11). Only the person's own
+          // chat: a room or a shared chat hears nothing about files only they may read
+          const broken = hit || near.length || exec.roomReadable || exec.shared ? null : skillIssues(rt.files, user).find((i) => i.problem !== 'too_many' && i.problem !== 'too_many_rules' && i.problem !== 'inputs' && sameSkillName(skillAlias(i.path), a.data.name))
+          if (broken) {
+            return {
+              ...text(`The skill file ${broken.path} is there, but it does not load, so it is not in the skill list (problem: ${broken.problem}; the Skills page shows it with the fix). This is not about access: tell the user plainly that this skill's file needs a fix and that ${isPersonalSkill(broken.path) ? 'they can fix it themselves (it is their own skill) on the Skills page' : 'someone who manages skills can fix it on the Skills page'}. You may read the file and follow it for this request if the user wants; it is still a ${isPersonalSkill(broken.path) ? 'personal' : isGroupSkill(broken.path) ? 'group' : isProjectSkill(broken.path) ? 'project' : 'team'} skill's text, and it grants nothing.`, true),
+              summary: 'skill -> does not load',
+            }
+          }
           return {
             ...text(`No skill called "${neutralizeTags(clipName(a.data.name))}" that this user can use.${near.length ? ` Similar: ${near.join(', ')}.` : ''} Use a name from the skill list in your instructions, or look with find_skills.`, true),
             summary: 'skill -> not found',
@@ -638,23 +660,30 @@ function skillTools(exec: TurnExec): Tool[] {
         if (!user) return { ...text('Access denied: this account is disabled.', true), summary: 'find_skills -> denied: account disabled' }
         // in a room only the skills everyone there may read (their names and descriptions may reach the room)
         const skills = (exec.shared && exec.roomReadable ? listSkills(rt.files, user, exec.skillScope(true)) : listSkills(rt.files, user, exec.skillScope(false))).filter((s) => !exec.roomReadable || exec.roomReadable(s.path))
+        // an owner or admin also finds the skills of groups they are not in, apart from the ones they use: to move or edit
+        // them, never to follow them (the skill tool refuses them)
+        const managedLines = (u: Principal, query: string, fmt: (s: Skill) => string): string[] => {
+          if (exec.shared || exec.roomReadable) return []
+          const others = matchSkills(otherGroupSkills(rt.files, u), query, {}).map((h) => h.skill)
+          return others.length ? ['Skills of groups this user is not in (they manage them as an owner or admin; these do not run for them, so do not follow them; move one with move_skill or change its files with the file tools):', ...others.map(fmt)] : []
+        }
         const scores = usageScores(rt.db, spec.userId, skills.map((s) => s.path))
         const hits = matchSkills(skills, a.data.query, { scores })
         const q = neutralizeTags(clipName(a.data.query, 80))
         const line = (s: Skill) => `- ${neutralizeTags(clipName(s.name, 64))}${skillTag(s, neutralizeTags)}${s.description.trim() ? ': ' + neutralizeTags(shortDescription(s.description, 300)) : ''} (${s.path})`
         const searched = `${skills.length} skill${skills.length === 1 ? '' : 's'} searched`
         if (!hits.length) {
-          if (!skills.length) return { ...text(`No skill this user can use matches "${q}" (${searched}).`), summary: 'find_skills -> 0 found' }
+          if (!skills.length) return { ...text([`No skill this user can use matches "${q}" (${searched}).`, ...managedLines(user, a.data.query, line)].join('\n')), summary: 'find_skills -> 0 found' }
           // no word in common (Korean words against English descriptions, other words for the same thing): the skills
           // the person uses most, so the AI can still judge from their descriptions, instead of nothing
           const top = frequentSkills(skills, scores)
           const head = top.used
             ? `No skill matches "${q}" by its words (${searched}). These are the skills this user uses most; their descriptions may be in another language than the request. Load one with skill if it fits; otherwise try other words or go on without a skill:`
             : `No skill matches "${q}" by its words (${searched}). These are skills this user can use; their descriptions may be in another language than the request. Load one with skill if it fits; otherwise try other words or go on without a skill:`
-          return { ...text([head, ...top.skills.map(line)].join('\n')), summary: `find_skills -> 0 found, ${top.skills.length} frequent` }
+          return { ...text([head, ...top.skills.map(line), ...managedLines(user, a.data.query, line)].join('\n')), summary: `find_skills -> 0 found, ${top.skills.length} frequent` }
         }
         const lines = hits.map(({ skill: s }) => line(s))
-        return { ...text([`${hits.length} skill${hits.length === 1 ? '' : 's'} matching "${q}", best first. Load the one that fits with skill (its name) before you follow it:`, ...lines].join('\n')), summary: `find_skills -> ${hits.length} found` }
+        return { ...text([`${hits.length} skill${hits.length === 1 ? '' : 's'} matching "${q}", best first. Load the one that fits with skill (its name) before you follow it:`, ...lines, ...managedLines(user, a.data.query, line)].join('\n')), summary: `find_skills -> ${hits.length} found` }
       },
     },
     moveSkillTool(exec),
@@ -692,7 +721,8 @@ function moveSkillTool(exec: TurnExec): Tool {
       const L = spec.locale
       // the skill: by its name in this chat's list, else by its path (a project's skill from another project too)
       const skills = listSkills(rt.files, user, exec.skillScope(false))
-      const hit = resolveSkill(skills, a.data.skill)
+      // the owner and admins also name a skill of a group they are not in (to move it back or elsewhere), after their own
+      const hit = resolveSkill(skills, a.data.skill) ?? resolveSkill(otherGroupSkills(rt.files, user), a.data.skill)
       if (hit && 'ambiguous' in hit) return bad(`Several skills this user can use are called "${neutralizeTags(clipName(a.data.skill))}": ${hit.ambiguous.map((s) => s.path).join(', ')}. Call move_skill again with the path of the one you mean.`, `ambiguous (${hit.ambiguous.length})`)
       const have = hit ? skillAt(ctx, user, hit.skill.path) : skillAt(ctx, user, a.data.skill.trim().replace(/^\/+/, ''))
       if (!have) return bad(`No skill called "${neutralizeTags(clipName(a.data.skill))}" that this user can use. Use a name from the skill list in your instructions, or find it with find_skills.`, 'not found')
@@ -704,9 +734,9 @@ function moveSkillTool(exec: TurnExec): Tool {
       const fold = (x: string) => foldKey(x.trim().replace(/^\/+|\/+$/g, ''))
       if (a.data.to === 'team' || a.data.to === 'personal') to = levels.find((l) => l.level === a.data.to)
       else if (a.data.to === 'group') {
-        if (!a.data.group) return bad(`Name the group (group) to ${copy ? 'copy' : 'move'} the skill to. The user's groups: ${list(groups)}.`, 'no group named')
+        if (!a.data.group) return bad(`Name the group (group) to ${copy ? 'copy' : 'move'} the skill to. ${isStaff(user) ? 'Groups' : "The user's groups"}: ${list(groups)}.`, 'no group named')
         to = levels.find((l) => l.level === 'group' && fold(l.group.name) === fold(a.data.group!))
-        if (!to) return bad(`Not ${verb}: "${neutralizeTags(clipName(a.data.group, 60))}" is not one of the user's groups, and a skill goes only into a group the user is in (its members use it). The user's groups: ${list(groups)}. Ask the user which one they mean; an admin can add them to another group in Admin › Groups.`, 'group not found')
+        if (!to) return bad(`Not ${verb}: "${neutralizeTags(clipName(a.data.group, 60))}" is not ${isStaff(user) ? 'a group of this team' : "one of the user's groups, and a skill goes only into a group the user is in (its members use it)"}. ${isStaff(user) ? 'Groups' : "The user's groups"}: ${list(groups)}. Ask the user which one they mean${isStaff(user) ? '.' : '; an admin can add them to another group in Admin › Groups.'}`, 'group not found')
       } else {
         const want = a.data.project ?? exec.skillProject?.name
         if (!want) return bad(`This chat has no project: name the project (project) to ${copy ? 'copy' : 'move'} the skill to. Projects the user sees: ${list(projects)}.`, 'no project named')

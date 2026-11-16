@@ -8,7 +8,9 @@ import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import electronPath from 'electron'
-import { ACME, addTeam, close, launch, newUserData, ROOT, signIn, teamPage } from './helpers'
+import { ACME, addTeam, close, launch, newUserData, ROOT, signIn, teamPage, stopLeftoverApps } from './helpers'
+
+stopLeftoverApps()
 
 test('one quit ends the app, and the sign-in is written to disk first', async () => {
   const userData = newUserData()

@@ -16,7 +16,7 @@ import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
 import { ApiErrorBody, ErrorCode, RelPath } from './common'
 import { BrowserCall, BrowserResult } from './browser'
-import { ArtifactSummary, ArtifactType, Chat, Job, JobKind, Memory, Message, MessageStatus, Step, UserRef } from './entities'
+import { ArtifactSummary, ArtifactType, Chat, ChatThreadReply, ChatThreadSummary, Job, JobKind, Memory, Message, MessageStatus, Step, UserRef } from './entities'
 import { CredentialLogin } from './credentials'
 import { IntegrationAuth, IntegrationKind, IntegrationScope } from './integrations'
 import { SkillProblem } from './skills'
@@ -261,6 +261,11 @@ export const ServerEvent = z.discriminatedUnion('type', [
    * answer the person stopped, a server stop, a scheduled run or a turn asked from Slack. Absent: show it, tell nothing.
    * 'deleted' with no chat: a shared project chat this person no longer sees (they lost its project): drop it. */
   ev('chat.updated', z.object({ chatId: Uuid7, change: z.enum(['created', 'updated', 'deleted', 'restored', 'purged']), chat: Chat.nullable(), notify: z.enum(['card', 'answer']).optional() })),
+  /** the thread under an AI answer of a shared chat changed (docs/decisions/20261116-chat-answer-threads.md), to each
+   * person who sees the chat and the answer now, as they see it: a reply came (`reply`), one was deleted (`replyId`), or
+   * I read it on another device (`read`: only to me). `thread`: the summary under the answer for me (null: no replies
+   * left). Replayed after a reconnect only while I still see the thread (realtime/hub.ts stillVisible). */
+  ev('chat.thread', z.object({ chatId: Uuid7, rootId: Uuid7, change: z.enum(['reply', 'deleted', 'read']), reply: ChatThreadReply.optional(), replyId: Uuid7.optional(), thread: ChatThreadSummary.nullable() })),
   /** my list folders changed (made, renamed, reordered, deleted, a chat or room put in or taken out): read them again
    * (GET /api/nav-folders). Only to me, never to anyone else (docs/DECISIONS.md "List folders"). An older page ignores
    * it (an unknown event). */

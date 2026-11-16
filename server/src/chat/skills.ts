@@ -14,10 +14,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import { isMap, isScalar, parseDocument } from 'yaml'
-import { parseSkillInputs, readSkillTitle, SKILL_EXAMPLE_MAX, type SkillInput } from '@mycel/shared/api'
+import { isSkillName, parseSkillInputs, readSkillTitle, SKILL_EXAMPLE_MAX, SKILL_NAME_MAX, SKILL_NAME_RE, skillNameSkeleton, type SkillInput } from '@mycel/shared/api'
 import type { FileService } from '../files/service'
 import { readRegular } from '../files/store'
-import { atLeast, type Principal, type RuleSet } from '../policy/access'
+import { atLeast, isStaff, type Principal, type RuleSet } from '../policy/access'
 import { authorize } from '../policy/authorize'
 import { PROJECTS_DIR, projectLevelPossible, projectSkillsDir } from '../skills/guard'
 
@@ -58,10 +58,10 @@ export const MAX_FILES = 1000
 export const SKILL_BODY_MAX = 16_000
 export const SKILL_FILE_MAX_BYTES = 128 * 1024
 const HEADER_MAX = 8 * 1024
-export const SKILL_NAME_MAX = 64
-/** What a SKILL.md folder's name (and its header's `name`) may be: lowercase letters and digits in words joined by
- * single hyphens (checkSkill; a renamed copy uses it too, skills/move.ts). */
-export const SKILL_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+/** The name rule of a SKILL.md folder (shared/src/api/skills.ts isSkillName; docs/decisions/20261116-skill-names-unicode.md). */
+export { isSkillName, SKILL_NAME_MAX, SKILL_NAME_RE }
+/** The NFC form a name is checked and compared in (a folder name read from disk may be NFD). */
+export const skillNameNFC = (n: string) => n.normalize('NFC')
 const LEGACY_NAME_MAX = 60
 const LEGACY_DESCRIPTION_MAX = 300
 const DESCRIPTION_MAX = 1024
@@ -122,6 +122,16 @@ export function groupSkillRoots(db: Database, user: Pick<Principal, 'groups'>): 
     if (!out.some((g) => g.root === root)) out.push({ id: r.id, name: r.name, root })
   }
   return out
+}
+/** The skill roots of every group with a folder, for the owner and admins only (they write every group's folder);
+ * `groupSkillRoots` of anyone else. Used to pick where a skill may be moved to, never to list or run skills: those stay
+ * with the groups a person is in. */
+export function movableGroupSkillRoots(db: Database, user: Pick<Principal, 'groups' | 'role'> & { system?: true }): GroupSkillRoot[] {
+  if (!isStaff(user)) return groupSkillRoots(db, user)
+  try {
+    const ids = (db.query('SELECT id FROM groups').all() as { id: string }[]).map((r) => r.id)
+    return groupSkillRoots(db, { groups: ids })
+  } catch { return [] }
 }
 /** The group whose folder is `folder` (groups/<name>, as the folders row has it; letter case and Unicode form ignored
  * only when no row has it exactly), or null: a folder left behind by a deleted group, or no group's folder at all. */
@@ -322,9 +332,10 @@ export function checkSkill(text: string, rel?: string): SkillCheck {
     const header = standardFields(headerText!)
     if (!header) return no('header')
     const { fields } = header
-    const name = fields.get('name'), description = fields.get('description')
-    if (!name || name.length > SKILL_NAME_MAX || !SKILL_NAME_RE.test(name)) return no('name')
-    if (name !== parts.at(-2)) return no('name_folder')
+    const written = fields.get('name'), description = fields.get('description')
+    const name = written === undefined ? undefined : skillNameNFC(written)
+    if (!name || !isSkillName(name)) return no('name')
+    if (name !== skillNameNFC(parts.at(-2)!)) return no('name_folder')
     if (!description?.trim() || [...description].length > DESCRIPTION_MAX) return no('description')
     const compatibility = fields.get('compatibility')
     if (compatibility !== undefined && (!compatibility.trim() || [...compatibility].length > 500)) return no('compatibility')
@@ -408,12 +419,19 @@ export function skillFileProblem(root: string, rel: string, text: string): Skill
 }
 
 /** One line for the AI after it saved a skill file that does not load, so it can tell the person and fix the file.
- * Empty when the file is not a problem. Tool results are in English; the screens use the codes. */
-export function skillWriteNote(root: string, rel: string, data: Buffer): string {
+ * Empty when the file is not a problem. Tool results are in English; the screens use the codes. `created`: the write
+ * made a new file: a new single .md skill (a header, not SKILL.md) loads, as older ones do, but new skills are folders
+ * (prompt.ts skillsSection), so the note says that for the next one. */
+export function skillWriteNote(root: string, rel: string, data: Buffer, o: { created?: boolean } = {}): string {
   const problem = skillFileProblem(root, rel, data.toString('utf8'))
   if (!problem) {
-    const form = isSkillManifest(rel) && skillRootLength(rel.split('/')) !== null && !isSkillResource(root, rel) ? skillInputsProblem(data.toString('utf8'), rel) : null
-    return form ? `\nWarning: the skill loads, but its form (metadata inputs) does not: ${form}. It runs without its form until the value is a JSON list of inputs. Tell the user, and fix it if they want the form.` : ''
+    const inRoot = skillRootLength(rel.split('/')) !== null && !isSkillResource(root, rel)
+    const form = isSkillManifest(rel) && inRoot ? skillInputsProblem(data.toString('utf8'), rel) : null
+    if (form) return `\nWarning: the skill loads, but its form (metadata inputs) does not: ${form}. It runs without its form until the value is a JSON list of inputs. Tell the user, and fix it if they want the form.`
+    if (o.created && inRoot && rel.endsWith('.md') && !isSkillManifest(rel) && parseSkill(data.toString('utf8'), rel)) {
+      return `\nNote: this single-file skill works, but a new skill should be a folder: ${path.posix.dirname(rel)}/<name>/SKILL.md, the name line the same as the folder name. Save the next new skill that way; leave this one unless the user asks.`
+    }
+    return ''
   }
   const how: Record<SkillProblem, string> = {
     too_large: `the file is larger than ${SKILL_FILE_MAX_BYTES / 1024} KB`,
@@ -422,7 +440,7 @@ export function skillWriteNote(root: string, rel: string, data: Buffer): string 
       ? 'a project\'s skills are folders with a SKILL.md (skills/<name>/SKILL.md in the project folder), not single .md files'
       : `SKILL.md must be in its own folder inside the skill folder, at most ${MAX_DEPTH} levels down`,
     name: isSkillManifest(rel)
-      ? `the name must have only lowercase a to z, 0 to 9 and hyphens, at most ${SKILL_NAME_MAX} characters, and be the same as the folder name; if the folder name has other characters, change the folder name too`
+      ? `the name must be lowercase letters (any language) and digits in words joined by single hyphens, no spaces, dots or capitals, at most ${SKILL_NAME_MAX} characters, and be the same as the folder name; if the folder name has other characters, change the folder name too`
       : `the name must be present, at most ${LEGACY_NAME_MAX} characters, with no /`,
     name_folder: 'the name must be the same as the folder name',
     description: `the description must be present, at most ${DESCRIPTION_MAX} characters`,
@@ -434,8 +452,28 @@ export function skillWriteNote(root: string, rel: string, data: Buffer): string 
 /** Read exactly one authorized entry using the same link/size checks as the file tools. A personal entry is a skill
  * only for its owner, a group entry only for the members of that group (the folder rules let the owner and admins read
  * every group folder; this check does not depend on them). */
-export function readSkill(files: FileService, user: Principal, inputPath: string, o: Pick<SkillScope, 'project'> = {}): Skill | null {
-  return readSkillIn(files, user, inputPath, null, projectRootsFor(o.project))
+export function readSkill(files: FileService, user: Principal, inputPath: string, o: Pick<SkillScope, 'project'> & { anyGroup?: boolean } = {}): Skill | null {
+  // anyGroup: the owner or an admin, to manage (move, edit) a group's skill whose group they are not in (skills/move.ts);
+  // never to use it: skill lists and runs keep the groups a person is in
+  return readSkillIn(files, user, inputPath, null, projectRootsFor(o.project), !!o.anyGroup)
+}
+
+/** The skills of the groups `user` is not in, for the owner and admins only (they manage every group's skills; the
+ * Skills page and the AI list them apart from the skills they use). [] for anyone else. A skill is never followed from
+ * here: only the groups a person is in run for them (listSkills). */
+export function otherGroupSkills(files: FileService, user: Principal): Skill[] {
+  if (!isStaff(user)) return []
+  const mine = new Set(groupSkillRoots(files.db, user).map((g) => g.id))
+  const groups = movableGroupSkillRoots(files.db, user).filter((g) => !mine.has(g.id))
+  const out: Skill[] = []
+  for (const g of groups) {
+    const scan: Scan = { rules: files.rules(), dirs: new Map(), groups: [g], projects: [] }
+    walkSkillRoot(files, user, g.root, (rel) => {
+      const skill = readSkillIn(files, user, rel, scan)
+      if (skill) out.push(skill)
+    }, scan)
+  }
+  return out
 }
 
 /** The skills folder of the chat's project, when it may have one: a team project on exactly projects/<name>
@@ -469,18 +507,18 @@ function projectRootOf(roots: readonly ProjectSkillRoot[], segs: readonly string
 /** readSkill inside one listing walk (walkSkillEntries: its rules and folder listings); never exported, so a memo of
  * folder listings cannot outlive the synchronous walk that made it. `projects`: the project skill roots this listing
  * is for (the chat's project); a project's skills are nobody's anywhere else. */
-function readSkillIn(files: FileService, user: Principal, inputPath: string, scan: Scan | null, projects: readonly ProjectSkillRoot[] = scan?.projects ?? []): Skill | null {
+function readSkillIn(files: FileService, user: Principal, inputPath: string, scan: Scan | null, projects: readonly ProjectSkillRoot[] = scan?.projects ?? [], anyGroup = false): Skill | null {
   try {
     const r = authorize(files.fx, scan?.rules ?? files.rules(), user, inputPath, 'read', scan ? { dirs: scan.dirs } : {})
     const root = skillRootLength(r.segs)
     if (root === null || (r.segs[0] === USERS_DIR && r.segs[1] !== user.id)) return null
-    const group = r.segs[0] === GROUPS_DIR ? groupRootOf(scan?.groups ?? groupSkillRoots(files.db, user), r.segs) : null
+    const group = r.segs[0] === GROUPS_DIR ? groupRootOf(scan?.groups ?? (anyGroup ? movableGroupSkillRoots(files.db, user) : groupSkillRoots(files.db, user)), r.segs) : null
     if (r.segs[0] === GROUPS_DIR && !group) return null
     // a project's skills: only in a listing for that project (the chat's), SKILL.md folders only
     const project = r.segs[0] === PROJECTS ? projectRootOf(projects, r.segs) : null
     if (r.segs[0] === PROJECTS && (!project || !isSkillManifest(r.rel))) return null
     if (r.segs.length > root + MAX_DEPTH || !r.rel.endsWith('.md') || isSkillResource(files.fx.root, r.rel)) return null
-    const text = readRegular(r.abs, SKILL_FILE_MAX_BYTES).bytes.toString('utf8')
+    const text = readRegular(r.abs, SKILL_FILE_MAX_BYTES, r.st).bytes.toString('utf8')
     const skill = parseSkill(text, r.rel)
     return skill ? { path: r.rel, ...skill, body: skill.body.slice(0, SKILL_BODY_MAX), ...(group ? { group: { id: group.id, name: group.name } } : {}), ...(project ? { project: { id: project.id, name: project.name } } : {}) } : null
   } catch { return null }
@@ -571,7 +609,7 @@ export function skillEntriesOnDisk(root: string, rootRel: string, as = rootRel):
       if (st.isDirectory()) { if (depth < MAX_DEPTH) walk(child, childRel, depth + 1); continue }
       if (!st.isFile() || st.nlink > 1 || !n.endsWith('.md') || project) continue
       let text: string
-      try { text = readRegular(child, SKILL_FILE_MAX_BYTES).bytes.toString('utf8') } catch { continue }
+      try { text = readRegular(child, SKILL_FILE_MAX_BYTES, st).bytes.toString('utf8') } catch { continue }
       const sk = parseSkill(text, `${as}/${childRel}`)
       if (sk) out.push({ path: childRel, kind: 'skill', name: sk.name })
       else if (team && depth === 1 && !isSkillManifest(n) && !hasFrontmatter(text)) out.push({ path: childRel, kind: 'rule', name: n })
@@ -604,9 +642,10 @@ export function listTeamSkills(files: FileService, user: Principal): Skill[] {
 
 /** The skills of one group of `user` (its groups/<folder>/skills/ only), whether or not a personal skill of theirs has
  * the same name; [] when they are not a member: for checks against a group's own skills (a share to that group). */
-export function listGroupSkills(files: FileService, user: Principal, groupId: string): Skill[] {
+export function listGroupSkills(files: FileService, user: Principal, groupId: string, o: { anyGroup?: boolean } = {}): Skill[] {
   const out: Skill[] = []
-  const groups = groupSkillRoots(files.db, user).filter((g) => g.id === groupId)
+  // anyGroup: the owner or an admin, who may move a skill into a group they are not in (skills/move.ts), checks its names
+  const groups = (o.anyGroup ? movableGroupSkillRoots(files.db, user) : groupSkillRoots(files.db, user)).filter((g) => g.id === groupId)
   if (!groups.length) return out
   const scan: Scan = { rules: files.rules(), dirs: new Map(), groups, projects: [] }
   walkSkillRoot(files, user, groups[0]!.root, (rel) => {
@@ -646,14 +685,15 @@ function pickWinners(all: readonly Skill[], wider: readonly Skill[] = all): { sk
   // a name the sender has at a higher tier)
   const byName = new Map<string, Skill[]>(), byAlias = new Map<string, Skill[]>()
   const add = (m: Map<string, Skill[]>, k: string, s: Skill) => m.set(k, [...(m.get(k) ?? []), s])
-  for (const s of wider) if (skillTier(s) < 3) { add(byName, nameKey(s.name), s); add(byAlias, nameKey(skillAlias(s.path)), s) }
+  // keyed by the look-alike skeleton: a project skill "quоte" (Cyrillic о) is no new name next to a wider "quote"
+  for (const s of wider) if (skillTier(s) < 3) { add(byName, skillNameSkeleton(s.name), s); add(byAlias, skillNameSkeleton(skillAlias(s.path)), s) }
   const byPath = (a: Skill, b: Skill) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path)
   const named = (s: Skill) => skillTier(s) !== best.get(nameKey(s.name))
-  const givesWay = (s: Skill) => skillTier(s) === 3 && (byName.has(nameKey(s.name)) || byAlias.has(nameKey(s.name)))
+  const givesWay = (s: Skill) => skillTier(s) === 3 && (byName.has(skillNameSkeleton(s.name)) || byAlias.has(skillNameSkeleton(s.name)))
   const skills = all.filter((s) => !named(s) && !givesWay(s)).sort(byPath)
   const lost = all.filter((s) => named(s) || givesWay(s)).sort(byPath).map((s) => {
     const to = named(s) ? skills.filter((w) => sameSkillName(w.name, s.name)) : []
-    return { skill: s, to: to.length ? to : [...(byName.get(nameKey(s.name)) ?? []), ...(byAlias.get(nameKey(s.name)) ?? [])].sort((a, b) => skillTier(a) - skillTier(b) || byPath(a, b)) }
+    return { skill: s, to: to.length ? to : [...(byName.get(skillNameSkeleton(s.name)) ?? []), ...(byAlias.get(skillNameSkeleton(s.name)) ?? [])].sort((a, b) => skillTier(a) - skillTier(b) || byPath(a, b)) }
   })
   return { skills, lost }
 }
@@ -694,11 +734,11 @@ export function scanSkillsWithShadowed(files: FileService, user: Principal, scop
 }
 
 /** Every personal, group and team skill `user` sees (the ones that run and the ones a better tier hides) whose name, or
- * whose file or folder name, is `name`, but `except`: what a project skill of that name would give way to (a project only
+ * whose file or folder name, is `name` or looks like it (skillNameSkeleton: "quоte" with a Cyrillic о is "quote"), but `except`: what a project skill of that name would give way to (a project only
  * adds names), widest first. For the save and move cards (docs/DECISIONS.md "Project skills"). */
 export function widerSkillsNamed(files: FileService, user: Principal, name: string, except?: string): Skill[] {
   const { skills, shadowed } = scanSkillsWithShadowed(files, user)
-  return [...skills, ...shadowed.map((x) => x.skill)].filter((s) => s.path !== except && skillTier(s) < 3 && (sameSkillName(s.name, name) || sameSkillName(skillAlias(s.path), name)))
+  return [...skills, ...shadowed.map((x) => x.skill)].filter((s) => s.path !== except && skillTier(s) < 3 && (skillNameSkeleton(s.name) === skillNameSkeleton(name) || skillNameSkeleton(skillAlias(s.path)) === skillNameSkeleton(name)))
     .sort((a, b) => skillTier(a) - skillTier(b) || a.path.localeCompare(b.path))
 }
 
@@ -765,7 +805,7 @@ export function skillIssues(files: FileService, user: Principal, o: { rules?: { 
       if (isSkillResource(files.fx.root, r.rel)) return
       if (!r.st?.isFile()) return
       if (r.st.size > SKILL_FILE_MAX_BYTES) { out.push({ path: r.rel, problem: 'too_large' }); return }
-      const text = readRegular(r.abs, SKILL_FILE_MAX_BYTES).bytes.toString('utf8')
+      const text = readRegular(r.abs, SKILL_FILE_MAX_BYTES, r.st).bytes.toString('utf8')
       const problem = loadProblem(text, r.rel)
       if (problem) out.push({ path: r.rel, problem })
       else if (isSkillManifest(r.rel) && skillInputsProblem(text, r.rel)) out.push({ path: r.rel, problem: 'inputs' })
@@ -785,7 +825,9 @@ export function skillIssues(files: FileService, user: Principal, o: { rules?: { 
  * group skill before a team skill; between two groups' skills the group that comes first in groupOrder (its name,
  * letter case ignored, then its id), then the path. Folder skills never acquire a shared /SKILL alias. */
 export function invokedSkill(skills: Skill[], content: string): { skill: Skill; input: string } | null {
-  const t = content.trimStart()
+  // NFC, as names are compared: "/거래처-응대" typed in NFD (some Mac input) still runs it, and the input is cut at
+  // the same place
+  const t = content.trimStart().normalize('NFC')
   if (!t.startsWith('/')) return null
   const rest = t.slice(1)
   const fold = (s: string) => s.normalize('NFC').toLowerCase()

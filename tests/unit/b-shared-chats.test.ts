@@ -486,6 +486,8 @@ describe('what a shared turn has', () => {
       project: { name: 'Falcon', folderPath: 'projects/falcon', instructions: 'PROJECT-INSTR' }, browser: true,
       tools: ['make_file', 'search'], history: [{ role: 'user', content: 'earlier' }], connected: '## Connected services\nCONN-CANARY', subagents: true, now: new Date('2026-11-07T09:00:00Z'),
       shared: { project: 'Falcon', audience: 4, asker: user.name }, roomReadable: (rel) => !rel.startsWith('groups/marketing') && !rel.startsWith('users/'), skillChanges: 'SKILL-CHANGES',
+      // where things are in the app (chat/app-map.ts): its shared form, the same for everyone here
+      appMap: { view: 'shared', managed: false, devEnv: false, office: false },
     }
     const built: [ReturnType<typeof turnPromptSections>, string][] = [
       [turnPromptSections(h.ctx.files, input), buildTurnPrompt(h.ctx.files, input)],
@@ -497,6 +499,7 @@ describe('what a shared turn has', () => {
       for (const canary of ['MEMORY-CANARY', 'CONN-CANARY', 'ZZ-GROUP-CANARY', 'role member', 'groups/marketing']) expect({ canary, in: prompt.includes(canary) }).toEqual({ canary, in: false })
     }
     expect(buildTurnPrompt(h.ctx.files, input)).toContain('## Shared project chat')
+    expect(buildTurnPrompt(h.ctx.files, input)).toContain('## Where things are in the app')
     // a fresh session of bob's gets the transcript with who wrote each message
     const chat = await newShared()
     await ask('alice', chat.id, 'ALICE-QUESTION\n' + fake({ say: 'answer one' }))

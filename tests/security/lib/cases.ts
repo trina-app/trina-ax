@@ -221,6 +221,16 @@ export const SPECS: Record<string, Spec> = {
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} posted into alice's chat`) } },
   stop: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/stop`), scope: 'own-alice-chat' },
   messageSources: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}/messages/${w.ids.assistantMsg}/sources`), scope: 'own-alice-chat' },
+  // threads on AI answers (chat/threads.ts): alice's chat is private, so it has no thread (a 404 for alice too, after the
+  // permission check); everyone else the 404 of a missing chat, and nothing is posted or deleted. The roles x states of
+  // a shared chat: tests/security/shared-project-chats.test.ts, people-shared-chats.test.ts
+  listChatThread: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}/messages/${w.ids.assistantMsg}/thread`), scope: 'own-alice-chat', allowNotFound: true },
+  sendChatThreadReply: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages/${w.ids.assistantMsg}/thread`, { text: 'hi from intruder', clientId: cm() }), scope: 'own-alice-chat',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who} replied under an answer of a private chat`) } },
+  deleteChatThreadReply: { build: (c, w) => c.del(`/api/chats/${w.ids.chatA}/thread-replies/${w.ids.assistantMsg}`), scope: 'own-alice-chat',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who} deleted a reply that is not there`) } },
+  markChatThreadRead: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages/${w.ids.assistantMsg}/thread/read`, { upTo: w.ids.userMsg }), scope: 'own-alice-chat',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who} marked a question as a read reply`) } },
   // "대화방에 보내기": alice's answer to the DM she shares with erin. Only alice; her chat used her own project folder, so
   // she is asked first ("confirm": how many, never who) and nothing is sent without confirm: true
   shareAnswerToRoom: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages/${w.ids.assistantMsg}/share-to-room`, { roomId: w.ids.dmRoom, clientMessageId: cm() }), scope: 'own-alice-chat',

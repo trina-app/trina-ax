@@ -50,7 +50,7 @@ describe('no longer a member', () => {
     expect(JSON.parse(rows[0]!.detail)).toMatchObject({ projectId: p.id, userId: 'bob', name: 'Atlas', via: 'project' })
     // the old links
     expect(await err(getProject('bob', p.id))).toMatchObject(GONE('Atlas'))
-    expect((await err(getProject('bob', p.id)))!.message).toBe("더 이상 'Atlas' 프로젝트의 멤버가 아니에요.")
+    expect((await err(getProject('bob', p.id)))!.message).toBe('더 이상 Atlas 프로젝트의 멤버가 아니에요.')
     expect(await err(getChat('bob', seen))).toMatchObject(GONE('Atlas'))
     // someone else's private chat there: the one 404 of a missing chat, as before
     expect((await err(getChat('bob', theirs)))!.params).toBeNull()

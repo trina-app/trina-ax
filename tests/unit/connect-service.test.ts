@@ -187,6 +187,10 @@ describe('connect_service without a card', () => {
     expect(cards(t.turnId)).toEqual([])
     for (const words of ['a service needs url', 'an https address', 'private or office network', 'the notes looks like it contains a key', 'Only an admin can add a team connection', 'own connection "Open" is already connected', 'authHeader cannot carry a key', 'Google Drive is not set up', 'the url looks like it contains a key'])
       expect(m.content, words).toContain(words)
+    // every refusal says that no card was shown (AI scenario check CON-02: "I'll show a connect card" after a refusal)
+    expect(m.content).toContain('and how it signs in). No card was shown.')
+    expect(m.content).toContain('Google Drive is not set up for this team yet')
+    expect(m.content).toContain('do not say a card is or will be shown')
     // the step never shows the key-looking notes, and says nothing was connected
     expect(m.steps.filter((s) => s.tool === 'connect_service').length).toBe(9)
     expect(m.content.includes('sk-live-4f9a8b7c6d5e4f3a2b1c') || JSON.stringify(m.steps).includes('sk-live')).toBe(false)

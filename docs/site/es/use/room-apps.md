@@ -28,7 +28,7 @@ apps; elija una y se abre con la guía de ese servicio. Si aún no tiene ninguna
 
 ![Añadir una app: sus mensajes aparecen en la sala para todos los que están en ella; luego Formularios de Google, Otra app, GitHub y Sentry](../../images/room-apps/picker.webp "Añadir una app")
 
-Quién puede hacerlo: en una sala de equipo o en la sala de todos, sus propietarios y administradores; en un chat 1:1 o de grupo, cualquiera que esté en él.
+Quién puede hacerlo: en un canal (incluido el canal Todos), sus propietarios y administradores; en un mensaje directo (chat 1:1 o de grupo), cualquiera que esté en él.
 Las demás personas de la sala ven las tarjetas, responden en sus hilos y preguntan a Trina sobre ellas. Al tocar el nombre de la app
 se ve quién la configuró.
 
@@ -113,7 +113,7 @@ no pueden firmar: su Webhook URL es la única clave, así que manténgalo en pri
 ### Otras apps
 
 Una herramienta que pide un **Slack, Discord or JANDI webhook URL** (URL de webhook de Slack, Discord o JANDI) puede publicar aquí: pegue el Webhook URL de Trina en ese campo.
-Las herramientas que no tienen ninguno de los dos se pueden conectar a través de Zapier o Make; **¿No ves tu app?** en la guía explica un
+Las herramientas que no tienen ninguno de los dos se pueden conectar a través de Zapier o Make; **¿No ve su app?** en la guía explica un
 ejemplo de cada uno.
 
 Funciona cualquier cosa que pueda enviar un mensaje a un Webhook URL (Zapier, Make, Grafana, Uptime Kuma, sus propios scripts). Pegue
@@ -133,6 +133,8 @@ con un ejemplo para copiar:
 ```bash
 curl -X POST -H 'Content-Type: application/json' -d '{"text":"Hello from my app"}' <Webhook URL>
 ```
+
+Una **Otra app** muestra la primera letra de su nombre sobre su propio color, así que dos de ellas en una sala no se ven iguales. Para ponerle una imagen, abra su configuración y elija **Cambiar el icono**: **Subir una imagen** (PNG, JPEG o WebP; se recorta en cuadrado) o **Elegir un emoji**. **Quitar el icono** vuelve a la letra. El icono aparece en todos los mensajes de la aplicación, también en los anteriores. Un mensaje no puede cambiar el nombre ni el icono de la aplicación: campos como `username`, `icon_url` e `icon_emoji` de Slack o `avatar_url` de Discord se ignoran, así que nada enviado a la Webhook URL puede hacerse pasar por una persona u otra aplicación.
 
 ### GitHub
 
@@ -173,6 +175,7 @@ Necesita ser propietario o manager en Sentry.
 - **Avisos**, cada uno con una acción: por qué no se mostró el último intento (**Revisar el secreto**), *Alguien que se fue conoce este
   Webhook URL* (**Regenerar**) y, para un servicio que puede firmar pero aún no tiene secreto, *Sin firma: cualquiera con el Webhook URL puede
   publicar* (**Hacerlo más seguro**).
+- **Cambiar el icono** (Otra app): una imagen o un emoji en lugar de la primera letra de su nombre, o **Quitar el icono**.
 - **Nombre**: el nombre con el que aparecen sus mensajes.
 - **Mostrar en esta sala**: los tipos de novedades que se publican (para las apps que envían más de un tipo). Un evento opcional que
   nunca configuró en el servicio (por ejemplo, los reembolsos de Shopify) dice *Sin configurar en Shopify*, con un enlace a ese paso.

@@ -28,7 +28,7 @@ satu dan percakapan itu terbuka dengan panduan layanan tersebut. Jika belum ada,
 
 ![Add an app: pesannya muncul di ruang obrolan untuk semua orang di sana, lalu Google Forms, Other app, GitHub dan Sentry](../../images/room-apps/picker.webp "Tambah aplikasi")
 
-Siapa yang bisa melakukannya: di ruang tim atau ruang semua orang, owner dan admin ruang itu; di obrolan 1:1 atau obrolan grup, siapa pun di dalamnya.
+Siapa yang bisa melakukannya: di saluran (termasuk saluran Semua), owner dan admin saluran itu; di pesan langsung (obrolan 1:1 atau obrolan grup), siapa pun di dalamnya.
 Semua orang lain di ruang obrolan melihat kartunya, membalas di utasnya, dan bertanya ke Trina tentangnya. Mengetuk nama aplikasi
 menunjukkan siapa yang memasangnya.
 
@@ -113,7 +113,7 @@ tidak bisa menandatangani: Webhook URL mereka adalah satu-satunya kunci, jadi ra
 ### Aplikasi lain
 
 Alat yang meminta **webhook URL Slack, Discord, atau JANDI** bisa mengirim ke sini: tempelkan Webhook URL Trina di kolom itu.
-Alat yang tidak punya keduanya bisa dihubungkan lewat Zapier atau Make; **Aplikasimu tidak ada?** di panduan menunjukkan satu
+Alat yang tidak punya keduanya bisa dihubungkan lewat Zapier atau Make; **Aplikasi Anda tidak ada?** di panduan menunjukkan satu
 contoh untuk masing-masing.
 
 Apa pun yang bisa mengirim pesan ke Webhook URL (Zapier, Make, Grafana, Uptime Kuma, skrip Anda sendiri) bisa dipakai. Tempelkan
@@ -133,6 +133,8 @@ dengan contoh untuk disalin:
 ```bash
 curl -X POST -H 'Content-Type: application/json' -d '{"text":"Hello from my app"}' <Webhook URL>
 ```
+
+Aplikasi lain menampilkan huruf pertama namanya di atas warnanya sendiri, jadi beberapa aplikasi lain dalam satu ruangan tidak terlihat sama. Untuk memakai gambar, buka pengaturannya dan pilih **Ganti ikon**: **Unggah gambar** (PNG, JPEG, atau WebP; dipotong menjadi persegi) atau **Pilih emoji**. **Hapus ikon** mengembalikan hurufnya. Ikon tampil di semua pesan aplikasi itu, termasuk yang lama. Pesan tidak bisa mengubah nama atau ikon aplikasi: kolom seperti `username`, `icon_url`, dan `icon_emoji` milik Slack atau `avatar_url` milik Discord diabaikan, jadi apa pun yang dikirim ke Webhook URL tidak bisa menyamar sebagai orang atau aplikasi lain.
 
 ### GitHub
 
@@ -172,6 +174,7 @@ Anda harus menjadi owner atau manager di Sentry.
 - **Peringatan**, masing-masing dengan satu aksi: alasan kiriman terakhir tidak ditampilkan (**Periksa rahasia**), *Seseorang yang sudah keluar mengetahui
   Webhook URL ini* (**Buat ulang**), dan, untuk layanan yang bisa menandatangani tetapi belum punya rahasia, *Tidak ditandatangani: siapa pun yang tahu Webhook URL bisa
   mengirim* (**Buat lebih aman**).
+- **Ganti ikon** (aplikasi lain): gambar atau emoji sebagai pengganti huruf pertama namanya, atau **Hapus ikon**.
 - **Nama**: nama yang menyertai pesan-pesannya.
 - **Tampilkan di ruangan ini**: jenis kabar yang dikirim (untuk aplikasi yang mengirim lebih dari satu jenis). Event opsional yang
   belum pernah Anda atur di layanan itu (misalnya refund di Shopify) menampilkan *Belum diatur di Shopify*, dengan tautan ke langkah tersebut.

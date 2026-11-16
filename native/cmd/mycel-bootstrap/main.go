@@ -19,6 +19,9 @@
 // the version the bootstrap started, the deadline moves to now + --health-timeout; still migrating after start +
 // --migrate-timeout, it is rolled back;
 // progress goes to the log every minute. Dying still counts towards --max-attempts (QA TC-278, 2026-11-12).
+// On Linux a pending update that answers /api/health is kept only when the engine account can also start the engine's
+// sandbox with it: the bootstrap asks the launcher (enginecheck.go), and a failed check rolls back like a version that
+// does not come up (QA TC-3523, 2026-11-16: a version folder left 0750/0640 answered health while every AI answer failed).
 // Normal crashes restart after 1 s; more than 5 crashes in 5 minutes back off 1, 2, 4 ... 60 s. launchd's KeepAlive
 // only restarts the bootstrap itself.
 package main
@@ -56,6 +59,7 @@ var (
 	maxAttempts    = flag.Int("max-attempts", 3, "a pending update that dies this many times before it is healthy is rolled back")
 	allowUnsigned  = flag.Bool("allow-unsigned", false, "accept versions without manifest.sig (development and test installs; no release key exists yet)")
 	updateLog      = flag.String("update-log", "", "append update / roll-back events here (JSON lines)")
+	launcherSock   = flag.String("launcher-sock", "", "Linux: the launcher's socket for the engine check after an update (default <base>/run-launcher/launcher.sock)")
 	pubkeys        multi
 )
 
@@ -320,6 +324,33 @@ func stopChild(cmd *exec.Cmd, done <-chan error) {
 	}
 }
 
+// keepHealthy records that v came up and stays: a pending update that answered health (and passed the engine check), or
+// a forwarded version (started again after the version before could not read the database). note, when given, is the
+// history entry's detail (engineHostDetail).
+func keepHealthy(st *appState, v string, forwarded bool, note string) {
+	from := st.Current // the version before this update (the server left current alone when it switched)
+	if from != nil && *from == v {
+		from = nil
+	}
+	detail := ""
+	if forwarded {
+		// the version before cannot read the database: it is no roll-back target any more
+		st.Previous, st.Forward = nil, nil
+		detail = "started again after it was stopped"
+		if from != nil {
+			detail = fmt.Sprintf("started again after %s could not read the database this version had already updated", *from)
+		}
+	} else if from != nil && st.Previous == nil {
+		st.Previous = from
+	}
+	if note != "" {
+		detail = note
+	}
+	st.Current, st.Pending, st.PendingSince, st.Attempts = sp(v), nil, nil, 0
+	record(st, from, v, "ok", detail)
+	_ = writeState(*st)
+}
+
 // rollBack points app/current back at state.previous after a failed update; returns false when there is nothing to
 // go back to.
 func rollBack(st *appState, failed, why string) bool {
@@ -567,6 +598,8 @@ func run() int {
 		if pending || forwarded {
 			healthyCh = time.After(0)
 		}
+		// engineCh: the engine check of a pending version that answered health (nil: none running)
+		var engineCh <-chan engineResult
 		deadline := started.Add(*healthTimeout)
 		sawMigrating, migrateLogged := false, time.Time{}
 		exited := false
@@ -583,6 +616,26 @@ func run() int {
 				return 0
 			case <-hup:
 				_ = cmd.Process.Signal(syscall.SIGHUP)
+			case r := <-engineCh:
+				engineCh = nil
+				if r.failed != "" {
+					why := "the AI engine cannot start with this version, so every AI answer would fail: " + r.failed
+					logf("version %s: %s", v, why)
+					stopChild(cmd, done)
+					st = readState()
+					rollBack(&st, v, why)
+					break watch
+				}
+				if r.skipped != "" {
+					logf("version %s: engine check skipped: %s", v, r.skipped)
+				}
+				st = readState()
+				note := ""
+				if r.hostProblem {
+					note = engineHostDetail + r.skipped
+				}
+				keepHealthy(&st, v, false, note)
+				pending, healthyCh = false, nil
 			case <-healthyCh:
 				hs, progress := checkHealth(url, v)
 				if hs == migrating {
@@ -595,25 +648,15 @@ func run() int {
 					sawMigrating = true
 				}
 				if hs == isHealthy {
+					if pending {
+						// kept only once the engine can start with it too; meanwhile the server runs and is watched
+						// (it exiting, a stop) as before, and health is not asked again
+						logf("version %s answers health; checking that the AI engine can start with it", v)
+						engineCh, healthyCh = startEngineCheck(), nil
+						continue
+					}
 					st = readState()
-					from := st.Current // the version before this update (the server left current alone when it switched)
-					if from != nil && *from == v {
-						from = nil
-					}
-					detail := ""
-					if forwarded {
-						// the version before cannot read the database: it is no roll-back target any more
-						st.Previous, st.Forward = nil, nil
-						detail = "started again after it was stopped"
-						if from != nil {
-							detail = fmt.Sprintf("started again after %s could not read the database this version had already updated", *from)
-						}
-					} else if from != nil && st.Previous == nil {
-						st.Previous = from
-					}
-					st.Current, st.Pending, st.PendingSince, st.Attempts = sp(v), nil, nil, 0
-					record(&st, from, v, "ok", detail)
-					_ = writeState(st)
+					keepHealthy(&st, v, forwarded, "")
 					pending, forwarded, healthyCh = false, false, nil
 					continue
 				}

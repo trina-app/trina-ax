@@ -20,6 +20,8 @@ export const SETUP_TOKEN_LIFETIME_MS = 365 * 24 * 3600_000
 /** diagnostics warn this long before that */
 export const SETUP_TOKEN_WARN_MS = 14 * 24 * 3600_000
 export const TOKEN_RE = /^sk-ant-oat\d{2}-[A-Za-z0-9_-]{20,1000}$/
+/** settings row: the connection made from the token file and that token's fingerprint (credentials/migrate.ts) */
+export const FILE_TOKEN_KEY = 'credentials.fileToken'
 /** settings row: the upstream answered 401 for the token with this fingerprint */
 export const REJECTED_KEY = 'subscription_token_rejected'
 
@@ -47,6 +49,26 @@ export class TokenReader {
     this.cache = { key, value }
     return value
   }
+}
+
+/**
+ * Remove the token file when it holds the token with fingerprint `fp` (the AI connection made from it was deleted in
+ * Admin › AI providers): its bytes are overwritten with zeros, then it is unlinked, so the token is not left on disk
+ * (QA 2026-11-16: the file stayed after the delete). A file with another token (a newer one put in since), a link or
+ * anything that is not a regular file is left. Returns whether it was removed.
+ */
+export function removeTokenFile(secretsDir: string, fp: string): boolean {
+  const file = tokenFile(secretsDir)
+  const token = new TokenReader(file).read()
+  if (!token || fingerprint(token) !== fp) return false
+  const fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW)
+  try {
+    const size = fs.fstatSync(fd).size
+    if (size > 0) fs.writeSync(fd, Buffer.alloc(size), 0, size, 0)
+    fs.fsyncSync(fd)
+  } finally { fs.closeSync(fd) }
+  fs.unlinkSync(file)
+  return true
 }
 
 export type TokenState = 'missing' | 'malformed' | 'ok' | 'expiring' | 'expired' | 'invalid'

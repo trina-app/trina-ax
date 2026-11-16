@@ -68,11 +68,13 @@ jobs:
       # what the mock team server and the specs need that the runner image has none of: ffmpeg (previews.spec.ts makes
       # its test videos with it), pandoc (the docx and pptx samples: without it answer-sources lists 3 files, not 4),
       # bubblewrap and fontconfig (the HWP renderer runs isolated as on a server: without bwrap the mock answers "Safe
-      # document rendering is unavailable" and no Hangul page is drawn)
-      - name: Tools (ffmpeg, pandoc, bubblewrap)
+      # document rendering is unavailable" and no Hangul page is drawn), and a phone's font: Roboto as sans-serif and
+      # system-ui (web/test/e2e/fonts/phone-font.conf), so the specs that measure text against its box draw it as a
+      # phone does, not in the runner's much wider DejaVu Sans
+      - name: Tools (ffmpeg, pandoc, bubblewrap, the phone font)
         run: |
           for try in 1 2 3 4 5; do
-            sudo apt-get -o Acquire::Retries=3 update -qq && sudo apt-get -o Acquire::Retries=3 install -y -qq --no-install-recommends ffmpeg bubblewrap libfontconfig1 && break
+            sudo apt-get -o Acquire::Retries=3 update -qq && sudo apt-get -o Acquire::Retries=3 install -y -qq --no-install-recommends ffmpeg bubblewrap libfontconfig1 fonts-roboto-unhinted && break
             [ "$try" = 5 ] && exit 1
             echo "::warning::apt failed (try $try of 5); trying again in $((try * 20)) s"; sleep $((try * 20))
           done
@@ -82,6 +84,11 @@ jobs:
             curl -fsSL --retry 5 --retry-all-errors -o "$deb" "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-1-amd64.deb"
           fi
           sudo dpkg -i "$deb"
+          sudo install -m 644 web/test/e2e/fonts/phone-font.conf /etc/fonts/conf.d/99-mycel-e2e-phone-font.conf
+          fc-cache -f
+          for generic in sans-serif system-ui; do
+            [ "$(fc-match -f '%{family}' "$generic")" = Roboto ] || { echo "::error::$generic is not Roboto: $(fc-match "$generic")"; exit 1; }
+          done
           pandoc --version | head -1; ffmpeg -version | head -1
       # as ci.yml: Ubuntu 24.04 restricts unprivileged user namespaces; the installer's bwrap-only AppArmor allowance
       - name: Enable and smoke-test converter isolation

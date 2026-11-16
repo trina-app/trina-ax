@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Bell } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { fileLinkUrl, isGoogleRequestable, type InboxNotification, type Locale, type NotificationPreferences } from '@mycel/shared/api'
+import { fileBatchUrl, fileLinkUrl, isGoogleRequestable, type InboxNotification, type Locale, type NotificationPreferences } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { connectionHref, connectorHref, CONNECTORS_HOME } from '../../lib/connectors'
 import { firstRunText } from '../../lib/teamGoal'
@@ -28,8 +28,9 @@ import { leaverNoticeLink, leaverNoticeText, pausedNoticeLink, pausedNoticeText 
 /** 작업·연결 알림: the server's switches for what is not a conversation (the rooms' are in RoomNotifySettings).
  * chatAnswers: a push when an answer in my own AI chat needs me (docs/DECISIONS.md "AI 답변 알림"); chatShares: a push
  * when someone shares a chat with me by name (docs/DECISIONS.md "Chats shared with me: a push that names the sharer";
- * a server from before it leaves it out: no row) */
-const workKeys = ['chatAnswers', 'chatShares', 'scheduleSuccess', 'scheduleFailure', 'connectionReconnect', 'skillSuggestions'] as const
+ * a server from before it leaves it out: no row); fileShares: a push when someone shares a file with me by name or asks to
+ * open a file I answer for (docs/decisions/20261116-file-share-push-gaps.md; an older server leaves it out: no row) */
+const workKeys = ['chatAnswers', 'chatShares', 'fileShares', 'scheduleSuccess', 'scheduleFailure', 'connectionReconnect', 'skillSuggestions'] as const
 
 /** A conversation notice from a server that does not say where and why (RoomNoticeRow does), or one whose message I may
  * no longer read: who wrote it when the server still names them, no text. */
@@ -145,6 +146,9 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   // a chat shared with me (docs/DECISIONS.md "Chats shared with people and groups"): who shared it while their account is
   // there; one I no longer see says so (no title, no link)
   if (item.code === 'chat.shared' && item.chatShared) return item.chatShared.gone ? t('notifications.event.chat.sharedGone') : item.chatShared.name ? t('notifications.event.chat.sharedNamed', { name: item.chatShared.name }) : t('notifications.event.chat.shared')
+  // a reply in a thread I follow under an AI answer of a shared chat: who and which chat while I still see it; else it
+  // says so with nothing of it
+  if (item.code === 'chat.thread_reply') return !item.chatThread || item.chatThread.gone ? t('notifications.event.chat.thread_replyGone') : item.chatThread.name && item.chatThread.title ? isolate(locale, 'notifications.event.chat.thread_replyNamed', { name: item.chatThread.name, title: item.chatThread.title }, ['name', 'title']) : t('notifications.event.chat.thread_reply')
   if (item.code.startsWith('file.')) return fileShareText(item, t)
   if (item.code === 'onboarding.first_run') return firstRunText(t, locale, item)
   if (item.code === 'account.deletion_request') return deletionNoticeText(t, item, locale)
@@ -193,6 +197,8 @@ export function fileShareText(item: InboxNotification, t: T): string {
   const f = item.fileShare
   const code = item.code as 'file.shared' | 'file.access_requested' | 'file.access_answered' | 'file.unshared_by_move'
   if (code === 'file.access_answered') return t('notifications.event.file.access_answered')
+  // several files in one press (docs/decisions/20261116-file-share-everyone.md): "Mina shared 5 files with you"
+  if (code === 'file.shared' && f && !f.gone && f.count && f.batchId) return f.by ? t('notifications.event.file.sharedMany', { by: f.by, n: f.count }) : t('notifications.event.file.sharedManyNoName', { n: f.count })
   if (!f || f.gone || !f.name) return code === 'file.shared' ? t('notifications.event.file.gone') : t(`notifications.event.${code}`)
   if (!f.by) return t(`notifications.event.${code}`)
   if (code === 'file.shared') return t('notifications.event.file.sharedNamed', { by: f.by, name: f.name })
@@ -204,8 +210,12 @@ export function fileShareText(item: InboxNotification, t: T): string {
  * rest. Null: nowhere (a source I may no longer read, a notice that only tells), and its row is no link. */
 export function noticeLink(item: InboxNotification): { to: string; testId: string } | null {
   if (item.link === 'chat' && item.chatId) return { to: `/c/${encodeURIComponent(item.chatId)}`, testId: 'notification-chat-link' }
+  // a chat thread's reply opens the thread (/c/<chat>/t/<answer>) while I still see it
+  if (item.link === 'chat_thread' && item.chatThread?.chatId && item.chatThread.rootId && !item.chatThread.gone) return { to: `/c/${encodeURIComponent(item.chatThread.chatId)}/t/${encodeURIComponent(item.chatThread.rootId)}`, testId: 'notification-chat-thread-link' }
   // a file shared with me, or one of mine moved: its link page while it is there (a request answers in the row instead)
   if (item.link === 'file' && item.fileShare?.linkId && !item.fileShare.gone && item.code !== 'file.access_requested') return { to: fileLinkUrl(item.fileShare.linkId), testId: 'notification-file-link' }
+  // several files in one press: their list
+  if (item.link === 'file' && item.fileShare?.batchId && !item.fileShare.gone && item.code === 'file.shared') return { to: fileBatchUrl(item.fileShare.batchId), testId: 'notification-file-batch-link' }
   // an app that paused: its settings in its room, while I am in it
   if (item.code === 'room_app.paused') { const to = pausedNoticeLink(item.roomApp); return to ? { to, testId: 'notification-room-app-link' } : null }
   if (item.code === 'room_app.leaver') { const to = leaverNoticeLink(item.roomAppLeaver); return to ? { to, testId: 'notification-room-app-leaver-link' } : null }

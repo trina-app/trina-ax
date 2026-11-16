@@ -1,6 +1,6 @@
 {
   "name": "@mycel/desktop",
-  "version": "0.5.9",
+  "version": "0.5.10",
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",
@@ -24,7 +24,7 @@
     "@playwright/test": "1.64.1",
     "@types/node": "24.13.3",
     "electron": "44.7.2",
-    "electron-builder": "26.0.12",
+    "electron-builder": "26.15.3",
     "electron-updater": "6.8.10",
     "zod": "4.6.7"
   }

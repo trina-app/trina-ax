@@ -1,13 +1,17 @@
 // 대화's whole list beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1): every conversation of
-// mine. 고정 first (all my pins, the most recently pinned first), then 팀 대화방 (전체 first, the others
-// by name), 그룹 대화 and 1:1 대화 (latest activity first): nav/RoomsList.tsx roomSections and its rows. The rooms I hid
+// mine. 고정 first (all my pins, the most recently pinned first), then 채널 (전체 first, the others
+// by name) and 다이렉트 메시지 (1:1s and group chats together, latest activity first:
+// docs/decisions/20261116-sidebar-channels-dms.md): nav/RoomsList.tsx roomSections and its rows. The rooms I hid
 // are left out (the one on screen still shows); "숨긴 대화 N" at the end opens the conversations page, where they are.
 // Long lists stay cheap (the plan's rendering budget, measured with 200 rooms): each section is skipped by the browser
 // while it is off screen (content-visibility), and past 200 rows the rest is drawn 200 at a time as the list scrolls
 // near its end (the room on screen is always drawn).
 // Each kind is a section whose label folds it (PanelFrame.tsx PanelSection, its count beside it while folded), as
-// Slack's sidebar sections.
-// My folders (docs/DECISIONS.md "List folders on screen") come between 고정 and 팀 대화방: "대화 폴더 · 나만 보여요"
+// Slack's sidebar sections. Folded (docs/decisions/20261116-collapsible-chat-sections.md), a section keeps only the
+// room on screen under it, and its header says what waits inside: bold with one pill (roomFolderPill, "@" for a
+// mention › how many of its rooms have unread messages). The phone's 대화 tab folds the same sections with the same
+// keys (pages/Rooms.tsx), and the folds are kept on the account (panels/folds.ts).
+// My folders (docs/DECISIONS.md "List folders on screen") come between 고정 and 채널: "대화 폴더 · 나만 보여요"
 // with its +, then each folder as a group in that section (fold ▾, its "⋯", the rooms I keep in it by latest activity; a
 // folded one keeps one pill). A room shows in one place only: pinned › its folder › its kind. With no folder yet, one
 // quiet row "새 폴더" ends the list.
@@ -33,7 +37,7 @@ const ROW_PX = 30
 
 const noop = () => {}
 
-type Section = { key: 'pinned' | 'team' | 'group' | 'dm'; rooms: Room[]; folder?: undefined } | { key: 'folder'; rooms: Room[]; folder: NavFolder }
+type Section = { key: 'pinned' | 'team' | 'dm'; rooms: Room[]; folder?: undefined } | { key: 'folder'; rooms: Room[]; folder: NavFolder }
 
 /** The sections in their order, each with its rooms (no empty kind section; every folder of mine, empty or not, after
  * 고정). A room is in one place: pinned › the folder it is in (one of `folders`) › its kind. */
@@ -66,8 +70,9 @@ export function RoomsByKind() {
   const folders = useFolders('rooms')
   const { folds, set: setFold } = useFolds()
   const sections = roomsByKind(rooms, titleOf, locale, folders)
-  // a folded folder draws no rows but the room on screen (it stays in sight, as in the Trina list)
-  const drawnOf = (s: Section) => (s.folder && folds[`room-folder:${s.folder.id}`] === 'folded' ? s.rooms.filter((r) => r.id === openId) : s.rooms)
+  // a folded folder or section draws no rows but the room on screen (it stays in sight, as in Slack's sidebar)
+  const isFolded = (s: Section) => (s.folder ? folds['section:chats:folders'] === 'folded' || folds[`room-folder:${s.folder.id}`] === 'folded' : folds[`section:chats:${s.key}`] === 'folded')
+  const drawnOf = (s: Section) => (isFolded(s) ? s.rooms.filter((r) => r.id === openId) : s.rooms)
   const flat = sections.flatMap(drawnOf)
   const [budget, setBudget] = useState(ROOMS_BUDGET)
   const draw = rowsToDraw(budget, openId ? flat.findIndex((r) => r.id === openId) : -1)
@@ -84,11 +89,16 @@ export function RoomsByKind() {
     return () => seen.disconnect()
   }, [more, draw])
 
-  const foldersSection = (nodes: ReactNode[]) => (
-    <PanelSection key="folders" id="chats-panel-folders" foldKey="chats:folders" label={<FoldersLabelWords kind="rooms" />} count={folders.length} action={<NewFolderButton kind="rooms" />} labelTestId="chats-panel-label" data-testid="chats-panel-folders">
-      {nodes}
-    </PanelSection>
-  )
+  // the folders' section folded: one pill for every room in my folders, and the room on screen still in sight
+  const filed = sections.flatMap((s) => (s.folder ? s.rooms : []))
+  const foldersSection = (nodes: ReactNode[]) => {
+    const open = filed.filter((r) => r.id === openId)
+    return (
+      <PanelSection key="folders" id="chats-panel-folders" foldKey="chats:folders" label={<FoldersLabelWords kind="rooms" />} count={folders.length} {...foldedLook(filed, 'chats-panel-folders-pill')} keep={open.length ? <RoomRows rooms={open} section="folder" /> : undefined} action={<NewFolderButton kind="rooms" />} labelTestId="chats-panel-label" data-testid="chats-panel-folders">
+        {nodes}
+      </PanelSection>
+    )
+  }
   let left = draw
   const out: ReactNode[] = []
   // the folders, one section of their own ("대화 폴더 · 나만 보여요"), each folder a group in it
@@ -109,9 +119,10 @@ export function RoomsByKind() {
       foldersOut = true
       out.push(foldersSection(folderNodes))
     }
-    const shown = s.rooms.slice(0, left)
+    const shown = drawnOf(s).slice(0, left)
     left -= shown.length
     const id = `chats-panel-${s.key}`
+    const folded = isFolded(s)
     out.push(
       <PanelSection
         key={s.key}
@@ -120,6 +131,8 @@ export function RoomsByKind() {
         label={s.key === 'pinned' ? t('chat.pinned') : t(SECTION_WORD[s.key])}
         icon={s.key === 'pinned' ? <Pin size={14} className="text-muted" aria-hidden /> : undefined}
         count={s.rooms.length}
+        {...foldedLook(s.rooms, 'chats-panel-section-pill')}
+        keep={folded && shown.length ? <RoomRows rooms={shown} section={s.key} /> : undefined}
         labelTestId="chats-panel-label"
         // a row's open menu is drawn past the section's box: content-visibility clips what is inside (it contains paint),
         // so the section is drawn plainly while one is open
@@ -128,11 +141,7 @@ export function RoomsByKind() {
         data-testid="chats-panel-section"
         data-section={s.key}
       >
-        <ul>
-          {shown.map((r) => (
-            <RoomRow key={r.id} room={r} onNavigate={noop} section={s.key} />
-          ))}
-        </ul>
+        <RoomRows rooms={shown} section={s.key} />
       </PanelSection>,
     )
   }
@@ -155,6 +164,23 @@ export function RoomsByKind() {
   )
 }
 
+function RoomRows({ rooms, section }: { rooms: Room[]; section: Section['key'] }) {
+  return (
+    <ul>
+      {rooms.map((r) => (
+        <RoomRow key={r.id} room={r} onNavigate={noop} section={section} />
+      ))}
+    </ul>
+  )
+}
+
+/** A folded section's look in the 대화 list (here and on the phone's 대화 tab): bold with the pill of what waits in
+ * its rooms (roomFolderPill), nothing when all is read. Spread on a ListSection. */
+export function foldedLook(rooms: Room[], testId: string) {
+  const pill = roomFolderPill(rooms)
+  return { unread: !!pill, pill: pill ? <RoomFolderPillView pill={pill} testId={testId} /> : undefined }
+}
+
 /** One room folder: its header (fold ▾ with the name, the pill of what it holds while folded, its "⋯") and its rooms; a
  * room dragged onto it goes in. */
 function RoomFolder({ folder, rooms, count, shown, folded, onFold }: { folder: NavFolder; rooms: Room[]; count: number; shown: Room[]; folded: boolean; onFold: () => void }) {
@@ -167,16 +193,22 @@ function RoomFolder({ folder, rooms, count, shown, folded, onFold }: { folder: N
   const pill = folded ? roomFolderPill(rooms) : null
   return (
     <section aria-label={folder.name} className={clsx(drop.over && DROP_OVER)} {...drop.props} data-testid="room-folder" data-folded={folded ? '' : undefined}>
-      <div className={clsx(groupHead, 'pr-9')} data-testid="room-folder-head">
+      <div className={clsx(groupHead, pill ? 'pr-3 pointer-coarse:pr-10 max-md:pr-10' : 'pr-9')} data-testid="room-folder-head">
         {/* the ▸ and the name both fold it (aria-expanded), as a disclosure */}
-        <button type="button" aria-expanded={!folded} aria-controls={listId} onClick={onFold} className="flex h-full min-w-0 items-center gap-1 rounded" data-testid="room-folder-fold">
+        <button type="button" aria-expanded={!folded} aria-controls={listId} onClick={onFold} className={clsx('flex h-full min-w-0 items-center gap-1 rounded', pill && 'font-bold')} data-testid="room-folder-fold">
           <span className="touch-hit flex size-6 shrink-0 items-center justify-center text-muted">
             <ChevronRight size={14} className={clsx('transition-transform motion-reduce:transition-none', !folded && 'rotate-90')} aria-hidden />
           </span>
           <FolderIcon className="mr-0.5 text-muted" />
           <span className="truncate" title={folder.name} data-testid="room-folder-name">{folder.name}</span>
         </button>
-        {pill && <RoomFolderPillView pill={pill} className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 group-hover/head:opacity-0 group-has-[:focus-visible]/head:opacity-0 pointer-coarse:right-10 max-md:right-10" />}
+        {/* the pill in the row's flow, as ListSection's (List.tsx): a cut name ends a gap before it (QA TC-3780); it
+            gives its place to the "⋯" on hover */}
+        {pill && (
+          <span className="pointer-events-none ml-auto flex shrink-0 items-center pl-1 group-hover/head:opacity-0 group-has-[:focus-visible]/head:opacity-0">
+            <RoomFolderPillView pill={pill} />
+          </span>
+        )}
         <FolderMenu
           folder={folder}
           count={count}

@@ -77,7 +77,7 @@ import type { SkillMoveTarget } from '@mycel/shared/api'
 import type { IntegrationAuth, IntegrationKind, OAuthClientInput, OAuthClientView } from '@mycel/shared/api'
 import type { EndedConnection, HandoverConnection, HandoverRecovery, HandoverState, InboxNotification } from '@mycel/shared/api'
 import type { MemberWelcome, ScheduleRun } from '@mycel/shared/api'
-import { activityTabHas, fileLinkUrl, type FileShareRow } from '@mycel/shared/api'
+import { activityTabHas, FILE_SHARE_EVERYONE, fileLinkUrl, type FileShareRow } from '@mycel/shared/api'
 import { ORGANIZE_LIMITS, REASON_FOLDER, formKind, formSkillType, formStem, nameReason, organizePlan, type AiOrganize, type OrganizePlan } from '@mycel/shared/api'
 import { MySlack, SlackAdmin } from '@mycel/shared/api'
 import { MOCK_ANSWER_HEADER } from '../e2e/coverage-report'
@@ -234,7 +234,9 @@ interface FileNode { type: 'file' | 'folder'; data?: Uint8Array; mtime: string; 
 export interface WsData { user: string; windowId: string; epoch: string | null; after: number | null }
 /** a server-side socket: Bun's ServerWebSocket, or the in-page one of web/demo/ */
 export interface MockSocket { data: WsData; send(text: string): unknown; close(code?: number, reason?: string): unknown }
-interface Ctx { user: User; params: Record<string, string>; query: Record<string, string>; body: any; req: Request; file?: File }
+interface Ctx { user: User; params: Record<string, string>; query: Record<string, string>; body: any; req: Request; file?: File
+  /** a file share inside a press of several (shareFilesBatch): who would be told, collected instead of told */
+  quiet?: Set<string> }
 type Handler = (c: Ctx) => unknown | Promise<unknown>
 /** Folders below the mock share account's top level, found by the folder picker's search */
 const DRIVE_SUBFOLDERS = [{ id: 'folder-finance-q3', name: 'Finance Q3', kind: 'folder' as const }, { id: 'folder-contracts', name: 'Contracts', kind: 'folder' as const }]
@@ -352,7 +354,7 @@ export class MockServer {
     // someone shared a chat with me (server/src/chat/people-share.ts): by name or through a group
     | { kind: 'chat_shared'; chatId: string; byId: string; named: boolean }
     // a file shared with me, an ask to open a file of mine, a decline, one of mine moved (server/src/files/shares.ts)
-    | { kind: 'file_share'; code: 'file.shared' | 'file.access_requested' | 'file.access_answered' | 'file.unshared_by_move'; byId?: string; path?: string; linkId?: string; requestId?: string }
+    | { kind: 'file_share'; code: 'file.shared' | 'file.access_requested' | 'file.access_answered' | 'file.unshared_by_move'; byId?: string; path?: string; linkId?: string; requestId?: string; batchId?: string }
   ))[] = []
   /** a member's asks to add an app the team has not set up (server/src/integrations/service-requests.ts) */
   serviceRequests: { id: string; userId: string; service: RequestableService; createdAt: string; closedAt: string | null; reason: 'added' | 'left' | null }[] = []
@@ -454,7 +456,7 @@ export class MockServer {
   /** Settings › Notifications (one person's, like the rest of this mock's per-person state) */
   notifyPrefs = MockServer.notifyPrefsDefault()
   static notifyPrefsDefault() {
-    return { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true, roomLevel: 'direct' as 'direct' | 'all' | 'none', roomThreadReplies: true, messagePreview: true, chatAnswers: true, phoneWhen: 'away' as 'away' | 'always', quietHours: { on: false, start: '22:00', end: '08:00', weekends: false } }
+    return { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true, roomLevel: 'direct' as 'direct' | 'all' | 'none', roomThreadReplies: true, messagePreview: true, chatAnswers: true, chatShares: true, fileShares: true, phoneWhen: 'away' as 'away' | 'always', quietHours: { on: false, start: '22:00', end: '08:00', weekends: false } }
   }
   budgets: Budget[] = []
   files = new Map<string, FileNode>()
@@ -850,6 +852,31 @@ export class MockServer {
   restricted = new Map<string, string[]>()
   /** answers' "참고한 파일" as recorded (GET .../messages/:messageId/sources checks each against the viewer now) */
   sources = new Map<string, MessageSourceFile[]>()
+  // ---------------- threads on AI answers in shared chats (server/src/chat/threads.ts, short) ----------------
+  /** the replies under answers, oldest first; who follows each thread (the asker, the repliers) and the newest they read */
+  chatThreadReplies: { id: string; chatId: string; rootId: string; authorId: string; content: string; clientId: string; createdAt: string }[] = []
+  chatThreadFollows = new Map<string, Map<string, string | null>>()
+  /** the answer a thread is under: a finished answer of a chat shared now (the mock's Chat.shared); else 404 */
+  threadRoot(chatId: string, rootId: string) {
+    const chat = this.chats.find((x) => x.id === chatId) ?? fail('not_found', 404)
+    const m = this.messages.find((x) => x.id === rootId && x.chatId === chatId && x.role === 'assistant')
+    if (!m || !chat.shared || (m.status !== 'done' && m.status !== 'stopped')) fail('not_found', 404)
+    return { chat, m: m! }
+  }
+  threadSummary(rootId: string, viewer: string) {
+    const list = this.chatThreadReplies.filter((r) => r.rootId === rootId)
+    if (!list.length) return null
+    const repliers: { id: string; name: string }[] = []
+    for (const r of [...list].reverse()) if (!repliers.some((x) => x.id === r.authorId) && repliers.length < 3) repliers.push({ id: r.authorId, name: this.users.find((u) => u.id === r.authorId)?.name ?? r.authorId })
+    const read = this.chatThreadFollows.get(rootId)
+    const newReplies = !!read?.has(viewer) && list.some((r) => r.authorId !== viewer && r.id > (read.get(viewer) ?? ''))
+    return { replyCount: list.length, lastReplyAt: list.at(-1)!.createdAt, repliers, newReplies }
+  }
+  threadReplyOut(r: { id: string; chatId: string; rootId: string; authorId: string; content: string; createdAt: string }, viewer: string) {
+    const u = this.users.find((x) => x.id === r.authorId)
+    const chat = this.chats.find((x) => x.id === r.chatId)
+    return { id: r.id, chatId: r.chatId, rootId: r.rootId, author: u ? { id: u.id, name: u.name } : null, content: r.content, createdAt: r.createdAt, canDelete: r.authorId === viewer || chat?.shared?.by.id === viewer }
+  }
   /** POST /__test/confidential {all: true}: Safe operations 1A is on (Me.server.allChatsConfidential) */
   allConfidential = false
   /** POST /__test/people-chat {chatId}: chats shared with people and groups (Chat.shared.kind people); a file from the
@@ -2654,7 +2681,46 @@ export class MockServer {
       chat.deletedAt = null
       return chat
     },
-    listMessages: (c) => ({ items: this.path(c.params.id!), nextCursor: null }),
+    listMessages: (c) => ({ items: this.path(c.params.id!).map((m) => { const th = m.role === 'assistant' ? this.threadSummary(m.id, c.user.id) : null; return th ? { ...m, thread: th } : m }), nextCursor: null }),
+    listChatThread: (c) => {
+      const { chat, m } = this.threadRoot(c.params.id!, c.params.messageId!)
+      const view = this.view(m)
+      const th = this.threadSummary(m.id, c.user.id)
+      const replies = this.chatThreadReplies.filter((r) => r.rootId === m.id)
+      const shown = this.path(chat.id).some((x) => x.id === m.id)
+      return { root: th ? { ...view, thread: th } : view, replies: replies.slice(-50).map((r) => this.threadReplyOut(r, c.user.id)), nextCursor: null, canReply: !this.allConfidential && replies.length < 500, ...(this.allConfidential ? { readOnlyReason: 'safe_ops' } : {}), version: { index: view.branch.index + 1, count: view.branch.count }, onShownBranch: shown, full: replies.length >= 500 }
+    },
+    sendChatThreadReply: (c) => {
+      const { m } = this.threadRoot(c.params.id!, c.params.messageId!)
+      if (this.allConfidential) fail('conflict', 409, '이 팀의 보안 설정 때문에 공유 채팅을 이어갈 수 없어요.', undefined, { reason: 'safe_ops' })
+      const again = this.chatThreadReplies.find((r) => r.authorId === c.user.id && r.clientId === c.body.clientId)
+      if (again) return { status: 201, body: this.threadReplyOut(again, c.user.id) }
+      const r = { id: uuidv7(), chatId: c.params.id!, rootId: m.id, authorId: c.user.id, content: String(c.body.text).trimEnd(), clientId: String(c.body.clientId), createdAt: now() }
+      this.chatThreadReplies.push(r)
+      const follows = this.chatThreadFollows.get(m.id) ?? new Map<string, string | null>()
+      this.chatThreadFollows.set(m.id, follows)
+      const asker = this.messages.find((x) => x.id === m.parentId)?.author?.id
+      if (asker && !follows.has(asker)) follows.set(asker, null)
+      follows.set(c.user.id, r.id)
+      // (every window of the mock hears it; the summary as its sender sees it, nothing new for them)
+      this.publish({ type: 'chat.thread', data: { chatId: r.chatId, rootId: m.id, change: 'reply', reply: { ...this.threadReplyOut(r, c.user.id), canDelete: false }, thread: { ...this.threadSummary(m.id, c.user.id)!, newReplies: false } } })
+      return { status: 201, body: this.threadReplyOut(r, c.user.id) }
+    },
+    deleteChatThreadReply: (c) => {
+      const r = this.chatThreadReplies.find((x) => x.id === c.params.replyId && x.chatId === c.params.id) ?? fail('not_found', 404)
+      const chat = this.chats.find((x) => x.id === r.chatId)
+      if (r.authorId !== c.user.id && chat?.shared?.by.id !== c.user.id) fail('forbidden', 403)
+      this.chatThreadReplies = this.chatThreadReplies.filter((x) => x.id !== r.id)
+      this.publish({ type: 'chat.thread', data: { chatId: r.chatId, rootId: r.rootId, change: 'deleted', replyId: r.id, thread: this.threadSummary(r.rootId, c.user.id) } })
+      return undefined
+    },
+    markChatThreadRead: (c) => {
+      const { m } = this.threadRoot(c.params.id!, c.params.messageId!)
+      if (!this.chatThreadReplies.some((r) => r.id === c.body.upTo && r.rootId === m.id)) fail('not_found', 404)
+      const follows = this.chatThreadFollows.get(m.id)
+      if (follows?.has(c.user.id) && (follows.get(c.user.id) ?? '') < c.body.upTo) follows.set(c.user.id, c.body.upTo)
+      return undefined
+    },
     messageSources: (c) => {
       const m = this.messages.find((x) => x.id === c.params.messageId && x.chatId === c.params.id) ?? fail('not_found', 404)
       const files: MessageSourceFile[] = []
@@ -3742,8 +3808,8 @@ export class MockServer {
       const l = this.teamLink
       if (!l || l.uses >= l.maxUses) fail('not_found', 404)
       const b = c.body as { skillPath?: string | null; addGroupIds?: string[]; groupIds?: string[] }
-      if ((b.addGroupIds ?? []).some((g) => !this.groups.some((x) => x.id === g))) fail('validation', 400, '없는 그룹이 들어 있어요.', { 'body.addGroupIds': 'unknown group' })
-      if ((b.groupIds ?? []).some((g) => !this.groups.some((x) => x.id === g))) fail('validation', 400, '없는 그룹이 들어 있어요.', { 'body.groupIds': 'unknown group' })
+      if ((b.addGroupIds ?? []).some((g) => !this.groups.some((x) => x.id === g))) fail('validation', 400, '없는 부서가 들어 있어요.', { 'body.addGroupIds': 'unknown group' })
+      if ((b.groupIds ?? []).some((g) => !this.groups.some((x) => x.id === g))) fail('validation', 400, '없는 부서가 들어 있어요.', { 'body.groupIds': 'unknown group' })
       if (b.skillPath !== undefined) l!.skillPath = b.skillPath
       l!.groupIds = [...new Set([...(b.groupIds ?? l!.groupIds), ...(b.addGroupIds ?? [])])]
       if (b.groupIds) l!.groupsChosen = true
@@ -4223,7 +4289,7 @@ export class MockServer {
         createdAt: now(), reviewedAt: null, canReview: false,
       }
       this.suggestions.unshift(s)
-      this.publish({ type: 'notice', data: { level: 'info', code: 'skill_suggested', message: `${c.user.name} 님이 스킬을 제안했어요: ${s.name} → ${s.targetFolder}/`, link: `/skills?review=${s.id}` } })
+      this.publish({ type: 'notice', data: { level: 'info', code: 'skill_suggested', message: `${c.user.name} 님이 스킬을 제안했어요: ${s.name} → ${['팀 스킬', ...s.targetFolder.split('/').slice(1)].join(' › ')}`, link: `/skills?review=${s.id}` } })
       return { status: 201, body: this.suggestionFor(s, c.user) }
     },
     approveSkillSuggestion: (c) => {
@@ -4303,7 +4369,7 @@ export class MockServer {
       return this.explainEdit(c.body, c.user.locale)
     },
     explainNewPersonAccess: (c) => {
-      if ((c.body.groupIds as string[]).some((g) => !this.groups.some((x) => x.id === g))) fail('validation', 400, '없는 그룹이 들어 있어요.', { 'body.groupIds': 'unknown group' })
+      if ((c.body.groupIds as string[]).some((g) => !this.groups.some((x) => x.id === g))) fail('validation', 400, '없는 부서가 들어 있어요.', { 'body.groupIds': 'unknown group' })
       return this.explainPerson({ user: null, role: c.body.role, groupIds: [...new Set(c.body.groupIds as string[])] }, c.body)
     },
     previewRules: (c) => (c.body.changes.forEach((ch: Json, i: number) => this.notInProject(ch.path, c.user.locale, `body.changes.${i}.path`)), {
@@ -6148,6 +6214,8 @@ export class MockServer {
   fileLinks = new Map<string, string>()
   fileGrants = new Map<string, { subjectType: 'user' | 'group'; subjectId: string }[]>()
   fileCreators = new Map<string, string>()
+  /** who added each grant and when ("<path>\u0000<type>:<id>"), for Shared with me's "who · when" */
+  fileGrantMeta = new Map<string, { by: string; at: string }>()
   fileRequests: { id: string; linkId: string; path: string; userId: string; ownerId: string | null; note: string | null; at: string; state: 'pending' | 'approved' | 'declined' | 'closed' }[] = []
   fileRequestLimit = Infinity
   lastRemoveFileLinks: boolean | null = null
@@ -6164,8 +6232,11 @@ export class MockServer {
     return id
   }
   grantedFile(path: string, u: User): boolean {
-    return (this.fileGrants.get(path) ?? []).some((x) => (x.subjectType === 'user' ? x.subjectId === u.id : u.groupIds.includes(x.subjectId)))
+    // "Everyone on the team" (FILE_SHARE_EVERYONE): every active member, never a guest
+    return (this.fileGrants.get(path) ?? []).some((x) => (x.subjectType === 'user' ? x.subjectId === u.id : x.subjectId === FILE_SHARE_EVERYONE ? u.role !== 'guest' && u.status === 'active' : u.groupIds.includes(x.subjectId)))
   }
+  /** one Share press of several files (files/shares.ts shareMany): its files by path, and who pressed */
+  fileBatches = new Map<string, { byId: string; paths: string[] }>()
   canShareFile(path: string, u: User): boolean {
     if (u.role === 'guest' || this.access(path, u) !== 'write') return false
     const owner = this.fileOwner(path)
@@ -6177,6 +6248,7 @@ export class MockServer {
     const owner = ownerId ? this.users.find((x) => x.id === ownerId) : undefined
     const canShare = this.canShareFile(path, u)
     const rows = (this.fileGrants.get(path) ?? []).flatMap((x): FileShareRow[] => {
+      if (x.subjectType === 'group' && x.subjectId === FILE_SHARE_EVERYONE) return [{ subjectType: 'group' as const, subjectId: FILE_SHARE_EVERYONE, name: (u.localeChoice ?? this.settings.defaultLocale) === 'ko' ? '\ud300 \uc804\uccb4' : 'Everyone on the team', everyone: true as const }]
       if (x.subjectType === 'group') { const g = this.groups.find((y) => y.id === x.subjectId); return g ? [{ subjectType: 'group' as const, subjectId: g.id, name: g.name }] : [] }
       const p = this.users.find((y) => y.id === x.subjectId)
       return p ? [{ subjectType: 'user' as const, subjectId: p.id, name: p.name, ...(p.status !== 'active' ? { inactive: true as const } : {}) }] : []
@@ -6223,22 +6295,82 @@ export class MockServer {
         if (x.subjectType === 'user' && (!u || u.role === 'guest')) fail('validation', 400, undefined, undefined, { reason: 'unknown_subject' })
         if (list.some((y) => key(y) === key(x))) continue
         list.push({ subjectType: x.subjectType, subjectId: x.subjectId })
-        const to = x.subjectType === 'user' ? [x.subjectId] : this.groups.find((g) => g.id === x.subjectId)?.memberIds ?? []
-        for (const id of to) if (id !== c.user.id) this.note(id, { kind: 'file_share', code: 'file.shared', byId: c.user.id, path, linkId: this.fileLinkOf(path) })
+        this.fileGrantMeta.set(`${path}\u0000${key(x)}`, { by: c.user.id, at: now() })
+        const to = x.subjectType === 'user' ? [x.subjectId] : x.subjectId === FILE_SHARE_EVERYONE ? this.users.filter((y) => y.role !== 'guest' && y.status === 'active').map((y) => y.id) : this.groups.find((g) => g.id === x.subjectId)?.memberIds ?? []
+        for (const id of to) if (id !== c.user.id) { if (c.quiet) c.quiet.add(id); else this.note(id, { kind: 'file_share', code: 'file.shared', byId: c.user.id, path, linkId: this.fileLinkOf(path) }) }
       }
       const out = new Set((c.body.remove as { subjectType: string; subjectId: string }[]).map(key))
       this.fileGrants.set(path, list.filter((x) => !out.has(key(x))))
       if (list.length) this.fileLinkOf(path)
       return this.fileSharesView(path, c.user)
     }
+    // several files in one press (files/shares.ts shareMany): each as the PUT's add, refusals listed; one notice per person
+    h.shareFilesBatch = (c) => {
+      const add = c.body.add as { subjectType: 'user' | 'group'; subjectId: string }[]
+      const out = { shared: [] as string[], failed: [] as { path: string; message: string; reason?: string }[] }
+      const got = new Map<string, string[]>()
+      for (const path of c.body.paths as string[]) {
+        const quiet = new Set<string>()
+        try {
+          h.putFileShares!({ ...c, body: { path, add, remove: [] }, quiet } as never)
+          out.shared.push(path)
+          for (const id of quiet) got.set(id, [...(got.get(id) ?? []), path])
+        } catch (e) {
+          if (!(e instanceof Fail)) throw e
+          const reason = e.params?.reason
+          out.failed.push({ path, message: e.message, ...(typeof reason === 'string' ? { reason } : {}) })
+        }
+      }
+      let batch: string | null = null
+      for (const [id, paths] of got) {
+        if (paths.length === 1) { this.note(id, { kind: 'file_share', code: 'file.shared', byId: c.user.id, path: paths[0], linkId: this.fileLinkOf(paths[0]!) }); continue }
+        if (!batch) { batch = crypto.randomUUID().replace(/-/g, '').slice(0, 22); this.fileBatches.set(batch, { byId: c.user.id, paths: out.shared }) }
+        this.note(id, { kind: 'file_share', code: 'file.shared', byId: c.user.id, batchId: batch })
+      }
+      return out
+    }
+    h.sharedBatch = (c) => {
+      const b = this.fileBatches.get(c.params.id!)
+      const told = this.inbox.some((n) => n.userId === c.user.id && (n as { batchId?: string }).batchId === c.params.id)
+      if (!b || !told) fail('not_found', 404)
+      const files = b!.paths.filter((p) => this.files.has(p) && opens(p, c.user)).map((p) => ({ linkId: this.fileLinkOf(p), name: p.slice(p.lastIndexOf('/') + 1), size: this.files.get(p)!.data?.byteLength ?? 0 }))
+      return { by: this.users.find((u) => u.id === b!.byId)?.name ?? null, files }
+    }
+    // who shared it with `u` (files/shares.ts sharerFor): their grant by name when there is one, else (only when the
+    // folder does not let them read the file) the newest group or whole-team grant; null: none. `named`: by name.
+    const sharerOf = (path: string, u: User): { name: string | null; at: string; named: boolean } | null => {
+      const readable = this.access(path, u) !== 'none'
+      const reaching = (this.fileGrants.get(path) ?? []).filter((x) => (x.subjectType === 'user' ? x.subjectId === u.id : !readable && (x.subjectId === FILE_SHARE_EVERYONE ? u.role !== 'guest' && u.status === 'active' : u.groupIds.includes(x.subjectId))))
+      if (!reaching.length) return null
+      const named = reaching.filter((x) => x.subjectType === 'user')
+      const metas = (named.length ? named : reaching).map((x) => this.fileGrantMeta.get(`${path}\u0000${x.subjectType}:${x.subjectId}`) ?? { by: this.fileOwner(path) ?? '', at: '2026-11-01T09:00:00.000Z' })
+      const newest = metas.sort((a, b) => b.at.localeCompare(a.at))[0]!
+      return { name: this.users.find((x) => x.id === newest.by)?.name ?? null, at: newest.at, named: named.length > 0 }
+    }
+    // Files › Shared with me (files/shares.ts sharedWithMe, short): a file a grant gives me, not mine; a file the folder
+    // lets me read only when the grant is by name; the qualifying grant names who and when; the files shared by name
+    // first, then the group ones, each newest first; one page
+    h.sharedWithMe = (c) => {
+      if (c.user.role === 'guest') fail('forbidden', 403)
+      const items: { linkId: string; name: string; sharedBy: string | null; sharedAt: string; named: boolean }[] = []
+      for (const path of this.fileGrants.keys()) {
+        if (!this.files.has(path) || this.fileOwner(path) === c.user.id) continue
+        const by = sharerOf(path, c.user)
+        if (by) items.push({ linkId: this.fileLinkOf(path), name: path.slice(path.lastIndexOf('/') + 1), sharedBy: by.name, sharedAt: by.at, named: by.named })
+      }
+      items.sort((a, b) => Number(b.named) - Number(a.named) || b.sharedAt.localeCompare(a.sharedAt) || b.linkId.localeCompare(a.linkId))
+      return { items: items.slice(0, 50).map(({ named: _, ...i }) => i), next: null }
+    }
     h.sharedFile = (c) => {
       if (c.user.role === 'guest') fail('forbidden', 403)
       const path = this.fileLinks.get(c.params.id!)
       if (!path || !this.files.has(path)) return { status: 'unknown' }
       if (opens(path, c.user)) {
+        // opening it marks my "shared with you" notice of it read (files/shares.ts page)
+        for (const x of this.inbox) if (x.userId === c.user.id && x.kind === 'file_share' && x.code === 'file.shared' && x.linkId === c.params.id && !x.readAt) x.readAt = now()
         const n = this.files.get(path)!
         const ownerId = this.fileOwner(path)
-        const by = this.access(path, c.user) === 'none' && ownerId ? this.users.find((u) => u.id === ownerId)?.name ?? null : null
+        const by = ownerId === c.user.id ? null : sharerOf(path, c.user)?.name ?? null
         return { status: 'open', name: path.slice(path.lastIndexOf('/') + 1), size: n.data?.byteLength ?? 0, mime: mimeOf(path) ?? null, sharedBy: by, mine: ownerId === c.user.id }
       }
       const waiting = this.fileRequests.find((r) => r.path === path && r.userId === c.user.id && r.state === 'pending')
@@ -6350,6 +6482,13 @@ export class MockServer {
         if (!r || !there) return { ...base, link: null, fileShare: { by: r ? nameOf(r.userId) : null, name: null, linkId: null, gone: true as const, ...(r ? { requestId: r.id, state: 'closed' as const } : {}) } }
         return { ...base, link: null, fileShare: { by: nameOf(r.userId), name: r.path.slice(r.path.lastIndexOf('/') + 1), linkId: r.linkId, ...(r.note ? { note: r.note } : {}), requestId: r.id, state: r.state, ...(r.state === 'pending' && viewer && this.canShareFile(r.path, viewer) ? { canAnswer: true as const } : {}) } }
       }
+      if (n.batchId) {
+        const b = this.fileBatches.get(n.batchId)
+        const viewer = this.users.find((u) => u.id === n.userId)
+        const open = b && viewer ? b.paths.filter((p) => this.files.has(p) && (this.access(p, viewer) !== 'none' || this.grantedFile(p, viewer))) : []
+        if (!open.length) return { ...base, sourceId: `b:${n.batchId}`, link: null, fileShare: { by: nameOf(n.byId), name: null, linkId: null, gone: true as const } }
+        return { ...base, sourceId: `b:${n.batchId}`, link: 'file' as const, fileShare: { by: nameOf(n.byId), name: null, linkId: null, count: open.length, batchId: n.batchId } }
+      }
       const there = !!n.path && this.files.has(n.path)
       if (!there) return { ...base, link: null, fileShare: { by: nameOf(n.byId), name: null, linkId: null, gone: true as const } }
       return { ...base, link: n.linkId ? 'file' as const : null, fileShare: { by: nameOf(n.byId), name: n.path!.slice(n.path!.lastIndexOf('/') + 1), linkId: n.linkId ?? null } }
@@ -6359,9 +6498,11 @@ export class MockServer {
       this.fileLinks = new Map()
       this.fileGrants = new Map()
       this.fileCreators = new Map()
+      this.fileGrantMeta = new Map()
       this.fileRequests = []
       this.fileRequestLimit = Infinity
       this.lastRemoveFileLinks = null
+      this.fileBatches = new Map()
       baseReset(o)
     }
     const baseControl = this.testControl.bind(this)
@@ -6369,8 +6510,15 @@ export class MockServer {
       if (p !== '/__test/file-shares') return baseControl(p, req)
       // GET: what the last folder rules save sent as removeFileLinks (null: not sent)
       if (req.method === 'GET') return Response.json({ lastRemoveFileLinks: this.lastRemoveFileLinks })
-      const body = (await req.json().catch(() => ({}))) as { off?: boolean; limit?: number }
+      const body = (await req.json().catch(() => ({}))) as { off?: boolean; limit?: number; grants?: { path: string; to: string; by: string; at: string; text?: string }[] }
       if (body.off) this.settings = { ...this.settings, memberFileShares: false }
+      // Shared with me's fixtures: a file shared by name by `by` at `at` (the file made when missing), with its notice
+      for (const g of body.grants ?? []) {
+        if (!this.files.has(g.path)) this.putFile(g.path, g.text ?? `# ${g.path.slice(g.path.lastIndexOf('/') + 1)}\n`)
+        this.fileGrants.set(g.path, [...(this.fileGrants.get(g.path) ?? []).filter((x) => !(x.subjectType === 'user' && x.subjectId === g.to)), { subjectType: 'user', subjectId: g.to }])
+        this.fileGrantMeta.set(`${g.path}\u0000user:${g.to}`, { by: g.by, at: g.at })
+        this.note(g.to, { kind: 'file_share', code: 'file.shared', byId: g.by, path: g.path, linkId: this.fileLinkOf(g.path) })
+      }
       if (body.limit !== undefined) this.fileRequestLimit = body.limit
       if (!this.files.has('users/olga/notes.md')) {
         for (const d of ['users/bob']) this.files.set(d, { type: 'folder', mtime: now() })
@@ -6549,21 +6697,21 @@ export class MockServer {
       }
       if (chat.sideRoomId) no(409, 'side_chat', '대화방의 사이드 채팅은 공유할 수 없어요.')
       const wanted = (c.body.subjects as { subjectType: 'user' | 'group'; subjectId: string }[]).filter((x, i, all) => !(x.subjectType === 'user' && x.subjectId === c.user.id) && all.findIndex((y) => y.subjectType === x.subjectType && y.subjectId === x.subjectId) === i)
-      if (wanted.length > 100) no(400, 'audience_full', '채팅 하나는 사람과 그룹을 합쳐 100개까지 공유할 수 있어요. 먼저 몇 개를 빼 주세요.')
+      if (wanted.length > 100) no(400, 'audience_full', '채팅 하나는 사람과 부서를 합쳐 100개까지 공유할 수 있어요. 먼저 몇 개를 빼 주세요.')
       const ps = this.peopleShared.get(chat.id)
       const before = ps?.subjects ?? []
       const added = wanted.filter((x) => !before.some((y) => y.subjectType === x.subjectType && y.subjectId === x.subjectId))
       const removed = before.filter((x) => !wanted.some((y) => y.subjectType === x.subjectType && y.subjectId === x.subjectId))
       if (dry && !added.length && !removed.length) return { check: { added: 0, memoryAnswers: 0, fileAnswers: 0, accountAnswers: 0, places: [], otherPlaces: false, roomsUnseen: false, unchecked: 0 }, previewKey: '' }
       if (!added.length && !removed.length) {
-        if (!ps) no(400, 'needs_people', '이 채팅을 공유할 사람이나 그룹을 한 명 이상 골라 주세요.')
+        if (!ps) no(400, 'needs_people', '이 채팅을 공유할 사람이나 부서를 하나 이상 골라 주세요.')
         return { status: 'saved', chat: this.sharedView(chat, c.user)!, audience: audienceOf(chat, c.user) }
       }
       if (added.length && (this.allConfidential || chat.confidential)) no(409, 'safe_ops', '팀의 보안 설정 때문에 지금은 채팅을 새로 공유할 수 없어요.')
       if (added.length && chat.runState !== 'idle') no(409, 'chat_busy', '답변이 아직 진행 중이에요. 끝난 뒤에 공유해 주세요.')
       for (const x of added) {
         const ok = x.subjectType === 'user' ? this.users.some((u) => u.id === x.subjectId && u.status === 'active') : this.groups.some((g) => g.id === x.subjectId && (c.user.role !== 'member' || g.memberIds.includes(c.user.id)))
-        if (!ok) no(400, 'unknown_subject', '고른 사람 중 팀에 없는 사람이 있거나, 고를 수 없는 그룹이 있어요. 다시 골라 주세요.')
+        if (!ok) no(400, 'unknown_subject', '고른 사람 중 팀에 없는 사람이 있거나, 고를 수 없는 부서가 있어요. 다시 골라 주세요.')
       }
       if (dry && this.peoplePreviewFail > 0) { this.peoplePreviewFail--; fail('unavailable', 503, 'preview failed on purpose') }
       if (!dry && this.peopleFail > 0) { this.peopleFail--; fail('internal', 500, 'save failed on purpose') }
@@ -6775,7 +6923,7 @@ export class MockServer {
   /** 404; to someone taken out of the project (or who left), with its name (server: noLongerMember, QA TC-1067) */
   notFoundFor(projectId: string | undefined, userId: string): never {
     const name = projectId ? this.formerMembers.get(`${projectId}:${userId}`) : undefined
-    return name ? fail('not_found', 404, `You're no longer a member of '${name}'.`, undefined, { reason: 'no_longer_member', project: name }) : fail('not_found', 404)
+    return name ? fail('not_found', 404, `You're no longer a member of ${name}.`, undefined, { reason: 'no_longer_member', project: name }) : fail('not_found', 404)
   }
   projectTrashRows(u: User): TrashItem[] {
     return this.projects.filter((p) => this.projectMayRestore(p, u)).map((p) => {
@@ -7469,7 +7617,7 @@ const FAKE_MCP_TOOLS: IntegrationTool[] = [
 const privateHost = (h: string) => h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal') || /^(127|10)\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h) || h === '[::1]'
 
 function defaultSettings(): TeamSettings {
-  return { teamName: 'Acme', defaultLocale: 'ko', defaultEngine: 'claude-code', defaultModel: null, concurrency: 2, updateChannel: 'stable', updateWindow: null, auditRetentionDays: 365, fileHistoryRetentionDays: 90, trashRetentionDays: 30, chatTrashRetentionDays: 7, timeZone: 'Asia/Seoul', browserAllowAll: true, webAllowAll: true, personalIntegrations: true, aiVision: true, aiSubagents: true, roomAlwaysAllow: true, projectCreators: 'members', memberFileShares: true, oftenAsked: true, answerStepLimit: 150, speechProvider: 'local', speechModel: 'openai/whisper-large-v3-turbo', aiMediaTranscripts: null, introDeckTier: 'standard' }
+  return { teamName: 'Acme', defaultLocale: 'ko', defaultEngine: 'claude-code', defaultModel: null, concurrency: 2, updateChannel: 'stable', updateWindow: null, auditRetentionDays: 365, fileHistoryRetentionDays: 90, trashRetentionDays: 30, chatTrashRetentionDays: 7, timeZone: 'Asia/Seoul', browserAllowAll: true, webAllowAll: true, personalIntegrations: true, aiVision: true, aiSubagents: true, roomAlwaysAllow: true, projectCreators: 'members', guestFileMax: '100mb', memberFileShares: true, oftenAsked: true, answerStepLimit: 150, speechProvider: 'local', speechModel: 'openai/whisper-large-v3-turbo', aiMediaTranscripts: null, introDeckTier: 'standard' }
 }
 
 /** What the real server's securityHeaders() middleware adds to every non-/api response (server/src/http/middleware.ts). */

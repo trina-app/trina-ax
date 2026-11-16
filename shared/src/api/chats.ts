@@ -4,8 +4,9 @@ import { Uuid7 } from '../ids'
 import { Access, EngineId, IsoTime, PageQuery, QueryBool, RelPath, page } from './common'
 import { endpoint, empty, stream } from './endpoint'
 import { SealedSecret } from './credentials'
-import { AudienceSplit, Chat, Message, MessageSources, Project, SubjectType, UserRef } from './entities'
-import { ANSWER_NOTE_MAX, AnswerShareConfirm, AnswerSharePlace, ROOM_FILES_MAX, RoomMessage } from './rooms'
+import { AudienceSplit, Chat, ChatThreadReply, Message, MessageSources, Project, SubjectType, UserRef } from './entities'
+import { ANSWER_NOTE_MAX, AnswerShareConfirm, AnswerSharePlace, ROOM_FILES_MAX, ROOM_MESSAGE_MAX, RoomMessage } from './rooms'
+import { oneLineName } from '../name-chars'
 import { IntegrationStatus } from './integrations'
 import { TurnRequest } from './ws'
 
@@ -38,6 +39,92 @@ export const ShareAnswerToRoomResult = z.discriminatedUnion('status', [
   AnswerShareConfirm,
 ])
 export type ShareAnswerToRoomResult = z.infer<typeof ShareAnswerToRoomResult>
+
+// ---------------- threads on AI answers in shared chats (docs/decisions/20261116-chat-answer-threads.md) ----------------
+/** a reply is at most as long as a room message */
+export const CHAT_THREAD_REPLY_MAX = ROOM_MESSAGE_MAX
+/** at most this many replies under one answer (409 thread_full) */
+export const CHAT_THREAD_MAX = 500
+/** "Send to Trina" quotes at most this much of a thread into the chat's box (the side chat's quote cap), newest kept */
+export const CHAT_THREAD_DRAFT_MAX = 4000
+export const ListChatThreadQuery = PageQuery
+/** Why I can read a thread but not reply: safe operations are on (or the chat is confidential), the chat is in the
+ * trash, or it is not shared any more (its creator still reads it). */
+export const ChatThreadReadOnly = z.enum(['safe_ops', 'trash', 'not_shared'])
+export type ChatThreadReadOnly = z.infer<typeof ChatThreadReadOnly>
+/** A thread: its answer as I see it, a page of replies (without a cursor the newest `limit`, oldest first; nextCursor
+ * fetches older ones), whether I may reply, which version of the answer it is (`version`: 1-based index and count of
+ * the answer's versions) and whether that version is on the branch the chat shows now (`onShownBranch`). */
+export const ChatThreadPage = z.object({
+  root: Message,
+  replies: z.array(ChatThreadReply),
+  nextCursor: z.string().nullable(),
+  canReply: z.boolean(),
+  readOnlyReason: ChatThreadReadOnly.optional(),
+  version: z.object({ index: z.number().int().positive(), count: z.number().int().positive() }),
+  onShownBranch: z.boolean(),
+  /** the thread holds CHAT_THREAD_MAX replies: no more */
+  full: z.boolean(),
+})
+export type ChatThreadPage = z.infer<typeof ChatThreadPage>
+export const SendChatThreadReplyBody = z.object({
+  text: z.string().max(CHAT_THREAD_REPLY_MAX).refine((t) => t.trim().length > 0, { message: 'empty reply' }),
+  /** client-made id: sending the same one again returns the first reply */
+  clientId: z.string().min(8).max(64),
+}).strict()
+/** the newest reply I have read (one of the thread's) */
+export const MarkChatThreadReadBody = z.object({ upTo: Uuid7 }).strict()
+
+/** One reply as "Send to Trina" quotes it. */
+export interface ChatThreadDraftReply { name: string; at: string; text: string }
+/**
+ * What "Send to Trina" puts in the chat's box: the thread as a Markdown quote, every line starting with "> " (the
+ * server reads quote lines as other people's words: chat/read-rooms.ts isQuoteLine, chat/project-members.ts ownWords),
+ * names and the header made one line (a name with a line break would end the quote), the newest replies kept within
+ * CHAT_THREAD_DRAFT_MAX characters with `cut` on top when older ones were left out, then an empty line for the
+ * presser's own words. The answer's text is never quoted (it may be hidden from someone; the AI has it already).
+ * `head`: the header line's words ("Thread on Trina's answer · 2:10 PM · 4 replies"); `time`: a reply's time as shown.
+ */
+export function chatThreadDraft(replies: readonly ChatThreadDraftReply[], o: { head: string; cut: string; time: (iso: string) => string; max?: number }): string {
+  const max = o.max ?? CHAT_THREAD_DRAFT_MAX
+  const q = (l: string) => `> ${l}`.trimEnd()
+  const head = q(oneLineName(o.head))
+  const blocks: string[] = []
+  let size = head.length + 1
+  let cut = false
+  for (let i = replies.length - 1; i >= 0; i--) {
+    const r = replies[i]!
+    const lines = [q(oneLineName(`${r.name} · ${o.time(r.at)}`)), ...r.text.split(/\r\n|[\n\r\u2028\u2029\u0085\v\f]/).map(q)]
+    let block = lines.join('\n')
+    if (size + block.length + 1 > max) {
+      // the newest reply alone does not fit (QA TC-3786): it goes in cut to the room left, its end marked "…", so the
+      // draft is never just the header; an older one that does not fit is left out
+      if (!blocks.length) {
+        const room = max - size - 1 - (q(oneLineName(o.cut)).length + 1) - 1
+        if (room > lines[0]!.length + 3) {
+          // (never half of a character: a cut that ends on a high surrogate drops it)
+          block = `${block.slice(0, room).replace(/[\uD800-\uDBFF]$/, '').replace(/\n>?$/, '').trimEnd()}…`
+          blocks.unshift(block)
+          size += block.length + 1
+        }
+        // older replies left out: the line says so (none older: only the newest, cut)
+        cut = i > 0 || !blocks.length
+        break
+      }
+      cut = true
+      break
+    }
+    blocks.unshift(block)
+    size += block.length + 1
+  }
+  // the line that says older ones were left out takes room too: the oldest kept go until it fits
+  const cutLine = q(oneLineName(o.cut))
+  if (cut) {
+    size += cutLine.length + 1
+    while (blocks.length && size > max) size -= blocks.shift()!.length + 1
+  }
+  return [head, ...(cut ? [cutLine] : []), ...blocks].join('\n') + '\n\n'
+}
 
 // ---------------- an existing chat shared with its project's members ("프로젝트 멤버와 공유") ----------------
 export const ShareChatBody = z.object({
@@ -606,6 +693,10 @@ export const CHATS = {
   hideChat: endpoint({ method: 'POST', path: '/api/chats/:id/hide', auth: 'user', owner: 'B', response: Chat, summary: '"Hide from my list": a chat someone shared with me leaves my chat lists, for me only (search still finds it); opening it (POST /api/chats/:id/seen) or DELETE brings it back. Its creator gets 400 chat_hide_creator.' }),
   unhideChat: endpoint({ method: 'DELETE', path: '/api/chats/:id/hide', auth: 'user', owner: 'B', response: Chat, summary: 'Bring a chat I hid from my list back.' }),
   chatFile: endpoint({ method: 'GET', path: '/api/chats/:id/files/:fileId', auth: 'user', owner: 'B', query: ChatFileQuery, response: stream(true), summary: 'A file from the computer kept with a chat shared with people and groups (Attachment source chat), for whoever sees the chat now (checked on every read: anyone else, a removed person included, gets the 404 of a missing chat); one not sent in a message yet only for its sender. thumb=1 for an image preview, download=1 as an attachment. Inline, a page or script type is sent as text/plain with a sandbox CSP: never a page of the app. A file on the safety check\'s download-only list is sent only with download=1 (503 quarantined otherwise).' }),
+  listChatThread: endpoint({ method: 'GET', path: '/api/chats/:id/messages/:messageId/thread', auth: 'user', owner: 'B', query: ListChatThreadQuery, response: ChatThreadPage, summary: 'The thread under a finished AI answer of a shared chat I see: the answer as I see it and a page of the replies (newest page first, oldest first within it). People only: the AI never reads replies. A chat I do not see, a missing or hidden answer, a question or another chat\'s answer: the same 404. canReply false with readOnlyReason while safe operations are on, the chat is in the trash or no longer shared.' }),
+  sendChatThreadReply: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/thread', auth: 'user', owner: 'B', status: 201, body: SendChatThreadReplyBody, response: ChatThreadReply, summary: 'Reply under a finished answer (done or stopped) of a shared chat I may continue, as myself. The same clientId again returns the first reply. Access is checked before the sending budget (429 with retryAfter, the rooms\' budget); at most 500 replies (409 thread_full). The answer\'s asker and everyone who replied get one Inbox notice per unread thread, and a push while "Replies in threads I\'m part of" is on.' }),
+  deleteChatThreadReply: endpoint({ method: 'DELETE', path: '/api/chats/:id/thread-replies/:replyId', auth: 'user', owner: 'B', response: empty, status: 204, summary: 'Delete a reply for everyone (no undo): its author, or whoever may moderate the chat (a project chat: its creator or a project editor; a chat shared with people: its creator). A moderator\'s delete is audited with ids only. A reply of another chat: 404.' }),
+  markChatThreadRead: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/thread/read', auth: 'user', owner: 'B', body: MarkChatThreadReadBody, response: empty, status: 204, summary: 'I read a thread I follow up to this reply: its notice counts as read; my other windows hear it. Never past the thread\'s own replies.' }),
   messageSources: endpoint({ method: 'GET', path: '/api/chats/:id/messages/:messageId/sources', auth: 'user', owner: 'B', response: MessageSources, summary: 'The files the AI read or saw passages of for this answer, each checked against the viewer\'s access now (no name or path for the others).' }),
   regenerate: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/regenerate', auth: 'user', owner: 'B', status: 202, body: RegenerateBody, response: TurnStarted, summary: 'New answer to the same user message (sibling of :messageId, an assistant message).' }),
   editMessage: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/edit', auth: 'user', owner: 'B', status: 202, body: EditMessageBody, response: TurnStarted, summary: 'Edited copy of user message :messageId as a new branch, then answer it.' }),

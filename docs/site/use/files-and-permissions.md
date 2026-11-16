@@ -67,12 +67,26 @@ After the update that made access add up, some folders list their people by name
 
 You can share a file you own with chosen people, without changing who can open its folder: **Files › a file's ⋯ › Share**. Add people or groups and press **Share**. They can view the file and download it; they don't see the rest of the folder. Each person you add sees it in **Activity**.
 
+- **Everyone on the team** is the first choice in **Add people or groups**. Before you press **Share**, a line says
+  that everyone on the team will be able to open the file, also people who join later. Guests never can. It counts as
+  one of the 50 people and groups a file can be shared with.
+- When you share several files at once (for example in the last step of **Find work files on this computer**), each
+  person gets one notice in **Activity**, "Mina shared 5 files with you", which opens the list of those files. A
+  person you add by name also gets a phone notification (**Settings › Notifications › File sharing** turns these off).
 - **People with access** lists the owner and each person or group with **Can view**. **✕** removes someone's access (asked first).
 - A team file also opens for everyone who can open its folder.
-- **Copy link** gives the file's own link. People with access open it; anyone else sees **You need access** and can **Ask for access** with a note. The request comes to the owner in **Activity** with **Share** and **Decline**. The link page never shows the file's name to someone who can't open it.
+- **Copy link** gives the file's own link. People with access open it; anyone else sees **You need access** and can **Ask for access** with a note. The request comes to the owner in **Activity** with **Share** and **Decline**, and as a phone notification. The link page never shows the file's name to someone who can't open it.
 - Moving a file somewhere fewer people can open says how many people have it by its link.
 
 Owners and admins can share any team file. In **Admin › Team settings**, **Members can share files they own** turns sharing off for members (shares already made keep working). The team owner can **Remove all file shares** there at once.
+
+### Files shared with you
+
+**Files › Shared with me** lists the files people shared with you, newest first, with who shared it and when. A file
+you can already open in its folder shows here only when someone added you by name. Open a file there to view or
+download it; **‹ Shared with me** takes you back to the list. Opening a file also marks its notice in **Activity** as
+read. A file leaves the list when you lose access to it (its owner removed you, moved it to the trash or can no longer
+edit it).
 
 ## Working with files
 

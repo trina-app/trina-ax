@@ -29,6 +29,10 @@ Component-specific scope:
 - The historical website license (Apache-2.0) and Trina Inc. attribution
   stay in editions/trina/branding/. The website source, its fonts and their
   notices moved to trina-ax-core with the website.
+- The Mac dmg window's background (desktop/scripts/dmg-background.svg and the
+  PNGs made from it) holds a few words of Geist as outlines (Copyright (c)
+  2023 Vercel, in collaboration with basement.studio; SIL Open Font License
+  1.1); no font file ships.
 
 This is not a complete third-party notice bundle or a certification that
 all distribution requirements have been met. See docs/THIRD-PARTY-NOTICES.md.

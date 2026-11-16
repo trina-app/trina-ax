@@ -28,6 +28,10 @@ export const NotificationPreferences = z.object({
   /** a push when someone shares a chat with me by name ("Chats shared with me", default on; docs/DECISIONS.md "Chats
    * shared with me: a push that names the sharer"). The Inbox row stays whatever it says. Older servers omit it. */
   chatShares: z.boolean().optional(),
+  /** a push when someone shares a file with me by name or asks to open a file I answer for ("File sharing", default on;
+   * migration 358, docs/decisions/20261116-file-share-push-gaps.md). The Activity rows stay whatever it says. Older
+   * servers omit it. */
+  fileShares: z.boolean().optional(),
   /** "Phone notifications only when I'm away" (docs/DECISIONS.md "Phone notifications when I'm away"): 'away' (default)
    * cancels a push to the phone app when, at the moment it would go, I am using Trina in a window (the computer showed
    * it; nothing is sent later); 'always' sends it as before. Older servers omit it (they always send). */
@@ -60,7 +64,19 @@ export function plainLabel(s: string, max = 80): string {
 /** room_app.paused: an app in a room the person manages reached the day's cap and paused (room_app_notices with their
  * own deliveries, room_app_push_deliveries, migration 352; docs/DECISIONS.md "Apps posting in rooms"). No setting of its
  * own: pushed while the notice is unread, the app still paused and the person still in its room. */
-export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention', 'owner.lead_joined', 'owner.reauth_locked', 'chat.answer_done', 'chat.shared', 'room_app.paused'])
+/** chat.thread_reply: a reply under an AI answer of a shared chat, in a thread I follow (I asked the answer or replied;
+ * chat_thread_notices with their own deliveries, chat_thread_push_deliveries, migration 408; docs/decisions/
+ * 20261116-chat-answer-threads.md). One unread notice per thread; listed in the Inbox always, pushed while "Replies in
+ * threads I'm part of" (roomThreadReplies) is on. */
+/** file.shared: someone gave me a file, or several in one press (file_share_notices with their own deliveries,
+ * file_share_push_deliveries, migration 356; docs/decisions/20261116-file-share-everyone.md). Listed in the Inbox always;
+ * pushed only for a share by name (a group's or the whole team's people get the Inbox row alone), outside quiet hours,
+ * while a file still opens for me, with "File sharing" (fileShares) on. */
+/** file.access_requested: someone asked to open a file the person answers for (its owner, or for a team file whoever
+ * answers for it; file_share_notices, the same deliveries; docs/decisions/20261116-file-share-push-gaps.md). Listed in
+ * Activity always; pushed while the request still waits and the person may still answer it, outside quiet hours, with
+ * "File sharing" (fileShares) on. Never the file's name, the asker or the note. */
+export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention', 'owner.lead_joined', 'owner.reauth_locked', 'chat.answer_done', 'chat.shared', 'room_app.paused', 'file.shared', 'chat.thread_reply', 'file.access_requested'])
 /** The room notices among them (server/src/rooms/notices.ts). */
 export const ROOM_PUSH_EVENTS = ['room.dm', 'room.mention'] as const
 export type PushEventType = z.infer<typeof PushEventType>
@@ -86,17 +102,18 @@ export type PushEventType = z.infer<typeof PushEventType>
  * was made for their account, on the server or by an admin (reset_link_notices), and things done to the team from
  * outside it (hosting_notices): hosting.key_copied and hosting.exported to the owners when the hosting service copied
  * the AI connections' key or took a full export, relay.address_moved to the owners and admins when the relay stopped
- * taking this server's key because the team address was moved to another key, and account.deletion_due to a person whose
+ * taking this server's key because the team address was moved to another key, engine.start_failed to the owners and
+ * admins once when the AI could not start on this server (engine_start_notices, migration 127; QA TC-3521), and account.deletion_due to a person whose
  * open account deletion request got its automatic date when this server started deleting by itself (account_deletion_due_notices),
  * and chat.shared to a person someone shared a chat with, by name or through a group (chat_share_notices), and room_app.paused to the people who manage an app in a room that paused for the day
  * (room_app_notices; a push too: PushEventType), and room_app.leaver to the people who may manage an app in a room
  * when someone who was shown its address can no longer manage it (room_app_leaver_notices, migration 352; docs/DECISIONS.md
  * "Apps posting in rooms"). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'service.closed', 'files.stored_key', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'account.deletion_due', 'room_app.leaver', 'file.shared', 'file.access_requested', 'file.access_answered', 'file.unshared_by_move'])
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'service.closed', 'files.stored_key', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'engine.start_failed', 'account.deletion_due', 'room_app.leaver', 'file.access_answered', 'file.unshared_by_move'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
-  createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project', 'integrations', 'admin_credentials', 'room', 'admin_members', 'admin_connectors', 'account_deletion', 'file']).nullable(),
+  createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project', 'integrations', 'admin_credentials', 'room', 'admin_members', 'admin_connectors', 'account_deletion', 'file', 'chat_thread']).nullable(),
   /** scheduled runs only: succeeded / finished with problems / failed (the inbox text follows it; older servers omit it) */
   outcome: ScheduleRunOutcome.nullable().optional(),
   /** 'schedule.success' and 'schedule.failure' for one task's run (not `review`), while the task is the person's and
@@ -206,6 +223,12 @@ export const InboxNotification = z.object({
    * `title`: the chat's title, read now and only while I still see the chat (link 'chat' then opens it); `gone`: I no
    * longer see it ("This chat is no longer shared with you": no title, no link). Never stored text. Older servers omit it */
   chatShared: z.object({ name: z.string().nullable(), title: z.string().nullable(), gone: z.literal(true).optional() }).optional(),
+  /** 'chat.thread_reply' only (docs/decisions/20261116-chat-answer-threads.md; chat_thread_notices): someone replied in a
+   * thread I follow under an AI answer of a shared chat. Read now, while I still see that chat and answer (link
+   * 'chat_thread' then opens /c/<chatId>/t/<rootId>): `name`, the newest replier by display name while their account is
+   * there; `title`, the chat's title. `gone`: I no longer see it (no name, no title, no link). Never a reply's text.
+   * Older servers omit it */
+  chatThread: z.object({ chatId: z.string().nullable(), rootId: z.string().nullable(), name: z.string().nullable(), title: z.string().nullable(), gone: z.literal(true).optional() }).optional(),
   /** the 'file.*' notices (docs/DECISIONS.md "A member shares their own files", file_share_notices). file.shared:
    * `by` shared `name` with me (link 'file' opens /f/<linkId>). file.access_requested (to the file's owner, or the team
    * owner and admins for a file with no owner): `by` asked to open `name`, their `note` (plain text), `requestId` and
@@ -218,6 +241,9 @@ export const InboxNotification = z.object({
     note: z.string().optional(), requestId: z.string().optional(),
     state: z.enum(['pending', 'approved', 'declined', 'closed']).optional(),
     canAnswer: z.literal(true).optional(), gone: z.literal(true).optional(),
+    /** file.shared for several files in one press (docs/decisions/20261116-file-share-everyone.md): how many of them the
+     * viewer can open now, and the press's id (link 'file' opens /f/batch/<batchId>); `name` is then null */
+    count: z.number().int().positive().optional(), batchId: z.string().optional(),
   }).optional(),
   /** 'skill.suggested' for a batch of skill folders a member sent (docs/DECISIONS.md "MC"; for the owners and admins):
    * who sent it, while their account is there, and how many skills it held. "민준 님이 스킬 2개를 팀에 올리자고 했어요";

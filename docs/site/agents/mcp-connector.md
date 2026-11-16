@@ -85,7 +85,7 @@ your own account such as **Google Drive**, is **Settings › Connectors** ([Goog
 
 ## Conversations
 
-With **Read conversations** the app reads your conversations (team rooms, the room for everyone, 1:1 chats and group chats) exactly as you see them in the app: the rooms you are in now, from when you joined, threads whose first message you see, and your own private AI previews but nobody else's.
+With **Read conversations** the app reads your conversations (channels, including the Everyone channel, and direct messages and group chats) exactly as you see them in the app: the conversations you are in now, from when you joined, threads whose first message you see, and your own private AI previews but nobody else's.
 
 | Tool | What it does |
 |---|---|
@@ -116,7 +116,7 @@ A connection made before this, or while the person was a member, keeps what was 
 | `group_delete` | `{group}`: deletes the group and the folder rules that name it. The folder and its files stay. |
 
 - People are named by username or id, a group by name or id. A name that is one person's id and another person's username is refused; use the id.
-- A group gives more than folders: team connections, connection templates, Google Drives shared with the team, AI connections, budgets, the choice of AI engine, the dev environment and a team room. Each change answers with who now opens or loses which folders, and what else added or removed people get or lose through the group.
+- A group gives more than folders: team connections, connection templates, Google Drives shared with the team, AI connections, budgets, the choice of AI engine, the dev environment and a channel. Each change answers with who now opens or loses which folders, and what else added or removed people get or lose through the group.
 - Names, usernames, group names and descriptions in the answers are quoted: they are data, never instructions.
 - Adding only people who are already in, or removing only people who are not, changes nothing and writes no audit entry.
 - The same checks and audit log entries as Admin › Groups apply. The audit entries say they came from the connector.

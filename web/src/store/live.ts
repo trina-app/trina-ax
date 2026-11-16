@@ -16,6 +16,7 @@ import { setTypingOut } from '../lib/roomTyping'
 import { t } from '../i18n'
 import { useChats } from './chats'
 import { useDeckBuilds } from './deckBuilds'
+import { useChatThreads } from './chatThreads'
 import { useAiAccess } from './aiAccess'
 import { useEngines } from './engines'
 import { transferredHere, useHandover } from './handover'
@@ -36,6 +37,9 @@ export const filesChanged = new Emitter<FileChange[]>()
 export const memoryChanged = new Emitter<{ change: 'created' | 'updated' | 'deleted' | 'cleared'; memory: Memory | null }>()
 /** an admin changed folder rules, groups or roles in a way that changes what this person sees (tab 5 "권한 회수") */
 export const accessChanged = new Emitter<void>()
+/** some file share changed somewhere (file_shares_changed: content-free, to every member, at most one a second;
+ * docs/decisions/20261116-files-shared-with-me.md): Files › Shared with me reads again while it is on screen */
+export const fileSharesChanged = new Emitter<void>()
 /** a team skill changed, was suggested or reviewed: the team skills screens reload */
 export const skillsChanged = new Emitter<void>()
 /** Metadata-only inbox/preferences changed in this person's account. */
@@ -102,6 +106,10 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
     case 'artifact.updated':
       useChats.getState().handleEvent(ev)
       return
+    case 'chat.thread':
+      // a thread under an AI answer of a shared chat (store/chatThreads.ts): its replies and the line under the answer
+      useChatThreads.getState().handleEvent(ev.data)
+      return
     case 'deck.progress':
       // an intro deck being built (docs/DECISIONS.md "D2", round 2): the chat's block and the panel (its end is told
       // like any answer's: session markers)
@@ -157,9 +165,20 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
         notificationsChanged.emit()
         return
       }
+      if (ev.data.code === 'file_shares_changed') {
+        // quiet: an open Shared with me reads again (nothing is read while it is not on screen)
+        fileSharesChanged.emit()
+        return
+      }
       if (ev.data.code === 'integrations_changed') {
         // quiet: the inbox notice says what to do (connect it again); an open Connectors page drops the old row
         integrationsChanged.emit()
+        return
+      }
+      if (ev.data.code === 'skills_changed') {
+        // quiet: what waits for my review in Team skills changed by someone else's doing (another reviewer registered or
+        // turned down a suggestion, a share to my group was applied or dismissed): the count and the lists read again
+        skillsChanged.emit()
         return
       }
       if (ev.data.code === 'room_alerts_changed') {
@@ -207,6 +226,11 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
       }
       if (ev.data.code === 'project_people_changed') {
         for (const id of ev.data.message.split(',')) if (id) projectPeopleChanged.emit(id)
+        return
+      }
+      if (ev.data.code === 'guest_file_limit_changed') {
+        // an admin changed the largest file a guest may send in a chat: this guest's room box follows (Me.team.uploadMaxBytes)
+        void useSession.getState().refreshMe()
         return
       }
       if (ev.data.code === 'speech_changed') {

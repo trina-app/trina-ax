@@ -258,7 +258,7 @@ function useHereProject(): string | null | undefined {
   const { pathname } = useLocation()
   const [at] = useState(pathname)
   const page = matchPath('/projects/:projectId/*', at)?.params.projectId
-  const chatId = matchPath('/c/:chatId', at)?.params.chatId
+  const chatId = (matchPath('/c/:chatId', at) ?? matchPath('/c/:chatId/t/:messageId', at))?.params.chatId
   const known = useChats((s) => (chatId ? s.chats.find((c) => c.id === chatId) ?? s.others[chatId] : undefined))
   const [read, setRead] = useState<string | null | undefined>(undefined)
   const missing = !!chatId && !known && !page
@@ -1040,7 +1040,7 @@ function MessageHit({ hit, room, text }: { hit: RoomSearchHit; room: RoomSearchR
   const where = useWhere()(room, hit.author?.id)
   return (
     <>
-      {hit.app ? <AppTile service={serviceOf(hit.app)} size="face" /> : ai ? <AiFace size={32} /> : person ? <Avatar user={person} size={32} /> : <span aria-hidden className="size-8 shrink-0 rounded-full bg-hover" />}
+      {hit.app ? <AppTile service={serviceOf(hit.app)} app={hit.app} size="face" /> : ai ? <AiFace size={32} /> : person ? <Avatar user={person} size={32} /> : <span aria-hidden className="size-8 shrink-0 rounded-full bg-hover" />}
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-baseline gap-1.5 text-sm">
           <span className="shrink-0 font-medium text-ink" data-testid="search-message-author">{name}</span>

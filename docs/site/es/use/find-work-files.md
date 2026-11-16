@@ -1,5 +1,5 @@
 ---
-title: Buscar archivos de trabajo en este equipo
+title: Buscar archivos de trabajo en este ordenador
 description: Deje que la app de escritorio encuentre sus archivos de trabajo recientes (en Documentos, en unidades en la nube como OneDrive y Google Drive, en carpetas de proyectos y en descargas de mensajería), elija los que quiera y añádalos a Mis archivos. En un Mac, cómo dar Acceso total al disco o permitir carpeta por carpeta.
 ---
 
@@ -37,7 +37,7 @@ Lo que se queda en su ordenador:
 ![Mis archivos con el botón Buscar archivos de trabajo (Find work files) en la barra de herramientas](../../images/find-work-files/my-files-line.webp "La línea en Mis archivos")
 
 Si se unió al equipo hace poco, la tarjeta de bienvenida de **Inicio** tiene lo mismo como fila opcional, **Traiga archivos de trabajo
-de este equipo** (solo en la app de escritorio). Abre la misma ventana y añade al mismo lugar. La fila se muestra como hecha
+de este ordenador** (solo en la app de escritorio). Abre la misma ventana y añade al mismo lugar. La fila se muestra como hecha
 cuando ya hay un archivo, y nunca retrasa el resto de la tarjeta.
 
 El propietario ve el mismo botón en **Primeros pasos › Archivos del equipo**. Allí los archivos van a la carpeta principal del equipo, como
@@ -45,9 +45,9 @@ el resto de ese paso.
 
 ## En un Mac: dé Acceso total al disco una vez
 
-Para buscar más allá de Documentos, Escritorio y Descargas, la app para Mac necesita **Acceso total al disco**. Por eso, en un Mac la app muestra primero esta pantalla. Desde **Mis archivos** dice **Encuentra tus archivos de trabajo** (lo que añada solo lo ve usted); en **Primeros pasos › Archivos del equipo** dice **Encuentra los archivos que tu equipo debería tener**.
+Para buscar más allá de Documentos, Escritorio y Descargas, la app para Mac necesita **Acceso total al disco**. Por eso, en un Mac la app muestra primero esta pantalla. Desde **Mis archivos** dice **Encuentre sus archivos de trabajo** (lo que añada solo lo ve usted); en **Primeros pasos › Archivos del equipo** dice **Encuentre los archivos que su equipo debería tener**.
 
-![Encuentra tus archivos de trabajo: Trina AX revisa las carpetas de este Mac y sugiere los archivos con los que trabaja; necesita Acceso total al disco. Una imagen del interruptor de Trina AX en Privacidad y seguridad › Acceso total al disco, Ahora no y Abrir Ajustes](../../images/find-work-files/full-disk.webp "Primero, Acceso total al disco")
+![Encuentre sus archivos de trabajo: Trina AX revisa las carpetas de este Mac y le sugiere los archivos con los que trabaja; necesita Acceso total al disco. Una imagen del interruptor de Trina AX en Privacidad y seguridad › Acceso total al disco, Ahora no y Abrir Ajustes](../../images/find-work-files/full-disk.webp "Primero, Acceso total al disco")
 
 1. Haga clic en **Abrir Ajustes**. Ajustes del Sistema se abre en **Privacidad y seguridad › Acceso total al disco**.
 2. **Trina AX** ya está en la lista, con el interruptor desactivado: aparece allí en cuanto la app abre esta pantalla,
@@ -67,7 +67,7 @@ Antes de mirar nada, la app pregunta en su propia ventana. Muestra cada lugar qu
 lee. Haga clic en **Revisar estos lugares** (después de **Ahora no**: **Revisar estas carpetas**) para continuar, o en
 **Cancelar** para detenerse.
 
-![La pregunta propia de la app: ¿Buscar archivos de trabajo en este equipo? Muestra los lugares, indica qué lee y tiene un botón para continuar y Cancelar](../../images/find-work-files/app-question.webp "La app pregunta primero")
+![La pregunta propia de la app: ¿Buscar archivos de trabajo en este ordenador? Muestra los lugares, indica qué lee y tiene un botón para continuar y Cancelar](../../images/find-work-files/app-question.webp "La app pregunta primero")
 
 En Windows esa es la única pregunta: la app busca enseguida. Cuando OneDrive guarda sus carpetas Documentos o Escritorio, la
 lista indica "Documentos (OneDrive)".
@@ -76,7 +76,7 @@ lista indica "Documentos (OneDrive)".
 
 Después de **Ahora no**, la app solo busca en Documentos, Escritorio y Descargas. La primera vez que lee una de ellas,
 macOS le pregunta por esa carpeta: "“Trina AX” quiere acceder a los archivos de tu carpeta Documentos." Debajo verá
-el motivo de la app: *Busca archivos de trabajo aquí. El contenido de los archivos se queda en este Mac hasta que decidas añadirlos.* Las
+el motivo de la app: *Busca archivos de trabajo aquí. El contenido de los archivos se queda en este Mac hasta que decida añadirlos.* Las
 preguntas llegan una tras otra, una por carpeta.
 
 - **Permitir**: la app busca en esa carpeta.
@@ -99,10 +99,10 @@ macOS recuerda su respuesta, así que solo pregunta una vez por carpeta.
 - Los archivos de más de 50 MB no aparecen en la lista; añádalos en la página Archivos. Una carpeta muy grande solo se revisa en parte, y la
   lista lo indica.
 
-Haga clic en **Añadir n archivos**. Los archivos van a **Mis archivos › De este equipo**, en carpetas con el nombre del lugar donde estaban
+Haga clic en **Añadir n archivos**. Los archivos van a **Mis archivos › De este ordenador**, en carpetas con el nombre del lugar donde estaban
 (Documentos › Clients › …, OneDrive – Acme › …).
 
-![Se añadieron 7 archivos a Mis archivos › De este equipo, con Deshacer, Abrir y Cerrar](../../images/find-work-files/added.webp "Después de añadir")
+![Se añadieron 7 archivos a Mis archivos › De este ordenador, con Deshacer, Abrir y Cerrar](../../images/find-work-files/added.webp "Después de añadir")
 
 ## Compartir algunos con su equipo
 
@@ -112,7 +112,8 @@ archivos que acaba de añadir. **No hay nada marcado**, y no se comparte nada ha
 - **Bueno para compartir: Formulario** (o Presentación de la empresa, Material de marca, Normas y políticas,
   Material de formación, Acta de reunión) señala los tipos de archivo que los equipos suelen tener en común. Es solo una pista, de la misma
   selección que la lista anterior o del nombre del archivo: marque los que quiera.
-- En **Añadir personas o grupos**, añada quién debe verlos: compañeros por su nombre o un grupo del que forma parte (el
+- En **Añadir personas o grupos**, añada quién debe verlos: **Todo el equipo** (la primera opción: todas las personas del
+  equipo, también quienes se unan después, nunca los invitados; una línea lo dice antes de pulsar **Compartir**), compañeros por su nombre o un grupo del que forma parte (el
   propietario del equipo y los administradores pueden añadir cualquier grupo). No se pueden añadir invitados.
 - Haga clic en **Compartir n archivos**. Cada archivo marcado se comparte igual que con **Compartir** en la página de
   Archivos: las personas añadidas pueden abrirlo y descargarlo (solo ver) y lo ven en **Actividad**. Los archivos que no
@@ -132,12 +133,12 @@ de la forma habitual en la página Archivos. Los archivos de su ordenador nunca 
 
 ## Si se omitió una carpeta (Mac, sin Acceso total al disco)
 
-Si respondió **No permitir**, la lista indica **"Trina AX no puede ver Descargas · Elígela tú"**. Si la app
+Si respondió **No permitir**, la lista indica **"Trina AX no puede ver Descargas · Elíjala usted"**. Si la app
 no pudo ver ninguna de las tres carpetas, lo indica en lugar de mostrar una lista.
 
-![Trina AX no puede ver sus carpetas Documentos, Escritorio ni Descargas, con Elígela tú, Cómo, Cerrar y Revisar de nuevo](../../images/find-work-files/all-blocked.webp "Todas las carpetas omitidas")
+![Trina AX no puede ver sus carpetas Documentos, Escritorio ni Descargas, con Elíjala usted, Cómo, Cerrar y Revisar de nuevo](../../images/find-work-files/all-blocked.webp "Todas las carpetas omitidas")
 
-- **Elígela tú** abre la ventana de carpetas del Mac en esa carpeta. Al elegirla allí, la app puede revisarla.
+- **Elíjala usted** abre la ventana de carpetas del Mac en esa carpeta. Al elegirla allí, la app puede revisarla.
 - O dé Acceso total al disco (más arriba) y vuelva a buscar.
 - O añada los archivos usted mismo: **Archivos › Subir carpeta** y luego elija la carpeta.
 

@@ -11,13 +11,14 @@
 // could not resume reloads through resync (components/rooms/useRoomsSync).
 import { create } from 'zustand'
 import { emojiForm } from '@mycel/shared'
-import { ROOM_REACTION_EMOJI_MAX, roomLevel, roomTimelineCursor, uuidv7, type Room, type RoomAlertSettings, type ShareAnswerToRoomResult, type RoomNotifyLevel, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomReadState, type RoomThreadReadState, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
+import { ROOM_REACTION_EMOJI_MAX, roomLevel, roomTimelineCursor, uuidv7, type Room, type RoomAlertSettings, type ShareAnswerToRoomResult, type RoomNotifyLevel, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomAppIcon, type RoomReaction, type RoomReadState, type RoomThreadReadState, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError } from '../lib/api'
 import { waitForUpdate, waitsForUpdate } from '../lib/serverUpdating'
 import { noteRecent } from '../lib/emoji'
 import { optimistic, optimisticPending } from '../lib/optimistic'
 import { mentionsMe, newestSeq, type PickedMention } from '../lib/rooms'
 import { draftKey, readDraft, writeDraft } from '../lib/localData'
+import { pruneRoomUploads } from './roomUploads'
 import { navigateTo } from '../lib/nav'
 import { lastHeard, LIVE_QUIET_MS } from '../lib/realtime'
 import { currentLocale, t } from '../i18n'
@@ -250,6 +251,16 @@ export function withThreadSummary(d: RoomsData, roomId: string, rootId: string, 
   }) }
 }
 
+/** An app's own icon changed (its settings, docs/decisions/20261116-other-app-icon.md): every message of it on screen
+ * shows the new one (undefined: its letter again). Other people's windows read it with the room's next page. */
+export function withAppIcon(d: RoomsData, roomId: string, appId: string, icon: RoomAppIcon | undefined): RoomsData {
+  return { ...d, ...mapMessages(d, roomId, (x) => {
+    if (x.app?.id !== appId) return x
+    const { icon: _old, ...app } = x.app
+    return { ...x, app: icon ? { ...app, icon } : app }
+  }) }
+}
+
 /** The reactions on a message changed (room.reactions, my own toggle, its answer). */
 export function withReactions(d: RoomsData, roomId: string, messageId: string, reactions: RoomReaction[]): RoomsData {
   return { ...d, ...mapMessages(d, roomId, (x) => {
@@ -420,6 +431,8 @@ interface RoomsState extends RoomsData {
   remove: (roomId: string, messageId: string) => Promise<void>
   /** "Remove preview" on my own message: that link's card goes for everyone (a failure says so in a toast) */
   hidePreview: (roomId: string, messageId: string, linkedMessageId: string) => Promise<void>
+  /** an app's icon changed: its messages on screen show the new one */
+  appIconChanged: (roomId: string, appId: string, icon: RoomAppIcon | undefined) => void
   /** put my reaction on a message, or take it off (shown at once; the server's answer wins) */
   react: (roomId: string, messageId: string, emoji: string, on: boolean) => Promise<void>
   /** my read place in the room moved to seq: the badge goes at once; a failure puts it back without a word (asked
@@ -1201,6 +1214,10 @@ export const useRooms = create<RoomsState>((set, get) => {
       }
     },
 
+    appIconChanged(roomId, appId, icon) {
+      patchMessages((s) => withAppIcon(s, roomId, appId, icon))
+    },
+
     async react(roomId, messageId, picked, on) {
       // the form the server keeps (❤ and ❤️ are one reaction)
       const emoji = emojiForm(picked)
@@ -1522,3 +1539,10 @@ useRooms.subscribe(() => {
 if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
   window.addEventListener('storage', (e) => onDeviceChange(e.key, e.newValue))
 }
+
+// my room list changed: the uploads of a room that is no longer in it stop (store/roomUploads.ts). Only once the list is
+// loaded: an empty list before that says nothing about my rooms.
+useRooms.subscribe((s, before) => {
+  if (!s.loaded || s.rooms === before.rooms) return
+  pruneRoomUploads((id) => s.rooms.some((r) => r.id === id))
+})

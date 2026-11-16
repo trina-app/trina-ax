@@ -24,7 +24,7 @@
 // choices are ⋯ › 알림 설정 (the level now after it; a crossed-out bell after the name when it is off), the threads with
 // new replies are ⋯'s first entry (a dot on ⋯), and ⋯ has no 이름 바꾸기 (the name opens the room's info, where it is
 // changed).
-import { ArrowDown, BellOff, ChevronLeft, Loader2, MessagesSquare } from 'lucide-react'
+import { ArrowDown, BellOff, ChevronLeft, Folder, Loader2, MessagesSquare } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useNavigationType, useParams, type NavigationType } from 'react-router-dom'
@@ -57,7 +57,7 @@ import { RoomAskHint, useRoomAskHint } from '../components/rooms/RoomAskHint'
 import { AiMark } from '../components/rooms/AiFace'
 import { aiName } from '../lib/tabs'
 import { messageSeed, onAskTrinaInRoom } from '../lib/sideChatAsk'
-import { EmptyState, IconButton, Skeleton, useMediaQuery } from '../components/ui'
+import { buttonClass, EmptyState, IconButton, Skeleton, useMediaQuery } from '../components/ui'
 import { LoadError } from '../components/LoadError'
 import { FileDropZone } from '../components/FileDropZone'
 import { Tooltip } from '../components/Tooltip'
@@ -430,9 +430,10 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
         {/* the name opens the room's info (its name, 초대하기, the members); beside it how many are in it, and
             for a DM the other person's title (직함) small under their name, as the people list shows it */}
         <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
           <h1 className="flex min-w-0 text-title-sm font-semibold text-ink">
             {/* a phone: the count on its own line under the name (the name keeps the whole width) */}
-            <button type="button" disabled={!room} onClick={() => setShowMembers(true)} aria-haspopup="dialog" className="touch-hit -mx-1 flex max-w-full min-w-0 items-baseline gap-2 rounded-md px-1 text-left hover:bg-hover [--presence-bg:var(--c-canvas)] hover:[--presence-bg:var(--c-hover)] max-md:flex-wrap max-md:gap-x-1 max-md:gap-y-0" data-testid="room-members-button">
+            <button type="button" disabled={!room} onClick={() => setShowMembers(true)} aria-haspopup="dialog" className="touch-hit -mx-1 flex max-w-[calc(100%+0.5rem)] min-w-0 items-baseline gap-2 rounded-md px-1 text-left hover:bg-hover [--presence-bg:var(--c-canvas)] hover:[--presence-bg:var(--c-hover)] max-md:flex-wrap max-md:gap-x-1 max-md:gap-y-0" data-testid="room-members-button">
               {peerId && peerState !== 'offline' && <PresenceDot state={peerState} className="self-center md:hidden" />}
               <span className="truncate" data-testid="room-title">
                 {room ? title(room) : ''}
@@ -450,6 +451,17 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
               )}
             </button>
           </h1>
+          {/* a team room of a group with a folder I can open: its Files, one click away (Room.groupFolder; a phone: the
+              folder alone, at the end of the line beside ✦, with its name as the label) */}
+          {room?.groupFolder && (
+            <Tooltip label={t('rooms.groupFilesTip', { name: room.groupFolder.split('/').pop() ?? room.groupFolder })}>
+              <Link to={`/files?path=${encodeURIComponent(room.groupFolder)}`} aria-label={t('rooms.groupFiles')} className={buttonClass({ variant: 'ghost', size: 'sm', className: 'touch-hit shrink-0 max-md:ml-auto max-md:px-0' })} data-testid="room-group-files">
+                <Folder size={15} aria-hidden />
+                <span className="max-md:hidden">{t('rooms.groupFiles')}</span>
+              </Link>
+            </Tooltip>
+          )}
+          </div>
           {peerTitle && (
             <p className="truncate text-xs text-muted" data-testid="room-peer-title">
               {peerTitle}

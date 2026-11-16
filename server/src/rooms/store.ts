@@ -17,8 +17,10 @@
 // shared/src/api/rooms.ts RoomReactionEmoji), counted for current members only, never anywhere else.
 import type { Database } from 'bun:sqlite'
 import { getPreferences, type Preferences } from '../notifications/preferences'
+import { loadPrincipal, RuleSet } from '../policy/access'
 import { roomNotifyOut } from './alerts'
 import { parseStored, unescapeMarkdown } from './apps/card'
+import { iconsOf } from './apps/icon'
 import { linkPreviewsFor, prepareLinkPreviews, type LinkPrep } from './link-previews'
 import { answerFilePaths, RoomEventLine, ROOM_QUOTE_EXCERPT_MAX, ROOM_REACTION_NAMES, type Room, type RoomFile, type RoomKind, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type UserRef, RoomAppKind, RoomAppPreset, type RoomAppRef } from '@mycel/shared/api'
 
@@ -535,8 +537,28 @@ export function roomNaming(db: Database, room: RoomRow, viewerId: string): Pick<
   return { name, memberCount, peers: peers.map((p) => ({ id: p.id, name: p.name })) }
 }
 
-/** `prefs`: the viewer's notification preferences when the caller has them (a list of rooms), else read here. */
-export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: Preferences = getPreferences(db, viewer.user_id)): Room {
+/** A team room's group folder (its folders row's path, e.g. `groups/leads`) when this person may open it: the folder
+ * rules as the Files page judges a folder (RuleSet.canList, the same test as listing it), no other path. null for the
+ * other kinds, a group without a folder and someone the rules keep out (Room.groupFolder, the header's Files button;
+ * docs/decisions/20261116-room-group-folder-button.md). `rules`: the caller's set when it judges many rooms at once. */
+export function groupFolderFor(db: Database, room: Pick<RoomRow, 'kind' | 'group_id'>, userId: string, rules?: () => RuleSet): string | null {
+  if (room.kind !== 'team' || !room.group_id) return null
+  const f = (db.query('SELECT f.path FROM groups g JOIN folders f ON f.id = g.folder_id WHERE g.id = ?').get(room.group_id) as { path: string } | null)?.path
+  if (!f) return null
+  const who = loadPrincipal(db, userId)
+  if (!who) return null
+  return (rules ? rules() : RuleSet.load(db)).canList(who, f.split('/')) ? f : null
+}
+
+/** The folder rules read once, when a team room first needs them (a list or a fan-out of rooms: groupFolderFor). */
+export function rulesOnce(db: Database): () => RuleSet {
+  let rules: RuleSet | undefined
+  return () => (rules ??= RuleSet.load(db))
+}
+
+/** `prefs`: the viewer's notification preferences when the caller has them (a list of rooms), else read here. `rules`:
+ * the folder rules when the caller judges many rooms at once (groupFolderFor). */
+export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: Preferences = getPreferences(db, viewer.user_id), rules?: () => RuleSet): Room {
   const { name, memberCount, peers } = roomNaming(db, room, viewer.user_id)
   const unread = unreadCount(db, room.id, viewer)
   const threads = threadsUnread(db, room.id, viewer)
@@ -546,6 +568,7 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
   const pinned = pinOf(db, room.id, viewer)
   // and the viewer's own list folder (chat/nav-folders.ts): none while hidden, and only one filed during this membership
   const folder = folderOf(db, room.id, viewer)
+  const groupFolder = groupFolderFor(db, room, viewer.user_id, rules)
   return {
     id: room.id, kind: room.kind, name, canRename: mayRename(db, room, viewer.user_id), managerId: managerOf(db, room), canManageApps: mayManageApps(db, room, viewer.user_id), groupId: room.kind === 'team' ? room.group_id : null, memberCount,
     peers,
@@ -557,6 +580,7 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
     ...(pinned ? { pinnedAt: pinned } : {}),
     ...(folder ? { folderId: folder } : {}),
     ...(dmPeerGone(db, room) ? { gone: true as const } : {}),
+    ...(groupFolder ? { groupFolder } : {}),
   }
 }
 
@@ -604,8 +628,10 @@ export function appRefsOf(db: Database, rows: readonly Pick<MessageRow, 'id' | '
   if (!mine.length) return out
   const ids = [...new Set(mine.map((r) => r.app_id).filter((x): x is string => !!x))]
   // live apps, with who added it while they are in the team (the sender's popover: "Set up by …")
-  const live = new Map(ids.length ? (db.query(`SELECT a.id, u.id by_id, u.name by_name FROM room_apps a LEFT JOIN users u ON u.id = a.created_by AND u.deleted_at IS NULL
-    WHERE a.id IN (${ids.map(() => '?').join(',')})`).all(...ids) as { id: string; by_id: string | null; by_name: string | null }[]).map((a) => [a.id, a]) : [])
+  const live = new Map(ids.length ? (db.query(`SELECT a.id, a.kind, a.preset, u.id by_id, u.name by_name FROM room_apps a LEFT JOIN users u ON u.id = a.created_by AND u.deleted_at IS NULL
+    WHERE a.id IN (${ids.map(() => '?').join(',')})`).all(...ids) as { id: string; kind: string; preset: string | null; by_id: string | null; by_name: string | null }[]).map((a) => [a.id, a]) : [])
+  // a plain Other app's own icon now (apps/icon.ts): a new one shows on its past messages too; a removed app has none
+  const icons = iconsOf(db, [...live.values()].filter((a) => a.kind === 'other' && !a.preset).map((a) => a.id))
   for (const r of mine) {
     const stored = parseStored(r.app_card ?? null)
     if (!stored) continue
@@ -614,6 +640,7 @@ export function appRefsOf(db: Database, rows: readonly Pick<MessageRow, 'id' | '
       id: r.app_id && live.has(r.app_id) ? r.app_id : null, name: stored.app.name, kind: RoomAppKind.safeParse(kind).success ? kind : 'other',
       // the service of a preset app (its logo), when this build knows it
       ...(kind === 'other' && RoomAppPreset.safeParse(stored.app.preset).success ? { preset: stored.app.preset as RoomAppPreset } : {}),
+      ...(r.app_id && icons.has(r.app_id) ? { icon: icons.get(r.app_id)! } : {}),
       by: (() => { const l = r.app_id ? live.get(r.app_id) : undefined; return l?.by_id && l.by_name ? { id: l.by_id, name: l.by_name } : null })(),
       ...(r.app_quiet ? { quiet: true as const } : {}), ...(stored.example ? { example: true as const } : {}),
     })

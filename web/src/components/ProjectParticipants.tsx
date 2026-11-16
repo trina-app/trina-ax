@@ -35,6 +35,11 @@ export const sameParticipants = (a: readonly ProjectParticipant[], b: readonly P
  * am in it. */
 export interface ParticipantOption extends ProjectParticipant {
   name: string
+  /** the words after the name instead of a group's kind (a file's "Everyone on the team": "Everyone in the team, also
+   * people who join later") */
+  kind?: string
+  /** listed before the others where it shows (a file's "Everyone on the team") */
+  first?: boolean
   title?: string
   avatarVersion?: number
   members?: readonly AvatarUser[]
@@ -155,7 +160,7 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
     const x = byKey.get(k)
     if (x && !seen.has(k)) { seen.add(k); rows.push(x) }
   }
-  const rank = (x: ParticipantOption) => (fixed.has(participantKey(x)) ? 0 : 1)
+  const rank = (x: ParticipantOption) => (fixed.has(participantKey(x)) ? 0 : x.first ? 1 : 2)
   rows.sort((a, b) => rank(a) - rank(b) || (rank(a) === 0 ? 0 : a.subjectType === b.subjectType ? byName(a, b) : a.subjectType === 'group' ? -1 : 1))
 
   const needle = fold(q)
@@ -191,7 +196,7 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
    * itself, noteOf) */
   const sub = (x: ParticipantOption, n?: number, inline = false, withNote = true) => {
     const count = n ?? x.members?.length
-    const kind = x.subjectType !== 'group' ? x.title : count !== undefined ? t('projects.groupCount', { n: count }) : x.mine ? t('projects.groupMine') : t('projects.groupTag')
+    const kind = x.kind ?? (x.subjectType !== 'group' ? x.title : count !== undefined ? t('projects.groupCount', { n: count }) : x.mine ? t('projects.groupMine') : t('projects.groupTag'))
     return [kind, !inline && tags(x), withNote && notes?.get(participantKey(x))].filter(Boolean).join(' · ')
   }
 
@@ -285,7 +290,8 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
             const s = sub(x, inside?.length, true, false)
             const role = tags(x)
             const open = opened.has(x.subjectId)
-            const below = !!notes?.get(k)
+            // (a note, or a description given in words (x.kind): on the second line, wrapped, never cut: QA TC-3839)
+            const below = !!notes?.get(k) || !!x.kind
             return (
               <Fragment key={k}>
                 <ListRow
@@ -301,6 +307,7 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
                   }
                   // the note wraps on its own line on a phone, never cut (noteOf, QA TC-1402)
                   meta={below ? <>{s}{noteOf(x, s)}</> : undefined}
+                  metaWrap={below}
                   nameTitle={[x.name, s].filter(Boolean).join(' · ')}
                   // a phone: the short tag ("You"), the whole one in the tooltip and the accessible name (never cut)
                   tag={role && phoneTags?.has(k) ? <><span className="sm:hidden">{phoneTags.get(k)}<span className="sr-only"> · {role}</span></span><span className="max-sm:hidden">{role}</span></> : role || undefined}

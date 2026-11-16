@@ -13,11 +13,14 @@ import { Link, useLocation } from 'react-router-dom'
 import { create } from 'zustand'
 import { useT } from '../../i18n'
 import { useOverlayEntry } from '../../lib/backCloses'
+import { badgeText } from '../../lib/rooms'
 import { aiName } from '../../lib/tabs'
+import { useSkillsWaiting } from '../../store/skillsWaiting'
 import { useUi } from '../../store/ui'
 import { useChatPeek } from '../nav/ChatItem'
 import { HistoryList, RecentsMenu, useRecentsView, viewWords } from '../nav/HistoryList'
 import { SetupRow } from '../onboarding/SetupRow'
+import { CountPill } from '../CountPill'
 import { ListRow } from '../list/List'
 import { openStatusDialog, useMyStatusWords } from '../StatusMessage'
 import { Tooltip } from '../Tooltip'
@@ -64,6 +67,8 @@ export function TrinaDrawer() {
 function DrawerBody({ close }: { close: () => void }) {
   const t = useT()
   const guest = isGuestMe(useMe())
+  // how many wait for my review, as the computer's panel shows it (store/skillsWaiting.ts)
+  const waiting = useSkillsWaiting(!guest)
   const setSearchOpen = useUi((s) => s.setSearchOpen)
   const peek = useChatPeek()
   // by date by default, as the drawer was before the navigation redesign (Today, Yesterday …); its own choice, apart
@@ -107,7 +112,7 @@ function DrawerBody({ close }: { close: () => void }) {
         />
         {/* scheduled tasks and the team's skills: not a guest's (components/GuestView.tsx) */}
         {!guest && <ListRow to="/scheduled" selected={here('/scheduled')} onClick={close} icon={<CalendarClock aria-hidden />} name={t('sidebar.scheduled')} testId="nav-scheduled" />}
-        {!guest && <ListRow to="/skills" selected={here('/skills')} onClick={close} icon={<BookMarked aria-hidden />} name={t('sidebar.skills')} testId="nav-skills" />}
+        {!guest && <ListRow to="/skills" selected={here('/skills')} onClick={close} icon={<BookMarked aria-hidden />} name={t('sidebar.skills')} end={waiting > 0 ? <CountPill text={badgeText(waiting)} label={t('skills.waitingReview', { n: waiting })} testId="nav-skills-count" /> : undefined} testId="nav-skills" />}
       </ul>
       <div
         className={clsx('scroll-thin mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain border-t px-2 pb-2', scrolled ? 'border-line' : 'border-transparent')}

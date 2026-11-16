@@ -64,7 +64,7 @@ export const unavailableAttachment = (id: string): Attachment => ({ id, name: ''
  * file `expect` was checked as (same inode on the same device): a file swapped for a link or another file between
  * the permission check and the read is refused instead of hashed. */
 export async function hashChecked(abs: string, expect: fs.Stats): Promise<string> {
-  const { fd, st } = openChecked(abs)
+  const { fd, st } = openChecked(abs, expect)
   try {
     if (st.ino !== expect.ino || st.dev !== expect.dev) throw new Error('file changed between check and read')
     const h = crypto.createHash('sha256')
@@ -312,7 +312,7 @@ export class TeamFileRefs {
     const s = this.locateSync(userId, id, false, other)
     if (s.state !== 'ok' || !/^(png|jpe?g|gif|webp)$/.test(ext(s.rel)) || s.st.size > 2 * 1024 * 1024) throw new HttpError('not_found')
     let opened: { fd: number; st: fs.Stats }
-    try { opened = openChecked(s.abs) } catch { throw new HttpError('not_found') }
+    try { opened = openChecked(s.abs, s.st) } catch { throw new HttpError('not_found') }
     try {
       if (opened.st.ino !== s.st.ino || opened.st.dev !== s.st.dev || opened.st.size > 2 * 1024 * 1024) throw new HttpError('not_found')
       const bytes = Buffer.alloc(opened.st.size)

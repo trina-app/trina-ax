@@ -248,5 +248,10 @@
   "file": "system/ops.ts",
   "sql": "SELECT id, locale FROM users WHERE role IN ('owner','admin') AND status = 'active' AND deleted_at IS NULL",
   "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "notifications/service.ts",
+  "sql": "SELECT id FROM users WHERE role IN ('owner', 'admin') AND status = 'active' AND deleted_at IS NULL",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
  }
 ]

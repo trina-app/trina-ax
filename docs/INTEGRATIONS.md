@@ -238,7 +238,9 @@ the page says "Request sent" (also when opened again while the request is open),
 A person says in a chat "connect Higgsfield" (or Notion, Linear, GitHub, any MCP server or HTTP API, or their Google
 Drive). The AI looks up the service's official address itself, fills in the connection with the `connect_service`
 tool, and the chat shows a card. The person does one thing on the card: paste the key, sign in, or press Connect. They
-never have to open Settings. Code: `server/src/chat/connect-service.ts` (the tool and the card's endpoint),
+never have to open Settings. The AI calls the tool before it writes anything about connecting and never announces a
+connect card: the card shows itself when there is one, and only the result says what happened (a refusal says "No card
+was shown"; AI scenario CON-02). Code: `server/src/chat/connect-service.ts` (the tool and the card's endpoint),
 `POST /api/turns/:id/connect` (`server/src/routes/chats.ts`), the card in the web app. Contract: `ConnectServiceInput`
 (`shared/src/tools.ts`), `ConnectServiceRequest` (`shared/src/api/ws.ts`), `TurnConnectBody` / `TurnConnectResult`
 (`shared/src/api/chats.ts`).
@@ -332,7 +334,8 @@ never have to open Settings. Code: `server/src/chat/connect-service.ts` (the too
   the turn's person can finish the card (the route checks the owner), and the tools the answer goes on with are that
   person's own: a room's answer (where `connect_service` is not offered) keeps only the asker's own Google apps.
 - If the person pastes a key into the chat anyway, the AI tells them not to, that it should be revoked and replaced
-  at the service, and offers the card (the instructions' rule, `prompt.ts` `CONNECT_RULE`). The web app also warns
+  at the service, and calls `connect_service` without the key so they enter a new one on the card (the instructions'
+  rule, `prompt.ts` `CONNECT_RULE`). The web app also warns
   before sending text that almost surely holds a key, with "Send anyway" and "Edit" (`SecretWarning`), in every box
   whose text reaches the AI: the message box, an ask_user card's own answer, editing a sent message and editing a
   waiting one. It warns on `hasLikelySecret`: known key prefixes (also Notion, Linear, Groq and `sk-` keys in lower

@@ -19,6 +19,10 @@
 // keeps two lines for the first paragraph of its instructions ("지침이 없어요." when it has none; a lock and "멤버만 내용을
 // 볼 수 있어요." on a project whose contents I may not see): the cards of a row are one height, and one without
 // instructions does not leave a hole under it.
+// Renaming (docs/decisions/20261116-project-rename-in-place.md): where people look for it, as in Notion, Drive or a
+// ChatGPT/Claude project: a click on the page's big name (components/EditableTitle.tsx), a tap on the phone bar's name,
+// a list row's or card's "…" (components/projectActions.tsx), and the name's menu at the top as before. Only for
+// whoever manages the project (Project.canManage), not while it is in the trash; anyone else reads plain text.
 // Members (docs/DECISIONS.md "Project members in one panel"): a team project's page has a 멤버 line after 파일 with
 // who sees it, in the words of the line under the box ("나만 봐요", "나와 관리자만 봐요" or "N명이 봐요"); 관리 opens the members dialog (components/ProjectMembersDialog.tsx) for whoever may change
 // them, and for anyone else the line opens to say who does. /projects/:id?members=1 opens the dialog.
@@ -34,10 +38,11 @@
 // Phones (below 768 px): /projects is the 프로젝트 tab's own list, the same as the computer's panel
 // (panels/ProjectsPanel.tsx; docs/DECISIONS.md "Projects: a place of their own"): "+ 새 프로젝트" on top, then each project
 // with when it was last active and how many chats of mine it holds. A project's page has one bar, "‹ 프로젝트 · name ·
-// ···" (the name in the bar's title, the name's menu as the bar's "···" sheet; the big name for screen readers only); its
+// ···" (the name in the bar's title, a tap on it renames the project for whoever may; the name's menu as the bar's "···"
+// sheet; the big name for screen readers only); its
 // files line is one row that opens the project's files on a screen of the 프로젝트 tab (ProjectFiles below,
 // /projects/:id/files, with no folder path line), so Back returns to the project.
-import { ArchiveRestore, ChevronLeft, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Import, Link2, Lock, Pencil, Pin, Plus, ScrollText, Trash2, UserPlus, Users, X } from 'lucide-react'
+import { ArchiveRestore, ChevronLeft, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Import, Lock, Pencil, Pin, Plus, ScrollText, Trash2, UserPlus, X } from 'lucide-react'
 import { foldRuns, runsUnread, TaskRunsIcon, TaskRunsMark, taskRunsAttrs, taskRunsPath, type Run } from '../components/nav/TaskRunsRow'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { scheduleName } from '../lib/scheduleText'
@@ -56,9 +61,8 @@ import { projectSkillsOn } from '../lib/bulkFiles'
 import { useChats } from '../store/chats'
 import { isUnused } from '../components/chat/ChatState'
 import { accessChanged, chatChanged, projectPeopleChanged, reloadAsked } from '../store/live'
-import { chatTrashDays } from '../lib/chat-trash'
-import { hideProject, keepPendingProject, readManagedList, showProject, unhideProject, useProjects } from '../store/projects'
-import { optimistic, optimisticPending } from '../lib/optimistic'
+import { keepPendingProject, readManagedList, useProjects } from '../store/projects'
+import { optimisticPending } from '../lib/optimistic'
 import { chatOrder, folderMoved, keepFaces, useProjectPage, withChatEvent } from '../store/projectPage'
 import { FOLDER_PAGE, keptFolder, readFolder } from '../store/teamFiles'
 import { isAdmin, useMe } from '../store/session'
@@ -73,216 +77,35 @@ import { ChatFaces, PrivateIcon, SharedIcon, otherWriters } from '../components/
 import { whoSeesProject } from '../components/projectWho'
 import { useChatMenuItems } from '../components/chat/chatMenuItems'
 import { MoveToProjectDialog } from '../components/chat/ChatProject'
-import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
+import { MenuButton } from '../components/rooms/MenuButton'
 import { ProjectForm } from '../components/ProjectForm'
 import { NewProjectDialog } from '../components/NewProjectDialog'
 import { onlyMine } from '../components/panels/ProjectsPanel'
 import { NewProjectRow, ProjectsList } from '../components/panels/ProjectsPanel'
-import { ProjectMembersDialog, chosenOf, confirmAddMe, projectNow } from '../components/ProjectMembersDialog'
+import { ProjectMembersDialog, chosenOf, confirmAddMe } from '../components/ProjectMembersDialog'
 import { hasPeopleList, PeopleStack, useProjectPeople } from '../components/ProjectPeople'
 import { IncludesGuests } from '../components/GuestTag'
 import { usePeopleList } from '../store/people'
 import { guestProject, isGuestMe } from '../lib/guests'
 import { GuestProjectNote, useGuestAiOff } from '../components/GuestView'
-import { isProjectsFolder } from '../lib/projectFolders'
 import { isTeamProject, noLongerMemberOf, privateInTeamProject, refusalKey } from '../lib/sharedChat'
 import { ProjectPeopleField } from '../components/ProjectPeopleField'
 import { HeaderShare, WhoSeesWords } from '../components/HeaderShare'
+import { ShareCopyLink, useCopyProjectLink } from '../components/ShareCopyLink'
 import { ProjectTrashNote } from '../components/ProjectTrashNote'
 import { leaveItems, useLeaveProject } from '../components/LeaveProject'
-import { Button, EmptyState, ErrorNote, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, menuOpener, pageColumn, promptDialog, useCopy, useMediaQuery } from '../components/ui'
+import { Button, EmptyState, ErrorNote, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, pageColumn, useMediaQuery } from '../components/ui'
 import { PhoneBarAction, PhoneBarTitle } from '../components/phone/PhoneBarAction'
 import { Tooltip } from '../components/Tooltip'
 import { FileDropZone } from '../components/FileDropZone'
 import { SetupReturn } from '../components/onboarding/SetupReturn'
 import { useFocusAfterRemove } from './admin/common'
+import { deleteLabel, mayDelete, mayManage, mayRename, saveProjectName, trashProject, useDeleteProject, useProjectMenuItems, useRenameProject, PROJECT_NAME_MAX, type Deleted } from '../components/projectActions'
+import { EditableTitle } from '../components/EditableTitle'
+import { isolate } from '../components/handover/isolate'
 
 const PHONE = '(max-width: 767.98px)'
 
-/** The address of a project's page (the app's own route; someone who cannot see the project gets "not found"). */
-const projectLink = (id: string) => `${typeof location === 'undefined' ? '' : location.origin}/projects/${id}`
-
-/** Who may rename and delete it, also without reading it (Project.canManage; older servers: whoever may edit it). */
-const mayManage = (p: Project) => p.canManage ?? p.canEdit
-/** Delete is offered only where the server takes it (Project.canDelete: a member's older project on an admin's folder
- * is an admin's to delete, QA TC-1016) */
-const mayDelete = (p: Project) => p.canDelete ?? mayManage(p)
-
-/** The menu item that deletes it says what it does (QA TC-1064): a team project in projects/ goes to the trash ("Move to
- * trash", as its confirm asks); in the trash, or any other project, "Delete". */
-const deleteLabel = (t: ReturnType<typeof useT>, p: Project) => t(isProjectsFolder(p.folderPath) && !p.inTrash ? 'projects.moveToTrash' : 'common.delete')
-
-/** What deleting did: `gone` (deleted for good, or not found any more), the project in the trash now (a team project in
- * projects/ the caller still manages: the owner and admins), or null (cancelled, refused). */
-export type Deleted = 'gone' | Project | null
-
-/**
- * A team project into the trash, or back out of it, at once (lib/optimistic.ts, key `project:<id>:trash`): the owner
- * and admins keep its card and its page, saying it is in the trash; anyone else's card goes. `onShown` gets what is on
- * screen each time it changes ('gone': not on the list any more). A refusal puts it back with the server's words.
- * The answer: the project as the server has it now (null: not the caller's to see any more).
- */
-function trashProject(p: Project, trashed: boolean, keeps: boolean, onShown?: (now: Project | 'gone') => void, failText?: false) {
-  let at = -1
-  // a member keeps its card in the trash (Project.wasMember; QA TC-1060), and so does whoever restores it
-  const shown = (inTrash: boolean): Project | 'gone' => (inTrash && !keeps ? 'gone' : { ...p, inTrash, ...(inTrash && p.member !== false ? { wasMember: true as const } : {}) })
-  return optimistic<boolean, Project | null>({
-    key: `project:${p.id}:trash`,
-    from: !!p.inTrash,
-    to: trashed,
-    show: (inTrash) => {
-      const now = shown(inTrash)
-      if (now === 'gone') at = hideProject(p.id)
-      else if (at >= 0 || !useProjects.getState().managed?.some((x) => x.id === p.id)) unhideProject(now, at)
-      else showProject(now)
-      onShown?.(now)
-    },
-    send: async () => {
-      if (trashed) await api.call(API.deleteProject, { params: { id: p.id } })
-      else return api.call(API.restoreProject, { params: { id: p.id } })
-      // in the trash with its folder: the owner and admins still have it (to restore or delete for good); its private
-      // chats keep it
-      return projectNow(p.id).catch(() => null)
-    },
-    confirmed: (r) => (r ? !!r.inTrash : trashed),
-    settle: (r) => {
-      if (r) {
-        useProjects.getState().put(r)
-        // a card taken off the list for someone the server still shows it to: back in its place
-        if (at >= 0) unhideProject(r, at)
-        onShown?.(r)
-      } else {
-        useProjects.getState().drop(p.id, true)
-        onShown?.('gone')
-      }
-    },
-    failText,
-  })
-}
-
-/**
- * Deleting a project, from its page and from its card on the list: one confirm and one call, by what the project is
- * now on the server (asked again first):
- * - a team project in projects/ whose folder is in place goes to the trash with its folder and its chats (docs/
- *   DECISIONS.md "Project contents only for members"): "휴지통으로 옮길까요? … 팀장이나 관리자가 되살릴 수 있어요." The
- *   owner and admins keep it, In trash; its creator does not see it any more;
- * - one in the trash: deleted for good ("완전히 삭제할까요? 되돌릴 수 없어요.");
- * - any other (a personal project, one made before outside projects/): deleted, its shared chats to their creators'
- *   trash (said when it has any, by the count the server gives now).
- * Also gone when someone else deleted it first.
- */
-export function useDeleteProject() {
-  const t = useT()
-  const locale = useLocale()
-  const me = useMe()
-  const days = chatTrashDays(me)
-  const deleted = (id: string) => {
-    useProjects.getState().drop(id, true)
-    // the server took the project off its private chats (its shared chats go to the trash with their own event): the
-    // history must not offer "프로젝트 바꾸기…" for a project that is not there any more
-    useChats.setState((s) => ({ chats: s.chats.map((c) => (c.projectId === id && !c.shared ? { ...c, projectId: null } : c)) }))
-  }
-  // not found: deleted by someone else, or no longer mine to see (then my chats keep it, as the server does)
-  const missing = (id: string) => {
-    useProjects.getState().drop(id, true)
-    toast({ level: 'info', text: t('projects.missing') })
-  }
-  /** `onShown`: the trash shows at once (a team project in projects/): what is on screen each time it changes */
-  return async (p: Project, onShown?: (now: Project | 'gone') => void): Promise<Deleted> => {
-    // the menu is gone once the count below has arrived: the keyboard goes back to its button
-    const opener = menuOpener() ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
-    let now = p
-    try {
-      now = await projectNow(p.id)
-    } catch (e) {
-      if (isApiError(e, 'not_found')) {
-        missing(p.id)
-        return 'gone'
-      }
-    }
-    const toTrash = isProjectsFolder(now.folderPath) && !now.inTrash
-    // its guests are switched off with it (and come back when it is restored): said before, with how many (QA TC-2240)
-    let guests = 0
-    if (toTrash) try { guests = (await api.call(API.getProjectPeople, { params: { id: p.id } })).people.filter((x) => x.guest).length } catch { /* not known: the general words */ }
-    // the person left the page while it was asked: no confirm on another page
-    if (opener && !opener.isConnected) return null
-    opener?.focus()
-    const forGood = !!now.inTrash
-    const ask = toTrash
-      ? { title: t('projects.trashTitle', { name: now.name }), body: guests ? <>{t('projects.trashBody')}<span className="mt-2 block" data-testid="project-trash-guests">{t('projects.trashGuests', { n: guests })}</span></> : t('projects.trashBody'), confirm: t('files.moveToTrash') }
-      : forGood
-        ? {
-            title: t('projects.deleteForGoodTitle', { name: now.name }),
-            // its shared chats go to their creators' trash (routes/chats.ts deleteProject; QA TC-1063)
-            body: now.sharedChats ? (
-              <>
-                {t('projects.deleteForGoodBody')}
-                <span className="mt-2 block" data-testid="project-delete-shared">{t('projects.deleteForGoodShared', { days, trash: t('sidebar.trash') })}</span>
-              </>
-            ) : t('projects.deleteForGoodBody'),
-            confirm: t('projects.deleteForGood'),
-          }
-        : { title: t('projects.deleteTitle', { name: now.name }), body: now.sharedChats ? t('projects.deleteBodyShared', { days, trash: t('sidebar.trash') }) : now.folderPath.startsWith('users/') ? t('projects.deletePersonal') : t('projects.deleteBody'), confirm: t('common.delete') }
-    if (!(await confirmDialog({ ...ask, danger: true }))) return null
-    if (toTrash) {
-      // at once (deleting for good and any other delete wait: they cannot be taken back)
-      // its members and whoever manages it keep it, In trash (the Projects list shows it to its members only)
-      const r = await trashProject(now, true, true, onShown, false)
-      if (!r.ok) {
-        if (!r.newest) return null
-        // someone else deleted it first
-        if (isApiError(r.error, 'not_found')) {
-          missing(p.id)
-          onShown?.('gone')
-          return 'gone'
-        }
-        toast({ level: 'error', text: errorText(r.error, locale, t('error.network')) })
-        return null
-      }
-      return r.reply ?? 'gone'
-    }
-    try {
-      await api.call(API.deleteProject, { params: { id: p.id } })
-    } catch (e) {
-      if (isApiError(e, 'not_found')) {
-        missing(p.id)
-        return 'gone'
-      }
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-      return null
-    }
-    deleted(p.id)
-    return 'gone'
-  }
-}
-
-/** A new name for a project: the chat rename's small prompt (name only, so also for the owner or an admin who is not a
- * member: never the edit dialog, which sends its instructions). On screen at once wherever the project is named
- * (lib/optimistic.ts, key `project:<id>:name`; `onName`: a page's own copy), back with the server's words when it
- * refuses. The project as saved (null: cancelled, refused, or renamed again meanwhile). */
-function useRenameProject() {
-  const t = useT()
-  return async (p: Project, onName?: (name: string) => void): Promise<Project | null> => {
-    const name = await promptDialog({ title: t('chat.rename'), label: t('projects.name'), initial: p.name, confirm: t('common.save') })
-    if (!name || name === p.name) return null
-    const r = await optimistic<string, Project>({
-      key: `project:${p.id}:name`,
-      from: p.name,
-      to: name.trim(),
-      show: (v) => {
-        showProject({ ...(useProjects.getState().byId[p.id] ?? p), name: v })
-        onName?.(v)
-      },
-      send: () => api.call(API.updateProject, { params: { id: p.id }, body: { name } }),
-      confirmed: (r) => r.name,
-      settle: (r) => {
-        useProjects.getState().put(r)
-        onName?.(r.name)
-      },
-    })
-    return r.ok && r.newest ? r.reply : null
-  }
-}
 
 /** A card's "…" on the list (components/rooms/MenuButton.tsx: arrow keys, Esc, a bottom sheet on phones). On a computer
  * it shows on hover and keyboard focus, on a touch screen always. A phone's row (`row`: useRowMenu's signals) has it
@@ -290,10 +113,6 @@ function useRenameProject() {
 function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers, row }: { project: Project; onRenamed: (p: Project) => void; onDeleted: (d: Exclude<Deleted, null>) => void; onMembers: () => void; row?: { openSignal: number; openRequest: number } }) {
   const t = useT()
   const phone = useMediaQuery(PHONE)
-  const { copy } = useCopy()
-  const remove = useDeleteProject()
-  const renameProject = useRenameProject()
-  const leaveProject = useLeaveProject()
   // the item goes with the menu: the keyboard waits on "…", and a dialog an item opens gives it back there; a "…" not on
   // screen (none should be) gives the keyboard to its row's link instead of losing it
   const more = useRef<HTMLButtonElement>(null)
@@ -306,32 +125,7 @@ function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers, row }: {
     focusBack()
     void fn()
   }
-  const rename = async () => {
-    const r = await renameProject(p)
-    if (r) onRenamed(r)
-  }
-  const del = async () => {
-    // (gone at once, then again with the answer: the keyboard moves on once)
-    let gone = false
-    const d = await remove(p, (now) => {
-      if (now !== 'gone' || gone) return
-      gone = true
-      onDeleted('gone')
-    })
-    if (d && !(d === 'gone' && gone)) onDeleted(d)
-  }
-  const copyLink = async () => {
-    await copy(projectLink(p.id))
-    toast({ level: 'success', text: t('rooms.menu.linkCopied') })
-  }
-  const items: MenuItem[] = [
-    ...(mayManage(p) ? [{ label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: select(rename), testId: 'project-card-rename' }] : []),
-    ...(p.membersEditable ? [{ label: t('projects.participants'), icon: <Users size={14} aria-hidden />, onSelect: select(onMembers), testId: 'project-card-members' }] : []),
-    { label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: select(copyLink), testId: 'project-card-copy-link' },
-    ...leaveItems(t, p, select(async () => { if (await leaveProject(p)) onDeleted('gone') }), 'project-card-leave'),
-    // the trash shows at once: the card says so, or (not kept there for me) goes
-    ...(mayDelete(p) ? [{ label: deleteLabel(t, p), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: select(del), testId: 'project-card-delete' }] : []),
-  ]
+  const items = useProjectMenuItems(p, { testId: 'project-card', select, onRenamed, onDeleted, onMembers })
   if (row)
     return (
       <MenuButton
@@ -669,6 +463,8 @@ export function ProjectHome() {
 function ProjectPage() {
   const t = useT()
   const locale = useLocale()
+  // the "shared now" toast's Copy link (components/ShareCopyLink.tsx)
+  const copyProjectLink = useCopyProjectLink()
   const { projectId } = useParams()
   const navigate = useNavigate()
   // a project seen a moment ago shows as it was at once (store/projectPage.ts, its files store/teamFiles.ts) and is read
@@ -937,6 +733,20 @@ function ProjectPage() {
     const r = await renameProject(p, (name) => live.current === id && shownP.current && changeP({ ...shownP.current, name }))
     if (r && live.current === id) changeP(r)
   }
+  // the name typed in place (a click on the big name, EditableTitle): the same call as the menu's Rename
+  const renameTo = async (name: string) => {
+    if (!p) return
+    const id = p.id
+    const r = await saveProjectName(p, name, (n) => live.current === id && shownP.current && changeP({ ...shownP.current, name: n }))
+    if (r && live.current === id) changeP(r)
+  }
+  // renamed elsewhere in this window (a row's menu in the list beside the rail): its name here too
+  const storedName = useProjects((s) => (projectId ? s.byId[projectId]?.name : undefined))
+  useEffect(() => {
+    const cur = shownP.current
+    if (storedName && cur && cur.id === projectId && cur.name !== storedName) changeP({ ...cur, name: storedName })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storedName])
 
   // 나를 멤버로 추가 (docs/DECISIONS.md "Project contents only for members"): the members as they are now and me, saved
   // as the members dialog saves them (the rules hash read now; 409 when someone changed them meanwhile: the page as it
@@ -981,7 +791,7 @@ function ProjectPage() {
     else changeP(next)
   }
 
-  if (missing) return <div data-testid="project-missing" data-gone={goneFrom ? '' : undefined}><EmptyState screen title={goneFrom ? t('projects.noLongerMember', { name: goneFrom }) : t('projects.missing')}><Link to="/projects" className="text-accent-text underline">{t('projects.title')}</Link></EmptyState></div>
+  if (missing) return <div data-testid="project-missing" data-gone={goneFrom ? '' : undefined}><EmptyState screen title={goneFrom ? isolate(locale, 'projects.noLongerMember', { name: goneFrom }, ['name']) : t('projects.missing')}><Link to="/projects" className="text-accent-text underline">{t('projects.title')}</Link></EmptyState></div>
   if (error) return <div className="p-6"><ErrorNote>{error}</ErrorNote></div>
   if (!p) return <Skeleton lines={6} className="p-6" />
   // the owner or an admin on a team project they are not a member of (or one in the trash, which nobody reads): its
@@ -1037,7 +847,8 @@ function ProjectPage() {
       {phone ? (
         // a phone: one bar, "‹ 프로젝트 · name · ···" (components/PhoneTopBar.tsx); the name's menu is the bar's "···"
         <>
-          <PhoneBarTitle>{p.name}</PhoneBarTitle>
+          {/* the name in the bar: a tap renames it, for whoever may (the same prompt as the menu's Rename) */}
+          <PhoneBarTitle onPress={mayRename(p) ? () => void rename() : undefined} pressLabel={t('projects.renameNamed', { name: p.name })}>{p.name}</PhoneBarTitle>
           {menu && (
             <PhoneBarAction>
               <MenuButton label={t('rooms.menu.rowLabel', { name: p.name })} tip={t('rooms.menu.label')} sheetTitle={p.name} items={menu} muted buttonClassName="size-11" testId="project-menu" />
@@ -1072,7 +883,17 @@ function ProjectPage() {
             ("Only me", or the faces of who is in it) and Share, as in Drive or Notion. Phones: the name is the bar's (here
             for screen readers only), so the row under the bar is who sees it and Share */}
         <div className="flex items-start gap-4" data-testid="project-title-row">
-          <h1 className="min-w-0 flex-1 text-display font-semibold tracking-tight break-words max-md:sr-only">{p.name}</h1>
+          {/* whoever may rename it does it here, by a click on the name (a computer; the name's menu at the top keeps
+              its items; a phone: the bar's title, PhoneBarTitle above) */}
+          <EditableTitle
+            name={p.name}
+            editable={!phone && mayRename(p)}
+            onSave={(name) => void renameTo(name)}
+            label={t('projects.name')}
+            maxLength={PROJECT_NAME_MAX}
+            className="min-w-0 flex-1 text-display font-semibold tracking-tight break-words max-md:sr-only"
+            testId="project-title"
+          />
           <ProjectShareRow
             project={p}
             people={people}
@@ -1290,7 +1111,7 @@ function ProjectPage() {
       {members && <ProjectMembersDialog project={p} onClose={() => setMembers(false)} onSaved={membersSaved} />}
       {importing && <ImportChatsDialog project={p} onClose={() => setImporting(false)} onMoved={(c) => { useChats.getState().upsertChat(c); changeChats((cur) => (!cur.some((x) => x.id === c.id) ? [c, ...cur].sort(chatOrder) : cur)) }} />}
       {moving && <MoveToProjectDialog chat={moving} onClose={() => setMoving(null)} onMoved={(c) => { useChats.getState().upsertChat(c); chatHere(c) }} />}
-      {sharing && <ShareProjectDialog project={p} chats={chats?.length ?? 0} onClose={() => setSharing(false)} onShared={(r) => { changeP(r); useProjects.getState().put(r); toast({ level: 'success', text: t('projects.sharedNow', { name: r.name }) }) }} />}
+      {sharing && <ShareProjectDialog project={p} chats={chats?.length ?? 0} onClose={() => setSharing(false)} onShared={(r) => { changeP(r); useProjects.getState().put(r); toast({ level: 'success', text: t('projects.sharedNow', { name: r.name }), ms: 10_000, action: { label: t('rooms.menu.copyLink'), run: () => void copyProjectLink(r) } }) }} />}
     </div>
   )
 }
@@ -1583,6 +1404,7 @@ export function ProjectShareRow({ project: p, people, canShare, adminsOnly, onSh
 function ShareProjectDialog({ project, chats, onClose, onShared }: { project: Project; chats: number; onClose: () => void; onShared: (p: Project) => void }) {
   const t = useT()
   const locale = useLocale()
+  const copyLink = useCopyProjectLink()
   const [participants, setParticipants] = useState<ProjectParticipant[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -1611,6 +1433,8 @@ function ShareProjectDialog({ project, chats, onClose, onShared }: { project: Pr
     <Modal open onClose={onClose} title={t('projects.members.add')} width={560}
       footer={
         <>
+          {/* Copy link (components/ShareCopyLink.tsx): only me can open it until Share */}
+          <ShareCopyLink onCopy={() => void copyLink(project)} unsaved={participants.length ? t('projects.shareConfirm') : null} testId="project-share-copy-link" />
           <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
           <Button variant="primary" busy={busy} disabled={!participants.length} onClick={() => void share()} data-testid="project-share-confirm">{t('projects.shareConfirm')}</Button>
         </>

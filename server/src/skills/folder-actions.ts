@@ -232,7 +232,7 @@ function walk(ctx: AppContext, user: Principal, rules: RuleSet, rel: string): Fi
     if (st.nlink > 1) refuse(`'${relp}' is hard-linked to another file; replace it with a copy first`)
     if (!atLeast(rules.access(user, relp.split('/')), 'read')) refuse('something inside it is hidden from the user', ADMIN)
     if (out.length >= FOLDER_MAX_FILES || (total += st.size) > FOLDER_MAX_BYTES) refuse(`it is too large to show on one card (more than ${FOLDER_MAX_FILES} files or ${FOLDER_MAX_BYTES / 1024 / 1024} MB)`)
-    const bytes = readRegular(abs, FOLDER_MAX_BYTES).bytes
+    const bytes = readRegular(abs, FOLDER_MAX_BYTES, st).bytes
     out.push({ path: relp, size: bytes.length, sha: sha256(bytes), bytes, exec: (st.mode & 0o111) !== 0 })
   }
   visit(r.rel)
@@ -440,7 +440,7 @@ function renameFolder(ctx: AppContext, user: Principal, rules: RuleSet, a: Folde
 /** R: a skill's own folder renamed in its skills folder, its SKILL.md's name line with it (else it stops loading). */
 function renameSkill(ctx: AppContext, user: Principal, rules: RuleSet, a: FolderActionInput, from: string, to: string): FolderPlan {
   const name = nameOf(to)
-  if (!copyNameOk(name)) refuse('a skill\'s folder name uses lowercase letters a-z, digits and hyphens only (at most 64), and its name: line takes the same', 'suggest a name like "estimate-docs" and call skill_files again')
+  if (!copyNameOk(name)) refuse('a skill\'s folder name is lowercase letters (any language) and digits in words joined by single hyphens, no spaces, dots or capitals (at most 64), and its name: line takes the same', 'suggest a name like "estimate-docs" or "견적-문서" and call skill_files again')
   const files = walk(ctx, user, rules, from)
   const manifest = `${from}/SKILL.md`
   const own = files.find((f) => f.path === manifest)

@@ -7,6 +7,7 @@ import { expect, test } from '@playwright/test'
 import { execFile } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { fixtureResult } from './fixture-run'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -20,8 +21,7 @@ test('the consent window: only the person, only from the window, only when they 
     await exec('bun', ['build', join(import.meta.dirname, 'fixtures/work-consent-main.ts'), '--target=node', '--format=cjs', '--external=electron', `--outfile=${output}`])
     const electron = createRequire(import.meta.url)('electron') as string
     const env = { ...process.env, CONSENT_DIST: join(import.meta.dirname, '..', 'dist') }
-    const { stdout } = await exec(electron, [output], { env, timeout: 60_000 })
-    const out = JSON.parse(stdout.split('\n').find((l) => l.startsWith('CONSENT_RESULT '))!.slice(15))
+    const out = await fixtureResult(electron, [output], env, 'CONSENT_RESULT', 60_000)
     expect(out.modal).toBe(true)
     expect(out.text).toEqual({ title: expect.stringMatching(/^Bring your work files into /), places: ['Documents', 'Desktop', 'Downloads'], yes: 'Find work files', focused: 'consent-yes', lang: 'en', bridge: 'undefined', keys: ['view', 'answer'] })
     expect(out.earlyClick).toBe('open')

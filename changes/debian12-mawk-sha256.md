@@ -1,1 +1,0 @@
-- Linux: on Debian 12 the installer now installs workspace-mcp (Google Workspace connector). Debian 12's awk did not read the sha256 check of the Python requirements, so every install and repair stopped with "not a sha256" (QA TC-2848).

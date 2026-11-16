@@ -137,10 +137,12 @@ Once the files are in, the same window asks **Share any of these with your team?
 - **Good to share: Form** (or Company intro, Brand material, Rules and policies, Training material, Meeting notes)
   marks the kinds of files teams usually keep together. It is only a hint, from the same pick as the list before or
   from the file's name: tick what you want.
-- In **Add people or groups**, add who should see them: teammates by name, or a group you are in (the team owner and
-  admins can add any group). Guests can't be added.
+- In **Add people or groups**, add who should see them: **Everyone on the team** (the first choice: everyone in the
+  team, also people who join later, never guests; a line says so before you press **Share**), teammates by name, or a
+  group you are in (the team owner and admins can add any group). Guests can't be added.
 - Click **Share n files**. Each ticked file is shared exactly as with **Share** on the Files page: the people you added
-  can open and download it (view only), and they see it in **Activity**. The files you don't tick stay private to you.
+  can open and download it (view only). Each of them gets one notice in **Activity** for all of them ("Mina shared 5
+  files with you"). The files you don't tick stay private to you.
 - **Not now** shares nothing. Afterwards, **Share with your team** in the same window brings the step back, and you can
   always share a file later from its **⋯ › Share** on the Files page, or take someone's access away there.
 

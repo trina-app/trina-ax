@@ -4,7 +4,9 @@
 // A picture goes the same way as a PNG (the image viewer's 복사), and through the app's own bridge (copyImage). It writes the computer's real clipboard: what was on it
 // is put back afterwards.
 import { expect, test } from '@playwright/test'
-import { ACME, addTeam, close, launch, newUserData } from './helpers'
+import { ACME, addTeam, close, launch, newUserData, stopLeftoverApps } from './helpers'
+
+stopLeftoverApps()
 
 const HTML = '<table><tr><th>name</th></tr><tr><td><strong>alpha</strong></td></tr></table>'
 const PLAIN = '| name |\n|---|\n| **alpha** |'

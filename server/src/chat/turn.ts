@@ -2,6 +2,7 @@ import { confidentialChat } from "../safe-ops/confidential"
 import { seesChatFiles } from './chat-files-access'
 import { ALWAYS_VALUE, alwaysHere, keepAlways, withAlways, type AlwaysPlace } from './always-allow'
 import type { CardAlwaysKind } from '@mycel/shared/api'
+import { NarrationHold, narrationScript } from './narration'
 import { safeOpsEnabled } from "../safe-ops/runner"
 // One chat turn, end to end (tab 3 "실행 관리", tab 4 "메시지 하나의 처리 순서"):
 // engine choice, session resume or a fresh session with the branch history, system prompt, tools of this turn,
@@ -51,7 +52,7 @@ import { aiCalled, engineError, stepLabel, tr, turnLimitError } from './i18n'
 import { placeWords } from './place-words'
 import { recordSkillUse } from '../admin/skill-usage'
 import { noteGoalRun } from '../onboarding/goal'
-import { notificationsOf } from '../notifications/service'
+import { notificationsOf, notifyEngineStartFailed } from '../notifications/service'
 import { noteChatAnswer } from '../notifications/chat-answers'
 import { isLookUpTool, scheduleRunOutcome } from './schedule-outcome'
 import { validateTemplateTurn } from './schedule-templates'
@@ -86,6 +87,8 @@ import { hasCredentialFor, resolveCredential, type CredEngine } from '../credent
 import { connectionRoute } from '../credentials/access'
 import { isGuestUser } from '../credentials/guest-ai'
 import { situationOf } from './situation'
+import { appMapView } from './app-map'
+import { isManaged } from '../app-config'
 import { runKindOf } from '../system/deployment'
 import { guestPromptOf } from './guest-tools'
 import { credentialsOf, getRow, metaOf } from '../credentials/store'
@@ -102,7 +105,7 @@ import { shareMergeOf, shareMergeSystemPrompt, type ShareMergeScope } from '../s
 import { backdateChat, DEMO_REPLAY_TOOL, demoReplayFor, runReplay } from '../demo/replay'
 import { getUser } from '../auth/users'
 import { findRoomFile, localTime } from '../rooms/reader'
-import { OWN_CHAT_TEAM_TOOLS, PATH_ARGS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_OWN_CARD_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
+import { namedPaths, OWN_CHAT_TEAM_TOOLS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_OWN_CARD_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
 import { auditOnceUse, authorsWrite, everyoneWrites, folderAudience, folderId, grantFor, grantsOn, readersOf, ruledBetween, within } from '../rooms/ai-grants'
 import { wouldSeeFrom } from '../rooms/history'
 import { isOwnerOrAdmin, roomRow } from '../rooms/store'
@@ -209,6 +212,9 @@ const SELF_LABELLED_TOOLS = new Set(['save_room_file'])
 
 /** how many times one answer goes on after a connect (each needs another card the person finished) */
 export const CONTINUE_MAX = 2
+/** the sandbox's own words when it could not set up the engine's program (nothing of the engine ran): bwrap on Linux,
+ * sandbox-exec on macOS; their lines start with the tool's name (TurnExec.engineStartFailed) */
+export const SANDBOX_START_FAILED = /^(bwrap|sandbox-exec): /m
 /** the start of the server's note that continues an answer after a connect (the fake engine looks for it) */
 export const CONTINUE_NOTE_START = '[The connect card is finished'
 /** The message of the resumed session that goes on with the same answer after a service was connected on its card
@@ -433,6 +439,9 @@ export class TurnExec {
    * (integrations/connections/redact.ts); read again after each tool call (a call may refresh a token) */
   private redactorNow: Redactor | null = null
   private readonly answerText = new RedactingText(() => this.redactor())
+  /** English status lines before a tool call, held until the call decides them (chat/narration.ts); set once the
+   * person's message is read */
+  private narration = new NarrationHold(null)
   /** when the turn left the queue: how long its answer ran (ChatRuntime.longAnswerMs) */
   private readonly startedAt = performance.now()
   /** finish() runs: the cards it closes send nothing on their own (the turn's end sends the chat once) */
@@ -655,6 +664,7 @@ export class TurnExec {
     const chat = rt.store.chatRow(spec.chatId)
     const userMsg = rt.store.messageRow(spec.userMessageId)
     if (!chat || !userMsg) { this.error = engineError('crash', spec.locale); return }
+    this.narration = new NarrationHold(narrationScript(spec.locale, userMsg.content, this.previousUserText(userMsg.parent_id)))
     if (this.oldRoomSession) { this.error = engineError('crash', spec.locale); return }
     // a shared project chat is never confidential (read-only while safe operations are on), and runs only while its
     // person still sees its project (access may have gone while the turn waited in the queue)
@@ -795,6 +805,10 @@ export class TurnExec {
     // whatever engine.authMode says)
     const managedEngine = engine === 'claude-code' ? claude?.authMode === 'managed' && !!claude.modelProxy : engine === 'codex' ? codex?.auth === 'managed' : false
     const situation = this.shared ? null : situationOf(rt.ctx, { userId: spec.userId, role: this.principal.role, clientKind: spec.clientKind, browser: this.browser, engine, locale: spec.locale, managed: managedEngine, webSearch })
+    // where things are in the app (chat/app-map.ts): none for a guest or a scheduled run (nobody to point anywhere);
+    // guest AI by the install, as Admin says it (routes/credentials.ts guestAiUnavailable), not by this turn's engine
+    const appMap = guestTurn || spec.clientKind === 'schedule' || this.templateScope ? null
+      : { view: appMapView(this.principal.role, !!this.shared), managed: isManaged(rt.ctx.config), devEnv: devEnvFlag(), office: !!rt.ctx.config.office }
     const runKind = runKindOf(rt.ctx.config)
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone,
@@ -809,7 +823,7 @@ export class TurnExec {
       confidential: confidential ? (safeOpsEnabled() ? 'server' : 'chat') : null,
       // the file lists (file-list/service.ts): only while the feature is on and this person has one
       fileList: fileListPromptOn(rt.ctx, this.principal!),
-      situation, runKind,
+      situation, appMap, runKind,
       // a guest: their places and who invited them (prompt.ts guestSection), no team-wide text
       guest: guestPrompt,
     })
@@ -1061,11 +1075,13 @@ export class TurnExec {
         const err = errors.find((e) => e.type === 'error') as Extract<EngineEvent, { type: 'error' }> | undefined
         const crashed = !err && (exit?.ev === 'error' || (exit?.code && !parser.result))
         if (crashed || err) rt.log.warn('engine attempt failed', { turn: this.id, engine: 'claude-code', exit, code: err?.code ?? 'crash', stderr: stderr.slice(-2000) })
+        if ((crashed || err?.code === 'crash') && this.engineStartFailed(stderr)) break
         if ((crashed || err?.code === 'crash') && !this.attemptHadOutput && !retried.has('crash')) { retried.add('crash'); continue }
         if (err) this.error = err.code === 'crash' ? this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`) : engineError(err.code, spec.locale)
         else if (crashed) this.error = this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`)
         else if (parser.refused) this.error = engineError('refused', spec.locale)
-        if (!this.writtenText && !this.error && parser.text) this.appendText(parser.text)
+        // the engine's whole text when none streamed; not when the hold dropped status lines (they are in it)
+        if (!this.writtenText && !this.error && parser.text && !this.narration.dropped) this.appendText(parser.text)
         // a service connected on this answer's card: the same answer goes on in this session with the new tools
         // (the AI was told so only while continueMode was 'step': continuations < CONTINUE_MAX)
         if (!err && !crashed && !parser.refused && !this.error && this.connectedSince.length && continuations < CONTINUE_MAX && !this.limitReason && !this.stopReason && !this.budgetHit) {
@@ -1216,6 +1232,7 @@ export class TurnExec {
         const err = errors.find((e) => e.type === 'error') as Extract<EngineEvent, { type: 'error' }> | undefined
         const crashed = !err && (exit?.ev === 'error' || !!exit?.code)
         if (crashed || err) rt.log.warn('engine attempt failed', { turn: this.id, engine: 'codex', attempt, exit, code: err?.code ?? 'crash', stderr: stderr.slice(-2000) })
+        if ((crashed || err?.code === 'crash') && this.engineStartFailed(stderr)) break
         if ((crashed || err?.code === 'crash') && !this.attemptHadOutput && !retried.has('crash')) { retried.add('crash'); continue }
         if (err) this.error = err.code === 'crash' ? this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`) : engineError(err.code, spec.locale)
         else if (crashed) this.error = this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`)
@@ -1422,6 +1439,19 @@ export class TurnExec {
     return true
   }
 
+  /** The engine never started: the sandbox could not set up its program and said so on stderr before anything ran
+   * (bwrap's own "bwrap: Can't find source path …: Permission denied" on Linux after an update left the app folder
+   * unreadable to the engine account, sandbox-exec's on macOS; QA TC-3521). The answer says so in plain words, never
+   * "stopped partway", is not retried (the same launch fails the same way, whatever the model) and the owners and admins
+   * get one Inbox notice (engineStartNotice). */
+  private engineStartFailed(stderr: string): boolean {
+    if (this.attemptHadOutput || !SANDBOX_START_FAILED.test(stderr)) return false
+    this.error = engineError('engine_start_failed', this.spec.locale)
+    this.rt.log.error('turn failed: the engine could not start', { turn: this.id, stderr: stderr.slice(-500) })
+    notifyEngineStartFailed(this.rt.ctx, this.id)
+    return true
+  }
+
   /** launch through the launcher; stdout lines to `onLine`; bind the engine session to the turn. While the launcher
    * stops or restarts (its orderly stop, QA TC-338) the launch waits for the next one; a launch it refused (nothing of
    * it started) is made again then. */
@@ -1533,6 +1563,9 @@ export class TurnExec {
         this.appendText(e.delta)
         return
       case 'thinking':
+        // more comes after thinking: a held status line is dropped as before a call, anything else goes out before the
+        // thinking step (its place in the answer stays right)
+        this.emitText(this.answerText.push(this.narration.toolStart()))
         this.flushText()
         if (!this.thinkingStep) this.thinkingStep = this.addStep({ kind: 'thinking', label: tr('thinking', this.spec.locale), status: 'running' })
         return
@@ -1544,7 +1577,10 @@ export class TurnExec {
       }
       case 'tool_start': {
         this.closeThinking()
-        this.flushText()
+        // a status line in another script before the call is dropped here (chat/narration.ts); the main AI's calls only
+        // a sub-agent's call leaves the main AI's piece undecided (only the redactor's end goes out)
+        if (e.parentId) this.emitText(this.answerText.flush())
+        else { this.emitText(this.answerText.push(this.narration.toolStart())); this.flushText() }
         this.attemptHadOutput = true
         this.producedOutput = true
         // which agent made the call: the gate gives a sub-agent's calls that sub-agent's own state (TurnFiles.forCall)
@@ -1695,14 +1731,28 @@ export class TurnExec {
   }
 
   /** Engine text: let out (streamed and saved) through the redactor; the end that could start a secret waits. */
-  appendText(t: string) { this.emitText(this.answerText.push(t)) }
-  /** Everything held back by the redactor, let out now (before a step, a retry's separator, the end). */
-  flushText() { this.emitText(this.answerText.flush()) }
+  appendText(t: string) { this.emitText(this.answerText.push(this.narration.push(t))) }
+  /** Everything held back (an undecided piece, the redactor's end), let out now (before a step, a retry's separator,
+   * the end). */
+  flushText() { this.emitText(this.answerText.push(this.narration.flush())); this.emitText(this.answerText.flush()) }
   /** The answer so far as the engine wrote it, the part still held back included (separator checks). */
-  get writtenText(): string { return this.content + this.answerText.held }
+  get writtenText(): string { return this.content + this.answerText.held + this.narration.held }
+  /** The person's message before this one (a short "ok" or "continue" answers in that message's language), or null. */
+  private previousUserText(parentId: string | null): string | null {
+    let cur = parentId
+    for (let i = 0; cur && i < 4; i++) {
+      const r = this.rt.store.messageRow(cur)
+      if (!r) return null
+      if (r.role === 'user') return r.content
+      cur = r.parent_id
+    }
+    return null
+  }
+
   /** Discard the answer text from `at` on (streamed and saved), the part still held back included. */
   private discardTextFrom(at: number) {
     this.answerText.clear()
+    this.narration.clear()
     if (at >= this.content.length) return
     this.content = this.content.slice(0, at)
     this.dirty = true
@@ -2120,12 +2170,13 @@ export class TurnExec {
     let sha = this.files.allReads.get(rel)
     if (!sha) {
       const abs = path.join(this.rt.files.fx.root, ...rel.split('/'))
-      const size = fs.lstatSync(abs).size
+      const lst = fs.lstatSync(abs)
+      const size = lst.size
       // hashed on the server's thread: one file up to OWN_HASH_MAX, a call's files up to OWN_HASH_BUDGET (grep hits in big
       // documents); past either, the file counts as outside
       if (size > OWN_HASH_MAX || size > budget.left) return 2
       budget.left -= size
-      sha = sha256Regular(abs)
+      sha = sha256Regular(abs, lst)
     }
     if (sha === EMPTY_SHA256) return 0
     const rows = this.rt.db.query(`SELECT DISTINCT turn_id AS t FROM file_events WHERE sha256 = ? AND turn_id IS NOT NULL AND action IN ('create', 'update', 'upload', 'restore')`).all(sha) as { t: string }[]
@@ -2753,14 +2804,13 @@ export class TurnExec {
     }
     const exists = (p: string) => { try { return authorize(fx, rules, me, p, 'list').exists } catch { return false } }
     const writes = new Set(WRITE_TARGET_ARGS[tool] ?? [])
-    for (const k of PATH_ARGS) {
+    // every path the call names, nested ones too (edit_pdf's operations, merge_pdfs' list: namedPaths)
+    for (const { key: k, value: v } of namedPaths(tool, a)) {
       // a listing's own folder: below, by the names it shows
       if (tool === 'list' && k === 'path') continue
-      for (const v of Array.isArray(a[k]) ? a[k] as unknown[] : [a[k]]) {
-        if (typeof v !== 'string' || /^[a-z][a-z0-9+.-]*:/i.test(v)) continue
-        if (writes.has(k) && !exists(v)) continue
-        for (const p of this.roomNames(v)) note(p)
-      }
+      if (/^[a-z][a-z0-9+.-]*:/i.test(v)) continue
+      if (writes.has(k) && !exists(v)) continue
+      for (const p of this.roomNames(v)) note(p)
     }
     if (SEARCH_TOOLS.has(tool) || tool === 'list') {
       const fold = (p: string) => { const n = p.normalize('NFC'); return fx.caseInsensitive ? n.toLowerCase() : n }
@@ -2921,9 +2971,9 @@ export class TurnExec {
     if (!this.shared) return { label }
     const a = input && typeof input === 'object' ? input as Record<string, unknown> : {}
     const paths = new Set<string>()
-    for (const k of PATH_ARGS) for (const v of Array.isArray(a[k]) ? a[k] as unknown[] : [a[k]]) {
+    for (const { value: v } of namedPaths(tool, a)) {
       // as typed and as spelled on disk (another case or Unicode form): a viewer must be able to see every spelling
-      if (typeof v === 'string' && v && !/^[a-z][a-z0-9+.-]*:/i.test(v)) for (const p of this.roomNames(v)) paths.add(p)
+      if (v && !/^[a-z][a-z0-9+.-]*:/i.test(v)) for (const p of this.roomNames(v)) paths.add(p)
     }
     if (!paths.size) return { label }
     return { label: FILE_STEP_VERB[tool]?.[this.spec.locale] ?? label.split(' · ')[0] ?? tool, sv: { label, paths: [...paths] } }
@@ -3197,7 +3247,7 @@ export class TurnExec {
       // the tool refuses a folder, and an overwrite of a file not read in this turn: no card for a call that fails
       if (r.st!.isDirectory() || (!produced && !files.readHashes.has(r.rel))) return null
       try {
-        const cur = readRegular(r.abs).bytes
+        const cur = readRegular(r.abs, undefined, r.st).bytes
         before = cur.subarray(0, 8000).includes(0) ? null : cur.toString('utf8')
       } catch { return null }
     }
@@ -3231,7 +3281,7 @@ export class TurnExec {
       : [{ label: st('save', L), value: 'save' }, { label: st('dont', L), value: 'skip' }]
     // "Always allow" for team skill and rule saves (chat/always-allow.ts; the owner, 2026-11-13); not for a name that
     // is taken (that card asks for another name)
-    const ask = (req: TurnRequest & { options: { label: string; value: string }[] }) => dead ? this.askPerson(req, { timeoutMs: this.rt.askUserTimeoutMs() }) : this.askAlways('skill_save', req, 'save')
+    const ask = (req: TurnRequest & { options: { label: string; value: string }[] }) => dead ? this.askPerson(req, { timeoutMs: this.rt.askUserTimeoutMs() }) : this.askAlways('skill_save', req, 'save', { label: 'cardAlwaysSkills' })
     const { value: answer, missing } = await ask({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(),
       // a project's skills folder no live project has (yet): saved there, no chat follows it
@@ -3248,7 +3298,7 @@ export class TurnExec {
     auditLog(this.rt.db, { actor: this.spec.userId, action: 'skills.ai_write_refused', target: r.rel, detail: { tool, turnId: this.id, chatId: this.spec.chatId, answer: answer === null || answer === undefined ? 'none' : picked === 'rename' || picked === 'fix' ? picked : 'declined', ...(group ? { group: { id: group.id, name: group.name } } : {}), ...(project ? { project: { id: project.project.id, name: project.project.name } } : {}) } })
     if (dead && picked === 'rename') {
       return {
-        refusal: `Nothing was saved to '${r.rel}': a skill called "${neutralizeTags(skill!.name)}" is already in ${neutralizeTags(same!.whereEn)}, and that one runs in this project's chats (a project skill only adds new names). The user wants it saved under another name: pick a new name (lowercase a-z, 0-9 and hyphens; the folder takes the same name), or ask the user for one, and save it again (the user confirms on a new card).`,
+        refusal: `Nothing was saved to '${r.rel}': a skill called "${neutralizeTags(skill!.name)}" is already in ${neutralizeTags(same!.whereEn)}, and that one runs in this project's chats (a project skill only adds new names). The user wants it saved under another name: pick a new name (lowercase words joined by hyphens, in any language; the folder takes the same name), or ask the user for one, and save it again (the user confirms on a new card).`,
         summary: `${tool} -> not saved: the name is taken (rename)`,
       }
     }
@@ -3304,6 +3354,22 @@ export class TurnExec {
     try { this.files.skillApprovals.delete(authorize(this.rt.files.fx, this.rt.files.rules(), this.livePrincipal(), target, 'write', { createDirs: true }).rel) } catch { /* no such path: nothing was approved for it */ }
   }
 
+  /** After a skill or rule was saved in a shared chat (owner 2026-11-16, docs/decisions/20261116-shared-chat-skill-edits.md):
+   * the note that tells the AI to end its answer with one quiet line that the people here can see the change. null
+   * anywhere else, for a call that failed, and for any other file. */
+  sharedSkillNote(tool: string, args: unknown, isError: boolean): string | null {
+    if (!this.shared || isError) return null
+    if (tool !== 'write' && tool !== 'edit' && tool !== 'make_file' && tool !== 'edit_hwp') return null
+    const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
+    const out = tool === 'edit_hwp' && typeof a.output === 'string' ? this.hwpTarget(a) ?? undefined : undefined
+    const target = tool === 'make_file' ? (typeof a.output === 'string' && typeof a.format === 'string' ? makeFileOutputPath(a.output, a.format) : a.output) : tool === 'edit_hwp' ? out ?? a.file_path : a.file_path
+    if (typeof target !== 'string') return null
+    let rel: string
+    try { rel = authorize(this.rt.files.fx, this.rt.files.rules(), this.livePrincipal(), target, 'list').rel } catch { return null }
+    if (!skillRootOf(rel) && !/^users\/[^/]+\/skills(\/|$)/i.test(rel)) return null
+    return 'This chat is shared, and the skill change is saved. End your answer with one short, quiet line in the user\'s language that the people in this chat can see this change (for example "People in this chat can see this change."). Say nothing more about it.'
+  }
+
   /**
    * A skill called `name` at another level the person sees (docs/DECISIONS.md "Project skills"). `project`: saving into
    * a project: a wider skill (personal, group, team) of that name, or whose file or folder name it is, runs instead
@@ -3337,7 +3403,7 @@ export class TurnExec {
    */
   /** askPerson for a card of `kind` with "Always allow" (chat/always-allow.ts): no card while it is on (`yes` at once),
    * else the card offers it. */
-  async askAlways(kind: CardAlwaysKind, request: TurnRequest & { options: { label: string; value: string }[] }, yes: string, o: { onAlways?: () => void } = {}): Promise<CardAnswer> {
+  async askAlways(kind: CardAlwaysKind, request: TurnRequest & { options: { label: string; value: string }[] }, yes: string, o: { onAlways?: () => void; label?: 'cardAlways' | 'cardAlwaysSkills' } = {}): Promise<CardAnswer> {
     let missing: CardAnswer['missing'] = null
     const value = await withAlways(this.alwaysPlace(), kind, request.options, yes, async (options, more) => {
       const r = await this.askPerson({ ...request, options, ...more } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
@@ -3345,7 +3411,7 @@ export class TurnExec {
       // the person picked "Always allow" on this card (what else the card covers is kept by the caller)
       if ((Array.isArray(r.value) && r.value.length === 1 ? r.value[0] : r.value) === ALWAYS_VALUE) o.onAlways?.()
       return r.value
-    })
+    }, o.label)
     return { value, missing }
   }
 
@@ -3635,7 +3701,9 @@ export class TurnExec {
 
   /** The end state in the DB; returns the answer's status. */
   private finishState(): MessageStatus {
-    this.finishStep('text', () => this.flushText())
+    // stopped or failed with a status line held: it is dropped like before a call (anything else goes out)
+    this.finishStep('text', () => { if (this.stopReason || this.error) this.emitText(this.answerText.push(this.narration.toolStart())); this.flushText() })
+    if (this.narration.dropped) this.rt.log.info('status lines left out of the answer', { turn: this.id, pieces: this.narration.dropped })
     this.finishStep('held answers', () => this.dropHeldAnswers())
     // the whole answer once more: an escaped or base64 form of a secret cut across two pieces (message.done below
     // carries the saved answer, which the apps show in place of the streamed one)

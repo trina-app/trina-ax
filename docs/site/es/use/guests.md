@@ -13,6 +13,7 @@ equipo, ni otros proyectos, ni habilidades del equipo. No ocupa una plaza de su 
 | **Archivos del equipo** | Las carpetas que puede abrir | Solo los archivos de su proyecto (ninguno en un chat de grupo) |
 | **IA** | Los ajustes de IA del equipo | Sin IA, salvo que se elija una IA para él |
 | **Plaza** | Ocupa una | No ocupa ninguna |
+| **Archivo más grande que pueden subir** | 10 GB en un chat, 20 GB en Archivos | 100 MB, salvo que un propietario o administrador lo suba (1 GB o 10 GB) en **Administración › Miembros e invitaciones**, encima de la lista **Invitados** |
 
 Junto al nombre de un invitado verá una etiqueta **Invitado**, y un chat o proyecto con invitados lo indica arriba
 ("Incluye 1 invitado").
@@ -29,7 +30,7 @@ propietarios y administradores también encuentran **Invitado** en **Invitar a p
 Miembros e invitaciones › Invitar al equipo**. Vea [Sin abrir el chat ni el proyecto](#sin-abrir-el-chat-ni-el-proyecto)
 y [Desde Administración](#desde-administración) más abajo.
 
-Los invitados nunca están en las **Salas de equipo** (la sala de todos y las salas de cada grupo). Un invitado puede
+Los invitados nunca están en los **Canales** (el canal Todos y los canales de cada grupo). Un invitado puede
 enviar mensajes directos, pero solo a las personas de su propio chat o proyecto.
 
 ## Invitar a un invitado
@@ -46,7 +47,7 @@ fila es **Invitar a un invitado**.
 Escriba el nombre de la persona en **¿Para quién es?**. En **IA para esta persona**, al principio está elegido **Sin
 IA**. Las otras opciones se explican más abajo, en [La IA de un invitado](#la-ia-de-un-invitado).
 
-![El cuadro Invitar a un invitado: solo verá la sala 'Quote prep', un nombre e IA para esta persona con Sin IA elegido](../../images/guests/invite-dialog.webp "El cuadro de invitación")
+![El cuadro Invitar a un invitado: solo verá el chat de grupo 'Quote prep', un nombre e IA para esta persona con Sin IA elegido](../../images/guests/invite-dialog.webp "El cuadro de invitación")
 
 #### Copie el enlace y envíelo usted mismo
 **Crear enlace** crea un enlace para esta persona. Trina no envía ningún correo: elija **Copiar enlace** y envíeselo
@@ -103,15 +104,17 @@ El enlace abre una página que dice quién le invitó y el único chat o proyect
 usuario y una contraseña, y ya está dentro. Si usted eligió **Su propio inicio de sesión**, la página también le dice que conectará su propia cuenta de Claude o ChatGPT. Si el enlace ya no funciona, la página explica por qué: venció, ya se
 usó, se desactivó, la persona que lo creó ya no puede invitarle, o el chat o el proyecto ya no existe.
 
-![La página de invitación: Olga le invitó a Acme, solo se unirá a la sala de chat 'Quote prep', y después Nombre, Nombre de usuario y Contraseña](../../images/guests/invite-page.webp "La página que abre el invitado")
+![La página de invitación: Olga le invitó a Acme, solo se unirá a el chat de grupo 'Quote prep', y después Nombre, Nombre de usuario y Contraseña](../../images/guests/invite-page.webp "La página que abre el invitado")
 
 Cuando inicia sesión, Trina abre su chat o proyecto. La barra de la izquierda solo tiene lo que puede usar: no hay
-**Archivos**, ni proyectos o salas del equipo, ni **Trina** cuando su IA está desactivada. Su **Configuración** solo
+**Archivos**, ni proyectos o canales del equipo, ni **Trina** cuando su IA está desactivada. Su **Configuración** solo
 tiene sus propias cosas, como su perfil y sus notificaciones.
 
-![La vista de un invitado: la lista de Chats solo muestra la conversación de grupo Quote prep, y la barra de la izquierda solo tiene Chats y Actividad](../../images/guests/guest-room.webp "Lo que ve un invitado")
+![La vista de un invitado: la lista de Chats solo muestra el chat de grupo Quote prep, y la barra de la izquierda solo tiene Chats y Actividad](../../images/guests/guest-room.webp "Lo que ve un invitado")
 
 En un proyecto, los miembros del proyecto pueden ver los chats que tiene allí un invitado. A un invitado que puede usar IA se le avisa de esto en la página del proyecto.
+
+Los invitados no reciben ni comparten enlaces de archivos. Para darle un archivo a un invitado, publíquelo en su chat de grupo o en su proyecto.
 
 ## Un chat de grupo y un proyecto
 
@@ -179,7 +182,7 @@ cambie de plan.
 **Administración › Miembros e invitaciones** tiene una lista **Invitados**. Para ver solo a los invitados, elija **Invitados** en la lista de roles de arriba. Cada fila
 muestra dónde está el invitado y qué IA tiene.
 
-![Administración › Miembros e invitaciones › Invitados: Alex Rivera en la sala Quote prep con Sin IA, Sam Park en el proyecto Launch plan con IA del equipo hasta 20 $](../../images/guests/admin-guests.webp "Invitados en Administración")
+![Administración › Miembros e invitaciones › Invitados: Alex Rivera en el chat de grupo Quote prep con Sin IA, Sam Park en el proyecto Launch plan con IA del equipo hasta 20 $](../../images/guests/admin-guests.webp "Invitados en Administración")
 
 El menú **⋯** de un invitado tiene:
 

@@ -62,7 +62,7 @@ describe('the page', () => {
       expect(page).toContain('1:1·그룹 대화에 보낸 메시지와 파일(내 이름으로 남아요)')
       // TC-1920: a chat shared with people by name goes with the account (auth/sweeper.ts purges every chat with no
       // shared_at); only a shared project chat stays
-      expect(page).toContain('사람이나 그룹에게 공유한 대화')
+      expect(page).toContain('사람이나 부서에 공유한 대화')
       expect(page).toContain('프로젝트에 공유한 대화')
       expect(page).toContain('팀 활동 기록에 남는 삭제 기록(30일)')
       expect(page).toContain('최대 8주')
@@ -129,7 +129,7 @@ describe('texts', () => {
     expect(en('accountDeletion.goes')).toContain('your private chats, the chats you shared with people or groups, your memories')
     expect(en('accountDeletion.stays')).toContain('files in team folders, shared project chats,')
     const project: Record<string, string> = { ko: '프로젝트', ja: 'プロジェクト', zh: '项目', id: 'proyek', es: 'proyectos', en: 'project' }
-    const people: Record<string, string> = { ko: '그룹', ja: 'グループ', zh: '群组', id: 'grup', es: 'grupos', en: 'groups' }
+    const people: Record<string, string> = { ko: '부서', ja: 'グループ', zh: '小组', id: 'grup', es: 'grupos', en: 'groups' }
     for (const l of Object.keys(project)) {
       expect(translate(l as never, 'accountDeletion.stays')).toContain(project[l])
       expect(translate(l as never, 'accountDeletion.goes')).toContain(people[l])

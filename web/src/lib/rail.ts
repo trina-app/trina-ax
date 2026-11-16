@@ -22,12 +22,13 @@ export const RAIL_ROOT: Record<RailItem, string> = { ai: '/', chats: '/rooms', p
  * the Slack link pages, an address that only shows "not found") lights none. `/new` is the phone's composer of a later
  * phase. test/unit/rail.test.ts keeps this in step with App.tsx. */
 const PAGES: Record<RailItem, readonly string[]> = {
-  ai: ['/', '/new', '/c/:chatId', '/scheduled', '/scheduled/:id', '/skills', '/skills/share/:id', '/trash', '/connectors/authorize', '/welcome'],
+  ai: ['/', '/new', '/c/:chatId', '/c/:chatId/t/:messageId', '/scheduled', '/scheduled/:id', '/skills', '/skills/share/:id', '/trash', '/connectors/authorize', '/welcome'],
   chats: ['/rooms', '/rooms/:roomId', '/rooms/:roomId/t/:messageId'],
   projects: ['/projects', '/projects/:projectId', '/projects/:projectId/files'],
   // a file's link page (/f/<id>, QA TC-3093) is the file's: Files is lit
-  files: ['/files', '/files/view', '/f/:id'],
-  activity: ['/activity'],
+  files: ['/files', '/files/view', '/f/:id', '/f/batch/:id'],
+  // one notice by its id (/activity/<id>, a phone notification's tap) goes on to /activity?n=<id>
+  activity: ['/activity', '/activity/:noticeId'],
 }
 
 /**

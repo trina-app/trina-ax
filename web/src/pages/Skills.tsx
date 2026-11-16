@@ -10,23 +10,30 @@
 // skill of the same name) and is registered as skills/<folder name>/ with its files. /skills?batch=<id> (the Inbox
 // line of a batch) opens 검토 at that person. /skills?catalog=open ("스킬 넣기" on Home and in the goal card) opens the
 // ready-made skills the team lacks, unfolded, for owners and admins.
+// 검토 대기 shows only what waits (the owner, 2026-11-16: a suggestion registered weeks ago sat there, so the tab looked
+// like work): waiting suggestions and share proposals. What was decided is under them in "검토함", folded (ListSection),
+// so nothing is lost: a registration, and a turn-down with its note, which 최근 변경 does not have. A person's heading only
+// when it helps (several people, or several of one person). Folders are said in words (팀 스킬, a group's name), not as
+// paths. docs/decisions/20261116-skills-review-tab.md
 // The lists are read side by side and kept (store/listCache.ts): a visit after the first shows them at once and reads
 // them again behind it (docs/DECISIONS.md "Lists, Search and Settings open at once").
 import clsx from 'clsx'
 import { Bot, History, Lightbulb, Search, Trash2, Users } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { skillLabel, type SkillChange, type SkillShare, type SkillSuggestion, type SkillsOverview } from '@mycel/shared/api'
+import { isSkillName, skillLabel, type SkillChange, type SkillShare, type SkillSuggestion, type SkillsOverview } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
 import { FILES_TRASH, navigateTo } from '../lib/nav'
+import { useFolderWords } from '../lib/folderLabels'
 import { useLocale, useT } from '../i18n'
 import { readCached, useCachedRead } from '../store/listCache'
 import { skillsChanged } from '../store/live'
+import { rememberSkillsWaiting } from '../store/skillsWaiting'
 import { isAdmin, useMeStrict } from '../store/session'
 import { toast } from '../store/ui'
 import { AVAILABLE_KEY, AvailableSkills, readAvailable } from '../components/AvailableSkills'
-import { ListHeading, ListRow } from '../components/list/List'
+import { ListHeading, ListRow, ListSection } from '../components/list/List'
 import { Markdown } from '../components/Markdown'
 import { SkillIssues } from '../components/SkillIssues'
 import { SkillListNote } from '../components/SkillListNote'
@@ -49,7 +56,8 @@ const historyLink = (c: SkillChange) => {
 interface SkillsPage {
   overview: SkillsOverview
   mine: SkillSuggestion[]
-  /** the suggestions to review: null when the person manages no skills folder */
+  /** the suggestions for the folders the person manages, waiting ones first, decided ones after them: null when the
+   * person manages no skills folder */
   review: SkillSuggestion[] | null
   shares: SkillShare[]
   /** every recent change under skills/: the owner and admins only */
@@ -69,6 +77,8 @@ async function readSkillsPage(admin: boolean): Promise<SkillsPage> {
     // share proposals to the person's groups that others made (the server lists only what they may apply)
     overview.sharesToReview ? api.call(API.listSkillShares, { query: { scope: 'review' } }).then((r) => r.items) : Promise.resolve([]),
   ])
+  // the navigation's count (store/skillsWaiting.ts) follows what this page just read
+  rememberSkillsWaiting(overview)
   return { overview, mine, review, shares, changes }
 }
 
@@ -90,6 +100,10 @@ export default function Skills() {
   const [batch, setBatch] = useState<string | null>(params.get('batch'))
   const [query, setQuery] = useState('')
   const review = page.data?.review ?? null
+  // 검토 대기: what waits; what was decided goes under it, folded
+  // (a person with only share proposals manages no folder: no suggestion can wait for them)
+  const waitingList = review?.filter((s) => s.status === 'pending') ?? (overview && !overview.managedFolders.length ? [] : null)
+  const reviewed = review?.filter((s) => s.status !== 'pending') ?? []
   const mine = page.data?.mine ?? null
   const changes = page.data?.changes ?? null
   const shares = page.data?.shares ?? null
@@ -175,8 +189,9 @@ export default function Skills() {
             </div>
           )}
         </StickyHeader>
-        {/* the owner and admins: who can change the team skills, one line (members and other skill managers do not see it) */}
-        {isAdmin(me) && <SkillEditorsLine key={`editors-${me.user.id}`} className="mb-4 max-md:mt-3.5" />}
+        {/* the owner and admins: who can change the team skills, one line (members and other skill managers do not see it),
+            on the skills' own tab only: the other tabs start with their list */}
+        {isAdmin(me) && current === 'skills' && <SkillEditorsLine key={`editors-${me.user.id}`} className="mb-4 max-md:mt-3.5" />}
         <SkillIssues key={`issues-${me.user.id}`} className="mb-5" />
         <SkillListNote list={overview?.aiList} className="mb-5" />
         {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
@@ -186,10 +201,14 @@ export default function Skills() {
             {current === 'skills' && <AvailableSkills key={`skills-${me.user.id}`} query={query} catalogOpen={params.get('catalog') === 'open'} />}
             {current === 'review' && (
               <>
-                {/* phones: each row already says the folder it goes into */}
-                {overview.managedFolders.length > 0 && <p className="mb-3 text-xs text-muted max-md:hidden">{t('skills.managedHint', { folders: overview.managedFolders.map((f) => f + '/').join(', ') })}</p>}
                 <ShareReviews items={shares} />
-                {(overview.managedFolders.length > 0 || !shares?.length) && <SuggestionList items={review ?? (overview.managedFolders.length ? null : [])} empty={t('skills.noReview')} onOpen={setOpen} testId="review-list" grouped focusBatch={batch} />}
+                {/* nothing waits and no proposal either: the plain empty state */}
+                {!(waitingList?.length === 0 && shares?.length) && <SuggestionList items={waitingList} empty={t('skills.noReview')} onOpen={setOpen} testId="review-list" grouped focusBatch={batch} />}
+                {reviewed.length > 0 && (
+                  <ListSection id={`${panels}-reviewed`} label={t('skills.reviewed')} count={reviewed.length} foldKey="skills:reviewed" folded labelTestId="reviewed-head" className="mt-6" data-testid="reviewed-section">
+                    <SuggestionList items={reviewed} empty="" testId="reviewed-list" />
+                  </ListSection>
+                )}
               </>
             )}
             {current === 'mine' && <SuggestionList items={mine} empty={t('skills.noMineFiles')} testId="mine-list" />}
@@ -249,6 +268,22 @@ const appName = (app: 'claude' | 'codex') => (app === 'codex' ? 'Codex' : 'Claud
 /** The name a person reads: a skill folder's title (else its folder name as words); another suggestion's name. */
 const suggestionTitle = (s: SkillSuggestion) => (s.source.kind === 'folder' ? skillLabel({ name: s.name, title: s.folder?.title }) : s.name)
 
+/** A skills folder in words, never a path (the people here are not developers): skills/ is "팀 스킬", a group's
+ * groups/<its folder>/skills/ is the group's folder name, folders inside follow after " › ". `path`: the folder words
+ * of the person's language (lib/folderLabels.ts). */
+export function skillFolderWords(folder: string, path: (p: string, sep?: string) => string): string {
+  const g = /^groups\/([^/]+)\/skills(?:\/(.+))?$/.exec(folder)
+  return g ? [g[1]!, ...(g[2]?.split('/') ?? [])].join(' › ') : path(folder, ' › ')
+}
+
+/** Where a suggestion goes, in words: "Team skills" (and its folders), or a group's skills by the group's name now
+ * ("Design skills"; its folder's name when the group is gone). The words of a row's line and of the server's notice
+ * (server/src/skills/suggestions.ts placeWords). */
+export function skillPlaceWords(s: Pick<SkillSuggestion, 'targetFolder' | 'targetGroup'>, t: ReturnType<typeof useT>, path: (p: string, sep?: string) => string): string {
+  const g = /^groups\/([^/]+)\/skills(?:\/(.+))?$/.exec(s.targetFolder)
+  return g ? [t('skills.groupPlace', { group: s.targetGroup?.name ?? g[1]! }), ...(g[2]?.split('/') ?? [])].join(' › ') : path(s.targetFolder, ' › ')
+}
+
 /** The suggestions in groups by who sent them, in the order the list has them (waiting first). */
 export function byPerson(items: readonly SkillSuggestion[]): { id: string; name: string; items: SkillSuggestion[] }[] {
   const groups = new Map<string, { id: string; name: string; items: SkillSuggestion[] }>()
@@ -263,6 +298,7 @@ export function byPerson(items: readonly SkillSuggestion[]): { id: string; name:
 function SuggestionList({ items, empty, onOpen, testId, grouped, focusBatch }: { items: SkillSuggestion[] | null; empty: string; onOpen?: (s: SkillSuggestion) => void; testId: string; grouped?: boolean; focusBatch?: string | null }) {
   const t = useT()
   const locale = useLocale()
+  const words = useFolderWords()
   const list = useRef<HTMLDivElement>(null)
   // the Inbox line of a batch: its person's group comes into view
   const focusPerson = focusBatch ? items?.find((s) => s.batchId === focusBatch)?.suggester.id ?? null : null
@@ -273,10 +309,15 @@ function SuggestionList({ items, empty, onOpen, testId, grouped, focusBatch }: {
   }, [focusPerson])
   if (!items) return <Skeleton lines={3} />
   if (!items.length) return <EmptyState icon={<Lightbulb size={22} />} title={empty} />
+  const groups = grouped ? byPerson(items) : []
+  // a person's heading only when it helps: several people, or several of one person (one row says its person itself)
+  const headed = groups.length > 1 || (groups[0]?.items.length ?? 0) > 1
   const meta = (s: SkillSuggestion) => [
-    s.folder ? t('skills.folderMeta', { app: appName(s.folder.app), n: s.folder.files.length }) : t('skills.into', { folder: s.targetFolder + '/' }),
-    // grouped: the group's heading names the person
-    grouped ? formatDateTime(s.createdAt, locale) : t('skills.by', { name: s.suggester.name, time: formatDateTime(s.createdAt, locale) }),
+    // a waiting one says where it would go ("into Team skills"); a decided one only the place: nothing is left to do
+    s.folder ? t('skills.folderMeta', { app: appName(s.folder.app), n: s.folder.files.length })
+      : s.status === 'pending' ? t('skills.into', { folder: skillPlaceWords(s, t, words.path) }) : skillPlaceWords(s, t, words.path),
+    // under a person's heading: the heading names the person
+    headed ? formatDateTime(s.createdAt, locale) : t('skills.by', { name: s.suggester.name, time: formatDateTime(s.createdAt, locale) }),
     ...(s.reviewer ? [t('skills.reviewedBy', { name: s.reviewer.name })] : []),
   ].join(' · ')
   const rows = (group: SkillSuggestion[]) => (
@@ -291,12 +332,14 @@ function SuggestionList({ items, empty, onOpen, testId, grouped, focusBatch }: {
               {!(onOpen && s.status === 'pending') && <StatusBadge s={s} />}
             </span>
             {s.description && <span className="mt-0.5 block truncate text-xs text-muted" title={s.description}>{s.description}</span>}
-            <span className="block truncate text-xs text-faint" title={meta(s)}>{meta(s)}</span>
+            {/* a phone shows the whole line on two rows ("… · reviewed by <name>" was cut); a computer keeps one */}
+            <span className="block text-xs text-faint md:truncate" title={meta(s)} data-testid="suggestion-meta">{meta(s)}</span>
             {s.status === 'pending' && s.folder?.sameName && <span className="block text-xs text-warn" data-testid="suggestion-same-name">{t('skills.folderSameName', { title: s.folder.sameName.title })}</span>}
             {s.status === 'pending' && s.folder?.personalPath && <span className="block text-xs text-warn">{t('skills.folderPersonalPath')}</span>}
             {s.reviewNote && <span className="block text-xs text-muted" data-testid="review-note">{t('skills.reviewNote', { note: s.reviewNote })}</span>}
             {s.resultPath && (
-              <button type="button" className="block text-xs text-accent-text hover:underline" onClick={() => navigateTo(`/files?path=${encodeURIComponent(s.resultPath!.slice(0, s.resultPath!.lastIndexOf('/')))}&select=${encodeURIComponent(s.resultPath!)}`)}>
+              // where it was registered: a quiet link in the line's grey (before: the accent colour, which read as an error)
+              <button type="button" className="block text-left text-xs text-muted underline decoration-line-strong underline-offset-4 hover:text-ink" onClick={() => navigateTo(`/files?path=${encodeURIComponent(s.resultPath!.slice(0, s.resultPath!.lastIndexOf('/')))}&select=${encodeURIComponent(s.resultPath!)}`)} data-testid="suggestion-result">
                 {t('skills.resultAt', { path: s.resultPath })}
               </button>
             )}
@@ -314,11 +357,9 @@ function SuggestionList({ items, empty, onOpen, testId, grouped, focusBatch }: {
   if (!grouped) return rows(items)
   return (
     <div ref={list} className="space-y-5" data-testid={testId}>
-      {byPerson(items).map((g) => (
+      {groups.map((g) => (
         <section key={g.id} data-testid="review-group" data-person={g.id} className="scroll-mt-20">
-          <h3 className={clsx('border-b border-line pb-1.5 text-xs font-semibold text-muted', g.id === focusPerson && 'text-ink')}>
-            {t('skills.groupBy', { name: g.name, n: g.items.length })}
-          </h3>
+          {headed && <ListHeading className="border-b border-line pb-1.5" testId="review-group-head">{t('skills.groupBy', { name: g.name, n: g.items.length })}</ListHeading>}
           {rows(g.items)}
         </section>
       ))}
@@ -362,12 +403,14 @@ function ChangeList({ items }: { items: SkillChange[] | null }) {
   )
 }
 
-/** A skill folder's name as the server takes it (skills/<name>/SKILL.md): lowercase letters, digits and hyphens. */
-export const FOLDER_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+/** A skill folder's name as the server takes it (skills/<name>/SKILL.md; shared isSkillName): lowercase letters in any
+ * language and digits in words joined by single hyphens, at most 64. */
+export const folderNameOk = (raw: string) => isSkillName(raw.trim().normalize('NFC'))
 
 function ReviewDialog({ s, folders, onClose, onDone }: { s: SkillSuggestion; folders: string[]; onClose: () => void; onDone: () => void }) {
   const t = useT()
   const locale = useLocale()
+  const words = useFolderWords()
   const isDir = s.source.kind === 'folder'
   // a skill folder: the files that go with it, with their text (GET …/:id gives it to its reviewer), so the owner reads
   // everything the team's AI would read, not only SKILL.md
@@ -398,7 +441,7 @@ function ReviewDialog({ s, folders, onClose, onDone }: { s: SkillSuggestion; fol
   const phone = useMediaQuery('(max-width: 767.98px)')
   const [busy, setBusy] = useState<'approve' | 'reject' | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const nameBad = isDir ? !!name.trim() && !(FOLDER_NAME.test(name.trim()) && name.trim().length <= 64) : name.includes('/')
+  const nameBad = isDir ? !!name.trim() && !folderNameOk(name) : name.includes('/')
   const ready = !!name.trim() && !nameBad && !!content.trim()
   const run = async (what: 'approve' | 'reject') => {
     let note: string | null = null
@@ -455,7 +498,7 @@ function ReviewDialog({ s, folders, onClose, onDone }: { s: SkillSuggestion; fol
             <select className={inputCls} value={folder} onChange={(e) => setFolder(e.target.value)} data-testid="review-folder">
               {(places.length ? places : [s.targetFolder]).map((f) => (
                 <option key={f} value={f}>
-                  {f}/
+                  {skillFolderWords(f, words.path)}
                 </option>
               ))}
             </select>

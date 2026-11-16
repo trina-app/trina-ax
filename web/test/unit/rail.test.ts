@@ -38,12 +38,15 @@ const DECIDED: Record<string, RailItem | null> = {
   '': 'ai',
   new: 'ai',
   'c/:chatId': 'ai',
+  'c/:chatId/t/:messageId': 'ai',
   rooms: 'chats',
   'rooms/:roomId': 'chats',
   'rooms/:roomId/t/:messageId': 'chats',
   activity: 'activity',
+  'activity/:noticeId': 'activity',
   files: 'files',
   'files/view': 'files',
+  'f/batch/:id': 'files',
   'f/:id': 'files',
   projects: 'projects',
   'projects/:projectId': 'projects',
@@ -106,7 +109,7 @@ describe('the places', () => {
     expect(railOf('/Rooms')).toBe('chats')
     expect(railOf('/rooms/')).toBe('chats')
     expect(railOf('/FILES/view')).toBe('files')
-    for (const p of ['/c', '/files/view/x', '/rooms/a/b/c/d', '/trash/x', '/activity/x']) expect(railOf(p)).toBeNull()
+    for (const p of ['/c', '/files/view/x', '/rooms/a/b/c/d', '/trash/x', '/activity/x/y']) expect(railOf(p)).toBeNull()
   })
 })
 

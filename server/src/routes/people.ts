@@ -12,7 +12,7 @@ import { presenceFor } from '../realtime/presence'
 import { sharesPlace } from '../auth/guests'
 
 // the photo is an image only, never a document that runs anything (the same headers as the team logo)
-const IMAGE_HEADERS = { 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox", 'content-disposition': 'inline' }
+export const IMAGE_HEADERS = { 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox", 'content-disposition': 'inline' }
 
 export const peopleRoutes: RouteModule = {
   name: 'people',
@@ -71,6 +71,13 @@ export const peopleRoutes: RouteModule = {
         ctx.services.realtime.publish(auth.user.id, MY_PROFILE_CHANGED)
       }
       return { away: body.away }
+    })
+
+    // the desktop app's word on its computer (docs/decisions/20261116-away-os-idle.md): its main process is not throttled
+    // like a window in the back, so a person working in another app still counts as at the computer for the phone rule
+    // (notifications/away.ts). Memory only, never told to anyone; a server without the chat runtime just drops it.
+    kit.handle(API.reportMyComputer, ({ auth, body }) => {
+      presenceFor(ctx)?.computer(auth.user.id, auth.session.id, body)
     })
 
     // my status message (docs/DECISIONS.md "상태 메시지"): only my own; the team is told only when what it sees changed
