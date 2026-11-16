@@ -78,6 +78,27 @@ export const ShareCardAsk = z.object({
 })
 export type ShareCardAsk = z.infer<typeof ShareCardAsk>
 
+/** names listed per line of a team folder card; the rest is a count */
+export const TEAM_FOLDER_NAMES_MAX = 5
+/** What change_folder_access did (`StepShared.teamFolder`): the folder by its name and place in words (never a path),
+ * the change, how many people could open it before and after, and who got more or less access (the first names, and
+ * how many in all). */
+export const TeamFolderResult = z.object({
+  name: z.string().max(200),
+  place: z.string().max(500),
+  action: z.enum(['add', 'change', 'remove']),
+  access: z.enum(['view', 'edit']).optional(),
+  before: z.number().int().nonnegative(),
+  after: z.number().int().nonnegative(),
+  gained: z.array(z.string().max(200)).max(TEAM_FOLDER_NAMES_MAX),
+  gainedCount: z.number().int().nonnegative(),
+  lost: z.array(z.string().max(200)).max(TEAM_FOLDER_NAMES_MAX),
+  lostCount: z.number().int().nonnegative(),
+  /** files inside shared one by one when someone lost the folder: the person's pick on the card */
+  fileShares: z.enum(['removed', 'kept']).optional(),
+})
+export type TeamFolderResult = z.infer<typeof TeamFolderResult>
+
 /** `Step.shared`: what a share_with_person or stop_sharing call did. */
 export const StepShared = z.object({
   /** share: people were added; stop: people were taken off */
@@ -103,5 +124,9 @@ export const StepShared = z.object({
   already: z.array(ShareCardWho).max(SHARE_CARD_PEOPLE_MAX).optional(),
   refusal: ShareCardRefusal.optional(),
   next: ShareCardNext.optional(),
+  /** change_folder_access (server chat/folder-access-tool.ts): a team folder's access changed for the one person or
+   * group in `who`, after the admin's yes on the card. `files` is empty then; `op` share = add or change, stop = remove.
+   * Older apps ignore it. */
+  teamFolder: TeamFolderResult.optional(),
 })
 export type StepShared = z.infer<typeof StepShared>

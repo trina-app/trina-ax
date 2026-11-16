@@ -183,6 +183,8 @@ export const TEXT = {
   /** change_project_members (chat/project-members.ts): its step ("프로젝트 멤버 바꾸기 · 견적"; shared step-labels has the
    * same words) and the project menu's item a personal project is shared with (web projects.share) */
   membersStep: t('프로젝트 멤버 바꾸기', 'Change project members', 'Ubah anggota proyek', 'プロジェクトのメンバーを変更', 'Cambiar miembros del proyecto', '修改项目成员'),
+  /** change_folder_access (chat/folder-access-tool.ts): its step ("폴더 권한 바꾸기 · Reports"; shared step-labels has the same words) */
+  folderAccessStep: t('폴더 권한 바꾸기', 'Change folder access', 'Ubah akses folder', 'フォルダのアクセスを変更', 'Cambiar el acceso a la carpeta', '更改文件夹权限'),
   membersShareProject: t('팀 프로젝트로 공유', 'Share as a team project', 'Bagikan sebagai proyek tim', 'チームプロジェクトとして共有', 'Compartir como proyecto del equipo', '共享为团队项目'),
   /** the person's own chat after a room read, in front of the wider-audience card that also asks for the change */
   roomsSeenWhy: t('여기에 대화 메시지(다른 사람이 쓴 글)가 들어와서, 무언가를 바꾸기 전에 먼저 물어봐요.', 'Messages from your conversations (other people\'s words) came in here, so changes are asked first.', 'Chat ini berisi pesan dari percakapan Anda (tulisan orang lain), jadi perubahan ditanyakan dulu.', "このチャットにはトークのメッセージ（ほかの人が書いたもの）が含まれているため、変更の前に確認します。", "Este chat contiene mensajes de sus conversaciones (palabras de otras personas), así que los cambios se consultan antes.", "这里收到了你聊天中的消息（其他人说的话），所以修改前会先问你。"),

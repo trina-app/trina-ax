@@ -47,6 +47,8 @@ Untuk memberi sebuah folder akses lebih sedikit daripada folder di atasnya, nyal
 
 Owner dan admin selalu bisa membuka folder tim, kecuali proyek yang tidak mereka ikuti. Mereka tampil sebagai satu baris **Pengelola**.
 
+Pemilik dan admin juga bisa meminta Trina di chat: "beri grup Sales akses lihat ke Reports", "biarkan Jun mengedit Sales/Q4", "hapus grup Desain dari Reports". Satu orang atau satu grup dan satu folder setiap kali. Kartu selalu bertanya dulu, juga saat Anda memilih **Selalu izinkan** di kartu lain: kartu menyebut siapa yang mendapat atau kehilangan akses dan berapa orang yang bisa membuka folder sebelum dan sesudahnya. Jika ada berkas di dalamnya yang dibagikan satu per satu kepada orang yang kehilangan folder itu, kartu menanyakan apakah bagikan itu ikut dihapus. Akses umum dan Batasi akses hanya diubah di dialog ini. Anggota yang meminta akan melihat **Minta ke admin**, yang mengirim pesan dari Anda kepada pemilik dan admin tim; folder yang tidak bisa Anda buka dijawab seolah-olah tidak ada.
+
 :::note
 Setelah pembaruan yang membuat akses bertambah, beberapa folder mencantumkan orangnya berdasarkan nama (ditandai **Ditambahkan saat folder berubah**), dan Izin folder menampilkan pemberitahuan satu kali yang menyebut nama mereka. Orang yang ditambahkan berdasarkan nama tetap punya akses jika nanti keluar dari grup. **Admin › Grup** dan halaman orang itu menyebutkannya sebelum menyimpan, dengan **Keluarkan sekarang**.
 :::

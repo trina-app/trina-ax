@@ -47,6 +47,8 @@ Para dar a una carpeta menos acceso que las carpetas superiores, active **Config
 
 El propietario y los administradores siempre pueden abrir las carpetas del equipo, salvo los proyectos de los que no son miembros. Aparecen como una sola fila **Gestor**.
 
+Los propietarios y administradores también pueden pedírselo a Trina en un chat: «da al grupo Ventas acceso de lectura a Reports», «deja que Jun edite Sales/Q4», «quita al grupo Diseño de Reports». Una persona o un grupo y una carpeta cada vez. Siempre pregunta antes con una tarjeta, aunque haya elegido **Permitir siempre** en otras tarjetas: dice quién obtiene o pierde el acceso y cuántas personas pueden abrir la carpeta antes y después. Si dentro hay archivos compartidos uno a uno con personas que pierden la carpeta, la tarjeta pregunta si esos permisos también se quitan. El acceso general y Limitar acceso se cambian solo en este cuadro. Un miembro que lo pide ve **Pedir a un administrador**, que envía un mensaje suyo al propietario y a los administradores del equipo; una carpeta que no puede abrir se responde como si no existiera.
+
 :::note
 Después de la actualización que hizo que el acceso se sume, algunas carpetas muestran a sus personas por su nombre (con la etiqueta **Añadido cuando cambiaron las carpetas**), y Permisos de carpetas muestra una vez un aviso que las nombra. Las personas añadidas por su nombre conservan el acceso si más tarde dejan el grupo. **Administración › Grupos** y la página de la persona lo indican antes de guardar, con **Quitar ahora**.
 :::

@@ -47,6 +47,8 @@ To give a folder less than the folders above, turn on **Settings › Limit acces
 
 The owner and admins can always open team folders, except projects they are not a member of. They show as one **Manager** row.
 
+Owners and admins can also ask Trina in a chat: "give the Sales group view access to Reports", "let Jun edit Sales/Q4", "take the Design group off Reports". One person or group and one folder at a time. A card always asks first, also when you chose **Always allow** for other cards: it names who gets or loses access and how many people can open the folder before and after. When files inside are shared one by one with people who lose the folder, the card asks whether those shares go too. General access and Limit access stay in this dialog. A member who asks gets **Ask an admin**, which sends the team's owner and admins a message from you; a folder you can't open is answered as if it didn't exist.
+
 :::note
 After the update that made access add up, some folders list their people by name (tagged **Added when folders changed**), and Folder permissions shows a one-time notice naming them. People added by name keep access if they later leave the group. **Admin › Groups** and the person's page say so before saving, with **Remove now**.
 :::

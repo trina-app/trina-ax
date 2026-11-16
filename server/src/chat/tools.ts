@@ -62,6 +62,7 @@ import { FILE_RANK_REFUSAL } from '../onboarding/file-rank'
 import { mergeTargets, SHARE_MERGE_REFUSAL } from '../skills/share-merge'
 import { deleteFilesTool } from './delete-files'
 import { projectMembersTool } from './project-members'
+import { folderAccessOff, folderAccessTool } from './folder-access-tool'
 import { readRooms } from './read-rooms'
 import { seenWhy } from './grant-reads'
 import { WEB_ACCESS_CHANGED } from '../admin/settings'
@@ -188,6 +189,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // shared, confidential or draft chats (add() above) nor in an approved template run, refused up front
   // everywhere else but the person's own chat with the person there
   if (!exec.templateRun) add(projectMembersTool(exec))
+  // a team folder's access for one person or group behind the server's card every time (chat/folder-access-tool.ts):
+  // only in the person's own chat (never shared, confidential, Slack, scheduled, template or restricted, a guest's)
+  if (!folderAccessOff(exec)) add(folderAccessTool(exec))
   // the person's own team chat rooms (chat/room-tools.ts): not in a shared, confidential or draft chat (add() above
   // keeps those to their own tools) nor in an approved scheduled template's run (its scope is fixed; it would refuse
   // them anyway)

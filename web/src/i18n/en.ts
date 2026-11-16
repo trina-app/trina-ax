@@ -6707,5 +6707,17 @@ export const en: Record<MessageKey, string> = {
   "shareCard.ownerFile": "{name}'s file",
   "shareCard.posted": "Posted in {room}",
   "shareCard.postedPlain": "Posted to a conversation",
+  // the AI's team folder access card (components/chat/TeamFolderCard.tsx; docs/decisions/20261116-team-folder-ai-and-ask.md)
+  "teamFolderCard.canView": "{who} can now view {folder}",
+  "teamFolderCard.canEdit": "{who} can now edit {folder}",
+  "teamFolderCard.removed": "Took {who} off {folder}",
+  "teamFolderCard.refused": "Couldn't change who can open {folder}",
+  "teamFolderCard.counts": "{before, plural, one {# person} other {# people}} could open it before, {after} now.",
+  "teamFolderCard.gained": "Got access: {names}",
+  "teamFolderCard.lost": "Lost access: {names}",
+  "teamFolderCard.fileSharesRemoved": "Files inside that were shared one by one are no longer shared with them.",
+  "teamFolderCard.fileSharesKept": "Files inside that were shared one by one stay shared.",
+  "teamFolderCard.canEditTag": "Can edit",
+  "audit.act.folder.ai_access": "Asked the AI to change who can open a team folder",
   "fileLink.stoppedBy": "{name} stopped sharing this file",
 }
