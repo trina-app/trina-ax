@@ -36,7 +36,7 @@ questions these answer, and the archive's "A member shares their own files" (#97
   a batch id on the PUT: the notices are written after every file of the press is done, which needs one call. Each
   file is `change()`'s add with its own rules; a file refused is listed with the server's words and the rest go on.
   Each person newly given access: one file → that file's notice as before; several → one notice whose source is
-  `b:<batch id>` (`file_share_batches`, `file_share_batch_items`, migration 407). The notice and
+  `b:<batch id>` (`file_share_batches`, `file_share_batch_items`, migration 356). The notice and
   `GET /api/files/shared-batch/:id` (the list page `/f/batch/:id`) show only the files of the press the viewer can
   open now, and answer only someone the press told (404 otherwise; the id is 16 random bytes like a link's).
 - **The rate budget is by the press's size: one token per 10 files.** The room send budget exists so a share is no

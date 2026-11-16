@@ -1,5 +1,5 @@
 // A phone push when someone shares a file, or several in one press, with me by name (QA TC-3510,
-// docs/decisions/20261116-file-share-everyone.md; migration 407). The notice is the Inbox's (file_share_notices, one per
+// docs/decisions/20261116-file-share-everyone.md; migration 356). The notice is the Inbox's (file_share_notices, one per
 // person and press); only a notice of a share BY NAME (named=1) is pushed (a group's or the whole team's people get the
 // Inbox row alone, as with chats), only while it holds: unread, outside the person's quiet hours, and a file of it still
 // opens for them. The push carries ids and the event code only (the gateway picks a generic line); never a file name.

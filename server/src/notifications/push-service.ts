@@ -63,7 +63,7 @@ const SOURCES=[
   // an app in a room the person manages paused for the day (migration 352): while unread, the app still paused and the
   // person still in its room (rooms/apps/notice.ts)
   {inbox:'room_app_notices',deliveries:'room_app_push_deliveries',only:'',unread:'read_at IS NULL',wanted:(_db:Database,id:string,now:number,ctx:AppContext)=>roomAppPushWanted(ctx,id,now),due:'?'},
-  // a file, or several in one press, shared with me by name (migration 407; a group's or the whole team's people get the
+  // a file, or several in one press, shared with me by name (migration 356; a group's or the whole team's people get the
   // Inbox row alone): while unread, outside my quiet hours, while a file of it still opens for me (files/share-push.ts)
   {inbox:'file_share_notices',deliveries:'file_share_push_deliveries',only:"AND event_type='file.shared' AND named=1",unread:'read_at IS NULL',wanted:(_db:Database,id:string,now:number,ctx:AppContext)=>fileSharePushWanted(ctx,id,now),due:'?'},
 ] as const

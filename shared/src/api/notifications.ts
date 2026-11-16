@@ -61,7 +61,7 @@ export function plainLabel(s: string, max = 80): string {
  * own deliveries, room_app_push_deliveries, migration 352; docs/DECISIONS.md "Apps posting in rooms"). No setting of its
  * own: pushed while the notice is unread, the app still paused and the person still in its room. */
 /** file.shared: someone gave me a file, or several in one press (file_share_notices with their own deliveries,
- * file_share_push_deliveries, migration 407; docs/decisions/20261116-file-share-everyone.md). Listed in the Inbox always;
+ * file_share_push_deliveries, migration 356; docs/decisions/20261116-file-share-everyone.md). Listed in the Inbox always;
  * pushed only for a share by name (a group's or the whole team's people get the Inbox row alone), outside quiet hours,
  * while a file still opens for me. */
 export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention', 'owner.lead_joined', 'owner.reauth_locked', 'chat.answer_done', 'chat.shared', 'room_app.paused', 'file.shared'])

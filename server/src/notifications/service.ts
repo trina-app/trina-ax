@@ -123,7 +123,7 @@ export class Notifications {
    * else's move (files/shares.ts; docs/DECISIONS.md "A member shares their own files"). Activity only, shown always.
    * `rearm`: the same source again brings its row back up as unread (a new request, a share again after a removal).
    * `named`: a file shared with the person by name (not through a group or the whole team): that notice is also pushed
-   * (push-service.ts, files/share-push.ts; migration 407). Several files in one press are one notice (source 'b:<id>'). */
+   * (push-service.ts, files/share-push.ts; migration 356). Several files in one press are one notice (source 'b:<id>'). */
   fileShareNotice(userId: string, event: FileShareEvent, sourceId: string, rearm: boolean, named = false) {
     if (!this.active(userId)) return
     const at = new Date().toISOString()
@@ -494,7 +494,7 @@ export class Notifications {
   reconcile(userId?: string) {
     const db = this.ctx.db
     for (const table of NOTICE_TABLES) db.query(`DELETE FROM ${table} WHERE created_at < ?`).run(this.cutoff())
-    // a Share press of several files (migration 407) goes with its last notice
+    // a Share press of several files (migration 356) goes with its last notice
     db.query("DELETE FROM file_share_batches WHERE created_at < ? AND NOT EXISTS(SELECT 1 FROM file_share_notices n WHERE n.event_type = 'file.shared' AND n.source_id = 'b:' || file_share_batches.id)").run(this.cutoff())
     this.settleIntegrationRequests(userId)
     this.settleAiRequests(userId)

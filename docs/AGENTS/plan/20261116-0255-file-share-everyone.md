@@ -22,7 +22,7 @@ Out: the iPhone extension's title, a push setting of its own, the AI tool, "Shar
 
 ## Steps
 
-1. Migration 407 (batches, items, notices.named, push deliveries).
+1. Migration 356 (batches, items, notices.named, push deliveries).
 2. shares.ts: `REACHES`, `checkSubjects`, `shareMany`, `batchFiles`; notices; push source and path.
 3. Web: `ShareEveryone.tsx`, the two pickers, the batch call, the notice text and link, `/f/batch/:id`; mock.
 4. Tests (server under Bun 1.3.12, web unit, targeted e2e), screenshots at 1440 and 390, light and dark, per role.
@@ -30,7 +30,7 @@ Out: the iPhone extension's title, a push setting of its own, the AI tool, "Shar
 ## Risks
 
 Security review: the reserved id must never reach a real group's checks (projects, chats refuse it); the batch list
-answers only someone the press told; one token per press. Migration numbers: 407 was free on dev and open branches.
+answers only someone the press told; one token per press. Migration numbers: 356 was the next free C number (300–399) on dev and open PRs.
 
 ## Result
 
