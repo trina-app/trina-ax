@@ -3,7 +3,9 @@
 // room that held it (FLOW-03) (AI scenario check 2026-11-16, root cause #3; docs/AGENTS/plan/20261116-0500-ai-wrong-claims.md).
 // One short rule in the turn rules (server/src/chat/prompt.ts SHOWN_ONLY_RULE) and a shorter one for sub-agents.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { buildSubagentPrompt, buildTurnPrompt, CONNECT_RULE, ROOMS_RULE, SHOWN_ONLY_RULE, SUBAGENT_SHOWN_ONLY_RULE, type PromptInput } from '../../server/src/chat/prompt'
+import { buildSubagentPrompt, buildTurnPrompt, SHOWN_ONLY_RULE, SUBAGENT_SHOWN_ONLY_RULE, type PromptInput } from '../../server/src/chat/prompt'
+import { B_TOOL_DESCRIPTIONS } from '../../server/src/chat/tools'
+import { ROOM_TOOL_DESCRIPTIONS } from '../../server/src/chat/room-tools'
 import { startHarness, type Harness } from '../lib/b-harness'
 
 let h: Harness
@@ -36,7 +38,7 @@ describe('say only what the actions showed', () => {
   })
 
   test('a connect card is said only after the call showed one (CON-02); rooms are searched for client facts (FLOW-03)', () => {
-    expect(CONNECT_RULE).toContain('Say a card is shown only after connect_service returned one; never announce it first.')
-    expect(ROOMS_RULE).toContain('search them too for facts about a client or deal before saying nothing answers it')
+    expect(B_TOOL_DESCRIPTIONS.connect_service.startsWith('Whether a card is shown is known only from this call\'s result: never write that one will be shown before it returns.')).toBe(true)
+    expect(ROOM_TOOL_DESCRIPTIONS.rooms).toContain('search it by name for what was said about a client, deal or project before saying nothing answers a question')
   })
 })
