@@ -18,11 +18,12 @@ import { graphemeCount, NAV_FOLDER_NAME_MAX, NavFolderName, type NavFolder, type
 import { errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { aiName } from '../../lib/tabs'
-import { roomUnread } from '../../lib/rooms'
+import { badgeText, roomUnread } from '../../lib/rooms'
 import { createFolder, deleteFolder, fileChat, fileRoom, foldersOf, moveFolder, nameTaken, renameFolder, useNavFolders, watchNavFolders } from '../../store/navFolders'
 import { toast } from '../../store/ui'
 import { confirmDialog, promptDialog } from '../ui'
 import { MenuButton, type MenuItem } from '../rooms/MenuButton'
+import { CountPill } from '../CountPill'
 import { Tooltip } from '../Tooltip'
 import { panelRowBox } from '../panels/PanelFrame'
 
@@ -258,10 +259,5 @@ export function roomFolderPill(rooms: Pick<Room, 'mentioned' | 'muted' | 'unread
 export function RoomFolderPillView({ pill, className }: { pill: RoomFolderPill; className?: string }) {
   const t = useT()
   const words = pill.kind === 'mention' ? t('rooms.mentionedYou') : t('navFolders.unreadRooms', { n: pill.n })
-  return (
-    <span className={clsx('shrink-0 rounded-full bg-accent px-1.5 text-micro font-medium text-accent-ink', className)} data-testid="room-folder-pill" data-kind={pill.kind}>
-      <span aria-hidden>{pill.kind === 'mention' ? '@' : pill.n > 99 ? '99+' : pill.n}</span>
-      <span className="sr-only">{words}</span>
-    </span>
-  )
+  return <CountPill text={pill.kind === 'mention' ? '@' : badgeText(pill.n)} label={words} className={className} testId="room-folder-pill" data-kind={pill.kind} />
 }
