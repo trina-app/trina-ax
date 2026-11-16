@@ -486,7 +486,19 @@ describe('second review: what "made in this answer" means, and a chat that read 
       expect(soleNames(db, 'kim1')).toEqual(['kimd'])
       expect(soleNames(db, 'kim2')).toEqual(['mal'])
       expect(soleNames(db, 'hana9')).toEqual(['mal2'])
-      expect(soleNames(db, 'tess')).toEqual(['Tess Yoon', 'tess'])
+      // (Tess's username is now another member's display name: only her display name counts)
+      expect(soleNames(db, 'tess')).toEqual(['Tess Yoon'])
     } finally { db.query("DELETE FROM users WHERE id IN ('kim1', 'kim2', 'hana9')").run() }
+    expect(soleNames(db, 'tess')).toEqual(['Tess Yoon', 'tess'])
+    // a username that is a colleague's first name, a copy with punctuation, a title as a name
+    db.query("INSERT INTO users (id, username, name, role, status, deleted_at) VALUES ('m1', 'yoon', 'Mal One', 'member', 'active', NULL), ('m2', 'mal3', 'Tess Yoon.', 'member', 'active', NULL), ('m3', 'mal4', '\uB300\uD45C', 'member', 'active', NULL), ('m4', 'mal5', 'the team', 'member', 'active', NULL)").run()
+    try {
+      expect(soleNames(db, 'm1')).toEqual(['Mal One'])
+      expect(soleNames(db, 'm2')).toEqual(['mal3'])
+      // (a copy of her full name holds her username too: neither names her, the card shows)
+      expect(soleNames(db, 'tess')).toEqual([])
+      expect(namedInFull('d.txt \uB300\uD45C\uB2D8\uAED8 \uACF5\uC720\uD574\uC918', soleNames(db, 'm3'))).toBe(false)
+      expect(namedInFull('share e.txt with the team', soleNames(db, 'm4'))).toBe(false)
+    } finally { db.query("DELETE FROM users WHERE id IN ('m1', 'm2', 'm3', 'm4')").run() }
   })
 })

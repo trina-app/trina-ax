@@ -71,7 +71,13 @@ const NAME_TAIL = '(\\uC774\\uC5D0\\uAC8C|\\uC774\\uD558\\uACE0|\\uC774\\uD55C\\
 const holdsName = (said: string, n: string) => !HANGUL.test(n) ? holds(said, n)
   : new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(n)}(?=$|[^\\p{L}\\p{N}]|[a-z0-9]|${NAME_TAIL})`, 'u').test(said)
 /** Short words a name that is one of them never counts as (a person may call themselves anything) */
-const NOT_A_NAME = new Set(['with', 'to', 'and', 'the', 'this', 'that', 'it', 'me', 'my', 'our', 'for', 'of', 'file', 'files', 'share', 'send', 'post', 'please', 'dengan', 'ke', 'ini', 'itu'])
+const NOT_A_NAME = new Set(['with', 'to', 'and', 'the', 'this', 'that', 'it', 'me', 'my', 'our', 'for', 'of', 'file', 'files', 'share', 'send', 'post', 'please', 'dengan', 'ke', 'ini', 'itu',
+  // titles, pronouns and group words people use for whoever holds them ("대표님께", "share with the team")
+  'everyone', 'everybody', 'all', 'them', 'us', 'you', 'him', 'her', 'team', 'the team', 'group', 'boss', 'manager', 'admin', 'owner', 'ceo', 'cto', 'cfo', 'hr', 'semua', 'tim', 'bos',
+  // (대표, 사장, 부장, 과장, 차장, 대리, 팀장, 실장, 이사, 상무, 전무, 본부장, 주임, 사원, 선배, 후배, 매니저, 선생님, 고객, 모두, 다들, 전체, 우리, 저, 나, 팀, 그룹)
+  '\uB300\uD45C', '\uB300\uD45C\uB2D8', '\uC0AC\uC7A5', '\uBD80\uC7A5', '\uACFC\uC7A5', '\uCC28\uC7A5', '\uB300\uB9AC', '\uD300\uC7A5', '\uC2E4\uC7A5', '\uC774\uC0AC', '\uC0C1\uBB34', '\uC804\uBB34', '\uBCF8\uBD80\uC7A5', '\uC8FC\uC784', '\uC0AC\uC6D0', '\uC120\uBC30', '\uD6C4\uBC30', '\uB9E4\uB2C8\uC800', '\uC120\uC0DD\uB2D8', '\uACE0\uAC1D', '\uBAA8\uB450', '\uB2E4\uB4E4', '\uC804\uCCB4', '\uC6B0\uB9AC', '\uC800', '\uB098', '\uD300', '\uADF8\uB8F9'])
+/** ...nor a Hangul name that is a title with 님 (대표님) */
+const TITLE_NIM = /\uB2D8$/u
 /** The asker's words for matching names: folded, with the ask's own words taken out ("share … with", 공유해줘, 보내줘,
  * "send … to": a name inside them is the verb, not a recipient) */
 function nameText(said: string): string {
@@ -79,7 +85,7 @@ function nameText(said: string): string {
   for (const r of [SHARE_ASK, POST_ASK]) t = t.replace(new RegExp(r.source.replace(/\{0,80\}/g, '{0,80}?'), 'giu'), ' ')
   return t
 }
-const nameOk = (n: string) => n.length >= 2 && !NOT_A_NAME.has(n)
+const nameOk = (n: string) => n.length >= 2 && !NOT_A_NAME.has(n) && !NOT_A_NAME.has(n.replace(TITLE_NIM, '')) && !NOT_A_NAME.has(n.replace(/^the /, ''))
 /** Where a recipient's name stands: right after a word that says who or where something goes (to, with, and, a comma,
  * &, @; in, into, on, # for a place; ke, dengan, dan, di), or, after the name (and 님/씨 for a person), a Korean particle
  * that says so: 에게, 한테, 께, 더러, 와/과, (이)랑, 하고, 도, "(가) 볼 수 / 보게" for a person; 에, 에다(가), 방에, 방으로 … for a place. A
@@ -135,13 +141,15 @@ export function namesGroup(said: string, name: string): boolean {
 export function soleNames(db: Database, userId: string): string[] {
   const u = db.query('SELECT name, username FROM users WHERE id = ?').get(userId) as { name: string; username: string } | null
   if (!u) return []
-  // (compared without 님/씨 at the end; a name inside another's counts as the same: "Hana" in "Hana Kimura", 민수 in 김민수)
-  const bare = (x: string | null) => fold((x ?? '').replace(/\s*(\uB2D8|\uC528)$/u, ''))
-  const n = bare(u.name)
-  const others = db.query('SELECT name, username FROM users WHERE id <> ?').all(userId) as { name: string | null; username: string | null }[]
-  const inside = (o: string) => o === n || (HANGUL.test(n) ? o.startsWith(n) || o.endsWith(n) : o.startsWith(n + ' ') || o.endsWith(' ' + n) || o.includes(' ' + n + ' '))
-  const taken = n.length < 2 || others.some((o) => inside(bare(o.name)) || bare(o.username) === n)
-  return [...(taken ? [] : [u.name]), u.username].filter(Boolean)
+  // (compared on letters and digits only, without 님/씨 at the end: "Tess Yoon." is "Tess Yoon"; a name inside another's
+  // counts as the same: "Hana" in "Hana Kimura", 민수 in 김민수)
+  const bare = (x: string | null) => fold((x ?? '').replace(/\s*(\uB2D8|\uC528)\s*$/u, '')).replace(/[^\p{L}\p{N}]+/gu, ' ').trim().replace(/\s*(\uB2D8|\uC528)$/u, '')
+  const others = (db.query('SELECT name, username FROM users WHERE id <> ?').all(userId) as { name: string | null; username: string | null }[])
+    .flatMap((o) => [bare(o.name), bare(o.username)]).filter(Boolean)
+  const inside = (n: string, o: string) => o === n || (HANGUL.test(n) ? o.startsWith(n) || o.endsWith(n) : o.startsWith(n + ' ') || o.endsWith(' ' + n) || o.includes(' ' + n + ' '))
+  // the display name and the username each count only when no other member's name or username is, or holds, the same
+  const theirs = (x: string | null) => { const n = bare(x); return n.length >= 2 && !others.some((o) => inside(n, o)) }
+  return [...(theirs(u.name) ? [u.name] : []), ...(theirs(u.username) ? [u.username] : [])]
 }
 
 /** The turn's own question (`messageId`): its text. */
