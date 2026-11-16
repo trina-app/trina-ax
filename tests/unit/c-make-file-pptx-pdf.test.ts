@@ -87,6 +87,20 @@ describe('a deck drawn as a page per slide (pptx-html.ts)', () => {
     expect(deckPdfResultText({ slides: 2, hidden: 1, notDrawn: r.notDrawn }, 2)).toMatch(/1 hidden slide was left out[\s\S]*Not drawn \(a light grey box in its place\): 1 chart/)
   })
 
+  withPandoc('a shape the author hid is not printed, as PowerPoint\'s export leaves it out', () => {
+    const bytes = withParts(deck('## 표지\n\n숨긴 메모 HIDDEN-NOTE-7\n'), {
+      'ppt/slides/slide1.xml': (x) => x.replace(/(<p:cNvPr id="3"[^>]*?)(\/?>)/, '$1 hidden="1"$2'),
+    })
+    const r = pptxSlidesHtml(bytes)
+    expect(r.html).toContain('표지')
+    expect(r.html).not.toContain('HIDDEN-NOTE-7')
+  })
+
+  withPandoc('a character reference past Unicode in the deck\'s text becomes U+FFFD, never a crash', () => {
+    const bytes = withParts(deck('## 표지\n\nCHARREF\n'), { 'ppt/slides/slide1.xml': (x) => x.replace('CHARREF', 'A&#99999999;B') })
+    expect(pptxSlidesHtml(bytes).html).toContain('A\ufffdB')
+  })
+
   test('not a deck: refused with words', () => {
     expect(() => pptxSlidesHtml(new Uint8Array(Buffer.from('not a zip')))).toThrow(/not a zip container/)
   })
@@ -109,7 +123,7 @@ describe('make_file: a .pptx source becomes a PDF with a page per slide', () => 
     h = await startHarness({ name: 'c-make-file-pptx-pdf', askUserTimeoutMs: 5000, stallTimeoutMs: 60_000 })
     bob = await h.ws('bob', { windowId: 'win-pptx-pdf-bob' })
     await bob.next('hello')
-    if (pandoc) put('shared/deck/소개.pptx', deck(THREE))
+    if (pandoc) { put('shared/deck/소개.pptx', deck(THREE)); put('groups/marketing/secret.pptx', deck(THREE)) }
   })
   afterAll(async () => { bob?.close(); await h?.close() })
 
@@ -138,7 +152,7 @@ describe('make_file: a .pptx source becomes a PDF with a page per slide', () => 
     expect(exists('shared/deck/x.docx') || exists('shared/deck/y.pdf')).toBe(false)
   })
 
-  test('a deck the person cannot read is refused', async () => {
+  withPandoc('a deck the person cannot read is refused (bob is not in marketing)', async () => {
     const r = await turn(fake({ tool: 'make_file', args: { source: 'groups/marketing/secret.pptx', format: 'pdf', output: 'shared/leak.pdf' }, sayResult: true }))
     expect(r.content).toContain('not found or no access')
     expect(exists('shared/leak.pdf')).toBe(false)

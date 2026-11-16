@@ -45,7 +45,9 @@ export const xmlOf = (p: Parts, name: string): string | null => {
 
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
 export const unescapeXml = (s: string) => s.replace(/&(#x[0-9a-f]+|#\d+|\w+);/gi, (m, e: string) =>
-  e[0] === '#' ? String.fromCodePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : Number(e.slice(1))) : (ENTITIES[e] ?? m))
+  e[0] === '#' ? codePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : Number(e.slice(1))) : (ENTITIES[e] ?? m))
+/** a character reference's character; one past Unicode (or not a number) is U+FFFD, never a thrown RangeError */
+const codePoint = (n: number) => (Number.isInteger(n) && n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : '\ufffd')
 /** An attribute of a tag's attribute text (`head`). */
 export const attr = (head: string, name: string) => {
   const m = new RegExp(`\\s${name}="([^"]*)"`).exec(head)

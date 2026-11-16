@@ -18,9 +18,11 @@ import { tooComplex } from './zip-guard'
 export const PPTX_HTML_MODE = 'pptx-html'
 /** slides in one PDF (html-pdf.ts prints at most 200 pages) */
 export const PPTX_PDF_SLIDES_MAX = 200
-/** pictures and their bytes handed to the print (inside HTML_PDF_LIMITS.maxAssets / maxAssetsBytes) */
+/** pictures and their bytes handed to the print: inside HTML_PDF_LIMITS.maxAssets / maxAssetBytes, and, as base64 in
+ * the worker's JSON answer (4/3 of the bytes), inside the office worker's 64 MB output with room for the page */
 const MEDIA_MAX = 190
-const MEDIA_BYTES_MAX = 90 * 1024 * 1024
+const MEDIA_BYTES_MAX = 40 * 1024 * 1024
+const PICTURE_BYTES_MAX = 20 * 1024 * 1024
 const NODES_MAX = 400_000
 const DEPTH_MAX = 200
 const EMU_PER_IN = 914400
@@ -67,6 +69,8 @@ const kid = (e: El | undefined, name: string): El | undefined => e?.kids.find((k
 const kidsOf = (e: El | undefined, name: string): El[] => e?.kids.filter((k) => k.name === name) ?? []
 const path = (e: El | undefined, ...names: string[]): El | undefined => names.reduce<El | undefined>((x, n) => kid(x, n), e)
 const at = (e: El | undefined, name: string): string | undefined => (e ? attr(e.head, name) : undefined)
+const yes = (v: string | undefined) => v === '1' || v === 'true'
+const no = (v: string | undefined) => v === '0' || v === 'false'
 const num = (v: string | undefined, d: number): number => { const n = v === undefined ? NaN : Number(v); return Number.isFinite(n) ? n : d }
 
 // ---------------- colours ----------------
@@ -119,6 +123,7 @@ interface Ctx {
   mediaBytes: number
   notDrawn: SlidesHtml['notDrawn']
   slideNo: number
+  rels: Map<string, ReturnType<typeof rels>>
 }
 
 /** The CSS colour of a colour element (a:srgbClr, a:schemeClr, a:sysClr, a:prstClr) with its changes, or null. */
@@ -168,18 +173,25 @@ const PICTURE_EXT: Record<string, string> = { png: 'png', jpg: 'jpg', jpeg: 'jpg
 function picture(blip: El | undefined, x: Ctx, part: string): string | null {
   const id = at(blip, 'r:embed')
   if (!id) return null
-  const target = rels(x.p, part).get(id)?.target
+  const target = relsOf(x, part).get(id)?.target
   if (!target) return null
   const known = x.media.get(target)
   if (known) return known
   const e = PICTURE_EXT[/\.([a-z0-9]+)$/i.exec(target)?.[1]?.toLowerCase() ?? '']
   const bytes = x.p.get(target)
-  if (!e || !bytes || x.media.size >= MEDIA_MAX || x.mediaBytes + bytes.length > MEDIA_BYTES_MAX) return null
+  if (!e || !bytes || bytes.length > PICTURE_BYTES_MAX || x.media.size >= MEDIA_MAX || x.mediaBytes + bytes.length > MEDIA_BYTES_MAX) return null
   const name = `m${x.media.size + 1}.${e}`
   x.media.set(target, name)
   x.mediaBytes += bytes.length
   x.mediaOut[name] = Buffer.from(bytes).toString('base64')
   return name
+}
+
+/** a part's relationships, read once per deck */
+function relsOf(x: Ctx, part: string) {
+  let r = x.rels.get(part)
+  if (!r) { r = rels(x.p, part); x.rels.set(part, r) }
+  return r
 }
 
 // ---------------- placeholders and text styles ----------------
@@ -192,6 +204,8 @@ const spTree = (t: El) => path(t, t.kids.find((k) => /^p:(sld|sldLayout|sldMaste
 const nvOf = (sh: El) => sh.kids.find((k) => /^p:nv\w+Pr$/.test(k.name))
 const phOf = (sh: El) => path(nvOf(sh), 'p:nvPr', 'p:ph')
 const TITLE = new Set(['title', 'ctrTitle'])
+/** placeholder kinds that take the master's body placeholder */
+const CONTENT = new Set(['body', 'subTitle', 'obj', 'pic', 'tbl', 'chart', 'media', 'clipArt', 'dgm'])
 
 /** The shape of a layout or master that a placeholder of the slide inherits from. */
 function inherited(layer: Layer | null, ph: El, master: boolean): El | undefined {
@@ -200,7 +214,7 @@ function inherited(layer: Layer | null, ph: El, master: boolean): El | undefined
   const type = at(ph, 'type'), idx = at(ph, 'idx')
   const typeOf = (s: El) => at(phOf(s), 'type')
   if (!master && idx !== undefined) { const m = shapes.find((s) => phOf(s) && at(phOf(s), 'idx') === idx); if (m) return m }
-  const want = master ? (TITLE.has(type ?? '') ? 'title' : type === undefined || type === 'subTitle' || type === 'obj' ? 'body' : type) : type
+  const want = master ? (TITLE.has(type ?? '') ? 'title' : type === undefined || CONTENT.has(type) ? 'body' : type) : type
   return shapes.find((s) => { const p = phOf(s); if (!p) return false; const t = typeOf(s); return want === undefined ? t === undefined || t === 'obj' || t === 'body' : t === want || (master && want === 'title' && t === 'ctrTitle') })
 }
 
@@ -245,7 +259,7 @@ function boxOf(xfrm: El | undefined, tf: Tf): Box | null {
   return {
     x: tf.tx + tf.sx * num(at(off, 'x'), 0), y: tf.ty + tf.sy * num(at(off, 'y'), 0),
     w: tf.sx * num(at(ext, 'cx'), 0), h: tf.sy * num(at(ext, 'cy'), 0),
-    rot: num(at(xfrm, 'rot'), 0) / 60000, flipH: at(xfrm, 'flipH') === '1', flipV: at(xfrm, 'flipV') === '1',
+    rot: num(at(xfrm, 'rot'), 0) / 60000, flipH: yes(at(xfrm, 'flipH')), flipV: yes(at(xfrm, 'flipV')),
   }
 }
 const boxCss = (b: Box, flip = false) => `left:${inch(b.x)};top:${inch(b.y)};width:${inch(b.w)};height:${inch(b.h)};` +
@@ -336,6 +350,8 @@ const spanCss = (s: RunStyle, x: Ctx, scale: number) =>
  * tree); a layout's or master's tree gives only its other shapes. */
 function drawTree(t: El, x: Ctx, chain: Chain, layer: Layer, tf: Tf, own: boolean, out: string[]): void {
   for (const sh of t.kids) {
+    // a shape the author hid (the selection pane) is not printed, as PowerPoint's own export leaves it out
+    if (yes(at(path(nvOf(sh), 'p:cNvPr'), 'hidden'))) continue
     if (sh.name === 'p:grpSp') {
       const xf = path(sh, 'p:grpSpPr', 'a:xfrm')
       const off = kid(xf, 'a:off'), ext = kid(xf, 'a:ext'), cOff = kid(xf, 'a:chOff'), cExt = kid(xf, 'a:chExt')
@@ -456,7 +472,7 @@ function tableHtml(tbl: El, x: Ctx): string {
   for (const tr of kidsOf(tbl, 'a:tr')) {
     const cells: string[] = []
     for (const tc of kidsOf(tr, 'a:tc')) {
-      if (at(tc, 'hMerge') === '1' || at(tc, 'vMerge') === '1') continue
+      if (yes(at(tc, 'hMerge')) || yes(at(tc, 'vMerge'))) continue
       const tcPr = kid(tc, 'a:tcPr')
       const fill = fillOf(tcPr, x, '')
       const span = num(at(tc, 'gridSpan'), 1), rspan = num(at(tc, 'rowSpan'), 1)
@@ -507,14 +523,14 @@ export function pptxSlidesHtml(bytes: Uint8Array): SlidesHtml {
   const layers = new Map<string, Layer | null>()
   const themes = new Map<string, Theme>()
   const cached = (part: string | undefined) => { if (!part) return null; if (!layers.has(part)) layers.set(part, layerOf(p, part, count)); return layers.get(part)! }
-  const x: Ctx = { p, theme: { colors: new Map(), major: null, minor: null }, map: new Map(), count, media: new Map(), mediaOut: {}, mediaBytes: 0, notDrawn, slideNo: 0 }
+  const x: Ctx = { p, theme: { colors: new Map(), major: null, minor: null }, map: new Map(), count, media: new Map(), mediaOut: {}, mediaBytes: 0, notDrawn, slideNo: 0, rels: new Map() }
   const pages: string[] = []
   let hidden = 0
   for (const [i, part] of order.entries()) {
     const slide = cached(part)
     if (!slide) continue
     const root = slide.tree.kids.find((k) => k.name === 'p:sld')
-    if (at(root, 'show') === '0') { hidden++; continue }
+    if (no(at(root, 'show'))) { hidden++; continue }
     if (pages.length >= PPTX_PDF_SLIDES_MAX) throw new ToolError(`the deck has more than ${PPTX_PDF_SLIDES_MAX} slides to show; a PDF of it cannot be made here`)
     const layout = cached(relOfType(p, part, '/slideLayout'))
     const master = layout ? cached(relOfType(p, layout.part, '/slideMaster')) : null
@@ -526,9 +542,9 @@ export function pptxSlidesHtml(bytes: Uint8Array): SlidesHtml {
     x.map = new Map(['bg1', 'tx1', 'bg2', 'tx2'].map((k, j) => [k, at(clrMap, k) ?? ['lt1', 'dk1', 'lt2', 'dk2'][j]!]))
     x.slideNo = i + 1
     const out: string[] = []
-    const showMaster = at(root, 'showMasterSp') !== '0' && at(layout?.tree.kids.find((k) => k.name === 'p:sldLayout'), 'showMasterSp') !== '0'
+    const showMaster = !no(at(root, 'showMasterSp')) && !no(at(layout?.tree.kids.find((k) => k.name === 'p:sldLayout'), 'showMasterSp'))
     if (master && showMaster) drawTree(spTree(master.tree) ?? master.tree, x, chain, master, ID, false, out)
-    if (layout && at(root, 'showMasterSp') !== '0') drawTree(spTree(layout.tree) ?? layout.tree, x, chain, layout, ID, false, out)
+    if (layout && !no(at(root, 'showMasterSp'))) drawTree(spTree(layout.tree) ?? layout.tree, x, chain, layout, ID, false, out)
     drawTree(spTree(slide.tree) ?? slide.tree, x, chain, slide, ID, true, out)
     pages.push(`<section class="s" style="${background(chain, x)}">${out.join('')}</section>`)
   }

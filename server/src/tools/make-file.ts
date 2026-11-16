@@ -71,14 +71,11 @@ import { snapshot, type SourceSnapshot } from '../safe-ops/source'
 import { safeText } from '../safe-ops/strings'
 
 type Input = z.output<typeof MakeFileInput>
-/** a PDF printed from HTML: its pages, what the page referred to but did not get, and whether it has scripts (off);
- * `deck`: the page was drawn from a PowerPoint deck by the server (fromDeck) */
-export interface FromHtml { pages: number; blocked: string[]; blockedCount: number; scripts: boolean; deck?: FromDeck }
+/** a PDF printed from HTML: its pages, what the page referred to but did not get, and whether it has scripts (off) */
+export interface FromHtml { pages: number; blocked: string[]; blockedCount: number; scripts: boolean }
 export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; deck?: Deck; formulas?: number; stored?: number; html?: FromHtml }
 /** the sources make_file prints as a page (format pdf only) */
 export const HTML_SOURCE_EXT = new Set(['html', 'htm'])
-/** a PDF of a PowerPoint deck: what the server drew and what it left out (files/pptx-html.ts) */
-export interface FromDeck { slides: number; hidden: number; notDrawn: SlidesHtml['notDrawn'] }
 
 /** make_file's words for a deck to PDF (part of HTML_PDF_HINT: only where a headless browser prints). Before it, an AI
  * asked for "that PPT as a PDF" rewrote the slides as a one-page Markdown document (AI flow check FL-15). */
@@ -103,9 +100,16 @@ export const HTML_PDF_OFF_HINT =
   'loses the page\'s design (colours, backgrounds, merged cells, layout), so say that before you offer it. ' +
   'For the same reason it cannot save a PowerPoint deck as a PDF: say so plainly, and that PowerPoint or Keynote can (File > Export > PDF); never rewrite the slides as a document instead. '
 
+/** a PDF of a PowerPoint deck: what the server drew and what it left out (files/pptx-html.ts) */
+export interface FromDeck { slides: number; hidden: number; notDrawn: SlidesHtml['notDrawn'] }
+/** `deck`: the page was drawn from a PowerPoint deck by the server (fromDeck); declared here, merged into FromHtml above */
+export interface FromHtml { deck?: FromDeck }
+
 /** What the AI is told about a PDF of a deck (tools/index.ts). */
 export function deckPdfResultText(d: FromDeck, pages: number): string {
-  const lines = [`The PDF has ${pages} page${pages === 1 ? '' : 's'}, one per slide (${d.slides} slide${d.slides === 1 ? '' : 's'} shown), drawn by the server from the deck: text, pictures, tables, colours and shapes in their places, in the fonts this server has.`]
+  const lines = [pages === d.slides
+    ? `The PDF has ${pages} page${pages === 1 ? '' : 's'}, one per slide (${d.slides} slide${d.slides === 1 ? '' : 's'} shown), drawn by the server from the deck: text, pictures, tables, colours and shapes in their places, in the fonts this server has.`
+    : `The PDF has ${pages} pages for ${d.slides} shown slides (they should match; some slide did not fit its page). Tell the user and ask them to check the PDF.`]
   if (d.hidden) lines.push(`${d.hidden} hidden slide${d.hidden === 1 ? ' was' : 's were'} left out, as PowerPoint's own PDF export does; say so.`)
   const n = d.notDrawn
   const missing = [n.charts && `${n.charts} chart${n.charts === 1 ? '' : 's'}`, n.diagrams && `${n.diagrams} SmartArt diagram${n.diagrams === 1 ? '' : 's'}`, n.objects && `${n.objects} other embedded object${n.objects === 1 ? '' : 's'}`, n.pictures && `${n.pictures} picture${n.pictures === 1 ? '' : 's'} in a format the PDF cannot show`].filter(Boolean)
