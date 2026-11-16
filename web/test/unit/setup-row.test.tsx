@@ -132,7 +132,8 @@ describe('the setup row', () => {
       calls = []
     }
     signIn('owner')
-    for (const [p, path] of [[half({ finishedAt: '2026-11-04T00:03:00.000Z' }), '/c/abc'], [half({ dismissedAt: '2026-11-04T00:02:00.000Z' }), '/c/abc'], [null, '/c/abc'], [half(), '/welcome']] as const) {
+    const allDone = { profile: 'done', result: null, skills: 'done', files: 'done', tools: 'done', invite: 'done' } as const
+    for (const [p, path] of [[half({ finishedAt: '2026-11-04T00:03:00.000Z', steps: allDone }), '/c/abc'], [half({ dismissedAt: '2026-11-04T00:02:00.000Z' }), '/c/abc'], [null, '/c/abc'], [half(), '/welcome']] as const) {
       progress = p
       const m = await row(path)
       try {
@@ -141,6 +142,20 @@ describe('the setup row', () => {
       useWelcome.getState().reset()
       useAiAccess.getState().reset()
     }
+  })
+
+  test('after the end with steps put off: "Still to do: …", which opens the first of them as itself; ✕ hides it', async () => {
+    signIn('owner')
+    progress = half({ finishedAt: '2026-11-04T00:03:00.000Z', steps: { profile: 'done', result: null, skills: 'done', files: 'skipped', tools: 'skipped', invite: 'done' } })
+    const m = await row('/c/abc')
+    try {
+      expect(await stateAt(m)).toBe('left')
+      expect(m.get('setup-row-link').textContent).toContain('남은 일 2개')
+      expect(m.find('setup-row-count')).toBeNull()
+      expect(m.find('setup-row-hide')).not.toBeNull()
+    } finally { await m.unmount() }
+    useWelcome.getState().reset()
+    useAiAccess.getState().reset()
   })
 
   test('a hidden row reads the progress once: page changes past the 5 s freshness read it again only while it shows', async () => {

@@ -452,7 +452,7 @@ describe('the skill files (docs/DECISIONS.md "W2": the result in front, the answ
     // the form: the topic, who it is for (the tool's audience), the material folded away
     for (const md of [ko, en]) expect(md).toMatch(/"name": "topic"[^\n]*\n\s*\{"name": "audience"[^\n]*\n\s*\{"name": "files"[^\n]*"advanced": true/)
     expect(ko).toContain('title: 회사 소개서')
-    expect(en).toContain('title: Company profile')
+    expect(en).toContain('title: Company slide deck')
     // the tool, called first; never HTML or a file of its own
     for (const md of [ko, en]) expect(md).toContain(`\`${DECK_TOOL}\``)
     // round 2 (D2): the outline call comes first, and no text before it or between the slide calls

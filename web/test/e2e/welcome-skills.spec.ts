@@ -72,8 +72,16 @@ test('the setup walk: the skills step offers only the skills Trina prepared; one
   await make.click()
   await expect.poll(() => { const u = new URL(page.url()); return `${u.pathname} ${u.searchParams.get('run')}` }).toBe('/skills skills/work/humanizer/SKILL.md')
   await expect(page.getByTestId('skill-form')).toBeVisible()
-  // finished: no setup row any more
-  await expect(page.getByTestId('setup-row')).toHaveCount(0)
+  // finished with 회사 소개, 팀 파일 and 도구 연결 put off: the setup row stays for them (fix/onboarding-after-setup) and
+  // opens the first
+  const left = page.getByTestId('setup-row')
+  await expect(left).toHaveAttribute('data-state', 'left')
+  await expect(left.getByTestId('setup-row-link')).toHaveText('남은 일 3개')
+  // the skill form closed first (it covers the page)
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('skill-form')).toHaveCount(0)
+  await left.getByTestId('setup-row-link').click()
+  await expect(page.getByTestId('welcome-profile')).toBeVisible()
   expect(realErrors(errors)).toEqual([])
 })
 

@@ -237,7 +237,8 @@ describe('Home\'s one card without AI', () => {
       // the welcome step's three ways, the same here
       expect(m.find('welcome-ai-chatgpt')).not.toBeNull()
       expect(m.find('welcome-ai-keys')).not.toBeNull()
-      expect(m.find('welcome-ai-engines')).not.toBeNull()
+      // no line to Admin › AI accounts (fix/onboarding-after-setup)
+      expect(m.find('welcome-ai-engines')).toBeNull()
       expect(m.find('welcome-ai-other')).toBeNull()
     } finally { await m.unmount() }
   })

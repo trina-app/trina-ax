@@ -13,7 +13,7 @@ The short version lives in [`CLAUDE.md`](../../../CLAUDE.md) and [`AGENTS.md`](.
 
 - The product id in code is `mycel`: folders, sockets and `MYCEL_*` variables. Trina branding is in `editions/trina/branding/`.
 - Read the [repository rules (Korean)](../../REPOSITORY-RULES.md) before adding a feature. Shared features belong in the core first. [Read about core and Trina](../develop/core-and-trina.md).
-- Check [`docs/DECISIONS.md`](../../DECISIONS.md) before changing permissions, engines or security behaviour.
+- Check the design decisions before changing permissions, engines or security behaviour: [`docs/decisions/`](../../decisions/README.md) since 2026-11-16, [`docs/DECISIONS.md`](../../DECISIONS.md) before that.
 - Licence: AGPL-3.0-only, except `shared/src/cloud-protocol/` (MIT). Keep LICENSE, NOTICE and dependency notices.
 
 ## Never commit
@@ -52,6 +52,7 @@ If a test fails, run it on an untouched checkout before blaming your change. Som
 - Fill in the pull request template: problem, change, validation and **Version impact** (`patch`, `minor`, `major` or `none`, with one reason). [Read how to choose](../develop/versioning.md).
 - Add screenshots with fictional data for visible UI changes.
 - Do not edit `CHANGELOG.md`. Put the user-visible notes in a new file `changes/<topic>.md` ([rules](../../../changes/README.md)); `bun run check:docs` fails a pull request that adds a line under "## Unreleased".
+- Write each new design decision as a new file `docs/decisions/<YYYYMMDD>-<topic>.md` ([rules](../../decisions/README.md)). Do not add to `docs/DECISIONS.md`, the archive; `bun run check:docs` fails a pull request that does.
 - Update `docs/UPSTREAM.md` when you bring a change from the core.
 
 ## Actions that need a human

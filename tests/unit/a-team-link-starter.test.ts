@@ -45,7 +45,7 @@ test('a link carries no starter: a starter in the body is not kept, the link and
   expect(row.starter).toBeNull()
   const j = await join(tokenOf(r.body.link.url))
   expect(j.status).toBe(201)
-  expect(j.body.next).toBe(`/skills?run=${encodeURIComponent(DECK)}`)
+  expect(j.body.next).toBeNull()
   expect(j.body.starter).toBeUndefined()
 })
 
@@ -56,7 +56,7 @@ test('a starter an older version stored on the open link is never read: not on t
   expect((await owner.call('GET', '/api/admin/team-link')).link.starter).toBeUndefined()
   const j = await join(tokenOf(link.url))
   expect(j.status).toBe(201)
-  expect(j.body.next).toBe(`/skills?run=${encodeURIComponent(DECK)}`)
+  expect(j.body.next).toBeNull()
   expect(j.body.starter).toBeUndefined()
 })
 

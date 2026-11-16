@@ -1,7 +1,8 @@
-// Onboarding E + C: the whole way of a team link that names a skill. The new member joins on /join (E), lands on
-// /skills?run=<path> (the address the server named, kept by joinNext) and the Skills page opens that skill's form (C)
-// with its fields, the company profile filled in where a field asks for it (D); closing the form takes ?run= out of
-// the address. The API is a stub here; tests/unit/a-team-links.test.ts checks the server's side of the same path.
+// Onboarding E + C: a team link that names a skill. The new member joins on /join (E) and lands on Home, also when an
+// older server still names the skill's form (docs/DECISIONS.md "A new member lands on Home"). /skills?run=<path> opens
+// that skill's form (C) with its fields, the company profile filled in where a field asks for it (D); closing the form
+// takes ?run= out of the address, or goes back to the page its link named (`state.back`). The API is a stub here;
+// tests/unit/a-team-links.test.ts checks the server's side.
 import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { SkillInfo } from '@mycel/shared/api'
@@ -65,28 +66,45 @@ afterAll(() => {
 
 function Where() { const l = useLocation(); return <p data-testid="where">{l.pathname + l.search}</p> }
 
-test('join with a link that names a skill: the Skills page opens that skill\'s form, prefilled; closing it drops ?run=', async () => {
+test('join with a link that names a skill: Home, not its form, and the join page does not name it', async () => {
   let m: Mounted | null = null
   try {
     m = await mount(
       <MemoryRouter initialEntries={['/join']}>
         <Routes>
           <Route path="/join" element={<TeamJoin />} />
-          <Route path="/skills" element={<><Skills /><Where /></>} />
+          <Route path="*" element={<Where />} />
         </Routes>
       </MemoryRouter>,
     )
     await m.until(() => m!.find('join-form'), 'the join form')
-    // the join page names the skill as people read it (its title), never its folder name
-    expect(m.html()).toContain('광고 문구')
+    expect(m.html()).not.toContain('광고 문구')
     expect(m.html()).not.toContain('ad-copy')
     await m.type('invite-name', '김하나')
     await m.type('invite-username', 'hana')
     await m.type('invite-password', 'tulip meadow 2026')
     await m.click('invite-submit')
+    await m.until(() => m!.find('where'), 'the next page', 3000)
+    expect(m.get('where').textContent).toBe('/')
+    expect(m.find('skill-form')).toBeNull()
+    expect(m.html()).not.toContain('광고 문구')
+  } finally { await m?.unmount() }
+})
 
+const closeButton = () => {
+  const dialog = (globalThis.document as unknown as { body: { querySelector: (s: string) => Mounted['container'] | null } }).body.querySelector('[role="dialog"]')
+  return dialog?.querySelector(`button[aria-label="${translate('ko', 'common.close')}"]`)
+}
+
+test('/skills?run=<path>: that skill\'s form, prefilled; closing it drops ?run=', async () => {
+  let m: Mounted | null = null
+  try {
+    m = await mount(
+      <MemoryRouter initialEntries={[`/skills?run=${encodeURIComponent(PATH)}`]}>
+        <Routes><Route path="*" element={<><Skills /><Where /></>} /></Routes>
+      </MemoryRouter>,
+    )
     const form = await m.until(() => m!.find('skill-form'), 'the skill form on the Skills page', 3000)
-    expect(m.get('where').textContent).toBe(`/skills?run=${encodeURIComponent(PATH)}`)
     expect(form.getAttribute('data-path')).toBe(PATH)
     // the dialog names it by its title once the person's list has it, and the description drops the repeated lead
     await m.until(() => m!.html().includes(translate('ko', 'skillForm.title', { name: '광고 문구' })), 'the title in the dialog', 3000)
@@ -98,13 +116,26 @@ test('join with a link that names a skill: the Skills page opens that skill\'s f
     expect((m.get('skill-input-product') as unknown as { value: string }).value).toBe('종이 플래너, 데스크 매트')
     expect((m.get('skill-input-tone') as unknown as { value: string }).value).toBe('친근하게, 짧게')
     await m.until(() => !m!.get('skill-form-run').hasAttribute('disabled'), 'Run on', 3000)
-
-    // closing the form takes ?run= out of the address
-    const dialog = (globalThis.document as unknown as { body: { querySelector: (s: string) => Mounted['container'] | null } }).body.querySelector('[role="dialog"]')
-    const close = dialog?.querySelector(`button[aria-label="${translate('ko', 'common.close')}"]`)
-    expect(close).toBeTruthy()
-    await m.click(close!)
+    expect(closeButton()).toBeTruthy()
+    await m.click(closeButton()!)
     await m.until(() => !m!.find('skill-form'), 'the form closed', 3000)
     expect(m.get('where').textContent).toBe('/skills')
   } finally { await m?.unmount() }
+})
+
+test('a link that names where it came from (state.back): closing the form goes back there; another site never', async () => {
+  for (const [back, lands] of [['/', '/'], ['//evil.example/x', '/skills'], [42, '/skills']] as const) {
+    let m: Mounted | null = null
+    try {
+      m = await mount(
+        <MemoryRouter initialEntries={[{ pathname: '/skills', search: `?run=${encodeURIComponent(PATH)}`, state: { back } }]}>
+          <Routes><Route path="*" element={<><Skills /><Where /></>} /></Routes>
+        </MemoryRouter>,
+      )
+      await m.until(() => m!.find('skill-form'), 'the skill form', 3000)
+      await m.click(closeButton()!)
+      await m.until(() => !m!.find('skill-form'), 'the form closed', 3000)
+      expect(m.get('where').textContent).toBe(lands)
+    } finally { await m?.unmount() }
+  }
 })

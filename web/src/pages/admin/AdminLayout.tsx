@@ -40,6 +40,7 @@ import { folderName } from '../../lib/access-view'
 import { ADMIN_DETAILS, adminChain, adminDesktopOf, adminParent, isAdminDetail } from './adminScreens'
 import { AdminBarProvider, type AdminBar } from './phoneBar'
 import { AdminBarSlot } from './barActions'
+import { SetupReturn, useSetupReturnShown } from '../../components/onboarding/SetupReturn'
 
 const Home = lazy(() => import('./Home'))
 const PhoneRoot = lazy(() => import('./PhoneRoot'))
@@ -237,6 +238,8 @@ export default function AdminLayout() {
   const [bar, setBar] = useState<AdminBar | null>(null)
   // the bar's place for the page's own buttons, + and ⋯ (barActions.tsx); a computer's page keeps its buttons
   const [barSlot, setBarSlot] = useState<HTMLElement | null>(null)
+  // opened from the welcome steps: their way back is the page's one back on a phone (SetupReturn.tsx), no ‹ beside it
+  const setupBack = useSetupReturnShown() !== null
   const back = () => {
     if (!bar?.beforeBack) return goBack()
     void bar.beforeBack().then((ok) => ok && goBack())
@@ -271,7 +274,7 @@ export default function AdminLayout() {
     return (
       <div className="flex h-full min-h-0 flex-col" data-testid="admin-phone">
         {/* the list's bar: ‹ back to where it came from (the 나 list: "‹ Settings"); its big title is in the list */}
-        <PhonePageBar onBack={back} backLabel={label} title={bar?.title ?? (group ? t(group.label) : isAdminDetail(here) && section !== 'folders' ? '' : section ? t(phoneLabel(current)) : '')} titleHidden={!!section} backTestId="admin-back" titleTestId="admin-bar-title"
+        <PhonePageBar onBack={setupBack ? undefined : back} backLabel={label} title={bar?.title ?? (group ? t(group.label) : isAdminDetail(here) && section !== 'folders' ? '' : section ? t(phoneLabel(current)) : '')} titleHidden={!!section} backTestId="admin-back" titleTestId="admin-bar-title"
           action={<span ref={setBarSlot} className="contents" />} />
         <div ref={content} className="min-h-0 flex-1 overflow-y-auto" data-testid="admin-content">
           {section === '' ? (
@@ -281,6 +284,8 @@ export default function AdminLayout() {
           ) : (
             <div className="mx-auto w-full max-w-6xl p-4">
               {/* the list says once that every page here applies to the whole team (PhoneRoot.tsx); not again on each */}
+              {/* opened from the welcome steps: the way back to them (components/onboarding/SetupReturn.tsx) */}
+              <SetupReturn className="mb-3" />
               {page}
             </div>
           )}
@@ -328,6 +333,8 @@ export default function AdminLayout() {
           {/* the form pages (Team settings, System) are one narrow column in the middle of the area, the others use the
               whole width; both are centred, so the page does not shift from one to the next */}
           <div className={clsx('w-full', NARROW.has(section) && 'mx-auto max-w-3xl')} data-testid="admin-column">
+            {/* opened from the welcome steps: the way back to them (components/onboarding/SetupReturn.tsx) */}
+            <SetupReturn className="mb-3" />
             <AdminScope />
             {page}
           </div>

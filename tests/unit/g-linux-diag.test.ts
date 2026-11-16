@@ -14,8 +14,9 @@ import { silentLogger } from '../../server/src/log'
 import { resolveLayout } from '../../server/src/system/layout'
 import { Plan, setPlanForTests } from '../../server/src/system/limits'
 import { configureStorageGuard } from '../../server/src/system/storage'
+import { DiskSpaceUnknown } from '../../server/src/system/disk-stat'
 import { M } from '../../server/src/system/messages'
-import { engineStatusMessages, hostMessages } from '../../server/src/system/messages-linux'
+import { engineStatusMessages, hostMessages, ML } from '../../server/src/system/messages-linux'
 import { OpsService } from '../../server/src/system/ops'
 import { launcherStatus } from '../../server/src/native'
 import { T as ENGINE_T } from '../../server/src/admin/engines'
@@ -378,6 +379,47 @@ describe('diagnostics of an installed Linux server', () => {
       setPlanForTests(undefined)
       configureStorageGuard(null)
     }
+  })
+  test('free space that cannot be read (QA TC-3099): a disk warning, and the rest of the report still comes', async () => {
+    fw({})
+    const statfs = spyOn(fs, 'statfsSync').mockImplementation((() => { throw new DiskSpaceUnknown('could not read the free disk space of x') }) as unknown as typeof fs.statfsSync)
+    try {
+      const d = await ops().diagnostics('en')
+      for (const id of ['disk.team', 'disk.data']) {
+        const c = d.checks.find((x) => x.id === id)!
+        expect(c.status).toBe('warn')
+        expect(c.detail).toBe(M.diskUnknown.en)
+      }
+      expect(d.checks.find((x) => x.id === 'sandbox')).toBeDefined()
+    } finally { statfs.mockRestore(); configureStorageGuard(null) }
+  })
+  test('one Linux disk unreadable (QA TC-3099, TC-3383): the other keeps its storage level, the unreadable one warns', async () => {
+    fw({})
+    const L = resolveLayout(ctx.config, { MYCEL_INSTALL_BASE: base, MYCEL_LABEL: 'mycel' }, 'linux')
+    expect(L.teamRoot.startsWith(L.dataDir) || L.dataDir.startsWith(L.teamRoot)).toBe(false)
+    const GiB = 1024 ** 3
+    const b = 80 * GiB / 4096
+    const half = { type: 0, bsize: 4096, frsize: 4096, blocks: b, bfree: b / 2, bavail: b / 2, files: 0, ffree: 0 }
+    const run = async (unreadable: string) => {
+      const statfs = spyOn(fs, 'statfsSync').mockImplementation(((p: string) => {
+        if (String(p).startsWith(unreadable)) throw new DiskSpaceUnknown(`could not read the free disk space of ${unreadable}`)
+        return half
+      }) as unknown as typeof fs.statfsSync)
+      try {
+        const c = (await ops().diagnostics('en')).checks
+        return { team: c.find((x) => x.id === 'disk.team')!, data: c.find((x) => x.id === 'disk.data')! }
+      } finally { statfs.mockRestore(); configureStorageGuard(null) }
+    }
+    // the Linux level check (ML.storage / ML.storageOk), not the Mac-style one the old gate fell back to
+    const levelOk = { label: ML.storage.en, status: 'ok', detail: ML.storageOk(40 * GiB, 50).en }
+    const unknown = { label: ML.storage.en, status: 'warn', detail: M.diskUnknown.en }
+    const dataOff = await run(L.dataDir)
+    expect(dataOff.team).toMatchObject(levelOk)
+    expect(dataOff.data).toMatchObject(unknown)
+    // the other way round: the team disk unreadable, the data disk readable
+    const teamOff = await run(L.teamRoot)
+    expect(teamOff.team).toMatchObject(unknown)
+    expect(teamOff.data).toMatchObject(levelOk)
   })
   test('the public exit address (QA 0.2.12 N5): unknown, turned off, known by family or by the relay; never the address itself', async () => {
     const env = 'MYCEL_EXIT_ADDRESS_CHECK'

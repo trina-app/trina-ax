@@ -21,6 +21,7 @@ import { hashFile } from '../team-files/place'
 import type { TeamFiles } from '../team-files/service'
 import type { Attachments } from './attachments'
 import { defaultChunkGate, type ChunkGate } from './chunk-gate'
+import { diskStat } from '../system/disk-stat'
 
 /** idle expiry: every accepted chunk moves expires_at to now + this */
 export const SESSION_TTL_MS = 24 * 3600_000
@@ -74,7 +75,7 @@ export class UploadSessions {
     if (open >= MAX_OPEN_SESSIONS) fileError('rate_limited', 'tooManySessions')
     this.checkTarget(userId, target, sha256, size)
     let free = Infinity
-    try { const s = fs.statfsSync(this.dir()); free = s.bavail * s.bsize } catch (e) { this.ctx.log.warn('statfs failed', { err: e }) }
+    try { const s = diskStat(this.dir()); free = Number(s.bavail) * Number(s.bsize) } catch (e) { this.ctx.log.warn('free disk space unreadable', { err: e }) }
     // part files are sparse: what unfinished sessions will still write counts as used
     const reserved = (db.query('SELECT COALESCE(SUM(size), 0) AS n FROM upload_sessions WHERE result IS NULL AND expires_at > ?').get(new Date().toISOString()) as { n: number }).n
     // the team disk near full or over the plan's limit (system/storage.ts): 507 storage_full before anything is written.

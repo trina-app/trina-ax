@@ -94,6 +94,7 @@ import { Button, EmptyState, ErrorNote, Modal, PageHeader, Skeleton, StickyHeade
 import { PhoneBarAction, PhoneBarTitle } from '../components/phone/PhoneBarAction'
 import { Tooltip } from '../components/Tooltip'
 import { FileDropZone } from '../components/FileDropZone'
+import { SetupReturn } from '../components/onboarding/SetupReturn'
 import { useFocusAfterRemove } from './admin/common'
 
 const PHONE = '(max-width: 767.98px)'
@@ -1065,6 +1066,8 @@ function ProjectPage() {
       </StickyHeader>
       )}
       <div className="mx-auto w-full max-w-[1080px] px-4 pt-8 pb-12 max-md:pt-4 sm:px-6 sm:pt-10">
+        {/* opened from the welcome steps (the team files step's "Open"): the way back to them (components/onboarding/SetupReturn.tsx) */}
+        <SetupReturn className="mb-3" />
         {/* the title row (docs/DECISIONS.md "Share in the project's title row"): the name, and on its right who sees it
             ("Only me", or the faces of who is in it) and Share, as in Drive or Notion. Phones: the name is the bar's (here
             for screen readers only), so the row under the bar is who sees it and Share */}

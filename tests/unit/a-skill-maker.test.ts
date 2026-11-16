@@ -1,9 +1,8 @@
 // Who made a team skill (docs/DECISIONS.md "S"; server/src/skills/author.ts): the person whose save made the skill
 // file's first version, read from the file's history (never its text; none for a starter pack's own text). A member who
-// joins with a link to such a skill hears who made it (`skillBy`: the line above its form), lands on its form whether it
-// has fields or not (one without starts with the skill's own example: docs/DECISIONS.md "W5"; never a chat with "이 방식대로
-// 해 줘"), and the answer's receipt names the maker ("김지훈님의 팀 스킬 '견적서 쓰기' · 팀 파일 1개") for everyone but the
-// maker.
+// joins with a link to such a skill lands on Home, not on its form, and hears nothing of who made it there
+// (docs/DECISIONS.md "A new member lands on Home"); the answer's receipt names the maker ("김지훈님의 팀 스킬 '견적서
+// 쓰기' · 팀 파일 1개") for everyone but the maker.
 import { afterAll, beforeAll, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -51,22 +50,14 @@ test('the maker is the first version\'s, whoever edits it later; a pack\'s own t
   expect(skillMakerId(h.ctx.db, 'skills/general/outside/SKILL.md')).toBeNull()
 })
 
-test('joining with a link to a skill a person made: who made it, and its form, with fields or without (no starter)', async () => {
-  const withForm = await owner.call('POST', '/api/admin/team-link', { skillPath: QUOTE })
-  const a = await join(tokenOf(withForm.link.url))
-  expect(a.status).toBe(201)
-  expect(a.body).toMatchObject({ next: `/skills?run=${encodeURIComponent(QUOTE)}`, skillBy: 'Olga Owner' })
-
-  const noForm = await owner.call('POST', '/api/admin/team-link', { skillPath: BRIEF })
-  const b = await join(tokenOf(noForm.link.url))
-  expect(b.status).toBe(201)
-  // the form too (its box starts with the skill's example), not Home with "이 방식대로 해 줘"
-  expect(b.body).toMatchObject({ next: `/skills?run=${encodeURIComponent(BRIEF)}`, skillBy: 'Olga Owner' })
-
-  // the pack's intro deck: nobody "made" it, the form as before
-  const pack = await owner.call('POST', '/api/admin/team-link', { skillPath: TASKS })
-  const c = await join(tokenOf(pack.link.url))
-  expect(c.body).toMatchObject({ next: `/skills?run=${encodeURIComponent(TASKS)}`, skillBy: null })
+test('joining with a link to a skill, a person\'s or a pack\'s, with fields or without: Home, no maker in the answer', async () => {
+  for (const skillPath of [QUOTE, BRIEF, TASKS]) {
+    const made = await owner.call('POST', '/api/admin/team-link', { skillPath })
+    const r = await join(tokenOf(made.link.url))
+    expect(r.status).toBe(201)
+    expect(r.body.next).toBeNull()
+    expect(r.body).not.toHaveProperty('skillBy')
+  }
 })
 
 test('the receipt names the maker for others, never for the maker, never for a pack skill', async () => {
