@@ -1222,6 +1222,7 @@ export const zh: Record<MessageKey, string> = {
   "projects.edit": "编辑项目",
   "projects.empty": "还没有项目",
   "projects.name": "项目名称",
+  "projects.renameNamed": "重命名 {name}",
   "projects.kind": "位置",
   "projects.kind.personal": "个人（仅我自己）",
   "projects.kind.team": "团队项目",
