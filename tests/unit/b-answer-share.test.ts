@@ -582,6 +582,14 @@ describe('linked files: a row each, the switch, attaching', () => {
     const f = answer('alice', `다시: ${link(again)}`, { scope: [], listed: true, saved: [{ path: again, sha256: put(again, 'new\n') }] })
     h.ctx.db.query("UPDATE file_events SET detail = ? WHERE path = ? AND action = 'create' AND turn_id IS NOT NULL").run(JSON.stringify({ tool: 'write' }), again)
     expect((await share('alice', f, { roomId: rooms.all })).json.status).toBe('sent')
+    // read, deleted and written again by the answer (its content may be the old private file's): the dialog
+    const back = 'users/alice/room-notes-back.md'
+    const s0 = put(back, 'salary 100\n')
+    h.ctx.db.query("INSERT INTO file_events (turn_id, user_id, path, action, size, sha256) VALUES (NULL, 'alice', ?, 'create', 1, ?)").run(back, s0)
+    h.ctx.db.query("INSERT INTO file_events (turn_id, user_id, path, action) VALUES (NULL, 'alice', ?, 'delete')").run(back)
+    const g = answer('alice', `다시: ${link(back)}`, { read: [{ path: back, sha256: s0 }], scope: [], listed: true, saved: [{ path: back, sha256: s0 }] })
+    h.ctx.db.query("UPDATE file_events SET detail = ? WHERE path = ? AND action = 'create' AND turn_id IS NOT NULL").run(JSON.stringify({ tool: 'write' }), back)
+    expect((await share('alice', g, { roomId: rooms.all })).json.status).toBe('confirm')
   })
 
   test('a linked file read by the answer and attached is left out of the line; link only, it counts', async () => {

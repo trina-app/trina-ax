@@ -514,7 +514,10 @@ const MADE_FROM_ELSEWHERE = ['sourcePaths', 'conflictCopyOf', 'copiedFrom', 'mov
 async function madeHereOnly(ctx: AppContext, chatId: string, p: PreparedShare): Promise<Set<string> | null> {
   const rows = p.check.rows.filter((r) => r.unable.length > 0)
   if (!rows.length || rows.some((r) => r.attach !== 'yes' || !r.rel)) return null
-  const turns = turnsOf(ctx.db, branchUse(ctx.db, chatId, p.messageId).answers)
+  const branch = branchUse(ctx.db, chatId, p.messageId)
+  const turns = turnsOf(ctx.db, branch.answers)
+  // paths the branch read (the provenance leaves an attached file's own path out, by path alone)
+  const readHere = new Set(branch.files.map((f) => f.path))
   if (!turns.length) return null
   const out = new Set<string>()
   for (const r of rows) {
@@ -530,6 +533,8 @@ async function madeHereOnly(ctx: AppContext, chatId: string, p: PreparedShare): 
     // and since removed is another file)
     const prev = ctx.db.query("SELECT action FROM file_events WHERE path = ? AND id < ? AND action <> 'rejected' ORDER BY id DESC LIMIT 1").get(r.rel!, made.id) as { action: string } | null
     if (prev && prev.action !== 'delete') return null
+    // a file deleted and written again at a path the branch read (review): its content may be the old file's
+    if (prev && readHere.has(r.rel!)) return null
     // changed after it was written (an update by anyone since): not what the branch made
     if (ctx.db.query("SELECT 1 FROM file_events WHERE path = ? AND id > ? AND (sha256 IS NULL OR sha256 <> ?) LIMIT 1").get(r.rel!, made.id, sha)) return null
     out.add(r.rel!)
