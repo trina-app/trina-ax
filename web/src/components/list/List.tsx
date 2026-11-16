@@ -92,7 +92,7 @@ export const rowTag = 'ml-auto max-w-[40%] shrink-0 truncate text-meta font-norm
  * a page's main list (pageRowBox): taller, flush with its heading, read names in ink; its "···" and `actions` move out
  * with the row, so the times and tags still end at one edge.
  */
-export function ListRow({ expanded, to, state, onClick, icon, lead, faces, name, nameTitle, meta, end, tag, tagTitle, tagTestId, menu, menuSpace, choice, rowMenu, actions, rowRef, rowTitle, strong, scale = 'panel', unread, selected, wrap, disabled, face, testId, nameTestId, metaTestId, link, li, rowClass, onFocus, onBlur, onKeyDown }: {
+export function ListRow({ expanded, to, state, onClick, icon, lead, faces, name, nameTitle, meta, metaWrap, end, tag, tagTitle, tagTestId, menu, menuSpace, choice, rowMenu, actions, rowRef, rowTitle, strong, scale = 'panel', unread, selected, wrap, disabled, face, testId, nameTestId, metaTestId, link, li, rowClass, onFocus, onBlur, onKeyDown }: {
   to?: string
   state?: unknown
   onClick?: (e: MouseEvent<HTMLElement>) => void
@@ -102,6 +102,8 @@ export function ListRow({ expanded, to, state, onClick, icon, lead, faces, name,
   name: ReactNode
   nameTitle?: string
   meta?: ReactNode
+  /** the second line may wrap (a long description is read whole, never cut) */
+  metaWrap?: boolean
   end?: ReactNode
   tag?: ReactNode
   tagTitle?: string
@@ -158,7 +160,7 @@ export function ListRow({ expanded, to, state, onClick, icon, lead, faces, name,
           {name}
         </span>
         {meta && (
-          <span className="block truncate text-meta text-faint tabular-nums" data-testid={metaTestId}>
+          <span className={clsx(metaWrap ? 'block break-words' : 'block truncate', 'text-meta text-faint tabular-nums')} data-testid={metaTestId}>
             {meta}
           </span>
         )}

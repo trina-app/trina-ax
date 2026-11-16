@@ -128,10 +128,11 @@ test.describe('a computer (1440)', () => {
     await start(page, 1440)
     await setRooms(page, [room('디자인'), room('주간회의', { kind: 'group' })])
     const me = ((await (await page.request.get('/api/me')).json()) as { user: { id: string } }).user.id
-    await page.evaluate((id) => localStorage.setItem(`mycel.trina.groupFolds.${id}`, JSON.stringify({ 'section:chats:group': 'folded' })), me)
+    // group chats are listed in Direct messages (docs/decisions/20261116-sidebar-channels-dms.md), so the section is 'dm'
+    await page.evaluate((id) => localStorage.setItem(`mycel.trina.groupFolds.${id}`, JSON.stringify({ 'section:chats:dm': 'folded' })), me)
     await page.reload()
     await page.getByTestId('rail-chats').click()
-    await expect(panelSection(page, 'group').getByTestId('panel-section-fold')).toHaveAttribute('aria-expanded', 'false')
-    await expect.poll(() => folds(page)).toEqual({ 'section:chats:group': 'folded' })
+    await expect(panelSection(page, 'dm').getByTestId('panel-section-fold')).toHaveAttribute('aria-expanded', 'false')
+    await expect.poll(() => folds(page)).toEqual({ 'section:chats:dm': 'folded' })
   })
 })

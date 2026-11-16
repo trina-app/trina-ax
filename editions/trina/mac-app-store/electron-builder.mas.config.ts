@@ -12,8 +12,9 @@ import { PRODUCT } from '../../../shared/src/product'
 const TEAM_ID = 'YWW96288YY'
 const BUNDLE_ID = 'app.trina.ax'
 
-// this folder, for the entitlements files. electron-builder compiles this file into a cache folder first
-// (config-file-ts), where __dirname is not this folder; it runs in desktop/, so the folder is also found from there.
+// this folder, for the entitlements files. electron-builder loads this file through its own loader (up to 26.0
+// config-file-ts compiled it into a cache folder, where __dirname is not this folder; jiti since 26.x); it runs in
+// desktop/, so the folder is also found from there.
 const HERE = [__dirname, resolve(process.cwd(), '..', 'editions', 'trina', 'mac-app-store')].find((d) => existsSync(join(d, 'entitlements.mas.plist')))
 if (!HERE) throw new Error('editions/trina/mac-app-store not found: run electron-builder in desktop/')
 

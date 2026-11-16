@@ -16,7 +16,7 @@ import { isOwner, useMeStrict } from '../../store/session'
 import { Button } from '../../components/ui'
 import { useAction } from './common'
 import { useUpdateInstall } from './jobs'
-import { releaseCannotRead, releasePaused } from '../../lib/updateOutcome'
+import { releaseCannotRead, releaseHeld, releasePaused } from '../../lib/updateOutcome'
 import { homeCheck, technicalEngineState } from './plain'
 
 /** AI connection states an admin should act on (a member's own connection is theirs to fix, so team ones only): Home's
@@ -193,7 +193,7 @@ export function useAdminOverview() {
     ...failedChecks.map((c) => ({ key: `check-${c.id}`, text: c.label, to: '/admin/system/health' })),
     ...(newVersion && upd ? [{
       key: 'update', text: updateLine(t, locale, upd, newVersion), to: '/admin/system/updates', job: install.jobId,
-      actions: canInstall ? <Button size="sm" variant="primary" disabled={!!install.jobId} onClick={() => install.ask('update')} data-testid="home-update-install">{t('adminHome.update.install')}</Button> : undefined,
+      actions: canInstall ? <Button size="sm" variant="primary" disabled={!!install.jobId} onClick={() => install.ask(releaseHeld(upd) ? 'retry' : 'update')} data-testid="home-update-install">{t(releaseHeld(upd) ? 'system.retryShort' : 'adminHome.update.install')}</Button> : undefined,
     }] : []),
     ...(after.data ?? []).filter((a) => AFTER_UPDATE_IDS.includes(a.id)).map((a) => ({
       key: `after-${a.id}`, text: t(`adminHome.after.${a.id}` as MessageKey), to: a.to,

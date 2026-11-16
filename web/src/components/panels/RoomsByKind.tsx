@@ -1,6 +1,7 @@
 // 대화's whole list beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1): every conversation of
-// mine. 고정 first (all my pins, the most recently pinned first), then 팀 대화방 (전체 first, the others
-// by name), 그룹 대화 and 1:1 대화 (latest activity first): nav/RoomsList.tsx roomSections and its rows. The rooms I hid
+// mine. 고정 first (all my pins, the most recently pinned first), then 채널 (전체 first, the others
+// by name) and 다이렉트 메시지 (1:1s and group chats together, latest activity first:
+// docs/decisions/20261116-sidebar-channels-dms.md): nav/RoomsList.tsx roomSections and its rows. The rooms I hid
 // are left out (the one on screen still shows); "숨긴 대화 N" at the end opens the conversations page, where they are.
 // Long lists stay cheap (the plan's rendering budget, measured with 200 rooms): each section is skipped by the browser
 // while it is off screen (content-visibility), and past 200 rows the rest is drawn 200 at a time as the list scrolls
@@ -10,7 +11,7 @@
 // room on screen under it, and its header says what waits inside: bold with one pill (roomFolderPill, "@" for a
 // mention › how many of its rooms have unread messages). The phone's 대화 tab folds the same sections with the same
 // keys (pages/Rooms.tsx), and the folds are kept on the account (panels/folds.ts).
-// My folders (docs/DECISIONS.md "List folders on screen") come between 고정 and 팀 대화방: "대화 폴더 · 나만 보여요"
+// My folders (docs/DECISIONS.md "List folders on screen") come between 고정 and 채널: "대화 폴더 · 나만 보여요"
 // with its +, then each folder as a group in that section (fold ▾, its "⋯", the rooms I keep in it by latest activity; a
 // folded one keeps one pill). A room shows in one place only: pinned › its folder › its kind. With no folder yet, one
 // quiet row "새 폴더" ends the list.
@@ -36,7 +37,7 @@ const ROW_PX = 30
 
 const noop = () => {}
 
-type Section = { key: 'pinned' | 'team' | 'group' | 'dm'; rooms: Room[]; folder?: undefined } | { key: 'folder'; rooms: Room[]; folder: NavFolder }
+type Section = { key: 'pinned' | 'team' | 'dm'; rooms: Room[]; folder?: undefined } | { key: 'folder'; rooms: Room[]; folder: NavFolder }
 
 /** The sections in their order, each with its rooms (no empty kind section; every folder of mine, empty or not, after
  * 고정). A room is in one place: pinned › the folder it is in (one of `folders`) › its kind. */

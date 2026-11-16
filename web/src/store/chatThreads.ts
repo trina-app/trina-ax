@@ -28,6 +28,9 @@ interface State {
   pending: Record<string, PendingReply[]>
   /** a refused reply's text, given back to its thread's box once (takeReturned) */
   returned: Record<string, string>
+  /** threads whose replies wait out the sending budget (a 429): until when (ms). One line under the box says so, however
+   * many replies wait (QA TC-3887); they go by themselves */
+  slowUntil: Record<string, number>
   load: (chatId: string, rootId: string) => Promise<void>
   loadOlder: (chatId: string, rootId: string) => Promise<void>
   send: (chatId: string, rootId: string, text: string) => Promise<void>
@@ -85,11 +88,15 @@ export const useChatThreads = create<State>((set, get) => {
         setPending(key, (list) => list.map((x) => (x.clientId === p.clientId ? { ...x, state: 'sending', updating: undefined } : x)))
         return post(chatId, rootId, { ...still, state: 'sending', updating: undefined })
       }
-      // sending fast: it waits the seconds the server says, then goes by itself
+      // sending fast: it waits the seconds the server says, then goes by itself; the thread says so once (the line under
+      // its box), never a toast per waiting reply (QA TC-3887)
       if (isApiError(e, 'rate_limited')) {
         const wait = Math.min(60, Math.max(1, Number(e.body.retryAfter ?? 1)))
-        toast({ level: 'info', text: t('chat.thread.fast') })
+        const until = Date.now() + wait * 1000
+        set((s) => ({ slowUntil: { ...s.slowUntil, [key]: Math.max(s.slowUntil[key] ?? 0, until) } }))
         await new Promise((r) => setTimeout(r, wait * 1000))
+        // the line goes once no reply of the thread waits any longer
+        set((s) => { if ((s.slowUntil[key] ?? 0) > Date.now()) return {}; const { [key]: _, ...rest } = s.slowUntil; return { slowUntil: rest } })
         const still = mine(key, p.clientId)
         return still ? post(chatId, rootId, still) : undefined
       }
@@ -111,6 +118,7 @@ export const useChatThreads = create<State>((set, get) => {
     views: {},
     pending: {},
     returned: {},
+    slowUntil: {},
 
     async load(chatId, rootId) {
       const key = threadKey(chatId, rootId)
@@ -181,7 +189,7 @@ export const useChatThreads = create<State>((set, get) => {
     },
 
     reset() {
-      set({ views: {}, pending: {}, returned: {} })
+      set({ views: {}, pending: {}, returned: {}, slowUntil: {} })
     },
   }
 })

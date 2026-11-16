@@ -1,5 +1,6 @@
 // 대화 beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1, phase P3), with the server's `navRail` switch on:
-// every conversation, no "더 보기" cap, by kind: 고정 · 팀 대화방 (전체 first) · 그룹 대화 · 1:1 대화; the rooms I hid are
+// every conversation, no "더 보기" cap, by kind: 고정 · 채널 (전체 first) · 다이렉트 메시지 (1:1s and group chats together,
+// latest first, a group chat with its people's faces: docs/decisions/20261116-sidebar-channels-dms.md); the rooms I hid are
 // behind one quiet row; 300 rooms are all listed, drawn 200 at a time as the list scrolls (the plan's rendering budget);
 // and on a narrow window (below 812 px) a room's thread is a sheet over the room.
 import { expect, test, type Page } from '@playwright/test'
@@ -41,12 +42,19 @@ test('every conversation by kind, no "더 보기"; the hidden ones behind one ro
   await page.getByTestId('rail-chats').click()
   await expect(panel(page)).toBeVisible()
   await expect(panel(page).getByTestId('sidebar-room-row')).toHaveCount(10)
-  expect(await sectionNames(page)).toEqual(['pinned', 'team', 'group', 'dm'])
-  await expect(panel(page).getByTestId('chats-panel-label')).toHaveText([t['chat.pinned'], t['rooms.section.team'], t['rooms.section.group'], t['rooms.section.dm']])
+  expect(await sectionNames(page)).toEqual(['pinned', 'team', 'dm'])
+  await expect(panel(page).getByTestId('chats-panel-label')).toHaveText([t['chat.pinned'], t['rooms.section.team'], t['rooms.section.dm']])
+  await expect(panel(page).getByTestId('chats-panel-label')).toHaveText(['고정됨', '채널', '다이렉트 메시지'])
   expect(await namesIn(page, 'pinned')).toEqual(['김민지'])
   expect(await namesIn(page, 'team')).toEqual(['전체', '개발', '기획', '디자인', '영업'])
-  expect(await namesIn(page, 'group')).toEqual(['주간회의', '점심 모임'])
-  expect(await namesIn(page, 'dm')).toEqual(['Sam', 'Eve'])
+  // group chats among the 1:1s, by latest activity; each with two faces, a 1:1 with its one picture
+  expect(await namesIn(page, 'dm')).toEqual(['Sam', '주간회의', '점심 모임', 'Eve'])
+  await expect(panel(page).getByTestId('room-group-people')).toHaveCount(2)
+  await expect(panel(page).getByTestId('room-group-people').first().locator(':scope > *')).toHaveCount(2)
+  // the faces take one picture's box: a group chat's name starts where a 1:1's does
+  const nameX = async (name: string) => (await panel(page).locator(`[data-testid="sidebar-room-row"][data-section="dm"] span[title="${name}"]`).boundingBox())!.x
+  expect(await nameX('주간회의')).toBe(await nameX('Sam'))
+  expect((await panel(page).getByTestId('room-group-people').first().boundingBox())!.width).toBe(20)
   await expect(panel(page).getByTestId('rooms-more')).toHaveCount(0)
   await expect(panel(page).getByTestId('rooms-all')).toHaveCount(0)
   // 멘션·스레드 stays the first row

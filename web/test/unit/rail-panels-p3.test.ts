@@ -38,14 +38,14 @@ describe('활동: 전체 · 트리나 · 요청', () => {
 const room = (id: string, kind: Room['kind'], o: Partial<Room> = {}) => ({ id, kind, name: id, pinnedAt: null, ...o }) as unknown as Room
 
 describe('대화: every room by kind, no cap', () => {
-  test('고정 first, then 팀 대화방 (전체 first, by name), 그룹 대화, 1:1 대화; a pin is only under 고정', () => {
-    const rooms = [room('dm1', 'dm'), room('t-b', 'team'), room('g1', 'group'), room('all', 'all'), room('t-a', 'team'), room('dm2', 'dm', { pinnedAt: '2026-11-10T00:00:00Z' })]
+  test('고정 first, then 채널 (전체 first, by name), then 다이렉트 메시지: 1:1s and group chats together by latest activity; a pin is only under 고정', () => {
+    // in the store's order, latest activity first: g1 between dm1 and dm3
+    const rooms = [room('dm1', 'dm'), room('t-b', 'team'), room('g1', 'group'), room('all', 'all'), room('t-a', 'team'), room('dm3', 'dm'), room('dm2', 'dm', { pinnedAt: '2026-11-10T00:00:00Z' })]
     const s = roomsByKind(rooms, (r) => r.id, 'ko')
     expect(s.map((x) => [x.key, x.rooms.map((r) => r.id)])).toEqual([
       ['pinned', ['dm2']],
       ['team', ['all', 't-a', 't-b']],
-      ['group', ['g1']],
-      ['dm', ['dm1']],
+      ['dm', ['dm1', 'g1', 'dm3']],
     ])
   })
   test('300 rooms: all are listed, 200 drawn first; the room on screen is always drawn', () => {

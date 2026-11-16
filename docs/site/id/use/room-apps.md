@@ -28,7 +28,7 @@ satu dan percakapan itu terbuka dengan panduan layanan tersebut. Jika belum ada,
 
 ![Add an app: pesannya muncul di ruang obrolan untuk semua orang di sana, lalu Google Forms, Other app, GitHub dan Sentry](../../images/room-apps/picker.webp "Tambah aplikasi")
 
-Siapa yang bisa melakukannya: di ruang tim atau ruang semua orang, owner dan admin ruang itu; di obrolan 1:1 atau obrolan grup, siapa pun di dalamnya.
+Siapa yang bisa melakukannya: di saluran (termasuk saluran Semua), owner dan admin saluran itu; di pesan langsung (obrolan 1:1 atau obrolan grup), siapa pun di dalamnya.
 Semua orang lain di ruang obrolan melihat kartunya, membalas di utasnya, dan bertanya ke Trina tentangnya. Mengetuk nama aplikasi
 menunjukkan siapa yang memasangnya.
 

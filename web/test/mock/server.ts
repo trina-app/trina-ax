@@ -6885,7 +6885,7 @@ export class MockServer {
   /** 404; to someone taken out of the project (or who left), with its name (server: noLongerMember, QA TC-1067) */
   notFoundFor(projectId: string | undefined, userId: string): never {
     const name = projectId ? this.formerMembers.get(`${projectId}:${userId}`) : undefined
-    return name ? fail('not_found', 404, `You're no longer a member of '${name}'.`, undefined, { reason: 'no_longer_member', project: name }) : fail('not_found', 404)
+    return name ? fail('not_found', 404, `You're no longer a member of ${name}.`, undefined, { reason: 'no_longer_member', project: name }) : fail('not_found', 404)
   }
   projectTrashRows(u: User): TrashItem[] {
     return this.projects.filter((p) => this.projectMayRestore(p, u)).map((p) => {
