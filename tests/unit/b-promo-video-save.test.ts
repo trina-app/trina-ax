@@ -104,6 +104,8 @@ describe('save_promo_video', () => {
     await send('dana', chat.id, fake({ tool: 'promo_video', args: slots(), sayResult: true }))
     const ok = await send('dana', chat.id, fake({ tool: SAVE_PROMO_TOOL, args: { save_as: 'shared/Videos/acme' }, sayResult: true }))
     expect(ok).toContain('Saved the video as shared/Videos/acme.mp4')
+    const folder = await send('dana', chat.id, fake({ tool: SAVE_PROMO_TOOL, args: { save_as: 'shared/Videos/' }, sayResult: true }))
+    expect(folder).toContain('Saved the video as shared/Videos/Acme promo video.mp4')
     const skills = await send('dana', chat.id, fake({ tool: SAVE_PROMO_TOOL, args: { save_as: 'skills/promo/acme.mp4' }, sayResult: true }))
     expect(skills).toContain('videos cannot be saved in a skills folder')
     expect(fs.existsSync(team('skills/promo/acme.mp4'))).toBe(false)

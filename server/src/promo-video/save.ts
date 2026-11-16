@@ -14,6 +14,7 @@ import path from 'node:path'
 import { z } from 'zod'
 import type { AppContext } from '../context'
 import type { ToolCtx } from '../files/service'
+import { HttpError } from '../http/errors'
 import { badSegment } from '../policy/names'
 import { Denied, ToolError } from '../policy/errors'
 import { inSkills } from '../skills/guard'
@@ -41,7 +42,11 @@ let pollMs = 1000
 /** Tests poll faster (null: back to one second). */
 export function setSavePollForTests(ms: number | null) { pollMs = ms ?? 1000 }
 
-const fileTitle = (title: string) => title.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'promo-video'
+/** the video's title as a file name; one the file rules would refuse (a reserved or too long name) is "promo-video" */
+const fileTitle = (title: string) => {
+  const t = [...title.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim()].slice(0, 60).join('')
+  return t && !badSegment(`${t}.mp4`) ? t : 'promo-video'
+}
 
 /** The team files whose content is in the video: its material and its pictures. */
 export function videoSources(spec: StoredSpec): string[] {
@@ -60,12 +65,19 @@ export async function savePromoVideo(ctx: AppContext, a: z.output<typeof SavePro
   if (!row) throw new ToolError('There is no promo video in this chat yet: make it with promo_video first.')
   const spec = JSON.parse(row.spec) as StoredSpec
   // where: the person's own folder unless they named a place; never a skills folder (skills/guard.ts)
-  const target = (a.save_as?.replace(/^\/+/, '').replace(/\.mp4$/i, '') ?? `users/${t.user.id}/videos/${fileTitle(spec.title)}`) + '.mp4'
+  // a save_as that ends in "/" is a folder: the file takes the video's title there
+  const named = a.save_as?.replace(/^\/+/, '')
+  const target = (named === undefined ? `users/${t.user.id}/videos/${fileTitle(spec.title)}` : named.endsWith('/') ? `${named}${fileTitle(spec.title)}` : named.replace(/\.mp4$/i, '')) + '.mp4'
   const segs = target.split('/').filter(Boolean)
   if (segs.some((s) => badSegment(s))) throw new ToolError(`'${target}' is not a valid file name`)
   if (inSkills(segs.join('/'))) throw new ToolError('videos cannot be saved in a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
   // the render (or the finished one), waited for within this answer
-  let info = renderPromoVideo(ctx, t.user.id, row.artifact_id)
+  // only the person whose chat it is can render its video (render.ts ownRow): anyone else gets plain words
+  let info: ReturnType<typeof renderPromoVideo>
+  try { info = renderPromoVideo(ctx, t.user.id, row.artifact_id) } catch (e) {
+    if (e instanceof HttpError) throw new ToolError('Only the person whose chat this is can save its promo video as a file. Nothing was saved.')
+    throw e
+  }
   const until = Date.now() + WAIT_MS
   while (info.mp4.state === 'rendering' && Date.now() < until) {
     t.signal?.throwIfAborted()
@@ -87,7 +99,7 @@ export async function savePromoVideo(ctx: AppContext, a: z.output<typeof SavePro
     return {
       text: (made.conflictCopyOf
         ? `'${made.conflictCopyOf}' already exists and was not read in this turn, so the video was saved as '${made.path}' (${mb} MB, ${DURATION} s). Tell the user about both.`
-        : `Saved the video as ${made.path} (${mb} MB, ${DURATION} s, 1080×1350 with music).`) +
+        : `Saved the video as ${made.path} (${mb} MB, ${DURATION} s with music).`) +
         ' To send it to someone or post it in a room, use share_with_person or post_to_room with this path.',
       summary: `${SAVE_PROMO_TOOL} -> ${made.path} ${made.size}B${made.conflictCopyOf ? ' (conflict copy)' : ''}`,
       structured: { path: made.path, size: made.size, sha256: made.sha256 },
