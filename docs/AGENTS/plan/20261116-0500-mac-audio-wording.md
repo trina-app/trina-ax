@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16 05:00
 - Branch: `fix/mac-audio-wording`
-- Status: in progress
+- Status: done
 - Where: trina-ax/server/src/files. Why: the AI passes these notes on to the person word for word.
 - Version impact: patch, wording of tool results only
 
@@ -41,3 +41,7 @@ AI scenario cases VIEW-08, VIEW-08.project and FIND-03.
 
 ## Result
 
+Built as planned. The Mac result also has one English line for the AI ("say here, never server or Mac; do not suggest
+changing or moving the install"), because the first re-run still said "이 서버에서는" with a server-free note.
+Scenario re-run: VIEW-08 and VIEW-08.project no longer use server or Linux wording (still fail on content: no
+transcript on a Mac); FIND-03 passes. Reading audio on a Mac is not built here (proposal in the PR, not cheap).
