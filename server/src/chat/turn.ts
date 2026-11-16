@@ -2,6 +2,7 @@ import { confidentialChat } from "../safe-ops/confidential"
 import { seesChatFiles } from './chat-files-access'
 import { ALWAYS_VALUE, alwaysHere, keepAlways, withAlways, type AlwaysPlace } from './always-allow'
 import type { CardAlwaysKind } from '@mycel/shared/api'
+import { NarrationHold, narrationScript } from './narration'
 import { safeOpsEnabled } from "../safe-ops/runner"
 // One chat turn, end to end (tab 3 "실행 관리", tab 4 "메시지 하나의 처리 순서"):
 // engine choice, session resume or a fresh session with the branch history, system prompt, tools of this turn,
@@ -438,6 +439,9 @@ export class TurnExec {
    * (integrations/connections/redact.ts); read again after each tool call (a call may refresh a token) */
   private redactorNow: Redactor | null = null
   private readonly answerText = new RedactingText(() => this.redactor())
+  /** English status lines before a tool call, held until the call decides them (chat/narration.ts); set once the
+   * person's message is read */
+  private narration = new NarrationHold(null)
   /** when the turn left the queue: how long its answer ran (ChatRuntime.longAnswerMs) */
   private readonly startedAt = performance.now()
   /** finish() runs: the cards it closes send nothing on their own (the turn's end sends the chat once) */
@@ -660,6 +664,7 @@ export class TurnExec {
     const chat = rt.store.chatRow(spec.chatId)
     const userMsg = rt.store.messageRow(spec.userMessageId)
     if (!chat || !userMsg) { this.error = engineError('crash', spec.locale); return }
+    this.narration = new NarrationHold(narrationScript(spec.locale, userMsg.content, this.previousUserText(userMsg.parent_id)))
     if (this.oldRoomSession) { this.error = engineError('crash', spec.locale); return }
     // a shared project chat is never confidential (read-only while safe operations are on), and runs only while its
     // person still sees its project (access may have gone while the turn waited in the queue)
@@ -1075,7 +1080,8 @@ export class TurnExec {
         if (err) this.error = err.code === 'crash' ? this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`) : engineError(err.code, spec.locale)
         else if (crashed) this.error = this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`)
         else if (parser.refused) this.error = engineError('refused', spec.locale)
-        if (!this.writtenText && !this.error && parser.text) this.appendText(parser.text)
+        // the engine's whole text when none streamed; not when the hold dropped status lines (they are in it)
+        if (!this.writtenText && !this.error && parser.text && !this.narration.dropped) this.appendText(parser.text)
         // a service connected on this answer's card: the same answer goes on in this session with the new tools
         // (the AI was told so only while continueMode was 'step': continuations < CONTINUE_MAX)
         if (!err && !crashed && !parser.refused && !this.error && this.connectedSince.length && continuations < CONTINUE_MAX && !this.limitReason && !this.stopReason && !this.budgetHit) {
@@ -1557,6 +1563,9 @@ export class TurnExec {
         this.appendText(e.delta)
         return
       case 'thinking':
+        // more comes after thinking: a held status line is dropped as before a call, anything else goes out before the
+        // thinking step (its place in the answer stays right)
+        this.emitText(this.answerText.push(this.narration.toolStart()))
         this.flushText()
         if (!this.thinkingStep) this.thinkingStep = this.addStep({ kind: 'thinking', label: tr('thinking', this.spec.locale), status: 'running' })
         return
@@ -1568,7 +1577,10 @@ export class TurnExec {
       }
       case 'tool_start': {
         this.closeThinking()
-        this.flushText()
+        // a status line in another script before the call is dropped here (chat/narration.ts); the main AI's calls only
+        // a sub-agent's call leaves the main AI's piece undecided (only the redactor's end goes out)
+        if (e.parentId) this.emitText(this.answerText.flush())
+        else { this.emitText(this.answerText.push(this.narration.toolStart())); this.flushText() }
         this.attemptHadOutput = true
         this.producedOutput = true
         // which agent made the call: the gate gives a sub-agent's calls that sub-agent's own state (TurnFiles.forCall)
@@ -1719,14 +1731,28 @@ export class TurnExec {
   }
 
   /** Engine text: let out (streamed and saved) through the redactor; the end that could start a secret waits. */
-  appendText(t: string) { this.emitText(this.answerText.push(t)) }
-  /** Everything held back by the redactor, let out now (before a step, a retry's separator, the end). */
-  flushText() { this.emitText(this.answerText.flush()) }
+  appendText(t: string) { this.emitText(this.answerText.push(this.narration.push(t))) }
+  /** Everything held back (an undecided piece, the redactor's end), let out now (before a step, a retry's separator,
+   * the end). */
+  flushText() { this.emitText(this.answerText.push(this.narration.flush())); this.emitText(this.answerText.flush()) }
   /** The answer so far as the engine wrote it, the part still held back included (separator checks). */
-  get writtenText(): string { return this.content + this.answerText.held }
+  get writtenText(): string { return this.content + this.answerText.held + this.narration.held }
+  /** The person's message before this one (a short "ok" or "continue" answers in that message's language), or null. */
+  private previousUserText(parentId: string | null): string | null {
+    let cur = parentId
+    for (let i = 0; cur && i < 4; i++) {
+      const r = this.rt.store.messageRow(cur)
+      if (!r) return null
+      if (r.role === 'user') return r.content
+      cur = r.parent_id
+    }
+    return null
+  }
+
   /** Discard the answer text from `at` on (streamed and saved), the part still held back included. */
   private discardTextFrom(at: number) {
     this.answerText.clear()
+    this.narration.clear()
     if (at >= this.content.length) return
     this.content = this.content.slice(0, at)
     this.dirty = true
@@ -3674,7 +3700,9 @@ export class TurnExec {
 
   /** The end state in the DB; returns the answer's status. */
   private finishState(): MessageStatus {
-    this.finishStep('text', () => this.flushText())
+    // stopped or failed with a status line held: it is dropped like before a call (anything else goes out)
+    this.finishStep('text', () => { if (this.stopReason || this.error) this.emitText(this.answerText.push(this.narration.toolStart())); this.flushText() })
+    if (this.narration.dropped) this.rt.log.info('status lines left out of the answer', { turn: this.id, pieces: this.narration.dropped })
     this.finishStep('held answers', () => this.dropHeldAnswers())
     // the whole answer once more: an escaped or base64 form of a secret cut across two pieces (message.done below
     // carries the saved answer, which the apps show in place of the streamed one)
