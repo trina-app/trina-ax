@@ -44,7 +44,7 @@ test('every conversation by kind, no "더 보기"; the hidden ones behind one ro
   await expect(panel(page).getByTestId('sidebar-room-row')).toHaveCount(10)
   expect(await sectionNames(page)).toEqual(['pinned', 'team', 'dm'])
   await expect(panel(page).getByTestId('chats-panel-label')).toHaveText([t['chat.pinned'], t['rooms.section.team'], t['rooms.section.dm']])
-  await expect(panel(page).getByTestId('chats-panel-label')).toHaveText(['고정', '채널', '다이렉트 메시지'])
+  await expect(panel(page).getByTestId('chats-panel-label')).toHaveText(['고정됨', '채널', '다이렉트 메시지'])
   expect(await namesIn(page, 'pinned')).toEqual(['김민지'])
   expect(await namesIn(page, 'team')).toEqual(['전체', '개발', '기획', '디자인', '영업'])
   // group chats among the 1:1s, by latest activity; each with two faces, a 1:1 with its one picture
