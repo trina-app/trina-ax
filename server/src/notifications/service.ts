@@ -1048,7 +1048,8 @@ export function notifyEngineStartFailed(ctx: AppContext, turnId: string) {
  * the toast and the audit row happened anyway. */
 export function notifyStorageFilling(ctx: AppContext, threshold: 80 | 95, percent: number, roomsBytes: number | null, at = new Date().toISOString()) {
   try {
-    const ids = (ctx.db.query(`SELECT id FROM users WHERE role IN ('owner', 'admin') AND status = 'active' AND deleted_at IS NULL AND ${roleSql()} IN ('owner', 'admin')`).all() as { id: string }[]).map((u) => u.id)
+    // a guest's users.role is 'member' (auth/guests.ts), so this is the owner and the admins only, as for the engine notice
+    const ids = (ctx.db.query("SELECT id FROM users WHERE role IN ('owner', 'admin') AND status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((u) => u.id)
     for (const id of ids) notificationsOf(ctx).storageNotice(id, `${threshold}:${at}`, percent, roomsBytes, at)
   } catch { ctx.log.warn('storage notification recording failed') }
 }
