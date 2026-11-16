@@ -801,7 +801,8 @@ export function AssistantMessage({
                 <Button size="sm" variant="secondary" disabled={busy} onClick={() => onRegenerate(m)} data-testid="retry">
                   <RotateCcw size={13} aria-hidden /> {t('common.retry')}
                 </Button>
-                {retryWith && retryWith.engines.length > 0 && <RetryWithModel m={m} busy={busy} retryWith={retryWith} onPick={(p) => onRegenerate(m, p)} />}
+                {/* the AI could not start on the server: another model starts the same way and fails the same (QA TC-3521) */}
+                {retryWith && retryWith.engines.length > 0 && reason !== 'engine_start_failed' && <RetryWithModel m={m} busy={busy} retryWith={retryWith} onPick={(p) => onRegenerate(m, p)} />}
               </span>
             )}
           </div>

@@ -76,7 +76,12 @@ const ACCOUNT_CODES = new Set(['owner.reauth_locked'])
 // app is still paused and the person still in its room; a click opens that room (its id from the signed-in fetch of the
 // notice, roomApp.roomId, never from the payload)
 const APP_CODES = new Set(['room_app.paused'])
-const pushWanted = (preferences, code) => ROOM_CODES.has(code) || HOME_CODES.has(code) || ACCOUNT_CODES.has(code) || APP_CODES.has(code) || (Object.hasOwn(PUSH_PREF, code) && preferences[PUSH_PREF[code]] === true)
+// file.shared: someone shared a file, or several in one press, with me by name (docs/decisions/20261116-file-share-everyone.md).
+// No switch: the server sends it only while unread, outside quiet hours and while a file of it still opens for me; the
+// generic line only (never who or which file); a click opens the file's link page (/f/<id>) or the press's list
+// (/f/batch/<id>), the id from the signed-in fetch of the notice, never from the payload
+const FILE_CODES = new Set(['file.shared'])
+const pushWanted = (preferences, code) => ROOM_CODES.has(code) || HOME_CODES.has(code) || ACCOUNT_CODES.has(code) || APP_CODES.has(code) || FILE_CODES.has(code) || (Object.hasOwn(PUSH_PREF, code) && preferences[PUSH_PREF[code]] === true)
 const opaqueId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(value)
 // A room notice's title: who and where ("민준 · #마케팅 › 스레드", a DM "민준"; names only, never the message's text), from
 // the signed-in fetch of the notice (shared plainLabel's rule again: one plain line, no control or bidirectional
@@ -161,7 +166,7 @@ self.addEventListener('push', event => {
   event.waitUntil((async () => {
     let payload
     try { payload = event.data?.json() } catch { return }
-    if (!payload || !opaqueId(payload.notificationId) || !opaqueId(payload.subscriptionId) || !(Object.hasOwn(PUSH_PREF, payload.code) || ROOM_CODES.has(payload.code) || HOME_CODES.has(payload.code) || ACCOUNT_CODES.has(payload.code) || APP_CODES.has(payload.code))) return
+    if (!payload || !opaqueId(payload.notificationId) || !opaqueId(payload.subscriptionId) || !(Object.hasOwn(PUSH_PREF, payload.code) || ROOM_CODES.has(payload.code) || HOME_CODES.has(payload.code) || ACCOUNT_CODES.has(payload.code) || APP_CODES.has(payload.code) || FILE_CODES.has(payload.code))) return
     const tag = `notification:${payload.subscriptionId}:${payload.notificationId}`, generation = pushEpoch
     if (pushPending.has(tag)) return
     pushPending.add(tag)
@@ -193,6 +198,10 @@ self.addEventListener('push', event => {
       const reconnect = payload.code === 'connection.reconnect' && item.link === 'connections'
       const connectorId = reconnect && opaqueId(item.connection?.googleApp) ? item.connection.googleApp : undefined
       const connectionId = reconnect && !connectorId && opaqueId(item.connection?.id) ? item.connection.id : undefined
+      // a file shared with me: its link page, or the press's list (the same signed-in fetch; gone: the start page)
+      const fileShare = FILE_CODES.has(payload.code) && item.link === 'file' && item.fileShare?.gone !== true ? item.fileShare : undefined
+      const fileBatch = fileShare && opaqueId(fileShare.batchId) ? fileShare.batchId : undefined
+      const fileLink = fileShare && !fileBatch && opaqueId(fileShare.linkId) ? fileShare.linkId : undefined
       const silent = payload.code.startsWith('room.') && await pageSounds().catch(() => false)
       if (generation !== pushEpoch) return
       // a room notice says who and where in its title; the body is the message's first line when the server sends it
@@ -207,7 +216,7 @@ self.addEventListener('push', event => {
       const seq = roomId && Number.isSafeInteger(item.room?.seq) && item.room.seq >= 0 ? item.room.seq : undefined
       const markRead = typeof settings.messages?.markRead === 'string' && settings.messages.markRead ? settings.messages.markRead.slice(0, 40) : ''
       const actions = seq !== undefined && markRead ? [{ action: 'read', title: markRead }] : []
-      await self.registration.showNotification(shownTitle, { body: preview || (sharer && sharedBy) || body, tag, renotify: false, silent, ...(actions.length ? { actions } : {}), data: roomId ? { notificationId: payload.notificationId, roomId, ...(threadId ? { threadId } : {}), ...(seq !== undefined ? { seq } : {}) } : { notificationId: payload.notificationId, ...(chatId ? { chatId } : {}), ...(appRoomId ? { roomId: appRoomId } : {}), ...(connectionId ? { connectionId } : {}), ...(connectorId ? { connectorId } : {}), ...(HOME_CODES.has(payload.code) || (payload.code === 'chat.answer_done' && !chatId) ? { home: true } : {}) } })
+      await self.registration.showNotification(shownTitle, { body: preview || (sharer && sharedBy) || body, tag, renotify: false, silent, ...(actions.length ? { actions } : {}), data: roomId ? { notificationId: payload.notificationId, roomId, ...(threadId ? { threadId } : {}), ...(seq !== undefined ? { seq } : {}) } : { notificationId: payload.notificationId, ...(chatId ? { chatId } : {}), ...(appRoomId ? { roomId: appRoomId } : {}), ...(connectionId ? { connectionId } : {}), ...(connectorId ? { connectorId } : {}), ...(fileBatch ? { fileBatch } : fileLink ? { fileLink } : {}), ...(HOME_CODES.has(payload.code) || (FILE_CODES.has(payload.code) && !fileBatch && !fileLink) || (payload.code === 'chat.answer_done' && !chatId) ? { home: true } : {}) } })
       if (generation !== pushEpoch) {
         for (const item of await self.registration.getNotifications({ tag })) item.close()
         return
@@ -240,7 +249,9 @@ self.addEventListener('notificationclick', event => {
     // id stored at show time from the authenticated notice; the room page checks membership again).
     const roomId = event.notification.data?.roomId, threadId = event.notification.data?.threadId, chatId = event.notification.data?.chatId
     const connectionId = event.notification.data?.connectionId, connectorId = event.notification.data?.connectorId
+    const fileBatch = event.notification.data?.fileBatch, fileLink = event.notification.data?.fileLink
     const target = new URL(opaqueId(roomId) ? (opaqueId(threadId) ? `/rooms/${roomId}/t/${threadId}` : `/rooms/${roomId}`) : opaqueId(chatId) ? `/c/${chatId}`
+      : opaqueId(fileBatch) ? `/f/batch/${fileBatch}` : opaqueId(fileLink) ? `/f/${fileLink}`
       : opaqueId(connectionId) ? `/settings/connectors/mcp/${connectionId}` : opaqueId(connectorId) ? `/settings/connectors/${connectorId}`
       : event.notification.data?.home === true ? '/' : '/settings/notifications', self.location.origin).href
     const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })

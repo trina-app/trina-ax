@@ -3,6 +3,7 @@
 // result; for a member, an admin and the team owner; at 1440 and 390, light and dark; English, and Korean for the
 // member. Only when FIND_SHARE_SHOTS names a folder to write them to.
 import { expect, test } from '@playwright/test'
+import { FILE_SHARE_EVERYONE } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
 import { answer, fakeApp, look, type Meta } from './fake-work-files'
 
@@ -66,6 +67,14 @@ for (const { role, locale } of cases) {
         await page.getByTestId('find-work-share-go').click()
         await expect(page.getByTestId('find-work-shared')).toBeVisible()
         await shot('4-shared')
+        // the way back, and "Everyone on the team" with the line before the press (QA TC-3509)
+        await page.getByTestId('find-work-share-again').click()
+        await page.getByTestId('find-work-share-row').nth(2).getByTestId('find-work-share-check').check()
+        await page.getByTestId('find-work-share-picker-search').click()
+        await page.getByTestId(`participant-add-group-${FILE_SHARE_EVERYONE}`).click()
+        await expect(page.getByTestId('find-work-share-everyone-line')).toBeVisible()
+        await page.waitForTimeout(300)
+        await shot('5-everyone')
       })
     }
   }

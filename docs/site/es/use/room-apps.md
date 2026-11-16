@@ -134,6 +134,8 @@ con un ejemplo para copiar:
 curl -X POST -H 'Content-Type: application/json' -d '{"text":"Hello from my app"}' <Webhook URL>
 ```
 
+Una **Otra app** muestra la primera letra de su nombre sobre su propio color, así que dos de ellas en una sala no se ven iguales. Para ponerle una imagen, abra su configuración y elija **Cambiar el icono**: **Subir una imagen** (PNG, JPEG o WebP; se recorta en cuadrado) o **Elegir un emoji**. **Quitar el icono** vuelve a la letra. El icono aparece en todos los mensajes de la aplicación, también en los anteriores. Un mensaje no puede cambiar el nombre ni el icono de la aplicación: campos como `username`, `icon_url` e `icon_emoji` de Slack o `avatar_url` de Discord se ignoran, así que nada enviado a la Webhook URL puede hacerse pasar por una persona u otra aplicación.
+
 ### GitHub
 
 Por repositorio; necesita acceso de administrador a él ([documentación de GitHub](https://docs.github.com/en/webhooks/using-webhooks/creating-webhooks)).
@@ -173,6 +175,7 @@ Necesita ser propietario o manager en Sentry.
 - **Avisos**, cada uno con una acción: por qué no se mostró el último intento (**Revisar el secreto**), *Alguien que se fue conoce este
   Webhook URL* (**Regenerar**) y, para un servicio que puede firmar pero aún no tiene secreto, *Sin firma: cualquiera con el Webhook URL puede
   publicar* (**Hacerlo más seguro**).
+- **Cambiar el icono** (Otra app): una imagen o un emoji en lugar de la primera letra de su nombre, o **Quitar el icono**.
 - **Nombre**: el nombre con el que aparecen sus mensajes.
 - **Mostrar en esta sala**: los tipos de novedades que se publican (para las apps que envían más de un tipo). Un evento opcional que
   nunca configuró en el servicio (por ejemplo, los reembolsos de Shopify) dice *Sin configurar en Shopify*, con un enlace a ese paso.

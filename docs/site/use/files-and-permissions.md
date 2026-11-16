@@ -67,6 +67,12 @@ After the update that made access add up, some folders list their people by name
 
 You can share a file you own with chosen people, without changing who can open its folder: **Files › a file's ⋯ › Share**. Add people or groups and press **Share**. They can view the file and download it; they don't see the rest of the folder. Each person you add sees it in **Activity**.
 
+- **Everyone on the team** is the first choice in **Add people or groups**. Before you press **Share**, a line says
+  that everyone on the team will be able to open the file, also people who join later. Guests never can. It counts as
+  one of the 50 people and groups a file can be shared with.
+- When you share several files at once (for example in the last step of **Find work files on this computer**), each
+  person gets one notice in **Activity**, "Mina shared 5 files with you", which opens the list of those files. A
+  person you add by name also gets a phone notification.
 - **People with access** lists the owner and each person or group with **Can view**. **✕** removes someone's access (asked first).
 - A team file also opens for everyone who can open its folder.
 - **Copy link** gives the file's own link. People with access open it; anyone else sees **You need access** and can **Ask for access** with a note. The request comes to the owner in **Activity** with **Share** and **Decline**. The link page never shows the file's name to someone who can't open it.

@@ -134,6 +134,13 @@ with an example to copy:
 curl -X POST -H 'Content-Type: application/json' -d '{"text":"Hello from my app"}' <Webhook URL>
 ```
 
+An Other app shows the first letter of its name on its own colour, so two Other apps in one conversation don't look the
+same. To give it a picture instead, open its settings and choose **Change icon**: **Upload an image** (PNG, JPEG or
+WebP; it is cut to a square) or **Pick an emoji**. **Remove icon** brings the letter back. The icon shows on all of the
+app's messages, older ones too. A message can't change the app's name or icon: fields such as Slack's `username`,
+`icon_url` and `icon_emoji` or Discord's `avatar_url` are ignored, so nothing posted to the Webhook URL can pass for a
+person or another app.
+
 ### GitHub
 
 Per repository; you need admin access to it ([GitHub docs](https://docs.github.com/en/webhooks/using-webhooks/creating-webhooks)).
@@ -173,6 +180,7 @@ You need to be an owner or a manager in Sentry.
 - **Warnings**, each with one action: why the last try wasn't shown (**Check the secret**), *Someone who left knows this
   Webhook URL* (**Regenerate**), and, for a service that can sign but has no secret yet, *Not signed: anyone with the Webhook URL can
   post* (**Make it safer**).
+- **Change icon** (Other apps): an image or an emoji in place of the first letter of its name, or **Remove icon**.
 - **Name**: the name its messages show under.
 - **Show in this conversation**: the kinds of updates to post (for apps that send more than one kind). An optional event you
   never set up in the service (for example Shopify's refunds) says *Not set up in Shopify*, with a link to that step.

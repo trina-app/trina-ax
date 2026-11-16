@@ -77,7 +77,7 @@ import type { SkillMoveTarget } from '@mycel/shared/api'
 import type { IntegrationAuth, IntegrationKind, OAuthClientInput, OAuthClientView } from '@mycel/shared/api'
 import type { EndedConnection, HandoverConnection, HandoverRecovery, HandoverState, InboxNotification } from '@mycel/shared/api'
 import type { MemberWelcome, ScheduleRun } from '@mycel/shared/api'
-import { activityTabHas, fileLinkUrl, type FileShareRow } from '@mycel/shared/api'
+import { activityTabHas, FILE_SHARE_EVERYONE, fileLinkUrl, type FileShareRow } from '@mycel/shared/api'
 import { ORGANIZE_LIMITS, REASON_FOLDER, formKind, formSkillType, formStem, nameReason, organizePlan, type AiOrganize, type OrganizePlan } from '@mycel/shared/api'
 import { MySlack, SlackAdmin } from '@mycel/shared/api'
 import { MOCK_ANSWER_HEADER } from '../e2e/coverage-report'
@@ -234,7 +234,9 @@ interface FileNode { type: 'file' | 'folder'; data?: Uint8Array; mtime: string; 
 export interface WsData { user: string; windowId: string; epoch: string | null; after: number | null }
 /** a server-side socket: Bun's ServerWebSocket, or the in-page one of web/demo/ */
 export interface MockSocket { data: WsData; send(text: string): unknown; close(code?: number, reason?: string): unknown }
-interface Ctx { user: User; params: Record<string, string>; query: Record<string, string>; body: any; req: Request; file?: File }
+interface Ctx { user: User; params: Record<string, string>; query: Record<string, string>; body: any; req: Request; file?: File
+  /** a file share inside a press of several (shareFilesBatch): who would be told, collected instead of told */
+  quiet?: Set<string> }
 type Handler = (c: Ctx) => unknown | Promise<unknown>
 /** Folders below the mock share account's top level, found by the folder picker's search */
 const DRIVE_SUBFOLDERS = [{ id: 'folder-finance-q3', name: 'Finance Q3', kind: 'folder' as const }, { id: 'folder-contracts', name: 'Contracts', kind: 'folder' as const }]
@@ -352,7 +354,7 @@ export class MockServer {
     // someone shared a chat with me (server/src/chat/people-share.ts): by name or through a group
     | { kind: 'chat_shared'; chatId: string; byId: string; named: boolean }
     // a file shared with me, an ask to open a file of mine, a decline, one of mine moved (server/src/files/shares.ts)
-    | { kind: 'file_share'; code: 'file.shared' | 'file.access_requested' | 'file.access_answered' | 'file.unshared_by_move'; byId?: string; path?: string; linkId?: string; requestId?: string }
+    | { kind: 'file_share'; code: 'file.shared' | 'file.access_requested' | 'file.access_answered' | 'file.unshared_by_move'; byId?: string; path?: string; linkId?: string; requestId?: string; batchId?: string }
   ))[] = []
   /** a member's asks to add an app the team has not set up (server/src/integrations/service-requests.ts) */
   serviceRequests: { id: string; userId: string; service: RequestableService; createdAt: string; closedAt: string | null; reason: 'added' | 'left' | null }[] = []
@@ -6164,8 +6166,11 @@ export class MockServer {
     return id
   }
   grantedFile(path: string, u: User): boolean {
-    return (this.fileGrants.get(path) ?? []).some((x) => (x.subjectType === 'user' ? x.subjectId === u.id : u.groupIds.includes(x.subjectId)))
+    // "Everyone on the team" (FILE_SHARE_EVERYONE): every active member, never a guest
+    return (this.fileGrants.get(path) ?? []).some((x) => (x.subjectType === 'user' ? x.subjectId === u.id : x.subjectId === FILE_SHARE_EVERYONE ? u.role !== 'guest' && u.status === 'active' : u.groupIds.includes(x.subjectId)))
   }
+  /** one Share press of several files (files/shares.ts shareMany): its files by path, and who pressed */
+  fileBatches = new Map<string, { byId: string; paths: string[] }>()
   canShareFile(path: string, u: User): boolean {
     if (u.role === 'guest' || this.access(path, u) !== 'write') return false
     const owner = this.fileOwner(path)
@@ -6177,6 +6182,7 @@ export class MockServer {
     const owner = ownerId ? this.users.find((x) => x.id === ownerId) : undefined
     const canShare = this.canShareFile(path, u)
     const rows = (this.fileGrants.get(path) ?? []).flatMap((x): FileShareRow[] => {
+      if (x.subjectType === 'group' && x.subjectId === FILE_SHARE_EVERYONE) return [{ subjectType: 'group' as const, subjectId: FILE_SHARE_EVERYONE, name: (u.localeChoice ?? this.settings.defaultLocale) === 'ko' ? '\ud300 \uc804\uccb4' : 'Everyone on the team', everyone: true as const }]
       if (x.subjectType === 'group') { const g = this.groups.find((y) => y.id === x.subjectId); return g ? [{ subjectType: 'group' as const, subjectId: g.id, name: g.name }] : [] }
       const p = this.users.find((y) => y.id === x.subjectId)
       return p ? [{ subjectType: 'user' as const, subjectId: p.id, name: p.name, ...(p.status !== 'active' ? { inactive: true as const } : {}) }] : []
@@ -6223,13 +6229,45 @@ export class MockServer {
         if (x.subjectType === 'user' && (!u || u.role === 'guest')) fail('validation', 400, undefined, undefined, { reason: 'unknown_subject' })
         if (list.some((y) => key(y) === key(x))) continue
         list.push({ subjectType: x.subjectType, subjectId: x.subjectId })
-        const to = x.subjectType === 'user' ? [x.subjectId] : this.groups.find((g) => g.id === x.subjectId)?.memberIds ?? []
-        for (const id of to) if (id !== c.user.id) this.note(id, { kind: 'file_share', code: 'file.shared', byId: c.user.id, path, linkId: this.fileLinkOf(path) })
+        const to = x.subjectType === 'user' ? [x.subjectId] : x.subjectId === FILE_SHARE_EVERYONE ? this.users.filter((y) => y.role !== 'guest' && y.status === 'active').map((y) => y.id) : this.groups.find((g) => g.id === x.subjectId)?.memberIds ?? []
+        for (const id of to) if (id !== c.user.id) { if (c.quiet) c.quiet.add(id); else this.note(id, { kind: 'file_share', code: 'file.shared', byId: c.user.id, path, linkId: this.fileLinkOf(path) }) }
       }
       const out = new Set((c.body.remove as { subjectType: string; subjectId: string }[]).map(key))
       this.fileGrants.set(path, list.filter((x) => !out.has(key(x))))
       if (list.length) this.fileLinkOf(path)
       return this.fileSharesView(path, c.user)
+    }
+    // several files in one press (files/shares.ts shareMany): each as the PUT's add, refusals listed; one notice per person
+    h.shareFilesBatch = (c) => {
+      const add = c.body.add as { subjectType: 'user' | 'group'; subjectId: string }[]
+      const out = { shared: [] as string[], failed: [] as { path: string; message: string; reason?: string }[] }
+      const got = new Map<string, string[]>()
+      for (const path of c.body.paths as string[]) {
+        const quiet = new Set<string>()
+        try {
+          h.putFileShares!({ ...c, body: { path, add, remove: [] }, quiet } as never)
+          out.shared.push(path)
+          for (const id of quiet) got.set(id, [...(got.get(id) ?? []), path])
+        } catch (e) {
+          if (!(e instanceof Fail)) throw e
+          const reason = e.params?.reason
+          out.failed.push({ path, message: e.message, ...(typeof reason === 'string' ? { reason } : {}) })
+        }
+      }
+      let batch: string | null = null
+      for (const [id, paths] of got) {
+        if (paths.length === 1) { this.note(id, { kind: 'file_share', code: 'file.shared', byId: c.user.id, path: paths[0], linkId: this.fileLinkOf(paths[0]!) }); continue }
+        if (!batch) { batch = crypto.randomUUID().replace(/-/g, '').slice(0, 22); this.fileBatches.set(batch, { byId: c.user.id, paths: out.shared }) }
+        this.note(id, { kind: 'file_share', code: 'file.shared', byId: c.user.id, batchId: batch })
+      }
+      return out
+    }
+    h.sharedBatch = (c) => {
+      const b = this.fileBatches.get(c.params.id!)
+      const told = this.inbox.some((n) => n.userId === c.user.id && (n as { batchId?: string }).batchId === c.params.id)
+      if (!b || !told) fail('not_found', 404)
+      const files = b!.paths.filter((p) => this.files.has(p) && opens(p, c.user)).map((p) => ({ linkId: this.fileLinkOf(p), name: p.slice(p.lastIndexOf('/') + 1), size: this.files.get(p)!.data?.byteLength ?? 0 }))
+      return { by: this.users.find((u) => u.id === b!.byId)?.name ?? null, files }
     }
     h.sharedFile = (c) => {
       if (c.user.role === 'guest') fail('forbidden', 403)
@@ -6350,6 +6388,13 @@ export class MockServer {
         if (!r || !there) return { ...base, link: null, fileShare: { by: r ? nameOf(r.userId) : null, name: null, linkId: null, gone: true as const, ...(r ? { requestId: r.id, state: 'closed' as const } : {}) } }
         return { ...base, link: null, fileShare: { by: nameOf(r.userId), name: r.path.slice(r.path.lastIndexOf('/') + 1), linkId: r.linkId, ...(r.note ? { note: r.note } : {}), requestId: r.id, state: r.state, ...(r.state === 'pending' && viewer && this.canShareFile(r.path, viewer) ? { canAnswer: true as const } : {}) } }
       }
+      if (n.batchId) {
+        const b = this.fileBatches.get(n.batchId)
+        const viewer = this.users.find((u) => u.id === n.userId)
+        const open = b && viewer ? b.paths.filter((p) => this.files.has(p) && (this.access(p, viewer) !== 'none' || this.grantedFile(p, viewer))) : []
+        if (!open.length) return { ...base, sourceId: `b:${n.batchId}`, link: null, fileShare: { by: nameOf(n.byId), name: null, linkId: null, gone: true as const } }
+        return { ...base, sourceId: `b:${n.batchId}`, link: 'file' as const, fileShare: { by: nameOf(n.byId), name: null, linkId: null, count: open.length, batchId: n.batchId } }
+      }
       const there = !!n.path && this.files.has(n.path)
       if (!there) return { ...base, link: null, fileShare: { by: nameOf(n.byId), name: null, linkId: null, gone: true as const } }
       return { ...base, link: n.linkId ? 'file' as const : null, fileShare: { by: nameOf(n.byId), name: n.path!.slice(n.path!.lastIndexOf('/') + 1), linkId: n.linkId ?? null } }
@@ -6362,6 +6407,7 @@ export class MockServer {
       this.fileRequests = []
       this.fileRequestLimit = Infinity
       this.lastRemoveFileLinks = null
+      this.fileBatches = new Map()
       baseReset(o)
     }
     const baseControl = this.testControl.bind(this)
