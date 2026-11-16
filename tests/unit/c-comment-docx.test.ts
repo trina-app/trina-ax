@@ -33,6 +33,13 @@ function withoutComments(b: Uint8Array): Uint8Array {
   })
   return writeZip(entries)
 }
+/** the document with document.xml and the document's relationships changed */
+function withParts(b: Uint8Array, doc?: (x: string) => string, rels?: (x: string) => string): Uint8Array {
+  return writeZip(readZip(b).map((e) => {
+    const f = e.name === 'word/document.xml' ? doc : e.name === 'word/_rels/document.xml.rels' ? rels : undefined
+    return f ? { name: e.name, data: new TextEncoder().encode(f(new TextDecoder().decode(e.data))) } : e
+  }))
+}
 const part = (bytes: Uint8Array, name: string) => { const e = readZip(bytes).find((x) => x.name === name); return e ? new TextDecoder().decode(e.data) : null }
 const bodyText = (bytes: Uint8Array) => docxParagraphs(part(bytes, 'word/document.xml')!).map((p) => p.text)
 
@@ -73,6 +80,23 @@ describe('Word comments in the document (docx-comment.ts)', () => {
     expect(() => addDocxComments(docx(CONTRACT), [{ on: '기준', text: 'x' }], 'D', 'd')).toThrow(/is in 2 paragraphs; give occurrence/)
     const r = addDocxComments(docx(CONTRACT), [{ on: '기준', text: 'x', occurrence: 2 }], 'D', 'd')
     expect(r.added[0]!.paragraph).toContain('제4조')
+  })
+
+  withPandoc('the range starts after a self-closed <w:pPr/>; control characters are left out of the comment and the author', () => {
+    const b = withParts(docx(CONTRACT), (doc) => doc.replace('<w:pPr><w:pStyle w:val="FirstParagraph" /></w:pPr>', '<w:pPr/>'))
+    const r = addDocxComments(b, [{ on: '제1조', text: 'a\u0001b\u000bc' }], 'D\u0007ana', 'd')
+    const d = part(r.file, 'word/document.xml')!
+    expect(d).toContain('<w:pPr/><w:commentRangeStart w:id="0"/>')
+    const c = part(r.file, 'word/comments.xml')!
+    expect(c).toContain('w:author="Dana"')
+    expect(c).toContain('>abc</w:t>')
+  })
+
+  withPandoc('comments kept in a part with another name, or text only in a text box: refused', () => {
+    const other = withParts(docx(CONTRACT), undefined, (rels) => rels.replace('Target="comments.xml"', 'Target="comments1.xml"'))
+    expect(() => addDocxComments(other, [{ on: '제1조', text: 'x' }], 'D', 'd')).toThrow(/part with another name/)
+    const box = withParts(docx(CONTRACT), (doc) => doc.replace('</w:body>', '<w:p><w:r><w:pict><w:txbxContent><w:p><w:r><w:t>BOXTEXT</w:t></w:r></w:p></w:txbxContent></w:pict></w:r></w:p></w:body>'))
+    expect(() => addDocxComments(box, [{ on: 'BOXTEXT', text: 'x' }], 'D', 'd')).toThrow(/only in a text box/)
   })
 
   test('not a Word document: refused with words', () => {
@@ -123,6 +147,14 @@ describe('comment_docx: saved like edit_hwp', () => {
     expect(docxExtraText(read('shared/contracts/계약서.docx'))).toContain('정산일 재확인 필요')
     const versions = h.ctx.db.query('SELECT count(*) AS n FROM file_versions WHERE path = ?').get('shared/contracts/계약서.docx') as { n: number }
     expect(versions.n).toBeGreaterThan(0)
+  })
+
+  withPandoc('what the chat read may not go where more people see it unasked: a private file read first, then a comment in place asks (no answer: nothing saved)', async () => {
+    put('users/bob/private.md', '비공개 메모: 단가 25,000원')
+    const before = read('shared/contracts/계약서.docx')
+    const r = await turn(fake({ tool: 'read', args: { file_path: 'users/bob/private.md' } }, { tool: 'read', args: { file_path: 'shared/contracts/계약서.docx' } }, { ...call, args: { ...call.args, comments: [{ on: '제4조', text: '단가 25,000원' }] } }))
+    expect(r.content).toContain('more people can see that folder')
+    expect(Buffer.from(read('shared/contracts/계약서.docx')).equals(Buffer.from(before))).toBe(true)
   })
 
   withPandoc('a skills folder as output is refused', async () => {

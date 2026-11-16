@@ -8,7 +8,7 @@
 // The document is untrusted, so this runs only in the office worker (files/office-worker.ts, mode `docx-comment`); the
 // zip is checked first (zip-guard.ts) and the XML is scanned linearly (ooxml.ts tags).
 import { ToolError } from '../policy/errors'
-import { attr, tags, unescapeXml } from './ooxml'
+import { attr, tags } from './ooxml'
 import { checkZip, isZip } from './zip-guard'
 import { readZip, writeZip, type ZipEntry } from './zip-write'
 
@@ -29,11 +29,29 @@ const COMMENTS_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocess
 const COMMENTS_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments'
 const W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 
-const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+/** text for XML: escaped, without the characters XML 1.0 forbids (controls, U+FFFE/FFFF, lone surrogates), which
+ * would make the part not well-formed and Word refuse the file */
+const esc = (s: string) => s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f￾￿]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
+const codePoint = (n: number) => (Number.isInteger(n) && n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : '�')
+const unescapeXml = (s: string) => s.replace(/&(#x[0-9a-f]+|#\d+|\w+);/gi, (m, e: string) =>
+  e[0] === '#' ? codePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : Number(e.slice(1))) : (ENTITIES[e] ?? m))
+/** a part with its root `<name …/>` opened when it is self-closed; null when it does not end with `</name>` then */
+function openRoot(xml: string, name: string): string | null {
+  const opened = xml.replace(new RegExp(`<${name}(\\s[^<>]*)?/>\\s*$`), (_m, head: string | undefined) => `<${name}${head ?? ''}></${name}>`)
+  return new RegExp(`</${name}>\\s*$`).test(opened) ? opened : null
+}
+/** `extra` put before the part's last end tag `</name>` (a self-closed root is opened first); refused when it has none */
+function appendTo(xml: string, name: string, extra: string): string {
+  const opened = openRoot(xml, name) ?? refuse(`the ${name} part of this document could not be read`)
+  return opened.replace(new RegExp(`</${name}>\\s*$`), `${extra}</${name}>`)
+}
 const refuse = (why: string): never => { throw new ToolError(`${why}; nothing was saved`) }
 
-/** A paragraph of the body: where its start tag ends, where its properties end (or -1), where its end tag starts, its text. */
-interface Para { open: number; pPrEnd: number; close: number; text: string }
+/** A paragraph of the body: where its start tag ends, where its properties end (or -1), where its end tag starts, its
+ * text, and whether it is in a text box (a shape's text: a comment goes next to body text only). */
+interface Para { open: number; pPrEnd: number; close: number; text: string; box: boolean }
 
 /** The body's paragraphs in reading order (a paragraph inside a text box is its own; its text is not its outer one's). */
 export function docxParagraphs(xml: string): Para[] {
@@ -41,14 +59,19 @@ export function docxParagraphs(xml: string): Para[] {
   const stack: Para[] = []
   let inText = false
   let last = 0
+  // the older copy of new content (mc:Fallback; Word shows mc:Choice) is not read, as Word does not show it
+  let fallback = 0, boxes = 0
   for (const t of tags(xml)) {
     const top = stack[stack.length - 1]
     if (inText && top && t.start > last) top.text += unescapeXml(xml.slice(last, t.start))
     last = t.end
+    if (t.name === 'mc:Fallback' && !t.selfClose) { fallback = Math.max(0, fallback + (t.close ? -1 : 1)); continue }
+    if (t.name === 'w:txbxContent' && !t.selfClose) { boxes = Math.max(0, boxes + (t.close ? -1 : 1)); continue }
+    if (fallback) continue
     if (t.name === 'w:p') {
-      if (t.selfClose) { out.push({ open: t.end, pPrEnd: -1, close: -1, text: '' }); continue }
-      if (!t.close) { const p = { open: t.end, pPrEnd: -1, close: -1, text: '' }; out.push(p); stack.push(p) } else { const p = stack.pop(); if (p) p.close = t.start }
-    } else if (t.name === 'w:pPr' && t.close && top) top.pPrEnd = t.end
+      if (t.selfClose) { out.push({ open: t.end, pPrEnd: -1, close: -1, text: '', box: boxes > 0 }); continue }
+      if (!t.close) { const p = { open: t.end, pPrEnd: -1, close: -1, text: '', box: boxes > 0 }; out.push(p); stack.push(p) } else { const p = stack.pop(); if (p) p.close = t.start }
+    } else if (t.name === 'w:pPr' && (t.close || t.selfClose) && top) top.pPrEnd = t.end
     else if (t.name === 'w:t') inText = !t.close && !t.selfClose
     else if ((t.name === 'w:tab' || t.name === 'w:br' || t.name === 'w:cr') && top && !t.close) top.text += t.name === 'w:tab' ? '\t' : '\n'
   }
@@ -66,7 +89,7 @@ function usedIds(...xmls: string[]): Set<number> {
   return ids
 }
 
-const decode = (b: Uint8Array) => new TextDecoder('utf-8').decode(b)
+const decode = (b: Uint8Array): string => { try { return new TextDecoder('utf-8', { fatal: true }).decode(b) } catch { return refuse('a part of this document is not UTF-8 text, so it cannot be changed here') } }
 const encode = (s: string) => new TextEncoder().encode(s)
 
 /** The document with the comments added, and where each went. */
@@ -80,21 +103,29 @@ export function addDocxComments(bytes: Uint8Array, comments: DocxComment[], auth
   const docEntry = part(DOC) ?? refuse('this file is not a Word document (no word/document.xml)')
   let doc = decode(docEntry.data)
   const commentsEntry = part(COMMENTS)
-  let cxml = commentsEntry ? decode(commentsEntry.data) : `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:comments xmlns:w="${W_NS}"></w:comments>`
+  // the comments part the document's relationship names: only word/comments.xml is changed here
+  const relsNow = part(DOC_RELS)
+  for (const m of (relsNow ? decode(relsNow.data) : '').matchAll(/<Relationship\b[^>]*>/g)) {
+    if (m[0].includes(COMMENTS_REL) && !/Target="\/?(word\/)?comments\.xml"/.test(m[0])) refuse('this document keeps its comments in a part with another name, which cannot be changed here')
+  }
   // an empty part may be one self-closed root (pandoc writes <w:comments … />)
-  cxml = cxml.replace(/<w:comments(\s[^<>]*)?\/>\s*$/, (_m, head: string | undefined) => `<w:comments${head ?? ''}></w:comments>`)
-  if (!/<\/w:comments>\s*$/.test(cxml)) refuse('the comments part of this document could not be read')
+  let cxml = commentsEntry ? decode(commentsEntry.data) : `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:comments xmlns:w="${W_NS}"></w:comments>`
+  cxml = openRoot(cxml, 'w:comments') ?? refuse('the comments part of this document could not be read')
   const before = docxParagraphs(doc).map((p) => p.text)
 
   // where each comment goes, found in the text as the document reads (all before any change)
   const paras = docxParagraphs(doc)
   const ids = usedIds(doc, cxml)
-  let next = ids.size ? Math.max(...ids) + 1 : 0
+  let next = 0
+  for (const id of ids) if (id >= next) next = id + 1
+  if (next + comments.length > 0x7fffffff) refuse('the document\'s comment numbers are used up')
   type Spot = { para: Para; id: number; c: DocxComment }
   const spots: Spot[] = []
   for (const [i, c] of comments.entries()) {
     const on = c.on.normalize('NFC')
-    const hits = paras.filter((p) => p.close >= 0 && p.text.normalize('NFC').includes(on))
+    const all = paras.filter((p) => p.close >= 0 && p.text.normalize('NFC').includes(on))
+    const hits = all.filter((p) => !p.box)
+    if (all.length && !hits.length) refuse(`comment ${i + 1}: "${c.on.slice(0, 80)}" is only in a text box; a comment goes next to body text`)
     if (!hits.length) refuse(`comment ${i + 1}: "${c.on.slice(0, 80)}" is not in the text of any one paragraph (give exact text from a single paragraph, as read shows it)`)
     if (hits.length > 1 && c.occurrence === undefined) refuse(`comment ${i + 1}: "${c.on.slice(0, 80)}" is in ${hits.length} paragraphs; give occurrence (1 to ${hits.length}) or longer text`)
     const para = hits[(c.occurrence ?? 1) - 1] ?? refuse(`comment ${i + 1}: occurrence ${c.occurrence} is past the ${hits.length} paragraphs that hold this text`)
@@ -111,7 +142,7 @@ export function addDocxComments(bytes: Uint8Array, comments: DocxComment[], auth
   const initials = author.split(/\s+/).map((w) => [...w][0] ?? '').join('').slice(0, 9)
   const notes = spots.map((s) => `<w:comment w:id="${s.id}" w:author="${esc(author)}" w:date="${esc(date)}" w:initials="${esc(initials)}">` +
     s.c.text.split(/\r?\n/).map((line) => `<w:p><w:r><w:t xml:space="preserve">${esc(line)}</w:t></w:r></w:p>`).join('') + '</w:comment>').join('')
-  cxml = cxml.replace(/<\/w:comments>\s*$/, `${notes}</w:comments>`)
+  cxml = appendTo(cxml, 'w:comments', notes)
 
   // read back: every paragraph reads as before (a comment adds no text to the body)
   const after = docxParagraphs(doc).map((p) => p.text)
@@ -120,14 +151,14 @@ export function addDocxComments(bytes: Uint8Array, comments: DocxComment[], auth
   const changed = new Map<string, string>([[DOC, doc], [COMMENTS, cxml]])
   if (!commentsEntry) {
     const types = decode((part(TYPES) ?? refuse('this file has no content types part')).data)
-    if (!types.includes('PartName="/word/comments.xml"')) changed.set(TYPES, types.replace(/<\/Types>\s*$/, `<Override PartName="/word/comments.xml" ContentType="${COMMENTS_TYPE}"/></Types>`))
+    if (!types.includes('PartName="/word/comments.xml"')) changed.set(TYPES, appendTo(types, 'Types', `<Override PartName="/word/comments.xml" ContentType="${COMMENTS_TYPE}"/>`))
     const relsEntry = part(DOC_RELS)
     const rels = relsEntry ? decode(relsEntry.data) : '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>'
     if (!rels.includes(COMMENTS_REL)) {
       const taken = new Set([...rels.matchAll(/\sId="([^"]*)"/g)].map((m) => m[1]))
       let n = taken.size + 1
       while (taken.has(`rId${n}`)) n++
-      changed.set(DOC_RELS, rels.replace(/<\/Relationships>\s*$/, `<Relationship Id="rId${n}" Type="${COMMENTS_REL}" Target="comments.xml"/></Relationships>`))
+      changed.set(DOC_RELS, appendTo(rels, 'Relationships', `<Relationship Id="rId${n}" Type="${COMMENTS_REL}" Target="comments.xml"/>`))
     }
   }
   const out: ZipEntry[] = entries.map((e) => {

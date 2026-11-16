@@ -17,12 +17,17 @@
   in the office worker (files/docx-comment.ts, mode `docx-comment`); every other zip entry is copied with its compressed
   bytes as it was, every paragraph's text must read the same afterwards, and the comments must read back through the
   normal reader before anything is placed.
-- **Saving:** as edit_hwp saves: the file must be the version the AI read in this turn; without `output` a new version
+- **Not changed here:** text inside a text box (a comment goes next to body text), the older copy of new content
+  (mc:Fallback), and a document that keeps its comments in a part with another name: refused with words.
+- **Saving:** as edit_hwp saves, and like it the wider-audience card is asked before the worker runs, in place too (a
+  comment can carry text of a private file the chat read): the file must be the version the AI read in this turn; without `output` a new version
   of the same file (the old one in its history; a conflict copy if someone saved it meanwhile); with `output` a new
   file with the document as its source (the wider-audience card). Never under skills/ (no skill-save card covers it).
 - **Not yet:** tracked changes (suggested insertions and deletions, `w:ins` / `w:del` with author and date): writing them
   is a larger change (run splitting inside formatted text); the description tells the AI to say so and offer a comment.
   Reading them: pandoc's default accepts them silently, so the AI sees the text as if every suggestion were accepted
   and does not know there are pending changes; a "tracked changes" section in docxExtraText would fix that (small).
-  Rooms, guests and scheduled runs do not list the tool yet (their tool lists are allowlists: it fails closed).
+  It is a team-file tool in a person's own chat (ROOM_FILE_TOOLS: no "outside content" mark). Shared chats, guests,
+  scheduled runs and the confidential chat do not list it yet (allowlists: it fails closed); adding it there needs its
+  write target in WRITE_TARGET_ARGS (a follow-up).
 - **Version impact:** minor (a new tool).

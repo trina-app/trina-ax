@@ -44,7 +44,8 @@ export const COMMENT_DOCX_DESCRIPTION =
   'Without `output` the result is a new version of the same file (the previous one stays in its history). Comments already in a .docx show ' +
   'when you read it. Tracked changes (suggested edits) cannot be made here: say so plainly, and offer a comment instead.'
 
-const docxOutput = (o: string) => (ext(o) === 'docx' ? o : `${o.replace(/\/+$/, '')}.docx`)
+/** where an `output` saves: a .docx ("x" and "x/" save x.docx) */
+export const commentDocxOutput = (o: string) => (ext(o) === 'docx' ? o : `${o.replace(/\/+$/, '')}.docx`)
 
 export interface CommentedDocx { path: string; size: number; sha256: string; conflictCopyOf?: string; source: string; inPlace: boolean; added: DocxCommentResult['added'] }
 
@@ -59,11 +60,14 @@ export async function commentDocx(ctx: AppContext, c: ToolCtx, a: z.output<typeo
   const seen = c.files.readHashes.get(src.rel)
   if (!seen) throw new ToolError(`read '${src.rel}' first (with read) before adding comments`, 'not_read')
   if (seen !== sha256(bytes)) throw new ToolError(`'${src.rel}' was changed after you read it; read it again first`, 'conflict')
-  const outRel = a.output === undefined ? src.rel : docxOutput(a.output)
+  const outRel = a.output === undefined ? src.rel : commentDocxOutput(a.output)
   if (inSkills(outRel)) throw new ToolError('Word comments cannot be saved in a skills folder (skills/: skills and rules people\'s AI follow); give another output')
   const out = authorize(fx, files.rules(), c.user, outRel, 'write', { mustExist: a.output === undefined, createDirs: true })
   if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder`, 'is_folder')
   const inPlace = out.rel === src.rel
+  // what the chat read (and, for a new file, the document) may go where more people see it: asked before the worker
+  // runs, in place too, as edit_hwp is (a comment can carry text from a private file the chat read)
+  await confirmSources(ctx, files, c, out.rel, out.segs, inPlace ? [] : [src.rel])
 
   const request = JSON.stringify({ file: bytes.toString('base64'), comments: a.comments, author: c.user.name || c.user.id, date: new Date().toISOString().replace(/\.\d+Z$/, 'Z') })
   let r: DocxCommentResult
@@ -74,10 +78,10 @@ export async function commentDocx(ctx: AppContext, c: ToolCtx, a: z.output<typeo
   const file = Buffer.from(r.file, 'base64')
   // read back through the normal reader: every comment is there (the worker checked the body's text is unchanged)
   const extra = await officeWorkerText('docx-extra', file, c.signal)
-  const missing = a.comments.filter((k) => !extra.includes(k.text.split(/\r?\n/)[0]!.trim()))
+  const author = c.user.name || c.user.id
+  const missing = r.added.filter((x, i) => !extra.includes(`Comment by ${author.replace(/\s+/g, ' ')}`) || !extra.includes(a.comments[i]!.text.trim().split(/\r?\n/)[0]!.trim()))
   if (missing.length) throw new ToolError(`the changed document did not read back with its comments (${missing.length} missing); nothing was saved`)
 
-  if (!inPlace) await confirmSources(ctx, files, c, out.rel, out.segs, [src.rel])
   const work = makeWorkDir(path.join(ctx.config.dataDir, 'work'))
   try {
     const produced = path.join(work, 'out.docx')
