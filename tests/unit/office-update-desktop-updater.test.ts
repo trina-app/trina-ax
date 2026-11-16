@@ -299,7 +299,7 @@ describe('the Mac updater hands Squirrel.Mac only a zip the signed release names
     expect(dialogs.length).toBe(1)
   })
 
-  test('another Squirrel error (not where the app runs): nothing said, tried again at the next check', async () => {
+  test('another Squirrel error (not where the app runs): tried again quietly, the second time one line with the download page', async () => {
     const zip = crypto.randomBytes(3000)
     served.set(`${TEAM}/downloads/stable.json`, signedMac(zip))
     fake.next = { file: path.join(DIR, 'other.zip'), bytes: zip }
@@ -314,10 +314,20 @@ describe('the Mac updater hands Squirrel.Mac only a zip the signed release names
       expect(u.ready).toBeNull()
       expect(dialogs).toEqual([])
       expect(moved).toBe(0)
-      native.fail = null
+      // the same refusal again: one line with the download page, and no more downloads of it in this run
       await u.check()
       await settle()
-      expect(u.ready).toBe('0.3.0')
+      expect(dialogs).toEqual(["Trina AX couldn't update to version 0.3.0. Download the new version from the website."])
+      const n = fake.downloads
+      await u.check()
+      await settle()
+      expect(fake.downloads).toBe(n)
+      // a passing error (the next run): staged and ready
+      native.fail = null
+      const v = updater('darwin')
+      await v.check()
+      await settle()
+      expect(v.ready).toBe('0.3.0')
     } finally { app.isInApplicationsFolder = was }
   })
 })

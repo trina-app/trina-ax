@@ -60,6 +60,8 @@ export class DesktopUpdater {
   private updater: typeof import('electron-updater').autoUpdater | null = null
   private idleTimer?: NodeJS.Timeout
   private idleChecking = false
+  /** Squirrel.Mac refusals per version in this run (not about where the app runs): the second one says so */
+  private squirrelFailed = new Map<string, number>()
 
   /** Mac (Squirrel.Mac) or Windows (NSIS) install path */
   private readonly mac: boolean
@@ -171,11 +173,15 @@ export class DesktopUpdater {
           console.warn(`[desktop] update ${version} not installed: ${message}`)
           this.verified = null
           // the one case the person can fix: the app runs from the dmg or a translocated download. Any other refusal is
-          // tried again at the next check, quietly
+          // tried again at the next check, quietly, and said (download page) the second time
           if (readOnlyRefusal(message) || !app.isInApplicationsFolder()) {
             this.refused.add(version) // not downloaded again in this run
             void this.offerMove(version)
-          }
+          } else if ((this.squirrelFailed.get(version) ?? 0) + 1 >= 2) {
+            // the same refusal twice in this run: no more downloads of it, one line with the download page
+            this.refused.add(version)
+            void this.offerDownload(version)
+          } else this.squirrelFailed.set(version, (this.squirrelFailed.get(version) ?? 0) + 1)
           return
         }
         this.becameReady(version)

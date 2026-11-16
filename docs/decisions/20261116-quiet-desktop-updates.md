@@ -36,7 +36,10 @@
   - Squirrel refuses because of where the app runs (the dmg, a translocated download) → one line, "can't update itself
     from where it is now", with "Move to Applications" (Electron `app.moveToApplicationsFolder`, which also handles a
     translocated app and starts it again from /Applications). Any other Squirrel refusal is tried again quietly at the
-    next check.
+    next check; the same refusal a second time in one run gives the download line and no more downloads of it.
+  - Trade-off: a start steps aside only before the first failed install of a version (`failedStarts` 0). A Dock click
+    during the retry install is not protected, but that start counts as the second failure and shows the download
+    line, so the person is never stuck in a loop.
 - **Windows:** the same: no question, install on quit, idle restart, the pending record and the download line after two
   starts on the old version. The NSIS installer closes a copy opened during the install itself, so no waiter there.
 - **Why not a splash in the reopened app:** ShipIt counts every running copy of the bundle, a splash included, and gives
