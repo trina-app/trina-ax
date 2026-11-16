@@ -30,12 +30,19 @@ async function windowSize(app: ElectronApplication, width: number, height: numbe
 
 /** One pixel of the browser toolbar's view as it draws it, at (x, y) in the view: [r, g, b]. */
 async function toolbarPixel(app: ElectronApplication, x: number, y: number): Promise<number[]> {
-  return app.evaluate(async ({ webContents }, p) => {
-    const w = webContents.getAllWebContents().find((c) => c.getURL().endsWith('/pane.html'))!
-    const img = await w.capturePage({ x: p.x, y: p.y, width: 1, height: 1 })
-    const bgra = img.toBitmap()
-    return [bgra[2]!, bgra[1]!, bgra[0]!]
-  }, { x, y })
+  try {
+    return await app.evaluate(async ({ webContents }, p) => {
+      const w = webContents.getAllWebContents().find((c) => c.getURL().endsWith('/pane.html'))!
+      const img = await w.capturePage({ x: p.x, y: p.y, width: 1, height: 1 })
+      const bgra = img.toBitmap()
+      return [bgra[2]!, bgra[1]!, bgra[0]!]
+    }, { x, y })
+  } catch (e) {
+    // GitHub's macOS runners have no GPU and capturePage fails there ("UnknownVizError"). In CI the rest of this test
+    // is reported as skipped (the checks before it ran); on a real Mac the error fails the test as before
+    if (process.env.CI && /UnknownVizError/.test(String(e))) test.skip(true, 'this runner cannot capture a view (UnknownVizError)')
+    throw e
+  }
 }
 const near = (got: number[], want: number[]) => got.every((v, i) => Math.abs(v - want[i]!) <= 6)
 const ACCENT_LIGHT = [232, 82, 26]

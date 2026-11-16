@@ -81,6 +81,21 @@ function Signature([string] $file) {
   # means a signature that is there but broken.
   Check ($s.Status -in 'NotSigned', 'Valid') "signature of $(Split-Path -Leaf $file): $($s.Status) ($who)"
 }
+function Asar-Version([string] $asar) {
+  # the packaged package.json's version (electron-builder's -c.extraMetadata.version). The exe's ProductVersion is only
+  # the numeric 0.5.8.0 for every pre-release, so it cannot tell two builds apart. asar: a pickle (8 bytes: 4, header
+  # size), the header (4 bytes pickle size, 4 bytes JSON length, the JSON), then the files from 8 + header size.
+  $fs = [System.IO.File]::OpenRead($asar)
+  try {
+    $r = New-Object System.IO.BinaryReader($fs)
+    $fs.Position = 4; $headerSize = $r.ReadUInt32()
+    $fs.Position = 12; $jsonLen = $r.ReadUInt32()
+    $header = [System.Text.Encoding]::UTF8.GetString($r.ReadBytes($jsonLen)) | ConvertFrom-Json
+    $pkg = $header.files.'package.json'
+    $fs.Position = 8 + $headerSize + [int64] $pkg.offset
+    ([System.Text.Encoding]::UTF8.GetString($r.ReadBytes([int] $pkg.size)) | ConvertFrom-Json).version
+  } finally { $fs.Dispose() }
+}
 function Run-Installer([string] $exe, [string[]] $argv) {
   Write-Host "> $(Split-Path -Leaf $exe) $($argv -join ' ')"
   $p = Start-Process -FilePath $exe -ArgumentList $argv -PassThru -Wait
@@ -114,8 +129,10 @@ Check (Test-Path (Join-Path $dir "Uninstall $Product.exe")) "Uninstall $Product.
 Check (Test-Path $startLnk) "Start menu shortcut $startLnk"
 Check (Test-Path $desktopLnk) "desktop shortcut $desktopLnk"
 Signature $exe
-$oldFileVersion = (Get-Item $exe).VersionInfo.ProductVersion
-Ok "exe product version $oldFileVersion"
+Ok "exe product version $((Get-Item $exe).VersionInfo.ProductVersion)"
+$asar = Join-Path $dir 'resources\app.asar'
+$v = Asar-Version $asar
+Check ($v -eq $OldVersion) "the installed app's version $v (expected $OldVersion)"
 Get-ChildItem $dir | Out-String | Write-Host
 
 # 3. it starts (a window, no team), keeps running, writes its data and the link handler
@@ -130,8 +147,8 @@ Stop-App $dir
 Run-Installer $New @('--updated', '/S', '--force-run')
 Check (Wait-Until { $e = Get-Entries; $e.Count -eq 1 -and $e[0].DisplayVersion -eq $NewVersion } 120 'the new version in the entry') "one uninstall entry, version $NewVersion"
 Check (Test-Path $exe) 'the app is still at the same place'
-$newFileVersion = (Get-Item $exe).VersionInfo.ProductVersion
-Check ($newFileVersion -ne $oldFileVersion) "exe product version $oldFileVersion -> $newFileVersion"
+$v = Asar-Version $asar
+Check ($v -eq $NewVersion) "the installed app's version $v (expected $NewVersion)"
 Check ((Get-Link) -like "*$exe*") "${Scheme}:// handler kept over the update"
 Check (Wait-Until { (Get-AppProcs $dir).Count -gt 0 } 60 'the app started by --force-run') 'the app runs again after the update (--force-run)'
 Start-Sleep -Seconds 5
