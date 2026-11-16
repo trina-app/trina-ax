@@ -54,6 +54,7 @@ import { skillFilesTool } from './skill-files'
 import { postToRoomOff, postToRoomTool } from './post-to-room'
 import { shareWithPersonOff, shareWithPersonTool } from './share-with-person'
 import { stopSharingOff, stopSharingTool } from './stop-sharing'
+import { shareFolderOff, shareFolderTool } from './share-folder'
 import { whoCanOpenOff, whoCanOpenTool } from './who-can-open'
 import { sharedWithMeOff, sharedWithMeTool } from './shared-with-me-tool'
 import { lookingAtOff, lookingAtTool } from './looking-at'
@@ -205,6 +206,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   if (!shareWithPersonOff(exec)) add(shareWithPersonTool(exec))
   // ...and taking that access away again (chat/stop-sharing.ts): the same places, never a scheduled run
   if (!stopSharingOff(exec)) add(stopSharingTool(exec))
+  // a folder in the person's own files (chat/share-folder.ts): only once folder sharing's gate is open; an add always
+  // behind its card; never a scheduled run, Slack, a confidential, template or restricted run, a guest
+  if (!shareFolderOff(exec)) add(shareFolderTool(exec))
   // who can open a file, a folder or this chat, and how (chat/who-can-open.ts): read-only; in a shared chat only for
   // the chat itself and a file the asker named or attached; never a scheduled run, Slack, a template or restricted run
   if (!whoCanOpenOff(exec)) add(whoCanOpenTool(exec))

@@ -104,6 +104,8 @@ las carpetas que hay por encima.
 En **Administración › Ajustes del equipo**, el interruptor es **Los miembros pueden compartir sus propios archivos y
 carpetas**, y **Quitar todos los archivos compartidos** cuenta archivos y carpetas por separado.
 
+También puede pedírselo a Trina: «comparte la carpeta Work con Jun». Trina siempre muestra antes la tarjeta con la carpeta, dónde está y lo que contiene, aunque haya elegido **Permitir siempre** para compartir archivos. Dejar de compartir se hace al momento cuando su mensaje nombra la carpeta (su nombre entre comillas, como `"Work"`, o dónde está), y la tarjeta que lo dice tiene **Deshacer**.
+
 ### Archivos compartidos con usted
 
 **Archivos › Compartidos conmigo** muestra los archivos que otras personas han compartido con usted, los más recientes primero, con quién lo compartió y cuándo. Un archivo que usted ya puede abrir en su carpeta aparece aquí solo cuando alguien le añadió por su nombre. Abra un archivo desde allí para verlo o descargarlo; **‹ Compartidos conmigo** le devuelve a la lista. Al abrir un archivo, su aviso en **Actividad** se marca como leído. Un archivo sale de la lista cuando usted pierde el acceso (su propietario le quitó, lo movió a la papelera o ya no puede editarlo).

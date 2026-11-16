@@ -6546,6 +6546,7 @@ export const ja: Record<MessageKey, string> = {
   "audit.act.folder_share.resumed": "フォルダーの共有を再開した",
   "audit.act.folder_share.ended": "フォルダーの共有が終了した",
   "audit.act.folder_share.undo": "共有フォルダーの変更を元に戻した",
+  "audit.act.folder_share.refused": "Trina がフォルダーの共有または共有停止を行わなかった",
   "audit.act.file.shares_removed_all": "ファイルの共有をすべて削除",
   // threads on AI answers in shared chats (docs/decisions/20261116-chat-answer-threads.md)
   "chat.thread.otherVersion": "このスレッドは回答の別のバージョン({count}件中{index}件目)にあります。",
@@ -6666,4 +6667,5 @@ export const ja: Record<MessageKey, string> = {
   "shareCard.posted": "{room}に投稿しました",
   "shareCard.postedPlain": "トークに投稿しました",
   "fileLink.stoppedBy": "{name}さんがこのファイルの共有を停止しました",
+  "shareCard.note.keptOwn": "中で個別に共有されたまま残るもの: {what}",
 }

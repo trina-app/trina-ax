@@ -303,6 +303,12 @@ export const TEXT = {
   fileStopNo: t('계속 공유', 'Keep sharing', 'Tetap bagikan', '共有を続ける', 'Seguir compartiendo', '继续共享'),
   fileStopNotStopped: t('공유를 중지하지 않았어요', 'Still shared', 'Masih dibagikan', '共有を続けています', 'Se sigue compartiendo', '仍在共享'),
   fileStopPick: t("'{ref}'에 맞는 사람이 여러 명이에요. 누구와의 공유를 중지할까요?", "Several people match '{ref}'. Who should lose access?", "Beberapa orang cocok dengan '{ref}'. Akses siapa yang dihentikan?", '「{ref}」に当てはまる人が複数います。誰との共有を停止しますか？', "Varias personas coinciden con '{ref}'. ¿Quién pierde el acceso?", '有多个人与“{ref}”匹配。要停止与谁共享？'),
+  // share_folder's card (chat/share-folder.ts): a folder in the person's own files, files added later included
+  folderShareAsk: t('{name} 폴더를 {who}에게 공유할까요?', 'Share {name} with {who}?', 'Bagikan {name} dengan {who}?', '{name}を{who}と共有しますか？', '¿Compartir {name} con {who}?', '要与{who}共享“{name}”吗？'),
+  folderShareLater: t('나중에 넣는 파일까지 이 폴더의 모든 내용을 볼 수 있어요.', 'They can view everything in it, including files you add later.', 'Mereka bisa melihat semua isinya, termasuk berkas yang Anda tambahkan nanti.', '後から追加するファイルも含め、中のすべてを閲覧できます。', 'Podrán ver todo lo que contiene, incluidos los archivos que añada más adelante.', '他们可以查看其中的全部内容，包括你以后添加的文件。'),
+  folderShareFolder: t('폴더', 'Folder', 'Folder', 'フォルダ', 'Carpeta', '文件夹'),
+  folderStopAsk: t('{name} 폴더를 {who}에게 더 이상 공유하지 않을까요?', 'Stop sharing {name} with {who}?', 'Berhenti membagikan {name} dengan {who}?', '{who}との{name}の共有を停止しますか？', '¿Dejar de compartir {name} con {who}?', '要停止与{who}共享“{name}”吗？'),
+  folderStopAskAll: t('{name} 폴더 공유를 중지할까요?', 'Stop sharing {name}?', 'Berhenti membagikan {name}?', '{name}の共有を停止しますか？', '¿Dejar de compartir {name}?', '要停止共享“{name}”吗？'),
   postRoomEveryone: t('전체', 'Everyone', 'Semua', '全員', 'Todos', '所有人'),
   postRoomTeam: t('채널', 'channel', 'saluran', 'チャンネル', 'canal', '频道'),
   postRoomGroup: t('그룹 대화', 'group chat', 'obrolan grup', 'グループトーク', 'chat de grupo', '群聊'),

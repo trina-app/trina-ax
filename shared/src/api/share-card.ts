@@ -19,7 +19,13 @@ export const SHARE_CARD_STILL_MAX = 5
 
 /** One file on the card: its link id (absent when the file never got one: a refusal before any link), its name, and
  * where it is in words ("My files › Work"), never a path. */
-export const ShareCardFile = z.object({ linkId: LinkId.optional(), name: z.string().max(255), place: z.string().max(500) })
+export const ShareCardFile = z.object({
+  linkId: LinkId.optional(), name: z.string().max(255), place: z.string().max(500),
+  /** a folder in the asker's own files (share_folder, server chat/share-folder.ts): what it holds at its first level, as
+   * its owner sees it (`more`: more than counted). Its people view everything in it, files added later included.
+   * Absent: a file */
+  folder: z.object({ files: z.number().int().nonnegative(), folders: z.number().int().nonnegative(), more: z.literal(true).optional() }).optional(),
+})
 export type ShareCardFile = z.infer<typeof ShareCardFile>
 
 /** One person or group on the card. `members`: how many people a group has now (the whole team: its active members). */
@@ -43,11 +49,14 @@ export type ShareCardStill = z.infer<typeof ShareCardStill>
 /** Why nothing (or not everything) was done. not_owner: the file is someone else's (`owner`: their name);
  * switched_off: the team turned off members' file sharing; limit: too many shares in a short time; full: the file has
  * its 50 people and groups; changed: something changed while the card waited; failed: anything else. `file`: the first
- * file it happened on. */
+ * file it happened on. A folder (share_folder): place: it cannot be shared where it is (`block`, the Share dialog's own
+ * reason: its words are the dialog's); paused: its share is paused (the folder on the disk is not the one shared). */
 export const ShareCardRefusal = z.object({
-  reason: z.enum(['not_owner', 'switched_off', 'limit', 'full', 'changed', 'failed']),
+  reason: z.enum(['not_owner', 'switched_off', 'limit', 'full', 'changed', 'failed', 'place', 'paused']),
   file: z.string().max(255).optional(),
   owner: z.string().max(200).optional(),
+  // (api/file-shares.ts FolderShareBlock's values: that module imports entities, which imports this one)
+  block: z.enum(['root', 'system_place', 'project', 'team_folder', 'disk', 'run_active']).optional(),
 })
 export type ShareCardRefusal = z.infer<typeof ShareCardRefusal>
 
@@ -103,5 +112,10 @@ export const StepShared = z.object({
   already: z.array(ShareCardWho).max(SHARE_CARD_PEOPLE_MAX).optional(),
   refusal: ShareCardRefusal.optional(),
   next: ShareCardNext.optional(),
+  /** a folder's stop or removal (share_folder): the server's undo snapshot (POST /api/files/shares/undo) and until when
+   * the card offers it. Only the person whose turn it was gets the record; the snapshot is theirs alone, once */
+  undo: z.object({ id: z.string().regex(/^[A-Za-z0-9_-]{22}$/), until: z.string().max(40) }).optional(),
+  /** a folder's stop: the files and folders inside it that stay shared on their own (with people of their own) */
+  keptOwn: z.object({ files: z.number().int().nonnegative(), folders: z.number().int().nonnegative() }).optional(),
 })
 export type StepShared = z.infer<typeof StepShared>

@@ -11,17 +11,18 @@
 // What the button may do is read live as the viewer (POST /api/files/shares/cards, by the record's link ids): a file that
 // is gone, or one the viewer can no longer open, has no button. Only the person whose turn it was gets the record (the
 // server leaves it out for every other viewer of a shared chat), so nobody else sees this card.
-import { Users } from 'lucide-react'
+import { Folder, Users } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import type { ShareCardAsk, ShareCardFile, ShareCardNext, ShareCardState, ShareCardWho, StepFix, StepShared } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isConnectionError } from '../../lib/api'
-import { askHeadline, isRestored, liveFiles, shareHeadline, shareNotes } from '../../lib/shareCard'
+import { askHeadline, isRestored, liveFiles, serverUndo, shareHeadline, shareNotes } from '../../lib/shareCard'
 import { useLocale, useT } from '../../i18n'
 import { fileSharesChanged } from '../../store/live'
 import { Avatar } from '../Avatar'
 import { openFileShare } from '../FileShareDialog'
 import { ListRow } from '../list/List'
 import { Button } from '../ui'
+import { holdsText } from '../FolderShareParts'
 import { ActionCard, ActionNote, ActionRows } from './ActionCard'
 import { FileKindIcon } from './TeamFilePicker'
 
@@ -38,8 +39,10 @@ const Face = ({ who }: { who: ShareCardWho }) => (who.subjectType === 'group' ? 
 
 function FileRow({ file, owner, onOpen }: { file: ShareCardFile; owner?: string; onOpen?: () => void }) {
   const t = useT()
-  const meta = [file.place, owner ? t('shareCard.ownerFile', { name: owner }) : ''].filter(Boolean).join(' · ')
-  return <ListRow icon={<FileKindIcon name={file.name} />} name={file.name} nameTitle={file.name} meta={meta || undefined} onClick={onOpen} testId="share-card-file" nameTestId="share-card-file-name" metaTestId="share-card-file-place" />
+  // a folder (share_folder): its place and what it holds ("My files › Work · 3 files, 1 folder")
+  const meta = [file.place, file.folder ? holdsText(t, { files: file.folder.files, folders: file.folder.folders, more: !!file.folder.more }) : '', owner ? t('shareCard.ownerFile', { name: owner }) : ''].filter(Boolean).join(' · ')
+  const icon = file.folder ? <Folder size={16} className="shrink-0 text-muted" aria-hidden /> : <FileKindIcon name={file.name} />
+  return <ListRow icon={icon} name={file.name} nameTitle={file.name} meta={meta || undefined} onClick={onOpen} testId={file.folder ? 'share-card-folder' : 'share-card-file'} nameTestId="share-card-file-name" metaTestId="share-card-file-place" />
 }
 
 function PeopleRows({ who }: { who: readonly ShareCardWho[] }) {
@@ -66,6 +69,8 @@ export function ShareAskRows({ ask, titleId }: { ask: ShareCardAsk; titleId: str
         {ask.files.map((f, i) => <FileRow key={i} file={f} owner={ask.owner?.name} />)}
         {ask.op === 'share' && <PeopleRows who={ask.who} />}
       </ActionRows>
+      {/* a folder: what is added to it later is shared too (the card says so before the press) */}
+      {ask.op === 'share' && ask.files[0]?.folder && <ActionNote testId="share-ask-folder-later">{t('fileShare.folderLater')}</ActionNote>}
     </div>
   )
 }
@@ -105,10 +110,18 @@ export default function ShareCard({ shared, fixes }: { shared: StepShared; fixes
     if (mine.length === 1) openFileShare(mine[0]!.path)
     else setListed((v) => !v)
   }
+  const undoId = serverUndo(shared)
   const undo = async () => {
     setBusy(true)
     setError(null)
     try {
+      // a folder (share_folder): the server's own Undo by its snapshot (still-valid grants, quietly, once)
+      if (undoId) {
+        const r = await api.call(API.undoFileShares, { body: { id: undoId } })
+        fileSharesChanged.emit()
+        if (r.skipped) setError(t('fileShare.undoneSome', { n: r.restored, total: r.restored + r.skipped }))
+        return
+      }
       const add = shared.who.map((w) => ({ subjectType: w.subjectType, subjectId: w.subjectId }))
       for (const f of mine) await api.call(API.putFileShares, { body: { path: f.path, add, remove: [] } })
     } catch (e) {
@@ -124,7 +137,8 @@ export default function ShareCard({ shared, fixes }: { shared: StepShared; fixes
   const button = refused
     ? (Next && shared.next ? Next({ next: shared.next, shared, fix: fixes?.find((f) => f.id === shared.next?.fixId) }) : null)
     : !mine.length ? null
-    : stop
+    // (a folder's Undo is the server's only: past its time the button is Manage access)
+    : stop && (undoId || !shared.files[0]?.folder)
       ? <Button size="sm" variant="secondary" busy={busy} onClick={() => void undo()} data-testid="share-card-undo">{t('shareCard.undo')}</Button>
       : <Button size="sm" variant="secondary" onClick={manage} aria-expanded={mine.length > 1 ? listed : undefined} data-testid="share-card-manage">{t('shareCard.manage')}</Button>
   // one file: its row. Several: the headline names them; the rows show once Manage access is pressed (each opens its dialog)

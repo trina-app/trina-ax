@@ -6546,6 +6546,7 @@ export const es: Record<MessageKey, string> = {
   "audit.act.folder_share.resumed": "Volvió a activar el uso compartido de una carpeta",
   "audit.act.folder_share.ended": "Terminó el uso compartido de una carpeta",
   "audit.act.folder_share.undo": "Deshizo un cambio en una carpeta compartida",
+  "audit.act.folder_share.refused": "Trina no compartió ni dejó de compartir una carpeta",
   "audit.act.file.shares_removed_all": "Quitó todos los archivos compartidos",
   // threads on AI answers in shared chats (docs/decisions/20261116-chat-answer-threads.md)
   "chat.thread.otherVersion": "Este hilo está en otra versión de la respuesta ({index} de {count}).",
@@ -6666,4 +6667,5 @@ export const es: Record<MessageKey, string> = {
   "shareCard.posted": "Publicado en {room}",
   "shareCard.postedPlain": "Publicado en una conversación",
   "fileLink.stoppedBy": "{name} dejó de compartir este archivo",
+  "shareCard.note.keptOwn": "Dentro siguen compartidos por separado: {what}.",
 }

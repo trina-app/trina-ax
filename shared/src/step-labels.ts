@@ -79,6 +79,8 @@ export const FILE_STEP_VERB: Record<string, T> = {
   // the AI shares the person's own files with teammates after their yes on its card (server/src/chat/share-with-person.ts)
   share_with_person: t('파일 공유', 'Share files', 'Bagikan berkas', 'ファイルを共有', 'Compartir archivos', '共享文件'),
   stop_sharing: t('공유 중지', 'Stop sharing', 'Berhenti membagikan', '共有を停止', 'Dejar de compartir', '停止共享'),
+  // the AI shares a folder in the person's own files, or stops (server/src/chat/share-folder.ts)
+  share_folder: t('폴더 공유', 'Share folder', 'Bagikan folder', 'フォルダを共有', 'Compartir carpeta', '共享文件夹'),
   // the files shared with the person, listed when the AI asks (server/src/chat/shared-with-me-tool.ts), and what they have
   // open now (server/src/chat/looking-at.ts)
   shared_with_me: t('공유받은 파일 확인', 'Check files shared with you', 'Periksa berkas yang dibagikan kepada Anda', '共有されたファイルを確認', 'Ver archivos compartidos con usted', '查看共享给你的文件'),

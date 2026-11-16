@@ -6590,6 +6590,7 @@ export const ko = {
   "audit.act.folder_share.resumed": "폴더 공유를 다시 켬",
   "audit.act.folder_share.ended": "폴더 공유가 끝남",
   "audit.act.folder_share.undo": "공유한 폴더의 변경을 되돌림",
+  "audit.act.folder_share.refused": "트리나가 폴더 공유나 공유 중지를 하지 않음",
   "audit.act.file.shares_removed_all": "모든 파일 공유를 없앰",
   // threads on AI answers in shared chats (docs/decisions/20261116-chat-answer-threads.md)
   "chat.thread.otherVersion": "이 스레드는 다른 버전의 답({count}개 중 {index}번째)에 있어요.",
@@ -6710,6 +6711,7 @@ export const ko = {
   "shareCard.posted": "{room}에 올렸어요",
   "shareCard.postedPlain": "대화에 올렸어요",
   "fileLink.stoppedBy": "{name}님이 이 파일 공유를 중지했어요",
+  "shareCard.note.keptOwn": "안에서 따로 공유된 채로 남는 항목: {what}",
 } as const
 
 export type MessageKey = keyof typeof ko

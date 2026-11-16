@@ -121,6 +121,8 @@ dates, and each file to view or download. They never see the folders above it.
 In **Admin › Team settings**, the switch is **Members can share files and folders they own**, and **Remove all file
 shares** counts files and folders apart.
 
+You can also ask Trina: "share the folder Work with Jun". Trina always shows the card first, with the folder, where it is and what it holds, also when you chose **Always allow** for sharing files. Asking it to stop sharing (or to take someone off) works right away when your message names the folder: its name in quotes, like `"Work"`, or where it is, and the card that says so has **Undo**.
+
 ### Files shared with you
 
 **Files › Shared with me** lists the files people shared with you, newest first, with who shared it and when. A file

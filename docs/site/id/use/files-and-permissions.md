@@ -104,6 +104,8 @@ pernah melihat folder di atasnya.
 Di **Admin › Pengaturan tim**, sakelarnya adalah **Anggota bisa membagikan file dan folder milik mereka**, dan **Hapus
 semua berbagi file** menghitung file dan folder secara terpisah.
 
+Anda juga bisa meminta Trina: "bagikan folder Work dengan Jun". Trina selalu menampilkan kartu lebih dulu, berisi folder, lokasinya, dan isinya, juga saat Anda memilih **Selalu izinkan** untuk berbagi file. Berhenti membagikan langsung dijalankan bila pesan Anda menyebut folder itu dengan jelas (namanya dalam tanda kutip seperti `"Work"`, atau lokasinya), dan kartunya punya **Urungkan**.
+
 ### File yang dibagikan kepada Anda
 
 **File › Dibagikan ke saya** menampilkan file yang dibagikan orang lain kepada Anda, yang terbaru di atas, lengkap dengan siapa yang membagikan dan kapan. File yang sudah bisa Anda buka di foldernya hanya muncul di sini kalau seseorang menambahkan Anda dengan nama. Buka file dari sini untuk melihat atau mengunduhnya; **‹ Dibagikan ke saya** membawa Anda kembali ke daftar. Saat Anda membuka file, pemberitahuannya di **Aktivitas** ditandai sudah dibaca. File hilang dari daftar kalau akses Anda hilang (pemiliknya mencabutnya, memindahkannya ke sampah, atau sudah tidak bisa mengeditnya).

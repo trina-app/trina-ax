@@ -267,7 +267,7 @@ export class FolderShares {
    *   remove, stop: nothing more (an owner can always stop, also with the team switch off, also when paused);
    *   resume:   the place and the disk; the row takes the folder that is there now.
    */
-  change(me: Principal, rel0: string, add: readonly Subject[], remove0: readonly Subject[], L: Locale, via: Via = 'dialog', o: { quiet?: boolean; tokenTaken?: boolean; stop?: boolean; resume?: boolean; stepId?: string | null } = {}): { view: FileSharesView; added: string[] } {
+  change(me: Principal, rel0: string, add: readonly Subject[], remove0: readonly Subject[], L: Locale, via: Via = 'dialog', o: { quiet?: boolean; tokenTaken?: boolean; stop?: boolean; resume?: boolean; stepId?: string | null; turnId?: string | null } = {}): { view: FileSharesView; added: string[] } {
     if (!this.gateOn()) throw new HttpError('validation', msg('folderSoon', L), { params: { reason: 'folder_shares_soon' } })
     const r = this.mine(me, rel0, L)
     const place = sharePlaceBlock(this.db, r.segs)
@@ -305,7 +305,7 @@ export class FolderShares {
       const after = this.reached(r.segs)
       folderReadersLost(this.db, [...before].filter((id) => !after.has(id)))
       const all = gone.length === held.length
-      audit(this.db, { actor: me.id, action: o.stop || all ? 'folder_share.stop' : 'folder_share.remove', target: `file-share:${s.id}`, detail: { personal: true, removed: gone.length, ...(o.stop || all ? { keptOwn: this.ownShares(r.rel)?.files ?? 0, keptOwnFolders: this.ownShares(r.rel)?.folders ?? 0 } : {}), via } })
+      audit(this.db, { actor: me.id, action: o.stop || all ? 'folder_share.stop' : 'folder_share.remove', target: `file-share:${s.id}`, detail: { personal: true, removed: gone.length, ...(o.stop || all ? { keptOwn: this.ownShares(r.rel)?.files ?? 0, keptOwnFolders: this.ownShares(r.rel)?.folders ?? 0 } : {}), via, ...(o.turnId ? { turnId: o.turnId } : {}) } })
       this.shares.changedSoon()
       return view(undo)
     }
@@ -352,8 +352,8 @@ export class FolderShares {
     if (fresh.length || gone.length) {
       this.shares.changedSoon()
       const everyone = fresh.some((x) => x.subjectType === 'group' && x.subjectId === '*')
-      if (fresh.length) audit(this.db, { actor: me.id, action: 'folder_share.add', target: `file-share:${s.id}`, detail: { personal: true, people: fresh.filter((x) => x.subjectType === 'user').length, groups: fresh.filter((x) => x.subjectType === 'group' && x.subjectId !== '*').length, ...(everyone ? { everyone: true } : {}), via } })
-      if (gone.length) audit(this.db, { actor: me.id, action: 'folder_share.remove', target: `file-share:${s.id}`, detail: { personal: true, removed: gone.length, via } })
+      if (fresh.length) audit(this.db, { actor: me.id, action: 'folder_share.add', target: `file-share:${s.id}`, detail: { personal: true, people: fresh.filter((x) => x.subjectType === 'user').length, groups: fresh.filter((x) => x.subjectType === 'group' && x.subjectId !== '*').length, ...(everyone ? { everyone: true } : {}), via, ...(o.turnId ? { turnId: o.turnId } : {}) } })
+      if (gone.length) audit(this.db, { actor: me.id, action: 'folder_share.remove', target: `file-share:${s.id}`, detail: { personal: true, removed: gone.length, via, ...(o.turnId ? { turnId: o.turnId } : {}) } })
     }
     const named = new Set(fresh.filter((x) => x.subjectType === 'user').map((x) => x.subjectId))
     if (!o.quiet) for (const id of added) this.shares.notify(id, 'file.shared', s.id, true, named.has(id))
@@ -433,7 +433,8 @@ export class FolderShares {
     const wide = teamAllowsAlways(this.db) && alwaysOn(this.db, me.id, 'save_wider')
     return {
       ...base, link: s ? { id: s.id, url: fileLinkUrl(s.id) } : null,
-      canShare: !block && !off, ...(off ? { off: true as const } : {}),
+      // (taking people off and stopping are always the owner's: the AI's share card reads this, files/shares.ts cards)
+      canShare: !block && !off, canStop: true, ...(off ? { off: true as const } : {}),
       people: s ? this.shares.rows(s.id, L) : [],
       ...(block ? { blocked: block } : {}),
       ...(s?.paused_at ? { paused: true as const } : {}),

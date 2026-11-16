@@ -21,7 +21,7 @@ import type { AppContext } from '../context'
 import { audit } from '../admin/audit'
 import { HttpError } from '../http/errors'
 import { devRunAlive } from '../devenv/srt/alive'
-import { isStaff, type Principal } from '../policy/access'
+import { atLeast, isStaff, type Principal } from '../policy/access'
 import { authorize } from '../policy/authorize'
 import { checkRegular } from '../team-files/place'
 import { FILE_SHARE_EVERYONE, FILE_SHARE_MAX, SHARE_UNDO_MS, type Locale, type ShareUndoResult } from '@mycel/shared/api'
@@ -63,7 +63,9 @@ function stillTheirs(ctx: AppContext, me: Principal, s: ShareRow): string | null
     const r = authorize(ctx.files.fx, rules, me, s.path, 'read')
     if (!r.st || r.st.isDirectory()) return null
     checkRegular(r.abs)
-    return shares.shareRight(me, rules, r.segs).mayRemove ? r.rel : null
+    // Undo is an add: besides the right to take people off, the edit access an add needs (the old mayRemove, without
+    // the team switch). An owner who lost edit may stop a share, never bring one back (second security review P6-1)
+    return shares.shareRight(me, rules, r.segs).mayRemove && atLeast(rules.access(me, r.segs), 'write') ? r.rel : null
   } catch { return null }
 }
 

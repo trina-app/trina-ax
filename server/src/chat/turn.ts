@@ -1846,6 +1846,12 @@ export class TurnExec {
    * patch waits for the step's tool_start. FIFO per tool matches because every tool that patches its step runs one at a
    * time: only the read-only tools run side by side (mcp/socket.ts, PARALLEL_READ_TOOLS), and none of them patches.
    */
+  /** The id of `tool`'s step that is running now (the one patchToolStep would patch), or null: share_folder writes it on
+   * its undo snapshot (files/share-undo.ts). Reads only. */
+  runningStepId(tool: string): string | null {
+    return this.runningStep(tool)?.id ?? null
+  }
+
   patchToolStep(tool: string, patch: (s: Step) => Partial<StoredStep>) {
     const s = this.runningStep(tool)
     if (s) { this.patched.add(s.id); this.updateStep(s.id, patch(s)); return }
@@ -2913,7 +2919,7 @@ export class TurnExec {
   sharedSources(tool: string, input: unknown): ReadSource[] {
     // share_with_person reads nothing into the chat: it grants the asker's own files to someone, behind their own card,
     // and gives back only the names the asker gave and the links (chat/share-with-person.ts)
-    if (tool === 'share_with_person' || tool === 'stop_sharing') return []
+    if (tool === 'share_with_person' || tool === 'stop_sharing' || tool === 'share_folder') return []
     // who_can_open reads no file: in a shared chat it answers only about the chat itself and a file the asker named or
     // attached in their own message (chat/who-can-open.ts)
     if (tool === 'who_can_open') return []

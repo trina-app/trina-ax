@@ -35,7 +35,8 @@ import type { Tool } from './tools'
 import type { TurnExec } from './turn'
 import { uuidv7 } from '@mycel/shared'
 import type { TurnRequest } from '@mycel/shared/api'
-import { fileWords, othersWordsCard, whyFirst, SHARE_ALREADY_NOTE, SHARE_FOLDER_DESCRIPTION, SHARE_NO, shareableIn } from './share-words'
+import { fileWords, othersWordsCard, whyFirst, SHARE_ALREADY_NOTE, SHARE_FOLDER_DESCRIPTION, SHARE_FOLDER_DESCRIPTION_OPEN, SHARE_NO, shareableIn } from './share-words'
+import { shareFolderOff } from './share-folder'
 import { CARD_SAYS_IT, cardFile, cardLink, cardOwner, cardPeople } from './share-card'
 import { alreadyOpen, refusedGrantedFixes, refusedShareFixes } from './share-next-steps'
 
@@ -77,8 +78,10 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
   const no = (t: string, summary: string) => ({ ...text(t, true), summary: `share_with_person -> ${summary}` })
   // a shared chat: no server words in the transcript everyone reads (post_to_room's postRefusal rule)
   const why = (e: unknown, fallback: string) => (exec.shared ? fallback : e instanceof HttpError || e instanceof Denied || e instanceof ToolError ? e.message || fallback : fallback)
+  // share_folder is offered in this turn (folder sharing's gate open, chat/share-folder.ts): a folder goes there
+  const folderTool = !shareFolderOff(exec)
   return {
-    name: 'share_with_person', description: SHARE_WITH_PERSON_DESCRIPTION, inputSchema: schema(ShareWithPersonInput),
+    name: 'share_with_person', description: folderTool ? SHARE_WITH_PERSON_DESCRIPTION.slice(0, -SHARE_FOLDER_DESCRIPTION.length) + SHARE_FOLDER_DESCRIPTION_OPEN : SHARE_WITH_PERSON_DESCRIPTION, inputSchema: schema(ShareWithPersonInput),
     async call(args, files) {
       let named = '', detail: string | undefined, shared: StepShared | undefined
       /** a refusal's next step (chat/share-next-steps.ts): Ask the owner, Ask an admin */
@@ -108,19 +111,22 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         const asked = others ? askerText(db, spec.userMessageId) : ''
         const attached = others ? attachedPaths(db, spec.userMessageId) : new Set<string>()
         const plan: { path: string; name: string; owner: { id: string; name: string } | null }[] = []
+        // a folder: what can be shared instead (its files), never "folders can't be shared" as the end
+        // (chat/share-words.ts); once share_folder is offered (folder sharing's gate open), the user's own folder goes
+        // to that tool. In a shared chat nothing of the folder is listed (the AI writes where everyone reads)
+        const folderNo = (p: string) => {
+          const teamFolder = !p.replace(/^\/+/, '').startsWith('users/')
+          // a team folder asked by a member: "Ask an admin" under the answer (chat/share-next-steps.ts)
+          const fx = refusedShareFixes(exec, p, a.data.people)
+          if (fx.fixes.length) fixes = fx.fixes
+          const inside = exec.shared || (folderTool && !teamFolder) ? null : shareableIn(rt.ctx.files.fx.root, shares, spec.userId, p, L)
+          const folderAi = exec.shared ? null : neutralizeTags(oneLine(fileWords(db, p, L, spec.userId), 120))
+          return no(SHARE_NO.folder(folderAi, { files: inside ? inside.files.map((f) => neutralizeTags(oneLine(f, 300))) : null, more: inside?.more ?? 0, teamFolder, staff: isStaff(me as never), askAdmin: fx.fixes.length > 0, folderTool }), 'refused: a folder')
+        }
         for (const p of paths) {
           let v
           try { v = shares.view(spec.userId, p, L) } catch (e) {
-            // a folder: what can be shared instead (its files), never "folders can't be shared" as the end
-            // (chat/share-words.ts). In a shared chat nothing of the folder is listed (the AI writes where everyone reads)
-            if (e instanceof HttpError && e.extra.params?.reason === 'is_folder') {
-              // a team folder asked by a member: "Ask an admin" under the answer (chat/share-next-steps.ts)
-              const fx = refusedShareFixes(exec, p, a.data.people)
-              if (fx.fixes.length) fixes = fx.fixes
-              const inside = exec.shared ? null : shareableIn(rt.ctx.files.fx.root, shares, spec.userId, p, L)
-              const folderAi = exec.shared ? null : neutralizeTags(oneLine(fileWords(db, p, L, spec.userId), 120))
-              return no(SHARE_NO.folder(folderAi, { files: inside ? inside.files.map((f) => neutralizeTags(oneLine(f, 300))) : null, more: inside?.more ?? 0, teamFolder: !p.replace(/^\/+/, '').startsWith('users/'), staff: isStaff(me as never), askAdmin: fx.fixes.length > 0 }), 'refused: a folder')
-            }
+            if (e instanceof HttpError && e.extra.params?.reason === 'is_folder') return folderNo(p)
             // a file someone shared with the user (by its path or its /f/ link): theirs to view only. The same refusal as
             // someone else's file, with "Ask <owner>" as the card's button (docs/decisions/20261116-ai-sharing-integration.md)
             const lid = linkIdOf(p)
@@ -141,6 +147,8 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
             }
             return no(SHARE_NO.notFile(neutralizeTags(oneLine(p, 120)), why(e, 'is not a file the user can open').replace(/[.。]\s*$/, '')), 'refused: not a file')
           }
+          // (with folder sharing's gate open the Share dialog's read answers for a folder too: never shared here)
+          if (v.kind === 'folder') return folderNo(v.path)
           if (!v.canShare) {
             // the refusal as a card from the server's record (chat/share-card.ts): whose file it is, and its next step as
             // the server's own offer (chat/share-next-steps.ts: Ask <owner>, Ask an admin), shown as the card's button
@@ -325,10 +333,10 @@ export function recipientWords(db: import('bun:sqlite').Database, w: Who): strin
   return soleNames(db, w.subjectId)
 }
 
-const isGuest = (db: import('bun:sqlite').Database, id: string) => !!db.query('SELECT 1 FROM users WHERE id = ? AND guest = 1').get(id)
+export const isGuest = (db: import('bun:sqlite').Database, id: string) => !!db.query('SELECT 1 FROM users WHERE id = ? AND guest = 1').get(id)
 
 /** The groups `ref` names that the user may share with: their own (the team owner and admins: any). */
-function findGroups(db: import('bun:sqlite').Database, me: { role: string; groups: string[] } & { system?: true }, ref: string): { id: string; name: string }[] {
+export function findGroups(db: import('bun:sqlite').Database, me: { role: string; groups: string[] } & { system?: true }, ref: string): { id: string; name: string }[] {
   const all = (db.query('SELECT id, name FROM groups ORDER BY name, id').all() as { id: string; name: string }[]).filter((g) => isStaff(me as never) || me.groups.includes(g.id))
   const raw = ref.trim()
   if (raw.startsWith(GROUP_REF)) return all.filter((g) => g.id === raw.slice(GROUP_REF.length))

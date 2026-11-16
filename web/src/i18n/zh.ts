@@ -6518,6 +6518,7 @@ export const zh: Record<MessageKey, string> = {
   "audit.act.folder_share.resumed": "重新开启了文件夹共享",
   "audit.act.folder_share.ended": "文件夹共享已结束",
   "audit.act.folder_share.undo": "撤销了共享文件夹的更改",
+  "audit.act.folder_share.refused": "Trina 未共享或停止共享文件夹",
   "audit.act.file.shares_removed_all": "移除了所有文件共享",
   // threads on AI answers in shared chats (docs/decisions/20261116-chat-answer-threads.md)
   "chat.thread.otherVersion": "这个话题在回答的另一个版本中(共 {count} 个，第 {index} 个)。",
@@ -6638,4 +6639,5 @@ export const zh: Record<MessageKey, string> = {
   "shareCard.posted": "已发到{room}",
   "shareCard.postedPlain": "已发到聊天",
   "fileLink.stoppedBy": "{name}已停止共享此文件",
+  "shareCard.note.keptOwn": "其中仍单独共享的内容：{what}",
 }

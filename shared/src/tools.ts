@@ -399,6 +399,16 @@ export const StopSharingInput = z.strictObject({
   paths: z.array(relPath).min(1).max(10).describe('The files to stop sharing (1-10): files the user owns, or team files for an admin.'),
   people: z.array(z.string().min(1).max(200)).min(1).max(10).optional().describe('Who loses access: a teammate\'s or a group\'s name as the user wrote it, or person:<id> / group:<id> from the candidates a previous call gave. Leave it out to stop sharing the files with everyone they were shared with.'),
 })
+/** share_folder (server/src/chat/share-folder.ts; docs/decisions/20261116-share-folder-tool.md): a folder in the user's
+ * own files for teammates or groups, view only, files added later included; an add always behind the server's card.
+ * Also takes people off it, or stops sharing it (no card when the user's own message names the folder). */
+export const ShareFolderInput = z.strictObject({
+  folder: relPath.describe('The folder to share: a folder in the user\'s own files (users/<them>/…), by its path. Never their whole personal folder, never a team folder.'),
+  add: z.array(z.string().min(1).max(200)).max(10).default([]).describe('Who gets to view it: a teammate\'s or a group\'s name as the user wrote it, or person:<id> / group:<id> from the candidates a previous call gave.'),
+  remove: z.array(z.string().min(1).max(200)).max(10).default([]).describe('Who to take off it, the same way.'),
+  stop: z.boolean().optional().describe('true to stop sharing the folder with everyone. Not with add.'),
+}).refine((x) => x.add.length + x.remove.length > 0 || x.stop === true, { message: 'name someone to add or remove, or set stop', path: ['add'] })
+  .refine((x) => !(x.stop && x.add.length), { message: 'stop cannot go with add', path: ['stop'] })
 /** who_can_open (server/src/chat/who-can-open.ts; docs/decisions/20261116-ai-share-who-can-open.md): read-only. Who
  * can open a file, a folder or this chat and how, or whether one teammate can. */
 export const WhoCanOpenInput = z.strictObject({
@@ -470,6 +480,7 @@ export const OTHER_TOOLS = {
   post_to_room: { input: PostToRoomInput, output: TextOutput },
   share_with_person: { input: ShareWithPersonInput, output: TextOutput },
   stop_sharing: { input: StopSharingInput, output: TextOutput },
+  share_folder: { input: ShareFolderInput, output: TextOutput },
   shared_with_me: { input: SharedWithMeInput, output: TextOutput },
   looking_at: { input: LookingAtInput, output: TextOutput },
   change_project_members: { input: ChangeProjectMembersInput, output: TextOutput },

@@ -272,6 +272,9 @@ export function removeLinksIn(db: Database, actor: string, rel: string): number 
     n += db.query('DELETE FROM file_share_grants WHERE share_id = ?').run(id).changes
     db.query("UPDATE file_access_requests SET state = 'closed', decided_at = ? WHERE share_id = ? AND state = 'pending'").run(now(), id)
   }
+  // an earlier removal's Undo must not bring back what the folder save removes (second security review P6-2): every
+  // share under the folder, also one whose people were all taken off before (it has no grant now, but an open Undo)
+  db.query(`UPDATE file_share_undos SET used_at = ? WHERE used_at IS NULL AND share_id IN (SELECT s.id FROM file_shares s WHERE ${UNDER('s.path')})`).run(now(), rel, rel, rel)
   if (ids.length) { audit(db, { actor, action: 'file.unshare', target: rel.startsWith('users/') ? null : rel, detail: { files: ids.length, removed: n, reason: 'folder_narrowed' } }); sharesTouched(db) }
   return ids.length
 }
@@ -560,21 +563,21 @@ export class FileShares {
   }
 
   /** What `me` may do with the people on the file at `rel` (a regular file they can read). `may`: add (its owner with
-   * edit access, a member only while the team switch is on; the team owner and admins for a team file). `stop` (also
-   * `mayRemove`): take people off and stop: whoever may share, and the file's owner always: with the team's switch off
-   * or without edit access they can still end what they started (docs/decisions/20261116-folder-share-server.md,
-   * docs/decisions/20261116-ai-share-card-and-stop.md). */
-  shareRight(me: Principal, rules: RuleSet, segs: string[]): { may: boolean; mayRemove: boolean; stop: boolean; owner: string | null; off: boolean } {
+   * edit access, a member only while the team switch is on; the team owner and admins for a team file). `stop` (alias
+   * `mayRemove`): take people off and stop: whoever may share, and the file's owner always, WHATEVER the team switch
+   * says and also without edit access, so an owner can always end their own share (docs/decisions/
+   * 20261116-folder-share-server.md, 20261116-ai-share-card-and-stop.md). */
+  shareRight(me: Principal, rules: RuleSet, segs: string[]): { may: boolean; mayRemove: boolean; owner: string | null; off: boolean; stop: boolean } {
     const rel = segs.join('/')
     const owner = this.liveAt(rel)?.owner_id ?? ownerOf(this.db, rel)
     const team = segs[0] !== 'users'
     const edits = atLeast(rules.access(me, segs), 'write')
     const mine = me.role !== 'guest' && owner === me.id
-    if (me.role === 'guest' || !edits) return { may: false, mayRemove: mine, stop: mine, owner, off: false }
-    if (team && isStaff(me)) return { may: true, mayRemove: true, stop: true, owner, off: false }
-    if (owner !== me.id) return { may: false, mayRemove: false, stop: false, owner, off: false }
+    if (me.role === 'guest' || !edits) return { may: false, mayRemove: mine, owner, off: false, stop: mine }
+    if (team && isStaff(me)) return { may: true, mayRemove: true, owner, off: false, stop: true }
+    if (owner !== me.id) return { may: false, mayRemove: false, owner, off: false, stop: false }
     const off = !this.teamOn()
-    return { may: !off, mayRemove: true, stop: true, owner, off }
+    return { may: !off, mayRemove: true, owner, off, stop: true }
   }
 
   /** The dialog's state for a file the caller can open. */
@@ -629,7 +632,7 @@ export class FileShares {
    * tool (chat/share-with-person.ts) call change(), which refuses every folder, so a folder is never shared through a
    * path that may skip its confirmation. `stop`: everyone at once, never with an add; `resume`: a paused folder's, alone.
    */
-  put(userId: string, rel0: string, add: readonly Subject[], remove: readonly Subject[], L: Locale, via: Via = 'dialog', o: { stop?: boolean; resume?: boolean; stepId?: string | null } = {}): { view: FileSharesView; added: string[] } {
+  put(userId: string, rel0: string, add: readonly Subject[], remove: readonly Subject[], L: Locale, via: Via = 'dialog', o: { stop?: boolean; resume?: boolean; stepId?: string | null; turnId?: string | null } = {}): { view: FileSharesView; added: string[] } {
     const me = this.principal(userId)
     if (!me || me.role === 'guest') throw new HttpError('not_found')
     if ((o.stop && add.length) || (o.resume && (add.length || remove.length || o.stop))) throw new HttpError('validation')
@@ -653,8 +656,8 @@ export class FileShares {
     checkRegular(r.abs)
     const right = this.shareRight(me, rules, r.segs)
     // adding needs the right to share (the team switch on, for a member); taking people off and stopping are always the
-    // owner's (a call that adds nobody is a removal)
-    if (add.length ? !right.may : !right.mayRemove) throw new HttpError('forbidden', msg(right.off && add.length ? 'off' : 'notOwner', L), { params: { reason: right.off && add.length ? 'file_shares_off' : 'file_share_not_owner' } })
+    // owner's, also with the switch off or without edit access (a call that adds nobody is a removal)
+    if (add.length ? !right.may : !right.stop) throw new HttpError('forbidden', msg(right.off && add.length ? 'off' : 'notOwner', L), { params: { reason: right.off && add.length ? 'file_shares_off' : 'file_share_not_owner' } })
     // the room sending budget (chat sharing's rule) before the people are checked: an add is no free probe of who
     // exists, and a refused name costs the same token as a real one (security review of #1038). A press of several
     // files paid for its files already (shareMany)
@@ -750,7 +753,7 @@ export class FileShares {
   cards(userId: string, ids: readonly string[], L: Locale): ShareCardState[] {
     return [...new Set(ids)].map((id): ShareCardState => {
       const s = this.row(id)
-      if (!s || s.state !== 'live' || s.kind === 'folder') return { id, gone: true }
+      if (!s || s.state !== 'live') return { id, gone: true }
       try {
         const v = this.view(userId, s.path, L)
         // (the row is this file's: the path's live row is the one asked for)

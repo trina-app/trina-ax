@@ -170,8 +170,8 @@ export function FileShareDialog({ path, onClose, returnTo }: { path: string; onC
   const folder = shares?.kind === 'folder'
   const paused = !!shares?.paused
   const canShare = !!shares?.canShare && !paused
-  // taking people off is always the owner's (also with the team switch off, also while paused, also without edit access:
-  // docs/decisions/20261116-ai-share-card-and-stop.md); a team file's staff too
+  // taking people off: whoever may share, and the file's owner always (the team's switch off, edit access lost, also
+  // while paused); a team file's staff too
   const mayRemove = !!shares && (shares.canShare || shares.mine || !!shares.canStop)
   const blocked = shares?.blocked
   const ownerRow = shares?.owner
