@@ -30,7 +30,7 @@ import { dropFolderRow, hasAccessSettings, runAccessHooks } from '../admin/folde
 import { PRODUCT } from '@mycel/shared'
 import { publishChanges } from './changes'
 import { FileError, fileError } from './errors'
-import { checkRegular, copyTeamFile, freeName, hashFile, installFile, moveIntoTrash, restoredName, snapshotVersion, splitExt, treeSize } from './place'
+import { checkRegular, copyTeamFile, freeName, hashFile, hashOpen, installFile, moveIntoTrash, openChecked, restoredName, snapshotVersion, splitExt, treeSize } from './place'
 import { AI_TRASH_MAX_ENTRIES, AiTrashChanged, TrashStranded, aiSkillPath, holdsSkillRoot, instructionFile, sameStamps, stampTree, type Stamp } from './ai-trash'
 import crypto from 'node:crypto'
 import { fileSharesOf, linkPeopleIn, sharesForgotten, sharesMoved, sharesNarrowedByMove, sharesPurged, sharesRestored, sharesTrashed, type UnsharedByMove } from '../files/shares'
@@ -230,19 +230,25 @@ export class TeamFiles {
     const rules = this.rules()
     const r = authorize(this.fx, rules, user, rel, 'read')
     if (r.st!.isDirectory()) throw new ToolError('folder', 'is_folder')
-    const st = checkRegular(r.abs)
-    const sha = await this.sha(r.abs, st)
-    const base = { path: r.rel, size: st.size, mtime: st.mtime.toISOString(), sha256: sha, mime: mimeOf(r.rel), access: rules.access(user, r.segs) }
-    if (BINARY_EXT.has(ext(r.rel))) return { ...base, binary: true, content: null, truncated: false }
-    const n = Math.min(st.size, maxBytes)
-    const buf = Buffer.alloc(n)
-    const fd = fs.openSync(r.abs, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW)
-    try { let off = 0; while (off < n) { const k = fs.readSync(fd, buf, off, n - off, off); if (k <= 0) break; off += k } } finally { fs.closeSync(fd) }
+    checkRegular(r.abs)
+    // one open, of the file the check saw (place.ts openChecked): the hash and the text both come from it
+    const { fd, st } = openChecked(r.abs, r.st)
+    let buf: Buffer
+    let base: Omit<FileContent, 'binary' | 'content' | 'truncated'>
+    try {
+      const sha = await this.sha(r.abs, st, fd)
+      base = { path: r.rel, size: st.size, mtime: st.mtime.toISOString(), sha256: sha, mime: mimeOf(r.rel), access: rules.access(user, r.segs) }
+      if (BINARY_EXT.has(ext(r.rel))) return { ...base, binary: true, content: null, truncated: false }
+      const n = Math.min(st.size, maxBytes)
+      buf = Buffer.alloc(n)
+      let off = 0
+      while (off < n) { const k = fs.readSync(fd, buf, off, n - off, off); if (k <= 0) break; off += k }
+    } finally { fs.closeSync(fd) }
     if (buf.subarray(0, 8000).includes(0)) return { ...base, binary: true, content: null, truncated: false }
     const truncated = st.size > maxBytes
     // a multi-byte character cut at the limit is dropped (on the bytes: a regex over the decoded text was quadratic
     // for files full of invalid UTF-8)
-    const text = new TextDecoder('utf-8').decode(truncated ? buf.subarray(0, utf8Boundary(buf, n)) : buf)
+    const text = new TextDecoder('utf-8').decode(truncated ? buf.subarray(0, utf8Boundary(buf, buf.length)) : buf)
     return { ...base, binary: false, content: text, truncated }
   }
 
@@ -271,11 +277,12 @@ export class TeamFiles {
     throw new HttpError('conflict')
   }
 
-  private async sha(abs: string, st: fs.Stats): Promise<string> {
+  /** `fd`: the caller's checked descriptor of `abs` (`st` its fstat), hashed instead of opening the path again */
+  private async sha(abs: string, st: fs.Stats, fd?: number): Promise<string> {
     const k = `${abs}\0${st.ino}\0${st.size}\0${st.mtimeMs}`
     const hit = this.shaCache.get(k)
     if (hit) return hit
-    const h = await hashFile(abs)
+    const h = fd === undefined ? await hashFile(abs) : await hashOpen(fd)
     this.shaCache.set(k, h)
     if (this.shaCache.size > 1000) this.shaCache.delete(this.shaCache.keys().next().value!)
     return h
@@ -291,7 +298,7 @@ export class TeamFiles {
     const ndata = sha256(data)
     if (r.exists) {
       if (r.st!.isDirectory()) throw new ToolError('folder', 'is_folder')
-      const cur = readRegular(r.abs).bytes
+      const cur = readRegular(r.abs, undefined, r.st).bytes
       const csha = sha256(cur)
       if (csha === ndata) return { path: r.rel, conflict: false, entry: this.entry(user, rules, r.segs) }
       if (baseSha === null || baseSha !== csha) return this.conflictCopy(user, rules, r, data)
