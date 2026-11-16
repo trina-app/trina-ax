@@ -5,7 +5,7 @@
 // (a Mac) answers Full Disk Access as the test sets it (setFullDisk), counting Open Settings and Reopen. Version 2
 // (the default, TC-3300): add(ids) records what the page named at Add, and read() gives only those. Used by
 // find-work-files.spec.ts and shots-find-work-files.spec.ts.
-import type { Page } from '@playwright/test'
+import { expect, type Page } from '@playwright/test'
 
 export type Meta = { name: string; root?: 'documents' | 'desktop' | 'downloads' | 'cloud' | 'folder' | 'messenger' | 'home' | 'drive'; place?: string; cloud?: boolean; folder?: string; size?: number; modified?: number }
 export type Root = { id: 'documents' | 'desktop' | 'downloads' | 'cloud' | 'folder' | 'messenger' | 'home' | 'drive'; place?: string; state: string; cut?: boolean; tooBig?: number; oneDrive?: boolean }
@@ -89,3 +89,10 @@ export const app = (page: Page) => page.evaluate(() => { const d = (window as un
 /** Full Disk Access as the app will answer next (the person turned it on in Settings, or not). */
 export const setFullDisk = (page: Page, v: 'granted' | 'denied') => page.evaluate((x) => { (window as unknown as { __app: { fullDisk: string } }).__app.fullDisk = x }, v)
 export const pickHolds = (page: Page, f: Meta[], first = 100) => page.evaluate((x) => (window as unknown as { __pick: (f: unknown[]) => void }).__pick(x), files(f).map((x, i) => ({ ...x, id: `p${first + i}` })))
+
+/** After an add the share step comes first (ShareFoundFiles.tsx): Not now, to the run's result (Undo, Open, Close). */
+export async function notNow(page: Page) {
+  await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-stage', 'share', { timeout: 15_000 })
+  await page.getByTestId('find-work-share-skip').click()
+  await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-stage', 'result')
+}

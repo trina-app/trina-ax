@@ -85,6 +85,73 @@ export function verifySignature(data: Uint8Array, sigJson: string, keys: readonl
   return false
 }
 
+/**
+ * Give a version folder the modes mycel-ctl's copyTree / repairTree give it (native/cmd/mycel-ctl/update.go), whatever
+ * the umask and the archive's modes: folders 0755, files 0755 when the owner can execute them and 0644 otherwise.
+ * Symbolic links are left alone (and never followed). Only what differs is changed; returns how many entries changed.
+ * Synchronous: start-up runs it before the server listens (repairVersionModes); a version is a few thousand entries.
+ */
+export function setVersionModes(root: string): number {
+  let changed = 0
+  let failed: unknown = null
+  const fix = (p: string, st: fs.Stats) => {
+    const want = st.isDirectory() ? 0o755 : (st.mode & 0o111 ? 0o755 : 0o644)
+    if ((st.mode & 0o7777) === want) return
+    // one entry this account cannot change (root-owned) must not leave the rest of the tree as it was
+    try { fs.chmodSync(p, want); changed++ } catch (e) { failed ??= e }
+  }
+  const walk = (dir: string) => {
+    for (const d of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!d.isDirectory() && !d.isFile()) continue
+      const p = path.join(dir, d.name)
+      const st = fs.lstatSync(p)
+      if (st.isDirectory()) { fix(p, st); walk(p) } else if (st.isFile()) fix(p, st)
+    }
+  }
+  const st = fs.lstatSync(root)
+  if (!st.isDirectory()) return 0
+  fix(root, st)
+  walk(root)
+  if (failed) throw failed
+  return changed
+}
+
+/**
+ * Heal the version folders in `<appDir>/versions` an earlier app-only update left unreadable to the engine account
+ * (0.5.6/0.5.7 staged them under the server's umask 027: 0750 folder, 0640/0750 files, so no AI turn could start).
+ * main.ts runs it first thing on a Linux install, before migrations and before anything listens, so the bootstrap's
+ * health check never sees a version the launcher cannot read: the version that runs now was staged by the previous
+ * version's code. Versions kept for Go back are healed too. Only folders this account owns; staging and .partial
+ * folders and links are skipped; a failure is logged, never fatal.
+ */
+export function repairVersionModes(appDir: string | null | undefined, log: Logger): number {
+  if (!appDir) return 0
+  const versions = path.join(appDir, 'versions')
+  let names: string[]
+  try { names = fs.readdirSync(versions) } catch { return 0 }
+  const uid = process.getuid?.()
+  let changed = 0
+  // the launcher passes through app/versions too (stage() would make a missing one 0750 under the umask)
+  try {
+    const st = fs.lstatSync(versions)
+    if (st.isDirectory() && (uid === undefined || st.uid === uid) && (st.mode & 0o7777) !== 0o755) { fs.chmodSync(versions, 0o755); changed++ }
+  } catch (e) { log.warn('could not repair the modes of app/versions', { err: e }) }
+  for (const n of names) {
+    if (n.startsWith('.') || n.endsWith('.partial')) continue
+    const dir = path.join(versions, n)
+    try {
+      const st = fs.lstatSync(dir)
+      if (!st.isDirectory() || (uid !== undefined && st.uid !== uid)) continue
+      const c = setVersionModes(dir)
+      if (c > 0) log.warn('version folder modes repaired', { version: n, entries: c })
+      changed += c
+    } catch (e) {
+      log.warn('could not repair the modes of a version folder', { version: n, err: e })
+    }
+  }
+  return changed
+}
+
 export interface VerifyOptions { keys: readonly string[]; allowUnsigned: boolean }
 
 /** The same checks root/bootstrap makes before it starts a version (native/cmd/mycel-bootstrap). */
@@ -319,14 +386,20 @@ export class UpdateManager {
     await fsp.mkdir(staging, { recursive: true, mode: 0o755 })
     try {
       await extractTar(zstdDecompress(readFileChunks(archive)), staging)
+      // the server runs with umask 027 (native/cmd/mycel-ctl/supervise_linux.go, server.service.in): mkdir and the
+      // unpacked files took it, so the folder came out 0750 and its files 0640/0750 (0.5.7 on potenlab). The launcher and
+      // the engine sandbox run as another account and bind app/current/native/mycel-bridge: every AI turn failed.
+      setVersionModes(staging)
       const m = await verifyBundleDir(staging, { keys: this.keys, allowUnsigned: this.allowUnsigned })
       const dest = path.join(this.versionsDir(), m.version)
       if (fs.existsSync(dest)) {
         await verifyBundleDir(dest, { keys: this.keys, allowUnsigned: this.allowUnsigned }) // already there and intact
+        setVersionModes(dest) // staged by an older version under the umask
         await fsp.rm(staging, { recursive: true, force: true })
         return m
       }
-      // folders readable by the engine account? No: versions/ is the server's; only app/engines is shared.
+      // versions/ is the server's, but the launcher and the engine sandbox (another account) read app/current/native:
+      // setVersionModes above, as mycel-ctl's copyTree does on the root path
       // on disk before it gets its name: after a power loss, a version folder whose files never reached the disk fails
       // the bootstrap's check and the server rolls back to a version that may not read the migrated DB (QA TC-279)
       await fsyncTree(staging)

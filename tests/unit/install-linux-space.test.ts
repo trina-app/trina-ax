@@ -156,6 +156,24 @@ echo kept`)
     } finally { t.done() }
   })
 
+  test('the staged version gets 755 folders, 755 programs and 644 files whatever the kit carries (0.5.7: 0640/0750)', () => {
+    const t = setup()
+    try {
+      // as `repair` copies a version an app-only update of 0.5.7 left: folder 0750, files 0640, programs 0750
+      const kit = path.join(t.w, 'kit', 'app', '0.5.0')
+      fs.mkdirSync(path.join(kit, 'native'), { recursive: true })
+      fs.writeFileSync(path.join(kit, 'native', 'mycel-bridge'), '#!/bin/sh\n')
+      fs.chmodSync(path.join(kit, 'native', 'mycel-bridge'), 0o750)
+      fs.chmodSync(path.join(kit, 'main.js'), 0o640)
+      fs.chmodSync(path.join(kit, 'native'), 0o750)
+      fs.chmodSync(kit, 0o750)
+      const r = t.run(`umask 027\nstage_version\nstat -c '%a %n' "$STAGE/0.5.0" "$STAGE/0.5.0/native" "$STAGE/0.5.0/native/mycel-bridge" "$STAGE/0.5.0/main.js"`)
+      expect(r.err).toBe('')
+      const modes = Object.fromEntries(r.out.trim().split('\n').slice(-4).map((l) => { const [m, n] = l.split(' '); return [path.basename(n!), m] }))
+      expect(modes).toEqual({ '0.5.0': '755', native: '755', 'mycel-bridge': '755', 'main.js': '644' })
+    } finally { t.done() }
+  })
+
   test('a half copy an earlier installer left (TC-339 box) is removed before the copy; df that fails says so', () => {
     const t = setup()
     try {
