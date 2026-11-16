@@ -28,6 +28,7 @@ import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT
 import { api, API, errorText } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
 import { LOCALES, useLocale, useT } from '../../i18n'
+import { useFolderSharesOn } from '../../lib/folder-share'
 import { isOwner, useMeStrict, useSession } from '../../store/session'
 import { toast } from '../../store/ui'
 import { Button, confirmDialog, Field, inputCls, Switch, useMediaQuery } from '../../components/ui'
@@ -46,6 +47,8 @@ import FileListSettings from './FileList'
 
 export default function TeamSettingsPage() {
   const t = useT()
+  // folder sharing open: the members switch names folders too
+  const folderShares = useFolderSharesOn()
   const me = useMeStrict()
   const signedIn = useSession((s) => s.signedIn)
   const act = useAction()
@@ -260,7 +263,7 @@ export default function TeamSettingsPage() {
                         <SwitchRow id="ts-project-creators" testId="team-project-creators" value={f.projectCreators !== 'admins'} onChange={(v) => setF({ ...f, projectCreators: v ? 'members' : 'admins' })} title={t('teamSettings.projectCreators')} desc={t('teamSettings.row.projectCreatorsDesc')} />
                         {/* a member shares a file of theirs with chosen people (QA TC-3093): on by default; the owner may remove
                             every file share at once */}
-                        <SwitchRow id="ts-member-file-shares" testId="team-member-file-shares" value={f.memberFileShares} onChange={(v) => setF({ ...f, memberFileShares: v })} title={t('teamSettings.memberFileShares')} desc={t('teamSettings.row.memberFileSharesDesc')} />
+                        <SwitchRow id="ts-member-file-shares" testId="team-member-file-shares" value={f.memberFileShares} onChange={(v) => setF({ ...f, memberFileShares: v })} title={t(folderShares ? 'teamSettings.memberFileFolderShares' : 'teamSettings.memberFileShares')} desc={t(folderShares ? 'teamSettings.row.memberFileFolderSharesDesc' : 'teamSettings.row.memberFileSharesDesc')} />
                         {owner && <RemoveFileShares />}
                         {/* Home's "what my group often asks" (docs/DECISIONS.md "Home: what my group often asks"): on by default */}
                         <SwitchRow id="ts-often-asked" testId="team-often-asked" value={f.oftenAsked} onChange={(v) => setF({ ...f, oftenAsked: v })} title={t('teamSettings.oftenAsked')} desc={t('teamSettings.row.oftenAskedDesc')} />
@@ -493,23 +496,25 @@ function UpdateWindowTimes({ value, ok, legacy, onChange }: { value: string | nu
 function RemoveFileShares() {
   const t = useT()
   const act = useAction()
-  const [count, setCount] = useState<{ files: number; people: number } | null>(null)
+  const [count, setCount] = useState<{ files: number; people: number; folders?: number } | null>(null)
   const [busy, setBusy] = useState(false)
   useEffect(() => {
     let live = true
     api.call(API.fileSharesCount).then((r) => live && setCount(r), () => {})
     return () => { live = false }
   }, [])
-  if (!count?.files) return null
+  if (!count?.files && !count?.folders) return null
+  // files and folders counted apart (folder sharing): "3 files and 1 folder"
+  const what = [count.files ? t('teamSettings.sharedFiles', { n: count.files }) : null, count.folders ? t('teamSettings.sharedFolders', { n: count.folders }) : null].filter(Boolean).join(t('teamSettings.and'))
   const removeAll = async () => {
-    if (!(await confirmDialog({ title: t('teamSettings.removeFileSharesConfirm', { people: count.people, files: count.files }), confirm: t('teamSettings.removeFileSharesDo'), danger: true }))) return
+    if (!(await confirmDialog({ title: t('teamSettings.removeSharesConfirm', { people: count.people, what }), confirm: t('teamSettings.removeFileSharesDo'), danger: true }))) return
     setBusy(true)
     const r = await act(() => api.call(API.removeAllFileShares), t('teamSettings.fileSharesRemoved'))
     setBusy(false)
     if (r) setCount(r)
   }
   return (
-    <SettingRow id="ts-remove-file-shares" testId="team-remove-file-shares" title={t('teamSettings.removeFileShares')} desc={t('teamSettings.removeFileSharesDesc', { files: count.files, people: count.people })} inline
+    <SettingRow id="ts-remove-file-shares" testId="team-remove-file-shares" title={t('teamSettings.removeFileShares')} desc={t('teamSettings.removeSharesDesc', { people: count.people, what })} inline
       control={<Button variant="danger" size="sm" busy={busy} onClick={() => void removeAll()} data-testid="team-remove-file-shares-button">{t('teamSettings.removeFileSharesDo')}</Button>} />
   )
 }

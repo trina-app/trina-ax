@@ -80,6 +80,28 @@ You can share a file you own with chosen people, without changing who can open i
 
 Owners and admins can share any team file. In **Admin › Team settings**, **Members can share files they own** turns sharing off for members (shares already made keep working). The team owner can **Remove all file shares** there at once.
 
+### Share a folder in My files
+
+You can share a folder in **My files** the same way, like a folder in Google Drive's My Drive: **Files › a folder's ⋯ ›
+Share**. The people and groups you add can view everything in it, including files you add later, and cannot change
+anything. They find it in **Files › Shared with me** and open it like a folder, one level at a time: names, sizes and
+dates, and each file to view or download. They never see the folders above it.
+
+- The dialog says what the folder holds ("3 files, 1 folder"). **Everyone on the team** has its own line: everyone,
+  also people who join later, will see everything in the folder and whatever is added to it. Guests never can.
+- In **Files**, a shared folder says **Shared**, and a file inside it says **Shared through Work** (in its own Share
+  dialog the folder's people show "Through Work").
+- **Stop sharing** takes everyone off at once. It first lists what stays shared on its own (files and folders inside
+  that you shared separately). After it, **Undo** puts the people back for a few minutes. Taking people off and Stop
+  sharing always work, also when your team turned sharing off for members.
+- Your personal folder itself and the places Trina keeps there (downloads, images, skills, project folders and a few
+  others) can't be shared; the dialog says why.
+- If the folder on the server is no longer the one you shared (for example it was replaced outside Trina), sharing is
+  **paused**: nobody can open it, and you get a notice. Open its Share dialog and press **Resume**.
+
+In **Admin › Team settings**, the switch is **Members can share files and folders they own**, and **Remove all file
+shares** counts files and folders apart.
+
 ### Files shared with you
 
 **Files › Shared with me** lists the files people shared with you, newest first, with who shared it and when. A file

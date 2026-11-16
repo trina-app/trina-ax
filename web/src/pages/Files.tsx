@@ -25,7 +25,7 @@
 // projects and files"); a question the server asks (who would lose or gain sight of it) is asked with the row already
 // moved, and a no puts it back.
 import clsx from 'clsx'
-import { ArchiveRestore, BookmarkPlus, ImageIcon, Link2, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, Paperclip, Pencil, Plus, Presentation, Search, Signpost, SquareCheck, RefreshCw, Trash2, Upload, UserPlus, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
+import { ArchiveRestore, BookmarkPlus, ImageIcon, Link2, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, Paperclip, Pencil, Plus, Presentation, Search, Signpost, SquareCheck, RefreshCw, Trash2, Upload, UserPlus, Users, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { type Access, type FileEntry, type FileHistoryEvent, type FileVersion, type HistoryResponse, type TrashItem, type TreeResponse } from '@mycel/shared/api'
@@ -54,7 +54,7 @@ import { SIGNED_OUT } from '../lib/localData'
 import { markBusy } from '../lib/busy'
 import { useLocale, useT } from '../i18n'
 import { aiName } from '../lib/tabs'
-import { accessChanged, filesChanged, reloadAsked } from '../store/live'
+import { accessChanged, fileSharesChanged, filesChanged, reloadAsked } from '../store/live'
 import { readManagedList, readProjectList, useProjects } from '../store/projects'
 import { useDeleteProject } from '../components/projectActions'
 import { dropFolders, FOLDER_PAGE, folderKey, keptFolder, readFolder } from '../store/teamFiles'
@@ -66,6 +66,7 @@ import FileUploads from '../components/FileUploads'
 import FolderPicker from '../components/FolderPicker'
 import { FolderAccessChip, FolderAccessPanel, offersFolderAccess } from '../components/FolderAccess'
 import { openFileShare, useCopyTeamFileLink } from '../components/FileShareDialog'
+import { isOwnPath, offersFolderShare, useFolderSharesOn, useOwnFolderShare } from '../lib/folder-share'
 import FolderUploads, { startFolderUpload, useFolderUploadsSettled } from '../components/FolderUploads'
 import { TeamFilesEntry } from '../components/onboarding/TeamFilesStep'
 import { useFindWorkFilesEntry } from '../components/onboarding/FindWorkFiles'
@@ -242,6 +243,9 @@ function Files() {
     return accessChanged.on(() => void loadProjects())
   }, [loadProjects])
   const byFolder = useMemo(() => projectsByFolder(projects), [projects])
+  // folder sharing (open on this server): the folder on screen, if it is one of mine that can be shared
+  const folderShares = useFolderSharesOn()
+  const ownShare = useOwnFolderShare(path, me.user.id)
   // back from Admin's Share dialog opened with from=files (AccessTree): the folder's Share dialog opens again
   // once the folder is here, where the chip would show; the address loses `access` (a reload does not open it again)
   const accessParam = params.get('access')
@@ -378,10 +382,13 @@ function Files() {
     })
     const offB = reloadAsked.on(() => void load())
     const offC = accessChanged.on(() => void load())
+    // folder sharing: the Shared marks of my own files change with any share (file_shares_changed, or my dialog)
+    const offD = fileSharesChanged.on(() => { if (isOwnPath(path, me.user.id)) void load() })
     return () => {
       offA()
       offB()
       offC()
+      offD()
     }
   }, [path, load, loadProjects])
 
@@ -951,7 +958,7 @@ function Files() {
     <>
       {/* who else sees this folder: a count where a member can write, their own folder, a project's folder;
           everything for admins (nothing at the top folders and the root) */}
-      <FolderAccessChip key={tree.path} path={tree.path} access={tree.access} project={byFolder.get(tree.path.normalize('NFC')) ?? null} onOpen={() => setAccessFor({ path: tree.path, access: tree.access })} />
+      <FolderAccessChip key={tree.path} path={tree.path} access={tree.access} project={byFolder.get(tree.path.normalize('NFC')) ?? null} onOpen={() => setAccessFor({ path: tree.path, access: tree.access })} own={ownShare} />
       {/* Personal (users/): what a member can do there is open their own folder inside, so it is not called
           read-only (docs/DECISIONS.md "A welcome for invited people") */}
       {tree.access !== 'write' && (personal ? (
@@ -1232,7 +1239,12 @@ function Files() {
                           membersOnly={e.type === 'folder' && e.access === 'none' && isAdmin(me) && isProjectsFolder(e.path)}
                           onProject={(a) => navigate(`/projects/${a.project.id}`)}
                           onSuggest={me.user.role !== 'guest' && e.type === 'file' && e.path.startsWith(`users/${me.user.id}/`) && /\.(md|txt)$/i.test(e.name) ? () => setSuggesting(e.path) : null}
-                          onAccess={e.type === 'folder' && offersFolderAccess(e.path, e.access, me.user.id, byFolder.get(e.path.normalize('NFC')) ?? null) ? () => setAccessFor({ path: e.path, access: e.access }) : null}
+                          onAccess={e.type !== 'folder' ? null
+                            // folder sharing open: a folder in my own files is shared in the file Share dialog, and my
+                            // personal folder itself and the places Trina keeps there offer no Share at all
+                            : folderShares && isOwnPath(e.path, me.user.id) ? (offersFolderShare(e.path, me.user.id) ? () => openFileShare(e.path) : null)
+                            : offersFolderAccess(e.path, e.access, me.user.id, byFolder.get(e.path.normalize('NFC')) ?? null) ? () => setAccessFor({ path: e.path, access: e.access }) : null}
+                          sharedThrough={ownShare?.through ?? null}
                         />
                       ))}
                     </tbody>
@@ -1384,7 +1396,7 @@ function TwoLines({ phone, meta, children }: { phone: boolean; meta: string; chi
   )
 }
 
-function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, draggable, onDragStart, onDragEnd, dragged, dropTarget, drop, onOpen, onChat, onAddToChat, chatTitle, onRename, onMove, onShare, onDelete, onHistory, project, membersOnly = false, onProject, onSuggest, onAccess }: { e: FileEntry; selected: boolean; open: boolean; checked: boolean; onCheck: (shift: boolean) => void; pressSelect: boolean; selecting: boolean; draggable: boolean; onDragStart: (ev: React.DragEvent) => void; onDragEnd: () => void; dragged: boolean; dropTarget: DropHandlers | null; drop: DropOver | null; onOpen: () => void; onChat: () => void; onAddToChat: (() => void) | null; chatTitle: string; onRename: () => void; onMove: () => void; onShare: () => void; onDelete: () => void; onHistory: () => void; project: FolderProjectAction; membersOnly?: boolean; onProject: (a: NonNullable<FolderProjectAction>) => void; onSuggest: (() => void) | null; onAccess: (() => void) | null }) {
+function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, draggable, onDragStart, onDragEnd, dragged, dropTarget, drop, onOpen, onChat, onAddToChat, chatTitle, onRename, onMove, onShare, onDelete, onHistory, project, membersOnly = false, onProject, onSuggest, onAccess, sharedThrough = null }: { e: FileEntry; selected: boolean; open: boolean; checked: boolean; onCheck: (shift: boolean) => void; pressSelect: boolean; selecting: boolean; draggable: boolean; onDragStart: (ev: React.DragEvent) => void; onDragEnd: () => void; dragged: boolean; dropTarget: DropHandlers | null; drop: DropOver | null; onOpen: () => void; onChat: () => void; onAddToChat: (() => void) | null; chatTitle: string; onRename: () => void; onMove: () => void; onShare: () => void; onDelete: () => void; onHistory: () => void; project: FolderProjectAction; membersOnly?: boolean; onProject: (a: NonNullable<FolderProjectAction>) => void; onSuggest: (() => void) | null; onAccess: (() => void) | null; sharedThrough?: string | null }) {
   const t = useT()
   const locale = useLocale()
   const words = useFolderWords()
@@ -1568,6 +1580,21 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
           {dim && membersOnly && (
             <span className="shrink-0" data-testid="members-only">
               <Badge>{t('accessTree.membersOnly')}</Badge>
+            </span>
+          )}
+          {/* folder sharing: people of its own on it, or a shared folder above it (my own files only; a hidden name is
+              never shown to the people on the folder, so it is not marked) */}
+          {e.shared && !(e.shared === 'through' && e.name.startsWith('.')) && (
+            <span className="shrink-0" data-testid="file-shared" data-shared={e.shared}>
+              {e.shared === 'through' && sharedThrough ? (
+                <Tooltip label={t('files.sharedThrough', { folder: sharedThrough })}>
+                  <span tabIndex={0} className="inline-flex rounded-md focus-visible:outline-2 focus-visible:outline-accent">
+                    <Badge><Users size={11} aria-hidden /> <span aria-hidden>{t('files.sharedBadge')}</span><span className="sr-only">{t('files.sharedThrough', { folder: sharedThrough })}</span></Badge>
+                  </span>
+                </Tooltip>
+              ) : (
+                <Badge><Users size={11} aria-hidden /> {t('files.sharedBadge')}</Badge>
+              )}
             </span>
           )}
           {!folder && isConflictCopy(e.name) && <Badge tone="warn">{t('files.conflictCopy')}</Badge>}
