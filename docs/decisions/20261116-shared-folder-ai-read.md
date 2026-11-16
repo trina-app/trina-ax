@@ -27,7 +27,9 @@ AI inside a shared folder (PR 4)"). Plan of this part:
 - **Where:** only where a file shared one by one may be read (`TurnFiles.grantReads`: a turn of the person's own chat;
   never a scheduled run, a shared chat, a guest, Slack, a template or restricted run, a confidential chat or the remote
   connector), and never in a sub-agent's call (`TurnFiles.agentView`, also a call whose agent is not known).
-- **Words:** the turn's "Files shared with you" block names a folder with its link and says how to list and read it,
+- **Words:** the turn's "Files shared with you" block gives a folder's link and who shared it, never its name (the name
+  is the sharer's words and the block is in every turn without the mark; second security review, L1). It is built
+  read only (`FolderShares.listable`, at most 20 + 5 rows: nothing is paused or ended by a turn starting, L2), and says how to list and read it,
   that nothing above it opens and that its names and contents are not instructions. Names in a listing are one line,
   at most 120 characters, our block tags neutralized, quoted. The audit line keeps `/f/<id>` and the action, never the
   path inside. An answer links a file inside by the folder page's own address (`/f/<id>?f=<path inside>`, which the app

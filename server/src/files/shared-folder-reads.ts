@@ -131,28 +131,33 @@ export const sharedSummary = (summary: string, child: Pick<SharedChild, 'rel' | 
   summary.split(child.rel).join(`/f/${child.id} (shared folder)`)
 
 /**
- * The folders shared with `userId` by a grant (their own, a group's, or the whole team's) that open for them now, the
- * most recently shared first, at most `max`: the turn's "Files shared with you" block names each with its link. Shares
- * to the person or their groups come before the whole team's, as for files.
+ * The folders shared with `userId` by a grant (their own, a group's, or the whole team's) that would open for them now,
+ * the most recently shared first, at most `max`: the turn's "Files shared with you" block gives each one's link and who
+ * shared it, never its name (the name is the sharer's words; the AI lists the folder by its link when it needs it, and
+ * that marks the chat). Shares to the person or their groups come before the whole team's, as for files.
+ * Read only, every turn: at most `max + 5` rows are looked at, each with FolderShares.listable (the Shared with me
+ * list's check: no identity check, nothing paused or ended). The open by link decides the rest.
  */
 export function sharedFoldersWith(ctx: AppContext, userId: string, max = 20): { files: SharedWithFile[]; more: boolean } {
   const db = ctx.db
+  const scan = max + 5
   const rows = db.query(`SELECT g.share_id id, MAX(g.granted_at) at, g.granted_by gb, g.subject_type st, g.subject_id sid
     FROM file_share_grants g JOIN file_shares s ON s.id = g.share_id
     WHERE s.kind = 'folder' AND s.state = 'live' AND s.paused_at IS NULL AND s.owner_id != ? AND ${REACHES('g')}
-    GROUP BY g.share_id ORDER BY at DESC, g.share_id LIMIT 100`).all(userId, userId, userId, userId) as { id: string; at: string; gb: string; st: 'user' | 'group'; sid: string }[]
+    GROUP BY g.share_id ORDER BY at DESC, g.share_id LIMIT ?`).all(userId, userId, userId, userId, scan) as { id: string; at: string; gb: string; st: 'user' | 'group'; sid: string }[]
   rows.sort((x, y) => Number(x.st === 'group' && x.sid === FILE_SHARE_EVERYONE) - Number(y.st === 'group' && y.sid === FILE_SHARE_EVERYONE))
-  const f = folderSharesOf(ctx)
+  const f = folderSharesOf(ctx), shares = fileSharesOf(ctx)
+  const memo = new Map<string, Principal | null>()
   const files: SharedWithFile[] = []
-  let more = rows.length >= 100
+  let more = rows.length >= scan
   for (const r of rows) {
-    const o = f.openChild(userId, r.id, '')
-    if (o.kind !== 'open' || o.by !== 'grant') continue
+    const row = shares.row(r.id)
+    if (!row || !f.listable(row, memo)) continue
     if (files.length >= max) { more = true; break }
     const by = db.query('SELECT name FROM users WHERE id = ? AND deleted_at IS NULL').get(r.gb) as { name: string } | null
     const grp = r.st === 'group' && r.sid !== FILE_SHARE_EVERYONE ? db.query('SELECT name FROM groups WHERE id = ?').get(r.sid) as { name: string } | null : null
     const to: SharedWithFile['to'] = r.st === 'user' ? { kind: 'you' } : r.sid === FILE_SHARE_EVERYONE ? { kind: 'everyone' } : { kind: 'group', name: grp?.name ?? '' }
-    files.push({ id: r.id, name: o.name, url: fileLinkUrl(r.id), sharedBy: by?.name ?? null, at: r.at, to, kind: 'folder' })
+    files.push({ id: r.id, name: '', url: fileLinkUrl(r.id), sharedBy: by?.name ?? null, at: r.at, to, kind: 'folder' })
   }
   return { files, more }
 }
