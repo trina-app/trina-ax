@@ -72,6 +72,28 @@ test('Files in a group\'s room opens its folder, Back returns to the room; no bu
   }
 })
 
+// QA TC-3848: an admin changes the folder's rules (or a group that decides it) and the server sends room.updated, built
+// for each member (server/src/rooms/service.ts groupFoldersChanged): the button goes and comes back without a reload
+test('the Files button follows a live room.updated: gone when the folder closes to me, back when it opens', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await start(page)
+  await page.goto(`/rooms/${LEADS}`)
+  const files = page.getByTestId('room-group-files')
+  await expect(files).toBeVisible()
+  const room = ((await page.evaluate(() => fetch('/api/rooms').then((r) => r.json()))) as { items: { id: string; groupFolder?: string }[] }).items.find((r) => r.id === LEADS)!
+  const { groupFolder: _, ...closed } = room
+  const publish = (r: unknown) => page.request.post('/__test/publish', { data: { event: { type: 'room.updated', data: { roomId: LEADS, change: 'updated', room: r } } } }).then((x) => expect(x.ok()).toBeTruthy())
+  const loads = { n: 0 }
+  page.on('request', (r) => { const u = new URL(r.url()).pathname; if (u === '/api/rooms' || u === `/api/rooms/${LEADS}`) loads.n++ })
+  await publish(closed)
+  await expect(files).toHaveCount(0)
+  await expect(page.getByTestId('room-message')).toHaveCount(1)
+  await publish(room)
+  await expect(page.getByTestId('room-group-files')).toBeVisible()
+  // no reload of the page or the list: the event alone did it
+  expect(loads.n).toBe(0)
+})
+
 test.describe('a phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
 test('the folder icon alone, with its name, in the header; it opens the folder and Back returns', async ({ page }) => {

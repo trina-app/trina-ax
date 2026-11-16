@@ -6,8 +6,10 @@
 // panel's first row, ⌘K's action and a phone AI chat's new-chat button) has its mark without a circle (AiMark), so ✦ always
 // means asking it. The phone's 트리나 tab has the same star too (components/BottomTabs.tsx, in the tab bar's ink and
 // faint like the other tabs; the owner, 2026-11-12: "모바일에서는 트리나 아이콘이 달라서 좀 헷갈리는듯"). The other AI
-// sparkles (Files' "AI에게 묻기", skills) are things to do, not someone in the room, and stay. Decorative (aria-hidden):
-// the name is next to it.
+// sparkles (skills, the setup and welcome cards) are things to do, not someone to ask, and stay. Every "Ask Trina…"
+// entry has the mark (QA TC-4007, the owner: Trina's own mark, not a generic sparkle): besides the above, Files' row menu
+// ("Ask Trina about this") and the file preview's button (FilePanel), as the room file menu (FileMenu) already had.
+// Decorative (aria-hidden): the name is next to it.
 import clsx from 'clsx'
 import { Sparkles } from 'lucide-react'
 import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
@@ -53,6 +55,10 @@ const MARK = {
   /** a row of 16 px icons (the 트리나 panel's and ⌘K's "Ask Trina"): drawn 18 in the 16 px slot, as tall as the icons below
    * it; the sparkle 16, as they are */
   nav: { star: 18, starFit: '-m-px', sparkle: 16, sparkleFit: undefined },
+  /** the file preview's "Ask Trina" button (components/FilePanel.tsx): beside its label in the 14 px slot of a menu
+   * item on a computer; a phone shows the mark alone, as the room header's ✦ (drawn 24) in the 16 px slot of the
+   * header's other icons */
+  label: { star: 18, starFit: '-m-0.5 max-md:size-6 max-md:-m-1', sparkle: 14, sparkleFit: 'max-md:size-4' },
 } as const
 export type AiMarkPlace = keyof typeof MARK
 

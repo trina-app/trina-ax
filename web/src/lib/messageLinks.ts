@@ -2,7 +2,7 @@
 // message of this team (a chip and a card, drawn from what the server gave this viewer: RoomMessage.linkPreviews), where
 // they open in the app, how a place reads in a chip, and the address "Copy link" gives. Pure: test/unit/message-links.test.ts.
 import { parseMessageLink, type MessageLinkRef, type RoomLinkPreview } from '@mycel/shared/api'
-import { teamAddressHost } from './team-address'
+import { teamAddressHost, teamOrigin } from './team-address'
 import { messageLink } from './fileMenu'
 
 /** The hosts whose message links are this team's: this page's own, and the team address (GET /api/me team.address: a
@@ -27,9 +27,7 @@ export const messagePath = (l: Pick<MessageLinkRef, 'roomId' | 'messageId' | 'ro
 
 /** "Copy link": the message's address on the team address when there is one (others can open it), else this page's. */
 export function copyLinkOf(roomId: string, messageId: string, rootId: string | null | undefined, teamAddress: string | null | undefined, pageOrigin: string): string {
-  const host = teamAddressHost(teamAddress)
-  const origin = host ? new URL(teamAddress!).origin : pageOrigin
-  return messageLink(roomId, messageId, rootId, origin)
+  return messageLink(roomId, messageId, rootId, teamOrigin(teamAddress, pageOrigin))
 }
 
 /** How a preview's place reads, before "Thread in …": a team room or the everyone room as "#name"; a DM or a group chat as

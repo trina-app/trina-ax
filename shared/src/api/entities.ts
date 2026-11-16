@@ -9,6 +9,15 @@ import { Access, ApiErrorBody, ClientKind, EngineId, IsoTime, Locale, GuestDetai
 export const UserRef = z.object({ id: UserId, name: z.string() })
 export type UserRef = z.infer<typeof UserRef>
 
+/** How many folds a person's lists keep (ListFolds); a newer choice pushes out the oldest. */
+export const LIST_FOLDS_MAX = 200
+/** One fold's key: `section:<list>:<section>` (a list's section), `room-folder:<id>`, `folder:<id>` (my folders). */
+export const ListFoldKey = z.string().min(1).max(120).regex(/^[a-z][a-z-]*:[A-Za-z0-9:_-]+$/)
+/** The sections and folders of my lists I folded or opened (web components/panels/folds.ts), on every device I sign in
+ * on; a key not there starts as its list starts it (most open). */
+export const ListFolds = z.record(ListFoldKey, z.enum(['open', 'folded'])).refine((o) => Object.keys(o).length <= LIST_FOLDS_MAX, { message: `at most ${LIST_FOLDS_MAX} folds` })
+export type ListFolds = z.infer<typeof ListFolds>
+
 export const UserPrefs = z.object({
   theme: Theme.optional(),
   /** the person's text size on every device they sign in on (Settings > Profile); absent = default. A stored value this
@@ -25,6 +34,8 @@ export const UserPrefs = z.object({
   /** the one-time line under a room's header ("✦ Ask Trina about this room. Only you see it.") was closed, or ✦ was
    * used: it never shows again (docs/DECISIONS.md "A welcome for invited people") */
   roomAskHint: z.literal('seen').optional().catch(undefined),
+  /** my lists' folds (ListFolds); a stored value that does not read reads as absent, never hiding the other preferences */
+  listFolds: ListFolds.optional().catch(undefined),
 })
 export type UserPrefs = z.infer<typeof UserPrefs>
 
@@ -716,6 +727,9 @@ export const UploadTarget = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('attachment'), chatId: Uuid7, name: z.string().min(1).max(255) }),
   /** audio for transcription (not kept in the team folder); chatId as in TranscribeFields */
   z.object({ kind: z.literal('transcribe'), name: z.string().min(1).max(255), chatId: Uuid7.optional() }),
+  /** a file to send in a room the caller is in (at most ROOM_FILE_MAX): kept as their unsent upload there, like
+   * POST /api/rooms/:id/files; membership checked at create and at complete */
+  z.object({ kind: z.literal('room'), roomId: Uuid7, name: z.string().min(1).max(255) }),
 ])
 export type UploadTarget = z.infer<typeof UploadTarget>
 export const UploadSession = z.object({
@@ -855,6 +869,9 @@ export const TeamSettings = z.object({
    * live only in projects/"): 'members' (default: anyone, like a chat channel) or 'admins' (the owner and admins only).
    * Personal projects are never limited. */
   projectCreators: z.enum(['members', 'admins']),
+  /** the largest file a guest may upload: in a room, to their project's folder, to an AI chat (GUEST_FILE_MAX; default
+   * 100 MB; docs/decisions/20261116-guest-room-file-limit.md). Members are not held to it. */
+  guestFileMax: z.enum(['100mb', '1gb', '10gb']),
   /** "Show what the team often asks" (default on; docs/DECISIONS.md "Home: what my group often asks"): Home lists
    * generic questions that 3 or more people of a group or the team asked, rewritten once a day on the owner's AI. Off:
    * the lists are deleted for everyone, no run starts, and questions sent while it is off never count. */

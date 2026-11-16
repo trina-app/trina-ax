@@ -188,3 +188,48 @@ test('closing the thread puts the focus back on what opened it, never on the pag
   await page.keyboard.press('Escape')
   await expect(answer.getByTestId('chat-thread-line')).toBeFocused()
 })
+
+// QA TC-3886: while the server is updating (a 503 that says so; /api/health not OK yet) a reply waits faintly and the
+// thread says why in the one line under the box; once health answers OK the line goes and the reply posts by itself.
+// SHOTS_DIR=<folder>: the line at 1440 and 390, light and dark, English and Korean.
+for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: '390', size: { width: 390, height: 844 } }]) {
+  test(`${vp.name}: while the server is updating the thread says the reply goes when it is back`, async ({ page }) => {
+    test.setTimeout(120_000)
+    await page.setViewportSize(vp.size)
+    for (const loc of process.env.SHOTS_DIR ? (['en', 'ko'] as const) : (['en'] as const)) {
+      await reset(page, { teamLocale: loc, usersFollowTeam: true })
+      await signIn(page)
+      const { chatId, answerId } = await chatWithAnswer(page, true)
+      await page.goto(`/c/${chatId}/t/${answerId}`)
+      const panel = page.getByTestId('chat-thread')
+      await expect(panel.getByTestId('chat-thread-count')).toBeVisible()
+      const updating = { on: true }
+      await page.route(/\/api\/chats\/[^/]+\/messages\/[^/]+\/thread$/, (route) => (updating.on && route.request().method() === 'POST'
+        ? route.fulfill({ status: 503, headers: { 'x-mycel-updating': '1', 'content-type': 'application/json' }, body: JSON.stringify({ error: { code: 'unavailable', message: 'updating' } }) })
+        : route.fallback()))
+      await page.route(/\/api\/health$/, (route) => (updating.on ? route.fulfill({ status: 503, body: '' }) : route.fallback()))
+      await expect(panel.getByTestId('chat-thread-updating')).toHaveCount(0)
+      await panel.getByTestId('chat-thread-input').fill('Use the corporate seal.')
+      await page.keyboard.press('Enter')
+      const line = panel.getByTestId('chat-thread-updating')
+      await expect(line).toBeVisible()
+      if (loc === 'en') await expect(line).toHaveText("Trina is updating. Your reply will be sent when it's back.")
+      // one line, inside the panel's width
+      const b = (await line.boundingBox())!
+      expect(b.x + b.width).toBeLessThanOrEqual(vp.size.width)
+      if (process.env.SHOTS_DIR) {
+        for (const scheme of ['light', 'dark'] as const) {
+          await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' })
+          await page.waitForTimeout(250)
+          await page.screenshot({ path: `${process.env.SHOTS_DIR}/thread-updating-${vp.name}-${loc}-${scheme}.png` })
+        }
+        await page.emulateMedia({ colorScheme: 'light' })
+      }
+      // back: the line goes and the reply is posted by itself
+      updating.on = false
+      await expect(panel.getByTestId('chat-thread-reply')).toHaveCount(1, { timeout: 15_000 })
+      await expect(line).toHaveCount(0)
+      await page.unrouteAll({ behavior: 'ignoreErrors' })
+    }
+  })
+}

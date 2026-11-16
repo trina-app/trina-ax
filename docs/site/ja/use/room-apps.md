@@ -59,7 +59,7 @@ Stripe、Shopify、Zendesk、Typeform、Tally は、送る内容に署名でき�
 選択画面の **その他のサービスを表示** を押すと、主に韓国で使われているサービスが開きます。一覧は全員に同じものが表示されます。
 
 - **Toss Payments**：デベロッパーセンターの **웹훅 › 웹훅 등록하기**（Webhooks › Register webhook）で Webhook URL を貼り付け、**PAYMENT_STATUS_CHANGED** にチェックを入れます（[Toss Payments の Webhook](https://docs.tosspayments.com/guides/v2/webhook)）。カードには金額、注文名、支払い方法が表示され、カード番号、口座、電話番号は表示されません。任意：デベロッパーセンターのセキュリティキー（**API 키 › 보안 키**、API keys › Security key）。
-- **Channel Talk**：**Settings › Webhook › Create new webhook** で Webhook URL を貼り付け、チャットとメッセージの通知をオンにします（[Channel Talk の Webhook](https://developers.channel.io/en/articles/Webhook-events-7bd9b8e2)）。新しいチャットにはお客様の名前と最初のメッセージが表示され、その後のメッセージ（オンにした場合はチームの返信も）はスレッドに入ります。チーム内のグループチャットは表示されません。任意：Webhook のトークン。
+- **Channel Talk**：**Settings › Webhook › Create new webhook** で Webhook URL を貼り付け、チャットとメッセージの通知をオンにします（[Channel Talk の Webhook](https://developers.channel.io/en/articles/Webhook-events-7bd9b8e2)）。新しいチャットにはお客様の名前と最初のメッセージが表示され、その後のメッセージ（オンにした場合はチームの返信も）はスレッドに入ります。チーム内のグループトークは表示されません。任意：Webhook のトークン。
 - **PortOne**（V2）：**결제 연동 › 연동 관리 › 결제알림(Webhook) 관리**（Payment integration › Integration settings › Payment notifications）で、Webhook のバージョン **결제모듈 V2**（Payment module V2）を選び、Webhook URL を貼り付けます（[PortOne の Webhook](https://developers.portone.io/opi/ko/integration/webhook/readme-v2)）。PortOne は支払いの ID と状態しか送らないため、カードには金額や名前は表示されません。任意：Webhook シークレット（**웹훅 시크릿 발급**、Issue webhook secret）。
 
 ### その他のアプリ

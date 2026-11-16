@@ -13,6 +13,7 @@ atau skill tim. Tamu tidak memakai kursi di paket Anda.
 | **File tim** | Folder yang boleh mereka buka | Hanya file proyek mereka (tidak ada di obrolan grup) |
 | **AI** | Pengaturan AI tim | Tanpa AI, kecuali ada AI yang dipilih untuk mereka |
 | **Kursi** | Memakai satu | Tidak memakai |
+| **Berkas terbesar yang bisa diunggah** | 10 GB di chat, 20 GB di Berkas | 100 MB, kecuali pemilik atau admin menaikkannya (1 GB atau 10 GB) di **Admin › Anggota & undangan**, di atas daftar **Tamu** |
 
 Di samping nama tamu Anda melihat tanda **Tamu**, dan obrolan atau proyek yang memiliki tamu menyebutkannya di bagian
 atas ("Termasuk 1 tamu").
@@ -44,7 +45,7 @@ proyek, pilih **Kelola** di samping **Anggota** di halaman proyek. Baris pertama
 Ketik nama orang itu di **Untuk siapa?**. Di **AI untuk mereka**, **Tanpa AI** terpilih sejak awal. Pilihan lainnya
 dijelaskan di bawah, di [AI tamu](#ai-tamu).
 
-![Dialog Invite a guest: mereka hanya akan melihat ruang 'Quote prep', sebuah nama, dan AI for them dengan No AI terpilih](../../images/guests/invite-dialog.webp "Dialog undangan")
+![Dialog Invite a guest: mereka hanya akan melihat obrolan grup 'Quote prep', sebuah nama, dan AI for them dengan No AI terpilih](../../images/guests/invite-dialog.webp "Dialog undangan")
 
 #### Salin tautannya dan kirim sendiri
 **Buat tautan** membuat tautan untuk satu orang ini. Trina tidak mengirim email: pilih **Salin link** lalu kirimkan
@@ -105,9 +106,11 @@ Setelah mereka masuk, Trina membuka obrolan atau proyek mereka. Bilah kiri hanya
 ada **File**, tidak ada proyek atau saluran, dan tidak ada **Trina** jika AI mereka mati. **Pengaturan** mereka hanya
 berisi hal milik mereka sendiri, seperti profil dan notifikasi.
 
-![Tampilan tamu: daftar Chats hanya menampilkan percakapan grup Quote prep, dan bilah kiri hanya berisi Chats dan Activity](../../images/guests/guest-room.webp "Yang dilihat tamu")
+![Tampilan tamu: daftar Chats hanya menampilkan obrolan grup Quote prep, dan bilah kiri hanya berisi Chats dan Activity](../../images/guests/guest-room.webp "Yang dilihat tamu")
 
 Di sebuah proyek, anggota proyek bisa melihat chat yang dimiliki tamu di sana. Tamu yang bisa memakai AI diberi tahu hal ini di halaman proyek.
+
+Tamu tidak menerima atau membagikan tautan file. Untuk memberi file kepada tamu, kirim file itu di obrolan grup atau proyek mereka.
 
 ## Satu obrolan grup dan satu proyek
 
@@ -175,7 +178,7 @@ Anda mengeluarkan tamu atau mengubah paket.
 **Admin › Anggota & undangan** memiliki daftar **Tamu**. Untuk melihat tamu saja, pilih **Tamu** di daftar peran di bagian atas. Setiap baris
 menunjukkan di mana tamu itu berada dan AI apa yang dimilikinya.
 
-![Admin › Anggota & undangan › Tamu: Alex Rivera di ruang Quote prep dengan No AI, Sam Park di proyek Launch plan dengan Team AI hingga $20](../../images/guests/admin-guests.webp "Tamu di Admin")
+![Admin › Anggota & undangan › Tamu: Alex Rivera di obrolan grup Quote prep dengan No AI, Sam Park di proyek Launch plan dengan Team AI hingga $20](../../images/guests/admin-guests.webp "Tamu di Admin")
 
 Menu **⋯** seorang tamu berisi:
 

@@ -123,6 +123,7 @@ Owner dan admin melihat siapa saja mereka di bawah judul **Skill tim**: "Yang bi
 Anggota dan pengelola skill lainnya tidak melihat baris ini.
 
 - Anggota bisa **mengusulkan** skill pribadi ke tim. Pengelola skill pada folder tujuan yang meninjaunya.
+- Yang menunggu tinjauan Anda tampil sebagai angka di **Skill tim** pada daftar Trina (dan di menu ponsel), seperti pesan belum dibaca pada obrolan. **Perlu ditinjau** hanya berisi yang masih menunggu; yang sudah Anda daftarkan atau tolak ada di **Sudah ditinjau** di bagian bawah tab itu.
 - Setiap perubahan pada `skills/` dicatat, dan owner serta admin mendapat pemberitahuan dengan tautan ke riwayat versi.
 - Skill grup diubah oleh anggota grup (lihat [Skill grup](#skill-grup)); perubahannya dicatat dan diumumkan dengan cara yang sama.
 

@@ -55,6 +55,15 @@ export const FILE_SHARE_SPECS: Record<string, Spec> = {
       if (who !== 'memberIn' && r.status === 200 && r.json?.status !== 'no_access') throw new Error(`${who}: the link page answered ${r.json?.status}`)
     },
   },
+  // Files › Shared with me (file sharing P2): every signed-in member reads their own list; alice's file (shared with
+  // nobody) is in no one's, the owner's and admins' included
+  sharedWithMe: {
+    build: async (c, w) => { await aliceLink(w); return c.get('/api/files/shared-with-me') }, scope: 'self',
+    check: (r, _w, who) => {
+      nothingOfAlice(r.text, who, 'Shared with me')
+      if (r.status === 200 && JSON.stringify(r.json).includes('users/')) throw new Error(`${who}: Shared with me showed a path`)
+    },
+  },
   sharedFileDownload: { build: async (c, w) => c.get(`/api/files/shared/${await aliceLink(w)}/download`), scope: 'users-alice',
     check: (r, _w, who) => nothingOfAlice(r.text, who, 'the link\'s bytes') },
   // a press of several files (QA TC-3510): anyone signed in may call it, but only for files they may share. Aimed at

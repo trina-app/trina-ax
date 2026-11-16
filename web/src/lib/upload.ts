@@ -25,10 +25,17 @@ export const CONNECTION_WAIT_MS = 10 * 60_000
 /** the longest pause between two tries while the connection is gone (the browser's `online` event ends it sooner) */
 const CONNECTION_PAUSE_MAX_MS = 10_000
 
-/** `loaded` and `total` count the file's own bytes, in every phase. `waiting`: the connection is gone and the upload
- * goes on by itself when it is back (`loaded` stays what had gone out). */
+/** Large files (each an upload session on the server) on their way at a time, on the whole page; the others wait their
+ * turn before anything of them is read. The server lets a person hold MAX_OPEN_SESSIONS (10) unfinished sessions:
+ * eleven files of 10 MB dropped at once asked for eleven, the last ones were refused and failed. Three is also what
+ * goes out at a time anyway (COPIES_AT_ONCE). A folder upload's large files wait in the same line. */
+export const SESSIONS_AT_ONCE = 3
+
+/** `loaded` and `total` count the file's own bytes, in every phase. `queued`: a large file waits for its turn behind
+ * others (SESSIONS_AT_ONCE). `hashing`: its checksum is made, before any byte goes out. `waiting`: the connection is
+ * gone and the upload goes on by itself when it is back (`loaded` stays what had gone out). */
 export interface UploadProgress {
-  phase: 'hashing' | 'uploading' | 'finishing' | 'waiting'
+  phase: 'queued' | 'hashing' | 'uploading' | 'finishing' | 'waiting'
   loaded: number
   total: number
 }
@@ -51,10 +58,13 @@ export function uploadBar(p: Running): number {
   return uploadPercent(p) ?? 0
 }
 
-/** What a running upload says beside its spinner. */
-export function uploadLabel(p: Running, t: (key: 'files.preparing' | 'files.finishing' | 'files.waitingConnection') => string): string {
+/** What a running upload says beside its spinner. A large file says what happens before and after its bytes go out, so a
+ * minute of checking a file of several GB, or the server putting it in place, does not look stuck. */
+export function uploadLabel(p: Running, t: (key: 'files.preparing' | 'files.finishing' | 'files.waitingConnection' | 'files.waitingTurn' | 'files.checking') => string): string {
   if (p?.phase === 'finishing') return t('files.finishing')
   if (p?.phase === 'waiting') return t('files.waitingConnection')
+  if (p?.phase === 'queued') return t('files.waitingTurn')
+  if (p?.phase === 'hashing') return t('files.checking')
   const pct = uploadPercent(p)
   return pct === null ? t('files.preparing') : `${pct}%`
 }
@@ -322,6 +332,11 @@ async function smallOnce(file: File, target: UploadTarget, o: UploadOptions, fin
       // how many bytes it received before that (QA TC-2023)
       kept(attachment.receivedSize ?? attachment.size)
       out = { kind: 'attachment', attachment }
+    } else if (target.kind === 'room') {
+      // a picture is stored without its place and camera (smaller), so the answer's size is not compared; the server
+      // checks the part against `size` before it keeps it
+      const file = await o.client.call(API.uploadRoomFile, { params: { id: target.roomId }, body: { fields: { name: target.name, size: String(total) }, file: body, filename: target.name }, ...request })
+      out = { kind: 'room', file }
     } else {
       const { jobId } = await o.client.call(API.transcribe, { body: { fields: target.chatId ? { chatId: target.chatId } : {}, file: body, filename: target.name }, ...request })
       out = { kind: 'transcribe', jobId }
@@ -333,7 +348,40 @@ async function smallOnce(file: File, target: UploadTarget, o: UploadOptions, fin
   }
 }
 
+let sessionsOpen = 0
+const sessionLine: (() => void)[] = []
+/** A turn among SESSIONS_AT_ONCE, first come first served; the returned function gives it to the next. A cancel leaves
+ * the line at once. A recording does not wait (one at a time, the person waits for it). */
+async function takeSessionTurn(target: UploadTarget, total: number, o: UploadOptions): Promise<() => void> {
+  if (target.kind === 'transcribe') return () => {}
+  o.signal?.throwIfAborted()
+  if (sessionsOpen < SESSIONS_AT_ONCE) sessionsOpen++
+  else {
+    o.onProgress?.({ phase: 'queued', loaded: 0, total })
+    await new Promise<void>((resolve, reject) => {
+      const turn = () => { o.signal?.removeEventListener('abort', leave); resolve() }
+      const leave = () => { sessionLine.splice(sessionLine.indexOf(turn), 1); reject(o.signal!.reason) }
+      sessionLine.push(turn)
+      o.signal?.addEventListener('abort', leave, { once: true })
+    })
+  }
+  let given = false
+  return () => {
+    if (given) return
+    given = true
+    // the next in line takes the turn over as it is
+    const next = sessionLine.shift()
+    if (next) next()
+    else sessionsOpen--
+  }
+}
+
 async function uploadChunked(file: File, target: UploadTarget, o: UploadOptions): Promise<UploadComplete> {
+  const done = await takeSessionTurn(target, file.size, o)
+  try { return await chunkedInTurn(file, target, o) } finally { done() }
+}
+
+async function chunkedInTurn(file: File, target: UploadTarget, o: UploadOptions): Promise<UploadComplete> {
   const storage = o.storage === undefined ? (typeof localStorage === 'undefined' ? null : localStorage) : o.storage
   const fp = fingerprint(file, target)
   const total = file.size
@@ -359,7 +407,14 @@ async function uploadChunked(file: File, target: UploadTarget, o: UploadOptions)
     } catch { /* expired or gone: start over */ }
   }
   if (!session) {
-    session = await withRetry(() => o.client.call(API.createUploadSession, { body: { target, size: total, sha256 }, signal: o.signal }), o, waiting)
+    o.signal?.throwIfAborted()
+    // the request is not cut off by a cancel: its answer is the only way to learn the session's id, and a session made
+    // after the person took the file out would hold its disk room and one of their ten sessions with nobody to drop it
+    session = await withRetry(() => { o.signal?.throwIfAborted(); return o.client.call(API.createUploadSession, { body: { target, size: total, sha256 } }) }, o, waiting)
+    if (o.signal?.aborted) {
+      void o.client.call(API.cancelUploadSession, { params: { id: session.id } }).catch(() => {})
+      throw o.signal.reason ?? new DOMException('aborted', 'AbortError')
+    }
     const store = { ...readStore(storage), [fp]: session.id }
     // sessions of uploads that were never finished pile up otherwise; the server drops them after a while anyway
     const keys = Object.keys(store)
@@ -428,8 +483,9 @@ export async function cancelUpload(file: File, target: UploadTarget, client: Api
 }
 
 /** Files over what the server takes (UPLOAD_SESSION_MAX): the message box refuses them at once, before a checksum of
- * a huge file is made; `tooBig` is the first of them (named in the message), `fit` the others. */
-export function splitOversize<T extends { size: number }>(files: readonly T[]): { fit: T[]; tooBig: T | undefined } {
-  const tooBig = files.find((f) => f.size > UPLOAD_SESSION_MAX)
-  return { fit: tooBig ? files.filter((f) => f.size <= UPLOAD_SESSION_MAX) : [...files], tooBig }
+ * a huge file is made; `tooBig` is the first of them (named in the message), `fit` the others. `max`: a guest's own
+ * limit (lib/guests.ts myUploadMax). */
+export function splitOversize<T extends { size: number }>(files: readonly T[], max = UPLOAD_SESSION_MAX): { fit: T[]; tooBig: T | undefined } {
+  const tooBig = files.find((f) => f.size > max)
+  return { fit: tooBig ? files.filter((f) => f.size <= max) : [...files], tooBig }
 }

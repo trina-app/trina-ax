@@ -114,7 +114,7 @@ export const fail = (ko: string, en: string, id: string, ja: string, es: string,
 export const MISSING_WHISPER = () => fail(
   '받아쓰기 도구(whisper.cpp)가 서버에 없어요. 서버 맥에서 `brew install whisper-cpp`를 실행한 뒤 다시 해 주세요.',
   'The transcription tool (whisper.cpp) is not installed on the server. Run `brew install whisper-cpp` on the server Mac, then try again.',
-  'Alat transkripsi (whisper.cpp) belum terpasang di server. Jalankan `brew install whisper-cpp` di Mac server, lalu coba lagi.', "文字起こしツール（whisper.cpp）がサーバーにありません。サーバーのMacで`brew install whisper-cpp`を実行して再試行してください。", "La herramienta de transcripción (whisper.cpp) no está instalada en el servidor. Ejecute `brew install whisper-cpp` en la Mac del servidor y vuelva a intentarlo.", "服务器上没有安装转写工具（whisper.cpp）。请在服务器 Mac 上运行 `brew install whisper-cpp`，然后重试。")
+  'Alat transkripsi (whisper.cpp) belum terpasang di server. Jalankan `brew install whisper-cpp` di Mac server, lalu coba lagi.', "文字起こしツール（whisper.cpp）がサーバーにありません。サーバーのMacで`brew install whisper-cpp`を実行して再試行してください。", "La herramienta de transcripción (whisper.cpp) no está instalada en el servidor. Ejecute `brew install whisper-cpp` en el Mac del servidor y vuelva a intentarlo.", "服务器上没有安装转写工具（whisper.cpp）。请在服务器 Mac 上运行 `brew install whisper-cpp`，然后重试。")
 
 const modelSpec = (cfg: TranscribeConfig): ModelSpec => cfg.modelOverride ?? WHISPER_MODELS[cfg.model]
 

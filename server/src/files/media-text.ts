@@ -15,7 +15,7 @@ export const MEDIA_TEXT = {
     id: 'Rekaman dan video belum bisa dibuka di sini. Kalau Anda memutarnya lalu memberi tahu poin utamanya, atau menempelkan transkripnya, saya bisa merangkumnya.',
     ja: 'ここではまだ録音・動画ファイルを開けません。再生して要点を教えていただくか、書き起こしを貼り付けていただければ、まとめます。',
     es: 'Aquí todavía no se pueden abrir grabaciones ni videos. Si lo reproduce y me cuenta los puntos principales, o pega una transcripción, puedo resumirlo.',
-    zh: '这里还不能打开录音和视频文件。您可以播放后告诉我要点，或者粘贴文字稿，我来帮您整理。',
+    zh: '这里还不能打开录音和视频文件。你可以播放后告诉我要点，或者粘贴文字稿，我来帮你整理。',
   },
   /** added to `mac` when voice input works on this install */
   macVoice: {
@@ -32,7 +32,7 @@ export const MEDIA_TEXT = {
     id: 'Rekaman dan video tidak bisa dibuka di sini saat ini. Kalau Anda memutarnya lalu memberi tahu poin utamanya, atau menempelkan transkripnya, saya bisa merangkumnya. Admin juga dapat memperbaikinya.',
     ja: '現在ここでは録音・動画ファイルを開けません。再生して要点を教えていただくか、書き起こしを貼り付けていただければ、まとめます。管理者が直すこともできます。',
     es: 'Ahora mismo aquí no se pueden abrir grabaciones ni videos. Si lo reproduce y me cuenta los puntos principales, o pega una transcripción, puedo resumirlo. Un administrador también puede solucionarlo.',
-    zh: '现在这里打不开录音和视频文件。您可以播放后告诉我要点，或者粘贴文字稿，我来帮您整理。管理员也可以解决这个问题。',
+    zh: '现在这里打不开录音和视频文件。你可以播放后告诉我要点，或者粘贴文字稿，我来帮你整理。管理员也可以解决这个问题。',
   },
   /** `noTool` for an owner or admin, who can install it */
   noToolAdmin: {

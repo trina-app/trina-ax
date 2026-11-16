@@ -2,13 +2,15 @@
 // pin, and the order of the kinds' sections (docs/DECISIONS.md "Pinned conversations", "Conversations by kind under
 // Show more").
 import clsx from 'clsx'
-import { BellOff, Pin } from 'lucide-react'
+import { BellOff, Loader2, Pin } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 import type { Room } from '@mycel/shared/api'
 import { useT } from '../../i18n'
+import { uploadingIn, useRoomUploads } from '../../store/roomUploads'
 import { pinnedRooms, roomBadge, roomUnread } from '../../lib/rooms'
 import { RoomIcon, RoomName, useRoomTitle } from '../rooms/RoomIcon'
 import { RoomMenu, useRowMenu } from '../rooms/RoomMenu'
+import { CountPill } from '../CountPill'
 import { PresenceText } from '../Presence'
 import { dragRow } from './NavFolders'
 import { rowBox, rowName } from '../list/List'
@@ -46,15 +48,16 @@ export function UnreadBadge({ room, className, testId }: { room: Room; className
   const t = useT()
   const n = roomUnread(room)
   if (n <= 0) return null
-  return (
-    <span className={clsx('shrink-0 rounded-full px-1.5 text-micro font-medium', room.muted ? 'bg-hover text-muted' : 'bg-accent text-accent-ink', className)} data-testid={testId} data-muted={room.muted ? '' : undefined}>
-      <span aria-hidden>{roomBadge(room)}</span>
-      <span className="sr-only">
-        {t('rooms.unread', { n })}
-        {room.mentioned && `, ${t('rooms.mentionedYou')}`}
-      </span>
-    </span>
-  )
+  return <CountPill text={roomBadge(room)} label={`${t('rooms.unread', { n })}${room.mentioned ? `, ${t('rooms.mentionedYou')}` : ''}`} quiet={room.muted} className={className} testId={testId} data-muted={room.muted ? '' : undefined} />
+}
+
+/** A file of mine is still going up in this room (store/roomUploads.ts): its row says so while I am somewhere else, so
+ * an upload that goes on is never out of sight. */
+export function RoomUploadMark({ roomId, className }: { roomId: string; className?: string }) {
+  const t = useT()
+  const on = useRoomUploads((s) => uploadingIn(s, roomId))
+  if (!on) return null
+  return <Loader2 size={12} role="img" aria-label={t('rooms.uploadingMark')} className={clsx('shrink-0 animate-spin text-faint', className)} data-testid="room-upload-mark" />
 }
 
 /** A pinned room's mark after its name (docs/DECISIONS.md "Pinned conversations"): the AI chats' pin, named 고정됨 for
@@ -115,6 +118,7 @@ export function RoomRow({ room, onNavigate, section }: { room: Room; onNavigate:
               </>
             )}
             <RoomPinIcon room={room} className={ROW_MENU_SHOWN} />
+            <RoomUploadMark roomId={room.id} className={ROW_MENU_SHOWN} />
             <UnreadBadge room={room} className={clsx('ml-auto', ROW_MENU_SHOWN)} testId="room-unread" />
           </>
         )}

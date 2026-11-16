@@ -5,7 +5,7 @@ import { ClientKind, DEFAULT_LOCALE, GuestDetail, EngineId, IsoTime, Locale, Ok,
 import { endpoint, empty } from './endpoint'
 import { TEAM_ICON_VERSION_RE } from '../team-icon'
 import { NAME_FORBIDDEN, NAME_FORBIDDEN_FIELD } from '../name-chars'
-import { Session, UserPrefs, UserRef } from './entities'
+import { ListFolds, Session, UserPrefs, UserRef } from './entities'
 import { MyStatus } from './status-message'
 
 export const Username = z.string().min(2).max(64).regex(/^[A-Za-z0-9._@-]+$/, 'letters, digits, ".", "_", "@", "-"')
@@ -72,6 +72,9 @@ export const Me = z.object({
     /** who may make team projects (Admin > Team settings projectCreators): a member sees "팀 프로젝트" only with
      * 'members'. Absent (older server) = admins only. */
     projectCreators: z.enum(['members', 'admins']).optional(),
+    /** a guest only: the largest file they may upload anywhere, in bytes (the team's guestFileMax). Absent (a member,
+     * or an older server): each kind of upload's own limit. The server checks it either way. */
+    uploadMaxBytes: z.number().int().positive().optional(),
     /** an admin turned off "Always allow" for the team (Admin > Team settings roomAlwaysAllow): a member's own Always allow
      * on a team connection is ignored, and an Always allow or a team connection set to run without asking asks again in
      * a chat that read something from outside (server/src/integrations/connections/tools.ts gate). The connector pages
@@ -230,7 +233,7 @@ export const UpdateMeBody = z.object({
   email: z.email().nullable().optional(),
   /** engine / model null = back to the team default ("내 기본 엔진/모델"); ignored for people who may not pick */
   /** `away` is not set here (PUT /api/me/away tells the team at once); one sent is dropped */
-  prefs: UserPrefs.omit({ away: true }).extend({ textSize: TextSize.optional(), engine: EngineId.nullable().optional(), model: z.string().max(100).nullable().optional() }).optional(),
+  prefs: UserPrefs.omit({ away: true }).extend({ textSize: TextSize.optional(), engine: EngineId.nullable().optional(), model: z.string().max(100).nullable().optional(), listFolds: ListFolds.nullable().optional() }).optional(),
 })
 
 /** PUT /api/me/web-access: my "Allow all websites" for the AI's web reads. Turning it on needs the version of the risk

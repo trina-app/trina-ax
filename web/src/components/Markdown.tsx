@@ -34,6 +34,7 @@ import { useViewerItem } from './ImageViewer'
 import { teamImageItem } from '../lib/imageViewer'
 import { useDarkTheme } from '../lib/theme'
 import { keepPunctuation } from '../lib/keepPunctuation'
+import { PersonButton } from './PersonCard'
 
 const mathRemark = [remarkMath, { singleDollarTextMath: true }] as const
 const mathRehype = [rehypeKatex, { throwOnError: false, strict: false, trust: false, maxExpand: 500 }] as const
@@ -595,6 +596,13 @@ function AnswerMarkdown({ text, streaming, className, size, copyQuotes }: { text
  * answers' card that opens it in a new tab, a team file a link (TeamImagesAsLinks), anything else its words. No math
  * ("3~5$" and prices are a chat's words) and no single-tilde strike ("3~5분"); a Mermaid fence is code. */
 const COMPONENTS_PERSON: Components = {
+  // an @mention of a person (lib/messageMarkdown.ts `data-person`): the name opens their card (PersonCard.tsx); "@all",
+  // and a name the directory does not list, stay words
+  span: ({ node, className, children, ...rest }) => {
+    const id = node?.properties?.dataPerson
+    if (typeof id !== 'string') return <span className={className} {...rest}>{children}</span>
+    return <PersonButton user={{ id, name: '' }} look="mention" className={className} testId="room-mention-person">{children}</PersonButton>
+  },
   table: COMPONENTS.table,
   td: COMPONENTS.td,
   // a plain address (lib/messageMarkdown.ts) breaks after its slashes as before; a Markdown link shows its label
