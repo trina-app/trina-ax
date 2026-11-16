@@ -74,6 +74,10 @@ export function dropAlways(db: Database, userId: string, id: string): boolean {
   return n > 0
 }
 
+/** The words of a card's "Always allow" option: the usual, the skill-save card's, the room post card that offers the
+ * linked files ("Always send with the files": which of its two yeses it keeps). */
+export type AlwaysLabel = 'cardAlways' | 'cardAlwaysSkills' | 'cardAlwaysFiles'
+
 /** The value a card's "Always allow" answer carries (never one of a card's own values). */
 export const ALWAYS_VALUE = '__always'
 
@@ -81,10 +85,11 @@ export const ALWAYS_VALUE = '__always'
  * One card with "Always allow": `options` are the card's own (yes first, the no last); `yes` the value that lets the
  * call go on. On already: `yes` at once, no card. Offered: "Always allow" goes in before the last option, and picking it
  * keeps the choice and answers `yes`. Otherwise the card as it was. `ask` raises the card with the options given and
- * returns the raw answer. `label`: the option's words (a card of its own words, the skill-save card's).
+ * returns the raw answer. `label`: the option's words (a card of its own words: the skill-save card's, the room post
+ * card that offers the linked files).
  */
 export async function withAlways(p: AlwaysPlace | null | undefined, kind: CardAlwaysKind, options: { label: string; value: string }[], yes: string,
-  ask: (options: { label: string; value: string }[], extra: { buttons?: true; note?: string }) => Promise<unknown>, label: 'cardAlways' | 'cardAlwaysSkills' = 'cardAlways'): Promise<unknown> {
+  ask: (options: { label: string; value: string }[], extra: { buttons?: true; note?: string }) => Promise<unknown>, label: AlwaysLabel = 'cardAlways'): Promise<unknown> {
   const here = alwaysHere(p, kind)
   if (here === 'on') return yes
   if (here !== 'offer' || options.length < 2) return ask(options, {})

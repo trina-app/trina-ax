@@ -492,7 +492,54 @@ export async function shareAnswerToRoom(ctx: AppContext, userId: string, chat: C
   const content = redactorFor(ctx, userId).hide(message.content ?? '')
   if (message.status !== 'done' || !content.trim()) fail('conflict', tr('answerShareNotReady', locale), { params: { reason: 'answer_not_finished' } })
   const p = await prepareShare(ctx, userId, chat.id, { messageId: message.id, content }, b, locale)
-  return p.status === 'sent' ? p : await sendShare(ctx, userId, p, b, locale)
+  if (p.status === 'sent') return p
+  // the button's first press (no key yet): when what holds it back is only linked files the answer itself made, and
+  // with them attached nobody misses anything, they go as copies with no dialog (docs/decisions/
+  // 20261116-room-link-save-one-prompt.md, QA TC-3832: notes saved from the room's own link looked like "my files")
+  if (p.applies && b.confirmKey === undefined && b.confirm === undefined && !b.attach?.length) {
+    const auto = await madeHereOnly(ctx, chat.id, p)
+    if (auto) {
+      const choice = await shareChoice(ctx, userId, p, auto)
+      if (choice.people === 0) return await sendShare(ctx, userId, p, { ...b, confirmKey: choice.key, attach: [...auto] }, locale)
+    }
+  }
+  return await sendShare(ctx, userId, p, b, locale)
+}
+
+/** file_events detail keys that say a file's content came from somewhere else than the AI's own writing */
+const MADE_FROM_ELSEWHERE = ['sourcePaths', 'conflictCopyOf', 'copiedFrom', 'movedFrom', 'via', 'url', 'from', 'originalPath', 'pieces', 'pages', 'files', 'copy']
+
+/** The linked files some member cannot open, when every one of them may go as a copy and was written, as it is now, by
+ * a turn of this answer's branch (the AI made it from what the branch read, which the provenance counts); else null. */
+async function madeHereOnly(ctx: AppContext, chatId: string, p: PreparedShare): Promise<Set<string> | null> {
+  const rows = p.check.rows.filter((r) => r.unable.length > 0)
+  if (!rows.length || rows.some((r) => r.attach !== 'yes' || !r.rel)) return null
+  const branch = branchUse(ctx.db, chatId, p.messageId)
+  const turns = turnsOf(ctx.db, branch.answers)
+  // paths the branch read (the provenance leaves an attached file's own path out, by path alone)
+  const readHere = new Set(branch.files.map((f) => f.path))
+  if (!turns.length) return null
+  const out = new Set<string>()
+  for (const r of rows) {
+    const sha = await hashFile(path.join(ctx.files.fx.root, ...r.rel!.split('/'))).catch(() => null)
+    if (!sha) return null
+    // written new by this branch (a file there before, an edit of one, a copy, a move, a conflict copy, a file built from
+    // other files or fetched: never, since their content did not come from what the branch read; review of #PR)
+    const made = ctx.db.query(`SELECT e.id FROM file_events e WHERE e.path = ? AND e.sha256 = ? AND e.action = 'create' AND e.turn_id IN (${turns.map(() => '?').join(',')})
+      AND COALESCE(json_extract(e.detail, '$.tool'), '') IN ('write', 'make_file')
+      AND ${MADE_FROM_ELSEWHERE.map((k) => `json_extract(e.detail, '$.${k}') IS NULL`).join(' AND ')} ORDER BY e.id LIMIT 1`).get(r.rel!, sha, ...turns) as { id: number } | null
+    if (!made) return null
+    // nothing was at that path then: no event before it, or the last one removed the file (a delete; one there before
+    // and since removed is another file)
+    const prev = ctx.db.query("SELECT action FROM file_events WHERE path = ? AND id < ? AND action <> 'rejected' ORDER BY id DESC LIMIT 1").get(r.rel!, made.id) as { action: string } | null
+    if (prev && prev.action !== 'delete') return null
+    // a file deleted and written again at a path the branch read (review): its content may be the old file's
+    if (prev && readHere.has(r.rel!)) return null
+    // changed after it was written (an update by anyone since): not what the branch made
+    if (ctx.db.query("SELECT 1 FROM file_events WHERE path = ? AND id > ? AND (sha256 IS NULL OR sha256 <> ?) LIMIT 1").get(r.rel!, made.id, sha)) return null
+    out.add(r.rel!)
+  }
+  return out
 }
 
 /** One share, checked up to the question whether it may go: the room and me, the message it becomes (`body`, where the
