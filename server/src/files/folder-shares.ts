@@ -1,5 +1,5 @@
 // A person shares a FOLDER in their own files with teammates or groups, view only (docs/decisions/
-// 20261116-folder-share-server.md; the design: docs/AGENTS/plan/20261116-1147-folder-sharing.md; migration 359).
+// 20261116-folder-share-server.md; the design: docs/AGENTS/plan/20261116-1147-folder-sharing.md; migration 360).
 //
 // The share is a row of file_shares with kind 'folder' (the same table as a shared file: the link id, the people on it,
 // requests, notices, the trash and the account cleanup all work by the row's path already). The folder itself is

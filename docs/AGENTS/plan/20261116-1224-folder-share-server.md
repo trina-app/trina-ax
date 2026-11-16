@@ -19,7 +19,7 @@ answers as it does today.
 ## Scope
 
 In:
-- Migration 359 (additive): `file_shares.kind`, `folder_id`, `paused_at`; `file_share_undos`.
+- Migration 360 (additive; 359 is taken by another open branch): `file_shares.kind`, `folder_id`, `paused_at`; `file_share_undos`.
 - `server/src/files/share-places.ts`: places that are never shared (`neverShared`), what a receiver may see
   (`receiverSees`), the check of a path inside a shared folder.
 - `server/src/files/folder-shares.ts`: who may share, the folder's identity (`saveFolderId`; no share on a disk without
@@ -51,7 +51,7 @@ files; it replaces the "never a folder" points of the older decisions as the des
 
 ## Risks
 
-- Migration number 359 (358 is in #1118). Re-checked before merge.
+- Migration number 360 (358 is in #1118, 359 in feat/ai-share-card-and-stop-clean, 363 in feat/ai-share-who-can-open). Re-checked before merge.
 - `shares.ts` is edited by two open batches (#1109, #1111); new code is in new files, the edits there are small.
 - A disk without birth times gets no folder sharing.
 - The feature must stay unreachable while the gate is closed: tested.

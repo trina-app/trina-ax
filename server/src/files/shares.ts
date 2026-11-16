@@ -47,7 +47,7 @@ import { notificationsOf } from '../notifications/service'
 import { roomsOf } from '../rooms/service'
 import { FILE_REQUESTS_PER_HOUR, FILE_REQUESTS_PER_OWNER_DAY, FILE_SHARE_EVERYONE, FILE_SHARE_MAX, fileLinkUrl, plainLabel, type FileLink, type FileShareRow, type FileShares as FileSharesView, type InboxNotification, type Locale, type SharedBatchView, type SharedFileView, type SharedWithMe, type SharedWithMeItem, type ShareFilesBatchResult } from '@mycel/shared/api'
 
-/** `kind`, `folder_id`, `paused_at` (migration 359): a folder in a person's own files (files/folder-shares.ts) */
+/** `kind`, `folder_id`, `paused_at` (migration 360): a folder in a person's own files (files/folder-shares.ts) */
 export interface ShareRow { id: string; path: string; ino: number | null; dev: number | null; sha256: string | null; size: number | null; mtime_ms: number | null; ctime_ms: number | null; owner_id: string | null; state: 'live' | 'trashed' | 'dead'; trash_id: string | null; created_by: string; created_at: string; kind: 'file' | 'folder'; folder_id: string | null; paused_at: string | null }
 export const COLS = 'id, path, ino, dev, sha256, size, mtime_ms, ctime_ms, owner_id, state, trash_id, created_by, created_at, kind, folder_id, paused_at'
 export type Subject = { subjectType: 'user' | 'group'; subjectId: string }

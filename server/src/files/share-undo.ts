@@ -1,4 +1,4 @@
-// Undo of a removal on a shared file or folder (docs/decisions/20261116-folder-share-server.md; migration 359,
+// Undo of a removal on a shared file or folder (docs/decisions/20261116-folder-share-server.md; migration 360,
 // file_share_undos).
 //
 // Taking people off a share, or stopping it, narrows access, so it needs no confirmation; the mistake it can be is
