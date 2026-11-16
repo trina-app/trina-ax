@@ -1223,6 +1223,7 @@ export const es: Record<MessageKey, string> = {
   'projects.edit': "Editar proyecto",
   'projects.empty': "Aún no hay proyectos",
   'projects.name': "Nombre del proyecto",
+  "projects.renameNamed": "Cambiar nombre de {name}",
   'projects.kind': "Ubicación",
   'projects.kind.personal': "Personal (solo yo)",
   "projects.kind.team": "Proyecto del equipo",

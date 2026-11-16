@@ -1247,6 +1247,7 @@ export const ko = {
   'projects.edit': '프로젝트 수정',
   'projects.empty': '프로젝트가 없어요',
   'projects.name': '프로젝트 이름',
+  'projects.renameNamed': '{name} 이름 바꾸기',
   'projects.kind': '어디에 만들까요',
   'projects.kind.personal': '내 프로젝트(나만 보기)',
   "projects.kind.team": "팀 프로젝트",

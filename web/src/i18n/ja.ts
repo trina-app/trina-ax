@@ -1223,6 +1223,7 @@ export const ja: Record<MessageKey, string> = {
   'projects.edit': "プロジェクトを編集",
   'projects.empty': "プロジェクトはまだありません",
   'projects.name': "プロジェクト名",
+  "projects.renameNamed": "{name} の名前を変更",
   'projects.kind': "場所",
   'projects.kind.personal': "個人用（自分のみ）",
   "projects.kind.team": "チームプロジェクト",

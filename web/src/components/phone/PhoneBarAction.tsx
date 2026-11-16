@@ -21,18 +21,33 @@ export function PhoneBarAction({ children }: { children: ReactNode }) {
   return el ? createPortal(children, el) : null
 }
 
-const useTitle = create<{ title: string | null; set: (title: string | null) => void }>((set) => ({ title: null, set: (title) => set({ title }) }))
+/** The page's name for the bar, and what a tap on it does (`press`: null, it does nothing) */
+interface BarTitle { title: string | null; press: { label: string } | null }
+const useTitle = create<BarTitle & { set: (v: BarTitle) => void }>((set) => ({ title: null, press: null, set: (v) => set(v) }))
+/** the page's latest tap handler (kept out of the store: a new function each render would draw the bar again) */
+let pressNow: (() => void) | null = null
 
 /** The page's own name as the phone's top bar's title while it is on screen (the page's h1 then for screen readers
- * only, so the name shows once). */
-export function PhoneBarTitle({ children }: { children: string }) {
+ * only, so the name shows once). `onPress`: a tap on the name does something (a project's page: rename it, for whoever
+ * may), `pressLabel` its accessible name ("Rename Launch"). */
+export function PhoneBarTitle({ children, onPress, pressLabel }: { children: string; onPress?: () => void; pressLabel?: string }) {
   const set = useTitle((s) => s.set)
+  pressNow = onPress ?? null
+  const label = onPress ? (pressLabel ?? children) : null
   useEffect(() => {
-    set(children)
-    return () => set(null)
-  }, [children, set])
+    set({ title: children, press: label === null ? null : { label } })
+  }, [children, label, set])
+  useEffect(() => () => {
+    pressNow = null
+    set({ title: null, press: null })
+  }, [set])
   return null
 }
 
 /** The title a page gave the bar, or null. */
 export const usePhoneBarTitle = () => useTitle((s) => s.title)
+/** What a tap on the bar's title does (its accessible name and the call), or null. */
+export const usePhoneBarPress = () => {
+  const press = useTitle((s) => s.press)
+  return press ? { label: press.label, onPress: () => pressNow?.() } : null
+}
