@@ -417,7 +417,9 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // connection is final (owner 2026-11-13; docs/decisions/20261116-mail-attach-team-file.md "Sends without asking",
   // 20261116-always-allow-final-rule-a.md): no card then, with files too
   const attachAsks = !!sent.attach?.length && !b.scheduled && !!tc.files.person?.attachAsks?.(sent.attach)
-  if (allowed && !outside && (!attachAsks || ownAllow)) return false
+  // (not in a chat other members wrote in: there another member's message may have picked the file)
+  const ownCovers = ownAllow && !tc.files.person?.otherMembers?.()
+  if (allowed && !outside && (!attachAsks || ownCovers)) return false
   // the person's own connection in a scheduled run whose task's card listed it: only to the recipients it pinned (Q2 a)
   const pins = b.scheduled && row.scope === 'personal' ? pinsFor(ctx, b.turnId, row) : null
   if (pins) {
@@ -461,7 +463,7 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // content still asks (a Slack question)
   // (also on a card that shows because of attached team files where an admin's rule sends without asking: the person's
   // own choice counts there)
-  if (person.choose && freely && !ownAllow && (!allowed || attachAsks)) {
+  if (person.choose && freely && !ownCovers && (!allowed || attachAsks) && !(attachAsks && person.otherMembers?.())) {
     // the values of the yes / no card (chat/tools.ts confirmWhy: 'allow', 'deny'), so a client that answers those still works
     const v = await person.choose(question, [{ label: say('once', L), value: 'allow' }, { label: say('alwaysAllow', L), value: 'always' }, { label: say('no', L), value: 'deny' }], { details, buttons: true, note: say('alwaysNote', L, { name: row.name }) })
     if (v === 'allow') return true
