@@ -67,3 +67,56 @@ test('a team room carries its group folder for those who can open it, and no oth
   h.ctx.db.query('UPDATE groups SET folder_id = NULL WHERE id = ?').run(group.id)
   expect((await teamOf(ada.client)).groupFolder).toBeUndefined()
 })
+
+test('a folder rule or group change shows or hides the Files button live, only for whose answer changed (QA TC-3848)', async () => {
+  h = await harness('b-rooms-group-folder-live')
+  const owner = await withOwner(h)
+  const ada = await addMember(h, owner, { username: 'ada', role: 'admin' })
+  const mia = await addMember(h, owner, { username: 'mia' })
+  const nora = await addMember(h, owner, { username: 'nora' })
+  const group = await owner.call('POST', '/api/admin/groups', { name: 'leads', memberIds: [ada.id, mia.id, nora.id] })
+  const helpers = await owner.call('POST', '/api/admin/groups', { name: 'helpers', memberIds: [] })
+  const folder = (h.ctx.db.query('SELECT f.id FROM groups g JOIN folders f ON f.id = g.folder_id WHERE g.id = ?').get(group.id) as { id: string })
+  const team = ((await mia.client.call('GET', '/api/rooms')).items as any[]).find((r) => r.kind === 'team' && r.groupId === group.id)
+  expect(team.groupFolder).toBe('groups/leads')
+  const groupRule = { subjectType: 'group', subjectId: group.id, access: 'write' }
+  const noraRule = { subjectType: 'user', subjectId: nora.id, access: 'read' }
+
+  // the realtime hub sees every person as connected; the team room's room.updated events since the last look
+  const hub = new FanoutHub()
+  hub.users = [ada.id, mia.id, nora.id]
+  h.ctx.services.realtime = hub
+  const sent = () => {
+    const out = new Map<string, { groupFolder?: string }>()
+    for (const e of hub.events.splice(0)) {
+      const ev = e.data as { type: string; data: { roomId: string; room: { groupFolder?: string } | null } }
+      if (ev.type === 'room.updated' && ev.data.roomId === team.id && ev.data.room) out.set(e.target, ev.data.room)
+    }
+    return out
+  }
+
+  // the group's rule goes: mia loses the button through the live event; nora (named) and the admin keep it and are
+  // not told (nothing changed for them)
+  await owner.call('PUT', `/api/admin/folders/${folder.id}/rules`, { rules: [noraRule] })
+  let got = sent()
+  expect([...got.keys()]).toEqual([mia.id])
+  expect(got.get(mia.id)!.groupFolder).toBeUndefined()
+
+  // the rule comes back: mia gets it back, the same way
+  await owner.call('PUT', `/api/admin/folders/${folder.id}/rules`, { rules: [groupRule, noraRule] })
+  got = sent()
+  expect([...got.keys()]).toEqual([mia.id])
+  expect(got.get(mia.id)!.groupFolder).toBe('groups/leads')
+
+  // a group membership that decides it: the folder open to helpers (and nora) only; mia joins helpers and regains it
+  await owner.call('PUT', `/api/admin/folders/${folder.id}/rules`, { rules: [{ subjectType: 'group', subjectId: helpers.id, access: 'read' }, noraRule] })
+  expect(sent().get(mia.id)!.groupFolder).toBeUndefined()
+  await owner.call('PATCH', `/api/admin/groups/${helpers.id}`, { memberIds: [mia.id] })
+  got = sent()
+  expect([...got.keys()]).toEqual([mia.id])
+  expect(got.get(mia.id)!.groupFolder).toBe('groups/leads')
+
+  // bounded: a rule on a folder elsewhere sends the team room to nobody
+  await owner.call('POST', '/api/admin/folders', { path: 'shared/plans', create: true, rules: [{ subjectType: 'user', subjectId: mia.id, access: 'read' }] })
+  expect(sent().size).toBe(0)
+})

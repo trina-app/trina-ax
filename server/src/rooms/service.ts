@@ -57,7 +57,7 @@ import { countedUnreadIn } from './inbox'
 import { searchRoomFiles, searchRoomMessages, type SearchInput } from './search'
 import { tr } from '../chat/i18n'
 import { roomMentionAllIn } from '@mycel/shared/api'
-import { loadPrincipal } from '../policy/access'
+import { loadPrincipal, type Principal, type RuleSet } from '../policy/access'
 import { claimGuestRoom, guestsAmong, isGuest, sharesPlace } from '../auth/guests'
 import { afterGuestsLeft, dmPairOk } from './guest-reach'
 import { authorize, visiblePath } from '../policy/authorize'
@@ -1311,6 +1311,36 @@ export function noTeamRoom(db: Database, groupId: string) {
   const id = newId(), now = nowIso()
   db.query("INSERT INTO rooms (id, kind, group_id, created_at, activity_at, archived_at) VALUES (?, 'team', ?, ?, ?, ?)").run(id, groupId, now, now, now)
   audit(db, { actor: null, action: 'room.archive', target: id, detail: { kind: 'team', groupId, reason: 'team_group' } })
+}
+
+/**
+ * After folder access changed (admin/folders.ts afterAccessChange, after syncRoomsNow): the team rooms whose header Files
+ * button (Room.groupFolder, store.ts groupFolderFor) now shows or hides for someone send that member room.updated, each
+ * built for them, so the button follows without a reload (QA TC-3848). Bounded: only rooms whose group folder is at,
+ * under or above a folder whose access changed for someone (`changed`; a folder below it can make it listable, canList),
+ * and in those only the members whose answer differs between the two states. Never throws: the change is saved.
+ */
+export function groupFoldersChanged(ctx: AppContext, before: { principals: readonly Principal[]; rules: RuleSet }, after: { principals: readonly Principal[]; rules: RuleSet }, changed: readonly string[]) {
+  if (!changed.length) return
+  try {
+    const db = ctx.db
+    const near = (f: string, p: string) => p === '' || f === p || f.startsWith(p + '/') || p.startsWith(f + '/')
+    const rooms = (db.query("SELECT r.id, f.path FROM rooms r JOIN groups g ON g.id = r.group_id JOIN folders f ON f.id = g.folder_id WHERE r.kind = 'team' AND r.archived_at IS NULL")
+      .all() as { id: string; path: string }[]).filter((r) => changed.some((p) => near(r.path, p)))
+    if (!rooms.length) return
+    const was = new Map(before.principals.map((p) => [p.id, p])), now = new Map(after.principals.map((p) => [p.id, p]))
+    const memberIds = db.query('SELECT user_id FROM room_members WHERE room_id = ?')
+    for (const r of rooms) {
+      const segs = r.path.split('/')
+      const flipped = new Set<string>()
+      for (const { user_id } of memberIds.all(r.id) as { user_id: string }[]) {
+        const pb = was.get(user_id), pa = now.get(user_id)
+        // someone new to the team or gone from it: sync's own events (added / removed) already carry the room
+        if (pb && pa && before.rules.canList(pb, segs) !== after.rules.canList(pa, segs)) flipped.add(user_id)
+      }
+      if (flipped.size) roomsOf(ctx).roomEvent(r.id, 'updated', flipped)
+    }
+  } catch (e) { ctx.log.warn('team room folder buttons not sent', { err: e }) }
 }
 
 /** After groups, roles or accounts changed (admin/folders.ts afterAccessChange): rooms follow at once. Never throws. */
