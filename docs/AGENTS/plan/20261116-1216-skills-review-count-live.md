@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16 12:16
 - Branch: `fix/skills-review-count-live`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`server/src/skills/`, `web/src/store/live.ts`). Why: skills review is a core feature (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a fix to the count added in 20261116-0900-skills-review-tab
 
@@ -53,4 +53,11 @@ unit tests for the touched files, e2e `skills-review-tab` and `team-skills`.
 
 ## Result
 
-(at the end)
+Built as planned. The event is the quiet notice `skills_changed` (`server/src/skills/review-live.ts`); the web fires
+`skillsChanged` on it with no toast. It goes to the people who could review the row (the reviewer too, for their other
+windows), not to the suggester (their result notice already does it) and not to anyone who reviews nothing. Share
+proposals had the same gap on dismiss, on an apply that only merges, and on a move back to the team: covered.
+
+Tests: `tests/unit/skill-review-live.test.ts`, a case in `tests/unit/group-skill-shares.test.ts`, a case in
+`web/test/unit/member-contribute.test.tsx`. By hand on a private copy of the QA team (two reviewers, one elsewhere):
+the count dropped within two seconds of the other reviewer's turn-down, with no toast and no inbox entry.

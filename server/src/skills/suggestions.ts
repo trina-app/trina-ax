@@ -29,6 +29,7 @@ import { badSegment } from '../policy/names'
 import { notifySkillSuggestion } from '../notifications/service'
 import { groupOfSkillFolder, groupSkillFolders, isGroupSkillFolder, isSkillFolder, managedSkillFolders, managesSkillFolder, visibleSkillFolders } from './managers'
 import { st } from './text'
+import { tellSkillsChanged } from './review-live'
 import { checkSkill, listSkills, isSkillName, listTeamSkills, writableGroupSkillRoots, type SkillProblem } from '../chat/skills'
 import { checkShare, needsScripts, readHeader, writeSkillMd } from './share-check'
 import fs from 'node:fs'
@@ -130,6 +131,22 @@ function notify(ctx: AppContext, userId: string, code: 'skill_suggested' | 'skil
   notifySkillSuggestion(ctx, userId, code === 'skill_suggested' ? 'skill.suggested' : 'skill.reviewed', suggestionId)
 }
 
+/** A suggestion left the review list (registered or turned down by `by`): the people who could review it (reviews)
+ * read their count and lists again (review-live.ts; quiet). `r` is the row as it waited: its folder then decides who
+ * counted it. `by` too, for their other windows; not the suggester, whose result notice already does it. */
+function tellReviewers(ctx: AppContext, r: Row, by: string): void {
+  // the review is done: telling the others never fails it
+  try {
+    const rules = RuleSet.load(ctx.db)
+    const ids = (ctx.db.query("SELECT id FROM users WHERE status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((u) => u.id)
+    tellSkillsChanged(ctx, ids.filter((id) => {
+      if (id === r.suggester_id && id !== by) return false
+      const p = loadPrincipal(ctx.db, id)
+      return !!p && reviews(ctx, p, r, rules)
+    }))
+  } catch (err) { ctx.log.warn('skills changed notice failed', { err: err instanceof Error ? err.message : String(err) }) }
+}
+
 /** The actual on-disk spelling of a skills folder the person can see, or a validation error (same for hidden and
  * missing). A group's skills folder only for a member of that group; its root may not be on disk yet (the first skill
  * saved there makes it). */
@@ -206,7 +223,8 @@ export function createSuggestion(ctx: AppContext, userId: string, b: { source: {
     row.source_kind, row.source_ref, row.status, null, null, null, row.created_at, null)
   audit(ctx.db, { actor: userId, action: 'skills.suggest', target: target, detail: { suggestionId: row.id, name: row.name, source: row.source_kind } })
   for (const m of managersOf(ctx, target)) {
-    if (m.id === userId) continue
+    // a suggester who reviews this folder counts their own: their other windows follow, quietly
+    if (m.id === userId) { tellSkillsChanged(ctx, [userId]); continue }
     notify(ctx, m.id, 'skill_suggested', st('suggested', m.locale, { who: p.name, name: row.name, folder: target + '/' }), `/skills?review=${row.id}`, row.id)
   }
   return toSuggestion(ctx, row, p, RuleSet.load(ctx.db))
@@ -335,6 +353,7 @@ export function approveSuggestion(ctx: AppContext, userId: string, id: string, b
   if (!done.changes) fail('conflict', st('alreadyReviewed', locale))
   audit(ctx.db, { actor: userId, action: 'skills.suggestion_approved', target: saved!, detail: { suggestionId: r.id, suggester: r.suggester_id } })
   if (r.suggester_id !== userId) notify(ctx, r.suggester_id, 'skill_suggestion_reviewed', st('approved', localeOf(ctx, r.suggester_id), { name: b.name.trim(), path: saved! }), `/skills?mine=${r.id}`, r.id)
+  tellReviewers(ctx, r, userId)
   return toSuggestion(ctx, getRow(ctx.db, r.id)!, p, RuleSet.load(ctx.db))
 }
 
@@ -351,6 +370,7 @@ export function rejectSuggestion(ctx: AppContext, userId: string, id: string, no
     const L = localeOf(ctx, r.suggester_id)
     notify(ctx, r.suggester_id, 'skill_suggestion_reviewed', st('rejected', L, { name: r.name, note: note?.trim() ? ` (${note.trim()})` : '' }), `/skills?mine=${r.id}`, r.id)
   }
+  tellReviewers(ctx, r, userId)
   return toSuggestion(ctx, getRow(ctx.db, r.id)!, p, RuleSet.load(ctx.db))
 }
 
@@ -498,6 +518,7 @@ function approveFolder(ctx: AppContext, p: Principal, r: Row, b: { targetFolder:
     const title = folderOf(r)?.title
     notify(ctx, r.suggester_id, 'skill_suggestion_reviewed', st('approved', localeOf(ctx, r.suggester_id), { name: title || name, path: saved }), `/skills?mine=${r.id}`, r.id)
   }
+  tellReviewers(ctx, r, p.id)
   return toSuggestion(ctx, getRow(ctx.db, r.id)!, p, RuleSet.load(ctx.db))
 }
 

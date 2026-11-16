@@ -13,7 +13,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
 import { act } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
-import type { ContributedSkills, InboxNotification, ResultSuggestion as Suggestion, SkillSuggestion } from '@mycel/shared/api'
+import type { ContributedSkills, InboxNotification, ResultSuggestion as Suggestion, ServerEvent, SkillSuggestion } from '@mycel/shared/api'
 import { translate, useLocaleStore, type MessageKey } from '../../src/i18n'
 import { ResultSuggestion } from '../../src/components/onboarding/ResultSuggestion'
 import { skillHead } from '../../src/components/skills/ContributeSheet'
@@ -22,7 +22,8 @@ import { skillsLink } from '../../src/components/settings/Notifications'
 import Activity from '../../src/pages/Activity'
 import Skills, { byPerson, skillFolderWords } from '../../src/pages/Skills'
 import { useListCache } from '../../src/store/listCache'
-import { skillsChanged } from '../../src/store/live'
+import { dispatch, skillsChanged } from '../../src/store/live'
+import { useUi } from '../../src/store/ui'
 import { useSkillsWaiting } from '../../src/store/skillsWaiting'
 import { folderWords } from '../../src/lib/folderLabels'
 import { useSession } from '../../src/store/session'
@@ -533,6 +534,24 @@ describe('Skills › 검토 shows only what waits', () => {
       await act(async () => { skillsChanged.emit() })
       await m.until(() => m.get('n').textContent === '0', 'none waiting')
       expect(called('GET /api/skills/overview').length).toBe(2)
+    } finally { await m.unmount() }
+  })
+
+  test('another reviewer turned one down: the server\'s quiet skills_changed reads the count again, with no toast (QA TC-4004)', async () => {
+    useListCache.getState().reset()
+    useUi.setState({ toasts: [] })
+    signIn('owner')
+    review = [folderSuggestion('weekly-report'), folderSuggestion('notes')]
+    function Count() { return <p data-testid="n">{useSkillsWaiting()}</p> }
+    const m = await mount(<Count />)
+    try {
+      await m.until(() => m.get('n').textContent === '2', 'two waiting')
+      review = [folderSuggestion('notes'), ...decided()]
+      const ev: ServerEvent = { type: 'notice', seq: 7, at: Date.now(), data: { level: 'info', code: 'skills_changed', message: '' } }
+      await act(async () => { dispatch(ev) })
+      await m.until(() => m.get('n').textContent === '1', 'one waiting')
+      expect(called('GET /api/skills/overview').length).toBe(2)
+      expect(useUi.getState().toasts).toEqual([])
     } finally { await m.unmount() }
   })
 })

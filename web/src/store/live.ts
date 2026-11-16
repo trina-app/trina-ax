@@ -167,6 +167,12 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
         integrationsChanged.emit()
         return
       }
+      if (ev.data.code === 'skills_changed') {
+        // quiet: what waits for my review in Team skills changed by someone else's doing (another reviewer registered or
+        // turned down a suggestion, a share to my group was applied or dismissed): the count and the lists read again
+        skillsChanged.emit()
+        return
+      }
       if (ev.data.code === 'room_alerts_changed') {
         // my notification settings changed (here or on another device): every room's level and my quiet hours come with
         // the rooms list (the bell, the sound, the muted marks follow)
