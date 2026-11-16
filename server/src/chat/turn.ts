@@ -2,6 +2,7 @@ import { confidentialChat } from "../safe-ops/confidential"
 import { seesChatFiles } from './chat-files-access'
 import { ALWAYS_VALUE, alwaysHere, keepAlways, withAlways, type AlwaysPlace } from './always-allow'
 import type { CardAlwaysKind } from '@mycel/shared/api'
+import { NarrationHold, narrationScript } from './narration'
 import { safeOpsEnabled } from "../safe-ops/runner"
 // One chat turn, end to end (tab 3 "실행 관리", tab 4 "메시지 하나의 처리 순서"):
 // engine choice, session resume or a fresh session with the branch history, system prompt, tools of this turn,
@@ -433,6 +434,9 @@ export class TurnExec {
    * (integrations/connections/redact.ts); read again after each tool call (a call may refresh a token) */
   private redactorNow: Redactor | null = null
   private readonly answerText = new RedactingText(() => this.redactor())
+  /** English status lines before a tool call, held until the call decides them (chat/narration.ts); set once the
+   * person's message is read */
+  private narration = new NarrationHold(null)
   /** when the turn left the queue: how long its answer ran (ChatRuntime.longAnswerMs) */
   private readonly startedAt = performance.now()
   /** finish() runs: the cards it closes send nothing on their own (the turn's end sends the chat once) */
@@ -655,6 +659,7 @@ export class TurnExec {
     const chat = rt.store.chatRow(spec.chatId)
     const userMsg = rt.store.messageRow(spec.userMessageId)
     if (!chat || !userMsg) { this.error = engineError('crash', spec.locale); return }
+    this.narration = new NarrationHold(narrationScript(spec.locale, userMsg.content))
     if (this.oldRoomSession) { this.error = engineError('crash', spec.locale); return }
     // a shared project chat is never confidential (read-only while safe operations are on), and runs only while its
     // person still sees its project (access may have gone while the turn waited in the queue)
@@ -1533,7 +1538,8 @@ export class TurnExec {
         this.appendText(e.delta)
         return
       case 'thinking':
-        this.flushText()
+        // only what the redactor holds: a piece before a tool call stays undecided (the call decides it)
+        this.emitText(this.answerText.flush())
         if (!this.thinkingStep) this.thinkingStep = this.addStep({ kind: 'thinking', label: tr('thinking', this.spec.locale), status: 'running' })
         return
       case 'init': {
@@ -1544,6 +1550,8 @@ export class TurnExec {
       }
       case 'tool_start': {
         this.closeThinking()
+        // a status line in another script before the call is dropped here (chat/narration.ts); the main AI's calls only
+        if (!e.parentId) this.emitText(this.answerText.push(this.narration.toolStart()))
         this.flushText()
         this.attemptHadOutput = true
         this.producedOutput = true
@@ -1695,14 +1703,16 @@ export class TurnExec {
   }
 
   /** Engine text: let out (streamed and saved) through the redactor; the end that could start a secret waits. */
-  appendText(t: string) { this.emitText(this.answerText.push(t)) }
-  /** Everything held back by the redactor, let out now (before a step, a retry's separator, the end). */
-  flushText() { this.emitText(this.answerText.flush()) }
+  appendText(t: string) { this.emitText(this.answerText.push(this.narration.push(t))) }
+  /** Everything held back (an undecided piece, the redactor's end), let out now (before a step, a retry's separator,
+   * the end). */
+  flushText() { this.emitText(this.answerText.push(this.narration.flush())); this.emitText(this.answerText.flush()) }
   /** The answer so far as the engine wrote it, the part still held back included (separator checks). */
-  get writtenText(): string { return this.content + this.answerText.held }
+  get writtenText(): string { return this.content + this.answerText.held + this.narration.held }
   /** Discard the answer text from `at` on (streamed and saved), the part still held back included. */
   private discardTextFrom(at: number) {
     this.answerText.clear()
+    this.narration.clear()
     if (at >= this.content.length) return
     this.content = this.content.slice(0, at)
     this.dirty = true
@@ -3652,6 +3662,7 @@ export class TurnExec {
   /** The end state in the DB; returns the answer's status. */
   private finishState(): MessageStatus {
     this.finishStep('text', () => this.flushText())
+    if (this.narration.dropped) this.rt.log.info('status lines left out of the answer', { turn: this.id, pieces: this.narration.dropped })
     this.finishStep('held answers', () => this.dropHeldAnswers())
     // the whole answer once more: an escaped or base64 form of a secret cut across two pieces (message.done below
     // carries the saved answer, which the apps show in place of the streamed one)
