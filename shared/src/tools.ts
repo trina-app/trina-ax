@@ -392,6 +392,13 @@ export const ShareWithPersonInput = z.strictObject({
   paths: z.array(relPath).min(1).max(10).describe('The files to share (1-10): files only, never a folder. Only files the user owns and can edit.'),
   people: z.array(z.string().min(1).max(200)).min(1).max(10).describe('Who gets them: a teammate\'s or a group\'s name as the user wrote it, or person:<id> / group:<id> from the candidates a previous call gave.'),
 })
+/** stop_sharing (server/src/chat/stop-sharing.ts; docs/decisions/20261116-ai-share-card-and-stop.md): take people or
+ * groups off files that were shared one by one. Only narrows. Names as the user wrote them, matched among the people
+ * already on the files. */
+export const StopSharingInput = z.strictObject({
+  paths: z.array(relPath).min(1).max(10).describe('The files to stop sharing (1-10): files the user owns, or team files for an admin.'),
+  people: z.array(z.string().min(1).max(200)).min(1).max(10).optional().describe('Who loses access: a teammate\'s or a group\'s name as the user wrote it, or person:<id> / group:<id> from the candidates a previous call gave. Leave it out to stop sharing the files with everyone they were shared with.'),
+})
 /** change_project_members in a person's own chat (server/src/chat/project-members.ts): people and groups added to or
  * removed from a team project after their yes on the server's card. Names as the user wrote them; an id only from the
  * candidates the tool gave back for that name. */
@@ -449,6 +456,7 @@ export const OTHER_TOOLS = {
   save_room_file: { input: SaveRoomFileInput, output: TextOutput },
   post_to_room: { input: PostToRoomInput, output: TextOutput },
   share_with_person: { input: ShareWithPersonInput, output: TextOutput },
+  stop_sharing: { input: StopSharingInput, output: TextOutput },
   change_project_members: { input: ChangeProjectMembersInput, output: TextOutput },
 } as const
 

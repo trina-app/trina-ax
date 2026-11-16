@@ -159,7 +159,7 @@ export class ChatStore {
     // a shared chat: a label names its paths only for a viewer who may see every one of them (else the words alone)
     const steps: Step[] = stored.map((s) => {
       if (earlier) {
-        const { sv: _sv, detail: _d, sources: _s, images: _i, devEnvRun: _r, posted: _p, tool, ...rest } = s
+        const { sv: _sv, detail: _d, sources: _s, images: _i, devEnvRun: _r, posted: _p, shared: _sh, tool, ...rest } = s
         return { ...rest, ...(tool && knownStepTool(tool) ? { tool } : {}), label: stepWords(s, view!.locale ?? 'en') }
       }
       if (!s.sv) return s
@@ -175,8 +175,9 @@ export class ChatStore {
     if (view && !view.runner) for (let i = 0; i < steps.length; i++) {
       const st = steps[i]!
       // (share_with_person too: who got which files is the runner's: chat/shared-actions.ts)
-      if (st.tool === 'post_to_room' || st.tool === 'share_with_person') { const { detail: _d, posted: _p, ...rest } = st; steps[i] = { ...rest, label: stepWords(st, view.locale ?? 'en') }; continue }
-      if (st.detail !== undefined || st.posted !== undefined) { const { detail: _d, posted: _p, ...rest } = st; steps[i] = rest }
+      // (the record of a share or a stop, Step.shared, names files, places and people: the runner's card alone)
+      if (st.tool === 'post_to_room' || st.tool === 'share_with_person' || st.tool === 'stop_sharing') { const { detail: _d, posted: _p, shared: _sh, ...rest } = st; steps[i] = { ...rest, label: stepWords(st, view.locale ?? 'en') }; continue }
+      if (st.detail !== undefined || st.posted !== undefined || st.shared !== undefined) { const { detail: _d, posted: _p, shared: _sh, ...rest } = st; steps[i] = rest }
     }
     if (!steps.some((s) => s.tool === 'attachment')) return steps
     const owner = view?.viewer ?? (this.db.query('SELECT user_id FROM chats WHERE id = ?').get(r.chat_id) as { user_id: string } | null)?.user_id

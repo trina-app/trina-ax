@@ -88,10 +88,11 @@ function LinkPage() {
         <Link to="/files?view=trash" className="font-medium text-accent-text underline" data-testid="file-link-open-trash">{t('fileLink.openTrash')}</Link>
       </Centered>
     )
-  if (view.status === 'no_access' && view.canAsk) return <AskAccess id={id} askedAt={view.askedAt} />
+  if (view.status === 'no_access' && view.canAsk) return <AskAccess id={id} askedAt={view.askedAt} stoppedBy={view.stoppedBy} />
   return (
     <Centered testId="file-link-closed" state={view.status}>
       <Lock size={28} className="text-faint" aria-hidden />
+      {view.status === 'no_access' && view.stoppedBy && <p className="text-title-sm font-semibold text-ink" data-testid="file-link-stopped">{t('fileLink.stoppedBy', { name: view.stoppedBy })}</p>}
       <p className="text-sm break-keep text-muted" data-testid="file-link-closed-line">{t(view.status === 'unknown' ? 'fileLink.unknown' : 'fileLink.cantAsk')}</p>
     </Centered>
   )
@@ -108,7 +109,7 @@ function Centered({ children, testId, state }: { children: ReactNode; testId?: s
   )
 }
 
-function AskAccess({ id, askedAt: asked }: { id: string; askedAt: string | null }) {
+function AskAccess({ id, askedAt: asked, stoppedBy }: { id: string; askedAt: string | null; stoppedBy?: string }) {
   const t = useT()
   const locale = useLocale()
   const [note, setNote] = useState('')
@@ -133,7 +134,8 @@ function AskAccess({ id, askedAt: asked }: { id: string; askedAt: string | null 
   return (
     <Centered testId="file-link-ask">
       <Lock size={28} className="text-faint" aria-hidden />
-      <p className="text-title-sm font-semibold text-ink">{t('fileLink.needAccess')}</p>
+      {/* someone took the viewer off this file: who (nothing about the file); asking again stays possible */}
+      <p className="text-title-sm font-semibold text-ink" data-testid={stoppedBy ? 'file-link-stopped' : undefined}>{stoppedBy ? t('fileLink.stoppedBy', { name: stoppedBy }) : t('fileLink.needAccess')}</p>
       {askedAt ? (
         <p role="status" className="text-sm break-keep text-muted" data-testid={sent ? 'file-link-sent' : 'file-link-waiting'}>
           {sent ? t('fileLink.sent') : t('fileLink.asked', { date: formatDate(askedAt, locale) })}

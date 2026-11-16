@@ -95,7 +95,6 @@ export const SHARE_NO = {
 
 /** The note of a share where nobody new got access (everyone named could already open every file): said, not refused. */
 export const SHARE_ALREADY_NOTE = 'Nobody new got access: the people named could already open these files. This is not a refusal: say in one sentence that they can already open them, and give the links.'
-export const SHARE_DONE_NOTE = 'Shared, view only. Reply with these links as Markdown links; the link opens only for the people it was shared with and those who could already open the file.'
 
 /** post_to_room's refusals that got a next step. `ref`, `who`: one line, capped, tags neutralized. */
 export const POST_NO = {

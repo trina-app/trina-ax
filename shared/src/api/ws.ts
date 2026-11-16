@@ -23,6 +23,7 @@ import { SkillProblem } from './skills'
 import { Room, RoomMessage, RoomReaction, RoomThreadSummary } from './rooms'
 import { DeckBuild } from './intro-deck'
 import { PresenceState, WindowActivity } from './people'
+import { ShareCardAsk } from './share-card'
 
 export const WS_PATH = '/api/ws'
 export const WS_PING_INTERVAL_MS = 20_000
@@ -173,6 +174,9 @@ export const AskUserRequest = z.object({
   buttons: z.literal(true).optional(),
   /** a server check: one line under its buttons, what a choice covers */
   note: z.string().max(300).optional(),
+  /** a server check before files are shared or a share is stopped (api/share-card.ts): the files and people as rows.
+   * The card shows these in place of `question` and `details`, and turns into the result (`Step.shared`) */
+  share: ShareCardAsk.optional(),
 })
 /** browser wants to open an office-network (private) address: ask once / always / deny */
 export const BrowserSiteRequest = z.object({ kind: z.literal('browser_site'), requestId: z.string(), url: z.string(), host: z.string(), reason: z.string().optional() })

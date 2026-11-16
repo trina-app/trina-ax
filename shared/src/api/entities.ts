@@ -2,6 +2,7 @@
 // not raw rows. Server code maps rows -> these shapes; clients only ever see these.
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
+import { StepShared } from './share-card'
 import { Access, ApiErrorBody, ClientKind, EngineId, IsoTime, Locale, GuestDetail, GuestPlace, RelPath, Role, TeamRole, TextSize, Theme, UserStatus } from './common'
 
 // ---------------- people ----------------
@@ -395,6 +396,9 @@ export const Step = z.object({
   /** a post_to_room step that posted (server/src/chat/post-to-room.ts): where the message went, for the step's 보기 (the
    * room at the message, or the thread at the reply), as the button's sent line has it */
   posted: z.object({ roomId: Uuid7, messageId: Uuid7, threadRootId: Uuid7.optional() }).optional(),
+  /** a share_with_person or stop_sharing step: what it did, for its card (api/share-card.ts). Only for the person whose
+   * turn it was; absent for every other viewer of a shared chat */
+  shared: StepShared.optional(),
   /** screenshot shared from the browser pane / images the AI shows: served via /api/files/download */
   images: z.array(z.object({ path: RelPath, alt: z.string().optional() })).max(20).optional(),
   /** a step a sub-agent took: the id of its sub-task step (tool 'agent'). Apps without this field show it in the flat

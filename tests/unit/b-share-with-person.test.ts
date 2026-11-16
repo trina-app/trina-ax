@@ -1,7 +1,8 @@
 // share_with_person (server/src/chat/share-with-person.ts; docs/DECISIONS.md "A member shares their own files", QA
 // TC-3093): the AI shares the asker's own files with a teammate, view only, after their yes on one server card (it offers
 // "Always allow" on its first showing, kind share_files; docs/decisions/20261116-always-allow-more-cards.md, QA TC-3809),
-// then replies with the /f/<id> links. In a shared chat: the same rules as
+// then the step keeps what was done for its card (Step.shared: link ids, names, places; the AI gets no links and says
+// one sentence: docs/decisions/20261116-ai-share-card-and-stop.md). In a shared chat: the same rules as
 // post_to_room (chat/shared-actions.ts: the person whose turn it is acts, the card is theirs alone), plus one: a file
 // must be one the asker named, attached or the AI made in this turn, so another member's message cannot pick it.
 // The fixture team: alice and erin in marketing, bob in finance, carol admin, dana owner (b-harness people), tess added.
@@ -56,6 +57,8 @@ async function turn(user: string, content: string, o: { chat?: string; answer?: 
   const done = await socks[user]!.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 30_000)
   return { chatId, turnId: r.turnId as string, answerId: r.assistantMessage.id as string, content: done.data.message.content as string, card }
 }
+/** the share step's record (Step.shared) of an answer, as `user` gets it */
+const sharedOf = async (user: string, chatId: string, answerId: string) => (await h.api(user).call(API.listMessages, { params: { id: chatId }, query: {} })).items.find((x) => x.id === answerId)!.steps!.find((s) => s.tool === 'share_with_person')!.shared
 const opens = (user: string, id: string) => fileSharesOf(h.ctx).open(user, id).kind
 const cardsTo = (user: string, turnId: string) => socks[user]!.frames.filter((f) => f.type === 'turn.request' && (f as { data: { turnId?: string } }).data.turnId === turnId).length
 
@@ -71,8 +74,19 @@ describe('in my own chat', () => {
     expect(r.card!.details!.map((d) => d.text)).toEqual(['내 폴더 › photo-1.png'])
     const out = JSON.parse(r.content)
     expect(out.status).toBe('shared')
-    expect(out.links[0].url).toMatch(/^\/f\/[A-Za-z0-9_-]{22}$/)
-    const id = out.links[0].url.slice(3)
+    // no links for the AI: the card under the answer has them (one short sentence, nothing repeated)
+    expect(out.links).toBeUndefined()
+    expect(out.note).toContain('one short sentence')
+    const rec = (await sharedOf('bob', r.chatId, r.answerId))!
+    expect(rec).toMatchObject({ op: 'share', outcome: 'done', level: 'view', who: [{ subjectType: 'user', subjectId: 'tess', name: 'Tess Yoon' }], notified: ['tess'] })
+    expect(rec.files).toHaveLength(1)
+    expect(rec.files[0]).toMatchObject({ name: 'photo-1.png' })
+    // the place in words, never a path; the owner only when it is not the asker
+    expect(rec.files[0]!.place).not.toContain('users/')
+    expect(rec.owner).toBeUndefined()
+    // the confirm card carries the same rows
+    expect((r.card as unknown as { share: { op: string; files: { name: string }[]; who: { name: string }[] } }).share).toMatchObject({ op: 'share', files: [{ name: 'photo-1.png' }], who: [{ name: 'Tess Yoon' }] })
+    const id = rec.files[0]!.linkId!
     expect(opens('tess', id)).toBe('open')
     expect(opens('alice', id)).toBe('no_access')
     const a = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'file.share' AND actor_id = 'bob' ORDER BY id DESC").get() as { detail: string }
@@ -92,7 +106,7 @@ describe('in my own chat', () => {
       expect(cardsTo('bob', next.turnId)).toBe(0)
       const out = JSON.parse(next.content)
       expect(out.status).toBe('shared')
-      expect(opens('tess', out.links[0].url.slice(3))).toBe('open')
+      expect(opens('tess', (await sharedOf('bob', next.chatId, next.answerId))!.files[0]!.linkId!)).toBe('open')
       // the checks still run without the card: someone else's file is refused
       put('shared/alices-2.txt', 'a')
       h.ctx.db.query("INSERT INTO file_events (turn_id, user_id, path, action) VALUES (NULL, 'alice', 'shared/alices-2.txt', 'create')").run()
@@ -110,7 +124,7 @@ describe('in my own chat', () => {
     expect(cardsTo('bob', r.turnId)).toBe(0)
     const out = JSON.parse(r.content)
     expect(out.status).toBe('shared')
-    expect(opens('tess', out.links[0].url.slice(3))).toBe('open')
+    expect(opens('tess', (await sharedOf('bob', r.chatId, r.answerId))!.files[0]!.linkId!)).toBe('open')
     // a file I did not name: the card
     put('users/bob/other-file.txt', 'x')
     const c = await turn('bob', `tess한테 공유해줘\n${share({ paths: ['users/bob/other-file.txt'], people: ['Tess Yoon'] })}`, { answer: 'no' })
@@ -141,6 +155,23 @@ describe('in my own chat', () => {
       expect(r.content).toContain(says)
     }
   })
+
+  test('a refusal is a record for the card: someone else\'s file names its owner and the next step; the team switch off says so', async () => {
+    // someone else's file: whose it is, its link and "ask the owner" as data (the app's button comes from it)
+    const other = await turn('bob', share({ paths: ['shared/alices.txt'], people: ['Tess Yoon'] }))
+    expect(other.content).toContain('one short sentence')
+    const rec = (await sharedOf('bob', other.chatId, other.answerId))!
+    expect(rec).toMatchObject({ op: 'share', outcome: 'refused', files: [], who: [], refusal: { reason: 'not_owner', file: 'alices.txt', owner: 'Alice Kim' }, next: { kind: 'ask_owner', userId: 'alice', name: 'Alice Kim' } })
+    expect(rec.next!.linkId).toMatch(/^[A-Za-z0-9_-]{22}$/)
+    expect(rec.failed![0]!.place).not.toContain('shared/')
+    // the team turned members' sharing off: the reason, and "ask an admin"
+    const { updateTeamSettings } = await import('../../server/src/admin/settings')
+    updateTeamSettings(h.ctx.db, { memberFileShares: false })
+    try {
+      const off = await turn('bob', share({ paths: ['users/bob/photo-1.png'], people: ['Tess Yoon'] }))
+      expect((await sharedOf('bob', off.chatId, off.answerId))!).toMatchObject({ outcome: 'refused', refusal: { reason: 'switched_off', file: 'photo-1.png' }, next: { kind: 'ask_admin' } })
+    } finally { updateTeamSettings(h.ctx.db, { memberFileShares: true }) }
+  })
 })
 
 describe('in a shared chat (the same rules as post_to_room)', () => {
@@ -161,11 +192,16 @@ describe('in a shared chat (the same rules as post_to_room)', () => {
     expect(cardsTo('alice', r.turnId)).toBe(0)
     const out = JSON.parse(r.content)
     expect(out.status).toBe('shared')
-    expect(out.links).toHaveLength(2)
-    // alice sees the step's verb alone, never who got which files
+    expect(out.files).toBe(2)
+    // bob (the asker) gets the record: one card for both files
+    expect((await sharedOf('bob', chatId, r.answerId))!.files.map((f) => f.name)).toEqual(['photo-1.png', 'photo-2.png'])
+    // alice sees the step's verb alone, never who got which files: no record, no name anywhere in the step
     const seen = (await h.api('alice').call(API.listMessages, { params: { id: chatId }, query: {} })).items.find((x) => x.id === r.answerId)!
     const step = seen.steps!.find((s) => s.tool === 'share_with_person')!
     expect(step.label).not.toContain('Tess')
+    expect(step.shared).toBeUndefined()
+    expect(JSON.stringify(step)).not.toContain('Tess')
+    expect(JSON.stringify(step)).not.toContain('photo-1')
   })
 
   test('another member\'s message cannot pick the asker\'s files: refused before any card', async () => {

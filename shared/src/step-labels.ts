@@ -78,6 +78,7 @@ export const FILE_STEP_VERB: Record<string, T> = {
   post_to_room: t('대화에 보내기', 'Send to conversation', 'Kirim ke percakapan', 'トークに送る', 'Enviar a la conversación', "发送到聊天"),
   // the AI shares the person's own files with teammates after their yes on its card (server/src/chat/share-with-person.ts)
   share_with_person: t('파일 공유', 'Share files', 'Bagikan berkas', 'ファイルを共有', 'Compartir archivos', '共享文件'),
+  stop_sharing: t('공유 중지', 'Stop sharing', 'Berhenti membagikan', '共有を停止', 'Dejar de compartir', '停止共享'),
   // the AI changes a team project's members after the person's yes on its card (server/src/chat/project-members.ts):
   // "프로젝트 멤버 바꾸기 · 견적"
   change_project_members: t('프로젝트 멤버 바꾸기', 'Change project members', 'Ubah anggota proyek', 'プロジェクトのメンバーを変更', 'Cambiar miembros del proyecto', "更改项目成员"),

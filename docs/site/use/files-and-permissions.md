@@ -74,11 +74,20 @@ You can share a file you own with chosen people, without changing who can open i
   person gets one notice in **Activity**, "Mina shared 5 files with you", which opens the list of those files. A
   person you add by name also gets a phone notification (**Settings › Notifications › File sharing** turns these off).
 - **People with access** lists the owner and each person or group with **Can view**. **✕** removes someone's access (asked first).
+  The file's owner can always remove people, also while member sharing is turned off for the team.
+- Someone you removed sees "Mina stopped sharing this file" when they open the file's link, and can ask for access
+  again. They get no notice about it.
+- You can also ask Trina in a chat: "share the quote with Jun", or "stop sharing the quote with Jun". A card under the
+  answer says what changed: the file and where it is, who can view it, and one button. After a share the button is
+  **Manage access**, which opens this dialog. After a stop it is **Undo**, and the card says who can still open the
+  file and why (for example through a group it is still shared with, or because they can open its folder). Trina asks
+  first before it shares a file, unless your message named the file and the person. Stopping needs no question when
+  your message named them.
 - A team file also opens for everyone who can open its folder.
 - **Copy link** gives the file's own link. People with access open it; anyone else sees **You need access** and can **Ask for access** with a note. The request comes to the owner in **Activity** with **Share** and **Decline**, and as a phone notification. The link page never shows the file's name to someone who can't open it.
 - Moving a file somewhere fewer people can open says how many people have it by its link.
 
-Owners and admins can share any team file. In **Admin › Team settings**, **Members can share files they own** turns sharing off for members (shares already made keep working). The team owner can **Remove all file shares** there at once.
+Owners and admins can share any team file. In **Admin › Team settings**, **Members can share files they own** turns sharing off for members (shares already made keep working, and their owner can still stop them). The team owner can **Remove all file shares** there at once.
 
 ### Files shared with you
 

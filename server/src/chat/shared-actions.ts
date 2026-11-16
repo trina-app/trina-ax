@@ -162,6 +162,9 @@ export const WRITE_ASK = re([`(\\uBC14\\uAFD4|\\uACE0\\uCCD0|\\uB123\\uC5B4|\\uB
 /** "don't" in the person's words: -지 마 / -지 말 / 하지 않, 안 해, don't, do not, never, jangan, no … */
 const ASK_NOT = re(['\\uC9C0\\s?\\uB9C8', '\\uC9C0\\s?\\uB9D0', '\\uC9C0\\s?\\uC54A', "\\b(don'?t|do not|never|jangan)\\b"])
 
+/** The person's words say "don't" (a narrowing action that needs no request verb reads this alone: chat/stop-sharing.ts). */
+export const saysDont = (said: string): boolean => ASK_NOT.test(said)
+
 /** The asker's own words of this turn without quoted lines (a quote is someone else's words). */
 export function ownWords(said: string): string {
   return said.split('\n').filter((l) => !/^\s*>/.test(l)).join('\n')
