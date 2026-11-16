@@ -239,6 +239,16 @@ you updated it.
 - Office mode (Mac) does the same with its own update agent. A hosted tenant does only the run after each start (the
   hosted service's update restarts it), from its own feed; its owner sees the result in Diagnostics.
 
+## Memory limit of the server
+
+The server unit (`<id>-server.service`) may use at most 75% of the machine's memory, without swap
+(`MemoryMax=75%`, `MemorySwapMax=0`). It is a safety net: if the server ever keeps memory it should have given back,
+the kernel ends it at that limit and it starts again within seconds, instead of the whole machine running out of memory
+and hanging. Normal use stays well below it (uploads, document converters and printing have their own smaller limits).
+The update that brings this changes the unit: it is a root update (the update timer, or `sudo mycel-ctl update`), and
+the limit applies once the server restarts. A hosted plan sets its own server limit, which wins. To check:
+`systemctl show <id>-server -p MemoryMax`.
+
 ## Safe PowerPoint (safe operations 1A, optional)
 
 Confidential-document PowerPoint ([SAFE-OPS-1A](SAFE-OPS-1A.md)) is off by default:
