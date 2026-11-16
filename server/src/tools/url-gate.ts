@@ -268,24 +268,29 @@ function originOf(db: Database, chatId: string | null, url: string, person: Turn
     if (c && usable(db, o.userId).some((r) => r.id === c.integrationId)) return { origin: c.echo ? 'echo' : 'learned', row, conn: c }
   }
   if (!chatId) return null
-  // a room's ✦ side chat: the addresses in that room's messages the person sees are links of this conversation, learned
-  // like a page's links (within the link budget; docs/decisions/20261116-room-link-save-one-prompt.md, QA TC-3831)
-  const room = sideRoomUrls(db, chatId, o.userId)
-  // an address a service or a page may have built from what the AI sent (a room app's post echoing it) asks, as a
-  // page's links do (tools/connection-urls.ts)
-  const roomOrigin = (u: string): Origin => ({ origin: webEcho(db, chatId)(u) ? 'echo' : 'learned', row })
-  if (room.has(url)) return roomOrigin(url)
   // the same address with only tracking parts left out (?utm_…, a trailing slash): what the AI asks for carries
-  // nothing the known address did not, so it is that address (typed, allowed here, or a room's)
-  const typed = typedUrls(db, chatId, o.userId)
-  for (const k of typed) if (sameLink(url, k)) return { origin: 'typed', row }
-  if (!sharedChat(db, chatId)) {
-    for (const r of db.query("SELECT url FROM chat_seen_urls WHERE chat_id = ? AND source = 'allowed' LIMIT 500").all(chatId) as { url: string }[]) {
-      if (sameLink(url, r.url)) return { origin: 'allowed', row }
-    }
+  // nothing the known address did not, so it is that address (typed, or one this chat saw: allowed here, a page's or a
+  // room's link, with its echo mark; docs/decisions/20261116-room-link-save-one-prompt.md, QA TC-3831)
+  for (const k of typedUrls(db, chatId, o.userId)) if (sameLink(url, k)) return { origin: 'typed', row }
+  const shared = sharedChat(db, chatId)
+  const u = new URL(url)
+  const prefix = `${u.origin}${u.pathname.replace(/\/+$/, '')}`
+  for (const r of db.query("SELECT url, source, free_turn_id, echo FROM chat_seen_urls WHERE chat_id = ? AND url >= ? AND url < ? LIMIT 200").all(chatId, prefix, `${prefix}\uffff`) as (SeenRow & { url: string })[]) {
+    if (!sameLink(url, r.url)) continue
+    if (r.source === 'allowed') return shared ? { origin: 'learned', row: r } : { origin: 'allowed', row: r }
+    return { origin: r.echo ? 'echo' : 'learned', row: r }
   }
-  for (const k of room) if (sameLink(url, k)) return roomOrigin(k)
   return null
+}
+
+/** room_read gave the AI a room's messages: in a room's ✦ side chat, the links in its own room's messages the person
+ * sees (sideRoomUrls) become links of this conversation, as a fetched page's links do (learned, within the link
+ * budget), each marked as an echo when it holds what the AI had sent to a tool of this chat by now. */
+export function noteRoomLinks(db: Database, chatId: string, userId: string, text: string): void {
+  const room = sideRoomUrls(db, chatId, userId)
+  if (!room.size) return
+  const urls = extractUrls(text, MAX_SEEN_PER_FETCH).filter((x) => room.has(x))
+  if (urls.length) rememberUrls(db, chatId, urls, 'fetched', webEcho(db, chatId))
 }
 
 /** Query keys that only say where a click came from (UTM and the ad networks' click ids): an address without them

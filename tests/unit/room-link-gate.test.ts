@@ -6,7 +6,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, uuidv7 } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
-import { gateUrl, rememberUrls, sameLink, type TurnPerson } from '../../server/src/tools/url-gate'
+import { recordSent } from '../../server/src/tools/connection-urls'
+import { gateUrl, noteRoomLinks, rememberUrls, sameLink, type TurnPerson } from '../../server/src/tools/url-gate'
 
 setDefaultTimeout(60_000)
 let h: Harness
@@ -18,10 +19,15 @@ const BARE = 'https://notes.example/s/8LdgbR8hDYo2hLjRhVXF'
 function person(asked: string[], answer = false): TurnPerson {
   return { locale: 'en', async confirm(q) { asked.push(q); return answer }, turnUrls: () => [] }
 }
-async function sideChatWithLink(text: string) {
+/** bob posts `text` in a 1:1 room with alice; alice's side chat of it reads the room (room_read: noteRoomLinks with what
+ * it gave the AI). `before`: done to the room's rows before the read */
+async function sideChatWithLink(text: string, before?: (room: string) => void) {
   const room = (await h.api('alice').call(API.createRoom, { body: { kind: 'dm', userId: 'bob' } })).id
   await h.api('bob').call(API.sendRoomMessage, { params: { id: room }, body: { body: text, mentions: [], clientMessageId: uuidv7(), fileIds: [] } })
-  return { room, chat: (await h.api('alice').call(API.createChat, { body: { sideRoomId: room } })).id as string }
+  const chat = (await h.api('alice').call(API.createChat, { body: { sideRoomId: room } })).id as string
+  before?.(room)
+  noteRoomLinks(h.ctx.db, chat, 'alice', text)
+  return { room, chat }
 }
 const gate = (chat: string, url: string, p: TurnPerson, user = 'alice') => gateUrl(h.ctx.db, chat, url, p, { egressKnown: true, turnId: `t-${uuidv7()}`, userId: user })
 
@@ -59,18 +65,33 @@ describe('the side chat of the room the link was posted in', () => {
     const asked: string[] = []
     await expect(gate(own, LINK, person(asked))).rejects.toThrow(/did not allow/)
     expect(asked).toHaveLength(1)
-    // the chat is alice's: bob's turn there (not its person) has no room links
+    // read in another person's side chat (alice's chat, bob reading): nothing is noted
+    const other = (await h.api('alice').call(API.createChat, { body: {} })).id
+    noteRoomLinks(h.ctx.db, other, 'bob', `notes ${LINK}`)
     const b: string[] = []
-    await expect(gate(chat, LINK, person(b), 'bob')).rejects.toThrow(/did not allow/)
+    await expect(gate(other, LINK, person(b))).rejects.toThrow(/did not allow/)
   })
 })
 
 describe('what of the room does not count (review)', () => {
   test('a link in an answer shared from an AI chat (its text is the AI\'s) asks', async () => {
-    const { room, chat } = await sideChatWithLink(`answer ${LINK}`)
-    h.ctx.db.query('UPDATE room_messages SET answer_at = 0 WHERE room_id = ?').run(room)
+    const { chat } = await sideChatWithLink(`answer ${LINK}`, (room) => h.ctx.db.query('UPDATE room_messages SET answer_at = 0 WHERE room_id = ?').run(room))
     const asked: string[] = []
     await expect(gate(chat, LINK, person(asked))).rejects.toThrow(/did not allow/)
+    expect(asked).toHaveLength(1)
+  })
+})
+
+describe('an echo in the room asks', () => {
+  test('a room link holding what the AI had sent to a tool of this chat (a room app posting it back) asks', async () => {
+    const room = (await h.api('alice').call(API.createRoom, { body: { kind: 'dm', userId: 'bob' } })).id
+    const chat = (await h.api('alice').call(API.createChat, { body: { sideRoomId: room } })).id as string
+    recordSent(h.ctx.db, chat, { body: 'customer list token Zq8xLm3Np7Rt5Vw2Ky9B' })
+    const echo = 'https://collect.example/i?d=Zq8xLm3Np7Rt5Vw2Ky9B'
+    await h.api('bob').call(API.sendRoomMessage, { params: { id: room }, body: { body: `form ${echo}`, mentions: [], clientMessageId: uuidv7(), fileIds: [] } })
+    noteRoomLinks(h.ctx.db, chat, 'alice', `form ${echo}`)
+    const asked: string[] = []
+    await expect(gate(chat, echo, person(asked))).rejects.toThrow(/did not allow/)
     expect(asked).toHaveLength(1)
   })
 })

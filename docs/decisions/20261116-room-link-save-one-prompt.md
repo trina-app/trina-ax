@@ -17,12 +17,13 @@
   - after a room read every change waits for the room card, also the save the person had just asked for;
   - the notes were saved into the person's own folder, so the answer's link was a file 4 people could not open.
 - **What changes:**
-  - **The side chat's room counts as this conversation (url-gate.ts `sideRoomUrls`).** Addresses in the messages of the
-    room a ✦ side chat belongs to are learned links: they open without a card within the link budget, as a page's links
-    do. Only messages the person sees there (rooms/store.ts SEE_SQL: from when they see the room, no hidden answer)
-    and written by people: not the room AI's messages nor answers shared from an AI chat, whose text a hidden
-    instruction may have filled with an address that carries data. They are other people's words, so they are not
-    "typed": the budget applies, and an address that holds what the AI sent asks (the echo rule, webEcho).
+  - **The side chat's room counts as this conversation (url-gate.ts `noteRoomLinks`, called by room_read).** When
+    room_read gives the AI messages of the room a ✦ side chat belongs to, the links in them become links of this
+    conversation, as a fetched page's links do: learned, within the link budget, and marked as an echo when they hold
+    what the AI had sent to a tool of this chat by then (a room app posting it back: always a card). Only messages the
+    person sees there (rooms/store.ts SEE_SQL: from when they see the room, no hidden answer) and written by people:
+    not the room AI's messages nor answers shared from an AI chat, whose text a hidden instruction may have filled with
+    an address that carries data. They are other people's words, so they are never "typed".
   - **Tracking parts do not make another address (`sameLink`).** An address that is a typed, allowed-here or room
     address with only tracking query parts left out (`utm_*`, `fbclid`, `gclid`, `msclkid` and the like) or a trailing
     slash is that address. Never the other way round: a part the known address does not have still asks, since it
