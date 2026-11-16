@@ -22,9 +22,7 @@ import { atLeast, loadPrincipal, type RuleSet } from '../policy/access'
 import { authorize, type FsCtx } from '../policy/authorize'
 import { ToolError } from '../policy/errors'
 import { refusal } from '../policy/refusal'
-import { verifyChain } from '../policy/resolve'
-import { fileEvent } from '../files/store'
-import { publishChanges } from '../team-files/changes'
+import { componentC } from '../team-files/component'
 import { inSkills } from '../skills/guard'
 import { readersOf } from '../rooms/ai-grants'
 import { memberRow, roomRow } from '../rooms/store'
@@ -38,8 +36,9 @@ export const scopeKey = (s: ScopeSource): string => (s.type === 'root' ? 'root' 
 /** A personal connection a run may send to, and only to these recipients. */
 export interface PersonalSend { connectionId: string; pins: string[] }
 /** What the card showed about the save folder. `create`: the folder is not there yet; the card says it will be made, and
- * it is made on the person's yes (makeSaveFolder), which records its identity (folderId is '' until then). */
-export interface SaveFolder { folder: string; folderId: string; rule: string; readers: number; create?: boolean }
+ * it is made on the person's yes (makeSaveFolder), which records its identity (folderId is '' until then). `parent`: the
+ * nearest folder that exists (how many levels of the path, and its identity), which must be unchanged on the yes. */
+export interface SaveFolder { folder: string; folderId: string; rule: string; readers: number; create?: boolean; parent?: { levels: number; id: string } }
 /** Why a save permission stopped: the folder is not the one on the card (moved, renamed, deleted), the folder rules on
  * the way to it changed, or the person may no longer write there. */
 export type SaveLapse = 'folder' | 'rules' | 'access'
@@ -107,7 +106,8 @@ const BLOCK_TEXT: Record<NonNullable<ReturnType<typeof saveFolderBlock>>, string
  * blocked; at most MAX_HINTS, by name) and that a new one may be named too. Nothing for the team root or groups/
  * (what is inside them is still a top folder). */
 function insideHint(fx: FsCtx, rules: RuleSet, me: ReturnType<AppContext['files']['principal']>, segs: readonly string[]): string {
-  if (segs.length === 0 || (segs[0] === 'groups' && segs.length < 2)) return ''
+  // the team root, groups/ and projects/: what is inside them is still a top folder, a group or a project
+  if (segs.length === 0 || (segs.length < 2 && (segs[0] === 'groups' || segs[0] === 'projects'))) return ''
   const base = segs.join('/')
   let names: string[] = []
   try {
@@ -120,6 +120,14 @@ function insideHint(fx: FsCtx, rules: RuleSet, me: ReturnType<AppContext['files'
   const some = names.length ? `Folders inside it that would work: ${names.map((n) => `${base}/${n}`).join(', ')}. ` : ''
   return ` ${some}A new folder inside it works too (e.g. ${base}/reports): the card says it will be made, and it is made when the user says yes.`
 }
+
+/** A folder on a disk that keeps no creation time: a folder deleted and made again under its name would pass as it. */
+const noBirthTime = (rel: string) => new ToolError(refusal({
+  done: 'Nothing was created.',
+  why: { kind: 'mode', mode: "a scheduled task's save folder", why: `the disk that holds '${rel}' keeps no creation time for folders, so the server could not tell this folder from one made later under its name, and runs could save into a folder the user never chose` },
+  next: "leave save_to out (runs save in the user's own folder) and tell the user why; an admin can move the team folder to a disk that keeps creation times",
+  names: [rel],
+}))
 
 /** The save folder as the card will show it, or a ToolError that says why not (before the card). `allowNew`
  * (schedule_create): a folder that is not there yet, at most MAX_NEW_LEVELS below the nearest folder that is, when the
@@ -141,48 +149,48 @@ export function resolveSaveFolder(ctx: AppContext, userId: string, input: string
       throw new ToolError(`save_to '${r.rel}' would make a new top folder or group folder, which a scheduled task cannot. Name a folder inside an existing one (e.g. shared/<folder> or groups/<group>/<folder>). Nothing was created`)
     }
     if (made > MAX_NEW_LEVELS) throw new ToolError(`save_to '${r.rel}' would make ${made} new folders: name one at most ${MAX_NEW_LEVELS} levels below the folder '${r.segs.slice(0, r.existing).join('/')}' that exists. Nothing was created`)
-    return { folder: r.rel, folderId: '', rule: ruleFingerprint(rules, r.segs), readers: readersOf(ctx.db, rules, r.segs).length, create: true }
+    // the nearest folder that exists is kept by its identity: a disk that keeps no creation time cannot tell it from one
+    // made later under its name, so such a folder is refused before the card, as an existing save folder is
+    const at = r.segs.slice(0, r.existing)
+    const parentId = saveFolderId(fx, at)
+    if (!parentId) throw noBirthTime(at.join('/'))
+    return { folder: r.rel, folderId: '', rule: ruleFingerprint(rules, r.segs), readers: readersOf(ctx.db, rules, r.segs).length, create: true, parent: { levels: r.existing, id: parentId } }
   }
   const id = saveFolderId(fx, r.segs)
-  if (!id) {
-    // a folder on a disk that keeps no creation time: a folder deleted and made again under its name would pass as it
-    throw new ToolError(refusal({
-      done: 'Nothing was created.',
-      why: { kind: 'mode', mode: "a scheduled task's save folder", why: `the disk that holds '${r.rel}' keeps no creation time for folders, so the server could not tell this folder from one made later under its name, and runs could save into a folder the user never chose` },
-      next: "leave save_to out (runs save in the user's own folder) and tell the user why; an admin can move the team folder to a disk that keeps creation times",
-      names: [r.rel],
-    }))
-  }
+  if (!id) throw noBirthTime(r.rel)
   return { folder: r.rel, folderId: id, rule: ruleFingerprint(rules, r.segs), readers: readersOf(ctx.db, rules, r.segs).length }
 }
 
 /** The ToolError when the save folder is not the one the card showed any more (after the card waited). */
 export const saveFolderChanged = (folder: string) => new ToolError(`the save folder ${folder} changed while the card was open (moved, renamed, made by someone else, or its permissions changed), so nothing was created. Tell the user; ask again to show the card for the folder as it is now.`)
 
-/** Make the new save folder the card showed (`create`) after the person's yes, as the person (the same write check as
- * any write; it must still be missing, under the same rules and as many readers), and return it with its identity, as
- * resolveSaveFolder returns an existing one. A ToolError (saveFolderChanged) when it is not as the card showed. */
-export function makeSaveFolder(ctx: AppContext, user: { id: string; name: string }, save: SaveFolder, turnId: string | null): SaveFolder {
+/** A new save folder made on the yes: the folder with its identity, and what was made (`record` once the task is
+ * stored: a new folder of the person's in the file history and on the Files screen; `drop` when it is not). */
+export interface MadeFolder { save: SaveFolder; record(): void; drop(): void }
+
+/** Make the new save folder the card showed (`create`) after the person's yes, as the person, through the Files
+ * screen's own folder maker (TeamFiles.ensureFolder: the same write check as any write, names in their composed form,
+ * each level checked). It must be as the card showed it: still missing, the nearest existing folder the same one on
+ * disk, under the same rule fingerprint, and every missing level made by this call (one made by someone else meanwhile
+ * is a change). Then it is returned with its identity, as resolveSaveFolder returns an existing one. Anything else: the
+ * folders made are taken away again and saveFolderChanged is thrown. */
+export function makeSaveFolder(ctx: AppContext, user: { id: string }, save: SaveFolder, turnId: string | null): MadeFolder {
   const fx = ctx.files.fx, rules = ctx.files.rules()
   const me = ctx.files.principal(user.id)
+  const changed = () => saveFolderChanged(save.folder)
   let r
-  try { r = authorize(fx, rules, me, save.folder, 'write', { mustExist: false, createDirs: true }) } catch { throw saveFolderChanged(save.folder) }
-  if (r.exists || r.rel !== save.folder || saveFolderBlock(fx, r.segs) || ruleFingerprint(rules, r.segs) !== save.rule
-    || readersOf(ctx.db, rules, r.segs).length !== save.readers || r.segs.length - r.existing > MAX_NEW_LEVELS) throw saveFolderChanged(save.folder)
-  let cur = fx.root
-  for (let i = 0; i < r.segs.length; i++) {
-    cur = path.join(cur, r.segs[i]!)
-    if (i < r.existing) continue
-    verifyChain(fx.root, r.segs.slice(0, i + 1), true)
-    try { fs.mkdirSync(cur, { mode: 0o700 }) } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e }
-  }
-  verifyChain(fx.root, r.segs)
-  fileEvent(ctx.db, { turnId, userId: user.id, path: r.rel, action: 'create', detail: { folder: true, tool: 'schedule_create' } })
-  publishChanges(ctx, [{ path: r.rel, action: 'mkdir', by: { id: user.id, name: user.name }, turnId }])
+  try { r = authorize(fx, rules, me, save.folder, 'write', { mustExist: false, createDirs: true }) } catch { throw changed() }
+  if (r.exists || r.rel !== save.folder || !save.parent || r.existing !== save.parent.levels || saveFolderBlock(fx, r.segs)
+    || saveFolderId(fx, r.segs.slice(0, r.existing)) !== save.parent.id || ruleFingerprint(rules, r.segs) !== save.rule) throw changed()
+  const files = componentC(ctx).files
+  let made: { path: string; created: string[] }
+  try { made = files.ensureFolder(user.id, save.folder) } catch { throw changed() }
+  const drop = () => files.dropFolders(made.created)
+  if (made.path !== save.folder || made.created.length !== r.segs.length - r.existing) { drop(); throw changed() }
   let now: SaveFolder
-  try { now = resolveSaveFolder(ctx, user.id, r.rel) } catch { throw saveFolderChanged(save.folder) }
-  if (now.rule !== save.rule) throw saveFolderChanged(save.folder)
-  return now
+  try { now = resolveSaveFolder(ctx, user.id, made.path) } catch { drop(); throw changed() }
+  if (now.rule !== save.rule) { drop(); throw changed() }
+  return { save: now, drop, record: () => files.recordFolders(user.id, made.created, { turnId, tool: 'schedule_create' }) }
 }
 
 /** A listed folder (or the team root) with the fingerprint of its rules now (a folder whose row is gone: dropped). A

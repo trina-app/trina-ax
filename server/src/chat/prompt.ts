@@ -547,7 +547,7 @@ export const BULK_REPORT_RULE = 'After changing many files or items, also list i
  * that short. */
 /** Answers claimed what no action showed: a team time zone never read, "I'll show a connect card" after the call failed,
  * "nothing on file" without reading the room that held it (AI scenario check 2026-11-16, root cause #3). */
-export const SHOWN_ONLY_RULE = 'Say only what your actions this turn showed: never claim you checked, set, found or will show what no action showed (a setting you did not read, a card after a failed call, page text you did not get, "nothing on file" for places you did not read, rooms too). Not checked? Say so.'
+export const SHOWN_ONLY_RULE = 'Never claim you checked, set, found or will show something no action (this turn or earlier in this chat) or your instructions showed: a setting you did not read, a card after a failed call, page text you did not get, "nothing on file" for places you did not read (rooms included). Not checked? Say so.'
 /** The same for a sub-agent's report. */
 export const SUBAGENT_SHOWN_ONLY_RULE = 'Report only what your actions showed; say plainly what you did not check.'
 

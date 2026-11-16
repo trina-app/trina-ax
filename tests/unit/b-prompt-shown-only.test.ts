@@ -19,13 +19,13 @@ const input = (extra: Partial<PromptInput> = {}): PromptInput => ({
 
 describe('say only what the actions showed', () => {
   test('the rule names the cases and what to say when nothing was checked; short', () => {
-    expect(SHOWN_ONLY_RULE).toContain('Say only what your actions this turn showed')
-    for (const c of ['a setting you did not read', 'a card after a failed call', 'page text you did not get', '"nothing on file" for places you did not read, rooms too', 'will show'])
+    expect(SHOWN_ONLY_RULE).toContain('Never claim you checked, set, found or will show something no action (this turn or earlier in this chat) or your instructions showed')
+    for (const c of ['a setting you did not read', 'a card after a failed call', 'page text you did not get', '"nothing on file" for places you did not read (rooms included)', 'will show'])
       expect(SHOWN_ONLY_RULE).toContain(c)
     expect(SHOWN_ONLY_RULE).toContain('Not checked? Say so.')
-    // about 60 tokens: it is in every new session's instructions
-    expect(SHOWN_ONLY_RULE.split(/\s+/).length).toBeLessThanOrEqual(55)
-    expect(SUBAGENT_SHOWN_ONLY_RULE.split(/\s+/).length).toBeLessThanOrEqual(15)
+    // about 70 tokens: it is in every new session's instructions (capped by characters)
+    expect(SHOWN_ONLY_RULE.length).toBeLessThanOrEqual(320)
+    expect(SUBAGENT_SHOWN_ONLY_RULE.length).toBeLessThanOrEqual(80)
   })
 
   test('in every chat that keeps the tool rules, once; and in a sub-agent\'s rules', () => {
@@ -37,8 +37,9 @@ describe('say only what the actions showed', () => {
     expect(buildSubagentPrompt(h.ctx.files, input(), ['read', 'write'])).toContain(SUBAGENT_SHOWN_ONLY_RULE)
   })
 
-  test('a connect card is said only after the call showed one (CON-02); rooms are searched for client facts (FLOW-03)', () => {
-    expect(B_TOOL_DESCRIPTIONS.connect_service.startsWith('Whether a card is shown is known only from this call\'s result: never write that one will be shown before it returns.')).toBe(true)
+  test('the connect card point is said once (CON-02); rooms are searched for client facts (FLOW-03)', () => {
+    // said once, in the rule (and in the refusal itself), not again in the tool description
+    expect(B_TOOL_DESCRIPTIONS.connect_service).not.toContain('Whether a card is shown')
     expect(ROOM_TOOL_DESCRIPTIONS.rooms).toContain('search it by name for what was said about a client, deal or project before saying nothing answers a question')
   })
 })

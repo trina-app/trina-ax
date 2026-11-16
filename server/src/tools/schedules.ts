@@ -191,8 +191,8 @@ export const TEXT = {
   } satisfies L5,
   /** a save folder that is not there yet: made when the person says yes (chat/schedule-scope.ts makeSaveFolder) */
   newFolder: {
-    ko: '{folder} (새 폴더: 만들기를 누르면 생겨요)', en: '{folder} (a new folder, made when you create the task)', id: '{folder} (folder baru, dibuat saat Anda membuat tugas ini)',
-    ja: '{folder}（新しいフォルダー：作成すると作られます）', es: '{folder} (una carpeta nueva, se crea al crear la tarea)', zh: '{folder}（新文件夹，创建任务时建立）',
+    ko: '새 폴더, 만들기를 누르면 생겨요. ', en: 'a new folder, made when you create the task; ', id: 'folder baru, dibuat saat Anda membuat tugas ini; ',
+    ja: '新しいフォルダー、作成すると作られます。', es: 'una carpeta nueva, se crea al crear la tarea; ', zh: '新文件夹，创建任务时建立；',
   } satisfies L5,
   /** rooms a run may read (no save folder). Read only: a run never posts to a room (post_to_room refuses in a scheduled
    * run, chat/post-to-room.ts), so the line says nothing of sending; a send after reading one goes only to the person's
@@ -241,9 +241,12 @@ export function scopeLines(scope: CardScope | undefined, L: Locale): string[] {
   const lines: string[] = []
   if (!scope) return lines
   if (scope.save) {
-    const folder = scope.save.create ? fill(TEXT.newFolder[L], { folder: scope.save.folder }) : scope.save.folder
-    const v = { folder, n: String(scope.save.readers), sources: scope.save.sources.join(', ') }
-    lines.push(fill(TEXT[scope.save.sources.length ? 'saveLine' : 'saveLineBare'][L], v))
+    const v = { folder: scope.save.folder, n: String(scope.save.readers), sources: scope.save.sources.join(', ') }
+    const line = fill(TEXT[scope.save.sources.length ? 'saveLine' : 'saveLineBare'][L], v)
+    // a new folder: said inside the one bracket after the folder ("… (새 폴더, 만들기를 누르면 생겨요. 지금 5명이 …)")
+    const at = line.indexOf(v.folder) + v.folder.length
+    const open = scope.save.create ? /^\s?[(（]/.exec(line.slice(at)) : null
+    lines.push(open ? `${line.slice(0, at + open[0].length)}${TEXT.newFolder[L]}${line.slice(at + open[0].length)}` : line)
   } else if (scope.rooms?.length) lines.push(fill(TEXT.roomsLine[L], { rooms: scope.rooms.join(', ') }))
   if (scope.sends?.length) lines.push(fill(TEXT.sendsLine[L], { list: scope.sends.map((x) => `${x.name.replace(/\s+/g, ' ').trim()} · ${x.pins.map(quoted).join(', ')}`).join('; ') }))
   return lines
@@ -433,7 +436,7 @@ function scopeNote(db: Database, userId: string, save: SaveFolder | null, source
     parts.push(` Save folder: ${save.folder}${made ? ' (a new folder, made now)' : ''}. Its runs may save NEW files there and in its sub-folders without asking (at most 20 per run; never change existing files); content from ${from.length ? from.join(', ') : 'nothing that fewer people can see'} may go there.`)
   } else {
     // the AI told a person their reports save in a team folder the tool had refused (AI scenario check SCH-02)
-    parts.push(` No save folder was set: its runs save files in the user's own folder (users/${userId}/), and in a team folder only where that needs no confirmation card. Tell the user that, never another save place.`)
+    parts.push(` No save folder was set: its runs save files in the user's own folder, and in a team folder only where that needs no confirmation card. Tell the user that, never another save place.`)
     if (sources.length) parts.push(` Its runs may read ${sources.length === 1 ? 'that room' : 'those rooms'} and still send to the connections the card allowed.`)
   }
   if (sends.length) parts.push(` It may send to ${sends.map((x) => `${x.name} only at ${x.pins.map((p) => `'${p}'`).join(', ')}`).join('; ')}.`)
@@ -506,11 +509,17 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
         const gone = scope.sends.filter((x) => !now.some((r) => r.id === x.connectionId && r.version === x.version))
         if (gone.length) throw new ToolError(`${gone.map((x) => x.name).join(', ')} changed while the card was open, so nothing was created. Tell the user; ask again to show the card as it is now.`)
       }
-      // a new save folder the card showed is made now, on the yes, as the person; then kept as an existing one is
-      if (scope.save?.create) save = makeSaveFolder(ctx, t.user, scope.save, t.turnId)
+      // a new save folder the card showed is made now, on the yes, as the person; then kept as an existing one is, and
+      // recorded once the task is stored (taken away again when it is not)
+      const made = scope.save?.create ? makeSaveFolder(ctx, t.user, scope.save, t.turnId) : null
+      if (made) save = made.save
       const sends = answer === 'create_write' ? offered : []
       const own = answer === 'create_write' ? scope.sends : []
-      const s = rt.schedules.create(t.user.id, parsed.data, new Date(), { allowedUrls: card.urls, writeConnections: sends.map((r) => r.id), save, sources: scope.sources, personalSends: own.map((x) => ({ connectionId: x.connectionId, pins: x.pins })) })
+      let s: ScheduleRow
+      try {
+        s = rt.schedules.create(t.user.id, parsed.data, new Date(), { allowedUrls: card.urls, writeConnections: sends.map((r) => r.id), save, sources: scope.sources, personalSends: own.map((x) => ({ connectionId: x.connectionId, pins: x.pins })) })
+      } catch (e) { made?.drop(); throw e }
+      made?.record()
       const blocked = !urlsOpen && card.urls.length > card.longQuery.length ? ' This server does not know its own public internet address yet, so its runs cannot open the web addresses in the prompt until it does (the card said so); tell the user.' : ''
       const longQuery = card.longQuery.length ? ` Its runs never open ${card.longQuery.length === 1 ? 'the address' : `the ${card.longQuery.length} addresses`} with a query over ${MAX_UNCONFIRMED_QUERY} characters: such an address always needs a person to confirm it (the card said so); tell the user.` : ''
       const sendNote = sends.length ? ` Its runs may send to ${sends.map((r) => r.name).join(', ')} without asking.` : offered.length || scope.sends.length ? ' The user chose that its runs never send to connected services; tell the user if the task needs that.' : ''
