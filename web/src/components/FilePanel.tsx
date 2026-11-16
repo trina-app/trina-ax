@@ -18,6 +18,7 @@ import { api, API, chatFileUrl, fileUrl, isApiError, roomFileUrl, saveBlob, star
 import { extOf, parentPath } from '../lib/paths'
 import { PREVIEW_TEXT_MAX, type PreviewKind } from '../lib/preview'
 import { openTeamFile, setPanelExpanded, setPanelGuard, type PreviewFile } from '../lib/sidePanel'
+import { markBusy } from '../lib/busy'
 import { TEAM_FILE_DRAG_TYPE } from '../lib/teamAttach'
 import { useTeamAttach } from '../lib/useTeamAttach'
 import { useLocale, useT } from '../i18n'
@@ -145,6 +146,8 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   useEffect(() => {
     if (!unsaved) return
     setPanelGuard(askDiscard)
+    // nothing reloads or restarts by itself over the edits (web update, desktop update restart)
+    const release = markBusy('draft')
     const beforeUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault()
       e.returnValue = ''
@@ -152,6 +155,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
     window.addEventListener('beforeunload', beforeUnload)
     return () => {
       setPanelGuard(null)
+      release()
       window.removeEventListener('beforeunload', beforeUnload)
     }
     // askDiscard only reads the language; the guard is set while there are edits
