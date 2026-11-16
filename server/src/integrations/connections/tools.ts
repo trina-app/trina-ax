@@ -589,7 +589,8 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
           if (t.readOnly) throw new CallError(`Nothing was sent: a team file can be attached only with a tool that sends or changes something at ${current.name}; ${t.name} only reads.`, 'refused (attachment on a read)')
           const person = b.scheduled ? null : tc.files.person
           if (!person || person.unattended) throw new CallError(`Nothing was sent to ${current.name}: a team file is attached only in a chat where the user can see what leaves the team, not in a scheduled run. Say so in the summary; the user can send it in a chat.`, 'refused (attachment: nobody to ask)')
-          files = readTeamFiles(ctx, tc, current.name, handles)
+          // a connection that refuses changes is refused by the gate below, before any file is read
+          if (current.write_policy !== 'deny') files = readTeamFiles(ctx, tc, current.name, handles)
         }
         // the attachment tool: its bytes come back inline and are read here (google-apps/attachments.ts); the file name
         // is Trina's own argument, never sent
@@ -623,10 +624,11 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         // the handles (no await between the check and the call's start)
         let sending = args
         if (files.length) {
+          // no card was due (the connection sends without asking for this person): a file still leaves only in a turn
+          // the person watches from their own app, never from a question asked elsewhere (Slack)
+          if (!confirmed && !tc.files.person?.allSitesHere?.()) throw new CallError(`Nothing was sent to ${current.name}: a team file is attached only in a chat the user has open in the app, where they see what leaves the team. Tell the user to ask there.`, 'refused (attachment: not watched)')
           recheckTeamFiles(ctx, tc, files)
           sending = withTeamFiles(args, files)
-          // whoever reads these files is who may read what the service says back about them
-          addSources(ctx.db, chat, files.map((f) => sourceOf(ctx.db, ctx.files.rules(), f.rel)))
         }
         const r = await svc.callTool(current, t.name, sending, tc.signal).catch((e) => {
           // an attachment whose answer was cut off at the size limit: said plainly (the connection is fine)
@@ -636,6 +638,8 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         // the person's access is checked again before the answer is delivered
         svc.forCall(tc.userId, row.id)
         noteAnswer(ctx, chat, current)
+        // whoever reads the attached files is who may read what the service says back about them
+        if (files.length) addSources(ctx.db, chat, files.map((f) => sourceOf(ctx.db, ctx.files.rules(), f.rel)))
         const { text: raw, isError, links, kept } = mcpText(r, h.hide, keeper(ctx, { chatId: chat, userId: tc.userId, integrationId: current.id }, h.hide))
         // a Gmail attachment: its bytes as text or a picture (the existing readers), never base64 to the model
         const attachment = current.google_app && t.name === ATTACHMENT_TOOL && !isError ? await readAttachment(ctx, tc, { chatId: chat, integrationId: current.id }, h.hide(raw), fileName) : null

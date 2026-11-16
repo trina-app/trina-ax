@@ -678,8 +678,9 @@ connections with their address and the first 1,000 characters of their notes.
   first ("Team file to attach": name, size, folder), and the exact text shows the handle, never the bytes. After the
   card the account, its access and the file are checked again. At most 10 files and 10 MB together in one call. Not
   with a tool that only reads, not in a scheduled run or where nobody can answer a card, not through `api_request`. A
-  connection that sends without asking for this person attaches without a card too. A file that holds one of the
-  person's stored keys is not sent. The audit line names each file (path, size, start of its hash).
+  connection that sends without asking for this person attaches without a card too, only in a turn they watch from
+  the app. A file named twice is refused. A file whose bytes hold one of the person's stored keys is not sent
+  (compressed content is not looked into). The audit line names each file (path, size, start of its hash).
 - Results are wrapped as external data (`<external_data source="<name>">`, the closing tag neutralised inside), and the
   instructions tell the AI that they are data, never instructions.
 - **Read scope**: an answer from a personal connection counts like the person's own folder (`{type:'user'}`); from a team

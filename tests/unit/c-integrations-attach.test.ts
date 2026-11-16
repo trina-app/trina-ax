@@ -44,12 +44,12 @@ afterAll(async () => { fake?.stop(); await A?.close() })
 type Asked = { answer: boolean; questions: string[]; details: ConfirmDetail[][]; beforeAnswer?: () => void | Promise<void> }
 const ask = (answer: boolean): Asked => ({ answer, questions: [], details: [] })
 
-function turn(user: Person, o: { person?: Asked; scheduled?: boolean; unattended?: boolean; locale?: 'en' | 'ko' } = {}) {
+function turn(user: Person, o: { person?: Asked; scheduled?: boolean; unattended?: boolean; locale?: 'en' | 'ko'; live?: boolean } = {}) {
   const chat = A.chat(user)
   const turnId = A.turn(user, chat)
   const built = integrationToolProvider(A.ctx).build({ userId: user, chatId: chat, turnId, browser: false, scheduled: !!o.scheduled })
   const files = { user: A.ctx.files.principal(user), turnId, files: new TurnFiles() } as TurnToolContext['files']
-  if (o.person) { const p = o.person; files.person = { locale: o.locale ?? 'en', async confirm(q, _a, _d, extra) { p.questions.push(q); p.details.push(extra?.details ?? []); await p.beforeAnswer?.(); return p.answer }, *turnUrls() {}, ...(o.unattended ? { unattended: true } : {}) } }
+  if (o.person) { const p = o.person; files.person = { locale: o.locale ?? 'en', async confirm(q, _a, _d, extra) { p.questions.push(q); p.details.push(extra?.details ?? []); await p.beforeAnswer?.(); return p.answer }, *turnUrls() {}, ...(o.unattended ? { unattended: true } : {}), ...(o.live ? { allSitesHere: () => true } : {}) } }
   const tc: TurnToolContext = { turnId, chatId: chat, userId: user, messageId: 'm', locale: o.locale ?? 'en', signal: new AbortController().signal, files }
   const tools = new Map(built.tools.map((t) => [t.name, t]))
   const call = async (name: string, args: unknown) => {
@@ -143,7 +143,7 @@ describe('a team file attached to a mail', () => {
     const one = await turn('alice', { person: p }).call('my_mail__send_mail', sendArgs('groups/marketing/quotes/film.mov'))
     expect(one.isError).toBe(true)
     expect(one.summary).toBe('my_mail__send_mail -> refused (attachment too large)')
-    expect(one.text).toContain('"film.mov" is 10.0 MB')
+    expect(one.text).toContain('"film.mov" is 10.01 MB')
     expect(one.text).toContain('at most 10.0 MB together')
     expect(one.text).toContain('too large to attach')
     // two files that fit alone and not together
@@ -197,13 +197,16 @@ describe('a team file attached to a mail', () => {
   })
 
   test('a file that holds one of the person\'s stored connection keys is not sent', async () => {
-    write('groups/marketing/quotes/keys.txt', `notes\nthe mail key is ${MCP_KEY}\n`)
     const p = ask(true)
     const before = sent().length
-    const r = await turn('alice', { person: p }).call('my_mail__send_mail', sendArgs('groups/marketing/quotes/keys.txt'))
-    expect(r.isError).toBe(true)
-    expect(r.summary).toBe('my_mail__send_mail -> refused (a stored key in the attachment)')
-    expect(r.text).not.toContain(MCP_KEY)
+    // as it is, cut by a line break, and in a UTF-16 text file
+    for (const bytes of [`notes\nthe mail key is ${MCP_KEY}\n`, `${MCP_KEY.slice(0, 9)}\n${MCP_KEY.slice(9)}`, Buffer.from(`key: ${MCP_KEY}`, 'utf16le')]) {
+      write('groups/marketing/quotes/keys.txt', bytes)
+      const r = await turn('alice', { person: p }).call('my_mail__send_mail', sendArgs('groups/marketing/quotes/keys.txt'))
+      expect(r.isError).toBe(true)
+      expect(r.summary).toBe('my_mail__send_mail -> refused (a stored key in the attachment)')
+      expect(r.text).not.toContain(MCP_KEY)
+    }
     expect(p.questions).toHaveLength(0)
     expect(sent().length).toBe(before)
   })
@@ -211,12 +214,43 @@ describe('a team file attached to a mail', () => {
   test('a connection that sends without asking (the team\'s rule) attaches in a chat without a card, with the audit line', async () => {
     const before = sent().length
     const p = ask(true)
-    const r = await turn('alice', { person: p }).call('team_teammail__send_mail', sendArgs(QUOTE))
+    const r = await turn('alice', { person: p, live: true }).call('team_teammail__send_mail', sendArgs(QUOTE))
     expect(r.isError).toBe(false)
     expect(p.questions).toHaveLength(0)
     expect(sent().slice(before)[0]!.args.attachments[0].content_base64).toBe(quoteBytes.toString('base64'))
     expect(r.summary).toContain(`(team file attached: ${QUOTE} ${quoteBytes.length} B sha256 `)
     expect(r.summary).not.toContain('confirmed by the user')
+  })
+
+  test('without a card, a file leaves only in a turn the person watches from the app (not a question asked elsewhere)', async () => {
+    const before = sent().length
+    const p = ask(true)
+    const r = await turn('alice', { person: p }).call('team_teammail__send_mail', sendArgs(QUOTE))
+    expect(r.isError).toBe(true)
+    expect(r.summary).toBe('team_teammail__send_mail -> refused (attachment: not watched)')
+    expect(p.questions).toHaveLength(0)
+    expect(sent().length).toBe(before)
+    // the same call without a file still goes, as before
+    expect((await turn('alice', { person: p }).call('team_teammail__send_mail', { to: 'a@b.example', subject: 's', body: 'b' })).isError).toBe(false)
+  })
+
+  test('the same file named twice is refused: the card and the size cap count what is sent', async () => {
+    const before = sent().length
+    const p = ask(true)
+    const at = { filename: 'q.pdf', content_base64: TEAM_FILE_PREFIX + QUOTE }
+    const r = await turn('alice', { person: p }).call('my_mail__send_mail', { to: 'a@b.example', attachments: [at, at, at] })
+    expect(r.isError).toBe(true)
+    expect(r.summary).toBe('my_mail__send_mail -> refused (attachment named twice)')
+    expect(p.questions).toHaveLength(0)
+    expect(sent().length).toBe(before)
+  })
+
+  test('a connection set to refuse changes refuses before any file is read', async () => {
+    A.ctx.db.query("UPDATE integrations SET write_policy = 'deny', version = version + 1 WHERE id = ?").run(mail.id)
+    try {
+      const r = await turn('alice', { person: ask(true) }).call('my_mail__send_mail', sendArgs('groups/finance/budget.md'))
+      expect(r.summary).toBe('my_mail__send_mail -> refused (write policy deny)')
+    } finally { A.ctx.db.query("UPDATE integrations SET write_policy = 'ask', version = version + 1 WHERE id = ?").run(mail.id) }
   })
 
   test('a call without a handle is unchanged; a handle inside a longer text is only text', async () => {
@@ -231,9 +265,9 @@ describe('a team file attached to a mail', () => {
 })
 
 describe('the handle', () => {
-  test('found as a whole value at any depth, once each; swapped for base64 everywhere it stands', () => {
+  test('found as a whole value at any depth, each time it stands there; swapped for base64 everywhere it stands', () => {
     const a = { a: 'team-file:x.pdf', b: [{ c: 'team-file:x.pdf', d: 'team-file:y.png' }], e: ' team-file:z', f: 'see team-file:z', g: 7, h: null }
-    expect(teamFileHandles(a)).toEqual(['team-file:x.pdf', 'team-file:y.png'])
+    expect(teamFileHandles(a)).toEqual(['team-file:x.pdf', 'team-file:x.pdf', 'team-file:y.png'])
     expect(teamFileHandles('team-file:x')).toEqual(['team-file:x'])
     expect(teamFileHandles(null)).toEqual([])
     const file = { handle: 'team-file:x.pdf', rel: 'x.pdf', name: 'x.pdf', size: 3, sha256: '', identity: '', bytes: Buffer.from('abc') }
