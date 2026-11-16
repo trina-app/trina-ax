@@ -231,6 +231,9 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
               ))}
             </div>
           )}
+          {/* a server card with four choices (the team folder card that also asks about file shares, with "Always allow"):
+              its line about the file shares and what "Always allow" covers, as on the button cards */}
+          {fromServer && r.note && <p className="whitespace-pre-wrap text-xs text-muted" data-testid="ask-note">{r.note}</p>}
           {allowText && (
             <textarea
               ref={textRef}

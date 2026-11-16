@@ -294,10 +294,14 @@ export function folderAccessToolFor(exec: FolderExec): Tool {
     let raw: unknown
     try {
       raw = await withAlways(exec.alwaysPlace?.(), 'folder_access', card.options, yes, async (options, more) => {
+        // a card's note is at most 300 characters (AskUserRequest.note; a longer one is dropped by the app, so the card
+        // never shows): with "Always allow" offered too, the file shares line goes last in the card's lines
+        const both = !!(card.note && more.note)
+        const details = both ? card.details.map((d, i) => (i === 0 ? { ...d, text: `${d.text}\n${card.note}` } : d)) : card.details
         const a = await exec.askPerson({
           kind: 'ask_user', origin: 'server', requestId, question: card.question, multiple: false, allowText: false,
-          options, details: card.details, ...(options.length >= 3 ? { buttons: true as const } : {}),
-          ...(card.note || more.note ? { note: [card.note, more.note].filter(Boolean).join('\n\n') } : {}),
+          options, details, ...(options.length >= 3 ? { buttons: true as const } : {}),
+          ...(card.note || more.note ? { note: both ? more.note : (card.note ?? more.note) } : {}),
           expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
         } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs(), exclusive: true })
         missing = a.missing

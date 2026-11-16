@@ -21,7 +21,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, uuidv7, type StepShared, type StepFix } from '@mycel/shared/api'
+import { API, AskUserRequest, uuidv7, type StepShared, type StepFix } from '@mycel/shared/api'
 import { FILE_TOOLS } from '@mycel/shared'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { FOLDER_ACCESS_TOOL, FOLDER_TEXT, folderAccessOff } from '../../server/src/chat/folder-access-tool'
@@ -266,6 +266,24 @@ describe('T19: the yes is bound to the plan; the person decides about file share
     const rm = await turn('carol', call({ folder: 'Docs', action: 'remove', who: { name: 'marketing' } }), { answer: 'change_remove' })
     expect(rm.step!.shared!.teamFolder).toMatchObject({ fileShares: 'removed' })
     expect(grants()).toBe(0)
+  })
+
+  test('narrowing with file shares and "Always allow" offered: the card is one the app can read in every language (its note at most 300 characters: the always words; the file shares line goes last in its lines)', async () => {
+    await turn('carol', call({ folder: 'Docs', action: 'add', who: { name: 'marketing' } }), { answer: 'change' })
+    fileSharesOf(h.ctx).change('carol', 'Docs/memo.md', [{ subjectType: 'user', subjectId: 'bob' }], [], 'en')
+    const was = (h.ctx.db.query("SELECT locale FROM users WHERE id = 'carol'").get() as { locale: string | null }).locale
+    try {
+      for (const L of ['en', 'ko', 'ja', 'zh', 'es', 'id'] as const) {
+        h.ctx.db.query("UPDATE users SET locale = ? WHERE id = 'carol'").run(L)
+        const r = await turn('carol', call({ folder: 'Docs', action: 'remove', who: { name: 'marketing' } }), { answer: 'no' })
+        const c = r.cards[0]!
+        expect(c.options!.map((o) => o.value)).toEqual(['change_remove', 'change_keep', '__always', 'no'])
+        expect(AskUserRequest.safeParse(c).success).toBe(true)
+        expect(c.note).toBe(tr('cardAlwaysNoteFolderAccess', L))
+        if (L === 'en') expect(c.details![0]!.text.split('\n').at(-1)).toBe('Files inside are shared one by one with 1 person. Choose whether those shares go too.')
+      }
+    } finally { h.ctx.db.query("UPDATE users SET locale = ? WHERE id = 'carol'").run(was) }
+    expect(rulesAt('Docs').some((x) => x.s === marketing)).toBe(true)
   })
 
   test('saveFolderAccess keeps the dialog\'s checks: a narrowing with file shares and no pick → 409 file_links_decide; a stale hash → 409 rules_changed', () => {

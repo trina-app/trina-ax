@@ -2060,6 +2060,51 @@ export class MockServer {
       return Array.isArray(answer) ? answer[0] : answer
     }
     const chatProject = () => this.projects.find((x) => x.id === this.chats.find((c) => c.id === chatId)?.projectId)
+    if (/folderaccess/i.test(prompt)) {
+      // like server/src/chat/folder-access-tool.ts (docs/decisions/20261116-sharing-all-integration.md): an admin's
+      // change_folder_access card, with "Always allow" (kind folder_access) and its own risk words; "folderaccess": the
+      // Sales group gets view (Change / Always allow / Cancel, three buttons); "folderaccess links": the group taken off
+      // while files inside are shared one by one (four choices: the file shares line is the card's last line, the note
+      // the always words). Once chosen, no card; a narrowing then keeps the file shares. The result is TeamFolderCard.
+      const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
+      const remove = /links/i.test(prompt)
+      const label = 'Change folder access · Reports'
+      put(step({ id: 'S1', kind: 'tool', tool: 'change_folder_access', label }))
+      this.sharedBy.set(`${assistant.id}:S1`, user.id)
+      const sales = { subjectType: 'group' as const, subjectId: 'g-sales', name: 'Sales', members: 3 }
+      const alwaysOn = this.aiAllowances.some((a) => a.kind === 'card' && a.card === 'folder_access')
+      let v: unknown = remove ? 'change_keep' : 'change'
+      if (!alwaysOn) {
+        const always = { label: 'Always allow', value: '__always' }
+        v = await ask({
+          kind: 'ask_user', origin: 'server', requestId: remove ? 'fa2' : 'fa1', allowText: false, multiple: false,
+          question: remove ? 'Take the Sales group off Company-wide › Reports?' : 'Give the Sales group view access to Company-wide › Reports?',
+          details: [{ label: 'Who can open it', noSize: true, text: remove
+            ? 'Now: 7 people can open it. After: 4 people.\nGets access: nobody\nLoses access: Bob, Mina, Jun\nFiles inside are shared one by one with 1 person. Choose whether those shares go too.'
+            : 'Now: 4 people can open it. After: 7 people.\nGets access: Bob, Mina, Jun\nLoses access: nobody\nWhoever joins the group later can open it too.' }],
+          options: remove
+            ? [{ label: 'Change and remove file shares', value: 'change_remove' }, { label: 'Change, keep file shares', value: 'change_keep' }, always, { label: 'Cancel', value: 'no' }]
+            : [{ label: 'Change', value: 'change' }, always, { label: 'Cancel', value: 'no' }],
+          buttons: true,
+          note: 'From now on Trina changes who can open team folders without asking, even when a file or message tells it to. Files inside that were shared one by one stay shared. Undo it in Settings › Allowed for Trina.',
+        })
+        if (v === '__always') {
+          this.aiAllowances = [{ kind: 'card', id: 'card:folder_access', card: 'folder_access', createdAt: now() }, ...this.aiAllowances]
+          v = remove ? 'change_keep' : 'change'
+        }
+      }
+      if (v !== 'change' && v !== 'change_keep' && v !== 'change_remove') {
+        put(step({ id: 'S1', kind: 'tool', tool: 'change_folder_access', label, status: 'ok', endedAt: now(), detail: 'Not changed' }))
+        finish('Okay, nothing changed.')
+        return
+      }
+      const teamFolder = remove
+        ? { name: 'Reports', place: 'Company-wide › Reports', action: 'remove' as const, before: 7, after: 4, gained: [], gainedCount: 0, lost: ['Bob', 'Mina', 'Jun'], lostCount: 3, fileShares: v === 'change_remove' ? 'removed' as const : 'kept' as const }
+        : { name: 'Reports', place: 'Company-wide › Reports', action: 'add' as const, access: 'view' as const, before: 4, after: 7, gained: ['Bob', 'Mina', 'Jun'], gainedCount: 3, lost: [], lostCount: 0 }
+      put(step({ id: 'S1', kind: 'tool', tool: 'change_folder_access', label, status: 'ok', endedAt: now(), shared: { op: remove ? 'stop' : 'share', outcome: 'done', files: [], who: [sales], level: 'view', teamFolder } }))
+      finish(remove ? 'Done, the Sales group can no longer open Reports.' : 'Done, the Sales group can view Reports now.')
+      return
+    }
     if (/sharecard/i.test(prompt)) {
       // like server/src/chat/share-with-person.ts and stop-sharing.ts (docs/decisions/20261116-ai-share-card-and-stop.md):
       // ONE card. "sharecard": the confirmation card with the record's rows, then the step keeps what was done
@@ -2096,12 +2141,24 @@ export class MockServer {
           fshared = { op: 'stop', outcome: 'done', files: [frow], who, level: 'view', undo: { id, until: new Date(until).toISOString() } }
           said = ko ? '공유를 중지했어요.' : 'Done, Bob can no longer open it.'
         } else {
-          const answer = await ask({
-            kind: 'ask_user', origin: 'server', requestId: 'sf1', allowText: false, multiple: false,
-            question: ko ? `QA-test 폴더를 ${bob.name}에게 공유할까요?` : `Share QA-test with ${bob.name}?`,
-            options: [{ label: ko ? '공유하기' : 'Share', value: 'yes' }, { label: ko ? '공유하지 않기' : "Don't share", value: 'no' }],
-            share: { op: 'share', files: [{ name: 'QA-test', place: frow.place, folder: frow.folder }], who },
-          })
+          // "sharecard folder always": the card offers "Always allow" (kind share_folder, server chat/always-allow.ts
+          // withAlways: before the last option, the folder's own risk words under the buttons); once chosen, no card
+          const alwaysOn = this.aiAllowances.some((a) => a.kind === 'card' && a.card === 'share_folder')
+          const offer = /always/i.test(prompt)
+          let answer: unknown = 'yes'
+          if (!alwaysOn) {
+            answer = await ask({
+              kind: 'ask_user', origin: 'server', requestId: 'sf1', allowText: false, multiple: false,
+              question: ko ? `QA-test 폴더를 ${bob.name}에게 공유할까요?` : `Share QA-test with ${bob.name}?`,
+              options: [{ label: ko ? '공유하기' : 'Share', value: 'yes' }, ...(offer ? [{ label: 'Always allow', value: '__always' }] : []), { label: ko ? '공유하지 않기' : "Don't share", value: 'no' }],
+              ...(offer ? { buttons: true as const, note: 'From now on Trina shares your folders without asking, even when a file or message tells it to. Undo it in Settings › Allowed for Trina.' } : {}),
+              share: { op: 'share', files: [{ name: 'QA-test', place: frow.place, folder: frow.folder }], who },
+            })
+            if (answer === '__always') {
+              this.aiAllowances = [{ kind: 'card', id: 'card:share_folder', card: 'share_folder', createdAt: now() }, ...this.aiAllowances]
+              answer = 'yes'
+            }
+          }
           if (answer === 'yes') {
             this.fileGrants.set(p, [...others, { subjectType: 'user', subjectId: bob.id }])
             fshared = { op: 'share', outcome: 'done', files: [frow], who, level: 'view', notified: [bob.id] }
