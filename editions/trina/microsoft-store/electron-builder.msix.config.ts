@@ -16,8 +16,9 @@ const IDENTITY = { name: '', publisher: '' }
 // Package/Properties/PublisherDisplayName: the publisher name on the Partner Center account, letter for letter
 const PUBLISHER_NAME = 'Trina Inc.'
 
-// this folder, for build-resources/. electron-builder compiles this file into a cache folder first (config-file-ts),
-// where __dirname is not this folder; it runs in desktop/, so the folder is also found from there.
+// this folder, for build-resources/. electron-builder loads this file through its own loader (up to 26.0 config-file-ts
+// compiled it into a cache folder, where __dirname is not this folder; jiti since 26.x); it runs in desktop/, so the
+// folder is also found from there.
 const HERE = [__dirname, resolve(process.cwd(), '..', 'editions', 'trina', 'microsoft-store')].find((d) => existsSync(join(d, 'build-resources', 'appxmanifest.xml')))
 if (!HERE) throw new Error('editions/trina/microsoft-store not found: run electron-builder in desktop/')
 
