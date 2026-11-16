@@ -938,6 +938,7 @@ export const es: Record<MessageKey, string> = {
   'files.preparing': "Preparando",
   'files.finishing': "Finalizando",
   'files.waitingConnection': "Esperando la conexión",
+  'files.waitingTurn': "Esperando su turno",
   'files.uploadingName': "Subiendo {name}",
   'files.uploadedName': "{name} subido",
   'files.uploadedCount': "{n, plural, one {# archivo subido} other {# archivos subidos}}",

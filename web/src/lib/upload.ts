@@ -25,10 +25,17 @@ export const CONNECTION_WAIT_MS = 10 * 60_000
 /** the longest pause between two tries while the connection is gone (the browser's `online` event ends it sooner) */
 const CONNECTION_PAUSE_MAX_MS = 10_000
 
-/** `loaded` and `total` count the file's own bytes, in every phase. `waiting`: the connection is gone and the upload
- * goes on by itself when it is back (`loaded` stays what had gone out). */
+/** Large files (each an upload session on the server) on their way at a time, on the whole page; the others wait their
+ * turn before anything of them is read. The server lets a person hold MAX_OPEN_SESSIONS (10) unfinished sessions:
+ * eleven files of 10 MB dropped at once asked for eleven, the last ones were refused and failed. Three is also what
+ * goes out at a time anyway (COPIES_AT_ONCE), so nothing is slower. */
+export const SESSIONS_AT_ONCE = 3
+
+/** `loaded` and `total` count the file's own bytes, in every phase. `queued`: a large file waits for its turn behind
+ * others (SESSIONS_AT_ONCE). `hashing`: its checksum is made, before any byte goes out. `waiting`: the connection is
+ * gone and the upload goes on by itself when it is back (`loaded` stays what had gone out). */
 export interface UploadProgress {
-  phase: 'hashing' | 'uploading' | 'finishing' | 'waiting'
+  phase: 'queued' | 'hashing' | 'uploading' | 'finishing' | 'waiting'
   loaded: number
   total: number
 }
@@ -52,9 +59,10 @@ export function uploadBar(p: Running): number {
 }
 
 /** What a running upload says beside its spinner. */
-export function uploadLabel(p: Running, t: (key: 'files.preparing' | 'files.finishing' | 'files.waitingConnection') => string): string {
+export function uploadLabel(p: Running, t: (key: 'files.preparing' | 'files.finishing' | 'files.waitingConnection' | 'files.waitingTurn') => string): string {
   if (p?.phase === 'finishing') return t('files.finishing')
   if (p?.phase === 'waiting') return t('files.waitingConnection')
+  if (p?.phase === 'queued') return t('files.waitingTurn')
   const pct = uploadPercent(p)
   return pct === null ? t('files.preparing') : `${pct}%`
 }
@@ -338,7 +346,40 @@ async function smallOnce(file: File, target: UploadTarget, o: UploadOptions, fin
   }
 }
 
+let sessionsOpen = 0
+const sessionLine: (() => void)[] = []
+/** A turn among SESSIONS_AT_ONCE, first come first served; the returned function gives it to the next. A cancel leaves
+ * the line at once. A recording does not wait (one at a time, the person waits for it). */
+async function takeSessionTurn(target: UploadTarget, total: number, o: UploadOptions): Promise<() => void> {
+  if (target.kind === 'transcribe') return () => {}
+  o.signal?.throwIfAborted()
+  if (sessionsOpen < SESSIONS_AT_ONCE) sessionsOpen++
+  else {
+    o.onProgress?.({ phase: 'queued', loaded: 0, total })
+    await new Promise<void>((resolve, reject) => {
+      const turn = () => { o.signal?.removeEventListener('abort', leave); resolve() }
+      const leave = () => { sessionLine.splice(sessionLine.indexOf(turn), 1); reject(o.signal!.reason) }
+      sessionLine.push(turn)
+      o.signal?.addEventListener('abort', leave, { once: true })
+    })
+  }
+  let given = false
+  return () => {
+    if (given) return
+    given = true
+    // the next in line takes the turn over as it is
+    const next = sessionLine.shift()
+    if (next) next()
+    else sessionsOpen--
+  }
+}
+
 async function uploadChunked(file: File, target: UploadTarget, o: UploadOptions): Promise<UploadComplete> {
+  const done = await takeSessionTurn(target, file.size, o)
+  try { return await chunkedInTurn(file, target, o) } finally { done() }
+}
+
+async function chunkedInTurn(file: File, target: UploadTarget, o: UploadOptions): Promise<UploadComplete> {
   const storage = o.storage === undefined ? (typeof localStorage === 'undefined' ? null : localStorage) : o.storage
   const fp = fingerprint(file, target)
   const total = file.size

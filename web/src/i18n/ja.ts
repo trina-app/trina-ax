@@ -938,6 +938,7 @@ export const ja: Record<MessageKey, string> = {
   'files.preparing': "準備中",
   'files.finishing': "完了処理中",
   'files.waitingConnection': "接続待ち",
+  'files.waitingTurn': "順番待ち",
   'files.uploadingName': "{name}をアップロードしています",
   'files.uploadedName': "{name}をアップロードしました",
   'files.uploadedCount': "{n, plural, one {#件アップロードしました} other {#件アップロードしました}}",

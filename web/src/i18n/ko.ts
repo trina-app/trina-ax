@@ -961,6 +961,7 @@ export const ko = {
   'files.preparing': '준비 중',
   'files.finishing': '마무리 중',
   'files.waitingConnection': '연결을 기다리는 중',
+  'files.waitingTurn': '차례를 기다리는 중',
   'files.uploadingName': '{name} 올리는 중',
   'files.uploadedName': '{name} 올렸어요',
   'files.uploadedCount': '{n}개 올렸어요',

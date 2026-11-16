@@ -962,6 +962,7 @@ export const id: Record<MessageKey, string> = {
   'files.preparing': 'Menyiapkan',
   'files.finishing': 'Menyelesaikan',
   'files.waitingConnection': 'Menunggu koneksi',
+  'files.waitingTurn': 'Menunggu giliran',
   'files.uploadingName': 'Mengunggah {name}',
   'files.uploadedName': '{name} terunggah',
   'files.uploadedCount': '{n} file diunggah',
