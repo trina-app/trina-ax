@@ -79,7 +79,8 @@ function LinkPage() {
 
   if (error) return <Centered><ErrorNote onRetry={load}>{errorText(error, locale, t('error.network'))}</ErrorNote></Centered>
   if (!view) return <Centered><Skeleton lines={3} className="w-full" /></Centered>
-  if (view.status === 'open') return <OpenFile id={id} view={view} />
+  // (a shared folder's page comes with folder sharing's web part; until then the server never sends one)
+  if (view.status === 'open' && view.kind !== 'folder') return <OpenFile id={id} view={view} />
   if (view.status === 'trashed')
     return (
       <Centered testId="file-link-trashed">
@@ -160,7 +161,7 @@ function AskAccess({ id, askedAt: asked }: { id: string; askedAt: string | null 
 
 /** The file, as the preview panel shows it: its bytes read here (up to the preview's limit for its kind), drawn by
  * FileBody; a file too large to show here, or of a kind with no viewer, gets FileBody's card with Download. */
-function OpenFile({ id, view }: { id: string; view: Extract<SharedFileView, { status: 'open' }> }) {
+function OpenFile({ id, view }: { id: string; view: Extract<SharedFileView, { status: 'open'; size: number }> }) {
   const t = useT()
   const locale = useLocale()
   const url = (disposition: 'inline' | 'attachment') => api.url(API.sharedFileDownload, { params: { id }, query: { disposition } })
