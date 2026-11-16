@@ -2700,6 +2700,7 @@ export const ja: Record<MessageKey, string> = {
   'system.installUpdate': "更新をインストール",
   'system.checkFailed': "更新サーバーに接続できませんでした。あとでもう一度確認します。",
   'system.upToDate': "最新バージョンです。",
+  'system.notCheckedYet': 'まだ確認していません。サーバーは起動してすぐに新しいバージョンを確認します。',
   'system.noFeed': "このサーバーはオンラインで更新を確認しません。更新するには、サーバーのMacで新しいリリースのインストーラーを再実行してください。新しいバージョンに切り替わり、現在のバージョンは復元用に保持されます。",
   'system.rollback': "以前のバージョン（{version}）に戻す",
   'system.updateNote': "まずデータベースをバックアップし、サーバーを再起動します。回答中の場合は、完了後にインストールします。",
