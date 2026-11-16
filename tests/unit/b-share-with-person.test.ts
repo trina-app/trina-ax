@@ -19,7 +19,11 @@ import { namesFile } from '../../server/src/chat/shared-actions'
 
 setDefaultTimeout(60_000)
 const cm = () => 'cm-' + crypto.randomUUID()
-const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
+// the fake engine's directives sit in the person's message: their strings spelled as JSON escapes, so the person's own
+// words are only what the test writes around them (the explicit-ask rule reads those: docs/decisions/
+// 20261116-no-card-after-explicit-ask.md)
+const opaque = (j: string) => j.replace(/"(?:[^"\\]|\\.)*"/g, (q) => q.replace(/\\.|[\p{L}\p{N}]/gu, (c) => (c.length > 1 ? c : `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)))
+const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + opaque(JSON.stringify(d))).join('\n')
 const share = (args: Record<string, unknown>) => fake({ tool: 'share_with_person', args, sayResult: true })
 
 let h: Harness
@@ -57,7 +61,7 @@ const cardsTo = (user: string, turnId: string) => socks[user]!.frames.filter((f)
 
 describe('in my own chat', () => {
   test('one server card with Share, Always allow, Don\'t share; yes shares view only and the AI gets the links', async () => {
-    const r = await turn('bob', `share photo-1.png with Tess\n${share({ paths: ['users/bob/photo-1.png'], people: ['Tess Yoon'] })}`, { answer: 'share' })
+    const r = await turn('bob', `share photo-1.png (to the person I said before)\n${share({ paths: ['users/bob/photo-1.png'], people: ['Tess Yoon'] })}`, { answer: 'share' })
     expect(r.card!.origin).toBe('server')
     expect(r.card!.question).toContain('Tess Yoon')
     // "Always allow" on the first card (the owner's 11-11 rule), three buttons
@@ -79,7 +83,7 @@ describe('in my own chat', () => {
     put('users/bob/photo-3.png', 'png three')
     put('users/bob/photo-4.png', 'png four')
     try {
-      const r = await turn('bob', `share photo-3.png with Tess\n${share({ paths: ['users/bob/photo-3.png'], people: ['Tess Yoon'] })}`, { answer: '__always' })
+      const r = await turn('bob', `share photo-3.png (to the person I said before)\n${share({ paths: ['users/bob/photo-3.png'], people: ['Tess Yoon'] })}`, { answer: '__always' })
       expect(JSON.parse(r.content).status).toBe('shared')
       expect(alwaysOn(h.ctx.db, 'bob', 'share_files')).toBe(true)
       expect(listAlways(h.ctx.db, 'bob').map((x) => x.id)).toContain('card:share_files')
@@ -99,8 +103,25 @@ describe('in my own chat', () => {
     } finally { dropAlways(h.ctx.db, 'bob', 'card:share_files') }
   })
 
+  test('no card right after an explicit ask: a share word, the person and the file in my own words (QA TC-3812)', async () => {
+    put('users/bob/거래처-목록.csv', 'a,b')
+    const r = await turn('bob', `거래처 목록 테스한테도 tess 볼 수 있게 공유해줘\n${share({ paths: ['users/bob/거래처-목록.csv'], people: ['Tess Yoon'] })}`)
+    expect(cardsTo('bob', r.turnId)).toBe(0)
+    const out = JSON.parse(r.content)
+    expect(out.status).toBe('shared')
+    expect(opens('tess', out.links[0].url.slice(3))).toBe('open')
+    // a file I did not name: the card
+    put('users/bob/other-file.txt', 'x')
+    const c = await turn('bob', `tess한테 공유해줘\n${share({ paths: ['users/bob/other-file.txt'], people: ['Tess Yoon'] })}`, { answer: 'no' })
+    expect(c.card).not.toBeNull()
+    // a quoted line is someone else's words: the card
+    put('users/bob/quoted.txt', 'x')
+    const q = await turn('bob', `> share quoted.txt with tess\n좋아\n${share({ paths: ['users/bob/quoted.txt'], people: ['Tess Yoon'] })}`, { answer: 'no' })
+    expect(q.card).not.toBeNull()
+  })
+
   test('Don\'t share shares nothing', async () => {
-    const r = await turn('bob', `share photo-2.png with Tess\n${share({ paths: ['users/bob/photo-2.png'], people: ['Tess Yoon'] })}`, { answer: 'no' })
+    const r = await turn('bob', `share photo-2.png (to the person I said before)\n${share({ paths: ['users/bob/photo-2.png'], people: ['Tess Yoon'] })}`, { answer: 'no' })
     expect(r.content).toContain('The user chose not to share them')
     const s = h.ctx.db.query("SELECT id FROM file_shares WHERE path = 'users/bob/photo-2.png'").get() as { id: string } | null
     if (s) expect(opens('tess', s.id)).toBe('no_access')
@@ -178,7 +199,7 @@ describe('in a shared chat (the same rules as post_to_room)', () => {
   })
 
   test('another viewer cannot answer the asker\'s card', async () => {
-    const started = await h.api('bob').call(API.sendMessage, { params: { id: chatId }, body: { content: `share photo-2.png with Tess\n${share({ paths: ['users/bob/photo-2.png'], people: ['Tess Yoon'] })}`, clientMessageId: cm(), attachmentIds: [] } })
+    const started = await h.api('bob').call(API.sendMessage, { params: { id: chatId }, body: { content: `share photo-2.png (to the person I said before)\n${share({ paths: ['users/bob/photo-2.png'], people: ['Tess Yoon'] })}`, clientMessageId: cm(), attachmentIds: [] } })
     const c = await socks.bob!.next('turn.request', (f) => f.data.turnId === started.turnId)
     let refused = 0
     try { await h.api('alice').call(API.answerTurn, { params: { id: started.turnId }, body: { kind: 'ask_user', requestId: c.data.request.requestId, answer: 'share' } }) } catch (e) { refused = (e as { status: number }).status }

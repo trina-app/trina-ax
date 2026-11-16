@@ -22,6 +22,7 @@ import type { TurnTool, TurnToolContext, TurnToolProvider, TurnToolResult } from
 import { addSources } from '../../chat/read-scope'
 import { tr } from '../../chat/i18n'
 import { cardEndShort, cardNext, cardReason, refusal, SCREEN } from '../../policy/refusal'
+import { asksFor, explicitWriteTool, ownWords, WRITE_ASK, writtenByAsker } from '../../chat/shared-actions'
 import { askConfirm, carriesAddress, opaqueParts } from '../../tools/url-gate'
 import { parse as parseHost } from 'tldts'
 import { MAX_BODY, type NetResponse } from './net'
@@ -139,7 +140,9 @@ function noteAnswer(ctx: AppContext, chat: string, row: Row) {
  * every value that says where it goes, for a scheduled run's pinned recipients (pinTargets); `lines`: what the card shows
  * in the person's language (card-lines.ts), `exact` when those lines show all of `text`, which then sits behind "보내는
  * 내용 그대로 보기" (ConfirmDetail.exact); `request`: an HTTP API call (the card names a request). */
-interface Sent { text: string; fields: { name: string; value: string }[]; dest?: string[] | null; raw?: unknown; lines?: (L: Locale) => { fields: { name: string; value: string }[]; exact: boolean }; request?: boolean }
+interface Sent { text: string; fields: { name: string; value: string }[]; dest?: string[] | null; raw?: unknown; lines?: (L: Locale) => { fields: { name: string; value: string }[]; exact: boolean }; request?: boolean
+  /** the service's tool name (an MCP tool's call; none for api_request) */
+  tool?: string }
 
 /** The lines of a call's arguments for the card: every value labelled, or the recipients alone in words when lines
  * cannot show all of it (cardLines null: the JSON stays open). */
@@ -357,6 +360,14 @@ function keepAlwaysAllow(ctx: AppContext, row: Row, userId: string) {
   audit(ctx.db, { actor: userId, action: 'integration.always_allow', target: row.id, detail: { allow: true, via: 'card' } })
 }
 
+/** The person's own message of this turn (never a quoted line) asks for a change and holds what `raw` writes. */
+function writeAsked(ctx: AppContext, turnId: string, raw: unknown): boolean {
+  const m = ctx.db.query('SELECT m.content, m.auto_sent FROM turns t JOIN messages m ON m.id = t.user_message_id WHERE t.id = ?').get(turnId) as { content: string | null; auto_sent: number | null } | null
+  if (!m || m.auto_sent) return false
+  const said = ownWords(m.content ?? '')
+  return asksFor(WRITE_ASK, said) && writtenByAsker(raw, said)
+}
+
 /**
  * Anything that changes something at the service: refused ('deny'), asked on the server's card, or sent without it
  * when the connection sends without asking for this person: a team connection set to 'allow' (an admin's rule), the
@@ -410,6 +421,10 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // needing the task's own card (scheduleMayWrite above, also after a room read).
   if (b.scheduled && teamOn && !(row.scope === 'team' && row.write_policy === 'allow') && ((row.scope === 'personal' && row.owner_user_id === b.userId && row.write_policy === 'allow') || memberAllows(ctx.db, row, b.userId))) return false
   const person = b.scheduled ? null : tc.files.person
+  // no card when the person's own message of this turn asked for this change and everything it writes is in their words
+  // (docs/decisions/20261116-no-card-after-explicit-ask.md, QA TC-3812; shared-actions.ts writtenByAsker): only a
+  // service tool that adds or changes content (explicitWriteTool: not api_request, never one that sends, deletes or shares), only in a turn the person watches from their own app
+  if (person && !person.unattended && live && sent.tool && !sent.request && explicitWriteTool(sent.tool) && writeAsked(ctx, b.turnId, sent.raw)) return true
   if (!person || person.unattended) {
     throw new CallError(refusal({
       done: `Nothing was sent to ${row.name}.`, why: cardReason('unattended'),
@@ -591,7 +606,7 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         // after a room read, a tool that was a write when the turn began raised no room card: it asks even if the
         // service calls it read-only now
         if (!t.readOnly || (tc.files.person?.roomsSeen && !tool.readOnly)) {
-          const answer = await gate(ctx, current, () => toolTitle(t), { text: JSON.stringify(args ?? {}, null, 2), fields: recipientFields(args), dest: pinTargets(args), raw: args, lines: (L) => argLines(args ?? {}, L) }, b, tc)
+          const answer = await gate(ctx, current, () => toolTitle(t), { text: JSON.stringify(args ?? {}, null, 2), fields: recipientFields(args), dest: pinTargets(args), raw: args, lines: (L) => argLines(args ?? {}, L), tool: t.name }, b, tc)
           confirmed = answer !== false
           // the card may have waited for minutes: rules, settings and the connection are read again
           const asked = current.version
