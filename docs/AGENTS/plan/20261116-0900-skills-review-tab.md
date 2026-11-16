@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16 09:00
 - Branch: `fix/skills-review-tab`
-- Status: in progress
+- Status: done
 - Where: trina-ax core, `web/` (Team skills page, the Trina panel and the phone drawer). Why: team skills are a core
   feature (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a fix to an existing screen; no API or data change
@@ -46,4 +46,6 @@ Another reviewer's turn-down does not reach my window as an event: my count foll
 
 ## Result
 
-(filled in at the end)
+Built as planned. Differences: the person headings use the shared `ListHeading`; the review dialog's folder field
+also says folders in words. Checked on a private copy of the QA team data at 1440 and 390, light and dark, as owner,
+admin and member, before and after. Not done: a server event for another reviewer's turn-down (see Risks).

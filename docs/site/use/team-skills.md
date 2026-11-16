@@ -123,6 +123,7 @@ The owner and admins see who that is under the **Team skills** heading: "Who can
 Members and other skill managers do not see the line.
 
 - Members can **suggest** a personal skill to the team. A skill manager of the target folder reviews it.
+- What waits for you shows as a number on **Team skills** in the Trina list (and in the phone's menu), like unread messages on a chat. **To review** lists only what still waits; what you registered or turned down is under **Reviewed** at the bottom of that tab.
 - Every change to `skills/` is recorded, and the owner and admins get a notice with a link to the version history.
 - A group's skills are changed by the group's members (see [Group skills](#group-skills)); their changes are recorded and announced the same way.
 
