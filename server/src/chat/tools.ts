@@ -664,7 +664,7 @@ function skillTools(exec: TurnExec): Tool[] {
           const head = top.used
             ? `No skill matches "${q}" by its words (${searched}). These are the skills this user uses most; their descriptions may be in another language than the request. Load one with skill if it fits; otherwise try other words or go on without a skill:`
             : `No skill matches "${q}" by its words (${searched}). These are skills this user can use; their descriptions may be in another language than the request. Load one with skill if it fits; otherwise try other words or go on without a skill:`
-          return { ...text([head, ...top.skills.map(line)].join('\n')), summary: `find_skills -> 0 found, ${top.skills.length} frequent` }
+          return { ...text([head, ...top.skills.map(line), ...managedLines(user, a.data.query, line)].join('\n')), summary: `find_skills -> 0 found, ${top.skills.length} frequent` }
         }
         const lines = hits.map(({ skill: s }) => line(s))
         return { ...text([`${hits.length} skill${hits.length === 1 ? '' : 's'} matching "${q}", best first. Load the one that fits with skill (its name) before you follow it:`, ...lines, ...managedLines(user, a.data.query, line)].join('\n')), summary: `find_skills -> ${hits.length} found` }
