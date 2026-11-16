@@ -479,6 +479,12 @@ export function widenOf(name: string, args: unknown, hwpTarget?: (args: unknown)
     const target = hwpTarget ? hwpTarget(a) : typeof a.output === 'string' ? hwpOutputPath(a.output, typeof a.file_path === 'string' ? a.file_path : '') : a.file_path
     return typeof target === 'string' ? { target, extra: typeof a.output === 'string' && typeof a.file_path === 'string' ? [a.file_path] : [] } : undefined
   }
+  // stamp_pdf (tools/stamp-pdf.ts) with an output: the stamped copy carries the PDF's and the picture's bytes; asked
+  // here so that after a room read its room card and its wider-audience card are one card (the tool's own check then
+  // finds this yes). Without an output it saves a new name next to the PDF, which only the tool knows: its own card
+  if (name === 'stamp_pdf' && typeof a.output === 'string' && typeof a.file_path === 'string') {
+    return { target: a.output, extra: [...(a.output === a.file_path ? [] : [a.file_path]), ...(typeof a.image === 'string' ? [a.image] : [])] }
+  }
   // comment_docx (tools/comment-docx.ts): the document itself, or a new .docx made from it
   if (name === 'comment_docx' && typeof a.file_path === 'string') return typeof a.output === 'string' ? { target: commentDocxOutput(a.output), extra: [a.file_path] } : { target: a.file_path, extra: [] }
   return undefined

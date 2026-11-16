@@ -49,6 +49,7 @@
 // it refuses with why and what to do, as it does for a room that is archived or not mine, a gone thread, content that
 // used earlier answers hidden from some member, a text too long for one message and the sending budget.
 import { RAN_UNDER_ALWAYS, alwaysHere, withAlways } from './always-allow'
+import { approved, noteApproval } from './card-approvals'
 import { actionOff, asksFor, askerPicks, askerText, asksToSend, fold, fromAsker, mainOnly, namedInFull, namesRecipient as namesPlace, othersWordsIn, soleNames, ownWords, POST_ASK } from './shared-actions'
 import { readRooms } from './read-rooms'
 import { grantOnly, seenWhy } from './grant-reads'
@@ -393,7 +394,14 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // why the card asks first: one line, the reason that matters most (chat/share-words.ts whyFirst)
         const whyLine = whyFirst(L, { fromLook, seenLine, others: othersWordsCard(exec, all ? 'post_files' : 'post_to_room', alwaysOk) })
         byAlways = !explicit && alwaysHere(place1, all ? 'post_files' : 'post_to_room') === 'on'
-        const reply = explicit ? 'send' : await withAlways(place1, all ? 'post_files' : 'post_to_room', options, all ? 'send_files' : 'send', (opts, more) => exec.waitForPerson({
+        // the person said [보내기] on this card for this same room or thread earlier in this chat (chat/card-approvals.ts,
+        // docs/decisions/20261117-card-approved-once-per-chat.md): a post of the AI's text, with no note, no files to
+        // choose and no line about people who cannot see a source or open a file (the card would tell them nothing new),
+        // goes without the card again. Their own yes, not a text match; a new room, thread or 1:1 chat asks
+        const postTarget = JSON.stringify([roomId, threadRootId ?? null])
+        const plainPost = !plain && first.at === 0 && !all && !linesNone.length && !laterLine && !pendingTo && !!roomId
+        const byChat = !explicit && !byAlways && plainPost && exec.mayUseApprovals?.() && approved(db, { chatId: spec.chatId, userId: spec.userId, kind: 'room_post', target: postTarget })
+        const reply = explicit || byChat ? 'send' : await withAlways(place1, all ? 'post_files' : 'post_to_room', options, all ? 'send_files' : 'send', (opts, more) => exec.waitForPerson({
           kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: whyLine ? `${whyLine}\n\n${question}` : question, options: opts, multiple: false, allowText: false, ...(more.note ? { note: more.note } : {}),
           details: [
             // the note goes as the person's own words, the text as the AI's answer: apart, as the room shows them
@@ -418,6 +426,9 @@ export function postToRoomTool(exec: TurnExec): Tool {
 
         // ---- yes: checked again, then sent with the key of the line the person saw for that choice ----
         const withFiles = v === 'send_files' && !!all
+        // [보내기] on the card (not "Always allow", not the explicit ask): this room or thread takes later such posts in
+        // this chat without the card
+        if (v === 'send' && !explicit && !byChat && !byAlways && !pendingTo && roomId && exec.mayUseApprovals?.()) noteApproval(db, { chatId: spec.chatId, userId: spec.userId, kind: 'room_post', target: postTarget })
         const again = await prepare()
         if ('refused' in again) return again.refused
         if (again.status === 'sent') return sent(again, true)

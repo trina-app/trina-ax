@@ -30,6 +30,7 @@ import { CallError, integrationsOf } from './service'
 import { bareUrl, disabledTools, savedTools, templateCovers, toolsOffered, type Row } from './store'
 import { noteScheduleUse } from './schedule-needs'
 import { pinForm } from '../../chat/schedule-scope'
+import { approvalsFor, dropApprovals, noteApproval } from '../../chat/card-approvals'
 import { HIDDEN } from './hide'
 import { say } from './text'
 import { cardLines, fieldWord, methodWord, toolTitle } from './card-lines'
@@ -146,7 +147,10 @@ interface Sent { text: string; fields: { name: string; value: string }[]; dest?:
   /** the service's tool name (an MCP tool's call; none for api_request) */
   tool?: string
   /** the team files this call attaches, by their team paths (team-attach.ts) */
-  attach?: string[] }
+  attach?: string[]
+  /** set by the gate: 'card' when the person said yes on this call's card, 'chat' when their yes on an earlier card in
+   * this chat covered it (chat/card-approvals.ts) */
+  via?: 'card' | 'chat' }
 
 /** The lines of a call's arguments for the card: every value labelled, or the recipients alone in words when lines
  * cannot show all of it (cardLines null: the JSON stays open). */
@@ -443,6 +447,12 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
       next: 'say so in the summary; the user can do it in a chat, where they answer the card', names: [row.name],
     }), 'refused (nobody to ask)')
   }
+  // the person said yes on this tool's card earlier in this chat for the same recipients, or on the card of the draft
+  // this call sends unchanged (chat/card-approvals.ts, docs/decisions/20261117-card-approved-once-per-chat.md): no card
+  // again. Their own yes, never a text match: so also where other people's words are in the chat (Rule A's guard is the
+  // explicit-ask skip above, which stays off there). Never api_request or a call with team files, only in a turn they
+  // watch from their own app; a new recipient, an address or another tool asks
+  if (live && !sent.request && sent.tool && !sent.attach?.length && approvedWrite(ctx, row, sent, b)) { sent.via = 'chat'; return true }
   // the address (an api_request query can be long) counts as well: everything the card shows
   const size = sent.text.length + sent.fields.reduce((n, f) => n + f.name.length + f.value.length, 0)
   if (size > MAX_CARD_PAYLOAD) throw new CallError(`what this would send is ${size} characters, more than the ${MAX_CARD_PAYLOAD} the user can check on a card, so nothing was sent. Send less at a time.`, 'refused (too large to confirm)')
@@ -464,7 +474,7 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   if (person.choose && freely && !ownAllow && (!allowed || attachAsks)) {
     // the values of the yes / no card (chat/tools.ts confirmWhy: 'allow', 'deny'), so a client that answers those still works
     const v = await person.choose(question, [{ label: say('once', L), value: 'allow' }, { label: say('alwaysAllow', L), value: 'always' }, { label: say('no', L), value: 'deny' }], { details, buttons: true, note: say('alwaysNote', L, { name: row.name }) })
-    if (v === 'allow') return true
+    if (v === 'allow') { keepWrite(ctx, row, sent, b, live); return true }
     if (v === 'always') return 'always'
     throw new CallError(refusal({
       done: `The user did not allow this, so nothing was sent to ${row.name}.`, why: cardReason('declined'), also: 'Do not try it another way',
@@ -479,7 +489,105 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
       next: end === 'declined' ? 'ask the user what they want' : cardNext(end), names: [row.name],
     }), cardEndShort(end))
   }
+  keepWrite(ctx, row, sent, b, live)
   return true
+}
+
+/** chat/card-approvals.ts targets: one tool of one connection as it is now (its version: a changed address, account or
+ * rule is another target), and the drafts that connection made */
+const writeKey = (row: Pick<Row, 'id' | 'version'>, tool: string) => `${row.id}\u0000${row.version}\u0000${tool}`
+const madeKey = (row: Pick<Row, 'id' | 'version'>) => `${row.id}\u0000${row.version}`
+/** a tool that sends something already made (a draft) by its id; never one that shares, publishes, forwards or invites */
+const SENDS = /send/i
+const NOT_SENDS = /share|publish|forward|invite|schedule/i
+/** a draft-making tool: the ids its answer names are what a later send may name */
+const MAKES_DRAFT = /draft/i
+
+/** The person said yes on this call's card: this tool of this connection, to every value of the call that may say
+ * where it goes (pinTargets), goes without the card for the rest of the chat (chat/card-approvals.ts). Not kept for a
+ * call whose destination cannot be told (no such value, or too many to check), api_request, team files, or a turn the
+ * person does not watch. */
+function keepWrite(ctx: AppContext, row: Row, sent: Sent, b: BuildCtx, live: boolean) {
+  sent.via = 'card'
+  if (!live || b.scheduled || sent.request || !sent.tool || sent.attach?.length) return
+  const dest = pinTargets(sent.raw ?? {})
+  if (!dest?.length) return
+  noteApproval(ctx.db, { chatId: b.chatId, userId: b.userId, kind: 'connector', target: writeKey(row, sent.tool), detail: { pins: dest } })
+}
+
+/** Every plain value of a call (strings, numbers, yes/no), or null when it is nested too deep or holds too many. */
+function plainValues(v: unknown, out: string[] = [], depth = 0): string[] | null {
+  if (depth > PIN_DEPTH_MAX || out.length > PIN_VALUES_MAX) return null
+  if (v === null || v === undefined) return out
+  if (Array.isArray(v)) { for (const x of v) if (!plainValues(x, out, depth + 1)) return null; return out }
+  if (typeof v === 'object') { for (const x of Object.values(v as Record<string, unknown>)) if (!plainValues(x, out, depth + 1)) return null; return out }
+  out.push(String(v))
+  return out
+}
+
+/**
+ * Does the person's yes on an earlier card in this chat cover this write (chat/card-approvals.ts)?
+ * - the same tool of the same connection (as it is now), and every value of the call that may say where it goes
+ *   (pinTargets) is one the approved call had: a new recipient, cc, channel, page or folder asks; what the call says
+ *   (its text) may differ, but nothing in it may be a web address, a host name or a long random-looking part that is not
+ *   one of those recipients (a link or a picture in what is sent reaches a third party when it is shown), as for a
+ *   scheduled run's pinned recipients (pinnedRefusal);
+ * - or a send (a tool named "send", not share/publish/forward/invite/schedule) whose every value is the id of a draft
+ *   that a draft tool of this connection made on a card the person said yes to in this chat, with nothing written to
+ *   that id since (connector_made): the draft goes as they saw it, to the recipients they saw.
+ */
+function approvedWrite(ctx: AppContext, row: Row, sent: Sent, b: BuildCtx): boolean {
+  const q = { chatId: b.chatId, userId: b.userId }
+  if (SENDS.test(sent.tool!) && !NOT_SENDS.test(sent.tool!)) {
+    const values = plainValues(sent.raw ?? {})
+    if (values?.length) {
+      const made = new Set(approvalsFor(ctx.db, { ...q, kind: 'connector_made', target: madeKey(row) }).map((d) => (typeof d.id === 'string' ? pinForm(d.id) : '')).filter(Boolean))
+      if (values.every((v) => made.has(pinForm(v)))) return true
+    }
+  }
+  const dest = pinTargets(sent.raw ?? {})
+  if (!dest?.length) return false
+  for (const d of approvalsFor(ctx.db, { ...q, kind: 'connector', target: writeKey(row, sent.tool!) })) {
+    const pins = Array.isArray(d.pins) ? d.pins.filter((p): p is string => typeof p === 'string') : []
+    if (!pins.length) continue
+    const allowed = new Set(pins.map(pinForm))
+    if (!dest.every((v) => allowed.has(pinForm(v)))) continue
+    const rest = withoutPinned(sent.raw ?? {}, pins, pins)
+    if (carriesAddress(rest) || hostNamesIn(rest)) continue
+    return true
+  }
+  return false
+}
+
+/** The ids a draft tool's answer names (its JSON's id, draft_id, draftId at any of its first levels), for a later send
+ * of that draft (approvedWrite). */
+export function madeIds(text: string): string[] {
+  const out = new Set<string>()
+  const ok = (v: unknown): v is string => typeof v === 'string' && v.length <= 200 && /^[\w.:@-]+$/.test(v)
+  const walk = (v: unknown, depth: number) => {
+    if (!v || typeof v !== 'object' || depth > 3) return
+    if (Array.isArray(v)) { for (const x of v.slice(0, 20)) walk(x, depth + 1); return }
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+      if (/^(id|draft_?id)$/i.test(k) && ok(x)) out.add(x)
+      else walk(x, depth + 1)
+    }
+  }
+  try { walk(JSON.parse(text), 0) } catch { /* not JSON: no id */ }
+  return [...out].slice(0, 10)
+}
+
+/** After a draft tool's card the person said yes to: the drafts it made may be sent unchanged without another card. */
+function keepMade(ctx: AppContext, row: Row, b: BuildCtx, tool: string, sent: Sent, text: string) {
+  if (sent.via !== 'card' || !MAKES_DRAFT.test(tool) || SENDS.test(tool) || b.scheduled) return
+  for (const id of madeIds(text)) noteApproval(ctx.db, { chatId: b.chatId, userId: b.userId, kind: 'connector_made', target: madeKey(row), detail: { id } })
+}
+
+/** Any write that names a draft this chat's approvals hold (an update, a send, a delete): that draft no longer counts
+ * as the one the person saw. */
+function dropMade(ctx: AppContext, row: Row, b: BuildCtx, raw: unknown) {
+  const values = new Set((plainValues(raw ?? {}) ?? []).map(pinForm))
+  if (!values.size) return
+  dropApprovals(ctx.db, { chatId: b.chatId, kind: 'connector_made', target: madeKey(row) }, (d) => typeof d.id === 'string' && values.has(pinForm(d.id)))
 }
 
 // ---------------- MCP tools ----------------
@@ -587,6 +695,7 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
       let confirmed = false
       let current: Row | null = null
       let chat = ''
+      let sent: Sent | null = null
       try {
         chat = turnChat(ctx, tc)
         current = h.use(svc.forCall(tc.userId, row.id))
@@ -633,8 +742,11 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         if (!t.readOnly || (tc.files.person?.roomsSeen && !tool.readOnly)) {
           // the files to attach come first on the card, by name, size and place; the rest shows the handles as sent
           const withFiles = (L: Locale, l: { fields: { name: string; value: string }[]; exact: boolean }) => (files.length ? { ...l, fields: [...attachedLines(ctx, files, L, tc.userId), ...l.fields] } : l)
-          const answer = await gate(ctx, current, () => toolTitle(t), { text: JSON.stringify(args ?? {}, null, 2), fields: withFiles(tc.locale, { fields: recipientFields(args), exact: false }).fields, dest: pinTargets(args), raw: args, lines: (L) => withFiles(L, argLines(args ?? {}, L)), tool: t.name, ...(files.length ? { attach: files.map((f) => f.rel) } : {}) }, b, tc)
+          sent = { text: JSON.stringify(args ?? {}, null, 2), fields: withFiles(tc.locale, { fields: recipientFields(args), exact: false }).fields, dest: pinTargets(args), raw: args, lines: (L) => withFiles(L, argLines(args ?? {}, L)), tool: t.name, ...(files.length ? { attach: files.map((f) => f.rel) } : {}) }
+          const answer = await gate(ctx, current, () => toolTitle(t), sent, b, tc)
           confirmed = answer !== false
+          // a write that names a draft the person saw on a card: that draft may have changed (chat/card-approvals.ts)
+          dropMade(ctx, current, b, args)
           // the card may have waited for minutes: rules, settings and the connection are read again
           const asked = current.version
           current = h.use(svc.forCall(tc.userId, row.id))
@@ -667,6 +779,8 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         // whoever reads the attached files is who may read what the service says back about them
         if (files.length) addSources(ctx.db, chat, files.map((f) => sourceOf(ctx.db, ctx.files.rules(), f.rel)))
         const { text: raw, isError, links, kept } = mcpText(r, h.hide, keeper(ctx, { chatId: chat, userId: tc.userId, integrationId: current.id }, h.hide))
+        // a draft the person said yes to on its card: sending it unchanged needs no second card (chat/card-approvals.ts)
+        if (sent && !isError) keepMade(ctx, current, b, t.name, sent, raw)
         // a Gmail attachment: its bytes as text or a picture (the existing readers), never base64 to the model
         const attachment = current.google_app && t.name === ATTACHMENT_TOOL && !isError ? await readAttachment(ctx, tc, { chatId: chat, integrationId: current.id }, h.hide(raw), fileName) : null
         const text = h.hide(attachment ? attachment.text : raw)

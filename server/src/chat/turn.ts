@@ -1,6 +1,7 @@
 import { confidentialChat } from "../safe-ops/confidential"
 import { seesChatFiles } from './chat-files-access'
-import { ALWAYS_VALUE, alwaysHere, keepAlways, withAlways, type AlwaysPlace } from './always-allow'
+import { ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, keepAlways, withAlways, type AlwaysPlace } from './always-allow'
+import { approvalsFor, approved, clearApprovals, noteApproval } from './card-approvals'
 import type { CardAlwaysKind } from '@mycel/shared/api'
 import { NarrationHold, narrationScript } from './narration'
 import { safeOpsEnabled } from "../safe-ops/runner"
@@ -1891,6 +1892,7 @@ export class TurnExec {
     // the mark of outside sources goes with the read scope
     this.rt.db.query('UPDATE chats SET session_tainted = 0, room_outside = 0, others_words = 0 WHERE id = ?').run(this.spec.chatId)
     clearScope(this.rt.db, this.spec.chatId)
+    clearApprovals(this.rt.db, this.spec.chatId)
   }
   taint() { this.rt.db.query('UPDATE chats SET session_tainted = 1 WHERE id = ?').run(this.spec.chatId); this.syncOutsideMark() }
   get tainted(): boolean {
@@ -2504,6 +2506,20 @@ export class TurnExec {
     // the person's "Always allow" for changes after a room read (chat/always-allow.ts; the owner, 2026-11-13): no room
     // card; a save where more people can see still has its own card (with its own "Always allow")
     const roomAlways = alwaysHere(this.alwaysPlace(), 'room_change')
+    // the person allowed this kind of change to this same file on a room card earlier in this chat (chat/card-approvals.ts,
+    // docs/decisions/20261117-card-approved-once-per-chat.md): no room card again; a save where more people can see than
+    // they allowed still asks on its own card (widening), and a skill or instruction file always asks
+    const fileTarget = !o.noCover && !w.targets.some(instructionLike) ? this.fileChangeTarget(tool, input) : null
+    const approvedHere = !!fileTarget && roomAlways !== 'on' && this.mayUseApprovals() && approved(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, kind: 'file_change', target: fileTarget })
+    if (approvedHere) {
+      if (need) {
+        const no = await this.askWidening(need, { details, extra: instruction })
+        if (no) return refuse(no.end, { also: `More people can see '${need.segs.join('/')}' (${need.viewers}) than can see what this chat read; do not save it anywhere else that more people can see`, names: [need.segs.join('/')] })
+      } else if (o.main !== false) this.coverStep(tool, 'chatOnceStep')
+      this.roomAllowed.add(key)
+      return null
+    }
+    const keepApproval = () => { if (fileTarget && this.mayUseApprovals()) noteApproval(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, kind: 'file_change', target: fileTarget }) }
     if (roomAlways === 'on') {
       if (need) {
         const no = await this.askWidening(need, { details, extra: instruction })
@@ -2518,6 +2534,7 @@ export class TurnExec {
       // one card for both: the room's reason and next step (a save elsewhere needs the same card here), and where it saves
       if (no) return refuse(no.end, { also: `The same card also asked because more people can see '${need.segs.join('/')}' (${need.viewers}) than can see what this chat read; do not save it anywhere else that more people can see`, names: [need.segs.join('/')] })
       this.roomAllowed.add(key)
+      keepApproval()
       return null
     }
     // only for a call a grant could cover (every member of the rooms may write there, the team's switch on, the folder
@@ -2545,6 +2562,8 @@ export class TurnExec {
     if (v === ALWAYS_VALUE && always) keepAlways(this.rt.db, this.spec.userId, 'room_change', this.id)
     if (v === 'allow' || (v === ALWAYS_VALUE && always)) {
       this.roomAllowed.add(key)
+      // [이번만 허용]: this kind of change to this file goes without the room card for the rest of this chat
+      if (v === 'allow' && !reads) keepApproval()
       if (target && coverOnce) {
         // [이번만 허용] on such a card: the rest of this answer for this folder, the same kind of calls only
         // (roomGrantTarget)
@@ -2768,9 +2787,34 @@ export class TurnExec {
     return this.roomAnswerAllowed.find((a) => within(a.folder, folder) && !ruledBetween(rules, a.folder, folder) && folderAudience(this.rt.db, rules, folder) === a.audience && folderId(fx, a.folder) === a.id)?.folder ?? null
   }
 
+  /**
+   * The file a change after a room read writes, for the person's approval of it in this chat (chat/card-approvals.ts
+   * 'file_change'): the path the call saves at (writeTargetOf: write, edit, make_file, edit_hwp; stamp_pdf's output), as
+   * the file layer reads it (teamSegs, NFC), or null: any other tool (moves, copies, renames, deletes, saves from the web
+   * or a room, connections) is asked every time. Built from the call, never from what the AI says.
+   */
+  fileChangeTarget(tool: string, input: unknown): string | null {
+    let p: string | null = null
+    if (tool === 'stamp_pdf') {
+      const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
+      p = typeof a.output === 'string' ? a.output : null
+    } else if (tool === 'write' || tool === 'edit' || tool === 'make_file' || tool === 'edit_hwp') {
+      p = writeTargetOf(tool, input, (src) => this.sourceRel(src))?.path ?? null
+    }
+    const segs = p ? teamSegs(p) : null
+    return segs?.length ? segs.join('/') : null
+  }
+
+  /** May this turn keep and use the person's card approvals of this chat (chat/card-approvals.ts)? Only a turn the
+   * person watches in the app (web, mobile, desktop): never a scheduled run, a Slack question or a restricted turn
+   * (a draft, a judge, a merge), where nobody answered the card. */
+  mayUseApprovals(): boolean {
+    return LIVE_CLIENTS.has(this.spec.clientKind ?? '') && !this.restricted
+  }
+
   /** The step of a call let through without a card says why ("항상 허용으로 진행", "이번만 허용으로 진행", "내 폴더라 묻지 않고
-   * 저장"). */
-  private coverStep(tool: string, why: 'roomGrantStep' | 'roomOnceStep' | 'ownFolderStep') {
+   * 저장", "이 대화에서 허용한 대로 진행"). */
+  private coverStep(tool: string, why: 'roomGrantStep' | 'roomOnceStep' | 'ownFolderStep' | 'chatOnceStep') {
     const said = tr(why, this.spec.locale)
     // a tool that labels its own step patches it once per call (save_room_file): the words go with that patch
     if (SELF_LABELLED_TOOLS.has(tool)) { this.stepSuffixes.set(tool, [...(this.stepSuffixes.get(tool) ?? []), said]); return }
@@ -3260,6 +3304,14 @@ export class TurnExec {
     const dir = segs.slice(0, -1).join('/')
     const allowed = this.widenAllowed.get(dir)
     if (!binding && allowed && narrower.every((s) => allowed.has(sourceKey(s)))) return null
+    // the person said yes to saving these same sources into this folder, with the same people able to see it, on a card
+    // earlier in this chat (chat/card-approvals.ts 'save_wider'): no card again; a source the card did not name (a newer
+    // part of a room, another file) or a folder more or other people can see now asks
+    if (!binding && this.mayUseApprovals()) {
+      const keys = approvalsFor(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, kind: 'save_wider', target: this.widerTarget(dir) })
+        .map((d) => new Set(Array.isArray(d.sources) ? d.sources.filter((x): x is string => typeof x === 'string') : []))
+      if (keys.some((k) => narrower.every((s) => k.has(sourceKey(s))))) return null
+    }
     return { segs, dir, narrower, viewers: w.targetViewers }
   }
 
@@ -3343,6 +3395,13 @@ export class TurnExec {
     const set = this.widenAllowed.get(need.dir) ?? new Set<string>()
     for (const s of need.narrower) set.add(sourceKey(s))
     this.widenAllowed.set(need.dir, set)
+    // for the rest of this chat too, while the same people can see that folder (widenNeed)
+    if (this.mayUseApprovals()) noteApproval(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, kind: 'save_wider', target: this.widerTarget(need.dir), detail: { sources: need.narrower.map(sourceKey) } })
+  }
+
+  /** A folder as a 'save_wider' approval's target: its path and who may read and write it now (folderAudience). */
+  private widerTarget(dir: string): string {
+    return `${dir}\u0000${folderAudience(this.rt.db, this.rt.files.rules(), dir.split('/').filter(Boolean))}`
   }
 
   /** May this person see where a read-scope source is (its folder, by name)? */
