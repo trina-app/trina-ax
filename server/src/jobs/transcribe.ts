@@ -2,7 +2,9 @@
 // The default provider is 'off'; 'openrouter' sends the audio to OpenRouter (jobs/openrouter-stt.ts). On first use the multilingual GGML model
 // is downloaded into <data>/models/whisper/ (size and sha256 pinned below, written to a .part file, verified, then
 // renamed). Audio is converted to 16 kHz mono WAV by ffmpeg first (browsers record webm/opus or mp4/aac, which
-// whisper-cli can't read); without ffmpeg only wav/mp3/flac/ogg work. Both run isolated (tools/isolate.ts).
+// whisper-cli can't read); without ffmpeg only wav/mp3/flac/ogg work. On an Apple silicon Mac without ffmpeg, macOS's
+// own afconvert decodes instead (jobs/mac-audio.ts; the web app then records voice input as WAV, Me.team.voiceInputWav).
+// All run isolated (tools/isolate.ts).
 // Missing tools fail the job with a message that says what to install.
 import fs from 'node:fs'
 import os from 'node:os'
@@ -17,6 +19,8 @@ import { whisperThreads } from '../system/limits'
 import { dictationTurn } from './whisper-turns'
 import type { SpeechMeter } from '../credentials/hosted-speech'
 import { DOWNLOAD_IDLE_MS, downloadDeadline, downloadTotalMs, type DownloadDeadline } from '../http/download-deadline'
+import { ToolError } from '../policy/errors'
+import { extOf, MAC_AUDIO_EXT, macAudioTools, macDecode, macWavPiece, macWavSeconds, type MacAudioTools } from './mac-audio'
 
 export const WHISPER_MODELS = {
   tiny: { file: 'ggml-tiny.bin', size: 77_691_713, sha256: 'be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21' },
@@ -47,6 +51,9 @@ export interface TranscribeConfig {
   modelOverride?: ModelSpec
   whisperBin: string | null
   ffmpegBin: string | null
+  /** an Apple silicon Mac's own audio programs (jobs/mac-audio.ts macAudioTools), used where ffmpeg is missing; absent
+   * or null elsewhere (Intel Macs, Linux, tests) */
+  mac?: MacAudioTools | null
   /** where models come from (tests point this at a local server) */
   baseUrl: string
   /** tests: shorter model download deadlines (default http/download-deadline.ts: 120 s without data, 10 min + 250 KB/s) */
@@ -64,11 +71,20 @@ export interface TranscribeConfig {
 export const OPENROUTER_STT_URL = 'https://openrouter.ai/api/v1/audio/transcriptions'
 
 /** What this server lacks for voice input with the 'local' provider: whisper-cli, and ffmpeg, because browsers record
- * webm/opus (Safari mp4/aac), which whisper-cli cannot read. No Mac build ships either (Homebrew has both). With one
- * missing, Me.team.voiceInput is false and Team settings names it (GET /api/admin/speech-host localMissing). */
-export function missingLocalTools(cfg: Pick<TranscribeConfig, 'whisperBin' | 'ffmpegBin'>): LocalSpeechTool[] {
-  return [...(cfg.whisperBin ? [] : ['whisper.cpp' as const]), ...(cfg.ffmpegBin ? [] : ['ffmpeg' as const])]
+ * webm/opus (Safari mp4/aac), which whisper-cli cannot read. An Apple silicon Mac needs no ffmpeg: macOS decodes the
+ * recordings (jobs/mac-audio.ts) and the web app sends WAV there (Me.team.voiceInputWav); the office zip carries
+ * whisper-cli for it (scripts/build-office.ts). With one missing, Me.team.voiceInput is false and Team settings names it
+ * (GET /api/admin/speech-host localMissing). */
+export function missingLocalTools(cfg: Pick<TranscribeConfig, 'whisperBin' | 'ffmpegBin' | 'mac'>): LocalSpeechTool[] {
+  return [...(cfg.whisperBin ? [] : ['whisper.cpp' as const]), ...(cfg.ffmpegBin || cfg.mac ? [] : ['ffmpeg' as const])]
 }
+/** Voice input recordings must come as WAV: the server has no ffmpeg and decodes with macOS's programs, which do not
+ * open the webm/opus browsers record (Me.team.voiceInputWav). */
+export const wantsWavRecordings = (cfg: Pick<TranscribeConfig, 'ffmpegBin' | 'mac'>): boolean => !cfg.ffmpegBin && !!cfg.mac
+/** 'local' works here with nothing to install or turn on: an Apple silicon Mac with whisper-cli (the office zip's) and
+ * macOS's decoders. Such a server's voice input reads 'local' while no admin chose a provider (admin/settings.ts
+ * setLocalSpeechReady, main.ts). */
+export const localSpeechReady = (cfg: Pick<TranscribeConfig, 'whisperBin' | 'ffmpegBin' | 'mac'>): boolean => !!cfg.mac && !!cfg.whisperBin
 
 export function transcribeConfig(dataDir: string, env: Record<string, string | undefined> = process.env): TranscribeConfig {
   const m = env.MYCEL_WHISPER_MODEL as WhisperModel | undefined
@@ -78,6 +94,7 @@ export function transcribeConfig(dataDir: string, env: Record<string, string | u
     model: m && m in WHISPER_MODELS ? m : DEFAULT_WHISPER_MODEL,
     whisperBin: env.MYCEL_WHISPER_BIN ?? which('whisper-cli'),
     ffmpegBin: which('ffmpeg'),
+    mac: macAudioTools(),
     baseUrl: env.MYCEL_WHISPER_BASE_URL ?? MODEL_BASE_URL,
     workBase: path.join(dataDir, 'work'),
     // min(8, cores − 1) as before; where limits apply max(1, min(4, plan cores − 1)) (system/limits.ts)
@@ -102,6 +119,8 @@ export const MISSING_WHISPER = () => fail(
 const modelSpec = (cfg: TranscribeConfig): ModelSpec => cfg.modelOverride ?? WHISPER_MODELS[cfg.model]
 
 let downloading: Promise<string> | null = null
+/** the model is being downloaded now (an AI read on a Mac says so instead of "not on this server yet") */
+export const modelDownloading = () => downloading !== null
 
 /** Path of the model file, downloading it first if needed (one download at a time). */
 /** sha256 of a shared model file, checked once per file version per process (the small model is 488 MB) */
@@ -137,6 +156,17 @@ export async function modelReady(cfg: TranscribeConfig): Promise<string | null> 
   const file = path.join(cfg.modelDir, spec.file)
   try { if (fs.statSync(file).size === spec.size) return file } catch { /* not there yet */ }
   return null
+}
+
+/** Whether the model file is on this server (the shared folder or <data>/models/whisper) by its size alone, without
+ * hashing it: what Team settings says ("downloads about 488 MB the first time"); reads use modelReady. */
+export function modelOnDisk(cfg: TranscribeConfig): boolean {
+  const spec = modelSpec(cfg)
+  for (const dir of [cfg.sharedModelDir, cfg.modelDir]) {
+    if (!dir) continue
+    try { if (fs.statSync(path.join(dir, spec.file)).size === spec.size) return true } catch { /* not there */ }
+  }
+  return false
 }
 
 async function download(cfg: TranscribeConfig, file: string, h: Pick<JobHandle, 'progress' | 'signal'> | undefined, locale: Locale): Promise<string> {
@@ -195,7 +225,9 @@ export async function transcribe(cfg: TranscribeConfig, input: string, name: str
   const loc = o.locale ?? DEFAULT_LOCALE
   if (!cfg.whisperBin) throw MISSING_WHISPER()
   const x = (/\.([a-z0-9]{1,8})$/i.exec(name)?.[1] ?? '').toLowerCase()
-  if (!cfg.ffmpegBin && !NATIVE.has(x)) {
+  const mac = !cfg.ffmpegBin ? cfg.mac ?? null : null
+  if (mac && !MAC_AUDIO_EXT.has(x)) throw MAC_FORMAT(x)
+  if (!cfg.ffmpegBin && !mac && !NATIVE.has(x)) {
     throw fail(`이 형식(${x || '알 수 없음'})을 읽으려면 서버에 ffmpeg가 필요해요(\`brew install ffmpeg\`). wav·mp3·flac·ogg는 바로 돼요.`,
       `Reading this format (${x || 'unknown'}) needs ffmpeg on the server (\`brew install ffmpeg\`). wav, mp3, flac and ogg work without it.`,
       `Format ini (${x || 'tidak dikenal'}) memerlukan ffmpeg di server (\`brew install ffmpeg\`).`, `この形式（${x || "不明"}）を読み取るにはサーバーにffmpegが必要です（\`brew install ffmpeg\`）。wav、mp3、flac、oggはそのまま使えます。`, `Leer este formato (${x || "desconocido"}) requiere ffmpeg en el servidor (\`brew install ffmpeg\`). wav, mp3, flac y ogg funcionan sin él.`, `读取这种格式（${x || "未知"}）需要服务器上有 ffmpeg（\`brew install ffmpeg\`）。wav、mp3、flac 和 ogg 不需要它也能用。`)
@@ -212,6 +244,7 @@ export async function transcribe(cfg: TranscribeConfig, input: string, name: str
       fs.copyFileSync(input, src, fs.constants.COPYFILE_FICLONE)
       let audio = path.basename(src)
       if (cfg.ffmpegBin) audio = await convertToWav(cfg.ffmpegBin, work, audio, h, loc, 0.5)
+      else if (mac) audio = await macToWav(mac, work, audio, h, loc, 0.5)
       const label = LABELS.run[loc]
       h.progress(0.55, label)
       const t0 = Date.now()
@@ -267,6 +300,37 @@ export async function convertToWav(ffmpeg: string, work: string, audio: string, 
   if (r.code !== 0) throw UNREADABLE()
   return 'audio.wav'
 }
+
+/** macOS's afconvert (isolated, jobs/mac-audio.ts) in `work`: `audio` -> work/audio.wav, 16 kHz mono 16-bit PCM.
+ * `plain`: a plain 44-byte header and nothing of the recording's tags (it goes to OpenRouter), at most `maxBytes`, else
+ * afconvert's own WAV as it is (whisper.cpp reads it; nothing is read into memory). Returns "audio.wav". */
+export async function macToWav(mac: MacAudioTools, work: string, audio: string, h: Pick<JobHandle, 'progress' | 'signal'>, loc: Locale, at: number,
+  o: { plain?: boolean; maxBytes?: number; tooLarge?: () => Error } = {}): Promise<string> {
+  h.progress(at, LABELS.convert[loc])
+  try {
+    await macDecode(mac, work, audio, 'mac-full.wav', { signal: h.signal, timeoutMs: 10 * 60_000, maxSeconds: 6 * 3600 })
+  } catch (e) {
+    if (h.signal.aborted) throw new Error('aborted')
+    if (e instanceof ToolError && e.code === 'media_mac_format') throw MAC_FORMAT(extOf(audio))
+    throw UNREADABLE()
+  }
+  const seconds = macWavSeconds(work, 'mac-full.wav')
+  if (!seconds) throw UNREADABLE()
+  if (!o.plain) { fs.renameSync(path.join(work, 'mac-full.wav'), path.join(work, 'audio.wav')); return 'audio.wav' }
+  if (o.maxBytes !== undefined && 44 + seconds * 32_000 > o.maxBytes) throw o.tooLarge?.() ?? UNREADABLE()
+  const wav = macWavPiece(work, 'mac-full.wav', 0, Infinity)
+  if (!wav) throw UNREADABLE()
+  fs.rmSync(path.join(work, 'mac-full.wav'), { force: true })
+  fs.writeFileSync(path.join(work, 'audio.wav'), wav, { flag: 'wx', mode: 0o600 })
+  return 'audio.wav'
+}
+/** a format macOS does not open (webm, ogg vorbis, wma …) on a Mac without ffmpeg */
+export const MAC_FORMAT = (x: string) => fail(`이 형식(${x || '알 수 없음'})의 소리는 여기서 읽을 수 없어요. mp3·m4a·wav·aiff·flac 파일과 mp4·mov 영상은 돼요.`,
+  `Sound in this format (${x || 'unknown'}) can't be read here. mp3, m4a, wav, aiff and flac files and mp4 and mov videos work.`,
+  `Suara dalam format ini (${x || 'tidak dikenal'}) tidak bisa dibaca di sini. Berkas mp3, m4a, wav, aiff, dan flac serta video mp4 dan mov bisa.`,
+  `この形式（${x || '不明'}）の音声はここでは読み取れません。mp3、m4a、wav、aiff、flac のファイルと mp4、mov の動画は使えます。`,
+  `El sonido en este formato (${x || 'desconocido'}) no se puede leer aquí. Funcionan los archivos mp3, m4a, wav, aiff y flac y los videos mp4 y mov.`,
+  `这里无法读取这种格式（${x || '未知'}）的声音。mp3、m4a、wav、aiff、flac 文件以及 mp4、mov 视频可以。`, 'bad_request')
 
 /** whisper's JSON of one recording (a few MB for an hour) */
 const WHISPER_JSON_MAX = 32 * 1024 ** 2
