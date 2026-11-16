@@ -1315,7 +1315,7 @@ cases:
   prompt: 구글 폼 응답 오면 대화방에 자동으로 올라오게 할 수 있어?
   expect:
     outcome: explain
-    good: Yes - explains adding an app to a room (Integrations › Apps, a webhook address) in plain words.
+    good: "Yes - in plain words: a room's ⋯ › 앱 추가 › Google Forms (once added the menu says 연동); any other service with a Webhook URL."
     checks: []
 
 # ================================================================ skills
@@ -2117,7 +2117,7 @@ cases:
   prompt: 라마바카페 담당자를 프로젝트에 손님으로 초대했는데, AI도 쓰게 해줄 수 있어?
   expect:
     outcome: explain
-    good: Explains guest AI choices in Admin › Guests (none, own sign-in, team connection with a limit) and that this install's guests have none; plain words.
+    good: "Guest AI is set at invite or on the guest's row in 관리자 › 멤버·초대 › 게스트 (none, own sign-in, team connection with a limit); on this install guests have none. Plain words."
     checks: []
   variants:
     - key: member
