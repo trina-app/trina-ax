@@ -33,3 +33,5 @@ let fetch: ReturnType<typeof directFetch> | null = null
 const server = Bun.serve({ hostname: '127.0.0.1', port: 0, idleTimeout: 120, maxRequestBodySize: 60 * 1024 * 1024, fetch: (req, s) => fetch!(req, s) })
 fetch = directFetch({ tunnel: { host: HOST, allowFrom: [], countries: [] }, listen: { host: '127.0.0.1', port: server.port! } }, app, peerIp)
 console.log(`port ${server.port}`)
+// the test holds stdin open: when it ends (or crashes), so does this server
+void (async () => { for await (const _ of Bun.stdin.stream()) { /* nothing is sent */ } process.exit(0) })()

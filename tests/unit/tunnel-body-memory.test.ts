@@ -55,14 +55,31 @@ describe('directFetch keeps the request Bun handed over', () => {
     expect(calls).toEqual([1, 1])
   })
 
+  test('when a Bun refuses the property: a copy with the https URL, the original kept for the upgrade and the timeout', async () => {
+    const orig = new Request(`http://${HOST}/x?y=2`, { method: 'POST', headers: { host: HOST }, body: 'abc' })
+    Object.preventExtensions(orig)
+    const calls: Request[] = []
+    let seen = null as Request | null
+    let env: Record<string, unknown> = {}
+    await directFetch(cfg, (req, e) => { seen = req; env = e as never; endConnectionAfter(req); return new Response('no', { status: 413 }) }, peerIp)(orig, srv({ timeout: (r) => { calls.push(r) } }))
+    expect(seen === orig).toBe(false)
+    expect(seen!.url).toBe(`https://${HOST}/x?y=2`)
+    expect(env.upgradeReq === orig).toBe(true)
+    expect(calls.length === 1 && calls[0] === orig).toBe(true)
+  })
+
   test('no source file wraps an incoming request in a new Request or clones it', () => {
     // a wrapped or cloned request loses Bun's own body (memory) or the public URL (http/tunnel.ts withPublicUrl)
-    const t = fs.readFileSync(path.join(REPO, 'server/src/http/tunnel.ts'), 'utf8')
-    const code = t.split('\n').filter((l) => !/^\s*(?:\*|\/\/|\/\*)/.test(l))
-    expect(code.filter((l) => l.includes('new Request(')).length).toBe(1) // withPublicUrl's fallback only
-    const files = [...new Bun.Glob('server/src/**/*.ts').scanSync(REPO)]
-    const clones = files.filter((f) => /\b(?:req|request|raw)\.clone\(\)/.test(fs.readFileSync(path.join(REPO, f), 'utf8')))
-    expect(clones).toEqual([])
+    const code = (f: string) => fs.readFileSync(path.join(REPO, f), 'utf8').split('\n').filter((l) => !/^\s*(?:\*|\/\/|\/\*)/.test(l)).join('\n')
+    expect(code('server/src/http/tunnel.ts').match(/new Request\(/g)?.length).toBe(1) // withPublicUrl's fallback only
+    const bad: string[] = []
+    for (const f of new Bun.Glob('server/src/**/*.ts').scanSync(REPO)) {
+      const c = code(f)
+      // .clone() of a request, Hono's cloneRawRequest / app.mount (they clone or re-wrap c.req.raw), a new Request
+      // around an incoming one
+      if (/\b(?:req|request|raw)\.clone\(\)|cloneRawRequest|\.mount\(|new Request\([^)]*,\s*(?:c\.req\.raw|req|request)\s*\)/.test(c) && f !== 'server/src/http/tunnel.ts') bad.push(f)
+    }
+    expect(bad).toEqual([])
   })
 })
 
@@ -70,7 +87,8 @@ describe('over a real socket, body sent in small pieces like cloudflared (child 
   let child: ReturnType<typeof Bun.spawn>
   let port = 0
   beforeAll(async () => {
-    child = Bun.spawn([process.execPath, path.join(REPO, 'tests/fixtures/tunnel-body-memory/server.ts'), HOST], { cwd: REPO, stdout: 'pipe', stderr: 'inherit' })
+    // stdin piped: the child ends when this test process does, even if afterAll never runs
+    child = Bun.spawn([process.execPath, path.join(REPO, 'tests/fixtures/tunnel-body-memory/server.ts'), HOST], { cwd: REPO, stdin: 'pipe', stdout: 'pipe', stderr: 'inherit' })
     const rd = (child.stdout as ReadableStream<Uint8Array>).getReader()
     let out = ''
     while (!/port \d+/.test(out)) {
@@ -103,7 +121,7 @@ describe('over a real socket, body sent in small pieces like cloudflared (child 
       out += d
     })
     sock.on('end', () => { closedMs = Date.now() - answeredAt })
-    sock.on('close', () => resolve({ first: out.split('\r\n')[0] ?? '', body: out.split('\r\n\r\n')[1] ?? '', closedMs, sent }))
+    sock.on('close', () => { if (closedMs === null && answeredAt) closedMs = Date.now() - answeredAt; resolve({ first: out.split('\r\n')[0] ?? '', body: out.split('\r\n\r\n')[1] ?? '', closedMs, sent }) })
     sock.on('error', () => {})
   })
 
