@@ -40,7 +40,7 @@ import { afterPrune, pruneAssignments, type Pruned } from '../credentials/assign
 import { liveStatusOf, statusGoneWithAccount } from '../auth/status-messages'
 import { accountDeactivated } from '../tools/web-allow-all'
 import { pruneMemberAllows } from '../integrations/connections/store'
-import { GUEST_ONE_PLACE_MSG, GUEST_ROLE_MSG, assertGuestFree, isGuest, placeOut, seenBy } from '../auth/guests'
+import { GUEST_ONE_PLACE_MSG, GUEST_ROLE_MSG, assertGuestFree, emailUsedByOther, isGuest, placeOut, seenBy } from '../auth/guests'
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -168,6 +168,10 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
     const args: (string | null)[] = []
     const set = (col: string, v: string | null, key: string) => { sets.push(`${col} = ?`); args.push(v); changed[key] = v }
     if (b.name !== undefined) set('name', b.name, 'name')
+    // a guest's e-mail: not one another account here gives, compared as in Settings › Profile (auth/guests.ts
+    // emailUsedByOther; docs/decisions/20261116-admin-guest-email-unique.md). Guest status is read from the database
+    // here, inside the write; members may still share an address, as before
+    if (b.email !== undefined && b.email !== null && isGuest(ctx.db, id) && emailUsedByOther(ctx.db, id, b.email)) fail('conflict', msg('emailInUse', locale), { params: { reason: 'email_in_use' }, fields: { 'body.email': 'email_in_use' } })
     if (b.email !== undefined) set('email', b.email, 'email')
     if (b.role !== undefined && b.role !== target.role) set('role', b.role, 'role')
     if (b.status !== undefined && b.status !== target.status) set('status', b.status, 'status')
