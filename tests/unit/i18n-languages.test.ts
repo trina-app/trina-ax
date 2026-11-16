@@ -225,6 +225,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/skills/share-judge.ts': { why: 'the example title the skill share judge gets (ko next to en/id/ja/es)' },
   'server/src/skills/folder-actions.ts': { why: 'a skill folder name in another language, as the example the AI gets when a name is refused (#1069: any language), not screen text', also: /suggest a name like "estimate-docs" or "견적-문서"/ },
   'server/src/chat/narration.ts': { why: 'the Hangul letter range that tells a Korean answer, and the Korean words of a message asking for another language or English copy (matched, not screen text; #1066)', also: /^\s*ko: \/\[|^\s*'(영어|영작)'/ },
+  'server/src/chat/room-hint.ts': { why: 'Korean words the room hint skips when it matches a request to room messages (a stop-word list, not screen text; #1078)', also: /^const STOP = new Set\(/ },
   'server/src/skills/share-check.ts': { why: 'Korean words that tell the AI to run a script (matched in a SKILL.md, not screen text)', also: /^\s*\/스크립트\[/ },
   'server/src/connectors/remote-mcp/share.ts': { why: 'the app\'s own name of "스킬로 제안", quoted to Claude Code and to a member it refuses (not screen text of this server)', also: /스킬로 제안/ },
   'shared/src/api/skill-shares.ts': { why: 'the step\'s button names quoted in the API summaries (not screen text)', also: /나중에 하기/ },
