@@ -45,7 +45,7 @@ import { normalizeForModel } from './vision'
 import { openChecked } from '../team-files/place'
 import { JobFailure } from '../jobs/service'
 import { FREE_USED, HOSTED_SPEECH_MODEL, hostedSpeechFreeHours } from '../credentials/hosted-speech'
-import { converterInputName, missingLocalTools, modelReady, transcribeConfig, whisperFile, type TranscribeConfig } from '../jobs/transcribe'
+import { converterInputName, ensureModel, missingLocalTools, modelDownloading, modelOnDisk, modelReady, transcribeConfig, WHISPER_MODELS, whisperFile, type TranscribeConfig } from '../jobs/transcribe'
 import { openRouterAudio, openRouterServed, sendToOpenRouter, wavData, type OpenRouterAnswer } from '../jobs/openrouter-stt'
 import { keepLongRetry, LONG_PIECE_SEC, longRetryLanguage } from '../jobs/speech-language'
 import { pieceTurn, pieceWait } from '../jobs/whisper-turns'
@@ -490,7 +490,8 @@ export class FileService {
     const r = this.readAuth(ctx, ctx.user, a.file_path)
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
     // the plan's read limit (system/limits.ts readMaxBytes; 200 MB without a plan, as before)
-    const { bytes, st } = readRegular(r.abs, readMaxBytes())
+    // the open file must be the very file the check saw (#1131 checked descriptor, `r.st`)
+    const { bytes, st } = readRegular(r.abs, readMaxBytes(), r.st)
     // inside a shared folder: the bytes come from the very file openChild checked (no swap in between)
     if (ctx.sharedChild?.rel === r.rel && identity(st) !== identity(r.st!)) throw new Denied(safeText(this.db, ctx.user.id, 'changed'))
     const text = await extractText(r.rel, bytes, { pandoc: this.cfg.pandoc, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr, quarantine: this.quarantine }, ctx.signal)
@@ -722,7 +723,7 @@ export class FileService {
 
   /** The file's bytes, bound to the path that was authorized (same inode, size and times), not quarantined. */
   private boundSource(ctx: ToolCtx, r: Authorized, cap: number): BoundSource {
-    const { bytes, st } = readRegular(r.abs, cap)
+    const { bytes, st } = readRegular(r.abs, cap, r.st)
     if (identity(st) !== identity(r.st!)) throw new Denied(safeText(this.db, ctx.user.id, 'changed'))
     this.quarantine.assertBytes(bytes)
     return { rel: r.rel, bytes, hash: sha256(bytes), identity: identity(st) }
@@ -781,19 +782,26 @@ export class FileService {
   }
 
   // ---------------- video and audio (files/media.ts) ----------------
-  /** Converter seams of a media read (tests replace them). A Mac server says video is not supported there yet. */
+  /** Converter seams of a media read (tests replace them). An Apple silicon Mac reads the sound with macOS's own programs
+   * (jobs/mac-audio.ts); an Intel Mac says video and audio are not read there. */
   mediaTools(): media.MediaTools | 'mac' | 'missing' {
-    if (process.platform === 'darwin') return 'mac'
+    if (process.platform === 'darwin') return this.speech.mac ? { mac: this.speech.mac } : 'mac'
     const ffmpeg = which('ffmpeg'), ffprobe = which('ffprobe')
     return ffmpeg && ffprobe ? { ffmpeg, ffprobe } : 'missing'
   }
-  mediaProbe(tools: media.MediaTools, work: string, name: string, signal: AbortSignal | undefined, timeoutMs: number) { return media.probeMedia(tools, work, name, signal, timeoutMs) }
-  mediaDuration(tools: media.MediaTools, work: string, name: string, signal: AbortSignal | undefined, timeoutMs: number) { return media.scanDuration(tools, work, name, signal, timeoutMs) }
+  /** `video`: the file is a video by its name (a Mac reads only its sound and says so) */
+  mediaProbe(tools: media.MediaTools, work: string, name: string, signal: AbortSignal | undefined, timeoutMs: number, video = false) {
+    return media.isMacTools(tools) ? media.macProbeMedia(tools, work, name, video, signal, timeoutMs) : media.probeMedia(tools, work, name, signal, timeoutMs)
+  }
+  mediaDuration(tools: media.MediaTools, work: string, name: string, signal: AbortSignal | undefined, timeoutMs: number) { return media.isMacTools(tools) ? Promise.resolve(null) : media.scanDuration(tools, work, name, signal, timeoutMs) }
   /** one frame -> the model's JPEG: ffmpeg's PNG drawn again by the Go normalizer (pixels only, like an image read) */
   async mediaFrame(tools: media.MediaTools, work: string, name: string, stream: number, t: number, px: number, signal: AbortSignal | undefined, timeoutMs: number): Promise<Buffer> {
+    if (media.isMacTools(tools)) throw new ToolError('no frames on a Mac server', 'media_no_frame')
     return normalizeForModel(await media.framePng(tools, work, name, stream, t, px, signal, timeoutMs), this.visionTools(), signal)
   }
-  mediaAudio(tools: media.MediaTools, work: string, name: string, stream: number, start: number, seconds: number, out: string, o: { signal?: AbortSignal; timeoutMs: number; inputBytes: number }) {
+  async mediaAudio(tools: media.MediaTools, work: string, name: string, stream: number, start: number, seconds: number, out: string, o: { signal?: AbortSignal; timeoutMs: number; inputBytes: number }): Promise<Buffer> {
+    // a Mac: a piece of the sound mediaProbe decoded into the work folder
+    if (media.isMacTools(tools)) return media.macAudioWav(tools, work, start, seconds, out, o)
     return media.audioWav(tools, work, name, stream, start, seconds, out, o)
   }
   /** How this server transcribes video and audio sound itself (GET /api/admin/speech-host: the settings switch, and the
@@ -802,11 +810,15 @@ export class FileService {
     const speed = media.localSpeed(this.db, media.localModelName(this.speech.model), this.speech.threads)
     return { cpuCores: cpuBudget(), localPieceSec: media.LOCAL_PIECE_SEC, localSecPerSec: speed.measured ? speed.secPerSec : null, hostedNewSec: currentPlan() !== null ? media.HOSTED_LOCAL_NEW_SEC : null,
       // Team settings › Voice input: what 'local' lacks here (jobs/transcribe.ts)
-      localMissing: missingLocalTools(this.speech) }
+      localMissing: missingLocalTools(this.speech),
+      ...(this.speech.mac && this.speech.whisperBin ? { localMac: true as const } : {}),
+      localModelMb: modelOnDisk(this.speech) ? null : Math.round(WHISPER_MODELS[this.speech.model].size / 1e6) }
   }
   /** A piece's WAV as OpenRouter gets it (jobs/openrouter-stt.ts openRouterAudio: quiet sound raised, FLAC), or the WAV
    * itself when this ffmpeg cannot make one. A run that replaced its work folder or left a link: media_damaged. */
   async mediaSendable(tools: media.MediaTools, work: string, wavName: string, wav: Buffer, o: { signal?: AbortSignal; timeoutMs: number; workBytes: number }): Promise<{ bytes: Buffer; format: string }> {
+    // a Mac has no FLAC encoder run here: the WAV goes as it is (a 10-minute piece is 19.2 MB, under OpenRouter's 25 MB)
+    if (media.isMacTools(tools)) return { bytes: wav, format: 'wav' }
     const r = await openRouterAudio(tools.ffmpeg, work, wavName, wav, o)
     if (r.ok) return { bytes: r.bytes, format: r.format }
     if (r.why === 'damaged') throw new ToolError('the sound could not be encoded', 'media_damaged')
@@ -824,6 +836,27 @@ export class FileService {
     const r = await whisperFile(this.speech, p.modelPath, work, wavName, { signal: o.signal, timeoutMs: o.timeoutMs, language: o.language, noFallback: true, onLanguage: (_l, p) => { languageP = p } })
     return languageP === undefined ? r : { ...r, languageP }
   }
+
+  /** The local model's first download (jobs/transcribe.ts ensureModel: one at a time, sha256 checked), waited for while
+   * the read keeps a minute for its sound after it; null when it is not done by then (it goes on without the read) or
+   * failed. */
+  private async firstModel(signal: AbortSignal | undefined, budget: () => number): Promise<string | null> {
+    if (signal?.aborted) return null
+    // a download that failed (no internet) is not started again by every read for a while
+    if (!modelDownloading() && Date.now() - this.modelFailedAt < MODEL_RETRY_MS) return null
+    const dl = ensureModel(this.speech).catch(() => { this.modelFailedAt = Date.now(); return null })
+    const wait = Math.max(0, budget() - 60_000)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let onAbort = () => {}
+    const stop = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), wait)
+      onAbort = () => resolve(null)
+      signal?.addEventListener('abort', onAbort, { once: true })
+    })
+    try { return await Promise.race([dl, stop]) } finally { clearTimeout(timer); signal?.removeEventListener('abort', onAbort) }
+  }
+  /** when the last first-use download of the model failed (firstModel) */
+  private modelFailedAt = 0
 
   /**
    * A video or audio file like a Claude Code user reads one with ffmpeg and whisper: frames (images with their times)
@@ -890,7 +923,7 @@ export class FileService {
       const memo = probeFailures.get(src.hash)
       if (memo && Date.now() - memo.at < PROBE_MEMO_MS) throw new ToolError('failed before', memo.code)
       let info: media.MediaInfo
-      try { info = await this.mediaProbe(tools, work, src.name, signal, left()) } catch (e) {
+      try { info = await this.mediaProbe(tools, work, src.name, signal, left(), kind === 'video') } catch (e) {
         signal?.throwIfAborted()
         if (e instanceof ToolError && MEDIA_NOTE[e.code] && e.code !== 'media_heavy') {
           for (const [h, m] of probeFailures) if (Date.now() - m.at >= PROBE_MEMO_MS) probeFailures.delete(h)
@@ -902,8 +935,10 @@ export class FileService {
       if (!duration || duration <= 0) throw new ToolError('no length', 'media_damaged')
       if (duration > media.MEDIA_MAX_SECONDS) throw new ToolError('too long', 'media_too_long')
       if (!info.video && !info.audio) throw new ToolError('neither picture nor sound', 'media_unsupported')
+      if (info.pictureUnread && a.transcript === false) throw new ToolError(`'${src.rel}': this server reads only the sound of a video, not its pictures: transcript: false leaves nothing to read`, 'bad_media_args')
       if (!info.video && a.transcript === false) throw new ToolError(`'${src.rel}' has no picture, only sound: transcript: false leaves nothing to read`, 'bad_media_args')
       const win = a.time !== undefined ? media.parseTime(a.time, duration) : { start: 0, end: duration, moment: false }
+      if (info.pictureUnread && win.moment) throw new ToolError(`'${src.rel}': this server reads only the sound of a video, not its pictures: give time a part for its transcript, e.g. "${media.timeArg(win.start)}-${media.timeArg(Math.min(duration, win.start + 60))}"`, 'bad_media_args')
       if (!info.video && win.moment) throw new ToolError(`'${src.rel}' has no picture, only sound: give time a part for its transcript, e.g. "${media.timeArg(win.start)}-${media.timeArg(Math.min(duration, win.start + 60))}"`, 'bad_media_args')
       const notes: string[] = []
       const say = (key: MediaTextKey, vars: Record<string, string | number> = {}) => mediaText(this.db, ctx.user.id, key, vars)
@@ -917,7 +952,7 @@ export class FileService {
         if (n > 0 && block) notes.push(visionText(this.db, ctx.user.id, block))
         else if (n > 0 && !media.frameable(info.video)) notes.push(say('pictureTooLarge'))
         else if (n > 0) { times = media.frameTimes(win.start, win.end, n); px = media.framePx(n) }
-      } else if (kind === 'video') notes.push(say('noPicture'))
+      } else if (kind === 'video') notes.push(say(info.pictureUnread ? 'macNoPicture' : 'noPicture'))
 
       // ---- the frames first (QA 2026-11-01 H2: a slow transcript made first took their time and left a read with none),
       // in order, within FRAMES_TOTAL_MS and the turn's image budget (counted when they are delivered, below)
@@ -962,7 +997,7 @@ export class FileService {
       }
 
       // ---- the result, as the engine measures it (READ_OUTPUT_TOKENS): text first, then the frames that fit
-      const what = info.video ? 'Video' : 'Audio'
+      const what = info.video || info.pictureUnread ? 'Video' : 'Audio'
       const head: string[] = []
       const pic = info.video ? `, ${info.video.width}×${info.video.height}${info.video.fps ? `, ${info.video.fps} fps` : ''}, ${info.video.codec}` : ''
       const snd = info.audio ? `; sound ${info.audio.codec}${info.audio.channels ? `, ${info.audio.channels} channel${info.audio.channels === 1 ? '' : 's'}` : ''}` : '; no sound'
@@ -1088,7 +1123,8 @@ export class FileService {
    * The transcript of [from, to) with the team's speech provider, in fixed pieces cached by content (files/media.ts
    * TranscriptCache). New sound goes out only when the team turned "Turn video sound into text" on (or left it at its
    * default for this provider and server), never from a confidential chat to OpenRouter (cached pieces may be used
-   * there), and the local whisper.cpp model is never downloaded here. Right before each new piece the switch, the
+   * there), and the local whisper.cpp model is never downloaded here except on an Apple silicon Mac, where a read may
+   * be its first use (firstModel). Right before each new piece the switch, the
    * provider, the chat's confidentiality and the person's access to the file are checked again. A piece of silence is
    * not sent at all (whisper invents words over it). Every read that handed sound over is an audit row
    * `media.transcribe` (no text). `budget`: the time the read has for it; no piece starts that cannot finish in it,
@@ -1126,8 +1162,10 @@ export class FileService {
       else speech = { provider, key, model: orModel }
     } else if (!this.speech.whisperBin) blocked = 'noWhisper'
     else {
-      const modelPath = await modelReady(this.speech)
-      if (!modelPath) blocked = 'noModel'
+      // an Apple silicon Mac's first use may be this read: the model download starts here, and the read goes on with it
+      // when it is done in time (docs/decisions/20261116-mac-local-speech.md); Linux keeps it for voice input
+      const modelPath = await modelReady(this.speech) ?? (this.speech.mac ? await this.firstModel(ctx.signal, budget) : null)
+      if (!modelPath) blocked = this.speech.mac && modelDownloading() ? 'modelDownloading' : 'noModel'
       else speech = { provider, modelPath }
     }
     // a hosted server transcribes at most HOSTED_LOCAL_NEW_SEC of new sound here a read (founder Q8)
@@ -1302,6 +1340,7 @@ export class FileService {
     // how far it got, and that reading again goes on from there (the pieces made are kept)
     else if (stopped === 'time') notes.push(covered > w.from ? say('timeUp', { from: media.clock(w.from), to: media.clock(covered) }) : say('timeNone'))
     else if (stopped === 'freeUsed') notes.push(say('freeUsed', { hours: hostedSpeechFreeHours() }))
+    else if (stopped === 'modelDownloading') notes.push(say('modelDownloading', { mb: Math.round(WHISPER_MODELS[this.speech.model].size / 1e6) }))
     else if (stopped && stopped !== 'failed') notes.push(say(stopped as MediaTextKey))
     if (failure) notes.push(say('failed', { why: failure.replace(/[.。]\s*$/, '') }))
     return { segments, from: w.from, covered, notes, label, languages: media.transcriptLanguages(pieces), provider, made, cached, silent, stopped }
@@ -1361,7 +1400,7 @@ export class FileService {
     try {
       const r = authorize(this.fx, this.rules(), user, input, 'read')
       if (!r.exists || !r.st!.isFile()) return null
-      const { bytes } = readRegular(r.abs, readMaxBytes())
+      const { bytes } = readRegular(r.abs, readMaxBytes(), r.st)
       return isUtf8(bytes) ? Buffer.from(bytes).toString('utf8') : null
     } catch { return null }
   }
@@ -1379,7 +1418,7 @@ export class FileService {
     this.limits(ctx, r.rel, data.length)
     if (r.exists) {
       if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`, 'is_folder')
-      const cur = readRegular(r.abs).bytes
+      const cur = readRegular(r.abs, undefined, r.st).bytes
       if (tool === 'write') refuseLegacyText(r.rel, cur)
       const before = seen.get(r.rel)
       if (!before) throw new ToolError(`read '${r.rel}' first (with read) before overwriting it`, 'not_read')
@@ -1410,7 +1449,7 @@ export class FileService {
     const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'write', { mustExist: true })
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`, 'is_folder')
     if (isOffice(r.rel) || BINARY_WRITE.has(ext(r.rel))) throw new ToolError('only text files can be edited')
-    const cur = readRegular(r.abs).bytes
+    const cur = readRegular(r.abs, undefined, r.st).bytes
     if (cur.subarray(0, 8000).includes(0)) throw new ToolError('binary file; cannot edit')
     refuseLegacyText(r.rel, cur)
     const before = ctx.files.readHashes.get(r.rel)
@@ -1486,7 +1525,7 @@ export class FileService {
     const user = this.principal(userId)
     const r = authorize(this.fx, this.rules(), user, rel, 'write', { mustExist: true })
     if (r.st!.isDirectory()) throw new ToolError('folders cannot be deleted with this call')
-    return moveToTrash(this.db, this.fx.root, r.segs, { userId, turnId })
+    return moveToTrash(this.db, this.fx.root, r.segs, { userId, turnId }, r.st)
   }
   restoreTrash(userId: string, trashId: string) {
     const user = this.principal(userId)
@@ -1536,9 +1575,13 @@ interface MediaTranscript {
 /** a converter refusal of a media read -> its note (files/media-text.ts) */
 const MEDIA_NOTE: Record<string, MediaTextKey | undefined> = {
   media_unsupported: 'unsupported', media_damaged: 'damaged', media_heavy: 'heavy', media_too_long: 'tooLong', media_too_large: 'tooLarge',
+  // a Mac (jobs/mac-audio.ts): a format macOS does not open, a video with no sound it opens
+  media_mac_format: 'macFormat', media_mac_no_sound: 'macNoSound',
 }
 /** files whose probe failed (by content): the same broken file does not run the converters again for 10 minutes */
 const PROBE_MEMO_MS = 10 * 60_000
+/** a Mac read starts the model download again at most this often after one failed */
+const MODEL_RETRY_MS = 5 * 60_000
 const probeFailures = new Map<string, { code: string; at: number }>()
 /** room in the work folder's file system for a copy of `size` bytes and MEDIA_DISK_RESERVE (unknown: yes) */
 function diskRoom(base: string, size: number): boolean {

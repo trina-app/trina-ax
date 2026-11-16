@@ -19,7 +19,7 @@ file shared with the person, a web page, a connected service's answer) was not c
 
 In:
 
-- One mark per chat (`chats.others_words`, migration 410): set when content someone other than the chat's person wrote
+- One mark per chat (`chats.others_words`, migration 412): set when content someone other than the chat's person wrote
   comes in. Kept until the chat's session starts anew, as the other marks.
 - share_with_person, post_to_room (the place, and the linked files of the files card), a team file attached to a
   connection's send, change_project_members: in a chat with the mark (or one that read rooms), the person's "Always

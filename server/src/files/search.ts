@@ -263,7 +263,7 @@ export class OfficeCache {
     const meta = this.provenance(rel)
     if (!meta || meta.source !== sha256(source) || this.fx.quarantine?.hasHash(meta.source)) return null
     const abs = this.cachePath(rel)
-    const text = admission.read(abs, () => fs.lstatSync(abs))
+    const text = admission.read(abs, () => fs.lstatSync(abs), undefined, { serverOwned: true })
     return text && meta.text === sha256(text.bytes) ? { ...text, hash: meta.text } : null
   }
   fresh(rel: string, st: fs.Stats) {
@@ -395,7 +395,7 @@ export class OfficeCache {
       if (retry && this.now() < retry.next) return
       const lastTry = (retry?.tries ?? 0) + 1 >= OFFICE_RETRY_MAX
       let got: { bytes: Buffer; st: fs.Stats }
-      try { got = readRegular(abs, Math.min(50 * 1024 * 1024, readMaxBytes())) } catch (e) {
+      try { got = readRegular(abs, Math.min(50 * 1024 * 1024, readMaxBytes()), lst) } catch (e) {
         try { if (lst.isFile()) this.write(rel, '', lst); else fs.rmSync(this.cachePath(rel), { force: true }) } catch { fs.rmSync(this.cachePath(rel), { force: true }) }
         throw e
       }

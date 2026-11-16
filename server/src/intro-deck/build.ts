@@ -131,7 +131,7 @@ function reader(ctx: AppContext, t: ToolCtx) {
   return (src: string): Uint8Array | null => {
     if (cache.has(src)) return cache.get(src)!
     let b: Uint8Array | null = null
-    try { const a = authorize(ctx.files.fx, ctx.files.rules(), t.user, src, 'read', { mustExist: true }); b = new Uint8Array(readRegular(a.abs, 20 * 1024 * 1024).bytes) } catch { b = null }
+    try { const a = authorize(ctx.files.fx, ctx.files.rules(), t.user, src, 'read', { mustExist: true }); b = new Uint8Array(readRegular(a.abs, 20 * 1024 * 1024, a.st).bytes) } catch { b = null }
     cache.set(src, b)
     return b
   }

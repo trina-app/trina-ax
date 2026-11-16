@@ -567,7 +567,6 @@ export function turnPerson(exec: TurnExec): TurnPerson {
     // the connection still goes without the card (docs/decisions/20261116-always-allow-final-rule-a.md)
     attachAsks: (paths) => othersWordsIn(exec) || !fromAsker(exec.rt.db, exec.spec, paths),
     othersWords: () => othersWordsIn(exec),
-    otherMembers: () => !!exec.shared || !!exec.otherAuthors,
     webAccessChanged: () => exec.rt.hub.publish(exec.spec.userId, WEB_ACCESS_CHANGED),
     ...(exec.profileDraft ? { unattendedLabel: 'company profile draft answer', scope: (url: string) => draftUrlRefusal(exec.profileDraft!.scope, url), ...(exec.profileDraft.pages ? { pages: exec.profileDraft.pages } : {}) } : {}),
   }

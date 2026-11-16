@@ -269,7 +269,7 @@ export class MakeFile {
       if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`)
       const x = ext(r.rel)
       if (!['md', 'markdown', 'txt', 'csv', 'tsv'].includes(x)) throw new ToolError('source must be a .md, .txt, .csv or .tsv file (or an .html or .pptx file for format "pdf")')
-      const { bytes } = readRegular(r.abs, MAX_SOURCE)
+      const { bytes } = readRegular(r.abs, MAX_SOURCE, r.st)
       text = bytes.toString('utf8')
       kind = x === 'csv' ? 'csv' : x === 'tsv' ? 'tsv' : 'markdown'
       baseDir = r.segs.slice(0, -1)
@@ -399,7 +399,7 @@ export class MakeFile {
     const why = htmlPdfUnavailable()
     const browser = findPdfBrowser()
     if (why || !browser) throw new ToolError(`this server cannot make a PDF of a deck (${why ?? 'no headless browser is installed'}); nothing was saved. Tell the user so, and that PowerPoint or Keynote can (File > Export > PDF); never rewrite the slides as a document instead`, 'html_pdf_unavailable')
-    const { bytes } = readRegular(src.abs, MAX_DECK)
+    const { bytes } = readRegular(src.abs, MAX_DECK, src.st)
     this.ctx.files.quarantine.assertBytes(bytes)
     const drawn = JSON.parse((await officeWorkerWrite(PPTX_HTML_MODE, bytes, c.signal)).toString('utf8')) as SlidesHtml
     // the page sits next to the deck under a name of its own: its pictures are answered only from the deck's
@@ -554,7 +554,7 @@ export class MakeFile {
     if (r.segs[0] !== 'skills') throw new ToolError('templates must be files under skills/')
     if (ext(r.rel) !== 'hwpx') throw new ToolError('the template must be a .hwpx file (a .hwp can be saved as .hwpx in Hangul)')
     if (checkRegular(r.abs).size > HWPX_TEMPLATE_MAX) throw new ToolError(`template is too large (max ${HWPX_TEMPLATE_MAX / 1024 / 1024} MB)`)
-    return { bytes: readRegular(r.abs, HWPX_TEMPLATE_MAX).bytes, rel: r.rel }
+    return { bytes: readRegular(r.abs, HWPX_TEMPLATE_MAX, r.st).bytes, rel: r.rel }
   }
 
   /** `text`: the document's source, whose writing decides the language and font order (pdfLanguage) */
@@ -675,7 +675,7 @@ export async function printTeamHtml(ctx: AppContext, files: TeamFiles, user: Too
   const why = htmlPdfUnavailable()
   const browser = findPdfBrowser()
   if (why || !browser) throw new ToolError(`${why ?? 'no headless browser is installed on this server'}; nothing was saved. Tell the user so; never rewrite the HTML as Markdown instead without saying that its design (colours, backgrounds, merged cells, page layout) would be lost`, 'html_pdf_unavailable')
-  const { bytes } = readRegular(src.abs, max)
+  const { bytes } = readRegular(src.abs, max, src.st)
   ctx.files.quarantine.assertBytes(bytes)
   /** the team path the page asked for -> its actual name (authorize resolves case and Unicode forms) */
   const used = new Map<string, string>()
@@ -691,7 +691,7 @@ export async function printTeamHtml(ctx: AppContext, files: TeamFiles, user: Too
           const f = authorize(fx, rules, user, p, 'read')
           if (f.st!.isDirectory() || f.rel === src.rel) return null
           if (o.embedOnly && !o.embedOnly(src.segs, f.segs)) return null
-          const b = readRegular(f.abs, max).bytes
+          const b = readRegular(f.abs, max, f.st).bytes
           if (ctx.files.quarantine.hasBytes(b)) return null
           used.set(p, f.rel)
           return b
@@ -743,7 +743,7 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
   if (now.exists) {
     const abs = path.join(fx.root, ...segs)
     checkRegular(abs)
-    const cur = sha256(readRegular(abs).bytes)
+    const cur = sha256(readRegular(abs, undefined, now.st).bytes)
     if (c.files.readHashes.get(rel0) === cur) {
       snapshotVersion(ctx.db, fx.root, rel0, { userId: c.user.id, turnId: c.turnId }, 'edit', cur)
       action = 'update'

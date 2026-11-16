@@ -10,8 +10,8 @@
 **Always allow is final (owner decision 2026-11-13); the guards apply only where the person hasn't chosen Always allow.** (docs/decisions/20261116-always-allow-final-rule-a.md, Rule A.) Once the person picks "Always allow"
 for sharing, room posts, posts with files, project members or a connection, the card is not raised for them again in
 their own chat, whatever the chat read (rooms, a teammate's file, a file shared with them, a page, a connected service)
-and in their scheduled runs. In a chat with other members' messages (a shared chat, or one others wrote in) the choice
-counts only for their own ask, as on dev (QA TC-3091). The lines below about content written by others, the "Second
+and in their scheduled runs. In a shared chat (shared now) the choice counts only for their own ask, as on dev (QA
+TC-3091); a chat no longer shared is their own chat for it. The lines below about content written by others, the "Second
 review" and "Always allow covers the person's own asks" now decide only the explicit-ask skip, the card's offer and the
 file refusal where the person has not chosen Always allow.
 
@@ -57,7 +57,7 @@ cards still came every time: FL-02 and FL-13 (sharing), FL-05 (a web address), F
     same trust the switch gives any site ("can send anything it can read to any site"). On a running server the
     address is learned at start (the feed's /ip), so this card is rare outside test servers.
 - **Content written by others (added in the batch, QA rows in PR #1109).** "Other people's words" for these gates is
-  no longer only other people's messages. A chat is marked (`chats.others_words`, migration 410, chat/turn.ts
+  no longer only other people's messages. A chat is marked (`chats.others_words`, migration 412, chat/turn.ts
   `markOthersWords`) once content someone other than its person wrote comes in:
   - a team file another person wrote or changed (every event that gave the file content must be the person's own; a
     file outside their own folder with no known history counts as someone else's), also as a team attachment or a

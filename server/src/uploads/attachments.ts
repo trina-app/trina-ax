@@ -208,7 +208,7 @@ export class Attachments {
   }
 
   /** Thumbnail file of an own image attachment (generated, or the original when it is a small web image). */
-  thumbnail(userId: string, id: string): { abs: string; name: string } | { bytes: Buffer; name: string; mime: string; etag: string } {
+  thumbnail(userId: string, id: string): { abs: string; name: string; st?: fs.Stats } | { bytes: Buffer; name: string; mime: string; etag: string } {
     const r = this.row(id)
     if (!r && chatFilesOf(this.ctx).has(id)) return chatFilesOf(this.ctx).thumbnail(userId, id)
     if (!r && this.refs?.isRef(id)) return this.refs.thumbnail(userId, id)
@@ -222,7 +222,7 @@ export class Attachments {
     }
     const a = authorize(this.files.fx, this.files.rules(), user, r.path, 'read')
     const st = checkRegular(a.abs)
-    if (/^(png|jpe?g|gif|webp)$/.test(ext(r.name)) && st.size <= 2 * 1024 * 1024) return { abs: a.abs, name: r.name }
+    if (/^(png|jpe?g|gif|webp)$/.test(ext(r.name)) && st.size <= 2 * 1024 * 1024) return { abs: a.abs, name: r.name, st }
     throw new HttpError('not_found')
   }
 

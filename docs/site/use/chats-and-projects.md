@@ -137,8 +137,17 @@ Press **Share** (**Save** when it was shared already). Leaving with changes you 
   Taking everyone out makes it yours alone again.
 - **Send the link.** **Copy link** at the bottom left of the Share dialog copies the chat's address, and after you
   share, the message that says it is shared offers **Copy link** too. The link opens the chat only for people who can
-  already see it; anyone else sees "This chat can't be opened", with nothing of the chat on it. People you just added
+  already see it; a teammate who can't gets **Ask for access** (below), with nothing of the chat on it. People you just added
   can use it once you press **Share** (or **Save**). The project's **Members** dialog has **Copy link** for the project too.
+- **Ask for access.** A teammate who opens the link of a chat they can't see gets **Ask for access**, with room for a
+  note; the page shows nothing of the chat, not its title and not who is in it. After they press it, the button reads
+  **Requested**. You get the request in **Activity** with **Share** and **Decline**, and a notification on your phone and
+  in your browser (**Settings › Notifications › Sharing**; at most 10 a day, counted together with requests to open
+  files). **Share** adds them by name, after the same check as the Share dialog; **Decline** tells them only that it
+  wasn't approved, and they may ask again. A project's link works the same way: whoever changes its members gets the
+  request, and **Add** makes the person a member. A shared chat of a team project asks to join that project. Where no
+  request is possible (a chat that is never shared, such as one in a personal project, or nobody left to answer), the
+  page says only that they can't ask, without the button and without saying why. Guests can't ask, and someone who can already open it is simply let in.
 - **Personal things stay out.** In a shared chat the AI does not use your memories, your browser, your email or your
   schedules. To use them, choose **Continue in a chat only you see** in the chat's menu.
 - A chat in a personal project stays yours: **Share** offers to move it out first. A chat in a team project is shared

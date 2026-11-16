@@ -1,0 +1,1 @@
+- Settings › Profile now shows your language as one choice, with the current language visible, instead of listing every language. On a computer it is a drop-down list. On a phone it is a "Language" row that opens the list in a sheet, like the AI row below it. The sign-in, setup, member and team settings pickers use the same list.

@@ -107,7 +107,8 @@ test.each(Locale.options)('worker displays server-selected %s title and body for
     const w = worker(), messages = pushMessages(locale)
     w.configure({ messages })
     // a request to open a file shows only while the signed-in notice says I may still answer it
-    w.item({ id: 'event-1', code, readAt: null, ...(code === 'file.access_requested' ? { link: 'file', fileShare: { by: null, name: null, linkId: null, state: 'pending', canAnswer: true } } : {}) })
+    // (and a request to open my chat or project, the same)
+    w.item({ id: 'event-1', code, readAt: null, ...(code === 'file.access_requested' ? { link: 'file', fileShare: { by: null, name: null, linkId: null, state: 'pending', canAnswer: true } } : {}), ...(code === 'access.requested' ? { link: null, accessRequest: { kind: 'chat', by: null, name: null, targetId: null, state: 'pending', canAnswer: true } } : {}) })
     await w.push({ ...payload, code, title: 'PRIVATE PROMPT', body: 'PRIVATE FILE', locale: 'en' })
     expect(w.shown).toHaveLength(1)
     expect(w.shown[0]!.title).toBe(messages.title)
@@ -343,6 +344,30 @@ test('a request to open my file (docs/decisions/20261116-file-share-push-gaps.md
   await off.push({ ...payload, code: 'file.access_requested' })
   off.item({ id: 'event-1', code: 'file.shared', readAt: null, link: 'file', chatId: null, fileShare: { by: 'Mia', name: 'x', linkId } })
   await off.push({ ...payload, code: 'file.shared' })
+  expect(off.shown).toHaveLength(0)
+})
+
+test('a request to open my chat or project (docs/decisions/20261116-chat-project-ask-access.md): the generic line only; a click opens it in Activity; answered meanwhile or "Sharing" off shows nothing', async () => {
+  const asked = () => ({ id: 'event-1', code: 'access.requested', readAt: null, link: null, chatId: null, accessRequest: { kind: 'chat', by: 'Jun Secret', name: 'PRIVATE CHAT', targetId: 'chat-1', note: 'PRIVATE NOTE', requestId: 'req-1', state: 'pending', canAnswer: true } })
+  const one = worker()
+  one.item(asked())
+  await one.push({ ...payload, code: 'access.requested', path: '/evil' })
+  expect(one.shown).toHaveLength(1)
+  expect(one.shown[0]!.options.body).toBe('Someone asked for access to a chat or project.')
+  expect(JSON.stringify(one.shown)).not.toContain('PRIVATE')
+  expect(JSON.stringify(one.shown)).not.toContain('Jun')
+  await one.clickShown()
+  expect(one.navigated).toEqual(['https://team.example/activity?n=event-1'])
+  for (const accessRequest of [{ ...asked().accessRequest, state: 'approved', canAnswer: undefined }, { ...asked().accessRequest, canAnswer: undefined }, { kind: null, by: null, name: null, targetId: null, gone: true }]) {
+    const w = worker()
+    w.item({ ...asked(), accessRequest })
+    await w.push({ ...payload, code: 'access.requested' })
+    expect(w.shown).toHaveLength(0)
+  }
+  const off = worker()
+  off.preferences({ fileShares: false })
+  off.item(asked())
+  await off.push({ ...payload, code: 'access.requested' })
   expect(off.shown).toHaveLength(0)
 })
 

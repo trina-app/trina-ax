@@ -1909,7 +1909,7 @@ export class TurnExec {
   }
 
   /**
-   * Content another person wrote came into this chat (chats.others_words, migration 410; docs/decisions/
+   * Content another person wrote came into this chat (chats.others_words, migration 412; docs/decisions/
    * 20261116-always-allow-more-cards.md "Content written by others"): a team file someone else wrote or changed, a
    * file shared with the person, a web page or search, a connected service's answer, a room's file, another person's
    * skill or project instructions. Kept until a new session, as the session carries what was read. From then on an
@@ -2270,12 +2270,13 @@ export class TurnExec {
     let sha = this.files.allReads.get(rel)
     if (!sha) {
       const abs = path.join(this.rt.files.fx.root, ...rel.split('/'))
-      const size = fs.lstatSync(abs).size
+      const lst = fs.lstatSync(abs)
+      const size = lst.size
       // hashed on the server's thread: one file up to OWN_HASH_MAX, a call's files up to OWN_HASH_BUDGET (grep hits in big
       // documents); past either, the file counts as outside
       if (size > OWN_HASH_MAX || size > budget.left) return 2
       budget.left -= size
-      sha = sha256Regular(abs)
+      sha = sha256Regular(abs, lst)
     }
     if (sha === EMPTY_SHA256) return 0
     const rows = this.rt.db.query(`SELECT DISTINCT turn_id AS t FROM file_events WHERE sha256 = ? AND turn_id IS NOT NULL AND action IN ('create', 'update', 'upload', 'restore')`).all(sha) as { t: string }[]
@@ -3398,7 +3399,7 @@ export class TurnExec {
       // the tool refuses a folder, and an overwrite of a file not read in this turn: no card for a call that fails
       if (r.st!.isDirectory() || (!produced && !files.readHashes.has(r.rel))) return null
       try {
-        const cur = readRegular(r.abs).bytes
+        const cur = readRegular(r.abs, undefined, r.st).bytes
         before = cur.subarray(0, 8000).includes(0) ? null : cur.toString('utf8')
       } catch { return null }
     }

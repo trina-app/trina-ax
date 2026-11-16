@@ -219,13 +219,14 @@ describe('files sent in a room', () => {
     expect(sha(new Uint8Array(await got.arrayBuffer()))).toBe(sha(data.subarray(UPLOAD_CHUNK_SIZE)))
   })
 
-  test('refused before any byte is sent: over 10 GB (in plain words), a room I am not in, a name that is no file name', async () => {
+  test('refused before any byte is sent: over 1 GB (in plain words), a room I am not in, a name that is no file name', async () => {
     const start = (user: string, target: unknown, size: number) => h.req(user, '/api/upload-sessions', json({ target, size, sha256: 'a'.repeat(64) }))
     const big = await start('alice', { kind: 'room', roomId: dm, name: 'film.mov' }, ROOM_FILE_MAX + 1)
     expect(big.status).toBe(413)
     const err = ((await big.json()) as { error: { code: string; message: string; params?: { reason?: string } } }).error
     expect(err.code).toBe('payload_too_large')
-    expect(err.message).toContain('10 GB')
+    expect(err.message).toContain('1 GB')
+    expect(err.message).not.toContain('10 GB')
     expect(err.params?.reason).toBe('room_file_too_large')
     expect((await start('alice', { kind: 'room', roomId: dm, name: 'film.mov' }, ROOM_FILE_MAX)).status).toBe(201)
     // carol is not in alice and bob's DM: the same answer as a room that does not exist

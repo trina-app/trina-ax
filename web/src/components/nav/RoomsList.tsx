@@ -7,7 +7,7 @@ import { NavLink } from 'react-router-dom'
 import type { Room } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { uploadingIn, useRoomUploads } from '../../store/roomUploads'
-import { pinnedRooms, roomBadge, roomUnread } from '../../lib/rooms'
+import { pinnedRooms, roomBadge, roomCounts } from '../../lib/rooms'
 import { RoomIcon, RoomName, useRoomTitle } from '../rooms/RoomIcon'
 import { RoomMenu, useRowMenu } from '../rooms/RoomMenu'
 import { CountPill } from '../CountPill'
@@ -42,13 +42,15 @@ export function roomSections<R extends Pick<Room, 'id' | 'kind'> & Partial<Pick<
   }).filter((s) => s.rooms.length > 0)
 }
 
-/** A room's one badge: the unread count, or "@" when one of them mentions me; grey for a muted room (which the 대화 tab
- * does not count). */
+/** A room's one badge (shared roomCounts, docs/decisions/20261116-mentions-only-no-count.md): its number, or "@" when one
+ * of the unread messages mentions me; grey for a room I turned off (which the 대화 tab does not count). Plain messages in
+ * a room at 멘션만 show no number: the row is only bold, and a screen reader still hears that something is unread. */
 export function UnreadBadge({ room, className, testId }: { room: Room; className?: string; testId: string }) {
   const t = useT()
-  const n = roomUnread(room)
-  if (n <= 0) return null
-  return <CountPill text={roomBadge(room)} label={`${t('rooms.unread', { n })}${room.mentioned ? `, ${t('rooms.mentionedYou')}` : ''}`} quiet={room.muted} className={className} testId={testId} data-muted={room.muted ? '' : undefined} />
+  const c = roomCounts(room)
+  if (!c.bold) return null
+  if (!c.mention && c.number <= 0) return <span className="sr-only" data-testid={`${testId}-bold`}>{t('rooms.unreadNoCount')}</span>
+  return <CountPill text={roomBadge(room)} label={`${t('rooms.unread', { n: c.number })}${c.mention ? `, ${t('rooms.mentionedYou')}` : ''}`} quiet={c.quiet} className={className} testId={testId} data-muted={c.quiet ? '' : undefined} />
 }
 
 /** A file of mine is still going up in this room (store/roomUploads.ts): its row says so while I am somewhere else, so
@@ -77,7 +79,7 @@ export const ROW_MENU_BUTTON = 'opacity-0 pointer-coarse:hidden group-hover:opac
 export function RoomRow({ room, onNavigate, section }: { room: Room; onNavigate: () => void; section?: RoomSection | 'pinned' | 'folder' }) {
   const t = useT()
   const title = useRoomTitle()(room)
-  const unread = roomUnread(room)
+  const { bold } = roomCounts(room)
   const menu = useRowMenu()
   // a room may go in one of my folders (its "⋯", or dragged onto the folder with a mouse)
   return (
@@ -97,7 +99,7 @@ export function RoomRow({ room, onNavigate, section }: { room: Room; onNavigate:
             // the ring of a DM's online dot takes the row's colour (index.css .presence-dot)
             '[--presence-bg:var(--c-subtle)] hover:[--presence-bg:var(--c-hover)] aria-[current=page]:[--presence-bg:var(--c-hover)] group-has-[[aria-expanded=true]]:[--presence-bg:var(--c-hover)]',
             isActive && 'bg-hover',
-            rowName({ selected: isActive, unread: unread > 0 }),
+            rowName({ selected: isActive, unread: bold }),
           )
         }
         data-testid="sidebar-room"

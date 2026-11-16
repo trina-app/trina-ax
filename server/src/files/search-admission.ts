@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import crypto from 'node:crypto'
 import type { Quarantine } from '../safe-ops/quarantine'
 import { sha256 } from './store'
+import { openChecked } from '../team-files/place'
 
 export const sameVersion = (a: fs.Stats, b: fs.Stats) => a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs
 
@@ -14,14 +15,17 @@ export class SearchAdmission {
   transaction<T>(fn: () => T): T { return this.quarantine && !this.quarantine.db.inTransaction ? this.quarantine.db.transaction(fn).immediate() : fn() }
 
   /** validate must authorize the current path. Compare that identity to the held
-   * descriptor, and recheck its version and path after reading. No decoder here. */
-  read(abs: string, validate: () => fs.Stats | false | null, max = 50 * 1024 ** 2): { bytes: Buffer; st: fs.Stats } | null {
+   * descriptor, and recheck its version and path after reading. No decoder here.
+   * A team file (the default) is opened as the very file validate saw, at `abs` itself (team-files/place.ts
+   * openChecked: a folder on the way that became a link is not followed); `abs` is then the team folder's real path
+   * plus the names on disk. `serverOwned`: a file in a folder only the server writes (the text cache, room uploads). */
+  read(abs: string, validate: () => fs.Stats | false | null, max = 50 * 1024 ** 2, o: { serverOwned?: boolean } = {}): { bytes: Buffer; st: fs.Stats } | null {
     return this.transaction(() => {
       let fd: number | undefined
       try {
         const expected = validate()
         if (!expected || !expected.isFile() || expected.nlink !== 1 || expected.size > max) return null
-        fd = fs.openSync(abs, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK)
+        fd = o.serverOwned ? fs.openSync(abs, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK) : openChecked(abs, expected).fd
         const st = fs.fstatSync(fd), version = fs.fstatSync(fd, { bigint: true })
         if (!st.isFile() || st.nlink !== 1 || !sameVersion(expected, st)) return null
         const bytes = Buffer.alloc(st.size)

@@ -83,7 +83,7 @@ class Inputs {
     const size = checkRegular(r.abs).size
     if (size > max) throw new ToolError(`'${r.rel}' is larger than ${max / 1024 / 1024} MB, too large to work on here`)
     if (this.total + size > PDF_PAGES_INPUT_MAX) throw new ToolError(`these files are more than ${PDF_PAGES_INPUT_MAX / 1024 / 1024} MB together; work on fewer or smaller files`)
-    const bytes = readRegular(r.abs, max).bytes
+    const bytes = readRegular(r.abs, max, r.st).bytes
     this.ctx.files.quarantine.assertBytes(bytes)
     this.total += bytes.length
     this.parts.push({ name: r.rel, bytes, rel: r.rel })

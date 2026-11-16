@@ -35,6 +35,7 @@ import { Face, isRoomRow, roomNoticeLink, roomRowText, type RoomNotice } from '.
 import { noticeLink, noticeText } from '../components/settings/Notifications'
 import { HandoverNoticeExtras } from '../components/handover/HandoverNotice'
 import { FileRequestExtras } from '../components/FileRequestNotice'
+import { AccessRequestExtras } from '../components/AccessRequestNotice'
 import { LeaverNoticeExtras, PausedNoticeExtras } from '../components/rooms/apps/PausedNotice'
 import { KeyFilesNoticeExtras } from '../components/settings/KeyFilesNotice'
 import { useRoomTitle } from '../components/rooms/RoomIcon'
@@ -508,8 +509,11 @@ function NoticeRow({ item, onRead, onChanged }: { item: InboxNotification; onRea
     ? <span className="mt-1 inline-flex h-8 items-center rounded-lg border border-field-border bg-surface px-3 text-sm font-medium text-ink" data-testid="notification-service-setup">{t('gapps.setUpLink', { name: requestableName(sr.service) })}</span>
     : sr?.added ? <span className="flex items-center gap-1 text-ok" data-testid="notification-service-added"><Check size={13} aria-hidden />{t('notifications.serviceRequest.added')}</span> : null
   const fileAsk = item.code === 'file.access_requested' && !!item.fileShare
-  const below = item.handover || d?.job?.tail || item.roomApp?.roomId || item.roomAppLeaver?.roomId || item.keyFiles?.files.length || fileAsk ? <>
+  // a request to open my chat or project (docs/decisions/20261116-chat-project-ask-access.md): Share / Add and Decline
+  const accessAsk = item.code === 'access.requested' && !!item.accessRequest
+  const below = item.handover || d?.job?.tail || item.roomApp?.roomId || item.roomAppLeaver?.roomId || item.keyFiles?.files.length || fileAsk || accessAsk ? <>
     {fileAsk && <FileRequestExtras item={item} onRead={onRead} onChanged={onChanged} />}
+    {accessAsk && <AccessRequestExtras item={item} onRead={onRead} onChanged={onChanged} />}
     {item.handover && <HandoverNoticeExtras item={item} onRead={onRead} onChanged={onChanged} />}
     {item.code === 'room_app.paused' && <PausedNoticeExtras item={item} onRead={onRead} onChanged={onChanged} />}
     {item.code === 'room_app.leaver' && <LeaverNoticeExtras item={item} onRead={onRead} />}

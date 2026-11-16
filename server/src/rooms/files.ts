@@ -8,7 +8,7 @@
 // nosniff, a sandbox CSP, a page or script type inline as text/plain); the app's preview panel reads those bytes and
 // draws them (an HTML page only in its sandbox frame), never as a page of this origin. A file whose bytes are on the
 // team's download-only list goes only as a download (no inline read, no thumbnail). A file of up to 50 MB arrives in one request (multipart, streamed to a temp
-// file and hashed on the way: http/multipart.ts), a larger one, up to ROOM_FILE_MAX (10 GB), through an upload session
+// file and hashed on the way: http/multipart.ts), a larger one, up to ROOM_FILE_MAX (1 GB), through an upload session
 // with target room (uploads/sessions.ts: 8 MB chunks written straight to disk, resumable). Either way the file is never
 // in memory whole; the storage check, the image size and thumbnail helpers and the quarantine list are the chat
 // attachments'. Only a picture of at most 50 MB is read whole (its metadata is cut out); a larger one is a plain file.
@@ -110,7 +110,7 @@ export class RoomFiles {
   }
 
   /** The largest file this person may send in a room now: ROOM_FILE_MAX, or for a guest the team's choice (100 MB
-   * unless the owner or an admin raised it: uploads/guest-limit.ts). Read at every upload, from their role then. */
+   * unless the owner or an admin raised it to 1 GB: uploads/guest-limit.ts). Read at every upload, from their role then. */
   maxFor(userId: string): number {
     return Math.min(ROOM_FILE_MAX, guestUploadMax(this.ctx.db, userId) ?? ROOM_FILE_MAX)
   }
@@ -188,9 +188,9 @@ export class RoomFiles {
    */
   async fromTeamFile(userId: string, roomId: string, rel: string): Promise<RoomFile> {
     this.member(userId, roomId)
-    const { abs, name } = this.teamSource(userId, rel)
+    const { abs, name, st: seen } = this.teamSource(userId, rel)
     let opened: { fd: number; st: fs.Stats }
-    try { opened = openChecked(abs) } catch { return fail('not_found') }
+    try { opened = openChecked(abs, seen) } catch { return fail('not_found') }
     const tmpDir = path.join(this.ctx.config.dataDir, 'uploads', 'tmp')
     const tmp = path.join(tmpDir, `${PRODUCT.tmpPrefix}room-${randomBytes(8).toString('hex')}`)
     let sha: string
@@ -353,7 +353,7 @@ export class RoomFiles {
     if (st.size > HWP_LIMITS.inputBytes) throw new HwpError('limit')
     const read = admission.read(f.abs, () => {
       try { const now = checked(); return now.abs === f.abs && now.sha256 === f.sha256 && checkRegular(now.abs) } catch { return false }
-    }, HWP_LIMITS.inputBytes)
+    }, HWP_LIMITS.inputBytes, { serverOwned: true })
     if (!read) throw new HwpError('changed')
     const hash = sha256(read.bytes)
     if (hash !== f.sha256) throw new HwpError('changed')

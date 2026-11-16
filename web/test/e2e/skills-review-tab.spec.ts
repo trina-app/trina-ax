@@ -37,6 +37,9 @@ test('the 팀 스킬 row counts what waits for my review: it comes with a sugges
 
   // a suggestion comes while the owner is elsewhere: the count shows without a reload
   await suggest(page, 'how do we write the weekly report', '주간 보고')
+  // the live notice says the place in words, not "skills/"
+  await expect(owner.getByTestId('toast').filter({ hasText: '주간 보고' })).toContainText('→ 팀 스킬')
+  await expect(owner.getByTestId('toast').filter({ hasText: '주간 보고' })).not.toContainText('skills/')
   const count = row.getByTestId('nav-skills-count')
   await expect(count).toHaveText(/^1/)
   await expect(count).toContainText('검토를 기다리는 제안 1개')
@@ -56,6 +59,7 @@ test('the 팀 스킬 row counts what waits for my review: it comes with a sugges
   // two of one person: one heading for them; the folder in words, not a path
   await expect(owner.getByTestId('review-group-head')).toHaveCount(1)
   await expect(owner.getByTestId('review-list').getByTestId('suggestion').first()).toContainText('팀 스킬')
+  await expect(owner.getByTestId('review-list').getByTestId('suggestion-meta').first()).toContainText('팀 스킬에 제안 · ')
   await expect(owner.getByTestId('review-list')).not.toContainText('skills/')
 
   // the phone's drawer shows the same count
@@ -96,6 +100,11 @@ test('the 팀 스킬 row counts what waits for my review: it comes with a sugges
   await expect(reviewed.getByTestId('suggestion')).toHaveCount(0)
   await reviewed.getByTestId('panel-section-fold').click()
   await expect(reviewed.getByTestId('suggestion')).toHaveCount(2)
+  // a decided row says only the place: no "제안" / "넣기" left to read as something to do
+  for (const line of await reviewed.getByTestId('suggestion-meta').allTextContents()) {
+    expect(line).toMatch(/^팀 스킬 · /)
+    expect(line).not.toMatch(/제안|넣기/)
+  }
   await expect(reviewed.locator('[data-testid="suggestion"][data-status="rejected"]').getByTestId('review-note')).toContainText('비슷한 스킬이 이미 있어요')
   const result = reviewed.locator('[data-testid="suggestion"][data-status="approved"]').getByTestId('suggestion-result')
   await expect(result).toContainText('skills/')

@@ -359,12 +359,11 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // send with the files" sends them this time, and later such posts go with their files and no card
         // The person's choice is final in their own chat, whatever it read (rooms, a teammate's file, a page, a connected
         // service; the owner 2026-11-13, docs/decisions/20261116-always-allow-final-rule-a.md). A shared chat (QA TC-3091
-        // review) or one other members wrote in: their messages are in the AI's context, so "Always allow" counts only for this person's own
+        // review): other members' messages are in the AI's context, so "Always allow" counts only for this person's own
         // ask: their own message of this turn (quoted lines left out) names the place and asks to send or post, brings
         // every linked file (named or attached it, or the AI made it in this answer), and never for own_words
         const mineNamed = () => namesPlace(ownWords(askerText(db, spec.userMessageId)), a.data.room, recipientNames(db, spec.userId, mine?.room ?? null, pendingTo))
-        // (a chat other members wrote in, also one no longer shared, is the same: exec.otherAuthors)
-        const alwaysOk = !(exec.shared || exec.otherAuthors) || (!plain && mineNamed() && asksToSend(db, spec.userMessageId) && (!all || fromAsker(db, spec, first.offered)))
+        const alwaysOk = !exec.shared || (!plain && mineNamed() && asksToSend(db, spec.userMessageId) && (!all || fromAsker(db, spec, first.offered)))
         // where other people's words are in the chat (shared, others write in it, rooms read, content someone else wrote:
         // othersWordsIn) the explicit-ask skip below (our own text match, not the person's choice) never applies
         const marked = othersWordsIn(exec)

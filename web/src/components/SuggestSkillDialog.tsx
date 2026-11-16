@@ -2,9 +2,11 @@
 // waits on the server (not in skills/) until someone who manages the chosen skills folder registers it or turns it
 // down; they are told, and so am I when it is reviewed.
 import { useEffect, useState } from 'react'
-import type { SkillSuggestionSource } from '@mycel/shared/api'
+import type { SkillSuggestionSource, SkillsOverview } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { useLocale, useT } from '../i18n'
+import { useFolderWords } from '../lib/folderLabels'
+import { skillPlaceWords } from '../lib/skillPlaces'
 import { skillsChanged } from '../store/live'
 import { toast } from '../store/ui'
 import { Button, Field, Modal, inputCls } from './ui'
@@ -17,10 +19,19 @@ export function splitSkillText(text: string): { name: string; description: strin
   return { name: field('name'), description: field('description'), body: text.slice(m[0].length) }
 }
 
+/** A folder the dialog offers, said as the Team skills page says it: "Team skills" (› its folders), "<group> skills" by
+ * the group's name now (`groups`: the overview's suggestGroups; its folder's name without it). */
+export function suggestFolderWords(folder: string, groups: NonNullable<SkillsOverview['suggestGroups']>, t: ReturnType<typeof useT>, path: (p: string, sep?: string) => string): string {
+  const group = groups[folder]
+  return skillPlaceWords({ targetFolder: folder, ...(group ? { targetGroup: group } : {}) }, t, path)
+}
+
 export default function SuggestSkillDialog({ source, initialName = '', initialContent, onClose }: { source: SkillSuggestionSource; initialName?: string; initialContent?: string; onClose: () => void }) {
   const t = useT()
   const locale = useLocale()
+  const words = useFolderWords()
   const [folders, setFolders] = useState<string[] | null>(null)
+  const [groups, setGroups] = useState<NonNullable<SkillsOverview['suggestGroups']>>({})
   const [folder, setFolder] = useState('skills')
   const [name, setName] = useState(initialName)
   const [description, setDescription] = useState('')
@@ -29,7 +40,13 @@ export default function SuggestSkillDialog({ source, initialName = '', initialCo
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    api.call(API.skillsOverview).then((o) => setFolders(o.suggestFolders.length ? o.suggestFolders : ['skills']), () => setFolders(['skills']))
+    api.call(API.skillsOverview).then(
+      (o) => {
+        setFolders(o.suggestFolders.length ? o.suggestFolders : ['skills'])
+        setGroups(o.suggestGroups ?? {})
+      },
+      () => setFolders(['skills']),
+    )
     // a file: its text (and its header, when it already is a skill file)
     if (source.kind === 'file' && initialContent === undefined) {
       api.call(API.content, { query: { path: source.path } }).then(
@@ -82,8 +99,9 @@ export default function SuggestSkillDialog({ source, initialName = '', initialCo
         <Field label={t('suggest.folder')}>
           <select className={inputCls} value={folder} onChange={(e) => setFolder(e.target.value)} data-testid="suggest-folder" disabled={!folders}>
             {(folders ?? ['skills']).map((f) => (
+              // the place in words, as the Team skills page says it ("Team skills", "Design skills"); the path is sent
               <option key={f} value={f}>
-                {f}/
+                {suggestFolderWords(f, groups, t, words.path)}
               </option>
             ))}
           </select>

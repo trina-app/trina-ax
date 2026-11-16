@@ -10,11 +10,11 @@
 // The card offers "Always allow" on its first showing (kind share_files, chat/always-allow.ts; docs/decisions/
 // 20261116-always-allow-more-cards.md, the owner's 11-11 rule): once picked, shares go without the card, also after room
 // reads, after content someone else wrote and in a scheduled run of that person's (actionOff): the choice is final
-// (docs/decisions/20261116-always-allow-final-rule-a.md). In a chat with other members' messages (shared, or others wrote
-// in it) the choice counts only when the asker's own message asks and names every recipient (post_to_room's rule,
-// namesRecipient), and each file must be one the asker attached to their message, named in it, or that the AI made in
-// this turn (otherwise another member's message could point the AI at the asker's files), with or without the card; the
-// same file rule holds after a room read while the choice is not on. The explicit-ask skip (no card when the person's
+// (docs/decisions/20261116-always-allow-final-rule-a.md). In a shared chat the choice counts only when the asker's own
+// message asks and names every recipient (post_to_room's rule, namesRecipient). In a chat someone else wrote in (shared or
+// not, as on dev) each file must be one the asker attached to their message, named in it, or that the AI made in this
+// turn (otherwise another member's message could point the AI at the asker's files), with or without the card; the same
+// file rule holds after a room read while the choice is not on. The explicit-ask skip (no card when the person's
 // own message asked for exactly this share) is our own text match, so it never applies where other people's words are.
 import { ShareWithPersonInput } from '@mycel/shared'
 import { plainLabel, type Step, type ShareCardFile, type StepShared } from '@mycel/shared/api'
@@ -103,8 +103,7 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         try { exec.noteReads() } catch (e) { rt.log.warn('read scope before a share failed', { err: e }) }
         // other people's words are in this turn: a shared chat, a chat others wrote in, or one that read rooms (a side chat,
         // room_read, a quoted room message; read now, as a room read can come in this turn)
-        // (other members' messages in the chat: a shared chat or one others wrote in; the choice used is this person's own
-        // ask there, never another member's, as on dev)
+        // (other members' messages in the chat: a shared chat or one others wrote in; the file rule below, as on dev)
         const members = !!exec.shared || exec.otherAuthors
         const others = members || readRooms(exec)
         // ...or content someone else wrote was read here (a teammate's file, a file shared with the user, a page, a
@@ -237,13 +236,13 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
           tr(plan.length === 1 ? 'fileShareViewOne' : 'fileShareView', L),
         ].filter(Boolean).join('\n\n')
         // "Always allow" (kind share_files) is final for the person's own chat, whatever it read (the owner's rule: once
-        // picked, shares go without the card, also after room reads and outside content). In a chat with other members'
-        // messages (shared, others wrote in it) the choice counts only for this person's own ask: their own message of
-        // this turn (quoted lines left out) asks to share or send and names every recipient (dev's rule, TC-3091)
+        // picked, shares go without the card, also after room reads and outside content). In a shared chat (other members
+        // there now) the choice counts only for this person's own ask: their own message of this turn (quoted lines left
+        // out) asks to share or send and names every recipient (post_to_room's rule on dev, TC-3091; shared chats only)
         // (the names of the call's other recipients: "to tess and bob", "김대리와 이과장한테" name each in a chain)
         const peersOf = (w: Who) => who.filter((x) => x !== w).flatMap((x) => x.subjectType === 'group' ? [x.name] : recipientWords(db, x))
         const typed = ownWords(askerText(db, spec.userMessageId))
-        const alwaysOk = !members || (asksToSend(db, spec.userMessageId)
+        const alwaysOk = !exec.shared || (asksToSend(db, spec.userMessageId)
           && who.every((w) => w.subjectType === 'group' ? namesGroup(typed, w.name) : namesRecipient(typed, w.ref, { names: recipientWords(db, w), person: true, peers: peersOf(w) })))
         // (a group counts as named only as a group, namesGroup: "the sales report" does not name the group Sales)
         // no card when the asker's own message of this turn asked for exactly this share (docs/decisions/

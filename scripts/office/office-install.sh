@@ -50,6 +50,9 @@
 # Settings → Apps (the newest per platform). ~/Downloads is looked at only for a platform those have nothing for, and
 # its file is offered only after you answer yes. A bundle built with --with-desktop carries desktop.sha256: then only
 # the installers it lists (same name and SHA-256) are offered. Later: <prefix>/teamax desktop add <file>.
+#
+# Exit code: 0 = installed and the server answers; 3 = installed, but the server did not answer within the wait (it may
+# still be starting: check with <prefix>/teamax status); 1 = stopped by a check, or it did not start.
 set -euo pipefail
 umask 022
 # when this run started: office.js install keeps its extra wait (QA TC-335) inside the updater's 10 minutes
@@ -283,7 +286,20 @@ fi
 # ---- agent ----
 INSTALL_ARGS=(install --home "$PREFIX")
 [ "$OPEN" = 1 ] || INSTALL_ARGS+=(--no-open)
-"$PREFIX/app/bin/bun" "$PREFIX/app/server/src/office.js" "${INSTALL_ARGS[@]}" || die "the server did not start; see $PREFIX/logs/office.log ($PREFIX/teamax logs)"
+# Exit codes of this step (and of this script): 0 = the server answers; 3 = it is installed and its LaunchAgent runs,
+# but it did not answer within the wait (a first start after a big update can take longer: QA TC-3761); 1 = it did not
+# start. 3 is not 0 on purpose: whoever runs this from a script must not take it for an install that answers, and the
+# setup link below is only right once it does. The automatic updater never gets 3 (office.js install returns 0 or 1
+# under it), so its rollback rule is unchanged.
+INSTALL_CODE=0
+"$PREFIX/app/bin/bun" "$PREFIX/app/server/src/office.js" "${INSTALL_ARGS[@]}" || INSTALL_CODE=$?
+if [ "$INSTALL_CODE" = 3 ]; then
+  echo "office-install: $VERSION is installed, but the server has not answered yet. It may still be starting." >&2
+  echo "office-install: wait a minute, then check: $PREFIX/teamax status" >&2
+  echo "office-install: when 'this Mac' says 'answers', the team is ready (a new team's first-run link: $PREFIX/teamax setup-link). Still no answer: $PREFIX/teamax logs" >&2
+  exit 3
+fi
+[ "$INSTALL_CODE" = 0 ] || die "the server did not start; see $PREFIX/logs/office.log ($PREFIX/teamax logs)"
 
 # ---- desktop app installers next to the bundle: offered under Settings → Apps (a failure is reported, not fatal) ----
 if [ "$DESKTOP" = 1 ]; then

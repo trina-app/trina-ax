@@ -290,6 +290,9 @@ async function noOverlap(page: Page) {
     const at = (el: HTMLElement | null, name: string) => {
       if (!el) return null
       const r = el.getBoundingClientRect()
+      // only for screen readers (sr-only: 1 px, clipped) is not drawn: the phone's greeting under the welcome card since
+      // #929 (eb6527d6a, "the card says hello"); its 1 px box sits wherever the flex column puts it
+      if (r.width <= 1 && r.height <= 1 && getComputedStyle(el).position === 'absolute') return null
       // where it is in the scrolled page, so a long page scrolled to its top still counts
       return r.height > 0 ? { name, top: r.top + scroll.scrollTop, bottom: r.bottom + scroll.scrollTop } : null
     }
@@ -417,6 +420,8 @@ export function homeCenteredCases() {
             await notFocused(page)
             // the AI's mark over the greeting, except under the welcome card that fills the top
             if (state.name === 'member-welcome') await expect(page.getByTestId('home-mark')).toHaveCount(0)
+            // and the greeting, there only for screen readers: the card says hello (#929)
+            if (state.name === 'member-welcome') await expect(page.locator('h1')).toHaveClass(/\bsr-only\b/)
             else await expect(page.getByTestId('home-mark').locator('[data-trina-star]')).toBeVisible()
             const scrolls = await noOverlap(page)
             // only the invited person's welcome card (its steps' rows) is taller than the screen
