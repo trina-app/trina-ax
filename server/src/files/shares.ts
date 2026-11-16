@@ -69,6 +69,21 @@ function sha256File(abs: string): string {
 /** 16 random bytes, base64url: 22 characters, never guessed */
 export const newLinkId = () => randomBytes(16).toString('base64url')
 
+/** files listed in the AI's turn context ("Files shared with you") */
+export const SHARED_WITH_MAX = 20
+/** grant rows looked at for that list, newest first */
+const SHARED_WITH_SCAN = 500
+/** `to`: how it reaches the person: shared with them, with a group they are in (its name), or with everyone on the team */
+export interface SharedWithFile { id: string; name: string; url: string; sharedBy: string | null; at: string; to: { kind: 'you' } | { kind: 'group'; name: string } | { kind: 'everyone' } }
+/** The link id in a file link the AI was given: /f/<id>, f/<id> or https://<any host>/f/<id> (a query or # after it
+ * is fine), or null. */
+export function linkIdOf(input: string): string | null {
+  const m = /^(?:https?:\/\/[^/\s]+)?\/?f\/([A-Za-z0-9_-]{22})\/?(?:[?#][^\s]*)?$/.exec(input.trim())
+  return m ? m[1]! : null
+}
+/** A team path as the AI wrote it, as file_shares keeps it (NFC, no leading ./ or /, no empty segments). */
+const teamPathOf = (input: string) => input.normalize('NFC').trim().split('/').filter((x) => x && x !== '.').join('/')
+
 const MSG = FILE_SHARE_TEXT
 const msg = (k: keyof typeof MSG, L: Locale) => MSG[k]![L] ?? MSG[k]!.en
 
@@ -779,6 +794,54 @@ export class FileShares {
     try {
       notificationsOf(this.ctx).fileShareNotice(to, event, source, rearm, named)
     } catch (err) { this.ctx.log.warn('file share notice failed', { err }) }
+  }
+
+  // ---- the recipient's AI (docs/decisions/20261116-shared-files-for-the-ai.md) ----
+
+  /** A file shared with `userId` by a grant, for their AI's read tools, named by its team path: the file as the
+   * owner's side resolves it (the link's own checks: live, the same file, the owner still edits it, never a guest), or
+   * null. Only a file the folder rules do NOT let them read (those take the normal path); never a folder; view only
+   * (nothing here writes). */
+  grantedFile(userId: string, input: string): Authorized | null {
+    if (typeof input !== 'string' || !input || linkIdOf(input)) return null
+    const s = this.liveAt(teamPathOf(input))
+    if (!s) return null
+    const o = this.open(userId, s.id)
+    return o.kind === 'open' && o.by === 'grant' ? this.resolve(s.path) : null
+  }
+
+  /** The file behind a file link (/f/<id>, any origin) the AI was given, when it opens for `userId` now (by the folder
+   * rules or a grant, as the link page decides), or null. */
+  fileOfLink(userId: string, input: string): Authorized | null {
+    const id = typeof input === 'string' ? linkIdOf(input) : null
+    if (!id) return null
+    const o = this.open(userId, id)
+    return o.kind === 'open' ? this.resolve(o.share.path) : null
+  }
+
+  /** The files shared with `userId` by a grant (their own, a group's, or the whole team's) that open for them now and that the folder
+   * rules do not already show them, the most recently shared first, at most `max`. For the AI's turn context. */
+  sharedWith(userId: string, max = SHARED_WITH_MAX): { files: SharedWithFile[]; more: boolean } {
+    // (SQLite: with MAX(), the bare columns are the newest grant's that reaches the person)
+    const rows = this.db.query(`SELECT g.share_id id, MAX(g.granted_at) at, g.granted_by gb, g.subject_type st, g.subject_id sid
+      FROM file_share_grants g JOIN file_shares s ON s.id = g.share_id
+      WHERE s.state = 'live' AND ${REACHES('g')}
+      GROUP BY g.share_id ORDER BY at DESC, g.share_id LIMIT ?`).all(userId, userId, userId, SHARED_WITH_SCAN) as { id: string; at: string; gb: string; st: 'user' | 'group'; sid: string }[]
+    // shared with them or a group of theirs first, then the whole team's (everyone's shares cannot push out the
+    // person's own); files the folder rules already show are skipped, so the scan goes on until `max` are found
+    rows.sort((x, y) => Number(x.st === 'group' && x.sid === ALL) - Number(y.st === 'group' && y.sid === ALL))
+    const files: SharedWithFile[] = []
+    let more = rows.length >= SHARED_WITH_SCAN
+    for (const r of rows) {
+      const o = this.open(userId, r.id)
+      if (o.kind !== 'open' || o.by !== 'grant') continue
+      if (files.length >= max) { more = true; break }
+      const by = this.db.query('SELECT name FROM users WHERE id = ? AND deleted_at IS NULL').get(r.gb) as { name: string } | null
+      const grp = r.st === 'group' && r.sid !== ALL ? this.db.query('SELECT name FROM groups WHERE id = ?').get(r.sid) as { name: string } | null : null
+      const to: SharedWithFile['to'] = r.st === 'user' ? { kind: 'you' } : r.sid === ALL ? { kind: 'everyone' } : { kind: 'group', name: grp?.name ?? '' }
+      files.push({ id: r.id, name: o.name, url: fileLinkUrl(r.id), sharedBy: by?.name ?? null, at: r.at, to })
+    }
+    return { files, more }
   }
 
   /** An Activity row's details for its viewer (notifications/service.ts out). Names read now; nothing about the file

@@ -112,6 +112,10 @@ export class TurnFiles {
   /** saves under skills/ the person confirmed on the server's card in this turn: path -> sha256 of the confirmed
    * bytes, or '*' for a produced file (skills/guard.ts) */
   skillApprovals = new Map<string, string>()
+  /** the read tools may open files shared with the person one by one (FileService.shared): only a turn of the
+   * person's own chat sets it (chat/turn.ts; never a shared chat, a guest, a restricted run or a confidential chat,
+   * where the folder rules alone decide what goes into the answer) */
+  grantReads = false
 
   // ---------------- sub-agents (docs/DECISIONS.md "Sub-agents") ----------------
   /** tool_use id -> the Agent call of the sub-agent that made it (null: the main AI), from the engine's stream */
@@ -198,6 +202,21 @@ export interface ToolOutput { images?: { type: 'image'; mimeType: 'image/png' | 
 
 const BINARY_WRITE = new Set(['hwp', 'hwpx', 'docx', 'pptx', 'xlsx', 'xls', 'pdf', 'odt', 'ods', 'zip', 'png', 'jpg', 'jpeg', 'gif'])
 
+/** Files shared with a person one by one, for the read tools (files/shares.ts). */
+export interface SharedReads {
+  /** the file at this path shared with `user` by a grant (not one the folder rules let them read), or null */
+  at(user: Principal, input: string): Authorized | null
+  /** `input` is a file link (/f/<id>) shared with `user` by a grant: its file, or null */
+  link(user: Principal, input: string): Authorized | null
+}
+
+/** A read made by a file's link names the file by that link, not by its path: only in our own words around the file
+ * (its header, a quoted name), never inside the file's text. */
+function byLink(out: ToolOutput, rel: string, link: string): ToolOutput {
+  const swap = (t: string) => t.split(`PDF ${rel}:`).join(`PDF ${link}:`).split(`Image ${rel} `).join(`Image ${link} `).split(`'${rel}'`).join(`'${link}'`)
+  return { ...out, text: swap(out.text), ...(out.content ? { content: out.content.map((c) => (c.type === 'text' ? { ...c, text: swap(c.text) } : c)) } : {}) }
+}
+
 export class FileService {
   readonly quarantine: Quarantine
   readonly fx: FsCtx
@@ -215,6 +234,9 @@ export class FileService {
   readonly transcripts: media.TranscriptCache
   /** files the AI's tools show that are not on disk (the file list's _FILES.md, file-list/service.ts); null: none */
   virtual: VirtualFiles | null = null
+  /** files shared with a person one by one (files/shares.ts grantedFile, set by component C): the read tools open them
+   * by their link or path, view only (docs/decisions/20261116-shared-files-for-the-ai.md); null: none */
+  shared: SharedReads | null = null
   constructor(readonly db: Database, readonly cfg: ServerConfig) {
     db.exec('PRAGMA synchronous = FULL')
     this.quarantine = new Quarantine(db, cfg.teamRoot)
@@ -230,6 +252,17 @@ export class FileService {
   }
   rules() { return RuleSet.load(this.db) }
   principal(userId: string) { const p = loadPrincipal(this.db, userId); if (!p) throw new Denied('unknown or disabled user'); return p }
+  /** A read tool's file: what the folder rules let `user` read, else a file shared with them by a grant (by its path;
+   * read() turns a link into the path first). The rules' own refusal stands when there is no grant. */
+  private readAuth(ctx: Pick<ToolCtx, 'files'>, user: Principal, input: string): Authorized {
+    try { return authorize(this.fx, this.rules(), user, input, 'read') } catch (e) {
+      if (!this.shared || !ctx.files.grantReads || !(e instanceof Denied || e instanceof ToolError)) throw e
+      let g: Authorized | null = null
+      try { g = this.shared.at(user, input) } catch {}
+      if (g) return g
+      throw e
+    }
+  }
 
   // ---------------- dispatcher used by the MCP server ----------------
   async call(tool: string, rawArgs: unknown, ctx: ToolCtx): Promise<ToolOutput> {
@@ -387,6 +420,18 @@ export class FileService {
       ctx.files.readPaths.add(vp.segs.slice(0, -1).join('/'))
       return numberedLines(vp.rel, vp.file.text, a)
     }
+    // a file shared with the person by its link (/f/<id>): read as its path, and the result names it by the link (the
+    // link page shows no path either, docs/decisions/20261116-shared-files-for-the-ai.md)
+    const link = ctx.files.grantReads ? this.shared?.link(ctx.user, a.file_path) ?? null : null
+    if (link) {
+      const l = a.file_path.trim()
+      try { return byLink(await this.read(ctx, { ...a, file_path: link.rel }), link.rel, l) } catch (e) {
+        // a refusal names the file by its link too ('<path>' has N pages, …)
+        if (e instanceof ToolError) throw new ToolError(e.message.split(`'${link.rel}'`).join(`'${l}'`), e.code)
+        if (e instanceof Denied) throw new Denied(e.message.split(`'${link.rel}'`).join(`'${l}'`))
+        throw e
+      }
+    }
     const e = ext(a.file_path)
     const kind = mediaKind(a.file_path)
     if ((a.pages !== undefined || a.as_images) && e !== 'pdf') throw new ToolError('pages and as_images are only for PDF files', 'bad_pages')
@@ -399,7 +444,7 @@ export class FileService {
 
   /** Text of a file (Office files converted), numbered lines. */
   private async readText(ctx: ToolCtx, a: ReadArgs): Promise<ToolOutput> {
-    const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'read')
+    const r = this.readAuth(ctx, ctx.user, a.file_path)
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
     // the plan's read limit (system/limits.ts readMaxBytes; 200 MB without a plan, as before)
     const { bytes } = readRegular(r.abs, readMaxBytes())
@@ -418,7 +463,7 @@ export class FileService {
    * connection without a chat turn: a Mac reads the text with Apple Vision then, a Linux server gives a short note.
    */
   private async readImage(ctx: ToolCtx, a: ReadArgs): Promise<ToolOutput> {
-    const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'read')
+    const r = this.readAuth(ctx, ctx.user, a.file_path)
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
     const block = visionBlock(this.db, ctx.turnId)
     if (block && this.cfg.ocr) return this.readText(ctx, a)
@@ -458,7 +503,7 @@ export class FileService {
    * scanned pages instead, a Linux server a note (scanned pages are not searchable there either).
    */
   private async readPdf(ctx: ToolCtx, a: ReadArgs): Promise<ToolOutput> {
-    const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'read')
+    const r = this.readAuth(ctx, ctx.user, a.file_path)
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
     const src = this.boundSource(ctx, r, readMaxBytes())
     const tools = this.visionTools()
@@ -641,7 +686,7 @@ export class FileService {
   /** Right before delivery: the account, its access now and the file's identity, read again (synchronous). */
   private recheckSource(ctx: ToolCtx, src: Pick<BoundSource, 'rel' | 'identity'>) {
     const user = this.principal(ctx.user.id)
-    const now = authorize(this.fx, this.rules(), user, src.rel, 'read')
+    const now = this.readAuth(ctx, user, src.rel)
     if (!now.st || identity(now.st) !== src.identity) throw new Denied(safeText(this.db, ctx.user.id, 'changed'))
   }
 
@@ -728,7 +773,7 @@ export class FileService {
    * quarantined, and access is checked again right before delivery. docs/DECISIONS.md "AI reads video and audio".
    */
   private async readMedia(ctx: ToolCtx, a: ReadArgs, kind: MediaKind): Promise<ToolOutput> {
-    const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'read')
+    const r = this.readAuth(ctx, ctx.user, a.file_path)
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
     const refuse = (key: MediaTextKey, why: string, vars: Record<string, string | number> = {}): ToolOutput =>
       ({ text: mediaText(this.db, ctx.user.id, key, vars), isError: true, summary: `read ${r.rel} -> ${kind} not read (${why})` })

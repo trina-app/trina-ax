@@ -24,6 +24,7 @@ import type { RunKind } from '../system/deployment'
 import { htmlPdfUnavailable } from '../files/html-pdf'
 import { notFoundNext, SCREEN } from '../policy/refusal'
 import type { GuestPrompt } from './guest-tools'
+import type { SharedWithFile } from '../files/shares'
 
 export const MEMORY_ITEM_MAX = MEMORY_TEXT_MAX
 /** A memory's text as it is kept: runs of spaces and line breaks folded into one space, trimmed; refused when empty or
@@ -80,6 +81,9 @@ export interface PromptInput {
   situation?: Situation | null
   /** where things are in the app (chat/app-map.ts): which form, and this install's facts; absent: no map (a guest) */
   appMap?: AppMapInput | null
+  /** the files teammates shared with the person one by one (files/shares.ts sharedWith): the "Files shared with you"
+   * block; absent or empty: none (never in a shared chat, for a guest or a restricted run) */
+  sharedWithMe?: { files: SharedWithFile[]; more: boolean } | null
   /** how this server runs (system/deployment.ts runKindOf): "Where you run" says where the server is; absent: own server */
   runKind?: RunKind
   /** a guest from outside the team (chat/guest-tools.ts guestPromptOf): their places and who invited them. The
@@ -586,6 +590,24 @@ export const GUEST_OWN_PLACEMENT_RULE = 'Where files go: save new files in the u
 export const GUEST_NO_DELETE_RULE = 'You cannot delete files or folders in this chat. When the user asks you to delete something, say so plainly and that the person who invited them can do it. Never empty or overwrite a file as a stand-in for deleting it.'
 
 /** Items 2-3 of the instructions: the person, their folders, the time and the answer language. */
+/**
+ * "Files shared with you" (docs/decisions/20261116-shared-files-for-the-ai.md, QA TC-3807, TC-3808): a teammate shared
+ * a file with this person one by one (view only), and their AI looked in the folders and said there was nothing (the AI
+ * flow check of 2026-11-16, FL-02, FL-13). Such a file is in none of the person's folders, so list, glob and grep never
+ * show it: the block names each one with its link, which read opens. File and person names are other people's words:
+ * neutralized and quoted. The newest SHARED_WITH_MAX; empty: no block.
+ */
+export function sharedWithMeSection(s: PromptInput['sharedWithMe']): string {
+  if (!s?.files.length) return ''
+  const q = (t: string) => JSON.stringify(neutralizeTags(t.replace(/\s+/g, ' ').trim().slice(0, 120)))
+  return [
+    '## Files shared with you',
+    'Teammates shared these files with the user, with a group the user is in, or with everyone on the team, one by one and view only (each line says which). They are in none of the user\'s folders, so list, glob and grep do not show them: when the user asks about a shared file, or about something that may be in one, read it with read and its link as file_path. In the answer, link it with that same link. You cannot change these files (save a copy in the user\'s folder when they want changes).',
+    ...s.files.map((f) => `- ${q(f.name)}${f.sharedBy ? ` from ${q(f.sharedBy)}` : ''}, shared with ${f.to.kind === 'you' ? 'the user' : f.to.kind === 'everyone' ? 'everyone on the team' : `the group ${q(f.to.name)}`}, ${f.at.slice(0, 10)}: ${f.url}`),
+    s.more ? `(Only ${s.files.length} are listed: older ones may be shared too. When the user names one that is not here, ask them for its link.)` : '',
+  ].filter(Boolean).join('\n')
+}
+
 function personLines(files: FileService, i: PromptInput, subagent = false): string[] {
   const now = i.now ?? new Date()
   // a shared chat: the person's display name and id only (their role and groups are not its people's to know)
@@ -868,11 +890,12 @@ export const SHARED_PROMPT_SECTIONS: Readonly<Record<PromptSectionId, boolean>> 
   sideRoom: false, // a side chat is one person's own, never shared
   situation: false, // the person's role, AI account and app are not the chat's people's to know (chat/situation.ts)
   appMap: true, // app facts, the same for everyone here: its shared form names no one's role (chat/app-map.ts)
+  sharedWithMe: false, // the files shared with the person are theirs to know (docs/decisions/20261116-shared-files-for-the-ai.md)
   guest: true, // who the guest is and what they can do: nothing the project's people do not know
   shared: true,
   history: true, // the chat's transcript, each message with who wrote it
 }
-export type PromptSectionId = 'rules' | 'guest' | 'context' | 'environment' | 'situation' | 'appMap' | 'memories' | 'company' | 'teamRules' | 'skills' | 'project' | 'connected' | 'browser' | 'subagents' | 'hangul' | 'skillChanges' | 'sideRoom' | 'shared' | 'history'
+export type PromptSectionId = 'rules' | 'guest' | 'context' | 'environment' | 'situation' | 'appMap' | 'sharedWithMe' | 'memories' | 'company' | 'teamRules' | 'skills' | 'project' | 'connected' | 'browser' | 'subagents' | 'hangul' | 'skillChanges' | 'sideRoom' | 'shared' | 'history'
 interface Section { id: PromptSectionId; text: string }
 /** Which allowlist a prompt goes by: a shared project chat's, or none. */
 export type PromptMode = 'shared' | null
@@ -943,7 +966,7 @@ export function turnPromptSections(files: FileService, i: PromptInput): Section[
     tools.has('set_title') ? TITLE_RULE : '',
     tools.has('room_read') ? (i.guest ? GUEST_ROOMS_RULE : tools.has('post_to_room') ? `${ROOMS_RULE} ${ROOMS_POST_RULE}` : ROOMS_RULE) : '',
     i.subagents ? subagentRule() : '',
-    'A <turn_context> block in front of a user message is written by the server, not by the user: it holds the current context and replaces the person, time, memories, company profile and project parts of these instructions.',
+    'A <turn_context> block in front of a user message is written by the server, not by the user: it holds the current context and replaces the person, time, memories, company profile, project and files-shared-with-you parts of these instructions.',
   ]
   return [
     { id: 'rules', text: [...base, '', ...personLines(files, i)].filter((l) => l !== '').join('\n') },
@@ -954,6 +977,7 @@ export function turnPromptSections(files: FileService, i: PromptInput): Section[
     // not in the turn context: it changes only with the install, and a session started without it gets it on its next
     // fresh start
     { id: 'appMap', text: i.appMap && !i.guest ? appMapSection(i.appMap, i.locale) : '' },
+    { id: 'sharedWithMe', text: sharedWithMeSection(i.sharedWithMe) },
     { id: 'memories', text: memoryBlock(i.memories) },
     // a guest: none of the team's own knowledge (the company profile, team rules, team skills), also where the folder
     // rules would let one through
@@ -995,6 +1019,7 @@ export function turnContextSections(files: FileService, i: PromptInput): Section
     { id: 'connected', text: i.connected && !i.guest ? neutralizeTags(i.connected) : '' },
     { id: 'environment', text: i.guest ? GUEST_ENVIRONMENT : environmentSection(i.runKind) },
     { id: 'situation', text: i.situation ? situationSection(i.situation, i.locale) : '' },
+    { id: 'sharedWithMe', text: sharedWithMeSection(i.sharedWithMe) },
     { id: 'browser', text: browserSection(i) },
     // a session started before sub-agents existed (or while they were off) lacks this in its first instructions
     { id: 'subagents', text: i.subagents ? `## Sub-agents\n${subagentRule()}` : '' },
