@@ -174,15 +174,63 @@ describe('arguments and where video reads work', () => {
     expect((await read({ file_path: put('a.mp4'), pages: '1' })).out.text).toContain('only for PDF files')
     expect((await read({ file_path: put('b.mp4'), frames: 21 })).out.text).toContain('Invalid input')
   })
-  test('a Mac server and a server without ffmpeg say so, before anything runs', async () => {
+  test('a Mac server and a server without ffmpeg say so in plain words, before anything runs', async () => {
     const tools = spyOn(F(), 'mediaTools').mockReturnValue('mac')
     try {
       const a = await read({ file_path: put('c.mp4') })
       expect(a.out.isError).toBe(true)
-      expect(a.out.text).toContain('This Mac server cannot read video and audio files yet')
+      expect(a.out.text).toContain("Recordings and videos can't be opened here yet")
+      expect(a.out.text).toContain('Do not suggest changing or moving the install')
+      // the person's part (the AI's own line after it names the words to avoid)
+      expect(a.out.text.split('\n(')[0]).not.toMatch(/server|linux/i)
       tools.mockReturnValue('missing')
-      expect((await read({ file_path: put('d.m4a') })).out.text).toContain('no video tool (ffmpeg)')
+      // a member is not told to install a package; an admin is
+      const member = A.toolCtx('alice', turn())
+      expect((await read({ file_path: put('d.m4a') }, { ctx: { ...member, user: { ...member.user, role: 'member' } } })).out.text).not.toMatch(/ffmpeg|server|package/i)
+      expect((await read({ file_path: put('e.m4a') }, { ctx: { ...member, user: { ...member.user, role: 'admin' } } })).out.text).toContain('the ffmpeg package is missing')
       expect(F().mediaProbe).not.toHaveBeenCalled()
+    } finally { tools.mockRestore() }
+  })
+  test('the Mac note offers the mic only where it records: voice input on, a person at the chat, not confidential with an outside service', async () => {
+    const tools = spyOn(F(), 'mediaTools').mockReturnValue('mac')
+    const ffmpegBin = F().speech.ffmpegBin
+    const mic = 'You can also tell me by voice with the microphone button.'
+    const setKey = (k: string | null) => writeSpeechKey(credentialsOf(A.ctx), k)
+    try {
+      // 'local' needs whisper-cli and ffmpeg (beforeEach gives whisper-cli)
+      F().speech.ffmpegBin = null
+      expect((await read({ file_path: put('m1.m4a') })).out.text).not.toContain(mic)
+      F().speech.ffmpegBin = '/fake/ffmpeg'
+      expect((await read({ file_path: put('m2.m4a') })).out.text).toContain(mic)
+      // no chat turn (the remote connector) and a scheduled task: nobody at the mic
+      expect((await read({ file_path: put('m3.m4a') }, { turnId: null })).out.text).not.toContain(mic)
+      const sched = turn()
+      A.ctx.db.query("UPDATE turns SET schedule_id = 'sch-1' WHERE id = ?").run(sched)
+      expect((await read({ file_path: put('m4.m4a') }, { turnId: sched })).out.text).not.toContain(mic)
+      // OpenRouter: on in a normal chat, not in a confidential one (web/src/lib/voice.ts voiceBlockedHere)
+      updateTeamSettings(A.ctx.db, { speechProvider: 'openrouter' })
+      setKey(KEY)
+      expect((await read({ file_path: put('m5.m4a') })).out.text).toContain(mic)
+      const secret = turn()
+      A.ctx.db.query('INSERT INTO safe_ops_chats(chat_id, material) SELECT chat_id, 1 FROM turns WHERE id = ?').run(secret)
+      expect((await read({ file_path: put('m6.m4a') }, { turnId: secret })).out.text).not.toContain(mic)
+      // a confidential chat with voice on this computer: the recording stays here, so the mic works
+      updateTeamSettings(A.ctx.db, { speechProvider: 'local' })
+      expect((await read({ file_path: put('m7.m4a') }, { turnId: secret })).out.text).toContain(mic)
+    } finally { setKey(null); F().speech.ffmpegBin = ffmpegBin; tools.mockRestore() }
+  })
+  test('an admin learns which package is missing only in a chat nobody else sees', async () => {
+    const tools = spyOn(F(), 'mediaTools').mockReturnValue('missing')
+    try {
+      const own = A.toolCtx('alice', turn())
+      const admin = { ...own, user: { ...own.user, role: 'admin' as const } }
+      expect((await read({ file_path: put('s1.m4a') }, { ctx: admin })).out.text).toContain('the ffmpeg package is missing')
+      const shared = turn()
+      A.ctx.db.query("UPDATE chats SET people_shared_at = '2026-11-16T00:00:00Z' WHERE id = (SELECT chat_id FROM turns WHERE id = ?)").run(shared)
+      const there = A.toolCtx('alice', shared)
+      const out = (await read({ file_path: put('s2.m4a') }, { ctx: { ...there, user: { ...there.user, role: 'admin' as const } } })).out.text
+      expect(out).toContain("Recordings and videos can't be opened here right now")
+      expect(out).not.toMatch(/ffmpeg|package/i)
     } finally { tools.mockRestore() }
   })
   test('a file over 1 GiB is refused before it is copied', async () => {
@@ -553,11 +601,11 @@ describe('who transcribes, and when sound may leave the server', () => {
     const srv = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(req) { dl.push(req.url); return new Response('no') } })
     try {
       Object.assign(F().speech, { baseUrl: `http://127.0.0.1:${srv.port}/`, modelOverride: { file: 'absent.bin', size: 10, sha256: 'x' } })
-      expect((await read({ file_path: put('nomodel.mp4') })).out.text).toContain('The speech model is not on this server yet')
+      expect((await read({ file_path: put('nomodel.mp4') })).out.text).toContain('The speech model is not downloaded yet')
       expect(dl).toEqual([])
       expect(local.calls).toBe(0)
       F().speech.whisperBin = null
-      expect((await read({ file_path: put('nowhisper.mp4') })).out.text).toContain('(whisper.cpp) is not on this server')
+      expect((await read({ file_path: put('nowhisper.mp4') })).out.text).toContain('The transcription tool is missing here')
     } finally { srv.stop(true); F().speech.baseUrl = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/' }
   })
   test('this server on a hosted plan: 30-second pieces, at most 2 minutes of new sound a read', async () => {
@@ -567,7 +615,7 @@ describe('who transcribes, and when sound may leave the server', () => {
     probe = audioOnly(600)
     const { out } = await read({ file_path: put('hosted.m4a') })
     expect(audios).toEqual([0, 30, 60, 90].map((start) => ({ start, seconds: 30 })))
-    expect(out.text).toContain('On this server one read turns at most 2 minutes of new sound into text.')
+    expect(out.text).toContain('Here one read turns at most 2 minutes of new sound into text.')
     expect(out.text).toContain('To read on: time: "2:00-10:00", frames: 0 (in another call).')
   })
 })
@@ -754,10 +802,10 @@ describe('slow local transcripts: frames first, measured pieces, small servers, 
     let r = await read({ file_path: put('small.mp4') })
     expect(r.images).toBe(12)
     expect(audios).toEqual([])
-    expect(r.out.text).toContain('Turning sound into text takes long on this server, so it is off. An admin can turn on "Turn video sound into text"')
+    expect(r.out.text).toContain('Turning sound into text takes long here, so it is off. An admin can turn on "Turn video sound into text"')
     expect(r.out.text).not.toContain('To read on')
     A.ctx.db.query("UPDATE users SET locale = 'ko' WHERE id = 'alice'").run()
-    try { expect((await read({ file_path: put('small-ko.mp4') })).out.text).toContain('이 서버에서는 소리를 글로 바꾸는 데 오래 걸려서 꺼 두었어요. 관리자가') }
+    try { expect((await read({ file_path: put('small-ko.mp4') })).out.text).toContain('여기서는 소리를 글로 바꾸는 데 오래 걸려서 꺼 두었어요. 관리자가') }
     finally { A.ctx.db.query("UPDATE users SET locale = 'en' WHERE id = 'alice'").run() }
     // turned off on purpose: the usual note, not the small-server one
     updateTeamSettings(A.ctx.db, { aiMediaTranscripts: false })
@@ -943,7 +991,7 @@ describe('review of the small-server fixes', () => {
       const { out } = await read({ file_path: put('held.m4a') })
       expect(Date.now() - t0).toBeLessThan(5_000)
       expect(local.calls).toBe(0)
-      expect(out.text).toContain('Voice input is using this server\'s transcription right now')
+      expect(out.text).toContain('Voice input is using the transcription right now')
       expect(out.text).toContain('frames: 0 (in another call)')
     } finally { release(); await held; setPieceWaitForTests(null) }
   })

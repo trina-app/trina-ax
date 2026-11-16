@@ -364,6 +364,25 @@ export interface SearchOptions { query?: string; person?: string; room?: string;
 
 /** The messages I can see that match, newest first: every word of `query` (any case), written by `person`, in the time
  * between since and until; in one room or all of mine (those with the latest activity, ROOM_SEARCH_ROOMS). */
+/** How many messages the person sees in their rooms hold `word`, counted the way searchRooms looks (the same rooms, the
+ * same window per room and in all, what they see: after they joined, no hidden answers, no private previews), up to
+ * `cap` (more: at least that many). For the grep line of chat/room-hint.ts: a count only, never a message. */
+export function roomMatchCount(db: Database, userId: string, word: string, cap = 20): { messages: number; rooms: number; more: boolean } {
+  const like = `%${word.normalize('NFC').replace(/[\\%_]/g, (c) => `\\${c}`)}%`
+  let budget = ROOM_SEARCH_BUDGET, messages = 0, rooms = 0
+  for (const mine of myRooms(db, userId).slice(0, ROOM_SEARCH_ROOMS)) {
+    const held = Math.max(0, mine.room.last_seq - seesFrom(mine.me))
+    const window = Math.min(held, ROOM_SEARCH_SCAN, budget)
+    if (window <= 0) continue
+    budget -= window
+    const n = (db.query(`SELECT count(*) AS n FROM (SELECT 1 FROM room_messages m WHERE m.room_id = ? AND ${SEE_SQL} AND m.seq > ? AND m.deleted_at IS NULL AND m.event IS NULL
+      AND m.body LIKE ? ESCAPE '\\' ORDER BY m.seq DESC LIMIT ?)`).get(mine.room.id, ...seeArgs(mine.me), Math.max(0, mine.room.last_seq - window), like, cap + 1 - messages) as { n: number }).n
+    if (n) { messages += n; rooms++ }
+    if (messages > cap) return { messages: cap, rooms, more: true }
+  }
+  return { messages, rooms, more: false }
+}
+
 export function searchRooms(db: Database, userId: string, tz: string, o: SearchOptions): ReadResult {
   const since = parseWhen(o.since, tz), until = parseWhen(o.until, tz, true)
   if (since === null || until === null) return { text: 'Invalid since or until: give a date ("2026-11-01") or a date and time ("2026-11-01T09:00").', seen: [], ok: false }
