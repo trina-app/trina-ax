@@ -12,6 +12,8 @@ import { componentC } from '../team-files/component'
 import type { ToolRegistry } from '../tools/registry'
 import { audioCues } from './audio'
 import { DURATION } from './layout'
+import { mp4Available } from './render'
+import { registerSavePromoVideo, SAVE_PROMO_TOOL } from './save'
 import { checkPromoInput } from './spec'
 import { artifactDocument, type PlayerText } from './template'
 
@@ -47,7 +49,8 @@ export const PROMO_TOOL_DESCRIPTION =
   '3 work — what it does, on its own picture in a window; 4 proof — one or two numbers written in the material (or, without any, the most concrete fact); 5 end card — logo, one line, the site\'s real offer, the website. ' +
   'Rules the server checks: every number on screen is written in the sources (proof numbers exactly as written, with sign and unit); every line fits (about 11 Korean characters or 20 Latin letters per headline line; a line too wide comes back as a problem); ' +
   'pictures come only from the team\'s brand images folder, each at most once, at least 600 px on the short side; a beat without a fitting picture is made with type and light (leave `picture` out; never invent one). ' +
-  'If the result lists problems, fix all of them and call once more; if it fails again, stop and tell the person why in one plain sentence.'
+  'If the result lists problems, fix all of them and call once more; if it fails again, stop and tell the person why in one plain sentence. ' +
+  `The length is always ${DURATION} s: when the person asks for another length, say so before you make it, in one plain sentence, and make it unless they say no.`
 
 /** Calls per turn: the first try and one rewrite. */
 const tries = new Map<string, number>()
@@ -91,7 +94,10 @@ export async function makePromoVideo(ctx: AppContext, a: PromoVideoInput, t: Too
     text: `Made the promo video "${a.title}" (${DURATION} s with music, the "${style}" style${changed}; beats made with type and light instead of a picture: ${typeOnly.join(', ') || 'none'}). ` +
       'It opens by itself next to the chat (muted until the person turns the sound on). Your answer is one short line in the person\'s language: that the video is made and that they can say which scene or words to change; ' +
       'only if scene 2 or 3 is listed above as made with type and light, one more sentence that names that scene (in plain words in their language, e.g. "the second scene") and says pictures added to the brand images folder can go in next time; scenes 1, 4 and 5 never count. ' +
-      'Nothing else: no tool, skill or slot names, no style ids, colour codes or file paths, no list of the beats, no HTML.',
+      'Nothing else: no tool, skill or slot names, no style ids, colour codes or file paths, no list of the beats, no HTML. ' +
+      (mp4Available(ctx)
+        ? `When the person wants the video as a file, or to send, share or post it, call ${SAVE_PROMO_TOOL} first (it saves the .mp4 in the team folder), then share that file.`
+        : 'This server cannot save the video as a file (only this preview): if the person asks to send, share or download it as a file, say so plainly in one sentence.'),
     summary: `${PROMO_TOOL} ${doc.family} -> artifact ${s.key} v${s.version}`,
     structured: { key: s.key, version: s.version, artifactId: s.id },
   }
@@ -105,4 +111,6 @@ export function registerPromoVideo(ctx: AppContext, reg: ToolRegistry): void {
     describe: (a) => `${PROMO_TOOL} ${a.style ?? 'auto'}`,
     run: (a, t) => makePromoVideo(ctx, a, t),
   })
+  // the video saved as an .mp4 in the team folder, where the MP4 can be rendered (save.ts)
+  registerSavePromoVideo(ctx, reg)
 }
