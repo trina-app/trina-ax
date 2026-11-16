@@ -5,7 +5,7 @@
 // when FIND_WORK_SHOTS names a folder to write them to.
 import { expect, test } from '@playwright/test'
 import { reset, signIn } from './helpers'
-import { answer, fakeApp, look, roots, setFullDisk, type Meta } from './fake-work-files'
+import { answer, fakeApp, look, notNow, roots, setFullDisk, type Meta } from './fake-work-files'
 
 const dir = process.env.FIND_WORK_SHOTS
 test.skip(!dir, 'FIND_WORK_SHOTS is not set')
@@ -59,6 +59,9 @@ for (const scheme of ['light', 'dark'] as const) {
       await shot('4-ticked-personal-open')
       await page.getByTestId('find-work-add').click()
       await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-status', 'done')
+      await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-stage', 'share')
+      await shot('5-share')
+      await notNow(page)
       await shot('5-added')
       await page.getByTestId('find-work-undo').click()
       await expect(page.getByTestId('find-work-undone-until')).toBeVisible()

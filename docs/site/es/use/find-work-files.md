@@ -104,6 +104,25 @@ Haga clic en **Añadir n archivos**. Los archivos van a **Mis archivos › De es
 
 ![Se añadieron 7 archivos a Mis archivos › De este equipo, con Deshacer, Abrir y Cerrar](../../images/find-work-files/added.webp "Después de añadir")
 
+## Compartir algunos con su equipo
+
+Cuando los archivos ya están dentro, la misma ventana pregunta **¿Quiere compartir alguno con su equipo?** y muestra los
+archivos que acaba de añadir. **No hay nada marcado**, y no se comparte nada hasta que pulse **Compartir**.
+
+- **Bueno para compartir: Formulario** (o Presentación de la empresa, Material de marca, Normas y políticas,
+  Material de formación, Acta de reunión) señala los tipos de archivo que los equipos suelen tener en común. Es solo una pista, de la misma
+  selección que la lista anterior o del nombre del archivo: marque los que quiera.
+- En **Añadir personas o grupos**, añada quién debe verlos: compañeros por su nombre o un grupo del que forma parte (el
+  propietario del equipo y los administradores pueden añadir cualquier grupo). No se pueden añadir invitados.
+- Haga clic en **Compartir n archivos**. Cada archivo marcado se comparte igual que con **Compartir** en la página de
+  Archivos: las personas añadidas pueden abrirlo y descargarlo (solo ver) y lo ven en **Actividad**. Los archivos que no
+  marque siguen siendo privados.
+- **Ahora no** no comparte nada. Después, **Compartir con su equipo** en la misma ventana vuelve a este paso, y siempre
+  puede compartir un archivo más tarde desde su **⋯ › Compartir** en la página de Archivos, o quitar el acceso allí.
+
+El paso no aparece si su equipo desactivó **Los miembros pueden compartir sus propios archivos** (Administración › Ajustes del
+equipo).
+
 ## Deshacer
 
 Justo después de añadir, en la misma ventana, **Deshacer** mueve a la papelera los archivos que añadió esta búsqueda, y las carpetas que creó si
