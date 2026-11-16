@@ -84,7 +84,7 @@ export function appMapSection(o: AppMapInput, L: Locale): string {
     `- Chat title menu: ${q('chat.rename')}. Chat list: ${q('navFolders.new')}, ${q('navFolders.moveTo')}. Answer: ${q('chat.regenerate')}; own message: ${q('chat.edit')}.`,
     `- ${tr('cardAlways', L)} on a card: that kind is not asked again; see or undo in ${allowed}.`,
     `- Room ⋯ › ${q('roomApps.menuAdd')}: Google Forms, GitHub, Sentry or any service with a ${q('roomApps.address')} posts into the room (list: ${q('roomApps.listTitle')} › ${q('roomApps.listSection')}); group chat and 1:1 people add them, team rooms owners and admins.`,
-    `- Room bell or ⋯ › ${q('rooms.menu.notify')}: ${q('rooms.notify.all')} / ${q('rooms.notify.mentions')} / ${q('rooms.notify.off')}. Defaults, ${q('notifications.quiet')}: ${set('notifications.title')}.`,
+    `- Room bell or ⋯ › ${q('rooms.menu.notify')}: ${q('rooms.notify.all')} / ${q('rooms.notify.mentions')} / ${q('rooms.notify.off')}. Defaults and ${q('notifications.quiet')}: ${set('notifications.title')}.`,
     `- ${set('settings.apps')}: phone, Mac and Windows apps. ${set('settings.about')}: version.`,
     `- ${set('aiApps.title')}: team files from Claude or another AI app on their computer.`,
     `- ${set('settings.profile')}: their AI and model, if the team lets them choose.`,

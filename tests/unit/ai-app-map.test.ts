@@ -130,7 +130,8 @@ describe('who gets which map', () => {
 })
 
 describe('size: it is in every turn', () => {
-  // a rough count (Hangul about 1 token a syllable, other text about 3.6 characters a token); the PR says the measured cost
+  // a rough count (Hangul about 1 token a syllable, other text about 3.6 characters a token); it reads low: measured on
+  // 2026-11-16 with the engine (claude -p usage), the owner's Korean map is about 900 tokens, a member's about 620
   const tokens = (s: string) => { const h = (s.match(/[가-힣]/g) ?? []).length; return Math.round(h + (s.length - h) / 3.6) }
   test('at most 20 lines and about 650 tokens in its longest form', () => {
     for (const view of ['staff', 'member', 'shared'] as const) for (const L of ['ko', 'en', 'ja'] as const) {
