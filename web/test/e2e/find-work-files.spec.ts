@@ -152,6 +152,42 @@ test('Add: only the ticked files are read, they land in My files › From this c
   expect(own(errors)).toEqual([])
 })
 
+test('My files\' dialog stays open at 390 and through resizes (QA TC-3504): the look goes on, the search works, Add lands', async ({ page }) => {
+  const errors = watchConsole(page)
+  await fakeApp(page)
+  await reset(page)
+  await signIn(page, BOB)
+  await openMine(page)
+  await look(page, WORK)
+  // the button is in the computer toolbar; made phone-narrow while the app asks, the dialog and its look stay
+  await page.getByTestId('files-find-work-entry').click()
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'asking')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'asking')
+  await answer(page, 'look')
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'list')
+  expect((await app(page)).scans).toBe(1)
+  // the search works at 390
+  await page.getByTestId('find-work-search').fill('notes')
+  await expect(page.getByTestId('find-work-found').getByTestId('find-work-row')).toHaveText([/notes\.txt/])
+  await page.getByTestId('find-work-search').fill('')
+  await page.getByTestId('find-work-work').getByTestId('find-work-row').filter({ hasText: 'Quote template 2026.xlsx' }).getByTestId('find-work-check').check()
+  if (process.env.FIND_WORK_390_SHOT) await page.screenshot({ path: process.env.FIND_WORK_390_SHOT })
+  // back to a computer width and narrow again: the same dialog, the tick kept
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'list')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(page.getByTestId('find-work-work').getByTestId('find-work-row').filter({ hasText: 'Quote template 2026.xlsx' }).getByTestId('find-work-check')).toBeChecked()
+  expect((await app(page)).scans).toBe(1)
+  await page.getByTestId('find-work-add').click()
+  await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-status', 'done', { timeout: 15_000 })
+  await expect(page.getByTestId('find-work-run-title')).toHaveText('내 파일 › 이 컴퓨터에서에 1개를 넣었어요')
+  await page.getByTestId('find-work-done').click()
+  await expect(page.getByTestId('find-work-run')).toHaveCount(0)
+  expect((await tree(page, 'users/bob/From this computer/Documents/Sales')).map((e) => e.name)).toEqual(['Quote template 2026.xlsx'])
+  expect(own(errors)).toEqual([])
+})
+
 test('Select all: never a personal file, at most 100, and it says so; no AI: the names\' order', async ({ page }) => {
   await fakeApp(page)
   await reset(page)
