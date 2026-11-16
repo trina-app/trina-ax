@@ -1,2 +1,0 @@
-- Office Mac: the Mac now names the team server **Trina AX** in its "Background Items Added" notice and under System Settings > General > Login Items & Extensions. It showed 'Software from "Jarred Sumner"', the maker of the bundled Bun runtime. The first update shows the notice again, with the new name.
-- Office Mac: when someone switches that entry off, `teamax status` and `teamax start` now say so (when macOS reports it) and how to turn it back on. They said only "installed, stopped".
