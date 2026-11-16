@@ -13,7 +13,8 @@
 # All white space of the paste is removed before the check, so a token a terminal wrapped over several lines is
 # stored whole (docs/INSTALL.md known issue 14). The token lands in <install>/secrets/claude-oauth-token, owned by the
 # server account, mode 600, in the server's 700 secrets folder: the engine account can never read it, and the engine
-# sandbox does not mount it. The server reads it on every model request, so no restart is needed. Root never writes
+# sandbox does not mount it. The server watches the folder and takes a new token within seconds (at most 5 minutes),
+# so no restart is needed. Root never writes
 # through what a role account could have planted there: the installer's safe-fs helpers (no symbolic link on the way,
 # written in a root-only folder and renamed into place).
 set -euo pipefail
@@ -71,4 +72,4 @@ TOKEN=$(head -c 4096 | tr -d '[:space:]')
 printf '%s\n' "$TOKEN" > "$ITMP/token"
 unset TOKEN
 put "$ITMP/token" "$SRV_USER" "$SRV_GRP" 600 "$DEST"
-echo "set-claude-token: stored for $SRV_USER (mode 600); Claude answers with it from the next message, valid for one year"
+echo "set-claude-token: stored for $SRV_USER (mode 600); the server takes it within a few seconds (at most 5 minutes, no restart), valid for one year"

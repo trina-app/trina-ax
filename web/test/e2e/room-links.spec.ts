@@ -86,8 +86,8 @@ test('a link to this team app moves inside the app, without a reload; the keyboa
   const link = page.getByTestId('room-message').nth(1).getByTestId('room-link').nth(1)
   await expect(link).toHaveAttribute('href', `/rooms/${ROOM_ID}/t/${id(1)}`)
   await expect(link).not.toHaveAttribute('target', /.*/)
-  // keyboard focus: the ring
-  await page.keyboard.press('Shift')
+  // keyboard focus: the ring (a key that moves around the page; Shift alone no longer counts: lib/inputModality.ts)
+  await page.keyboard.press('Tab')
   await link.focus()
   expect(await link.evaluate((e) => [e.matches(':focus-visible'), getComputedStyle(e).outlineStyle])).toEqual([true, 'solid'])
   await page.evaluate(() => ((window as unknown as { stayed: boolean }).stayed = true))

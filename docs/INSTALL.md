@@ -429,7 +429,7 @@ otherwise be stored half, reported as stored for a year, and refused on the firs
 - No restart: legacy connection import checks the file periodically (up to five minutes); it does not reread it for every model request.
 - Diagnostics then show Claude Code as "Signed in (setup-token)". They also say when the token is older than a year
   (expired), expires within 14 days, or was refused by Claude (revoked or pasted wrong; admins also get a notice).
-- Replace the token before its displayed expiry or if the provider revokes it. `--remove` removes the legacy token file; also review any imported connection in Admin → AI providers.
+- Replace the token before its displayed expiry or if the provider revokes it. `--remove` removes the legacy token file; also review any imported connection in Admin → AI providers. Deleting the imported connection in Admin → AI providers also removes the token file (overwritten, then deleted) when the file still holds that token.
 
 ### 2.5 Codex login for the engine account (older setup)
 
