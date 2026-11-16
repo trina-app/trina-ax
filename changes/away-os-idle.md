@@ -1,0 +1,1 @@
+- With **Phone notifications only when I'm away** on, your phone now stays quiet while you are using your computer, also when the Trina Mac app is behind other windows or minimized. Before, it rang the phone for every notice once the Trina window had been in the back for a minute. A locked screen or a computer left alone for 10 minutes counts as away, so your phone rings then.

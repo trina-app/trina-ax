@@ -1,7 +1,8 @@
 // The message box of a room: text that grows with what is typed (Enter sends, Shift+Enter makes a new line, nothing
 // happens while a Korean or Japanese word is still being composed; on touch screens Enter makes a new line and the
 // button sends, like the AI chat's box), files (the clip, paste, or a drop anywhere on the room's column or the thread
-// around the box: components/FileDropZone.tsx; each is uploaded at once with POST /api/rooms/:id/files and sent by id;
+// around the box: components/FileDropZone.tsx; each is uploaded at once and sent by id: a small one with POST /api/rooms/:id/files, a larger one, up to 10 GB, in
+// 8 MB pieces through an upload session that goes on after a lost connection (lib/upload.ts), its percent on the chip;
 // a picture shows as itself at once, a 64 px square, while it uploads), and "@"
 // for the room's members: a picked name stands out in the
 // box at once and is sent as a mention (useMentionMenu, components/TokenTextarea.tsx). "@전체" notifies everyone in the
@@ -34,10 +35,11 @@ import { useGuestNoAi } from '../GuestView'
 import clsx from 'clsx'
 import { ArrowUp, Check, FileText, FolderOpen, Loader2, Paperclip, Pencil, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ROOM_FILES_MAX, ROOM_MESSAGE_MAX, SMALL_UPLOAD_MAX, type FileEntry, type RoomFile, type UserRef } from '@mycel/shared/api'
+import { ROOM_FILE_MAX, ROOM_FILES_MAX, ROOM_MESSAGE_MAX, SMALL_UPLOAD_MAX, type FileEntry, type RoomFile, type UserRef } from '@mycel/shared/api'
 import { api, API, errorText, roomFileUrl } from '../../lib/api'
 import { markBusy } from '../../lib/busy'
 import { formatSize } from '../../lib/format'
+import { cancelUpload, uploadFile, uploadPercent, type UploadProgress } from '../../lib/upload'
 import { pastedFiles } from '../../lib/paste'
 import { useVoiceInput } from '../../lib/useVoiceInput'
 import { micState, voiceBlockedInRoom } from '../../lib/voice'
@@ -74,6 +76,8 @@ interface Upload {
   file: File
   status: 'uploading' | 'done' | 'failed'
   roomFile?: RoomFile
+  /** how far a file from this computer is (a large one goes in pieces and shows its percent) */
+  progress?: UploadProgress
   error?: string
   /** a storage-full refusal: the plan page it names, linked for the owner and admins (StoragePlansLink.tsx) */
   plans?: string
@@ -291,12 +295,18 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   current.current = files
   useEffect(() => () => current.current.forEach((f) => f.status === 'uploading' && f.abort.abort()), [])
 
+  const roomTarget = (file: File) => ({ kind: 'room' as const, roomId, name: file.name })
   const upload = async (u: Upload) => {
     try {
-      const f = await api.call(API.uploadRoomFile, { params: { id: roomId }, body: { fields: { size: String(u.file.size) }, file: u.file, filename: u.file.name }, signal: u.abort.signal })
-      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'done', roomFile: f } : x)))
+      // a small file in one request, a larger one (up to 10 GB) in 8 MB pieces that go on after a lost connection
+      // (lib/upload.ts): no single request is large, so it passes a proxy in front of the team server too
+      const r = await uploadFile(u.file, roomTarget(u.file), { client: api, signal: u.abort.signal, onProgress: (progress) => setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, progress } : x))) })
+      if (r.kind !== 'room') throw new Error('unexpected upload result')
+      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'done', roomFile: r.file, progress: undefined } : x)))
     } catch (e) {
-      if (u.abort.signal.aborted) return
+      // taken out, or the room left, while its pieces went up: what the server holds of it is dropped (lib/upload.ts
+      // cancelUpload; nothing to do for a small file)
+      if (u.abort.signal.aborted) { void cancelUpload(u.file, roomTarget(u.file), api); return }
       setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'failed', error: errorText(e, locale, t('error.network')), plans: storagePlansUrl(e) } : x)))
     }
   }
@@ -306,8 +316,9 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     if (picked.length > room) toast({ level: 'warn', text: t('rooms.tooMany', { n: ROOM_FILES_MAX }) })
     const added: Upload[] = []
     for (const file of picked.slice(0, Math.max(0, room))) {
-      if (file.size > SMALL_UPLOAD_MAX) {
-        toast({ level: 'warn', text: t('rooms.tooBig', { name: file.name, max: formatSize(SMALL_UPLOAD_MAX, locale) }) })
+      // refused here, before a checksum of a huge file is made (the server refuses it too, before any byte is sent)
+      if (file.size > ROOM_FILE_MAX) {
+        toast({ level: 'warn', text: t('rooms.tooBig', { name: file.name, max: formatSize(ROOM_FILE_MAX, locale) }) })
         continue
       }
       added.push({ key: ++uploadKey, file, status: 'uploading', abort: new AbortController() })
@@ -356,6 +367,9 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
 
   const removeFile = (u: Upload) => {
     u.abort.abort()
+    // a failed large file taken out: the pieces the server still holds are dropped (one still on its way drops them
+    // itself when it stops: upload() above)
+    if (u.status === 'failed' && !u.teamPath) void cancelUpload(u.file, roomTarget(u.file), api)
     setFiles((list) => list.filter((x) => x.key !== u.key))
   }
 
@@ -417,7 +431,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   const attach = (
     <>
       {phone ? (
-        <AttachSheet key={key} onFiles={addFiles} room={ROOM_FILES_MAX - files.length} fileMax={SMALL_UPLOAD_MAX} onTeam={() => setTeamPicker(true)} icon={<Paperclip size={18} />} testId="room-attach" filesTestId="room-file-input" />
+        <AttachSheet key={key} onFiles={addFiles} room={ROOM_FILES_MAX - files.length} fileMax={ROOM_FILE_MAX} onTeam={() => setTeamPicker(true)} icon={<Paperclip size={18} />} testId="room-attach" filesTestId="room-file-input" />
       ) : (
         <IconButton tip compact label={t('composer.attach')} onClick={() => picker.current?.click()} data-testid="room-attach">
           <Paperclip size={18} />
@@ -612,7 +626,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                   {f.status === 'uploading' ? <Loader2 size={14} className="animate-spin text-faint" aria-hidden /> : f.teamPath ? <FolderOpen size={14} className="text-accent-text" aria-hidden /> : <FileText size={14} className="text-muted" aria-hidden />}
                   <span className="max-w-[180px] truncate font-medium">{f.file.name}</span>
                   <span role="status" className={f.status === 'failed' ? FAILED_REASON : 'text-faint'}>
-                    {f.status === 'uploading' ? <span className="sr-only">{t('rooms.uploading', { name: f.file.name })}</span> : f.status === 'failed' ? f.error : formatSize(f.file.size, locale)}
+                    {f.status === 'uploading' ? <><span className="sr-only">{t('rooms.uploading', { name: f.file.name })}</span>{uploadPercent(f.progress) !== null && <span className="tabular-nums" data-testid="room-file-percent">{uploadPercent(f.progress)}%</span>}</> : f.status === 'failed' ? f.error : formatSize(f.file.size, locale)}
                   </span>
                   {f.status === 'failed' && <StoragePlansLink url={f.plans} />}
                   <ChipRemove label={t('rooms.removeFile', { name: f.file.name })} onClick={() => removeFile(f)} />

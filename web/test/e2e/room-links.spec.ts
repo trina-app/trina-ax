@@ -43,13 +43,13 @@ test('another site opens in a new tab without the referrer; a mention beside a l
   await expect(first).toHaveAttribute('referrerpolicy', 'no-referrer')
   await expect(first).toHaveText(ARTIFACT)
   const second = page.getByTestId('room-message').nth(1)
-  await expect(second.locator('span.text-accent-text', { hasText: '@Olga' })).toBeVisible()
+  await expect(second.locator('button.text-accent-text', { hasText: '@Olga' })).toBeVisible()
   // the bracket and the comma of the sentence are not part of the link; www. opens as https
   await expect(second.getByTestId('room-link').first()).toHaveAttribute('href', 'https://www.example.org/guide')
   await expect(second.getByTestId('room-link').first()).toHaveText('www.example.org/guide')
   // the accent colour, underlined; the mention is the same colour without the line
   const look = await second.getByTestId('room-link').first().evaluate((e) => ({ color: getComputedStyle(e).color, line: getComputedStyle(e).textDecorationLine }))
-  const mention = await second.locator('span.text-accent-text').first().evaluate((e) => ({ color: getComputedStyle(e).color, line: getComputedStyle(e).textDecorationLine }))
+  const mention = await second.locator('button.text-accent-text').first().evaluate((e) => ({ color: getComputedStyle(e).color, line: getComputedStyle(e).textDecorationLine }))
   expect(look).toEqual({ color: mention.color, line: 'underline' })
   expect(mention.line).toBe('none')
   const [popup] = await Promise.all([page.waitForEvent('popup'), first.click()])

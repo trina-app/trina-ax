@@ -52,7 +52,7 @@ test('a room message in Markdown: formatting, line breaks, a mention and a plain
   await expect(rich.locator('pre')).toContainText('const a = 1')
   await expect(rich.locator('br')).toHaveCount(1)
   // the mention is me: the accent colour on its soft background
-  await expect(rich.locator('span.text-accent-text.bg-accent-soft', { hasText: '@Olga' })).toBeVisible()
+  await expect(rich.locator('button.text-accent-text.bg-accent-soft', { hasText: '@Olga' })).toBeVisible()
   const plain = rich.getByTestId('room-link').filter({ hasText: 'example.com' })
   await expect(plain).toHaveAttribute('href', 'https://example.com/a')
   const trina = rich.getByRole('link', { name: 'Trina' })

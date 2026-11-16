@@ -3,15 +3,12 @@
 // in advance, rooms/ai-grants.ts). Logic: server/src/rooms/*. Every handler takes the person from the session; the
 // request never names an author or another member's read position.
 import { dropAlways, listAlways } from '../chat/always-allow'
-import fs from 'node:fs'
-import path from 'node:path'
 import { API } from '@mycel/shared/api'
 import type { RouteModule } from './module'
 import { fail } from '../http/errors'
 import { assertStorageRoom } from '../system/storage'
 import { streamFile } from '../team-files/download'
 import { SAFE_OPS_TEXT } from '../safe-ops/strings'
-import { hashFile, writeTemp } from '../team-files/place'
 import { HwpError } from '../files/hwp-engine'
 import { componentC } from '../team-files/component'
 import { httpError } from '../team-files/errors'
@@ -45,7 +42,6 @@ export const roomsRoutes: RouteModule = {
   register(kit, ctx) {
     const rooms = roomsOf(ctx)
     const files = roomFilesOf(ctx)
-    const tmpDir = path.join(ctx.config.dataDir, 'uploads', 'tmp')
 
     kit.handle(API.listRooms, ({ c, auth }) => { c.header('Cache-Control', 'no-store'); return { items: rooms.list(auth.user.id), alerts: rooms.alerts(auth.user.id) } })
     kit.handle(API.createRoom, ({ c, auth, body }) => (body.kind === 'dm' ? rooms.openDm(auth.user.id, body.userId) : rooms.createGroup(auth.user.id, body.userIds, body.name, c.get('locale'))))
@@ -85,13 +81,14 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.listAiAllowances, ({ c, auth }) => { c.header('Cache-Control', 'no-store'); return { items: [...listAlways(ctx.db, auth.user.id), ...listGrants(ctx.db, auth.user.id)] } })
     kit.handle(API.deleteAiAllowance, ({ auth, params }) => { if (!(params.id.startsWith('card:') ? dropAlways(ctx.db, auth.user.id, params.id) : deleteGrant(ctx.db, auth.user.id, params.id))) fail('not_found') })
 
+    // a small file in one request (larger ones: an upload session with target room, uploads/sessions.ts). The body was
+    // streamed to a temp file and hashed on the way (http/multipart.ts); create() moves it into the room's folder
     kit.handle(API.uploadRoomFile, async ({ auth, params, body }) => {
       // the same checks as a chat attachment: the whole part arrived, there is room on the disk
       if (body.fields.size !== undefined && body.fields.size !== body.file.size) fail('validation', undefined, { fields: { 'body.file': `expected ${body.fields.size} bytes, got ${body.file.size}` } })
       assertStorageRoom(body.file.size)
       rooms.get(auth.user.id, params.id)
-      const p = await writeTemp(tmpDir, body.file)
-      try { return await files.create(auth.user.id, params.id, body.fields.name ?? (body.file.name || 'file'), p, await hashFile(p)) } finally { fs.rmSync(p, { force: true }) }
+      return await files.create(auth.user.id, params.id, body.fields.name ?? (body.file.name || 'file'), body.file.path, body.file.sha256)
     })
     // "팀 파일" in a room's box (a phone's attach sheet): the copy "대화방에 보내기" makes of a linked file (rooms/files.ts
     // teamCopy over fromTeamFile: in the room, my read access now, a regular file of at most 50 MB, the storage check,

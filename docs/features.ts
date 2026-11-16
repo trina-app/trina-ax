@@ -150,7 +150,7 @@ export const FEATURES: Feature[] = [
   // ---------------- Settings ----------------
   { id: 'settings.list', name: 'Settings list and search', area: 'Settings', screens: ['/settings'] },
   { id: 'settings.notifications', name: 'Notifications and inbox', area: 'Settings', endpoints: ['*Notification*'], screens: ['/settings/notifications'] },
-  { id: 'settings.push', name: 'Push notifications on phones and computers', area: 'Settings', endpoints: ['*Push*'] },
+  { id: 'settings.push', name: 'Push notifications on phones and computers', area: 'Settings', endpoints: ['*Push*', 'reportMyComputer'] },
   { id: 'settings.apps', name: 'Apps to install', area: 'Settings', screens: ['/settings/apps'] },
   { id: 'settings.about', name: 'About this app', area: 'Settings', screens: ['/settings/about'] },
 

@@ -73,6 +73,13 @@ export const peopleRoutes: RouteModule = {
       return { away: body.away }
     })
 
+    // the desktop app's word on its computer (docs/decisions/20261116-away-os-idle.md): its main process is not throttled
+    // like a window in the back, so a person working in another app still counts as at the computer for the phone rule
+    // (notifications/away.ts). Memory only, never told to anyone; a server without the chat runtime just drops it.
+    kit.handle(API.reportMyComputer, ({ auth, body }) => {
+      presenceFor(ctx)?.computer(auth.user.id, auth.session.id, body)
+    })
+
     // my status message (docs/DECISIONS.md "상태 메시지"): only my own; the team is told only when what it sees changed
     // (a status that starts later is mine alone until its day: the clock tells them then), my other windows always.
     // Not audited, as the away setting is not: it is no account change.
