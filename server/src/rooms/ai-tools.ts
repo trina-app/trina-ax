@@ -93,7 +93,7 @@ export const PARALLEL_READ_TOOLS: ReadonlySet<string> = new Set(
   ['list', 'glob', 'grep', 'read'].filter((t) => ROOM_READ_ONLY_TOOLS.has(t)))
 
 /** The arguments of our tools that name a team path (chat/turn.ts: what a call names joins the read scope). */
-export const PATH_ARGS: readonly string[] = ['file_path', 'path', 'source', 'output', 'template', 'from', 'to', 'to_folder', 'destination', 'file_paths', 'paths', 'sources', 'images', 'image', 'save_as']
+export const PATH_ARGS: readonly string[] = ['file_path', 'path', 'source', 'output', 'template', 'from', 'to', 'to_folder', 'destination', 'file_paths', 'paths', 'sources', 'images', 'image', 'output_folder', 'save_as']
 
 /**
  * A person's own AI chat that has read their team chat rooms (chat/read-rooms.ts: chats.rooms_seen after a room tool,

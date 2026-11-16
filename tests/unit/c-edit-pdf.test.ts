@@ -6,7 +6,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { PDFDocument } from 'pdf-lib'
+import { decodePDFRawStream, PDFDocument, PDFRawStream } from 'pdf-lib'
 import { makeHandler } from '../../server/src/mcp/protocol'
 import { makeCApp, type CApp, type Person } from '../lib/c-app'
 import { makePagedPdf, writePdf } from '../lib/pdf'
@@ -105,6 +105,28 @@ describe('edit_pdf: each operation, as a new file next to the original', () => {
     if (pdftotext) expect(await pages(out)).toEqual(['PAGE-Q-1', 'PAGE-Q-3', 'PAGE-Q-5'])
     const ev = A.ctx.db.query('SELECT action, detail FROM file_events WHERE path = ? ORDER BY id DESC LIMIT 1').get(out) as { action: string; detail: string }
     expect([ev.action, JSON.parse(ev.detail).tool]).toEqual(['create', 'edit_pdf'])
+  })
+
+  test('removed pages are gone from the file, not only from the page list (remove, keep, reorder)', async () => {
+    put(`${D}/salary.pdf`, makePagedPdf([['PUBLIC-ONE'], ['SECRETSALARY'], ['PUBLIC-THREE']]))
+    const call = turn('alice')
+    /** every stream of the file, decoded */
+    const streams = async (rel: string) => {
+      const doc = await PDFDocument.load(fs.readFileSync(file(rel)))
+      let all = ''
+      for (const [, obj] of doc.context.enumerateIndirectObjects()) {
+        if (obj instanceof PDFRawStream) { try { all += Buffer.from(decodePDFRawStream(obj).decode()).toString('latin1') } catch { all += Buffer.from(obj.contents).toString('latin1') } }
+      }
+      return all
+    }
+    for (const [i, ops] of [[{ remove_pages: '2' }], [{ keep_pages: '1,3' }], [{ remove_pages: '2' }, { reorder_pages: '2,1' }]].entries()) {
+      const out = `${D}/salary-out-${i}.pdf`
+      const r = await call('edit_pdf', { file_path: `${D}/salary.pdf`, operations: ops, output: out })
+      expect(r.isError, r.text).toBe(false)
+      const s = await streams(out)
+      expect(s).toContain('PUBLIC-ONE')
+      expect(s, JSON.stringify(ops)).not.toContain('SECRETSALARY')
+    }
   })
 
   test('keep (extract), reorder, rotate, insert: in order, each on the pages as they are then', async () => {
@@ -285,6 +307,7 @@ describe('locked and broken PDFs, and the folder rules', () => {
   test('the lists: shared chats and rooms may use them; where they write; the files named inside a list', () => {
     for (const t of ['edit_pdf', 'merge_pdfs', 'split_pdf']) { expect(SHARED_TOOLS.has(t)).toBe(true); expect(ROOM_FILE_TOOLS.has(t)).toBe(true) }
     expect([WRITE_TARGET_ARGS.edit_pdf, WRITE_TARGET_ARGS.merge_pdfs, WRITE_TARGET_ARGS.split_pdf]).toEqual([['output'], ['output'], ['output_folder']])
+    expect(namedPaths('split_pdf', { file_path: 'a.pdf', output_folder: 'x/parts' }).map((x) => x.value)).toEqual(['a.pdf', 'x/parts'])
     expect(namedPaths('edit_pdf', { file_path: 'a.pdf', operations: [{ insert_pdf: { file: 'b.pdf', after: 0 } }, { stamp_image: { image: 'c.png' } }] }).map((x) => x.value)).toEqual(['a.pdf', 'b.pdf', 'c.png'])
     expect(namedPaths('merge_pdfs', { files: ['a.pdf', { path: 'b.pdf', pages: '1' }] }).map((x) => x.value)).toEqual(['a.pdf', 'b.pdf'])
   })

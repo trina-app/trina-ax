@@ -41,6 +41,8 @@ export type PagesJob =
   | { kind: 'edit'; ops: PageOp[]; font: number | null }
   | { kind: 'merge'; files: { part: number; pages?: string }[] }
   | { kind: 'split'; parts: string[] }
+  /** only the page count (split_pdf's `every`) */
+  | { kind: 'count' }
 export interface PagesRequest { job: PagesJob; names: string[]; lengths: number[] }
 export interface PagesReport { files: { pages: number; length: number }[]; notes: string[]; signed: boolean }
 
@@ -142,6 +144,14 @@ export function toUser(box: { x: number; y: number; width: number; height: numbe
   return { x: box.x + px, y: box.y + py }
 }
 
+/** pdf-lib 1.17.1's removePage does not drop its page cache (insertPage does), so getPage and copyPages kept seeing
+ * the removed pages afterwards: remove, then drop the cache (a private field of that pinned version; checked by
+ * tests/unit/c-edit-pdf.test.ts "removed pages are gone"). */
+function removePage(doc: PDFDocument, index: number) {
+  doc.removePage(index)
+  ;(doc as unknown as { pageCache: { invalidate(): void } }).pageCache.invalidate()
+}
+
 const wrapped = new WeakSet<PDFPage>()
 /** the page's own drawing in q … Q once, so coordinates it leaves changed do not move what is drawn after it */
 function wrapOnce(doc: PDFDocument, page: PDFPage) {
@@ -211,7 +221,18 @@ export async function pdfPagesRequest(input: Uint8Array): Promise<Uint8Array> {
 
   const main = parts[0]!
   const doc = await open(main, name(0))
-  const signed = has(main, '/ByteRange')
+  // a signature in any of the PDFs used (an inserted one too) no longer holds
+  const signed = parts.some((b) => has(b, '/ByteRange'))
+
+  if (job.kind === 'count') {
+    // the count in the report, and a one-page PDF as the file (the answer always carries one)
+    const one = await PDFDocument.create()
+    one.addPage([10, 10])
+    const report: PagesReport = { files: [{ pages: doc.getPageCount(), length: 0 }], notes, signed }
+    const b = await one.save()
+    report.files[0]!.length = b.length
+    return encodeHwpxRequest(JSON.stringify(report), b)
+  }
 
   if (job.kind === 'split') {
     if (!job.parts.length || job.parts.length > PDF_PAGES_PARTS_MAX) throw new ToolError(`give 1 to ${PDF_PAGES_PARTS_MAX} parts; nothing was saved`)
@@ -226,6 +247,8 @@ export async function pdfPagesRequest(input: Uint8Array): Promise<Uint8Array> {
   }
 
   // edit: the operations in order, on one document
+  /** pages were taken out (remove, keep, reorder): the result is built fresh, see below */
+  let dropped = false
   let font: PDFFont | null = null
   let cjk: PDFFont | null = null
   let cjkFont: ReturnType<typeof fontkit.create> | null = null
@@ -248,19 +271,22 @@ export async function pdfPagesRequest(input: Uint8Array): Promise<Uint8Array> {
     const step = `operation ${i + 1}`
     try {
       if ('remove_pages' in op) {
+        dropped = true
         const pages = parsePages(op.remove_pages, n)
         if (pages.length >= n) throw new ToolError('that would remove every page; a PDF needs at least one page')
-        for (const p of [...pages].sort((a, b) => b - a)) doc.removePage(p - 1)
+        for (const p of [...pages].sort((a, b) => b - a)) removePage(doc, p - 1)
       } else if ('keep_pages' in op) {
+        dropped = true
         const pages = parsePages(op.keep_pages, n)
         const copies = await doc.copyPages(doc, pages.map((x) => x - 1))
-        for (let p = n - 1; p >= 0; p--) doc.removePage(p)
+        for (let p = n - 1; p >= 0; p--) removePage(doc, p)
         for (const c of copies) doc.addPage(c)
       } else if ('reorder_pages' in op) {
+        dropped = true
         const pages = parsePages(op.reorder_pages, n)
         if (pages.length !== n) throw new ToolError(`reorder_pages lists every page once (the PDF has ${n}); to leave pages out, use keep_pages or remove_pages`)
         const copies = await doc.copyPages(doc, pages.map((x) => x - 1))
-        for (let p = n - 1; p >= 0; p--) doc.removePage(p)
+        for (let p = n - 1; p >= 0; p--) removePage(doc, p)
         for (const c of copies) doc.addPage(c)
       } else if ('rotate_pages' in op) {
         const by = rotationOf(op.rotate_pages.degrees)
@@ -347,6 +373,14 @@ export async function pdfPagesRequest(input: Uint8Array): Promise<Uint8Array> {
       if (e instanceof ToolError) throw new ToolError(`${step}: ${e.message.replace(/; nothing was saved$|\. Nothing was saved$/, '')}; nothing was saved`, e.code)
       throw e
     }
+  }
+  // pdf-lib's save writes every object the document holds, so a removed page's content would still be inside the file
+  // (review of feat/edit-pdf: "remove the salary page" left its text in the result). After a removal the final pages
+  // are copied into a new document, which holds only what they use. (Its outline and form fields are not carried over.)
+  if (dropped) {
+    const fresh = await PDFDocument.create()
+    for (const p of await fresh.copyPages(doc, doc.getPageIndices())) fresh.addPage(p)
+    return finish([{ bytes: await save(fresh), pages: fresh.getPageCount() }], signed)
   }
   return finish([{ bytes: await save(doc), pages: doc.getPageCount() }], signed)
 }

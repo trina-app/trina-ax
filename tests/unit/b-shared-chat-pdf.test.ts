@@ -85,10 +85,11 @@ describe('stamp_pdf in a shared chat', () => {
     put('users/alice/annex.pdf', makePagedPdf([['ANNEX']]))
     const chat = await newShared()
     const ins = await turn('alice', chat, fake({ tool: 'edit_pdf', args: { file_path: 'projects/falcon/quotes/q1.pdf', operations: [{ insert_pdf: { file: 'users/alice/annex.pdf', after: 'last' } }] }, sayResult: true }), ['skip'])
-    expect(ins.cards.length).toBe(1)
+    // the read card (its answers are share / skip), not the wider-audience card that would come after it
+    expect(ins.cards.map((c) => c.options?.map((o) => o.value).includes('share'))).toEqual([true])
     expect(fs.readdirSync(abs('projects/falcon/quotes')).filter((n) => n.startsWith('q1 ('))).toEqual([])
     const merge = await turn('alice', chat, fake({ tool: 'merge_pdfs', args: { files: ['projects/falcon/quotes/q1.pdf', { path: 'users/alice/annex.pdf' }] }, sayResult: true }), ['skip'])
-    expect(merge.cards.length).toBe(1)
+    expect(merge.cards.map((c) => c.options?.map((o) => o.value).includes('share'))).toEqual([true])
     // the project's own files: no card
     const own = await turn('alice', chat, fake({ tool: 'merge_pdfs', args: { files: ['projects/falcon/quotes/q1.pdf', 'projects/falcon/quotes/q2.pdf'] }, sayResult: true }), ['skip'])
     expect(own.cards).toEqual([])
