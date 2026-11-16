@@ -405,7 +405,7 @@ describe('share_with_person: already open, and someone else\'s file', () => {
     // (integrated with the card, docs/decisions/20261116-ai-sharing-integration.md: the offer is the refusal card's button,
     // and the words point at it)
     expect(r.content).toContain('so only Erin Yoo can add people to it')
-    expect(r.content).toContain('a card with an "Ask Erin Yoo" button')
+    expect(r.content).toContain('a card under your answer with an "Ask Erin Yoo" button')
     const [fix] = fixesOf(r.steps, 'share_with_person')
     expect(fix).toMatchObject({ kind: 'ask_owner', file: 'erins-deck.txt', owner: 'Erin Yoo', people: ['Bob Lee'] })
     const card = r.steps.find((s) => s.tool === 'share_with_person')!.shared!
@@ -446,7 +446,7 @@ describe('a file shared with me (by a grant only): share and post', () => {
     for (const p of ['users/erin/erin-deck.txt', `/f/${id}`]) {
       const r = await turn('alice', share({ paths: [p], people: ['Bob Lee'] }))
       expect(r.content).toContain('so only Erin Yoo can add people to it')
-      expect(r.content).toContain('a card with an "Ask Erin Yoo" button')
+      expect(r.content).toContain('a card under your answer with an "Ask Erin Yoo" button')
       const [fix] = fixesOf(r.steps, 'share_with_person')
       expect(fix).toMatchObject({ kind: 'ask_owner', owner: 'Erin Yoo', people: ['Bob Lee'] })
       const card = r.steps.find((s) => s.tool === 'share_with_person')!.shared!

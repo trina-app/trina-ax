@@ -178,7 +178,7 @@ describe('in my own chat', () => {
       expect(step.fixes).toHaveLength(1)
       expect(step.fixes![0]).toMatchObject({ kind: 'ask_admin', reason: 'switch', file: 'photo-1.png', state: 'open' })
       expect(offRec.next!.fixId).toBe(step.fixes![0]!.id)
-      expect(off.content).toContain('the card has an "Ask an admin" button')
+      expect(off.content).toContain('the card under your answer has an "Ask an admin" button')
       // the tap sends each admin the person's own 1:1 message asking to turn sharing on, naming the file; audited via ai
       const res = await h.api('bob').call(API.runShareFix, { params: { id: step.fixes![0]!.id } })
       expect(res).toMatchObject({ state: 'done' })

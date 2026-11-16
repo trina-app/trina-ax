@@ -84,7 +84,7 @@ export function refusedShareFixes(exec: Exec, path: string, refs: readonly strin
   // reason on the offer; files/share-fixes.ts forSwitch)
   if (cause === 'switch') {
     const fix = shareFixesOf(ctx).forSwitch(exec.spec.userId, exec.spec.chatId, path)
-    return fix ? { fixes: [fix], note: 'The user has a button on the card: "Ask an admin" (it sends the team\'s admins a message from the user asking to turn members\' file sharing back on; nothing changes by itself). Tell them so in one short sentence.' } : { fixes: [], note: '' }
+    return fix ? { fixes: [fix], note: 'The user has a button on the card under your answer: "Ask an admin" (it sends the team\'s admins a message from the user asking to turn members\' file sharing back on; nothing changes by itself). Tell them so in one short sentence.' } : { fixes: [], note: '' }
   }
   const people = peopleOf(exec, refs)
   const folder = folderAccess(ctx, exec.spec.userId, path)
