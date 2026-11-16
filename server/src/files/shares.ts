@@ -71,7 +71,8 @@ export const newLinkId = () => randomBytes(16).toString('base64url')
 
 /** files listed in the AI's turn context ("Files shared with you") */
 export const SHARED_WITH_MAX = 20
-export interface SharedWithFile { id: string; name: string; url: string; sharedBy: string | null; at: string }
+/** `to`: how it reaches the person: shared with them, with a group they are in (its name), or with everyone on the team */
+export interface SharedWithFile { id: string; name: string; url: string; sharedBy: string | null; at: string; to: { kind: 'you' } | { kind: 'group'; name: string } | { kind: 'everyone' } }
 /** The link id in a file link the AI was given: /f/<id>, f/<id> or https://<any host>/f/<id> (a query or # after it
  * is fine), or null. */
 export function linkIdOf(input: string): string | null {
@@ -816,20 +817,24 @@ export class FileShares {
     return o.kind === 'open' ? this.resolve(o.share.path) : null
   }
 
-  /** The files shared with `userId` by a grant (their own or a group's) that open for them now and that the folder
+  /** The files shared with `userId` by a grant (their own, a group's, or the whole team's) that open for them now and that the folder
    * rules do not already show them, the most recently shared first, at most `max`. For the AI's turn context. */
   sharedWith(userId: string, max = SHARED_WITH_MAX): { files: SharedWithFile[]; more: boolean } {
-    const rows = this.db.query(`SELECT g.share_id id, MAX(g.granted_at) at, (SELECT u.name FROM file_share_grants g2 JOIN users u ON u.id = g2.granted_by WHERE g2.share_id = g.share_id AND u.deleted_at IS NULL ORDER BY g2.granted_at DESC LIMIT 1) by
+    // (SQLite: with MAX(), the bare columns are the newest grant's that reaches the person)
+    const rows = this.db.query(`SELECT g.share_id id, MAX(g.granted_at) at, g.granted_by gb, g.subject_type st, g.subject_id sid
       FROM file_share_grants g JOIN file_shares s ON s.id = g.share_id
-      WHERE s.state = 'live' AND ((g.subject_type = 'user' AND g.subject_id = ?) OR (g.subject_type = 'group' AND g.subject_id IN (SELECT group_id FROM group_members WHERE user_id = ?)))
-      GROUP BY g.share_id ORDER BY at DESC, g.share_id LIMIT ?`).all(userId, userId, max * 3 + 1) as { id: string; at: string; by: string | null }[]
+      WHERE s.state = 'live' AND ${REACHES('g')}
+      GROUP BY g.share_id ORDER BY at DESC, g.share_id LIMIT ?`).all(userId, userId, userId, max * 3 + 1) as { id: string; at: string; gb: string; st: 'user' | 'group'; sid: string }[]
     const files: SharedWithFile[] = []
     let more = false
     for (const r of rows) {
       const o = this.open(userId, r.id)
       if (o.kind !== 'open' || o.by !== 'grant') continue
       if (files.length >= max) { more = true; break }
-      files.push({ id: r.id, name: o.name, url: fileLinkUrl(r.id), sharedBy: r.by, at: r.at })
+      const by = this.db.query('SELECT name FROM users WHERE id = ? AND deleted_at IS NULL').get(r.gb) as { name: string } | null
+      const grp = r.st === 'group' && r.sid !== ALL ? this.db.query('SELECT name FROM groups WHERE id = ?').get(r.sid) as { name: string } | null : null
+      const to: SharedWithFile['to'] = r.st === 'user' ? { kind: 'you' } : r.sid === ALL ? { kind: 'everyone' } : { kind: 'group', name: grp?.name ?? '' }
+      files.push({ id: r.id, name: o.name, url: fileLinkUrl(r.id), sharedBy: by?.name ?? null, at: r.at, to })
     }
     return { files, more }
   }

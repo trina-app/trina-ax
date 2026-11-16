@@ -486,7 +486,7 @@ describe('what a shared turn has', () => {
       project: { name: 'Falcon', folderPath: 'projects/falcon', instructions: 'PROJECT-INSTR' }, browser: true,
       tools: ['make_file', 'search'], history: [{ role: 'user', content: 'earlier' }], connected: '## Connected services\nCONN-CANARY', subagents: true, now: new Date('2026-11-07T09:00:00Z'),
       shared: { project: 'Falcon', audience: 4, asker: user.name }, roomReadable: (rel) => !rel.startsWith('groups/marketing') && !rel.startsWith('users/'), skillChanges: 'SKILL-CHANGES',
-      sharedWithMe: { files: [{ id: 'x'.repeat(22), name: 'SHARED-FILE-CANARY', url: '/f/' + 'x'.repeat(22), sharedBy: null, at: '2026-11-16' }], more: false },
+      sharedWithMe: { files: [{ id: 'x'.repeat(22), name: 'SHARED-FILE-CANARY', url: '/f/' + 'x'.repeat(22), sharedBy: null, at: '2026-11-16', to: { kind: 'you' as const } }], more: false },
     }
     const built: [ReturnType<typeof turnPromptSections>, string][] = [
       [turnPromptSections(h.ctx.files, input), buildTurnPrompt(h.ctx.files, input)],

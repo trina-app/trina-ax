@@ -587,8 +587,8 @@ export function sharedWithMeSection(s: PromptInput['sharedWithMe']): string {
   const q = (t: string) => JSON.stringify(neutralizeTags(t.replace(/\s+/g, ' ').trim().slice(0, 120)))
   return [
     '## Files shared with you',
-    'Teammates shared these files with the user one by one, view only. They are in none of the user\'s folders, so list, glob and grep do not show them: when the user asks about a shared file, or about something that may be in one, read it with read and its link as file_path. In the answer, link it with that same link. You cannot change these files (save a copy in the user\'s folder when they want changes). A file not listed here is not shared with them.',
-    ...s.files.map((f) => `- ${q(f.name)}${f.sharedBy ? ` from ${q(f.sharedBy)}` : ''}, ${f.at.slice(0, 10)}: ${f.url}`),
+    'Teammates shared these files with the user, with a group the user is in, or with everyone on the team, one by one and view only (each line says which). They are in none of the user\'s folders, so list, glob and grep do not show them: when the user asks about a shared file, or about something that may be in one, read it with read and its link as file_path. In the answer, link it with that same link. You cannot change these files (save a copy in the user\'s folder when they want changes). A file not listed here is not shared with them.',
+    ...s.files.map((f) => `- ${q(f.name)}${f.sharedBy ? ` from ${q(f.sharedBy)}` : ''}, shared with ${f.to.kind === 'you' ? 'the user' : f.to.kind === 'everyone' ? 'everyone on the team' : `the group ${q(f.to.name)}`}, ${f.at.slice(0, 10)}: ${f.url}`),
     s.more ? `(Only the ${s.files.length} most recently shared are listed.)` : '',
   ].filter(Boolean).join('\n')
 }
