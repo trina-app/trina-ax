@@ -92,3 +92,75 @@ test('a live change puts the summary on its answer (and takes it off when no rep
   useChats.getState().reset()
   useChatThreads.getState().reset()
 })
+
+test('a newest reply longer than the cap still goes in, cut with "…", every line a quote (QA TC-3786)', () => {
+  const o = { head: 'Thread', cut: '…(earlier replies left out)', time: () => '1:00 PM' }
+  const one = chatThreadDraft([{ name: 'Jae', at: '2026-11-16T05:00:00Z', text: `first line\n${'z'.repeat(9000)}` }], o)
+  expect(one.trimEnd().length).toBeLessThanOrEqual(CHAT_THREAD_DRAFT_MAX)
+  expect(one).toContain('> Jae · 1:00 PM\n> first line\n> zzz')
+  expect(one.trimEnd().endsWith('…')).toBe(true)
+  // nothing older was left out: no such line
+  expect(one).not.toContain('earlier replies')
+  const two = chatThreadDraft([{ name: 'Minji', at: '2026-11-16T05:00:00Z', text: 'short' }, { name: 'Jae', at: '2026-11-16T05:01:00Z', text: 'y'.repeat(9000) }], o)
+  expect(two.trimEnd().length).toBeLessThanOrEqual(CHAT_THREAD_DRAFT_MAX)
+  expect(two).toContain('> …(earlier replies left out)')
+  expect(two).not.toContain('Minji')
+  expect(two.trimEnd().split('\n').every((l) => l.startsWith('>'))).toBe(true)
+})
+
+test('a cut never splits a character: an emoji at the cut is left out whole before "…"', () => {
+  const o = { head: 'Thread', cut: '…(earlier replies left out)', time: () => '1:00 PM' }
+  // the cut lands inside a run of emoji (two UTF-16 units each), at every possible offset
+  for (let pad = 0; pad < 4; pad++) {
+    const d = chatThreadDraft([{ name: 'Jae', at: '2026-11-16T05:00:00Z', text: `${'a'.repeat(pad)}${'😀'.repeat(5000)}` }], o)
+    const body = d.trimEnd()
+    expect(body.endsWith('…')).toBe(true)
+    // no lone surrogate anywhere
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(body)).toBe(false)
+    expect(body.length).toBeLessThanOrEqual(CHAT_THREAD_DRAFT_MAX)
+  }
+})
+
+test('replies sent fast wait out the budget with one line for the thread, not a toast each, and then go by themselves (QA TC-3887)', async () => {
+  const { useUi } = await import('../../src/store/ui')
+  const realFetch = globalThis.fetch
+  const realTimeout = globalThis.setTimeout
+  let n = 0
+  const posted: string[] = []
+  globalThis.fetch = (async (_url: string, init: RequestInit) => {
+    const body = JSON.parse(String(init.body)) as { text: string; clientId: string }
+    // the first try of each reply: 429 for a second; then 201
+    if (n++ < 5) return new Response(JSON.stringify({ error: { code: 'rate_limited', message: 'slow down', retryAfter: 1 } }), { status: 429, headers: { 'content-type': 'application/json' } })
+    posted.push(body.text)
+    return new Response(JSON.stringify({ id: `0190a0a0-0000-7000-8000-00000000000${posted.length}`, chatId: CHAT, rootId: '0190a0a0-0000-7000-8000-0000000000aa', author: null, content: body.text, createdAt: '2026-11-16T05:00:00.000Z', canDelete: true }), { status: 201, headers: { 'content-type': 'application/json' } })
+  }) as unknown as typeof fetch
+  // the wait is the server's second, made instant here
+  globalThis.setTimeout = ((fn: () => void) => realTimeout(fn, 0)) as unknown as typeof setTimeout
+  const toastsBefore = (useUi.getState() as { toasts?: unknown[] }).toasts?.length ?? 0
+  try {
+    const root = '0190a0a0-0000-7000-8000-0000000000aa'
+    const sends = Array.from({ length: 5 }, (_, i) => useChatThreads.getState().send(CHAT, root, `reply ${i}`))
+    // all five wait: the thread says it once
+    await new Promise((r) => realTimeout(r, 0))
+    expect(Object.keys(useChatThreads.getState().slowUntil)).toEqual([`${CHAT}:${root}`])
+    await Promise.all(sends)
+    expect(posted.sort()).toEqual(['reply 0', 'reply 1', 'reply 2', 'reply 3', 'reply 4'])
+    expect(useChatThreads.getState().pending[`${CHAT}:${root}`]).toBeUndefined()
+    expect(((useUi.getState() as { toasts?: unknown[] }).toasts?.length ?? 0) - toastsBefore).toBe(0)
+  } finally {
+    globalThis.fetch = realFetch
+    globalThis.setTimeout = realTimeout
+    useChatThreads.getState().reset()
+  }
+})
+
+test('"no longer a member" is a sentence in every language, without quotes, the name in <bdi> (QA TC-3889)', async () => {
+  const { isolate } = await import('../../src/components/handover/isolate')
+  const { translate } = await import('../../src/i18n')
+  const { renderToStaticMarkup } = await import('react-dom/server')
+  for (const l of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
+    const text = translate(l, 'projects.noLongerMember', { name: 'THR Gone' })
+    expect({ l, quotes: /['"“”「」‘’]THR Gone|THR Gone['"“”「」‘’]/.test(text), sentence: /[.。]$/.test(text) }).toEqual({ l, quotes: false, sentence: true })
+    expect(renderToStaticMarkup(<>{isolate(l, 'projects.noLongerMember', { name: 'THR Gone' }, ['name'])}</>)).toContain('<bdi>THR Gone</bdi>')
+  }
+})

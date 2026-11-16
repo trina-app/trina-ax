@@ -2,7 +2,6 @@
 // Implements: FILES (tree, content, save, download, upload, mkdir, move, delete, history, restore, trash, attachments,
 // team-file references and the picker's find / recent, upload sessions). Contract: shared/src/api/files.ts. Logic: server/src/team-files/*, server/src/uploads/*.
 import { registerConnectionsAccountCleanup } from '../integrations/account-cleanup'
-import fs from 'node:fs'
 import path from 'node:path'
 import { API, CONTENT_SHA_HEADER } from '@mycel/shared/api'
 import { fileError, mapErrors } from '../team-files/errors'
@@ -16,7 +15,7 @@ import { authorize } from '../policy/authorize'
 import { searchFileContents } from '../team-files/content-search'
 import { findFiles, recentFiles } from '../team-files/find'
 import { dismissMoveSuggestion, moveSuggestions } from '../team-files/move-suggest'
-import { hashFile, writeTemp } from '../team-files/place'
+import type { SpooledFile } from '../http/multipart'
 import { registerCTools } from '../tools'
 import { HwpError } from '../files/hwp-engine'
 import { ToolError } from '../policy/errors'
@@ -92,15 +91,9 @@ export const filesRoutes: RouteModule = {
       }
     }
     const svc = C.files
-    const tmpDir = path.join(ctx.config.dataDir, 'uploads', 'tmp')
-    /** a small upload (multipart, ≤ 50 MB, already in memory) -> server temp file + sha256 */
-    const spool = async (file: File) => {
-      const p = await writeTemp(tmpDir, file)
-      return { p, sha: await hashFile(p) }
-    }
     /** A part of another size than the sender read lost bytes on the way (WebKit bug 319985 sends none at all): it stops
      * here, before it takes a name or replaces a file. An empty file that says so is an upload like any other. */
-    const assertWhole = (file: File, size: number | undefined) => {
+    const assertWhole = (file: SpooledFile, size: number | undefined) => {
       if (size !== undefined && size !== file.size) fileError('validation', 'incompleteUpload', { 'body.file': `expected ${size} bytes, got ${file.size}` })
     }
 
@@ -191,11 +184,9 @@ export const filesRoutes: RouteModule = {
     kit.handle(API.upload, ({ c, body, auth }) => mapErrors(c.get('locale'), async () => {
       assertWhole(body.file, body.fields.size)
       assertStorageRoom(body.file.size)
-      const { p, sha } = await spool(body.file)
-      try {
-        // the same file at that name already (a retry whose answer was lost, photos picked again): kept, no "(2)"
-        return await svc.placeUpload(auth.user.id, body.fields.folder, body.fields.name ?? (body.file.name || 'file'), p, body.fields.onExists, sha, undefined, { keepSame: true })
-      } finally { fs.rmSync(p, { force: true }) }
+      // the body is on disk already, hashed on the way (http/multipart.ts); the kit removes what is left of the temp file
+      // the same file at that name already (a retry whose answer was lost, photos picked again): kept, no "(2)"
+      return await svc.placeUpload(auth.user.id, body.fields.folder, body.fields.name ?? (body.file.name || 'file'), body.file.path, body.fields.onExists, body.file.sha256, undefined, { keepSame: true })
     }, 'name'))
 
     kit.handle(API.mkdir, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.mkdir(auth.user.id, body.path)))
@@ -249,14 +240,11 @@ export const filesRoutes: RouteModule = {
     kit.handle(API.uploadAttachment, ({ c, body, auth }) => mapErrors(c.get('locale'), async () => {
       assertWhole(body.file, body.fields.size)
       assertStorageRoom(body.file.size)
-      const { p, sha } = await spool(body.file)
-      try {
-        const a = await C.attachments.create(auth.user.id, body.fields.chatId, body.fields.name ?? (body.file.name || 'file'), p, sha)
-        // the request was dropped while the file was put in place (its chip taken out): the box never learns its id, so a
-        // file a shared chat put in its project folder goes to the trash again
-        if (c.req.raw.signal.aborted) C.attachments.discardSaved(auth.user.id, a)
-        return a
-      } finally { fs.rmSync(p, { force: true }) }
+      const a = await C.attachments.create(auth.user.id, body.fields.chatId, body.fields.name ?? (body.file.name || 'file'), body.file.path, body.file.sha256)
+      // the request was dropped while the file was put in place (its chip taken out): the box never learns its id, so a
+      // file a shared chat put in its project folder goes to the trash again
+      if (c.req.raw.signal.aborted) C.attachments.discardSaved(auth.user.id, a)
+      return a
     }, 'name'))
     kit.handle(API.attachmentThumbnail, ({ c, params, auth }) => mapErrors(c.get('locale'), () => {
       const t = C.attachments.thumbnail(auth.user.id, params.id)

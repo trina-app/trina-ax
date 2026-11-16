@@ -356,7 +356,7 @@ describe('the save model and every exit', () => {
     const html = m.html()
     expect(html.indexOf('data-testid="chat-share-warning-show"')).toBeGreaterThan(html.indexOf('data-testid="chat-share-warning-lines"'))
     expect(m.get('chat-share-warning').querySelector('[data-testid="chat-share-warning-show"]')).toBeTruthy()
-    // Korean: a person takes 님 ("Bob 님이", "Bob 님은"); a group never does, it reads as its people ("Sales 그룹 사람들이");
+    // Korean: a person takes 님 ("Bob 님이", "Bob 님은"); a group never does, it reads as its people ("Sales 부서 사람들이");
     // no 이(가) / 은(는) left on screen; the project's members read "일부 프로젝트 멤버가"
     const ko = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate('ko', key, vars)
     const kt = ((key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => ko(key, vars)) as Parameters<typeof whoNames>[0]
@@ -364,16 +364,16 @@ describe('the save model and every exit', () => {
     const sales = whoNames(kt, [{ subjectType: 'group', name: 'Sales' }])
     const both = whoNames(kt, [{ subjectType: 'user', name: 'Bob' }, { subjectType: 'group', name: 'Sales' }])
     expect(bob).toBe('Bob 님')
-    expect(sales).toBe('Sales 그룹 사람들')
+    expect(sales).toBe('Sales 부서 사람들')
     expect(sales).not.toContain('님')
     expect(ko('share.warn.files', { n: 1, names: bob })).toBe('답 1개가 Bob 님이 열 수 없는 파일을 참고했어요.')
     expect(ko('share.warn.places', { places: '내 파일', names: bob })).toBe('이 채팅은 내 파일도 참고했어요. Bob 님은 열 수 없는 곳이에요.')
-    expect(ko('share.warn.files', { n: 1, names: sales })).toBe('답 1개가 Sales 그룹 사람들이 열 수 없는 파일을 참고했어요.')
-    expect(ko('share.warn.places', { places: '내 파일', names: sales })).toBe('이 채팅은 내 파일도 참고했어요. Sales 그룹 사람들은 열 수 없는 곳이에요.')
-    expect(ko('share.warn.rooms', { names: sales })).toBe('이 채팅은 Sales 그룹 사람들이 없을 수도 있는 팀 대화방을 읽었어요.')
-    expect(ko('share.warn.files', { n: 1, names: both })).toBe('답 1개가 Bob 님, Sales 그룹 사람들이 열 수 없는 파일을 참고했어요.')
-    expect(ko('share.widenList.title', { names: sales })).toBe('Sales 그룹 사람들이 보게 될 답')
-    expect(ko('chat.share.widen', { n: 2, names: both })).toContain('Bob 님, Sales 그룹 사람들이 열 수 없는 곳')
+    expect(ko('share.warn.files', { n: 1, names: sales })).toBe('답 1개가 Sales 부서 사람들이 열 수 없는 파일을 참고했어요.')
+    expect(ko('share.warn.places', { places: '내 파일', names: sales })).toBe('이 채팅은 내 파일도 참고했어요. Sales 부서 사람들은 열 수 없는 곳이에요.')
+    expect(ko('share.warn.rooms', { names: sales })).toBe('이 채팅은 Sales 부서 사람들이 없을 수도 있는 채널을 읽었어요.')
+    expect(ko('share.warn.files', { n: 1, names: both })).toBe('답 1개가 Bob 님, Sales 부서 사람들이 열 수 없는 파일을 참고했어요.')
+    expect(ko('share.widenList.title', { names: sales })).toBe('Sales 부서 사람들이 보게 될 답')
+    expect(ko('chat.share.widen', { n: 2, names: both })).toContain('Bob 님, Sales 부서 사람들이 열 수 없는 곳')
     expect(ko('share.warn.files', { n: 1, names: ko('share.who.project') })).toBe('답 1개가 일부 프로젝트 멤버가 열 수 없는 파일을 참고했어요.')
     // a name with its own 님 does not get a second one
     expect(whoNames(kt, [{ subjectType: 'user', name: '김대표님' }])).toBe('김대표님')

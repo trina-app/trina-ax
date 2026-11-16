@@ -143,6 +143,8 @@ export interface MockRoomSpec {
   hidden?: boolean
   /** when I pinned it (docs/DECISIONS.md "Pinned conversations"); absent: not pinned */
   pinnedAt?: string
+  /** a team room's group folder I can open (Room.groupFolder: the header's Files button); absent: none */
+  groupFolder?: string
   /** minutes before the fixed "now" of its last message (smaller: higher in the list) */
   ago: number
   last: string
@@ -183,6 +185,7 @@ export async function routeRooms(page: Page, specs: MockRoomSpec[]): Promise<Moc
       muted: level === 'off', notify: { own: s.own, byDefault, level }, createdAt: when(600), activityAt: when(s.ago),
       ...(s.hidden ? { hidden: true } : {}),
       ...(s.pinnedAt ? { pinnedAt: s.pinnedAt } : {}),
+      ...(s.groupFolder ? { groupFolder: s.groupFolder } : {}),
     }
   }
   const all = () => [...live.values()].map((s) => roomOf(s, specs.findIndex((x) => x.id === s.id))).sort((a, b) => b.activityAt.localeCompare(a.activityAt))

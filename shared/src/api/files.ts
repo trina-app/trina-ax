@@ -5,6 +5,7 @@ import { HwpPreviewPage, HwpPreviewQuery } from '../hwp'
 import { Uuid7 } from '../ids'
 import { Access, IsoTime, PageQuery, QueryBool, RelPath, SMALL_UPLOAD_MAX, UPLOAD_CHUNK_SIZE, UPLOAD_SESSION_MAX, page } from './common'
 import { binary, endpoint, empty, multipart, stream } from './endpoint'
+import { RoomFile } from './rooms'
 import { Attachment, AudienceSplit, FileEntry, FileHistoryEvent, FileVersion, SourceLoc, TrashItem, UploadSession, UploadTarget, UserRef } from './entities'
 
 export const PathQuery = z.object({ path: RelPath })
@@ -194,6 +195,8 @@ export const UploadComplete = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('attachment'), attachment: Attachment }),
   /** transcribe target: the job that was started */
   z.object({ kind: z.literal('transcribe'), jobId: Uuid7 }),
+  /** room target: the caller's unsent upload in that room (sent by id in a message) */
+  z.object({ kind: z.literal('room'), file: RoomFile }),
 ])
 export type UploadComplete = z.infer<typeof UploadComplete>
 

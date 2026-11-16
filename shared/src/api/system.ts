@@ -90,6 +90,9 @@ export const UpdateStatus = z.object({
    * higher reader level): it waits for a newer release and is not offered. null/absent: nothing holds it. Absent from
    * older servers. */
   hold: z.enum(['paused', 'rollout', 'failed', 'root_failed', 'cannot_read']).nullable().optional(),
+  /** with hold failed / root_failed: why the last try of this release failed or was rolled back (what the bootstrap or
+   * root recorded, cut to 300 characters); null/absent: not recorded. Absent from older servers. */
+  holdReason: z.string().max(300).nullable().optional(),
   /** staged roll-out of a stable release (server/src/system/rollout.ts): the feed's newer release reaches this
    * server's automatic updates at this time ("this server's turn"; it comes with hold 'rollout'); null: this release's
    * roll-out leaves the server out. Absent when nothing waits for it (and from older servers). "Update now" does not wait. */

@@ -30,6 +30,12 @@ Plan: docs/AGENTS/plan/20261116-0351-chat-answer-threads.md (the planner's draft
   "You can't see this anymore" otherwise. A notice whose reply was deleted goes with it.
 - **Delete:** the author, or whoever moderates the chat (a project chat: its creator or a project editor; a chat shared
   with people: its creator), with a confirm and no undo; a moderator's delete is audited with ids only.
+- **Read-only states (follow-up, TC-3783, TC-3784):** while the chat is in the trash or safe operations are on, nobody
+  deletes a reply: the page offers no Delete and the API answers 404 (trash) or 409 `safe_ops`. A chat no longer shared
+  stays tidy-able by its creator.
+- **Purge (TC-3785):** a thread's notices go with its answer and its chat (migration 409 triggers).
+- **Replay (TC-3788, older than threads):** a chat's realtime events (messages, live text, steps, cards, artifacts, a
+  changed chat) are replayed after a reconnect only while the person still sees the chat; else the window resyncs.
 - **Limits:** 10,000 characters a reply, 500 replies a thread (409 `thread_full`), the rooms' sending budget (429 with
   `retryAfter`), the same `clientId` posts once.
 - **Search and export:** replies are not searched (⌘K) and not in the owner's export yet.
