@@ -163,7 +163,7 @@ test('Members: "Folders they see" opens the person; the invite previews what som
 
   await page.goto('/admin/members')
   await page.getByTestId('invite-new').click()
-  const dialog = page.getByRole('dialog', { name: t['members.inviteToTeam'] })
+  const dialog = page.getByRole('dialog', { name: t['members.inviteTitleMember'] })
   const toggle = dialog.getByTestId('new-person-preview-toggle')
   await expect(toggle).toHaveText(t['accessView.preview'])
   await expect(toggle).toHaveAttribute('aria-expanded', 'false')
@@ -196,7 +196,7 @@ test('the invite preview for an admin: every team folder, in one line', async ({
   await team(page)
   await page.goto('/admin/members')
   await page.getByTestId('invite-new').click()
-  const dialog = page.getByRole('dialog', { name: t['members.inviteToTeam'] })
+  const dialog = page.getByRole('dialog', { name: t['members.inviteTitleMember'] })
   await dialog.getByRole('combobox', { name: t['members.role'], exact: true }).selectOption('admin')
   await dialog.getByTestId('new-person-preview-toggle').click()
   const preview = dialog.getByTestId('new-person-preview')
