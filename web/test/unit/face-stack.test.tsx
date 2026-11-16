@@ -64,7 +64,7 @@ test('a stack of 1 or 2: no "+N"; of 3: no "+N" on a computer, "+1" on a phone; 
   } finally { await page.unmount() }
 })
 
-test('fit: two smaller faces overlapped in one picture\'s box (a group chat among the DMs), no "+N"; one face fills it', async () => {
+test('fit: two faces overlapped in one picture\'s box (a group chat among the DMs), no "+N"; one face fills it', async () => {
   const page = await mount(<FaceStack people={people} count={5} fit={20} on="subtle" testId="f" />)
   try {
     const stack = page.get('f-people')
@@ -73,7 +73,10 @@ test('fit: two smaller faces overlapped in one picture\'s box (a group chat amon
     expect([box.width, box.height]).toEqual(['20px', '20px'])
     const faces = stack.children
     expect(faces.map((e) => e.textContent)).toEqual(['A', 'B'])
-    expect(faces.map((e) => (e.style as unknown as Record<string, string>).width)).toEqual(['14px', '14px'])
+    // as large as the box allows (TC-3936): the front face 80% of it, the back one 70%
+    expect(faces.map((e) => (e.style as unknown as Record<string, string>).width)).toEqual(['14px', '16px'])
+    // a letter's disc is a shade of the line colour, never the hover colour a highlighted row has
+    expect(faces.every((e) => e.getAttribute('class')!.includes('bg-line-strong/'))).toBe(true)
     expect(faces[0]!.getAttribute('class')).toContain('top-0 left-0')
     // the back face's letter would show as a stray stroke: hidden
     expect(faces[0]!.getAttribute('class')).toContain('text-transparent!')

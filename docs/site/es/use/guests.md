@@ -46,7 +46,7 @@ fila es **Invitar a un invitado**.
 Escriba el nombre de la persona en **¿Para quién es?**. En **IA para esta persona**, al principio está elegido **Sin
 IA**. Las otras opciones se explican más abajo, en [La IA de un invitado](#la-ia-de-un-invitado).
 
-![El cuadro Invitar a un invitado: solo verá la sala 'Quote prep', un nombre e IA para esta persona con Sin IA elegido](../../images/guests/invite-dialog.webp "El cuadro de invitación")
+![El cuadro Invitar a un invitado: solo verá el chat de grupo 'Quote prep', un nombre e IA para esta persona con Sin IA elegido](../../images/guests/invite-dialog.webp "El cuadro de invitación")
 
 #### Copie el enlace y envíelo usted mismo
 **Crear enlace** crea un enlace para esta persona. Trina no envía ningún correo: elija **Copiar enlace** y envíeselo
@@ -103,13 +103,13 @@ El enlace abre una página que dice quién le invitó y el único chat o proyect
 usuario y una contraseña, y ya está dentro. Si usted eligió **Su propio inicio de sesión**, la página también le dice que conectará su propia cuenta de Claude o ChatGPT. Si el enlace ya no funciona, la página explica por qué: venció, ya se
 usó, se desactivó, la persona que lo creó ya no puede invitarle, o el chat o el proyecto ya no existe.
 
-![La página de invitación: Olga le invitó a Acme, solo se unirá a la sala de chat 'Quote prep', y después Nombre, Nombre de usuario y Contraseña](../../images/guests/invite-page.webp "La página que abre el invitado")
+![La página de invitación: Olga le invitó a Acme, solo se unirá a el chat de grupo 'Quote prep', y después Nombre, Nombre de usuario y Contraseña](../../images/guests/invite-page.webp "La página que abre el invitado")
 
 Cuando inicia sesión, Trina abre su chat o proyecto. La barra de la izquierda solo tiene lo que puede usar: no hay
 **Archivos**, ni proyectos o canales del equipo, ni **Trina** cuando su IA está desactivada. Su **Configuración** solo
 tiene sus propias cosas, como su perfil y sus notificaciones.
 
-![La vista de un invitado: la lista de Chats solo muestra la conversación de grupo Quote prep, y la barra de la izquierda solo tiene Chats y Actividad](../../images/guests/guest-room.webp "Lo que ve un invitado")
+![La vista de un invitado: la lista de Chats solo muestra el chat de grupo Quote prep, y la barra de la izquierda solo tiene Chats y Actividad](../../images/guests/guest-room.webp "Lo que ve un invitado")
 
 En un proyecto, los miembros del proyecto pueden ver los chats que tiene allí un invitado. A un invitado que puede usar IA se le avisa de esto en la página del proyecto.
 
@@ -181,7 +181,7 @@ cambie de plan.
 **Administración › Miembros e invitaciones** tiene una lista **Invitados**. Para ver solo a los invitados, elija **Invitados** en la lista de roles de arriba. Cada fila
 muestra dónde está el invitado y qué IA tiene.
 
-![Administración › Miembros e invitaciones › Invitados: Alex Rivera en la sala Quote prep con Sin IA, Sam Park en el proyecto Launch plan con IA del equipo hasta 20 $](../../images/guests/admin-guests.webp "Invitados en Administración")
+![Administración › Miembros e invitaciones › Invitados: Alex Rivera en el chat de grupo Quote prep con Sin IA, Sam Park en el proyecto Launch plan con IA del equipo hasta 20 $](../../images/guests/admin-guests.webp "Invitados en Administración")
 
 El menú **⋯** de un invitado tiene:
 
