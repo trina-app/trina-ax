@@ -22,6 +22,7 @@ import { pinTargets } from '../../server/src/integrations/connections/tools'
 import { noteEgressIp } from '../../server/src/tools/egress'
 import { toolRegistry } from '../../server/src/tools/registry'
 import { TurnFiles } from '../../server/src/files/service'
+import { ToolError } from '../../server/src/policy/errors'
 import { TEXT } from '../../server/src/tools/schedules'
 import { tr } from '../../server/src/chat/i18n'
 import { folderStat, lapseOf, pinForm, resolveSaveFolder, ruleFingerprint, saveFolderId, withRules, type PersonalSend, type ScopeSource } from '../../server/src/chat/schedule-scope'
@@ -113,7 +114,7 @@ describe('the card', () => {
     expect(JSON.parse(s.save_sources!)).toEqual([MINE, { type: 'folder', id: 'f_groups_marketing', rule: ruleFingerprint(h.ctx.files.rules(), ['groups', 'marketing']) }, { type: 'room', id: room }])
     expect(JSON.parse(s.personal_sends!)).toEqual([{ connectionId: notes.id, pins: ['page-1'] }])
     expect(s.save_rule).toBe(ruleFingerprint(h.ctx.files.rules(), SAVE.split('/')))
-    expect(r.text).toContain(`Its runs may save NEW files in ${SAVE}`)
+    expect(r.text).toContain(`Save folder: ${SAVE}. Its runs may save NEW files there`)
     // "create" without sends: the save folder stays (it is on both answers), the own connection does not
     clear()
     await create({ save_to: SAVE, reads: ['my folder'], connections: ['Alice Notes'], send_to: [{ connection: 'Alice Notes', to: ['page-1'] }] }, person('create', []))
@@ -141,7 +142,10 @@ describe('the card', () => {
       [{ save_to: 'groups/marketing' }, "a group's own folder itself"],
       [{ save_to: 'users/alice/drafts' }, "the user's own folder"],
       [{ save_to: 'skills' }, 'read-only'],
-      [{ save_to: 'shared/nowhere' }, 'not found'],
+      [{ save_to: 'nowhere/x' }, 'not found or no access'],
+      [{ save_to: 'groups/newgroup/x' }, 'not found or no access'],
+      [{ save_to: 'shared/a/b/c/d' }, 'would make 4 new folders'],
+      [{ save_to: 'shared/.hidden/x' }, 'hidden folder'],
       [{ save_to: `${SAVE}/a-file.md` }, 'is a file'],
       [{ save_to: 'groups/finance/x' }, 'not found or no access'],
       [{ save_to: SAVE, reads: ['groups/finance'] }, 'reads names "groups/finance"'],
@@ -162,7 +166,158 @@ describe('the card', () => {
     fs.mkdirSync(abs('skills/weekly'), { recursive: true })
     const carol = await toolRegistry(h.ctx.files).call('schedule_create', { title: 't', prompt: 'p p p', repeat: 'daily', time: '09:00', save_to: 'skills/weekly' }, { user: h.ctx.files.principal('carol'), turnId: null, files: new TurnFiles(), person: person('create', []) })
     expect(carol.text).toContain('skills folder')
+    // an admin may write at the top, but a task never makes a top folder or a group folder
+    for (const to of ['groups/newgroup/x', 'newtop/x']) {
+      const r = await toolRegistry(h.ctx.files).call('schedule_create', { title: 't', prompt: 'p p p', repeat: 'daily', time: '09:00', save_to: to }, { user: h.ctx.files.principal('carol'), turnId: null, files: new TurnFiles(), person: person('create', []) })
+      expect(r.text, to).toContain('would make a new top folder or group folder')
+      expect(fs.existsSync(abs(to.split('/')[0] === 'groups' ? 'groups/newgroup' : 'newtop')), to).toBe(false)
+    }
     fs.rmSync(abs('skills/weekly'), { recursive: true, force: true })
+  })
+
+  // AI scenario check SCH-02: the AI named groups/영업 (refused as a group's own folder), then made the task without a
+  // save folder and told the person it saved in groups/영업/reports
+  test('a group\'s own folder: the refusal names folders inside it that would work, never a hidden one', async () => {
+    clear()
+    const r = await create({ save_to: 'groups/marketing' }, person('create', []))
+    expect(r.isError).toBe(true)
+    expect(r.text).toContain("a group's own folder itself: name a folder inside it")
+    expect(r.text).toContain('Folders inside it that would work: groups/marketing/campaigns.')
+    expect(r.text).toContain('A new folder inside it works too (e.g. groups/marketing/reports)')
+    // salaries/ is closed to marketing members by its own rule: not named
+    expect(r.text).not.toContain('salaries')
+    // the team root and groups/: nothing to name (what is inside is a top folder too)
+    expect((await create({ save_to: 'groups' }, person('create', []))).text).not.toContain('would work')
+  })
+
+  test('a new sub-folder: the card says it will be made, it is made only on the yes, then kept as an existing one', async () => {
+    clear()
+    const NEW = 'groups/marketing/reports/weekly'
+    fs.rmSync(abs('groups/marketing/reports'), { recursive: true, force: true })
+    // declined: nothing is made
+    const no: Asked[] = []
+    const d = await create({ save_to: NEW }, person('deny', no))
+    expect(d.isError).toBe(true)
+    expect(no[0]!.question).toContain(`새 파일 저장: ${NEW} (새 폴더, 만들기를 누르면 생겨요. 지금 `)
+    expect(fs.existsSync(abs('groups/marketing/reports'))).toBe(false)
+    expect(latest()).toBeNull()
+    // yes: made, with its identity, rules and readers kept as for an existing folder
+    const yes: Asked[] = []
+    const r = await create({ save_to: NEW }, person('create', yes))
+    expect(r.isError).toBeFalsy()
+    expect(fs.statSync(abs(NEW)).isDirectory()).toBe(true)
+    const s = latest()!
+    expect(s.save_folder).toBe(NEW)
+    expect(s.save_folder_id).toBe(saveFolderId(h.ctx.files.fx, NEW.split('/')))
+    expect(s.save_rule).toBe(ruleFingerprint(h.ctx.files.rules(), NEW.split('/')))
+    expect(s.save_readers).toBe(resolveSaveFolder(h.ctx, 'alice', NEW).readers)
+    expect(lapseOf(h.ctx, s)).toBeNull()
+    expect(r.text).toContain(`Save folder: ${NEW} (a new folder, made now).`)
+    // the folder shows in the file history as made by the person
+    // every level made is a new folder of the person's in the file history, once
+    for (const at of ['groups/marketing/reports', NEW]) expect(db().query("SELECT user_id, detail FROM file_events WHERE path = ? AND action = 'create'").all(at)).toEqual([{ user_id: 'alice', detail: JSON.stringify({ folder: true, tool: 'schedule_create' }) }])
+    fs.rmSync(abs('groups/marketing/reports'), { recursive: true, force: true })
+    db().query("DELETE FROM schedules WHERE user_id = 'alice'").run()
+  })
+
+  test('a new sub-folder that someone made while the card was open is refused, nothing is created', async () => {
+    clear()
+    const NEW = `${SAVE}/late`
+    const p = person('create', [])
+    const r = await create({ save_to: NEW }, { ...p, async choose(q, o, e) { fs.mkdirSync(abs(NEW)); return p.choose!(q, o, e) } })
+    expect(r.isError).toBe(true)
+    expect(r.text).toContain('changed while the card was open')
+    expect(latest()).toBeNull()
+  })
+
+  /** a create whose card answer runs `meanwhile` first (something changing while the card is open) */
+  const createWhile = (args: Record<string, unknown>, meanwhile: () => void) => {
+    const p = person('create', [])
+    return create(args, { ...p, async choose(q, o, e) { meanwhile(); return p.choose!(q, o, e) } })
+  }
+  test('a new sub-folder is refused on the yes when the way to it changed while the card was open; nothing is made', async () => {
+    // a folder rule added on the way
+    clear()
+    let f: { id: string } | null = null
+    const ruled = await createWhile({ save_to: `${SAVE}/r1` }, () => {
+      f = db().query('INSERT INTO folders (id, path) VALUES (?, ?) RETURNING id').get(`f_${uuidv7()}`, SAVE) as { id: string }
+      db().query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'everyone', NULL, 'write')").run(uuidv7(), f.id)
+    })
+    db().query('DELETE FROM folders WHERE id = ?').run(f!.id)
+    expect(ruled.text).toContain('changed while the card was open')
+    expect(fs.existsSync(abs(`${SAVE}/r1`))).toBe(false)
+    // the folder on the way renamed and another made under its name
+    clear()
+    const renamed = await createWhile({ save_to: `${SAVE}/r2` }, () => { fs.renameSync(abs(SAVE), abs(`${SAVE}-old`)); fs.mkdirSync(abs(SAVE)) })
+    expect(renamed.text).toContain('changed while the card was open')
+    expect(fs.existsSync(abs(`${SAVE}/r2`)) || fs.existsSync(abs(`${SAVE}-old/r2`))).toBe(false)
+    fs.rmSync(abs(`${SAVE}-old`), { recursive: true, force: true })
+    // the folder on the way replaced by a link to another folder
+    clear()
+    const linked = await createWhile({ save_to: `${SAVE}/r3` }, () => { fs.rmSync(abs(SAVE), { recursive: true }); fs.symlinkSync(abs('shared/policies'), abs(SAVE)) })
+    expect(linked.text).toContain('changed while the card was open')
+    expect(fs.existsSync(abs('shared/policies/r3'))).toBe(false)
+    fs.rmSync(abs(SAVE), { force: true })
+    expect(latest()).toBeNull()
+    clear()
+  })
+
+  test('a new sub-folder is taken away again when the task cannot be stored after the yes', async () => {
+    clear()
+    const schedules = h.rt().schedules, real = schedules.create
+    schedules.create = () => { throw new ToolError('disk full') }
+    try {
+      const r = await create({ save_to: `${SAVE}/gone/deeper` }, person('create', []))
+      expect(r.isError).toBe(true)
+      expect(r.text).toContain('disk full')
+      expect(fs.existsSync(abs(`${SAVE}/gone`))).toBe(false)
+      expect(db().query("SELECT count(*) AS n FROM file_events WHERE path LIKE ? AND action = 'create'").get(`${SAVE}/gone%`)).toEqual({ n: 0 })
+    } finally { schedules.create = real }
+  })
+
+  test('a new sub-folder on a disk without folder creation times is refused before the card', async () => {
+    clear()
+    const real = folderStat.lstat
+    folderStat.lstat = (p) => { const st = real(p); return { isDirectory: () => st.isDirectory(), dev: st.dev, ino: st.ino, birthtimeNs: 0n } }
+    try {
+      const asked: Asked[] = []
+      const r = await create({ save_to: `${SAVE}/nobirth` }, person('create', asked))
+      expect(r.text).toContain('keeps no creation time for folders')
+      expect(asked).toHaveLength(0)
+      expect(fs.existsSync(abs(`${SAVE}/nobirth`))).toBe(false)
+    } finally { folderStat.lstat = real }
+  })
+
+  test('a new sub-folder in a skills or plugin folder is refused; one inside a project the person may write is offered', async () => {
+    clear()
+    const asCarol = (save_to: string, asked: Asked[] = []) => toolRegistry(h.ctx.files).call('schedule_create', { title: 't', prompt: 'p p p', repeat: 'daily', time: '09:00', save_to }, { user: h.ctx.files.principal('carol'), turnId: null, files: new TurnFiles(), person: person('deny', asked) })
+    expect((await asCarol('skills/newpack/x')).text).toContain('skills folder')
+    expect(fs.existsSync(abs('skills/newpack'))).toBe(false)
+    const fx = h.ctx.files.fx, before = fx.managed
+    fs.mkdirSync(abs('shared/plugin-pack'), { recursive: true })
+    fx.managed = { managerOf: (segs) => (segs.join('/') === 'shared/plugin-pack' || segs.join('/').startsWith('shared/plugin-pack/') ? 'pack' : null), heldBelow: () => null }
+    try {
+      const asked: Asked[] = []
+      expect((await asCarol('shared/plugin-pack/new', asked)).text).toContain('plugin')
+      expect(asked).toHaveLength(0)
+    } finally { fx.managed = before; fs.rmSync(abs('shared/plugin-pack'), { recursive: true, force: true }) }
+    // alice writes projects/falcon: a new folder there goes on the card (declined here: nothing made)
+    const asked: Asked[] = []
+    await create({ save_to: 'projects/falcon/reports' }, person('deny', asked))
+    expect(asked[0]!.question).toContain('새 파일 저장: projects/falcon/reports (새 폴더')
+    expect(fs.existsSync(abs('projects/falcon/reports'))).toBe(false)
+    // a new folder directly in projects/ is a new project: never
+    expect((await create({ save_to: 'projects/newproj/x' }, person('create', []))).isError).toBe(true)
+    expect(fs.existsSync(abs('projects/newproj'))).toBe(false)
+  })
+
+  test('without a save folder the answer says runs save in the user\'s own folder', async () => {
+    clear()
+    const r = await create({}, person('create', []))
+    expect(r.isError).toBeFalsy()
+    expect(r.text).toContain("No save folder was set: its runs save files in the user's own folder, and in a team folder only where that needs no confirmation card")
+    expect(r.text).not.toContain('users/alice')
+    expect(r.text).toContain('never another save place')
   })
 })
 

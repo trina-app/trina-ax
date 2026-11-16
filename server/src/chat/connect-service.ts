@@ -172,7 +172,9 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   /** no card: the AI is told why, in words it can act on; `error`: a refusal, not information */
   const early = (text: string, code: string, error = true): ToolOut => {
     exec.patchToolStep(CONNECT_TOOL, () => ({ detail: tr(error ? 'connectNotConnected' : 'connectConnected', L) }))
-    return { content: [{ type: 'text', text }], ...(error ? { isError: true } : {}), summary: `${CONNECT_TOOL} -> no card (${code})` }
+    // a refusal always says no card was shown: the AI had already written "I'll show a connect card" (AI scenario CON-02)
+    const said = error && !/no card/i.test(text) ? `${text} No card was shown.` : text
+    return { content: [{ type: 'text', text: said }], ...(error ? { isError: true } : {}), summary: `${CONNECT_TOOL} -> no card (${code})` }
   }
   const a = ConnectServiceInput.safeParse(args)
   if (!a.success) return early(zodText(a.error), 'invalid input')
@@ -223,7 +225,7 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   } else if (target === 'google_drive') {
     let d: ReturnType<ReturnType<typeof googleDriveOf>['status']>
     try { d = googleDriveOf(rt.ctx).status(spec.userId) } catch { return early('Google Drive cannot be connected for this account now.', 'drive unavailable') }
-    if (!d.configured) return early('Google Drive is not set up on this team server: an admin or the server\'s operator has to set it up first (docs/INTEGRATIONS.md). Tell the person; no card was shown.', 'drive not configured')
+    if (!d.configured) return early('Google Drive is not set up for this team yet: the team\'s owner or an admin has to set it up first (docs/INTEGRATIONS.md). No card was shown: tell the person in plain words that Drive cannot be connected yet and who can set it up; do not say a card is or will be shown.', 'drive not configured')
     if (d.status === 'connected') return early(`Google Drive is already connected for this person. Its tools (${DRIVE_TOOL_NAMES.join(', ')}) are yours in this chat; if you do not have them now, from the person's next message.`, 'drive connected', false)
     card = { kind: 'connect_service', requestId: uuidv7(), target, name: 'Google Drive', scope: 'personal', ...(why ? { why } : {}), expiresAt: expiresAt() }
   } else {
