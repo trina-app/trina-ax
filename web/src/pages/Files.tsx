@@ -83,6 +83,7 @@ import { newChatPath } from '../lib/newChat'
 import { PhoneFilesHome, TEAM_ROOT_ON_PHONE } from '../components/panels/FilesPanel'
 import { stackNow } from '../lib/screenHistory'
 import RecentFiles from './RecentFiles'
+import SharedFiles from './SharedFiles'
 import { storagePlansAction, storagePlansUrl } from '../components/StoragePlansLink'
 
 const ICONS: Record<FileIconKind, typeof FileIcon> = { folder: Folder, image: FileImage, pdf: FileText, doc: FileText, sheet: FileSpreadsheet, slides: Presentation, audio: FileAudio, video: FileVideo, code: FileCode, archive: FileArchive, text: FileText, other: FileIcon }
@@ -127,12 +128,14 @@ function dragBadge(dt: DataTransfer, text: string) {
   setTimeout(() => el.remove(), 0)
 }
 
-/** /files: the team folder explorer; also 파일's "최근 파일" (`?view=recent`, pages/RecentFiles.tsx), a row of the list
+/** /files: the team folder explorer; also 파일's "최근 파일" (`?view=recent`, pages/RecentFiles.tsx) and "Shared with me"
+ * (`?view=shared`, pages/SharedFiles.tsx), rows of the list
  * beside the rail; on a phone /files itself is the 파일 tab's places (components/panels/FilesPanel.tsx PhoneFilesHome) and a folder is a place's screen. */
 export default function FilesRoute() {
   const [params] = useSearchParams()
   const phone = useMediaQuery('(max-width: 767.98px)')
   if (params.get('view') === 'recent') return <RecentFiles />
+  if (params.get('view') === 'shared') return <SharedFiles />
   // (the team folder's own top is /files?team=1 there: FilesPanel.tsx TEAM_ROOT_ON_PHONE)
   if (phone && !params.get('path') && !params.get('view') && !params.get('q') && !params.get('select') && !params.has('team')) return <PhoneFilesHome />
   return <Files />

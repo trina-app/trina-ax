@@ -45,6 +45,7 @@ describe('the tabs', () => {
     expect(rootTab('/files')).toBe('files')
     expect(parentOf('/files?view=trash')).toBe('/files')
     expect(parentOf('/files?view=recent')).toBe('/files')
+    expect(parentOf('/files?view=shared')).toBe('/files')
     expect(parentOf('/files?team=1')).toBe('/files')
     expect(sameScreen('/files', '/files?team=1')).toBe(false)
     expect(parentOf(f('shared'))).toBe('/files')

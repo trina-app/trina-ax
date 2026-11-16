@@ -168,7 +168,7 @@ di bagian atas mengumpulkan pesan yang menyebut nama Anda dan utas yang Anda iku
 
 Untuk mengajak orang dari luar tim, pilih **Undang tamu** saat Anda menambahkan orang ke obrolan grup atau proyek. [Baca tentang tamu](guests.md).
 
-![Daftar Obrolan: Mentions & threads, Saluran dengan Everyone dan Marketing, dan satu pesan langsung](../../images/chats/rooms-list.webp "Daftar Obrolan")
+![Daftar Obrolan: Mentions & threads, Saluran dengan Everyone dan Marketing, lalu Pesan langsung dengan satu obrolan grup dan satu pesan langsung](../../images/chats/rooms-list.webp "Daftar Obrolan")
 
 #### Bertanya ke Trina di samping ruang obrolan
 

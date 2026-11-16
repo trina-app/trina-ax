@@ -10,6 +10,8 @@
 //                    is named by its own name (one project) puts that name in the title (PhoneBarTitle),
 //                    which a tap may act on (a project's: rename it)
 //   관리자 (/admin):  none here: Admin draws the same bar itself, with "‹ Admin" over its pages (admin/AdminLayout.tsx)
+//   a file link opened from 파일 › Shared with me (/f/<id>, router state from): none here: the page draws "‹ Shared
+//                    with me" itself (pages/FileLink.tsx)
 // Not in a room or an AI chat: their own header (with its ‹) is the bar there. ‹ goes back in the real history, or to
 // the page's parent (lib/screens.ts) in place of this entry (lib/back.ts), so the phone's own back never loops; it is
 // named after where it goes ("‹ 트리나", "‹ 설정": lib/backStack.ts useBackLabel). Every button is 44 px.
@@ -17,6 +19,7 @@ import { useCanStartChat } from './GuestView'
 import clsx from 'clsx'
 import { Menu, MessageCirclePlus, Search } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { FILES_SHARED } from '../lib/nav'
 import { useT } from '../i18n'
 import { useGoBack } from '../lib/back'
 import { useBackLabel } from '../lib/backStack'
@@ -36,7 +39,7 @@ const icon = 'size-11 shrink-0'
 export function PhoneTopBar() {
   const t = useT()
   const navigate = useNavigate()
-  const { pathname: path, search } = useLocation()
+  const { pathname: path, search, state } = useLocation()
   const setSearchOpen = useUi((s) => s.setSearchOpen)
   const setDrawer = useTrinaDrawer((s) => s.setOpen)
   const attention = useAttention()
@@ -54,6 +57,7 @@ export function PhoneTopBar() {
   const setupBack = useSetupReturnShown() !== null
   // 파일 draws its own bar, as Admin does
   if (hidesTabs(path) || path === '/files' || path.startsWith('/files/') || path === '/admin' || path.startsWith('/admin/')) return null
+  if (path.startsWith('/f/') && (state as { from?: unknown } | null)?.from === FILES_SHARED) return null
   // a project's new chat ("/?project=") is reached from the project: a way back there, not the history drawer
   const home = path === '/' && !new URLSearchParams(search).has('project')
   if (home)
