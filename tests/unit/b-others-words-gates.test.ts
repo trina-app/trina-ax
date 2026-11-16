@@ -16,6 +16,8 @@ import { fromAsker, madeInTurn, othersWordsIn } from '../../server/src/chat/shar
 import { shareWithPersonTool } from '../../server/src/chat/share-with-person'
 import { OWN_CHAT_TEAM_TOOLS, OWN_WORDS_TOOLS } from '../../server/src/rooms/ai-tools'
 import { roomsOf } from '../../server/src/rooms/service'
+import { turnPerson } from '../../server/src/chat/tools'
+import type { TurnExec } from '../../server/src/chat/turn'
 
 setDefaultTimeout(90_000)
 const cm = () => 'cm-' + crypto.randomUUID()
@@ -77,7 +79,7 @@ async function turn(user: string, content: string, chat?: string) {
   const done = await socks[user]!.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 40_000)
   const cards = socks[user]!.frames.filter((f) => f.type === 'turn.request' && (f as { data: { turnId?: string } }).data.turnId === r.turnId)
     .map((f) => (f as unknown as { data: { request: { options?: { value: string }[] } } }).data.request)
-  return { chatId, turnId: r.turnId as string, content: done.data.message.content as string, cards }
+  return { chatId, turnId: r.turnId as string, messageId: r.userMessage!.id as string, content: done.data.message.content as string, cards }
 }
 const sharedRow = (p: string) => h.ctx.db.query('SELECT 1 FROM file_shares WHERE path = ?').get(p)
 // (the file's and the person's names as JSON escapes: bob's own words name neither)
@@ -383,11 +385,11 @@ describe('second review: what "made in this answer" means, and a chat that read 
     expect(built.content).not.toContain('"status":"shared"')
     expect(sharedRow('users/bob/out-z.xlsx')).toBeNull()
     // its own new file first, then the same output built from the other file
-    const over = await turn('bob', `send the summary to tess\n${readIt}\n${fake({ tool: 'make_file', args: { content: 'a,b\n1,2\n', input_format: 'csv', format: 'xlsx', output: 'users/bob/out-y.xlsx' } })}\n${fake({ tool: 'make_file', args: { source: 'users/bob/payroll-z.csv', format: 'xlsx', output: 'users/bob/out-y.xlsx' } })}\n${to('users/bob/out-y.xlsx')}`)
+    const over = await turn('bob', `send the summary to tess\n${readIt}\n${fake({ tool: 'make_file', args: { content: 'a,b\n1,2\n', format: 'xlsx', output: 'users/bob/out-y.xlsx' } })}\n${fake({ tool: 'make_file', args: { source: 'users/bob/payroll-z.csv', format: 'xlsx', output: 'users/bob/out-y.xlsx' } })}\n${to('users/bob/out-y.xlsx')}`)
     expect(over.content).not.toContain('"status":"shared"')
     expect(sharedRow('users/bob/out-y.xlsx')).toBeNull()
     // its own text alone: made in this answer
-    const own = await turn('bob', `send the summary to tess\n${readIt}\n${fake({ tool: 'make_file', args: { content: 'a,b\n1,2\n', input_format: 'csv', format: 'xlsx', output: 'users/bob/out-x.xlsx' } })}\n${to('users/bob/out-x.xlsx')}`)
+    const own = await turn('bob', `send the summary to tess\n${readIt}\n${fake({ tool: 'make_file', args: { content: 'a,b\n1,2\n', format: 'xlsx', output: 'users/bob/out-x.xlsx' } })}\n${to('users/bob/out-x.xlsx')}`)
     expect(fs.existsSync(path.join(h.ctx.files.fx.root, 'users/bob/out-x.xlsx'))).toBe(true)
     expect(own.cards).toHaveLength(0)
     expect(JSON.parse(own.content).status).toBe('shared')
@@ -411,5 +413,18 @@ describe('second review: what "made in this answer" means, and a chat that read 
     const post2 = await turn('bob', `send this to tess\n${post({ room: 'Tess Yoon', text: 'hello five' })}`)
     expect(post2.cards).toHaveLength(0)
     expect(JSON.parse(post2.content).status).toBe('sent')
+  })
+
+  test('a team file attached to a send: in a chat that read nothing, a file built from another file keeps the card; one I named or the AI wrote itself does not', async () => {
+    put('users/bob/payroll-w.csv', 'name,pay\nbob,1\n', 'bob')
+    const built = await turn('bob', `make the summary\n${fake({ tool: 'make_file', args: { source: 'users/bob/payroll-w.csv', format: 'xlsx', output: 'users/bob/out-w.xlsx' } })}\n${fake({ tool: 'make_file', args: { content: 'a,b\n1,2\n', format: 'xlsx', output: 'users/bob/out-v.xlsx' } })}`)
+    expect(fs.existsSync(path.join(h.ctx.files.fx.root, 'users/bob/out-w.xlsx'))).toBe(true)
+    // (the chat holds nothing written by others)
+    expect((h.ctx.db.query("SELECT others_words AS o FROM chats WHERE id = ?").get(built.chatId) as { o: number }).o).toBe(0)
+    const person = turnPerson({ spec: { userMessageId: built.messageId, turnId: built.turnId, locale: 'en', userId: 'bob', chatId: built.chatId }, rt: { db: h.ctx.db } } as unknown as TurnExec)
+    expect(person.attachAsks!(['users/bob/out-w.xlsx'])).toBe(true)
+    expect(person.attachAsks!(['users/bob/out-v.xlsx'])).toBe(false)
+    // a file my message did not name, made before this answer: the card
+    expect(person.attachAsks!(['users/bob/ledger-5.txt'])).toBe(true)
   })
 })
