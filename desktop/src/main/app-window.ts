@@ -792,8 +792,6 @@ export class AppWindow {
 
   private disposeTeam() {
     clearInterval(this.recheckTimer)
-    // this computer leaves the team: its server hears it at once, not after the last report goes stale (phone rule)
-    this.computerReporter.farewell()
     // a look of this team page: its ids read nothing any more, one still running gives nothing
     this.workFiles.forget()
     // the team's notifications name its chats and open its addresses: none outlives the team page (session markers),
@@ -802,6 +800,8 @@ export class AppWindow {
     if (process.platform === 'darwin') electronApp.setBadgeCount(0)
     this.pane?.dispose()
     this.pane = undefined
+    // this computer leaves the team: its server hears it at once, not after the last report goes stale (phone rule)
+    this.computerReporter.farewell()
     if (this.app) {
       const wc = this.app.webContents
       if (!this.win.isDestroyed() && this.win.contentView.children.includes(this.app)) this.win.contentView.removeChildView(this.app)
