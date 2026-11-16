@@ -677,12 +677,95 @@ describe('security review 2', () => {
     const caraRow = (await connect(cara, t.id, { secret: MCP_KEY })).body.id
     await ada.call('PATCH', `/api/admin/integration-templates/${t.id}`, { url: `${fake.base}/mcp-open`, access: { ...nobody, users: [ids.bob] } })
     expect((await of(bob, t.id, 'integration.template_reconnect')).length).toBe(1)
-    expect((await of(cara, t.id, 'integration.template_reconnect')).length).toBe(0)
+    expect((await of(cara, t.id, 'integration.template_reconnect')).filter((n) => !n.templateLeft).length).toBe(0)
     // cara's connection went as "no longer for her", bob's as "moved"
     const why = (id: string) => JSON.parse((h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'integration.delete' AND target = ?").get(id) as { detail: string }).detail).why
     expect(why(bobRow)).toBe('template_moved')
     expect(why(caraRow)).toBe('not_covered')
+    // QA TC-2980: cara is told once, plainly, that it is no longer for her (its name, no link); bob is not
+    const caraLeft = (await inbox(cara)).filter((n) => n.templateLeft && n.sourceId.startsWith(t.id))
+    expect(caraLeft).toHaveLength(1)
+    expect(caraLeft[0]).toMatchObject({ code: 'integration.template_reconnect', template: { id: t.id, name: 'Narrowed' }, templateLeft: true, link: null })
+    expect((await inbox(bob)).filter((n) => n.templateLeft && n.sourceId.startsWith(t.id))).toHaveLength(0)
     await ada.call('DELETE', `/api/admin/integration-templates/${t.id}`)
+  })
+
+  test('QA TC-2980: narrowing alone tells the member left out, once; one never connected is not told', async () => {
+    const t = await make(tpl({ name: 'Only Narrowed', access: { ...nobody, users: [ids.bob, ids.cara] } }))
+    await connect(cara, t.id, { secret: MCP_KEY })
+    const offer = (await inbox(cara)).find((n) => n.code === 'integration.template' && n.sourceId === t.id)
+    await ada.call('PATCH', `/api/admin/integration-templates/${t.id}`, { access: { ...nobody, users: [ids.bob] } })
+    const leftOf = async (as: Client) => (await inbox(as)).filter((n) => n.templateLeft && n.sourceId.startsWith(t.id))
+    const caraLeft = await leftOf(cara)
+    expect(caraLeft).toHaveLength(1)
+    expect(caraLeft[0]).toMatchObject({ template: { id: t.id, name: 'Only Narrowed' }, link: null })
+    expect(JSON.stringify(caraLeft)).not.toContain(MCP_KEY)
+    expect(JSON.stringify(caraLeft)).not.toContain(fake.base)
+    // no "connect it again"
+    expect((await of(cara, t.id, 'integration.template_reconnect')).filter((n) => !n.templateLeft)).toHaveLength(0)
+    // the earlier "is ready" notice keeps the name, without its link
+    expect(offer).toBeDefined()
+    expect((await inbox(cara)).find((n) => n.id === offer!.id)).toMatchObject({ template: { id: t.id, name: 'Only Narrowed' }, link: null })
+    // the people sweep again (a list read): no second notice
+    await ada.call('GET', '/api/admin/integration-templates')
+    expect(await leftOf(cara)).toHaveLength(1)
+    await ada.call('DELETE', `/api/admin/integration-templates/${t.id}`)
+    // the template gone: the notice stays, with no name
+    expect(await leftOf(cara)).toHaveLength(1)
+    expect((await leftOf(cara))[0].template).toBeUndefined()
+  })
+
+  test('QA TC-2980: leaving the template\'s group (the sweep) tells the member once that they no longer have it', async () => {
+    const g = await ada.call('POST', '/api/admin/groups', { name: 'Left group', memberIds: [ids.bob, ids.cara] })
+    const t = await make(tpl({ name: 'Group Board', access: { ...nobody, groups: [g.id] } }))
+    const row = (await connect(cara, t.id, { secret: MCP_KEY })).body.id
+    await ada.call('PATCH', `/api/admin/groups/${g.id}`, { memberIds: [ids.bob] })
+    // a list read sweeps (also the backstop): her connection goes as "no longer for her"
+    await ada.call('GET', '/api/admin/integration-templates')
+    expect(getRow(h.ctx.db, row)).toBeNull()
+    const leftOf = async () => (await inbox(cara)).filter((n) => n.templateLeft && n.sourceId.startsWith(t.id))
+    const left = await leftOf()
+    expect(left).toHaveLength(1)
+    expect(left[0]).toMatchObject({ template: { id: t.id, name: 'Group Board' }, link: null })
+    expect((await of(cara, t.id, 'integration.template_reconnect')).filter((n) => !n.templateLeft)).toHaveLength(0)
+    await ada.call('GET', '/api/admin/integration-templates')
+    expect(await leftOf()).toHaveLength(1)
+    await ada.call('DELETE', `/api/admin/integration-templates/${t.id}`)
+    await ada.call('DELETE', `/api/admin/groups/${g.id}`)
+  })
+
+  test('QA TC-2980: narrowed while the member was connecting: "no longer have access", not "connect it again"', async () => {
+    const t = await make(tpl({ name: 'Raced', access: { ...nobody, users: [ids.bob, ids.cara] } }))
+    const svc = integrationsOf(h.ctx)
+    const create = svc.create.bind(svc)
+    svc.create = (async (...a: Parameters<typeof create>) => {
+      const made = await create(...a)
+      h.ctx.db.query("DELETE FROM integration_template_access WHERE template_id = ? AND subject_type = 'user' AND subject_id = ?").run(t.id, ids.cara)
+      return made
+    }) as typeof svc.create
+    try {
+      expect((await connect(cara, t.id, { secret: MCP_KEY })).status).toBe(409)
+    } finally { svc.create = create }
+    expect((await inbox(cara)).filter((n) => n.templateLeft && n.sourceId.startsWith(t.id))).toHaveLength(1)
+    expect((await of(cara, t.id, 'integration.template_reconnect')).filter((n) => !n.templateLeft)).toHaveLength(0)
+    await ada.call('DELETE', `/api/admin/integration-templates/${t.id}`)
+  })
+
+  test('QA TC-2980: a sign-in template\'s notices say so (signIn), a key template\'s do not', async () => {
+    const t = await make(tpl({ name: 'Signed', url: `${fake.base}/mcp-oauth`, auth: 'oauth', access: { ...nobody, users: [ids.bob] } }))
+    const ready = await of(bob, t.id)
+    expect(ready).toHaveLength(1)
+    expect(ready[0].template).toEqual({ id: t.id, name: 'Signed', signIn: true })
+    expect((await connect(bob, t.id, {})).body).toMatchObject({ templateId: t.id })
+    await ada.call('PATCH', `/api/admin/integration-templates/${t.id}`, { url: `${fake.base}/mcp-open` })
+    const again = await of(bob, t.id, 'integration.template_reconnect')
+    expect(again).toHaveLength(1)
+    expect(again[0]).toMatchObject({ template: { id: t.id, signIn: true }, link: 'integrations' })
+    expect(again[0].templateLeft).toBeUndefined()
+    await ada.call('DELETE', `/api/admin/integration-templates/${t.id}`)
+    const k = await make(tpl({ name: 'Keyed', access: { ...nobody, users: [ids.bob] } }))
+    expect((await of(bob, k.id))[0].template).toEqual({ id: k.id, name: 'Keyed' })
+    await ada.call('DELETE', `/api/admin/integration-templates/${k.id}`)
   })
 })
 

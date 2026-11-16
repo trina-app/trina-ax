@@ -39,8 +39,8 @@ export const TeamLink = z.object({
    * a new one to copy it again */
   url: z.string().nullable(),
   groupIds: z.array(Uuid7),
-  /** the team skill new members land on after joining (`/skills?run=<path>`); name and title null when the viewer
-   * cannot read it any more. `title`: the name people read (its metadata title, else its name; absent from an older
+  /** the team skill the link names (the invite message names it; people who join land on Home: docs/DECISIONS.md "A new
+   * member lands on Home"); name and title null when the viewer cannot read it any more. `title`: the name people read (its metadata title, else its name; absent from an older
    * server), for the card and the ready-made message */
   skill: z.object({ path: z.string(), name: z.string().nullable(), title: z.string().nullable().optional() }).nullable(),
   maxUses: z.number().int().positive(),
@@ -108,9 +108,11 @@ export const TeamLinkInfo = z.object({
   /** null while valid */
   problem: TeamLinkProblem.nullable(),
   expiresAt: IsoTime,
-  /** the skill the link names, when someone joining with the link's groups can open it */
+  /** the skill the link names, when someone joining with the link's groups can open it. Kept only for older apps,
+   * whose join page names it; this app's join page no longer does (docs/DECISIONS.md "A new member lands on Home") */
   skillName: z.string().nullable(),
-  /** the same skill as people read its name (its metadata title, else its name); absent from an older server */
+  /** the same skill as people read its name (its metadata title, else its name); absent from an older server. Kept only
+   * for older apps, as skillName */
   skillTitle: z.string().nullable().optional(),
   /** who made the link ("{inviter} invited you to {team}"), only while it is valid; null: not known any more. Absent
    * from an older server */
@@ -120,10 +122,11 @@ export type TeamLinkInfo = z.infer<typeof TeamLinkInfo>
 
 export const JoinTeamLinkBody = AcceptInviteBody.extend({ token: TeamLinkToken })
 export const JoinTeamLinkResponse = LoginResponse.extend({
-  /** where the new member goes first: `/skills?run=<path>` when the link names a skill they can read, else null (Home) */
+  /** where the new member goes first: always null now (Home, docs/DECISIONS.md "A new member lands on Home"). Kept, and
+   * still sent, because an older app requires it; earlier servers sent `/skills?run=<path>` for the link's skill */
   next: z.string().nullable(),
-  /** who made the link's skill (the name of the person whose save made its file's first version), for the line above
-   * its form: "{by}님이 만든 팀 스킬이에요". null or absent: not known, a starter pack skill, or no skill */
+  /** no longer sent (an earlier server named who made the link's skill, for the line above its form); kept optional so
+   * an answer from an older server still reads */
   skillBy: z.string().nullable().optional(),
 })
 export type JoinTeamLinkResponse = z.infer<typeof JoinTeamLinkResponse>

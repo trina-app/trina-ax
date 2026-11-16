@@ -27,7 +27,7 @@ const status = (id: string) => (h.ctx.db.query('SELECT status FROM users WHERE i
 const tokenOf = (inv: { url: string }) => inv.url.split('/invite/')[1]!
 const info = (token: string) => h.client().call('GET', `/api/invites/${token}`)
 const accept = (token: string, username: string) => h.client().try('POST', `/api/invites/${token}/accept`, { username, name: username, password: 'guest river lamp 77' })
-const guestRow = async (owner: Client, id: string) => ((await owner.call('GET', '/api/admin/users')).items as { id: string; status: string; guest?: { placeOut?: string; teamAiGone?: boolean; ai: { mode: string } } }[]).find((u) => u.id === id)!
+const guestRow = async (owner: Client, id: string) => ((await owner.call('GET', '/api/admin/users')).items as { id: string; status: string; guest?: { placeOut?: string; leftThemselves?: boolean; teamAiGone?: boolean; ai: { mode: string } } }[]).find((u) => u.id === id)!
 
 async function setup(name: string) {
   h = await harness(name)
@@ -44,7 +44,7 @@ async function setup(name: string) {
 test('convert: the guest AI and its monthly limit go with the guest; a removed guest comes back as a member', async () => {
   const { owner, mia, room, t } = await setup('a-guests-states-convert')
   const team = addCred(t.cc, 'anthropic-api-key', key('guestteam'), { label: 'Main Claude' })
-  const g = await addGuest(h, owner, { username: 'tia', place: { kind: 'room', id: room }, ai: { mode: 'team', credentialId: team, limitUsd: 15 } })
+  const g = await addGuest(h, owner, { username: 'tia', place: { kind: 'room', id: room }, ai: { mode: 'team', credentialId: team, limitTokens: 15000 } })
   expect((h.ctx.db.query("SELECT COUNT(*) AS n FROM budgets WHERE subject_type = 'user' AND subject_id = ?").get(g.id) as { n: number }).n).toBe(1)
   const u = await owner.call('POST', `/api/admin/users/${g.id}/convert-guest`)
   expect(u.role).toBe('member')
@@ -103,13 +103,13 @@ test('a dead invite link says its true reason: expired, used, revoked, the invit
   const t = testCredCtx(h.ctx.db, path.join(h.ctx.config.dataDir, 'test-secrets-2'))
   const team = addCred(t.cc, 'anthropic-api-key', key('reasonteam'), { label: 'team' })
   const p = await ada.client.call('POST', '/api/projects', { name: 'Launch', scope: 'team' })
-  const teamLink = await ada.client.call('POST', '/api/guest-invites', { place: { kind: 'project', id: p.id }, ai: { mode: 'team', credentialId: team, limitUsd: 5 } })
+  const teamLink = await ada.client.call('POST', '/api/guest-invites', { place: { kind: 'project', id: p.id }, ai: { mode: 'team', credentialId: team, limitTokens: 5000 } })
   await owner.call('PATCH', `/api/admin/users/${ada.id}`, { role: 'member' })
   expect((await info(tokenOf(teamLink))).reason).toBe('inviter_gone')
   // a Team AI link whose team AI account was deleted: turned off, not "the inviter is gone"
   const t2 = testCredCtx(h.ctx.db, path.join(h.ctx.config.dataDir, 'test-secrets-3'))
   const team2 = addCred(t2.cc, 'anthropic-api-key', key('deletedteam'), { label: 'team 2' })
-  const goneAi = await owner.call('POST', '/api/guest-invites', { place: { kind: 'project', id: p.id }, ai: { mode: 'team', credentialId: team2, limitUsd: 5 } })
+  const goneAi = await owner.call('POST', '/api/guest-invites', { place: { kind: 'project', id: p.id }, ai: { mode: 'team', credentialId: team2, limitTokens: 5000 } })
   await owner.call('DELETE', `/api/admin/credentials/${team2}`)
   expect((await info(tokenOf(goneAi))).reason).toBe('revoked')
   // the place gone (TC-2297): the project in the trash
@@ -180,9 +180,40 @@ test('a removed guest: switched on while their place is there; said plainly why 
   expect((await guestRow(owner, g2.id)).guest?.placeOut).toBe('gone')
   const r2 = await owner.try('PATCH', `/api/admin/users/${g2.id}`, { status: 'active' })
   expect(r2.body.error.params).toMatchObject({ reason: 'guest_no_place', placeOut: 'gone' })
-  expect(AUTH_MESSAGES.guestNoPlaceGone.en).toBe("Their room or project is gone, so there's nothing to bring them back to. Invite them again or make them a team member.")
+  expect(AUTH_MESSAGES.guestNoPlaceGone.en).toBe("Their group chat or project is gone, so there's nothing to bring them back to. Invite them again or make them a team member.")
   // the way out it offers works: made a team member (a member needs no place), on again
   expect(await owner.call('POST', `/api/admin/users/${g2.id}/convert-guest`)).toMatchObject({ role: 'member', status: 'active' })
+})
+
+test('Admin tells a guest who left on their own from one who was taken out (leftThemselves; walkthrough S3)', async () => {
+  const { owner, mia, room } = await setup('a-guests-states-left-themselves')
+  // left on their own: off, out of the room, and the row says they left it themselves
+  const g = await addGuest(h, mia.client, { username: 'gus', place: { kind: 'room', id: room } })
+  await g.client.call('POST', `/api/rooms/${room}/leave`)
+  expect(status(g.id)).toBe('disabled')
+  const left = (await guestRow(owner, g.id)).guest
+  expect(left?.placeOut).toBe('left')
+  expect(left?.leftThemselves).toBe(true)
+  // kept on the guest, not read from the activity log (which is purged after its retention)
+  h.ctx.db.query("DELETE FROM audit_log WHERE target = ?").run(g.id)
+  expect((await guestRow(owner, g.id)).guest?.leftThemselves).toBe(true)
+  // taken out by someone else: off and out the same way, but not "left themselves"
+  const g2 = await addGuest(h, mia.client, { username: 'gia', place: { kind: 'room', id: room } })
+  await owner.call('DELETE', `/api/rooms/${room}/members/${g2.id}`)
+  const out = (await guestRow(owner, g2.id)).guest
+  expect(out?.placeOut).toBe('left')
+  expect(out?.leftThemselves).toBeUndefined()
+  // removed by an admin while still in the room: no placeOut, and nothing says they left
+  const g3 = await addGuest(h, mia.client, { username: 'gwen', place: { kind: 'room', id: room } })
+  await owner.call('PATCH', `/api/admin/users/${g3.id}`, { status: 'disabled' })
+  expect((await guestRow(owner, g3.id)).guest?.leftThemselves).toBeUndefined()
+  // switched on and off by hand afterwards: an admin decided, so no longer "left on their own"
+  h.ctx.db.query("UPDATE guests SET left_at = '2026-11-15T00:00:00Z' WHERE user_id = ?").run(g3.id)
+  await owner.call('PATCH', `/api/admin/users/${g3.id}`, { status: 'disabled' })
+  expect((h.ctx.db.query('SELECT left_at FROM guests WHERE user_id = ?').get(g3.id) as { left_at: string | null }).left_at).toBeNull()
+  // an active guest never carries it
+  const g4 = await addGuest(h, mia.client, { username: 'gail', place: { kind: 'room', id: room } })
+  expect((await guestRow(owner, g4.id)).guest?.leftThemselves).toBeUndefined()
 })
 
 test('a project back from the trash brings its guests back; not one an admin switched by hand; rename keeps them; deleted for good keeps them off', async () => {
@@ -193,7 +224,7 @@ test('a project back from the trash brings its guests back; not one an admin swi
   // rename (TC-2296): the guest stays, and every place that names it reads the new name
   await owner.call('PATCH', `/api/projects/${p.id}`, { name: 'Quote 2026' })
   expect(status(g.id)).toBe('active')
-  expect((await g.client.call('GET', '/api/me')).guest.place.name).toBe('Quote 2026')
+  expect((await g.client.call('GET', '/api/me')).guest.places[0].name).toBe('Quote 2026')
   // to the trash: both off, the row says trashed
   await owner.call('DELETE', `/api/projects/${p.id}`)
   expect([status(g.id), status(g2.id)]).toEqual(['disabled', 'disabled'])
@@ -234,8 +265,8 @@ test('a project back from the trash brings its guests back; not one an admin swi
 test('a refused send at the limit says when it resets: the same date as the budget', async () => {
   const { owner, room, t } = await setup('a-guests-states-limit')
   const team = addCred(t.cc, 'anthropic-api-key', key('limitteam'), { label: 'team' })
-  const g = await addGuest(h, owner, { username: 'tia', place: { kind: 'room', id: room }, ai: { mode: 'team', credentialId: team, limitUsd: 1 } })
-  h.ctx.db.query("INSERT INTO turns (id, chat_id, user_id, engine, status, started_at, cost_usd) VALUES ('g-use', 'c', ?, 'claude-code', 'done', ?, 2)").run(g.id, new Date().toISOString())
+  const g = await addGuest(h, owner, { username: 'tia', place: { kind: 'room', id: room }, ai: { mode: 'team', credentialId: team, limitTokens: 1000 } })
+  h.ctx.db.query("INSERT INTO turns (id, chat_id, user_id, engine, status, started_at, input_tokens, output_tokens, cost_usd) VALUES ('g-use', 'c', ?, 'claude-code', 'done', ?, 900, 200, 0)").run(g.id, new Date().toISOString())
   const b = budgetBlock(h.ctx.db, g.id, 'en')!
   expect(b.resetsAt).toBe(periodEnd('month', new Date(), teamTimeZone(h.ctx.db)).toISOString())
   const r = await g.client.try('POST', '/api/chats', { message: 'hello' })
@@ -246,11 +277,11 @@ test('a refused send at the limit says when it resets: the same date as the budg
 test("Admin's row says a Team AI guest's monthly limit is used up (QA TC-2206)", async () => {
   const { owner, room, t } = await setup('a-guests-states-used-up')
   const team = addCred(t.cc, 'anthropic-api-key', key('usedupteam'), { label: 'team' })
-  const g = await addGuest(h, owner, { username: 'tia', place: { kind: 'room', id: room }, ai: { mode: 'team', credentialId: team, limitUsd: 1 } })
+  const g = await addGuest(h, owner, { username: 'tia', place: { kind: 'room', id: room }, ai: { mode: 'team', credentialId: team, limitTokens: 1000 } })
   const none = await addGuest(h, owner, { username: 'nia', place: { kind: 'room', id: room } })
   const row = async (id: string) => ((await owner.call('GET', '/api/admin/users')).items as { id: string; guest?: { aiUsedUp?: true } }[]).find((u) => u.id === id)!.guest
   expect((await row(g.id))?.aiUsedUp).toBeUndefined()
-  h.ctx.db.query("INSERT INTO turns (id, chat_id, user_id, engine, status, started_at, cost_usd) VALUES ('g-use-up', 'c', ?, 'claude-code', 'done', ?, 1)").run(g.id, new Date().toISOString())
+  h.ctx.db.query("INSERT INTO turns (id, chat_id, user_id, engine, status, started_at, input_tokens, output_tokens, cost_usd) VALUES ('g-use-up', 'c', ?, 'claude-code', 'done', ?, 700, 300, 0)").run(g.id, new Date().toISOString())
   expect((await row(g.id))?.aiUsedUp).toBe(true)
   // a guest with no Team AI is never "used up"
   expect((await row(none.id))?.aiUsedUp).toBeUndefined()
@@ -259,7 +290,7 @@ test("Admin's row says a Team AI guest's monthly limit is used up (QA TC-2206)",
 test('the team AI account a Team AI guest uses is deleted: a plain state for the guest and Admin, nothing breaks', async () => {
   const { owner, room, t } = await setup('a-guests-states-ai-gone')
   const team = addCred(t.cc, 'anthropic-api-key', key('goneteam'), { label: 'team' })
-  const g = await addGuest(h, owner, { username: 'tia', place: { kind: 'room', id: room }, ai: { mode: 'team', credentialId: team, limitUsd: 5 } })
+  const g = await addGuest(h, owner, { username: 'tia', place: { kind: 'room', id: room }, ai: { mode: 'team', credentialId: team, limitTokens: 5000 } })
   expect((await g.client.call('GET', '/api/me')).guest.teamAiGone).toBeUndefined()
   await owner.call('DELETE', `/api/admin/credentials/${team}`)
   const me = await g.client.call('GET', '/api/me')
@@ -273,6 +304,6 @@ test('the team AI account a Team AI guest uses is deleted: a plain state for the
   expect(row.status).toBe('active')
   // Change AI puts it right, and the mark goes
   const team2 = addCred(t.cc, 'anthropic-api-key', key('newteam'), { label: 'team 2' })
-  await owner.call('PATCH', `/api/admin/users/${g.id}/guest-ai`, { mode: 'team', credentialId: team2, limitUsd: 5 })
+  await owner.call('PATCH', `/api/admin/users/${g.id}/guest-ai`, { mode: 'team', credentialId: team2, limitTokens: 5000 })
   expect((await guestRow(owner, g.id)).guest?.teamAiGone).toBeUndefined()
 })

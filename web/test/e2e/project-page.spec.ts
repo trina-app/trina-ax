@@ -194,7 +194,8 @@ for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: 
     const block = page.getByTestId('project-members-only')
     await expect(block).toContainText('멤버만 이 프로젝트를 열 수 있어요. 나를 멤버로 추가하면 파일을 볼 수 있어요.')
     for (const testId of ['composer-input', 'project-instructions', 'project-files', 'project-summary']) await expect(page.getByTestId(testId)).toHaveCount(0)
-    await expect(page.getByTestId('project-members')).toContainText('1명')
+    await expect(page.getByTestId('project-who-sees')).toContainText('1명')
+    await expect(page.getByTestId('project-share')).toBeVisible()
     // nobody can ask here: no Trina history with "Ask here" (QA TC-1066); her own chats stay in her lists
     await expect(page.getByTestId('project-chats')).toHaveCount(0)
     await expect(page.getByText('plan.md')).toHaveCount(0)
@@ -225,12 +226,12 @@ for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: 
       await page.getByTestId('project-files-toggle').click()
       await expect(page.getByTestId('project-files').getByRole('button', { name: 'plan.md' })).toBeVisible()
     }
-    await expect(page.getByTestId('project-members')).toContainText('2명')
+    await expect(page.getByTestId('project-people-header').getByTestId('project-header-face')).toHaveCount(2)
     // in its members now, as anyone added is
     const bob = await page.request.get(`/api/projects/${id}/access`)
     expect(((await bob.json()) as { participants: { subjectId: string }[] }).participants.map((x) => x.subjectId)).toEqual(['bob', 'olga'])
     // taking herself out in the members dialog: the page closes again
-    await page.getByTestId('project-members-manage').click()
+    await page.getByTestId('project-share').click()
     await page.getByTestId('participant-remove-user-olga').click()
     await page.getByTestId('project-members-save').click()
     await page.getByTestId('dialog-confirm').click()
@@ -251,7 +252,7 @@ test('a project in the trash: its note with Restore and Delete for good, no name
   // the item says what it does, as its confirm asks (QA TC-1064)
   await expect(page.getByRole('menuitem')).toHaveText(['이름 바꾸기', '휴지통으로 옮기기'])
   await page.getByTestId('project-delete').click()
-  await expect(page.getByRole('dialog').getByRole('heading')).toHaveText("'Falcon'을(를) 휴지통으로 옮길까요?")
+  await expect(page.getByRole('dialog').getByRole('heading')).toHaveText("'Falcon' 프로젝트를 휴지통으로 옮길까요?")
   // only what happens: no "its files and chats go with it" (her own chats there stay hers)
   await expect(page.getByRole('dialog')).toContainText('관리자나 만든 사람이 되돌릴 때까지 멤버도 파일과 공유 채팅을 열 수 없어요.')
   await page.getByTestId('dialog-confirm').click()
@@ -274,7 +275,7 @@ test('a project in the trash: its note with Restore and Delete for good, no name
   // Restore goes (it would only say the same again); Delete for good stays
   await expect(page.getByTestId('project-restore')).toHaveCount(0)
   await page.getByTestId('project-delete-for-good').click()
-  await expect(page.getByRole('dialog').getByRole('heading')).toHaveText("'Falcon'을(를) 완전히 삭제할까요?")
+  await expect(page.getByRole('dialog').getByRole('heading')).toHaveText("'Falcon' 프로젝트를 완전히 삭제할까요?")
   await expect(page.getByRole('dialog')).toContainText('파일도 함께 지워지고 되돌릴 수 없어요.')
   await page.getByTestId('dialog-confirm').click()
   await expect(page).toHaveURL(/\/projects$/)

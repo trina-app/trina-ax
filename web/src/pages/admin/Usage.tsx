@@ -15,7 +15,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import type { z } from 'zod'
 import { type UsageQuery, type UsageResponse } from '@mycel/shared/api'
 import { api, API, errorText, saveBlob } from '../../lib/api'
-import { formatDateTime, formatNumber, formatUsd, localDay, localDayRange } from '../../lib/format'
+import { formatDateTime, formatNumber, localDay, localDayRange } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { useMeStrict } from '../../store/session'
 import { IconButton, useMediaQuery } from '../../components/ui'
@@ -28,6 +28,7 @@ import { ENGINE_LABEL } from '../../components/chat/EngineMenu'
 import { AdminPageHeader, Loadable, OneLine, USAGE_LIMITS_LINK } from './common'
 import { usageCsv } from '../../lib/usage-csv'
 import { usageShares } from '../../lib/usage-share'
+import { costParts, costText } from '../../lib/usage-cost'
 import { Tooltip } from '../../components/Tooltip'
 import { AdminBarActions, BarAdd, BarMore } from './barActions'
 
@@ -54,6 +55,19 @@ function daysBetween(from: string, to: string): string[] {
   const end = new Date(`${to}T00:00:00Z`)
   for (let i = 0; d <= end && i < 400; i++, d.setUTCDate(d.getUTCDate() + 1)) out.push(d.toISOString().slice(0, 10))
   return out
+}
+
+// The cost of one breakdown row or the total row: the tile's rule (costParts), so a person whose answers are all unpriced
+// reads "No price", not "$0.00 +?" (QA TC-3467). `tip` adds the hover note to "+?" on the wide table; `row` marks a row's
+// cell for tests.
+function CostCell({ amount, row = false, tip = false }: { amount: { costUsd: number; turns: number; unpricedTurns?: number }; row?: boolean; tip?: boolean }) {
+  const t = useT()
+  const locale = useLocale()
+  const p = costParts(amount, locale)
+  if (p.noPrice) return <span data-testid={row ? 'usage-no-price' : undefined}>{t('usage.noPrice')}</span>
+  if (!p.partial) return <>{p.usd}</>
+  const mark = <span className="ml-1 text-warn" aria-label={t('usage.unpricedMark')} data-testid={row ? 'usage-unpriced' : undefined}>+?</span>
+  return <>{p.usd}{tip ? <Tooltip label={t('usage.unpricedMark')}>{mark}</Tooltip> : mark}</>
 }
 
 export default function Usage() {
@@ -235,7 +249,7 @@ export default function Usage() {
                   { label: t('usage.stat.in'), value: formatNumber(d.totals.inputTokens, locale), testId: 'usage-stat-in' },
                   { label: t('usage.stat.out'), value: formatNumber(d.totals.outputTokens, locale), testId: 'usage-stat-out' },
                   { label: t('usage.turns'), value: formatNumber(d.totals.turns, locale), testId: 'usage-stat-turns' },
-                  { label: t('usage.cost'), value: `${formatUsd(d.totals.costUsd, locale)}${d.totals.unpricedTurns ? ' +?' : ''}`, testId: 'usage-stat-cost' },
+                  { label: t('usage.cost'), value: costText(d.totals, locale, t('usage.noPrice')), testId: 'usage-stat-cost' },
                 ]}
               />
               <UsageChart
@@ -266,8 +280,7 @@ export default function Usage() {
                           <div className="flex items-baseline gap-3">
                             <span className={clsx('min-w-0 flex-1 truncate font-medium', groupBy === 'credential' && !r.label ? 'text-faint' : 'text-ink')}>{name}</span>
                             <span className="shrink-0 text-ink tabular-nums">
-                              {formatUsd(r.costUsd, locale)}
-                              {!!r.unpricedTurns && <span className="ml-1 text-warn" aria-label={t('usage.unpricedMark')} data-testid="usage-unpriced">+?</span>}
+                              <CostCell amount={r} row />
                             </span>
                           </div>
                           <div className="mt-1 flex items-center gap-3 text-xs text-muted">
@@ -280,7 +293,7 @@ export default function Usage() {
                     })}
                     <li className="flex items-baseline gap-3 py-2.5 text-sm font-medium" data-testid="usage-total">
                       <span className="min-w-0 flex-1">{t('usage.total')} <span className="text-xs font-normal text-muted tabular-nums">· {t('usage.turns')} {formatNumber(d.totals.turns, locale)}</span></span>
-                      <span className="shrink-0 tabular-nums">{formatUsd(d.totals.costUsd, locale)}{!!d.totals.unpricedTurns && <span className="ml-1 text-warn" aria-label={t('usage.unpricedMark')}>+?</span>}</span>
+                      <span className="shrink-0 tabular-nums"><CostCell amount={d.totals} /></span>
                     </li>
                   </ul>
                 ) : (
@@ -314,8 +327,7 @@ export default function Usage() {
                                 </div>
                               </td>
                               <td className="py-3 text-right text-muted tabular-nums">
-                                {formatUsd(r.costUsd, locale)}
-                                {!!r.unpricedTurns && <Tooltip label={t('usage.unpricedMark')}><span className="ml-1 text-warn" aria-label={t('usage.unpricedMark')} data-testid="usage-unpriced">+?</span></Tooltip>}
+                                <CostCell amount={r} row tip />
                               </td>
                             </tr>
                           )
@@ -328,8 +340,7 @@ export default function Usage() {
                           <td className="hidden py-3 pr-3 text-right tabular-nums md:table-cell">{formatNumber(d.totals.inputTokens + d.totals.outputTokens, locale)}</td>
                           <td className="hidden md:table-cell" />
                           <td className="py-3 text-right tabular-nums">
-                            {formatUsd(d.totals.costUsd, locale)}
-                            {!!d.totals.unpricedTurns && <Tooltip label={t('usage.unpricedMark')}><span className="ml-1 text-warn" aria-label={t('usage.unpricedMark')}>+?</span></Tooltip>}
+                            <CostCell amount={d.totals} tip />
                           </td>
                         </tr>
                       </tfoot>
@@ -342,6 +353,7 @@ export default function Usage() {
                 <OneLine className="text-xs text-faint" testId="usage-cost-note">
                   {t('usage.costNote')}
                 </OneLine>
+                {!!d.totals.estimatedTurns && <p className="mt-1 text-xs text-faint" data-testid="usage-estimated-note">{t('usage.estimated', { n: d.totals.estimatedTurns })}</p>}
                 {!!d.totals.unpricedTurns && <p className="mt-1 text-xs text-warn" data-testid="usage-unpriced-note">{t('usage.unpriced', { n: d.totals.unpricedTurns })}</p>}
                 {groupBy === 'credential' && <p className="mt-1 text-xs text-faint">{t('usage.credentialNote')}</p>}
               </div>

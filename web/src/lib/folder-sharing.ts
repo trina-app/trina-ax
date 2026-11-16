@@ -191,6 +191,7 @@ export function sameOutcome(a: FolderEditPreview, b: FolderEditPreview): boolean
     p.below.map((x) => [x.path, x.less, x.more]),
     p.warnings.map((w) => [w.kind, w.count]),
     p.everyoneAbove ?? null,
+    p.linkPeople ?? null,
     p.next.map((w) => [w.reason, w.folder, w.subject?.type ?? null, w.subject?.id ?? null, w.access, w.count]),
   ])
   return sig(a) === sig(b)

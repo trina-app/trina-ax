@@ -39,11 +39,11 @@
 // /projects/:id/files, with no folder path line), so Back returns to the project.
 import { ArchiveRestore, ChevronLeft, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Import, Link2, Lock, Pencil, Pin, Plus, ScrollText, Trash2, UserPlus, Users, X } from 'lucide-react'
 import { foldRuns, runsUnread, TaskRunsIcon, TaskRunsMark, taskRunsAttrs, taskRunsPath, type Run } from '../components/nav/TaskRunsRow'
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { scheduleName } from '../lib/scheduleText'
 import { useSessionMarkers } from '../store/sessionMarkers'
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import type { Chat, FileEntry, Project, ProjectParticipant, TreeResponse } from '@mycel/shared/api'
+import type { Chat, FileEntry, Project, ProjectParticipant, ProjectPeople as ProjectPeopleList, TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatRelative } from '../lib/format'
 import { RAIL_STATE_KEY } from '../lib/rail'
@@ -79,20 +79,22 @@ import { NewProjectDialog } from '../components/NewProjectDialog'
 import { onlyMine } from '../components/panels/ProjectsPanel'
 import { NewProjectRow, ProjectsList } from '../components/panels/ProjectsPanel'
 import { ProjectMembersDialog, chosenOf, confirmAddMe, projectNow } from '../components/ProjectMembersDialog'
-import { PeopleStack, useProjectPeople } from '../components/ProjectPeople'
+import { hasPeopleList, PeopleStack, useProjectPeople } from '../components/ProjectPeople'
 import { IncludesGuests } from '../components/GuestTag'
 import { usePeopleList } from '../store/people'
 import { guestProject, isGuestMe } from '../lib/guests'
 import { GuestProjectNote, useGuestAiOff } from '../components/GuestView'
 import { isProjectsFolder } from '../lib/projectFolders'
 import { isTeamProject, noLongerMemberOf, privateInTeamProject, refusalKey } from '../lib/sharedChat'
-import { AccessSummary, MembersField, ParticipantPicker, participantKey, useAccessCount, useParticipantOptions } from '../components/ProjectParticipants'
+import { ProjectPeopleField } from '../components/ProjectPeopleField'
+import { HeaderShare, WhoSeesWords } from '../components/HeaderShare'
 import { ProjectTrashNote } from '../components/ProjectTrashNote'
 import { leaveItems, useLeaveProject } from '../components/LeaveProject'
 import { Button, EmptyState, ErrorNote, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, menuOpener, pageColumn, promptDialog, useCopy, useMediaQuery } from '../components/ui'
 import { PhoneBarAction, PhoneBarTitle } from '../components/phone/PhoneBarAction'
 import { Tooltip } from '../components/Tooltip'
 import { FileDropZone } from '../components/FileDropZone'
+import { SetupReturn } from '../components/onboarding/SetupReturn'
 import { useFocusAfterRemove } from './admin/common'
 
 const PHONE = '(max-width: 767.98px)'
@@ -474,7 +476,7 @@ export function ProjectList() {
             <ProjectsList phone />
           </div>
         </nav>
-        {creating && <NewProjectDialog onClose={() => setCreating(false)} onMade={(p) => navigate(`/projects/${p.id}`)} />}
+        {creating && <NewProjectDialog people onClose={() => setCreating(false)} onMade={(p) => navigate(`/projects/${p.id}`)} />}
       </div>
     )
   return (
@@ -530,7 +532,7 @@ export function ProjectList() {
         })()}
       </div>
       {/* made here: on the list at once when the person comes back (the read behind it puts it in the server's place) */}
-      {creating && <NewProjectDialog onClose={() => setCreating(false)} onMade={(p) => { setItems((xs) => (xs.some((x) => x.id === p.id) ? xs : [...xs, p])); navigate(`/projects/${p.id}`) }} />}
+      {creating && <NewProjectDialog people onClose={() => setCreating(false)} onMade={(p) => { setItems((xs) => (xs.some((x) => x.id === p.id) ? xs : [...xs, p])); navigate(`/projects/${p.id}`) }} />}
       {/* the card as the server sees it now (an owner or admin who added or took out themselves: its instructions come or go) */}
       {members && <ProjectMembersDialog project={members} onClose={() => setMembers(null)} onSaved={(r) => setItems((xs) => xs.map((x) => (x.id === r.id ? r : x)))} />}
     </div>
@@ -947,6 +949,8 @@ function ProjectPage() {
       const a = await api.call(API.getProjectAccess, { params: { id: p.id } })
       const participants = [...chosenOf(a).filter((x) => !(x.subjectType === 'user' && x.subjectId === me.user.id)), { subjectType: 'user' as const, subjectId: me.user.id }]
       await api.call(API.putProjectParticipants, { params: { id: p.id }, body: { participants, expectedHash: a.rulesHash } })
+      // its faces in the title row again, me among them
+      setPeopleVersion((v) => v + 1)
       load({ manage: false, fresh: true })
     } catch (e) {
       if (isApiError(e, 'conflict') && e.body.params?.reason === 'rules_changed') load({ fresh: true })
@@ -1001,6 +1005,10 @@ function ProjectPage() {
   const filesBox = !phone && (filesEmpty || (!files && p.canEdit))
   // a team project in place has members (a personal one is mine alone; one in the trash is nobody's until restored)
   const hasMembers = !p.folderPath.startsWith('users/') && !p.inTrash
+  // Share in the title row: a personal project for its creator who may share projects (the team lets members, or an
+  // admin), a team project for whoever may change its members (Project.membersEditable); hidden for anyone else, since
+  // a Share that cannot share is a dead end (the faces beside it open the read-only list and say who changes them)
+  const canShare = !p.inTrash && (mine ? personal : hasMembers && !!p.membersEditable)
   // in the trash: may bring it back (its folder not deleted for good meanwhile)
   const restorable = !purged && (p.canRestore ?? (p.trashed === undefined && isAdmin(me)))
   // where nobody can ask here (the owner or an admin who is not a member, a project in the trash) there is no Trina
@@ -1058,17 +1066,22 @@ function ProjectPage() {
       </StickyHeader>
       )}
       <div className="mx-auto w-full max-w-[1080px] px-4 pt-8 pb-12 max-md:pt-4 sm:px-6 sm:pt-10">
-        {/* phones: the name is the bar's; here for screen readers only */}
-        <h1 className="text-display font-semibold tracking-tight break-words max-md:sr-only">{p.name}</h1>
-        {/* who is in it, by face (a shared project only): clicking them opens the members dialog; a phone shows them
-            here too, under the bar's name */}
-        {hasMembers && people && people.people.length > 0 && (
-          <div className="mt-2 flex max-md:mt-0" data-testid="project-people-header">
-            <PeopleStack people={people.people} onOpen={() => setMembers(true)} testId="project-header" />
-            {/* "Includes 1 guest" (components/GuestTag.tsx): people from outside the team are in it */}
-            <IncludesGuests ids={people.people.map((x) => x.id)} className="ml-2 self-center text-xs text-faint" />
-          </div>
-        )}
+        {/* opened from the welcome steps (the team files step's "Open"): the way back to them (components/onboarding/SetupReturn.tsx) */}
+        <SetupReturn className="mb-3" />
+        {/* the title row (docs/DECISIONS.md "Share in the project's title row"): the name, and on its right who sees it
+            ("Only me", or the faces of who is in it) and Share, as in Drive or Notion. Phones: the name is the bar's (here
+            for screen readers only), so the row under the bar is who sees it and Share */}
+        <div className="flex items-start gap-4" data-testid="project-title-row">
+          <h1 className="min-w-0 flex-1 text-display font-semibold tracking-tight break-words max-md:sr-only">{p.name}</h1>
+          <ProjectShareRow
+            project={p}
+            people={people}
+            canShare={canShare}
+            adminsOnly={mine && !personal && !p.inTrash}
+            onShare={() => (mine ? setSharing(true) : setMembers(true))}
+            onOpen={() => setMembers(true)}
+          />
+        </div>
         {/* no copy of the instructions here: they show once, in 지침 beside the box (QA TC-980) */}
         {/* phone: the box, then the chats right under it, then the side lines (QA TC-1072); wide: the chats under the
             box, the lines beside them */}
@@ -1124,7 +1137,7 @@ function ProjectPage() {
               )
             )}
           </div>
-          {(!outside || hasMembers) && (
+          {!outside && (
             <aside aria-label={t('projects.about')} className={aiOff ? 'min-w-0' : 'min-w-0 max-md:order-last lg:col-start-2 lg:row-span-2 lg:row-start-1'}>
               <div className="divide-y divide-line">
                 {!outside && !p.instructions?.trim() && p.canEdit && phone ? (
@@ -1237,19 +1250,6 @@ function ProjectPage() {
                         )}
                       </>
                     )}
-                  </DisclosureRow>
-                )}
-                {hasMembers && <MembersRow project={p} sideAction={sideAction} onManage={() => setMembers(true)} />}
-                {/* a personal project: "나만 봐요 · 멤버 추가" (sharing makes it a team project, its files move along) */}
-                {mine && !p.inTrash && (
-                  <DisclosureRow
-                    testId="project-members"
-                    icon={<Users size={16} />}
-                    label={t('projects.participants')}
-                    meta={t('projects.members.onlyMe')}
-                    action={personal ? <button type="button" className={sideAction} onClick={() => setSharing(true)} data-testid="project-share">{t('projects.members.add')}</button> : undefined}
-                  >
-                    {!personal && <p className="text-sm leading-6 break-keep text-muted" data-testid="project-share-admins-only">{t('projects.shareAdminsOnly')}</p>}
                   </DisclosureRow>
                 )}
               </div>
@@ -1428,6 +1428,9 @@ export function ProjectFiles() {
   const { projectId } = useParams()
   const [params] = useSearchParams()
   const dir = projectDir(params.get('dir'))
+  // ?select=<full path>: the file a link picked ("Open in Files", Search), shown picked and scrolled to once
+  const selected = params.get('select')
+  const showPicked = useCallback((el: HTMLElement | null) => { el?.scrollIntoView({ block: 'nearest' }) }, [])
   const navigate = useNavigate()
   const phone = useMediaQuery(PHONE)
   // a guest has no 파일 screen: this screen lists their project's folders on a computer too (a computer otherwise goes on
@@ -1512,7 +1515,7 @@ export function ProjectFiles() {
             f.type === 'folder' ? (
               <ListRow key={f.path} to={down(f)} icon={<Folder className="text-accent-text" />} name={f.name} nameTitle={f.name} end={<ChevronRight size={16} className="shrink-0 self-center text-faint" aria-hidden />} testId="project-file" link={{ 'data-type': 'folder' }} />
             ) : (
-              <ListRow key={f.path} onClick={() => openTeamFile(f.path)} icon={<FileText />} name={f.name} nameTitle={f.name} end={<span className="shrink-0 self-center text-meta text-faint tabular-nums">{formatRelative(f.mtime, locale)}</span>} testId="project-file" link={{ 'data-type': 'file' }} />
+              <ListRow key={f.path} onClick={() => openTeamFile(f.path)} selected={f.path === selected} rowRef={f.path === selected ? showPicked : undefined} icon={<FileText />} name={f.name} nameTitle={f.name} end={<span className="shrink-0 self-center text-meta text-faint tabular-nums">{formatRelative(f.mtime, locale)}</span>} testId="project-file" link={{ 'data-type': 'file' }} />
             ),
           )}
         </ul>
@@ -1527,51 +1530,48 @@ export function ProjectFiles() {
 }
 
 
-/** The 멤버 line of a team project's page: who sees it (whoSeesProject). A team project in projects/ is its members'
- * (docs/DECISIONS.md "Project contents only for members"): "나만 봐요" when I am its only member, else how many ("3명";
- * "남은 멤버 없음" when nobody active is one), also for the owner or an admin who is not a member. A project made before
- * outside projects/ says it in the words and by the rule of the line under the box (components/chat/WhoSees.tsx
- * whoSeesText, docs/DECISIONS.md "Who sees it, always"): "나만 봐요", "나와 관리자만 봐요" (Project.alone), else its people
- * by its rules for the owner and admins ("3명", Project.audienceSplit) or the total. Whoever may change its members gets
- * 관리 (the members dialog) and nothing to open; anyone else opens the line to read who changes them: the creator by
- * name only while they can (Project.creatorChangesMembers: their account active, the folder theirs), else 관리자 (never
- * an admin's name). An admin on a project made before on another folder reads where to change it instead. The faces
- * of who is in it are under the page's name only (ProjectPeople.tsx), not here again. */
-export function MembersRow({ project: p, sideAction, onManage }: { project: Project; sideAction: string; onManage: () => void }) {
+/**
+ * The right of a project's title row (docs/DECISIONS.md "Share in the project's title row"; on a phone the row under the
+ * bar): who sees it and Share. Who sees it, by the rule of whoSeesProject: "Only me" on a personal project (plain words);
+ * on a team project in projects/ the faces of who is in it once two or more are (PeopleStack: 4 and "+N", "Includes 1
+ * guest"), else its words ("Only me", "No members left"); on one made before outside projects/ its words ("3 people",
+ * "Only me and admins"). A team project's faces or words are one button that opens the members dialog (read only for
+ * whoever cannot change them: the list and who changes them). Share (`canShare`) opens the share dialog of a personal
+ * project or the members dialog of a team project; hidden for anyone else. `adminsOnly`: my personal project in a team
+ * where only the owner and admins share: one faint line says so. Nothing for a project in the trash.
+ */
+export function ProjectShareRow({ project: p, people, canShare, adminsOnly, onShare, onOpen }: {
+  project: Project
+  people: ProjectPeopleList | null | false
+  canShare: boolean
+  adminsOnly: boolean
+  onShare: () => void
+  onOpen: () => void
+}) {
   const t = useT()
-  const me = useMe()
-  const inProjects = isProjectsFolder(p.folderPath)
-  const meta = whoSeesProject(t, p, 'projects.membersN')
-  if (p.membersEditable)
-    return (
-      <DisclosureRow
-        testId="project-members"
-        icon={<Users size={16} />}
-        label={t('projects.participants')}
-        meta={meta}
-        action={<button type="button" className={sideAction} onClick={onManage} data-testid="project-members-manage">{t('projects.manage')}</button>}
-      />
-    )
-  // an admin: where its members are changed instead (a project made before outside projects/, with the link; or one
-  // whose folder is not there)
-  const admin = isAdmin(me)
+  if (p.inTrash) return null
+  const personal = p.folderPath.startsWith('users/')
+  const words = personal ? t('projects.members.onlyMe') : whoSeesProject(t, p, 'projects.whoMembers')
+  const faces = !personal && people && people.people.length > 1 ? people.people : null
+  // the faces still coming for a project of more than one: their place, so the row does not jump
+  const waiting = !personal && !faces && people === null && hasPeopleList(p) && (p.audience ?? 0) > 1
+  const who = faces ? (
+    <div className="flex items-center" data-testid="project-people-header">
+      <PeopleStack people={faces} onOpen={onOpen} testId="project-header" />
+      {/* "Includes 1 guest" (components/GuestTag.tsx): people from outside the team are in it */}
+      <IncludesGuests ids={faces.map((x) => x.id)} className="ml-2 text-xs text-faint" />
+    </div>
+  ) : waiting ? (
+    <span className="h-6 w-16" aria-hidden />
+  ) : !words ? null : (
+    <WhoSeesWords words={words} onOpen={personal ? undefined : onOpen} testId="project-who-sees" />
+  )
+  if (!who && !canShare && !adminsOnly) return null
   return (
-    <DisclosureRow testId="project-members" icon={<Users size={16} />} label={t('projects.participants')} meta={meta}>
-      {admin ? (
-        <p className="text-sm leading-6 break-keep text-muted" data-testid="project-members-hint">
-          {inProjects ? t('projects.membersFolderMissing') : (
-            <>
-              {t('projects.legacyNote')}{' '}
-              <Link to={`/admin/folders?folder=${encodeURIComponent(p.folderPath)}`} className="text-accent-text underline">{t('projects.otherRulesLink')}</Link>
-            </>
-          )}
-        </p>
-      ) : (
-        <p className="text-sm leading-6 break-keep text-muted" data-testid="project-members-hint">
-          {p.creatorChangesMembers && p.createdBy ? t('projects.membersByCreator', { name: p.createdBy.name }) : t('projects.membersByAdmins')}
-        </p>
-      )}
-    </DisclosureRow>
+    <div className="flex shrink-0 flex-col items-end gap-1 max-md:flex-1 max-md:items-stretch md:pt-1" data-testid="project-share-row">
+      <HeaderShare who={who} onShare={canShare ? onShare : undefined} testId="project-share" />
+      {adminsOnly && <p className="text-xs leading-5 break-keep text-faint md:max-w-64 md:text-right" data-testid="project-share-admins-only">{t('projects.shareAdminsOnly')}</p>}
+    </div>
   )
 }
 
@@ -1583,11 +1583,7 @@ export function MembersRow({ project: p, sideAction, onManage }: { project: Proj
 function ShareProjectDialog({ project, chats, onClose, onShared }: { project: Project; chats: number; onClose: () => void; onShared: (p: Project) => void }) {
   const t = useT()
   const locale = useLocale()
-  const me = useMe()
   const [participants, setParticipants] = useState<ProjectParticipant[]>([])
-  const options = useParticipantOptions()
-  const fixed = useMemo(() => new Map(me ? [[participantKey({ subjectType: 'user', subjectId: me.user.id }), t('projects.youTag')]] : []), [me, t])
-  const count = useAccessCount(participants, { enabled: true })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const share = async (skillsOk = false) => {
@@ -1621,13 +1617,7 @@ function ShareProjectDialog({ project, chats, onClose, onShared }: { project: Pr
       }
     >
       <div className="space-y-3">
-        <MembersField label={t('projects.participants')}>
-          <div className="space-y-2">
-            <ParticipantPicker options={options} value={participants} onChange={setParticipants} fixed={fixed} />
-            <AccessSummary count={count} />
-          </div>
-        </MembersField>
-        <p className="text-sm leading-6 break-keep text-muted" data-testid="project-share-note">{note}</p>
+        <ProjectPeopleField label={t('projects.participants')} value={participants} onChange={setParticipants} note={note} countAlways anyGuestOut />
         {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       </div>
     </Modal>

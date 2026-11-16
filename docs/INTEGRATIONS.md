@@ -130,7 +130,11 @@ characters (and the note no hidden characters).
   `integration_template_offers` keeps a second notice from coming after the first is past its 30 days. When a new
   address, sign-in method or header drops a member's key, that member gets "Reconnect <name>"
   (`integration.template_reconnect`, one per change). Both open Settings › Connectors with the template's Connect
-  (`?template=<id>`); they carry its id and name only while it is still for that person, never an address or a key.
+  (`?template=<id>`) only while it is still for that person; they carry its id, name and `signIn` (a sign-in template:
+  "sign in again with your own account", else "enter your own key again") while it is there, never an address or a
+  key. A member whose connection went because the template is no longer for them (the admin narrowed who it is for,
+  alone or with a new address, or they left its group) gets one "You no longer have access to <name>" (the same table
+  and event type, source `<template>.left.<connection>`, `templateLeft`), with no link and no "connect it again".
 - In a chat, the AI is told which templates for this person are not connected yet (or whose key stopped working) and
   offers the connect card for them (`connect_service` with `template`, or found by the address the AI filled in). The
   card says "Connect your own key for <name>" and connects through the template's own path (`templates.ts connect`):
@@ -178,7 +182,9 @@ notes for an API). The member gets an inbox entry and a banner, and the admin ca
 (`/settings/integrations?request=<id>`; only that member, signed in, can open it). In Settings › External services the
 member connects it with their own key or signs in, which creates their personal connection through the same path as
 one they add themselves, or declines it. The admin sees the state (waiting, connected, declined, withdrawn, expired
-after 7 days) and can withdraw a waiting request; the admin never sees the key or the member's connection. Code:
+after 7 days) and can withdraw a waiting request; the admin never sees the key or the member's connection. A guest is
+never asked: the picker leaves guests out, the server refuses one (400 under the person), and a request sent to a guest
+before that ends as withdrawn once, when the server starts (QA TC-2948). Code:
 `server/src/integrations/connections/requests.ts`, migrations `220_b_integration_request_notices.sql` and
 `331_c_integration_requests.sql`. Decisions: [DECISIONS.md](DECISIONS.md) "Asking a member to connect a service as
 their own".
@@ -218,8 +224,9 @@ the page says "Request sent" (also when opened again while the request is open),
   own only; audited `service_request.withdraw`). It still counts toward the 10 a day.
 - **Admin › Connectors, "Asked by members":** one line per app or service with open requests (who asked), **Add** (a
   Google one: its page; a listed service: "Connect for the team") and **Dismiss** (`POST
-  /api/admin/service-requests/:service/dismiss`: closes them, nobody is told, they may ask again; audited
-  `service_request.dismiss`). `GET /api/admin/service-requests` lists them. A request taken back or dismissed is closed
+  /api/admin/service-requests/:service/dismiss`: closes them; each member who asked gets one quiet notice
+  (`service.closed`, never an admin's name) that it was closed and that they may ask again, as after the 30 days (QA
+  TC-2946, migration 353); audited `service_request.dismiss`). `GET /api/admin/service-requests` lists them. A request taken back or dismissed is closed
   with no reason (`closed_reason` NULL), so no migration. The notice of a listed service opens its page in Admin ›
   Connectors.
 - Nothing a member gets names an admin. Code: `server/src/integrations/service-requests.ts`,
@@ -405,8 +412,8 @@ Every request (checks, tool calls, OAuth discovery, registration, token, revocat
 - **Redirects are never followed**; they are reported (a check: "the service tried to send us to another address";
   `api_request`: the status and Location as external data).
 - Standard ports only (web_fetch's 80/443 rule; with https that is 443). 30 seconds per request, answers cut at 1 MiB while reading (also without
-  Content-Length), compressed answers decoded with the same limit. A check's `tools/list` is the one exception to the
-  30 s (below).
+  Content-Length), compressed answers decoded with the same limit. A check's `tools/list` and an MCP `tools/call` are
+  the exceptions to the 30 s (below).
 
 ## MCP servers
 
@@ -421,15 +428,25 @@ idle minutes; a 404 for it starts a new one.
   that. The list is read for as long as it keeps coming: a page fails only when no bytes arrive for 30 seconds, and the
   check when it is not done 90 seconds after it began ("did not send its whole tool list within 90 seconds"), not at
   the 30 s of other requests (Higgsfield sent its 1.07 MB at 17-38 KB/s, 30-65 s). The check ends at that deadline:
-  its requests end by it, it stops waiting for a session (shared with the calls, which keep their own 30 s) at it, and
+  its requests end by it, it stops waiting for a session (shared with the calls, whose start keeps its own 30 s) at it, and
   no token refresh starts that could end after it (a token still valid is used). So 90 s stays under the relay's 100 s
-  wait for an answer and the server's 120 s idle limit and "Check again" is answered; tool calls keep the 30 s. The tool list is saved (`tools_json`): every tool the service lists, up to 1,000 tools and 4,000,000 characters
+  wait for an answer and the server's 120 s idle limit and "Check again" is answered. The tool list is saved (`tools_json`): every tool the service lists, up to 1,000 tools and 4,000,000 characters
   of schemas and descriptions per connection (past that Settings and the AI are told "N of M", or "N of more than M"
   when pages were left unread); a tool whose input schema is not an object or is over 32,000 characters is left out.
   Turns use the saved list only: nothing is fetched when a chat starts. The server keeps the parsed lists in memory by
   connection and `tools_rev` (moved by a trigger whenever `tools_json` changes; at most 64 MiB of saved JSON, the list
   used longest ago first), so a turn reads the connections without their lists and parses only a list that changed;
   who may use a connection and which of its tools are off are read with every turn and call.
+- **Tool calls** (`tools/call`) wait as long as the service works on them: a call fails when nothing at all comes for
+  5 minutes ("sent nothing for 5 minutes") and in any case 15 minutes after it began ("did not finish within 15
+  minutes"); its session's start keeps the 30 s. Each call names its own `progressToken`, so a service that reports
+  progress (or sends any bytes of its event stream) keeps the call alive past 5 minutes. A web scrape takes 1-2 minutes
+  (Bright Data, 2026-11), which the 30 s used to cut. 15 minutes stays under the engines' 30 minutes for one of our
+  tool calls (Claude Code `MCP_TOOL_TIMEOUT`, Codex `tool_timeout_sec`), so the AI gets our reason; the turn's stall
+  guard waits while the call runs. Stop, or one of these limits, ends the call at once and sends the service
+  `notifications/cancelled`. A call that
+  sent nothing for 5 minutes marks the connection like the 30 s did, as an error that is only for now (a check keeps its
+  saved list); one past 15 minutes marks nothing (a long job, not a broken connection).
 - **Tool names** for the engine: `my_<slug>__<tool>` (personal) and `team_<slug>__<tool>` (team), letters, digits, `_` and
   `-` only. With the engine's `mcp__team__` the full name stays within 64 characters: longer or clashing names are cut and
   given a short hash; the server maps each back to the remote name.
@@ -484,6 +501,31 @@ idle minutes; a 404 for it starts a new one.
   chat card; nobody on the team can fix it. Such a refusal is kept as a failed flow, so it counts toward the 20 sign-in
   tries an hour (a service that is down or busy does not count). The document is offered only from an address it is
   served at (`documentOrigins`: the configured public addresses and the tunnel's), never from a server without one.
+- **Services that take only an app on the computer** (Canva, Intercom, Square; RFC 8252). They refuse every client
+  for the team's https callback but take the return address apps on a computer use, `http://127.0.0.1:<port>/callback`
+  (Canva: its sign-in page answers 302 instead of "Invalid redirect URI."; Intercom and Square: registration 201
+  instead of 400). The desktop app opens a one-time listener there (`desktop/src/common/sign-in-return.ts`, bridge
+  `signInReturn`): 127.0.0.1 only, a port the system picks, one at a time (overlapping opens leave only the later one).
+  It takes one `GET /callback` with a state and a code or an error, from its own Host, as a page the browser opens
+  (Sec-Fetch-Mode `navigate` and Sec-Fetch-Dest `document` when sent), and sends it on with a 302 to
+  `https://<team>/api/integrations/oauth/callback?<the same query>` (only the https team origin the window shows; the
+  code is never read there), then closes. Any other request gets 404 and never uses it up, however many come. It closes
+  after 10 minutes, on Cancel, by a newer one or a team switch. The web page opens one for every sign-in in the desktop
+  app and closes it as soon as the answer says it is not used (asking the server first would cost a second try at the
+  service). The page passes its port as `loopbackPort` to `POST /api/integrations/:id/authorize`; the route keeps it
+  only for a desktop session (`sessions.client`). The usual client choice (registered app, then metadata document, as
+  above) always runs first, from every address; only when it is refused is one app registered for the 127.0.0.1 address
+  and its sign-in page opened once (the same preflight). Its address is in the flow's sealed client, so the token
+  exchange sends it (refresh sends none) and the answer says `loopback: true`. From the web or the phone app (no port),
+  one probe registration for 127.0.0.1 tells whether the desktop app would get in: then `oauth_desktop_only` ("Canva
+  only lets you sign in from an app on your computer. Open the Trina desktop app and connect it there."; Get the desktop
+  app → Settings › Apps on the web, "Connect Canva on a computer." in the phone app), else `oauth_approved_apps_only`
+  (Figma refuses that too). Whether a sign-in server takes 127.0.0.1 (keyed by its issuer and registration address,
+  never the team's address) is remembered an hour in memory, and only after a clear answer: it spares the web's probe
+  and a desktop try at a server that refused 127.0.0.1. Both reasons count as refused tries. A desktop app from before
+  this sends no port and keeps `oauth_approved_apps_only`; so does the Mac App Store build when its App Sandbox (no
+  `network.server` entitlement) refuses the listener (expected, not tried on a store build yet). The browser that comes
+  back must be signed in to the team, as for every desktop sign-in (below).
 - The sign-in flow (`integration_oauth_flows`) lives 10 minutes, at most 20 per person per hour, bound to the person and
   the session that started it (polling `GET /api/integrations/flows/:id` needs that session); the state is stored hashed,
   the verifier and client details encrypted. A connection change while it is pending (version) fails it. For a team
@@ -654,7 +696,7 @@ connections with their address and the first 1,000 characters of their notes.
 | Boundary | Limit |
 | --- | --- |
 | Connections | 20 personal per person (that work, have a key or need no sign-in), 50 team. A personal one still waiting for its first sign-in does not count; those have a cap of 20 of their own. A new connection needs room under both (a sign-in one), the sign-in's callback refuses a first sign-in over 20 (`limit`), and an edit that stops or starts waiting is checked the same way. Connect again at a waiting address picks that one up with the new name, notes and write rule. Settings and the chat's connect card count alike (`personalCounts`) |
-| Request | 30 s, no redirects, standard ports (a check's `tools/list`: 30 s without bytes, 90 s in all) |
+| Request | 30 s, no redirects, standard ports (a check's `tools/list`: 30 s without bytes, 90 s in all; a `tools/call`: 5 min without bytes, 15 min in all) |
 | Answer | 1 MiB while reading; 40,000 characters to the AI |
 | Request body (`api_request`) | 1 MiB |
 | MCP tools | 1,000 per connection, 4,000,000 schema and description characters per connection, 32,000 per tool schema; as tools of their own 200 and 50,000 characters per answer, the rest through `find_tools` / `call_tool` |

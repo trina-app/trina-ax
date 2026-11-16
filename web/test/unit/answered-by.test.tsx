@@ -28,7 +28,7 @@ describe('answeredByName', () => {
     // a gateway's model has no display name (its label is its id): said once
     expect(answeredByName({ engine: 'claude-code', model: 'claude-sonnet-4-5' }, { 'claude-code': [{ id: 'claude-sonnet-4-5', label: 'claude-sonnet-4-5' }] })).toBe('claude-sonnet-4-5')
     expect(answeredByName({ engine: 'codex', model: 'gpt-5-codex' }, MODELS)).toBe('GPT-5-Codex')
-    // the AI's own name when the model is unknown: ChatGPT, as in Settings › AI accounts
+    // the AI's own name when the model is unknown: ChatGPT, as in Settings › AI providers
     expect(answeredByName({ engine: 'codex', model: 'new-model' }, MODELS)).toBe('ChatGPT')
     expect(answeredByName({ engine: 'api', model: 'llama-4' }, MODELS)).toBe('Company AI')
     expect(answeredByName({ engine: 'claude-code', model: 'something-new' }, MODELS)).toBe('Claude')

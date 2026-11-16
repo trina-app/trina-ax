@@ -85,8 +85,11 @@ export interface DesktopBrowserSettings {
  * also when it took it: macOS takes a notification it will not show, so taking it says nothing there). */
 export type DesktopNotifyTest = 'shown' | 'off' | 'unsupported' | 'limited' | 'unknown'
 
-/** The version of DesktopBridge.workFiles this page knows. A desktop app with another (or none) gets no entry. */
-export const WORK_FILES_BRIDGE_VERSION = 1
+/** The version of DesktopBridge.workFiles this page knows. A desktop app with another (or none) gets no entry.
+ * 2 (TC-3300): add(ids) first, as the person presses Add; read(id) then gives only the files added. A page of version 1
+ * does not know add(), so an app of version 2 offers it nothing (its reads would all be refused); this page still
+ * takes an app of version 1 (no add(): its reads are not limited to the files added). */
+export const WORK_FILES_BRIDGE_VERSION = 2
 
 /** The folders "Find work files on this computer" looks through, in this order (macOS asks for each in turn). Part 5
  * (a wide look, scan({ wide: true })) adds places with a name of their own (`place`): a cloud drive's folder (OneDrive,
@@ -145,6 +148,9 @@ export interface WorkFileMeta {
   place?: string
   /** part 5: online only (its content is in the cloud; adding it downloads it then) */
   cloud?: boolean
+  /** in a recent-documents list (a Mac's shared file lists, Office's; Windows' Recent folder, Office's): the person
+   * opened it, even when no date of it is known */
+  listed?: boolean
 }
 
 /** scan(): cancelled (the person said no in the app's own dialog) · busy (a dialog or a look is under way) · unavailable
@@ -153,9 +159,24 @@ export type WorkFileScan =
   | { state: 'cancelled' | 'busy' | 'unavailable' }
   | { state: 'done'; stopped: boolean; roots: WorkRootResult[]; files: WorkFileMeta[] }
 
+/** Where a file whose content is in the cloud only comes from while the app reads it: iCloud Drive (a Mac's Desktop and
+ * Documents too), a cloud drive's folder, or 'cloud' when the app cannot tell which. */
+export type WorkCloudProvider = 'icloud' | 'onedrive' | 'googleDrive' | 'dropbox' | 'box' | 'cloud'
+
 /** read(): the bytes, or why not: unknown (not an id of this look) · expired (the look is over an hour old) · limit (100
- * files or 1 GB read from this look) · changed (moved, replaced, a link now, another size or date) · unreadable. */
-export type WorkFileRead = { ok: true; bytes: Uint8Array } | { ok: false; reason: 'unknown' | 'expired' | 'limit' | 'changed' | 'unreadable' }
+ * files or 1 GB read from this look) · changed (moved, replaced, a link now, another size or date) · unreadable ·
+ * cloudTimeout (its content was coming from `cloud` and did not arrive within the read's minute; older apps say
+ * unreadable). */
+export type WorkFileRead =
+  | { ok: true; bytes: Uint8Array }
+  | { ok: false; reason: 'unknown' | 'expired' | 'limit' | 'changed' | 'unreadable' }
+  | { ok: false; reason: 'cloudTimeout'; cloud: WorkCloudProvider }
+
+/** add(): added (these files can be read now) · refused (no key or mouse press of the person's on the page in the 2 s
+ * before, an id not of this page's latest look, named twice, the look over an hour old, or over 100 files or 1 GB with
+ * what was added before) · cancelled (assistive technology on and no press: the app asked in its own window and the
+ * person said no) · unavailable. No window otherwise: the app takes it as the person's Add. */
+export type WorkFileAdd = { state: 'added' | 'refused' | 'cancelled' | 'unavailable' }
 
 /** How setAccess ended. 'changed' for "all" only after the person confirmed the desktop app's own dialog. */
 export type DesktopAccessOutcome = 'changed' | 'unchanged' | 'cancelled' | 'not-allowed' | 'busy' | 'unavailable'
@@ -228,11 +249,15 @@ export interface DesktopBridge {
   }
   /** Open the desktop app's team list (switch team / add a team). */
   openTeams(): void
-  /** The app's own menu of teams under the pointer: the team menu's "다른 팀으로 전환" (the logo menu, the 나 tab). The
-   * same list as the OS menu's 팀 (⌘1–9, the open team ticked) and its "팀 목록…"; drawn by the app, so the page never
-   * learns which other teams the person has. Optional: desktop apps before this addition do not have it (the page opens
-   * the team list, openTeams). */
+  /** Older pages' "다른 팀으로 전환": desktop apps up to 0.5.7 showed a menu of teams under the pointer; since 2026-11-15
+   * the app opens its team screen here too (as openTeams). Pages call openTeams. Optional: older desktop apps. */
   teamMenu?(): void
+  /** true: this team's pages draw the team address and "Switch team" under their sign-in card. The app then leaves out
+   * its own strip above the page on the sign-in paths for this team until another team is opened (false undoes it), so
+   * the address is not shown twice and a later sign-in page does not jump. The address the page shows is the bridge's
+   * connection teamAddress, never location.host. Optional: older desktop apps keep their strip, and the page then draws
+   * no line. */
+  hostLine?(drawn: boolean): void
   /** The language the team page shows now (the person's choice, else the team default): the desktop app's own
    * screens, menus and prompts follow it. Optional: desktop apps before this addition do not have it. */
   setLocale?(locale: 'ko' | 'en' | 'id' | 'ja' | 'es' | 'zh'): void
@@ -253,8 +278,9 @@ export interface DesktopBridge {
    * "Find work files on this computer" (docs/DECISIONS.md "Find work files on this computer"). The page never names a
    * path: scan() first shows the app's own dialog (no web page draws it) and looks through Documents, Desktop and
    * Downloads only after the person agrees there; the look runs in the app (names, sizes and dates; links never
-   * followed) and gives back a list with an opaque id per file. read(id) gives one listed file's bytes, only for the
-   * latest look of this page, within an hour, at most 100 files and 1 GB. Optional: the Mac App Store build and desktop
+   * followed) and gives back a list with an opaque id per file. add(ids) names the files the person ticked, as they
+   * press Add (taken only right after a real press of theirs on the page); read(id) gives one such file's bytes, only for the latest look of this page, within an
+   * hour, at most 100 files and 1 GB. Optional: the Mac App Store build and desktop
    * apps before this addition do not have it; a page checks `version` against WORK_FILES_BRIDGE_VERSION.
    */
   workFiles?: {
@@ -282,9 +308,26 @@ export interface DesktopBridge {
      * (opened at it), which counts as their permission, and the app looks at it now. The latest look's ids stay
      * readable and the new ones are added to it. 'cancelled' when the window was closed. Optional (older apps). */
     pickRoot?(root: WorkFolderId): Promise<WorkFileScan>
-    read(id: string): Promise<WorkFileRead>
+    /** version 2: the files the person ticked, named as they press Add, before any of them is read. The app takes it only
+     * within 2 s of the person's own key or mouse press on the page (no window); read() then gives these files' bytes and
+     * never a file not added. Absent in version 1. */
+    add?(ids: string[]): Promise<WorkFileAdd>
+    /** the bytes of a file added (version 2; version 1: any file of the look). `onCloud`: the file's content is in the
+     * cloud only, and the app is getting it from there first (a slow read that explains itself); called at most once,
+     * before the answer. Older apps never call it. */
+    read(id: string, o?: { onCloud?: (cloud: WorkCloudProvider) => void }): Promise<WorkFileRead>
     /** macOS: System Settings › Privacy & Security › Files & Folders, where the person lets the app into a folder again */
     openSettings(): void
+  }
+  /** A connector sign-in at a service that takes only an app on the computer as the place to come back to (Canva,
+   * Intercom, Square; RFC 8252): open() gives the port of a one-time return address on 127.0.0.1 that the page passes to
+   * POST /api/integrations/:id/authorize (`loopbackPort`); the service sends the browser there and the app sends it on
+   * to this team's own return page, then the address closes (desktop/src/common/sign-in-return.ts). One at a time; it
+   * closes by itself after 10 minutes. null when none can be opened. close(port): the sign-in did not need it, or was
+   * cancelled. Optional: desktop apps before this addition do not have it (the page sends no port). */
+  signInReturn?: {
+    open(): Promise<number | null>
+    close(port: number): void
   }
   /**
    * Settings > Browser: the same setting as the pane's ⚙ panel, and nothing else. The page can read it, go back to

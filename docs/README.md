@@ -34,4 +34,4 @@ Markdown is the canonical operating guide. Printable PDFs are optional generated
 
 ## Maintainer records (historical context)
 
-[Repository rules](REPOSITORY-RULES.md), [upstream provenance](UPSTREAM.md), [design decisions](DECISIONS.md), [publication records](PUBLICATION.md), [branding](EDITION-BRANDING.md). Dated validation records do not establish current availability or replace the operating guides.
+[Repository rules](REPOSITORY-RULES.md), [upstream provenance](UPSTREAM.md), [design decisions](decisions/README.md) (older ones in the [archive](DECISIONS.md)), [publication records](PUBLICATION.md), [branding](EDITION-BRANDING.md). Dated validation records do not establish current availability or replace the operating guides.

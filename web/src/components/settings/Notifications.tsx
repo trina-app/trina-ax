@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Bell } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { isGoogleRequestable, type InboxNotification, type Locale, type NotificationPreferences } from '@mycel/shared/api'
+import { fileLinkUrl, isGoogleRequestable, type InboxNotification, type Locale, type NotificationPreferences } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
-import { connectorHref, CONNECTORS_HOME } from '../../lib/connectors'
+import { connectionHref, connectorHref, CONNECTORS_HOME } from '../../lib/connectors'
 import { firstRunText } from '../../lib/teamGoal'
 import { useLocale, useT } from '../../i18n'
 import { accessChanged, reloadAsked } from '../../store/live'
@@ -80,6 +80,8 @@ type T = ReturnType<typeof useT>
 const serviceRequestText = (item: InboxNotification, sr: NonNullable<InboxNotification['serviceRequest']>, t: T) => {
   const service = requestableName(sr.service)
   if (item.code === 'service.ready') return t('notifications.event.service.readyNamed', { service })
+  // closed without the app (an admin's Dismiss, or the 30 days): they may ask again (QA TC-2946)
+  if (item.code === 'service.closed') return t(sr.closed === 'expired' ? 'notifications.event.service.expiredNamed' : 'notifications.event.service.dismissedNamed', { service })
   if (!sr.name) return t('notifications.event.service.requestSomeone', { service })
   return sr.others ? t('notifications.event.service.requestMore', { name: sr.name, n: sr.others, service }) : t('notifications.event.service.requestNamed', { name: sr.name, service })
 }
@@ -113,6 +115,19 @@ export function joinedText(j: NonNullable<InboxNotification['joined']>, t: T): s
   return t(j.guestPlace.kind === 'project' ? 'teamLink.joinedGuestProject' : 'teamLink.joinedGuestChat', { name: j.name })
 }
 
+/** A team template's notice (QA TC-2980): it is ready, it changed (sign in again with your own account, or enter your
+ * own key again: as the template signs in), or it is no longer for me. With its name while the template is there. */
+export function templateText(item: Pick<InboxNotification, 'code' | 'template' | 'templateLeft'>, t: T): string {
+  const tp = item.template
+  if (item.templateLeft) return tp ? t('notifications.event.integration.template_leftNamed', { name: tp.name }) : t('notifications.event.integration.template_left')
+  if (item.code === 'integration.template_reconnect') {
+    if (!tp) return t('notifications.event.integration.template_reconnect')
+    return t(tp.signIn ? 'notifications.event.integration.template_reconnectNamedSignIn' : 'notifications.event.integration.template_reconnectNamed', { name: tp.name })
+  }
+  if (!tp) return t('notifications.event.integration.template')
+  return t(tp.signIn ? 'notifications.event.integration.templateNamedSignIn' : 'notifications.event.integration.templateNamed', { name: tp.name })
+}
+
 /** The words of a notice of the app's own. A scheduled run names its task while the task is there (the person's own
  * words, in <bdi>); without it, "a scheduled task" as before. */
 export function noticeText(item: InboxNotification, t: T, locale: Locale): ReactNode {
@@ -130,6 +145,7 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   // a chat shared with me (docs/DECISIONS.md "Chats shared with people and groups"): who shared it while their account is
   // there; one I no longer see says so (no title, no link)
   if (item.code === 'chat.shared' && item.chatShared) return item.chatShared.gone ? t('notifications.event.chat.sharedGone') : item.chatShared.name ? t('notifications.event.chat.sharedNamed', { name: item.chatShared.name }) : t('notifications.event.chat.shared')
+  if (item.code.startsWith('file.')) return fileShareText(item, t)
   if (item.code === 'onboarding.first_run') return firstRunText(t, locale, item)
   if (item.code === 'account.deletion_request') return deletionNoticeText(t, item, locale)
   if (item.code === 'account.deletion_due') return deletionDueText(t, item, locale)
@@ -139,12 +155,17 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'room_app.leaver' && item.roomAppLeaver) return leaverNoticeText(item.roomAppLeaver, t)
   if (item.code === 'integration.request' && item.request) return t('notifications.event.integration.requestNamed', { name: item.request.name, host: item.request.host })
   if (item.code === 'drive.share_reconnect' && item.driveShare) return t('notifications.event.drive.share_reconnectNamed', { name: item.driveShare.name })
-  if ((item.code === 'service.request' || item.code === 'service.ready') && item.serviceRequest) return serviceRequestText(item, item.serviceRequest, t)
-  if (item.template) return t(item.code === 'integration.template_reconnect' ? 'notifications.event.integration.template_reconnectNamed' : 'notifications.event.integration.templateNamed', { name: item.template.name })
+  if ((item.code === 'service.request' || item.code === 'service.ready' || item.code === 'service.closed') && item.serviceRequest) return serviceRequestText(item, item.serviceRequest, t)
+  // older AI-made files with a saved key in them (QA TC-3082): how many I may open now; none: they moved or went
+  if (item.code === 'files.stored_key' && item.keyFiles) return item.keyFiles.n ? t('notifications.event.files.stored_keyN', { n: item.keyFiles.n }) : t('notifications.event.files.stored_keyGone')
+  // an own connection other than Google Drive that needs a sign-in again, by its name (QA TC-2945)
+  if (item.code === 'connection.reconnect' && item.connection) return t('notifications.event.connection.reconnectNamed', { name: item.connection.name })
+  if (item.code === 'integration.template' || item.code === 'integration.template_reconnect') return templateText(item, t)
   const title = item.schedule?.title
+  // a sign-in template: the member signs in with their own account; a key template: their own key (QA TC-3052)
   if (item.code === 'schedule.failure' && item.needsKey) return title
-    ? isolate(locale, 'notifications.event.schedule.needsKeyNamed', { title, name: item.needsKey.name }, ['title', 'name'])
-    : t('notifications.event.schedule.needsKey', { name: item.needsKey.name })
+    ? isolate(locale, item.needsKey.signIn ? 'notifications.event.schedule.needsSignInNamed' : 'notifications.event.schedule.needsKeyNamed', { title, name: item.needsKey.name }, ['title', 'name'])
+    : t(item.needsKey.signIn ? 'notifications.event.schedule.needsSignIn' : 'notifications.event.schedule.needsKey', { name: item.needsKey.name })
   // a task paused because only the project's members can use it now (the owner or an admin who may add themselves):
   // it starts again once they do (docs/DECISIONS.md "Projects from before the update: one card, Add me to these")
   if (item.code === 'schedule.failure' && item.projectGone && item.membersOnly) return title
@@ -166,10 +187,25 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   return t(`notifications.event.${item.code}`)
 }
 
+/** The 'file.*' notices (QA TC-3093, docs/DECISIONS.md "A member shares their own files"): who and which file while
+ * they are there; `gone`: the file (or the request) is no longer there, without its name. A decline names no file. */
+export function fileShareText(item: InboxNotification, t: T): string {
+  const f = item.fileShare
+  const code = item.code as 'file.shared' | 'file.access_requested' | 'file.access_answered' | 'file.unshared_by_move'
+  if (code === 'file.access_answered') return t('notifications.event.file.access_answered')
+  if (!f || f.gone || !f.name) return code === 'file.shared' ? t('notifications.event.file.gone') : t(`notifications.event.${code}`)
+  if (!f.by) return t(`notifications.event.${code}`)
+  if (code === 'file.shared') return t('notifications.event.file.sharedNamed', { by: f.by, name: f.name })
+  if (code === 'file.access_requested') return t('notifications.event.file.access_requestedNamed', { by: f.by, name: f.name })
+  return t('notifications.event.file.unshared_by_moveNamed', { by: f.by, name: f.name })
+}
+
 /** Where a notice of the app's own opens, with its link's test id: the result chat of a scheduled run, the page of the
  * rest. Null: nowhere (a source I may no longer read, a notice that only tells), and its row is no link. */
 export function noticeLink(item: InboxNotification): { to: string; testId: string } | null {
   if (item.link === 'chat' && item.chatId) return { to: `/c/${encodeURIComponent(item.chatId)}`, testId: 'notification-chat-link' }
+  // a file shared with me, or one of mine moved: its link page while it is there (a request answers in the row instead)
+  if (item.link === 'file' && item.fileShare?.linkId && !item.fileShare.gone && item.code !== 'file.access_requested') return { to: fileLinkUrl(item.fileShare.linkId), testId: 'notification-file-link' }
   // an app that paused: its settings in its room, while I am in it
   if (item.code === 'room_app.paused') { const to = pausedNoticeLink(item.roomApp); return to ? { to, testId: 'notification-room-app-link' } : null }
   if (item.code === 'room_app.leaver') { const to = leaverNoticeLink(item.roomAppLeaver); return to ? { to, testId: 'notification-room-app-leaver-link' } : null }
@@ -178,10 +214,14 @@ export function noticeLink(item: InboxNotification): { to: string; testId: strin
   if (item.code === 'project.joined' && item.projectJoined?.project) return { to: `/projects/${encodeURIComponent(item.projectJoined.project.id)}`, testId: 'notification-project-link' }
   if (item.review) return { to: '/scheduled', testId: 'notification-review-link' }
   if (item.saveLapsed) return { to: '/scheduled', testId: 'notification-save-lapsed-link' }
+  // an own connection other than Google Drive: its own page (a Google app's, or the connection's)
+  if (item.code === 'connection.reconnect' && item.connection) return { to: item.connection.googleApp ? connectorHref(item.connection.googleApp) : connectionHref(item.connection.id), testId: 'notification-connection-link' }
   if (item.link === 'connections') return { to: connectorHref('google-drive'), testId: 'notification-connections-link' }
   // a member's ask: the app's setup while one waits (an owner or admin), the app's page once it is ready (the member)
   if (item.code === 'service.request' && item.serviceRequest?.open) return { to: serviceSetupLink(item.serviceRequest.service), testId: 'notification-service-request-link' }
   if (item.code === 'service.ready' && item.serviceRequest) return { to: connectorHref(item.serviceRequest.service), testId: 'notification-service-ready-link' }
+  // closed without the app: its page, where they may ask again
+  if (item.code === 'service.closed' && item.serviceRequest) return { to: connectorHref(item.serviceRequest.service), testId: 'notification-service-closed-link' }
   if (item.link === 'integrations') return { to: integrationsLink(item), testId: item.template || item.needsKey ? 'notification-template-link' : 'notification-request-link' }
   if (item.link === 'admin_connectors') return { to: '/admin/connectors?drive=1', testId: 'notification-drive-share-link' }
   if (item.link === 'admin_credentials') return { to: '/admin/providers', testId: item.code === 'credential.change' ? 'notification-credential-link' : 'notification-ai-request-link' }

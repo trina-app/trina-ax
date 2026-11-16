@@ -46,6 +46,9 @@ export function writeDraft(userId: string, id: string, text: string, s: Store | 
 
 /** Forget drafts, waiting messages and remembered uploads of everyone on this browser, the phone app's "push off on this
  * phone" choices, and this tab's saved phone stacks (sign-out). */
+/** The welcome steps' company profile reading or review kept for a reload (components/onboarding/ProfileStep.tsx). */
+export const PROFILE_DRAFT_PREFIX = 'mycel.profileDraft.'
+
 export function clearLocalData(s: Store | null = local()) {
   if (!s) return
   try {
@@ -57,6 +60,12 @@ export function clearLocalData(s: Store | null = local()) {
     for (const k of keys) s.removeItem(k)
   } catch { /* storage blocked */ }
   try {
-    if (typeof sessionStorage !== 'undefined') for (const k of [TAB_STACKS_KEY, ...OLD_TAB_STACKS_KEYS, RAIL_LAST_KEY, ACTIVITY_OPENED_KEY]) sessionStorage.removeItem(k)
+    if (typeof sessionStorage !== 'undefined') {
+      for (const k of [TAB_STACKS_KEY, ...OLD_TAB_STACKS_KEYS, RAIL_LAST_KEY, ACTIVITY_OPENED_KEY]) sessionStorage.removeItem(k)
+      // the company profile reading or review kept for a reload: another person signing in here never sees it
+      const kept: string[] = []
+      for (let i = 0; i < sessionStorage.length; i++) { const k = sessionStorage.key(i); if (k?.startsWith(PROFILE_DRAFT_PREFIX)) kept.push(k) }
+      for (const k of kept) sessionStorage.removeItem(k)
+    }
   } catch { /* storage blocked */ }
 }

@@ -12,7 +12,7 @@ After you make a team, the app takes you, the owner, through a few short steps. 
 Connect a Claude or ChatGPT subscription, or an API key. Without AI the company profile cannot be read, so this step comes first. **Later** leaves the steps; the setup row then says **Connect AI**.
 
 #### Company profile
-Type the company website. The AI reads it and writes one line about the company ("What we understood: … · Edit"). You can add an intro file or a company deck with **Add an intro file if you have one**.
+Type the company website. The AI reads it and writes one line about the company ("Here's what we found: … · Edit"). You can add an intro file or a company deck with **Add an intro file if you have one**.
 
 **Save and continue** saves the profile and starts your company profile deck, once per team. The line under the button says how long it takes (the team's deck time, Admin › Team settings) and where it will be: **Our company profile** in your list of Trina chats. Saving again later only saves. **Later** skips the deck.
 
@@ -23,7 +23,7 @@ Bring the skills you use with Claude Code or Codex to the team. Pick your `.clau
 Put the team's documents (company intro, reports, forms) into the team's folder. One line says who will see them.
 
 #### Invite
-Copy the ready-made message. It names one skill, and people who join land on that skill's form. When each person signs in to their own AI, the message says so. The invite page offers the language of the person's browser. If someone else is already signed in on that computer, the page says "You're already in <team name>" and offers **Sign out to join**, which signs out and opens the same link.
+Copy the ready-made message. It names one skill. People who join land on Home, where a welcome card says who invited them and what to do first; the skill is in **Team skills**. When each person signs in to their own AI, the message says so. The invite page offers the language of the person's browser. If someone else is already signed in on that computer, the page says "You're already in <team name>" and offers **Sign out to join**, which signs out and opens the same link.
 :::
 
 At the end, **You're all set** offers to try that skill yourself first. It shows once.

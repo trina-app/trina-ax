@@ -28,7 +28,7 @@ import { InviteStep } from '../../src/components/onboarding/InviteStep'
 import { INVITE_STEP_STATE } from '../../src/components/onboarding/GoalCard'
 import { forgetPatched } from '../../src/components/onboarding/TeamLinkPanel'
 import ProfileStep from '../../src/components/onboarding/ProfileStep'
-import { countedSteps, doneCount, firstResultSkill, forgetStepsSeen, historyName, inviteSkill, isLanding, nextStep, openHere, phoneSkips, prevStep, profileAnswered, readNotesHint, resumeStep, resumesOnLanding, setupRowState, setupRowWords, showResume, skillNameOf, stepPosition, stepsLeft, stepsSeen, stepTotal, teamReach, wantsTeam } from '../../src/lib/welcome'
+import { countedSteps, doneCount, firstResultSkill, setupReturnState, forgetStepsSeen, historyName, inviteSkill, isLanding, nextStep, openHere, phoneSkips, prevStep, profileAnswered, readNotesHint, resumeStep, resumesOnLanding, setupRowState, setupRowWords, showResume, skillNameOf, stepPosition, stepsLeft, stepsSeen, stepTotal, teamReach, wantsTeam } from '../../src/lib/welcome'
 import { rememberSetupSite, setupSite } from '../../src/lib/setupLink'
 import { useAiAccess } from '../../src/store/aiAccess'
 import { chatActivity } from '../../src/store/live'
@@ -418,10 +418,10 @@ describe('where the steps go', () => {
     const humanizer = s('skills/work/humanizer/SKILL.md', 'humanizer')
     expect(firstResultSkill([])).toBeNull()
     expect(firstResultSkill([s(QUOTE_SKILL, 'quote-maker')])).toBeNull()
-    expect(firstResultSkill([humanizer, s(GENERAL_PROMO_SKILL, 'promo-video'), s(GENERAL_DECK_SKILL, 'intro-deck'), s(GENERAL_CARDNEWS_SKILL, 'card-news')])).toEqual({ skill: s(GENERAL_CARDNEWS_SKILL, 'card-news'), write: false })
+    expect(firstResultSkill([humanizer, s(GENERAL_PROMO_SKILL, 'promo-video'), s(GENERAL_DECK_SKILL, 'intro-deck'), s(GENERAL_CARDNEWS_SKILL, 'card-news')])).toEqual({ skill: s(GENERAL_CARDNEWS_SKILL, 'card-news'), write: false, verb: 'welcome.done.makeCardNews' })
     expect(firstResultSkill([humanizer, s(GENERAL_PROMO_SKILL, 'promo-video'), s(GENERAL_DECK_SKILL, 'intro-deck')])!.skill.path).toBe(GENERAL_DECK_SKILL)
     expect(firstResultSkill([humanizer, s(GENERAL_PROMO_SKILL, 'promo-video')])!.skill.path).toBe(GENERAL_PROMO_SKILL)
-    expect(firstResultSkill([humanizer])).toEqual({ skill: humanizer, write: true })
+    expect(firstResultSkill([humanizer])).toEqual({ skill: humanizer, write: true, verb: null })
     // the same skill elsewhere in the team's skills (moved, or made before the pack): by its name
     expect(firstResultSkill([s('skills/marketing/card-news/SKILL.md', 'card-news')])!.skill.path).toBe('skills/marketing/card-news/SKILL.md')
   })
@@ -462,6 +462,26 @@ describe('where the steps go', () => {
     const later = { ...p, skillsLater: true, steps: { profile: 'done', result: null, skills: 'skipped', files: 'done', tools: 'skipped', invite: 'done' } } as WelcomeProgress
     expect(at('/c/abc', true, false, later)).toBe('hidden')
     expect(at('/c/abc', true, true, later)).toBe('resume')
+    // finished with steps put off (fix/onboarding-after-setup): "Still to do" stays until each is done or ✕; a phone never
+    // names 도구 연결, and not on its Home; without AI Home's card comes first
+    const off = { ...p, finishedAt: 'x', steps: { profile: 'done', result: null, skills: 'done', files: 'skipped', tools: 'skipped', invite: 'done' } } as WelcomeProgress
+    expect(at('/c/abc', true, true, off)).toBe('left')
+    expect(at('/', true, true, off)).toBe('left')
+    expect(at('/c/abc', true, false, off)).toBe('left')
+    expect(at('/new', true, false, off)).toBe('left')
+    expect(setupRowState(off, { path: '/new', aiReady: true, computer: false, home: true })).toBe('hidden')
+    expect(at('/c/abc', false, true, off)).toBe('hidden')
+    expect(at('/c/abc', true, true, { ...off, dismissedAt: 'y' })).toBe('hidden')
+    expect(at('/welcome', true, true, off)).toBe('hidden')
+    const words = (computer: boolean) => setupRowWords((k, prm) => translate('en', k, prm), off, true, computer).text
+    expect(words(true)).toBe('Still to do: 2 steps')
+    expect(words(false)).toBe('Still to do: 1 step')
+    const many = { ...off, steps: { ...off.steps, profile: 'skipped', skills: 'skipped' } } as WelcomeProgress
+    expect(setupRowWords((k, prm) => translate('en', k, prm), many, true, true).text).toBe('Still to do: 4 steps')
+    // only 도구 연결 left: nothing on a phone
+    const toolsOnly = { ...off, steps: { ...off.steps, files: 'done' } } as WelcomeProgress
+    expect(at('/c/abc', true, false, toolsOnly)).toBe('hidden')
+    expect(at('/c/abc', true, true, toolsOnly)).toBe('left')
   })
 
   test('who sees the team folder: its group and the owners and admins, active ones; members outside it can be added', () => {
@@ -850,9 +870,16 @@ describe('/welcome', () => {
       await m.until(() => progress!.site === 'https://acme.example/', 'the address kept', 2000)
       expect(called('PATCH /api/onboarding/welcome').map((c) => c.body).filter((b) => b.site)).toEqual([{ site: 'https://acme.example/' }])
     } finally { await m.unmount() }
-    // another page, then back through the setup row: the steps read the progress again
+    // another page, then back through the setup row in this tab: the reading under way comes back (sessionStorage)
     useWelcome.getState().reset()
     calls = []
+    m = await app()
+    try {
+      await m.until(() => m.find('profile-step-reading'), 'the reading again')
+    } finally { await m.unmount() }
+    // another tab (nothing kept in it): the steps read the progress again, the address is there
+    ;(globalThis as any).sessionStorage.clear()
+    useWelcome.getState().reset()
     m = await app()
     try {
       await m.until(() => m.find('profile-step-site'), '회사 소개 again')
@@ -888,6 +915,23 @@ describe('/welcome', () => {
       expect(progress!.steps.profile).toBeNull()
       expect(stepsSeen('olga')).toBe(true)
     } finally { await m.unmount() }
+  })
+
+  test('a failed AI read (offline, 5xx: read as usable so nothing warns) never records the AI step done, on arrival or after it', async () => {
+    signIn('owner')
+    progress = { ...fresh(), steps: { ai: 'skipped', profile: null, result: null, invite: null } } as WelcomeProgress
+    const route = routes['GET /api/me/ai-access']!
+    routes['GET /api/me/ai-access'] = () => json(503, { error: { code: 'unavailable', message: 'down' } })
+    useAiAccess.getState().reset()
+    const m = await app()
+    try {
+      await m.until(() => stepOf(m) !== undefined || null, 'a step')
+      await m.settle(60)
+      expect(useAiAccess.getState().usable).toBe(true)
+      expect(useAiAccess.getState().answered).toBe(false)
+      expect(progress!.steps.ai).toBe('skipped')
+      expect(called('PATCH /api/onboarding/welcome').filter((c) => c.body?.step?.id === 'ai' && c.body.step.state === 'done')).toEqual([])
+    } finally { await m.unmount(); routes['GET /api/me/ai-access'] = route; useAiAccess.getState().reset(); useWelcome.getState().reset() }
   })
 
   test('AI connected in the AI step: recorded once, then on to 회사 소개 (2/6); AI from the start: five steps', async () => {
@@ -1202,12 +1246,28 @@ describe('the later steps and the end', () => {
     } finally { await m.unmount() }
   })
 
-  test('준비 끝\'s first result (docs/DECISIONS.md "W6"): "\'카드뉴스\' 만들어 보기" for the first kept skill the team has; it opens that skill\'s form only (nothing runs); 자연스러운 글 "써 보기"; a row whose deck started keeps its line', async () => {
+  test('after the end, the setup row\'s ask opens a step put off as itself (fix/onboarding-after-setup); a step done is not asked back', async () => {
+    signIn('owner')
+    progress = ran({ steps: { profile: 'done', result: null, skills: 'done', files: 'skipped', tools: 'done', invite: 'done' }, finishedAt: '2026-11-04T00:03:00.000Z', doneShownAt: '2026-11-04T00:03:00.000Z' })
+    withGroup()
+    let m = await app({ pathname: '/welcome', state: setupReturnState('files') })
+    try {
+      await m.until(() => stepOf(m) === 'files' || null, 'the team files step')
+    } finally { await m.unmount() }
+    useWelcome.getState().reset()
+    m = await app({ pathname: '/welcome', state: setupReturnState('tools') })
+    try {
+      await m.until(() => at(m) === '/' || null, 'Home: tools was done')
+    } finally { await m.unmount() }
+    useWelcome.getState().reset()
+  })
+
+  test('준비 끝\'s first result (docs/DECISIONS.md "W6"): "카드뉴스 만들어 보기" for the first kept skill the team has; it opens that skill\'s form only (nothing runs); 자연스러운 글 "써 보기"; a row whose deck started keeps its line', async () => {
     signIn('owner')
     const kept = (path: string, name: string, title: string): SkillInfo => ({ path, name, title, description: title })
     for (const [list, label, path, deck] of [
-      [[quote, kept(GENERAL_DECK_SKILL, 'intro-deck', '회사 소개서'), kept(GENERAL_CARDNEWS_SKILL, 'card-news', '카드뉴스')], "'카드뉴스' 만들어 보기", GENERAL_CARDNEWS_SKILL, false],
-      [[kept(GENERAL_PROMO_SKILL, 'promo-video', '홍보 영상'), kept(GENERAL_DECK_SKILL, 'intro-deck', '회사 소개서')], "'회사 소개서' 만들어 보기", GENERAL_DECK_SKILL, true],
+      [[quote, kept(GENERAL_DECK_SKILL, 'intro-deck', '회사 소개서'), kept(GENERAL_CARDNEWS_SKILL, 'card-news', '카드뉴스')], '카드뉴스 만들어 보기', GENERAL_CARDNEWS_SKILL, false],
+      [[kept(GENERAL_PROMO_SKILL, 'promo-video', '홍보 영상'), kept(GENERAL_DECK_SKILL, 'intro-deck', '회사 소개서')], '회사 소개서 만들어 보기', GENERAL_DECK_SKILL, true],
       [[kept('skills/work/humanizer/SKILL.md', 'humanizer', '자연스러운 글')], "'자연스러운 글' 써 보기", 'skills/work/humanizer/SKILL.md', false],
     ] as const) {
       skills = [...list]
@@ -1233,6 +1293,8 @@ describe('the later steps and the end', () => {
         await n.click('welcome-done-make')
         // the form on 팀 스킬 (closing it stays there: Skills.tsx), nothing sent or run from here
         await n.until(() => at(n) === `/skills?run=${encodeURIComponent(path)}`, 'the skill form')
+        // closing the form goes Home (Skills.tsx closeRun reads state.back, PR #909), not Team skills
+        expect(JSON.parse(n.get('where').getAttribute('data-state')!)).toMatchObject({ back: '/' })
         expect(calls.filter((c) => /\/messages$|\/chats$/.test(c.key))).toEqual([])
       } finally { await n.unmount() }
       useWelcome.getState().reset()
@@ -1240,7 +1302,7 @@ describe('the later steps and the end', () => {
     }
   })
 
-  test('도구 연결 (docs/DECISIONS.md "W6", QA TC-136): no Drive on this server: its card says so, the listed services are cards, the address form last; its dialog opens and closes with nothing changed; 나중에 하기 puts it off → the invite; ← 이전 → 팀 파일', async () => {
+  test('도구 연결 (docs/DECISIONS.md "W6", QA TC-136, owner Q3 11-15): no Drive on this server: no Drive row, Notion as a card, "다른 도구 연결하기" last: Settings › Connectors over the step, whose close comes back to it; 나중에 하기 puts it off → the invite; ← 이전 → 팀 파일', async () => {
     signIn('owner')
     progress = ran({ steps: { profile: 'done', result: null, skills: 'done', files: 'done', tools: null, invite: null } })
     routes['GET /api/integrations/google-drive'] = () => json(200, { configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null, personalAllowed: false, teamShares: [] })
@@ -1253,26 +1315,19 @@ describe('the later steps and the end', () => {
       expect(m.get('welcome-tools').querySelector('h2')?.textContent).toBe('자주 쓰는 도구를 연결해 둘까요?')
       expect(m.get('welcome-tools').textContent).toContain('나중에 설정 › 커넥터에서')
       await m.until(() => called('GET /api/integrations/google-drive').length > 0, 'the Drive read')
-      // Drive is not on this server: its card says so, never a hidden row (TC sheet TC-145)
-      const drive = await m.until(() => m.find('welcome-tools-drive'), 'the Drive card')
-      expect(drive.getAttribute('data-state')).toBe('not-set-up')
-      expect(m.get('welcome-tools-drive-off').textContent).toBe('아직 설정 안 됨')
-      expect(m.find('welcome-tools-drive-connect')).toBeNull()
       // the listed services as Discover's cards: logo, name, one line, 연결
       const services = await m.until(() => { const x = m.container.querySelectorAll('[data-testid="welcome-tools-service"]'); return x.length ? x : null }, 'the service cards')
-      expect([...services].map((x: any) => x.getAttribute('data-id'))).toEqual(['notion', 'linear', 'atlassian', 'canva', 'figma'])
+      // Notion only (no Linear, Atlassian, Canva, Figma: the full list is one click away)
+      expect([...services].map((x: any) => x.getAttribute('data-id'))).toEqual(['notion'])
       expect(services[0]!.querySelector('[data-testid="welcome-tools-service-line"]')!.textContent).toBe(translate('ko', 'integrations.catalog.notion'))
       expect(services[0]!.querySelector('[data-testid="connector-logo"]')!.getAttribute('src')).toBe('/icons/connectors/notion.svg')
       expect(m.get('welcome-tools-mcp-add').textContent?.trim()).toBe('다른 도구 연결하기')
+      // Drive is not on this server: no row in the setup, where nothing can be done about it (amends TC-145)
+      expect(m.find('welcome-tools-drive')).toBeNull()
+      expect(m.find('welcome-tools-drive-connect')).toBeNull()
       // no primary until something is connected: 나중에 하기 alone
       expect(m.find('welcome-tools-next')).toBeNull()
       expect(primaries(m)).toBe(0)
-      await m.click('welcome-tools-mcp-add')
-      await m.until(() => body().querySelector('[role="dialog"]'), 'the add-a-connection dialog')
-      await act(async () => { buttonNamed(translate('ko', 'common.cancel'))?.click() })
-      await m.until(() => !body().querySelector('[role="dialog"]'), 'closed')
-      expect(calls.filter((c) => c.key.startsWith('POST /api/admin/integrations'))).toEqual([])
-      expect(stepOf(m)).toBe('tools')
       await m.click('welcome-back')
       await m.until(() => stepOf(m) === 'files', '팀 파일')
       await m.click(await m.until(() => m.find('welcome-team-files-next') ?? laterButton(), '팀 파일\'s way on'))
@@ -1282,6 +1337,11 @@ describe('the later steps and the end', () => {
       expect(progress!.steps.tools).toBe('skipped')
       await m.click('welcome-back')
       await m.until(() => stepOf(m) === 'tools', '← 이전 from the invite')
+      // the full list: Settings › Connectors (a dialog over the step in the app, whose close comes back to it:
+      // e2e welcome-tools.spec.ts); nothing is made on the way
+      await m.click('welcome-tools-mcp-add')
+      await m.until(() => m.find('where')?.textContent === '/settings/connectors', 'Settings › Connectors')
+      expect(calls.filter((c) => c.key.startsWith('POST /api/integrations') || c.key.startsWith('POST /api/admin/integrations'))).toEqual([])
     } finally {
       await m.unmount()
       delete routes['GET /api/integrations/google-drive']

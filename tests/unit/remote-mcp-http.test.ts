@@ -69,6 +69,30 @@ test('consent requires core login and CSRF; another user cannot inspect a claime
   f.h.ctx.db.query('UPDATE users SET must_change_password=1 WHERE id=?').run(other.id)
   expect((await f.api('GET', '/api/connectors/remote', undefined, other.client.cookie!)).status).toBe(403)
 })
+test('an expired, decided or elsewhere-opened consent request is a 404 with reason request_expired (QA TC-2970)', async () => {
+  const f = await fixture('consent-expired'), other = await addMember(f.h, f.owner, { username: 'elsewhere' })
+  const open = async () => '/api/connectors/remote/requests/' + new URL((await f.authorize()).headers.get('location')!).searchParams.get('id')!
+  const expect404 = async (res: Response) => { const body = await res.json() as any; expect(res.status).toBe(404); expect(body.error.code).toBe('not_found'); expect(body.error.params?.reason).toBe('request_expired') }
+  // opened by this login, then another account (another login session) opens the link
+  const claimed = await open()
+  expect((await f.api('GET', claimed)).status).toBe(200)
+  await expect404(await f.api('GET', claimed, undefined, other.client.cookie!))
+  // expired while the page was open: Allow and the page reload both say so
+  const late = await open()
+  expect((await f.api('GET', late)).status).toBe(200)
+  f.h.ctx.db.query('UPDATE remote_mcp_requests SET expires_at=?').run(Date.now() - 1)
+  await expect404(await f.api('POST', late, { allow: true }))
+  await expect404(await f.api('GET', late))
+  // decided once: opening it again
+  const decided = await open()
+  expect((await f.api('POST', decided, { allow: false })).status).toBe(200)
+  await expect404(await f.api('GET', decided))
+  // a guest is still a plain no access, without the reason
+  const fresh = await open()
+  f.h.ctx.db.query('UPDATE users SET guest=1 WHERE id=?').run(other.id)
+  const refused = await f.api('GET', fresh, undefined, other.client.cookie!), body = await refused.json() as any
+  expect(refused.status).toBe(403); expect(body.error.params?.reason).toBeUndefined()
+})
 test('MCP accepts only its bearer audience; Origin and token-in-query are rejected and unsupported transports require authentication', async () => {
   const f = await fixture('audience'), tokens = await f.issue()
   for (const method of ['GET', 'POST', 'DELETE']) {

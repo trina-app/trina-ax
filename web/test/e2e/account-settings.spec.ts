@@ -5,7 +5,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
-import { DICTS } from '../../src/i18n'
+import { DICTS, translate } from '../../src/i18n'
 import { reset, signIn } from './helpers'
 import { accountButton, chatList, navChatList, navLists, openAccountMenu, openSettings, openTab, openTrinaRow, openUsage, phoneTrinaHome, settingsDialog, tabBar, tabButton } from './nav'
 
@@ -83,8 +83,8 @@ test('Settings opens as a dialog over the page, keeps the keyboard inside, and E
     expect(await dialog.evaluate((d) => d.contains(document.activeElement))).toBe(true)
   }
   // the search narrows the list by name; a section opens on the right and the address follows
-  await dialog.getByTestId('settings-search').fill(t['aiApps.title'])
-  await expect(dialog.getByTestId('settings-menu').getByRole('link')).toHaveText([t['aiApps.title']])
+  await dialog.getByTestId('settings-search').fill(translate('en', 'aiApps.title'))
+  await expect(dialog.getByTestId('settings-menu').getByRole('link')).toHaveText([translate('en', 'aiApps.title')])
   // (Connectors is not in Settings: it is its own item of the sidebar)
   await dialog.getByTestId('settings-search').fill('zzz')
   await expect(dialog.getByTestId('settings-no-match')).toBeVisible()
@@ -135,7 +135,7 @@ test('on a phone Settings is the 나 tab: the list first with my photo row on to
   // the connections show in their group (no "더 보기" row on a phone any more: docs/DECISIONS.md "Admin and Settings on
   // phones")
   const menu = dialog.getByTestId('settings-menu')
-  await expect(menu.getByRole('link', { name: t['aiApps.title'] })).toBeVisible()
+  await expect(menu.getByRole('link', { name: translate('en', 'aiApps.title') })).toBeVisible()
   await expect(dialog.getByTestId('settings-more')).toHaveCount(0)
   // Connectors is a section of Settings (QA TC-400), the first row of Connections; the drawer has none
   await expect(menu.getByRole('link', { name: t['integrations.title'], exact: true })).toHaveCount(1)

@@ -59,17 +59,19 @@ export const FILE_STEP_VERB: Record<string, T> = {
   forget: t('기억 지우기', 'Forget', 'Lupakan', "忘れる", "Olvidar", "忘记"),
   connect_service: t('서비스 연결', 'Connect service', 'Hubungkan layanan', "サービスを接続", "Conectar servicio", "连接服务"),
   // the person's own team chat rooms (server/src/chat/room-tools.ts): "대화방 읽기 · 마케팅", "대화방 찾기 "예산""
-  rooms: t('대화방 찾기', 'Find in conversations', 'Cari di ruang obrolan', "トークルームを探す", "Buscar en salas de chat", "在群聊中查找"),
-  room_read: t('대화방 읽기', 'Read conversation', 'Baca ruang obrolan', "トークルームを読む", "Leer sala de chat", "读取群聊"),
+  rooms: t('대화 찾기', 'Find in conversations', 'Cari di percakapan', "トークを探す", "Buscar en conversaciones", "在聊天中查找"),
+  room_read: t('대화 읽기', 'Read conversation', 'Baca percakapan', "トークを読む", "Leer conversación", "读取聊天"),
   // reading Slack with the bot token (server/src/integrations/slack/read.ts)
   slack_read_thread: t('Slack 스레드 읽기', 'Read Slack thread', 'Baca utas Slack', "Slackのスレッドを読む", "Leer hilo de Slack", "读取Slack话题"),
   slack_read_channel: t('Slack 채널 읽기', 'Read Slack channel', 'Baca kanal Slack', "Slackのチャンネルを読む", "Leer canal de Slack", "读取Slack频道"),
-  room_file: t('대화방 파일 읽기', 'Read conversation file', 'Baca berkas ruang obrolan', "トークルームのファイルを読む", "Leer archivo de sala de chat", "读取群聊文件"),
+  room_file: t('대화 파일 읽기', 'Read conversation file', 'Baca berkas percakapan', "トークのファイルを読む", "Leer archivo de conversación", "读取聊天文件"),
   chat_file: t('채팅 파일 읽기', 'Read chat file', 'Baca berkas obrolan', 'チャットのファイルを読む', 'Leer archivo del chat', '读取对话文件'),
-  save_room_file: t('대화방 파일 저장', 'Save conversation file', 'Simpan berkas ruang obrolan', "トークルームのファイルを保存", "Guardar archivo de sala de chat", "保存群聊文件"),
+  save_room_file: t('대화 파일 저장', 'Save conversation file', 'Simpan berkas percakapan', "トークのファイルを保存", "Guardar archivo de conversación", "保存聊天文件"),
   // the AI posts to one of the person's rooms after their yes on its card (server/src/chat/post-to-room.ts): "대화방에
   // 보내기 · #영업팀", the room named by the server once found (the button's words: shared rooms.ts SIDE_CHAT_SEND)
-  post_to_room: t('대화방에 보내기', 'Send to room', 'Kirim ke ruang', 'ルームに送る', 'Enviar a la sala', "发送到群聊"),
+  post_to_room: t('대화에 보내기', 'Send to conversation', 'Kirim ke percakapan', 'トークに送る', 'Enviar a la conversación', "发送到聊天"),
+  // the AI shares the person's own files with teammates after their yes on its card (server/src/chat/share-with-person.ts)
+  share_with_person: t('파일 공유', 'Share files', 'Bagikan berkas', 'ファイルを共有', 'Compartir archivos', '共享文件'),
   // the AI changes a team project's members after the person's yes on its card (server/src/chat/project-members.ts):
   // "프로젝트 멤버 바꾸기 · 견적"
   change_project_members: t('프로젝트 멤버 바꾸기', 'Change project members', 'Ubah anggota proyek', 'プロジェクトのメンバーを変更', 'Cambiar miembros del proyecto', "更改项目成员"),
@@ -166,7 +168,7 @@ export const STEP_TEXT = {
   // after a step's own line (" · <these>"): why the call went on without a card (server/src/chat/turn.ts coverStep,
   // chat/schedule-cover.ts). COVER_STEP_KEYS: localizeStep and stepPlace know them at the end of any line
   /** the step of a call a room grant let through, after its own words */
-  roomGrantStep: t('항상 허용으로 진행', 'allowed: always in this room', 'diizinkan: selalu di ruang ini', "常に許可で実行", "permitido: siempre en esta sala", "已允许：在此群聊中始终允许"),
+  roomGrantStep: t('항상 허용으로 진행', 'allowed: always in this conversation', 'diizinkan: selalu di percakapan ini', "常に許可で実行", "permitido: siempre en esta conversación", "已允许：在此聊天中始终允许"),
   /** the step of a call this answer's [이번만 허용] for its folder let through */
   roomOnceStep: t('이번만 허용으로 진행', 'allowed once in this answer', 'diizinkan sekali di jawaban ini', "今回だけ許可で実行", "permitido esta vez en esta respuesta", "已允许：本次回答中允许一次"),
   /** the step of a scheduled run's save or send that its task's card allowed (chat/schedule-cover.ts) */

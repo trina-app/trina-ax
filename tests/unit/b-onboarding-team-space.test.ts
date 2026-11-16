@@ -133,7 +133,9 @@ test('"자료 없이" finishes the steps: what is open is put off, done stays do
   const { owner } = await setup()
   await owner.call('PATCH', '/api/onboarding/welcome', { step: { id: 'profile', state: 'done' } })
   const p = (await owner.call('PATCH', '/api/onboarding/welcome', { finish: true })).progress
-  expect(p.steps).toEqual({ profile: 'done', result: 'skipped', skills: 'skipped', files: 'skipped', tools: 'skipped', invite: 'skipped' })
+  // the invite is put off too, but ada and mia are already in the team, so it is recorded done (#918: a put-off step
+  // done elsewhere stops being named)
+  expect(p.steps).toEqual({ profile: 'done', result: 'skipped', skills: 'skipped', files: 'skipped', tools: 'skipped', invite: 'done' })
   expect(p.finishedAt).toBeString()
   // the same again keeps the time
   expect((await owner.call('PATCH', '/api/onboarding/welcome', { finish: true })).progress.finishedAt).toBe(p.finishedAt)

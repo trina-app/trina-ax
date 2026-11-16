@@ -1,5 +1,5 @@
 ---
-title: AI accounts
+title: AI providers
 description: Connect the Claude or ChatGPT account, or the API key, that answers your team's questions, step by step, with where to get each value.
 ---
 
@@ -7,10 +7,10 @@ Trina AX answers with an AI account your team connects: a Claude or ChatGPT acco
 included in Trina AX. Anthropic, OpenAI or the other AI company bills the account or key you connect, under that
 company's terms.
 
-The owner or an admin connects the team's accounts in **Admin › Providers**. When the team allows it, each person can
-also add their own in **Settings › AI accounts**: their own questions use it first.
+The owner or an admin connects the team's accounts in **Admin › AI providers**. When the team allows it, each person can
+also add their own in **Settings › AI providers**: their own questions use it first.
 
-![Admin › Providers: Claude Code and Codex, each with Add account, and the API engine, not set up yet](../images/connect/ai-accounts.webp "Admin › Providers")
+![Admin › AI providers: Claude Code and Codex, each with Add account, and the API engine, not set up yet](../images/connect/ai-accounts.webp "Admin › AI providers")
 
 ## Which one to pick
 
@@ -45,7 +45,7 @@ once. While you are there, set a monthly spend limit for your organization under
 [API key guide](https://docs.claude.com/en/api/admin-api/apikeys/get-api-key) for details.
 
 #### Open Add account
-In Trina AX, open **Admin › Providers**. In the **Claude Code** row, choose **Add account**, then **Claude API key**.
+In Trina AX, open **Admin › AI providers**. In the **Claude Code** row, choose **Add account**, then **Claude API key**.
 The dialog links to the Claude Console too: **Make a key in the Anthropic console**.
 
 #### Paste and connect
@@ -66,7 +66,7 @@ and people**. Choose **Connect**. Trina AX checks the key with Anthropic and the
 
 :::steps
 #### Open Add account
-In **Admin › Providers** (or **Settings › AI accounts** for your own), choose **Add account** under Claude, then
+In **Admin › AI providers** (or **Settings › AI providers** for your own), choose **Add account** under Claude, then
 **Claude subscription (Pro, Max, Team)**. Fill in **Name**, choose who uses it, read the notice and tick **I have read
 the notice above**.
 
@@ -104,7 +104,7 @@ secret key**. Pick the project it belongs to, then copy the key: OpenAI shows it
 project under **Limits**.
 
 #### Paste it in Trina AX
-In **Admin › Providers**, choose **Add account** in the **Codex** row, then **OpenAI API key (Codex)**. Fill in
+In **Admin › AI providers**, choose **Add account** in the **Codex** row, then **OpenAI API key (Codex)**. Fill in
 **Name**, paste the key into **API key**, choose who uses it and choose **Connect**.
 :::
 
@@ -119,13 +119,13 @@ In **Admin › Providers**, choose **Add account** in the **Codex** row, then **
 
 :::steps
 #### Start the sign-in
-In **Admin › Providers**, choose **Add account** in the **Codex** row, then **ChatGPT plan (Codex)**. Fill in
+In **Admin › AI providers**, choose **Add account** in the **Codex** row, then **ChatGPT plan (Codex)**. Fill in
 **Name**, choose who uses it, tick **I have read the notice above**, and choose **Start sign-in**.
 
 ![Add account with ChatGPT plan chosen: Name, Used by, the notice with its checkbox and Start sign-in](../images/connect/ai-chatgpt.webp "ChatGPT plan")
 
 #### Enter the code at OpenAI
-Trina AX shows **Open this address** and **Enter this code (within 15 minutes)**. Open the address, sign in with the
+Trina AX shows **Open the ChatGPT sign-in page** and **Enter this code (within 15 minutes)**. Open the page, sign in with the
 ChatGPT account, type the code and approve.
 
 #### Done
@@ -157,7 +157,7 @@ tools and costs can differ from Claude Code and Codex.
 
 :::steps
 #### Open the API row
-In **Admin › Providers**, choose **Set it up** under **API**.
+In **Admin › AI providers**, choose **Set it up** under **API**.
 
 #### Fill in the form
 Pick the **Provider**, check the **Model**, give it a **Display name**, paste the **API key** and type **Your password
@@ -169,11 +169,11 @@ again**. Choose **Save**.
 ## Your own account
 
 When an admin turns on **Let members add their own AI connection** (**Admin › Team settings**, **Members' own
-accounts**), everyone sees **Settings › AI accounts**: "Your questions use your own account first, then the team's."
+accounts**), everyone sees **Settings › AI providers**: "Your questions use your own account first, then the team's."
 Choose **Add account** under **Claude** or **ChatGPT** and follow the same steps as above. Only your own questions use
 it; admins can't use it or see its key.
 
-![Settings › AI accounts for a member: Claude and ChatGPT, each with Add account](../images/connect/ai-member.webp "Settings › AI accounts")
+![Settings › AI providers for a member: Claude and ChatGPT, each with Add account](../images/connect/ai-member.webp "Settings › AI providers")
 
 ## Voice input
 
@@ -192,5 +192,5 @@ Voice input turns speech into text through OpenRouter. On your own server, an ad
 | An account shows **Refused** or **Needs reconnecting** | The key was revoked or the sign-in ended. Open the account's **⋯** menu and choose **Replace token or key** or **Reconnect**. |
 | An account shows **Monthly limit used up** | The limit set in its **⋯** › **Monthly limit** was reached. Raise it or wait for next month. |
 
-More about the order accounts are used in, limits and engines: [Admin](admin.md#providers) and
+More about the order accounts are used in, limits and engines: [Admin](admin.md#ai-providers) and
 [Usage and limits](usage-and-limits.md).

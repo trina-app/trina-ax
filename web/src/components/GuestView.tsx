@@ -12,7 +12,7 @@ import { Info, X } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useT } from '../i18n'
-import { guestPlacePath, isGuestMe, meGuest } from '../lib/guests'
+import { guestFolderHref, guestPlacePath, isGuestMe, meGuest } from '../lib/guests'
 import { readProjectList, useProjects } from '../store/projects'
 import { useRooms } from '../store/rooms'
 import { useAiAccess } from '../store/aiAccess'
@@ -92,9 +92,10 @@ export function GuestProjectNote({ projectId }: { projectId: string }) {
 const NONE = new Set<string>()
 /**
  * The rail's places and phone tabs a guest does not get: 파일 (the team's files are not theirs; their project's files are
- * on its page), 프로젝트 when they have none (a guest in a room: Me.guest.place, else an empty projects list), 트리나
+ * on its page), 프로젝트 when they have none (a guest in no project: Me.guest.places, else an empty projects list), 트리나
  * (Ask Trina and its history) when their invite gives them no AI (useGuestAiOff): they land on their one place instead
- * (GuestLanding), and 대화 for a guest in a project while they have no conversation at all (nothing to open there).
+ * (GuestLanding), and 대화 for a guest in a project only (no group chat) while they have no conversation at all
+ * (nothing to open there). A guest in a group chat and a project gets both: the chat in 대화, the project in 프로젝트.
  */
 export function useGuestHidden(): ReadonlySet<string> {
   const me = useMe()
@@ -103,16 +104,17 @@ export function useGuestHidden(): ReadonlySet<string> {
   const listed = useProjects((s) => s.listed)
   const noRooms = useRooms((s) => s.loaded && !s.failed && s.rooms.length === 0)
   // a guest's projects list is read once, so a guest in a room loses the 프로젝트 place at once
-  useEffect(() => { if (guest && !meGuest(me)?.place) void readProjectList({ minAgeMs: 60_000 }).catch(() => {}) }, [guest]) // eslint-disable-line react-hooks/exhaustive-deps
-  const place = meGuest(me)?.place
-  const noProjects = place ? place.kind === 'room' : listed !== null && listed.size === 0
-  const noChats = place?.kind === 'project' && noRooms
+  const g = meGuest(me)
+  const named = !!g?.places.length
+  useEffect(() => { if (guest && !named) void readProjectList({ minAgeMs: 60_000 }).catch(() => {}) }, [guest]) // eslint-disable-line react-hooks/exhaustive-deps
+  const noProjects = named ? !g!.project : listed !== null && listed.size === 0
+  const noChats = named && !g!.room && noRooms
   return useMemo(() => (guest ? new Set(['files', ...(noProjects ? ['projects'] : []), ...(noAi ? ['ai'] : []), ...(noChats ? ['chats'] : [])]) : NONE), [guest, noProjects, noAi, noChats])
 }
 
 /**
- * A guest's one place as an address: their room or their project (Me.guest.place; until the server names it, the one
- * project they see, else their group chat, else the chats list). null while it is still being read, and for anyone who
+ * Where a guest opens, as an address: their group chat, else their project (Me.guest.places; until the server names
+ * them, the one project they see, else their group chat, else the chats list). null while it is still being read, and for anyone who
  * is not a guest.
  */
 export function useGuestPlacePath(): string | null {
@@ -130,6 +132,19 @@ export function useGuestPlacePath(): string | null {
   if (listed.size === 1) return `/projects/${[...listed][0]}`
   if (!roomsLoaded) return null
   return groupRoom ? `/rooms/${groupRoom}` : '/rooms'
+}
+
+/**
+ * For a guest: where a team folder opens (guestFolderHref, from the projects they see), or null where nothing does;
+ * undefined for anyone else (the 파일 screen is theirs). Links in answers and the preview's "open in Files" use it, so
+ * a guest is never sent to /files (which goes Home for them).
+ */
+export function useGuestFolderHref(): ((path: string, select?: string) => string | null) | undefined {
+  const me = useMe()
+  const guest = isGuestMe(me)
+  const byId = useProjects((s) => (guest ? s.byId : null))
+  useEffect(() => { if (guest) void readProjectList({ minAgeMs: 60_000 }).catch(() => {}) }, [guest])
+  return useMemo(() => (guest ? (path: string, select?: string) => guestFolderHref(path, Object.values(byId ?? {}), select) : undefined), [guest, byId])
 }
 
 /** Home for a guest whose invite gives them no AI (useGuestAiOff), and where a guest's sign-in lands: their one place. */

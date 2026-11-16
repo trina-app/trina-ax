@@ -138,6 +138,11 @@ int main(int argc, char **argv) {
     int fd = socket(AF_UNIX, SOCK_STREAM, 0); if (fd < 0) return fail("socket");
     if (connect(fd, (struct sockaddr *)&su, sizeof su) < 0) return fail("connect"); return 0;
   }
+  if (!strcmp(op, "run")) { // run argv[2..] found through PATH (as an engine runs `security`), its exit code
+    pid_t p = fork(); if (p < 0) return fail("fork");
+    if (p == 0) { execvp(a, argv + 2); _exit(127); }
+    int st; waitpid(p, &st, 0); return WIFEXITED(st) ? WEXITSTATUS(st) : 126;
+  }
   if (!strcmp(op, "exec")) {
     pid_t p = fork(); if (p < 0) return fail("fork");
     if (p == 0) { execl(a, a, (char *)0); _exit(127); }

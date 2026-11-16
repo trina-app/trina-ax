@@ -36,7 +36,8 @@ export type DiagnosticCheck = z.infer<typeof DiagnosticCheck>
 export const Diagnostics = z.object({
   version: z.string(),
   host: z.object({ os: z.string(), arch: z.string(), hostname: z.string() }),
-  disk: z.object({ teamFolderFreeBytes: z.number().int().nonnegative(), dataFreeBytes: z.number().int().nonnegative() }),
+  // null: the free space could not be read (server/src/system/disk-stat.ts); the disk checks then warn
+  disk: z.object({ teamFolderFreeBytes: z.number().int().nonnegative().nullable(), dataFreeBytes: z.number().int().nonnegative().nullable() }),
   queue: z.object({ running: z.number().int(), queued: z.number().int(), concurrency: z.number().int(),
     queuePolicyVersion: z.number().int().optional(), waitingUsers: z.number().int().optional(), oldestWaitMs: z.number().nonnegative().optional(),
     maxRunningPerUser: z.number().int().optional(), quarantined: z.number().int().optional(), deferredSchedules: z.number().int().optional(),

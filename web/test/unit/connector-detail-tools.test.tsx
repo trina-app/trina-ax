@@ -87,6 +87,12 @@ test('the one next step fits the reader and the reason; a reason the page does n
   expect(line('refused', 'oauth', {})).toBe(say('key', 'signIn'))
   expect(line('unreachable', 'none', {})).toBe(say('address', 'editAddress'))
   expect(line('unreachable', 'none', { phone: true })).toBe(say('address', 'onComputer'))
+  // QA TC-2939: an address that answered, but not as a connector, or by sending us elsewhere, says so (not "couldn't reach")
+  expect(line('not_mcp', 'none', {})).toBe(say('notMcp', 'editAddress'))
+  expect(line('redirect', 'bearer', {})).toBe(say('redirect', 'editAddress'))
+  expect(line('not_mcp', 'none', { phone: true })).toBe(say('notMcp', 'onComputer'))
+  expect(line('redirect', 'none', { manage: false })).toBe(say('redirect', 'askAdmin'))
+  expect(line('not_mcp', 'none', {})).not.toContain(translate('en', 'connectors.err.address'))
   expect(line('http_status', 'none', { phone: true })).toBe(say('service', 'checkAgain'))
   expect(line('refused', 'bearer', { manage: false })).toBe(say('key', 'askAdmin'))
   // an admin reading a team connection in Settings: it is managed in Admin

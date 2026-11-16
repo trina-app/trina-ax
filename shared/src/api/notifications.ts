@@ -79,7 +79,10 @@ export type PushEventType = z.infer<typeof PushEventType>
  * lead link, owner.transferred to the new owner, the old owner and the other admins, owner.reauth_locked to the owner
  * when a password re-check of theirs locked after too many wrong tries, and a member's ask to add an app the team has
  * not set up (service_request_notices; shared/src/api/service-requests.ts): service.request to the owners and the
- * admins (one per app), service.ready to the member once they can connect it, and account.reset_link to a person when a password reset link
+ * admins (one per app), service.ready to the member once they can connect it, service.closed to the member when the ask
+ * closed without the app (an admin's Dismiss, or the 30 days; service_request_closed_notices), files.stored_key to a
+ * person when files the AI saved for them earlier still hold one of their stored connection keys (stored_key_file_notices,
+ * migration 354; server/src/integrations/connections/file-scan.ts), and account.reset_link to a person when a password reset link
  * was made for their account, on the server or by an admin (reset_link_notices), and things done to the team from
  * outside it (hosting_notices): hosting.key_copied and hosting.exported to the owners when the hosting service copied
  * the AI connections' key or took a full export, relay.address_moved to the owners and admins when the relay stopped
@@ -89,11 +92,11 @@ export type PushEventType = z.infer<typeof PushEventType>
  * (room_app_notices; a push too: PushEventType), and room_app.leaver to the people who may manage an app in a room
  * when someone who was shown its address can no longer manage it (room_app_leaver_notices, migration 352; docs/DECISIONS.md
  * "Apps posting in rooms"). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'account.deletion_due', 'room_app.leaver'])
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'service.closed', 'files.stored_key', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'account.deletion_due', 'room_app.leaver', 'file.shared', 'file.access_requested', 'file.access_answered', 'file.unshared_by_move'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
-  createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project', 'integrations', 'admin_credentials', 'room', 'admin_members', 'admin_connectors', 'account_deletion']).nullable(),
+  createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project', 'integrations', 'admin_credentials', 'room', 'admin_members', 'admin_connectors', 'account_deletion', 'file']).nullable(),
   /** scheduled runs only: succeeded / finished with problems / failed (the inbox text follows it; older servers omit it) */
   outcome: ScheduleRunOutcome.nullable().optional(),
   /** 'schedule.success' and 'schedule.failure' for one task's run (not `review`), while the task is the person's and
@@ -153,9 +156,14 @@ export const InboxNotification = z.object({
    * (member null once the account is deleted; skill: its plain name), and how many people had run it then, of the
    * goal's target; older servers omit it */
   firstRun: z.object({ member: z.string().nullable(), skill: z.string(), runners: z.number().int().positive(), target: z.number().int().positive() }).optional(),
-  /** 'integration.template' and 'integration.template_reconnect' only, while the template is there and still for this
-   * person: its id and name (Settings › MCP opens it with ?template=<id>); older servers omit it */
-  template: z.object({ id: z.string(), name: z.string() }).optional(),
+  /** 'integration.template' and 'integration.template_reconnect' only, while the template is there: its id and name
+   * (Settings › Connectors opens it with ?template=<id>, link 'integrations' only while it is still for this person),
+   * and `signIn` for one each person signs in to with their own account (else they enter their own key); older servers
+   * omit it */
+  template: z.object({ id: z.string(), name: z.string(), signIn: z.literal(true).optional() }).optional(),
+  /** 'integration.template_reconnect' only: the template is no longer for this person, so their connection made from it
+   * went (nothing to connect again); older servers omit it */
+  templateLeft: z.literal(true).optional(),
   /** 'service.request' (the owners and the admins) and 'service.ready' (the member who asked): the app (Google Drive or a
    * Google app, shared/src/api/service-requests.ts). service.request: the newest member who asks, by display name
    * (null when none is left), how many others ask with them, and `open` while any request waits (the app opens its setup
@@ -166,7 +174,16 @@ export const InboxNotification = z.object({
   serviceRequest: z.object({
     service: RequestableService, name: z.string().nullable().optional(), others: z.number().int().nonnegative().optional(),
     open: z.boolean().optional(), added: z.literal(true).optional(),
+    /** 'service.closed' only: how the ask closed without the app (an admin's Dismiss, or the 30 days) */
+    closed: z.enum(['dismissed', 'expired']).optional(),
   }).optional(),
+  /** 'files.stored_key' only: how many of the files the AI saved earlier with one of my stored connection keys in them I
+   * may open now, and the first of them (team paths), read when shown. Never the key. */
+  keyFiles: z.object({ n: z.number().int().nonnegative(), files: z.array(z.object({ path: z.string() })) }).optional(),
+  /** 'connection.reconnect' for a person's own connection other than Google Drive, while it is theirs: its id, its name (a
+   * plain line) and its Google app (gmail, …; null for one added by its address or from the list), so the Inbox names it
+   * and opens its page. Google Drive's notice and older servers omit it. */
+  connection: z.object({ id: z.string(), name: z.string(), googleApp: z.string().nullable() }).optional(),
   /** 'drive.share_reconnect' only (admins), while the share is there: its name (link 'admin_connectors' opens Google
    * Drive's page in Admin › Connectors); older servers omit it */
   driveShare: z.object({ id: z.string(), name: z.string() }).optional(),
@@ -189,13 +206,27 @@ export const InboxNotification = z.object({
    * `title`: the chat's title, read now and only while I still see the chat (link 'chat' then opens it); `gone`: I no
    * longer see it ("This chat is no longer shared with you": no title, no link). Never stored text. Older servers omit it */
   chatShared: z.object({ name: z.string().nullable(), title: z.string().nullable(), gone: z.literal(true).optional() }).optional(),
+  /** the 'file.*' notices (docs/DECISIONS.md "A member shares their own files", file_share_notices). file.shared:
+   * `by` shared `name` with me (link 'file' opens /f/<linkId>). file.access_requested (to the file's owner, or the team
+   * owner and admins for a file with no owner): `by` asked to open `name`, their `note` (plain text), `requestId` and
+   * `state` (pending until someone answers; Share / Decline while pending and the viewer may share). file.access_answered
+   * (to the requester, on a decline): nothing about the file (no name, no link). file.unshared_by_move (to the owner):
+   * `by` moved `name` somewhere fewer people can open, so the people it was shared with lost it. Names are read now;
+   * `gone`: the file or the request is no longer there (no name, no link). Older servers omit it */
+  fileShare: z.object({
+    by: z.string().nullable(), name: z.string().nullable(), linkId: z.string().nullable(),
+    note: z.string().optional(), requestId: z.string().optional(),
+    state: z.enum(['pending', 'approved', 'declined', 'closed']).optional(),
+    canAnswer: z.literal(true).optional(), gone: z.literal(true).optional(),
+  }).optional(),
   /** 'skill.suggested' for a batch of skill folders a member sent (docs/DECISIONS.md "MC"; for the owners and admins):
    * who sent it, while their account is there, and how many skills it held. "민준 님이 스킬 2개를 팀에 올리자고 했어요";
    * the link opens Skills › 검토 at that person. Never a skill's name. Older servers omit it */
   contribution: z.object({ name: z.string().nullable(), n: z.number().int().positive() }).optional(),
   /** 'schedule.failure' only: the run did not start because it needs the person's own key for a template (named) they
-   * have not connected, or whose key stopped working; older servers omit it */
-  needsKey: z.object({ templateId: z.string(), name: z.string() }).optional(),
+   * have not connected, or whose key stopped working; older servers omit it. `signIn`: the template is one each member
+   * signs in to with their own account (no key); older servers omit it */
+  needsKey: z.object({ templateId: z.string(), name: z.string(), signIn: z.literal(true).optional() }).optional(),
   /** 'schedule.failure' only: the run did not start because its owner no longer sees the task's project (its folder's
    * access was taken away, or it is in the trash); older servers omit it */
   projectGone: z.literal(true).optional(),

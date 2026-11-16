@@ -53,6 +53,8 @@ export const stateLabel = (s: Schedule, t: T) => {
 export const outcomeLabel = (s: Schedule, t: T) => (!s.lastOutcome ? ''
   // a project that is still there, only for its members now: not "Project gone" (QA TC-360)
   : s.lastOutcome === 'project_gone' && s.lastMembersOnly ? t('scheduleTemplates.outcome.members_only')
+  // a template each member signs in to: a sign-in, not a key (QA TC-3052)
+  : s.lastOutcome === 'needs_key' && s.lastNeed?.signIn ? t('scheduleTemplates.outcome.needs_signIn')
   : t(`scheduleTemplates.outcome.${s.lastOutcome}` as MessageKey))
 
 const RUN_STATE: Partial<Record<NonNullable<Schedule['lastOutcome']>, MessageKey>> = {
@@ -72,7 +74,8 @@ export const runStateLabel = (s: Schedule, t: T) => {
  *  success or before the first run. The API gives only the outcome code, not the error text, so this explains the code. */
 export const outcomeReason = (s: Schedule, t: T) =>
   // a run that needed the owner's own key for an admin's template names it ("…your own key for Demo Wiki…")
-  s.lastOutcome === 'needs_key' ? t('scheduled.reason.needs_keyNamed', { name: s.lastNeed?.name ?? '' })
+  // (a template each member signs in to: "Sign in to Wiki with your own account…", QA TC-3052)
+  s.lastOutcome === 'needs_key' ? t(s.lastNeed?.signIn ? 'scheduled.reason.needs_signInNamed' : 'scheduled.reason.needs_keyNamed', { name: s.lastNeed?.name ?? '' })
     : s.lastOutcome === 'project_gone' && s.lastMembersOnly ? t('scheduled.reason.members_only')
     : s.lastOutcome && s.lastOutcome !== 'done' ? t(`scheduled.reason.${s.lastOutcome}` as MessageKey) : ''
 
@@ -86,7 +89,7 @@ export const runReason = (r: ScheduleRun, t: T, o: { membersOnly?: boolean } = {
   // the label already says it ("Failed", "Stopped"): a reason only where it adds something
   if (r.status === 'running' || r.status === 'done' || r.status === 'stopped') return ''
   if (r.status === 'error') return r.error ?? ''
-  if (r.status === 'needs_key') return r.needName ? t('scheduled.runReason.needs_keyNamed', { name: r.needName }) : t('scheduled.runReason.needs_key')
+  if (r.status === 'needs_key') return r.needName ? t(r.needSignIn ? 'scheduled.runReason.needs_signInNamed' : 'scheduled.runReason.needs_keyNamed', { name: r.needName }) : t('scheduled.runReason.needs_key')
   if (r.status === 'project_gone' && o.membersOnly) return t('scheduled.runReason.members_only')
   return t(`scheduled.runReason.${r.status}` as MessageKey)
 }

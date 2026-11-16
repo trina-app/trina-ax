@@ -136,8 +136,11 @@ function Profile() {
   const me = useMeStrict()
   // who sees the profile, and the role line: a guest is seen only by the people of their one place and is in no group
   // (lib/guests.ts), so no "No groups" for them
-  const guestPlace = meGuest(me)?.place
-  const visible = !isGuestMe(me) ? t('profile.visible') : guestPlace?.name ? t('profile.visibleGuest', { place: guestPlace.name }) : t('profile.visibleGuestSome')
+  // a guest: the people of their group chat and/or project, by name
+  const named = (meGuest(me)?.places ?? []).filter((p) => p.name)
+  const visible = !isGuestMe(me) ? t('profile.visible')
+    : named.length === 2 ? t('profile.visibleGuestTwo', { place: named[0]!.name!, other: named[1]!.name! })
+    : named.length === 1 ? t('profile.visibleGuest', { place: named[0]!.name! }) : t('profile.visibleGuestSome')
   const groupsLine = me.groups.map((g) => g.name).join(', ') || (isGuestMe(me) ? '' : t('settings.noGroups'))
   const signedIn = useSession((s) => s.signedIn)
   const setLocale = useSession((s) => s.setLocale)

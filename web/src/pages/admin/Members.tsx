@@ -38,7 +38,7 @@ import { toast } from '../../store/ui'
 import { LOCALES, useLocale, useT, type MessageKey } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
 import QrCode from '../../components/QrCode'
-import { Badge, Button, CopyButton, Field, IconButton, Modal, Skeleton, TabPanel, Tabs, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../../components/ui'
+import { Badge, Button, CopyButton, Field, IconButton, Modal, TabPanel, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../../components/ui'
 import { PageActions } from '../../components/PageActions'
 import { PhoneFilters } from '../../components/PhoneFilters'
 import { CompactRow } from '../../components/CompactRow'
@@ -60,8 +60,7 @@ import { AdminBarActions, BarAdd, BarMore } from './barActions'
 import { confirmOriginKept } from './originKept'
 import { loadAdminInvites, readAdmin, useAdminGroups, useAdminRead, useAdminUsersNoAi } from '../../store/adminPeople'
 import { GuestsSection } from './Guests'
-import { GuestPlacePicker } from './GuestPlacePicker'
-import { GuestInviteDialog, GuestsFull, SeePlansLink, guestsFullOf, useGuestLimit, type InvitePlace } from '../../components/GuestInvite'
+import { GuestChoiceButtons, GuestChoiceForm, GuestChoicePanel, InviteKindTabs, useGuestChoice, type InviteKind } from '../../components/GuestInviteChoice'
 import { BudgetForm, budgetExceeded, budgetLimitText, budgetUsedText, loadBudgets, personBudgets } from './BudgetForm'
 import { inviteGuestName } from '../../lib/guests'
 import { useProjects } from '../../store/projects'
@@ -133,7 +132,9 @@ export default function Members() {
   const leadCard = useHandover((s) => s.state?.card ?? null)
   useLeadOffered()
   // the person an inbox entry points at (?member=<id>): marked, and scrolled to once
-  const focusId = useSearchParams()[0].get('member')
+  const [params] = useSearchParams()
+  const focusId = params.get('member')
+  const initialRole = params.get('role')
   const scrolled = useRef<string | null>(null)
   const focusRow = useCallback((el: HTMLElement | null) => {
     if (!el || scrolled.current === focusId) return
@@ -158,8 +159,9 @@ export default function Members() {
   const roomTitle = useRoomTitle()
   const guestWhere = (pl: NonNullable<Invite['guestPlace']>) => {
     const room = pl.kind === 'room' ? myRooms.find((r) => r.id === pl.id) : undefined
-    // a project's name comes with the link (Invite.guestPlace.name); a room's only when I am in it
-    const name = pl.kind === 'project' ? pl.name || projectsById[pl.id]?.name : room && roomTitle(room)
+    // the place's name comes with the link (Invite.guestPlace.name; an older server sent a project's only); a room
+    // with no name of its own: its title when I am in it (guest walkthrough S8)
+    const name = pl.name || (pl.kind === 'project' ? projectsById[pl.id]?.name : room && roomTitle(room))
     return name ? t(pl.kind === 'room' ? 'guest.admin.room' : 'guest.admin.project', { place: name }) : t(pl.kind === 'room' ? 'guest.admin.inviteRoom' : 'guest.admin.inviteProject')
   }
   // only the links that still work: a used or expired one says nothing new (the person is in the lists below)
@@ -235,7 +237,8 @@ export default function Members() {
 
   // search and role filter (like the Claude Console's Members): they narrow what is loaded, nothing is asked again
   const [query, setQuery] = useState('')
-  const [roleFilter, setRoleFilter] = useState<RoleFilter>('all')
+  // ?role=guest (Admin Home's Guests card) opens the list filtered to guests
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>(() => (initialRole === 'guest' ? 'guest' : 'all'))
   const q = query.trim().toLocaleLowerCase(locale)
   const shown = (list: User[]) => list.filter((u) => (roleFilter === 'all' || u.role === roleFilter) && matches(q, locale, u.name, u.username, u.email))
   /** the owner changes roles (members ↔ admins) right in the row, on anyone but themselves; everyone else reads it */
@@ -751,21 +754,17 @@ function ScheduleReviews() {
 }
 
 /** Invite to team: a team member (a link with a role, groups and how long it works) or a guest (docs/DECISIONS.md "Guests
- * from Admin › Invite to team"): the one place they join (GuestPlacePicker), then the guest invite form of the rooms and
- * projects (GuestInviteDialog), whose Cancel comes back here. A full plan says so in place of the places. */
+ * from Admin › Invite to team"): the shared Guest half (components/GuestInviteChoice.tsx, also in "Invite people"): the
+ * one place they join, then the guest invite form of the rooms and projects, whose Cancel comes back here. A full plan
+ * says so in place of the places. */
 function InviteDialog({ groups, onClose, onCreated, onGuestDone }: { groups: Group[]; onClose: () => void; onCreated: (c: CreatedInvite) => void; onGuestDone: () => void }) {
   const t = useT()
   const act = useAction()
   const me = useMeStrict()
-  const [kind, setKind] = useState<'member' | 'guest'>('member')
-  const [place, setPlace] = useState<InvitePlace | null>(null)
+  const [kind, setKind] = useState<InviteKind>('member')
   const kinds = useId()
   const guest = kind === 'guest'
-  // the guest cap, read once Guest is picked: a full plan says so instead of the places
-  const limit = useGuestLimit(guest)
-  // or told by a refused Create link (the plan filled up meanwhile): the limit then, not the places again
-  const [refusedFull, setRefusedFull] = useState<{ n: number; manageUrl?: string } | null>(null)
-  const guestsFull = refusedFull ?? guestsFullOf(limit)
+  const choice = useGuestChoice(guest)
   const [role, setRole] = useState<MemberRole>('member')
   const [groupIds, setGroupIds] = useState<string[]>([])
   const [days, setDays] = useState(7)
@@ -784,18 +783,14 @@ function InviteDialog({ groups, onClose, onCreated, onGuestDone }: { groups: Gro
   }, [offered])
   const leadGroupId = welcome?.teamGroup?.id
   const shownGroupIds = flagged ? (leadGroupId && groups.some((g) => g.id === leadGroupId) ? [leadGroupId] : []) : groupIds
-  if (place) return <GuestInviteDialog place={place} onClose={onGuestDone} onCancel={() => setPlace(null)} onFull={(cap) => { setRefusedFull(cap); setPlace(null) }} />
+  if (choice.place) return <GuestChoiceForm choice={choice} onDone={onGuestDone} />
   return (
     <Modal
       open
       onClose={onClose}
-      title={t('members.inviteToTeam')}
-      footer={guest ? (
-        <>
-          <Button variant={guestsFull && !guestsFull.manageUrl ? 'primary' : 'ghost'} onClick={onClose} data-testid="invite-guest-close">{t(guestsFull ? 'common.close' : 'common.cancel')}</Button>
-          {guestsFull?.manageUrl && <SeePlansLink url={guestsFull.manageUrl} />}
-        </>
-      ) : (
+      // titled by what is picked, never "Invite to team" over "Someone from outside the team" (walkthrough N1)
+      title={t(guest ? 'guest.invite.title' : 'members.inviteTitleMember')}
+      footer={guest ? <GuestChoiceButtons choice={choice} admin onClose={onClose} /> : (
         <>
           <Button variant="ghost" onClick={onClose}>
             {t('common.cancel')}
@@ -818,16 +813,8 @@ function InviteDialog({ groups, onClose, onCreated, onGuestDone }: { groups: Gro
         </>
       )}
     >
-      <div className="mb-4 flex" data-testid="invite-kind">
-        <Tabs segmented value={kind} onChange={setKind} label={t('members.inviteKind')} panels={kinds}
-          items={[{ id: 'member', label: t('members.inviteKindMember') }, { id: 'guest', label: t('members.inviteKindGuest') }]} />
-      </div>
-      {guest ? (
-        <TabPanel base={kinds} value="guest" className="space-y-4">
-          <p className="text-sm leading-6 break-keep text-muted" data-testid="invite-guest-line">{t('members.inviteGuestLine')}</p>
-          {limit === undefined ? <Skeleton lines={3} /> : guestsFull ? <GuestsFull n={guestsFull.n} admin /> : <GuestPlacePicker onPick={setPlace} />}
-        </TabPanel>
-      ) : (
+      <InviteKindTabs value={kind} onChange={setKind} panels={kinds} />
+      {guest ? <GuestChoicePanel choice={choice} panels={kinds} admin /> : (
       <TabPanel base={kinds} value="member" className="space-y-4">
         {offered && <LeadFlag checked={lead} onChecked={setLead} label={leadFor} onLabel={setLeadFor} />}
         <fieldset disabled={flagged} className="space-y-4 disabled:opacity-60" data-testid="invite-settings">

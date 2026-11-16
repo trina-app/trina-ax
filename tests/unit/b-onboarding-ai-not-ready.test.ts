@@ -1,6 +1,6 @@
 // "Trina isn't ready yet" (chat error engine_missing, owner decision 2026-11-11): a member's [Tell an admin] is
 // POST /api/me/ai-not-ready/tell. The owner(s) and admins each get one Inbox notice ("<name> tried to use Trina but it
-// isn't set up yet", opening Admin › AI accounts), other members nothing; a second press within the hour sends nothing
+// isn't set up yet", opening Admin › AI providers), other members nothing; a second press within the hour sends nothing
 // (the server's limit) and still says told; after the hour it comes back unread at the top; the owner and admins cannot
 // press it (they connect the AI themselves). It lives beside the member's ask for an AI connection and changes nothing
 // of it: that ask's "알렸어요" and its settling stay as they were, and a not-ready notice is never settled.

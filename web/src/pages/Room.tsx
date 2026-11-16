@@ -202,6 +202,11 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   }), [roomId, threadId, closeThread, setSideOpen])
   // 초대하기: into this group chat, or from a DM a new group chat with the other person ticked (the DM stays)
   const [picker, setPicker] = useState<PickerMode | null>(null)
+  // from the room info and from the header's "⋯" (its first row: Invite a guest, in a group chat)
+  const invitePeople = () => {
+    setShowMembers(false)
+    setPicker(room?.kind === 'dm' ? { kind: 'new', preselect: room.gone ? [] : room.peers.map((p) => p.id) } : { kind: 'invite', roomId })
+  }
   // the "⋯"'s 알림 설정 opens the bell's own menu (a phone shows no bell: the keyboard then goes back to the "⋯")
   const [notifyRequest, setNotifyRequest] = useState(0)
   const moreRef = useRef<HTMLButtonElement>(null)
@@ -467,6 +472,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
           <RoomMenu
             room={room}
             onNotify={() => setNotifyRequest((n) => n + 1)}
+            onInvite={invitePeople}
             className="shrink-0"
             buttonClassName="touch-hit"
             buttonRef={moreRef}
@@ -527,10 +533,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
         room={room}
         members={roomMembers}
         meId={meId}
-        onInvite={() => {
-          setShowMembers(false)
-          setPicker(room?.kind === 'dm' ? { kind: 'new', preselect: room.gone ? [] : room.peers.map((p) => p.id) } : { kind: 'invite', roomId })
-        }}
+        onInvite={invitePeople}
       />
       <PeoplePicker open={!!picker} onClose={() => setPicker(null)} mode={picker ?? undefined} />
     </FileDropZone>

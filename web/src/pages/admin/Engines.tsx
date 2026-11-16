@@ -1,4 +1,4 @@
-// Admin › Providers (/admin/providers, in the Connections group; it was "AI engines" plus a separate "AI connections"
+// Admin › AI providers (/admin/providers, in the Connections group; it was "AI engines" plus a separate "AI connections"
 // page, and /admin/engines and /admin/credentials lead here; QA TC-191 made it as quiet as Team settings): one row per
 // engine (Claude Code, Codex, API): its provider's mark, its name, one state and the on/off switch, what is missing in
 // one line. Under it, the provider's accounts in the order they are used, with Add account (the owner or an admin; the
@@ -13,7 +13,8 @@
 import clsx from 'clsx'
 import { ChevronRight } from 'lucide-react'
 import { useEffect, useId, useState, type ReactNode } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { setupReturnStep } from '../../lib/welcome'
 import { CompactRow } from '../../components/CompactRow'
 import type { EngineId, EngineStatus } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
@@ -154,8 +155,10 @@ function engineState(t: ReturnType<typeof useT>, e: EngineStatus): { ok: boolean
 function EngineLink({ e, look }: { e: EngineStatus; look: boolean }) {
   const t = useT()
   const st = engineState(t, e)
+  // opened from the welcome steps: the engine's page keeps their way back (on a phone it is the page's one back)
+  const { state } = useLocation()
   return (
-    <CompactRow testId="engine-row" data={{ 'data-engine': e.id, 'data-look': look ? 'true' : undefined }} to={`/admin/providers/${e.id}`}
+    <CompactRow testId="engine-row" data={{ 'data-engine': e.id, 'data-look': look ? 'true' : undefined }} to={`/admin/providers/${e.id}`} state={setupReturnStep(state) ? state : undefined}
       lead={<ProviderLogo mark={ENGINE_MARK[e.id]} small />} title={<span className="text-ink">{e.label}</span>}
       chip={<span className="flex items-center gap-3">
         {e.enabled ? <Badge tone={st.ok && !look ? 'ok' : 'warn'}>{st.text}</Badge> : <span className="text-xs text-faint">{t('appConnectors.off')}</span>}

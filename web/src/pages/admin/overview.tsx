@@ -20,7 +20,7 @@ import { releaseCannotRead, releasePaused } from '../../lib/updateOutcome'
 import { homeCheck, technicalEngineState } from './plain'
 
 /** AI connection states an admin should act on (a member's own connection is theirs to fix, so team ones only): Home's
- * attention rows, and Providers keeps such an account in sight on a phone */
+ * attention rows, and AI providers keeps such an account in sight on a phone */
 export const CREDENTIAL_PROBLEMS: CredentialState[] = ['expiring', 'expired', 'invalid', 'needs_reconnect', 'over_limit']
 /** an engine nobody set up: no program or API settings, or no sign-in or AI connection of its kind (the API engine's
  * not_logged_in is its key refused: set up, and broken) */
@@ -138,7 +138,9 @@ export function useAdminOverview() {
   const act = useAction()
 
   const item = (name: string, state: string) => t('adminHome.item', { name, state })
-  const active = users.data?.items.filter((u) => u.status === 'active') ?? []
+  // team members only (the Members page's own count); guests take no seat and have their own card (Home)
+  const active = users.data?.items.filter((u) => u.status === 'active' && u.role !== 'guest') ?? []
+  const guests = users.data?.items.filter((u) => u.role === 'guest') ?? []
   const noAiPeople = users.data ? users.data.items.filter((u) => users.data?.noAi?.includes(u.id)) : []
   const noAi = noAiPeople.map((u) => u.name)
   // every one of them only waits for a limit to end (noAiUntil): the line says until when (the last end: all have AI then)
@@ -213,7 +215,7 @@ export function useAdminOverview() {
 
   return {
     owner, users, engines, credentials, services, plugins, usage, audit, storage, diagnostics,
-    active, openInvites, noAi, badEngines, noEngine, limitedEngines, badCredentials, badServices, storageBad, checksToLook,
+    active, guests, openInvites, noAi, badEngines, noEngine, limitedEngines, badCredentials, badServices, storageBad, checksToLook,
     allChecksOk, attention, ready, unchecked, defaultEngine, latest, install, toFix,
   }
 }

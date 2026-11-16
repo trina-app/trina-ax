@@ -29,7 +29,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } f
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { chatErrorReason, uuidv7, type Attachment, type Chat, type EngineId, type Project } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
-import { isPeopleShared, noLongerMemberOf, noLongerSharedWith, privateInTeamProject, refusalKey, refusalReason, sharedRights } from '../lib/sharedChat'
+import { isPeopleShared, noLongerMemberOf, noLongerSharedWith, privateInTeamProject, refusalKey, refusalReason, shareKindOf, sharedRights } from '../lib/sharedChat'
 import { answerTooLong, BoxAnswers, choiceWaiting, composerAnswer, composerQuestion, picksOf } from '../lib/askAnswer'
 import { desktop, isDesktop, usePaneState } from '../lib/desktop'
 import { rememberChat } from '../lib/teamAttach'
@@ -48,6 +48,8 @@ import { freshDraft, useWideningDraft } from '../store/wideningDraft'
 import { useSessionMarkers } from '../store/sessionMarkers'
 import { useEngines } from '../store/engines'
 import { canChooseEngine, isAdmin, useMeStrict } from '../store/session'
+import { useRooms } from '../store/rooms'
+import { isGuestMe } from '../lib/guests'
 import { emptyThread, rowButtonsWait, runningMessage, type ViewMessage } from '../store/thread'
 import { QueueFull, useSendQueue } from '../store/sendQueue'
 import { toast } from '../store/ui'
@@ -62,7 +64,9 @@ import { ChatTitleMenu } from '../components/chat/ChatTitleMenu'
 import { PrivateChatMark, SharedChatMark, SharedReadOnly } from '../components/chat/SharedChat'
 import { WhoSeesLine } from '../components/chat/WhoSees'
 import { askPrivately, askPrivatelyHome, lastOwnQuestion } from '../components/chat/privateAsk'
-import { openChatShare, useSharedWithNames } from '../components/chat/ChatShareDialog'
+import { openChatShare, startShare, useSharedWithNames } from '../components/chat/ChatShareDialog'
+import { HeaderShare, WhoSeesWords } from '../components/HeaderShare'
+import { PeopleStack, useProjectPeople } from '../components/ProjectPeople'
 import { ProjectMembersDialog } from '../components/ProjectMembersDialog'
 import { useProjects } from '../store/projects'
 import { useTrashLines } from '../components/ProjectTrashNote'
@@ -131,6 +135,7 @@ function ChatView({ chatId }: { chatId: string }) {
   const { scroller, content, stick } = list
   const composer = useRef<ComposerHandle>(null)
   const guestNoAi = useGuestNoAi()
+  const guestHere = isGuestMe(me)
   const [olderBusy, setOlderBusy] = useState(false)
   const models = useEngines((s) => s.models)
   const engines = useEngines((s) => s.engines)
@@ -138,7 +143,10 @@ function ChatView({ chatId }: { chatId: string }) {
   // the engine / model are the admin's choice: the picker and "retry with another model" only for people allowed
   const choose = canChooseEngine(me)
   // "대화방에 보내기" only from a chat known not to be confidential (Safe operations 1A: every chat while the server says so)
-  const shareable = !!chat && !chat.confidential && !me.server.allChatsConfidential
+  // a guest with no conversation to send to (a project's guest, usually): no button that opens an empty list (guest
+  // walkthrough S1). A member always has the everyone room
+  const guestNowhere = useRooms((s) => isGuestMe(me) && s.loaded && !s.failed && s.rooms.length === 0)
+  const shareable = !!chat && !chat.confidential && !me.server.allChatsConfidential && !guestNowhere
   const actions = useChatActions()
   // a shared project chat: what this person may do in it, whose question is being answered (not mine), and read-only
   // while safe operations are on
@@ -182,6 +190,21 @@ function ChatView({ chatId }: { chatId: string }) {
       openLabel={people ? t('chat.share.changeWho') : undefined}
     />
   ) : undefined
+  // Share at the top right of the header (docs/DECISIONS.md "Share in the title row"; components/HeaderShare.tsx), the
+  // one place to share a chat (the title menu has no Share any more): what the title menu's Share opened (shareKindOf:
+  // the Share dialog of my chat outside projects, the members' share of my private chat in a team project, the
+  // explanation with Move of my chat in a personal project); on a shared project chat, the project's members dialog for
+  // whoever may change them (as the line under the box). Anyone else: no button, who sees it stays beside where it was.
+  const shareKind = chat && !chat.deletedAt ? shareKindOf(chat, project, me.user.id, !!me.server.allChatsConfidential) : null
+  const projectChat = !!shared && !people
+  const onShare = shareKind ? () => startShare({ id: chat!.id, title: chat!.title ?? title, projectId: chat!.projectId, shared: chat!.shared }, shareKind) : projectChat && project?.membersEditable && !chat?.deletedAt ? () => setMembers(true) : undefined
+  // who sees it, beside Share (a computer; a phone's line under the box says it): a shared project chat by its project's
+  // faces (they open the members, read only for whoever cannot change them), else in words
+  const projectPeople = useProjectPeople(projectChat && project ? project : null)
+  const faces = projectChat && projectPeople && projectPeople.people.length > 1 ? projectPeople.people : null
+  const whoWords = !chat ? null : !shared ? t('chat.whoMe') : shared.audienceHidden ? t('chat.sharedLabel') : t('projects.visibilityPeople', { n: shared.audience })
+  const headerWho = faces ? <PeopleStack people={faces} onOpen={() => setMembers(true)} testId="chat-header" />
+    : whoWords ? <WhoSeesWords words={whoWords} onOpen={people && rights.creator && !chat?.deletedAt ? () => openChatShare(chat!) : projectChat && project ? () => setMembers(true) : undefined} testId="chat-who-sees" /> : null
   // someone else's chat shared with me: when it can't be opened any more, it says so (QA TC-1405)
   const wasSharedWithMe = useRef(false)
   if (people && shared && shared.by.id !== me.user.id) wasSharedWithMe.current = true
@@ -556,7 +579,10 @@ function ChatView({ chatId }: { chatId: string }) {
           {/* a chat only I see in a team project: its lock, where a shared one has its people (QA TC-1068) */}
           {!shared && chat && privateInTeamProject(chat, project) && <PrivateChatMark />}
         </div>
+        {/* who sees it and Share (components/HeaderShare.tsx); a phone: the Share icon only, beside a new chat */}
+        {chat && !phone && <HeaderShare who={headerWho} onShare={onShare} testId="chat-share" />}
         {isDesktop() && <BrowserToggle />}
+        {chat && phone && <HeaderShare icon onShare={onShare} testId="chat-share" />}
         {/* a new chat: 트리나's Home, as that tab at its root when this chat sits on another tab's stack (a project's) */}
         <IconButton label={t('sidebar.askAi', { name: aiName(t) })} onClick={() => openHome(navigate, me.user.id, { compose: true })} className="size-11 shrink-0 md:hidden" data-testid="chat-new">
           <AiMark />
@@ -605,7 +631,8 @@ function ChatView({ chatId }: { chatId: string }) {
           {/* I answered the AI, and the answer waits for a free place among the team's answers (Chat.waitingForPlace) */}
           {chat?.waitingForPlace && <p className="pb-2 text-sm text-muted" role="status" data-testid="waiting-for-place">{t('chat.waitingForPlace')}</p>}
           {/* one suggestion under the newest answer: the welcome invite on the first result, else schedule or PPT */}
-          <ResultSuggestion chatId={chatId} messages={messages} busy={busy} onSend={(text) => void onSend(text, []).catch(fail)} />
+          {/* (not for a guest: no team skills, schedules or welcome invite are theirs, and the server refuses it) */}
+          {!guestHere && <ResultSuggestion chatId={chatId} messages={messages} busy={busy} onSend={(text) => void onSend(text, []).catch(fail)} />}
           {/* the newest answer failed for want of AI: its own line has the button, one is enough */}
           {!noAiError(messages.at(-1)) && <AiAccessBanner />}
           <Composer

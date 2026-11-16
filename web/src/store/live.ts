@@ -1,7 +1,8 @@
 // Wires the WebSocket to the stores: one RealtimeClient per signed-in window.
 import { PRODUCT } from '@mycel/shared'
 import type { CredentialLogin, FileChange, Memory, ServerEvent, ServerEventData } from '@mycel/shared/api'
-import { renewWindowId, windowId } from '../lib/api'
+import { api, API, renewWindowId, windowId } from '../lib/api'
+import { guestRemoval } from '../lib/signedOut'
 import { BrowserRelay } from '../lib/browserRelay'
 import { browserSettingsBridge, desktop } from '../lib/desktop'
 import { openTeamFile } from '../lib/sidePanel'
@@ -273,7 +274,17 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
         // elsewhere"); docs/DECISIONS.md "Guests: only what they were invited to"
         const st = useSession.getState().status
         const me = st.kind === 'signed-in' ? st.me : null
-        if (ev.data.reason === 'disabled' && isGuestMe(me)) useSession.getState().signedOut('removed', me!.team.name)
+        if (ev.data.reason === 'disabled' && isGuestMe(me)) {
+          // whether they left their place themselves or were taken out is the server's to say (the 401's params.guest):
+          // asked first, so the screen never says "no longer in" for a moment before "You left" (QA TC-3225)
+          const team = me!.team.name
+          // (the link closing right after may have signed out as "expired" meanwhile: this event knows better)
+          const still = () => { const st = useSession.getState().status; return st.kind === 'signed-in' || (st.kind === 'signed-out' && (st.reason === 'expired' || st.reason === 'ended')) }
+          api.call(API.me).then(
+            () => { if (still()) useSession.getState().signedOut('removed', team) },
+            (e) => { if (!still()) return; const g = guestRemoval(e); useSession.getState().signedOut(g?.how ?? 'removed', g?.team ?? team) },
+          )
+        }
         else useSession.getState().signedOut('ended')
       }
       return

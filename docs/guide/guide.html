@@ -573,7 +573,7 @@ dl.kv dd{ color:var(--ink-2);}
     <table class="t" style="flex:1">
       <tr><th style="width:17mm">역할</th><th>할 수 있는 일</th></tr>
       <tr><td><b>팀장</b></td><td>관리자가 하는 모든 일 + <b>관리자 만들기</b>(관리자 역할로 추가·초대), <b>멤버 삭제</b>, <span class="ui">시스템</span>(진단·백업·복원·업데이트·내보내기).</td></tr>
-      <tr><td><b>관리자</b></td><td><span class="ui">멤버·초대</span>, <span class="ui">그룹</span>, <span class="ui">폴더 권한</span>, <span class="ui">AI 엔진</span>(사용 한도 포함), <span class="ui">사용량</span>, <span class="ui">활동 로그</span>, <span class="ui">팀 설정</span>. 다른 사람의 개인 폴더를 뺀 모든 폴더에 쓸 수 있어요.</td></tr>
+      <tr><td><b>관리자</b></td><td><span class="ui">멤버·초대</span>, <span class="ui">그룹</span>, <span class="ui">폴더 권한</span>, <span class="ui">AI 제공사</span>, <span class="ui">사용량</span>, <span class="ui">활동 로그</span>, <span class="ui">팀 설정</span>(AI 기본값·사용 한도 포함). 다른 사람의 개인 폴더를 뺀 모든 폴더에 쓸 수 있어요.</td></tr>
       <tr><td><b>팀원</b></td><td>폴더 권한에 따라 정해진 폴더만 보고 써요.</td></tr>
     </table>
     <figure class="shot" style="flex:none;width:36mm"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div><figcaption>관리자 메뉴</figcaption></figure>
@@ -634,14 +634,14 @@ dl.kv dd{ color:var(--ink-2);}
     </div>
   </div>
   <h3>AI 엔진 고르기 — 누가, 무엇으로</h3>
-  <p><span class="ui">AI 엔진</span> 화면의 <b>팀 기본값</b>이 모든 답의 엔진과 모델이에요(처음에는 Claude Code, 기본 모델). 팀원은 채팅에서 엔진을 고르지 않고 이 기본값으로 답을 받아요. 같은 화면의 <b>엔진 선택 권한</b>에서 바꿀 수 있어요.</p>
+  <p><span class="ui">팀 설정</span> › <b>AI 기본값</b>이 모든 답의 엔진과 모델이에요(처음에는 Claude Code, 기본 모델). 팀원은 채팅에서 엔진을 고르지 않고 이 기본값으로 답을 받아요. 같은 화면의 <b>엔진 선택 권한</b>에서 바꿀 수 있어요.</p>
   <ul>
     <li><b>팀원이 엔진 고르기 허용</b> — 기본은 <span class="ui">허용 안 함</span>이에요. <span class="ui">모든 팀원</span> 또는 <span class="ui">고른 그룹·사람만</span>으로 바꾸면 그 사람들의 입력창에 엔진 고르기와 <span class="ui">다른 모델로 다시 시도</span>, 설정의 <span class="ui">내 기본 엔진/모델</span>이 생겨요. owner와 관리자는 언제나 고를 수 있어요. 이미 있는 채팅은 쓰던 엔진을 그대로 쓰고, 그 엔진을 끄면 팀 기본 엔진으로 이어서 답해요(답변에 표시돼요).</li>
     <li><b>다른 AI로 대신 답하기</b> — 직접 설치한 서버는 기본으로 꺼져 있고, 호스팅 서버는 켜져 있어요. 켜면 채팅의 AI에 쓸 수 있는 연결이 없을 때 연결된 다른 AI(Claude Code 또는 Codex)가 대신 답하고, Claude 구독 한도에 닿은 답은 Codex가 이어서 답해요. 답변에 표시가 남아요. <b>이때 그 대화가 다른 AI 회사(OpenAI 또는 Anthropic)로도 보내져요.</b> 켜기 전에 팀 데이터를 두 곳 모두에 보내도 되는지 확인하세요. Codex를 끄면(사무실 모드는 처음부터 꺼져 있어요) 켤 수 없고, 켜져 있던 것도 꺼져요.</li>
   </ul>
   <h3>AI 사용 한도</h3>
   <figure class="shot"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div></figure>
-  <p><span class="ui">AI 엔진</span> › <span class="ui">사용 한도</span> › <span class="ui">한도 추가</span>에서 사람·그룹·팀 단위로 하루·한 달 한도를 정해요. 넘으면 <b>경고만</b> 하거나 <b>사용을 막을</b> 수 있어요. 기본은 한도 없음이에요. 같은 화면의 <b>동시 실행 수</b>(기본 3)는 팀 전체가 한 번에 받을 수 있는 답변 수예요.</p>
+  <p><span class="ui">팀 설정</span> › <span class="ui">사용 한도</span> › <span class="ui">한도 추가</span>에서 사람·그룹·팀 단위로 하루·한 달 한도를 정해요. 넘으면 <b>경고만</b> 하거나 <b>사용을 막을</b> 수 있어요. 기본은 한도 없음이에요. 같은 화면의 <b>동시 실행 수</b>(기본 3)는 팀 전체가 한 번에 받을 수 있는 답변 수예요.</p>
 
   <h3>폴더 권한 — 바꾸기 전에 “누가 무엇을 보나” 미리보기</h3>
   <div class="row">

@@ -1,4 +1,4 @@
-// Admin > AI engines, managed mode: a team connection that only waits for a limit to end is "limited" (set up, back
+// Admin > Providers, managed mode: a team connection that only waits for a limit to end is "limited" (set up, back
 // by itself), not "not_logged_in"; a refused or expired one, or none at all, still is.
 import { afterAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'

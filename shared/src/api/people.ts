@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { UserId } from '../ids'
 import { AVATAR_MAX_BYTES, PROFILE_STATUS_MAX, PROFILE_TITLE_MAX } from '../avatar'
 import { PersonName } from './auth'
-import { GuestPlaceNamed } from './common'
+import { GuestPlace } from './common'
 import { binary, empty, endpoint, stream } from './endpoint'
 import { MyStatus, SetStatusBody, StatusMessage } from './status-message'
 
@@ -20,11 +20,13 @@ export const Person = z.object({
   /** their status message now (docs/DECISIONS.md "상태 메시지"): absent without one, before its first day and after it
    * cleared */
   statusMessage: StatusMessage.optional(),
-  /** an outside person in one room or project of the team (the "Guest" tag beside their name); absent for members */
+  /** an outside person in a group chat and/or a project of the team (the "Guest" tag beside their name); absent for
+   * members */
   guest: z.literal(true).optional(),
-  /** a guest's one place, by name (an add list greys them out elsewhere: "In 'Quote prep'"); only a guest the viewer
-   * sees at all, so only a place the viewer is in */
-  guestPlace: GuestPlaceNamed.optional(),
+  /** a guest's places now (at most one group chat and one project), so an add list greys them out only for a second
+   * place of the same kind ("In 'Quote prep'"). A place the viewer is in comes with its id and name; one the viewer is
+   * not in comes as its kind only (never its id or name). Only for a guest the viewer sees at all. */
+  guestPlaces: z.array(GuestPlace.extend({ id: z.string().optional(), name: z.string().optional() })).max(2).optional(),
 })
 export type Person = z.infer<typeof Person>
 export const PeopleResponse = z.object({ people: z.array(Person) })

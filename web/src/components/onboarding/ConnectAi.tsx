@@ -10,7 +10,6 @@
 // logic here. When the dialog is done, GET /api/me/ai-access is asked again: every "no AI" place reads that store, so
 // they all move on together; a connection saved that cannot answer yet says so.
 import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
 import type { CredentialKind } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { useLocale, useT, type MessageKey } from '../../i18n'
@@ -72,8 +71,10 @@ const quietLink = 'font-medium text-ink underline decoration-line-strong underli
 
 /**
  * The welcome step's way to connect (and Home's card for the owner): the ways at once, one stack of equal rows. The
- * first is the main button ("Claude 구독 연결", marked 추천), the others bordered; each opens the dialog on its way. Under
- * them one quiet line to the AI engines page for other providers (OpenRouter …). The team's connection: the owner's or an admin's.
+ * first is the main button ("Claude 구독 연결", marked 추천), the others bordered; each opens the dialog on its way. No line
+ * to Admin › AI accounts under them (removed with fix/onboarding-after-setup: an expert page in a non-developer's first
+ * screen; other providers stay in Admin, where an owner who looks for them finds them). The team's connection: the
+ * owner's or an admin's.
  */
 export function ConnectAiPanel({ disabled, onConnected }: { disabled?: boolean; onConnected?: () => void }) {
   const t = useT()
@@ -115,9 +116,6 @@ export function ConnectAiPanel({ disabled, onConnected }: { disabled?: boolean; 
               ))}
             </div>
           )}
-          <p className="text-xs leading-5 text-balance">
-            <Link to="/admin/engines" className="text-muted underline decoration-line-strong underline-offset-4 hover:text-ink" data-testid="welcome-ai-engines">{t('welcome.ai.enginesLine')}</Link>
-          </p>
         </>
       )}
       {error && <ErrorNote>{error}</ErrorNote>}

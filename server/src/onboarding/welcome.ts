@@ -17,6 +17,8 @@
 // from before keeps them in the group's folder groups/<name>/ (its members read and write it): nothing is moved. No
 // skill is installed (docs/DECISIONS.md "W6": a skill goes in only on a press that names it); the general pack's record
 // is written with no paths for older builds.
+import fs from 'node:fs'
+import path from 'node:path'
 import { z } from 'zod'
 import {
   BRAND_FOLDER, BRAND_IMAGES_FOLDER, GENERAL_CARDNEWS_SKILL, GENERAL_DECK_SKILL, GENERAL_PROMO_SKILL, NOTES_FOLDER, SHARED_HOME, TeamGroupRef, TeamType, WELCOME_STEPS, WelcomeProgress, WelcomeStepState, normalizeWebsite,
@@ -25,10 +27,12 @@ import {
 import type { AppContext } from '../context'
 import { getTeamSettings, setSetting, teamDefaultLocale } from '../admin/settings'
 import { createGroupAs, groupFolder, groupIdByName } from '../admin/groups'
+import { createDefaultFolders } from '../admin/folders'
 import { fail } from '../http/errors'
 import { authorize } from '../policy/authorize'
 import { listTeamSkills, sameSkillName } from '../chat/skills'
 import { componentC } from '../team-files/component'
+import { readCompanyProfile } from './profile'
 import { retireLegacyDefaultSkills } from './retired-skills'
 
 export const WELCOME_SETTING = 'onboarding.welcome'
@@ -172,8 +176,37 @@ export function deckStarted(ctx: Pick<AppContext, 'db'>): boolean {
 }
 
 /** The progress as the screens get it: the row and the facts read for them (`deckStarted`, `landingSkill`). */
+/**
+ * After the end, a step put off that got done elsewhere (fix/onboarding-after-setup): the company profile saved in
+ * Admin, someone (not a guest) in the team besides the owners (the team menu's invites), a team or personal connection
+ * connected in Connectors. Recorded done on a read, so the setup row stops naming it. Team files and skills have no
+ * such fact here: they are done in their step. Never throws.
+ */
+function settlePutOff(ctx: AppContext, p: WelcomeProgress): WelcomeProgress {
+  if (!p.finishedAt || p.dismissedAt) return p
+  const done: string[] = []
+  try {
+    if (p.steps.profile === 'skipped') {
+      const owner = ctx.db.query("SELECT id FROM users WHERE role = 'owner' AND deleted_at IS NULL ORDER BY created_at LIMIT 1").get() as { id: string } | null
+      if (owner && readCompanyProfile(ctx.files, ctx.files.principal(owner.id))) done.push('profile')
+    }
+    if (p.steps.invite === 'skipped' && ctx.db.query("SELECT 1 FROM users WHERE role IN ('admin', 'member') AND guest = 0 AND deleted_at IS NULL LIMIT 1").get()) done.push('invite')
+    if (p.steps.tools === 'skipped' && ctx.db.query("SELECT 1 FROM integrations WHERE status = 'connected' LIMIT 1").get()) done.push('tools')
+    if (!done.length) return p
+    const s = stored(ctx)
+    if (!s.raw) return p
+    const steps = isObj(s.raw.steps) ? { ...s.raw.steps } : {}
+    for (const d of done) steps[d] = 'done'
+    return save(ctx, { ...s.raw, steps }, new Date().toISOString())
+  } catch (err) {
+    ctx.log.warn('the put-off welcome steps were not checked', { err })
+    return p
+  }
+}
+
 export function welcomeOut(ctx: AppContext, p: WelcomeProgress | null): WelcomeProgress | null {
   if (!p) return p
+  p = settlePutOff(ctx, p)
   let landing: string | null = null
   try { landing = landingSkill(ctx) } catch { /* none */ }
   return { ...p, deckStarted: deckStarted(ctx), landingSkill: landing }
@@ -360,6 +393,9 @@ export function brandFoldersOf(ctx: AppContext, userId: string, folder: string, 
  * there, else new ones named in the team's language, made when missing. */
 function sharedStart(ctx: AppContext, userId: string, recorded: TeamGroupRef | null): Pick<TeamGroupRef, 'notesFolder' | 'brandFolder' | 'home'> {
   const kept = recorded?.home === SHARED_HOME
+  // shared/ missing on disk (a team folder made or restored by hand, a volume mounted empty: the likely hosted cause of a
+  // team start that failed): the team's default folders again, which changes nothing that is there
+  if (!fs.existsSync(path.join(ctx.files.fx.root, SHARED_HOME))) createDefaultFolders(ctx)
   const notesFolder = kept && recorded.notesFolder.startsWith(`${SHARED_HOME}/`) ? recorded.notesFolder : `${SHARED_HOME}/${NOTES_FOLDER[teamDefaultLocale(ctx.db)]}`
   ensureNotesFolder(ctx, userId, notesFolder)
   return { notesFolder, brandFolder: brandFoldersOf(ctx, userId, SHARED_HOME, kept ? recorded.brandFolder : undefined).brandFolder, home: SHARED_HOME }
@@ -385,11 +421,15 @@ function teamGroupFor(ctx: AppContext, userId: string, recorded: TeamGroupRef | 
   const team = getTeamSettings(ctx.db).teamName.trim().slice(0, 100) || 'Team'
   const name = !groupIdByName(ctx, team) ? team
     : [2, 3, 4, 5, 6, 7, 8, 9].map((n) => `${team.slice(0, 96)} ${n}`).find((n) => !groupIdByName(ctx, n)) ?? `${team.slice(0, 80)} ${Date.now()}`
+  // the folders in shared/ first: a team start that fails there (a file where a folder goes, shared/ missing or not
+  // writable) leaves no group behind, so asking again makes the same group, not "Acme 2", "Acme 3"… (QA: a hosted team's
+  // start left no team group; the group made before the folders stayed while the row never recorded it)
+  const start = sharedStart(ctx, userId, recorded)
   // no team room: the everyone room is the team's one room (docs/DECISIONS.md "One room for the whole team")
   const g = createGroupAs(ctx, userId, { name, memberIds: [userId], room: false }, locale)
   const folder = groupFolder(ctx, g.id)
   if (!folder) return fail('internal')
-  return { id: g.id, name: g.name, folder, ...sharedStart(ctx, userId, recorded) }
+  return { id: g.id, name: g.name, folder, ...start }
 }
 
 /**

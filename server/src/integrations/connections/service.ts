@@ -16,15 +16,15 @@ import { resolveLayout } from '../../system/layout'
 import { egressOf } from '../../tools/egress'
 import { checkHostName, isLocalAddress, isPublicAddress } from '../../tools/web-fetch'
 import { secretHider } from './hide'
-import { MCP_LIST_TIMEOUT_MS, McpClient, McpError } from './mcp'
+import { MCP_CALL_IDLE_MS, MCP_CALL_TIMEOUT_MS, MCP_LIST_TIMEOUT_MS, McpClient, McpError } from './mcp'
 import { NetError, serviceRequest, TIMEOUT_MS, type NetOptions, type NetResponse } from './net'
-import { authorizationUrl, CALLBACK_PATH, canonicalResource, chooseClient, discover, documentOrigins, GrantError, issuerMatches, manualServer, ownClient, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens, type OwnClient } from './oauth'
+import { authorizationUrl, CALLBACK_PATH, canonicalResource, chooseClient, discover, documentOrigins, GrantError, issuerMatches, loopbackClient, loopbackPortOk, manualServer, ownClient, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens, type OwnClient } from './oauth'
 import {
   accessOf, activeUser, clientAad, clientInfo, connectionAad, disabledTools, flowAad, getRow, isAdmin, MAX_DISABLED_TOOLS, mayUse, offByTeam, requestSignedIn, savedTools, SecretBox, secretHere, selectRows, setAccess, StoreError, templateClientAad, templateCovers, toolListsOf, usable, view,
   type ClientInfo, type FlowRow, type Row, type Viewer,
 } from './store'
 import { say, type Reason, type TextKey } from './text'
-import { notifyTemplateReconnect } from '../../notifications/service'
+import { NOTIFICATION_RETENTION_MS, notifyConnectionReconnect, notifyTemplateLeft, notifyTemplateReconnect } from '../../notifications/service'
 import { refreshGoogleApp } from '../google-apps/tokens'
 import { APP_NAMES, appTools } from '../google-apps/catalog'
 import { downMessage, libraryRequest, LibraryDown } from '../google-apps/transport'
@@ -51,14 +51,16 @@ export function personalCounts(db: AppContext['db'], userId: string): { settled:
     FROM integrations WHERE scope = 'personal' AND owner_user_id = ? AND template_id IS NULL AND google_app IS NULL`).get(userId) as { settled: number; waiting: number }
   return { settled: Number(r.settled), waiting: Number(r.waiting) }
 }
-/** Whether a person may add another connection of their own with this sign-in method: fewer than MAX_PERSONAL settled
- * ones always, and for a sign-in one also fewer than MAX_PERSONAL_WAITING waiting. */
-export function personalFull(db: AppContext['db'], userId: string, auth: IntegrationInput['auth']): boolean {
-  const n = personalCounts(db, userId)
-  return n.settled >= MAX_PERSONAL || (auth === 'oauth' && n.waiting >= MAX_PERSONAL_WAITING)
-}
 const FLOW_TTL = 10 * 60_000
 const FLOWS_PER_HOUR = 20
+/** the window FLOWS_PER_HOUR counts sign-in tries in */
+const FLOW_WINDOW_MS = 3600_000
+/** how long what a sign-in server said about the desktop app's 127.0.0.1 return address is remembered (clientFor) */
+const LOOPBACK_VERDICT_MS = 3600_000
+/** the port a web or phone sign-in's probe registration names (clientFor): the address is never opened */
+const PROBE_PORT = 49152
+/** loopbackSeen's key: the sign-in server (its issuer and registration address), never the team's address */
+const loopbackKey = (s: OAuthServer) => JSON.stringify([s.issuer, s.registrationEndpoint])
 const CLIENT_IDLE_MS = 10 * 60_000
 /** earlier secret values remembered per connection for hiding (OAuth tokens rotate; an old one may still work) */
 const RECENT_SECRETS = 16
@@ -188,6 +190,10 @@ export class Integrations {
   private clients = new Map<string, McpClient>()
   private refreshes = new Map<string, Promise<string>>()
   private recent = new Map<string, string[]>()
+  /** per sign-in server (issuer and registration address): 'desktop' when it refused every client for the https
+   * callback but took one for 127.0.0.1 (Canva, Intercom, Square), 'none' when it refused that too (Figma); with the time
+   * it was learned. Kept LOOPBACK_VERDICT_MS so repeated web Connects do not probe again and again (clientFor). */
+  private loopbackSeen = new Map<string, { verdict: 'desktop' | 'none'; at: number }>()
 
   constructor(readonly ctx: AppContext, deps: IntegrationDeps = {}) {
     this.now = deps.now ?? Date.now
@@ -234,8 +240,9 @@ export class Integrations {
     // a person's own connection that waits for its first sign-in (Connect saves it before the sign-in starts; a refused
     // or closed sign-in leaves it): Connect again at the same address picks it up instead of saving another, with the
     // new name, notes and write rule (a different short name asked for makes a new one). Waiting ones do not count
-    // toward MAX_PERSONAL, so failed tries never stop someone adding a service; they have a cap of their own, and the
-    // sign-in's callback stops one that would go over MAX_PERSONAL. Nothing with a stored sign-in or key is reused.
+    // toward MAX_PERSONAL, so failed tries never stop someone adding a service; they have a cap of their own, at which a
+    // new one replaces the oldest (makeRoom), and the sign-in's callback stops one that would go over MAX_PERSONAL.
+    // Nothing with a stored sign-in or key is reused.
     const personal = scope === 'personal' && !templateId
     if (personal && input.auth === 'oauth' && !input.oauthClient) {
       const waiting = this.db.query(`SELECT id FROM integrations WHERE scope = 'personal' AND owner_user_id = ? AND template_id IS NULL AND google_app IS NULL AND ${WAITING}
@@ -249,10 +256,8 @@ export class Integrations {
         return Object.keys(patch).length ? this.update(viewer, again.id, patch, L) : view(this.db, again, viewer, L)
       }
     }
-    const full = templateId ? false : personal ? personalFull(this.db, viewer.id, input.auth)
-      : (this.db.query("SELECT count(*) AS n FROM integrations WHERE scope = 'team' AND google_app IS NULL").get() as { n: number }).n >= MAX_TEAM
-    const max = scope === 'personal' ? MAX_PERSONAL : MAX_TEAM
-    if (full) fail('conflict', say('tooMany', L, { n: max }))
+    if (personal) this.roomOrFail(viewer.id, input.auth, L)
+    else if (scope === 'team' && (this.db.query("SELECT count(*) AS n FROM integrations WHERE scope = 'team' AND google_app IS NULL").get() as { n: number }).n >= MAX_TEAM) fail('conflict', say('tooMany', L, { n: MAX_TEAM }))
     const authHeader = input.auth === 'header' ? this.headerName(input.authHeader ?? null, L) : null
     // a template's members sign in through the template's app (templates.ts), never one of their own
     if (input.oauthClient && (input.auth !== 'oauth' || templateId)) fieldError(L, 'oauthClient', 'appNeedsOauth')
@@ -278,7 +283,11 @@ export class Integrations {
       const sealed = this.sealFor(row, { type: 'key', key: input.secret } satisfies KeySecret, L)
       row.secret_enc = sealed.enc; row.key_version = sealed.keyVersion; row.last_error = null
     }
+    let replaced: string[] = []
     this.db.transaction(() => {
+      // every check passed: a waiting one may go to make room for this one, in the write's transaction (a write that
+      // fails removes nothing)
+      if (personal && input.auth === 'oauth') replaced = this.makeRoom(viewer.id, L)
       this.db.query(`INSERT INTO integrations (id, scope, owner_user_id, created_by, kind, name, slug, url, auth, auth_header, secret_enc, key_version, account, notes,
         write_policy, status, last_error, tools_json, tools_updated_at, last_used_at, version, created_at, updated_at, template_id, oauth_client, oauth_client_enc, oauth_client_key_version)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'[]',?,?,?,?,?,?,?,?,?)`)
@@ -287,6 +296,7 @@ export class Integrations {
           row.oauth_client ?? null, row.oauth_client_enc ?? null, row.oauth_client_key_version ?? 1)
       if (scope === 'team') setAccess(this.db, id, input.access ?? { everyone: false, groups: [], users: [] })
     })()
+    for (const r of replaced) this.forget(r)
     // made from a template: logged like any member's own connection, without which template (that would say which
     // service, and that this member connected it: admins see only how many did)
     audit(this.db, { actor: viewer.id, action: 'integration.create', target: id, detail: auditDetail(row, { slug, writePolicy: row.write_policy, access: scope === 'team' ? accessOf(this.db, id) : undefined, ...(app ? { ownApp: true } : {}) }) })
@@ -344,15 +354,18 @@ export class Integrations {
     if (moved) { next.tools_updated_at = null; next.account = null }
     const recheck = moved || secret !== 'kept'
     // a person's own connection that stops waiting for a sign-in (to a key, or no sign-in) now counts toward
-    // MAX_PERSONAL; one that starts waiting (a key changed to sign-in) toward the waiting cap
-    if (countsAsOwn(row) && row.owner_user_id && isWaiting(row) !== isWaiting(next)) {
-      const n = personalCounts(this.db, row.owner_user_id)
-      if (isWaiting(row) ? n.settled >= MAX_PERSONAL : n.waiting >= MAX_PERSONAL_WAITING) fail('conflict', say('tooMany', L, { n: MAX_PERSONAL }))
-    }
+    // MAX_PERSONAL; one that starts waiting (a key changed to sign-in) toward the waiting cap, where it replaces the
+    // oldest waiting one (makeRoom, below once every check passed)
+    const startsWaiting = countsAsOwn(row) && !!row.owner_user_id && !isWaiting(row) && isWaiting(next)
+    if (countsAsOwn(row) && row.owner_user_id && isWaiting(row) && !isWaiting(next) && personalCounts(this.db, row.owner_user_id).settled >= MAX_PERSONAL) fail('conflict', say('tooManyWorking', L, { n: MAX_PERSONAL }))
+    if (startsWaiting && !this.replaceable(row.owner_user_id!)) fail('conflict', say('tooManyWaiting', L, { n: MAX_PERSONAL_WAITING }))
     if (recheck) { next.status = next.auth === 'oauth' && !next.secret_enc ? 'needs_auth' : 'error'; next.last_error = next.auth === 'none' || next.secret_enc ? null : next.auth === 'oauth' ? 'sign_in' : 'no_secret' }
     const accessBefore = row.scope === 'team' ? accessOf(this.db, id) : null
     const now = iso(this.now())
+    let replaced: string[] = []
     this.db.transaction(() => {
+      // the oldest waiting one makes room in the write's transaction: a write that fails (conflict) removes nothing
+      if (startsWaiting) replaced = this.makeRoom(row.owner_user_id!, L)
       const r = this.db.query(`UPDATE integrations SET name=?, notes=?, write_policy=?, url=?, auth=?, auth_header=?, secret_enc=?, key_version=?, account=?,
         tools_json=CASE WHEN ? THEN '[]' ELSE tools_json END, tools_updated_at=?, status=?, last_error=?, oauth_client=?, oauth_client_enc=?, oauth_client_key_version=?,
         version=version+1, updated_at=? WHERE id=? AND version=?`)
@@ -363,6 +376,7 @@ export class Integrations {
       // the sign-in is gone (removed, or moved with the address or the way in): so is the record of whose it was
       if (secret !== 'kept') this.db.query("DELETE FROM team_sign_ins WHERE kind = 'team_connection' AND target_id = ?").run(id)
     })()
+    for (const r of replaced) this.forget(r)
     this.dropClient(id)
     // one entry per change; who may use a team connection is part of it (before and after)
     const accessAfter = row.scope === 'team' ? accessOf(this.db, id) : null
@@ -407,13 +421,59 @@ export class Integrations {
     const row = this.manageable(viewer, id)
     const old = row.secret_enc ? this.tryOpen(row) : null
     // local first: the tokens are gone even when the service cannot be told
-    this.db.query('DELETE FROM integrations WHERE id = ?').run(id)
-    this.db.query("DELETE FROM team_sign_ins WHERE kind = 'team_connection' AND target_id = ?").run(id)
-    this.dropClient(id)
-    this.recent.delete(id)
-    toolListsOf(this.db).drop(id)
-    audit(this.db, { actor: viewer.id, action: 'integration.delete', target: id, detail: auditDetail(row) })
+    this.drop(row, viewer.id)
+    this.forget(id)
     if (old?.type === 'oauth') await this.revokeTokens(old)
+  }
+
+  /** A connection gone from the database (Delete, or makeRoom inside a write's transaction): its sign-in flows go with
+   * it (ON DELETE CASCADE), and the audit says so. Then forget: what is kept of it in memory. Telling the service about
+   * a stored sign-in is the caller's job. */
+  private drop(row: Row, actor: string, more: Record<string, unknown> = {}) {
+    this.db.query('DELETE FROM integrations WHERE id = ?').run(row.id)
+    this.db.query("DELETE FROM team_sign_ins WHERE kind = 'team_connection' AND target_id = ?").run(row.id)
+    audit(this.db, { actor, action: 'integration.delete', target: row.id, detail: { ...auditDetail(row), ...more } })
+  }
+
+  // ---------------- the limits of a person's own connections ----------------
+  /** Whether this person may add one more connection of their own with this sign-in method (Settings, an admin's
+   * request and the chat's card all ask this): not at MAX_PERSONAL settled ones ('working'), and for a sign-in one, at
+   * MAX_PERSONAL_WAITING waiting ones, only when one of them may make room (replaceable; else 'waiting'). */
+  personalRoom(userId: string, auth: IntegrationInput['auth']): 'ok' | 'working' | 'waiting' {
+    if (personalCounts(this.db, userId).settled >= MAX_PERSONAL) return 'working'
+    return auth !== 'oauth' || this.replaceable(userId) ? 'ok' : 'waiting'
+  }
+  private roomOrFail(userId: string, auth: IntegrationInput['auth'], L: Locale) {
+    const room = this.personalRoom(userId, auth)
+    if (room === 'working') fail('conflict', say('tooManyWorking', L, { n: MAX_PERSONAL }))
+    if (room === 'waiting') fail('conflict', say('tooManyWaiting', L, { n: MAX_PERSONAL_WAITING }))
+  }
+  /** The waiting connections that go so one more may wait (oldest first; none below the cap), or null when not enough
+   * may go. Only one that never stored a sign-in or key (WAITING), is the person's own (not from a template, not a
+   * Google app), has no own app (its client secret is the person's), and had no sign-in try within FLOW_WINDOW_MS:
+   * removing it then never gives back a try of FLOWS_PER_HOUR (its flows no longer count) and never cuts off a sign-in
+   * still open (a flow lives FLOW_TTL; an older one ended as expired, failed or completed). The cap keeps the rows
+   * bounded. */
+  private replaceable(userId: string): string[] | null {
+    const over = personalCounts(this.db, userId).waiting - MAX_PERSONAL_WAITING + 1
+    if (over <= 0) return []
+    const ids = (this.db.query(`SELECT id FROM integrations i WHERE scope = 'personal' AND owner_user_id = ? AND template_id IS NULL AND google_app IS NULL AND ${WAITING}
+      AND oauth_client IS NULL AND oauth_client_enc IS NULL
+      AND NOT EXISTS (SELECT 1 FROM integration_oauth_flows f WHERE f.integration_id = i.id AND f.created_at > ?)
+      ORDER BY created_at, id LIMIT ?`).all(userId, iso(this.now() - FLOW_WINDOW_MS), over) as { id: string }[]).map((r) => r.id)
+    return ids.length >= over ? ids : null
+  }
+  /** At the waiting cap: the oldest waiting connections that may go are removed, as Delete removes them (QA TC-3048:
+   * tries at services that refuse, or windows closed, never stop someone adding a connector). Called inside the
+   * write's transaction; the caller forgets the ids it returns once that committed. */
+  private makeRoom(userId: string, L: Locale): string[] {
+    const ids = this.replaceable(userId)
+    if (!ids) return fail('conflict', say('tooManyWaiting', L, { n: MAX_PERSONAL_WAITING }))
+    for (const id of ids) {
+      const row = getRow(this.db, id)
+      if (row) this.drop(row, userId, { replaced: 'waiting' })
+    }
+    return ids
   }
 
   /** Delete connections made from an admin's template (templates.ts: the template moved to another address or sign-in,
@@ -440,6 +500,9 @@ export class Integrations {
         const t = this.db.query('SELECT version FROM integration_templates WHERE id = ?').get(row.template_id) as { version: number } | null
         if (t) notifyTemplateReconnect(this.ctx, row.owner_user_id, row.template_id, t.version)
       }
+      // the template is no longer for them (narrowed, alone or with a new address, or they left its group): told once
+      // that they no longer have it, never asked to connect it again (QA TC-2980)
+      if (why === 'not_covered' && row.owner_user_id) notifyTemplateLeft(this.ctx, row.owner_user_id, row.template_id, row.id)
     }
     // a member's page open now still shows the connection: it reads its lists again (a quiet notice, no text; QA on dev
     // 1565b39f1: the old row's "try again" said "not found" until a reload)
@@ -759,10 +822,28 @@ export class Integrations {
    * more than `total` (the check stopped with pages of its list unread) */
   private setStatus(row: Row, status: Row['status'], reason: string | null, extra: { tools?: string; total?: number | null; totalMore?: boolean } = {}) {
     const now = iso(this.now())
-    if (extra.tools !== undefined) {
-      this.db.query('UPDATE integrations SET status=?, last_error=?, tools_json=?, tools_total=?, tools_total_more=?, tools_updated_at=?, updated_at=? WHERE id=? AND version=?')
+    const was = status === 'needs_auth' ? this.db.query('SELECT status FROM integrations WHERE id=? AND version=?').get(row.id, row.version) as { status: Row['status'] } | null : null
+    const r = extra.tools !== undefined
+      ? this.db.query('UPDATE integrations SET status=?, last_error=?, tools_json=?, tools_total=?, tools_total_more=?, tools_updated_at=?, updated_at=? WHERE id=? AND version=?')
         .run(status, reason, extra.tools, extra.total ?? null, extra.totalMore ? 1 : 0, now, now, row.id, row.version)
-    } else this.db.query('UPDATE integrations SET status=?, last_error=?, updated_at=? WHERE id=? AND version=?').run(status, reason, now, row.id, row.version)
+      : this.db.query('UPDATE integrations SET status=?, last_error=?, updated_at=? WHERE id=? AND version=?').run(status, reason, now, row.id, row.version)
+    if (was?.status === 'connected' && r.changes) this.tellSignInAgain(row, now)
+  }
+
+  /** A person's own connection that was working now needs a sign-in (or a new key): its owner gets one "needs you to
+   * sign in again" notice and push (notifications.connectionReconnectDesc promises it for every service, QA TC-2945),
+   * once per move from connected into needs_auth and none while the last one (inside the inbox's 30 days) is unread.
+   * Any sign-in method, a connection with no key too (one that starts to answer 401). Not a connection that never
+   * worked or was just changed (a new one, an edit: the person is at it, and its row was not connected), and not a team
+   * connection (who should hear of that is still open). */
+  private tellSignInAgain(row: Row, at: string) {
+    if (row.scope !== 'personal' || !row.owner_user_id) return
+    const head = `${row.id}_`
+    // an unread row past the inbox's window is no longer shown: it does not hold the next notice back
+    const since = new Date(Date.parse(at) - NOTIFICATION_RETENTION_MS).toISOString()
+    const unread = this.db.query("SELECT 1 FROM notification_inbox WHERE user_id=? AND event_type='connection.reconnect' AND substr(source_id,1,?)=? AND read_at IS NULL AND suppressed=0 AND created_at>=? LIMIT 1")
+      .get(row.owner_user_id, head.length, head, since)
+    if (!unread) notifyConnectionReconnect(this.ctx, row.owner_user_id, `${head}${Date.parse(at)}`, at)
   }
 
   /** a call's failure -> what the connection's status says */
@@ -878,6 +959,8 @@ export class Integrations {
     } catch (e) {
       // a Google app's answer too large (a big Gmail attachment) says nothing about the connection
       if (!signal?.aborted && !(row.google_app && e instanceof NetError && e.reason === 'too_large')) this.noteFailure(row, e)
+      // stopped here (Stop, the turn's end): not the service's timeout
+      if (signal?.aborted && !(e instanceof CallError)) throw new CallError(`the call to ${row.name} was stopped because the answer was stopped`, 'stopped')
       throw e instanceof CallError ? e : new CallError(callMessage(e, row), kindOf(e), e instanceof McpError && e.code === 'rpc')
     }
   }
@@ -926,7 +1009,11 @@ export class Integrations {
     this.db.query('DELETE FROM integration_oauth_flows WHERE expires_at<?').run(iso(this.now() - 86_400_000))
   }
 
-  async authorize(viewer: Viewer, session: string, id: string, origin: string, locale: Locale): Promise<{ flowId: string; authorizationUrl: string; expiresAt: string }> {
+  /** `from`: where the sign-in starts (routes/integrations.ts reads it from the session, never from the request alone):
+   * the desktop app with the port of its one-time return address on 127.0.0.1 (`loopbackPort`: desktop/src/common/
+   * sign-in-return.ts), else 'desktop' without one (an app from before it), 'web' or 'mobile'. The answer says
+   * `loopback` when the service is signed in at through that address, so the app keeps it open. */
+  async authorize(viewer: Viewer, session: string, id: string, origin: string, locale: Locale, from: { client: 'web' | 'desktop' | 'mobile'; loopbackPort?: number | null } = { client: 'web' }): Promise<{ flowId: string; authorizationUrl: string; expiresAt: string; loopback?: boolean }> {
     const L = locale
     const row = this.manageable(viewer, id)
     if (row.auth !== 'oauth') fail('validation', say('notOauth', L))
@@ -935,7 +1022,7 @@ export class Integrations {
     if (offByTeam(this.db, row)) fail('forbidden', say('personalOffSignIn', L))
     this.liveSession(viewer.id, session)
     this.sweep()
-    const n = (this.db.query('SELECT count(*) AS n FROM integration_oauth_flows WHERE user_id=? AND created_at>?').get(viewer.id, iso(this.now() - 3600_000)) as { n: number }).n
+    const n = (this.db.query('SELECT count(*) AS n FROM integration_oauth_flows WHERE user_id=? AND created_at>?').get(viewer.id, iso(this.now() - FLOW_WINDOW_MS)) as { n: number }).n
     if (n >= FLOWS_PER_HOUR) fail('rate_limited')
     let app: OwnClient | null
     try { app = this.appOf(row) } catch { return fail('unavailable', say('key_unsafe', L)) }
@@ -966,7 +1053,7 @@ export class Integrations {
       // an own app is always the one set now; otherwise the app registered for this server (again), or the metadata
       // document when the service refuses that one (clientFor)
       const s = setup
-      client = app ? ownClient(app, redirectUri, s.authMethods) : await this.clientFor(row, s, origin, redirectUri, (c) => authorizationUrl({ ...s, client: c }, state, challenge))
+      client = app ? ownClient(app, redirectUri, s.authMethods) : await this.clientFor(row, s, origin, redirectUri, (c) => authorizationUrl({ ...s, client: c }, state, challenge), from)
     } catch (e) {
       if (e instanceof HttpError) throw e
       // a service that registers no apps: its own app is the fix, which a member of a template cannot set
@@ -976,10 +1063,12 @@ export class Integrations {
       // reason would read as "the last check failed")
       if (!row.secret_enc) this.setStatus(row, 'needs_auth', reason)
       // a refusal of the app is a flow too (failed, nothing sealed): FLOWS_PER_HOUR bounds those tries (each opens the
-      // service's sign-in page); a service that is down or busy is not counted, so it never locks anyone out of signing in
-      if (reason === 'oauth_approved_apps_only') this.db.query(`INSERT INTO integration_oauth_flows (id, integration_id, integration_version, user_id, session_id, state_hash, state, secret_enc, key_version, reason, expires_at, created_at)
+      // service's sign-in page, and may register an app there); a service that is down or busy is not counted, so it
+      // never locks anyone out of signing in
+      if (reason === 'oauth_approved_apps_only' || reason === 'oauth_desktop_only') this.db.query(`INSERT INTO integration_oauth_flows (id, integration_id, integration_version, user_id, session_id, state_hash, state, secret_enc, key_version, reason, expires_at, created_at)
         VALUES (?,?,?,?,?,?,'failed',NULL,1,'refused',?,?)`).run(flowId, id, row.version, viewer.id, session, hash(state), iso(this.now()), iso(this.now()))
-      return fail('validation', say(reason as Reason, L, { status: e instanceof NetError ? e.status ?? '?' : '?' }))
+      // the desktop sentence names the service, and its code lets the page link the desktop app's download
+      return fail('validation', say(reason as Reason, L, { status: e instanceof NetError ? e.status ?? '?' : '?', name: row.name }), reason === 'oauth_desktop_only' ? { params: { reason } } : undefined)
     }
     // no token address remembered yet: this one is, once this sign-in worked (callback)
     const pinOnto = app?.clientSecret && !app.tokenUrl && !app.foundTokenUrl ? { json: app.stored.json, enc: app.stored.enc } : null
@@ -992,15 +1081,50 @@ export class Integrations {
       this.db.query(`INSERT INTO integration_oauth_flows (id, integration_id, integration_version, user_id, session_id, state_hash, state, secret_enc, key_version, expires_at, created_at)
         VALUES (?,?,?,?,?,?,'pending',?,?,?,?)`).run(flowId, id, row.version, viewer.id, session, hash(state), sealed.enc, sealed.keyVersion, expiresAt, iso(this.now()))
     })()
-    return { flowId, authorizationUrl: authorizationUrl(secret, state, challenge), expiresAt }
+    return { flowId, authorizationUrl: authorizationUrl(secret, state, challenge), expiresAt, ...(client.redirectUri.startsWith('http://127.0.0.1:') ? { loopback: true } : {}) }
   }
 
   /** The client a sign-in without an own app uses (oauth.ts chooseClient): the app registered for the same server
-   * before is offered first, when there is one. */
-  private clientFor(row: Row, setup: { server: OAuthServer; metadataClients?: boolean }, origin: string, redirectUri: string, urlFor: (c: OAuthClient) => string): Promise<OAuthClient> {
+   * before is offered first, when there is one. chooseClient always runs first, from every address (whether it is
+   * refused depends on the address: the metadata document is offered only from a public one it is served at). Only when
+   * it is refused (`oauth_approved_apps_only`): from the desktop app with its return port, an app registered for
+   * 127.0.0.1 (loopbackClient); from the web or the phone app, one probe registration for 127.0.0.1 says whether the
+   * desktop app would get in (`oauth_desktop_only`) or not (stays `oauth_approved_apps_only`). The probe's app is never
+   * used. Whether a sign-in server takes the 127.0.0.1 address (a property of that server alone, not of the team's
+   * address) is remembered for LOOPBACK_VERDICT_MS (loopbackSeen): it only spares the web's probe, and a desktop try at a
+   * server that clearly refused 127.0.0.1 too, so at most one 127.0.0.1 registration happens per sign-in. A desktop app
+   * from before the return port gets the old reason (it cannot do what the desktop sentence asks). */
+  private async clientFor(row: Row, setup: { server: OAuthServer; metadataClients?: boolean }, origin: string, redirectUri: string, urlFor: (c: OAuthClient) => string, from: { client: 'web' | 'desktop' | 'mobile'; loopbackPort?: number | null }): Promise<OAuthClient> {
+    const port = from.client === 'desktop' && loopbackPortOk(from.loopbackPort) ? from.loopbackPort : null
+    const probe = from.client !== 'desktop'
     const old = row.secret_enc ? this.tryOpen(row) : null
     const again = old?.type === 'oauth' && old.server.issuer && old.server.issuer === setup.server.issuer && old.client.redirectUri === redirectUri ? old.client : null
-    return chooseClient(setup, origin, redirectUri, this.net, urlFor, again, documentOrigins(this.ctx.config))
+    try {
+      return await chooseClient(setup, origin, redirectUri, this.net, urlFor, again, documentOrigins(this.ctx.config))
+    } catch (e) {
+      if (!(e instanceof NetError) || e.reason !== 'oauth_approved_apps_only' || !setup.server.registrationEndpoint || (!port && !probe)) throw e
+      const key = loopbackKey(setup.server)
+      const seen = this.loopbackSeen.get(key)
+      const known = seen && this.now() - seen.at < LOOPBACK_VERDICT_MS ? seen.verdict : null
+      const remember = (verdict: 'desktop' | 'none') => {
+        if (this.loopbackSeen.size >= 1000) this.loopbackSeen.clear()
+        this.loopbackSeen.set(key, { verdict, at: this.now() })
+      }
+      // clearly refused at 127.0.0.1 too lately (Figma): nothing more to try
+      if (known === 'none') throw e
+      if (!port && known === 'desktop') throw new NetError('oauth_desktop_only')
+      try {
+        const c = await loopbackClient(setup.server, port ?? PROBE_PORT, this.net, urlFor)
+        remember('desktop')
+        if (port) return c
+      } catch (p) {
+        // a clear refusal is remembered and said; a service busy or down meanwhile says nothing either way (not
+        // remembered): from the web the old reason, from the desktop app its own (oauth_busy and the like)
+        if (p instanceof NetError && p.reason === 'oauth_approved_apps_only') { remember('none'); throw p }
+        throw port ? p : e
+      }
+      throw new NetError('oauth_desktop_only')
+    }
   }
 
   flow(userId: string, session: string, id: string): IntegrationFlow {
@@ -1110,7 +1234,7 @@ export class Integrations {
 /** reasons a check fails for now while the service and its saved tools may still work: no answer in time, not
  * reachable, a list over the limits, the service busy or failing (HTTP 408, 429, 5xx). Not a refused key or sign-in,
  * an address that is not allowed, a redirect or a bad certificate: those stop the calls too. */
-const PASSING = /^(timeout|list_timeout|unreachable|too_large|http_status:(408|429|5\d\d))$/
+const PASSING = /^(timeout|list_timeout|call_idle|unreachable|too_large|http_status:(408|429|5\d\d))$/
 
 /** What a failure says about the connection (null: nothing to record, e.g. the call was stopped). */
 function statusOf(e: unknown): { status: Row['status']; reason: string } | null {
@@ -1123,6 +1247,8 @@ function statusOf(e: unknown): { status: Row['status']; reason: string } | null 
     if (e.code === 'rpc') return null
     return { status: 'error', reason: 'not_mcp' }
   }
+  // a long job that ran past the whole call's limit: that call's, not a broken connection (a silent one, call_idle, is)
+  if (e instanceof NetError && e.reason === 'call_timeout') return null
   if (e instanceof NetError) return { status: 'error', reason: e.status ? `${e.reason}:${e.status}` : e.reason }
   if (e instanceof StoreError) return { status: 'error', reason: 'key_unsafe' }
   return null
@@ -1131,7 +1257,7 @@ function statusOf(e: unknown): { status: Row['status']; reason: string } | null 
 /** where a connection's sign-in or key is fixed: a Google app on its page under Settings › Connectors; the person's own
  * on a card in the chat (connect_service, QA TC-127) or in Settings › Connectors; one made from a team template on the
  * template's card; a team connection by an admin */
-const fixWhere = (row: Pick<Row, 'google_app' | 'scope' | 'template_id' | 'id'>) => (row.google_app && row.scope === 'team' ? `Admin › Connectors › ${APP_NAMES[row.google_app]}, the shared account's Reconnect (only an owner or admin can: tell the user to ask one)`
+const fixWhere = (row: Pick<Row, 'google_app' | 'scope' | 'template_id' | 'id'>) => (row.google_app && row.scope === 'team' ? `Admin › Connected apps › ${APP_NAMES[row.google_app]}, the shared account's Reconnect (only an owner or admin can: tell the user to ask one)`
   : row.google_app ? `Settings › Connectors › ${APP_NAMES[row.google_app]} (Reconnect)`
   : row.scope === 'team' ? 'Admin › Connected apps (only an admin can: tell the user to ask one)'
   : row.template_id ? `a card in this chat: call connect_service with template "${row.template_id}" (not in a scheduled run), or Settings › Connectors`
@@ -1157,7 +1283,10 @@ function callMessage(e: unknown, row: Row): string {
   }
   if (e instanceof NetError) {
     const words: Record<string, string> = {
-      timeout: 'did not answer within 30 seconds', private_address: 'points to a private, local or office address, which is not allowed', blocked_port: 'uses a port other than 443',
+      timeout: 'did not answer within 30 seconds',
+      call_idle: `sent nothing for ${MCP_CALL_IDLE_MS / 60_000} minutes, so the call was stopped (a call may run up to ${MCP_CALL_TIMEOUT_MS / 60_000} minutes while the service keeps sending)`,
+      call_timeout: `did not finish within ${MCP_CALL_TIMEOUT_MS / 60_000} minutes, so the call was stopped; a smaller request may finish in time`,
+      private_address: 'points to a private, local or office address, which is not allowed', blocked_port: 'uses a port other than 443',
       tls: 'has a certificate that could not be verified', redirect: `redirected (HTTP ${e.status}); redirects are not followed`, too_large: 'sent an answer that is too large (over 25 MB for a tool call, 1 MB otherwise)',
       key_unsafe: 'cannot be used: the server\'s key folder is unsafe', unreachable: 'could not be reached',
     }

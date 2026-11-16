@@ -10,7 +10,7 @@ interface State {
   /** read again (Home reads it each time it opens: a message written in a room meanwhile is "Say hi" done) */
   load: () => Promise<void>
   /** a row done here: shown at once, the server's answer follows */
-  mark: (step: 'hi' | 'photo' | 'asked') => void
+  mark: (step: 'hi' | 'photo' | 'asked' | 'files') => void
   hide: () => Promise<void>
   asked: () => Promise<void>
   reset: () => void

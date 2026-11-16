@@ -30,8 +30,8 @@ function userColumns(): string[] {
 }
 
 describe('coverage', () => {
-  test('the hooks of every area are registered (accounts, chat, connections)', () => {
-    expect(accountCleanups(h.ctx).map((c) => c.name).sort()).toEqual(['accounts', 'chat', 'connections'])
+  test('the hooks of every area are registered (accounts, chat, connections, file shares)', () => {
+    expect(accountCleanups(h.ctx).map((c) => c.name).sort()).toEqual(['accounts', 'chat', 'connections', 'file-shares'])
   })
 
   test('every user column is removed or kept on purpose, and only one of the two', () => {

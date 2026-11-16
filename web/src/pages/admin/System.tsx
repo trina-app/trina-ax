@@ -274,7 +274,7 @@ function SystemSections({ office, shown, focus }: { office: Office; shown: Syste
 function Health({ rev }: { rev: number }) {
   const t = useT()
   const locale = useLocale()
-  // with the engines whose version or lockdown test only shows here (Home and Providers leave it out, plain.ts); the
+  // with the engines whose version or lockdown test only shows here (Home and AI providers leave it out, plain.ts); the
   // phone's Admin list keeps the checks for a minute (overview.tsx): this read makes those old
   const state = useLoad(async () => {
     const [d, e] = await Promise.all([api.call(API.diagnostics), api.call(API.engines).catch(() => null)])
@@ -344,7 +344,7 @@ function Health({ rev }: { rev: number }) {
               <Rows testId="system-facts" className="mt-3 border-t border-line">
                 <Row label={t('system.host')}>{d.host.hostname} ({d.host.os}/{d.host.arch})</Row>
                 <Row label={t('system.queue')}>{t('system.queueLine', { running: d.queue.running, queued: d.queue.queued, max: d.queue.concurrency })}</Row>
-                <Row label={t('system.freeSpace')}>{t('system.freeSpaceValue', { team: formatSize(d.disk.teamFolderFreeBytes, locale), data: formatSize(d.disk.dataFreeBytes, locale) })}</Row>
+                <Row label={t('system.freeSpace')}>{t('system.freeSpaceValue', { team: d.disk.teamFolderFreeBytes === null ? '—' : formatSize(d.disk.teamFolderFreeBytes, locale), data: d.disk.dataFreeBytes === null ? '—' : formatSize(d.disk.dataFreeBytes, locale) })}</Row>
               </Rows>
               <p className="mt-2 text-xs text-faint">{t('system.generatedAt', { date: formatDateTime(d.generatedAt, locale) })}</p>
             </>

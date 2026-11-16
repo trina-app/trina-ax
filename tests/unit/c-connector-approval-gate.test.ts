@@ -172,7 +172,9 @@ describe('TC-130: Send once, Always allow, Don\'t send on every card', () => {
     // Always allow: sent, and kept as her own rule (audited)
     expect((await turn('alice', { person: asker('always') }).call('my_tasks__create_task', { title: 'always' })).isError).toBe(false)
     expect((A.ctx.db.query('SELECT write_policy FROM integrations WHERE id = ?').get(tasks.id) as { write_policy: string }).write_policy).toBe('allow')
-    expect(A.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'integration.update' AND target = ? AND detail LIKE '%\"via\":\"card\"%'").get(tasks.id)).toBeTruthy()
+    const kept = A.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'integration.update' AND target = ? AND detail LIKE '%\"via\":\"card\"%'").get(tasks.id) as { detail: string } | null
+    // with its kind, so Admin › Activity log names an API connection as one (QA TC-3054)
+    expect(JSON.parse(kept!.detail)).toMatchObject({ scope: 'personal', kind: 'mcp', changed: ['writePolicy'], via: 'card' })
     const quiet = asker('no')
     expect((await turn('alice', { person: quiet }).call('my_tasks__create_task', { title: 'quiet' })).isError).toBe(false)
     expect(quiet.cards).toEqual([])

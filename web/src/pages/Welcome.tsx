@@ -35,7 +35,7 @@ import { setupSite } from '../lib/setupLink'
 import { skillRunLink } from '../lib/skillForm'
 import { uploadFile, type UploadProgress } from '../lib/upload'
 import { aiName } from '../lib/tabs'
-import { countedSteps, firstResultSkill, historyName, inviteSkill, markStepsSeen, needsAi, nextStep, offeredHere, phoneSkips, prevStep, resumeStep, skillNameOf, stepPosition, wantsTeam } from '../lib/welcome'
+import { countedSteps, firstResultSkill, historyName, inviteSkill, markStepsSeen, needsAi, nextStep, offeredHere, phoneSkips, prevStep, putOffSteps, resumeStep, setupReturnStep, skillNameOf, stepPosition, wantsTeam } from '../lib/welcome'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useAiAccess } from '../store/aiAccess'
 import { isOwner, useMeStrict } from '../store/session'
@@ -99,6 +99,10 @@ function WelcomeSteps() {
   // ⌘K's "팀원 초대" (TeamMenu.tsx): the invite step itself, not where the steps would resume (it needs no AI)
   const location = useLocation()
   const askedInvite = (location.state as { step?: unknown } | null)?.step === 'invite'
+  // back from a page a step linked to (components/onboarding/SetupReturn.tsx): that step again, as it was (the team files
+  // step keeps its result), even when it was recorded done meanwhile; the AI step resumes by itself (resumeStep)
+  const returnedTo = setupReturnStep(location.state)
+  const askedBack = returnedTo && returnedTo !== 'ai' ? returnedTo : null
   const me = useMeStrict()
   // the steps were on screen in this tab: a landing on Home does not bring the owner back this session (lib/welcome.ts)
   useEffect(() => { markStepsSeen(me.user.id) }, [me.user.id])
@@ -128,6 +132,8 @@ function WelcomeSteps() {
   // being left for good (their entries go: nothing of theirs is shown on the way)
   const settling = useRef<Screen | null>(null)
   const leaving = useRef(false)
+  // the steps were finished when they opened (a put-off step asked back by the setup row): ending it says nothing new
+  const finishedBefore = useRef(false)
 
   /** Show a step: on a phone also its own history entry (a push). A step already under this one in the history is gone
    * back to instead (lib/screenHistory.ts). */
@@ -165,15 +171,15 @@ function WelcomeSteps() {
   /** The steps are over (finished, or the end screen's 홈으로 or its skill): `to`. On a phone the steps' entries go, so
    * Back from there goes to where they were opened from, never through the steps (which would show and record them
    * again): back to that page when `to` is it, else back to the first step's entry and `to` in its place. */
-  const exit = (to: string) => {
-    if (!phoneNow()) return navigate(to)
+  const exit = (to: string, state?: unknown) => {
+    if (!phoneNow()) return navigate(to, { state })
     const { trail, first } = stepsInTrail()
     const from = trail[first - 1]
-    if (from && sameScreen(from.p, to)) return navigate(to)
+    if (from && sameScreen(from.p, to)) return navigate(to, { state })
     leaving.current = true
     const top = trail[first]
     if (top) navigate(top.p)
-    navigate(to, { replace: true })
+    navigate(to, { replace: true, state })
   }
 
   const open = async () => {
@@ -183,16 +189,20 @@ function WelcomeSteps() {
     try {
       const w = useWelcome.getState()
       let p = await w.loadRecent()
+      finishedBefore.current = !!p?.finishedAt
       // the first visit starts the progress, with the setup link's website (the profile step on any device)
       const site = setupSite()
       if (!p || (site && !p.site)) p = await w.update(site ? { site } : {})
       await useAiAccess.getState().loadRecent()
-      // the AI step was shown before and AI answers now (connected from Home, Admin or another tab): done
-      if (useAiAccess.getState().usable && p.steps.ai === 'skipped') p = await w.update({ step: { id: 'ai', state: 'done' } })
+      // the AI step was shown before and AI answers now (connected from Home, Admin or another tab): done. Only an
+      // answered read: a failed one reads as usable so nothing warns, and must not record the step done
+      if (useAiAccess.getState().usable && useAiAccess.getState().answered && p.steps.ai === 'skipped') p = await w.update({ step: { id: 'ai', state: 'done' } })
       const here = !window.matchMedia?.(PHONE_QUERY).matches
       // where the steps resume, decided before a phone's walk past 도구 연결 is recorded: that record can finish the setup,
       // and the step the owner came back for (an invite put off, say) still opens then
-      const s = askedInvite && !p.finishedAt ? 'invite' : resumeStep(p, useAiAccess.getState().usable, here)
+      const s = askedInvite && !p.finishedAt ? 'invite'
+        : askedBack && (!p.finishedAt || putOffSteps(p, useAiAccess.getState().usable, here).includes(askedBack)) && offeredHere(askedBack, here) && !(needsAi(askedBack) && !useAiAccess.getState().usable) ? askedBack
+          : resumeStep(p, useAiAccess.getState().usable, here)
       // a phone resuming past 도구 연결: put off there (docs/DECISIONS.md "W6"), so the setup can end on the phone
       for (const id of phoneSkips(p, null, here)) p = await w.update({ step: { id, state: 'skipped' } })
       // gone elsewhere meanwhile: nothing to open
@@ -202,6 +212,8 @@ function WelcomeSteps() {
       if (!s) return void navigate('/', { replace: true })
       if (named && !here) return setStep(named)
       setStep(s)
+      // the way back's ask is used: a reload of this entry later resumes as usual
+      if (here && askedBack) navigate('/welcome', { replace: true, state: null })
       if (here) return
       // a phone arriving without a step: the steps before this one go under it (not under the invite asked for by itself:
       // the goal card's [팀원 초대], Back goes back there); with nothing of the app's under the steps (a landing, right
@@ -262,7 +274,7 @@ function WelcomeSteps() {
     const n = nextStep(p, from, computer)
     if (n) { show(n); return true }
     if (!p.doneShownAt) { show('done'); return true }
-    if (p.finishedAt) toast({ level: 'success', text: t('welcome.finished') })
+    if (p.finishedAt && !finishedBefore.current) toast({ level: 'success', text: t('welcome.finished') })
     exit('/')
     return true
   }
@@ -282,12 +294,13 @@ function WelcomeSteps() {
     if (phoneNow()) writeSteps(s)
   })
   useEffect(() => {
-    if (!ai.loaded || !ai.usable || busy) return
+    // only an answered read (a failed one reads as usable): never "connected" after coming back on a failed check
+    if (!ai.loaded || !ai.usable || !ai.answered || busy) return
     if (step === 'ai') void aiConnected()
     // AI back while the AI screen stood in for 회사 소개: that step shows again, the bar's AI step is done
     else if (progress?.steps.ai === 'skipped') void useWelcome.getState().update({ step: { id: 'ai', state: 'done' } }).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, ai.loaded, ai.usable])
+  }, [step, ai.loaded, ai.usable, ai.answered])
   // the AI step on screen: recorded once as needed, so the progress keeps it (1/5) after AI is connected anywhere
   const needAi = !!progress && (progress.steps.ai ?? null) === null && ai.loaded && !ai.usable && step !== null && step !== 'done' && (step === 'ai' || needsAi(step))
   useEffect(() => {
@@ -298,7 +311,7 @@ function WelcomeSteps() {
    * 내 스킬 (they are tried again at the next 고치기 save and the next install of a skill that reads them). */
   const leaveProfile = (state: WelcomeStepState, brandFailed = false) => run(async () => {
     const w = useWelcome.getState()
-    // a failure here does not hold the owner on this step: the team's files ask again and show why
+    // a failure here does not hold the owner on this step: 팀 파일 tries again quietly, and offers 전사 공유 meanwhile
     if (wantsTeam(w.progress)) await w.setupTeam().catch(() => null)
     if (await go(await w.update({ step: { id: 'profile', state } }), 'profile')) setBrandNote(brandFailed)
   })
@@ -522,7 +535,7 @@ function ProfileWizardStep({ progress, busy: stepBusy, onContinue, onSkip }: { p
   if (!saved)
     return (
       <div data-testid="welcome-profile">
-        <ProfileStep initial={null} initialWebsite={progress.site ?? setupSite()} onDone={setSaved} onSkip={onSkip} skipLabel={t('welcome.later')} autoSave onRead={keepSite}
+        <ProfileStep initial={null} initialWebsite={progress.site ?? setupSite()} onDone={setSaved} onSkip={onSkip} skipLabel={t('welcome.later')} autoSave keep onRead={keepSite}
           continueWith={{ label: t('welcome.profile.save'), note: brandLine, extra: <IntroFiles files={files} disabled={stepBusy} />, disabled: stepBusy || files.uploading, onSaved: async () => onContinue(!(await brand())) }} />
       </div>
     )
@@ -633,7 +646,7 @@ function useIntroFiles(progress: WelcomeProgress) {
       let p = w.progress ?? progress
       if (wantsTeam(p)) p = (await w.setupTeam()).progress
       const brand = p.teamGroup?.brandFolder
-      if (!brand) throw new Error(t('welcome.teamFiles.noFolder'))
+      if (!brand) throw new Error(t('welcome.teamFiles.failed'))
       await Promise.allSettled(list.map(async (x) => {
         patch(x.id, { status: 'uploading', progress: null, error: undefined, plans: undefined })
         try {
@@ -760,7 +773,7 @@ const deckLine = (p: WelcomeProgress) => p.deckStarted ?? !!p.resultChatId
  * Under it, the steps put off (QA TC-206), each with 지금 하기: the step opens here and, answered, comes back to this
  * screen. Put off still counts as answered (the setup is finished), as W6 decided.
  */
-function DoneStep({ progress, aiReady, computer, onStep, onExit }: { progress: WelcomeProgress; aiReady: boolean; computer: boolean; onStep: (s: WelcomeStep) => void; onExit: (to: string) => void }) {
+function DoneStep({ progress, aiReady, computer, onStep, onExit }: { progress: WelcomeProgress; aiReady: boolean; computer: boolean; onStep: (s: WelcomeStep) => void; onExit: (to: string, state?: unknown) => void }) {
   const t = useT()
   const phone = useMediaQuery(PHONE_QUERY)
   const own = inviteSkill(progress)
@@ -768,7 +781,7 @@ function DoneStep({ progress, aiReady, computer, onStep, onExit }: { progress: W
   const named = (title?: string | null) => (own ? skillLabel({ name: skillNameOf(own), title }) : null)
   const [title, setTitle] = useState<string | null>(() => { const x = progress.shared?.skills.find((s) => s.path === own)?.title; return x ? named(x) : null })
   // the kept skill to make a first result with, from the team's skills (undefined: being read)
-  const [kept, setKept] = useState<{ path: string; title: string; write: boolean } | null | undefined>(own ? null : undefined)
+  const [kept, setKept] = useState<{ path: string; title: string; verb: MessageKey | null } | null | undefined>(own ? null : undefined)
   useEffect(() => {
     if (!progress.doneShownAt) void useWelcome.getState().update({ doneShown: true }).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -780,13 +793,18 @@ function DoneStep({ progress, aiReady, computer, onStep, onExit }: { progress: W
       if (!live) return
       if (own) { const s = r.items.find((x) => x.path === own); setTitle(s ? skillLabel(s) : named()); return }
       const k = firstResultSkill(r.items.filter((x) => !x.personal && !x.group))
-      setKept(k ? { path: k.skill.path, title: skillLabel(k.skill), write: k.write } : null)
+      setKept(k ? { path: k.skill.path, title: skillLabel(k.skill), verb: k.verb } : null)
     }, () => { if (!live) return; if (own) setTitle(named()); else setKept(null) })
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [own, title])
   // out of the steps (on a phone their entries go: Back from where this leads never walks them again)
   const home = () => onExit('/')
+  // a skill's form from here closes back to Home (Skills.tsx closeRun reads `state.back`, PR #909), never stranding the
+  // owner on Team skills; the end screen shows once, so Home is where they would go next. Computers only: on a phone
+  // `exit` already leaves Home right under the form, so Back walks there, and a `state.back` there made the form's
+  // closing on Back a second step back on top of the Back itself (out of the app, to the page before Home)
+  const runSkill = (path: string) => onExit(skillRunLink(path), phoneNow() ? undefined : { back: '/' })
   // the steps put off (still counted as answered, docs/DECISIONS.md "W6"): named, each with a way back now (QA TC-206)
   const later = countedSteps(progress, aiReady).filter((s) => s !== 'ai' && progress.steps[s] === 'skipped' && offeredHere(s, computer))
   const tryOwn = aiReady && !!own
@@ -798,12 +816,12 @@ function DoneStep({ progress, aiReady, computer, onStep, onExit }: { progress: W
         {!aiReady ? (
           <ConnectAiButton size="md" panel data-testid="welcome-done-ai" />
         ) : tryOwn ? (
-          <Button variant="primary" className="max-sm:w-full" disabled={!title} onClick={() => onExit(skillRunLink(own))} data-testid="welcome-done-try">
+          <Button variant="primary" className="max-sm:w-full" disabled={!title} onClick={() => runSkill(own)} data-testid="welcome-done-try">
             {t('welcome.done.try', { skill: title ?? '' })}
           </Button>
         ) : make ? (
-          <Button variant="primary" className="max-sm:w-full" onClick={() => onExit(skillRunLink(kept.path))} data-testid="welcome-done-make" data-skill={kept.path}>
-            {t(kept.write ? 'welcome.done.write' : 'welcome.done.make', { skill: kept.title })}
+          <Button variant="primary" className="max-sm:w-full" onClick={() => runSkill(kept.path)} data-testid="welcome-done-make" data-skill={kept.path}>
+            {kept.verb ? t(kept.verb) : t('welcome.done.write', { skill: kept.title })}
           </Button>
         ) : kept === undefined ? (
           <Skeleton lines={1} />
@@ -825,7 +843,6 @@ function DoneStep({ progress, aiReady, computer, onStep, onExit }: { progress: W
               </li>
             ))}
           </ul>
-          <p className="mt-2 text-xs text-faint">{t('welcome.done.laterHint')}</p>
         </div>
       )}
     </div>

@@ -186,10 +186,11 @@ test('not available: the reason in plain words, Connect off; an admin gets the w
   await page.reload()
   await expect(detail.getByTestId('gapp-unavailable')).toHaveAttribute('data-reason', 'unsupported')
   await googleApps(page, { app: 'gmail', reason: 'service_limited' })
-  // a member does not see a card that cannot be connected now
+  // a member still finds it, with its short line in place of + (QA TC-2958)
   await page.goto('/connectors')
   await expect(page.getByTestId('connector-discover')).toBeVisible()
-  await expect(card(page, 'gmail')).toHaveCount(0)
+  await expect(card(page, 'gmail').getByTestId('connector-off')).toHaveText('아직 사용할 수 없음')
+  await expect(card(page, 'gmail').getByTestId('connector-add')).toHaveCount(0)
   // a connected app whose tools cannot be reached right now: a calm note
   await googleApps(page, { app: 'docs', client: 'app', connect: { userId: 'bob', serviceDown: true } })
   await page.goto('/connectors/docs')

@@ -126,7 +126,7 @@ export function accountsNeedLook(tc: TeamCredentials, fam: Family): boolean {
   return !!tc.state.data?.items.some((x) => x.scope === 'team' && FAMILY[fam].includes(x.kind) && !x.disabled && CREDENTIAL_PROBLEMS.includes(x.state))
 }
 
-/** No team account of this provider yet, and Add account is right below on this page (Admin › Providers): the
+/** No team account of this provider yet, and Add account is right below on this page (Admin › AI providers): the
  * owner's line says so in the web's words (QA TC-2838); the server's line says "below" too (#944). */
 export function addAccountBelow(tc: TeamCredentials, fam: Family): boolean {
   const d = tc.state.data
@@ -574,7 +574,7 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
             {kind === 'anthropic-oauth' && !manual && <p className="text-sm text-muted" data-testid="claude-login-how">{t('credentials.claude.how')}</p>}
             {(kind === 'anthropic-api-key' || kind === 'openai-api-key') && (
               <p className="text-sm text-muted">
-                {/* a member's own key (Settings › AI accounts) is theirs, not a key made for the team */}
+                {/* a member's own key (Settings › AI providers) is theirs, not a key made for the team */}
                 {t(personal ? 'credentials.apiKey.hintOwn' : 'credentials.apiKey.hint')}{' '}
                 {!(kind === 'anthropic-api-key' && gateway) && <a className="inline-flex items-center gap-1 text-accent-text underline" href={kind === 'anthropic-api-key' ? 'https://platform.claude.com/settings/keys' : 'https://platform.openai.com/api-keys'} target="_blank" rel="noreferrer noopener">
                   {t(kind === 'anthropic-api-key' ? 'credentials.apiKey.consoleAnthropic' : 'credentials.apiKey.consoleOpenai')} <ExternalLink size={12} aria-hidden />
@@ -710,7 +710,7 @@ export function ClaudeProgress({ l, code, onCode, onSubmit, error }: { l: Creden
   return <p className="text-sm text-danger" data-testid="claude-failed">{t(reason)}</p>
 }
 
-/** `personal`: a member's own account (Settings › AI accounts), not the one the team uses */
+/** `personal`: a member's own account (Settings › AI providers), not the one the team uses */
 function ChatgptProgress({ l, personal }: { l: CredentialLogin; personal?: boolean }) {
   const t = useT()
   if (l.state === 'starting') return <p className="text-sm text-muted">{t('credentials.chatgpt.starting')}</p>
@@ -793,7 +793,7 @@ export function MyCredentials() {
   return (
     <Loadable state={state}>
       {(d) => (
-        // a phone: Settings' bar says "Providers", so the card has no frame and its title is for screen readers
+        // a phone: Settings' bar says "AI providers", so the card has no frame and its title is for screen readers
         <Card flat title={<span className="max-md:sr-only">{t('settings.providers')}</span>} desc={t(guest ? 'settings.credentials.descGuest' : 'settings.credentials.desc')}>
           <div className="space-y-5" data-testid="my-providers">
             {(['claude', 'codex'] as const).map((fam) => {

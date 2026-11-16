@@ -10,7 +10,7 @@ import type { AppEnv } from './env'
 import { HttpError, fail } from './errors'
 import { msg } from '../auth/messages'
 import { GUEST_ENDPOINTS } from '../auth/guest-endpoints'
-import { removedSignInReason } from '../auth/account-removal'
+import { removedSignIn } from '../auth/account-removal'
 import type { AuthInfo } from '../services'
 import type { AppContext } from '../context'
 import { demoGuard } from '../demo/guard'
@@ -100,7 +100,8 @@ export class RouteKit {
     this.app.on(ep.method, ep.path, async (c) => {
       const auth = c.get('auth')
       // a sign-in that ended because its account was removed says so, to that sign-in's holder only (TC-1974)
-      if (!auth && ep.auth !== 'public') { const why = removedSignInReason(this.ctx, c.req.raw); if (why) fail('unauthorized', undefined, { params: { reason: why } }) }
+      // a guest's also says whether they left or were taken out, with the team's name (guest walkthrough S5/S6)
+      if (!auth && ep.auth !== 'public') { const why = removedSignIn(this.ctx, c.req.raw); if (why) fail('unauthorized', undefined, { params: { reason: 'account_removed', ...(why.guest ? { guest: why.guest, ...(why.team ? { team: why.team } : {}) } : {}) } }) }
       enforceAuth(ep, auth)
 
       const params = c.req.param() as ParamsOf<E>

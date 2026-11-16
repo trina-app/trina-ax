@@ -86,8 +86,8 @@ export const Invite = z.object({
   /** a lead invite ("이 사람이 팀장이에요", docs/DECISIONS.md "W6"): the owner's words for whom it is, while it is still
    * flagged (a transfer clears every flag); absent or null otherwise and from older servers */
   leadFor: z.string().nullable().optional(),
-  /** a guest invite's one place; absent on member invites. `name`: a project's name (the invite list names it; a room's
-   * name is left out, since a group chat is its people's) */
+  /** a guest invite's one place; absent on member invites. `name`: the project's or the group chat's name (the invite
+   * list names it, as Admin's guest rows do; older servers sent a project's only; '' for a group chat with no name) */
   guestPlace: GuestPlace.extend({ name: z.string().optional() }).optional(),
   /** a guest invite: who the link is for, in the inviter's words (CreateGuestInviteBody.name; the invite list tells
    * the links apart by it); absent when none was given and on member invites */
@@ -820,6 +820,10 @@ export const TeamSettings = z.object({
    * 허용"). Off: no card offers it and the choices people made are ignored (kept: they count again when it is turned
    * back on) */
   roomAlwaysAllow: z.boolean(),
+  /** "Members can share files they own" (default on; docs/DECISIONS.md "A member shares their own files"): a member's
+   * Share on a file of theirs, and access requests to members. Off: members cannot add people or be asked; the shares
+   * already made keep working until removed. The team owner and admins share team files either way. */
+  memberFileShares: z.boolean(),
   /** who may make team projects (a new projects/<name> folder with the people they choose; docs/DECISIONS.md "Projects
    * live only in projects/"): 'members' (default: anyone, like a chat channel) or 'admins' (the owner and admins only).
    * Personal projects are never limited. */

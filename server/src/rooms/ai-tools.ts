@@ -20,7 +20,9 @@ export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
  * The only tools a shared project chat gets (docs/DECISIONS.md "Shared project chats"; an allowlist: a tool added later
  * is not offered there until it is listed). Its transcript is seen by everyone who sees its project, so: no memories, no
  * chat title, no connection's tools, no Google Drive, no schedules, nothing on a computer or in the person's signed-in
- * browser, no room reading (rooms, room_read, room_file, save_room_file).
+ * browser, no room reading (rooms, room_read, room_file, save_room_file). Posting is there (docs/DECISIONS.md "Sending
+ * to a person or a room from a shared chat"): post_to_room sends as the person whose turn it is, after their yes on its
+ * card, which only they see; it brings nothing into the chat.
  */
 export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   ...Object.keys(FILE_TOOLS),
@@ -28,6 +30,10 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   'make_file', 'edit_hwp', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact', 'web_fetch', 'save_url',
   // a file sent from the computer in a chat shared with people (chat/chat-file-tool.ts)
   'chat_file',
+  // "send these to bob" (chat/post-to-room.ts): as the turn's own person, behind their card
+  'post_to_room',
+  // "share these photos with bob" (chat/share-with-person.ts): the turn's own person's files, behind their card
+  'share_with_person',
 ])
 
 /** The arguments that name where a call writes, per tool: a shared chat's read card counts them only when something
@@ -84,7 +90,7 @@ export const PATH_ARGS: readonly string[] = ['file_path', 'path', 'source', 'out
  * 줄이기").
  */
 export const ROOMS_SEEN_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
-  ...ROOM_READ_ONLY_TOOLS, 'rooms', 'room_read', 'room_file', 'set_title', 'remember', 'post_to_room', 'change_project_members', 'find_tools', 'schedule_list', 'drive_search', 'drive_list', 'drive_read',
+  ...ROOM_READ_ONLY_TOOLS, 'rooms', 'room_read', 'room_file', 'set_title', 'remember', 'post_to_room', 'share_with_person', 'change_project_members', 'find_tools', 'schedule_list', 'drive_search', 'drive_list', 'drive_read',
 ])
 /** ...and the in-app browser's reading tools, only in a turn that has the browser (by name otherwise: no exemption) */
 export const ROOMS_SEEN_BROWSER_READ_TOOLS: ReadonlySet<string> = new Set(['read_page', 'get_page_text', 'find', 'tabs_context', 'read_console_messages', 'read_network_requests'])

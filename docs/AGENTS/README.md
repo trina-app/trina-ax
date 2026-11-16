@@ -9,7 +9,9 @@ Every developer and coding agent writes a plan **before** starting a feature or 
 3. Build what the plan says. If the approach changes, update the plan in the same branch.
 4. Do not edit `CHANGELOG.md`. Put the PR's user-visible notes in a new file `changes/<topic>.md`
    (rules: [changes/README.md](../../changes/README.md)).
-5. Link the plan in the pull request ("Plan" in the template). At the end, set `Status: done` and fill in `Result`.
+5. Do not add to `docs/DECISIONS.md` (the archive). Write each design decision the work makes as a new file
+   `docs/decisions/<YYYYMMDD>-<topic>.md` (rules: [docs/decisions/README.md](../decisions/README.md)).
+6. Link the plan in the pull request ("Plan" in the template). At the end, set `Status: done` and fill in `Result`.
 
 Not needed for: typo fixes, dependency bumps and release version bumps. Outside contributors are welcome to add a plan,
 but do not have to.
@@ -53,6 +55,11 @@ Out: what it leaves for later.
 
 1. ...
 2. ...
+
+## Decisions
+
+New design decisions, each a file `docs/decisions/<YYYYMMDD>-<topic>.md` (not a section in `docs/DECISIONS.md`), or
+"none". Link older decisions this changes (an anchor in `docs/DECISIONS.md` is fine).
 
 ## Risks
 

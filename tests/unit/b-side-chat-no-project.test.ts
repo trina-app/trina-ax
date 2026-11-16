@@ -46,7 +46,7 @@ test("a room's side chat never moves into a project and is never shared (QA TC-1
   // the move: 400 side_chat_no_project, in the person's words, and nothing changed
   const moved = await errOf(h.api('alice').call(API.updateChat, { params: { id: side.id }, body: { projectId } }))
   expect([moved.status, moved.body.fields?.['body.projectId'], moved.body.params?.reason]).toEqual([400, 'side_chat_no_project', 'side_chat_no_project'])
-  expect(moved.body.message).toBe('A chat opened beside a room holds what was said in that room, so it can\'t be moved into a project. Ask in a new chat instead.')
+  expect(moved.body.message).toBe('A chat opened beside a conversation holds what was said there, so it can\'t be moved into a project. Ask in a new chat instead.')
   expect(h.ctx.db.query('SELECT project_id, shared_at FROM chats WHERE id = ?').get(side.id)).toEqual({ project_id: null, shared_at: null })
   // a rename still works (only a project is refused)
   expect((await h.api('alice').call(API.updateChat, { params: { id: side.id }, body: { title: 'Price question' } })).title).toBe('Price question')

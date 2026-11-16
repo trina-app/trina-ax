@@ -25,7 +25,7 @@ import { answerHtml } from '../LazyMarkdown'
 import { formAnswers } from '../../lib/skillForm'
 import { skillByName, splitCommand, useSkillList } from '../../lib/skillTitles'
 import { useAutoGrow } from '../../lib/autoGrow'
-import { formatResetDay, formatSize } from '../../lib/format'
+import { formatNumber, formatResetDay, formatSize } from '../../lib/format'
 import { openArtifact, openFilePreview, openTeamFile, useSidePanel } from '../../lib/sidePanel'
 import { TEAM_FILE_DRAG_TYPE } from '../../lib/teamAttach'
 import { useChatArtifacts } from '../../lib/useArtifacts'
@@ -158,7 +158,7 @@ export function AttachmentView({ a, align = 'end', chatId }: { a: Attachment; al
   // for a file that is gone. No 트리나에게 묻기: this chat is the place to ask
   const fileMenu = useFileMenu(team && a.unavailable ? null : kept
     ? { name: a.name, image: picture ? itemImage(item()) : null, download: () => startDownload(chatFileUrl(chatId!, a.id, { download: '1' }), a.name) }
-    : { name: a.name, image: picture ? itemImage(attachmentItem(a)) : null, link: teamFileLink(a.path), download: () => startDownload(fileUrl(a.path), a.name) })
+    : { name: a.name, image: picture ? itemImage(attachmentItem(a)) : null, link: teamFileLink(a.path), teamFile: a.path, download: () => startDownload(fileUrl(a.path), a.name) })
   // a team file that was deleted or that the person can no longer open: the server sent nothing about it
   if (team && a.unavailable)
     return (
@@ -618,7 +618,7 @@ export function AssistantMessage({
   shareRoomId,
   sendHere,
   canRegenerate = true,
-  canSuggest = true,
+  canSuggest: canSuggestHere = true,
   pressMenu = false,
 }: {
   m: ViewMessage
@@ -677,6 +677,11 @@ export function AssistantMessage({
   const guest = myRole === 'guest'
   // a guest with their own sign-in (Me.guest.ai 'own') connects it themselves: "no AI" says so, with "Connect my AI"
   const guestOwn = guest && meGuest(meNow)?.ai === 'own'
+  // a guest suggests no skills (the server refuses it: guest walkthrough M1), so the button is not offered
+  const canSuggest = canSuggestHere && !guest
+  const guestAi = guest ? meNow?.guest?.ai : undefined
+  // only when their own limit stopped it (params.own); a team or group limit has another amount
+  const guestTokens = guestAi?.mode === 'team' && m.error?.params?.own === true ? guestAi.limitTokens : undefined
   const role = guest ? undefined : myRole
   const noAi = useAiAccess((s) => s.loaded && !s.usable)
   // a guest is not told to ask an admin they do not know: the person who invited them
@@ -685,7 +690,10 @@ export function AssistantMessage({
   const guestKey = !guest || !m.error ? null : m.error.code === 'budget_exceeded' ? (resetsAt ? 'guest.aiLimitUntil' as const : 'guest.aiLimit' as const) : reason && GUEST_ASKS.has(reason) ? (guestOwn && isNoAiReason(reason) ? 'aiAccess.banner.connectOwn' as const : 'guest.noAi' as const) : null
   const said = guestKey ? { key: guestKey, where: null } : reason ? chatErrorText(reason, role, noAi) : null
   const errText = m.error
-    ? guestKey === 'guest.aiLimitUntil' ? t(guestKey, { date: formatResetDay(resetsAt!, locale, meNow?.server.timeZone) })
+    ? guestKey === 'guest.aiLimitUntil' ? (guestTokens
+      // a token limit says its amount ("this month's AI limit (5M tokens)"); an older US dollar one reads as before
+      ? t('guest.aiLimitTokens', { amount: formatNumber(guestTokens, locale, { notation: 'compact', maximumFractionDigits: 1 }), date: formatResetDay(resetsAt!, locale, meNow?.server.timeZone) })
+      : t(guestKey, { date: formatResetDay(resetsAt!, locale, meNow?.server.timeZone) }))
       : said ? t(said.key, said.where ? { path: adminPath(t, said.where) } : undefined)
       : m.error.params?.reason === undefined && known && isDefaultErrorMessage(m.error.code, m.error.message) ? known[locale] : m.error.message
     : null
@@ -714,7 +722,8 @@ export function AssistantMessage({
     }, testId: 'side-answer-copy' }] : []),
     // (not while an answer runs: the icon is disabled then, and a sheet item cannot be)
     ...(canRetry && !busy ? [{ label: t('chat.regenerate'), icon: <RotateCcw size={14} aria-hidden />, onSelect: () => onRegenerate(m), testId: 'side-answer-regenerate' }] : []),
-    ...(canSuggest && finished ? [{ label: t('suggest.button'), icon: <BookmarkPlus size={14} aria-hidden />, onSelect: () => setSuggesting(true), testId: 'side-answer-suggest' }] : []),
+    // a guest has no skills (docs/DECISIONS.md "Guests: only what they were invited to")
+    ...(canSuggest && !guest && finished ? [{ label: t('suggest.button'), icon: <BookmarkPlus size={14} aria-hidden />, onSelect: () => setSuggesting(true), testId: 'side-answer-suggest' }] : []),
   ] : []
 
   if (m.withheld) {
@@ -852,7 +861,7 @@ export function AssistantMessage({
                   <RotateCcw size={13} />
                 </IconButton>
               )}
-              {canSuggest && m.content && m.status === 'done' && (
+              {canSuggest && !guest && m.content && m.status === 'done' && (
                 <IconButton label={t('suggest.button')} onClick={() => setSuggesting(true)} className="touch-hit" data-testid="suggest-skill">
                   <BookmarkPlus size={13} />
                 </IconButton>

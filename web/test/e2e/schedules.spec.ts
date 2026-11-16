@@ -65,7 +65,7 @@ test('the Runs list: one heading, the run on its way after Run now, then its res
   const item = await open(page, '영업 대화 요약')
   const instructions = item.getByTestId('schedule-instructions')
   await expect(instructions).toContainText('#영업팀')
-  await expect(instructions).toContainText('참여하지 않은 대화방')
+  await expect(instructions).toContainText('참여하지 않은 대화')
   await expect(instructions).not.toContainText(SALES)
   await expect(instructions).not.toContainText(HR)
   // a copy of the instruction gives the ids a run reads, never a name

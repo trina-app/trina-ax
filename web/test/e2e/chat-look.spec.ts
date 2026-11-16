@@ -116,13 +116,12 @@ test("the chat's name opens its link, rename and delete, after the project it is
   // the chat is in a project: "Change project" sits between Rename and Delete
   await expect(page.getByTestId('chat-project-move')).toBeFocused()
   await expect(page.getByTestId('chat-project-move')).toHaveText(/Change project|프로젝트 바꾸기/)
-  // a chat only I see in a team project: it may be shared with the members
-  await page.keyboard.press('ArrowDown')
-  await expect(page.getByTestId('chat-share')).toBeFocused()
+  // no Share in the menu: a chat only I see in a team project is shared with the header's Share
   await page.keyboard.press('ArrowDown')
   await expect(page.getByTestId('chat-delete')).toBeFocused()
   await audit(page, 'chat menu')
   await page.keyboard.press('Escape')
+  await expect(page.getByTestId('chat-share')).toBeVisible()
   await expect(page.getByRole('menu')).toBeHidden()
   await expect(name).toBeFocused()
   // rename: the top line and the sidebar both follow

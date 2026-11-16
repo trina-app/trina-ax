@@ -65,6 +65,7 @@ import { contentQueryReady, FileContentResults, FileNameResults } from '../compo
 import FileUploads from '../components/FileUploads'
 import FolderPicker from '../components/FolderPicker'
 import { FolderAccessChip, FolderAccessPanel, offersFolderAccess } from '../components/FolderAccess'
+import { openFileShare, useCopyTeamFileLink } from '../components/FileShareDialog'
 import FolderUploads, { startFolderUpload, useFolderUploadsSettled } from '../components/FolderUploads'
 import { TeamFilesEntry } from '../components/onboarding/TeamFilesStep'
 import { FindWorkFilesEntry } from '../components/onboarding/FindWorkFiles'
@@ -711,7 +712,13 @@ function Files() {
       }
       if (!(isApiError(err, 'conflict') && err.body.params?.reason === 'audience_narrowed')) throw err
       const n = Number(err.body.params.lostViewers ?? 0)
-      if (!(await confirmDialog({ title: t('files.narrowTitle'), body: t('files.narrowBody', { n }), confirm: t('files.moveAnyway'), danger: true }))) return null
+      // people who have a file there by its link lose it too (files/shares.ts linkPeopleUnder; QA TC-3093)
+      const linked = Number(err.body.params.linkPeople ?? 0)
+      const folder = tree0.current?.entries.find((x) => x.path === body.from)?.type === 'folder'
+      const narrow = linked > 0
+        ? <><p>{t('files.narrowBody', { n })}</p><p className="mt-2" data-testid="move-link-people">{t(folder ? 'files.narrowLinkPeopleFolder' : 'files.narrowLinkPeople', { n: linked })}</p></>
+        : t('files.narrowBody', { n })
+      if (!(await confirmDialog({ title: t('files.narrowTitle'), body: narrow, confirm: t('files.moveAnyway'), danger: true }))) return null
       return await api.call(API.move, { body: { ...body, confirm: true } })
     }
   }
@@ -1033,6 +1040,7 @@ function Files() {
                 </Tooltip>
               </>
             )}
+            {!projectsTop && <FindWorkFilesEntry here={path} />}
             {!projectsTop && (
             <Tooltip label={t('files.upload')}>
               <Button size="sm" variant="primary" className={clsx(tree && !canWrite && 'max-md:hidden')} onClick={() => fileInput.current?.click()} disabled={!canWrite} aria-label={t('files.upload')} data-testid="upload-button">
@@ -1118,7 +1126,6 @@ function Files() {
           <FileUploads here={path} />
           <FolderUploads here={path} />
           <TeamFilesEntry here={path} />
-          <FindWorkFilesEntry here={path} />
           {/* computer files over the list go to this folder; over a folder row, into that folder (the row shows it) */}
           <div className={clsx('scroll-thin relative min-h-0 flex-1 overflow-y-auto px-2 pb-6 sm:px-4', drag && !over && 'bg-accent-soft/40 ring-2 ring-accent ring-inset')}>
             {phone && (
@@ -1214,7 +1221,7 @@ function Files() {
                           // (toProjectPage), so it says "Members only", as Folder permissions does, not "pass-through"
                           membersOnly={e.type === 'folder' && e.access === 'none' && isAdmin(me) && isProjectsFolder(e.path)}
                           onProject={(a) => navigate(`/projects/${a.project.id}`)}
-                          onSuggest={e.type === 'file' && e.path.startsWith(`users/${me.user.id}/`) && /\.(md|txt)$/i.test(e.name) ? () => setSuggesting(e.path) : null}
+                          onSuggest={me.user.role !== 'guest' && e.type === 'file' && e.path.startsWith(`users/${me.user.id}/`) && /\.(md|txt)$/i.test(e.name) ? () => setSuggesting(e.path) : null}
                           onAccess={e.type === 'folder' && offersFolderAccess(e.path, e.access, me.user.id, byFolder.get(e.path.normalize('NFC')) ?? null) ? () => setAccessFor({ path: e.path, access: e.access }) : null}
                         />
                       ))}
@@ -1421,17 +1428,21 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
   // through the file's own address (a HEIC photo as the server's JPEG), and 링크 복사, the app's address of the file or
   // folder (only people who may open it can)
   const copyLink = useCopyFileLink()
+  const copyFileLink = useCopyTeamFileLink()
   const picture = !folder && previewKind(e.name) === 'image' && canCopyImage() ? { src: serverPreview(e.name) ? api.url(API.preview, { query: { path: e.path } }) : fileUrl(e.path, 'inline'), thumb: false } : null
   const items: MenuItem[] = [
     ...(pressSelect && !selecting && !dim ? [{ label: t('files.selectRow'), icon: icon(SquareCheck), onSelect: () => onCheck(false), testId: 'file-select' }] : []),
     ...(!folder && previewKind(e.name) ? [{ label: t('common.preview'), icon: icon(Eye), onSelect: run(onOpen), testId: 'file-preview' }] : []),
     ...(picture ? [{ label: t('fileMenu.copyImage'), icon: icon(ImageIcon), onSelect: run(() => copyImageFrom(picture, t)), testId: 'file-copy-image' }] : []),
-    { label: t('rooms.menu.copyLink'), icon: icon(Link2), onSelect: run(() => void copyLink(teamFileLink(e.path))), testId: 'file-copy-link' },
+    // a file: its /f/<id> link (QA TC-3093); a folder keeps its Files address
+    { label: t('rooms.menu.copyLink'), icon: icon(Link2), onSelect: run(() => void (folder ? copyLink(teamFileLink(e.path)) : copyFileLink(e.path))), testId: 'file-copy-link' },
     ...(!folder ? [{ label: t('common.download'), icon: icon(Download), onSelect: run(() => startDownload(fileUrl(e.path), e.name)), testId: 'file-download' }] : []),
     { label: t(chatItemKey(folder), { name: aiName(t) }), icon: icon(folder ? MessageSquarePlus : Sparkles), onSelect: run(onChat), disabled: aiOff, describedBy: aiWhy, testId: 'chat-with-file' },
     ...(!folder && onAddToChat ? [{ label: t('files.addToChatNamed', { title: chatTitle }), icon: icon(Paperclip), onSelect: run(onAddToChat), disabled: aiOff, describedBy: aiWhy, testId: 'add-to-chat' }] : []),
     ...(project ? [{ label: t('files.openProject'), icon: icon(FolderKanban), onSelect: run(() => onProject(project)), testId: 'open-project' }] : []),
     ...(onAccess ? [{ label: t('folderAccess.menu'), icon: icon(UserPlus), onSelect: run(onAccess), testId: 'folder-access-menu' }] : []),
+    // a file shared with chosen people (QA TC-3093): the dialog says who may change it
+    ...(!folder ? [{ label: t('folderAccess.menu'), icon: icon(UserPlus), onSelect: run(() => openFileShare(e.path)), testId: 'file-share' }] : []),
     ...(!folder ? [{ label: t('files.history'), icon: icon(History), onSelect: run(onHistory), testId: 'file-history' }] : []),
     ...(onSuggest ? [{ label: t('suggest.button'), icon: icon(BookmarkPlus), onSelect: run(onSuggest), testId: 'suggest-skill-file' }] : []),
     ...(!folder ? [{ label: t('files.share'), icon: icon(Copy), onSelect: run(onShare), testId: 'share-file' }] : []),

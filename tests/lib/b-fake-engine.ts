@@ -24,7 +24,7 @@
 //   @fake {"crashOnce": true}                exit 3 without output the first time in this chat folder
 //   @fake {"diskFull": true}                 exit 1 with Node's "ENOSPC: no space left on device" on stderr (every time)
 //   @fake {"loseSession": true}              on --resume: answer "No conversation found" (the stash went bad)
-//   @fake {"echo": "system" | "message" | "tools" | "model" | "history" | "resume"}
+//   @fake {"echo": "system" | "message" | "tools" | "toolDescriptions" | "model" | "history" | "resume"}
 //   @fake {"model": "prompt"}               call the model like Claude Code in subscription mode: the per-turn token
 //                                            from the inherited fd (CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR), POST
 //                                            $ANTHROPIC_BASE_URL/v1/messages?beta=true with stream, say the text deltas;
@@ -627,6 +627,11 @@ for (const d of directives) {
     await startBridge()
     const l = br ? await rpc('tools/list', {}) : { result: { tools: [] } }
     await say((l.result?.tools ?? []).map((t: any) => t.name).sort().join(','))
+  } else if (d.echo === 'toolDescriptions') {
+    // every tool's name and description as the engine is given them (tests/unit/b-guests-prompt.test.ts)
+    await startBridge()
+    const l = br ? await rpc('tools/list', {}) : { result: { tools: [] } }
+    await say(JSON.stringify(Object.fromEntries((l.result?.tools ?? []).map((t: any) => [t.name, String(t.description ?? '')]))))
   }
 }
 finish()

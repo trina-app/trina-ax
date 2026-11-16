@@ -31,8 +31,9 @@ export const MemberWelcome = z.object({
   /** the team's owner (the no-AI row's "Tell {owner}"); null when there is none */
   owner: UserRef.nullable(),
   /** rooms: always done; hi: they wrote a message in a room; photo: they have a profile photo (optional, not counted);
-   * asked: they asked Trina what they can do here */
-  steps: z.object({ rooms: z.literal(true), hi: z.boolean(), photo: z.boolean(), asked: z.boolean() }),
+   * asked: they asked Trina what they can do here; files: a file is in their My files › From this computer (the desktop
+   * app's "Bring work files from this computer" row: optional, not counted; absent from older servers) */
+  steps: z.object({ rooms: z.literal(true), hi: z.boolean(), photo: z.boolean(), asked: z.boolean(), files: z.boolean().optional() }),
   /** an admin's extra row "팀 파일 정리하기" (not counted): no owner or admin has applied the setup's folder plan yet
    * (docs/DECISIONS.md "Setup 팀 파일: the AI proposes folders"); it opens the same 팀 파일 step. Absent from older servers. */
   organizeFiles: z.boolean().optional(),

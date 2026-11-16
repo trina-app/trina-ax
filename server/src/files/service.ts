@@ -50,6 +50,7 @@ import { keepLongRetry, LONG_PIECE_SEC, longRetryLanguage } from '../jobs/speech
 import { pieceTurn, pieceWait } from '../jobs/whisper-turns'
 import * as media from './media'
 import { mediaText, personLocale, type MediaTextKey } from './media-text'
+import { diskStat } from '../system/disk-stat'
 
 void ENGINE_BUILTIN_ALLOWED
 
@@ -1224,6 +1225,17 @@ export class FileService {
     if (this.virtualPath(ctx, p)) throw new ToolError(`'${FILE_LIST_NAME}' here is the file list the server keeps every night: it cannot be written or edited`, 'file_list')
   }
 
+  /** The text of a file this person may read now, or null (none, a folder, too big, not UTF-8 text). For the key hiding
+   * of a write (integrations/connections/hide-args.ts): a key form the file already holds is kept. */
+  textNow(user: Principal, input: string): string | null {
+    try {
+      const r = authorize(this.fx, this.rules(), user, input, 'read')
+      if (!r.exists || !r.st!.isFile()) return null
+      const { bytes } = readRegular(r.abs, readMaxBytes())
+      return isUtf8(bytes) ? Buffer.from(bytes).toString('utf8') : null
+    } catch { return null }
+  }
+
   write(ctx: ToolCtx, a: { file_path: string; content: string }): ToolOutput {
     this.notTheList(ctx, a.file_path)
     const data = Buffer.from(a.content, 'utf8')
@@ -1398,8 +1410,8 @@ const probeFailures = new Map<string, { code: string; at: number }>()
 function diskRoom(base: string, size: number): boolean {
   try {
     fs.mkdirSync(base, { recursive: true, mode: 0o700 })
-    const st = fs.statfsSync(base)
-    return st.bavail * st.bsize >= size + media.MEDIA_DISK_RESERVE
+    const st = diskStat(base)
+    return Number(st.bavail) * Number(st.bsize) >= size + media.MEDIA_DISK_RESERVE
   } catch { return true }
 }
 const identity = (s: fs.Stats) => [s.dev, s.ino, s.size, s.mtimeMs, s.ctimeMs, s.nlink].join(':')

@@ -4,12 +4,12 @@
 //
 // From 768 px (tablets and computers): the menu in its own 240 px column beside the page (the app's rail is beside it
 // already, so the menu is a list with the names at every computer width and two rails never stand side by side:
-// docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1), staying where it is while the page scrolls. Groups: People · Connections (Providers: the AI engines and the accounts they use, Engines.tsx; MCP, App
+// docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1), staying where it is while the page scrolls. Groups: People · Connections (AI providers: the AI engines and the accounts they use, Engines.tsx; MCP, App
 // connectors, AI apps, plugins) · Activity · Team (team settings, with the team's AI settings, and the server). Home
 // (/admin) comes first: what needs attention, then one line per area (Home.tsx). Every page here is for the whole team:
 // the menu's title is the team's ("<team> admin", with its logo) and one line above every page says so ("Applies to
 // everyone in <team>", common.tsx AdminScope), so page titles keep the same nouns as Settings'. Old addresses: /admin/engines and /admin/credentials (AI engines, AI connections) open
-// Providers; their "Team provider settings" tab (?tab=team, focus=limits) opens Team settings at #ai or #ai-limits.
+// AI providers; their "Team provider settings" tab (?tab=team, focus=limits) opens Team settings at #ai or #ai-limits.
 // Slack is one of the connected apps, not a menu item (owner, 2026-11-12): /admin/slack (its menu item until then, and
 // where "Add to Slack" came back with ?slack=…) opens Slack's page in Connected apps with the same query, for the
 // owner and admins alike (admins manage Slack too since 2026-11-13).
@@ -40,6 +40,7 @@ import { folderName } from '../../lib/access-view'
 import { ADMIN_DETAILS, adminChain, adminDesktopOf, adminParent, isAdminDetail } from './adminScreens'
 import { AdminBarProvider, type AdminBar } from './phoneBar'
 import { AdminBarSlot } from './barActions'
+import { SetupReturn, useSetupReturnShown } from '../../components/onboarding/SetupReturn'
 
 const Home = lazy(() => import('./Home'))
 const PhoneRoot = lazy(() => import('./PhoneRoot'))
@@ -97,9 +98,9 @@ const MENU: { label: MessageKey | null; items: Section[] }[] = [
   },
 ]
 
-/** A phone's names of the pages that the 나 list has for the person too (Connected apps, AI apps): the team's are
- * "Team …" there, so the two lists never show the same name for different things. Providers has its own name already
- * (the person's page is "AI accounts"). Computers keep the Admin list's names (its title says whose they are). */
+/** A phone's names of the pages that the 나 list has for the person too (AI providers, Connected apps, AI apps): the team's are
+ * "Team …" there, so the two lists never show the same name for different things. Computers keep the Admin list's
+ * names (its title says whose they are). */
 const PHONE_LABEL: Partial<Record<string, MessageKey>> = { providers: 'admin.team.providers', connectors: 'admin.team.integrations', 'ai-apps': 'admin.team.aiApps' }
 const phoneLabel = (s: Section): MessageKey => PHONE_LABEL[s.id] ?? s.label
 
@@ -153,7 +154,7 @@ export function redirectOf(section: string, sub: string | undefined, search: str
   if (section === 'plugins' && !sub && q.get('focus')) return `/admin/plugins/${encodeURIComponent(q.get('focus')!)}`
   // a phone: an engine is a page of its own (?engine= opened its row in place)
   if (phone && section === 'providers' && !sub && q.get('engine') && q.get('tab') !== 'team') return `/admin/providers/${encodeURIComponent(q.get('engine')!)}`
-  // the team's AI settings moved from the Providers page's second tab into Team settings: its old address opens them
+  // the team's AI settings moved from the AI providers page's second tab into Team settings: its old address opens them
   if ((section === 'engines' || section === 'providers') && q.get('tab') === 'team') return q.get('focus') === 'limits' ? '/admin/settings#ai-limits' : '/admin/settings#ai'
   // AI engines and AI connections are one page now: their old addresses open it (AI connections: at Claude Code's accounts)
   if (section === 'engines') return `/admin/providers${search}`
@@ -163,6 +164,11 @@ export function redirectOf(section: string, sub: string | undefined, search: str
   if (section === 'app-connectors') return '/admin/connectors?drive=1'
   return null
 }
+
+/** An admin menu item. Only the page that is open has a fill; the item under the pointer only gets darker text: after a
+ * notice opens Admin, the pointer can rest on another item, and the two looked alike (QA TC-3035). */
+export const adminMenuItemClass = (current: boolean) =>
+  clsx('flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm focus-visible:-outline-offset-2', current ? 'bg-hover font-medium text-ink' : 'text-muted hover:text-ink')
 
 /** A member who opened an /admin link (a shared link, an old bookmark, a notice meant for an admin): say the page is
  * for admins, with a way Home. Before, the link opened Home without a word (QA TC-272, ADM-28). The server refuses a
@@ -232,6 +238,8 @@ export default function AdminLayout() {
   const [bar, setBar] = useState<AdminBar | null>(null)
   // the bar's place for the page's own buttons, + and ⋯ (barActions.tsx); a computer's page keeps its buttons
   const [barSlot, setBarSlot] = useState<HTMLElement | null>(null)
+  // opened from the welcome steps: their way back is the page's one back on a phone (SetupReturn.tsx), no ‹ beside it
+  const setupBack = useSetupReturnShown() !== null
   const back = () => {
     if (!bar?.beforeBack) return goBack()
     void bar.beforeBack().then((ok) => ok && goBack())
@@ -266,7 +274,7 @@ export default function AdminLayout() {
     return (
       <div className="flex h-full min-h-0 flex-col" data-testid="admin-phone">
         {/* the list's bar: ‹ back to where it came from (the 나 list: "‹ Settings"); its big title is in the list */}
-        <PhonePageBar onBack={back} backLabel={label} title={bar?.title ?? (group ? t(group.label) : isAdminDetail(here) && section !== 'folders' ? '' : section ? t(phoneLabel(current)) : '')} titleHidden={!!section} backTestId="admin-back" titleTestId="admin-bar-title"
+        <PhonePageBar onBack={setupBack ? undefined : back} backLabel={label} title={bar?.title ?? (group ? t(group.label) : isAdminDetail(here) && section !== 'folders' ? '' : section ? t(phoneLabel(current)) : '')} titleHidden={!!section} backTestId="admin-back" titleTestId="admin-bar-title"
           action={<span ref={setBarSlot} className="contents" />} />
         <div ref={content} className="min-h-0 flex-1 overflow-y-auto" data-testid="admin-content">
           {section === '' ? (
@@ -276,6 +284,8 @@ export default function AdminLayout() {
           ) : (
             <div className="mx-auto w-full max-w-6xl p-4">
               {/* the list says once that every page here applies to the whole team (PhoneRoot.tsx); not again on each */}
+              {/* opened from the welcome steps: the way back to them (components/onboarding/SetupReturn.tsx) */}
+              <SetupReturn className="mb-3" />
               {page}
             </div>
           )}
@@ -300,9 +310,7 @@ export default function AdminLayout() {
                 to={s.id ? `/admin/${s.id}` : '/admin'}
                 // an item's own page (/admin/connectors/<id>, /admin/plugins/<id>) keeps its page marked
                 end={!s.id}
-                className={({ isActive }) =>
-                  clsx('flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm hover:bg-hover hover:text-ink focus-visible:-outline-offset-2', isActive ? 'bg-hover font-medium text-ink' : 'text-muted')
-                }
+                className={({ isActive }) => adminMenuItemClass(isActive)}
               >
                 <s.icon size={15} className="shrink-0" aria-hidden /> <span>{t(s.label)}</span>
               </NavLink>
@@ -325,6 +333,8 @@ export default function AdminLayout() {
           {/* the form pages (Team settings, System) are one narrow column in the middle of the area, the others use the
               whole width; both are centred, so the page does not shift from one to the next */}
           <div className={clsx('w-full', NARROW.has(section) && 'mx-auto max-w-3xl')} data-testid="admin-column">
+            {/* opened from the welcome steps: the way back to them (components/onboarding/SetupReturn.tsx) */}
+            <SetupReturn className="mb-3" />
             <AdminScope />
             {page}
           </div>

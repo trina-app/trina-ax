@@ -210,16 +210,18 @@ test('Members: the owner changes a role in the row; others read it; the rest is 
   await expect(page.getByRole('status').filter({ hasText: t['teamLink.adminHint'] })).toBeVisible()
   await expect(bobRole).toHaveValue('member')
 
-  // "…": Folders they see for anyone; the actions only for people you manage
+  // "…": Folders they see and Usage limit for anyone; the actions only for people you manage
   await rowOf(page, 'Olga').getByTestId('member-more').click()
-  await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText([t['accessView.membersLink']])
+  await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText([t['accessView.membersLink'], t['budgets.memberMenu']])
   await page.keyboard.press('Escape')
   await expect(rowOf(page, 'Olga').getByTestId('member-more')).toBeFocused()
   await rowOf(page, 'Bob').getByTestId('member-more').click()
   const menu = page.getByRole('menu')
-  await expect(menu.getByRole('menuitem')).toHaveText([t['accessView.membersLink'], t['common.edit'], t['members.reset'], t['members.resetLinkButton'], t['members.disable'], t['common.delete']])
+  await expect(menu.getByRole('menuitem')).toHaveText([t['accessView.membersLink'], t['budgets.memberMenu'], t['common.edit'], t['members.reset'], t['members.resetLinkButton'], t['members.disable'], t['common.delete']])
   // arrow keys move through the items
   await expect(menu.getByRole('menuitem').first()).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(page.getByTestId('member-usage-limit-bob')).toBeFocused()
   await page.keyboard.press('ArrowDown')
   await expect(page.getByTestId('edit-member-bob')).toBeFocused()
   await page.keyboard.press('Enter')

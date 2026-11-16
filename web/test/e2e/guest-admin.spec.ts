@@ -101,8 +101,11 @@ test('Change AI: one title; Team AI is off without a team AI account, and its fi
   await page.getByTestId('guest-ai-gina').click()
   await page.getByTestId('guest-ai-team').check()
   await expect(page.getByTestId('guest-ai-account')).toBeVisible()
+  // Team AI starts at 500만 tokens a month, with about how many answers
+  await expect(page.getByTestId('guest-ai-limit')).toHaveValue('5000000')
+  await expect(page.getByTestId('guest-ai-estimate')).toHaveText('500만 토큰 · 약 62번 답변')
   await page.getByTestId('guest-ai-save').click()
-  await expect(page.getByTestId('guest-row-gina')).toContainText('팀 AI · 한 달 최대 $20')
+  await expect(page.getByTestId('guest-row-gina')).toContainText('팀 AI · 한 달 최대 500만 토큰 · 500만 남음')
 })
 
 test('invite links: a used guest link is gone, a project link names its project', async ({ page, browser }) => {
@@ -113,7 +116,7 @@ test('invite links: a used guest link is gone, a project link names its project'
   await page.goto(`/projects/${id}`)
   const urls: string[] = []
   for (const name of ['Used Kim', 'Open Lee']) {
-    await page.getByTestId('project-members-manage').click()
+    await page.getByTestId('project-share').click()
     await page.getByTestId('invite-guest-row').click()
     await page.getByTestId('guest-invite-name').fill(name)
     await page.getByTestId('guest-invite-create').click()
