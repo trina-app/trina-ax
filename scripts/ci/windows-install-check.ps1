@@ -3,19 +3,19 @@
 # -OldVersion and -NewVersion:
 #
 #   pwsh scripts/ci/windows-install-check.ps1 -Old <Setup-old.exe> -New <Setup-new.exe> -OldVersion 0.5.8-ci.1 `
-#     -NewVersion 0.5.8-ci.2 -Product "Trina AX" -Scheme trina-ax -LogDir <folder>
+#     -NewVersion 0.5.8-ci.2 -Product "Trina AX" -Scheme trina-ax -DataDir "Team AX" -LogDir <folder>
 #
 #   1. nothing of the app is installed (a fresh runner profile)
 #   2. silent install (/S): the uninstall entry (version, quiet uninstall), the app files, the Start menu and desktop
 #      shortcuts; both exes' signature status is reported (NotSigned on a pull request, Valid in a signed release;
 #      a broken signature fails)
-#   3. the app starts with a throw-away data folder (MYCEL_DESKTOP_USER_DATA), keeps running, writes its data and the
-#      <Scheme>:// link handler that points at the installed exe; then it is stopped
+#   3. the app starts, keeps running, writes its data folder (%APPDATA%\<DataDir>, the runner's own throw-away profile)
+#      and the <Scheme>:// link handler that points at the installed exe; then it is stopped
 #   4. install over it the way the updater does (electron-updater NsisUpdater: --updated /S --force-run): one uninstall
 #      entry with the new version, the new exe, the link handler kept (installer.nsh skips an update), the app started
 #      again by --force-run
 #   5. silent uninstall (the entry's QuietUninstallString): entry, files, shortcuts and the link handler are gone; the
-#      data folder stays (deleteAppDataOnUninstall: false)
+#      app's data folder stays (deleteAppDataOnUninstall: false: a reinstall finds the person's teams)
 #
 # Every step is logged to -LogDir (the workflow uploads it). Only processes started from the install folder are
 # stopped. Exits non-zero on the first failed check.
@@ -26,6 +26,8 @@ param(
   [Parameter(Mandatory)] [string] $NewVersion,
   [Parameter(Mandatory)] [string] $Product,
   [Parameter(Mandatory)] [string] $Scheme,
+  # PRODUCT.desktopDataDir: the packaged app keeps its data in %APPDATA%\<this> (desktop/src/main/main.ts)
+  [Parameter(Mandatory)] [string] $DataDir,
   [Parameter(Mandatory)] [string] $LogDir
 )
 $ErrorActionPreference = 'Stop'
@@ -37,7 +39,6 @@ $started = Get-Date
 function Ok([string] $what) { Write-Host "ok   $what"; $summary.Add("ok   $what") }
 function Fail([string] $what) {
   Write-Host "FAIL $what"; $summary.Add("FAIL $what")
-  Write-Summary
   throw "check failed: $what"
 }
 function Check([bool] $cond, [string] $what) { if ($cond) { Ok $what } else { Fail $what } }
@@ -102,11 +103,12 @@ function Run-Installer([string] $exe, [string[]] $argv) {
   Check ($p.ExitCode -eq 0) "$(Split-Path -Leaf $exe) $($argv -join ' ') exited $($p.ExitCode)"
 }
 
-$data = Join-Path $env:RUNNER_TEMP "desktop-data-$PID"
-New-Item -ItemType Directory -Force -Path $data | Out-Null
-$env:MYCEL_DESKTOP_USER_DATA = $data
+$data = Join-Path $env:APPDATA $DataDir
+Remove-Item Env:MYCEL_DESKTOP_USER_DATA -ErrorAction SilentlyContinue
 
+try {
 # 1. a fresh profile
+Check (-not (Test-Path $data)) "no app data before the install ($data)"
 Check ((Get-Entries).Count -eq 0) 'no uninstall entry before the install'
 Check (-not (Test-Path $desktopLnk) -and -not (Test-Path $startLnk)) 'no shortcuts before the install'
 Check (-not (Get-Link)) "no ${Scheme}:// handler before the install"
@@ -171,7 +173,10 @@ Check (-not (Get-Link)) "the ${Scheme}:// handler is gone"
 Check (Test-Path $data) 'the data folder stays (deleteAppDataOnUninstall: false)'
 if (Test-Path $dir) { Get-ChildItem $dir -Recurse -Force | Out-String | Write-Host }
 
-Copy-Item -Recurse -Force $data (Join-Path $LogDir 'app-data') -ErrorAction SilentlyContinue
-Write-Summary
 Write-Host "every install check passed in $([int]((Get-Date) - $started).TotalSeconds) s"
-Stop-Transcript | Out-Null
+} finally {
+  # also after a failed check: what the app wrote and the summary are what tells why
+  if (Test-Path $data) { Copy-Item -Recurse -Force $data (Join-Path $LogDir 'app-data') -ErrorAction SilentlyContinue }
+  Write-Summary
+  Stop-Transcript | Out-Null
+}

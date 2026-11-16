@@ -24,8 +24,9 @@
     checks the image format, the volume name, the file system, the app (Info.plist version, executable, app.asar), the
     Applications link, the background picture in `.background/`, and `.DS_Store` (each icon's position, picture
     background, icon and label size). **Every expected value comes from `desktop/electron-builder.config.ts` and the
-    installed electron-builder**: the file system is `dmg.filesystem`, else APFS before electron-builder 26.13.0 and
-    HFS+ from it. #1036 and #985 move the check with them; nothing is written into the check. The dmg is uploaded for
+    installed electron-builder**: the file system is `dmg.filesystem`, else APFS up to electron-builder 26.0.17
+    (`hdiutil -fs APFS`) and HFS+ from 26.0.18 (dmgbuild). The background may sit in `.background/` or at
+    `/.background.<ext>` (26.0.18 on), as one TIFF when an `@2x` picture is next to it, and `.DS_Store` must name it. #1036 and #985 move the check with them; nothing is written into the check. The dmg is uploaded for
     3 days.
   - **Windows installer (windows-2025, the release's image):** two unsigned NSIS installers of the commit
     (`<version>-ci.1`, `-ci.2`), then `scripts/ci/windows-install-check.ps1`. It checks a silent install (`/S`): the

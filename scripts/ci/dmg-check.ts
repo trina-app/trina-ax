@@ -8,12 +8,14 @@
 //
 //   1. the image: hdiutil imageinfo reads it; its format is dmg.format (electron-builder's default: UDZO)
 //   2. it mounts read-only (hdiutil attach -readonly) under the volume name dmg.title
-//   3. the volume's file system is dmg.filesystem, else the installed electron-builder's default (APFS before 26.13.0,
-//      HFS+ from it)
+//   3. the volume's file system is dmg.filesystem, else the installed electron-builder's default (APFS before 26.0.18,
+//      which passed -fs APFS to hdiutil; from 26.0.18 dmgbuild makes the image, HFS+ unless dmg.filesystem says otherwise)
 //   4. every dmg.contents entry (default: the app and an Applications link) is there: the app with its Info.plist,
 //      version and executable, each link pointing where the config says
 //   5. the background: the picture the config names (dmg.background, else build-resources/background.tiff|png, else
-//      electron-builder's own) is in .background/, and .DS_Store points the window at a picture (backgroundType 2)
+//      electron-builder's own) is on the volume (.background/<name> up to 26.0.17, /.background.<ext> from 26.0.18; a
+//      picture with an @2x file next to it becomes one TIFF), .DS_Store names that file, and the window shows a picture
+//      (backgroundType 2)
 //   6. .DS_Store places each entry at its x/y and has the icon and label size of the config
 //
 // The volume is detached whatever happens. Exits non-zero on the first failed check; a summary goes to
@@ -27,12 +29,20 @@ const ROOT = resolve(import.meta.dir, '../..')
 const DESKTOP = join(ROOT, 'desktop')
 
 type Entry = { x: number; y: number; type?: 'link' | 'file' | 'dir'; name?: string; path?: string }
-type DmgOptions = { title?: string; format?: string; filesystem?: string; background?: string | null; backgroundColor?: string | null; contents?: Entry[]; iconSize?: number; iconTextSize?: number }
+type DmgOptions = { title?: string; format?: string; compression?: string; filesystem?: string; background?: string | null; backgroundColor?: string | null; contents?: Entry[]; iconSize?: number; iconTextSize?: number }
 
-/** electron-builder 26.13.0 made HFS+ the default (and added dmg.filesystem); before it every dmg was APFS. */
+/** Up to dmg-builder 26.0.17 every dmg was made with `hdiutil create -fs APFS`; from 26.0.18 dmgbuild makes it, whose
+ * default is HFS+ (dmg.filesystem, read from 26.13.0, can change it). dmg-builder and electron-builder share versions. */
 export function defaultFilesystem(builderVersion: string): 'HFS+' | 'APFS' {
-  const [maj = 0, min = 0] = builderVersion.split(/[.-]/).map(Number)
-  return maj > 26 || (maj === 26 && min >= 13) ? 'HFS+' : 'APFS'
+  const [maj = 0, min = 0, patch = 0] = builderVersion.split(/[.-]/).map(Number)
+  return maj > 26 || (maj === 26 && (min > 0 || patch >= 18)) ? 'HFS+' : 'APFS'
+}
+
+/** The background's file on the volume, by the name dmg-builder gives it: one TIFF when an @2x picture sits next to it. */
+export function backgroundExtension(source: string, exists: (p: string) => boolean = existsSync): string {
+  const ext = extname(source).toLowerCase()
+  const retina = join(source, '..', `${basename(source, extname(source))}@2x${extname(source)}`)
+  return ext === '.tif' || ext === '.tiff' || exists(retina) ? '.tiff' : ext
 }
 
 /** diskutil's FilesystemType for each name dmg.filesystem takes. */
@@ -44,7 +54,7 @@ export function filesystemType(name: string): string {
 }
 
 /** dmg-builder's defaults (DmgTarget.computeDmgOptions, customizeDmg). */
-export function expectedDmg(dmg: DmgOptions, o: { productFilename: string; version: string; builderVersion: string; buildResources: string; builderTemplates: string }) {
+export function expectedDmg(dmg: DmgOptions & { compression?: string }, o: { productFilename: string; version: string; builderVersion: string; buildResources: string; builderTemplates: string }) {
   const contents = dmg.contents ?? [{ x: 130, y: 220 }, { x: 410, y: 220, type: 'link', path: '/Applications' }]
   let background: string | null = null
   if (dmg.backgroundColor == null) {
@@ -56,7 +66,8 @@ export function expectedDmg(dmg: DmgOptions, o: { productFilename: string; versi
   const textSize = dmg.iconTextSize && dmg.iconTextSize >= 10 && dmg.iconTextSize <= 16 ? dmg.iconTextSize : 12
   return {
     volume: (dmg.title ?? '${productName} ${version}').replace('${productName}', o.productFilename).replace('${version}', o.version),
-    format: dmg.format ?? 'UDZO',
+    // DmgTarget.computeDmgOptions: the packager's compression picks the format when dmg.format is not set
+    format: dmg.format ?? (dmg.compression === 'store' ? 'UDRO' : dmg.compression === 'maximum' ? 'UDBZ' : 'UDZO'),
     filesystem: dmg.filesystem ?? defaultFilesystem(o.builderVersion),
     entries: contents.map((c) => {
       const p = c.path ?? `${o.productFilename}.app`
@@ -110,7 +121,7 @@ function check(ok: boolean, what: string) {
 
 async function main() {
   const dir = resolve(process.argv[2] ?? join(DESKTOP, 'release'))
-  const config = (await import(join(DESKTOP, 'electron-builder.config.ts'))).default as { productName: string; dmg?: DmgOptions; directories?: { buildResources?: string } }
+  const config = (await import(join(DESKTOP, 'electron-builder.config.ts'))).default as { productName: string; compression?: string; dmg?: DmgOptions; directories?: { buildResources?: string } }
   const req = createRequire(join(DESKTOP, 'package.json'))
   const builderVersion = (req('electron-builder/package.json') as { version: string }).version
   const dmgBuilder = resolve(createRequire(req.resolve('electron-builder/package.json')).resolve('dmg-builder/package.json'), '..')
@@ -123,7 +134,7 @@ async function main() {
     const dmg = join(dir, file)
     // the version written into the dmg (a CI build may pass -c.extraMetadata.version): from the file name
     const v = /-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)-mac-/.exec(file)?.[1] ?? version
-    const want = expectedDmg(config.dmg ?? {}, {
+    const want = expectedDmg({ compression: config.compression, ...config.dmg }, {
       productFilename: config.productName, version: v, builderVersion,
       buildResources: join(DESKTOP, config.directories?.buildResources ?? 'build'), builderTemplates: join(dmgBuilder, 'templates'),
     })
@@ -167,13 +178,21 @@ async function main() {
         }
       }
 
+      // dmgbuild's places for the picture: .background/<file> (the old app-builder) or /.background.<ext> (dmgbuild)
       const bgDir = join(mnt, '.background')
-      const pictures = existsSync(bgDir) ? readdirSync(bgDir).filter((f) => /\.(tiff?|png|jpe?g)$/i.test(f)) : []
+      const isPicture = (f: string) => /\.(tiff?|png|jpe?g)$/i.test(f)
+      const pictures = [
+        ...(existsSync(bgDir) ? readdirSync(bgDir).filter(isPicture).map((f) => `.background/${f}`) : []),
+        ...readdirSync(mnt).filter((f) => f.startsWith('.background.') && isPicture(f)),
+      ].filter((f) => statSync(join(mnt, f)).size > 0)
       if (want.background) {
-        check(existsSync(want.background), `the configured background ${want.background.replace(ROOT + '/', '')} exists`)
-        const stem = basename(want.background, extname(want.background))
-        const pic = pictures.find((f) => basename(f, extname(f)) === stem)
-        check(!!pic && statSync(join(bgDir, pic)).size > 0, `.background/ holds ${stem}.* (${pictures.join(', ') || 'nothing'})`)
+        check(existsSync(want.background), `the background picture ${want.background.replace(ROOT + '/', '')} exists`)
+        const ext = backgroundExtension(want.background)
+        const pic = pictures.find((f) => extname(f).toLowerCase() === ext)
+        check(!!pic, `the volume holds the background as ${ext} (${pictures.join(', ') || 'no picture'})`)
+        // the window's alias and bookmark name the file: the picture on the volume is the one Finder shows
+        const ds = join(mnt, '.DS_Store')
+        if (pic && existsSync(ds)) check(readFileSync(ds).includes(Buffer.from(basename(pic))), `.DS_Store names ${basename(pic)}`)
       } else {
         check(true, `no background picture configured (backgroundColor ${config.dmg?.backgroundColor})`)
       }

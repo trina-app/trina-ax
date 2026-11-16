@@ -540,8 +540,8 @@ Desktop checks on pull requests: `.github/workflows/desktop.yml`. ci.yml은 리�
 | Windows installer | windows-2025 | 서명 없는 NSIS 둘(`<version>-ci.1`, `-ci.2`) → `scripts/ci/windows-install-check.ps1` | 늘 `desktop-windows-install-logs` |
 
 - **dmg 검사는 설정을 읽는다.** 형식(`dmg.format`, 기본 UDZO), 볼륨 이름(`dmg.title`), 파일 시스템(`dmg.filesystem`, 없으면 설치된
-  electron-builder의 기본: 26.13.0 전 APFS, 그 뒤 HFS+), `dmg.contents`의 위치(`.DS_Store`의 Iloc), 배경 그림(`dmg.background`, 없으면
-  build-resources의 background.tiff|png, 없으면 electron-builder 기본 그림)이 `.background/`에 있는지, 창이 그림 배경인지, 아이콘·글자
+  electron-builder의 기본: 26.0.17까지 APFS, 26.0.18부터 HFS+), `dmg.contents`의 위치(`.DS_Store`의 Iloc), 배경 그림(`dmg.background`, 없으면
+  build-resources의 background.tiff|png, 없으면 electron-builder 기본 그림)이 볼륨에 있는지(`.background/<파일>` 또는 26.0.18부터 `/.background.<확장자>`; `@2x` 그림이 옆에 있으면 TIFF 하나), `.DS_Store`가 그 파일을 가리키는지, 창이 그림 배경인지, 아이콘·글자
   크기. 값을 검사에 적지 않으므로 dmg 설정을 바꾸는 PR(#1036, #985)은 검사를 고칠 필요가 없다. 설정과 결과가 다르면 실패한다.
 - **윈도우 검사는 실제 PC를 쓰지 않는다.** 순서: 깨끗한 runner 프로필 확인 → `/S` 설치(제거 항목·파일·바로가기, 서명 상태
   NotSigned/Valid 보고) → 버린 데이터 폴더(`MYCEL_DESKTOP_USER_DATA`)로 앱 실행, `trina-ax://` 처리기 확인 → 업데이터와 같은

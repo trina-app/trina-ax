@@ -1,14 +1,15 @@
 // scripts/ci/dmg-check.ts (the desktop workflow's dmg check): what it expects comes from the electron-builder settings
 // and version, never from values written into the check.
 import { describe, expect, test } from 'bun:test'
-import { defaultFilesystem, dsStoreIcons, expectedDmg, filesystemType } from '../../scripts/ci/dmg-check'
+import { backgroundExtension, defaultFilesystem, dsStoreIcons, expectedDmg, filesystemType } from '../../scripts/ci/dmg-check'
 
 const o = { productFilename: 'Trina AX', version: '0.5.9', builderVersion: '26.0.12', buildResources: '/nowhere/build-resources', builderTemplates: '/dmg-builder/templates' }
 
 describe('dmg check expectations', () => {
-  test('the file system follows electron-builder: APFS before 26.13.0, HFS+ from it, dmg.filesystem over both', () => {
+  test('the file system follows electron-builder: APFS up to 26.0.17 (hdiutil -fs APFS), HFS+ from 26.0.18 (dmgbuild), dmg.filesystem over both', () => {
     expect(defaultFilesystem('26.0.12')).toBe('APFS')
-    expect(defaultFilesystem('26.12.9')).toBe('APFS')
+    expect(defaultFilesystem('26.0.17')).toBe('APFS')
+    expect(defaultFilesystem('26.0.18')).toBe('HFS+')
     expect(defaultFilesystem('26.13.0')).toBe('HFS+')
     expect(defaultFilesystem('26.15.3')).toBe('HFS+')
     expect(defaultFilesystem('27.0.0-alpha.1')).toBe('HFS+')
@@ -35,6 +36,12 @@ describe('dmg check expectations', () => {
     expect(want.background).toMatch(/desktop\/build-resources\/background\.png$/)
     expect(want.entries).toEqual([{ name: 'Trina AX.app', x: 170, y: 210, link: null }, { name: 'Applications', x: 490, y: 210, link: '/Applications' }])
     expect([want.iconSize, want.textSize]).toEqual([144, 13])
+    // background.png with a background@2x.png beside it ships as one TIFF; a lone PNG stays PNG
+    expect(backgroundExtension('/r/background.png', (p) => p === '/r/background@2x.png')).toBe('.tiff')
+    expect(backgroundExtension('/r/background.png', () => false)).toBe('.png')
+    expect(backgroundExtension('/t/background.tiff', () => false)).toBe('.tiff')
+    expect(expectedDmg({ compression: 'maximum' }, o).format).toBe('UDBZ')
+    expect(expectedDmg({ compression: 'store', format: 'ULFO' }, o).format).toBe('ULFO')
     // a colour instead of a picture: no background file is expected
     expect(expectedDmg({ backgroundColor: '#ffffff' }, o).background).toBeNull()
   })

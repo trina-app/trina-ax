@@ -49,6 +49,13 @@ export function fixtureResult<T = any>(cmd: string, args: string[], env: NodeJS.
     })
     p.stderr.on('data', (b) => { err += String(b) })
     p.on('error', (e) => finish('spawn error', () => fail(e)))
-    p.on('exit', (code, signal) => finish(`exited ${code ?? signal}`, () => fail(new Error(`fixture exited ${code ?? signal} without ${tag}\n${err.slice(-2000)}`))))
+    // 'close', not 'exit': the fixtures print their line and exit at once, and 'exit' can come before the last of stdout
+    // is read. The exit code is not checked: every fixture exits non-zero only without printing its line (or, for
+    // rtc-main, with a report missing, which the spec checks key by key)
+    p.on('close', (code, signal) => {
+      const line = out.split('\n').find((l) => l.startsWith(prefix))
+      if (line) return finish('result at close', () => { try { done(JSON.parse(line.slice(prefix.length)) as T) } catch (e) { fail(e) } })
+      finish(`exited ${code ?? signal}`, () => fail(new Error(`fixture exited ${code ?? signal} without ${tag}\n${err.slice(-2000)}`)))
+    })
   })
 }
