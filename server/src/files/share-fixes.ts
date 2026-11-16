@@ -23,6 +23,7 @@
 import type { Database } from 'bun:sqlite'
 import type { Locale, RunStepFixResult, StepFix } from '@mycel/shared/api'
 import { plainLabel } from '@mycel/shared/api'
+import { listWords } from '@mycel/shared'
 import type { AppContext } from '../context'
 import { audit } from '../admin/audit'
 import { HttpError } from '../http/errors'
@@ -159,7 +160,7 @@ export class ShareFixes {
   /** "Ask an admin" about a team folder the person can open but may not share (they are no owner or admin): for
    * `people` (who cannot open it), or nobody named. Null: nothing to ask (the person is an admin, a personal folder, a
    * project's folder, no admin to ask). */
-  forFolder(userId: string, chatId: string, folder: string, people: readonly string[]): StepFix | null {
+  forFolder(userId: string, chatId: string, folder: string, people: readonly string[], L: Locale = 'en'): StepFix | null {
     const me = loadPrincipal(this.db, userId)
     if (!me || me.role === 'guest' || isStaff(me)) return null
     const segs = folder.split('/').filter(Boolean)
@@ -168,13 +169,13 @@ export class ShareFixes {
     if (!admins.length) return null
     const who = [...new Set(people)].filter((id) => id !== userId && isMember(this.db, id) && !accessRouteFor(this.ctx, id, folder)).slice(0, FIX_PEOPLE_MAX)
     const id = this.save(userId, chatId, { kind: 'ask_admin', folder: segs.join('/'), people: who, admins })
-    return { id, kind: 'ask_admin', reason: 'folder', file: plainLabel(baseName(folder), 200), count: who.length, ...(who.length ? { people: this.names(who) } : {}), owner: plainLabel(admins.map((a) => nameOf(this.ctx, a) ?? '').filter(Boolean).join(', '), 200), state: 'open' }
+    return { id, kind: 'ask_admin', reason: 'folder', file: plainLabel(baseName(folder), 200), count: who.length, ...(who.length ? { people: this.names(who) } : {}), owner: plainLabel(listWords(admins.map((a) => nameOf(this.ctx, a) ?? '').filter(Boolean), L), 200), state: 'open' }
   }
 
   /** "Ask an admin" when the team turned off members' file sharing and the person's own file could not be shared:
    * the admins get the person's 1:1 message asking to turn it back on, naming the file. Null: nothing to ask (the
    * switch is on, the person is an admin, it is not their file, no admin to ask). */
-  forSwitch(userId: string, chatId: string, path: string): StepFix | null {
+  forSwitch(userId: string, chatId: string, path: string, L: Locale = 'en'): StepFix | null {
     const me = loadPrincipal(this.db, userId)
     if (!me || me.role === 'guest' || isStaff(me)) return null
     const shares = fileSharesOf(this.ctx)
@@ -187,7 +188,7 @@ export class ShareFixes {
     const admins = this.admins(userId)
     if (!admins.length) return null
     const id = this.save(userId, chatId, { kind: 'ask_admin', reason: 'switch', share: link, admins })
-    return { id, kind: 'ask_admin', reason: 'switch', file: plainLabel(baseName(path), 200), count: 0, owner: plainLabel(admins.map((a) => nameOf(this.ctx, a) ?? '').filter(Boolean).join(', '), 200), state: 'open' }
+    return { id, kind: 'ask_admin', reason: 'switch', file: plainLabel(baseName(path), 200), count: 0, owner: plainLabel(listWords(admins.map((a) => nameOf(this.ctx, a) ?? '').filter(Boolean), L), 200), state: 'open' }
   }
 
   /** "Share with project": the person's own private chat in a team project (the app's flow does the share and its

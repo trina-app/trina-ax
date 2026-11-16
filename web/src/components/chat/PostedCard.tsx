@@ -21,7 +21,9 @@ export default function PostedCard({ posted }: { posted: NonNullable<Step['poste
   const viewPost = useContext(StepPostView)
   const room = useRooms((s) => s.rooms.find((r) => r.id === posted.roomId))
   const titleOf = useRoomTitle()
-  const title = room ? t('shareCard.posted', { room: titleOf(room) }) : t('shareCard.postedPlain')
+  // a team room and the everyone room with "#", as the offer under the answer and the AI's answer name them
+  const where = room ? (room.kind === 'team' || room.kind === 'all' ? `#${titleOf(room)}` : titleOf(room)) : ''
+  const title = room ? t('shareCard.posted', { room: where }) : t('shareCard.postedPlain')
   return (
     <ActionCard title={title} label={title} testId="posted-card" state="done" kind="post"
       footer={<Button size="sm" variant="secondary" onClick={() => (viewPost ? viewPost(posted) : navigateTo(postPath(posted)))} aria-label={t('steps.postViewLabel')} data-testid="posted-card-view">{t('steps.postView')}</Button>}>

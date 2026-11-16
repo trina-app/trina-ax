@@ -215,6 +215,11 @@ test('a post to a room uses the same card frame and keeps View (the way the step
     expect(w.get('posted-card-file').textContent).toContain('Price list.md')
     expect(w.get('posted-card-view').textContent).toBe('View')
   } finally { await w.unmount() }
+  // a team room the viewer has: named with "#", as the offer and the AI's answer name it
+  const { useRooms } = await import('../../src/store/rooms')
+  useRooms.setState({ rooms: [{ id: posted.roomId, kind: 'team', name: 'Sales', peers: [], memberCount: 4 }] } as never)
+  const named = await mount(<StepPostView.Provider value={(p) => went.push(p)}><PostedCard posted={posted} /></StepPostView.Provider>)
+  try { expect(named.get('action-card-title').textContent).toBe('Posted in #Sales') } finally { await named.unmount() }
 })
 
 test('a file the viewer can no longer open: the card keeps its words and has no button', async () => {

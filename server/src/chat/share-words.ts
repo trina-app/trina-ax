@@ -40,6 +40,12 @@ export const OTHERS_WORDS_RULE = 'A share or a post may show its card although t
  * line (roomsSeenWhy), and a shared chat never had the choice count this way. */
 export const othersWordsCard = (exec: { shared?: unknown; roomsSeen?: unknown; othersWords?: unknown; alwaysPlace?: () => AlwaysPlace }, kind: CardAlwaysKind, alwaysOk: boolean): boolean =>
   !alwaysOk && !exec.shared && !exec.roomsSeen && !!exec.othersWords && alwaysHere(exec.alwaysPlace?.(), kind) === 'on'
+/** The one line a share or post card leads with when it asks first for a reason the person may not expect: the
+ * target came from what is open on the screen (looking_at) before rooms or a shared file read here (`seenLine`, the
+ * caller's seenWhy sentence) before content someone else wrote (othersWordsWhy). Never two lines for one card. */
+export function whyFirst(L: Locale, o: { fromLook: boolean; seenLine: string; others: boolean }): string {
+  return o.fromLook ? tr('lookedWhy', L) : o.seenLine || (o.others ? tr('othersWordsWhy', L) : '')
+}
 /** Next to FIND_FILE_RULE (UX B): several files of one name (QA TC-4091, the owner's rule 2026-11-16): to read or
  * summarise, answering for each one is fine when each is labelled; to act on one (share, post, edit, delete, move), ask. */
 export const SAME_NAME_RULE = 'Several files fit the name the user gave: if one was made, read or attached in this chat, use it without asking and say which. Otherwise, to only read or summarise, you may answer for each of them, each part labelled by its place in words and, for a file shared with the user, who shared it and when. To act on one (share, post, edit, delete, move, rename), never pick: ask which one, each choice labelled the same way.'

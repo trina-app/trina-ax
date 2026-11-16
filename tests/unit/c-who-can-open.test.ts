@@ -228,7 +228,7 @@ describe('who_can_open, the tool', () => {
     expect(r.content).not.toContain('Erin Yoo')
     expect(r.content).toContain('"Ask an admin"')
     const [fix] = fixesOf(r.steps, 'who_can_open')
-    expect(fix).toMatchObject({ kind: 'ask_admin', file: 'marketing', people: ['Bob Lee'], owner: 'Dana Choi, Carol Park' })
+    expect(fix).toMatchObject({ kind: 'ask_admin', file: 'marketing', people: ['Bob Lee'], owner: 'Dana Choi and Carol Park' })
     expect(await run('alice', fix!.id)).toMatchObject({ state: 'done', doneCount: 2 })
     // dana got alice's own 1:1 message naming the folder (a link to it) and bob; bob's access did not change
     const dm = h.ctx.db.query("SELECT m.body FROM room_messages m JOIN rooms r ON r.id = m.room_id WHERE r.kind = 'dm' AND r.dm_key = 'alice|dana' AND m.author_id = 'alice' ORDER BY m.seq DESC").get() as { body: string }
@@ -486,5 +486,21 @@ describe('a file shared with me (by a grant only): share and post', () => {
     // the posted card's record says what went (fix 7)
     const step = r.steps.find((s) => s.tool === 'post_to_room') as { posted?: { preview?: string } }
     expect(step.posted!.preview).toContain('Deck: erin-deck.txt')
+  })
+})
+
+// The coordinator's leftovers (2026-11-16): one "asked first" line, the sources count equal to the file line's
+describe('the post card after reading a file shared with me', () => {
+  test('one "asked first" line; the sources line counts the same people as the file line (the owner left out)', async () => {
+    const id = shares().liveRow('users/erin/erin-deck.txt')!.id
+    const r = await turn('alice', `${fake({ tool: 'read', args: { file_path: `/f/${id}` } })}\n${post({ room: rooms.all, text: `Deck: [erin-deck.txt](/f/${id})` })}`, { answer: 'no' })
+    const card = socks.alice!.frames.find((f) => f.type === 'turn.request' && (f as { data: { turnId?: string } }).data.turnId === r.turnId) as { data: { request: { question: string } } }
+    const q = card.data.request.question
+    const fileLine = /(\d+) (?:person|people) there can't open erin-deck\.txt/.exec(q)
+    expect(fileLine).not.toBeNull()
+    const src = /(\d+) (?:person|people) there can't see some of the sources of this \(a file shared with you\)/.exec(q)
+    if (src) expect(src[1]).toBe(fileLine![1])
+    // never two "asked first" sentences on one card
+    expect((q.match(/asked first/g) ?? []).length).toBeLessThanOrEqual(1)
   })
 })

@@ -84,6 +84,23 @@ export function grantedLinksCant(exec: Exec, body: string, roomId: string): { na
   try { return fileLinksCant(exec, body, roomId).filter((g) => g.byGrant).map((g) => ({ name: g.name, missing: g.missing })) } catch { return [] }
 }
 
+/** When the post's "sources" are files shared with the sender (a grant read: chat/grant-reads.ts grantOnly): how many
+ * of the room's members (not the sender) cannot open one of them: the files read through a share in this answer and
+ * the shared files the text links. The file's owner and anyone who can open it are not counted, so the sources line
+ * and the file line say the same number. Null when no such file is known (the room check's own count stands). */
+export function grantSourceCant(exec: Exec & { files?: { grantReadPaths?: ReadonlySet<string> } }, body: string, roomId: string): number | null {
+  try {
+    const ctx = exec.rt.ctx
+    const shares = fileSharesOf(ctx)
+    const ids = new Set<string>()
+    for (const p of exec.files?.grantReadPaths ?? []) { const s = shares.liveRow(p); if (s) ids.add(s.id) }
+    for (const g of fileLinksCant(exec, body, roomId)) if (g.byGrant) ids.add(g.id)
+    if (!ids.size) return null
+    const members = (ctx.db.query('SELECT user_id FROM room_members WHERE room_id = ? AND user_id <> ?').all(roomId, exec.spec.userId) as { user_id: string }[]).map((r) => r.user_id)
+    return members.filter((u) => [...ids].some((id) => shares.open(u, id).kind !== 'open')).length
+  } catch { return null }
+}
+
 /** The teammates `refs` name, when each names exactly one (a name that matches several, a group, or nobody is left
  * out: the offer is then for nobody by name). */
 function peopleOf(exec: Exec, refs: readonly string[]): string[] {
@@ -106,14 +123,14 @@ export function refusedShareFixes(exec: Exec, path: string, refs: readonly strin
   // the team turned off members' file sharing: one "Ask an admin" to turn it on (the same kind as the folder's, its
   // reason on the offer; files/share-fixes.ts forSwitch)
   if (cause === 'switch') {
-    const fix = shareFixesOf(ctx).forSwitch(exec.spec.userId, exec.spec.chatId, path)
+    const fix = shareFixesOf(ctx).forSwitch(exec.spec.userId, exec.spec.chatId, path, exec.spec.locale)
     return fix ? { fixes: [fix], note: 'The user has a button on the card under your answer: "Ask an admin" (it sends the team\'s admins a message from the user asking to turn members\' file sharing back on; nothing changes by itself). Tell them so in one short sentence.' } : { fixes: [], note: '' }
   }
   const people = peopleOf(exec, refs)
   const folder = folderAccess(ctx, exec.spec.userId, path)
   if (folder) {
     if (folder.personal || folder.full) return { fixes: [], note: '' }
-    const fix = shareFixesOf(ctx).forFolder(exec.spec.userId, exec.spec.chatId, folder.path, people)
+    const fix = shareFixesOf(ctx).forFolder(exec.spec.userId, exec.spec.chatId, folder.path, people, exec.spec.locale)
     return fix ? { fixes: [fix], note: 'Only the team\'s owner and admins can share a team folder. The user has a button under this step: "Ask an admin" (it sends an admin a message from the user; nothing changes by itself). Tell them so in one short sentence.' } : { fixes: [], note: '' }
   }
   if (!people.length) return { fixes: [], note: '' }

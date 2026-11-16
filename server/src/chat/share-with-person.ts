@@ -35,7 +35,7 @@ import type { Tool } from './tools'
 import type { TurnExec } from './turn'
 import { uuidv7 } from '@mycel/shared'
 import type { TurnRequest } from '@mycel/shared/api'
-import { fileWords, othersWordsCard, SHARE_ALREADY_NOTE, SHARE_FOLDER_DESCRIPTION, SHARE_NO, shareableIn } from './share-words'
+import { fileWords, othersWordsCard, whyFirst, SHARE_ALREADY_NOTE, SHARE_FOLDER_DESCRIPTION, SHARE_NO, shareableIn } from './share-words'
 import { CARD_SAYS_IT, cardFile, cardLink, cardOwner, cardPeople } from './share-card'
 import { alreadyOpen, refusedGrantedFixes, refusedShareFixes } from './share-next-steps'
 
@@ -217,7 +217,6 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         // someone else wrote (othersWordsWhy). One line for one cause: othersWordsCard is never true once rooms were seen
         const seenLine = exec.roomsSeen ? tr(seenWhy(exec, 'roomsSeenWhy'), L) : ''
         const question = [
-          seenLine,
           one?.subjectType === 'user' ? tr('fileShareAsk', L, { who: oneLine(one.name, 40), n: String(plan.length) }) : one ? tr('fileShareAskGroup', L, { who: oneLine(one.name, 40), n: String(plan.length) }) : tr('fileShareAskMany', L, { who: oneLine(whoLine, 80), n: String(plan.length) }),
           tr(plan.length === 1 ? 'fileShareViewOne' : 'fileShareView', L),
         ].filter(Boolean).join('\n\n')
@@ -237,12 +236,15 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         const explicit = !fromLook && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && asksFor(SHARE_ASK, said)
           && who.every((w) => namedInFull(said, recipientWords(db, w)))
           && plan.every((f) => mine.has(f.path) || namesFileLoose(said, f.path))
+        // why the card asks first, ONE line for the reason that matters most: the target came from the screen, then rooms or a
+        // shared file read here, then content someone else wrote (docs/decisions/20261116-ai-sharing-integration.md)
+        const whyLine = whyFirst(L, { fromLook, seenLine, others: othersWordsCard(exec, 'share_files', alwaysOk) })
         const reply = explicit ? 'share' : await withAlways(alwaysOk && !fromLook ? exec.alwaysPlace?.() : null, 'share_files', [{ label: tr('fileShareYes', L), value: 'share' }, { label: tr('fileShareNo', L), value: 'no' }], 'share', (options, more) => exec.waitForPerson({
-          kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: fromLook ? `${tr('lookedWhy', L)}\n\n${question}` : othersWordsCard(exec, 'share_files', alwaysOk) ? `${tr('othersWordsWhy', L)}\n\n${question}` : question, multiple: false, allowText: false, options, ...more,
+          kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: whyLine ? `${whyLine}\n\n${question}` : question, multiple: false, allowText: false, options, ...more,
           // each file by its name and place in words, never a team path: two files of one name read differently
           details: [{ label: tr('fileShareFiles', L), text: plan.map((f) => fileWords(db, f.path, L, spec.userId)).join('\n'), noSize: true }],
           // the same rows as the result card: the card that asks turns into the card that says what was done
-          share: { op: 'share', files: plan.map((f) => cardFile(db, f.path, L, spec.userId)), ...cardPeople(db, who), ...(cardOwner(plan[0]?.owner, spec.userId) ? { owner: cardOwner(plan[0]?.owner, spec.userId) } : {}), ...(fromLook ? { why: tr('lookedWhy', L) } : seenLine || othersWordsCard(exec, 'share_files', alwaysOk) ? { why: seenLine || tr('othersWordsWhy', L) } : {}) },
+          share: { op: 'share', files: plan.map((f) => cardFile(db, f.path, L, spec.userId)), ...cardPeople(db, who), ...(cardOwner(plan[0]?.owner, spec.userId) ? { owner: cardOwner(plan[0]?.owner, spec.userId) } : {}), ...(whyLine ? { why: whyLine } : {}) },
           expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
         } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() }))
         const v = Array.isArray(reply) && reply.length === 1 ? reply[0] : reply
