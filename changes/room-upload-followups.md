@@ -6,3 +6,5 @@
 - A large upload says what is happening instead of only spinning: "Checking the file", its percent, "Finishing".
 - An upload that never started (a tab closed right away, a file taken out at once) no longer holds storage room for a
   day: it is cleared after an hour.
+- A guest can send files of up to 100 MB in a chat. The owner or an admin can raise that to 1 GB or 10 GB in Admin >
+  Members & invites, above the Guests list. Team members can send up to 10 GB as before.

@@ -13,6 +13,7 @@ equipo, ni otros proyectos, ni habilidades del equipo. No ocupa una plaza de su 
 | **Archivos del equipo** | Las carpetas que puede abrir | Solo los archivos de su proyecto (ninguno en un chat de grupo) |
 | **IA** | Los ajustes de IA del equipo | Sin IA, salvo que se elija una IA para él |
 | **Plaza** | Ocupa una | No ocupa ninguna |
+| **Archivos enviados en un chat** | Hasta 10 GB cada uno | Hasta 100 MB cada uno, salvo que un propietario o administrador lo suba (1 GB o 10 GB) en **Administración › Miembros e invitaciones**, encima de la lista **Invitados** |
 
 Junto al nombre de un invitado verá una etiqueta **Invitado**, y un chat o proyecto con invitados lo indica arriba
 ("Incluye 1 invitado").

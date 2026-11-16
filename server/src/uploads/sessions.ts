@@ -221,7 +221,7 @@ export class UploadSessions {
       } catch (e) {
         // refused for good (the room left or closed meanwhile, a photo that cannot be read, its bytes taken away): this
         // session can never finish, so it ends here and its part file gives its disk room back at once
-        if ((e instanceof HttpError && (e.code === 'not_found' || e.code === 'validation')) || !fs.existsSync(this.part(id))) this.drop(id)
+        if ((e instanceof HttpError && (e.code === 'not_found' || e.code === 'validation' || e.code === 'payload_too_large')) || !fs.existsSync(this.part(id))) this.drop(id)
         throw e
       }
     } else {

@@ -198,6 +198,7 @@ export const zh: Record<MessageKey, string> = {
   "guest.admin.left": "剩余 {n}",
   "guest.admin.countOf": "{n}/{m} 位",
   "guest.admin.over": "{m, plural, one {本套餐最多 # 位访客。现有访客照常使用，但在移除访客或更改套餐之前，无法再邀请。} other {本套餐最多 # 位访客。现有访客照常使用，但在移除访客或更改套餐之前，无法再邀请。}}",
+  "guest.admin.fileLimit": "访客在聊天中可发送的最大文件",
   "guest.admin.none": "还没有访客。可以在群聊或项目的成员列表中邀请。",
   "guest.admin.noneActive": "目前没有访客。",
   "guest.admin.showRemoved": "显示已移除的访客（{n}）",

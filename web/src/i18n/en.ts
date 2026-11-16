@@ -201,6 +201,7 @@ export const en: Record<MessageKey, string> = {
   "guest.admin.left": "{n} left",
   "guest.admin.countOf": "{n} of {m}",
   "guest.admin.over": "This plan allows {m, plural, one {# guest} other {# guests}}. Everyone here keeps working, but you can't invite more until you remove guests or change the plan.",
+  "guest.admin.fileLimit": "Largest file a guest can send in a chat",
   "guest.admin.none": "No guests yet. Invite one from a group chat's or project's member list.",
   "guest.admin.noneActive": "No guests right now.",
   "guest.admin.showRemoved": "Show removed guests ({n})",

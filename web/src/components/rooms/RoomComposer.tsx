@@ -145,6 +145,9 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   const everyone = useEveryone(roomId, members, meId)
   const others = members.filter((m) => m.id !== meId).length
   const me = useMe()
+  // the largest file I may send here: 10 GB, or for a guest what the team allows guests (Me.team.roomFileMaxBytes;
+  // the server checks it again)
+  const fileMax = me?.team?.roomFileMaxBytes ?? ROOM_FILE_MAX
   // my message being edited in this box (a phone: RoomMessages.tsx puts it in store/roomEdit.ts when this place has a box)
   const editId = useRoomEdit((s) => s.editing[key] ?? null)
   const editMsg = useRooms((s) => (editId ? findMessage(s, roomId, editId) ?? null : null))
@@ -307,8 +310,8 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     const added: Upload[] = []
     for (const file of picked.slice(0, Math.max(0, room))) {
       // refused here, before a checksum of a huge file is made (the server refuses it too, before any byte is sent)
-      if (file.size > ROOM_FILE_MAX) {
-        toast({ level: 'warn', text: t('rooms.tooBig', { name: file.name, max: formatSize(ROOM_FILE_MAX, locale) }) })
+      if (file.size > fileMax) {
+        toast({ level: 'warn', text: t('rooms.tooBig', { name: file.name, max: formatSize(fileMax, locale) }) })
         continue
       }
       added.push({ key: nextUploadKey(), file, status: 'uploading', abort: new AbortController() })
@@ -421,7 +424,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   const attach = (
     <>
       {phone ? (
-        <AttachSheet key={key} onFiles={addFiles} room={ROOM_FILES_MAX - files.length} fileMax={ROOM_FILE_MAX} onTeam={() => setTeamPicker(true)} icon={<Paperclip size={18} />} testId="room-attach" filesTestId="room-file-input" />
+        <AttachSheet key={key} onFiles={addFiles} room={ROOM_FILES_MAX - files.length} fileMax={fileMax} onTeam={() => setTeamPicker(true)} icon={<Paperclip size={18} />} testId="room-attach" filesTestId="room-file-input" />
       ) : (
         <IconButton tip compact label={t('composer.attach')} onClick={() => picker.current?.click()} data-testid="room-attach">
           <Paperclip size={18} />

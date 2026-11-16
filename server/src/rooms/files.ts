@@ -27,7 +27,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
 import { which } from '../config'
-import { ROOM_FILE_MAX, SMALL_UPLOAD_MAX, type Locale, type RoomFile } from '@mycel/shared/api'
+import { GUEST_ROOM_FILE_MAX, ROOM_FILE_MAX, SMALL_UPLOAD_MAX, type Locale, type RoomFile } from '@mycel/shared/api'
+import { getTeamSettings } from '../admin/settings'
+import { isGuestUser } from '../credentials/guest-ai'
 import { HWP_LIMITS } from '@mycel/shared/hwp'
 import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
@@ -100,12 +102,26 @@ export class RoomFiles {
   /**
    * Before a large upload starts (an upload session with target room, uploads/sessions.ts), and again when it is
    * complete: the person is in the room, the name can be kept and the file is at most ROOM_FILE_MAX. Refused before any
-   * byte is taken, in plain words with the limit.
+   * byte is taken, in plain words with the limit (a guest's own: maxFor).
    */
   assertUpload(userId: string, roomId: string, name: string, size: number): void {
     this.member(userId, roomId)
     this.cleanName(name, 'body.target.name')
-    if (size > ROOM_FILE_MAX) fail('payload_too_large', tr('roomFileTooBig', personLocale(this.ctx.db, userId), { max: `${ROOM_FILE_MAX / 1024 ** 3} GB` }), { params: { reason: 'room_file_too_large', maxBytes: ROOM_FILE_MAX } })
+    this.assertSize(userId, size)
+  }
+
+  /** The largest file this person may send in a room now: ROOM_FILE_MAX, or for a guest the team's choice (100 MB
+   * unless the owner or an admin raised it: TeamSettings.guestRoomFileMax). Read at every upload, from their role then. */
+  maxFor(userId: string): number {
+    return isGuestUser(this.ctx.db, userId) ? Math.min(ROOM_FILE_MAX, GUEST_ROOM_FILE_MAX[getTeamSettings(this.ctx.db).guestRoomFileMax] ?? GUEST_ROOM_FILE_MAX['100mb']) : ROOM_FILE_MAX
+  }
+
+  /** 413 in plain words with the person's own limit ("… The limit is 100 MB."). */
+  private assertSize(userId: string, size: number): void {
+    const max = this.maxFor(userId)
+    if (size <= max) return
+    const words = max >= 1024 ** 3 ? `${max / 1024 ** 3} GB` : `${max / 1024 ** 2} MB`
+    fail('payload_too_large', tr('roomFileTooBig', personLocale(this.ctx.db, userId), { max: words }), { params: { reason: 'room_file_too_large', maxBytes: max } })
   }
 
   /**
@@ -124,6 +140,8 @@ export class RoomFiles {
     let headLen = 0
     try { headLen = fs.readSync(fd, head, 0, head.length, 0) } finally { fs.closeSync(fd) }
     let size = fs.statSync(src).size
+    // the person's limit as it is now, whichever way the bytes came (one request, an upload session, a team file's copy)
+    this.assertSize(userId, size)
     const first = head.subarray(0, headLen)
     // a picture is shown in the room only as one whose metadata can be cut out (JPEG, PNG, WebP, HEIC) or one that
     // carries no place in practice (GIF, BMP, SVG); anything else named like a picture (a TIFF, which can hold GPS like
