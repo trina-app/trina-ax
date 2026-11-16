@@ -3,7 +3,7 @@
 // room that held it (FLOW-03) (AI scenario check 2026-11-16, root cause #3; docs/AGENTS/plan/20261116-0500-ai-wrong-claims.md).
 // One short rule in the turn rules (server/src/chat/prompt.ts SHOWN_ONLY_RULE) and a shorter one for sub-agents.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { buildSubagentPrompt, buildTurnPrompt, SHOWN_ONLY_RULE, SUBAGENT_SHOWN_ONLY_RULE, type PromptInput } from '../../server/src/chat/prompt'
+import { buildSubagentPrompt, buildTurnPrompt, CONNECT_RULE, ROOMS_RULE, SHOWN_ONLY_RULE, SUBAGENT_SHOWN_ONLY_RULE, type PromptInput } from '../../server/src/chat/prompt'
 import { startHarness, type Harness } from '../lib/b-harness'
 
 let h: Harness
@@ -33,5 +33,10 @@ describe('say only what the actions showed', () => {
       buildTurnPrompt(h.ctx.files, input({ shared: { project: 'Atlas', audience: 3, asker: 'Alice Kim' }, roomReadable: () => true })),
     ]) expect(p.split(SHOWN_ONLY_RULE).length).toBe(2)
     expect(buildSubagentPrompt(h.ctx.files, input(), ['read', 'write'])).toContain(SUBAGENT_SHOWN_ONLY_RULE)
+  })
+
+  test('a connect card is said only after the call showed one (CON-02); rooms are searched for client facts (FLOW-03)', () => {
+    expect(CONNECT_RULE).toContain('Say a card is shown only after connect_service returned one; never announce it first.')
+    expect(ROOMS_RULE).toContain('search them too for facts about a client or deal before saying nothing answers it')
   })
 })
