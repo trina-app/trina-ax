@@ -40,6 +40,12 @@ const NARRATION_MAX_LINES = 2
  * exists; check it.", "Existing pattern: …"). Content written before a call ("Hi team, …", "Total: 42 files",
  * "Work smarter, together.") does not. */
 const STATUS_OPENING = /^(?:let me|let's|let us|i'll|i will|i'm|i am|i need|i should|i can|i see|now|next|first|then|checking|check|looking|reading|searching|opening|trying|only|found|verify|verifying|ok|okay|good|great|alright|done|following|existing|same|still|nothing|no )\b/i
+/** a plan in the first person anywhere ("The existing file uses the pattern …, so I'll match it."), unless the piece
+ * opens like a message to someone ("Hi team, I'll be out Friday.") */
+const STATUS_PLAN = /\b(?:i'll|i will|i'm going to|let me|let's)\b/i
+const GREETING = /^(?:hi|hello|hey|dear|thanks|thank you|good (?:morning|afternoon|evening))\b/i
+/** typographic dashes, apostrophes and ellipses count as ASCII (the model writes "—" and "I’ll") */
+const plainPunct = (s: string) => s.replace(/[\u2013\u2014]/g, '-').replace(/[\u2018\u2019]/g, "'").replace(/\u2026/g, '...')
 /** the longest opening word above, plus room: a piece this long that does not start with one is let out */
 const OPENING_DECIDED_AT = 12
 
@@ -76,6 +82,7 @@ const CONTENT_WORDS = /["“”«»「」『』]|[$€£¥₩]\s*\d|\d[\d,.]*\s*
 /** The piece is surely not a status line, so it can go out now. partial: the piece is still coming (its last word may
  * be a file name not yet whole, its opening not yet known). */
 function mustKeep(piece: string, script: AnswerScript, partial = false): boolean {
+  piece = plainPunct(piece)
   const t = piece.trim()
   if (t.length > NARRATION_MAX_CHARS) return true
   const words = withoutNames(partial ? piece.replace(/\S+$/, '') : t)
@@ -85,7 +92,9 @@ function mustKeep(piece: string, script: AnswerScript, partial = false): boolean
   if (CONTENT.test(t) || CONTENT_WORDS.test(words)) return true
   if (t.split('\n').filter((l) => l.trim()).length > NARRATION_MAX_LINES) return true
   if ((t.match(/[.!?;:](?=\s|$)/g) ?? []).length > NARRATION_MAX_SENTENCES) return true
-  if ((!partial || t.length >= OPENING_DECIDED_AT) && !STATUS_OPENING.test(t)) return true
+  const status = STATUS_OPENING.test(t) || (STATUS_PLAN.test(t) && !GREETING.test(t))
+  // still coming: "so I'll …" may be on its way, so only a greeting decides before the end
+  if (partial ? t.length >= OPENING_DECIDED_AT && GREETING.test(t) : !status) return true
   return false
 }
 
