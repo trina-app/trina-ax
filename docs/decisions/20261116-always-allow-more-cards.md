@@ -90,9 +90,18 @@ cards still came every time: FL-02 and FL-13 (sharing), FL-05 (a web address), F
   - "Written new by the AI" is one rule for every gate (`shared-actions.ts WROTE_IT_SQL`, also answer-share.ts): a
     create by write, or by make_file from the AI's own text, with nothing at the path before. A file any tool built
     from another file, a page or a room (make_file with a source, stamp_pdf, edit_pdf, split_pdf, merge_pdfs, edit_hwp,
-    comment_docx, save_url, save_room_file, a video) is not.
+    comment_docx, save_url, save_room_file, a video) is not; nor is one whose folder, or a folder above it, was moved,
+    renamed or made after it was written (a folder rename logs events at the folder's path only).
+  - The ask words are the share and post request forms only (share … with, send … to, post, 공유해줘, 보내줘, 올려줘,
+    전달해줘 …). Words that only mention telling or a message ("let me know", "tell me", "the DM") are not an ask.
+  - A group counts as named only as a group (`namesGroup`): its name with a group word next to it (영업팀, 영업 그룹,
+    "the Sales team", @Sales) or a name that is one already ("Sales Team"); "the sales report" does not name the
+    group Sales. This holds for "Always allow" and for the no-card explicit ask.
+  - A post from a shared chat under "Always allow" needs the asker's own message to name the place and ask to post,
+    and to bring every linked file, as in an own chat.
   Left as follow-ups (QA rows): the person's own uploads and inline attachments do not set the mark; the explicit-ask
-  words may sit anywhere in a long pasted message; find_tools descriptions.
+  words may sit anywhere in a long pasted message; find_tools descriptions; a file the AI writes itself may repeat
+  text it read (in a chat with other people's words it still needs the person's ask and the recipient named).
   **Independent review:** one must-fix (a file copied or renamed in the answer counted as made in it) and the
   should-fix items (the request word, find_skills, the order of the grant check) are in.
 - **Where it still never applies:** as before (always-allow.ts): a Slack question, a company profile draft and other

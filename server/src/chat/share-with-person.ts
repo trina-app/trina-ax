@@ -26,7 +26,7 @@ import { fileSharesOf } from '../files/shares'
 import { isStaff } from '../policy/access'
 import { tr } from './i18n'
 import { neutralizeTags } from './prompt'
-import { actionOff, askerPicks, askerText, asksToSend, attachedPaths, fromAsker, madeInTurn, mainOnly, namesFile, namesFileLoose, namedInFull, namesRecipient, ownWords, asksFor, SHARE_ASK } from './shared-actions'
+import { actionOff, askerPicks, askerText, asksToSend, attachedPaths, fromAsker, madeInTurn, mainOnly, namesFile, namesFileLoose, namedInFull, namesGroup, namesRecipient, ownWords, asksFor, SHARE_ASK } from './shared-actions'
 import { readRooms } from './read-rooms'
 import { alwaysHere, withAlways } from './always-allow'
 import type { Tool } from './tools'
@@ -155,15 +155,16 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         // are in the chat (others, content); elsewhere the person's "it" is theirs to say.
         const typed = ownWords(askerText(db, spec.userMessageId))
         const alwaysOk = asksToSend(db, spec.userMessageId)
-          && who.every((w) => namesRecipient(typed, w.name, { names: recipientWords(db, w), person: w.subjectType === 'user' }))
+          && who.every((w) => w.subjectType === 'group' ? namesGroup(typed, w.name) : namesRecipient(typed, w.name, { names: recipientWords(db, w), person: true }))
           && ((!others && !content) || fromAsker(db, spec, plan.map((f) => f.path)))
+        // (a group counts as named only as a group, namesGroup: "the sales report" does not name the group Sales)
         // no card when the asker's own message of this turn asked for exactly this share (docs/decisions/
         // 20261116-no-card-after-explicit-ask.md, QA TC-3812): a share word, every person or group named, every file named
         // or attached by them. Nobody else's words chose who gets which file then; never in a run nobody watches
         const said = ownWords(askerText(db, spec.userMessageId))
         const mine = attachedPaths(db, spec.userMessageId)
         const explicit = spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && asksFor(SHARE_ASK, said)
-          && who.every((w) => namedInFull(said, recipientWords(db, w)))
+          && who.every((w) => w.subjectType === 'group' ? namesGroup(said, w.name) : namedInFull(said, recipientWords(db, w)))
           && plan.every((f) => mine.has(f.path) || namesFileLoose(said, f.path))
         // where the choice does not count the card shows; it still offers "Always allow" on its first showing in a chat with
         // nobody else's words (the owner's rule), never where other people's words are, nor once the choice is made

@@ -77,6 +77,20 @@ export function namesRecipient(said: string, ref: string | undefined, r0: { name
   return ns.some((n) => n === r || n.split(' ').includes(r) || (r0.person && HANGUL.test(r) && HANGUL.test(n) && n.endsWith(r)))
 }
 
+/** A group named in `said` as a group: its full name with a group word next to it (영업팀, 영업 그룹, "Sales team",
+ * "group Sales", @Sales), or a name that is itself one ("Sales Team", 영업본부). A group name is often an ordinary word
+ * ("sales", 영업): "the sales report" does not name the group. Fails closed. */
+const GROUP_WORD = '(team|group|department|dept|tim|grup|\\uD300|\\uADF8\\uB8F9|\\uBD80\\uC11C|\\uBCF8\\uBD80)'
+export function namesGroup(said: string, name: string): boolean {
+  const text = fold(said)
+  const n = fold(name)
+  if (n.length < 2 || !holds(text, n)) return false
+  if (new RegExp(`(^|\\s)${GROUP_WORD}$`, 'iu').test(n) || new RegExp(`\\p{Script=Hangul}${GROUP_WORD}$`, 'u').test(n)) return true
+  const e = escapeRe(n)
+  // (not a team's member or lead: 팀원, 팀장; not a longer Latin word: "timeline")
+  return new RegExp(`@${e}(?![a-z0-9])|${e}\\s?${GROUP_WORD}(?![a-z0-9\\uC7A5\\uC6D0])|\\b(team|group|grup|tim)\\s(of\\s)?${e}`, 'iu').test(text)
+}
+
 /** The turn's own question (`messageId`): its text. */
 export const askerText = (db: Database, messageId: string): string => (db.query('SELECT content FROM messages WHERE id = ?').get(messageId) as { content: string | null } | null)?.content ?? ''
 
@@ -131,8 +145,13 @@ export function madeInTurn(db: Database, turnId: string, rel: string): boolean {
     if (!made) return false
     const prev = db.query("SELECT action FROM file_events WHERE path = ? AND id < ? AND action <> 'rejected' ORDER BY id DESC LIMIT 1").get(rel, made.id) as { action: string } | null
     if (prev && prev.action !== 'delete') return false
-    return !db.query(`SELECT 1 FROM file_events p WHERE p.path = ?1 AND p.id > ?2 AND p.action <> 'rejected'
-      AND NOT (p.turn_id IS NOT NULL AND p.turn_id = ?3 AND p.action IN ('create', 'update') AND ${ownWritingSql('p')}) LIMIT 1`).get(rel, made.id, turnId)
+    if (db.query(`SELECT 1 FROM file_events p WHERE p.path = ?1 AND p.id > ?2 AND p.action <> 'rejected'
+      AND NOT (p.turn_id IS NOT NULL AND p.turn_id = ?3 AND p.action IN ('create', 'update') AND ${ownWritingSql('p')}) LIMIT 1`).get(rel, made.id, turnId)) return false
+    // a folder above it moved, renamed, removed or made since: what is at the path now may be another file (a folder
+    // rename logs events at the folder's path only, never at the paths of the files inside)
+    const segs = rel.split('/')
+    const above = segs.slice(0, -1).map((_, i) => segs.slice(0, i + 1).join('/'))
+    return !above.length || !db.query(`SELECT 1 FROM file_events WHERE id > ? AND action <> 'rejected' AND path IN (${above.map(() => '?').join(',')}) LIMIT 1`).get(made.id, ...above)
   } catch { return false }
 }
 
@@ -155,7 +174,7 @@ export function othersWordsIn(exec: Pick<TurnExec, 'shared' | 'otherAuthors' | '
  * wrote"), so where other people's words are in the chat "Always allow" also needs this. */
 export function asksToSend(db: Database, messageId: string): boolean {
   const said = withoutQuoteLines(askerText(db, messageId))
-  return asksFor(SHARE_ASK, said) || asksFor(POST_ASK, said) || asksFor(TELL_ASK, said)
+  return asksFor(SHARE_ASK, said) || asksFor(POST_ASK, said)
 }
 
 export function fromAsker(db: Database, spec: { userMessageId: string; turnId: string }, paths: Iterable<string>): boolean {
@@ -183,10 +202,6 @@ export const WRITE_ASK = re([`(\\uBC14\\uAFD4|\\uACE0\\uCCD0|\\uB123\\uC5B4|\\uB
   '\\b(update|change|add|create|make|set|move|write|edit|fix|comment|ubah|tambah|buat)\\b'])
 /** "don't" in the person's words: -지 마 / -지 말 / 하지 않, 안 해, don't, do not, never, jangan, no … */
 const ASK_NOT = re(['\\uC9C0\\s?\\uB9C8', '\\uC9C0\\s?\\uB9D0', '\\uC9C0\\s?\\uC54A', "\\b(don'?t|do not|never|jangan)\\b"])
-
-/** ...more ways to ask that something goes to someone, for "Always allow" only (never for the explicit-ask rule, which
- * skips a card that was not chosen away): tell, forward, notify, let … know, message, DM; 전해줘, 말해줘, 공유해 */
-const TELL_ASK = re(['\\b(tell|forward|notify|message|dm)\\b', '\\blet\\b[^\\n]{0,40}\\bknow\\b', `(\\uC804\\uD574|\\uB9D0\\uD574)${ASK_END}`, '\\uACF5\\uC720\\s?\\uD574'])
 
 /** The asker's own words of this turn without quoted lines (a quote is someone else's words). */
 export function ownWords(said: string): string {

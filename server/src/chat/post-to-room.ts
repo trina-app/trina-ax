@@ -340,7 +340,8 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const mineNamed = () => namesPlace(ownWords(askerText(db, spec.userMessageId)), a.data.room, recipientNames(db, spec.userId, mine?.room ?? null, pendingTo))
         // In every own chat the place must be the person's: named in their own message, which asks to send or post, or
         // the side chat's own room (a name a teammate chose reaches the AI in a chat that read nothing too)
-        const alwaysOk = exec.shared ? !plain && mineNamed()
+        // (a shared chat too: other members' messages are in it, so the asker's own message must ask and bring the files)
+        const alwaysOk = exec.shared ? !plain && mineNamed() && asksToSend(db, spec.userMessageId) && (!all || fromAsker(db, spec, first.offered))
           : (sideRoomOf(db, spec.chatId, spec.userId)?.id === roomId || mineNamed()) && asksToSend(db, spec.userMessageId)
             && (!all || !othersWordsIn(exec) || fromAsker(db, spec, first.offered))
         // no card when the asker's own message of this turn asked for exactly this post (docs/decisions/

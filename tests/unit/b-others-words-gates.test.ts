@@ -12,7 +12,7 @@ import { API, type Room } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { dropAlways, keepAlways } from '../../server/src/chat/always-allow'
 import { fileSharesOf } from '../../server/src/files/shares'
-import { fromAsker, madeInTurn, othersWordsIn } from '../../server/src/chat/shared-actions'
+import { fromAsker, madeInTurn, namesGroup, othersWordsIn } from '../../server/src/chat/shared-actions'
 import { shareWithPersonTool } from '../../server/src/chat/share-with-person'
 import { OWN_CHAT_TEAM_TOOLS, OWN_WORDS_TOOLS } from '../../server/src/rooms/ai-tools'
 import { roomsOf } from '../../server/src/rooms/service'
@@ -373,6 +373,12 @@ describe('second review: what "made in this answer" means, and a chat that read 
     ev('turn-made-0', 'users/bob/made/again.md', null, 'delete')
     ev('turn-made-1', 'users/bob/made/again.md', { tool: 'write' })
     expect(madeInTurn(db, 'turn-made-1', 'users/bob/made/again.md')).toBe(true)
+    // a folder above it renamed or made since (a rename logs events at the folder's path only): not what the AI wrote
+    ev('turn-made-1', 'users/bob/made/dir/f.xlsx', { tool: 'make_file', own: true })
+    expect(madeInTurn(db, 'turn-made-1', 'users/bob/made/dir/f.xlsx')).toBe(true)
+    ev('turn-made-1', 'users/bob/made/dir', { tool: 'rename_file' }, 'delete')
+    ev('turn-made-1', 'users/bob/made/dir', { tool: 'rename_file', movedFrom: 'users/bob/made/stage' })
+    expect(madeInTurn(db, 'turn-made-1', 'users/bob/made/dir/f.xlsx')).toBe(false)
     db.query("DELETE FROM file_events WHERE turn_id IN ('turn-made-0', 'turn-made-1', 'turn-made-9')").run()
   })
 
@@ -426,5 +432,25 @@ describe('second review: what "made in this answer" means, and a chat that read 
     expect(person.attachAsks!(['users/bob/out-v.xlsx'])).toBe(false)
     // a file my message did not name, made before this answer: the card
     expect(person.attachAsks!(['users/bob/ledger-5.txt'])).toBe(true)
+  })
+
+  test('words that only mention telling or sharing are not an ask to send', async () => {
+    for (const [i, w] of ['read the notes and let me know what tess thinks', 'what did tess say in the message?', 'tell me about tess'].entries()) {
+      const r = await turn('bob', `${w}\n${share({ paths: [`users/bob/ledger-${6 + i}.txt`], people: ['Tess Yoon'] })}`)
+      expect([w, r.cards.length]).toEqual([w, 1])
+    }
+  })
+
+  test('namesGroup: a group is named as a group, not by an ordinary word that is also its name', () => {
+    const cases: [string, string, boolean][] = [
+      ['\uC601\uC5C5 \uBCF4\uACE0\uC11C \uAE40\uB300\uB9AC\uD55C\uD14C \uACF5\uC720\uD574\uC918', '\uC601\uC5C5', false],
+      ['\uB450 \uBA54\uBAA8 \uC601\uC5C5\uD300 \uADF8\uB8F9\uC774 \uBCFC \uC218 \uC788\uAC8C \uACF5\uC720\uD574\uC918', '\uC601\uC5C5', true],
+      ['\uC601\uC5C5\uD300\uC7A5\uB2D8\uD55C\uD14C \uACF5\uC720\uD574\uC918', '\uC601\uC5C5', false],
+      ['Share the sales report with Kim', 'Sales', false],
+      ['share it with the Sales team', 'Sales', true],
+      ['share it with @sales', 'Sales', true],
+      ['share it with the Sales Team', 'Sales Team', true],
+    ]
+    for (const [said, name, named] of cases) expect([said, namesGroup(said, name)]).toEqual([said, named])
   })
 })
