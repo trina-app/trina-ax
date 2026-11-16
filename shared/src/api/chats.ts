@@ -95,8 +95,24 @@ export function chatThreadDraft(replies: readonly ChatThreadDraftReply[], o: { h
   for (let i = replies.length - 1; i >= 0; i--) {
     const r = replies[i]!
     const lines = [q(oneLineName(`${r.name} · ${o.time(r.at)}`)), ...r.text.split(/\r\n|[\n\r\u2028\u2029\u0085\v\f]/).map(q)]
-    const block = lines.join('\n')
-    if (size + block.length + 1 > max) { cut = true; break }
+    let block = lines.join('\n')
+    if (size + block.length + 1 > max) {
+      // the newest reply alone does not fit (QA TC-3786): it goes in cut to the room left, its end marked "…", so the
+      // draft is never just the header; an older one that does not fit is left out
+      if (!blocks.length) {
+        const room = max - size - 1 - (q(oneLineName(o.cut)).length + 1) - 1
+        if (room > lines[0]!.length + 3) {
+          block = `${block.slice(0, room).replace(/\n>?$/, '').trimEnd()}…`
+          blocks.unshift(block)
+          size += block.length + 1
+        }
+        // older replies left out: the line says so (none older: only the newest, cut)
+        cut = i > 0 || !blocks.length
+        break
+      }
+      cut = true
+      break
+    }
     blocks.unshift(block)
     size += block.length + 1
   }

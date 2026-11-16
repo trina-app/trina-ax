@@ -147,7 +147,7 @@ export function ChatThreadPanel({ chat, rootId, meId, onClose, onSendToTrina, on
               )}
               {view?.loading && root && !replies.length && <Loader2 size={16} className="mx-auto my-2 animate-spin text-faint" aria-label={t('common.loading')} />}
               <ul className="space-y-3 pt-2" data-testid="chat-thread-replies">
-                {replies.map((r) => <ReplyRow key={r.id} chatId={chatId} rootId={rootId} r={r} meId={meId} />)}
+                {replies.map((r) => <ReplyRow key={r.id} chatId={chatId} rootId={rootId} r={r} meId={meId} readOnly={readOnly === 'trash' || readOnly === 'safe_ops'} />)}
                 {(pending ?? []).map((p) => <PendingRow key={p.clientId} chatId={chatId} rootId={rootId} p={p} />)}
               </ul>
             </>
@@ -204,14 +204,15 @@ function Face({ r }: { r: ChatThreadReply }) {
   return u ? <Avatar user={u} size={28} /> : <span className="size-7 shrink-0 rounded-full bg-hover" aria-hidden />
 }
 
-function ReplyRow({ chatId, rootId, r, meId }: { chatId: string; rootId: string; r: ChatThreadReply; meId: string }) {
+/** `readOnly`: the chat is in the trash or safe operations are on: nothing can be deleted (QA TC-3783, TC-3784) */
+function ReplyRow({ chatId, rootId, r, meId, readOnly }: { chatId: string; rootId: string; r: ChatThreadReply; meId: string; readOnly: boolean }) {
   const t = useT()
   const locale = useLocale()
   const nameOf = useNameOf()
   const { copy } = useCopy()
   const items: MenuItem[] = [
     { label: t('common.copy'), icon: <Copy size={14} aria-hidden />, onSelect: () => void copy(r.content).then((ok) => ok && toast({ level: 'info', text: t('common.copied') })), testId: 'chat-thread-copy' },
-    ...(r.canDelete ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, testId: 'chat-thread-delete', onSelect: () => void (async () => {
+    ...(r.canDelete && !readOnly ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, testId: 'chat-thread-delete', onSelect: () => void (async () => {
       const ok = await confirmDialog({ title: t('chat.thread.deleteTitle'), body: t('chat.thread.deleteBody'), confirm: t('common.delete'), danger: true })
       if (!ok) return
       try { await useChatThreads.getState().remove(chatId, rootId, r.id) }

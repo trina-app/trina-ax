@@ -12,7 +12,7 @@ import { originAllowed, originsFor } from '../http/middleware'
 import { atLeast, loadPrincipal, RuleSet } from '../policy/access'
 import { visibleChanges } from '../team-files/changes'
 import { isRoomMember } from '../rooms/store'
-import { threadVisibleTo } from '../chat/threads'
+import { chatVisibleTo, threadVisibleTo } from '../chat/threads'
 
 /** Hard caps on top of the contract's "at least 2000 events / 5 minutes" (memory stays bounded per person). */
 export const REPLAY_MAX_EVENTS = 20_000
@@ -275,6 +275,20 @@ export class Hub implements RealtimeHub {
     // chat since (people-share.ts, admin/folders.ts) gets resync and reloads over REST
     const threads = new Set<string>()
     for (const { ev } of entries) if (ev.type === 'chat.thread') threads.add(`${ev.data.chatId} ${ev.data.rootId}`)
+    // a chat's own events (its messages, live text, steps, cards, artifacts, a changed chat) only while the person still
+    // sees it (chatFor): someone taken out of a chat shared with people while offline gets resync, never what was said
+    // there since (QA TC-3788). A chat that left their list ('deleted', 'purged') carries nothing of it and goes through
+    const chats = new Set<string>()
+    for (const { ev } of entries) {
+      if (ev.type === 'message.created' || ev.type === 'message.delta' || ev.type === 'message.step' || ev.type === 'message.done' || ev.type === 'turn.busy' || ev.type === 'queue.position' || ev.type === 'artifact.updated' || ev.type === 'turn.request' || ev.type === 'deck.progress') chats.add(ev.data.chatId)
+      else if (ev.type === 'chat.updated' && ev.data.change !== 'deleted' && ev.data.change !== 'purged') chats.add(ev.data.chatId)
+    }
+    try {
+      for (const id of chats) if (!chatVisibleTo(this.ctx, userId, id)) return false
+    } catch (e) {
+      this.ctx.log.error('replay chat check failed', { err: e, user: userId })
+      return false
+    }
     try {
       for (const k of threads) {
         const [chatId, rootId] = k.split(' ') as [string, string]

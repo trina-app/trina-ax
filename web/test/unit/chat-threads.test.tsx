@@ -92,3 +92,18 @@ test('a live change puts the summary on its answer (and takes it off when no rep
   useChats.getState().reset()
   useChatThreads.getState().reset()
 })
+
+test('a newest reply longer than the cap still goes in, cut with "…", every line a quote (QA TC-3786)', () => {
+  const o = { head: 'Thread', cut: '…(earlier replies left out)', time: () => '1:00 PM' }
+  const one = chatThreadDraft([{ name: 'Jae', at: '2026-11-16T05:00:00Z', text: `first line\n${'z'.repeat(9000)}` }], o)
+  expect(one.trimEnd().length).toBeLessThanOrEqual(CHAT_THREAD_DRAFT_MAX)
+  expect(one).toContain('> Jae · 1:00 PM\n> first line\n> zzz')
+  expect(one.trimEnd().endsWith('…')).toBe(true)
+  // nothing older was left out: no such line
+  expect(one).not.toContain('earlier replies')
+  const two = chatThreadDraft([{ name: 'Minji', at: '2026-11-16T05:00:00Z', text: 'short' }, { name: 'Jae', at: '2026-11-16T05:01:00Z', text: 'y'.repeat(9000) }], o)
+  expect(two.trimEnd().length).toBeLessThanOrEqual(CHAT_THREAD_DRAFT_MAX)
+  expect(two).toContain('> …(earlier replies left out)')
+  expect(two).not.toContain('Minji')
+  expect(two.trimEnd().split('\n').every((l) => l.startsWith('>'))).toBe(true)
+})

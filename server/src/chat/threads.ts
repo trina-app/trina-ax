@@ -93,6 +93,23 @@ export function threadVisibleTo(ctx: AppContext, userId: string, chatId: string,
   }
 }
 
+/** Does `userId` still see this chat (chatFor 'view', the trash too, for the chat's own windows): for the realtime
+ * replay of a chat's events (realtime/hub.ts stillVisible, QA TC-3788). A chat that is gone or an old room AI session:
+ * true (nothing of it to keep back; its events carry nothing new), and so with no chat runtime. Never throws. */
+export function chatVisibleTo(ctx: AppContext, userId: string, chatId: string): boolean {
+  // no chat runtime (a hub on its own): no chats, nothing to keep back
+  let rt: ChatRuntime
+  try { rt = getChatRuntime(ctx) } catch { return true }
+  try {
+    const r = rt.store.chatRow(chatId)
+    if (!r || r.room_id) return true
+    chatFor(rt, userId, chatId, 'view', { deleted: true })
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** May `userId` delete other people's replies in this chat (ThreadGate.moderator), for someone other than the caller
  * (the realtime fan-out's canDelete). */
 function moderates(rt: ChatRuntime, row: ChatRow, userId: string): boolean {
@@ -103,8 +120,12 @@ function moderates(rt: ChatRuntime, row: ChatRow, userId: string): boolean {
   return !!p && !!me && mayEditProject(rt.files, me, p)
 }
 
-function replyOut(rt: ChatRuntime, r: ReplyRow, viewer: string, moderator: boolean): ChatThreadReply {
-  return { id: r.id, chatId: r.chat_id, rootId: r.root_id, author: rt.store.userRef(r.author_id), content: r.content, createdAt: r.created_at, canDelete: r.author_id === viewer || moderator }
+/** Can a reply be deleted at all now: not while the chat is in the trash or safe operations are on (read-only for
+ * everyone, as every other write: QA TC-3783, TC-3784). A chat no longer shared: its creator may still tidy it. */
+const deletable = (readOnly: ChatThreadReadOnly | null) => readOnly !== 'trash' && readOnly !== 'safe_ops'
+
+function replyOut(rt: ChatRuntime, r: ReplyRow, viewer: string, moderator: boolean, canDelete = true): ChatThreadReply {
+  return { id: r.id, chatId: r.chat_id, rootId: r.root_id, author: rt.store.userRef(r.author_id), content: r.content, createdAt: r.created_at, canDelete: canDelete && (r.author_id === viewer || moderator) }
 }
 
 /**
@@ -158,7 +179,7 @@ export function listThread(rt: ChatRuntime, userId: string, chatId: string, root
   const onShownBranch = rt.store.pathTo(g.a.row.active_leaf_id).some((m) => m.id === g.root.id)
   return {
     root: summary ? { ...root, thread: summary } : root,
-    replies: page.map((r) => replyOut(rt, r, userId, g.moderator)),
+    replies: page.map((r) => replyOut(rt, r, userId, g.moderator, deletable(g.readOnly))),
     nextCursor: more && page[0] ? encodeCursor({ before: page[0].id }) : null,
     canReply: !g.readOnly && count < CHAT_THREAD_MAX,
     ...(g.readOnly ? { readOnlyReason: g.readOnly } : {}),
@@ -260,6 +281,8 @@ export function deleteReply(ctx: AppContext, rt: ChatRuntime, userId: string, ch
   if (!r) return fail('not_found')
   const g = threadAccess(rt, userId, chatId, r.root_id, 'view', locale)
   if (g.a.row.deleted_at) return fail('not_found')
+  // safe operations on (or a confidential chat): read-only, as sending (409 safe_ops, chatFor 'continue')
+  if (g.readOnly === 'safe_ops') return fail('conflict', tr('sharedChatSafeOps', locale), { params: { reason: 'safe_ops' } })
   const own = r.author_id === userId
   if (!own && !g.moderator) return fail('forbidden', undefined, { params: { reason: 'thread_reply_not_yours' } })
   rt.db.query('DELETE FROM chat_thread_replies WHERE id = ? AND chat_id = ?').run(r.id, chatId)
