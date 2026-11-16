@@ -19,7 +19,7 @@ import { api, API } from '../lib/api'
 import { desktop } from '../lib/desktop'
 import { intlTag } from '../lib/format'
 import { isGuestMe } from '../lib/guests'
-import { lineClock, meetingBridge, mergeLines, noteMarkdown, notePath } from '../lib/meetingNotes'
+import { meetingBridge, mergeLines, noteMarkdown, notePath } from '../lib/meetingNotes'
 import { uploadFile } from '../lib/upload'
 import { useLocale, useT } from '../i18n'
 import { useMeStrict } from '../store/session'
@@ -107,6 +107,12 @@ export function MeetingNotesEntry({ here }: { here: string }) {
 const clock = (ms: number) => {
   const s = Math.max(0, Math.floor(ms / 1000))
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+/** a line's place in the meeting: m:ss, or h:mm:ss after an hour */
+const intoMeeting = (ms: number) => {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  const h = Math.floor(s / 3600)
+  return h ? `${h}:${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` : clock(ms)
 }
 
 /** The one card while a meeting runs (and its result after). Mounted once in the layout. */
@@ -231,9 +237,9 @@ export function MeetingNotesCard() {
         {done && done !== 'unsaved' && <IconButton label={t('common.close')} compact onClick={close}><X size={16} /></IconButton>}
       </header>
       {listening && !folded && (
-        <p className="flex items-center gap-2 border-t border-line px-3 py-2 text-xs text-muted">
-          <span className="min-w-0 flex-1">{t('meeting.consent')}</span>
-          <button type="button" onClick={copy} className="inline-flex shrink-0 items-center gap-1 text-accent-text hover:underline" data-testid="meeting-copy">
+        <p className="border-t border-line px-3 py-2 text-xs text-muted">
+          <span className="block">{t('meeting.consent')}</span>
+          <button type="button" onClick={copy} className="mt-1 inline-flex items-center gap-1 text-accent-text hover:underline" data-testid="meeting-copy">
             <Copy size={12} aria-hidden /> {copied ? t('meeting.copied') : t('meeting.copyNote')}
           </button>
         </p>
@@ -251,7 +257,8 @@ export function MeetingNotesCard() {
           {!lines.length && <li className="text-muted">{t('meeting.listeningEmpty')}</li>}
           {lines.map((l) => (
             <li key={`${l.track}:${l.startMs}:${l.endMs}`} className="flex gap-2">
-              <span className="w-14 shrink-0 tabular-nums text-xs text-muted">{lineClock(state.startedAt ?? now, l.startMs)}</span>
+              {/* the time into the meeting (m:ss, h:mm:ss after an hour); the note keeps the clock time */}
+              <span className="w-12 shrink-0 whitespace-nowrap pt-0.5 text-right tabular-nums text-xs text-muted">{intoMeeting(l.startMs)}</span>
               <span className="min-w-0"><span className={clsx('font-medium', l.track === 'others' && 'text-accent-text')}>{l.track === 'me' ? t('meeting.you') : t('meeting.others')}</span> {l.text}</span>
             </li>
           ))}
