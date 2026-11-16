@@ -34,9 +34,12 @@
   - **Sends without asking:** a connection that already sends without the card for this person (the team's rule, or
     their own Always allow, whose card says it covers every send there) attaches without a card too, but only in a
     turn the person watches from their own app; a question asked elsewhere (Slack) attaches nothing without a card.
-    The card decides as it did (docs/DECISIONS.md "Always allow on every card"). Known cost, the owner's call: after
-    such a chat read a web page, a planted instruction could have a readable file attached with no card, as it could
-    already have its text sent. The audit line names every file that left.
+    The card decides as it did (docs/DECISIONS.md "Always allow on every card"), with one addition made in the batch:
+    in a chat that holds content written by others (a room's messages, a teammate's file, a file shared with the
+    person, a web page, a service's answer: docs/decisions/20261116-always-allow-more-cards.md "Content written by
+    others"), a file the person's own message did not bring (named or attached it, or the AI made it in this answer)
+    keeps the card (`TurnPerson.attachAsks`). The text of a send still follows the connection's rule there, as before.
+    The audit line names every file that left.
   - **Stored keys:** a file whose bytes hold one of the person's stored connection keys (as text, as UTF-16, or cut by
     white space) is not sent (as base64 the AI writes itself, `hide-args.ts`); when the keys cannot be read just then,
     nothing is sent. Compressed content (inside an Office file or a zip) is not looked into.

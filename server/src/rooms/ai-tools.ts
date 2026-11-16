@@ -139,3 +139,19 @@ export const ROOMS_SEEN_OWN_CARD_TOOLS: ReadonlySet<string> = new Set(['schedule
  * putting them in the read scope, so their members would not be weighed.
  */
 export const OWN_CHAT_TEAM_TOOLS: ReadonlySet<string> = new Set([...ROOM_FILE_TOOLS, 'room_read', 'set_title', 'remember'])
+
+/**
+ * Tools that by themselves bring nothing another person wrote into a person's own chat (chat/turn.ts noteOthersTool;
+ * docs/decisions/20261116-always-allow-more-cards.md "Content written by others"): the file tools (what they read is
+ * weighed file by file, by who wrote it: noteOthersReads), the tools that only write, ask the person or act for them,
+ * and the lists of the person's own things. Any other tool (the web and its search, the browser, Google Drive, Slack,
+ * a room's messages and files, find_skills (other people's skill descriptions), save_url, box_shell, tools added
+ * later: fails closed) marks the chat as holding other
+ * people's words; a connection's tools mark it when the service answers (connections/tools.ts noteAnswer).
+ */
+export const OWN_WORDS_TOOLS: ReadonlySet<string> = new Set([
+  ...Object.keys(FILE_TOOLS), 'edit_files', 'comment_docx', 'skill', 'ask_user', 'agent', 'Agent', 'Task',
+  'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'delete_files', 'share_file', 'artifact',
+  'set_title', 'remember', 'forget', 'connect_service', 'post_to_room', 'share_with_person', 'change_project_members',
+  'schedule_create', 'schedule_list', 'schedule_delete', 'move_skill', 'skill_files', 'generate_video', 'save_promo_video',
+])
