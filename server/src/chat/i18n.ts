@@ -153,6 +153,11 @@ export const TEXT = {
     '{ai} membaca konten yang hanya bisa dilihat lebih sedikit orang ({sources}) dan sekarang ingin menyimpan ke {target}, yang bisa dilihat {n} orang. Simpan?', "{ai}は閲覧できる人が少ない内容（{sources}）を読み取り、{n}人が閲覧できる{target}に保存しようとしています。保存しますか？", "{ai} leyó contenido que menos personas pueden ver ({sources}) y quiere guardarlo en {target}, visible para {n, plural, one {# persona} other {# personas}}. ¿Guardarlo?", "{ai}读取了可见范围更小的内容（{sources}），现在想保存到{target}，那里有{n, plural, one {#人} other {#人}}可以看到。要保存吗？"),
   widenSave: t('저장하기', 'Save', 'Simpan', "保存", "Guardar", "保存"),
   widenDont: t('저장하지 않기', 'Don’t save', 'Jangan simpan', "保存しない", "No guardar", "不保存"),
+  /** the skill card's line when the same save also goes where more people can see (chat/turn.ts confirmSkillWrite): what
+   * the wider-audience card (widenConfirm) says, on the one card; {target} as it names the place */
+  skillWiden: t('{ai}가 볼 수 있는 사람이 더 적은 내용({sources})을 읽은 뒤에 저장하려고 해요. {target}에 저장하면 {n}명이 볼 수 있어요.',
+    '{ai} read content fewer people can see ({sources}) before this save. {n, plural, one {# person} other {# people}} can see {target}.',
+    '{ai} membaca konten yang hanya bisa dilihat lebih sedikit orang ({sources}) sebelum menyimpan ini. {target} bisa dilihat {n} orang.', "{ai}は閲覧できる人が少ない内容（{sources}）を読んでから保存しようとしています。{target}は{n}人が閲覧できます。", "{ai} leyó contenido que menos personas pueden ver ({sources}) antes de guardar esto. {target} es visible para {n, plural, one {# persona} other {# personas}}.", "{ai}在保存前读取了可见范围更小的内容（{sources}）。{target}有{n, plural, one {#人} other {#人}}可以看到。"),
   scopeMine: t('내 개인 폴더나 앱 안 브라우저', 'your personal folder or the in-app browser', 'folder pribadi Anda atau browser di aplikasi', "自分の個人フォルダーまたはアプリ内ブラウザー", "su carpeta personal o el navegador integrado", "你的个人文件夹或应用内浏览器"),
   scopeRoot: t('팀 폴더 맨 위', 'the top of the team folder', 'bagian atas folder tim', "チームフォルダーの最上位", "la raíz de la carpeta del equipo", "团队文件夹顶层"),
   // a team path on a card, in words (place-words.ts): the team folder's top, and another person's folder by their name
