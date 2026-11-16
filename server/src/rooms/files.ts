@@ -7,8 +7,11 @@
 // the message the file was sent with. It sends them like a team file's download (team-files/download.ts streamFile:
 // nosniff, a sandbox CSP, a page or script type inline as text/plain); the app's preview panel reads those bytes and
 // draws them (an HTML page only in its sandbox frame), never as a page of this origin. A file whose bytes are on the
-// team's download-only list goes only as a download (no inline read, no thumbnail). The upload path and its limits are the chat attachments' (multipart ≤ 50 MB, the
-// storage check, the temp file and its sha256, the image size and thumbnail helpers, the quarantine list).
+// team's download-only list goes only as a download (no inline read, no thumbnail). A file of up to 50 MB arrives in one request (multipart, streamed to a temp
+// file and hashed on the way: http/multipart.ts), a larger one, up to ROOM_FILE_MAX (10 GB), through an upload session
+// with target room (uploads/sessions.ts: 8 MB chunks written straight to disk, resumable). Either way the file is never
+// in memory whole; the storage check, the image size and thumbnail helpers and the quarantine list are the chat
+// attachments'. Only a picture of at most 50 MB is read whole (its metadata is cut out); a larger one is a plain file.
 // reconcile() runs at every start: after a restore the database and the folder may be from different moments; a file
 // without its row is set aside in .system/rooms-orphans/ for 30 days, a row without its file is only counted.
 // fromTeamFile() makes a room upload from a team file the sender may read now ("대화방에 보내기" attaching the files an
@@ -24,7 +27,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
 import { which } from '../config'
-import { SMALL_UPLOAD_MAX, type Locale, type RoomFile } from '@mycel/shared/api'
+import { ROOM_FILE_MAX, SMALL_UPLOAD_MAX, type Locale, type RoomFile } from '@mycel/shared/api'
 import { HWP_LIMITS } from '@mycel/shared/hwp'
 import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
@@ -86,12 +89,33 @@ export class RoomFiles {
     return me ?? fail('not_found')
   }
 
-  /** Keep an uploaded temp file (moved, not copied) for sending in this room. */
-  async create(userId: string, roomId: string, name: string, src: string, sha256: string): Promise<RoomFile> {
-    this.member(userId, roomId)
+  /** The name a file is kept under, or 422 for one that cannot be a file name. */
+  private cleanName(name: string, field = 'body.name'): string {
     const clean = name.normalize('NFC').replace(/[\u0000-\u001f]/g, '').trim()
     const bad = clean.includes('/') || clean.includes('\\') ? 'names cannot contain "/"' : badSegment(clean)
-    if (bad) fail('validation', undefined, { fields: { 'body.name': bad } })
+    if (bad) fail('validation', undefined, { fields: { [field]: bad } })
+    return clean
+  }
+
+  /**
+   * Before a large upload starts (an upload session with target room, uploads/sessions.ts), and again when it is
+   * complete: the person is in the room, the name can be kept and the file is at most ROOM_FILE_MAX. Refused before any
+   * byte is taken, in plain words with the limit.
+   */
+  assertUpload(userId: string, roomId: string, name: string, size: number): void {
+    this.member(userId, roomId)
+    this.cleanName(name, 'body.target.name')
+    if (size > ROOM_FILE_MAX) fail('payload_too_large', tr('roomFileTooBig', personLocale(this.ctx.db, userId), { max: `${ROOM_FILE_MAX / 1024 ** 3} GB` }), { params: { reason: 'room_file_too_large', maxBytes: ROOM_FILE_MAX } })
+  }
+
+  /**
+   * Keep an uploaded temp file (moved, not copied) for sending in this room. Nothing here reads the whole file into
+   * memory unless it is a picture of at most SMALL_UPLOAD_MAX (its metadata is cut out); a larger file named like a
+   * picture is kept as a plain file (no preview made from it), like any document.
+   */
+  async create(userId: string, roomId: string, name: string, src: string, sha256: string): Promise<RoomFile> {
+    this.member(userId, roomId)
+    const clean = this.cleanName(name)
     const id = newId()
     fs.mkdirSync(this.dir(roomId), { recursive: true, mode: 0o700 })
     const dst = this.abs({ room_id: roomId, id })
@@ -105,7 +129,7 @@ export class RoomFiles {
     // carries no place in practice (GIF, BMP, SVG); anything else named like a picture (a TIFF, which can hold GPS like
     // any camera EXIF, or bytes that are not what the name says) goes as a plain file, like a document
     const fmt = imageFormat(first)
-    const kind = attachmentKind(clean) === 'image' && !fmt && !plainPicture(first, clean) ? 'other' : attachmentKind(clean)
+    const kind = attachmentKind(clean) === 'image' && (size > SMALL_UPLOAD_MAX || (!fmt && !plainPicture(first, clean))) ? 'other' : attachmentKind(clean)
     // a file on the team's quarantine list (safe-ops) is kept as a file: no preview is made from it
     const quarantined = this.ctx.files.quarantine.hasHash(sha256)
     // the size it is shown at (a portrait phone photo stored landscape stands upright): from the photo as sent
@@ -122,8 +146,14 @@ export class RoomFiles {
       size = cleaned.byteLength
       stored = createHash('sha256').update(cleaned).digest('hex')
     }
-    try { fs.renameSync(src, dst) } catch { fs.copyFileSync(src, dst); fs.rmSync(src, { force: true }) }
+    // another disk than the uploads folder: a copy that does not hold the server up while a large file is written
+    try { fs.renameSync(src, dst) } catch {
+      try { await fs.promises.copyFile(src, dst) } catch (e) { fs.rmSync(dst, { force: true }); throw e }
+      fs.rmSync(src, { force: true })
+    }
     fs.chmodSync(dst, 0o600)
+    // the room may have been archived, or the person taken out, while the copy ran
+    try { this.member(userId, roomId) } catch (e) { fs.rmSync(dst, { force: true }); throw e }
     let thumb = false
     if (kind === 'image' && !quarantined) {
       try { thumb = !!(await makeThumbnail(dst, this.thumbBase({ room_id: roomId, id }), 640, path.join(this.ctx.config.dataDir, 'work'))) } catch (e) { this.ctx.log.debug('room thumbnail failed', { err: e }) }

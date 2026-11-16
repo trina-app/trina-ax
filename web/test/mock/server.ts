@@ -456,7 +456,7 @@ export class MockServer {
   /** Settings › Notifications (one person's, like the rest of this mock's per-person state) */
   notifyPrefs = MockServer.notifyPrefsDefault()
   static notifyPrefsDefault() {
-    return { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true, roomLevel: 'direct' as 'direct' | 'all' | 'none', roomThreadReplies: true, messagePreview: true, chatAnswers: true, phoneWhen: 'away' as 'away' | 'always', quietHours: { on: false, start: '22:00', end: '08:00', weekends: false } }
+    return { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true, roomLevel: 'direct' as 'direct' | 'all' | 'none', roomThreadReplies: true, messagePreview: true, chatAnswers: true, chatShares: true, fileShares: true, phoneWhen: 'away' as 'away' | 'always', quietHours: { on: false, start: '22:00', end: '08:00', weekends: false } }
   }
   budgets: Budget[] = []
   files = new Map<string, FileNode>()
@@ -6336,28 +6336,30 @@ export class MockServer {
       const files = b!.paths.filter((p) => this.files.has(p) && opens(p, c.user)).map((p) => ({ linkId: this.fileLinkOf(p), name: p.slice(p.lastIndexOf('/') + 1), size: this.files.get(p)!.data?.byteLength ?? 0 }))
       return { by: this.users.find((u) => u.id === b!.byId)?.name ?? null, files }
     }
-    // who shared it with `u` (files/shares.ts sharerFor): the newest grant that counts for them (by name when the folder
-    // lets them read the file); null: none
-    const sharerOf = (path: string, u: User): { name: string | null; at: string } | null => {
+    // who shared it with `u` (files/shares.ts sharerFor): their grant by name when there is one, else (only when the
+    // folder does not let them read the file) the newest group or whole-team grant; null: none. `named`: by name.
+    const sharerOf = (path: string, u: User): { name: string | null; at: string; named: boolean } | null => {
       const readable = this.access(path, u) !== 'none'
       const reaching = (this.fileGrants.get(path) ?? []).filter((x) => (x.subjectType === 'user' ? x.subjectId === u.id : !readable && (x.subjectId === FILE_SHARE_EVERYONE ? u.role !== 'guest' && u.status === 'active' : u.groupIds.includes(x.subjectId))))
       if (!reaching.length) return null
-      const metas = reaching.map((x) => this.fileGrantMeta.get(`${path}\u0000${x.subjectType}:${x.subjectId}`) ?? { by: this.fileOwner(path) ?? '', at: '2026-11-01T09:00:00.000Z' })
+      const named = reaching.filter((x) => x.subjectType === 'user')
+      const metas = (named.length ? named : reaching).map((x) => this.fileGrantMeta.get(`${path}\u0000${x.subjectType}:${x.subjectId}`) ?? { by: this.fileOwner(path) ?? '', at: '2026-11-01T09:00:00.000Z' })
       const newest = metas.sort((a, b) => b.at.localeCompare(a.at))[0]!
-      return { name: this.users.find((x) => x.id === newest.by)?.name ?? null, at: newest.at }
+      return { name: this.users.find((x) => x.id === newest.by)?.name ?? null, at: newest.at, named: named.length > 0 }
     }
     // Files › Shared with me (files/shares.ts sharedWithMe, short): a file a grant gives me, not mine; a file the folder
-    // lets me read only when the grant is by name; the newest qualifying grant names who and when; one page
+    // lets me read only when the grant is by name; the qualifying grant names who and when; the files shared by name
+    // first, then the group ones, each newest first; one page
     h.sharedWithMe = (c) => {
       if (c.user.role === 'guest') fail('forbidden', 403)
-      const items: { linkId: string; name: string; sharedBy: string | null; sharedAt: string }[] = []
+      const items: { linkId: string; name: string; sharedBy: string | null; sharedAt: string; named: boolean }[] = []
       for (const path of this.fileGrants.keys()) {
         if (!this.files.has(path) || this.fileOwner(path) === c.user.id) continue
         const by = sharerOf(path, c.user)
-        if (by) items.push({ linkId: this.fileLinkOf(path), name: path.slice(path.lastIndexOf('/') + 1), sharedBy: by.name, sharedAt: by.at })
+        if (by) items.push({ linkId: this.fileLinkOf(path), name: path.slice(path.lastIndexOf('/') + 1), sharedBy: by.name, sharedAt: by.at, named: by.named })
       }
-      items.sort((a, b) => b.sharedAt.localeCompare(a.sharedAt) || b.linkId.localeCompare(a.linkId))
-      return { items: items.slice(0, 50), next: null }
+      items.sort((a, b) => Number(b.named) - Number(a.named) || b.sharedAt.localeCompare(a.sharedAt) || b.linkId.localeCompare(a.linkId))
+      return { items: items.slice(0, 50).map(({ named: _, ...i }) => i), next: null }
     }
     h.sharedFile = (c) => {
       if (c.user.role === 'guest') fail('forbidden', 403)

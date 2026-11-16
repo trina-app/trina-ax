@@ -11,7 +11,7 @@
 // (a phone: the phone's bar; a computer: a quiet link above the page). Opened from anywhere else (Slack, Activity), no
 // such way back shows.
 import { Tooltip } from '../components/Tooltip'
-import { ChevronLeft, Download, Lock, Sparkles, Trash2 } from 'lucide-react'
+import { ChevronLeft, Download, Lock, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { FILE_REQUEST_NOTE_MAX, type SharedFileView } from '@mycel/shared/api'
@@ -26,6 +26,7 @@ import { useBackLink, useGoBack } from '../lib/back'
 import { FILES_SHARED as SHARED_WITH_ME } from '../lib/nav'
 import { newChatPath } from '../lib/newChat'
 import { aiName } from '../lib/tabs'
+import { AiMark } from '../components/rooms/AiFace'
 
 type View = SharedFileView | { status: 'guest' }
 
@@ -209,7 +210,7 @@ function OpenFile({ id, view }: { id: string; view: Extract<SharedFileView, { st
         </div>
         <Tooltip label={t('files.askAi', { name: aiName(t) })}>
           <Button variant="secondary" onClick={askAi} className="shrink-0" data-testid="file-link-ask-ai">
-            <Sparkles size={16} aria-hidden /> <span className="max-sm:sr-only">{t('files.askAiShort', { name: aiName(t) })}</span>
+            <AiMark place="nav" /> <span className="max-sm:sr-only">{t('files.askAiShort', { name: aiName(t) })}</span>
           </Button>
         </Tooltip>
         <Tooltip label={t('common.download')}>

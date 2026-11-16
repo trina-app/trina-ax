@@ -9,7 +9,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act } from 'react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { ROOM_FILES_MAX, uuidv7, type Attachment, type Me } from '@mycel/shared/api'
+import { ROOM_FILES_MAX, uuidv7, type Attachment, type Me, type RoomFile } from '@mycel/shared/api'
 import Composer from '../../src/components/chat/Composer'
 import { FileDropZone, useDropTarget } from '../../src/components/FileDropZone'
 import { RoomComposer } from '../../src/components/rooms/RoomComposer'
@@ -281,7 +281,8 @@ const root = message({ roomId: r.id, seq: 1, author: BEN, body: 'THE ROOT', thre
 let roomUploads: string[] = []
 let chatUploads: { chatId: string; name: string }[] = []
 
-/** the side chat's uploads go through XMLHttpRequest (lib/xhr.ts: they report their progress) */
+/** uploads go through XMLHttpRequest (lib/xhr.ts: they report their progress): the side chat's attachments, and a
+ * room's files (POST /api/rooms/:id/files, which carries no chatId) */
 class FakeXhr {
   upload = { onprogress: null as unknown, onload: null as (() => void) | null }
   onload: (() => void) | null = null
@@ -291,13 +292,18 @@ class FakeXhr {
   withCredentials = false
   status = 0
   response: Blob | null = null
-  open() {}
+  url = ''
+  open(_method: string, url: string) { this.url = url }
   setRequestHeader() {}
   getResponseHeader(k: string) { return k.toLowerCase() === 'content-type' ? 'application/json' : null }
   send(body: FormData) {
     const name = String(body.get('name')), chatId = String(body.get('chatId'))
-    chatUploads.push({ chatId, name })
-    const a: Attachment = { id: uuidv7(), name, path: `users/${ME.id}/.attachments/${chatId}/${name}`, size: Number(body.get('size')), mime: 'application/pdf', kind: 'pdf' }
+    const toRoom = /\/api\/rooms\/[^/]+\/files$/.test(new URL(this.url, 'http://team.localhost').pathname)
+    if (toRoom) roomUploads.push(name)
+    else chatUploads.push({ chatId, name })
+    const a: Attachment | RoomFile = toRoom
+      ? { id: uuidv7(), name, size: Number(body.get('size')), mime: 'application/pdf', kind: 'pdf', thumb: false }
+      : { id: uuidv7(), name, path: `users/${ME.id}/.attachments/${chatId}/${name}`, size: Number(body.get('size')), mime: 'application/pdf', kind: 'pdf' }
     setTimeout(() => {
       this.upload.onload?.()
       this.status = 201

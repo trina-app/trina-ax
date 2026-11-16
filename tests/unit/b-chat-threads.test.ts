@@ -21,6 +21,7 @@ import { pushPathOf } from '../../server/src/notifications/push-events'
 import { savePreferences } from '../../server/src/notifications/preferences'
 import { cancelDisabledPushDeliveries } from '../../server/src/notifications/push-events'
 import { hiddenAnswersCutover, setHiddenAnswersCutover } from '../../server/src/chat/shared-answers'
+import { TEXT } from '../../server/src/chat/i18n'
 
 setDefaultTimeout(90_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -411,6 +412,9 @@ describe('every route answers the one 404 for a hidden answer and a chat in the 
     try {
       const e = await errOf(h.api('alice').call(API.deleteChatThreadReply, { params: { id: c.id, replyId: r.id } }))
       expect([e.status, e.body.params?.reason]).toEqual([409, 'safe_ops'])
+      // its words are about deleting the reply, not "continuing shared chats" (TC-3937)
+      expect(Object.values(TEXT.threadReplyDeleteSafeOps)).toContain(e.body.message)
+      expect(Object.values(TEXT.sharedChatSafeOps)).not.toContain(e.body.message)
       expect((await thread('alice', { chat: c.id, root })).replies.map((x) => x.canDelete)).toEqual([false])
     } finally { delete process.env.MYCEL_SAFE_OPS_1A }
     expect((await thread('alice', { chat: c.id, root })).replies.map((x) => x.canDelete)).toEqual([true])
