@@ -18,6 +18,7 @@ const text = (item: InboxNotification, t = en, locale: 'en' | 'ko' = 'en') => re
 
 test('the notice says how full, and the files in conversations once measured; it opens the storage card', () => {
   expect(text(notice({ percent: 82, roomsBytes: null }))).toBe('Storage is 82% full. See what uses the space.')
+  expect(text(notice({ percent: 82, roomsBytes: 0 }))).toBe('Storage is 82% full. See what uses the space.')
   expect(text(notice({ percent: 96, roomsBytes: 31 * 1024 ** 3 }))).toBe('Storage is 96% full. Files in conversations take 31 GB. See what uses the space.')
   expect(text(notice({ percent: 82, roomsBytes: null }), ko, 'ko')).toBe('저장 공간이 82% 찼어요. 무엇이 공간을 쓰는지 확인해 보세요.')
   expect(noticeLink(notice({ percent: 82, roomsBytes: null }))).toEqual({ to: '/admin/system/storage', testId: 'notification-storage-link' })

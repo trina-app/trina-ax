@@ -167,9 +167,10 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   // an own connection other than Google Drive that needs a sign-in again, by its name (QA TC-2945)
   if (item.code === 'connection.reconnect' && item.connection) return t('notifications.event.connection.reconnectNamed', { name: item.connection.name })
   if (item.code === 'integration.template' || item.code === 'integration.template_reconnect') return templateText(item, t)
-  // the team's disk is filling (owners and admins): how full, and the files in conversations once measured; one no
+  // the team's disk is filling (owners and admins): how full, and the files in conversations once measured (none: not
+  // named); one no
   // longer an admin gets no numbers and falls through to the plain words below
-  if (item.code === 'storage.filling' && item.storage) return item.storage.roomsBytes === null
+  if (item.code === 'storage.filling' && item.storage) return !item.storage.roomsBytes
     ? t('notifications.event.storage.fillingPct', { pct: item.storage.percent })
     : t('notifications.event.storage.fillingRooms', { pct: item.storage.percent, size: formatSize(item.storage.roomsBytes, locale) })
   const title = item.schedule?.title
