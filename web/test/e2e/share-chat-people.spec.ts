@@ -95,7 +95,7 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await expect(dialog.getByTestId('participant-remove-user-olga')).toHaveCount(0)
       await expect(dialog.getByTestId('chat-share-save')).toBeDisabled()
       await expect(dialog.getByTestId('chat-share-save')).toHaveText('공유')
-      await expect(dialog.getByTestId('chat-share-note')).toContainText('추가되기 전에 나눈 대화까지')
+      await expect(dialog.getByTestId('chat-share-note')).toContainText('추가되기 전에 나눈 대화와 스레드까지')
       await audit(page, 'share dialog, empty')
       await pick(page, 'Bob', 'bob')
       // a group adds the line that whoever joins it later sees the chat too

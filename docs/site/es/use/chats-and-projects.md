@@ -248,6 +248,11 @@ Empiece un chat desde la página del proyecto, o lleve un chat a él con **Mover
 - Un proyecto también puede tener uno o más invitados: personas de fuera del equipo que solo ven este proyecto. Sus miembros pueden ver los chats que un invitado tiene allí. [Más información sobre los invitados](guests.md).
 - Solo los miembros de un proyecto ven lo que contiene. El propietario y los administradores pueden cambiar sus miembros, pero no ven sus
   chats, archivos e instrucciones salvo que sean miembros.
+- **Para cambiar el nombre de un proyecto**, haga clic en su nombre arriba de su página, escriba el nuevo nombre y pulse
+  Intro (Esc cancela). También puede elegir **Cambiar nombre** en el **···** del proyecto en la lista **Proyectos** (o con
+  clic derecho), o en el menú del nombre arriba de la página. En un teléfono, toque el nombre del proyecto en la barra
+  superior. Solo pueden hacerlo quien creó el proyecto, el propietario y los administradores; los demás ven el nombre
+  como texto normal. Cambiar el nombre del proyecto no cambia el de su carpeta.
 - Una carpeta contiene un solo proyecto. Una vez que es un proyecto, solo un administrador mueve, cambia el nombre o elimina la carpeta.
 - **Mover a la papelera** en el menú de un proyecto del equipo lo pone en la papelera con sus archivos. Sus miembros conservan su tarjeta, marcada
   **en la papelera**: su página dice quién lo movió allí y cuándo, y que un administrador o quien lo creó puede restaurarlo. Nadie

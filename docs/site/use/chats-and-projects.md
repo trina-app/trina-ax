@@ -249,6 +249,10 @@ Start a chat from the project's page, or move a chat in with **Move to project**
 - A project can also have one or more guests: people from outside the team who see only this project. Its members can see the chats a guest has there. [Read about guests](guests.md).
 - Only a project's members see what is in it. The owner and admins can change its members, but they do not see its
   chats, files and instructions unless they are members.
+- **To rename a project**, click its name at the top of its page, type the new name and press Enter (Esc cancels).
+  You can also choose **Rename** in the **···** of the project in the **Projects** list (or right-click it), or in the
+  menu of the name at the top of the page. On a phone, tap the project's name in the top bar. This is for the project's
+  creator, the owner and admins; others see the name as plain text. Renaming a project does not rename its folder.
 - A folder holds one project. Once it is a project, only an admin moves, renames or deletes the folder.
 - **Move to trash** in a team project's menu puts it in the trash with its files. Its members keep its card, marked
   **In trash**: its page says who moved it there and when, and that an admin or its creator can restore it. Nobody

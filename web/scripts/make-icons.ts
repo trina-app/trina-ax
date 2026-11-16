@@ -9,10 +9,15 @@ import { chromium } from '@playwright/test'
 
 const WEB = path.resolve(import.meta.dir, '..')
 const svg = fs.readFileSync(path.join(WEB, 'public', 'favicon.svg'), 'utf8')
-// maskable and Apple touch icons are full-bleed: the logo's own tile colour (its first <rect>) fills the square, so the
-// edges match the mark (Trina: warm black #14110f). The logo's accent would hide its orange spark.
-const tile = svg.match(/<rect\b[^>]*\bfill="(#[0-9a-f]{3,8})"/i)?.[1]
-if (!tile) throw new Error('favicon.svg: no <rect fill="#…"> tile to use as the maskable background')
+// maskable and Apple touch icons are full-bleed: the logo's own tile fills the square, so the edges match the mark (Trina:
+// the light paper tile, a top-to-bottom gradient, read from its <linearGradient> stops; else its first <rect>'s colour).
+// The logo's accent would hide its orange spark. The tile's hairline edge (data-edge) is left out there: the square is
+// cut by the system, and the line would show as arcs at the corners.
+const stops = [...svg.matchAll(/<stop\b[^>]*\bstop-color="(#[0-9a-f]{3,8})"/gi)].map((m) => m[1])
+const flat = svg.match(/<rect\b[^>]*\bfill="(#[0-9a-f]{3,8})"/i)?.[1]
+const tile = stops.length >= 2 ? `linear-gradient(${stops.join(',')})` : flat
+if (!tile) throw new Error('favicon.svg: no tile colour (<linearGradient> stops or <rect fill="#…">) for the maskable background')
+const fullBleedSvg = svg.replace(/<rect\b[^>]*\bdata-edge=""[^>]*\/>/, '')
 // the mark's own scale inside favicon.svg's tile (its first scale(…)); full-bleed icons size the mark from it
 const markScale = Number(svg.match(/scale\(([\d.]+)\)/)?.[1] ?? 1)
 /** Full-bleed icons: the mark at this share of the square. The Trina mark reaches 0.45 of its box from the centre
@@ -31,7 +36,7 @@ async function render(name: string, size: number, maskable: boolean) {
   const radius = maskable ? 0 : Math.round(size * 0.22)
   await page.setViewportSize({ width: size, height: size })
   await page.setContent(`<html><body style="margin:0;width:${size}px;height:${size}px;display:grid;place-items:center;background:${maskable ? tile : 'transparent'}">
-    <div style="width:${inner}px;height:${inner}px;border-radius:${radius}px;overflow:hidden">${svg.replace('<svg ', `<svg width="${inner}" height="${inner}" `)}</div></body></html>`)
+    <div style="width:${inner}px;height:${inner}px;border-radius:${radius}px;overflow:hidden">${(maskable ? fullBleedSvg : svg).replace('<svg ', `<svg width="${inner}" height="${inner}" `)}</div></body></html>`)
   await page.screenshot({ path: path.join(out, name), omitBackground: !maskable })
 }
 await render('icon-192.png', 192, false)

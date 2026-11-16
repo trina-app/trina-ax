@@ -473,6 +473,31 @@ export type Usage = z.infer<typeof Usage>
  * messages. Conversations are trees: editing a user message or regenerating an answer adds a sibling with the
  * same parentId; the chat shows one path (chats.active_leaf_id). `branch` lets the UI show "< 2/3 >".
  */
+/** The talk under an AI answer of a shared chat (docs/decisions/20261116-chat-answer-threads.md), as I see it: how many
+ * replies, the time of the last one, up to 3 people who replied (the latest first) and whether a thread I follow (I
+ * asked the answer or replied) has a reply I have not read. The rooms' RoomThreadSummary, for chats. */
+export const ChatThreadSummary = z.object({
+  replyCount: z.number().int().nonnegative(),
+  lastReplyAt: IsoTime.nullable(),
+  repliers: z.array(UserRef),
+  newReplies: z.boolean(),
+})
+export type ChatThreadSummary = z.infer<typeof ChatThreadSummary>
+/** One reply under an answer of a shared chat: people's words only (the AI never writes or reads these). `author` null:
+ * an account that is gone and has no tombstone name. */
+export const ChatThreadReply = z.object({
+  id: Uuid7,
+  chatId: Uuid7,
+  rootId: Uuid7,
+  author: UserRef.nullable(),
+  /** plain text; links are made clickable by the app, nothing else is formatted */
+  content: z.string(),
+  createdAt: IsoTime,
+  /** I may delete it: my own, or I may moderate the chat (its creator; a project editor for a project chat) */
+  canDelete: z.boolean(),
+})
+export type ChatThreadReply = z.infer<typeof ChatThreadReply>
+
 export const Message = z.object({
   id: Uuid7,
   chatId: Uuid7,
@@ -511,6 +536,8 @@ export const Message = z.object({
    * nothing of it comes (no steps, files, sources, artifacts, model or error); its place in the branch stays. Never on
    * an answer of my own question */
   withheld: z.literal(true).optional(),
+  /** a finished answer of a shared chat with replies under it that I may see: the thread's summary (absent: none) */
+  thread: ChatThreadSummary.optional(),
 })
 export type Message = z.infer<typeof Message>
 

@@ -247,6 +247,11 @@ Mulai chat dari halaman proyek, atau pindahkan chat ke dalamnya dengan **Pindahk
 - Proyek juga bisa memiliki satu atau beberapa tamu: orang dari luar tim yang hanya melihat proyek ini. Anggotanya bisa melihat chat yang dimiliki tamu di sana. [Baca tentang tamu](guests.md).
 - Hanya anggota proyek yang melihat isinya. Owner dan admin bisa mengubah anggotanya, tetapi mereka tidak melihat
   chat, file, dan instruksinya kecuali mereka sendiri anggota.
+- **Untuk mengganti nama proyek**, klik namanya di bagian atas halamannya, ketik nama baru, lalu tekan Enter (Esc
+  membatalkan). Anda juga bisa memilih **Ganti nama** di **···** proyek itu pada daftar **Proyek** (atau klik kanan), atau
+  di menu nama di bagian atas halaman. Di ponsel, ketuk nama proyek di bilah atas. Hanya pembuat proyek, pemilik, dan
+  admin yang bisa melakukannya; orang lain melihat namanya sebagai teks biasa. Mengganti nama proyek tidak mengganti nama
+  foldernya.
 - Satu folder berisi satu proyek. Setelah menjadi proyek, hanya admin yang bisa memindahkan, mengganti nama, atau menghapus folder itu.
 - **Pindahkan ke sampah** di menu proyek tim memindahkan proyek beserta file-filenya ke sampah. Anggotanya tetap melihat kartunya, bertanda
   **di Sampah**: halamannya menyebutkan siapa yang memindahkannya dan kapan, serta bahwa admin atau pembuatnya bisa memulihkannya. Sampai saat itu, tidak ada yang
