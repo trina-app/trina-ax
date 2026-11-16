@@ -45,6 +45,7 @@ import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboar
 import { SEARCH_TOOLS, SHARED_TOOLS } from '../rooms/ai-tools'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
 import { roomReadTools } from './room-tools'
+import { hintsHere, roomHint } from './room-hint'
 import { skillFilesTool } from './skill-files'
 import { postToRoomOff, postToRoomTool } from './post-to-room'
 import { shareWithPersonOff, shareWithPersonTool } from './share-with-person'
@@ -366,7 +367,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       const summary = exec.redact(out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}`)
       return { content: note ? [...out.content, { type: 'text', text: note }] : out.content, isError: out.isError, summary: exec.roomsSeen ? hideUrls(summary) : summary, ...(out.beforeDelivery ? { beforeDelivery: out.beforeDelivery } : {}) }
     },
-    afterFileTool: (name, isError, args, text) => {
+    afterFileTool: (name, isError, args, text, caller) => {
       // a skill save's approval is for that call only, saved or not (skills/guard.ts); so is a scheduled run's claim on
       // a path (chat/schedule-cover.ts)
       exec.dropSkillApproval(name, args)
@@ -381,7 +382,12 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // a skill saved in a shared chat: one quiet line in the answer that the people here can see it
       const skillNote = exec.sharedSkillNote(name, args, isError)
       const placed = exec.placementNote(tools.has('move_files'))
-      return skillNote && placed ? `${placed}\n${skillNote}` : skillNote || placed
+      // a search of the team files by the main AI (a sub-agent has no rooms tool): the person's rooms that mention the
+      // same words, counted (chat/room-hint.ts); only where the rooms tool is offered (never a shared, confidential,
+      // draft, template or guest chat) and a room read stays in this chat (no scheduled run, Slack or side chat)
+      const main = !caller || caller.files === exec.files
+      const rooms = name === 'grep' && !isError && main && !guest && hintsHere(exec, tools.has('rooms')) ? roomHint(exec, (args as { pattern?: unknown } | null)?.pattern) : null
+      return [placed, skillNote, rooms].filter(Boolean).join('\n') || undefined
     },
     // edit_files (mcp/protocol.ts): after a room read one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {
