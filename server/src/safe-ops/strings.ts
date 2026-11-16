@@ -3,7 +3,7 @@ import { ToolError } from '../policy/errors'
 export const SAFE_OPS_TEXT = {
   searchLimit: {
     ja: "検索入力の上限に達しました。フォルダーやファイル形式を絞って再検索してください。",
-    es: "Se alcanzó el límite de archivos de entrada de la búsqueda. Limita la carpeta o el tipo de archivo y vuelve a buscar.",
+    es: "Se alcanzó el límite de archivos de entrada de la búsqueda. Limite la carpeta o el tipo de archivo y vuelva a buscar.",
     zh: "已达到搜索输入的上限。请缩小文件夹或文件类型范围后再搜索。",
     ko: '검색 입력 한도에 도달했어요. 폴더나 파일 형식을 좁혀 다시 검색해 주세요.',
     en: 'The search input limit was reached. Narrow the folder or file type and search again.',
@@ -11,7 +11,7 @@ export const SAFE_OPS_TEXT = {
   },
   searchBusy: {
     ja: "検索が進行中のため、生成ファイルを登録できません。検索が終了してから再試行してください。",
-    es: "No se puede registrar el archivo generado mientras la búsqueda está en curso. Vuelve a intentarlo cuando termine.",
+    es: "No se puede registrar el archivo generado mientras la búsqueda está en curso. Vuelva a intentarlo cuando termine.",
     zh: "正在搜索，暂时无法登记这个生成的文件。请在搜索结束后重试。",
     ko: '검색이 진행 중이어서 생성 파일을 등록할 수 없어요. 검색이 끝난 후 다시 시도해 주세요.',
     en: 'A search is in progress and prevents registering this generated file. Try again after it finishes.',
@@ -19,7 +19,7 @@ export const SAFE_OPS_TEXT = {
   },
   destination: {
     ja: "生成ファイルは skills 以外の既存フォルダーに保存してください。",
-    es: "Guarda los archivos generados en una carpeta existente fuera de skills.",
+    es: "Guarde los archivos generados en una carpeta existente fuera de skills.",
     zh: "请把生成的文件保存到 skills 以外的现有文件夹中。",
     ko: '생성 파일은 skills 밖의 기존 폴더에 저장해 주세요.',
     en: 'Save generated files in an existing folder outside skills.',
@@ -27,7 +27,7 @@ export const SAFE_OPS_TEXT = {
   },
   conflict: {
     ja: "承認後に別のファイルが保存先を使用しました。上書きはしていません。再試行すると別の競合コピーを作成します。",
-    es: "Otro archivo ocupó el destino después de la aprobación. No se sobrescribió. Vuelve a intentarlo para crear una copia de conflicto separada.",
+    es: "Otro archivo ocupó el destino después de la aprobación. No se sobrescribió. Vuelva a intentarlo para crear una copia de conflicto separada.",
     zh: "批准后，目标位置已被另一个文件占用。没有覆盖它。重试会创建一个明确的冲突副本。",
     ko: '승인 후 저장 위치에 다른 파일이 생겼어요. 덮어쓰지 않았어요. 다시 시도하면 별도의 충돌 사본을 만들어요.',
     en: 'Another file claimed the destination after approval. It was not overwritten. Retry to create an explicit conflict copy.',
@@ -43,7 +43,7 @@ export const SAFE_OPS_TEXT = {
   },
   workflow: {
     ja: "この返答で安全なPowerPointの上限（元ファイル32個、1ファイル32 MiB、返答ごとの保存上限）に達しました。新しいメッセージで続けてください。ファイルは保存していません。",
-    es: "Esta respuesta alcanzó un límite de PowerPoint seguro (como máximo 32 archivos de origen, 32 MiB por archivo y el límite de escritura de la respuesta). Envía un mensaje nuevo para continuar. No se guardó nada.",
+    es: "Esta respuesta alcanzó un límite de PowerPoint seguro (como máximo 32 archivos de origen, 32 MiB por archivo y el límite de escritura de la respuesta). Envíe un mensaje nuevo para continuar. No se guardó nada.",
     zh: "这次回复已达到 PowerPoint 安全上限（最多32个源文件，每个文件32 MiB，以及回复的写入上限）。请发送新消息继续。没有保存任何内容。",
     ko: "이 답에서 안전한 PowerPoint 한도(원본 파일 32개, 파일 하나 32 MiB, 답 하나의 저장 한도)에 도달했어요. 새 메시지로 이어서 요청해 주세요. 파일은 저장하지 않았어요.",
     en: "This reply reached a safe PowerPoint limit (at most 32 source files, 32 MiB per file and the reply's write limit). Send a new message to continue. Nothing was saved.",
@@ -51,7 +51,7 @@ export const SAFE_OPS_TEXT = {
   },
   imageLimit: {
     ja: "対応していない画像形式またはサイズです。8 MiB 以下の PNG、JPEG、WebP、HEIC 画像を使用してください。",
-    es: "Formato o tamaño de imagen no compatible. Usa imágenes PNG, JPEG, WebP o HEIC de hasta 8 MiB.",
+    es: "Formato o tamaño de imagen no compatible. Use imágenes PNG, JPEG, WebP o HEIC de hasta 8 MiB.",
     zh: "不支持的图片格式或大小。请使用不超过8 MiB的 PNG、JPEG、WebP 或 HEIC 图片。",
     ko: "이미지 형식 또는 크기를 지원하지 않아요. PNG, JPEG, WebP, HEIC 형식의 8 MiB 이하 이미지를 사용해 주세요.",
     en: "Unsupported image format or size. Use PNG, JPEG, WebP or HEIC images up to 8 MiB.",
@@ -59,7 +59,7 @@ export const SAFE_OPS_TEXT = {
   },
   input: {
     ja: "対応していないプレゼンテーション内容です。生のマークアップ、リンク、独自属性を含まない Markdown を使用し、メタデータはタイトル・作成者・日付のみ指定してください。",
-    es: "Contenido de presentación no compatible. Usa Markdown sin marcado sin procesar, enlaces ni atributos personalizados; los metadatos solo pueden incluir título, autor y fecha.",
+    es: "Contenido de presentación no compatible. Use Markdown sin marcado sin procesar, enlaces ni atributos personalizados; los metadatos solo pueden incluir título, autor y fecha.",
     zh: "不支持的演示文稿内容。请使用不含原始标记、链接或自定义属性的 Markdown；元数据只能包含标题、作者和日期。",
     ko: "지원하지 않는 발표 자료 내용이에요. 원시 마크업, 링크, 사용자 지정 속성 없이 Markdown을 사용하고 메타데이터는 제목·작성자·날짜만 지정해 주세요.",
     en: "Unsupported presentation content. Use Markdown without raw markup, links or custom attributes; metadata may contain only title, author and date.",
@@ -75,7 +75,7 @@ export const SAFE_OPS_TEXT = {
   },
   sourceChanged: {
     ja: "元ファイルが変更されたか、安全な読み取り上限を超えています。ファイルを確認して再度読み込んでください。",
-    es: "El archivo de origen cambió o supera el límite de lectura segura. Comprueba el archivo y vuelve a leerlo.",
+    es: "El archivo de origen cambió o supera el límite de lectura segura. Compruebe el archivo y vuelva a leerlo.",
     zh: "源文件已更改或超过安全读取上限。请检查文件后再读取一次。",
     ko: "원본 파일이 변경되었거나 안전한 읽기 한도를 초과했어요. 파일을 확인하고 다시 읽어 주세요.",
     en: "The source changed or exceeds the safe read limit. Check the file and read it again.",
@@ -99,7 +99,7 @@ export const SAFE_OPS_TEXT = {
   },
   busy: {
     ja: "安全な変換処理を実行中です。しばらくしてから再試行してください。",
-    es: "El conversor seguro está ocupado. Vuelve a intentarlo en unos instantes.",
+    es: "El conversor seguro está ocupado. Vuelva a intentarlo en unos instantes.",
     zh: "安全转换器正忙。请稍后重试。",
     ko: "안전 변환기를 사용 중이에요. 잠시 후 다시 시도해 주세요.",
     en: "The safe converter is busy. Try again shortly.",
@@ -115,7 +115,7 @@ export const SAFE_OPS_TEXT = {
   },
   changed: {
     ja: "送信前に権限または元ファイルが変更されました。ファイルを再度読み込んでください。",
-    es: "El acceso o el archivo de origen cambió antes de la entrega. Vuelve a leer el archivo.",
+    es: "El acceso o el archivo de origen cambió antes de la entrega. Vuelva a leer el archivo.",
     zh: "交付前权限或源文件发生了变化。请再读取一次文件。",
     ko: "전달 전에 권한이나 원본 파일이 변경됐어요. 파일을 다시 읽어 주세요.",
     en: "Access or the source file changed before delivery. Read the file again.",
@@ -139,7 +139,7 @@ export const SAFE_OPS_TEXT = {
   },
   hourLimit: {
     ja: "安全なPowerPoint処理は1人あたり1時間に8回までです（変換を始める前に止まった試行は数えません）。約{minutes}分後にもう一度作成できます。ファイルは保存していません。",
-    es: "Alcanzaste el límite de 8 trabajos seguros de PowerPoint por hora (los intentos que se detuvieron antes de convertir no cuentan). Podrás crear otro en unos {minutes} min. No se guardó nada.",
+    es: "Alcanzó el límite de 8 trabajos seguros de PowerPoint por hora (los intentos que se detuvieron antes de convertir no cuentan). Podrá crear otro en unos {minutes} min. No se guardó nada.",
     zh: "你已达到每小时8个安全 PowerPoint 任务的上限（还没开始转换就停止的尝试不计入）。大约{minutes}分钟后可以再做一个。没有保存任何内容。",
     ko: "안전한 PowerPoint 작업은 한 사람당 1시간에 8번까지 할 수 있어요(변환을 시작하기 전에 멈춘 시도는 세지 않아요). 약 {minutes}분 뒤에 다시 만들 수 있어요. 파일은 저장하지 않았어요.",
     en: "You have reached the limit of 8 safe PowerPoint jobs per hour (tries that stopped before converting anything do not count). You can make another in about {minutes} min. Nothing was saved.",
@@ -147,7 +147,7 @@ export const SAFE_OPS_TEXT = {
   },
   turnLimit: {
     ja: "1回の返答で実行できる安全なPowerPoint処理は4回までです。新しいメッセージでもう一度依頼してください。ファイルは保存していません。",
-    es: "Una respuesta puede ejecutar como máximo 4 trabajos seguros de PowerPoint. Envía un mensaje nuevo para intentarlo otra vez. No se guardó nada.",
+    es: "Una respuesta puede ejecutar como máximo 4 trabajos seguros de PowerPoint. Envíe un mensaje nuevo para intentarlo otra vez. No se guardó nada.",
     zh: "一次回复最多运行4个安全 PowerPoint 任务。请发送新消息后重试。没有保存任何内容。",
     ko: "한 번의 답에서는 안전한 PowerPoint 작업을 4번까지 할 수 있어요. 새 메시지로 다시 요청해 주세요. 파일은 저장하지 않았어요.",
     en: "One reply can run at most 4 safe PowerPoint jobs. Send a new message to try again. Nothing was saved.",
@@ -155,7 +155,7 @@ export const SAFE_OPS_TEXT = {
   },
   budget: {
     ja: "この返答で使える1時間あたりの安全な変換量（変換24ステップ、CPU 10分、ファイル512 MiB）を使い切りました。新しいメッセージで依頼するか、約{minutes}分待ってください。ファイルは保存していません。",
-    es: "Esta respuesta agotó su cuota horaria de conversión segura (24 pasos de conversión, 10 minutos de CPU y 512 MiB de archivos). Envía un mensaje nuevo o espera unos {minutes} min. No se guardó nada.",
+    es: "Esta respuesta agotó su cuota horaria de conversión segura (24 pasos de conversión, 10 minutos de CPU y 512 MiB de archivos). Envíe un mensaje nuevo o espere unos {minutes} min. No se guardó nada.",
     zh: "这次回复已用完每小时的安全转换额度（24个转换步骤、10分钟 CPU 时间和512 MiB 文件）。请发送新消息，或等待大约{minutes}分钟。没有保存任何内容。",
     ko: "이 답에서 쓸 수 있는 1시간 안전 변환량(변환 단계 24개, CPU 10분, 파일 512 MiB)을 다 썼어요. 새 메시지로 요청하거나 약 {minutes}분 뒤에 다시 시도해 주세요. 파일은 저장하지 않았어요.",
     en: "This reply used up its hourly safe conversion budget (24 conversion steps, 10 CPU minutes and 512 MiB of files). Send a new message, or wait about {minutes} min. Nothing was saved.",
@@ -179,7 +179,7 @@ export const SAFE_OPS_TEXT = {
   },
   groupMemory: {
     ja: "現在、サーバーの資源グループに安全な変換に必要な空きメモリ（640 MiB）がありません。数分後にもう一度お試しください。ファイルは保存していません。",
-    es: "Ahora mismo, el grupo de recursos del servidor no tiene suficiente memoria libre para una conversión segura (necesita 640 MiB). Inténtalo de nuevo en unos minutos. No se guardó nada.",
+    es: "Ahora mismo, el grupo de recursos del servidor no tiene suficiente memoria libre para una conversión segura (necesita 640 MiB). Inténtelo de nuevo en unos minutos. No se guardó nada.",
     zh: "服务器的资源组现在没有足够的可用内存进行安全转换（需要640 MiB 可用内存）。请几分钟后重试。没有保存任何内容。",
     ko: "지금은 서버 자원 그룹의 여유 메모리가 부족해서 안전 변환을 시작할 수 없어요(640 MiB 필요). 몇 분 뒤 다시 시도해 주세요. 파일은 저장하지 않았어요.",
     en: "The server's resource group is short of free memory for a safe conversion right now (it needs 640 MiB free). Try again in a few minutes. Nothing was saved.",
@@ -187,7 +187,7 @@ export const SAFE_OPS_TEXT = {
   },
   template: {
     ja: "アップロードした PowerPoint テンプレートには対応していません。組み込みレイアウトを使用してください。",
-    es: "Las plantillas de PowerPoint subidas no son compatibles. Usa los diseños incluidos.",
+    es: "Las plantillas de PowerPoint subidas no son compatibles. Use los diseños incluidos.",
     zh: "不支持上传的 PowerPoint 模板。请使用内置的版式。",
     ko: "업로드한 PowerPoint 템플릿은 지원하지 않아요. 기본 제공 레이아웃을 사용해 주세요.",
     en: "Uploaded PowerPoint templates are not supported. Use the bundled layouts.",

@@ -136,7 +136,7 @@ Pulse **Compartir** (**Guardar** si ya estaba compartido). Si sale con cambios s
   pero esa persona también está en un grupo con el que lo compartió, lo conserva a través de ese grupo, y el cuadro lo indica.
   Si quita a todos, el chat vuelve a ser solo suyo.
 - **Lo personal se queda fuera.** En un chat compartido la IA no usa sus recuerdos, su navegador, su correo ni sus
-  horarios. Para usarlos, elija **Continuar en un chat que solo ves tú** en el menú del chat.
+  horarios. Para usarlos, elija **Continuar en un chat que solo ve usted** en el menú del chat.
 - Un chat de un proyecto personal sigue siendo suyo: **Compartir** le ofrece sacarlo antes del proyecto. Un chat de un proyecto del equipo se comparte
   con los miembros del proyecto (consulte [Proyectos](#proyectos)).
 
@@ -266,7 +266,7 @@ Empiece un chat desde la página del proyecto, o lleve un chat a él con **Mover
   yo**); el siguiente chat nuevo vuelve a empezar compartido. Un chat que solo ve usted muestra un candado. Cada pregunta muestra la foto y
   el nombre de la persona que la envió. Cada respuesta se ejecuta como la persona que preguntó, con su acceso. Cuando la IA va a
   leer algo que algunas de ellas no pueden abrir, se lo pregunta a usted antes (**Leer y compartir** / **No leer**).
-- **Los chats que trae o mueve al proyecto siguen siendo suyos.** La página del proyecto indica cuántos son ("1 chat que solo ves tú"), y **Elegir
+- **Los chats que trae o mueve al proyecto siguen siendo suyos.** La página del proyecto indica cuántos son ("1 chat que solo ve usted"), y **Elegir
   chats para compartir** (o **Compartir con los miembros del proyecto** en el menú de un chat) los comparte. **Traer chats** mueve otros
   chats al proyecto.
 - **Archivos en los chats del proyecto.** Un archivo que adjunta desde su ordenador (**+**, pegándolo o soltándolo) en un chat compartido del proyecto

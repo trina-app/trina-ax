@@ -7,7 +7,7 @@
 // answers that used files they can't open, other places they can't open, team chat rooms they may not be in. Each is
 // one specific sentence ("3 answers used files Mina can't open") on a line of its own, and "Show answers ›" after them
 // opens the list of those answers. Names come in as picked (whoNames): a person with the language's honorific ("Bob
-// 님"), a group as its people ("Sales 그룹 사람들"), never 님 on a group.
+// 님"), a group as its people ("Sales 부서 사람들"), never 님 on a group.
 // Nothing at stake, or only answers nobody could check: no box, at most one grey line. The button never changes:
 // pressing Share is the confirmation.
 import { AlertTriangle, ChevronRight, Info } from 'lucide-react'
@@ -19,8 +19,8 @@ import { placeName } from './chat/ShareToRoom'
 type T = ReturnType<typeof useT>
 
 /** The people and groups being added, as the share lines name them: a person with the language's honorific
- * (share.who.person: "Bob 님"), a group as its people (share.who.group: "Sales 그룹 사람들"); in English both as named. The
- * lines' particle marks then read right after either ("Bob 님이", "Sales 그룹 사람들이"). */
+ * (share.who.person: "Bob 님"), a group as its people (share.who.group: "Sales 부서 사람들"); in English both as named. The
+ * lines' particle marks then read right after either ("Bob 님이", "Sales 부서 사람들이"). */
 export function whoNames(t: T, picks: readonly { subjectType: 'user' | 'group'; name: string }[]): string {
   return picks.filter((p) => p.name).map((p) => t(p.subjectType === 'group' ? 'share.who.group' : 'share.who.person', { name: p.name })).join(t('rooms.nameSep'))
 }
