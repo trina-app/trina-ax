@@ -795,6 +795,9 @@ export class TurnExec {
     // whatever engine.authMode says)
     const managedEngine = engine === 'claude-code' ? claude?.authMode === 'managed' && !!claude.modelProxy : engine === 'codex' ? codex?.auth === 'managed' : false
     const situation = this.shared ? null : situationOf(rt.ctx, { userId: spec.userId, role: this.principal.role, clientKind: spec.clientKind, browser: this.browser, engine, locale: spec.locale, managed: managedEngine, webSearch })
+    // where things are in the app (chat/app-map.ts): a member's short form, an owner's or admin's full one, a shared
+    // chat's role-neutral one; none for a guest
+    const appMap = guestTurn ? null : { view: this.shared ? 'shared' as const : this.principal.role === 'owner' || this.principal.role === 'admin' ? 'staff' as const : 'member' as const, managed: managedEngine, devEnv: devEnvFlag() }
     const runKind = runKindOf(rt.ctx.config)
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone,
@@ -809,7 +812,7 @@ export class TurnExec {
       confidential: confidential ? (safeOpsEnabled() ? 'server' : 'chat') : null,
       // the file lists (file-list/service.ts): only while the feature is on and this person has one
       fileList: fileListPromptOn(rt.ctx, this.principal!),
-      situation, runKind,
+      situation, appMap, runKind,
       // a guest: their places and who invited them (prompt.ts guestSection), no team-wide text
       guest: guestPrompt,
     })

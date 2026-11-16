@@ -19,6 +19,7 @@ import { MAX_CONCURRENT_SUBAGENTS } from '../engine/claude'
 import { PROFILE_PATH, profileFactLines, readCompanyProfile } from '../onboarding/profile'
 import { getTeamSettings } from '../admin/settings'
 import { serverWhere, situationSection, type Situation } from './situation'
+import { appMapSection, type AppMapInput } from './app-map'
 import type { RunKind } from '../system/deployment'
 import { htmlPdfUnavailable } from '../files/html-pdf'
 import { notFoundNext, SCREEN } from '../policy/refusal'
@@ -77,6 +78,8 @@ export interface PromptInput {
   fileList?: boolean
   /** who the person is and where (chat/situation.ts): the "About this person and place" block; absent: none */
   situation?: Situation | null
+  /** where things are in the app (chat/app-map.ts): which form, and this install's facts; absent: no map (a guest) */
+  appMap?: AppMapInput | null
   /** how this server runs (system/deployment.ts runKindOf): "Where you run" says where the server is; absent: own server */
   runKind?: RunKind
   /** a guest from outside the team (chat/guest-tools.ts guestPromptOf): their places and who invited them. The
@@ -832,11 +835,12 @@ export const SHARED_PROMPT_SECTIONS: Readonly<Record<PromptSectionId, boolean>> 
   skillChanges: true,
   sideRoom: false, // a side chat is one person's own, never shared
   situation: false, // the person's role, AI account and app are not the chat's people's to know (chat/situation.ts)
+  appMap: true, // app facts, the same for everyone here: its shared form names no one's role (chat/app-map.ts)
   guest: true, // who the guest is and what they can do: nothing the project's people do not know
   shared: true,
   history: true, // the chat's transcript, each message with who wrote it
 }
-export type PromptSectionId = 'rules' | 'guest' | 'context' | 'environment' | 'situation' | 'memories' | 'company' | 'teamRules' | 'skills' | 'project' | 'connected' | 'browser' | 'subagents' | 'hangul' | 'skillChanges' | 'sideRoom' | 'shared' | 'history'
+export type PromptSectionId = 'rules' | 'guest' | 'context' | 'environment' | 'situation' | 'appMap' | 'memories' | 'company' | 'teamRules' | 'skills' | 'project' | 'connected' | 'browser' | 'subagents' | 'hangul' | 'skillChanges' | 'sideRoom' | 'shared' | 'history'
 interface Section { id: PromptSectionId; text: string }
 /** Which allowlist a prompt goes by: a shared project chat's, or none. */
 export type PromptMode = 'shared' | null
@@ -913,6 +917,9 @@ export function turnPromptSections(files: FileService, i: PromptInput): Section[
     { id: 'environment', text: i.guest ? GUEST_ENVIRONMENT : environmentSection(i.runKind) },
     // a guest: only the app line (chat/situation.ts; what a guest can do is the Guest section's)
     { id: 'situation', text: i.situation ? situationSection(i.situation, i.locale) : '' },
+    // not in the turn context: it changes only with the install, and a session started without it gets it on its next
+    // fresh start
+    { id: 'appMap', text: i.appMap && !i.guest ? appMapSection(i.appMap, i.locale) : '' },
     { id: 'memories', text: memoryBlock(i.memories) },
     // a guest: none of the team's own knowledge (the company profile, team rules, team skills), also where the folder
     // rules would let one through

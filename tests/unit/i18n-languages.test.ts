@@ -169,6 +169,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/tools/url-gate.ts': { why: 'confirmation texts (ko next to en/id/ja/es)' },
   'shared/src/web-allow-all.ts': { why: 'the "Allow all websites" risk sentence, one versioned text for the address card, Settings and the desktop window (ko next to en/id/ja/es)' },
   'server/src/tools/file-moves.ts': { why: 'the move / copy confirmation texts (ko next to en/id/ja/es)' },
+  'server/src/chat/app-map-labels.ts': { why: 'the labels the AI\'s map of the app names, generated from web/src/i18n (ko next to en/id/ja/es/zh; tests/unit/ai-app-map.test.ts checks it is current)' },
   'server/src/policy/refusal.ts': { why: 'the screen names a refusal points the person to, as the app shows them (ko next to en/id/ja/es)' },
   'server/src/chat/delete-files.ts': { why: 'the delete_files card (ko next to en/id/ja/es)' },
   'server/src/tools/schedules.ts': { why: 'the scheduled task confirmation card (ko next to en/id/ja/es)' },
