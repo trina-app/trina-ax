@@ -47,7 +47,7 @@ import { teamTimeZone } from '../admin/settings'
 import { welcomeTeamGroupId } from '../onboarding/welcome'
 import { alertSettings, ownLevel, setOwnLevel } from './alerts'
 import {
-  canSee, groupName, isHiddenFor, mayManageApps, LIST_SQL, seenSeq, seesFrom, hideable, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, reactionsOf, roomOut, roomRow, seeArgs, setRoomPathCheck, sharedAnswerOf,
+  canSee, groupName, isHiddenFor, mayManageApps, LIST_SQL, seenSeq, seesFrom, hideable, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, reactionsOf, roomOut, roomRow, rulesOnce, seeArgs, setRoomPathCheck, sharedAnswerOf,
   dmPeerGone, lastSeqFor, MENTIONS_SQL, refsOf, PIN_COUNTS_SQL, pinOf, threadable, threadSummary, threadsUnread, TIMELINE_SQL, unreadCount,
   type EventData, type MemberRow, type MessageRow, type RoomRow,
 } from './store'
@@ -174,7 +174,8 @@ export class Rooms {
   roomEvent(roomId: string, change: 'added' | 'updated' | 'members', only?: ReadonlySet<string>) {
     const room = roomRow(this.db, roomId)
     if (!room) return
-    this.fanout(roomId, (m) => (only && !only.has(m.user_id) ? null : { type: 'room.updated', data: { roomId, change, room: roomOut(this.db, room, m) } }))
+    const rules = rulesOnce(this.db)
+    this.fanout(roomId, (m) => (only && !only.has(m.user_id) ? null : { type: 'room.updated', data: { roomId, change, room: roomOut(this.db, room, m, undefined, rules) } }))
   }
   /** People whose own signals a bulk read holds back (hold): their rooms to send one room.updated each at the end. */
   private held = new Map<string, Set<string>>()
@@ -212,7 +213,9 @@ export class Rooms {
       EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = m.user_id) has_hidden FROM rooms r JOIN room_members m ON m.room_id = r.id
       WHERE m.user_id = ? AND r.archived_at IS NULL`).all(userId) as (RoomRow & MemberRow)[]
     const prefs = getPreferences(this.db, userId)
-    const out = rows.filter((r) => dmPairOk(this.db, r.kind, r.dm_key)).map((r) => roomOut(this.db, r, { ...r, room_id: r.id }, prefs))
+    // the folder rules once for the whole list (a team room's Files button, rooms/store.ts groupFolderFor)
+    const rules = rulesOnce(this.db)
+    const out = rows.filter((r) => dmPairOk(this.db, r.kind, r.dm_key)).map((r) => roomOut(this.db, r, { ...r, room_id: r.id }, prefs, rules))
     const rank = (k: Room['kind']) => (k === 'all' ? 0 : k === 'team' ? 1 : 2)
     return out.sort((a, b) => (b.activityAt.localeCompare(a.activityAt)) || rank(a.kind) - rank(b.kind) || a.id.localeCompare(b.id))
   }
@@ -465,7 +468,8 @@ export class Rooms {
     const added = new Set(ids)
     this.roomEvent(roomId, 'added', added)
     const r = roomRow(this.db, roomId)!
-    this.fanout(roomId, (m) => (added.has(m.user_id) ? null : { type: 'room.updated', data: { roomId, change: 'members', room: roomOut(this.db, r, m) } }))
+    const rules = rulesOnce(this.db)
+    this.fanout(roomId, (m) => (added.has(m.user_id) ? null : { type: 'room.updated', data: { roomId, change: 'members', room: roomOut(this.db, r, m, undefined, rules) } }))
     this.messageEvent('room.message', messageRow(this.db, roomId, line)!)
   }
 
@@ -521,7 +525,8 @@ export class Rooms {
     afterGuestsLeft(this.ctx, gone, actorId)
     if (r.archived) return
     const room = roomRow(this.db, roomId)
-    if (room) this.fanout(roomId, (m) => ({ type: 'room.updated', data: { roomId, change: 'members', room: roomOut(this.db, room, m) } }))
+    const rules = rulesOnce(this.db)
+    if (room) this.fanout(roomId, (m) => ({ type: 'room.updated', data: { roomId, change: 'members', room: roomOut(this.db, room, m, undefined, rules) } }))
     for (const id of r.lines) this.messageEvent('room.message', messageRow(this.db, roomId, id)!)
   }
 
@@ -1239,7 +1244,8 @@ export class Rooms {
       const fresh = new Set(added.get(roomId) ?? [])
       if (fresh.size) this.roomEvent(roomId, 'added', fresh)
       const room = roomRow(db, roomId)
-      if (room) this.fanout(roomId, (m) => (fresh.has(m.user_id) ? null : { type: 'room.updated', data: { roomId, change: 'members', room: roomOut(db, room, m) } }))
+      const rules = rulesOnce(db)
+      if (room) this.fanout(roomId, (m) => (fresh.has(m.user_id) ? null : { type: 'room.updated', data: { roomId, change: 'members', room: roomOut(db, room, m, undefined, rules) } }))
     }
     this.historiesOpened(opened, added)
   }

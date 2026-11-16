@@ -113,7 +113,7 @@ describe('the card on Home', () => {
       expect(text(m, 'member-welcome-rooms')).toContain("You're in Everyone and # Sales")
       expect(m.get('member-welcome-rooms-open').getAttribute('href')).toBe('/rooms')
       // the place is named as the nav names it (Chats), on a computer too, not "Conversations" that no label shows
-      expect(text(m, 'member-welcome-rooms')).toContain("Your team's rooms are in Chats")
+      expect(text(m, 'member-welcome-rooms')).toContain("Your team's channels are in Chats")
       expect(m.get('member-welcome-hi').getAttribute('data-done')).toBeNull()
       expect(text(m, 'member-welcome-hi-button')).toBe("👋 Hi, I'm Mina")
       expect(m.get('member-welcome-photo').getAttribute('data-optional')).toBe('true')
@@ -248,7 +248,7 @@ describe('the card on Home', () => {
       expect(m.get('member-welcome').getAttribute('class')).not.toMatch(/(^| )border( |$)/)
       for (const id of ['member-welcome-hide', 'member-welcome-hi-button', 'member-welcome-photo-button', 'member-welcome-rooms-open'])
         expect(m.get(id).getAttribute('class')).toContain('max-md:min-h-11')
-      expect(text(m, 'member-welcome-rooms')).toContain('Your team\'s rooms are in Chats')
+      expect(text(m, 'member-welcome-rooms')).toContain('Your team\'s channels are in Chats')
     } finally { await m.unmount() }
   })
 

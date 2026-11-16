@@ -51,6 +51,29 @@ export function pngOf(w: number, h: number, at: (x: number, y: number) => readon
   return new Uint8Array(Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]))
 }
 
+/** A w × h RGBA PNG (colour type 6) whose every pixel `at` gives, alpha last (a seal on a see-through background). */
+export function pngRgbaOf(w: number, h: number, at: (x: number, y: number) => readonly [number, number, number, number]): Uint8Array<ArrayBuffer> {
+  const raw = Buffer.alloc((w * 4 + 1) * h)
+  for (let y = 0; y < h; y++) {
+    raw[y * (w * 4 + 1)] = 0
+    for (let x = 0; x < w; x++) raw.set(at(x, y), y * (w * 4 + 1) + 1 + x * 4)
+  }
+  const chunk = (type: string, data: Buffer) => {
+    const len = Buffer.alloc(4)
+    len.writeUInt32BE(data.length)
+    const td = Buffer.concat([Buffer.from(type, 'ascii'), data])
+    const crc = Buffer.alloc(4)
+    crc.writeUInt32BE(crc32(td))
+    return Buffer.concat([len, td, crc])
+  }
+  const ihdr = Buffer.alloc(13)
+  ihdr.writeUInt32BE(w, 0)
+  ihdr.writeUInt32BE(h, 4)
+  ihdr[8] = 8 // bit depth
+  ihdr[9] = 6 // RGBA
+  return new Uint8Array(Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]))
+}
+
 /** A JPEG header: SOI, a JFIF APP0 segment, an EXIF-like APP1 segment, then a baseline frame header with the size, and
  * the end-of-image marker as the file's last two bytes (as browsers write it). */
 export function makeJpeg(w = 64, h = 64, sof = 0xc0): Uint8Array<ArrayBuffer> {

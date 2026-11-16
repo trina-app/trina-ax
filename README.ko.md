@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="web/public/favicon.svg" width="64" alt="트리나 AX 로고">
+<picture><source media="(prefers-color-scheme: dark)" srcset="editions/trina/branding/logo/mark-dark.svg"><img src="editions/trina/branding/logo/mark-light.svg" width="64" alt="트리나 AX 로고"></picture>
 
 <h1>팀 모두가 같이 쓰는 AI.</h1>
 

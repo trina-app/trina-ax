@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="web/public/favicon.svg" width="64" alt="Logotipo de Trina AX">
+<picture><source media="(prefers-color-scheme: dark)" srcset="editions/trina/branding/logo/mark-dark.svg"><img src="editions/trina/branding/logo/mark-light.svg" width="64" alt="Logotipo de Trina AX"></picture>
 
 <h1>La IA que comparte todo tu equipo.</h1>
 

@@ -59,7 +59,21 @@ export default {
     extraResources: Object.entries({ en: 'en', ko: 'ko', 'zh-Hans': 'zh-Hans', zh_CN: 'zh-Hans', ja: 'ja', es: 'es', es_419: 'es', id: 'id' })
       .map(([folder, lang]) => ({ from: `build-resources/mac-infoplist/${lang}.strings`, to: `${folder}.lproj/InfoPlist.strings` })),
   },
-  dmg: { sign: false, title: `${PRODUCT.displayName} \${version}`, artifactName: `${A}-\${version}-mac-\${arch}.\${ext}` },
+  dmg: {
+    sign: false,
+    title: `${PRODUCT.displayName} \${version}`,
+    artifactName: `${A}-\${version}-mac-\${arch}.\${ext}`,
+    // the window it opens on: scripts/dmg-background.svg rendered at 660×452 and 1320×904 (background@2x.png, which
+    // electron-builder joins with this file into one retina TIFF). electron-builder makes the window the picture's size,
+    // title bar included, so no `window` here; the art's spots are the icon centres below (points from its top left).
+    background: 'build-resources/background.png',
+    iconSize: 144,
+    iconTextSize: 13,
+    contents: [
+      { x: 170, y: 210, type: 'file' },
+      { x: 490, y: 210, type: 'link', path: '/Applications' },
+    ],
+  },
   win: {
     target: [{ target: 'nsis', arch: ['x64'] }],
     signAndEditExecutable: true,

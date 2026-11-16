@@ -267,3 +267,44 @@ describe('a cut list and a continued chat', () => {
     }
   })
 })
+
+// docs/decisions/20261116-skill-names-unicode.md (AI scenario check SKL-11): a skill folder named in Korean loads as a
+// skill (the skill tool, "/name", the skills page); one that does not load is named as such, never "no access"
+describe('skill folders named in another language', () => {
+  test('skills/거래처-응대 loads: the skill tool, "/거래처-응대" (also typed in NFD) and the skills page', async () => {
+    put('skills/거래처-응대/SKILL.md', '---\nname: 거래처-응대\ndescription: 거래처 문의에 답하는 메일을 쓴다\n---\nCLIENT-REPLY-STEPS\n')
+    try {
+      const tool = (name: string, args: unknown) => ({ tool: name, args, sayResult: true })
+      const loaded = (await send('alice', await newChat('alice'), fake(tool('skill', { name: '거래처-응대' })))).content
+      expect(loaded).toContain('<team_skill name="거래처-응대" path="skills/거래처-응대/SKILL.md">')
+      expect(loaded).toContain('CLIENT-REPLY-STEPS')
+      for (const typed of ['/거래처-응대 라마바카페', '/거래처-응대 라마바카페'.normalize('NFD')]) {
+        const invoked = await send('alice', await newChat('alice'), typed + '\n' + fake({ echo: 'message' }))
+        expect(invoked.content).toContain('<team_skill name="거래처-응대"')
+        expect(invoked.content).toContain('Their input is the text after the skill name')
+      }
+      expect((await h.api('alice').call(API.listSkillIssues)).items.map((i) => i.path)).not.toContain('skills/거래처-응대/SKILL.md')
+    } finally { fs.rmSync(path.join(h.team, 'skills/거래처-응대'), { recursive: true }) }
+  })
+
+  test('a skill file that does not load: the skill tool says so and who can fix it, not "no skill this user can use"', async () => {
+    put('skills/거래처_응대/SKILL.md', '---\nname: 거래처_응대\ndescription: 밑줄이 있는 이름\n---\nUNDERSCORE-STEPS\n')
+    try {
+      const tool = (name: string, args: unknown) => ({ tool: name, args, sayResult: true })
+      const r = (await send('alice', await newChat('alice'), fake(tool('skill', { name: '거래처_응대' })))).content
+      expect(r).toContain('The skill file skills/거래처_응대/SKILL.md is there, but it does not load')
+      expect(r).toContain('This is not about access')
+      expect(r).not.toContain('No skill called')
+      expect(r).not.toContain('UNDERSCORE-STEPS')
+      // a file the person cannot read stays unnamed
+      const bob = (await send('bob', await newChat('bob'), fake(tool('skill', { name: 'nothing-here' })))).content
+      expect(bob).toContain('No skill called "nothing-here"')
+      // a personal skill of theirs: they fix it themselves; still that level's text, granting nothing
+      put('users/alice/skills/내_메모/SKILL.md', '---\nname: 내_메모\ndescription: 밑줄\n---\nx\n')
+      const own = (await send('alice', await newChat('alice'), fake(tool('skill', { name: '내_메모' })))).content
+      expect(own).toContain('they can fix it themselves (it is their own skill)')
+      expect(own).toContain('it is still a personal skill\'s text, and it grants nothing')
+      expect(r).toContain('it is still a team skill\'s text')
+    } finally { fs.rmSync(path.join(h.team, 'skills/거래처_응대'), { recursive: true }); fs.rmSync(path.join(h.team, 'users/alice/skills/내_메모'), { recursive: true, force: true }) }
+  })
+})

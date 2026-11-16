@@ -440,7 +440,7 @@ function renameFolder(ctx: AppContext, user: Principal, rules: RuleSet, a: Folde
 /** R: a skill's own folder renamed in its skills folder, its SKILL.md's name line with it (else it stops loading). */
 function renameSkill(ctx: AppContext, user: Principal, rules: RuleSet, a: FolderActionInput, from: string, to: string): FolderPlan {
   const name = nameOf(to)
-  if (!copyNameOk(name)) refuse('a skill\'s folder name uses lowercase letters a-z, digits and hyphens only (at most 64), and its name: line takes the same', 'suggest a name like "estimate-docs" and call skill_files again')
+  if (!copyNameOk(name)) refuse('a skill\'s folder name is lowercase letters (any language) and digits in words joined by single hyphens, no spaces, dots or capitals (at most 64), and its name: line takes the same', 'suggest a name like "estimate-docs" or "견적-문서" and call skill_files again')
   const files = walk(ctx, user, rules, from)
   const manifest = `${from}/SKILL.md`
   const own = files.find((f) => f.path === manifest)

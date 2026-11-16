@@ -6,13 +6,14 @@
 // TC-1071: the panel said "No projects yet" beside a page that listed one). Each project
 // is one plain row: its name and, small and grey under it, who sees it ("멤버 4명", "나만"), when my latest chat there
 // was active and how many chats of my list it holds ("2시간 전 · 대화 5개"; "대화 없음" for none); the most
-// recently active first, the ones without a chat of mine after them, newest first. No chats in this list (a tree in a narrow column is a developer's pattern): a project's row opens its page
+// recently active first, the ones without a chat of mine after them, newest first. Each row has the Projects page cards'
+// "···" (ProjectRow below: rename, members, copy link, leave, delete), also on a right-click and a long press. No chats in this list (a tree in a narrow column is a developer's pattern): a project's row opens its page
 // on the right, which lists its chats, its instructions and its files, as ChatGPT's and Claude's projects do.
 // The counts are the server's (GET /api/chats/groups projectActivity), never what this window happens to have loaded.
 import { isGuestMe } from '../../lib/guests'
 import clsx from 'clsx'
 import { FolderLock, Lock, Plus, SquareKanban, Trash2, Users } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { matchPath, useLocation, useNavigate } from 'react-router-dom'
 import type { Project } from '@mycel/shared/api'
 import { useLocale, useT } from '../../i18n'
@@ -23,6 +24,8 @@ import { accessChanged, reloadAsked } from '../../store/live'
 import { isAdmin, useMe } from '../../store/session'
 import { readManagedList, readProjectList, useProjects } from '../../store/projects'
 import { NewProjectDialog } from '../NewProjectDialog'
+import { ProjectMembersDialog } from '../ProjectMembersDialog'
+import { useProjectMenuItems } from '../projectActions'
 import { useGuestAiOff } from '../GuestView'
 import { whoSeesProject } from '../projectWho'
 import { ListIcon, ListRow } from '../list/List'
@@ -93,9 +96,13 @@ export function ProjectsList(_: { phone?: boolean } = {}) {
   // the project on screen: its page (and its files), or the chat of it opened from here (프로젝트 still lit)
   const { pathname } = useLocation()
   const place = useRailHere()
-  const chatId = matchPath('/c/:chatId', pathname)?.params.chatId
+  // (a thread beside the chat: still that chat)
+  const chatId = (matchPath('/c/:chatId', pathname) ?? matchPath('/c/:chatId/t/:messageId', pathname))?.params.chatId
   const chatProject = useChats((s) => (chatId && place === 'projects' ? s.chats.find((c) => c.id === chatId)?.projectId ?? s.others[chatId]?.projectId ?? null : null))
   const lit = matchPath('/projects/:projectId/*', pathname)?.params.projectId ?? chatProject
+  const navigate = useNavigate()
+  // the members dialog of a row's ⋯ 멤버
+  const [members, setMembers] = useState<Project | null>(null)
 
   if (!listed) return <div className="mx-auto mt-4 size-4 animate-spin rounded-full border-2 border-line border-t-faint" role="status" aria-label={t('common.loading')} />
   if (!projects.length) return <p className="px-3 py-2 text-sm text-faint" data-testid="projects-panel-empty">{t('projects.empty')}</p>
@@ -113,12 +120,13 @@ export function ProjectsList(_: { phone?: boolean } = {}) {
         // a guest with no AI has no chats here (no Chats tab): no count of the team's chats either
         const meta = p.inTrash || noAiGuest ? who : [who, ...(a ? [formatRelative(a.lastActivityAt, locale), t('projectsPanel.chats', { n: a.count })] : [t('projectsPanel.noChats')])].filter(Boolean).join(' · ')
         const on = lit === p.id
-        return <ListRow key={p.id} to={`/projects/${p.id}`} selected={on} icon={p.inTrash ? <Trash2 className="text-faint" data-testid="projects-panel-in-trash" /> : <SquareKanban />} name={p.name} nameTitle={p.name} meta={meta} testId="projects-panel-row" nameTestId="projects-panel-name" metaTestId="projects-panel-meta" />
+        return <ProjectRow key={p.id} project={p} selected={on} meta={meta} onMembers={() => setMembers(p)} onGone={() => on && navigate('/projects')} />
       })}
     </ul>
   )
   return (
     <div data-testid="projects-list">
+      {members && <ProjectMembersDialog project={members} onClose={() => setMembers(null)} onSaved={(r) => useProjects.getState().put(r)} />}
       {team.length > 0 && (
         <PanelSection id="projects-team" foldKey="projects:team" label={t('projectsPanel.team')} icon={<Users size={14} className="text-muted" aria-hidden />} count={team.length} labelTestId="projects-panel-label" data-testid="projects-team">
           {rows(team)}
@@ -135,6 +143,35 @@ export function ProjectsList(_: { phone?: boolean } = {}) {
         </PanelSection>
       )}
     </div>
+  )
+}
+
+/** One project of the list: its name, who sees it and how active it is, and its "···" (right-click, a long press on a
+ * touch screen): the Projects page cards' menu (projectActions.tsx useProjectMenuItems: 이름 바꾸기, 멤버, 링크 복사,
+ * 나가기, 삭제 by the same rules), so a project is renamed where people look for it. `onGone`: it left the list (deleted,
+ * or I left it) */
+function ProjectRow({ project: p, selected, meta, onMembers, onGone }: { project: Project; selected: boolean; meta?: string; onMembers: () => void; onGone: () => void }) {
+  const t = useT()
+  const more = useRef<HTMLButtonElement>(null)
+  // the keyboard waits on "···" after an item (a dialog it opens gives it back there)
+  const select = (fn: () => unknown) => () => {
+    more.current?.focus()
+    void fn()
+  }
+  const items = useProjectMenuItems(p, { testId: 'projects-panel', select, onMembers, onDeleted: (d) => d === 'gone' && onGone() })
+  return (
+    <ListRow
+      to={`/projects/${p.id}`}
+      selected={selected}
+      icon={p.inTrash ? <Trash2 className="text-faint" data-testid="projects-panel-in-trash" /> : <SquareKanban />}
+      name={p.name}
+      nameTitle={p.name}
+      meta={meta}
+      rowMenu={{ items, label: t('rooms.menu.rowLabel', { name: p.name }), tip: t('rooms.menu.label'), sheetTitle: p.name, buttonRef: more, testId: 'projects-panel-menu' }}
+      testId="projects-panel-row"
+      nameTestId="projects-panel-name"
+      metaTestId="projects-panel-meta"
+    />
   )
 }
 

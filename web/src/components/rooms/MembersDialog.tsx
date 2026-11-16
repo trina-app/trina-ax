@@ -131,7 +131,7 @@ function NameRow({ room }: { room: Room }) {
       }}
     >
       <label className="block">
-        <span className="sr-only">{t('rooms.info.nameLabel')}</span>
+        <span className="sr-only">{t(room.kind === 'group' ? 'rooms.info.nameLabel' : 'rooms.info.nameLabelChannel')}</span>
         <input
           autoFocus
           value={draft}

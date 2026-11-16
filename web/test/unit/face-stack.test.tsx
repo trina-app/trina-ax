@@ -63,3 +63,29 @@ test('a stack of 1 or 2: no "+N"; of 3: no "+N" on a computer, "+1" on a phone; 
     expect(tiles(page.get('t-people')).every((x) => x.cls.includes('group-hover:ring-hover'))).toBe(true)
   } finally { await page.unmount() }
 })
+
+test('fit: two smaller faces overlapped in one picture\'s box (a group chat among the DMs), no "+N"; one face fills it', async () => {
+  const page = await mount(<FaceStack people={people} count={5} fit={20} on="subtle" testId="f" />)
+  try {
+    const stack = page.get('f-people')
+    expect(stack.getAttribute('aria-hidden')).toBe('true')
+    const box = stack.style as unknown as Record<string, string>
+    expect([box.width, box.height]).toEqual(['20px', '20px'])
+    const faces = stack.children
+    expect(faces.map((e) => e.textContent)).toEqual(['A', 'B'])
+    expect(faces.map((e) => (e.style as unknown as Record<string, string>).width)).toEqual(['14px', '14px'])
+    expect(faces[0]!.getAttribute('class')).toContain('top-0 left-0')
+    // the back face's letter would show as a stray stroke: hidden
+    expect(faces[0]!.getAttribute('class')).toContain('text-transparent!')
+    expect(faces[1]!.getAttribute('class')).not.toContain('text-transparent')
+    // the front face cuts into the back one with a ring of the row's colour
+    expect(faces[1]!.getAttribute('class')).toContain('right-0 bottom-0')
+    expect(faces[1]!.getAttribute('class')).toContain('ring-subtle')
+  } finally { await page.unmount() }
+  const one = await mount(<FaceStack people={people.slice(0, 1)} count={1} fit={32} testId="o" />)
+  try {
+    const faces = one.get('o-people').children
+    expect(faces).toHaveLength(1)
+    expect((faces[0]!.style as unknown as Record<string, string>).width).toBe('32px')
+  } finally { await one.unmount() }
+})

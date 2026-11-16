@@ -852,6 +852,31 @@ export class MockServer {
   restricted = new Map<string, string[]>()
   /** answers' "참고한 파일" as recorded (GET .../messages/:messageId/sources checks each against the viewer now) */
   sources = new Map<string, MessageSourceFile[]>()
+  // ---------------- threads on AI answers in shared chats (server/src/chat/threads.ts, short) ----------------
+  /** the replies under answers, oldest first; who follows each thread (the asker, the repliers) and the newest they read */
+  chatThreadReplies: { id: string; chatId: string; rootId: string; authorId: string; content: string; clientId: string; createdAt: string }[] = []
+  chatThreadFollows = new Map<string, Map<string, string | null>>()
+  /** the answer a thread is under: a finished answer of a chat shared now (the mock's Chat.shared); else 404 */
+  threadRoot(chatId: string, rootId: string) {
+    const chat = this.chats.find((x) => x.id === chatId) ?? fail('not_found', 404)
+    const m = this.messages.find((x) => x.id === rootId && x.chatId === chatId && x.role === 'assistant')
+    if (!m || !chat.shared || (m.status !== 'done' && m.status !== 'stopped')) fail('not_found', 404)
+    return { chat, m: m! }
+  }
+  threadSummary(rootId: string, viewer: string) {
+    const list = this.chatThreadReplies.filter((r) => r.rootId === rootId)
+    if (!list.length) return null
+    const repliers: { id: string; name: string }[] = []
+    for (const r of [...list].reverse()) if (!repliers.some((x) => x.id === r.authorId) && repliers.length < 3) repliers.push({ id: r.authorId, name: this.users.find((u) => u.id === r.authorId)?.name ?? r.authorId })
+    const read = this.chatThreadFollows.get(rootId)
+    const newReplies = !!read?.has(viewer) && list.some((r) => r.authorId !== viewer && r.id > (read.get(viewer) ?? ''))
+    return { replyCount: list.length, lastReplyAt: list.at(-1)!.createdAt, repliers, newReplies }
+  }
+  threadReplyOut(r: { id: string; chatId: string; rootId: string; authorId: string; content: string; createdAt: string }, viewer: string) {
+    const u = this.users.find((x) => x.id === r.authorId)
+    const chat = this.chats.find((x) => x.id === r.chatId)
+    return { id: r.id, chatId: r.chatId, rootId: r.rootId, author: u ? { id: u.id, name: u.name } : null, content: r.content, createdAt: r.createdAt, canDelete: r.authorId === viewer || chat?.shared?.by.id === viewer }
+  }
   /** POST /__test/confidential {all: true}: Safe operations 1A is on (Me.server.allChatsConfidential) */
   allConfidential = false
   /** POST /__test/people-chat {chatId}: chats shared with people and groups (Chat.shared.kind people); a file from the
@@ -2656,7 +2681,46 @@ export class MockServer {
       chat.deletedAt = null
       return chat
     },
-    listMessages: (c) => ({ items: this.path(c.params.id!), nextCursor: null }),
+    listMessages: (c) => ({ items: this.path(c.params.id!).map((m) => { const th = m.role === 'assistant' ? this.threadSummary(m.id, c.user.id) : null; return th ? { ...m, thread: th } : m }), nextCursor: null }),
+    listChatThread: (c) => {
+      const { chat, m } = this.threadRoot(c.params.id!, c.params.messageId!)
+      const view = this.view(m)
+      const th = this.threadSummary(m.id, c.user.id)
+      const replies = this.chatThreadReplies.filter((r) => r.rootId === m.id)
+      const shown = this.path(chat.id).some((x) => x.id === m.id)
+      return { root: th ? { ...view, thread: th } : view, replies: replies.slice(-50).map((r) => this.threadReplyOut(r, c.user.id)), nextCursor: null, canReply: !this.allConfidential && replies.length < 500, ...(this.allConfidential ? { readOnlyReason: 'safe_ops' } : {}), version: { index: view.branch.index + 1, count: view.branch.count }, onShownBranch: shown, full: replies.length >= 500 }
+    },
+    sendChatThreadReply: (c) => {
+      const { m } = this.threadRoot(c.params.id!, c.params.messageId!)
+      if (this.allConfidential) fail('conflict', 409, '이 팀의 보안 설정 때문에 공유 채팅을 이어갈 수 없어요.', undefined, { reason: 'safe_ops' })
+      const again = this.chatThreadReplies.find((r) => r.authorId === c.user.id && r.clientId === c.body.clientId)
+      if (again) return { status: 201, body: this.threadReplyOut(again, c.user.id) }
+      const r = { id: uuidv7(), chatId: c.params.id!, rootId: m.id, authorId: c.user.id, content: String(c.body.text).trimEnd(), clientId: String(c.body.clientId), createdAt: now() }
+      this.chatThreadReplies.push(r)
+      const follows = this.chatThreadFollows.get(m.id) ?? new Map<string, string | null>()
+      this.chatThreadFollows.set(m.id, follows)
+      const asker = this.messages.find((x) => x.id === m.parentId)?.author?.id
+      if (asker && !follows.has(asker)) follows.set(asker, null)
+      follows.set(c.user.id, r.id)
+      // (every window of the mock hears it; the summary as its sender sees it, nothing new for them)
+      this.publish({ type: 'chat.thread', data: { chatId: r.chatId, rootId: m.id, change: 'reply', reply: { ...this.threadReplyOut(r, c.user.id), canDelete: false }, thread: { ...this.threadSummary(m.id, c.user.id)!, newReplies: false } } })
+      return { status: 201, body: this.threadReplyOut(r, c.user.id) }
+    },
+    deleteChatThreadReply: (c) => {
+      const r = this.chatThreadReplies.find((x) => x.id === c.params.replyId && x.chatId === c.params.id) ?? fail('not_found', 404)
+      const chat = this.chats.find((x) => x.id === r.chatId)
+      if (r.authorId !== c.user.id && chat?.shared?.by.id !== c.user.id) fail('forbidden', 403)
+      this.chatThreadReplies = this.chatThreadReplies.filter((x) => x.id !== r.id)
+      this.publish({ type: 'chat.thread', data: { chatId: r.chatId, rootId: r.rootId, change: 'deleted', replyId: r.id, thread: this.threadSummary(r.rootId, c.user.id) } })
+      return undefined
+    },
+    markChatThreadRead: (c) => {
+      const { m } = this.threadRoot(c.params.id!, c.params.messageId!)
+      if (!this.chatThreadReplies.some((r) => r.id === c.body.upTo && r.rootId === m.id)) fail('not_found', 404)
+      const follows = this.chatThreadFollows.get(m.id)
+      if (follows?.has(c.user.id) && (follows.get(c.user.id) ?? '') < c.body.upTo) follows.set(c.user.id, c.body.upTo)
+      return undefined
+    },
     messageSources: (c) => {
       const m = this.messages.find((x) => x.id === c.params.messageId && x.chatId === c.params.id) ?? fail('not_found', 404)
       const files: MessageSourceFile[] = []
@@ -3744,8 +3808,8 @@ export class MockServer {
       const l = this.teamLink
       if (!l || l.uses >= l.maxUses) fail('not_found', 404)
       const b = c.body as { skillPath?: string | null; addGroupIds?: string[]; groupIds?: string[] }
-      if ((b.addGroupIds ?? []).some((g) => !this.groups.some((x) => x.id === g))) fail('validation', 400, '없는 그룹이 들어 있어요.', { 'body.addGroupIds': 'unknown group' })
-      if ((b.groupIds ?? []).some((g) => !this.groups.some((x) => x.id === g))) fail('validation', 400, '없는 그룹이 들어 있어요.', { 'body.groupIds': 'unknown group' })
+      if ((b.addGroupIds ?? []).some((g) => !this.groups.some((x) => x.id === g))) fail('validation', 400, '없는 부서가 들어 있어요.', { 'body.addGroupIds': 'unknown group' })
+      if ((b.groupIds ?? []).some((g) => !this.groups.some((x) => x.id === g))) fail('validation', 400, '없는 부서가 들어 있어요.', { 'body.groupIds': 'unknown group' })
       if (b.skillPath !== undefined) l!.skillPath = b.skillPath
       l!.groupIds = [...new Set([...(b.groupIds ?? l!.groupIds), ...(b.addGroupIds ?? [])])]
       if (b.groupIds) l!.groupsChosen = true
@@ -4305,7 +4369,7 @@ export class MockServer {
       return this.explainEdit(c.body, c.user.locale)
     },
     explainNewPersonAccess: (c) => {
-      if ((c.body.groupIds as string[]).some((g) => !this.groups.some((x) => x.id === g))) fail('validation', 400, '없는 그룹이 들어 있어요.', { 'body.groupIds': 'unknown group' })
+      if ((c.body.groupIds as string[]).some((g) => !this.groups.some((x) => x.id === g))) fail('validation', 400, '없는 부서가 들어 있어요.', { 'body.groupIds': 'unknown group' })
       return this.explainPerson({ user: null, role: c.body.role, groupIds: [...new Set(c.body.groupIds as string[])] }, c.body)
     },
     previewRules: (c) => (c.body.changes.forEach((ch: Json, i: number) => this.notInProject(ch.path, c.user.locale, `body.changes.${i}.path`)), {
@@ -6595,21 +6659,21 @@ export class MockServer {
       }
       if (chat.sideRoomId) no(409, 'side_chat', '대화방의 사이드 채팅은 공유할 수 없어요.')
       const wanted = (c.body.subjects as { subjectType: 'user' | 'group'; subjectId: string }[]).filter((x, i, all) => !(x.subjectType === 'user' && x.subjectId === c.user.id) && all.findIndex((y) => y.subjectType === x.subjectType && y.subjectId === x.subjectId) === i)
-      if (wanted.length > 100) no(400, 'audience_full', '채팅 하나는 사람과 그룹을 합쳐 100개까지 공유할 수 있어요. 먼저 몇 개를 빼 주세요.')
+      if (wanted.length > 100) no(400, 'audience_full', '채팅 하나는 사람과 부서를 합쳐 100개까지 공유할 수 있어요. 먼저 몇 개를 빼 주세요.')
       const ps = this.peopleShared.get(chat.id)
       const before = ps?.subjects ?? []
       const added = wanted.filter((x) => !before.some((y) => y.subjectType === x.subjectType && y.subjectId === x.subjectId))
       const removed = before.filter((x) => !wanted.some((y) => y.subjectType === x.subjectType && y.subjectId === x.subjectId))
       if (dry && !added.length && !removed.length) return { check: { added: 0, memoryAnswers: 0, fileAnswers: 0, accountAnswers: 0, places: [], otherPlaces: false, roomsUnseen: false, unchecked: 0 }, previewKey: '' }
       if (!added.length && !removed.length) {
-        if (!ps) no(400, 'needs_people', '이 채팅을 공유할 사람이나 그룹을 한 명 이상 골라 주세요.')
+        if (!ps) no(400, 'needs_people', '이 채팅을 공유할 사람이나 부서를 하나 이상 골라 주세요.')
         return { status: 'saved', chat: this.sharedView(chat, c.user)!, audience: audienceOf(chat, c.user) }
       }
       if (added.length && (this.allConfidential || chat.confidential)) no(409, 'safe_ops', '팀의 보안 설정 때문에 지금은 채팅을 새로 공유할 수 없어요.')
       if (added.length && chat.runState !== 'idle') no(409, 'chat_busy', '답변이 아직 진행 중이에요. 끝난 뒤에 공유해 주세요.')
       for (const x of added) {
         const ok = x.subjectType === 'user' ? this.users.some((u) => u.id === x.subjectId && u.status === 'active') : this.groups.some((g) => g.id === x.subjectId && (c.user.role !== 'member' || g.memberIds.includes(c.user.id)))
-        if (!ok) no(400, 'unknown_subject', '고른 사람 중 팀에 없는 사람이 있거나, 고를 수 없는 그룹이 있어요. 다시 골라 주세요.')
+        if (!ok) no(400, 'unknown_subject', '고른 사람 중 팀에 없는 사람이 있거나, 고를 수 없는 부서가 있어요. 다시 골라 주세요.')
       }
       if (dry && this.peoplePreviewFail > 0) { this.peoplePreviewFail--; fail('unavailable', 503, 'preview failed on purpose') }
       if (!dry && this.peopleFail > 0) { this.peopleFail--; fail('internal', 500, 'save failed on purpose') }
@@ -6821,7 +6885,7 @@ export class MockServer {
   /** 404; to someone taken out of the project (or who left), with its name (server: noLongerMember, QA TC-1067) */
   notFoundFor(projectId: string | undefined, userId: string): never {
     const name = projectId ? this.formerMembers.get(`${projectId}:${userId}`) : undefined
-    return name ? fail('not_found', 404, `You're no longer a member of '${name}'.`, undefined, { reason: 'no_longer_member', project: name }) : fail('not_found', 404)
+    return name ? fail('not_found', 404, `You're no longer a member of ${name}.`, undefined, { reason: 'no_longer_member', project: name }) : fail('not_found', 404)
   }
   projectTrashRows(u: User): TrashItem[] {
     return this.projects.filter((p) => this.projectMayRestore(p, u)).map((p) => {
