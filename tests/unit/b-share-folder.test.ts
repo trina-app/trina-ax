@@ -13,9 +13,10 @@ import { API, type Step } from '@mycel/shared/api'
 import { FolderShareBlock } from '../../shared/src/api/file-shares'
 import { ShareCardRefusal } from '../../shared/src/api/share-card'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
-import { shareFolderOff } from '../../server/src/chat/share-folder'
+import { SHARE_FOLDER_TOOL_DESCRIPTION, shareFolderOff } from '../../server/src/chat/share-folder'
+import { WHO_CAN_OPEN_DESCRIPTION } from '../../server/src/chat/who-can-open'
 import { namesFolder } from '../../server/src/chat/shared-actions'
-import { REFUSAL_NEXT_RULE, REFUSAL_NEXT_RULE_FOLDERS } from '../../server/src/chat/share-words'
+import { FIND_FOLDER_LINE, REFUSAL_NEXT_RULE, REFUSAL_NEXT_RULE_FOLDERS, SHARE_FOLDER_DESCRIPTION, SHARE_FOLDER_RULE, TEAM_FOLDER_CALL } from '../../server/src/chat/share-words'
 import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
 import { OWN_WORDS_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
 import { fileSharesOf } from '../../server/src/files/shares'
@@ -148,6 +149,30 @@ describe('sharing a folder: always the card', () => {
     const r = await turn('bob', `share it\n${sf({ folder: 'shared/TeamStuff', add: ['Tess Yoon'] })}`)
     expect(r.content).toContain('team folder')
     expect(cardsTo('bob', r.turnId)).toBe(0)
+  })
+
+  // (the merge of AI sharing and folder sharing; PR 6's real-AI run: the AI answered a team folder in words)
+  test('a team folder for an admin: the result sends the AI to change_folder_access, which asks on its card', async () => {
+    fs.mkdirSync(path.join(h.ctx.files.fx.root, 'shared', 'TeamAdmin'), { recursive: true })
+    const r = await turn('carol', `share it\n${sf({ folder: 'shared/TeamAdmin', add: ['Tess Yoon'] })}`)
+    expect(r.content).toContain('team folder')
+    expect(r.content).toContain('call change_folder_access')
+    expect(cardsTo('carol', r.turnId)).toBe(0)
+  })
+
+  test('the words: find a folder by looking at folders; a team folder asked for: call the tool, never answer from memory', () => {
+    expect(FIND_FOLDER_LINE).toContain('look at folders')
+    expect(FIND_FOLDER_LINE).toContain('glob and grep find files, not folders')
+    expect(TEAM_FOLDER_CALL).toContain('call the tool anyway (share_folder, or change_folder_access')
+    expect(TEAM_FOLDER_CALL).toContain('"Ask an admin"')
+    for (const s of [SHARE_FOLDER_TOOL_DESCRIPTION, SHARE_FOLDER_RULE]) { expect(s).toContain(FIND_FOLDER_LINE); expect(s).toContain(TEAM_FOLDER_CALL) }
+    expect(WHO_CAN_OPEN_DESCRIPTION).toContain(FIND_FOLDER_LINE)
+    // the gate closed: share_with_person's interim folder words find the folder too; the refusal rule names only the
+    // tool that is there (never share_folder)
+    expect(SHARE_FOLDER_DESCRIPTION).toContain(FIND_FOLDER_LINE)
+    expect(REFUSAL_NEXT_RULE).toContain('call change_folder_access when you have it')
+    expect(REFUSAL_NEXT_RULE).not.toContain('share_folder')
+    expect(REFUSAL_NEXT_RULE_FOLDERS).toContain(TEAM_FOLDER_CALL)
   })
 })
 
@@ -317,6 +342,9 @@ describe('where it is off; the gate; the lists', () => {
       expect(await tools()).not.toContain('share_folder')
       const closed = await turn('bob', `share it\n${swp({ paths: [dir], people: ['Tess Yoon'] })}`)
       expect(closed.content).toContain("I can't share the whole folder yet")
+      // B1's interim path: the files in it, by count, for the user's yes (merge of AI sharing and folder sharing)
+      expect(closed.content).toMatch(/but I can share the \d+ files in it/)
+      expect(cardsTo('bob', closed.turnId)).toBe(0)
       expect(closed.content).not.toContain('share_folder')
     } finally { gate(true) }
     // the rule the prompt carries follows the tool
