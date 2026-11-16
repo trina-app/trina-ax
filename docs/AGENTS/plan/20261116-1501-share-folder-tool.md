@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16 15:01
 - Branch: `feat/share-folder-tool` (from `integrate/folder-sharing`, with `integrate/ai-sharing` merged in)
-- Status: in progress
+- Status: done
 - Where: Team AX core (`server/src/chat/`, `server/src/files/folder-shares.ts`, `shared/src/tools.ts`,
   `shared/src/api/share-card.ts`, `web/src/components/chat/ShareCard.tsx`, `web/src/lib/shareCard.ts`, `web/src/i18n/*`,
   `docs/decisions/`). Why: files, permissions, sharing and the AI's tools are core (docs/REPOSITORY-RULES.md).
@@ -69,4 +69,18 @@ b-always-allow, explicit-ask; web unit; Playwright share-card / step-fix specs.
 
 ## Result
 
-(filled in at the end)
+Built as planned (`server/src/chat/share-folder.ts`, `namesFolder` in `shared-actions.ts`, the card record's folder row,
+`undo` and `keptOwn`, the web card's folder row and server Undo). Differences:
+- `integrate/ai-sharing` was merged in first; conflicts in `files/shares.ts` (both sides changed who may take people
+  off: the folder side's `mayRemove`, the AI side's `stop`, which also lets an owner without edit access stop) were
+  joined: `shareRight` returns both, with the AI side's wider rule.
+- With the gate open the dialog's read answers for a folder, so `share_with_person` and `stop_sharing` would have taken a
+  folder path to `change()` and failed after the card: both now refuse a folder up front and point to `share_folder`.
+- The folder view says `canStop: true` for its owner (the share card reads it for its button).
+- `who_can_open` says how the person's own folder is shared once the gate is open.
+- A folder's refusal record has two new reasons (`place` with the dialog's `block`, `paused`).
+- `looking_at` reports files only, never a folder; `namesFolder` reads the asker's own words only, so a folder known from
+  the screen can never count as named. No separate `fromLook` check was needed.
+Tests: `tests/unit/b-share-folder.test.ts`, `web/test/unit/share-card-folder.test.tsx`, a folder case in
+`web/test/e2e/share-card.spec.ts`. Real AI once on a private QA copy (MAN-019 share → card → result; stop → card →
+Undo; Always allow on → card; "Work" in a sentence → card).
