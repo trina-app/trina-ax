@@ -99,8 +99,11 @@ cards still came every time: FL-02 and FL-13 (sharing), FL-05 (a web address), F
     group Sales. This holds for "Always allow" and for the no-card explicit ask.
   - A person or room counts as named only where a recipient stands in the person's words: right after to, with, cc,
     @ or "(" (in, into, on, # for a place), or before a particle that says who gets it (김대리한테, 최하나님께, "(가) 볼
-    수 있게") or where it goes (영업방에). A name joined by and, a comma, 와/과, (이)랑 or 하고 counts only in a chain of
-    the same call's other recipients that ends there ("to tess and bob", 김대리와 이과장한테). A word someone took as
+    수 있게") or where it goes (영업방에). A name joined by and or a comma counts only in a chain of the same call's other
+    recipients after to or with that ends with it ("to tess and bob"; not "with tess and the notes with bob"); one
+    joined by 와/과, (이)랑 or 하고 only with 님 or 씨 on it (김대리님과 이과장님한테; 김대리와 이과장한테 shows the card,
+    since such a list is as often one of files). Phrases that point at a thing (the …, this …, 이 파일, 이거) never name
+    a person, and only the first 4,000 characters of the message are read for names. A word someone took as
     their name (파일, report, 보고서) is not in such a place in an ordinary request. Short common words, titles,
     pronouns, departments and group words (대표, 팀장, 인사팀, 거래처, everyone, legal, "my boss" …) never name a
     person. A display name or username counts only when no other member's name or username, and no group or room

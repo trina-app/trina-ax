@@ -83,17 +83,21 @@ const TITLE_NIM = /\uB2D8$/u
 /** The asker's words for matching names: folded, with the ask's own words taken out ("share … with", 공유해줘, 보내줘,
  * "send … to": a name inside them is the verb, not a recipient) */
 function nameText(said: string): string {
-  let t = fold(said)
+  let t = fold(said.slice(0, NAME_SCAN))
   for (const r of [SHARE_ASK, POST_ASK]) t = t.replace(new RegExp(r.source.replace(/\{0,80\}/g, '{0,80}?'), 'giu'), ' ')
   return t
 }
+/** How much of the person's message the name checks read (a request is short; a name past it shows the card) */
+const NAME_SCAN = 4000
 const nameOk = (n: string) => n.length >= 2 && !NOT_A_NAME.has(n)
 /** A person's name: nameOk, and not a department, an outside party or a phrase about someone ("legal", "my boss",
  * 인사팀, 거래처): a member may call themselves that, and the person's words mean the department, not them. */
 const NOT_A_PERSON = new Set(['legal', 'finance', 'accounting', 'sales', 'marketing', 'support', 'client', 'clients', 'customer', 'customers', 'vendor', 'partner', 'partners', 'investor', 'investors', 'it', 'ops', 'design', 'engineering', 'product', 'payroll', 'reception', 'security', 'management', 'board', 'staff', 'keuangan', 'klien',
   // (거래처, 고객, 고객사, 회계, 인사, 총무, 법무, 재무, 영업, 마케팅, 개발, 디자인, 관리자, 담당자)
   '\uAC70\uB798\uCC98', '\uACE0\uAC1D', '\uACE0\uAC1D\uC0AC', '\uD68C\uACC4', '\uC778\uC0AC', '\uCD1D\uBB34', '\uBC95\uBB34', '\uC7AC\uBB34', '\uC601\uC5C5', '\uB9C8\uCF00\uD305', '\uAC1C\uBC1C', '\uB514\uC790\uC778', '\uAD00\uB9AC\uC790', '\uB2F4\uB2F9\uC790'])
-const personOk = (n: string) => nameOk(n) && !NOT_A_PERSON_NAME.has(n) && !NOT_A_PERSON_NAME.has(n.replace(TITLE_NIM, '')) && !NOT_A_PERSON_NAME.has(n.replace(/^the /, '')) && !NOT_A_PERSON.has(n.replace(/^(the|my|our) /, '')) && !/^(my|our|your|his|her|their) /.test(n)
+const personOk = (n: string) => nameOk(n) && !NOT_A_PERSON_NAME.has(n) && !NOT_A_PERSON_NAME.has(n.replace(TITLE_NIM, '')) && !NOT_A_PERSON_NAME.has(n.replace(/^the /, '')) && !NOT_A_PERSON.has(n.replace(/^(the|my|our) /, '')) && !/^(my|our|your|his|her|their|the|this|these|those|that|a|an|some|any|every|other|another) /.test(n)
+  // (not a phrase that points at a thing: 이 파일, 그 보고서, 이거, 그거, 저거, 이것, 그것)
+  && !/^(\uC774|\uADF8|\uC800) /u.test(n) && !/^(\uC774|\uADF8|\uC800)(\uAC70|\uAC83)/u.test(n)
   && !/ (team|group|department|dept|division|office)$/.test(n) && !/(\uBD80\uC11C|\uADF8\uB8F9|\uBCF8\uBD80|\uD300)$/u.test(n)
 /** Where a recipient's name stands in the person's words (folded), so that a word someone took as their name (파일,
  * report, 보고서) is not one in an ordinary request: right after to, with, cc, @ or "(" (in, into, on, @, # or "(" for a
@@ -104,7 +108,7 @@ const BEFORE_PERSON = '(?:(?:^|[^\\p{L}\\p{N}])(?:to|with|cc|ke|dengan|kepada)\\
 const BEFORE_PLACE = '(?:(?:^|[^\\p{L}\\p{N}])(?:to|in|into|on|ke|di)\\s+(?:the\\s+)?[@#]?|[(@#]\\s*)'
 const HONORIFIC = '(?:\\s?(?:\\uB2D8|\\uC528))?'
 const AFTER_PERSON = `${HONORIFIC}(?:\\uC774\\uC5D0\\uAC8C|\\uC774\\uD55C\\uD14C|\\uB354\\uB7EC|\\uC5D0\\uAC8C|\\uD55C\\uD14C|\\uAED8|(?:\\uC774|\\uAC00)?\\s?(?:\\uBCFC\\s?\\uC218|\\uBCF4\\uAC8C|\\uBCF4\\uB3C4\\uB85D))`
-const JOIN_KO = '(?:\\uC774\\uD558\\uACE0|\\uC774\\uB791|\\uD558\\uACE0|\\uB791|\\uC640|\\uACFC|,)'
+const JOIN_KO = '(?:\\uC774\\uD558\\uACE0|\\uC774\\uB791|\\uD558\\uACE0|\\uB791|\\uC640|\\uACFC)'
 const AFTER_PLACE = '(?:\\uC5D0\\uB2E4\\uAC00|\\uBC29\\uC73C\\uB85C|\\uCC44\\uB110\\uC5D0|\\uC5D0\\uB2E4|\\uD55C\\uD14C|\\uBC29\\uC5D0|\\uC5D0\\uAC8C|\\uC5D0|\\uAED8)'
 function holdsAsRecipient(text: string, n: string, place: boolean, peers: readonly string[] = []): boolean {
   if (!holdsName(text, n)) return false
@@ -113,12 +117,13 @@ function holdsAsRecipient(text: string, n: string, place: boolean, peers: readon
   const R = '(?:(?![\\p{L}\\p{N}])|(?=\\p{Script=Hangul}))'
   if (new RegExp(`${place ? BEFORE_PLACE : BEFORE_PERSON}${e}${R}`, 'u').test(text)) return true
   if (new RegExp(`${L}${e}${place ? AFTER_PLACE : AFTER_PERSON}`, 'u').test(text)) return true
-  const ps = peers.map(fold).filter((p) => p.length >= 2 && p !== n).map(escapeRe)
+  const ps = [...new Set(peers.map(fold))].filter((p) => p.length >= 2 && p !== n).slice(0, 10).map(escapeRe)
   if (place || !ps.length) return false
   const P = `(?:${ps.join('|')})`
-  // in a chain: "to tess, bob and n" / "n와 P한테", "P와 n과 Q한테"
-  if (new RegExp(`${BEFORE_PERSON}(?:${P}\\s*(?:,|&|and)\\s*(?:and\\s+)?){1,8}${e}${R}`, 'u').test(text)) return true
-  return new RegExp(`${L}${e}${HONORIFIC}(?:${JOIN_KO}\\s?${P}${HONORIFIC}){1,8}${AFTER_PERSON}`, 'u').test(text)
+  // in a chain: "to tess, bob and n" with nothing after n but the end of the phrase (never "… and the notes with bob");
+  // "n님과 P한테" with 님 or 씨 on n (a Korean list joined by 와/과 is as often one of things: 보고서와 견적서)
+  if (new RegExp(`${BEFORE_PERSON}(?:${P}\\s*(?:,|&|and)\\s*(?:and\\s+)?){1,4}${e}(?=\\s*(?:$|[.!?;:)\\n,&]|and\\b|please\\b|too\\b))`, 'u').test(text)) return true
+  return new RegExp(`${L}${e}\\s?(?:\\uB2D8|\\uC528)(?:${JOIN_KO}\\s?${P}${HONORIFIC}){1,4}${AFTER_PERSON}`, 'u').test(text)
 }
 
 /** Does `said` (the asker's own message) name the recipient? A matched name or username in it, or the words the AI gave
@@ -126,7 +131,7 @@ function holdsAsRecipient(text: string, n: string, place: boolean, peers: readon
  * name only, its end (a given name: "대현" for "남대현"); two letters at least (holds: whole words outside Hangul). A
  * room or group name matches only in full or by a whole word. Fails closed. */
 export function namesRecipient(said: string, ref: string | undefined, r0: { names: readonly string[]; person: boolean; peers?: readonly string[] }): boolean {
-  const text = fold(said)
+  const text = fold(said.slice(0, NAME_SCAN))
   if (!text) return false
   const place = !r0.person
   const ok = place ? nameOk : personOk
@@ -305,7 +310,7 @@ export function namesFileLoose(said: string, rel: string): boolean {
 /** A person or place named in full in the person's words (a full name, a username, a room's name; two letters at
  * least, whole words outside Hangul): never by a part ("하나" in "파일 하나" is not 최하나). */
 export function namedInFull(said: string, names: readonly string[], o: { place?: boolean; peers?: readonly string[] } = {}): boolean {
-  const text = fold(said)
+  const text = fold(said.slice(0, NAME_SCAN))
   const ok = o.place ? nameOk : personOk
   return names.map(fold).some((n) => ok(n) && holdsAsRecipient(text, n, !!o.place, o.peers))
 }

@@ -511,9 +511,16 @@ describe('second review: what "made in this answer" means, and a chat that read 
     expect(namedInFull('send the contract to legal', ['legal'])).toBe(false)
     expect(namedInFull('share it with my boss', ['my boss'])).toBe(false)
     expect(namedInFull('\uAE09\uC5EC\uD45C \uC778\uC0AC\uD300\uD55C\uD14C \uACF5\uC720\uD574\uC918', ['\uC778\uC0AC\uD300'])).toBe(false)
-    const both = '\uAE40\uB300\uB9AC\uC640 \uC774\uACFC\uC7A5\uD55C\uD14C \uACF5\uC720\uD574\uC918'
+    // 김대리님과 이과장님한테: a Korean chain needs 님 or 씨 on the name (김대리와 이과장한테 shows the card for 김대리)
+    const both = '\uAE40\uB300\uB9AC\uB2D8\uACFC \uC774\uACFC\uC7A5\uB2D8\uD55C\uD14C \uACF5\uC720\uD574\uC918'
     expect(namedInFull(both, ['\uAE40\uB300\uB9AC'], { peers: ['\uC774\uACFC\uC7A5'] })).toBe(true)
     expect(namedInFull(both, ['\uAE40\uB300\uB9AC'])).toBe(false)
+    // a thing next to a real recipient is not one: "… and the notes with bob", "보고서, 김대리한테", "계약서랑 김대리한테"
+    expect(namedInFull('share the slides with tess and the notes with bob', ['the notes'], { peers: ['tess', 'bob'] })).toBe(false)
+    expect(namedInFull('share the slides with tess and notes with bob', ['notes'], { peers: ['tess', 'bob'] })).toBe(false)
+    expect(namedInFull('\uBCF4\uACE0\uC11C, \uAE40\uB300\uB9AC\uD55C\uD14C \uACF5\uC720\uD574\uC918', ['\uBCF4\uACE0\uC11C'], { peers: ['\uAE40\uB300\uB9AC'] })).toBe(false)
+    expect(namedInFull('\uACC4\uC57D\uC11C\uB791 \uAE40\uB300\uB9AC\uD55C\uD14C \uACF5\uC720\uD574\uC918', ['\uACC4\uC57D\uC11C'], { peers: ['\uAE40\uB300\uB9AC'] })).toBe(false)
+    expect(namedInFull('send it to tess and bob', ['bob'], { peers: ['tess'] })).toBe(true)
     expect(namedInFull('send it to tess, bob and carl', ['carl'], { peers: ['tess', 'bob'] })).toBe(true)
     expect(namesRecipient('post this to everyone', 'Everyone', { names: ['Everyone'], person: false })).toBe(true)
     // a member who takes a group's name: named by their username only
