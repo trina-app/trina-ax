@@ -75,6 +75,11 @@ export function setSetting(db: Database, key: string, value: unknown): void {
   db.query('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, JSON.stringify(value))
 }
 
+/** This server transcribes on its own with nothing to install (jobs/transcribe.ts localSpeechReady: an Apple silicon Mac
+ * with whisper-cli): set once at start (main.ts). Tests and every other server leave it false. */
+let localSpeechDefault = false
+export function setLocalSpeechReady(ready: boolean) { localSpeechDefault = ready }
+
 /** Stored settings over the defaults. Invalid stored values fall back to defaults, except an invalid update window stays closed. */
 export function getTeamSettings(db: Database): TeamSettingsT {
   const out = { ...DEFAULT_SETTINGS, timeZone: defaultTimeZone() } as Record<string, unknown>
@@ -91,7 +96,13 @@ export function getTeamSettings(db: Database): TeamSettingsT {
   // not chosen: voice input goes through OpenRouter once there is a key for it, the hosting service's (a hosted team, its plan's
   // free hours a month) or the team's own (a team's own server: saving the key turns it on, removing it turns it off).
   // Nothing is stored for it, and an admin's choice, "off" too, always wins
-  if (!rows.some((r) => r.key === 'speechProvider') && db.query('SELECT 1 FROM settings WHERE key IN (?, ?)').get(HOSTED_SPEECH_KEY_SETTING, SPEECH_KEY_SETTING)) out.speechProvider = 'openrouter'
+  // Without a key, an Apple silicon Mac that has what 'local' needs (setLocalSpeechReady) reads 'local': the sound stays
+  // on the Mac. A saved key stays what turned voice input on (a team that saved one before keeps OpenRouter after the
+  // update, with no surprise model download; docs/decisions/20261116-mac-local-speech.md)
+  if (!rows.some((r) => r.key === 'speechProvider')) {
+    if (db.query('SELECT 1 FROM settings WHERE key IN (?, ?)').get(HOSTED_SPEECH_KEY_SETTING, SPEECH_KEY_SETTING)) out.speechProvider = 'openrouter'
+    else if (localSpeechDefault) out.speechProvider = 'local'
+  }
   return out as TeamSettingsT
 }
 

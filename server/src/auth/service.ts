@@ -15,6 +15,7 @@ import { fail } from '../http/errors'
 import type { AuthInfo, RealtimeHub, RequestInfo, SessionService } from '../services'
 import { getTeamSettings } from '../admin/settings'
 import { voiceInputOn, voiceInputOutside } from '../credentials/speech-key'
+import { wantsWavRecordings } from '../jobs/transcribe'
 import { audit } from '../admin/audit'
 import { profileOf } from './profiles'
 import { myStatusOf } from './status-messages'
@@ -291,7 +292,7 @@ export class AuthService implements SessionService {
         ...(webAllowAll(this.db, u.id) ? { webAllowAll: true as const } : {}),
       },
       groups,
-      team: { name: settings.teamName, defaultLocale: settings.defaultLocale, browserAllowAll: settings.browserAllowAll, ...(settings.browserAllowAll && settings.webAllowAll ? { webAllowAll: true as const } : {}), ...teamIconOfMe(this.ctx.config.dataDir), voiceInput: voiceInputOn(this.db, this.ctx.files.speech), ...(voiceInputOutside(this.db) ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: settings.chatTrashRetentionDays, projectCreators: settings.projectCreators, ...(settings.roomAlwaysAllow === false ? { alwaysAllowOff: true as const } : {}), ...(address ? { address } : {}) , ...(u.role === 'guest' ? { uploadMaxBytes: roomFilesOf(this.ctx).maxFor(u.id) } : {}) },
+      team: { name: settings.teamName, defaultLocale: settings.defaultLocale, browserAllowAll: settings.browserAllowAll, ...(settings.browserAllowAll && settings.webAllowAll ? { webAllowAll: true as const } : {}), ...teamIconOfMe(this.ctx.config.dataDir), voiceInput: voiceInputOn(this.db, this.ctx.files.speech), ...(voiceInputOutside(this.db) ? { voiceInputOutside: true as const } : {}), ...(wantsWavRecordings(this.ctx.files.speech) ? { voiceInputWav: true as const } : {}), chatTrashRetentionDays: settings.chatTrashRetentionDays, projectCreators: settings.projectCreators, ...(settings.roomAlwaysAllow === false ? { alwaysAllowOff: true as const } : {}), ...(address ? { address } : {}) , ...(u.role === 'guest' ? { uploadMaxBytes: roomFilesOf(this.ctx).maxFor(u.id) } : {}) },
       session: { id: s.id, client: s.client, expiresAt: s.expires_at, tempLogin: tempLoginOf(s, u), ...(mediaKey ? { mediaKey } : {}) },
       // office mode runs dev's engine setup on purpose (docs/OFFICE.md): the office's desks get no DEV banner
       server: { version: this.ctx.version, dev: this.ctx.config.mode === 'dev' && !this.ctx.config.office,

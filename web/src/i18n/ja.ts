@@ -2366,6 +2366,8 @@ export const ja: Record<MessageKey, string> = {
   'speech.openrouter': "OpenRouter（クラウド）",
   'speech.local': "このサーバー上（非公開）",
   'speech.localHint': "音声はこのサーバー内に留まります。小型サーバーでは時間がかかります（短い音声で10秒～1分）。",
+  'speech.localHintMac': "音声はこの Mac の外に出ず、1～2秒でテキストになります。",
+  'speech.localFirstDownload': "初回だけ音声認識モデル（約 {mb} MB）をダウンロードします。",
   'speech.localMissing': "このサーバーに{tools}がないため、音声入力はオフです。",
   'speech.mediaTranscripts': "動画の音声をテキストにする",
   'speech.mediaTranscriptsLocal': "AI が動画・音声ファイル（会議の録音など）を読むとき、このサーバーで音声をテキストにします。音声はサーバーの外に出ません。{sec, plural, one {# 秒} other {# 秒}}ずつ処理し、1 回の読み取りでは時間内に終わる分だけ処理します。もう一度読み取ると続きから処理します。",

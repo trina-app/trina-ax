@@ -2362,6 +2362,8 @@ export const zh: Record<MessageKey, string> = {
   "speech.openrouter": "OpenRouter（云端）",
   "speech.local": "在这台服务器上（私密）",
   "speech.localHint": "音频留在这台服务器上。在小型服务器上较慢（短音频需要10秒到1分钟）。",
+  "speech.localHintMac": "声音留在这台 Mac 上，一两秒就能转成文字。",
+  "speech.localFirstDownload": "第一次会下载语音识别模型（约 {mb} MB）。",
   "speech.localMissing": "语音输入已关闭：这台服务器没有{tools}。",
   "speech.mediaTranscripts": "把视频声音转成文字",
   "speech.mediaTranscriptsLocal": "当AI读取视频或音频文件（例如会议录音）时，这台服务器会把其中的声音转成文字。声音不会离开服务器。按{sec, plural, one {#秒} other {#秒}}一段处理：每次读取在限定时间内尽量多转，再次读取会从上次的位置继续。",

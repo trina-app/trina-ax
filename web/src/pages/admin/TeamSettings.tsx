@@ -672,6 +672,10 @@ export function SpeechSection({ provider, model, transcripts, saved, onChange, o
   const hostedKey = provider === 'openrouter' && !!key.data?.hosted && !key.data.set
   // "this server" without the tools the mic's recordings need: voice input is off (Me.team.voiceInput), say which
   const missing = provider === 'local' ? host.data?.localMissing ?? [] : []
+  // an Apple silicon Mac transcribes on its own GPU: fast, and its first use downloads the speech model (say how big)
+  const localHint = host.data?.localMac
+    ? t('speech.localHintMac') + (host.data.localModelMb ? ' ' + t('speech.localFirstDownload', { mb: host.data.localModelMb }) : '')
+    : t('speech.localHint')
   const [secret, setSecret] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
@@ -706,10 +710,10 @@ export function SpeechSection({ provider, model, transcripts, saved, onChange, o
     <SettingsSection id="speech" testId="team-speech" title={t('speech.title')} desc={t('speech.desc')}>
       {/* a phone: "Speech to text   Off ›", the three in a sheet (QA TC-378) */}
       {phone ? (
-        <PhoneChoiceRow title={t('speech.provider')} desc={provider === 'local' ? t('speech.localHint') : undefined} below={providerNote} value={provider}
+        <PhoneChoiceRow title={t('speech.provider')} desc={provider === 'local' ? localHint : undefined} below={providerNote} value={provider}
           options={PROVIDERS.map((p) => ({ value: p, label: t(`speech.${p}`) }))} onChange={pickProvider} testId="team-speech-provider" />
       ) : <SettingRow id="ts-speech-provider" title={t('speech.provider')}
-        desc={provider === 'local' ? t('speech.localHint') : undefined}
+        desc={provider === 'local' ? localHint : undefined}
         below={providerNote}
         control={
           <select id="ts-speech-provider" aria-describedby={provider === 'local' ? `ts-speech-provider-desc${missing.length > 0 ? ' ts-speech-local-missing' : ''}` : undefined} className={clsx(inputCls, 'md:w-64')} value={provider}

@@ -2,7 +2,7 @@
 // git, Go, Node, Homebrew or GitHub access.
 //
 //   bun scripts/build-office.ts [--version x.y.z] [--out dist/office] [--no-pandoc] [--keep-stage]
-//                               [--with-desktop | --desktop-prebuilt]
+//                               [--whisper <whisper-cli> | --no-whisper] [--with-desktop | --desktop-prebuilt]
 //                               [--guide <pdf>] [--desk-guide <pdf>] [--team-host <host>]
 //
 // Output: <out>/<officeBundle>-<version>-mac.zip, containing <officeBundle>-<version>/ (PRODUCT, shared/src/product.ts):
@@ -12,7 +12,11 @@
 //   app/docs/OFFICE.md (the runbook; the person at the office has no copy of the repository)
 //   app/VERSION, app/teamax (control command), app/versions.json, app/product.env (the product's names for the
 //   shell scripts: scripts/product-env.ts)
-//   app/bin/darwin-arm64/{bun,rg,pandoc,cloudflared}  app/bin/darwin-amd64/{…}   (the installer keeps this Mac's one)
+//   app/bin/darwin-arm64/{bun,rg,pandoc,cloudflared,whisper-cli}  app/bin/darwin-amd64/{bun,rg,pandoc,cloudflared}
+//   (the installer keeps this Mac's one; whisper-cli only for Apple silicon: --whisper, the Developer ID signed and
+//   notarized build of .github/workflows/mac-whisper.yml, checked by scripts/release/mac-whisper.ts checkWhisper. Its
+//   sha256 is in app/licenses/manifest.json with the other programs, and the zip's in the signed release manifest.
+//   Without it (--no-whisper, or neither flag: a warning) Apple silicon offices get voice input only with a key)
 //   app/native/bin/darwin-{arm64,amd64}/{mycel-gate,mycel-bridge,mycel-launcher,mycel-safeops,mycel-ocr}
 //   app/server/src/{main.js,office.js,admin.js,accounts.js}, app/server/migrations/*.sql
 //   app/scripts/macos/engine.sb, app/web/dist/
@@ -34,6 +38,7 @@ import { PRODUCT, productEnv } from '../shared/src/product'
 import { stageHwp } from './hwp-bundle'
 import { assertNoPluginPayload, stagePluginCatalog } from './plugins/release-check'
 import { RELEASE_NOTICE_FILES, writeReleaseNotices, reportReleaseNotices } from './release-notices'
+import { checkWhisper } from './release/mac-whisper'
 
 const REPO = path.resolve(import.meta.dir, '..')
 const ARCHS = [{ dir: 'darwin-arm64', bun: 'aarch64', rg: 'aarch64', pandoc: 'arm64', cf: 'arm64' }, { dir: 'darwin-amd64', bun: 'x64', rg: 'x86_64', pandoc: 'x86_64', cf: 'amd64' }] as const
@@ -77,6 +82,9 @@ const ENTRIES: [string, string][] = [
   ['server/src/safe-ops/deck-worker.ts', 'deck-worker.js'],
   ['server/src/files/hwp-preflight.ts', 'hwp-preflight.js'],
 ]
+/** where the Apple silicon whisper-cli goes (the installer copies app/bin/darwin-arm64/ to app/bin/, which the server's
+ * which() looks in first: server/src/config.ts BUNDLE_BIN) */
+export const WHISPER_IN_ZIP = 'app/bin/darwin-arm64/whisper-cli'
 /** native helpers per architecture (native/build.sh) */
 const NATIVE = ['mycel-gate', 'mycel-bridge', 'mycel-launcher', 'mycel-safeops', 'mycel-ocr']
 
@@ -84,7 +92,7 @@ const NATIVE = ['mycel-gate', 'mycel-bridge', 'mycel-launcher', 'mycel-safeops',
  * office-install.sh reads and copies, and what the installed server runs. Checked after staging, before the zip is
  * made, so a copy step that went missing stops the build here instead of the install at the office. The guide PDFs
  * stay out (a build without them only warns). */
-export function bundleManifest(o: { pandoc: boolean; desktop: boolean }): string[] {
+export function bundleManifest(o: { pandoc: boolean; desktop: boolean; whisper?: boolean }): string[] {
   return [
     'office-install.sh', 'office-uninstall.sh', '설치-먼저-읽기.txt', ...(o.desktop ? [MANIFEST] : []),
     // the official plugin list (metadata only); never the HWP renderer, its font or a plugin package
@@ -95,6 +103,8 @@ export function bundleManifest(o: { pandoc: boolean; desktop: boolean }): string
       ...['bun', 'rg', 'cloudflared', ...(o.pandoc ? ['pandoc'] : [])].map((b) => `app/bin/${a.dir}/${b}`),
       ...NATIVE.map((b) => `app/native/bin/${a.dir}/${b}`),
     ]),
+    // voice input and recordings on Apple silicon (docs/decisions/20261116-mac-local-speech.md); Intel Macs get none
+    ...(o.whisper ? [WHISPER_IN_ZIP] : []),
     ...ENTRIES.map(([, out]) => `app/server/src/${out}`), 'app/server/migrations/',
     'app/scripts/macos/engine.sb', 'app/web/dist/index.html',
     // the one list of packages and its reader: office-install.sh installs the pinned chrome-headless-shell from it
@@ -204,6 +214,8 @@ export async function buildOffice(o: {
   guide?: string; deskGuide?: string
   /** that team's internet address for 설치-먼저-읽기.txt (default: the team.example.com example) */
   teamHost?: string
+  /** the signed whisper-cli for Apple silicon (mac-whisper.yml); null: none in this zip */
+  whisper?: string | null
 }) {
   if (!/^[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$/.test(o.version)) throw new Error(`bad version ${o.version}`)
   if (process.platform !== 'darwin') throw new Error('build the office bundle on a Mac (ditto, codesign)')
@@ -211,6 +223,8 @@ export async function buildOffice(o: {
     if (!fs.existsSync(path.join(REPO, 'native', 'bin', a.dir, b))) throw new Error(`native/bin/${a.dir}/${b} missing: run ARCHS="arm64 amd64" bash native/build.sh`)
   }
   if (!fs.existsSync(path.join(REPO, 'web', 'dist', 'index.html'))) throw new Error('web/dist missing: run bun run --cwd web build')
+  // before anything is built: a whisper-cli that is not the signed Apple silicon build stops here
+  const whisperSha = o.whisper ? checkWhisper(o.whisper) : null
 
   const name = `${PRODUCT.officeBundle}-${o.version}`
   const stage = path.join(o.out, name)
@@ -256,6 +270,13 @@ export async function buildOffice(o: {
     }
   }
 
+  if (o.whisper) {
+    const dest = path.join(stage, WHISPER_IN_ZIP)
+    fs.copyFileSync(o.whisper, dest)
+    fs.chmodSync(dest, 0o755)
+    if (sha256(dest) !== whisperSha) throw new Error('whisper-cli changed while it was copied')
+  } else console.warn('warning: no whisper-cli in this zip (--whisper <the mac-whisper.yml build>): Apple silicon offices get voice input only with an OpenRouter key')
+
   // scripts
   const scripts = path.join(REPO, 'scripts', 'office')
   fs.copyFileSync(path.join(scripts, 'teamax'), path.join(app, 'teamax'))
@@ -276,14 +297,14 @@ export async function buildOffice(o: {
   assertNoPluginPayload(stage)
   const notices = writeReleaseNotices({ repoRoot: REPO, artifactDir: app, version: o.version, target: 'darwin', arch: 'universal', kind: 'office', includeWeb: true })
   reportReleaseNotices(notices)
-  const lack = missingFromStage(stage, bundleManifest({ pandoc: o.pandoc, desktop: !!o.desktop?.length }))
+  const lack = missingFromStage(stage, bundleManifest({ pandoc: o.pandoc, desktop: !!o.desktop?.length, whisper: !!o.whisper }))
   if (lack.length) throw new Error(`the bundle is incomplete: ${lack.join(', ')}`)
 
   const zip = path.join(o.out, `${name}-mac.zip`)
   fs.rmSync(zip, { force: true })
   sh(['/usr/bin/ditto', '-c', '-k', '--keepParent', '--norsrc', stage, zip])
   if (!o.keepStage) fs.rmSync(stage, { recursive: true, force: true })
-  return { zip, size: fs.statSync(zip).size, sha256: sha256(zip), stage: o.keepStage ? stage : null, notices: { publicClear: false, pending: notices.pending.length, manifest: 'app/licenses/manifest.json' } }
+  return { zip, size: fs.statSync(zip).size, sha256: sha256(zip), whisper: whisperSha, stage: o.keepStage ? stage : null, notices: { publicClear: false, pending: notices.pending.length, manifest: 'app/licenses/manifest.json' } }
 }
 
 /** The desktop installers desktop/release has (built first unless `build` is false), copied into `out` under the names
@@ -323,9 +344,12 @@ if (import.meta.main) {
   const desktop = withDesktop || prebuilt ? desktopInstallers({ out, build: withDesktop }) : null
   const guide = arg('--guide'), deskGuide = arg('--desk-guide')
   const teamHost = (arg('--team-host') ?? process.env.TEAMAX_KIT_TEAM ?? '').trim().toLowerCase() || undefined
+  const whisper = arg('--whisper')
+  if (whisper && process.argv.includes('--no-whisper')) throw new Error('give --whisper or --no-whisper, not both')
   const r = await buildOffice({
     version, out, pandoc: !process.argv.includes('--no-pandoc'), keepStage: process.argv.includes('--keep-stage'), desktop: desktop ?? undefined,
     guide: guide ? path.resolve(guide) : undefined, deskGuide: deskGuide ? path.resolve(deskGuide) : undefined, teamHost,
+    whisper: whisper ? path.resolve(whisper) : null,
   })
   console.log(JSON.stringify({ ...r, ...(desktop ? { desktop } : {}) }, null, 1))
 }

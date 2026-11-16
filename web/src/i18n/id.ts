@@ -2402,6 +2402,8 @@ export const id: Record<MessageKey, string> = {
   'speech.openrouter': "OpenRouter (cloud)",
   'speech.local': "Di server ini (privat)",
   'speech.localHint': "Audio tetap di server ini. Lambat di server kecil (10 detik sampai satu menit untuk klip pendek).",
+  'speech.localHintMac': "Suara tetap di Mac ini dan menjadi teks dalam satu atau dua detik.",
+  'speech.localFirstDownload': "Pertama kali, model suara diunduh (sekitar {mb} MB).",
   'speech.localMissing': "Input suara nonaktif: server ini tidak memiliki {tools}.",
   'speech.mediaTranscripts': "Ubah suara video menjadi teks",
   'speech.mediaTranscriptsLocal': "Saat AI membaca berkas video atau audio (misalnya rekaman rapat), server ini mengubah suaranya menjadi teks. Suara tidak pernah keluar dari server. Suara diproses per {sec} detik: satu kali baca mengubah sebanyak yang sempat, dan membaca lagi melanjutkan dari sana.",

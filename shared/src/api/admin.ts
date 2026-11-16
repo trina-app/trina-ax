@@ -588,6 +588,12 @@ export const SpeechHost = z.object({
   /** tools 'local' lacks here: with any, voice input on this server is off (Me.team.voiceInput false) and Team settings
    * names them. Absent: an older server */
   localMissing: z.array(LocalSpeechTool).optional(),
+  /** an Apple silicon Mac that transcribes with whisper.cpp on its GPU (fast; docs/decisions/20261116-mac-local-speech.md).
+   * Absent: another server, or an older one */
+  localMac: z.literal(true).optional(),
+  /** the speech model 'local' downloads on its first use, in MB; null when it is on this server already. Absent: an
+   * older server */
+  localModelMb: z.number().int().positive().nullable().optional(),
   /** CPU cores the server's helpers may use (the plan's, else the machine's) */
   cpuCores: z.number().int().positive(),
   /** whisper.cpp pieces of a read, in seconds of sound (each is cached; reading again goes on from there) */
