@@ -319,7 +319,7 @@ export class DesktopUpdater {
     }
   }
 
-  /** "Trina AX can't update itself from here" with "Move to Applications" (once per version) */
+  /** "<app> can't update itself from here" with "Move to Applications" (once per version) */
   private async offerMove(version: string) {
     if (this.noticed.has(version)) return
     this.noticed.add(version)
@@ -335,7 +335,7 @@ export class DesktopUpdater {
     }
   }
 
-  /** "Trina AX couldn't update to <version>" with the website's download page (once per version) */
+  /** "<app> couldn't update to <version>" with the website's download page (once per version) */
   async offerDownload(version: string, again = false) {
     if (this.noticed.has(version) && !again) return
     this.noticed.add(version)
