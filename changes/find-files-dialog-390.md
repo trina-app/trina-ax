@@ -1,1 +1,0 @@
-- **Find work files on this computer** no longer closes, and stops looking, when you make the window narrow on My files.
