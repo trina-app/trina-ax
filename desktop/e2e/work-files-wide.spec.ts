@@ -5,9 +5,10 @@
 // data that must never be listed. Nothing of this computer's home is touched (fixtures/work-files-wide-main.ts checks).
 // macOS only (plutil, the CloudStorage layout). Run by hand: `bunx playwright test -c e2e/rtc-native.config.ts`.
 import { expect, test } from '@playwright/test'
-import { execFile, spawn } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { fixtureResult } from './fixture-run'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -33,23 +34,6 @@ function bookmark(path: string): Buffer {
   u32(head, 64 + body.length); u32(head, 0x10050000); u32(head, 64)
   while (head.length < 64) head.push(0)
   return Buffer.from([...head, ...body])
-}
-
-/** Run the fixture until it prints its WIDE_RESULT line (then stop it), or fail after `ms`. */
-function resultOf(cmd: string, args: string[], env: NodeJS.ProcessEnv, ms: number): Promise<string> {
-  return new Promise((done, fail) => {
-    const p = spawn(cmd, args, { env })
-    let out = ''
-    let err = ''
-    const timer = setTimeout(() => { p.kill('SIGKILL'); fail(new Error(`no WIDE_RESULT within ${ms} ms\n${err.slice(-2000)}`)) }, ms)
-    p.stdout.on('data', (b) => {
-      out += String(b)
-      const line = out.split('\n').find((l) => l.startsWith('WIDE_RESULT '))
-      if (line && out.slice(out.indexOf(line)).includes('\n')) { clearTimeout(timer); p.kill('SIGKILL'); done(out) }
-    })
-    p.stderr.on('data', (b) => { err += String(b) })
-    p.on('exit', (code) => { clearTimeout(timer); if (!out.includes('WIDE_RESULT ')) fail(new Error(`fixture exited ${code} without WIDE_RESULT\n${err.slice(-2000)}`)) })
-  })
 }
 
 const doc = (p: string, bytes = 2048) => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, 'W'.repeat(bytes)) }
@@ -101,8 +85,7 @@ test('the wide look: places, recent files in home, never app data; fast on thous
     const env = { ...process.env, HOME: home, FOLDER_TEST_HOME: home, FOLDER_TEST_PROFILE: join(dir, 'profile') }
     // the result line is enough: the app is stopped once it is printed (on a busy Mac, Electron's own exit can take
     // minutes, which said nothing about the look)
-    const stdout = await resultOf(electron, [output], env, 100_000)
-    const { out, asked } = JSON.parse(stdout.split('\n').find((l) => l.startsWith('WIDE_RESULT '))!.slice(12))
+    const { out, asked } = await fixtureResult(electron, [output], env, 'WIDE_RESULT', 100_000)
     console.log('wide look', JSON.stringify({ ms: out.ms, steps: out.steps, count: out.count, byRoot: out.byRoot }))
     expect(out.fullDisk).toBe('granted')
     // a page that does not ask for the wide look gets the three folders only
