@@ -36,6 +36,8 @@ async function openShare(page: Page, folder: string, name: string) {
 /** every surface at 1440 and 390, light and dark (only with FILE_SHARE_EVERYONE_SHOTS) */
 async function shots(page: Page, name: string) {
   if (!SHOTS) return
+  // the pointer off the page: a row under it would show its hover fill
+  await page.mouse.move(0, 0)
   for (const [w, h] of [[1440, 900], [390, 844]] as const) {
     await page.setViewportSize({ width: w, height: h })
     for (const theme of ['light', 'dark'] as const) {

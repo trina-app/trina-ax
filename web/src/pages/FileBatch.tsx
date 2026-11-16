@@ -3,6 +3,7 @@
 // that press told, with the files they can open now (each row opens its own link page, /f/<id>); nothing else about the
 // press. None left: one line; a link that is not theirs: the file link page's "doesn't work" line.
 import { File as FileIcon, Lock } from 'lucide-react'
+import clsx from 'clsx'
 import { useEffect, useState, type ReactNode } from 'react'
 import { useParams } from 'react-router-dom'
 import { fileLinkUrl, type SharedBatchView } from '@mycel/shared/api'
@@ -10,7 +11,7 @@ import { api, API, errorText, isApiError } from '../lib/api'
 import { formatSize } from '../lib/format'
 import { useLocale, useT } from '../i18n'
 import { ListRow } from '../components/list/List'
-import { ErrorNote, Skeleton } from '../components/ui'
+import { ErrorNote, Skeleton, pageColumn } from '../components/ui'
 
 export default function FileBatch() {
   const { id = '' } = useParams()
@@ -45,7 +46,7 @@ export default function FileBatch() {
       <h1 className="text-title font-semibold break-keep text-ink" data-testid="file-batch-title">
         {view.by ? t('notifications.event.file.sharedMany', { by: view.by, n }) : t('notifications.event.file.sharedManyNoName', { n })}
       </h1>
-      <ul className="-mx-3 mt-3" data-testid="file-batch-list">
+      <ul className="mt-3" data-testid="file-batch-list">
         {view.files.map((f) => (
           <ListRow key={f.linkId} to={fileLinkUrl(f.linkId)} icon={<FileIcon size={16} aria-hidden />} name={f.name} meta={formatSize(f.size, locale)} scale="page" li={{ 'data-testid': 'file-batch-row' }} />
         ))}
@@ -54,10 +55,11 @@ export default function FileBatch() {
   )
 }
 
-/** the page's column (a phone: the whole width, the page's gutter) */
+/** the page's column and gutter, as Activity's (a page list's rows reach out past it on a computer and keep the gutter
+ * on a phone: ListRow scale 'page') */
 function Page({ children }: { children: ReactNode }) {
   return (
-    <div className="mx-auto w-full max-w-2xl px-4 py-8 sm:px-6" data-testid="file-batch-page">
+    <div className={clsx(pageColumn, 'px-4 pt-5 pb-6 sm:px-6')} data-testid="file-batch-page">
       {children}
     </div>
   )
