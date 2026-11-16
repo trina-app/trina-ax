@@ -26,6 +26,13 @@ TimeoutStopSec=30
 Slice=@ID@.slice
 Delegate=memory pids cpu
 OOMPolicy=continue
+# a safety net, not a budget (docs/decisions/20261116-server-unit-memory-cap.md): a server that keeps memory it should
+# have given back (Bun request buffers) is killed by the kernel and started again by the bootstrap, instead of filling
+# the machine until it hangs. A percentage of the machine's RAM, so no placeholder: `mycel-ctl update` renders new
+# templates with the mycel-ctl of the release it updates from. A hosted plan's `mycel-ctl apply-plan` (set-property)
+# overrides it. No MemoryHigh: it throttles a leaking process near the limit instead of ending it (the same hang).
+MemoryMax=75%
+MemorySwapMax=0
 TasksMax=1024
 LimitNOFILE=65536
 NoNewPrivileges=yes

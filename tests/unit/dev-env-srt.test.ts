@@ -613,7 +613,7 @@ describe('the argv of a run', () => {
     // no environment or extra rights of the server's own
     for (const k of ['Environment', 'EnvironmentFile', 'Delegate']) expect(t.has(k)).toBe(false)
     // every other line of the server unit's [Service] is its sandbox: the template has the same value
-    const notSandbox = new Set(['Type', 'User', 'Group', 'ExecStart', 'Environment', 'EnvironmentFile', 'Restart', 'RestartSec', 'KillMode', 'TimeoutStopSec', 'Slice', 'Delegate', 'OOMPolicy', 'TasksMax', 'LimitNOFILE'])
+    const notSandbox = new Set(['Type', 'User', 'Group', 'ExecStart', 'Environment', 'EnvironmentFile', 'Restart', 'RestartSec', 'KillMode', 'TimeoutStopSec', 'Slice', 'Delegate', 'OOMPolicy', 'TasksMax', 'LimitNOFILE', 'MemoryMax', 'MemorySwapMax'])
     for (const [k, v] of sv) {
       if (notSandbox.has(k)) continue
       if (k === 'ReadWritePaths') {
