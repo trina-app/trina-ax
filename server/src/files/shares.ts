@@ -967,10 +967,13 @@ export class FileShares {
     return { share: s, request: q, requester, may: this.shareRight(me, rules, r.segs).may }
   }
   /** The push of an access request (files/share-push.ts): only while the request still waits and this person may answer
-   * it now (an admin or the owner answered, the file went, the person lost the right to share it: no push). */
+   * it now, and the asker's account is still active (an admin or the owner answered, the file went, the person lost the
+   * right to share it, the asker was switched off: no push). */
   requestWaitsOn(userId: string, sourceId: string): boolean {
     const a = this.askedOf(userId, sourceId)
-    return !!a && a.may && a.request.state === 'pending'
+    if (!a || !a.may || a.request.state !== 'pending') return false
+    // an asker switched off or removed meanwhile: nobody waits any more (the Activity row stays as it is)
+    return !!this.db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(a.requester)
   }
 
   /** An Activity row's details for its viewer (notifications/service.ts out). Names read now; nothing about the file

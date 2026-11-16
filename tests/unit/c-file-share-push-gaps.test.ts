@@ -12,7 +12,7 @@ import path from 'node:path'
 import { PushService } from '../../server/src/notifications/push-service'
 import type { NativeSend } from '../../server/src/notifications/push-native'
 import { pushPathOf } from '../../server/src/notifications/push-events'
-import { fileSharePushWanted } from '../../server/src/files/share-push'
+import { FILE_REQUEST_PUSHES_PER_DAY, fileSharePushWanted } from '../../server/src/files/share-push'
 import { savePreferences } from '../../server/src/notifications/preferences'
 import { updateTeamSettings } from '../../server/src/admin/settings'
 import { pushMessages } from '../../server/src/notifications/text'
@@ -39,6 +39,7 @@ function phones(users: string[], status = 200) {
   const tick = async () => { now = Math.max(now + 5, Date.now()); await p.tick() }
   return { p, sent, tick }
 }
+const q = (p: string) => '?path=' + encodeURIComponent(p)
 const asks = (sent: NativeSend[]) => sent.filter((s) => s.payload.code === 'file.access_requested')
 // a delivery is queued only for a notice made after the device was registered
 const later = () => new Promise((r) => setTimeout(r, 5))
@@ -160,6 +161,75 @@ describe('a request to open my file', () => {
   })
 })
 
+describe('what else stops a request push (security review of #1118)', () => {
+  test('the file deleted, or moved away outside the app: not wanted, and an old tap opens nothing', async () => {
+    const a = `users/${ids.alice}/gone-trash.txt`, b = `users/${ids.alice}/gone-disk.txt`
+    await put(alice, a, 'a'); await put(alice, b, 'b')
+    const la = await link(alice, a), lb = await link(alice, b)
+    await ask(bob, la.id); await ask(bob, lb.id)
+    const na = noticeOf(ids.alice, la.id, ids.bob)!, nb = noticeOf(ids.alice, lb.id, ids.bob)!
+    expect(fileSharePushWanted(h.ctx, na.id)).toBe(true)
+    expect(fileSharePushWanted(h.ctx, nb.id)).toBe(true)
+    await alice.call('DELETE', '/api/files' + q(a))
+    const root = h.ctx.files.fx.root
+    fs.renameSync(path.join(root, b), path.join(root, `users/${ids.alice}/elsewhere.txt`))
+    for (const n of [na, nb]) {
+      expect(fileSharePushWanted(h.ctx, n.id)).toBe(false)
+      expect(pushPathOf(h.ctx, 'file.access_requested', n.id)).toBeUndefined()
+    }
+  })
+
+  test('an asker switched off meanwhile: not wanted', async () => {
+    const p = `users/${ids.alice}/asker-off.txt`
+    await put(alice, p, 'x')
+    const { id } = await link(alice, p)
+    const dora = await addMember(h, owner, { username: 'dora' })
+    await ask(dora.client, id)
+    const n = noticeOf(ids.alice, id, dora.id)!
+    expect(fileSharePushWanted(h.ctx, n.id)).toBe(true)
+    h.ctx.db.query("UPDATE users SET status = 'disabled' WHERE id = ?").run(dora.id)
+    try { expect(fileSharePushWanted(h.ctx, n.id)).toBe(false) }
+    finally { h.ctx.db.query("UPDATE users SET status = 'active' WHERE id = ?").run(dora.id) }
+    expect(fileSharePushWanted(h.ctx, n.id)).toBe(true)
+  })
+
+  test('a request made before this server had the push (migration 358 applied later): never pushed', async () => {
+    const p = `users/${ids.alice}/before.txt`
+    await put(alice, p, 'x')
+    const { id } = await link(alice, p)
+    await ask(bob, id)
+    const n = noticeOf(ids.alice, id, ids.bob)!
+    expect(fileSharePushWanted(h.ctx, n.id)).toBe(true)
+    h.ctx.db.query('UPDATE file_share_notices SET created_at = ? WHERE id = ?').run('2020-01-01T00:00:00.000Z', n.id)
+    expect(fileSharePushWanted(h.ctx, n.id)).toBe(false)
+  })
+
+  test(`at most ${FILE_REQUEST_PUSHES_PER_DAY} request pushes a day to one person from many askers; the rest land in Activity alone`, async () => {
+    // many askers (the request limits are per asker): fresh members, one request each to olga's files
+    const askers: Client[] = []
+    for (let i = 0; i < FILE_REQUEST_PUSHES_PER_DAY + 2; i++) askers.push((await addMember(h, owner, { username: `asker${i}` })).client)
+    // olga's earlier request pushes (the team-file test above) are not today's count here
+    h.ctx.db.query('DELETE FROM file_share_push_deliveries WHERE notification_id IN (SELECT id FROM file_share_notices WHERE user_id = ?)').run(ids.olga)
+    const ph = phones([ids.olga])
+    try {
+      await later()
+      for (let i = 0; i < askers.length; i++) {
+        const p = `users/${ids.olga}/cap-${i}.txt`
+        await put(owner, p, String(i))
+        const { id } = await link(owner, p)
+        expect((await ask(askers[i]!, id)).status).toBe('sent')
+        await ph.tick()
+      }
+      // olga's, one per request (a retry of an earlier test's push to someone else may go through this service too)
+      const olgas = new Set((h.ctx.db.query('SELECT id FROM file_share_notices WHERE user_id = ?').all(ids.olga) as { id: string }[]).map((r) => r.id))
+      expect(new Set(asks(ph.sent).map((x) => x.payload.notificationId).filter((id) => olgas.has(id))).size).toBe(FILE_REQUEST_PUSHES_PER_DAY)
+      // every request is in Activity, with Share / Decline
+      const rows = ((await owner.call('GET', '/api/notifications?limit=100')).items as any[]).filter((x) => x.eventType === 'file.access_requested' && x.fileShare?.canAnswer)
+      expect(rows.length).toBeGreaterThanOrEqual(askers.length)
+    } finally { await ph.p.stop() }
+  })
+})
+
 describe('Settings › Notifications "File sharing"', () => {
   test('on by default; off: neither the request nor the share by name is pushed, a waiting push is cancelled, the Activity rows stay', async () => {
     expect((await alice.call('GET', '/api/notification-preferences')).fileShares).toBe(true)
@@ -169,11 +239,13 @@ describe('Settings › Notifications "File sharing"', () => {
     // a push that waits (the gateway refused once) is cancelled by switching it off
     const failing = phones([ids.alice], 503)
     try {
+      const fay = await addMember(h, owner, { username: 'fay' })
       await later()
-      await ask(bob, id)
+      await ask(fay.client, id)
       await failing.tick()
     } finally { await failing.p.stop() }
-    const n = noticeOf(ids.alice, id, ids.bob)!
+    const fayId = (h.ctx.db.query("SELECT id FROM users WHERE username = 'fay'").get() as { id: string }).id
+    const n = noticeOf(ids.alice, id, fayId)!
     expect(h.ctx.db.query('SELECT state FROM file_share_push_deliveries WHERE notification_id = ?').all(n.id)).toContainEqual({ state: 'pending' })
     expect((await prefs(alice, { fileShares: false })).fileShares).toBe(false)
     expect(h.ctx.db.query("SELECT state FROM file_share_push_deliveries WHERE notification_id = ? AND state IN ('pending','sending')").all(n.id)).toEqual([])
@@ -197,6 +269,24 @@ describe('Settings › Notifications "File sharing"', () => {
       expect(fileSharePushWanted(h.ctx, shared.id)).toBe(true)
       // the other switches are untouched by it
       expect((await alice.call('GET', '/api/notification-preferences')).chatShares).toBe(true)
+    } finally { await ph.p.stop() }
+  })
+
+  test('switched off without the settings call (an older app, a race), then a new request: cancelled at send time', async () => {
+    const p = `users/${ids.alice}/race.txt`
+    await put(alice, p, 'race')
+    const { id } = await link(alice, p)
+    savePreferences(h.ctx.db, ids.alice, { fileShares: false })
+    const ph = phones([ids.alice])
+    try {
+      await later()
+      const erin = await addMember(h, owner, { username: 'erin' })
+      await later()
+      await ask(erin.client, id)
+      await ph.tick()
+      expect(asks(ph.sent)).toHaveLength(0)
+      const n = noticeOf(ids.alice, id, erin.id)!
+      expect(h.ctx.db.query('SELECT state FROM file_share_push_deliveries WHERE notification_id = ?').all(n.id)).toEqual([{ state: 'cancelled' }])
     } finally { await ph.p.stop() }
   })
 
