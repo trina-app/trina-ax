@@ -172,9 +172,9 @@ export class RoomFiles {
    */
   async fromTeamFile(userId: string, roomId: string, rel: string): Promise<RoomFile> {
     this.member(userId, roomId)
-    const { abs, name } = this.teamSource(userId, rel)
+    const { abs, name, st: seen } = this.teamSource(userId, rel)
     let opened: { fd: number; st: fs.Stats }
-    try { opened = openChecked(abs) } catch { return fail('not_found') }
+    try { opened = openChecked(abs, seen) } catch { return fail('not_found') }
     const tmpDir = path.join(this.ctx.config.dataDir, 'uploads', 'tmp')
     const tmp = path.join(tmpDir, `${PRODUCT.tmpPrefix}room-${randomBytes(8).toString('hex')}`)
     let sha: string

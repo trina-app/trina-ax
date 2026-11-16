@@ -200,26 +200,27 @@ export class HeicPreviews {
 
   /**
    * The JPEG preview of the HEIC file at `abs` (authorized by the caller) and its ETag. null: no converter.
-   * The file is opened with O_NOFOLLOW and checked (openChecked). A conversion is shared by all requests for the
+   * The file is opened with O_NOFOLLOW and checked (openChecked; with `seen`, as the very file the caller's check
+   * saw, also when it is read for the conversion). A conversion is shared by all requests for the
    * same content; it stops when no request waits for it any more (`signal`). Errors (ToolError): 'too_large' (input
    * limit), 'not_found', 'busy' (a queue limit), 'aborted', 'preview_failed', 'changed' (the file changed while it
    * was read).
    */
-  async jpeg(abs: string, o: { user?: string; signal?: AbortSignal } = {}): Promise<{ bytes: Buffer; etag: string } | null> {
+  async jpeg(abs: string, o: { user?: string; signal?: AbortSignal; seen?: fs.Stats } = {}): Promise<{ bytes: Buffer; etag: string } | null> {
     // counted before the first await, so parallel requests of one person cannot all pass the check
     const user = o.user ?? ''
     const open = this.perUser.get(user) ?? 0
     if (open >= PREVIEW_PER_USER_OPEN_MAX) throw busy()
     this.perUser.set(user, open + 1)
-    try { return await this.preview(abs, user, o.signal) } finally {
+    try { return await this.preview(abs, user, o.signal, o.seen) } finally {
       const n = (this.perUser.get(user) ?? 1) - 1
       if (n > 0) this.perUser.set(user, n)
       else this.perUser.delete(user)
     }
   }
 
-  private async preview(abs: string, user: string, signal?: AbortSignal): Promise<{ bytes: Buffer; etag: string } | null> {
-    const { fd, st } = openChecked(abs)
+  private async preview(abs: string, user: string, signal?: AbortSignal, seen?: fs.Stats): Promise<{ bytes: Buffer; etag: string } | null> {
+    const { fd, st } = openChecked(abs, seen)
     fs.closeSync(fd)
     if (st.size > PREVIEW_INPUT_MAX) throw new ToolError(`too large to preview (over ${PREVIEW_INPUT_MAX / 1024 / 1024} MB)`, 'too_large')
     const fileSha = await this.fileSha(abs, st)
@@ -237,7 +238,7 @@ export class HeicPreviews {
         if (this.waiting.length >= PREVIEW_QUEUE_MAX) throw busy()
         if (this.waiting.filter((w) => w.owner === user).length >= PREVIEW_PER_USER_WAIT_MAX) throw busy()
       }
-      job = this.start(key, abs, fileSha, file, user)
+      job = this.start(key, abs, fileSha, file, user, seen)
     }
     const out = await this.wait(job, key, signal)
     return out ? { bytes: out, etag: key } : null
@@ -263,14 +264,14 @@ export class HeicPreviews {
     }
   }
 
-  private start(key: string, abs: string, fileSha: string, file: string, owner: string): Job {
+  private start(key: string, abs: string, fileSha: string, file: string, owner: string, seen?: fs.Stats): Job {
     const ctrl = new AbortController()
     const job: Job = { owner, ctrl, refs: 0, done: false, promise: null as unknown as Promise<Buffer | null> }
     job.promise = (async () => {
       await this.slot(owner, ctrl.signal)
       try {
         // the bytes are read only now (a waiting request holds none), and must be the content that was hashed
-        const bytes = await readHashed(abs, fileSha)
+        const bytes = await readHashed(abs, fileSha, seen)
         ctrl.signal.throwIfAborted()
         const out = await this.convert(bytes, this.tools(), ctrl.signal)
         if (out) await this.write(file, out)
@@ -405,8 +406,8 @@ export class HeicPreviews {
  * The whole file, read through the checked descriptor in parts (the event loop is not blocked) and hashed on the way.
  * Over PREVIEW_INPUT_MAX: 'too_large'. Not the content with the sha256 `want`: 'changed'.
  */
-async function readHashed(abs: string, want: string): Promise<Buffer> {
-  const { fd, st } = openChecked(abs)
+async function readHashed(abs: string, want: string, seen?: fs.Stats): Promise<Buffer> {
+  const { fd, st } = openChecked(abs, seen)
   try {
     if (st.size > PREVIEW_INPUT_MAX) throw new ToolError(`too large to preview (over ${PREVIEW_INPUT_MAX / 1024 / 1024} MB)`, 'too_large')
     const buf = Buffer.alloc(st.size)

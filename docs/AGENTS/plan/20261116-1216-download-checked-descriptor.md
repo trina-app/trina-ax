@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16 12:16
 - Branch: `fix/download-checked-descriptor`
-- Status: in progress
+- Status: done
 - Where: trina-ax core: `server/src/team-files/download.ts`, `server/src/team-files/place.ts` and the routes that send a
   team file. Why: file permissions and downloads are core (docs/REPOSITORY-RULES.md).
 - Version impact: patch (a fix, no API or migration)
@@ -60,4 +60,22 @@ None. No rule changes: links and hard links were refused already; the download n
 
 ## Result
 
-(at the end)
+Built as planned.
+
+- What the code did before, per case (the new tests, run on the code as it was): a link as the last name, a folder on
+  the way that is a link, and a hard-linked file were refused already. A change of the name after the check was not
+  always kept out: the body of a whole-file download on Linux, and of any download through the team address, was
+  opened by name a second time, and no open compared the file with the one that was checked.
+- `openChecked(abs, seen)` compares device and inode with the check's `lstat` and the open file's own path with the
+  checked path. `streamFile`, `fileBody` and `rangeStream` read from that one descriptor.
+- Callers that pass what their check saw: file download, shared-file link, file version, attachment thumbnail of a team
+  file, HEIC preview, a team file copied into a room, the hash and thumbnail of a team file attached to a chat.
+  Server-owned folders (chat and room uploads, their thumbnails, installers, decks, videos) keep the plain open, and
+  are sent from that one open too.
+- Differs from the plan: a body through the team address is now our pull stream (it was a Bun.file read lazily); read
+  as lazily, and the range path used it already. A reader that leaves while a read is on the thread pool no longer
+  closes the descriptor under that read.
+- Not in this change: `files/store.ts readRegular` (content reads by the AI tools and the file panel) opens without
+  following a link in the last name, but does not compare the file with its check. Reported for a follow-up.
+- Checks: typecheck, check:docs; the download and team-file unit tests on macOS (Bun 1.4.4 and 1.3.12) and in the
+  `oven/bun:1.3.12` Linux image.

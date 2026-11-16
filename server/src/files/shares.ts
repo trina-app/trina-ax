@@ -288,7 +288,7 @@ export function fileSharesOf(ctx: AppContext): FileShares {
 }
 
 export type OpenResult =
-  | { kind: 'open'; share: ShareRow; abs: string; name: string; size: number; by: 'rules' | 'grant' | 'owner' }
+  | { kind: 'open'; share: ShareRow; abs: string; st: fs.Stats; name: string; size: number; by: 'rules' | 'grant' | 'owner' }
   | { kind: 'no_access'; share: ShareRow | null }
   | { kind: 'trashed'; share: ShareRow }
   | { kind: 'unknown' }
@@ -654,8 +654,8 @@ export class FileShares {
     if (!r || !this.same(s, r.st!, r.abs)) return { kind: 'no_access', share: s }
     const rules = this.rules()
     const name = baseName(r.rel)
-    if (atLeast(rules.access(me, r.segs), 'read')) return { kind: 'open', share: s, abs: r.abs, name, size: r.st!.size, by: s.owner_id === me.id ? 'owner' : 'rules' }
-    if (this.grantedTo(s.id, me.id) && this.ownerStillEdits(s, rules, r.segs)) return { kind: 'open', share: s, abs: r.abs, name, size: r.st!.size, by: 'grant' }
+    if (atLeast(rules.access(me, r.segs), 'read')) return { kind: 'open', share: s, abs: r.abs, st: r.st!, name, size: r.st!.size, by: s.owner_id === me.id ? 'owner' : 'rules' }
+    if (this.grantedTo(s.id, me.id) && this.ownerStillEdits(s, rules, r.segs)) return { kind: 'open', share: s, abs: r.abs, st: r.st!, name, size: r.st!.size, by: 'grant' }
     return { kind: 'no_access', share: s }
   }
   /** GET /api/files/shared/:id */

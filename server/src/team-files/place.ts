@@ -26,18 +26,41 @@ export function checkRegular(abs: string, allowDir = false): fs.Stats {
   return st
 }
 
-/** Open with O_NOFOLLOW and check the fd is the same regular file as `st` (no swap in between). Caller closes. */
-export function openChecked(abs: string): { fd: number; st: fs.Stats } {
+/** Where an open file really is, asked of the open file and not of its path: Linux /proc/self/fd; macOS /dev/fd (Bun
+ * resolves it with F_GETPATH, with the real case of each name). null when the system does not tell. */
+export function openedPath(fd: number): string | null {
+  try {
+    const p = process.platform === 'linux' ? fs.readlinkSync(`/proc/self/fd/${fd}`) : fs.realpathSync(`/dev/fd/${fd}`)
+    return p.startsWith('/') && !p.startsWith('/dev/fd/') && !p.startsWith('/proc/') ? p : null
+  } catch { return null }
+}
+
+/**
+ * Open a file to read it, never through a link in its last name (O_NOFOLLOW); it must be a regular file with one link.
+ * The caller closes the descriptor and reads from it: a second open by path could be another file.
+ *
+ * `seen`: the lstat that the permission check took of this path (policy/authorize.ts: `abs` is the team folder's real
+ * path plus the names on disk). Pass it for every file in the team folder: a personal folder is also written by that
+ * person's dev environment runs, so a file, or a folder on the way to it, can change after the check. The opened file
+ * must then be the very file that was checked (same device and inode), and the system's own path of the open file
+ * must be `abs`: a file reached through a folder that became a link has another path. A system that does not tell the
+ * path: refused. Without `seen` (folders that only the server writes: uploads, thumbnails, installers) the file is
+ * only checked to be regular.
+ */
+export function openChecked(abs: string, seen?: fs.Stats): { fd: number; st: fs.Stats } {
   let fd: number
   try { fd = fs.openSync(abs, C.O_RDONLY | C.O_NOFOLLOW | (C.O_NONBLOCK ?? 0)) } catch (e: any) {
     if (e.code === 'ELOOP' || e.code === 'EMLINK') throw new Denied('symbolic links are not followed')
     if (e.code === 'ENOENT') throw new ToolError('not found', 'not_found')
     throw new ToolError(`cannot open file (${e.code})`)
   }
-  const st = fs.fstatSync(fd)
-  if (st.isDirectory()) { fs.closeSync(fd); throw new ToolError('this is a folder', 'is_folder') }
-  if (!st.isFile() || st.nlink > 1) { fs.closeSync(fd); throw new Denied('not a regular file') }
-  return { fd, st }
+  try {
+    const st = fs.fstatSync(fd)
+    if (st.isDirectory()) throw new ToolError('this is a folder', 'is_folder')
+    if (!st.isFile() || st.nlink > 1) throw new Denied('not a regular file')
+    if (seen && (st.ino !== seen.ino || st.dev !== seen.dev || openedPath(fd) !== abs)) throw new Denied('path changed while opening')
+    return { fd, st }
+  } catch (e) { fs.closeSync(fd); throw e }
 }
 
 /** sha256 of a file, streamed (never loaded whole). */

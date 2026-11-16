@@ -246,12 +246,13 @@ export class TeamFiles {
     return { ...base, binary: false, content: text, truncated }
   }
 
-  /** A readable regular file for the download endpoint. */
-  fileForDownload(userId: string, rel: string, download = true): { abs: string; name: string } {
+  /** A readable regular file for the download endpoint. `st`: what this check saw; whoever sends the file opens it as
+   * that very file (place.ts openChecked). */
+  fileForDownload(userId: string, rel: string, download = true): { abs: string; name: string; st: fs.Stats } {
     const r = authorize(this.fx, this.rules(), this.principal(userId), rel, 'read', {download})
     if (r.st!.isDirectory()) throw new ToolError('folder', 'is_folder')
-    checkRegular(r.abs)
-    return { abs: r.abs, name: r.segs[r.segs.length - 1]! }
+    const st = checkRegular(r.abs)
+    return { abs: r.abs, name: r.segs[r.segs.length - 1]!, st }
   }
 
   /** Replace the file at `abs`: `then` gets the sha256 of the file as it is now, and runs in the same synchronous step
@@ -1846,14 +1847,14 @@ export class TeamFiles {
   }
 
   /** For the download endpoint: the stored blob of an old version. */
-  versionFile(userId: string, versionId: string): { abs: string; name: string; size: number } {
+  versionFile(userId: string, versionId: string): { abs: string; name: string; size: number; st: fs.Stats } {
     const user = this.principal(userId)
     const v = this.versionRow(user, this.rules(), versionId)
     if (!v.storage_path) fileError('not_found', 'noBlob')
     const abs = path.join(this.root, ...v.storage_path.split('/'))
     const st = checkRegular(abs)
     const [base, x] = splitExt(v.path.split('/').pop()!)
-    return { abs, name: `${base} (v${v.version})${x}`, size: st.size }
+    return { abs, name: `${base} (v${v.version})${x}`, size: st.size, st }
   }
 
   async restoreVersion(userId: string, rel: string, versionId: string): Promise<SaveResult> {

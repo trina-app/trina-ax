@@ -125,7 +125,7 @@ export const filesRoutes: RouteModule = {
       // consumers that request attachment bytes without the explicit preview flag.
       // Headerless API/native clients may still perform an authorized download.
       ctx.files.quarantine.assertDownload(f.abs, c.req.raw.headers)
-      return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: query.disposition, via: c.get('info')?.via })
+      return streamFile({ abs: f.abs, seen: f.st, name: f.name, req: c.req.raw, disposition: query.disposition, via: c.get('info')?.via })
     }))
 
     // HEIC / HEIF photos (QA R2-FMT-10): browsers cannot draw them, so the file panel shows a JPEG made on the server
@@ -139,7 +139,7 @@ export const filesRoutes: RouteModule = {
       const noPreview = (reason: 'no_preview' | 'busy' = 'no_preview') => fileError('unavailable', reason === 'busy' ? 'previewBusy' : 'noPreview', undefined, { reason })
       if (!isHeic(f.name)) return noPreview()
       let r: Awaited<ReturnType<typeof previews.jpeg>>
-      try { r = await previews.jpeg(f.abs, { user: auth.user.id, signal: c.req.raw.signal }) } catch (e) {
+      try { r = await previews.jpeg(f.abs, { user: auth.user.id, signal: c.req.raw.signal, seen: f.st }) } catch (e) {
         if (noPreviewError(e)) {
           ctx.log.debug('HEIC preview failed', { err: e })
           return noPreview((e as ToolError).code === 'busy' ? 'busy' : 'no_preview')
@@ -198,7 +198,7 @@ export const filesRoutes: RouteModule = {
     kit.handle(API.versionDownload, ({ c, params, auth }) => mapErrors(c.get('locale'), () => {
       const v = svc.versionFile(auth.user.id, params.versionId)
       ctx.files.quarantine.assertDownload(v.abs, c.req.raw.headers)
-      return streamFile({ abs: v.abs, name: v.name, req: c.req.raw, disposition: 'attachment', via: c.get('info')?.via })
+      return streamFile({ abs: v.abs, seen: v.st, name: v.name, req: c.req.raw, disposition: 'attachment', via: c.get('info')?.via })
     }))
     // a file shared one by one (files/shares.ts; docs/DECISIONS.md "A member shares their own files"): the link, the
     // dialog, the link page and its bytes, the request and its answer; Admin's counts and the team owner's Remove all
@@ -214,7 +214,7 @@ export const filesRoutes: RouteModule = {
       const o = shares.open(auth.user.id, params.id)
       if (o.kind !== 'open') throw new HttpError('not_found')
       ctx.files.quarantine.assertDownload(o.abs, c.req.raw.headers)
-      return streamFile({ abs: o.abs, name: o.name, req: c.req.raw, disposition: query.disposition, via: c.get('info')?.via })
+      return streamFile({ abs: o.abs, seen: o.st, name: o.name, req: c.req.raw, disposition: query.disposition, via: c.get('info')?.via })
     }))
     kit.handle(API.requestFileAccess, ({ c, params, body, auth }) => mapErrors(c.get('locale'), () => shares.request(auth.user.id, params.id, body.message, c.get('locale'))))
     kit.handle(API.answerFileRequest, ({ c, params, body, auth }) => mapErrors(c.get('locale'), () => shares.answer(auth.user.id, params.id, body.answer, c.get('locale'))))
@@ -248,7 +248,7 @@ export const filesRoutes: RouteModule = {
     }, 'name'))
     kit.handle(API.attachmentThumbnail, ({ c, params, auth }) => mapErrors(c.get('locale'), () => {
       const t = C.attachments.thumbnail(auth.user.id, params.id)
-      if ('abs' in t) return streamFile({ abs: t.abs, name: t.name, req: c.req.raw, disposition: 'inline', via: c.get('info')?.via })
+      if ('abs' in t) return streamFile({ abs: t.abs, seen: t.st, name: t.name, req: c.req.raw, disposition: 'inline', via: c.get('info')?.via })
       // a team-file reference: the bytes were read through the descriptor that was checked (no second open by path)
       const etag = `"${t.etag}"`
       const headers = new Headers({ 'Content-Type': t.mime, 'ETag': etag, 'Cache-Control': 'private, no-cache', 'X-Content-Type-Options': 'nosniff',
