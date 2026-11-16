@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16 06:08
 - Branch: `fix/ai-search-rooms` (QA TC-3709)
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/chat/room-hint.ts` new, `server/src/chat/tools.ts` afterFileTool). Why: the AI's tools are core.
 - Version impact: patch. One line added to a grep result; no prompt text.
 
@@ -30,3 +30,8 @@ Out: glob, read; a pattern with regular-expression syntax beyond "a|b" (no hint)
 
 1. This plan. 2. room-hint.ts and the afterFileTool hook. 3. Unit tests. 4. Changes fragment, checks, scenario re-run
 (FLOW-03 twice, ROOM-02, ROOM-05, FLOW-05), PR.
+
+## Result
+
+Built as planned. FLOW-03 passed twice (it grepped "라마바|Lamaba", got the line, searched the rooms, read the thread and
+wrote "Saturday is courier-only"); ROOM-02, ROOM-02.not-member, ROOM-05 (3 variants) and FLOW-05 still pass.
