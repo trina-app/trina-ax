@@ -341,9 +341,10 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // In every own chat the place must be the person's: named in their own message, which asks to send or post, or
         // the side chat's own room (a name a teammate chose reaches the AI in a chat that read nothing too)
         // (a shared chat too: other members' messages are in it, so the asker's own message must ask and bring the files)
-        const alwaysOk = exec.shared ? !plain && mineNamed() && asksToSend(db, spec.userMessageId) && (!all || fromAsker(db, spec, first.offered))
-          : (sideRoomOf(db, spec.chatId, spec.userId)?.id === roomId || mineNamed()) && asksToSend(db, spec.userMessageId)
-            && (!all || !othersWordsIn(exec) || fromAsker(db, spec, first.offered))
+        // where other people's words are in the chat (shared, others write in it, rooms read, content someone else wrote:
+        // othersWordsIn) the card always shows: neither "Always allow" nor the explicit ask skips it there
+        const marked = othersWordsIn(exec)
+        const alwaysOk = !marked && (sideRoomOf(db, spec.chatId, spec.userId)?.id === roomId || mineNamed()) && asksToSend(db, spec.userMessageId)
         // no card when the asker's own message of this turn asked for exactly this post (docs/decisions/
         // 20261116-no-card-after-explicit-ask.md, QA TC-3812): a post word and the place in their words (or, in a room's
         // side chat, no place given: that room), and the card would tell nothing more (no line about people who cannot see
@@ -358,11 +359,11 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const noteOk = first.at === 0 || fold(said).includes(fold(first.body.slice(0, first.at)))
         const place = a.data.room === undefined ? !!side && a.data.thread_id === undefined
           : !readRooms(exec) && a.data.thread_id === undefined && (() => { const r = recipientNames(db, spec.userId, mine?.room ?? null, pendingTo); return namedInFull(said, r.names, { place: !r.person }) })()
-        const explicit = spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && !all && !linesNone.length && !laterLine && asksFor(POST_ASK, said)
+        const explicit = !marked && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && !all && !linesNone.length && !laterLine && asksFor(POST_ASK, said)
           && (plain ? theirText : !exec.shared && !exec.otherAuthors) && noteOk && place
         // (where the choice does not count the card shows; it still offers "Always allow" on its first showing in a chat
         // with nobody else's words, never where other people's words are, nor once the choice is made)
-        const place1 = alwaysOk || (!othersWordsIn(exec) && alwaysHere(exec.alwaysPlace?.(), all ? 'post_files' : 'post_to_room') === 'offer') ? exec.alwaysPlace?.() : null
+        const place1 = alwaysOk || (!marked && alwaysHere(exec.alwaysPlace?.(), all ? 'post_files' : 'post_to_room') === 'offer') ? exec.alwaysPlace?.() : null
         const reply = explicit ? 'send' : await withAlways(place1, all ? 'post_files' : 'post_to_room', options, all ? 'send_files' : 'send', (opts, more) => exec.waitForPerson({
           kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, options: opts, multiple: false, allowText: false, ...(more.note ? { note: more.note } : {}),
           details: [

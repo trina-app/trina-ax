@@ -180,16 +180,16 @@ describe('in a shared chat (the same rules as post_to_room)', () => {
     expect(h.ctx.db.query("SELECT 1 FROM file_shares WHERE path = 'users/bob/salary.pdf'").get()).toBeNull()
   })
 
-  test('Always allow in a shared chat: counts only when the asker\'s own message names the person', async () => {
+  test('Always allow in a shared chat does not skip the card, also when the asker\'s own message names the person', async () => {
     const { keepAlways, dropAlways } = await import('../../server/src/chat/always-allow')
     put('users/bob/photo-5.png', 'png five')
     keepAlways(h.ctx.db, 'bob', 'share_files', null)
     try {
-      // named by bob: no card
+      // named by bob: the card all the same (a shared chat holds other people's words); shared on his yes
       // (the fake engine's directive is in bob's message too: the name spelled with a JSON escape, so only his words count)
       const hidden = (args: Record<string, unknown>) => share(args).replace('Tess Yoon', '\\u0054ess Yoon')
-      const named = await turn('bob', `photo-5.png Tess한테 공유해줘\n${hidden({ paths: ['users/bob/photo-5.png'], people: ['Tess Yoon'] })}`, { chat: chatId })
-      expect(cardsTo('bob', named.turnId)).toBe(0)
+      const named = await turn('bob', `photo-5.png Tess한테 공유해줘\n${hidden({ paths: ['users/bob/photo-5.png'], people: ['Tess Yoon'] })}`, { chat: chatId, answer: 'share' })
+      expect(cardsTo('bob', named.turnId)).toBe(1)
       expect(JSON.parse(named.content).status).toBe('shared')
       // alice names the person, bob's own message does not: the card, without "Always allow"
       await turn('alice', `Bob, share photo-5.png with Tess.\n${fake({ say: 'ok' })}`, { chat: chatId })

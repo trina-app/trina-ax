@@ -26,7 +26,7 @@ import { authorize } from '../policy/authorize'
 import { atLeast, isStaff, type Principal } from '../policy/access'
 import { tr } from './i18n'
 import { alwaysHere, withAlways } from './always-allow'
-import { fromAsker } from './shared-actions'
+import { fromAsker, othersWordsIn } from './shared-actions'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
 import type { StoredStep } from './store'
 import { cardEndShort, endOfText, readOnlyNote, type CardOutcome } from '../policy/refusal'
@@ -538,7 +538,8 @@ export function turnPerson(exec: TurnExec): TurnPerson {
     // a team file attached to a connection's send (integrations/connections/tools.ts): a file the person's own
     // message did not bring (named or attached it, or the AI wrote it new in this answer) keeps the card, in every
     // chat: a file name a teammate chose reaches the AI in a chat that read nothing too (chat/shared-actions.ts)
-    attachAsks: (paths) => !fromAsker(exec.rt.db, exec.spec, paths),
+    // ...and always where other people's words are in the chat (othersWordsIn): no skip there
+    attachAsks: (paths) => othersWordsIn(exec) || !fromAsker(exec.rt.db, exec.spec, paths),
     webAccessChanged: () => exec.rt.hub.publish(exec.spec.userId, WEB_ACCESS_CHANGED),
     ...(exec.profileDraft ? { unattendedLabel: 'company profile draft answer', scope: (url: string) => draftUrlRefusal(exec.profileDraft!.scope, url), ...(exec.profileDraft.pages ? { pages: exec.profileDraft.pages } : {}) } : {}),
   }

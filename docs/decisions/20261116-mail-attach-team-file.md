@@ -36,7 +36,8 @@
     turn the person watches from their own app; a question asked elsewhere (Slack) attaches nothing without a card.
     The card decides as it did (docs/DECISIONS.md "Always allow on every card"), with one addition made in the batch:
     a file the person's own message did not bring (named or attached it, or the AI wrote it new in this answer: not a
-    file a tool built from another one) keeps the card, in every chat (`TurnPerson.attachAsks`;
+    file a tool built from another one) keeps the card, in every chat, and in a chat with other people's words every
+    attached team file keeps it (`TurnPerson.attachAsks`;
     docs/decisions/20261116-always-allow-more-cards.md "Content written by others"). The text of a send still follows the connection's rule there, as before.
     The audit line names every file that left.
   - **Stored keys:** a file whose bytes hold one of the person's stored connection keys (as text, as UTF-16, or cut by

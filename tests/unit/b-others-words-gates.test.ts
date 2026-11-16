@@ -124,16 +124,16 @@ describe('share_with_person with "Always allow" on, in my own chat', () => {
     expect(sharedRow('users/bob/ledger-5.txt')).toBeNull()
   })
 
-  test('what my own message names stays card-free after such a read: an explicit ask, and Always allow with the file and the person named', async () => {
+  test('after such a read the card always shows: neither an explicit ask nor Always allow skips it', async () => {
     const first = await turn('bob', `read it\n${read('shared/alice-notes.md')}`)
-    // an explicit ask (docs/decisions/20261116-no-card-after-explicit-ask.md)
+    // an explicit ask (docs/decisions/20261116-no-card-after-explicit-ask.md): the card, in a chat with other people's words
     const explicit = await turn('bob', `share ledger-6.txt with tess\n${unnamed(6)}`, first.chatId)
-    expect(explicit.cards).toHaveLength(0)
-    expect(JSON.parse(explicit.content).status).toBe('shared')
-    // a send word, the file and the person in my words: my Always allow counts
+    expect(explicit.cards).toHaveLength(1)
+    expect(sharedRow('users/bob/ledger-6.txt')).toBeNull()
+    // a send word, the file and the person in my words: still the card
     const named = await turn('bob', `send ledger-7.txt to tess\n${unnamed(7)}`, first.chatId)
-    expect(named.cards).toHaveLength(0)
-    expect(JSON.parse(named.content).status).toBe('shared')
+    expect(named.cards).toHaveLength(1)
+    expect(sharedRow('users/bob/ledger-7.txt')).toBeNull()
     // the person named, the file not: the card
     const half = await turn('bob', `send it to tess\n${unnamed(8)}`, first.chatId)
     expect(half.cards).toHaveLength(1)
@@ -160,10 +160,10 @@ describe('post_to_room with "Always allow" on, in my own chat', () => {
     expect(r.content).not.toContain('"status":"sent"')
   })
 
-  test('...and a place my message names goes without the card', async () => {
+  test('...and a place my message names keeps the card too', async () => {
     const r = await turn('bob', `send this one to tess\n${read('shared/alice-notes.md')}\n${post({ room: 'Tess Yoon', text: 'hello three' })}`)
-    expect(r.cards).toHaveLength(0)
-    expect(JSON.parse(r.content).status).toBe('sent')
+    expect(r.cards).toHaveLength(1)
+    expect(r.content).not.toContain('"status":"sent"')
   })
 })
 
@@ -248,10 +248,11 @@ describe('a file the AI did not write in this answer is not one the asker brough
     const edited = await turn('bob', `send the summary to tess\n${readIt}\n${read('users/bob/payroll-c.txt')}\n${fake({ tool: 'edit', args: { file_path: 'users/bob/payroll-c.txt', old_string: 'pay c', new_string: 'pay c.' } })}\n${to('users/bob/payroll-c.txt')}`)
     expect(sharedRow('users/bob/payroll-c.txt')).toBeNull()
     expect(edited.content).not.toContain('"status":"shared"')
-    // a new file the AI wrote in this answer: shared without the card
+    // a new file the AI wrote in this answer: one the asker brought (fromAsker), though the card shows in this chat
     const made = await turn('bob', `send the summary to tess\n${readIt}\n${fake({ tool: 'write', args: { file_path: 'users/bob/new-summary.md', content: 'summary' } })}\n${to('users/bob/new-summary.md')}`)
-    expect(made.cards).toHaveLength(0)
-    expect(JSON.parse(made.content).status).toBe('shared')
+    expect(fromAsker(h.ctx.db, { userMessageId: made.messageId, turnId: made.turnId }, ['users/bob/new-summary.md'])).toBe(true)
+    expect(fromAsker(h.ctx.db, { userMessageId: copied.messageId, turnId: copied.turnId }, ['users/bob/out-a/payroll-a.txt'])).toBe(false)
+    expect(made.cards).toHaveLength(1)
   })
 })
 
@@ -282,8 +283,8 @@ describe('a scheduled run (nobody answers a card)', () => {
     // the run read a teammate's file, and the task's text does not name the file: nothing is shared
     const steered = await run('send the weekly file to tess', true, 1)
     expect(steered).toContain('Nothing was shared: the card got no answer in time')
-    // the task's own text names both: shared
-    expect(JSON.parse(await run('send ledger-9.txt to tess every week', true, 9)).status).toBe('shared')
+    // the task's own text names both: still nothing without an answer (the card always shows after content by others)
+    expect(await run('send ledger-9.txt to tess every week', true, 9)).toContain('Nothing was shared: the card got no answer in time')
   })
 })
 
@@ -397,8 +398,10 @@ describe('second review: what "made in this answer" means, and a chat that read 
     // its own text alone: made in this answer
     const own = await turn('bob', `send the summary to tess\n${readIt}\n${fake({ tool: 'make_file', args: { content: 'a,b\n1,2\n', format: 'xlsx', output: 'users/bob/out-x.xlsx' } })}\n${to('users/bob/out-x.xlsx')}`)
     expect(fs.existsSync(path.join(h.ctx.files.fx.root, 'users/bob/out-x.xlsx'))).toBe(true)
-    expect(own.cards).toHaveLength(0)
-    expect(JSON.parse(own.content).status).toBe('shared')
+    // (one the asker brought, fromAsker; the card shows anyway in a chat with other people's words)
+    expect(fromAsker(h.ctx.db, { userMessageId: own.messageId, turnId: own.turnId }, ['users/bob/out-x.xlsx'])).toBe(true)
+    expect(fromAsker(h.ctx.db, { userMessageId: built.messageId, turnId: built.turnId }, ['users/bob/out-z.xlsx'])).toBe(false)
+    expect(own.cards).toHaveLength(1)
   })
 
   test('a chat that read nothing from others: "Always allow" still needs my own message to ask and to name who or where', async () => {
@@ -432,6 +435,9 @@ describe('second review: what "made in this answer" means, and a chat that read 
     expect(person.attachAsks!(['users/bob/out-v.xlsx'])).toBe(false)
     // a file my message did not name, made before this answer: the card
     expect(person.attachAsks!(['users/bob/ledger-5.txt'])).toBe(true)
+    // a chat with other people's words: the card for every attached file, also one the AI wrote itself
+    const marked = turnPerson({ spec: { userMessageId: built.messageId, turnId: built.turnId, locale: 'en', userId: 'bob', chatId: built.chatId }, rt: { db: h.ctx.db }, othersWords: true } as unknown as TurnExec)
+    expect(marked.attachAsks!(['users/bob/out-v.xlsx'])).toBe(true)
   })
 
   test('words that only mention telling or sharing are not an ask to send', async () => {

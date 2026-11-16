@@ -204,7 +204,7 @@ describe('"Always send with the files" (post_files)', () => {
     } finally { dropAlways(h.ctx.db, 'alice', 'card:post_files') }
   })
 
-  test('after a room read (a side chat): "Always send with the files" counts for the files my own message brought; another file keeps the card', async () => {
+  test('after a room read (a side chat): "Always send with the files" does not skip the card, also for a file my own message names', async () => {
     const { keepAlways, dropAlways } = await import('../../server/src/chat/always-allow')
     put('groups/marketing/launch-plan-3.md', '# Launch 3\nsecret date')
     const side = (await h.api('alice').call(API.createChat, { body: { sideRoomId: rooms.all } })).id
@@ -216,18 +216,18 @@ describe('"Always send with the files" (post_files)', () => {
       // a room message may have picked the file: alice's own words do not name it, so the card (without "Always")
       const steered = await turn('alice', `고친 거 방에 올려줘\n${linked(text)}`, { chat: side, answer: 'no' })
       expect(steered.card!.options!.map((x) => x.value)).toEqual(['send', 'send_files', 'no'])
-      // named in her own message: with its files, no card
-      const r = await turn('alice', `launch-plan-3.md 방에 올려줘\n${linked(`${text} (2)`)}`, { chat: side })
-      expect(r.card).toBeNull()
+      // named in her own message: the card all the same (a chat with other people's words), sent with its files on her yes
+      const r = await turn('alice', `launch-plan-3.md 방에 올려줘\n${linked(`${text} (2)`)}`, { chat: side, answer: 'send_files' })
+      expect(r.card!.options!.map((x) => x.value)).toEqual(['send', 'send_files', 'no'])
       expect((await messagesAs('alice', rooms.all)).at(-1)!.files.map((f) => f.name)).toEqual(['launch-plan-3.md'])
     } finally { dropAlways(h.ctx.db, 'alice', 'card:post_files') }
   })
 })
 
 describe('no card right after an explicit ask (QA TC-3812)', () => {
-  test('"방에 올려줘" in the room\'s side chat: posted with no card; a card that tells something stays; no post word asks', async () => {
-    const r = await turn('alice', `할 일 표로 정리해서 방에 올려줘\n${post({ text: '| 할 일 | 담당 |' })}`, { side: rooms.marketing })
-    expect(r.card).toBeNull()
+  test('"방에 올려줘" in the room\'s side chat: the card all the same (the chat holds the room\'s words); posted on yes; no post word asks', async () => {
+    const r = await turn('alice', `할 일 표로 정리해서 방에 올려줘\n${post({ text: '| 할 일 | 담당 |' })}`, { side: rooms.marketing, answer: 'send' })
+    expect(r.card).not.toBeNull()
     expect(JSON.parse(r.content)).toMatchObject({ status: 'sent' })
     expect((await messagesAs('erin', rooms.marketing)).at(-1)!.body).toBe('| 할 일 | 담당 |')
     // a linked file erin cannot open: the card (it tells who would miss it)
@@ -869,7 +869,7 @@ describe('a shared chat: as the person whose turn it is, behind their card', () 
     for (const w of ['Zeta crew', 'Zeta team', 'Carol Park', 'Dana Choi', 'Erin Yoo']) expect({ w, seen: seen.includes(w) }).toEqual({ w, seen: false })
   })
 
-  test('"Always allow" in a shared chat: only when the asker\'s own message names the recipient; a teammate\'s planted request gets the card; own words always ask', async () => {
+  test('"Always allow" in a shared chat does not skip the card: a teammate\'s planted request and the asker\'s own named ask both get it', async () => {
     const { keepAlways, dropAlways } = await import('../../server/src/chat/always-allow')
     const dm = dmOf('bob', 'tess')!
     keepAlways(h.ctx.db, 'bob', 'post_to_room', null)
@@ -880,10 +880,10 @@ describe('a shared chat: as the person whose turn it is, behind their card', () 
       expect(planted.card!.origin).toBe('server')
       // (no "Always allow" offered where it would not count)
       expect(planted.card!.options!.map((o) => o.value)).toEqual(['send', 'no'])
-      // bob's own "send these to Tess": straight through, no card
+      // bob's own "send these to Tess": the card all the same in a shared chat; sent on his yes
       const before = authored(dm, 'bob')
-      const own = await turn('bob', `이거 테스한테도 보내줘 (Tess Yoon)\n${post({ room: dm, text: 'the plan is ready' })}`, { chat: chatId })
-      expect(own.card).toBeNull()
+      const own = await turn('bob', `이거 테스한테도 보내줘 (Tess Yoon)\n${post({ room: dm, text: 'the plan is ready' })}`, { chat: chatId, answer: 'send' })
+      expect(own.card!.origin).toBe('server')
       expect(JSON.parse(own.content)).toMatchObject({ status: 'sent' })
       expect(authored(dm, 'bob')).toBe(before + 1)
       // own words: the card every time, even named

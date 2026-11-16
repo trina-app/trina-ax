@@ -33,11 +33,13 @@ content may have been chosen by someone else's text, the person's words do not h
 | Delete to trash, move/copy that changes who sees, project members, AI video (credits), big download, remember | stays | destructive, costly or access-changing; Always allow ends each |
 | Web address cards | stays | covered by Always allow / Allow all websites and fix/room-link-save-one-prompt |
 
-**Content written by others (added in the batch):** the rule above is unchanged. It reads only the person's own
-message, so it also holds in a chat that read a teammate's file, a file shared with them or a web page. What changed is
-the other path: there the person's "Always allow" no longer covers a share, a post or an attached file their own message
-did not name (docs/decisions/20261116-always-allow-more-cards.md "Content written by others"). A quoted line names
-neither a file nor a person for "Always allow".
+**Content written by others (added in the batch, changed after the second review):** for a share, a post to a
+conversation and a team file attached to a send, the rule applies only in a chat with nobody else's words in it. In a
+shared chat, a chat others wrote in, a chat that read a room (a room's side chat too), or one that read content someone
+else wrote (a teammate's file, a file shared with the person, a web page, a connected service), those cards always show:
+neither this rule nor "Always allow" skips them (docs/decisions/20261116-always-allow-more-cards.md "Second review").
+Matching which words of a message name a recipient cannot be made safe against a name or a text someone else chose, so
+it only removes cards where the worst case is the person's own words. A quoted line names neither a file nor a person.
 
 **Review (Opus):** two must-fix (read-like verbs and refusals counted as asks, so "새 소식 알려줘" plus a planted room message posted with no card; an AI note posted as the person's words) and the should-fix items (an allowlist of tools, wider recipient keys, empty/null/small numbers, one-letter matches, given names, an AI-chosen thread) are in.
 

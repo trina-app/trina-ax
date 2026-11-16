@@ -114,9 +114,9 @@ const BEFORE_PERSON = '(?:(?:^|[^\\p{L}\\p{N}])(?:to|with|cc|ke|dengan|kepada)\\
 const AFTER_ONE_NAMED = '(?<!(?:^|[^\\p{L}\\p{N}])(?:to|with|cc)\\s+@?(?:(?!(?:share|send|post|forward|give|show|pass|email|mail|bagikan|kirim)\\b)[\\p{L}\\p{N}._\'-]+\\s+){0,2}(?!(?:share|send|post|forward|give|show|pass|email|mail|bagikan|kirim)\\b)[\\p{L}\\p{N}._\'-]+)'
 const BEFORE_PLACE = '(?:(?:^|[^\\p{L}\\p{N}])(?:to|in|into|on|ke|di)\\s+(?:the\\s+)?[@#]?|[(@#]\\s*)'
 const HONORIFIC = '(?:\\s?(?:\\uB2D8|\\uC528))?'
-const AFTER_PERSON = `${HONORIFIC}(?:\\uC774\\uC5D0\\uAC8C|\\uC774\\uD55C\\uD14C|\\uB354\\uB7EC|\\uC5D0\\uAC8C|\\uD55C\\uD14C|\\uAED8|(?:\\uC774|\\uAC00)\\s?(?:\\uBCFC\\s?\\uC218|\\uBCF4\\uAC8C|\\uBCF4\\uB3C4\\uB85D))`
+const AFTER_PERSON = `${HONORIFIC}(?:\\uC774\\uC5D0\\uAC8C|\\uC774\\uD55C\\uD14C|\\uB354\\uB7EC|\\uC5D0\\uAC8C|\\uD55C\\uD14C|\\uAED8|(?:\\uC774|\\uAC00)\\s?(?:\\uBCFC\\s?\\uC218(?!\\s?\\uC5C6)|\\uBCF4\\uAC8C|\\uBCF4\\uB3C4\\uB85D))`
 /** "(가) 볼 수 / 보게" names a person only with 이/가 or 님/씨 on the name ("바로 볼 수 있게" is an adverb) */
-const SEES_AFTER_HONORIFIC = '\\s?(?:\\uB2D8|\\uC528)(?:\\uC774|\\uAC00)?\\s?(?:\\uBCFC\\s?\\uC218|\\uBCF4\\uAC8C|\\uBCF4\\uB3C4\\uB85D)'
+const SEES_AFTER_HONORIFIC = '\\s?(?:\\uB2D8|\\uC528)(?:\\uC774|\\uAC00)?\\s?(?:\\uBCFC\\s?\\uC218(?!\\s?\\uC5C6)|\\uBCF4\\uAC8C|\\uBCF4\\uB3C4\\uB85D)'
 const JOIN_KO = '(?:\\uC774\\uD558\\uACE0|\\uC774\\uB791|\\uD558\\uACE0|\\uB791|\\uC640|\\uACFC)'
 const AFTER_PLACE = '(?:\\uC5D0\\uB2E4\\uAC00|\\uBC29\\uC73C\\uB85C|\\uCC44\\uB110\\uC5D0|\\uC5D0\\uB2E4|\\uD55C\\uD14C|\\uBC29\\uC5D0|\\uC5D0\\uAC8C|\\uC5D0|\\uAED8)'
 function holdsAsRecipient(text: string, n: string, place: boolean, peers: readonly string[] = []): boolean {
