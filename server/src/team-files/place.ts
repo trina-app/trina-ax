@@ -48,6 +48,16 @@ export function openedPath(fd: number): string | null {
  * only checked to be regular.
  */
 export function openChecked(abs: string, seen?: fs.Stats): { fd: number; st: fs.Stats } {
+  if (!seen) return openRegular(abs)
+  // after a check, every way the open can fail gives the same answer: whatever the name means now is not told
+  try {
+    const opened = openRegular(abs, seen)
+    return opened
+  } catch { throw new Denied(CHANGED) }
+}
+const CHANGED = 'path changed while opening'
+
+function openRegular(abs: string, seen?: fs.Stats): { fd: number; st: fs.Stats } {
   let fd: number
   try { fd = fs.openSync(abs, C.O_RDONLY | C.O_NOFOLLOW | (C.O_NONBLOCK ?? 0)) } catch (e: any) {
     if (e.code === 'ELOOP' || e.code === 'EMLINK') throw new Denied('symbolic links are not followed')
@@ -65,18 +75,21 @@ export function openChecked(abs: string, seen?: fs.Stats): { fd: number; st: fs.
 
 /** sha256 of a file, streamed (never loaded whole). */
 export async function hashFile(abs: string, from?: { hash: crypto.Hash; offset: number }): Promise<string> {
-  const h = from?.hash ?? crypto.createHash('sha256')
   const { fd } = openChecked(abs)
-  try {
-    const buf = Buffer.allocUnsafe(4 * 1024 * 1024)
-    let pos = from?.offset ?? 0
-    for (;;) {
-      const n = await new Promise<number>((res, rej) => fs.read(fd, buf, 0, buf.length, pos, (err, n) => (err ? rej(err) : res(n))))
-      if (!n) break
-      h.update(buf.subarray(0, n))
-      pos += n
-    }
-  } finally { fs.closeSync(fd) }
+  try { return await hashOpen(fd, from) } finally { fs.closeSync(fd) }
+}
+
+/** sha256 of an open file (the caller's checked descriptor; it stays open), streamed. */
+export async function hashOpen(fd: number, from?: { hash: crypto.Hash; offset: number }): Promise<string> {
+  const h = from?.hash ?? crypto.createHash('sha256')
+  const buf = Buffer.allocUnsafe(4 * 1024 * 1024)
+  let pos = from?.offset ?? 0
+  for (;;) {
+    const n = await new Promise<number>((res, rej) => fs.read(fd, buf, 0, buf.length, pos, (err, n) => (err ? rej(err) : res(n))))
+    if (!n) break
+    h.update(buf.subarray(0, n))
+    pos += n
+  }
   return h.digest('hex')
 }
 

@@ -27,7 +27,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { which, ocrBin } from '../config'
 import { ToolError } from '../policy/errors'
-import { hashFile, openChecked } from '../team-files/place'
+import { hashOpen, openChecked } from '../team-files/place'
 import { makeWorkDir, readOutput, runIsolated } from '../tools/isolate'
 import { ext } from './extract'
 
@@ -220,10 +220,14 @@ export class HeicPreviews {
   }
 
   private async preview(abs: string, user: string, signal?: AbortSignal, seen?: fs.Stats): Promise<{ bytes: Buffer; etag: string } | null> {
+    // the content hash (and so the cached preview and the ETag) comes from the file that was checked: hashed through
+    // this descriptor, never through the name again
     const { fd, st } = openChecked(abs, seen)
-    fs.closeSync(fd)
-    if (st.size > PREVIEW_INPUT_MAX) throw new ToolError(`too large to preview (over ${PREVIEW_INPUT_MAX / 1024 / 1024} MB)`, 'too_large')
-    const fileSha = await this.fileSha(abs, st)
+    let fileSha: string
+    try {
+      if (st.size > PREVIEW_INPUT_MAX) throw new ToolError(`too large to preview (over ${PREVIEW_INPUT_MAX / 1024 / 1024} MB)`, 'too_large')
+      fileSha = await this.fileSha(abs, st, fd)
+    } finally { fs.closeSync(fd) }
     const key = previewKey(fileSha)
     const file = path.join(this.dir, key + '.jpg')
     const hit = await this.read(file)
@@ -295,14 +299,15 @@ export class HeicPreviews {
     return job
   }
 
-  /** sha256 of the file content, kept by inode, size, mtime and ctime (ctime cannot be set by a user) */
-  private fileSha(abs: string, st: fs.Stats): Promise<string> {
+  /** sha256 of the content of the open file `fd` (`st`: its fstat), kept by inode, size, mtime and ctime (ctime cannot
+   * be set by a user). A hash already running for the same key reads the same file (same inode, same times). */
+  private fileSha(abs: string, st: fs.Stats, fd: number): Promise<string> {
     const k = `${abs}\0${st.dev}\0${st.ino}\0${st.size}\0${st.mtimeMs}\0${st.ctimeMs}`
     const hit = this.shas.get(k)
     if (hit) return Promise.resolve(hit)
     let p = this.hashing.get(k)
     if (!p) {
-      p = hashFile(abs).then((h) => {
+      p = hashOpen(fd).then((h) => {
         this.shas.set(k, h)
         if (this.shas.size > 1000) this.shas.delete(this.shas.keys().next().value!)
         return h

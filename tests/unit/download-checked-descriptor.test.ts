@@ -9,7 +9,9 @@ import path from 'node:path'
 import { makeCApp, type CApp } from '../lib/c-app'
 import { componentC } from '../../server/src/team-files/component'
 import { fileBody, lentDescriptors, streamFile } from '../../server/src/team-files/download'
-import { openChecked } from '../../server/src/team-files/place'
+import { hashOpen, openChecked } from '../../server/src/team-files/place'
+import { HeicPreviews, previewKey } from '../../server/src/files/heic-preview'
+import { sha256hex as sha256 } from '../lib/c-app'
 
 const CHECKED = 'the file that was checked\n'.repeat(400)
 const OTHER = 'a file that was never checked\n'.repeat(400)
@@ -197,6 +199,89 @@ describe('the name changes after the open, before the body is read', () => {
       } finally { server.stop(true) }
     })
   }
+})
+
+describe('after the check, one answer for every change', () => {
+  test('gone, another file, a link, a folder that became a link: the same refusal', () => {
+    const answers = new Set<string>()
+    const cases: Record<string, (dir: string) => void> = {
+      gone: (dir) => fs.rmSync(mine(`${dir}/report.txt`)),
+      'another file': (dir) => { fs.writeFileSync(mine(`${dir}/x`), OTHER); fs.renameSync(mine(`${dir}/x`), mine(`${dir}/report.txt`)) },
+      'a folder now': (dir) => { fs.rmSync(mine(`${dir}/report.txt`)); fs.mkdirSync(mine(`${dir}/report.txt`)) },
+      ...CHANGES,
+    }
+    for (const change of Object.values(cases)) {
+      const dir = folder()
+      const f = check(`${dir}/report.txt`)
+      change(dir)
+      let err: unknown
+      try { fs.closeSync(openChecked(f.abs, f.st).fd) } catch (e) { err = e }
+      expect(err).toBeInstanceOf(Error)
+      answers.add(`${(err as Error).constructor.name}: ${(err as Error).message}`)
+    }
+    expect([...answers]).toHaveLength(1)
+  })
+})
+
+describe('HEIC preview', () => {
+  const PHOTO_A = Buffer.from('heic bytes of the checked photo')
+  const PHOTO_B = Buffer.from('heic bytes of a photo that was never checked')
+  const cached = (dir: string, content: Buffer, jpeg: string) => {
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, previewKey(sha256(content)) + '.jpg'), jpeg)
+  }
+
+  test('the preview of the checked photo (from the cache: no converter needed)', async () => {
+    const dir = folder()
+    fs.writeFileSync(mine(`${dir}/photo.heic`), PHOTO_A)
+    cached(path.join(a.data, 'previewcache'), PHOTO_A, 'jpeg of the checked photo')
+    const r = await a.req(`/api/files/preview?path=${encodeURIComponent(`users/alice/${dir}/photo.heic`)}`, { as: 'alice' })
+    expect(r.status).toBe(200)
+    expect(await r.text()).toBe('jpeg of the checked photo')
+  })
+
+  for (const [what, change] of Object.entries({
+    'the file becomes a link': (dir: string) => { fs.rmSync(mine(`${dir}/photo.heic`)); fs.symlinkSync(path.join(elsewhere, 'photo.heic'), mine(`${dir}/photo.heic`)) },
+    'a folder on the way becomes a link': (dir: string) => { fs.renameSync(mine(dir), mine(`${dir}-kept`)); fs.symlinkSync(elsewhere, mine(dir)) },
+  })) {
+    test(`${what} after the check: refused, never the preview of other content`, async () => {
+      const dir = folder()
+      fs.writeFileSync(mine(`${dir}/photo.heic`), PHOTO_A)
+      fs.writeFileSync(path.join(elsewhere, 'photo.heic'), PHOTO_B)
+      const cache = path.join(a.data, `previewcache-${dir}`)
+      cached(cache, PHOTO_B, 'jpeg of other content')
+      const f = check(`${dir}/photo.heic`)
+      change(dir)
+      const r = await new HeicPreviews(cache, { heifDec: null, imageIo: null }).jpeg(f.abs, { seen: f.st }).then((x) => x?.bytes.toString(), (e: unknown) => e)
+      expect(r).toBeInstanceOf(Error)
+    })
+  }
+
+  test('the photo is opened by name once: the hash that picks the cached preview comes from the checked open', async () => {
+    const dir = folder()
+    fs.writeFileSync(mine(`${dir}/photo.heic`), PHOTO_A)
+    const cache = path.join(a.data, `previewcache-${dir}`)
+    cached(cache, PHOTO_A, 'jpeg of the checked photo')
+    const f = check(`${dir}/photo.heic`)
+    const real = fs.openSync
+    let opens = 0
+    fs.openSync = ((p: fs.PathLike, ...rest: unknown[]) => { if (String(p) === f.abs) opens++; return (real as (...x: unknown[]) => number)(p, ...rest) }) as typeof fs.openSync
+    try {
+      const r = await new HeicPreviews(cache, { heifDec: null, imageIo: null }).jpeg(f.abs, { seen: f.st })
+      expect(r?.bytes.toString()).toBe('jpeg of the checked photo')
+    } finally { fs.openSync = real }
+    expect(opens).toBe(1)
+  })
+
+  test('the content hash is read from the descriptor that was checked, whatever the name means later', async () => {
+    const dir = folder()
+    const f = check(`${dir}/report.txt`)
+    const { fd } = openChecked(f.abs, f.st)
+    try {
+      folderBecomesLink(dir)
+      expect(await hashOpen(fd)).toBe(sha256(Buffer.from(CHECKED)))
+    } finally { fs.closeSync(fd) }
+  })
 })
 
 describe('descriptors', () => {

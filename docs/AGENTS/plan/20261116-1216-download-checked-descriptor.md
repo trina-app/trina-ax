@@ -29,8 +29,7 @@ In:
 - The comment at the top of `download.ts`.
 - Tests first: they show what today's code does for each case.
 
-Out: reads of a file's content by the AI tools and the file panel (`files/store.ts readRegular`): they refuse a link
-in the last name, and are not a download. Reported separately.
+Out: nothing else.
 
 ## Steps
 
@@ -46,9 +45,10 @@ None. No rule changes: links and hard links were refused already; the download n
 ## Risks
 
 - Bun 1.3.12 has no way to say when a response body has gone out. A body sent with sendfile (Linux) must be a file
-  Bun opens itself, so it is given the path of our open descriptor and the descriptor is closed a little later. Checked
-  by hand on Bun 1.3.12 (Linux and macOS): Bun opens its own descriptor when the response starts, and the download goes
-  on after ours is closed.
+  Bun opens itself, so it is given the path of our open descriptor and the descriptor is closed later (30 s). Bun opens
+  its own descriptor some time after the route answers, not in the same tick (later under TLS on Bun 1.3.12; a few
+  milliseconds measured), so a timer that fires late (the event loop stood still) waits again instead of closing.
+  Checked by hand on Bun 1.3.12 (Linux and macOS): the download goes on after ours is closed.
 - A file replaced by a normal save between the check and the open is refused once (the next request works).
 - macOS has no /proc: the path of an open file comes from Bun's `realpath` of `/dev/fd/N`, as `devenv/snapshot.ts` and
   `team-files/connected.ts` already do.
@@ -62,12 +62,13 @@ None. No rule changes: links and hard links were refused already; the download n
 
 Built as planned.
 
-- What the code did before, per case (the new tests, run on the code as it was): a link as the last name, a folder on
-  the way that is a link, and a hard-linked file were refused already. A change of the name after the check was not
-  always kept out: the body of a whole-file download on Linux, and of any download through the team address, was
-  opened by name a second time, and no open compared the file with the one that was checked.
+- A link as the last name, a folder on the way that is a link, and a hard-linked file were refused already; the new
+  tests keep that, and add the cases where the name changes during a download.
 - `openChecked(abs, seen)` compares device and inode with the check's `lstat` and the open file's own path with the
-  checked path. `streamFile`, `fileBody` and `rangeStream` read from that one descriptor.
+  checked path; after a check every way the open can fail gives one answer. `streamFile`, `fileBody` and `rangeStream`
+  read from that one descriptor; the HEIC preview hashes its input through the descriptor it checked.
+- The server runs on Linux and macOS only (native helpers are built for those two), so the open file's path is always
+  known.
 - Callers that pass what their check saw: file download, shared-file link, file version, attachment thumbnail of a team
   file, HEIC preview, a team file copied into a room, the hash and thumbnail of a team file attached to a chat.
   Server-owned folders (chat and room uploads, their thumbnails, installers, decks, videos) keep the plain open, and
@@ -75,8 +76,6 @@ Built as planned.
 - Differs from the plan: a body through the team address is now our pull stream (it was a Bun.file read lazily); read
   as lazily, and the range path used it already. A reader that leaves while a read is on the thread pool no longer
   closes the descriptor under that read.
-- Not in this change: `files/store.ts readRegular` (content reads by the AI tools and the file panel) opens without
-  following a link in the last name, but does not compare the file with its check. Reported for a follow-up.
 - Checks: typecheck, check:docs; the download and team-file unit tests on macOS (Bun 1.4.4 and 1.3.12) and in the
   `oven/bun:1.3.12` Linux image.
 - PR: https://github.com/trina-app/trina-ax/pull/1123

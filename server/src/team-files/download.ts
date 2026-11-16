@@ -27,9 +27,10 @@
 //   read from that descriptor. Nothing here opens the path a second time.
 //   A sendfile body has to be a file that Bun opens itself (Bun 1.3.12: a Bun.file made from a descriptor cannot be
 //   sliced, and Bun.serve does not say when a body has gone out, so nobody could close it). It gets the descriptor's
-//   own address (/proc/self/fd/N: the same open file whatever its name is by then), which Bun opens when it starts the
-//   response; our descriptor is closed LEND_MS later (checked on Bun 1.3.12 and 1.4: the download goes on from Bun's
-//   own descriptor after ours is closed).
+//   own address (/proc/self/fd/N: the same open file whatever its name is by then), which Bun opens some time after
+//   the route answers (not in the same tick: later under TLS on Bun 1.3.12, a few milliseconds measured). Our
+//   descriptor is closed LEND_MS later, and never by a timer that fired late (the event loop stood still: it waits
+//   again). Checked on Bun 1.3.12 and 1.4: the download goes on from Bun's own descriptor after ours is closed.
 import fs from 'node:fs'
 import { HttpError } from '../http/errors'
 import { openChecked } from './place'
@@ -69,10 +70,12 @@ function hold(n: number, signal?: AbortSignal): () => void {
 /** Bun.file bodies (sendfile) only where sendfile cannot block the JS thread: Linux (see the top of this file). */
 export const SENDFILE = process.platform === 'linux'
 
-/** How long a descriptor lent to a sendfile body stays open (see the top). Bun opens the body's file when it starts the
- * response, right after the route answers; this is far longer, and costs one open descriptor per such download for
+/** How long a descriptor lent to a sendfile body stays open (see the top). Bun opens the body's file a few milliseconds
+ * after the route answers; this is far longer, and costs one open descriptor per such download for
  * that time (Bun raises the open-file limit to the hard limit at start: 524288 under systemd and Docker). */
 export const LEND_MS = 30_000
+/** a lending timer this late (the event loop stood still) waits another LEND_MS instead of closing */
+const LEND_LATE_MS = 1_000
 let lent = 0
 /** descriptors lent to sendfile bodies and not closed yet (tests) */
 export const lentDescriptors = () => lent
@@ -80,8 +83,18 @@ export const lentDescriptors = () => lent
 /** A Bun.file of the open file itself (not of its name), for a body Bun must open on its own. Takes the descriptor. */
 function lend(fd: number): Blob {
   lent++
-  const t = setTimeout(() => { lent--; try { fs.closeSync(fd) } catch {} }, LEND_MS)
-  t.unref?.()
+  // Bun opens the body's file some time after the route answers (later under TLS than over plain HTTP). A timer that
+  // fires late means the event loop stood still, maybe before Bun got to it: then wait another LEND_MS, never close.
+  const arm = () => {
+    const due = Date.now() + LEND_MS
+    const t = setTimeout(() => {
+      if (Date.now() - due > LEND_LATE_MS) { arm(); return }
+      lent--
+      try { fs.closeSync(fd) } catch {}
+    }, LEND_MS)
+    t.unref?.()
+  }
+  arm()
   return Bun.file(process.platform === 'linux' ? `/proc/self/fd/${fd}` : `/dev/fd/${fd}`)
 }
 
