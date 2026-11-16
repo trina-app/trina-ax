@@ -3204,7 +3204,7 @@ export const id: Record<MessageKey, string> = {
   'storage.part.data': 'Data server',
   'storage.part.app': 'Aplikasi',
   'storage.part.other': 'Lainnya',
-  "storage.kept": "Berkas tim termasuk {size} dari chat dan percakapan yang dihapus, dihapus setelah 30 hari",
+  "storage.kept": "Berkas tim mencakup {size} dari chat dan percakapan yang dihapus, yang dibuang setelah 30 hari",
   'storage.measured': 'Diukur {date}',
   'storage.planDisk': 'Disk {gb} GB',
   'plan.title': 'Paket',

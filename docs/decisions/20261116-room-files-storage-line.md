@@ -14,8 +14,9 @@
   files" no longer includes them. The number takes in the pictures' small previews and the attach-sheet copies kept for
   a day, which live in the same folder.
 - **One number, never split.** No row per person, per conversation or per file, and no file name: admins never see who
-  talks to whom or what they send in conversations they are not in (Slack shows admins counts only, and private-channel
-  counts only on Enterprise). In a team of three the number still shows that conversation files exist; those are the
+  talks to whom or what they send in conversations they are not in. Slack's admin analytics show counts of files,
+  never a list, and counts for private channels only on Enterprise
+  (https://slack.com/help/articles/360057638533, https://slack.com/help/articles/218407447). In a team of three the number still shows that conversation files exist; those are the
   same bytes "Team files" showed before.
 - **Left in Team files:** the files of AI chats (`.system/chat-files`) and the set-aside files of deleted chats and
   conversations (`chat-files-orphans`, `rooms-orphans`, kept 30 days and shown as the "kept" note, which now names Team

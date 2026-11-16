@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16 20:48
 - Branch: `feat/room-files-storage-line`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`server/src/system/storage.ts`, `shared/src/api/system.ts`, `web/src/pages/admin/System.tsx`,
   `web/src/i18n/*`). Why: storage and admin are core (docs/REPOSITORY-RULES.md).
 - Version impact: patch. One optional field in the storage answer, no migration, no setting.
@@ -64,4 +64,8 @@ dark, owner and admin, on the mock server.
 
 ## Result
 
-Filled in at the end.
+Built as planned. Changes from the spec after the spec review: the six admin help pages (docs/site/*/use/admin.md)
+describe the new line; the "kept" note now says "Team files include …", so it does not read as part of the new line
+(set-aside files stay in Team files: nobody can clean them up, so they do not belong in the number people are asked to
+bring down). The line order and the "no line from an older server" rule are in `storageLines` (System.tsx), unit
+tested. Screenshots: owner and admin, 1440 and 390, light and dark, six languages, on the mock server.

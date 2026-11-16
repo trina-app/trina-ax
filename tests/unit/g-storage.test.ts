@@ -296,16 +296,18 @@ describe('the monitor and the API', () => {
     await getOps(h.ctx)!.storage.measure()
     const before = (await owner.call('GET', '/api/admin/storage')).breakdown
     expect(typeof before.rooms).toBe('number')
-    fs.mkdirSync(path.join(sys, 'rooms', 'r1'), { recursive: true })
-    fs.writeFileSync(path.join(sys, 'rooms', 'r1', 'f1'), Buffer.alloc(600_000))
+    fs.mkdirSync(path.join(sys, 'rooms', 'room-secret-xyz'), { recursive: true })
+    fs.writeFileSync(path.join(sys, 'rooms', 'room-secret-xyz', 'resignation letter.pdf'), Buffer.alloc(600_000))
     await getOps(h.ctx)!.storage.measure()
     const after = (await owner.call('GET', '/api/admin/storage')).breakdown
     expect(after.rooms - before.rooms).toBeGreaterThanOrEqual(600_000)
     expect(after.team - before.team).toBeLessThan(600_000)
     expect(after.other).toBeLessThanOrEqual(before.other)
     // one number: no names, conversations or people in the answer
-    expect(JSON.stringify(after)).not.toContain('r1')
-    fs.rmSync(path.join(sys, 'rooms', 'r1'), { recursive: true, force: true })
+    const answer = JSON.stringify(await owner.call('GET', '/api/admin/storage'))
+    expect(answer).not.toContain('room-secret-xyz')
+    expect(answer).not.toContain('resignation')
+    fs.rmSync(path.join(sys, 'rooms', 'room-secret-xyz'), { recursive: true, force: true })
   })
   test('from 80%: the owner and admins are told once per 24 h (audited)', () => {
     const ops = getOps(h.ctx)!

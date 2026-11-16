@@ -25,8 +25,9 @@
 // real disk of that size.
 //
 // What uses the space (Admin > System) is measured 5 minutes after start and then hourly, walking the folders with a
-// pause every 1000 entries: team (the team folder without .system, with the AI chats' files and the files of deleted chats and rooms kept 30 days: also shown as `kept`), rooms (the files
-// sent in conversations, .system/rooms: one number, never per person or conversation), history (.system/history), trash (.system/trash),
+// pause every 1000 entries: team (the team folder without .system, with the AI chats' files and the files of deleted
+// chats and rooms kept 30 days: also shown as `kept`), rooms (the files sent in conversations, .system/rooms: one number,
+// never per person or conversation), history (.system/history), trash (.system/trash),
 // backups (.system/backups + data/backups), models (data/models), data (the rest of the server data), app (installed
 // versions), other (what is left: the engine folders the server account cannot read, the OS).
 import fs from 'node:fs'
