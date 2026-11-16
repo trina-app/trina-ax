@@ -625,6 +625,8 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     if (tab === 'rooms') {
       push('people', t('search.roomsPeople'), roomsAndPeople(myRooms, people ?? [], meId, query, roomTitle, ROOMS_FEW).map((x) => ('room' in x ? roomRow(x.room, x.name) : personRow(x.person))))
       if (hitsNow) push('messages', t('search.messages'), [...hitsNow.items.slice(0, hitsShown).map(messageRow), ...(hitsShown < hitsNow.items.length || hitsNow.next ? [moreMessagesRow()] : [])])
+      // "Files you sent" is the conversations' too: found here by its words
+      push('actions', t('search.actions'), actions.filter((a) => a.key === 'act:sentFiles' && has(query, a.title, a.terms)))
       return out
     }
 
