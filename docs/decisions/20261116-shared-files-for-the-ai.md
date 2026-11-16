@@ -31,7 +31,7 @@
     many "Everyone" shares never push out the person's own. Over 20, the block says older ones may exist. In the fresh instructions and in the per-message turn context (a resumed session gets it too).
     File and person names are quoted, on one line, with our block tags neutralized.
   - **Only in a turn of the person's own chat** (`TurnFiles.grantReads`, set by chat/turn.ts): a personal chat or a ✦
-    side chat, and their own scheduled tasks (the read scope then decides where a run may save, as for any read).
+    side chat. Not in a scheduled run (changed in the batch: nobody watches it, so a shared file is not read there).
     Never from Slack (the answer may go to a channel, and the block's names are no tool read the post check sees),
     never in a template run (its reads stay in its own folder by the rules), never in a shared chat (its other viewers would read the answer; the section is in neither its prompt
     allowlist, `SHARED_PROMPT_SECTIONS.sharedWithMe = false`, nor its read gate), for a guest, in a restricted run or a
@@ -41,6 +41,15 @@
   what came from it asks like any content fewer people can see (the folder rules see only its owner). The answer's
   "참고한 파일" list re-checks each file against the viewer's folder rules, so a file read through a grant is counted
   there without its name (unchanged, on the safe side).
+  A grant read also counts as a room read (added in the batch): a file another member shared is put in front of the
+  person as a room message is. The chat is marked for good (`chats.rooms_seen`, which no new session clears, with
+  `chats.others_words` and `room_outside`), so every gate of a room read applies from then on (`readRooms`): changes
+  wait for the room card (a new file in the person's own folder does not), delete_files and skill saves refuse,
+  remember and a connection's write ask, a share takes only files the person's own message brought, and "Always allow"
+  for shares, room posts, attached files and project members counts only for what their own message names
+  (docs/decisions/20261116-always-allow-more-cards.md "Content written by others"). The person's own "Always allow"
+  for changes after a room read ends that card, as the owner decided on 2026-11-13. Reading the file and answering
+  from it need no card, as before.
 - **Not changed:** grep and glob do not search inside shared files (the block lists them by name; the AI reads them).
   No "Shared with me" screen (still P2 of #979). The link page, requests, notices and the Share dialog are as they were.
 - **Left out:** sub-agents do not get the block (the main AI passes them the link when needed; read opens it there

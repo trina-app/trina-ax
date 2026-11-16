@@ -44,12 +44,12 @@ afterAll(async () => { fake?.stop(); await A?.close() })
 type Asked = { answer: boolean; questions: string[]; details: ConfirmDetail[][]; beforeAnswer?: () => void | Promise<void> }
 const ask = (answer: boolean): Asked => ({ answer, questions: [], details: [] })
 
-function turn(user: Person, o: { person?: Asked; scheduled?: boolean; unattended?: boolean; locale?: 'en' | 'ko'; live?: boolean } = {}) {
+function turn(user: Person, o: { person?: Asked; scheduled?: boolean; unattended?: boolean; locale?: 'en' | 'ko'; live?: boolean; attachAsks?: (paths: readonly string[]) => boolean } = {}) {
   const chat = A.chat(user)
   const turnId = A.turn(user, chat)
   const built = integrationToolProvider(A.ctx).build({ userId: user, chatId: chat, turnId, browser: false, scheduled: !!o.scheduled })
   const files = { user: A.ctx.files.principal(user), turnId, files: new TurnFiles() } as TurnToolContext['files']
-  if (o.person) { const p = o.person; files.person = { locale: o.locale ?? 'en', async confirm(q, _a, _d, extra) { p.questions.push(q); p.details.push(extra?.details ?? []); await p.beforeAnswer?.(); return p.answer }, *turnUrls() {}, ...(o.unattended ? { unattended: true } : {}), ...(o.live ? { allSitesHere: () => true } : {}) } }
+  if (o.person) { const p = o.person; files.person = { locale: o.locale ?? 'en', async confirm(q, _a, _d, extra) { p.questions.push(q); p.details.push(extra?.details ?? []); await p.beforeAnswer?.(); return p.answer }, *turnUrls() {}, ...(o.unattended ? { unattended: true } : {}), ...(o.live ? { allSitesHere: () => true } : {}), ...(o.attachAsks ? { attachAsks: o.attachAsks } : {}) } }
   const tc: TurnToolContext = { turnId, chatId: chat, userId: user, messageId: 'm', locale: o.locale ?? 'en', signal: new AbortController().signal, files }
   const tools = new Map(built.tools.map((t) => [t.name, t]))
   const call = async (name: string, args: unknown) => {
@@ -220,6 +220,41 @@ describe('a team file attached to a mail', () => {
     expect(sent().slice(before)[0]!.args.attachments[0].content_base64).toBe(quoteBytes.toString('base64'))
     expect(r.summary).toContain(`(team file attached: ${QUOTE} ${quoteBytes.length} B sha256 `)
     expect(r.summary).not.toContain('confirmed by the user')
+  })
+
+  test('a connection that sends without asking still asks for a file the person\'s own message did not bring, in a chat that holds content written by others', async () => {
+    const before = sent().length
+    const seen: string[][] = []
+    // (TurnPerson.attachAsks, chat/tools.ts: the chat holds other people's words and the message did not name the file)
+    const p = ask(true)
+    const r = await turn('alice', { person: p, live: true, attachAsks: (paths) => { seen.push([...paths]); return true } }).call('team_teammail__send_mail', sendArgs(QUOTE))
+    expect(seen).toEqual([[QUOTE]])
+    expect(p.questions).toHaveLength(1)
+    expect(p.details[0]![0]!.fields![0]!.name).toBe('Team file to attach')
+    expect(r.isError).toBe(false)
+    expect(r.summary).toContain('confirmed by the user')
+    expect(sent().length).toBe(before + 1)
+    // no: nothing leaves
+    const no = ask(false)
+    const refused = await turn('alice', { person: no, live: true, attachAsks: () => true }).call('team_teammail__send_mail', sendArgs(QUOTE))
+    expect(refused.isError).toBe(true)
+    expect(sent().length).toBe(before + 1)
+    // a file the message brought (or a chat with nothing from others): no card, as before
+    const free = ask(true)
+    expect((await turn('alice', { person: free, live: true, attachAsks: () => false }).call('team_teammail__send_mail', sendArgs(QUOTE))).isError).toBe(false)
+    expect(free.questions).toHaveLength(0)
+    // a send without a file is not asked about
+    const plain = ask(true)
+    expect((await turn('alice', { person: plain, live: true, attachAsks: () => true }).call('team_teammail__send_mail', { to: 'a@b.example', subject: 's', body: 'b' })).isError).toBe(false)
+    expect(plain.questions).toHaveLength(0)
+  })
+
+  test('a service\'s answer marks the chat as holding content written by others', async () => {
+    const t = turn('alice', { person: ask(true), live: true })
+    const mark = () => (A.ctx.db.query('SELECT others_words AS o FROM chats WHERE id = ?').get(t.chat) as { o: number }).o
+    expect(mark()).toBe(0)
+    expect((await t.call('team_teammail__list_inbox', {})).isError).toBe(false)
+    expect(mark()).toBe(1)
   })
 
   test('without a card, a file leaves only in a turn the person watches from the app (not a question asked elsewhere)', async () => {

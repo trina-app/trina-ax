@@ -86,6 +86,8 @@ const threadAs = async (user: string, roomId: string, rootId: string) => (await 
 const audits = (actor: string) => (h.ctx.db.query("SELECT target, detail FROM audit_log WHERE action = 'room.answer_share' AND actor_id = ? ORDER BY id").all(actor) as { target: string; detail: string }[]).map((a) => ({ target: a.target, ...JSON.parse(a.detail) }))
 const authored = (roomId: string, user: string) => (h.ctx.db.query('SELECT COUNT(*) n FROM room_messages WHERE room_id = ? AND author_id = ?').get(roomId, user) as { n: number }).n
 const put = (rel: string, body: string) => { const abs = path.join(h.ctx.files.fx.root, ...rel.split('/')); fs.mkdirSync(path.dirname(abs), { recursive: true }); fs.writeFileSync(abs, body) }
+/** the file's history says `user` made it (a file with no history outside a person's own folder counts as someone else's) */
+const wroteIt = (user: string, rel: string) => h.ctx.db.query("INSERT INTO file_events (turn_id, user_id, path, action) VALUES (NULL, ?, ?, 'create')").run(user, rel)
 
 describe('the card, and the post', () => {
   test('one card with the room, its people and all of the text; [보내기] posts it as my message with the text quoted; the step names the room; audited with via ai', async () => {
@@ -158,7 +160,9 @@ describe('the card, and the post', () => {
 
   test('what some people cannot see is on the card; [파일도 함께 보내기] attaches the linked file', async () => {
     // alice reads a marketing file and links it, then posts to the everyone room: bob, carol and dana may not read it
+    // (alice's own file: a read of it brings in nobody else's words, so the card offers "Always")
     put('groups/marketing/launch-plan.md', '# Launch\nsecret date')
+    wroteIt('alice', 'groups/marketing/launch-plan.md')
     const text = 'Plan: [launch-plan.md](/files/view?path=groups/marketing/launch-plan.md)'
     const r = await turn('alice', [fake({ tool: 'read', args: { file_path: 'groups/marketing/launch-plan.md' } }), post({ room: rooms.all, text })].join('\n'), { answer: 'send_files' })
     // bob may read neither (carol and dana are admins): one line each, and what attaching the file changes
@@ -180,6 +184,7 @@ describe('"Always send with the files" (post_files)', () => {
   test('picked on the card: this post goes with its files, the next such post goes with its files and no card; a plain post still asks once', async () => {
     const { dropAlways, alwaysOn } = await import('../../server/src/chat/always-allow')
     put('groups/marketing/launch-plan-2.md', '# Launch 2\nsecret date')
+    wroteIt('alice', 'groups/marketing/launch-plan-2.md')
     const text = 'Plan: [launch-plan-2.md](/files/view?path=groups/marketing/launch-plan-2.md)'
     const read = fake({ tool: 'read', args: { file_path: 'groups/marketing/launch-plan-2.md' } })
     try {
@@ -199,14 +204,20 @@ describe('"Always send with the files" (post_files)', () => {
     } finally { dropAlways(h.ctx.db, 'alice', 'card:post_files') }
   })
 
-  test('after a room read (a side chat): "Always send with the files" holds there too (the owner: no teammate guard that asks again)', async () => {
+  test('after a room read (a side chat): "Always send with the files" counts for the files my own message brought; another file keeps the card', async () => {
     const { keepAlways, dropAlways } = await import('../../server/src/chat/always-allow')
     put('groups/marketing/launch-plan-3.md', '# Launch 3\nsecret date')
     const side = (await h.api('alice').call(API.createChat, { body: { sideRoomId: rooms.all } })).id
     const text = 'Plan: [launch-plan-3.md](/files/view?path=groups/marketing/launch-plan-3.md)'
+    // (the file's name as JSON escapes in the directive and as a link the test spells apart: alice's words name it or not)
+    const linked = (t: string) => [fake({ tool: 'read', args: { file_path: 'groups/marketing/launch-plan-3.md' } }), post({ text: t })].join('\n')
     keepAlways(h.ctx.db, 'alice', 'post_files', null)
     try {
-      const r = await turn('alice', `고친 거 방에 올려줘\n${[fake({ tool: 'read', args: { file_path: 'groups/marketing/launch-plan-3.md' } }), post({ text })].join('\n')}`, { chat: side })
+      // a room message may have picked the file: alice's own words do not name it, so the card (without "Always")
+      const steered = await turn('alice', `고친 거 방에 올려줘\n${linked(text)}`, { chat: side, answer: 'no' })
+      expect(steered.card!.options!.map((x) => x.value)).toEqual(['send', 'send_files', 'no'])
+      // named in her own message: with its files, no card
+      const r = await turn('alice', `launch-plan-3.md 방에 올려줘\n${linked(`${text} (2)`)}`, { chat: side })
       expect(r.card).toBeNull()
       expect((await messagesAs('alice', rooms.all)).at(-1)!.files.map((f) => f.name)).toEqual(['launch-plan-3.md'])
     } finally { dropAlways(h.ctx.db, 'alice', 'card:post_files') }
@@ -793,7 +804,9 @@ describe('a shared chat: as the person whose turn it is, behind their card', () 
 
   test('files the asker cannot read never go: no [파일도 함께 보내기], a send_files answer is refused, and the post carries no copy', async () => {
     // alice (marketing) may read the plan; bob may not
+    // (alice's own file: a read of it brings in nobody else's words, so the card offers "Always")
     put('groups/marketing/launch-plan.md', '# Launch\nsecret date')
+    wroteIt('alice', 'groups/marketing/launch-plan.md')
     const dm = dmOf('bob', 'tess')!
     const text = 'Plan: [launch-plan.md](/files/view?path=groups/marketing/launch-plan.md)'
     const r = await turn('bob', post({ room: 'Tess Yoon', text }), {
