@@ -4259,7 +4259,9 @@ export class MockServer {
     listSkillChanges: () => ({ items: this.skillChanges, nextCursor: null }),
     skillsOverview: (c) => ({
       managedFolders: this.managed(c.user),
-      suggestFolders: ['skills', 'skills/재무'],
+      // like the server: the team's skills/ and the person's groups' skills folders, each group by its name
+      suggestFolders: ['skills', 'skills/재무', ...this.groupSkillRoots(c.user).map((g) => g.root)],
+      suggestGroups: Object.fromEntries(this.groupSkillRoots(c.user).map((g) => [g.root, { id: g.id, name: g.name }])),
       pendingReview: this.suggestions.filter((s) => s.status === 'pending' && this.manages(c.user, s.targetFolder)).length,
       myPending: this.suggestions.filter((s) => s.status === 'pending' && s.suggester.id === c.user.id).length,
       // open share proposals others made to the person's groups (docs/DECISIONS.md "Group skills")

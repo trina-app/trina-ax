@@ -423,6 +423,9 @@ test('"스킬로 제안" from an answer → the manager reviews, edits and regis
   await lastAnswer(page).getByTestId('suggest-skill').click()
   const dialog = page.getByTestId('suggest-dialog')
   await expect(dialog).toContainText('제안은 바로 팀 스킬이 되지 않아요')
+  // the folder choice says places, as the Team skills page does, never "skills/"
+  await expect(dialog.getByTestId('suggest-folder')).toContainText('팀 스킬')
+  await expect(dialog.getByTestId('suggest-folder')).not.toContainText('skills')
   await expect(dialog.getByTestId('suggest-content')).toHaveValue(/the answer/)
   await dialog.getByTestId('suggest-name').fill('주간/보고')
   await expect(dialog).toContainText('슬래시(/)는 쓸 수 없어요')
