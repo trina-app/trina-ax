@@ -185,13 +185,19 @@ describe('on the real app: POST /api/me/computer and phoneDecision', () => {
     expect(phoneDecision(h.ctx, nora.id)).toEqual({ kind: 'send' })
     await nora.client.call('POST', '/api/me/computer', { idleMs: 0, locked: true })
     expect(phoneDecision(h.ctx, nora.id)).toEqual({ kind: 'send' })
-    // only the caller's own: another person's id in the body changes nothing for them
-    await nora.client.try('POST', '/api/me/computer', { idleMs: 0, locked: false, userId: mia.id })
+    // only the caller's own: a body naming another person is refused, and nothing changes for them
+    expect((await nora.client.try('POST', '/api/me/computer', { idleMs: 0, locked: false, userId: mia.id })).status).toBe(400)
     expect(phoneDecision(h.ctx, mia.id)).toEqual({ kind: 'send' })
     // a bad body is refused and the last report stands
     await nora.client.call('POST', '/api/me/computer', { idleMs: 0, locked: true })
     expect((await nora.client.try('POST', '/api/me/computer', { idleMs: -5, locked: false })).status).toBe(400)
     expect((await nora.client.try('POST', '/api/me/computer', { idleMs: 0 })).status).toBe(400)
+    // what the desktop app's main process sends (Electron session.fetch, checked on Electron 44.7.2): the CSRF header,
+    // Sec-Fetch-Site none, no Origin
+    await nora.client.call('POST', '/api/me/computer', { idleMs: 0, locked: true })
+    expect((await nora.client.raw('POST', '/api/me/computer', { idleMs: 0, locked: false }, { 'x-mycel-csrf': '1', 'sec-fetch-site': 'none', 'sec-fetch-mode': 'no-cors' })).status).toBe(204)
+    expect(phoneDecision(h.ctx, nora.id)).toEqual({ kind: 'cancel' })
+    await nora.client.call('POST', '/api/me/computer', { idleMs: 0, locked: true })
     // a page on another site cannot post it for nora (no CSRF header)
     const forged = await nora.client.raw('POST', '/api/me/computer', { idleMs: 0, locked: false }, { 'x-mycel-csrf': '' })
     expect(forged.status).toBe(403)
