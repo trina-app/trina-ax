@@ -202,3 +202,27 @@ test('the icon goes with the app (and with its room); the app\'s old messages ke
   h.ctx.db.query('DELETE FROM rooms WHERE id = ?').run(gc)
   expect(iconRows()).toBe(0)
 })
+
+test('icon changes are limited per app and hour (refused tries count), so the audit log cannot be flooded', async () => {
+  const { ada, team } = await setup()
+  const { roomAppsOf } = await import('../../server/src/rooms/apps/service')
+  const apps = roomAppsOf(h.ctx)
+  let now = Date.now()
+  apps.clock = () => now
+  const { ROOM_APP_ICON_CHANGES_PER_HOUR } = await import('@mycel/shared/api')
+  const made = await ada.client.call('POST', `/api/rooms/${team}/apps`, { kind: 'other', name: 'Alerts' })
+  const other = await ada.client.call('POST', `/api/rooms/${team}/apps`, { kind: 'other', name: 'Backups' })
+  const one = `/api/rooms/${team}/apps/${made.app.id}/icon`
+  // a refused upload counts too
+  expect((await put(ada.client, one, makePng(96, 64), 'image/png')).status).toBe(400)
+  for (let i = 1; i < ROOM_APP_ICON_CHANGES_PER_HOUR; i++) expect((await ada.client.try('PUT', `${one}/emoji`, { emoji: i % 2 ? '🚨' : '🔥' })).status).toBe(200)
+  const r = await ada.client.try('DELETE', one)
+  expect(r.status).toBe(429)
+  expect((await put(ada.client, one, makePng(96, 96), 'image/png')).status).toBe(429)
+  // per app: another app is not held
+  expect((await ada.client.try('PUT', `/api/rooms/${team}/apps/${other.app.id}/icon/emoji`, { emoji: '🚀' })).status).toBe(200)
+  // successful changes only are audited
+  expect((h.ctx.db.query("SELECT COUNT(*) n FROM audit_log WHERE action = 'room_app.icon' AND target = ?").get(made.app.id) as { n: number }).n).toBe(ROOM_APP_ICON_CHANGES_PER_HOUR - 1)
+  now += 3_600_001
+  expect((await ada.client.try('DELETE', one)).status).toBe(200)
+})

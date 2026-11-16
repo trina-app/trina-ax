@@ -13,7 +13,7 @@
 import crypto from 'node:crypto'
 import type { Database } from 'bun:sqlite'
 import {
-  AI_OWN_NAMES, DEFAULT_LOCALE, ROOM_APP_DAILY_CAP, ROOM_APP_DEFAULT_NAMES, ROOM_APP_EXAMPLES_PER_HOUR, ROOM_APP_PRESET_NAMES, ROOM_APP_PRESET_SIGNING, ROOM_APP_PRESET_SWITCHES,
+  AI_OWN_NAMES, DEFAULT_LOCALE, ROOM_APP_DAILY_CAP, ROOM_APP_DEFAULT_NAMES, ROOM_APP_EXAMPLES_PER_HOUR, ROOM_APP_ICON_CHANGES_PER_HOUR, ROOM_APP_PRESET_NAMES, ROOM_APP_PRESET_SIGNING, ROOM_APP_PRESET_SWITCHES,
   ROOM_APP_SECRET_RE, ROOM_APP_SWITCHES, ROOM_APP_TEAM_DAILY_CAP, ROOM_APPS_MAX, ROOM_APPS_PER_HOUR, roomAppDefaults, SENTRY_SECRET_RE, ZENDESK_TEST_SECRET,
   type CreateRoomAppBody, type Locale, type RoomApp, type RoomAppAddress, type RoomAppCreated, type RoomAppKind, type RoomAppList, type RoomAppRefusal,
   type RoomAppSecretResult, type SetRoomAppEmojiBody, type SetRoomAppSecretBody, type UpdateRoomAppBody,
@@ -108,6 +108,7 @@ export class RoomApps {
   readonly limits = new AppLimits(() => this.clock())
   private added = new Map<string, number[]>()
   private examples = new Map<string, number[]>()
+  private iconChanges = new Map<string, number[]>()
   constructor(readonly ctx: AppContext) {}
   private get db(): Database { return this.ctx.db }
   private get vault(): Vault { return credentialsOf(this.ctx).vault }
@@ -444,13 +445,20 @@ export class RoomApps {
     if (!this.iconable(r.row)) fail('validation', appText('iconNotOther', locale), { params: { reason: 'not_other' } })
     return r
   }
+  /** One icon change of an app, counted per app and hour after the permission check (refused uploads too): the audit
+   * log is not a place to flood (security review of #1045). */
+  private iconTry(userId: string, roomId: string, appId: string, locale: Locale): { room: RoomRow; row: AppRow } {
+    const r = this.iconRow(userId, roomId, appId, locale)
+    this.takeHourly(this.iconChanges, r.row.id, ROOM_APP_ICON_CHANGES_PER_HOUR, (minutes) => appText('iconLimit', locale, { n: ROOM_APP_ICON_CHANGES_PER_HOUR, minutes }))
+    return r
+  }
   private iconChanged(userId: string, room: RoomRow, row: AppRow, detail: { set: 'image' | 'emoji' | null; size?: number; before: number | null }) {
     audit(this.db, { actor: userId, action: 'room_app.icon', target: row.id, detail: { ...roomAuditRef(room), ...detail } })
   }
   /** "Change icon" › Upload an image. The right is checked before the upload is read and again after it (an app removed,
    * or the person's right taken away, meanwhile gets nothing). */
   async setIconImage(userId: string, roomId: string, appId: string, body: AsyncIterable<Uint8Array>, declared: string, locale: Locale): Promise<RoomApp> {
-    this.iconRow(userId, roomId, appId, locale)
+    this.iconTry(userId, roomId, appId, locale)
     const img = await readIconUpload(body, declared, locale)
     const { room, row } = this.iconRow(userId, roomId, appId, locale)
     this.db.transaction(() => {
@@ -461,7 +469,7 @@ export class RoomApps {
   }
   /** "Change icon" › Pick an emoji (one, already checked by the contract). */
   setIconEmoji(userId: string, roomId: string, appId: string, b: SetRoomAppEmojiBody, locale: Locale): RoomApp {
-    const { room, row } = this.iconRow(userId, roomId, appId, locale)
+    const { room, row } = this.iconTry(userId, roomId, appId, locale)
     this.db.transaction(() => {
       const { before } = writeIcon(this.db, row.id, { emoji: b.emoji })
       this.iconChanged(userId, room, row, { set: 'emoji', before })
@@ -470,7 +478,7 @@ export class RoomApps {
   }
   /** "Remove icon": the letter again. Nothing to remove changes nothing (and is not audited). */
   removeIcon(userId: string, roomId: string, appId: string, locale: Locale): RoomApp {
-    const { room, row } = this.iconRow(userId, roomId, appId, locale)
+    const { room, row } = this.iconTry(userId, roomId, appId, locale)
     this.db.transaction(() => {
       if (dropIcon(this.db, row.id)) this.iconChanged(userId, room, row, { set: null, before: null })
     })()

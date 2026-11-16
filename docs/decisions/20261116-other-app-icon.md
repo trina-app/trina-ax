@@ -34,10 +34,16 @@
 - **Where it shows:** the app's messages (`RoomAppRef.icon`) carry the live app's icon, so past messages show a new one
   too (the name stays what it was when posted); a removed app's messages show its letter. The person who changed it
   sees the room update at once; other open windows on the room's next read (no realtime event).
+- **Accepted risk (security review of #1045):** an uploaded image can copy a preset service's logo without that
+  service's signing. Accepted because the **APP** tag, the name checks (no person's, no AI's, no lookalike) and the
+  audit row of every change remain, and only the people who manage the room's apps can change it.
+- **Limit:** at most 20 icon changes per app and hour (`ROOM_APP_ICON_CHANGES_PER_HOUR`, refused tries included, 429
+  after that), like "Show an example", so the audit log cannot be flooded.
 - **Not included (owner decision 3):** an icon or a name from the webhook payload. Slack's `username`, `icon_url`,
   `icon_emoji` and Discord's `avatar_url` are ignored, as before (a test sends them), because a message could pass for
   a person or another app.
-- **Tests:** `tests/unit/b-room-apps-icon.test.ts` (who, the image rules, the emoji rule, presets refused, the payload
+- **Tests:** permission-matrix cases for the four routes (`tests/security/lib/room-apps-cases.ts`),
+  `tests/unit/b-room-apps-icon.test.ts` (who, the hourly limit, the image rules, the emoji rule, presets refused, the payload
   fields, cleanup with the app and the room, cache headers, the audit), `web/test/e2e/room-apps-icon.spec.ts` (letters
   and tints, the three actions, a refusal, who sees the menu, 1440 and 390), screenshots in
   `web/test/e2e/shots-room-apps-icon.spec.ts`.

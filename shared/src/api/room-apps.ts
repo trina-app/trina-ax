@@ -132,6 +132,9 @@ export const ROOM_APPS_MAX = 10
 export const ROOM_APPS_PER_HOUR = 10
 /** "Show an example" per app and hour (not counted toward the cap). */
 export const ROOM_APP_EXAMPLES_PER_HOUR = 5
+/** "Change icon" (an image, an emoji or Remove icon) per app and hour, refused tries included (the audit log is not
+ * a place to flood). */
+export const ROOM_APP_ICON_CHANGES_PER_HOUR = 20
 /** Messages shown per app and team-local day (owner decision 3): past it the app pauses until the team's midnight;
  * "Resume now" allows as many again, once a day. */
 export const ROOM_APP_DAILY_CAP = 500
@@ -400,11 +403,11 @@ export const ROOM_APPS = {
   exampleRoomApp: endpoint({ method: 'POST', path: '/api/rooms/:id/apps/:appId/example', auth: 'user', owner: 'B', status: 204, response: empty,
     summary: `"Show an example": a sample card from the app in the room, marked as an example (${ROOM_APP_EXAMPLES_PER_HOUR} an hour, not counted toward the cap). ${WHO}` }),
   putRoomAppIcon: endpoint({ method: 'PUT', path: '/api/rooms/:id/apps/:appId/icon', auth: 'user', owner: 'B', query: RoomAppIconQuery, body: binary(AVATAR_MAX_BYTES), response: RoomApp,
-    summary: `"Change icon" › Upload an image, for a plain Other app (400 not_other for a named service, Sentry, GitHub or Google Forms): a square PNG, JPEG or WebP of 64–512 px, up to 256 KiB, as a profile photo (SVG and animations refused; metadata cut out). It replaces an emoji. ${WHO} Audited.` }),
+    summary: `"Change icon" › Upload an image, for a plain Other app (400 not_other for a named service, Sentry, GitHub or Google Forms): a square PNG, JPEG or WebP of 64–512 px, up to 256 KiB, as a profile photo (SVG and animations refused; metadata cut out). It replaces an emoji. At most ${ROOM_APP_ICON_CHANGES_PER_HOUR} icon changes per app and hour (429). ${WHO} Audited.` }),
   setRoomAppEmoji: endpoint({ method: 'PUT', path: '/api/rooms/:id/apps/:appId/icon/emoji', auth: 'user', owner: 'B', body: SetRoomAppEmojiBody, response: RoomApp,
-    summary: `"Change icon" › Pick an emoji, for a plain Other app (400 not_other otherwise): exactly one emoji; it replaces an image. ${WHO} Audited.` }),
+    summary: `"Change icon" › Pick an emoji, for a plain Other app (400 not_other otherwise): exactly one emoji; it replaces an image. At most ${ROOM_APP_ICON_CHANGES_PER_HOUR} icon changes per app and hour (429). ${WHO} Audited.` }),
   deleteRoomAppIcon: endpoint({ method: 'DELETE', path: '/api/rooms/:id/apps/:appId/icon', auth: 'user', owner: 'B', response: RoomApp,
-    summary: `"Remove icon": the app shows its name's first letter again (nothing to remove: unchanged). ${WHO} Audited when there was one.` }),
+    summary: `"Remove icon": the app shows its name's first letter again (nothing to remove: unchanged). Counts toward the ${ROOM_APP_ICON_CHANGES_PER_HOUR} icon changes per app and hour (429). ${WHO} Audited when there was one.` }),
   roomAppIcon: endpoint({ method: 'GET', path: '/api/rooms/:id/apps/:appId/icon', auth: 'user', owner: 'B', query: RoomAppIconVersionQuery, response: stream(false),
     summary: 'An app\'s icon image, for anyone in the room (404 otherwise, and without an image); cached for a year when ?v= is the current version. An image only: nosniff and a sandbox policy.' }),
   deleteRoomApp: endpoint({ method: 'DELETE', path: '/api/rooms/:id/apps/:appId', auth: 'user', owner: 'B', status: 204, response: empty,
