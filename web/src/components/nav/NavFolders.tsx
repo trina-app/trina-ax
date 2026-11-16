@@ -247,7 +247,7 @@ export function useDropTarget(kind: NavFolderKind, onDrop: (id: string) => void)
 /** how a folder looks while a row is held over it */
 export const DROP_OVER = 'rounded-lg bg-accent-soft ring-2 ring-accent ring-inset'
 
-/** A folded room folder's one pill: the strongest of its rooms, "@" (an unread mention) › how many of its rooms have
+/** A folded room folder's (or 대화 section's) one pill: the strongest of its rooms, "@" (an unread mention) › how many of its rooms have
  * unread messages. Muted rooms are left out, as the 대화 count leaves them. */
 export type RoomFolderPill = { kind: 'mention' } | { kind: 'unread'; n: number }
 export function roomFolderPill(rooms: Pick<Room, 'mentioned' | 'muted' | 'unreadCount' | 'threadsUnread'>[]): RoomFolderPill | null {
@@ -256,8 +256,10 @@ export function roomFolderPill(rooms: Pick<Room, 'mentioned' | 'muted' | 'unread
   return loud.length ? { kind: 'unread', n: loud.length } : null
 }
 
-export function RoomFolderPillView({ pill, className }: { pill: RoomFolderPill; className?: string }) {
+/** The pill of a folded room folder or a folded section of the 대화 list (List.tsx ListSection `pill`): the rows' own
+ * badge look; its words for a screen reader. */
+export function RoomFolderPillView({ pill, className, testId = 'room-folder-pill' }: { pill: RoomFolderPill; className?: string; testId?: string }) {
   const t = useT()
   const words = pill.kind === 'mention' ? t('rooms.mentionedYou') : t('navFolders.unreadRooms', { n: pill.n })
-  return <CountPill text={pill.kind === 'mention' ? '@' : badgeText(pill.n)} label={words} className={className} testId="room-folder-pill" data-kind={pill.kind} />
+  return <CountPill text={pill.kind === 'mention' ? '@' : badgeText(pill.n)} label={words} className={className} testId={testId} data-kind={pill.kind} />
 }

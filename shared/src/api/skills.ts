@@ -30,6 +30,9 @@ export const SkillInfo = z.object({
   /** a skill of one of the caller's groups (groups/<folder>/skills/...): only that group's members see and use it. The
    * group by its current name (a rename shows at once; its folder keeps the name it was made with). */
   group: SkillGroupRef.optional(),
+  /** owner and admins only, with `?groups=1`: a skill of a group the caller is not in (`group` names it). It does not run
+   * for the caller, who lists it to manage it (move, edit, delete) */
+  notMember: z.boolean().optional(),
   /** a skill of a project (<project folder>/skills/<name>/SKILL.md): only that project's chats use it. In the "/" menu
    * of that project's chat (?projectId=) and on the Skills page's project sections (?projects=1) */
   project: SkillGroupRef.optional(),
@@ -73,6 +76,35 @@ export function skillExample(s: { description: string; example?: string | null }
   const quoted = m?.[1]!.trim()
   return quoted && !HIDDEN_CHARS.test(quoted) ? quoted : null
 }
+/** A SKILL.md folder's name (and its header's `name`), at most this many characters (code points). */
+export const SKILL_NAME_MAX = 64
+/** What a SKILL.md folder's name may be: words of lowercase letters in any script (a letter of a script without case,
+ * such as Hangul, counts; a capital never does), with their combining marks, and digits, joined by single hyphens
+ * (docs/decisions/20261116-skill-names-unicode.md; the Agent Skills reference validator accepts the same). No space,
+ * dot, slash or other sign. isSkillName adds the length and the Unicode form. */
+export const SKILL_NAME_RE = /^[\p{Ll}\p{Lm}\p{Lo}\p{Nd}][\p{Ll}\p{Lm}\p{Lo}\p{Nd}\p{M}]*(?:-[\p{Ll}\p{Lm}\p{Lo}\p{Nd}][\p{Ll}\p{Lm}\p{Lo}\p{Nd}\p{M}]*)*$/u
+/** A SKILL.md folder's name as the skill loader takes it (server/src/chat/skills.ts checkSkill), and every new name a
+ * skill folder gets (a renamed or moved copy, a rename, a share, a suggestion, the Skills page's field): SKILL_NAME_RE,
+ * at most SKILL_NAME_MAX characters, in NFC and the same in NFKC (no full-width or other compatibility forms: "ａ" is not
+ * "a"). A name typed in another form is normalized with .normalize('NFC') first. */
+export const isSkillName = (n: string) => n === n.normalize('NFC') && n === n.normalize('NFKC') && [...n].length <= SKILL_NAME_MAX
+  && new TextEncoder().encode(n).length <= SKILL_NAME_BYTES_MAX && SKILL_NAME_RE.test(n) && !/\p{Default_Ignorable_Code_Point}/u.test(n) && !lookAlikeLatin(n)
+/** At most this many UTF-8 bytes (64 letters outside the BMP would be 256, more than a folder name may be). */
+export const SKILL_NAME_BYTES_MAX = 200
+/** A name that could pass for another Latin one: Latin letters mixed with Cyrillic or Greek ones ("quоte" with a
+ * Cyrillic о), or Latin letters beyond a–z once accents are taken off ("quıte", "aǀb"). Names in one other script
+ * ("отчёт"), or Latin with Hangul, kana or CJK ("acme-견적"), pass; skillNameSkeleton catches a whole-word look-alike. */
+function lookAlikeLatin(n: string): boolean {
+  if (!/\p{Script=Latin}/u.test(n)) return false
+  if (/[\p{Script=Cyrillic}\p{Script=Greek}]/u.test(n)) return true
+  return /[^a-z]/.test(n.normalize('NFD').replace(/\p{M}/gu, '').replace(/[^\p{Script=Latin}]/gu, ''))
+}
+/** Cyrillic and Greek letters that look like Latin ones (a short UTS #39-style fold, lowercase only). */
+const CONFUSABLE: Record<string, string> = { а: 'a', в: 'b', е: 'e', к: 'k', м: 'm', н: 'h', о: 'o', р: 'p', с: 'c', т: 't', у: 'y', х: 'x', і: 'i', ј: 'j', ѕ: 's', ԁ: 'd', һ: 'h', ԛ: 'q', ԝ: 'w', ӏ: 'l', α: 'a', β: 'b', ε: 'e', ι: 'i', κ: 'k', ν: 'v', ο: 'o', ρ: 'p', τ: 't', υ: 'u', χ: 'x', ı: 'i', ǀ: 'l' }
+/** A name's look-alike key: NFKD, accents off, lowercase, Cyrillic and Greek look-alikes as Latin. Two skill names with
+ * the same skeleton count as the same name where a name must be new (a project skill only adds names). */
+export const skillNameSkeleton = (n: string) => [...n.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase()].map((c) => CONFUSABLE[c] ?? c).join('')
+
 /** The longest metadata `title` a skill may have (characters); a longer one is ignored and the name shows. */
 export const SKILL_TITLE_MAX = 60
 /** A SKILL.md's metadata `title` as people read it, or null when it is not one: empty, more than one line, longer
@@ -394,7 +426,7 @@ export const SetSkillManagerBody = z.intersection(SkillManagerSubject, z.object(
 export const SKILLS = {
   popularSkills: endpoint({ method: 'GET', path: '/api/skills/popular', auth: 'user', owner: 'B', response: PopularSkills, summary: 'Last 30 days of usage counts for currently readable skills, with no user identities or prompts.' }),
   skillExamples: endpoint({ method: 'GET', path: '/api/skills/examples', auth: 'user', owner: 'B', response: TeamPrepared, summary: 'What the team prepared, read as the caller (Home\'s first screen): the team and group skills they can use with Trina\'s example for a kept skill at its own pack path, the team folder\'s document count (as the caller, all levels down, at most 100, without the brand folder and system files; null when they cannot read it), the invite\'s skill when they can use it, whether they ran a team skill, and whether a company profile is saved.' }),
-  listSkills: endpoint({ method: 'GET', path: '/api/skills', auth: 'user', owner: 'B', query: z.object({ shadowed: z.literal('1').optional(), projectId: z.string().min(1).max(64).optional(), projects: z.literal('1').optional() }), response: z.object({ items: z.array(SkillInfo) }), summary: 'Skills the caller can use: skills/**/*.md with a name header that the caller can read, the skills of the groups they belong to (groups/<folder>/skills/, with `group`), and their own personal skills (users/<caller>/skills/), by name. One name: personal > group > team > project. `?projectId=` is the list of a chat in that project (its skills with `project`, while the caller sees it). `?shadowed=1` also lists the skills that lost to a better tier, each with `shadowedBy` (the Team skills page); `?projects=1` adds the skills of every project the caller sees, each with `project` and, when a wider skill of its name runs instead, `shadowedBy`.' }),
+  listSkills: endpoint({ method: 'GET', path: '/api/skills', auth: 'user', owner: 'B', query: z.object({ shadowed: z.literal('1').optional(), groups: z.literal('1').optional(), projectId: z.string().min(1).max(64).optional(), projects: z.literal('1').optional() }), response: z.object({ items: z.array(SkillInfo) }), summary: 'Skills the caller can use: skills/**/*.md with a name header that the caller can read, the skills of the groups they belong to (groups/<folder>/skills/, with `group`), and their own personal skills (users/<caller>/skills/), by name. One name: personal > group > team > project. `?projectId=` is the list of a chat in that project (its skills with `project`, while the caller sees it). `?shadowed=1` also lists the skills that lost to a better tier, each with `shadowedBy` (the Team skills page); `?groups=1` (owner and admins only) adds the skills of the groups they are not in, each with `group` and `notMember`, to manage them; `?projects=1` adds the skills of every project the caller sees, each with `project` and, when a wider skill of its name runs instead, `shadowedBy`.' }),
   skillMoveOptions: endpoint({ method: 'GET', path: '/api/skills/move', auth: 'user', owner: 'B', query: z.object({ path: RelPath }), response: SkillMoveOptions, summary: 'Where one of the caller\'s skills can move: its files, its whole text and each other level with who gains and who loses it (counts only), or why not.' }),
   moveSkill: endpoint({ method: 'POST', path: '/api/skills/move', auth: 'user', owner: 'B', body: MoveSkillBody, response: MoveSkillResult, summary: 'Move a skill to another level (write on both places, no skill of that name there, a SKILL.md folder for a project). `token` comes from GET /api/skills/move: a changed file or target refuses (409). Audited (`skills.move`, with both levels and the counts) and announced like every skill change.' }),
   listSkillIssues: endpoint({ method: 'GET', path: '/api/skills/issues', auth: 'user', owner: 'B', response: z.object({ items: z.array(SkillIssue) }), summary: 'Skill entries the caller can read that do not load: an invalid SKILL.md (also a name that is not its folder name) or a legacy file with a broken header.' }),

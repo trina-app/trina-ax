@@ -1,10 +1,13 @@
 // The non-file engine tools of component C, registered into the MCP tool registry of this server instance:
-// make_file, edit_hwp (tools/edit-hwp.ts; Hangul writing only while the HWP plugin is on, tools/hwp-writing.ts), share_file, artifact, web_fetch (design tab 3 "도구 목록"), save_url (tools/save-url.ts), and move_files / copy_files / rename_file
+// make_file, edit_hwp (tools/edit-hwp.ts; Hangul writing only while the HWP plugin is on, tools/hwp-writing.ts), stamp_pdf
+// (tools/stamp-pdf.ts: an image on a page of an existing PDF), share_file, artifact, web_fetch (design tab 3 "도구 목록"), save_url (tools/save-url.ts), and move_files / copy_files / rename_file
 // (tools/file-moves.ts). Inputs are the shared contracts
 // (shared/src/tools.ts); the engine sees mcp__team__<name>.
 import { registerHwpRender } from './hwp-render'
-import { ArtifactInput, EditHwpInput, MakeFileInput, SaveUrlInput, ShareFileInput, WebFetchInput } from '@mycel/shared'
+import { ArtifactInput, EditHwpInput, MakeFileInput, SaveUrlInput, ShareFileInput, StampPdfInput, EditPdfInput, MergePdfsInput, SplitPdfInput, WebFetchInput } from '@mycel/shared'
 import { editHwpFile, editHwpFileText } from './edit-hwp'
+import { STAMP_PDF_DESCRIPTION, stampPdfFile, stampPdfText } from './stamp-pdf'
+import { EDIT_PDF_DESCRIPTION, editPdfFile, MERGE_PDFS_DESCRIPTION, mergePdfFiles, pdfResultText, SPLIT_PDF_DESCRIPTION, splitPdfFile, type PdfResult } from './pdf-tools'
 import { hwpWritingOffTextFor, hwpWritingOn, MakeFileInputWithoutHwpx, writesHangul } from './hwp-writing'
 import { fileShareUrl } from '@mycel/shared/api'
 import { fileSharesOf } from '../files/shares'
@@ -29,7 +32,7 @@ import { redirectGuard, webEcho } from './connection-urls'
 import { precheckTarget, webFetch, wrapExternal, type FetchOptions } from './web-fetch'
 import { SAVE_URL_DESCRIPTION, saveUrl, type SaveUrlOptions } from './save-url'
 
-export const C_TOOL_NAMES = ['hwp_render', 'make_file', 'edit_hwp', 'share_file', 'artifact', 'web_fetch', 'save_url'] as const
+export const C_TOOL_NAMES = ['hwp_render', 'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'share_file', 'artifact', 'web_fetch', 'save_url'] as const
 
 const human = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`)
 
@@ -79,6 +82,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
       'sheet, + - * / ^, parentheses, SUM, AVERAGE, MIN, MAX, COUNT, ABS, ROUND) are saved together with their computed result, so the file ' +
       'and its preview show numbers; any other formula is calculated by Excel or LibreOffice when the file opens. Never tell the person the ' +
       'file holds only formulas or that numbers appear only after opening it in Excel; the result text says how many results are stored. ' +
+      'xlsx `charts` adds real Excel charts (column, bar, line, pie) over a range of one of the sheets, so never say Excel charts cannot be made. ' +
       `Images must be team-folder files referenced by relative path. If \`output\` exists and you did not read it in this turn, a conflict copy is saved next to it instead. \`template\`: a ${hangul ? '.docx/.pptx/.hwpx' : '.docx/.pptx'} under skills/ for styles. ` +
       (hangul ? 'hwpx (Hangul): # to ###### headings become Hangul outline levels 1-6; also paragraphs, **bold**, *italic*, bullet and numbered lists (up to 6 levels), ' +
         'simple tables (no merged cells, plain text in cells) and page breaks (a line with only \\newpage). Nothing else: images, links, footnotes, code, ' +
@@ -102,13 +106,14 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
       const saved = r.conflictCopyOf
         ? `'${r.conflictCopyOf}' already exists and was not read in this turn, so the new file was saved as '${r.path}' (${human(r.size)}). Tell the user about both.`
         : `Saved ${r.path} (${human(r.size)}). Link for the user: [${r.path.split('/').pop()}](${fileShareUrl(r.path, 'preview')})`
-      const text = r.deck ? `${saved}\nThe file has ${deckSummary(r.deck)}.`
+      const chartLine = r.charts ? `\nThe file has ${r.charts === 1 ? 'a native Excel chart' : `${r.charts} native Excel charts`} that follow${r.charts === 1 ? 's' : ''} the cells.` : ''
+      const text = (r.deck ? `${saved}\nThe file has ${deckSummary(r.deck)}.`
         : r.formulas ? `${saved}\nThe file has ${r.formulas} formula cells; ${r.stored === r.formulas ? 'all of them are saved with their computed result, so the file and its preview show the numbers' : r.stored ? `${r.stored} of them are saved with their computed result (the file and its preview show those numbers) and the other ${r.formulas! - r.stored!} are calculated by the spreadsheet app when the file opens` : 'none could be saved with a computed result, so the spreadsheet app calculates them when the file opens'}. The formulas stay editable.`
         : r.html ? `${saved}\n${htmlPdfResultText(r.html)}`
-        : a.format === 'hwpx' ? `${saved}\nThe file was read back: its paragraphs and headings are the document's. Layout in Hangul is not checked.` : saved
+        : a.format === 'hwpx' ? `${saved}\nThe file was read back: its paragraphs and headings are the document's. Layout in Hangul is not checked.` : saved) + chartLine
       const deck = r.deck ? ` ${r.deck.slides.length} slides ${r.deck.notes} notes` : ''
       const html = r.html ? ` from ${a.source} ${r.html.pages} pages${r.html.blockedCount ? ` ${r.html.blockedCount} blocked` : ''}` : ''
-      return { text, summary: `make_file ${a.format} -> ${r.path} ${r.size}B${deck}${html}${r.conflictCopyOf ? ' (conflict copy)' : ''}`, structured: { path: r.path, size: r.size, sha256: r.sha256, ...(r.deck ? { slides: r.deck.slides.length, notes: r.deck.notes } : {}), ...(r.html ? { pages: r.html.pages } : {}) } }
+      return { text, summary: `make_file ${a.format} -> ${r.path} ${r.size}B${deck}${html}${r.charts ? ` ${r.charts} charts` : ''}${r.conflictCopyOf ? ' (conflict copy)' : ''}`, structured: { path: r.path, size: r.size, sha256: r.sha256, ...(r.deck ? { slides: r.deck.slides.length, notes: r.deck.notes } : {}), ...(r.html ? { pages: r.html.pages } : {}), ...(r.charts ? { charts: r.charts } : {}) } }
     },
   })
 
@@ -139,6 +144,58 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
         summary: `edit_hwp ${r.source} -> ${r.path} ${r.size}B ${a.changes.length} changes${r.inPlace ? ' (new version)' : ''}${r.conflictCopyOf ? ' (conflict copy)' : ''}`,
         structured: { path: r.path, size: r.size, sha256: r.sha256, ...(r.conflictCopyOf ? { conflictCopyOf: r.conflictCopyOf } : {}) },
       }
+    },
+  })
+
+  reg.register({
+    name: 'stamp_pdf',
+    description: STAMP_PDF_DESCRIPTION,
+    input: StampPdfInput,
+    describe: (a) => `stamp_pdf ${a.file_path} + ${a.image}${a.output ? ` -> ${a.output}` : ''} (page ${a.page ?? 'last'})`,
+    async run(a, t) {
+      const r = await stampPdfFile(ctx, c.files, t, a)
+      const link = `[${r.path.split('/').pop()}](${fileShareUrl(r.path, 'preview')})`
+      return {
+        text: stampPdfText(r, link),
+        summary: `stamp_pdf ${r.source} + ${r.image} -> ${r.path} ${r.size}B page ${r.report.page}/${r.report.pages}${r.conflictCopyOf ? ' (conflict copy)' : ''}`,
+        structured: { path: r.path, size: r.size, sha256: r.sha256, page: r.report.page, pages: r.report.pages, ...(r.conflictCopyOf ? { conflictCopyOf: r.conflictCopyOf } : {}) },
+      }
+    },
+  })
+
+  // edit_pdf, merge_pdfs, split_pdf (tools/pdf-tools.ts): page work on existing PDFs, new files
+  const pdfLink = (p: string) => `[${p.split('/').pop()}](${fileShareUrl(p, 'preview')})`
+  const pdfStructured = (r: PdfResult) => ({ paths: r.made.map((m) => m.path), pages: r.pages })
+  const pdfSummary = (tool: string, r: PdfResult) => `${tool} ${r.sources.join(' + ')} -> ${r.made.map((m, i) => `${m.path} ${m.size}B ${r.pages[i]}p${m.conflictCopyOf ? ' (conflict copy)' : ''}`).join(', ')}`.slice(0, 1000)
+  reg.register({
+    name: 'edit_pdf',
+    description: EDIT_PDF_DESCRIPTION,
+    input: EditPdfInput,
+    describe: (a) => `edit_pdf ${a.file_path} (${a.operations.map((o) => Object.keys(o)[0]).join(', ')})${a.replace ? ' replace' : a.output ? ` -> ${a.output}` : ''}`,
+    async run(a, t) {
+      const r = await editPdfFile(ctx, c.files, t, a)
+      const drew = a.operations.some((o) => 'stamp_image' in o || 'add_text' in o || 'watermark' in o || 'page_numbers' in o)
+      return { text: pdfResultText('edit_pdf', r, pdfLink, drew), summary: pdfSummary('edit_pdf', r), structured: pdfStructured(r) }
+    },
+  })
+  reg.register({
+    name: 'merge_pdfs',
+    description: MERGE_PDFS_DESCRIPTION,
+    input: MergePdfsInput,
+    describe: (a) => `merge_pdfs ${a.files.length} files${a.output ? ` -> ${a.output}` : ''}`,
+    async run(a, t) {
+      const r = await mergePdfFiles(ctx, c.files, t, a)
+      return { text: pdfResultText('merge_pdfs', r, pdfLink, false), summary: pdfSummary('merge_pdfs', r), structured: pdfStructured(r) }
+    },
+  })
+  reg.register({
+    name: 'split_pdf',
+    description: SPLIT_PDF_DESCRIPTION,
+    input: SplitPdfInput,
+    describe: (a) => `split_pdf ${a.file_path} (${a.parts ? `${a.parts.length} parts` : `every ${a.every}`})`,
+    async run(a, t) {
+      const r = await splitPdfFile(ctx, c.files, t, a)
+      return { text: pdfResultText('split_pdf', r, pdfLink, false), summary: pdfSummary('split_pdf', r), structured: pdfStructured(r) }
     },
   })
 

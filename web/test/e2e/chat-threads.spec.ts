@@ -162,3 +162,29 @@ test('390: the thread is the whole screen with ‹ back; Send to Trina goes back
   await page.getByTestId('chat-thread-back').click()
   await expect(page).toHaveURL(new RegExp(`/c/${chatId}$`))
 })
+
+test('closing the thread puts the focus back on what opened it, never on the page (QA TC-3888)', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await signIn(page)
+  const { chatId, answerId } = await chatWithAnswer(page, true)
+  expect((await page.request.post(`/api/chats/${chatId}/messages/${answerId}/thread`, { headers: H, data: { text: 'One reply.', clientId: `cid-${uuidv7()}` } })).status()).toBe(201)
+  await page.goto(`/c/${chatId}`)
+  const answer = page.locator(`[data-message-id="${answerId}"]`)
+  // the keyboard: "Reply in thread", Enter, then Esc
+  await answer.getByTestId('reply-in-thread').focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('chat-thread')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('chat-thread')).toHaveCount(0)
+  await expect(answer.getByTestId('reply-in-thread')).toBeFocused()
+  // the line under the answer, then ✕
+  await answer.getByTestId('chat-thread-line').click()
+  await expect(page.getByTestId('chat-thread')).toBeVisible()
+  await page.getByTestId('chat-thread-close').click()
+  await expect(answer.getByTestId('chat-thread-line')).toBeFocused()
+  // opened from its address (a link): back to its answer's line
+  await page.goto(`/c/${chatId}/t/${answerId}`)
+  await expect(page.getByTestId('chat-thread')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(answer.getByTestId('chat-thread-line')).toBeFocused()
+})

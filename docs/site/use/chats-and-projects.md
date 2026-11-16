@@ -77,7 +77,7 @@ skills**, then **Trina history** (your pinned chats first, then newest first, by
 
 Trina chats have no folders. To keep chats about one piece of work together, put them in a [project](#projects).
 
-The **Chats** list has **Conversation folders** for team rooms, group chats and direct messages. A folder sorts your list, nothing more:
+The **Chats** list has **Conversation folders** for channels and direct messages. A folder sorts your list, nothing more:
 it holds no files and never changes who sees a conversation. Make one with **New folder**, then use a conversation's
 **···** › **Move to folder**. A folder's **···** renames it, moves it up or down, or deletes it; deleting a folder keeps
 its conversations in your list.
@@ -152,24 +152,24 @@ title, on a computer and on a phone. A project's page lists your
 pinned chats there first too. **Unpin** puts a chat back. A pin is yours only, also on a shared project chat,
 and it goes when the chat is deleted or you can no longer see it. You can pin up to 50 chats.
 
-Conversations in **Chats** (team rooms, group chats and DMs) are pinned the same way, from a row's **···** or the conversation's own
+Conversations in **Chats** (channels and direct messages) are pinned the same way, from a row's **···** or the conversation's own
 **···**: pinned ones come first, with a small pin after the name, in every list of conversations, on a computer and in the phone's **Chats** tab.
 Only you see your pins. A pin goes when you leave the conversation or hide it. You can pin up to 50 conversations.
 
-The **Chats** list shows every conversation: your pins, your folders, then **Team rooms** (the everyone room first, then
-by name), **Group chats** and **Direct messages** (the latest first). Conversations you hid are behind **Hidden conversations (N)**.
+The **Chats** list shows every conversation: your pins, your folders, then **Channels** (the Everyone channel first, then
+by name) and **Direct messages** (one-to-one chats and group chats together, the latest first, each with the members' faces). Conversations you hid are behind **Hidden conversations (N)**.
 
 A direct chat with someone who left the team says "<name> left the team" and has no message box. The history stays readable.
 
 ## Team chat
 
-**Chats** on the bar on the left (on a phone, the **Chats** tab) is where people talk to each other: **Team rooms**
-(everyone in the team, and one room per group), **Group chats** and **Direct messages**. **Mentions & threads**
+**Chats** on the bar on the left (on a phone, the **Chats** tab) is where people talk to each other: **Channels**
+(one for everyone in the team, and one per group) and **Direct messages** (one-to-one chats and group chats). **Mentions & threads**
 at the top collects the messages that name you and the threads you follow.
 
 To bring in someone from outside the team, choose **Invite a guest** when you add people to a group chat or a project. [Read about guests](guests.md).
 
-![The Chats list: Mentions & threads, Team rooms with Everyone and Marketing, and a direct message](../images/chats/rooms-list.webp "The Chats list")
+![The Chats list: Mentions & threads, Channels with Everyone and Marketing, and a direct message](../images/chats/rooms-list.webp "The Chats list")
 
 #### Ask Trina beside a conversation
 
@@ -178,7 +178,7 @@ answers with what you may open. When an answer is worth sharing, **Send** under 
 message (or in the thread when you asked about one message). If some people in the conversation cannot open a file the answer
 used, the app tells you first and waits for your yes.
 
-![The Marketing room: a message that names Jordan, a thread with 2 replies, and Trina's answer sent from the side chat](../images/chats/room.webp "A team room")
+![The Marketing channel: a message that names Jordan, a thread with 2 replies, and Trina's answer sent from the side chat](../images/chats/room.webp "A channel")
 
 #### Reply in a thread
 
@@ -190,7 +190,7 @@ many replies a thread has; **Also send to the conversation** puts a reply in the
 #### Link to a message
 
 **Copy link** in a message's **⋯** menu (on a phone, press and hold the message) copies its address. Paste it in any
-team room, group chat, direct message or thread: it shows as the conversation's name, and the message shows under it
+channel, group chat, direct message or thread: it shows as the conversation's name, and the message shows under it
 as a card with who wrote it, when, its words and its files. Click the card to open the message.
 
 Each person sees the card only if they can see that message. For everyone else the link stays a plain link, and opening
@@ -199,7 +199,7 @@ before you send: **Only show link** (the default) sends just the link; **Show me
 marked as shared by you. A copy goes away if the original is deleted. To take a card off your own message, point at it
 and click **✕** (or choose **Remove preview** in the message's menu).
 
-![Chats on a phone: Mentions & threads, team rooms, a group chat and a direct message, with the five tabs at the bottom](../images/chats/rooms-phone.webp "Chats on a phone")
+![Chats on a phone: Mentions & threads, channels, a group chat and a direct message, with the five tabs at the bottom](../images/chats/rooms-phone.webp "Chats on a phone")
 
 ### Guests
 

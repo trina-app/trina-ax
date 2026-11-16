@@ -1,15 +1,18 @@
 // What stands for a room in a list or a header: the other person's picture in a DM, a "#" for a group's room, the
 // people mark for the everyone room and two speech bubbles for a group chat. Decorative: the room's name is always
 // written beside it. `presence`: a DM's picture carries the other person's online dot (components/Presence.tsx; the
-// caller says the state in words after the name, PresenceText). A group chat has none, as in Slack.
+// caller says the state in words after the name, PresenceText). A group chat has none, as in Slack. `faces`: in the
+// lists, where group chats sit among the direct messages (docs/decisions/20261116-sidebar-channels-dms.md), a group chat
+// shows two of its people's faces in one picture's box (the shared FaceStack's `fit`) instead of the speech bubbles.
 import { Hash, MessagesSquare, Users } from 'lucide-react'
 import { Fragment, useCallback } from 'react'
 import type { Room } from '@mycel/shared/api'
 import { translate, useLocale, useT } from '../../i18n'
 import { roomTitle, TITLE_NAMES } from '../../lib/rooms'
-import { useAvatarOf, usePeople, usePeopleList } from '../../store/people'
+import { useAvatarOf, useFaceOf, usePeople, usePeopleList } from '../../store/people'
 import { useMe } from '../../store/session'
 import { Avatar } from '../Avatar'
+import { FaceStack } from '../FaceStack'
 import { PresenceFace } from '../Presence'
 import { StatusEmoji } from '../StatusMessage'
 
@@ -64,13 +67,23 @@ export function useNameFallback(): (room: Room) => string {
   return (room) => (room.kind === 'team' ? (me?.groups.find((g) => g.id === room.groupId)?.name ?? '') : titleOf({ ...room, name: null }))
 }
 
+/** a group chat's faces in the lists */
+const GROUP_FACES = 2
+
 /** `tile`: the icon on a round tile the size of an avatar (lists); without it a bare 16px icon in a box of that size
  * (the 대화 panel's rows and the room header, lined up with the DMs' pictures). `glyph`: the tile's icon size (45% of the
- * tile unless set; the phone's 대화 tab gives a ListIcon's 18px in its 32px tile). */
-export function RoomIcon({ room, size, glyph, tile, presence }: { room: Room; size: number; glyph?: number; tile?: boolean; presence?: boolean }) {
+ * tile unless set; the phone's 대화 tab gives a ListIcon's 18px in its 32px tile). `faces`: a group chat as its people's
+ * faces; `selected` and `on` give their rings the row's colour (FaceStack). */
+export function RoomIcon({ room, size, glyph, tile, presence, faces, selected, on = 'canvas' }: { room: Room; size: number; glyph?: number; tile?: boolean; presence?: boolean; faces?: boolean; selected?: boolean; on?: 'canvas' | 'subtle' }) {
   // the photo comes from the people directory: read it where a DM shows (the 대화 list), not only in a room
   usePeopleList()
   const peer = useAvatarOf(room.kind === 'dm' ? (room.peers[0] ?? null) : null)
+  const faceOf = useFaceOf()
+  if (faces && room.kind === 'group' && room.peers.length) {
+    const people = room.peers.slice(0, GROUP_FACES).map(faceOf)
+    // in the box of one picture, so the name lines up with a 1:1's
+    return <FaceStack people={people} count={people.length} fit={size} on={on} hoverRing selected={selected} testId="room-group" />
+  }
   if (room.kind === 'dm') return peer ? (presence ? <PresenceFace user={peer} size={size} /> : <Avatar user={peer} size={size} />) : <span aria-hidden className="shrink-0 rounded-full bg-hover" style={{ width: size, height: size }} />
   const Icon = room.kind === 'all' ? Users : room.kind === 'group' ? MessagesSquare : Hash
   if (!tile)

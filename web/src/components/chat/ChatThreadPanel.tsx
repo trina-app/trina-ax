@@ -48,6 +48,8 @@ export function ChatThreadPanel({ chat, rootId, meId, onClose, onSendToTrina, on
   const key = threadKey(chatId, rootId)
   const view = useChatThreads((s) => s.views[key])
   const pending = useChatThreads((s) => s.pending[key])
+  // replies waiting out the sending budget: one line under the box (QA TC-3887)
+  const slow = useChatThreads((s) => !!s.slowUntil[key])
   const replies = view?.replies ?? []
   const root = view?.root ?? null
   const list = useStickToBottom()
@@ -147,7 +149,7 @@ export function ChatThreadPanel({ chat, rootId, meId, onClose, onSendToTrina, on
               )}
               {view?.loading && root && !replies.length && <Loader2 size={16} className="mx-auto my-2 animate-spin text-faint" aria-label={t('common.loading')} />}
               <ul className="space-y-3 pt-2" data-testid="chat-thread-replies">
-                {replies.map((r) => <ReplyRow key={r.id} chatId={chatId} rootId={rootId} r={r} meId={meId} />)}
+                {replies.map((r) => <ReplyRow key={r.id} chatId={chatId} rootId={rootId} r={r} meId={meId} readOnly={readOnly === 'trash' || readOnly === 'safe_ops'} />)}
                 {(pending ?? []).map((p) => <PendingRow key={p.clientId} chatId={chatId} rootId={rootId} p={p} />)}
               </ul>
             </>
@@ -160,6 +162,7 @@ export function ChatThreadPanel({ chat, rootId, meId, onClose, onSendToTrina, on
             : readOnly ? <p role="status" className="px-1 py-2 text-center text-sm text-muted" data-testid="chat-thread-read-only">{t(readOnly === 'trash' ? 'chat.thread.inTrash' : 'chat.thread.notShared')}</p>
             : view?.full ? <p role="status" className="px-1 py-2 text-center text-sm text-muted" data-testid="chat-thread-full">{t('chat.thread.full')}</p>
             : <ReplyBox chatId={chatId} rootId={rootId} autoFocus={focusBox || count === 0} onSent={() => { stick.current = true }} />}
+          {slow && <p role="status" className="px-1 pt-1.5 text-xs text-muted" data-testid="chat-thread-slow">{t('chat.thread.fast')}</p>}
           <p className="px-1 pt-1.5 text-micro leading-4 text-faint" data-testid="chat-thread-people-only">{t('chat.thread.peopleOnly', { name: aiName(t) })}</p>
           {canSendToTrina && (
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 pt-1.5">
@@ -204,14 +207,15 @@ function Face({ r }: { r: ChatThreadReply }) {
   return u ? <Avatar user={u} size={28} /> : <span className="size-7 shrink-0 rounded-full bg-hover" aria-hidden />
 }
 
-function ReplyRow({ chatId, rootId, r, meId }: { chatId: string; rootId: string; r: ChatThreadReply; meId: string }) {
+/** `readOnly`: the chat is in the trash or safe operations are on: nothing can be deleted (QA TC-3783, TC-3784) */
+function ReplyRow({ chatId, rootId, r, meId, readOnly }: { chatId: string; rootId: string; r: ChatThreadReply; meId: string; readOnly: boolean }) {
   const t = useT()
   const locale = useLocale()
   const nameOf = useNameOf()
   const { copy } = useCopy()
   const items: MenuItem[] = [
     { label: t('common.copy'), icon: <Copy size={14} aria-hidden />, onSelect: () => void copy(r.content).then((ok) => ok && toast({ level: 'info', text: t('common.copied') })), testId: 'chat-thread-copy' },
-    ...(r.canDelete ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, testId: 'chat-thread-delete', onSelect: () => void (async () => {
+    ...(r.canDelete && !readOnly ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, testId: 'chat-thread-delete', onSelect: () => void (async () => {
       const ok = await confirmDialog({ title: t('chat.thread.deleteTitle'), body: t('chat.thread.deleteBody'), confirm: t('common.delete'), danger: true })
       if (!ok) return
       try { await useChatThreads.getState().remove(chatId, rootId, r.id) }

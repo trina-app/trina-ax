@@ -1,6 +1,6 @@
 /* macOS permission prompts (es). The English base is mac.extendInfo in desktop/electron-builder.config.ts. */
 "NSMicrophoneUsageDescription" = "El dictado por voz en los chats usa el micrófono.";
-"NSLocalNetworkUsageDescription" = "Se conecta directamente al servidor de tu equipo dentro de la oficina.";
-"NSDesktopFolderUsageDescription" = "Busca archivos de trabajo aquí. El contenido de los archivos se queda en este Mac hasta que decidas añadirlos.";
-"NSDocumentsFolderUsageDescription" = "Busca archivos de trabajo aquí. El contenido de los archivos se queda en este Mac hasta que decidas añadirlos.";
-"NSDownloadsFolderUsageDescription" = "Busca archivos de trabajo aquí. El contenido de los archivos se queda en este Mac hasta que decidas añadirlos.";
+"NSLocalNetworkUsageDescription" = "Se conecta directamente al servidor de su equipo dentro de la oficina.";
+"NSDesktopFolderUsageDescription" = "Busca archivos de trabajo aquí. El contenido de los archivos se queda en este Mac hasta que decida añadirlos.";
+"NSDocumentsFolderUsageDescription" = "Busca archivos de trabajo aquí. El contenido de los archivos se queda en este Mac hasta que decida añadirlos.";
+"NSDownloadsFolderUsageDescription" = "Busca archivos de trabajo aquí. El contenido de los archivos se queda en este Mac hasta que decida añadirlos.";

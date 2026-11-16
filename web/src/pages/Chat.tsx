@@ -74,6 +74,7 @@ import { Button, CopyButton, EmptyState, IconButton, Skeleton, confirmDialog, us
 import { LoadError } from '../components/LoadError'
 import { Tooltip } from '../components/Tooltip'
 import { FileDropZone } from '../components/FileDropZone'
+import { isolate } from '../components/handover/isolate'
 import { RoomSideColumn } from '../components/rooms/RoomSideColumn'
 import { ChatThreadPanel } from '../components/chat/ChatThreadPanel'
 import { closeSidePanel, useSidePanel } from '../lib/sidePanel'
@@ -491,7 +492,28 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
   // thing beside the chat at a time: a thread closes a file or artifact panel, and one of those closes the thread
   const fromChat = !!(location.state as { fromChat?: boolean } | null)?.fromChat
   const threadFocus = !!(location.state as { focus?: boolean } | null)?.focus
+  // what opened the thread ("Reply in thread", or the line under the answer): closing it puts the focus back there, never
+  // on the page (QA TC-3888); a thread opened from a link goes back to its answer's line
+  const opener = useRef<{ id: string; button: boolean } | null>(null)
+  const focusBack = useRef(true)
+  const lastThread = useRef(threadRoot)
+  useEffect(() => {
+    const was = lastThread.current
+    lastThread.current = threadRoot
+    if (!was || threadRoot) return
+    const back = focusBack.current
+    focusBack.current = true
+    if (!back) return
+    const button = opener.current?.id === was && opener.current.button
+    requestAnimationFrame(() => {
+      const row = scroller.current?.querySelector(`[data-message-id="${CSS.escape(was)}"]`)
+      const pick = (id: string) => row?.querySelector<HTMLElement>(`[data-testid="${id}"]`) ?? null
+      ;(button ? pick('reply-in-thread') ?? pick('chat-thread-line') : pick('chat-thread-line') ?? pick('reply-in-thread'))?.focus()
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadRoot])
   const openThread = (id: string, focus: boolean) => {
+    opener.current = { id, button: focus }
     closeSidePanel()
     navigate(`/c/${chatId}/t/${id}`, { replace: !!threadRoot, state: { fromChat: threadRoot ? fromChat : true, focus } })
   }
@@ -501,7 +523,8 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
   }, [fromChat, navigate, chatId])
   const sidePanel = useSidePanel()
   useEffect(() => {
-    if (sidePanel && threadRoot) closeThread()
+    // (the panel that opened takes the focus, not the answer)
+    if (sidePanel && threadRoot) { focusBack.current = false; closeThread() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sidePanel])
   // the chat's box can send the thread as my question now: the chat can be continued (not in the trash, not read-only),
@@ -510,7 +533,7 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
   const boxSends = !!shared && !chat?.deletedAt && !readOnly && !guestNoAi && !noAiHere && !runningMine
   const sendToTrina = (draft: string) => {
     // a phone: back to the chat, whose box (still there under the thread) takes the draft
-    if (phone) closeThread()
+    if (phone) { focusBack.current = false; closeThread() }
     requestAnimationFrame(() => composer.current?.prepareDraft(draft))
   }
 
@@ -523,7 +546,7 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
   if (goneFrom)
     return (
       <div className="flex h-full flex-col justify-center" data-testid="chat-not-found" data-gone="">
-        <EmptyState screen title={t('projects.noLongerMember', { name: goneFrom })}>
+        <EmptyState screen title={isolate(locale, 'projects.noLongerMember', { name: goneFrom }, ['name'])}>
           <Link to="/projects" className="mt-1 inline-block font-medium text-accent-text underline">
             {t('projects.title')}
           </Link>

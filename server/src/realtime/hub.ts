@@ -12,7 +12,7 @@ import { originAllowed, originsFor } from '../http/middleware'
 import { atLeast, loadPrincipal, RuleSet } from '../policy/access'
 import { visibleChanges } from '../team-files/changes'
 import { isRoomMember } from '../rooms/store'
-import { threadVisibleTo } from '../chat/threads'
+import { chatVisibleTo, threadVisibleTo } from '../chat/threads'
 
 /** Hard caps on top of the contract's "at least 2000 events / 5 minutes" (memory stays bounded per person). */
 export const REPLAY_MAX_EVENTS = 20_000
@@ -53,6 +53,8 @@ interface UserState {
   bytes: number
   sockets: Map<string, Socket>
   lastActive: number
+  /** the last forgetReplay: its run (Hub.run) and the seq it was at */
+  forgot?: { run: number; seq: number }
 }
 
 type SessionEndReason = Parameters<RealtimeHub['disconnectUser']>[1]
@@ -68,10 +70,16 @@ export interface HubOptions {
   replayMinMs?: number
   maxBufferedBytes?: number
   now?: () => number
+  /** does this person still see this chat, for the replay (chat/threads.ts chatVisibleTo; tests of the hub alone hand
+   * in their own) */
+  chatVisible?: (userId: string, chatId: string) => boolean
 }
 
 export class Hub implements RealtimeHub {
   private users = new Map<string, UserState>()
+  /** one synchronous run of the server's code: bumped after the run's microtasks (see forgetReplay) */
+  private runNo = 0
+  private runOpen = false
   private pinger: ReturnType<typeof setInterval> | null = null
   private sweeper: ReturnType<typeof setInterval> | null = null
   private frameHandlers: ClientFrameHandler[] = []
@@ -88,6 +96,7 @@ export class Hub implements RealtimeHub {
       replayMinMs: o.replayMinMs ?? WS_REPLAY_MIN_MS,
       maxBufferedBytes: o.maxBufferedBytes ?? WS_MAX_BUFFERED_BYTES,
       now: o.now ?? Date.now,
+      chatVisible: o.chatVisible ?? ((userId, chatId) => chatVisibleTo(this.ctx, userId, chatId)),
     }
     this.pinger = setInterval(() => this.pingAll(), this.o.pingIntervalMs)
     this.sweeper = setInterval(() => this.sweep(), 60_000)
@@ -275,6 +284,20 @@ export class Hub implements RealtimeHub {
     // chat since (people-share.ts, admin/folders.ts) gets resync and reloads over REST
     const threads = new Set<string>()
     for (const { ev } of entries) if (ev.type === 'chat.thread') threads.add(`${ev.data.chatId} ${ev.data.rootId}`)
+    // a chat's own events (its messages, live text, steps, cards, artifacts, a changed chat) only while the person still
+    // sees it (chatFor): someone taken out of a chat shared with people while offline gets resync, never what was said
+    // there since (QA TC-3788). A chat that left their list ('deleted', 'purged') carries nothing of it and goes through
+    const chats = new Set<string>()
+    for (const { ev } of entries) {
+      if (ev.type === 'message.created' || ev.type === 'message.delta' || ev.type === 'message.step' || ev.type === 'message.done' || ev.type === 'turn.busy' || ev.type === 'queue.position' || ev.type === 'artifact.updated' || ev.type === 'turn.request' || ev.type === 'deck.progress') chats.add(ev.data.chatId)
+      else if (ev.type === 'chat.updated' && ev.data.change !== 'deleted' && ev.data.change !== 'purged') chats.add(ev.data.chatId)
+    }
+    try {
+      for (const id of chats) if (!this.o.chatVisible(userId, id)) return false
+    } catch (e) {
+      this.ctx.log.error('replay chat check failed', { err: e, user: userId })
+      return false
+    }
     try {
       for (const k of threads) {
         const [chatId, rootId] = k.split(' ') as [string, string]
@@ -446,12 +469,36 @@ export class Hub implements RealtimeHub {
    * Drop a person's replay history (their access changed, they were disabled or deleted). The seq counter stays, so
    * any resume from before this point is answered with resync and the window reloads over REST, which applies the
    * new access; nothing published under the old access is replayed. Open windows keep their sockets.
+   *
+   * A second forget in the same synchronous run (one access change forgets more than once: afterAccessChange, then
+   * the rooms' sync for the team room of the group the person left) keeps what the first one's change published since
+   * when it only tells the window what it lost (access_changed, a room or a chat removed by id). Before, the second
+   * forget dropped the access_changed notice the first had just published, so a window that had seen everything before
+   * the change got resync instead of the notice (DECISIONS.md "권한이 바뀌면 그 사람의 이어받기 버퍼를 버린다": 알림
+   * 직전까지 다 받은 창은 알림만 이어받는다). Only a tail of such entries is kept, so anything dropped is older than the
+   * oldest entry left and a resume from before it is still resync; nothing from before the run's first forget stays.
    */
   forgetReplay(userId: string): void {
     const u = this.users.get(userId)
     if (!u) return
-    u.buffer = []
-    u.bytes = 0
+    const run = this.currentRun()
+    let keep = u.buffer.length
+    if (u.forgot?.run === run) {
+      const since = u.forgot.seq
+      while (keep > 0 && u.buffer[keep - 1]!.firstSeq > since && onlyTellsLoss(u.buffer[keep - 1]!.ev)) keep--
+    }
+    u.buffer = u.buffer.slice(keep)
+    u.bytes = u.buffer.reduce((n, e) => n + e.bytes, 0)
+    if (u.forgot?.run !== run) u.forgot = { run, seq: u.seq }
+  }
+
+  /** the number of the synchronous run this is in: it changes once the run's microtasks are done (an await ends a run) */
+  private currentRun(): number {
+    if (!this.runOpen) {
+      this.runOpen = true
+      queueMicrotask(() => { this.runNo++; this.runOpen = false })
+    }
+    return this.runNo
   }
 
   /** Forget people with no sockets whose buffer has aged out (the buffer must outlive WS_REPLAY_MIN_MS). */
@@ -480,4 +527,12 @@ export class Hub implements RealtimeHub {
       u.sockets.clear()
     }
   }
+}
+
+/** events that only tell a window what the person lost, with no content of it: kept by a second forget in one run */
+function onlyTellsLoss(ev: ServerEvent): boolean {
+  if (ev.type === 'notice') return ev.data.code === 'access_changed'
+  if (ev.type === 'room.updated') return ev.data.change === 'removed' && ev.data.room === null
+  if (ev.type === 'chat.updated') return ev.data.change === 'deleted' && ev.data.chat === null
+  return false
 }

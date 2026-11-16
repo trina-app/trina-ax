@@ -28,7 +28,7 @@ it opens with that service's guide. If you have none yet, start one with **New c
 
 ![Add an app: its messages appear in the conversation for everyone in it, then Google Forms, Other app, GitHub and Sentry](../images/room-apps/picker.webp "Add an app")
 
-Who can do this: in a team room or the everyone room, its owners and admins; in a 1:1 or a group chat, anyone in it.
+Who can do this: in a channel (including the Everyone channel), its owners and admins; in a 1:1 or a group chat, anyone in it.
 Everyone else in the conversation sees the cards, replies in their threads and asks Trina about them. A tap on the app's name
 says who set it up.
 
