@@ -284,3 +284,16 @@ describe('the Add window for assistive technology (VoiceOver, Voice Control)', (
     }
   })
 })
+
+describe('keyboard and Esc in the consent window (TC-3490, TC-3491)', () => {
+  const page = readFileSync(join(import.meta.dir, '../../desktop/src/ui/consent.ts'), 'utf8')
+  const web = readFileSync(join(import.meta.dir, '../../web/src/components/onboarding/FindWorkFiles.tsx'), 'utf8')
+  test('Tab goes only between the two buttons; the scrolling list is no Tab stop', () => {
+    expect(page).toContain('scroller.tabIndex = -1')
+    expect(page).toContain('buttons = [no, yes]')
+    expect(page).toMatch(/if \(e\.key === 'Tab' && buttons\.length\) \{\n\s*\/\/[^\n]*\n\s*e\.preventDefault\(\)/)
+  })
+  test('the page says the look was cancelled, whichever way the person said no (all are the app\'s "cancelled")', () => {
+    expect(web).toContain("if (r.state === 'cancelled') toast({ level: 'info', text: t('files.findWork.cancelled') })")
+  })
+})

@@ -529,7 +529,8 @@ export class SlackConnector {
   /** The person's Slack link, of the workspace connected now */
   linkOf(userId: string, cfg = this.config()): LinkRow | null {
     const l = this.db.query('SELECT * FROM slack_links WHERE user_id = ?').get(userId) as LinkRow | null
-    return l && cfg?.team_id && l.team_id === cfg.team_id ? l : null
+    // a guest: no link counts (the AI never reads Slack for them)
+    return l && cfg?.team_id && l.team_id === cfg.team_id && !this.guest(userId) ? l : null
   }
 
   /** May the AI read Slack for this person now: Slack on, linked to the workspace connected now, and the bot has the
@@ -625,9 +626,16 @@ export class SlackConnector {
     return this.db.query("SELECT id FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(userId) as { id: string } | null
   }
 
-  /** an account that may use the app now (no password change pending) */
+  /** an account that may use the app now (no password change pending) and may use Slack: never a guest (an outside
+   * person of one group chat and one project never uses the team's Slack connection; docs/DECISIONS.md "Guests never
+   * use Slack"), so every link page, Sign in with Slack, a turn and a delivery refuse a guest through this one check */
   private person(userId: string) {
-    return this.db.query("SELECT id, name, username, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL AND must_change_password = 0").get(userId) as { id: string; name: string; username: string; role: string } | null
+    return this.db.query("SELECT id, name, username, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL AND must_change_password = 0 AND guest = 0").get(userId) as { id: string; name: string; username: string; role: string } | null
+  }
+
+  /** a guest account (any state): never linked, never answered from Slack */
+  private guest(userId: string): boolean {
+    return !!this.db.query('SELECT 1 FROM users WHERE id = ? AND guest = 1').get(userId)
   }
 
   /** The Slack account as Slack says it now (users.info): of this workspace, a person (no bot, not deactivated), and its
@@ -648,8 +656,10 @@ export class SlackConnector {
     if (!slack.email || !mine) return 'missing'
     if (slack.email !== mine) return 'mismatch'
     if (this.emailSetByOther(userId)) return 'recent'
-    // an address another active account also gives: it proves nobody in particular
-    const others = this.db.query("SELECT email FROM users WHERE id != ? AND status = 'active' AND deleted_at IS NULL AND email IS NOT NULL").all(userId) as { email: string }[]
+    // an address another active account also gives: it proves nobody in particular. A guest's is left out (the owner,
+    // 2026-11-16, docs/DECISIONS.md "A guest can't take an e-mail used in the team"): a guest is never linked, and an
+    // address a guest gave first must not block the member it belongs to
+    const others = this.db.query("SELECT email FROM users WHERE id != ? AND status = 'active' AND deleted_at IS NULL AND email IS NOT NULL AND guest = 0").all(userId) as { email: string }[]
     return others.some((o) => normEmail(o.email) === mine) ? 'shared' : 'match'
   }
 
@@ -736,6 +746,8 @@ export class SlackConnector {
    * Slack account, and this Slack user of the workspace not to another person. true: already this very link. Inside the
    * caller's transaction. */
   private bindable(userId: string, team: string, slackUser: string): boolean {
+    // a guest is never linked (the same "not found" as a gone link: nothing says a guest account is there)
+    if (this.guest(userId)) throw new SlackError('link_expired', 'not_found')
     const mine = this.db.query('SELECT * FROM slack_links WHERE user_id = ?').get(userId) as LinkRow | null
     const same = !!mine && mine.team_id === team && mine.slack_user_id === slackUser
     if (mine && !same) throw new SlackError('linked_elsewhere', 'conflict')
@@ -1227,6 +1239,13 @@ export class SlackConnector {
     if (q.userTeam && q.userTeam !== q.team) { await this.ephemeral(tk.bot, q, say('outsider', this.localeOf(null))); return }
     const link = this.ownerOf(q.team, q.user)
     const account = link ? this.account(link.user_id) : null
+    // a guest (linked before, or by hand): no turn, the link dropped, one plain line that says nothing about the account
+    if (link && this.guest(link.user_id)) {
+      this.db.query('DELETE FROM slack_links WHERE id = ?').run(link.id)
+      audit(this.db, { actor: null, action: 'slack.unlinked', target: link.user_id, detail: { reason: 'guest', slackUser: link.slack_user_id } })
+      await this.ephemeral(tk.bot, q, say('notHere', this.localeOf(null)))
+      return
+    }
     if (!link || !account) { await this.offerLink(cfg, tk.bot, q, link); return }
     const locale = this.localeOf(account.id)
     // a password to change first (a temporary one): no turn until they did, the link stays
@@ -1303,7 +1322,9 @@ export class SlackConnector {
     const wait = tooSoon()
     if (wait) { await this.ephemeral(bot, q, linkWaitText(wait, locale)); return }
     // who this Slack account is, as Slack says: shown on the link page next to the person who confirms. No answer from
-    // Slack: no link (we could not check the account is of this workspace)
+    // Slack: no link (we could not check the account is of this workspace). An unlinked Slack account is never matched
+    // to an account here by its e-mail: a guest's gets the same prompt as anyone's, and its link page refuses a guest
+    // (person(), bindable()); a guest sets their own e-mail, so it can neither block nor reveal anything
     const m = await this.slackMember(bot, q.user, cfg)
     if (!m) { await this.ephemeral(bot, q, say('queueFull', locale)); return }
     if (!m.ours) { await this.ephemeral(bot, q, say('outsider', locale)); return }

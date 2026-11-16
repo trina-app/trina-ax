@@ -102,6 +102,8 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     case 'service.request': case 'service.ready': case 'service.closed': return true
     // older AI-made files with one of the person's stored keys in them (shown always, connections/file-scan.ts)
     case 'files.stored_key': return true
+    // a file shared with me, an access request to my file, its answer, my file's grants removed by a move (files/shares.ts)
+    case 'file.shared': case 'file.access_requested': case 'file.access_answered': case 'file.unshared_by_move': return true
     // a password reset link was made for the person (shown always, Notifications.resetLinkMade)
     case 'account.reset_link': return true
     // the hosting service copied the team's key or data, or the team address moved to another server (shown always,

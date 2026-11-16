@@ -23,7 +23,7 @@ permissions, invite your team, prepare a team skill, make the first backup. A fi
 | **Activity** | Usage, Activity log |
 | **Team** | Team settings, System |
 
-**Members & invites** also lists the guests: people from outside the team who are in one group chat or project. [Read about guests](guests.md).
+**Members & invites** also lists the guests: people from outside the team, each in one group chat and one project at most. [Read about guests](guests.md).
 
 :::note
 Earlier versions had the AI accounts on their own **AI connections** page, next to **AI engines**. Both are one
@@ -83,7 +83,7 @@ was last used. The **⋯** menu of an account has Check again, Move up / down, r
 
 ## Guests
 
-**Admin › Members & invites** ends with **Guests**: people from outside the team, each in one group chat or one project, who
+**Admin › Members & invites** ends with **Guests**: people from outside the team, each in a group chat and a project at most, who
 do not take seats. Each row says where the guest is and which AI they have. Its **⋯** menu has **Change AI** (no AI,
 their own sign-in, or a team AI account with a monthly limit), **Make team member** and **Remove guest**. Members invite
 guests themselves from a group chat or a project ([Guests](chats-and-projects.md#guests)). Owners and admins can

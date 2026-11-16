@@ -1,5 +1,5 @@
 // Admin › Members › Guests (docs/DECISIONS.md "Guests: only what they were invited to"): the people from outside the
-// team, each in one room or project, who take no seat. A row says who, where they are and their AI; its "…" changes the
+// team, each in one group chat and one project at most, who take no seat. A row says who, where they are and their AI; its "…" changes the
 // AI (PATCH /api/admin/users/:id/guest-ai), resets their password (a guest has no e-mail: Members' dialog, a temporary
 // password to hand over; the sign-in page tells a guest to ask whoever invited them), makes them a team member (POST
 // /api/admin/users/:id/convert-guest: takes a seat, 409 plan_limit reason seat_limit when none is free) or removes them
@@ -23,7 +23,7 @@ import { useCallback, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Credential, GuestAiChoice, Locale, User } from '@mycel/shared/api'
 import { api, API, isApiError } from '../../lib/api'
-import { GUEST_NO_PLACE, guestRowState, userGuest, type GuestPlaceOut } from '../../lib/guests'
+import { GUEST_NO_PLACE, guestRowState, trashedProjectOf, userGuest, type GuestPlaceOut, type GuestPlaceOutView } from '../../lib/guests'
 import { useLocale, useT } from '../../i18n'
 import { isAdmin, useMeStrict } from '../../store/session'
 import { toast } from '../../store/ui'
@@ -166,14 +166,16 @@ export function GuestsSection({ guests, filtered = false, connections, focusId, 
         <ul data-testid="guests-list">
           {sorted.map((u) => {
             const g = userGuest(u)
-            const where = placeWords(t, g?.place ?? null, g?.out ?? null, g?.leftThemselves ?? false)
+            // their group chat and their project, each in its own words (a removed guest's: why they are out of it)
+            const where = placesWords(t, g?.places ?? [], g?.out ?? null, g?.leftThemselves ?? false)
+            const trashed = trashedProjectOf(g)
             // a removed guest: where they are (or why not) and that they are off, no AI (they cannot use it); the line may
             // take two lines on a phone so the status is never cut
             const state = guestRowState(u)
             const removed = state === 'left' || state === 'removed'
             // their project is in the trash: put it back from here, which brings them back with it
-            const restoreBtn = state === 'trashed' && g?.place?.id
-              ? (suffix: string) => <Button size="sm" variant="secondary" onClick={() => void restore(g!.place!.id!, g!.place!.name ?? '')} data-testid={`guest-restore-${u.username}${suffix}`}>{t('guest.admin.restoreProject')}</Button>
+            const restoreBtn = state === 'trashed' && trashed?.id
+              ? (suffix: string) => <Button size="sm" variant="secondary" onClick={() => void restore(trashed.id!, trashed.name ?? '')} data-testid={`guest-restore-${u.username}${suffix}`}>{t('guest.admin.restoreProject')}</Button>
               : null
             // a trashed project's guest: where they are and that it is in the trash (no AI: they cannot use it now); one
             // who left on their own: "Left 'Quote prep'" says it all; one taken out or removed: where, then "Removed"
@@ -239,6 +241,13 @@ function clipPlaceName(name: string): string {
 
 /** Where a guest is ("Room · Quote prep"), or for a removed one why they are not there: left it, its project in the
  * trash, or gone (the name of a deleted place is not known any more). */
+/** A guest's places on their row: "Group chat · Quote prep · Project · Launch" (a removed guest's each with why they
+ * are out of it; "gone" said once). */
+function placesWords(t: ReturnType<typeof useT>, places: readonly GuestPlaceOutView[], out: GuestPlaceOut | null, self = false): string | null {
+  if (!places.length) return out === 'gone' ? t('guest.admin.outGone') : null
+  const words = [...new Set(places.map((pl) => placeWords(t, pl, pl.out ?? null, self)).filter((w): w is string => !!w))]
+  return words.length ? words.join(' · ') : null
+}
 function placeWords(t: ReturnType<typeof useT>, place: { kind: 'room' | 'project'; name?: string } | null, out: GuestPlaceOut | null, self = false): string | null {
   if (out === 'gone') return t('guest.admin.outGone')
   if (!place?.name) return null

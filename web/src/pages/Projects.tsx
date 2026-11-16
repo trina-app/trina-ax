@@ -39,7 +39,7 @@
 // /projects/:id/files, with no folder path line), so Back returns to the project.
 import { ArchiveRestore, ChevronLeft, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Import, Link2, Lock, Pencil, Pin, Plus, ScrollText, Trash2, UserPlus, Users, X } from 'lucide-react'
 import { foldRuns, runsUnread, TaskRunsIcon, TaskRunsMark, taskRunsAttrs, taskRunsPath, type Run } from '../components/nav/TaskRunsRow'
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { scheduleName } from '../lib/scheduleText'
 import { useSessionMarkers } from '../store/sessionMarkers'
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
@@ -1428,6 +1428,9 @@ export function ProjectFiles() {
   const { projectId } = useParams()
   const [params] = useSearchParams()
   const dir = projectDir(params.get('dir'))
+  // ?select=<full path>: the file a link picked ("Open in Files", Search), shown picked and scrolled to once
+  const selected = params.get('select')
+  const showPicked = useCallback((el: HTMLElement | null) => { el?.scrollIntoView({ block: 'nearest' }) }, [])
   const navigate = useNavigate()
   const phone = useMediaQuery(PHONE)
   // a guest has no 파일 screen: this screen lists their project's folders on a computer too (a computer otherwise goes on
@@ -1512,7 +1515,7 @@ export function ProjectFiles() {
             f.type === 'folder' ? (
               <ListRow key={f.path} to={down(f)} icon={<Folder className="text-accent-text" />} name={f.name} nameTitle={f.name} end={<ChevronRight size={16} className="shrink-0 self-center text-faint" aria-hidden />} testId="project-file" link={{ 'data-type': 'folder' }} />
             ) : (
-              <ListRow key={f.path} onClick={() => openTeamFile(f.path)} icon={<FileText />} name={f.name} nameTitle={f.name} end={<span className="shrink-0 self-center text-meta text-faint tabular-nums">{formatRelative(f.mtime, locale)}</span>} testId="project-file" link={{ 'data-type': 'file' }} />
+              <ListRow key={f.path} onClick={() => openTeamFile(f.path)} selected={f.path === selected} rowRef={f.path === selected ? showPicked : undefined} icon={<FileText />} name={f.name} nameTitle={f.name} end={<span className="shrink-0 self-center text-meta text-faint tabular-nums">{formatRelative(f.mtime, locale)}</span>} testId="project-file" link={{ 'data-type': 'file' }} />
             ),
           )}
         </ul>
@@ -1614,7 +1617,7 @@ function ShareProjectDialog({ project, chats, onClose, onShared }: { project: Pr
       }
     >
       <div className="space-y-3">
-        <ProjectPeopleField label={t('projects.participants')} value={participants} onChange={setParticipants} note={note} countAlways />
+        <ProjectPeopleField label={t('projects.participants')} value={participants} onChange={setParticipants} note={note} countAlways anyGuestOut />
         {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       </div>
     </Modal>

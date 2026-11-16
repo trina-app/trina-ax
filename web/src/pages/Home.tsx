@@ -71,12 +71,15 @@ import { FileDropZone } from '../components/FileDropZone'
 export default function Home() {
   const location = useLocation()
   const phone = useMediaQuery('(max-width: 767.98px)')
-  // a guest whose AI is off has nothing to ask: their one place opens (components/GuestView.tsx)
+  // a guest whose AI is off has nothing to ask: their one place opens (components/GuestView.tsx). Every guest, AI or
+  // not, lands in their place when the app opens on Home (a landing: the tab's first entry, a sign-in), as Slack opens a
+  // single-channel guest in that channel (QA TC-3359); Trina's tab still opens Home for a guest with AI
   const guestNoAi = useGuestAiOff()
+  const guestLands = isGuestMe(useMeStrict()) && location.pathname === '/' && isLanding({ key: location.key, state: location.state, search: location.search })
   const real = useRealPath()
   const route = homeRoute(location.pathname, location.search, phone)
   // (not while Settings is open over Home: the page under the dialog stays put)
-  if (guestNoAi) return real === location.pathname ? <GuestLanding /> : <div className="h-full" />
+  if (guestNoAi || guestLands) return real === location.pathname ? <GuestLanding /> : <div className="h-full" />
   if ('to' in route) return <Navigate to={route.to} state={location.state} replace />
   return (
     <FileDropZone className="h-full" data-testid="home-drop">

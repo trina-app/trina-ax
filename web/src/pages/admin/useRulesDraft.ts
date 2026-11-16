@@ -85,6 +85,8 @@ export function useRulesDraft({ path, folder, sort, onStale }: RulesDraftOptions
   const [attempt, setAttempt] = useState(0)
   const [saving, setSaving] = useState(false)
   const [refused, setRefused] = useState<string | null>(null)
+  /** "Remove those links too" unticked, for the draft it was unticked on (its key): another draft ticks it again */
+  const [keepLinksFor, setKeepLinksFor] = useState<string | null>(null)
 
   const converted = draftOf(base.rules, root, base.limited).converted
   const rules = useMemo(() => rulesOf(draft, { root }), [draft, root])
@@ -139,6 +141,10 @@ export function useRulesDraft({ path, folder, sort, onStale }: RulesDraftOptions
   }
 
   const ready = preview.ready && !!data
+  // files shared one by one here, and the change takes access away: "Remove those links too", ticked by default
+  const linkPeople = ready ? data.linkPeople ?? 0 : 0
+  const removeLinks = linkPeople > 0 && keepLinksFor !== key
+  const setRemoveLinks = (on: boolean) => setKeepLinksFor(on ? null : key)
   // why Save cannot save now: shared/ and skills/ need a rule, nothing to save, or the answer is not in
   const why = keepsOne ? 'keep' : !saveable ? 'same' : !ready ? (preview.error ? 'failed' : 'waits') : null
 
@@ -165,9 +171,12 @@ export function useRulesDraft({ path, folder, sort, onStale }: RulesDraftOptions
     setRefused(null)
     try {
       const expectedHash = base.hash ?? data?.hash
+      // the line is shown: the box's choice is always sent (the server refuses a narrowing save that says nothing about
+      // the links: review of #979)
+      const links = linkPeople > 0 ? { removeFileLinks: removeLinks } : {}
       const saved = folder
-        ? await api.call(API.putFolderRules, { params: { id: folder.id }, body: { rules, ...(limited !== undefined ? { limited } : {}), ...(expectedHash ? { expectedHash } : {}) } })
-        : await api.call(API.createFolder, { body: { path, create: false, rules, ...(limited !== undefined ? { limited } : {}), ...(expectedHash ? { expectedHash } : {}) } })
+        ? await api.call(API.putFolderRules, { params: { id: folder.id }, body: { rules, ...(limited !== undefined ? { limited } : {}), ...(expectedHash ? { expectedHash } : {}), ...links } })
+        : await api.call(API.createFolder, { body: { path, create: false, rules, ...(limited !== undefined ? { limited } : {}), ...(expectedHash ? { expectedHash } : {}), ...links } })
       toast({ level: 'success', text: t('common.saved') })
       return saved
     } catch (e) {
@@ -187,6 +196,6 @@ export function useRulesDraft({ path, folder, sort, onStale }: RulesDraftOptions
 
   return {
     root, base, initial, hadRules, draft, setDraft, stale, loadTheirs, attempt, retry: () => setAttempt((n) => n + 1),
-    saving, refused, converted, rules, preview, data, ready, edited, saveable, keepsOne, connected, choices, why, askNow, save,
+    saving, refused, converted, rules, preview, data, ready, linkPeople, removeLinks, setRemoveLinks, edited, saveable, keepsOne, connected, choices, why, askNow, save,
   }
 }

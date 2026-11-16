@@ -59,11 +59,10 @@ export default function Rooms() {
   const [picking, setPicking] = useState(false)
   // the start hint and "or start a new one with +": not a guest's (components/GuestView.tsx)
   const canStart = useCanStartChat()
-  // a guest opens their one place (Slack's single-channel guests): on a computer a guest in a room gets their room
-  // itself, not "pick one"; a guest in a project with no conversation (no 대화 place) gets their project
+  // a guest opens their place (Slack's single-channel guests): on a computer a guest in a group chat gets it itself,
+  // not "pick one"; a guest in a project only, with no conversation (no 대화 place), gets their project
   const me = useMe()
-  const guestPlace = meGuest(me)?.place
-  const guestRoom = guestPlace?.kind === 'room' ? guestPlace.id : undefined
+  const guestRoom = meGuest(me)?.room?.id
   const noChats = useGuestHidden().has('chats')
   const guestHome = guestPlacePath(me)
   const asked = params.has('new')

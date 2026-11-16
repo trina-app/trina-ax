@@ -158,7 +158,7 @@ export function AttachmentView({ a, align = 'end', chatId }: { a: Attachment; al
   // for a file that is gone. No 트리나에게 묻기: this chat is the place to ask
   const fileMenu = useFileMenu(team && a.unavailable ? null : kept
     ? { name: a.name, image: picture ? itemImage(item()) : null, download: () => startDownload(chatFileUrl(chatId!, a.id, { download: '1' }), a.name) }
-    : { name: a.name, image: picture ? itemImage(attachmentItem(a)) : null, link: teamFileLink(a.path), download: () => startDownload(fileUrl(a.path), a.name) })
+    : { name: a.name, image: picture ? itemImage(attachmentItem(a)) : null, link: teamFileLink(a.path), teamFile: a.path, download: () => startDownload(fileUrl(a.path), a.name) })
   // a team file that was deleted or that the person can no longer open: the server sent nothing about it
   if (team && a.unavailable)
     return (

@@ -820,6 +820,10 @@ export const TeamSettings = z.object({
    * 허용"). Off: no card offers it and the choices people made are ignored (kept: they count again when it is turned
    * back on) */
   roomAlwaysAllow: z.boolean(),
+  /** "Members can share files they own" (default on; docs/DECISIONS.md "A member shares their own files"): a member's
+   * Share on a file of theirs, and access requests to members. Off: members cannot add people or be asked; the shares
+   * already made keep working until removed. The team owner and admins share team files either way. */
+  memberFileShares: z.boolean(),
   /** who may make team projects (a new projects/<name> folder with the people they choose; docs/DECISIONS.md "Projects
    * live only in projects/"): 'members' (default: anyone, like a chat channel) or 'admins' (the owner and admins only).
    * Personal projects are never limited. */

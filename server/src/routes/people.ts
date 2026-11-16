@@ -24,7 +24,7 @@ export const peopleRoutes: RouteModule = {
     kit.handle(API.listPeople, ({ auth }) => ({ people: listPeople(ctx.db, new Date(), auth.user.id) }))
 
     kit.handle(API.personAvatar, ({ c, auth, params, query }) => {
-      // a guest and a person outside their one place do not see each other (auth/guests.ts): as an unknown person
+      // a guest and a person outside their places do not see each other (auth/guests.ts): as an unknown person
       if (!sharesPlace(ctx.db, auth.user.id, params.id)) fail('not_found')
       const a = readAvatar(ctx.db, params.id) ?? fail('not_found')
       const etag = `"${a.version}"`

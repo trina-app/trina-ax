@@ -14,6 +14,7 @@ import { toast } from '../store/ui'
 import { AiMark } from './rooms/AiFace'
 import { MenuButton, useLongPress, type MenuItem } from './rooms/MenuButton'
 import { useCopy } from './ui'
+import { useCopyTeamFileLink } from './FileShareDialog'
 
 export type { FileMenuTarget }
 
@@ -41,11 +42,12 @@ export function copyImageFrom(image: NonNullable<FileMenuTarget['image']>, t: Re
 export function useFileMenuItems(target: FileMenuTarget | null): MenuItem[] {
   const t = useT()
   const copyLink = useCopyFileLink()
+  const copyFileLink = useCopyTeamFileLink()
   if (!target) return []
   const icon = (I: typeof Link2) => <I size={14} className="shrink-0" aria-hidden />
   const make: Record<FileMenuAction, () => MenuItem> = {
     copyImage: () => ({ label: t('fileMenu.copyImage'), icon: icon(ImageIcon), onSelect: () => (target.copyImage ? target.copyImage() : copyImageFrom(target.image!, t)), testId: 'file-menu-copy-image' }),
-    copyLink: () => ({ label: t('rooms.menu.copyLink'), icon: icon(Link2), onSelect: () => void copyLink(target.link!), testId: 'file-menu-copy-link' }),
+    copyLink: () => ({ label: t('rooms.menu.copyLink'), icon: icon(Link2), onSelect: () => void (target.teamFile ? copyFileLink(target.teamFile) : copyLink(target.link!)), testId: 'file-menu-copy-link' }),
     download: () => ({ label: t('common.download'), icon: icon(Download), onSelect: () => target.download!(), testId: 'file-menu-download' }),
     ask: () => ({ label: t('sideChat.askAboutFile'), icon: <AiMark place="menu" />, onSelect: () => target.ask!(), testId: 'file-menu-ask' }),
   }

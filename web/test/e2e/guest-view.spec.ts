@@ -39,6 +39,59 @@ async function guestIn(page: Page, place: { kind: 'room'; id: string } | { kind:
 test.describe('computer', () => {
   test.use({ viewport: { width: 1440, height: 900 } })
 
+  test('a guest in a group chat and a project lands in the group chat, on sign-in and on opening the app; the project stays a click away', async ({ page }) => {
+    await reset(page)
+    expect((await page.request.post('/__test/rooms', { data: { rooms: ROOMS } })).ok()).toBeTruthy()
+    expect((await page.request.post('/__test/project', { data: { name: '견적 준비', by: 'bob' } })).ok()).toBeTruthy()
+    // the project is the place the invite named first: the group chat still wins
+    expect((await page.request.post('/__test/guest', { data: { id: 'gina', name: 'Gina', place: { kind: 'project', name: '견적 준비' }, also: { kind: 'room', id: GROUP }, ai: TEAM_AI } })).ok()).toBeTruthy()
+    await signInGuest(page)
+    await expect(page).toHaveURL(new RegExp(`/rooms/${GROUP}$`))
+    await page.goto('/')
+    await expect(page).toHaveURL(new RegExp(`/rooms/${GROUP}$`))
+    await expect(page.getByTestId('rail-projects')).toBeVisible()
+    await page.getByTestId('rail-ai').click()
+    await expect(page).toHaveURL(/\/$/)
+    await expect(page.getByTestId('composer-input')).toBeVisible()
+  })
+
+  test("⌘K: a guest's project folders and files open the project's files screen, the file picked; nothing goes to Files", async ({ page }) => {
+    await reset(page)
+    expect((await page.request.post('/__test/rooms', { data: { rooms: ROOMS } })).ok()).toBeTruthy()
+    expect((await page.request.post('/__test/project', { data: { name: '견적 준비', by: 'bob' } })).ok()).toBeTruthy()
+    for (const f of ['estimate-v2.md', 'notes.md']) expect((await page.request.post('/__test/file', { data: { path: `projects/견적 준비/drafts/${f}`, text: 'x\n' } })).ok()).toBeTruthy()
+    expect((await page.request.post('/__test/guest', { data: { id: 'gina', name: 'Gina', place: { kind: 'project', name: '견적 준비' }, ai: TEAM_AI } })).ok()).toBeTruthy()
+    await signInGuest(page)
+    await expect(page).toHaveURL(/\/projects\/[^/]+$/)
+    const projectUrl = page.url()
+    // a folder of their project: its files screen at that folder (⌘K once the page is ready for it)
+    const palette = page.getByTestId('search-palette')
+    const openPalette = () => expect(async () => {
+      await page.keyboard.press('ControlOrMeta+k')
+      await expect(palette).toBeVisible({ timeout: 1000 })
+    }).toPass()
+    await expect(page.getByTestId('composer-input')).toBeVisible()
+    await openPalette()
+    // only what a guest can reach: no team skills, scheduled tasks or services
+    for (const x of ['skills', 'scheduled', 'mcp']) await expect(palette.getByTestId(`search-tab-${x}`)).toHaveCount(0)
+    for (const x of ['all', 'rooms', 'chats', 'projects', 'files']) await expect(palette.getByTestId(`search-tab-${x}`)).toBeVisible()
+    await palette.getByRole('combobox').fill('drafts')
+    await palette.getByRole('option').filter({ hasText: /^drafts/ }).click()
+    await expect(page).toHaveURL(`${projectUrl}/files?dir=drafts`)
+    await expect(page.getByTestId('project-file').filter({ hasText: 'estimate-v2.md' })).toBeVisible()
+    // a file: that folder with the file picked; no "search in Files" row for a guest
+    await openPalette()
+    await palette.getByRole('combobox').fill('estimate')
+    await expect(palette.getByRole('option').filter({ hasText: 'estimate-v2.md' })).toBeVisible()
+    await expect(palette.getByRole('option').filter({ hasText: /파일에서|in Files/ })).toHaveCount(0)
+    await palette.getByRole('option').filter({ hasText: 'estimate-v2.md' }).click()
+    await expect(page).toHaveURL(/\/files\?dir=drafts&select=/)
+    // picked: the row's fill (ListRow selected)
+    await expect(page.getByTestId('project-file').filter({ hasText: 'estimate-v2.md' })).toHaveClass(/(^|\s)bg-hover(\s|$)/)
+    await expect(page.getByTestId('project-file').filter({ hasText: 'notes.md' })).not.toHaveClass(/(^|\s)bg-hover(\s|$)/)
+    await page.screenshot({ path: process.env.GUEST_SHOTS ? `${process.env.GUEST_SHOTS}/search-file-picked-1440-light.png` : test.info().outputPath('picked.png') })
+  })
+
   test('a guest in a project with AI off lands on the project: no 트리나 or 파일, one quiet line, files and members', async ({ page }) => {
     await guestIn(page, { kind: 'project', name: '견적 준비', instructions: 'Answer briefly and politely.' })
     // AI off: no Ask Trina at all; their one place opens
@@ -93,8 +146,10 @@ test.describe('computer', () => {
 
   test('a guest with their own sign-in not made yet: Ask Trina and the room\'s ✦ side chat offer "내 AI 연결하기"; their own Claude sign-in ends it', async ({ page }) => {
     await guestIn(page, { kind: 'room', id: GROUP }, { mode: 'own' })
-    // Ask Trina: the box, and above it the way to connect their own (never "ask the person who invited you")
-    await page.goto('/')
+    // Ask Trina (the rail: a guest lands in their place, QA TC-3359): the box, and above it the way to connect their own
+    // (never "ask the person who invited you")
+    await expect(page).toHaveURL(new RegExp(`/rooms/${GROUP}$`))
+    await page.getByTestId('rail-ai').click()
     const banner = page.getByTestId('ai-access-banner')
     await expect(banner).toHaveText(/쓸 수 있는 AI가 없어요. 내 AI를 연결하면 바로 쓸 수 있어요./)
     await expect(banner.getByTestId('ai-access-button')).toHaveAttribute('data-action', 'connect_own')
@@ -127,8 +182,9 @@ test.describe('computer', () => {
     await expect(page.getByTestId('claude-done')).toHaveText('연결했어요 · Claude 구독')
     await page.getByRole('dialog', { name: '계정 추가' }).getByRole('button', { name: '닫기' }).click()
     await expect(page.getByTestId('my-credentials')).toContainText('내 Claude')
-    // AI answers them now: no line above the box
-    await page.goto('/')
+    // AI answers them now: no line above the box (Trina from the rail: opening / lands in their room)
+    await page.goto(`/rooms/${GROUP}`)
+    await page.getByTestId('rail-ai').click()
     await expect(page.getByTestId('composer-input')).toBeVisible()
     await expect(page.getByTestId('ai-access-banner')).toHaveCount(0)
     // and their room's ✦ side chat has its starters and its "Looking at" line: a guest's AI reads the rooms they are in
@@ -269,7 +325,11 @@ test.describe('computer', () => {
     await page.getByTestId('room-side-chat-button').click()
     await expect(page.getByTestId('guest-no-ai')).toHaveText('아직 여기서는 AI가 답할 수 없어요. 초대한 분께 물어봐 주세요.')
     await expect(page.getByTestId('side-chat-starters')).toHaveCount(0)
+    // opening the app on Home is a landing: their place again, with AI on too (QA TC-3359, as Slack opens a guest in
+    // their channel); Trina's place on the rail still opens Home
     await page.goto('/')
+    await expect(page).toHaveURL(new RegExp(`/rooms/${GROUP}$`))
+    await page.getByTestId('rail-ai').click()
     await expect(page).toHaveURL(/\/$/)
     await expect(page.getByTestId('guest-no-ai')).toBeVisible()
     await expect(page.getByTestId('composer-input')).toHaveCount(0)

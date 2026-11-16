@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Bell } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { isGoogleRequestable, type InboxNotification, type Locale, type NotificationPreferences } from '@mycel/shared/api'
+import { fileLinkUrl, isGoogleRequestable, type InboxNotification, type Locale, type NotificationPreferences } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { connectionHref, connectorHref, CONNECTORS_HOME } from '../../lib/connectors'
 import { firstRunText } from '../../lib/teamGoal'
@@ -145,6 +145,7 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   // a chat shared with me (docs/DECISIONS.md "Chats shared with people and groups"): who shared it while their account is
   // there; one I no longer see says so (no title, no link)
   if (item.code === 'chat.shared' && item.chatShared) return item.chatShared.gone ? t('notifications.event.chat.sharedGone') : item.chatShared.name ? t('notifications.event.chat.sharedNamed', { name: item.chatShared.name }) : t('notifications.event.chat.shared')
+  if (item.code.startsWith('file.')) return fileShareText(item, t)
   if (item.code === 'onboarding.first_run') return firstRunText(t, locale, item)
   if (item.code === 'account.deletion_request') return deletionNoticeText(t, item, locale)
   if (item.code === 'account.deletion_due') return deletionDueText(t, item, locale)
@@ -186,10 +187,25 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   return t(`notifications.event.${item.code}`)
 }
 
+/** The 'file.*' notices (QA TC-3093, docs/DECISIONS.md "A member shares their own files"): who and which file while
+ * they are there; `gone`: the file (or the request) is no longer there, without its name. A decline names no file. */
+export function fileShareText(item: InboxNotification, t: T): string {
+  const f = item.fileShare
+  const code = item.code as 'file.shared' | 'file.access_requested' | 'file.access_answered' | 'file.unshared_by_move'
+  if (code === 'file.access_answered') return t('notifications.event.file.access_answered')
+  if (!f || f.gone || !f.name) return code === 'file.shared' ? t('notifications.event.file.gone') : t(`notifications.event.${code}`)
+  if (!f.by) return t(`notifications.event.${code}`)
+  if (code === 'file.shared') return t('notifications.event.file.sharedNamed', { by: f.by, name: f.name })
+  if (code === 'file.access_requested') return t('notifications.event.file.access_requestedNamed', { by: f.by, name: f.name })
+  return t('notifications.event.file.unshared_by_moveNamed', { by: f.by, name: f.name })
+}
+
 /** Where a notice of the app's own opens, with its link's test id: the result chat of a scheduled run, the page of the
  * rest. Null: nowhere (a source I may no longer read, a notice that only tells), and its row is no link. */
 export function noticeLink(item: InboxNotification): { to: string; testId: string } | null {
   if (item.link === 'chat' && item.chatId) return { to: `/c/${encodeURIComponent(item.chatId)}`, testId: 'notification-chat-link' }
+  // a file shared with me, or one of mine moved: its link page while it is there (a request answers in the row instead)
+  if (item.link === 'file' && item.fileShare?.linkId && !item.fileShare.gone && item.code !== 'file.access_requested') return { to: fileLinkUrl(item.fileShare.linkId), testId: 'notification-file-link' }
   // an app that paused: its settings in its room, while I am in it
   if (item.code === 'room_app.paused') { const to = pausedNoticeLink(item.roomApp); return to ? { to, testId: 'notification-room-app-link' } : null }
   if (item.code === 'room_app.leaver') { const to = leaverNoticeLink(item.roomAppLeaver); return to ? { to, testId: 'notification-room-app-leaver-link' } : null }

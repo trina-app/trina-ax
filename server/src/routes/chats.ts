@@ -875,9 +875,11 @@ export const chatsRoutes: RouteModule = {
       const made = makeProjectFolder(ctx, { id, name: slug ?? body.name, locale })
       try {
         db.transaction(() => {
+          // the project row first: a guest among its people takes it as their project in the rules' write
+          // (auth/guests.ts claimGuestProject finds the project by its folder)
+          insert(made.path, true)
           const row = ensureFolderRow(db, made.path)
           writeFolderAccess(db, row.id, { rules, limited: true }, auth.user.id)
-          insert(made.path, true)
           audit(db, { actor: auth.user.id, action: 'project.create', target: id, detail: { name: body.name, folderPath: made.path, rules } })
         })()
       } catch (e) { unmakeProjectFolder(ctx, made); throw e }

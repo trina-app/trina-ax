@@ -176,7 +176,7 @@ export const PERSON_REF = 'person:'
  */
 export function findPeople(db: Database, userId: string, ref: string): { one: Teammate } | { many: Teammate[]; total: number } | null {
   const raw = ref.trim()
-  // (only the people I may reach: a guest, the people of their one place; nobody, a guest outside my places)
+  // (only the people I may reach: a guest, the people of their places; nobody, a guest outside my places)
   const reach = reachFilter(db, userId)
   const people = (db.query("SELECT id, username, name FROM users WHERE status = 'active' AND deleted_at IS NULL AND id <> ? ORDER BY name, id").all(userId) as { id: string; username: string; name: string }[]).filter((p) => reach(p.id))
   const dmOf = (otherId: string) => (db.query(`SELECT r.id FROM rooms r JOIN room_members m ON m.room_id = r.id AND m.user_id = ? WHERE r.kind = 'dm' AND r.dm_key = ? AND r.archived_at IS NULL`)

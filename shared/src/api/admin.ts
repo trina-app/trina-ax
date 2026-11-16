@@ -170,10 +170,13 @@ export const CreateFolderBody = z.object({
   /** the hash of the rules the editor started from (no row yet: the hash of no rules) */
   expectedHash: ExpectedHash.optional(),
   limited: Limited.optional(),
+  /** "Remove those links too" (FolderEditPreview.linkPeople): the save also removes every grant of the files shared one
+   * by one at or under this folder (docs/DECISIONS.md "A member shares their own files"). Missing: kept */
+  removeFileLinks: z.boolean().optional(),
 })
 /** A save of a limited folder without `limited` that carries a hash from before the limit (or none) is refused with 409
  * `client_outdated`: a page from an older build, which would not show the limit. */
-export const PutRulesBody = z.object({ rules: z.array(FolderRuleInput).max(200), expectedHash: ExpectedHash.optional(), limited: Limited.optional() })
+export const PutRulesBody = z.object({ rules: z.array(FolderRuleInput).max(200), expectedHash: ExpectedHash.optional(), limited: Limited.optional(), removeFileLinks: z.boolean().optional() })
 /**
  * "Who sees what" before saving: send the proposed rule sets (each replaces the rules of that folder); the server
  * computes every active person's effective access before/after for those folders and their rule-free subfolders.
@@ -458,6 +461,10 @@ export const FolderEditPreview = z.object({
   less: z.number().int().nonnegative(),
   more: z.number().int().nonnegative(),
   warnings: z.array(FolderEditWarning),
+  /** the change takes access away from someone (`less`) and files at or under this folder are shared one by one: how
+   * many people have them by their links (they keep them unless the save removes the links: removeFileLinks).
+   * Absent: none, or nobody loses access, or an older server */
+  linkPeople: z.number().int().positive().optional(),
 })
 export type FolderEditPreview = z.infer<typeof FolderEditPreview>
 

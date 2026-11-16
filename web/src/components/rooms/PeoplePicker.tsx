@@ -89,7 +89,7 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
   // "Invite a guest" (components/GuestInvite.tsx): a group chat's add list only, for anyone in it but a guest; the
   // dialog takes this one's place
   const [guestInvite, setGuestInvite] = useState(false)
-  // a guest picked here is in another place already (409 guest_one_place): said under their row (or over the list)
+  // a guest picked here is in another group chat already (409 guest_one_place): said under their row (or over the list)
   const [onePlace, setOnePlace] = useState<{ guestId?: string } | null>(null)
   const mayInviteGuest = !!room && room.kind === 'group' && !isGuestMe(me)
   // "New conversation" (no room yet): the same row, which picks the group chat or project first (GuestInviteFlow)
@@ -220,10 +220,11 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
           {shown.length > 0 && (
             <ul className={list} data-testid="people-list">
               {shown.map((p) => {
-                // a group chat's add list: a guest in another place already cannot be added (a guest is in one place
-                // only): greyed out with where they are, no tick; the owner and admins get "Make team member"
-                // a new chat: a guest can be in a 1:1 chat, never in a new group, so once someone else is picked
-                const away = inviting ? guestElsewhere(p, { kind: 'room', id: inviting }) : picked.length && !picked.includes(p.id) ? guestElsewhere(p) : null
+                // a group chat's add list: a guest in another group chat already cannot be added (a guest is in one
+                // group chat and one project at most): greyed out with where they are, no tick; the owner and admins
+                // get "Make team member". A new chat: a guest can be in a 1:1 chat, and in a new group only while they
+                // are in no group chat, so once someone else is picked
+                const away = inviting ? guestElsewhere(p, { kind: 'room', id: inviting }) : picked.length && !picked.includes(p.id) ? guestElsewhere(p, { kind: 'room' }) : null
                 if (away)
                   return (
                     <ListRow

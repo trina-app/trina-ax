@@ -17,6 +17,8 @@ export const TEXT = {
   // the hourly cap of connect links: {at} is the time (Slack's date token, in the reader's own time zone)
   linkHourly: t('최근 한 시간 동안 연결 링크를 {n}번 받았어요. 가장 최근 링크를 쓰거나 {at} 이후에 다시 요청해 주세요.', 'You got {n} connect links in the last hour. Use the newest one, or ask again after {at}.', 'Anda sudah mendapat {n} tautan penghubung dalam satu jam terakhir. Pakai yang terbaru, atau minta lagi setelah {at}.', "この1時間で連携リンクを{n}回受け取りました。最新のリンクを使うか、{at}以降にもう一度お試しください。", "Recibió {n} enlaces de conexión en la última hora. Use el más reciente o pida otro después de las {at}.", "你在过去一小时内已收到{n}个连接链接。请使用最新的链接，或在{at}之后再试。"),
   outsider: OUTSIDER,
+  // a guest of the team asking in Slack (linked or not): one plain line, nothing about their account
+  notHere: t('이 {product} 팀은 여기서 답할 수 없어요.', 'This {product} team can\'t answer you here.', 'Tim {product} ini tidak bisa menjawab Anda di sini.', "この{product}チームはここではお答えできません。", "Este equipo de {product} no puede responderle aquí.", "这个{product}团队无法在这里回答你。"),
   empty: t('질문을 함께 적어 주세요.', 'Write your question with it.', 'Tulis pertanyaan Anda bersamanya.', "質問も一緒に書いてください。", "Escriba su pregunta junto con la mención.", "请把你的问题一起写上。"),
   working: t('답을 만들고 있어요…', 'Working on it…', 'Sedang dikerjakan…', "回答を作成しています…", "Trabajando en ello…", "正在处理…"),
   busy: t('이 스레드의 앞 질문에 아직 답하고 있어요. 끝난 뒤 다시 물어봐 주세요.', 'I am still answering your earlier question in this thread. Ask again when it is done.', 'Saya masih menjawab pertanyaan Anda sebelumnya di utas ini. Tanyakan lagi setelah selesai.', "このスレッドの前の質問にまだ回答中です。終わってからもう一度質問してください。", "Todavía estoy respondiendo su pregunta anterior en este hilo. Pregunte de nuevo cuando termine.", "我还在回答你在这个话题中的上一个问题。等它完成后再问吧。"),

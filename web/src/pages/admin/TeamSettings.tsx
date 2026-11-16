@@ -258,6 +258,10 @@ export default function TeamSettingsPage() {
                         <SwitchRow id="ts-room-always" testId="team-room-always" value={f.roomAlwaysAllow} onChange={(v) => setF({ ...f, roomAlwaysAllow: v })} title={t('teamSettings.roomAlways')} desc={t('teamSettings.row.roomAlwaysDesc')} />
                         {/* who makes team projects (docs/DECISIONS.md "Projects live only in projects/"): members by default */}
                         <SwitchRow id="ts-project-creators" testId="team-project-creators" value={f.projectCreators !== 'admins'} onChange={(v) => setF({ ...f, projectCreators: v ? 'members' : 'admins' })} title={t('teamSettings.projectCreators')} desc={t('teamSettings.row.projectCreatorsDesc')} />
+                        {/* a member shares a file of theirs with chosen people (QA TC-3093): on by default; the owner may remove
+                            every file share at once */}
+                        <SwitchRow id="ts-member-file-shares" testId="team-member-file-shares" value={f.memberFileShares} onChange={(v) => setF({ ...f, memberFileShares: v })} title={t('teamSettings.memberFileShares')} desc={t('teamSettings.row.memberFileSharesDesc')} />
+                        {owner && <RemoveFileShares />}
                         {/* Home's "what my group often asks" (docs/DECISIONS.md "Home: what my group often asks"): on by default */}
                         <SwitchRow id="ts-often-asked" testId="team-often-asked" value={f.oftenAsked} onChange={(v) => setF({ ...f, oftenAsked: v })} title={t('teamSettings.oftenAsked')} desc={t('teamSettings.row.oftenAskedDesc')} />
                         <AnswerStepLimitField value={f.answerStepLimit} onChange={(v) => setF((x) => (x ? { ...x, answerStepLimit: v } : x))} />
@@ -484,6 +488,32 @@ function UpdateWindowTimes({ value, ok, legacy, onChange }: { value: string | nu
 }
 
 /** One team switch as a settings row: the name labels it, the short line describes it, the long text is "Learn more". */
+/** The team owner's "Remove all file shares" (QA TC-3093): every file shared one by one, with its links' people, at
+ * once. Nothing while no file is shared that way. */
+function RemoveFileShares() {
+  const t = useT()
+  const act = useAction()
+  const [count, setCount] = useState<{ files: number; people: number } | null>(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    let live = true
+    api.call(API.fileSharesCount).then((r) => live && setCount(r), () => {})
+    return () => { live = false }
+  }, [])
+  if (!count?.files) return null
+  const removeAll = async () => {
+    if (!(await confirmDialog({ title: t('teamSettings.removeFileSharesConfirm', { people: count.people, files: count.files }), confirm: t('teamSettings.removeFileSharesDo'), danger: true }))) return
+    setBusy(true)
+    const r = await act(() => api.call(API.removeAllFileShares), t('teamSettings.fileSharesRemoved'))
+    setBusy(false)
+    if (r) setCount(r)
+  }
+  return (
+    <SettingRow id="ts-remove-file-shares" testId="team-remove-file-shares" title={t('teamSettings.removeFileShares')} desc={t('teamSettings.removeFileSharesDesc', { files: count.files, people: count.people })} inline
+      control={<Button variant="danger" size="sm" busy={busy} onClick={() => void removeAll()} data-testid="team-remove-file-shares-button">{t('teamSettings.removeFileSharesDo')}</Button>} />
+  )
+}
+
 function SwitchRow({ id, value, onChange, title, desc, more, testId }: { id: string; value: boolean; onChange: (v: boolean) => void; title: string; desc: string; more?: string; testId: string }) {
   return (
     <SettingRow id={id} title={title} desc={desc} more={more} testId={testId} attrs={{ 'data-on': value ? 'true' : 'false' }} inline

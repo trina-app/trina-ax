@@ -566,7 +566,7 @@ function Body({ path, project, projectOf, onSwap, onLeave, guard, list, footer, 
 
       <Footer to={footer}>
         <div className="w-full space-y-2" data-testid="sharing-footer-bar">
-          {edited && d.saveable && <Outcome data={data} ready={ready} error={d.preview.error} lines={data ? lines(data) : []} onRetry={d.retry} />}
+          {edited && d.saveable && <Outcome data={data} ready={ready} error={d.preview.error} lines={data ? lines(data) : []} onRetry={d.retry} links={d.linkPeople > 0 ? { n: d.linkPeople, remove: d.removeLinks, onRemove: d.setRemoveLinks } : null} />}
           {changedNow && <p role="status" className="text-xs text-warn" data-testid="sharing-changed-now">{t('folderAccess.changedNow')}</p>}
           {d.refused && <ErrorNote>{d.refused}</ErrorNote>}
           <div className="flex items-center justify-end gap-2">
@@ -728,7 +728,15 @@ function LimitAccess({ on, parent, onChange, locked }: { on: boolean; parent: st
 }
 
 /** "What will happen", by name, from the answer for exactly the draft on screen. */
-function Outcome({ data, ready, error, lines, onRetry }: { data: FolderEditPreview | null; ready: boolean; error: string | null; lines: { kind: string; text: string }[]; onRetry: () => void }) {
+function Outcome({ data, ready, error, lines, onRetry, links }: {
+  data: FolderEditPreview | null
+  ready: boolean
+  error: string | null
+  lines: { kind: string; text: string }[]
+  onRetry: () => void
+  /** files here shared one by one, and someone loses access: how many people have them by link, and "Remove those links too" */
+  links: { n: number; remove: boolean; onRemove: (on: boolean) => void } | null
+}) {
   const t = useT()
   if (error && !ready) {
     return (
@@ -748,6 +756,15 @@ function Outcome({ data, ready, error, lines, onRetry }: { data: FolderEditPrevi
           {l.text}
         </p>
       ))}
+      {links && (
+        <p className="flex flex-wrap items-center gap-x-2 font-medium text-ink" data-testid="sharing-link-people">
+          <span>{t('folderAccess.linkPeople', { n: links.n })}</span>
+          <label className="inline-flex cursor-pointer items-center gap-1.5 font-normal text-muted max-sm:min-h-11">
+            <input type="checkbox" className="h-4 w-4 accent-[var(--c-accent)] dark:[color-scheme:dark]" checked={links.remove} onChange={(e) => links.onRemove(e.target.checked)} data-testid="sharing-remove-links" />
+            {t('folderAccess.removeLinks')}
+          </label>
+        </p>
+      )}
     </div>
   )
 }

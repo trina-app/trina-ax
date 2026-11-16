@@ -26658,6 +26658,9 @@ the data and the API do not change. P2 (Drive's additive inheritance, a `limited
   who start seeing a project its own way), no "Copy link" (no per-folder link), members do not share (only the owner
   and admins change access; members see the count and "An admin changes who can open it."). The model copied is the
   shared drive's (the team owns the folders, the owner and admins act like Managers).
+  **Amended 2026-11-15 (the owner, QA TC-3093, "A member shares their own files" below):** members do not share
+  **folders**; a member shares a **file** they own with chosen people, and a file's Copy link is its `/f/<id>` link.
+  "No Copy link" stays for folders.
 - Tests: web unit `folder-sharing.test.ts` (General access picks, the downgrade captions against the permission
   function), `folder-sharing-panel.test.tsx` (role menu, Access removed + Add, the lasting General access line);
   e2e `folder-access.spec.ts` (the dialog, Remove access, the Downgrade world before and after Save, Access removed),
@@ -27329,7 +27332,7 @@ with the store app get phone pushes: "저거 해보자" (2026-11-14).
 - **Ask:** a team brings an outside person (a client, a freelancer) into one conversation or one project without that
   person seeing the rest of the team. Phase 1 is the security core and the server side of the invite; the screens are
   phase 2. Plan: docs/AGENTS/plan/20261114-1016-guest-invites-p1.md.
-- **Exactly one place** (owner, final): one group chat (`rooms.kind 'group'`) or one team project. Never several.
+- **Exactly one place** (owner, 2026-11-14; superseded 2026-11-15 by "Guests: one group chat and one project": now at most one group chat AND one project): one group chat (`rooms.kind 'group'`) or one team project. Never several.
   Putting a guest into a second place (another group chat, a new group chat with them, another project's people, a
   group, a second invite) is 409 `conflict` with `params.reason: 'guest_one_place'` and the message "A guest can be in
   one room or project only. To add them to more, make them a team member." (ko "게스트는 방이나 프로젝트 한 곳에만 들어갈
@@ -27405,6 +27408,21 @@ Builds on "Guests: only what they were invited to" and "Guest invites, phase 2: 
   purpose); whether a guest's AI may read their own room is the owner's call.
 - Version impact: **patch**.
 
+## Search results and "Open in Files" for guests — 게스트 검색 결과 (fix/guest-search-folders, 2026-11-16, the coordinator)
+
+Builds on the entry below (its leftover). In Search (⌘K) a guest's folder and file results open the project's own files
+screen (`lib/guests.ts guestFolderHref`, now with `select`), a file picked there (`?select=<full path>`: the row's fill,
+scrolled to); a result no screen of theirs lists (their own folder) is left out, and the "search in Files" row is not
+shown to a guest. "Open in Files" in a guest's preview picks the file the same way. The palette shows a guest only
+what they can reach: 전체, 대화, 파일, 프로젝트 with a project and 기록 with AI; no 스킬, 예약 or 서비스 tabs or
+sections.
+
+**Every guest lands in their place** (coordinator, QA TC-3359): opening the app on Home (the tab's first entry or a
+sign-in, `lib/welcome.ts isLanding`) takes a guest to their group chat, else their project (`GuestLanding`; a guest in both since #1004 lands in the group chat, `guestPlacePath`), with
+Team AI or their own AI too, as Slack opens a single-channel guest in that channel. This replaces "the Home redirect is
+the invite's AI choice" for landings; a guest with AI still opens Trina (Home) from its tab, and one without AI never
+sees Home, as before. Version impact: **patch**.
+
 ## A guest's AI reads their own rooms; file links and the delete card for guests — 게스트 AI의 대화방 읽기·파일 링크·삭제 카드 (fix/guest-ai-rooms-files, 2026-11-16, the coordinator for the owner)
 
 Builds on "The AI tells a guest the truth" (its three open questions).
@@ -27479,7 +27497,7 @@ Builds on "Guests: only what they were invited to" and "Claude 구독 연결: �
   straight into their one place, as Slack does for single-channel guests: sign-in, an accepted invite, Settings opened by
   its address (the page under it) and, on a computer, the chats page of a guest in a room go to their room or project
   (`lib/guests.ts guestPlacePath`, `GuestView.tsx useGuestPlacePath`). What hides the 트리나 place, the ✦ side chat and
-  the Home redirect is the invite's AI choice (`Me.guest.ai` 'none', `useGuestAiOff`), not whether an answer can come now:
+  the Home redirect is the invite's AI choice (the Home redirect on landing: every guest since fix/guest-search-folders, below) (`Me.guest.ai` 'none', `useGuestAiOff`), not whether an answer can come now:
   a Team AI guest keeps 트리나 and ✦ like a member with AI also while the team account cannot answer here (ai-access not
   usable, e.g. a server without managed AI), and the box says "AI can't answer you here yet. Ask the person who invited
   you." (`useGuestNoAi`, no side-chat starters, no "✦ ask privately"); their project page keeps its box place,
@@ -29853,6 +29871,86 @@ Two follow-ups to "asked once, reads only what is added":
 - Tests: `tests/unit/c-integrations-secret-old-files.test.ts`, web unit `key-files-notice.test.tsx`.
 - Version impact: **patch** (a security follow-up: one notice, one additive migration, no API removed).
 
+## A member shares their own files — 내 파일을 고른 사람과 공유 (feat/file-share-links, 2026-11-15, the owner, QA TC-3093)
+
+Plan: docs/AGENTS/plan/20261115-1407-file-share-links.md (reviewed; P1 here). In a shared chat a member asked the AI to
+share two photos with a teammate; `share_file` only made a `/files/view?path=` link, which grants nothing, and the
+teammate got "not found". The owner decided: a member shares their **own** file with chosen people or groups, Drive
+style; anyone else who opens the link gets **Ask for access**, which the owner answers in one step; removing access
+takes it away. This overrides "only the owner and admins share" (#787) for a member's own files; team folders' rules
+stay as they are.
+
+- **Who owns a file** (no file had an owner): a personal file's person (`users/<id>/`); a team file's adder, found by
+  walking `file_events` back from the current path (`files/shares.ts creatorOf`): the newest create or upload at the
+  path with no later delete or move-away; a move's own create (`movedFrom`) and a trash restore (`originalPath`) are
+  followed back, never an authorship, so a move (an admin's too) never makes the mover the owner; a copy is the
+  copier's; no event or a delete first: nobody. `file_shares.owner_id` comes from the walk, never from who made the
+  link (`created_by`). Who may share: the owner with edit access now (members only while "Members can share files they
+  own" is on, Admin › Team settings, default on); the team owner and admins for any team file. Never a folder, never a
+  guest, never oneself; a member adds only their own groups. View only (open, preview, download of the current bytes).
+- **The link** `/f/<id>`: 16 random bytes, base64url, made on the first Share or Copy link, kept through renames and
+  moves (`TeamFiles.move` rewrites `file_shares.path` in the move's transaction), parked with the trash item and back
+  on restore, deleted with a purge. Pinned to the file by inode, device, size, mtime and the last sha256 recorded through
+  the app. Only an event that keeps the **same** file re-pins it (a save, an upload over it, a version restore, a
+  conflict, the trash restore of that row); a plain create or upload, a copy or another trash restore at its path makes
+  the row **dead** (its link answers no access, its grants and waiting requests go). Review of #979 (blocker): a file
+  uploaded where a shared one had been deleted outside the app inherited its link. A file changed outside the app: the
+  inode verified last time with the size, mtime and ctime recorded is the same file (nothing hashed); anything else is
+  checked once: a different size makes the row dead, else the hash decides (files up to 32 MB, dead above; a match
+  re-pins, a mismatch makes the row dead), never per request. An inode number alone proves nothing (Linux reuses a
+  freed one for the next file at once: CI found it), nor do an equal size and mtime on another inode (re-review of
+  #979). A move's rename never re-pins: up to 32 MB the next open hashes once; above, the times are taken again only
+  while the size and mtime are still the recorded ones. **Known limit:** on a team folder on a network filesystem
+  (SMB, NFS, AFP) the times may not be kept or may be coarse; the no-hash path still trusts an unchanged inode, size,
+  mtime and ctime there (always hashing on such a mount was not cheap to detect: statfs gives a type number that
+  differs by system).
+- **Who it opens for** (`FileShares.open`): whoever the folder rules let read it (`RuleSet.access`, unchanged), and the
+  people and groups on it (groups read live) while the owner can still edit the file. Guests never, through a link.
+  `RuleSet.decide` is not changed: grants are read only by the id endpoints, which serve the current bytes
+  (`/api/files/shared/:id/download`); no versions, history, extracted text, path, folder or neighbours. Search, the AI's
+  file tools and the file list stay on RuleSet and never see a file through a grant.
+- **The link page** never shows the file's name, type or owner to someone it does not open for (`no_access`, with
+  `canAsk` and `askedAt`); an unknown id says so (no fake "sent", no same-timing promise: the review dropped both;
+  ids are not guessed). The owner's own file in the trash: "This file is in the trash".
+- **Notices:** `file.shared` names who gave THIS person access (their own grant or their group's). Someone told of a
+  request who may not share the file now (an admin without edit access there) changes nothing by answering (403).
+- **Ask for access** goes to the owner, or for a team file with no owner known to the team owner and admins; never to a
+  member while members' sharing is off (403 `file_request_off`). One waiting request per person and file, 5 a day to
+  one owner, 20 an hour in all (429); a note of at most 500 characters, control characters out, shown as plain text.
+  The owner's Activity row (`file.access_requested`, one per person and file, brought back up by a new ask) has
+  **Share** and **Decline**; Share adds the person, Decline tells them "Your request to open a file wasn't approved."
+  (`file.access_answered`, nothing about the file). Activity only in P1: no push (P2: a generic gateway line, the
+  sharer named through the label fetch, never the file name).
+- **A grant never widens past what its owner chose.** A move by someone other than the owner to where fewer people can
+  read it removes the grants **inside the move's own step** (`TeamFiles.relocate` → `sharesNarrowedByMove`; a failure
+  fails the move; audit `file.unshare` reason `moved_narrower`; the owner is told after: `file.unshared_by_move`).
+  The owner's own move keeps them; the move confirm (409 `audience_narrowed`) carries `linkPeople`, "N people have this
+  file by its link." An admin narrowing a folder's rules: the folder Share dialog's preview carries `linkPeople` ("N
+  people have files here by link.") with **Remove those links too**, ticked by default; the save sends
+  `removeFileLinks` and removes them in its own step (audit `file.unshare` reason `folder_narrowed`). A narrowing save
+  while files there are shared by link must send `removeFileLinks` (true or false): without it, 409
+  `file_links_decide` (nothing saved), so a missing field never keeps the links silently.
+- **The AI: `share_with_person(paths, people)`** (chat/share-with-person.ts). The rules of every action that reaches
+  others are post_to_room's, in one helper both tools import (chat/shared-actions.ts: the person whose turn it is acts,
+  their card is theirs alone, other viewers see the step's verb alone, not offered in a template or restricted run, a
+  confidential chat or a question from Slack, several matches picked on the asker's card in a shared chat, no server
+  words in a shared chat's refusals). Two differences, because it grants access: the card is shown **every time**
+  (Always allow never skips it; never in a scheduled run), and in a chat someone else wrote in each file must be one the
+  asker attached, named in their own message, or the AI made in this turn. Its paths are not reads for the shared
+  chat's read card (it brings nothing into the chat). Then the AI replies with the links. Audited `file.share` via ai.
+  **`share_file`** says it gives nobody access, and a file's preview link is now its `/f/<id>` link.
+- **Audit:** `file.share`, `file.unshare`, `file.access_request` (never the note), `file.access_approved`,
+  `file.access_declined`, `file.shares_removed_all`; target `file-share:<id>`; a team file by its path, a personal
+  file only as `personal: true`. **The team owner's emergency revoke:** Admin › Team settings, **Remove all file shares**
+  (every grant and waiting request, at once); the switch off stops new shares and requests to members.
+- **Unchanged:** `users/<id>/` stays private to its person by path (admins too); a shared file opens only by its link.
+  Folders keep #787's dialog. Guests keep their one place.
+- **P2:** push, "Shared with me", Admin's list of every file share, phone universal links for `/f/*` (store build),
+  guests in a place the sharer is in, the recipient's AI reading a shared file.
+- Migration `355_c_file_shares.sql` (C; additive, reader 1; 354 is taken by feat/old-files-key-scan). Tests:
+  `tests/unit/c-file-shares.test.ts`, `tests/security/file-shares.test.ts`, `tests/unit/b-share-with-person.test.ts`,
+  web e2e `file-share-links.spec.ts`. Version impact: **minor** (a feature, endpoints, a migration).
+
 ## Share in the title row — 공유 버튼은 제목 줄 오른쪽에 (feat/project-share-button, 2026-11-15, the owner, QA TC-3283 and the next row)
 
 넣을 곳: `web/src/components/HeaderShare.tsx`, `web/src/pages/Projects.tsx` (`ProjectShareRow`), `web/src/pages/Chat.tsx`,
@@ -30215,3 +30313,101 @@ the turn's stall guard waits while our tool runs). Decided:
 - Tests: `tests/unit/c-integrations-slow-call.test.ts` (scaled limits: a silent call 3 times the request limit, progress
   past the pause limit, the pause limit, the hard limit, Stop), `tests/unit/c-integrations-slow-list.test.ts`. Version
   impact: **patch**.
+
+## Guests: one group chat and one project — 게스트는 그룹 대화 하나와 프로젝트 하나 (feat/guest-two-places, 2026-11-15, the owner, final)
+
+- **Rule:** a guest is in at most one group chat AND at most one project at the same time (two places, one of each
+  kind). A second group chat or a second project is 409 `conflict`, `params.reason: 'guest_one_place'`, "A guest can be
+  in one group chat and one project. To add them to more, make them a team member." (ko "게스트는 그룹 대화 하나와
+  프로젝트 하나까지 들어갈 수 있어요. 더 넣으려면 팀원으로 초대해 주세요."). Unchanged: deny by default, the AI choice,
+  the plan's guest cap, no groups, DMs never a place, one place per invite (a second place comes through the place's
+  own add list: a group chat's Invite, a project's Members or a new project's people). Supersedes "Exactly one place".
+- **Storage** (migration `126_a_guest_two_places.sql`, additive, reader level stays 8): `guests.room_id` and
+  `guests.project_id`, one column per kind, so a second place of one kind cannot be stored. Set in the write that puts
+  the guest in (`claimGuestRoom` in createGroup/invite, `claimGuestProject` in `writeFolderAccess`); never cleared, so a
+  slot says where they are or were last, and whether they are in it now is read from the place (member rows, folder
+  rules). `place_kind`/`place_id` now mean only the invite's place (the "joined as a guest" notice). Both slots empty =
+  a row an older build wrote: read as `place_kind`/`place_id`. Level 8 is enough: an older build reads only the invite's
+  place, which narrows a guest's reach (it may switch off a guest who left that place for good), never widens it.
+- **Joining:** a group chat is refused while the guest is a member of any other live group chat (read from the member
+  rows, not the slot). A project person rule is allowed at or below the project the guest holds; holding none, only on
+  a live team project's own folder, which becomes theirs. A project is held while live and they read it, or while it
+  is in the trash with their rule kept there (restoring it brings them back, so no other project meanwhile); taken
+  out (also before it was trashed) or purged, the kind is free. A new project: its row is written before its rules, so
+  a group-chat guest can be among its first people. Sharing a personal project to the team with a guest who has no
+  project: refused as before (rare; least change).
+- **The policy holds it too** (independent plan review must-fix: a folder moved or restored from the trash brings rules
+  with it, no write check runs): `RuleSet.fromDb` loads each guest's live project folder (`guestProjects`); inside
+  `projects/` a guest reads that folder only, whatever rule names them elsewhere. Carried through `replacing`,
+  `excepting`, `relocated` (moved with the folder) and `parkedInPlace`; `fromWorld` without it (tests, the web mock)
+  leaves only the rules. A failed read is an empty map: no guest reads any project (fail closed).
+- **Reach is the union** (`placePeople`): a guest sees, DMs and gets presence of the people of their group chat and
+  of their project, each only while they are in it; a member sees the guest when they share at least one of the two.
+  A guest adds nobody to their group chat (403): its people are there already, and their project's people are not
+  theirs to bring in. Files: like anyone, a guest may share in their group chat a file they can read in their project
+  (they could download and upload it anyway); accepted, not blocked.
+- **What each side learns:** `Person.guestPlaces` names a place (id, name) only when the viewer is in it too; the
+  other comes as its kind only, so an add list can grey the guest out ("A guest can be in one group chat and one
+  project.") without saying where. That they are in some other place is told; its name never.
+- **Out of a place:** out of one (left, taken out, the chat archived, the project trashed) they stay on; out of both
+  they are switched off (`disableGuestIfPlaceless`), `off_with_place` when a place of theirs was closed, and a restored
+  project brings them back while they are in it.
+- **API:** `GuestDetail.place` → `places` (the group chat first; a removed guest's each with `out`), `placeOut` the
+  overall reason; `Person.guestPlace` → `guestPlaces`. Screens: Admin › Guests lists both, add lists grey a guest only
+  for a second place of the same kind, a guest's rail shows 대화 and 프로젝트 when they have both, Settings › Profile and
+  account deletion name both. Version impact: **minor** (contract fields changed).
+
+## Guests never use Slack — 게스트는 Slack을 못 쓴다 (fix/slack-guest-refusal, 2026-11-16, QA TC-2950)
+
+Builds on "Guests: only what they were invited to" and the Slack connector's e-mail proof ("Send the victim my link").
+
+- **Ask:** a guest (an outside person in one group chat and one project) must never use the team's Slack connection
+  and never be linked to a Slack user through a matching e-mail. The Slack routes were already closed to guests by the
+  guest endpoint list (403), but the connector itself had no guest check: a Slack question from a Slack account linked
+  to a guest (a row made by hand or by an older build) would have run a turn as them.
+- **One check in the connector** (`integrations/slack/service.ts`): `person()` (every link page, Sign in with Slack, a
+  turn, a delivery, "Post to channel") no longer returns a guest, `bindable()` refuses to link one (the same
+  `link_expired` 404 as a gone link), and `linkOf()` counts no link of a guest (so the AI never reads Slack for them).
+- **A linked guest asks in Slack** (@mention or DM): no turn, the link row deleted (audited `slack.unlinked`, reason
+  `guest`), one plain line "This {product} team can't answer you here." in the team's language, no blocks or button.
+- **An unlinked Slack account is never matched by e-mail** (independent security review, must-fix): a guest's gets the
+  same connect prompt as anyone unlinked, and its link page refuses the guest. A first version answered a Slack account
+  whose e-mail was a guest's with the plain line instead. Rejected: a guest sets their own e-mail (Settings › Profile),
+  so copying a member's address silently blocked that member's link, and the different answer told anyone who can set a
+  Slack e-mail whether that address is a guest's here. So "one plain line" holds for a linked guest; an unlinked one sees
+  the generic prompt, which leads nowhere for them.
+- **The e-mail proof still counts a guest's e-mail as "the same e-mail on another active account"** (unchanged; Superseded 2026-11-16 by "A guest can't take an e-mail used in the team": guests are now left out): leaving
+  guests out would let a member pass the proof with an address that only a guest also gives, so a guest's Slack account
+  could be linked to a member who confirms the guest's forwarded link. The cost: a guest who copies a member's e-mail
+  blocks that member's link until one of them changes it (open question for the owner).
+- **Other connectors:** no other connector maps an outside identity to an account here by e-mail. Google Drive, the
+  Google apps and personal MCP connections are signed in by the person through endpoints closed to guests, and the
+  connection store refuses guests (`mayUse`, `shareCovers`); room apps post as the app, never as a person.
+- Slash commands are acknowledged and do nothing (unchanged). Tests: `tests/unit/c-slack-guest.test.ts`.
+
+## A guest can't take an e-mail used in the team — 게스트는 팀에서 쓰는 이메일을 못 쓴다 (fix/guest-email-unique, 2026-11-16, the owner)
+
+Follows "Guests never use Slack" (its open question).
+
+- **Ask:** a guest sets their own e-mail (Settings › Profile, `PATCH /api/me`). The Slack e-mail proof refuses an address
+  that another active account also gives ("it proves nobody in particular"), so a guest who copied a member's address
+  blocked that member's Slack link. The owner: a guest can't set an e-mail another account in the team already uses.
+- **Rule:** `PATCH /api/me` from a guest (`users.guest = 1`, read from the database, not the session's role) with an
+  address another account gives (not deleted, any state: a switched-off member can come back), compared as the e-mail
+  proof compares (NFC, trimmed, lower case), is 409 `conflict`, `params.reason: 'email_in_use'`, field `body.email`, with
+  one plain line: "This e-mail is already used in this team." (ko "이 팀에서 이미 쓰고 있는 이메일이에요."). It names
+  nobody. Clearing it or giving an unused address works as before.
+- **Members unchanged:** members could already share an address and still may (an owner and an admin sometimes share a
+  team mailbox); for them the e-mail proof keeps refusing an address another member gives. A guest's invite accept
+  takes no e-mail.
+- **The Slack e-mail proof leaves guests out** of "the same e-mail on another active account" (independent review
+  must-fix): the PATCH check alone does not stop a guest who sets a member's address before the member does, nor an
+  address an admin gave or old data. A guest is never linked (`bindable()`), so their address proves nothing either way.
+  Accepted residual (reviewed, and the reason "Guests never use Slack" first kept guests in): a member who sets their
+  e-mail to an address only a guest gives, and then confirms a one-time link the guest forwarded from their own Slack,
+  links the guest's Slack account to the member. That takes the member's own deliberate steps, like sharing a password.
+- **Not an address oracle:** a guest may give at most 10 addresses an hour (`GUEST_EMAIL_TRIES`, any answer, clearing
+  not counted; 429 `rate_limited`, reason `email_tries`), so the refusal cannot be used to find who is in the team. In
+  memory, per process: a restart starts it again (enough for typos, too few to probe).
+- **Left as is:** an owner or admin setting a guest's e-mail in Admin › Members (an admin is trusted, and an admin's
+  change counts as no proof for 7 days anyway).

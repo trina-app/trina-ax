@@ -245,6 +245,16 @@ export const TEXT = {
   // a shared chat: several rooms or people match the name; the asker picks on this card (the AI never gets the list)
   postRoomPick: t("'{ref}'에 맞는 곳이 여러 개예요. 어디로 보낼까요?", "Several rooms or people match '{ref}'. Where should it go?", "Beberapa ruang atau orang cocok dengan '{ref}'. Kirim ke mana?", '「{ref}」に当てはまる送り先が複数あります。どこに送りますか？', "Varias salas o personas coinciden con '{ref}'. ¿Adónde lo envío?", '有多个群聊或人与“{ref}”匹配。要发送到哪里？'),
   postRoomNotSent: t('보내지 않았어요', 'Not sent', 'Tidak dikirim', '送っていません', 'No se envió', '未发送'),
+  // share_with_person's card (chat/share-with-person.ts): the asker's own files for teammates, view only
+  fileShareAsk: t('{who}님에게 파일 {n}개를 공유할까요?', 'Share {n, plural, one {# file} other {# files}} with {who}?', 'Bagikan {n} berkas dengan {who}?', '{who}さんにファイルを{n}件共有しますか？', '¿Compartir {n, plural, one {# archivo} other {# archivos}} con {who}?', '要与{who}共享{n}个文件吗？'),
+  fileShareAskGroup: t('{who} 그룹에 파일 {n}개를 공유할까요?', 'Share {n, plural, one {# file} other {# files}} with the {who} group?', 'Bagikan {n} berkas dengan grup {who}?', '{who}グループにファイルを{n}件共有しますか？', '¿Compartir {n, plural, one {# archivo} other {# archivos}} con el grupo {who}?', '要与{who}群组共享{n}个文件吗？'),
+  fileShareAskMany: t('{who}에게 파일 {n}개를 공유할까요?', 'Share {n, plural, one {# file} other {# files}} with {who}?', 'Bagikan {n} berkas dengan {who}?', '{who}にファイルを{n}件共有しますか？', '¿Compartir {n, plural, one {# archivo} other {# archivos}} con {who}?', '要与{who}共享{n}个文件吗？'),
+  fileShareView: t('보기만 할 수 있어요. 링크는 이 사람들에게만 열려요.', "They'll be able to view them. The link opens only for them.", 'Mereka bisa melihatnya. Tautannya hanya terbuka untuk mereka.', '閲覧だけできます。リンクはこの人たちにだけ開きます。', 'Podrán verlos. El enlace solo se abre para ellos.', '他们可以查看。链接只对他们打开。'),
+  fileShareFiles: t('공유할 파일', 'Files', 'Berkas', '共有するファイル', 'Archivos', '要共享的文件'),
+  fileShareYes: t('공유하기', 'Share', 'Bagikan', '共有する', 'Compartir', '共享'),
+  fileShareNo: t('공유하지 않기', "Don't share", 'Jangan bagikan', '共有しない', 'No compartir', '不共享'),
+  fileShareNotShared: t('공유하지 않았어요', 'Not shared', 'Tidak dibagikan', '共有していません', 'No se compartió', '未共享'),
+  fileSharePick: t("'{ref}'에 맞는 사람이 여러 명이에요. 누구에게 공유할까요?", "Several people match '{ref}'. Who should get it?", "Beberapa orang cocok dengan '{ref}'. Siapa yang menerimanya?", '「{ref}」に当てはまる人が複数います。誰に共有しますか？', "Varias personas coinciden con '{ref}'. ¿Quién lo recibe?", '有多个人与“{ref}”匹配。要共享给谁？'),
   postRoomEveryone: t('전체', 'Everyone', 'Semua', '全員', 'Todos', '所有人'),
   postRoomTeam: t('팀 대화방', 'team room', 'ruang tim', 'チームトーク', 'sala del equipo', '团队群聊'),
   postRoomGroup: t('그룹 대화', 'group chat', 'obrolan grup', 'グループトーク', 'chat de grupo', '群聊'),

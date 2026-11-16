@@ -1,7 +1,8 @@
 // Profiles and the people directory (docs/DECISIONS.md "프로필과 사람 목록"): the one-line title and status and the
 // photo of each person, in user_profiles (migration 115). A row exists only for people who set something.
 import type { Database } from 'bun:sqlite'
-import { guestDetail, reachFilter, sharesPlace } from './guests'
+import { guestPlacesFor, reachFilter, sharesPlace } from './guests'
+import { RuleSet } from '../policy/access'
 import { AVATAR_MAX_BYTES, AVATAR_MAX_PX, AVATAR_MIN_PX } from '@mycel/shared'
 import type { Locale, Person } from '@mycel/shared/api'
 import { fail, HttpError } from '../http/errors'
@@ -52,9 +53,11 @@ const person = (id: string, name: string, p: ProfileRow | null): Person => ({
 
 /** Everyone who can sign in (not deactivated, not deleted), by name, with their status message now (started, not
  * cleared: auth/status-messages.ts). Nothing else about them. `viewerId`: only the people that viewer may reach (a
- * guest sees the people of their one place; a member does not see a guest outside their places: auth/guests.ts). */
+ * guest sees the people of their group chat and their project; a member does not see a guest outside their places: auth/guests.ts). */
 export function listPeople(db: Database, now = new Date(), viewerId?: string): Person[] {
   const reach = viewerId ? reachFilter(db, viewerId) : null
+  // one rule set for every guest's project read here
+  let rules: RuleSet | undefined
   const iso = now.toISOString()
   const rows = db.query(`SELECT u.id, u.name, u.guest, p.title, p.status_text, p.avatar_version, s.emoji, s.text, s.clears_at, s.until_day FROM users u
     LEFT JOIN user_profiles p ON p.user_id = u.id
@@ -69,8 +72,9 @@ export function listPeople(db: Database, now = new Date(), viewerId?: string): P
     // the "Guest" tag: only on a guest the viewer may see at all (reachFilter: the people of the guest's place; nobody
     // else gets the guest in their list)
     ...(r.guest === 1 ? { guest: true as const } : {}),
-    // where that guest is, by name: the viewer sees them only when they share that place, so it is a place of the viewer's
-    ...(r.guest === 1 ? ((d) => (d ? { guestPlace: d.place } : {}))(guestDetail(db, r.id)) : {}),
+    // where that guest is (their group chat and/or project): by name only where the viewer is too, else the kind alone
+    // (an add list greys them out for a second place of that kind), never another place's name or id
+    ...(r.guest === 1 ? ((l) => (l.length ? { guestPlaces: l } : {}))(guestPlacesFor(db, r.id, viewerId, (rules ??= RuleSet.fromDb(db)))) : {}),
   }))
 }
 

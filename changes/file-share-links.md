@@ -1,0 +1,4 @@
+- **Share a file with chosen people.** On a file you own (in your own folder, or one you added to a team folder), **Share** lets you add teammates or groups who can view it. Its link opens for them and for people who can already open its folder. Anyone else who opens the link sees **Ask for access**. You get the request in Activity and answer it with **Share** or **Decline**. Removing someone takes the file away from them at once. Folders are still shared by an admin.
+- **Copy link** on a file now copies a link that keeps working after the file is renamed or moved, and does not show the folders it is in.
+- The AI can share your files too: "share these two photos with Jun" asks you on a card, then replies with the links. Before, it only made a link that opened for nobody new.
+- Admin › Team settings: **Members can share files they own** (on by default). The team owner can **Remove all file shares** at once.

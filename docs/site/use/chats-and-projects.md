@@ -203,8 +203,8 @@ and click **✕** (or choose **Remove preview** in the message's menu).
 
 ### Guests
 
-Someone from outside the team, such as an agency or a client, can join **one** group chat or **one** project as
-a guest. In a group chat open its members (the name at the top), **Add to group chat**, then **Invite a guest**; in
+Someone from outside the team, such as an agency or a client, can join a group chat or a project as a guest, and be
+in one group chat and one project at most. In a group chat open its members (the name at the top), **Add to group chat**, then **Invite a guest**; in
 a project, **Share** at the top of its page. Say who the link is for and whether they get AI, then **Create link**. The link
 works once: send it to them yourself.
 
