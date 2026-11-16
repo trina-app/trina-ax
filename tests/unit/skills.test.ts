@@ -7,7 +7,8 @@ import path from 'node:path'
 import { invokedSkill, listSkills, parseSkill } from '../../server/src/chat/skills'
 import { skillBlock, skillsSection, teamRules } from '../../server/src/chat/prompt'
 
-const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mycel-skills-'))
+// realpath: on a Mac os.tmpdir() is /var/..., a link to /private/var, and the file rules refuse a root that is not its real path
+const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'mycel-skills-')))
 afterAll(() => fs.rmSync(root, { recursive: true, force: true }))
 const put = (rel: string, text: string) => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text) }
 

@@ -8,6 +8,7 @@ import { chatSharePath } from './chat-shares'
 import { roomAppPushPath } from '../rooms/apps/notice'
 import { fileSharePushPath } from '../files/share-push'
 import { chatThreadPath } from '../chat/threads'
+import { accessRequestPushPath } from '../chat/access-requests'
 type Stop = (scope: { userId?: string; sessionId?: string }) => void
 const listeners = new WeakMap<AppContext, Stop>()
 export function onPushCancellation(ctx: AppContext, stop: Stop) { listeners.set(ctx, stop); return () => { if (listeners.get(ctx) === stop) listeners.delete(ctx) } }
@@ -29,6 +30,9 @@ export function cancelDisabledPushDeliveries(ctx: AppContext, userId: string, pr
   // stops what waits for a push (the Activity rows stay)
   if (!pushEventEnabled(preferences, 'file.shared')) ctx.db.query(`UPDATE file_share_push_deliveries SET state='cancelled',lease_until=NULL WHERE state IN ('pending','sending') AND notification_id IN
     (SELECT id FROM file_share_notices WHERE user_id=?)`).run(userId)
+  // a request to open my chat or project (migration 411): the same switch
+  if (!pushEventEnabled(preferences, 'access.requested')) ctx.db.query(`UPDATE access_request_push_deliveries SET state='cancelled',lease_until=NULL WHERE state IN ('pending','sending') AND notification_id IN
+    (SELECT id FROM access_request_notices WHERE user_id=?)`).run(userId)
   // a reply in a chat thread I follow (migration 408): "Replies in threads I'm part of" off stops what waits for a push
   // (the Inbox row stays)
   if (!pushEventEnabled(preferences, 'chat.thread_reply')) ctx.db.query(`UPDATE chat_thread_push_deliveries SET state='cancelled',lease_until=NULL WHERE state IN ('pending','sending') AND notification_id IN
@@ -85,6 +89,8 @@ pushPaths.set('room_app.paused', roomAppPushPath)
 // for opens that request in Activity (/activity/<notice id>) while it waits on me (files/share-push.ts)
 pushPaths.set('file.shared', fileSharePushPath)
 pushPaths.set('file.access_requested', fileSharePushPath)
+// a request to open my chat or project opens it in Activity while it waits on me (chat/access-requests.ts)
+pushPaths.set('access.requested', accessRequestPushPath)
 // the owner's locked password check opens the Inbox (the notice there says what to do), as the older events do
 pushPaths.set('owner.reauth_locked', () => '/settings/notifications')
 export function registerPushPath(code: string, path: PushPath) { pushPaths.set(code, path) }

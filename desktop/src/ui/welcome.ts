@@ -77,6 +77,8 @@ function offline() {
     h('div', { class: 'brand' }, tr('app.name')),
     h('h1', { id: 'offline-title' }, tr('offline.title')),
     h('p', { class: 'sub' }, tr('offline.body', { address: state.offline!.address })),
+    // the app looks again by itself (main/app-window.ts watchOffline) and opens the team when it answers (QA TC-3453)
+    state.offline!.auto ? h('p', { class: 'sub', role: 'status', 'data-testid': 'offline-auto' }, tr('offline.auto')) : null,
     h(
       'div',
       { class: 'actions' },
@@ -86,6 +88,8 @@ function offline() {
         {
           type: 'button',
           onclick: () => {
+            // the card is left: the app stops looking again by itself (it would open the team under the list)
+            ui.welcome.leftOffline()
             state = { ...state, mode: 'welcome' }
             render()
           },

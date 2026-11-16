@@ -318,6 +318,10 @@ export const SkillsOverview = z.object({
   managedFolders: z.array(RelPath),
   /** skills folders the caller can see, to suggest into */
   suggestFolders: z.array(RelPath),
+  /** a group's skills folder among suggestFolders (groups/<folder>/skills and below) → the group now (its name may differ
+   * from its folder's), so the suggestion dialog says "<group> skills" as the Team skills page does. Absent from older
+   * servers: the folder's name stands in */
+  suggestGroups: z.record(z.string(), SkillGroupRef).optional(),
   /** pending suggestions the caller may review */
   pendingReview: z.number().int().nonnegative(),
   /** the caller's own suggestions still waiting */

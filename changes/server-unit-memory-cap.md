@@ -1,0 +1,1 @@
+- Linux servers: the server may now use at most 75% of the machine's memory. If it ever holds on to memory it should have given back, it restarts within seconds instead of the whole machine running out of memory and hanging. This update changes the server's system unit, so it is installed by the root update (the update timer or `sudo mycel-ctl update`).

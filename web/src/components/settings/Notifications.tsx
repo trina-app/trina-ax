@@ -150,6 +150,7 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   // says so with nothing of it
   if (item.code === 'chat.thread_reply') return !item.chatThread || item.chatThread.gone ? t('notifications.event.chat.thread_replyGone') : item.chatThread.name && item.chatThread.title ? isolate(locale, 'notifications.event.chat.thread_replyNamed', { name: item.chatThread.name, title: item.chatThread.title }, ['name', 'title']) : t('notifications.event.chat.thread_reply')
   if (item.code.startsWith('file.')) return fileShareText(item, t)
+  if (item.code === 'access.requested' || item.code === 'access.answered') return accessRequestText(item, t)
   if (item.code === 'onboarding.first_run') return firstRunText(t, locale, item)
   if (item.code === 'account.deletion_request') return deletionNoticeText(t, item, locale)
   if (item.code === 'account.deletion_due') return deletionDueText(t, item, locale)
@@ -206,6 +207,20 @@ export function fileShareText(item: InboxNotification, t: T): string {
   return t('notifications.event.file.unshared_by_moveNamed', { by: f.by, name: f.name })
 }
 
+/** A request to open my chat or project, and the answer to mine (docs/decisions/20261116-chat-project-ask-access.md):
+ * who and which while they are there; a decline names nothing; added to a project: its name while I see it. */
+export function accessRequestText(item: InboxNotification, t: T): string {
+  const a = item.accessRequest
+  if (item.code === 'access.answered') {
+    if (a?.state !== 'approved') return t('notifications.event.access.answered')
+    return a.name && !a.gone ? t('notifications.event.access.addedToProject', { name: a.name }) : t('notifications.event.access.addedToProjectGone')
+  }
+  if (!a || a.gone || !a.by) return t('notifications.event.access.requested')
+  if (a.kind === 'project' && a.name) return t('notifications.event.access.requestedProject', { by: a.by, name: a.name })
+  if (a.kind === 'chat') return a.name ? t('notifications.event.access.requestedChat', { by: a.by, name: a.name }) : t('notifications.event.access.requestedChatUntitled', { by: a.by })
+  return t('notifications.event.access.requested')
+}
+
 /** Where a notice of the app's own opens, with its link's test id: the result chat of a scheduled run, the page of the
  * rest. Null: nowhere (a source I may no longer read, a notice that only tells), and its row is no link. */
 export function noticeLink(item: InboxNotification): { to: string; testId: string } | null {
@@ -221,6 +236,8 @@ export function noticeLink(item: InboxNotification): { to: string; testId: strin
   if (item.code === 'room_app.leaver') { const to = leaverNoticeLink(item.roomAppLeaver); return to ? { to, testId: 'notification-room-app-leaver-link' } : null }
   if (item.link === 'room' && item.room) return { to: roomNoticeLink(item.room), testId: 'notification-room-link' }
   if (item.link === 'project' && item.devEnv) return { to: `/projects/${encodeURIComponent(item.devEnv.projectId)}`, testId: 'notification-project-link' }
+  // added to a project I asked to join: the project, while I see it
+  if (item.code === 'access.answered' && item.link === 'project' && item.accessRequest?.targetId && !item.accessRequest.gone) return { to: `/projects/${encodeURIComponent(item.accessRequest.targetId)}`, testId: 'notification-access-project-link' }
   if (item.code === 'project.joined' && item.projectJoined?.project) return { to: `/projects/${encodeURIComponent(item.projectJoined.project.id)}`, testId: 'notification-project-link' }
   if (item.review) return { to: '/scheduled', testId: 'notification-review-link' }
   if (item.saveLapsed) return { to: '/scheduled', testId: 'notification-save-lapsed-link' }

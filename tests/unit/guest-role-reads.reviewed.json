@@ -65,6 +65,11 @@
   "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
  },
  {
+  "file": "chat/access-requests.ts",
+  "sql": "SELECT id FROM users WHERE role IN ('owner','admin') AND guest = 0 AND status = 'active' AND deleted_at IS NULL ORDER BY id",
+  "reason": "the owner and admins who may answer a project's access request (each then checked through loadPrincipal and the members rules); guest = 0 excludes guests too"
+ },
+ {
   "file": "chat/members-only-once.ts",
   "sql": "SELECT id FROM users WHERE role IN ('owner', 'admin')",
   "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"

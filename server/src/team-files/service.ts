@@ -30,7 +30,7 @@ import { dropFolderRow, hasAccessSettings, runAccessHooks } from '../admin/folde
 import { PRODUCT } from '@mycel/shared'
 import { publishChanges } from './changes'
 import { FileError, fileError } from './errors'
-import { checkRegular, copyTeamFile, freeName, hashFile, installFile, moveIntoTrash, restoredName, snapshotVersion, splitExt, treeSize } from './place'
+import { checkRegular, copyTeamFile, freeName, hashFile, hashOpen, installFile, moveIntoTrash, openChecked, restoredName, snapshotVersion, splitExt, treeSize } from './place'
 import { AI_TRASH_MAX_ENTRIES, AiTrashChanged, TrashStranded, aiSkillPath, holdsSkillRoot, instructionFile, sameStamps, stampTree, type Stamp } from './ai-trash'
 import crypto from 'node:crypto'
 import { fileSharesOf, linkPeopleIn, sharesForgotten, sharesMoved, sharesNarrowedByMove, sharesPurged, sharesRestored, sharesTrashed, type UnsharedByMove } from '../files/shares'
@@ -230,28 +230,35 @@ export class TeamFiles {
     const rules = this.rules()
     const r = authorize(this.fx, rules, user, rel, 'read')
     if (r.st!.isDirectory()) throw new ToolError('folder', 'is_folder')
-    const st = checkRegular(r.abs)
-    const sha = await this.sha(r.abs, st)
-    const base = { path: r.rel, size: st.size, mtime: st.mtime.toISOString(), sha256: sha, mime: mimeOf(r.rel), access: rules.access(user, r.segs) }
-    if (BINARY_EXT.has(ext(r.rel))) return { ...base, binary: true, content: null, truncated: false }
-    const n = Math.min(st.size, maxBytes)
-    const buf = Buffer.alloc(n)
-    const fd = fs.openSync(r.abs, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW)
-    try { let off = 0; while (off < n) { const k = fs.readSync(fd, buf, off, n - off, off); if (k <= 0) break; off += k } } finally { fs.closeSync(fd) }
+    checkRegular(r.abs)
+    // one open, of the file the check saw (place.ts openChecked): the hash and the text both come from it
+    const { fd, st } = openChecked(r.abs, r.st)
+    let buf: Buffer
+    let base: Omit<FileContent, 'binary' | 'content' | 'truncated'>
+    try {
+      const sha = await this.sha(r.abs, st, fd)
+      base = { path: r.rel, size: st.size, mtime: st.mtime.toISOString(), sha256: sha, mime: mimeOf(r.rel), access: rules.access(user, r.segs) }
+      if (BINARY_EXT.has(ext(r.rel))) return { ...base, binary: true, content: null, truncated: false }
+      const n = Math.min(st.size, maxBytes)
+      buf = Buffer.alloc(n)
+      let off = 0
+      while (off < n) { const k = fs.readSync(fd, buf, off, n - off, off); if (k <= 0) break; off += k }
+    } finally { fs.closeSync(fd) }
     if (buf.subarray(0, 8000).includes(0)) return { ...base, binary: true, content: null, truncated: false }
     const truncated = st.size > maxBytes
     // a multi-byte character cut at the limit is dropped (on the bytes: a regex over the decoded text was quadratic
     // for files full of invalid UTF-8)
-    const text = new TextDecoder('utf-8').decode(truncated ? buf.subarray(0, utf8Boundary(buf, n)) : buf)
+    const text = new TextDecoder('utf-8').decode(truncated ? buf.subarray(0, utf8Boundary(buf, buf.length)) : buf)
     return { ...base, binary: false, content: text, truncated }
   }
 
-  /** A readable regular file for the download endpoint. */
-  fileForDownload(userId: string, rel: string, download = true): { abs: string; name: string } {
+  /** A readable regular file for the download endpoint. `st`: what this check saw; whoever sends the file opens it as
+   * that very file (place.ts openChecked). */
+  fileForDownload(userId: string, rel: string, download = true): { abs: string; name: string; st: fs.Stats } {
     const r = authorize(this.fx, this.rules(), this.principal(userId), rel, 'read', {download})
     if (r.st!.isDirectory()) throw new ToolError('folder', 'is_folder')
-    checkRegular(r.abs)
-    return { abs: r.abs, name: r.segs[r.segs.length - 1]! }
+    const st = checkRegular(r.abs)
+    return { abs: r.abs, name: r.segs[r.segs.length - 1]!, st }
   }
 
   /** Replace the file at `abs`: `then` gets the sha256 of the file as it is now, and runs in the same synchronous step
@@ -270,11 +277,12 @@ export class TeamFiles {
     throw new HttpError('conflict')
   }
 
-  private async sha(abs: string, st: fs.Stats): Promise<string> {
+  /** `fd`: the caller's checked descriptor of `abs` (`st` its fstat), hashed instead of opening the path again */
+  private async sha(abs: string, st: fs.Stats, fd?: number): Promise<string> {
     const k = `${abs}\0${st.ino}\0${st.size}\0${st.mtimeMs}`
     const hit = this.shaCache.get(k)
     if (hit) return hit
-    const h = await hashFile(abs)
+    const h = fd === undefined ? await hashFile(abs) : await hashOpen(fd)
     this.shaCache.set(k, h)
     if (this.shaCache.size > 1000) this.shaCache.delete(this.shaCache.keys().next().value!)
     return h
@@ -290,7 +298,7 @@ export class TeamFiles {
     const ndata = sha256(data)
     if (r.exists) {
       if (r.st!.isDirectory()) throw new ToolError('folder', 'is_folder')
-      const cur = readRegular(r.abs).bytes
+      const cur = readRegular(r.abs, undefined, r.st).bytes
       const csha = sha256(cur)
       if (csha === ndata) return { path: r.rel, conflict: false, entry: this.entry(user, rules, r.segs) }
       if (baseSha === null || baseSha !== csha) return this.conflictCopy(user, rules, r, data)
@@ -702,7 +710,7 @@ export class TeamFiles {
     for (const f of files) {
       const abs = isDir ? path.join(fr.abs, ...f.segs) : fr.abs
       let old: Buffer
-      try { old = readRegular(abs).bytes } catch { continue }
+      try { old = readRegular(abs, undefined, fs.lstatSync(abs)).bytes } catch { continue }
       if (sha256(old) !== sha256(f.bytes)) out.push({ from: isDir ? [fr.rel, ...f.segs].join('/') : fr.rel, segs: f.segs, old, bytes: f.bytes })
     }
     return out
@@ -1846,14 +1854,14 @@ export class TeamFiles {
   }
 
   /** For the download endpoint: the stored blob of an old version. */
-  versionFile(userId: string, versionId: string): { abs: string; name: string; size: number } {
+  versionFile(userId: string, versionId: string): { abs: string; name: string; size: number; st: fs.Stats } {
     const user = this.principal(userId)
     const v = this.versionRow(user, this.rules(), versionId)
     if (!v.storage_path) fileError('not_found', 'noBlob')
     const abs = path.join(this.root, ...v.storage_path.split('/'))
     const st = checkRegular(abs)
     const [base, x] = splitExt(v.path.split('/').pop()!)
-    return { abs, name: `${base} (v${v.version})${x}`, size: st.size }
+    return { abs, name: `${base} (v${v.version})${x}`, size: st.size, st }
   }
 
   async restoreVersion(userId: string, rel: string, versionId: string): Promise<SaveResult> {

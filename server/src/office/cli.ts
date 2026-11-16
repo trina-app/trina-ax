@@ -78,6 +78,7 @@ import { clearStaleFailure, noteRecovery, updateView } from './update'
 import { dbReaderLevel, exit75Decision, type Exit75Decision, extraWaitSeconds, goForward, previousDecision, releaseIn, setAsidePrevious, updateRunning, writeHealMarker } from './forward'
 import { isMigrating, MIGRATE_WAIT_MS, probeHealth } from './health'
 import { claudeMcpCommand, headline, scanClaudeMcp } from './claude-mcp'
+import { ensureAgentProgram, loginItemOffText, loginItemState } from './login-item'
 import { PRODUCT } from '@mycel/shared'
 
 const CHECK_MS = 30_000
@@ -550,6 +551,16 @@ export async function waitHealthy(s: Pick<OfficeSettings, 'appPort'>, seconds: n
     await Bun.sleep(o.pollMs ?? 1000)
   }
 }
+/** `office.js install` run by hand: the LaunchAgent is loaded but the server did not answer within the wait. Not 0 (the
+ * setup link and the rest are not printed, and a script must not take it for an install that answers), and not 1 (the
+ * server may be up a minute later: office-install.sh says "still starting", not "did not start"). */
+export const INSTALL_STILL_STARTING = 3
+/** What `office.js install` says and returns when its wait ended with no answer and nothing is handed to an updater.
+ * Pure. Under the updater, or with the LaunchAgent gone: 1, as before (the updater rolls back). */
+export function installNoAnswer(o: { underUpdater: boolean; agentLoaded: boolean; teamax: string; logs: string }): { code: number; line: string } {
+  if (o.underUpdater || !o.agentLoaded) return { code: 1, line: `the server did not answer within 90 s; see ${o.logs}` }
+  return { code: INSTALL_STILL_STARTING, line: `the server has not answered yet (waited 90 s). It may still be starting: check with ${o.teamax} status in a minute; see ${o.logs}` }
+}
 /** how long `office.js install` under the updater waits for a migrating server itself: the updater kills the installer
  * after 10 minutes (update.ts), which may spend 4 of them on a new headless browser before it stops the server */
 export const UPDATER_MIGRATE_WAIT_MS = 4 * 60_000
@@ -853,12 +864,29 @@ export async function tailscaleAddress(home: string, args: string[], o: { run?: 
   return 2
 }
 
+/** Start the agent. When launchd refuses and the owner switched the job off in System Settings (TC-3451), say that
+ * instead of launchd's own error. */
+export function startAgent(agent: { start(): string }, plistFile: string, home: string, state: (f: string) => 'on' | 'off' | 'unknown' = loginItemState): string {
+  try { return agent.start() } catch (e) {
+    if (state(plistFile) !== 'off') throw e
+    throw new Error(`the server was not started\n${loginItemOffText('server', path.join(home, 'teamax'))}`)
+  }
+}
+
+/** The first line of `teamax status`, and under it what to do when the owner switched the job off in System Settings. */
+export function agentStatusLines(o: { installed: boolean; loaded: boolean; pid: number | null; plistFile: string; home: string; state?: (f: string) => 'on' | 'off' | 'unknown' }): string[] {
+  if (!o.installed) return ['not installed']
+  if (o.loaded) return [`running${o.pid ? ` (pid ${o.pid})` : ' (starting)'}`]
+  if ((o.state ?? loginItemState)(o.plistFile) === 'off') return ['installed, switched off in System Settings', loginItemOffText('server', path.join(o.home, 'teamax'))]
+  return ['installed, stopped (teamax start)']
+}
+
 /** the server reads the public address from server.json, which the supervisor writes at its start */
 async function restartServer(s: OfficeSettings) {
   const agent = launchAgent(s.label, officePaths(s.home).plist(s.label))
   if (!fs.existsSync(officePaths(s.home).plist(s.label))) return
   if (agent.loaded()) { agent.stop(); await Bun.sleep(1000) }
-  console.log(`${PRODUCT.displayName}: ${agent.start()}`)
+  console.log(`${PRODUCT.displayName}: ${startAgent(agent, officePaths(s.home).plist(s.label), s.home)}`)
   const up = await waitHealthy(s, 90, { say: (l) => console.log(l) })
   if (up === 'still-migrating') console.log(`the server is still updating its database; see ${officePaths(s.home).officeLog}`)
   else if (!up) console.log(`the server did not answer within 90 s; see ${officePaths(s.home).officeLog}`)
@@ -1037,10 +1065,10 @@ export async function main(argv: string[]): Promise<number> {
       const st = prepare(home)
       fs.mkdirSync(p.agentsDir, { recursive: true })
       fs.mkdirSync(p.logs, { recursive: true, mode: 0o750 })
-      const bun = path.join(s.home, 'app', 'bin', 'bun')
-      const text = agentPlist(s, fs.existsSync(bun) ? bun : process.execPath)
+      // <home>/bin/<product name> starts app/bin/bun: its file name is what the Mac shows under Login Items (./login-item.ts)
+      const text = agentPlist(s, ensureAgentProgram(s.home) ?? process.execPath)
       fs.writeFileSync(p.plist(s.label), text, { mode: 0o644 })
-      lines(`LaunchAgent ${p.plist(s.label)}: ${agent.start()}`)
+      lines(`LaunchAgent ${p.plist(s.label)}: ${startAgent(agent, p.plist(s.label), s.home)}`)
       lines('waiting for the server ...')
       // an updater that knows "migrating" (TEAMAX_UPDATER_WAITS_MIGRATING) waits for it itself: hand it over at once
       const underUpdater = process.env.TEAMAX_UPDATE_RUN === '1'
@@ -1061,7 +1089,20 @@ export async function main(argv: string[]): Promise<number> {
       }
       const handOver = pd.exitZero
       if (up === 'still-migrating') { lines(`the server was still updating its database after ${Math.round(MIGRATE_WAIT_MS / 60_000)} min; see ${p.officeLog} and ${p.serverLogs}`); return 1 }
-      if (!up && !handOver) { lines(`the server did not answer within 90 s; see ${p.officeLog} and ${p.serverLogs}`); return 1 }
+      // not answering yet is not "did not start": a first start after a big update, or a slow Mac, can take longer than
+      // this wait, and the LaunchAgent keeps starting it (QA TC-3761). By hand: INSTALL_STILL_STARTING, which
+      // office-install.sh says in its own words; under the updater 1 as before (it rolls back).
+      if (!up && !handOver) {
+        const r = installNoAnswer({ underUpdater, agentLoaded: agent.loaded(), teamax: path.join(s.home, 'teamax'), logs: `${p.officeLog} and ${p.serverLogs}` })
+        lines(r.line)
+        // still starting: the internet address and the automatic updates are set up all the same (the cloudflared
+        // agent was stopped above), so a server that answers a minute later is whole without a second run
+        if (r.code === INSTALL_STILL_STARTING) {
+          try { const tl = await syncTunnelAgent(s); if (tl) lines(tl) } catch (e) { lines(`cloudflared not started: ${(e as Error).message}`) }
+          try { const ul = syncUpdateAgent(s, agentPath(s)); if (ul) lines(ul) } catch (e) { lines(`update agent not installed: ${(e as Error).message}`) }
+        }
+        return r.code
+      }
       if (handOver) lines(`the server does not answer yet; there is nothing to roll back to, so the updater goes on waiting for it (see ${p.officeLog} and ${p.serverLogs})`)
       if (up === 'up' && !underUpdater) { const c = clearStaleFailure(home); if (c) lines(c) }
       if (up === 'migrating') lines('the server is updating its database before it starts; the update waits for it')
@@ -1087,8 +1128,12 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     case 'start': {
-      lines(agent.start())
+      lines(startAgent(agent, p.plist(s.label), s.home))
       if (s.publicHost && fs.existsSync(p.plist(tunnelLabel(s)))) lines(`cloudflared: ${tunnelAgentOf(s).start()}`)
+      // the update agent is never stopped by `teamax stop`; it is only unloaded when the owner switched the job off in
+      // System Settings (TC-3451), and this is the command the status line names to bring it back
+      const up = p.plist(`${s.label}.update`), ua = launchAgent(`${s.label}.update`, up)
+      if (fs.existsSync(up) && !ua.loaded()) { try { lines(`automatic updates: ${ua.start()}`) } catch (e) { lines(loginItemState(up) === 'off' ? loginItemOffText('updates', path.join(s.home, 'teamax')) : `automatic updates not started: ${(e as Error).message}`) } }
       return 0
     }
     case 'stop': {
@@ -1097,7 +1142,7 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     case 'restart': {
-      agent.stop(); await Bun.sleep(1000); lines(agent.start())
+      agent.stop(); await Bun.sleep(1000); lines(startAgent(agent, p.plist(s.label), s.home))
       const tl = await syncTunnelAgent(s)
       if (tl) lines(tl)
       return 0
@@ -1118,8 +1163,8 @@ export async function main(argv: string[]): Promise<number> {
     }
     case 'status': {
       const installed = fs.existsSync(p.plist(s.label))
-      const pid = agent.loaded() ? agent.pid() : null
-      lines(!installed ? 'not installed' : !agent.loaded() ? 'installed, stopped (teamax start)' : `running${pid ? ` (pid ${pid})` : ' (starting)'}`)
+      const loaded = agent.loaded()
+      for (const l of agentStatusLines({ installed, loaded, pid: loaded ? agent.pid() : null, plistFile: p.plist(s.label), home: s.home })) lines(l)
       const here = await probeHealth(s.appPort)
       lines(`  this Mac  http://127.0.0.1:${s.appPort}  ${typeof here === 'string' ? 'answers' : isMigrating(here) ? `updating its database (${here.migrating}${here.progress ? `: ${here.progress}` : ''}); desks get no answer until it is done` : 'no answer'}`)
       if (s.publicHost) {
@@ -1137,6 +1182,8 @@ export async function main(argv: string[]): Promise<number> {
       for (const o of helperOrigins(s, origins).slice(0, 1)) lines(`  CA page   ${o}  ${(await answers(o)) ? 'answers' : 'no answer'}`)
       const uv = updateView(home)
       lines(`  updates   ${uv.current} · ${uv.channel} · ${!uv.agentInstalled ? 'no update agent (office-install.sh from a 0.2.0+ zip)' : uv.paused ? 'paused (teamax update resume)' : `window ${uv.window} ${uv.timeZone}`}${uv.last ? ` · last: ${uv.last.kind}` : ''}`)
+      const up = p.plist(`${s.label}.update`)
+      if (uv.agentInstalled && !launchAgent(`${s.label}.update`, up).loaded() && loginItemState(up) === 'off') lines(loginItemOffText('updates', path.join(s.home, 'teamax')))
       lines(`  log       ${p.officeLog}`)
       return 0
     }

@@ -64,7 +64,7 @@ const pushPending = new Set()
 // chat.thread_reply: a reply in a thread I follow under an AI answer of a shared chat ("Replies in threads I'm part of");
 // a click opens that thread, its ids from the signed-in fetch of the notice (never the reply, the chat's title or the
 // payload)
-const PUSH_PREF = { 'schedule.success': 'scheduleSuccess', 'schedule.failure': 'scheduleFailure', 'connection.reconnect': 'connectionReconnect', 'chat.answer_done': 'chatAnswers', 'chat.shared': 'chatShares', 'chat.thread_reply': 'roomThreadReplies', 'file.shared': 'fileShares', 'file.access_requested': 'fileShares' }
+const PUSH_PREF = { 'schedule.success': 'scheduleSuccess', 'schedule.failure': 'scheduleFailure', 'connection.reconnect': 'connectionReconnect', 'chat.answer_done': 'chatAnswers', 'chat.shared': 'chatShares', 'chat.thread_reply': 'roomThreadReplies', 'file.shared': 'fileShares', 'file.access_requested': 'fileShares', 'access.requested': 'fileShares' }
 // room.dm / room.mention: a message or an @mention in a room. No switch of their own here: each room's level decides on
 // the server, which sends the push only while that level still asks for it (docs/DECISIONS.md "대화방 알림 설정"; a room
 // at its own level alerts even with the default 받지 않음, whose older switch roomMessages is then false)
@@ -86,8 +86,11 @@ const APP_CODES = new Set(['room_app.paused'])
 // file.access_requested: someone asked to open a file I answer for (docs/decisions/20261116-file-share-push-gaps.md):
 // shown only while the signed-in notice says I may still answer it; the generic line only (never the file, the asker or
 // the note); a click opens that request in Activity (/activity?n=<id>, the id the signed-in fetch answered with)
-// Both follow "File sharing" (fileShares, PUSH_PREF)
-const FILE_CODES = new Set(['file.shared', 'file.access_requested'])
+// access.requested: someone asked to open a chat or project I answer for (docs/decisions/
+// 20261116-chat-project-ask-access.md): as a file's request, shown only while the signed-in notice says I may still answer
+// it, the generic line only, a click opens it in Activity
+// All three follow "File sharing" (fileShares, PUSH_PREF)
+const FILE_CODES = new Set(['file.shared', 'file.access_requested', 'access.requested'])
 const pushWanted = (preferences, code) => ROOM_CODES.has(code) || HOME_CODES.has(code) || ACCOUNT_CODES.has(code) || APP_CODES.has(code) || (Object.hasOwn(PUSH_PREF, code) && preferences[PUSH_PREF[code]] === true)
 const opaqueId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(value)
 // A room notice's title: who and where ("민준 · #마케팅 › 스레드", a DM "민준"; names only, never the message's text), from
@@ -215,6 +218,9 @@ self.addEventListener('push', event => {
       // shown); a click opens that notice (its id from the same signed-in fetch)
       const fileRequest = payload.code === 'file.access_requested' && item.link === 'file' && item.fileShare?.canAnswer === true && item.fileShare.state === 'pending' && opaqueId(item.id) ? item.id : undefined
       if (payload.code === 'file.access_requested' && !fileRequest) return
+      // a request to open my chat or project: the same, from the notice's accessRequest
+      const accessRequest = payload.code === 'access.requested' && item.accessRequest?.canAnswer === true && item.accessRequest.state === 'pending' && opaqueId(item.id) ? item.id : undefined
+      if (payload.code === 'access.requested' && !accessRequest) return
       const silent = payload.code.startsWith('room.') && await pageSounds().catch(() => false)
       if (generation !== pushEpoch) return
       // a room notice says who and where in its title; the body is the message's first line when the server sends it
@@ -229,7 +235,7 @@ self.addEventListener('push', event => {
       const seq = roomId && Number.isSafeInteger(item.room?.seq) && item.room.seq >= 0 ? item.room.seq : undefined
       const markRead = typeof settings.messages?.markRead === 'string' && settings.messages.markRead ? settings.messages.markRead.slice(0, 40) : ''
       const actions = seq !== undefined && markRead ? [{ action: 'read', title: markRead }] : []
-      await self.registration.showNotification(shownTitle, { body: preview || (sharer && sharedBy) || body, tag, renotify: false, silent, ...(actions.length ? { actions } : {}), data: roomId ? { notificationId: payload.notificationId, roomId, ...(threadId ? { threadId } : {}), ...(seq !== undefined ? { seq } : {}) } : { notificationId: payload.notificationId, ...(chatId ? { chatId } : {}), ...(chatThread ? { chatId: chatThread.chatId, chatThreadId: chatThread.rootId } : {}), ...(appRoomId ? { roomId: appRoomId } : {}), ...(connectionId ? { connectionId } : {}), ...(connectorId ? { connectorId } : {}), ...(fileBatch ? { fileBatch } : fileLink ? { fileLink } : fileRequest ? { fileRequest } : {}), ...(HOME_CODES.has(payload.code) || (payload.code === 'file.shared' && !fileBatch && !fileLink) || (payload.code === 'chat.answer_done' && !chatId) ? { home: true } : {}) } })
+      await self.registration.showNotification(shownTitle, { body: preview || (sharer && sharedBy) || body, tag, renotify: false, silent, ...(actions.length ? { actions } : {}), data: roomId ? { notificationId: payload.notificationId, roomId, ...(threadId ? { threadId } : {}), ...(seq !== undefined ? { seq } : {}) } : { notificationId: payload.notificationId, ...(chatId ? { chatId } : {}), ...(chatThread ? { chatId: chatThread.chatId, chatThreadId: chatThread.rootId } : {}), ...(appRoomId ? { roomId: appRoomId } : {}), ...(connectionId ? { connectionId } : {}), ...(connectorId ? { connectorId } : {}), ...(fileBatch ? { fileBatch } : fileLink ? { fileLink } : fileRequest ? { fileRequest } : accessRequest ? { fileRequest: accessRequest } : {}), ...(HOME_CODES.has(payload.code) || (payload.code === 'file.shared' && !fileBatch && !fileLink) || (payload.code === 'chat.answer_done' && !chatId) ? { home: true } : {}) } })
       if (generation !== pushEpoch) {
         for (const item of await self.registration.getNotifications({ tag })) item.close()
         return

@@ -370,6 +370,9 @@ describe('in the app: GET /api/skills, rename, delete, the AI\'s card, skills_li
     const before = (await h.api('erin').call(API.skillsOverview))
     expect(before.managedFolders).toContain('groups/marketing/skills')
     expect(before.suggestFolders).toContain('groups/marketing/skills')
+    // the group by its name, for the dialog's words ("Marketing skills"); the team's own skills/ is no group
+    expect(before.suggestGroups?.['groups/marketing/skills']).toEqual({ id: 'marketing', name: 'Marketing' })
+    expect(before.suggestGroups?.['skills']).toBeUndefined()
     expect((await h.api('bob').call(API.skillsOverview)).suggestFolders).not.toContain('groups/marketing/skills')
     const s = await h.api('alice').call(API.createSkillSuggestion, { body: { source: { kind: 'file', path: 'users/alice/idea.md' }, targetFolder: 'groups/marketing/skills', name: 'Idea', description: 'an idea', content: 'GROUP-SUGGESTION-CANARY steps\n' } })
     expect(s).toMatchObject({ targetFolder: 'groups/marketing/skills', targetGroup: { id: 'marketing', name: 'Marketing' }, canReview: true })

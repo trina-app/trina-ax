@@ -1,6 +1,6 @@
 // Desktop app end to end: the real Electron app (dist/), real browser pane over CDP, fake team servers that speak
 // the shared WebSocket contract (browser.call -> browser.ack / browser.result), and a fixture website.
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication } from '@playwright/test'
 import { PRODUCT } from '@mycel/shared'
@@ -83,6 +83,30 @@ test.describe('team address and window', () => {
       await close(app)
     }
   })
+  test('an office address whose certificate is not installed on this computer says so, with the certificate page; nothing is connected (QA TC-3452)', async () => {
+    const userData = newUserData('en')
+    const app = await launch(userData)
+    try {
+      const w = await welcome(app)
+      // the fake office server's own https address: its certificate is signed by nothing this computer trusts
+      await w.locator('#address').fill('https://127.0.0.1:19154')
+      await w.getByRole('button', { name: 'Continue', exact: true }).click()
+      await expect(w.getByTestId('address-error')).toHaveText('This computer does not have the office certificate yet, so the app cannot check the team server. Open http://127.0.0.1:19153 in a web browser, or follow the desk card, install the certificate, then try again.')
+      await expect(w.getByTestId('address-error')).not.toContainText('internet')
+      // not remembered, not opened, and no "connect anyway"
+      await expect(w.getByTestId('team')).toHaveCount(0)
+      await expect(w.getByRole('button', { name: 'Connect', exact: true })).toHaveCount(0)
+      expect(existsSync(join(userData, 'teams.json')) ? teamsJson(userData).teams : []).toEqual([])
+      expect(app.windows().some((p) => p.url().startsWith('https://127.0.0.1:19154'))).toBe(false)
+      // a closed port is still "cannot reach"
+      await w.locator('#address').fill('https://127.0.0.1:19159')
+      await w.getByRole('button', { name: 'Continue', exact: true }).click()
+      await expect(w.getByTestId('address-error')).toHaveText('Cannot reach the team server. Check the address and your internet connection.')
+    } finally {
+      await close(app)
+    }
+  })
+
   test('the artifact receiver opened as the whole page (an opaque origin at the team address) gets no bridge (QA TC-220)', async () => {
     const app = await launch(newUserData())
     try {

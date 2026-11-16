@@ -1,1 +1,0 @@
-- The notification sound for new messages is now a short, light "bubbles" sound. The old two-note chime sounded like a recording ending. The on/off switch in Settings › Notifications stays as it was.

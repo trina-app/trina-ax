@@ -535,9 +535,15 @@ Desktop checks on pull requests: `.github/workflows/desktop.yml`. ci.yml은 리�
 
 | job | runner | 하는 일 | 실패 때 artifact |
 |---|---|---|---|
-| Desktop e2e (macOS) | macos-15 | `desktop/e2e/ci.config.ts`: 데스크톱 Playwright 전부(desktop.spec, work-files, work-files-wide, work-consent, folder-window …). 만든 홈·데이터 폴더만 쓴다. 가짜 팀 이름(`acme.localhost` …)을 `/etc/hosts`에 넣고 web 빌드와 rhwp를 준비한다. 전체 25분 한도, 재시도 1번 | `desktop-e2e-mac` (`desktop/e2e/.work/`: html 리포트, fixture 로그) |
-| Mac dmg | macos-15 | 서명 없는 universal `dist:mac` → `scripts/ci/dmg-check.ts` | 늘 `desktop-dmg` (dmg, 3일) |
+| Desktop e2e (macOS) | macos-15-intel (레포 변수 `DESKTOP_MAC_RUNNER`로 바꾼다) | `desktop/e2e/ci.config.ts`: 데스크톱 Playwright 전부(desktop.spec, work-files, work-files-wide, work-consent, folder-window …). 만든 홈·데이터 폴더만 쓴다. 가짜 팀 이름(`acme.localhost` …)을 `/etc/hosts`에 넣고 web 빌드와 rhwp를 준비한다. 전체 25분 한도, 재시도 1번 | `desktop-e2e-mac` (`desktop/e2e/.work/`: html 리포트, fixture 로그) |
+| Mac dmg | e2e와 같은 러너 | 서명 없는 universal `dist:mac` → `scripts/ci/dmg-check.ts` | 늘 `desktop-dmg` (dmg, 3일) |
 | Windows installer | windows-2025 | 서명 없는 NSIS 둘(`<version>-ci.1`, `-ci.2`) → `scripts/ci/windows-install-check.ps1` | 늘 `desktop-windows-install-logs` |
+
+- **맥 job은 Intel 맥(macos-15-intel)에서 돈다.** 2026-11-16 08:30 UTC 뒤로 arm64 `macos-15` job은 러너를 하나도 받지 못하고
+  취소됐다("The job was not acquired by Runner of type hosted even after multiple attempts", "Due to capacity constraints, jobs
+  targeting macOS arm64 runners may experience longer queue times"). 테스트가 깨진 것이 아니라 GitHub의 arm64 맥 부족이다. Intel
+  맥은 다른 풀이다. arm64가 돌아오면 레포 변수 `DESKTOP_MAC_RUNNER=macos-15`로 커밋 없이 되돌린다. 캐시 키에 `runner.arch`가 있어
+  두 프로세서의 Electron·rhwp가 섞이지 않는다.
 
 - **dmg 검사는 설정을 읽는다.** 형식(`dmg.format`, 기본 UDZO), 볼륨 이름(`dmg.title`), 파일 시스템(`dmg.filesystem`, 없으면 설치된
   electron-builder의 기본: 26.0.17까지 APFS, 26.0.18부터 HFS+), `dmg.contents`의 위치(`.DS_Store`의 Iloc), 배경 그림(`dmg.background`, 없으면

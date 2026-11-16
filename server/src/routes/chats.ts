@@ -3,10 +3,11 @@
 // Contract: shared/src/api/chats.ts. The person's own chats, and the shared project chats they see (chat/shared.ts
 // chatFor); "not yours" and "missing" are both not_found.
 import { registerChatAccountCleanup } from '../chat/account-cleanup'
+import { accessRequestsOf } from '../chat/access-requests'
 import { markTeamShares } from '../chat/team-shares'
 import { redactorFor } from '../integrations/connections/redact'
 import { searchWords } from '@mycel/shared'
-import { API, WINDOW_HEADER, type Attachment, type Chat, type EngineId, type Locale, type Message, type UserRef } from '@mycel/shared/api'
+import { ACCESS_TARGET_ID, API, WINDOW_HEADER, type Attachment, type Chat, type EngineId, type Locale, type Message, type UserRef } from '@mycel/shared/api'
 import type { Context } from 'hono'
 import type { RouteModule } from './module'
 import type { AppContext } from '../context'
@@ -686,6 +687,17 @@ export const chatsRoutes: RouteModule = {
       previewLimit(ctx, auth.user.id)
       return previewChatAudience(ctx, rt, auth.user.id, chatOf(rt, c, auth, params.id, 'view'), body, c.get('locale'))
     })
+    // "Ask for access" on a chat's or project's link (chat/access-requests.ts; docs/decisions/
+    // 20261116-chat-project-ask-access.md): what the page offers, the ask, and the answer in Activity
+    const access = accessRequestsOf(ctx)
+    const accessKind = (kind: string, id: string): 'chat' | 'project' => {
+      if (kind !== 'chat' && kind !== 'project') fail('validation', undefined, { fields: { 'params.kind': 'chat or project' } })
+      if (!ACCESS_TARGET_ID.test(id)) fail('not_found')
+      return kind as 'chat' | 'project'
+    }
+    kit.handle(API.linkAccess, ({ c, params, auth }) => access.view(auth.user.id, accessKind(params.kind, params.id), params.id, c.get('locale')))
+    kit.handle(API.requestLinkAccess, ({ c, params, body, auth }) => access.request(auth.user.id, accessKind(params.kind, params.id), params.id, body.message, c.get('locale')))
+    kit.handle(API.answerAccessRequest, ({ c, params, body, auth }) => access.answer(auth.user.id, params.id, body.answer, body.confirmKey, c.get('locale')))
     kit.handle(API.putChatAudience, ({ c, params, body, auth }) => putChatAudience(ctx, rt, auth.user.id, chatOf(rt, c, auth, params.id, 'view'), body, c.get('locale')))
     const hidden = (c: Context<AppEnv>, auth: AuthInfo, a: ChatAccess, hide: boolean): Chat => {
       hideChat(ctx, auth.user.id, a, hide, c.get('locale'))
