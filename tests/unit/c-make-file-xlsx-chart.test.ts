@@ -6,7 +6,8 @@ import * as XLSX from 'xlsx'
 import { makeHandler } from '../../server/src/mcp/protocol'
 import { readZip } from '../../server/src/files/zip-write'
 import { which } from '../../server/src/config'
-import { addCharts, placeCharts, type ChartSheet } from '../../server/src/tools/xlsx-chart'
+import ExcelJS from '../../server/node_modules/exceljs'
+import { addCharts, chartXml, placeCharts, type ChartSheet } from '../../server/src/tools/xlsx-chart'
 import { makeCApp, type CApp, type Person } from '../lib/c-app'
 
 setDefaultTimeout(30_000)
@@ -100,6 +101,10 @@ describe('make_file xlsx charts', () => {
       expect(r.text).toMatch(why)
       expect(fs.existsSync(path.join(A.team, out))).toBe(false)
     }
+    // a 31-unit sheet name never ends in half an emoji
+    const emoji = await call('alice', 'make_file', { content: `## ${'가'.repeat(30)}😀\n\n| a | b |\n|---|---|\n| x | 1 |\n`, format: 'xlsx', output: 'users/alice/out/emoji.xlsx' })
+    expect(emoji.isError, emoji.text).toBe(false)
+    expect(XLSX.read(fs.readFileSync(path.join(A.team, 'users/alice/out/emoji.xlsx'))).SheetNames).toEqual(['가'.repeat(30)])
     const docx = await call('alice', 'make_file', { content: '# a', format: 'docx', output: 'users/alice/out/x.docx', charts: [{ type: 'pie', range: 'A1:B2' }] })
     expect(docx.isError).toBe(true)
     expect(docx.text).toContain('charts are only for format "xlsx"')
@@ -122,5 +127,52 @@ describe('xlsx-chart', () => {
     expect(c).toContain('<c:pt idx="1"><c:v>2</c:v></c:pt>')
     expect(outp.get('xl/charts/chart2.xml')).toBe(c) // the corners in any order
     expect(addCharts(bytes, [], [sheet])).toBe(bytes)
+  })
+  const two: ChartSheet[] = [
+    { name: 'Q3 Sales', rows: [['m', 'n'], ['a', 1], ['b', 2]] },
+    { name: "R&D's 지역", title: "R&D's 지역", rows: [['m', 'n', 'o'], ['a', 1, 3], ['b', 2, 4]] },
+  ]
+  test('a sheet prefix in the range picks the sheet; an unknown or contradicting one is refused', () => {
+    expect(placeCharts([{ type: 'pie', range: "'Q3 Sales'!A1:B3" }], two)[0]!.sheet).toBe(0)
+    expect(placeCharts([{ type: 'line', range: "'R&D''s 지역'!A1:C3" }], two)[0]!.sheet).toBe(1)
+    expect(placeCharts([{ type: 'line', range: "'R&D''s 지역'!A1:C3", sheet: "R&D's 지역" }], two)[0]!.sheet).toBe(1)
+    expect(() => placeCharts([{ type: 'column', range: 'Nope!A1:B2' }], two)).toThrow(/no sheet 'Nope'/)
+    expect(() => placeCharts([{ type: 'column', range: 'Sheet9!A1:B3' }], two)).toThrow(/no sheet 'Sheet9'/)
+    expect(() => placeCharts([{ type: 'column', range: "'Q3 Sales'!A1:B3", sheet: "R&D's 지역" }], two)).toThrow(/range names sheet 'Q3 Sales' but sheet is/)
+    // Korean, & and ' in the formula references, escaped for XML
+    const xml = chartXml(placeCharts([{ type: 'column', range: 'A1:C3', sheet: "R&D's 지역" }], two)[0]!, two[1]!)
+    expect(xml).toContain("<c:f>'R&amp;D''s 지역'!$B$2:$B$3</c:f>")
+  })
+  test('an anchor without room for the chart is refused; charts without one go below anchored ones', () => {
+    expect(() => placeCharts([{ type: 'pie', range: 'A1:B3', anchor: 'XFD1048576' }], two)).toThrow(/leaves no room/)
+    expect(() => placeCharts([{ type: 'pie', range: 'A1:B3', anchor: 'A1048570' }], two)).toThrow(/leaves no room/)
+    const p = placeCharts([{ type: 'pie', range: 'A1:B3', anchor: 'D2' }, { type: 'pie', range: 'A1:B3' }, { type: 'pie', range: 'A1:B3' }], two)
+    expect(p.map((x) => x.from)).toEqual([{ col: 4, row: 2 }, { col: 4, row: 20 }, { col: 4, row: 38 }])
+  })
+  test('horizontal bars put the first row on top; titles lose lone surrogates and U+FFFE/U+FFFF', () => {
+    const bar = chartXml(placeCharts([{ type: 'bar', range: 'A1:B3', title: 'a\uD800b\uFFFEc\uFFFFd 😀' }], two)[0]!, two[0]!)
+    expect(bar).toContain('<c:orientation val="maxMin"/>')
+    expect(bar).toContain('<c:crosses val="max"/>')
+    expect(bar).toContain('<a:t>abcd 😀</a:t>')
+    const col = chartXml(placeCharts([{ type: 'column', range: 'A1:B3' }], two)[0]!, two[0]!)
+    expect(col).not.toContain('maxMin')
+  })
+  test('a sheet that already has relationships (a hyperlink) keeps them and gets its drawing', async () => {
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('Links')
+    ws.addRow(['m', 'n'])
+    ws.addRow([{ text: 'site', hyperlink: 'https://example.com' }, 1])
+    ws.addRow(['b', 2])
+    const bytes = new Uint8Array(await wb.xlsx.writeBuffer() as ArrayBuffer)
+    const before = new Map(readZip(bytes).map((e) => [e.name, new TextDecoder().decode(e.data)]))
+    expect(before.get('xl/worksheets/_rels/sheet1.xml.rels')).toContain('hyperlink')
+    const made = addCharts(bytes, [{ type: 'column', range: 'A1:B3' }], [{ name: 'Links', rows: [['m', 'n'], ['site', 1], ['b', 2]] }])
+    const after = new Map(readZip(made).map((e) => [e.name, new TextDecoder().decode(e.data)]))
+    const rels = after.get('xl/worksheets/_rels/sheet1.xml.rels')!
+    expect(rels).toContain('https://example.com')
+    expect(rels).toContain('Target="../drawings/drawing1.xml"')
+    const sheetXml = after.get('xl/worksheets/sheet1.xml')!
+    expect(sheetXml).toMatch(/<hyperlinks>.*<\/hyperlinks>.*<drawing r:id="rIdChart1"\/>/)
+    expect(XLSX.read(made).Sheets.Links!.A2.l?.Target).toBe('https://example.com')
   })
 })

@@ -110,7 +110,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
         : a.format === 'hwpx' ? `${saved}\nThe file was read back: its paragraphs and headings are the document's. Layout in Hangul is not checked.` : saved) + chartLine
       const deck = r.deck ? ` ${r.deck.slides.length} slides ${r.deck.notes} notes` : ''
       const html = r.html ? ` from ${a.source} ${r.html.pages} pages${r.html.blockedCount ? ` ${r.html.blockedCount} blocked` : ''}` : ''
-      return { text, summary: `make_file ${a.format} -> ${r.path} ${r.size}B${deck}${html}${r.charts ? ` ${r.charts} charts` : ''}${r.conflictCopyOf ? ' (conflict copy)' : ''}`, structured: { path: r.path, size: r.size, sha256: r.sha256, ...(r.deck ? { slides: r.deck.slides.length, notes: r.deck.notes } : {}), ...(r.html ? { pages: r.html.pages } : {}) } }
+      return { text, summary: `make_file ${a.format} -> ${r.path} ${r.size}B${deck}${html}${r.charts ? ` ${r.charts} charts` : ''}${r.conflictCopyOf ? ' (conflict copy)' : ''}`, structured: { path: r.path, size: r.size, sha256: r.sha256, ...(r.deck ? { slides: r.deck.slides.length, notes: r.deck.notes } : {}), ...(r.html ? { pages: r.html.pages } : {}), ...(r.charts ? { charts: r.charts } : {}) } }
     },
   })
 

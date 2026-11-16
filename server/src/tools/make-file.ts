@@ -505,8 +505,9 @@ export class MakeFile {
     let formulas = 0, stored = 0
     const written: ChartSheet[] = []
     for (const s of sheets) {
-      let name = s.name.replace(/[\\/?*[\]:'"|]/g, ' ').trim().slice(0, 31) || 'Sheet'
-      for (let i = 2; used.has(name.toLowerCase()); i++) name = `${name.slice(0, 28)} ${i}`
+      // at most 31 UTF-16 units, never half of a surrogate pair (an emoji)
+      let name = s.name.replace(/[\\/?*[\]:'"|]/g, ' ').trim().slice(0, 31).replace(/[\uD800-\uDBFF]$/, '') || 'Sheet'
+      for (let i = 2; used.has(name.toLowerCase()); i++) name = `${name.slice(0, 28).replace(/[\uD800-\uDBFF]$/, '')} ${i}`
       used.add(name.toLowerCase())
       const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', ySplit: s.rows.length > 1 ? 1 : 0 }] })
       // the values first, then the results of the simple formulas (formula-values.ts) so a preview shows numbers

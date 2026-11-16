@@ -15,8 +15,11 @@ Plan: docs/AGENTS/plan/20261116-0500-xlsx-charts.md.
   `xl/drawings/drawingN.xml` per sheet, their relationships and content types, `<drawing r:id>` in the sheet) added to
   the zip after exceljs has written the workbook (server/src/tools/xlsx-chart.ts). They refer to the cells, so Excel and
   LibreOffice redraw them when the numbers change, and they carry the values (formula results included) as their cache.
-  Without `anchor` a chart goes right of the sheet's data, the next one below it.
-- **Refused, nothing saved:** a range outside the sheet or not like "A1:D5", no label column or name row, a series
+  The range may name its sheet ("'Q3 sales'!A1:D5"); without that or `sheet` it is the first sheet. Without `anchor`
+  a chart goes right of the sheet's data, below any anchored chart there, the next one below it. Horizontal bars list
+  the first row on top, as in the table.
+- **Refused, nothing saved:** a sheet prefix or `sheet` that names no sheet, or the two naming different sheets; an
+  anchor with no room for the chart before the sheet's last column or row; a range outside the sheet or not like "A1:D5", no label column or name row, a series
   column without numbers, a pie over more than one column, a sheet that is not there, `charts` on another format.
 - **Why this way:** exceljs 4.4.0 and SheetJS 0.20.3 write no charts; a library that does would be a new dependency for
   four chart kinds. The parts are small and fixed, the server already has a zip reader and writer

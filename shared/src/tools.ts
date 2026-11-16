@@ -76,7 +76,7 @@ export const MakeFileInput = z.strictObject({
   expected_notes: z.number().int().min(0).max(500).optional().describe('pptx only: how many slides must have speaker notes (e.g. the slide count when the user wants notes on every slide)'),
   charts: z.array(z.strictObject({
     type: z.enum(['column', 'bar', 'line', 'pie']).describe('column = vertical bars, bar = horizontal bars'),
-    range: z.string().min(3).max(40).describe('e.g. "A1:D5": first column = labels, first row = series names, each other column = one series (pie: one)'),
+    range: z.string().min(3).max(80).describe('e.g. "A1:D5" or "\'Q3 sales\'!A1:D5": first column = labels, first row = series names, each other column = one series (pie: one)'),
     sheet: z.string().max(100).optional().describe('Sheet name (the table\'s heading); default the first sheet'),
     title: z.string().max(200).optional(),
     anchor: z.string().max(10).optional().describe('Top-left cell of the chart, e.g. "G2"; default right of the data'),
@@ -85,7 +85,7 @@ export const MakeFileInput = z.strictObject({
 }).refine((v) => (v.source === undefined) !== (v.content === undefined), { message: 'give exactly one of source or content' })
   .refine((v) => v.format === 'xlsx' || v.charts === undefined, { message: 'charts are only for format "xlsx"' })
   .refine((v) => v.format === 'pptx' || (v.expected_slides === undefined && v.expected_notes === undefined && v.expected_layouts === undefined), { message: 'expected_slides and expected_notes are only for format "pptx"' })
-export const MakeFileOutput = z.object({ path: z.string(), size: z.number(), sha256: z.string(), slides: z.number().optional(), notes: z.number().optional(), pages: z.number().optional() })
+export const MakeFileOutput = z.object({ path: z.string(), size: z.number(), sha256: z.string(), slides: z.number().optional(), notes: z.number().optional(), pages: z.number().optional(), charts: z.number().optional() })
 
 /** edit_hwp: the text of an existing Hangul document (.hwp or .hwpx) changed, the rest of the file kept as it was
  * (server/src/tools/edit-hwp.ts, server/src/files/hwpx-edit.ts, server/src/files/hwp-edit.ts). */

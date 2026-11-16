@@ -22,18 +22,21 @@ interface Placed { spec: ChartSpec; sheet: number; area: Area; from: { col: numb
 
 const colNumber = (s: string) => [...s.toUpperCase()].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0)
 export const colName = (n: number): string => (n > 26 ? colName(Math.floor((n - 1) / 26)) : '') + String.fromCharCode(65 + ((n - 1) % 26))
+const MAX_COL = 16384, MAX_ROW = 1048576
+/** a chart's size in cells */
+const CHART_COLS = 8, CHART_ROWS = 16
 const CELL = /^\$?([A-Za-z]{1,3})\$?(\d{1,7})$/
 
 function cell(s: string): { col: number; row: number } | null {
   const m = CELL.exec(s.trim())
   if (!m) return null
   const col = colNumber(m[1]!), row = Number(m[2])
-  return col >= 1 && col <= 16384 && row >= 1 && row <= 1048576 ? { col, row } : null
+  return col >= 1 && col <= MAX_COL && row >= 1 && row <= MAX_ROW ? { col, row } : null
 }
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]!)
   // eslint-disable-next-line no-control-regex
-  .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '')
+  .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
 
 /** The value a cell shows: a number, a formula's stored result, or text */
 function shown(v: unknown): number | string | null {
@@ -52,14 +55,27 @@ function shown(v: unknown): number | string | null {
  */
 export function placeCharts(specs: ChartSpec[], sheets: ChartSheet[]): Placed[] {
   if (specs.length > CHARTS_MAX) throw new ToolError(`at most ${CHARTS_MAX} charts per file`)
-  const stacked = new Map<number, number>()
-  return specs.map((spec, i) => {
+  const findSheet = (want: string) => sheets.findIndex((s) => s.name.toLowerCase() === want.trim().toLowerCase() || s.title?.trim().toLowerCase() === want.trim().toLowerCase())
+  const sheetList = () => sheets.map((s) => `'${s.name}'`).join(', ')
+  const checked = specs.map((spec, i) => {
     const what = `chart ${i + 1}`
-    const want = spec.sheet?.trim().toLowerCase()
-    const sheet = want === undefined || want === '' ? 0 : sheets.findIndex((s) => s.name.toLowerCase() === want || s.title?.trim().toLowerCase() === want)
-    if (sheet < 0) throw new ToolError(`${what}: there is no sheet '${spec.sheet}'; the sheets are ${sheets.map((s) => `'${s.name}'`).join(', ')}`)
+    // "A1:D5", "Sheet!A1:D5" or "'Q3 sales'!A1:D5" ('' inside quotes is one ')
+    const m = /^(?:(?:'((?:[^']|'')+)'|([^'!]+))!)?([^!]*)$/.exec(spec.range.trim())
+    if (!m) throw new ToolError(`${what}: range must be like "A1:D5" (got '${spec.range}')`)
+    const prefix = m[1] !== undefined ? m[1].replace(/''/g, "'") : m[2]
+    let sheet = 0
+    if (prefix !== undefined) {
+      sheet = findSheet(prefix)
+      if (sheet < 0) throw new ToolError(`${what}: there is no sheet '${prefix}'; the sheets are ${sheetList()}`)
+    }
+    if (spec.sheet !== undefined && spec.sheet.trim() !== '') {
+      const named = findSheet(spec.sheet)
+      if (named < 0) throw new ToolError(`${what}: there is no sheet '${spec.sheet}'; the sheets are ${sheetList()}`)
+      if (prefix !== undefined && named !== sheet) throw new ToolError(`${what}: range names sheet '${prefix}' but sheet is '${spec.sheet}'`)
+      sheet = named
+    }
     const s = sheets[sheet]!
-    const [a, b, extra] = spec.range.replace(/^.*!/, '').split(':')
+    const [a, b, extra] = m[3]!.split(':')
     const p = a !== undefined ? cell(a) : null, q = b !== undefined ? cell(b) : null
     if (!p || !q || extra !== undefined) throw new ToolError(`${what}: range must be like "A1:D5" (got '${spec.range}')`)
     const area = { c1: Math.min(p.col, q.col), r1: Math.min(p.row, q.row), c2: Math.max(p.col, q.col), r2: Math.max(p.row, q.row) }
@@ -70,20 +86,28 @@ export function placeCharts(specs: ChartSpec[], sheets: ChartSheet[]): Placed[] 
     for (let c = area.c1 + 1; c <= area.c2; c++) {
       let any = false
       for (let r = area.r1 + 1; r <= area.r2; r++) if (typeof shown(s.rows[r - 1]?.[c - 1]) === 'number' || isFormulaCell(s.rows[r - 1]?.[c - 1])) any = true
-      if (!any) throw new ToolError(`${what}: column ${colName(c)} has no numbers in ${colName(c)}${area.r1 + 1}:${colName(c)}${area.r2}`)
+      if (!any) throw new ToolError(`${what}: column ${colName(c)} has no numbers in ${colName(c)}${area.r1 + 1}:${colName(c)}${area.r2}; write plain numbers in the cells (no 원, % or units)`)
     }
-    let from: { col: number; row: number }
+    let at: { col: number; row: number } | null = null
     if (spec.anchor !== undefined && spec.anchor.trim() !== '') {
-      const at = cell(spec.anchor)
+      at = cell(spec.anchor)
       if (!at) throw new ToolError(`${what}: anchor must be a cell like "G2" (got '${spec.anchor}')`)
-      from = at
-    } else {
-      const n = stacked.get(sheet) ?? 0
-      stacked.set(sheet, n + 1)
-      from = { col: width + 2, row: 2 + n * 18 }
+      if (at.col > MAX_COL - CHART_COLS || at.row > MAX_ROW - CHART_ROWS) throw new ToolError(`${what}: anchor ${spec.anchor} leaves no room for the chart; pick a cell nearer A1`)
     }
-    return { spec, sheet, area, from }
+    return { spec, sheet, area, at, width }
   })
+  // charts without an anchor go right of the data, one below the other, starting below any anchored chart there
+  const next = new Map<number, number>()
+  const free = (sheet: number, col: number) => {
+    let row = next.get(sheet)
+    if (row === undefined) {
+      row = 2
+      for (const c of checked) if (c.sheet === sheet && c.at && c.at.col < col + CHART_COLS && c.at.col + CHART_COLS > col) row = Math.max(row, c.at.row + CHART_ROWS + 2)
+    }
+    next.set(sheet, row + CHART_ROWS + 2)
+    return row
+  }
+  return checked.map((c) => ({ spec: c.spec, sheet: c.sheet, area: c.area, from: c.at ?? { col: c.width + 2, row: free(c.sheet, c.width + 2) } }))
 }
 
 const isFormulaCell = (v: unknown) => typeof v === 'object' && v !== null && 'formula' in v
@@ -125,19 +149,20 @@ export function chartXml(p: Placed, sheet: ChartSheet): string {
       : spec.type === 'pie' ? `<c:ser>${head}${cat}${val}</c:ser>`
         : `<c:ser>${head}<c:invertIfNegative val="0"/>${cat}${val}</c:ser>`)
   }
-  const axes = (catPos: 'b' | 'l', valPos: 'l' | 'b') =>
-    `<c:catAx><c:axId val="500000001"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="${catPos}"/>` +
+  // horizontal bars: the categories run top-down (first row on top), so the value axis crosses at the last one
+  const axes = (catPos: 'b' | 'l', valPos: 'l' | 'b', topDown = false) =>
+    `<c:catAx><c:axId val="500000001"/><c:scaling><c:orientation val="${topDown ? 'maxMin' : 'minMax'}"/></c:scaling><c:delete val="0"/><c:axPos val="${catPos}"/>` +
     '<c:numFmt formatCode="General" sourceLinked="1"/><c:majorTickMark val="out"/><c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/>' +
     '<c:crossAx val="500000002"/><c:crosses val="autoZero"/><c:auto val="1"/><c:lblAlgn val="ctr"/><c:lblOffset val="100"/><c:noMultiLvlLbl val="0"/></c:catAx>' +
     `<c:valAx><c:axId val="500000002"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="${valPos}"/><c:majorGridlines/>` +
     '<c:numFmt formatCode="General" sourceLinked="1"/><c:majorTickMark val="out"/><c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/>' +
-    '<c:crossAx val="500000001"/><c:crosses val="autoZero"/><c:crossBetween val="between"/></c:valAx>'
+    `<c:crossAx val="500000001"/><c:crosses val="${topDown ? 'max' : 'autoZero'}"/><c:crossBetween val="between"/></c:valAx>`
   const ids = '<c:axId val="500000001"/><c:axId val="500000002"/>'
   const plot = spec.type === 'pie'
     ? `<c:pieChart><c:varyColors val="1"/>${series.join('')}<c:dLbls><c:showLegendKey val="0"/><c:showVal val="0"/><c:showCatName val="0"/><c:showSerName val="0"/><c:showPercent val="1"/><c:showBubbleSize val="0"/><c:showLeaderLines val="1"/></c:dLbls><c:firstSliceAng val="0"/></c:pieChart>`
     : spec.type === 'line'
       ? `<c:lineChart><c:grouping val="standard"/><c:varyColors val="0"/>${series.join('')}<c:marker val="1"/>${ids}</c:lineChart>${axes('b', 'l')}`
-      : `<c:barChart><c:barDir val="${spec.type === 'bar' ? 'bar' : 'col'}"/><c:grouping val="clustered"/><c:varyColors val="0"/>${series.join('')}<c:gapWidth val="150"/>${ids}</c:barChart>${spec.type === 'bar' ? axes('l', 'b') : axes('b', 'l')}`
+      : `<c:barChart><c:barDir val="${spec.type === 'bar' ? 'bar' : 'col'}"/><c:grouping val="clustered"/><c:varyColors val="0"/>${series.join('')}<c:gapWidth val="150"/>${ids}</c:barChart>${spec.type === 'bar' ? axes('l', 'b', true) : axes('b', 'l')}`
   const title = spec.title?.trim()
   const titleXml = title
     ? `<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr b="1"/></a:pPr><a:r><a:rPr b="1"/><a:t>${esc(title)}</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title><c:autoTitleDeleted val="0"/>`
@@ -154,7 +179,7 @@ function drawingXml(charts: { from: { col: number; row: number }; rid: string; i
   const anchor = (c: (typeof charts)[number]) =>
     '<xdr:twoCellAnchor editAs="oneCell">' +
     `<xdr:from><xdr:col>${c.from.col - 1}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${c.from.row - 1}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>` +
-    `<xdr:to><xdr:col>${c.from.col - 1 + 8}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${c.from.row - 1 + 16}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>` +
+    `<xdr:to><xdr:col>${c.from.col - 1 + CHART_COLS}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${c.from.row - 1 + CHART_ROWS}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>` +
     `<xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="${c.id + 1}" name="Chart ${c.id}"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>` +
     '<xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart">' +
     `<c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:r="${REL}" r:id="${c.rid}"/></a:graphicData></a:graphic></xdr:graphicFrame><xdr:clientData/></xdr:twoCellAnchor>`
