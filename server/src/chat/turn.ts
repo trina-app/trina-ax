@@ -37,7 +37,7 @@ import { TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, instructionFiles, neutralizeTags, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
 import { sideRoomOf } from './side-room'
-import { quotesAppOnBranch, readRooms } from './read-rooms'
+import { quotesAppOnBranch, readRooms, withoutQuoteLines } from './read-rooms'
 import { componentC } from '../team-files/component'
 import { looseArea, placementNote } from './file-placement'
 import { buildAgentDefinitions, initProblem, LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS, PARENT_ONLY_TOOLS, SUBTASK_STEPS_KEPT, subtaskSummary } from './subagents'
@@ -238,6 +238,12 @@ export type LauncherStop = 'update' | 'update-root' | 'restart'
 function launcherStopOf(signal: unknown): LauncherStop | null {
   return signal === 'update' ? 'update' : signal === 'update-root' ? 'update-root' : signal === 'shutdown' ? 'restart' : null
 }
+
+/** Words of a request to save or write something down, in the product's languages (the person's own message: an
+ * explicit save; docs/decisions/20261116-room-link-save-one-prompt.md). Escapes: no Korean text outside the language tables. */
+const SAVE_ASK = new RegExp(['\\uC800\\uC7A5(?!\\uC18C)', '\\uD30C\\uC77C\\uB85C', '\\uAE30\\uB85D\\uD574', '\\bsave\\b', '\\bwrite (it|this|that) down\\b', '\\bsimpan\\b', '\\u4FDD\\u5B58', '\\bguard(a|ar|e)\\b'].join('|'), 'iu')
+/** "don't save": 저장하지 / 저장 말고 / 저장 안, don't save, do not save, jangan simpan, no guardes */
+const SAVE_NOT = new RegExp(['\\uC800\\uC7A5\\s*(\\uD558\\uC9C0|\\uB9D0|\\uC548)', "\\b(don'?t|do not|never)\\s+save\\b", '\\bjangan\\s+simpan\\b', '\\bno\\s+guard'].join('|'), 'iu')
 
 export class TurnExec {
   content = ''
@@ -2393,6 +2399,12 @@ export class TurnExec {
     })
     // the same call needs the wider-audience card too: that one card, with what the call writes; its yes is the room's
     const need = o.widen && !o.noCover ? this.widenNeed(o.widen.target, o.widen.extra, undefined, o.widen.read) : null
+    // the person's own message of this turn asks to save (docs/decisions/20261116-room-link-save-one-prompt.md, QA
+    // TC-3830): a NEW file where no more people can see it than can see what this chat read (no widening card) goes
+    // without the room card. It overwrites nothing and widens nothing, so a room message steering it can only add a
+    // file the same people could read anyway; an existing file, a skill or instruction file still asks
+    // (not kept for the turn: the same call once the file exists asks)
+    if (!need && !o.noCover && this.askedToSave() && this.newPlainFile(tool, input, o.widen)) return null
     // the person's "Always allow" for changes after a room read (chat/always-allow.ts; the owner, 2026-11-13): no room
     // card; a save where more people can see still has its own card (with its own "Always allow")
     const roomAlways = alwaysHere(this.alwaysPlace(), 'room_change')
@@ -2547,6 +2559,32 @@ export class TurnExec {
       if (!this.roomsWrite(rooms, r.rel)) return null
       return { segs, isNew: !r.exists, exists: r.existing >= folder.length }
     } catch { return null }
+  }
+
+  /** The person's own message of this turn asks to save or write down something ("파일로 저장해줘", "save it"). */
+  private askedToSave(): boolean {
+    // a scheduled run's message is the task's text, not the person asking now; a message the app sent for them neither
+    if (this.spec.clientKind === 'schedule') return false
+    const m = this.rt.db.query('SELECT content, auto_sent FROM messages WHERE id = ?').get(this.spec.userMessageId) as { content: string | null; auto_sent: number | null } | null
+    if (!m || m.auto_sent) return false
+    const said = withoutQuoteLines(m.content ?? '')
+    return SAVE_ASK.test(said) && !SAVE_NOT.test(said)
+  }
+
+  /** A write of a file that is not there yet (no skill, instruction file, hidden name or project folder): what an
+   * explicit save may add without the room card. */
+  private newPlainFile(tool: string, input: unknown, widen?: WidenOf): boolean {
+    try {
+      if (confidentialChat(this.rt.db, this.spec.chatId)) return false
+      const t = tool === 'save_room_file' ? (widen?.target ? { path: widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input, (src) => this.sourceRel(src))
+      if (!t?.mayBeNew) return false
+      const r = authorize(this.rt.files.fx, this.rt.files.rules(), this.livePrincipal(), t.path, 'write', { createDirs: true })
+      if (r.exists || componentC(this.rt.ctx).files.aiTrashed(r.rel)) return false
+      // inside a folder (not a file at the team root), no hidden name, skill, instruction file, managed or project folder
+      if (r.segs.length < 2 || r.segs.some((x) => x.startsWith('.')) || inSkills(r.rel) || instructionLike(r.rel) || this.inProjectFolder(r.rel)) return false
+      if (this.rt.files.fx.managed?.managerOf(r.segs) || this.rt.files.fx.managed?.managerOf(r.segs.slice(0, -1))) return false
+      return true
+    } catch { return false }
   }
 
   /**

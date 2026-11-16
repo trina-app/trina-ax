@@ -48,7 +48,9 @@ test('a side chat is made for a room I am in, never with a project, and listed b
 test('the AI is told the room while I am in it; after I leave, or in a chat without a room, nothing', async () => {
   const { owner, mia, nora, group, team } = await setup()
   const chat = await mia.client.call('POST', '/api/chats', { sideRoomId: team.id })
-  expect(sideRoomOf(h.ctx.db, chat.id, mia.id)).toEqual({ id: team.id, kind: 'team', name: 'design' })
+  expect(sideRoomOf(h.ctx.db, chat.id, mia.id)).toMatchObject({ id: team.id, kind: 'team', name: 'design' })
+  // where room content is saved unless the person names a place: the team room's group folder (QA TC-3833)
+  expect(sideRoomOf(h.ctx.db, chat.id, mia.id)!.saveIn).toMatch(/^groups\//)
   // another person's turn in my chat never gets my room (a side chat is never shared)
   expect(sideRoomOf(h.ctx.db, chat.id, nora.id)).toBeNull()
   const plain = await mia.client.call('POST', '/api/chats', {})
