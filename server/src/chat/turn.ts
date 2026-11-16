@@ -1905,7 +1905,7 @@ export class TurnExec {
   }
 
   /**
-   * Content another person wrote came into this chat (chats.others_words, migration 410; docs/decisions/
+   * Content another person wrote came into this chat (chats.others_words, migration 412; docs/decisions/
    * 20261116-always-allow-more-cards.md "Content written by others"): a team file someone else wrote or changed, a
    * file shared with the person, a web page or search, a connected service's answer, a room's file, another person's
    * skill or project instructions. Kept until a new session, as the session carries what was read. From then on an

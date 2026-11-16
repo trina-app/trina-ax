@@ -57,7 +57,7 @@ cards still came every time: FL-02 and FL-13 (sharing), FL-05 (a web address), F
     same trust the switch gives any site ("can send anything it can read to any site"). On a running server the
     address is learned at start (the feed's /ip), so this card is rare outside test servers.
 - **Content written by others (added in the batch, QA rows in PR #1109).** "Other people's words" for these gates is
-  no longer only other people's messages. A chat is marked (`chats.others_words`, migration 410, chat/turn.ts
+  no longer only other people's messages. A chat is marked (`chats.others_words`, migration 412, chat/turn.ts
   `markOthersWords`) once content someone other than its person wrote comes in:
   - a team file another person wrote or changed (every event that gave the file content must be the person's own; a
     file outside their own folder with no known history counts as someone else's), also as a team attachment or a
