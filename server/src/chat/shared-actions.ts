@@ -8,7 +8,7 @@
 // - Their card (`ask_user`, origin server) goes to them alone (TurnExec.waitForPerson: the runner's cards). Other viewers
 //   of a shared chat see the step's verb alone (ChatStore.viewSteps).
 // - Not offered where nobody can answer a card or where nothing may leave (actionOff): a scheduled run (post_to_room
-//   only under the person's Always allow), an approved template's or a restricted run, a confidential chat, a question
+//   and share_with_person only under the person's Always allow), an approved template's or a restricted run, a confidential chat, a question
 //   from Slack.
 // - In a shared chat other people's messages are in the AI's context, so the asker's "Always allow" counts only when
 //   their own latest message names the recipient (namedByAsker / namesRecipient); several matches are picked on a card
@@ -25,7 +25,7 @@ import type { TurnExec } from './turn'
 /** Why an action that reaches others is not offered in this turn, or null: it is. `scheduleKind`: the Always allow
  * kind that lets a scheduled run do it without a card (post_to_room), or null when a scheduled run never may. */
 export type ActionOff = 'schedule' | 'confidential' | 'slack' | 'restricted'
-export function actionOff(exec: Pick<TurnExec, 'restricted' | 'templateRun' | 'spec' | 'rt'> & Partial<Pick<TurnExec, 'alwaysPlace'>>, scheduleKind: 'post_to_room' | null): ActionOff | null {
+export function actionOff(exec: Pick<TurnExec, 'restricted' | 'templateRun' | 'spec' | 'rt'> & Partial<Pick<TurnExec, 'alwaysPlace'>>, scheduleKind: 'post_to_room' | 'share_files' | null): ActionOff | null {
   if (exec.spec.clientKind === 'schedule' && (scheduleKind === null || alwaysHere(exec.alwaysPlace?.(), scheduleKind) !== 'on')) return 'schedule'
   if (confidentialChat(exec.rt.db, exec.spec.chatId)) return 'confidential'
   if (exec.spec.clientKind === 'slack') return 'slack'

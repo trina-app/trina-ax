@@ -7,9 +7,12 @@
 // whose turn it is (spec.userId), re-read on every call; only the main AI; the card goes to that person alone; not
 // offered in a scheduled run, a template or restricted run, a confidential chat or a question from Slack; in a shared
 // chat several matches are picked on the asker's card (never listed to the AI) and a refusal carries no server words.
-// Two differences, because this grants access: the card is shown every time ("Always allow" never skips it), and in a
-// chat someone else wrote in each file must be one the asker attached to their message, named in it, or that the AI
-// made or changed in this turn (otherwise another member's message could point the AI at the asker's files).
+// The card offers "Always allow" on its first showing (kind share_files, chat/always-allow.ts; docs/decisions/
+// 20261116-always-allow-more-cards.md, the owner's 11-11 rule): once picked, shares go without the card, also in a
+// scheduled run of that person's (actionOff). In a chat someone else wrote in, the choice counts only when the asker's
+// own message names every recipient (post_to_room's rule, namesRecipient), and one difference stays, because this grants
+// access: there each file must be one the asker attached to their message, named in it, or that the AI made or changed
+// in this turn (otherwise another member's message could point the AI at the asker's files), with or without the card.
 import { ShareWithPersonInput } from '@mycel/shared'
 import { fileLinkUrl, type Step } from '@mycel/shared/api'
 import { z } from 'zod'
@@ -20,7 +23,8 @@ import { fileSharesOf } from '../files/shares'
 import { isStaff } from '../policy/access'
 import { tr } from './i18n'
 import { neutralizeTags } from './prompt'
-import { actionOff, askerPicks, askerText, mainOnly, namesFile } from './shared-actions'
+import { actionOff, askerPicks, askerText, mainOnly, namesFile, namesRecipient } from './shared-actions'
+import { withAlways } from './always-allow'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
 import { uuidv7 } from '@mycel/shared'
@@ -39,9 +43,10 @@ const GROUP_WORDS = ['\uD300', '\uBD80\uC11C', '\uADF8\uB8F9', ' team', ' group'
 
 /** Why share_with_person is not offered in this turn (and refused when reached anyway), or null: it is. A scheduled
  * run never: the card is asked every time and nobody answers it there. */
-export function shareWithPersonOff(exec: Pick<TurnExec, 'restricted' | 'templateRun' | 'spec' | 'rt'>): { text: string; summary: string } | null {
-  const off = actionOff(exec, null)
-  if (off === 'schedule') return { text: 'Nothing was shared: a scheduled run has nobody to answer the card every share needs. Tell the user to ask in one of their own chats, or to use Share on the file.', summary: 'share_with_person -> refused: scheduled run' }
+export function shareWithPersonOff(exec: Pick<TurnExec, 'restricted' | 'templateRun' | 'spec' | 'rt'> & Partial<Pick<TurnExec, 'alwaysPlace'>>): { text: string; summary: string } | null {
+  // a scheduled run only under the person's own "Always allow" for shares (nobody answers a card there)
+  const off = actionOff(exec, 'share_files')
+  if (off === 'schedule') return { text: 'Nothing was shared: a scheduled run has nobody to answer the card a share needs. Tell the user to ask in one of their own chats, or to use Share on the file.', summary: 'share_with_person -> refused: scheduled run' }
   if (off === 'confidential') return { text: 'Nothing was shared: this is a confidential conversation (safe operations), and nothing of it goes to other people. Tell the user they can use Share on the file in Files.', summary: 'share_with_person -> refused: confidential chat' }
   if (off === 'slack') return { text: 'Nothing was shared: this question came from Slack. Tell the user to ask in the app, or to use Share on the file.', summary: 'share_with_person -> refused: Slack' }
   if (off === 'restricted') return { text: 'Nothing was shared: this run is limited to one task. Tell the user to ask in one of their own chats.', summary: 'share_with_person -> refused: not here' }
@@ -125,19 +130,20 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         const whoLine = who.map((w) => w.name).join(', ')
         named = oneLine(whoLine, 60)
 
-        // ---- the card, every time (it grants access: Always allow never skips it) ----
+        // ---- the card, with "Always allow" (kind share_files); in a chat others wrote in, it counts only when the asker's
+        // own message names every recipient (another member's message must not pick who gets the asker's files) ----
         const one = who.length === 1 ? who[0]! : null
         const question = [
           exec.roomsSeen ? tr('roomsSeenWhy', L) : '',
           one?.subjectType === 'user' ? tr('fileShareAsk', L, { who: oneLine(one.name, 40), n: String(plan.length) }) : one ? tr('fileShareAskGroup', L, { who: oneLine(one.name, 40), n: String(plan.length) }) : tr('fileShareAskMany', L, { who: oneLine(whoLine, 80), n: String(plan.length) }),
           tr('fileShareView', L),
         ].filter(Boolean).join('\n\n')
-        const reply = await exec.waitForPerson({
-          kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, multiple: false, allowText: false,
-          options: [{ label: tr('fileShareYes', L), value: 'share' }, { label: tr('fileShareNo', L), value: 'no' }],
+        const alwaysOk = !others || who.every((w) => namesRecipient(asked, w.name, { names: recipientWords(db, w), person: w.subjectType === 'user' }))
+        const reply = await withAlways(alwaysOk ? exec.alwaysPlace?.() : null, 'share_files', [{ label: tr('fileShareYes', L), value: 'share' }, { label: tr('fileShareNo', L), value: 'no' }], 'share', (options, more) => exec.waitForPerson({
+          kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, multiple: false, allowText: false, options, ...more,
           details: [{ label: tr('fileShareFiles', L), text: plan.map((f) => f.name).join('\n'), noSize: true }],
           expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
-        } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() })
+        } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() }))
         const v = Array.isArray(reply) && reply.length === 1 ? reply[0] : reply
         if (v !== 'share') {
           detail = tr('fileShareNotShared', L)
@@ -167,6 +173,13 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
       }
     },
   }
+}
+
+/** The words that name a recipient in the asker's message: a person's name and username, a group's name. */
+function recipientWords(db: import('bun:sqlite').Database, w: Who): string[] {
+  if (w.subjectType === 'group') return [w.name]
+  const u = db.query('SELECT username FROM users WHERE id = ?').get(w.subjectId) as { username: string } | null
+  return [w.name, u?.username ?? ''].filter(Boolean)
 }
 
 const isGuest = (db: import('bun:sqlite').Database, id: string) => !!db.query('SELECT 1 FROM users WHERE id = ? AND guest = 1').get(id)

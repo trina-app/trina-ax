@@ -36,7 +36,8 @@
 //     address or a random-looking part of it to a tool of this chat before it came back (an echo: always a card, as
 //     for the learned links of ①);
 //   ③ also a card when the query string is longer than 200 characters, even for a URL from ①;
-//   and a card for every URL while this server's own public exit address is unknown (tools/egress.ts).
+//   and a card for every URL while this server's own public exit address is unknown (tools/egress.ts), except a plain
+//     address under ①d (the person's own switch; the card offers it).
 // The caller looks nothing up in DNS before this says yes (tools/index.ts web_fetch, chat/tools.ts browser tools): a
 // host name can carry data to the attacker's name server even when the person declines.
 // Not done here (follow-up): the "32 characters in common with a file read in this chat" check of ③ and the admin
@@ -688,6 +689,15 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
     if (from?.origin === 'echo') why = from.conn ? 'echo' : 'echoWeb'
     // ①d: the "Allow all websites" of the person whose turn it is (no budget: the owner's call, 2026-11-11)
     else if (plain && allSitesTurn() && webAllowAll(db, o.userId)) return 'all'
+  } else if (!long && noEgress) {
+    // the exit address not known yet (tools/egress.ts): only ①d, the person's own switch, opens a plain address without
+    // the card (docs/decisions/20261116-always-allow-more-cards.md). A plain address has a site name, never a number
+    // (siteOf), and private and local addresses stay refused on every hop after the lookup (web-fetch.ts); what it
+    // cannot refuse while the address is unknown is a public name that leads back to this server's own exit address
+    // (the card's "a device inside your network"), which the person's switch accepts as it accepts any site
+    // (an echo is never plain: it keeps the card, with no "Allow all websites" on it)
+    plain = plainAddress(site, marks, userinfo, originOf(db, chatId, url, person, o))
+    if (plain && allSitesTurn() && webAllowAll(db, o.userId)) return 'all'
   }
   // nobody to ask (no turn, or a scheduled run): say why, so the AI tells the person what really happened
   if (unattended) {
