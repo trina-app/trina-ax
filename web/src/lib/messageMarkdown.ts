@@ -98,6 +98,8 @@ function split(value: string, found: Found[], inLink: boolean): Node[] {
     if (f) {
       const props: Record<string, unknown> = { className: mentionClass(f.mention.strong) }
       if (f.mention.all) props.dataMention = 'all'
+      // a person's name opens their card (components/Markdown.tsx COMPONENTS_PERSON `span`, PersonCard.tsx)
+      else props.dataPerson = f.mention.id
       out.push({ type: 'text', value: f.text, data: { hName: 'span', hProperties: props, hChildren: [{ type: 'text', value: f.text }] } })
     } else plain(m[0])
     last = m.index + m[0].length
