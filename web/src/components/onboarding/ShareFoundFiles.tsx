@@ -97,11 +97,12 @@ export function ShareFoundFiles({ paths, reasons, where, phone, added, onShared,
             onChange={(on) => setTicks((s) => { const n = new Set(s); if (on) n.add(p); else n.delete(p); return n })} testId="find-work-share-row" checkTestId="find-work-share-check" />
         ))}
       </ul>
-      {chosen.length > 0 && <EveryoneLine picks={picks} files={chosen.length} testId="find-work-share-everyone-line" />}
       {going ? <p className="text-label text-muted" role="status" data-testid="find-work-share-going">{t('files.findWork.share.going', { n: going.n })}</p>
         : chosen.length > 0 && !picks.length ? <p className="text-label text-muted" data-testid="find-work-share-who">{t('files.findWork.share.who')}</p> : null}
-      {/* the buttons in the dialog's footer row: always in sight under the list, which scrolls (QA TC-3522) */}
+      {/* the buttons in the dialog's footer row: always in sight under the list, which scrolls (QA TC-3522); "Everyone on
+          the team" picked: its warning right above them, so it is read before the press without a scroll */}
       <ModalFooter>
+        {chosen.length > 0 && picks.some(isEveryone) && <div className="w-full"><EveryoneLine picks={picks} files={chosen.length} compact testId="find-work-share-everyone-line" /></div>}
         <div className={phone ? 'flex w-full flex-col-reverse gap-2 [&>*]:w-full' : 'flex flex-wrap items-center justify-end gap-3'}>
           <Button variant="ghost" className={clsx(phone && 'w-full')} disabled={!!going} onClick={onSkip} data-testid="find-work-share-skip">{t('files.findWork.share.skip')}</Button>
           <Button variant="primary" className={clsx(phone && 'w-full')} disabled={!chosen.length || !picks.length} busy={!!going} onClick={() => void share()} data-testid="find-work-share-go">

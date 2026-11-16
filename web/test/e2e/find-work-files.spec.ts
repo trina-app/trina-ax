@@ -240,12 +240,14 @@ test('the share step with "Everyone on the team": the first option, the line bef
   await ctx.close()
 })
 
-test('the share step at 390 (QA TC-3522): with files ticked, a person and "Everyone on the team" picked, Share and Not now stay fully in sight in the sheet\'s footer; the list scrolls', async ({ page }) => {
+test('the share step at 390 (QA TC-3522): twelve files ticked, a person and "Everyone on the team" picked: the warning line and both buttons stay fully in sight together in the sheet\'s footer; the list scrolls', async ({ page }) => {
   await fakeApp(page)
   await reset(page)
+  // twelve of the company's files (named after it, no AI): a list taller than the sheet
+  await page.request.post('/__test/file-rank', { data: { ai: 'none' } })
   await signIn(page, BOB)
   await openMine(page)
-  await look(page, WORK)
+  await look(page, Array.from({ length: 12 }, (_, i) => ({ name: `Acme report ${'abcdefghijkl'[i]}.pdf` })))
   await page.getByTestId('files-find-work-entry').click()
   await answer(page, 'look')
   await expect(page.getByTestId('find-work-ai')).toBeVisible()
@@ -256,14 +258,14 @@ test('the share step at 390 (QA TC-3522): with files ticked, a person and "Every
   for (const c of await page.getByTestId('find-work-share-check').all()) await c.check()
   await page.getByTestId('find-work-share-picker-search').fill('Olga')
   await page.getByTestId('participant-add-user-olga').click()
-  // "Everyone on the team" too: its line shows in the scrolling body, above the footer (QA TC-3509)
+  // "Everyone on the team" too: its warning sits in the footer, right above the buttons (QA TC-3509)
   await page.getByTestId('find-work-share-picker-search').click()
   await page.getByTestId(`participant-add-group-${FILE_SHARE_EVERYONE}`).click()
   await page.getByTestId('find-work-share-picker-search').blur()
-  await expect(page.getByTestId('find-work-share-everyone-line')).toBeAttached()
+  await expect(page.getByTestId('find-work-share-check')).toHaveCount(12)
   // the buttons are in the dialog's footer row, below the scrolling body, whole and on screen without scrolling
   const footer = page.getByRole('dialog').getByTestId('modal-footer')
-  for (const id of ['find-work-share-go', 'find-work-share-skip']) {
+  for (const id of ['find-work-share-everyone-line', 'find-work-share-go', 'find-work-share-skip']) {
     await expect(footer.getByTestId(id)).toBeInViewport({ ratio: 1 })
   }
   const box = (await footer.boundingBox())!
