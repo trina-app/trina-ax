@@ -236,6 +236,42 @@ export const MEDIA_TEXT = {
     es: 'La transcripción falló ({why}).',
     zh: '转写失败（{why}）。',
   },
+  /** an Apple silicon Mac: the sound of a video only (jobs/mac-audio.ts) */
+  macNoPicture: {
+    ko: '이 영상은 소리만 읽었어요. 여기서는 영상의 화면은 볼 수 없어요.',
+    en: 'Only the sound of this video was read. Its pictures can\'t be seen here.',
+    id: 'Hanya suara video ini yang dibaca. Gambarnya tidak bisa dilihat di sini.',
+    ja: 'この動画は音声だけを読み取りました。ここでは動画の画面は見られません。',
+    es: 'Solo se leyó el sonido de este video. Sus imágenes no se pueden ver aquí.',
+    zh: '这个视频只读取了声音。这里看不到视频的画面。',
+  },
+  /** a format macOS does not open (webm, mkv, avi, wma, ogg vorbis, amr) */
+  macFormat: {
+    ko: '이 형식의 녹음·영상은 여기서 열 수 없어요. mp3·m4a·wav·aiff·flac 파일과 mp4·mov 영상은 열 수 있어요.',
+    en: 'Recordings and videos in this format can\'t be opened here. mp3, m4a, wav, aiff and flac files and mp4 and mov videos can.',
+    id: 'Rekaman dan video dengan format ini tidak bisa dibuka di sini. Berkas mp3, m4a, wav, aiff, dan flac serta video mp4 dan mov bisa.',
+    ja: 'この形式の録音・動画はここでは開けません。mp3、m4a、wav、aiff、flac のファイルと mp4、mov の動画は開けます。',
+    es: 'Las grabaciones y los videos en este formato no se pueden abrir aquí. Los archivos mp3, m4a, wav, aiff y flac y los videos mp4 y mov sí.',
+    zh: '这里打不开这种格式的录音和视频。mp3、m4a、wav、aiff、flac 文件和 mp4、mov 视频可以打开。',
+  },
+  /** a video with no sound macOS opens (none at all, or an unusual sound format) */
+  macNoSound: {
+    ko: '이 영상에서 여기서 열 수 있는 소리를 찾지 못했어요. 소리가 없는 영상일 수 있어요.',
+    en: 'No sound that can be opened here was found in this video. It may have no sound.',
+    id: 'Tidak ditemukan suara yang bisa dibuka di sini dalam video ini. Mungkin video ini tidak bersuara.',
+    ja: 'この動画には、ここで開ける音声が見つかりませんでした。音声のない動画かもしれません。',
+    es: 'No se encontró en este video un sonido que se pueda abrir aquí. Puede que no tenga sonido.',
+    zh: '这个视频里没有找到这里能打开的声音。它可能没有声音。',
+  },
+  /** {mb}: the model's size. The first use on an Apple silicon Mac started the download and it was not done in time */
+  modelDownloading: {
+    ko: '처음 한 번만 필요한 음성 인식 모델(약 {mb}MB)을 지금 내려받고 있어서 아직 소리를 글로 바꾸지 못했어요. 몇 분 뒤에 다시 해 주세요.',
+    en: 'The speech model (about {mb} MB, needed only the first time) is downloading now, so the sound was not turned into text yet. Try again in a few minutes.',
+    id: 'Model suara (sekitar {mb} MB, hanya diperlukan pertama kali) sedang diunduh, jadi suara belum diubah menjadi teks. Coba lagi beberapa menit lagi.',
+    ja: '初回だけ必要な音声認識モデル（約 {mb} MB）を今ダウンロードしているため、まだ音声をテキストにできませんでした。数分後にもう一度お試しください。',
+    es: 'El modelo de voz (unos {mb} MB, solo hace falta la primera vez) se está descargando, por lo que el sonido aún no se convirtió en texto. Vuelva a intentarlo en unos minutos.',
+    zh: '正在下载语音识别模型（约 {mb} MB，只在第一次需要），所以声音还没有转成文字。请过几分钟再试。',
+  },
   framesSlow: {
     ko: '장면을 만드는 데 시간이 너무 오래 걸려 일부만 보여 줘요.',
     en: 'Making the frames took too long, so only some are shown.',

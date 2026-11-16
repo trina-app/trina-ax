@@ -35,6 +35,7 @@ import { WorkFilesController } from './work-files'
 import type { TeamsStore } from './teams-store'
 import { clearFailed, clearSessionData, type ClearResult } from './clear-session'
 import { debug } from './debug'
+import { PAGE_BUSY_GLOBAL, resumePage, type Resume, type ResumeWindow } from '../common/update-guard'
 
 export type Mode = 'welcome' | 'team' | 'offline'
 
@@ -77,6 +78,8 @@ export interface AppWindowOptions {
   locale: () => UiLocale
   distDir: string
   pageScript: string
+  /** the app restarted by itself to install an update: the window as it was then, without taking the focus */
+  quietStart?: ResumeWindow
   appVersion: string
   classifier: HostClassifier
   /** a kit build's team address (common/kit.ts), or null */
@@ -340,7 +343,13 @@ export class AppWindow {
     })
     this.win.on('focus', () => this.keysBack())
     this.layout()
-    this.shell.webContents.once('did-finish-load', () => this.win.show())
+    // after an update restart by itself the window comes back as it was and never takes the focus (quietStart)
+    this.shell.webContents.once('did-finish-load', () => {
+      const q = this.o.quietStart
+      if (!q) return this.win.show()
+      this.win.showInactive()
+      if (q !== 'shown') this.win.minimize()
+    })
   }
 
   // ------------------------------------------------------------------ teams
@@ -557,10 +566,30 @@ export class AppWindow {
     }
   }
 
-  async openLast() {
+  /** `resume`: the page the app showed before it restarted by itself to update (./update-launch.ts takeResume) */
+  async openLast(resume: Resume['page'] = null) {
+    if (resume && findTeam(this.teams, resume.teamId)) return this.openTeam(resume.teamId, resume.path, { startup: true })
     const last = findTeam(this.teams, this.teams.lastTeamId) ?? this.teamList()[0]
     if (last) await this.openTeam(last.id, '/', { startup: true })
     else this.showWelcome()
+  }
+
+  /** What an update restart would lose now (DesktopUpdater.idleRestart): whether the team page says a reload would lose
+   * something (web/src/lib/reload-guard.ts; null when it cannot say or does not answer within 5 s), pages in the in-app
+   * browser; and the page and window state to come back to afterwards. */
+  async restartBlockers(): Promise<{ pageBusy: boolean | null; browserTabs: number; resume: Resume }> {
+    const browserTabs = this.pane?.state().tabs.length ?? 0
+    const window = this.win.isDestroyed() || !this.win.isVisible() ? 'none' : this.win.isMinimized() ? 'minimized' : 'shown'
+    const app = this.app
+    if (!app || app.webContents.isDestroyed() || !this.team) return { pageBusy: false, browserTabs, resume: { page: null, window, at: Date.now() } }
+    const wc = app.webContents
+    let pageBusy: boolean | null = null
+    try {
+      const ask = wc.executeJavaScript(`(() => { const f = window.${PAGE_BUSY_GLOBAL}; return typeof f === 'function' ? !!f() : null })()`)
+      const r: unknown = await Promise.race([ask, new Promise((r) => setTimeout(() => r(null), 5000))])
+      pageBusy = typeof r === 'boolean' ? r : null
+    } catch {}
+    return { pageBusy, browserTabs, resume: { page: resumePage(this.team.id, wc.getURL(), [this.currentOrigin]), window, at: Date.now() } }
   }
 
   /** Open a remembered team; `entryPath` is the page a pasted link leads to ('/invite/<t>', '/join#t=<t>'), else '/'.

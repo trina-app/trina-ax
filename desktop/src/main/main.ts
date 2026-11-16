@@ -41,6 +41,7 @@ import { HostClassifier } from './pane/classify'
 import { asSiteAccess } from '../common/site-permissions'
 import { TeamsStore } from './teams-store'
 import { DesktopUpdater } from './updater'
+import { onLaunch, takeResume } from './update-launch'
 import { SignInReturn } from '../common/sign-in-return'
 
 // the folder of the bundled main.cjs (Bun inlines __dirname at build time, so look for it at run time):
@@ -110,8 +111,19 @@ protocol.registerSchemesAsPrivileged([{ scheme: UI_SCHEME, privileges: { standar
 // to the first one ('second-instance' below) and exits at once. app.quit() did not: will-quit holds the first quit back
 // to write cookies, so the second app could still reach whenReady, open a window, start the updater and write
 // teams.json next to the first one. app.exit skips will-quit; and the second app sets up nothing (`primary`).
-const primary = app.requestSingleInstanceLock()
+let primary = app.requestSingleInstanceLock()
 if (!primary) app.exit(0)
+// an update an earlier run left ready (./update-launch.ts): while ShipIt is still installing this app, this start steps
+// aside at once (ShipIt drops the update when the app is open again; a waiter opens the new version when it is done)
+let updateFailed: string | null = null
+if (primary && (app.isPackaged || process.env.MYCEL_DESKTOP_UPDATE_TEST) && !storeBuild(process)) {
+  const d = onLaunch({ userData: app.getPath('userData'), version: app.getVersion(), platform: process.platform, execPath: process.execPath })
+  if (d.kind === 'wait') {
+    primary = false
+    app.releaseSingleInstanceLock()
+    app.exit(0)
+  } else if (d.kind === 'failed' && d.notice) updateFailed = d.pending.version
+}
 
 // Links from outside (`trina-ax://open?url=<team link>`, the web's "앱에서 열기"; docs/DECISIONS.md "First run, phase 2"):
 // the packaged app answers the scheme (the dmg, Mac App Store and Microsoft Store builds also declare it in their
@@ -149,6 +161,8 @@ const updater = new DesktopUpdater({
     if (origin && win?.app) void win.app.webContents.loadURL(`${origin}/settings/apps`)
   },
   changed: () => buildMenu(),
+  // no window (closed on a Mac, the app still running): nothing on screen to lose, and it comes back without one shown
+  restartBlockers: async () => (win ? win.restartBlockers() : { pageBusy: false, browserTabs: 0, resume: { page: null, window: 'none', at: Date.now() } }),
 })
 // Language of the app's own screens, menus and prompts: what the team page last reported (its person's choice, else
 // the team default) or what was picked on the team list; before either, a kit build's language, else English. Not the
@@ -423,8 +437,8 @@ function buildMenu() {
     },
     // one item for the list and adding a team: both were the same screen
     { label: tr('menu.team'), submenu: teamMenuItems() },
-    // a downloaded update (Windows): installs on quit, or now from here
-    ...(updater.ready ? [{ label: tr('update.ready.menu'), click: () => updater.restartNow() }] : []),
+    // a downloaded update (Windows, Mac): installs on quit or by itself when idle, or now from here
+    ...(updater.ready ? [{ label: tr('update.ready.menu'), click: () => { updater.restartNow() } }] : []),
     {
       label: tr('menu.window'),
       role: 'windowMenu',
@@ -443,6 +457,8 @@ function buildMenu() {
 
 async function createWindow() {
   store = new TeamsStore(app.getPath('userData'))
+  // the app restarted by itself to install an update: the page and window come back as they were (once)
+  const resume = takeResume(app.getPath('userData'))
   win = new AppWindow({
     store,
     locale,
@@ -454,6 +470,7 @@ async function createWindow() {
     answerFileChoosers: answersFileChoosers(process.mas === true, app.isPackaged, process.env.MYCEL_DESKTOP_TEST_FILE_CHOOSER),
     macAppStore: process.mas === true,
     onTeamsChanged: () => buildMenu(),
+    quietStart: resume?.window,
   })
   win.win.on('closed', () => {
     // quitting closes the window before will-quit: keep which team it showed (its cookies are written on quit)
@@ -465,7 +482,7 @@ async function createWindow() {
   const initial = dev ? process.env.MYCEL_DESKTOP_TEAM : undefined
   // set by the developer for this run: no "not run by us" question
   if (initial) await win.addTeam(initial, true)
-  else await win.openLast()
+  else await win.openLast(resume?.page ?? null)
   if (launchLink) {
     const link = launchLink
     launchLink = null
@@ -494,6 +511,8 @@ if (primary) {
     registerIpc()
     await createWindow()
     updater.start()
+    // still the old version after the update was installed twice on quit: one plain line with the download page
+    if (updateFailed) void updater.offerDownload(updateFailed)
   })
 
   app.on('second-instance', (_e, argv) => {

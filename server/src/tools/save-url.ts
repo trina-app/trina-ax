@@ -37,6 +37,7 @@ import { Denied, ToolError } from '../policy/errors'
 import { badSegment } from '../policy/names'
 import { inSkills } from '../skills/guard'
 import { componentC } from '../team-files/component'
+import { privateToMe } from '../files/share-readers'
 import type { StatFs } from '../system/storage'
 import { imageSize } from '../uploads/image'
 import { downloadToFile, type DownloadOptions } from './download'
@@ -171,7 +172,11 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
     if (r.exists && r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; give a file name or end the path with "/"`)
   }
   // the wider-audience card before the download (the person is not asked after a long one), after the address card
-  const own = (p: string) => p.startsWith(`users/${t.user.id}/`)
+  // the person's own folder, and only where nobody else reads it (a folder they share has its people: files/share-readers.ts)
+  const own = (p: string) => {
+    if (!p.startsWith(`users/${t.user.id}/`)) return false
+    try { return privateToMe(ctx.db, t.user.id, authorize(files.fx, files.rules(), t.user, p, 'write', { mustExist: false, createDirs: true }).segs) } catch { return false }
+  }
   const widen = async () => {
     if (provisional === null) return
     // without a turn's wider-audience check (nobody to ask) only the person's own folder: like make_file, fail closed

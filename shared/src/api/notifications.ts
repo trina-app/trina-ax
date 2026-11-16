@@ -244,11 +244,18 @@ export const InboxNotification = z.object({
   fileShare: z.object({
     by: z.string().nullable(), name: z.string().nullable(), linkId: z.string().nullable(),
     note: z.string().optional(), requestId: z.string().optional(),
+    /** file.access_requested asked by `by` for someone else ("Ask <owner>" under an AI step): who would get access */
+    for: z.string().optional(),
     state: z.enum(['pending', 'approved', 'declined', 'closed']).optional(),
     canAnswer: z.literal(true).optional(), gone: z.literal(true).optional(),
     /** file.shared for several files in one press (docs/decisions/20261116-file-share-everyone.md): how many of them the
      * viewer can open now, and the press's id (link 'file' opens /f/batch/<batchId>); `name` is then null */
     count: z.number().int().positive().optional(), batchId: z.string().optional(),
+    /** the notice is about a folder in a person's own files (docs/decisions/20261116-folder-share-server.md): 'shared'
+     * (file.shared: `by` shared the folder `name` with me); to its owner, with file.unshared_by_move: 'paused' (the
+     * folder on the server is not the one shared: nobody opens it until the owner resumes it) or 'ended' (the owner's
+     * move put it where nothing is shared). Older servers omit it */
+    folder: z.enum(['shared', 'paused', 'ended']).optional(),
   }).optional(),
   /** 'access.requested' and 'access.answered' (docs/decisions/20261116-chat-project-ask-access.md, access_request_notices).
    * access.requested (to whoever answers it): `by` asked to open the chat or project `name` (its title now), their

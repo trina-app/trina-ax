@@ -58,3 +58,11 @@ export function serverUnreachable(): boolean {
 
 /** nothing would be lost and the server can be reached */
 export const mayReloadNow = () => !reloadWouldLose() && !serverUnreachable()
+
+/** The desktop app asks the same before it restarts by itself to install an update (desktop/src/common/update-guard.ts
+ * PAGE_BUSY_GLOBAL): `window.__mycelBusy()` is true when a reload now would lose something. Set when the page loads
+ * (main.tsx imports this file). */
+export function answerDesktop(w: object) {
+  ;(w as { __mycelBusy?: () => boolean }).__mycelBusy = () => !mayReloadNow()
+}
+if (typeof window !== 'undefined') answerDesktop(window)

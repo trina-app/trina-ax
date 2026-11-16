@@ -26,6 +26,8 @@ import { setupServerCgroups } from './system/cgroups'
 import { exitAddressCheckOff, startEgressLearning } from './tools/egress'
 import { isHosted } from './system/deployment'
 import { dropHostedSpeechKey } from './credentials/speech-key'
+import { setLocalSpeechReady } from './admin/settings'
+import { localSpeechReady } from './jobs/transcribe'
 import { settleHostedFallback } from './admin/engine-choice'
 import { repointDeckLinks } from './auth/team-links'
 import { retireLegacyDefaultSkills } from './onboarding/retired-skills'
@@ -191,6 +193,9 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
   if (settleHostedFallback({ db, config: cfg })) log.info('turned on "answer with the other AI" for this hosted server')
   const ctx = createContext({ config: cfg, db, log })
   ctx.onClose(() => db.close())
+  // an Apple silicon Mac with whisper-cli (the office zip's) and macOS's decoders: voice input and the AI's reads of
+  // recordings work on this server with no key, so 'local' is what "not chosen" reads (admin/settings.ts)
+  setLocalSpeechReady(localSpeechReady(ctx.files.speech))
   guardOfficeClaudeJson(ctx, 'start') // office: no MCP servers in the Mac user's ~/.claude.json (an engine may write it)
   cfg.setupToken = ensureSetupToken(cfg, db)
   checkSocketPaths(ctx, log)

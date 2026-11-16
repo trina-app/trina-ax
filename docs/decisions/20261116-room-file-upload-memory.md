@@ -4,6 +4,8 @@
 - Status: accepted
 - Supersedes: none
 - Branch: fix/room-file-upload-memory (the owner; a production team server killed by a ~100 MB room upload on 0.5.9)
+- Limit changed: a room now takes files of up to 1 GB, and a guest at most 1 GB; the 10 GB in this file no longer
+  holds ([A file sent in a room is at most 1 GB, for everyone](20261116-room-file-limit-1gb.md)).
 
 - **What broke:** `POST /api/rooms/:id/files` (and every other multipart route: `/api/files/upload`, `/api/uploads`,
   `/api/transcribe`, `/api/admin/plugins/inspect`) read its body with `Request.formData()` in `http/route.ts`. That

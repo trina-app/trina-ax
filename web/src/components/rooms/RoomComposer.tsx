@@ -1,7 +1,7 @@
 // The message box of a room: text that grows with what is typed (Enter sends, Shift+Enter makes a new line, nothing
 // happens while a Korean or Japanese word is still being composed; on touch screens Enter makes a new line and the
 // button sends, like the AI chat's box), files (the clip, paste, or a drop anywhere on the room's column or the thread
-// around the box: components/FileDropZone.tsx; each is uploaded at once and sent by id: a small one with POST /api/rooms/:id/files, a larger one, up to 10 GB, in
+// around the box: components/FileDropZone.tsx; each is uploaded at once and sent by id: a small one with POST /api/rooms/:id/files, a larger one, up to 1 GB, in
 // 8 MB pieces through an upload session that goes on after a lost connection (lib/upload.ts), what happens to it on the chip
 // (waiting for its turn, being checked, its percent, finishing: components/UploadLabel.tsx);
 // a picture shows as itself at once, a 64 px square, while it uploads), and "@"
@@ -146,7 +146,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   const everyone = useEveryone(roomId, members, meId)
   const others = members.filter((m) => m.id !== meId).length
   const me = useMe()
-  // the largest file I may send here: 10 GB, or for a guest what the team allows guests (Me.team.uploadMaxBytes;
+  // the largest file I may send here: 1 GB, or for a guest what the team allows guests (Me.team.uploadMaxBytes;
   // the server checks it again)
   const fileMax = myUploadMax(me, ROOM_FILE_MAX)
   // my message being edited in this box (a phone: RoomMessages.tsx puts it in store/roomEdit.ts when this place has a box)
@@ -291,7 +291,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   const says = (f: Upload) => !f.teamPath && (f.file.size > SINGLE_REQUEST_MAX || uploadPercent(f.progress) !== null)
   const upload = async (u: Upload) => {
     try {
-      // a small file in one request, a larger one (up to 10 GB) in 8 MB pieces that go on after a lost connection
+      // a small file in one request, a larger one (up to 1 GB) in 8 MB pieces that go on after a lost connection
       // (lib/upload.ts): no single request is large, so it passes a proxy in front of the team server too
       const r = await uploadFile(u.file, roomTarget(u.file), { client: api, signal: u.abort.signal, onProgress: (progress) => setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, progress } : x))) })
       if (r.kind !== 'room') throw new Error('unexpected upload result')

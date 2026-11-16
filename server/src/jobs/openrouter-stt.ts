@@ -13,7 +13,8 @@ import { DEFAULT_LOCALE, type Locale, type TranscribeResult } from '@mycel/share
 import { PRODUCT } from '@mycel/shared'
 import type { JobHandle } from '../services'
 import { readOutput, runIsolated, type OutputRead } from '../tools/isolate'
-import { converterInputName, convertToWav, fail, LABELS, UNREADABLE, type TranscribeConfig } from './transcribe'
+import { converterInputName, convertToWav, fail, LABELS, macToWav, UNREADABLE, type TranscribeConfig } from './transcribe'
+import { MAC_AUDIO_EXT } from './mac-audio'
 import { keepLongRetry, languageCode, LONG_PIECE_SEC, longRetryLanguage, scoreSegments, type ScoredAnswer } from './speech-language'
 import { meterSeconds } from '../credentials/hosted-speech'
 
@@ -212,7 +213,9 @@ export async function transcribeOpenRouter(cfg: TranscribeConfig, key: string, m
   o: { language?: string; locale?: Locale; team?: string; again?: () => boolean }, h: JobHandle): Promise<TranscribeResult> {
   const loc = o.locale ?? DEFAULT_LOCALE
   const x = (/\.([a-z0-9]{1,8})$/i.exec(name)?.[1] ?? '').toLowerCase()
-  if (!cfg.ffmpegBin && !DIRECT.has(x)) {
+  // an Apple silicon Mac without ffmpeg decodes with macOS's programs (jobs/mac-audio.ts): any format they open
+  const mac = !cfg.ffmpegBin && cfg.mac && MAC_AUDIO_EXT.has(x) ? cfg.mac : null
+  if (!cfg.ffmpegBin && !mac && !DIRECT.has(x)) {
     throw fail(`이 형식(${x || '알 수 없음'})을 보내려면 서버에 ffmpeg가 필요해요. wav·mp3·flac·ogg·m4a·aac는 바로 돼요.`,
       `Sending this format (${x || 'unknown'}) needs ffmpeg on the server. wav, mp3, flac, ogg, m4a and aac work without it.`,
       `Format ini (${x || 'tidak dikenal'}) memerlukan ffmpeg di server. wav, mp3, flac, ogg, m4a, dan aac bisa langsung.`, `この形式（${x || "不明"}）を送信するにはサーバーにffmpegが必要です。wav、mp3、flac、ogg、m4a、aacはそのまま使えます。`, `Enviar este formato (${x || "desconocido"}) requiere ffmpeg en el servidor. wav, mp3, flac, ogg, m4a y aac funcionan sin él.`, `发送这种格式（${x || "未知"}）需要服务器上有 ffmpeg。wav、mp3、flac、ogg、m4a 和 aac 不需要它也能用。`)
@@ -237,6 +240,13 @@ export async function transcribeOpenRouter(cfg: TranscribeConfig, key: string, m
         if (packed.ok) { audio = { ok: true, bytes: packed.bytes }; format = packed.format }
         else if (packed.why === 'damaged') throw UNREADABLE()
       }
+    } else if (mac) {
+      const src = path.join(work, converterInputName(name))
+      fs.copyFileSync(input, src, fs.constants.COPYFILE_FICLONE)
+      // read back without following a link, like ffmpeg's WAV above
+      audio = readOutput(work, await macToWav(mac, work, path.basename(src), h, loc, 0.1, { plain: true, maxBytes: OPENROUTER_MAX_BYTES, tooLarge: TOO_LARGE }), OPENROUTER_MAX_BYTES)
+      format = 'wav'
+      if (audio.ok) seconds = (wavData(audio.bytes)?.length ?? Math.max(0, audio.bytes.length - 44)) / 32_000
     } else { audio = readOutput(path.dirname(input), path.basename(input), OPENROUTER_MAX_BYTES); format = x }
     if (!audio.ok && audio.why === 'too_large') throw TOO_LARGE()
     if (!audio.ok) throw UNREADABLE()
