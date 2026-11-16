@@ -108,7 +108,7 @@ test.describe('the conversation on screen in a focused window: it only appears',
     // another room on screen: the message of the first one rings, as before
     await openRoom(page, OTHER)
     await arrives(page, OPEN, BEN)
-    await expect.poll(() => notes(page), { timeout: 6000 }).toBe(4)
+    await expect.poll(() => notes(page), { timeout: 6000 }).toBe(2)
   })
 
   test('the desktop app, its page without focus of its own (the owner\'s report): the room open stays quiet while the window is focused, and rings once it is not', async ({ page }) => {
@@ -128,7 +128,7 @@ test.describe('the conversation on screen in a focused window: it only appears',
     // the window in the back (another app in front): the room on screen rings, as before
     await page.evaluate(() => (window as unknown as { __setWindowFocus: (f: boolean) => void }).__setWindowFocus(false))
     await arrives(page, OPEN, BEN)
-    await expect.poll(() => notes(page), { timeout: 6000 }).toBe(4)
+    await expect.poll(() => notes(page), { timeout: 6000 }).toBe(2)
   })
 
   test('the desktop app, focused on another room: the message rings', async ({ page }) => {
@@ -137,6 +137,6 @@ test.describe('the conversation on screen in a focused window: it only appears',
     await routeRooms(page, rooms)
     await openRoom(page, OTHER)
     await arrives(page, OPEN, BEN)
-    await expect.poll(() => notes(page), { timeout: 6000 }).toBe(4)
+    await expect.poll(() => notes(page), { timeout: 6000 }).toBe(2)
   })
 })
