@@ -116,6 +116,8 @@ export class TurnFiles {
    * person's own chat sets it (chat/turn.ts; never a shared chat, a guest, a restricted run or a confidential chat,
    * where the folder rules alone decide what goes into the answer) */
   grantReads = false
+  /** files this turn read through a share grant (readAuth), until the turn counts them (chat/turn.ts noteOthersReads) */
+  grantReadPaths = new Set<string>()
 
   // ---------------- sub-agents (docs/DECISIONS.md "Sub-agents") ----------------
   /** tool_use id -> the Agent call of the sub-agent that made it (null: the main AI), from the engine's stream */
@@ -259,7 +261,7 @@ export class FileService {
       if (!this.shared || !ctx.files.grantReads || !(e instanceof Denied || e instanceof ToolError)) throw e
       let g: Authorized | null = null
       try { g = this.shared.at(user, input) } catch {}
-      if (g) return g
+      if (g) { ctx.files.grantReadPaths.add(g.rel); return g }
       throw e
     }
   }

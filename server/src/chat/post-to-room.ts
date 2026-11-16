@@ -49,7 +49,7 @@
 // it refuses with why and what to do, as it does for a room that is archived or not mine, a gone thread, content that
 // used earlier answers hidden from some member, a text too long for one message and the sending budget.
 import { withAlways } from './always-allow'
-import { actionOff, asksFor, askerPicks, askerText, fold, mainOnly, namedByAsker, namedInFull, ownWords, POST_ASK } from './shared-actions'
+import { actionOff, asksFor, askerPicks, askerText, asksToSend, fold, fromAsker, mainOnly, namedInFull, namesRecipient as namesPlace, othersWordsIn, ownWords, POST_ASK } from './shared-actions'
 import { readRooms } from './read-rooms'
 // (moved to chat/shared-actions.ts, kept here for the tests and older imports)
 export { namedByAsker, namesRecipient } from './shared-actions'
@@ -331,7 +331,15 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // A shared chat (QA TC-3091 review): other people's messages are in the AI's context, so "Always allow" counts only
         // when the asker's own latest message names the recipient as matched, and never for own_words (a message in the
         // asker's own words always shows them the card)
-        const alwaysOk = !exec.shared || (!plain && namedByAsker(db, spec.userMessageId, a.data.room, recipientNames(db, spec.userId, mine?.room ?? null, pendingTo)))
+        // The same holds in the person's own chat once other people's words are in it (it read rooms, or content
+        // someone else wrote: a teammate's file, a file shared with them, a page, a connected service; shared-actions.ts
+        // othersWordsIn; docs/decisions/20261116-always-allow-more-cards.md "Content written by others"): the choice
+        // counts only for a place their own message names (quoted lines left out), or, in a room's side chat, that
+        // room, and only when that message asks to send or post; and the linked files go along without the card only when they brought each one
+        // (named or attached it, or the AI made it in this answer). Own words may go there under the choice, as before.
+        const mineNamed = () => namesPlace(ownWords(askerText(db, spec.userMessageId)), a.data.room, recipientNames(db, spec.userId, mine?.room ?? null, pendingTo))
+        const alwaysOk = exec.shared ? !plain && mineNamed()
+          : !othersWordsIn(exec) || ((sideRoomOf(db, spec.chatId, spec.userId)?.id === roomId || mineNamed()) && asksToSend(db, spec.userMessageId) && (!all || fromAsker(db, spec, first.offered)))
         // no card when the asker's own message of this turn asked for exactly this post (docs/decisions/
         // 20261116-no-card-after-explicit-ask.md, QA TC-3812): a post word and the place in their words (or, in a room's
         // side chat, no place given: that room), and the card would tell nothing more (no line about people who cannot see
