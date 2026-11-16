@@ -72,8 +72,8 @@ test.describe('first-run setup in an English browser', () => {
     await expect(page.getByTestId('setup-row-link')).toBeVisible()
     // the owner has no language of their own: "team default (한국어)" is the chosen one
     await page.goto('/settings/profile')
-    await expect(page.getByTestId('locale-team')).toHaveAttribute('aria-checked', 'true')
-    await expect(page.getByTestId('locale-team')).toContainText('팀 기본값 (한국어)')
+    await expect(page.getByTestId('profile-locale')).toHaveValue('team')
+    await expect(page.getByTestId('profile-locale').locator('option[value=\"team\"]')).toContainText('팀 기본값 (한국어)')
   })
 
   test('first-run setup left in English makes an English team', async ({ page }) => {
@@ -239,7 +239,7 @@ test('an invite opens in the team language and offers the browser language, save
   await p2.getByTestId('invite-password').fill('another password 1')
   await p2.getByTestId('invite-submit').click()
   await p2.goto('/settings/profile')
-  await expect(p2.getByTestId('locale-id')).toHaveAttribute('aria-checked', 'true')
+  await expect(p2.getByTestId('profile-locale')).toHaveValue('id')
   await other.close()
   // a Korean browser (the team's language) is offered nothing
   const same = await browser.newContext({ locale: 'ko-KR' })
@@ -254,11 +254,11 @@ test('language switch to English and Indonesian', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await page.goto('/settings/profile')
-  await page.getByTestId('locale-en').click()
+  await page.getByTestId('profile-locale').selectOption('en')
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
   // the sidebar under the Settings dialog speaks English too
   await expect(await newChatButton(page)).toContainText(askAi('en'))
-  await page.getByTestId('locale-id').click()
+  await page.getByTestId('profile-locale').selectOption('id')
   await expect(page.getByRole('heading', { name: 'Pengaturan' })).toBeVisible()
   await expect(page.locator('html')).toHaveAttribute('lang', 'id')
 })
@@ -290,14 +290,14 @@ test('personal setting: team default, an own language, back to the team default;
   await reset(page, { teamLocale: 'en', usersFollowTeam: true })
   await signIn(page)
   await page.goto('/settings/profile')
-  await expect(page.getByTestId('locale-team')).toHaveAttribute('aria-checked', 'true')
-  await expect(page.getByTestId('locale-team')).toHaveText('Team default (English)')
-  await page.getByTestId('locale-ko').click()
+  await expect(page.getByTestId('profile-locale')).toHaveValue('team')
+  await expect(page.getByTestId('profile-locale').locator('option[value=\"team\"]')).toHaveText('Team default (English)')
+  await page.getByTestId('profile-locale').selectOption('ko')
   await expect(page.getByRole('heading', { name: '설정' })).toBeVisible()
-  await expect(page.getByTestId('locale-ko')).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByTestId('profile-locale')).toHaveValue('ko')
   await page.reload()
   await expect(page.getByRole('heading', { name: '설정' })).toBeVisible()
-  await page.getByTestId('locale-team').click()
+  await page.getByTestId('profile-locale').selectOption('team')
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
   await expect(page.locator('html')).toHaveAttribute('lang', 'en')
   // the admin sets the team default to Indonesian: olga follows it at once
@@ -306,7 +306,7 @@ test('personal setting: team default, an own language, back to the team default;
   await page.getByRole('button', { name: 'Save' }).click()
   await expect(page.locator('html')).toHaveAttribute('lang', 'id')
   await page.goto('/settings/profile')
-  await expect(page.getByTestId('locale-team')).toHaveText('Bawaan tim (Bahasa Indonesia)')
+  await expect(page.getByTestId('profile-locale').locator('option[value=\"team\"]')).toHaveText('Bawaan tim (Bahasa Indonesia)')
 })
 
 test('a language picked before sign-in becomes the account’s own, also through the forced password change', async ({ page }) => {
@@ -331,7 +331,7 @@ test('a language picked before sign-in becomes the account’s own, also through
   await expect(page.getByRole('heading', { name: 'Bob님, 무엇을 도와드릴까요?' })).toBeVisible()
   // saved to the account: it survives a reload and shows as bob's own choice
   await page.goto('/settings/profile')
-  await expect(page.getByTestId('locale-ko')).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByTestId('profile-locale')).toHaveValue('ko')
 })
 
 test('a link opened with a temporary password: after the new password, the page it asked for (not Home)', async ({ page }) => {
@@ -387,7 +387,7 @@ test('open windows of people who follow the team switch when an admin changes th
   await page.getByRole('button', { name: 'Save' }).click()
   // the other window was not reloaded
   await expect(other.getByRole('heading', { name: '설정' })).toBeVisible()
-  await expect(other.getByTestId('locale-team')).toHaveText('팀 기본값 (한국어)')
+  await expect(other.getByTestId('profile-locale').locator('option[value=\"team\"]')).toHaveText('팀 기본값 (한국어)')
 })
 
 // The app shell is available (as with Electron's cached reload), but account lookup cannot reach the server.
@@ -470,15 +470,15 @@ test('recovery does not replace an old login pick or pass a previous account lan
   await page.reload()
   await signIn(page)
   await page.goto('/settings/profile')
-  await page.getByTestId('locale-ko').click()
-  await expect(page.getByTestId('locale-ko')).toHaveAttribute('aria-checked', 'true')
+  await page.getByTestId('profile-locale').selectOption('ko')
+  await expect(page.getByTestId('profile-locale')).toHaveValue('ko')
   await page.route('**/api/me', route => route.abort('internetdisconnected'))
   await page.reload()
   await expect(page.getByRole('button', { name: '다시 시도', exact: true })).toBeVisible()
   expect(await page.evaluate(() => localStorage.getItem('mycel.locale'))).toBe('id')
   await page.unroute('**/api/me')
   await page.getByRole('button', { name: '다시 시도', exact: true }).click()
-  await expect(page.getByTestId('locale-ko')).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByTestId('profile-locale')).toHaveValue('ko')
   // Settings is a dialog over the page: close it to reach the account menu
   await page.keyboard.press('Escape')
   await signOut(page)
@@ -487,7 +487,7 @@ test('recovery does not replace an old login pick or pass a previous account lan
   await signIn(page, { username: 'bob', password: 'bob password 1' })
   await expect(page.locator('html')).toHaveAttribute('lang', 'en')
   await page.goto('/settings/profile')
-  await expect(page.getByTestId('locale-team')).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByTestId('profile-locale')).toHaveValue('team')
 })
 
 test('recovery language is isolated by team origin', async ({ page, context, baseURL }) => {

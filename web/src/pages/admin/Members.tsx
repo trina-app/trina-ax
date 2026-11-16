@@ -39,6 +39,7 @@ import { LOCALES, useLocale, useT, type MessageKey } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
 import QrCode from '../../components/QrCode'
 import { Badge, Button, CopyButton, Field, IconButton, Modal, TabPanel, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../../components/ui'
+import { LanguageSelect } from '../../components/LanguageSelect'
 import { PageActions } from '../../components/PageActions'
 import { PhoneFilters } from '../../components/PhoneFilters'
 import { CompactRow } from '../../components/CompactRow'
@@ -1176,14 +1177,8 @@ function EditMember({ user, groups, canChangeRole, onClose, onSaved }: { user: U
           <RoleSelect value={role} onChange={setRole} disabled={!canChangeRole} />
         </Field>
         <Field label={t('settings.language')}>
-          <select className={inputCls} value={language} onChange={(e) => setLanguage(e.target.value as Locale | '')} data-testid="member-locale">
-            <option value="">{t('settings.languageTeam', { language: LOCALES.find((l) => l.id === teamDefault)?.label ?? teamDefault })}</option>
-            {LOCALES.map((l) => (
-              <option key={l.id} value={l.id} lang={l.id}>
-                {l.label}
-              </option>
-            ))}
-          </select>
+          <LanguageSelect value={language || 'team'} onChange={(v) => setLanguage(v === 'team' ? '' : v)} testId="member-locale"
+            teamDefault={t('settings.languageTeam', { language: LOCALES.find((l) => l.id === teamDefault)?.label ?? teamDefault })} />
         </Field>
         <div>
           <p className="mb-1.5 text-label font-medium">{t('admin.groups')}</p>
