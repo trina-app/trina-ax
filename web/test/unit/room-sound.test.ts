@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { uuidv7, uuidv7Time, type Me, type ServerEvent } from '@mycel/shared/api'
 import { unwatchWindowFocus, watchWindowFocus } from '../../src/lib/attention'
-import { Chime, COALESCE_MS, LAST_KEY, playChime, REPOST_MS, RoomSound, roomSoundOn, setRoomSoundOn, shouldRing, SOUND_KEY, VIEW_KEY, VIEW_TTL_MS, type AudioLike, type LocksLike, type RingInput, type SoundDeps } from '../../src/lib/roomSound'
+import { Chime, CHIME_NOTES, COALESCE_MS, LAST_KEY, playChime, REPOST_MS, REST_AFTER_MS, RoomSound, roomSoundOn, setRoomSoundOn, shouldRing, SOUND_KEY, VIEW_KEY, VIEW_TTL_MS, type AudioLike, type LocksLike, type RingInput, type SoundDeps } from '../../src/lib/roomSound'
 import { dispatch } from '../../src/store/live'
 import { useRooms } from '../../src/store/rooms'
 import { changeRoomSound, startRoomSound, stopRoomSound } from '../../src/store/roomSound'
@@ -397,45 +397,63 @@ class FakeCtx {
 }
 
 describe('the chime', () => {
-  test('two soft notes, under a second, at a modest volume', () => {
+  // the param's value at time t from its events (set, then exponential ramps), as Web Audio computes it
+  const at = (p: FakeParam, t: number) => {
+    let prev = p.events[0]!
+    if (t < prev[2]) return 0
+    for (const e of p.events.slice(1)) {
+      if (t <= e[2]) return prev[1] * Math.pow(e[1] / prev[1], (t - prev[2]) / (e[2] - prev[2]))
+      prev = e
+    }
+    return prev[1]
+  }
+
+  test('Bubbles: two sine notes gliding up (700 → 1190 Hz, then 900 → 1530 Hz 0.1 s later), short, at the old volume', () => {
     const ctx = new FakeCtx()
     ctx.state = 'running'
     playChime(ctx as never)
-    expect(ctx.oscillators.map((o) => Math.round(o.frequency.value))).toEqual([784, 1568, 1047, 2093])
+    const t0 = ctx.currentTime + 0.01
+    expect(ctx.oscillators).toHaveLength(2)
     expect(ctx.oscillators.every((o) => o.type === 'sine')).toBe(true)
-    expect(Math.max(...ctx.oscillators.map((o) => o.stop)) - ctx.currentTime).toBeLessThan(1)
+    expect(ctx.oscillators.map((o) => o.frequency.events.map(([kind, v, t]) => [kind, Math.round(v), Math.round((t - t0) * 1000)]))).toEqual([
+      [['set', 700, 0], ['ramp', 1190, 120]],
+      [['set', 900, 100], ['ramp', 1530, 220]],
+    ])
+    expect(ctx.oscillators.map((o) => Math.round((o.start - t0) * 1000))).toEqual([0, 100])
+    // the envelopes: up to 1 and 0.9 in 3 ms, silent by 120 ms after each start
+    expect(ctx.gains.slice(1).map((g) => g.events.map(([kind, v, t]) => [kind, v, Math.round((t - t0) * 1000)]))).toEqual([
+      [['set', 0.0001, 0], ['ramp', 1, 3], ['ramp', 0.0001, 120]],
+      [['set', 0.0001, 100], ['ramp', 0.9, 103], ['ramp', 0.0001, 220]],
+    ])
     expect(ctx.gains[0]!.value).toBe(0.36)
+    // the context rests after the chime: it is over well before that
+    expect(Math.max(...ctx.oscillators.map((o) => o.stop)) - ctx.currentTime).toBeLessThan(REST_AFTER_MS / 1000 - 0.5)
+    expect(CHIME_NOTES).toHaveLength(2)
   })
 
-  test('the mixed peak of both notes and their octaves stays under the clip limit', () => {
+  test('the mixed peak of both bubbles stays audible and under the clip limit', () => {
     const ctx = new FakeCtx()
     ctx.state = 'running'
     playChime(ctx as never)
     const master = ctx.gains[0]!.value
-    // gains[1..] are the per-partial envelopes, in the same order as the oscillators; the ramps are exponential
-    const env = (g: FakeParam, t: number) => {
-      let prev = g.events[0]!
-      if (t < prev[2]) return 0
-      for (const e of g.events.slice(1)) {
-        if (t <= e[2]) return prev[1] * Math.pow(e[1] / prev[1], (t - prev[2]) / (e[2] - prev[2]))
-        prev = e
-      }
-      return 0
-    }
+    // gains[1..] are the notes' envelopes, in the oscillators' order; the phase follows the gliding pitch
     const rate = 48000
+    const phase = ctx.oscillators.map(() => 0)
     let peak = 0
     for (let i = 0; i < rate; i++) {
       const t = ctx.currentTime + i / rate
       let sum = 0
       ctx.oscillators.forEach((o, k) => {
-        if (t >= o.start && t <= o.stop) sum += Math.sin(2 * Math.PI * o.frequency.value * (t - o.start)) * env(ctx.gains[k + 1]!, t)
+        if (t < o.start || t > o.stop) return
+        phase[k]! += (2 * Math.PI * at(o.frequency, t)) / rate
+        sum += Math.sin(phase[k]!) * at(ctx.gains[k + 1]!, t)
       })
       peak = Math.max(peak, Math.abs(sum * master))
     }
-    expect(peak).toBeGreaterThan(0.1) // clearly audible
+    expect(peak).toBeGreaterThan(0.25) // about as loud as the old chime (0.43)
     expect(peak).toBeLessThan(0.9)
-    // and with every partial at its top at once (the worst case) the sum is still under it
-    expect(master * 2 * (1 + 0.2)).toBeLessThan(0.9)
+    // and with both notes at their top at once (the worst case) the sum is still under it
+    expect(master * (1 + 0.9)).toBeLessThan(0.9)
   })
 
   test('made and unlocked at the first gesture, once; plays only once unlocked, starting the context again if it rests', async () => {
@@ -450,13 +468,13 @@ describe('the chime', () => {
     expect(await c.prime()).toBe(true)
     expect([made, ctx.resumes]).toEqual([1, 1])
     c.play()
-    expect(ctx.oscillators).toHaveLength(4)
+    expect(ctx.oscillators).toHaveLength(2)
     // resting between sounds (suspended): the next sound starts it again without a gesture
     ctx.state = 'suspended'
     c.play()
     await Promise.resolve()
     await Promise.resolve()
-    expect([ctx.resumes, ctx.oscillators.length]).toEqual([2, 8])
+    expect([ctx.resumes, ctx.oscillators.length]).toEqual([2, 4])
   })
 
   test('sounds asked for while it starts again make one chime, and none when it starts late', async () => {
@@ -472,7 +490,7 @@ describe('the chime', () => {
     started()
     await Promise.resolve()
     await Promise.resolve()
-    expect(ctx.oscillators).toHaveLength(4)
+    expect(ctx.oscillators).toHaveLength(2)
     // a phone gives the audio back only after a while: that chime is dropped; one back within the second still sounds.
     // The clock is the test's own (Chime measures with Date.now): a wall clock that a container steps back made a 1.1 s
     // wait read as under a second now and then
@@ -480,7 +498,7 @@ describe('the chime', () => {
     let now = realNow()
     Date.now = () => now
     try {
-      for (const [after, chimes] of [[1100, 4], [900, 8]] as const) {
+      for (const [after, chimes] of [[1100, 2], [900, 4]] as const) {
         ctx.state = 'suspended'
         let back!: () => void
         ctx.resume = () => new Promise<void>((r) => (back = () => { ctx.state = 'running'; r() }))
