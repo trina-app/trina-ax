@@ -167,6 +167,8 @@ Un chat directo con alguien que dejó el equipo dice "<nombre> dejó el equipo" 
 (uno para todo el equipo, y uno por grupo) y **Mensajes directos** (chats 1:1 y chats de grupo). **Menciones e hilos**,
 arriba, reúne los mensajes que le mencionan y los hilos que sigue.
 
+Para escribir a una sola persona, haga clic en su foto o en su nombre junto a un mensaje (también sirve una @mención o su fila en la lista de miembros de una conversación). Se abre una tarjeta pequeña con su nombre y su cargo: **Enviar mensaje** abre su chat 1:1 con esa persona. En un teléfono la tarjeta se abre desde la parte inferior de la pantalla. Su propia tarjeta tiene **Editar perfil**. Las aplicaciones y las personas que ya no están en el equipo no tienen tarjeta; un invitado solo puede escribir a las personas de su chat de grupo o de su proyecto.
+
 Para traer a alguien de fuera del equipo, elija **Invitar a un invitado** al añadir personas a un chat de grupo o a un proyecto. [Más información sobre los invitados](guests.md).
 
 ![La lista Chats: Menciones e hilos, Canales con Todos (Everyone) y Marketing, y un mensaje directo](../../images/chats/rooms-list.webp "La lista Chats")
