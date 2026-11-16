@@ -17,6 +17,7 @@
 // A draft can also start from a form in the team folder (startFormSkillDraft; onboarding/form-skill.ts): no source chat,
 // the form's text as material, the AI names it and its inputs only, the steps are fixed.
 import type { Database } from 'bun:sqlite'
+import type fs from 'node:fs'
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
 import { TEMPLATES_FOLDER } from '@mycel/shared'
@@ -663,10 +664,12 @@ export async function startFormSkillDraft(ctx: AppContext, rt: ChatRuntime, auth
   let rel: string
   let abs: string
   let size: number
+  /** what the check saw of the form: its text is read from that very file (files/store.ts readRegular) */
+  let seen: fs.Stats
   try {
     const r = authorizePath(ctx.files.fx, ctx.files.rules(), ctx.files.principal(auth.user.id), body.path.normalize('NFC'), 'read', { mustExist: true })
     if (!r.st?.isFile()) throw new HttpError('not_found')
-    rel = r.rel; abs = r.abs; size = r.st.size
+    rel = r.rel; abs = r.abs; size = r.st.size; seen = r.st
   } catch (e) {
     if (e instanceof HttpError) throw e
     throw new HttpError('not_found')
@@ -697,7 +700,7 @@ export async function startFormSkillDraft(ctx: AppContext, rt: ChatRuntime, auth
     const stop = new AbortController()
     const timer = setTimeout(() => stop.abort(), 15_000)
     try {
-      const { bytes } = readRegular(abs, FORM_MAX_BYTES)
+      const { bytes } = readRegular(abs, FORM_MAX_BYTES, seen)
       const c = ctx.engineConfig
       text = (await extractText(rel, bytes, { pandoc: c.pandoc ?? null, pdftotext: c.pdftotext ?? null, ocr: c.ocr ?? null, quarantine: ctx.files.quarantine, textLayerOnly: true }, stop.signal))
         .replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim().slice(0, FORM_TEXT_MAX)

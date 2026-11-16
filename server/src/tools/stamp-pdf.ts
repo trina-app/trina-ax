@@ -62,8 +62,8 @@ export async function stampPdfFile(ctx: AppContext, files: TeamFiles, c: ToolCtx
   const img = authorize(fx, rules, c.user, a.image, 'read')
   if (img.st!.isDirectory()) throw new ToolError(`'${img.rel}' is a folder`, 'is_folder')
   if (checkRegular(img.abs).size > STAMP_IMAGE_MAX) throw new ToolError(`'${img.rel}' is larger than ${STAMP_IMAGE_MAX / 1024 / 1024} MB; use a smaller picture`)
-  const pdf = readRegular(src.abs, STAMP_PDF_MAX).bytes
-  const picture = readRegular(img.abs, STAMP_IMAGE_MAX).bytes
+  const pdf = readRegular(src.abs, STAMP_PDF_MAX, src.st).bytes
+  const picture = readRegular(img.abs, STAMP_IMAGE_MAX, img.st).bytes
   ctx.files.quarantine.assertBytes(pdf)
   ctx.files.quarantine.assertBytes(picture)
   const kind = imageKind(picture)
