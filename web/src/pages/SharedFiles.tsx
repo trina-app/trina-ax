@@ -8,12 +8,16 @@
 // change anywhere (file_shares_changed), a new notice, an access or file change, a live connection that could not resume,
 // and when the window comes back after 30 s. A page may come back empty while there is more (the server stops after a
 // bounded amount of work): the store reads on by itself, and the empty line shows only once there is nothing more.
+// A shared folder (folder sharing, docs/AGENTS/plan/20261116-1330-folder-share-web.md) is a row with a folder's mark; it
+// opens its link page, which lists what is inside.
+import { Folder } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { fileLinkUrl } from '@mycel/shared/api'
 import { useLocale, useT } from '../i18n'
 import { errorText } from '../lib/api'
 import { formatShortDate } from '../lib/format'
 import { FILES_SHARED as SHARED_WITH_ME } from '../lib/nav'
+import { useFolderSharesOn } from '../lib/folder-share'
 import { useGoBack } from '../lib/back'
 import { useBackLabel } from '../lib/backStack'
 import { PhonePageBar } from '../components/phone/PhonePageBar'
@@ -29,6 +33,7 @@ const STALE_MS = 30_000
 export default function SharedFiles() {
   const t = useT(), locale = useLocale()
   const list = useFileLists((s) => s.shared)
+  const folderShares = useFolderSharesOn()
   const [error, setError] = useState<string | null>(null)
   const [more, setMore] = useState(false)
   const phone = useMediaQuery('(max-width: 767.98px)')
@@ -98,7 +103,7 @@ export default function SharedFiles() {
         {!items && !error && <Skeleton lines={5} className="py-2" />}
         {items && !items.length && !next && (
           <div data-testid="shared-files-empty">
-            <EmptyState title={t('filesPanel.sharedEmpty')} />
+            <EmptyState title={t(folderShares ? 'filesPanel.sharedEmptyFolders' : 'filesPanel.sharedEmpty')} />
           </div>
         )}
         {items && items.length > 0 && (
@@ -108,12 +113,13 @@ export default function SharedFiles() {
                 key={f.linkId}
                 to={fileLinkUrl(f.linkId)}
                 state={{ from: SHARED_WITH_ME }}
-                icon={<FileKindIcon name={f.name} />}
+                icon={f.kind === 'folder' ? <Folder size={18} className="text-accent-text" aria-hidden /> : <FileKindIcon name={f.name} />}
                 name={f.name}
                 nameTitle={f.name}
                 meta={t('filesPanel.sharedMeta', { name: f.sharedBy ?? t('filesPanel.formerMember'), date: formatShortDate(f.sharedAt, locale) })}
                 scale="page"
                 testId="shared-file"
+                link={{ 'data-kind': f.kind ?? 'file' }}
                 nameTestId="shared-file-name"
                 metaTestId="shared-file-meta"
               />

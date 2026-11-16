@@ -35,6 +35,9 @@ export const UserPrefs = z.object({
   /** the one-time line under a room's header ("✦ Ask Trina about this room. Only you see it.") was closed, or ✦ was
    * used: it never shows again (docs/DECISIONS.md "A welcome for invited people") */
   roomAskHint: z.literal('seen').optional().catch(undefined),
+  /** an owner's or admin's one-time line on Admin › Home that members can now share folders in their own files
+   * (docs/AGENTS/plan/20261116-1330-folder-share-web.md) was closed: it never shows again */
+  folderShareNotice: z.literal('seen').optional().catch(undefined),
   /** my lists' folds (ListFolds); a stored value that does not read reads as absent, never hiding the other preferences */
   listFolds: ListFolds.optional().catch(undefined),
 })
@@ -709,6 +712,9 @@ export const FileEntry = z.object({
    * that file was kept and nothing new was made (keepSame). Find work files' Undo takes back only files a run made
    * (docs/DECISIONS.md "Find work files on this computer"). Absent on every other entry and from older servers. */
   kept: z.literal(true).optional(),
+  /** in a listing of the caller's OWN files only (docs/decisions/20261116-folder-share-server.md): 'own' the entry has
+   * people of its own on it, 'through' a folder above it is shared. Absent everywhere else and from older servers. */
+  shared: z.enum(['own', 'through']).optional(),
 })
 export type FileEntry = z.infer<typeof FileEntry>
 

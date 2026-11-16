@@ -289,6 +289,10 @@ export interface AppConfig {
   demo?: DemoFile
   /** keys of the config file that this version ignores (OBSOLETE_KEYS); the start logs them once */
   obsoleteKeys?: string[]
+  /** Folder sharing's rollout gate (docs/decisions/20261116-folder-share-server.md): a person can share a folder in
+   * their own files only while this is true. Absent = off, on every server: no config file key and no environment
+   * variable sets it (tests do); the web part of the work turns it on in code, after the widening checks are merged. */
+  folderShares?: boolean
 }
 
 /** Config file keys older versions read and this one ignores, with why, for the start's log line. */

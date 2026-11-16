@@ -56,6 +56,11 @@ export const CHAT_FILES_FOLDER = { ko: '채팅 첨부', en: 'Chat attachments', 
 export const FROM_COMPUTER_DIR = 'From this computer'
 export const FROM_COMPUTER_LABEL = { ko: '이 컴퓨터에서', en: 'From this computer', id: 'Dari komputer ini', ja: 'このコンピューターから', es: 'De este ordenador', zh: '来自这台电脑' } as const satisfies T
 
+/** A removed member's whole personal folder is handed to the team owner under users/<owner>/<this>/ (admin/users.ts),
+ * named in the team's language when it is made. Nothing at or inside a folder with any of these names is ever shared
+ * (server/src/files/share-places.ts). */
+export const ARCHIVE_DIR = { ko: '보관된 계정', en: 'Archived accounts', id: 'Akun diarsipkan', ja: 'アーカイブ済みアカウント', es: 'Cuentas archivadas', zh: '已归档账号' } as const satisfies T
+
 const isTop = (s: string): s is TopFolder => (TOP_FOLDERS as readonly string[]).includes(s)
 
 /** One folder's name in words: a top folder's label, the person's own folder (`me`: their id) as "내 파일"

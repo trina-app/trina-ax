@@ -81,6 +81,29 @@ Puede compartir un archivo suyo con las personas que elija, sin cambiar quién p
 
 Los propietarios y administradores pueden compartir cualquier archivo del equipo. En **Administración › Ajustes del equipo**, **Los miembros pueden compartir sus propios archivos** desactiva el uso compartido para los miembros (lo ya compartido sigue funcionando, y su propietario aún puede dejar de compartirlo). El propietario del equipo puede **Quitar todos los archivos compartidos** allí de una vez.
 
+### Compartir una carpeta de Mis archivos
+
+También puede compartir una carpeta de **Mis archivos** de la misma forma, como una carpeta de Mi unidad en Google Drive:
+**Archivos › ⋯ de una carpeta › Compartir**. Las personas y los grupos que añada pueden ver todo lo que contiene, también
+los archivos que añada más adelante, y no pueden cambiar nada. La encuentran en **Archivos › Compartidos conmigo** y la
+abren como una carpeta, un nivel cada vez: nombres, tamaños y fechas, y cada archivo para verlo o descargarlo. Nunca ven
+las carpetas que hay por encima.
+
+- El diálogo dice qué contiene la carpeta («3 archivos, 1 carpeta»). **Todo el equipo** tiene su propia línea: todo el
+  equipo, también quienes se unan más adelante, verá todo lo que hay en la carpeta y lo que se añada. Los invitados nunca.
+- En **Archivos**, una carpeta compartida dice **Compartido** y un archivo de dentro dice **Compartido a través de Work**
+  (en su propio diálogo, las personas de la carpeta aparecen «A través de Work»).
+- **Dejar de compartir** quita a todos a la vez. Antes indica lo que sigue compartido por separado (archivos y carpetas
+  de dentro). Después, **Deshacer** vuelve a poner a las personas durante unos minutos. Quitar personas y dejar de
+  compartir siempre funcionan, también si su equipo desactivó compartir para los miembros.
+- Su carpeta personal en sí y los lugares donde Trina guarda cosas allí (descargas, imágenes, habilidades, carpetas de
+  proyectos y algunos más) no se pueden compartir; el diálogo dice por qué.
+- Si la carpeta del servidor ya no es la que compartió (por ejemplo, se reemplazó fuera de Trina), el uso compartido se
+  **pausa**: nadie puede abrirla y usted recibe un aviso. Abra su diálogo Compartir y pulse **Reanudar**.
+
+En **Administración › Ajustes del equipo**, el interruptor es **Los miembros pueden compartir sus propios archivos y
+carpetas**, y **Quitar todos los archivos compartidos** cuenta archivos y carpetas por separado.
+
 ### Archivos compartidos con usted
 
 **Archivos › Compartidos conmigo** muestra los archivos que otras personas han compartido con usted, los más recientes primero, con quién lo compartió y cuándo. Un archivo que usted ya puede abrir en su carpeta aparece aquí solo cuando alguien le añadió por su nombre. Abra un archivo desde allí para verlo o descargarlo; **‹ Compartidos conmigo** le devuelve a la lista. Al abrir un archivo, su aviso en **Actividad** se marca como leído. Un archivo sale de la lista cuando usted pierde el acceso (su propietario le quitó, lo movió a la papelera o ya no puede editarlo).

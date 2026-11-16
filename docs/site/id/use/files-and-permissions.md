@@ -81,6 +81,29 @@ Anda bisa membagikan file milik Anda kepada orang tertentu tanpa mengubah siapa 
 
 Owner dan admin bisa membagikan file tim mana pun. Di **Admin › Pengaturan tim**, **Anggota bisa membagikan file milik mereka** mematikan pembagian untuk anggota (yang sudah dibagikan tetap berfungsi, dan pemiliknya masih bisa menghentikannya). Owner tim bisa **Hapus semua berbagi file** di sana sekaligus.
 
+### Membagikan folder di File saya
+
+Anda juga bisa membagikan folder di **File saya** dengan cara yang sama, seperti folder di Drive Saya Google Drive:
+**File › ⋯ folder › Bagikan**. Orang dan grup yang Anda tambahkan bisa melihat semua isinya, termasuk file yang Anda
+tambahkan nanti, dan tidak bisa mengubah apa pun. Mereka menemukannya di **File › Dibagikan ke saya** dan membukanya
+seperti folder, satu tingkat setiap kali: nama, ukuran, tanggal, dan tiap file untuk dilihat atau diunduh. Mereka tidak
+pernah melihat folder di atasnya.
+
+- Dialog menyebutkan isi folder ("3 file, 1 folder"). **Semua orang di tim** punya barisnya sendiri: semua orang di tim,
+  termasuk yang bergabung nanti, akan melihat semua isi folder dan apa pun yang ditambahkan. Tamu tidak pernah bisa.
+- Di **File**, folder yang dibagikan bertanda **Dibagikan**, dan file di dalamnya bertanda **Dibagikan lewat Work** (di
+  dialog Bagikan file itu, orang dari folder tampil "Lewat Work").
+- **Hentikan berbagi** mengeluarkan semua orang sekaligus. Sebelumnya, dialog menyebutkan apa yang tetap dibagikan sendiri
+  (file dan folder di dalamnya). Setelahnya, **Urungkan** mengembalikan orang-orangnya selama beberapa menit. Mengeluarkan
+  orang dan menghentikan berbagi selalu bisa, juga saat tim Anda mematikan berbagi untuk anggota.
+- Folder pribadi Anda sendiri dan tempat Trina menyimpan barang di sana (unduhan, gambar, skill, folder proyek, dan
+  beberapa lainnya) tidak bisa dibagikan; dialog menyebutkan alasannya.
+- Jika folder di server bukan lagi folder yang Anda bagikan (misalnya diganti di luar Trina), berbagi **dijeda**: tidak
+  ada yang bisa membukanya, dan Anda menerima pemberitahuan. Buka dialog Bagikan dan tekan **Lanjutkan**.
+
+Di **Admin › Pengaturan tim**, sakelarnya adalah **Anggota bisa membagikan file dan folder milik mereka**, dan **Hapus
+semua berbagi file** menghitung file dan folder secara terpisah.
+
 ### File yang dibagikan kepada Anda
 
 **File › Dibagikan ke saya** menampilkan file yang dibagikan orang lain kepada Anda, yang terbaru di atas, lengkap dengan siapa yang membagikan dan kapan. File yang sudah bisa Anda buka di foldernya hanya muncul di sini kalau seseorang menambahkan Anda dengan nama. Buka file dari sini untuk melihat atau mengunduhnya; **‹ Dibagikan ke saya** membawa Anda kembali ke daftar. Saat Anda membuka file, pemberitahuannya di **Aktivitas** ditandai sudah dibaca. File hilang dari daftar kalau akses Anda hilang (pemiliknya mencabutnya, memindahkannya ke sampah, atau sudah tidak bisa mengeditnya).

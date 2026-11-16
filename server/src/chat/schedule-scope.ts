@@ -57,22 +57,9 @@ const sha = (s: string) => crypto.createHash('sha256').update(s).digest('hex')
 // no control, direction-changing or invisible characters: a member-set room name cannot reorder or hide card text
 const oneLine = (s: string, n = 200) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, '').replace(/\s+/g, ' ').trim().slice(0, n)
 
-/** How the save folder's identity reads a folder (a test replaces it to play a disk without creation times). */
-export const folderStat: { lstat(p: string): { isDirectory(): boolean; dev: bigint; ino: bigint; birthtimeNs: bigint } } = {
-  lstat: (p) => fs.lstatSync(p, { bigint: true }),
-}
-
-/** Which folder on disk `segs` (actual names) is: its device, inode and birth time (nanoseconds). The inode alone is
- * not enough: Linux (ext4, overlay) gives a folder made right after another was deleted the same inode number, so a
- * folder deleted and made again with its name would look like the one the card showed. A disk that keeps no birth time
- * (0) cannot tell them apart: null, as for something that is not a folder (fails closed: refused on the card, an
- * existing save folder lapses). */
-export function saveFolderId(fx: FsCtx, segs: readonly string[]): string | null {
-  try {
-    const st = folderStat.lstat(path.join(fx.root, ...segs))
-    return st.isDirectory() && st.birthtimeNs !== 0n ? `${st.dev}:${st.ino}:${st.birthtimeNs}` : null
-  } catch { return null }
-}
+// The folder's identity on disk (device, inode, birth time) lives in files/folder-id.ts: folder sharing reads the same.
+export { folderStat, saveFolderId } from '../files/folder-id'
+import { saveFolderId } from '../files/folder-id'
 
 /** The folder rules that decide who reads and writes `segs` (actual names): those of every boundary folder from the
  * team root down to it, and whether each is limited, as one hash (policy/fingerprint.ts). Subjects are groups, people

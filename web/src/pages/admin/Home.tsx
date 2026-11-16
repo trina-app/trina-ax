@@ -18,6 +18,7 @@ import { AdminPageHeader } from './common'
 import { JobLine } from './jobs'
 import { OwnerSetup } from './OwnerChecklist'
 import { OldProjectsCard } from './OldProjectsCard'
+import { FolderShareNotice } from './FolderShareNotice'
 import { names, useAdminOverview, type AttentionItem, type State } from './overview'
 
 export default function Home() {
@@ -61,6 +62,9 @@ export default function Home() {
 
       {/* team projects from before the update that are members-only now (the owner and admins it concerns) */}
       <OldProjectsCard />
+
+      {/* once, when folder sharing opens: members can now share folders in their own files */}
+      <FolderShareNotice />
 
       {owner && <OwnerSetup />}
 

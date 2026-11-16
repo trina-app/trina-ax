@@ -39,6 +39,7 @@ import { badSegment, foldKey } from '../policy/names'
 import { componentC } from '../team-files/component'
 import { FileError } from '../team-files/errors'
 import { activePeople } from '../team-files/service'
+import { readerCheck } from '../files/share-readers'
 import { allowSkillAction, dropSkillAction, projectLevelPossible, skillRootOf, type SkillActionGrant } from './guard'
 import { copyNameOk, withName, type Level } from './move'
 
@@ -197,7 +198,9 @@ function followers(ctx: AppContext, rules: RuleSet, l: Level | null, entry: stri
 /** Who may change `rel` under `rules` (write), ids sorted. */
 const editors = (ctx: AppContext, rules: RuleSet, rel: string) => activePeople(ctx.db).filter((p) => rules.access(p, segsOf(rel)) === 'write').map((p) => p.id).sort()
 /** Who can read `rel` under `rules`, but `except` (the asker), ids sorted. */
-const readers = (ctx: AppContext, rules: RuleSet, rel: string, except: string) => activePeople(ctx.db).filter((p) => p.id !== except && atLeast(rules.access(p, segsOf(rel)), 'read')).map((p) => p.id).sort()
+/** (a folder share's people read it too: a file moved or copied out of a skill into a folder the asker shares reaches
+ * them, files/share-readers.ts) */
+const readers = (ctx: AppContext, rules: RuleSet, rel: string, except: string) => { const reads = readerCheck(ctx.db, rules); return activePeople(ctx.db).filter((p) => p.id !== except && reads(p, segsOf(rel))).map((p) => p.id).sort() }
 
 /** The folder rules as they will be after `from` moves to `to`: a moved folder's rules go with it (team-files
  * relocate moves the folders rows), everything else stays. */
@@ -588,7 +591,8 @@ export async function runFolderAction(ctx: AppContext, userId: string, a: Folder
     if (action === 'place') {
       done = svc.placeSkillTree(userId, plan.from, plan.to, plan.files.map(placed), { folder: plan.isDir, turnId: o.turnId, tool: o.tool, skillGrant: id }).path
     } else if (action === 'copy') {
-      const r = await svc.copy(userId, plan.from, plan.to, { onExists: 'fail', turnId: o.turnId, tool: o.tool, skillGrant: id })
+      // (the card showed who more can see it: its yes is the copy's confirm for a folder the asker shares)
+      const r = await svc.copy(userId, plan.from, plan.to, { onExists: 'fail', turnId: o.turnId, tool: o.tool, skillGrant: id, confirm: plan.seeAdded.length > 0 })
       if ('path' in r) done = r.path
     } else {
       // a project's first skill: its skills folder is made first (it has no rules of its own), and taken away again

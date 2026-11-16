@@ -14,6 +14,7 @@ import { audit } from '../admin/audit'
 import { atLeast, isStaff, loadPrincipal, RuleSet, setProjectsCaseInsensitive, type Principal } from '../policy/access'
 import { authorize, type Authorized, type FsCtx } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
+import { shareReaders } from './share-readers'
 import { writeLimitText } from '../policy/refusal'
 import { badSegment, hiddenEntry } from '../policy/names'
 import { detectCaseInsensitive } from '../policy/resolve'
@@ -1451,6 +1452,10 @@ export class FileService {
     if (!t) throw new ToolError('not in trash', 'not_found')
     const r = authorize(this.fx, this.rules(), user, t.original_path, 'write', { createDirs: true })
     if (r.exists) throw new ToolError('a file with that name exists again; rename it first')
+    // inside a folder its owner shared after it went to the trash: refused here (no confirm on this path; the Files
+    // screen's restore asks, team-files/service.ts restoreTrash)
+    const now = shareReaders(this.db, r.segs), then = shareReaders(this.db, r.segs, { upTo: t.deleted_at })
+    if ([...now].some((id) => !then.has(id))) throw new ToolError('the folder it goes back to is shared with more people now; restore it on the Files screen, which asks first', 'conflict')
     const bytes = fs.readFileSync(path.join(this.fx.root, ...t.storage_path.split('/')))
     atomicWrite(this.fx.root, r.segs, bytes, { createDirs: true })
     this.db.query('UPDATE trash_items SET restored_at = ? WHERE id = ?').run(new Date().toISOString(), trashId)

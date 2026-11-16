@@ -183,3 +183,8 @@ export async function streamFile(o: { abs: string; name: string; req: Request; d
   headers.set('Content-Length', String(end - range.start + 1))
   return new Response(o.req.method === 'HEAD' ? null : rangeStream(o.abs, range.start, end), { status: 206, headers })
 }
+
+// For the descriptor-bound download (stream-checked.ts): the same accounting of bodies read whole, and the same rule
+// for types a browser would run when shown inline.
+export const holdBody = hold
+export const inlineType = (type: string, disposition: 'inline' | 'attachment') => (disposition === 'inline' && ACTIVE.test(type) ? 'text/plain; charset=utf-8' : type)

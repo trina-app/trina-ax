@@ -246,6 +246,11 @@ export const InboxNotification = z.object({
     /** file.shared for several files in one press (docs/decisions/20261116-file-share-everyone.md): how many of them the
      * viewer can open now, and the press's id (link 'file' opens /f/batch/<batchId>); `name` is then null */
     count: z.number().int().positive().optional(), batchId: z.string().optional(),
+    /** the notice is about a folder in a person's own files (docs/decisions/20261116-folder-share-server.md): 'shared'
+     * (file.shared: `by` shared the folder `name` with me); to its owner, with file.unshared_by_move: 'paused' (the
+     * folder on the server is not the one shared: nobody opens it until the owner resumes it) or 'ended' (the owner's
+     * move put it where nothing is shared). Older servers omit it */
+    folder: z.enum(['shared', 'paused', 'ended']).optional(),
   }).optional(),
   /** 'skill.suggested' for a batch of skill folders a member sent (docs/DECISIONS.md "MC"; for the owners and admins):
    * who sent it, while their account is there, and how many skills it held. "민준 님이 스킬 2개를 팀에 올리자고 했어요";

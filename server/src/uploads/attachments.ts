@@ -30,7 +30,8 @@ import { CHAT_FILE_MAX, chatFilesOf } from '../chat/chat-files'
 import { isPeopleRow } from '../chat/chat-audience'
 import { safeOpsEnabled } from '../safe-ops/runner'
 
-export const ATTACHMENTS_DIR = '.attachments'
+import { ATTACHMENTS_DIR } from './attachments-dir'
+export { ATTACHMENTS_DIR }
 /** settings: set once every thumbnail from before transparent ones were PNG was looked at (refreshThumbs) */
 export const THUMBS_REFRESHED_SETTING = 'attachments.thumbsTransparent'
 
