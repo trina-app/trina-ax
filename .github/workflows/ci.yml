@@ -40,7 +40,7 @@ env:
   PANDOC_VERSION: 3.9.0.2
 
 jobs:
-  # A pull request that changes only Markdown under docs/, docs/decisions/ or changes/ (decisions, changelog fragments) runs the
+  # A pull request that changes only Markdown directly in docs/, docs/decisions/ or changes/ (decisions, fragments) runs the
   # doc checks alone (docs job below), not the ~10 minutes of builds and tests: those files reach no build. Anything
   # else, a push, a manual or a called run runs everything. The required check (check job) passes on either path.
   scope:

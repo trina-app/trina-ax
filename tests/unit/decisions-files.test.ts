@@ -76,6 +76,10 @@ describe('the archive', () => {
     expect(newArchiveLines(ARCHIVE, ARCHIVE.replace('> Archive note.\n', '> Archive note.\n> Look in docs/decisions/.\n> One more line.\n'))).toEqual([])
     expect(newArchiveLines(ARCHIVE, ARCHIVE.replace('- **Two.** Reason.\n', ''))).toEqual([])
   })
+  test('a decision hidden in the top note fails', () => {
+    const many = Array.from({ length: 8 }, (_, i) => `> Rule ${i}.`).join('\n')
+    expect(newArchiveLines(ARCHIVE, ARCHIVE.replace('> Archive note.\n', `> Archive note.\n${many}\n`))).toHaveLength(8)
+  })
   test('a copied line still counts as new', () => {
     expect(newArchiveLines(ARCHIVE, ARCHIVE.replace('- Rule line.\n', '- Rule line.\n- Rule line.\n'))).toEqual(['(1 more line(s) than the base)'])
   })

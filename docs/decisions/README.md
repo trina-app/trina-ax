@@ -52,6 +52,6 @@ Commands (`scripts/decisions.ts`):
 - `bun run decisions:check`: fails on a file here without the header above (or with a name or date that do not match),
   a merge marker here or in the archive, and, on a pull request, a PR that adds a section or lines to
   `docs/DECISIONS.md` (compared with the base branch as `bun run changelog:check` does; the release PR, dev into main,
-  is compared with dev). A change to the archive's top note, or a typo fix that keeps the number of lines, passes.
+  is compared with dev). A change to the archive's top note (at most 6 new lines), or a typo fix that keeps the number of lines, passes.
   Locally there is no base and that part is skipped; `DECISIONS_BASE=origin/dev bun run decisions:check` compares
   with a ref. `bun run check:docs` runs it, so CI does, and it checks the local links (and anchors) in these files.

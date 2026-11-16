@@ -51,23 +51,30 @@ export function readDecisions(dir: string): Decision[] {
     .map((f) => ({ file: f, ...readHeader(fs.readFileSync(path.join(dir, f), 'utf8')) }))
 }
 
-/** The archive after its top note: from the first "## " heading on. */
-function body(text: string): string[] {
+/** The archive's top note (before the first "## " heading) and the rest, non-blank lines only. */
+function split(text: string): { top: string[]; body: string[] } {
   const lines = text.replace(/\r\n?/g, '\n').split('\n')
   const first = lines.findIndex((l) => l.startsWith('## '))
-  return (first < 0 ? [] : lines.slice(first)).filter((l) => l.trim())
+  const at = first < 0 ? lines.length : first
+  return { top: lines.slice(0, at).filter((l) => l.trim()), body: lines.slice(at).filter((l) => l.trim()) }
 }
+
+/** How many lines a PR may add to the top note at once: enough to reword it, too few to hide a decision there. */
+export const TOP_NOTE_SLACK = 6
 
 /** Lines a PR added to the archive instead of a file in docs/decisions/: below the top note the archive has more
  * sections ("## " headings) or more lines than the base's, and these lines are nowhere in the base's file. A typo fix
- * keeps both counts and passes; so does any change to the top note (above the first heading). */
+ * keeps both counts and passes; so does a change to the top note (above the first heading) that adds at most
+ * TOP_NOTE_SLACK lines. */
 export function newArchiveLines(base: string, head: string): string[] {
-  const b = body(base), h = body(head)
+  const b = split(base), h = split(head)
   const headings = (ls: string[]) => ls.filter((l) => l.startsWith('## ')).length
-  if (headings(h) <= headings(b) && h.length <= b.length) return []
+  const bodyGrew = headings(h.body) > headings(b.body) || h.body.length > b.body.length
+  const topGrew = h.top.length > b.top.length + TOP_NOTE_SLACK
+  if (!bodyGrew && !topGrew) return []
   const known = new Set(base.replace(/\r\n?/g, '\n').split('\n').map((l) => l.trim()))
-  const added = h.filter((l) => !known.has(l.trim()))
-  return added.length ? added : [`(${h.length - b.length} more line(s) than the base)`]
+  const added = [...(topGrew ? h.top : []), ...(bodyGrew ? h.body : [])].filter((l) => !known.has(l.trim()))
+  return added.length ? added : [`(${h.body.length - b.body.length} more line(s) than the base)`]
 }
 
 /** The failure for lines a PR added to the archive. */
