@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { silentLogger } from '../../server/src/log'
 import { packBundle, writeManifest } from '../../server/src/system/bundle'
-import { setVersionModes, UpdateManager } from '../../server/src/system/update'
+import { repairVersionModes, setVersionModes, UpdateManager } from '../../server/src/system/update'
 import { WORK } from '../lib/env'
 
 const W = path.join(WORK, 'g-update-modes')
@@ -123,15 +123,18 @@ describe('version folder modes', () => {
     fs.symlinkSync(outside, path.join(app, 'versions', '0.0.1'))
     fs.symlinkSync('versions/0.5.7', path.join(app, 'current'))
 
-    const u = new UpdateManager({ appDir: app, dataDir: path.join(W, 'repair', 'data'), version: '0.5.7', channel: 'stable', feedUrl: null, log: silentLogger })
-    expect(await u.repairVersionModes()).toBeGreaterThan(0)
+    const warned: string[] = []
+    const log = { ...silentLogger, warn: (m: string) => { warned.push(m) } }
+    expect(repairVersionModes(app, log)).toBeGreaterThan(0)
+    expect(warned).toContain('version folder modes repaired')
     expectSharedModes(broken)
     expectSharedModes(other)
     expect(fs.statSync(staging).mode & 0o777).toBe(0o700)
     expect(fs.statSync(outside).mode & 0o777).toBe(0o600) // a link is never followed
-    expect(await u.repairVersionModes()).toBe(0) // healthy: nothing to change
+    expect(repairVersionModes(app, silentLogger)).toBe(0) // healthy: nothing to change
     // an office/dev server without app/ has nothing to repair
-    expect(await new UpdateManager({ appDir: null, dataDir: path.join(W, 'repair', 'data'), version: '0.5.7', channel: 'stable', feedUrl: null, log: silentLogger }).repairVersionModes()).toBe(0)
+    expect(repairVersionModes(null, silentLogger)).toBe(0)
+    expect(repairVersionModes(path.join(W, 'repair', 'none'), silentLogger)).toBe(0)
   })
 
   test('setVersionModes never follows a link inside the tree', async () => {
@@ -142,8 +145,22 @@ describe('version folder modes', () => {
     fs.chmodSync(target, 0o600)
     fs.symlinkSync(target, path.join(root, 'l'))
     fs.chmodSync(root, 0o700)
-    expect(await setVersionModes(root)).toBe(1)
+    expect(setVersionModes(root)).toBe(1)
     expect(fs.statSync(root).mode & 0o777).toBe(0o755)
     expect(fs.statSync(target).mode & 0o777).toBe(0o600)
+  })
+
+  test('start-up repairs before migrations and before the server listens (the health check must not pass a broken tree)', () => {
+    // a 0.5.7 server stages the next version with its old code, so that version starts with a broken tree: the repair
+    // has to be done before /api/health can answer and before any turn, i.e. synchronously at the top of start()
+    const src = fs.readFileSync(path.resolve(import.meta.dir, '..', '..', 'server', 'src', 'main.ts'), 'utf8')
+    const body = src.slice(src.indexOf('export async function start('))
+    const repair = body.indexOf("if (process.platform === 'linux') repairVersionModes(resolveLayout(cfg).appDir, log)")
+    expect(repair).toBeGreaterThan(0)
+    for (const later of ['await migrateBeforeStart(', 'openDb(', 'buildApp(', 'Bun.serve(']) {
+      expect([later, body.indexOf(later) > repair]).toEqual([later, true])
+    }
+    // synchronous: nothing to await, so nothing can run before it finishes
+    expect(repairVersionModes(null, silentLogger)).toBe(0)
   })
 })

@@ -679,8 +679,12 @@ stage_version() {
   rm -rf "$STAGE"; mkdir -m 700 "$STAGE"; chown root:root "$STAGE"
   cp -a --no-preserve=ownership "$BUNDLE" "$STAGE/$VERSION" || { rm -rf "$STAGE"; die "copying $VERSION to $STAGE failed (is the disk full?)"; }
   chown -R "$SRV_USER:$SRV_GRP" "$STAGE/$VERSION"
+  # the modes mycel-ctl's copyTree gives (folders 755, programs 755, other files 644), never the kit's own: the launcher
+  # and the engine sandbox (another account) read app/current/native, and `repair` copies an installed version whose
+  # files an app-only update of 0.5.6/0.5.7 left 0640/0750 (server umask 027)
   find "$STAGE/$VERSION" -type d -exec chmod 755 {} +
-  chmod -R go-w "$STAGE/$VERSION"
+  find "$STAGE/$VERSION" -type f -perm /111 -exec chmod 755 {} +
+  find "$STAGE/$VERSION" -type f ! -perm /111 -exec chmod 644 {} +
   # on disk before it gets its name (QA TC-279): after a power loss, a version whose files never reached the disk fails
   # the bootstrap's check, the server rolls back to the version before, which may not read the migrated DB, and stops.
   # sync -f: one syncfs of the file system with the new version, not an fsync per file.

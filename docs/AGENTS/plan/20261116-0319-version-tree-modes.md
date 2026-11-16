@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16
 - Branch: `fix/version-tree-modes`
-- Status: in progress
+- Status: done
 - Where: trina-ax (core: server updater, `server/src/system/`). Why: the update path is core (docs/REPOSITORY-RULES.md)
 - Version impact: patch, a bug fix
 
@@ -25,9 +25,11 @@ In:
 - `stage()`: after unpacking, set the modes of the staged tree whatever the umask is (folders 0755; files 0755 when the
   owner can execute them, otherwise 0644; symlinks are left alone). This is the rule `mycel-ctl`'s copyTree/repairTree
   uses.
-- Healing at start-up: an installed Linux server repairs the same modes on every folder in `app/versions/` it owns, in
-  the background. A server already broken on 0.5.7 (or a 0.5.8 staged by 0.5.7's old code) is healed when the new
-  version starts, and a version kept for Go back is healed too.
+- Healing at start-up: an installed Linux server repairs the same modes on `app/versions/` and every version folder it
+  owns there, synchronously at the top of `start()` (main.ts), before migrations and before anything listens. A server
+  already broken on 0.5.7 (or a 0.5.9 staged by 0.5.7's old code) is healed when the new version starts, and a version
+  kept for Go back is healed too.
+- `install-linux.sh` stage_version: files get 644/755 too, not only folders (its `repair` copied a broken tree back).
 - Tests: stage under umask 027/077 with an archive holding 0640/0750 entries, then check the result is o+rX. A start-up
   repair test.
 
@@ -36,4 +38,7 @@ restore semantics (unchanged).
 
 ## Result
 
-(filled in at the end)
+Done as planned. The independent review found two more things, and both are fixed. First, install-linux.sh
+normalized only folders. Second, nothing tested the start-up wiring. The coordinator then asked for the repair to run
+synchronously before the listener. It now runs at the top of main.ts start(), and a test asserts that order. The
+executable rule matches Go (any x bit). One entry that cannot be changed no longer stops the rest of the repair.

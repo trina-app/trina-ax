@@ -897,12 +897,6 @@ export class OpsService {
         if (id) log.warn('the last update job did not stay: marked failed', { job: id, running: this.ctx.version })
       } catch (e) { log.warn('update job not checked', { err: e }) }
     }
-    // Linux: the version folders an app-only update of 0.5.6/0.5.7 staged under the server's umask 027 (0750 folder,
-    // 0640/0750 files) are healed here, so the launcher and the engine sandbox (another account) can read
-    // app/current/native again. The version running now may have been staged by that old code (update.ts setVersionModes)
-    if (this.updates.installed && this.platform() === 'linux') {
-      void this.updates.repairVersionModes().catch((e) => log.warn('version folder modes not repaired', { err: e }))
-    }
     this.timers.push(setInterval(() => {
       if (!this.shouldRunDailyBackup()) return
       this.backups.run({ kind: 'daily', scope: 'full' }).catch((e) => log.error('daily backup failed', { err: e }))
