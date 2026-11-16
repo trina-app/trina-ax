@@ -32,7 +32,7 @@ test('the steps list reads in plain words, in Korean and after a switch to Engli
   // the same steps follow the language on screen
   const chat = page.url()
   await page.goto('/settings/profile')
-  await page.getByTestId('locale-en').click()
+  await page.getByTestId('profile-locale').selectOption('en')
   await expect(page.locator('html')).toHaveAttribute('lang', 'en')
   await page.goto(chat)
   const again = page.getByTestId('assistant-message').last().getByTestId('steps')
