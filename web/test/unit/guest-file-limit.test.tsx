@@ -1,14 +1,16 @@
-// A guest's room file limit (docs/decisions/20261116-guest-room-file-limit.md): Admin > Members > Guests has one choice
+// A guest's file limit (docs/decisions/20261116-guest-room-file-limit.md): Admin > Members & invites has one choice
 // for it (100 MB, 1 GB, 10 GB; saved as it is picked), and a guest's room box refuses a larger file before it is sent,
 // naming the guest's own limit (the server checks it again).
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act } from 'react'
-import type { Me, TeamSettings } from '@mycel/shared/api'
+import { UPLOAD_SESSION_MAX, type Me, type TeamSettings } from '@mycel/shared/api'
+import { myUploadMax } from '../../src/lib/guests'
+import { splitOversize } from '../../src/lib/upload'
 import { RoomComposer } from '../../src/components/rooms/RoomComposer'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { GuestFileLimit } from '../../src/pages/admin/Guests'
 import { useRoomUploads } from '../../src/store/roomUploads'
-import { useSession } from '../../src/store/session'
+import { myUploadMaxNow, useSession } from '../../src/store/session'
 import { useUi } from '../../src/store/ui'
 import { FakeEvent, installDom, mount, removeDom, type FakeElement } from './dom-host'
 import { BEN, ME, room } from './rooms-fixtures'
@@ -27,7 +29,7 @@ afterEach(() => {
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { 'content-type': 'application/json' } })
 const MB = 1024 * 1024
 /** the team settings as the server sends them (only the guest file limit matters here) */
-const SETTINGS: TeamSettings = { teamName: 'Acme', defaultLocale: 'en', defaultEngine: 'claude-code', defaultModel: null, concurrency: 2, updateChannel: 'stable', updateWindow: null, auditRetentionDays: 365, fileHistoryRetentionDays: 90, trashRetentionDays: 30, chatTrashRetentionDays: 7, timeZone: 'Asia/Seoul', browserAllowAll: true, webAllowAll: true, personalIntegrations: true, aiVision: true, aiSubagents: true, roomAlwaysAllow: true, projectCreators: 'members', guestRoomFileMax: '100mb', memberFileShares: true, oftenAsked: true, answerStepLimit: 150, speechProvider: 'local', speechModel: 'openai/whisper-large-v3-turbo', aiMediaTranscripts: null, introDeckTier: 'standard' }
+const SETTINGS: TeamSettings = { teamName: 'Acme', defaultLocale: 'en', defaultEngine: 'claude-code', defaultModel: null, concurrency: 2, updateChannel: 'stable', updateWindow: null, auditRetentionDays: 365, fileHistoryRetentionDays: 90, trashRetentionDays: 30, chatTrashRetentionDays: 7, timeZone: 'Asia/Seoul', browserAllowAll: true, webAllowAll: true, personalIntegrations: true, aiVision: true, aiSubagents: true, roomAlwaysAllow: true, projectCreators: 'members', guestFileMax: '100mb', memberFileShares: true, oftenAsked: true, answerStepLimit: 150, speechProvider: 'local', speechModel: 'openai/whisper-large-v3-turbo', aiMediaTranscripts: null, introDeckTier: 'standard' }
 
 describe('Admin > Members > Guests: the largest file a guest can send', () => {
   test('shows the team\'s choice among 100 MB, 1 GB and 10 GB, and saves a new one as it is picked', async () => {
@@ -36,8 +38,8 @@ describe('Admin > Members > Guests: the largest file a guest can send', () => {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(input), 'http://team.localhost').pathname
       if (path !== '/api/admin/settings') return json({ error: { code: 'not_found', message: 'no' } }, 404)
-      if (init?.method === 'PATCH') { const b = JSON.parse(String(init.body)) as { guestRoomFileMax: string }; patches.push(b); saved = b.guestRoomFileMax }
-      return json({ ...SETTINGS, guestRoomFileMax: saved })
+      if (init?.method === 'PATCH') { const b = JSON.parse(String(init.body)) as { guestFileMax: string }; patches.push(b); saved = b.guestFileMax }
+      return json({ ...SETTINGS, guestFileMax: saved })
     }) as typeof fetch
     const m = await mount(<GuestFileLimit />)
     try {
@@ -47,7 +49,7 @@ describe('Admin > Members > Guests: the largest file a guest can send', () => {
       ;(select as unknown as { value: string }).value = '1gb'
       await act(async () => { select.dispatchEvent(new FakeEvent('change', { bubbles: true })) })
       await m.until(() => patches.length === 1, 'the save')
-      expect(patches).toEqual([{ guestRoomFileMax: '1gb' }])
+      expect(patches).toEqual([{ guestFileMax: '1gb' }])
       await m.until(() => useUi.getState().toasts.some((t) => t.level === 'success'), 'the saved line')
     } finally { await m.unmount() }
   })
@@ -55,7 +57,7 @@ describe('Admin > Members > Guests: the largest file a guest can send', () => {
 
 describe('a guest\'s room box', () => {
   const r = room({ name: 'client-call', lastSeq: 1, lastReadSeq: 1 })
-  const signIn = (roomFileMaxBytes?: number) => useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name, role: roomFileMaxBytes ? 'guest' : 'member' }, team: { name: 'Acme', ...(roomFileMaxBytes ? { roomFileMaxBytes } : {}) }, server: { allChatsConfidential: false } } as unknown as Me } })
+  const signIn = (uploadMaxBytes?: number) => useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name, role: uploadMaxBytes ? 'guest' : 'member' }, team: { name: 'Acme', ...(uploadMaxBytes ? { uploadMaxBytes } : {}) }, server: { allChatsConfidential: false } } as unknown as Me } })
   const drop = async (box: FakeElement, file: File) => {
     const dt = { types: ['Files'], files: [file], dropEffect: 'none', getData: () => '' }
     for (const type of ['dragenter', 'dragover', 'drop']) await act(async () => { box.dispatchEvent(Object.assign(new FakeEvent(type, { bubbles: true, cancelable: true }), { dataTransfer: dt, relatedTarget: null })) })
@@ -93,5 +95,21 @@ describe('a guest\'s room box', () => {
       expect(warned()).toEqual([])
       expect(useRoomUploads.getState().byPlace[r.id]).toHaveLength(1)
     } finally { await m.unmount() }
+  })
+})
+
+describe('a guest\'s other uploads', () => {
+  test('the same limit for a file attached to an AI chat or dropped as a folder: taken from Me, 20 GB for anyone else', () => {
+    const me = (uploadMaxBytes?: number) => ({ user: { id: 'gus', role: uploadMaxBytes ? 'guest' : 'member' }, team: { name: 'Acme', ...(uploadMaxBytes ? { uploadMaxBytes } : {}) } }) as unknown as Me
+    expect(myUploadMax(me(100 * MB), UPLOAD_SESSION_MAX)).toBe(100 * MB)
+    expect(myUploadMax(me(), UPLOAD_SESSION_MAX)).toBe(UPLOAD_SESSION_MAX)
+    expect(myUploadMax(null, UPLOAD_SESSION_MAX)).toBe(UPLOAD_SESSION_MAX)
+    // never above what the place itself takes
+    expect(myUploadMax(me(10 * 1024 * MB), 50 * MB)).toBe(50 * MB)
+    const files = [{ name: 'a.pdf', size: 5 * MB }, { name: 'b.mov', size: 100 * MB + 1 }, { name: 'c.mov', size: 100 * MB }]
+    expect(splitOversize(files, 100 * MB)).toEqual({ fit: [files[0]!, files[2]!], tooBig: files[1] })
+    expect(splitOversize(files).tooBig).toBeUndefined()
+    useSession.setState({ status: { kind: 'signed-in', me: me(1024 * MB) } })
+    expect(myUploadMaxNow(UPLOAD_SESSION_MAX)).toBe(1024 * MB)
   })
 })

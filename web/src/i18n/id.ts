@@ -201,7 +201,7 @@ export const id: Record<MessageKey, string> = {
   "guest.admin.left": "sisa {n}",
   "guest.admin.countOf": "{n} dari {m}",
   "guest.admin.over": "Paket ini mengizinkan {m} tamu. Semua tamu di sini tetap bisa memakai Trina, tetapi Anda tidak bisa mengundang lagi sampai ada tamu yang dikeluarkan atau paketnya diubah.",
-  "guest.admin.fileLimit": "Berkas terbesar yang bisa dikirim tamu di chat",
+  "guest.admin.fileLimit": "Berkas terbesar yang bisa diunggah tamu",
   "guest.admin.none": "Belum ada tamu. Undang dari daftar anggota obrolan grup atau proyek.",
   "guest.admin.noneActive": "Belum ada tamu saat ini.",
   "guest.admin.showRemoved": "Tampilkan tamu yang dikeluarkan ({n})",

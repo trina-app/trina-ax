@@ -474,8 +474,8 @@ export const adminRoutes: RouteModule = {
       if ('browserAllowAll' in changed || 'webAllowAll' in changed) ctx.services.realtime.publishEach(() => BROWSER_POLICY_CHANGED)
       // composers show or hide the mic (Me.team.voiceInput)
       if ('speechProvider' in changed) ctx.services.realtime.publishEach(() => SPEECH_CHANGED)
-      // guests' room boxes read their file limit again (Me.team.roomFileMaxBytes); nobody else is told
-      if ('guestRoomFileMax' in changed) ctx.services.realtime.publishEach((id) => (isGuestUser(ctx.db, id) ? GUEST_FILE_LIMIT_CHANGED : null))
+      // guests' room boxes read their file limit again (Me.team.uploadMaxBytes); nobody else is told
+      if ('guestFileMax' in changed) ctx.services.realtime.publishEach((id) => (isGuestUser(ctx.db, id) ? GUEST_FILE_LIMIT_CHANGED : null))
       return next
     })
 

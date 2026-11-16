@@ -47,6 +47,7 @@ import { pastedFiles } from '../../lib/paste'
 import { useVoiceInput } from '../../lib/useVoiceInput'
 import { micState, voiceBlockedInRoom } from '../../lib/voice'
 import { currentLocale, translate, useLocale, useT } from '../../i18n'
+import { myUploadMax } from '../../lib/guests'
 import { useMe } from '../../store/session'
 import { findMessage, keepRoomDraft, onRoomDraftElsewhere, placeKey, restoreRoomDraft, roomDraftMentions, roomDrafts as drafts, useRooms } from '../../store/rooms'
 import { failedEdits, hasRoomBox, registerRoomBox, useRoomEdit } from '../../store/roomEdit'
@@ -145,9 +146,9 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   const everyone = useEveryone(roomId, members, meId)
   const others = members.filter((m) => m.id !== meId).length
   const me = useMe()
-  // the largest file I may send here: 10 GB, or for a guest what the team allows guests (Me.team.roomFileMaxBytes;
+  // the largest file I may send here: 10 GB, or for a guest what the team allows guests (Me.team.uploadMaxBytes;
   // the server checks it again)
-  const fileMax = me?.team?.roomFileMaxBytes ?? ROOM_FILE_MAX
+  const fileMax = myUploadMax(me, ROOM_FILE_MAX)
   // my message being edited in this box (a phone: RoomMessages.tsx puts it in store/roomEdit.ts when this place has a box)
   const editId = useRoomEdit((s) => s.editing[key] ?? null)
   const editMsg = useRooms((s) => (editId ? findMessage(s, roomId, editId) ?? null : null))

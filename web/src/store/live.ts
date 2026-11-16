@@ -215,7 +215,7 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
         return
       }
       if (ev.data.code === 'guest_file_limit_changed') {
-        // an admin changed the largest file a guest may send in a chat: this guest's room box follows (Me.team.roomFileMaxBytes)
+        // an admin changed the largest file a guest may send in a chat: this guest's room box follows (Me.team.uploadMaxBytes)
         void useSession.getState().refreshMe()
         return
       }

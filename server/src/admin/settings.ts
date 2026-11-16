@@ -1,7 +1,7 @@
 // Team settings (tab 1 `settings`: key -> JSON value). One key per TeamSettings field; internal keys use a dot
 // prefix ("engines.enabled"). Other components read settings through getTeamSettings() (read-only for them).
 import type { Database } from 'bun:sqlite'
-import { GUEST_ROOM_FILE_DEFAULT, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_LOCALE, DEFAULT_SPEECH_MODEL, Locale, TeamSettings, type EngineId, type TeamSettings as TeamSettingsT, DEFAULT_DECK_TIER } from '@mycel/shared/api'
+import { GUEST_FILE_DEFAULT, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_LOCALE, DEFAULT_SPEECH_MODEL, Locale, TeamSettings, type EngineId, type TeamSettings as TeamSettingsT, DEFAULT_DECK_TIER } from '@mycel/shared/api'
 import { PRODUCT } from '@mycel/shared'
 import { defaultTimeZone, isValidTimeZone } from '../system/time-zone'
 
@@ -36,8 +36,8 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
   memberFileShares: true,
   /** any member may make a team project (docs/DECISIONS.md "Projects live only in projects/") */
   projectCreators: 'members',
-  /** a guest sends files of up to 100 MB in a room until the owner or an admin raises it (rooms/files.ts maxFor) */
-  guestRoomFileMax: GUEST_ROOM_FILE_DEFAULT,
+  /** a guest uploads files of up to 100 MB until the owner or an admin raises it (uploads/guest-limit.ts) */
+  guestFileMax: GUEST_FILE_DEFAULT,
   /** Home's "what my group often asks" (chat/often-asked.ts): on unless an admin turns it off (the owner's call, 2026-11-11) */
   oftenAsked: true,
   /** tool rounds per answer (Claude Code --max-turns; chat/runtime.ts maxEngineTurns) */
@@ -134,8 +134,8 @@ export const WEB_ACCESS_CHANGED = { type: 'notice', data: { level: 'info', code:
  * Realtime notice: voice input was turned on or off (speechProvider, the OpenRouter key). Open windows ask GET /api/me
  * again (Me.team.voiceInput) and show or hide the mic. The message carries nothing.
  */
-/** to guests when an admin changed the largest file a guest may send in a room: their room box reads its limit again
- * (Me.team.roomFileMaxBytes), so a raised limit works without a reload */
+/** to guests when an admin changed the largest file a guest may upload: their boxes read the limit again
+ * (Me.team.uploadMaxBytes), so a raised limit works without a reload */
 export const GUEST_FILE_LIMIT_CHANGED = { type: 'notice', data: { level: 'info', code: 'guest_file_limit_changed', message: '' } } as const
 export const SPEECH_CHANGED = { type: 'notice', data: { level: 'info', code: 'speech_changed', message: '' } } as const
 

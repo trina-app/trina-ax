@@ -27,9 +27,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
 import { which } from '../config'
-import { GUEST_ROOM_FILE_MAX, ROOM_FILE_MAX, SMALL_UPLOAD_MAX, type Locale, type RoomFile } from '@mycel/shared/api'
-import { getTeamSettings } from '../admin/settings'
-import { isGuestUser } from '../credentials/guest-ai'
+import { GUEST_FILE_MAX, ROOM_FILE_MAX, SMALL_UPLOAD_MAX, type Locale, type RoomFile } from '@mycel/shared/api'
+import { guestUploadMax, sizeWords } from '../uploads/guest-limit'
 import { HWP_LIMITS } from '@mycel/shared/hwp'
 import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
@@ -111,17 +110,16 @@ export class RoomFiles {
   }
 
   /** The largest file this person may send in a room now: ROOM_FILE_MAX, or for a guest the team's choice (100 MB
-   * unless the owner or an admin raised it: TeamSettings.guestRoomFileMax). Read at every upload, from their role then. */
+   * unless the owner or an admin raised it: uploads/guest-limit.ts). Read at every upload, from their role then. */
   maxFor(userId: string): number {
-    return isGuestUser(this.ctx.db, userId) ? Math.min(ROOM_FILE_MAX, GUEST_ROOM_FILE_MAX[getTeamSettings(this.ctx.db).guestRoomFileMax] ?? GUEST_ROOM_FILE_MAX['100mb']) : ROOM_FILE_MAX
+    return Math.min(ROOM_FILE_MAX, guestUploadMax(this.ctx.db, userId) ?? ROOM_FILE_MAX)
   }
 
   /** 413 in plain words with the person's own limit ("… The limit is 100 MB."). */
   private assertSize(userId: string, size: number): void {
     const max = this.maxFor(userId)
     if (size <= max) return
-    const words = max >= 1024 ** 3 ? `${max / 1024 ** 3} GB` : `${max / 1024 ** 2} MB`
-    fail('payload_too_large', tr('roomFileTooBig', personLocale(this.ctx.db, userId), { max: words }), { params: { reason: 'room_file_too_large', maxBytes: max } })
+    fail('payload_too_large', tr('roomFileTooBig', personLocale(this.ctx.db, userId), { max: sizeWords(max) }), { params: { reason: 'room_file_too_large', maxBytes: max } })
   }
 
   /**

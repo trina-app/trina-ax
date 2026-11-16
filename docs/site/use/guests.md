@@ -13,7 +13,7 @@ team skills. They don't take a seat on your plan.
 | **Team files** | The folders they may open | Only the files of their project (none in a group chat) |
 | **AI** | The team's AI settings | No AI, unless an AI is picked for them |
 | **Seat** | Takes one | Doesn't take one |
-| **Files sent in a chat** | Up to 10 GB each | Up to 100 MB each, unless an owner or admin raises it (1 GB or 10 GB) in **Admin › Members & invites**, above the **Guests** list |
+| **Largest file they can upload** | 10 GB in a chat, 20 GB in Files | 100 MB, unless an owner or admin raises it (1 GB or 10 GB) in **Admin › Members & invites**, above the **Guests** list |
 
 Next to a guest's name you see a **Guest** tag, and a chat or project with guests in it says so at the top
 ("Includes 1 guest").

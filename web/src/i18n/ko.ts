@@ -200,7 +200,7 @@ export const ko = {
   "guest.admin.left": "{n} 남음",
   "guest.admin.countOf": "{n}/{m}명",
   "guest.admin.over": "이 요금제는 게스트가 {m}명까지예요. 지금 있는 게스트는 그대로 쓸 수 있지만, 게스트를 내보내거나 요금제를 바꾸기 전에는 더 초대할 수 없어요.",
-  "guest.admin.fileLimit": "게스트가 대화에 보낼 수 있는 가장 큰 파일",
+  "guest.admin.fileLimit": "게스트가 올릴 수 있는 가장 큰 파일",
   "guest.admin.none": "아직 게스트가 없어요. 그룹 대화나 프로젝트의 멤버 목록에서 초대할 수 있어요.",
   "guest.admin.noneActive": "지금은 게스트가 없어요.",
   "guest.admin.showRemoved": "내보낸 게스트 보기 ({n})",

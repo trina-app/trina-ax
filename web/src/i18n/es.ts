@@ -198,7 +198,7 @@ export const es: Record<MessageKey, string> = {
   "guest.admin.left": "quedan {n}",
   "guest.admin.countOf": "{n} de {m}",
   "guest.admin.over": "{m, plural, one {Este plan permite # invitado. Todos los de aquí siguen igual, pero no podrá invitar a más hasta que quite invitados o cambie de plan.} other {Este plan permite # invitados. Todos los de aquí siguen igual, pero no podrá invitar a más hasta que quite invitados o cambie de plan.}}",
-  "guest.admin.fileLimit": "Archivo más grande que un invitado puede enviar en un chat",
+  "guest.admin.fileLimit": "Archivo más grande que un invitado puede subir",
   "guest.admin.none": "Aún no hay invitados. Invite uno desde la lista de miembros de un chat de grupo o un proyecto.",
   "guest.admin.noneActive": "Ahora no hay invitados.",
   "guest.admin.showRemoved": "Mostrar invitados quitados ({n})",

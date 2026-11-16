@@ -24,6 +24,7 @@ import type { Attachments } from './attachments'
 import { defaultChunkGate, type ChunkGate } from './chunk-gate'
 import { diskStat } from '../system/disk-stat'
 import { roomFilesOf } from '../rooms/files'
+import { assertGuestUploadSize } from './guest-limit'
 import { roomsOf } from '../rooms/service'
 
 /** idle expiry: every accepted chunk moves expires_at to now + this */
@@ -102,6 +103,9 @@ export class UploadSessions {
 
   /** Early checks (complete checks again: rules may change during a long upload). */
   private checkTarget(userId: string, t: UploadTarget, sha256: string, size?: number) {
+    // a guest's own limit, whatever the target (uploads/guest-limit.ts; a room target checks it in its own words below):
+    // refused before a byte is sent or any disk room is reserved
+    if (t.kind !== 'room' && size !== undefined) assertGuestUploadSize(this.ctx.db, userId, size)
     if (t.kind === 'path') {
       const user = this.files.principal(userId)
       const r = authorize(this.files.fx, this.files.rules(), user, t.path, 'write', { mustExist: false })
@@ -192,6 +196,11 @@ export class UploadSessions {
 
   private async finish(userId: string, r: Row): Promise<UploadComplete> {
     const id = r.id
+    // a guest's limit as it is now, before anything else is done with the file (lowered while it was on its way: nothing
+    // of it is kept, and the session ends). A room target says it in the room's words, where the file is kept
+    if ((JSON.parse(r.target) as UploadTarget).kind !== 'room') {
+      try { assertGuestUploadSize(this.ctx.db, userId, r.size) } catch (e) { this.drop(id); throw e }
+    }
     const count = chunkCount(r.size, r.chunk_size)
     const received = new Set<number>(JSON.parse(r.received))
     const missing: number[] = []

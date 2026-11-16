@@ -869,9 +869,9 @@ export const TeamSettings = z.object({
    * live only in projects/"): 'members' (default: anyone, like a chat channel) or 'admins' (the owner and admins only).
    * Personal projects are never limited. */
   projectCreators: z.enum(['members', 'admins']),
-  /** the largest file a guest may send in a room (GUEST_ROOM_FILE_MAX; default 100 MB; docs/decisions/
-   * 20261116-guest-room-file-limit.md). Members send up to ROOM_FILE_MAX whatever this says. */
-  guestRoomFileMax: z.enum(['100mb', '1gb', '10gb']),
+  /** the largest file a guest may upload: in a room, to their project's folder, to an AI chat (GUEST_FILE_MAX; default
+   * 100 MB; docs/decisions/20261116-guest-room-file-limit.md). Members are not held to it. */
+  guestFileMax: z.enum(['100mb', '1gb', '10gb']),
   /** "Show what the team often asks" (default on; docs/DECISIONS.md "Home: what my group often asks"): Home lists
    * generic questions that 3 or more people of a group or the team asked, rewritten once a day on the owner's AI. Off:
    * the lists are deleted for everyone, no run starts, and questions sent while it is off never count. */

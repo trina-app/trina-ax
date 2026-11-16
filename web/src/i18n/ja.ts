@@ -198,7 +198,7 @@ export const ja: Record<MessageKey, string> = {
   "guest.admin.left": "残り{n}",
   "guest.admin.countOf": "{n}/{m}人",
   "guest.admin.over": "{m, plural, one {このプランのゲストは#人までです。今いるゲストはそのまま使えますが、ゲストを外すかプランを変えるまで、これ以上招待できません。} other {このプランのゲストは#人までです。今いるゲストはそのまま使えますが、ゲストを外すかプランを変えるまで、これ以上招待できません。}}",
-  "guest.admin.fileLimit": "ゲストがトークで送れる最大のファイル",
+  "guest.admin.fileLimit": "ゲストがアップロードできる最大のファイル",
   "guest.admin.none": "まだゲストはいません。グループトークやプロジェクトのメンバー一覧から招待できます。",
   "guest.admin.noneActive": "今はゲストがいません。",
   "guest.admin.showRemoved": "外したゲストを表示（{n}）",

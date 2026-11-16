@@ -483,8 +483,9 @@ export async function cancelUpload(file: File, target: UploadTarget, client: Api
 }
 
 /** Files over what the server takes (UPLOAD_SESSION_MAX): the message box refuses them at once, before a checksum of
- * a huge file is made; `tooBig` is the first of them (named in the message), `fit` the others. */
-export function splitOversize<T extends { size: number }>(files: readonly T[]): { fit: T[]; tooBig: T | undefined } {
-  const tooBig = files.find((f) => f.size > UPLOAD_SESSION_MAX)
-  return { fit: tooBig ? files.filter((f) => f.size <= UPLOAD_SESSION_MAX) : [...files], tooBig }
+ * a huge file is made; `tooBig` is the first of them (named in the message), `fit` the others. `max`: a guest's own
+ * limit (lib/guests.ts myUploadMax). */
+export function splitOversize<T extends { size: number }>(files: readonly T[], max = UPLOAD_SESSION_MAX): { fit: T[]; tooBig: T | undefined } {
+  const tooBig = files.find((f) => f.size > max)
+  return { fit: tooBig ? files.filter((f) => f.size <= max) : [...files], tooBig }
 }
