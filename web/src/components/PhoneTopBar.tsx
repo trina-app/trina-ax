@@ -7,7 +7,8 @@
 //   a page under a tab (팀 스킬, a project, …): ‹ back · the page's name (the page keeps its heading for screen readers
 //                    only, so the name is not said twice), in the bar every phone page uses (phone/PhonePageBar.tsx);
 //                    the page's one action on the right ("+", "Edit": phone/PhoneBarAction.tsx); a detail page that
-//                    is named by its own name (one project) puts that name in the title (PhoneBarTitle)
+//                    is named by its own name (one project) puts that name in the title (PhoneBarTitle),
+//                    which a tap may act on (a project's: rename it)
 //   관리자 (/admin):  none here: Admin draws the same bar itself, with "‹ Admin" over its pages (admin/AdminLayout.tsx)
 // Not in a room or an AI chat: their own header (with its ‹) is the bar there. ‹ goes back in the real history, or to
 // the page's parent (lib/screens.ts) in place of this entry (lib/back.ts), so the phone's own back never loops; it is
@@ -28,7 +29,7 @@ import { useTrinaDrawer } from './phone/TrinaDrawer'
 import { IconButton } from './ui'
 import { PhonePageBar } from './phone/PhonePageBar'
 import { useSetupReturnShown } from './onboarding/SetupReturn'
-import { PhoneBarSlot, usePhoneBarTitle } from './phone/PhoneBarAction'
+import { PhoneBarSlot, usePhoneBarPress, usePhoneBarTitle } from './phone/PhoneBarAction'
 
 const icon = 'size-11 shrink-0'
 
@@ -47,6 +48,8 @@ export function PhoneTopBar() {
   const backLabel = useBackLabel(up, () => null)
   // a page's own name for the bar (one project's page: phone/PhoneBarAction.tsx PhoneBarTitle)
   const pageTitle = usePhoneBarTitle()
+  // a tap on that name (a project's page: rename it, for whoever may)
+  const titlePress = usePhoneBarPress()
   // opened from the welcome steps: their way back (onboarding/SetupReturn.tsx) is the page's one back, no ‹ beside it
   const setupBack = useSetupReturnShown() !== null
   // 파일 draws its own bar, as Admin does
@@ -76,7 +79,7 @@ export function PhoneTopBar() {
   // tab's screens, from search, keeps its ‹ back there)
   const root = !!rootTab(`${path}${search}`) && !stackNow()?.below
   if (!rooms)
-    return <PhonePageBar onBack={root || setupBack ? undefined : back} backLabel={backLabel} title={pageTitle ?? title} titleHidden={!!titleKey} action={<PhoneBarSlot />} backTestId="topbar-back" titleTestId="topbar-title" className="md:hidden" />
+    return <PhonePageBar onBack={root || setupBack ? undefined : back} backLabel={backLabel} title={pageTitle ?? title} titlePress={pageTitle ? titlePress : null} titleHidden={!!titleKey} action={<PhoneBarSlot />} backTestId="topbar-back" titleTestId="topbar-title" className="md:hidden" />
   return (
     <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-1 md:hidden" data-testid="phone-topbar">
       {/* as wide as the two buttons on the right and the gap between them, so the name stays in the middle */}

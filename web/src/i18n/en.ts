@@ -1247,6 +1247,7 @@ export const en: Record<MessageKey, string> = {
   'projects.edit': 'Edit project',
   'projects.empty': 'No projects yet',
   'projects.name': 'Project name',
+  'projects.renameNamed': 'Rename {name}',
   'projects.kind': 'Where',
   'projects.kind.personal': 'Personal (only me)',
   "projects.kind.team": "Team project",

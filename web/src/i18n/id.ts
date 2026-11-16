@@ -1247,6 +1247,7 @@ export const id: Record<MessageKey, string> = {
   'projects.edit': 'Ubah proyek',
   'projects.empty': 'Belum ada proyek',
   'projects.name': 'Nama proyek',
+  'projects.renameNamed': 'Ganti nama {name}',
   'projects.kind': 'Di mana',
   'projects.kind.personal': 'Pribadi (hanya saya)',
   "projects.kind.team": "Proyek tim",
