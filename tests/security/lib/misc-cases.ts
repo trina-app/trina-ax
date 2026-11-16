@@ -237,6 +237,14 @@ export const MISC_SPECS: Record<string, Spec> = {
       if (spoof.status !== 400) throw new Error(`${who}: a body naming a person was not refused: ${spoof.status}`)
     } },
 
+  // the desktop app's computer report (the phone rule): only my own (a body naming someone else is refused)
+  reportMyComputer: { build: (c) => c.post('/api/me/computer', { idleMs: 0, locked: false }), scope: 'self',
+    check: async (r, w, who) => {
+      if (r.status !== 204) return
+      const spoof = await w.as[who].req('POST', '/api/me/computer', { idleMs: 0, locked: false, userId: 'alice' })
+      if (spoof.status !== 400) throw new Error(`${who}: a body naming a person was not refused: ${spoof.status}`)
+    } },
+
   // "Allow all websites" for the AI's web reads: only my own (a body naming someone else is refused); off always works
   setMyWebAccess: { build: (c) => c.put('/api/me/web-access', { on: false }), scope: 'self',
     check: async (r, w, who) => {
