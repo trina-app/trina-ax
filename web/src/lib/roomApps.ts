@@ -1,6 +1,6 @@
 // Apps posting in rooms, the parts the app's screens share (docs/DECISIONS.md "Apps posting in rooms";
 // components/rooms/apps/*): an app message's plain words, the guide's status line, the side chat's chips.
-import { ROOM_APP_DAILY_CAP, ROOM_APP_PRESET_NEEDS, ROOM_APP_PRESET_SIGNING, ROOM_APP_PRESET_SWITCHES, ROOM_APP_SWITCHES, ROOM_APP_TEAM_DAILY_CAP, RoomAppPreset, type RoomApp, type RoomAppKind, type RoomMessage } from '@mycel/shared/api'
+import { ROOM_APP_DAILY_CAP, ROOM_APP_PRESET_NEEDS, ROOM_APP_PRESET_SIGNING, ROOM_APP_PRESET_SWITCHES, ROOM_APP_SWITCHES, ROOM_APP_TEAM_DAILY_CAP, RoomAppKind, RoomAppPreset, type RoomApp, type RoomAppService, type RoomMessage } from '@mycel/shared/api'
 
 /** The server's body escapes Markdown marks (and "@", and "://") so older apps show it as text; the other way. */
 export const unescapeAppBody = (s: string) => s.replace(/\\([\\`*_[\]<>#|~@&\-+=.)/:])/g, '$1').replace(/<(https:\/\/[^>\s]+)>/g, '$1')
@@ -77,6 +77,8 @@ export const isPreset = (s: unknown): s is RoomAppPresetId => RoomAppPreset.safe
 export type AppService = Exclude<RoomAppKind, 'other'> | RoomAppPresetId | 'other'
 /** An app's (or an app message's) service: its preset when this build knows it (a newer build's preset shows as Other). */
 export const serviceOf = (a: { kind: RoomAppKind; preset?: string | null }): AppService => (a.kind === 'other' && isPreset(a.preset) ? a.preset : a.kind)
+/** A named service (a kind but Other, or a preset this build knows): what ?apps=add:<service> may name. */
+export const isAppService = (s: string): s is RoomAppService => (s !== 'other' && RoomAppKind.safeParse(s).success) || isPreset(s)
 /** The kind a service is created with (a preset is an Other app). */
 export const kindOf = (s: AppService): RoomAppKind => (isPreset(s) ? 'other' : s)
 

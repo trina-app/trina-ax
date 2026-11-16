@@ -5,7 +5,7 @@
 // saying whether it is for the whole team or just for you.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
-import { DICTS, type MessageKey } from '../../src/i18n'
+import { DICTS, translate, type MessageKey } from '../../src/i18n'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
 
 const t = DICTS.en
@@ -35,11 +35,12 @@ test('Admin: four groups, AI providers first in Connections, no AI group and no 
   const menu = page.getByTestId('admin-menu')
   for (const [group, items] of ADMIN) {
     const g = menu.getByRole('group', { name: t[group] })
-    await expect(g.getByRole('link')).toHaveText(items.map((k) => t[k]))
+    await expect(g.getByRole('link')).toHaveText(items.map((k) => translate('en', k)))
   }
   await expect(menu.getByRole('link', { name: 'AI connections' })).toHaveCount(0)
   await expect(menu.getByRole('link', { name: 'AI engines' })).toHaveCount(0)
-  await expect(menu.getByRole('link', { name: 'AI providers' })).toHaveCount(0)
+  await expect(menu.getByRole('link', { name: 'Providers', exact: true })).toHaveCount(0)
+  await expect(menu.getByRole('link', { name: 'AI accounts' })).toHaveCount(0)
   await expect(menu.getByRole('group')).toHaveCount(ADMIN.length)
   // the shell says whose it is: the menu's title is the team's, and one line above every page says it applies to everyone
   // in the team
@@ -100,7 +101,7 @@ test('Settings: named groups Account, Connections, App (Connectors, then AI prov
   for (const [group, items] of SETTINGS) {
     const g = list.getByTestId(`settings-group-${group}`)
     await expect(g.getByText(t[`settings.group.${group}` as MessageKey], { exact: true })).toBeVisible()
-    await expect(g.getByRole('link')).toHaveText(items.map((k) => t[k]))
+    await expect(g.getByRole('link')).toHaveText(items.map((k) => translate('en', k)))
   }
   // no AI group any more: AI providers is under Connections, Memory under Account
   await expect(list.getByTestId('settings-group-ai')).toHaveCount(0)

@@ -18,6 +18,7 @@
 
 - [ ] The change is focused and relevant documentation is updated.
 - [ ] User-visible notes are in a new file `changes/<topic>.md` (rules: `changes/README.md`); `CHANGELOG.md` is not edited.
+- [ ] New design decisions are new files `docs/decisions/<YYYYMMDD>-<topic>.md` (rules: `docs/decisions/README.md`); `docs/DECISIONS.md` gets no new section.
 - [ ] Tests/checks relevant to the change were run, with any limits described above.
 - [ ] No customer information, credentials, private links or unredacted logs/screenshots are included.
 - [ ] For user-visible/docs changes: audience/page, matching EN/KO/JA/ES/ZH entry pages, defaults, FAQ, llms.txt and artifact names were checked. App string changes include all five locales and pass `bun run check:i18n`.

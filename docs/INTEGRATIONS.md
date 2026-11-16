@@ -412,8 +412,8 @@ Every request (checks, tool calls, OAuth discovery, registration, token, revocat
 - **Redirects are never followed**; they are reported (a check: "the service tried to send us to another address";
   `api_request`: the status and Location as external data).
 - Standard ports only (web_fetch's 80/443 rule; with https that is 443). 30 seconds per request, answers cut at 1 MiB while reading (also without
-  Content-Length), compressed answers decoded with the same limit. A check's `tools/list` is the one exception to the
-  30 s (below).
+  Content-Length), compressed answers decoded with the same limit. A check's `tools/list` and an MCP `tools/call` are
+  the exceptions to the 30 s (below).
 
 ## MCP servers
 
@@ -428,15 +428,25 @@ idle minutes; a 404 for it starts a new one.
   that. The list is read for as long as it keeps coming: a page fails only when no bytes arrive for 30 seconds, and the
   check when it is not done 90 seconds after it began ("did not send its whole tool list within 90 seconds"), not at
   the 30 s of other requests (Higgsfield sent its 1.07 MB at 17-38 KB/s, 30-65 s). The check ends at that deadline:
-  its requests end by it, it stops waiting for a session (shared with the calls, which keep their own 30 s) at it, and
+  its requests end by it, it stops waiting for a session (shared with the calls, whose start keeps its own 30 s) at it, and
   no token refresh starts that could end after it (a token still valid is used). So 90 s stays under the relay's 100 s
-  wait for an answer and the server's 120 s idle limit and "Check again" is answered; tool calls keep the 30 s. The tool list is saved (`tools_json`): every tool the service lists, up to 1,000 tools and 4,000,000 characters
+  wait for an answer and the server's 120 s idle limit and "Check again" is answered. The tool list is saved (`tools_json`): every tool the service lists, up to 1,000 tools and 4,000,000 characters
   of schemas and descriptions per connection (past that Settings and the AI are told "N of M", or "N of more than M"
   when pages were left unread); a tool whose input schema is not an object or is over 32,000 characters is left out.
   Turns use the saved list only: nothing is fetched when a chat starts. The server keeps the parsed lists in memory by
   connection and `tools_rev` (moved by a trigger whenever `tools_json` changes; at most 64 MiB of saved JSON, the list
   used longest ago first), so a turn reads the connections without their lists and parses only a list that changed;
   who may use a connection and which of its tools are off are read with every turn and call.
+- **Tool calls** (`tools/call`) wait as long as the service works on them: a call fails when nothing at all comes for
+  5 minutes ("sent nothing for 5 minutes") and in any case 15 minutes after it began ("did not finish within 15
+  minutes"); its session's start keeps the 30 s. Each call names its own `progressToken`, so a service that reports
+  progress (or sends any bytes of its event stream) keeps the call alive past 5 minutes. A web scrape takes 1-2 minutes
+  (Bright Data, 2026-11), which the 30 s used to cut. 15 minutes stays under the engines' 30 minutes for one of our
+  tool calls (Claude Code `MCP_TOOL_TIMEOUT`, Codex `tool_timeout_sec`), so the AI gets our reason; the turn's stall
+  guard waits while the call runs. Stop, or one of these limits, ends the call at once and sends the service
+  `notifications/cancelled`. A call that
+  sent nothing for 5 minutes marks the connection like the 30 s did, as an error that is only for now (a check keeps its
+  saved list); one past 15 minutes marks nothing (a long job, not a broken connection).
 - **Tool names** for the engine: `my_<slug>__<tool>` (personal) and `team_<slug>__<tool>` (team), letters, digits, `_` and
   `-` only. With the engine's `mcp__team__` the full name stays within 64 characters: longer or clashing names are cut and
   given a short hash; the server maps each back to the remote name.
@@ -686,7 +696,7 @@ connections with their address and the first 1,000 characters of their notes.
 | Boundary | Limit |
 | --- | --- |
 | Connections | 20 personal per person (that work, have a key or need no sign-in), 50 team. A personal one still waiting for its first sign-in does not count; those have a cap of 20 of their own. A new connection needs room under both (a sign-in one), the sign-in's callback refuses a first sign-in over 20 (`limit`), and an edit that stops or starts waiting is checked the same way. Connect again at a waiting address picks that one up with the new name, notes and write rule. Settings and the chat's connect card count alike (`personalCounts`) |
-| Request | 30 s, no redirects, standard ports (a check's `tools/list`: 30 s without bytes, 90 s in all) |
+| Request | 30 s, no redirects, standard ports (a check's `tools/list`: 30 s without bytes, 90 s in all; a `tools/call`: 5 min without bytes, 15 min in all) |
 | Answer | 1 MiB while reading; 40,000 characters to the AI |
 | Request body (`api_request`) | 1 MiB |
 | MCP tools | 1,000 per connection, 4,000,000 schema and description characters per connection, 32,000 per tool schema; as tools of their own 200 and 50,000 characters per answer, the rest through `find_tools` / `call_tool` |

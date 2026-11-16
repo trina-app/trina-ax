@@ -279,11 +279,16 @@ describe('local data per person', () => {
       session.setItem(TAB_STACKS_KEY, '{}')
       // and the ones saved under the tabs before 프로젝트 (QA TC-255), never read again
       session.setItem('mycel.tabStacks', '{}')
+      // the company profile review kept for a reload (ProfileStep keep)
+      session.setItem('mycel.profileDraft.olga', '{}')
+      session.setItem('mycel.keepMe', '1')
       expect(TAB_STACKS_KEY).not.toBe('mycel.tabStacks')
       clearLocalData(s)
       expect([...s.m.keys()]).toEqual(['mycel.theme'])
       expect(session.getItem(TAB_STACKS_KEY)).toBeNull()
       expect(session.getItem('mycel.tabStacks')).toBeNull()
+      expect(session.getItem('mycel.profileDraft.olga')).toBeNull()
+      expect(session.getItem('mycel.keepMe')).toBe('1')
     } finally {
       if (before) Object.defineProperty(globalThis, 'sessionStorage', before)
       else delete (globalThis as { sessionStorage?: unknown }).sessionStorage

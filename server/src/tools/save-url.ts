@@ -48,6 +48,7 @@ import { ACCEPTED, refusedName, sniffKind, withExtension, type FileKind } from '
 import { redirectGuard } from './connection-urls'
 import { gateUrl } from './url-gate'
 import { precheckTarget } from './web-fetch'
+import { diskStat } from '../system/disk-stat'
 
 /** larger downloads ask the person first (save_url's card) */
 export const ASK_ABOVE_BYTES = 1024 ** 3
@@ -153,7 +154,7 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
   const chatId = turn.chat_id
   const files = componentC(ctx).files
   const L: Locale = t.person?.locale ?? 'en'
-  const statfs = o.statfs ?? ((p: string) => fs.statfsSync(p))
+  const statfs = o.statfs ?? ((p: string) => diskStat(p))
   const handle = a.url.trim().startsWith(MEDIA_PREFIX)
   const source = a.url.trim()
 

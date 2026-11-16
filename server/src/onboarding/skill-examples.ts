@@ -28,7 +28,7 @@ export const PACK_EXAMPLES: Record<'ko' | 'en', Partial<Record<string, Registere
     humanizer: { kind: 'text', text: koHumanizerExample },
   },
   en: {
-    'intro-deck': { kind: 'image', skillHash: '4833e256c1df' },
+    'intro-deck': { kind: 'image', skillHash: '2b8cf1b31e35' },
     'card-news': { kind: 'image', skillHash: 'fd16b67cef75' },
     'promo-video': { kind: 'image', skillHash: 'd63330fdbb71' },
     humanizer: { kind: 'text', text: enHumanizerExample },

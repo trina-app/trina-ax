@@ -76,6 +76,14 @@ test('room folders in 대화: made, a room moved in and dragged in, a folded one
   // folded: one pill, the strongest ("@" over a count)
   await f.getByTestId('room-folder-fold').click()
   await expect(f.getByTestId('room-folder-fold')).toHaveAttribute('aria-expanded', 'false')
+  // no focus ring after a mouse click, not even once a key such as Shift is pressed (⌘⇧4 for a screenshot); Tab shows
+  // it (lib/inputModality.ts)
+  const ring = () => f.getByTestId('room-folder-fold').evaluate((e) => e === document.activeElement && getComputedStyle(e).outlineStyle)
+  await page.keyboard.press('Shift')
+  expect(await ring()).toBe('none')
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Shift+Tab')
+  expect(await ring()).toBe('solid')
   await expect(f.getByTestId('room-folder-pill')).toHaveAttribute('data-kind', 'mention')
   await expect(f.getByTestId('room-folder-pill')).toHaveText(`@${t['rooms.mentionedYou']}`)
   // after a reload it is the server's: still in the folder

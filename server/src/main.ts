@@ -16,6 +16,7 @@ import { createLogger, type Logger } from './log'
 import { applyPendingRestore, recordRestore } from './system/backup'
 import { ensureLanCert } from './system/lan-cert'
 import { resolveLayout } from './system/layout'
+import { repairVersionModes } from './system/update'
 import { setProjectsCaseInsensitive } from './policy/access'
 import { detectCaseInsensitive } from './policy/resolve'
 import { reloadManagedFiles } from './system/managed'
@@ -162,6 +163,10 @@ export interface Started { ctx: AppContext; servers: ReturnType<typeof Bun.serve
 
 export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
   setupServerCgroups({ log, mode: cfg.mode }) // Linux production: S/main + S/conv before any child process (no-op elsewhere)
+  // Linux install: version folders an older app-only update staged under the server's umask (0750 / 0640, 0.5.7) are
+  // made readable for the launcher and the engine sandbox again, before anything listens: the bootstrap's health check
+  // must not pass a version no AI turn can start in (system/update.ts repairVersionModes; g-update-modes.test.ts)
+  if (process.platform === 'linux') repairVersionModes(resolveLayout(cfg).appDir, log)
   fs.mkdirSync(cfg.dataDir, { recursive: true, mode: 0o700 })
   // whether the team folder's disk ignores letter case, before anything migrates: the one-time folder access conversion
   // (policy/convert-additive.ts) must judge projects/<name> as the server will (on a case-sensitive disk Projects/ is an

@@ -371,7 +371,7 @@ test('Team skills, an English team: the English examples (Example Coffee); ÏûêÏó
   await page.goto('/skills')
   await page.getByTestId('skill-catalog-toggle').click()
   const fold = page.getByTestId('skill-catalog')
-  await expect(fold.getByTestId('skill-pack-title')).toHaveText(['Company profile', 'Promo cards', 'Promo video', 'Natural writing'])
+  await expect(fold.getByTestId('skill-pack-title')).toHaveText(['Company slide deck', 'Promo cards', 'Promo video', 'Natural writing'])
   await packRow(fold, 'humanizer').getByTestId('skill-pack-example').click()
   const viewer = page.getByTestId('skill-example')
   await expect(viewer).toHaveAttribute('data-name', 'humanizer')

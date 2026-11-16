@@ -19,6 +19,7 @@ import type { Database } from 'bun:sqlite'
 import { getPreferences, type Preferences } from '../notifications/preferences'
 import { roomNotifyOut } from './alerts'
 import { parseStored, unescapeMarkdown } from './apps/card'
+import { iconsOf } from './apps/icon'
 import { linkPreviewsFor, prepareLinkPreviews, type LinkPrep } from './link-previews'
 import { answerFilePaths, RoomEventLine, ROOM_QUOTE_EXCERPT_MAX, ROOM_REACTION_NAMES, type Room, type RoomFile, type RoomKind, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type UserRef, RoomAppKind, RoomAppPreset, type RoomAppRef } from '@mycel/shared/api'
 
@@ -547,7 +548,7 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
   // and the viewer's own list folder (chat/nav-folders.ts): none while hidden, and only one filed during this membership
   const folder = folderOf(db, room.id, viewer)
   return {
-    id: room.id, kind: room.kind, name, canRename: mayRename(db, room, viewer.user_id), managerId: managerOf(db, room), groupId: room.kind === 'team' ? room.group_id : null, memberCount,
+    id: room.id, kind: room.kind, name, canRename: mayRename(db, room, viewer.user_id), managerId: managerOf(db, room), canManageApps: mayManageApps(db, room, viewer.user_id), groupId: room.kind === 'team' ? room.group_id : null, memberCount,
     peers,
     unreadCount: unread.n, threadsUnread: threads.n, nextThreadId: threads.next, mentioned: unread.mentioned || threads.mentioned,
     lastReadSeq: Math.max(viewer.last_read_seq, viewer.visible_from_seq), lastSeq: Math.max(lastSeqFor(db, room.id, viewer), viewer.visible_from_seq),
@@ -604,8 +605,10 @@ export function appRefsOf(db: Database, rows: readonly Pick<MessageRow, 'id' | '
   if (!mine.length) return out
   const ids = [...new Set(mine.map((r) => r.app_id).filter((x): x is string => !!x))]
   // live apps, with who added it while they are in the team (the sender's popover: "Set up by …")
-  const live = new Map(ids.length ? (db.query(`SELECT a.id, u.id by_id, u.name by_name FROM room_apps a LEFT JOIN users u ON u.id = a.created_by AND u.deleted_at IS NULL
-    WHERE a.id IN (${ids.map(() => '?').join(',')})`).all(...ids) as { id: string; by_id: string | null; by_name: string | null }[]).map((a) => [a.id, a]) : [])
+  const live = new Map(ids.length ? (db.query(`SELECT a.id, a.kind, a.preset, u.id by_id, u.name by_name FROM room_apps a LEFT JOIN users u ON u.id = a.created_by AND u.deleted_at IS NULL
+    WHERE a.id IN (${ids.map(() => '?').join(',')})`).all(...ids) as { id: string; kind: string; preset: string | null; by_id: string | null; by_name: string | null }[]).map((a) => [a.id, a]) : [])
+  // a plain Other app's own icon now (apps/icon.ts): a new one shows on its past messages too; a removed app has none
+  const icons = iconsOf(db, [...live.values()].filter((a) => a.kind === 'other' && !a.preset).map((a) => a.id))
   for (const r of mine) {
     const stored = parseStored(r.app_card ?? null)
     if (!stored) continue
@@ -614,6 +617,7 @@ export function appRefsOf(db: Database, rows: readonly Pick<MessageRow, 'id' | '
       id: r.app_id && live.has(r.app_id) ? r.app_id : null, name: stored.app.name, kind: RoomAppKind.safeParse(kind).success ? kind : 'other',
       // the service of a preset app (its logo), when this build knows it
       ...(kind === 'other' && RoomAppPreset.safeParse(stored.app.preset).success ? { preset: stored.app.preset as RoomAppPreset } : {}),
+      ...(r.app_id && icons.has(r.app_id) ? { icon: icons.get(r.app_id)! } : {}),
       by: (() => { const l = r.app_id ? live.get(r.app_id) : undefined; return l?.by_id && l.by_name ? { id: l.by_id, name: l.by_name } : null })(),
       ...(r.app_quiet ? { quiet: true as const } : {}), ...(stored.example ? { example: true as const } : {}),
     })

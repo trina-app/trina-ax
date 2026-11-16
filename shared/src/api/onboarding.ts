@@ -29,6 +29,13 @@ export const PROFILE_BLOCK_MAX = 2000
 /** A draft from pasted text: at most this many characters of it. */
 export const PROFILE_TEXT_MAX = 8000
 
+/** The one-line intro written from the products when nothing else wrote it (the draft's answer, the three typed
+ * answers): their first line without a list mark, cut to the field's length. "" when there are none. */
+export function profileLineFrom(products: string): string {
+  const first = products.split('\n').map((l) => l.replace(/^\s*(?:[-*•·]|\d+[.)])\s+/, '').trim()).find(Boolean) ?? ''
+  return [...first].slice(0, PROFILE_LIMITS.oneLine).join('')
+}
+
 /** Where a field came from: the page (url, '' for pasted text or the person's own answer) and a short quote of it. */
 export const ProfileSource = z.object({
   field: ProfileField,

@@ -4,7 +4,7 @@
 // dark. Only when WELCOME_FILES_SHOTS names a folder to write them to.
 import { expect, test } from '@playwright/test'
 import { reset, signIn } from './helpers'
-import { answer, fakeApp, look, type Meta } from './fake-work-files'
+import { answer, fakeApp, look, notNow, type Meta } from './fake-work-files'
 
 const dir = process.env.WELCOME_FILES_SHOTS
 test.skip(!dir, 'WELCOME_FILES_SHOTS is not set')
@@ -47,6 +47,7 @@ for (const scheme of ['light', 'dark'] as const) {
       await page.getByTestId('find-work-row').filter({ hasText: 'Acme quote template 2026.xlsx' }).getByTestId('find-work-check').check()
       await page.getByTestId('find-work-add').click()
       await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-status', 'done', { timeout: 15_000 })
+      await notNow(page)
       await shot('3-added')
       await page.getByTestId('find-work-done').click()
       await expect(page.getByRole('dialog')).toHaveCount(0)

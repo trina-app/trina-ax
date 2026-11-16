@@ -6,7 +6,9 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication } from '@playwright/test'
-import { ACME, addTeam, answer, call, chrome, close, launch, newTurn, newUserData, result, run, SHOP, text, view, welcome } from './helpers'
+import { ACME, addTeam, answer, call, chrome, close, launch, newTurn, newUserData, result, run, SHOP, text, view, welcome, stopLeftoverApps } from './helpers'
+
+stopLeftoverApps()
 
 // Cache Storage and service workers need a secure origin; shop.test is plain http in these tests
 const SECURE_SHOP = [`--unsafely-treat-insecure-origin-as-secure=${SHOP}`]

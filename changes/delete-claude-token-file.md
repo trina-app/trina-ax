@@ -1,0 +1,1 @@
+- Security: when you delete the AI connection that came from the server's Claude token file (`set-claude-token`, office `--claude-token-file`) in Admin › AI providers, the token file is now overwritten and deleted too. Before, the token stayed on the server's disk after the delete. A file with another token is left. Revoke a token you no longer use at Claude as well.

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Bell } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { fileLinkUrl, isGoogleRequestable, type InboxNotification, type Locale, type NotificationPreferences } from '@mycel/shared/api'
+import { fileBatchUrl, fileLinkUrl, isGoogleRequestable, type InboxNotification, type Locale, type NotificationPreferences } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { connectionHref, connectorHref, CONNECTORS_HOME } from '../../lib/connectors'
 import { firstRunText } from '../../lib/teamGoal'
@@ -193,6 +193,8 @@ export function fileShareText(item: InboxNotification, t: T): string {
   const f = item.fileShare
   const code = item.code as 'file.shared' | 'file.access_requested' | 'file.access_answered' | 'file.unshared_by_move'
   if (code === 'file.access_answered') return t('notifications.event.file.access_answered')
+  // several files in one press (docs/decisions/20261116-file-share-everyone.md): "Mina shared 5 files with you"
+  if (code === 'file.shared' && f && !f.gone && f.count && f.batchId) return f.by ? t('notifications.event.file.sharedMany', { by: f.by, n: f.count }) : t('notifications.event.file.sharedManyNoName', { n: f.count })
   if (!f || f.gone || !f.name) return code === 'file.shared' ? t('notifications.event.file.gone') : t(`notifications.event.${code}`)
   if (!f.by) return t(`notifications.event.${code}`)
   if (code === 'file.shared') return t('notifications.event.file.sharedNamed', { by: f.by, name: f.name })
@@ -206,6 +208,8 @@ export function noticeLink(item: InboxNotification): { to: string; testId: strin
   if (item.link === 'chat' && item.chatId) return { to: `/c/${encodeURIComponent(item.chatId)}`, testId: 'notification-chat-link' }
   // a file shared with me, or one of mine moved: its link page while it is there (a request answers in the row instead)
   if (item.link === 'file' && item.fileShare?.linkId && !item.fileShare.gone && item.code !== 'file.access_requested') return { to: fileLinkUrl(item.fileShare.linkId), testId: 'notification-file-link' }
+  // several files in one press: their list
+  if (item.link === 'file' && item.fileShare?.batchId && !item.fileShare.gone && item.code === 'file.shared') return { to: fileBatchUrl(item.fileShare.batchId), testId: 'notification-file-batch-link' }
   // an app that paused: its settings in its room, while I am in it
   if (item.code === 'room_app.paused') { const to = pausedNoticeLink(item.roomApp); return to ? { to, testId: 'notification-room-app-link' } : null }
   if (item.code === 'room_app.leaver') { const to = leaverNoticeLink(item.roomAppLeaver); return to ? { to, testId: 'notification-room-app-leaver-link' } : null }

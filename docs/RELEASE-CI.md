@@ -525,6 +525,36 @@ certificate does not skip it; an EV certificate would not either, and Artifact S
 - Basic 월 정액 하나(위). 서명은 한 릴리스에 파일 서너 개라 한도(5,000)에 닿지 않는다. 앱 등록·OIDC는 무료. 다른 Azure 리소스는 만들지 않는다.
 - 해지: 계정을 지우면 청구가 멈춘다(이미 서명한 파일은 그대로 유효). 조직 확인은 구독에 남으니 따로 지운다.
 
+## 12. 데스크톱 검사 (PR, desktop.yml)
+
+Desktop checks on pull requests: `.github/workflows/desktop.yml`. ci.yml은 리눅스만 돌므로, 데스크톱 앱이 바뀔 수 있는 PR
+(`desktop/**`, `shared/**`, `editions/trina/branding/**`, `scripts/release-notices.ts`, `scripts/ci/dmg-check.ts`,
+`scripts/ci/windows-install-check.ps1`, offline·hwp spec이 쓰는 `web/test/mock/**`·`web/test/e2e/offline-server.ts`, `package.json`, `bun.lock`, 이 워크플로)에만 아래 세 job이 돈다. 비밀값은 쓰지 않는다
+(서명 없음). 필수 검사가 아니다: 필수 검사는 ci.yml의 것 그대로다. 빨간 데스크톱 job은 병합 전에 읽는다.
+결정: `docs/decisions/20261116-desktop-checks.md`.
+
+| job | runner | 하는 일 | 실패 때 artifact |
+|---|---|---|---|
+| Desktop e2e (macOS) | macos-15 | `desktop/e2e/ci.config.ts`: 데스크톱 Playwright 전부(desktop.spec, work-files, work-files-wide, work-consent, folder-window …). 만든 홈·데이터 폴더만 쓴다. 가짜 팀 이름(`acme.localhost` …)을 `/etc/hosts`에 넣고 web 빌드와 rhwp를 준비한다. 전체 25분 한도, 재시도 1번 | `desktop-e2e-mac` (`desktop/e2e/.work/`: html 리포트, fixture 로그) |
+| Mac dmg | macos-15 | 서명 없는 universal `dist:mac` → `scripts/ci/dmg-check.ts` | 늘 `desktop-dmg` (dmg, 3일) |
+| Windows installer | windows-2025 | 서명 없는 NSIS 둘(`<version>-ci.1`, `-ci.2`) → `scripts/ci/windows-install-check.ps1` | 늘 `desktop-windows-install-logs` |
+
+- **dmg 검사는 설정을 읽는다.** 형식(`dmg.format`, 기본 UDZO), 볼륨 이름(`dmg.title`), 파일 시스템(`dmg.filesystem`, 없으면 설치된
+  electron-builder의 기본: 26.0.17까지 APFS, 26.0.18부터 HFS+), `dmg.contents`의 위치(`.DS_Store`의 Iloc), 배경 그림(`dmg.background`, 없으면
+  build-resources의 background.tiff|png, 없으면 electron-builder 기본 그림)이 볼륨에 있는지(`.background/<파일>` 또는 26.0.18부터 `/.background.<확장자>`; `@2x` 그림이 옆에 있으면 TIFF 하나), `.DS_Store`가 그 파일을 가리키는지, 창이 그림 배경인지, 아이콘·글자
+  크기. 값을 검사에 적지 않으므로 dmg 설정을 바꾸는 PR(#1036, #985)은 검사를 고칠 필요가 없다. 설정과 결과가 다르면 실패한다.
+- **윈도우 검사는 실제 PC를 쓰지 않는다.** 순서: 깨끗한 runner 프로필 확인 → `/S` 설치(제거 항목·파일·바로가기, 서명 상태
+  NotSigned/Valid 보고) → 버린 데이터 폴더(`MYCEL_DESKTOP_USER_DATA`)로 앱 실행, `trina-ax://` 처리기 확인 → 업데이터와 같은
+  `--updated /S --force-run`으로 덮어 설치(새 버전, 처리기 유지, 앱 재시작) → 조용한 제거(항목·파일·바로가기·처리기 삭제, 데이터는 남음).
+- **Electron이 안 끝나도 job은 멈추지 않는다.** 단독 fixture는 `desktop/e2e/fixture-run.ts`로 돌린다: 결과 줄이 나오면 SIGKILL로 끝낸다
+  (#1015). 로그는 `desktop/e2e/.work/logs/`.
+- **비용**: 공개 레포라 hosted runner는 무료. 경로 필터, PR마다 `cancel-in-progress`, bun 저장소와 Electron·electron-builder 내려받기 캐시.
+  dev push에는 e2e job만 경로 필터 없이 돈다(PR 필터에서 빠진 `web/src` 변경이 offline·HWP 데스크톱 시험을 깨면 병합 직후에 보인다). 뒤의 병합이 앞의 run을 멈춘다.
+- **실패했을 때**: e2e는 artifact의 html 리포트와 fixture 로그를 본다. dmg는 step summary의 `FAIL` 줄이 설정의 어느 값과 다른지 말한다
+  (artifact의 dmg를 열어 본다; 서명이 없으니 우클릭 › 열기). 윈도우는 step summary와 `install-check.log`. 설치 파일이 0이 아닌 코드로 끝나면 만든 electron-builder 버전, sha256, Application 이벤트 로그(`installer-crash-events.txt`)를 남긴다(QA TC-3590). 재시도는 없다: 설치 파일이 죽으면 사람에게도 죽을 수 있다.
+- 손으로 돌리기: `bun run --cwd desktop dist:mac:arm64 && bun scripts/ci/dmg-check.ts desktop/release` (맥),
+  `cd desktop && bun build.ts && bunx playwright test -c e2e/ci.config.ts`.
+
 ## User-facing release notes
 
 Write the annotated tag message from [the EN/KO release template](../.github/RELEASE_TEMPLATE.md). The workflow carries it into Linux bundles, signed feeds and the GitHub release body. A line `Rollout: all` in it publishes a stable release to every server at once instead of the staged roll-out (section 2); the workflow takes that line out of the notes. Review default changes, artifact names, README/FAQ/llms parity before tagging. Backfilling published release bodies is a separate authorized maintainer action; this docs branch does not publish them.

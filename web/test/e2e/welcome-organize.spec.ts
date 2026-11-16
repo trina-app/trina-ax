@@ -28,8 +28,9 @@ test('propose → change a row → remove a row → rename a new folder → [이
   await signIn(page)
   await page.request.post('/__test/organize', { data: { project: { name: 'A사 리뉴얼', match: 'A사' } } })
   await toFiles(page)
-  // the start says where they go and that the AI reads them
-  await expect(page.getByTestId('welcome-team-files-organize-line')).toHaveText('팀 전체가 보는 전사 공유에 정리해 드려요 · AI가 파일 내용을 읽고 정리해요')
+  // the start's description says where they go and that the AI reads them (no grey line of its own)
+  await expect(page.getByTestId('welcome-team-files-desc').first()).toContainText('AI가 파일 내용을 읽고 팀 전체가 보는 전사 공유에 정리해 드려요.')
+  await expect(page.getByTestId('welcome-team-files-organize-line')).toHaveCount(0)
   await page.getByTestId('welcome-team-files-input').setInputFiles(FILES)
   // reading, with the count of files read
   await expect(page.getByTestId('organize-reading-title')).toContainText('읽고 정리하는 중…')
@@ -177,7 +178,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await signIn(page)
     await page.request.post('/__test/organize', { data: { project: { name: 'A사 리뉴얼', match: 'A사' } } })
     await toFiles(page)
-    await expect(page.getByTestId('welcome-team-files-organize-line')).toBeVisible()
+    await expect(page.getByTestId('welcome-team-files-desc').first()).toContainText('전사 공유에 정리해 드려요')
     await page.getByTestId('welcome-team-files-input').setInputFiles(FILES)
     await expect(page.getByTestId('organize-proposal')).toBeVisible()
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)

@@ -96,10 +96,13 @@ const BRANCH = /^[A-Za-z0-9_][A-Za-z0-9._/-]*$/
 
 /** The release PR (head dev, base main) is compared with dev, not main: dev's "## Unreleased" holds every note merged
  * since the last release, and each was checked when its PR went into dev. Compared with main, all of them read as new
- * and the release PR could never pass. Any other PR into main (a hotfix branch, a release branch) still compares with
- * main. */
+ * and the release PR could never pass. The release PR comes from dev itself or from the branch pinned at dev for one
+ * release (`release/<version>-main`, docs/RELEASE-CI.md); any other PR into main (a hotfix branch, a release branch
+ * of another name) still compares with main. */
 export const RELEASE_BRANCH = 'main'
 export const INTEGRATION_BRANCH = 'dev'
+/** The pinned branch of a release PR: `release/0.5.8-main`, `release/1.0.0-beta.2-main`. */
+export const PINNED_RELEASE_HEAD = /^release\/\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?-main$/
 
 /** The CHANGELOG.md of the PR's base, or null when there is none to compare with (a push, a local run):
  * `CHANGELOG_BASE` (a git ref, read as it is, e.g. `origin/dev` for a local check), else on a pull request in GitHub
@@ -107,12 +110,19 @@ export const INTEGRATION_BRANCH = 'dev'
  * repository, no credentials needed). `warn` says why a base that should be there could not be read; the comparison
  * is then skipped, not failed. */
 export function baseChangelog(root: string, env: Record<string, string | undefined> = process.env, warn: (why: string) => void = () => {}): string | null {
-  const git = (...args: string[]) => spawnSync('git', args, { cwd: root, encoding: 'utf8' })
-  let ref = env.CHANGELOG_BASE ?? ''
+  return baseFile(root, 'CHANGELOG.md', env, warn)
+}
+
+/** `file` (a path in the repository) as the PR's base has it, found as baseChangelog says; `ref` replaces
+ * `CHANGELOG_BASE` (scripts/decisions.ts passes `DECISIONS_BASE` first). */
+export function baseFile(root: string, file: string, env: Record<string, string | undefined> = process.env, warn: (why: string) => void = () => {}, ref = env.CHANGELOG_BASE ?? ''): string | null {
+  // docs/DECISIONS.md is over 3 MB: past spawnSync's 1 MB default the read fails with no message
+  const git = (...args: string[]) => spawnSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
   if (!ref) {
     const target = env.GITHUB_BASE_REF ?? ''
     if (!target) return null
-    const release = target === RELEASE_BRANCH && env.GITHUB_HEAD_REF === INTEGRATION_BRANCH
+    const head = env.GITHUB_HEAD_REF ?? ''
+    const release = target === RELEASE_BRANCH && (head === INTEGRATION_BRANCH || PINNED_RELEASE_HEAD.test(head))
     const branch = release ? INTEGRATION_BRANCH : target
     if (!BRANCH.test(branch)) { warn(`the base branch name "${branch}" is not one git can fetch`); return null }
     const shallow = git('rev-parse', '--is-shallow-repository').stdout.trim() === 'true'
@@ -121,8 +131,8 @@ export function baseChangelog(root: string, env: Record<string, string | undefin
     ref = 'FETCH_HEAD'
   }
   if (ref.startsWith('-')) { warn(`"${ref}" is not a git ref`); return null }
-  const shown = git('show', `${ref}:CHANGELOG.md`)
-  if (shown.status !== 0) { warn(`could not read CHANGELOG.md at ${ref}: ${(shown.stderr || '').trim()}`); return null }
+  const shown = git('show', `${ref}:${file}`)
+  if (shown.status !== 0) { warn(`could not read ${file} at ${ref}: ${(shown.stderr || '').trim()}`); return null }
   return shown.stdout
 }
 

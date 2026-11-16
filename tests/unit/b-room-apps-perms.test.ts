@@ -198,3 +198,24 @@ test('a guest in a group chat manages none of its apps: every apps route 403, an
   // a member of the chat still may
   await nora.client.call('DELETE', `/api/rooms/${gc}/messages/${m.id}`)
 })
+
+test('the rooms list says where each person may add apps (Room.canManageApps, the same rule as the apps routes; QA TC-3515)', async () => {
+  const { owner, ada, mia, nora, team, dm, gc, roomsOf } = await setup()
+  const can = async (c: Client) => Object.fromEntries((await roomsOf(c)).map((r) => [r.id, r.canManageApps]))
+  const everyone = (await roomsOf(mia.client)).find((r) => r.kind === 'all').id as string
+  // a member: their 1:1 and group chat, never a team room or everyone
+  expect(await can(mia.client)).toMatchObject({ [team]: false, [everyone]: false, [dm]: true, [gc]: true })
+  // an admin in the team room and everyone
+  expect(await can(ada.client)).toMatchObject({ [team]: true, [everyone]: true })
+  expect(await can(owner)).toMatchObject({ [everyone]: true })
+  // each true is one the apps route takes, each false one it refuses
+  for (const c of [mia.client, ada.client, nora.client]) {
+    for (const r of await roomsOf(c)) expect([r.kind, (await c.try('GET', `/api/rooms/${r.id}/apps`)).status]).toEqual([r.kind, r.canManageApps ? 200 : 403])
+  }
+  // a guest: none
+  const gus = await addGuest(h, mia.client, { username: 'gus', place: { kind: 'room', id: gc } })
+  expect((await roomsOf(gus.client)).map((r) => r.canManageApps)).toEqual([false])
+  // demoted: the list says so at once
+  await owner.call('PATCH', `/api/admin/users/${ada.id}`, { role: 'member' })
+  expect(await can(ada.client)).toMatchObject({ [team]: false, [everyone]: false })
+})

@@ -12,6 +12,31 @@ function aliceLink(w: World): Promise<string> {
   if (!p) made.set(w, (p = w.as.memberIn.ok('POST', '/api/files/link', { path: 'users/alice/todo.md' }).then((r) => r.id as string)))
   return p
 }
+/** a guest of the team (made once per world): never a recipient */
+const guests = new WeakMap<World, Promise<string>>()
+function guestOf(w: World): Promise<string> {
+  let p = guests.get(w)
+  if (!p) guests.set(w, (p = w.as.owner.ok('POST', '/api/admin/users', { username: 'gwen', name: 'Gwen Guest', role: 'member', locale: 'en' }).then((r) => {
+    const id = (r.user?.id ?? r.id) as string
+    w.inst.ctx.db.query('UPDATE users SET guest = 1 WHERE id = ?').run(id)
+    return id
+  })))
+  return p
+}
+/** a press of two of bob's files shared with alice by name (made once per world): its list answers only alice, the one
+ * person it told, never bob who pressed it, the owner or an admin */
+const presses = new WeakMap<World, Promise<string>>()
+function bobPressForAlice(w: World): Promise<string> {
+  let p = presses.get(w)
+  if (!p) presses.set(w, (p = (async () => {
+    const paths = ['users/bob/press-1.md', 'users/bob/press-2.md']
+    for (const path of paths) await w.as.memberOut.ok('PUT', '/api/files/content', { path, content: 'press', baseSha256: null })
+    await w.as.memberOut.ok('POST', '/api/files/shares/batch', { paths, add: [{ subjectType: 'user', subjectId: 'alice' }] })
+    const row = w.inst.ctx.db.query("SELECT source_id FROM file_share_notices WHERE user_id = 'alice' AND source_id LIKE 'b:%' ORDER BY created_at DESC LIMIT 1").get() as { source_id: string }
+    return row.source_id.slice(2)
+  })()))
+  return p
+}
 const nothingOfAlice = (text: string, who: Who, what: string) => {
   if (who === 'memberIn') return
   for (const c of [C.aliceFile, C.aliceFileOld, 'todo.md']) if (text.includes(c)) throw new Error(`${who}: ${what} showed alice's file`)
@@ -32,6 +57,21 @@ export const FILE_SHARE_SPECS: Record<string, Spec> = {
   },
   sharedFileDownload: { build: async (c, w) => c.get(`/api/files/shared/${await aliceLink(w)}/download`), scope: 'users-alice',
     check: (r, _w, who) => nothingOfAlice(r.text, who, 'the link\'s bytes') },
+  // a press of several files (QA TC-3510): anyone signed in may call it, but only for files they may share. Aimed at
+  // alice's own file with a guest as the recipient: alice is refused for the guest (400) before anything is written;
+  // everyone else, the owner and admins included, gets every file refused (not theirs) and nothing about the people
+  shareFilesBatch: {
+    build: async (c, w) => c.post('/api/files/shares/batch', { paths: ['users/alice/todo.md'], add: [{ subjectType: 'user', subjectId: await guestOf(w) }] }), scope: 'self',
+    check: async (r, w, who) => {
+      nothingOfAlice(r.text, who, 'a press')
+      if (who === 'memberIn' && r.status !== 400) throw new Error(`alice: a press naming a guest answered ${r.status}`)
+      if (who !== 'memberIn' && r.status === 200 && (r.json?.shared?.length || r.json?.failed?.length !== 1)) throw new Error(`${who}: a press of alice's file shared ${JSON.stringify(r.json?.shared)}`)
+      const g = w.inst.ctx.db.query("SELECT COUNT(*) n FROM file_share_grants g JOIN file_shares s ON s.id = g.share_id WHERE s.path = 'users/alice/todo.md'").get() as { n: number }
+      if (g.n) throw new Error(`${who}: a press left a grant on alice's file`)
+    },
+  },
+  // a press's list: only the person it told (alice), never bob who pressed it, the owner or an admin
+  sharedBatch: { build: async (c, w) => c.get(`/api/files/shared-batch/${await bobPressForAlice(w)}`), scope: 'own-alice' },
   requestFileAccess: { build: (c) => c.post('/api/files/shared/AAAAAAAAAAAAAAAAAAAAAA/request', {}), scope: 'nobody' },
   answerFileRequest: { build: (c) => c.post(`/api/files/requests/${crypto.randomUUID()}`, { answer: 'approve' }), scope: 'nobody' },
   fileSharesCount: { build: (c) => c.get('/api/admin/file-shares'), scope: 'byLevel' },

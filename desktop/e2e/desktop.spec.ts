@@ -4,8 +4,9 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication } from '@playwright/test'
 import { PRODUCT } from '@mycel/shared'
-import {
-  ACME, activityLog, addTeam, answer, BAD, bindWindow, BETA, call, cancel, chrome, close, LAN, launch, newTurn, newUserData, OFFICE_SITE, result, run, SHOP, siteHits, skew, tabPage, teamPage, text, view, welcome, signIn } from './helpers'
+import { ACME, activityLog, addTeam, answer, BAD, bindWindow, BETA, call, cancel, chrome, close, LAN, launch, newTurn, newUserData, OFFICE_SITE, result, run, SHOP, siteHits, skew, tabPage, teamPage, text, view, welcome, signIn, stopLeftoverApps } from './helpers'
+
+stopLeftoverApps()
 
 const refOf = (s: string, label: string) => {
   const line = s.split('\n').find((l) => l.includes(label))
@@ -213,6 +214,9 @@ test.describe('switching team (owner 2026-11-15)', () => {
 })
 
 test.describe('browser tools over the team WebSocket', () => {
+  // one app for the group, and later tests use what earlier ones left (the pane open, allowed sites): a retry must
+  // run the whole group again from beforeAll, never one test in a fresh app
+  test.describe.configure({ mode: 'serial' })
   let app: ElectronApplication
   test.beforeAll(async () => {
     app = await launch(newUserData())
@@ -381,6 +385,9 @@ test.describe('browser tools over the team WebSocket', () => {
 })
 
 test.describe('what the in-app browser never opens', () => {
+  // one app for the group, and later tests use what earlier ones left (the pane open, allowed sites): a retry must
+  // run the whole group again from beforeAll, never one test in a fresh app
+  test.describe.configure({ mode: 'serial' })
   let app: ElectronApplication
   test.beforeAll(async () => {
     app = await launch(newUserData())

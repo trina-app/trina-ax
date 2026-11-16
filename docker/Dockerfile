@@ -4,7 +4,7 @@
 # It does not install the server at build time: the entrypoint runs scripts/install-linux.sh from the kit at container
 # start, into the named volume on /var/lib/mycel, and then starts `mycel-ctl supervise` (no systemd in the container).
 #
-#   docker build --build-arg TRINA_AX_VERSION=0.5.7 -t trina-ax:0.5.7 docker/
+#   docker build --build-arg TRINA_AX_VERSION=0.5.9 -t trina-ax:0.5.9 docker/
 #
 # HTML to PDF (CJK fonts and the pinned headless browser): add --build-arg TRINA_AX_PACKAGE_GROUPS="fonts browser".
 #
