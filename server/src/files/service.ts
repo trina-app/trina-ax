@@ -50,6 +50,7 @@ import { keepLongRetry, LONG_PIECE_SEC, longRetryLanguage } from '../jobs/speech
 import { pieceTurn, pieceWait } from '../jobs/whisper-turns'
 import * as media from './media'
 import { mediaText, personLocale, type MediaTextKey } from './media-text'
+import { voiceInputOn } from '../credentials/speech-key'
 import { diskStat } from '../system/disk-stat'
 
 void ENGINE_BUILTIN_ALLOWED
@@ -731,8 +732,14 @@ export class FileService {
     const refuse = (key: MediaTextKey, why: string, vars: Record<string, string | number> = {}): ToolOutput =>
       ({ text: mediaText(this.db, ctx.user.id, key, vars), isError: true, summary: `read ${r.rel} -> ${kind} not read (${why})` })
     const tools = this.mediaTools()
-    if (tools === 'mac') return refuse('mac', 'not on a Mac server yet')
-    if (tools === 'missing') return refuse('noTool', 'no ffmpeg')
+    // in the person's words (AI scenario check VIEW-08: "Linux servers can" became "switch the server to Linux"); the
+    // English line is for the AI
+    if (tools === 'mac') {
+      const out = refuse('mac', 'not on a Mac server yet')
+      const voice = voiceInputOn(this.db, this.speech) ? ' ' + mediaText(this.db, ctx.user.id, 'macVoice') : ''
+      return { ...out, text: out.text + voice + '\n(Pass this on in plain words. Do not suggest changing or moving the install.)' }
+    }
+    if (tools === 'missing') return refuse(ctx.user.role === 'owner' || ctx.user.role === 'admin' ? 'noToolAdmin' : 'noTool', 'no ffmpeg')
     if (r.st!.size > media.MEDIA_INPUT_MAX) return refuse('tooLarge', 'too large', { gb: media.MEDIA_INPUT_MAX / 1024 ** 3 })
     if (a.frames === 0 && a.transcript === false) throw new ToolError('frames: 0 and transcript: false leave nothing to read', 'bad_media_args')
     const base = path.join(this.cfg.dataDir, 'work')
