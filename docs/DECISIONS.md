@@ -21053,7 +21053,12 @@ plus (`MessageSquarePlus`, `text-accent-text`) among monochrome icons, so it rea
   or grey; a fixed orange star could not), and the phone drawer has no "Ask Trina" row (the tab is the new chat).
   "Use skill", "Chat with this folder" and Scheduled's "New in chat" keep their speech bubble: other actions, other
   words.
-- Tests: web unit `ai-face.test.tsx` (the `nav` place in both looks), `sidebar.test.tsx` (the row's mark, no bubble, no
+- **Every "Ask Trina" entry (QA TC-4007, 2026-11-16, the owner).** Files' ⋯ menu of a file ("Ask Trina about this") and
+  the file preview's "Ask Trina" button (FilePanel, a team file and a room file) still had lucide's sparkle; they now
+  have `AiMark` too (the menu: `menu`; the preview: a new place, `label`, 18 beside its words on a computer, 24 alone
+  in the header's 16 px slot on a phone, as the room header's ✦). The ✦ draws its own gradient, so it takes no accent
+  colour anywhere (the room header's has none either). The skills' sparkles stay: an action, not someone to ask.
+- Tests: web unit `ai-face.test.tsx` (the `nav` and `label` places in both looks), `files-ask-ai-label.test.tsx`, `sidebar.test.tsx` (the row's mark, no bubble, no
   accent class); e2e `sidebar.spec.ts` (drawn size, centred on the slot and the row, words aligned), `search-palette.spec.ts`
   (⌘K's row) and `phone-nav.spec.ts` (the phone header's ✦, 44 px).
 - Version impact: **patch** (one icon; no text, API or data change).

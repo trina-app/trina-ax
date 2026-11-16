@@ -1,7 +1,7 @@
 // Where content that some people cannot see came from, as a "confirm" before it reaches more people names it
 // ("대화방에 보내기" chat/answer-share.ts): only where the person may look
 // themselves (a folder they may read, their own folder, a team connection or shared Drive by its name, a team room by its
-// group's name, the everyone room). Never who: a 1:1 or group conversation is never named (its name is people's names).
+// group's name, the everyone room). Never who: a 1:1 or group chat is never named (its name is people's names).
 import type { Database } from 'bun:sqlite'
 import type { AnswerSharePlace } from '@mycel/shared/api'
 import { getRow } from '../integrations/connections/store'
@@ -28,7 +28,7 @@ export function sharePlaceOf(db: Database, rules: RuleSet, userId: string, me: P
       const team = r?.kind === 'team' ? groupName(db, r) : null
       if (r?.kind === 'all') return { kind: 'room', name: '' }
       if (team) return { kind: 'room', name: team }
-      // a 1:1 or group conversation: its name is people's names
+      // a 1:1 or group chat: its name is people's names
       return r?.kind === 'dm' || r?.kind === 'group' ? { kind: 'conversation' } : null
     }
     // a chat's own files (chat/chat-files.ts): the chat, never by its title or its people, for someone who sees it
