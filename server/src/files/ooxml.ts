@@ -23,9 +23,9 @@ const POINT_IDX_MAX = 10_000
 /** The start of each section label; a line of the file's own text that starts like this is marked (see `quoteLine`). */
 export const SECTION_MARK = '=== '
 
-type Parts = Map<string, Uint8Array>
+export type Parts = Map<string, Uint8Array>
 
-function parts(bytes: Uint8Array, what: string): Parts {
+export function parts(bytes: Uint8Array, what: string): Parts {
   if (!isZip(bytes)) throw new ToolError(`could not read the extra parts of this ${what} (not a zip container)`)
   checkZip(bytes)
   let c: { FullPaths: string[]; FileIndex: { content?: Uint8Array | number[] }[] }
@@ -38,23 +38,25 @@ function parts(bytes: Uint8Array, what: string): Parts {
   return out
 }
 
-const xmlOf = (p: Parts, name: string): string | null => {
+export const xmlOf = (p: Parts, name: string): string | null => {
   const b = p.get(name)
   return b ? new TextDecoder('utf-8').decode(b) : null
 }
 
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
-const unescapeXml = (s: string) => s.replace(/&(#x[0-9a-f]+|#\d+|\w+);/gi, (m, e: string) =>
-  e[0] === '#' ? String.fromCodePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : Number(e.slice(1))) : (ENTITIES[e] ?? m))
+export const unescapeXml = (s: string) => s.replace(/&(#x[0-9a-f]+|#\d+|\w+);/gi, (m, e: string) =>
+  e[0] === '#' ? codePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : Number(e.slice(1))) : (ENTITIES[e] ?? m))
+/** a character reference's character; one past Unicode (or not a number) is U+FFFD, never a thrown RangeError */
+const codePoint = (n: number) => (Number.isInteger(n) && n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : '\ufffd')
 /** An attribute of a tag's attribute text (`head`). */
-const attr = (head: string, name: string) => {
+export const attr = (head: string, name: string) => {
   const m = new RegExp(`\\s${name}="([^"]*)"`).exec(head)
   return m ? unescapeXml(m[1]!) : undefined
 }
 
 // ---------------- linear XML scanning ----------------
 
-type Tag = { name: string; close: boolean; selfClose: boolean; head: string; start: number; end: number }
+export type Tag = { name: string; close: boolean; selfClose: boolean; head: string; start: number; end: number }
 
 /** The character after a tag name: white space, '>' or '/'. */
 const nameEnds = (c: number) => c === 0x20 || c === 0x09 || c === 0x0a || c === 0x0d || c === 0x3e || c === 0x2f
@@ -73,7 +75,7 @@ function tagAt(xml: string, s: number, gt: number): Tag {
  * Every tag of the XML in document order. The scan stops at the first '<' that has no '>' after it. A '<' in the text
  * before a tag (not valid XML) is skipped: the tag starts at the last '<' before its '>'.
  */
-function* tags(xml: string): Generator<Tag> {
+export function* tags(xml: string): Generator<Tag> {
   let pos = 0
   for (;;) {
     let s = xml.indexOf('<', pos)
@@ -168,7 +170,7 @@ const num = (p: string) => Number(/(\d+)\.xml$/.exec(p)?.[1] ?? 0)
 const byNumber = (a: string, b: string) => num(a) - num(b)
 
 /** Relationships of a part: id -> target path inside the zip (relative targets resolved against the part's folder). */
-function rels(p: Parts, part: string): Map<string, { type: string; target: string }> {
+export function rels(p: Parts, part: string): Map<string, { type: string; target: string }> {
   const dir = part.slice(0, part.lastIndexOf('/') + 1)
   const xml = xmlOf(p, `${dir}_rels/${part.slice(dir.length)}.rels`)
   const out = new Map<string, { type: string; target: string }>()
@@ -326,7 +328,7 @@ function chartText(xml: string): string {
 }
 
 /** Slides in show order: presentation.xml's slide list, else the slide parts by number. A slide is given once. */
-function slideOrder(p: Parts): string[] {
+export function slideOrder(p: Parts): string[] {
   const pres = xmlOf(p, 'ppt/presentation.xml')
   const r = rels(p, 'ppt/presentation.xml')
   const listed: string[] = []

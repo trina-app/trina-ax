@@ -36,7 +36,8 @@
 //     address or a random-looking part of it to a tool of this chat before it came back (an echo: always a card, as
 //     for the learned links of ①);
 //   ③ also a card when the query string is longer than 200 characters, even for a URL from ①;
-//   and a card for every URL while this server's own public exit address is unknown (tools/egress.ts).
+//   and a card for every URL while this server's own public exit address is unknown (tools/egress.ts), except a plain
+//     address under ①d (the person's own switch; the card offers it).
 // The caller looks nothing up in DNS before this says yes (tools/index.ts web_fetch, chat/tools.ts browser tools): a
 // host name can carry data to the attacker's name server even when the person declines.
 // Not done here (follow-up): the "32 characters in common with a file read in this chat" check of ③ and the admin
@@ -51,7 +52,8 @@ import type { CardOutcome } from '../policy/refusal'
 import { withoutQuoteLines } from '../chat/read-rooms'
 import { isConfidentialChat } from '../safe-ops/confidential'
 import { usable } from '../integrations/connections/store'
-import type { EchoCheck } from './connection-urls'
+import { webEcho, type EchoCheck } from './connection-urls'
+import { SEE_SQL, seeArgs, type SeeMember } from '../rooms/store'
 import type { ResolveOptions } from './web-fetch'
 import { setWebAllowAll, teamAllowsWebAll, webAllowAll } from './web-allow-all'
 
@@ -266,7 +268,68 @@ function originOf(db: Database, chatId: string | null, url: string, person: Turn
     // only while the person can still use the connection it came from (removed, or their access taken away: a card)
     if (c && usable(db, o.userId).some((r) => r.id === c.integrationId)) return { origin: c.echo ? 'echo' : 'learned', row, conn: c }
   }
+  if (!chatId) return null
+  // the same address with only tracking parts left out (?utm_…, a trailing slash): what the AI asks for carries
+  // nothing the known address did not, so it is that address (typed, or one this chat saw: allowed here, a page's or a
+  // room's link, with its echo mark; docs/decisions/20261116-room-link-save-one-prompt.md, QA TC-3831)
+  for (const k of typedUrls(db, chatId, o.userId)) if (sameLink(url, k)) return { origin: 'typed', row }
+  const shared = sharedChat(db, chatId)
+  const u = new URL(url)
+  const prefix = `${u.origin}${u.pathname.replace(/\/+$/, '')}`
+  for (const r of db.query("SELECT url, source, free_turn_id, echo FROM chat_seen_urls WHERE chat_id = ? AND url >= ? AND url < ? LIMIT 200").all(chatId, prefix, `${prefix}\uffff`) as (SeenRow & { url: string })[]) {
+    if (!sameLink(url, r.url)) continue
+    if (r.source === 'allowed') return shared ? { origin: 'learned', row: r } : { origin: 'allowed', row: r }
+    return { origin: r.echo ? 'echo' : 'learned', row: r }
+  }
   return null
+}
+
+/** room_read gave the AI a room's messages: in a room's ✦ side chat, the links in its own room's messages the person
+ * sees (sideRoomUrls) become links of this conversation, as a fetched page's links do (learned, within the link
+ * budget), each marked as an echo when it holds what the AI had sent to a tool of this chat by now. */
+export function noteRoomLinks(db: Database, chatId: string, userId: string, text: string): void {
+  const room = sideRoomUrls(db, chatId, userId)
+  if (!room.size) return
+  const urls = extractUrls(text, MAX_SEEN_PER_FETCH).filter((x) => room.has(x))
+  if (urls.length) rememberUrls(db, chatId, urls, 'fetched', webEcho(db, chatId))
+}
+
+/** Query keys that only say where a click came from (UTM and the ad networks' click ids): an address without them
+ * carries less, never more. */
+const TRACKING = /^(utm_[a-z0-9_]+|fbclid|gclid|gclsrc|dclid|gbraid|wbraid|msclkid|mc_cid|mc_eid|igshid|yclid|_hsenc|_hsmi|mkt_tok|si|ref_src)$/i
+
+/** Is `asked` the address `known` with only tracking parts dropped: the same scheme, host, port and path (a trailing
+ * slash aside), every query part of `asked` also in `known` with the same value, and every part it lacks a tracking
+ * one? Never the other way round (an added part could carry data). */
+export function sameLink(asked: string, known: string): boolean {
+  let a: URL, k: URL
+  try { a = new URL(asked); k = new URL(known) } catch { return false }
+  const path = (u: URL) => u.pathname.replace(/\/+$/, '') || '/'
+  if (a.protocol !== k.protocol || a.host !== k.host || path(a) !== path(k) || a.username || a.password) return false
+  const kp = [...k.searchParams], ap = [...a.searchParams]
+  if (ap.length > kp.length) return false
+  const left = [...kp]
+  for (const [n, v] of ap) {
+    const i = left.findIndex(([kn, kv]) => kn === n && kv === v)
+    if (i < 0) return false
+    left.splice(i, 1)
+  }
+  return left.every(([n]) => TRACKING.test(n))
+}
+
+/** The http(s) addresses in the messages of the room this ✦ side chat belongs to (chat/side-room.ts: while its person
+ * is in the room and it is not archived), only those the person sees there (rooms/store.ts SEE_SQL: from when they see
+ * the room, no hidden answer), written by people: not the room AI's messages nor answers shared from an AI chat
+ * (their text is the AI's, which a hidden instruction may have filled with an address that carries data). */
+function sideRoomUrls(db: Database, chatId: string, userId: string | null | undefined): Set<string> {
+  const out = new Set<string>()
+  if (!userId) return out
+  const member = db.query(`SELECT rm.room_id, rm.user_id, rm.visible_from_seq, rm.history_from_seq FROM chats c JOIN rooms r ON r.id = c.side_room_id AND r.archived_at IS NULL
+    JOIN room_members rm ON rm.room_id = r.id AND rm.user_id = c.user_id WHERE c.id = ? AND c.user_id = ?`).get(chatId, userId) as (SeeMember & { room_id: string }) | null
+  if (!member) return out
+  for (const m of db.query(`SELECT m.body FROM room_messages m WHERE m.room_id = ? AND m.deleted_at IS NULL AND m.author_kind = 'user' AND m.answer_at IS NULL AND ${SEE_SQL}
+    ORDER BY m.seq DESC LIMIT 1000`).all(member.room_id, ...seeArgs(member)) as { body: string }[]) for (const u of extractUrls(m.body, 50)) out.add(u)
+  return out
 }
 
 /** Learned addresses opened without a card so far, in this answer and in this chat (web pages and search results, and
@@ -688,6 +751,15 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
     if (from?.origin === 'echo') why = from.conn ? 'echo' : 'echoWeb'
     // ①d: the "Allow all websites" of the person whose turn it is (no budget: the owner's call, 2026-11-11)
     else if (plain && allSitesTurn() && webAllowAll(db, o.userId)) return 'all'
+  } else if (!long && noEgress) {
+    // the exit address not known yet (tools/egress.ts): only ①d, the person's own switch, opens a plain address without
+    // the card (docs/decisions/20261116-always-allow-more-cards.md). A plain address has a site name, never a number
+    // (siteOf), and private and local addresses stay refused on every hop after the lookup (web-fetch.ts); what it
+    // cannot refuse while the address is unknown is a public name that leads back to this server's own exit address
+    // (the card's "a device inside your network"), which the person's switch accepts as it accepts any site
+    // (an echo is never plain: it keeps the card, with no "Allow all websites" on it)
+    plain = plainAddress(site, marks, userinfo, originOf(db, chatId, url, person, o))
+    if (plain && allSitesTurn() && webAllowAll(db, o.userId)) return 'all'
   }
   // nobody to ask (no turn, or a scheduled run): say why, so the AI tells the person what really happened
   if (unattended) {

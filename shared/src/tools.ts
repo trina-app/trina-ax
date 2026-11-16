@@ -67,7 +67,7 @@ export const EDIT_FILES_DESCRIPTION = 'Make the same exact-string replacement in
 // ---------------- other tools (stage 1: contracts only) ----------------
 export const HwpRenderInput = z.strictObject({ source: relPath, page: z.number().int().min(1).max(200), format: z.literal('png') })
 export const MakeFileInput = z.strictObject({
-  source: optRelPath.describe('.md/.csv file to convert, or an .html page to print to PDF (format "pdf"); source or content'),
+  source: optRelPath.describe('.md/.csv file to convert, an .html page to print to PDF, or a .pptx deck to save as PDF (format "pdf"); source or content'),
   content: z.string().optional(),
   format: z.enum(['docx', 'pptx', 'xlsx', 'pdf', 'hwpx']),
   output: relPath.describe('Where to save (write access needed; a conflict copy is made if it exists)'),

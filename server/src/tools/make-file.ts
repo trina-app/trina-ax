@@ -29,6 +29,9 @@
 //   colours and backgrounds, merged cells, `@page` size and margins, page breaks), never rewritten as Markdown
 //   (files/html-pdf.ts: no network, no scripts, the page's pictures, stylesheets and fonts read with the person's
 //   access). The page and every file it used are the PDF's sources, as for images above.
+// - pdf from a .pptx `source`: the deck drawn by the server with a page per shown slide (files/pptx-html.ts, in the office
+//   worker), then printed like an HTML page; nothing else here converts a deck (no LibreOffice). Its pictures come
+//   from the deck itself, never from the team folder; the deck is the PDF's only source.
 import { addFormulaResults } from './formula-values'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -40,6 +43,7 @@ import type { Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { ext, officeWorkerText, officeWorkerWrite } from '../files/extract'
+import { PPTX_HTML_MODE, type SlidesHtml } from '../files/pptx-html'
 import { encodeHwpxRequest, firstDifference, HWPX_TEMPLATE_MAX, HWPX_WRITE_MODE, hwpxExpectedLines, hwpxReadLines } from '../files/hwpx-check'
 import type { ToolCtx } from '../files/service'
 import { conflictCopyName, fileEvent, readRegular, recordConflictCopy, sha256 } from '../files/store'
@@ -75,6 +79,13 @@ export interface MadeFile { path: string; size: number; sha256: string; conflict
 /** the sources make_file prints as a page (format pdf only) */
 export const HTML_SOURCE_EXT = new Set(['html', 'htm'])
 
+/** make_file's words for a deck to PDF (part of HTML_PDF_HINT: only where a headless browser prints). Before it, an AI
+ * asked for "that PPT as a PDF" rewrote the slides as a one-page Markdown document (AI flow check FL-15). */
+export const PPTX_PDF_HINT =
+  'PDF from PowerPoint: give `source` = the .pptx and format "pdf": the server draws every shown slide on its own page at the deck\'s slide size ' +
+  '(text, pictures, tables, colours and shapes in their places). Use this whenever the user wants a deck as a PDF: never rewrite the slides as ' +
+  'Markdown or HTML for it. The result says what could not be drawn (charts, diagrams); tell the user that. '
+
 /** make_file's description where this server prints HTML (tools/index.ts). Before it, an AI asked to turn a quote's
  * .html into a PDF rewrote it as Markdown tables (losing its navy headers, highlights, merged cells and A4 layout) and
  * told the person to print it from Chrome. */
@@ -83,14 +94,35 @@ export const HTML_PDF_HINT =
   'backgrounds, merged cells, the page\'s `@page` size and margins (A4 when none), page breaks such as break-before: page, Korean fonts). ' +
   'Use this for every HTML page the user wants as a PDF: never rewrite HTML as Markdown for a PDF, and never send the user to print it from a browser. ' +
   'Printing loads only the page\'s own pictures, stylesheets and fonts from the team folder by relative path (web addresses are not loaded) and runs ' +
-  'no JavaScript, so when you write a page for PDF, put its design in CSS and its pictures in team files (save_url), and set @page { size: A4; margin: 15mm }. '
+  'no JavaScript, so when you write a page for PDF, put its design in CSS and its pictures in team files (save_url), and set @page { size: A4; margin: 15mm }. ' +
+  PPTX_PDF_HINT
 /** make_file's description where no headless browser is installed */
 export const HTML_PDF_OFF_HINT =
   'This server cannot print an HTML page to PDF (no headless browser is installed). If the user asks for one, say so; going through Markdown ' +
-  'loses the page\'s design (colours, backgrounds, merged cells, layout), so say that before you offer it. '
+  'loses the page\'s design (colours, backgrounds, merged cells, layout), so say that before you offer it. ' +
+  'For the same reason it cannot save a PowerPoint deck as a PDF: say so plainly, and that PowerPoint or Keynote can (File > Export > PDF); never rewrite the slides as a document instead. '
+
+/** a PDF of a PowerPoint deck: what the server drew and what it left out (files/pptx-html.ts) */
+export interface FromDeck { slides: number; hidden: number; notDrawn: SlidesHtml['notDrawn'] }
+/** `deck`: the page was drawn from a PowerPoint deck by the server (fromDeck); declared here, merged into FromHtml above */
+export interface FromHtml { deck?: FromDeck }
+
+/** What the AI is told about a PDF of a deck (tools/index.ts). */
+export function deckPdfResultText(d: FromDeck, pages: number): string {
+  const lines = [pages === d.slides
+    ? `The PDF has ${pages} page${pages === 1 ? '' : 's'}, one per slide (${d.slides} slide${d.slides === 1 ? '' : 's'} shown), drawn by the server from the deck: text, pictures, tables, colours and shapes in their places, in the fonts this server has.`
+    : `The PDF has ${pages} pages for ${d.slides} shown slides (they should match; some slide did not fit its page). Tell the user and ask them to check the PDF.`]
+  if (d.hidden) lines.push(`${d.hidden} hidden slide${d.hidden === 1 ? ' was' : 's were'} left out, as PowerPoint's own PDF export does; say so.`)
+  const n = d.notDrawn
+  const missing = [n.charts && `${n.charts} chart${n.charts === 1 ? '' : 's'}`, n.diagrams && `${n.diagrams} SmartArt diagram${n.diagrams === 1 ? '' : 's'}`, n.objects && `${n.objects} other embedded object${n.objects === 1 ? '' : 's'}`, n.pictures && `${n.pictures} picture${n.pictures === 1 ? '' : 's'} in a format the PDF cannot show`].filter(Boolean)
+  if (missing.length) lines.push(`Not drawn (a light grey box in its place): ${missing.join(', ')}. Tell the user, and that PowerPoint's own "Export to PDF" keeps them.`)
+  lines.push('Effects such as shadows, gradients and animations are not drawn; the layout can differ slightly from PowerPoint.')
+  return lines.join('\n')
+}
 
 /** What the AI is told about a PDF printed from HTML (tools/index.ts). */
 export function htmlPdfResultText(h: FromHtml): string {
+  if (h.deck) return deckPdfResultText(h.deck, h.pages)
   const lines = [`The PDF has ${h.pages} page${h.pages === 1 ? '' : 's'}, printed from the HTML as a browser prints it.`]
   if (h.blockedCount) lines.push(`${h.blockedCount} reference${h.blockedCount === 1 ? ' was' : 's were'} not loaded (web addresses, other kinds of files, or files the user cannot read; a picture shows as a grey box): ${h.blocked.slice(0, 3).join(', ')}. Tell the user; to include a web picture, save it into the team folder (save_url) and refer to it by a relative path.`)
   if (h.scripts) lines.push('The page has scripts, which did not run: JavaScript is off when printing, so anything a script draws or fills in is missing. If that matters, write that part as plain HTML and print again.')
@@ -105,6 +137,8 @@ export function htmlPdfErrorText(e: HtmlPdfError): string {
 }
 
 const MAX_SOURCE = 10 * 1024 * 1024
+/** a deck saved as a PDF (the office worker's own input limit is larger) */
+const MAX_DECK = 100 * 1024 * 1024
 const MAX_IMAGE = 20 * 1024 * 1024
 const MAX_IMAGES = 200
 const MAX_IMAGES_BYTES = 100 * 1024 * 1024
@@ -218,6 +252,8 @@ export class MakeFile {
   async run(c: ToolCtx, a: Input): Promise<MadeFile> {
     // an HTML page is printed, never converted through Markdown (its design would be lost)
     if (a.source !== undefined && HTML_SOURCE_EXT.has(ext(a.source))) return this.fromHtml(c, a)
+    // a deck is drawn slide by slide, never converted through Markdown
+    if (a.source !== undefined && ext(a.source) === 'pptx') return this.fromDeck(c, a)
     if(a.format==='pptx' && safeOpsEnabled()) return withWorkflow(this.ctx.files,c,() => this.safePresentation(c,a))
     if(a.expected_layouts) throw new ToolError(safeText(this.ctx.db,c.user.id,'unavailable'))
     const fx = this.files.fx
@@ -232,7 +268,7 @@ export class MakeFile {
       const r = authorize(fx, rules, c.user, a.source, 'read')
       if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`)
       const x = ext(r.rel)
-      if (!['md', 'markdown', 'txt', 'csv', 'tsv'].includes(x)) throw new ToolError('source must be a .md, .txt, .csv or .tsv file (or an .html file for format "pdf")')
+      if (!['md', 'markdown', 'txt', 'csv', 'tsv'].includes(x)) throw new ToolError('source must be a .md, .txt, .csv or .tsv file (or an .html or .pptx file for format "pdf")')
       const { bytes } = readRegular(r.abs, MAX_SOURCE)
       text = bytes.toString('utf8')
       kind = x === 'csv' ? 'csv' : x === 'tsv' ? 'tsv' : 'markdown'
@@ -341,6 +377,56 @@ export class MakeFile {
       // the audit line names every team file whose bytes are in the PDF (the page's pictures, stylesheets, fonts)
       const made = await placeProduced(this.ctx, this.files, c, out.segs, produced, 'make_file', undefined, { detail: { from: printed.source, pages: printed.pages, files: printed.sources.slice(1, 51), fileCount: printed.sources.length - 1 } })
       return { ...made, html: { pages: printed.pages, blocked: printed.blocked, blockedCount: printed.blockedCount, scripts: printed.scripts } }
+    } finally { fs.rmSync(work, { recursive: true, force: true }) }
+  }
+
+  /**
+   * PDF of a PowerPoint deck in the team folder: the office worker draws it as a page per shown slide
+   * (files/pptx-html.ts), the server's headless browser prints that page; the pictures are the deck's own, handed over
+   * by name (never a team file). The deck is the PDF's only source (the wider-audience card); then the PDF is placed
+   * like every make_file output.
+   */
+  private async fromDeck(c: ToolCtx, a: Input): Promise<MadeFile> {
+    if (a.format !== 'pdf') throw new ToolError(`a .pptx source can only be saved as a PDF: give format "pdf" (for ${a.format}, write the document as Markdown)`)
+    if (a.template) throw new ToolError('a PDF of a deck takes no template: the deck\'s own design is used')
+    const fx = this.files.fx
+    const rules = this.files.rules()
+    const src = authorize(fx, rules, c.user, a.source!, 'read')
+    if (src.st!.isDirectory()) throw new ToolError(`'${src.rel}' is a folder`)
+    const outRel = makeFileOutputPath(a.output, 'pdf')
+    const out = authorize(fx, rules, c.user, outRel, 'write', { mustExist: false, createDirs: true })
+    if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder`)
+    const why = htmlPdfUnavailable()
+    const browser = findPdfBrowser()
+    if (why || !browser) throw new ToolError(`this server cannot make a PDF of a deck (${why ?? 'no headless browser is installed'}); nothing was saved. Tell the user so, and that PowerPoint or Keynote can (File > Export > PDF); never rewrite the slides as a document instead`, 'html_pdf_unavailable')
+    const { bytes } = readRegular(src.abs, MAX_DECK)
+    this.ctx.files.quarantine.assertBytes(bytes)
+    const drawn = JSON.parse((await officeWorkerWrite(PPTX_HTML_MODE, bytes, c.signal)).toString('utf8')) as SlidesHtml
+    // the page sits next to the deck under a name of its own: its pictures are answered only from the deck's
+    const page = [...src.segs.slice(0, -1), `${src.segs.at(-1)}.slides.html`].join('/')
+    const folder = page.slice(0, page.lastIndexOf('/') + 1)
+    const toTool = (e: unknown) => (e instanceof HtmlPdfError ? new ToolError(htmlPdfErrorText(e), `html_pdf_${e.code}`) : e)
+    let release: () => void
+    try { release = await renderSlot(c.user.id, c.signal) } catch (e) { throw toTool(e) }
+    let printed: Awaited<ReturnType<typeof renderHtmlPdf>>
+    try {
+      printed = await renderHtmlPdf({
+        browser, html: Buffer.from(drawn.html, 'utf8'), page, workBase: this.ctx.config.dataDir, fonts: serverFontDirs(), signal: c.signal,
+        limits: { maxHtmlBytes: Math.max(HTML_PDF_LIMITS.maxHtmlBytes, 32 * 1024 * 1024) },
+        asset: (p) => {
+          const name = p.startsWith(folder) ? p.slice(folder.length) : ''
+          const b64 = /^m\d+\.[a-z]+$/.test(name) ? drawn.media[name] : undefined
+          return b64 ? Buffer.from(b64, 'base64') : null
+        },
+      })
+    } catch (e) { throw toTool(e) } finally { release() }
+    const work = makeWorkDir(path.join(this.ctx.config.dataDir, 'work'))
+    try {
+      const produced = path.join(work, 'out.pdf')
+      fs.writeFileSync(produced, printed.pdf, { flag: 'wx', mode: 0o600 })
+      await this.checkWidening(c, out.rel, out.segs, [src.rel])
+      const made = await placeProduced(this.ctx, this.files, c, out.segs, produced, 'make_file', undefined, { detail: { from: src.rel, pages: printed.pages, slides: drawn.slides } })
+      return { ...made, html: { pages: printed.pages, blocked: [], blockedCount: 0, scripts: false, deck: { slides: drawn.slides, hidden: drawn.hidden, notDrawn: drawn.notDrawn } } }
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }
 
