@@ -113,11 +113,10 @@ export function baseChangelog(root: string, env: Record<string, string | undefin
   return baseFile(root, 'CHANGELOG.md', env, warn)
 }
 
-/** `file` (a path in the repository) as the PR's base has it, found as baseChangelog says; `ref` replaces
- * `CHANGELOG_BASE` (scripts/decisions.ts passes `DECISIONS_BASE` first). */
-export function baseFile(root: string, file: string, env: Record<string, string | undefined> = process.env, warn: (why: string) => void = () => {}, ref = env.CHANGELOG_BASE ?? ''): string | null {
-  // docs/DECISIONS.md is over 3 MB: past spawnSync's 1 MB default the read fails with no message
-  const git = (...args: string[]) => spawnSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
+/** The git ref of the PR's base, found as baseChangelog says (fetched when it comes from GitHub Actions), or null
+ * when there is none; `ref` replaces `CHANGELOG_BASE`. scripts/check-migrations.ts lists a folder at it. */
+export function baseRef(root: string, env: Record<string, string | undefined> = process.env, warn: (why: string) => void = () => {}, ref = env.CHANGELOG_BASE ?? ''): string | null {
+  const git = (...args: string[]) => spawnSync('git', args, { cwd: root, encoding: 'utf8' })
   if (!ref) {
     const target = env.GITHUB_BASE_REF ?? ''
     if (!target) return null
@@ -131,8 +130,17 @@ export function baseFile(root: string, file: string, env: Record<string, string 
     ref = 'FETCH_HEAD'
   }
   if (ref.startsWith('-')) { warn(`"${ref}" is not a git ref`); return null }
-  const shown = git('show', `${ref}:${file}`)
-  if (shown.status !== 0) { warn(`could not read ${file} at ${ref}: ${(shown.stderr || '').trim()}`); return null }
+  return ref
+}
+
+/** `file` (a path in the repository) as the PR's base has it, found as baseChangelog says; `ref` replaces
+ * `CHANGELOG_BASE` (scripts/decisions.ts passes `DECISIONS_BASE` first). */
+export function baseFile(root: string, file: string, env: Record<string, string | undefined> = process.env, warn: (why: string) => void = () => {}, ref = env.CHANGELOG_BASE ?? ''): string | null {
+  const at = baseRef(root, env, warn, ref)
+  if (at === null) return null
+  // docs/DECISIONS.md is over 3 MB: past spawnSync's 1 MB default the read fails with no message
+  const shown = spawnSync('git', ['show', `${at}:${file}`], { cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
+  if (shown.status !== 0) { warn(`could not read ${file} at ${at}: ${(shown.stderr || '').trim()}`); return null }
   return shown.stdout
 }
 
