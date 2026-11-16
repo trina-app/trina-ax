@@ -1,6 +1,7 @@
 // Admin > Plugins (contract shared/src/api/plugins.ts, docs/PLUGINS.md), registered by the files route module
 // (component C). Owners and admins only (the endpoint auth level), CSRF and session checks as for every admin route;
 // the install request must carry the manifest digest the admin was shown. Logic: server/src/plugins/manager.ts.
+import fs from 'node:fs'
 import { API } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { RouteKit } from '../http/route'
@@ -9,7 +10,7 @@ import { pluginsOf } from '../plugins/manager'
 export function registerPluginRoutes(kit: RouteKit, ctx: AppContext) {
   const m = () => pluginsOf(ctx)
   kit.handle(API.listPlugins, ({ c }) => m().list(c.get('locale')))
-  kit.handle(API.inspectPluginFile, async ({ c, auth, body }) => m().inspect(auth.user.id, new Uint8Array(await body.file.arrayBuffer()), 'file', c.get('locale')))
+  kit.handle(API.inspectPluginFile, async ({ c, auth, body }) => m().inspect(auth.user.id, new Uint8Array(fs.readFileSync(body.file.path)), 'file', c.get('locale')))
   kit.handle(API.inspectPluginSource, ({ c, auth, body }) => body.source === 'catalog'
     ? m().inspectCatalog(auth.user.id, body.id, c.get('locale'))
     : m().inspectImport(auth.user.id, body.name, c.get('locale')))
