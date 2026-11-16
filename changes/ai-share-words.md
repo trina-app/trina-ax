@@ -7,3 +7,5 @@
 - Cards no longer show folder paths. Files are listed by place and name ("My folder › Work › Quote.pdf"), so two files
   with the same name can be told apart, and choices Trina offers read the same way.
 - The share card says "it" for one file, and the title of a thread reply card no longer shows `**` marks.
+- When a share or post card shows up although you chose **Always allow**, the card now says why (Trina read something
+  other people wrote in this chat) and how to skip it: name the file and who gets it in your message.

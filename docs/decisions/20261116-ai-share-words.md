@@ -51,6 +51,14 @@ Plan: `docs/AGENTS/plan/20261116-1500-ai-share-words.md`.
 - **Card text.** The thread quote in the post card's title loses its Markdown marks. The share card says "They can only
   view it" for one file and "them" for several, in six languages (two texts, picked by the count: Korean, Indonesian,
   Japanese and Chinese do not change with the number).
+- **A card that comes back after "Always allow".** Once a person's own chat read something other people wrote, their
+  "Always allow" for shares and posts counts only for what their own message names
+  (`20261116-always-allow-more-cards.md` "Content written by others"), so the card shows again. That is not a refusal, but
+  it looked like one. The share and post cards then start with one line: "Something other people wrote was read in this
+  chat, so this is asked first. To skip the card, name the file and who gets it in your message." (six languages,
+  `othersWordsWhy`). Only when the choice is on for that kind and does not count now, in an own chat that read content
+  by others (`othersWordsCard`); a chat that read rooms keeps its own first line, unchanged. The instructions give the
+  AI the same sentence for when the person asks why (`OTHERS_WORDS_RULE`). The gates are untouched.
 - **Comments under an answer.** In a shared chat the AI is told that comments exist, that it cannot read them, and that
   "Send to Trina" in the thread brings them to it. It still does not read threads
   (`20261116-chat-answer-threads.md`).

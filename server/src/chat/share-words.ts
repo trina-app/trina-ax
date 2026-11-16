@@ -19,6 +19,8 @@ import type { FileShares } from '../files/shares'
 import { hiddenEntry } from '../policy/names'
 import { SCREEN } from '../policy/refusal'
 import { placeWords } from './place-words'
+import { alwaysHere, type AlwaysPlace } from './always-allow'
+import type { CardAlwaysKind } from '@mycel/shared/api'
 
 // ---- the rules ----
 
@@ -28,6 +30,15 @@ export const POST_FILE_RULE = 'To post a file to a room or a person, link it in 
 export const WHICH_THREAD_RULE = '"That thread" or "that message" with none named or quoted: never guess the newest. Read the room, then ask which one, offering two or three by who wrote it and its first words.'
 /** With the share and post tools (the plan's "거절에는 다음 단계"): a refusal is passed on with its next step. */
 export const REFUSAL_NEXT_RULE = 'When a share or a post is refused, do not stop at "I can\'t": say why in one plain sentence and offer the next step its result names. A whole folder cannot be shared yet: offer to share the files in it; a team folder is shared by the team owner or an admin with Share on the folder in Files. When the person already has access, say so: that is not a refusal.'
+/** With the share and post tools (docs/decisions/20261116-always-allow-more-cards.md "Content written by others"): once
+ * the chat read something other people wrote, "Always allow" counts only for what the person's own message names, so the
+ * card comes back. Not a refusal; the AI can say why and what skips it. */
+export const OTHERS_WORDS_RULE = 'A share or a post may show its card although the user chose "Always allow": this chat read something other people wrote (a teammate\'s file, a shared file, a page, a room). Asked why, say "I read something other people wrote in this chat, so I ask before sharing", and that naming the file and the person in their message, or confirming on the card, is enough.'
+/** The card's first line in that case (server text, TEXT.othersWordsWhy): only when the person's "Always allow" is on for
+ * this kind and the card comes anyway because content someone else wrote was read. A chat that read rooms has its own
+ * line (roomsSeenWhy), and a shared chat never had the choice count this way. */
+export const othersWordsCard = (exec: { shared?: unknown; roomsSeen?: unknown; othersWords?: unknown; alwaysPlace?: () => AlwaysPlace }, kind: CardAlwaysKind, alwaysOk: boolean): boolean =>
+  !alwaysOk && !exec.shared && !exec.roomsSeen && !!exec.othersWords && alwaysHere(exec.alwaysPlace?.(), kind) === 'on'
 /** Next to FIND_FILE_RULE (UX B): several files of one name. */
 export const SAME_NAME_RULE = 'Several files fit the name the user gave: if one was made, read or attached in this chat, or is the only one they may share, use it without asking and say which. Otherwise ask, each choice labelled by its name, its place in words and, for a file shared with the user, who shared it and when.'
 /** After SOURCE_LINK_RULE (UX A): the same on a card. */

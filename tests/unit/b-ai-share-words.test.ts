@@ -16,12 +16,13 @@ import { buildTurnPrompt, ROOMS_POST_RULE, sharedSection, SOURCE_LINK_RULE, type
 import { POST_TO_ROOM_DESCRIPTION, postRefusal } from '../../server/src/chat/post-to-room'
 import { SHARE_WITH_PERSON_DESCRIPTION } from '../../server/src/chat/share-with-person'
 import {
-  CARD_WORDS_RULE, fileWords, optionWords, pathsToWords, plainQuote, POST_FILE_DESCRIPTION, POST_FILE_RULE, POST_NO, REFUSAL_NEXT_RULE, SAME_NAME_RULE,
+  CARD_WORDS_RULE, fileWords, optionWords, OTHERS_WORDS_RULE, othersWordsCard, pathsToWords, plainQuote, POST_FILE_DESCRIPTION, POST_FILE_RULE, POST_NO, REFUSAL_NEXT_RULE, SAME_NAME_RULE,
   sendNotConnectedRule, SHARE_ALREADY_NOTE, SHARE_FOLDER_DESCRIPTION, SHARE_NO, shareableIn, sharedCommentsLine, threadSendToAi, WHICH_THREAD_RULE,
 } from '../../server/src/chat/share-words'
 import { TEXT, tr } from '../../server/src/chat/i18n'
 import { HttpError } from '../../server/src/http/errors'
 import { updateTeamSettings } from '../../server/src/admin/settings'
+import { dropAlways, keepAlways } from '../../server/src/chat/always-allow'
 import { fileSharesOf } from '../../server/src/files/shares'
 import { roomsOf } from '../../server/src/rooms/service'
 import { DICTS } from '../../web/src/i18n'
@@ -70,6 +71,23 @@ describe('the rules', () => {
     expect(sendNotConnectedRule('ko', false)).toContain('say where to connect it (Settings › Connectors ("설정 › 커넥터"))')
   })
 
+  test('a card that comes back after "Always allow": why (other people\'s words were read), and what skips it', () => {
+    expect(OTHERS_WORDS_RULE).toContain('"I read something other people wrote in this chat, so I ask before sharing"')
+    expect(OTHERS_WORDS_RULE).toContain('naming the file and the person in their message, or confirming on the card, is enough')
+    expect(tr('othersWordsWhy', 'en')).toBe('Something other people wrote was read in this chat, so this is asked first. To skip the card, name the file and who gets it in your message.')
+    for (const L of LOCALES) expect(TEXT.othersWordsWhy[L]).toBeTruthy()
+    // the card's line: only an own chat that read content by others, with the choice on, when it does not count now
+    const on = { db: null as never, userId: 'u', turnId: null, on: (k: string) => k === 'share_files' }
+    const place = () => on as never
+    const base = { othersWords: true, alwaysPlace: place }
+    expect(othersWordsCard({ othersWords: false, alwaysPlace: place }, 'share_files', false)).toBe(false)
+    expect(othersWordsCard(base, 'share_files', true)).toBe(false)
+    expect(othersWordsCard({ ...base, shared: {} }, 'share_files', false)).toBe(false)
+    // a chat that read rooms keeps its own line (roomsSeenWhy)
+    expect(othersWordsCard({ ...base, roomsSeen: true }, 'share_files', false)).toBe(false)
+    expect(othersWordsCard({ othersWords: true }, 'share_files', false)).toBe(false)
+  })
+
   test('comments under an answer: the AI cannot read them and names the button that sends them, in the app\'s own words', () => {
     for (const L of LOCALES) expect(threadSendToAi(L, 'Trina')).toBe(DICTS[L]['chat.thread.sendToAi']!.replace('{name}', 'Trina'))
     const line = sharedCommentsLine('Alice Kim', 'en', 'Trina')
@@ -92,7 +110,7 @@ describe('where the rules are', () => {
 
   test('a person\'s own chat with the tools: every rule once, the post rules right after the post rule', () => {
     const p = buildTurnPrompt(h.ctx.files, input({ tools: OWN }))
-    for (const r of [POST_FILE_RULE, WHICH_THREAD_RULE, SAME_NAME_RULE, CARD_WORDS_RULE, REFUSAL_NEXT_RULE, sendNotConnectedRule('en', true)]) expect(p.split(r).length).toBe(2)
+    for (const r of [POST_FILE_RULE, WHICH_THREAD_RULE, SAME_NAME_RULE, CARD_WORDS_RULE, REFUSAL_NEXT_RULE, OTHERS_WORDS_RULE, sendNotConnectedRule('en', true)]) expect(p.split(r).length).toBe(2)
     expect(p).toContain(`${ROOMS_POST_RULE} ${POST_FILE_RULE} ${WHICH_THREAD_RULE}`)
     // the card rule extends the link rule: right after it
     expect(p).toContain(`${SOURCE_LINK_RULE}\n${CARD_WORDS_RULE}`)
@@ -114,6 +132,7 @@ describe('where the rules are', () => {
     expect(p).toContain(REFUSAL_NEXT_RULE)
     expect(p).toContain(CARD_WORDS_RULE)
     expect(p).not.toContain('Asked to send something by Gmail')
+    expect(p).not.toContain(OTHERS_WORDS_RULE)
     // a chat shared with people (no project), in Korean: the button by its Korean name
     expect(sharedSection({ project: null, audience: 2, asker: 'Bob Lee' }, 'ko', true)).toContain('"트리나에게 보내기"')
     // an own chat has no such line
@@ -353,6 +372,20 @@ describe('through the tools', () => {
     const one = await turn('alice', `(to the person I said before)\n${share({ paths: ['users/alice/one.md'], people: ['Tess Yoon'] })}`, { answer: 'no' })
     expect(one.card!.question).toBe('Share 1 file with Tess Yoon?\n\nThey can only view it. The link opens only for them.')
     expect(one.card!.details!.map((d) => d.text)).toEqual(['My folder › one.md'])
+  })
+
+  test('"Always allow" is on, the chat read a teammate\'s file, the file is not named: the card comes with why and what skips it', async () => {
+    keepAlways(h.ctx.db, 'bob', 'share_files', null)
+    try {
+      put('users/bob/ledger.txt', 'ledger')
+      // nothing by others read: the choice counts, no card
+      const plain = await turn('bob', `go on\n${share({ paths: ['users/bob/ledger.txt'], people: ['Tess Yoon'] })}`)
+      expect(JSON.parse(plain.content).status).toBe('shared')
+      // a teammate's file read in this answer, and the message names neither file nor person: the card, with the line
+      put('users/bob/ledger-2.txt', 'ledger 2')
+      const r = await turn('bob', `go on\n${fake({ tool: 'read', args: { file_path: 'shared/alices.txt' } })}\n${share({ paths: ['users/bob/ledger-2.txt'], people: ['Tess Yoon'] })}`, { answer: 'no' })
+      expect(r.card!.question.startsWith(`${tr('othersWordsWhy', 'ko')}\n\nTess Yoon님에게 파일 1개를 공유할까요?`)).toBe(true)
+    } finally { dropAlways(h.ctx.db, 'bob', 'card:share_files') }
   })
 
   test('ask_user: options that are team paths show in place words; the AI gets the value it gave', async () => {

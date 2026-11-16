@@ -23,7 +23,7 @@ import { appMapSection, type AppMapInput } from './app-map'
 import type { RunKind } from '../system/deployment'
 import { htmlPdfUnavailable } from '../files/html-pdf'
 import { AI_NAME, notFoundNext, SCREEN } from '../policy/refusal'
-import { CARD_WORDS_RULE, POST_FILE_RULE, REFUSAL_NEXT_RULE, SAME_NAME_RULE, sendNotConnectedRule, sharedCommentsLine, WHICH_THREAD_RULE } from './share-words'
+import { CARD_WORDS_RULE, OTHERS_WORDS_RULE, POST_FILE_RULE, REFUSAL_NEXT_RULE, SAME_NAME_RULE, sendNotConnectedRule, sharedCommentsLine, WHICH_THREAD_RULE } from './share-words'
 import type { GuestPrompt } from './guest-tools'
 import type { SharedWithFile } from '../files/shares'
 
@@ -958,6 +958,7 @@ export function turnPromptSections(files: FileService, i: PromptInput): Section[
     tools.has('ask_user') ? CARD_WORDS_RULE : '',
     SAME_NAME_RULE,
     tools.has('share_with_person') || tools.has('post_to_room') ? REFUSAL_NEXT_RULE : '',
+    !i.shared && (tools.has('share_with_person') || tools.has('post_to_room')) ? OTHERS_WORDS_RULE : '',
     !i.guest && !i.shared && (tools.has('share_with_person') || tools.has('post_to_room')) ? sendNotConnectedRule(i.locale, tools.has('connect_service')) : '',
     tools.has('make_file') ? makeFileRule(tools.has('edit_hwp')) : '',
     tools.has('edit_hwp') ? EDIT_HWP_RULE : '',
