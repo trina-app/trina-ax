@@ -92,3 +92,31 @@ test('a live change puts the summary on its answer (and takes it off when no rep
   useChats.getState().reset()
   useChatThreads.getState().reset()
 })
+
+test('a newest reply longer than the cap still goes in, cut with "…", every line a quote (QA TC-3786)', () => {
+  const o = { head: 'Thread', cut: '…(earlier replies left out)', time: () => '1:00 PM' }
+  const one = chatThreadDraft([{ name: 'Jae', at: '2026-11-16T05:00:00Z', text: `first line\n${'z'.repeat(9000)}` }], o)
+  expect(one.trimEnd().length).toBeLessThanOrEqual(CHAT_THREAD_DRAFT_MAX)
+  expect(one).toContain('> Jae · 1:00 PM\n> first line\n> zzz')
+  expect(one.trimEnd().endsWith('…')).toBe(true)
+  // nothing older was left out: no such line
+  expect(one).not.toContain('earlier replies')
+  const two = chatThreadDraft([{ name: 'Minji', at: '2026-11-16T05:00:00Z', text: 'short' }, { name: 'Jae', at: '2026-11-16T05:01:00Z', text: 'y'.repeat(9000) }], o)
+  expect(two.trimEnd().length).toBeLessThanOrEqual(CHAT_THREAD_DRAFT_MAX)
+  expect(two).toContain('> …(earlier replies left out)')
+  expect(two).not.toContain('Minji')
+  expect(two.trimEnd().split('\n').every((l) => l.startsWith('>'))).toBe(true)
+})
+
+test('a cut never splits a character: an emoji at the cut is left out whole before "…"', () => {
+  const o = { head: 'Thread', cut: '…(earlier replies left out)', time: () => '1:00 PM' }
+  // the cut lands inside a run of emoji (two UTF-16 units each), at every possible offset
+  for (let pad = 0; pad < 4; pad++) {
+    const d = chatThreadDraft([{ name: 'Jae', at: '2026-11-16T05:00:00Z', text: `${'a'.repeat(pad)}${'😀'.repeat(5000)}` }], o)
+    const body = d.trimEnd()
+    expect(body.endsWith('…')).toBe(true)
+    // no lone surrogate anywhere
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(body)).toBe(false)
+    expect(body.length).toBeLessThanOrEqual(CHAT_THREAD_DRAFT_MAX)
+  }
+})
