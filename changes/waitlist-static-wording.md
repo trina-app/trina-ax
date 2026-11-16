@@ -1,0 +1,1 @@
+- The demo's last button now says "See plans", and the docs on ax.trina.app show "Join the waiting list" on the site's sign-up button while sign-up is not open yet.

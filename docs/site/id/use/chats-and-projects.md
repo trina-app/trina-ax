@@ -52,7 +52,7 @@ Di komputer, **Trina** di bilah kiri membuka daftar chat Trina Anda di samping h
 
 | Bagian | Isinya |
 |---|---|
-| **Menunggu jawabanmu** | Hanya tampil selama ada chat yang menunggu jawaban Anda, dan membuka chat itu |
+| **Menunggu jawaban Anda** | Hanya tampil selama ada chat yang menunggu jawaban Anda, dan membuka chat itu |
 | **Disematkan** | Chat yang Anda sematkan |
 | **Riwayat Trina** | Semua chat Anda yang lain, yang terbaru di atas. Chat di dalam proyek menampilkan nama proyeknya di ujung barisnya |
 
@@ -76,7 +76,7 @@ tim**, lalu **Riwayat Trina** (chat yang disematkan lebih dulu, lalu yang terbar
 
 Chat Trina tidak punya folder. Untuk mengumpulkan chat tentang satu pekerjaan, masukkan ke dalam [proyek](#proyek).
 
-Daftar **Obrolan** punya **Folder obrolan** untuk ruang obrolan dan pesan langsung. Folder hanya merapikan daftar Anda, tidak lebih:
+Daftar **Obrolan** punya **Folder obrolan** untuk saluran dan pesan langsung. Folder hanya merapikan daftar Anda, tidak lebih:
 folder tidak menyimpan file dan tidak pernah mengubah siapa yang melihat sebuah percakapan. Buat folder dengan **Folder baru**, lalu pakai
 **···** › **Pindahkan ke folder** pada sebuah percakapan. Menu **···** pada folder bisa mengganti nama, memindahkannya ke atas atau ke bawah, atau menghapusnya; menghapus folder tetap menyimpan
 percakapannya di daftar Anda.
@@ -151,24 +151,24 @@ judulnya, di komputer maupun di ponsel. Halaman proyek juga menampilkan
 chat yang Anda sematkan lebih dulu. **Lepas sematan** mengembalikan chat ke tempatnya. Sematan hanya milik Anda, juga pada chat proyek bersama,
 dan hilang saat chat dihapus atau Anda tidak bisa melihatnya lagi. Anda bisa menyematkan sampai 50 chat.
 
-Percakapan di **Obrolan** (ruang obrolan, DM, dan obrolan grup) disematkan dengan cara yang sama, dari **···** pada baris atau
-**···** milik ruang obrolan itu: yang disematkan tampil lebih dulu, dengan pin kecil setelah namanya, di setiap daftar percakapan, di komputer maupun di tab **Obrolan** ponsel.
-Hanya Anda yang melihat sematan Anda. Sematan hilang saat Anda keluar dari ruang obrolan atau menyembunyikannya. Anda bisa menyematkan sampai 50 percakapan.
+Percakapan di **Obrolan** (saluran dan pesan langsung, termasuk obrolan grup) disematkan dengan cara yang sama, dari **···** pada baris atau
+**···** milik percakapan itu: yang disematkan tampil lebih dulu, dengan pin kecil setelah namanya, di setiap daftar percakapan, di komputer maupun di tab **Obrolan** ponsel.
+Hanya Anda yang melihat sematan Anda. Sematan hilang saat Anda keluar dari percakapan atau menyembunyikannya. Anda bisa menyematkan sampai 50 percakapan.
 
-Daftar **Obrolan** menampilkan setiap percakapan: sematan Anda, folder Anda, lalu **Ruang tim** (ruang semua orang lebih dulu, lalu
-menurut nama), **Obrolan grup**, dan **Pesan langsung** (yang terbaru lebih dulu). Percakapan yang Anda sembunyikan ada di balik **Percakapan tersembunyi (N)**.
+Daftar **Obrolan** menampilkan setiap percakapan: sematan Anda, folder Anda, lalu **Saluran** (saluran Semua lebih dulu, lalu
+menurut nama) dan **Pesan langsung** (obrolan 1:1 dan obrolan grup digabung, yang terbaru lebih dulu, masing-masing dengan wajah para anggotanya). Percakapan yang Anda sembunyikan ada di balik **Percakapan tersembunyi (N)**.
 
 Obrolan langsung dengan seseorang yang sudah keluar dari tim menampilkan "<nama> sudah keluar dari tim" dan tidak memiliki kotak pesan. Riwayatnya tetap bisa dibaca.
 
 ## Obrolan tim
 
-**Obrolan** di bilah kiri (di ponsel, tab **Obrolan**) adalah tempat orang saling berbicara: **Ruang tim**
-(semua orang di tim, dan satu ruang per grup), **Obrolan grup**, dan **Pesan langsung**. **Mention & thread**
+**Obrolan** di bilah kiri (di ponsel, tab **Obrolan**) adalah tempat orang saling berbicara: **Saluran**
+(satu untuk semua orang di tim, dan satu per grup) dan **Pesan langsung** (obrolan 1:1 dan obrolan grup). **Mention & thread**
 di bagian atas mengumpulkan pesan yang menyebut nama Anda dan utas yang Anda ikuti.
 
 Untuk mengajak orang dari luar tim, pilih **Undang tamu** saat Anda menambahkan orang ke obrolan grup atau proyek. [Baca tentang tamu](guests.md).
 
-![Daftar Obrolan: Mentions & threads, Team rooms dengan Everyone dan Marketing, dan satu pesan langsung](../../images/chats/rooms-list.webp "Daftar Obrolan")
+![Daftar Obrolan: Mentions & threads, Saluran dengan Everyone dan Marketing, dan satu pesan langsung](../../images/chats/rooms-list.webp "Daftar Obrolan")
 
 #### Bertanya ke Trina di samping ruang obrolan
 
@@ -177,7 +177,7 @@ menjawab dengan apa yang boleh Anda buka. Jika sebuah jawaban layak dibagikan, *
 Anda (**Kirim ke utas** jika Anda bertanya tentang satu pesan). Jika sebagian orang di ruang obrolan tidak bisa membuka file yang dipakai
 jawaban itu, aplikasi memberi tahu Anda dulu dan menunggu persetujuan Anda.
 
-![Ruang Marketing: pesan yang menyebut Jordan, utas dengan 2 balasan, dan jawaban Trina yang dikirim dari chat samping](../../images/chats/room.webp "Ruang tim")
+![Saluran Marketing: pesan yang menyebut Jordan, utas dengan 2 balasan, dan jawaban Trina yang dikirim dari chat samping](../../images/chats/room.webp "Saluran")
 
 #### Membalas di utas
 
@@ -188,7 +188,7 @@ berapa balasan yang ada di sebuah utas; **Kirim juga ke ruang obrolan** menaruh 
 
 #### Menautkan ke sebuah pesan
 
-**Salin tautan** di menu **⋯** sebuah pesan (di ponsel, tekan dan tahan pesannya) menyalin alamatnya. Tempelkan di ruang obrolan,
+**Salin tautan** di menu **⋯** sebuah pesan (di ponsel, tekan dan tahan pesannya) menyalin alamatnya. Tempelkan di saluran,
 obrolan grup, pesan langsung, atau utas mana pun: tautan itu tampil sebagai nama percakapan, dan pesannya tampil di bawahnya
 sebagai kartu berisi siapa yang menulisnya, kapan, isinya, dan file-filenya. Klik kartu untuk membuka pesannya.
 
@@ -198,7 +198,7 @@ sebelum Anda mengirim: **Tampilkan tautan saja** (bawaan) hanya mengirim tautann
 dengan tanda bahwa Anda yang membagikannya. Salinan hilang jika pesan aslinya dihapus. Untuk menghapus kartu dari pesan Anda sendiri, arahkan kursor ke kartu
 lalu klik **✕** (atau pilih **Hapus pratinjau** di menu pesan).
 
-![Obrolan di ponsel: Mentions & threads, ruang tim, obrolan grup, dan pesan langsung, dengan lima tab di bagian bawah](../../images/chats/rooms-phone.webp "Obrolan di ponsel")
+![Obrolan di ponsel: Mentions & threads, saluran, obrolan grup, dan pesan langsung, dengan lima tab di bagian bawah](../../images/chats/rooms-phone.webp "Obrolan di ponsel")
 
 ### Tamu
 

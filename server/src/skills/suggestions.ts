@@ -29,7 +29,7 @@ import { badSegment } from '../policy/names'
 import { notifySkillSuggestion } from '../notifications/service'
 import { groupOfSkillFolder, groupSkillFolders, isGroupSkillFolder, isSkillFolder, managedSkillFolders, managesSkillFolder, visibleSkillFolders } from './managers'
 import { st } from './text'
-import { checkSkill, listSkills, listTeamSkills, SKILL_NAME_MAX, writableGroupSkillRoots, type SkillProblem } from '../chat/skills'
+import { checkSkill, listSkills, isSkillName, listTeamSkills, writableGroupSkillRoots, type SkillProblem } from '../chat/skills'
 import { checkShare, needsScripts, readHeader, writeSkillMd } from './share-check'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -61,8 +61,9 @@ const staff = (p: Principal) => p.role === 'owner' || p.role === 'admin'
 function reviews(ctx: AppContext, p: Principal, r: Row, rules: RuleSet): boolean {
   return managesSkillFolder(ctx, p, r.target_folder, rules) && (!isFolder(r) || staff(p))
 }
-/** A skill folder's name: lowercase a–z, 0–9 and hyphens, at most 64 (chat/skills.ts checkSkill wants it so). */
-const VALID_NAME = (n: string) => n.length <= SKILL_NAME_MAX && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(n)
+/** A skill folder's name: lowercase words in any language joined by hyphens, at most 64 (shared isSkillName, as
+ * chat/skills.ts checkSkill wants it). */
+const VALID_NAME = (n: string) => isSkillName(n)
 /** The suggester's suggestions that still wait (every kind counts towards CONTRIBUTE_LIMITS.open). */
 const openOf = (db: Database, userId: string) => (db.query("SELECT COUNT(*) AS n FROM skill_suggestions WHERE suggester_id = ? AND status = 'pending'").get(userId) as { n: number }).n
 function openLimit(ctx: AppContext, userId: string, adding: number, locale: Locale): void {
@@ -437,8 +438,8 @@ function approveFolder(ctx: AppContext, p: Principal, r: Row, b: { targetFolder:
   if (!staff(p)) fail('forbidden', st('notManager', locale))
   const target = targetFolder(ctx, p, b.targetFolder, locale)
   if (!managesSkillFolder(ctx, p, target)) fail('forbidden', st('notManager', locale))
-  const name = b.name.trim()
-  if (!VALID_NAME(name)) fail('validation', st('folderName', locale), { fields: { 'body.name': 'lowercase letters, digits and hyphens, at most 64' } })
+  const name = b.name.trim().normalize('NFC')
+  if (!VALID_NAME(name)) fail('validation', st('folderName', locale), { fields: { 'body.name': 'lowercase letters (any language), digits and hyphens, at most 64' } })
   // a skill goes into a folder of skills, never inside another skill's folder
   const segs = target.split('/')
   for (let i = 2; i <= segs.length; i++) {

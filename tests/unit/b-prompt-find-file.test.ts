@@ -31,7 +31,7 @@ describe('asked for an existing file', () => {
     // a skill or a scheduled run that saves its output) still makes one
     expect(r).toContain('Found or not, never make or copy one instead unless asked to.')
     expect(r).not.toMatch(/never (write|make|create)[^.]*file unless asked/i)
-    expect(r).toContain('If nothing matches, say so and list the closest with paths; only then ask where it is.')
+    expect(r).toContain('If nothing matches, say so and list the closest as links; only then ask where it is.')
     expect(r).toContain('Never search the web for team files.')
     // about 120 tokens on Claude's tokenizer (Korean words cost more): it goes into every new session's instructions
     expect(r.length).toBeLessThanOrEqual(420)

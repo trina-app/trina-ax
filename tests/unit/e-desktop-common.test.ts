@@ -1055,3 +1055,43 @@ describe('quitting', () => {
     expect(willQuit.match(/app\.quit\(\)/g)).toHaveLength(1)
   })
 })
+
+describe('the Mac dmg window', () => {
+  test('opens on the Trina background with the two icons over its spots', async () => {
+    type Dmg = { background: string; window?: unknown; iconSize: number; contents: { x: number; y: number; type: string; path?: string }[] }
+    const base = (await import('../../desktop/electron-builder.config')).default as { dmg: Dmg }
+    const dmg = base.dmg
+    const size = (f: string) => {
+      const b = readFileSync(join(import.meta.dir, '../../desktop', f))
+      return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) }
+    }
+    // electron-builder joins background.png with background@2x.png (same name + @2x) into one retina TIFF
+    expect(dmg.background).toBe('build-resources/background.png')
+    const one = size(dmg.background), two = size(dmg.background.replace('.png', '@2x.png'))
+    expect(two).toEqual({ w: one.w * 2, h: one.h * 2 })
+    // electron-builder makes the window the picture's size, title bar (32 points on macOS 26) included: no `window`, and
+    // the picture is the 420 points of art plus 32
+    expect(dmg.window).toBeUndefined()
+    expect(one).toEqual({ w: 660, h: 420 + 32 })
+    // the app on the left, Applications on the right, on the art's two spots (scripts/dmg-background.svg), icons 144 points
+    expect(dmg.contents).toEqual([
+      { x: 170, y: 210, type: 'file' },
+      { x: 490, y: 210, type: 'link', path: '/Applications' },
+    ])
+    expect(dmg.iconSize).toBe(144)
+    expect((base.dmg as Dmg & { iconTextSize?: number }).iconTextSize).toBe(13)
+    const svg = readFileSync(join(import.meta.dir, '../../desktop/scripts/dmg-background.svg'), 'utf8')
+    expect(svg).toContain(`viewBox="0 0 ${one.w} ${one.h}"`)
+    // the SVG's notes name the same two spots (keeps its comment true)
+    for (const c of dmg.contents) expect(svg).toContain(`(${c.x},${c.y})`)
+    // the drawn chevron: three marks at the icons' height, all between the two icons (144 points wide)
+    const [app, apps] = dmg.contents
+    const marks = [...svg.matchAll(/<path d="M(\d+) (\d+) L(\d+) (\d+) L\d+ \d+"/g)].map((m) => ({ x0: +m[1], tip: +m[3], y: +m[4] }))
+    expect(marks).toHaveLength(3)
+    for (const m of marks) {
+      expect(m.y).toBe(app.y)
+      expect(m.x0).toBeGreaterThan(app.x + 72)
+      expect(m.tip).toBeLessThan(apps.x - 72)
+    }
+  })
+})

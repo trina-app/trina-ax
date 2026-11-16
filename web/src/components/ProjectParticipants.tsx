@@ -290,7 +290,8 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
             const s = sub(x, inside?.length, true, false)
             const role = tags(x)
             const open = opened.has(x.subjectId)
-            const below = !!notes?.get(k)
+            // (a note, or a description given in words (x.kind): on the second line, wrapped, never cut: QA TC-3839)
+            const below = !!notes?.get(k) || !!x.kind
             return (
               <Fragment key={k}>
                 <ListRow
@@ -306,6 +307,7 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
                   }
                   // the note wraps on its own line on a phone, never cut (noteOf, QA TC-1402)
                   meta={below ? <>{s}{noteOf(x, s)}</> : undefined}
+                  metaWrap={below}
                   nameTitle={[x.name, s].filter(Boolean).join(' · ')}
                   // a phone: the short tag ("You"), the whole one in the tooltip and the accessible name (never cut)
                   tag={role && phoneTags?.has(k) ? <><span className="sm:hidden">{phoneTags.get(k)}<span className="sr-only"> · {role}</span></span><span className="max-sm:hidden">{role}</span></> : role || undefined}

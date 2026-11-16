@@ -197,7 +197,7 @@ propia conexión, que solo se usa en sus chats.
 
 En la línea de la plantilla en Administración › Apps conectadas, **Plantilla · N conectados** abre para quién es:
 **Conectado**, **Sin conectar** o **La clave dejó de funcionar**. Una tarea programada que necesita una plantilla no se
-ejecuta sin su propia clave: su resultado dice "Necesita tu propia clave para …" y enlaza con **Conectar**.
+ejecuta sin su propia clave: su resultado dice "Necesita su propia clave para …" y enlaza con **Conectar**.
 
 Un miembro solo puede cambiar su clave o su inicio de sesión y el ajuste de escritura, y puede desconectarse en cualquier
 momento. Si el administrador cambia la dirección o el método de inicio de sesión de una plantilla, se borra la clave de
