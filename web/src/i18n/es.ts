@@ -6569,7 +6569,7 @@ export const es: Record<MessageKey, string> = {
   "shareCard.ask.stop.many": "¿Dejar de compartir {n, plural, one {# archivo} other {# archivos}} con {who}?",
   "shareCard.done.share.one": "Se compartió {file} con {who}",
   "shareCard.already.one": "{who} ya puede abrir {file}",
-  "shareCard.already.many": "{who} ya puede abrir estos {n} archivos",
+  "shareCard.already.many": "{who} ya puede abrir {n, plural, one {este archivo} other {estos # archivos}}",
   "shareCard.done.share.many": "Se compartieron {n, plural, one {# archivo} other {# archivos}} con {who}: {names}",
   "shareCard.done.stop.one": "Se dejó de compartir {file} con {who}",
   "shareCard.done.stop.many": "Se dejaron de compartir {n, plural, one {# archivo} other {# archivos}} con {who}: {names}",

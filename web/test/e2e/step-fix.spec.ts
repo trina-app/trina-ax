@@ -117,6 +117,9 @@ for (const width of [1440, 390]) {
       await expect(fix.getByTestId('step-fix-text')).toHaveText('Only you can see this chat.')
       await expect(fix.getByTestId('step-fix-button')).toHaveText('Share with project')
       await shot(page, 'share-project-open')
+      // the chat shares only once the answer is done (the server refuses a share while it runs): wait for it, as a person
+      // would see the answer finish
+      await expect(page.getByTestId('assistant-message').last()).toHaveAttribute('data-status', 'done')
       await fix.getByTestId('step-fix-button').click()
       await expect(page.getByTestId('share-chat-ask')).toBeVisible()
       await page.getByTestId('share-chat-confirm').click()

@@ -324,7 +324,8 @@ describe('share_with_person: a file or person that came from looking_at keeps th
       // the AI looked, then shares what was open: the asker never named it, so the card shows (and "no" shares nothing)
       const r = await turn('bob', `share this with the person from before\n${LOOK}\n${share({ paths: ['users/bob/photo-1.png'], people: ['Tess Yoon'] })}`, { answer: 'no' })
       expect(r.card!.origin).toBe('server')
-      expect(r.card!.details!.map((d) => d.text)).toEqual(['photo-1.png'])
+      // (integrated with B1: the card lists the file by its place in words, ending in its name)
+      expect(r.card!.details!.map((d) => d.text.split(' › ').pop())).toEqual(['photo-1.png'])
       // no "Always allow" on a card for something the asker did not name
       expect(r.card!.options!.map((x) => x.value)).toEqual(['share', 'no'])
       expect(r.content).toContain('The user chose not to share them')
@@ -335,7 +336,9 @@ describe('share_with_person: a file or person that came from looking_at keeps th
       expect(named.cards).toBe(0)
       const out = JSON.parse(named.content.slice(named.content.lastIndexOf('{"status"')))
       expect(out.status).toBe('shared')
-      expect(opens('tess', out.links[0].url.slice(3))).toBe('open')
+      // (integrated with B2: no links in the result; the card carries the file)
+      expect(h.ctx.db.query("SELECT 1 FROM file_share_grants g JOIN file_shares s ON s.id = g.share_id WHERE s.path = 'users/bob/photo-1.png' AND g.subject_id = 'tess'").get()).not.toBeNull()
+      expect(opens('tess', (h.ctx.db.query("SELECT id FROM file_shares WHERE path = 'users/bob/photo-1.png'").get() as { id: string }).id)).toBe('open')
     } finally { dropAlways(h.ctx.db, 'bob', 'card:share_files') }
   })
 
