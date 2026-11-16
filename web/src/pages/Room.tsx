@@ -173,7 +173,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const target = useMemo(() => { const m = new URLSearchParams(location.search).get('m'); return m && isUuid7(m) ? m : null }, [location.search])
   // the room's apps (docs/DECISIONS.md "Apps posting in rooms"), for those who manage them: the ⋯ says how many post
   // here; ?apps=<app id> (the paused notice's "Open settings") opens that app's settings, ?apps=add:<service>
-  // (Connectors' "Get updates in a conversation") that service's Add an app guide, once
+  // (Connectors' "Add to a conversation") that service's Add an app guide, once
   const manages = mayManageApps(room, me)
   useEffect(() => { if (manages) void useRoomApps.getState().load(roomId).catch(() => {}) }, [manages, roomId])
   const appsParam = useMemo(() => new URLSearchParams(location.search).get('apps'), [location.search])

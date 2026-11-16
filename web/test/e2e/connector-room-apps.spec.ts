@@ -1,4 +1,4 @@
-// Connectors' "Get updates in a conversation" (docs/decisions/20261116-connector-card-room-apps.md, QA TC-3515), 1440
+// Connectors' "Add to a conversation" (docs/decisions/20261116-connector-card-room-apps.md, QA TC-3515), 1440
 // and 390 wide: a listed service with a conversation app (Sentry; Atlassian's is Jira) has the action under its row,
 // one without (Linear) has none; the picker lists only the conversations the server says the person may add apps to
 // (Room.canManageApps: a member their 1:1 and group chat, an admin the team room and Everyone too); picking one opens
@@ -75,12 +75,12 @@ for (const vp of SIZES) {
       const { apps } = await open(page, { size: vp.size, role: 'member' })
       const sentry = await find(page, 'Sentry')
       const action = sentry.getByTestId('connector-room-app-open')
-      await expect(action).toHaveText('Get updates in a conversation')
+      await expect(action).toHaveText('Add to a conversation')
       // a service without a conversation app has none
       await expect((await find(page, 'Linear')).getByTestId('connector-room-app')).toHaveCount(0)
       await (await find(page, 'Sentry')).getByTestId('connector-room-app-open').click()
       const dialog = page.getByRole('dialog')
-      await expect(dialog.getByTestId('room-app-picker')).toContainText("Sentry's setup opens in the conversation you choose.")
+      await expect(dialog.getByTestId('room-app-picker')).toContainText('Sentry is added to the conversation you choose.')
       await expect(picked(page)).toHaveCount(2)
       await expect(picked(page).nth(0)).toHaveAttribute('data-room-id', ROOM_ID)
       await expect(picked(page).nth(1)).toHaveAttribute('data-kind', 'dm')
@@ -99,7 +99,7 @@ for (const vp of SIZES) {
     test('an admin: the team room and Everyone too; Atlassian opens the Jira guide', async ({ page }) => {
       const { apps } = await open(page, { size: vp.size, role: 'admin' })
       await (await find(page, 'Atlassian')).getByTestId('connector-room-app-open').click()
-      await expect(page.getByRole('dialog').getByTestId('room-app-picker')).toContainText("Jira's setup opens")
+      await expect(page.getByRole('dialog').getByTestId('room-app-picker')).toContainText('Jira is added to the conversation')
       await expect(picked(page)).toHaveCount(4)
       await expect(picked(page).nth(0)).toHaveAttribute('data-room-id', TEAM)
       await expect(picked(page).nth(1)).toHaveAttribute('data-kind', 'all')

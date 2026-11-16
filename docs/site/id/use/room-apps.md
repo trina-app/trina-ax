@@ -23,7 +23,7 @@ berubah seiring perkembangannya.
    **Tampilkan contoh** menunjukkan, di dalam panduan, seperti apa pesan-pesannya nanti. Tidak ada yang dikirim.
 
 Anda juga bisa mulai dari **Pengaturan › Konektor**. Sentry, Notion, Stripe, dan Atlassian (untuk Jira) punya
-**Terima kabar di percakapan** di bawah barisnya. Hanya percakapan tempat Anda boleh menambah aplikasi yang muncul; pilih
+**Tambah ke percakapan** di bawah barisnya. Hanya percakapan tempat Anda boleh menambah aplikasi yang muncul; pilih
 satu dan percakapan itu terbuka dengan panduan layanan tersebut. Jika belum ada, mulai satu dengan **Percakapan baru**.
 
 ![Add an app: pesannya muncul di ruang obrolan untuk semua orang di sana, lalu Google Forms, Other app, GitHub dan Sentry](../../images/room-apps/picker.webp "Tambah aplikasi")

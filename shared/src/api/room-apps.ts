@@ -93,7 +93,7 @@ export const ROOM_APP_PRESET_SIGNING: Record<RoomAppPreset, { signing: 'none' } 
 export type RoomAppService = Exclude<RoomAppKind, 'other'> | RoomAppPreset
 
 /** The AI connectors (shared/src/service-catalog.ts, Settings › Connectors) whose service also has a conversation app:
- * their row offers "Get updates in a conversation", which opens that app's guide in a conversation the person picks
+ * their row offers "Add to a conversation", which opens that app's guide in a conversation the person picks
  * (docs/decisions/20261116-connector-card-room-apps.md). Atlassian's connector is Jira's and Confluence's; only Jira
  * posts. The one place both lists meet: a new preset with a listed connector is added here. */
 export const ROOM_APP_FOR_CATALOG: Partial<Record<CatalogServiceId, RoomAppService>> = {

@@ -1,4 +1,4 @@
-// Connectors' "Get updates in a conversation" (docs/decisions/20261116-connector-card-room-apps.md, QA TC-3515): under
+// Connectors' "Add to a conversation" (docs/decisions/20261116-connector-card-room-apps.md, QA TC-3515): under
 // the row of a listed service that also has a conversation app (shared ROOM_APP_FOR_CATALOG: Sentry, Notion, Stripe,
 // Atlassian's Jira), one text action. It opens a picker of the conversations where this person may add apps (the
 // server's rule, Room.canManageApps: store/roomApps.ts mayManageApps); picking one opens that conversation with the

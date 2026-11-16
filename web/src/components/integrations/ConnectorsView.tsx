@@ -98,7 +98,7 @@ export function DiscoverCard({ c, admin, linkState }: { c: DiscoverItem; admin: 
   return (
     <ConnectionRow testId="connector-card" data={{ 'data-id': c.id, 'data-state': c.state }} className="border-b border-line" onOpen={c.onOpen} openTestId="connector-open"
       logo={<LogoTile src={c.logo} className={connectionLogo} />} name={c.name} line={c.line}
-      // a listed service with a conversation app (Sentry, Notion, ...): "Get updates in a conversation" under it
+      // a listed service with a conversation app (Sentry, Notion, ...): "Add to a conversation" under it
       children={<RoomAppEntry catalogId={c.id} />}
       end={c.state === 'off' && c.offLine ? (
         <span className="max-w-28 text-right text-xs text-faint" data-testid="connector-off">{c.offLine}</span>

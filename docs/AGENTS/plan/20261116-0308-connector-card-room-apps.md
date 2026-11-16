@@ -1,4 +1,4 @@
-# Connectors: "Get updates in a conversation" for services that also have a conversation app
+# Connectors: "Add to a conversation" for services that also have a conversation app
 
 - Date (UTC): 2026-11-16 03:08
 - Branch: `feat/connector-card-room-apps`
