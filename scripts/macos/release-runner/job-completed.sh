@@ -3,8 +3,9 @@
 # /Library/TrinaCI/job-completed.sh; runs as _trinaci after the last step of every job (also failed and refused ones)
 # through ACTIONS_RUNNER_HOOK_JOB_COMPLETED. Nothing a job leaves behind reaches the next one: the checkout, the
 # downloaded actions (_actions, reused by the runner otherwise), the tool cache (_tool: setup-bun, setup-go), and the
-# whole HOME (bun's install cache, keychains, the keychain search list, git config). _temp is cleaned by the runner
-# itself at the start of the next job. Never fails the job.
+# whole HOME (bun's install cache, keychains, the keychain search list, git config). Best effort only: the runner is
+# one-time and root's supervisor.sh deletes the whole runner folder, HOME and TMPDIR and kills every process of the
+# account before the next job. Never fails the job.
 PATH=/usr/bin:/bin:/usr/sbin:/sbin
 VOLUME=/Volumes/TrinaCI
 WORK="$VOLUME/runner/_work"

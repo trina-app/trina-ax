@@ -1,6 +1,7 @@
 #!/bin/sh
 # Loads the pf rules of the self-hosted release Mac runner (docs/RELEASE-CI.md 13). Installed root-owned as
-# /Library/TrinaCI/pf-load.sh, run by the root LaunchDaemon app.trina.ci.pf at boot and every 5 minutes.
+# /Library/TrinaCI/pf-load.sh, run by the root LaunchDaemon app.trina.ci.pf at boot and every minute (`self` and the IPv6 LAN table follow
+# address changes).
 # - rules: /Library/TrinaCI/pf.anchor, into anchor com.apple/260.trina-ci (the stock /etc/pf.conf evaluates com.apple/*;
 #   /etc/pf.conf is never edited; when the main ruleset was flushed, the stock file is loaded again)
 # - pf is enabled with a reference (pfctl -E) only when it is off; the token goes to run/pf.token so remove.sh can
@@ -21,7 +22,15 @@ done
 ok=1
 pfctl -s rules 2>/dev/null | grep -q 'anchor "com.apple/\*"' || { log "no com.apple/* anchor: loading /etc/pf.conf"; pfctl -q -f /etc/pf.conf 2>/dev/null; }
 pfctl -q -a "$ANCHOR" -f "$D/pf.anchor" || { log "loading $D/pf.anchor failed"; ok=0; }
-[ "$(pfctl -a "$ANCHOR" -s rules 2>/dev/null | grep -c 'block drop out quick')" -ge 2 ] || { log "rules not in $ANCHOR"; ok=0; }
+[ "$(pfctl -a "$ANCHOR" -s rules 2>/dev/null | grep -c 'block drop out quick')" -ge 3 ] || { log "rules not in $ANCHOR"; ok=0; }
+# the /64 of every global IPv6 address of this Mac (the LAN's neighbours; pf masks the host bits)
+LAN6=$(ifconfig 2>/dev/null | awk '$1 == "inet6" && $2 !~ /^fe80/ && $2 != "::1" && $2 !~ /^f[cd]/ {sub(/%.*/, "", $2); print $2 "/64"}' | sort -u)
+if [ -n "$LAN6" ]; then
+  # shellcheck disable=SC2086
+  pfctl -q -a "$ANCHOR" -t trina_ci_lan6 -T replace $LAN6 2>/dev/null || { log "IPv6 LAN table failed"; ok=0; }
+else
+  pfctl -q -a "$ANCHOR" -t trina_ci_lan6 -T flush 2>/dev/null
+fi
 
 if ! pfctl -s info 2>/dev/null | grep -q 'Status: Enabled'; then
   TOKEN=$(pfctl -E 2>&1 | sed -n 's/^Token : //p')

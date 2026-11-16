@@ -13,17 +13,18 @@ code on a Mac that holds other work and credentials.
 
 ## Scope
 
-In: a hidden standard account `_trinaci` with its own quota'd APFS volume, a sandbox and pf rules; the runner as a
-LaunchDaemon of that account with only the label `trina-mac-release`; job-started hook (host-side gate: release.yml at a
-v* tag of trina-app/trina-ax only) and job-completed hook (wipes work, tool cache, HOME); guard steps in the self-hosted
+In: a hidden standard account `_trinaci` with its own quota'd APFS volume, a sandbox and pf rules; a root supervisor
+LaunchDaemon that cleans up and starts a fresh one-time (JIT) runner per job as that account, label
+`trina-mac-release` only; job-started hook (host-side gate: release.yml at a v* tag of trina-app/trina-ax only, kills
+the job's worker on refusal) and job-completed hook; guard steps in the self-hosted
 jobs; mac-app.yml (and #1090's mac-whisper.yml) take `RELEASE_MAC_RUNNER` only when release.yml calls them at a tag;
 fork PR approval for all outside contributors; setup and removal in docs/RELEASE-CI.md 13.
-Out: runner groups (Free plan), `--ephemeral` re-registration (needs an admin token on the Mac).
+Out: runner groups (Free plan).
 
 ## Steps
 
-1. Workflows: guard step, runs-on of mac-app.yml; patch for #1090 sent to its owner.
-2. `scripts/macos/release-runner/` setup.sh, remove.sh, run.sh, hooks, runner.sb, pf.anchor, pf-load.sh.
+1. Workflows: guard step, runs-on of mac-app.yml and mac-whisper.yml.
+2. `scripts/macos/release-runner/` setup.sh, remove.sh, supervisor.sh, hooks, runner.sb, pf.anchor, pf-load.sh.
 3. Independent security review of host setup and workflow diff; fix findings.
 4. Release coordinator's OK on the workflow diff, PR to dev; owner runs setup.sh with sudo.
 

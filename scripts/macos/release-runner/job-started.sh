@@ -7,12 +7,26 @@
 # workflows and branches are refused, whatever their runs-on says.
 # GITHUB_* variables cannot be overridden by a workflow's env (the runner sets them). For a called workflow
 # (mac-app.yml, mac-whisper.yml) GITHUB_WORKFLOW_REF is the caller's, release.yml.
+# A failing hook marks the job failed but the runner may still run the job's `if: always()` steps, so a refusal also
+# kills this job's Runner.Worker (found by walking up from this hook's parent, exact pid): nothing of the job runs.
+# The runner is one-time (supervisor.sh), so the next job gets a fresh runner after root has cleaned up.
 set -u
 PATH=/usr/bin:/bin:/usr/sbin:/sbin
 VOLUME=/Volumes/TrinaCI
 MIN_FREE_GB=20
 
-fail() { echo "::error::trina-mac-release runner refused this job: $*"; exit 1; }
+fail() {
+  echo "::error::trina-mac-release runner refused this job: $*"
+  p=$PPID
+  for _ in 1 2 3 4 5 6 7 8; do
+    [ -n "$p" ] && [ "$p" -gt 1 ] || break
+    case "$(ps -o command= -p "$p" 2>/dev/null)" in
+      *Runner.Worker*) kill -9 "$p" 2>/dev/null; break ;;
+    esac
+    p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
+  done
+  exit 1
+}
 
 [ "${GITHUB_REPOSITORY:-}" = "trina-app/trina-ax" ] || fail "repository '${GITHUB_REPOSITORY:-}'"
 case "${GITHUB_EVENT_NAME:-}" in
