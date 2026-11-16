@@ -45,6 +45,7 @@ import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboar
 import { SEARCH_TOOLS, SHARED_TOOLS } from '../rooms/ai-tools'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
 import { roomReadTools } from './room-tools'
+import { roomHint } from './room-hint'
 import { skillFilesTool } from './skill-files'
 import { postToRoomOff, postToRoomTool } from './post-to-room'
 import { shareWithPersonOff, shareWithPersonTool } from './share-with-person'
@@ -144,6 +145,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   const guest = isGuestUser(exec.rt.db, exec.spec.userId)
   const guestInRoom = guest && ([guestPlace(exec.rt.db, exec.spec.userId)].flat() as (GuestPlace | null)[]).some((p) => p?.kind === 'room')
   const tools = new Map<string, Tool>()
+  /** the words this turn's greps already looked up in the person's rooms (chat/room-hint.ts) */
+  const roomWordsAsked = new Set<string>()
   const labels = new Map<string, (args: unknown, locale: Locale) => string>()
   const cards = new Map<string, NonNullable<TurnTool['card']>>()
   const templateWrites = new Set<string>()
@@ -381,7 +384,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // a skill saved in a shared chat: one quiet line in the answer that the people here can see it
       const skillNote = exec.sharedSkillNote(name, args, isError)
       const placed = exec.placementNote(tools.has('move_files'))
-      return skillNote && placed ? `${placed}\n${skillNote}` : skillNote || placed
+      // a search of the team files: the person's rooms that mention the same words, counted (chat/room-hint.ts); only
+      // where the rooms tool is offered (never a shared, confidential, draft, template or guest chat)
+      const rooms = name === 'grep' && !isError && tools.has('rooms') && !guest ? roomHint(exec.rt.db, exec.spec.userId, (args as { pattern?: unknown } | null)?.pattern, roomWordsAsked) : null
+      return [placed, skillNote, rooms].filter(Boolean).join('\n') || undefined
     },
     // edit_files (mcp/protocol.ts): after a room read one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {
