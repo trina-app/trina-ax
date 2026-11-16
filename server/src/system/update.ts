@@ -85,6 +85,32 @@ export function verifySignature(data: Uint8Array, sigJson: string, keys: readonl
   return false
 }
 
+/**
+ * Give a version folder the modes mycel-ctl's copyTree / repairTree give it (native/cmd/mycel-ctl/update.go), whatever
+ * the umask and the archive's modes: folders 0755, files 0755 when the owner can execute them and 0644 otherwise.
+ * Symbolic links are left alone (and never followed). Only what differs is changed; returns how many entries changed.
+ */
+export async function setVersionModes(root: string): Promise<number> {
+  let changed = 0
+  async function fix(p: string, st: fs.Stats) {
+    const want = st.isDirectory() ? 0o755 : (st.mode & 0o100 ? 0o755 : 0o644)
+    if ((st.mode & 0o7777) !== want) { await fsp.chmod(p, want); changed++ }
+  }
+  async function walk(dir: string) {
+    for (const d of await fsp.readdir(dir, { withFileTypes: true })) {
+      const p = path.join(dir, d.name)
+      if (!d.isDirectory() && !d.isFile()) continue
+      const st = await fsp.lstat(p)
+      if (st.isDirectory()) { await fix(p, st); await walk(p) } else if (st.isFile()) await fix(p, st)
+    }
+  }
+  const st = await fsp.lstat(root)
+  if (!st.isDirectory()) return 0
+  await fix(root, st)
+  await walk(root)
+  return changed
+}
+
 export interface VerifyOptions { keys: readonly string[]; allowUnsigned: boolean }
 
 /** The same checks root/bootstrap makes before it starts a version (native/cmd/mycel-bootstrap). */
@@ -319,14 +345,20 @@ export class UpdateManager {
     await fsp.mkdir(staging, { recursive: true, mode: 0o755 })
     try {
       await extractTar(zstdDecompress(readFileChunks(archive)), staging)
+      // the server runs with umask 027 (native/cmd/mycel-ctl/supervise_linux.go, server.service.in): mkdir and the
+      // unpacked files took it, so the folder came out 0750 and its files 0640/0750 (0.5.7 on potenlab). The launcher and
+      // the engine sandbox run as another account and bind app/current/native/mycel-bridge: every AI turn failed.
+      await setVersionModes(staging)
       const m = await verifyBundleDir(staging, { keys: this.keys, allowUnsigned: this.allowUnsigned })
       const dest = path.join(this.versionsDir(), m.version)
       if (fs.existsSync(dest)) {
         await verifyBundleDir(dest, { keys: this.keys, allowUnsigned: this.allowUnsigned }) // already there and intact
+        await setVersionModes(dest) // staged by an older version under the umask
         await fsp.rm(staging, { recursive: true, force: true })
         return m
       }
-      // folders readable by the engine account? No: versions/ is the server's; only app/engines is shared.
+      // versions/ is the server's, but the launcher and the engine sandbox (another account) read app/current/native:
+      // setVersionModes above, as mycel-ctl's copyTree does on the root path
       // on disk before it gets its name: after a power loss, a version folder whose files never reached the disk fails
       // the bootstrap's check and the server rolls back to a version that may not read the migrated DB (QA TC-279)
       await fsyncTree(staging)
@@ -450,6 +482,34 @@ export class UpdateManager {
     } finally { dl.done() }
     if (w.sha256 !== b.sha256) { await fsp.rm(file, { force: true }); throw new UpdateError('download does not match the release hash') }
     try { return await this.stage(file) } finally { await fsp.rm(file, { force: true }) }
+  }
+
+  /**
+   * Heal the version folders an earlier app-only update left unreadable to the engine account (0.5.6/0.5.7 staged them
+   * under the server's umask 027: 0750 folder, 0640/0750 files, so no AI turn could start). Run at start-up: the version
+   * that runs now may have been staged by the old code, and a version kept for Go back too. Only folders this account
+   * owns; a failure is logged, never fatal.
+   */
+  async repairVersionModes(): Promise<number> {
+    if (!this.o.appDir) return 0
+    let names: string[]
+    try { names = await fsp.readdir(this.versionsDir()) } catch { return 0 }
+    const uid = process.getuid?.()
+    let changed = 0
+    for (const n of names) {
+      if (n.startsWith('.') || n.endsWith('.partial')) continue
+      const dir = path.join(this.versionsDir(), n)
+      try {
+        const st = await fsp.lstat(dir)
+        if (!st.isDirectory() || (uid !== undefined && st.uid !== uid)) continue
+        const c = await setVersionModes(dir)
+        if (c > 0) this.o.log.warn('version folder modes repaired', { version: n, entries: c })
+        changed += c
+      } catch (e) {
+        this.o.log.warn('could not repair the modes of a version folder', { version: n, err: e })
+      }
+    }
+    return changed
   }
 
   /** Last update outcomes recorded by the bootstrap (newest last). */
