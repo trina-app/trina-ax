@@ -8,7 +8,7 @@ import path from 'node:path'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
 import { setFolderAccessAt } from '../lib/folder-access'
 import { notificationsOf } from '../../server/src/notifications/service'
-import { approveSuggestion, contributeSkills, createSuggestion, rejectSuggestion, skillsOverview } from '../../server/src/skills/suggestions'
+import { approveSuggestion, contributeSkills, createSuggestion, placeWords, rejectSuggestion, skillsOverview } from '../../server/src/skills/suggestions'
 import { SKILLS_CHANGED } from '../../server/src/skills/review-live'
 
 let h: Harness
@@ -106,4 +106,20 @@ test('a skill folder from a member\'s computer: only the owner and admins review
   expect(codes(max)).toEqual([])
   expect(codes(nora)).toEqual([])
   expect(quiet(mia)).toBe(0)
+})
+
+test('the notice of a new suggestion says its place in words, in the reader\'s language, never as a path', async () => {
+  const { olga, ada, mia, suggest } = await setup()
+  h.ctx.db.query("UPDATE users SET locale = 'ko' WHERE id = ?").run(ada)
+  h.ctx.db.query("UPDATE users SET locale = 'en' WHERE id = ?").run(olga)
+  suggest(mia, 'reply')
+  const text = (who: string) => (h.hub.events.find((e) => e.kind === 'publish' && e.target === who && (e.data as { data?: { code?: string } }).data?.code === 'skill_suggested')!.data as { data: { message: string } }).data.message
+  expect(text(olga)).toBe('MIA suggested a skill: reply → Team skills')
+  expect(text(ada)).toBe('MIA 님이 스킬을 제안했어요: reply → 팀 스킬')
+  for (const id of [olga, ada]) expect(text(id)).not.toContain('skills/')
+  // a folder inside, and a group's skills by the group's name (its folder's name when no group has that folder)
+  expect(placeWords(h.ctx, 'skills/finance', 'en')).toBe('Team skills › finance')
+  expect(placeWords(h.ctx, 'groups/Design/skills', 'en')).toBe('Design skills')
+  expect(placeWords(h.ctx, 'groups/Design/skills/briefs', 'ko')).toBe('Design 스킬 › briefs')
+  expect((['ja', 'zh', 'es', 'id'] as const).map((l) => placeWords(h.ctx, 'groups/Design/skills', l))).toEqual(['Designのスキル', 'Design的技能', 'Habilidades de Design', 'Skill Design'])
 })

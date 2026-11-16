@@ -147,6 +147,15 @@ function tellReviewers(ctx: AppContext, r: Row, by: string): void {
   } catch (err) { ctx.log.warn('skills changed notice failed', { err: err instanceof Error ? err.message : String(err) }) }
 }
 
+/** A skills folder in words for a notice, never a path: "Team skills" (› its folders), or a group's skills by the
+ * group's name ("Design skills"), as the row on Team skills says it (web pages/Skills.tsx skillPlaceWords). */
+export function placeWords(ctx: AppContext, folder: string, locale: Locale): string {
+  const segs = segsOf(folder)
+  const group = groupOfSkillFolder(ctx, folder)
+  const [head, rest] = isGroupSkillFolder(folder) ? [st('placeGroup', locale, { group: group?.name ?? segs[1]! }), segs.slice(3)] : [st('placeTeam', locale), segs.slice(1)]
+  return [head, ...rest].join(' › ')
+}
+
 /** The actual on-disk spelling of a skills folder the person can see, or a validation error (same for hidden and
  * missing). A group's skills folder only for a member of that group; its root may not be on disk yet (the first skill
  * saved there makes it). */
@@ -225,7 +234,7 @@ export function createSuggestion(ctx: AppContext, userId: string, b: { source: {
   for (const m of managersOf(ctx, target)) {
     // a suggester who reviews this folder counts their own: their other windows follow, quietly
     if (m.id === userId) { tellSkillsChanged(ctx, [userId]); continue }
-    notify(ctx, m.id, 'skill_suggested', st('suggested', m.locale, { who: p.name, name: row.name, folder: target + '/' }), `/skills?review=${row.id}`, row.id)
+    notify(ctx, m.id, 'skill_suggested', st('suggested', m.locale, { who: p.name, name: row.name, folder: placeWords(ctx, target, m.locale) }), `/skills?review=${row.id}`, row.id)
   }
   return toSuggestion(ctx, row, p, RuleSet.load(ctx.db))
 }

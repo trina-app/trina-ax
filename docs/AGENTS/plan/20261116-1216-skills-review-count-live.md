@@ -62,4 +62,17 @@ Tests: `tests/unit/skill-review-live.test.ts`, a case in `tests/unit/group-skill
 `web/test/unit/member-contribute.test.tsx`. By hand on a private copy of the QA team (two reviewers, one elsewhere):
 the count dropped within two seconds of the other reviewer's turn-down, with no toast and no inbox entry.
 
+After review (same PR), four wording and layout fixes found in the hands-on QA:
+
+1. A suggestion's line: a waiting one says "into Team skills" (ko "팀 스킬에 제안"), a decided one only the place
+   ("Team skills · who · date · reviewed by …"); a group's folder is "<group> skills" (ko "<그룹> 스킬"). In six
+   languages (`skills.into`, new `skills.groupPlace`; `skillPlaceWords` in `web/src/pages/Skills.tsx`).
+2. Chinese: one word, "建议", for a skill suggestion ("我的建议"); some keys said "推荐".
+3. The live notice of a new suggestion says the place in the same words, not the path `skills/`
+   (`placeWords` in `server/src/skills/suggestions.ts`, `placeTeam` / `placeGroup` in `text.ts`).
+4. On a phone that line wraps instead of being cut (`md:truncate`).
+
+The quiet notice stays a `notice` with an empty message: every quiet code works this way (the web has a branch per
+code), and no existing event type both feeds `skillsChanged` and is ignored by an older bundle.
+
 PR: https://github.com/trina-app/trina-ax/pull/1122

@@ -2908,6 +2908,7 @@ export const en: Record<MessageKey, string> = {
   'skills.status.rejected': 'Turned down',
   'skills.by': '{name} · {time}',
   'skills.into': 'into {folder}',
+  'skills.groupPlace': '{group} skills',
   'skills.review': 'Review',
   'skills.reviewTitle': 'Review a suggested skill',
   'skills.register': 'Register',
