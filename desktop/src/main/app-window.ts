@@ -32,6 +32,7 @@ import { keyboardBack, keyboardTaken, keyboardTarget } from '../common/keyboard-
 import { paneFromEdge, paneGrab, paneKeyWidth, paneLimits, paneWidthFor, readPaneFraction, settlePane } from '../common/pane-width'
 import type { FolderGrants } from '../common/folder-access'
 import { WorkFilesController } from './work-files'
+import { MeetingControl } from './meeting-control'
 import type { TeamsStore } from './teams-store'
 import { clearFailed, clearSessionData, type ClearResult } from './clear-session'
 import { debug } from './debug'
@@ -149,6 +150,14 @@ export class AppWindow {
       this.layout()
       this.sendHostbar()
     },
+  })
+  /** meeting notes (./meeting-control.ts): the app's own start dialog, one meeting for the open team, a menu bar item */
+  readonly meeting = new MeetingControl({
+    win: () => (this.win.isDestroyed() ? null : this.win),
+    locale: () => this.o.locale(),
+    team: () => (this.app && !this.app.webContents.isDestroyed() && this.team && this.currentOrigin && this.signedIn ? { origin: this.currentOrigin, session: this.app.webContents.session } : null),
+    state: (st) => this.send(this.app, 'bridge:meeting-state', st),
+    lines: (l) => this.send(this.app, 'bridge:meeting-lines', l),
   })
   /** when the person last pressed a key or the mouse on the team page (Electron's input events: no page script makes
    * them); Find work files reads it (WorkFilesController.add, a remembered yes) */
@@ -597,6 +606,11 @@ export class AppWindow {
   async openTeam(id: string, entryPath = '/', o: { startup?: boolean } = {}) {
     const team = findTeam(this.teams, id)
     if (!team) return
+    // a meeting belongs to the open team: another team waits until it is stopped
+    if (this.meeting.running() && this.team?.id !== id) {
+      if (!this.win.isDestroyed()) void dialog.showMessageBox(this.win, { type: 'info', message: t(this.o.locale(), 'meeting.switchBusy'), noLink: true })
+      return
+    }
     this.startupLocal = o.startup && onThisComputer(team.origin) ? id : null
     // a team view takes over: a link that waited on ④ waits no more (it would come back confirmable later)
     this.linkGate.clear()

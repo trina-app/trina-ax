@@ -281,7 +281,7 @@ function registerIpc() {
   // team page bridge (shared/src/desktop-bridge.ts); store: a Mac App Store or Microsoft Store build, where Settings >
   // Apps offers no installer
   ipcMain.on('bridge:info', (e) => {
-    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process), workFiles: workFilesVersion({ platform: process.platform, mas: process.mas }), workFilesWide: workFilesVersion({ platform: process.platform, mas: process.mas }) ? WORK_FILES_WIDE_VERSION : 0 } : null
+    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process), workFiles: workFilesVersion({ platform: process.platform, mas: process.mas }), workFilesWide: workFilesVersion({ platform: process.platform, mas: process.mas }) ? WORK_FILES_WIDE_VERSION : 0, meeting: process.mas ? 0 : (win?.meeting.version() ?? 0) } : null
   })
   ipcMain.handle('bridge:browser-run', async (e, raw: unknown) => {
     const call = BrowserCall.safeParse(raw)
@@ -347,6 +347,14 @@ function registerIpc() {
   // the welcome steps' team files: the folder picked last gave nothing to read; 'mac-blocked' when macOS privacy kept the
   // app out of it (a word, never the error's text)
   ipcMain.handle('bridge:folder-problem', (e, name: unknown) => (fromApp(e) && e.senderFrame ? win!.folderProblem(e.senderFrame.origin, String(name ?? '').slice(0, 1024)) : null))
+
+  // meeting notes (main/meeting-control.ts): the page asks; the app shows its own dialog every time and owns the meeting.
+  // The page gets state and lines, never sound.
+  ipcMain.handle('bridge:meeting-state', (e) => (fromApp(e) ? win!.meeting.state() : { state: 'idle' }))
+  ipcMain.handle('bridge:meeting-lines', (e) => (fromApp(e) ? win!.meeting.lines() : []))
+  ipcMain.handle('bridge:meeting-start', (e) => (fromApp(e) && !process.mas ? win!.meeting.start() : 'unavailable'))
+  ipcMain.handle('bridge:meeting-stop', (e) => (fromApp(e) ? win!.meeting.stop() : []))
+  ipcMain.on('bridge:meeting-sound-settings', (e) => fromApp(e) && win!.meeting.openSoundSettings())
 
   // "Find work files on this computer" (main/work-files.ts): the page only asks; the app shows its own dialog, looks in
   // this process and hands out ids, never paths. A read takes an id of the latest look of the asking origin only.
