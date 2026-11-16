@@ -257,7 +257,9 @@ export const TEXT = {
   fileShareAsk: t('{who}님에게 파일 {n}개를 공유할까요?', 'Share {n, plural, one {# file} other {# files}} with {who}?', 'Bagikan {n} berkas dengan {who}?', '{who}さんにファイルを{n}件共有しますか？', '¿Compartir {n, plural, one {# archivo} other {# archivos}} con {who}?', '要与{who}共享{n}个文件吗？'),
   fileShareAskGroup: t('{who} 부서에 파일 {n}개를 공유할까요?', 'Share {n, plural, one {# file} other {# files}} with the {who} group?', 'Bagikan {n} berkas dengan grup {who}?', '{who}グループにファイルを{n}件共有しますか？', '¿Compartir {n, plural, one {# archivo} other {# archivos}} con el grupo {who}?', '要与{who}小组共享{n}个文件吗？'),
   fileShareAskMany: t('{who}에게 파일 {n}개를 공유할까요?', 'Share {n, plural, one {# file} other {# files}} with {who}?', 'Bagikan {n} berkas dengan {who}?', '{who}にファイルを{n}件共有しますか？', '¿Compartir {n, plural, one {# archivo} other {# archivos}} con {who}?', '要与{who}共享{n}个文件吗？'),
-  fileShareView: t('보기만 할 수 있어요. 링크는 이 사람들에게만 열려요.', "They'll be able to view them. The link opens only for them.", 'Mereka bisa melihatnya. Tautannya hanya terbuka untuk mereka.', '閲覧だけできます。リンクはこの人たちにだけ開きます。', 'Podrán verlos. El enlace solo se abre para ellos.', '他们可以查看。链接只对他们打开。'),
+  /** one file ("it") and several ("them"): the count picks the line (chat/share-with-person.ts) */
+  fileShareViewOne: t('보기만 할 수 있어요. 링크는 이 사람들에게만 열려요.', "They can only view it. The link opens only for them.", 'Mereka hanya bisa melihatnya. Tautannya hanya terbuka untuk mereka.', '閲覧だけできます。リンクはこの人たちにだけ開きます。', 'Solo podrán verlo. El enlace solo se abre para ellos.', '他们只能查看。链接只对他们打开。'),
+  fileShareView: t('보기만 할 수 있어요. 링크는 이 사람들에게만 열려요.', "They can only view them. The link opens only for them.", 'Mereka hanya bisa melihatnya. Tautannya hanya terbuka untuk mereka.', '閲覧だけできます。リンクはこの人たちにだけ開きます。', 'Solo podrán verlos. El enlace solo se abre para ellos.', '他们只能查看。链接只对他们打开。'),
   fileShareFiles: t('공유할 파일', 'Files', 'Berkas', '共有するファイル', 'Archivos', '要共享的文件'),
   fileShareYes: t('공유하기', 'Share', 'Bagikan', '共有する', 'Compartir', '共享'),
   fileShareNo: t('공유하지 않기', "Don't share", 'Jangan bagikan', '共有しない', 'No compartir', '不共享'),

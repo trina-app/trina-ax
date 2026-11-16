@@ -67,7 +67,8 @@ describe('in my own chat', () => {
     // "Always allow" on the first card (the owner's 11-11 rule), three buttons
     expect(r.card!.options!.map((x) => x.value)).toEqual(['share', '__always', 'no'])
     expect(r.card!.options![1]!.label).toBe('항상 허용')
-    expect(r.card!.details!.map((d) => d.text)).toEqual(['photo-1.png'])
+    // the file by its place in words and its name, never a team path (chat/share-words.ts)
+    expect(r.card!.details!.map((d) => d.text)).toEqual(['내 폴더 › photo-1.png'])
     const out = JSON.parse(r.content)
     expect(out.status).toBe('shared')
     expect(out.links[0].url).toMatch(/^\/f\/[A-Za-z0-9_-]{22}$/)
@@ -95,7 +96,7 @@ describe('in my own chat', () => {
       // the checks still run without the card: someone else's file is refused
       put('shared/alices-2.txt', 'a')
       h.ctx.db.query("INSERT INTO file_events (turn_id, user_id, path, action) VALUES (NULL, 'alice', 'shared/alices-2.txt', 'create')").run()
-      expect((await turn('bob', share({ paths: ['shared/alices-2.txt'], people: ['Tess Yoon'] }))).content).toContain('only its owner can share it')
+      expect((await turn('bob', share({ paths: ['shared/alices-2.txt'], people: ['Tess Yoon'] }))).content).toContain('is Alice Kim\'s file, so only Alice Kim can add people to it')
       // a scheduled run of bob's may share now (only his own choice counts there)
       const base = { restricted: false, templateRun: null, rt: { db: h.ctx.db }, spec: { clientKind: 'schedule', chatId: 'none' } }
       expect(shareWithPersonOff({ ...base, alwaysPlace: () => ({ db: h.ctx.db, userId: 'bob', chatId: 'none', turnId: 't', locale: 'en', clientKind: 'schedule' }) } as never)).toBeNull()
@@ -131,8 +132,8 @@ describe('in my own chat', () => {
     put('shared/alices.txt', 'a')
     h.ctx.db.query("INSERT INTO file_events (turn_id, user_id, path, action) VALUES (NULL, 'alice', 'shared/alices.txt', 'create')").run()
     const cases: [Record<string, unknown>, string][] = [
-      [{ paths: ['users/bob'], people: ['Tess Yoon'] }, 'Nothing was shared'],
-      [{ paths: ['shared/alices.txt'], people: ['Tess Yoon'] }, 'only its owner can share it'],
+      [{ paths: ['users/bob'], people: ['Tess Yoon'] }, 'Nothing was shared: "내 폴더" is a folder, and a whole folder cannot be shared yet'],
+      [{ paths: ['shared/alices.txt'], people: ['Tess Yoon'] }, 'is Alice Kim\'s file, so only Alice Kim can add people to it'],
       [{ paths: ['users/bob/photo-1.png'], people: ['Nobody Here'] }, 'no teammate or group matches'],
     ]
     for (const [args, says] of cases) {

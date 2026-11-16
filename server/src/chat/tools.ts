@@ -25,6 +25,7 @@ import { addSources, sourceOf, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
 import { atLeast, isStaff, type Principal } from '../policy/access'
 import { tr } from './i18n'
+import { optionWords } from './share-words'
 import { alwaysHere, withAlways } from './always-allow'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
 import type { StoredStep } from './store'
@@ -948,7 +949,8 @@ function bTools(exec: TurnExec): Tool[] {
         if (!a.success) return text(zodText(a.error), true)
         const request: TurnRequest = {
           kind: 'ask_user', requestId: uuidv7(), question: a.data.question,
-          ...(a.data.options ? { options: a.data.options } : {}), ...(a.data.multiple !== undefined ? { multiple: a.data.multiple } : {}),
+          // a label that is a team path is said in place words (chat/share-words.ts); the values stay as the AI gave them
+          ...(a.data.options ? { options: optionWords(rt.db, a.data.options, L, spec.userId) } : {}), ...(a.data.multiple !== undefined ? { multiple: a.data.multiple } : {}),
           ...(a.data.allowText !== undefined ? { allowText: a.data.allowText } : {}),
           expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
         }
