@@ -9,6 +9,15 @@ import { Access, ApiErrorBody, ClientKind, EngineId, IsoTime, Locale, GuestDetai
 export const UserRef = z.object({ id: UserId, name: z.string() })
 export type UserRef = z.infer<typeof UserRef>
 
+/** How many folds a person's lists keep (ListFolds); a newer choice pushes out the oldest. */
+export const LIST_FOLDS_MAX = 200
+/** One fold's key: `section:<list>:<section>` (a list's section), `room-folder:<id>`, `folder:<id>` (my folders). */
+export const ListFoldKey = z.string().min(1).max(120).regex(/^[a-z][a-z-]*:[A-Za-z0-9:_-]+$/)
+/** The sections and folders of my lists I folded or opened (web components/panels/folds.ts), on every device I sign in
+ * on; a key not there starts as its list starts it (most open). */
+export const ListFolds = z.record(ListFoldKey, z.enum(['open', 'folded'])).refine((o) => Object.keys(o).length <= LIST_FOLDS_MAX, { message: `at most ${LIST_FOLDS_MAX} folds` })
+export type ListFolds = z.infer<typeof ListFolds>
+
 export const UserPrefs = z.object({
   theme: Theme.optional(),
   /** the person's text size on every device they sign in on (Settings > Profile); absent = default. A stored value this
@@ -25,6 +34,8 @@ export const UserPrefs = z.object({
   /** the one-time line under a room's header ("✦ Ask Trina about this room. Only you see it.") was closed, or ✦ was
    * used: it never shows again (docs/DECISIONS.md "A welcome for invited people") */
   roomAskHint: z.literal('seen').optional().catch(undefined),
+  /** my lists' folds (ListFolds); a stored value that does not read reads as absent, never hiding the other preferences */
+  listFolds: ListFolds.optional().catch(undefined),
 })
 export type UserPrefs = z.infer<typeof UserPrefs>
 

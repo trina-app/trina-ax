@@ -217,7 +217,7 @@ export const en = {
     },
     /** one line under the numbers: what this usually takes */
     usually: 'usually ~2 days',
-    signup: 'See plans & start free',
+    signup: 'See plans',
     explore: 'Look around',
     /** the end popup */
     popupTitle: 'That\'s Mina\'s first day 🎉',

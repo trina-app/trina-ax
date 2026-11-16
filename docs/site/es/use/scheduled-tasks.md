@@ -15,9 +15,9 @@ Desde la versión 0.4.0, las tareas programadas tienen su propia página **Progr
 
 Elija **Nueva tarea**. Hay dos formas:
 
-![El menú Nueva tarea con Descríbela en un chat y Desde una plantilla](../../images/scheduled/new-task.webp "Nueva tarea")
+![El menú Nueva tarea con Descríbala en un chat y Desde una plantilla](../../images/scheduled/new-task.webp "Nueva tarea")
 
-- **Descríbela en un chat.** Por ejemplo: "Cada lunes a las 9:00, resume las notas de la semana pasada en shared/sales." La IA crea la programación y se la muestra.
+- **Descríbala en un chat.** Por ejemplo: "Cada lunes a las 9:00, resume las notas de la semana pasada en shared/sales." La IA crea la programación y se la muestra.
 - **Desde una plantilla.** Elija una plantilla, indique sus carpetas y la hora, y guarde.
 
 ## Qué puede hacer una ejecución

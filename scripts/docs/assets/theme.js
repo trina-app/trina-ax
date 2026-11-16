@@ -12,3 +12,24 @@ try {
 try {
   if (/(?:^|;\s*)trina_signed_in=1(?:;|$)/.test(document.cookie)) document.documentElement.setAttribute('data-signed-in', '')
 } catch (e) {}
+// Waiting list mode (ax.trina.app, src/content/waitlist.ts there): the website's sign-up button in the navbar carries two
+// wordings, and CSS shows "Join the waiting list" unless <html data-sales-open>. The docs sit on the same site, so they
+// read the same remembered answer before paint and then ask the console (public, no cookie). No answer = the waiting
+// list. The same lines as the website's public/theme.js and public/waitlist.js.
+try {
+  if (localStorage.getItem('trina_sales') === 'open') document.documentElement.setAttribute('data-sales-open', '')
+} catch (e) {}
+try {
+  // only inside the website (its theme key on this script tag): the docs anywhere else have no such button
+  if (document.currentScript && document.currentScript.getAttribute('data-key') === 'theme') {
+    var salesOpen = function (open) {
+      if (open) document.documentElement.setAttribute('data-sales-open', '')
+      else document.documentElement.removeAttribute('data-sales-open')
+      try { localStorage.setItem('trina_sales', open ? 'open' : 'waitlist') } catch (e) {}
+    }
+    fetch('https://account.trina.app/api/public/waitlist', { credentials: 'omit' })
+      .then(function (r) { if (!r.ok) throw 0; return r.json() })
+      .then(function (d) { salesOpen(!!d && d.waitlist === false) })
+      .catch(function () { salesOpen(false) })
+  }
+} catch (e) {}

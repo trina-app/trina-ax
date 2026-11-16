@@ -244,11 +244,18 @@ export class RoomSound {
 
 // ---------------- the chime ----------------
 
-/** Two soft notes up a fourth (G5, C6), each a sine with a quiet octave above it; about 0.7 s, made here at run time
- * (no sound file). */
-export const CHIME_NOTES = [{ hz: 783.99, at: 0 }, { hz: 1046.5, at: 0.12 }] as const
-/** Master gain. 0.12 was too quiet (owner, 2026-11-10); 0.36 is three times the amplitude (+9.5 dB). The mixed peak of
- * all four partials is about 0.43 at the output (a test renders it), under the clip limit, so no compressor is needed. */
+/** "Bubbles" (owner, 2026-11-16, docs/decisions/20261116-notification-sound-bubbles.md): two quick sine bubbles, each
+ * gliding up (×1.7 within its first 0.12 s), the second a little higher and 0.1 s later; about 0.22 s, made here at run
+ * time (no sound file). It replaced two notes up a fourth (G5, C6) that sounded like "recording ended". Each note rises
+ * to `peak` in `a` seconds and falls to silence by `dur`, both exponential. */
+export const CHIME_NOTES = [
+  { hz: 700, at: 0, glide: 1.7, peak: 1, a: 0.003, dur: 0.12 },
+  { hz: 900, at: 0.1, glide: 1.7, peak: 0.9, a: 0.003, dur: 0.12 },
+] as const
+/** a note's pitch glide reaches hz × glide within this (or its length, if shorter) */
+export const GLIDE_SECONDS = 0.12
+/** Master gain, as the old chime's (0.36: owner, 2026-11-10, "too quiet" at 0.12). The notes do not overlap much, so
+ * the mixed peak stays under the clip limit (a test renders it), and no compressor is needed. */
 export const CHIME_VOLUME = 0.36
 
 type Ctx = Pick<AudioContext, 'state' | 'currentTime' | 'destination' | 'resume' | 'suspend' | 'createGain' | 'createOscillator' | 'createBuffer' | 'createBufferSource'>
@@ -259,25 +266,24 @@ export function playChime(ctx: Ctx) {
   out.gain.value = CHIME_VOLUME
   out.connect(ctx.destination)
   for (const n of CHIME_NOTES) {
-    for (const [mult, level, len] of [[1, 1, 0.6], [2, 0.2, 0.25]] as const) {
-      const start = t0 + n.at
-      const o = ctx.createOscillator(), g = ctx.createGain()
-      o.type = 'sine'
-      o.frequency.value = n.hz * mult
-      g.gain.setValueAtTime(0.0001, start)
-      g.gain.exponentialRampToValueAtTime(level, start + 0.01)
-      g.gain.exponentialRampToValueAtTime(0.0001, start + len)
-      o.connect(g)
-      g.connect(out)
-      o.start(start)
-      o.stop(start + len + 0.02)
-    }
+    const start = t0 + n.at
+    const o = ctx.createOscillator(), g = ctx.createGain()
+    o.type = 'sine'
+    o.frequency.setValueAtTime(n.hz, start)
+    o.frequency.exponentialRampToValueAtTime(n.hz * n.glide, start + Math.min(n.dur, GLIDE_SECONDS))
+    g.gain.setValueAtTime(0.0001, start)
+    g.gain.exponentialRampToValueAtTime(n.peak, start + n.a)
+    g.gain.exponentialRampToValueAtTime(0.0001, start + n.dur)
+    o.connect(g)
+    g.connect(out)
+    o.start(start)
+    o.stop(start + n.dur + 0.02)
   }
 }
 
 type AudioWindow = { AudioContext?: new () => AudioContext; webkitAudioContext?: new () => AudioContext }
-/** the chime's length and a little more: the context rests (suspends) after it, so the audio device is not kept open */
-const REST_AFTER_MS = 1500
+/** the chime's length and a lot more: the context rests (suspends) after it, so the audio device is not kept open */
+export const REST_AFTER_MS = 1500
 
 /** The page's one AudioContext. Made and started at the first gesture (browsers start audio only in one); once it has
  * run, it may start again without a gesture (Chrome and Firefox: the page was used; WebKit: this context was started in
