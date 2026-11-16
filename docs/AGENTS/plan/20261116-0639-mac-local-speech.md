@@ -42,4 +42,6 @@ on this Mac), media-read, a-speech-settings, the speech and office tests, web wa
 
 ## Result
 
-Built as planned. Video on a Mac gives the sound only (the read says so).
+Built as planned, PR #1090. Video on a Mac gives the sound only (the read says so). After the review: the read
+decodes only when a piece is needed, and a saved OpenRouter key keeps OpenRouter (local is the default only without one).
+VIEW-08 passes on the real AI with the bundled whisper-cli.
