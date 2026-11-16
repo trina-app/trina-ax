@@ -8,7 +8,8 @@
 // access": the owner, then each person or group with "Can view" and ✕ (asked first: "Remove access for Bob?"); a team
 // file's one grey line that the folder's people open it too. Footer: Copy link and Share (with picks) or Done. Someone who
 // may not share sees who has it, the reason in one grey line, and Copy link. Not here: general access, roles, notify,
-// message. A refusal (403 not the owner or sharing off, 400, 429) says why in the server's words.
+// message. "Everyone on the team" (QA TC-3509) is the search's first option, with one line before the press that the
+// whole team, also people who join later, will be able to open it. A refusal (403 not the owner or sharing off, 400, 429) says why in the server's words.
 import { Users, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { create } from 'zustand'
@@ -21,6 +22,7 @@ import { toast } from '../store/ui'
 import { Avatar } from './Avatar'
 import { ListHeading, ListRow } from './list/List'
 import { ParticipantPicker, participantKey, useParticipantOptions, type ParticipantOption } from './ProjectParticipants'
+import { EveryoneLine, useWithEveryone } from './ShareEveryone'
 import { Button, ErrorNote, IconButton, Modal, Skeleton, confirmDialog, menuOpener, useCopy } from './ui'
 
 const nameOfPath = (path: string) => path.slice(path.lastIndexOf('/') + 1)
@@ -82,7 +84,8 @@ export function FileShareDialog({ path, onClose, returnTo }: { path: string; onC
 
   // the rows the server sent (a group I am not in, someone out of the directory) name themselves in the picker too
   const extra = useMemo<ParticipantOption[]>(() => (shares?.people ?? []).map((r) => ({ subjectType: r.subjectType, subjectId: r.subjectId, name: r.name, ...(r.title ? { title: r.title } : {}), ...(r.avatarVersion ? { avatarVersion: r.avatarVersion } : {}) })), [shares])
-  const options = useParticipantOptions(extra)
+  // "Everyone on the team" first (QA TC-3509), then groups and people
+  const options = useWithEveryone(useParticipantOptions(extra))
   // not offered: me, the owner, whoever has it already, and never a guest (the server refuses them)
   const people = usePeopleList()
   const exclude = useMemo(() => new Set([
@@ -145,6 +148,7 @@ export function FileShareDialog({ path, onClose, returnTo }: { path: string; onC
           // the search's own words name it ("Add people or groups"): no label above it saying the same
           <ParticipantPicker options={options} value={picks} onChange={(v) => { setPicks(v); setError(null) }} placeholder={t('fileShare.add')} exclude={exclude} hideEmpty testId="file-share-picker" />
         )}
+        {shares && canShare && <EveryoneLine picks={picks} testId="file-share-everyone-line" />}
         {shares && (
           <section aria-labelledby="file-share-with">
             <ListHeading id="file-share-with" className="mb-1">{t('fileShare.withAccess')}</ListHeading>

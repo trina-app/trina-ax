@@ -1,6 +1,8 @@
+import { CSRF_HEADER } from '@mycel/shared/api'
+import { makePng } from '../../lib/images'
 import type { Spec } from './cases'
-import type { Resp } from './instance'
-import type { World } from './world'
+import type { Client, Resp } from './instance'
+import type { Who, World } from './world'
 
 // Apps posting in rooms (docs/DECISIONS.md "Apps posting in rooms"). The world has a GitHub app in the everyone room
 // (w.ids.allApp) added by the owner, and an Other app in the DM of alice and erin (w.ids.dmApp). In a team room or the
@@ -13,7 +15,104 @@ const noToken = (r: Resp) => { if (/tax_in_|tax_whs_/.test(r.text)) throw new Er
 /** a fresh app for a case that uses one up (remove), added by the owner */
 const fresh = async (w: World, name: string) => (await w.as.owner.ok('POST', all(w), { kind: 'other', name: `${name} ${crypto.randomUUID().slice(0, 8)}` })).app.id as string
 
+// An Other app's own icon (docs/decisions/20261116-other-app-icon.md): one plain Other app in the everyone room with an
+// image, made once per world by the admin (allApp is GitHub, which keeps its logo; the owner's 10 adds an hour are all
+// spent by the cases below), and an image on the DM's app.
+const PNG = makePng(96, 96)
+const putPng = (c: Client, path: string) => c.req('PUT', `${path}?type=image%2Fpng`, undefined, { raw: PNG, headers: { 'content-type': 'application/octet-stream', [CSRF_HEADER]: '1' } })
+const iconApps = new WeakMap<World, Promise<{ app: string; image: string; dmImage: string }>>()
+const iconApp = (w: World) => {
+  let p = iconApps.get(w)
+  if (!p) {
+    p = (async () => {
+      const app = (await w.as.admin.ok('POST', all(w), { kind: 'other', name: `Icon ${crypto.randomUUID().slice(0, 8)}` })).app.id as string
+      const set = await putPng(w.as.admin, `${all(w)}/${app}/icon`)
+      if (set.status !== 200) throw new Error(`the admin could not set an icon: ${set.status}`)
+      const dm = await putPng(w.as.memberIn, `/api/rooms/${w.ids.dmRoom}/apps/${w.ids.dmApp}/icon`)
+      if (dm.status !== 200) throw new Error(`alice could not set the DM app's icon: ${dm.status}`)
+      return { app, image: set.json.icon.image as string, dmImage: dm.json.icon.image as string }
+    })()
+    iconApps.set(w, p)
+  }
+  return p
+}
+const iconPath = async (w: World) => `${all(w)}/${(await iconApp(w)).app}/icon`
+/** the owner and an admin are not in the DM: its app's icon is not theirs to change (404) */
+const dmIconDenied = (method: 'PUT' | 'PUT-emoji' | 'DELETE') => async (_r: Resp, w: World, who: Who) => {
+  if (who !== 'owner' && who !== 'admin') return
+  const p = `/api/rooms/${w.ids.dmRoom}/apps/${w.ids.dmApp}/icon`
+  const r = method === 'PUT' ? await putPng(w.as[who], p) : method === 'PUT-emoji' ? await w.as[who].req('PUT', `${p}/emoji`, { emoji: '🔥' }) : await w.as[who].req('DELETE', p)
+  if (r.status !== 404) throw new Error(`${who} changed the DM app's icon (${method}): ${r.status}`)
+}
+/** only a plain Other app takes an icon: 400 not_other on all three writes. GitHub is the world's app in the everyone
+ * room (its owners and admins); a preset, Sentry and Google Forms are added once in the DM by alice, who manages its
+ * apps (adding them in the everyone room would spend the owner's and the admin's 10 adds an hour that the cases above
+ * need). */
+const refusesIcon = async (c: Client, path: string, what: string) => {
+  for (const r of [await putPng(c, path), await c.req('PUT', `${path}/emoji`, { emoji: '🔥' }), await c.req('DELETE', path)]) {
+    if (r.status !== 400 || r.json?.error?.params?.reason !== 'not_other') throw new Error(`${what} took an icon change: ${r.status}`)
+  }
+}
+const dmNotOther = new WeakMap<World, Promise<void>>()
+const notOther = async (w: World, who: Who) => {
+  if (who === 'owner' || who === 'admin') await refusesIcon(w.as[who], `${one(w)}/icon`, 'GitHub')
+  if (who !== 'memberIn') return
+  let p = dmNotOther.get(w)
+  if (!p) {
+    p = (async () => {
+      const dm = `/api/rooms/${w.ids.dmRoom}/apps`
+      for (const body of [{ kind: 'other', preset: 'notion' }, { kind: 'sentry' }, { kind: 'google_forms' }]) {
+        const app = (await w.as.memberIn.ok('POST', dm, { ...body, name: `NotOther ${crypto.randomUUID().slice(0, 8)}` })).app.id as string
+        try { await refusesIcon(w.as.memberIn, `${dm}/${app}/icon`, JSON.stringify(body)) } finally { await w.as.memberIn.req('DELETE', `${dm}/${app}`) }
+      }
+    })()
+    dmNotOther.set(w, p)
+  }
+  await p
+}
+
 export const ROOM_APP_SPECS: Record<string, Spec> = {
+  putRoomAppIcon: {
+    build: async (c, w) => putPng(c, await iconPath(w)), scope: 'room-all-admins',
+    check: async (r, w, who) => {
+      noToken(r)
+      await dmIconDenied('PUT')(r, w, who)
+      await notOther(w, who)
+    },
+  },
+  setRoomAppEmoji: {
+    build: async (c, w) => c.req('PUT', `${await iconPath(w)}/emoji`, { emoji: '🚨' }), scope: 'room-all-admins',
+    check: async (r, w, who) => {
+      noToken(r)
+      await dmIconDenied('PUT-emoji')(r, w, who)
+      // a body naming more than the emoji (a URL for the picture, a name) is refused
+      if (r.status === 200) {
+        const extra = await w.as[who].req('PUT', `${await iconPath(w)}/emoji`, { emoji: '🚨', image: 'https://evil.example/x.png' })
+        if (extra.status !== 400) throw new Error(`an emoji body with an extra field was taken: ${extra.status}`)
+      }
+    },
+  },
+  deleteRoomAppIcon: {
+    build: async (c, w) => c.del(await iconPath(w)), scope: 'room-all-admins',
+    check: async (r, w, who) => { noToken(r); await dmIconDenied('DELETE')(r, w, who) },
+  },
+  // the image: anyone in the room (the everyone room has everybody; a guest in a room: tests/unit/b-room-apps-icon.test.ts),
+  // nobody outside it, and never under another room's id
+  roomAppIcon: {
+    build: async (c, w) => c.get((await iconApp(w)).image), scope: 'shared',
+    check: async (r, w, who) => {
+      if (who === 'pwchange' || who === 'anon') return
+      if (r.status === 200 && r.headers.get('x-content-type-options') !== 'nosniff') throw new Error('the icon went out without nosniff')
+      const { dmImage } = await iconApp(w)
+      const inDm = who === 'memberIn' || who === 'other'
+      const dm = await w.as[who].req('GET', dmImage)
+      if (dm.status !== (inDm ? 200 : 404)) throw new Error(`${who} read the DM app's icon: ${dm.status}`)
+      // the DM's app under the everyone room's id (which everyone is in): not there
+      const moved = await w.as[who].req('GET', `${all(w)}/${w.ids.dmApp}/icon`)
+      if (moved.status !== 404) throw new Error(`${who} read an app's icon under another room: ${moved.status}`)
+    },
+  },
+
   listRoomApps: {
     build: (c, w) => c.get(all(w)), scope: 'room-all-admins',
     check: async (r, w, who) => {

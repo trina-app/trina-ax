@@ -55,6 +55,12 @@ test('the owner and admins read where to fix it, in the menu\'s own words; the h
     // an admin (who cannot open it) reads the member's words
     expect(say(l, 'network_protection_off', 'owner')).toContain(adminPath(t, 'health'))
     expect(say(l, 'network_protection_off', 'admin')).toBe(CHAT_ERROR_MESSAGES.network_protection_off[l])
+    // the AI could not start on the server (QA TC-3521): the owner and admins read that trying again won't help and who
+    // fixes it, with no menu path (the health page does not show it); a member reads that the admins were told
+    for (const role of ['owner', 'admin'] as const) {
+      expect(say(l, 'engine_start_failed', role)).toBe(translate(l, 'chat.error.admin.engine_start_failed'))
+      expect(say(l, 'engine_start_failed', role)).not.toContain('›')
+    }
     for (const r of REASONS) expect([l, r, JARGON.test(say(l, r, 'owner'))]).toEqual([l, r, false])
   }
 })

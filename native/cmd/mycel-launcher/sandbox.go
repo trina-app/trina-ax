@@ -57,7 +57,7 @@ func checkPlatformFlags() error {
 var chatIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 // reserved names directly under the agent root that are never chat folders
-var reservedAgentNames = map[string]bool{"codex-auth": true, "home": true}
+var reservedAgentNames = map[string]bool{"codex-auth": true, "home": true, checkFolderName: true}
 
 // liveChats: chat folders with a turn running now (forget refuses them, the daily sweep skips them).
 var liveChats = struct {

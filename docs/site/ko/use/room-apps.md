@@ -131,6 +131,8 @@ Webhook URL로 메시지를 보낼 수 있는 것(Zapier, Make, Grafana, Uptime 
 curl -X POST -H 'Content-Type: application/json' -d '{"text":"Hello from my app"}' <Webhook URL>
 ```
 
+다른 앱은 이름 첫 글자를 앱마다 다른 색 위에 보여 줘서, 한 대화에 다른 앱이 여러 개 있어도 헷갈리지 않아요. 그림으로 바꾸려면 앱 설정에서 **아이콘 바꾸기**를 누르고 **이미지 올리기**(PNG, JPEG, WebP, 정사각형으로 잘려요)나 **이모지 고르기**를 고르세요. **아이콘 지우기**를 누르면 다시 첫 글자가 보여요. 아이콘은 앱의 예전 메시지에도 보여요. 메시지로는 앱의 이름이나 아이콘을 바꿀 수 없어요. Slack의 `username`, `icon_url`, `icon_emoji`나 Discord의 `avatar_url` 같은 값은 무시돼서, Webhook URL로 보낸 어떤 것도 사람이나 다른 앱인 척할 수 없어요.
+
 ### GitHub
 
 저장소마다 설정해요. 그 저장소의 관리자 권한이 있어야 해요([GitHub 문서](https://docs.github.com/en/webhooks/using-webhooks/creating-webhooks)).
@@ -169,6 +171,7 @@ Sentry에서 owner나 manager여야 해요.
 - **경고**: 경고마다 할 일이 하나씩 있어요. 마지막 시도가 왜 보이지 않았는지(**비밀값 확인**), *나간 멤버가 이 Webhook URL을 알고 있어요*
   (**다시 만들기**), 서명할 수 있는 서비스인데 아직 비밀값이 없으면 *서명 확인 안 됨: Webhook URL을 아는 누구나 올릴 수 있어요*
   (**더 안전하게**).
+- **아이콘 바꾸기**(다른 앱): 이름 첫 글자 대신 이미지나 이모지를 쓰거나, **아이콘 지우기**로 되돌려요.
 - **이름**: 메시지가 보일 이름.
 - **이 대화방에 보이기**: 올릴 소식의 종류(종류가 여러 개인 앱). 서비스에서 설정하지 않은 선택 이벤트
   (예: Shopify의 환불)에는 *Shopify에서 아직 설정 안 됨*이 나오고, 그 단계로 가는 링크가 있어요.

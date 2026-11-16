@@ -26,7 +26,7 @@ import type { BackupInfo, LastRestore } from '@mycel/shared/api'
 import { audit } from '../admin/audit'
 import { userRef } from '../auth/users'
 import { RestorePending } from '@mycel/shared/install'
-import { SCHEMA_READER_LEVEL, checkReadable, migrate } from '../db'
+import { SCHEMA_READER_LEVEL, checkReadable, migrate, requiredReaderLevelOfFile } from '../db'
 import { FOLDER_ACCESS_MODEL, FOLDER_ACCESS_MODEL_KEY } from '../policy/access'
 import type { Logger } from '../log'
 import { diskSpaceOrUnknown, primeDiskSpace, type InstallLayout } from './layout'
@@ -593,7 +593,7 @@ export class BackupManager {
     await fsp.copyFile(src, staged)
     await fsp.chmod(staged, 0o600)
     try { inspectDbCopy(staged) } catch (e) { await fsp.rm(staged, { force: true }); throw e }
-    const pending: RestorePending = { format: 1, file: staged, backupId: id, requestedAt: this.now().toISOString(), requestedBy, backupCreatedAt: this.createdAtOf(id) }
+    const pending: RestorePending = { format: 1, file: staged, backupId: id, requestedAt: this.now().toISOString(), requestedBy, backupCreatedAt: this.createdAtOf(id), readerLevel: requiredReaderLevelOfFile(staged) }
     await fsp.writeFile(path.join(this.o.layout.dataDir, 'restore-pending.json'), JSON.stringify(pending), { mode: 0o600 })
     return pending
   }

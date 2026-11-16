@@ -193,6 +193,13 @@ func setupBwrap() error {
 			return fmt.Errorf("--allow-cmd %s lives in the agent root", c)
 		}
 	}
+	lx.libs, lx.usrLib64 = hostLibMounts()
+	return nil
+}
+
+// hostLibMounts: how this host has /lib, /lib64, /lib32, /libx32 (a link or a folder) and whether /usr/lib64 exists
+func hostLibMounts() ([]libMount, bool) {
+	var libs []libMount
 	for _, p := range []string{"/lib", "/lib64", "/lib32", "/libx32"} {
 		lm := libMount{path: p}
 		if st, err := os.Lstat(p); err == nil {
@@ -203,12 +210,10 @@ func setupBwrap() error {
 				lm.isDir = st.IsDir()
 			}
 		}
-		lx.libs = append(lx.libs, lm)
+		libs = append(libs, lm)
 	}
-	if st, err := os.Stat("/usr/lib64"); err == nil && st.IsDir() {
-		lx.usrLib64 = true
-	}
-	return nil
+	st, err := os.Stat("/usr/lib64")
+	return libs, err == nil && st.IsDir()
 }
 
 // rootOwnedPath: p and every folder above it belong to root and are not writable by group or others.

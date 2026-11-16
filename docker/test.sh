@@ -8,7 +8,8 @@
 #
 # Checks: health, the setup page, the setup link, first-run setup through the published port, the engine firewall
 # (axagent reaches only the model proxy), Landlock and seccomp inside a bubblewrap sandbox as axagent, the launcher status, and a restart
-# that does not run the installer again.
+# that does not run the installer again. The bubblewrap check passes --hostname mycel-turn as the launcher does for each
+# turn (TC-2853: without sethostname in seccomp.json every AI turn stopped with "Can't set hostname"). No real AI turn.
 set -euo pipefail
 cd "$(dirname "$0")"
 export COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-trina-ax-test}
@@ -76,13 +77,13 @@ pass "engine firewall: axagent reaches only 127.0.0.1:47821"
 P=$(X runuser -u axagent -- /var/lib/mycel/root/mycel-sandbox probe)
 case "$P" in *'"seccomp":true'*) ;; *) fail "seccomp not available: $P" ;; esac
 case "$P" in *'"landlockAbi":0'*|*'"landlockAbi":-'*) fail "no Landlock: $P" ;; esac
-X bash -c 'cd / && runuser -u axagent -- bwrap --unshare-all --unshare-user --disable-userns --die-with-parent --new-session --cap-drop ALL \
+X bash -c 'cd / && runuser -u axagent -- bwrap --unshare-all --unshare-user --disable-userns --die-with-parent --new-session --cap-drop ALL --hostname mycel-turn \
   --ro-bind /usr /usr --symlink usr/lib /lib --symlink usr/lib64 /lib64 --symlink usr/bin /bin --ro-bind /etc/ld.so.cache /etc/ld.so.cache \
   --proc /proc --dev /dev --tmpfs /tmp --ro-bind /var/lib/mycel/root/mycel-sandbox /tmp/s --remount-ro / --chdir /tmp -- \
   /tmp/s exec --landlock required --exec-allow /usr/bin --exec-allow /usr/lib -- /usr/bin/bash -c "
-    test \"\$(id -u)\" = 981 && test ! -e /var/lib/mycel && ! (exec 3<>/dev/tcp/1.1.1.1/443) 2>/dev/null && ! touch /usr/x 2>/dev/null"' \
+    test \"\$(id -u)\" = 981 && test \"\$(cat /proc/sys/kernel/hostname)\" = mycel-turn && test ! -e /var/lib/mycel && ! (exec 3<>/dev/tcp/1.1.1.1/443) 2>/dev/null && ! touch /usr/x 2>/dev/null"' \
   || fail "bubblewrap + Landlock sandbox as axagent"
-pass "sandbox: bubblewrap (user, pid, net namespaces) + Landlock + seccomp as axagent ($P)"
+pass "sandbox: bubblewrap (user, pid, net, UTS namespaces, hostname mycel-turn as each turn has) + Landlock + seccomp as axagent ($P)"
 # the launcher's own view (the answer the server's diagnostics show): bwrap, Landlock required, firewall loaded
 L=$(X runuser -u axserver -- python3 -I -c 'import socket,sys
 s=socket.socket(socket.AF_UNIX); s.settimeout(10); s.connect("/var/lib/mycel/run-launcher/launcher.sock")
@@ -93,6 +94,23 @@ ok=d.get("sandbox")=="bwrap" and d.get("landlockMode")=="required" and (d.get("l
 print("sandbox=%s landlock=%s/%s seccomp=%s firewall=%s cgroup=%s" % (d.get("sandbox"),d.get("landlockMode"),d.get("landlockAbi"),d.get("seccomp"),fw,d.get("cgroup")))
 sys.exit(0 if ok else 1)' "$L" || fail "launcher is not ready for turns: $L"
 pass "launcher ready for turns"
+# the engine check the bootstrap asks after an update (QA TC-3523): as axagent, the turn's sandbox launch with the bridge
+# of app/current. It passes on the running version and fails once the version has the modes an update left on
+# 2026-11-16 (folders and programs 0750, files 0640); the modes come back after. A kit older than the check: skipped.
+SC='import socket,sys
+s=socket.socket(socket.AF_UNIX); s.settimeout(30); s.connect("/var/lib/mycel/run-launcher/launcher.sock")
+s.sendall(b"{\"op\":\"sandbox-check\"}\n"); sys.stdout.write(s.makefile().readline())'
+R=$(X runuser -u axserver -- python3 -I -c "$SC") || fail "engine check request"
+case "$R" in
+  *'"ev":"sandbox-check"'*'"ok":true'*)
+    X bash -c 'd=$(readlink -f /var/lib/mycel/app/current) && find "$d" ! -type l -printf "%m %p\n" > /root/engine-check-modes &&
+      find "$d" -type d -exec chmod 0750 {} + && find "$d" -type f -perm -u+x -exec chmod 0750 {} + && find "$d" -type f ! -perm -u+x -exec chmod 0640 {} +'
+    B=$(X runuser -u axserver -- python3 -I -c "$SC" || true)
+    X bash -c 'set -e; while read -r m p; do chmod "$m" "$p"; done < /root/engine-check-modes; rm /root/engine-check-modes' || fail "engine check: the version's modes could not be put back"
+    case "$B" in *'"ok":false'*) pass "engine check: passes on the running version, fails on one left 0750/0640" ;; *) fail "engine check passed a 0750/0640 version: $B" ;; esac ;;
+  *'bad request'*) echo "test: skip the engine check (the launcher of this kit does not know it)" ;;
+  *) fail "engine check on the running version: $R" ;;
+esac
 
 # first-run setup through the published port (the token is not printed)
 LINK=$(X trina-ax-setup-link) || fail "setup link"

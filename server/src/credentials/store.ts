@@ -82,6 +82,8 @@ export interface CredCtx {
   noticed: Map<string, number>
   /** helpers the proxy, the turn and the login share (filled by their modules) */
   extra: Record<string, unknown>
+  /** the server's secrets folder (resolveLayout secretsDir): the older token file lives there (deleteCredential) */
+  secretsDir?: string
 }
 
 export function makeCredCtx(o: {
@@ -92,7 +94,7 @@ export function makeCredCtx(o: {
     db: o.db, vault: new Vault(o.secretsDir), sealer: new Sealer(o.secretsDir, o.now), config: o.config,
     allowedKinds: allowedCredentialKinds(o.config), upstreams: modelUpstreams(o.config), log: o.log,
     notify: o.notify ?? (() => {}), publish: o.publish ?? (() => {}), publishAll: o.publishAll ?? (() => {}), changeListeners: new Set(),
-    fetch: o.fetch ?? fetch, now: o.now ?? Date.now, cache: new Map(), noticed: new Map(), extra: {},
+    fetch: o.fetch ?? fetch, now: o.now ?? Date.now, cache: new Map(), noticed: new Map(), extra: {}, secretsDir: o.secretsDir,
   }
 }
 

@@ -109,6 +109,8 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     // the hosting service copied the team's key or data, or the team address moved to another server (shown always,
     // Notifications.hostingNotice): only the owners and admins can tell whether they asked for it
     case 'hosting.key_copied': case 'hosting.exported': case 'relay.address_moved': return true
+    // the AI could not start on this server (shown always, Notifications.engineStartNotice): every answer fails until it is fixed
+    case 'engine.start_failed': return true
   }
 }
 /** May this event go to OS push? eventEnabled, except where the Inbox row is shown always but its push has a switch of

@@ -30,6 +30,7 @@ func switchBase(t *testing.T, signed bool) (*testBase, *[]string) {
 	}
 	settingsLiveTurns = func(*env, *Install) (int, error) { return 0, nil }
 	settingsSleep = func(time.Duration) {}
+	settingsHealth = func(*Install) map[string]any { return map[string]any{"ok": true} }
 	statusScheduleHook = func(u *updater) {
 		u.runAsSrv = func(args []string, _ []string) (string, error) {
 			return `{"window":"02:00-04:00","timeZone":"Asia/Seoul","custom":true}`, nil
@@ -42,6 +43,8 @@ func switchBase(t *testing.T, signed bool) (*testBase, *[]string) {
 		settingsAsServer = func(e *env, in *Install, args ...string) error { return (&tenant{e: e, in: in}).asServer(nil, args...) }
 		settingsLiveTurns = func(e *env, in *Install) (int, error) { return (&updater{e: e, in: in}).launcherLiveTurns() }
 		settingsSleep = time.Sleep
+		settingsHealth = func(in *Install) map[string]any { return health(in.Port, 3*time.Second) }
+		settingsStartWait = 3 * time.Minute
 	})
 	v := filepath.Join(tb.base, "app/versions/0.2.18")
 	if signed {
@@ -167,6 +170,37 @@ func TestAutoUpdateSwitch(t *testing.T) {
 	must(t, os.WriteFile(filepath.Join(tb.base, "root/install.json"), []byte(strings.Replace(string(b), `"hosted": false`, `"hosted": true`, 1)), 0o644))
 	if code, _, errs := tb.ctl("", "auto-update", "on"); code != 1 || !strings.Contains(errs, "control plane") {
 		t.Fatalf("hosted: %d %s", code, errs)
+	}
+}
+
+// QA TC-2859: `auto-update off` is step 1 of "Going back to the version before an update"; step 3 stages a restore,
+// which a server that is still starting takes at once. The command returns once the server answers /api/health again,
+// and says so when it does not answer in time.
+func TestAutoUpdateWaitsForTheServerToStart(t *testing.T) {
+	tb, _ := switchBase(t, true)
+	asks := 0
+	settingsHealth = func(*Install) map[string]any {
+		asks++
+		if asks < 3 {
+			return map[string]any{"ok": false, "status": "migrating"}
+		}
+		return map[string]any{"ok": true}
+	}
+	code, s, errs := tb.settings(t, "auto-update", "off")
+	if code != 0 || asks != 3 || !strings.Contains(strings.Join(s.Notes, " "), "the server restarted with the new setting and answers again") {
+		t.Fatalf("off: %d asks %d %+v %s", code, asks, s, errs)
+	}
+	settingsHealth = func(*Install) map[string]any { return map[string]any{"ok": false, "error": "connection refused"} }
+	settingsStartWait = 0
+	code, s, _ = tb.settings(t, "auto-update", "on")
+	if code != 0 || !strings.Contains(strings.Join(s.Notes, " "), "does not answer yet") || !strings.Contains(strings.Join(s.Notes, " "), "before the next step") {
+		t.Fatalf("on, no answer: %d %+v", code, s)
+	}
+	// --no-restart: nothing restarted, nothing to wait for
+	asks = 0
+	settingsHealth = func(*Install) map[string]any { asks++; return map[string]any{"ok": true} }
+	if code, _, _ = tb.settings(t, "auto-update", "off", "--no-restart"); code != 0 || asks != 0 {
+		t.Fatalf("--no-restart: %d asks %d", code, asks)
 	}
 }
 
