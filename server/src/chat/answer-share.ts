@@ -526,7 +526,10 @@ async function madeHereOnly(ctx: AppContext, chatId: string, p: PreparedShare): 
       AND COALESCE(json_extract(e.detail, '$.tool'), '') IN ('write', 'make_file')
       AND ${MADE_FROM_ELSEWHERE.map((k) => `json_extract(e.detail, '$.${k}') IS NULL`).join(' AND ')} ORDER BY e.id LIMIT 1`).get(r.rel!, sha, ...turns) as { id: number } | null
     if (!made) return null
-    if (ctx.db.query('SELECT 1 FROM file_events WHERE path = ? AND id < ? LIMIT 1').get(r.rel!, made.id)) return null
+    // nothing was at that path then: no event before it, or the last one removed the file (a delete; one there before
+    // and since removed is another file)
+    const prev = ctx.db.query("SELECT action FROM file_events WHERE path = ? AND id < ? AND action <> 'rejected' ORDER BY id DESC LIMIT 1").get(r.rel!, made.id) as { action: string } | null
+    if (prev && prev.action !== 'delete') return null
     // changed after it was written (an update by anyone since): not what the branch made
     if (ctx.db.query("SELECT 1 FROM file_events WHERE path = ? AND id > ? AND (sha256 IS NULL OR sha256 <> ?) LIMIT 1").get(r.rel!, made.id, sha)) return null
     out.add(r.rel!)

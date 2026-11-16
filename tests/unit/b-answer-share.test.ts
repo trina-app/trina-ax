@@ -575,6 +575,13 @@ describe('linked files: a row each, the switch, attaching', () => {
     const e = answer('alice', `고친 파일: ${link(old)}`, { scope: [], listed: true, saved: [{ path: old, sha256: put(old, 'edited\n') }] })
     wrote(old)
     expect((await share('alice', e, { roomId: rooms.all })).json.status).toBe('confirm')
+    // a file at a path whose earlier file was deleted is a new file: it goes
+    const again = 'users/alice/room-notes-again.md'
+    h.ctx.db.query("INSERT INTO file_events (turn_id, user_id, path, action, size, sha256) VALUES (NULL, 'alice', ?, 'create', 1, 'x')").run(again)
+    h.ctx.db.query("INSERT INTO file_events (turn_id, user_id, path, action) VALUES (NULL, 'alice', ?, 'delete')").run(again)
+    const f = answer('alice', `다시: ${link(again)}`, { scope: [], listed: true, saved: [{ path: again, sha256: put(again, 'new\n') }] })
+    h.ctx.db.query("UPDATE file_events SET detail = ? WHERE path = ? AND action = 'create' AND turn_id IS NOT NULL").run(JSON.stringify({ tool: 'write' }), again)
+    expect((await share('alice', f, { roomId: rooms.all })).json.status).toBe('sent')
   })
 
   test('a linked file read by the answer and attached is left out of the line; link only, it counts', async () => {
