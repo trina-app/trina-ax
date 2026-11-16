@@ -22,7 +22,7 @@ export function sideRoomOf(db: Database, chatId: string, userId: string, files?:
 
 /**
  * Where the AI saves what comes from the room when the person names no place (docs/decisions/
- * 20261116-room-link-save-one-prompt.md, 20261117-room-content-saved-where-members-see.md; QA TC-3833): where the
+ * 20261116-room-link-save-one-prompt.md, 20261116-flow-regressions-0512-save-place.md; QA TC-3833): where the
  * room's people can open it. A team room: its group's folder. The Everyone room: shared/ (its meeting-notes or other
  * fitting subfolder, by the placement rule). A group chat or a 1:1: the team folder (a group's or a project's, else
  * shared/) that every team member in it can read and the fewest people outside it can; a 1:1 that only shared/ fits
