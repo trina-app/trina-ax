@@ -15,7 +15,7 @@ import { forgetTeamAttach } from '../lib/teamAttach'
 import { forgetStarters } from '../lib/starter'
 import { forgetSkillList } from '../lib/skillTitles'
 import { accountRemoved, guestRemoval, type SignedOutReason } from '../lib/signedOut'
-import { meGuest } from '../lib/guests'
+import { meGuest, myUploadMax } from '../lib/guests'
 
 export type AuthStatus =
   | { kind: 'loading' }
@@ -446,3 +446,10 @@ export const isOwner = (me: Me | null) => me?.user.role === 'owner'
 /** may pick the AI engine / model (composer picker, "retry with another model", own default): owner and admins always,
  * others when Admin > AI providers allows them. The server enforces it; an older server without the field: admins only. */
 export const canChooseEngine = (me: Me | null) => !!me && (me.user.canChooseEngine ?? isAdmin(me))
+
+/** The largest file whoever is signed in now may upload (lib/guests.ts myUploadMax), for code outside a component (a
+ * drop handler, a folder upload's limits). */
+export const myUploadMaxNow = (otherwise: number): number => {
+  const st = useSession.getState().status
+  return myUploadMax(st.kind === 'signed-in' ? st.me : null, otherwise)
+}

@@ -114,3 +114,7 @@ export function guestAppHref(href: string, folder: (path: string, select?: strin
   const path = u.pathname.toLowerCase() === '/files' ? u.searchParams.get('path') : null
   return path ? folder(path, u.searchParams.get('select') ?? undefined) : null
 }
+
+/** The largest file I may upload anywhere, in bytes: for a guest the team's guest limit (Me.team.uploadMaxBytes; the
+ * server checks it on every upload), for anyone else `otherwise` (each kind of upload has its own limit). */
+export const myUploadMax = (me: Me | null | undefined, otherwise: number): number => Math.min(otherwise, me?.team?.uploadMaxBytes ?? otherwise)

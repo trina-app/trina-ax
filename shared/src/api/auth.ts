@@ -69,6 +69,9 @@ export const Me = z.object({
     /** who may make team projects (Admin > Team settings projectCreators): a member sees "팀 프로젝트" only with
      * 'members'. Absent (older server) = admins only. */
     projectCreators: z.enum(['members', 'admins']).optional(),
+    /** a guest only: the largest file they may upload anywhere, in bytes (the team's guestFileMax). Absent (a member,
+     * or an older server): each kind of upload's own limit. The server checks it either way. */
+    uploadMaxBytes: z.number().int().positive().optional(),
     /** an admin turned off "Always allow" for the team (Admin > Team settings roomAlwaysAllow): a member's own Always allow
      * on a team connection is ignored, and an Always allow or a team connection set to run without asking asks again in
      * a chat that read something from outside (server/src/integrations/connections/tools.ts gate). The connector pages
