@@ -24,13 +24,14 @@ import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ExternalLink, Loader2, RotateCcw, Upload } from 'lucide-react'
 import { teamIconUrl, TEAM_ICON_TYPES, WEB_ALLOW_ALL_RISK } from '@mycel/shared'
-import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_SPEECH_MODEL, mediaTranscriptsDefault, mediaTranscriptsOffSmall, TeamSettings, type Locale, type SpeechHost, type SpeechProvider, DEFAULT_DECK_TIER } from '@mycel/shared/api'
+import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_SPEECH_MODEL, mediaTranscriptsDefault, mediaTranscriptsOffSmall, TeamSettings, type SpeechHost, type SpeechProvider, DEFAULT_DECK_TIER } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
 import { LOCALES, useLocale, useT } from '../../i18n'
 import { isOwner, useMeStrict, useSession } from '../../store/session'
 import { toast } from '../../store/ui'
 import { Button, confirmDialog, Field, inputCls, Switch, useMediaQuery } from '../../components/ui'
+import { LanguageSelect } from '../../components/LanguageSelect'
 import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
 import { PhoneChoiceRow, phoneNumberCls } from '../../components/phone/PhoneChoice'
 import { AdminPageHeader, BarTitleProvider, FlatCardsProvider, Loadable, SettingRow, SettingsSection, useAction, useLoad } from './common'
@@ -214,13 +215,7 @@ export default function TeamSettingsPage() {
                               options={LOCALES.map((l) => ({ value: l.id, label: l.label }))} onChange={(v) => setF({ ...f, defaultLocale: v })} testId="team-default-locale" />
                           ) : <SettingRow id="ts-locale" title={t('teamSettings.defaultLocale')} desc={t('teamSettings.defaultLocaleHint')}
                             control={
-                              <select id="ts-locale" aria-describedby="ts-locale-desc" className={clsx(inputCls, 'md:w-64')} value={f.defaultLocale} onChange={(e) => setF({ ...f, defaultLocale: e.target.value as Locale })} data-testid="team-default-locale">
-                                {LOCALES.map((l) => (
-                                  <option key={l.id} value={l.id} lang={l.id}>
-                                    {l.label}
-                                  </option>
-                                ))}
-                              </select>
+                              <LanguageSelect id="ts-locale" describedBy="ts-locale-desc" className="md:w-64" value={f.defaultLocale} onChange={(v) => setF({ ...f, defaultLocale: v })} testId="team-default-locale" />
                             } />}
                           <TeamIconRow />
                         </SettingsSection>
@@ -677,6 +672,10 @@ export function SpeechSection({ provider, model, transcripts, saved, onChange, o
   const hostedKey = provider === 'openrouter' && !!key.data?.hosted && !key.data.set
   // "this server" without the tools the mic's recordings need: voice input is off (Me.team.voiceInput), say which
   const missing = provider === 'local' ? host.data?.localMissing ?? [] : []
+  // an Apple silicon Mac transcribes on its own GPU: fast, and its first use downloads the speech model (say how big)
+  const localHint = host.data?.localMac
+    ? t('speech.localHintMac') + (host.data.localModelMb ? ' ' + t('speech.localFirstDownload', { mb: host.data.localModelMb }) : '')
+    : t('speech.localHint')
   const [secret, setSecret] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
@@ -711,10 +710,10 @@ export function SpeechSection({ provider, model, transcripts, saved, onChange, o
     <SettingsSection id="speech" testId="team-speech" title={t('speech.title')} desc={t('speech.desc')}>
       {/* a phone: "Speech to text   Off ›", the three in a sheet (QA TC-378) */}
       {phone ? (
-        <PhoneChoiceRow title={t('speech.provider')} desc={provider === 'local' ? t('speech.localHint') : undefined} below={providerNote} value={provider}
+        <PhoneChoiceRow title={t('speech.provider')} desc={provider === 'local' ? localHint : undefined} below={providerNote} value={provider}
           options={PROVIDERS.map((p) => ({ value: p, label: t(`speech.${p}`) }))} onChange={pickProvider} testId="team-speech-provider" />
       ) : <SettingRow id="ts-speech-provider" title={t('speech.provider')}
-        desc={provider === 'local' ? t('speech.localHint') : undefined}
+        desc={provider === 'local' ? localHint : undefined}
         below={providerNote}
         control={
           <select id="ts-speech-provider" aria-describedby={provider === 'local' ? `ts-speech-provider-desc${missing.length > 0 ? ' ts-speech-local-missing' : ''}` : undefined} className={clsx(inputCls, 'md:w-64')} value={provider}

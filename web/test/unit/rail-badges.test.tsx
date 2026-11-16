@@ -26,7 +26,8 @@ describe('marks', () => {
   })
 
   test('대화: conversations with something unread (not messages), muted and hidden left out; a dot for mention rows only', () => {
-    const rooms = [room({ unreadCount: 12 }), room({ unreadCount: 0, threadsUnread: 2 }), room({ unreadCount: 4, muted: true }), room({ unreadCount: 3, hidden: true }), room()]
+    // the second, a channel at its default (mentions only) with plain messages, is only bold: not counted
+    const rooms = [room({ kind: 'group', unreadCount: 12 }), room({ unreadCount: 7 }), room({ unreadCount: 0, threadsUnread: 2 }), room({ unreadCount: 4, muted: true }), room({ unreadCount: 3, hidden: true }), room()]
     expect(unreadRooms(rooms)).toBe(2)
     expect(chatsMark(rooms, 5)).toEqual({ kind: 'count', n: 2 })
     // a hidden room does not mark the rail (it shows nowhere)
@@ -88,7 +89,7 @@ describe('Rail', () => {
 
   const draw = async (role: 'owner' | 'member', path: string) => {
     useSession.setState({ status: { kind: 'signed-in', me: me(role) } } as never)
-    useRooms.setState({ rooms: [room({ unreadCount: 3 }), room({ unreadCount: 1, mentioned: true }), room({ unreadCount: 9, muted: true })], loaded: true, failed: null })
+    useRooms.setState({ rooms: [room({ kind: 'group', unreadCount: 3 }), room({ unreadCount: 6 }), room({ unreadCount: 1, mentioned: true }), room({ unreadCount: 9, muted: true })], loaded: true, failed: null })
     const m = await mount(<MemoryRouter initialEntries={[path]}><Rail showList={false} /></MemoryRouter>)
     // the notices' count arrives from GET /api/notifications
     await m.until(() => m.find('rail-activity-mark'), 'the notices counted')

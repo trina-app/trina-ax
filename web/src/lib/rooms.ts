@@ -1,7 +1,7 @@
 // Pure helpers of the team chat rooms ("대화방" v1, shared/src/api/rooms.ts): a room's title, runs of one author's
 // messages, event lines, and @mentions (the "@name" being typed, the members that fit it, and the parts of a sent
 // text). No React, no requests: unit tested in test/unit/rooms-lib.test.ts.
-import { roomLightsDot, roomUnread, roomWantsMe, ROOM_MENTIONS_MAX, type Room, type RoomEventLine, type RoomMessage, type UserRef } from '@mycel/shared/api'
+import { roomCounts, roomLightsDot, roomUnread, roomWantsMe, ROOM_MENTIONS_MAX, type CountedRoomFields, type Room, type RoomEventLine, type RoomMessage, type UserRef } from '@mycel/shared/api'
 
 /** The words a title falls back to: `all` for the everyone room, `gone` for a DM whose other person is gone, and for an
  * unnamed group chat its other members ("가, 나, 다 외 2명"; `alone` when nobody else is left). */
@@ -223,11 +223,15 @@ export function readUpTo(th: { messages: RoomMessage[]; nextCursor: string | nul
   return 0
 }
 
-/** Every room's own badge, added (messages, not rooms; the 대화 tab and the rail count conversations instead:
- * components/rail/railBadges.ts chatsMark); a muted room's never (its badge is grey), nor a hidden one's
- * (docs/DECISIONS.md "대화 숨기기": what comes for me brings it back first, and then it counts). */
-export function totalUnread(rooms: (Pick<Room, 'unreadCount' | 'muted'> & Partial<Pick<Room, 'threadsUnread' | 'hidden'>>)[]): number {
-  return rooms.reduce((n, r) => n + (r.muted || r.hidden ? 0 : roomUnread(r)), 0)
+/** Every room's own number, added (messages, not rooms; the 대화 tab and the rail count conversations instead:
+ * components/rail/railBadges.ts chatsMark), by roomCounts: a room that does not count adds nothing (a muted room's badge
+ * is grey; plain messages in a room at 멘션만 have no number), nor a hidden one (docs/DECISIONS.md "대화 숨기기": what comes
+ * for me brings it back first, and then it counts). */
+export function totalUnread(rooms: (CountedRoomFields & Partial<Pick<Room, 'hidden'>>)[]): number {
+  return rooms.reduce((n, r) => {
+    const c = roomCounts(r)
+    return n + (c.counts && !r.hidden ? c.number : 0)
+  }, 0)
 }
 
 /** The rooms my lists show: the ones I did not hide, and the room on screen whatever it is. */
@@ -241,12 +245,17 @@ export const pinnedRooms = <R extends Pinnable>(rooms: R[]): R[] => rooms.filter
  * order they came (by latest activity). */
 export const pinnedFirst = <R extends Pinnable>(rooms: R[]): R[] => [...pinnedRooms(rooms), ...rooms.filter((r) => !r.pinnedAt)]
 
-/** A room's one badge: "?" while its AI waits on me (docs/DECISIONS.md "Session markers"), else "@" when one of the
- * unread messages (or followed replies) mentions me (the count would read as a count of mentions), else the count. */
-export const roomBadge = (r: Pick<Room, 'unreadCount' | 'mentioned'> & Partial<Pick<Room, 'threadsUnread'>>) => (r.mentioned ? '@' : badgeText(roomUnread(r)))
+/** A room's one badge (roomCounts): "@" when one of the unread messages (or followed replies) mentions me (the count
+ * would read as a count of mentions), else its number; '' when it has none (plain messages in a room at 멘션만: the row
+ * is only bold). */
+export const roomBadge = (r: CountedRoomFields) => {
+  const c = roomCounts(r)
+  return c.mention ? '@' : c.number > 0 ? badgeText(c.number) : ''
+}
 
-// roomWantsMe, roomLightsDot and roomUnread: shared/src/api/attention.ts (the server counts a phone push's badge with them)
-export { roomLightsDot, roomUnread, roomWantsMe }
+// roomCounts, roomWantsMe, roomLightsDot and roomUnread: shared/src/api/attention.ts (the server counts a phone push's
+// badge with them)
+export { roomCounts, roomLightsDot, roomUnread, roomWantsMe }
 
 /** Who put a reaction there, for its tooltip: the names given ("가나, 다라"), then how many more ("외 3명"). */
 export function reactionWho(r: { count: number; users: { name: string }[] }, w: { sep: string; more: (names: string, n: number) => string }): string {

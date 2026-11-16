@@ -6,7 +6,9 @@
 #     build-*     Linux kits amd64 + arm64, the office zip (macOS, universal),     } no secrets
 #                 the Windows installer + latest.yml
 #     build-mac-app   the Mac app (mac-app.yml): dmg + update zip + latest-mac.yml, Developer ID signed and notarized
-#                 (the only build job with secrets: the certificate and the App Store Connect API key)
+#                 (with build-mac-whisper the only build jobs with secrets: the certificate and the App Store Connect API key)
+#     build-mac-whisper   whisper-cli for the office zip's Apple silicon Macs (mac-whisper.yml): Metal, Developer ID
+#                 signed and notarized; build-office waits for it and puts it in the zip
 #     publish     sign the Linux builds, office feed (publish.ts), server feed (publish-server.ts), SHA256SUMS + .sig
 #     github-release  the tag's GitHub Release with the kits, the office zip, the Windows installer, the Mac dmg and
 #                 SHA256SUMS(.sig)
@@ -243,9 +245,25 @@ jobs:
           overwrite: true # a re-run of the job replaces its own artifact
           retention-days: 7
 
+  build-mac-whisper:
+    name: Mac whisper-cli
+    needs: prepare
+    uses: ./.github/workflows/mac-whisper.yml
+    with:
+      ref: ${{ needs.prepare.outputs.sha }}
+      runner: ${{ inputs.mac_runner }}
+      retention-days: 7
+    secrets:
+      MAC_DEVELOPER_ID_P12_BASE64: ${{ secrets.MAC_DEVELOPER_ID_P12_BASE64 }}
+      MAC_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.MAC_DEVELOPER_ID_P12_PASSWORD }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+      APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+
   build-office:
     name: Office zip (macOS, universal)
-    needs: prepare
+    # the zip carries the signed Apple silicon whisper-cli (voice input and recordings with no key)
+    needs: [prepare, build-mac-whisper]
     # macos-14 images were retired ("macos-14-arm64-us-default is not supported", v0.4.0-beta.9 on 2026-11-06); macos-15
     # (arm64) had no runner on 2026-11-02, 03, 12 and 13 (v0.5.2, v0.5.3). The zip is universal either way: Go and swiftc
     # cross-build both Mac processors (native/build.sh), so an Intel runner builds the same zip.
@@ -266,10 +284,15 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: false
       - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: mac-whisper
+          path: dist
       - name: Office zip (native helpers for both Mac processors, mycel-ocr with swiftc, web, bundle)
         run: |
           swiftc --version | head -1
-          bun run build:office -- --version "$VERSION"
+          tar -C dist -xf dist/mac-whisper.tar
+          bun run build:office -- --version "$VERSION" --whisper dist/mac-whisper/whisper-cli
           ls -l dist/office/*-mac.zip
           bun scripts/plugins/release-check.ts dist/office/*-mac.zip
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

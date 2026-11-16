@@ -115,7 +115,7 @@ export class UploadSessions {
       const bad = t.name.includes('/') ? 'names cannot contain "/"' : badSegment(t.name.normalize('NFC'))
       if (bad) fileError('validation', 'badName', { name: bad })
     } else if (t.kind === 'room') {
-      // in the room now, a name that can be kept, at most 10 GB: refused here, before a byte is sent (rooms/files.ts)
+      // in the room now, a name that can be kept, at most 1 GB: refused here, before a byte is sent (rooms/files.ts)
       // the room as the person may use it now (rooms/service.ts: a DM closed since answers like one that is not there)
       roomsOf(this.ctx).get(userId, t.roomId)
       roomFilesOf(this.ctx).assertUpload(userId, t.roomId, t.name, size ?? 0)

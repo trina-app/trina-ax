@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('mycelUi', {
     remove: (id: string) => ipcRenderer.invoke('ui:remove-team', String(id)),
     back: () => ipcRenderer.send('ui:back'),
     retry: () => ipcRenderer.send('ui:retry'),
+    leftOffline: () => ipcRenderer.send('ui:offline-left'),
   },
   hostbar: {
     state: () => ipcRenderer.invoke('ui:hostbar-state'),

@@ -67,8 +67,10 @@ export function componentC(ctx: AppContext): ComponentC {
   const have = instances.get(ctx)
   if (have) return have
   const files = new TeamFiles(ctx)
-  // a shared file's link follows its file (files/shares.ts: its file-event hook)
-  fileSharesOf(ctx)
+  // a shared file's link follows its file (files/shares.ts: its file-event hook); the recipient's AI reads it by its
+  // link or path (docs/decisions/20261116-shared-files-for-the-ai.md)
+  const shares = fileSharesOf(ctx)
+  ctx.files.shared = { at: (user, input) => shares.grantedFile(user.id, input), link: (user, input) => shares.fileOfLink(user.id, input) }
   const teamRefs = new TeamFileRefs(ctx, files)
   const attachments = new Attachments(ctx, files, teamRefs)
   const uploads = new UploadSessions(ctx, files, attachments)

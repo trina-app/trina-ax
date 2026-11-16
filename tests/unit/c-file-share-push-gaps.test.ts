@@ -227,7 +227,7 @@ describe('what else stops a request push (security review of #1118)', () => {
       const rows = ((await owner.call('GET', '/api/notifications?limit=100')).items as any[]).filter((x) => x.eventType === 'file.access_requested' && x.fileShare?.canAnswer)
       expect(rows.length).toBeGreaterThanOrEqual(askers.length)
     } finally { await ph.p.stop() }
-  })
+  }, 30_000) // 12 members and 12 requests: 3-4.6 s on CI runners, too close to bun's 5 s default
 })
 
 describe('Settings › Notifications "File sharing"', () => {

@@ -92,11 +92,15 @@ export function formStem(name: string): string {
     .replace(/[\s_.\-()[\]]+/g, ' ').trim().slice(0, 60)
 }
 const FORM_WORDS = /(?<![\p{L}\p{N}])(?:양식|서식|템플릿|templates?|forms?|plantillas?|formularios?|templat|formulir|様式|書式|テンプレート|ひな形)(?![\p{L}\p{N}])/giu
+/** a joining word at the start or end of what is left ("Plantilla de pedido" → "de pedido", "Form for orders" → "for orders") */
+const LOOSE_END = /^(?:de|del|para|for|of|untuk)(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])(?:de|del|para|for|of|untuk)$/iu
 /** What a form makes, for "팀원이 '견적서 만들어줘' 하면": its name without the words for a form ("견적서 양식" → "견적서"); the
- * name itself when nothing is left. */
+ * name itself when nothing is left, or when what is left is not a name by itself ("Plantilla de pedido" stays whole). The
+ * sentences that quote it (welcome.forms.hint) put no article before it: "Order form" gives "Order", and no rule here
+ * knows "a" from "an" or "un" from "una" (QA TC-3455: "Make a Order"). */
 export function formKind(stem: string): string {
   const k = stem.replace(FORM_WORDS, ' ').replace(/\s+/g, ' ').trim()
-  return k || stem
+  return k && !LOOSE_END.test(k) ? k : stem
 }
 
 export const StartFormSkillDraft = z.object({

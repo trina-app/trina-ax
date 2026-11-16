@@ -44,7 +44,7 @@ import { normalizeForModel } from './vision'
 import { openChecked } from '../team-files/place'
 import { JobFailure } from '../jobs/service'
 import { FREE_USED, HOSTED_SPEECH_MODEL, hostedSpeechFreeHours } from '../credentials/hosted-speech'
-import { converterInputName, missingLocalTools, modelReady, transcribeConfig, whisperFile, type TranscribeConfig } from '../jobs/transcribe'
+import { converterInputName, ensureModel, missingLocalTools, modelDownloading, modelOnDisk, modelReady, transcribeConfig, WHISPER_MODELS, whisperFile, type TranscribeConfig } from '../jobs/transcribe'
 import { openRouterAudio, openRouterServed, sendToOpenRouter, wavData, type OpenRouterAnswer } from '../jobs/openrouter-stt'
 import { keepLongRetry, LONG_PIECE_SEC, longRetryLanguage } from '../jobs/speech-language'
 import { pieceTurn, pieceWait } from '../jobs/whisper-turns'
@@ -112,6 +112,12 @@ export class TurnFiles {
   /** saves under skills/ the person confirmed on the server's card in this turn: path -> sha256 of the confirmed
    * bytes, or '*' for a produced file (skills/guard.ts) */
   skillApprovals = new Map<string, string>()
+  /** the read tools may open files shared with the person one by one (FileService.shared): only a turn of the
+   * person's own chat sets it (chat/turn.ts; never a shared chat, a guest, a restricted run or a confidential chat,
+   * where the folder rules alone decide what goes into the answer) */
+  grantReads = false
+  /** files this turn read through a share grant (readAuth), until the turn counts them (chat/turn.ts noteOthersReads) */
+  grantReadPaths = new Set<string>()
 
   // ---------------- sub-agents (docs/DECISIONS.md "Sub-agents") ----------------
   /** tool_use id -> the Agent call of the sub-agent that made it (null: the main AI), from the engine's stream */
@@ -198,6 +204,21 @@ export interface ToolOutput { images?: { type: 'image'; mimeType: 'image/png' | 
 
 const BINARY_WRITE = new Set(['hwp', 'hwpx', 'docx', 'pptx', 'xlsx', 'xls', 'pdf', 'odt', 'ods', 'zip', 'png', 'jpg', 'jpeg', 'gif'])
 
+/** Files shared with a person one by one, for the read tools (files/shares.ts). */
+export interface SharedReads {
+  /** the file at this path shared with `user` by a grant (not one the folder rules let them read), or null */
+  at(user: Principal, input: string): Authorized | null
+  /** `input` is a file link (/f/<id>) shared with `user` by a grant: its file, or null */
+  link(user: Principal, input: string): Authorized | null
+}
+
+/** A read made by a file's link names the file by that link, not by its path: only in our own words around the file
+ * (its header, a quoted name), never inside the file's text. */
+function byLink(out: ToolOutput, rel: string, link: string): ToolOutput {
+  const swap = (t: string) => t.split(`PDF ${rel}:`).join(`PDF ${link}:`).split(`Image ${rel} `).join(`Image ${link} `).split(`'${rel}'`).join(`'${link}'`)
+  return { ...out, text: swap(out.text), ...(out.content ? { content: out.content.map((c) => (c.type === 'text' ? { ...c, text: swap(c.text) } : c)) } : {}) }
+}
+
 export class FileService {
   readonly quarantine: Quarantine
   readonly fx: FsCtx
@@ -215,6 +236,9 @@ export class FileService {
   readonly transcripts: media.TranscriptCache
   /** files the AI's tools show that are not on disk (the file list's _FILES.md, file-list/service.ts); null: none */
   virtual: VirtualFiles | null = null
+  /** files shared with a person one by one (files/shares.ts grantedFile, set by component C): the read tools open them
+   * by their link or path, view only (docs/decisions/20261116-shared-files-for-the-ai.md); null: none */
+  shared: SharedReads | null = null
   constructor(readonly db: Database, readonly cfg: ServerConfig) {
     db.exec('PRAGMA synchronous = FULL')
     this.quarantine = new Quarantine(db, cfg.teamRoot)
@@ -230,6 +254,17 @@ export class FileService {
   }
   rules() { return RuleSet.load(this.db) }
   principal(userId: string) { const p = loadPrincipal(this.db, userId); if (!p) throw new Denied('unknown or disabled user'); return p }
+  /** A read tool's file: what the folder rules let `user` read, else a file shared with them by a grant (by its path;
+   * read() turns a link into the path first). The rules' own refusal stands when there is no grant. */
+  private readAuth(ctx: Pick<ToolCtx, 'files'>, user: Principal, input: string): Authorized {
+    try { return authorize(this.fx, this.rules(), user, input, 'read') } catch (e) {
+      if (!this.shared || !ctx.files.grantReads || !(e instanceof Denied || e instanceof ToolError)) throw e
+      let g: Authorized | null = null
+      try { g = this.shared.at(user, input) } catch {}
+      if (g) { ctx.files.grantReadPaths.add(g.rel); return g }
+      throw e
+    }
+  }
 
   // ---------------- dispatcher used by the MCP server ----------------
   async call(tool: string, rawArgs: unknown, ctx: ToolCtx): Promise<ToolOutput> {
@@ -387,6 +422,18 @@ export class FileService {
       ctx.files.readPaths.add(vp.segs.slice(0, -1).join('/'))
       return numberedLines(vp.rel, vp.file.text, a)
     }
+    // a file shared with the person by its link (/f/<id>): read as its path, and the result names it by the link (the
+    // link page shows no path either, docs/decisions/20261116-shared-files-for-the-ai.md)
+    const link = ctx.files.grantReads ? this.shared?.link(ctx.user, a.file_path) ?? null : null
+    if (link) {
+      const l = a.file_path.trim()
+      try { return byLink(await this.read(ctx, { ...a, file_path: link.rel }), link.rel, l) } catch (e) {
+        // a refusal names the file by its link too ('<path>' has N pages, …)
+        if (e instanceof ToolError) throw new ToolError(e.message.split(`'${link.rel}'`).join(`'${l}'`), e.code)
+        if (e instanceof Denied) throw new Denied(e.message.split(`'${link.rel}'`).join(`'${l}'`))
+        throw e
+      }
+    }
     const e = ext(a.file_path)
     const kind = mediaKind(a.file_path)
     if ((a.pages !== undefined || a.as_images) && e !== 'pdf') throw new ToolError('pages and as_images are only for PDF files', 'bad_pages')
@@ -399,7 +446,7 @@ export class FileService {
 
   /** Text of a file (Office files converted), numbered lines. */
   private async readText(ctx: ToolCtx, a: ReadArgs): Promise<ToolOutput> {
-    const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'read')
+    const r = this.readAuth(ctx, ctx.user, a.file_path)
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
     // the plan's read limit (system/limits.ts readMaxBytes; 200 MB without a plan, as before)
     const { bytes } = readRegular(r.abs, readMaxBytes(), r.st)
@@ -418,7 +465,7 @@ export class FileService {
    * connection without a chat turn: a Mac reads the text with Apple Vision then, a Linux server gives a short note.
    */
   private async readImage(ctx: ToolCtx, a: ReadArgs): Promise<ToolOutput> {
-    const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'read')
+    const r = this.readAuth(ctx, ctx.user, a.file_path)
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
     const block = visionBlock(this.db, ctx.turnId)
     if (block && this.cfg.ocr) return this.readText(ctx, a)
@@ -458,7 +505,7 @@ export class FileService {
    * scanned pages instead, a Linux server a note (scanned pages are not searchable there either).
    */
   private async readPdf(ctx: ToolCtx, a: ReadArgs): Promise<ToolOutput> {
-    const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'read')
+    const r = this.readAuth(ctx, ctx.user, a.file_path)
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
     const src = this.boundSource(ctx, r, readMaxBytes())
     const tools = this.visionTools()
@@ -638,10 +685,25 @@ export class FileService {
     return { rel: r.rel, bytes, hash: sha256(bytes), identity: identity(st) }
   }
 
+  /**
+   * A team file's own bytes for a tool that sends the file out of the team (a connection's attachment,
+   * integrations/connections/team-attach.ts), read as this person as they are now: read access, a regular file that is
+   * not held by the safety check, bound to the authorized path. Over `cap` bytes: its size only, nothing read.
+   * `recheckOutgoing` right before the bytes leave.
+   */
+  outgoingSource(ctx: ToolCtx, input: string, cap: number): BoundSource | { rel: string; tooLarge: number } {
+    const r = authorize(this.fx, this.rules(), this.principal(ctx.user.id), input, 'read')
+    if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`, 'is_folder')
+    if (r.st!.size > cap) return { rel: r.rel, tooLarge: r.st!.size }
+    return this.boundSource(ctx, r, cap)
+  }
+  /** Right before an outgoingSource's bytes leave: the account, its access now and the file's identity (synchronous). */
+  recheckOutgoing(ctx: ToolCtx, src: Pick<BoundSource, 'rel' | 'identity'>) { this.recheckSource(ctx, src) }
+
   /** Right before delivery: the account, its access now and the file's identity, read again (synchronous). */
   private recheckSource(ctx: ToolCtx, src: Pick<BoundSource, 'rel' | 'identity'>) {
     const user = this.principal(ctx.user.id)
-    const now = authorize(this.fx, this.rules(), user, src.rel, 'read')
+    const now = this.readAuth(ctx, user, src.rel)
     if (!now.st || identity(now.st) !== src.identity) throw new Denied(safeText(this.db, ctx.user.id, 'changed'))
   }
 
@@ -676,19 +738,26 @@ export class FileService {
   }
 
   // ---------------- video and audio (files/media.ts) ----------------
-  /** Converter seams of a media read (tests replace them). A Mac server says video is not supported there yet. */
+  /** Converter seams of a media read (tests replace them). An Apple silicon Mac reads the sound with macOS's own programs
+   * (jobs/mac-audio.ts); an Intel Mac says video and audio are not read there. */
   mediaTools(): media.MediaTools | 'mac' | 'missing' {
-    if (process.platform === 'darwin') return 'mac'
+    if (process.platform === 'darwin') return this.speech.mac ? { mac: this.speech.mac } : 'mac'
     const ffmpeg = which('ffmpeg'), ffprobe = which('ffprobe')
     return ffmpeg && ffprobe ? { ffmpeg, ffprobe } : 'missing'
   }
-  mediaProbe(tools: media.MediaTools, work: string, name: string, signal: AbortSignal | undefined, timeoutMs: number) { return media.probeMedia(tools, work, name, signal, timeoutMs) }
-  mediaDuration(tools: media.MediaTools, work: string, name: string, signal: AbortSignal | undefined, timeoutMs: number) { return media.scanDuration(tools, work, name, signal, timeoutMs) }
+  /** `video`: the file is a video by its name (a Mac reads only its sound and says so) */
+  mediaProbe(tools: media.MediaTools, work: string, name: string, signal: AbortSignal | undefined, timeoutMs: number, video = false) {
+    return media.isMacTools(tools) ? media.macProbeMedia(tools, work, name, video, signal, timeoutMs) : media.probeMedia(tools, work, name, signal, timeoutMs)
+  }
+  mediaDuration(tools: media.MediaTools, work: string, name: string, signal: AbortSignal | undefined, timeoutMs: number) { return media.isMacTools(tools) ? Promise.resolve(null) : media.scanDuration(tools, work, name, signal, timeoutMs) }
   /** one frame -> the model's JPEG: ffmpeg's PNG drawn again by the Go normalizer (pixels only, like an image read) */
   async mediaFrame(tools: media.MediaTools, work: string, name: string, stream: number, t: number, px: number, signal: AbortSignal | undefined, timeoutMs: number): Promise<Buffer> {
+    if (media.isMacTools(tools)) throw new ToolError('no frames on a Mac server', 'media_no_frame')
     return normalizeForModel(await media.framePng(tools, work, name, stream, t, px, signal, timeoutMs), this.visionTools(), signal)
   }
-  mediaAudio(tools: media.MediaTools, work: string, name: string, stream: number, start: number, seconds: number, out: string, o: { signal?: AbortSignal; timeoutMs: number; inputBytes: number }) {
+  async mediaAudio(tools: media.MediaTools, work: string, name: string, stream: number, start: number, seconds: number, out: string, o: { signal?: AbortSignal; timeoutMs: number; inputBytes: number }): Promise<Buffer> {
+    // a Mac: a piece of the sound mediaProbe decoded into the work folder
+    if (media.isMacTools(tools)) return media.macAudioWav(tools, work, start, seconds, out, o)
     return media.audioWav(tools, work, name, stream, start, seconds, out, o)
   }
   /** How this server transcribes video and audio sound itself (GET /api/admin/speech-host: the settings switch, and the
@@ -697,11 +766,15 @@ export class FileService {
     const speed = media.localSpeed(this.db, media.localModelName(this.speech.model), this.speech.threads)
     return { cpuCores: cpuBudget(), localPieceSec: media.LOCAL_PIECE_SEC, localSecPerSec: speed.measured ? speed.secPerSec : null, hostedNewSec: currentPlan() !== null ? media.HOSTED_LOCAL_NEW_SEC : null,
       // Team settings › Voice input: what 'local' lacks here (jobs/transcribe.ts)
-      localMissing: missingLocalTools(this.speech) }
+      localMissing: missingLocalTools(this.speech),
+      ...(this.speech.mac && this.speech.whisperBin ? { localMac: true as const } : {}),
+      localModelMb: modelOnDisk(this.speech) ? null : Math.round(WHISPER_MODELS[this.speech.model].size / 1e6) }
   }
   /** A piece's WAV as OpenRouter gets it (jobs/openrouter-stt.ts openRouterAudio: quiet sound raised, FLAC), or the WAV
    * itself when this ffmpeg cannot make one. A run that replaced its work folder or left a link: media_damaged. */
   async mediaSendable(tools: media.MediaTools, work: string, wavName: string, wav: Buffer, o: { signal?: AbortSignal; timeoutMs: number; workBytes: number }): Promise<{ bytes: Buffer; format: string }> {
+    // a Mac has no FLAC encoder run here: the WAV goes as it is (a 10-minute piece is 19.2 MB, under OpenRouter's 25 MB)
+    if (media.isMacTools(tools)) return { bytes: wav, format: 'wav' }
     const r = await openRouterAudio(tools.ffmpeg, work, wavName, wav, o)
     if (r.ok) return { bytes: r.bytes, format: r.format }
     if (r.why === 'damaged') throw new ToolError('the sound could not be encoded', 'media_damaged')
@@ -720,6 +793,27 @@ export class FileService {
     return languageP === undefined ? r : { ...r, languageP }
   }
 
+  /** The local model's first download (jobs/transcribe.ts ensureModel: one at a time, sha256 checked), waited for while
+   * the read keeps a minute for its sound after it; null when it is not done by then (it goes on without the read) or
+   * failed. */
+  private async firstModel(signal: AbortSignal | undefined, budget: () => number): Promise<string | null> {
+    if (signal?.aborted) return null
+    // a download that failed (no internet) is not started again by every read for a while
+    if (!modelDownloading() && Date.now() - this.modelFailedAt < MODEL_RETRY_MS) return null
+    const dl = ensureModel(this.speech).catch(() => { this.modelFailedAt = Date.now(); return null })
+    const wait = Math.max(0, budget() - 60_000)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let onAbort = () => {}
+    const stop = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), wait)
+      onAbort = () => resolve(null)
+      signal?.addEventListener('abort', onAbort, { once: true })
+    })
+    try { return await Promise.race([dl, stop]) } finally { clearTimeout(timer); signal?.removeEventListener('abort', onAbort) }
+  }
+  /** when the last first-use download of the model failed (firstModel) */
+  private modelFailedAt = 0
+
   /**
    * A video or audio file like a Claude Code user reads one with ffmpeg and whisper: frames (images with their times)
    * and a timed transcript of the sound, in time order; an audio file gives the transcript. `time` picks a part,
@@ -728,7 +822,7 @@ export class FileService {
    * quarantined, and access is checked again right before delivery. docs/DECISIONS.md "AI reads video and audio".
    */
   private async readMedia(ctx: ToolCtx, a: ReadArgs, kind: MediaKind): Promise<ToolOutput> {
-    const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'read')
+    const r = this.readAuth(ctx, ctx.user, a.file_path)
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
     const refuse = (key: MediaTextKey, why: string, vars: Record<string, string | number> = {}): ToolOutput =>
       ({ text: mediaText(this.db, ctx.user.id, key, vars), isError: true, summary: `read ${r.rel} -> ${kind} not read (${why})` })
@@ -785,7 +879,7 @@ export class FileService {
       const memo = probeFailures.get(src.hash)
       if (memo && Date.now() - memo.at < PROBE_MEMO_MS) throw new ToolError('failed before', memo.code)
       let info: media.MediaInfo
-      try { info = await this.mediaProbe(tools, work, src.name, signal, left()) } catch (e) {
+      try { info = await this.mediaProbe(tools, work, src.name, signal, left(), kind === 'video') } catch (e) {
         signal?.throwIfAborted()
         if (e instanceof ToolError && MEDIA_NOTE[e.code] && e.code !== 'media_heavy') {
           for (const [h, m] of probeFailures) if (Date.now() - m.at >= PROBE_MEMO_MS) probeFailures.delete(h)
@@ -797,8 +891,10 @@ export class FileService {
       if (!duration || duration <= 0) throw new ToolError('no length', 'media_damaged')
       if (duration > media.MEDIA_MAX_SECONDS) throw new ToolError('too long', 'media_too_long')
       if (!info.video && !info.audio) throw new ToolError('neither picture nor sound', 'media_unsupported')
+      if (info.pictureUnread && a.transcript === false) throw new ToolError(`'${src.rel}': this server reads only the sound of a video, not its pictures: transcript: false leaves nothing to read`, 'bad_media_args')
       if (!info.video && a.transcript === false) throw new ToolError(`'${src.rel}' has no picture, only sound: transcript: false leaves nothing to read`, 'bad_media_args')
       const win = a.time !== undefined ? media.parseTime(a.time, duration) : { start: 0, end: duration, moment: false }
+      if (info.pictureUnread && win.moment) throw new ToolError(`'${src.rel}': this server reads only the sound of a video, not its pictures: give time a part for its transcript, e.g. "${media.timeArg(win.start)}-${media.timeArg(Math.min(duration, win.start + 60))}"`, 'bad_media_args')
       if (!info.video && win.moment) throw new ToolError(`'${src.rel}' has no picture, only sound: give time a part for its transcript, e.g. "${media.timeArg(win.start)}-${media.timeArg(Math.min(duration, win.start + 60))}"`, 'bad_media_args')
       const notes: string[] = []
       const say = (key: MediaTextKey, vars: Record<string, string | number> = {}) => mediaText(this.db, ctx.user.id, key, vars)
@@ -812,7 +908,7 @@ export class FileService {
         if (n > 0 && block) notes.push(visionText(this.db, ctx.user.id, block))
         else if (n > 0 && !media.frameable(info.video)) notes.push(say('pictureTooLarge'))
         else if (n > 0) { times = media.frameTimes(win.start, win.end, n); px = media.framePx(n) }
-      } else if (kind === 'video') notes.push(say('noPicture'))
+      } else if (kind === 'video') notes.push(say(info.pictureUnread ? 'macNoPicture' : 'noPicture'))
 
       // ---- the frames first (QA 2026-11-01 H2: a slow transcript made first took their time and left a read with none),
       // in order, within FRAMES_TOTAL_MS and the turn's image budget (counted when they are delivered, below)
@@ -857,7 +953,7 @@ export class FileService {
       }
 
       // ---- the result, as the engine measures it (READ_OUTPUT_TOKENS): text first, then the frames that fit
-      const what = info.video ? 'Video' : 'Audio'
+      const what = info.video || info.pictureUnread ? 'Video' : 'Audio'
       const head: string[] = []
       const pic = info.video ? `, ${info.video.width}×${info.video.height}${info.video.fps ? `, ${info.video.fps} fps` : ''}, ${info.video.codec}` : ''
       const snd = info.audio ? `; sound ${info.audio.codec}${info.audio.channels ? `, ${info.audio.channels} channel${info.audio.channels === 1 ? '' : 's'}` : ''}` : '; no sound'
@@ -983,7 +1079,8 @@ export class FileService {
    * The transcript of [from, to) with the team's speech provider, in fixed pieces cached by content (files/media.ts
    * TranscriptCache). New sound goes out only when the team turned "Turn video sound into text" on (or left it at its
    * default for this provider and server), never from a confidential chat to OpenRouter (cached pieces may be used
-   * there), and the local whisper.cpp model is never downloaded here. Right before each new piece the switch, the
+   * there), and the local whisper.cpp model is never downloaded here except on an Apple silicon Mac, where a read may
+   * be its first use (firstModel). Right before each new piece the switch, the
    * provider, the chat's confidentiality and the person's access to the file are checked again. A piece of silence is
    * not sent at all (whisper invents words over it). Every read that handed sound over is an audit row
    * `media.transcribe` (no text). `budget`: the time the read has for it; no piece starts that cannot finish in it,
@@ -1021,8 +1118,10 @@ export class FileService {
       else speech = { provider, key, model: orModel }
     } else if (!this.speech.whisperBin) blocked = 'noWhisper'
     else {
-      const modelPath = await modelReady(this.speech)
-      if (!modelPath) blocked = 'noModel'
+      // an Apple silicon Mac's first use may be this read: the model download starts here, and the read goes on with it
+      // when it is done in time (docs/decisions/20261116-mac-local-speech.md); Linux keeps it for voice input
+      const modelPath = await modelReady(this.speech) ?? (this.speech.mac ? await this.firstModel(ctx.signal, budget) : null)
+      if (!modelPath) blocked = this.speech.mac && modelDownloading() ? 'modelDownloading' : 'noModel'
       else speech = { provider, modelPath }
     }
     // a hosted server transcribes at most HOSTED_LOCAL_NEW_SEC of new sound here a read (founder Q8)
@@ -1197,6 +1296,7 @@ export class FileService {
     // how far it got, and that reading again goes on from there (the pieces made are kept)
     else if (stopped === 'time') notes.push(covered > w.from ? say('timeUp', { from: media.clock(w.from), to: media.clock(covered) }) : say('timeNone'))
     else if (stopped === 'freeUsed') notes.push(say('freeUsed', { hours: hostedSpeechFreeHours() }))
+    else if (stopped === 'modelDownloading') notes.push(say('modelDownloading', { mb: Math.round(WHISPER_MODELS[this.speech.model].size / 1e6) }))
     else if (stopped && stopped !== 'failed') notes.push(say(stopped as MediaTextKey))
     if (failure) notes.push(say('failed', { why: failure.replace(/[.。]\s*$/, '') }))
     return { segments, from: w.from, covered, notes, label, languages: media.transcriptLanguages(pieces), provider, made, cached, silent, stopped }
@@ -1398,7 +1498,7 @@ export class FileService {
 }
 
 type ReadArgs = { file_path: string; offset?: number; limit?: number; pages?: string; as_images?: boolean; time?: string; frames?: number; transcript?: boolean }
-interface BoundSource { rel: string; bytes: Buffer; hash: string; identity: string }
+export interface BoundSource { rel: string; bytes: Buffer; hash: string; identity: string }
 /** a provider's answer for a piece; `languageP`: how sure whisper.cpp was of the language it heard (not from
  * OpenRouter); OpenRouter's: how sure whisper was of its words, its generation id and provider (openrouter-stt.ts) */
 type MediaAnswer = OpenRouterAnswer & { languageP?: number }
@@ -1427,9 +1527,13 @@ interface MediaTranscript {
 /** a converter refusal of a media read -> its note (files/media-text.ts) */
 const MEDIA_NOTE: Record<string, MediaTextKey | undefined> = {
   media_unsupported: 'unsupported', media_damaged: 'damaged', media_heavy: 'heavy', media_too_long: 'tooLong', media_too_large: 'tooLarge',
+  // a Mac (jobs/mac-audio.ts): a format macOS does not open, a video with no sound it opens
+  media_mac_format: 'macFormat', media_mac_no_sound: 'macNoSound',
 }
 /** files whose probe failed (by content): the same broken file does not run the converters again for 10 minutes */
 const PROBE_MEMO_MS = 10 * 60_000
+/** a Mac read starts the model download again at most this often after one failed */
+const MODEL_RETRY_MS = 5 * 60_000
 const probeFailures = new Map<string, { code: string; at: number }>()
 /** room in the work folder's file system for a copy of `size` bytes and MEDIA_DISK_RESERVE (unknown: yes) */
 function diskRoom(base: string, size: number): boolean {

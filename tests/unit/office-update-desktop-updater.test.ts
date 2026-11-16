@@ -3,7 +3,9 @@
 // announced once and not downloaded again; an unreadable manifest keeps the download; no new download while one is
 // being checked; a file replaced after its check is never installed (restart or quit). The pure check is in
 // office-update-desktop.test.ts. The Mac updater (Squirrel.Mac): the checked zip is handed to Squirrel only after the
-// signed release names it, and a Squirrel error leaves nothing ready.
+// signed release names it, and a Squirrel error leaves nothing ready. Nothing asks to restart (2026-11-16): a ready update
+// is recorded for the next start and installs on quit or by itself when idle and nothing would be lost; an app that
+// cannot update itself where it runs gets one line with "Move to Applications".
 import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import crypto from 'node:crypto'
 import { EventEmitter } from 'node:events'
@@ -39,6 +41,9 @@ let served = new Map<string, string>()
 const fetched: string[] = []
 let quitHandlers: ((e: unknown, code: number) => void)[] = []
 const dialogs: string[] = []
+const opened: string[] = []
+let moved = 0
+const idle = { seconds: 0, state: 'active', focused: false }
 class FakeUpdater extends EventEmitter {
   autoDownload = true
   autoInstallOnAppQuit = true
@@ -84,8 +89,11 @@ const ses = {
   },
 }
 mock.module('electron', () => ({
-  app: { isPackaged: true, getVersion: () => '0.2.5', getPath: () => DIR, once: (ev: string, h: (e: unknown, code: number) => void) => { if (ev === 'quit') quitHandlers.push(h) } },
-  dialog: { showMessageBox: async (o: { message: string }) => { dialogs.push(o.message); return { response: 1 } } },
+  app: { isPackaged: true, getVersion: () => '0.2.5', getPath: () => DIR, once: (ev: string, h: (e: unknown, code: number) => void) => { if (ev === 'quit') quitHandlers.push(h) }, isInApplicationsFolder: () => false, moveToApplicationsFolder: () => { moved++; return true } },
+  dialog: { showMessageBox: async (o: { message: string; buttons?: string[] }) => { dialogs.push(o.message); return { response: o.buttons?.[0] === 'Move to Applications' ? 0 : 1 } } },
+  shell: { openExternal: async (u: string) => { opened.push(u) } },
+  powerMonitor: { getSystemIdleTime: () => idle.seconds, getSystemIdleState: () => idle.state },
+  BaseWindow: { getAllWindows: () => [{ isDestroyed: () => false, isFocused: () => idle.focused }] },
   session: { fromPartition: () => ses, defaultSession: ses },
   autoUpdater: native,
 }))
@@ -95,8 +103,11 @@ const { SESSION_COOKIE } = await import('@mycel/shared/api')
 ses.cookies.get = async () => [{ name: SESSION_COOKIE, value: 'a'.repeat(32) }]
 
 let changed = 0
+type Blockers = { pageBusy: boolean | null; browserTabs: number; resume: { page: { teamId: string; path: string } | null; window: 'shown' | 'minimized' | 'none'; at: number } }
+const noBlockers = (): Blockers => ({ pageBusy: false, browserTabs: 0, resume: { page: null, window: 'shown', at: Date.now() } })
+let blockers = noBlockers()
 function updater(platform: NodeJS.Platform = 'win32') {
-  const u = new DesktopUpdater({ team: () => ({ id: 't1', origin: TEAM }), window: () => null, locale: () => 'en', openApps: () => {}, changed: () => { changed++ } }, { keys: KEYS, product: OFFICE_PRODUCT, platform })
+  const u = new DesktopUpdater({ team: () => ({ id: 't1', origin: TEAM }), window: () => null, locale: () => 'en', openApps: () => {}, changed: () => { changed++ }, restartBlockers: async () => blockers }, { keys: KEYS, product: OFFICE_PRODUCT, platform })
   ;(u as unknown as { mode: string }).mode = 'auto-install'
   return u
 }
@@ -107,6 +118,12 @@ beforeEach(() => {
   fetched.length = 0
   quitHandlers = []
   dialogs.length = 0
+  opened.length = 0
+  moved = 0
+  Object.assign(idle, { seconds: 0, state: 'active', focused: false })
+  blockers = noBlockers()
+  fs.rmSync(path.join(DIR, 'update-pending.json'), { force: true })
+  fs.rmSync(path.join(DIR, 'update-resume.json'), { force: true })
   changed = 0
   fake.removeAllListeners()
   native.removeAllListeners()
@@ -129,6 +146,10 @@ describe('the Windows updater installs only a download the signed release names'
     expect(fake.disableWebInstaller).toBe(true)
     expect(u.ready).toBe('0.3.0')
     expect(fetched[0]).toBe(`${TEAM}/downloads/stable.json`)
+    // nothing asks; the next start knows what was ready
+    expect(dialogs).toEqual([])
+    expect(JSON.parse(fs.readFileSync(path.join(DIR, 'update-pending.json'), 'utf8')).version).toBe('0.3.0')
+    u.stop()
     u.restartNow()
     expect(fake.installs).toEqual([`restart ${file}`])
     quitHandlers.forEach((h) => h({}, 0))
@@ -232,6 +253,9 @@ describe('the Mac updater hands Squirrel.Mac only a zip the signed release names
     expect(native.checks).toBe(1)
     expect(u.ready).toBe('0.3.0')
     expect(quitHandlers).toEqual([])
+    expect(dialogs).toEqual([])
+    expect(JSON.parse(fs.readFileSync(path.join(DIR, 'update-pending.json'), 'utf8')).version).toBe('0.3.0')
+    u.stop()
     u.restartNow()
     expect(fake.installs.length).toBe(1)
   })
@@ -265,8 +289,101 @@ describe('the Mac updater hands Squirrel.Mac only a zip the signed release names
     await settle()
     expect(native.checks).toBe(1)
     expect(u.ready).toBeNull()
+    // one plain line, and its button moves the app into Applications
+    expect(dialogs).toEqual(["Trina AX can't update itself from where it is now. Move it to Applications to get version 0.3.0."])
+    expect(moved).toBe(1)
+    expect(fs.existsSync(path.join(DIR, 'update-pending.json'))).toBe(false)
     await u.check()
     await settle()
     expect(fake.downloads).toBe(1)
+    expect(dialogs.length).toBe(1)
+  })
+
+  test('another Squirrel error (not where the app runs): tried again quietly, the second time one line with the download page', async () => {
+    const zip = crypto.randomBytes(3000)
+    served.set(`${TEAM}/downloads/stable.json`, signedMac(zip))
+    fake.next = { file: path.join(DIR, 'other.zip'), bytes: zip }
+    native.fail = 'Code signature at URL did not pass validation'
+    const app = (await import('electron')).app as unknown as { isInApplicationsFolder: () => boolean }
+    const was = app.isInApplicationsFolder
+    app.isInApplicationsFolder = () => true
+    try {
+      const u = updater('darwin')
+      await u.check()
+      await settle()
+      expect(u.ready).toBeNull()
+      expect(dialogs).toEqual([])
+      expect(moved).toBe(0)
+      // the same refusal again: one line with the download page, and no more downloads of it in this run
+      await u.check()
+      await settle()
+      expect(dialogs).toEqual(["Trina AX couldn't update to version 0.3.0. Download the new version from the website."])
+      const n = fake.downloads
+      await u.check()
+      await settle()
+      expect(fake.downloads).toBe(n)
+      // a passing error (the next run): staged and ready
+      native.fail = null
+      const v = updater('darwin')
+      await v.check()
+      await settle()
+      expect(v.ready).toBe('0.3.0')
+    } finally { app.isInApplicationsFolder = was }
+  })
+})
+
+describe('a ready update restarts by itself only when nobody uses the app and nothing would be lost', () => {
+  async function ready() {
+    const zip = crypto.randomBytes(3000)
+    served.set(`${TEAM}/downloads/stable.json`, signedMac(zip))
+    fake.next = { file: path.join(DIR, `idle-${Math.random()}.zip`), bytes: zip }
+    const u = updater('darwin')
+    await u.check()
+    await settle()
+    u.stop()
+    expect(u.ready).toBe('0.3.0')
+    return u
+  }
+
+  test('in use, focused, busy, browser pages, or a page that cannot say: no restart', async () => {
+    const u = await ready()
+    idle.seconds = 60
+    expect(await u.idleRestart()).toBe(false)
+    idle.seconds = 3600
+    idle.focused = true
+    expect(await u.idleRestart()).toBe(false)
+    idle.focused = false
+    for (const b of [{ pageBusy: true }, { pageBusy: null }, { browserTabs: 1 }]) {
+      blockers = { ...noBlockers(), ...b }
+      expect(await u.idleRestart()).toBe(false)
+    }
+    expect(fake.installs).toEqual([])
+  })
+
+  test('idle (or the screen locked) and nothing busy: restarts into the update and keeps the open page', async () => {
+    const u = await ready()
+    idle.state = 'locked'
+    blockers = { pageBusy: false, browserTabs: 0, resume: { page: { teamId: 't1', path: '/chat/abc' }, window: 'minimized', at: Date.now() } }
+    expect(await u.idleRestart()).toBe(true)
+    expect(fake.installs.length).toBe(1)
+    const r = JSON.parse(fs.readFileSync(path.join(DIR, 'update-resume.json'), 'utf8'))
+    expect([r.page.path, r.window]).toEqual(['/chat/abc', 'minimized'])
+  })
+
+  test('Windows: an installer changed since its check never restarts, and no page is kept for a restart that did not happen', async () => {
+    const exe = crypto.randomBytes(3000)
+    const file = path.join(DIR, 'idle-swapped.exe')
+    served.set(`${TEAM}/downloads/stable.json`, signed(exe))
+    fake.next = { file, bytes: exe }
+    const u = updater()
+    await u.check()
+    await settle()
+    u.stop()
+    expect(u.ready).toBe('0.3.0')
+    fs.writeFileSync(file, crypto.randomBytes(3000))
+    idle.seconds = 3600
+    expect(await u.idleRestart()).toBe(false)
+    expect(fake.installs).toEqual([])
+    expect(fs.existsSync(path.join(DIR, 'update-resume.json'))).toBe(false)
   })
 })

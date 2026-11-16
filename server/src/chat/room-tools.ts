@@ -18,6 +18,7 @@
 //     (read-scope.ts {type:'room', fromSeq}): what is saved where people outside the room can read asks first
 //   - writes an audit line (tool_events) that names no room, person, word searched or file: admins read that log and
 //     must not learn who talks to whom
+import { noteRoomLinks } from '../tools/url-gate'
 import { isGuestUser } from '../credentials/guest-ai'
 import { guestPlace } from '../auth/guests'
 import type { GuestPlace } from '@mycel/shared/api'
@@ -150,6 +151,8 @@ export function roomReadTools(exec: TurnExec): Tool[] {
         if (refused) { label('room_read'); return { ...text(refused, false), summary: 'room_read -> no room (guest)' } }
         const r = noRoomsTool(readRoom(rt.db, spec.userId, rt.timeZone, a.data))
         record(r)
+        // a side chat's own room: its links are this conversation's (tools/url-gate.ts noteRoomLinks)
+        if (r.ok) try { noteRoomLinks(rt.db, spec.chatId, spec.userId, r.text) } catch {}
         // the step names the room as the person sees it (an id the AI passed means nothing to them)
         label('room_read', r.title)
         return { ...text(r.text, !r.ok), summary: `room_read -> ${r.title === undefined ? 'no room' : `${r.count ?? 0} message${r.count === 1 ? '' : 's'}${a.data.thread ? ' (thread)' : ''}`}` }
@@ -498,7 +501,7 @@ async function saveRoomFile(exec: TurnExec, files: TurnFiles, a: SaveArgs, named
   try {
     const tmp = path.join(work, 'file')
     // read whole (the safety check reads the bytes): only up to 50 MB, what a room file could be before rooms took
-    // files of up to 10 GB; a larger one is for the person to download and put in Files themselves
+    // larger files (up to 1 GB now); a larger one is for the person to download and put in Files themselves
     if (file.size > SMALL_UPLOAD_MAX) return { ...text(`Not saved: "${neutralizeTags(file.name.replace(/[\r\n"]+/g, ' ').slice(0, 200))}" is larger than 50 MB, which is the most that can be copied from a room here. Tell the user to download it from the room and upload it on the Files screen.`, true), summary: 'save_room_file -> refused: too large' }
     const bytes = readRegular(abs, SMALL_UPLOAD_MAX).bytes
     rt.files.quarantine.assertBytes(bytes)

@@ -81,7 +81,7 @@ test('one added by its address shows the address in its details; a member reads 
 
 test('the one next step fits the reader and the reason; a reason the page does not know keeps the server\'s words', () => {
   const line = (reason: string | null, auth: Integration['auth'], who: Partial<Parameters<typeof errorLine>[2]>) =>
-    errorLine(t, { lastError: 'Server words.', lastErrorReason: reason, auth }, { manage: true, elsewhere: false, phone: false, signIn: true, ...who })
+    errorLine(t, { lastError: 'Server words.', lastErrorReason: reason, auth, hasSecret: true }, { manage: true, elsewhere: false, phone: false, signIn: true, ...who })
   const say = (kind: string, step: string) => `${translate('en', `connectors.err.${kind}` as Parameters<typeof translate>[1])} ${translate('en', `connectors.step.${step}` as Parameters<typeof translate>[1])}`
   expect(line('refused', 'bearer', {})).toBe(say('key', 'editKey'))
   expect(line('refused', 'oauth', {})).toBe(say('key', 'signIn'))
@@ -101,6 +101,15 @@ test('the one next step fits the reader and the reason; a reason the page does n
   expect(line('oauth_no_registration', 'oauth', {})).toBe('Server words.')
   expect(line('oauth_failed', 'oauth', {})).toBe(say('key', 'signIn'))
   expect(line(null, 'bearer', {})).toBe('Server words.')
+  // QA TC-3859: a sign-in stopped before it finished (no sign-in saved) is not "the service didn't accept its sign-in";
+  // one the service stopped taking (a sign-in is saved) still is
+  const waiting = (who: Partial<Parameters<typeof errorLine>[2]>) =>
+    errorLine(t, { lastError: 'Server words.', lastErrorReason: 'sign_in', auth: 'oauth', hasSecret: false }, { manage: true, elsewhere: false, phone: false, signIn: true, ...who })
+  expect(waiting({})).toBe('The sign-in was not finished, so this is not connected yet. Choose Sign in to try again.')
+  expect(waiting({})).not.toContain(translate('en', 'connectors.err.key'))
+  expect(waiting({ manage: false })).toBe(say('notSignedIn', 'askAdmin'))
+  expect(waiting({ phone: true })).toBe(say('notSignedIn', 'onComputer'))
+  expect(line('sign_in', 'oauth', {})).toBe(say('key', 'signIn'))
 })
 
 test('Check again under way shows on the page until it answers', async () => {

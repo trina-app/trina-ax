@@ -72,7 +72,7 @@ You can share a file you own with chosen people, without changing who can open i
   one of the 50 people and groups a file can be shared with.
 - When you share several files at once (for example in the last step of **Find work files on this computer**), each
   person gets one notice in **Activity**, "Mina shared 5 files with you", which opens the list of those files. A
-  person you add by name also gets a phone notification (**Settings › Notifications › File sharing** turns these off).
+  person you add by name also gets a phone notification (**Settings › Notifications › Sharing** turns these off).
 - **People with access** lists the owner and each person or group with **Can view**. **✕** removes someone's access (asked first).
 - A team file also opens for everyone who can open its folder.
 - **Copy link** gives the file's own link. People with access open it; anyone else sees **You need access** and can **Ask for access** with a note. The request comes to the owner in **Activity** with **Share** and **Decline**, and as a phone notification. The link page never shows the file's name to someone who can't open it.

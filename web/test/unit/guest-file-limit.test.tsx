@@ -1,5 +1,5 @@
 // A guest's file limit (docs/decisions/20261116-guest-room-file-limit.md): Admin > Members & invites has one choice
-// for it (100 MB, 1 GB, 10 GB; saved as it is picked), and a guest's room box refuses a larger file before it is sent,
+// for it (100 MB or 1 GB, never above a member's 1 GB; saved as it is picked), and a guest's room box refuses a larger file before it is sent,
 // naming the guest's own limit (the server checks it again).
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act } from 'react'
@@ -32,7 +32,7 @@ const MB = 1024 * 1024
 const SETTINGS: TeamSettings = { teamName: 'Acme', defaultLocale: 'en', defaultEngine: 'claude-code', defaultModel: null, concurrency: 2, updateChannel: 'stable', updateWindow: null, auditRetentionDays: 365, fileHistoryRetentionDays: 90, trashRetentionDays: 30, chatTrashRetentionDays: 7, timeZone: 'Asia/Seoul', browserAllowAll: true, webAllowAll: true, personalIntegrations: true, aiVision: true, aiSubagents: true, roomAlwaysAllow: true, projectCreators: 'members', guestFileMax: '100mb', memberFileShares: true, oftenAsked: true, answerStepLimit: 150, speechProvider: 'local', speechModel: 'openai/whisper-large-v3-turbo', aiMediaTranscripts: null, introDeckTier: 'standard' }
 
 describe('Admin > Members > Guests: the largest file a guest can send', () => {
-  test('shows the team\'s choice among 100 MB, 1 GB and 10 GB, and saves a new one as it is picked', async () => {
+  test('shows the team\'s choice between 100 MB and 1 GB (no 10 GB), and saves a new one as it is picked', async () => {
     const patches: unknown[] = []
     let saved = '100mb'
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -45,7 +45,7 @@ describe('Admin > Members > Guests: the largest file a guest can send', () => {
     try {
       const select = await m.until(() => m.find('guest-file-max'), 'the choice')
       expect(m.get('guest-file-limit').textContent).toContain(translate('en', 'guest.admin.fileLimit'))
-      expect([...select.querySelectorAll('option')].map((o) => [o.getAttribute('value'), o.textContent])).toEqual([['100mb', '100 MB'], ['1gb', '1 GB'], ['10gb', '10 GB']])
+      expect([...select.querySelectorAll('option')].map((o) => [o.getAttribute('value'), o.textContent])).toEqual([['100mb', '100 MB'], ['1gb', '1 GB']])
       ;(select as unknown as { value: string }).value = '1gb'
       await act(async () => { select.dispatchEvent(new FakeEvent('change', { bubbles: true })) })
       await m.until(() => patches.length === 1, 'the save')
@@ -65,7 +65,7 @@ describe('a guest\'s room box', () => {
   const chips = (box: FakeElement) => [...box.querySelectorAll('[data-testid="room-file-chip"]')]
   const warned = () => useUi.getState().toasts.filter((t) => t.level === 'warn').map((t) => t.text)
 
-  test('a file over the guest\'s limit is refused at once, with that limit; a member is held to 10 GB only', async () => {
+  test('a file over the guest\'s limit is refused at once, with that limit; a member is held to the room\'s 1 GB only', async () => {
     globalThis.fetch = (async () => new Promise<Response>(() => {})) as unknown as typeof fetch
     const big = { name: 'walkthrough.mov', size: 100 * MB + 1, type: 'video/quicktime', lastModified: 1 } as File
     signIn(100 * MB)
@@ -91,8 +91,12 @@ describe('a guest\'s room box', () => {
     signIn()
     m = await mount(<RoomComposer roomId={r.id} members={[ME, BEN]} meId={ME.id} onSent={() => {}} />)
     try {
-      await drop(m.get('room-composer'), { name: 'film.mov', size: 5 * 1024 * MB, type: 'video/quicktime', lastModified: 1 } as File)
+      // a member: 1 GB is taken, one byte more is refused at once, naming 1 GB
+      await drop(m.get('room-composer'), { name: 'film.mov', size: 1024 * MB, type: 'video/quicktime', lastModified: 1 } as File)
       expect(warned()).toEqual([])
+      expect(useRoomUploads.getState().byPlace[r.id]).toHaveLength(1)
+      await drop(m.get('room-composer'), { name: 'longer.mov', size: 1024 * MB + 1, type: 'video/quicktime', lastModified: 1 } as File)
+      expect(warned()).toEqual([translate('en', 'rooms.tooBig', { name: 'longer.mov', max: '1 GB' })])
       expect(useRoomUploads.getState().byPlace[r.id]).toHaveLength(1)
     } finally { await m.unmount() }
   })

@@ -674,6 +674,16 @@ connections with their address and the first 1,000 characters of their notes.
   fetched for its preview. An `allow` team connection's content is not checked this way yet (a follow-up).
   After a room read, such a write skips the room card only when every room the run read is on the schedule's card
   (`TurnTool.sendsTo` names the connection a call writes to); an `allow` team connection keeps the room card then. docs/DECISIONS.md "Scheduled tasks: saving and sending allowed on the card".
+- **A team file as an attachment** (docs/decisions/20261116-mail-attach-team-file.md): where an MCP tool takes a file's
+  content as base64, the AI gives `team-file:<path in the team folder>` as that whole value and the server puts the
+  file there (`team-attach.ts`). The file is read as the person as they are now (read permission, a regular file, not
+  held by the safety check; one they cannot read answers like one that is not there). The connection's card shows it
+  first ("Team file to attach": name, size, folder), and the exact text shows the handle, never the bytes. After the
+  card the account, its access and the file are checked again. At most 10 files and 10 MB together in one call. Not
+  with a tool that only reads, not in a scheduled run or where nobody can answer a card, not through `api_request`. A
+  connection that sends without asking for this person attaches without a card too, only in a turn they watch from
+  the app. A file named twice is refused. A file whose bytes hold one of the person's stored keys is not sent
+  (compressed content is not looked into). The audit line names each file (path, size, start of its hash).
 - Results are wrapped as external data (`<external_data source="<name>">`, the closing tag neutralised inside), and the
   instructions tell the AI that they are data, never instructions.
 - **Read scope**: an answer from a personal connection counts like the person's own folder (`{type:'user'}`); from a team
@@ -702,6 +712,7 @@ connections with their address and the first 1,000 characters of their notes.
 | Request | 30 s, no redirects, standard ports (a check's `tools/list`: 30 s without bytes, 90 s in all; a `tools/call`: 5 min without bytes, 15 min in all) |
 | Answer | 1 MiB while reading; 40,000 characters to the AI |
 | Request body (`api_request`) | 1 MiB |
+| Team files attached to one call (`team-file:`) | 10 files, 10 MiB together |
 | MCP tools | 1,000 per connection, 4,000,000 schema and description characters per connection, 32,000 per tool schema; as tools of their own 200 and 50,000 characters per answer, the rest through `find_tools` / `call_tool` |
 | Reading `tools/list` (a check) | 8 MiB a page, 20 pages and 16 MiB together; stops once the list kept is full |
 | Sign-in flow | 10 minutes, 20 per person per hour |

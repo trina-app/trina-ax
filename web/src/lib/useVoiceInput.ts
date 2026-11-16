@@ -12,6 +12,8 @@ import { markBusy } from './busy'
 import { RecorderError, useRecorder } from './recorder'
 import type { TextEdit } from './textTokens'
 import { uploadFile } from './upload'
+import { recordingAsWav } from './wavRecording'
+import { useSession } from '../store/session'
 import { micDeniedKey } from './appWording'
 import { canOpenAppSettings, mobileApp, openAppSettings } from './mobile'
 import { CAP_MS, jobLabel, jobWaiting, VoiceInput, WARN_MS, type VoiceNote } from './voiceInput'
@@ -168,6 +170,9 @@ export function useVoiceInput(o: VoiceInputOptions) {
         cancel: () => rec.current.cancel(),
         transcribe: async (file, signal) => {
           const { t } = words.current
+          // a server that decodes with macOS's own programs gets WAV (they do not open the webm browsers record)
+          const st = useSession.getState().status
+          if (st.kind === 'signed-in' && st.me.team?.voiceInputWav) file = await recordingAsWav(file)
           if (file.size > SMALL_UPLOAD_MAX) throw new Error(t('voice.tooLong'))
           const chatId = opts.current.chatId
           const r = await uploadFile(file, { kind: 'transcribe', name: file.name, ...(chatId ? { chatId } : {}) }, { client: api, signal })

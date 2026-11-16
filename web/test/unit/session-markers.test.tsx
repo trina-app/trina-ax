@@ -175,7 +175,7 @@ describe('the markers on screen', () => {
     useLocaleStore.setState({ locale: 'ko' })
     try {
       expect(await html(<UnreadBadge room={room({ unreadCount: 3, mentioned: true })} testId="b" />)).toContain('>@<')
-      expect(await html(<UnreadBadge room={room({ unreadCount: 3 })} testId="b" />)).toContain('>3<')
+      expect(await html(<UnreadBadge room={room({ kind: 'group', unreadCount: 3 })} testId="b" />)).toContain('>3<')
       expect(await html(<UnreadBadge room={room({ unreadCount: 0 })} testId="b" />)).toBe('<div></div>')
     } finally { useLocaleStore.setState({ locale: live }) }
   })
