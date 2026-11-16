@@ -150,6 +150,9 @@ describe('an explicit "save it" (docs/decisions/20261116-room-link-save-one-prom
     // a skill: the card
     const skill = await run('alice', chat, `save it\n${fake(write(`users/alice/skills/s-${tag}/SKILL.md`, '---\nname: s\ndescription: x\n---\nx\n'), { say: 'x' })}`)
     expect(skill.cards).toHaveLength(1)
+    // "don't save" is no save
+    const not = await run('alice', chat, `저장하지 말고 요약만 해줘\n${fake(write(`${dir}/not-${tag}.md`, 'x\n'), { say: 'x' })}`)
+    expect(not.cards).toHaveLength(1)
     // no save in the person's own words: the card
     const plain = await run('alice', chat, `요약해줘\n${fake(write(`${dir}/other-${tag}.md`, 'x\n'), { say: 'x' })}`)
     expect(plain.cards).toHaveLength(1)

@@ -506,6 +506,9 @@ export async function shareAnswerToRoom(ctx: AppContext, userId: string, chat: C
   return await sendShare(ctx, userId, p, b, locale)
 }
 
+/** file_events detail keys that say a file's content came from somewhere else than the AI's own writing */
+const MADE_FROM_ELSEWHERE = ['sourcePaths', 'conflictCopyOf', 'copiedFrom', 'movedFrom', 'via', 'url', 'from', 'originalPath', 'pieces', 'pages', 'files', 'copy']
+
 /** The linked files some member cannot open, when every one of them may go as a copy and was written, as it is now, by
  * a turn of this answer's branch (the AI made it from what the branch read, which the provenance counts); else null. */
 async function madeHereOnly(ctx: AppContext, chatId: string, p: PreparedShare): Promise<Set<string> | null> {
@@ -517,8 +520,15 @@ async function madeHereOnly(ctx: AppContext, chatId: string, p: PreparedShare): 
   for (const r of rows) {
     const sha = await hashFile(path.join(ctx.files.fx.root, ...r.rel!.split('/'))).catch(() => null)
     if (!sha) return null
-    const made = ctx.db.query(`SELECT 1 FROM file_events WHERE path = ? AND sha256 = ? AND action IN ('create','update') AND turn_id IN (${turns.map(() => '?').join(',')}) LIMIT 1`).get(r.rel!, sha, ...turns)
+    // written new by this branch (a file there before, an edit of one, a copy, a move, a conflict copy, a file built from
+    // other files or fetched: never, since their content did not come from what the branch read; review of #PR)
+    const made = ctx.db.query(`SELECT e.id FROM file_events e WHERE e.path = ? AND e.sha256 = ? AND e.action = 'create' AND e.turn_id IN (${turns.map(() => '?').join(',')})
+      AND COALESCE(json_extract(e.detail, '$.tool'), '') IN ('write', 'make_file')
+      AND ${MADE_FROM_ELSEWHERE.map((k) => `json_extract(e.detail, '$.${k}') IS NULL`).join(' AND ')} ORDER BY e.id LIMIT 1`).get(r.rel!, sha, ...turns) as { id: number } | null
     if (!made) return null
+    if (ctx.db.query('SELECT 1 FROM file_events WHERE path = ? AND id < ? LIMIT 1').get(r.rel!, made.id)) return null
+    // changed after it was written (an update by anyone since): not what the branch made
+    if (ctx.db.query("SELECT 1 FROM file_events WHERE path = ? AND id > ? AND (sha256 IS NULL OR sha256 <> ?) LIMIT 1").get(r.rel!, made.id, sha)) return null
     out.add(r.rel!)
   }
   return out

@@ -18,24 +18,28 @@
   - the notes were saved into the person's own folder, so the answer's link was a file 4 people could not open.
 - **What changes:**
   - **The side chat's room counts as this conversation (url-gate.ts `sideRoomUrls`).** Addresses in the messages of the
-    room a ✦ side chat belongs to (the ones the person sees, while they are in the room) are learned links: they open
-    without a card within the link budget, as a page's links do. They are other people's words, so they are not
-    "typed": the budget and the echo rule still apply.
+    room a ✦ side chat belongs to are learned links: they open without a card within the link budget, as a page's links
+    do. Only messages the person sees there (rooms/store.ts SEE_SQL: from when they see the room, no hidden answer)
+    and written by people: not the room AI's messages nor answers shared from an AI chat, whose text a hidden
+    instruction may have filled with an address that carries data. They are other people's words, so they are not
+    "typed": the budget applies, and an address that holds what the AI sent asks (the echo rule, webEcho).
   - **Tracking parts do not make another address (`sameLink`).** An address that is a typed, allowed-here or room
     address with only tracking query parts left out (`utm_*`, `fbclid`, `gclid`, `msclkid` and the like) or a trailing
     slash is that address. Never the other way round: a part the known address does not have still asks, since it
     could carry data. So an address allowed once on a card is not asked again in the chat.
   - **An explicit save adds a file without the room card (turn.ts `askedToSave`, `newPlainFile`).** When the person's
-    own message of this turn asks to save (저장, 파일로, 기록해, 적어, save, simpan, 保存, guardar) and the call writes a
-    NEW file where no more people can see it than can see what the chat read (no wider-audience card), the room card is
-    skipped. An existing file, a skill or instruction file, a hidden name, a project folder, or a save that widens
-    still asks. A room message steering this can only add a file the same people could read anyway.
+    own message of this turn asks to save (저장 but not 저장소, 파일로, 기록해, save, simpan, 保存, guardar; not "저장하지
+    말고", "don't save"; never a scheduled run's task text or a message the app sent) and the call writes a NEW file
+    inside a folder where no more people can see it than can see what the chat read (no wider-audience card), the room
+    card is skipped for that call only. An existing file, a skill or instruction file, a hidden name, a project or
+    managed folder, a file at the team root, or a save that widens still asks. A room message steering this can only add a file the same people could read anyway.
   - **Where the side chat saves room content (side-room.ts `saveInFor`, prompt.ts sideRoomSection).** Unless the person
     names a place: a team room's group folder, the Everyone room's shared/, and for a 1:1 or group chat the person's own
     folder (no team folder is just those people).
   - **"Send to thread" sends the file the answer made (answer-share.ts `madeHereOnly`).** On the button's first press,
-    when the only thing that would ask is linked files that this answer's own turns wrote (the content on disk still
-    the same) and, with those files attached, nobody in the room would miss anything the answer used, the files go as
+    when the only thing that would ask is linked files that this answer's own turns wrote new with the write tool or
+    make_file (no file there before, not a copy, move, conflict copy, a file built from other files or a download, and
+    unchanged since) and, with those files attached, nobody in the room would miss anything the answer used, the files go as
     copies and there is no dialog. Anything else read that some member cannot see keeps the dialog as before.
   - **"Always allow" on the address card:** the room's link no longer meets a card. The card of an address with a
     random-looking part (the tiro link has one) still offers no "Allow all websites": such a part can carry data, and

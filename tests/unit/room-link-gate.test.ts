@@ -65,6 +65,16 @@ describe('the side chat of the room the link was posted in', () => {
   })
 })
 
+describe('what of the room does not count (review)', () => {
+  test('a link in an answer shared from an AI chat (its text is the AI\'s) asks', async () => {
+    const { room, chat } = await sideChatWithLink(`answer ${LINK}`)
+    h.ctx.db.query('UPDATE room_messages SET answer_at = 0 WHERE room_id = ?').run(room)
+    const asked: string[] = []
+    await expect(gate(chat, LINK, person(asked))).rejects.toThrow(/did not allow/)
+    expect(asked).toHaveLength(1)
+  })
+})
+
 describe('asked once', () => {
   test('an address allowed on a card opens again without one, also with its tracking query dropped', async () => {
     const own = (await h.api('alice').call(API.createChat, { body: {} })).id

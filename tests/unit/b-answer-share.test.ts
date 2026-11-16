@@ -109,6 +109,9 @@ async function share(user: string, a: { chatId: string; answerId: string }, body
 const messagesAs = async (user: string, roomId: string) => (await h.api(user).call(API.listRoomMessages, { params: { id: roomId }, query: {} })).items as RoomMessage[]
 const folderId = (p: string) => (h.ctx.db.query('SELECT id FROM folders WHERE path = ?').get(p) as { id: string }).id
 const BRIEF = 'groups/marketing/campaign-brief.md'
+/** the file_events rows of `rel` say the AI's write tool made it (files/service.ts: detail { tool })
+ */
+const wrote = (rel: string) => h.ctx.db.query('UPDATE file_events SET detail = ? WHERE path = ?').run(JSON.stringify({ tool: 'write' }), rel)
 
 describe('who may share what', () => {
   test("only my own chat's finished answer, to a room I am in; everything else answers like nothing is there", async () => {
@@ -546,6 +549,7 @@ describe('linked files: a row each, the switch, attaching', () => {
     // notes the side chat saved into my folder from a room's own link: the answer read nothing private
     const at = 'users/alice/room-notes-auto.md'
     const a = answer('alice', `회의록 저장했어요: ${link(at)}`, { scope: [], listed: true, saved: [{ path: at, sha256: put(at, '# 회의록\n') }] })
+    wrote(at)
     const r = await share('alice', a, { roomId: rooms.all })
     expect(r.json.status).toBe('sent')
     const m = r.json.message as RoomMessage
@@ -553,11 +557,24 @@ describe('linked files: a row each, the switch, attaching', () => {
     expect(audit(m.id)).toMatchObject({ people: 0, confirmed: true, files: 1 })
     // the same, but the answer read the marketing brief (bob cannot read it): the dialog as before
     const b = answer('alice', `요약: ${link('users/alice/room-notes-auto-2.md')}`, { read: [BRIEF], scope: [], listed: true, saved: [{ path: 'users/alice/room-notes-auto-2.md', sha256: put('users/alice/room-notes-auto-2.md', '# 요약\n') }] })
+    wrote('users/alice/room-notes-auto-2.md')
     expect((await share('alice', b, { roomId: rooms.all })).json.status).toBe('confirm')
     // a file it made that was changed since (another content): the dialog
     const c = answer('alice', `메모: ${link('users/alice/room-notes-auto-3.md')}`, { scope: [], listed: true, saved: [{ path: 'users/alice/room-notes-auto-3.md', sha256: put('users/alice/room-notes-auto-3.md', 'one\n') }] })
+    wrote('users/alice/room-notes-auto-3.md')
     put('users/alice/room-notes-auto-3.md', 'two\n')
     expect((await share('alice', c, { roomId: rooms.all })).json.status).toBe('confirm')
+    // a copy the answer made of a private file (copy_files: a create with copiedFrom), and an edit of a file that was
+    // there before (review): the dialog, as their content did not come from what the answer read
+    const copy = 'users/alice/room-notes-copy.md'
+    const d = answer('alice', `복사본: ${link(copy)}`, { scope: [], listed: true, saved: [{ path: copy, sha256: put(copy, 'salary 100\n') }] })
+    h.ctx.db.query('UPDATE file_events SET detail = ? WHERE path = ?').run(JSON.stringify({ tool: 'copy_files', copiedFrom: 'users/alice/salary.md' }), copy)
+    expect((await share('alice', d, { roomId: rooms.all })).json.status).toBe('confirm')
+    const old = 'users/alice/room-notes-old.md'
+    h.ctx.db.query("INSERT INTO file_events (turn_id, user_id, path, action, size, sha256) VALUES (NULL, 'alice', ?, 'create', 1, 'x')").run(old)
+    const e = answer('alice', `고친 파일: ${link(old)}`, { scope: [], listed: true, saved: [{ path: old, sha256: put(old, 'edited\n') }] })
+    wrote(old)
+    expect((await share('alice', e, { roomId: rooms.all })).json.status).toBe('confirm')
   })
 
   test('a linked file read by the answer and attached is left out of the line; link only, it counts', async () => {

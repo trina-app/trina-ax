@@ -51,7 +51,8 @@ import type { CardOutcome } from '../policy/refusal'
 import { withoutQuoteLines } from '../chat/read-rooms'
 import { isConfidentialChat } from '../safe-ops/confidential'
 import { usable } from '../integrations/connections/store'
-import type { EchoCheck } from './connection-urls'
+import { webEcho, type EchoCheck } from './connection-urls'
+import { SEE_SQL, seeArgs, type SeeMember } from '../rooms/store'
 import type { ResolveOptions } from './web-fetch'
 import { setWebAllowAll, teamAllowsWebAll, webAllowAll } from './web-allow-all'
 
@@ -270,7 +271,10 @@ function originOf(db: Database, chatId: string | null, url: string, person: Turn
   // a room's ✦ side chat: the addresses in that room's messages the person sees are links of this conversation, learned
   // like a page's links (within the link budget; docs/decisions/20261116-room-link-save-one-prompt.md, QA TC-3831)
   const room = sideRoomUrls(db, chatId, o.userId)
-  if (room.has(url)) return { origin: 'learned', row }
+  // an address a service or a page may have built from what the AI sent (a room app's post echoing it) asks, as a
+  // page's links do (tools/connection-urls.ts)
+  const roomOrigin = (u: string): Origin => ({ origin: webEcho(db, chatId)(u) ? 'echo' : 'learned', row })
+  if (room.has(url)) return roomOrigin(url)
   // the same address with only tracking parts left out (?utm_…, a trailing slash): what the AI asks for carries
   // nothing the known address did not, so it is that address (typed, allowed here, or a room's)
   const typed = typedUrls(db, chatId, o.userId)
@@ -280,7 +284,7 @@ function originOf(db: Database, chatId: string | null, url: string, person: Turn
       if (sameLink(url, r.url)) return { origin: 'allowed', row }
     }
   }
-  for (const k of room) if (sameLink(url, k)) return { origin: 'learned', row }
+  for (const k of room) if (sameLink(url, k)) return roomOrigin(k)
   return null
 }
 
@@ -308,15 +312,17 @@ export function sameLink(asked: string, known: string): boolean {
 }
 
 /** The http(s) addresses in the messages of the room this ✦ side chat belongs to (chat/side-room.ts: while its person
- * is in the room and it is not archived), as the person sees them: room-wide or to them only, not deleted. */
+ * is in the room and it is not archived), only those the person sees there (rooms/store.ts SEE_SQL: from when they see
+ * the room, no hidden answer), written by people: not the room AI's messages nor answers shared from an AI chat
+ * (their text is the AI's, which a hidden instruction may have filled with an address that carries data). */
 function sideRoomUrls(db: Database, chatId: string, userId: string | null | undefined): Set<string> {
   const out = new Set<string>()
   if (!userId) return out
-  const room = db.query(`SELECT r.id FROM chats c JOIN rooms r ON r.id = c.side_room_id AND r.archived_at IS NULL
-    JOIN room_members rm ON rm.room_id = r.id AND rm.user_id = c.user_id WHERE c.id = ? AND c.user_id = ?`).get(chatId, userId) as { id: string } | null
-  if (!room) return out
-  for (const m of db.query(`SELECT body FROM room_messages WHERE room_id = ? AND deleted_at IS NULL AND (visibility = 'room' OR visible_to = ?)
-    ORDER BY seq DESC LIMIT 1000`).all(room.id, userId) as { body: string }[]) for (const u of extractUrls(m.body, 50)) out.add(u)
+  const member = db.query(`SELECT rm.room_id, rm.user_id, rm.visible_from_seq, rm.history_from_seq FROM chats c JOIN rooms r ON r.id = c.side_room_id AND r.archived_at IS NULL
+    JOIN room_members rm ON rm.room_id = r.id AND rm.user_id = c.user_id WHERE c.id = ? AND c.user_id = ?`).get(chatId, userId) as (SeeMember & { room_id: string }) | null
+  if (!member) return out
+  for (const m of db.query(`SELECT m.body FROM room_messages m WHERE m.room_id = ? AND m.deleted_at IS NULL AND m.author_kind = 'user' AND m.answer_at IS NULL AND ${SEE_SQL}
+    ORDER BY m.seq DESC LIMIT 1000`).all(member.room_id, ...seeArgs(member)) as { body: string }[]) for (const u of extractUrls(m.body, 50)) out.add(u)
   return out
 }
 

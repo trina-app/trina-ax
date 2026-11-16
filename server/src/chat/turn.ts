@@ -238,7 +238,9 @@ function launcherStopOf(signal: unknown): LauncherStop | null {
 
 /** Words of a request to save or write something down, in the product's languages (the person's own message: an
  * explicit save; docs/decisions/20261116-room-link-save-one-prompt.md). Escapes: no Korean text outside the language tables. */
-const SAVE_ASK = new RegExp(['\\uC800\\uC7A5', '\\uD30C\\uC77C\\uB85C', '\\uAE30\\uB85D\\uD574', '\\uC801\\uC5B4', '\\bsave\\b', '\\bwrite (it|this|that) down\\b', '\\bsimpan\\b', '\\u4FDD\\u5B58', '\\bguard(a|ar|e)\\b'].join('|'), 'iu')
+const SAVE_ASK = new RegExp(['\\uC800\\uC7A5(?!\\uC18C)', '\\uD30C\\uC77C\\uB85C', '\\uAE30\\uB85D\\uD574', '\\bsave\\b', '\\bwrite (it|this|that) down\\b', '\\bsimpan\\b', '\\u4FDD\\u5B58', '\\bguard(a|ar|e)\\b'].join('|'), 'iu')
+/** "don't save": 저장하지 / 저장 말고 / 저장 안, don't save, do not save, jangan simpan, no guardes */
+const SAVE_NOT = new RegExp(['\\uC800\\uC7A5\\s*(\\uD558\\uC9C0|\\uB9D0|\\uC548)', "\\b(don'?t|do not|never)\\s+save\\b", '\\bjangan\\s+simpan\\b', '\\bno\\s+guard'].join('|'), 'iu')
 
 export class TurnExec {
   content = ''
@@ -2369,10 +2371,8 @@ export class TurnExec {
     // TC-3830): a NEW file where no more people can see it than can see what this chat read (no widening card) goes
     // without the room card. It overwrites nothing and widens nothing, so a room message steering it can only add a
     // file the same people could read anyway; an existing file, a skill or instruction file still asks
-    if (!need && !o.noCover && this.askedToSave() && this.newPlainFile(tool, input, o.widen)) {
-      this.roomAllowed.add(key)
-      return null
-    }
+    // (not kept for the turn: the same call once the file exists asks)
+    if (!need && !o.noCover && this.askedToSave() && this.newPlainFile(tool, input, o.widen)) return null
     // the person's "Always allow" for changes after a room read (chat/always-allow.ts; the owner, 2026-11-13): no room
     // card; a save where more people can see still has its own card (with its own "Always allow")
     const roomAlways = alwaysHere(this.alwaysPlace(), 'room_change')
@@ -2529,20 +2529,14 @@ export class TurnExec {
     } catch { return null }
   }
 
-  /**
-   * In the person's own chat after a room read: the file in their own folder a call makes, when it needs no card, else
-   * null (docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기"). write, make_file or edit_hwp making a new file, or edit, write or
-   * edit_hwp of a file this answer made (roomMadeHere); save_room_file making a new file (where its widen hook says it
-   * goes: the file's own name in a folder). The path as the file layer resolves it for the person (authorize 'write':
-   * letter case, Unicode form; ".." and links refused there), inside users/<them>/, never in a hidden folder
-   * (.attachments), a plugin's folder, users/<them>/skills or a project's folder, never an instruction-named file
-   * (instructionLike), never in a confidential chat. A file that was there before this answer always asks, and so do save_url (the name it saves
-   * under comes from what it downloads), edit_files, moves, copies, renames and every other tool. Fails closed.
-   */
   /** The person's own message of this turn asks to save or write down something ("파일로 저장해줘", "save it"). */
   private askedToSave(): boolean {
-    const said = (this.rt.db.query('SELECT content FROM messages WHERE id = ?').get(this.spec.userMessageId) as { content: string | null } | null)?.content ?? ''
-    return SAVE_ASK.test(withoutQuoteLines(said))
+    // a scheduled run's message is the task's text, not the person asking now; a message the app sent for them neither
+    if (this.spec.clientKind === 'schedule') return false
+    const m = this.rt.db.query('SELECT content, auto_sent FROM messages WHERE id = ?').get(this.spec.userMessageId) as { content: string | null; auto_sent: number | null } | null
+    if (!m || m.auto_sent) return false
+    const said = withoutQuoteLines(m.content ?? '')
+    return SAVE_ASK.test(said) && !SAVE_NOT.test(said)
   }
 
   /** A write of a file that is not there yet (no skill, instruction file, hidden name or project folder): what an
@@ -2554,11 +2548,23 @@ export class TurnExec {
       if (!t?.mayBeNew) return false
       const r = authorize(this.rt.files.fx, this.rt.files.rules(), this.livePrincipal(), t.path, 'write', { createDirs: true })
       if (r.exists || componentC(this.rt.ctx).files.aiTrashed(r.rel)) return false
-      if (r.segs.some((x) => x.startsWith('.')) || inSkills(r.rel) || instructionLike(r.rel) || this.inProjectFolder(r.rel)) return false
+      // inside a folder (not a file at the team root), no hidden name, skill, instruction file, managed or project folder
+      if (r.segs.length < 2 || r.segs.some((x) => x.startsWith('.')) || inSkills(r.rel) || instructionLike(r.rel) || this.inProjectFolder(r.rel)) return false
+      if (this.rt.files.fx.managed?.managerOf(r.segs) || this.rt.files.fx.managed?.managerOf(r.segs.slice(0, -1))) return false
       return true
     } catch { return false }
   }
 
+  /**
+   * In the person's own chat after a room read: the file in their own folder a call makes, when it needs no card, else
+   * null (docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기"). write, make_file or edit_hwp making a new file, or edit, write or
+   * edit_hwp of a file this answer made (roomMadeHere); save_room_file making a new file (where its widen hook says it
+   * goes: the file's own name in a folder). The path as the file layer resolves it for the person (authorize 'write':
+   * letter case, Unicode form; ".." and links refused there), inside users/<them>/, never in a hidden folder
+   * (.attachments), a plugin's folder, users/<them>/skills or a project's folder, never an instruction-named file
+   * (instructionLike), never in a confidential chat. A file that was there before this answer always asks, and so do save_url (the name it saves
+   * under comes from what it downloads), edit_files, moves, copies, renames and every other tool. Fails closed.
+   */
   private ownFolderTarget(tool: string, input: unknown, widen?: WidenOf): string[] | null {
     try {
       if (confidentialChat(this.rt.db, this.spec.chatId)) return null
