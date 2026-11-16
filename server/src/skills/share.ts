@@ -46,6 +46,7 @@ import { recordShared } from '../onboarding/welcome'
 import { checkShare, freeName, renamedSkillMd, type TeamSkillRef } from './share-check'
 import { judgedCandidates, parseShareJudge, shareRuleOf } from './share-judge'
 import { readStagedFiles, removeStage, stagedIds, writeStage } from './share-stage'
+import { tellSkillsChanged } from './review-live'
 import { dropUnstartedMerges, mergeWaits, queueMerge, startMergeChat, startStaleMerges } from './share-merge'
 
 /** The body limit of POST /api/skill-shares (the server's own request cap): a picked folder of up to 200 skills. */
@@ -304,6 +305,15 @@ function tellGroup(ctx: AppContext, r: Row): void {
   }
 }
 
+/** A share to a group left its review list (applied, dismissed, moved to another target): the group's members who
+ * could apply it read their count and lists again (review-live.ts; quiet, the person who did it included for their
+ * other windows). */
+function tellGroupChanged(ctx: AppContext, groupId: string | null): void {
+  if (!groupId) return
+  // the change is done: telling the others never fails it
+  try { tellSkillsChanged(ctx, groupWriters(ctx, groupId).map((m) => m.id)) } catch (err) { ctx.log.warn('skills changed notice failed', { err: err instanceof Error ? err.message : String(err) }) }
+}
+
 function save(ctx: AppContext, id: string, res: Result, status?: SkillShareStatus): void {
   const now = new Date().toISOString()
   if (status) ctx.db.query('UPDATE skill_shares SET result = ?, status = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(res), status, now, id)
@@ -527,6 +537,7 @@ export function setSkillShareTarget(ctx: AppContext, rt: ChatRuntime, who: Share
   ctx.db.query('UPDATE skill_shares SET target_group_id = ?, result = ?, updated_at = ? WHERE id = ?').run(group, JSON.stringify(res), new Date().toISOString(), id)
   audit(ctx.db, { actor: who.id, action: 'skills.share_target', target: id, detail: { from: r.target_group_id ?? null, to: group } })
   const next = rowOf(ctx, id)!
+  tellGroupChanged(ctx, r.target_group_id)
   if (group) tellGroup(ctx, next)
   return toShare(ctx, settle(ctx, rt, next), who.id)
 }
@@ -582,7 +593,10 @@ export function stopSkillShareCheck(ctx: AppContext, rt: ChatRuntime, userId: st
  * The proposer, or for a share to a group one of its members who may apply it (they turn it down for the group). */
 export function dismissSkillShare(ctx: AppContext, rt: ChatRuntime, userId: string, id: string): void {
   const r = ownRow(ctx, userId, id)
-  if (close(ctx, rt, r, 'dismissed')) audit(ctx.db, { actor: userId, action: 'skills.share_dismiss', target: id, detail: { source: r.source, ...(r.target_group_id ? { group: r.target_group_id } : {}) } })
+  if (close(ctx, rt, r, 'dismissed')) {
+    audit(ctx.db, { actor: userId, action: 'skills.share_dismiss', target: id, detail: { source: r.source, ...(r.target_group_id ? { group: r.target_group_id } : {}) } })
+    tellGroupChanged(ctx, r.target_group_id)
+  }
 }
 
 // ---------------------------------------------------------------- apply
@@ -787,7 +801,7 @@ export function applySkillShare(ctx: AppContext, rt: ChatRuntime, auth: { user: 
     res.landing = groupId ? null : (added.find((c) => c.group === 'recommended') ?? added[0])?.applied?.path ?? null
     const status: SkillShareStatus = failures.length ? 'ready' : 'applied'
     save(ctx, id, res, status)
-    if (status === 'applied') removeStage(ctx, id)
+    if (status === 'applied') { removeStage(ctx, id); tellGroupChanged(ctx, groupId) }
     // 내 스킬 is done once anything of a share went in, wherever it was applied (the welcome step or /skills/share/:id)
     // a skill the AI gave no title (no AI, or its check failed) is named by its folder name as words ("quote maker"),
     // never the raw name, in the invite and the end screen (the walk of PR #100); a group's skills are not the invite's
