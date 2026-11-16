@@ -22,7 +22,7 @@ import { usable, type Row } from '../integrations/connections/store'
 import { egressOf, egressSettled } from './egress'
 import type { ToolRegistry } from './registry'
 import { extractUrls, MAX_UNCONFIRMED_QUERY, opaqueParts, type ConfirmExtra } from './url-gate'
-import { cardSources, cleanPins, MAX_PINS, MAX_SOURCES, resolveSaveFolder, resolveSources, rowSends, rowSources, scopeKey, sourceForAi, sourceText, withRules, type PersonalSend, type SaveFolder, type SaveLapse, type ScopeSource } from '../chat/schedule-scope'
+import { cardSources, cleanPins, makeSaveFolder, MAX_PINS, MAX_SOURCES, resolveSaveFolder, saveFolderChanged, resolveSources, rowSends, rowSources, scopeKey, sourceForAi, sourceText, withRules, type PersonalSend, type SaveFolder, type SaveLapse, type ScopeSource } from '../chat/schedule-scope'
 import type { Database } from 'bun:sqlite'
 
 export const SCHEDULE_TOOL_NAMES = ['schedule_create', 'schedule_list', 'schedule_delete'] as const
@@ -189,6 +189,11 @@ export const TEXT = {
     es: 'Guarda archivos nuevos en: {folder} (ahora lo pueden ver {n} personas).',
     zh: '新文件保存到：{folder}（现在有{n}人能看到）。',
   } satisfies L5,
+  /** a save folder that is not there yet: made when the person says yes (chat/schedule-scope.ts makeSaveFolder) */
+  newFolder: {
+    ko: '{folder} (새 폴더: 만들기를 누르면 생겨요)', en: '{folder} (a new folder, made when you create the task)', id: '{folder} (folder baru, dibuat saat Anda membuat tugas ini)',
+    ja: '{folder}（新しいフォルダー：作成すると作られます）', es: '{folder} (una carpeta nueva, se crea al crear la tarea)', zh: '{folder}（新文件夹，创建任务时建立）',
+  } satisfies L5,
   /** rooms a run may read (no save folder). Read only: a run never posts to a room (post_to_room refuses in a scheduled
    * run, chat/post-to-room.ts), so the line says nothing of sending; a send after reading one goes only to the person's
    * own connections the sendsLine pins (QA on dev 1565b39f1: "읽고 보내도 되는" promised a post to the room) */
@@ -228,7 +233,7 @@ export type CardMode = 'create' | 'review' | 'edit' | 'recheck'
 /** What the card says about saving and sending, in words (chat/schedule-scope.ts): the save folder with how many can
  * read it now and the places whose content may go there; the rooms a run may read (no save folder; never a post to them);
  * the person's own connections with the recipients they are pinned to. */
-export interface CardScope { save?: { folder: string; readers: number; sources: string[] } | null; rooms?: string[]; sends?: { name: string; pins: string[] }[] }
+export interface CardScope { save?: { folder: string; readers: number; sources: string[]; create?: boolean } | null; rooms?: string[]; sends?: { name: string; pins: string[] }[] }
 
 const quoted = (v: string) => `'${v.replace(/\s+/g, ' ').trim()}'`
 /** The card's lines for a CardScope (none for an empty one). */
@@ -236,7 +241,8 @@ export function scopeLines(scope: CardScope | undefined, L: Locale): string[] {
   const lines: string[] = []
   if (!scope) return lines
   if (scope.save) {
-    const v = { folder: scope.save.folder, n: String(scope.save.readers), sources: scope.save.sources.join(', ') }
+    const folder = scope.save.create ? fill(TEXT.newFolder[L], { folder: scope.save.folder }) : scope.save.folder
+    const v = { folder, n: String(scope.save.readers), sources: scope.save.sources.join(', ') }
     lines.push(fill(TEXT[scope.save.sources.length ? 'saveLine' : 'saveLineBare'][L], v))
   } else if (scope.rooms?.length) lines.push(fill(TEXT.roomsLine[L], { rooms: scope.rooms.join(', ') }))
   if (scope.sends?.length) lines.push(fill(TEXT.sendsLine[L], { list: scope.sends.map((x) => `${x.name.replace(/\s+/g, ' ').trim()} · ${x.pins.map(quoted).join(', ')}`).join('; ') }))
@@ -248,7 +254,7 @@ export function cardScope(db: Database, userId: string, L: Locale, save: SaveFol
   const words = { mine: TEXT.sourceMine[L], root: TEXT.sourceRoot[L], room: TEXT.sourceRoom[L] }
   const names = sources.map((x) => sourceText(db, x, userId, words))
   return {
-    save: save ? { folder: save.folder, readers: save.readers, sources: names } : null,
+    save: save ? { folder: save.folder, readers: save.readers, sources: names, ...(save.create ? { create: true } : {}) } : null,
     rooms: save ? [] : names,
     sends: [...sends],
   }
@@ -384,7 +390,8 @@ export function createScope(ctx: AppContext, userId: string, a: { save_to?: stri
   for (const r of listedOwn.values()) {
     if (!sends.has(r.id)) throw new ToolError(`${r.name} is the user's own connection: a run sends to it only at recipients the card pins, so give them in send_to ({"connection": "${r.name}", "to": ["<page id, address or channel>"]}). Nothing was created.`)
   }
-  const save = a.save_to?.trim() ? resolveSaveFolder(ctx, userId, a.save_to) : null
+  // a folder the AI names that is not there yet is made on the person's yes (the card says so)
+  const save = a.save_to?.trim() ? resolveSaveFolder(ctx, userId, a.save_to, { allowNew: true }) : null
   const res = resolveSources(ctx, userId, a.reads ?? [])
   if (res.unknown.length) throw new ToolError(`reads names ${res.unknown.map(said).join(', ')}: not "my folder", a team folder the user may read, or a room they are in (#[name](room:<id>) or its id). Nothing was created.`)
   if (!save && res.sources.some((x) => x.type !== 'room')) throw new ToolError('reads without save_to takes rooms only (the rooms a run may read before it sends): folders matter only for a save folder. Nothing was created.')
@@ -419,12 +426,16 @@ export function scopeBinding(x: { save: SaveFolder | null; sources: readonly Sco
 }
 
 /** What the AI is told the task may do (the answer of schedule_create), in English. */
-function scopeNote(db: Database, userId: string, save: SaveFolder | null, sources: readonly ScopeSource[], sends: readonly CardSend[]): string {
+function scopeNote(db: Database, userId: string, save: SaveFolder | null, sources: readonly ScopeSource[], sends: readonly CardSend[], made = false): string {
   const parts: string[] = []
   if (save) {
     const from = sources.map((x) => sourceForAi(db, x, userId))
-    parts.push(` Its runs may save NEW files in ${save.folder} and its sub-folders without asking (at most 20 per run; never change existing files); content from ${from.length ? from.join(', ') : 'nothing that fewer people can see'} may go there.`)
-  } else if (sources.length) parts.push(` Its runs may read ${sources.length === 1 ? 'that room' : 'those rooms'} and still send to the connections the card allowed.`)
+    parts.push(` Save folder: ${save.folder}${made ? ' (a new folder, made now)' : ''}. Its runs may save NEW files there and in its sub-folders without asking (at most 20 per run; never change existing files); content from ${from.length ? from.join(', ') : 'nothing that fewer people can see'} may go there.`)
+  } else {
+    // the AI told a person their reports save in a team folder the tool had refused (AI scenario check SCH-02)
+    parts.push(` No save folder was set: its runs save files in the user's own folder (users/${userId}/), and in a team folder only where that needs no confirmation card. Tell the user that, never another save place.`)
+    if (sources.length) parts.push(` Its runs may read ${sources.length === 1 ? 'that room' : 'those rooms'} and still send to the connections the card allowed.`)
+  }
   if (sends.length) parts.push(` It may send to ${sends.map((x) => `${x.name} only at ${x.pins.map((p) => `'${p}'`).join(', ')}`).join('; ')}.`)
   return parts.join('')
 }
@@ -483,10 +494,11 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
         : (await person.confirm(card.question, TEXT.create[L], TEXT.deny[L], card.extra)) ? 'create' : null
       if (answer !== 'create' && answer !== 'create_write') throw new ToolError('the user did not allow this scheduled task, so it was not created. Do not try again unless the user asks; tell the user it was not created.')
       // the card may have waited: its save folder must still be the one it showed (the same folder on disk, the same rules)
-      if (scope.save) {
+      let save = scope.save
+      if (scope.save && !scope.save.create) {
         let now: SaveFolder | null = null
         try { now = resolveSaveFolder(ctx, t.user.id, scope.save.folder) } catch { now = null }
-        if (!now || now.folderId !== scope.save.folderId || now.rule !== scope.save.rule) throw new ToolError(`the save folder ${scope.save.folder} changed while the card was open (moved, renamed, or its permissions changed), so nothing was created. Tell the user; ask again to show the card for the folder as it is now.`)
+        if (!now || now.folderId !== scope.save.folderId || now.rule !== scope.save.rule) throw saveFolderChanged(scope.save.folder)
       }
       // and the own connections it pinned are still the person's, as the card showed them
       if (answer === 'create_write' && scope.sends.length) {
@@ -494,13 +506,15 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
         const gone = scope.sends.filter((x) => !now.some((r) => r.id === x.connectionId && r.version === x.version))
         if (gone.length) throw new ToolError(`${gone.map((x) => x.name).join(', ')} changed while the card was open, so nothing was created. Tell the user; ask again to show the card as it is now.`)
       }
+      // a new save folder the card showed is made now, on the yes, as the person; then kept as an existing one is
+      if (scope.save?.create) save = makeSaveFolder(ctx, t.user, scope.save, t.turnId)
       const sends = answer === 'create_write' ? offered : []
       const own = answer === 'create_write' ? scope.sends : []
-      const s = rt.schedules.create(t.user.id, parsed.data, new Date(), { allowedUrls: card.urls, writeConnections: sends.map((r) => r.id), save: scope.save, sources: scope.sources, personalSends: own.map((x) => ({ connectionId: x.connectionId, pins: x.pins })) })
+      const s = rt.schedules.create(t.user.id, parsed.data, new Date(), { allowedUrls: card.urls, writeConnections: sends.map((r) => r.id), save, sources: scope.sources, personalSends: own.map((x) => ({ connectionId: x.connectionId, pins: x.pins })) })
       const blocked = !urlsOpen && card.urls.length > card.longQuery.length ? ' This server does not know its own public internet address yet, so its runs cannot open the web addresses in the prompt until it does (the card said so); tell the user.' : ''
       const longQuery = card.longQuery.length ? ` Its runs never open ${card.longQuery.length === 1 ? 'the address' : `the ${card.longQuery.length} addresses`} with a query over ${MAX_UNCONFIRMED_QUERY} characters: such an address always needs a person to confirm it (the card said so); tell the user.` : ''
       const sendNote = sends.length ? ` Its runs may send to ${sends.map((r) => r.name).join(', ')} without asking.` : offered.length || scope.sends.length ? ' The user chose that its runs never send to connected services; tell the user if the task needs that.' : ''
-      const scopeText = scopeNote(ctx.db, t.user.id, scope.save, scope.sources, own)
+      const scopeText = scopeNote(ctx.db, t.user.id, save, scope.sources, own, !!scope.save?.create)
       return { text: `Scheduled "${s.title}": ${describeSchedule(s)}. First run: ${local(s.next_run_at)}. Id ${s.id}. The user can turn it off on the Scheduled page.${blocked}${longQuery}${sendNote}${scopeText}`, summary: `schedule_create ${s.id} ${s.repeat} ${s.time} (confirmed by the user${sends.length ? `, may send to ${sends.length} connections` : ''}${scope.save ? ', save folder' : ''}${own.length ? `, ${own.length} pinned own connections` : ''})`, structured: { id: s.id, nextRunAt: s.next_run_at } }
     },
   })

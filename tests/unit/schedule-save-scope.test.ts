@@ -113,7 +113,7 @@ describe('the card', () => {
     expect(JSON.parse(s.save_sources!)).toEqual([MINE, { type: 'folder', id: 'f_groups_marketing', rule: ruleFingerprint(h.ctx.files.rules(), ['groups', 'marketing']) }, { type: 'room', id: room }])
     expect(JSON.parse(s.personal_sends!)).toEqual([{ connectionId: notes.id, pins: ['page-1'] }])
     expect(s.save_rule).toBe(ruleFingerprint(h.ctx.files.rules(), SAVE.split('/')))
-    expect(r.text).toContain(`Its runs may save NEW files in ${SAVE}`)
+    expect(r.text).toContain(`Save folder: ${SAVE}. Its runs may save NEW files there`)
     // "create" without sends: the save folder stays (it is on both answers), the own connection does not
     clear()
     await create({ save_to: SAVE, reads: ['my folder'], connections: ['Alice Notes'], send_to: [{ connection: 'Alice Notes', to: ['page-1'] }] }, person('create', []))
@@ -141,7 +141,10 @@ describe('the card', () => {
       [{ save_to: 'groups/marketing' }, "a group's own folder itself"],
       [{ save_to: 'users/alice/drafts' }, "the user's own folder"],
       [{ save_to: 'skills' }, 'read-only'],
-      [{ save_to: 'shared/nowhere' }, 'not found'],
+      [{ save_to: 'nowhere/x' }, 'not found or no access'],
+      [{ save_to: 'groups/newgroup/x' }, 'not found or no access'],
+      [{ save_to: 'shared/a/b/c/d' }, 'would make 4 new folders'],
+      [{ save_to: 'shared/.hidden/x' }, 'hidden folder'],
       [{ save_to: `${SAVE}/a-file.md` }, 'is a file'],
       [{ save_to: 'groups/finance/x' }, 'not found or no access'],
       [{ save_to: SAVE, reads: ['groups/finance'] }, 'reads names "groups/finance"'],
@@ -162,7 +165,75 @@ describe('the card', () => {
     fs.mkdirSync(abs('skills/weekly'), { recursive: true })
     const carol = await toolRegistry(h.ctx.files).call('schedule_create', { title: 't', prompt: 'p p p', repeat: 'daily', time: '09:00', save_to: 'skills/weekly' }, { user: h.ctx.files.principal('carol'), turnId: null, files: new TurnFiles(), person: person('create', []) })
     expect(carol.text).toContain('skills folder')
+    // an admin may write at the top, but a task never makes a top folder or a group folder
+    for (const to of ['groups/newgroup/x', 'newtop/x']) {
+      const r = await toolRegistry(h.ctx.files).call('schedule_create', { title: 't', prompt: 'p p p', repeat: 'daily', time: '09:00', save_to: to }, { user: h.ctx.files.principal('carol'), turnId: null, files: new TurnFiles(), person: person('create', []) })
+      expect(r.text, to).toContain('would make a new top folder or group folder')
+      expect(fs.existsSync(abs(to.split('/')[0] === 'groups' ? 'groups/newgroup' : 'newtop')), to).toBe(false)
+    }
     fs.rmSync(abs('skills/weekly'), { recursive: true, force: true })
+  })
+
+  // AI scenario check SCH-02: the AI named groups/영업 (refused as a group's own folder), then made the task without a
+  // save folder and told the person it saved in groups/영업/reports
+  test('a group\'s own folder: the refusal names folders inside it that would work, never a hidden one', async () => {
+    clear()
+    const r = await create({ save_to: 'groups/marketing' }, person('create', []))
+    expect(r.isError).toBe(true)
+    expect(r.text).toContain("a group's own folder itself: name a folder inside it")
+    expect(r.text).toContain('Folders inside it that would work: groups/marketing/campaigns.')
+    expect(r.text).toContain('A new folder inside it works too (e.g. groups/marketing/reports)')
+    // salaries/ is closed to marketing members by its own rule: not named
+    expect(r.text).not.toContain('salaries')
+    // the team root and groups/: nothing to name (what is inside is a top folder too)
+    expect((await create({ save_to: 'groups' }, person('create', []))).text).not.toContain('would work')
+  })
+
+  test('a new sub-folder: the card says it will be made, it is made only on the yes, then kept as an existing one', async () => {
+    clear()
+    const NEW = 'groups/marketing/reports/weekly'
+    fs.rmSync(abs('groups/marketing/reports'), { recursive: true, force: true })
+    // declined: nothing is made
+    const no: Asked[] = []
+    const d = await create({ save_to: NEW }, person('deny', no))
+    expect(d.isError).toBe(true)
+    expect(no[0]!.question).toContain(`새 파일 저장: ${NEW} (새 폴더: 만들기를 누르면 생겨요)`)
+    expect(fs.existsSync(abs('groups/marketing/reports'))).toBe(false)
+    expect(latest()).toBeNull()
+    // yes: made, with its identity, rules and readers kept as for an existing folder
+    const yes: Asked[] = []
+    const r = await create({ save_to: NEW }, person('create', yes))
+    expect(r.isError).toBeFalsy()
+    expect(fs.statSync(abs(NEW)).isDirectory()).toBe(true)
+    const s = latest()!
+    expect(s.save_folder).toBe(NEW)
+    expect(s.save_folder_id).toBe(saveFolderId(h.ctx.files.fx, NEW.split('/')))
+    expect(s.save_rule).toBe(ruleFingerprint(h.ctx.files.rules(), NEW.split('/')))
+    expect(s.save_readers).toBe(resolveSaveFolder(h.ctx, 'alice', NEW).readers)
+    expect(lapseOf(h.ctx, s)).toBeNull()
+    expect(r.text).toContain(`Save folder: ${NEW} (a new folder, made now).`)
+    // the folder shows in the file history as made by the person
+    expect(db().query("SELECT user_id FROM file_events WHERE path = ? AND action = 'create'").get(NEW)).toEqual({ user_id: 'alice' })
+    fs.rmSync(abs('groups/marketing/reports'), { recursive: true, force: true })
+    db().query("DELETE FROM schedules WHERE user_id = 'alice'").run()
+  })
+
+  test('a new sub-folder that someone made while the card was open is refused, nothing is created', async () => {
+    clear()
+    const NEW = `${SAVE}/late`
+    const p = person('create', [])
+    const r = await create({ save_to: NEW }, { ...p, async choose(q, o, e) { fs.mkdirSync(abs(NEW)); return p.choose!(q, o, e) } })
+    expect(r.isError).toBe(true)
+    expect(r.text).toContain('changed while the card was open')
+    expect(latest()).toBeNull()
+  })
+
+  test('without a save folder the answer says runs save in the user\'s own folder', async () => {
+    clear()
+    const r = await create({}, person('create', []))
+    expect(r.isError).toBeFalsy()
+    expect(r.text).toContain("No save folder was set: its runs save files in the user's own folder (users/alice/)")
+    expect(r.text).toContain('never another save place')
   })
 })
 
