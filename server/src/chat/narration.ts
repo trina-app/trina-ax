@@ -28,7 +28,12 @@ const ASKS_FOR_OTHER_LANGUAGE = new RegExp([
   '영어', '영문', '번역', '[가-힣]어\\s*(?:로|으로|버전|번역|판)', '[가-힣]말로',
   '[\\u4E00-\\u9FFF\\u30A0-\\u30FF]語(?:で|に|版|訳)', '翻訳', '英語',
   '用[\\u4E00-\\u9FFF]{1,6}[语文語]', '[\\u4E00-\\u9FFF]{1,6}[语文]版', '翻译', '英文', '英语',
-  'english', 'translat', 'spanish', 'español', 'indonesian', 'bahasa', 'french', 'german', 'vietnamese',
+  'english', 'translat', 'spanish', 'español', 'indonesian', 'bahasa', 'french', 'german', 'vietnamese', 'japanese',
+  'chinese', 'korean',
+  // text that is often in English though the chat is not: a slogan, copy, a commit message, a button or label
+  '영작', '슬로건', '카피', '문구', '캐치프레이즈', '커밋', 'commit', '버튼', '라벨',
+  // the message quotes 3 or more Latin words (after ":" or in quotes)
+  '[:：]\\s*[A-Za-z]+(?:[\\s,.\'-]+[A-Za-z]+){2,}', '["“\'‘「][A-Za-z]+(?:[\\s,.-]+[A-Za-z]+){2,}',
 ].join('|'), 'i')
 
 /** The longest piece (trimmed) that can be dropped, and at most this many sentences and lines. */
@@ -36,19 +41,24 @@ export const NARRATION_MAX_CHARS = 200
 const NARRATION_MAX_SENTENCES = 2
 const NARRATION_MAX_LINES = 2
 
-/** How a status line starts: only a piece that opens like this is ever dropped ("Let me check …", "Only one thread
- * exists; check it.", "Existing pattern: …"). Content written before a call ("Hi team, …", "Total: 42 files",
- * "Work smarter, together.") does not. */
-const STATUS_OPENING = /^(?:let me|let's|let us|i'll|i will|i'm|i am|i need|i should|i can|i see|now|next|first|then|checking|check|looking|reading|searching|opening|trying|only|found|verify|verifying|ok|okay|good|great|alright|done|following|existing|same|still|nothing|no )\b/i
-/** a plan in the first person, an order to itself ("…; check it.") or the person named "the user", anywhere ("The
- * existing file uses the pattern …, so I'll match it.", "User's own dictated words."), unless the piece
- * opens like a message to someone ("Hi team, I'll be out Friday.") */
-const STATUS_PLAN = /\b(?:i'll|i will|i'm going to|let me|let's)\b|\b(?:check|verify|confirm) (?:it|this|that|them|both)\b|\bthe user(?:'s)?\b|^user(?:'s)?\b/i
-const GREETING = /^(?:hi|hello|hey|dear|thanks|thank you|good (?:morning|afternoon|evening))\b/i
+/** What the AI does while it works: the verbs of a status line ("Let me check …", "Now renaming …"; "now" only with
+ * a gerund: "Now open on weekends." is content). */
+const WORK = '(?:check|look|search|read|open|find|verify|rename|create|update|save|export|try|review|compare|scan|list|move|copy|fetch|load|split|match|inspect|examine|pull)'
+/** "check in with you", "look forward to", "check out": said to people, not work */
+const NOT_PHRASAL = '(?!\\s+(?:in|out|back|forward|up on|with)\\b)'
+const WORKING = '(?:checking|looking|searching|reading|opening|finding|verifying|renaming|creating|updating|saving|exporting|trying|reviewing|comparing|scanning|listing|moving|copying|fetching|loading|matching|inspecting|examining|pulling)'
+/** What a working gerund at the start goes on with: "the", "both", "this" …, or a file or path ("Checking the folder",
+ * "Renaming IMG_2041.jpg"), never a noun ("Reading list for the week", "Opening hours: …"). */
+const WORK_OBJECT = '(?:the|both|all|each|this|that|these|those|it|them|its|my|your|[^\\s]*[./][^\\s]*)\\b'
+/** How a status line starts (review of #1066, second round: only openings that are almost never content). */
+const STATUS_OPENING = new RegExp(`^(?:(?:(?:let me|i'll|i will)\\s+${WORK}\\b${NOT_PHRASAL}|now\\s+${WORKING}\\b)|${WORKING}\\s+${WORK_OBJECT}|found it\\b|verify:?$)`, 'i')
+/** Inside the piece: after "," or ";", a plan ("…, so I'll match it.") or an order to itself ("…; check it.", not
+ * "check it out"); anywhere, the person named "the user" with what they want ("the user asked …"). */
+const STATUS_PLAN = new RegExp(`[,;]\\s*(?:so\\s+|then\\s+)?(?:(?:i'll|i will|let me)\\s+${WORK}\\b${NOT_PHRASAL}|(?:check|verify)\\s+(?:it|this|that|them|both)\\b(?!\\s+out))|\\bthe user\\s+(?:wants|asked|needs|said|request)`, 'i')
+/** Content that looks like a status line: always kept. */
+const CONTENT_LINE = /^let me know|^let me introduce|^i'?m (?:happy|pleased|excited|writing)|^i am writing|out of (?:the )?office|^looking forward|^following up|[?!]/i
 /** typographic dashes, apostrophes and ellipses count as ASCII (the model writes "—" and "I’ll") */
 const plainPunct = (s: string) => s.replace(/[\u2013\u2014]/g, '-').replace(/[\u2018\u2019]/g, "'").replace(/\u2026/g, '...')
-/** the longest opening word above, plus room: a piece this long that does not start with one is let out */
-const OPENING_DECIDED_AT = 12
 
 /** about 3 or more Latin words and none of the answer's script: the person wrote in a Latin language */
 const writesLatin = (m: string, script: AnswerScript) => !SCRIPT_LETTER[script].test(m) && (m.match(/[A-Za-z]{2,}/g) ?? []).length >= 3
@@ -93,9 +103,9 @@ function mustKeep(piece: string, script: AnswerScript, partial = false): boolean
   if (CONTENT.test(t) || CONTENT_WORDS.test(words)) return true
   if (t.split('\n').filter((l) => l.trim()).length > NARRATION_MAX_LINES) return true
   if ((t.match(/[.!?;:](?=\s|$)/g) ?? []).length > NARRATION_MAX_SENTENCES) return true
-  const status = STATUS_OPENING.test(t) || (STATUS_PLAN.test(t) && !GREETING.test(t))
-  // still coming: "so I'll …" may be on its way, so only a greeting decides before the end
-  if (partial ? t.length >= OPENING_DECIDED_AT && GREETING.test(t) : !status) return true
+  if (CONTENT_LINE.test(t)) return true
+  // still coming: "…, so I'll …" may be on its way, so only the whole piece decides
+  if (!partial && !STATUS_OPENING.test(t) && !STATUS_PLAN.test(t)) return true
   return false
 }
 

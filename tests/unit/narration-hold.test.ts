@@ -24,27 +24,39 @@ function run(hold: NarrationHold, evs: Ev[], n = 7): string {
 const ko = () => new NarrationHold('ko')
 
 describe('NarrationHold', () => {
+  /** the line before a call, then a Korean answer: was the line dropped? */
+  const dropped = (line: string) => {
+    const out = run(ko(), [{ text: line }, 'tool', { text: '\n\n끝.' }, 'end'])
+    if (out !== '끝.') expect(out, line).toBe(line + '\n\n끝.') // else kept whole, nothing changed
+    return out === '끝.'
+  }
+
   test('a Korean answer: the English line before a tool call is dropped, with its separator', () => {
     expect(run(ko(), [{ text: 'Only one thread exists; check it.' }, 'tool', { text: '\n\n' }, { text: '토요일 배송은 퀵으로만 가능해요.' }, 'end']))
       .toBe('토요일 배송은 퀵으로만 가능해요.')
     // two calls in a row, each with a line before it
     expect(run(ko(), [{ text: 'Let me check that the seal printed correctly.' }, 'tool', { text: '\n\nVerify:' }, 'tool', { text: '\n\n견적서를 만들었습니다.' }, 'end']))
       .toBe('견적서를 만들었습니다.')
-    // Korean text first, then an English line before a call: the Korean keeps its separator to what follows
-    expect(run(ko(), [{ text: '사진 두 장을 확인할게요.' }, 'tool', { text: '\n\nFollowing the existing naming pattern (매장-전경.jpg).' }, 'tool', { text: '\n\nNow renaming.' }, 'tool', { text: '\n\n이름을 바꿨습니다.' }, 'end']))
+    // Korean text first, then English lines before calls: the Korean keeps its separator to what follows
+    expect(run(ko(), [{ text: '사진 두 장을 확인할게요.' }, 'tool', { text: '\n\nNow renaming.' }, 'tool', { text: '\n\n이름을 바꿨습니다.' }, 'end']))
       .toBe('사진 두 장을 확인할게요.\n\n이름을 바꿨습니다.')
-    // scenario runs 5-6 (ORG-01): a dash, and a plan in the first person after another opening
-    expect(run(ko(), [{ text: 'Existing naming pattern: "매장-전경.jpg" — Korean with hyphen.' }, 'tool', { text: '\n\n바꿨습니다.' }, 'end'])).toBe('바꿨습니다.')
-    expect(run(ko(), [{ text: 'The existing file uses the pattern "매장-전경.jpg", so I’ll match it.' }, 'tool', { text: '\n\n바꿨습니다.' }, 'end'])).toBe('바꿨습니다.')
-    // scenario run 7: an order to itself, the person called "the user"
-    expect(run(ko(), [{ text: 'The only thread is on the first message; check it.' }, 'tool', { text: '\n\n토요일은 퀵만 돼요.' }, 'end'])).toBe('토요일은 퀵만 돼요.')
-    expect(run(ko(), [{ text: "User's own dictated words." }, 'tool', { text: '\n\n올렸어요.' }, 'end'])).toBe('올렸어요.')
-    // a message to someone with a plan in it is content
-    expect(run(ko(), [{ text: 'Hi team, I will be out on Friday.' }, 'tool', { text: '\n\n올렸어요.' }, 'end'])).toBe('Hi team, I will be out on Friday.\n\n올렸어요.')
-    // a quoted file name is not a quote (ORG-01, second run)
-    expect(run(ko(), [{ text: 'Existing pattern: "매장-전경.jpg" (hyphenated Korean).' }, 'tool', { text: '\n\n이름을 바꿨습니다.' }, 'end'])).toBe('이름을 바꿨습니다.')
     // a Korean file name alone does not make the line Korean; Korean words do
     expect(run(ko(), [{ text: '`매장-전경.jpg` 이름을 따를게요.' }, 'tool', { text: '\n\n끝.' }, 'end'])).toBe('`매장-전경.jpg` 이름을 따를게요.\n\n끝.')
+  })
+
+  test('the lines the AI scenario runs leaked: which are dropped, which still get through', () => {
+    for (const line of [
+      'Only one thread exists; check it.', 'Let me check that the seal printed correctly.', 'Verify:', 'Now renaming.',
+      'The existing file uses the pattern "매장-전경.jpg", so I’ll match it.', 'The only thread is on the first message; check it.',
+      'Let me check the folder.', 'Reading the price list.', 'Checking both files.', 'Let me check.', 'Found it.',
+    ]) expect(dropped(line), line).toBe(true)
+    // kept on purpose (review of #1066, second round: an opening like these is also how content starts; keeping a line
+    // is the safe way to be wrong)
+    for (const line of [
+      'Following the existing naming pattern (매장-전경.jpg).', 'Existing pattern: "매장-전경.jpg" (hyphenated Korean).',
+      'Existing naming pattern: "매장-전경.jpg" — Korean with hyphen.', "User's own dictated words.",
+      'The Saturday delivery question is in the thread under the copy paper price message.',
+    ]) expect(dropped(line), line).toBe(false)
   })
 
   test('a Korean line before a tool call is kept, and streams as soon as it shows Hangul', () => {
@@ -71,19 +83,31 @@ describe('NarrationHold', () => {
       'Work smarter, together.', 'Hi team, the deploy is done.', 'https://example.com/report', 'Trina AX', 'Total: 42 files',
       '- Price: 339,400 KRW\n- Due: Friday', '## Results', '**Summary**', 'Run `npm install`.', 'Hola equipo, ya está listo.', 'Xin chào, đã xong.',
       // a status opening, but content: a number with a unit, a link, a list
-      'Let me note: 339,400 KRW total.', 'Now see https://example.com', 'Next:\n- one']) {
+      'Let me note: 339,400 KRW total.', 'Now see https://example.com', 'Next:\n- one', 'Hi team, I will be out on Friday.',
+      // the review's second round: real content that opens like a status line
+      'Let me know if you have questions.', 'Let me introduce our new product.', "Let's grow together.", 'Now available on iOS and Android.',
+      'Next-gen office automation.', 'First come, first served.', 'Check it out!', 'I will be out of office on Friday.',
+      "I'm happy to announce our new hire.", 'Done is better than perfect.', 'Good things take time.', 'Great work, team!',
+      'Only the paranoid survive.', 'Still waiting for your reply.', 'No pain, no gain.', 'OK', 'Following up on my last email.',
+      'Same day delivery', 'I can help you with that.', 'I need your approval by Monday.', 'We will confirm it by Friday.',
+      'Please check it and let me know.', 'The user guide is attached.', 'Looking forward to working with you.',
+      'First, preheat the oven.', 'Opening hours: Mon to Fri', 'Verify your email address', 'Reading list for the week',
+      'Okay, sounds good to me.', 'I see what you mean.', 'Now open on weekends.', 'I will check in with you tomorrow.']) {
       expect(run(ko(), [{ text: piece }, 'tool', { text: '\n\n끝.' }, 'end']), piece).toBe(piece + '\n\n끝.')
     }
     // no Latin letters (numbers, marks): kept
     expect(run(ko(), [{ text: '339,400' }, 'tool', { text: '\n\n끝.' }, 'end'])).toBe('339,400\n\n끝.')
   })
 
-  test('content streams once its opening shows it is not a status line', () => {
+  test('content streams as soon as a mark shows it is content; until then it waits for the next event', () => {
     const h = ko()
-    expect(h.push('Hi team, ')).toBe('')
-    expect(h.push('the deploy')).toBe('Hi team, the deploy')
-    expect(h.push(' is done.')).toBe(' is done.')
+    expect(h.push('Great work, ')).toBe('')
+    expect(h.push('team!')).toBe('Great work, team!')
+    expect(h.push(' See you.')).toBe(' See you.')
     expect(h.toolStart()).toBe('')
+    const w = ko()
+    expect(w.push('Hi team, the deploy is done.')).toBe('') // could still go on ", so I'll check …"
+    expect(w.toolStart()).toBe('Hi team, the deploy is done.')
   })
 
   test('the hold follows the language asked for and the person\'s earlier message', () => {
@@ -91,6 +115,9 @@ describe('NarrationHold', () => {
       expect(narrationScript('ko', m), m).toBeNull()
     expect(narrationScript('ja', 'スペイン語で書いて')).toBeNull()
     expect(narrationScript('zh', '用西班牙语写一封信')).toBeNull()
+    // text often written in English in a Korean chat, and a message that quotes English
+    for (const m of ['슬로건 하나 만들어줘', '커밋 메시지 써줘', '저장 버튼 문구 정해줘', '이 문장 "Work smarter, together" 다듬어줘', '버튼 이름: Save all changes 로 바꿔'])
+      expect(narrationScript('ko', m), m).toBeNull()
     // short or mixed messages: the app language, unless the message before was in Latin words
     for (const m of ['ok', 'continue', '👍', '', 'Q3 revenue was up 12% and costs fell.\n이거 요약해줘'])
       expect(narrationScript('ko', m), m).toBe('ko')
@@ -140,7 +167,9 @@ describe('NarrationHold', () => {
 // ---------------- real turns: what streams is what is saved ----------------
 const GATE = path.join(import.meta.dir, '../../native/bin', `${process.platform}-${process.arch}`, 'mycel-gate')
 const native = fs.existsSync(GATE)
-const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
+/** the fake engine's directives, their Latin letters written as \\u escapes: the message itself then quotes no English
+ * (a quote of 3+ English words turns the hold off, narrationScript) */
+const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d).replace(/"(?:[^"\\]|\\.)*"/g, (q) => q.replace(/[A-Za-z]/g, (c) => '\\u00' + c.charCodeAt(0).toString(16)))).join('\n')
 
 describe('a turn with an English line before a tool call', () => {
   let h: Harness
