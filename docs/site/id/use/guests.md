@@ -47,7 +47,7 @@ dijelaskan di bawah, di [AI tamu](#ai-tamu).
 ![Dialog Invite a guest: mereka hanya akan melihat obrolan grup 'Quote prep', sebuah nama, dan AI for them dengan No AI terpilih](../../images/guests/invite-dialog.webp "Dialog undangan")
 
 #### Salin tautannya dan kirim sendiri
-**Buat tautan** membuat tautan untuk satu orang ini. Trina tidak mengirim email: pilih **Salin link** lalu kirimkan
+**Buat tautan** membuat tautan untuk satu orang ini. Trina tidak mengirim email: pilih **Salin tautan** lalu kirimkan
 sendiri kepada orang itu, lewat email atau chat. Tautan ini berlaku sekali, selama 7 hari; dialog menampilkan tanggal dan
 jam berakhirnya.
 
@@ -88,7 +88,7 @@ Jika tim Anda hanya mengizinkan owner dan admin membagikan proyek, proyek milik 
 Owner dan admin bisa mengundang tamu tanpa membuka obrolan atau proyeknya lebih dulu. Di **Admin › Anggota & undangan**,
 pilih **Undang ke tim**, lalu **Tamu** di bagian atas dialog (**Anggota tim** terpilih sejak awal). Pilih satu tempat
 yang akan dimasuki tamu: obrolan grup yang Anda ikuti, proyek tim, atau salah satu proyek Anda sendiri (dibagikan seperti
-di atas). Lalu isi dialog yang sama seperti di atas: namanya, AI-nya, **Buat tautan**, dan **Salin link**. Jika paket Anda
+di atas). Lalu isi dialog yang sama seperti di atas: namanya, AI-nya, **Buat tautan**, dan **Salin tautan**. Jika paket Anda
 tidak punya tempat untuk tamu lagi, dialog menyebutkannya alih-alih mencantumkan tempat.
 
 ![Invite to team dengan Guest terpilih: Someone from outside the team who joins a group chat or project, lalu obrolan grup dan proyek yang bisa dipilih](../../images/guests/admin-invite.webp "Mengundang tamu dari Admin")
