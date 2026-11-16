@@ -35,7 +35,7 @@ export interface MeetingControlDeps {
   win(): BaseWindow | null
   locale(): UiLocale
   /** the open team's origin and the team page's session, or null (no team open, signed out) */
-  team(): { origin: string; session: Session } | null
+  team(): { id: string; userId: string | null; origin: string; session: Session } | null
   state(s: DesktopMeetingState): void
   lines(l: DesktopMeetingLine[]): void
   /** when the person last pressed a key or clicked on the team page (Electron's input events) */
@@ -64,6 +64,8 @@ export class MeetingControl {
   private heard = { me: 0, others: 0, since: 0 }
   private lastLines: DesktopMeetingLine[] = []
   private teamOrigin: string | null = null
+  private teamIdNow: string | null = null
+  private userNow: string | null = null
   private cancelledAt = 0
   private watchdog?: NodeJS.Timeout
   private lastSpeech = 0
@@ -75,6 +77,8 @@ export class MeetingControl {
   running(): boolean { return this.run !== null }
   /** the team origin of the meeting under way, else null */
   origin(): string | null { return this.run ? this.teamOrigin : null }
+  /** the team of the meeting under way (by id: on an office network its origin is the direct address) */
+  teamId(): string | null { return this.run ? this.teamIdNow : null }
   private clock(): number { return this.d.now?.() ?? Date.now() }
   state(): DesktopMeetingState { return this.s }
   lines(): DesktopMeetingLine[] { return this.run ? this.run.lines() : this.lastLines }
@@ -97,6 +101,8 @@ export class MeetingControl {
     if (this.run) return 'busy'
     this.lastLines = []
     this.teamOrigin = team.origin
+    this.teamIdNow = team.id
+    this.userNow = team.userId
     this.heard = { me: 0, others: 0, since: this.clock() }
     this.lastSpeech = this.clock()
     const run = new MeetingRun({
@@ -147,7 +153,8 @@ export class MeetingControl {
     const startedAt = this.s.startedAt
     if (!startedAt) return
     const all = lines ?? this.run?.lines() ?? this.lastLines
-    try { fs.writeFileSync(path.join(this.d.dataDir, UNSAVED_FILE), JSON.stringify({ startedAt, lines: all }), { mode: 0o600 }) } catch { /* kept in memory only */ }
+    // whose they are: only that team's page, signed in as that person, is offered them
+    try { fs.writeFileSync(path.join(this.d.dataDir, UNSAVED_FILE), JSON.stringify({ startedAt, teamId: this.teamIdNow, userId: this.userNow, lines: all }), { mode: 0o600 }) } catch { /* kept in memory only */ }
   }
 
   /** the last meeting's lines when the page has not said they are saved (none while a meeting runs) */
@@ -156,6 +163,8 @@ export class MeetingControl {
     try {
       const v = JSON.parse(fs.readFileSync(path.join(this.d.dataDir, UNSAVED_FILE), 'utf8'))
       if (typeof v?.startedAt !== 'number' || !Array.isArray(v.lines) || !v.lines.length) return null
+      const team = this.d.team()
+      if (!team || v.teamId !== team.id || !v.userId || v.userId !== team.userId) return null
       const lines = (v.lines as unknown[]).filter((l: any) => l && (l.track === 'me' || l.track === 'others') && typeof l.text === 'string' && Number.isFinite(l.startMs) && Number.isFinite(l.endMs)).slice(0, 20_000) as DesktopMeetingLine[]
       return lines.length ? { startedAt: v.startedAt, lines } : null
     } catch { return null }

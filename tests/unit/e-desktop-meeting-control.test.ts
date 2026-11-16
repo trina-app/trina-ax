@@ -26,7 +26,7 @@ function fakeHelper(dir: string, callApps: string[]) {
   return helper
 }
 
-function control(o: { yes: boolean; helper: string | null; team?: boolean; input?: number }) {
+function control(o: { yes: boolean; helper: string | null; team?: boolean; input?: number; user?: string }) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'meetd-'))
   const states: DesktopMeetingState[] = []
   const lines: unknown[] = []
@@ -35,7 +35,7 @@ function control(o: { yes: boolean; helper: string | null; team?: boolean; input
   const session = { fetch } as any
   const c = new MeetingControl({
     win: () => null, locale: () => 'en',
-    team: () => (o.team === false ? null : { origin: 'https://team.example', session }),
+    team: () => (o.team === false ? null : { id: 'team-1', userId: o.user ?? 'alice', origin: 'https://team.example', session }),
     state: (s) => states.push(s), lines: (l) => lines.push(...l),
     ask: async () => { asked++; return o.yes }, tray: false, helper: () => o.helper,
     lastInput: () => o.input ?? Date.now(), dataDir,
@@ -82,6 +82,12 @@ describe('meeting notes behind the bridge', () => {
     // the lines stay on this computer until the page says the note is saved
     const u = c.unsaved()!
     expect(u.lines.map((l) => l.text)).toEqual(['hello'])
+    // another person on this computer is not offered them
+    ;(c as any).d.team = () => ({ id: 'team-1', userId: 'bob', origin: 'https://team.example', session: {} })
+    expect(c.unsaved()).toBeNull()
+    ;(c as any).d.team = () => ({ id: 'team-2', userId: 'alice', origin: 'https://other.example', session: {} })
+    expect(c.unsaved()).toBeNull()
+    ;(c as any).d.team = () => ({ id: 'team-1', userId: 'alice', origin: 'https://team.example', session: {} })
     c.saved(u.startedAt + 1)
     expect(c.unsaved()).not.toBeNull()
     c.saved(u.startedAt)
@@ -123,7 +129,7 @@ describe('the team changes while the dialog is open', () => {
     let origin = 'https://a.example'
     const session = { fetch: async () => Response.json({ lines: [] }) } as any
     const c = new MeetingControl({
-      win: () => null, locale: () => 'en', team: () => ({ origin, session }), state: () => {}, lines: () => {},
+      win: () => null, locale: () => 'en', team: () => ({ id: origin, userId: 'alice', origin, session }), state: () => {}, lines: () => {},
       ask: async () => { origin = 'https://b.example'; return true }, tray: false, helper: () => fakeHelper(dir, []),
       lastInput: () => Date.now(), dataDir: dir,
     })

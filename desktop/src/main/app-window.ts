@@ -155,7 +155,7 @@ export class AppWindow {
   readonly meeting = new MeetingControl({
     win: () => (this.win.isDestroyed() ? null : this.win),
     locale: () => this.o.locale(),
-    team: () => (this.app && !this.app.webContents.isDestroyed() && this.team && this.currentOrigin && this.signedIn ? { origin: this.currentOrigin, session: this.app.webContents.session } : null),
+    team: () => (this.app && !this.app.webContents.isDestroyed() && this.team && this.currentOrigin && this.signedIn ? { id: this.team.id, userId: this.meetingUser, origin: this.currentOrigin, session: this.app.webContents.session } : null),
     state: (st) => this.send(this.app, 'bridge:meeting-state-changed', st),
     lines: (l) => this.send(this.app, 'bridge:meeting-lines-changed', l),
     lastInput: () => this.appInputAt,
@@ -612,9 +612,9 @@ export class AppWindow {
    * `startup`: the app opens it by itself at start (openLast), nobody picked it. */
   /** a meeting belongs to the open team: another team waits until it is stopped (said in the app's own dialog) */
   private meetingHolds(id: string, removing = false): boolean {
-    // a reload opens the same team again (its origin): that is allowed; removing the meeting's own team is not
-    const origin = findTeam(this.teams, id)?.origin
-    if (!this.meeting.running() || (!removing && origin === this.meeting.origin())) return false
+    // a reload opens the same team again: that is allowed; removing the meeting's own team is not (others are)
+    if (!this.meeting.running()) return false
+    if (removing ? id !== this.meeting.teamId() : id === this.meeting.teamId()) return false
     if (!this.win.isDestroyed()) void dialog.showMessageBox(this.win, { type: 'info', message: t(this.o.locale(), 'meeting.switchBusy'), noLink: true })
     return true
   }
@@ -1065,8 +1065,8 @@ export class AppWindow {
   /** The folders picked in the team page's folder window belong to the person who picked them (docs/DECISIONS.md
    * "W6"): a sign-out or another person signing in on this team forgets them. */
   private folderPerson(me: MeResult) {
-    // another person signed in on this page: the meeting of the one before ends
-    if (me.signedIn && this.meetingUser && me.userId !== this.meetingUser) void this.meeting.stop()
+    // signed out (the server said so, not a busy answer), or another person signed in on this page: the meeting ends
+    if (!me.signedIn || (this.meetingUser && me.userId !== this.meetingUser)) void this.meeting.stop()
     if (me.signedIn) this.meetingUser = me.userId
     if (this.app && !this.app.webContents.isDestroyed()) this.folderGrants.get(this.app.webContents.session)?.person(me)
     this.workFiles.person(me)
@@ -1615,8 +1615,6 @@ export class AppWindow {
   }
 
   private setSignedIn(signedIn: boolean) {
-    // signed out: the meeting ends (the next person's sign-in must not carry it on)
-    if (!signedIn) void this.meeting.stop()
     if (signedIn === this.signedIn && this.meAnswered) return
     this.signedIn = signedIn
     this.meAnswered = true
