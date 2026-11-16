@@ -609,7 +609,7 @@ export function skillEntriesOnDisk(root: string, rootRel: string, as = rootRel):
       if (st.isDirectory()) { if (depth < MAX_DEPTH) walk(child, childRel, depth + 1); continue }
       if (!st.isFile() || st.nlink > 1 || !n.endsWith('.md') || project) continue
       let text: string
-      try { text = readRegular(child, SKILL_FILE_MAX_BYTES).bytes.toString('utf8') } catch { continue }
+      try { text = readRegular(child, SKILL_FILE_MAX_BYTES, st).bytes.toString('utf8') } catch { continue }
       const sk = parseSkill(text, `${as}/${childRel}`)
       if (sk) out.push({ path: childRel, kind: 'skill', name: sk.name })
       else if (team && depth === 1 && !isSkillManifest(n) && !hasFrontmatter(text)) out.push({ path: childRel, kind: 'rule', name: n })

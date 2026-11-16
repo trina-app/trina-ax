@@ -13,6 +13,9 @@ import { makeCApp, sha256hex as sha256, type CApp } from '../lib/c-app'
 import { readRegular, sha256Regular } from '../../server/src/files/store'
 import { authorize, visiblePath } from '../../server/src/policy/authorize'
 import { SearchAdmission } from '../../server/src/files/search-admission'
+import * as XLSX from 'xlsx'
+import { API } from '@mycel/shared/api'
+import { startHarness, type Harness } from '../lib/b-harness'
 
 const CHECKED = 'the file that was checked\n'.repeat(40)
 const OTHER = 'a file that was never checked\n'.repeat(40)
@@ -249,5 +252,40 @@ describe('the search index reads the file that was checked', () => {
     await office.update(`users/alice/${dir}/report.docx`).catch(() => {})
     const cached = (() => { try { return fs.readFileSync(office.cachePath(`users/alice/${dir}/report.docx`), 'utf8') } catch { return '' } })()
     expect(cached).not.toContain('never checked')
+  })
+})
+
+describe('a form made into a skill draft: its text is of the checked file', () => {
+  let h: Harness
+  /** a folder outside the team folder with a form named like the team's */
+  let away: string
+  beforeAll(async () => {
+    h = await startHarness({ name: 'checked-reads-form' })
+    away = path.join(h.dataDir, 'away-forms')
+    fs.mkdirSync(away, { recursive: true })
+  }, 120_000)
+  afterAll(async () => { await h?.close() }, 120_000)
+
+  const sheet = (out: string, text: string) => {
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['견적서'], [text]]), '견적서')
+    fs.mkdirSync(path.dirname(out), { recursive: true })
+    fs.writeFileSync(out, XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }))
+  }
+  const formText = async (rel: string) => {
+    const { draftChatId } = await h.api('carol').call(API.startFormSkillDraft, { body: { path: rel } })
+    const row = h.ctx.db.query('SELECT material FROM onboarding_skill_drafts WHERE chat_id = ?').get(draftChatId) as { material: string }
+    return (JSON.parse(row.material) as { text: string }).text
+  }
+
+  test('the form as it is; the forms folder becomes a link before the open: never the other file', async () => {
+    const forms = path.join(h.team, 'shared/양식')
+    sheet(path.join(forms, '견적서_양식.xlsx'), 'the form that was checked')
+    expect(await formText('shared/양식/견적서_양식.xlsx')).toContain('the form that was checked')
+
+    sheet(path.join(forms, '주문서_양식.xlsx'), 'the form that was checked')
+    sheet(path.join(away, '주문서_양식.xlsx'), 'a form that was never checked')
+    atOpen('양식', () => { fs.renameSync(forms, forms + '-kept'); fs.symlinkSync(away, forms) }, '주문서_양식.xlsx')
+    expect(await formText('shared/양식/주문서_양식.xlsx')).not.toContain('never checked')
   })
 })

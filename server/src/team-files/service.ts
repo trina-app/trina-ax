@@ -710,7 +710,7 @@ export class TeamFiles {
     for (const f of files) {
       const abs = isDir ? path.join(fr.abs, ...f.segs) : fr.abs
       let old: Buffer
-      try { old = readRegular(abs).bytes } catch { continue }
+      try { old = readRegular(abs, undefined, fs.lstatSync(abs)).bytes } catch { continue }
       if (sha256(old) !== sha256(f.bytes)) out.push({ from: isDir ? [fr.rel, ...f.segs].join('/') : fr.rel, segs: f.segs, old, bytes: f.bytes })
     }
     return out
