@@ -8,7 +8,7 @@ import { api, API, ApiError, isNetworkError } from '../lib/api'
 import { optimisticEdits, optimisticPending } from '../lib/optimistic'
 import { waitForUpdate, waitsForUpdate } from '../lib/serverUpdating'
 import { keepFaces } from '../lib/sharedChat'
-import { applyCreated, applyDelta, applyDone, applyStep, emptyThread, markLocal, mergeFresh, mergeTurnStarted, optimisticUserMessage, prependPage, type Delta, type Thread } from './thread'
+import { applyCreated, applyDelta, applyDone, applyStep, emptyThread, markLocal, mergeFresh, mergeTurnStarted, optimisticUserMessage, prependPage, runningMessage, type Delta, type Thread } from './thread'
 
 const PAGE = 50
 /** Artifacts that are the whole answer of their skill: the panel opens them by itself once they are saved (the intro
@@ -143,6 +143,13 @@ const LOAD_ROUNDS = 3
 export const LOAD_RETRY_MS = 3000
 /** chatId -> the retry waiting after a failed read (one per chat) */
 const loadRetries = new Map<string, ReturnType<typeof setTimeout>>()
+/** An answer still running on this page that nothing was heard about for this long is read again from the server: its
+ * end may never have reached this page (QA TC-3521: an answer that failed at once stayed on "Thinking…", and Stop did
+ * nothing). The wait doubles while the answer stays quiet and running, up to QUIET_CHECK_MAX_MS. */
+export const QUIET_CHECK_MS = 20_000
+export const QUIET_CHECK_MAX_MS = 120_000
+/** messageId -> the read waiting for a quiet running answer (one per answer; `timer` null while that read runs) */
+const quietChecks = new Map<string, { timer: ReturnType<typeof setTimeout> | null }>()
 /** requests closed lately: a listTurnRequests answer computed before the close must not bring the card back */
 const closedRequests = new Set<string>()
 let generation = 0
@@ -295,7 +302,9 @@ export const useChats = create<ChatsState>((set, get) => {
     if ((changes.get(chatId) ?? 0) !== change) return false
     setThread(chatId, (t) => ({ messages: mergeFresh(t.messages, page.items), nextCursor: page.nextCursor, stale: false }))
     flushPending(chatId, page.items.map((m) => m.id))
-    for (const m of thread(chatId).messages) if (m.role === 'assistant' && m.status !== 'streaming') { remember(finishedMessages, m.id); clearQueue(m.id) }
+    for (const m of thread(chatId).messages) if (m.role === 'assistant' && m.status !== 'streaming') { remember(finishedMessages, m.id); clearQueue(m.id); ended(m.id) }
+    const live = runningMessage(thread(chatId).messages)
+    if (live && !quietChecks.has(live.id)) heard(chatId, live.id)
     if (queue) acceptQueue(chatId, queue, epoch)
     if (open) set((s) => ({ requests: mergeOpenRequests(s.requests, chatId, open.items, before) }))
     return true
@@ -356,6 +365,32 @@ export const useChats = create<ChatsState>((set, get) => {
     if (l.events.length < PENDING_EVENTS_MAX) l.events.push(ev)
     else l.again = true
     return true
+  }
+
+  /** Something was heard about a running answer (or it is on screen): read the chat again if nothing more is heard for
+   * `wait` (QUIET_CHECK_MS). After that read an answer still running waits twice as long, up to QUIET_CHECK_MAX_MS. */
+  const heard = (chatId: string, messageId: string, wait = QUIET_CHECK_MS) => {
+    const prev = quietChecks.get(messageId)
+    if (prev?.timer) clearTimeout(prev.timer)
+    const session = generation
+    const runningHere = () => !finishedMessages.has(messageId) && thread(chatId).messages.some((m) => m.id === messageId && m.status === 'streaming')
+    const q: { timer: ReturnType<typeof setTimeout> | null } = { timer: null }
+    quietChecks.set(messageId, q)
+    q.timer = setTimeout(() => {
+      q.timer = null
+      if (session !== generation || !get().threads[chatId] || !runningHere()) { ended(messageId); return }
+      load(chatId, true).catch(() => {}).finally(() => {
+        // something heard meanwhile armed a new check (or the answer ended): that one stays
+        if (session !== generation || quietChecks.get(messageId) !== q) return
+        if (runningHere()) heard(chatId, messageId, Math.min(wait * 2, QUIET_CHECK_MAX_MS))
+        else ended(messageId)
+      })
+    }, wait)
+  }
+  const ended = (messageId: string) => {
+    const q = quietChecks.get(messageId)
+    if (q?.timer) clearTimeout(q.timer)
+    quietChecks.delete(messageId)
   }
 
   /** the busy line goes when the answer shows text or a step, or ends */
@@ -429,6 +464,7 @@ export const useChats = create<ChatsState>((set, get) => {
     if (early?.done) remember(finishedMessages, started.assistantMessage.id)
     if (early?.deltas.length || early?.steps.length) remember(outputMessages, started.assistantMessage.id)
     flushPending(chatId, [started.assistantMessage.id, ...(started.userMessage ? [started.userMessage.id] : [])])
+    if (!finishedMessages.has(started.assistantMessage.id)) heard(chatId, started.assistantMessage.id)
     acceptQueue(chatId, { state: started.queuePosition > 0 ? 'queued' : 'running', turnId: started.turnId,
       messageId: started.assistantMessage.id, position: started.queuePosition, epoch: started.queueEpoch, revision: started.queueRevision }, requestEpoch)
   }
@@ -522,6 +558,8 @@ export const useChats = create<ChatsState>((set, get) => {
       changes.clear()
       for (const t of loadRetries.values()) clearTimeout(t)
       loadRetries.clear()
+      for (const q of quietChecks.values()) if (q.timer) clearTimeout(q.timer)
+      quietChecks.clear()
       closedRequests.clear()
       chatPlaces.clear()
       set(initial())
@@ -627,7 +665,10 @@ export const useChats = create<ChatsState>((set, get) => {
         await Promise.all(sending)
         if (session !== generation) return
       }
-      await api.call(API.stop, { params: { id: chatId } })
+      const r = await api.call(API.stop, { params: { id: chatId } })
+      // nothing was running there: the answer on screen ended already and its end never reached this page (QA TC-3521:
+      // Stop did nothing while "Thinking…" stayed). Read the chat again, so it shows how the answer ended
+      if (!r.stopped && session === generation && runningMessage(thread(chatId).messages)) await load(chatId, true).catch(() => {})
     },
 
     async regenerate(chatId, assistantId, engine) {
@@ -696,6 +737,7 @@ export const useChats = create<ChatsState>((set, get) => {
           else {
             setThread(chatId, (t) => ({ ...t, messages: r }))
             flushPending(chatId, [message.id])
+            if (message.role === 'assistant' && message.status === 'streaming' && !finishedMessages.has(message.id)) heard(chatId, message.id)
           }
           return
         }
@@ -705,6 +747,7 @@ export const useChats = create<ChatsState>((set, get) => {
           clearQueue(messageId)
           if (text) clearBusy(messageId)
           remember(outputMessages, messageId)
+          if (get().threads[chatId] && quietChecks.has(messageId)) heard(chatId, messageId)
           if (held(chatId, ev) || !get().threads[chatId]) return
           const r = applyDelta(thread(chatId).messages, d)
           if (r.kind === 'applied') setThread(chatId, (t) => ({ ...t, messages: r.messages }))
@@ -723,6 +766,7 @@ export const useChats = create<ChatsState>((set, get) => {
           clearQueue(messageId)
           clearBusy(messageId)
           remember(outputMessages, messageId)
+          if (get().threads[chatId] && quietChecks.has(messageId)) heard(chatId, messageId)
           if (held(chatId, ev) || !get().threads[chatId]) return
           const r = applyStep(thread(chatId).messages, messageId, step)
           if (r) setThread(chatId, (t) => ({ ...t, messages: r }))
@@ -740,6 +784,7 @@ export const useChats = create<ChatsState>((set, get) => {
           clearQueue(message.id)
           clearBusy(message.id)
           remember(finishedMessages, message.id)
+          ended(message.id)
           set((s) => ({ artifactsRev: { ...s.artifactsRev, [chatId]: (s.artifactsRev[chatId] ?? 0) + 1 } }))
           if (!get().threads[chatId]) { pendingOf(message.id).done = message; return }
           const r = applyDone(thread(chatId).messages, message)
