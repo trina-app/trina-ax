@@ -25,9 +25,15 @@ export function localLinkProblems(file: string, root = ROOT): string[] {
   }
   return problems
 }
+/** The design decision files (docs/decisions/*.md), README.md included. */
+export function decisionFiles(root = ROOT): string[] {
+  const dir = path.join(root, 'docs/decisions')
+  return fs.existsSync(dir) ? fs.readdirSync(dir).filter(f => f.endsWith('.md')).sort().map(f => `docs/decisions/${f}`) : []
+}
 export function checkOnboarding(): string[] {
-  // the entry pages, and every page of the documentation site (docs/site/, built by `bun run docs:build`)
-  const errors = [...ENTRY, ...siteMarkdownFiles()].flatMap(file => localLinkProblems(file))
+  // the entry pages, every page of the documentation site (docs/site/, built by `bun run docs:build`) and every design
+  // decision (docs/decisions/, whose Supersedes links may point at an anchor in docs/DECISIONS.md)
+  const errors = [...ENTRY, ...siteMarkdownFiles(), ...decisionFiles()].flatMap(file => localLinkProblems(file))
   const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8')
   const documentedOn = readme.includes('one company connection can serve the whole team by default')
   if (documentedOn !== PRODUCT.sharedSubscriptionsDefault) errors.push('README fresh-team default disagrees with PRODUCT; review defaults and all translations')

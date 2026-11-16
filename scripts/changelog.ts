@@ -107,8 +107,14 @@ export const INTEGRATION_BRANCH = 'dev'
  * repository, no credentials needed). `warn` says why a base that should be there could not be read; the comparison
  * is then skipped, not failed. */
 export function baseChangelog(root: string, env: Record<string, string | undefined> = process.env, warn: (why: string) => void = () => {}): string | null {
-  const git = (...args: string[]) => spawnSync('git', args, { cwd: root, encoding: 'utf8' })
-  let ref = env.CHANGELOG_BASE ?? ''
+  return baseFile(root, 'CHANGELOG.md', env, warn)
+}
+
+/** `file` (a path in the repository) as the PR's base has it, found as baseChangelog says; `ref` replaces
+ * `CHANGELOG_BASE` (scripts/decisions.ts passes `DECISIONS_BASE` first). */
+export function baseFile(root: string, file: string, env: Record<string, string | undefined> = process.env, warn: (why: string) => void = () => {}, ref = env.CHANGELOG_BASE ?? ''): string | null {
+  // docs/DECISIONS.md is over 3 MB: past spawnSync's 1 MB default the read fails with no message
+  const git = (...args: string[]) => spawnSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
   if (!ref) {
     const target = env.GITHUB_BASE_REF ?? ''
     if (!target) return null
@@ -121,8 +127,8 @@ export function baseChangelog(root: string, env: Record<string, string | undefin
     ref = 'FETCH_HEAD'
   }
   if (ref.startsWith('-')) { warn(`"${ref}" is not a git ref`); return null }
-  const shown = git('show', `${ref}:CHANGELOG.md`)
-  if (shown.status !== 0) { warn(`could not read CHANGELOG.md at ${ref}: ${(shown.stderr || '').trim()}`); return null }
+  const shown = git('show', `${ref}:${file}`)
+  if (shown.status !== 0) { warn(`could not read ${file} at ${ref}: ${(shown.stderr || '').trim()}`); return null }
   return shown.stdout
 }
 

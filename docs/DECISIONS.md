@@ -1,5 +1,10 @@
 # 결정 기록 (Stage 1 "권한 바닥 공사")
 
+> **Archive.** Since 2026-11-16 new decisions are one file each in [docs/decisions/](decisions/README.md)
+> (`<YYYYMMDD>-<topic>.md`); look there for anything decided after that day. Do not add sections or lines here
+> (`bun run check:docs` fails a PR that does); fixing a typo in an old entry is fine.
+> 2026-11-16부터 새 결정은 `docs/decisions/`에 한 파일씩 적는다. 이 파일은 그 전의 기록이다.
+
 설계서 v3(팀 AX 플랫폼 구현 설계서)를 기준으로, 설계서에 없거나 애매한 부분을 구현하면서 정한 것들이다.
 형식: **결정** — 이유. (날짜는 모두 2026-10-21)
 

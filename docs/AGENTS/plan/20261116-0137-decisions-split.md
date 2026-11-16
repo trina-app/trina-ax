@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16 01:37
 - Branch: `docs/decisions-split`
-- Status: in progress
+- Status: done
 - Where: this repository, `docs/decisions/` and `scripts/decisions.ts`. Why: every PR appended to the end of one
   file, so two open PRs always conflicted (see docs/REPOSITORY-RULES.md)
 - Version impact: none (docs and a docs check, nothing that ships)
@@ -55,4 +55,13 @@ tests/unit/changelog-fragments.test.ts`.
 
 ## Result
 
-Filled in at the end.
+Built as planned, plus two things found on the way:
+
+- The docs-only CI path (`.github/workflows/ci.yml`) matched Markdown directly under `docs/` only, so a PR that adds
+  just a decision file would have run the full CI. It now counts `docs/decisions/` too.
+- `docs/DECISIONS.md` is 3.4 MB, past `spawnSync`'s 1 MB default buffer: reading the base failed with no message and
+  the check would only have warned. The shared base reader (`baseFile` in `scripts/changelog.ts`) now has a large
+  buffer, with a test.
+
+Docs-site rendering skipped: the site has no DECISIONS page. The decision itself is the first file,
+`docs/decisions/20261116-decisions-split.md`.
