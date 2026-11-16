@@ -15,6 +15,7 @@ import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
 import { JobLine } from './jobs'
 import { OwnerSetup } from './OwnerChecklist'
 import { OldProjectsCard } from './OldProjectsCard'
+import { FolderShareNotice } from './FolderShareNotice'
 import { useAdminOverview } from './overview'
 
 export interface PhoneMenuGroup {
@@ -97,6 +98,8 @@ export default function PhoneRoot({ groups }: { groups: PhoneMenuGroup[] }) {
       ) : null}
 
       <OldProjectsCard compact />
+
+      <div className="px-4 empty:hidden"><FolderShareNotice /></div>
 
       {o.owner && <OwnerSetup compact />}
 

@@ -31,6 +31,7 @@ import { publishChanges } from './changes'
 import { atLeast, loadPrincipal, RuleSet } from '../policy/access'
 import { TeamFiles } from './service'
 import { fileSharesOf } from '../files/shares'
+import { listSharedFolder, sharedFolderChild } from '../files/shared-folder-reads'
 
 export interface ComponentC {
   hwp: HwpPreviews
@@ -70,7 +71,12 @@ export function componentC(ctx: AppContext): ComponentC {
   // a shared file's link follows its file (files/shares.ts: its file-event hook); the recipient's AI reads it by its
   // link or path (docs/decisions/20261116-shared-files-for-the-ai.md)
   const shares = fileSharesOf(ctx)
-  ctx.files.shared = { at: (user, input) => shares.grantedFile(user.id, input), link: (user, input) => shares.fileOfLink(user.id, input) }
+  ctx.files.shared = {
+    at: (user, input) => shares.grantedFile(user.id, input), link: (user, input) => shares.fileOfLink(user.id, input),
+    // inside a folder shared with them, by its link only (files/shared-folder-reads.ts)
+    folderList: (user, files, input, L) => listSharedFolder(ctx, user, files, input, L),
+    folderChild: (user, input, L) => sharedFolderChild(ctx, user, input, L),
+  }
   const teamRefs = new TeamFileRefs(ctx, files)
   const attachments = new Attachments(ctx, files, teamRefs)
   const uploads = new UploadSessions(ctx, files, attachments)

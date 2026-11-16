@@ -37,6 +37,13 @@
 // other folder is hidden in the run, the person's own users/<id> too when the project has other people (fail closed:
 // a run then cannot read or write the own folder). A run in the chat's work folder (start null) writes only the own
 // folder, so it keeps the person's whole read access. Without `people` the view is as before (the tests of the rules).
+// Shared folders (docs/decisions/20261116-folder-share-widening.md, D11 of the folder-sharing design): a folder in the
+// person's own files that they share with other people (files/folder-shares.ts) is read-only in a run. A run writes
+// straight to the disk and the server sees no single write it could ask about first, so a command could otherwise drop
+// a private file, or a link to one, into a folder other people open. The runner passes the person's shared folders
+// (RunWrites.shared); the AI moves a file in with move_files, which asks first. A share cannot be added while a run of
+// the person that could write there is alive (its view was made before). With `shareReaders`, the people of a share
+// read that folder too when a project run's read scope is worked out.
 // folderView with no run gives the person's access (what the person may open); with a run, the access of that run.
 import crypto from 'node:crypto'
 import { PRODUCT } from '@mycel/shared'
@@ -61,7 +68,12 @@ function accessOf(rules: Pick<RuleSet, 'access'>, p: Principal, folder: string):
 
 /** The folders that a run may write. start: the starting folder, team-relative (a project folder); null: the run
  * starts in the chat's work folder (outside the team folder), so only the person's own folder is writable. */
-export interface RunWrites { start: string | null }
+export interface RunWrites {
+  start: string | null
+  /** the person's own folders that they share with other people (files/share-readers.ts ownSharedFolders): never
+   * written in a run */
+  shared?: readonly string[]
+}
 
 const holderWord = (s: string | undefined) => { const f = (s ?? '').normalize('NFC').toLowerCase(); return f === 'groups' || f === 'projects' }
 /** The skill folders a run must not write though they are inside what it writes: the person's own skills, and the
@@ -77,19 +89,24 @@ const skillStart = (start: string) => skillRootOf(start) !== null || (!start.inc
  * folder (runSkillFolders). */
 export const runMayWrite = (run: RunWrites, personId: string, folder: string) =>
   ((run.start !== null && !skillStart(run.start) && isUnder(folder, run.start)) || isUnder(folder, `users/${personId}`)) && !runSkillFolders(run, personId).some((f) => isUnder(folder, f))
+    && !(run.shared ?? []).some((f) => isUnder(folder, f))
 
-/** Who may see `folder` (team-relative): every person whose access there is not none, with users/ and .system/ fixed. */
-const audienceOf = (rules: Pick<RuleSet, 'access'>, people: readonly Principal[], folder: string) =>
-  people.filter((q) => accessOf(rules, q, folder) !== 'none').map((q) => q.id)
+/** Who may see `folder` (team-relative): every person whose access there is not none, with users/ and .system/ fixed,
+ * and the people of a folder share there (`shareReaders`: files/share-readers.ts shareReaders). */
+const audienceOf = (rules: Pick<RuleSet, 'access'>, people: readonly Principal[], folder: string, shareReaders?: (folder: string) => ReadonlySet<string>) => {
+  const shared = shareReaders?.(folder)
+  return people.filter((q) => accessOf(rules, q, folder) !== 'none' || !!shared?.has(q.id)).map((q) => q.id)
+}
 
-export function folderView(rules: Pick<RuleSet, 'access' | 'boundaryFolders'>, p: Principal, run?: RunWrites, people?: readonly Principal[], zoneFolders: readonly string[] = []): FolderView {
+export function folderView(rules: Pick<RuleSet, 'access' | 'boundaryFolders'>, p: Principal, run?: RunWrites, people?: readonly Principal[], zoneFolders: readonly string[] = [], shareReaders?: (folder: string) => ReadonlySet<string>): FolderView {
   // the team root as a starting folder would make every folder writable again: fail closed
   if (run && run.start !== null && (run.start === '' || run.start.split('/').some((x) => x === '' || x === '.' || x === '..'))) throw new Error(`not a starting folder: ${JSON.stringify(run.start)}`)
   const cands = new Set<string>(['', 'users', `users/${p.id}`, PRODUCT.systemDir])
   // access can change at the starting folder too (write in it, read above it), also when it has no rules of its own
   if (run?.start) cands.add(run.start)
-  // and at the skill folders inside what the run writes: read-only there (runMayWrite)
+  // and at the skill folders inside what the run writes, and at the person's shared folders: read-only there (runMayWrite)
   if (run) for (const f of runSkillFolders(run, p.id)) cands.add(f)
+  if (run) for (const f of run.shared ?? []) if (isUnder(f, `users/${p.id}`) && !segsOf(f).some((x) => x === '' || x === '.' || x === '..')) cands.add(f)
   for (const f of rules.boundaryFolders()) {
     const s = segsOf(f)
     // rules under users/ are ignored by the rules themselves; a temp name never has rules that matter
@@ -103,10 +120,10 @@ export function folderView(rules: Pick<RuleSet, 'access' | 'boundaryFolders'>, p
   const sorted = [...cands].sort((a, b) => depth(a) - depth(b) || (a < b ? -1 : a > b ? 1 : 0))
   // a project run: the people who see the starting folder (the person included); a folder outside it is read only when
   // all of them read it too (see the note above folderView)
-  const startAudience = run?.start && people ? audienceOf(rules, [...people.filter((q) => q.id !== p.id), p], run.start) : null
+  const startAudience = run?.start && people ? audienceOf(rules, [...people.filter((q) => q.id !== p.id), p], run.start, shareReaders) : null
   const coversStart = (folder: string) => {
     if (!startAudience) return true
-    const readers = new Set(audienceOf(rules, [...people!.filter((q) => q.id !== p.id), p], folder))
+    const readers = new Set(audienceOf(rules, [...people!.filter((q) => q.id !== p.id), p], folder, shareReaders))
     return startAudience.every((id) => readers.has(id))
   }
   const out: FolderView = { read: [], write: [], denyRead: [], denyWrite: [] }

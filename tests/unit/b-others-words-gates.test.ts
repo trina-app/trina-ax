@@ -445,6 +445,8 @@ describe('second review: what "made in this answer" means, and a chat that read 
   })
 
   test('my own chat: "Always allow" is final, whatever my message names (owner 2026-11-13)', async () => {
+    // (a file nobody has yet: "already open" is said before any card, AI sharing integration)
+    h.ctx.db.query("DELETE FROM file_shares WHERE path = 'users/bob/ledger-1.txt'").run()
     const none = await turn('bob', `go on\n${unnamed(1)}`)
     expect(none.cards).toHaveLength(0)
     expect(JSON.parse(none.content).status).toBe('shared')

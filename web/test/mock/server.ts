@@ -77,7 +77,7 @@ import type { SkillMoveTarget } from '@mycel/shared/api'
 import type { IntegrationAuth, IntegrationKind, OAuthClientInput, OAuthClientView } from '@mycel/shared/api'
 import type { EndedConnection, HandoverConnection, HandoverRecovery, HandoverState, InboxNotification } from '@mycel/shared/api'
 import type { MemberWelcome, ScheduleRun } from '@mycel/shared/api'
-import { activityTabHas, FILE_SHARE_EVERYONE, fileLinkUrl, type FileShareRow } from '@mycel/shared/api'
+import { activityTabHas, FILE_SHARE_EVERYONE, FILE_SHARE_MAX, fileLinkUrl, SHARE_UNDO_MS, type FileShareRow, type FolderShareBlock, type TreeResponse } from '@mycel/shared/api'
 import { ORGANIZE_LIMITS, REASON_FOLDER, formKind, formSkillType, formStem, nameReason, organizePlan, type AiOrganize, type OrganizePlan } from '@mycel/shared/api'
 import { MySlack, SlackAdmin } from '@mycel/shared/api'
 import { MOCK_ANSWER_HEADER } from '../e2e/coverage-report'
@@ -97,7 +97,7 @@ import { serveWeb } from '../../../server/src/routes/web-static'
 import { TEXT as TEAM_ICON_TEXT } from '../../../server/src/admin/team-icon'
 import { msg as serverMsg } from '../../../server/src/auth/messages'
 import { folderKeep, isParkedRow, isTeamDefaultFolder } from '../../../server/src/admin/folder-keep'
-import { checkTeamIcon, CHAT_FILES_FOLDER, FROM_COMPUTER_DIR, stepLabel, stepText, TEAM_ICON_MAX_BYTES, WEB_ALLOW_ALL_WARNING_VERSION, type TeamIconFile } from '@mycel/shared'
+import { checkTeamIcon, CHAT_FILES_FOLDER, FROM_COMPUTER_DIR, offersFolderShare, stepLabel, stepText, TEAM_ICON_MAX_BYTES, WEB_ALLOW_ALL_WARNING_VERSION, type TeamIconFile } from '@mycel/shared'
 import { MSG as FILE_MSG } from '../../../server/src/team-files/errors'
 import { TEXT as CHAT_TEXT } from '../../../server/src/chat/i18n'
 import { say as connectionSay } from '../../../server/src/integrations/connections/text'
@@ -1962,6 +1962,23 @@ export class MockServer {
       this.openAsks.delete(turnId)
       pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
     }
+    if (/nextstep (view|owner|admin|project)/i.test(prompt)) {
+      // like server/src/files/share-fixes.ts (docs/decisions/20261116-ai-share-who-can-open.md): a step with one offer the
+      // server wrote (Step.fixes); POST /api/share-fixes/:id/run answers what it became. "nextstep view": after a post,
+      // people named, Let them view; "owner": someone else's file, counted, Ask <owner>; "admin": a team folder, Ask an
+      // admin; "project": this chat is private in a team project, Share with project (the app's own share flow)
+      const kind = /nextstep (view|owner|admin|project)/i.exec(prompt)![1]!.toLowerCase()
+      const id = uuidv7()
+      const fix: import('@mycel/shared/api').StepFix = kind === 'view' ? { id, kind: 'let_view', file: 'Quote.pdf', place: '#Sales', people: ['Jun Park', 'Mina Seo', 'Leo Kim'], count: 4, guests: 1, state: 'open' }
+        : kind === 'owner' ? { id, kind: 'ask_owner', file: 'Quote.pdf', place: '#Sales', owner: 'Mina Seo', count: 3, state: 'open' }
+          : kind === 'admin' ? { id, kind: 'ask_admin', file: 'Contracts', owner: 'Dana Choi', people: ['Jun Park'], count: 1, state: 'open' }
+            : { id, kind: 'share_project', file: this.projects.find((p) => p.id === this.chats.find((c) => c.id === chatId)?.projectId)?.name ?? 'Launch', chatId, count: 0, state: 'open' }
+      this.stepFixes.set(id, { userId: user.id, messageId: assistant.id, left: kind === 'view' ? 1 : 0 })
+      const tool = kind === 'view' || kind === 'owner' ? 'post_to_room' : 'who_can_open'
+      const x = step({ id: 'N1', kind: 'tool', tool, label: tool === 'post_to_room' ? 'Send to conversation · #Sales' : 'Check who can open it', status: 'ok', endedAt: now(), fixes: [fix] })
+      assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]
+      pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } })
+    }
     if (/postroomcard/i.test(prompt)) {
       // like server/src/chat/post-to-room.ts: ONE card with the room and its people, the note apart (under my name), all
       // of the text (folded past 600), the lines that apply, the files [파일도 함께 보내기] attaches; after a yes the step
@@ -2046,6 +2063,158 @@ export class MockServer {
       return Array.isArray(answer) ? answer[0] : answer
     }
     const chatProject = () => this.projects.find((x) => x.id === this.chats.find((c) => c.id === chatId)?.projectId)
+    if (/folderaccess/i.test(prompt)) {
+      // like server/src/chat/folder-access-tool.ts (docs/decisions/20261116-sharing-all-integration.md): an admin's
+      // change_folder_access card, with "Always allow" (kind folder_access) and its own risk words; "folderaccess": the
+      // Sales group gets view (Change / Always allow / Cancel, three buttons); "folderaccess links": the group taken off
+      // while files inside are shared one by one (four choices: the file shares line is the card's last line, the note
+      // the always words). Once chosen, no card; a narrowing then keeps the file shares. The result is TeamFolderCard.
+      const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
+      const remove = /links/i.test(prompt)
+      const label = 'Change folder access · Reports'
+      put(step({ id: 'S1', kind: 'tool', tool: 'change_folder_access', label }))
+      this.sharedBy.set(`${assistant.id}:S1`, user.id)
+      const sales = { subjectType: 'group' as const, subjectId: 'g-sales', name: 'Sales', members: 3 }
+      const alwaysOn = this.aiAllowances.some((a) => a.kind === 'card' && a.card === 'folder_access')
+      let v: unknown = remove ? 'change_keep' : 'change'
+      if (!alwaysOn) {
+        const always = { label: 'Always allow', value: '__always' }
+        v = await ask({
+          kind: 'ask_user', origin: 'server', requestId: remove ? 'fa2' : 'fa1', allowText: false, multiple: false,
+          question: remove ? 'Take the Sales group off Company-wide › Reports?' : 'Give the Sales group view access to Company-wide › Reports?',
+          details: [{ label: 'Who can open it', noSize: true, text: remove
+            ? 'Now: 7 people can open it. After: 4 people.\nGets access: nobody\nLoses access: Bob, Mina, Jun\nFiles inside are shared one by one with 1 person. Choose whether those shares go too.'
+            : 'Now: 4 people can open it. After: 7 people.\nGets access: Bob, Mina, Jun\nLoses access: nobody\nWhoever joins the group later can open it too.' }],
+          options: remove
+            ? [{ label: 'Change and remove file shares', value: 'change_remove' }, { label: 'Change, keep file shares', value: 'change_keep' }, always, { label: 'Cancel', value: 'no' }]
+            : [{ label: 'Change', value: 'change' }, always, { label: 'Cancel', value: 'no' }],
+          buttons: true,
+          note: 'From now on Trina changes who can open team folders without asking, even when a file or message tells it to. Files inside that were shared one by one stay shared. Undo it in Settings › Allowed for Trina.',
+        })
+        if (v === '__always') {
+          this.aiAllowances = [{ kind: 'card', id: 'card:folder_access', card: 'folder_access', createdAt: now() }, ...this.aiAllowances]
+          v = remove ? 'change_keep' : 'change'
+        }
+      }
+      if (v !== 'change' && v !== 'change_keep' && v !== 'change_remove') {
+        put(step({ id: 'S1', kind: 'tool', tool: 'change_folder_access', label, status: 'ok', endedAt: now(), detail: 'Not changed' }))
+        finish('Okay, nothing changed.')
+        return
+      }
+      const teamFolder = remove
+        ? { name: 'Reports', place: 'Company-wide › Reports', action: 'remove' as const, before: 7, after: 4, gained: [], gainedCount: 0, lost: ['Bob', 'Mina', 'Jun'], lostCount: 3, fileShares: v === 'change_remove' ? 'removed' as const : 'kept' as const }
+        : { name: 'Reports', place: 'Company-wide › Reports', action: 'add' as const, access: 'view' as const, before: 4, after: 7, gained: ['Bob', 'Mina', 'Jun'], gainedCount: 3, lost: [], lostCount: 0 }
+      put(step({ id: 'S1', kind: 'tool', tool: 'change_folder_access', label, status: 'ok', endedAt: now(), shared: { op: remove ? 'stop' : 'share', outcome: 'done', files: [], who: [sales], level: 'view', teamFolder } }))
+      finish(remove ? 'Done, the Sales group can no longer open Reports.' : 'Done, the Sales group can view Reports now.')
+      return
+    }
+    if (/sharecard/i.test(prompt)) {
+      // like server/src/chat/share-with-person.ts and stop-sharing.ts (docs/decisions/20261116-ai-share-card-and-stop.md):
+      // ONE card. "sharecard": the confirmation card with the record's rows, then the step keeps what was done
+      // (Step.shared) and the grant is really made here, so Manage access shows it; "sharecard stop": no card (a stop only
+      // narrows), the grant removed, who can still open it; "sharecard many": four files, no card; "sharecard refused":
+      // someone else's file. The record is the asker's alone (sharedBy, stripped for other viewers in listMessages).
+      const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
+      const ko = (user.localeChoice ?? this.settings.defaultLocale) === 'ko'
+      const place = ko ? '내 파일 › 업무' : 'My files › Work'
+      for (const n of ['Quote.pdf', 'Budget.xlsx', 'Notes.docx', 'Plan.md']) if (!this.files.has(`users/${user.id}/${n}`)) this.putFile(`users/${user.id}/${n}`, `# ${n}\n`)
+      const bob = this.users.find((u) => u.id === 'bob')!
+      const who = [{ subjectType: 'user' as const, subjectId: bob.id, name: bob.name }]
+      const row = (n: string) => ({ linkId: this.fileLinkOf(`users/${user.id}/${n}`), name: n, place })
+      const grant = (n: string, on: boolean) => { const p = `users/${user.id}/${n}`; const rest = (this.fileGrants.get(p) ?? []).filter((x) => !(x.subjectType === 'user' && x.subjectId === bob.id)); this.fileGrants.set(p, on ? [...rest, { subjectType: 'user', subjectId: bob.id }] : rest) }
+      if (/folder/i.test(prompt)) {
+        let said = ''
+        // like server/src/chat/share-folder.ts (docs/decisions/20261116-share-folder-tool.md): "sharecard folder": the card
+        // always, with the folder row (what it holds) and the later-files line, then the result; "sharecard folder stop":
+        // no card (the folder named), the grant removed, the record with the server's Undo snapshot
+        const p = `users/${user.id}/QA-test`
+        this.files.set(p, { type: 'folder', mtime: now() })
+        for (const n of ['brief.md', 'notes.md']) if (!this.files.has(`${p}/${n}`)) this.putFile(`${p}/${n}`, `# ${n}\n`)
+        const frow = { linkId: this.fileLinkOf(p), name: 'QA-test', place: ko ? '내 파일' : 'My files', folder: { files: 2, folders: 0 } }
+        const fverb = ko ? '폴더 공유' : 'Share folder'
+        put(step({ id: 'S1', kind: 'tool', tool: 'share_folder', label: fverb }))
+        this.sharedBy.set(`${assistant.id}:S1`, user.id)
+        const others = (this.fileGrants.get(p) ?? []).filter((x) => !(x.subjectType === 'user' && x.subjectId === bob.id))
+        let fshared: NonNullable<Step['shared']> | undefined
+        if (/stop/i.test(prompt)) {
+          this.fileGrants.set(p, others)
+          const id = crypto.randomUUID().replace(/-/g, '').slice(0, 22)
+          const until = Date.now() + 10 * 60_000
+          this.shareUndos.set(id, { userId: user.id, path: p, grants: [{ subjectType: 'user', subjectId: bob.id }], until, used: false })
+          fshared = { op: 'stop', outcome: 'done', files: [frow], who, level: 'view', undo: { id, until: new Date(until).toISOString() } }
+          said = ko ? '공유를 중지했어요.' : 'Done, Bob can no longer open it.'
+        } else {
+          // "sharecard folder always": the card offers "Always allow" (kind share_folder, server chat/always-allow.ts
+          // withAlways: before the last option, the folder's own risk words under the buttons); once chosen, no card
+          const alwaysOn = this.aiAllowances.some((a) => a.kind === 'card' && a.card === 'share_folder')
+          const offer = /always/i.test(prompt)
+          let answer: unknown = 'yes'
+          if (!alwaysOn) {
+            answer = await ask({
+              kind: 'ask_user', origin: 'server', requestId: 'sf1', allowText: false, multiple: false,
+              question: ko ? `QA-test 폴더를 ${bob.name}에게 공유할까요?` : `Share QA-test with ${bob.name}?`,
+              options: [{ label: ko ? '공유하기' : 'Share', value: 'yes' }, ...(offer ? [{ label: 'Always allow', value: '__always' }] : []), { label: ko ? '공유하지 않기' : "Don't share", value: 'no' }],
+              ...(offer ? { buttons: true as const, note: 'From now on Trina shares your folders without asking, even when a file or message tells it to. Undo it in Settings › Allowed for Trina.' } : {}),
+              share: { op: 'share', files: [{ name: 'QA-test', place: frow.place, folder: frow.folder }], who },
+            })
+            if (answer === '__always') {
+              this.aiAllowances = [{ kind: 'card', id: 'card:share_folder', card: 'share_folder', createdAt: now() }, ...this.aiAllowances]
+              answer = 'yes'
+            }
+          }
+          if (answer === 'yes') {
+            this.fileGrants.set(p, [...others, { subjectType: 'user', subjectId: bob.id }])
+            fshared = { op: 'share', outcome: 'done', files: [frow], who, level: 'view', notified: [bob.id] }
+            said = ko ? '공유했어요.' : `Done, ${bob.name} can view it now.`
+          } else said = ko ? '공유하지 않았어요.' : 'Okay, nothing was shared.'
+        }
+        put(step({ id: 'S1', kind: 'tool', tool: 'share_folder', label: fshared ? `${fverb} · ${bob.name}` : fverb, status: 'ok', endedAt: now(), ...(fshared ? { shared: fshared } : { detail: ko ? '공유하지 않았어요' : 'Not shared' }) }))
+        finish(said)
+        return
+      }
+      const many = /many/i.test(prompt), stop = /stop/i.test(prompt), refusedCase = /refused/i.test(prompt)
+      const tool = stop ? 'stop_sharing' : 'share_with_person'
+      const verb = stop ? (ko ? '공유 중지' : 'Stop sharing') : (ko ? '파일 공유' : 'Share files')
+      put(step({ id: 'S1', kind: 'tool', tool, label: verb }))
+      this.sharedBy.set(`${assistant.id}:S1`, user.id)
+      let shared: NonNullable<Step['shared']> | undefined
+      let fixes: Step['fixes']
+      let said = ''
+      if (refusedCase) {
+        // like server/src/chat/share-with-person.ts: the refusal's next step is the server's stored offer on the same step
+        // (Step.fixes), named by the card's record (next.fixId); the card shows it as its button, never again under the answer
+        const fid = uuidv7()
+        this.stepFixes.set(fid, { userId: user.id, messageId: assistant.id, left: 0 })
+        fixes = [{ id: fid, kind: 'ask_owner', file: 'Quote.xlsx', owner: 'Mina', people: [bob.name], count: 1, state: 'open' }]
+        shared = { op: 'share', outcome: 'refused', files: [], failed: [{ linkId: this.fileLinkOf(`users/${user.id}/Quote.pdf`), name: 'Quote.xlsx', place: ko ? '팀 폴더 › 영업' : 'Team folder › Sales' }], who: [], level: 'view', refusal: { reason: 'not_owner', file: 'Quote.xlsx', owner: 'Mina' }, next: { kind: 'ask_owner', fixId: fid, name: 'Mina' } }
+        said = ko ? '그 파일은 Mina님의 파일이라 공유하지 못했어요.' : "I couldn't share it: that file is Mina's."
+      } else if (stop) {
+        grant('Quote.pdf', false)
+        shared = { op: 'stop', outcome: 'done', files: [row('Quote.pdf')], who, level: 'view', still: [{ userId: bob.id, name: bob.name, through: 'group', group: ko ? '영업' : 'Sales', files: 1 }] }
+        said = ko ? `공유를 중지했어요.` : 'Done, sharing is stopped.'
+      } else if (many) {
+        const names = ['Quote.pdf', 'Budget.xlsx', 'Notes.docx', 'Plan.md']
+        for (const n of names) grant(n, true)
+        shared = { op: 'share', outcome: 'done', files: names.map(row), who, level: 'view', notified: [bob.id] }
+        said = ko ? '공유했어요.' : 'Done, they are shared.'
+      } else {
+        const answer = await ask({
+          kind: 'ask_user', origin: 'server', requestId: 'sc1', allowText: false, multiple: false,
+          question: ko ? `${bob.name}님에게 파일 1개를 공유할까요?` : `Share 1 file with ${bob.name}?`,
+          options: [{ label: ko ? '공유하기' : 'Share', value: 'share' }, { label: ko ? '공유하지 않기' : "Don't share", value: 'no' }],
+          details: [{ label: ko ? '공유할 파일' : 'Files', text: 'Quote.pdf', noSize: true }],
+          share: { op: 'share', files: [{ name: 'Quote.pdf', place }], who },
+        })
+        if (answer === 'share') {
+          grant('Quote.pdf', true)
+          shared = { op: 'share', outcome: 'done', files: [row('Quote.pdf')], who, level: 'view', notified: [bob.id] }
+          said = ko ? '공유했어요.' : `Done, ${bob.name} can view it now.`
+        } else said = ko ? '공유하지 않았어요.' : 'Okay, nothing was shared.'
+      }
+      put(step({ id: 'S1', kind: 'tool', tool, label: shared && !refusedCase ? `${verb} · ${bob.name}` : verb, status: refusedCase ? 'error' : 'ok', endedAt: now(), ...(shared ? { shared } : { detail: ko ? '공유하지 않았어요' : 'Not shared' }), ...(fixes ? { fixes } : {}) }))
+      finish(said)
+      return
+    }
     if (/projectskillsave/i.test(prompt)) {
       const project = chatProject() ?? this.projects[0]
       const name = /projectskillsave\s+([a-z0-9-]+)/i.exec(prompt)?.[1] ?? 'quote'
@@ -6223,9 +6392,31 @@ export class MockServer {
   fileGrantMeta = new Map<string, { by: string; at: string }>()
   fileRequests: { id: string; linkId: string; path: string; userId: string; ownerId: string | null; note: string | null; at: string; state: 'pending' | 'approved' | 'declined' | 'closed' }[] = []
   fileRequestLimit = Infinity
+  /** the offers of "nextstep …" answers (Step.fixes): who may run each, and the answer it is on */
+  stepFixes = new Map<string, { userId: string; messageId: string; left: number }>()
   lastRemoveFileLinks: boolean | null = null
+  /** who ran a share step ("<messageId>:<stepId>"): its record (Step.shared) is theirs alone (chat/store.ts viewSteps) */
+  sharedBy = new Map<string, string>()
   readonly fileSharesInstalled = this.installFileShares()
 
+  // ---------------- a member shares a folder in their own files (server/src/files/folder-shares.ts, short) ----------------
+  // Docs: docs/decisions/20261116-folder-share-server.md; the web part docs/AGENTS/plan/20261116-1330-folder-share-web.md.
+  // A folder at users/<me>/<name>/… (never the personal folder itself or a kept place) gets the file's row: a link id in
+  // fileLinks and its people in fileGrants, by the folder's path. Whatever is inside opens by the link and a path inside
+  // it (sub) for the people on it, view only; nested shares add up; a paused share opens for nobody until its owner
+  // resumes it. A removal answers an undo id (10 minutes, the remover only, once). Test-only: POST /__test/folder-shares
+  // {on?: the gate (closed until then, as on every server), world?: Bob's folders (users/bob/Work with Plan.md, Budget.csv,
+  // Q4/Notes.md and a hidden file; users/bob/Drafts; users/bob/downloads), paused?: [path] (the folder on the server is not
+  // the one shared; the owner gets the notice), blocked?: {path: reason} (disk, run_active, project), wide?: the
+  // caller has Always allow on for wider saves, undoExpired?: every undo has expired}.
+  /** the rollout gate (server/src/files/folder-share-gate.ts): closed until POST /__test/folder-shares {on: true} */
+  folderSharesOn = false
+  /** shared folders whose folder on the server is not the one shared: nobody opens them until the owner resumes */
+  folderPaused = new Set<string>()
+  folderBlocks = new Map<string, FolderShareBlock>()
+  folderWideSaves = false
+  shareUndos = new Map<string, { userId: string; path: string; grants: { subjectType: 'user' | 'group'; subjectId: string }[]; until: number; used: boolean }>()
+  readonly folderSharesInstalled = this.installFolderShares()
   // ---------------- Ask for access on a chat's or project's link (server/src/chat/access-requests.ts, short) ----------
   // GET /api/link-access/:kind/:id says open / no_access (canAsk, askedAt) / unknown and nothing of the chat or
   // project; the ask goes to a chat's creator (a chat outside projects; a shared chat of a team project asks for its
@@ -6260,6 +6451,8 @@ export class MockServer {
     const ownerId = this.fileOwner(path)
     const owner = ownerId ? this.users.find((x) => x.id === ownerId) : undefined
     const canShare = this.canShareFile(path, u)
+    // taking people off: whoever may share, and the file's owner always (files/shares.ts shareRight `stop`)
+    const canStop = canShare || (u.role !== 'guest' && ownerId === u.id)
     const rows = (this.fileGrants.get(path) ?? []).flatMap((x): FileShareRow[] => {
       if (x.subjectType === 'group' && x.subjectId === FILE_SHARE_EVERYONE) return [{ subjectType: 'group' as const, subjectId: FILE_SHARE_EVERYONE, name: (u.localeChoice ?? this.settings.defaultLocale) === 'ko' ? '\ud300 \uc804\uccb4' : 'Everyone on the team', everyone: true as const }]
       if (x.subjectType === 'group') { const g = this.groups.find((y) => y.id === x.subjectId); return g ? [{ subjectType: 'group' as const, subjectId: g.id, name: g.name }] : [] }
@@ -6268,7 +6461,7 @@ export class MockServer {
     })
     const linkId = [...this.fileLinks].find(([, p]) => p === path)?.[0]
     return {
-      path, link: linkId ? { id: linkId, url: fileLinkUrl(linkId) } : null, canShare,
+      path, link: linkId ? { id: linkId, url: fileLinkUrl(linkId) } : null, canShare, canStop,
       owner: owner ? { id: owner.id, name: owner.name } : null, mine: ownerId === u.id, teamFile: !path.startsWith('users/'),
       ...(u.role === 'member' && ownerId === u.id && !this.settings.memberFileShares ? { off: true as const } : {}),
       people: canShare || this.grantedFile(path, u) || ownerId === u.id ? rows : [],
@@ -6297,7 +6490,9 @@ export class MockServer {
       const path: string = c.body.path
       fileAt(path)
       if (this.access(path, c.user) === 'none') fail('not_found', 404)
-      if (!this.canShareFile(path, c.user)) {
+      // (a call that only takes people off passes for the file's owner: files/shares.ts)
+      const stopOnly = !(c.body.add as unknown[]).length && this.fileOwner(path) === c.user.id && c.user.role !== 'guest'
+      if (!this.canShareFile(path, c.user) && !stopOnly) {
         if (this.fileOwner(path) === c.user.id && !this.settings.memberFileShares) fail('forbidden', 403, 'Your team turned off sharing files for members.', undefined, { reason: 'file_shares_off' })
         fail('forbidden', 403, 'Only the owner can share this file.', undefined, { reason: 'file_share_not_owner' })
       }
@@ -6316,6 +6511,23 @@ export class MockServer {
       this.fileGrants.set(path, list.filter((x) => !out.has(key(x))))
       if (list.length) this.fileLinkOf(path)
       return this.fileSharesView(path, c.user)
+    }
+    // an AI share card's files as the caller may see them now (files/shares.ts cards): by link id; `gone` for anything
+    // the folder rules do not let them read
+    h.shareCards = (c) => ({
+      items: [...new Set(c.body.ids as string[])].map((id) => {
+        const path = this.fileLinks.get(id)
+        if (!path || !this.files.has(path) || this.access(path, c.user) === 'none') return { id, gone: true as const }
+        const v = this.fileSharesView(path, c.user)
+        if (!v.canShare && !v.canStop) return { id, gone: true as const }
+        return { id, path, name: path.slice(path.lastIndexOf('/') + 1), canShare: v.canShare, canStop: v.canStop, people: v.people }
+      }),
+    })
+    // a share step's record (Step.shared) and the names in its label are its runner's alone (chat/store.ts viewSteps)
+    const baseList = h.listMessages
+    h.listMessages = (c) => {
+      const out = baseList!(c) as { items: Message[] }
+      return { ...out, items: out.items.map((m) => (m.steps?.some((s) => s.shared) ? { ...m, steps: m.steps.map((s) => { if (!s.shared || this.sharedBy.get(`${m.id}:${s.id}`) === c.user.id) return s; const { shared: _sh, detail: _d, ...rest } = s; return { ...rest, label: s.label.split(' · ')[0]! } }) } : m)) }
     }
     // several files in one press (files/shares.ts shareMany): each as the PUT's add, refusals listed; one notice per person
     h.shareFilesBatch = (c) => {
@@ -6399,6 +6611,20 @@ export class MockServer {
       const name = path!.slice(path!.lastIndexOf('/') + 1)
       return new Response(n.data! as unknown as BodyInit, { headers: { 'content-type': mimeOf(path!) ?? 'application/octet-stream', 'content-length': String(n.data!.byteLength), 'content-disposition': `${c.query.disposition === 'inline' ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(name)}`, 'x-content-type-options': 'nosniff', 'content-security-policy': "sandbox; default-src 'none'" } })
     }
+    // one-tap next steps (server/src/files/share-fixes.ts): once, only for the person the offer was made for
+    h.runShareFix = (c) => {
+      const o = this.stepFixes.get(c.params.id!)
+      if (!o || o.userId !== c.user.id) fail('not_found', 404)
+      for (const m of this.messages) for (const s of m.steps ?? []) for (const f of s.fixes ?? []) {
+        if (f.id !== c.params.id) continue
+        if (f.kind === 'share_project') return { state: f.state }
+        if (/refuse/i.test(f.file)) fail('forbidden', 403, 'Only the file\'s owner can share it.', undefined, { reason: 'file_share_not_owner' })
+        if (f.state === 'open') { f.state = 'done'; f.doneCount = f.kind === 'let_view' ? f.count : f.kind === 'ask_admin' ? 1 : f.count; if (o!.left) f.left = o!.left }
+        return { state: f.state, ...(f.doneCount !== undefined ? { doneCount: f.doneCount } : {}), ...(f.left ? { left: f.left } : {}) }
+      }
+      return fail('not_found', 404)
+    }
+    h.grantedFileLink = () => ({ id: null })
     h.requestFileAccess = (c) => {
       if (c.user.role === 'guest') fail('forbidden', 403)
       const path = this.fileLinks.get(c.params.id!)
@@ -6553,6 +6779,341 @@ export class MockServer {
         this.note('olga', { kind: 'file_share', code: 'file.access_requested', requestId: r.id })
       }
       return Response.json({ ok: true, open: FILE_LINK_OPEN, ask: FILE_LINK_ASK })
+    }
+  }
+
+  private installFolderShares() {
+    const h = this.handlers
+    type Sub = { subjectType: 'user' | 'group'; subjectId: string }
+    const key = (x: Sub) => `${x.subjectType}:${x.subjectId}`
+    const isFolder = (p: string) => this.files.get(p)?.type === 'folder'
+    const base = (p: string) => p.slice(p.lastIndexOf('/') + 1)
+    const reaches = (x: Sub, u: User) => u.role !== 'guest' && u.status === 'active' && (x.subjectType === 'user' ? x.subjectId === u.id : x.subjectId === FILE_SHARE_EVERYONE || u.groupIds.includes(x.subjectId))
+    /** the folders at or above `p` that can carry a share (users/<id>/<name>/… and deeper), nearest first */
+    const above = (p: string, self = true) => {
+      const segs = p.split('/')
+      const out: string[] = []
+      if (segs[0] !== 'users') return out
+      for (let n = self ? segs.length : segs.length - 1; n >= 3; n--) out.push(segs.slice(0, n).join('/'))
+      return out
+    }
+    const shared = (p: string) => isFolder(p) && (this.fileGrants.get(p)?.length ?? 0) > 0
+    /** the shared folder at or above `p` that lets `u` in (live, not paused), nearest first; null: none */
+    const grantFor = (p: string, u: User) => above(p).find((f) => isFolder(f) && !this.folderPaused.has(f) && (this.fileGrants.get(f) ?? []).some((x) => reaches(x, u))) ?? null
+    const ownerOf = (p: string) => p.split('/')[1] ?? ''
+    const blockOf = (p: string, u: User): FolderShareBlock | null => {
+      const segs = p.split('/')
+      if (segs[0] !== 'users') return 'team_folder'
+      if (segs.length < 3) return 'root'
+      if (segs[1] !== u.id || !offersFolderShare(p, u.id)) return 'system_place'
+      if (this.projects.some((x) => x.folderPath === p || x.folderPath.startsWith(p + '/') || p.startsWith(x.folderPath + '/'))) return 'project'
+      return this.folderBlocks.get(p) ?? null
+    }
+    const changed = () => this.publish({ type: 'notice', data: { level: 'info', code: 'file_shares_changed', message: '' } })
+    const holds = (p: string) => {
+      const kids = [...this.files.entries()].filter(([q]) => q.startsWith(p + '/') && !q.slice(p.length + 1).includes('/') && !base(q).startsWith('.'))
+      return { files: kids.filter(([, n]) => n.type === 'file').length, folders: kids.filter(([, n]) => n.type === 'folder').length, more: false }
+    }
+    const ownShares = (p: string) => {
+      const rows = [...this.fileGrants].filter(([q, l]) => q.startsWith(p + '/') && l.length && this.files.has(q)).sort(([a], [b]) => a.localeCompare(b))
+      if (!rows.length) return undefined
+      const people = new Set(rows.flatMap(([, l]) => l.map(key)))
+      return { files: rows.filter(([q]) => !isFolder(q)).length, folders: rows.filter(([q]) => isFolder(q)).length, people: people.size, names: rows.slice(0, 5).map(([q]) => ({ name: base(q), folder: isFolder(q) })) }
+    }
+    const through = (p: string, u: User) => {
+      if (!this.folderSharesOn || ownerOf(p) !== u.id) return {}
+      const rows = above(p, false).filter((f) => shared(f) && !this.folderPaused.has(f))
+      return rows.length ? { through: rows.slice(0, 8).map((f) => ({ path: f, name: base(f), people: this.fileSharesView(f, u).people })) } : {}
+    }
+    const view = (p: string, u: User) => {
+      const b = this.fileSharesView(p, u)
+      if (ownerOf(p) !== u.id || !p.startsWith('users/')) return { path: p, link: null, canShare: false, owner: null, mine: false, teamFile: !p.startsWith('users/'), people: [], kind: 'folder' as const, blocked: 'team_folder' as const }
+      const block = blockOf(p, u)
+      const off = u.role === 'member' && !this.settings.memberFileShares
+      const own = ownShares(p)
+      return {
+        ...b, kind: 'folder' as const, canShare: !block && !off, ...(off ? { off: true as const } : {}),
+        people: block && block !== 'disk' && block !== 'run_active' ? [] : b.people,
+        ...(block ? { blocked: block } : {}), ...(this.folderPaused.has(p) && shared(p) ? { paused: true as const } : {}),
+        holds: holds(p), ...(own ? { ownShares: own } : {}), ...through(p, u), ...(this.folderWideSaves ? { wideSavesOn: true as const } : {}),
+      }
+    }
+    const saveUndo = (u: User, p: string, grants: Sub[]) => {
+      if (!grants.length) return null
+      const id = crypto.randomUUID().replace(/-/g, '').slice(0, 22)
+      const until = Date.now() + SHARE_UNDO_MS
+      this.shareUndos.set(id, { userId: u.id, path: p, grants: grants.map((x) => ({ subjectType: x.subjectType, subjectId: x.subjectId })), until, used: false })
+      return { id, until: new Date(until).toISOString() }
+    }
+    const placeRefusal = (block: FolderShareBlock): never => block === 'disk'
+      ? fail('validation', 400, 'Folders can\'t be shared on this server\'s disk. Share the files instead.', undefined, { reason: 'folder_share_disk', block })
+      : block === 'run_active'
+        ? fail('conflict', 409, 'A dev environment task of yours is running and can write in this folder. Stop it or wait until it ends, then share.', undefined, { reason: 'folder_share_run_active' })
+        : fail('validation', 400, 'This folder can\'t be shared.', undefined, { reason: 'folder_share_place', block })
+
+    // ---- the Share dialog's read and save ----
+    const baseShares = h.fileShares!
+    h.fileShares = (c) => {
+      const p = c.query.path!
+      if (!isFolder(p)) {
+        const r = baseShares(c) as ReturnType<MockServer['fileSharesView']>
+        return { ...r, ...through(p, c.user) }
+      }
+      if (this.access(p, c.user) === 'none') fail('not_found', 404)
+      if (!this.folderSharesOn) fail('validation', 400, 'This is a folder.', undefined, { reason: 'is_folder' })
+      return view(p, c.user)
+    }
+    const basePut = h.putFileShares!
+    h.putFileShares = (c) => {
+      const p: string = c.body.path
+      const add = (c.body.add ?? []) as Sub[]
+      const remove = (c.body.remove ?? []) as Sub[]
+      if (!isFolder(p)) {
+        // a file: Stop takes everyone off, and a removal answers its undo (the owner's, whatever the team switch says)
+        const held = [...(this.fileGrants.get(p) ?? [])]
+        const gone = c.body.stop ? held : held.filter((x) => remove.some((y) => key(y) === key(x)))
+        if (!add.length && gone.length && this.fileOwner(p) === c.user.id) {
+          this.fileGrants.set(p, held.filter((x) => !gone.some((y) => key(y) === key(x))))
+          changed()
+          return { ...this.fileSharesView(p, c.user), ...through(p, c.user), undo: saveUndo(c.user, p, gone)! }
+        }
+        const r = basePut({ ...c, body: { ...c.body, stop: undefined } }) as ReturnType<MockServer['fileSharesView']>
+        changed()
+        const u = gone.length ? saveUndo(c.user, p, gone) : null
+        return { ...r, ...through(p, c.user), ...(u ? { undo: u } : {}) }
+      }
+      if (this.access(p, c.user) === 'none') fail('not_found', 404)
+      if (!this.folderSharesOn) fail('validation', 400, 'Folders can\'t be shared yet.', undefined, { reason: 'folder_shares_soon' })
+      if (!p.startsWith('users/')) fail('validation', 400, 'This is a folder.', undefined, { reason: 'is_folder' })
+      if (ownerOf(p) !== c.user.id) fail('forbidden', 403, 'Only the owner can share this folder.', undefined, { reason: 'file_share_not_owner' })
+      const block = blockOf(p, c.user)
+      if (c.body.resume) {
+        if (block && block !== 'run_active') placeRefusal(block)
+        this.folderPaused.delete(p)
+        changed()
+        return view(p, c.user)
+      }
+      const held = [...(this.fileGrants.get(p) ?? [])]
+      if (!add.length) {
+        const gone = c.body.stop ? held : held.filter((x) => remove.some((y) => key(y) === key(x)))
+        if (!gone.length) return view(p, c.user)
+        this.fileGrants.set(p, held.filter((x) => !gone.some((y) => key(y) === key(x))))
+        changed()
+        return { ...view(p, c.user), undo: saveUndo(c.user, p, gone)! }
+      }
+      if (block) placeRefusal(block)
+      if (c.user.role === 'member' && !this.settings.memberFileShares) fail('forbidden', 403, 'Your team turned off sharing files for members.', undefined, { reason: 'file_shares_off' })
+      if (this.folderPaused.has(p) && held.length) fail('conflict', 409, 'Sharing of this folder is paused. The folder on the server is not the one you shared. Resume it to share it again.', undefined, { reason: 'folder_share_paused' })
+      for (const x of add) {
+        const u = x.subjectType === 'user' ? this.users.find((y) => y.id === x.subjectId) : null
+        if (x.subjectType === 'user' && (!u || u.role === 'guest' || u.id === c.user.id)) fail('validation', 400, 'You can\'t share with that person.', undefined, { reason: 'unknown_subject' })
+        if (x.subjectType === 'group' && x.subjectId !== FILE_SHARE_EVERYONE && (!this.groups.some((g) => g.id === x.subjectId) || (c.user.role === 'member' && !c.user.groupIds.includes(x.subjectId)))) fail('validation', 400, 'You can\'t share with that group.', undefined, { reason: 'unknown_subject' })
+      }
+      const before = new Set(this.users.filter((u) => grantFor(p, u)).map((u) => u.id))
+      const fresh = add.filter((x) => !held.some((y) => key(y) === key(x)))
+      if (held.length + fresh.length > FILE_SHARE_MAX) fail('validation', 400, `A folder can be shared with at most ${FILE_SHARE_MAX} people and groups.`, undefined, { reason: 'file_share_full' })
+      const gone = held.filter((x) => remove.some((y) => key(y) === key(x)))
+      this.fileGrants.set(p, [...held.filter((x) => !gone.includes(x)), ...fresh])
+      for (const x of fresh) this.fileGrantMeta.set(`${p}\u0000${key(x)}`, { by: c.user.id, at: now() })
+      const linkId = this.fileLinkOf(p)
+      for (const u of this.users) if (u.id !== c.user.id && !before.has(u.id) && grantFor(p, u)) this.note(u.id, { kind: 'file_share', code: 'file.shared', byId: c.user.id, path: p, linkId, folder: 'shared' })
+      changed()
+      const undo = saveUndo(c.user, p, gone)
+      return { ...view(p, c.user), ...(undo ? { undo } : {}) }
+    }
+    h.undoFileShares = (c) => {
+      const s = this.shareUndos.get(c.body.id)
+      if (!s || s.userId !== c.user.id || s.used || s.until < Date.now() || !this.files.has(s.path)) fail('not_found', 404)
+      s!.used = true
+      const held = [...(this.fileGrants.get(s!.path) ?? [])]
+      let restored = 0, skipped = 0
+      for (const x of s!.grants) {
+        const ok = x.subjectType === 'user' ? this.users.some((u) => u.id === x.subjectId && u.status === 'active' && u.role !== 'guest') : x.subjectId === FILE_SHARE_EVERYONE || this.groups.some((g) => g.id === x.subjectId)
+        if (!ok || held.some((y) => key(y) === key(x))) { skipped++; continue }
+        held.push(x)
+        restored++
+      }
+      this.fileGrants.set(s!.path, held)
+      changed()
+      const v = isFolder(s!.path) ? view(s!.path, c.user) : { ...this.fileSharesView(s!.path, c.user), ...through(s!.path, c.user) }
+      return { ...v, restored, skipped }
+    }
+    const baseLink = h.fileLink!
+    h.fileLink = (c) => {
+      const p: string = c.body.path
+      if (!isFolder(p) || !this.folderSharesOn || ownerOf(p) !== c.user.id || !p.startsWith('users/')) return baseLink(c)
+      const block = blockOf(p, c.user)
+      if (block) placeRefusal(block)
+      const id = this.fileLinkOf(p)
+      return { id, url: fileLinkUrl(id) }
+    }
+
+    // ---- the link page, its listing, entry and download ----
+    /** the path inside a shared folder: names only, never '.', '..', hidden or empty (as share-places.ts childSegs) */
+    const inside = (root: string, sub: unknown): string | null => {
+      if (typeof sub !== 'string') return null
+      if (sub === '') return root
+      const names = sub.split('/')
+      if (names.some((n) => n === '' || n === '.' || n === '..' || n.startsWith('.') || n.includes('\\'))) return null
+      return `${root}/${sub}`
+    }
+    /** the shared folder `id` opens `sub` for `u`: by its owner, or a live, unpaused share at or above it */
+    const openChild = (id: string, sub: unknown, u: User): { root: string; p: string } | null => {
+      const root = this.fileLinks.get(id)
+      if (!root || !isFolder(root) || !this.folderSharesOn || u.role === 'guest') return null
+      if (this.folderPaused.has(root)) return null
+      const p = inside(root, sub)
+      if (!p || !this.files.has(p)) return null
+      if (ownerOf(root) === u.id) return { root, p }
+      return grantFor(p, u) && above(p).includes(root) ? { root, p } : null
+    }
+    const baseShared = h.sharedFile!
+    h.sharedFile = (c) => {
+      const root = this.fileLinks.get(c.params.id!)
+      if (!root || !isFolder(root)) return baseShared(c)
+      if (c.user.role === 'guest') fail('forbidden', 403)
+      if (openChild(c.params.id!, '', c.user)) {
+        for (const x of this.inbox) if (x.userId === c.user.id && x.kind === 'file_share' && x.code === 'file.shared' && x.linkId === c.params.id && !x.readAt) x.readAt = now()
+        const via = grantFor(root, c.user)
+        const meta = via ? (this.fileGrants.get(via) ?? []).filter((x) => reaches(x, c.user)).map((x) => this.fileGrantMeta.get(`${via}\u0000${key(x)}`)).find(Boolean) : null
+        const mine = ownerOf(root) === c.user.id
+        return { status: 'open', kind: 'folder', name: base(root), sharedBy: mine ? null : this.users.find((u) => u.id === (meta?.by ?? ownerOf(root)))?.name ?? null, mine }
+      }
+      const owner = this.users.find((u) => u.id === ownerOf(root))
+      const waiting = this.fileRequests.find((r) => r.path === root && r.userId === c.user.id && r.state === 'pending')
+      const canAsk = this.folderSharesOn && !this.folderPaused.has(root) && !!owner && !(owner.role === 'member' && !this.settings.memberFileShares)
+      return { status: 'no_access', canAsk, askedAt: waiting?.at ?? null }
+    }
+    h.sharedFolderList = (c) => {
+      const o = openChild(c.params.id!, c.query.sub ?? '', c.user)
+      if (!o || !isFolder(o.p)) fail('not_found', 404)
+      const { root, p } = o!
+      const items = [...this.files.entries()]
+        .filter(([q]) => q.startsWith(p + '/') && !q.slice(p.length + 1).includes('/') && !base(q).startsWith('.'))
+        .map(([q, n]) => ({ name: base(q), dir: n.type === 'folder', size: n.type === 'file' ? n.data!.byteLength : null, modifiedAt: n.mtime, mime: n.type === 'file' ? mimeOf(q) ?? null : null }))
+        .sort((a, b) => (a.dir !== b.dir ? (a.dir ? -1 : 1) : a.name.localeCompare(b.name)))
+      return { crumbs: [base(root), ...(p === root ? [] : p.slice(root.length + 1).split('/'))], items, next: null }
+    }
+    h.sharedFolderEntry = (c) => {
+      const o = openChild(c.params.id!, c.query.sub, c.user)
+      const n = o ? this.files.get(o.p) : undefined
+      if (!o || !n || n.type !== 'file') fail('not_found', 404)
+      return { name: base(o!.p), size: n!.data!.byteLength, mime: mimeOf(o!.p) ?? null }
+    }
+    const baseDownload = h.sharedFileDownload!
+    h.sharedFileDownload = (c) => {
+      const root = this.fileLinks.get(c.params.id!)
+      if (!root || !isFolder(root)) {
+        if (c.query.sub !== undefined) fail('not_found', 404)
+        return baseDownload(c)
+      }
+      const o = openChild(c.params.id!, c.query.sub, c.user)
+      const n = o ? this.files.get(o.p) : undefined
+      if (!o || !n || n.type !== 'file' || !c.query.sub) fail('not_found', 404)
+      const name = base(o!.p)
+      return new Response(n!.data! as unknown as BodyInit, { headers: { 'content-type': mimeOf(o!.p) ?? 'application/octet-stream', 'content-length': String(n!.data!.byteLength), 'content-disposition': `${c.query.disposition === 'inline' ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(name)}`, 'x-content-type-options': 'nosniff', 'content-security-policy': "sandbox; default-src 'none'" } })
+    }
+    const baseAsk = h.requestFileAccess!
+    h.requestFileAccess = (c) => {
+      const root = this.fileLinks.get(c.params.id!)
+      if (root && isFolder(root) && (!this.folderSharesOn || this.folderPaused.has(root))) fail('forbidden', 403, undefined, undefined, { reason: 'file_request_off' })
+      return baseAsk(c)
+    }
+
+    // ---- Shared with me, the Files listing's marks, the counts ----
+    const baseMine = h.sharedWithMe!
+    h.sharedWithMe = async (c) => {
+      const r = (await baseMine(c)) as { items: { linkId: string; name: string; sharedBy: string | null; sharedAt: string; kind?: 'folder' }[]; next: string | null }
+      const files = r.items.filter((i) => !isFolder(this.fileLinks.get(i.linkId) ?? ''))
+      const folders = !this.folderSharesOn ? [] : [...this.fileGrants.keys()].filter((p) => isFolder(p) && ownerOf(p) !== c.user.id && !this.folderPaused.has(p) && (this.fileGrants.get(p) ?? []).some((x) => reaches(x, c.user))).map((p) => {
+        const g = (this.fileGrants.get(p) ?? []).filter((x) => reaches(x, c.user)).map((x) => this.fileGrantMeta.get(`${p}\u0000${key(x)}`) ?? { by: ownerOf(p), at: '2026-11-01T09:00:00.000Z' }).sort((a, b) => b.at.localeCompare(a.at))[0]!
+        return { linkId: this.fileLinkOf(p), name: base(p), sharedBy: this.users.find((u) => u.id === g.by)?.name ?? null, sharedAt: g.at, kind: 'folder' as const }
+      })
+      return { items: [...folders, ...files].sort((a, b) => b.sharedAt.localeCompare(a.sharedAt)), next: r.next }
+    }
+    const baseTree = h.tree!
+    h.tree = async (c) => {
+      const r = (await baseTree(c)) as TreeResponse
+      const p = r.path
+      if (!this.folderSharesOn || !p.startsWith(`users/${c.user.id}`)) return r
+      const covered = above(p).some((f) => shared(f) && !this.folderPaused.has(f))
+      return { ...r, entries: r.entries.map((e) => ((this.fileGrants.get(e.path)?.length ?? 0) > 0 ? { ...e, shared: 'own' as const } : covered ? { ...e, shared: 'through' as const } : e)) }
+    }
+    // like server/src/team-files/service.ts move (askWiden): into a folder of the mover's own that they share, from a place
+    // its people could not open, is asked first (409 audience_widened with how many more people)
+    const baseMove = h.move!
+    h.move = (c) => {
+      const to: string = c.body.to
+      if (this.folderSharesOn && c.body.askWiden && !c.body.confirm && ownerOf(to) === c.user.id && to.startsWith('users/')) {
+        const added = this.users.filter((u) => u.id !== c.user.id && grantFor(parentOf(to), u) !== null && grantFor(c.body.from, u) === null).length
+        if (added > 0) throw new Fail('conflict', 409, undefined, undefined, { reason: 'audience_widened', viewersAdded: added })
+      }
+      return baseMove(c)
+    }
+    h.fileSharesCount = () => {
+      const rows = [...this.fileGrants].filter(([p, l]) => l.length && this.files.has(p))
+      return { files: rows.filter(([p]) => !isFolder(p)).length, people: new Set(rows.flatMap(([, l]) => l.map(key))).size, folders: rows.filter(([p]) => isFolder(p)).length }
+    }
+    const baseRemoveAll = h.removeAllFileShares!
+    h.removeAllFileShares = (c) => {
+      baseRemoveAll(c)
+      this.shareUndos.clear()
+      changed()
+      return h.fileSharesCount!(c)
+    }
+
+    // ---- notices: a folder shared with me; to its owner, paused ----
+    const baseItem = this.inboxItem.bind(this)
+    this.inboxItem = (n) => {
+      const item = baseItem(n)
+      const folder = (n as { folder?: 'shared' | 'paused' | 'ended' }).folder
+      if (n.kind !== 'file_share' || !folder || !item.fileShare || item.fileShare.gone) return item
+      if (folder === 'paused' && !this.folderPaused.has(n.path ?? '')) return { ...item, link: null, fileShare: { by: null, name: null, linkId: null, gone: true as const } }
+      return { ...item, ...(folder === 'ended' ? { link: null } : {}), fileShare: { ...item.fileShare, ...(folder !== 'shared' ? { by: null } : {}), folder } }
+    }
+    const baseMe = this.me.bind(this)
+    this.me = (u, sid) => {
+      const m = baseMe(u, sid)
+      return this.folderSharesOn ? { ...m, server: { ...m.server, folderShares: true as const } } : m
+    }
+    const baseReset = this.reset.bind(this)
+    this.reset = (o) => {
+      this.folderSharesOn = false
+      this.folderPaused = new Set()
+      this.folderBlocks = new Map()
+      this.folderWideSaves = false
+      this.shareUndos = new Map()
+      baseReset(o)
+    }
+    const baseControl = this.testControl.bind(this)
+    this.testControl = async (p, req) => {
+      if (p !== '/__test/folder-shares') return baseControl(p, req)
+      const body = (await req.json().catch(() => ({}))) as { on?: boolean; world?: boolean; paused?: string[]; blocked?: Record<string, FolderShareBlock>; wide?: boolean; undoExpired?: boolean; grants?: { path: string; to: Sub; by: string; at?: string }[] }
+      if (body.on !== undefined) this.folderSharesOn = body.on
+      if (body.wide !== undefined) this.folderWideSaves = body.wide
+      for (const [k, v] of Object.entries(body.blocked ?? {})) this.folderBlocks.set(k, v)
+      if (body.undoExpired) for (const s of this.shareUndos.values()) s.until = 0
+      if (body.world) {
+        for (const d of ['users/bob', 'users/bob/Work', 'users/bob/Work/Q4', 'users/bob/Drafts', 'users/bob/downloads']) this.files.set(d, { type: 'folder', mtime: '2026-11-12T09:00:00.000Z' })
+        this.putFile('users/bob/Work/Plan.md', '# Plan\n\nWhat we ship in Q4.\n')
+        this.putFile('users/bob/Work/Budget.csv', 'item,amount\nads,1200\ntools,300\n')
+        this.putFile('users/bob/Work/.hidden-notes.md', 'only Bob\n')
+        this.putFile('users/bob/Work/Q4/Notes.md', '# Q4 notes\n\nKick-off on Monday.\n')
+        this.putFile('users/bob/Drafts/Idea.md', '# Idea\n')
+        this.putFile('users/bob/downloads/report.pdf', '%PDF-1.4\n')
+      }
+      // a share made before (no notice): `to` on the folder at `path`, by `by`
+      for (const g of body.grants ?? []) {
+        this.fileGrants.set(g.path, [...(this.fileGrants.get(g.path) ?? []).filter((x) => key(x) !== key(g.to)), g.to])
+        this.fileGrantMeta.set(`${g.path}\u0000${key(g.to)}`, { by: g.by, at: g.at ?? now() })
+        this.fileLinkOf(g.path)
+      }
+      for (const f of body.paused ?? []) {
+        this.folderPaused.add(f)
+        this.note(ownerOf(f), { kind: 'file_share', code: 'file.unshared_by_move', path: f, linkId: this.fileLinkOf(f), folder: 'paused' })
+      }
+      changed()
+      return Response.json({ ok: true, links: Object.fromEntries([...this.fileLinks].filter(([, q]) => isFolder(q)).map(([id, q]) => [q, id])) })
     }
   }
 

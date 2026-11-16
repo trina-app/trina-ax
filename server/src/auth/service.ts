@@ -37,6 +37,7 @@ import { pluginsOf } from '../plugins/manager'
 import { cancelPushSession } from '../notifications/push-events'
 import { webAllowAll } from '../tools/web-allow-all'
 import { mediaKeyOf } from './media-key'
+import { folderSharesOpen } from '../files/folder-share-gate'
 
 export const SESSION_TTL_MS = 30 * 24 * 3600_000
 /** A session made by signing in with a temporary password lives this long unless the password is changed in it (it
@@ -301,7 +302,8 @@ export class AuthService implements SessionService {
         ...(devEnvFlag() ? { devEnv: true as const } : {}),
         ...(htmlPdfUnavailable() === null ? { htmlPdf: true as const } : {}),
         ...(this.hwpPreviewOn() ? { hwpPreview: true as const } : {}),
-        ...(windowsApp ? { windowsApp } : {}) },
+        ...(windowsApp ? { windowsApp } : {}),
+        ...(folderSharesOpen(this.ctx.config) ? { folderShares: true as const } : {}) },
       passwordReset: u.password_reset_at ? { by: userRef(this.db, u.password_reset_by), at: u.password_reset_at } : null,
     }
   }

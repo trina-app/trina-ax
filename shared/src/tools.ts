@@ -392,6 +392,36 @@ export const ShareWithPersonInput = z.strictObject({
   paths: z.array(relPath).min(1).max(10).describe('The files to share (1-10): files only, never a folder. Only files the user owns and can edit.'),
   people: z.array(z.string().min(1).max(200)).min(1).max(10).describe('Who gets them: a teammate\'s or a group\'s name as the user wrote it, or person:<id> / group:<id> from the candidates a previous call gave.'),
 })
+/** stop_sharing (server/src/chat/stop-sharing.ts; docs/decisions/20261116-ai-share-card-and-stop.md): take people or
+ * groups off files that were shared one by one. Only narrows. Names as the user wrote them, matched among the people
+ * already on the files. */
+export const StopSharingInput = z.strictObject({
+  paths: z.array(relPath).min(1).max(10).describe('The files to stop sharing (1-10): files the user owns, or team files for an admin.'),
+  people: z.array(z.string().min(1).max(200)).min(1).max(10).optional().describe('Who loses access: a teammate\'s or a group\'s name as the user wrote it, or person:<id> / group:<id> from the candidates a previous call gave. Leave it out to stop sharing the files with everyone they were shared with.'),
+})
+/** share_folder (server/src/chat/share-folder.ts; docs/decisions/20261116-share-folder-tool.md): a folder in the user's
+ * own files for teammates or groups, view only, files added later included; an add always behind the server's card.
+ * Also takes people off it, or stops sharing it (no card when the user's own message names the folder). */
+export const ShareFolderInput = z.strictObject({
+  folder: relPath.describe('The folder to share: a folder in the user\'s own files (users/<them>/…), by its path. Never their whole personal folder, never a team folder.'),
+  add: z.array(z.string().min(1).max(200)).max(10).default([]).describe('Who gets to view it: a teammate\'s or a group\'s name as the user wrote it, or person:<id> / group:<id> from the candidates a previous call gave.'),
+  remove: z.array(z.string().min(1).max(200)).max(10).default([]).describe('Who to take off it, the same way.'),
+  stop: z.boolean().optional().describe('true to stop sharing the folder with everyone. Not with add.'),
+}).refine((x) => x.add.length + x.remove.length > 0 || x.stop === true, { message: 'name someone to add or remove, or set stop', path: ['add'] })
+  .refine((x) => !(x.stop && x.add.length), { message: 'stop cannot go with add', path: ['stop'] })
+/** who_can_open (server/src/chat/who-can-open.ts; docs/decisions/20261116-ai-share-who-can-open.md): read-only. Who
+ * can open a file, a folder or this chat and how, or whether one teammate can. */
+export const WhoCanOpenInput = z.strictObject({
+  path: z.string().min(1).max(4096).optional().describe('The file or folder: its team path, or a file link (/f/<id>). Leave it out to ask who can see this chat.'),
+  person: z.string().min(1).max(200).optional().describe('One teammate, by the name the user wrote (or person:<id> from the candidates a previous call gave): the answer then says whether they can open it, and why or why not.'),
+})
+/** shared_with_me (server/src/chat/shared-with-me-tool.ts): the files shared with the user one by one, newest first */
+export const SharedWithMeInput = z.strictObject({
+  query: z.string().trim().min(1).max(100).optional().describe('A part of the file name or of the name of the person who shared it ("quote", "Mina"). Leave it out for the newest ones.'),
+  limit: z.number().int().min(1).max(20).optional().describe('How many to list (default and most: 20).'),
+})
+/** looking_at (server/src/chat/looking-at.ts): what the user has open in the app now; no parameters */
+export const LookingAtInput = z.strictObject({})
 /** change_project_members in a person's own chat (server/src/chat/project-members.ts): people and groups added to or
  * removed from a team project after their yes on the server's card. Names as the user wrote them; an id only from the
  * candidates the tool gave back for that name. */
@@ -404,6 +434,19 @@ export const ChangeProjectMembersInput = z.strictObject({
   add: z.array(ProjectMemberRef).max(20).default([]).describe('People and groups to add.'),
   remove: z.array(ProjectMemberRef).max(20).default([]).describe('People and groups to take out.'),
 }).refine((x) => x.add.length + x.remove.length > 0, { message: 'name at least one person or group to add or remove', path: ['add'] })
+/** change_folder_access in a person's own chat (server/src/chat/folder-access-tool.ts; docs/decisions/
+ * 20261116-team-folder-ai-and-ask.md): ONE person or group on ONE team folder per call, after the owner's or an admin's
+ * yes on the server's card every time. A member gets an "Ask an admin" button instead. Never a personal folder, a
+ * project's folder, General access or Limit access. */
+export const ChangeFolderAccessInput = z.strictObject({
+  folder: z.string().trim().min(1).max(4096).describe('The team folder (its team path, e.g. "Sales/Reports"); not under users/, not a project\'s folder.'),
+  action: z.enum(['add', 'change', 'remove']).describe('add a person or group, change their level, or take them off.'),
+  who: z.strictObject({
+    name: z.string().trim().min(1).max(100).describe('The person or group as the user wrote it ("Jun Park", "Sales").'),
+    id: z.string().trim().min(1).max(64).optional().describe('Only the id the tool gave back among this name\'s candidates.'),
+  }),
+  access: z.enum(['view', 'edit']).optional().describe('For add and change. Default for add: view.'),
+})
 export const ToolError = z.object({ error: z.object({ code: z.string(), message: z.string() }) })
 /** File tools return plain text (like Claude Code's built-ins). */
 export const TextOutput = z.object({ text: z.string() })
@@ -449,7 +492,13 @@ export const OTHER_TOOLS = {
   save_room_file: { input: SaveRoomFileInput, output: TextOutput },
   post_to_room: { input: PostToRoomInput, output: TextOutput },
   share_with_person: { input: ShareWithPersonInput, output: TextOutput },
+  stop_sharing: { input: StopSharingInput, output: TextOutput },
+  share_folder: { input: ShareFolderInput, output: TextOutput },
+  shared_with_me: { input: SharedWithMeInput, output: TextOutput },
+  looking_at: { input: LookingAtInput, output: TextOutput },
   change_project_members: { input: ChangeProjectMembersInput, output: TextOutput },
+  who_can_open: { input: WhoCanOpenInput, output: TextOutput },
+  change_folder_access: { input: ChangeFolderAccessInput, output: TextOutput },
 } as const
 
 /** Exactly what the engine may have, in addition to mcp__team__<file tool>. Lockdown test asserts this. */

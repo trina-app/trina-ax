@@ -47,6 +47,8 @@ To give a folder less than the folders above, turn on **Settings › Limit acces
 
 The owner and admins can always open team folders, except projects they are not a member of. They show as one **Manager** row.
 
+Owners and admins can also ask Trina in a chat: "give the Sales group view access to Reports", "let Jun edit Sales/Q4", "take the Design group off Reports". One person or group and one folder at a time. A card asks first: it names who gets or loses access and how many people can open the folder before and after. When files inside are shared one by one with people who lose the folder, the card asks whether those shares go too. The card offers **Always allow** for this kind of change; once you choose it, Trina makes these changes without asking, and files shared one by one inside stay shared. General access and Limit access stay in this dialog. A member who asks gets **Ask an admin**, which sends the team's owner and admins a message from you; a folder you can't open is answered as if it didn't exist.
+
 :::note
 After the update that made access add up, some folders list their people by name (tagged **Added when folders changed**), and Folder permissions shows a one-time notice naming them. People added by name keep access if they later leave the group. **Admin › Groups** and the person's page say so before saving, with **Remove now**.
 :::
@@ -74,11 +76,54 @@ You can share a file you own with chosen people, without changing who can open i
   person gets one notice in **Activity**, "Mina shared 5 files with you", which opens the list of those files. A
   person you add by name also gets a phone notification (**Settings › Notifications › Sharing** turns these off).
 - **People with access** lists the owner and each person or group with **Can view**. **✕** removes someone's access (asked first).
+  The file's owner can always remove people, also while member sharing is turned off for the team.
+- Someone you removed sees "Mina stopped sharing this file" when they open the file's link, and can ask for access
+  again. They get no notice about it.
+- You can also ask Trina in a chat: "share the quote with Jun", or "stop sharing the quote with Jun". A card under the
+  answer says what changed: the file and where it is, who can view it, and one button. After a share the button is
+  **Manage access**, which opens this dialog. After a stop it is **Undo**, and the card says who can still open the
+  file and why (for example through a group it is still shared with, or because they can open its folder). Trina asks
+  first before it shares a file, unless your message named the file and the person. Stopping needs no question when
+  your message named them. When someone can already open the file, the card says so and nothing changes for them.
+- When Trina can't share a file, the card says why and has the next step as its one button: **Ask Mina** for a file
+  Mina owns (she gets the request in **Activity** and decides), or **Ask an admin** when the team turned off member
+  sharing (the team's owner and admins get a message from you asking to turn it back on).
 - A team file also opens for everyone who can open its folder.
 - **Copy link** gives the file's own link. People with access open it; anyone else sees **You need access** and can **Ask for access** with a note. The request comes to the owner in **Activity** with **Share** and **Decline**, and as a phone notification. The link page never shows the file's name to someone who can't open it.
 - Moving a file somewhere fewer people can open says how many people have it by its link.
+- Ask Trina **"who can open this file?"** or **"why can't Jun open it?"**. She tells you how each person gets in (shared
+  by name, through a group, through its folder). You see the names for your own files; for someone else's file you see
+  your own access and who to ask.
+- After Trina posts to a room, she tells you when people there can't open a file of the post. **Let them view** shares
+  your file with exactly the people named on that line. For someone else's file, **Ask** sends its owner a request in
+  **Activity** ("Alice asked you to share Quote.pdf with Jun") with **Share** and **Decline**. For a team folder, a
+  member gets **Ask an admin**, which sends the team's owner and admins a message from you.
 
-Owners and admins can share any team file. In **Admin › Team settings**, **Members can share files they own** turns sharing off for members (shares already made keep working). The team owner can **Remove all file shares** there at once.
+Owners and admins can share any team file. In **Admin › Team settings**, **Members can share files they own** turns sharing off for members (shares already made keep working, and their owner can still stop them). The team owner can **Remove all file shares** there at once.
+
+### Share a folder in My files
+
+You can share a folder in **My files** the same way, like a folder in Google Drive's My Drive: **Files › a folder's ⋯ ›
+Share**. The people and groups you add can view everything in it, including files you add later, and cannot change
+anything. They find it in **Files › Shared with me** and open it like a folder, one level at a time: names, sizes and
+dates, and each file to view or download. They never see the folders above it.
+
+- The dialog says what the folder holds ("3 files, 1 folder"). **Everyone on the team** has its own line: everyone,
+  also people who join later, will see everything in the folder and whatever is added to it. Guests never can.
+- In **Files**, a shared folder says **Shared**, and a file inside it says **Shared through Work** (in its own Share
+  dialog the folder's people show "Through Work").
+- **Stop sharing** takes everyone off at once. It first lists what stays shared on its own (files and folders inside
+  that you shared separately). After it, **Undo** puts the people back for a few minutes. Taking people off and Stop
+  sharing always work, also when your team turned sharing off for members.
+- Your personal folder itself and the places Trina keeps there (downloads, images, skills, project folders and a few
+  others) can't be shared; the dialog says why.
+- If the folder on the server is no longer the one you shared (for example it was replaced outside Trina), sharing is
+  **paused**: nobody can open it, and you get a notice. Open its Share dialog and press **Resume**.
+
+In **Admin › Team settings**, the switch is **Members can share files and folders they own**, and **Remove all file
+shares** counts files and folders apart.
+
+You can also ask Trina: "share the folder Work with Jun". Trina shows a card first, with the folder, where it is and what it holds (choosing **Always allow** for sharing files does not cover folders). The card offers **Always allow** for folder shares; once you choose it, Trina shares your folders without asking. Asking it to stop sharing (or to take someone off) works right away when your message names the folder: its name in quotes, like `"Work"`, or where it is, and the card that says so has **Undo**.
 
 ### Files shared with you
 
@@ -87,6 +132,18 @@ you can already open in its folder shows here only when someone added you by nam
 download it; **‹ Shared with me** takes you back to the list. Opening a file also marks its notice in **Activity** as
 read. A file leaves the list when you lose access to it (its owner removed you, moved it to the trash or can no longer
 edit it).
+
+Trina can use these files too. Ask "summarise the file Mina shared with me" and it looks through what was shared with
+you, also when a file in your own folders has the same name. On a shared file's page, **Ask Trina** opens a new chat
+with that file ready in the box. Trina can view a shared file, not change it.
+
+### "This file", "that thread"
+
+When you say "summarise this" or "reply in that thread" without a name, Trina checks what you have open in the app:
+the file, room, thread or chat on your screen, the window you are writing in first. It only does this when you point at
+something without naming it, and it asks when two things could be meant. Anything it shares or posts for you this way
+shows you a card first, unless you chose **Always allow** for that kind of card. Nothing about your screen is kept: a closed window
+is forgotten, and a confidential chat is never reported.
 
 ## Working with files
 

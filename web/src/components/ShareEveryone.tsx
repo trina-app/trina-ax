@@ -24,14 +24,14 @@ export function useWithEveryone(options: readonly ParticipantOption[]): Particip
 
 /** Before the press: the whole team will be able to open what is shared: "this file" (the Share dialog), or `files`, how
  * many files the press shares (Find work files' step). */
-export function EveryoneLine({ picks, files, compact = false, testId = 'share-everyone-line' }: { picks: readonly ProjectParticipant[]; files?: number; compact?: boolean; testId?: string }) {
+export function EveryoneLine({ picks, files, folder = false, compact = false, testId = 'share-everyone-line' }: { picks: readonly ProjectParticipant[]; files?: number; folder?: boolean; compact?: boolean; testId?: string }) {
   const t = useT()
   if (!picks.some(isEveryone)) return null
   return (
     // compact: in a dialog's footer, right above the buttons (small text, at most two lines on a phone)
     <p className={clsx('flex items-start break-keep text-ink', compact ? 'gap-1.5 text-label leading-5' : 'gap-2 text-sm leading-6')} role="status" data-testid={testId}>
       <Users size={compact ? 14 : 16} className={clsx('shrink-0 text-accent-text', compact ? 'mt-0.5' : 'mt-1')} aria-hidden />
-      <span className="min-w-0">{files !== undefined ? t('fileShare.everyoneLineMany', { n: files }) : t('fileShare.everyoneLineOne')}</span>
+      <span className="min-w-0">{files !== undefined ? t('fileShare.everyoneLineMany', { n: files }) : folder ? t('fileShare.everyoneLineFolder') : t('fileShare.everyoneLineOne')}</span>
     </p>
   )
 }

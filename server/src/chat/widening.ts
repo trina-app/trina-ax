@@ -87,7 +87,8 @@ export function wideningAnswers(db: Database, rules: { now: RuleSet; after: Rule
       return new Set(people.filter((x) => atLeast(set.access(x, segs), 'read')).map((x) => x.id))
     }
     if (s.type === 'name') { const segs = nameSegs(s.path); return new Set(people.filter((x) => set.canList(x, segs)).map((x) => x.id)) }
-    if (s.type === 'user') return new Set(people.some((x) => x.id === s.id) ? [s.id] : [])
+    // (from inside a folder the person shares: viewersOf counts the share's people too)
+    if (s.type === 'user' && !s.share) return new Set(people.some((x) => x.id === s.id) ? [s.id] : [])
     if (s.type === 'slack') return new Set(people.some((x) => x.id === s.userId) ? [s.userId] : [])
     return viewersOf(db, set, s, people)
   }

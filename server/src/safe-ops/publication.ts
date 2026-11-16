@@ -6,22 +6,23 @@ import type { AppContext } from '../context'
 import type { TeamFiles } from '../team-files/service'
 import type { ToolCtx } from '../files/service'
 import { authorize } from '../policy/authorize'
-import { atLeast } from '../policy/access'
 import { ToolError } from '../policy/errors'
 import { fileEvent, sha256 } from '../files/store'
 import { publishChanges } from '../team-files/changes'
 import { addSources, readScope, sourceOf } from '../chat/read-scope'
 import { assertStorageRoomForAI } from '../system/storage'
 import { broker } from './broker'
+import { readerCheck } from '../files/share-readers'
 import { waitForApproval } from './cancel'
 import { snapshot, recheck, type SourceSnapshot } from './source'
 
 export const policyGeneration = (db: Database) => (db.query('SELECT generation FROM safe_ops_policy WHERE id=1').get() as {generation:number}).generation
 const changed = () => new ToolError('Publication approval or source changed.', 'safe_ops_changed')
 function audience(ctx: AppContext, rel: string) {
-  const rules=ctx.files.rules()
+  // (a folder share's people read it too: files/share-readers.ts)
+  const reads=readerCheck(ctx.db, ctx.files.rules())
   return JSON.stringify((ctx.db.query("SELECT id FROM users WHERE status='active' AND deleted_at IS NULL ORDER BY id").all() as {id:string}[])
-    .filter(u=>atLeast(rules.access(ctx.files.principal(u.id),rel.split('/')),'read')).map(u=>u.id))
+    .filter(u=>reads(ctx.files.principal(u.id),rel.split('/'))).map(u=>u.id))
 }
 
 /** Recovery is deliberately abort-only. An interrupted link may already be visible:
