@@ -181,7 +181,8 @@ describe('arguments and where video reads work', () => {
       expect(a.out.isError).toBe(true)
       expect(a.out.text).toContain("Recordings and videos can't be opened here yet")
       expect(a.out.text).toContain('Do not suggest changing or moving the install')
-      expect(a.out.text).not.toMatch(/server|linux/i)
+      // the person's part (the AI's own line after it names the words to avoid)
+      expect(a.out.text.split('\n(')[0]).not.toMatch(/server|linux/i)
       tools.mockReturnValue('missing')
       // a member is not told to install a package; an admin is
       const member = A.toolCtx('alice', turn())

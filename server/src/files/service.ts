@@ -737,7 +737,7 @@ export class FileService {
     if (tools === 'mac') {
       const out = refuse('mac', 'not on a Mac server yet')
       const voice = voiceInputOn(this.db, this.speech) ? ' ' + mediaText(this.db, ctx.user.id, 'macVoice') : ''
-      return { ...out, text: out.text + voice + '\n(Pass this on in plain words. Do not suggest changing or moving the install.)' }
+      return { ...out, text: out.text + voice + '\n(Pass this on in plain words: say "here", never "server" or "Mac". Do not suggest changing or moving the install.)' }
     }
     if (tools === 'missing') return refuse(ctx.user.role === 'owner' || ctx.user.role === 'admin' ? 'noToolAdmin' : 'noTool', 'no ffmpeg')
     if (r.st!.size > media.MEDIA_INPUT_MAX) return refuse('tooLarge', 'too large', { gb: media.MEDIA_INPUT_MAX / 1024 ** 3 })
