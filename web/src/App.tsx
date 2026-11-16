@@ -6,7 +6,7 @@ import { ChatShareHost } from './components/chat/ChatShareDialog'
 import { FileShareHost } from './components/FileShareDialog'
 import { WideningDraftHost } from './components/WideningDraftHost'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, Navigate, Route, Routes, unstable_HistoryRouter as HistoryRouter, useLocation, useNavigate, useNavigationType, type Location } from 'react-router-dom'
+import { Link, Navigate, Route, Routes, unstable_HistoryRouter as HistoryRouter, useLocation, useNavigate, useNavigationType, useParams, type Location } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { Loader2 } from 'lucide-react'
 import { ApiError, errorText, isServerUpdating, isTeamWaking, setMediaKey } from './lib/api'
@@ -364,6 +364,9 @@ function Gate() {
           {/* a thread of a room (beside it on computers, over it on phones; a room notice of a reply links here) */}
           <Route path="rooms/:roomId/t/:messageId" element={<RoomPage />} />
           <Route path="activity" element={<Activity key={`${status.me.user.id}:${status.me.session.id}`} />} />
+          {/* one notice by its id alone: a phone notification's tap names a path, never a query (an access request to a file:
+              docs/decisions/20261116-file-share-push-gaps.md) */}
+          <Route path="activity/:noticeId" element={<ActivityNotice />} />
           <Route path="files" element={<NotForGuests><Files /></NotForGuests>} />
           <Route path="files/view" element={<NotForGuests><FileView /></NotForGuests>} />
           {/* a file's link (QA TC-3093): for a guest too, who gets "You can't open this file" (the server answers 403) */}
@@ -490,6 +493,13 @@ export function AfterSetup() {
 }
 
 /** /connectors, /connectors/<id>, /connectors/mcp/<id>: the same place in Settings, its query and hash kept. */
+/** /activity/<id> → the notice opened by itself (/activity?n=<id>; a phone's Activity lists it, newest first). The page
+ * reads the notice signed in, so the id opens only the person's own notice. */
+function ActivityNotice() {
+  const { noticeId } = useParams()
+  return <Navigate to={`/activity?n=${encodeURIComponent(noticeId ?? '')}`} replace />
+}
+
 function OldConnectors() {
   const { pathname, search, hash } = useLocation()
   return <Navigate to={oldConnectorsTarget(pathname, search, hash)} replace />

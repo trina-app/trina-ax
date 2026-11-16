@@ -63,6 +63,23 @@ Setelah pembaruan yang membuat akses bertambah, beberapa folder mencantumkan ora
 
 ![Yang bisa dibuka seseorang: setiap folder dengan Viewer atau Editor beserta alasannya, lalu yang tidak bisa ia buka](../../images/files/by-person.webp "Yang bisa dibuka seseorang")
 
+## Membagikan file
+
+Anda bisa membagikan file milik Anda kepada orang tertentu tanpa mengubah siapa yang bisa membuka foldernya: **File › ⋯ pada file › Bagikan**. Tambahkan orang atau grup, lalu tekan **Bagikan**. Mereka bisa melihat dan mengunduh file itu, tetapi tidak melihat isi folder lainnya. Setiap orang yang Anda tambahkan melihatnya di **Aktivitas**.
+
+- **Semua orang di tim** adalah pilihan pertama di **Tambahkan orang atau grup**. Sebelum Anda menekan **Bagikan**, satu baris memberi tahu bahwa semua orang di tim akan bisa membuka file itu, termasuk yang bergabung nanti. Tamu tidak pernah bisa. Pilihan ini dihitung sebagai salah satu dari 50 orang dan grup yang bisa diberi akses ke satu file.
+- Kalau Anda membagikan beberapa file sekaligus (misalnya di langkah terakhir **Cari file kerja di komputer ini**), setiap orang menerima satu pemberitahuan di **Aktivitas**, "Mina membagikan 5 file dengan Anda", yang membuka daftar file tersebut. Orang yang Anda tambahkan dengan nama juga mendapat notifikasi di ponsel.
+- **Orang yang punya akses** menampilkan pemilik dan setiap orang atau grup dengan **Bisa melihat**. **✕** mencabut akses seseorang (Anda ditanya dulu).
+- File tim juga bisa dibuka semua orang yang bisa membuka foldernya.
+- **Salin tautan** memberi tautan khusus untuk file itu. Orang yang punya akses bisa membukanya; yang lain melihat **Anda perlu akses** dan bisa **Minta akses** dengan catatan. Permintaannya masuk ke pemilik di **Aktivitas** dengan tombol **Bagikan** dan **Tolak**. Halaman tautan tidak pernah menampilkan nama file kepada orang yang tidak bisa membukanya.
+- Kalau Anda memindahkan file ke tempat yang bisa dibuka lebih sedikit orang, Anda diberi tahu berapa orang yang memegang file itu lewat tautannya.
+
+Owner dan admin bisa membagikan file tim mana pun. Di **Admin › Pengaturan tim**, **Anggota bisa membagikan file milik mereka** mematikan pembagian untuk anggota (yang sudah dibagikan tetap berfungsi). Owner tim bisa **Hapus semua berbagi file** di sana sekaligus.
+
+### File yang dibagikan kepada Anda
+
+**File › Dibagikan ke saya** menampilkan file yang dibagikan orang lain kepada Anda, yang terbaru di atas, lengkap dengan siapa yang membagikan dan kapan. File yang sudah bisa Anda buka di foldernya hanya muncul di sini kalau seseorang menambahkan Anda dengan nama. Buka file dari sini untuk melihat atau mengunduhnya; **‹ Dibagikan ke saya** membawa Anda kembali ke daftar. Saat Anda membuka file, pemberitahuannya di **Aktivitas** ditandai sudah dibaca. File hilang dari daftar kalau akses Anda hilang (pemiliknya mencabutnya, memindahkannya ke sampah, atau sudah tidak bisa mengeditnya).
+
 ## Bekerja dengan file
 
 ![Layar File: folder tim dengan Company-wide, Groups, Projects, Team skills dan Personal](../../images/files/files.webp "Layar File")

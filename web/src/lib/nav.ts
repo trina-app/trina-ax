@@ -5,6 +5,8 @@ type Go = (to: string, o?: { replace?: boolean }) => void
 /** 파일 › 휴지통 (pages/Files.tsx; a deleted team skill's links come here, as the server's notice does:
  * server/src/skills/changes.ts). `/trash` is the deleted AI chats. */
 export const FILES_TRASH = '/files?view=trash'
+/** 파일's Shared with me (pages/SharedFiles.tsx); a file link page opened from it goes back there (pages/FileLink.tsx) */
+export const FILES_SHARED = '/files?view=shared'
 /** 팀 스킬 with the ready-made skills the team lacks unfolded (components/AvailableSkills.tsx): where "스킬 넣기" goes
  * from Home's block, the empty-team line and the goal card. */
 export const SKILL_CATALOG = '/skills?catalog=open'

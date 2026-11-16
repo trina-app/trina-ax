@@ -32,7 +32,7 @@
 //    never left out); a linked file being attached (its row says who more will see it).
 //    Where it came from is named only where I may look myself (a folder I may read, my own folder, a team connection or
 //    shared Drive by its name, a team room by its group's name, the everyone room). Never who: no name or id of a person,
-//    and a 1:1 or group conversation is never named (its name is people's names). A chat that read a room's messages
+//    and a 1:1 or group chat is never named (its name is people's names). A chat that read a room's messages
 //    (chats.rooms_seen) whose scope does not show which counts every other member as unable.
 // The members: everyone in the room but me, a disabled account too (it reads nothing now, and would see the message when
 // enabled again). When something applies, nothing is sent: the answer is "confirm" with the rows, the provenance line and

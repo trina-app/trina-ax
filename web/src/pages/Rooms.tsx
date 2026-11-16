@@ -9,7 +9,7 @@
 // "숨긴 대화 N" at its end opens them, each with 다시 보이기 (opening one shows it again too).
 // The list has the 대화 panel's sections in its order (panels/RoomsByKind.tsx roomsByKind): 고정 (all my pins, the most
 // recently pinned first, a pin after the name), my folders (one with nothing in it is left out here), 채널 (전체
-// first), 다이렉트 메시지 (1:1s and group chats, a group chat with its people's faces), each under its name. Someone with no 1:1 or group conversation yet gets one quiet line
+// first), 다이렉트 메시지 (1:1s and group chats, a group chat with its people's faces), each under its name. Someone with no 1:1 or group chat yet gets one quiet line
 // under the list that opens the people list ("동료에게 새 대화 시작하기"), as the top bar's ⊕ does.
 // The list starts with "멘션·스레드" (QA TC-256): the Activity page's conversations (mentions and replies in
 // threads I follow, lib/screens.ts CHATS_ACTIVITY), a page of this tab. A dot while one is unread, no number: their rooms
