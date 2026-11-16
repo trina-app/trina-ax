@@ -445,7 +445,7 @@ export function contributeSkills(ctx: AppContext, userId: string, body: Contribu
   })()
   audit(ctx.db, { actor: userId, action: 'skills.contribute', target: SKILLS_DIR, detail: { batchId, app, kept: rows.length, refused: refused.length, names: rows.map((x) => x.name) } })
   for (const m of staffOf(ctx)) {
-    if (m.id === userId) continue
+    if (m.id === userId) { tellSkillsChanged(ctx, [userId]); continue }
     notify(ctx, m.id, 'skill_suggested', st('contributed', m.locale, { who: p.name, n: String(rows.length) }), `/skills?batch=${batchId}`, batchId)
   }
   const rules = RuleSet.load(ctx.db)
