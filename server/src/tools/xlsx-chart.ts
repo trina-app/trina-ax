@@ -86,7 +86,7 @@ export function placeCharts(specs: ChartSpec[], sheets: ChartSheet[]): Placed[] 
     for (let c = area.c1 + 1; c <= area.c2; c++) {
       let any = false
       for (let r = area.r1 + 1; r <= area.r2; r++) if (typeof shown(s.rows[r - 1]?.[c - 1]) === 'number' || isFormulaCell(s.rows[r - 1]?.[c - 1])) any = true
-      if (!any) throw new ToolError(`${what}: column ${colName(c)} has no numbers in ${colName(c)}${area.r1 + 1}:${colName(c)}${area.r2}; write plain numbers in the cells (no 원, % or units)`)
+      if (!any) throw new ToolError(`${what}: column ${colName(c)} has no numbers in ${colName(c)}${area.r1 + 1}:${colName(c)}${area.r2}; write plain numbers in the cells (no currency signs, % or units)`)
     }
     let at: { col: number; row: number } | null = null
     if (spec.anchor !== undefined && spec.anchor.trim() !== '') {
