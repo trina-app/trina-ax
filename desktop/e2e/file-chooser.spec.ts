@@ -7,7 +7,9 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
-import { ACME, addTeam, BETA, close, launch, newUserData } from './helpers'
+import { ACME, addTeam, BETA, close, launch, newUserData, stopLeftoverApps } from './helpers'
+
+stopLeftoverApps()
 
 /** file inputs on the team page (what each one got is kept in window.__picked) and an artifact-like frame with one */
 const INPUTS = `(() => {

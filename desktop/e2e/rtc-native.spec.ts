@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createRequire } from 'node:module'
+import { fixtureResult } from './fixture-run'
 const exec = promisify(execFile)
 
 test('native frame guard covers document start and lets all worker kinds start without a second debugger', async () => {
@@ -13,8 +14,7 @@ test('native frame guard covers document start and lets all worker kinds start w
     const output = join(dir, 'main.cjs')
     await exec('bun', ['build', join(import.meta.dirname, 'fixtures/rtc-main.ts'), '--target=node', '--format=cjs', '--external=electron', `--outfile=${output}`])
     const electron = createRequire(import.meta.url)('electron') as string
-    const { stdout } = await exec(electron, [output], { env: { ...process.env, RTC_TEST_PROFILE: join(dir, 'profile') }, timeout: 30_000 })
-    const result = JSON.parse(stdout.split('\n').find(line => line.startsWith('RTC_RESULT '))!.slice(11))
+    const result = await fixtureResult(electron, [output], { ...process.env, RTC_TEST_PROFILE: join(dir, 'profile') }, 'RTC_RESULT', 30_000)
     for (const key of ['oopif','oopif-nested','late','late-nested','blank','srcdoc','blob','data','javascript','dedicated','shared','service']) {
       expect(result.reports[key].rtc, key).toBe('undefined')
     }
@@ -41,8 +41,7 @@ test('an artifact frame opens no connection to a host name it chose (why confide
     const output = join(dir, 'main.cjs')
     await exec('bun', ['build', join(import.meta.dirname, 'fixtures/names-main.ts'), '--target=node', '--format=cjs', '--external=electron', `--outfile=${output}`])
     const electron = createRequire(import.meta.url)('electron') as string
-    const { stdout } = await exec(electron, [output], { env: { ...process.env, NAMES_TEST_PROFILE: join(dir, 'profile') }, timeout: 60_000 })
-    const result = JSON.parse(stdout.split('\n').find(line => line.startsWith('NAMES_RESULT '))!.slice(13)) as Record<string, string[]>
+    const result = await fixtureResult<Record<string, string[]>>(electron, [output], { ...process.env, NAMES_TEST_PROFILE: join(dir, 'profile') }, 'NAMES_RESULT', 60_000)
     // the proxy does see this shell's connections …
     expect(result.control).toEqual(['CONNECT control-c2vjcmv0.attacker.test:443'])
     // … and none of these (from a scripted frame, WebKit connects for the first three; full Chromium, as in Chrome and
