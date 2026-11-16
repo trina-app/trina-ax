@@ -1559,10 +1559,14 @@ for _ in $(seq 1 "$WAIT"); do
   H=$(curl -fsS --max-time 3 "http://127.0.0.1:$PORT/api/health" 2>/dev/null || true)
   if [ -n "$H" ]; then
     case "$H" in
-      *"\"version\":\"$RUNNING\""*) done_ok ;;
+      *"\"version\":\"$RUNNING\""*)
+        # the bootstrap keeps a pending version only once the AI engine can start with it too (QA TC-3523,
+        # native/cmd/mycel-bootstrap/enginecheck.go): while app/state.json still has it pending, it may go back yet
+        if [ "$ACTION" = switch ] && grep -qs "\"pending\": *\"$RUNNING\"" "$BASE/app/state.json"; then sleep 1; continue; fi
+        done_ok ;;
       *)
         GOT=$(printf '%s' "$H" | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')
-        [ "$ACTION" = switch ] && die "$VERSION did not become healthy, so the server went back to ${GOT:-the previous version}; see journalctl -u $ID-server -n 100"
+        [ "$ACTION" = switch ] && die "$VERSION did not become healthy (or the AI engine could not start with it), so the server went back to ${GOT:-the previous version}; the reason: sudo $CTL_LINK status; see journalctl -u $ID-server -n 100"
         warn "the server answers as version ${GOT:-?}, not $RUNNING (an update was pending?)"
         done_ok
         ;;

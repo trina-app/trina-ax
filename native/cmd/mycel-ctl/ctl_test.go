@@ -630,3 +630,55 @@ func TestStatusChecksTheLiveTable(t *testing.T) {
 		t.Fatalf("text:\n%s", out)
 	}
 }
+
+// QA TC-3523: the new version answers /api/health while the bootstrap still checks that the AI engine can start with
+// it (state.json keeps it pending). `update` waits for that: a version the bootstrap then rolls back is reported
+// rolled_back with the bootstrap's reason, one it keeps is ok.
+func TestUpdateWaitsForTheEngineCheck(t *testing.T) {
+	for _, keep := range []bool{false, true} {
+		t.Run(fmt.Sprintf("kept %v", keep), func(t *testing.T) {
+			tb := newTestBase(t, "0.1.0")
+			systemdRunDir = filepath.Join(t.TempDir(), "none")
+			t.Cleanup(func() { systemdRunDir = "/run/systemd/system" })
+			old := rollbackGrace
+			rollbackGrace = time.Second
+			t.Cleanup(func() { rollbackGrace = old })
+			pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+			k := base64.StdEncoding.EncodeToString(pub)
+			stf := filepath.Join(tb.base, "app/state.json")
+			why := "the AI engine cannot start with this version, so every AI answer would fail: bwrap: Can't find source path /var/lib/mycel/app/current/native/mycel-bridge: Permission denied"
+			updateHooks(t, tb, func(v string) {
+				os.WriteFile(stf, []byte(`{"format":1,"current":"0.1.0","previous":"0.1.0","pending":"`+v+`","pendingSince":"x","attempts":0,"history":[]}`), 0o644)
+				tb.health.Store(v) // healthy at once, still pending
+				go func() {
+					time.Sleep(1500 * time.Millisecond)
+					if keep {
+						os.WriteFile(stf, []byte(`{"format":1,"current":"`+v+`","previous":"0.1.0","pending":null,"pendingSince":null,"attempts":0,"history":[{"at":"x","from":"0.1.0","to":"`+v+`","result":"ok","detail":null}]}`), 0o644)
+						return
+					}
+					b, _ := json.Marshal(why)
+					os.WriteFile(stf, []byte(`{"format":1,"current":"0.1.0","previous":null,"pending":null,"pendingSince":null,"attempts":0,"history":[{"at":"x","from":"`+v+`","to":"0.1.0","result":"rolled_back","detail":`+string(b)+`}]}`), 0o644)
+					tb.health.Store("0.1.0")
+				}()
+			})
+			arch := filepath.Join(t.TempDir(), "g.tar.zst")
+			mkArchive(t, signedBundle(t, "0.2.0", priv, "old launcher"), arch, nil)
+			began := time.Now()
+			code, out, errs := tb.ctl("", "update", "--bundle", arch, "--pubkey", k, "--json")
+			var r UpdateResult
+			json.Unmarshal([]byte(out), &r)
+			if took := time.Since(began); took < 1500*time.Millisecond {
+				t.Fatalf("reported after %v, before the bootstrap settled: %d %+v", took, code, r)
+			}
+			if keep {
+				if code != 0 || r.Result != "ok" {
+					t.Fatalf("%d %+v %s", code, r, errs)
+				}
+				return
+			}
+			if code != 10 || r.Result != "rolled_back" || r.Detail != why {
+				t.Fatalf("%d %+v %s", code, r, errs)
+			}
+		})
+	}
+}

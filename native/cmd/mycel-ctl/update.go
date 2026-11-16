@@ -1509,12 +1509,22 @@ func (u *updater) updateApp(dir, v string) error {
 	// a roll-back is reported once it has lasted rollbackGrace: when the old version cannot read the database the new
 	// one migrated, the bootstrap goes forward to v again (state.json forward), which then gets its own health wait
 	var rbAt time.Time
-	forwardSeen, sawMigrating := false, false
+	forwardSeen, sawMigrating, checkSeen := false, false, false
 	for time.Now().Before(deadline) {
 		h := health(u.in.Port, 3*time.Second)
 		if h["ok"] == true && h["version"] == v {
-			u.res.Result = "ok"
-			return nil
+			// the bootstrap keeps a version that answers health only once its engine check passed (QA TC-3523,
+			// native/cmd/mycel-bootstrap/enginecheck.go): while state.json still has v pending it may roll back yet
+			if !u.stillPending(v) {
+				u.res.Result = "ok"
+				return nil
+			}
+			if !checkSeen {
+				checkSeen = true
+				if d := time.Now().Add(engineCheckWait); d.After(deadline) {
+					deadline = d
+				}
+			}
 		}
 		if h["status"] == "migrating" && h["version"] == v {
 			// v is updating a large database before it listens: wait while it says so, then the usual health wait; no
@@ -1631,6 +1641,22 @@ func (u *updater) forwardTo(v string) bool {
 		Forward *string `json:"forward"`
 	}
 	return json.Unmarshal(b, &st) == nil && st.Forward != nil && *st.Forward == v
+}
+
+// engineCheckWait: how long `update` waits for the bootstrap's engine check once v answers health (the bootstrap's own
+// bound is about 65 s: the launcher may be restarting, then the launch itself)
+var engineCheckWait = 90 * time.Second
+
+// stillPending reads app/state.json: v is still the pending update (the bootstrap has not kept or rolled it back yet)
+func (u *updater) stillPending(v string) bool {
+	b, err := os.ReadFile(filepath.Join(u.e.base, "app", "state.json"))
+	if err != nil {
+		return false
+	}
+	var st struct {
+		Pending *string `json:"pending"`
+	}
+	return json.Unmarshal(b, &st) == nil && st.Pending != nil && *st.Pending == v
 }
 
 // rolledBack reads app/state.json: the bootstrap recorded a roll-back away from v (returns its detail).
