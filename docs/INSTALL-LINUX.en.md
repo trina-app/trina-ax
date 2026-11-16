@@ -246,7 +246,8 @@ The server unit (`<id>-server.service`) may use at most 75% of the machine's mem
 the kernel ends it at that limit and it starts again within seconds, instead of the whole machine running out of memory
 and hanging. Normal use stays well below it (uploads, document converters and printing have their own smaller limits).
 The update that brings this changes the unit: it is a root update (the update timer, or `sudo mycel-ctl update`), and
-the limit applies once the server restarts. A hosted plan sets its own server limit, which wins. To check:
+the limit applies at the latest when the server restarts. A hosted plan sets its own server limit, which wins (the
+"no swap" applies there too). To check:
 `systemctl show <id>-server -p MemoryMax`.
 
 ## Safe PowerPoint (safe operations 1A, optional)

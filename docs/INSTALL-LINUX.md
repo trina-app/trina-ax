@@ -403,8 +403,8 @@ the firewall needs no change.
 `MemorySwapMax=0`). 안전장치다: 서버가 돌려줘야 할 메모리를 계속 쥐고 있으면 커널이 이 한도에서 서버를 끝내고 서버는
 몇 초 안에 다시 시작한다. 그러지 않으면 컴퓨터 전체 메모리가 바닥나 멈춘다. 평소 사용은 한도보다 훨씬 아래다(업로드,
 문서 변환, 인쇄는 각자 더 작은 한도가 있다). 이 한도를 가져오는 업데이트는 유닛을 바꾸므로 root 업데이트다(업데이트
-타이머 또는 `sudo mycel-ctl update`). 한도는 서버가 다시 시작되면 적용된다. 호스팅 요금제는 자기 서버 한도를 따로 두며
-그것이 우선한다. 확인: `systemctl show <id>-server -p MemoryMax`.
+타이머 또는 `sudo mycel-ctl update`). 한도는 늦어도 서버가 다시 시작될 때 적용된다. 호스팅 요금제는 자기 서버 한도를 따로 두며
+그것이 우선한다(스왑을 쓰지 않는 것은 그대로 적용된다). 확인: `systemctl show <id>-server -p MemoryMax`.
 
 ### 9a. 안전한 PowerPoint(1A, 선택)
 

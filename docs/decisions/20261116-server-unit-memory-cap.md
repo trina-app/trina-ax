@@ -13,8 +13,8 @@
   for the next one.
 - **Rule:** `scripts/linux/systemd/server.service.in` has `MemoryMax=75%` and `MemorySwapMax=0`. systemd reads the
   percentage against the machine's RAM (checked with `systemd-analyze verify` on systemd 252, Debian 12). At the limit
-  the kernel's cgroup OOM killer ends a process in the unit: document converters and print jobs first (OOM score
-  adjustment 500, `server/src/system/cgroups.ts`), else the Bun server. `OOMPolicy=continue` keeps the unit and
+  the kernel's cgroup OOM killer ends a process in the unit: print jobs and document converters first (OOM score
+  adjustment 900, `server/src/files/html-pdf.ts`, and 500, `server/src/system/cgroups.ts`), else the Bun server. `OOMPolicy=continue` keeps the unit and
   `mycel-bootstrap` starts the server again after 1 s (back-off after more than 5 crashes in 5 minutes; a just-updated
   version that is killed three times before it is healthy is rolled back, as any crash would be). `Restart=always`
   covers the bootstrap.
@@ -31,12 +31,14 @@
   (`native/cmd/mycel-ctl/install.go` renderUnits), and an unknown `@NAME@` refuses. A literal percentage renders with
   every released renderer.
 - **Hosted plans:** `mycel-ctl apply-plan` sets the server unit's MemoryMax / MemoryHigh with `systemctl set-property`
-  (a drop-in in `/etc/systemd/system.control`), which takes precedence over the unit file: hosted values are unchanged.
+  (a drop-in in `/etc/systemd/system.control`), which takes precedence over the unit file: the hosted MemoryMax and
+  MemoryHigh are unchanged. `MemorySwapMax=0` from the unit file does apply there too (apply-plan does not set it):
+  on a host with swap, the server is no longer swapped out near its plan limit.
 - **How existing servers get it:** the unit template is a root file, so the release that ships it is a root release
   (`scripts/release/publish-server.ts`: needsRoot auto, `rootSince` = that release). The app's own updater refuses it
   (`needs_root`); the root update timer (`mycel-ctl update`, in its window) or `sudo mycel-ctl update` installs it. The
-  root step renders the units and runs `daemon-reload`, and the app switch restarts `<id>-server.service`, which applies
-  the limit. Same on the AMI (same installer and units). Fresh installs render it at once. This is why the cap ships in
+  root step renders the units and runs `daemon-reload` (systemd may apply a changed limit to the running unit then;
+  not checked on a real machine), and the app switch restarts `<id>-server.service`, which applies it at the latest. Same on the AMI (same installer and units). Fresh installs render it at once. This is why the cap ships in
   its own pull request: the memory fix itself is app-only and reaches servers through the app's own updater.
 - **Not covered:** Docker (no systemd in the image; set the container's memory limit) and office Macs (launchd).
 - **Tests:** `tests/unit/g-scripts.test.ts` (the lines, no MemoryHigh, only known placeholders),
