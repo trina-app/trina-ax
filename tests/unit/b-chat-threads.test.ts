@@ -498,3 +498,20 @@ describe('chat events are not replayed to someone taken out of a people-shared c
     back.close()
   })
 })
+
+describe('QA TC-3625: after Send to Trina, "add them to the project" in a shared chat', () => {
+  test('a shared chat offers neither change_project_members nor delete_files, and its prompt tells the AI to say so plainly', async () => {
+    const c = await h.api('alice').call(API.createChat, { body: { projectId } })
+    const tools = (await ask('alice', c.id, fake({ echo: 'tools' }))).done.content
+    expect(tools).toContain('read')
+    for (const name of ['change_project_members', 'delete_files']) expect({ name, offered: tools.includes(name) }).toEqual({ name, offered: false })
+    const sys = (await ask('alice', c.id, fake({ echo: 'system' }))).done.content
+    expect(sys).toContain("changing the project's members")
+    expect(sys).toContain('putting team files in the trash')
+    expect(sys).toContain('say plainly')
+    // a person's own chat in the same project does have them (the card is reachable there)
+    const own = await h.api('alice').call(API.createChat, { body: { projectId, private: true } })
+    const mine = (await ask('alice', own.id, fake({ echo: 'tools' }))).done.content
+    expect(mine).toContain('change_project_members')
+  })
+})

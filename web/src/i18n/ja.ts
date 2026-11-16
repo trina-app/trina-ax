@@ -1246,7 +1246,7 @@ export const ja: Record<MessageKey, string> = {
   'projects.items': "{n, plural, one {#個の項目} other {#個の項目}}",
   'projects.itemsMore': "{n}個以上の項目",
   'projects.missing': "このプロジェクトが見つからないか、アクセス権がありません。",
-  "projects.noLongerMember": "「{name}」のメンバーではなくなりました",
+  "projects.noLongerMember": "{name}のメンバーではなくなりました。",
   'projects.deleteTitle': "プロジェクト\"{name}\"を削除しますか？",
   'projects.deleteBody': "プロジェクトのみ削除されます。フォルダーとチャットは残ります。",
   // shared project chats (docs/DECISIONS.md "Shared project chats")

@@ -48,6 +48,8 @@ export function ChatThreadPanel({ chat, rootId, meId, onClose, onSendToTrina, on
   const key = threadKey(chatId, rootId)
   const view = useChatThreads((s) => s.views[key])
   const pending = useChatThreads((s) => s.pending[key])
+  // replies waiting out the sending budget: one line under the box (QA TC-3887)
+  const slow = useChatThreads((s) => !!s.slowUntil[key])
   const replies = view?.replies ?? []
   const root = view?.root ?? null
   const list = useStickToBottom()
@@ -160,6 +162,7 @@ export function ChatThreadPanel({ chat, rootId, meId, onClose, onSendToTrina, on
             : readOnly ? <p role="status" className="px-1 py-2 text-center text-sm text-muted" data-testid="chat-thread-read-only">{t(readOnly === 'trash' ? 'chat.thread.inTrash' : 'chat.thread.notShared')}</p>
             : view?.full ? <p role="status" className="px-1 py-2 text-center text-sm text-muted" data-testid="chat-thread-full">{t('chat.thread.full')}</p>
             : <ReplyBox chatId={chatId} rootId={rootId} autoFocus={focusBox || count === 0} onSent={() => { stick.current = true }} />}
+          {slow && <p role="status" className="px-1 pt-1.5 text-xs text-muted" data-testid="chat-thread-slow">{t('chat.thread.fast')}</p>}
           <p className="px-1 pt-1.5 text-micro leading-4 text-faint" data-testid="chat-thread-people-only">{t('chat.thread.peopleOnly', { name: aiName(t) })}</p>
           {canSendToTrina && (
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 pt-1.5">
