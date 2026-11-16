@@ -281,7 +281,7 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await expect(dialog.getByTestId('chat-share-grey')).toHaveText('아직 이 채팅을 확인하지 못했어요. 공유하기 전에 무엇이 공개되는지 보여 드릴게요.')
       await dialog.getByTestId('chat-share-save').click()
       await expect(dialog.getByTestId('chat-share-warning')).toContainText('이전 답 1개가 내 개인 계정을 참고했을 수 있어요.')
-      await expect(dialog.getByTestId('chat-share-warning')).toContainText('이 채팅은 Bob 님이 없을 수도 있는 팀 대화방을 읽었어요.')
+      await expect(dialog.getByTestId('chat-share-warning')).toContainText('이 채팅은 Bob 님이 없을 수도 있는 채널을 읽었어요.')
       await expect(dialog.getByTestId('chat-share-changed')).toHaveText('내용을 확인하고 공유를 한 번 더 눌러 주세요.')
       await expect(dialog.getByTestId('chat-share-save')).toHaveText('공유')
       await expect(page.getByTestId('chat-shared')).toHaveCount(0)

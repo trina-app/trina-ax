@@ -258,7 +258,7 @@ export const TEXT = {
   fileShareNotShared: t('공유하지 않았어요', 'Not shared', 'Tidak dibagikan', '共有していません', 'No se compartió', '未共享'),
   fileSharePick: t("'{ref}'에 맞는 사람이 여러 명이에요. 누구에게 공유할까요?", "Several people match '{ref}'. Who should get it?", "Beberapa orang cocok dengan '{ref}'. Siapa yang menerimanya?", '「{ref}」に当てはまる人が複数います。誰に共有しますか？', "Varias personas coinciden con '{ref}'. ¿Quién lo recibe?", '有多个人与“{ref}”匹配。要共享给谁？'),
   postRoomEveryone: t('전체', 'Everyone', 'Semua', '全員', 'Todos', '所有人'),
-  postRoomTeam: t('팀 대화방', 'team room', 'ruang tim', 'チームトーク', 'sala del equipo', '团队群聊'),
+  postRoomTeam: t('채널', 'channel', 'saluran', 'チャンネル', 'canal', '频道'),
   postRoomGroup: t('그룹 대화', 'group chat', 'obrolan grup', 'グループトーク', 'chat de grupo', '群聊'),
   postRoomDm: t('{name}님과의 1:1 대화', '1:1 chat with {name}', 'obrolan 1:1 dengan {name}', '{name}さんとの1:1', 'chat 1:1 con {name}', '与{name}的私信'),
   postRoomTeamFolder: t('팀 폴더', 'Team folder', 'Folder tim', 'チームフォルダー', 'Carpeta del equipo', '团队文件夹'),

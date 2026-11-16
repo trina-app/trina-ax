@@ -80,14 +80,14 @@ describe('the order', () => {
     expect(pinnedFirst([a, c]).map((r) => r.name)).toEqual(['a', 'c'])
   })
 
-  test('by kind: the pins first in their own kind\'s section, then 전체, the team rooms by name, group chats and DMs by activity', () => {
+  test('by kind: the pins first in their own kind\'s section, then 전체, the channels by name, then DMs and group chats together by activity', () => {
     const kinds = ['team', 'dm', 'group', 'all', 'team'] as const
     const pins = [room({ kind: 'dm', name: 'p0', activityAt: at(100), pinnedAt: pinned(0) }), room({ kind: 'group', name: 'p1', activityAt: at(99), pinnedAt: pinned(1) }), room({ name: 'p2', activityAt: at(98), pinnedAt: pinned(2) })]
     const rest = Array.from({ length: 5 }, (_, i) => room({ kind: kinds[i], name: `r${4 - i}`, activityAt: at(50 - i) }))
     const list = [...rest, ...pins].sort((x, y) => y.activityAt.localeCompare(x.activityAt))
     const sections = roomSections(list, (r) => r.name!, 'ko')
     // r4 (team), r3 (dm), r2 (group), r1 (all), r0 (team)
-    expect(sections.map((s) => [s.section, s.rooms.map((r) => r.name)])).toEqual([['team', ['p2', 'r1', 'r0', 'r4']], ['group', ['p1', 'r2']], ['dm', ['p0', 'r3']]])
+    expect(sections.map((s) => [s.section, s.rooms.map((r) => r.name)])).toEqual([['team', ['p2', 'r1', 'r0', 'r4']], ['dm', ['p1', 'p0', 'r3', 'r2']]])
     // every room once
     expect(sections.flatMap((s) => s.rooms).map((r) => r.id).sort()).toEqual(list.map((r) => r.id).sort())
   })
