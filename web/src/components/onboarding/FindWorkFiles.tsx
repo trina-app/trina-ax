@@ -10,14 +10,14 @@
 //            (never a personal-looking file, at most 100), at most 1 GB per add; a line for each folder macOS kept the
 //            app out of ("… can't see Downloads · Allow in Settings"), a cut folder, files over 50 MB, a folder left out
 // Nothing is read before Add: the files' contents are read by the upload, one by one (LocalDoc.open → workFiles.read).
-// Three places use it: My files (FindWorkFilesEntry) and an invited person's welcome card on Home (its optional "Bring
+// Three places use it: My files (useFindWorkFilesEntry) and an invited person's welcome card on Home (its optional "Bring
 // work files from this computer" row), both through useMyWorkFiles (the files go to My files › From this computer, the
 // member's own AI turn; then the share step, ShareFoundFiles.tsx: which of them to share with whom, nothing ticked, Not
 // now; the result has Open and Undo), and the setup's 팀 파일 step on the desktop app (TeamFilesStep: the owner's files go
 // to the team home as before, the team pick, then the step's own run and folder plan).
 import clsx from 'clsx'
 import { FolderSearch, Loader2, Undo2 } from 'lucide-react'
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { TEAM_FILES_LIMITS, type TeamFileReason, type TreeResponse } from '@mycel/shared/api'
@@ -504,7 +504,7 @@ const reasonsOf = new WeakMap<FolderUpload, Map<string, TeamFileReason>>()
 /**
  * The My files dialog of "Find work files on this computer": the steps above, the files to My files › From this computer
  * (only the person sees them), as the person's own AI turn; then the run's result with Open and Undo. Two places open
- * it: the quiet line on My files (FindWorkFilesEntry) and the invited person's welcome card on Home (MemberWelcome.tsx,
+ * it: the toolbar button on My files (useFindWorkFilesEntry) and the invited person's welcome card on Home (MemberWelcome.tsx,
  * the optional "Bring work files from this computer" row). `available` is false in a browser, on a phone's app, in the
  * Mac App Store build, in a desktop app without the bridge's version, and for guests: nothing to show then.
  * `onChange`: the dialog closed or a run's Undo ended (the card reads its rows again); `onLanded`: a new file is up.
@@ -556,28 +556,27 @@ export function useMyWorkFiles(o: { onChange?: () => void; onLanded?: () => void
 }
 
 /**
- * My files on the desktop app (Windows, the Mac app from the website): one quiet line, "Find work files on this computer",
- * for anyone but guests. It opens the dialog above. Not in a browser, on a phone, in the Mac App Store build or an older
- * desktop app (no matching bridge).
+ * My files on the desktop app (Windows, the Mac app from the website): the toolbar button "Find work files", for anyone
+ * but guests, and the dialog it opens. Not in a browser, on a phone, in the Mac App Store build or an older desktop app
+ * (no matching bridge). The page calls this once and puts `button` in its computer toolbar and `dialog` outside its
+ * phone/computer branches (QA TC-3504): the Files page draws a different header at phone width, so a dialog that lived
+ * in the toolbar closed, and its look stopped, when the window was made that narrow. The dialog is the app's Modal
+ * (a bottom sheet at phone width), as from the welcome card.
  */
-export function FindWorkFilesEntry({ here }: { here: string }) {
+export function useFindWorkFilesEntry(here: string): { button: ReactNode; dialog: ReactNode } {
   const t = useT()
   const f = useMyWorkFiles()
-  if (!f.available || (here !== f.own && here !== runFolder(f.own))) return null
-  return (
-    <>
-      {/* a Files toolbar button beside Upload folder / Upload (icon only on a narrow page, like them); not on a phone;
-          a dialog already open stays when the window is made narrow */}
-      {!f.narrow && (
-        <Tooltip label={t('files.findWork.entryButton')}>
-          <Button size="sm" variant="ghost" onClick={f.start} aria-label={t('files.findWork.entryButton')} data-testid="files-find-work-entry">
-            <FolderSearch size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.findWork.entryButton')}</span>
-          </Button>
-        </Tooltip>
-      )}
-      {f.dialog}
-    </>
-  )
+  const shown = f.available && (here === f.own || here === runFolder(f.own))
+  // the button: beside Upload folder / Upload (icon only on a narrow page, like them); not at phone width
+  const button = shown && !f.narrow ? (
+    <Tooltip label={t('files.findWork.entryButton')}>
+      <Button size="sm" variant="ghost" onClick={f.start} aria-label={t('files.findWork.entryButton')} data-testid="files-find-work-entry">
+        <FolderSearch size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.findWork.entryButton')}</span>
+      </Button>
+    </Tooltip>
+  ) : null
+  // the dialog: the same at every width and whatever folder is on screen
+  return { button, dialog: f.dialog }
 }
 
 /** A file the run added, its place in words: "Documents › Sales", "OneDrive – Acme › Clients" (under From this computer). */
