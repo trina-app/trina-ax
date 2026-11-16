@@ -132,11 +132,12 @@ export const sharedSummary = (summary: string, child: Pick<SharedChild, 'rel' | 
 
 /**
  * The folders shared with `userId` by a grant (their own, a group's, or the whole team's) that would open for them now,
- * the most recently shared first, at most `max`: the turn's "Files shared with you" block gives each one's link and who
- * shared it, never its name (the name is the sharer's words; the AI lists the folder by its link when it needs it, and
- * that marks the chat). Shares to the person or their groups come before the whole team's, as for files.
- * Read only, every turn: at most `max + 5` rows are looked at, each with FolderShares.listable (the Shared with me
- * list's check: no identity check, nothing paused or ended). The open by link decides the rest.
+ * the most recently shared first, at most `max`. The shared_with_me tool (chat/shared-with-me-tool.ts) names each one
+ * with its link, who shared it, the day and its name as the sharer wrote it (raw here: the tool caps and neutralizes
+ * it, and the call marks the chat, as the files' names do). There is no every-turn block (merge of PR 4 and B4).
+ * Shares to the person or their groups come before the whole team's, as for files.
+ * Read only: at most `max + 5` rows are looked at, each with FolderShares.listable (the Shared with me list's check:
+ * no identity check, nothing paused or ended). The open by link decides the rest.
  */
 export function sharedFoldersWith(ctx: AppContext, userId: string, max = 20): { files: SharedWithFile[]; more: boolean } {
   const db = ctx.db
@@ -157,13 +158,7 @@ export function sharedFoldersWith(ctx: AppContext, userId: string, max = 20): { 
     const by = db.query('SELECT name FROM users WHERE id = ? AND deleted_at IS NULL').get(r.gb) as { name: string } | null
     const grp = r.st === 'group' && r.sid !== FILE_SHARE_EVERYONE ? db.query('SELECT name FROM groups WHERE id = ?').get(r.sid) as { name: string } | null : null
     const to: SharedWithFile['to'] = r.st === 'user' ? { kind: 'you' } : r.sid === FILE_SHARE_EVERYONE ? { kind: 'everyone' } : { kind: 'group', name: grp?.name ?? '' }
-    files.push({ id: r.id, name: '', url: fileLinkUrl(r.id), sharedBy: by?.name ?? null, at: r.at, to, kind: 'folder' })
+    files.push({ id: r.id, name: row.path.split('/').pop() ?? '', url: fileLinkUrl(r.id), sharedBy: by?.name ?? null, at: r.at, to, kind: 'folder' })
   }
   return { files, more }
-}
-
-/** The turn's "Files shared with you" list with the shared folders added (files first, as before). */
-export function withSharedFolders(files: { files: SharedWithFile[]; more: boolean } | null, folders: { files: SharedWithFile[]; more: boolean }): { files: SharedWithFile[]; more: boolean } | null {
-  if (!folders.files.length) return files
-  return { files: [...(files?.files ?? []), ...folders.files], more: !!files?.more || folders.more }
 }
