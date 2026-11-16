@@ -1,0 +1,194 @@
+# AI scenarios: what the team AI can and can't do, per feature
+
+The catalog [`cases.yaml`](cases.yaml) holds everyday requests that ordinary office workers type, in Korean and
+English. Each case names the features it covers ([`docs/features.ts`](../../docs/features.ts)), who asks, where they
+ask, and what a good answer does. One command runs them through the **real** team AI on a local server seeded with a
+made-up company, checks the files the AI produced, and has a Sonnet judge grade each answer.
+
+It exists because, on 2026-11-16, the AI refused two avoidable tasks in a shared project chat. It said "no terminal,
+can't run Python" when asked to stamp the company seal on a PDF, and it would not edit a skill's file path. The
+catalog is meant to find failures like that before customers do.
+
+```bash
+bun run ai:scenarios up            # start this tool's own dev server (port 19871, data ~/.trina-aiscen) and seed it
+bun run ai:scenarios run --first-pass          # the representative pass: every feature at least once (~100 cases)
+bun run ai:scenarios run                        # every case (~260)
+bun run ai:scenarios run --case FLOW-01,SKL-01  # one or more cases (a base id also runs its variants)
+bun run ai:scenarios run --feature files        # every case of files.*
+bun run ai:scenarios judge                      # grade the latest run with Sonnet (only results not judged yet; --again)
+bun run ai:scenarios report                     # tests/.work/ai-scenarios/<run>/report.md
+bun run ai:scenarios coverage                   # coverage per feature, from the catalog alone (no server)
+bun run ai:scenarios list [--first-pass]        # the cases, one line each
+bun run ai:scenarios down                       # stop the server this tool started (by its pid only)
+bun run ai:scenarios up --reset                 # stop it, delete ~/.trina-aiscen, start and seed a fresh one
+```
+
+`AISCEN_HOME` and `AISCEN_PORT` change the data folder and the port.
+
+## What runs
+
+- **The engine** is this machine's own Claude Code sign-in: the dev server is local-login, like an Office Mac. No new
+  account and no API key are used.
+- **Cost:** each case is one to three model turns on the product's default model. The report gives the turns, the
+  tokens and the list-price equivalent.
+- **The judge** is `claude -p --model sonnet`, run with no tools, no MCP servers and no settings. It reads only what
+  [`lib/judge.ts`](lib/judge.ts) gives it.
+
+Nothing here touches a real team. The fixture is a fictional company, and its password is in
+[`fixture/seed.ts`](fixture/seed.ts) because the server is local and thrown away.
+
+## The fixture: 가나다오피스 (fictional)
+
+[`fixture/seed.ts`](fixture/seed.ts) seeds an empty server through the public API. It reuses the demo seeder
+([`scripts/demo/seed.ts`](../../scripts/demo/seed.ts)) for people, groups, folder rules, the project and the files.
+
+**People**
+
+| Username | Name | Role | Group | Notes |
+|---|---|---|---|---|
+| jiwoo | 김지우 | owner | | |
+| minho | 박민호 | admin | | |
+| sora | 이소라 | member | 영업 | |
+| daniel | Daniel Kim | member | 영업 | writes English |
+| hana | 최하나 | member | 마케팅 | in the project, not in the room |
+| junho | 정준호 | member | 재무 | in neither the project nor the room |
+| partner | | guest | | a guest of the project |
+
+**Places**
+
+- A personal chat for each person.
+- The team project **라마바카페 납품**, with its shared chat: members 영업 and hana.
+- The group chat **라마바카페 건** (sora, daniel, minho), with five messages, a thread and a PDF sent into it. Each
+  member also has the ✦ side chat beside it.
+
+**Files** ([`fixture/files`](fixture/files); [`fixture/personal`](fixture/personal) goes into each person's own
+folder):
+
+- a two-page quote PDF with a "(인)" sign spot on page 2;
+- the company seal as a transparent PNG;
+- an Excel price list and a monthly sales sheet;
+- a Word contract;
+- two Hangul files (HWPX, the synthetic files of `tests/fixtures/hwp`);
+- a PowerPoint deck;
+- meeting notes in Markdown;
+- photos;
+- a scanned visit report (image-only PDF);
+- a client CSV;
+- a Korean voice memo (m4a);
+- an expense policy;
+- a payroll memo in a limited folder (admins only);
+- personal notes;
+- a file with planted instructions, for the prompt-injection cases;
+- three team skills. 견적서-작성 points at an **old** seal path on purpose.
+
+[`fixture/make-files.py`](fixture/make-files.py) remakes the binary files. They are committed, so a run needs no
+Python. The voice memo was made with macOS `say -v Yuna` and `afconvert`.
+
+**Connectors.** None are connected; real ones need real accounts. The connector cases test what a person sees when a
+service is not connected: the connect card, a plain explanation and no false "sent". On a connect card the runner
+presses "not now".
+
+## Install types
+
+The tool set an install gives the AI is simulated on one server:
+
+| `install` | What it is | Here |
+|---|---|---|
+| `office-mac` (default) | Office Mac: no dev environment, the Mac's own Claude sign-in | runs |
+| `linux-nodevenv` | Linux self-install with the dev environment off. On a local server this is the same tool set as `office-mac`. | runs |
+| `linux-devenv` | Linux self-install with the dev environment (srt): the AI can run commands (`box_shell`) except in shared chats | **blocked on a Mac**: srt runs commands on Linux, or on a Mac installed by `install-macos.sh` with its dev accounts. `up --devenv` on a Linux machine runs them. |
+| `managed` | AI on team connections (hosting, Linux, Docker): the only kind where a guest can have AI | **blocked**: a local-login server never gives guests AI (`server/src/credentials/guest-ai.ts`). Run on a managed test server with the guest's AI set to "team". |
+
+Blocked cases appear in the report as "blocked", not as failures.
+
+## A case
+
+```yaml
+- id: SKL-01                    # AREA-NN; a variant becomes SKL-01.<key>
+  title: Change the seal path in the quote skill
+  features: [skills.draft, skills.list]   # feature ids of docs/features.ts; the first is the main one
+  kind: happy                   # happy / context / install / refuse / flow (a cross-feature office flow)
+  lang: ko
+  context: personal             # personal / project (shared project chat) / room-side (✦ side chat) / guest
+  as: sora
+  install: office-mac
+  prompt: 견적서 작성 스킬에 직인 경로가 틀렸어. shared/도장/회사직인.png 로 고쳐줘
+  followUps: []                 # said next in the same chat
+  expect:
+    outcome: do                 # do / refuse / explain / ask
+    good: Edits the skill so it names shared/도장/회사직인.png (after the confirmation card).
+    checks:
+      - { type: file_contains, path: "skills/견적서-작성/SKILL.md", text: "shared/도장/회사직인.png" }
+  restores: ["skills/견적서-작성/SKILL.md"]   # put back after the case (such cases run one at a time, at the end)
+  fixInProgress: …              # a fix being built: a failure is expected today
+  pass1: true                   # in the representative first pass
+  variants:                     # the same request elsewhere; given fields replace the base case's
+    - { key: project, context: project, prompt: …, fixInProgress: … }
+```
+
+### Automatic checks
+
+The checks are in [`lib/checks.ts`](lib/checks.ts). They read the team folder as it is after the case:
+
+- `file_created` and `no_file_created` (a glob over the files created or changed during the case);
+- `pdf_image_on_page` (`pdfimages`) and `pdf_pages`;
+- `xlsx` (a header, formulas, a chart, a cell);
+- `docx_contains` and `pptx_slides`;
+- `file_contains`, `file_not_contains`, `path_exists` and `path_missing`;
+- `answer_matches` and `answer_not_matches`;
+- `tool_used` and `tool_not_used`;
+- `room_message` and `no_room_message` (only messages posted during the case).
+
+Every case also gets `answered`: each turn ended and said something, so a refusal check never passes on silence.
+
+### Cards
+
+On a server card ("save where more people can see it?", "post to the room?", "change a team skill?") the runner
+presses the option that goes ahead, as a person who wants the task done would. On a question from the AI it picks the
+first choice, or answers "yes, go ahead" (`reply` sets other words). Every card is recorded. An unneeded question
+is one of the judge's criteria.
+
+## The judge
+
+[`lib/judge.ts`](lib/judge.ts) gives Sonnet the request, the place, the role, what a good answer does, every turn with
+its actions and cards, the changed files and the automatic checks. Sonnet returns:
+
+- pass;
+- did the task;
+- refusal: none, correct, wrong (over-refusal) or missing (did what it must not);
+- jargon (terminal, Python, code, server, tool names, raw paths as the only way to say where);
+- false claim;
+- unneeded question;
+- tone;
+- a root cause: missing tool, prompt over-refusal, permission bug, jargon, wrong claim, tool failure, wrong result or
+  other.
+
+The judge trusts a case's `good` line. A wrong expectation makes a right answer fail, so spot-check a sample of
+verdicts after changing cases. The first run found such a case (VIEW-03).
+
+## Coverage per feature
+
+[`feature-scope.ts`](feature-scope.ts) has a line for every feature of the feature map, saying how the AI reaches it:
+
+- `acts`: the AI does it with its own actions;
+- `explains`: people ask it how;
+- `none`: not something a person asks the team AI, with the reason.
+
+A feature added to `docs/features.ts` without a line there makes `coverage`, `list` and `run` stop, as
+`features:check` stops on an endpoint with no feature. `bun run ai:scenarios coverage` lists, per feature, the cases,
+their kinds and places, and a level:
+
+- `none`: no case;
+- `happy-only`;
+- `covered`: the happy path plus another place, install or refusal.
+
+## Results
+
+Results go to `tests/.work/ai-scenarios/<run>/` (git-ignored):
+
+- one JSON per case: the turns with the answer, every tool call with its input and result, the cards, the saved
+  files, the tokens and the model; the changed files; the checks; the verdict;
+- `report.md`: totals, one row per case, failures by root cause, flags, results per feature and coverage.
+
+The first run's report is kept in [`reports/`](reports/), and every failure has a row in the QA sheet that names its
+case id.

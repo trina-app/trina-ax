@@ -1,0 +1,34 @@
+// The AI scenario catalog (tests/ai-scenarios) holds together without a server or a model: every feature of the
+// feature map has a line in feature-scope.ts, every case names known features, a fixture person and fixture files it
+// restores, and the first pass reaches every feature the AI can reach.
+import { describe, expect, test } from 'bun:test'
+import fs from 'node:fs'
+import path from 'node:path'
+import { FEATURES } from '../../docs/features'
+import { FEATURE_SCOPE } from '../ai-scenarios/feature-scope'
+import { coverage, firstPass, loadCatalog, problems } from '../ai-scenarios/lib/catalog'
+import { COMPANY, FIXTURE_FILES, GUEST } from '../ai-scenarios/fixture/seed'
+
+const cases = loadCatalog()
+
+describe('AI scenario catalog', () => {
+  test('no problems against the feature map', () => {
+    expect(problems(cases)).toEqual([])
+  })
+
+  test('every case is asked by a fixture person and restores fixture files only', () => {
+    const people = new Set([...COMPANY.people.map((p) => p.username), GUEST.username])
+    for (const c of cases) {
+      expect(people.has(c.as)).toBe(true)
+      if (c.context === 'guest') expect(c.as).toBe(GUEST.username)
+      for (const r of c.restores) expect(fs.existsSync(path.join(FIXTURE_FILES, r))).toBe(true)
+    }
+  })
+
+  test('every feature the AI reaches has a case, and the first pass runs each at least once', () => {
+    const reach = FEATURES.filter((f) => FEATURE_SCOPE[f.id]?.reach !== 'none').map((f) => f.id)
+    expect(coverage(cases).filter((c) => c.level === 'none').map((c) => c.id)).toEqual([])
+    const first = cases.filter((c) => firstPass(cases).has(c.id))
+    expect(reach.filter((f) => !first.some((c) => c.features.includes(f)))).toEqual([])
+  })
+})
