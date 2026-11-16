@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16 06:39
 - Branch: `feat/mac-local-speech`
-- Status: in progress
+- Status: done
 - Where: trina-ax/server (jobs, files), web (voice input, Team settings), scripts (office zip, CI). Why: the owner approved local speech-to-text for Office Macs on Apple silicon (AI scenario VIEW-08)
 - Version impact: minor, a new way for voice input and recordings to work on Office Macs and a new release job
 
@@ -42,4 +42,4 @@ on this Mac), media-read, a-speech-settings, the speech and office tests, web wa
 
 ## Result
 
-Filled in at the end.
+Built as planned. Video on a Mac gives the sound only (the read says so).
