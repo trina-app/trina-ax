@@ -58,6 +58,13 @@ export const TEXT = {
     en: 'Someone shared a chat with you.',
     id: 'Seseorang membagikan obrolan dengan Anda.', ja: '誰かがチャットを共有しました。', es: 'Alguien compartió un chat con usted.', zh: '有人与你共享了一个对话。',
   },
+  // someone shared a file, or several in one press, with me by name: never who or which (the push gateway has the same
+  // words: push-gateway/src/text.ts)
+  'file.shared': {
+    ko: '누군가 파일을 공유했어요.',
+    en: 'Someone shared files with you.',
+    id: 'Seseorang membagikan file dengan Anda.', ja: '誰かがファイルを共有しました。', es: 'Alguien compartió archivos con usted.', zh: '有人与你共享了文件。',
+  },
   // an app in a room I manage paused for the day (room_app_notices): never the app's or the room's name (the push
   // gateway has the same words: push-gateway/src/text.ts)
   'room_app.paused': {
@@ -123,6 +130,7 @@ export function pushMessages(locale: Locale) {
     'chat.answer_done': TEXT['chat.answer_done'][locale],
     'chat.shared': TEXT['chat.shared'][locale],
     'room_app.paused': TEXT['room_app.paused'][locale],
+    'file.shared': TEXT['file.shared'][locale],
     'chat.thread_reply': TEXT['chat.thread_reply'][locale],
   }, markRead: MARK_READ[locale], chatSharedBy: CHAT_SHARED_BY[locale] }
 }

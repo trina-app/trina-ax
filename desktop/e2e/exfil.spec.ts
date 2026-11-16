@@ -7,7 +7,9 @@
 // no other site the person has not allowed (common/net-policy.ts, main/pane/net-guard.ts).
 // attacker.test (fake-team-server.ts, port 19158) logs every request URL.
 import { expect, test, type ElectronApplication } from '@playwright/test'
-import { ACME, activityLog, addTeam, answer, ATTACKER, call, chrome, close, launch, newTurn, newUserData, result, run, SHOP, text, signIn } from './helpers'
+import { ACME, activityLog, addTeam, answer, ATTACKER, call, chrome, close, launch, newTurn, newUserData, result, run, SHOP, text, signIn, stopLeftoverApps } from './helpers'
+
+stopLeftoverApps()
 
 const leaked = async (marker: string): Promise<string[]> =>
   ((await (await fetch('http://127.0.0.1:19158/__log')).json()) as { log: string[] }).log.filter((u) => u.includes(marker))
@@ -15,6 +17,9 @@ const prompts = async (app: ElectronApplication) => (await chrome(app)).getByTes
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 test.describe('the AI cannot carry data out of the in-app browser without the person', () => {
+  // one app for the group, and later tests use what earlier ones left (the pane open, allowed sites): a retry must
+  // run the whole group again from beforeAll, never one test in a fresh app
+  test.describe.configure({ mode: 'serial' })
   let app: ElectronApplication
   test.beforeAll(async () => {
     app = await launch(newUserData())

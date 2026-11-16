@@ -567,6 +567,9 @@ func serve(c *net.UnixConn) {
 	case "prepare-stop": // ending.go
 		prepareStop(line, o)
 		return
+	case "sandbox-check": // enginecheck.go: the bootstrap, after an update
+		sandboxCheckOp(o)
+		return
 	case "codex-status":
 		codexStatus(o)
 		return

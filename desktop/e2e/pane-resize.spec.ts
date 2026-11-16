@@ -5,7 +5,9 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
-import { ACME, addTeam, answer, bindWindow, call, chrome, close, dragEdge, launch, newTurn, newUserData, paneViews, result, SHOP, signIn, teamPage } from './helpers'
+import { ACME, addTeam, answer, bindWindow, call, chrome, close, dragEdge, launch, newTurn, newUserData, paneViews, result, SHOP, signIn, teamPage, stopLeftoverApps } from './helpers'
+
+stopLeftoverApps()
 
 /** window.json as the app wrote it (nothing yet: empty) */
 const windowJson = (userData: string): { paneFraction?: number } => {

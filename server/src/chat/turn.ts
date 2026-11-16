@@ -51,7 +51,7 @@ import { aiCalled, engineError, stepLabel, tr, turnLimitError } from './i18n'
 import { placeWords } from './place-words'
 import { recordSkillUse } from '../admin/skill-usage'
 import { noteGoalRun } from '../onboarding/goal'
-import { notificationsOf } from '../notifications/service'
+import { notificationsOf, notifyEngineStartFailed } from '../notifications/service'
 import { noteChatAnswer } from '../notifications/chat-answers'
 import { isLookUpTool, scheduleRunOutcome } from './schedule-outcome'
 import { validateTemplateTurn } from './schedule-templates'
@@ -209,6 +209,9 @@ const SELF_LABELLED_TOOLS = new Set(['save_room_file'])
 
 /** how many times one answer goes on after a connect (each needs another card the person finished) */
 export const CONTINUE_MAX = 2
+/** the sandbox's own words when it could not set up the engine's program (nothing of the engine ran): bwrap on Linux,
+ * sandbox-exec on macOS; their lines start with the tool's name (TurnExec.engineStartFailed) */
+export const SANDBOX_START_FAILED = /^(bwrap|sandbox-exec): /m
 /** the start of the server's note that continues an answer after a connect (the fake engine looks for it) */
 export const CONTINUE_NOTE_START = '[The connect card is finished'
 /** The message of the resumed session that goes on with the same answer after a service was connected on its card
@@ -1061,6 +1064,7 @@ export class TurnExec {
         const err = errors.find((e) => e.type === 'error') as Extract<EngineEvent, { type: 'error' }> | undefined
         const crashed = !err && (exit?.ev === 'error' || (exit?.code && !parser.result))
         if (crashed || err) rt.log.warn('engine attempt failed', { turn: this.id, engine: 'claude-code', exit, code: err?.code ?? 'crash', stderr: stderr.slice(-2000) })
+        if ((crashed || err?.code === 'crash') && this.engineStartFailed(stderr)) break
         if ((crashed || err?.code === 'crash') && !this.attemptHadOutput && !retried.has('crash')) { retried.add('crash'); continue }
         if (err) this.error = err.code === 'crash' ? this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`) : engineError(err.code, spec.locale)
         else if (crashed) this.error = this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`)
@@ -1216,6 +1220,7 @@ export class TurnExec {
         const err = errors.find((e) => e.type === 'error') as Extract<EngineEvent, { type: 'error' }> | undefined
         const crashed = !err && (exit?.ev === 'error' || !!exit?.code)
         if (crashed || err) rt.log.warn('engine attempt failed', { turn: this.id, engine: 'codex', attempt, exit, code: err?.code ?? 'crash', stderr: stderr.slice(-2000) })
+        if ((crashed || err?.code === 'crash') && this.engineStartFailed(stderr)) break
         if ((crashed || err?.code === 'crash') && !this.attemptHadOutput && !retried.has('crash')) { retried.add('crash'); continue }
         if (err) this.error = err.code === 'crash' ? this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`) : engineError(err.code, spec.locale)
         else if (crashed) this.error = this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`)
@@ -1419,6 +1424,19 @@ export class TurnExec {
     if (exit?.ev !== 'error' || !/^firewall_(off|not_loaded):/.test(String(exit.message ?? ''))) return false
     this.error = engineError('network_protection_off', this.spec.locale)
     this.rt.log.error('turn refused: the engine firewall is not in effect', { turn: this.id, message: String(exit.message).slice(0, 300) })
+    return true
+  }
+
+  /** The engine never started: the sandbox could not set up its program and said so on stderr before anything ran
+   * (bwrap's own "bwrap: Can't find source path …: Permission denied" on Linux after an update left the app folder
+   * unreadable to the engine account, sandbox-exec's on macOS; QA TC-3521). The answer says so in plain words, never
+   * "stopped partway", is not retried (the same launch fails the same way, whatever the model) and the owners and admins
+   * get one Inbox notice (engineStartNotice). */
+  private engineStartFailed(stderr: string): boolean {
+    if (this.attemptHadOutput || !SANDBOX_START_FAILED.test(stderr)) return false
+    this.error = engineError('engine_start_failed', this.spec.locale)
+    this.rt.log.error('turn failed: the engine could not start', { turn: this.id, stderr: stderr.slice(-500) })
+    notifyEngineStartFailed(this.rt.ctx, this.id)
     return true
   }
 
@@ -3231,7 +3249,7 @@ export class TurnExec {
       : [{ label: st('save', L), value: 'save' }, { label: st('dont', L), value: 'skip' }]
     // "Always allow" for team skill and rule saves (chat/always-allow.ts; the owner, 2026-11-13); not for a name that
     // is taken (that card asks for another name)
-    const ask = (req: TurnRequest & { options: { label: string; value: string }[] }) => dead ? this.askPerson(req, { timeoutMs: this.rt.askUserTimeoutMs() }) : this.askAlways('skill_save', req, 'save')
+    const ask = (req: TurnRequest & { options: { label: string; value: string }[] }) => dead ? this.askPerson(req, { timeoutMs: this.rt.askUserTimeoutMs() }) : this.askAlways('skill_save', req, 'save', { label: 'cardAlwaysSkills' })
     const { value: answer, missing } = await ask({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(),
       // a project's skills folder no live project has (yet): saved there, no chat follows it
@@ -3304,6 +3322,22 @@ export class TurnExec {
     try { this.files.skillApprovals.delete(authorize(this.rt.files.fx, this.rt.files.rules(), this.livePrincipal(), target, 'write', { createDirs: true }).rel) } catch { /* no such path: nothing was approved for it */ }
   }
 
+  /** After a skill or rule was saved in a shared chat (owner 2026-11-16, docs/decisions/20261116-shared-chat-skill-edits.md):
+   * the note that tells the AI to end its answer with one quiet line that the people here can see the change. null
+   * anywhere else, for a call that failed, and for any other file. */
+  sharedSkillNote(tool: string, args: unknown, isError: boolean): string | null {
+    if (!this.shared || isError) return null
+    if (tool !== 'write' && tool !== 'edit' && tool !== 'make_file' && tool !== 'edit_hwp') return null
+    const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
+    const out = tool === 'edit_hwp' && typeof a.output === 'string' ? this.hwpTarget(a) ?? undefined : undefined
+    const target = tool === 'make_file' ? (typeof a.output === 'string' && typeof a.format === 'string' ? makeFileOutputPath(a.output, a.format) : a.output) : tool === 'edit_hwp' ? out ?? a.file_path : a.file_path
+    if (typeof target !== 'string') return null
+    let rel: string
+    try { rel = authorize(this.rt.files.fx, this.rt.files.rules(), this.livePrincipal(), target, 'list').rel } catch { return null }
+    if (!skillRootOf(rel) && !/^users\/[^/]+\/skills(\/|$)/i.test(rel)) return null
+    return 'This chat is shared, and the skill change is saved. End your answer with one short, quiet line in the user\'s language that the people in this chat can see this change (for example "People in this chat can see this change."). Say nothing more about it.'
+  }
+
   /**
    * A skill called `name` at another level the person sees (docs/DECISIONS.md "Project skills"). `project`: saving into
    * a project: a wider skill (personal, group, team) of that name, or whose file or folder name it is, runs instead
@@ -3337,7 +3371,7 @@ export class TurnExec {
    */
   /** askPerson for a card of `kind` with "Always allow" (chat/always-allow.ts): no card while it is on (`yes` at once),
    * else the card offers it. */
-  async askAlways(kind: CardAlwaysKind, request: TurnRequest & { options: { label: string; value: string }[] }, yes: string, o: { onAlways?: () => void } = {}): Promise<CardAnswer> {
+  async askAlways(kind: CardAlwaysKind, request: TurnRequest & { options: { label: string; value: string }[] }, yes: string, o: { onAlways?: () => void; label?: 'cardAlways' | 'cardAlwaysSkills' } = {}): Promise<CardAnswer> {
     let missing: CardAnswer['missing'] = null
     const value = await withAlways(this.alwaysPlace(), kind, request.options, yes, async (options, more) => {
       const r = await this.askPerson({ ...request, options, ...more } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
@@ -3345,7 +3379,7 @@ export class TurnExec {
       // the person picked "Always allow" on this card (what else the card covers is kept by the caller)
       if ((Array.isArray(r.value) && r.value.length === 1 ? r.value[0] : r.value) === ALWAYS_VALUE) o.onAlways?.()
       return r.value
-    })
+    }, o.label)
     return { value, missing }
   }
 

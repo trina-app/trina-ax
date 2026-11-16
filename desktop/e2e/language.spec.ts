@@ -6,7 +6,9 @@ import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { STRINGS } from '../src/common/i18n'
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
-import { ACME, bindWindow, chrome, close, launch, newUserData, ROOT, teamPage, welcome } from './helpers'
+import { ACME, bindWindow, chrome, close, launch, newUserData, ROOT, teamPage, welcome, stopLeftoverApps } from './helpers'
+
+stopLeftoverApps()
 
 const menuLabels = (app: Awaited<ReturnType<typeof launch>>) =>
   app.evaluate(({ Menu }) => Menu.getApplicationMenu()?.items.map((i) => i.label) ?? [])

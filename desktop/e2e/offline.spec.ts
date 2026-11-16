@@ -3,7 +3,9 @@ import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import { STRINGS, t } from '../src/common/i18n'
 import { account, offlineServer, signInOfflineTeam, warmWorker } from '../../web/test/e2e/offline-server'
-import { close, launch, newUserData, teamPage, welcome } from './helpers'
+import { close, launch, newUserData, teamPage, welcome, stopLeftoverApps } from './helpers'
+
+stopLeftoverApps()
 
 // A hidden WebContents still has a visible DOM in Playwright; check attachment to the actual native window.
 const nativeRecoveryVisible = (app: Awaited<ReturnType<typeof launch>>) => app.evaluate(({ BaseWindow }) =>

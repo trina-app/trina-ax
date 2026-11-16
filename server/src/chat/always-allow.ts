@@ -81,15 +81,15 @@ export const ALWAYS_VALUE = '__always'
  * One card with "Always allow": `options` are the card's own (yes first, the no last); `yes` the value that lets the
  * call go on. On already: `yes` at once, no card. Offered: "Always allow" goes in before the last option, and picking it
  * keeps the choice and answers `yes`. Otherwise the card as it was. `ask` raises the card with the options given and
- * returns the raw answer.
+ * returns the raw answer. `label`: the option's words (a card of its own words, the skill-save card's).
  */
 export async function withAlways(p: AlwaysPlace | null | undefined, kind: CardAlwaysKind, options: { label: string; value: string }[], yes: string,
-  ask: (options: { label: string; value: string }[], extra: { buttons?: true; note?: string }) => Promise<unknown>): Promise<unknown> {
+  ask: (options: { label: string; value: string }[], extra: { buttons?: true; note?: string }) => Promise<unknown>, label: 'cardAlways' | 'cardAlwaysSkills' = 'cardAlways'): Promise<unknown> {
   const here = alwaysHere(p, kind)
   if (here === 'on') return yes
   if (here !== 'offer' || options.length < 2) return ask(options, {})
   if (!p) return ask(options, {})
-  const opts = [...options.slice(0, -1), { label: tr('cardAlways', p.locale), value: ALWAYS_VALUE }, options.at(-1)!]
+  const opts = [...options.slice(0, -1), { label: tr(label, p.locale), value: ALWAYS_VALUE }, options.at(-1)!]
   const answer = await ask(opts, { ...(opts.length === 3 ? { buttons: true as const } : {}), note: tr('cardAlwaysNote', p.locale) })
   const v = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
   if (v === ALWAYS_VALUE) {

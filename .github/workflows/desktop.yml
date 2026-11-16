@@ -1,0 +1,211 @@
+# Desktop checks on pull requests (docs/RELEASE-CI.md "데스크톱 검사"): the desktop app's own e2e suite on a Mac, the
+# unsigned dmg mounted and looked into, and the Windows installer installed, updated over and removed on a GitHub
+# windows runner. ci.yml runs none of this (Linux only), so a desktop break waited for the release (#994: the find-work-files
+# specs broke unnoticed; a Windows install-over was tried on a real PC). The repository is public: GitHub's hosted macOS
+# and Windows runners cost nothing; the path filter keeps them to pull requests that can change the desktop app.
+#
+# No secret is used: the dmg and the installer are unsigned (the release signs them: mac-app.yml, release.yml
+# build-windows). These jobs are not required checks; the required one stays ci.yml's.
+name: Desktop
+
+on:
+  pull_request:
+    paths:
+      - "desktop/**"
+      # bundled into the app (@mycel/shared), branded at build time (editions/trina/branding)
+      - "shared/**"
+      - "editions/trina/branding/**"
+      # desktop/build.ts writes the release notices
+      - "scripts/release-notices.ts"
+      # the mock team server offline.spec and hwp.spec sign in to
+      - "web/test/mock/**"
+      - "web/test/e2e/offline-server.ts"
+      # hwp.spec: the pinned renderer and its file
+      - "resources/hwp/**"
+      - "scripts/hwp-bundle.ts"
+      - "tests/fixtures/hwp/**"
+      - "scripts/ci/dmg-check.ts"
+      - "scripts/ci/windows-install-check.ps1"
+      - "package.json"
+      - "bun.lock"
+      - ".github/workflows/desktop.yml"
+  # every merge to dev, with no path filter, but only the e2e job: the PR filter leaves out web/src (most PRs), and the
+  # offline and HWP desktop specs run on the web build, so a web change that breaks them shows up right after its merge
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+concurrency:
+  # a new push to the pull request stops the run of the push before it
+  group: desktop-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  BUN_VERSION: 1.3.12
+
+jobs:
+  e2e-mac:
+    name: Desktop e2e (macOS)
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      # bun's package store (by bun.lock) and Electron's download (by bun.lock: the electron version is in it)
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/Library/Caches/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: electron-${{ runner.os }}-
+      - run: bun install --frozen-lockfile
+      # the fake teams' names (helpers.ts ACME, BETA, LAN, BAD; desktop.spec's gone.localhost): Chromium maps *.localhost
+      # to 127.0.0.1 itself, the specs' own fetch() goes through the system resolver, which on these runners does not
+      - name: Fake team names on 127.0.0.1
+        run: |
+          for h in acme beta lan bad gone; do echo "127.0.0.1 $h.localhost" | sudo tee -a /etc/hosts > /dev/null; done
+          dscacheutil -flushcache || true
+      # offline.spec and hwp.spec sign in to the web app's mock team (web/test/mock/offline-serve.ts), which serves the
+      # production web build; hwp.spec renders with the pinned rhwp (prepare:hwp checks its sha256)
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: native/bin/hwp
+          key: rhwp-${{ runner.os }}-${{ hashFiles('resources/hwp/manifest.json') }}
+      - name: Web build and the pinned Hangul renderer
+        run: |
+          bun run build:web
+          bun run prepare:hwp
+      - name: Desktop e2e suite (real Electron, fake team servers, made-up homes)
+        # e2e/ci.config.ts: the whole suite (desktop.spec, work-files, work-files-wide, work-consent, folder window, …),
+        # a 25-minute ceiling for all of it, one retry so a runner hiccup is reported as flaky instead of red
+        timeout-minutes: 30
+        run: |
+          cd desktop
+          bun build.ts
+          bunx playwright test -c e2e/ci.config.ts
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: desktop-e2e-mac
+          # screenshots and traces the specs took, the html report, each fixture's stdout/stderr (e2e/fixture-run.ts)
+          path: desktop/e2e/.work/
+          # .work is a dot folder: upload-artifact leaves those out unless asked
+          include-hidden-files: true
+          retention-days: 7
+
+  dmg-mac:
+    name: Mac dmg (unsigned build, mount and look)
+    # pull requests (path-filtered) and runs by hand; not on the push to dev
+    if: github.event_name != 'push'
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: electron-builder-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: electron-builder-${{ runner.os }}-
+      - run: bun install --frozen-lockfile
+      - name: Build the dmg (universal, like the release; unsigned)
+        env:
+          # no certificate on a pull request: never look for one in the runner's keychains
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          bun run --cwd desktop dist:mac
+          ls -l desktop/release
+      - name: Mount the dmg and check it against the electron-builder settings
+        run: bun scripts/ci/dmg-check.ts desktop/release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: desktop-dmg
+          # to open the window by hand (unsigned: right-click > Open, or xattr -d com.apple.quarantine)
+          path: desktop/release/*.dmg
+          if-no-files-found: warn
+          retention-days: 3
+
+  windows-install:
+    name: Windows installer (install, update over, uninstall)
+    # pull requests (path-filtered) and runs by hand; not on the push to dev
+    if: github.event_name != 'push'
+    # the release builds the installer on windows-2025 too (release.yml build-windows); windows-latest is the same image
+    runs-on: windows-2025
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: electron-builder-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: electron-builder-${{ runner.os }}-
+      - run: bun install --frozen-lockfile
+      - name: Two unsigned installers of this commit (an old and a new version)
+        run: |
+          base=$(bun -e 'console.log(require("./desktop/package.json").version)')
+          echo "OLD_VERSION=$base-ci.1" >> "$GITHUB_ENV"
+          echo "NEW_VERSION=$base-ci.2" >> "$GITHUB_ENV"
+          echo "PRODUCT=$(bun -e 'console.log(require("./shared/src/product.ts").PRODUCT.displayName)')" >> "$GITHUB_ENV"
+          echo "SCHEME=$(bun -e 'console.log(require("./shared/src/product.ts").PRODUCT.linkScheme)')" >> "$GITHUB_ENV"
+          # which electron-builder (and so which NSIS) made the installers: 26.0.12 made the 0.5.7-era installers, #1036
+          # moves to 26.15.3; an installer crash names it (windows-install-check.ps1)
+          echo "BUILDER=electron-builder $(bun -e 'console.log(require("./desktop/node_modules/electron-builder/package.json").version)')" >> "$GITHUB_ENV"
+          echo "DATA_DIR=$(bun -e 'console.log(require("./shared/src/product.ts").PRODUCT.desktopDataDir)')" >> "$GITHUB_ENV"
+          bun run --cwd desktop dist:win -- "-c.extraMetadata.version=$base-ci.1"
+          # the same app packed again with the next version (electron-builder only; dist/ is already built)
+          (cd desktop && bunx electron-builder --config electron-builder.config.ts --win nsis --x64 --publish never "-c.extraMetadata.version=$base-ci.2")
+          ls -l desktop/release
+          for v in ci.1 ci.2; do ls desktop/release/*-Setup-$base-$v-win-x64.exe; done
+      - name: Install, start, update over, uninstall
+        shell: pwsh
+        run: |
+          $old = (Get-ChildItem "desktop/release/*-Setup-$env:OLD_VERSION-win-x64.exe").FullName
+          $new = (Get-ChildItem "desktop/release/*-Setup-$env:NEW_VERSION-win-x64.exe").FullName
+          ./scripts/ci/windows-install-check.ps1 -Old $old -New $new -OldVersion $env:OLD_VERSION -NewVersion $env:NEW_VERSION `
+            -Product $env:PRODUCT -Scheme $env:SCHEME -DataDir $env:DATA_DIR -Builder $env:BUILDER -LogDir "$env:RUNNER_TEMP/install-logs"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: desktop-windows-install-logs
+          path: ${{ runner.temp }}/install-logs/
+          if-no-files-found: warn
+          retention-days: 7

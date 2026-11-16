@@ -12,7 +12,10 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
-import { ACME, addTeam, answer, bindWindow, call, chrome, close, launch, newTurn, newUserData, OFFICE_SITE, result, run, SHOP, teamPage, text } from './helpers'
+import { WEB_ALLOW_ALL_WARNING_VERSION } from '@mycel/shared'
+import { ACME, addTeam, answer, bindWindow, call, chrome, close, launch, newTurn, newUserData, OFFICE_SITE, result, run, SHOP, teamPage, text, stopLeftoverApps } from './helpers'
+
+stopLeftoverApps()
 
 type Settings = { siteAccess: 'ask' | 'all'; always: string[]; privateAlways: string[]; teamAllowsAll: boolean }
 const get = (page: Page) => page.evaluate(() => (window as any).mycelDesktop.browserSettings.get() as Promise<Settings>)
@@ -48,7 +51,7 @@ test('Settings > Browser and the pane ⚙ share one value; "all" needs the app\'
 
     // the bridge offers exactly the five calls
     expect(await page.evaluate(() => Object.keys((window as any).mycelDesktop.browserSettings).sort())).toEqual(['clearSites', 'get', 'onChange', 'removeSite', 'setAccess'])
-    expect(await get(page)).toEqual({ siteAccess: 'ask', always: [], privateAlways: [], teamAllowsAll: true })
+    expect(await get(page)).toEqual({ siteAccess: 'ask', always: [], privateAlways: [], teamAllowsAll: true, riskVersion: WEB_ALLOW_ALL_WARNING_VERSION })
     await page.evaluate(() => {
       ;(window as any).__changes = []
       ;(window as any).mycelDesktop.browserSettings.onChange((s: unknown) => (window as any).__changes.push(s))

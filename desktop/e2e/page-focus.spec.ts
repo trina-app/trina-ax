@@ -7,7 +7,9 @@
 // team list covers the page (which still reports itself visible).
 // Playwright makes every page it drives report the focus; that is turned off here, so the page answers as for a person.
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
-import { ACME, addTeam, bindWindow, chrome, close, launch, newUserData, signIn, teamPage, welcome } from './helpers'
+import { ACME, addTeam, bindWindow, chrome, close, launch, newUserData, signIn, teamPage, welcome, stopLeftoverApps } from './helpers'
+
+stopLeftoverApps()
 
 const windowFocused = (app: ElectronApplication) => app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.isFocused())
 const realFocus = async (p: Page) => (await p.context().newCDPSession(p)).send('Emulation.setFocusEmulationEnabled', { enabled: false })

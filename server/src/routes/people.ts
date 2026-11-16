@@ -12,7 +12,7 @@ import { presenceFor } from '../realtime/presence'
 import { sharesPlace } from '../auth/guests'
 
 // the photo is an image only, never a document that runs anything (the same headers as the team logo)
-const IMAGE_HEADERS = { 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox", 'content-disposition': 'inline' }
+export const IMAGE_HEADERS = { 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox", 'content-disposition': 'inline' }
 
 export const peopleRoutes: RouteModule = {
   name: 'people',

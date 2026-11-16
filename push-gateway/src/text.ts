@@ -7,7 +7,7 @@ type ByLocale = Record<PushLocale, string>
 
 export const DEFAULT_APP_TITLE = 'Trina AX'
 
-export const EVENT_TEXT: Record<'schedule.success' | 'schedule.failure' | 'connection.reconnect' | 'chat.answer_done' | 'chat.shared' | 'room_app.paused' | 'chat.thread_reply', ByLocale> = {
+export const EVENT_TEXT: Record<'schedule.success' | 'schedule.failure' | 'connection.reconnect' | 'chat.answer_done' | 'chat.shared' | 'room_app.paused' | 'file.shared' | 'chat.thread_reply', ByLocale> = {
   'schedule.success': {
     ko: '예약 작업이 완료됐어요.',
     en: 'A scheduled task completed.',
@@ -35,6 +35,13 @@ export const EVENT_TEXT: Record<'schedule.success' | 'schedule.failure' | 'conne
     ko: '누군가 채팅을 공유했어요.',
     en: 'Someone shared a chat with you.',
     id: 'Seseorang membagikan obrolan dengan Anda.', ja: '誰かがチャットを共有しました。', es: 'Alguien compartió un chat con usted.', zh: '有人与你共享了一个对话。',
+  },
+  // someone shared a file, or several in one press, with the person by name; older team servers never send it. Never
+  // who or which file
+  'file.shared': {
+    ko: '누군가 파일을 공유했어요.',
+    en: 'Someone shared files with you.',
+    id: 'Seseorang membagikan file dengan Anda.', ja: '誰かがファイルを共有しました。', es: 'Alguien compartió archivos con usted.', zh: '有人与你共享了文件。',
   },
   // an app in a room the person manages paused for the day; older team servers never send it
   'room_app.paused': {
