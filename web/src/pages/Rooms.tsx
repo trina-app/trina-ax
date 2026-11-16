@@ -9,7 +9,7 @@
 // "숨긴 대화 N" at its end opens them, each with 다시 보이기 (opening one shows it again too).
 // The list has the 대화 panel's sections in its order (panels/RoomsByKind.tsx roomsByKind): 고정 (all my pins, the most
 // recently pinned first, a pin after the name), my folders (one with nothing in it is left out here), 채널 (전체
-// first), 다이렉트 메시지 (1:1s and group chats, a group chat with its people's faces), each under its name. Someone with no 1:1 or group conversation yet gets one quiet line
+// first), 다이렉트 메시지 (1:1s and group chats, a group chat with its people's faces), each under its name. Someone with no 1:1 or group chat yet gets one quiet line
 // under the list that opens the people list ("동료에게 새 대화 시작하기"), as the top bar's ⊕ does.
 // The list starts with "멘션·스레드" (QA TC-256): the Activity page's conversations (mentions and replies in
 // threads I follow, lib/screens.ts CHATS_ACTIVITY), a page of this tab. A dot while one is unread, no number: their rooms
@@ -27,7 +27,7 @@ import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import type { Room } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
 import { listTime } from '../lib/format'
-import { plainLine, roomUnread } from '../lib/rooms'
+import { plainLine, roomCounts } from '../lib/rooms'
 import { CHATS_ACTIVITY } from '../lib/screens'
 import { useLocale, useT } from '../i18n'
 import { useRooms } from '../store/rooms'
@@ -36,7 +36,7 @@ import { toast } from '../store/ui'
 import { useMe } from '../store/session'
 import { PeoplePicker } from '../components/rooms/PeoplePicker'
 import { RoomIcon, RoomName, useRoomTitle } from '../components/rooms/RoomIcon'
-import { ROW_MENU_BUTTON, ROW_MENU_SHOWN, RoomPinIcon, SECTION_WORD, UnreadBadge } from '../components/nav/RoomsList'
+import { ROW_MENU_BUTTON, ROW_MENU_SHOWN, RoomPinIcon, RoomUploadMark, SECTION_WORD, UnreadBadge } from '../components/nav/RoomsList'
 import { useFolders } from '../components/nav/NavFolders'
 import { foldedLook, roomsByKind } from '../components/panels/RoomsByKind'
 import { RoomMenu, useRowMenu } from '../components/rooms/RoomMenu'
@@ -235,7 +235,7 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
   const nameOf = useNameOf()
   // an app's message: the app's name (docs/DECISIONS.md "Apps posting in rooms")
   const who = !m ? null : m.app ? m.app.name : m.author?.id === me?.user.id ? t('rooms.you') : room.kind === 'dm' ? null : nameOf(m.author)
-  const unread = roomUnread(room)
+  const { bold } = roomCounts(room)
   const menu = useRowMenu()
   return (
     <li className="group relative" {...menu.row}>
@@ -248,7 +248,7 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
       {/* the time on the name's line and the count on the preview's, so the preview has the whole width */}
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className={clsx('truncate', rowName({ unread: unread > 0 }))}><RoomName room={room} /></span>
+          <span className={clsx('truncate', rowName({ unread: bold }))}><RoomName room={room} /></span>
           {room.kind === 'dm' && room.peers[0] && <PresenceText userId={room.peers[0].id} />}
           {room.muted && (
             <>
@@ -257,6 +257,7 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
             </>
           )}
           <RoomPinIcon room={room} />
+          <RoomUploadMark roomId={room.id} />
           {m && <span className={clsx('ml-auto shrink-0 pl-2 text-xs text-faint', ROW_MENU_SHOWN)}>{listTime(m.createdAt, locale, t('sidebar.yesterday'))}</span>}
         </span>
         <span className="flex min-w-0 items-center gap-2">

@@ -134,5 +134,12 @@ describe('forms → team skills on the result screen', () => {
   test('the strings exist in every language', () => {
     for (const l of ['en', 'ko', 'ja', 'es', 'id'] as const) for (const k of ['welcome.forms.ask', 'welcome.forms.hint', 'welcome.forms.hintMany', 'welcome.forms.make', 'welcome.forms.shared'] as const) expect(translate(l, k, { names: 'X', kind: 'Y', title: 'Z' })).not.toContain('welcome.forms')
     expect(translate('en', 'welcome.forms.ask', { names: 'Quote template' })).toBe('Make team skills from Quote template?')
+    // no article before the form's name: "Order form.docx" read "Make a Order" (QA TC-3455)
+    expect(translate('en', 'welcome.forms.hint', { kind: 'Order' })).toBe("When a teammate asks for 'Order', the AI fills in this form.")
+    expect(translate('en', 'welcome.forms.hintMany', { kind: 'Invoice' })).toBe("When a teammate asks for 'Invoice', the AI fills in the matching form.")
+    for (const k of ['welcome.forms.hint', 'welcome.forms.hintMany'] as const) {
+      expect(translate('en', k, { kind: 'Order' })).not.toMatch(/\ba (new )?'Order'|Make an? /)
+      expect(translate('es', k, { kind: 'Cotización' })).not.toMatch(/\bun «?Cotización/)
+    }
   })
 })

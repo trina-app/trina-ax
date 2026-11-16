@@ -1,13 +1,14 @@
 // 파일's list panel beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1), like
 // Slack's Files: the places on the left, the folder or the file on the right (pages/Files.tsx).
-// 최근 파일 (pages/RecentFiles.tsx), 팀 폴더 (the team folder's top folders I can see, in the order the Files screen
+// 최근 파일 (pages/RecentFiles.tsx), Shared with me (pages/SharedFiles.tsx: files people shared with me; always shown to
+// a member, also while empty), 팀 폴더 (the team folder's top folders I can see, in the order the Files screen
 // shows them: 전사 공유, 부서, then the others; 팀 스킬 is 트리나's page, not a place here), 프로젝트 폴더 (the projects I can see, by name), then 내 파일 (my
 // own folder; "내 폴더" before, decision Q4) and 휴지통. The owner's setup row is on top while it shows. The row of the
 // place on screen is marked: the deepest place the open folder is in.
 // The same places are the root of a phone's 파일 tab (PhoneFilesHome below; docs/DECISIONS.md
 // "Phone tabs: 트리나 · 대화 · 파일 · 나"): its bar says 파일, with 🔍 for files; a place opens on its own screen.
 import clsx from 'clsx'
-import { ChevronRight, Clock, Folder, Search, SquareKanban, Trash2, User } from 'lucide-react'
+import { ChevronRight, Clock, Folder, Search, SquareKanban, Trash2, User, Users } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { SKILLS_DIR } from '@mycel/shared/skill-roots'
@@ -34,6 +35,10 @@ export const TEAM_ROOT_ON_PHONE = TEAM_TOP_ON_PHONE
  * own elsewhere (팀 스킬: 트리나's 팀 스킬 page, so the skills are in one place; the folder still opens from the team
  * folder's top, the 팀 폴더 label, for whoever may read it) */
 const APART = new Set(['projects', 'users', SKILLS_DIR])
+
+/** the keys of the three views and my own folder's row: a folder row's key is its path, so a bare 'shared' was the team folder Company-wide too
+ * (both rows lit, QA TC-3973); a path never has a colon, so these cannot meet one */
+export const VIEW_KEY = { recent: 'view:recent', shared: 'view:shared', trash: 'view:trash', mine: 'view:mine' } as const
 
 type Place = { key: string; to: string; label: string; icon: typeof Folder; path?: string; testId: string }
 
@@ -113,7 +118,7 @@ function FilesPlaces({ phone = false }: { phone?: boolean }) {
   const own = me ? `users/${me}` : null
   const team: Place[] = (top ?? []).map((e) => ({ key: e.path, to: `/files?path=${encodeURIComponent(e.path)}`, label: words.name(e.path, e.name), icon: Folder, path: e.path, testId: 'files-panel-team' }))
   const projectRows: Place[] = projects.map((p) => ({ key: p.id, to: `/files?path=${encodeURIComponent(p.folderPath)}`, label: p.name, icon: SquareKanban, path: p.folderPath, testId: 'files-panel-project' }))
-  const mine: Place | null = own ? { key: 'mine', to: `/files?path=${encodeURIComponent(own)}`, label: words.name(own, own), icon: User, path: own, testId: 'files-panel-mine' } : null
+  const mine: Place | null = own ? { key: VIEW_KEY.mine, to: `/files?path=${encodeURIComponent(own)}`, label: words.name(own, own), icon: User, path: own, testId: 'files-panel-mine' } : null
 
   // which row is the place on screen: 최근 파일, 휴지통, or the deepest folder row the open folder (or file) is in
   const { pathname, search } = useLocation()
@@ -122,12 +127,15 @@ function FilesPlaces({ phone = false }: { phone?: boolean }) {
   const at = view ? null : (q.get('path') ?? '')
   const folderRows = [...team, ...projectRows, ...(mine ? [mine] : [])]
   const lit =
-    view === 'recent' ? 'recent' : view === 'trash' ? 'trash' : at !== null ? (folderRows.filter((r) => r.path && isInside(at, r.path) && at !== '').sort((a, b) => b.path!.length - a.path!.length)[0]?.key ?? null) : null
+    view === 'recent' ? VIEW_KEY.recent : view === 'shared' ? VIEW_KEY.shared : view === 'trash' ? VIEW_KEY.trash : at !== null ? (folderRows.filter((r) => r.path && isInside(at, r.path) && at !== '').sort((a, b) => b.path!.length - a.path!.length)[0]?.key ?? null) : null
 
   const row = (p: Place) => <ListRow key={p.key} to={p.to} selected={lit === p.key} icon={<p.icon />} name={p.label} nameTitle={p.label} testId={p.testId} />
   return (
     <>
-      <ul className="mb-4">{row({ key: 'recent', to: '/files?view=recent', label: t('filesPanel.recent'), icon: Clock, testId: 'files-panel-recent' })}</ul>
+      <ul className="mb-4">
+        {row({ key: VIEW_KEY.recent, to: '/files?view=recent', label: t('filesPanel.recent'), icon: Clock, testId: 'files-panel-recent' })}
+        {row({ key: VIEW_KEY.shared, to: '/files?view=shared', label: t('filesPanel.shared'), icon: Users, testId: 'files-panel-shared' })}
+      </ul>
       {top !== null && (
         // the label opens the team folder's top (files kept loose there, every top folder); a phone has no hover to show
         // it, so there it is a whole-width row with a ›, and the places are the computer's, no extra row
@@ -154,7 +162,7 @@ function FilesPlaces({ phone = false }: { phone?: boolean }) {
       )}
       <ul className="mt-3 border-t border-line pt-2">
         {mine && row(mine)}
-        {row({ key: 'trash', to: '/files?view=trash', label: t('files.trash'), icon: Trash2, testId: 'files-panel-trash' })}
+        {row({ key: VIEW_KEY.trash, to: '/files?view=trash', label: t('files.trash'), icon: Trash2, testId: 'files-panel-trash' })}
       </ul>
     </>
   )

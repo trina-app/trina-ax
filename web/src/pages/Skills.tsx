@@ -26,6 +26,7 @@ import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
 import { FILES_TRASH, navigateTo } from '../lib/nav'
 import { useFolderWords } from '../lib/folderLabels'
+import { skillFolderWords, skillPlaceWords } from '../lib/skillPlaces'
 import { useLocale, useT } from '../i18n'
 import { readCached, useCachedRead } from '../store/listCache'
 import { skillsChanged } from '../store/live'
@@ -268,13 +269,8 @@ const appName = (app: 'claude' | 'codex') => (app === 'codex' ? 'Codex' : 'Claud
 /** The name a person reads: a skill folder's title (else its folder name as words); another suggestion's name. */
 const suggestionTitle = (s: SkillSuggestion) => (s.source.kind === 'folder' ? skillLabel({ name: s.name, title: s.folder?.title }) : s.name)
 
-/** A skills folder in words, never a path (the people here are not developers): skills/ is "팀 스킬", a group's
- * groups/<its folder>/skills/ is the group's folder name, folders inside follow after " › ". `path`: the folder words
- * of the person's language (lib/folderLabels.ts). */
-export function skillFolderWords(folder: string, path: (p: string, sep?: string) => string): string {
-  const g = /^groups\/([^/]+)\/skills(?:\/(.+))?$/.exec(folder)
-  return g ? [g[1]!, ...(g[2]?.split('/') ?? [])].join(' › ') : path(folder, ' › ')
-}
+// the places in words: lib/skillPlaces.ts (the suggestion dialog says them too)
+export { skillFolderWords, skillPlaceWords }
 
 /** The suggestions in groups by who sent them, in the order the list has them (waiting first). */
 export function byPerson(items: readonly SkillSuggestion[]): { id: string; name: string; items: SkillSuggestion[] }[] {
@@ -305,7 +301,9 @@ function SuggestionList({ items, empty, onOpen, testId, grouped, focusBatch }: {
   // a person's heading only when it helps: several people, or several of one person (one row says its person itself)
   const headed = groups.length > 1 || (groups[0]?.items.length ?? 0) > 1
   const meta = (s: SkillSuggestion) => [
-    s.folder ? t('skills.folderMeta', { app: appName(s.folder.app), n: s.folder.files.length }) : t('skills.into', { folder: skillFolderWords(s.targetFolder, words.path) }),
+    // a waiting one says where it would go ("into Team skills"); a decided one only the place: nothing is left to do
+    s.folder ? t('skills.folderMeta', { app: appName(s.folder.app), n: s.folder.files.length })
+      : s.status === 'pending' ? t('skills.into', { folder: skillPlaceWords(s, t, words.path) }) : skillPlaceWords(s, t, words.path),
     // under a person's heading: the heading names the person
     headed ? formatDateTime(s.createdAt, locale) : t('skills.by', { name: s.suggester.name, time: formatDateTime(s.createdAt, locale) }),
     ...(s.reviewer ? [t('skills.reviewedBy', { name: s.reviewer.name })] : []),
@@ -322,7 +320,8 @@ function SuggestionList({ items, empty, onOpen, testId, grouped, focusBatch }: {
               {!(onOpen && s.status === 'pending') && <StatusBadge s={s} />}
             </span>
             {s.description && <span className="mt-0.5 block truncate text-xs text-muted" title={s.description}>{s.description}</span>}
-            <span className="block truncate text-xs text-faint" title={meta(s)}>{meta(s)}</span>
+            {/* a phone shows the whole line on two rows ("… · reviewed by <name>" was cut); a computer keeps one */}
+            <span className="block text-xs text-faint md:truncate" title={meta(s)} data-testid="suggestion-meta">{meta(s)}</span>
             {s.status === 'pending' && s.folder?.sameName && <span className="block text-xs text-warn" data-testid="suggestion-same-name">{t('skills.folderSameName', { title: s.folder.sameName.title })}</span>}
             {s.status === 'pending' && s.folder?.personalPath && <span className="block text-xs text-warn">{t('skills.folderPersonalPath')}</span>}
             {s.reviewNote && <span className="block text-xs text-muted" data-testid="review-note">{t('skills.reviewNote', { note: s.reviewNote })}</span>}

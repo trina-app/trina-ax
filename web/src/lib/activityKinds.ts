@@ -4,7 +4,7 @@
 // - 트리나: what the AI did for me on its own: a scheduled task's run, a project's job.
 // - 요청: something waits for my answer or my hand: a review of a suggested skill, an ask to add an app or to connect the
 //   AI, an ask to delete an account, a connection or a shared Drive to sign in to again, skills to merge, an ask to open a
-//   file of mine. Shown to the owner and admins, and to a member while an ask to open a file of theirs is listed (their
+//   file, chat or project of mine. Shown to the owner and admins, and to a member while an ask to open a file of theirs is listed (their
 //   other few asks stay under 전체).
 // - anything else (someone joined, a project I was added to, a change to the team's AI…) is under 전체 only.
 import type { InboxNotification } from '@mycel/shared/api'
@@ -12,9 +12,10 @@ import type { InboxNotification } from '@mycel/shared/api'
 export type ActivityChip = 'all' | 'trina' | 'requests'
 
 const TRINA: readonly string[] = ['schedule.success', 'schedule.failure', 'dev_env.job', 'dev_env.box']
-const REQUESTS: readonly string[] = ['skill.suggested', 'integration.request', 'onboarding.ai_request', 'service.request', 'account.deletion_request', 'drive.share_reconnect', 'integration.template_reconnect', 'connection.reconnect', 'skills.merge_waiting', 'file.access_requested']
-/** asks that reach members too (someone asked to open a file of theirs: QA TC-3093): their 요청 chip shows while one is listed */
-const EVERYONE_REQUESTS: readonly string[] = ['file.access_requested']
+const REQUESTS: readonly string[] = ['skill.suggested', 'integration.request', 'onboarding.ai_request', 'service.request', 'account.deletion_request', 'drive.share_reconnect', 'integration.template_reconnect', 'connection.reconnect', 'skills.merge_waiting', 'file.access_requested', 'access.requested']
+/** asks that reach members too (someone asked to open a file, a chat or a project of theirs: QA TC-3093, TC-4185,
+ * TC-4186): their 요청 chip shows while one is listed */
+const EVERYONE_REQUESTS: readonly string[] = ['file.access_requested', 'access.requested']
 
 /** the chip a notice belongs to besides 전체 (null: 전체 only) */
 export function chipOf(item: Pick<InboxNotification, 'code' | 'templateLeft'>): Exclude<ActivityChip, 'all'> | null {

@@ -20,6 +20,7 @@ import { chatAnswerWanted } from './chat-answers'
 import { chatShareLabel, chatShareWanted } from './chat-shares'
 import { roomAppPushWanted } from '../rooms/apps/notice'
 import { fileSharePushWanted } from '../files/share-push'
+import { accessRequestPushWanted } from '../chat/access-requests'
 import { chatThreadWanted } from '../chat/threads'
 import { readPushConfig, pushConfigKey, type PushConfig } from './push-config'
 import { bounded, createPushTransport, pushFailure, validatePushSubscription, type PushSubscription, type PushTransport } from './push-transport'
@@ -65,8 +66,14 @@ const SOURCES=[
   // person still in its room (rooms/apps/notice.ts)
   {inbox:'room_app_notices',deliveries:'room_app_push_deliveries',only:'',unread:'read_at IS NULL',wanted:(_db:Database,id:string,now:number,ctx:AppContext)=>roomAppPushWanted(ctx,id,now),due:'?'},
   // a file, or several in one press, shared with me by name (migration 356; a group's or the whole team's people get the
-  // Inbox row alone): while unread, outside my quiet hours, while a file of it still opens for me (files/share-push.ts)
-  {inbox:'file_share_notices',deliveries:'file_share_push_deliveries',only:"AND event_type='file.shared' AND named=1",unread:'read_at IS NULL',wanted:(_db:Database,id:string,now:number,ctx:AppContext)=>fileSharePushWanted(ctx,id,now),due:'?'},
+  // Inbox row alone): while unread, outside my quiet hours, while a file of it still opens for me; and someone asking to
+  // open a file I answer for, while the request waits and I may still answer it. Both with "File sharing" on (migration
+  // 358, files/share-push.ts)
+  {inbox:'file_share_notices',deliveries:'file_share_push_deliveries',only:"AND ((event_type='file.shared' AND named=1) OR event_type='file.access_requested')",unread:'read_at IS NULL',wanted:(_db:Database,id:string,now:number,ctx:AppContext)=>fileSharePushWanted(ctx,id,now),due:'?'},
+  // someone asking to open a chat or project I answer for (migration 411; chat/access-requests.ts): while it waits and I
+  // may still answer it, outside my quiet hours, "File sharing" on, at most FILE_REQUEST_PUSHES_PER_DAY a day together
+  // with the file requests
+  {inbox:'access_request_notices',deliveries:'access_request_push_deliveries',only:"AND event_type='access.requested'",unread:'read_at IS NULL',wanted:(_db:Database,id:string,now:number,ctx:AppContext)=>accessRequestPushWanted(ctx,id,now),due:'?'},
   // a reply in a chat thread I follow (migration 408): after its wait (someone with the thread on screen reads it
   // first), while unread, its reply still there, outside my quiet hours and the thread still mine to see (chat/threads.ts)
   {inbox:'chat_thread_notices',deliveries:'chat_thread_push_deliveries',only:'',unread:'read_at IS NULL',wanted:(_db:Database,id:string,now:number,ctx:AppContext)=>chatThreadWanted(ctx,id,now),due:'MAX(?,n.push_at)'},

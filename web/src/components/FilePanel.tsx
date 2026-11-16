@@ -11,7 +11,7 @@
 // prints the page as a browser does and saves "<name>.pdf" next to it (POST /api/files/html-pdf); a folder the person
 // cannot write gets the same PDF as a download (GET /api/files/html-pdf).
 import clsx from 'clsx'
-import { Download, FileDown, FileText, FolderOpen, Loader2, Paperclip, Pencil, Sparkles, UserPlus, X } from 'lucide-react'
+import { Download, FileDown, FileText, FolderOpen, Loader2, Paperclip, Pencil, UserPlus, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, API, chatFileUrl, fileUrl, isApiError, roomFileUrl, saveBlob, startDownload, errorText } from '../lib/api'
@@ -32,6 +32,7 @@ import { PAGE_FIT_QUERY } from '../lib/pageFit'
 import { Button, confirmDialog, IconButton, useMediaQuery } from './ui'
 import { askTrinaInRoom, fileSeed } from '../lib/sideChatAsk'
 import { MenuButton, type MenuItem } from './rooms/MenuButton'
+import { AiMark } from './rooms/AiFace'
 import { Tooltip } from './Tooltip'
 import { PanelExpandButton } from './SidePanelFrame'
 import FileBody, { useFileBlob } from './FileBody'
@@ -293,7 +294,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
             <Tooltip label={t('files.askAi', { name: aiName(t) })}>
               <button type="button" onClick={() => chatAttach.askAi([file.path])} className="touch-hit mr-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-accent-soft max-md:p-1.5 max-sm:p-2" data-testid="file-ask-ai">
                 {/* phones: the icon alone, as large as the header's other icons, in an IconButton's padding */}
-                <Sparkles size={14} className="max-md:size-4" aria-hidden /> <span className="max-md:sr-only @max-md:sr-only">{t('files.askAiShort', { name: aiName(t) })}</span>
+                <AiMark place="label" /> <span className="max-md:sr-only @max-md:sr-only">{t('files.askAiShort', { name: aiName(t) })}</span>
               </button>
             </Tooltip>
           )}
@@ -301,7 +302,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
             <Tooltip label={t('sideChat.askAboutFile')}>
               <button type="button" onClick={() => askTrinaInRoom(file.roomId, fileSeed(file.fileId, file.name))}
                 className="touch-hit mr-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-accent-soft max-md:p-1.5 max-sm:p-2" data-testid="file-ask-trina">
-                <Sparkles size={14} className="max-md:size-4" aria-hidden /> <span className="max-md:sr-only">{t('sideChat.askAboutFileShort')}</span>
+                <AiMark place="label" /> <span className="max-md:sr-only">{t('sideChat.askAboutFileShort')}</span>
               </button>
             </Tooltip>
           )}

@@ -5,6 +5,7 @@
 // characters with a line saying older ones were left out; the answer's own text never in it. The chat thread route
 // lights the Trina place in the rail, and the store puts a live change's summary on the answer.
 import { afterAll, beforeAll, expect, test } from 'bun:test'
+import { act } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { CHAT_THREAD_DRAFT_MAX, chatThreadDraft, type ChatThreadSummary } from '@mycel/shared/api'
 import { AssistantMessage } from '../../src/components/chat/Messages'
@@ -162,5 +163,44 @@ test('"no longer a member" is a sentence in every language, without quotes, the 
     const text = translate(l, 'projects.noLongerMember', { name: 'THR Gone' })
     expect({ l, quotes: /['"“”「」‘’]THR Gone|THR Gone['"“”「」‘’]/.test(text), sentence: /[.。]$/.test(text) }).toEqual({ l, quotes: false, sentence: true })
     expect(renderToStaticMarkup(<>{isolate(l, 'projects.noLongerMember', { name: 'THR Gone' }, ['name'])}</>)).toContain('<bdi>THR Gone</bdi>')
+  }
+})
+
+test('while the server is updating the thread says so in the one line under the box, and stops when it is back (QA TC-3886)', async () => {
+  const { ThreadWaitLine } = await import('../../src/components/chat/ChatThreadPanel')
+  const { useServerUpdating } = await import('../../src/lib/serverUpdating')
+  const { translate } = await import('../../src/i18n')
+  const page = await mount(<ThreadWaitLine slow={false} />)
+  const line = () => page.find('chat-thread-updating')?.textContent ?? null
+  try {
+    // nothing to say: no line at all
+    expect(page.find('chat-thread-updating')).toBeNull()
+    expect(page.find('chat-thread-slow')).toBeNull()
+    // the window's update signal (the chat's box follows the same one): the line says the reply goes once it is back
+    await act(async () => useServerUpdating.setState({ updating: true }))
+    expect(line()).toBe(translate('en', 'chat.thread.updating'))
+    expect(page.find('chat-thread-slow')).toBeNull()
+    // back: the line goes
+    await act(async () => useServerUpdating.setState({ updating: false }))
+    expect(line()).toBeNull()
+  } finally {
+    await act(async () => useServerUpdating.setState({ updating: false }))
+    await page.unmount()
+  }
+  // the same slot as "sending fast": the update is said instead of it, never both
+  const both = await mount(<ThreadWaitLine slow />)
+  try {
+    expect(both.find('chat-thread-slow')?.textContent).toBe(translate('en', 'chat.thread.fast'))
+    await act(async () => useServerUpdating.setState({ updating: true }))
+    expect(both.find('chat-thread-slow')).toBeNull()
+    expect(both.find('chat-thread-updating')?.textContent).toBe(translate('en', 'chat.thread.updating'))
+  } finally {
+    await act(async () => useServerUpdating.setState({ updating: false }))
+    await both.unmount()
+  }
+  // a plain sentence in every language, about a reply (not the chat's "message" line)
+  for (const l of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
+    const text = translate(l, 'chat.thread.updating')
+    expect({ l, sentence: /[.。]$/.test(text), own: text !== translate(l, 'conn.updatingUnsent') }).toEqual({ l, sentence: true, own: true })
   }
 })

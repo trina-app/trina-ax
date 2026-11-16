@@ -14,6 +14,7 @@ import { CHAT_THREAD_REPLY_MAX, chatThreadDraft, type Chat, type ChatThreadReply
 import { errorText, isApiError } from '../../lib/api'
 import { lookingAt, onWindowFocus } from '../../lib/attention'
 import { useAutoGrow } from '../../lib/autoGrow'
+import { useServerUpdating } from '../../lib/serverUpdating'
 import { intlTag } from '../../lib/format'
 import { aiName } from '../../lib/tabs'
 import { holdPlace, ROOM_ROW, useStickToBottom } from '../../lib/stickToBottom'
@@ -162,7 +163,7 @@ export function ChatThreadPanel({ chat, rootId, meId, onClose, onSendToTrina, on
             : readOnly ? <p role="status" className="px-1 py-2 text-center text-sm text-muted" data-testid="chat-thread-read-only">{t(readOnly === 'trash' ? 'chat.thread.inTrash' : 'chat.thread.notShared')}</p>
             : view?.full ? <p role="status" className="px-1 py-2 text-center text-sm text-muted" data-testid="chat-thread-full">{t('chat.thread.full')}</p>
             : <ReplyBox chatId={chatId} rootId={rootId} autoFocus={focusBox || count === 0} onSent={() => { stick.current = true }} />}
-          {slow && <p role="status" className="px-1 pt-1.5 text-xs text-muted" data-testid="chat-thread-slow">{t('chat.thread.fast')}</p>}
+          <ThreadWaitLine slow={slow} />
           <p className="px-1 pt-1.5 text-micro leading-4 text-faint" data-testid="chat-thread-people-only">{t('chat.thread.peopleOnly', { name: aiName(t) })}</p>
           {canSendToTrina && (
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 pt-1.5">
@@ -173,6 +174,20 @@ export function ChatThreadPanel({ chat, rootId, meId, onClose, onSendToTrina, on
         </div>
       )}
     </div>
+  )
+}
+
+/** The one line under the box that says why replies wait, or nothing: Trina is updating (lib/serverUpdating.ts, the
+ * window's signal the chat's box also follows; the replies go by themselves once it is back, QA TC-3886), else the
+ * sending budget (`slow`, QA TC-3887). One slot: the update is said first, as it is what holds everything. */
+export function ThreadWaitLine({ slow }: { slow: boolean }) {
+  const t = useT()
+  const updating = useServerUpdating((s) => s.updating)
+  if (!updating && !slow) return null
+  return (
+    <p role="status" className="px-1 pt-1.5 text-xs text-muted" data-testid={updating ? 'chat-thread-updating' : 'chat-thread-slow'}>
+      {t(updating ? 'chat.thread.updating' : 'chat.thread.fast')}
+    </p>
   )
 }
 

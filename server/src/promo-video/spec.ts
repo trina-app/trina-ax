@@ -79,7 +79,7 @@ export async function sourceText(ctx: AppContext, t: ToolCtx, list: string[], pr
     try {
       const r = authorize(ctx.files.fx, ctx.files.rules(), t.user, p, 'read', { mustExist: true })
       if (!r.st?.isFile()) { problems.push(`source "${raw}" is not a file`); continue }
-      const { bytes } = readRegular(r.abs, SOURCE_MAX_BYTES)
+      const { bytes } = readRegular(r.abs, SOURCE_MAX_BYTES, r.st)
       const text = await extractText(r.rel, bytes, { pandoc: ctx.engineConfig.pandoc, pdftotext: ctx.engineConfig.pdftotext, ocr: ctx.engineConfig.ocr, quarantine: ctx.files.quarantine }, t.signal)
       parts.push(text.slice(0, SOURCE_TEXT_MAX))
       paths.push(r.rel)
@@ -102,7 +102,7 @@ export function readPicture(ctx: AppContext, t: ToolCtx, raw: string, min: numbe
     const r = authorize(ctx.files.fx, ctx.files.rules(), t.user, p, 'read', { mustExist: true })
     if (!r.st?.isFile()) throw new Error('not a file')
     rel = r.rel
-    bytes = Buffer.from(readRegular(r.abs, PICTURE_MAX_BYTES).bytes)
+    bytes = Buffer.from(readRegular(r.abs, PICTURE_MAX_BYTES, r.st).bytes)
   } catch {
     problems.push(`${what}: "${raw}" is not a picture this person can open; use a file from the brand images folder or leave it out`)
     return null

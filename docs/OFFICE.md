@@ -390,6 +390,7 @@ bun scripts/release/publish.ts --channel stable --build --version 0.2.1
 | 데스크: "연결이 비공개로 설정되어 있지 않습니다" | 인증서를 **신뢰할 수 있는 루트 인증 기관**에 넣었는지, Edge를 모두 닫았다 열었는지, 카드의 주소인지 |
 | 업데이트 중 데스크 주소(8443): "연결이 거부됨" | 새 버전이 큰 데이터베이스를 바꾸는 중일 수 있음(6장 5단계, 몇 분에서 최대 60분). 맥 미니에서 `teamax status`의 "this Mac" 줄이 "updating its database"면 기다리세요. 진행은 `~/TeamAX/logs/update.log` |
 | 데스크: 아예 안 열림 | 같은 네트워크인지, 맥 미니에서 `teamax status`, 맥 방화벽에서 bun 허용, IP가 바뀌지 않았는지(`teamax info`) |
+| 맥에 "백그라운드 항목이 추가됨: Trina AX" 알림이 뜸 / 로그인 항목을 바꾼 뒤 서버가 시작되지 않음 | 정상 알림: 서버와 자동 업데이트가 **Trina AX**라는 백그라운드 항목 두 개로 실행됨(시스템 설정 > 일반 > 로그인 항목 및 확장 프로그램 > "백그라운드에서 허용"). 이전 설치에서는 "Jarred Sumner"(함께 들어 있는 Bun 런타임 제작자)의 소프트웨어로 보였고, 첫 업데이트 때 새 이름으로 알림이 다시 뜸. 항목을 끄면 서버나 업데이트가 멈추며, macOS가 알려 주면 `teamax status`에 표시됨. Trina AX 항목을 모두 다시 켠 다음 `~/TeamAX/teamax start`. 활성 상태 보기와 방화벽에는 계속 `bun`으로 보임 |
 | 403 "office network" | 다른 네트워크(VPN·게스트 Wi-Fi)에서 접속함. 맥 미니와 같은 사무실 네트워크에서 |
 | `tailscale-address on`: "HTTPS certificates are off" | Tailscale 관리 화면 → DNS에서 MagicDNS와 HTTPS Certificates를 켜고 다시 실행 |
 | `tailscale-address on`: "used by `tailscale serve`" | 그 포트는 이 맥의 serve·Funnel이 씀. `--port <다른 포트>` |

@@ -55,6 +55,15 @@ export const FILE_SHARE_SPECS: Record<string, Spec> = {
       if (who !== 'memberIn' && r.status === 200 && r.json?.status !== 'no_access') throw new Error(`${who}: the link page answered ${r.json?.status}`)
     },
   },
+  // Files › Shared with me (file sharing P2): every signed-in member reads their own list; alice's file (shared with
+  // nobody) is in no one's, the owner's and admins' included
+  sharedWithMe: {
+    build: async (c, w) => { await aliceLink(w); return c.get('/api/files/shared-with-me') }, scope: 'self',
+    check: (r, _w, who) => {
+      nothingOfAlice(r.text, who, 'Shared with me')
+      if (r.status === 200 && JSON.stringify(r.json).includes('users/')) throw new Error(`${who}: Shared with me showed a path`)
+    },
+  },
   sharedFileDownload: { build: async (c, w) => c.get(`/api/files/shared/${await aliceLink(w)}/download`), scope: 'users-alice',
     check: (r, _w, who) => nothingOfAlice(r.text, who, 'the link\'s bytes') },
   // a press of several files (QA TC-3510): anyone signed in may call it, but only for files they may share. Aimed at
@@ -63,7 +72,16 @@ export const FILE_SHARE_SPECS: Record<string, Spec> = {
   shareFilesBatch: {
     build: async (c, w) => c.post('/api/files/shares/batch', { paths: ['users/alice/todo.md'], add: [{ subjectType: 'user', subjectId: await guestOf(w) }] }), scope: 'self',
     check: async (r, w, who) => {
-      nothingOfAlice(r.text, who, 'a press')
+      // the answer lists each refused path as the caller sent it (failed[].path is the caller's own input, not a finding):
+      // look for alice's file in everything else, and require the words for her file to be the words for a file that does
+      // not exist at all (no existence, name or size oracle)
+      nothingOfAlice(JSON.stringify(r.json?.failed ? { ...r.json, failed: r.json.failed.map(({ path: _echo, ...rest }: Record<string, unknown>) => rest) } : r.json ?? r.text), who, 'a press')
+      if (who !== 'memberIn' && r.status === 200) {
+        const none = await w.as[who].post('/api/files/shares/batch', { paths: ['users/alice/never-made.md'], add: [{ subjectType: 'user', subjectId: await guestOf(w) }] })
+        const a = r.json?.failed?.[0], b = none.json?.failed?.[0]
+        const bare = ({ path: _echo, ...rest }: Record<string, unknown> = {}) => JSON.stringify(rest)
+        if (!a || !b || bare(a) !== bare(b)) throw new Error(`${who}: a press of alice's file answered differently from a file that does not exist: ${JSON.stringify(a)} vs ${JSON.stringify(b)}`)
+      }
       if (who === 'memberIn' && r.status !== 400) throw new Error(`alice: a press naming a guest answered ${r.status}`)
       if (who !== 'memberIn' && r.status === 200 && (r.json?.shared?.length || r.json?.failed?.length !== 1)) throw new Error(`${who}: a press of alice's file shared ${JSON.stringify(r.json?.shared)}`)
       const g = w.inst.ctx.db.query("SELECT COUNT(*) n FROM file_share_grants g JOIN file_shares s ON s.id = g.share_id WHERE s.path = 'users/alice/todo.md'").get() as { n: number }

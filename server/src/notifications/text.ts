@@ -65,6 +65,20 @@ export const TEXT = {
     en: 'Someone shared files with you.',
     id: 'Seseorang membagikan file dengan Anda.', ja: '誰かがファイルを共有しました。', es: 'Alguien compartió archivos con usted.', zh: '有人与你共享了文件。',
   },
+  // someone asked to open a file I answer for (docs/decisions/20261116-file-share-push-gaps.md): never the file, the
+  // asker or the note (the push gateway has the same words: push-gateway/src/text.ts)
+  'file.access_requested': {
+    ko: '누군가 파일을 열게 해 달라고 요청했어요.',
+    en: 'Someone asked to open a file.',
+    id: 'Seseorang meminta untuk membuka file.', ja: 'ファイルを開くリクエストが届きました。', es: 'Alguien pidió abrir un archivo.', zh: '有人请求打开文件。',
+  },
+  // someone asked to open a chat or project I answer for (docs/decisions/20261116-chat-project-ask-access.md; older team
+  // servers never send it): never the title, the asker or the note
+  'access.requested': {
+    ko: '누군가 채팅이나 프로젝트를 열게 해 달라고 요청했어요.',
+    en: 'Someone asked for access to a chat or project.',
+    id: 'Seseorang meminta akses ke obrolan atau proyek.', ja: 'チャットまたはプロジェクトへのアクセスリクエストが届きました。', es: 'Alguien pidió acceso a un chat o proyecto.', zh: '有人请求访问对话或项目。',
+  },
   // an app in a room I manage paused for the day (room_app_notices): never the app's or the room's name (the push
   // gateway has the same words: push-gateway/src/text.ts)
   'room_app.paused': {
@@ -132,5 +146,7 @@ export function pushMessages(locale: Locale) {
     'room_app.paused': TEXT['room_app.paused'][locale],
     'file.shared': TEXT['file.shared'][locale],
     'chat.thread_reply': TEXT['chat.thread_reply'][locale],
+    'file.access_requested': TEXT['file.access_requested'][locale],
+    'access.requested': TEXT['access.requested'][locale],
   }, markRead: MARK_READ[locale], chatSharedBy: CHAT_SHARED_BY[locale] }
 }

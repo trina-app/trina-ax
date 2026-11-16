@@ -29,6 +29,7 @@ import { ROOM_APP_BODY_MAX, ROOM_APP_BODY_SECONDS, ROOM_APP_DAILY_RECEIVED, ROOM
 import type { AppContext } from '../../context'
 import { teamDefaultLocale, teamTimeZone } from '../../admin/settings'
 import { storageRefusesWrites } from '../../system/storage'
+import { endConnectionAfter } from '../../http/tunnel'
 import { parseArrival, type Parsed } from './parse'
 import { presetOf, PRESETS } from './presets'
 import { tallyTooOld, typeformTooOld } from './presets/forms'
@@ -54,7 +55,7 @@ class TooBig extends Error {}
 /** The raw body, at most `max` bytes, within `seconds` (past either the stream is cancelled, never waited for). */
 async function readBody(req: Request, max: number, seconds: number): Promise<Uint8Array> {
   const len = req.headers.get('content-length')
-  if (len !== null && Number(len) > max) throw new TooBig()
+  if (len !== null && Number(len) > max) { endConnectionAfter(req); throw new TooBig() }
   const chunks: Uint8Array[] = []
   let size = 0
   if (!req.body) return new Uint8Array(0)
@@ -66,10 +67,11 @@ async function readBody(req: Request, max: number, seconds: number): Promise<Uin
       const r = await Promise.race([reader.read(), deadline])
       if (r.done) break
       size += r.value.byteLength
-      if (size > max) throw new TooBig()
+      if (size > max) { endConnectionAfter(req); throw new TooBig() }
       chunks.push(r.value)
     }
   } catch (e) {
+    if (e instanceof Timeout) endConnectionAfter(req) // what still trickles in is not read either
     void reader.cancel().catch(() => { /* given up */ })
     throw e
   } finally { clearTimeout(timer) }

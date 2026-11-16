@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { applyMePolicy } from '../common/me-policy'
 import { PRODUCT, WEB_ALLOW_ALL_RISK, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
 import { CSRF_HEADER, Health, Me } from '@mycel/shared/api'
-import { asksOutside, checkTeam, desktopPagePath, firstRunLinks, hostLineNow, hostOf, isSignInPath, onThisComputer, originOf, parseTeamAddress, readDesktopLink, teamLabel, type AddressError, type HealthAnswer } from '../common/address'
+import { answersAgain, asksOutside, certTrouble, checkTeam, desktopPagePath, firstRunLinks, hostLineNow, hostOf, isSignInPath, officeCertPage, offlineRetryDelay, onThisComputer, originOf, parseTeamAddress, readDesktopLink, teamLabel, type AddressError, type CertTrouble, type HealthAnswer } from '../common/address'
 import { LinkGate, type WakeAnswer } from '@mycel/shared/team-link'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { teamHostnames } from '../common/browser-block'
@@ -44,7 +44,8 @@ export interface WelcomeState {
   teams: { id: string; label: string; origin: string; current: boolean }[]
   /** a team is open behind the welcome screen (the back button returns to it) */
   canGoBack: boolean
-  offline: { address: string } | null
+  /** `auto`: the app looks again by itself and opens the team when it answers (watchOffline) */
+  offline: { address: string; auto: boolean } | null
   /** a kit build's team address, filled in on the first-run screen while no team is remembered (common/kit.ts) */
   suggested: string | null
   /** the "no team yet" screen offers [팀 만들기] (not in the Mac App Store build: App Review 3.1.1) */
@@ -63,7 +64,7 @@ export interface WelcomeState {
  * hosted service and not remembered yet: the screen asks once, then calls again with `confirmed`. */
 export type AddTeamResult =
   | { ok: true; teamId: string }
-  | { ok: false; error: AddressError | 'unreachable' | 'notTeamServer' | 'teamUnknown' | 'suspended' | 'wakeTimeout' | 'confirmOutside' | 'renamed' | 'cancelled'; message: string; host?: string; next?: string }
+  | { ok: false; error: AddressError | 'unreachable' | 'certUntrusted' | 'certInvalid' | 'notTeamServer' | 'teamUnknown' | 'suspended' | 'wakeTimeout' | 'confirmOutside' | 'renamed' | 'cancelled'; message: string; host?: string; next?: string }
 
 /**
  * How a request from the team page's Settings > Browser to turn on "Allow all websites" ended (bridge
@@ -227,6 +228,17 @@ export class AppWindow {
   private localStart: { team: string; line: string } | null = null
   /** addTeam is waiting for a sleeping trial team to start (WelcomeState.waking) */
   private waking = false
+  /** the "cannot reach the team server" card looks again by itself (watchOffline): its timer, how many looks so far
+   * (the waits grow, common/address.ts offlineRetryDelay), and a number that changes whenever the watch stops, so a
+   * look still under way does nothing afterwards */
+  private offlineTimer?: NodeJS.Timeout
+  private offlineTries = 0
+  private offlineWatch = 0
+  /** the watch is on (a wait or a look under way): the card says the app keeps trying only then */
+  private offlineWatching = false
+  /** the app itself opened the team again after a look that answered: if that load fails too (the server answers but
+   * its page does not load), the looks end there, so the page does not open and fail over and over */
+  private offlineReopened = false
   /** that wait, which Cancel stops (cancelWake, or No on ④) */
   private wakeRun: { stopped: boolean } | null = null
   /** the view that had the keyboard last (its own focus event; the pane reports its tabs) and whether it is the in-app
@@ -358,7 +370,7 @@ export class AppWindow {
       mode: this.mode,
       teams: this.teamList().map((x) => ({ id: x.id, label: x.label, origin: x.origin, current: x.id === this.team?.id })),
       canGoBack: Boolean(this.team && this.app),
-      offline: this.mode === 'offline' && this.team ? { address: this.team.origin } : null,
+      offline: this.mode === 'offline' && this.team ? { address: this.team.origin, auto: this.offlineWatching } : null,
       suggested: this.teamList().length ? null : (this.o.suggestedTeam ?? null),
       signup: firstRunLinks({ macAppStore: this.o.macAppStore === true, korean: false }).signup !== null,
       link: (() => { const l = this.linkGate.pending(); return l ? { id: l.id, host: l.host, hosted: l.hosted } : null })(),
@@ -464,6 +476,14 @@ export class AppWindow {
     const L = this.o.locale()
     if (!p.ok) return { ok: false, error: p.error, message: t(L, `err.${p.error}` as UiKey) }
     const fail = (error: 'unreachable' | 'notTeamServer' | 'teamUnknown' | 'suspended' | 'wakeTimeout'): AddTeamResult => ({ ok: false, error, message: t(L, `err.${error}` as UiKey, { name: p.name ?? p.host }) })
+    // the server's certificate is not one this computer trusts (an office server whose certificate is not installed
+    // here yet): said as that, with where to get it, never as "check your internet connection" (QA TC-3452). Nothing is
+    // connected: the certificate check itself is untouched.
+    const failCert = (trouble: CertTrouble): AddTeamResult => {
+      const page = trouble === 'untrusted' ? officeCertPage(p.origin) : null
+      const key: UiKey = trouble === 'invalid' ? 'err.certInvalid' : page ? 'err.certUntrusted' : 'err.certUntrustedNoPage'
+      return { ok: false, error: trouble === 'invalid' ? 'certInvalid' : 'certUntrusted', message: t(L, key, { page: page ?? '' }) }
+    }
     let c
     const run = { stopped: false }
     this.wakeRun = run
@@ -479,8 +499,9 @@ export class AppWindow {
         now: Date.now,
         stopped: () => run.stopped,
       })
-    } catch {
-      return fail('unreachable')
+    } catch (e) {
+      const trouble = certTrouble(e)
+      return trouble ? failCert(trouble) : fail('unreachable')
     } finally {
       if (this.wakeRun === run) this.wakeRun = null
       if (this.waking) {
@@ -526,6 +547,9 @@ export class AppWindow {
   }
 
   showWelcome() {
+    this.stopOfflineWatch()
+    this.offlineTries = 0
+    this.offlineReopened = false
     this.mode = 'welcome'
     this.layout()
     this.sendWelcome()
@@ -640,6 +664,8 @@ export class AppWindow {
         return
       }
       this.mode = 'offline'
+      if (this.offlineReopened) this.offlineReopened = false
+      else this.watchOffline()
       this.layout()
       this.sendWelcome()
       // not in front of another app when the network drops while the person is there (as in showWelcome)
@@ -675,6 +701,8 @@ export class AppWindow {
       // the team answered: a later failure is the offline card, as for any team
       if (originOf(url)) this.startupLocal = null
       if (this.mode === 'offline' && originOf(app.webContents.getURL())) this.mode = 'team'
+      // the team page is back: the next time it cannot be reached, the looks start from the short wait again
+      if (originOf(url)) { this.stopOfflineWatch(); this.offlineTries = 0; this.offlineReopened = false }
       this.layout()
       // A request started before navigation may still carry the signed-out/previous session.
       void this.ensureBrowserOwner()
@@ -764,7 +792,47 @@ export class AppWindow {
   }
 
   retry() {
+    // the person's own Try again: the app's own look, if one is under way, does nothing more
+    this.stopOfflineWatch()
+    this.offlineTries = 0
+    this.offlineReopened = false
     void this.reload()
+  }
+
+  /**
+   * The full-page "cannot reach the team server" card looks again by itself (QA TC-3453: it stayed until someone
+   * pressed Try again, although the server was back): one GET /api/health of the team's address after 5, 10, 20 and
+   * then every 30 seconds (common/address.ts offlineRetryDelay), and the team opens again as soon as it answers, as
+   * Try again does. It stops when the card is left: Other teams (leftOffline), the team list, another team, the team
+   * removed, the window closed, or the page back. One reopening that fails although the server answered ends the looks
+   * too (offlineReopened): Try again is the person's then.
+   */
+  private watchOffline() {
+    if (this.offlineTimer || !this.team) return
+    this.offlineWatching = true
+    const id = this.team.id, origin = this.team.origin
+    const watch = this.offlineWatch
+    const still = () => watch === this.offlineWatch && !this.win.isDestroyed() && this.mode === 'offline' && this.team?.id === id
+    this.offlineTimer = setTimeout(() => {
+      this.offlineTimer = undefined
+      if (!still()) return
+      void fetchHealth(origin).then((r) => answersAgain(origin, r), () => false).then((back) => {
+        if (!still()) return
+        if (back) { this.offlineReopened = true; void this.reload() }
+        else this.watchOffline()
+      })
+    }, offlineRetryDelay(this.offlineTries++))
+  }
+  private stopOfflineWatch() {
+    clearTimeout(this.offlineTimer)
+    this.offlineTimer = undefined
+    this.offlineWatching = false
+    this.offlineWatch++
+  }
+  /** "Other teams" on the cannot-reach card: the person left it, so the team does not open under them later. */
+  leftOffline() {
+    this.stopOfflineWatch()
+    this.offlineTries = 0
   }
 
   /**
@@ -821,6 +889,7 @@ export class AppWindow {
 
   private disposeTeam() {
     clearInterval(this.recheckTimer)
+    this.stopOfflineWatch()
     // a look of this team page: its ids read nothing any more, one still running gives nothing
     this.workFiles.forget()
     // the team's notifications name its chats and open its addresses: none outlives the team page (session markers),

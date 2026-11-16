@@ -81,6 +81,11 @@ Untuk owner dan admin, **Ponsel › Notifikasi ponsel** memilih ke mana notifika
 **Push Trina AX (bawaan)**, **Mati**, atau **Kustom**, yaitu alamat layanan push Anda sendiri untuk build aplikasi ponsel
 milik Anda sendiri. Notifikasi di ponsel tidak pernah berisi isi file atau percakapan.
 
+Lonceng setiap percakapan memilih levelnya sendiri: **Semua pesan**, **Hanya sebutan**, atau **Mati**. Kanal memakai
+**Hanya sebutan** kecuali Anda mengubahnya; percakapan langsung dan grup memakai **Semua pesan**. Pada **Hanya sebutan**,
+pesan baru membuat nama percakapan tebal tetapi tidak menambah angka, di daftar, di **Obrolan**, maupun di ikon aplikasi;
+pesan yang menyebut Anda tampil sebagai **@** dan dihitung. Pada **Mati**, angkanya abu-abu dan tidak dihitung di mana pun.
+
 ![Pengaturan › Notifikasi untuk owner: bagian Phone dengan Phone notifications only when I'm away dan Phone notifications diatur ke Trina AX push (default), lalu This device](../../images/settings/notifications.webp "Notifikasi")
 
 ## Menghapus akun Anda

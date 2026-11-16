@@ -60,7 +60,7 @@ export const SUGGEST_PATH: Record<Locale, string> = {
   id: 'Skill tim › Usulkan sebagai skill',
   ja: 'チームスキル › スキルとして提案',
   es: 'Habilidades del equipo › Sugerir como habilidad',
-  zh: '团队技能 › 推荐为技能',
+  zh: '团队技能 › 建议为技能',
 }
 
 function localeOf(ctx: AppContext, id: string): Locale {

@@ -48,7 +48,7 @@ export function snapshot(files: FileService, ctx: ToolCtx, input: string, cap: n
     return persist({path:r.rel, bytes, hash:meta.hash, identity:meta.identity})
 
   } else {
-    ;({ bytes, st } = readRegular(r.abs, cap))
+    ;({ bytes, st } = readRegular(r.abs, cap, r.st))
   }
   const now = authorize(files.fx, files.rules(), files.principal(ctx.user.id), r.rel, 'read')
   if (identity(now.st!) !== identity(st)) throw new Denied(safeText(files.db, ctx.user.id, 'sourceChanged'))
