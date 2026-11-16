@@ -4117,6 +4117,8 @@ export const ja: Record<MessageKey, string> = {
   "rooms.members": "{n, plural, one {メンバー#人} other {メンバー#人}}",
   "rooms.membersTitle": "メンバー",
   "rooms.nameOpensInfo": "トークの情報を開く",
+  "rooms.groupFiles": "ファイル",
+  "rooms.groupFilesTip": "{name} フォルダを開く",
   "rooms.lastFiles": "{n, plural, one {ファイル#件} other {ファイル#件}}",
   "rooms.deleted": "このメッセージは削除されました",
   "rooms.edited": "（編集済み）",

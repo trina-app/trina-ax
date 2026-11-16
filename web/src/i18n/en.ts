@@ -4162,6 +4162,8 @@ export const en: Record<MessageKey, string> = {
   "rooms.members": "{n, plural, one {# member} other {# members}}",
   "rooms.membersTitle": "Members",
   "rooms.nameOpensInfo": "Open conversation info",
+  "rooms.groupFiles": "Files",
+  "rooms.groupFilesTip": "Open the {name} folder",
   "rooms.lastFiles": "{n, plural, one {# file} other {# files}}",
   "rooms.deleted": "This message was deleted",
   "rooms.edited": "(edited)",

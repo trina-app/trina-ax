@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16 06:15
 - Branch: `feat/room-group-folder-button`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`server/src/rooms/`, `shared/src/api/rooms.ts`, `web/src/pages/Room.tsx`). Why: rooms and files are core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, one button and one optional API field
 
@@ -42,4 +42,9 @@ a targeted web e2e for the button, its target and the no-button cases.
 
 ## Result
 
-(filled in at the end)
+Built as planned. `Room.groupFolder` is set in `roomOut` (`groupFolderFor`, `RuleSet.canList`); the list and the
+`room.updated` fan-outs read the rules once (`rulesOnce`). The header button is a `Link` styled with `buttonClass`
+(ghost, sm) inside the shared `Tooltip`; on a phone it is the icon alone at the end of the name line, beside ✦. The
+members button's `max-w-full` became `max-w-[calc(100%+0.5rem)]` so its `-mx-1` no longer cuts the name ("le…") when
+the title sits in a row with the button. Tests: `tests/unit/b-rooms-group-folder.test.ts`,
+`web/test/e2e/room-group-folder.spec.ts`.

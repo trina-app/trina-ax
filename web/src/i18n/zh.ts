@@ -4103,6 +4103,8 @@ export const zh: Record<MessageKey, string> = {
   "rooms.members": "{n, plural, one {#位成员} other {#位成员}}",
   "rooms.membersTitle": "成员",
   "rooms.nameOpensInfo": "打开聊天信息",
+  "rooms.groupFiles": "文件",
+  "rooms.groupFilesTip": "打开 {name} 文件夹",
   "rooms.lastFiles": "{n, plural, one {#个文件} other {#个文件}}",
   "rooms.deleted": "此消息已删除",
   "rooms.edited": "（已编辑）",

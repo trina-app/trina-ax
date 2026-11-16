@@ -4161,6 +4161,8 @@ export const id: Record<MessageKey, string> = {
   "rooms.members": "{n} anggota",
   "rooms.membersTitle": "Anggota",
   "rooms.nameOpensInfo": "Buka info percakapan",
+  "rooms.groupFiles": "File",
+  "rooms.groupFilesTip": "Buka folder {name}",
   "rooms.lastFiles": "{n} file",
   "rooms.deleted": "Pesan ini sudah dihapus",
   "rooms.edited": "(diedit)",

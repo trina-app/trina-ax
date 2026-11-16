@@ -4160,6 +4160,8 @@ export const ko = {
   "rooms.members": "멤버 {n}명",
   "rooms.membersTitle": "멤버",
   "rooms.nameOpensInfo": "대화 정보 열기",
+  "rooms.groupFiles": "파일",
+  "rooms.groupFilesTip": "{name} 폴더 열기",
   "rooms.lastFiles": "파일 {n}개",
   "rooms.deleted": "삭제된 메시지예요",
   "rooms.edited": "(수정됨)",
