@@ -44,6 +44,7 @@ import { CHANNELS, decide, DEFAULT_FEED, fileUrl, manifestUrl, OFFICE_RELEASE_KE
 import { addInstaller, ensureDir, MAC_ZIP_RE, macOfferedIn, planAdd, readIndex } from './desktop'
 import { reserveBytes, snapshotOf } from '../system/storage'
 import { loadSettings, officePaths, type OfficeSettings } from './settings'
+import { agentCommand } from './login-item'
 import { PRODUCT } from '@mycel/shared'
 import { isMigrating, MIGRATE_WAIT_MS, probeHealth, type HealthAnswer } from './health'
 import { dbReaderLevel, healFile, recoveryAdvice, releaseIn, unreadablePrevious, UNREADABLE } from './forward'
@@ -301,7 +302,8 @@ const xml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
  * log line (update-cli.ts `update run`). PATH has Claude Code's folder (the new installer checks it). */
 export function updatePlist(s: OfficeSettings, envPath: string): string {
   const p = officePaths(s.home)
-  const args = [path.join(s.home, 'app', 'bin', 'bun'), path.join(s.home, 'app', 'server', 'src', 'office.js'), 'update', 'run', '--home', s.home]
+  // <home>/bin/<product name> when the installation has it (./login-item.ts: the name under Login Items), else app/bin/bun
+  const args = [agentCommand(s.home), path.join(s.home, 'app', 'server', 'src', 'office.js'), 'update', 'run', '--home', s.home]
   const env: Record<string, string> = { PATH: envPath, HOME: os.homedir(), LANG: 'ko_KR.UTF-8', NO_COLOR: '1', TEAMAX_HOME: s.home, ...(s.claudeBin ? { TEAMAX_CLAUDE_BIN: s.claudeBin } : {}) }
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
