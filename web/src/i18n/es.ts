@@ -4122,6 +4122,7 @@ export const es: Record<MessageKey, string> = {
   "rooms.search": "Buscar conversaciones",
   "rooms.listEmpty": "Todavía no hay conversaciones.",
   "rooms.unread": "{n, plural, one {# mensaje sin leer} other {# mensajes sin leer}}",
+  "rooms.unreadNoCount": "Mensajes sin leer",
   "rooms.mentionedYou": "uno de ellos lo menciona a usted",
   "rooms.muted": "Notificaciones desactivadas",
   "rooms.back": "Volver a las conversaciones",

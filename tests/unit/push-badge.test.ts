@@ -56,6 +56,20 @@ test('the badge counts only what wants that person: a DM for its other member, a
   expect(badge(nora.id)).toBe(0)
 })
 
+test('a conversation set to "Mentions only" adds nothing for plain messages, and counts once a message mentions me (QA TC-4171)', async () => {
+  const { mia, nora, otto, send, badge } = await setup()
+  // a group chat (every message by default), set to mentions only by nora: the shared rule (attention.ts roomCounts)
+  const group = await mia.client.call('POST', '/api/rooms', { kind: 'group', userIds: [nora.id, otto.id], name: 'Daily Checkins' })
+  await nora.client.call('PATCH', `/api/rooms/${group.id}`, { notifyLevel: 'mentions' })
+  for (const body of ['one', 'two', 'three']) await send(mia.client, group.id, body)
+  // otto keeps the default (all messages): it counts for him; for nora the row is only bold
+  expect([badge(nora.id), badge(otto.id)]).toEqual([0, 1])
+  const listed = ((await nora.client.call('GET', '/api/rooms')).items as any[]).find((r) => r.id === group.id)
+  expect(listed).toMatchObject({ unreadCount: 3, mentioned: false, notify: { level: 'mentions' } })
+  await send(mia.client, group.id, '@nora', { mentions: [nora.id] })
+  expect(badge(nora.id)).toBe(1)
+})
+
 test('a phone push carries the recipient\'s count at send time, a number only', async () => {
   const { mia, nora, dm, send } = await setup()
   const sent: NativeSend[] = []

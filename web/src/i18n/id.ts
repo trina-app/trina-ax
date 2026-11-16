@@ -4166,6 +4166,7 @@ export const id: Record<MessageKey, string> = {
   "rooms.search": "Cari percakapan",
   "rooms.listEmpty": "Belum ada percakapan.",
   "rooms.unread": "{n} pesan belum dibaca",
+  "rooms.unreadNoCount": "Ada pesan belum dibaca",
   "rooms.mentionedYou": "salah satunya menyebut Anda",
   "rooms.muted": "Notifikasi mati",
   "rooms.back": "Kembali ke percakapan",

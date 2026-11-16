@@ -4122,6 +4122,7 @@ export const ja: Record<MessageKey, string> = {
   "rooms.search": "トークを検索",
   "rooms.listEmpty": "トークはまだありません。",
   "rooms.unread": "{n, plural, one {未読メッセージ#件} other {未読メッセージ#件}}",
+  "rooms.unreadNoCount": "未読メッセージあり",
   "rooms.mentionedYou": "あなたへのメンションがあります",
   "rooms.muted": "通知オフ",
   "rooms.back": "トーク一覧へ",

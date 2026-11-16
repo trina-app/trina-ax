@@ -4165,6 +4165,7 @@ export const ko = {
   "rooms.search": "대화 검색",
   "rooms.listEmpty": "아직 대화가 없어요.",
   "rooms.unread": "읽지 않은 메시지 {n}개",
+  "rooms.unreadNoCount": "읽지 않은 메시지 있음",
   "rooms.mentionedYou": "나를 언급한 메시지가 있어요",
   "rooms.muted": "알림 꺼짐",
   "rooms.back": "대화 목록으로",
