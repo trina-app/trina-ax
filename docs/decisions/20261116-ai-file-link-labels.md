@@ -8,7 +8,7 @@
 - **Ask:** answers told office workers where a file is with raw team paths in code formatting (`groups/영업/견적서/`,
   `users/sora/작업/`, `skills/…/SKILL.md`), because the instructions said "Say where with the team path".
 - **Rule:** the AI names a team file or folder by a link labelled with the name people see:
-  `[견적서.pdf](/files/view?path=…)` for a file, the same link for a folder (it opens the Files screen there), and a
+  a link to /files/view?path=<the file> for a file, the same link for a folder (it opens the Files screen there), and a
   top folder or the person's own folder by the name the app shows (전사 공유, 내 폴더, …). No team path as text or in
   code formatting unless the person asks for it. Nothing found: the closest files are listed as links. In Slack (no
   cards there) the AI still gives the team path, next to a link. A guest (no file page) gets the file and folder names.
