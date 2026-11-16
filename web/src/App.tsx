@@ -38,6 +38,7 @@ import { resetAdminReads } from './store/adminPeople'
 import { useRailMemory } from './lib/rail'
 import { setBeforePersonSwitch, useMe, useSession } from './store/session'
 import { isGuestMe } from './lib/guests'
+import { forgetRoomUploads } from './store/roomUploads'
 import { clearLocalData } from './lib/localData'
 import { forgetStepsSeen } from './lib/welcome'
 import Layout from './components/Layout'
@@ -155,6 +156,8 @@ function dropPersonStores() {
   useMemberWelcome.getState().reset()
   useHandover.getState().reset()
   useRooms.getState().reset()
+  // a room box's files, the ones still going up too (store/roomUploads.ts)
+  forgetRoomUploads()
   usePeople.getState().reset()
   useEngines.getState().reset()
   resetInbox()
