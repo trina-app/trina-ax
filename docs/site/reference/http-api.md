@@ -557,6 +557,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `PUT` | `/api/me/status` | Signed in | Set your status message: one emoji, up to 100 characters of text, and when it clears (30 minutes to 2 hours, the end of today or this week in the team's time zone, chosen days, or never); only your own. The team sees it beside your name. |
 | `DELETE` | `/api/me/status` | Signed in | Clear your status message (also one that starts later); only your own. |
 | `PUT` | `/api/me/away` | Signed in | Set yourself away (your dot shows away to the team until you change it) or back to automatic; only your own. |
+| `POST` | `/api/me/computer` | Signed in | The desktop app tells how long its computer has had no input and whether the screen is locked (every 30 s): while the computer is in use, your phone gets no push. Kept in memory for a minute; shown to nobody. |
 
 ## Team chat rooms
 
