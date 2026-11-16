@@ -1245,7 +1245,7 @@ export const es: Record<MessageKey, string> = {
   'projects.items': "{n, plural, one {# elemento} other {# elementos}}",
   'projects.itemsMore': "{n}+ elementos",
   'projects.missing': "No se encuentra este proyecto o no tiene acceso a él.",
-  "projects.noLongerMember": "Ya no es miembro de '{name}'",
+  "projects.noLongerMember": "Ya no es miembro de {name}.",
   'projects.deleteTitle': "¿Eliminar el proyecto \"{name}\"?",
   'projects.deleteBody': "Solo se elimina el proyecto; su carpeta y sus chats se conservan.",
   // shared project chats (docs/DECISIONS.md "Shared project chats")
@@ -6497,7 +6497,7 @@ export const es: Record<MessageKey, string> = {
   "chat.thread.deleteTitle": "¿Eliminar esta respuesta?",
   "chat.thread.deleteBody": "Se elimina para todas las personas de este chat. No se puede deshacer.",
   "chat.thread.tooLong": "Esta respuesta es demasiado larga.",
-  "chat.thread.fast": "Está enviando muy rápido. Su respuesta se enviará en un momento.",
+  "chat.thread.fast": "Está enviando muy rápido. Sus respuestas se enviarán en un momento.",
   "notifications.event.chat.thread_reply": "Alguien respondió en un hilo.",
   "notifications.event.chat.thread_replyNamed": "{name} respondió en un hilo de {title}.",
   "notifications.event.chat.thread_replyGone": "Ya no puede ver esto.",

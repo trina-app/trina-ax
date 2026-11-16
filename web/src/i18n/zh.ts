@@ -1244,7 +1244,7 @@ export const zh: Record<MessageKey, string> = {
   "projects.items": "{n, plural, one {#项} other {#项}}",
   "projects.itemsMore": "{n}+项",
   "projects.missing": "找不到此项目，或你没有访问权限。",
-  "projects.noLongerMember": "你已不再是“{name}”的成员",
+  "projects.noLongerMember": "你已不再是{name}的成员。",
   "projects.deleteTitle": "删除项目“{name}”？",
   "projects.deleteBody": "只会删除项目；它的文件夹和对话会保留。",
   "projects.sharedNewChat": "{n, plural, one {#人} other {#人}}可以看到新对话。",

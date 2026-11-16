@@ -96,6 +96,7 @@ import { Tooltip } from '../components/Tooltip'
 import { FileDropZone } from '../components/FileDropZone'
 import { SetupReturn } from '../components/onboarding/SetupReturn'
 import { useFocusAfterRemove } from './admin/common'
+import { isolate } from '../components/handover/isolate'
 
 const PHONE = '(max-width: 767.98px)'
 
@@ -981,7 +982,7 @@ function ProjectPage() {
     else changeP(next)
   }
 
-  if (missing) return <div data-testid="project-missing" data-gone={goneFrom ? '' : undefined}><EmptyState screen title={goneFrom ? t('projects.noLongerMember', { name: goneFrom }) : t('projects.missing')}><Link to="/projects" className="text-accent-text underline">{t('projects.title')}</Link></EmptyState></div>
+  if (missing) return <div data-testid="project-missing" data-gone={goneFrom ? '' : undefined}><EmptyState screen title={goneFrom ? isolate(locale, 'projects.noLongerMember', { name: goneFrom }, ['name']) : t('projects.missing')}><Link to="/projects" className="text-accent-text underline">{t('projects.title')}</Link></EmptyState></div>
   if (error) return <div className="p-6"><ErrorNote>{error}</ErrorNote></div>
   if (!p) return <Skeleton lines={6} className="p-6" />
   // the owner or an admin on a team project they are not a member of (or one in the trash, which nobody reads): its

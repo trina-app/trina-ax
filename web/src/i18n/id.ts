@@ -1270,7 +1270,7 @@ export const id: Record<MessageKey, string> = {
   'projects.items': '{n} item',
   'projects.itemsMore': '{n}+ item',
   'projects.missing': 'Proyek tidak ditemukan atau kamu tidak punya akses.',
-  "projects.noLongerMember": "Anda bukan lagi anggota '{name}'",
+  "projects.noLongerMember": "Anda bukan lagi anggota {name}.",
   'projects.deleteTitle': 'Hapus proyek "{name}"?',
   'projects.deleteBody': 'Hanya proyeknya yang dihapus; folder dan chat tetap ada.',
   // shared project chats (docs/DECISIONS.md "Shared project chats")
