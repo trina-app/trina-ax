@@ -513,6 +513,7 @@ export const id: Record<MessageKey, string> = {
   "chat.error.admin.proxy_down": "AI masih bersiap. Coba lagi sebentar lagi; jika terus terjadi, penyebabnya terlihat di {path}.",
   "chat.error.admin.storage_full": "Penyimpanan server penuh, jadi AI tidak bisa menjawab. Lihat apa yang memakai ruang di {path}, lalu kosongkan sebagian.",
   "chat.error.admin.network_protection_off": "Perlindungan jaringan server sedang mati, jadi AI tidak bisa menjawab sekarang. Biasanya aktif lagi dalam semenit; jika tidak, penyebabnya terlihat di {path}.",
+  "chat.error.admin.engine_start_failed": "Trina tidak bisa memulai AI di server, jadi belum ada yang dikerjakan. Mencoba lagi tidak akan membantu sampai server diperbaiki: minta orang yang mengurus server Trina Anda, atau dukungan Trina, untuk memeriksanya.",
 
   'chat.untitled': "Tanpa judul",
   'chat.title': 'Judul',
@@ -2601,6 +2602,7 @@ export const id: Record<MessageKey, string> = {
   'chat.error.output_limit': CHAT_ERROR_MESSAGES.output_limit.id,
   'chat.error.storage_full': CHAT_ERROR_MESSAGES.storage_full.id,
   'chat.error.network_protection_off': CHAT_ERROR_MESSAGES.network_protection_off.id,
+  'chat.error.engine_start_failed': CHAT_ERROR_MESSAGES.engine_start_failed.id,
   'audit.act.media.transcribe': "Mengubah suara berkas video atau audio menjadi teks",
   'audit.act.engines.update': 'Mengubah pengaturan mesin AI',
   'audit.act.storage.warn': 'Penyimpanan lebih dari 80% (admin diberi tahu)',
@@ -3959,6 +3961,7 @@ export const id: Record<MessageKey, string> = {
   "notifications.event.hosting.key_copied": "Trina hosting menyalin kunci masuk AI tim Anda untuk disimpan, agar koneksi AI bisa dipulihkan jika server hilang.",
   "notifications.event.hosting.exported": "Trina hosting membuat salinan lengkap file dan data tim Anda (ekspor). Jika Anda tidak memintanya, hubungi dukungan hosting.",
   "notifications.event.relay.address_moved": "Alamat tim Anda sekarang mengarah ke server lain, jadi tidak lagi sampai ke server ini. Jika Anda tidak memindahkannya, hubungi dukungan hosting.",
+  "notifications.event.engine.start_failed": "Trina tidak bisa memulai AI di server, jadi semua jawaban gagal sekarang. Minta orang yang mengurus server Trina Anda, atau dukungan Trina, untuk memeriksanya.",
   "audit.act.account.deletion_request": "Meminta penghapusan akun",
   "audit.act.account.deletion_cancel": "Membatalkan permintaan penghapusan akun",
   "audit.act.account.deletion_dated": "Menetapkan tanggal penghapusan akun",

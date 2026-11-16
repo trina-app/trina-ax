@@ -51,7 +51,7 @@ import { aiCalled, engineError, stepLabel, tr, turnLimitError } from './i18n'
 import { placeWords } from './place-words'
 import { recordSkillUse } from '../admin/skill-usage'
 import { noteGoalRun } from '../onboarding/goal'
-import { notificationsOf } from '../notifications/service'
+import { notificationsOf, notifyEngineStartFailed } from '../notifications/service'
 import { noteChatAnswer } from '../notifications/chat-answers'
 import { isLookUpTool, scheduleRunOutcome } from './schedule-outcome'
 import { validateTemplateTurn } from './schedule-templates'
@@ -209,6 +209,9 @@ const SELF_LABELLED_TOOLS = new Set(['save_room_file'])
 
 /** how many times one answer goes on after a connect (each needs another card the person finished) */
 export const CONTINUE_MAX = 2
+/** the sandbox's own words when it could not set up the engine's program (nothing of the engine ran): bwrap on Linux,
+ * sandbox-exec on macOS; their lines start with the tool's name (TurnExec.engineStartFailed) */
+export const SANDBOX_START_FAILED = /^(bwrap|sandbox-exec): /m
 /** the start of the server's note that continues an answer after a connect (the fake engine looks for it) */
 export const CONTINUE_NOTE_START = '[The connect card is finished'
 /** The message of the resumed session that goes on with the same answer after a service was connected on its card
@@ -1061,6 +1064,7 @@ export class TurnExec {
         const err = errors.find((e) => e.type === 'error') as Extract<EngineEvent, { type: 'error' }> | undefined
         const crashed = !err && (exit?.ev === 'error' || (exit?.code && !parser.result))
         if (crashed || err) rt.log.warn('engine attempt failed', { turn: this.id, engine: 'claude-code', exit, code: err?.code ?? 'crash', stderr: stderr.slice(-2000) })
+        if ((crashed || err?.code === 'crash') && this.engineStartFailed(stderr)) break
         if ((crashed || err?.code === 'crash') && !this.attemptHadOutput && !retried.has('crash')) { retried.add('crash'); continue }
         if (err) this.error = err.code === 'crash' ? this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`) : engineError(err.code, spec.locale)
         else if (crashed) this.error = this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`)
@@ -1216,6 +1220,7 @@ export class TurnExec {
         const err = errors.find((e) => e.type === 'error') as Extract<EngineEvent, { type: 'error' }> | undefined
         const crashed = !err && (exit?.ev === 'error' || !!exit?.code)
         if (crashed || err) rt.log.warn('engine attempt failed', { turn: this.id, engine: 'codex', attempt, exit, code: err?.code ?? 'crash', stderr: stderr.slice(-2000) })
+        if ((crashed || err?.code === 'crash') && this.engineStartFailed(stderr)) break
         if ((crashed || err?.code === 'crash') && !this.attemptHadOutput && !retried.has('crash')) { retried.add('crash'); continue }
         if (err) this.error = err.code === 'crash' ? this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`) : engineError(err.code, spec.locale)
         else if (crashed) this.error = this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`)
@@ -1419,6 +1424,19 @@ export class TurnExec {
     if (exit?.ev !== 'error' || !/^firewall_(off|not_loaded):/.test(String(exit.message ?? ''))) return false
     this.error = engineError('network_protection_off', this.spec.locale)
     this.rt.log.error('turn refused: the engine firewall is not in effect', { turn: this.id, message: String(exit.message).slice(0, 300) })
+    return true
+  }
+
+  /** The engine never started: the sandbox could not set up its program and said so on stderr before anything ran
+   * (bwrap's own "bwrap: Can't find source path …: Permission denied" on Linux after an update left the app folder
+   * unreadable to the engine account, sandbox-exec's on macOS; QA TC-3521). The answer says so in plain words, never
+   * "stopped partway", is not retried (the same launch fails the same way, whatever the model) and the owners and admins
+   * get one Inbox notice (engineStartNotice). */
+  private engineStartFailed(stderr: string): boolean {
+    if (this.attemptHadOutput || !SANDBOX_START_FAILED.test(stderr)) return false
+    this.error = engineError('engine_start_failed', this.spec.locale)
+    this.rt.log.error('turn failed: the engine could not start', { turn: this.id, stderr: stderr.slice(-500) })
+    notifyEngineStartFailed(this.rt.ctx, this.id)
     return true
   }
 

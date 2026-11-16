@@ -512,6 +512,7 @@ export const ko = {
   "chat.error.admin.proxy_down": "AI가 아직 준비 중이에요. 잠시 뒤 다시 해 보고, 계속되면 {path}에서 원인을 볼 수 있어요.",
   "chat.error.admin.storage_full": "서버 저장 공간이 가득 차서 답하지 못했어요. {path}에서 무엇이 공간을 쓰는지 보고 비워 주세요.",
   "chat.error.admin.network_protection_off": "서버의 네트워크 보호가 꺼져 있어서 지금은 AI가 답할 수 없어요. 보통 1분 안에 다시 켜져요. 아니면 {path}에서 원인을 볼 수 있어요.",
+  "chat.error.admin.engine_start_failed": "서버에서 AI를 시작하지 못해서 아무 작업도 하지 않았어요. 서버가 고쳐질 때까지는 다시 해도 같아요. 트리나 서버를 관리하는 분이나 트리나 지원팀에 확인해 달라고 해 주세요.",
 
   'chat.untitled': "제목 없음",
   'chat.title': '제목',
@@ -2600,6 +2601,7 @@ export const ko = {
   'chat.error.output_limit': CHAT_ERROR_MESSAGES.output_limit.ko,
   'chat.error.storage_full': CHAT_ERROR_MESSAGES.storage_full.ko,
   'chat.error.network_protection_off': CHAT_ERROR_MESSAGES.network_protection_off.ko,
+  'chat.error.engine_start_failed': CHAT_ERROR_MESSAGES.engine_start_failed.ko,
   'audit.act.media.transcribe': "영상·오디오 소리를 글로 바꿈",
   'audit.act.engines.update': 'AI 엔진 설정 변경',
   'audit.act.storage.warn': '저장 공간 80% 넘음 알림',
@@ -3958,6 +3960,7 @@ export const ko = {
   "notifications.event.hosting.key_copied": "트리나 호스팅이 팀의 AI 로그인 키를 보관용으로 복사했어요. 서버를 잃어도 AI 연결을 되살릴 수 있게 하려는 거예요.",
   "notifications.event.hosting.exported": "트리나 호스팅이 팀의 파일과 데이터 전체를 복사했어요(내보내기). 요청한 적이 없다면 호스팅 지원팀에 알려 주세요.",
   "notifications.event.relay.address_moved": "팀 주소가 이제 다른 서버로 연결돼서 이 서버에는 닿지 않아요. 직접 옮긴 적이 없다면 호스팅 지원팀에 알려 주세요.",
+  "notifications.event.engine.start_failed": "서버에서 AI를 시작하지 못해서 지금은 모든 답이 실패해요. 트리나 서버를 관리하는 분이나 트리나 지원팀에 확인해 달라고 해 주세요.",
   "audit.act.account.deletion_request": "계정 삭제 요청",
   "audit.act.account.deletion_cancel": "계정 삭제 요청 취소",
   "audit.act.account.deletion_dated": "계정 삭제 날짜 지정",

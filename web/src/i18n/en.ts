@@ -513,6 +513,7 @@ export const en: Record<MessageKey, string> = {
   "chat.error.admin.proxy_down": "The AI is still getting ready. Try again in a moment; if it keeps happening, {path} shows why.",
   "chat.error.admin.storage_full": "The server's storage is full, so the AI couldn't answer. {path} shows what uses the space; free some up.",
   "chat.error.admin.network_protection_off": "The server's network protection is off, so the AI can't answer right now. It is usually back within a minute; if not, {path} shows why.",
+  "chat.error.admin.engine_start_failed": "Trina couldn't start the AI on the server, so nothing was done. Trying again won't help until the server is fixed: ask the person who looks after your Trina server, or Trina support.",
 
   'chat.untitled': "Untitled",
   'chat.title': 'Title',
@@ -2602,6 +2603,7 @@ export const en: Record<MessageKey, string> = {
   'chat.error.output_limit': CHAT_ERROR_MESSAGES.output_limit.en,
   'chat.error.storage_full': CHAT_ERROR_MESSAGES.storage_full.en,
   'chat.error.network_protection_off': CHAT_ERROR_MESSAGES.network_protection_off.en,
+  'chat.error.engine_start_failed': CHAT_ERROR_MESSAGES.engine_start_failed.en,
   'audit.act.media.transcribe': "Turned the sound of a video or audio file into text",
   'audit.act.engines.update': 'Changed AI engine settings',
   'audit.act.storage.warn': 'Storage over 80% (admins told)',
@@ -3960,6 +3962,7 @@ export const en: Record<MessageKey, string> = {
   "notifications.event.hosting.key_copied": "Trina hosting copied your team's AI sign-in key for safekeeping, so your AI connections can be brought back if the server is lost.",
   "notifications.event.hosting.exported": "Trina hosting made a full copy of your team's files and data (an export). If you didn't ask for it, contact hosting support.",
   "notifications.event.relay.address_moved": "Your team address now points to another server, so it no longer reaches this one. If you didn't move it, contact hosting support.",
+  "notifications.event.engine.start_failed": "Trina couldn't start the AI on the server, so every answer fails right now. Ask the person who looks after your Trina server, or Trina support, to check it.",
   "audit.act.account.deletion_request": "Requested account deletion",
   "audit.act.account.deletion_cancel": "Cancelled the account deletion request",
   "audit.act.account.deletion_dated": "Set the account deletion date",

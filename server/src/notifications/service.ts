@@ -74,7 +74,7 @@ export type HostingNoticeEvent = Extract<NotificationEventType, 'hosting.key_cop
 const isHostingEvent = (e: NotificationEventType): e is HostingNoticeEvent => e === 'hosting.key_copied' || e === 'hosting.exported' || e === 'relay.address_moved'
 export type FileShareEvent = Extract<NotificationEventType, 'file.shared' | 'file.access_requested' | 'file.access_answered' | 'file.unshared_by_move'>
 const isFileShareEvent = (e: NotificationEventType): e is FileShareEvent => e === 'file.shared' || e === 'file.access_requested' || e === 'file.access_answered' || e === 'file.unshared_by_move'
-const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_answer_notices' : isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : e === 'account.deletion_due' ? 'account_deletion_due_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : e === 'chat.shared' ? 'chat_share_notices' : e === 'service.closed' ? 'service_request_closed_notices' : e === 'files.stored_key' ? 'stored_key_file_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : e === 'account.reset_link' ? 'reset_link_notices' : isHostingEvent(e) ? 'hosting_notices' : e === 'room_app.paused' ? 'room_app_notices' : e === 'room_app.leaver' ? 'room_app_leaver_notices' : isFileShareEvent(e) ? 'file_share_notices' : 'notification_inbox'
+const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_answer_notices' : isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : e === 'account.deletion_due' ? 'account_deletion_due_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : e === 'chat.shared' ? 'chat_share_notices' : e === 'service.closed' ? 'service_request_closed_notices' : e === 'files.stored_key' ? 'stored_key_file_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : e === 'account.reset_link' ? 'reset_link_notices' : isHostingEvent(e) ? 'hosting_notices' : e === 'engine.start_failed' ? 'engine_start_notices' : e === 'room_app.paused' ? 'room_app_notices' : e === 'room_app.leaver' ? 'room_app_leaver_notices' : isFileShareEvent(e) ? 'file_share_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
  * requests to connect a service (migration 220), a member's request for an AI connection (migration 231), joins
  * through the team invite link (migration 111), a member's first run of a team skill during the 7-day team goal
@@ -84,10 +84,11 @@ const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_a
  * steps, the skills to merge that waited for it (migration 253), and the handover's (a join with the owner's lead link,
  * a transfer, a locked password check: migration 270), someone who started to see a team project (migration 284) and
  * a member's ask to add an app with its answer (migration 343), a password reset link made for the person (migration 119)
- * and the hosting service's copies of the team's key or data, or the team address moved away (migration 120), and an
+ * and the hosting service's copies of the team's key or data, or the team address moved away (migration 120), the AI
+ * that could not start on this server (migration 127), and an
  * app in a room that paused for the day (migration 299) and someone who left who still knows an app's address (migration 352)
  * have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
-const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'account_deletion_due_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'service_request_closed_notices', 'stored_key_file_notices', 'reset_link_notices', 'hosting_notices', 'room_app_notices', 'room_app_leaver_notices', 'chat_answer_notices', 'chat_share_notices', 'file_share_notices'] as const
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'account_deletion_due_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'service_request_closed_notices', 'stored_key_file_notices', 'reset_link_notices', 'hosting_notices', 'engine_start_notices', 'room_app_notices', 'room_app_leaver_notices', 'chat_answer_notices', 'chat_share_notices', 'file_share_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 const INBOX = union(NOTICE_TABLES)
 /** What the Inbox lists and counts besides the rooms' notices, newest first: every other notice. The rooms' notices
@@ -300,6 +301,11 @@ export class Notifications {
    * for it (QA TC-348, TC-350). The words are the event's own; nothing else is stored or read. */
   hostingNotice(userId: string, event: HostingNoticeEvent, sourceId: string, createdAt = new Date().toISOString()) {
     this.record(userId, event, sourceId, createdAt, true)
+  }
+  /** The AI could not start on this server (chat/turn.ts engineStartFailed; source: the failed turn). Shown always: every
+   * answer of the team fails until an owner or admin has the server fixed (QA TC-3521). */
+  engineStartNotice(userId: string, sourceId: string, createdAt = new Date().toISOString()) {
+    this.record(userId, 'engine.start_failed', sourceId, createdAt, true)
   }
   /** 팀장 넘기기 (admin/handover.ts): a join with the owner's lead link (source: the invite; also pushed), a transfer
    * (source: the transfer, to both people and the other admins), a locked password check (source: its window). Shown
@@ -726,6 +732,8 @@ export class Notifications {
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: roomAppLeaver?.roomId ? 'room' : null, outcome: null,
         ...(roomAppLeaver ? { roomAppLeaver } : {}) }
     }
+    // the AI could not start on this server: the words say what to do, no link (the health page is the owner's only)
+    if (row.event_type === 'engine.start_failed') return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null }
     if (isHostingEvent(row.event_type)) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null }
     if (row.event_type === 'account.reset_link') {
       const r = this.ctx.db.query('SELECT created_by, expires_at, used_at FROM password_resets WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { created_by: string | null; expires_at: string; used_at: string | null } | null
@@ -962,6 +970,18 @@ export function notifyHosting(ctx: AppContext, event: HostingNoticeEvent, source
     const ids = (ctx.db.query(`SELECT id FROM users WHERE role IN (${roles}) AND status = 'active' AND deleted_at IS NULL`).all() as { id: string }[]).map((u) => u.id)
     for (const id of ids) notificationsOf(ctx).hostingNotice(id, event, sourceId)
   } catch { ctx.log.warn('hosting notification recording failed') }
+}
+/** The AI could not start on this server (chat/turn.ts engineStartFailed): one Inbox notice to each active owner and
+ * admin per breakage, not per failed answer. A notice made since the last answer that worked means they were told
+ * already; one that works arms it again. Never throws: the answer's own error is what matters. */
+export function notifyEngineStartFailed(ctx: AppContext, turnId: string) {
+  try {
+    const ok = (ctx.db.query("SELECT MAX(ended_at) AS at FROM turns WHERE status = 'done'").get() as { at: string | null } | null)?.at ?? ''
+    if (ctx.db.query('SELECT 1 FROM engine_start_notices WHERE created_at > ? LIMIT 1').get(ok)) return
+    const ids = (ctx.db.query("SELECT id FROM users WHERE role IN ('owner', 'admin') AND status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((u) => u.id)
+    const at = new Date().toISOString()
+    for (const id of ids) notificationsOf(ctx).engineStartNotice(id, turnId, at)
+  } catch { ctx.log.warn('engine start notification recording failed') }
 }
 /** The owner or an admin (the guest-aware role: auth/guests.ts roleSql). */
 function isStaff(db: AppContext['db'], userId: string): boolean {
