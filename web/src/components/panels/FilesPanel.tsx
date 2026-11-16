@@ -36,6 +36,10 @@ export const TEAM_ROOT_ON_PHONE = TEAM_TOP_ON_PHONE
  * folder's top, the 팀 폴더 label, for whoever may read it) */
 const APART = new Set(['projects', 'users', SKILLS_DIR])
 
+/** the keys of the three views: a folder row's key is its path, so a bare 'shared' was the team folder Company-wide too
+ * (both rows lit, QA TC-3973); a path never has a colon, so these cannot meet one */
+export const VIEW_KEY = { recent: 'view:recent', shared: 'view:shared', trash: 'view:trash' } as const
+
 type Place = { key: string; to: string; label: string; icon: typeof Folder; path?: string; testId: string }
 
 export function FilesPanel() {
@@ -123,14 +127,14 @@ function FilesPlaces({ phone = false }: { phone?: boolean }) {
   const at = view ? null : (q.get('path') ?? '')
   const folderRows = [...team, ...projectRows, ...(mine ? [mine] : [])]
   const lit =
-    view === 'recent' ? 'recent' : view === 'shared' ? 'shared' : view === 'trash' ? 'trash' : at !== null ? (folderRows.filter((r) => r.path && isInside(at, r.path) && at !== '').sort((a, b) => b.path!.length - a.path!.length)[0]?.key ?? null) : null
+    view === 'recent' ? VIEW_KEY.recent : view === 'shared' ? VIEW_KEY.shared : view === 'trash' ? VIEW_KEY.trash : at !== null ? (folderRows.filter((r) => r.path && isInside(at, r.path) && at !== '').sort((a, b) => b.path!.length - a.path!.length)[0]?.key ?? null) : null
 
   const row = (p: Place) => <ListRow key={p.key} to={p.to} selected={lit === p.key} icon={<p.icon />} name={p.label} nameTitle={p.label} testId={p.testId} />
   return (
     <>
       <ul className="mb-4">
-        {row({ key: 'recent', to: '/files?view=recent', label: t('filesPanel.recent'), icon: Clock, testId: 'files-panel-recent' })}
-        {row({ key: 'shared', to: '/files?view=shared', label: t('filesPanel.shared'), icon: Users, testId: 'files-panel-shared' })}
+        {row({ key: VIEW_KEY.recent, to: '/files?view=recent', label: t('filesPanel.recent'), icon: Clock, testId: 'files-panel-recent' })}
+        {row({ key: VIEW_KEY.shared, to: '/files?view=shared', label: t('filesPanel.shared'), icon: Users, testId: 'files-panel-shared' })}
       </ul>
       {top !== null && (
         // the label opens the team folder's top (files kept loose there, every top folder); a phone has no hover to show
@@ -158,7 +162,7 @@ function FilesPlaces({ phone = false }: { phone?: boolean }) {
       )}
       <ul className="mt-3 border-t border-line pt-2">
         {mine && row(mine)}
-        {row({ key: 'trash', to: '/files?view=trash', label: t('files.trash'), icon: Trash2, testId: 'files-panel-trash' })}
+        {row({ key: VIEW_KEY.trash, to: '/files?view=trash', label: t('files.trash'), icon: Trash2, testId: 'files-panel-trash' })}
       </ul>
     </>
   )
