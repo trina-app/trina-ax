@@ -3,6 +3,6 @@
   "Always send with the files", "Allow all websites") on the first card. After that, Trina doesn't ask again for them.
 - Once you choose "Always allow" for sharing your files, posting to conversations, a project's members or a connected
   app, Trina doesn't ask again, also after it read a conversation, a teammate's file or a web page. In a chat others
-  write in, it covers what you ask for yourself. Where you haven't chosen it, Trina still shows the card when the chat
+  write in (also one no longer shared), it covers only what you ask for yourself. Where you haven't chosen it, Trina still shows the card when the chat
   holds something another person wrote, even right after you asked, and a team file is attached to a mail without the
   card only when you named or attached it.
