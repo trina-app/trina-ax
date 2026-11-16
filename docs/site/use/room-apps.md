@@ -22,6 +22,10 @@ status line changes as things move on.
    After two minutes with nothing, **Nothing yet?** lists the usual mistakes for that service and how to send a test.
    **Show an example** shows, inside the guide, how its messages will look. Nothing is posted.
 
+You can also start from **Settings › Connectors**. Sentry, Notion, Stripe and Atlassian (for Jira) have
+**Get updates in a conversation** under their row. It lists only the conversations where you may add apps; pick one and
+it opens with that service's guide. If you have none yet, start one with **New conversation** first.
+
 ![Add an app: its messages appear in the conversation for everyone in it, then Google Forms, Other app, GitHub and Sentry](../images/room-apps/picker.webp "Add an app")
 
 Who can do this: in a team room or the everyone room, its owners and admins; in a 1:1 or a group chat, anyone in it.

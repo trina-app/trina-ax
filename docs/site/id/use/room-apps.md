@@ -22,6 +22,10 @@ berubah seiring perkembangannya.
    Setelah dua menit tanpa kiriman, **Belum ada apa-apa?** menampilkan kesalahan yang biasa terjadi pada layanan itu dan cara mengirim tes.
    **Tampilkan contoh** menunjukkan, di dalam panduan, seperti apa pesan-pesannya nanti. Tidak ada yang dikirim.
 
+Anda juga bisa mulai dari **Pengaturan › Konektor**. Sentry, Notion, Stripe, dan Atlassian (untuk Jira) punya
+**Terima kabar di percakapan** di bawah barisnya. Hanya percakapan tempat Anda boleh menambah aplikasi yang muncul; pilih
+satu dan percakapan itu terbuka dengan panduan layanan tersebut. Jika belum ada, mulai satu dengan **Percakapan baru**.
+
 ![Add an app: pesannya muncul di ruang obrolan untuk semua orang di sana, lalu Google Forms, Other app, GitHub dan Sentry](../../images/room-apps/picker.webp "Tambah aplikasi")
 
 Siapa yang bisa melakukannya: di ruang tim atau ruang semua orang, owner dan admin ruang itu; di obrolan 1:1 atau obrolan grup, siapa pun di dalamnya.

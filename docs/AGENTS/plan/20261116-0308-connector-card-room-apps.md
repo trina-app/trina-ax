@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16 03:08
 - Branch: `feat/connector-card-room-apps`
-- Status: in progress
+- Status: done
 - Where: trina-ax (Team AX core: shared room-apps list, server rooms list, web Connectors and Room). Why: conversation
   apps and Connectors are core screens (see docs/REPOSITORY-RULES.md)
 - Version impact: minor, a new entry point on an existing screen and a new optional field on the rooms list
@@ -55,4 +55,6 @@ rooms, server rooms tests under Bun 1.3.12, targeted web e2e (room apps, connect
 
 ## Result
 
-Filled in at the end.
+Built as planned. The action is a text line under the row (ConnectionRow's children), so the row keeps one status on
+its right. A new app's guide opened by the link has the picker under it, so Back offers the other services. Hidden
+conversations and closed 1:1s are not offered; guests see no action.
