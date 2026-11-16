@@ -67,3 +67,14 @@
   c-shared-folder-ai (shared_with_me lists folders; (R) both sides), b-looking-at-tool, b-shared-with-me-tool,
   b-ai-share-words (Rule A sides), c-reader-counters (new call sites reviewed), i-wiring (change_folder_access offered).
 - **Version impact:** minor, with the two pieces of work.
+- **Follow-ups from the final real-AI run (2026-11-17):**
+  - The team folder card's note stays within the app's 300 characters in every language: with "Always allow" offered,
+    the file shares line goes last in the card's lines; a four-choice server card shows its note.
+  - When the person's own "Always allow" let share_with_person, share_folder, post_to_room or change_folder_access go
+    without a card, the tool result says so (`RAN_UNDER_ALWAYS`), so the AI never says the person approved it this time.
+  - Who can or cannot open something is said only from who_can_open's result in that answer (the AI had said "only you
+    can open it" about a file that was shared).
+  - shared_with_me gives the day in the team's time zone, as Shared with me shows it.
+  - The post card shows the text without bold marks (`**`, `__`); the message that goes keeps them (the room shows
+    bold). Links and addresses on the card stay as written.
+  - Spanish: "a"/"de" before a filled-in value that starts with "el" read "al"/"del" (shared/src/es-contract.ts).

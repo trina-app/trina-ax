@@ -3,3 +3,5 @@
   shared names the folder's people too.
 - Asked to share a team folder, Trina now answers with what you can do: owners and admins get the access card, members
   get **Ask an admin**.
+- The room post card shows the text without `**` marks.
+- Spanish: "al grupo …" instead of "a el grupo …".

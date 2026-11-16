@@ -30,7 +30,7 @@ import { actionOff, askerPicks, askerText, asksToSend, attachedPaths, madeInTurn
 import { readRooms } from './read-rooms'
 import { seenWhy } from './grant-reads'
 import { lookedFile, lookedPerson } from './looking-at'
-import { alwaysHere, withAlways } from './always-allow'
+import { RAN_UNDER_ALWAYS, alwaysHere, withAlways } from './always-allow'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
 import { uuidv7 } from '@mycel/shared'
@@ -268,6 +268,7 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         // why the card asks first, ONE line for the reason that matters most: the target came from the screen, then rooms or a
         // shared file read here, then content someone else wrote (docs/decisions/20261116-ai-sharing-integration.md)
         const whyLine = whyFirst(L, { fromLook, seenLine, others: othersWordsCard(exec, 'share_files', alwaysOk) })
+        const byAlways = !explicit && alwaysHere(place, 'share_files') === 'on'
         const reply = explicit ? 'share' : await withAlways(place, 'share_files', [{ label: tr('fileShareYes', L), value: 'share' }, { label: tr('fileShareNo', L), value: 'no' }], 'share', (options, more) => exec.waitForPerson({
           kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: whyLine ? `${whyLine}\n\n${question}` : question, multiple: false, allowText: false, options, ...more,
           // each file by its name and place in words, never a team path: two files of one name read differently
@@ -321,7 +322,7 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         // nobody new got access (everyone named could already open every file): the card says so, not "Shared … with"
         if (!fresh && shared.files.length) shared = { ...shared, who: [], whoMore: undefined, notified: undefined, already: cardPeople(db, [...already, ...who]).who }
         return {
-          ...text(JSON.stringify({ status: 'shared', files: done.length, with: exec.shared ? 'the people the user named' : neutralizeTags(whoLine), ...(fresh ? {} : { already_had_access: true }), ...(haveNote ? { already_open: haveNote } : {}), note: fresh ? `Shared, view only. ${CARD_SAYS_IT}` : `${SHARE_ALREADY_NOTE} ${CARD_SAYS_IT}` })),
+          ...text(JSON.stringify({ status: 'shared', files: done.length, with: exec.shared ? 'the people the user named' : neutralizeTags(whoLine), ...(fresh ? {} : { already_had_access: true }), ...(haveNote ? { already_open: haveNote } : {}), note: `${fresh ? 'Shared, view only.' : SHARE_ALREADY_NOTE} ${byAlways ? `${RAN_UNDER_ALWAYS} ` : ''}${CARD_SAYS_IT}` })),
           summary: `share_with_person -> shared ${done.length} files with ${who.length}`,
         }
       } finally {

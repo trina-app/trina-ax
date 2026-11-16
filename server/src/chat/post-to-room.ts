@@ -48,7 +48,7 @@
 // (subagents.ts PARENT_ONLY_TOOLS). Reached anyway (the chat became confidential during the answer, a sub-agent's call)
 // it refuses with why and what to do, as it does for a room that is archived or not mine, a gone thread, content that
 // used earlier answers hidden from some member, a text too long for one message and the sending budget.
-import { withAlways } from './always-allow'
+import { RAN_UNDER_ALWAYS, alwaysHere, withAlways } from './always-allow'
 import { actionOff, asksFor, askerPicks, askerText, asksToSend, fold, fromAsker, mainOnly, namedInFull, namesRecipient as namesPlace, othersWordsIn, soleNames, ownWords, POST_ASK } from './shared-actions'
 import { readRooms } from './read-rooms'
 import { grantOnly, seenWhy } from './grant-reads'
@@ -72,7 +72,7 @@ import { neutralizeTags } from './prompt'
 import { sideRoomOf } from './side-room'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
-import { cardTextWords, fileWords, othersWordsCard, whyFirst, plainQuote, POST_FILE_DESCRIPTION, POST_NO } from './share-words'
+import { cardTextWords, fileWords, noBoldMarks, othersWordsCard, whyFirst, plainQuote, POST_FILE_DESCRIPTION, POST_NO } from './share-words'
 import { fixesAfterPost, grantedLinksCant, grantSourceCant } from './share-next-steps'
 import { fileSharesOf } from '../files/shares'
 
@@ -287,6 +287,8 @@ export function postToRoomTool(exec: TurnExec): Tool {
           if (!pendingTo) return prepareIn(roomId)
           try { return await preparePendingDm(ctx, spec.userId, spec.chatId, answer, { otherId: pendingTo.id, ...(plain ? { plain } : {}) }, L) } catch (e) { return { refused: refusalOf(e, titleAi, '') } }
         }
+        // the person's own "Always allow" let it go without its card: the result says so (never "you approved it")
+        let byAlways = false
         const sent = (r: Extract<ShareAnswerToRoomResult, { status: 'sent' }>, again: boolean, cannotOpen = '') => {
           const fileCount = r.message.files?.length ?? 0
           detail = undefined
@@ -302,7 +304,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
               ...(cannotOpen ? { cannot_open: cannotOpen } : {}),
               note: again
                 ? `Already posted earlier in this answer (the same text to the same place); nothing was posted twice.`
-                : `Posted to ${titleAi}${opened ? ' (a new 1:1 chat, made now)' : ''}${threadRootId ? ' as a reply in the thread' : ''} as the user's message, ${plain ? 'in their own words (no AI quote)' : 'your text quoted as the AI\'s answer'}${fileCount ? `, with ${fileCount} linked file${fileCount === 1 ? '' : 's'} attached` : ''}.`,
+                : `Posted to ${titleAi}${opened ? ' (a new 1:1 chat, made now)' : ''}${threadRootId ? ' as a reply in the thread' : ''} as the user's message, ${plain ? 'in their own words (no AI quote)' : 'your text quoted as the AI\'s answer'}${fileCount ? `, with ${fileCount} linked file${fileCount === 1 ? '' : 's'} attached` : ''}.${byAlways ? ` ${RAN_UNDER_ALWAYS}` : ''}`,
             })),
             summary: `post_to_room -> ${again ? 'already sent' : 'sent'}${threadRootId ? ' (thread)' : ''}${fileCount ? `, ${fileCount} files` : ''}`,
           }
@@ -343,7 +345,8 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const shown = first.body.slice(first.at)
         // (on the card a link to a team file reads as its name and place; the message keeps the link: QA TC-4059)
         const fileShares = fileSharesOf(ctx)
-        const shownCard = cardTextWords(db, shown, L, spec.userId, (id) => { const o = fileShares.open(spec.userId, id); return o.kind === 'open' ? { path: o.share.path, byGrant: o.by === 'grant', name: o.name } : null })
+        // (without bold marks: the card read "**3 tips**", QA TC-4060)
+        const shownCard = noBoldMarks(cardTextWords(db, shown, L, spec.userId, (id) => { const o = fileShares.open(spec.userId, id); return o.kind === 'open' ? { path: o.share.path, byGrant: o.by === 'grant', name: o.name } : null }))
         const marks = opaqueParts(shownCard)
         const options = [
           { label: tr('postRoomSend', L), value: 'send' },
@@ -390,6 +393,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const place1 = alwaysOk ? exec.alwaysPlace?.() : null
         // why the card asks first: one line, the reason that matters most (chat/share-words.ts whyFirst)
         const whyLine = whyFirst(L, { fromLook, seenLine, others: othersWordsCard(exec, all ? 'post_files' : 'post_to_room', alwaysOk) })
+        byAlways = !explicit && alwaysHere(place1, all ? 'post_files' : 'post_to_room') === 'on'
         const reply = explicit ? 'send' : await withAlways(place1, all ? 'post_files' : 'post_to_room', options, all ? 'send_files' : 'send', (opts, more) => exec.waitForPerson({
           kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: whyLine ? `${whyLine}\n\n${question}` : question, options: opts, multiple: false, allowText: false, ...(more.note ? { note: more.note } : {}),
           details: [

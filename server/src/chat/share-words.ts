@@ -186,6 +186,12 @@ export function plainQuote(s: string): string {
     .replace(/\*\*|__|~~|`/g, '')
 }
 
+/** A post's text as its card shows it: without the bold marks ("**3 tips**" reads "3 tips"; QA TC-4060, MAN-013/014/015).
+ * Only bold pairs go: the room shows them as bold, so nothing that is sent is hidden; links and addresses stay as written. */
+export function noBoldMarks(s: string): string {
+  return s.replace(/(\*\*|__)(?=\S)([^\n]*?\S)\1/g, '$2')
+}
+
 // ---- which thread: an option the AI gives for a thread, as the person knows it (QA TC-4054) ----
 
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i

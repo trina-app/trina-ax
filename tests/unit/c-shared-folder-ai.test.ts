@@ -31,6 +31,8 @@ import { SHARED_FOLDERS_HOWTO } from '../../server/src/chat/shared-with-me-tool'
 import { dropAlways, keepAlways } from '../../server/src/chat/always-allow'
 import { outsideSeen } from '../../server/src/integrations/connections/tools'
 import { DELETE_REFUSAL } from '../../server/src/chat/delete-files'
+import { teamTimeZone } from '../../server/src/admin/settings'
+import { zonedDay } from '../../server/src/system/time-zone'
 
 setDefaultTimeout(90_000)
 let h: Harness
@@ -263,7 +265,7 @@ describe('shared_with_me lists the folders shared with the person', () => {
     const oddId = shareDir(odd)
     const r = await turn(fake({ tool: 'shared_with_me', args: {}, sayResult: true }))
     const lines = r.content.split('\n')
-    const day = new Date().toISOString().slice(0, 10)
+    const day = zonedDay(new Date(), teamTimeZone(h.ctx.db))
     expect(lines).toContain(`- folder ${JSON.stringify(dir.split('/').pop())} from "Alice Kim", shared with the user, ${day}: /f/${id}`)
     expect(r.content).toContain(SHARED_FOLDERS_HOWTO)
     const oddLine = lines.find((l) => l.endsWith(`/f/${oddId}`))!

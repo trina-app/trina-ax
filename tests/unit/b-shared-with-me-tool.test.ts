@@ -18,6 +18,8 @@ import { addSources, sourceOf } from '../../server/src/chat/read-scope'
 import { SHARED_WITH_ME_MAX, sharedWithMeOff } from '../../server/src/chat/shared-with-me-tool'
 import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
 import { RuleSet } from '../../server/src/policy/access'
+import { teamTimeZone, updateTeamSettings } from '../../server/src/admin/settings'
+import { zonedDay } from '../../server/src/system/time-zone'
 import { OWN_WORDS_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
 import { roomsOf } from '../../server/src/rooms/service'
 
@@ -87,7 +89,7 @@ describe('the list', () => {
     const ids = { quote: await linkOf('alice', 'users/alice/quote.md'), notes: await linkOf('carol', 'users/carol/notes-for-finance.md'), menu: await linkOf('alice', 'users/alice/menu.md') }
     const r = await turn('bob', LIST())
     const lines = r.content.split('\n').filter((l) => l.startsWith('- '))
-    const day = new Date().toISOString().slice(0, 10)
+    const day = zonedDay(new Date(), teamTimeZone(h.ctx.db))
     // the list's own order (files/shares.ts sharedWithMe): shared with them by name first, then through a group or the
     // whole team, the newest first in each part
     expect(lines).toEqual([
@@ -101,6 +103,17 @@ describe('the list', () => {
     // someone it was not shared with gets only the whole team's
     const t = await turn('erin', LIST())
     expect(t.content.split('\n').filter((l) => l.startsWith('- ')).map((l) => l.slice(0, 11))).toEqual(['- "menu.md"'])
+  })
+
+  test('the day is the team\'s (QA TC-4373): shared at 19:00 UTC is the next day in Asia/Seoul, as Shared with me shows it', async () => {
+    const id = await linkOf('alice', 'users/alice/quote.md')
+    h.ctx.db.query("UPDATE file_share_grants SET granted_at = '2026-11-16T19:00:00.000Z' WHERE share_id = ? AND subject_type = 'user' AND subject_id = 'bob'").run(id)
+    const was = teamTimeZone(h.ctx.db)
+    updateTeamSettings(h.ctx.db, { timeZone: 'Asia/Seoul' })
+    try {
+      const line = (await turn('bob', LIST())).content.split('\n').find((l) => l.endsWith(`/f/${id}`))!
+      expect(line).toContain(', 2026-11-17: ')
+    } finally { updateTeamSettings(h.ctx.db, { timeZone: was }) }
   })
 
   test('MAN-020: the shared file and a team file of the same name: the list names the shared one by its link, and read opens exactly that one', async () => {

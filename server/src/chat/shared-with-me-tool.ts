@@ -20,6 +20,7 @@ import { isGuestUser } from '../credentials/guest-ai'
 import { fileSharesOf } from '../files/shares'
 import { sharedFoldersWith } from '../files/shared-folder-reads'
 import { confidentialChat } from '../safe-ops/confidential'
+import { zonedDay } from '../system/time-zone'
 import { neutralizeTags } from './prompt'
 import { fold, mainOnly } from './shared-actions'
 import type { Tool } from './tools'
@@ -71,6 +72,8 @@ export function sharedWithMeTool(exec: TurnExec): Tool {
       if (main === 'disabled') return { ...text('Access denied: this account is disabled.', true), summary: 'shared_with_me -> denied: account disabled' }
       const me = exec.livePrincipal()
       const shares = fileSharesOf(rt.ctx)
+      // the day in the team's time zone, as Shared with me shows it (QA TC-4373: the UTC day said 16 November for Nov 17)
+      const day = (at: string) => { try { return zonedDay(new Date(at), rt.timeZone) } catch { return at.slice(0, 10) } }
       const want = fold(a.data.query ?? '')
       const max = Math.min(a.data.limit ?? SHARED_WITH_ME_MAX, SHARED_WITH_ME_MAX)
       const lines: string[] = []
@@ -97,7 +100,7 @@ export function sharedWithMeTool(exec: TurnExec): Tool {
           // a file their folders show too: where it is, in words (never for one only the grant opens)
           let where = ''
           if (o.by !== 'grant') { try { where = `, also in the user's folders: ${q(exec.place(o.share.path.split('/').slice(0, -1).join('/')), 120)}` } catch {} }
-          lines.push(`- ${q(o.name)}${it.sharedBy ? ` from ${q(it.sharedBy, 60)}` : ' from a former member'}, ${to}, ${it.sharedAt.slice(0, 10)}${where}: ${fileLinkUrl(it.linkId)}`)
+          lines.push(`- ${q(o.name)}${it.sharedBy ? ` from ${q(it.sharedBy, 60)}` : ' from a former member'}, ${to}, ${day(it.sharedAt)}${where}: ${fileLinkUrl(it.linkId)}`)
         }
         if (!r.next) break
         cursor = r.next
@@ -114,7 +117,7 @@ export function sharedWithMeTool(exec: TurnExec): Tool {
         for (const f of got.files) {
           if (want && !fold(f.name).includes(want) && !fold(f.sharedBy ?? '').includes(want)) continue
           const to = f.to.kind === 'you' ? 'shared with the user' : f.to.kind === 'everyone' ? 'shared with everyone on the team' : `shared with the group ${q(f.to.name, 60)}`
-          folderLines.push(`- folder ${q(f.name)}${f.sharedBy ? ` from ${q(f.sharedBy, 60)}` : ' from a former member'}, ${to}, ${f.at.slice(0, 10)}: ${f.url}`)
+          folderLines.push(`- folder ${q(f.name)}${f.sharedBy ? ` from ${q(f.sharedBy, 60)}` : ' from a former member'}, ${to}, ${day(f.at)}: ${f.url}`)
         }
       } catch {}
       if (!lines.length && !folderLines.length) {

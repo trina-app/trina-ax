@@ -24,7 +24,7 @@ import { OWN_WORDS_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS, SHARED_TOOLS } from '../..
 import { fileSharesOf } from '../../server/src/files/shares'
 import { folderSharesOf } from '../../server/src/files/folder-shares'
 import { undoShares } from '../../server/src/files/share-undo'
-import { keepAlways } from '../../server/src/chat/always-allow'
+import { RAN_UNDER_ALWAYS, keepAlways } from '../../server/src/chat/always-allow'
 import { tr } from '../../server/src/chat/i18n'
 import { roomsOf } from '../../server/src/rooms/service'
 
@@ -130,6 +130,9 @@ describe('sharing a folder: always the card', () => {
       const next = await turn('bob', `share it\n${sf({ folder: two, add: ['Tess Yoon'] })}`)
       expect(cardsTo('bob', next.turnId)).toBe(0)
       expect(JSON.parse(next.content).status).toBe('shared')
+      // the AI is told it ran under the person's Always allow (QA 2026-11-17: never "you approved it")
+      expect(JSON.parse(next.content).note).toContain(RAN_UNDER_ALWAYS)
+      expect(JSON.parse(r.content).note).not.toContain(RAN_UNDER_ALWAYS)
       // my own chat that read something other people wrote: the choice is final (Rule A), no refusal, no card
       const three = folder('bob', 'AlwaysH')
       const chat = (await h.api('bob').call(API.createChat, { body: {} })).id

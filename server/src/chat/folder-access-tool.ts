@@ -33,6 +33,7 @@
 import crypto from 'node:crypto'
 import { ChangeFolderAccessInput, uuidv7 } from '@mycel/shared'
 import { plainLabel, TEAM_FOLDER_NAMES_MAX, type FolderEditPreview, type FolderRuleInput, type Locale, type Step, type StepShared, type TeamFolderResult, type TurnRequest } from '@mycel/shared/api'
+import { esContract, esMark } from '@mycel/shared/es-contract'
 import { fillPlurals } from '@mycel/shared/plural'
 import { z } from 'zod'
 import { audit } from '../admin/audit'
@@ -54,7 +55,7 @@ import { placeWords } from './place-words'
 import { groupSubject, matchName, shownName, type Subject } from './project-members'
 import { neutralizeTags } from './prompt'
 import { readRooms, withoutQuoteLines } from './read-rooms'
-import { alwaysHere, withAlways } from './always-allow'
+import { RAN_UNDER_ALWAYS, alwaysHere, withAlways } from './always-allow'
 import { actionOff, askerText, attachedPaths, namedInFull, namesFolder, namesGroup, othersWordsIn } from './shared-actions'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
@@ -97,7 +98,8 @@ export const FOLDER_TEXT = {
   yesKeepLinks: t('바꾸고 파일 공유는 두기', 'Change, keep file shares', 'Ubah, pertahankan bagikan berkas', '変更してファイル共有は残す', 'Cambiar y mantener los archivos compartidos', '修改但保留文件共享'),
   no: t('취소', 'Cancel', 'Batal', 'キャンセル', 'Cancelar', '取消'),
 } satisfies Record<string, L6>
-const fill = (s: string, v: Record<string, string | number>, L: Locale) => fillPlurals(s, v, L).replace(/\{(\w+)\}/g, (_, k) => String(v[k] ?? ''))
+// (Spanish: "¿Quitar a {who}…" with "el grupo Ventas" reads "al grupo Ventas": shared/src/es-contract.ts)
+const fill = (s: string, v: Record<string, string | number>, L: Locale) => esContract(fillPlurals(s, v, L).replace(/\{(\w+)\}/g, (_, k) => esMark(L, String(v[k] ?? ''))))
 const say = (k: keyof typeof FOLDER_TEXT, L: Locale, v: Record<string, string | number> = {}) => fill(FOLDER_TEXT[k][L], v, L)
 
 // ---------------- where it runs ----------------
@@ -346,9 +348,10 @@ export function folderAccessToolFor(exec: FolderExec): Tool {
     patch({ shared: sharedOf(p, 'done', undefined, links) })
     const verb = p.action === 'remove' ? `took ${ai(subject.name)} off` : `gave ${ai(subject.name)} ${p.access} access to`
     return result([
-      `Done: ${verb} the team folder "${ai(p.name)}" (${ai(p.place)}), confirmed by the user on the card. ${p.after} people can open it now (${p.before} before).`,
+      `Done: ${verb} the team folder "${ai(p.name)}" (${ai(p.place)})${alwaysOn ? '' : ', confirmed by the user on the card'}. ${p.after} people can open it now (${p.before} before).`,
+      ...(alwaysOn ? [RAN_UNDER_ALWAYS] : []),
       'The user sees a card under your answer with the folder, the person or group and who gained or lost access, written by the app. Answer in one short sentence; do not repeat the path, the counts or the names.',
-    ].join('\n'), `${p.action} ${subject.subjectType}, ${p.gainedCount} gain and ${p.lostCount} lose access (confirmed by the user)`, false)
+    ].join('\n'), `${p.action} ${subject.subjectType}, ${p.gainedCount} gain and ${p.lostCount} lose access (${alwaysOn ? 'Always allow, no card' : 'confirmed by the user'})`, false)
   }
 
   /** The folder at `input` as `me` may list it (its names on disk), or null: missing, hidden, a file, the team root. */

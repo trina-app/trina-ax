@@ -13,7 +13,8 @@ import { addTestPerson, startHarness, type Harness, type TestSocket } from '../l
 import { accessRouteFor, fileAccess, folderAccess, routeWords } from '../../server/src/files/access-routes'
 import { currentFixes, shareFixesOf } from '../../server/src/files/share-fixes'
 import { fileSharesOf } from '../../server/src/files/shares'
-import { whoCanOpenOff } from '../../server/src/chat/who-can-open'
+import { WHO_CAN_OPEN_DESCRIPTION, whoCanOpenOff } from '../../server/src/chat/who-can-open'
+import { WHO_CAN_OPEN_RULE } from '../../server/src/chat/prompt'
 import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
 import { GUEST_TURN_TOOLS } from '../../server/src/chat/guest-tools'
 import { OWN_WORDS_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
@@ -503,4 +504,11 @@ describe('the post card after reading a file shared with me', () => {
     // never two "asked first" sentences on one card
     expect((q.match(/asked first/g) ?? []).length).toBeLessThanOrEqual(1)
   })
+})
+
+test('who can open something is said only from who_can_open, never guessed (QA 2026-11-17: "only you can open it" about a file already shared)', () => {
+  expect(WHO_CAN_OPEN_RULE).toContain('Never say who can or cannot open something')
+  expect(WHO_CAN_OPEN_RULE).toContain('"only you can open it"')
+  expect(WHO_CAN_OPEN_RULE).toContain("only from who_can_open's result in this answer")
+  expect(WHO_CAN_OPEN_DESCRIPTION).toContain('who can or cannot open something')
 })

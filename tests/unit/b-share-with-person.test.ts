@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import fs from 'node:fs'
 import path from 'node:path'
 import { API } from '@mycel/shared/api'
+import { RAN_UNDER_ALWAYS } from '../../server/src/chat/always-allow'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { shareWithPersonOff } from '../../server/src/chat/share-with-person'
 import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
@@ -106,6 +107,12 @@ describe('in my own chat', () => {
       expect(cardsTo('bob', next.turnId)).toBe(0)
       const out = JSON.parse(next.content)
       expect(out.status).toBe('shared')
+      // the AI is told when Always allow, not an explicit ask or a card, let it go (QA 2026-11-17: never "you approved it")
+      expect(JSON.parse(r.content).note).not.toContain(RAN_UNDER_ALWAYS)
+      put('users/bob/photo-4b.png', 'png four b')
+      const vague = await turn('bob', `share photo-4b.png (to the person I said before)\n${share({ paths: ['users/bob/photo-4b.png'], people: ['Tess Yoon'] })}`)
+      expect(cardsTo('bob', vague.turnId)).toBe(0)
+      expect(JSON.parse(vague.content).note).toContain(RAN_UNDER_ALWAYS)
       expect(opens('tess', (await sharedOf('bob', next.chatId, next.answerId))!.files[0]!.linkId!)).toBe('open')
       // the checks still run without the card: someone else's file is refused
       put('shared/alices-2.txt', 'a')

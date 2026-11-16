@@ -44,7 +44,7 @@ import { findGroups, isGuest, recipientWords } from './share-with-person'
 import { matchOnFile } from './stop-sharing'
 import { seenWhy } from './grant-reads'
 import { actionOff, askerPicks, askerText, asksToSend, attachedPaths, mainOnly, namedInFull, namesFolder, namesRecipient, othersWordsIn, ownWords, saysDont } from './shared-actions'
-import { alwaysHere, withAlways } from './always-allow'
+import { RAN_UNDER_ALWAYS, alwaysHere, withAlways } from './always-allow'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
 
@@ -296,7 +296,7 @@ export function shareFolderTool(exec: TurnExec): Tool {
         if (adding) {
           shared = { op: 'share', outcome: 'done', files: [row(view.link?.id)], ...cardPeople(db, who as CardSubject[]), level: 'view', ...(r.added.length ? { notified: r.added.slice(0, 50) } : {}) }
           return {
-            ...text(JSON.stringify({ status: 'shared', folder: exec.shared ? 'the folder the user named' : nameAi, with: exec.shared ? 'the people the user named' : neutralizeTags(whoLine), note: `Shared, view only, files added later included. ${CARD_SAYS_IT}` })),
+            ...text(JSON.stringify({ status: 'shared', folder: exec.shared ? 'the folder the user named' : nameAi, with: exec.shared ? 'the people the user named' : neutralizeTags(whoLine), note: `Shared, view only, files added later included. ${alwaysOn ? `${RAN_UNDER_ALWAYS} ` : ''}${CARD_SAYS_IT}` })),
             summary: `share_folder -> shared with ${who.length}`,
           }
         }

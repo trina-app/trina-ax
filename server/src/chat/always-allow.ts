@@ -83,6 +83,10 @@ const KIND_NOTE: Partial<Record<CardAlwaysKind, 'cardAlwaysNoteShareFolder' | 'c
   share_folder: 'cardAlwaysNoteShareFolder', folder_access: 'cardAlwaysNoteFolderAccess',
 }
 
+/** For a tool result when the person's own "Always allow" let the call run without its card (QA, integrate/sharing-all
+ * final run 2026-11-17: the AI said "You approved the change" though no card was shown). */
+export const RAN_UNDER_ALWAYS = 'No card was shown: the user chose "Always allow" for this kind of change earlier, so it ran without asking them. Say so in plain words if it matters (for example "Done. You set Trina to do this without asking; you can change that in Settings › Allowed for Trina."); never say they approved, confirmed or pressed anything this time.'
+
 /** The value a card's "Always allow" answer carries (never one of a card's own values). */
 export const ALWAYS_VALUE = '__always'
 

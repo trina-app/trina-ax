@@ -563,6 +563,10 @@ describe('to a teammate by name', () => {
     expect(r.card!.details).toEqual([{ label: 'What will be sent', text: 'Summary: launch moved to Dec 3.' }])
     const m = (await messagesAs('alice', dm)).at(-1)!
     expect(m.body).toBe('Summary: launch moved to Dec 3.')
+    // bold marks: the card shows the words without "**" (QA TC-4060); the message keeps them (the room shows bold)
+    const b = await turn('alice', post({ room: 'Gina Han', text: '**3 tips** for a __polite__ follow-up' }), { answer: 'send' })
+    expect(b.card!.details![0]!.text).toBe('3 tips for a polite follow-up')
+    expect((await messagesAs('alice', dm)).at(-1)!.body).toBe('**3 tips** for a __polite__ follow-up')
     expect(m.sharedAnswer).toEqual({ at: 0, cut: false })
     const a = audits('alice').at(-1)!
     expect(a.ownWords).toBeUndefined()

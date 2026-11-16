@@ -6,6 +6,7 @@ import { getDesktopBridge, PRODUCT } from '@mycel/shared'
 import { DEFAULT_LOCALE, LOCALE_NAMES, LOCALE_ORDER, asLocale, type Locale } from '@mycel/shared/api'
 import { dropDoubleHonorifics } from '@mycel/shared/honorific'
 import { KO_PARTICLE_PATTERN, koParticle } from '@mycel/shared/ko-particle'
+import { esContract, esMark } from '@mycel/shared/es-contract'
 import { PLURAL_PATTERN, fillPlurals, pluralNames } from '@mycel/shared/plural'
 import { RECENT_LOCALE_KEY, SIGN_IN_LOCALE_KEY } from './recovery-locale'
 import { BUNDLED } from './bundled'
@@ -100,12 +101,13 @@ export function format(template: string, callerParams?: Params, locale: string =
   // "{name}님" and "{name} 님" with 대표님 read "대표님", never "대표님님" (shared/src/honorific.ts); after a value,
   // a Korean particle mark ("을(를)", "이(가)", "(으)로" …) in the form the value takes when read aloud: "Canva를",
   // "Notion을" (shared/src/ko-particle.ts)
-  return dropDoubleHonorifics(fillPlurals(template, params, locale), params).replace(PARTICLE_AFTER, (all, k: string, close: string, mark?: string) => {
+  // (Spanish: "a {who}" with "el grupo Ventas" reads "al grupo Ventas": shared/src/es-contract.ts)
+  return esContract(dropDoubleHonorifics(fillPlurals(template, params, locale), params).replace(PARTICLE_AFTER, (all, k: string, close: string, mark?: string) => {
     if (params[k] === undefined) return all
     const v = String(params[k])
-    if (!mark || locale !== 'ko') return v + close + (mark ?? '')
+    if (!mark || locale !== 'ko') return esMark(locale, v) + close + (mark ?? '')
     return v + close + koParticle(v, mark)
-  })
+  }))
 }
 
 export function translate(locale: Locale, key: MessageKey, params?: Params): string {

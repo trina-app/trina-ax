@@ -34,6 +34,7 @@ import { getFolderByPath } from '../../server/src/admin/folders'
 import { setFolderAccess } from '../lib/folder-access'
 import { fileSharesOf } from '../../server/src/files/shares'
 import { tr } from '../../server/src/chat/i18n'
+import { RAN_UNDER_ALWAYS } from '../../server/src/chat/always-allow'
 
 setDefaultTimeout(120_000)
 const cm = () => 'cm-' + crypto.randomUUID()
@@ -280,6 +281,8 @@ describe('T19: the yes is bound to the plan; the person decides about file share
         expect(c.options!.map((o) => o.value)).toEqual(['change_remove', 'change_keep', '__always', 'no'])
         expect(AskUserRequest.safeParse(c).success).toBe(true)
         expect(c.note).toBe(tr('cardAlwaysNoteFolderAccess', L))
+        // Spanish: "¿Quitar al grupo …", never "a el grupo" (shared/src/es-contract.ts)
+        if (L === 'es') { expect(c.question).toStartWith('¿Quitar al grupo '); expect(c.question).not.toContain('a el ') }
         if (L === 'en') expect(c.details![0]!.text.split('\n').at(-1)).toBe('Files inside are shared one by one with 1 person. Choose whether those shares go too.')
       }
     } finally { h.ctx.db.query("UPDATE users SET locale = ? WHERE id = 'carol'").run(was) }
@@ -310,6 +313,11 @@ describe('"Always allow" for team folder access (kind folder_access; Rule A)', (
       expect(next.cards).toHaveLength(0)
       expect(rulesAt('Plans').some((x) => x.s === 'bob')).toBe(false)
       expect(audits('folder.ai_access', next.turnId)[0]).toMatchObject({ outcome: 'done', always: true })
+      // the AI is told it ran under the person's Always allow, never that they confirmed it (QA 2026-11-17: "You approved the change")
+      expect(next.content).toContain(RAN_UNDER_ALWAYS)
+      expect(next.content).not.toContain('confirmed by the user')
+      expect(r.content).toContain('confirmed by the user on the card')
+      expect(r.content).not.toContain(RAN_UNDER_ALWAYS)
       // (the role is still checked again before the save: an admin demoted gets nothing)
       h.ctx.db.query("UPDATE users SET role = 'member' WHERE id = 'carol'").run()
       try {
