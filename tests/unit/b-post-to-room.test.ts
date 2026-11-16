@@ -171,8 +171,8 @@ describe('the card, and the post', () => {
     // post_files: docs/decisions/20261116-always-allow-more-cards.md); four answers, no buttons
     expect(r.card!.options!.map((x) => [x.label, x.value])).toEqual([['Send', 'send'], ['Send with the files', 'send_files'], ['Always send with the files', '__always'], ["Don't send", 'no']])
     expect(r.card!.buttons).toBeUndefined()
-    // the file that [파일도 함께 보내기] attaches, by its path
-    expect(r.card!.details!.map((d) => [d.label, d.text])).toEqual([['What will be sent', text], ['Attached with “Send with the files”', 'groups/marketing/launch-plan.md']])
+    // the file that [파일도 함께 보내기] attaches, by its place in words and its name (chat/share-words.ts)
+    expect(r.card!.details!.map((d) => [d.label, d.text])).toEqual([['What will be sent', text], ['Attached with “Send with the files”', 'Groups › marketing › launch-plan.md']])
     const m = (await messagesAs('alice', rooms.all)).at(-1)!
     expect(m.body).toBe(text)
     expect(m.files.map((f) => f.name)).toEqual(['launch-plan.md'])
@@ -322,7 +322,7 @@ describe('where it may not post', () => {
 
   test('a room I am not in reads like one that does not exist; several rooms of one name are listed', async () => {
     const r = await turn('alice', post({ room: rooms.finance, text: 'x' }))
-    expect(r.content).toContain('Nothing was posted: no room and no teammate matching')
+    expect(r.content).toContain('Nothing was posted: no room and no teammate matches')
     expect(r.card).toBeNull()
     const u = await turn('alice', post({ room: uuidv7(), text: 'x' }))
     expect(u.content.replace(/"[^"]*"/, '')).toBe(r.content.replace(/"[^"]*"/, ''))
@@ -604,7 +604,7 @@ describe('to a teammate by name', () => {
     expect(r.content).toContain('with own_words the text is the whole message')
     const none = await turn('alice', post({ room: 'Ivan Seo', text: 'x', own_words: true }))
     expect(none.card).toBeNull()
-    expect(none.content).toContain('no room and no teammate matching "Ivan Seo"')
+    expect(none.content).toContain('no room and no teammate matches "Ivan Seo"')
     expect(dmOf('alice', 'ivan')).toBeNull()
   })
 
@@ -766,7 +766,7 @@ describe('a shared chat: as the person whose turn it is, behind their card', () 
     expect(r.card!.origin).toBe('server')
     expect(r.card!.question.split('\n')[0]).toBe('Tess Yoon님과의 새 1:1 대화로 보낼까요?')
     expect(r.card!.options!.map((x) => x.value)).toEqual(['send', 'send_files', 'no'])
-    expect(r.card!.details!.map((d) => [d.label, d.text])).toEqual([['보낼 내용', text], ['[파일도 함께 보내기]로 첨부할 파일', 'users/bob/photo-1.png\nusers/bob/photo-2.png']])
+    expect(r.card!.details!.map((d) => [d.label, d.text])).toEqual([['보낼 내용', text], ['[파일도 함께 보내기]로 첨부할 파일', '내 폴더 › photo-1.png\n내 폴더 › photo-2.png']])
     // the card went to bob, never to alice, who sees the chat
     expect(cardsTo('bob', r.turnId)).toBe(1)
     expect(cardsTo('alice', r.turnId)).toBe(0)

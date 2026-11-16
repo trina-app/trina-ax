@@ -186,6 +186,10 @@ export const TEXT = {
   membersShareProject: t('팀 프로젝트로 공유', 'Share as a team project', 'Bagikan sebagai proyek tim', 'チームプロジェクトとして共有', 'Compartir como proyecto del equipo', '共享为团队项目'),
   /** the person's own chat after a room read, in front of the wider-audience card that also asks for the change */
   roomsSeenWhy: t('여기에 대화 메시지(다른 사람이 쓴 글)가 들어와서, 무언가를 바꾸기 전에 먼저 물어봐요.', 'Messages from your conversations (other people\'s words) came in here, so changes are asked first.', 'Chat ini berisi pesan dari percakapan Anda (tulisan orang lain), jadi perubahan ditanyakan dulu.', "このチャットにはトークのメッセージ（ほかの人が書いたもの）が含まれているため、変更の前に確認します。", "Este chat contiene mensajes de sus conversaciones (palabras de otras personas), así que los cambios se consultan antes.", "这里收到了你聊天中的消息（其他人说的话），所以修改前会先问你。"),
+  /** a share or post card that comes although "Always allow" is on, because content someone else wrote was read (chat/share-words.ts othersWordsCard) */
+  othersWordsWhy: t('이 채팅에서 다른 사람이 쓴 내용을 읽어서 먼저 물어봐요. 메시지에 파일과 받는 사람을 이름으로 적으면 카드 없이 진행돼요.', 'Something other people wrote was read in this chat, so this is asked first. To skip the card, name the file and who gets it in your message.', 'Chat ini membaca sesuatu yang ditulis orang lain, jadi ini ditanyakan dulu. Agar tanpa kartu, sebutkan nama berkas dan penerimanya di pesan Anda.', 'このチャットでほかの人が書いた内容を読んだため、先に確認します。メッセージにファイル名と送り先を書くと、カードなしで進みます。', 'En este chat se leyó algo escrito por otras personas, así que esto se consulta antes. Para omitir la tarjeta, indique en su mensaje el archivo y quién lo recibe.', '这个对话读取了其他人写的内容，所以会先问你。在消息里写明文件和接收人的名字，就不会再出现卡片。'),
+  /** "Send to Trina" in an answer's thread, as the web app names it (chat.thread.sendToAi; chat/share-words.ts) */
+  threadSendToAi: t('{name}에게 보내기', 'Send to {name}', 'Kirim ke {name}', '{name}に送る', 'Enviar a {name}', '发送给{name}'),
   /** the AI on a card where the product is named after it (PRODUCT_NAMED_AFTER_AI), and elsewhere */
   aiOwnName: t('트리나', 'Trina', 'Trina', "トリナ", "Trina", "Trina"),
   aiPlainName: t('AI', 'The AI', 'AI', "AI", "La IA", "AI"),
@@ -259,7 +263,9 @@ export const TEXT = {
   fileShareAsk: t('{who}님에게 파일 {n}개를 공유할까요?', 'Share {n, plural, one {# file} other {# files}} with {who}?', 'Bagikan {n} berkas dengan {who}?', '{who}さんにファイルを{n}件共有しますか？', '¿Compartir {n, plural, one {# archivo} other {# archivos}} con {who}?', '要与{who}共享{n}个文件吗？'),
   fileShareAskGroup: t('{who} 부서에 파일 {n}개를 공유할까요?', 'Share {n, plural, one {# file} other {# files}} with the {who} group?', 'Bagikan {n} berkas dengan grup {who}?', '{who}グループにファイルを{n}件共有しますか？', '¿Compartir {n, plural, one {# archivo} other {# archivos}} con el grupo {who}?', '要与{who}小组共享{n}个文件吗？'),
   fileShareAskMany: t('{who}에게 파일 {n}개를 공유할까요?', 'Share {n, plural, one {# file} other {# files}} with {who}?', 'Bagikan {n} berkas dengan {who}?', '{who}にファイルを{n}件共有しますか？', '¿Compartir {n, plural, one {# archivo} other {# archivos}} con {who}?', '要与{who}共享{n}个文件吗？'),
-  fileShareView: t('보기만 할 수 있어요. 링크는 이 사람들에게만 열려요.', "They'll be able to view them. The link opens only for them.", 'Mereka bisa melihatnya. Tautannya hanya terbuka untuk mereka.', '閲覧だけできます。リンクはこの人たちにだけ開きます。', 'Podrán verlos. El enlace solo se abre para ellos.', '他们可以查看。链接只对他们打开。'),
+  /** one file ("it") and several ("them"): the count picks the line (chat/share-with-person.ts) */
+  fileShareViewOne: t('보기만 할 수 있어요. 링크는 이 사람들에게만 열려요.', "They can only view it. The link opens only for them.", 'Mereka hanya bisa melihatnya. Tautannya hanya terbuka untuk mereka.', '閲覧だけできます。リンクはこの人たちにだけ開きます。', 'Solo podrán verlo. El enlace solo se abre para ellos.', '他们只能查看。链接只对他们打开。'),
+  fileShareView: t('보기만 할 수 있어요. 링크는 이 사람들에게만 열려요.', "They can only view them. The link opens only for them.", 'Mereka hanya bisa melihatnya. Tautannya hanya terbuka untuk mereka.', '閲覧だけできます。リンクはこの人たちにだけ開きます。', 'Solo podrán verlos. El enlace solo se abre para ellos.', '他们只能查看。链接只对他们打开。'),
   fileShareFiles: t('공유할 파일', 'Files', 'Berkas', '共有するファイル', 'Archivos', '要共享的文件'),
   fileShareYes: t('공유하기', 'Share', 'Bagikan', '共有する', 'Compartir', '共享'),
   fileShareNo: t('공유하지 않기', "Don't share", 'Jangan bagikan', '共有しない', 'No compartir', '不共享'),
