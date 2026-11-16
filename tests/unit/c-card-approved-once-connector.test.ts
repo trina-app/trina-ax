@@ -27,6 +27,7 @@ beforeAll(async () => {
     { name: 'create_draft', title: 'Create draft', description: 'Save a mail draft', inputSchema: { type: 'object', properties: { to: { type: 'string' }, cc: { type: 'string' }, subject: { type: 'string' }, body: { type: 'string' } }, required: ['to', 'body'] } },
     { name: 'update_draft', title: 'Update draft', description: 'Change a draft', inputSchema: { type: 'object', properties: { draft_id: { type: 'string' }, body: { type: 'string' } }, required: ['draft_id'] } },
     { name: 'send_mail', title: 'Send mail', description: 'Send a draft', inputSchema: { type: 'object', properties: { draft_id: { type: 'string' }, to: { type: 'string' } } } },
+    { name: 'get_draft', title: 'Get draft', description: 'Open a draft (not marked read-only)', inputSchema: { type: 'object', properties: { draft_id: { type: 'string' } } } },
     { name: 'share_draft', title: 'Share draft', description: 'Share a draft', inputSchema: { type: 'object', properties: { draft_id: { type: 'string' } } } },
   ]
   integrationsOf(A.ctx, { net: fake.net() })
@@ -39,7 +40,7 @@ interface Asker { answer: 'yes' | 'always' | 'no'; cards: string[] }
 const asker = (answer: Asker['answer'] = 'yes'): Asker => ({ answer, cards: [] })
 
 /** one turn of `user` in `chat` (a new chat when absent); the chat read the person's inbox (outside content) */
-function turn(user: Person, p: Asker, o: { chat?: string; live?: boolean } = {}) {
+function turn(user: Person, p: Asker, o: { chat?: string; live?: boolean; shared?: boolean } = {}) {
   const chat = o.chat ?? A.chat(user)
   A.ctx.db.query('UPDATE chats SET session_tainted = 1, others_words = 1 WHERE id = ?').run(chat)
   const turnId = A.turn(user, chat)
@@ -55,6 +56,8 @@ function turn(user: Person, p: Asker, o: { chat?: string; live?: boolean } = {})
     },
     *turnUrls() {},
     allSitesHere: () => o.live !== false,
+    // (chat/tools.ts: TurnExec.mayUseApprovals: not in a chat shared with others now)
+    cardApprovals: () => o.live !== false && !o.shared,
     othersWords: () => true,
   }
   const tc: TurnToolContext = { turnId, chatId: chat, userId: user, messageId: 'm', locale: 'en', signal: new AbortController().signal, files }
@@ -129,14 +132,14 @@ describe('FL-12: reply draft, edited draft, send', () => {
 })
 
 describe('what the same target is', () => {
-  test('a new recipient, a cc, a link in the text, another tool, another chat, a declined card, a Slack question: the card', async () => {
+  test('a new recipient, a cc, a link in the text, another tool, another chat, a declined card, a Slack question, a shared chat: the card', async () => {
     const t = turn('alice', asker())
     nextDraft()
     await t.call('my_mail__create_draft', { to: BUYER, body: 'first' })
-    const ask = async (args: Record<string, unknown>, o: { chat?: string; live?: boolean; tool?: string } = {}) => {
+    const ask = async (args: Record<string, unknown>, o: { chat?: string; live?: boolean; shared?: boolean; tool?: string } = {}) => {
       const p = asker('no')
       nextDraft()
-      await turn('alice', p, { chat: o.chat ?? t.chat, ...(o.live === false ? { live: false } : {}) }).call(o.tool ?? 'my_mail__create_draft', args)
+      await turn('alice', p, { chat: o.chat ?? t.chat, ...(o.live === false ? { live: false } : {}), ...(o.shared ? { shared: true } : {}) }).call(o.tool ?? 'my_mail__create_draft', args)
       return p.cards.length
     }
     expect(await ask({ to: BUYER, body: 'same recipient, other words' })).toBe(0)
@@ -149,6 +152,8 @@ describe('what the same target is', () => {
     expect(await ask({ to: BUYER, body: 'x' }, { chat: A.chat('alice') })).toBe(1)
     // a question asked from Slack (not watched in the app): the card
     expect(await ask({ to: BUYER, body: 'x' }, { live: false })).toBe(1)
+    // the chat is shared with others now: the card
+    expect(await ask({ to: BUYER, body: 'x' }, { shared: true })).toBe(1)
     // a declined card keeps nothing
     const no = turn('alice', asker('no'))
     nextDraft()
@@ -157,6 +162,30 @@ describe('what the same target is', () => {
     // twelve hours on: asked once more
     A.ctx.db.query("UPDATE chat_card_approvals SET created_at = '2000-01-01T00:00:00.000Z' WHERE chat_id = ?").run(t.chat)
     expect(await ask({ to: BUYER, body: 'later' })).toBe(1)
+  })
+
+  test('review: a card on a tool that opens or lists drafts records no draft; a change in another chat drops it; a new flag or a left-out key asks', async () => {
+    const t = turn('alice', asker())
+    // "Get draft" of a draft the person wrote elsewhere: the answer names its id, but the card never showed that draft
+    fake.results.get_draft = { content: [{ type: 'text', text: JSON.stringify({ id: 'dr-old', to: 'someone@else.example' }) }] }
+    await t.call('my_mail__get_draft', { draft_id: 'dr-old' })
+    const sendOld = asker('no')
+    await turn('alice', sendOld, { chat: t.chat }).call('my_mail__send_mail', { draft_id: 'dr-old' })
+    expect(sendOld.cards).toHaveLength(1)
+    // a draft allowed in this chat, then changed from another chat: its send asks
+    const d = nextDraft()
+    await turn('alice', asker(), { chat: t.chat }).call('my_mail__create_draft', { to: BUYER, body: 'seen' })
+    await turn('alice', asker()).call('my_mail__update_draft', { draft_id: `drafts/${d}`, body: 'changed elsewhere' })
+    const sendD = asker('no')
+    await turn('alice', sendD, { chat: t.chat }).call('my_mail__send_mail', { draft_id: d })
+    expect(sendD.cards).toHaveLength(1)
+    // a flag the approved call did not have (it may widen who sees it), or a recipient key left out: the card
+    for (const args of [{ to: BUYER, body: 'x', public: false }, { body: 'x', subject: 'no recipient' }]) {
+      const p = asker('no')
+      nextDraft()
+      await turn('alice', p, { chat: t.chat }).call('my_mail__create_draft', args)
+      expect(p.cards).toHaveLength(1)
+    }
   })
 
   test('another person\'s approval in the same chat never covers this person', async () => {
@@ -170,7 +199,9 @@ describe('what the same target is', () => {
 
   test('the ids a draft answer names', () => {
     expect(madeIds('{"draft_id":"dr-a2nwnp"}')).toEqual(['dr-a2nwnp'])
-    expect(madeIds('{"draft":{"id":"r-123","message":{"id":"m-9"}}}')).toEqual(['r-123', 'm-9'])
+    // only the top level (or draft.id), one id: ids deeper in an answer can be any draft's
+    expect(madeIds('{"draft":{"id":"r-123","message":{"id":"m-9"}}}')).toEqual(['r-123'])
+    expect(madeIds('{"items":[{"id":"a"},{"id":"b"}]}')).toEqual([])
     expect(madeIds('created draft dr-1')).toEqual([])
     expect(madeIds('{"id":"has space"}')).toEqual([])
   })

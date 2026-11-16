@@ -52,6 +52,15 @@ export const STAMP_PDF_DESCRIPTION = 'Put an image (a company seal, a signature,
   'After stamping, read the new file\'s page with as_images to check the placement before you answer. ' +
   'It cannot change the text of a PDF; a PDF locked with a password cannot be stamped.'
 
+/** Where stamp_pdf saves when `output` is given (trimmed, ".pdf" added when missing), or null (none given: a new name
+ * next to the original, which only the tool works out). Also the target of its cards (chat/tools.ts widenOf, chat/turn.ts
+ * fileChangeTarget), so a card names the file the tool writes. */
+export function stampOutputOf(output: unknown): string | null {
+  if (typeof output !== 'string' || output.trim() === '') return null
+  const o = output.trim()
+  return /\.pdf$/i.test(o) ? o : `${o.replace(/\/+$/, '')}.pdf`
+}
+
 export async function stampPdfFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a: Input): Promise<StampedPdf> {
   const fx = files.fx
   const rules = files.rules()
@@ -71,8 +80,9 @@ export async function stampPdfFile(ctx: AppContext, files: TeamFiles, c: ToolCtx
 
   // where the result goes: `output` (with .pdf), else "<name> (stamped).pdf" next to the original
   let outRel: string
-  if (a.output !== undefined && a.output.trim() !== '') {
-    outRel = /\.pdf$/i.test(a.output.trim()) ? a.output.trim() : `${a.output.trim().replace(/\/+$/, '')}.pdf`
+  const named = stampOutputOf(a.output)
+  if (named !== null) {
+    outRel = named
   } else {
     const dir = src.segs.slice(0, -1)
     const dirAbs = path.join(fx.root, ...dir)

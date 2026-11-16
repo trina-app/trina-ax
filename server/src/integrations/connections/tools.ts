@@ -452,10 +452,10 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // again. Their own yes, never a text match: so also where other people's words are in the chat (Rule A's guard is the
   // explicit-ask skip above, which stays off there). Never api_request or a call with team files, only in a turn they
   // watch from their own app; a new recipient, an address or another tool asks
-  if (live && !sent.request && sent.tool && !sent.attach?.length && approvedWrite(ctx, row, sent, b)) { sent.via = 'chat'; return true }
   // the address (an api_request query can be long) counts as well: everything the card shows
   const size = sent.text.length + sent.fields.reduce((n, f) => n + f.name.length + f.value.length, 0)
   if (size > MAX_CARD_PAYLOAD) throw new CallError(`what this would send is ${size} characters, more than the ${MAX_CARD_PAYLOAD} the user can check on a card, so nothing was sent. Send less at a time.`, 'refused (too large to confirm)')
+  if (live && !!person.cardApprovals?.() && !sent.request && sent.tool && !sent.attach?.length && approvedWrite(ctx, row, sent, b)) { sent.via = 'chat'; return true }
   const L = person.locale
   // why it asks, unless the room line says it already (after a room read): only where outside content still asks
   const lead = outside && !person.roomsSeen ? `${say(allowed ? 'outsideAsks' : 'outsideAsksOnce', L)}\n\n` : ''
@@ -474,7 +474,7 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   if (person.choose && freely && !ownAllow && (!allowed || attachAsks)) {
     // the values of the yes / no card (chat/tools.ts confirmWhy: 'allow', 'deny'), so a client that answers those still works
     const v = await person.choose(question, [{ label: say('once', L), value: 'allow' }, { label: say('alwaysAllow', L), value: 'always' }, { label: say('no', L), value: 'deny' }], { details, buttons: true, note: say('alwaysNote', L, { name: row.name }) })
-    if (v === 'allow') { keepWrite(ctx, row, sent, b, live); return true }
+    if (v === 'allow') { keepWrite(ctx, row, sent, b, live && !!person.cardApprovals?.()); return true }
     if (v === 'always') return 'always'
     throw new CallError(refusal({
       done: `The user did not allow this, so nothing was sent to ${row.name}.`, why: cardReason('declined'), also: 'Do not try it another way',
@@ -489,7 +489,7 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
       next: end === 'declined' ? 'ask the user what they want' : cardNext(end), names: [row.name],
     }), cardEndShort(end))
   }
-  keepWrite(ctx, row, sent, b, live)
+  keepWrite(ctx, row, sent, b, live && !!person.cardApprovals?.())
   return true
 }
 
@@ -499,20 +499,51 @@ const writeKey = (row: Pick<Row, 'id' | 'version'>, tool: string) => `${row.id}\
 const madeKey = (row: Pick<Row, 'id' | 'version'>) => `${row.id}\u0000${row.version}`
 /** a tool that sends something already made (a draft) by its id; never one that shares, publishes, forwards or invites */
 const SENDS = /send/i
-const NOT_SENDS = /share|publish|forward|invite|schedule/i
-/** a draft-making tool: the ids its answer names are what a later send may name */
-const MAKES_DRAFT = /draft/i
+const NOT_SENDS = /share|publish|forward|invite|schedule|permission|grant|member|access|visib|collaborat/i
+/** a tool that makes a new draft: the id its answer names is what a later send may name (review: never a list, get,
+ * search or delete of drafts, whose answer names drafts the person never saw on the card) */
+const MAKES_DRAFT = (tool: string) => (/^(create|new|make|save|add)_?\w*draft/i.test(tool) || /^draft_\w*(message|mail|email)$/i.test(tool)) && !/list|get|search|find|read|delete|remove|send/i.test(tool)
+/** tools whose yes is never kept for later calls: they change who can see or reach something (a share, a permission,
+ * an invite, a member, a publish), so each call is a new widening */
+const NEVER_KEPT = NOT_SENDS
 
-/** The person said yes on this call's card: this tool of this connection, to every value of the call that may say
- * where it goes (pinTargets), goes without the card for the rest of the chat (chat/card-approvals.ts). Not kept for a
- * call whose destination cannot be told (no such value, or too many to check), api_request, team files, or a turn the
- * person does not watch. */
+/** Every value of a call that may say where it goes (the rules of pinTargets), each with the argument path it is under
+ * (object keys joined by ".", array positions left out), or null when it cannot be checked. A yes covers a later call
+ * only with exactly the same argument paths and, under each, values the approved call had (approvedWrite). */
+export function pinPairs(args: unknown): [string, string][] | null {
+  const out = new Map<string, [string, string]>()
+  let bad = false
+  const add = (at: string, v: string) => { const k = pinForm(v); if (k) out.set(`${at}\u0000${k}`, [at, k]) }
+  const walk = (v: unknown, key: string, at: string, depth: number) => {
+    if (bad || v === null || v === undefined || v === '') return
+    if (depth > PIN_DEPTH_MAX) { bad = true; return }
+    if (Array.isArray(v)) { for (const x of v) walk(x, key, at, depth + 1); return }
+    if (typeof v === 'object') { for (const [k, x] of Object.entries(v as Record<string, unknown>)) walk(x, k, at ? `${at}.${k}` : k, depth + 1); return }
+    if (typeof v === 'string') {
+      const t = v.trim()
+      if (!t || CONTENT_LONG.test(key) || (KIND_KEY.test(key) && SAFE_KIND.test(t))) return
+      if (CONTENT_SHORT.test(key) && !ADDRESS.test(t)) return
+      add(at, t)
+      return
+    }
+    if (SETTING.test(key)) return
+    add(at, String(v))
+  }
+  walk(args, '', '', 0)
+  return bad || out.size > PIN_VALUES_MAX ? null : [...out.values()]
+}
+
+/** The person said yes on this call's card: this tool of this connection, with exactly these recipient-like argument
+ * paths and values (pinPairs), goes without the card for the rest of the chat (chat/card-approvals.ts). Not kept for a
+ * call whose destination cannot be told (no such value, or too many to check), a tool that shares, publishes or
+ * changes access (NEVER_KEPT), api_request, team files, or a turn the person does not watch or a shared chat. */
 function keepWrite(ctx: AppContext, row: Row, sent: Sent, b: BuildCtx, live: boolean) {
+  if (!live || b.scheduled || sent.request || !sent.tool || sent.attach?.length || NEVER_KEPT.test(sent.tool)) return
+  const pairs = pinPairs(sent.raw ?? {})
+  // (the draft a draft tool makes is kept on its own, keepMade: its card showed it whole)
   sent.via = 'card'
-  if (!live || b.scheduled || sent.request || !sent.tool || sent.attach?.length) return
-  const dest = pinTargets(sent.raw ?? {})
-  if (!dest?.length) return
-  noteApproval(ctx.db, { chatId: b.chatId, userId: b.userId, kind: 'connector', target: writeKey(row, sent.tool), detail: { pins: dest } })
+  if (!pairs?.length) return
+  noteApproval(ctx.db, { chatId: b.chatId, userId: b.userId, kind: 'connector', target: writeKey(row, sent.tool), detail: { pins: pairs } })
 }
 
 /** Every plain value of a call (strings, numbers, yes/no), or null when it is nested too deep or holds too many. */
@@ -527,67 +558,74 @@ function plainValues(v: unknown, out: string[] = [], depth = 0): string[] | null
 
 /**
  * Does the person's yes on an earlier card in this chat cover this write (chat/card-approvals.ts)?
- * - the same tool of the same connection (as it is now), and every value of the call that may say where it goes
- *   (pinTargets) is one the approved call had: a new recipient, cc, channel, page or folder asks; what the call says
- *   (its text) may differ, but nothing in it may be a web address, a host name or a long random-looking part that is not
- *   one of those recipients (a link or a picture in what is sent reaches a third party when it is shown), as for a
- *   scheduled run's pinned recipients (pinnedRefusal);
- * - or a send (a tool named "send", not share/publish/forward/invite/schedule) whose every value is the id of a draft
- *   that a draft tool of this connection made on a card the person said yes to in this chat, with nothing written to
- *   that id since (connector_made): the draft goes as they saw it, to the recipients they saw.
+ * - the same tool of the same connection (as it is now), never one that shares, publishes or changes access, with
+ *   exactly the argument paths that may say where it goes that the approved call had (pinPairs: a new key such as cc,
+ *   a flag, a visibility, or a key left out asks), and under each only values the approved call had there; what the call
+ *   says (its text) may differ, but nothing in it may be a web address, a host name or a long random-looking part that
+ *   is not one of those recipients (a link or a picture in what is sent reaches a third party when it is shown), as for
+ *   a scheduled run's pinned recipients (pinnedRefusal);
+ * - or a send (a tool named "send", not share/publish/forward/invite/schedule/permission) whose every value is the id
+ *   of a draft that a draft-making tool of this connection made on a card the person said yes to in this chat, with
+ *   nothing written that names that id since, in any chat (connector_made): the draft goes as they saw it.
  */
 function approvedWrite(ctx: AppContext, row: Row, sent: Sent, b: BuildCtx): boolean {
   const q = { chatId: b.chatId, userId: b.userId }
-  if (SENDS.test(sent.tool!) && !NOT_SENDS.test(sent.tool!)) {
+  const tool = sent.tool!
+  if (NEVER_KEPT.test(tool)) return false
+  if (SENDS.test(tool)) {
     const values = plainValues(sent.raw ?? {})
     if (values?.length) {
       const made = new Set(approvalsFor(ctx.db, { ...q, kind: 'connector_made', target: madeKey(row) }).map((d) => (typeof d.id === 'string' ? pinForm(d.id) : '')).filter(Boolean))
       if (values.every((v) => made.has(pinForm(v)))) return true
     }
   }
-  const dest = pinTargets(sent.raw ?? {})
-  if (!dest?.length) return false
-  for (const d of approvalsFor(ctx.db, { ...q, kind: 'connector', target: writeKey(row, sent.tool!) })) {
-    const pins = Array.isArray(d.pins) ? d.pins.filter((p): p is string => typeof p === 'string') : []
-    if (!pins.length) continue
-    const allowed = new Set(pins.map(pinForm))
-    if (!dest.every((v) => allowed.has(pinForm(v)))) continue
-    const rest = withoutPinned(sent.raw ?? {}, pins, pins)
+  const pairs = pinPairs(sent.raw ?? {})
+  if (!pairs?.length) return false
+  const paths = new Set(pairs.map(([at]) => at))
+  for (const d of approvalsFor(ctx.db, { ...q, kind: 'connector', target: writeKey(row, tool) })) {
+    const kept = Array.isArray(d.pins) ? d.pins.filter((p): p is [string, string] => Array.isArray(p) && p.length === 2 && typeof p[0] === 'string' && typeof p[1] === 'string') : []
+    if (!kept.length) continue
+    const keptPaths = new Set(kept.map(([at]) => at))
+    if (keptPaths.size !== paths.size || [...paths].some((at) => !keptPaths.has(at))) continue
+    const allowed = new Set(kept.map(([at, v]) => `${at}\u0000${v}`))
+    if (!pairs.every(([at, v]) => allowed.has(`${at}\u0000${v}`))) continue
+    const values = [...new Set(kept.map(([, v]) => v))]
+    const rest = withoutPinned(sent.raw ?? {}, values, values)
     if (carriesAddress(rest) || hostNamesIn(rest)) continue
     return true
   }
   return false
 }
 
-/** The ids a draft tool's answer names (its JSON's id, draft_id, draftId at any of its first levels), for a later send
- * of that draft (approvedWrite). */
+/** The id of the new draft a draft tool's answer names: its JSON's top-level id or draft_id, or draft.id; at most one
+ * (review: never ids deeper in the answer, which a service can fill with any draft's). */
 export function madeIds(text: string): string[] {
-  const out = new Set<string>()
   const ok = (v: unknown): v is string => typeof v === 'string' && v.length <= 200 && /^[\w.:@-]+$/.test(v)
-  const walk = (v: unknown, depth: number) => {
-    if (!v || typeof v !== 'object' || depth > 3) return
-    if (Array.isArray(v)) { for (const x of v.slice(0, 20)) walk(x, depth + 1); return }
-    for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
-      if (/^(id|draft_?id)$/i.test(k) && ok(x)) out.add(x)
-      else walk(x, depth + 1)
-    }
-  }
-  try { walk(JSON.parse(text), 0) } catch { /* not JSON: no id */ }
-  return [...out].slice(0, 10)
+  let j: unknown
+  try { j = JSON.parse(text) } catch { return [] }
+  if (!j || typeof j !== 'object' || Array.isArray(j)) return []
+  const o = j as Record<string, unknown>
+  const draft = o.draft && typeof o.draft === 'object' && !Array.isArray(o.draft) ? (o.draft as Record<string, unknown>).id : undefined
+  const id = [o.draft_id, o.draftId, o.id, draft].find(ok)
+  return id ? [id] : []
 }
 
 /** After a draft tool's card the person said yes to: the drafts it made may be sent unchanged without another card. */
 function keepMade(ctx: AppContext, row: Row, b: BuildCtx, tool: string, sent: Sent, text: string) {
-  if (sent.via !== 'card' || !MAKES_DRAFT.test(tool) || SENDS.test(tool) || b.scheduled) return
-  for (const id of madeIds(text)) noteApproval(ctx.db, { chatId: b.chatId, userId: b.userId, kind: 'connector_made', target: madeKey(row), detail: { id } })
+  if (sent.via !== 'card' || !MAKES_DRAFT(tool) || b.scheduled) return
+  // a new draft only: an id the call itself named is a draft that was there before
+  const named = new Set((plainValues(sent.raw ?? {}) ?? []).map(pinForm))
+  for (const id of madeIds(text)) if (!named.has(pinForm(id))) noteApproval(ctx.db, { chatId: b.chatId, userId: b.userId, kind: 'connector_made', target: madeKey(row), detail: { id } })
 }
 
 /** Any write that names a draft this chat's approvals hold (an update, a send, a delete): that draft no longer counts
  * as the one the person saw. */
-function dropMade(ctx: AppContext, row: Row, b: BuildCtx, raw: unknown) {
-  const values = new Set((plainValues(raw ?? {}) ?? []).map(pinForm))
-  if (!values.size) return
-  dropApprovals(ctx.db, { chatId: b.chatId, kind: 'connector_made', target: madeKey(row) }, (d) => typeof d.id === 'string' && values.has(pinForm(d.id)))
+function dropMade(ctx: AppContext, row: Pick<Row, 'id' | 'version'>, raw: unknown) {
+  // any chat's write (a scheduled run, another chat, a teammate on a team connection), and the id anywhere in a value
+  // ("drafts/D", an address): fails closed (dropApprovals removes every such draft of the connection when it cannot read)
+  let all = ''
+  try { all = pinForm(JSON.stringify(raw ?? null)) } catch { all = '' }
+  dropApprovals(ctx.db, { kind: 'connector_made', target: madeKey(row) }, (d) => typeof d.id === 'string' && (!all || all.includes(pinForm(d.id))))
 }
 
 // ---------------- MCP tools ----------------
@@ -746,7 +784,7 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
           const answer = await gate(ctx, current, () => toolTitle(t), sent, b, tc)
           confirmed = answer !== false
           // a write that names a draft the person saw on a card: that draft may have changed (chat/card-approvals.ts)
-          dropMade(ctx, current, b, args)
+          dropMade(ctx, current, args)
           // the card may have waited for minutes: rules, settings and the connection are read again
           const asked = current.version
           current = h.use(svc.forCall(tc.userId, row.id))
@@ -983,6 +1021,8 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
             const body = a.body !== undefined && a.body !== null && typeof a.body === 'object' ? argLines(a.body, L) : { fields: [], exact: false }
             return { fields: [{ name: say('fieldAddress', L), value: seen }, ...body.fields], exact: body.exact }
           }
+          // a request that names a draft the person saw on a card: that draft may have changed (chat/card-approvals.ts)
+          dropMade(ctx, row, { path: a.path, query: a.query ?? null, body: a.body ?? null })
           const answer = await gate(ctx, row, (L) => methodWord(a.method, L), { text: req.shown, fields: [{ name: 'URL', value: seen }, ...recipientFields(a.body)], dest: ((b) => (b ? [url, ...b] : null))(pinTargets(a.body)), raw: { url, body: a.body ?? null }, lines, request: true }, b, tc)
           confirmed = answer !== false
           current = h.use(svc.forCall(tc.userId, row.id))

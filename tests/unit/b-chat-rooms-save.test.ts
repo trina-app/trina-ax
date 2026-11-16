@@ -206,8 +206,11 @@ describe('saving a room file from my own chat', () => {
 
     // the same file again, in a later answer: the file there was not read in it, so a copy goes next to it
     fs.writeFileSync(at(saved), 'changed by someone\n')
-    const again = await run('alice', chat, fake(save(roomId, file.id, 'shared/company/')), () => 'save')
+    // (saving the same room's file into the same folder was allowed above for this chat: the wider-audience question is
+    // not asked again, docs/decisions/20261117-card-approved-once-per-chat.md; the room's own card still is)
+    const again = await run('alice', chat, fake(save(roomId, file.id, 'shared/company/')), (c) => (c.options?.some((o) => o.value === 'save') ? 'save' : 'allow'))
     expect(again.cards).toHaveLength(1)
+    expect(again.cards[0]!.options?.map((o) => o.value)).toEqual(['allow', '__always', 'skip'])
     expect(fs.readFileSync(at(saved), 'utf8')).toBe('changed by someone\n')
     expect(again.done.content).toContain(`${saved} already existed and was not read in this turn, so this was saved as a copy next to it`)
     const copy = / from that room as (shared\/company\/.+?) \(\d+ bytes\)/.exec(again.done.content)?.[1]

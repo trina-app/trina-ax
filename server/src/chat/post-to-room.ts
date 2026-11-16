@@ -58,7 +58,7 @@ import { lookedPlace } from './looking-at'
 export { namedByAsker, namesRecipient } from './shared-actions'
 import { isUuid7, ownFolderLabel, ownFolderWord, PostToRoomInput, uuidv7 } from '@mycel/shared'
 import type { Step } from '@mycel/shared/api'
-import { opaqueParts } from '../tools/url-gate'
+import { carriesAddress, opaqueParts } from '../tools/url-gate'
 import { answerNote, nearestThreadOf, plainRoomRefs, ROOM_MESSAGE_MAX, SIDE_CHAT_SEND, type AnswerSharePlace, type Locale, type ShareAnswerToRoomResult, type TurnRequest } from '@mycel/shared/api'
 import { z } from 'zod'
 import { HttpError } from '../http/errors'
@@ -397,10 +397,16 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // the person said [보내기] on this card for this same room or thread earlier in this chat (chat/card-approvals.ts,
         // docs/decisions/20261117-card-approved-once-per-chat.md): a post of the AI's text, with no note, no files to
         // choose and no line about people who cannot see a source or open a file (the card would tell them nothing new),
-        // goes without the card again. Their own yes, not a text match; a new room, thread or 1:1 chat asks
-        const postTarget = JSON.stringify([roomId, threadRootId ?? null])
-        const plainPost = !plain && first.at === 0 && !all && !linesNone.length && !laterLine && !pendingTo && !!roomId
-        const byChat = !explicit && !byAlways && plainPost && exec.mayUseApprovals?.() && approved(db, { chatId: spec.chatId, userId: spec.userId, kind: 'room_post', target: postTarget })
+        // goes without the card again. Their own yes, not a text match; a new room, thread or 1:1 chat asks, and so does
+        // any post once they deleted one this chat posted there
+        // (the room's members are part of the target: someone who joined since was not there when the person said yes)
+        const members = roomId ? (db.query('SELECT user_id FROM room_members WHERE room_id = ? ORDER BY user_id').all(roomId) as { user_id: string }[]).map((m) => m.user_id) : []
+        const postTarget = JSON.stringify([roomId, threadRootId ?? null, members])
+        // (no web address, host or long random-looking part in the text: a link shown in a room reaches a third party)
+        const plainPost = !plain && first.at === 0 && !all && !linesNone.length && !laterLine && !pendingTo && !!roomId && !carriesAddress(shown)
+        // (a post of this chat the person deleted from that room since: they took one back, so the card comes back)
+        const tookBack = () => !!db.query("SELECT 1 FROM room_messages m JOIN turns t ON t.chat_id = ? AND m.client_id LIKE 'ai-' || t.id || '-%' WHERE m.room_id = ? AND m.author_id = ? AND m.deleted_at IS NOT NULL LIMIT 1").get(spec.chatId, roomId, spec.userId)
+        const byChat = !explicit && !byAlways && plainPost && !!exec.mayUseApprovals?.() && approved(db, { chatId: spec.chatId, userId: spec.userId, kind: 'room_post', target: postTarget }) && !tookBack()
         const reply = explicit || byChat ? 'send' : await withAlways(place1, all ? 'post_files' : 'post_to_room', options, all ? 'send_files' : 'send', (opts, more) => exec.waitForPerson({
           kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: whyLine ? `${whyLine}\n\n${question}` : question, options: opts, multiple: false, allowText: false, ...(more.note ? { note: more.note } : {}),
           details: [
@@ -426,9 +432,6 @@ export function postToRoomTool(exec: TurnExec): Tool {
 
         // ---- yes: checked again, then sent with the key of the line the person saw for that choice ----
         const withFiles = v === 'send_files' && !!all
-        // [보내기] on the card (not "Always allow", not the explicit ask): this room or thread takes later such posts in
-        // this chat without the card
-        if (v === 'send' && !explicit && !byChat && !byAlways && !pendingTo && roomId && exec.mayUseApprovals?.()) noteApproval(db, { chatId: spec.chatId, userId: spec.userId, kind: 'room_post', target: postTarget })
         const again = await prepare()
         if ('refused' in again) return again.refused
         if (again.status === 'sent') return sent(again, true)
@@ -464,6 +467,9 @@ export function postToRoomTool(exec: TurnExec): Tool {
           r = await sendShare(ctx, spec.userId, target, { clientMessageId: share.clientMessageId, ...(threadRootId !== undefined ? { threadRootId } : {}), confirmKey: shownKey, attach: withFiles ? [...first.offered] : [] }, L, { via: 'ai', confirmed: true, ...(opened ? { openedDm: true } : {}) })
         } catch (e) { return refusalOf(e, titleAi, roomId) }
         if (r.status === 'confirm') return changed()
+        // [보내기] on the card (not "Always allow", not the explicit ask), and the post went: this room or thread takes
+        // later such posts in this chat without the card
+        if (v === 'send' && !explicit && !byChat && !byAlways && !pendingTo && roomId && exec.mayUseApprovals?.()) noteApproval(db, { chatId: spec.chatId, userId: spec.userId, kind: 'room_post', target: postTarget })
         // who there cannot open a file of it, and the one button for it (never a reason to fail a post that went)
         let cannotOpen = ''
         try {

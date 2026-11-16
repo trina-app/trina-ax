@@ -2,6 +2,7 @@ import { confidentialChat } from "../safe-ops/confidential"
 import { seesChatFiles } from './chat-files-access'
 import { ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, keepAlways, withAlways, type AlwaysPlace } from './always-allow'
 import { approvalsFor, approved, clearApprovals, noteApproval } from './card-approvals'
+import { stampOutputOf } from '../tools/stamp-pdf'
 import type { CardAlwaysKind } from '@mycel/shared/api'
 import { NarrationHold, narrationScript } from './narration'
 import { safeOpsEnabled } from "../safe-ops/runner"
@@ -2797,19 +2798,23 @@ export class TurnExec {
     let p: string | null = null
     if (tool === 'stamp_pdf') {
       const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
-      p = typeof a.output === 'string' ? a.output : null
+      p = stampOutputOf(a.output)
     } else if (tool === 'write' || tool === 'edit' || tool === 'make_file' || tool === 'edit_hwp') {
       p = writeTargetOf(tool, input, (src) => this.sourceRel(src))?.path ?? null
     }
     const segs = p ? teamSegs(p) : null
-    return segs?.length ? segs.join('/') : null
+    const rel = segs?.length ? segs.join('/') : null
+    // a skill or instruction file is asked every time (review: make_file's output "CLAUDE" writes CLAUDE.md)
+    return rel && !instructionLike(rel) ? rel : null
   }
 
   /** May this turn keep and use the person's card approvals of this chat (chat/card-approvals.ts)? Only a turn the
    * person watches in the app (web, mobile, desktop): never a scheduled run, a Slack question or a restricted turn
-   * (a draft, a judge, a merge), where nobody answered the card. */
+   * (a draft, a judge, a merge), where nobody answered the card, and never a chat shared with others now (their
+   * messages are in the AI's context, so a yes there counts only for that one card, as "Always allow" counts there only
+   * for the person's own ask). */
   mayUseApprovals(): boolean {
-    return LIVE_CLIENTS.has(this.spec.clientKind ?? '') && !this.restricted
+    return LIVE_CLIENTS.has(this.spec.clientKind ?? '') && !this.restricted && !this.shared
   }
 
   /** The step of a call let through without a card says why ("항상 허용으로 진행", "이번만 허용으로 진행", "내 폴더라 묻지 않고
@@ -4238,7 +4243,8 @@ export function roomChangeWrites(tool: string, input: unknown, tree: (p: string)
     case 'edit': return { targets: [str(a.file_path)], shown: fits(`${str(a.old_string)}\n→\n${str(a.new_string)}`) }
     case 'edit_files': return { targets: list(a.file_paths), shown: fits(`${str(a.old_string)}\n→\n${str(a.new_string)}`) }
     case 'edit_hwp': return typeof a.output === 'string' ? { targets: [hwpOutputPath(a.output, str(a.file_path))], shown: false } : { targets: [str(a.file_path)], shown: fits(hwpLines(a.changes)) }
-    case 'make_file': return { targets: [str(a.output)], shown: !str(a.source) && !str(a.template) && !list(a.images).length && fits(str(a.content)) }
+    // (the file it writes too: "CLAUDE" with format md is CLAUDE.md, an instruction file)
+    case 'make_file': return { targets: [str(a.output), ...(str(a.format) && !str(a.output).toLowerCase().endsWith(`.${str(a.format).toLowerCase()}`) ? [`${str(a.output)}.${str(a.format)}`] : [])], shown: !str(a.source) && !str(a.template) && !list(a.images).length && fits(str(a.content)) }
     case 'save_url': {
       // the file is named by save_as, or, for a folder ("…/") or none, by the address's last name (tools/save-url.ts)
       const want = str(a.save_as).trim()

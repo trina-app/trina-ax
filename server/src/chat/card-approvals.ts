@@ -50,17 +50,22 @@ export function approvalsFor(db: Database, q: { chatId: string; userId: string; 
 /** Is there such an approval at all? */
 export const approved = (db: Database, q: { chatId: string; userId: string; kind: ApprovalKind; target: string }, now = Date.now()): boolean => approvalsFor(db, q, now).length > 0
 
-/** Drop the approvals of this kind and target whose detail matches (all of them without `match`), for every person of
- * the chat: what they covered may have changed. */
-export function dropApprovals(db: Database, q: { chatId: string; kind: ApprovalKind; target: string }, match?: (detail: Record<string, unknown>) => boolean): void {
+/** Drop the approvals of this kind and target whose detail matches (all of them without `match`), for every person,
+ * in this chat or (no `chatId`) in every chat: what they covered may have changed. Fails closed: when the rows cannot be
+ * read one by one, every approval of that kind and target goes. */
+export function dropApprovals(db: Database, q: { chatId?: string; kind: ApprovalKind; target: string }, match?: (detail: Record<string, unknown>) => boolean): void {
   try {
-    const rows = db.query('SELECT id, detail FROM chat_card_approvals WHERE chat_id = ? AND kind = ? AND target = ?').all(q.chatId, q.kind, q.target) as { id: number; detail: string }[]
+    const rows = (q.chatId
+      ? db.query('SELECT id, detail FROM chat_card_approvals WHERE chat_id = ? AND kind = ? AND target = ?').all(q.chatId, q.kind, q.target)
+      : db.query('SELECT id, detail FROM chat_card_approvals WHERE kind = ? AND target = ?').all(q.kind, q.target)) as { id: number; detail: string }[]
     for (const r of rows) {
-      let d: Record<string, unknown> = {}
+      let d: Record<string, unknown> | null = null
       try { d = JSON.parse(r.detail) } catch { /* unreadable: dropped */ }
-      if (!match || match(d)) db.query('DELETE FROM chat_card_approvals WHERE id = ?').run(r.id)
+      if (!match || !d || match(d)) db.query('DELETE FROM chat_card_approvals WHERE id = ?').run(r.id)
     }
-  } catch { /* nothing kept to drop */ }
+  } catch {
+    try { db.query('DELETE FROM chat_card_approvals WHERE kind = ? AND target = ?').run(q.kind, q.target) } catch { /* nothing kept to drop */ }
+  }
 }
 
 /** A new session (an edited first message, a new chat): nothing allowed before it covers anything. */

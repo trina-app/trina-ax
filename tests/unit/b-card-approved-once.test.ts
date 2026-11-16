@@ -151,6 +151,10 @@ describe('a file the person allowed on a room card (FL-08)', () => {
     expect(again.cards).toHaveLength(1)
     expect(read(notes)).toBe('new\n')
     expect(approvals(chat)).toEqual([])
+    // make_file whose output names an instruction file without its extension (review): kept for nothing either
+    const viaMake = await run('alice', chat, `again\n${fake({ tool: 'make_file', args: { format: 'md', output: `users/alice/notes-${tag}/CLAUDE`, content: 'made\n' }, sayResult: true }, { say: 'x' })}`, yes)
+    expect(viaMake.cards).toHaveLength(1)
+    expect(approvals(chat)).toEqual([])
   })
 
   test('stamp_pdf into a folder more people can see after a room read: one card for the call; the same save again later: none; another folder: the card', async () => {
@@ -193,7 +197,7 @@ describe('a post to a room the person sent on its card', () => {
     const chat = await newChat('alice')
     const first = await run('alice', chat, `hmm\n${post(marketing, 'summary one')}`, yes)
     expect(first.cards).toHaveLength(1)
-    expect(approvals(chat)).toEqual([{ user_id: 'alice', kind: 'room_post', target: JSON.stringify([marketing, null]) }])
+    expect(approvals(chat).map((a) => [a.user_id, a.kind, JSON.parse(a.target).slice(0, 2)])).toEqual([['alice', 'room_post', [marketing, null]]])
     const second = await run('alice', chat, `hmm\n${post(marketing, 'summary two')}`)
     expect(second.cards).toHaveLength(0)
     expect(((await h.api('erin').call(API.listRoomMessages, { params: { id: marketing }, query: {} })).items as RoomMessage[]).at(-1)!.body).toBe('summary two')
