@@ -9,6 +9,7 @@ import { fileError, mapErrors } from '../team-files/errors'
 import { HeicPreviews, isHeic, noPreviewError } from '../files/heic-preview'
 import { componentC } from '../team-files/component'
 import { fileSharesOf, registerFileShareCleanup } from '../files/shares'
+import { shareFixesOf } from '../files/share-fixes'
 import { contentDisposition, streamFile } from '../team-files/download'
 import { embedNarrower } from '../team-files/embed'
 import { htmlPdfDownload, saveHtmlPdf } from '../team-files/html-pdf-save'
@@ -228,6 +229,9 @@ export const filesRoutes: RouteModule = {
     }))
     kit.handle(API.requestFileAccess, ({ c, params, body, auth }) => mapErrors(c.get('locale'), () => shares.request(auth.user.id, params.id, body.message, c.get('locale'))))
     kit.handle(API.answerFileRequest, ({ c, params, body, auth }) => mapErrors(c.get('locale'), () => shares.answer(auth.user.id, params.id, body.answer, c.get('locale'))))
+    // one-tap next steps under an AI step (files/share-fixes.ts), and a path link opened through a share
+    kit.handle(API.runShareFix, ({ c, params, auth }) => mapErrors(c.get('locale'), () => shareFixesOf(ctx).run(auth.user.id, params.id, c.get('locale'))))
+    kit.handle(API.grantedFileLink, ({ c, query, auth }) => mapErrors(c.get('locale'), () => ({ id: shares.grantedLinkId(auth.user.id, query.path) })))
     kit.handle(API.fileSharesCount, ({ c }) => mapErrors(c.get('locale'), () => shares.counts()))
     kit.handle(API.removeAllFileShares, ({ c, auth }) => mapErrors(c.get('locale'), () => shares.removeAll(auth.user.id, c.get('locale'))))
     kit.handle(API.restoreVersion, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.restoreVersion(auth.user.id, body.path, body.versionId)))

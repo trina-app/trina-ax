@@ -231,6 +231,8 @@ export const InboxNotification = z.object({
   fileShare: z.object({
     by: z.string().nullable(), name: z.string().nullable(), linkId: z.string().nullable(),
     note: z.string().optional(), requestId: z.string().optional(),
+    /** file.access_requested asked by `by` for someone else ("Ask <owner>" under an AI step): who would get access */
+    for: z.string().optional(),
     state: z.enum(['pending', 'approved', 'declined', 'closed']).optional(),
     canAnswer: z.literal(true).optional(), gone: z.literal(true).optional(),
     /** file.shared for several files in one press (docs/decisions/20261116-file-share-everyone.md): how many of them the

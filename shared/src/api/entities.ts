@@ -369,6 +369,44 @@ export type Attachment = z.infer<typeof Attachment>
 /** At most this many attachments (uploads and team files together) per message. */
 export const MESSAGE_ATTACHMENTS_MAX = 20
 
+/** A next step under an AI step (Step.fixes): a line the server wrote, and one button that runs
+ * POST /api/share-fixes/:id/run as the person. Names are people's display names as the server read them.
+ * - let_view: `people` get view access to `file` (the person may share it). The list shown is the list granted.
+ * - ask_owner: the file's owner (`owner`) is asked to share `file` with `count` people (their names only when the
+ *   person asks for themselves or may see them).
+ * - ask_admin: an admin (`owner`: their name) gets a message about the folder `file`.
+ * - share_project: the app's own "Share with project members" flow for chat `chatId` opens (no server run).
+ * `state`: open (the button shows), done (`doneCount` people; the line says what happened), gone (nothing left to do:
+ * everyone can open it already, or the file or the room is gone). */
+export const StepFixKind = z.enum(['let_view', 'ask_owner', 'ask_admin', 'share_project'])
+export type StepFixKind = z.infer<typeof StepFixKind>
+export const StepFix = z.object({
+  id: z.string().max(64),
+  kind: StepFixKind,
+  /** the file's or the folder's name (one line), or the project's for share_project */
+  file: z.string().max(200),
+  /** more files of the same offer, when it is about several (the count beyond `file`) */
+  moreFiles: z.number().int().min(0).optional(),
+  /** where the people are, as the person sees it ("#Sales"); absent when the offer is not about a room */
+  place: z.string().max(200).optional(),
+  /** the first few people it is about, by name, and how many in all */
+  people: z.array(z.string().max(120)).max(5).optional(),
+  count: z.number().int().min(0),
+  /** guests among the people who cannot open it: never given a file */
+  guests: z.number().int().min(0).optional(),
+  /** who is asked: the file's owner, or the admin(s) */
+  owner: z.string().max(200).optional(),
+  chatId: z.string().max(64).optional(),
+  state: z.enum(['open', 'done', 'gone']),
+  doneCount: z.number().int().min(0).optional(),
+  /** after let_view ran: people in the room who still cannot open it and were not on the list (they joined since) */
+  left: z.number().int().min(0).optional(),
+})
+export type StepFix = z.infer<typeof StepFix>
+/** POST /api/share-fixes/:id/run: what the offer became (the app keeps the rest of the line it showed) */
+export const RunStepFixResult = z.object({ state: z.enum(['open', 'done', 'gone']), doneCount: z.number().int().min(0).optional(), left: z.number().int().min(0).optional() })
+export type RunStepFixResult = z.infer<typeof RunStepFixResult>
+
 /** messages.steps[]: what the AI did ("파일 검색 중"). Shown as a collapsible list under the answer. */
 export const StepKind = z.enum(['tool', 'thinking', 'web_search', 'browser', 'artifact', 'ask_user'])
 export const Step = z.object({
@@ -395,6 +433,10 @@ export const Step = z.object({
   /** a post_to_room step that posted (server/src/chat/post-to-room.ts): where the message went, for the step's 보기 (the
    * room at the message, or the thread at the reply), as the button's sent line has it */
   posted: z.object({ roomId: Uuid7, messageId: Uuid7, threadRootId: Uuid7.optional() }).optional(),
+  /** next steps the server offers under this step (server/src/files/share-fixes.ts; docs/decisions/
+   * 20261116-ai-share-who-can-open.md): "3 people in #Sales can't open it yet" with one button. Written by the server
+   * from its own records, never from the AI's text; only the person whose turn it was gets them */
+  fixes: z.array(z.lazy(() => StepFix)).max(4).optional(),
   /** screenshot shared from the browser pane / images the AI shows: served via /api/files/download */
   images: z.array(z.object({ path: RelPath, alt: z.string().optional() })).max(20).optional(),
   /** a step a sub-agent took: the id of its sub-task step (tool 'agent'). Apps without this field show it in the flat

@@ -1,4 +1,5 @@
 // Chats, messages (a tree), projects, memories: rows <-> API shapes (shared/src/api/entities.ts).
+import { currentFixes } from '../files/share-fixes'
 import { seesChatFiles } from './chat-files-access'
 import type { Database } from 'bun:sqlite'
 import type { ApiErrorBody, Attachment, Chat, ChatRunState, EngineId, FileChangeSummary, Locale, Memory, Message, MessageStatus, Project, Step, TurnStopReason, Usage, UserRef } from '@mycel/shared/api'
@@ -159,7 +160,7 @@ export class ChatStore {
     // a shared chat: a label names its paths only for a viewer who may see every one of them (else the words alone)
     const steps: Step[] = stored.map((s) => {
       if (earlier) {
-        const { sv: _sv, detail: _d, sources: _s, images: _i, devEnvRun: _r, posted: _p, tool, ...rest } = s
+        const { sv: _sv, detail: _d, sources: _s, images: _i, devEnvRun: _r, posted: _p, fixes: _f, tool, ...rest } = s
         return { ...rest, ...(tool && knownStepTool(tool) ? { tool } : {}), label: stepWords(s, view!.locale ?? 'en') }
       }
       if (!s.sv) return s
@@ -177,6 +178,12 @@ export class ChatStore {
       // (share_with_person too: who got which files is the runner's: chat/shared-actions.ts)
       if (st.tool === 'post_to_room' || st.tool === 'share_with_person') { const { detail: _d, posted: _p, ...rest } = st; steps[i] = { ...rest, label: stepWords(st, view.locale ?? 'en') }; continue }
       if (st.detail !== undefined || st.posted !== undefined) { const { detail: _d, posted: _p, ...rest } = st; steps[i] = rest }
+    }
+    // a step's next steps (Step.fixes, files/share-fixes.ts): its runner's alone, as they are now (run since, or done)
+    for (let i = 0; i < steps.length; i++) {
+      const st = steps[i]!
+      if (!st.fixes) continue
+      if (view && !view.runner) { const { fixes: _f, ...rest } = st; steps[i] = rest } else steps[i] = { ...st, fixes: currentFixes(this.db, st.fixes) }
     }
     if (!steps.some((s) => s.tool === 'attachment')) return steps
     const owner = view?.viewer ?? (this.db.query('SELECT user_id FROM chats WHERE id = ?').get(r.chat_id) as { user_id: string } | null)?.user_id
