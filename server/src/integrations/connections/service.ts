@@ -1163,7 +1163,9 @@ export class Integrations {
     if (!this.db.query("UPDATE integration_oauth_flows SET state='exchanging' WHERE id=? AND state='pending'").run(f.id).changes) return no
     const failed = (reason: FlowFailure): CallbackResult => { this.db.query("UPDATE integration_oauth_flows SET state='failed', reason=?, secret_enc=NULL WHERE id=? AND state='exchanging'").run(reason, f.id); return { ok: false, reason } }
     try {
-      if (q.error) return failed('denied')
+      // "access_denied" (RFC 6749 section 4.1.2.1): the person chose Cancel or Deny at the service, so the sign-in was
+      // stopped; any other error is the service's own trouble with the request (QA TC-3859)
+      if (q.error) return failed(q.error === 'access_denied' ? 'denied' : 'exchange')
       if (!q.code || q.code.length > 4096) return failed('invalid')
       const s = this.box.open<FlowSecret>(flowAad(f), f.secret_enc, f.key_version)
       // RFC 9207: an "iss" in the answer must name the server we started at: the one found, or the given sign-in

@@ -148,6 +148,48 @@ for (const locale of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
   })
 }
 
+test('the cannot-reach card opens the team by itself when the server is back; Other teams stops that (QA TC-3453)', async () => {
+  test.setTimeout(150_000)
+  const server = await offlineServer({ serviceWorker: false })
+  const app = await launch(newUserData('en')).catch(async error => { await server.close(); throw error })
+  try {
+    const shell = await welcome(app)
+    await shell.locator('#address').fill(server.url)
+    await shell.getByRole('button', { name: 'Continue', exact: true }).click()
+    let page = await teamPage(app, server.url)
+    await signInOfflineTeam(page, server.url, 'en')
+    const before = await account(page)
+    await server.mode('stop')
+    await expect(page.reload()).rejects.toThrow(/net::ERR_CONNECTION_/)
+    await expect.poll(() => nativeRecoveryState(app)).toEqual({ visible: true, fillsWindow: true })
+    await expect(shell.getByRole('heading')).toHaveText(STRINGS.en['offline.title'])
+    await expect(shell.getByTestId('offline-auto')).toHaveText(STRINGS.en['offline.auto'])
+    if (process.env.I18N_SCREENSHOT_DIR) await shell.screenshot({ path: path.join(process.env.I18N_SCREENSHOT_DIR, 'en-desktop-recovery-auto.png') })
+    // the server stays away over the first looks: the card stays, with the same team page behind it
+    await shell.waitForTimeout(7_000)
+    await expect(shell.getByTestId('offline')).toBeVisible()
+    // the server is back and nothing is pressed: the team opens by itself, signed in as before
+    await server.mode('online')
+    await expect.poll(() => page.isClosed(), { timeout: 40_000 }).toBe(true)
+    page = await teamPage(app, server.url)
+    await expect(page.getByTestId('composer-input')).toBeVisible()
+    expect(await account(page)).toEqual(before)
+    await expect.poll(() => nativeRecoveryVisible(app)).toBe(false)
+
+    // the card is left for the team list: the team does not open under it when the server is back
+    await server.mode('stop')
+    await expect(page.reload()).rejects.toThrow(/net::ERR_CONNECTION_/)
+    await expect.poll(() => nativeRecoveryState(app)).toEqual({ visible: true, fillsWindow: true })
+    await shell.getByRole('button', { name: STRINGS.en['offline.teams'], exact: true }).click()
+    await expect(shell.getByTestId('team-list')).toBeVisible()
+    await server.mode('online')
+    await shell.waitForTimeout(9_000)
+    // the app's own look would have closed this page and opened a new one (reload); whether the old page's own
+    // reconnect brings it forward again is not this test's
+    expect(page.isClosed()).toBe(false)
+  } finally { await close(app); await server.close() }
+})
+
 for (const [locale, label] of [['ja', '日本語'], ['es', 'Español'], ['zh', '简体中文']] as const) {
   test(`${label}: native welcome picker, edition domain and persisted choice`, async () => {
     const userData = newUserData(null)

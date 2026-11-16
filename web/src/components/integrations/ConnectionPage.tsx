@@ -31,7 +31,7 @@ export const LISTED_TOOLS = 12
 /** What kind of trouble a check's reason code is (server/src/integrations/connections/text.ts Reason): the page says it
  * in one line of its own words with the one next step for its reader. A code not here (or an older server's connection
  * without one) shows the server's own words, which carry their own next step. */
-const REASON_KIND: Record<string, 'address' | 'notMcp' | 'redirect' | 'key' | 'slow' | 'service'> = {
+const REASON_KIND: Record<string, 'address' | 'notMcp' | 'redirect' | 'key' | 'notSignedIn' | 'slow' | 'service'> = {
   unreachable: 'address', private_address: 'address', blocked_port: 'address',
   // the address answered: not as a connector, or by sending us elsewhere (QA TC-2939); its fix is still the address
   not_mcp: 'notMcp', redirect: 'redirect',
@@ -45,15 +45,19 @@ const REASON_KIND: Record<string, 'address' | 'notMcp' | 'redirect' | 'key' | 's
 /** Why a connection does not work, and the one thing this reader can do about it, in one line. `manage`: they manage it
  * here; `elsewhere`: they manage it, in Admin › Connectors (an admin on a team connection in Settings); `phone`: the
  * phone app (Edit and sign-in are a computer's); `signIn`: Sign in is on this page. */
-export function errorLine(t: ReturnType<typeof useT>, i: Pick<Integration, 'lastError' | 'lastErrorReason' | 'auth'>, who: { manage: boolean; elsewhere: boolean; phone: boolean; signIn: boolean }): string {
-  const kind = i.lastErrorReason ? REASON_KIND[i.lastErrorReason] : undefined
-  if (!kind) return i.lastError ?? ''
+export function errorLine(t: ReturnType<typeof useT>, i: Pick<Integration, 'lastError' | 'lastErrorReason' | 'auth' | 'hasSecret'>, who: { manage: boolean; elsewhere: boolean; phone: boolean; signIn: boolean }): string {
+  const known = i.lastErrorReason ? REASON_KIND[i.lastErrorReason] : undefined
+  if (!known) return i.lastError ?? ''
+  // waiting for a sign-in that was never finished (stopped at the service, cancelled here, or its window closed): the
+  // service refused nothing, there is no sign-in it could refuse (QA TC-3859)
+  const kind = i.lastErrorReason === 'sign_in' && i.auth === 'oauth' && !i.hasSecret ? 'notSignedIn' : known
   const step = who.elsewhere ? 'inAdmin'
     : !who.manage ? (kind === 'slow' ? 'later' : 'askAdmin')
     : kind === 'slow' || kind === 'service' ? 'checkAgain'
     : who.phone ? 'onComputer'
     : kind === 'address' || kind === 'notMcp' || kind === 'redirect' ? 'editAddress'
-    : i.auth === 'oauth' && who.signIn ? 'signIn' : 'editKey'
+    // never signed in: the button there reads "Sign in", not "Sign in again"
+    : i.auth === 'oauth' && who.signIn ? (kind === 'notSignedIn' ? 'signInFirst' : 'signIn') : 'editKey'
   return `${t(`connectors.err.${kind}`)} ${t(`connectors.step.${step}`)}`
 }
 
