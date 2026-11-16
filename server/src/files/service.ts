@@ -683,6 +683,21 @@ export class FileService {
     return { rel: r.rel, bytes, hash: sha256(bytes), identity: identity(st) }
   }
 
+  /**
+   * A team file's own bytes for a tool that sends the file out of the team (a connection's attachment,
+   * integrations/connections/team-attach.ts), read as this person as they are now: read access, a regular file that is
+   * not held by the safety check, bound to the authorized path. Over `cap` bytes: its size only, nothing read.
+   * `recheckOutgoing` right before the bytes leave.
+   */
+  outgoingSource(ctx: ToolCtx, input: string, cap: number): BoundSource | { rel: string; tooLarge: number } {
+    const r = authorize(this.fx, this.rules(), this.principal(ctx.user.id), input, 'read')
+    if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`, 'is_folder')
+    if (r.st!.size > cap) return { rel: r.rel, tooLarge: r.st!.size }
+    return this.boundSource(ctx, r, cap)
+  }
+  /** Right before an outgoingSource's bytes leave: the account, its access now and the file's identity (synchronous). */
+  recheckOutgoing(ctx: ToolCtx, src: Pick<BoundSource, 'rel' | 'identity'>) { this.recheckSource(ctx, src) }
+
   /** Right before delivery: the account, its access now and the file's identity, read again (synchronous). */
   private recheckSource(ctx: ToolCtx, src: Pick<BoundSource, 'rel' | 'identity'>) {
     const user = this.principal(ctx.user.id)
@@ -1443,7 +1458,7 @@ export class FileService {
 }
 
 type ReadArgs = { file_path: string; offset?: number; limit?: number; pages?: string; as_images?: boolean; time?: string; frames?: number; transcript?: boolean }
-interface BoundSource { rel: string; bytes: Buffer; hash: string; identity: string }
+export interface BoundSource { rel: string; bytes: Buffer; hash: string; identity: string }
 /** a provider's answer for a piece; `languageP`: how sure whisper.cpp was of the language it heard (not from
  * OpenRouter); OpenRouter's: how sure whisper was of its words, its generation id and provider (openrouter-stt.ts) */
 type MediaAnswer = OpenRouterAnswer & { languageP?: number }
