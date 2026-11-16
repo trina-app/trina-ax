@@ -143,7 +143,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
   const savedKeys = useMemo(() => new Set(saved.map(participantKey)), [saved])
   const adding = useMemo(() => picks.filter((x) => !savedKeys.has(participantKey(x))), [picks, savedKeys])
   const nameOf = useCallback((x: ProjectParticipant) => options.find((o) => participantKey(o) === participantKey(x))?.name ?? '', [options])
-  // as the share lines name them: a person "Bob 님", a group "Sales 그룹 사람들" (components/ShareWarning.tsx whoNames)
+  // as the share lines name them: a person "Bob 님", a group "Sales 부서 사람들" (components/ShareWarning.tsx whoNames)
   const addedNames = useMemo(() => whoNames(t, adding.map((x) => ({ subjectType: x.subjectType, name: nameOf(x) }))), [adding, nameOf, t])
   const groupAdded = adding.some((x) => x.subjectType === 'group')
   const removesAll = saved.length > 0 && picks.length === 0

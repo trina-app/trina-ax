@@ -6,7 +6,7 @@
 //   ListRow     a row: icon, name, an optional second line (meta), something at its end; unread and selected states
 //   ListIcon    a row's icon: a bare 16px icon on a computer, a 32px round tile on a phone (as the 대화 tab's faces)
 //   ListSection a section with a header that folds it (▸, its icon, its name, an action at its end)
-//   ListHeading a header that does not fold (the phone's 대화 kinds, a settings group)
+//   ListHeading a header that does not fold (a settings group)
 // A chat's row (nav/ChatItem.tsx) is a ListRow too, with its "···" (`menu`), its pin (`lead`) and its project (`tag`).
 // Rows with a drag of their own (a room: nav/RoomsList.tsx, pages/Rooms.tsx) keep their own markup but take their
 // name's look from `rowName` here.
@@ -238,15 +238,29 @@ const sectionBody = '[&>button]:pl-row-indent [&>ul>li>a]:pl-row-indent [&>secti
 /**
  * A section of a list (트리나's 고정, 최근 기록; 대화's kinds; 프로젝트's 팀/내; 파일's places; 활동's 읽음): its header (the
  * rows' size, semibold in ink on a computer; small and grey on a phone: index.css --text-list-head), space above it,
- * folds the section with the ▸ on its left (remembered per person in this browser, `foldKey`); `count`, when given,
- * shows beside the label while it is folded. `link`: the label's words open a page (파일's 팀 폴더), so the ▸ is a
- * button of its own. `folded`: how it starts until the person opens or folds it (프로젝트's "다른 팀 프로젝트").
+ * folds the section with the ▸ on its left (remembered per person on their account, `foldKey`, panels/folds.ts);
+ * `count`, when given, shows beside the label while it is folded. `link`: the label's words open a page (파일's 팀
+ * 폴더), so the ▸ is a button of its own. `folded`: how it starts until the person opens or folds it (프로젝트's "다른
+ * 팀 프로젝트").
+ * While folded (docs/decisions/20261116-collapsible-chat-sections.md): `pill` (what waits inside: the Chats list's
+ * unread rooms or "@") takes the count's place at the header's end, inside its button so a screen reader hears it;
+ * `unread` makes the name bold in ink; `keep` is still drawn under the header (the room open on screen). `foldId`: the
+ * whole fold key, when one place of the list shares it with another (a room folder on the phone and the computer).
+ * `headClassName`: the header row's own inset (a phone page's gutter); `as`: the heading's level; `indent` false: the
+ * rows keep their own inset (a page's list with its own gutter, pages/Rooms.tsx).
  */
-export function ListSection({ id, label, icon, count, action, link, foldKey, labelTestId, children, className, folded: foldedFirst = false, ...rest }: {
+export function ListSection({ id, label, icon, count, pill, unread = false, keep, foldId, headClassName, as: Heading = 'h3', indent = true, action, link, foldKey, labelTestId, children, className, folded: foldedFirst = false, ...rest }: {
   id: string
   label: ReactNode
   icon?: ReactNode
   count?: number
+  pill?: ReactNode
+  unread?: boolean
+  keep?: ReactNode
+  foldId?: string
+  headClassName?: string
+  as?: 'h2' | 'h3'
+  indent?: boolean
   action?: ReactNode
   link?: ReactNode
   foldKey: string
@@ -256,21 +270,26 @@ export function ListSection({ id, label, icon, count, action, link, foldKey, lab
   folded?: boolean
 } & Omit<HTMLAttributes<HTMLElement>, 'id'> & { [data: `data-${string}`]: string | undefined }) {
   const { folds, set } = useFolds()
-  const key = `section:${foldKey}`
+  const key = foldId ?? `section:${foldKey}`
   const folded = folds[key] ? folds[key] === 'folded' : foldedFirst
   const bodyId = useId()
   const toggle = () => set(key, folded ? 'open' : 'folded')
   const words = (
     <>
       {icon}
-      <span className="truncate">{label}</span>
-      {folded && count !== undefined && count > 0 && <span className="shrink-0 text-meta font-normal text-faint tabular-nums" data-testid="panel-section-count">{count}</span>}
+      <span className="truncate" data-testid="panel-section-name">{label}</span>
+      {folded && pill ? (
+        <span className="mr-1 ml-auto flex shrink-0 items-center pl-1">{pill}</span>
+      ) : (
+        folded && count !== undefined && count > 0 && <span className="shrink-0 text-meta font-normal text-faint tabular-nums" data-testid="panel-section-count">{count}</span>
+      )}
     </>
   )
+  const lit = folded && unread
   return (
-    <section aria-labelledby={id} className={clsx('mt-4 first:mt-0', className)} data-folded={folded ? '' : undefined} {...rest}>
-      <div className={clsx(headBox, 'pr-1')} data-testid={labelTestId}>
-        <h3 id={id} className="flex min-w-0 flex-1 items-center gap-1.5 text-list-head font-semibold text-list-head-ink">
+    <section aria-labelledby={id} className={clsx('mt-4 first:mt-0', className)} data-folded={folded ? '' : undefined} data-unread={lit ? '' : undefined} {...rest}>
+      <div className={clsx(headBox, headClassName ?? 'pr-1')} data-testid={labelTestId}>
+        <Heading id={id} className={clsx('flex min-w-0 flex-1 items-center gap-1.5 text-list-head', lit ? 'font-bold text-ink' : 'font-semibold text-list-head-ink')}>
           {link ? (
             <>
               <GroupChevron folded={folded} controls={bodyId} label={typeof label === 'string' ? label : undefined} onClick={toggle} testId="panel-section-fold" />
@@ -284,17 +303,17 @@ export function ListSection({ id, label, icon, count, action, link, foldKey, lab
               {words}
             </button>
           )}
-        </h3>
+        </Heading>
         {action}
       </div>
-      <div id={bodyId} hidden={folded} className={sectionBody}>
-        {!folded && children}
+      <div id={bodyId} hidden={folded && !keep} className={indent ? sectionBody : undefined}>
+        {folded ? keep : children}
       </div>
     </section>
   )
 }
 
-/** A header that does not fold (the phone's 대화 kinds, a settings group): the same look as ListSection's. `as`: its
+/** A header that does not fold (a settings group): the same look as ListSection's. `as`: its
  * heading level (h2 on a page's own list, h3 inside a panel). */
 export function ListHeading({ id, children, className, as: Tag = 'h3', testId }: { id?: string; children: ReactNode; className?: string; as?: 'h2' | 'h3'; testId?: string }) {
   return (

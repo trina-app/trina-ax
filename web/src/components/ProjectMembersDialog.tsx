@@ -218,7 +218,7 @@ export function ProjectMembersDialog({ project, onClose, onSaved, initial }: { p
   const checking = changed && !shownPreview
   // the people and groups being added, as picked ("Sales and Sam"): the widening line and the list's title
   const adding = useMemo(() => { const keys = new Set(current.map(participantKey)); return participants.filter((x) => !keys.has(participantKey(x))) }, [participants, current])
-  // as the share lines name them: a person "Bob 님", a group "Sales 그룹 사람들" (components/ShareWarning.tsx whoNames)
+  // as the share lines name them: a person "Bob 님", a group "Sales 부서 사람들" (components/ShareWarning.tsx whoNames)
   const addedNames = useMemo(() => whoNames(t, adding.map((x) => ({ subjectType: x.subjectType, name: options.find((o) => participantKey(o) === participantKey(x))?.name ?? '' }))), [adding, options, t])
   const widen = editable && !!count?.hiddenAnswers && !!addedNames
   // nothing to list any more (the picks changed): back to them (not while the names are still being read)
