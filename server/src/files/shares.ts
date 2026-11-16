@@ -325,14 +325,32 @@ export function pinState(s: Pick<ShareRow, 'ino' | 'dev' | 'size' | 'mtime_ms' |
   if (!s.sha256 || st.size > HASH_MAX) return 'dead'
   return 'needs_hash'
 }
+/** Shared with me lists a row under the name it has now only while that name cannot be one picked for another file
+ * (QA TC-4008): not plainly another file (pinState ≠ dead), and a row waiting for a hash check whose file was moved or
+ * renamed in the app since its last check (afterRename clears ctime_ms) only while the inode, size and mtime are still
+ * the pinned ones (a rename changes the ctime alone). A file replaced outside the app with one of the same size and
+ * then renamed is left out: its new name is not shown to someone it may not open for. Pure, like pinState. */
+export function listable(s: Pick<ShareRow, 'ino' | 'dev' | 'size' | 'mtime_ms' | 'ctime_ms' | 'sha256'>, st: Pick<fs.Stats, 'ino' | 'dev' | 'size' | 'mtimeMs' | 'ctimeMs'>): boolean {
+  const p = pinState(s, st)
+  if (p === 'dead') return false
+  if (p === 'needs_hash' && s.ctime_ms === null) return st.ino === s.ino && st.dev === s.dev && st.size === s.size && st.mtimeMs === s.mtime_ms
+  return true
+}
 
-const CURSOR = /^(\d{4}-\d{2}-\d{2}T[0-9:.]+Z)\|([A-Za-z0-9_-]{22})$/
-/** Shared with me's cursor: the key of the last row read, opaque to the client (base64url of "<time>|<link id>") */
-export const encodeSharedCursor = (at: string, id: string) => Buffer.from(`${at}|${id}`).toString('base64url')
-export function decodeSharedCursor(c: string): { at: string; id: string } | null {
+const CURSOR = /^(?:([ng])\|)?(\d{4}-\d{2}-\d{2}T[0-9:.]+Z)\|([A-Za-z0-9_-]{22})$/
+/** Shared with me's cursor: where the last call stopped, opaque to the client (base64url). The list reads in two
+ * parts: the grants by name ('n'), then the group and whole-team grants of files with none by name ('g'); a cursor is
+ * "<part>|<time>|<link id>" (the key of the last row read), or "g" alone (the second part from its start). A cursor
+ * of an earlier build ("<time>|<link id>") reads on in the first part. */
+export type SharedCursor = { part: 'n' | 'g'; at: string; id: string } | { part: 'g'; at: null; id: null }
+export const encodeSharedCursor = (at: string | null, id: string | null, part: 'n' | 'g' = 'n') =>
+  Buffer.from(at && id ? `${part}|${at}|${id}` : 'g').toString('base64url')
+export function decodeSharedCursor(c: string): SharedCursor | null {
   if (!/^[A-Za-z0-9_-]{1,96}$/.test(c)) return null
-  const m = CURSOR.exec(Buffer.from(c, 'base64url').toString('utf8'))
-  return m ? { at: m[1]!, id: m[2]! } : null
+  const s = Buffer.from(c, 'base64url').toString('utf8')
+  if (s === 'g') return { part: 'g', at: null, id: null }
+  const m = CURSOR.exec(s)
+  return m ? { part: (m[1] as 'n' | 'g' | undefined) ?? 'n', at: m[2]!, id: m[3]! } : null
 }
 
 export type OpenResult =
@@ -751,23 +769,28 @@ export class FileShares {
   }
   /**
    * Who shared the share with `me`, as Shared with me and the link page name them (one rule for both, review of the P2
-   * plan F5): the newest grant that qualifies — by name only when the folder rules already let `me` read the file
-   * (`readable`; a group's or the whole team's grant changes nothing for them then), else any grant that reaches them.
+   * plan F5; QA TC-4009): their grant by name when there is one; else, only when the folder rules do not already let
+   * `me` read the file (`readable`: a group's or the whole team's grant changes nothing for them then), the newest
+   * grant of a group they are in or of the whole team. Shared with me orders its rows by this same grant's time.
    * `name` null: the granter's account is gone ("A former member"). null: no qualifying grant.
    */
   sharerFor(me: Principal, shareId: string, readable: boolean): { name: string | null; at: string } | null {
     const r = this.reachSql(me, 'g', readable)
-    const row = this.db.query(`SELECT g.granted_at at, u.name FROM file_share_grants g LEFT JOIN users u ON u.id = g.granted_by AND u.deleted_at IS NULL WHERE g.share_id = ? AND ${r.sql} ORDER BY g.granted_at DESC LIMIT 1`).get(shareId, ...r.args) as { at: string; name: string | null } | null
+    const row = this.db.query(`SELECT g.granted_at at, u.name FROM file_share_grants g LEFT JOIN users u ON u.id = g.granted_by AND u.deleted_at IS NULL WHERE g.share_id = ? AND ${r.sql} ORDER BY g.subject_type = 'user' DESC, g.granted_at DESC, g.subject_id DESC LIMIT 1`).get(shareId, ...r.args) as { at: string; name: string | null } | null
     return row ? { name: row.name ?? null, at: row.at } : null
   }
 
   /**
    * Files › Shared with me (GET /api/files/shared-with-me; docs/decisions/20261116-files-shared-with-me.md): the files a
-   * grant gives `userId` now, newest first. Listed when a grant reaches them (by name, a group they are in, the whole
-   * team), the row is live, its owner (when known) still edits it, it is not theirs, its file is at its path and not
-   * plainly another file (pinState ≠ dead), and — for a file the folder rules already let them read — the grant is by
-   * name. Never writes, never hashes, never walks the accounts: at most SHARED_WITH_ME_SQL_ROWS grant rows and
-   * SHARED_WITH_ME_LSTATS files looked at per call; `next` is the key of the last row read.
+   * grant gives `userId` now. Listed when a grant reaches them (by name, a group they are in, the whole team), the row
+   * is live, its owner (when known) still edits it, it is not theirs, its file is at its path and not plainly another
+   * file (pinState ≠ dead; QA TC-4008: nor moved in the app since its last check while looking changed), and — for a
+   * file the folder rules already let them read — the grant is by name.
+   * Two parts, each newest first by the time of the grant that qualifies the row (sharerFor; QA TC-4009): the files
+   * shared with them by name, then the files that reach them only through a group or the whole team (QA TC-4010: no
+   * number of Everyone shares can push a by-name share out of reach). Never writes, never hashes, never walks the
+   * accounts, never counts: at most SHARED_WITH_ME_SQL_ROWS grant rows (one per file, no grouping over all of them)
+   * and SHARED_WITH_ME_LSTATS files looked at per call; `next` is where the call stopped.
    */
   sharedWithMe(userId: string, cursor: string | undefined, limit = SHARED_WITH_ME_MAX): SharedWithMe {
     const me = this.principal(userId)
@@ -777,42 +800,63 @@ export class FileShares {
     const max = Math.min(Math.max(1, Math.floor(limit)), SHARED_WITH_ME_MAX)
     const rules = this.rules()
     const memo = new Map<string, Principal | null>([[me.id, me]])
-    // the caller's own reaching grants, one index lookup each (file_share_grants_subject), then one row per share
-    const parts = ["SELECT share_id, subject_type, granted_at FROM file_share_grants WHERE subject_type = 'user' AND subject_id = ?"]
-    const args: string[] = [me.id]
-    if (me.groups.length) { parts.push(`SELECT share_id, subject_type, granted_at FROM file_share_grants WHERE subject_type = 'group' AND subject_id IN (${me.groups.map(() => '?').join(',')})`); args.push(...me.groups) }
-    parts.push(`SELECT share_id, subject_type, granted_at FROM file_share_grants WHERE subject_type = 'group' AND subject_id = '${ALL}'`)
-    const page = after ? 'WHERE (a.at < ? OR (a.at = ? AND a.share_id < ?))' : ''
-    const rows = this.db.query(`SELECT s.${COLS.split(', ').join(', s.')}, a.at, a.named_at FROM (
-        SELECT share_id, MAX(granted_at) at, MAX(CASE WHEN subject_type = 'user' THEN granted_at END) named_at FROM (${parts.join(' UNION ALL ')}) GROUP BY share_id
-      ) a JOIN file_shares s ON s.id = a.share_id AND s.state = 'live' AND (s.owner_id IS NULL OR s.owner_id != ?)
-      ${page} ORDER BY a.at DESC, a.share_id DESC LIMIT ${SHARED_WITH_ME_SQL_ROWS}`)
-      .all(...args, me.id, ...(after ? [after.at, after.at, after.id] : [])) as (ShareRow & { at: string; named_at: string | null })[]
     const items: SharedWithMeItem[] = []
-    let last: { at: string; id: string } | null = null
+    const cols = `s.${COLS.split(', ').join(', s.')}`
+    const notMine = "s.state = 'live' AND (s.owner_id IS NULL OR s.owner_id != ?)"
+    const keyset = (k: { at: string | null; id: string | null } | null) => (k?.at ? { sql: ' AND (g.granted_at < ? OR (g.granted_at = ? AND g.share_id < ?))', args: [k.at, k.at, k.id!] } : { sql: '', args: [] as string[] })
+    // the groups that reach them: their own groups and the whole team (an active member who is not a guest: a guest
+    // never gets here). Bound with the server's Principal.groups, never the request.
+    const reach = [...me.groups, ALL]
+    const inReach = reach.map(() => '?').join(',')
+    let budget = SHARED_WITH_ME_SQL_ROWS
     let looked = 0
-    let stopped = false
-    for (let i = 0; i < rows.length; i++) {
-      const s = rows[i]!
-      if (items.length >= max || looked >= SHARED_WITH_ME_LSTATS) { stopped = true; break }
-      last = { at: s.at, id: s.id }
-      const segs = segsOf(s.path)
-      // cheapest first: the folder rule in memory, the owner's edit right (memoised), then the disk. A grant reaches them
-      // (the SQL), so grantOpens says 'grant' while the owner still edits it; 'rules' (the folder lets them read it): listed
-      // only for a grant by name, and only while that grant counts (the owner still edits it)
-      const how = this.grantOpens(me, rules, s, segs, () => true, memo)
-      if (how === null) continue
-      const readable = how === 'rules'
-      if (readable && (!s.named_at || !this.ownerStillEdits(s, rules, segs, memo))) continue
-      looked++
-      const r = this.resolve(s.path, rules, memo)
-      if (!r || pinState(s, r.st!) === 'dead') continue
-      const by = this.sharerFor(me, s.id, readable)
-      if (!by) continue
-      items.push({ linkId: s.id, name: plainLabel(baseName(s.path), 200), sharedBy: by.name, sharedAt: by.at })
+    /** Reads one part's rows; listed rows go to `items`. Returns the key of the last row read when the call stops
+     * inside this part (a cap reached), else null (the part is done). */
+    const scan = (part: 'n' | 'g', k: { at: string | null; id: string | null } | null): { at: string; id: string } | null => {
+      const ks = keyset(k)
+      const rows = (part === 'n'
+        // a person has at most one grant by name per file (the primary key): one row per file, in index order
+        ? this.db.query(`SELECT ${cols}, g.granted_at at FROM file_share_grants g JOIN file_shares s ON s.id = g.share_id AND ${notMine}
+            WHERE g.subject_type = 'user' AND g.subject_id = ?${ks.sql} ORDER BY g.granted_at DESC, g.share_id DESC LIMIT ${budget}`).all(me.id, me.id, ...ks.args)
+        // a file's newest reaching group grant only (the one sharerFor names), and only files with no grant by name to them
+        : this.db.query(`SELECT ${cols}, g.granted_at at FROM file_share_grants g JOIN file_shares s ON s.id = g.share_id AND ${notMine}
+            WHERE g.subject_type = 'group' AND g.subject_id IN (${inReach})
+              AND NOT EXISTS (SELECT 1 FROM file_share_grants n WHERE n.share_id = g.share_id AND n.subject_type = 'user' AND n.subject_id = ?)
+              AND NOT EXISTS (SELECT 1 FROM file_share_grants o WHERE o.share_id = g.share_id AND o.subject_type = 'group' AND o.subject_id IN (${inReach})
+                AND (o.granted_at > g.granted_at OR (o.granted_at = g.granted_at AND o.subject_id > g.subject_id)))${ks.sql}
+            ORDER BY g.granted_at DESC, g.share_id DESC LIMIT ${budget}`).all(me.id, ...reach, me.id, ...reach, ...ks.args)) as (ShareRow & { at: string })[]
+      let last: { at: string; id: string } | null = null
+      for (const s of rows) {
+        if (items.length >= max || looked >= SHARED_WITH_ME_LSTATS) return last ?? (k?.at ? { at: k.at, id: k.id! } : null)
+        budget--
+        last = { at: s.at, id: s.id }
+        const segs = segsOf(s.path)
+        // cheapest first: the folder rule in memory, the owner's edit right (memoised), then the disk. A grant reaches
+        // them (the SQL), so grantOpens says 'grant' while the owner still edits it. 'rules' (the folder lets them read
+        // it): listed only for their grant by name (the first part), and only while that grant counts
+        const how = this.grantOpens(me, rules, s, segs, () => true, memo)
+        if (how === null) continue
+        const readable = how === 'rules'
+        if (readable && (part === 'g' || !this.ownerStillEdits(s, rules, segs, memo))) continue
+        looked++
+        const r = this.resolve(s.path, rules, memo)
+        if (!r || !listable(s, r.st!)) continue
+        const by = this.sharerFor(me, s.id, readable)
+        if (!by) continue
+        items.push({ linkId: s.id, name: plainLabel(baseName(s.path), 200), sharedBy: by.name, sharedAt: by.at })
+      }
+      // every row read and the SQL cap reached: more may follow in this part
+      return budget <= 0 && last ? last : null
     }
-    const more = stopped || rows.length === SHARED_WITH_ME_SQL_ROWS
-    return { items, next: more && last ? encodeSharedCursor(last.at, last.id) : null }
+    // a page that stops at the very start of a part (a cap met by the rows before it) reads on from there
+    const startOf = (part: 'n' | 'g') => encodeSharedCursor(null, null, part)
+    if (!after || after.part === 'n') {
+      const stop = scan('n', after)
+      if (stop) return { items, next: encodeSharedCursor(stop.at, stop.id, 'n') }
+      if (budget <= 0 || items.length >= max || looked >= SHARED_WITH_ME_LSTATS) return { items, next: startOf('g') }
+    }
+    const stop = scan('g', after?.part === 'g' ? after : null)
+    return { items, next: stop ? encodeSharedCursor(stop.at, stop.id, 'g') : null }
   }
 
   /** GET /api/files/shared/:id. Opening the file marks the caller's own "shared with you" notices of it read (its own,
