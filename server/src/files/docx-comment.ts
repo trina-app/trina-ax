@@ -29,12 +29,13 @@ const COMMENTS_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocess
 const COMMENTS_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments'
 const W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 
-/** text for XML: escaped, without the characters XML 1.0 forbids (controls, U+FFFE/FFFF, lone surrogates), which
- * would make the part not well-formed and Word refuse the file */
-const esc = (s: string) => s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f￾￿]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, '')
-  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+/** text without the characters XML 1.0 forbids (controls, U+FFFE/FFFF, lone surrogates), which would make the part
+ * not well-formed and Word refuse the file; comment_docx compares the read-back with the same cleaning */
+export const xmlSafe = (s: string) => s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, '')
+/** text for XML: cleaned and escaped */
+const esc = (s: string) => xmlSafe(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
-const codePoint = (n: number) => (Number.isInteger(n) && n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : '�')
+const codePoint = (n: number) => (Number.isInteger(n) && n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : '\ufffd')
 const unescapeXml = (s: string) => s.replace(/&(#x[0-9a-f]+|#\d+|\w+);/gi, (m, e: string) =>
   e[0] === '#' ? codePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : Number(e.slice(1))) : (ENTITIES[e] ?? m))
 /** a part with its root `<name …/>` opened when it is self-closed; null when it does not end with `</name>` then */
@@ -106,7 +107,7 @@ export function addDocxComments(bytes: Uint8Array, comments: DocxComment[], auth
   // the comments part the document's relationship names: only word/comments.xml is changed here
   const relsNow = part(DOC_RELS)
   for (const m of (relsNow ? decode(relsNow.data) : '').matchAll(/<Relationship\b[^>]*>/g)) {
-    if (m[0].includes(COMMENTS_REL) && !/Target="\/?(word\/)?comments\.xml"/.test(m[0])) refuse('this document keeps its comments in a part with another name, which cannot be changed here')
+    if (m[0].includes(COMMENTS_REL) && !/Target="(\/word\/comments\.xml|comments\.xml)"/.test(m[0])) refuse('this document keeps its comments in a part with another name, which cannot be changed here')
   }
   // an empty part may be one self-closed root (pandoc writes <w:comments … />)
   let cxml = commentsEntry ? decode(commentsEntry.data) : `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:comments xmlns:w="${W_NS}"></w:comments>`
@@ -149,7 +150,8 @@ export function addDocxComments(bytes: Uint8Array, comments: DocxComment[], auth
   if (after.length !== before.length || after.some((t, i) => t !== before[i])) refuse('the document did not read back the same after the comments were added')
 
   const changed = new Map<string, string>([[DOC, doc], [COMMENTS, cxml]])
-  if (!commentsEntry) {
+  // the content type and the relationship, when the file lacks them (a new part, or one nothing links to)
+  {
     const types = decode((part(TYPES) ?? refuse('this file has no content types part')).data)
     if (!types.includes('PartName="/word/comments.xml"')) changed.set(TYPES, appendTo(types, 'Types', `<Override PartName="/word/comments.xml" ContentType="${COMMENTS_TYPE}"/>`))
     const relsEntry = part(DOC_RELS)

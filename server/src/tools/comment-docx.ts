@@ -15,7 +15,7 @@ import path from 'node:path'
 import { z } from 'zod'
 import type { AppContext } from '../context'
 import { ext, officeWorkerText, officeWorkerWrite } from '../files/extract'
-import { COMMENTS_MAX, DOCX_COMMENT_MAX, DOCX_COMMENT_MODE, type DocxCommentResult } from '../files/docx-comment'
+import { COMMENTS_MAX, DOCX_COMMENT_MAX, DOCX_COMMENT_MODE, xmlSafe, type DocxCommentResult } from '../files/docx-comment'
 import type { ToolCtx } from '../files/service'
 import { readRegular, sha256 } from '../files/store'
 import { fileShareUrl } from '@mycel/shared/api'
@@ -78,8 +78,8 @@ export async function commentDocx(ctx: AppContext, c: ToolCtx, a: z.output<typeo
   const file = Buffer.from(r.file, 'base64')
   // read back through the normal reader: every comment is there (the worker checked the body's text is unchanged)
   const extra = await officeWorkerText('docx-extra', file, c.signal)
-  const author = c.user.name || c.user.id
-  const missing = r.added.filter((x, i) => !extra.includes(`Comment by ${author.replace(/\s+/g, ' ')}`) || !extra.includes(a.comments[i]!.text.trim().split(/\r?\n/)[0]!.trim()))
+  const author = xmlSafe(c.user.name || c.user.id)
+  const missing = r.added.filter((_x, i) => !extra.includes(`Comment by ${author.replace(/\s+/g, ' ')}`) || !extra.includes(xmlSafe(a.comments[i]!.text).trim().split(/\r?\n/)[0]!.trim()))
   if (missing.length) throw new ToolError(`the changed document did not read back with its comments (${missing.length} missing); nothing was saved`)
 
   const work = makeWorkDir(path.join(ctx.config.dataDir, 'work'))
