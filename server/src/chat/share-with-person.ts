@@ -25,6 +25,7 @@ import { tr } from './i18n'
 import { neutralizeTags } from './prompt'
 import { actionOff, askerPicks, askerText, attachedPaths, madeInTurn, mainOnly, namesFile, namesFileLoose, namedInFull, namesRecipient, ownWords, asksFor, SHARE_ASK } from './shared-actions'
 import { readRooms } from './read-rooms'
+import { lookedFile, lookedPerson } from './looking-at'
 import { withAlways } from './always-allow'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
@@ -147,10 +148,14 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         // or attached by them. Nobody else's words chose who gets which file then; never in a run nobody watches
         const said = ownWords(askerText(db, spec.userMessageId))
         const mine = attachedPaths(db, spec.userMessageId)
-        const explicit = spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && asksFor(SHARE_ASK, said)
+        // a file or a person the AI learned from looking_at in this turn is not the asker's word (chat/looking-at.ts): unless
+        // their own message names it, the card shows, "Always allow" or not (a file's text must not get "what is open"
+        // shared)
+        const fromLook = plan.some((f) => lookedFile(exec, f.path, said, mine)) || who.some((w) => w.subjectType === 'user' && lookedPerson(exec, w.subjectId, recipientWords(db, w), said))
+        const explicit = !fromLook && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && asksFor(SHARE_ASK, said)
           && who.every((w) => namedInFull(said, recipientWords(db, w)))
           && plan.every((f) => mine.has(f.path) || namesFileLoose(said, f.path))
-        const reply = explicit ? 'share' : await withAlways(alwaysOk ? exec.alwaysPlace?.() : null, 'share_files', [{ label: tr('fileShareYes', L), value: 'share' }, { label: tr('fileShareNo', L), value: 'no' }], 'share', (options, more) => exec.waitForPerson({
+        const reply = explicit ? 'share' : await withAlways(alwaysOk && !fromLook ? exec.alwaysPlace?.() : null, 'share_files', [{ label: tr('fileShareYes', L), value: 'share' }, { label: tr('fileShareNo', L), value: 'no' }], 'share', (options, more) => exec.waitForPerson({
           kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, multiple: false, allowText: false, options, ...more,
           details: [{ label: tr('fileShareFiles', L), text: plan.map((f) => f.name).join('\n'), noSize: true }],
           expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),

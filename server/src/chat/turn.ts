@@ -820,12 +820,11 @@ export class TurnExec {
     const appMap = guestTurn || spec.clientKind === 'schedule' || this.templateScope ? null
       : { view: appMapView(this.principal.role, !!this.shared), managed: isManaged(rt.ctx.config), devEnv: devEnvFlag(), office: !!rt.ctx.config.office }
     const runKind = runKindOf(rt.ctx.config)
-    let sharedWithMe: PromptInput['sharedWithMe'] = null
-    // (the same turns may read them: FileService.readAuth)
-    // (not from Slack: the answer may go to a channel and the block's names are no tool read; not a template run: its
-    // reads stay inside its own folder by the folder rules)
+    // the read tools open a file shared with the person one by one (FileService.readAuth), and shared_with_me lists them
+    // when the AI asks (chat/shared-with-me-tool.ts: no list in every turn): only in the person's own chat
+    // (not from Slack: the answer may go to a channel; not a template run: its reads stay inside its own folder by the
+    // folder rules)
     this.files.grantReads = !this.shared && !guestPrompt && !this.restricted && !confidential && !this.slackChat && !this.templateScope
-    if (this.files.grantReads) { try { sharedWithMe = fileSharesOf(rt.ctx).sharedWith(spec.userId) } catch {} }
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone,
       // personal memories are not part of a shared project chat
@@ -840,9 +839,6 @@ export class TurnExec {
       // the file lists (file-list/service.ts): only while the feature is on and this person has one
       fileList: fileListPromptOn(rt.ctx, this.principal!),
       situation, appMap, runKind,
-      // the files teammates shared with the person one by one (files/shares.ts): never in a shared chat, for a guest, a
-      // restricted run or a confidential chat (docs/decisions/20261116-shared-files-for-the-ai.md)
-      sharedWithMe,
       // a guest: their places and who invited them (prompt.ts guestSection), no team-wide text
       guest: guestPrompt,
     })

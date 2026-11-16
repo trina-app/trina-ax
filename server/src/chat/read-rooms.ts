@@ -11,6 +11,7 @@
 //     person approved on the task's card, so a "> " line there is no one else's words.
 import type { Database } from 'bun:sqlite'
 import { threadRefOf } from '@mycel/shared/api'
+import { readByGrant } from './grant-reads'
 import type { TurnExec } from './turn'
 
 /** how far up the branch the quote check reads (as chat/project-members.ts ownWords) */
@@ -26,6 +27,8 @@ const fixed = new WeakMap<object, boolean>()
 /** Has this chat read rooms (rooms_seen, a side chat, or a quote on this answer's branch)? */
 export function readRooms(exec: ReadRoomsExec): boolean {
   if (exec.roomsSeen) return true
+  // a file read through a grant is other people's words too (chat/grant-reads.ts); read each time, as a read can come mid-turn
+  if (readByGrant(exec)) return true
   let seen = fixed.get(exec)
   if (seen === undefined) {
     const db = exec.rt.db
