@@ -27,7 +27,7 @@ import { rulesHash, rulesHashV1 } from './access-edit'
 import { resetEngineSessions as resetChatSessions, stopTurnsIn } from '../chat/runtime'
 import { sharedChatsHidden } from '../chat/shared'
 import { peopleChatsLost, rememberAudience } from '../chat/chat-audience'
-import { groupFoldersChanged, syncRoomsNow } from '../rooms/service'
+import { groupFoldersChanged, syncRoomsNow, teamRoomSeats } from '../rooms/service'
 import { recheckHistories } from '../rooms/history'
 import { checkDriveShareOwners } from '../integrations/google-drive/shares'
 
@@ -552,9 +552,11 @@ export function afterAccessChange(ctx: AppContext, before: AccessState, by: { ac
   if (out.length) audit(ctx.db, { actor: by.actor, action: 'folder.access_lost', target: by.target, detail: { losing: out, ...(by.via ? { via: by.via } : {}) } })
   // team rooms and the everyone room follow groups and accounts (rooms/service.ts sync; it never throws)
   recheckHistories(ctx, accessChanged)
+  // the team rooms of the people whose access changed, as they were before the sync (joiners get the sync's `added`)
+  const seats = changedPaths.size ? teamRoomSeats(ctx, accessChanged) : new Set<string>()
   syncRoomsNow(ctx)
   // and a team room's header Files button shows or hides for whoever's answer changed (QA TC-3848; never throws)
-  groupFoldersChanged(ctx, before, after, [...changedPaths])
+  groupFoldersChanged(ctx, before, after, [...changedPaths], seats)
   // a Drive shared with the team stops when its admin is disabled, deleted or no longer an admin
   checkDriveShareOwners(ctx)
   // the hooks of other areas (admin/guests.ts: a guest no longer in their one place is switched off)

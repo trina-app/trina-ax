@@ -1313,32 +1313,54 @@ export function noTeamRoom(db: Database, groupId: string) {
   audit(db, { actor: null, action: 'room.archive', target: id, detail: { kind: 'team', groupId, reason: 'team_group' } })
 }
 
+/** The team rooms these people sit in now, as `<roomId> <userId>` (groupFoldersChanged's "in the room before the
+ * change": read before the rooms' sync). One query per 500 people. Never throws (an empty set: nobody is told). */
+export function teamRoomSeats(ctx: AppContext, userIds: readonly string[]): Set<string> {
+  const out = new Set<string>()
+  try {
+    for (let i = 0; i < userIds.length; i += 500) {
+      const part = userIds.slice(i, i + 500)
+      const rows = ctx.db.query(`SELECT m.room_id, m.user_id FROM room_members m JOIN rooms r ON r.id = m.room_id
+        WHERE r.kind = 'team' AND r.archived_at IS NULL AND m.user_id IN (${part.map(() => '?').join(',')})`).all(...part) as { room_id: string; user_id: string }[]
+      for (const r of rows) out.add(`${r.room_id} ${r.user_id}`)
+    }
+  } catch (e) { ctx.log.warn('team room seats not read', { err: e }) }
+  return out
+}
+
 /**
  * After folder access changed (admin/folders.ts afterAccessChange, after syncRoomsNow): the team rooms whose header Files
  * button (Room.groupFolder, store.ts groupFolderFor) now shows or hides for someone send that member room.updated, each
- * built for them, so the button follows without a reload (QA TC-3848). Bounded: only rooms whose group folder is at,
- * under or above a folder whose access changed for someone (`changed`; a folder below it can make it listable, canList),
- * and in those only the members whose answer differs between the two states. Never throws: the change is saved.
+ * built for them, so the button follows without a reload (QA TC-3848). Bounded twice: only rooms whose group folder is
+ * at, under or above a folder whose access changed for someone (`changed`; a folder below it can make it listable,
+ * canList), and in those only `seats` (teamRoomSeats, read before the sync) of the people whose access changed: never
+ * the room's other members, so a change at the team root costs a check per changed person and room, not per member.
+ * Someone not in the room before the change (they joined with it) is skipped: the sync's `added` carries the room as
+ * they see it. Someone the sync took out, or no longer an active account, is skipped too. Never throws.
  */
-export function groupFoldersChanged(ctx: AppContext, before: { principals: readonly Principal[]; rules: RuleSet }, after: { principals: readonly Principal[]; rules: RuleSet }, changed: readonly string[]) {
-  if (!changed.length) return
+export function groupFoldersChanged(ctx: AppContext, before: { principals: readonly Principal[]; rules: RuleSet }, after: { principals: readonly Principal[]; rules: RuleSet }, changed: readonly string[], seats: ReadonlySet<string>) {
+  if (!changed.length || !seats.size) return
   try {
     const db = ctx.db
     const near = (f: string, p: string) => p === '' || f === p || f.startsWith(p + '/') || p.startsWith(f + '/')
-    const rooms = (db.query("SELECT r.id, f.path FROM rooms r JOIN groups g ON g.id = r.group_id JOIN folders f ON f.id = g.folder_id WHERE r.kind = 'team' AND r.archived_at IS NULL")
-      .all() as { id: string; path: string }[]).filter((r) => changed.some((p) => near(r.path, p)))
-    if (!rooms.length) return
+    const byRoom = new Map<string, string[]>()
+    for (const seat of seats) {
+      const [roomId, userId] = seat.split(' ') as [string, string]
+      ;(byRoom.get(roomId) ?? byRoom.set(roomId, []).get(roomId)!).push(userId)
+    }
+    const folderOfRoom = db.query("SELECT f.path FROM rooms r JOIN groups g ON g.id = r.group_id JOIN folders f ON f.id = g.folder_id WHERE r.id = ? AND r.kind = 'team' AND r.archived_at IS NULL")
+    const stillIn = db.query('SELECT 1 FROM room_members WHERE room_id = ? AND user_id = ?')
     const was = new Map(before.principals.map((p) => [p.id, p])), now = new Map(after.principals.map((p) => [p.id, p]))
-    const memberIds = db.query('SELECT user_id FROM room_members WHERE room_id = ?')
-    for (const r of rooms) {
-      const segs = r.path.split('/')
+    for (const [roomId, users] of byRoom) {
+      const f = (folderOfRoom.get(roomId) as { path: string } | null)?.path
+      if (!f || !changed.some((p) => near(f, p))) continue
+      const segs = f.split('/')
       const flipped = new Set<string>()
-      for (const { user_id } of memberIds.all(r.id) as { user_id: string }[]) {
-        const pb = was.get(user_id), pa = now.get(user_id)
-        // someone new to the team or gone from it: sync's own events (added / removed) already carry the room
-        if (pb && pa && before.rules.canList(pb, segs) !== after.rules.canList(pa, segs)) flipped.add(user_id)
+      for (const u of users) {
+        const pb = was.get(u), pa = now.get(u)
+        if (pb && pa && stillIn.get(roomId, u) && before.rules.canList(pb, segs) !== after.rules.canList(pa, segs)) flipped.add(u)
       }
-      if (flipped.size) roomsOf(ctx).roomEvent(r.id, 'updated', flipped)
+      if (flipped.size) roomsOf(ctx).roomEvent(roomId, 'updated', flipped)
     }
   } catch (e) { ctx.log.warn('team room folder buttons not sent', { err: e }) }
 }

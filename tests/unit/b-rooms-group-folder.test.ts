@@ -82,7 +82,8 @@ test('a folder rule or group change shows or hides the Files button live, only f
   const groupRule = { subjectType: 'group', subjectId: group.id, access: 'write' }
   const noraRule = { subjectType: 'user', subjectId: nora.id, access: 'read' }
 
-  // the realtime hub sees every person as connected; the team room's room.updated events since the last look
+  // the realtime hub sees every person as connected; the team room's room.updated 'updated' events since the last look
+  // (the sync's own 'added' / 'members' / 'removed' are not these)
   const hub = new FanoutHub()
   hub.users = [ada.id, mia.id, nora.id]
   h.ctx.services.realtime = hub
@@ -90,7 +91,7 @@ test('a folder rule or group change shows or hides the Files button live, only f
     const out = new Map<string, { groupFolder?: string }>()
     for (const e of hub.events.splice(0)) {
       const ev = e.data as { type: string; data: { roomId: string; room: { groupFolder?: string } | null } }
-      if (ev.type === 'room.updated' && ev.data.roomId === team.id && ev.data.room) out.set(e.target, ev.data.room)
+      if (ev.type === 'room.updated' && ev.data.roomId === team.id && ev.data.room && (ev.data as { change?: string }).change === 'updated') out.set(e.target, ev.data.room)
     }
     return out
   }
@@ -119,4 +120,51 @@ test('a folder rule or group change shows or hides the Files button live, only f
   // bounded: a rule on a folder elsewhere sends the team room to nobody
   await owner.call('POST', '/api/admin/folders', { path: 'shared/plans', create: true, rules: [{ subjectType: 'user', subjectId: mia.id, access: 'read' }] })
   expect(sent().size).toBe(0)
+})
+
+test('a role change, an account switched off and on, a new member: the live event only for members already in the room', async () => {
+  h = await harness('b-rooms-group-folder-people')
+  const owner = await withOwner(h)
+  const mia = await addMember(h, owner, { username: 'mia' })
+  const nora = await addMember(h, owner, { username: 'nora' })
+  const otto = await addMember(h, owner, { username: 'otto' })
+  const group = await owner.call('POST', '/api/admin/groups', { name: 'leads', memberIds: [mia.id, nora.id] })
+  const folder = (h.ctx.db.query('SELECT f.id FROM groups g JOIN folders f ON f.id = g.folder_id WHERE g.id = ?').get(group.id) as { id: string })
+  const team = ((await mia.client.call('GET', '/api/rooms')).items as any[]).find((r) => r.kind === 'team' && r.groupId === group.id)
+  // the folder open to nora alone: mia, in the room, has no button
+  await owner.call('PUT', `/api/admin/folders/${folder.id}/rules`, { rules: [{ subjectType: 'user', subjectId: nora.id, access: 'read' }] })
+
+  const hub = new FanoutHub()
+  hub.users = [mia.id, nora.id, otto.id]
+  h.ctx.services.realtime = hub
+  const events = () => hub.events.splice(0).map((e) => ({ to: e.target, ev: e.data as { type: string; data: { roomId: string; change: string; room: { groupFolder?: string } | null } } }))
+    .filter((x) => x.ev.type === 'room.updated' && x.ev.data.roomId === team.id)
+    .map((x) => ({ to: x.to, change: x.ev.data.change, groupFolder: x.ev.data.room?.groupFolder ?? null }))
+
+  // a role change: mia made an admin opens every folder, so her button comes back live; nobody else is told
+  await owner.call('PATCH', `/api/admin/users/${mia.id}`, { role: 'admin' })
+  expect(events()).toEqual([{ to: mia.id, change: 'updated', groupFolder: 'groups/leads' }])
+  // and back to member: it goes again
+  await owner.call('PATCH', `/api/admin/users/${mia.id}`, { role: 'member' })
+  expect(events()).toEqual([{ to: mia.id, change: 'updated', groupFolder: null }])
+
+  // the account switched off: she is taken out of the room (removed, no room); no 'updated' to anyone
+  await owner.call('PATCH', `/api/admin/users/${mia.id}`, { status: 'disabled' })
+  let got = events()
+  expect(got.filter((e) => e.change === 'updated')).toEqual([])
+  expect(got.filter((e) => e.to === mia.id)).toEqual([{ to: mia.id, change: 'removed', groupFolder: null }])
+  // switched on again with the folder open to the group: she joins with the sync's 'added', which carries the button;
+  // not also an 'updated' (she was not in the room before the change)
+  await owner.call('PUT', `/api/admin/folders/${folder.id}/rules`, { rules: [{ subjectType: 'group', subjectId: group.id, access: 'read' }] })
+  hub.events.splice(0)
+  await owner.call('PATCH', `/api/admin/users/${mia.id}`, { status: 'active' })
+  got = events()
+  expect(got.filter((e) => e.to === mia.id)).toEqual([{ to: mia.id, change: 'added', groupFolder: 'groups/leads' }])
+  expect(got.filter((e) => e.change === 'updated')).toEqual([])
+
+  // a new member of the group: 'added' with the button, no 'updated'
+  await owner.call('PATCH', `/api/admin/groups/${group.id}`, { memberIds: [mia.id, nora.id, otto.id] })
+  got = events()
+  expect(got.filter((e) => e.to === otto.id)).toEqual([{ to: otto.id, change: 'added', groupFolder: 'groups/leads' }])
+  expect(got.filter((e) => e.change === 'updated')).toEqual([])
 })
