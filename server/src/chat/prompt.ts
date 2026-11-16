@@ -225,7 +225,7 @@ export function teamRuleFiles(files: FileService, user: Principal, readable?: ((
         const r = authorize(files.fx, rules, user, `skills/${n}`, 'read', { dirs })
         // a shared project chat: only the rule files everyone who sees the chat may read
         if (readable && !readable(r.rel)) continue
-        const body = readRegular(r.abs, SKILL_FILE_MAX_BYTES).bytes.toString('utf8')
+        const body = readRegular(r.abs, SKILL_FILE_MAX_BYTES, r.st).bytes.toString('utf8')
         if (skillFileKind(files.fx.root, r.rel, body) !== 'rule') continue
         total++
         if (followed >= SKILL_FILES_MAX) continue

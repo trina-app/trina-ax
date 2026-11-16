@@ -14,7 +14,8 @@
 //   checks before it installs), latest-mac.yml and the Mac update zip it names (the Mac app's feed, office/update.ts
 //   offerMac; the zip is no installer, so index.json does not list it) and the files index.json lists are served (one
 //   name, no folders), each opened like a team file
-//   (O_NOFOLLOW, a regular file with one link): a symlink, hard link or stray file in the folder stays private.
+//   (O_NOFOLLOW, a regular file with one link), once, and sent from that open file: a symlink, hard link or stray
+//   file in the folder stays private.
 // - Cache-Control: private, so Cloudflare (which caches .exe / .dmg by extension) never keeps a copy it could hand to
 //   someone without a session (a zone "Cache Everything" rule would override that: docs/OFFICE.md says to keep
 //   /downloads/* out of such rules), Vary: Cookie, Authorization for any other cache; CORP same-origin like the API
@@ -61,12 +62,16 @@ export async function serveDownload(req: Request, sub: string, dir: string | nul
   const listed = META_FILES.includes(name) || (SAFE_NAME.test(name) && readIndex(dir).some((i) => i.file === name)) || macOfferedIn(dir)?.zip === name
   if (!listed) return text(404, 'Not found\n')
   const file = path.join(path.resolve(dir), name)
-  let st: fs.Stats
-  try {
-    const opened = openChecked(file)
-    fs.closeSync(opened.fd)
-    st = opened.st
-  } catch { return text(404, 'Not found\n') }
+  // the one open of this response (team-files/download.ts): the body is read from this descriptor, never from the name
+  let opened: { fd: number; st: fs.Stats }
+  try { opened = openChecked(file) } catch { return text(404, 'Not found\n') }
+  // ours to close until a body takes it
+  let ours = true
+  const give = () => { ours = false; return opened.fd }
+  try { return await answer(req, name, opened.st, give, via) } finally { if (ours) fs.closeSync(opened.fd) }
+}
+
+async function answer(req: Request, name: string, st: fs.Stats, give: () => number, via?: string): Promise<Response> {
   const size = st.size
   const etag = `"${st.ino.toString(36)}-${size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`
   const lastModified = st.mtime.toUTCString()
@@ -93,15 +98,15 @@ export async function serveDownload(req: Request, sub: string, dir: string | nul
   }
   if (!range) {
     headers.set('Content-Length', String(size))
-    return new Response(head || size === 0 ? null : await fileBody(file, 0, size, { relayed: via === 'relay', signal: req.signal }), { status: 200, headers })
+    return new Response(head || size === 0 ? null : await fileBody(give(), 0, size, { relayed: via === 'relay', signal: req.signal }), { status: 200, headers })
   }
   if (range.end === size - 1) {
     headers.set('Content-Range', `bytes ${range.start}-${range.end}/${size}`)
     headers.set('Content-Length', String(size - range.start))
-    return new Response(head ? null : await fileBody(file, range.start, size, { relayed: via === 'relay', signal: req.signal }), { status: 206, headers })
+    return new Response(head ? null : await fileBody(give(), range.start, size, { relayed: via === 'relay', signal: req.signal }), { status: 206, headers })
   }
   const end = Math.min(range.end, range.start + RANGE_MAX - 1)
   headers.set('Content-Range', `bytes ${range.start}-${end}/${size}`)
   headers.set('Content-Length', String(end - range.start + 1))
-  return new Response(head ? null : rangeStream(file, range.start, end), { status: 206, headers })
+  return new Response(head ? null : rangeStream(give(), range.start, end), { status: 206, headers })
 }

@@ -426,7 +426,8 @@ test('automatic updates on: the item says when it installs, with no button; a re
   await answerUpdate(page, () => ({ json: { ...auto, hold: 'failed' } }))
   await page.goto('/admin')
   await expect(page.getByTestId('attention-update')).toContainText(t['adminHome.update.failed'].replace('{version}', '0.3.0'))
-  await expect(page.getByTestId('attention-update').getByRole('button', { name: t['adminHome.update.install'] })).toBeVisible()
+  // a version on hold: the same retry as Admin › System's ("Try this version again"), not "Install now"
+  await expect(page.getByTestId('attention-update').getByRole('button')).toHaveText([t['system.retryShort']])
 
   // needs root: the update timer installs it; no button
   await page.unroute('**/api/admin/update')

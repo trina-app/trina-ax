@@ -17,6 +17,7 @@ import type { AuthInfo } from '../services'
 import type { AppContext } from '../context'
 import { demoGuard } from '../demo/guard'
 import { spoolMultipart, type SpooledFile } from './multipart'
+import { endConnectionAfter } from './tunnel'
 
 /** Default JSON body limit; endpoints that need more set it in BODY_LIMITS below (or via kit.handle options). */
 export const DEFAULT_JSON_LIMIT = 1024 * 1024
@@ -57,7 +58,8 @@ const zodFields = (prefix: string, err: z.ZodError): Record<string, string> => {
 /** Read a request body as a bounded stream of chunks (never more than maxBytes in total). */
 export async function* boundedBody(req: Request, maxBytes: number): AsyncIterable<Uint8Array> {
   const len = req.headers.get('content-length')
-  if (len !== null && Number(len) > maxBytes) fail('payload_too_large')
+  // refused before the body is read: what is still on its way ends with the connection (http/tunnel.ts)
+  if (len !== null && Number(len) > maxBytes) { endConnectionAfter(req); fail('payload_too_large') }
   if (!req.body) return
   let total = 0
   const reader = req.body.getReader()
@@ -66,7 +68,7 @@ export async function* boundedBody(req: Request, maxBytes: number): AsyncIterabl
       const { value, done } = await reader.read()
       if (done) return
       total += value.byteLength
-      if (total > maxBytes) fail('payload_too_large')
+      if (total > maxBytes) { endConnectionAfter(req); fail('payload_too_large') }
       yield value
     }
   } finally {
@@ -134,9 +136,10 @@ export class RouteKit {
       } else if (spec && spec.kind === 'multipart') {
         // streamed to a temp file with the limit counted on the way, never read into memory whole (http/multipart.ts)
         const form = await spoolMultipart(c.req.raw, { maxBytes: spec.maxBytes, dir: path.join(this.ctx.config.dataDir, 'uploads', 'tmp') }).catch((e: unknown) => {
-          // refused before the body was read to its end: what is still on its way must not be taken for the next request
-          // on this connection, so the connection ends with this answer
+          // refused before the body was read to its end: what is still on its way must not be read for nothing, so the
+          // connection ends with this answer (Bun ignores the header alone: http/tunnel.ts endConnectionAfter)
           c.header('Connection', 'close')
+          endConnectionAfter(c.req.raw)
           throw e
         })
         spooled = form.file

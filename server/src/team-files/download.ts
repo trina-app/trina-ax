@@ -1,8 +1,7 @@
 // Streaming downloads with Range (tab 4 "다운로드").
-// - Whole file (and a resumed download to the end, routes/downloads.ts): fileBody(). On Linux the body is
-//   Bun.file(path), which Bun.serve sends with sendfile (measured: 600 MB to a slow client at ~30 MB RSS, while a pull
-//   ReadableStream reached 1.6 GB because Bun.serve has no backpressure), and the relay client reads it lazily in
-//   256 KB pieces. Elsewhere (macOS: the office Mac, dev) never sendfile: XNU's sendfile allocates its buffers (M_WAIT)
+// - Whole file (and a resumed download to the end, routes/downloads.ts): fileBody(). On Linux the body is a
+//   Bun.file, which Bun.serve sends with sendfile (measured: 600 MB to a slow client at ~30 MB RSS, while a pull
+//   ReadableStream reached 1.6 GB because Bun.serve has no backpressure). Elsewhere (macOS: the office Mac, dev) never sendfile: XNU's sendfile allocates its buffers (M_WAIT)
 //   and reads the file into them before it looks at the socket's non-blocking flag, so a slow client of a file that is
 //   not in memory parked the server's only JS thread in the kernel (QA TC-222: /api/health unanswered for 352 s,
 //   `sample` in sendfile, state U). Bun 1.4 stopped using it on macOS for this reason (oven-sh/bun#33728). There a file
@@ -12,8 +11,8 @@
 //   for either: what a slow client has not taken yet stays in memory (at most the file, freed when the download ends
 //   or the client leaves). Bun 1.4 applies backpressure to stream bodies.
 //   Two limits on that (review of #419): a request that came through the team address (the relay client reads the body
-//   itself, 256 KB at a time, as its own connection takes it: no socket here, so no sendfile either) keeps the
-//   Bun.file body, read lazily as before; and the bodies read whole count against HELD_CAP together, above which a
+//   itself, 256 KB at a time, as its own connection takes it: no socket here, so no sendfile either) gets our pull
+//   stream, read as lazily, never the file read whole; and the bodies read whole count against HELD_CAP together, above which a
 //   download goes as the stream. Bun.serve does not say when a body has gone out, so a body counts until its client
 //   leaves (req.signal) or for the time it takes at HELD_FLOOR_RATE, whichever comes first.
 // - Range: Bun 1.3.12 mishandles Bun.file().slice() bodies once anything reads response.body (the stream runs past
@@ -21,8 +20,17 @@
 //   pull stream over [start, end], and one response carries at most RANGE_MAX bytes (Content-Range says what was
 //   sent; media players and PDF viewers ask for the next part). Memory per request stays <= RANGE_MAX even
 //   without backpressure.
-// The file was authorize()d and opened with O_NOFOLLOW / checked (regular, nlink 1) just before; only the server
-// writes inside the team folder, so it cannot be swapped for a link in between.
+// - One open per response. The server is not the only writer inside the team folder: a person's dev environment runs
+//   write in their personal folder (and a project run in its folder), at any time, also between the permission check
+//   and the download. So the file is opened once (place.ts openChecked: never through a link, a regular file with one
+//   link; for a team file, the very file the check saw, at the path that was checked), and every byte of the body is
+//   read from that descriptor. Nothing here opens the path a second time.
+//   A sendfile body has to be a file that Bun opens itself (Bun 1.3.12: a Bun.file made from a descriptor cannot be
+//   sliced, and Bun.serve does not say when a body has gone out, so nobody could close it). It gets the descriptor's
+//   own address (/proc/self/fd/N: the same open file whatever its name is by then), which Bun opens some time after
+//   the route answers (not in the same tick: later under TLS on Bun 1.3.12, a few milliseconds measured). Our
+//   descriptor is closed LEND_MS later, and never by a timer that fired late (the event loop stood still: it waits
+//   again). Checked on Bun 1.3.12 and 1.4: the download goes on from Bun's own descriptor after ours is closed.
 import fs from 'node:fs'
 import { HttpError } from '../http/errors'
 import { openChecked } from './place'
@@ -62,18 +70,60 @@ function hold(n: number, signal?: AbortSignal): () => void {
 /** Bun.file bodies (sendfile) only where sendfile cannot block the JS thread: Linux (see the top of this file). */
 export const SENDFILE = process.platform === 'linux'
 
+/** How long a descriptor lent to a sendfile body stays open (see the top). Bun opens the body's file a few milliseconds
+ * after the route answers; this is far longer, and costs one open descriptor per such download for
+ * that time (Bun raises the open-file limit to the hard limit at start: 524288 under systemd and Docker). */
+export const LEND_MS = 30_000
+/** a lending timer this late (the event loop stood still) waits another LEND_MS instead of closing */
+const LEND_LATE_MS = 1_000
+let lent = 0
+/** descriptors lent to sendfile bodies and not closed yet (tests) */
+export const lentDescriptors = () => lent
+
+/** A Bun.file of the open file itself (not of its name), for a body Bun must open on its own. Takes the descriptor. */
+function lend(fd: number): Blob {
+  lent++
+  // Bun opens the body's file some time after the route answers (later under TLS than over plain HTTP). A timer that
+  // fires late means the event loop stood still, maybe before Bun got to it: then wait another LEND_MS, never close.
+  const arm = () => {
+    const due = Date.now() + LEND_MS
+    const t = setTimeout(() => {
+      if (Date.now() - due > LEND_LATE_MS) { arm(); return }
+      lent--
+      try { fs.closeSync(fd) } catch {}
+    }, LEND_MS)
+    t.unref?.()
+  }
+  arm()
+  return Bun.file(process.platform === 'linux' ? `/proc/self/fd/${fd}` : `/dev/fd/${fd}`)
+}
+
+/**
+ * A file to send: an open descriptor (the one the caller checked, place.ts openChecked; the body takes it and closes
+ * it) or, for a folder that only the server writes, a path (opened here, once, never through a link).
+ */
+export type FileSource = number | string
+const take = (src: FileSource): number => (typeof src === 'number' ? src : openChecked(src).fd)
+
 /** Exactly bytes [start, end] of a file, read on demand (on Bun's thread pool: the JS thread never waits on the disk). */
-export function rangeStream(abs: string, start: number, end: number, piece = READ): ReadableStream<Uint8Array> {
-  let fd: number | null = null
+export function rangeStream(src: FileSource, start: number, end: number, piece = READ): ReadableStream<Uint8Array> {
+  let fd: number | null = typeof src === 'number' ? src : null
   let pos = start
+  // a read is on the thread pool; the reader left meanwhile. The descriptor is closed when that read is back, never
+  // under it (its number could be another file's by then)
+  let reading = false
+  let left = false
   const close = () => { if (fd !== null) { try { fs.closeSync(fd) } catch {} fd = null } }
   return new ReadableStream<Uint8Array>({
-    start() { fd = openChecked(abs).fd },
+    start() { if (fd === null) fd = take(src) },
     pull(ctl) {
       const want = Math.min(piece, end + 1 - pos)
       if (want <= 0 || fd === null) { close(); ctl.close(); return }
       const buf = new Uint8Array(want)
+      reading = true
       return new Promise<void>((res, rej) => fs.read(fd!, buf, 0, want, pos, (err, n) => {
+        reading = false
+        if (left) { close(); res(); return }
         if (err) { close(); rej(err); return }
         if (n === 0) { close(); ctl.close(); res(); return }
         pos += n
@@ -82,39 +132,39 @@ export function rangeStream(abs: string, start: number, end: number, piece = REA
         res()
       }))
     },
-    cancel() { close() },
+    cancel() { left = true; if (!reading) close() },
   })
 }
 
 /**
- * The body for bytes [start, size - 1] of a file: the whole file (start 0) or a download resumed to its end. Linux, and
- * a request through the team address (`relayed`): Bun.file (sendfile on a socket, read lazily by the relay client).
+ * The body for bytes [start, size - 1] of a file: the whole file (start 0) or a download resumed to its end, all of it
+ * from the one descriptor of `src` (taken: closed here or by the body). A request through the team address
+ * (`relayed`): our stream, read lazily by the relay client. Linux: a Bun.file of the open file (sendfile on a socket).
  * Elsewhere (see the top): read whole up to WHOLE_MAX while all such bodies stay under HELD_CAP, else our stream, so a
  * slow client cannot stop the server. `size` is the size the caller put in Content-Length; the body never runs past
  * it. `signal`: the request's (its client left: the body no longer counts).
  */
-export async function fileBody(abs: string, start: number, size: number, o: { sendfile?: boolean; relayed?: boolean; signal?: AbortSignal; wholeMax?: number; heldCap?: number } = {}): Promise<Blob | Uint8Array<ArrayBuffer> | ReadableStream<Uint8Array>> {
-  if (o.relayed || (o.sendfile ?? SENDFILE)) return start === 0 ? Bun.file(abs) : Bun.file(abs).slice(start)
+export async function fileBody(src: FileSource, start: number, size: number, o: { sendfile?: boolean; relayed?: boolean; signal?: AbortSignal; wholeMax?: number; heldCap?: number } = {}): Promise<Blob | Uint8Array<ArrayBuffer> | ReadableStream<Uint8Array>> {
+  const fd = take(src)
+  if (o.relayed) return rangeStream(fd, start, size - 1)
+  if (o.sendfile ?? SENDFILE) { const file = lend(fd); return start === 0 ? file : file.slice(start) }
   const n = size - start
-  if (n > (o.wholeMax ?? WHOLE_MAX) || held + n > (o.heldCap ?? HELD_CAP)) return rangeStream(abs, start, size - 1, WHOLE_READ)
+  if (n > (o.wholeMax ?? WHOLE_MAX) || held + n > (o.heldCap ?? HELD_CAP)) return rangeStream(fd, start, size - 1, WHOLE_READ)
   const release = hold(n, o.signal)
   try {
-    const { fd } = openChecked(abs)
-    try {
-      const buf = new Uint8Array(n)
-      let got = 0
-      while (got < buf.length) {
-        const k = await new Promise<number>((res, rej) => fs.read(fd, buf, got, Math.min(WHOLE_READ * 8, buf.length - got), start + got, (err, r) => err ? rej(err) : res(r)))
-        if (k === 0) break
-        got += k
-      }
-      return got === buf.length ? buf : buf.subarray(0, got)
-    } finally {
-      fs.closeSync(fd)
+    const buf = new Uint8Array(n)
+    let got = 0
+    while (got < buf.length) {
+      const k = await new Promise<number>((res, rej) => fs.read(fd, buf, got, Math.min(WHOLE_READ * 8, buf.length - got), start + got, (err, r) => err ? rej(err) : res(r)))
+      if (k === 0) break
+      got += k
     }
+    return got === buf.length ? buf : buf.subarray(0, got)
   } catch (e) {
     release()
     throw e
+  } finally {
+    fs.closeSync(fd)
   }
 }
 
@@ -145,12 +195,21 @@ export function parseRange(h: string | null | undefined, size: number): { start:
   return { start, end }
 }
 
-/** `via`: how the request came (http/env.ts info.via); 'relay' keeps the lazily read Bun.file body (see the top).
+/** `seen`: for a file in the team folder, the lstat its permission check took (place.ts openChecked): the file that is
+ * sent is then that very file, at the path that was checked. Left out only for folders that only the server writes.
+ * `via`: how the request came (http/env.ts info.via); 'relay' gets the lazily read stream (see the top).
  * `cache`: the Cache-Control instead of `private, no-cache` (only ever a private one: auth/media-key.ts keptMediaCache,
  * for a file whose address always means the same bytes, read with this sign-in's key). */
-export async function streamFile(o: { abs: string; name: string; req: Request; disposition: 'inline' | 'attachment'; etag?: string; via?: string; cache?: `private, ${string}` }): Promise<Response> {
-  const { fd, st } = openChecked(o.abs)
-  fs.closeSync(fd)
+export async function streamFile(o: { abs: string; seen?: fs.Stats; name: string; req: Request; disposition: 'inline' | 'attachment'; etag?: string; via?: string; cache?: `private, ${string}` }): Promise<Response> {
+  // the one open of this response: its size, its dates and every byte of the body come from this descriptor
+  const { fd, st } = openChecked(o.abs, o.seen)
+  // ours to close until a body takes it
+  let ours = true
+  const give = () => { ours = false; return fd }
+  try { return await answer(o, st, give) } finally { if (ours) fs.closeSync(fd) }
+}
+
+async function answer(o: Parameters<typeof streamFile>[0], st: fs.Stats, give: () => number): Promise<Response> {
   const size = st.size
   const etag = o.etag ? `"${o.etag}"` : `"${st.ino.toString(36)}-${size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`
   let type = mimeOf(o.name) ?? 'application/octet-stream'
@@ -176,10 +235,10 @@ export async function streamFile(o: { abs: string; name: string; req: Request; d
   }
   if (!range) {
     headers.set('Content-Length', String(size))
-    return new Response(o.req.method === 'HEAD' || size === 0 ? null : await fileBody(o.abs, 0, size, { relayed: o.via === 'relay', signal: o.req.signal }), { status: 200, headers })
+    return new Response(o.req.method === 'HEAD' || size === 0 ? null : await fileBody(give(), 0, size, { relayed: o.via === 'relay', signal: o.req.signal }), { status: 200, headers })
   }
   const end = Math.min(range.end, range.start + RANGE_MAX - 1)
   headers.set('Content-Range', `bytes ${range.start}-${end}/${size}`)
   headers.set('Content-Length', String(end - range.start + 1))
-  return new Response(o.req.method === 'HEAD' ? null : rangeStream(o.abs, range.start, end), { status: 206, headers })
+  return new Response(o.req.method === 'HEAD' ? null : rangeStream(give(), range.start, end), { status: 206, headers })
 }

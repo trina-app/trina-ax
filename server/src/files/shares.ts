@@ -354,7 +354,7 @@ export function decodeSharedCursor(c: string): SharedCursor | null {
 }
 
 export type OpenResult =
-  | { kind: 'open'; share: ShareRow; abs: string; name: string; size: number; by: 'rules' | 'grant' | 'owner' }
+  | { kind: 'open'; share: ShareRow; abs: string; st: fs.Stats; name: string; size: number; by: 'rules' | 'grant' | 'owner' }
   | { kind: 'no_access'; share: ShareRow | null }
   | { kind: 'trashed'; share: ShareRow }
   | { kind: 'unknown' }
@@ -744,8 +744,8 @@ export class FileShares {
     if (!r || !this.same(s, r.st!, r.abs)) return { kind: 'no_access', share: s }
     const name = baseName(r.rel)
     const by = this.grantOpens(me, rules, s, r.segs, () => this.grantedTo(s.id, me.id))
-    if (by === 'rules') return { kind: 'open', share: s, abs: r.abs, name, size: r.st!.size, by: s.owner_id === me.id ? 'owner' : 'rules' }
-    if (by === 'grant') return { kind: 'open', share: s, abs: r.abs, name, size: r.st!.size, by: 'grant' }
+    if (by === 'rules') return { kind: 'open', share: s, abs: r.abs, st: r.st!, name, size: r.st!.size, by: s.owner_id === me.id ? 'owner' : 'rules' }
+    if (by === 'grant') return { kind: 'open', share: s, abs: r.abs, st: r.st!, name, size: r.st!.size, by: 'grant' }
     return { kind: 'no_access', share: s }
   }
   /** Does the share open for `me` (the row live, its file resolved), and how: by the folder rules, by a grant that
