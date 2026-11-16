@@ -12,7 +12,7 @@ mkdir -p "$out"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 for arch in arm64 x86_64; do
-  swiftc -O -target "$arch-apple-macos14.2" main.swift -o "$work/meeting-audio-$arch"
+  swiftc -O -warnings-as-errors -target "$arch-apple-macos14.2" main.swift -o "$work/meeting-audio-$arch"
 done
 lipo -create "$work/meeting-audio-arm64" "$work/meeting-audio-x86_64" -output "$out/meeting-audio"
 chmod 755 "$out/meeting-audio"
