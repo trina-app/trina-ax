@@ -3,6 +3,7 @@
 // init() installs the JobService (ctx.services.jobs) that G's backup / restore / update / export also use.
 import { API } from '@mycel/shared/api'
 import { HttpError } from '../http/errors'
+import { JobFailure } from '../jobs/service'
 import { mapErrors } from '../team-files/errors'
 import { componentC, startComponentC } from '../team-files/component'
 import type { RouteModule } from './module'
@@ -36,6 +37,18 @@ export const jobsRoutes: RouteModule = {
       const name = body.file.name || 'audio.webm'
       // the recording is on disk already (http/multipart.ts); the job takes the file over, or the kit removes it
       return { jobId: C.startTranscribe(auth.user.id, body.file.path, name, { language: body.fields.language, chatId }) }
+    }))
+    // meeting notes (desktop app): a piece of a meeting's sound, answered at once; 429 while the person has two under way
+    kit.handle(API.meetingStatus, () => C.meetingStatus())
+    kit.handle(API.meetingPiece, ({ c, body, auth }) => mapErrors(c.get('locale'), async () => {
+      try {
+        return await C.meetingPiece(auth.user.id, body.file.path, { language: body.fields.language, signal: c.req.raw.signal })
+      } catch (e) {
+        if (e instanceof Error && e.message === 'busy') throw new HttpError('rate_limited')
+        // the person's sentence (jobs/meeting-piece.ts), with its reason for the app
+        if (e instanceof JobFailure) throw new HttpError(e.code, e.messages[c.get('locale')], e.reason ? { params: { reason: e.reason } } : {})
+        throw e
+      }
     }))
   },
 }
