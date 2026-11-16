@@ -1016,14 +1016,16 @@ describe('the Mac dmg window', () => {
     // the picture is the 420 points of art plus 32
     expect(dmg.window).toBeUndefined()
     expect(one).toEqual({ w: 660, h: 420 + 32 })
-    // the app on the left, Applications on the right, on the art's two spots (scripts/dmg-background.svg)
+    // the app on the left, Applications on the right, on the art's two spots (scripts/dmg-background.svg), icons 144 points
     expect(dmg.contents).toEqual([
-      { x: 180, y: 190, type: 'file' },
-      { x: 480, y: 190, type: 'link', path: '/Applications' },
+      { x: 170, y: 210, type: 'file' },
+      { x: 490, y: 210, type: 'link', path: '/Applications' },
     ])
+    expect(dmg.iconSize).toBe(144)
     const svg = readFileSync(join(import.meta.dir, '../../desktop/scripts/dmg-background.svg'), 'utf8')
     expect(svg).toContain(`viewBox="0 0 ${one.w} ${one.h}"`)
-    // the art's two spots are drawn around the same centres
-    for (const c of dmg.contents) expect(svg).toContain(`<circle cx="${c.x}" cy="${c.y}"`)
+    // the art names the same two spots, and its chevron sits between them at their height
+    for (const c of dmg.contents) expect(svg).toContain(`(${c.x},${c.y})`)
+    expect(svg).toMatch(new RegExp(`M\\d+ ${dmg.contents[0].y - 10} L\\d+ ${dmg.contents[0].y} L`))
   })
 })

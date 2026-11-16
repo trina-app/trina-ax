@@ -67,11 +67,11 @@ export default {
     // electron-builder joins with this file into one retina TIFF). electron-builder makes the window the picture's size,
     // title bar included, so no `window` here; the art's spots are the icon centres below (points from its top left).
     background: 'build-resources/background.png',
-    iconSize: 128,
-    iconTextSize: 12,
+    iconSize: 144,
+    iconTextSize: 13,
     contents: [
-      { x: 180, y: 190, type: 'file' },
-      { x: 480, y: 190, type: 'link', path: '/Applications' },
+      { x: 170, y: 210, type: 'file' },
+      { x: 490, y: 210, type: 'link', path: '/Applications' },
     ],
   },
   win: {

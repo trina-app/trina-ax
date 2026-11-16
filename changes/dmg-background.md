@@ -1,2 +1,2 @@
-- The Mac download (.dmg) now opens on a Trina window: an orange background with an arrow from Trina AX to the
-  Applications folder and the line "Drag Trina AX to Applications". The icon names read in light and dark mode.
+- The Mac download (.dmg) now opens on a Trina window: a light background with the line "To install, drag Trina AX to
+  Applications" and an orange arrow between the app and the Applications folder, with larger icons.

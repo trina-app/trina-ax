@@ -1,4 +1,4 @@
-# The Mac dmg opens on a Trina window: orange background, an arrow from the app to Applications
+# The Mac dmg opens on a Trina window: a light background, a line and an arrow from the app to Applications
 
 - Date (UTC): 2026-11-15 14:22
 - Branch: `feat/dmg-background`
@@ -10,8 +10,9 @@
 ## Goal
 
 Opening Trina-AX-*.dmg shows a bare window: the app icon and an Applications alias on the default background. The
-owner wants it on-brand. They picked "Option B" from two mockups: a burnt Signal Orange window, the Trina mark and
-wordmark top left, a cream arrow from the app to Applications, and "Drag Trina AX to Applications" at the bottom.
+owner wants it on-brand. After a first orange design, they picked "Option C · Guided" (2026-11-16): near-white #FCFBF8
+with soft peach corner glows, the line "To install, drag Trina AX to Applications" (English only, one picture for
+every language) and a fading orange chevron between the app and Applications, icons 144 points.
 
 ## Scope
 
@@ -19,11 +20,10 @@ In:
 - `desktop/scripts/dmg-background.svg`: the source art (text outlined from Geist, so it renders with no fonts), with
   the render command in the file, as `trina-icon.svg` does.
 - `desktop/build-resources/background.png` (660×452) and `background@2x.png` (1320×904), rendered with rsvg-convert.
-  The art is laid out on 660×420; the canvas runs 32 points lower in plain orange (see Result).
+  The art is laid out on 660×420; the canvas runs 32 points lower in the background glow only (see Result).
 - Base `dmg` settings in `desktop/electron-builder.config.ts` (the Developer ID config spreads them): background,
-  icon size, label size, and the two icons' positions over the art.
-- The orange is a mid tone on purpose: Finder writes the icon names in black in light mode and white in dark mode, and
-  the background cannot follow, so the names must read on it both ways (about 4.5:1 each).
+  icon size 144, label size 13, and the two icons at (170,210) and (490,210) over the art.
+- The picture is light, so Finder writes the icon names dark in light and dark mode (checked in a real Finder).
 
 Out: the Mac App Store build (no dmg) and Windows (NSIS).
 
@@ -52,7 +52,8 @@ Built as planned, with two changes found in real builds (mounted read-only from 
   electron-builder 26.15.3 update (its own PR, `chore/electron-builder-26-15`).
 - Finder counts the title bar in the window size (32 points on macOS 26, 28 before), and 26.15.3 makes the window the
   picture's size and ignores `window` when there is a background. So there is no `window`, and the canvas is 660×452:
-  the 420 points of art and 32 points of plain orange below, so an older system shows a little more orange.
+  the 420 points of art and 32 points of background glow below, so an older system shows a little more of it.
 - electron-builder joins `background.png` and `background@2x.png` into one TIFF (`tiffutil -cathidpicheck`); the
-  dmg's `.DS_Store` has icon size 128, label size 12 and the two icons at (180,190) and (480,190).
+  dmg's `.DS_Store` has icon size 144, label size 13 and the two icons at (170,210) and (490,210).
+- The first orange design was replaced by the owner's pick "Option C · Guided" (light, chevron, one line).
 - Geist's notice is in NOTICE and docs/THIRD-PARTY-NOTICES.md (outlines only, no font file).
