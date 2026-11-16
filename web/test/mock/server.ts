@@ -4292,7 +4292,7 @@ export class MockServer {
         createdAt: now(), reviewedAt: null, canReview: false,
       }
       this.suggestions.unshift(s)
-      this.publish({ type: 'notice', data: { level: 'info', code: 'skill_suggested', message: `${c.user.name} 님이 스킬을 제안했어요: ${s.name} → ${s.targetFolder}/`, link: `/skills?review=${s.id}` } })
+      this.publish({ type: 'notice', data: { level: 'info', code: 'skill_suggested', message: `${c.user.name} 님이 스킬을 제안했어요: ${s.name} → ${['팀 스킬', ...s.targetFolder.split('/').slice(1)].join(' › ')}`, link: `/skills?review=${s.id}` } })
       return { status: 201, body: this.suggestionFor(s, c.user) }
     },
     approveSkillSuggestion: (c) => {

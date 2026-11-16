@@ -119,7 +119,7 @@ export function readCompanyProfile(files: FileService, user: Principal): Company
   try {
     const r = authorize(files.fx, files.rules(), user, PROFILE_PATH, 'read')
     if (!r.st?.isFile() || r.st.size > PROFILE_FILE_MAX_BYTES) return null
-    const raw = JSON.parse(readRegular(r.abs, PROFILE_FILE_MAX_BYTES).bytes.toString('utf8')) as Record<string, unknown>
+    const raw = JSON.parse(readRegular(r.abs, PROFILE_FILE_MAX_BYTES, r.st).bytes.toString('utf8')) as Record<string, unknown>
     const p = cleanProfile(raw)
     if (!p || profileEmpty(p)) return null
     const at = typeof raw.updatedAt === 'string' && !Number.isNaN(Date.parse(raw.updatedAt)) ? new Date(raw.updatedAt).toISOString() : r.st.mtime.toISOString()
@@ -175,7 +175,7 @@ export function saveCompanyProfile(files: FileService, userId: string, input: Co
   let base: string | null = null
   try {
     const r = authorize(files.fx, files.rules(), user, PROFILE_PATH, 'read')
-    if (r.st?.isFile()) base = sha256(readRegular(r.abs, PROFILE_FILE_MAX_BYTES * 4).bytes)
+    if (r.st?.isFile()) base = sha256(readRegular(r.abs, PROFILE_FILE_MAX_BYTES * 4, r.st).bytes)
   } catch { /* none yet, or not readable: the write decides */ }
   files.humanSave(userId, PROFILE_PATH, Buffer.from(text, 'utf8'), base)
   return profile

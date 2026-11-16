@@ -250,6 +250,8 @@ async function main() {
   const su = show('server.service', ['User', 'NoNewPrivileges', 'ProtectSystem', 'Delegate', 'KillMode', 'Environment'])
   check('server unit: server account, hardening, bootstrap environment (spec 3.2.3)', su.User === SRV && su.NoNewPrivileges === 'yes' && su.ProtectSystem === 'strict' && su.Delegate === 'yes' && su.KillMode === 'mixed'
     && /MYCEL_SANDBOX_HELPER=\/var\/lib\/mycel-test\/root\/mycel-sandbox/.test(su.Environment ?? '') && /MYCEL_ALLOW_UNSIGNED=1/.test(su.Environment ?? ''), JSON.stringify(su))
+  const mem = show('server.service', ['MemoryMax', 'MemorySwapMax', 'MemoryHigh'])
+  check('server unit: memory safety net MemoryMax=75% of RAM, no swap, no MemoryHigh', /^\d+$/.test(mem.MemoryMax ?? '') && mem.MemorySwapMax === '0' && mem.MemoryHigh === 'infinity', JSON.stringify(mem))
   const slices = ['launcher.service', 'server.service'].map((u) => sh(['systemctl', 'show', unit(u), '-pSlice']).out.trim())
   check(`both units in ${SLICE} (the group 1A bounds), the server names root's 1A programs`, slices.every((x) => x === `Slice=${SLICE}`)
     && new RegExp(`MYCEL_SAFE_OPS_BIN=${BASE}/root/safe-ops`).test(su.Environment ?? '') && fs.existsSync(`/etc/systemd/system/${SLICE}`), `${slices} ${su.Environment}`)

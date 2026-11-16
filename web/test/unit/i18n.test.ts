@@ -146,7 +146,9 @@ describe('translations', () => {
     const bare = /\{\w+\} (?:more |other |unread )?(?:people|times|uses|files|items|rows|lines|notifications|questions|tokens|members|chats|skills|personas|veces|usos|archivos|elementos|filas|líneas|notificaciones|preguntas|seleccionados|caracteres)(?![\p{L}])/u
     const notCounts = new Set(['preview.sheetRowsCut', 'ask.skillLines', 'composer.answerTooLong', 'memory.hint', 'memory.tooLong', 'budgets.tokensPerDay', 'budgets.tokensPerMonth', 'budgets.usedTokensToday', 'budgets.usedTokensMonth',
       // a guest's Team AI limit: an amount written compact ("5M"), never a bare 1
-      'guest.ai.tokens', 'guest.admin.upTo', 'guest.aiLimitTokens', 'welcome.ai.why'])
+      'guest.ai.tokens', 'guest.admin.upTo', 'guest.aiLimitTokens', 'welcome.ai.why',
+      // a group's name, not a count ("Design skills")
+      'skills.groupPlace'])
     for (const loc of ['en', 'es'] as const) for (const [k, v] of Object.entries(DICTS[loc])) expect({ loc, k, bare: !notCounts.has(k) && bare.test(v) }).toEqual({ loc, k, bare: false })
   })
   test('steps of older answers follow the language on screen', () => {

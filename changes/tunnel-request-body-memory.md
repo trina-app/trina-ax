@@ -1,0 +1,2 @@
+- Uploads through a server's public internet address (a Cloudflare Tunnel, on Linux and on office Macs) no longer make the server hold on to memory. A 3 MB upload kept about 550 MB and a few 100 MB uploads could take a 4 GB server down; the memory now stays as low as on the server's own address.
+- An upload that is too large now ends its connection a few seconds after the server says so, instead of the server reading the rest of it for nothing.

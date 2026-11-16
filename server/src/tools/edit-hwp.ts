@@ -45,7 +45,7 @@ export async function editHwpFile(ctx: AppContext, files: TeamFiles, c: ToolCtx,
   const x = ext(src.rel)
   if (x !== 'hwpx' && x !== 'hwp') throw new ToolError('edit_hwp changes Hangul documents (.hwp and .hwpx) only; use edit for text files and make_file for new documents')
   if (checkRegular(src.abs).size > HWP_EDIT_MAX) throw new ToolError(`'${src.rel}' is larger than ${HWP_EDIT_MAX / 1024 / 1024} MB, too large to change here`)
-  const { bytes } = readRegular(src.abs, HWP_EDIT_MAX)
+  const { bytes } = readRegular(src.abs, HWP_EDIT_MAX, src.st)
   // the changes are found in the text the AI read: the file must still be that version
   const seen = c.files.readHashes.get(src.rel)
   if (!seen) throw new ToolError(`read '${src.rel}' first (with read) before changing it`, 'not_read')

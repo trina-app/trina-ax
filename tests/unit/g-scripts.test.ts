@@ -310,6 +310,12 @@ describe('Linux root scripts: syntax and rules', () => {
     const srv = fs.readFileSync(path.join(dir, 'server.service.in'), 'utf8')
     expect(srv).toContain('MYCEL_SANDBOX_HELPER=@BASE@/root/mycel-sandbox')
     expect(srv).toContain('KillMode=mixed')
+    // the memory safety net: a share of the machine's RAM (no placeholder: older renderers draw new templates), no swap,
+    // no MemoryHigh (it throttles a leaking server instead of ending it)
+    expect(srv).toContain('\nMemoryMax=75%\n')
+    expect(srv).toContain('\nMemorySwapMax=0\n')
+    expect(srv).not.toContain('\nMemoryHigh=')
+    expect([...srv.matchAll(/@([A-Z_]+)@/g)].map((m) => m[1]).every((k) => ['ID', 'SRV', 'BASE', 'PUBKEYS', 'ALLOW_UNSIGNED_ENV'].includes(k!))).toBe(true)
     const aa = read('scripts/linux/apparmor-bwrap.in')
     expect(aa).toMatch(/profile @ID@-bwrap \/usr\/bin\/bwrap flags=\(unconfined\) \{\n\s+userns,/)
   })
