@@ -40,6 +40,7 @@ const KEEP: Record<string, readonly string[]> = {
   edit_pdf: ['file_path'],
   merge_pdfs: ['files'],
   split_pdf: ['file_path', 'parts', 'every'],
+  comment_docx: ['file_path'],
   artifact: ['edits'],
   rename_file: ['path'],
   move_files: ['paths'],
@@ -48,6 +49,7 @@ const KEEP: Record<string, readonly string[]> = {
   save_room_file: ['room', 'file'],
   generate_video: [],
   promo_video: ['sources', 'logo'],
+  save_promo_video: [],
   intro_deck: ['urls'],
 }
 export const KEY_HIDING_TOOLS: readonly string[] = Object.keys(KEEP)

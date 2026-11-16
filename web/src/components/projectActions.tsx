@@ -15,14 +15,15 @@ import { useMe } from '../store/session'
 import { hideProject, showProject, unhideProject, useProjects } from '../store/projects'
 import { projectNow } from './ProjectMembersDialog'
 import { leaveItems, useLeaveProject } from './LeaveProject'
-import { confirmDialog, menuOpener, promptDialog, useCopy } from './ui'
+import { projectLink, useCopyLink, useTeamOrigin } from './ShareCopyLink'
+import { confirmDialog, menuOpener, promptDialog } from './ui'
 import type { MenuItem } from './rooms/MenuButton'
 
 /** A project's longest name (the server's UpdateProjectBody) */
 export const PROJECT_NAME_MAX = 100
 
-/** The address of a project's page (the app's own route; someone who cannot see the project gets "not found"). */
-export const projectLink = (id: string) => `${typeof location === 'undefined' ? '' : location.origin}/projects/${id}`
+/** The address of a project's page (components/ShareCopyLink.tsx, kept there for its Copy link). */
+export { projectLink }
 
 /** Who may rename and delete it, also without reading it (Project.canManage; older servers: whoever may edit it). */
 export const mayManage = (p: Project) => p.canManage ?? p.canEdit
@@ -222,7 +223,8 @@ export const mayRename = (p: Project) => !!mayManage(p) && !p.inTrash
  * for a member. `select` wraps each item (the keyboard back on the "…"); `testId` prefixes the items' test ids. */
 export function useProjectMenuItems(p: Project, o: { testId: string; select: (fn: () => unknown) => () => void; onRenamed?: (p: Project) => void; onDeleted: (d: Exclude<Deleted, null>) => void; onMembers: () => void }): MenuItem[] {
   const t = useT()
-  const { copy } = useCopy()
+  const copyHref = useCopyLink()
+  const origin = useTeamOrigin()
   const remove = useDeleteProject()
   const renameProject = useRenameProject()
   const leaveProject = useLeaveProject()
@@ -242,7 +244,8 @@ export function useProjectMenuItems(p: Project, o: { testId: string; select: (fn
     if (d && !(d === 'gone' && gone)) o.onDeleted(d)
   }
   const copyLink = async () => {
-    await copy(projectLink(p.id))
+    // on the team address (components/ShareCopyLink.tsx), and no "copied" when the browser refused it
+    if (!(await copyHref(projectLink(p.id, origin)))) return
     toast({ level: 'success', text: t('rooms.menu.linkCopied') })
   }
   return [

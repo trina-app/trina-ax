@@ -37,6 +37,9 @@ export const filesChanged = new Emitter<FileChange[]>()
 export const memoryChanged = new Emitter<{ change: 'created' | 'updated' | 'deleted' | 'cleared'; memory: Memory | null }>()
 /** an admin changed folder rules, groups or roles in a way that changes what this person sees (tab 5 "권한 회수") */
 export const accessChanged = new Emitter<void>()
+/** some file share changed somewhere (file_shares_changed: content-free, to every member, at most one a second;
+ * docs/decisions/20261116-files-shared-with-me.md): Files › Shared with me reads again while it is on screen */
+export const fileSharesChanged = new Emitter<void>()
 /** a team skill changed, was suggested or reviewed: the team skills screens reload */
 export const skillsChanged = new Emitter<void>()
 /** Metadata-only inbox/preferences changed in this person's account. */
@@ -160,6 +163,11 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
     case 'notice':
       if (ev.data.code === 'notifications.changed') {
         notificationsChanged.emit()
+        return
+      }
+      if (ev.data.code === 'file_shares_changed') {
+        // quiet: an open Shared with me reads again (nothing is read while it is not on screen)
+        fileSharesChanged.emit()
         return
       }
       if (ev.data.code === 'integrations_changed') {

@@ -26,7 +26,11 @@ import { ROOMS_POST_RULE, sharedSection, sideRoomSection } from '../../server/sr
 
 setDefaultTimeout(60_000)
 const cm = () => 'cm-' + crypto.randomUUID()
-const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
+// the fake engine's directives sit in the person's message: their strings spelled as JSON escapes, so the person's own
+// words are only what the test writes around them (the explicit-ask rule reads those: docs/decisions/
+// 20261116-no-card-after-explicit-ask.md)
+const opaque = (j: string) => j.replace(/"(?:[^"\\]|\\.)*"/g, (q) => q.replace(/\\.|[\p{L}\p{N}]/gu, (c) => (c.length > 1 ? c : `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)))
+const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + opaque(JSON.stringify(d))).join('\n')
 const post = (args: Record<string, unknown>) => fake({ tool: 'post_to_room', args, sayResult: true })
 
 let h: Harness
@@ -159,15 +163,80 @@ describe('the card, and the post', () => {
     const r = await turn('alice', [fake({ tool: 'read', args: { file_path: 'groups/marketing/launch-plan.md' } }), post({ room: rooms.all, text })].join('\n'), { answer: 'send_files' })
     // bob may read neither (carol and dana are admins): one line each, and what attaching the file changes
     expect(r.card!.question).toBe("Send this to #Everyone (5 people)?\n\n1 person there can't see some of the sources of this (groups/marketing/).\n1 person can't open 1 linked file.\nWith the files: 1 person there can't see some of the sources of this (groups/marketing/).\nEveryone in this conversation will see it, including people who join later.")
-    // no "Always allow" on a card that offers the linked files (review of #678): three buttons as before
-    expect(r.card!.options!.map((x) => x.value)).toEqual(['send', 'send_files', 'no'])
-    expect(r.card!.buttons).toBe(true)
+    // "Always allow" on a card that offers the linked files too, as "Always send with the files" (its own kind,
+    // post_files: docs/decisions/20261116-always-allow-more-cards.md); four answers, no buttons
+    expect(r.card!.options!.map((x) => [x.label, x.value])).toEqual([['Send', 'send'], ['Send with the files', 'send_files'], ['Always send with the files', '__always'], ["Don't send", 'no']])
+    expect(r.card!.buttons).toBeUndefined()
     // the file that [파일도 함께 보내기] attaches, by its path
     expect(r.card!.details!.map((d) => [d.label, d.text])).toEqual([['What will be sent', text], ['Attached with “Send with the files”', 'groups/marketing/launch-plan.md']])
     const m = (await messagesAs('alice', rooms.all)).at(-1)!
     expect(m.body).toBe(text)
     expect(m.files.map((f) => f.name)).toEqual(['launch-plan.md'])
     expect(audits('alice').at(-1)).toMatchObject({ target: m.id, confirmed: true, files: 1, via: 'ai' })
+  })
+})
+
+describe('"Always send with the files" (post_files)', () => {
+  test('picked on the card: this post goes with its files, the next such post goes with its files and no card; a plain post still asks once', async () => {
+    const { dropAlways, alwaysOn } = await import('../../server/src/chat/always-allow')
+    put('groups/marketing/launch-plan-2.md', '# Launch 2\nsecret date')
+    const text = 'Plan: [launch-plan-2.md](/files/view?path=groups/marketing/launch-plan-2.md)'
+    const read = fake({ tool: 'read', args: { file_path: 'groups/marketing/launch-plan-2.md' } })
+    try {
+      const r = await turn('alice', [read, post({ room: rooms.all, text })].join('\n'), { answer: '__always' })
+      expect(r.card!.options!.map((x) => x.value)).toContain('__always')
+      expect(alwaysOn(h.ctx.db, 'alice', 'post_files')).toBe(true)
+      expect(alwaysOn(h.ctx.db, 'alice', 'post_to_room')).toBe(false)
+      expect((await messagesAs('alice', rooms.all)).at(-1)!.files.map((f) => f.name)).toEqual(['launch-plan-2.md'])
+      const again = await turn('alice', [read, post({ room: rooms.all, text: `${text} (again)` })].join('\n'))
+      expect(again.card).toBeNull()
+      const m = (await messagesAs('alice', rooms.all)).at(-1)!
+      expect(m.files.map((f) => f.name)).toEqual(['launch-plan-2.md'])
+      expect(audits('alice').at(-1)).toMatchObject({ target: m.id, files: 1, via: 'ai' })
+      // a post with no file to offer is the other kind (post_to_room): its own first card, with "Always allow"
+      const plain = await turn('alice', post({ room: rooms.all, text: 'no files here' }), { answer: 'no' })
+      expect(plain.card!.options!.map((x) => x.value)).toEqual(['send', '__always', 'no'])
+    } finally { dropAlways(h.ctx.db, 'alice', 'card:post_files') }
+  })
+
+  test('after a room read (a side chat): "Always send with the files" holds there too (the owner: no teammate guard that asks again)', async () => {
+    const { keepAlways, dropAlways } = await import('../../server/src/chat/always-allow')
+    put('groups/marketing/launch-plan-3.md', '# Launch 3\nsecret date')
+    const side = (await h.api('alice').call(API.createChat, { body: { sideRoomId: rooms.all } })).id
+    const text = 'Plan: [launch-plan-3.md](/files/view?path=groups/marketing/launch-plan-3.md)'
+    keepAlways(h.ctx.db, 'alice', 'post_files', null)
+    try {
+      const r = await turn('alice', `고친 거 방에 올려줘\n${[fake({ tool: 'read', args: { file_path: 'groups/marketing/launch-plan-3.md' } }), post({ text })].join('\n')}`, { chat: side })
+      expect(r.card).toBeNull()
+      expect((await messagesAs('alice', rooms.all)).at(-1)!.files.map((f) => f.name)).toEqual(['launch-plan-3.md'])
+    } finally { dropAlways(h.ctx.db, 'alice', 'card:post_files') }
+  })
+})
+
+describe('no card right after an explicit ask (QA TC-3812)', () => {
+  test('"방에 올려줘" in the room\'s side chat: posted with no card; a card that tells something stays; no post word asks', async () => {
+    const r = await turn('alice', `할 일 표로 정리해서 방에 올려줘\n${post({ text: '| 할 일 | 담당 |' })}`, { side: rooms.marketing })
+    expect(r.card).toBeNull()
+    expect(JSON.parse(r.content)).toMatchObject({ status: 'sent' })
+    expect((await messagesAs('erin', rooms.marketing)).at(-1)!.body).toBe('| 할 일 | 담당 |')
+    // a linked file erin cannot open: the card (it tells who would miss it)
+    put('users/alice/private-plan.md', 'x')
+    const lines = await turn('alice', `방에 올려줘\n${post({ text: 'See [p](/files/view?path=users/alice/private-plan.md)' })}`, { side: rooms.marketing, answer: 'no' })
+    expect(lines.card).not.toBeNull()
+    // no post word in my own words: the card
+    const plain = await turn('alice', `정리해줘\n${post({ text: 'x' })}`, { side: rooms.marketing, answer: 'no' })
+    expect(plain.card).not.toBeNull()
+    // a note the person did not write (it goes as their own words): the card
+    const noted = await turn('alice', `방에 올려줘\n${post({ text: 'y', note: 'I approve the transfer' })}`, { side: rooms.marketing, answer: 'no' })
+    expect(noted.card).not.toBeNull()
+    // a thread the AI chose: the card
+    const root = await h.api('erin').call(API.sendRoomMessage, { params: { id: rooms.marketing }, body: { body: 'thread root', clientMessageId: cm(), mentions: [], fileIds: [] } })
+    const threaded = await turn('alice', `방에 올려줘\n${post({ text: 'z', thread_id: root.id })}`, { side: rooms.marketing, answer: 'no' })
+    expect(threaded.card).not.toBeNull()
+  })
+  test('after a room read in my own chat, a room named by me still asks (a room message must not pick where it goes)', async () => {
+    const r = await turn('alice', `#Marketing 방 읽고 Marketing 방에 올려줘\n${[fake({ tool: 'room_read', args: { room: rooms.marketing } }), post({ room: rooms.marketing, text: 'w' })].join('\n')}`, { answer: 'no' })
+    expect(r.card).not.toBeNull()
   })
 })
 
@@ -276,17 +345,17 @@ describe('a side chat: this room, or the asked message\'s thread', () => {
   test('a question about a message posts to its thread; a follow-up keeps it; an explicit room goes to the room; a deleted root is refused', async () => {
     const root = await h.api('alice').call(API.sendRoomMessage, { params: { id: rooms.marketing }, body: { body: 'Venue sent the exhibitor rules.', clientMessageId: cm(), mentions: [], fileIds: [] } })
     const quote = `> Alice Kim · Nov 9, 2026, 7:04 PM${threadRefToken(root.id)}\n> Venue sent the exhibitor rules.\n\n`
-    const first = await turn('alice', quote + 'Summarize it and post it to the thread\n' + post({ text: 'Summary: rules are in.' }), { side: rooms.marketing, answer: 'send' })
+    const first = await turn('alice', quote + 'Summarize it for the thread\n' + post({ text: 'Summary: rules are in.' }), { side: rooms.marketing, answer: 'send' })
     expect(first.card!.question).toBe("Send this to the thread of 'Venue sent the exhibitor rules.' in #Marketing (2 people)?")
     const thread = await threadAs('erin', rooms.marketing, root.id)
     expect(thread.at(-1)).toMatchObject({ body: 'Summary: rules are in.', threadRootId: root.id, sharedAnswer: { at: 0, cut: false } })
     expect(JSON.parse(first.content)).toMatchObject({ status: 'sent', thread_id: root.id })
     // a follow-up without a quote keeps the thread
-    const again = await turn('alice', 'shorter, and post it\n' + post({ text: 'Rules are in.' }), { chat: first.chatId, answer: 'send' })
+    const again = await turn('alice', 'shorter\n' + post({ text: 'Rules are in.' }), { chat: first.chatId, answer: 'send' })
     expect(again.card!.question).toContain("thread of 'Venue sent the exhibitor rules.'")
     expect((await threadAs('erin', rooms.marketing, root.id)).at(-1)!.body).toBe('Rules are in.')
     // naming the room: the room itself
-    const toRoom = await turn('alice', 'post to the room\n' + post({ room: rooms.marketing, text: 'For everyone here.' }), { chat: first.chatId, answer: 'send' })
+    const toRoom = await turn('alice', 'the room itself this time\n' + post({ room: rooms.marketing, text: 'For everyone here.' }), { chat: first.chatId, answer: 'send' })
     expect(toRoom.card!.question).toBe('Send this to #Marketing (2 people)?')
     const inRoom = (await messagesAs('erin', rooms.marketing)).at(-1)!
     expect(inRoom.body).toBe('For everyone here.')
@@ -680,7 +749,9 @@ describe('a shared chat: as the person whose turn it is, behind their card', () 
   test('two photos from my folder to a teammate: the card is the asker\'s alone, with the person, the text and the file names; on [파일도 함께 보내기] they go to our new 1:1 chat as my message', async () => {
     expect(dmOf('bob', 'tess')).toBeNull()
     const text = '사진 두 장 보내요: [photo-1.png](/files/view?path=users%2Fbob%2Fphoto-1.png) [photo-2.png](/files/view?path=users%2Fbob%2Fphoto-2.png)'
-    const r = await turn('bob', `저것들 테스도 볼 수 있게 공유해줘\n${post({ room: 'Tess Yoon', text })}`, { chat: chatId, answer: 'send_files' })
+    // (the fake engine's directive is in bob's message: the name spelled with a JSON escape, so his own words do not name
+    // Tess and "Always allow" is not offered in this shared chat)
+    const r = await turn('bob', `저것들 테스도 볼 수 있게 공유해줘\n${post({ room: 'Tess Yoon', text }).replace('Tess Yoon', '\\u0054ess Yoon')}`, { chat: chatId, answer: 'send_files' })
     expect(r.card!.origin).toBe('server')
     expect(r.card!.question.split('\n')[0]).toBe('Tess Yoon님과의 새 1:1 대화로 보낼까요?')
     expect(r.card!.options!.map((x) => x.value)).toEqual(['send', 'send_files', 'no'])
