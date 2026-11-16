@@ -53,6 +53,15 @@ const rotations = async (rel: string) => (await PDFDocument.load(fs.readFileSync
 /** a page's text with every space and line break taken out (pdftotext breaks drawn lines its own way) */
 const text = (rel: string, page: number) => (pdftotext ? Bun.spawnSync([pdftotext, '-f', String(page), '-l', String(page), file(rel), '-']).stdout.toString().replace(/\s+/g, '') : '')
 const D = 'groups/marketing/pdfs'
+/** every stream of the file, decoded */
+const streams = async (rel: string) => {
+  const doc = await PDFDocument.load(fs.readFileSync(file(rel)))
+  let all = ''
+  for (const [, obj] of doc.context.enumerateIndirectObjects()) {
+    if (obj instanceof PDFRawStream) { try { all += Buffer.from(decodePDFRawStream(obj).decode()).toString('latin1') } catch { all += Buffer.from(obj.contents).toString('latin1') } }
+  }
+  return all
+}
 const pdftoppm = Bun.which('pdftoppm')
 /** how many pixels of a page drawn at 36 dpi are not white (a light watermark counts) */
 function dark(rel: string, page: number): number {
@@ -110,15 +119,6 @@ describe('edit_pdf: each operation, as a new file next to the original', () => {
   test('removed pages are gone from the file, not only from the page list (remove, keep, reorder)', async () => {
     put(`${D}/salary.pdf`, makePagedPdf([['PUBLIC-ONE'], ['SECRETSALARY'], ['PUBLIC-THREE']]))
     const call = turn('alice')
-    /** every stream of the file, decoded */
-    const streams = async (rel: string) => {
-      const doc = await PDFDocument.load(fs.readFileSync(file(rel)))
-      let all = ''
-      for (const [, obj] of doc.context.enumerateIndirectObjects()) {
-        if (obj instanceof PDFRawStream) { try { all += Buffer.from(decodePDFRawStream(obj).decode()).toString('latin1') } catch { all += Buffer.from(obj.contents).toString('latin1') } }
-      }
-      return all
-    }
     for (const [i, ops] of [[{ remove_pages: '2' }], [{ keep_pages: '1,3' }], [{ remove_pages: '2' }, { reorder_pages: '2,1' }]].entries()) {
       const out = `${D}/salary-out-${i}.pdf`
       const r = await call('edit_pdf', { file_path: `${D}/salary.pdf`, operations: ops, output: out })
@@ -126,6 +126,34 @@ describe('edit_pdf: each operation, as a new file next to the original', () => {
       const s = await streams(out)
       expect(s).toContain('PUBLIC-ONE')
       expect(s, JSON.stringify(ops)).not.toContain('SECRETSALARY')
+    }
+  })
+
+  test('pictures of a removed page are gone too when every page shares one resource list (remove, split, merge)', async () => {
+    // a /Resources on the page tree, as scanners write it: three form XObjects, each drawn by one page only
+    const objs: string[] = ['<< /Type /Catalog /Pages 2 0 R >>',
+      '<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 /Resources << /XObject << /X1 6 0 R /X2 7 0 R /X3 8 0 R >> /Font << /F1 9 0 R >> >> >>']
+    for (let i = 1; i <= 3; i++) objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents ${9 + i} 0 R >>`)
+    for (let i = 1; i <= 3; i++) { const s = `BT /F1 12 Tf 10 10 Td (XOBJ-SECRET-${i}) Tj ET`; objs.push(`<< /Type /XObject /Subtype /Form /BBox [0 0 300 50] /Resources << /Font << /F1 9 0 R >> >> /Length ${s.length} >>\nstream\n${s}\nendstream`) }
+    objs.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>')
+    for (let i = 1; i <= 3; i++) { const s = `q 1 0 0 1 72 700 cm /X${i} Do Q BT /F1 12 Tf 72 780 Td (PAGE-S-${i}) Tj ET`; objs.push(`<< /Length ${s.length} >>\nstream\n${s}\nendstream`) }
+    put(`${D}/shared-res.pdf`, writePdf(objs))
+    const call = turn('alice')
+    const runs: [string, Record<string, unknown>, string][] = [
+      ['edit_pdf', { file_path: `${D}/shared-res.pdf`, operations: [{ remove_pages: '2' }], output: `${D}/sr-remove.pdf` }, `${D}/sr-remove.pdf`],
+      ['split_pdf', { file_path: `${D}/shared-res.pdf`, parts: ['1'], output_folder: `${D}/sr-split` }, `${D}/sr-split/shared-res (${word('part')} 1).pdf`],
+      ['merge_pdfs', { files: [{ path: `${D}/shared-res.pdf`, pages: '1' }, `${D}/quote.pdf`], output: `${D}/sr-merge.pdf` }, `${D}/sr-merge.pdf`],
+    ]
+    for (const [tool, args, out] of runs) {
+      const r = await call(tool, args)
+      expect(r.isError, r.text).toBe(false)
+      const s = await streams(out)
+      expect(s, tool).toContain('XOBJ-SECRET-1')
+      expect(s, tool).not.toContain('XOBJ-SECRET-2')
+      if (tool === 'edit_pdf') expect(s).toContain('XOBJ-SECRET-3')
+      else expect(s, tool).not.toContain('XOBJ-SECRET-3')
+      // still drawn: the picture of page 1 is on page 1
+      if (pdftotext) expect(text(out, 1)).toContain('XOBJ-SECRET-1')
     }
   })
 

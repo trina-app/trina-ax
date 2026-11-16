@@ -8,7 +8,7 @@
 // { remove_pages: "2" } the old page 3 is page 2. Positions are said as the page is shown (its CropBox with /Rotate
 // applied), from its top-left corner, in mm. A page's own drawing is wrapped in q … Q before anything is drawn on it.
 import fontkit from '@pdf-lib/fontkit'
-import { degrees, PDFDocument, popGraphicsState, pushGraphicsState, rgb, StandardFonts, type PDFFont, type PDFPage } from 'pdf-lib'
+import { decodePDFRawStream, degrees, PDFArray, PDFDict, PDFDocument, PDFFlateStream, PDFName, PDFRawStream, popGraphicsState, pushGraphicsState, rgb, StandardFonts, type PDFFont, type PDFPage } from 'pdf-lib'
 import { ToolError } from '../policy/errors'
 import { decodeHwpxRequest, encodeHwpxRequest } from './hwpx-check'
 import { imageKind, imageSize, mmToPt, ptToMm, shownRect, STAMP_DEFAULT_MARGIN_MM, STAMP_DEFAULT_WIDTH_MM, STAMP_IMAGE_SIDE_MAX, type StampPosition } from './pdf-stamp'
@@ -152,6 +152,44 @@ function removePage(doc: PDFDocument, index: number) {
   ;(doc as unknown as { pageCache: { invalidate(): void } }).pageCache.invalidate()
 }
 
+/**
+ * Give each of these pages its own /Resources whose /XObject and /Font hold only the names its content streams use
+ * (`/Name Do`, `/Name Tf`), before the pages are copied into a new document: a /Resources shared by many pages (on the
+ * page tree, common in scanner and generator output) would otherwise carry a removed page's pictures into the result
+ * (review of feat/edit-pdf). A page whose content cannot be decoded keeps its resources as they are.
+ */
+export function pruneResources(doc: PDFDocument, indices: number[]) {
+  const ctx = doc.context
+  for (const i of new Set(indices)) {
+    const node = doc.getPage(i).node
+    let text = ''
+    try {
+      const c = ctx.lookup(node.get(PDFName.of('Contents')))
+      const streams = c instanceof PDFArray ? c.asArray().map((x) => ctx.lookup(x)) : [c]
+      for (const s of streams) {
+        // a stream read from the file, or one drawn here (our q … Q, a stamp, text: not yet encoded)
+        if (s instanceof PDFRawStream) text += Buffer.from(decodePDFRawStream(s).decode()).toString('latin1') + '\n'
+        else if (s instanceof PDFFlateStream) text += Buffer.from(s.getUnencodedContents()).toString('latin1') + '\n'
+        else throw new Error('not a stream')
+      }
+    } catch { continue }
+    const res = node.Resources()
+    if (!res) continue
+    const own = res.clone(ctx)
+    for (const [key, op] of [['XObject', 'Do'], ['Font', 'Tf']] as const) {
+      const dict = own.lookupMaybe(PDFName.of(key), PDFDict)
+      if (!dict) continue
+      const used = new Set<string>()
+      const re = key === 'XObject' ? /\/([^\s/<>\[\]()]+)\s+Do\b/g : /\/([^\s/<>\[\]()]+)\s+[-+\d.]+\s+Tf\b/g
+      for (const m of text.matchAll(re)) used.add(m[1]!)
+      const kept = PDFDict.withContext(ctx)
+      for (const [name, v] of dict.entries()) if (used.has(name.decodeText())) kept.set(name, v)
+      own.set(PDFName.of(key), kept)
+    }
+    node.set(PDFName.of('Resources'), own)
+  }
+}
+
 const wrapped = new WeakSet<PDFPage>()
 /** the page's own drawing in q … Q once, so coordinates it leaves changed do not move what is drawn after it */
 function wrapOnce(doc: PDFDocument, page: PDFPage) {
@@ -214,6 +252,7 @@ export async function pdfPagesRequest(input: Uint8Array): Promise<Uint8Array> {
       signed ||= has(parts[f.part]!, '/ByteRange')
       const pages = f.pages ? parsePages(f.pages, src.getPageCount()) : Array.from({ length: src.getPageCount() }, (_, i) => i + 1)
       tooMany(out.getPageCount() + pages.length)
+      pruneResources(src, pages.map((x) => x - 1))
       for (const p of await out.copyPages(src, pages.map((x) => x - 1))) out.addPage(p)
     }
     return finish([{ bytes: await save(out), pages: out.getPageCount() }], signed)
@@ -239,6 +278,7 @@ export async function pdfPagesRequest(input: Uint8Array): Promise<Uint8Array> {
     const files: { bytes: Uint8Array; pages: number }[] = []
     for (const spec of job.parts) {
       const pages = parsePages(spec, doc.getPageCount())
+      pruneResources(doc, pages.map((x) => x - 1))
       const part = await PDFDocument.create()
       for (const p of await part.copyPages(doc, pages.map((x) => x - 1))) part.addPage(p)
       files.push({ bytes: await save(part), pages: part.getPageCount() })
@@ -379,6 +419,7 @@ export async function pdfPagesRequest(input: Uint8Array): Promise<Uint8Array> {
   // are copied into a new document, which holds only what they use. (Its outline and form fields are not carried over.)
   if (dropped) {
     const fresh = await PDFDocument.create()
+    pruneResources(doc, doc.getPageIndices())
     for (const p of await fresh.copyPages(doc, doc.getPageIndices())) fresh.addPage(p)
     return finish([{ bytes: await save(fresh), pages: fresh.getPageCount() }], signed)
   }
