@@ -528,4 +528,15 @@ describe('second review: what "made in this answer" means, and a chat that read 
     db.query("INSERT INTO users (id, username, name, role, status, deleted_at) VALUES ('f1', 'mal6', 'Finance', 'member', 'active', NULL)").run()
     try { expect(soleNames(db, 'f1')).toEqual(['mal6']) } finally { db.query("DELETE FROM users WHERE id = 'f1'").run() }
   })
+
+  test('a purpose, a manner or an adverb next to a named recipient is not another one; titles are not people', () => {
+    // (Korean as escapes: 보고서 김대리한테 바로 볼 수 있게 공유해줘 / 바로 / 이 보고서 책임님께 공유해줘 / 책임 / tess가 볼 수 있게)
+    expect(namedInFull('\uBCF4\uACE0\uC11C \uAE40\uB300\uB9AC\uD55C\uD14C \uBC14\uB85C \uBCFC \uC218 \uC788\uAC8C \uACF5\uC720\uD574\uC918', ['\uBC14\uB85C'], { peers: ['\uAE40\uB300\uB9AC'] })).toBe(false)
+    for (const [said, w] of [['share budget.txt with tess to approve', 'approve'], ['send the report to tess with comments', 'comments'], ['share it with Tess Yoon to sign', 'sign']] as const) expect([said, namedInFull(said, [w], { peers: ['tess', 'Tess Yoon'] })]).toEqual([said, false])
+    expect(namedInFull('\uC774 \uBCF4\uACE0\uC11C \uCC45\uC784\uB2D8\uAED8 \uACF5\uC720\uD574\uC918', ['\uCC45\uC784'])).toBe(false)
+    expect(namedInFull('send the bug report to QA', ['qa'])).toBe(false)
+    expect(namedInFull('I want to share it with bob', ['bob'])).toBe(true)
+    expect(namedInFull('share budget.txt with tess to review', ['tess'])).toBe(true)
+    expect(namedInFull('tess\uAC00 \uBCFC \uC218 \uC788\uAC8C \uACF5\uC720\uD574\uC918', ['tess'])).toBe(true)
+  })
 })

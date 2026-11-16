@@ -105,7 +105,7 @@ describe('in my own chat', () => {
 
   test('no card right after an explicit ask: a share word, the person and the file in my own words (QA TC-3812)', async () => {
     put('users/bob/거래처-목록.csv', 'a,b')
-    const r = await turn('bob', `거래처 목록 테스한테도 tess 볼 수 있게 공유해줘\n${share({ paths: ['users/bob/거래처-목록.csv'], people: ['Tess Yoon'] })}`)
+    const r = await turn('bob', `거래처 목록 테스한테도 tess가 볼 수 있게 공유해줘\n${share({ paths: ['users/bob/거래처-목록.csv'], people: ['Tess Yoon'] })}`)
     expect(cardsTo('bob', r.turnId)).toBe(0)
     const out = JSON.parse(r.content)
     expect(out.status).toBe('shared')

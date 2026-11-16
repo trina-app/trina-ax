@@ -92,7 +92,10 @@ const NAME_SCAN = 4000
 const nameOk = (n: string) => n.length >= 2 && !NOT_A_NAME.has(n)
 /** A person's name: nameOk, and not a department, an outside party or a phrase about someone ("legal", "my boss",
  * 인사팀, 거래처): a member may call themselves that, and the person's words mean the department, not them. */
-const NOT_A_PERSON = new Set(['legal', 'finance', 'accounting', 'sales', 'marketing', 'support', 'client', 'clients', 'customer', 'customers', 'vendor', 'partner', 'partners', 'investor', 'investors', 'it', 'ops', 'design', 'engineering', 'product', 'payroll', 'reception', 'security', 'management', 'board', 'staff', 'keuangan', 'klien',
+const NOT_A_PERSON = new Set(['qa', 'pm', 'po', 'dev', 'devs', 'intern', 'interns', 'assistant', 'director', 'lawyer', 'accountant', 'designer', 'developer', 'engineer', 'reviewer', 'review', 'approver', 'editor',
+  // (책임, 수석, 선임, 프로, 파트장, 그룹장, 센터장, 소장, 원장, 회장, 부사장, 고문, 인턴, 비서, 연구원, 팀원, 직원, 변호사, 세무사, 회계사, 노무사, 교수, 기자, 작가, 디자이너, 개발자)
+  '\uCC45\uC784', '\uC218\uC11D', '\uC120\uC784', '\uD504\uB85C', '\uD30C\uD2B8\uC7A5', '\uADF8\uB8F9\uC7A5', '\uC13C\uD130\uC7A5', '\uC18C\uC7A5', '\uC6D0\uC7A5', '\uD68C\uC7A5', '\uBD80\uC0AC\uC7A5', '\uACE0\uBB38', '\uC778\uD134', '\uBE44\uC11C', '\uC5F0\uAD6C\uC6D0', '\uD300\uC6D0', '\uC9C1\uC6D0', '\uBCC0\uD638\uC0AC', '\uC138\uBB34\uC0AC', '\uD68C\uACC4\uC0AC', '\uB178\uBB34\uC0AC', '\uAD50\uC218', '\uAE30\uC790', '\uC791\uAC00', '\uB514\uC790\uC774\uB108', '\uAC1C\uBC1C\uC790',
+  'legal', 'finance', 'accounting', 'sales', 'marketing', 'support', 'client', 'clients', 'customer', 'customers', 'vendor', 'partner', 'partners', 'investor', 'investors', 'it', 'ops', 'design', 'engineering', 'product', 'payroll', 'reception', 'security', 'management', 'board', 'staff', 'keuangan', 'klien',
   // (거래처, 고객, 고객사, 회계, 인사, 총무, 법무, 재무, 영업, 마케팅, 개발, 디자인, 관리자, 담당자)
   '\uAC70\uB798\uCC98', '\uACE0\uAC1D', '\uACE0\uAC1D\uC0AC', '\uD68C\uACC4', '\uC778\uC0AC', '\uCD1D\uBB34', '\uBC95\uBB34', '\uC7AC\uBB34', '\uC601\uC5C5', '\uB9C8\uCF00\uD305', '\uAC1C\uBC1C', '\uB514\uC790\uC778', '\uAD00\uB9AC\uC790', '\uB2F4\uB2F9\uC790'])
 const personOk = (n: string) => nameOk(n) && !NOT_A_PERSON_NAME.has(n) && !NOT_A_PERSON_NAME.has(n.replace(TITLE_NIM, '')) && !NOT_A_PERSON_NAME.has(n.replace(/^the /, '')) && !NOT_A_PERSON.has(n.replace(/^(the|my|our) /, '')) && !/^(my|our|your|his|her|their|the|this|these|those|that|a|an|some|any|every|other|another) /.test(n)
@@ -105,9 +108,15 @@ const personOk = (n: string) => nameOk(n) && !NOT_A_PERSON_NAME.has(n) && !NOT_A
  * where it goes (에, 에다, 방에 … for a place). A name joined by and, a comma, 와/과, (이)랑 or 하고 counts only in a
  * chain of other recipients of the same call that ends at such a word ("to tess and bob", "김대리와 이과장한테"). */
 const BEFORE_PERSON = '(?:(?:^|[^\\p{L}\\p{N}])(?:to|with|cc|ke|dengan|kepada)\\s+@?|[(@]\\s*)'
+/** ...but not a "to"/"with" right after a recipient already named ("with tess to review", "to tess with comments": a
+ * purpose or a manner, not a second person): one to three words after an earlier to/with/cc, none of them a verb that
+ * starts a new ask ("I want to share it with bob" keeps bob) */
+const AFTER_ONE_NAMED = '(?<!(?:^|[^\\p{L}\\p{N}])(?:to|with|cc)\\s+@?(?:(?!(?:share|send|post|forward|give|show|pass|email|mail|bagikan|kirim)\\b)[\\p{L}\\p{N}._\'-]+\\s+){0,2}(?!(?:share|send|post|forward|give|show|pass|email|mail|bagikan|kirim)\\b)[\\p{L}\\p{N}._\'-]+)'
 const BEFORE_PLACE = '(?:(?:^|[^\\p{L}\\p{N}])(?:to|in|into|on|ke|di)\\s+(?:the\\s+)?[@#]?|[(@#]\\s*)'
 const HONORIFIC = '(?:\\s?(?:\\uB2D8|\\uC528))?'
-const AFTER_PERSON = `${HONORIFIC}(?:\\uC774\\uC5D0\\uAC8C|\\uC774\\uD55C\\uD14C|\\uB354\\uB7EC|\\uC5D0\\uAC8C|\\uD55C\\uD14C|\\uAED8|(?:\\uC774|\\uAC00)?\\s?(?:\\uBCFC\\s?\\uC218|\\uBCF4\\uAC8C|\\uBCF4\\uB3C4\\uB85D))`
+const AFTER_PERSON = `${HONORIFIC}(?:\\uC774\\uC5D0\\uAC8C|\\uC774\\uD55C\\uD14C|\\uB354\\uB7EC|\\uC5D0\\uAC8C|\\uD55C\\uD14C|\\uAED8|(?:\\uC774|\\uAC00)\\s?(?:\\uBCFC\\s?\\uC218|\\uBCF4\\uAC8C|\\uBCF4\\uB3C4\\uB85D))`
+/** "(가) 볼 수 / 보게" names a person only with 이/가 or 님/씨 on the name ("바로 볼 수 있게" is an adverb) */
+const SEES_AFTER_HONORIFIC = '\\s?(?:\\uB2D8|\\uC528)(?:\\uC774|\\uAC00)?\\s?(?:\\uBCFC\\s?\\uC218|\\uBCF4\\uAC8C|\\uBCF4\\uB3C4\\uB85D)'
 const JOIN_KO = '(?:\\uC774\\uD558\\uACE0|\\uC774\\uB791|\\uD558\\uACE0|\\uB791|\\uC640|\\uACFC)'
 const AFTER_PLACE = '(?:\\uC5D0\\uB2E4\\uAC00|\\uBC29\\uC73C\\uB85C|\\uCC44\\uB110\\uC5D0|\\uC5D0\\uB2E4|\\uD55C\\uD14C|\\uBC29\\uC5D0|\\uC5D0\\uAC8C|\\uC5D0|\\uAED8)'
 function holdsAsRecipient(text: string, n: string, place: boolean, peers: readonly string[] = []): boolean {
@@ -115,8 +124,8 @@ function holdsAsRecipient(text: string, n: string, place: boolean, peers: readon
   const e = escapeRe(n)
   const L = '(?<![\\p{L}\\p{N}])'
   const R = '(?:(?![\\p{L}\\p{N}])|(?=\\p{Script=Hangul}))'
-  if (new RegExp(`${place ? BEFORE_PLACE : BEFORE_PERSON}${e}${R}`, 'u').test(text)) return true
-  if (new RegExp(`${L}${e}${place ? AFTER_PLACE : AFTER_PERSON}`, 'u').test(text)) return true
+  if (new RegExp(`${place ? BEFORE_PLACE : AFTER_ONE_NAMED + BEFORE_PERSON}${e}${R}`, 'u').test(text)) return true
+  if (new RegExp(`${L}${e}(?:${place ? AFTER_PLACE : `${AFTER_PERSON}|${SEES_AFTER_HONORIFIC}`})`, 'u').test(text)) return true
   const ps = [...new Set(peers.map(fold))].filter((p) => p.length >= 2 && p !== n).slice(0, 10).map(escapeRe)
   if (place || !ps.length) return false
   const P = `(?:${ps.join('|')})`

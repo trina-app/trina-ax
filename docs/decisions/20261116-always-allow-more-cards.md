@@ -103,7 +103,10 @@ cards still came every time: FL-02 and FL-13 (sharing), FL-05 (a web address), F
     recipients after to or with that ends with it ("to tess and bob"; not "with tess and the notes with bob"); one
     joined by 와/과, (이)랑 or 하고 only with 님 or 씨 on it (김대리님과 이과장님한테; 김대리와 이과장한테 shows the card,
     since such a list is as often one of files). Phrases that point at a thing (the …, this …, 이 파일, 이거) never name
-    a person, and only the first 4,000 characters of the message are read for names. A word someone took as
+    a person, and only the first 4,000 characters of the message are read for names. A "to"/"with" right after a
+    recipient already named is a purpose or a manner, not a second person ("with tess to review", "to tess with
+    comments"), and "볼 수 있게 / 보게" names a person only with 이/가 or 님/씨 on the name ("바로 볼 수 있게" does
+    not). Company titles and roles (책임, 수석, 프로, 인턴, 변호사, QA, intern …) are not people's names. A word someone took as
     their name (파일, report, 보고서) is not in such a place in an ordinary request. Short common words, titles,
     pronouns, departments and group words (대표, 팀장, 인사팀, 거래처, everyone, legal, "my boss" …) never name a
     person. A display name or username counts only when no other member's name or username, and no group or room
