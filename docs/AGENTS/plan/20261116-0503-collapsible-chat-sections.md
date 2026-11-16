@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16 05:03
 - Branch: `feat/collapsible-chat-sections`
-- Status: in progress
+- Status: done
 - Where: web (`web/src/components/list/List.tsx`, `panels/folds.ts`, `panels/RoomsByKind.tsx`, `pages/Rooms.tsx`),
   shared (`UserPrefs`), server (PATCH /api/me already merges prefs). Why: the list pieces and the person's preferences are core.
 - Version impact: minor, a new preference on the account and a visible change on the phone's Chats tab
@@ -72,4 +72,4 @@ folded section lights the pill, a mention shows "@"); full web e2e.
 
 ## Result
 
-(filled in at the end)
+Merged to dev in batch #1102 (3ac2496a3); QA TC-3770..3782 Pass.

@@ -5007,7 +5007,7 @@ export const zh: Record<MessageKey, string> = {
   "files.findWork.originalsStay": "这台电脑上的文件保持原样。",
   "files.findWork.undo": "撤销",
   "files.findWork.share.title": "要和团队共享其中的文件吗？",
-  "files.findWork.share.desc": "你勾选的文件只有你添加的人员和群组能打开。其余文件仍只有你能看到。",
+  "files.findWork.share.desc": "你勾选的文件只有你添加的人员和小组能打开。其余文件仍只有你能看到。",
   "files.findWork.share.hint": "适合共享：{kind}",
   "files.findWork.share.who": "请添加可以查看的人。",
   "files.findWork.share.go": "共享{n, plural, one {#个文件} other {#个文件}}",

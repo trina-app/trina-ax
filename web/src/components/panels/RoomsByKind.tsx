@@ -195,7 +195,7 @@ function RoomFolder({ folder, rooms, count, shown, folded, onFold }: { folder: N
   const bold = folded && (!!pill || roomFolderBold(rooms))
   return (
     <section aria-label={folder.name} className={clsx(drop.over && DROP_OVER)} {...drop.props} data-testid="room-folder" data-folded={folded ? '' : undefined}>
-      <div className={clsx(groupHead, 'pr-9')} data-testid="room-folder-head">
+      <div className={clsx(groupHead, pill ? 'pr-3 pointer-coarse:pr-10 max-md:pr-10' : 'pr-9')} data-testid="room-folder-head">
         {/* the ▸ and the name both fold it (aria-expanded), as a disclosure */}
         <button type="button" aria-expanded={!folded} aria-controls={listId} onClick={onFold} className={clsx('flex h-full min-w-0 items-center gap-1 rounded', bold && 'font-bold')} data-testid="room-folder-fold">
           <span className="touch-hit flex size-6 shrink-0 items-center justify-center text-muted">
@@ -204,7 +204,13 @@ function RoomFolder({ folder, rooms, count, shown, folded, onFold }: { folder: N
           <FolderIcon className="mr-0.5 text-muted" />
           <span className="truncate" title={folder.name} data-testid="room-folder-name">{folder.name}</span>
         </button>
-        {pill && <RoomFolderPillView pill={pill} className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 group-hover/head:opacity-0 group-has-[:focus-visible]/head:opacity-0 pointer-coarse:right-10 max-md:right-10" />}
+        {/* the pill in the row's flow, as ListSection's (List.tsx): a cut name ends a gap before it (QA TC-3780); it
+            gives its place to the "⋯" on hover */}
+        {pill && (
+          <span className="pointer-events-none ml-auto flex shrink-0 items-center pl-1 group-hover/head:opacity-0 group-has-[:focus-visible]/head:opacity-0">
+            <RoomFolderPillView pill={pill} />
+          </span>
+        )}
         <FolderMenu
           folder={folder}
           count={count}
