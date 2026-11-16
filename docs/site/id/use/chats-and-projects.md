@@ -141,8 +141,9 @@ Tekan **Bagikan** (**Simpan** jika chat sudah pernah dibagikan). Jika Anda kelua
   permintaan membuka file). **Bagikan** menambahkannya dengan nama, setelah pemeriksaan yang sama seperti dialog Bagikan;
   **Tolak** hanya memberi tahu bahwa permintaannya tidak disetujui, dan ia boleh meminta lagi. Tautan proyek bekerja sama:
   permintaan masuk ke orang yang bisa mengubah anggotanya, dan **Tambahkan** menjadikan orang itu anggota. Chat bersama di proyek
-  tim meminta untuk bergabung ke proyek itu. Chat yang tidak pernah bisa dibagikan (chat di proyek pribadi, chat dari tugas
-  terjadwal, chat samping sebuah obrolan) mengatakannya, tanpa tombol. Tamu tidak bisa meminta, dan orang yang sudah bisa
+  tim meminta untuk bergabung ke proyek itu. Jika permintaan tidak mungkin (chat yang tidak pernah dibagikan, seperti chat di
+  proyek pribadi, atau tidak ada yang bisa menjawab), halamannya hanya mengatakan bahwa Anda tidak bisa meminta, tanpa tombol
+  dan tanpa alasan. Tamu tidak bisa meminta, dan orang yang sudah bisa
   membukanya langsung masuk.
 - **Hal pribadi tetap di luar.** Di chat bersama, AI tidak memakai memori, browser, email, atau
   jadwal Anda. Untuk memakainya, pilih **Lanjutkan di obrolan yang hanya Anda lihat** di menu chat.

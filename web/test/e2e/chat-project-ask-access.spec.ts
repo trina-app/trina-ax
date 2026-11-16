@@ -2,7 +2,7 @@
 // 20261116-chat-project-ask-access.md): a teammate the link does not open for gets "You need access", a note and Ask for
 // access, which then reads Requested (back later: the date it was asked), never the title or anyone in it; the owner's
 // Activity row has Share (a project: Add) and Decline; a chat's first share asks first; after Share the link opens;
-// Decline tells the asker nothing about it; a chat that can never be shared says so without a button. SHOT_DIR keeps
+// Decline tells the asker nothing about it; where no ask is possible, one plain line without a button or a reason. SHOT_DIR keeps
 // screenshots of every surface at 1440 and 390, light and dark.
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { CSRF_HEADER, uuidv7 } from '@mycel/shared/api'
@@ -158,7 +158,7 @@ test('project: Bob asks to join; Olga adds him from Activity; the project opens 
   await bob.context().close()
 })
 
-test('a chat that can never be shared says so, with no button; an address that was never a chat keeps the plain page', async ({ page, browser }) => {
+test('no ask possible: one plain line, the same for a chat and a project, no button, no reason; an address that was never a chat keeps the plain page', async ({ page, browser }) => {
   await reset(page, { teamLocale: 'en', usersFollowTeam: true })
   await signIn(page)
   const r = await page.request.post('/__test/project', { data: { name: 'Diary', by: 'olga', personal: true } })
@@ -166,13 +166,15 @@ test('a chat that can never be shared says so, with no button; an address that w
   const chatId = await chatOf(page, 'Private thoughts', { projectId: id })
   const bob = await windowOf(browser, page, BOB)
   await bob.goto(`/c/${chatId}`)
-  await expect(bob.getByTestId('link-access-not-shareable-line')).toHaveText(t['linkAccess.chatNotShareable'])
+  await expect(bob.getByTestId('link-access-cant-ask-line')).toHaveText(t['linkAccess.cantAsk'])
   await expect(bob.getByTestId('link-access-ask-button')).toHaveCount(0)
-  await expect(bob.getByTestId('link-access-not-shareable')).not.toContainText('Private thoughts')
-  await shots(bob, 'chat-not-shareable')
+  const words = await bob.getByTestId('link-access-cant-ask').innerText()
+  for (const leak of ['Private thoughts', 'Diary', 'Olga', 'personal', 'shared']) expect(words).not.toContain(leak)
+  await shots(bob, 'cant-ask')
   await bob.goto(`/c/${uuidv7()}`)
   await expect(bob.getByTestId('chat-not-found')).toBeVisible()
   await bob.goto(`/projects/${id}`)
-  await expect(bob.getByTestId('link-access-not-shareable-line')).toHaveText(t['linkAccess.projectNotShareable'])
+  await expect(bob.getByTestId('link-access-cant-ask-line')).toHaveText(t['linkAccess.cantAsk'])
+  expect(await bob.getByTestId('link-access-cant-ask').innerText()).toBe(words)
   await bob.context().close()
 })

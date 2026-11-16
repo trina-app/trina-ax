@@ -145,9 +145,9 @@ Press **Share** (**Save** when it was shared already). Leaving with changes you 
   in your browser (**Settings › Notifications › Sharing**; at most 10 a day, counted together with requests to open
   files). **Share** adds them by name, after the same check as the Share dialog; **Decline** tells them only that it
   wasn't approved, and they may ask again. A project's link works the same way: whoever changes its members gets the
-  request, and **Add** makes the person a member. A shared chat of a team project asks to join that project. A chat
-  that can never be shared (one in a personal project, a scheduled task's run, a conversation's side chat) says so,
-  without the button. Guests can't ask, and someone who can already open it is simply let in.
+  request, and **Add** makes the person a member. A shared chat of a team project asks to join that project. Where no
+  request is possible (a chat that is never shared, such as one in a personal project, or nobody left to answer), the
+  page says only that they can't ask, without the button and without saying why. Guests can't ask, and someone who can already open it is simply let in.
 - **Personal things stay out.** In a shared chat the AI does not use your memories, your browser, your email or your
   schedules. To use them, choose **Continue in a chat only you see** in the chat's menu.
 - A chat in a personal project stays yours: **Share** offers to move it out first. A chat in a team project is shared

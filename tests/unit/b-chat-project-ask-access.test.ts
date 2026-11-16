@@ -147,18 +147,51 @@ describe('a chat link', () => {
     expect(requestOf('chat', chatId, ids.carl)!.state).toBe('approved')
   })
 
-  test('a chat that is never shared with people: no ask (why not_shareable); asking anyway: 403', async () => {
+  test('no ask, for every reason the same answer: confidential, personal project, locked team-project chat, a creator switched off (security review of #1140)', async () => {
+    const NO = { status: 'no_access', canAsk: false, askedAt: null }
     const personal = (await alice.call('POST', '/api/projects', { name: 'Mine', scope: 'personal', instructions: '' })).id
     const inPersonal = await chatOf(alice, 'In a personal project', { projectId: personal })
-    const r = await view(bob, 'chat', inPersonal)
-    expect(r.body).toEqual({ status: 'no_access', canAsk: false, askedAt: null, why: 'not_shareable' })
-    nothing(JSON.stringify(r.body), 'personal')
-    expect((await ask(bob, 'chat', inPersonal)).status).toBe(403)
-    // a private chat of a team project (members don't see it): no ask
     const team = await teamProject(alice, 'Locked room', [ids.bob])
     const locked = await chatOf(alice, 'Locked', { projectId: team })
     h.ctx.db.query('UPDATE chats SET shared_at = NULL WHERE id = ?').run(locked)
-    expect((await view(carl, 'chat', locked)).body).toEqual({ status: 'no_access', canAsk: false, askedAt: null, why: 'not_shareable' })
+    const confidential = await chatOf(alice, 'Confidential')
+    h.ctx.db.query('INSERT INTO safe_ops_chats(chat_id, material) VALUES (?, 1) ON CONFLICT(chat_id) DO UPDATE SET material = 1').run(confidential)
+    // a plain chat whose creator (dina) is switched off: nobody to answer
+    const plain = await chatOf(dina, 'Plain')
+    h.ctx.db.query("UPDATE users SET status = 'disabled' WHERE id = ?").run(ids.dina)
+    try {
+      const answers = await Promise.all([inPersonal, locked, confidential, plain].map(async (id) => (await view(carl, 'chat', id)).body))
+      for (const a of answers) expect(a).toEqual(NO)
+      expect(new Set(answers.map((a) => JSON.stringify(a))).size).toBe(1)
+      // a personal project's own link: the same
+      expect((await view(carl, 'project', personal)).body).toEqual(NO)
+      for (const id of [inPersonal, locked, confidential, plain]) expect((await ask(carl, 'chat', id)).status).toBe(403)
+    } finally {
+      h.ctx.db.query("UPDATE users SET status = 'active' WHERE id = ?").run(ids.dina)
+      h.ctx.db.query('DELETE FROM safe_ops_chats WHERE chat_id = ?').run(confidential)
+    }
+  })
+
+  test('a shared chat of a project in the trash: unknown, as the project itself', async () => {
+    const team = await teamProject(alice, 'Binned', [ids.bob])
+    const chatId = await chatOf(alice, 'Binned chat', { projectId: team })
+    h.ctx.db.query('UPDATE chats SET shared_at = COALESCE(shared_at, ?) WHERE id = ?').run(new Date().toISOString(), chatId)
+    h.ctx.db.query("UPDATE projects SET trashed_with = 'trash-x' WHERE id = ?").run(team)
+    try {
+      expect((await view(carl, 'chat', chatId)).body).toEqual({ status: 'unknown' })
+      expect((await view(carl, 'project', team)).body).toEqual({ status: 'unknown' })
+    } finally { h.ctx.db.query('UPDATE projects SET trashed_with = NULL WHERE id = ?').run(team) }
+  })
+
+  test('a waiting ask nobody can answer any more (its chat moved into a project) is closed on the next read', async () => {
+    const chatId = await chatOf(alice, 'Moves')
+    expect((await ask(bob, 'chat', chatId)).body.status).toBe('sent')
+    const personal = (await alice.call('POST', '/api/projects', { name: 'Moved here', scope: 'personal', instructions: '' })).id
+    h.ctx.db.query('UPDATE chats SET project_id = ? WHERE id = ?').run(personal, chatId)
+    expect((await view(bob, 'chat', chatId)).body).toEqual({ status: 'no_access', canAsk: false, askedAt: null })
+    const row = (await activity(alice)).find((x) => x.sourceId === `chat:${chatId}:${ids.bob}`)
+    expect(!row || row.accessRequest.gone || row.accessRequest.state === 'closed').toBe(true)
+    expect(requestOf('chat', chatId, ids.bob)!.state).toBe('closed')
   })
 
   test('a shared chat of a team project: the ask is to join its project; Share makes them a member and the chat opens', async () => {
@@ -172,8 +205,10 @@ describe('a chat link', () => {
     expect((await ask(carl, 'chat', chatId)).body.status).toBe('sent')
     const q = requestOf('project', team, ids.carl)!
     expect(q.state).toBe('pending')
-    // the link of the chat and of its project read the same waiting ask
+    // the project's link shows the waiting ask; the chat's link never shows its project's (that would tie the chat to
+    // the project: security review of #1140)
     expect((await view(carl, 'project', team)).body.askedAt).not.toBeNull()
+    expect((await view(carl, 'chat', chatId)).body).toEqual({ status: 'no_access', canAsk: true, askedAt: null })
     const row = (await activity(alice)).find((x) => x.sourceId === `project:${team}:${ids.carl}`)
     expect(row.accessRequest).toMatchObject({ kind: 'project', name: 'Launch plan', canAnswer: true })
     expect((await approve(alice, q.id)).body).toEqual({ state: 'approved' })
@@ -247,12 +282,20 @@ describe('a project link', () => {
 
   test('a personal project: no ask', async () => {
     const id = (await alice.call('POST', '/api/projects', { name: 'Diary', scope: 'personal', instructions: '' })).id
-    expect((await view(bob, 'project', id)).body).toEqual({ status: 'no_access', canAsk: false, askedAt: null, why: 'not_shareable' })
+    expect((await view(bob, 'project', id)).body).toEqual({ status: 'no_access', canAsk: false, askedAt: null })
     expect((await ask(bob, 'project', id)).status).toBe(403)
   })
 })
 
 describe('limits', () => {
+  test(`the link page: at most ${60} reads a minute per person`, async () => {
+    const { LINK_ACCESS_PER_MINUTE } = await import('../../server/src/chat/access-requests')
+    const fresh = await addMember(h, owner, { username: 'reader' })
+    const chatId = await chatOf(alice, 'Read limit')
+    for (let i = 0; i < LINK_ACCESS_PER_MINUTE; i++) expect((await view(fresh.client, 'chat', chatId)).status).toBe(200)
+    expect((await view(fresh.client, 'chat', chatId)).status).toBe(429)
+  })
+
   test(`one owner: at most ${FILE_REQUESTS_PER_OWNER_DAY} asks a day from one person, files and chats together`, async () => {
     // bob's file and chats: dina asks for the file once, then chats until the day's limit
     const path = `users/${ids.bob}/limit.txt`

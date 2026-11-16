@@ -141,9 +141,9 @@ Pulse **Compartir** (**Guardar** si ya estaba compartido). Si sale con cambios s
   en su navegador (**Configuración › Notificaciones › Compartir**; como mucho 10 al día, junto con las solicitudes para abrir
   archivos). **Compartir** lo añade por su nombre, tras la misma comprobación del cuadro Compartir; **Rechazar** solo le dice que
   no se aprobó, y puede volver a pedirlo. El enlace de un proyecto funciona igual: la solicitud llega a quien cambia sus miembros,
-  y **Añadir** hace miembro a la persona. Un chat compartido de un proyecto del equipo pide unirse a ese proyecto. Un chat que
-  nunca se puede compartir (uno de un proyecto personal, el de una tarea programada, el chat lateral de una conversación) lo
-  indica, sin el botón. Los invitados no pueden pedirlo, y quien ya puede abrirlo simplemente entra.
+  y **Añadir** hace miembro a la persona. Un chat compartido de un proyecto del equipo pide unirse a ese proyecto. Cuando no
+  se puede pedir (un chat que nunca se comparte, como uno de un proyecto personal, o nadie que pueda responder), la página
+  solo dice que no puede pedirlo, sin el botón y sin decir por qué. Los invitados no pueden pedirlo, y quien ya puede abrirlo simplemente entra.
 - **Lo personal se queda fuera.** En un chat compartido la IA no usa sus recuerdos, su navegador, su correo ni sus
   horarios. Para usarlos, elija **Continuar en un chat que solo ve usted** en el menú del chat.
 - Un chat de un proyecto personal sigue siendo suyo: **Compartir** le ofrece sacarlo antes del proyecto. Un chat de un proyecto del equipo se comparte

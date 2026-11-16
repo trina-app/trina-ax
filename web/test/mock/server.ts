@@ -6225,7 +6225,7 @@ export class MockServer {
   readonly fileSharesInstalled = this.installFileShares()
 
   // ---------------- Ask for access on a chat's or project's link (server/src/chat/access-requests.ts, short) ----------
-  // GET /api/link-access/:kind/:id says open / no_access (canAsk, askedAt, why) / unknown and nothing of the chat or
+  // GET /api/link-access/:kind/:id says open / no_access (canAsk, askedAt) / unknown and nothing of the chat or
   // project; the ask goes to a chat's creator (a chat outside projects; a shared chat of a team project asks for its
   // project), or a team project's creator (none active: the owner and admins). Share goes through the dialogs' own
   // saves here too (putChatAudience, with its confirm; putProjectParticipants); Decline says nothing. Never for guests.
@@ -6564,11 +6564,11 @@ export class MockServer {
     const staff = () => this.users.filter((u) => u.status === 'active' && (u.role === 'owner' || u.role === 'admin'))
     const projectAnswerers = (p: Project) => { const c = active(p.createdBy?.id); return c ? [c.id] : staff().map((u) => u.id) }
     /** what a link's ask is about for `me` (null: unknown) */
-    const targetOf = (kind: 'chat' | 'project', id: string, me: User): { kind: 'chat' | 'project'; id: string; answerers: string[]; why?: 'not_shareable' } | null => {
+    const targetOf = (kind: 'chat' | 'project', id: string, me: User): { kind: 'chat' | 'project'; id: string; answerers: string[] } | null => {
       if (kind === 'project') {
         const p = this.projects.find((x) => x.id === id)
-        if (!p) return null
-        if (p.folderPath.startsWith('users/')) return { kind, id, answerers: [], why: 'not_shareable' }
+        if (!p || p.inTrash) return null
+        if (p.folderPath.startsWith('users/')) return { kind, id, answerers: [] }
         return { kind, id, answerers: me.role === 'owner' || me.role === 'admin' ? [] : projectAnswerers(p) }
       }
       const chat = this.chats.find((x) => x.id === id)
@@ -6576,7 +6576,7 @@ export class MockServer {
       const shared = this.sharedChats.get(id)
       if (chat.projectId) {
         const p = this.projects.find((x) => x.id === chat.projectId)
-        if (!p || p.folderPath.startsWith('users/') || !shared) return { kind, id, answerers: [], why: 'not_shareable' }
+        if (!p || p.folderPath.startsWith('users/') || !shared) return { kind, id, answerers: [] }
         return { kind: 'project', id: p.id, answerers: me.role === 'owner' || me.role === 'admin' ? [] : projectAnswerers(p) }
       }
       const owner = active(this.chatOwners.get(id) ?? shared?.by.id)
@@ -6590,15 +6590,15 @@ export class MockServer {
       if (await opens(kind, c.params.id!, c.user)) return { status: 'open' }
       const t = targetOf(kind, c.params.id!, c.user)
       if (!t) return { status: 'unknown' }
-      const w = waiting(t.kind, t.id, c.user.id)
-      return { status: 'no_access', canAsk: !t.why && t.answerers.length > 0, askedAt: w?.at ?? null, ...(t.why ? { why: t.why } : {}) }
+      const w = t.kind === kind ? waiting(t.kind, t.id, c.user.id) : undefined
+      return { status: 'no_access', canAsk: t.answerers.length > 0, askedAt: w?.at ?? null }
     }
     h.requestLinkAccess = async (c) => {
       if (c.user.role === 'guest') fail('forbidden', 403, undefined, undefined, { reason: 'access_request_off' })
       const kind = kindOf(c.params.kind)
       if (await opens(kind, c.params.id!, c.user)) return { status: 'open' }
       const t = targetOf(kind, c.params.id!, c.user) ?? fail('not_found', 404)
-      if (t.why || !t.answerers.length) fail('forbidden', 403, "You can't ask for access here. Ask the person who sent the link.", undefined, { reason: 'access_request_off' })
+      if (!t.answerers.length) fail('forbidden', 403, "You can't ask for access here. Ask the person who sent the link.", undefined, { reason: 'access_request_off' })
       const w = waiting(t.kind, t.id, c.user.id)
       if (w) return { status: 'already', askedAt: w.at }
       const r = { id: uuidv7(), kind: t.kind, targetId: t.id, userId: c.user.id, note: c.body?.message ?? null, at: now(), state: 'pending' as const }

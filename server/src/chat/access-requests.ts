@@ -8,7 +8,7 @@
 //                  a chat's first share runs the same check and answers "confirm" until the creator agrees to it.
 //                  A shared chat of a team project (its members see it): the ask is for the project (below), and Share
 //                  makes the asker a member. A private chat of a team project, or any chat while safe operations are
-//                  on: no ask ("not_shareable").
+//                  on: no ask (canAsk false; the page never says why).
 //   /projects/<id> a team project in projects/<name> whose members can be changed (chat/project-access.ts
 //                  accessEditable). Its creator answers while they change its members; else the team owner and admins
 //                  (as a file with no owner known). Share adds the asker as a member (write, the one role a project
@@ -50,11 +50,17 @@ const COLS = 'id, kind, target_id, requester_id, owner_id, message, state, creat
 
 const msg = (k: keyof typeof ACCESS_REQUEST_TEXT, L: Locale) => ACCESS_REQUEST_TEXT[k][L] ?? ACCESS_REQUEST_TEXT[k].en
 const now = () => new Date().toISOString()
-const isAdmin = (p: Pick<Principal, 'role'>) => p.role === 'owner' || p.role === 'admin'
+/** The link page's reads, at most this many a minute per person (in memory, per server; a restart forgets them). */
+export const LINK_ACCESS_PER_MINUTE = 60
+/** The active owner and admins (never a guest: stored as role 'member', and guest = 1 excluded too). */
+const STAFF_SQL = "SELECT id FROM users WHERE role IN ('owner','admin') AND guest = 0 AND status = 'active' AND deleted_at IS NULL ORDER BY id"
 
 /** What an ask on a link is about: the request's kind and target (a team project chat's link asks for its project),
- * whose it is (the per-owner limit) and who answers it. `why`: no request is possible because of what it is. */
-interface Target { kind: AccessKind; id: string; owner: string; answerers: string[]; why?: 'not_shareable' }
+ * whose it is (the per-owner limit) and who answers it (`answerers`: all of them, for the notices; `any`: whether there
+ * is one, with an early exit, for the page). No answerer: no request, for whatever reason, and the page never says
+ * which (security review of #1140). */
+interface Target { kind: AccessKind; id: string; owner: string; answerers: () => string[]; any: () => boolean }
+const NOBODY = { answerers: () => [] as string[], any: () => false }
 
 const services = new WeakMap<AppContext, AccessRequests>()
 export function accessRequestsOf(ctx: AppContext): AccessRequests {
@@ -81,13 +87,26 @@ export class AccessRequests {
   private changesMembers(p: Principal, r: ProjectRow): boolean {
     return p.role !== 'guest' && isTeamProject(r) && mayManageProject(this.ctx.files, p, r) && accessEditable(r, this.ctx.files, p)
   }
-  /** A project's answerers: its creator while they change its members, else the active owner and admins who may. */
-  private projectAnswerers(r: ProjectRow): string[] {
+  /** A project's answerers: its creator while they change its members, else the active owner and admins who may.
+   * `first`: stop at the first one (the page asks only whether there is one). Reads the owner and admins only, never
+   * every account. */
+  private projectAnswerers(r: ProjectRow, first = false): string[] {
     const creator = r.created_by ? loadPrincipal(this.db, r.created_by) : null
     if (creator && creator.role !== 'guest' && mayEditProject(this.ctx.files, creator, r) && this.changesMembers(creator, r)) return [creator.id]
-    // (the role as the policy reads it: loadPrincipal, a guest never staff)
-    return (this.db.query("SELECT id FROM users WHERE status = 'active' AND deleted_at IS NULL").all() as { id: string }[])
-      .map((x) => loadPrincipal(this.db, x.id)).filter((p): p is Principal => !!p && isStaff(p) && this.changesMembers(p, r)).map((p) => p.id)
+    const out: string[] = []
+    for (const x of this.db.query(STAFF_SQL).all() as { id: string }[]) {
+      const p = loadPrincipal(this.db, x.id)
+      if (!p || !isStaff(p) || !this.changesMembers(p, r)) continue
+      out.push(p.id)
+      if (first) break
+    }
+    return out
+  }
+  private projectTarget(me: Principal, pr: ProjectRow): Target {
+    const t = { kind: 'project' as const, id: pr.id, owner: pr.created_by ?? '' }
+    // the owner or an admin who manages it adds themselves on its page (never an ask)
+    if (this.changesMembers(me, pr)) return { ...t, ...NOBODY }
+    return { ...t, answerers: () => this.projectAnswerers(pr), any: () => this.projectAnswerers(pr, true).length > 0 }
   }
   /** A chat's answerer: its creator, while active and no guest. */
   private chatAnswerers(r: ChatRow): string[] {
@@ -104,25 +123,34 @@ export class AccessRequests {
     if (kind === 'project') {
       const r = this.rt.store.projectRow(id)
       if (!r || r.trashed_with !== null) return null
-      if (!isTeamProject(r)) return { kind, id, owner: r.created_by ?? '', answerers: [], why: 'not_shareable' }
-      // the owner or an admin who manages it: they add themselves on its page (never an ask)
-      return { kind, id, owner: r.created_by ?? '', answerers: this.changesMembers(me, r) ? [] : this.projectAnswerers(r) }
+      if (!isTeamProject(r)) return { kind, id, owner: r.created_by ?? '', ...NOBODY }
+      return this.projectTarget(me, r)
     }
     const r = this.rt.store.chatRow(id)
     if (!r) return null
     const no = peopleShareRefusal(this.ctx, r)
     if (no?.status === 'not_found') return null
+    const pr = r.project_id ? this.rt.store.projectRow(r.project_id) : null
+    // a chat of a project in the trash: unknown, as the project itself (security review of #1140)
+    if (pr && pr.trashed_with !== null) return null
+    const chat = { kind, id, owner: r.user_id }
     if (!no) {
-      if (safeOpsEnabled() || confidentialChat(this.db, r.id)) return { kind, id, owner: r.user_id, answerers: [], why: 'not_shareable' }
-      return { kind, id, owner: r.user_id, answerers: this.chatAnswerers(r) }
+      if (safeOpsEnabled() || confidentialChat(this.db, r.id)) return { ...chat, ...NOBODY }
+      return { ...chat, answerers: () => this.chatAnswerers(r), any: () => this.chatAnswerers(r).length > 0 }
     }
     // a chat of a team project its members see: the ask is to join the project
-    if (r.project_id && r.shared_at && no.reason === 'share_people_in_project') {
-      const pr = this.rt.store.projectRow(r.project_id)
-      if (!pr || pr.trashed_with !== null || !isTeamProject(pr)) return { kind, id, owner: r.user_id, answerers: [], why: 'not_shareable' }
-      return { kind: 'project', id: pr.id, owner: pr.created_by ?? '', answerers: this.changesMembers(me, pr) ? [] : this.projectAnswerers(pr) }
+    if (pr && r.shared_at && no.reason === 'share_people_in_project' && isTeamProject(pr)) return this.projectTarget(me, pr)
+    return { ...chat, ...NOBODY }
+  }
+
+  /** Whether anyone can still answer this request (its target there, shareable, someone to answer it). */
+  private answerable(q: RequestRow): boolean {
+    if (q.kind === 'chat') {
+      const r = this.rt.store.chatRow(q.target_id)
+      return !!r && !peopleShareRefusal(this.ctx, r) && this.chatAnswerers(r).length > 0
     }
-    return { kind, id, owner: r.user_id, answerers: [], why: 'not_shareable' }
+    const r = this.rt.store.projectRow(q.target_id)
+    return !!r && r.trashed_with === null && isTeamProject(r) && this.projectAnswerers(r, true).length > 0
   }
 
   /** The person's own access to the link now (the route checked kind and the id's shape). */
@@ -137,12 +165,11 @@ export class AccessRequests {
     return !!p && this.opens(p, q.kind, q.target_id)
   }
 
-  /** A pending request that no longer waits: approved when the asker opens it now, closed when its target went. */
+  /** A pending request that no longer waits: approved when the asker opens it now; closed when nobody can answer it
+   * any more (its chat or project went, moved into a project, went to the trash, its answerers are gone). */
   private settle(q: RequestRow): RequestRow {
     if (q.state !== 'pending') return q
-    const c = q.kind === 'chat' ? this.rt.store.chatRow(q.target_id) : null
-    const gone = q.kind === 'chat' ? !c || !!c.deleted_at : !this.rt.store.projectRow(q.target_id)
-    const state: State | null = gone ? 'closed' : this.askerOpens(q) ? 'approved' : null
+    const state: State | null = this.askerOpens(q) ? 'approved' : !this.answerable(q) ? 'closed' : null
     if (!state) return q
     this.db.query("UPDATE access_requests SET state = ?, decided_at = ? WHERE id = ? AND state = 'pending'").run(state, now(), q.id)
     return { ...q, state }
@@ -153,14 +180,30 @@ export class AccessRequests {
   }
 
   // ---------------- the asker ----------------
-  /** GET /api/link-access/:kind/:id */
+  /** GET /api/link-access/:kind/:id. No ask possible, for whatever reason: the same answer (canAsk false). The date of
+   * a waiting ask only for an ask of the link's own kind: a chat's link never shows its project's (that would tie the
+   * chat to its project). */
   view(userId: string, kind: AccessKind, id: string, L: Locale): LinkAccessView {
     const me = this.asker(userId, L)
+    this.readLimit(userId)
     if (this.opens(me, kind, id)) return { status: 'open' }
     const t = this.targetOf(me, kind, id)
     if (!t) return { status: 'unknown' }
-    const asked = this.waiting(t.kind, t.id, userId)
-    return { status: 'no_access', canAsk: !t.why && t.answerers.length > 0, askedAt: asked?.created_at ?? null, ...(t.why ? { why: t.why } : {}) }
+    const asked = t.kind === kind ? this.waiting(t.kind, t.id, userId) : null
+    return { status: 'no_access', canAsk: t.any(), askedAt: asked?.created_at ?? null }
+  }
+
+  private reads = new Map<string, number[]>()
+  /** One page read of `userId`, or 429 past LINK_ACCESS_PER_MINUTE in the last minute (as the access preview's limit). */
+  private readLimit(userId: string, at = Date.now()): void {
+    const recent = (this.reads.get(userId) ?? []).filter((x) => at - x < 60_000)
+    if (recent.length >= LINK_ACCESS_PER_MINUTE) {
+      this.reads.set(userId, recent)
+      fail('rate_limited', undefined, { retryAfter: Math.max(1, Math.ceil((60_000 - (at - recent[0]!)) / 1000)) })
+    }
+    recent.push(at)
+    this.reads.set(userId, recent)
+    if (this.reads.size > 10_000) for (const [k, ts] of this.reads) if (!ts.some((x) => at - x < 60_000)) this.reads.delete(k)
   }
 
   /** A signed-in member (never a guest: 403, as on a file's link). */
@@ -176,7 +219,8 @@ export class AccessRequests {
     if (this.opens(me, kind, id)) return { status: 'open' }
     const t = this.targetOf(me, kind, id)
     if (!t) return fail('not_found')
-    if (t.why || !t.answerers.length) return fail('forbidden', msg('requestOff', L), { params: { reason: 'access_request_off' } })
+    const answerers = t.answerers()
+    if (!answerers.length) return fail('forbidden', msg('requestOff', L), { params: { reason: 'access_request_off' } })
     const waiting = this.waiting(t.kind, t.id, userId)
     if (waiting) return { status: 'already', askedAt: waiting.created_at }
     // the file requests' limits, counted over both tables (files/shares.ts request)
@@ -195,7 +239,7 @@ export class AccessRequests {
     // ids only: never the title or the note
     audit(this.db, { actor: userId, action: 'access.request', target: `${t.kind}:${t.id}`, detail: { kind: t.kind, via: t.kind === kind ? 'link' : 'chat_link' } })
     // one Activity row per person, target and asker, brought back up by each new request
-    for (const to of t.answerers) this.notify(to, 'access.requested', `${t.kind}:${t.id}:${userId}`, true)
+    for (const to of answerers) this.notify(to, 'access.requested', `${t.kind}:${t.id}:${userId}`, true)
     return { status: 'sent', askedAt: created }
   }
 

@@ -10,8 +10,13 @@
   opened". Files already have Ask for access (20261116-file-share-push-gaps.md and the file share links plan). Do the
   same for chats and projects, with the same limits and push cap, revealing exactly what a file's link reveals.
 - **What the page reveals:** what a file's link reveals to someone it does not open for, and nothing more. GET
-  `/api/link-access/:kind/:id` answers `open`, `no_access` (`canAsk`, `askedAt`, and `why: not_shareable` for a chat or
-  project that can never be shared) or `unknown`. Like a file link it tells a signed-in member that the id is a real
+  `/api/link-access/:kind/:id` answers `open`, `no_access` (`canAsk`, `askedAt`) or `unknown`. `canAsk: false` is the
+  same answer for every reason (never shared, confidential, personal, locked, nobody left to answer, an owner or admin
+  who adds themselves), and the page shows one plain line for all of them: "You can't ask for access to this. Ask the
+  person who sent the link." `askedAt` only for an ask of the link's own kind (a chat's link never shows the waiting ask
+  for its project, which would tie the chat to it). A shared chat of a project in the trash is `unknown`, as the
+  project. The read is limited to 60 a minute per person (429) and never reads every account: `canAsk` stops at the
+  first answerer, and the owner and admins are read by one query. Like a file link it tells a signed-in member that the id is a real
   chat or project (ids are random UUIDv7s, so this is no list of anything); never the title, the creator, who is in
   it, how many, or which project a chat belongs to. `GET /api/chats/:id` and `GET /api/projects/:id` keep their one
   404 body for hidden and missing alike (tests/unit/b-share-copy-link.test.ts still holds). Guests get 403, as on a
@@ -23,12 +28,16 @@
   - a team project in `projects/<name>` whose members can be changed (`accessEditable`): its creator answers while
     they may change its members; else the active owner and admins who may (as a team file with no owner known).
   - a shared chat of a team project (its members see it): the ask is to join that project; Share makes them a member.
-  - never (`why: not_shareable`, one line and no button): a chat of a personal project, a scheduled task's run, a
+  - never (`canAsk: false`, the one plain line, no button, no reason): a chat of a personal project, a scheduled task's run, a
     room's side chat, a private (🔒) chat of a team project, any chat while safe operations are on or a confidential
     one, and a personal project. These are what the code refuses to share with people today, so a button would only
     lead to a refusal.
   - the owner or an admin on a team project they manage is "open" (the page loads it for them to manage, with Add me),
     and on a team project chat they keep the existing "add yourself in Projects" line: they never need to ask.
+- **A request nobody can answer any more** (its chat moved into a project or deleted, its project trashed or gone, its
+  answerers gone) is closed on the next read; one whose asker opens it now is approved.
+- **Security review of #1140:** the no-ask reasons are no longer told apart (no `why`), `askedAt` follows the link's
+  kind, trashed projects' chats are `unknown`, the read is limited and cheap, unanswerable requests close.
 - **Who can't ask:** guests (403), switched-off and removed accounts (they cannot sign in; a waiting request of an
   asker switched off later is never pushed, and Share then closes it). Someone who already opens it gets `open` and
   the page loads; a waiting request of someone given access another way settles as approved when read.

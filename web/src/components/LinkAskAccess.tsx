@@ -5,7 +5,8 @@
 // - open: it opens for them now (shared meanwhile, or a project they manage): the page reads it again (onOpen);
 // - no_access with canAsk: "You need access", a note and [Ask for access]; after the tap the button reads "Requested"
 //   with "Request sent…", and back later "You asked on Nov 16. Waiting for an answer.";
-// - no_access because it can never be shared (a chat of a personal project, a scheduled run's…): one line, no button;
+// - no_access without canAsk, for whatever reason (never shared, confidential, nobody left to answer…): one plain line,
+//   no button, the same for every reason (the server does not say which);
 // - anything else (unknown, a guest, a failed read): the page's own not-found (`fallback`).
 import { Lock } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
@@ -29,8 +30,7 @@ export function LinkAskAccess({ kind, id, onOpen, fallback }: { kind: AccessKind
   }, [view])
   if (view === null) return <Card testId="link-access-loading"><Skeleton lines={3} className="w-full" /></Card>
   if (view === 'failed' || view.status !== 'no_access') return <>{fallback}</>
-  if (view.why === 'not_shareable') return <NotShareable kind={kind} />
-  if (!view.canAsk) return <>{fallback}</>
+  if (!view.canAsk) return <CantAsk kind={kind} />
   return <AskCard kind={kind} id={id} askedAt={view.askedAt} onOpen={onOpen} />
 }
 
@@ -45,13 +45,13 @@ function Card({ children, testId, kind }: { children: ReactNode; testId: string;
   )
 }
 
-function NotShareable({ kind }: { kind: AccessKind }) {
+function CantAsk({ kind }: { kind: AccessKind }) {
   const t = useT()
   return (
-    <Card testId="link-access-not-shareable" kind={kind}>
+    <Card testId="link-access-cant-ask" kind={kind}>
       <Lock size={28} className="text-faint" aria-hidden />
       <p className="text-title-sm font-semibold text-ink">{t('linkAccess.needAccess')}</p>
-      <p className="text-sm break-keep text-muted" data-testid="link-access-not-shareable-line">{t(kind === 'chat' ? 'linkAccess.chatNotShareable' : 'linkAccess.projectNotShareable')}</p>
+      <p className="text-sm break-keep text-muted" data-testid="link-access-cant-ask-line">{t('linkAccess.cantAsk')}</p>
     </Card>
   )
 }

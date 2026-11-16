@@ -21,15 +21,14 @@ export const ACCESS_TARGET_ID = /^[A-Za-z0-9_-]{1,64}$/
 /**
  * GET /api/link-access/:kind/:id: what the link's page offers someone the chat or project did not open for.
  * 'open': it opens for them now (the page loads it again; a project the owner or an admin manages counts). 'no_access':
- * nothing about it; `canAsk` when a request is possible, `askedAt` while theirs waits; `why` when no request is
- * possible because of what it is ('not_shareable': a chat that is never shared with people: one in a personal project,
- * a scheduled task's run, a room's side chat, a private chat in a team project, while safe operations are on; or a
- * personal project), so the page can say so without a button. 'unknown': no such chat or project (or one in the
- * trash). Guests: 403, as on a file's link.
+ * nothing about it; `canAsk` when a request is possible (false for every reason alike: a chat or project that is never
+ * shared, a confidential chat, nobody left to answer, the owner or an admin who adds themselves), `askedAt` while
+ * their ask of this kind waits. 'unknown': no such chat or project (or one in the trash, or a chat of one in the
+ * trash). Guests: 403, as on a file's link. At most 60 reads a minute per person (429).
  */
 export const LinkAccessView = z.discriminatedUnion('status', [
   z.object({ status: z.literal('open') }),
-  z.object({ status: z.literal('no_access'), canAsk: z.boolean(), askedAt: z.string().nullable(), why: z.enum(['not_shareable']).optional() }),
+  z.object({ status: z.literal('no_access'), canAsk: z.boolean(), askedAt: z.string().nullable() }),
   z.object({ status: z.literal('unknown') }),
 ])
 export type LinkAccessView = z.infer<typeof LinkAccessView>
