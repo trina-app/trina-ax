@@ -6,7 +6,7 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { runInNewContext } from 'node:vm'
-import { asksOutside, desktopPagePath, firstRunLinks, healthVerdict, linkFromArgv, LINK_SCHEME, readDesktopLink, hostOf, INSTALL_DOCS, isGatewayDown, isLoopbackHost, isSignInPath, onThisComputer, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
+import { asksOutside, certTrouble, desktopPagePath, firstRunLinks, healthVerdict, officeCertPage, linkFromArgv, LINK_SCHEME, readDesktopLink, hostOf, INSTALL_DOCS, isGatewayDown, isLoopbackHost, isSignInPath, onThisComputer, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
 import { errorResult, MAX_ITEMS, toBrowserResult } from '../../desktop/src/common/browser-result'
 import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, UI_LOCALES, type UiKey, type UiLocale } from '../../desktop/src/common/i18n'
 import { parseKeyCombo, redactUrl } from '../../desktop/src/common/input'
@@ -106,6 +106,40 @@ describe('first run: what the team address answered, the help screens, the host 
     expect(health(200, null, false)).toEqual({ ok: false, error: 'notTeamServer' })
     expect(t('ko', 'err.short_name')).toContain('macmini.local:8443')
     expect(t('ko', 'err.teamUnknown', { name: 'acme' })).toBe("'acme' 팀을 찾지 못했어요. 철자를 확인하거나 초대 링크를 붙여 넣어 주세요.")
+  })
+  test('TC-3452: an office certificate that is not installed here is said as that, with where to get it; the check stays strict', () => {
+    // what Electron's net.request gives when no authority this computer trusts signed the certificate
+    expect(certTrouble(new Error('net::ERR_CERT_AUTHORITY_INVALID'))).toBe('untrusted')
+    for (const code of ['ERR_CERT_COMMON_NAME_INVALID', 'ERR_CERT_DATE_INVALID', 'ERR_CERT_REVOKED', 'ERR_CERT_WEAK_KEY', 'ERR_CERT_INVALID'])
+      expect(certTrouble(new Error(`net::${code}`))).toBe('invalid')
+    // not the certificate: "cannot reach" as before
+    for (const e of [new Error('net::ERR_CONNECTION_REFUSED'), new Error('net::ERR_NAME_NOT_RESOLVED'), new Error('net::ERR_INTERNET_DISCONNECTED'), new Error('net::ERR_SSL_PROTOCOL_ERROR'), new Error('timeout'), new Error(''), null, undefined, 7, { message: 'net::ERR_CERT_AUTHORITY_INVALID' }, 'XERR_CERT_AUTHORITY_INVALID'])
+      expect(certTrouble(e)).toBeNull()
+    // the certificate page: plain http one port below, only for an office address with a port
+    expect(officeCertPage('https://192.168.0.10:8443')).toBe('http://192.168.0.10:8442')
+    expect(officeCertPage('https://10.0.0.5:9443')).toBe('http://10.0.0.5:9442')
+    expect(officeCertPage('https://macmini.local:8443')).toBe('http://macmini.local:8442')
+    expect(officeCertPage('https://[fd00::1]:8443')).toBe('http://[fd00::1]:8442')
+    for (const o of ['https://192.168.0.10', 'https://team.example.com:8443', `https://acme.${TEAM_DOMAIN}`, 'https://8.8.8.8:8443', 'http://192.168.0.10:8443', 'https://192.168.0.10:1', 'garbage', ''])
+      expect(officeCertPage(o)).toBeNull()
+    for (const l of Object.keys(STRINGS) as UiLocale[]) {
+      const withPage = t(l, 'err.certUntrusted', { page: 'http://192.168.0.10:8442' })
+      expect(withPage).toContain('http://192.168.0.10:8442')
+      expect(withPage).not.toContain('{page}')
+      for (const k of ['err.certUntrusted', 'err.certUntrustedNoPage', 'err.certInvalid'] as const) expect(STRINGS[l][k]).not.toBe(STRINGS[l]['err.unreachable'])
+      expect(STRINGS[l]['err.certUntrustedNoPage']).not.toContain('{')
+    }
+    expect(t('en', 'err.certUntrusted', { page: 'http://192.168.0.10:8442' })).toBe('This computer does not have the office certificate yet, so the app cannot check the team server. Open http://192.168.0.10:8442 in a web browser, or follow the desk card, install the certificate, then try again.')
+    expect(t('en', 'err.certUntrusted', { page: 'x' })).not.toMatch(/internet/i)
+    // nothing here lets a connection past a certificate error: the app's one certificate rule is the pinned office
+    // certificate of a team already joined (main/direct.ts, its probe and its verify proc), and the add-team check
+    // only reads the error
+    const main = ['app-window.ts', 'main.ts', 'security.ts', 'direct.ts'].map((f) => readFileSync(join(import.meta.dir, '../../desktop/src/main', f), 'utf8'))
+    expect(main.slice(0, 3).join('\n')).not.toMatch(/certificate-error|ignore-certificate-errors|allow-insecure-localhost|rejectUnauthorized|setCertificateVerifyProc\(/)
+    expect(main[3]!.match(/setCertificateVerifyProc\(/g)?.length).toBe(1)
+    expect(main[3]!.match(/rejectUnauthorized/g)?.length).toBe(1)
+    const win = main[0]!
+    expect(win).toMatch(/const trouble = certTrouble\(e\)\n\s+return trouble \? failCert\(trouble\) : fail\('unreachable'\)/)
   })
   test('a redirect is never followed by the network stack: only a relay rename to another name under the team domain', () => {
     // the health check reads the 3xx itself (app-window.ts fetchHealth: net.request with redirect 'manual')

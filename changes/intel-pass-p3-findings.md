@@ -12,3 +12,7 @@
   and automatic updates work as before.
 - Office Mac: `teamax status`, `teamax update status` and Admin › System no longer show an old failed update once a
   newer version is installed. A failed update to 0.5.7 stayed as the last result under a running 0.5.8.
+- Desktop app: joining an office address whose certificate is not installed on this computer now says so and names the
+  certificate page to open (for `https://192.168.0.10:8443`, `http://192.168.0.10:8442`) and the desk card. It said
+  "Check the address and your internet connection". Any other certificate problem says the certificate could not be
+  checked. The app still never connects past a certificate error.

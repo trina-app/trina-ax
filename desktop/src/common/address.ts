@@ -4,6 +4,7 @@
 // Pure: no Electron, unit-tested in tests/unit/e-desktop-common.test.ts and tests/unit/team-link.test.ts.
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { PRODUCT, SOURCE_CODE } from '@mycel/shared'
+import { classifyHostStatic } from './netaddr'
 import { mayBeAsleep, parseTeamInput, readAppLink, relayAnswer, relayRename, wakeTeam, type RelayAnswer, type TeamInput, type TeamInputError, type TeamInputOptions, type WakeAnswer, type WakeSteps } from '@mycel/shared/team-link'
 
 export { hostLineNow, hostLineShown, isLoopbackHost, isSignInPath } from '@mycel/shared/team-link'
@@ -151,6 +152,35 @@ export async function checkTeam(origin: string, io: TeamCheckIo): Promise<TeamCh
   }
   if (!v.ok) return { ok: false, error: 'error' in v && v.error !== 'asleep' ? v.error : 'notTeamServer' }
   return { ok: true, origin }
+}
+
+/**
+ * The add-team check could not be made because of the server's certificate (QA TC-3452: an office address whose
+ * certificate is not installed on this computer said "check your internet connection"). Read from the error Electron's
+ * net.request gives ("net::ERR_CERT_AUTHORITY_INVALID"): 'untrusted' = no certificate authority this computer trusts
+ * signed it (the office certificate is not installed yet); 'invalid' = any other certificate error (expired, another
+ * name, revoked). null: not a certificate error. The app only says so: it never connects past a certificate error.
+ */
+export type CertTrouble = 'untrusted' | 'invalid'
+export function certTrouble(err: unknown): CertTrouble | null {
+  const text = err instanceof Error ? err.message : typeof err === 'string' ? err : ''
+  const code = /(?:^|[^A-Z0-9_])(ERR_CERT_[A-Z0-9_]+)/.exec(text)?.[1]
+  if (!code) return null
+  return code === 'ERR_CERT_AUTHORITY_INVALID' ? 'untrusted' : 'invalid'
+}
+
+/**
+ * Where an office server hands out its certificate: plain http on the port below its https port (the office
+ * installer's default, server/src/office/settings.ts helperDefault: 8443 → 8442), for an address on the office network
+ * with a port in it (an IP address or a local name). null: an address that is not an office one, so no page is named.
+ * Only shown as text for the person to open in a browser and compare with the desk card; the app never opens it.
+ */
+export function officeCertPage(origin: string): string | null {
+  let u: URL
+  try { u = new URL(origin) } catch { return null }
+  const port = Number(u.port)
+  if (u.protocol !== 'https:' || !u.port || port < 2 || classifyHostStatic(u.hostname) !== 'private') return null
+  return `http://${u.hostname}:${port - 1}`
 }
 
 /** Origin of a URL, or '' (about:blank, garbage). */

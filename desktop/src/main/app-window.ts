@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { applyMePolicy } from '../common/me-policy'
 import { PRODUCT, WEB_ALLOW_ALL_RISK, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
 import { Health, Me } from '@mycel/shared/api'
-import { asksOutside, checkTeam, desktopPagePath, firstRunLinks, hostLineNow, hostOf, isSignInPath, onThisComputer, originOf, parseTeamAddress, readDesktopLink, teamLabel, type AddressError, type HealthAnswer } from '../common/address'
+import { asksOutside, certTrouble, checkTeam, desktopPagePath, firstRunLinks, hostLineNow, hostOf, isSignInPath, officeCertPage, onThisComputer, originOf, parseTeamAddress, readDesktopLink, teamLabel, type AddressError, type CertTrouble, type HealthAnswer } from '../common/address'
 import { LinkGate, type WakeAnswer } from '@mycel/shared/team-link'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { teamHostnames } from '../common/browser-block'
@@ -62,7 +62,7 @@ export interface WelcomeState {
  * hosted service and not remembered yet: the screen asks once, then calls again with `confirmed`. */
 export type AddTeamResult =
   | { ok: true; teamId: string }
-  | { ok: false; error: AddressError | 'unreachable' | 'notTeamServer' | 'teamUnknown' | 'suspended' | 'wakeTimeout' | 'confirmOutside' | 'renamed' | 'cancelled'; message: string; host?: string; next?: string }
+  | { ok: false; error: AddressError | 'unreachable' | 'certUntrusted' | 'certInvalid' | 'notTeamServer' | 'teamUnknown' | 'suspended' | 'wakeTimeout' | 'confirmOutside' | 'renamed' | 'cancelled'; message: string; host?: string; next?: string }
 
 /**
  * How a request from the team page's Settings > Browser to turn on "Allow all websites" ended (bridge
@@ -429,6 +429,14 @@ export class AppWindow {
     const L = this.o.locale()
     if (!p.ok) return { ok: false, error: p.error, message: t(L, `err.${p.error}` as UiKey) }
     const fail = (error: 'unreachable' | 'notTeamServer' | 'teamUnknown' | 'suspended' | 'wakeTimeout'): AddTeamResult => ({ ok: false, error, message: t(L, `err.${error}` as UiKey, { name: p.name ?? p.host }) })
+    // the server's certificate is not one this computer trusts (an office server whose certificate is not installed
+    // here yet): said as that, with where to get it, never as "check your internet connection" (QA TC-3452). Nothing is
+    // connected: the certificate check itself is untouched.
+    const failCert = (trouble: CertTrouble): AddTeamResult => {
+      const page = trouble === 'untrusted' ? officeCertPage(p.origin) : null
+      const key: UiKey = trouble === 'invalid' ? 'err.certInvalid' : page ? 'err.certUntrusted' : 'err.certUntrustedNoPage'
+      return { ok: false, error: trouble === 'invalid' ? 'certInvalid' : 'certUntrusted', message: t(L, key, { page: page ?? '' }) }
+    }
     let c
     const run = { stopped: false }
     this.wakeRun = run
@@ -444,8 +452,9 @@ export class AppWindow {
         now: Date.now,
         stopped: () => run.stopped,
       })
-    } catch {
-      return fail('unreachable')
+    } catch (e) {
+      const trouble = certTrouble(e)
+      return trouble ? failCert(trouble) : fail('unreachable')
     } finally {
       if (this.wakeRun === run) this.wakeRun = null
       if (this.waking) {
