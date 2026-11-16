@@ -11,6 +11,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
+import { translate } from '../../src/i18n'
 import { reset, signIn } from './helpers'
 import { ROOM_ID, routeRoom, routeRooms } from './rooms-mock'
 import type { MobileConfig, MobileMessage, MobileReply } from '../../../mobile/src/protocol'
@@ -139,7 +140,8 @@ test("the app's picker in an AI chat: no input, no iOS menu; the picked photo an
   // offers the input (WebKit's picker reaches the library and has no such limit)
   await pickNext(page, [{ name: 'IMG_0002.png', mime: 'image/png', bytes: PNG }], ['long-video.mov'])
   await photoLibrary(page, 'attach-button')
-  const note = page.getByTestId('toast').filter({ hasText: 'long-video.mov은(는) 커서 여기서는 넣을 수 없어요. 다른 방법으로 골라 주세요.' })
+  // the words since #998 ("one name for each thing"): the names after the line, not before 은(는)
+  const note = page.getByTestId('toast').filter({ hasText: translate('ko', 'composer.photosTooBigOther', { names: 'long-video.mov' }) })
   await expect(note).toBeVisible()
   await expect(chips).toHaveCount(3)
   await expect(chips.nth(2)).toHaveAttribute('data-status', 'done')
@@ -177,12 +179,14 @@ test("the app's picker in a room: the picked photo is uploaded to the room as th
   expect(body).toMatch(/filename="IMG_0001\.png"\r\nContent-Type: image\/png/)
   // WebKit's route shows no file part's bytes; Chromium's does
   if (browserName === 'chromium') expect(uploads[0]!.includes(PNG)).toBe(true)
-  // a room takes 50 MB a file at most: a bigger one is only named, with no other way offered
+  // a room takes files up to 10 GB since #1104 (docs/decisions/20261116-room-file-upload-memory.md), more than the
+  // bridge's 50 MB: as in an AI chat, the message offers the input (WebKit's picker has no such limit)
   await pickNext(page, [], ['long-video.mov'])
   await photoLibrary(page, 'room-attach')
-  const note = page.getByTestId('toast').filter({ hasText: 'long-video.mov은(는) 커서 넣지 못했어요.' })
+  const note = page.getByTestId('toast').filter({ hasText: translate('ko', 'composer.photosTooBigOther', { names: 'long-video.mov' }) })
   await expect(note).toBeVisible()
-  await expect(note.getByTestId('toast-action')).toHaveCount(0)
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), note.getByTestId('toast-action').click()])
+  expect(await chooser.element().getAttribute('data-testid')).toBe('attach-photos-input')
 })
 
 test('an older app (no photo-pick-v1): 사진 보관함 opens its input, as before, and the app hears nothing', async ({ page }) => {

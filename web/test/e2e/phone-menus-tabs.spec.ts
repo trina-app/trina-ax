@@ -8,7 +8,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
-import { reset, signIn } from './helpers'
+import { phoneTabs, reset, signIn } from './helpers'
 import { openChatFilter, openSearch, phoneTrinaHome, showChats } from './nav'
 import { DICTS } from '../../src/i18n'
 
@@ -322,10 +322,19 @@ for (const lang of ['ko', 'en'] as const) {
     test('Folder permissions: its two tabs fit the width as one segmented row', async ({ page }) => {
       await start(page, lang)
       await page.goto('/admin/folders')
-      const tabs = page.getByRole('tablist', { name: t['admin.folders'] })
-      await expect(tabs.getByRole('tab')).toHaveText([t['folders.tabFolders'], t['folders.tabPerson']])
-      expect(await tabs.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
-      for (const tab of await tabs.getByRole('tab').all()) expect((await tab.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+      const views = await phoneTabs(page, t['admin.folders'])
+      if (views.isRow) {
+        const tabs = views.control
+        await expect(views.tabs).toHaveText([t['folders.tabFolders'], t['folders.tabPerson']])
+        expect(await tabs.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+        for (const tab of await views.tabs.all()) expect((await tab.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+      } else {
+        // this font has no room for the words in half the row (the Linux CI's DejaVu Sans): one picker row, both choices in its sheet
+        expect((await views.control.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+        await views.control.click()
+        await expect(page.getByRole('menu', { name: t['admin.folders'] }).getByRole('menuitemradio')).toHaveText([t['folders.tabFolders'], t['folders.tabPerson']])
+        await page.keyboard.press('Escape')
+      }
       expect(await fitsPage(page)).toBe(true)
       await shot(page, `${lang}-folders-tabs`)
     })
