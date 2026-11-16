@@ -19,7 +19,13 @@ const group = (id: string) => ({ subjectType: 'group' as const, subjectId: id })
 const put = (c: Client, p: string, content = 'x') => c.call('PUT', '/api/files/content', { path: p, content, baseSha256: null })
 const share = (c: Client, p: string, add: { subjectType: 'user' | 'group'; subjectId: string }[], remove: typeof add = []) => c.call('PUT', '/api/files/shares', { path: p, add, remove })
 const list = async (c: Client, q = '') => (await c.call('GET', `/api/files/shared-with-me${q}`)) as { items: { linkId: string; name: string; sharedBy: string | null; sharedAt: string }[]; next: string | null }
-const ids_ = async (c: Client) => (await list(c)).items.map((i) => i.linkId)
+/** every row, read on as the client does (at most 10 calls): the files shared by name come before the group ones */
+const ids_ = async (c: Client) => {
+  let r = await list(c)
+  const out = r.items.map((i) => i.linkId)
+  for (let n = 1; r.next && n < 10; n++) { r = await list(c, `?cursor=${r.next}`); out.push(...r.items.map((i) => i.linkId)) }
+  return out
+}
 const page = (c: Client, id: string) => c.call('GET', `/api/files/shared/${id}`)
 const abs = (p: string) => path.join(h.ctx.files.fx.root, ...p.split('/'))
 const changedEvents = () => h.hub.events.filter((e) => (e.data as { data?: { code?: string } })?.data?.code === 'file_shares_changed')
@@ -238,6 +244,86 @@ describe('what leaves the list (and the live notice)', () => {
     expect(r.next).not.toBeNull()
     for (let i = 0; i < 10 && r.next; i++) { r = await list(admin, `?cursor=${r.next}`); found = [...found, ...r.items.map((x) => x.linkId)] }
     expect(found).toContain(kept)
+  })
+})
+
+describe('security review of the list (QA TC-4008..4010)', () => {
+  test('TC-4008: replaced outside the app with the same size, then renamed in the app: not listed, its new name never shown; a plain rename stays listed', async () => {
+    const a = `users/${ids.alice}/swap.txt`, b = `users/${ids.alice}/plain.txt`
+    await put(alice, a, 'aaaa')
+    await put(alice, b, 'bbbb')
+    const la = (await share(alice, a, [user(ids.bob)])).link.id
+    const lb = (await share(alice, b, [user(ids.bob)])).link.id
+    // another file of the same size put there on the disk, then renamed through the app
+    fs.unlinkSync(abs(a)); fs.writeFileSync(abs(a), 'ZZZZ')
+    await alice.call('POST', '/api/files/move', { from: a, to: `users/${ids.alice}/salary-list.txt` })
+    await alice.call('POST', '/api/files/move', { from: b, to: `users/${ids.alice}/plain-renamed.txt` })
+    const rowsBefore = h.ctx.db.query('SELECT id, state, ino, ctime_ms FROM file_shares WHERE id IN (?, ?) ORDER BY id').all(la, lb)
+    const r = await list(bob)
+    expect(r.items.map((i) => i.linkId)).not.toContain(la)
+    expect(JSON.stringify(r)).not.toContain('salary-list')
+    expect(r.items.find((i) => i.linkId === lb)?.name).toBe('plain-renamed.txt')
+    // the list still writes nothing and hashes nothing
+    expect(h.ctx.db.query('SELECT id, state, ino, ctime_ms FROM file_shares WHERE id IN (?, ?) ORDER BY id').all(la, lb)).toEqual(rowsBefore)
+    expect((await page(bob, la)).status).toBe('no_access')
+    expect(await page(bob, lb)).toMatchObject({ status: 'open', name: 'plain-renamed.txt' })
+  })
+
+  test('TC-4009: a row sits where its date says: the by-name grant names it and dates it, though a group grant is newer', async () => {
+    // carl reads shared/ by the folder rules: only his grant by name lists the file
+    await put(alice, 'shared/order-old.txt', 'o')
+    await put(alice, 'shared/order-mid.txt', 'm')
+    const old = (await share(alice, 'shared/order-old.txt', [user(ids.carl)])).link.id
+    await Bun.sleep(5)
+    const mid = (await share(alice, 'shared/order-mid.txt', [user(ids.carl)])).link.id
+    await Bun.sleep(5)
+    // then an admin shares the older one with Sales (carl's group): newer, but it qualifies nothing for him
+    await share(admin, 'shared/order-old.txt', [group(sales)])
+    const grantAt = (id: string) => (h.ctx.db.query("SELECT granted_at FROM file_share_grants WHERE share_id = ? AND subject_type = 'user' AND subject_id = ?").get(id, ids.carl) as { granted_at: string }).granted_at
+    const items = (await list(carl)).items
+    const o = items.find((i) => i.linkId === old)!, m = items.find((i) => i.linkId === mid)!
+    expect(o).toMatchObject({ sharedBy: 'ALICE', sharedAt: grantAt(old) })
+    expect(m.sharedAt).toBe(grantAt(mid))
+    expect(items.indexOf(m)).toBeLessThan(items.indexOf(o))
+    // the by-name rows come newest first by the date they show
+    const named = new Set((h.ctx.db.query("SELECT share_id FROM file_share_grants WHERE subject_type = 'user' AND subject_id = ?").all(ids.carl) as { share_id: string }[]).map((r) => r.share_id))
+    const dates = items.filter((i) => named.has(i.linkId)).map((i) => i.sharedAt)
+    expect(dates).toEqual([...dates].sort().reverse())
+    // the link page names the same grant
+    expect(await page(carl, old)).toMatchObject({ status: 'open', sharedBy: 'ALICE' })
+  })
+
+  test('TC-4010: a by-name share is on the first page behind thousands of newer Everyone and group shares of files the folder lets me read; fast', async () => {
+    const n = await addMember(h, owner, { username: 'nora', groupIds: [sales] })
+    const p = `users/${n.id}/for-carl.txt`
+    await put(n.client, p, 'fc')
+    const mine = (await share(n.client, p, [user(ids.carl)])).link.id
+    // 3,000 newer decoys: team files in shared/ (every member reads them), half shared with Everyone, half with Sales
+    const later = new Date(Date.now() + 60_000)
+    const ins = h.ctx.db.prepare("INSERT INTO file_shares (id, path, ino, dev, sha256, size, mtime_ms, ctime_ms, owner_id, state, created_by, created_at) VALUES (?, ?, NULL, NULL, NULL, 1, 0, 0, ?, 'live', ?, ?)")
+    const gr = h.ctx.db.prepare("INSERT INTO file_share_grants (share_id, subject_type, subject_id, granted_by, granted_at, via) VALUES (?, 'group', ?, ?, ?, 'dialog')")
+    h.ctx.db.transaction(() => {
+      for (let i = 0; i < 3000; i++) {
+        const id = `decoy${String(i).padStart(17, '0')}`
+        const at = new Date(later.getTime() + i).toISOString()
+        ins.run(id, `shared/decoy-${i}.txt`, n.id, n.id, at)
+        gr.run(id, i % 2 ? FILE_SHARE_EVERYONE : sales, n.id, at)
+      }
+    })()
+    try {
+      const t0 = performance.now()
+      const first = await list(carl)
+      const took = performance.now() - t0
+      expect(first.items.map((i) => i.linkId)).toContain(mine)
+      expect(first.items.some((i) => i.linkId.startsWith('decoy'))).toBe(false)
+      expect(took).toBeLessThan(1000)
+      // reading every page: still no decoy, at most the client's 10 calls
+      let r = first, calls = 1
+      while (r.next && calls < 10) { r = await list(carl, `?cursor=${r.next}`); calls++; expect(r.items.some((i) => i.linkId.startsWith('decoy'))).toBe(false) }
+      expect(r.next).toBeNull()
+    } finally {
+      h.ctx.db.query("DELETE FROM file_shares WHERE id LIKE 'decoy%'").run()
+    }
   })
 })
 
