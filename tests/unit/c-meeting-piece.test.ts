@@ -188,8 +188,9 @@ describe('a piece on this server', () => {
     s.record(1000, 0.5); s.record(1000, 14.5); s.record(1000, 15)
     expect(s.secPerSec()).toBeCloseTo(3 / 30, 3)
   })
-  // macOS's sandbox lets only the named program run, not the shell a script needs; Linux CI runs it
-  test.skipIf(isolation() === 'sandbox-exec')('a fake whisper-cli: lines come back on piece time, without the fallback, nothing left behind', async () => {
+  // a script needs its shell, which the isolation (macOS sandbox, bwrap) does not let it run: only without isolation
+  // (MYCEL_ISOLATION=none bun test tests/unit/c-meeting-piece.test.ts)
+  test.skipIf(isolation() !== 'none')('a fake whisper-cli: lines come back on piece time, without the fallback, nothing left behind', async () => {
     const d = deps()
     const bin = path.join(A.data, 'fake-whisper-cli')
     // writes out.json as whisper.cpp does (-of out -oj) in its work folder (the only place the sandbox lets it write);

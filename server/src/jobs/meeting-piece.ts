@@ -72,7 +72,9 @@ const NO_KEY = () => { const f = SPEECH_NO_KEY(); return new JobFailure('conflic
 /** the request was closed by the app before the answer */
 export class MeetingGone extends Error { constructor() { super('gone'); this.name = 'MeetingGone' } }
 const NOT_A_PIECE = () => fail(
-  '회의 소리 조각을 읽을 수 없어요.', "This piece of the meeting's sound can't be read.", 'Potongan suara rapat ini tidak dapat dibaca.',
+  '회의 소리 조각을 읽을 수 없어요.',
+  "This piece of the meeting's sound can't be read.",
+  'Potongan suara rapat ini tidak dapat dibaca.',
   '会議の音声の断片を読み取れません。', 'No se puede leer este fragmento del sonido de la reunión.', '无法读取这段会议声音。', 'bad_request', 'not_wav')
 
 /** The piece is the app's WAV: RIFF/WAVE, one 16-byte PCM fmt chunk, 16-bit, mono, 16 kHz, then the data chunk to the
