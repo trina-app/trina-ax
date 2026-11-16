@@ -208,6 +208,7 @@ export const filesRoutes: RouteModule = {
     kit.handle(API.putFileShares, ({ c, body, auth }) => mapErrors(c.get('locale'), () => shares.change(auth.user.id, body.path, body.add, body.remove, c.get('locale')).view))
     kit.handle(API.shareFilesBatch, ({ c, body, auth }) => mapErrors(c.get('locale'), () => shares.shareMany(auth.user.id, body.paths, body.add, c.get('locale'))))
     kit.handle(API.sharedBatch, ({ c, params, auth }) => mapErrors(c.get('locale'), () => shares.batchPage(auth.user.id, params.id)))
+    kit.handle(API.sharedWithMe, ({ c, query, auth }) => mapErrors(c.get('locale'), () => shares.sharedWithMe(auth.user.id, query.cursor, query.limit)))
     kit.handle(API.sharedFile, ({ c, params, auth }) => mapErrors(c.get('locale'), () => shares.page(auth.user.id, params.id)))
     kit.handle(API.sharedFileDownload, ({ c, params, query, auth }) => mapErrors(c.get('locale'), () => {
       // the current bytes only, checked on every request (a removed person loses it at once); nothing else by id

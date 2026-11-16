@@ -25,6 +25,10 @@ export function cancelDisabledPushDeliveries(ctx: AppContext, userId: string, pr
   // a chat shared with me by name (migration 351): "Chats shared with me" off stops what waits for a push (the Inbox row stays)
   if (!pushEventEnabled(preferences, 'chat.shared')) ctx.db.query(`UPDATE chat_share_push_deliveries SET state='cancelled',lease_until=NULL WHERE state IN ('pending','sending') AND notification_id IN
     (SELECT id FROM chat_share_notices WHERE user_id=?)`).run(userId)
+  // a file shared with me by name or a request to open a file I answer for (migrations 356, 358): "File sharing" off
+  // stops what waits for a push (the Activity rows stay)
+  if (!pushEventEnabled(preferences, 'file.shared')) ctx.db.query(`UPDATE file_share_push_deliveries SET state='cancelled',lease_until=NULL WHERE state IN ('pending','sending') AND notification_id IN
+    (SELECT id FROM file_share_notices WHERE user_id=?)`).run(userId)
   // a reply in a chat thread I follow (migration 408): "Replies in threads I'm part of" off stops what waits for a push
   // (the Inbox row stays)
   if (!pushEventEnabled(preferences, 'chat.thread_reply')) ctx.db.query(`UPDATE chat_thread_push_deliveries SET state='cancelled',lease_until=NULL WHERE state IN ('pending','sending') AND notification_id IN
@@ -77,8 +81,10 @@ pushPaths.set('chat.shared', chatSharePath)
 pushPaths.set('chat.thread_reply', chatThreadPath)
 // an app's paused notice opens the app's room (/rooms/<roomId>) while the person is still in it (rooms/apps/notice.ts)
 pushPaths.set('room_app.paused', roomAppPushPath)
-// a file shared with me by name opens its link page, several in one press their list (files/share-push.ts)
+// a file shared with me by name opens its link page, several in one press their list; a request to open a file I answer
+// for opens that request in Activity (/activity/<notice id>) while it waits on me (files/share-push.ts)
 pushPaths.set('file.shared', fileSharePushPath)
+pushPaths.set('file.access_requested', fileSharePushPath)
 // the owner's locked password check opens the Inbox (the notice there says what to do), as the older events do
 pushPaths.set('owner.reauth_locked', () => '/settings/notifications')
 export function registerPushPath(code: string, path: PushPath) { pushPaths.set(code, path) }

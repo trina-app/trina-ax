@@ -73,7 +73,8 @@ On a phone, Settings fills the screen. The section list comes first, and **←**
 
 **Settings › Notifications** chooses what reaches you: messages in conversations (direct messages, group chats and
 mentions, every new message, or nothing), replies in your threads, **Do not disturb** hours, scheduled tasks,
-connections, team skills and **Chats shared with me**. Under **Phone**, **Phone notifications only when I'm away** keeps
+connections, team skills, **Chats shared with me** and **File sharing** (a file shared with you by name, or someone
+asking to open your file). Under **Phone**, **Phone notifications only when I'm away** keeps
 your phone quiet while you use Trina on a computer. **This device** has the sound and, in a browser, **Browser
 notifications**.
 
