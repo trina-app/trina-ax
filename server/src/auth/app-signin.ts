@@ -80,6 +80,9 @@ export function redeemAppSignIn(c: Context<AppEnv>, ctx: AppContext, b: z.output
     return fail('gone', msg('appSignInGone', locale))
   }
   if (!APP_SIGNIN_CODE.test(b.code)) gone()
+  // cookie only: who is signed in is then read from the same cookie that AuthService.signIn replaces (a bearer header
+  // would be read first, and an unknown one would hide another person's live cookie from the check below)
+  if (c.req.header('authorization')) fail('bad_request')
   // whoever this app (or browser) is signed in as now, if anyone: a code never replaces another person's sign-in
   const current = c.get('auth')
   const userId = ctx.db.transaction(() => {

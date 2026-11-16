@@ -151,10 +151,13 @@ describe('app sign-in codes', () => {
     expect(r.status).toBe(409)
     expect(r.body.error.params?.reason).toBe('signed_in_as_other')
     expect((await ownersApp.call('GET', '/api/me')).user.id).toBe('olga')
-    // a bearer sign-in of someone else counts the same
+    // the redeem is cookie only: any bearer header is refused, a live one of someone else or an unknown one that would
+    // hide the cookie behind it
     const bearer = h.client()
     await bearer.login('olga', OWNER_PW, 'bearer')
-    expect((await bearer.try('POST', REDEEM, { code })).status).toBe(409)
+    expect((await bearer.try('POST', REDEEM, { code })).status).toBe(400)
+    expect((await ownersApp.try('POST', REDEEM, { code }, { authorization: `Bearer ${'Z'.repeat(43)}` })).status).toBe(400)
+    expect((await ownersApp.call('GET', '/api/me')).user.id).toBe('olga')
     // unspent: the app of the person it is for (signed out here) still uses it
     const fresh = h.client()
     expect((await fresh.call('POST', REDEEM, { code })).me.user.id).toBe('lena')
