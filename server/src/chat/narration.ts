@@ -22,23 +22,43 @@ const SCRIPT_LETTER: Record<AnswerScript, RegExp> = {
   zh: /[㐀-䶿一-鿿豈-﫿]/,
 }
 
-/** a message that asks for English or a translation: no piece is dropped in that answer */
-const ASKS_FOR_LATIN = /영어|영문|번역|英語|英文|英语|翻訳|翻译|english|translat/i
+/** A message that asks for another language or a translation (영어로, 인도네시아어로, 일본말로, 스페인어 버전, 英語で, 用西班牙语,
+ * English, translate …): no piece is dropped in that answer. */
+const ASKS_FOR_OTHER_LANGUAGE = new RegExp([
+  '영어', '영문', '번역', '[가-힣]어\\s*(?:로|으로|버전|번역|판)', '[가-힣]말로',
+  '[\\u4E00-\\u9FFF\\u30A0-\\u30FF]語(?:で|に|版|訳)', '翻訳', '英語',
+  '用[\\u4E00-\\u9FFF]{1,6}[语文語]', '[\\u4E00-\\u9FFF]{1,6}[语文]版', '翻译', '英文', '英语',
+  'english', 'translat', 'spanish', 'español', 'indonesian', 'bahasa', 'french', 'german', 'vietnamese',
+].join('|'), 'i')
 
 /** The longest piece (trimmed) that can be dropped, and at most this many sentences and lines. */
 export const NARRATION_MAX_CHARS = 200
 const NARRATION_MAX_SENTENCES = 2
 const NARRATION_MAX_LINES = 2
 
+/** How a status line starts: only a piece that opens like this is ever dropped ("Let me check …", "Only one thread
+ * exists; check it.", "Existing pattern: …"). Content written before a call ("Hi team, …", "Total: 42 files",
+ * "Work smarter, together.") does not. */
+const STATUS_OPENING = /^(?:let me|let's|let us|i'll|i will|i'm|i am|i need|i should|i can|i see|now|next|first|then|checking|check|looking|reading|searching|opening|trying|only|found|verify|verifying|ok|okay|good|great|alright|done|following|existing|same|still|nothing|no )\b/i
+/** the longest opening word above, plus room: a piece this long that does not start with one is let out */
+const OPENING_DECIDED_AT = 12
+
+/** about 3 or more Latin words and none of the answer's script: the person wrote in a Latin language */
+const writesLatin = (m: string, script: AnswerScript) => !SCRIPT_LETTER[script].test(m) && (m.match(/[A-Za-z]{2,}/g) ?? []).length >= 3
+
 /**
- * The script whose answers drop English status lines, or null (the hold lets everything through): the answer
- * language (the person's app language) is ko, ja or zh and the person's message is written in it (a Korean app with
- * an English message gets an English answer), and the message does not ask for English or a translation.
+ * The script whose answers drop English status lines, or null (the hold lets everything through). The answer language
+ * (the person's app language) is ko, ja or zh, and the message does not ask for another language or a translation. A
+ * message written in Latin words (3 or more, none of the script: "What did we agree in the room?") gets an answer in
+ * that language: off. A short or mixed message ("ok", "👍", an attachment, pasted English with a Korean question)
+ * follows the person's message before it, else the app language.
  */
-export function narrationScript(locale: Locale, message: string): AnswerScript | null {
+export function narrationScript(locale: Locale, message: string, previous?: string | null): AnswerScript | null {
   if (locale !== 'ko' && locale !== 'ja' && locale !== 'zh') return null
-  if (!SCRIPT_LETTER[locale].test(message)) return null
-  if (ASKS_FOR_LATIN.test(message)) return null
+  if (ASKS_FOR_OTHER_LANGUAGE.test(message)) return null
+  if (SCRIPT_LETTER[locale].test(message)) return locale
+  if (writesLatin(message, locale)) return null
+  if (previous && writesLatin(previous, locale)) return null
   return locale
 }
 
@@ -48,19 +68,29 @@ const withoutNames = (s: string) => s.replace(/(?<!`)`[^`\n]+`(?!`)/g, '')
   .replace(/["“'‘「『][^"”'’」』\n]*\.[A-Za-z0-9]{1,5}["”'’」』]/g, '')
   .replace(/[^\s()"“”'‘’「」『』]+\.[A-Za-z0-9]{1,5}(?=[\s).,;:!?"”'’」』]|$)/g, '')
 
-/** The piece is surely not a status line: long, in the answer's script, or content (code, a quote, a link, a table). */
+/** Markers of content: a link or address, Markdown (heading, list, bold, table, code, quote), quote marks, a number
+ * with a unit or a currency ("Total: 42 files", "339,400 KRW", "$5"). */
+const CONTENT = /https?:\/\/|www\.|\]\(|```|~~~|\*\*|__|\||^\s*(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|>)/m
+const CONTENT_WORDS = /["“”«»「」『』]|[$€£¥₩]\s*\d|\d[\d,.]*\s*(?:%|[A-Za-z]+\b)/
+
+/** The piece is surely not a status line, so it can go out now. partial: the piece is still coming (its last word may
+ * be a file name not yet whole, its opening not yet known). */
 function mustKeep(piece: string, script: AnswerScript, partial = false): boolean {
   const t = piece.trim()
   if (t.length > NARRATION_MAX_CHARS) return true
-  // while the piece streams, its last word may be a file name still coming: it counts once it is whole
   const words = withoutNames(partial ? piece.replace(/\S+$/, '') : t)
   if (SCRIPT_LETTER[script].test(words)) return true
-  if (/```|~~~|\]\(|\|/.test(t) || /["“”«»「」『』]/.test(words)) return true
-  if (/^\s*>/m.test(t)) return true
+  // only ASCII text is ever a status line ("Hola equipo, ya está listo." is not one)
+  if (/[^\x00-\x7F]/.test(words)) return true
+  if (CONTENT.test(t) || CONTENT_WORDS.test(words)) return true
   if (t.split('\n').filter((l) => l.trim()).length > NARRATION_MAX_LINES) return true
   if ((t.match(/[.!?;:](?=\s|$)/g) ?? []).length > NARRATION_MAX_SENTENCES) return true
+  if ((!partial || t.length >= OPENING_DECIDED_AT) && !STATUS_OPENING.test(t)) return true
   return false
 }
+
+/** A whole piece that is a status line: it has Latin letters and nothing marks it as content. */
+const isStatusLine = (piece: string, script: AnswerScript) => /[A-Za-z]/.test(piece) && !mustKeep(piece, script)
 
 const leadingSpace = (s: string) => /^\s*/.exec(s)![0]
 
@@ -93,7 +123,7 @@ export class NarrationHold {
     if (!this.script) return ''
     const piece = this.buf
     this.decided = false
-    if (piece.trim() && /[A-Za-z]/.test(piece) && !mustKeep(piece, this.script)) {
+    if (isStatusLine(piece, this.script)) {
       this.buf = ''
       if (this.lead === null) this.lead = leadingSpace(piece)
       this.dropped++
