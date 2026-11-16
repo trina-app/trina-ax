@@ -102,14 +102,15 @@ export function goalTitleSkills(first: string | null, skills: readonly { path: s
   return out
 }
 
-/** The goal's title: an invitation to make documents with colleagues with the team's own skills ("동료와 함께 문서 만들어
- * 보기: '견적 만들기', '카드뉴스', '광고 문구'"); without a skill to name, the plain invitation. The count and the days
- * stay out of it (they follow it, small). */
-export function goalTitleText(t: T, locale: string, names: readonly string[]): string {
-  if (names.length === 0) return t('goal.title')
+/** The goal's title: how many people (the leader is one of them, so "people", never "teammates") use the team's own
+ * skills this week, naming a few of them as the owner chose on 2026-11-11 ("3 people using 'Ad copy', 'Quotes', and
+ * 'Promo cards' this week"); without a skill to name, "3 people using a team skill this week". The count and the days
+ * follow it, small. */
+export function goalTitleText(t: T, locale: string, names: readonly string[], target: number): string {
+  if (names.length === 0) return t('goal.title', { target })
   const quoted = names.map((n) => skillQuote(locale, n))
   const skills = locale === 'ko' ? quoted.join(', ') : locale === 'ja' ? quoted.join('') : new Intl.ListFormat(locale, { type: 'conjunction' }).format(quoted)
-  return t('goal.titleSkills', { skills })
+  return t('goal.titleSkills', { skills, target })
 }
 
 /** "2/3" up to the target, then "4명" (more people than the goal needs). */

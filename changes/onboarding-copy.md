@@ -1,0 +1,2 @@
+- Getting started reads shorter: the AI step says "Trina uses it to read your files and do the work." under "Connect an AI first", the step list says **Company** instead of "About the company", the skills step's button says how many go in (**Add 3 skills**), and the phone's top-bar button that leaves the steps says **Close** instead of a second "Later".
+- The prepared skill "Company profile" is now called **Company slide deck** in English, so it is not confused with the company profile step. Teams that already added it keep their copy.

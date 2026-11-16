@@ -7634,7 +7634,7 @@ Onboarding wave 1, stream E. Placement: Team AX core (accounts and invites are c
 - **Per-link rate limit.** `RateLimiter` got a `link` kind (`perLink` 30 per 15 minutes): every join attempt through a found link counts, from any address, before the slow password hash (`hold()`), on top of the per-IP limit on unknown tokens; a join that worked is taken back (`release()`), since the uses cap those, so a 40-person team joining in one go is not turned away by its own typos. Refusals are audited once a minute per link (`team_link.rate_limited`). Someone holding the link can still keep it refusing with failed attempts; the leader then makes a new link. `POST /api/team-link/info` has no per-link limit (cheap; unknown tokens count per IP).
 - **Owners are told.** A new event `team.joined` in its own table `team_join_notices` (migration 111; `notification_inbox` has a fixed CHECK list and tables are never rebuilt, as for skill, dev-env and connection-request notices). Recipients: the active owners and the link's maker. Shown always (no new preference column: a join is rare and the owner wants it); no OS push (`push_deliveries` refers to `notification_inbox` only). Metadata only: the source is the new account's id; the inbox resolves the name while the account exists. Settings › Notifications shows "○○님이 팀 초대 링크로 들어왔어요" with a link to Admin › Members.
 - **Audit**: `team_link.create` (groups, uses, expiry, skill, replaced), `team_link.revoke`, `team_link.join` (who, groups, use n of m, IP and route, like sign-ins), `team_link.rate_limited`. The token is never in a detail.
-- **Skill deep link.** A link may name a team skill (`skills/…`, never a personal one). Creating one checks it against a stand-in new member with the link's groups (the same stand-in as Admin's "who will see what", `access-explain.ts`) and refuses a skill such a person could not open. The join checks again with the real account, after it exists (`readSkill` with the new principal): `next` is `/skills?run=<path>` only when they can read it, else null (Home). The web follows only a `/skills?run=skills/…` next (`lib/team-link.ts joinNext`). The info answer shows the skill's name only when a stand-in new member could open it. Stream C builds the `?run=` form.
+- **Skill deep link.** *(Landing superseded 2026-11-15 by "A new member lands on Home": every join goes Home.)* A link may name a team skill (`skills/…`, never a personal one). Creating one checks it against a stand-in new member with the link's groups (the same stand-in as Admin's "who will see what", `access-explain.ts`) and refuses a skill such a person could not open. The join checks again with the real account, after it exists (`readSkill` with the new principal): `next` is `/skills?run=<path>` only when they can read it, else null (Home). The web follows only a `/skills?run=skills/…` next (`lib/team-link.ts joinNext`). The info answer shows the skill's name only when a stand-in new member could open it. Stream C builds the `?run=` form.
 - **Ready-made message** (none of the reference products has one): "{name}님이 {product}에서 함께 일하자고 초대했어요. 링크로 바로 들어올 수 있어요: {link}", with a skill "… '{skill}' 스킬을 같이 써 보자고 해요. …", in all five languages; `{name}` is the person copying it (they send it).
 - **Join form**: name, username, password for both single-use invites and the team link (`pages/Auth.tsx JoinForm`). The second password field is gone; an eye button shows what was typed and Caps Lock is named (the pattern of the forced password change). All validation stays: the username rule while typing, the 8-character minimum before sending, the server's words after. The first-run setup and the reset-password forms are unchanged (setup belongs to wave 2; a reset is for an existing account). Expired, used-up, revoked, stopped and full links each say so and ask for a new link (or to tell the sender, when full); an unknown token asks to check the copied link.
 - **After joining** the session switch re-renders `/join` as a signed-in page before the router's own navigation (a transition) lands, so the signed-in `/join` route sends the new member to the target the join page set (`AfterJoin`, `lib/team-link.ts setAfterJoin`).
@@ -7714,7 +7714,7 @@ one or two".
   no usable AI (`GET /api/me/ai-access`, asked again on this step) it shows A's banner and button instead of the form.
 - **The invite.** On the first-result chat, once its answer is done, the owner sees one slim bar above the composer
   (`components/onboarding/WelcomeInviteBar.tsx`, one line in Chat.tsx): "결과가 마음에 드세요? 팀원도 같이 써 보게 해요
-  [초대하기]". It opens E's `InviteStep` in a dialog with that skill (`skillPath`: people who join land on its form) and
+  [초대하기]". It opens E's `InviteStep` in a dialog with that skill (`skillPath`: people who join land on its form; Superseded 2026-11-15 by "A new member lands on Home": every join goes Home, no maker line.) and
   the heading "방금 쓴 '광고 문구' 스킬, 팀원도 써 보게 할까요?" (new optional `title` prop). Closing the bar asks E's soft
   question first. When step 3 was put off, the invite is the last step of the page itself, with the pack's skill when
   there is one and E's own heading.
@@ -8371,7 +8371,7 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   changing its address: a link already posted keeps working) only files a stand-in new member with the link's groups
   could open are kept; with none left there is no starter, and a starter needs the link's skill. At the join each file
   is checked again with the real account (`authorize` + `visiblePath`, the file screen's test); one they cannot read is
-  left out silently, none left = no starter and the member lands on the skill form as before. The answer carries
+  left out silently, none left = no starter and the member lands on the skill form as before *(Superseded 2026-11-15 by "A new member lands on Home": every join goes Home, no maker line.)*. The answer carries
   `starter { kind, skill, files, by }`; the admin view shows `{ kind, files: n }` only. Audited in `team_link.create` /
   `team_link.update`. The team group is the default group of a new link (the invite step and Admin › Members), so
   people who join see the team's folder; when the lead invites from the notes and the open link lacks it, the PATCH adds
@@ -9436,7 +9436,7 @@ the "3 proposals" step and the bar after sharing. Placement: Team AX core (skill
   version that is a pack's text (any language, earlier releases) has no maker: the owner who pressed install did not
   write it. Used three ways: the join answer's new `skillBy` (and `starter.by` for a skill without a form), the receipt
   (`Message.receipt.skill.by`, only when the maker is not the asker; cached a minute per path), nothing else.
-- **The member**: a skill with a form opens on `/skills?run=` as before, with one line on top in place of its description:
+- **The member** *(Superseded 2026-11-15 by "A new member lands on Home": every join goes Home, no maker line.)*: a skill with a form opens on `/skills?run=` as before, with one line on top in place of its description:
   "{팀장}님이 만든 팀 스킬이에요 · 이 채팅은 {이름}님만 봐요" (`skillBy`, held in this tab until the form goes away,
   `lib/starter.ts holdMadeBy`). A skill without a form gets M's arrival on Home with a new starter kind `skill` (no
   files): "{팀장}님이 만든 팀 스킬이에요", its title as the box's chip and "이 방식대로 해 줘". The answer's step line reads
@@ -10566,7 +10566,7 @@ items of SK.
   '우리 회사 소개서'에 있어요" only when a deck started, by the server's fact `deckStarted` (the deck's chat holds the
   "/intro-deck" message or a deck build exists; never a recorded chat alone: a first result of a row from before is no
   deck) (no button: its row has its own marker, Part A); the primary
-  "'{skill}' 먼저 써 보기" opens the same form a member lands on (`/skills?run=`), "AI 연결하기" while no AI answers; 홈으로
+  "'{skill}' 먼저 써 보기" opens the skill's form (`/skills?run=`; members no longer land on it: "A new member lands on Home", 2026-11-15), "AI 연결하기" while no AI answers; 홈으로
   is a quiet link. Finishing later (내 스킬 on a computer after the phone's end screen) goes Home with "시작 설정을
   마쳤어요".
 - **Finish rule (server, `welcomeFinished`).** 회사 소개 answered (put off; or saved with `resultChatId`, or a row from
@@ -10715,7 +10715,7 @@ items of SK.
   with control or text-direction characters, the same set as `readSkillTitle` and the server's `readSkillExample` (the
   box then starts empty).
 - **The walk of PR #100** (a first-time owner and an invited member in a browser; no dead end found; these fixed):
-  - *The member lands on the skill's form* for every skill: the `'skill'` starter ("이 방식대로 해 줘" on Home, for a
+  - *The member lands on the skill's form* for every skill: *(Landing superseded 2026-11-15 by "A new member lands on Home": every join goes Home.)* the `'skill'` starter ("이 방식대로 해 줘" on Home, for a
     skill a person made that has no fields) is gone from the join; a link to a skill returns its form as `next` (a form
     without fields starts with `skillExample`), with "지훈님이 만든 팀 스킬이에요" above it. Only a link with files (M)
     still lands on Home with its starter. The `'skill'` kind stays in the contract and Home reads it for joins made
@@ -17441,7 +17441,7 @@ direction ("그럼 ㄱ"); the plan was reviewed per persona (5 MUST, 16 SHOULD, 
 page, no migration. Placement: Team AX core (Home, the skills routes, onboarding components). Plan:
 `docs/AGENTS/plan/20261108-1734-onb6-members.md`.
 
-- **Where an invite lands is unchanged.** A link with the owner's shared skill opens its form; every other link lands
+- **Where an invite lands is unchanged.** *(Landing superseded 2026-11-15 by "A new member lands on Home": every join goes Home.)* A link with the owner's shared skill opens its form; every other link lands
   on Home. Not the first kept skill's form: 회사 소개서, 카드뉴스 and 홍보 영상 make company material, and a member's first
   run would remake the company's cards on the team's AI.
 - **One member endpoint, `GET /api/skills/examples`** (`auth: 'user'`, server/src/skills/examples.ts), read as the
@@ -23754,6 +23754,9 @@ compared after lower-casing) and closes open point (2) of "Projects made on 0.4.
     sign-in opens in the window reserved during the click, and the card shows how it goes, then "연결됨".
   - **The address form** ("다른 도구 연결하기", a team connection) stays as the last, quiet choice; it is no longer
     the only one.
+- **Amended 2026-11-15** ("Onboarding's Tools step: Drive, Notion and the full list" below): no Drive row while Drive
+  is not ready (reverses TC-145), Notion is the only listed service, and "다른 도구 연결하기" opens Settings › Connectors
+  instead of the address form.
 
 ## The Linux launcher tests the live engine firewall before every turn (fix/firewall-live-check, 2026-11-12, QA TC-310)
 
@@ -30050,6 +30053,266 @@ tried again", as an unreadable file). Copy in en first, then ko, ja, zh, es, id.
   with, decided as the turn decides it (Codex runs on the team's AI connections on an installed server whatever
   engine.authMode says); a limit that hands the answer to the other engine midway changes the next turn's block. No
   card is offered in Slack or a scheduled run, and no web tools are named where the chat has none.
+
+## A new member lands on Home — 새 멤버는 홈에 도착한다 (fix/member-first-landing, 2026-11-15, the owner)
+
+The owner joined with a team link that named a skill and landed straight on that skill's form, a modal over Team skills
+("UX검수 한거야?"). The cause was older than the welcome card: the join answer's `next` sent every link with a skill to
+`/skills?run=<path>` ("Skill deep link" in stream E, kept by W5's PR #100 walk and W6.3), and "A welcome for invited
+people" never took it away. The onboarding review (2026-11-14) and the owner's answer (Q1: no recommended-skill line for
+members; the invite message names the skill) decide the fix. This **supersedes** stream E's "Skill deep link" landing,
+W5's "The member lands on the skill's form" and W6.3's "Where an invite lands is unchanged".
+
+- **Every join lands on Home** with the welcome card: a team link with or without a skill, a single-use invite (it
+  already did) and Add directly. Nothing opens by itself. `POST /api/team-link/join` always answers `next: null` and no
+  longer sends `skillBy`; both stay in the contract (`next` required, `skillBy` optional) so an older app still reads
+  the answer, and an older app then goes Home. The web ignores any `next` (an older server's `/skills?run=` too), so
+  `lib/team-link.ts joinNext` is removed.
+- **The link's skill** is still chosen by the owner and still checked against a new member's access; the invite message
+  names it ("I set up '{skill}' for us", lane C), and Home's "Ready in your team" lists the team's landing skill once
+  the card is gone. No suggestion line on the card and no column for it (the review cut migration 352).
+- **The join page** no longer names the skill ("After you join, you can try '{skill}' right away" is gone, key
+  `teamLink.joinSubSkill` removed in all six languages): it says who invited you to which team and until when the link
+  works, as for a link without a skill.
+- **A skill form opened from a link that says where it came from** (`navigate('/skills?run=…', { state: { back } })`):
+  ✕ or Esc goes back there (a path in this app only) instead of staying on Team skills. Without `state.back` the form
+  closes onto Team skills as before.
+- **The form's maker line is gone** ("{by} made this team skill · Only {name} can see this chat", S): only the join's
+  `skillBy` fed it, and it named the reader in the third person ("Only test can see this chat"). The form shows the
+  skill's description again; the chat footer already says "Only you can see new chats". Removed: `skillForm.madeBy` in
+  all six languages, `SkillForm`'s `by`, and the maker hold in `lib/starter.ts` (which now only clears what an older
+  version left in the tab at sign-out).
+- **Phones:** while the welcome card says hello ("Welcome to {team}"), Home's big greeting is for screen readers only
+  (two greetings, one half under the docked box). "You're all set" greets nobody, so the greeting is back then.
+  Computers keep it.
+- Side effect on the 7-day goal: members are no longer pushed into the link's skill on arrival, so first runs may come
+  later; the invite message is now the one place that names it. MC's "contribute" still follows a member's first run.
+- Version impact: **patch**.
+
+## W6 follow-up: every way out of the welcome steps has a way back (fix/onboarding-exit-ai-accounts, 2026-11-14)
+
+- **Problem.** The AI step's "Other AI services such as OpenRouter: Admin › AI accounts" opened Admin with no way back:
+  Admin has no setup row, and without AI the row opens the connect dialog, not the steps; a phone's ‹ said "Admin".
+- **Audit of the exits from /welcome.** Leaving to another app page in the same tab: the AI step's engines line and 팀
+  파일's **Open** of the project it made (both fixed here). Meant to leave: 나중에 (Home; the setup row, Home's row and the
+  no-AI card lead back), the end screen's Home and skill (the steps are finished or put off; the end screen lists what
+  was put off). New browser tabs (the company website, Google and MCP sign-ins) leave the steps where they are. The
+  invite step's "add skills · add files" switch steps inside /welcome.
+- **Decision.** A link out of the steps carries the step in the history entry's state (`lib/welcome.ts
+  setupReturnState`, like `INVITE_STEP_STATE`). The page it opens shows one small control at its top
+  (`components/onboarding/SetupReturn.tsx`): "← Back to getting started", and after the AI step, once AI answers (asked
+  again on an engines change and on window focus, for a sign-in in another tab), "Continue setup" in the accent. Both
+  open /welcome, which resumes by itself (the AI step recorded done). On a phone whose entry under the page is the
+  steps, it goes back in the history instead; on a computer /welcome opens the step it came from even when that step was
+  recorded done meanwhile (the team files result with the project made, not the next step). While it shows, a phone's
+  bar has no ‹ of its own (one back). A failed AI check (read as "usable" so nothing warns) does not offer "Continue
+  setup". Owner only; nothing once the steps are finished. The engines line goes straight to /admin/providers (the
+  /admin/engines redirect dropped the state); Home's no-AI card keeps a plain link.
+- **Only an answered AI read counts.** A failed read (offline, 5xx) leaves `usable` true so nothing warns; it never
+  shows "Continue setup" (`aiAccess.answered`) and never records the AI step done (Welcome.tsx on arrival and when AI
+  comes back). A phone's engine row in Admin › AI accounts carries the state on to /admin/providers/<id>, so the way
+  back stays there too.
+- **Not done.** The state lives in that one history entry (a reload or Back to it keeps it): moving to another page
+  drops the control (the setup row is the way back from there).
+- Tests: web/test/unit/setup-return.test.tsx, web/test/e2e/welcome-exits.spec.ts.
+
+## Hosted teams get the hosting service's Google sign-in without setup (fix/hosted-drive-broker-default, 2026-11-14, the owner)
+
+- **Problem.** A new hosted team (diontree, 0.5.3) showed "Google Drive isn't set up on this server yet. Set it up in
+  Admin › Connected apps." in onboarding. The team server used the hosting service's Google sign-in only when
+  `MYCEL_GOOGLE_DRIVE_BROKER_URL` was in its environment, and nothing writes it on a hosted tenant (mycel-enroll's
+  `/etc/default/mycel` holds only the time zone, install id and windows; the control plane has no command that sets
+  environment). The control plane already serves every hosted team (it recorded the relay key at enroll and has the
+  Google client), so the only missing piece was the variable: no hosted team ever reached the broker.
+- **Rule.** On a hosted server (`deployment: "hosted"`) without a Google client of its own, the broker address
+  defaults to the edition's console, `https://` + `SERVICE_HOSTS.accountHost` (`brokerOrigin`, `hostedDefault`). An
+  empty value or `off` still turns it off; a set value still wins; a client of its own still wins. Self-installed
+  servers are unchanged: only with the variable. Drive still turns on only after a signed `/status` says yes.
+- **Under `NODE_ENV=test` there is no default**, so a hosted test app never calls the real hosting service (the same
+  guard as the other loops); the unit tests pass their own env to check the default.
+- **Text.** If a hosted team still has no Drive (the hosting service says no), its card in Settings › Connectors and
+  Admin says "Google Drive isn't ready for this team yet. It turns on by itself; if it stays off, contact Trina
+  support." and an admin gets no **Set it up** button (Admin › Connected apps has nothing to set up on a hosted server).
+  Its Discover card, and the Google apps' cards (Gmail, Calendar, Docs, Sheets) in the same state, say "Not ready yet"
+  for everyone, never **Set up** to Admin (`DiscoverItem.noSetUp`, `drive.notReadyShort`).
+- **Onboarding's Tools step hides the Drive row while Drive is not ready** (hosted and self-installed alike): a "not set
+  up" or "contact support" line is a dead end in the setup. This **amends "Onboarding's Tools step on Connectors' cards"
+  (TC-136) and reverses QA TC-145** (Drive "not set up" shown in the setup; that ID is the one the entry names, today's
+  sheet keeps the rule in TC-136's notes). The rest of the step: the next entry.
+- **Slack's official app is not defaulted here.** Its hosted one-click path (sign-in + reading in one consent,
+  owner 11-13) is not verified end to end on a hosted team yet, so a hosted server still uses it only with
+  `MYCEL_SLACK_BROKER_URL` (or the Drive variable) set, as before. Defaulting it is a separate change after that check.
+- Version impact: **patch**. Tests: tests/unit/c-drive-broker.test.ts.
+
+## Onboarding's Tools step: Drive, Notion and the full list (fix/hosted-drive-broker-default, 2026-11-15, the owner, Q3)
+
+- **Owner, 2026-11-15 (Q3 of the onboarding re-check):** the step is Google Drive (when ready) + Notion + "Connect
+  another tool", which opens Connectors' full list with a way back. On 11-08 the owner chose Drive + one "connect
+  another" line (W6 core); QA TC-136 (11-12) grew it to seven rows. This **amends "Onboarding's Tools step on
+  Connectors' cards"** again.
+- **Rows.** Google Drive only where this server has it (hosted: once the hosting service said yes; self-installed: a
+  Google client), never a "not set up" or "contact Trina support" row (that line is on Connectors only). While Drive is
+  not ready the step reads it again every 15 s and when the window comes back, so a late "ready" shows the row. Notion, the
+  same one-click card as before (`WELCOME_SERVICES`). Then the quiet "Connect another tool" line. **Removed:** the
+  Linear, Atlassian, Canva and Figma cards, the not-ready Drive card, and the address form opened in place (an MCP
+  address is not a thing an office worker has; Connectors' Discover list has every listed service, and "Add custom
+  connector" for an owner).
+- **The way back.** "Connect another tool" opens `/settings/connectors`. Settings is a dialog over the page it was
+  opened from (App.tsx `useSettingsOverlay`), so the step stays mounted under it, and the dialog's close, Esc and the
+  browser's Back all come back to the step as it was; no extra "Back to getting started" control is needed there (it
+  would be a second back on the same screen). A phone never shows this step (W6), so there is no phone path.
+- **Leaving Settings for Admin.** The list opens with the step's way back in its history state
+  (`setupReturnState('tools')`, from "W6 follow-up: every way out of the welcome steps has a way back", PR #837), and
+  the "Set up" links of not-set-up Google cards carry it on, so Admin › Connectors shows "Back to getting started",
+  which opens the Tools step again. Opened any other way, the list's links carry nothing.
+- **Anything connected there counts.** When Settings closes (and on `integrations_changed`) the step reads again every
+  connection the owner can use (their own and the team's, `GET /api/integrations`), the Google apps
+  (`GET /api/integrations/google-apps`), their Slack link (`GET /api/slack/me`) and Drive; any one connected makes the
+  primary "Next".
+- **Slack** is not in the step: its hosted one-click path is not verified end to end yet (entry above).
+- Tests: web/test/unit/welcome.test.tsx (도구 연결), web/test/unit/drive-not-set-up.test.tsx,
+  web/test/e2e/welcome-tools.spec.ts (close/Esc/Back, Linear, a Google app or Slack, "Set up" → Admin → back).
+
+## W6 follow-up: the team files step without a team group (fix/onboarding-team-files-no-folder, 2026-11-15, QA TC-1613, TC-1614)
+
+- **Problem.** On a hosted team (0.5.3/0.5.4) the Team files step showed only "The team folder is not there yet" and
+  Do this later: `progress.teamGroup` was null because the team start (POST /api/onboarding/welcome/team, called when
+  the company step is left) did not go through, its failure is swallowed there (the owner is never held), and nothing
+  asked again.
+- **Decision.** The step's place falls back to shared/ (every team has it) and the step tries the team start again once
+  for the owner; the `welcome.teamFiles.noFolder` sentence is deleted in all languages (the intro files' upload says
+  `welcome.teamFiles.failed` when the brand folder is still missing). The organize line ("We sort them into folders in
+  {shared}…") is part of the step's description now (`welcome.teamFiles.descShared`, `phoneDescShared`, only while an
+  AI answers, as before), one grey line less under the buttons.
+- **Cause, as far as it is known.** Not confirmed on that server (no access). A fresh hosted-style Linux team under Bun
+  1.3.12 starts fine (team languages ko/en, odd team names, non-root with umask 027). The start fails with a 500 when
+  shared/ is not as expected: a file where the brand or notes folder goes (`not a folder`), shared/ missing on disk, or
+  shared/ not writable by the server account (EACCES). In each case `teamGroupFor` had already made the group, so the
+  row never recorded it and every retry made another ("Acme 2", "Acme 3"). Fixed here: the folders in shared/ are made
+  before the group (`server/src/onboarding/welcome.ts teamGroupFor`), and a missing shared/ is made again with the
+  team's default folders (`sharedStart` → `admin/folders.ts createDefaultFolders`, which changes nothing that is there;
+  the likeliest hosted cause). An unexpected failure is already logged by the app ("unhandled error" with the path,
+  app.ts); a refusal (HttpError) left no line, so the route logs it as a warning with its code
+  (`routes/onboarding-welcome.ts logged`). To check on the team: those log lines on POST /api/onboarding/welcome/team,
+  the `onboarding.welcome` row (`general` set but no `teamGroup` = it failed in the group step), `groups` /
+  `audit_log` `group.create` rows, and `ls -la` of shared/.
+- Tests: tests/unit/b-onboarding-welcome.test.ts ("leaves no group behind", "shared/ missing"), web/test/unit/team-files.test.ts,
+  web/test/e2e/welcome-team-files.spec.ts, welcome-organize.spec.ts.
+
+## W6 follow-up: the one-line intro is always filled, and a reload keeps the review (fix/onboarding-profile-oneline, 2026-11-15)
+
+- **Problem.** The invite message introduces the team with the profile's `oneLine` ("About us: …"), but the three
+  questions path left it empty (it asks what you sell, to whom, the tone), and a reading of a website or text left it
+  empty whenever the pages did not say it in one sentence. A reload during the review lost the AI draft (about a minute
+  of work) and started again at the website question.
+- **Decision.**
+  - The draft's instructions (`server/src/onboarding/draft.ts draftSystemPrompt`) ask for `oneLine` whenever products
+    or customers are filled, written from them and adding nothing; an answer that still leaves it out gets the first
+    line of its products, with the products' excerpt as its source (`withOneLine`, in `parseDraftAnswer`).
+  - The three answers go to the same text draft while an AI answers the person (the reading screen of a pasted text);
+    the review keeps the answers as typed and takes the AI's name and one-line intro. With no AI, or when that draft
+    fails, the answers go straight to the review as before, the intro from the first line of the products answer
+    (`profileLineFrom` in shared/src/api/onboarding.ts, the same rule the server uses). This replaces "the three
+    questions go straight to the review" for the AI case only. Only the name and the intro come from the AI (the
+    rest, sources included, stays the typed draft). While it writes, the screen says "Writing a one-line intro from
+    your answers" with "Skip, check my answers" (the review at once), and after 20 s it opens the review anyway.
+  - The welcome steps keep the reading under way and the review with its edits in this tab's `sessionStorage`
+    (`ProfileStep` `keep`, key `mycel.profileDraft.<user id>`); a save or going back to the website question clears
+    it. A kept reading whose chat is gone (404) stops at once and opens the fallback (or the answers' review), so a
+    reload never loops; sign-out clears the key (`lib/localData.ts clearLocalData`, sessionStorage). Not the server
+    progress (no API change), not in Admin › Team settings. No schema change.
+- Tests: tests/unit/b-onboarding-draft.test.ts ("always filled"), web/test/unit/profile-step.test.tsx (typed answers
+  with and without AI, keep), web/test/unit/welcome.test.tsx (the reading comes back in the same tab).
+
+## W6 follow-up: after the setup (fix/onboarding-after-setup, 2026-11-15, review of the onboarding re-check §7 lane A 4)
+
+- **Removed.** The AI step's and Home's no-AI card's line "Other AI services such as OpenRouter: Admin › AI accounts"
+  (`welcome.ai.enginesLine`, all languages): an expert page on a non-developer's first screen. Other providers stay in
+  Admin › AI accounts; the way back from a page a step links to (SetupReturn, the W6 follow-up above) stays for the
+  team files step's project and any later link. Not built: an OpenRouter choice in the key dialog (no credential kind
+  for it, the API engine needs a password; the MIT cloud contract would change).
+- **End screen.** The first-result button is the skill's own verb title, per kept skill (`FIRST_RESULT_SKILLS.verb`:
+  "Make promo cards", "Make a company slide deck", "Make a promo video"; 자연스러운 글 keeps "Try '{skill}'");
+  `welcome.done.make` ("Make a '{skill}'") is gone. The path list under the put-off steps (`welcome.done.laterHint`,
+  "Admin › Team settings › Company profile, Skills, …") is removed: the setup row is the way back now.
+- **Setup row after the end.** Supersedes "W6 follow-up: never brings back the setup row after finish" (it was a "Not
+  done", not an owner rejection). While the steps are finished and counted steps were put off (`lib/welcome.ts
+  putOffSteps`: answered as skipped; never the AI step, never 도구 연결 on a phone nor 내 스킬 put off for a computer),
+  the row reads "Still to do: 2 steps" (how many, never the names: they were cut at 1440 in en, ko and es) and opens the first of them as itself (the
+  `setupReturnState` ask; `Welcome.tsx` opens a step asked back after the end only when it was put off, and ending it
+  says nothing again). ✕ hides it as before (`dismissedAt`, with its undo). A put-off step done elsewhere is recorded
+  done on the next read (server `welcome.ts settlePutOff`): the company profile saved in Admin, someone other than a
+  guest in the team (the team menu's invites), a connection connected in Connectors. Without AI it stays out (Home's no-AI card
+  first); on a phone not on Home, as the unfinished row.
+- **Home: one thing.** The owner's "Ready in your team" (TeamPrepared) stays out while the goal card shows (HomeGoal
+  `onShown`; it waits for that answer, so nothing flashes). Admins and members unchanged.
+- **Goal title.** The counting word only: "3 people using 'Promo cards', 'Promo video', and 'Natural writing' this
+  week" (`goal.titleSkills` with `target`; "3 people using a team skill this week" without a skill). "People", never
+  "teammates": the leader is one of the three. The owner's 2026-11-11 choice stays: up to three of the team's own
+  skills named, the goal's one first (`GOAL_TITLE_SKILLS` 3).
+- Tests: web/test/unit/setup-row.test.tsx, welcome.test.tsx, goal-card.test.tsx, setup-return.test.tsx,
+  connect-ai.test.tsx; web/test/e2e/welcome-exits.spec.ts, no-ai.spec.ts.
+
+## W6 follow-up: setup copy (fix/onboarding-copy, 2026-11-15)
+
+- The AI step's sentence under "Connect an AI first": "{product} uses it to read your files and do the work." (not
+  "Connect an AI…" twice). The progress label of 회사
+  소개 in English, Indonesian and Spanish is one short word ("Company"; ko/ja/zh were short already). The skills
+  step's primary says how many go in, "Add 3 skills" (`welcome.skills.putN`). Merged with PR #926 (QA TC-2654), which
+  already counted from two skills on: one skill keeps its name ("카드뉴스 넣기", `welcome.skills.put`), so no names run
+  together and the one-skill case still says what goes in (batch #929). A phone's bar button that leaves the steps reads "Close" (its accessible name "Close ·
+  continue later"), so the screen has one "Later" (the step's own "Do this later").
+- The English prepared skill `intro-deck` is titled "Company slide deck" (was "Company profile", the name of step 2;
+  resources/skill-packs/general/en/intro-deck/SKILL.md, its closing line "I made the … company slide deck", the
+  catalog line in server/src/onboarding/skill-packs.ts SUMMARY en/id and the mock's). Only new installs get the new
+  title; name and path stay. ko/ja/zh/es already said deck/slides.
+  The example picture's `skillHash` (server/src/onboarding/skill-examples.ts) is recorded again without remaking the
+  picture: only the title, the description's first words and the heading changed, none of which the deck reads.
+- Not changed: "Next" on a phone already names the next open step with the same rule as a computer
+  (`Welcome.tsx nextLabel` → `lib/welcome.ts nextStep`, the device only drops 도구 연결); the walk's "Next: invite your
+  team" after the skills step on a phone was not reproduced from the code.
+
+## Free disk space: a checked statfs, then df, and "unknown" never blocks (fix/intel-mac-free-space, 2026-11-15, QA TC-3099)
+
+On an Intel Mac the bundled Bun 1.3.12 (darwin-x64) returns `fs.statfsSync` with `bsize: 0` and the other fields
+shifted (`blocks: 4096, bfree: 1048576, bavail: 39270390` on a disk with 129 GB free), so every backup said "0 MB free,
+2 GB needed" and every office update stopped at its pre-update backup. Decided: every free-space reading goes through
+`server/src/system/disk-stat.ts` `diskStat()`. A reading is believed only when bsize (and frsize) > 0, blocks > 0,
+bfree and bavail ≤ blocks and the disk is below 1 EiB; otherwise `/bin/df -k -P -- <path>` (no shell, 5 s timeout,
+`LC_ALL=C`) gives it (Available × 1024; bfree = bavail like an APFS statfs, so "used" stays the whole container's). Both
+failing is `DiskSpaceUnknown`, which no gate treats as a full disk: the backup logs a warning and goes ahead (a really
+full disk still fails the copy), the update download's room check passes, the storage guard and `diskAlmostFull` say
+"not full", and Admin › System warns "Could not read the free space" (`disk.*` checks; `disk.*FreeBytes` null). A real
+low reading still refuses as before. The Go helpers (mycel-ctl) read statfs correctly on Intel and are unchanged.
+Version impact: **patch**.
+
+Follow-up (fix/intel-mac-free-space-2, 2026-11-15): df never runs on a request's path. It runs async in the background
+(one run per path at a time, killed after 5 s; no second one while a stuck one is still alive), sync readers only
+read its cache (a reading older than 10 s starts a refresh, one older than 60 s is unknown; both folders are primed at
+start), and only the one-shot gates (backup, update room check, Admin diagnostics) wait, at most about 6 s, for a
+fresh answer (`primeDiskStat`). A df stuck on a dead mount therefore means "unknown", never a stalled server. On Linux
+each readable disk keeps its level check when the other cannot be read. The "unknown" warning is logged once per change.
+
+## Connection tool calls wait minutes, not 30 s (fix/connector-tool-timeout, 2026-11-15)
+
+A team connection to a web-scraping service (Bright Data's remote MCP server) failed every LinkedIn scrape: the
+scrape answers in 1-2 minutes and every request to a connection had 30 s (`net.ts` `TIMEOUT_MS`), `tools/call`
+included. The engines were not the limit (Claude Code `MCP_TOOL_TIMEOUT` and Codex `tool_timeout_sec` are 30 minutes,
+the turn's stall guard waits while our tool runs). Decided:
+- A `tools/call` fails only when nothing comes for 5 minutes (`MCP_CALL_IDLE_MS`) or 15 minutes after it began
+  (`MCP_CALL_TIMEOUT_MS`). The bytes of an event stream count as signs of life; each call names a `progressToken`
+  (its own request id), so a service that reports progress keeps the call alive past 5 minutes (like the SDK's
+  `resetTimeoutOnProgress`/`maxTotalTimeout`; Trina does not use the SDK). 15 minutes stays under the engines' 30 so the AI gets our reason.
+- Stop ends the call at once (the turn's signal closes the request) and sends `notifications/cancelled` (so do our own
+  limits, so the service can stop working and billing); the AI is told
+  the call was stopped, not "did not answer within 30 seconds".
+- A call that sent nothing for 5 minutes marks the connection as an error that is only for now (`call_idle`), as the
+  30 s did. A call past 15 minutes marks nothing: a long job is not a broken connection (the AI is still told). Everything else keeps the 30 s (the session's start, OAuth, `api_request`), a check keeps 30 s
+  without bytes and 90 s in all, and a Google app's calls to the library on this machine keep their 30 s.
+- No per-connection setting (none exists, none added).
+- Tests: `tests/unit/c-integrations-slow-call.test.ts` (scaled limits: a silent call 3 times the request limit, progress
+  past the pause limit, the pause limit, the hard limit, Stop), `tests/unit/c-integrations-slow-list.test.ts`. Version
+  impact: **patch**.
 
 ## Guests: one group chat and one project — 게스트는 그룹 대화 하나와 프로젝트 하나 (feat/guest-two-places, 2026-11-15, the owner, final)
 

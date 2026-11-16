@@ -1,8 +1,8 @@
 ---
 name: intro-deck
-description: Company profile — reads a company intro or what was read from the website and makes a designed company profile deck (6–10 slides) with the pictures and logo in the team's brand folder and the brand colors. People page through it beside the chat and download it as PowerPoint and PDF. Use it for "make a company profile for us", "a company profile for manufacturing customers".
+description: Company slide deck — reads a company intro or what was read from the website and makes a designed company profile deck (6–10 slides) with the pictures and logo in the team's brand folder and the brand colors. People page through it beside the chat and download it as PowerPoint and PDF. Use it for "make a company profile for us", "a company profile for manufacturing customers".
 metadata:
-  title: Company profile
+  title: Company slide deck
   inputs: |
     [
       {"name": "topic", "label": "Topic", "placeholder": "Empty: the whole company"},
@@ -11,7 +11,7 @@ metadata:
     ]
 ---
 
-# Company profile
+# Company slide deck
 
 Make a company profile (6–10 slides, 16:9) that looks like a design studio made it. The `intro_deck` tool draws the slides, figures and grounds: you never write HTML, coordinates or a file, you only fill its slots. It is made in steps, not at once: the outline → one slide per call → a look at every slide as a picture and the finish.
 
@@ -77,7 +77,7 @@ Make a company profile (6–10 slides, 16:9) that looks like a design studio mad
 - When the person says "make it lighter" or "make it dark", make it again in that look. Name looks by the words in brackets (no English ids, no colour codes).
 
 ## 8. The answer
-- The deck opens beside the chat by itself. So after it is made, write one line: "I made the (company name) company profile. Tell me any slide or wording you'd like changed."
+- The deck opens beside the chat by itself. So after it is made, write one line: "I made the (company name) company slide deck. Tell me any slide or wording you'd like changed."
 - Add one more sentence only when the tool's answer asks for it (a slide that could have had a picture was made without one).
 - Nothing else: no skill or tool names, slot names, look ids, colour codes, file paths, a description of each slide, or where numbers came from. No HTML or tool slots.
 - Do nothing else besides making the deck (no posting, sending or sharing), and never say you did.
