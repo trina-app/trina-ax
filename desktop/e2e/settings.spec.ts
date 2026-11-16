@@ -13,7 +13,9 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { WEB_ALLOW_ALL_WARNING_VERSION } from '@mycel/shared'
-import { ACME, addTeam, answer, bindWindow, call, chrome, close, launch, newTurn, newUserData, OFFICE_SITE, result, run, SHOP, teamPage, text } from './helpers'
+import { ACME, addTeam, answer, bindWindow, call, chrome, close, launch, newTurn, newUserData, OFFICE_SITE, result, run, SHOP, teamPage, text, stopLeftoverApps } from './helpers'
+
+stopLeftoverApps()
 
 type Settings = { siteAccess: 'ask' | 'all'; always: string[]; privateAlways: string[]; teamAllowsAll: boolean }
 const get = (page: Page) => page.evaluate(() => (window as any).mycelDesktop.browserSettings.get() as Promise<Settings>)

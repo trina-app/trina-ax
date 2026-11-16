@@ -4,8 +4,9 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication } from '@playwright/test'
 import { PRODUCT } from '@mycel/shared'
-import {
-  ACME, activityLog, addTeam, answer, BAD, bindWindow, BETA, call, cancel, chrome, close, LAN, launch, newTurn, newUserData, OFFICE_SITE, result, run, SHOP, siteHits, skew, tabPage, teamPage, text, view, welcome, signIn } from './helpers'
+import { ACME, activityLog, addTeam, answer, BAD, bindWindow, BETA, call, cancel, chrome, close, LAN, launch, newTurn, newUserData, OFFICE_SITE, result, run, SHOP, siteHits, skew, tabPage, teamPage, text, view, welcome, signIn, stopLeftoverApps } from './helpers'
+
+stopLeftoverApps()
 
 const refOf = (s: string, label: string) => {
   const line = s.split('\n').find((l) => l.includes(label))

@@ -7,7 +7,9 @@
 // no other site the person has not allowed (common/net-policy.ts, main/pane/net-guard.ts).
 // attacker.test (fake-team-server.ts, port 19158) logs every request URL.
 import { expect, test, type ElectronApplication } from '@playwright/test'
-import { ACME, activityLog, addTeam, answer, ATTACKER, call, chrome, close, launch, newTurn, newUserData, result, run, SHOP, text, signIn } from './helpers'
+import { ACME, activityLog, addTeam, answer, ATTACKER, call, chrome, close, launch, newTurn, newUserData, result, run, SHOP, text, signIn, stopLeftoverApps } from './helpers'
+
+stopLeftoverApps()
 
 const leaked = async (marker: string): Promise<string[]> =>
   ((await (await fetch('http://127.0.0.1:19158/__log')).json()) as { log: string[] }).log.filter((u) => u.includes(marker))

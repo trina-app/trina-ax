@@ -6,7 +6,9 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
-import { ACME, addTeam, answer, call, chrome, close, dragEdge, launch, newTurn, newUserData, paneViews, result, SHOP, signIn, text, view, windowShot } from './helpers'
+import { ACME, addTeam, answer, call, chrome, close, dragEdge, launch, newTurn, newUserData, paneViews, result, SHOP, signIn, text, view, windowShot, stopLeftoverApps } from './helpers'
+
+stopLeftoverApps()
 
 const SHOTS = process.env.SHOTS_DIR
 

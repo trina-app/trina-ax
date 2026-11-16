@@ -8,7 +8,9 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication } from '@playwright/test'
-import { ACME, activityLog, addTeam, answer, ATTACKER, bindWindow, call, chrome, close, launch, newTurn, newUserData, OFFICE_SITE, result, run, SHOP, siteHits, tabPage, teamPage, text, signIn } from './helpers'
+import { ACME, activityLog, addTeam, answer, ATTACKER, bindWindow, call, chrome, close, launch, newTurn, newUserData, OFFICE_SITE, result, run, SHOP, siteHits, tabPage, teamPage, text, signIn, stopLeftoverApps } from './helpers'
+
+stopLeftoverApps()
 
 const prompts = async (app: ElectronApplication) => (await chrome(app)).getByTestId('permission-prompt').count()
 

@@ -18,7 +18,8 @@
     work-files, work-files-wide, work-consent and the folder window. Only made-up homes and data folders
     (`FOLDER_TEST_HOME`, `MYCEL_DESKTOP_USER_DATA`). The standalone fixtures go through `desktop/e2e/fixture-run.ts`:
     the fixture is killed once it prints its result line (the #1015 pattern), so an Electron that will not exit cannot
-    stall the job. The run has a 25-minute ceiling and one retry. The results folder (report, fixture logs) is uploaded
+    stall the job. An app a test launched is killed after that test (`stopLeftoverApps()` in each spec), so a test that
+    times out cannot hold the worker open. The run has a 25-minute ceiling and one retry. The results folder (report, fixture logs) is uploaded
     when the job fails.
   - **Mac dmg:** an unsigned universal `dist:mac`, then `scripts/ci/dmg-check.ts`. It mounts the dmg read-only and
     checks the image format, the volume name, the file system, the app (Info.plist version, executable, app.asar), the

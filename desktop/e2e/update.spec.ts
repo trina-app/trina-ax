@@ -3,7 +3,9 @@
 // and its button opens Settings > Apps; it does not replace itself. (Windows installs through electron-updater; its
 // configuration is unit-tested in tests/unit/office-update.test.ts.)
 import { expect, test } from '@playwright/test'
-import { ACME, addTeam, close, launch, newUserData, teamPage } from './helpers'
+import { ACME, addTeam, close, launch, newUserData, teamPage, stopLeftoverApps } from './helpers'
+
+stopLeftoverApps()
 
 const hits = () => fetch(`${ACME}/test/downloads-hits`).then((r) => r.json() as Promise<{ hits: string[] }>).then((j) => j.hits)
 

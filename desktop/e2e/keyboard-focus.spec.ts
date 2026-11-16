@@ -15,7 +15,9 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
-import { ACME, addTeam, answer, bindWindow, call, chrome, close, launch, newTurn, newUserData, result, SHOP, signIn, tabPage, teamPage, welcome } from './helpers'
+import { ACME, addTeam, answer, bindWindow, call, chrome, close, launch, newTurn, newUserData, result, SHOP, signIn, tabPage, teamPage, welcome, stopLeftoverApps } from './helpers'
+
+stopLeftoverApps()
 
 const windowFocused = (app: ElectronApplication) => app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().some((w) => w.isFocused() && w.getTitle() !== 'away'))
 /** the address of the web contents that has the keyboard, or null */
