@@ -989,7 +989,7 @@ export class TeamFiles {
    * dryRun: nothing is copied; how many more people would see the copy than see the original.
    * A source the caller cannot read answers exactly like a missing one (not_found).
    */
-  async copy(userId: string, from: string, to: string, o: { baseSha256?: string | null; dryRun?: boolean; onExists?: 'fail' | 'replace' | 'rename'; skillGrant?: string } & By = {}): Promise<{ path: string; sha256: string } | { viewersAdded: number }> {
+  async copy(userId: string, from: string, to: string, o: { baseSha256?: string | null; dryRun?: boolean; onExists?: 'fail' | 'replace' | 'rename'; skillGrant?: string; confirm?: boolean } & By = {}): Promise<{ path: string; sha256: string } | { viewersAdded: number }> {
     const user = this.principal(userId)
     const rules = this.rules()
     const fr = authorize(this.fx, rules, user, from, 'read', { mustExist: true })
@@ -1013,6 +1013,9 @@ export class TeamFiles {
     }
     const added = this.viewersAdded(rules, user.id, fr.segs, r.segs)
     if (o.dryRun) return { viewersAdded: added }
+    // into a folder its owner shares, where more people will see it: the person's yes first (the dry run's count on the
+    // Files screen, the AI's card), whatever the client did before (409 audience_widened without confirm)
+    this.assertSharedConfirmed(r.segs, added, o.confirm)
     // with a plan, the team disk near full or over the plan's limit (system/storage.ts): a tool gets a tool error, the
     // Files screen a 507. A server with no plan has no check here, as before.
     if (currentPlan()) { if (o.tool) assertStorageRoomForAI(st.size); else assertStorageRoom(st.size) }
@@ -1175,7 +1178,7 @@ export class TeamFiles {
    * (files/timeline.ts fileTimelineWalk) follows a file inside to its source through that row, so the outside mark of
    * the source's content and names goes with the copy (chat/turn.ts noteOwnReads, noteOwnNames).
    */
-  copyFolderTree(userId: string, from: string, toParent: string, o: { dryRun?: boolean; maxFiles?: number; maxBytes?: number } = {}): { path: string; files: number; bytes: number } | { viewersAdded: number } {
+  copyFolderTree(userId: string, from: string, toParent: string, o: { dryRun?: boolean; maxFiles?: number; maxBytes?: number; confirm?: boolean } = {}): { path: string; files: number; bytes: number } | { viewersAdded: number } {
     const user = this.principal(userId)
     const rules = this.rules()
     const fr = authorize(this.fx, rules, user, from, 'read', { mustExist: true })
@@ -1194,6 +1197,7 @@ export class TeamFiles {
     const tr = authorize(this.fx, rules, user, [...pr.segs, name].join('/'), 'write', { mustExist: false })
     const added = this.viewersAdded(rules, user.id, fr.segs, tr.segs)
     if (o.dryRun) return { viewersAdded: added }
+    this.assertSharedConfirmed(tr.segs, added, o.confirm)
     const { files, bytes } = this.copyTree(user, rules, fr, pr.abs, (tmp) => { verifyChain(this.root, tr.segs, true); fs.renameSync(tmp, tr.abs) }, o)
     fileEvent(this.ctx.db, { turnId: null, userId, path: tr.rel, action: 'create', size: bytes, detail: { folder: true, sourcePaths: [fr.rel], widened: added > 0, files: files.length, tool: 'file-screen' } })
     for (const f of files) this.extractText([...tr.segs, ...f.segs].join('/'))
@@ -2094,6 +2098,12 @@ export class TeamFiles {
     }
   }
 
+  /** A copy into a folder its owner shares (files/share-readers.ts) that `added` more people will see: refused without
+   * the person's yes (409 audience_widened with the count). */
+  private assertSharedConfirmed(segs: readonly string[], added: number, confirm: boolean | undefined): void {
+    if (added > 0 && !confirm && segs[0] === 'users' && shareAbove(this.ctx.db, segs)) fileError('conflict', 'sharedFolderWidened', undefined, { reason: 'audience_widened', viewersAdded: added })
+  }
+
   /** How many people a folder share at or above `segs` lets in now that no share there let in at `at` (null: anyone it
    * lets in now; the content was somewhere else then). Grants removed and given again count as new. */
   private sharedSince(segs: readonly string[], at: string | null): number {
@@ -2127,7 +2137,12 @@ export class TeamFiles {
     // it lands inside a folder its owner shared after it went to the trash (or with people added since): they would see
     // something they never had. Confirmed first (409 audience_widened with the count). The item's own shares come back
     // with it (its people had it), and are not counted: they are parked with the item until the restore
-    const newly = this.sharedSince(r.segs, t.deleted_at)
+    // compared with who could see it when it was trashed only when it goes back into the same folder as then: a move of
+    // the folder it was in carries its trashed items along (trashHome), so the folder it lands in now may be one a share
+    // reached later (another place in time: everyone on the share counts)
+    const was = this.ctx.db.query("SELECT path FROM file_events WHERE action = 'delete' AND json_extract(detail, '$.trashId') = ? ORDER BY id LIMIT 1").get(t.id) as { path: string } | null
+    const samePlace = !!was && segsOf(was.path).slice(0, -1).join('/') === r.segs.slice(0, -1).join('/')
+    const newly = this.sharedSince(r.segs, samePlace ? t.deleted_at : null)
     if (newly > 0 && !o.confirm) fileError('conflict', 'sharedFolderWidened', undefined, { reason: 'audience_widened', viewersAdded: newly })
     if (isDir) {
       const under = "path = ? OR substr(path, 1, length(?) + 1) = ? || '/'"

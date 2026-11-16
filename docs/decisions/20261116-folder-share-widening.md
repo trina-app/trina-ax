@@ -46,6 +46,6 @@ hook"). Plan of this part: [20261116-1352-folder-share-widening.md](../AGENTS/pl
   3. `sourceKey` (the memo of places the person allowed in an answer) also keeps the share apart: with one key the
      scope stored only the first of two own-folder reads and the private one was lost before any check.
   4. The design's `chats.shared_files_seen` is the `chats.others_words` mark of the #1109 batch (not used here).
-- **Version impact:** minor (no migration; an optional `confirm` on the version restore and `?confirm=1` on the trash
+- **Version impact:** minor (no migration; an optional `confirm` on the copy and the version restore and `?confirm=1` on the trash
   restore; nobody can share a folder until the web part opens the gate).
 - **Tests:** `tests/unit/c-folder-share-widening.test.ts`, `tests/unit/c-reader-counters.test.ts`.

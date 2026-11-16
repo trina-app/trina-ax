@@ -7,8 +7,22 @@
 import type { Database } from 'bun:sqlite'
 import { heldCommands } from './queue'
 
-/** Does `userId` have a job or dev server running, or a command holding a slot of this process? */
+/** runs of this process being started now (their view is made before their row says running): person -> how many */
+const starting = new Map<string, number>()
+/** A run of `userId` is being started (runner.ts startRow): it counts as alive until the returned function is called. */
+export function startingRun(userId: string): () => void {
+  starting.set(userId, (starting.get(userId) ?? 0) + 1)
+  let done = false
+  return () => {
+    if (done) return
+    done = true
+    const n = (starting.get(userId) ?? 1) - 1
+    if (n > 0) starting.set(userId, n); else starting.delete(userId)
+  }
+}
+
+/** Does `userId` have a job or dev server running or being started, or a command holding a slot of this process? */
 export function devRunAlive(db: Database, userId: string): boolean {
-  if (heldCommands().includes(userId)) return true
+  if (heldCommands().includes(userId) || starting.has(userId)) return true
   return !!db.query("SELECT 1 FROM dev_env_runs WHERE user_id = ? AND ended_at IS NULL AND state = 'running' LIMIT 1").get(userId)
 }

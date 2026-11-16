@@ -1127,6 +1127,7 @@ export const es: Record<MessageKey, string> = {
   'files.moveAnyway': "Mover de todos modos",
   'files.widenTitle': "¿Mostrarlo a más personas?",
   'files.widenBody': "Al sacarlo de su carpeta personal, {n, plural, one {# persona más podrá} other {# personas más podrán}} verlo.",
+  'files.restoreWidenBody': "Comparte esta carpeta: {n, plural, one {# persona más lo verá} other {# personas más lo verán}}. ¿Restaurarlo aquí?",
   'files.skillsOnTitle': 'Se activan habilidades del proyecto',
   "files.skillsOnBody": "Si se mueve a la carpeta Proyectos, {n, plural, one {la habilidad de esta carpeta pasa a ser una habilidad} other {las # habilidades de esta carpeta pasan a ser habilidades}} que {ai} sigue en los chats de este proyecto: {names}",
   "projects.skillsOnBody": "{n, plural, one {La habilidad de esta carpeta pasa a ser una habilidad} other {Las # habilidades de esta carpeta pasan a ser habilidades}} que {ai} sigue en los chats de este proyecto: {names}",

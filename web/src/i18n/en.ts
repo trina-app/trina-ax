@@ -1151,6 +1151,7 @@ export const en: Record<MessageKey, string> = {
   'files.moveAnyway': 'Move anyway',
   'files.widenTitle': 'Show it to more people?',
   'files.widenBody': 'Moving this out of your personal folder means {n, plural, one {# more person} other {# more people}} can see it.',
+  'files.restoreWidenBody': 'You share this folder: {n, plural, one {# more person} other {# more people}} will see it. Restore it here?',
   'files.skillsOnTitle': 'Project skills switch on',
   "files.skillsOnBody": "Moved into the Projects folder, {n, plural, one {the skill in this folder becomes a skill} other {the # skills in this folder become skills}} {ai} follows in this project's chats: {names}",
   "projects.skillsOnBody": "{n, plural, one {The skill in this folder becomes a skill} other {The # skills in this folder become skills}} {ai} follows in this project's chats: {names}",

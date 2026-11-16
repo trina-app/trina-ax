@@ -1127,6 +1127,7 @@ export const ja: Record<MessageKey, string> = {
   'files.moveAnyway': "そのまま移動",
   'files.widenTitle': "閲覧できる人を増やしますか？",
   'files.widenBody': "個人フォルダーから移動すると、閲覧できる人が{n, plural, one {#人} other {#人}}増えます。",
+  'files.restoreWidenBody': "共有中のフォルダーです。元に戻すと、閲覧できる人が{n, plural, one {#人} other {#人}}増えます。ここに戻しますか？",
   'files.skillsOnTitle': 'プロジェクトスキルが有効になります',
   "files.skillsOnBody": "プロジェクトフォルダーに移動すると、{n, plural, one {このフォルダー内のスキル#個} other {このフォルダー内のスキル#個}}がこのプロジェクトのチャットで{ai}が従うスキルになります：{names}",
   "projects.skillsOnBody": "{n, plural, one {このフォルダー内のスキル#個} other {このフォルダー内のスキル#個}}がこのプロジェクトのチャットで{ai}が従うスキルになります：{names}",

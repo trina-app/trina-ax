@@ -35,6 +35,7 @@ import { resolveLayout } from '../../system/layout'
 import { mayUseDevEnv, teamSetting } from '../setting'
 import { activePeople } from '../../team-files/service'
 import { ownSharedFolders, shareReaders } from '../../files/share-readers'
+import { startingRun } from './alive'
 import { projectZoneFolders } from '../../policy/zone'
 import { folderView, runSkillFolders, viewAccess, viewHash, type FolderView, type RunWrites } from './access'
 import { RUN_ID_RE, SRT_PATHS, chatWork, devPlatform, type DevPlatform, devenvPaths, isFull, personHome, personLogs, resolveRunCwd, runEnv, runIdOfUnit, settingsProblems, srtSettings, unitName } from './config'
@@ -579,6 +580,9 @@ async function startRow(ctx: AppContext, row: RunRow): Promise<{ ok: true } | { 
   prepare(c, row.user_id)
   rm(log)
   const space = spaceOfRow(row)
+  // from the view's making (spawnRun) until the row says running, the run counts as alive: a folder share added in
+  // between would otherwise miss a run whose view lets it write there (alive.ts, files/folder-shares.ts)
+  const started = startingRun(row.user_id)
   try {
     const sp = await spawnRun(ctx, c, {
       runId, space, cwd: row.cwd, command, network: lim.l.network, once: parseOnce(row.once_domains ?? '', teamHosts(ctx)), limits: lim.l,
@@ -600,7 +604,7 @@ async function startRow(ctx: AppContext, row: RunRow): Promise<{ ok: true } | { 
     const m = (e as Error).message.slice(0, 300)
     endRow(ctx, row.id, { code: null, reason: /cannot use|cannot open/.test(m) ? 'setting' : 'lost', tail: m, lastLine: '' })
     return { ok: false, message: m }
-  }
+  } finally { started() }
 }
 /** the hash of the view the run started with (accessHash's format) */
 const accessHashFrom = (ctx: AppContext, userId: string, viewHashValue: string) => (mayUseDevEnv(ctx.db, ctx.files, userId) ? viewHashValue : 'off')

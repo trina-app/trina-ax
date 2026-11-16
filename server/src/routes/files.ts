@@ -194,7 +194,7 @@ export const filesRoutes: RouteModule = {
 
     kit.handle(API.mkdir, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.mkdir(auth.user.id, body.path)))
     kit.handle(API.move, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.move(auth.user.id, body.from, body.to, body.onExists, { confirm: body.confirm, skillsOk: body.skillsOk, askWiden: body.askWiden }), 'to'))
-    kit.handle(API.copy, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.copy(auth.user.id, body.from, body.to, { baseSha256: body.baseSha256, dryRun: body.dryRun, onExists: body.onExists }), 'to'))
+    kit.handle(API.copy, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.copy(auth.user.id, body.from, body.to, { baseSha256: body.baseSha256, dryRun: body.dryRun, onExists: body.onExists, confirm: body.confirm === true }), 'to'))
     kit.handle(API.remove, ({ c, query, auth }) => mapErrors(c.get('locale'), () => svc.remove(auth.user.id, query.path)))
     // an AI-saved version names its chat only when the caller may open that chat now (chat/version-chats.ts)
     kit.handle(API.history, ({ c, query, auth }) => mapErrors(c.get('locale'), async () => withChatLinks(auth.user.id, await svc.history(auth.user.id, query.path))))

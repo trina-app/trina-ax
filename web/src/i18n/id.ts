@@ -1151,6 +1151,7 @@ export const id: Record<MessageKey, string> = {
   'files.moveAnyway': 'Tetap pindahkan',
   'files.widenTitle': 'Tampilkan ke lebih banyak orang?',
   'files.widenBody': 'Jika dipindah keluar dari folder pribadi, {n} orang lagi bisa melihatnya.',
+  'files.restoreWidenBody': 'Anda membagikan folder ini: {n} orang lagi akan melihatnya. Pulihkan di sini?',
   'files.skillsOnTitle': 'Skill proyek akan aktif',
   "files.skillsOnBody": "Jika dipindah ke folder Proyek, {n} skill di folder ini menjadi skill yang diikuti {ai} di chat proyek ini: {names}",
   "projects.skillsOnBody": "{n} skill di folder ini menjadi skill yang diikuti {ai} di chat proyek ini: {names}",

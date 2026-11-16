@@ -18,11 +18,12 @@ import type { Database } from 'bun:sqlite'
 import type { AppContext } from '../context'
 import { audit } from '../admin/audit'
 import { HttpError } from '../http/errors'
+import { devRunAlive } from '../devenv/srt/alive'
 import { isStaff, type Principal } from '../policy/access'
 import { authorize } from '../policy/authorize'
 import { checkRegular } from '../team-files/place'
 import { FILE_SHARE_EVERYONE, FILE_SHARE_MAX, SHARE_UNDO_MS, type Locale, type ShareUndoResult } from '@mycel/shared/api'
-import { fileSharesOf, type ShareRow, type Subject } from './shares'
+import { fileSharesOf, msg, type ShareRow, type Subject } from './shares'
 import { folderSharesOf } from './folder-shares'
 
 interface UndoGrant { subjectType: 'user' | 'group'; subjectId: string; grantedBy: string; grantedAt: string; via: string }
@@ -76,6 +77,9 @@ export function undoShares(ctx: AppContext, userId: string, id: string, L: Local
   const s = u ? shares.row(u.share_id) : null
   const rel = s ? stillTheirs(ctx, me, s) : null
   if (!u || !s || !rel) throw gone()
+  // a folder: as for an add, not while a dev environment run of the owner is alive (its view, made while nobody was on
+  // the share, can write there: devenv/srt/alive.ts). Refused before the undo is used up, so it can be pressed again
+  if (s.kind === 'folder' && devRunAlive(db, me.id)) throw new HttpError('conflict', msg('folderRunActive', L), { params: { reason: 'folder_share_run_active' } })
   let grants: UndoGrant[]
   try { grants = (JSON.parse(u.grants) as UndoGrant[]).slice(0, FILE_SHARE_MAX) } catch { throw gone() }
   const valid = (g: UndoGrant) => g.subjectType === 'user'

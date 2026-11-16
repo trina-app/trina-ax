@@ -444,3 +444,155 @@ describe('every function that counts readers counts the share\'s people (one per
     expect(viewAccess(v, 'users/alice/private/a.md')).toBe('none')
   })
 })
+
+// ---------------- second security review of PR 3 (its proving tests, and the fixes' own) ----------------
+
+describe('review 2, H-A: skill_files moving or copying out of a skill folder into a shared folder', () => {
+  const { planFolderAction, runFolderAction } = require('../../server/src/skills/folder-actions') as typeof import('../../server/src/skills/folder-actions')
+  test('the card counts the share\'s people (seeAdded has bob); into an unshared own folder it adds nobody', () => {
+    wr('groups/marketing/skills/kit/SKILL.md', '---\nname: kit\ndescription: a kit\n---\nbody\n')
+    wr('groups/marketing/skills/kit/secret-notes.md', 'marketing-only notes\n')
+    const work = folder('work-sk')
+    shareDir(work, ['bob'])
+    const p = planFolderAction(h.ctx, h.ctx.files.principal('alice'), { action: 'move', path: 'groups/marketing/skills/kit/secret-notes.md', to_folder: work })
+    if ('refused' in p) throw new Error('refused: ' + p.refused.why)
+    expect(p.kind).toBe('out')
+    expect(rules().access(h.ctx.files.principal('bob'), segs('groups/marketing/skills/kit/secret-notes.md'))).toBe('none')
+    expect(p.seeAdded).toContain('bob')
+    const plain = folder('plain-sk')
+    const q = planFolderAction(h.ctx, h.ctx.files.principal('alice'), { action: 'copy', path: 'groups/marketing/skills/kit/SKILL.md', to_folder: plain })
+    if ('refused' in q) throw new Error('refused: ' + q.refused.why)
+    expect(q.seeAdded).toEqual([])
+  })
+  test('the copy the card allowed goes through the shared folder\'s check with the card\'s yes', async () => {
+    const work = folder('work-sk2')
+    shareDir(work, ['bob'])
+    const a = { action: 'copy' as const, path: 'groups/marketing/skills/kit/SKILL.md', to_folder: work }
+    const p = planFolderAction(h.ctx, h.ctx.files.principal('alice'), a)
+    if ('refused' in p) throw new Error('refused: ' + p.refused.why)
+    expect(p.seeAdded).toContain('bob')
+    expect((await runFolderAction(h.ctx, 'alice', a, p, { turnId: 'turn-review2', tool: 'skill_files' })).path).toBe(`${work}/SKILL.md`)
+  })
+})
+
+describe('review 2, H-B: a person\'s copy into a shared folder asks, whatever the client did before', () => {
+  test('copy and folder copy: 409 audience_widened without confirm; confirm copies; the endpoint takes confirm', async () => {
+    const work = folder('cp2'), priv = `users/alice/private-cp2-${n}/c.md`
+    wr(priv, 'private\n')
+    wr(`users/alice/private-cp2-${n}/dir/x.md`, 'x\n')
+    shareDir(work, ['bob'])
+    let err: any = null
+    try { await svc().copy('alice', priv, `${work}/c.md`) } catch (e) { err = e }
+    expect(err?.params).toEqual({ reason: 'audience_widened', viewersAdded: 1 })
+    expect(exists(`${work}/c.md`)).toBe(false)
+    expect(await svc().copy('alice', priv, `${work}/c.md`, { confirm: true })).toMatchObject({ path: `${work}/c.md` })
+    err = null
+    try { svc().copyFolderTree('alice', `users/alice/private-cp2-${n}/dir`, work) } catch (e) { err = e }
+    expect(err?.params?.reason).toBe('audience_widened')
+    expect(svc().copyFolderTree('alice', `users/alice/private-cp2-${n}/dir`, work, { confirm: true })).toMatchObject({ path: `${work}/dir` })
+    const no = await h.req('alice', '/api/files/copy', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ from: priv, to: `${work}/d.md` }) })
+    expect(no.status).toBe(409)
+    const yes = await h.req('alice', '/api/files/copy', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ from: priv, to: `${work}/d.md`, confirm: true }) })
+    expect(yes.status).toBe(201)
+    // into an unshared folder nothing changes: no confirm needed
+    wr(`users/alice/plain-cp2-${n}/keep.md`, 'k\n')
+    expect(await svc().copy('alice', priv, `users/alice/plain-cp2-${n}/c.md`)).toMatchObject({ path: `users/alice/plain-cp2-${n}/c.md` })
+  })
+  test('the AI\'s copy_files, after the card\'s yes, copies into the shared folder', async () => {
+    const work = folder('cp3'), priv = `users/alice/private-cp3-${n}/c.md`
+    wr(priv, 'private\n')
+    shareDir(work, ['bob'])
+    const r = await turn(fake({ tool: 'copy_files', args: { paths: [priv], to_folder: work } }, { say: 'done' }), 'allow')
+    expect(r.cards).toHaveLength(1)
+    expect(exists(`${work}/c.md`)).toBe(true)
+  })
+})
+
+describe('review 2, M-A: a trash restore after the item\'s folder was moved into a shared folder', () => {
+  test('restore into the shared folder asks (bob never had the trashed file)', () => {
+    const work = folder('work-tr')
+    shareDir(work, ['bob'], iso(Date.now() - 60_000))
+    const priv = `users/alice/priv-tr-${n}`
+    wr(`${priv}/secret.md`, 'salary\n')
+    wr(`${priv}/keep.md`, 'keep\n')
+    const t = svc().remove('alice', `${priv}/secret.md`)
+    // the person moves the private folder into the shared one, confirming for what is in it now
+    svc().move('alice', priv, `${work}/priv-tr`, 'fail', { confirm: true })
+    let err: any = null
+    try { svc().restoreTrash('alice', t.trashId) } catch (e) { err = e }
+    expect(err?.params?.reason).toBe('audience_widened')
+    expect(svc().restoreTrash('alice', t.trashId, { confirm: true }).entry.path).toBe(`${work}/priv-tr/secret.md`)
+  })
+})
+
+describe('review 2, M-C: a run being started counts as alive; Undo of a folder share waits for it too', () => {
+  const { startingRun, devRunAlive } = require('../../server/src/devenv/srt/alive') as typeof import('../../server/src/devenv/srt/alive')
+  test('startingRun marks the person alive until it is done', () => {
+    expect(devRunAlive(db(), 'alice')).toBe(false)
+    const done = startingRun('alice')
+    expect(devRunAlive(db(), 'alice')).toBe(true)
+    done(); done()
+    expect(devRunAlive(db(), 'alice')).toBe(false)
+  })
+  test('a share add and an Undo of a folder share are refused while a run is being started', async () => {
+    const work = folder('undo-alive')
+    const cfg = h.ctx.config as { folderShares?: boolean }
+    cfg.folderShares = true
+    const alice = loadPrincipal(db(), 'alice')!
+    const budget = () => (roomsOf(h.ctx) as unknown as { sendBudget: Map<string, unknown> }).sendBudget.clear()
+    try {
+      budget()
+      folderSharesOf(h.ctx).change(alice, work, [{ subjectType: 'user', subjectId: 'bob' }], [], 'en')
+      const stop = folderSharesOf(h.ctx).change(alice, work, [], [], 'en', 'dialog', { stop: true })
+      const undoId = (stop.view as { undo?: { id: string } }).undo!.id
+      const done = startingRun('alice')
+      try {
+        budget()
+        let err: any = null
+        try { folderSharesOf(h.ctx).change(alice, work, [{ subjectType: 'user', subjectId: 'bob' }], [], 'en') } catch (e) { err = e }
+        expect(err?.extra?.params?.reason).toBe('folder_share_run_active')
+        const no = await h.req('alice', '/api/files/shares/undo', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: undoId }) })
+        expect(no.status).toBe(409)
+        expect(((await no.json()) as any).error.params.reason).toBe('folder_share_run_active')
+      } finally { done() }
+      // the run is gone: the same Undo (not used up by the refusal) puts bob back
+      const yes = await h.req('alice', '/api/files/shares/undo', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: undoId }) })
+      expect(yes.status).toBe(200)
+    } finally { cfg.folderShares = undefined }
+  })
+})
+
+describe('review 2, Low: every way a folder share ends gives its people a fresh AI session', () => {
+  const held = async () => { const c = (await h.api('bob').call(API.createChat, { body: {} })).id; db().query("UPDATE chats SET engine_session_id = 'held' WHERE id = ?").run(c); return c }
+  const cleared = async (chat: string) => {
+    for (let i = 0; i < 40 && (db().query('SELECT engine_session_id s FROM chats WHERE id = ?').get(chat) as { s: string | null }).s; i++) await Bun.sleep(25)
+    return (db().query('SELECT engine_session_id s FROM chats WHERE id = ?').get(chat) as { s: string | null }).s === null
+  }
+  beforeAll(() => { folderSharesOf(h.ctx) })
+  test('the shared folder trashed', async () => {
+    const work = folder('end-trash')
+    shareDir(work, ['bob'])
+    const chat = await held()
+    svc().remove('alice', work)
+    expect(await cleared(chat)).toBe(true)
+  })
+  test('the row marked dead (the folder moved out of the owner\'s shareable places)', async () => {
+    const work = folder('end-dead')
+    shareDir(work, ['bob'])
+    const chat = await held()
+    fs.mkdirSync(abs('users/alice/downloads'), { recursive: true })
+    svc().move('alice', work, `users/alice/downloads/end-dead-${n}`, 'fail', { confirm: true })
+    expect(await cleared(chat)).toBe(true)
+  })
+  test('the owner\'s account turned off', async () => {
+    const work = folder('end-off')
+    shareDir(work, ['bob'])
+    const chat = await held()
+    // (the answer's own check trips on this fixture's group ids, which are not UUIDs; the change itself is made first)
+    await h.req('dana', '/api/admin/users/alice', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status: 'disabled' }) })
+    try {
+      expect((db().query('SELECT status FROM users WHERE id = ?').get('alice') as { status: string }).status).toBe('disabled')
+      expect(await cleared(chat)).toBe(true)
+    } finally { db().query("UPDATE users SET status = 'active' WHERE id = 'alice'").run() }
+  })
+})

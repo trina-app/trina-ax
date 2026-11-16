@@ -146,7 +146,7 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
           const r = svc.move(tc.user.id, p, join(folder, nameOf(p)), 'rename', { confirm: confirmed && (lost > 0 || added > 0), turnId: tc.turnId, tool })
           done.push({ from: p, to: r.entry.path })
         } else {
-          const r = await svc.copy(tc.user.id, p, join(folder, nameOf(p)), { onExists: 'rename', turnId: tc.turnId, tool })
+          const r = await svc.copy(tc.user.id, p, join(folder, nameOf(p)), { onExists: 'rename', turnId: tc.turnId, tool, confirm: confirmed && added > 0 })
           if ('path' in r) done.push({ from: p, to: r.path })
         }
       } catch (e) {

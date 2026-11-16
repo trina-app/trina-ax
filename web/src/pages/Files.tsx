@@ -30,7 +30,7 @@ import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } fr
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { type Access, type FileEntry, type FileHistoryEvent, type FileVersion, type HistoryResponse, type TrashItem, type TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText, fileUrl, isApiError, startDownload, versionDownloadUrl } from '../lib/api'
-import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, isFixed, moveMany, projectSkillsOn, selectable, widenedBy, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
+import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, isFixed, moveMany, projectSkillsOn, selectable, sendWidening, widenedBy, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
 import { formatDateTime, formatShortDateTime, formatSize, intlTag } from '../lib/format'
 import { groupTrash, mergePage, placeWords, purgeIn, retentionDays, showWhoSwitch, trashPlace, type PlaceWords } from '../lib/trashList'
 import { ListRow } from '../components/list/List'
@@ -780,7 +780,7 @@ function Files() {
       const dry = await api.call(API.copy, { body: { ...body, dryRun: true } })
       const n = 'viewersAdded' in dry ? dry.viewersAdded : 0
       if (n > 0 && !(await confirmDialog({ title: t('files.shareTitle', { name: e.name }), body: t('files.shareBody', { n }), confirm: t('files.shareCopy') }))) return
-      const r = await api.call(API.copy, { body })
+      const r = await api.call(API.copy, { body: n > 0 ? { ...body, confirm: true } : body })
       if ('path' in r) toast({ level: 'success', text: t('files.shared', { path: words.path(r.path) }) })
       void load()
     } catch (err) {
@@ -788,11 +788,13 @@ function Files() {
     }
   }
 
+  /** A restore into a folder its owner shares now (409 audience_widened): asked once per item, then sent confirmed. */
+  const askRestoreWiden = (n: number) => confirmDialog({ title: t('files.widenTitle'), body: t('files.restoreWidenBody', { n }), confirm: t('common.restore') })
   /** Undo of the trash: the rows back at once (the server's copy, " (restored)" when the name was taken meanwhile). */
   const untrash = (items: readonly { entry: FileEntry; trashId: string }[]) =>
     Promise.all(
       items.map(({ entry, trashId }) =>
-        placeEntry<MoveResult>({ key: fileChangeKey(entry.path), from: null, to: madeEntry(entry), send: () => api.call(API.restoreTrash, { params: { id: trashId } }), confirmed: (r) => r.entry }),
+        placeEntry<MoveResult>({ key: fileChangeKey(entry.path), from: null, to: madeEntry(entry), send: () => sendWidening((confirm) => api.call(API.restoreTrash, { params: { id: trashId }, ...(confirm ? { query: { confirm: '1' as const } } : {}) }), askRestoreWiden), confirmed: (r) => r.entry }),
       ),
     ).then(() => void onScreen.current?.load())
 
@@ -1651,7 +1653,7 @@ function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: ()
     if (!(await confirmDialog({ title: t('files.restoreTitle', { version: v.version }), body: t('files.restoreBody'), confirm: t('common.restore') }))) return
     setBusy(v.id)
     try {
-      await api.call(API.restoreVersion, { body: { path, versionId: v.id } })
+      await sendWidening((confirm) => api.call(API.restoreVersion, { body: { path, versionId: v.id, ...(confirm ? { confirm: true } : {}) } }), (n) => confirmDialog({ title: t('files.widenTitle'), body: t('files.restoreWidenBody', { n }), confirm: t('common.restore') }))
       toast({ level: 'success', text: t('files.restored', { version: v.version }) })
       onRestored()
       onClose()
@@ -1832,7 +1834,7 @@ function TrashView({ projects }: { projects: readonly { name: string; folderPath
           const rest = cur.filter((x) => x.id !== it.id)
           return out ? rest : [...rest.slice(0, Math.max(0, at)), it, ...rest.slice(Math.max(0, at))]
         }),
-      send: () => api.call(API.restoreTrash, { params: { id: it.id } }),
+      send: () => sendWidening((confirm) => api.call(API.restoreTrash, { params: { id: it.id }, ...(confirm ? { query: { confirm: '1' as const } } : {}) }), (n) => confirmDialog({ title: t('files.widenTitle'), body: t('files.restoreWidenBody', { n }), confirm: t('common.restore') })),
     })
     if (r.ok && r.newest) toast({ level: 'success', text: t('files.restoredTo', { path: placeWords(parentPath(r.reply.entry.path), place) }) })
     // a project came back with its folder: the project lists read it again (its card, its members' too)

@@ -1150,6 +1150,7 @@ export const ko = {
   'files.moveAnyway': '그래도 옮기기',
   'files.widenTitle': '더 많은 사람이 보게 옮길까요?',
   'files.widenBody': '개인 폴더에서 옮기면 {n}명이 더 보게 돼요.',
+  'files.restoreWidenBody': '공유 중인 폴더예요. 되돌리면 {n}명이 더 보게 돼요. 여기로 되돌릴까요?',
   'files.skillsOnTitle': '프로젝트 스킬이 켜져요',
   "files.skillsOnBody": "이 폴더를 프로젝트 폴더로 옮기면 안에 있는 스킬 {n}개가 이 프로젝트 채팅에서 {ai}가 따르는 스킬이 돼요: {names}",
   "projects.skillsOnBody": "이 폴더의 스킬 {n}개가 이 프로젝트 채팅에서 {ai}가 따르는 스킬이 돼요: {names}",

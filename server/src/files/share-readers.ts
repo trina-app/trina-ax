@@ -123,6 +123,18 @@ export function shareGrantees(db: Database, shareId: string): Set<string> {
   return granteesOf(db, [shareId])
 }
 
+/** The people the live folder share rows at or under `rel` let in (a trash or a removal ends them). */
+export function folderGranteesUnder(db: Database, rel: string): string[] {
+  const ids = (db.query("SELECT id FROM file_shares WHERE kind = 'folder' AND state = 'live' AND (path = ? OR substr(path, 1, length(?) + 1) = ? || '/')").all(rel, rel, rel) as { id: string }[]).map((r) => r.id)
+  return [...granteesOf(db, ids)]
+}
+
+/** The people `ownerId`'s live folder shares let in (the owner's account turned off or removed). */
+export function ownerFolderGrantees(db: Database, ownerId: string): string[] {
+  const ids = (db.query("SELECT id FROM file_shares WHERE kind = 'folder' AND state = 'live' AND owner_id = ?").all(ownerId) as { id: string }[]).map((r) => r.id)
+  return [...granteesOf(db, ids)]
+}
+
 /** Does the team have a live folder share row (with people or not: a group's delete has just taken its grants)? */
 export function anyFolderShare(db: Database): boolean {
   return !!db.query("SELECT 1 FROM file_shares WHERE kind = 'folder' AND state = 'live' LIMIT 1").get()

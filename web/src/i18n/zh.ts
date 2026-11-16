@@ -1126,6 +1126,7 @@ export const zh: Record<MessageKey, string> = {
   "files.moveAnyway": "仍然移动",
   "files.widenTitle": "让更多人看到？",
   "files.widenBody": "移出你的个人文件夹后，另外{n, plural, one {#人} other {#人}}将能看到它。",
+  "files.restoreWidenBody": "这是你共享的文件夹：恢复后，另外{n, plural, one {#人} other {#人}}将能看到它。要恢复到这里吗？",
   "files.skillsOnTitle": "项目技能将启用",
   "files.skillsOnBody": "移到“项目”文件夹后，{n, plural, one {此文件夹中的技能将成为} other {此文件夹中的#个技能将成为}}{ai}在此项目对话中遵循的技能：{names}",
   "projects.skillsOnBody": "{n, plural, one {此文件夹中的技能将成为} other {此文件夹中的#个技能将成为}}{ai}在此项目对话中遵循的技能：{names}",

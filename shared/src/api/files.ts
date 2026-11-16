@@ -98,6 +98,9 @@ export const CopyBody = z.object({
   baseSha256: z.string().regex(/^[0-9a-f]{64}$/).nullable().optional(),
   dryRun: z.boolean().default(false),
   onExists: z.enum(['fail', 'replace', 'rename']).default('rename'),
+  /** the person said yes to more people seeing the copy: a copy into a folder its owner shares answers 409 conflict
+   * {params: {reason: 'audience_widened', viewersAdded}} without it */
+  confirm: z.boolean().optional(),
 })
 export const CopyResult = z.union([
   z.object({ path: RelPath, sha256: z.string() }),

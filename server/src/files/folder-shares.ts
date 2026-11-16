@@ -102,9 +102,7 @@ export function folderRowsLanded(db: Database, to: string): void {
     const block = ownerIn(segs) !== r.owner_id || !r.owner_id ? 'left' : sharePlaceBlock(db, segs)
     if (!block) continue
     const removed = (db.query('SELECT COUNT(*) n FROM file_share_grants WHERE share_id = ?').get(r.id) as { n: number }).n
-    const lost = shareGrantees(db, r.id)
     markDead(db, r.id)
-    folderReadersLost(db, lost)
     const id = audit(db, { actor: r.owner_id, action: 'folder_share.ended', target: `file-share:${r.id}`, detail: { personal: true, removed, reason: block === 'left' || block === 'team_folder' || block === 'root' ? 'left_personal' : block === 'project' ? 'project' : 'moved_excluded' } })
     if (removed) tellOwner(db, r.owner_id, id)
   }

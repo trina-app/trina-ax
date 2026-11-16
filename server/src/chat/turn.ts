@@ -109,6 +109,7 @@ import { getUser } from '../auth/users'
 import { findRoomFile, localTime } from '../rooms/reader'
 import { namedPaths, OWN_CHAT_TEAM_TOOLS, OWN_WORDS_TOOLS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_OWN_CARD_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
 import { auditOnceUse, authorsWrite, everyoneWrites, folderAudience, folderId, grantFor, grantsOn, readersOf, ruledBetween, within } from '../rooms/ai-grants'
+import { privateToMe } from '../files/share-readers'
 import { wouldSeeFrom } from '../rooms/history'
 import { isOwnerOrAdmin, roomRow } from '../rooms/store'
 import { ext } from '../files/extract'
@@ -2694,6 +2695,8 @@ export class TurnExec {
       const r = authorize(fx, this.rt.files.rules(), this.livePrincipal(), t.path, 'write', { createDirs: true })
       const segs = r.segs
       if (segs.length < 3 || segs[0] !== 'users' || segs[1] !== this.spec.userId) return null
+      // only where nobody else reads it: a folder the person shares has its people (files/share-readers.ts)
+      if (!privateToMe(this.rt.db, this.spec.userId, segs)) return null
       if (r.exists && (!r.st?.isFile() || !this.roomMadeHere(r.rel))) return null
       if (!r.exists && !t.mayBeNew) return null
       // a path an AI turn put in the trash (delete_files) is not a new file: writing it again without a card would put

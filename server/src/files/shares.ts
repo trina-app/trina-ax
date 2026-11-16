@@ -40,6 +40,7 @@ import { newId } from '../db'
 import { onFileEvent } from './store'
 import { FILE_SHARE_TEXT } from './share-text'
 import { folderMadeAt, folderReadersLost, folderRowsLanded, folderSharesOf } from './folder-shares'
+import { folderGranteesUnder, shareGrantees } from './share-readers'
 import { saveUndo, undosClosed } from './share-undo'
 import { registerAccountCleanup } from '../auth/account-removal'
 import { onAccessChange } from '../admin/folders'
@@ -196,6 +197,8 @@ export function sharesMoved(db: Database, from: string, to: string): void {
 }
 /** Inside the trash's step: the shares at or under `rel` are parked with the trash item. */
 export function sharesTrashed(db: Database, rel: string, trashId: string): void {
+  // the people of a folder share parked now stop reaching it: fresh AI sessions (files/folder-shares.ts)
+  folderReadersLost(db, folderGranteesUnder(db, rel))
   if (db.query(`UPDATE file_shares SET state = 'trashed', trash_id = ? WHERE state = 'live' AND ${UNDER('path')}`).run(trashId, rel, rel, rel).changes) sharesTouched(db)
 }
 /** A trash item restored from `from` to `to`: its shares come back at the new place. One already live there (a new file
@@ -273,18 +276,23 @@ const restoredOf = (db: Database) => { let s = restored.get(db); if (!s) restore
 /** A trash item deleted for good: its shares, grants, requests and notices go. */
 export function sharesPurged(db: Database, trashId: string): void {
   const ids = (db.query('SELECT id FROM file_shares WHERE trash_id = ?').all(trashId) as { id: string }[]).map((r) => r.id)
+  folderReadersLost(db, ids.flatMap((id) => [...shareGrantees(db, id)]))
   for (const id of ids) dropShare(db, id)
   if (ids.length) sharesTouched(db)
 }
 /** A personal folder's records forgotten (an account removed): its shares go. */
 export function sharesForgotten(db: Database, prefix: string): void {
   const ids = (db.query(`SELECT id FROM file_shares WHERE ${UNDER('path')}`).all(prefix, prefix, prefix) as { id: string }[]).map((r) => r.id)
+  folderReadersLost(db, ids.flatMap((id) => [...shareGrantees(db, id)]))
   for (const id of ids) dropShare(db, id)
   if (ids.length) sharesTouched(db)
 }
 /** The row's file is gone (another file took its path, or the file changed outside the app): its link answers no
  * access from now on, and its grants and waiting requests go. */
 export function markDead(db: Database, id: string) {
+  // a folder share's people stop reaching it: fresh AI sessions (every way a folder share ends goes through here or
+  // through the steps above: files/folder-shares.ts folderReadersLost)
+  if ((db.query('SELECT kind FROM file_shares WHERE id = ?').get(id) as { kind: string } | null)?.kind === 'folder') folderReadersLost(db, shareGrantees(db, id))
   db.query("UPDATE file_shares SET state = 'dead' WHERE id = ?").run(id)
   db.query('DELETE FROM file_share_grants WHERE share_id = ?').run(id)
   db.query("UPDATE file_access_requests SET state = 'closed', decided_at = ? WHERE share_id = ? AND state = 'pending'").run(now(), id)
