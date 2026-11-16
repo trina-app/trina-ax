@@ -60,7 +60,11 @@ export function plainLabel(s: string, max = 80): string {
 /** room_app.paused: an app in a room the person manages reached the day's cap and paused (room_app_notices with their
  * own deliveries, room_app_push_deliveries, migration 352; docs/DECISIONS.md "Apps posting in rooms"). No setting of its
  * own: pushed while the notice is unread, the app still paused and the person still in its room. */
-export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention', 'owner.lead_joined', 'owner.reauth_locked', 'chat.answer_done', 'chat.shared', 'room_app.paused'])
+/** file.shared: someone gave me a file, or several in one press (file_share_notices with their own deliveries,
+ * file_share_push_deliveries, migration 356; docs/decisions/20261116-file-share-everyone.md). Listed in the Inbox always;
+ * pushed only for a share by name (a group's or the whole team's people get the Inbox row alone), outside quiet hours,
+ * while a file still opens for me. */
+export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention', 'owner.lead_joined', 'owner.reauth_locked', 'chat.answer_done', 'chat.shared', 'room_app.paused', 'file.shared'])
 /** The room notices among them (server/src/rooms/notices.ts). */
 export const ROOM_PUSH_EVENTS = ['room.dm', 'room.mention'] as const
 export type PushEventType = z.infer<typeof PushEventType>
@@ -92,7 +96,7 @@ export type PushEventType = z.infer<typeof PushEventType>
  * (room_app_notices; a push too: PushEventType), and room_app.leaver to the people who may manage an app in a room
  * when someone who was shown its address can no longer manage it (room_app_leaver_notices, migration 352; docs/DECISIONS.md
  * "Apps posting in rooms"). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'service.closed', 'files.stored_key', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'account.deletion_due', 'room_app.leaver', 'file.shared', 'file.access_requested', 'file.access_answered', 'file.unshared_by_move'])
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'service.closed', 'files.stored_key', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'account.deletion_due', 'room_app.leaver', 'file.access_requested', 'file.access_answered', 'file.unshared_by_move'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
@@ -218,6 +222,9 @@ export const InboxNotification = z.object({
     note: z.string().optional(), requestId: z.string().optional(),
     state: z.enum(['pending', 'approved', 'declined', 'closed']).optional(),
     canAnswer: z.literal(true).optional(), gone: z.literal(true).optional(),
+    /** file.shared for several files in one press (docs/decisions/20261116-file-share-everyone.md): how many of them the
+     * viewer can open now, and the press's id (link 'file' opens /f/batch/<batchId>); `name` is then null */
+    count: z.number().int().positive().optional(), batchId: z.string().optional(),
   }).optional(),
   /** 'skill.suggested' for a batch of skill folders a member sent (docs/DECISIONS.md "MC"; for the owners and admins):
    * who sent it, while their account is there, and how many skills it held. "민준 님이 스킬 2개를 팀에 올리자고 했어요";

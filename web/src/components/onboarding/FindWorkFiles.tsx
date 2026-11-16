@@ -672,7 +672,7 @@ function RunResult({ run: start, onClose, onUndone, phone }: { run: Run; onClose
         <ErrorNote>
           {t('files.findWork.share.failed', { n: shared.failed.length })}
           <ul className="mt-1 space-y-0.5" data-testid="find-work-share-failed">
-            {shared.failed.slice(0, 5).map((f) => <li key={f.path} className="truncate">{f.path.split('/').pop()} · {errorText(f.error, locale, t('chat.share.saveFailed'))}</li>)}
+            {shared.failed.slice(0, 5).map((f) => <li key={f.path} className="truncate">{f.path.split('/').pop()} · {f.message}</li>)}
           </ul>
         </ErrorNote>
       )}

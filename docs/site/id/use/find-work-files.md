@@ -112,7 +112,9 @@ tambahkan. **Tidak ada yang dicentang**, dan tidak ada yang dibagikan sampai And
 - **Cocok dibagikan: Formulir** (juga Profil perusahaan, Materi merek, Aturan dan kebijakan, Materi pelatihan, Notulen rapat)
   menandai jenis file yang biasanya disimpan bersama oleh tim. Ini hanya petunjuk, dari pilihan yang sama dengan daftar
   sebelumnya atau dari nama file: centang yang Anda mau.
-- Di **Tambahkan orang atau grup**, tambahkan siapa yang boleh melihatnya: rekan tim dengan nama, atau grup tempat Anda
+- Di **Tambahkan orang atau grup**, tambahkan siapa yang boleh melihatnya: **Semua orang di tim** (pilihan pertama: semua
+  orang di tim, termasuk yang bergabung nanti, tidak termasuk tamu; satu baris menyebutkannya sebelum Anda menekan
+  **Bagikan**), rekan tim dengan nama, atau grup tempat Anda
   bergabung (pemilik tim dan admin bisa menambahkan grup mana pun). Tamu tidak bisa ditambahkan.
 - Klik **Bagikan n file**. Setiap file yang dicentang dibagikan persis seperti dengan **Bagikan** di halaman File: orang
   yang Anda tambahkan bisa membuka dan mengunduhnya (hanya lihat), dan melihatnya di **Aktivitas**. File yang tidak

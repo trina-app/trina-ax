@@ -65,6 +65,7 @@ const ChatPage = lazy(() => import('./pages/Chat'))
 const Files = lazy(() => import('./pages/Files'))
 const FileView = lazy(() => import('./pages/FileView'))
 const FileLink = lazy(() => import('./pages/FileLink'))
+const FileBatch = lazy(() => import('./pages/FileBatch'))
 const ProjectList = lazy(() => import('./pages/Projects').then((m) => ({ default: m.ProjectList })))
 const ProjectHome = lazy(() => import('./pages/Projects').then((m) => ({ default: m.ProjectHome })))
 const ProjectFiles = lazy(() => import('./pages/Projects').then((m) => ({ default: m.ProjectFiles })))
@@ -362,6 +363,7 @@ function Gate() {
           <Route path="files" element={<NotForGuests><Files /></NotForGuests>} />
           <Route path="files/view" element={<NotForGuests><FileView /></NotForGuests>} />
           {/* a file's link (QA TC-3093): for a guest too, who gets "You can't open this file" (the server answers 403) */}
+          <Route path="f/batch/:id" element={<FileBatch />} />
           <Route path="f/:id" element={<FileLink />} />
           {/* a guest in a room has no projects: their room instead of an empty list (components/GuestView.tsx) */}
           <Route path="projects" element={<NotForRoomGuests><ProjectList /></NotForRoomGuests>} />

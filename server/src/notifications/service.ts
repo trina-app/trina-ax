@@ -121,12 +121,14 @@ export class Notifications {
   }
   /** A file shared with me, an access request to answer, a decline of mine, or my file's grants removed by someone
    * else's move (files/shares.ts; docs/DECISIONS.md "A member shares their own files"). Activity only, shown always.
-   * `rearm`: the same source again brings its row back up as unread (a new request, a share again after a removal). */
-  fileShareNotice(userId: string, event: FileShareEvent, sourceId: string, rearm: boolean) {
+   * `rearm`: the same source again brings its row back up as unread (a new request, a share again after a removal).
+   * `named`: a file shared with the person by name (not through a group or the whole team): that notice is also pushed
+   * (push-service.ts, files/share-push.ts; migration 356). Several files in one press are one notice (source 'b:<id>'). */
+  fileShareNotice(userId: string, event: FileShareEvent, sourceId: string, rearm: boolean, named = false) {
     if (!this.active(userId)) return
     const at = new Date().toISOString()
-    const r = this.ctx.db.query('INSERT INTO file_share_notices(id,user_id,event_type,source_id,created_at,suppressed) VALUES(?,?,?,?,?,0) ON CONFLICT(user_id,event_type,source_id) DO ' + (rearm ? 'UPDATE SET created_at = excluded.created_at, read_at = NULL' : 'NOTHING'))
-      .run(newId(), userId, event, sourceId, at)
+    const r = this.ctx.db.query('INSERT INTO file_share_notices(id,user_id,event_type,source_id,created_at,suppressed,named) VALUES(?,?,?,?,?,0,?) ON CONFLICT(user_id,event_type,source_id) DO ' + (rearm ? 'UPDATE SET created_at = excluded.created_at, read_at = NULL, named = MAX(named, excluded.named)' : 'NOTHING'))
+      .run(newId(), userId, event, sourceId, at, named ? 1 : 0)
     if (r.changes) this.signal(userId)
   }
   /** A skill suggestion to review, or the review result of an own suggestion. The source is the suggestion id only. */
@@ -492,6 +494,8 @@ export class Notifications {
   reconcile(userId?: string) {
     const db = this.ctx.db
     for (const table of NOTICE_TABLES) db.query(`DELETE FROM ${table} WHERE created_at < ?`).run(this.cutoff())
+    // a Share press of several files (migration 356) goes with its last notice
+    db.query("DELETE FROM file_share_batches WHERE created_at < ? AND NOT EXISTS(SELECT 1 FROM file_share_notices n WHERE n.event_type = 'file.shared' AND n.source_id = 'b:' || file_share_batches.id)").run(this.cutoff())
     this.settleIntegrationRequests(userId)
     this.settleAiRequests(userId)
     if (!userId) this.openDeletionRequests()
