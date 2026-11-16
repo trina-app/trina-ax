@@ -182,7 +182,11 @@ export function MeetingNotesCard() {
   // the newest words stay in view
   useEffect(() => { list.current?.lastElementChild?.scrollIntoView?.({ block: 'nearest' }) }, [lines.length])
   // when Stop goes away, the focus goes to what replaced it
-  useEffect(() => { if (done) card.current?.querySelector<HTMLButtonElement>('header button')?.focus({ preventScroll: true }) }, [done])
+  // (only when the focus was on the card or nowhere: the offer of unsaved notes on page load takes nothing)
+  useEffect(() => {
+    const a = document.activeElement
+    if (done && done !== 'unsaved' && (!a || a === document.body || card.current?.contains(a))) card.current?.querySelector<HTMLButtonElement>('header button')?.focus({ preventScroll: true })
+  }, [done])
 
   if (!m) return null
   if (state.state === 'idle' && !done) return null
@@ -222,7 +226,9 @@ export function MeetingNotesCard() {
         {done === 'saved' && <Button size="sm" variant="secondary" onClick={() => { close(); navigate(`/files?path=${encodeURIComponent(`users/${meId}/${MEETINGS_DIR}`)}`) }} data-testid="meeting-open">{t('meeting.open')}</Button>}
         {(done === 'failed' || done === 'unsaved') && <Button size="sm" variant="secondary" busy={working} onClick={saveAgain} data-testid="meeting-save-again">{done === 'failed' ? t('meeting.retry') : t('meeting.save')}</Button>}
         {listening && <IconButton label={folded ? t('meeting.showWords') : t('meeting.hideWords')} compact onClick={() => setFolded(!folded)}>{folded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</IconButton>}
-        {done && <IconButton label={t('common.close')} compact onClick={close}><X size={16} /></IconButton>}
+        {/* closing the offer of unsaved notes lets the app forget them (else it comes back at every reload) */}
+        {done === 'unsaved' && <Button size="sm" variant="ghost" onClick={() => { if (startedAt) m.saved(startedAt); close() }} data-testid="meeting-discard">{t('meeting.discard')}</Button>}
+        {done && done !== 'unsaved' && <IconButton label={t('common.close')} compact onClick={close}><X size={16} /></IconButton>}
       </header>
       {listening && !folded && (
         <p className="flex items-center gap-2 border-t border-line px-3 py-2 text-xs text-muted">
@@ -238,6 +244,7 @@ export function MeetingNotesCard() {
           <button type="button" className="shrink-0 text-accent-text hover:underline" onClick={() => m.openSoundSettings()}>{t('meeting.allow')}</button>
         </p>
       )}
+      {!listening && (state.problem === 'silence' || state.problem === 'too_long') && <p className="border-t border-line px-3 py-2 text-xs text-muted" role="status">{state.problem === 'silence' ? t('meeting.endedSilence') : t('meeting.endedLong')}</p>}
       {!listening && state.problem === 'stopped' && state.message && <p className="border-t border-line px-3 py-2 text-xs text-danger" role="alert">{state.message}</p>}
       {listening && !folded && (
         <ol ref={list} className="min-h-12 flex-1 space-y-2 overflow-y-auto border-t border-line px-3 py-2 text-sm" data-testid="meeting-lines">

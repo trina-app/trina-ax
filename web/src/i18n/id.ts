@@ -6790,4 +6790,7 @@ export const id: Record<MessageKey, string> = {
   "meeting.unsavedFound": "Catatan dari rapat terakhir Anda belum disimpan.",
   "meeting.showWords": "Tampilkan teks",
   "meeting.hideWords": "Sembunyikan teks",
+  "meeting.endedSilence": "Berhenti setelah 10 menit tanpa ada yang berbicara.",
+  "meeting.endedLong": "Berhenti setelah 4 jam.",
+  "meeting.discard": "Jangan simpan",
 }

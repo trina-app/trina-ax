@@ -6746,4 +6746,7 @@ export const es: Record<MessageKey, string> = {
   "meeting.unsavedFound": "Las notas de su última reunión aún no se han guardado.",
   "meeting.showWords": "Mostrar el texto",
   "meeting.hideWords": "Ocultar el texto",
+  "meeting.endedSilence": "Se detuvo tras 10 minutos sin que nadie hablara.",
+  "meeting.endedLong": "Se detuvo tras 4 horas.",
+  "meeting.discard": "No guardar",
 }

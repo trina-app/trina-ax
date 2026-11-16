@@ -6718,4 +6718,7 @@ export const zh: Record<MessageKey, string> = {
   "meeting.unsavedFound": "上次会议的记录还没有保存。",
   "meeting.showWords": "显示文字",
   "meeting.hideWords": "隐藏文字",
+  "meeting.endedSilence": "10 分钟内没有人说话，已停止。",
+  "meeting.endedLong": "已满 4 小时，已停止。",
+  "meeting.discard": "不保存",
 }

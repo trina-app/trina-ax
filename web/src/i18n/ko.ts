@@ -6790,6 +6790,9 @@ export const ko = {
   "meeting.unsavedFound": "지난 회의 기록이 아직 저장되지 않았어요.",
   "meeting.showWords": "글 보기",
   "meeting.hideWords": "글 숨기기",
+  "meeting.endedSilence": "10분 동안 아무도 말하지 않아서 멈췄어요.",
+  "meeting.endedLong": "4시간이 지나서 멈췄어요.",
+  "meeting.discard": "저장 안 함",
 } as const
 
 export type MessageKey = keyof typeof ko

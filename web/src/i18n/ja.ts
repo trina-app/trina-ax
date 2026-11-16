@@ -6746,4 +6746,7 @@ export const ja: Record<MessageKey, string> = {
   "meeting.unsavedFound": "前回の会議メモがまだ保存されていません。",
   "meeting.showWords": "文字を表示",
   "meeting.hideWords": "文字を隠す",
+  "meeting.endedSilence": "10分間誰も話さなかったため停止しました。",
+  "meeting.endedLong": "4時間たったため停止しました。",
+  "meeting.discard": "保存しない",
 }
