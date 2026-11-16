@@ -435,3 +435,34 @@ describe('asking for other people keeps the limits', () => {
     expect(shares().requestFor('alice', id, ['tess'], 'en')).toMatchObject({ asked: [], already: ['tess'] })
   })
 })
+
+// The integration of the packages (docs/decisions/20261116-ai-sharing-integration.md): a file the person has only through
+// a share (someone else's, shared with them) refuses like someone else's file, with "Ask <owner>" as the card's button;
+// a /f/ link to such a file in a post gets "Ask <owner>" for the people there who cannot open it.
+describe('a file shared with me (by a grant only): share and post', () => {
+  test('share it on: the refusal card names its owner and its one button is the server\'s Ask <owner> offer', async () => {
+    put('users/erin/erin-deck.txt', 'erin\'s deck')
+    const id = shares().change('erin', 'users/erin/erin-deck.txt', [{ subjectType: 'user', subjectId: 'alice' }], [], 'en').share.id
+    for (const p of ['users/erin/erin-deck.txt', `/f/${id}`]) {
+      const r = await turn('alice', share({ paths: [p], people: ['Bob Lee'] }))
+      expect(r.content).toContain('so only Erin Yoo can add people to it')
+      expect(r.content).toContain('a card with an "Ask Erin Yoo" button')
+      const [fix] = fixesOf(r.steps, 'share_with_person')
+      expect(fix).toMatchObject({ kind: 'ask_owner', owner: 'Erin Yoo', people: ['Bob Lee'] })
+      const card = r.steps.find((s) => s.tool === 'share_with_person')!.shared!
+      expect(card).toMatchObject({ outcome: 'refused', refusal: { reason: 'not_owner', owner: 'Erin Yoo' }, next: { kind: 'ask_owner', fixId: fix!.id } })
+      // the owner's folder is not said
+      expect(card.failed![0]).toMatchObject({ linkId: id, name: 'erin-deck.txt', place: '' })
+      expect(grants('users/erin/erin-deck.txt')).toEqual(['alice'])
+    }
+  })
+
+  test('post its /f/ link to a room: the people there who cannot open it get "Ask <owner>"', async () => {
+    const id = shares().liveRow('users/erin/erin-deck.txt')!.id
+    const r = await turn('alice', post({ room: rooms.all, text: `Deck: [erin-deck.txt](/f/${id})` }), { answer: 'send' })
+    expect(JSON.parse(r.content).status).toBe('sent')
+    const fix = fixesOf(r.steps, 'post_to_room').find((f) => f.kind === 'ask_owner')
+    expect(fix).toMatchObject({ kind: 'ask_owner', file: 'erin-deck.txt', owner: 'Erin Yoo', state: 'open' })
+    expect(fix!.count).toBeGreaterThan(0)
+  })
+})

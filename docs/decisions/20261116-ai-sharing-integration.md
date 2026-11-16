@@ -32,6 +32,12 @@
   - **`fromLook` covers stop_sharing too.** A file or person the AI learned from `looking_at` in this turn is not the
     asker's word: stop_sharing then asks first, as share_with_person and post_to_room do. who_can_open needs nothing more
     (it reads only, and in a shared chat only what the asker named; looking_at is off there).
+  - **A file shared with the person (B3 with B4).** Asked to share on a file they have only through a share (its path
+    or its `/f/` link), share_with_person refuses as for someone else's file, with the card's "Ask <owner>" button,
+    and never says the owner's folder. A post whose text links such a file as `/f/<id>` gets "Ask <owner>" for the
+    people in the room who cannot open it (the room's own check reads only team-path links). Found in the real-AI run.
+  - **Nobody new got access.** When a share added nobody (also in a shared chat, where the check before the card is
+    skipped), the result card says who could already open it instead of "Shared … with".
   - **Same-name files (TC-4091).** To read or summarise, the AI may answer for each file, each part labelled by its place
     and, for a shared file, who shared it and when. To act on one (share, post, edit, delete, move, rename) it asks which.
 - **Why:** the plan's principle, "a refusal always offers a next step", only holds if that step is one button the person

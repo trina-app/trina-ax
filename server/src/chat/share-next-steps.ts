@@ -18,6 +18,7 @@
 import type { StepFix } from '@mycel/shared/api'
 import { accessRouteFor, folderAccess, nameOf, routeWords } from '../files/access-routes'
 import { shareFixesOf } from '../files/share-fixes'
+import { fileSharesOf } from '../files/shares'
 import { findPeople } from '../rooms/reader'
 import type { PreparedShare } from './answer-share'
 import type { TurnExec } from './turn'
@@ -34,8 +35,26 @@ export async function fixesAfterPost(exec: Exec, p: PreparedShare, attached: Rea
   // a file the text came from that some member cannot open (not covered by a copy everyone can open)
   const prov = await p.check.provenance(attached)
   for (const c of prov.counted ?? []) for (const f of c.files) if (!attached.has(f)) add(f, c.missing)
-  if (!by.size) return { fixes: [], note: '' }
-  const fixes = shareFixesOf(ctx).forFiles(exec.spec.userId, exec.spec.chatId, [...by].map(([path, people]) => ({ path, people: [...people] })), o)
+  // a file someone shared with the sender, linked as /f/<id> (shared_with_me gives those links): the members of the room
+  // who cannot open it (the room check reads only team-path links; docs/decisions/20261116-ai-sharing-integration.md)
+  const byLink = new Map<string, string[]>()
+  const shares = fileSharesOf(ctx)
+  for (const m of p.body.matchAll(/(?:^|[\s(<"'])(?:https?:\/\/[^/\s]+)?\/f\/([A-Za-z0-9_-]{22})(?![A-Za-z0-9_-])/g)) {
+    const id = m[1]!
+    if (byLink.has(id) || byLink.size >= 10) continue
+    const s = shares.row(id)
+    const mine = s ? shares.open(exec.spec.userId, id) : null
+    if (!s || s.state !== 'live' || !mine || mine.kind !== 'open') continue
+    const members = (ctx.db.query('SELECT user_id FROM room_members WHERE room_id = ? AND user_id <> ?').all(o.roomId, exec.spec.userId) as { user_id: string }[]).map((r) => r.user_id)
+    const missing = members.filter((u) => shares.open(u, id).kind !== 'open')
+    if (!missing.length) continue
+    // a file the sender reads by the folder rules (their own one too) goes by its path: "Let them view" when theirs to
+    // share; one they have only through a share goes by its link id: "Ask <owner>"
+    if (mine.by === 'grant') byLink.set(id, missing)
+    else if (!attached.has(s.path)) add(s.path, missing)
+  }
+  if (!by.size && !byLink.size) return { fixes: [], note: '' }
+  const fixes = shareFixesOf(ctx).forFiles(exec.spec.userId, exec.spec.chatId, [...[...by].map(([path, people]) => ({ path, people: [...people] })), ...[...byLink].map(([share, people]) => ({ share, people }))], o)
   if (!fixes.length) return { fixes, note: '' }
   const n = fixes.reduce((x, f) => Math.max(x, f.count), 0)
   const buttons = [...new Set(fixes.map((f) => (f.kind === 'let_view' ? '"Let them view"' : '"Ask the owner"')))].join(' and ')
@@ -78,6 +97,15 @@ export function refusedShareFixes(exec: Exec, path: string, refs: readonly strin
   const fixes = shareFixesOf(ctx).forFiles(exec.spec.userId, exec.spec.chatId, [{ path, people }], { named: true })
   const fix = fixes.find((f) => f.kind === 'ask_owner')
   return fix ? { fixes: [fix], note: `The user has a button on the card: "Ask ${fix.owner ? 'the owner' : 'an admin'} to share it" (the file's owner gets the request and decides; view only). Tell them so in one short sentence${exec.rt.store.chatRow(exec.spec.chatId)?.people_shared_at ? ', without naming anyone' : ''}.` } : { fixes: [], note: '' }
+}
+
+/** share_with_person was asked to share a file the user has only through a share (someone else's file, shared with
+ * them by link): "Ask <owner> to share it" for the people the user named, by the file's link id (its path is not
+ * theirs to see). Nothing when nobody named can be asked for. */
+export function refusedGrantedFixes(exec: Exec, shareId: string, refs: readonly string[]): StepFix[] {
+  const people = peopleOf(exec, refs)
+  if (!people.length) return []
+  return shareFixesOf(exec.rt.ctx).forFiles(exec.spec.userId, exec.spec.chatId, [{ share: shareId, people }], { named: true }).filter((f) => f.kind === 'ask_owner').slice(0, 1)
 }
 
 /** The people of `ids` who can already open every file of `paths`, each with how ("Jun can already open it: through
