@@ -79,7 +79,7 @@ git push origin v0.3.0-beta.1
 | 2 | test | `ci.yml` 전체: typecheck, native, 단위, fuzz, 웹, 중계, 리눅스 T1(amd64·arm64), 리눅스 묶음 L19 + verify-bundle, 설치 T2 | 없음 |
 | 2 | build-linux | 리눅스 kit amd64(ubuntu-24.04)·arm64(ubuntu-24.04-arm): whisper, native, 웹, `build-bundle.ts --os linux --strict`(서명 없이) | 없음 |
 | 2 | build-mac-whisper | Apple 실리콘 사무실 맥의 whisper-cli(`mac-whisper.yml`, build-office와 같은 러너): 고정한 whisper.cpp를 Metal·OpenMP 없이 빌드, 말한 문장을 받아쓰는지 확인, Developer ID 서명(hardened runtime), Apple 공증(아래 "whisper-cli for the office Mac") | 맥 서명 비밀값 5개 |
-| 2→3 | build-office | 사무실 zip(macos-15, 또는 `mac_runner` 입력·레포 변수 `RELEASE_MAC_RUNNER`; 두 맥 프로세서 universal, `bun run build:office -- --whisper …`). build-mac-whisper를 기다려 그 whisper-cli를 `app/bin/darwin-arm64/`에 넣는다 | 없음 |
+| 2→3 | build-office | 사무실 zip(macos-15, 또는 `mac_runner` 입력·레포 변수 `RELEASE_MAC_RUNNER`, self-hosted 릴리스 맥은 13장; 두 맥 프로세서 universal, `bun run build:office -- --whisper …`). build-mac-whisper를 기다려 그 whisper-cli를 `app/bin/darwin-arm64/`에 넣는다 | 없음 |
 | 2 | build-windows | 윈도우 설치 파일 + `latest.yml`(windows-2025, `desktop dist:win`, 버전은 태그 것). 레포 변수 `WINDOWS_SIGNING_*`가 있으면 Microsoft Artifact Signing으로 서명하고 `signtool verify /pa`로 확인한다(11장), 없으면 서명 없이 | Azure 로그인(OIDC, 저장된 비밀번호 없음; 비밀값은 id 둘뿐) |
 | 2 | build-mac-app | 맥 앱(`mac-app.yml`, build-office와 같은 러너): dmg + 업데이트 zip + `latest-mac.yml`. Developer ID로 서명, hardened runtime, Apple 공증, staple, Gatekeeper 확인(아래 "Mac app") | 맥 서명 비밀값 5개 |
 | 3 | publish | 리눅스 묶음 서명(manifest.sig) → 사무실 피드(`publish.ts`, 맥 앱이 있으면 `--mac`) → 서버 피드(`publish-server.ts`) → `SHA256SUMS` + `.sig` | 키 + Cloudflare 토큰 |
@@ -575,6 +575,94 @@ Desktop checks on pull requests: `.github/workflows/desktop.yml`. ci.yml은 리�
   (artifact의 dmg를 열어 본다; 서명이 없으니 우클릭 › 열기). 윈도우는 step summary와 `install-check.log`. 설치 파일이 0이 아닌 코드로 끝나면 만든 electron-builder 버전, sha256, Application 이벤트 로그(`installer-crash-events.txt`)를 남긴다(QA TC-3590). 재시도는 없다: 설치 파일이 죽으면 사람에게도 죽을 수 있다.
 - 손으로 돌리기: `bun run --cwd desktop dist:mac:arm64 && bun scripts/ci/dmg-check.ts desktop/release` (맥),
   `cd desktop && bun build.ts && bunx playwright test -c e2e/ci.config.ts`.
+
+## 13. 릴리스용 맥 러너 (self-hosted, 사무실 맥)
+
+GitHub hosted macOS 풀에 러너가 없어 릴리스의 맥 job(사무실 zip, 맥 앱, whisper-cli)이 계속 취소될 때 쓰는, 사무실 맥 한 대의
+self-hosted 러너. 이 레포는 공개라 누구나 PR을 열 수 있다. 그래서 이 러너는 **v\* 태그의 release.yml만** 받는다.
+When GitHub's hosted macOS pools have no capacity, the release's Mac jobs run on one office Mac. Only release.yml at a v\* tag may
+use it; everything below exists so that a public repo cannot run code on a Mac that does other work.
+
+**누가 쓸 수 있나 (who may run on it)**
+
+- 러너 `trina-mac-1`, 라벨은 `trina-mac-release` 하나뿐(`--no-default-labels`: `self-hosted`·`macOS`·`ARM64` 라벨이 없어
+  `runs-on: [self-hosted, macOS]` 같은 job은 닿지 않는다). 레포 단위 러너다. 조직이 Free 요금제라 runner group(워크플로 제한)은 없다.
+- 쓰는 job: release.yml의 build-office, build-mac-app(mac-app.yml), build-mac-whisper(mac-whisper.yml). 레포 변수
+  `RELEASE_MAC_RUNNER=trina-mac-release`로 고른다(Run workflow의 `mac_runner` 입력이 먼저). mac-app.yml·mac-whisper.yml은
+  release.yml이 v\* 태그에서 부를 때만 이 변수를 본다. PR(Desktop e2e, unsigned dmg 검사, whisper-cli PR 검사)과 그 워크플로들의
+  Run workflow는 hosted에 남는다.
+- 두 겹의 문: (1) 각 job의 첫 step "Release Mac runner guard"(self-hosted에서만)와 (2) 러너 자체의 job-started hook
+  (`/Library/TrinaCI/job-started.sh`, 워크플로가 건너뛸 수 없다). 둘 다 `github.repository == trina-app/trina-ax`, 이벤트 push 또는
+  workflow_dispatch, ref `refs/tags/v*`, `github.workflow_ref`가 `…/release.yml@refs/tags/v*`(불린 워크플로에서는 부른 쪽)일 때만 통과한다.
+  fork PR이 워크플로를 고쳐 `runs-on: trina-mac-release`를 써도 hook이 step 전에 job을 실패시킨다.
+- 레포 설정: 바깥 기여자의 fork PR 워크플로는 모두 승인이 있어야 돈다(`approval_policy: all_external_contributors`, 2026-11-17).
+- v\* 태그는 태그 ruleset으로 막혀 있다(10장). 태그를 달 수 있는 사람만 이 맥에서 코드를 돌릴 수 있다.
+
+**격리 (isolation)**
+
+- 계정 `_trinaci`: 숨김, 일반(관리자 아님), 자기 그룹(staff 아님), 암호·로그인 셸 없음. launchd 데몬 `app.trina.ci.runner`가
+  이 계정으로 돌린다(관리자 계정 아래가 아니다).
+- 관리자 홈(750, staff)에는 그룹이 달라 못 들어가고, 거기에 `_trinaci` deny ACL을 하나 더 둔다. 러너와 모든 step은 샌드박스
+  `runner.sb` 안에서 돈다: `/Users` 아래 전부와 자기 볼륨 밖의 `/Volumes` 읽기·쓰기 금지, `/tmp`·`/Users`의 Unix 소켓(로컬 DB 등) 금지,
+  localhost TCP 금지. pf(`com.apple/260.trina-ci`, 루트 데몬 `app.trina.ci.pf`가 부팅 때와 5분마다 올린다)가 이 계정의 소켓에서
+  이 맥 자신의 주소·LAN·Tailscale·link-local로 가는 TCP/UDP를 막는다. pf 규칙이 이번 부팅에 올라가지 않았으면 러너는 시작하지 않는다.
+- 남는 위험: `/tmp`에 남이 world-readable로 둔 파일은 읽힌다(세션의 임시 파일은 700 폴더에 둔다). 인터넷은 열려 있다.
+- **이 계정에는 인증서도 키도 암호도 없다.** 서명은 지금처럼 레포 비밀값(`MAC_DEVELOPER_ID_P12_*`, `APPLE_API_*`, "맥 앱" 절)으로
+  job마다 `$RUNNER_TEMP`에 키체인을 만들고 끝에 지운다. job-completed hook이 키체인 검색 목록도 비운다.
+
+**매번 깨끗하게 (ephemeral)**
+
+- 러너 프로그램(`bin`, `externals`, `*.sh`)과 `.env`·`.path`는 root 소유에 `uchg`(바꿀 수 없음). 자동 업데이트는 끈다(`--disableupdate`).
+- job-completed hook(`/Library/TrinaCI/job-completed.sh`)이 매 job 뒤에 `_work`(체크아웃, 내려받은 actions, `_tool`: setup-bun·
+  setup-go 캐시), HOME 전부(bun 캐시, 키체인, git 설정), TMPDIR을 지운다. job-started hook도 시작 전에 HOME을 비운다. job 사이에
+  남는 도구 캐시는 없다. `--ephemeral`(job마다 재등록)은 쓰지 않는다: 재등록하려면 레포 관리자 토큰이 이 맥에 있어야 해서다.
+
+**디스크 (disk)**
+
+- 맥 빌드 한 번에 약 15 GB(체크아웃·node_modules ~3 GB, Electron 두 아키텍처와 universal 앱·dmg·zip, Go·bun). 계정의 HOME, TMPDIR,
+  러너는 따로 만든 APFS 볼륨 `TrinaCI`(쿼터 60 GB, `nobrowse`라 Finder·데스크톱에 안 보인다)에 있다. 빌드가 시스템 디스크를 채울 수 없다.
+  job-started hook은 그 볼륨에 20 GB가 안 남았으면 job을 거절한다.
+- 데몬은 `Nice 5`. 한 번에 job 하나(릴리스의 맥 job 셋은 차례로 돈다; 맥 앱은 공증 때문에 한 시간 넘게 걸린다).
+
+**설치 (setup, 관리자 한 번, sudo)**
+
+```sh
+# 러너 프로그램을 받아 sha256을 확인한다(setup.sh에 버전과 sha256이 있다)
+mkdir -p ~/.tfx/mac-runner-stage && cd ~/.tfx/mac-runner-stage
+curl -fsSLO https://github.com/actions/runner/releases/download/v2.338.2/actions-runner-osx-arm64-2.338.2.tar.gz
+# 등록 토큰(1시간)은 파일로만 넘긴다. 화면에 내지 않는다
+t=$(mktemp) && GH_TOKEN=$(gh auth token -u trina-app-admin) gh api -X POST repos/trina-app/trina-ax/actions/runners/registration-token --jq .token > "$t"
+sudo bash <레포>/scripts/macos/release-runner/setup.sh "$t" ~/.tfx/mac-runner-stage/actions-runner-osx-arm64-2.338.2.tar.gz
+```
+
+setup.sh는 끝에 `PASS`/`FAIL` 검사를 찍는다(관리자 홈·`.ssh`·키체인을 못 읽음, localhost·LAN 차단, 인터넷·swiftc·notarytool·job 키체인은 됨,
+러너가 돎). 그 뒤 GitHub → Settings → Actions → Runners에서 `trina-mac-1`이 Idle인지 보고 레포 변수 `RELEASE_MAC_RUNNER`를
+`trina-mac-release`로 바꾼다. hosted로 돌아가려면 변수를 `macos-15`(또는 `macos-15-intel`)로 되돌린다. 커밋은 필요 없다.
+
+러너 업데이트(자동 업데이트를 껐으니 GitHub이 옛 버전을 거절하기 전에, 30일 안에): setup.sh의 `RUNNER_VERSION`·`RUNNER_SHA256`을
+새 릴리스로 바꾸고, `$V/runner`를 지운 뒤(`sudo chflags -R nouchg /Volumes/TrinaCI/runner && sudo rm -rf /Volumes/TrinaCI/runner`)
+위 설치를 다시 돌린다. setup.sh는 여러 번 돌려도 된다.
+
+로그: `/private/var/log/trina-ci/runner.log`, `/Volumes/TrinaCI/runner/_diag/`, pf는 `/private/var/log/trina-ci-pf.log`.
+
+**지우기 (removal)**
+
+```sh
+# 1) GitHub에서 러너 등록을 지운다(sudo 필요 없음)
+export GH_TOKEN=$(gh auth token -u trina-app-admin)
+id=$(gh api repos/trina-app/trina-ax/actions/runners --jq '.runners[] | select(.name=="trina-mac-1") | .id')
+[ -n "$id" ] && gh api -X DELETE "repos/trina-app/trina-ax/actions/runners/$id"
+gh variable set RELEASE_MAC_RUNNER --repo trina-app/trina-ax --body macos-15-intel
+# 2) 이 맥에서 지운다: launchd 데몬 둘(bootout), pf 규칙과 우리 pf 참조, 관리자 홈의 deny ACL, /Library/TrinaCI, 로그,
+#    TrinaCI 볼륨(/etc/fstab 줄도), _trinaci 계정과 그룹
+sudo bash <레포>/scripts/macos/release-runner/remove.sh
+```
+
+손으로 하나씩 하려면(remove.sh가 하는 것): `sudo launchctl bootout system/app.trina.ci.runner`, `sudo launchctl bootout system/app.trina.ci.pf`,
+`sudo rm /Library/LaunchDaemons/app.trina.ci.{runner,pf}.plist`, `sudo pfctl -a com.apple/260.trina-ci -F all`,
+`sudo chmod -a "user:_trinaci deny list,search,readattr,readextattr,readsecurity" ~`, `sudo chflags -R nouchg /Library/TrinaCI /Volumes/TrinaCI/runner`,
+`sudo rm -rf /Library/TrinaCI /private/var/log/trina-ci`, `sudo diskutil apfs deleteVolume TrinaCI`(그리고 `/etc/fstab`의 그 UUID 줄),
+`sudo dscl . -delete /Users/_trinaci`, `sudo dscl . -delete /Groups/_trinaci`. 이 계정에는 키체인이 따로 없다(job 키체인은 job이 지운다).
 
 ## User-facing release notes
 
