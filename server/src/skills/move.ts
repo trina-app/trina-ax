@@ -18,7 +18,7 @@ import { audit } from '../admin/audit'
 import { atLeast, type Principal } from '../policy/access'
 import { authorize } from '../policy/authorize'
 import { foldKey } from '../policy/names'
-import { checkSkill, groupSkillRoots, isPersonalSkill, isSkillManifest, listGroupSkills, movableGroupSkillRoots, listSkills, listTeamSkills, liveProjectRoots, personalSkillsDir, projectOfFolder, projectSkillSections, readSkill, sameSkillName, SKILL_NAME_MAX, SKILL_NAME_RE, skillFolder, skillTier, widerSkillsNamed, type Skill } from '../chat/skills'
+import { checkSkill, isPersonalSkill, isSkillManifest, listGroupSkills, movableGroupSkillRoots, listSkills, listTeamSkills, liveProjectRoots, personalSkillsDir, projectOfFolder, projectSkillSections, readSkill, sameSkillName, SKILL_NAME_MAX, SKILL_NAME_RE, skillFolder, skillTier, widerSkillsNamed, type Skill } from '../chat/skills'
 import { mayEditProject } from '../chat/projects'
 import { HttpError } from '../http/errors'
 import { componentC } from '../team-files/component'
@@ -69,7 +69,8 @@ export function levelOfPath(ctx: AppContext, user: Principal, rel: string): Leve
     const p = projectOfFolder(ctx.db, root.folder)
     return p ? { level: 'project', root: p.root, folder: p.folder, project: { id: p.id, name: p.name } } : null
   }
-  const g = groupSkillRoots(ctx.db, user).find((x) => foldKey(rel).startsWith(foldKey(x.root) + '/'))
+  // the owner and admins also have the skills of groups they are not in (to move them back or elsewhere)
+  const g = movableGroupSkillRoots(ctx.db, user).find((x) => foldKey(rel).startsWith(foldKey(x.root) + '/'))
   return g ? { level: 'group', root: g.root, group: { id: g.id, name: g.name } } : null
 }
 
@@ -159,7 +160,7 @@ export function skillAt(ctx: AppContext, user: Principal, rel: string): { skill:
   const level = levelOfPath(ctx, user, rel)
   if (!level) return null
   if (level.level === 'project' && !atLeast(ctx.files.rules().access(user, level.folder.split('/')), 'read')) return null
-  const skill = readSkill(ctx.files, user, rel, level.level === 'project' ? { project: { id: level.project.id, name: level.project.name, folderPath: level.folder } } : {})
+  const skill = readSkill(ctx.files, user, rel, level.level === 'project' ? { project: { id: level.project.id, name: level.project.name, folderPath: level.folder } } : { anyGroup: true })
   return skill ? { skill, level } : null
 }
 

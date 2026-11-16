@@ -19,10 +19,15 @@
 - Code: `movableGroupSkillRoots` (chat/skills.ts) is used by `levelsOf` (skills/move.ts) and, for the name check, by
   `listGroupSkills(..., { anyGroup: true })`. Both paths (UI and AI) go through `levelsOf`. A hand-made request for a
   group a member is not in still gets 404.
-- Not changed: `share_skills` to a group (a proposal reviewed by that group's members), the skill lists and what the
-  AI runs: an admin who is not in a group does not get that group's skills in their own list or chats, before or after
-  the move. A skill moved into such a group disappears from the admin's own skill list (they can still open it in
-  Files).
+- **Managing what was moved (owner follow-up):** the owner and admins still see and manage a skill after it is in a
+  group they are not in. The Skills page lists such skills in their own section per group, "Group X (you are not in
+  it)", with the note that they run only for the group's members (`GET /api/skills?groups=1`, owner and admins only,
+  each item `notMember: true`; ignored for everyone else). Their row opens the file and the "..." menu offers Move, so
+  they can move it back or elsewhere; edit and delete go through Files and the AI's file tools, which the folder rules
+  already allowed. The AI's `move_skill` finds such a skill by name or path, and `find_skills` lists them apart ("do not
+  follow"). The skill tool and every run keep using only the groups a person is in (`listSkills` is unchanged), so an
+  admin's AI never follows a group's skill it is not in.
+- Not changed: `share_skills` to a group, and members' lists in every screen and chat.
 
 ## No leak
 

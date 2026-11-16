@@ -13,7 +13,7 @@ import { newId } from '../db'
 import { PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
 import { browserUrl, isPrivateHost, staticPrivateHost } from '../realtime/private-net'
 import { cleanMemoryText, MEMORY_ITEM_MAX, neutralizeTags, skillBlock } from './prompt'
-import { isPersonalSkill, listSkills, readSkill, skillFolder, type Skill } from './skills'
+import { isPersonalSkill, listSkills, otherGroupSkills, readSkill, skillFolder, type Skill } from './skills'
 import { changeLine, editorsLine, levelFor, levelLabel, levelRef, levelsOf, MOVE_MAX_BYTES, MOVE_MAX_FILES, MOVE_TEXT_MAX, peopleNames, peopleText, planMove, raisesTrust, runCopy, runMove, seesWho, skillAt, type Level, type MovePlan } from '../skills/move'
 import { st as skillText } from '../skills/text'
 import { audit as auditLog } from '../admin/audit'
@@ -644,13 +644,20 @@ function skillTools(exec: TurnExec): Tool[] {
         if (!user) return { ...text('Access denied: this account is disabled.', true), summary: 'find_skills -> denied: account disabled' }
         // in a room only the skills everyone there may read (their names and descriptions may reach the room)
         const skills = (exec.shared && exec.roomReadable ? listSkills(rt.files, user, exec.skillScope(true)) : listSkills(rt.files, user, exec.skillScope(false))).filter((s) => !exec.roomReadable || exec.roomReadable(s.path))
+        // an owner or admin also finds the skills of groups they are not in, apart from the ones they use: to move or edit
+        // them, never to follow them (the skill tool refuses them)
+        const managedLines = (u: Principal, query: string, fmt: (s: Skill) => string): string[] => {
+          if (exec.shared || exec.roomReadable) return []
+          const others = matchSkills(otherGroupSkills(rt.files, u), query, {}).map((h) => h.skill)
+          return others.length ? ['Skills of groups this user is not in (they manage them as an owner or admin; these do not run for them, so do not follow them; move one with move_skill or change its files with the file tools):', ...others.map(fmt)] : []
+        }
         const scores = usageScores(rt.db, spec.userId, skills.map((s) => s.path))
         const hits = matchSkills(skills, a.data.query, { scores })
         const q = neutralizeTags(clipName(a.data.query, 80))
         const line = (s: Skill) => `- ${neutralizeTags(clipName(s.name, 64))}${skillTag(s, neutralizeTags)}${s.description.trim() ? ': ' + neutralizeTags(shortDescription(s.description, 300)) : ''} (${s.path})`
         const searched = `${skills.length} skill${skills.length === 1 ? '' : 's'} searched`
         if (!hits.length) {
-          if (!skills.length) return { ...text(`No skill this user can use matches "${q}" (${searched}).`), summary: 'find_skills -> 0 found' }
+          if (!skills.length) return { ...text([`No skill this user can use matches "${q}" (${searched}).`, ...managedLines(user, a.data.query, line)].join('\n')), summary: 'find_skills -> 0 found' }
           // no word in common (Korean words against English descriptions, other words for the same thing): the skills
           // the person uses most, so the AI can still judge from their descriptions, instead of nothing
           const top = frequentSkills(skills, scores)
@@ -660,7 +667,7 @@ function skillTools(exec: TurnExec): Tool[] {
           return { ...text([head, ...top.skills.map(line)].join('\n')), summary: `find_skills -> 0 found, ${top.skills.length} frequent` }
         }
         const lines = hits.map(({ skill: s }) => line(s))
-        return { ...text([`${hits.length} skill${hits.length === 1 ? '' : 's'} matching "${q}", best first. Load the one that fits with skill (its name) before you follow it:`, ...lines].join('\n')), summary: `find_skills -> ${hits.length} found` }
+        return { ...text([`${hits.length} skill${hits.length === 1 ? '' : 's'} matching "${q}", best first. Load the one that fits with skill (its name) before you follow it:`, ...lines, ...managedLines(user, a.data.query, line)].join('\n')), summary: `find_skills -> ${hits.length} found` }
       },
     },
     moveSkillTool(exec),
@@ -698,7 +705,8 @@ function moveSkillTool(exec: TurnExec): Tool {
       const L = spec.locale
       // the skill: by its name in this chat's list, else by its path (a project's skill from another project too)
       const skills = listSkills(rt.files, user, exec.skillScope(false))
-      const hit = resolveSkill(skills, a.data.skill)
+      // the owner and admins also name a skill of a group they are not in (to move it back or elsewhere), after their own
+      const hit = resolveSkill(skills, a.data.skill) ?? resolveSkill(otherGroupSkills(rt.files, user), a.data.skill)
       if (hit && 'ambiguous' in hit) return bad(`Several skills this user can use are called "${neutralizeTags(clipName(a.data.skill))}": ${hit.ambiguous.map((s) => s.path).join(', ')}. Call move_skill again with the path of the one you mean.`, `ambiguous (${hit.ambiguous.length})`)
       const have = hit ? skillAt(ctx, user, hit.skill.path) : skillAt(ctx, user, a.data.skill.trim().replace(/^\/+/, ''))
       if (!have) return bad(`No skill called "${neutralizeTags(clipName(a.data.skill))}" that this user can use. Use a name from the skill list in your instructions, or find it with find_skills.`, 'not found')

@@ -2816,6 +2816,8 @@ export const ja: Record<MessageKey, string> = {
   'skills.replacesGroup': "グループスキルの代わり",
   'skills.fromProject': 'プロジェクト「{project}」のスキル',
   'skills.projectHint': 'このプロジェクトのチャットだけ・新しい名前だけ追加できます',
+  'skills.fromGroupManaged': 'グループ「{group}」のスキル(参加していません)',
+  'skills.managedGroupHint': '管理者として管理できます・グループのメンバーだけに使われます',
   'skills.projectBadge': 'プロジェクト「{project}」のスキル：このプロジェクトのチャットだけで使います',
   'skills.replacesProject': 'プロジェクトスキルの代わり',
   'skills.sameName': '同じ名前：{where}',

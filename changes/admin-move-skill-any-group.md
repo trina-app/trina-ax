@@ -1,1 +1,2 @@
 - Owners and admins can now move a team skill into any group, also a group they are not in, on the Skills page and by asking the AI. Members can still move skills only into their own groups.
+- Owners and admins now see the skills of groups they are not in on the Skills page, in their own section per group, and can move them back or elsewhere (also by asking the AI).

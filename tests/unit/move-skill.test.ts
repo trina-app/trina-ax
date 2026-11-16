@@ -550,6 +550,38 @@ describe('in the app: the Skills page and the AI', () => {
     const done = await h.api('dana').call(API.moveSkill, { body: { path: rel, to: fin.to, token: fin.token! } })
     expect(done.path).toBe('groups/finance/skills/qa-owner-move/SKILL.md')
     expect(fs.existsSync(path.join(h.team, 'groups/finance/skills/qa-owner-move/SKILL.md'))).toBe(true)
+    // the round trip: she still sees it (apart, as a skill of a group she is not in), moves it back, and on again
+    const mgmt = (u: string) => h.api(u).call(API.listSkills, { query: { groups: '1' } }).then((r) => r.items.filter((x) => x.path === done.path))
+    expect(await mgmt('dana')).toEqual([expect.objectContaining({ notMember: true, group: expect.objectContaining({ id: 'finance' }) })])
+    // members' views stay as they were: alice (marketing) gets nothing of it, bob (finance) has it as an ordinary skill
+    expect(await mgmt('alice')).toEqual([])
+    const bobs = await mgmt('bob')
+    expect(bobs.length).toBe(1)
+    expect(bobs[0]!.notMember).toBeUndefined()
+    // and the group's skill never runs for her: her own list (no ?groups=1) has no such skill
+    expect((await h.api('dana').call(API.listSkills)).items.some((x) => x.path === done.path)).toBe(false)
+    const back = await h.api('dana').call(API.skillMoveOptions, { query: { path: done.path } })
+    expect(back.from.level).toBe('group')
+    const teamBack = back.targets.find((x) => x.to.level === 'team')!
+    expect(teamBack.blocked).toBeUndefined()
+    const home = await h.api('dana').call(API.moveSkill, { body: { path: done.path, to: teamBack.to, token: teamBack.token! } })
+    expect(home.path).toBe(rel)
+    expect(fs.existsSync(path.join(h.team, 'groups/finance/skills/qa-owner-move'))).toBe(false)
+    // a member who is not in that group is not offered the skill's options either
+    const o2 = await h.api('dana').call(API.skillMoveOptions, { query: { path: rel } })
+    const fin2 = o2.targets.find((x) => x.to.level === 'group' && x.to.groupId === 'finance')!
+    await h.api('dana').call(API.moveSkill, { body: { path: rel, to: fin2.to, token: fin2.token! } })
+    expect(await status(h.api('alice').call(API.skillMoveOptions, { query: { path: done.path } }))).toBe(404)
+    // the AI: carol (admin, in no group) names it, and after her yes it is back in the team's skills
+    const ai = await turn('carol', moveCall({ skill: 'qa-owner-move', to: 'team' }), { answer: 'move' })
+    expect(ai.content).toContain('Moved the skill "qa-owner-move"')
+    expect(fs.existsSync(path.join(h.team, rel))).toBe(true)
+    expect(fs.existsSync(path.join(h.team, 'groups/finance/skills/qa-owner-move'))).toBe(false)
+    // and a member (alice) cannot name a skill of a group she is not in
+    const ai2 = await turn('carol', moveCall({ skill: 'qa-owner-move', to: 'group', group: 'Finance' }), { answer: 'move' })
+    expect(ai2.content).toContain('Moved the skill "qa-owner-move"')
+    const none = await turn('alice', moveCall({ skill: 'qa-owner-move', to: 'personal' }))
+    expect(none.content).toContain('No skill called "qa-owner-move"')
     // a member is offered only her own group, and a hand-made request for another is refused
     const a = await h.api('alice').call(API.skillMoveOptions, { query: { path: 'users/alice/skills/quote/SKILL.md' } })
     expect(a.targets.filter((x) => x.to.level === 'group').map((x) => x.to.level === 'group' && x.to.groupId).sort()).toEqual(['leads', 'marketing'])

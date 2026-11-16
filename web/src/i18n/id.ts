@@ -2857,6 +2857,8 @@ export const id: Record<MessageKey, string> = {
   'skills.replacesGroup': "menggantikan skill grup",
   'skills.fromProject': 'Dari proyek {project}',
   'skills.projectHint': 'Hanya di chat proyek ini · hanya menambah nama baru',
+  'skills.fromGroupManaged': 'Dari grup {group} (Anda bukan anggota)',
+  'skills.managedGroupHint': 'Anda mengelolanya sebagai admin · hanya berlaku untuk anggota grup',
   'skills.projectBadge': 'Skill proyek {project}: hanya dipakai di chat proyek ini',
   'skills.replacesProject': 'menggantikan skill proyek',
   'skills.sameName': 'Nama sama: {where}',
