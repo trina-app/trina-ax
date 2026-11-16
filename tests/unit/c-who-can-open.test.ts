@@ -7,7 +7,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, FILE_SHARE_EVERYONE, type Room, type StepFix } from '@mycel/shared/api'
+import { API, FILE_SHARE_EVERYONE, type Room, type StepFix, type StepShared } from '@mycel/shared/api'
 import { uuidv7 } from '@mycel/shared'
 import { addTestPerson, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { accessRouteFor, fileAccess, folderAccess, routeWords } from '../../server/src/files/access-routes'
@@ -72,7 +72,7 @@ beforeAll(async () => {
 })
 afterAll(async () => { for (const s of Object.values(socks)) s.close(); await h?.close() })
 
-type StepOut = { tool?: string; label: string; detail?: string; fixes?: StepFix[] }
+type StepOut = { tool?: string; label: string; detail?: string; fixes?: StepFix[]; shared?: StepShared }
 async function turn(user: string, content: string, o: { chat?: string; answer?: string | null; project?: string } = {}) {
   const chatId = o.chat ?? (await h.api(user).call(API.createChat, { body: o.project ? { projectId: o.project } : {} })).id
   const r = await h.api(user).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })

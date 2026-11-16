@@ -6541,7 +6541,7 @@ export const zh: Record<MessageKey, string> = {
   "shareCard.ask.stop.many": "要停止与{who}共享{n, plural, one {#个文件} other {#个文件}}吗？",
   "shareCard.done.share.one": "已与{who}共享“{file}”",
   "shareCard.already.one": "{who}已经可以打开“{file}”",
-  "shareCard.already.many": "{who}已经可以打开这 {n} 个文件",
+  "shareCard.already.many": "{who}已经可以打开这{n, plural, one {#个} other {#个}}文件",
   "shareCard.done.share.many": "已与{who}共享{n, plural, one {#个文件} other {#个文件}}：{names}",
   "shareCard.done.stop.one": "已停止与{who}共享“{file}”",
   "shareCard.done.stop.many": "已停止与{who}共享{n, plural, one {#个文件} other {#个文件}}：{names}",

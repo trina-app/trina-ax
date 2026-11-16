@@ -6569,7 +6569,7 @@ export const ja: Record<MessageKey, string> = {
   "shareCard.ask.stop.many": "{who}とのファイル{n, plural, one {#件} other {#件}}の共有を停止しますか？",
   "shareCard.done.share.one": "{who}に「{file}」を共有しました",
   "shareCard.already.one": "{who}はすでに「{file}」を開けます",
-  "shareCard.already.many": "{who}はすでにこの{n}件のファイルを開けます",
+  "shareCard.already.many": "{who}はすでにこの{n, plural, one {#件} other {#件}}のファイルを開けます",
   "shareCard.done.share.many": "{who}にファイルを{n, plural, one {#件} other {#件}}共有しました：{names}",
   "shareCard.done.stop.one": "{who}との「{file}」の共有を停止しました",
   "shareCard.done.stop.many": "{who}とのファイル{n, plural, one {#件} other {#件}}の共有を停止しました：{names}",
