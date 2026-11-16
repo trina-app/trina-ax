@@ -79,6 +79,17 @@ describe('the meeting session', () => {
   })
 })
 
+describe('meeting time', () => {
+  test('a track that starts late (the call app opened after Start) is placed on the clock, not at 0', async () => {
+    let now = 1_000_000
+    const s = new MeetingSession({ send: async () => ({ ok: true, lines: [{ start: 0, end: 1, text: 'late' }] }), onLines: () => {}, onStop: () => {}, now: () => now })
+    now += 60_000 // a minute in, the call sound begins
+    talk(s, 'others', 2000)
+    const [l] = await s.finish()
+    expect(l!.startMs).toBeGreaterThanOrEqual(60_000)
+  })
+})
+
 describe('the meeting session at Stop', () => {
   test('a refusal while Stop is finishing: both callers end, the sentence is said once', async () => {
     let release!: () => void

@@ -57,6 +57,8 @@ export interface SessionDeps {
   /** pieces waiting for an answer or a retry (the page says "words are coming in late" when this grows) */
   onBacklog?(waiting: number): void
   sleep?(ms: number): Promise<void>
+  /** the clock (tests) */
+  now?(): number
 }
 
 /** at most this many pieces wait for the server; beyond it the oldest is dropped (about 5 minutes of speech) */
@@ -78,13 +80,20 @@ export class MeetingSession {
 
   constructor(private readonly deps: SessionDeps) {
     this.cut = chunker((p) => this.enqueue(p))
+    this.startedAt = deps.now?.() ?? Date.now()
   }
 
-  /** a frame of the helper; meeting time is the track's own sample count (both start at Start) */
+  private readonly startedAt: number
+  /** a frame of the helper. Meeting time is the track's own sample count from Start, moved on to the clock when the
+   * track was silent for a while (the call sound starts when a call app starts, or pauses while the tap follows the
+   * call apps): its lines then land at the right time, and the cutter takes the jump as a pause. */
   push(f: Frame) {
     if (this.stopped) return
+    const ms = (f.samples.length * 1000) / RATE
+    const clock = (this.deps.now?.() ?? Date.now()) - this.startedAt
+    if (clock - ms - this.at[f.track] > 1000) this.at[f.track] = clock - ms
     this.cut.push(f.track, this.at[f.track], f.samples)
-    this.at[f.track] += (f.samples.length * 1000) / RATE
+    this.at[f.track] += ms
   }
 
   /** Stop: the open pieces go out, and this resolves once every piece has its answer (or was given up). */
@@ -93,10 +102,12 @@ export class MeetingSession {
     this.stopped = true
     if (this.running || this.queue.length) {
       // every caller waits for the same end (a Stop and a refusal during it); never longer than MEETING_FINISH_MS
+      let timer: ReturnType<typeof setTimeout> | undefined
       await new Promise<void>((r) => {
         this.idleWaiters.push(r)
-        setTimeout(r, Math.max(0, (this.stoppedAt ?? Date.now()) + MEETING_FINISH_MS - Date.now()))
+        timer = setTimeout(r, Math.max(0, (this.stoppedAt ?? Date.now()) + MEETING_FINISH_MS - Date.now()))
       })
+      clearTimeout(timer)
     }
     return this.all()
   }

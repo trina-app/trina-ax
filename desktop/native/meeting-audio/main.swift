@@ -107,14 +107,20 @@ func callProcesses() -> ([AudioObjectID], [String]) {
   var ids = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
   guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &ids) == noErr else { return ([], []) }
   var found: [AudioObjectID] = []
+  var conferenced: [AudioObjectID] = []
   var names = Set<String>()
   for id in ids {
     var baddr = AudioObjectPropertyAddress(mSelector: kAudioProcessPropertyBundleID, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
     var bsize = UInt32(MemoryLayout<CFString?>.size)
     var bid: Unmanaged<CFString>?
     guard AudioObjectGetPropertyData(id, &baddr, 0, nil, &bsize, &bid) == noErr, let b = bid?.takeRetainedValue() as String? else { continue }
-    if let app = CALL_APPS.first(where: { b == $0 || b.hasPrefix($0 + ".") }) { found.append(id); names.insert(app) }
+    if let app = CALL_APPS.first(where: { b == $0 || b.hasPrefix($0 + ".") }) {
+      // avconferenced always runs: its sound counts only while FaceTime is open (below), named as FaceTime
+      if app == "com.apple.avconferenced" { conferenced.append(id); continue }
+      found.append(id); names.insert(app)
+    }
   }
+  if names.contains("com.apple.FaceTime") { found.append(contentsOf: conferenced) }
   return (found, Array(names).sorted())
 }
 
