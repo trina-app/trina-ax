@@ -16,7 +16,7 @@ function worker(database = new IDBFactory(), pages: Page[] = [{}], nav?: BadgeNa
   const shown: { title: string; options: any; closed: boolean; close(): void }[] = []
   const requests: { path: string; options: RequestInit }[] = [], navigated: string[] = [], asked: unknown[] = [], closed = { n: 0 }
   let settings = { configured: true, enabled: true, subscriptionId: 'subscription-1', messages: pushMessages('en') }
-  let preferences = { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true, chatAnswers: true, chatShares: true, roomThreadReplies: true }
+  let preferences = { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true, chatAnswers: true, chatShares: true, roomThreadReplies: true, fileShares: true }
   // the signed-in notice names the task for the Inbox (schedule.title); the lock screen never shows it
   let item: any = { id: 'event-1', code: 'schedule.success', readAt: null, schedule: { title: 'PRIVATE TASK TITLE' } }
   let status = 200, gate: Promise<void> | null = null
@@ -106,7 +106,8 @@ test.each(Locale.options)('worker displays server-selected %s title and body for
   for (const code of PushEventType.options) {
     const w = worker(), messages = pushMessages(locale)
     w.configure({ messages })
-    w.item({ id: 'event-1', code, readAt: null })
+    // a request to open a file shows only while the signed-in notice says I may still answer it
+    w.item({ id: 'event-1', code, readAt: null, ...(code === 'file.access_requested' ? { link: 'file', fileShare: { by: null, name: null, linkId: null, state: 'pending', canAnswer: true } } : {}) })
     await w.push({ ...payload, code, title: 'PRIVATE PROMPT', body: 'PRIVATE FILE', locale: 'en' })
     expect(w.shown).toHaveLength(1)
     expect(w.shown[0]!.title).toBe(messages.title)
@@ -313,6 +314,36 @@ test('a file shared with me (docs/decisions/20261116-file-share-everyone.md): th
   read.item({ id: 'event-1', code: 'file.shared', readAt: '2026-11-16T00:00:00.000Z', link: 'file', chatId: null, fileShare: { by: 'Mia', name: 'x', linkId } })
   await read.push({ ...payload, code: 'file.shared' })
   expect(read.shown).toHaveLength(0)
+})
+
+test('a request to open my file (docs/decisions/20261116-file-share-push-gaps.md): the generic line only; a click opens that request in Activity by the signed-in notice\'s id; answered meanwhile or "File sharing" off shows nothing', async () => {
+  const linkId = 'AbCdEfGhIjKlMnOpQrStUv'
+  const asked = () => ({ id: 'event-1', code: 'file.access_requested', readAt: null, link: 'file', chatId: null, fileShare: { by: 'Jun Secret', name: 'PRIVATE PLAN.pdf', linkId, note: 'PRIVATE NOTE', requestId: 'req-1', state: 'pending', canAnswer: true } })
+  const one = worker()
+  one.item(asked())
+  await one.push({ ...payload, code: 'file.access_requested', path: '/evil', linkId: 'evil' })
+  expect(one.shown).toHaveLength(1)
+  expect(one.shown[0]!.title).toBe(pushMessages('en').title)
+  expect(one.shown[0]!.options.body).toBe('Someone asked to open a file.')
+  expect(JSON.stringify(one.shown)).not.toContain('PRIVATE')
+  expect(JSON.stringify(one.shown)).not.toContain('Jun')
+  await one.clickShown()
+  expect(one.navigated).toEqual(['https://team.example/activity?n=event-1'])
+  // answered meanwhile (by me or someone else), or no longer mine to answer: nothing shown
+  for (const fileShare of [{ ...asked().fileShare, state: 'approved', canAnswer: undefined }, { ...asked().fileShare, canAnswer: undefined }, { by: null, name: null, linkId: null, gone: true }]) {
+    const w = worker()
+    w.item({ ...asked(), fileShare })
+    await w.push({ ...payload, code: 'file.access_requested' })
+    expect(w.shown).toHaveLength(0)
+  }
+  // "File sharing" off: neither file push shows
+  const off = worker()
+  off.preferences({ fileShares: false })
+  off.item(asked())
+  await off.push({ ...payload, code: 'file.access_requested' })
+  off.item({ id: 'event-1', code: 'file.shared', readAt: null, link: 'file', chatId: null, fileShare: { by: 'Mia', name: 'x', linkId } })
+  await off.push({ ...payload, code: 'file.shared' })
+  expect(off.shown).toHaveLength(0)
 })
 
 test('a room notice opens its room; the room id comes from the signed-in notice, never from the payload', async () => {

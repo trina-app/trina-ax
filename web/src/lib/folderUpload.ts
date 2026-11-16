@@ -132,7 +132,7 @@ export interface FolderUploadCalls {
   /** make one folder; a 409 means that the name is there */
   mkdir(path: string, signal: AbortSignal): Promise<unknown>
   isFolder(path: string, signal: AbortSignal): Promise<boolean>
-  upload(file: File, path: string, signal: AbortSignal, onProgress: (p: { phase: 'hashing' | 'uploading' | 'finishing' | 'waiting'; loaded: number; total: number }) => void): Promise<unknown>
+  upload(file: File, path: string, signal: AbortSignal, onProgress: (p: { phase: 'queued' | 'hashing' | 'uploading' | 'finishing' | 'waiting'; loaded: number; total: number }) => void): Promise<unknown>
   /** drop what the server holds of an unfinished file */
   discard(file: File, path: string): Promise<unknown>
   concurrency?: number
@@ -171,7 +171,7 @@ export interface FolderUploadView {
   /** the storage refusal that stopped the upload */
   refusal: unknown
   /** `cloud`: its content is being downloaded from that cloud before it goes up (Find work files on this computer) */
-  active: readonly { name: string; phase: 'hashing' | 'uploading' | 'finishing' | 'waiting' | null; loaded: number; total: number; cloud?: WorkCloudProvider }[]
+  active: readonly { name: string; phase: 'queued' | 'hashing' | 'uploading' | 'finishing' | 'waiting' | null; loaded: number; total: number; cloud?: WorkCloudProvider }[]
   canRetry: boolean
 }
 
@@ -354,7 +354,7 @@ export class FolderUpload {
           }
           await this.calls.upload(item.file!, joinPath(this.base, item.rel), signal, (p) => {
             item.phase = p.phase
-            if (p.phase !== 'hashing') item.loaded = p.loaded
+            if (p.phase !== 'hashing' && p.phase !== 'queued') item.loaded = p.loaded
             this.onChange()
           })
           // what was read on demand goes once it is up (a run keeps its rows until sign-out)

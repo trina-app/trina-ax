@@ -16,6 +16,13 @@ export function teamAddressHost(address: string | null | undefined): string | nu
   }
 }
 
+/** The origin a copied link is made on (a message, a chat, a project, a file): the team address when there is one, so
+ * others can open it (the desktop app on the office network is at 192.168.x.x, the relay or a custom domain is not the
+ * page's address), else the address this page was opened at. */
+export function teamOrigin(address: string | null | undefined, pageOrigin: string): string {
+  return teamAddressHost(address) ? new URL(address!).origin : pageOrigin
+}
+
 /** The team address as people should read and type it: the host (with its port) for https, the whole origin with
  * http:// for plain http (an office server without a certificate: typed without it, the apps would try https). null as
  * teamAddressHost. */

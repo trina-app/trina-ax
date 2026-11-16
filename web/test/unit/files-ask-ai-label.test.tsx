@@ -3,7 +3,7 @@
 // A folder's item ("이 폴더로 대화 시작") has no name in it and stays as it is.
 import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
-import type { FileEntry, Me, TreeResponse } from '@mycel/shared/api'
+import { PRODUCT_NAMED_AFTER_AI, type FileEntry, type Me, type TreeResponse } from '@mycel/shared/api'
 import { DICTS, useLocaleStore } from '../../src/i18n'
 import { aiName } from '../../src/lib/tabs'
 import { useSession } from '../../src/store/session'
@@ -58,6 +58,10 @@ test("a file's ⋯ asks the AI by its name; a folder's starts a chat with the fo
       await m.click(row.querySelector('[data-testid="file-menu"]')!)
       expect(m.get('chat-with-file').textContent?.trim()).toBe(label)
       expect(m.get('chat-with-file').textContent).not.toContain('{name}')
+      // the file's item has the AI's own mark, as every "Ask" entry (QA TC-4007); the folder's keeps its chat icon
+      const icon = m.get('chat-with-file').innerHTML
+      if (file === 'plans') expect(icon).toContain('lucide-message-square-plus')
+      else expect(icon).toContain(PRODUCT_NAMED_AFTER_AI ? 'data-trina-star' : 'lucide-sparkles')
     } finally {
       await m.unmount()
     }

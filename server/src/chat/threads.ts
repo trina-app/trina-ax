@@ -285,7 +285,7 @@ export function deleteReply(ctx: AppContext, rt: ChatRuntime, userId: string, ch
   const g = threadAccess(rt, userId, chatId, r.root_id, 'view', locale)
   if (g.a.row.deleted_at) return fail('not_found')
   // safe operations on (or a confidential chat): read-only, as sending (409 safe_ops, chatFor 'continue')
-  if (g.readOnly === 'safe_ops') return fail('conflict', tr('sharedChatSafeOps', locale), { params: { reason: 'safe_ops' } })
+  if (g.readOnly === 'safe_ops') return fail('conflict', tr('threadReplyDeleteSafeOps', locale), { params: { reason: 'safe_ops' } })
   const own = r.author_id === userId
   if (!own && !g.moderator) return fail('forbidden', undefined, { params: { reason: 'thread_reply_not_yours' } })
   rt.db.query('DELETE FROM chat_thread_replies WHERE id = ? AND chat_id = ?').run(r.id, chatId)

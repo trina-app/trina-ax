@@ -38,6 +38,11 @@ export const UPLOAD_SESSION_MAX = 20 * 1024 * 1024 * 1024
 /** Largest file sent in a room (a DM, a group chat, a team room): up to SMALL_UPLOAD_MAX in one request, anything larger
  * through an upload session (8 MB chunks, resumable), so it passes a proxy's request size limit. */
 export const ROOM_FILE_MAX = 10 * 1024 * 1024 * 1024
+/** The largest file a guest may upload (in a room, to their project's folder, to an AI chat): the team's choice (TeamSettings.guestFileMax, Admin > Members >
+ * Guests), 100 MB unless the owner or an admin raises it; never more than a member's ROOM_FILE_MAX. */
+export const GUEST_FILE_MAX = { '100mb': 100 * 1024 * 1024, '1gb': 1024 * 1024 * 1024, '10gb': ROOM_FILE_MAX } as const
+export type GuestFileMax = keyof typeof GUEST_FILE_MAX
+export const GUEST_FILE_DEFAULT: GuestFileMax = '100mb'
 /** Every ordinary API call must finish well inside Cloudflare's 100 s; long work becomes a job. */
 export const API_DEADLINE_MS = 90_000
 
