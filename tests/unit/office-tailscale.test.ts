@@ -412,4 +412,15 @@ describe('teamax tailscale-address', () => {
     expect(fs.existsSync(tailnetCertPaths(officePaths(home).tls).key)).toBe(false)
     expect(restarts).toBe(2)
   })
+
+  test('on --bin <path>: the option the not-found line names is read (QA TC-2873)', async () => {
+    const home = path.join(BASE, 'cmd-bin')
+    fs.mkdirSync(path.join(home, 'config'), { recursive: true })
+    fs.writeFileSync(path.join(home, 'config', 'office.env'), 'TEAMAX_RUN_DIR=/tmp/ts-run\n')
+    const out: string[] = []
+    // no fake runner: the real lookup runs, and a --bin path that does not exist is refused by that path
+    expect(await tailscaleAddress(home, ['on', '--bin', path.join(BASE, 'no-such-tailscale')], { out: (l) => out.push(l) })).toBe(1)
+    expect(out.join('\n')).toMatch(/Tailscale CLI was not found/)
+    expect(loadSettings(home).tailscaleHost).toBeNull()
+  })
 })

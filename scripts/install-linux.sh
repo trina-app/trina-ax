@@ -412,7 +412,7 @@ case "$MACH" in x86_64) ARCH=amd64 ;; aarch64) ARCH=arm64 ;; *) die "unsupported
 if [ "$ARCH" = amd64 ] && ! grep -qw sse4_2 /proc/cpuinfo; then die "this x86_64 processor has no SSE4.2 (bun and Claude Code need it; in a VM use CPU type x86-64-v2 or host)"; fi
 # image mode: a check of the live kernel only warns (the build runs in a chroot or appliance; the booted VM checks again)
 imgwarn() { if [ "$IMAGE_MODE" = 1 ]; then warn "image mode: $*"; else die "$*"; fi; }
-if [ "$SYSTEMD" = 1 ] && [ "$IMAGE_MODE" = 0 ] && ! have_systemd; then die "no systemd here; use --no-systemd (test containers only)"; fi
+if [ "$SYSTEMD" = 1 ] && [ "$IMAGE_MODE" = 0 ] && ! have_systemd; then die "no systemd here: Trina AX needs a Linux server or VM with systemd. A plain Docker container is not supported (docs/site/operate/install.md). Test containers only: --no-systemd"; fi
 [ "$(stat -fc %T /sys/fs/cgroup 2>/dev/null)" = cgroup2fs ] || imgwarn "cgroup v2 (unified) is required; /sys/fs/cgroup is $(stat -fc %T /sys/fs/cgroup 2>/dev/null || echo missing)"
 
 # ---- 2) the kit's programs are ELF for this processor; the kit verifies (manifest + release signature) ----
