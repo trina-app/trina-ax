@@ -98,11 +98,13 @@ describe('the plan: where it may go, who gains and who loses it', () => {
       expect(p.blocked).toBeNull()
       // only the group's members get it: no one outside gains it, and who loses it is counted as for any move
       expect(p.readerIds).toEqual(['alice', 'erin'])
+      // carol and dana are in no group, so a move into it takes the skill from their own list of skills
+      expect(p.lostIds).toEqual(expect.arrayContaining(['carol', 'dana']))
     }
     // the name check sees what is in the group, though the admin is not a member: "brief" is taken there
     const dup = planMove(ctx, who('carol'), skillAt(ctx, who('carol'), 'skills/ops/SKILL.md')!, toGroup('carol', 'marketing'), 'en', { copy: true, name: 'brief' })
     expect(dup.blocked?.key).toBe('moveTaken')
-    // a member cannot write the team's skills folder, so she gets no way in from there either
+    // a member (alice, marketing) moves her own skill into her own group as before, and is offered no other group
     expect(planMove(ctx, who('alice'), skillAt(ctx, who('alice'), 'users/alice/skills/launch/SKILL.md')!, toGroup('alice', 'marketing'), 'en').blocked).toBeNull()
     expect(levelsOf(ctx, who('alice')).some((l) => l.level === 'group' && l.group.id === 'finance')).toBe(false)
   })
@@ -421,7 +423,8 @@ describe('in the app: the Skills page and the AI', () => {
     const r = await turn('carol', moveCall({ skill: 'quote', to: 'group', group: 'Finance' }), { answer: 'skip' })
     expect(r.content).not.toContain('is not one of the user\'s groups')
     expect(r.card).not.toBeNull()
-    expect(fs.existsSync(path.join(h.team, 'skills/ops/SKILL.md'))).toBe(true)
+    expect(fs.existsSync(path.join(h.team, 'skills/quote/SKILL.md'))).toBe(true)
+    expect(fs.existsSync(path.join(h.team, 'groups/finance/skills/quote'))).toBe(false)
     // a group that does not exist is still refused, naming the team's groups
     const none = await turn('carol', moveCall({ skill: 'quote', to: 'group', group: 'Nowhere' }))
     expect(none.content).toContain('is not a group of this team')
