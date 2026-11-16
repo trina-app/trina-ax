@@ -19,7 +19,8 @@ import { TEAM_FILE_DRAG_TYPE, forgetTeamAttach } from '../../src/lib/teamAttach'
 import RoomPage from '../../src/pages/Room'
 import { useChats } from '../../src/store/chats'
 import { useRooms } from '../../src/store/rooms'
-import { dropRoomUploads, forgetRoomUploads, uploadingIn, useRoomUploads } from '../../src/store/roomUploads'
+import { dropRoomUploads, forgetRoomUploads, setPlaceUploads, uploadingIn, useRoomUploads } from '../../src/store/roomUploads'
+import type { UploadProgress } from '../../src/lib/upload'
 import { isBusy } from '../../src/lib/busy'
 import { RoomUploadMark } from '../../src/components/nav/RoomsList'
 import { useSession } from '../../src/store/session'
@@ -513,6 +514,37 @@ describe('the room page', () => {
       expect(roomChips(m)[0]!.textContent).toContain('town-hall.mov')
       expect(sent.filter((c) => c.endsWith('/messages'))).toEqual([])
       expect(sent).toEqual([])
+    } finally { await m.unmount() }
+  })
+
+  // checking a file of several GB takes a minute, and so can the server's last step: a spinner alone looked stuck
+  test('a large file says what happens to it on its chip; a small one only spins', async () => {
+    signIn()
+    serve()
+    const en = (key: Parameters<typeof translate>[1]) => translate(useLocaleStore.getState().locale, key)
+    const big = { name: 'all-hands.mov', size: 3 * 1024 ** 3, type: 'video/quicktime' } as File
+    const chip = (progress: UploadProgress | undefined, file = big) => act(() => setPlaceUploads(r.id, [{ key: 1, file, status: 'uploading', abort: new AbortController(), progress }]))
+    const m = await mount(<RoomComposer roomId={r.id} members={[ME, BEN]} meId={ME.id} onSent={() => {}} />)
+    try {
+      const shown = () => m.find('room-file-progress')?.querySelector('[aria-hidden="true"]')?.textContent
+      await chip({ phase: 'queued', loaded: 0, total: big.size })
+      expect(shown()).toBe(en('files.waitingTurn'))
+      await chip({ phase: 'hashing', loaded: big.size / 2, total: big.size })
+      expect(shown()).toBe(en('files.checking'))
+      await chip({ phase: 'uploading', loaded: big.size * 0.42, total: big.size })
+      expect(shown()).toBe('42%')
+      await chip({ phase: 'waiting', loaded: big.size * 0.42, total: big.size })
+      expect(shown()).toBe(en('files.waitingConnection'))
+      await chip({ phase: 'finishing', loaded: big.size, total: big.size })
+      expect(shown()).toBe(en('files.finishing'))
+      // a screen reader hears one fixed line with the name, not each step
+      expect(m.find('room-file-progress')!.textContent).toContain(translate(useLocaleStore.getState().locale, 'rooms.uploading', { name: 'all-hands.mov' }))
+      // a small one only spins, until there is a percent to show (a slow connection)
+      const small = { name: 'note.txt', size: 100, type: 'text/plain' } as File
+      await chip({ phase: 'uploading', loaded: 0, total: 100 }, small)
+      expect(m.find('room-file-progress')).toBeNull()
+      await chip({ phase: 'uploading', loaded: 10, total: 100 }, small)
+      expect(shown()).toBe('10%')
     } finally { await m.unmount() }
   })
 

@@ -2,7 +2,8 @@
 // happens while a Korean or Japanese word is still being composed; on touch screens Enter makes a new line and the
 // button sends, like the AI chat's box), files (the clip, paste, or a drop anywhere on the room's column or the thread
 // around the box: components/FileDropZone.tsx; each is uploaded at once and sent by id: a small one with POST /api/rooms/:id/files, a larger one, up to 10 GB, in
-// 8 MB pieces through an upload session that goes on after a lost connection (lib/upload.ts), its percent on the chip;
+// 8 MB pieces through an upload session that goes on after a lost connection (lib/upload.ts), what happens to it on the chip
+// (waiting for its turn, being checked, its percent, finishing: components/UploadLabel.tsx);
 // a picture shows as itself at once, a 64 px square, while it uploads), and "@"
 // for the room's members: a picked name stands out in the
 // box at once and is sent as a mention (useMentionMenu, components/TokenTextarea.tsx). "@전체" notifies everyone in the
@@ -40,7 +41,8 @@ import { api, API, errorText, roomFileUrl } from '../../lib/api'
 import { markBusy } from '../../lib/busy'
 import { formatSize } from '../../lib/format'
 import { NO_UPLOADS, nextUploadKey, roomTarget as targetOf, setPlaceUploads, useRoomUploads, type RoomUpload } from '../../store/roomUploads'
-import { cancelUpload, uploadFile, uploadPercent } from '../../lib/upload'
+import { cancelUpload, SINGLE_REQUEST_MAX, uploadFile, uploadPercent } from '../../lib/upload'
+import { UploadLabel } from '../UploadLabel'
 import { pastedFiles } from '../../lib/paste'
 import { useVoiceInput } from '../../lib/useVoiceInput'
 import { micState, voiceBlockedInRoom } from '../../lib/voice'
@@ -279,6 +281,10 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     if (autoFocus) input.current?.focus({ preventScroll: true })
   }, [autoFocus])
   const roomTarget = (file: File) => targetOf(roomId, file)
+  /** A large file from this computer (one that goes in pieces) says what happens to it: waiting for its turn, being
+   * checked, its percent, finishing (components/UploadLabel.tsx, as on the Files page). A small one is up in a moment:
+   * it only spins, with its percent once there is one (a slow connection). */
+  const says = (f: Upload) => !f.teamPath && (f.file.size > SINGLE_REQUEST_MAX || uploadPercent(f.progress) !== null)
   const upload = async (u: Upload) => {
     try {
       // a small file in one request, a larger one (up to 10 GB) in 8 MB pieces that go on after a lost connection
@@ -600,8 +606,9 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                     // its own bytes in the image viewer, or the room's copy the server gave back
                     item={isLocalImage(f.file) ? localItem(String(f.key), f.file, f.file.name) : roomItem(roomId, f.roomFile!)}
                   />
-                  <span role="status" className={f.status === 'failed' ? FAILED_REASON : 'sr-only'}>
-                    {f.status === 'uploading' ? t('rooms.uploading', { name: f.file.name }) : f.status === 'failed' ? f.error : formatSize(f.file.size, locale)}
+                  {/* a large picture says how far it is beside its tile (a small one is there in a moment) */}
+                  <span role="status" className={f.status === 'failed' ? FAILED_REASON : f.status === 'uploading' && says(f) ? 'text-faint tabular-nums' : 'sr-only'}>
+                    {f.status === 'uploading' ? (says(f) ? <span data-testid="room-file-progress"><UploadLabel progress={f.progress} busy={t('rooms.uploading', { name: f.file.name })} /></span> : t('rooms.uploading', { name: f.file.name })) : f.status === 'failed' ? f.error : formatSize(f.file.size, locale)}
                   </span>
                   {f.status === 'failed' && <StoragePlansLink url={f.plans} />}
                 </li>
@@ -610,7 +617,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                   {f.status === 'uploading' ? <Loader2 size={14} className="animate-spin text-faint" aria-hidden /> : f.teamPath ? <FolderOpen size={14} className="text-accent-text" aria-hidden /> : <FileText size={14} className="text-muted" aria-hidden />}
                   <span className="max-w-[180px] truncate font-medium">{f.file.name}</span>
                   <span role="status" className={f.status === 'failed' ? FAILED_REASON : 'text-faint'}>
-                    {f.status === 'uploading' ? <><span className="sr-only">{t('rooms.uploading', { name: f.file.name })}</span>{uploadPercent(f.progress) !== null && <span className="tabular-nums" data-testid="room-file-percent">{uploadPercent(f.progress)}%</span>}</> : f.status === 'failed' ? f.error : formatSize(f.file.size, locale)}
+                    {f.status === 'uploading' ? (says(f) ? <span className="tabular-nums" data-testid="room-file-progress"><UploadLabel progress={f.progress} busy={t('rooms.uploading', { name: f.file.name })} /></span> : <span className="sr-only">{t('rooms.uploading', { name: f.file.name })}</span>) : f.status === 'failed' ? f.error : formatSize(f.file.size, locale)}
                   </span>
                   {f.status === 'failed' && <StoragePlansLink url={f.plans} />}
                   <ChipRemove label={t('rooms.removeFile', { name: f.file.name })} onClick={() => removeFile(f)} />

@@ -963,6 +963,7 @@ export const en: Record<MessageKey, string> = {
   'files.finishing': 'Finishing',
   'files.waitingConnection': 'Waiting for the connection',
   'files.waitingTurn': 'Waiting for its turn',
+  'files.checking': 'Checking the file',
   'files.uploadingName': 'Uploading {name}',
   'files.uploadedName': '{name} uploaded',
   'files.uploadedCount': '{n, plural, one {# file uploaded} other {# files uploaded}}',

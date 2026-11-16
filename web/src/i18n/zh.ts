@@ -938,6 +938,7 @@ export const zh: Record<MessageKey, string> = {
   "files.finishing": "即将完成",
   "files.waitingConnection": "正在等待连接",
   "files.waitingTurn": "排队等待中",
+  "files.checking": "正在检查文件",
   "files.uploadingName": "正在上传{name}",
   "files.uploadedName": "{name}已上传",
   "files.uploadedCount": "{n, plural, one {已上传#个文件} other {已上传#个文件}}",

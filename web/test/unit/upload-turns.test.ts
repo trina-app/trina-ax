@@ -1,10 +1,11 @@
 // Large files take turns (lib/upload.ts SESSIONS_AT_ONCE): each is an upload session on the server, and a person may
 // hold ten unfinished ones. Eleven files of 10 MB dropped on a room at once asked for eleven sessions, the last were
 // refused (429) and failed after about 15 s. Also here: a file taken out while its session is being made leaves none
-// behind.
+// behind, and what a large file says while it waits, is checked and is put in place.
 import { describe, expect, test } from 'bun:test'
 import { ApiClient, uuidv7, type UploadSession, type UploadTarget } from '@mycel/shared/api'
-import { SESSIONS_AT_ONCE, uploadFile } from '../../src/lib/upload'
+import { translate } from '../../src/i18n'
+import { SESSIONS_AT_ONCE, uploadFile, uploadLabel, type UploadProgress } from '../../src/lib/upload'
 
 const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'content-type': 'application/json' } })
 const ROOM = uuidv7()
@@ -110,5 +111,24 @@ describe('a file taken out while its session is being made', () => {
     // its turn was given back: the next large file starts
     const next = await uploadFile(file('next.mov'), target('next.mov'), { ...opts(server()), storage: null })
     expect(next.kind).toBe('room')
+  })
+})
+
+describe('what a large file says while no bytes go out', () => {
+  const t = (key: string) => translate('en', key as never)
+  const at = (phase: UploadProgress['phase']): UploadProgress => ({ phase, loaded: 0, total: 5e9 })
+  test('waiting for its turn, being checked, being put in place: each in plain words', () => {
+    expect(uploadLabel(at('queued'), t)).toBe('Waiting for its turn')
+    expect(uploadLabel(at('hashing'), t)).toBe('Checking the file')
+    expect(uploadLabel(at('finishing'), t)).toBe('Finishing')
+    expect(uploadLabel(at('waiting'), t)).toBe('Waiting for the connection')
+    expect(uploadLabel(null, t)).toBe('Preparing')
+    expect(uploadLabel({ phase: 'uploading', loaded: 2.5e9, total: 5e9 }, t)).toBe('50%')
+  })
+  test('a chunked upload reports those steps in order', async () => {
+    const s = server()
+    const seen: string[] = []
+    await uploadFile(file('order.mov'), target('order.mov'), { ...opts(s), onProgress: (p) => { if (seen[seen.length - 1] !== p.phase) seen.push(p.phase) } })
+    expect(seen).toEqual(['hashing', 'uploading', 'finishing'])
   })
 })

@@ -586,7 +586,8 @@ describe('uploads', () => {
 
     const t = (key: string) => key
     expect(uploadLabel(null, t)).toBe('files.preparing')
-    expect(uploadLabel(at('hashing', 700), t)).toBe('files.preparing')
+    expect(uploadLabel(at('hashing', 700), t)).toBe('files.checking')
+    expect(uploadLabel(at('queued', 0), t)).toBe('files.waitingTurn')
     expect(uploadLabel(at('uploading', 0), t)).toBe('files.preparing')
     expect(uploadLabel(at('uploading', 420), t)).toBe('42%')
     expect(uploadLabel(at('uploading', 1000), t)).toBe('99%')

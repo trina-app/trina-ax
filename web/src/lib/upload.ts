@@ -58,11 +58,13 @@ export function uploadBar(p: Running): number {
   return uploadPercent(p) ?? 0
 }
 
-/** What a running upload says beside its spinner. */
-export function uploadLabel(p: Running, t: (key: 'files.preparing' | 'files.finishing' | 'files.waitingConnection' | 'files.waitingTurn') => string): string {
+/** What a running upload says beside its spinner. A large file says what happens before and after its bytes go out, so a
+ * minute of checking a file of several GB, or the server putting it in place, does not look stuck. */
+export function uploadLabel(p: Running, t: (key: 'files.preparing' | 'files.finishing' | 'files.waitingConnection' | 'files.waitingTurn' | 'files.checking') => string): string {
   if (p?.phase === 'finishing') return t('files.finishing')
   if (p?.phase === 'waiting') return t('files.waitingConnection')
   if (p?.phase === 'queued') return t('files.waitingTurn')
+  if (p?.phase === 'hashing') return t('files.checking')
   const pct = uploadPercent(p)
   return pct === null ? t('files.preparing') : `${pct}%`
 }
