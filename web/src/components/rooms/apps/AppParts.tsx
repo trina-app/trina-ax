@@ -3,8 +3,10 @@
 // components/rooms/AppCard.tsx (plain text, its one checked link).
 import clsx from 'clsx'
 import { Blocks, ClipboardList } from 'lucide-react'
-import type { RoomAppRef } from '@mycel/shared/api'
+import { useEffect, useState } from 'react'
+import type { RoomAppIcon, RoomAppRef } from '@mycel/shared/api'
 import { useT } from '../../../i18n'
+import { appTone, firstLetter } from '../../../lib/appTone'
 import type { AppService } from '../../../lib/roomApps'
 import { Badge } from '../../ui'
 
@@ -12,7 +14,7 @@ import { Badge } from '../../ui'
  * docs/THIRD-PARTY-NOTICES.md), drawn through a CSS mask in the text colour so they read in light and dark (black or
  * white is what their guidelines allow). Stripe's guidelines name its colours (blurple on light, white on dark), so its
  * mark is drawn in those. Google Forms has none: Google asks for permission before its product icons are used, so it
- * gets a plain form icon, as Other gets a plain app icon. Shopify (written permission first), Tally and Jotform (no
+ * gets a plain form icon (Other: its own icon or its name's first letter, AppTile). Shopify (written permission first), Tally and Jotform (no
  * mark we may copy) and Typeform (its only one-colour file is the wordmark, unreadable at this size) get their initials
  * on the same tile, as do Jira, HubSpot, Toss Payments, Channel Talk and PortOne (docs/THIRD-PARTY-NOTICES.md). */
 export const APP_LOGOS: Partial<Record<AppService, string>> = {
@@ -35,29 +37,56 @@ export const APP_INITIALS: Partial<Record<AppService, string>> = {
 export const APP_TILE_SIZES = { title: 24, row: 28, face: 32 } as const
 export type AppTileSize = keyof typeof APP_TILE_SIZES
 
+/** The app a tile is for, when there is one (a plain Other app shows its own icon or its name's first letter). */
+export interface TileApp { id: string | null; name: string; icon?: RoomAppIcon }
+
 /** An app's mark: a rounded square (people are round, apps square) with the service's mark, its initial, or a plain icon
- * for Google Forms and Other apps. Decorative: the name is always written beside it. One component for the picker, the
- * list, the settings' title, the timeline and search. */
-export function AppTile({ service, size = 'face', className }: { service: AppService; size?: AppTileSize; className?: string }) {
+ * for Google Forms. A plain Other app with `app` (docs/decisions/20261116-other-app-icon.md): its own image or emoji
+ * ("Change icon"), else its name's first letter on a tint from its id (lib/appTone.ts), as a person without a photo
+ * shows a letter; without `app` (the picker's "Other app" row) the plain app icon. Decorative: the name is always
+ * written beside it. One component for the picker, the list, the settings' title, the timeline and search. */
+export function AppTile({ service, app, size = 'face', className }: { service: AppService; app?: TileApp; size?: AppTileSize; className?: string }) {
   const px = APP_TILE_SIZES[size]
   const mark = Math.round(px * 0.56)
+  const radius = Math.round(px * 0.28)
+  const own = service === 'other' && app ? app : null
+  const image = own?.icon && 'image' in own.icon ? own.icon.image : null
+  const [broken, setBroken] = useState(false)
+  useEffect(() => setBroken(false), [image])
+  if (own && image && !broken) {
+    return (
+      <img
+        src={image} alt="" aria-hidden loading="lazy" decoding="async" draggable={false} width={px} height={px} onError={() => setBroken(true)}
+        style={{ width: px, height: px, borderRadius: radius }}
+        className={clsx('shrink-0 bg-hover object-cover select-none', className)} data-testid="app-tile" data-kind={service} data-icon="image"
+      />
+    )
+  }
+  const emoji = own?.icon && 'emoji' in own.icon ? own.icon.emoji : null
   const logo = APP_LOGOS[service]
   const initial = APP_INITIALS[service]
   const Icon = service === 'google_forms' ? ClipboardList : Blocks
   const mask = logo ? `url(${logo}) center / contain no-repeat` : undefined
+  // a plain Other app without its own icon: its letter on its tint; with an emoji: the emoji on the plain tile
+  const letter = own && !emoji ? firstLetter(own.name) : null
   return (
     <span
       aria-hidden
-      style={{ width: px, height: px, borderRadius: Math.round(px * 0.28) }}
-      className={clsx('flex shrink-0 items-center justify-center bg-hover text-ink select-none', className)}
+      style={{ width: px, height: px, borderRadius: radius }}
+      className={clsx('flex shrink-0 items-center justify-center select-none', letter ? appTone(own!) : 'bg-hover text-ink', className)}
       data-testid="app-tile"
       data-kind={service}
+      {...(own ? { 'data-icon': emoji ? 'emoji' : 'letter' } : {})}
     >
-      {logo
-        ? <span className={clsx('block bg-current', LOGO_TINT[service])} style={{ width: mark, height: mark, mask, WebkitMask: mask }} data-testid="app-logo" />
-        : initial
-          ? <span className="font-semibold leading-none" style={{ fontSize: Math.round(px * (initial.length > 1 ? 0.4 : 0.5)) }} data-testid="app-initial">{initial}</span>
-          : <Icon size={mark} strokeWidth={1.75} />}
+      {emoji
+        ? <span className="leading-none" style={{ fontSize: Math.round(px * 0.6) }} data-testid="app-emoji">{emoji}</span>
+        : letter
+          ? <span className="font-semibold leading-none" style={{ fontSize: Math.max(10, Math.round(px * 0.45)) }} data-testid="app-letter">{letter}</span>
+          : logo
+            ? <span className={clsx('block bg-current', LOGO_TINT[service])} style={{ width: mark, height: mark, mask, WebkitMask: mask }} data-testid="app-logo" />
+            : initial
+              ? <span className="font-semibold leading-none" style={{ fontSize: Math.round(px * (initial.length > 1 ? 0.4 : 0.5)) }} data-testid="app-initial">{initial}</span>
+              : <Icon size={mark} strokeWidth={1.75} />}
     </span>
   )
 }

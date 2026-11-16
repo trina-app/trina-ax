@@ -15,9 +15,12 @@
 // Jotform, Stripe, Shopify, Zendesk; phase 4 Jira, HubSpot and, under "Show more services", Toss Payments, Channel Talk,
 // PortOne) and reads Slack-, Discord- and JANDI-shaped messages.
 import { z } from 'zod'
+import { AVATAR_MAX_BYTES } from '../avatar'
+import { emojiForm } from '../emoji-form'
 import type { CatalogServiceId } from '../service-catalog'
+import { isStatusEmoji } from '../status-message'
 import { IsoTime } from './common'
-import { empty, endpoint } from './endpoint'
+import { binary, empty, endpoint, stream } from './endpoint'
 import { UserRef } from './entities'
 
 export const RoomAppKind = z.enum(['sentry', 'github', 'google_forms', 'other'])
@@ -143,6 +146,9 @@ export const ROOM_APPS_MAX = 10
 export const ROOM_APPS_PER_HOUR = 10
 /** "Show an example" per app and hour (not counted toward the cap). */
 export const ROOM_APP_EXAMPLES_PER_HOUR = 5
+/** "Change icon" (an image, an emoji or Remove icon) per app and hour, refused tries included (the audit log is not
+ * a place to flood). */
+export const ROOM_APP_ICON_CHANGES_PER_HOUR = 20
 /** Messages shown per app and team-local day (owner decision 3): past it the app pauses until the team's midnight;
  * "Resume now" allows as many again, once a day. */
 export const ROOM_APP_DAILY_CAP = 500
@@ -188,6 +194,17 @@ export const RoomAppCard = z.object({
 })
 export type RoomAppCard = z.infer<typeof RoomAppCard>
 
+/** A plain Other app's own icon ("Change icon", docs/decisions/20261116-other-app-icon.md): an image, by its address with
+ * its version (roomAppIconUrl: a new icon is a new address, cached for good), or one emoji. Left out: the app shows its
+ * name's first letter on a tile coloured from its id. Never taken from what a service sends (a message cannot set it).
+ * Older servers omit it; a shape this build does not know reads as none. */
+export const RoomAppIcon = z.union([z.object({ image: z.string().max(300) }), z.object({ emoji: z.string().max(32) })])
+export type RoomAppIcon = z.infer<typeof RoomAppIcon>
+const RoomAppIconSeen = RoomAppIcon.optional().catch(undefined)
+/** The address of an app's icon image at a version (the long-cached form). */
+export const roomAppIconUrl = (roomId: string, appId: string, version: number) =>
+  `/api/rooms/${encodeURIComponent(roomId)}/apps/${encodeURIComponent(appId)}/icon?v=${version}`
+
 /** On a room message an app posted (author null): which app (id null: removed since; the name and kind as they were),
  * `quiet`: a short line (no unread, no alert), `example`: "Show an example". */
 export const RoomAppRef = z.object({
@@ -196,6 +213,8 @@ export const RoomAppRef = z.object({
   kind: RoomAppKind,
   /** the service of an Other app set up as a preset (its logo); older servers omit it */
   preset: RoomAppPresetSeen,
+  /** the app's own icon now (a plain Other app; while the app is there): past messages show the new one too */
+  icon: RoomAppIconSeen,
   quiet: z.literal(true).optional(),
   example: z.literal(true).optional(),
   /** who added it, for the sender's popover ("Set up by Mina"; members: "Ask Mina to change what shows here"): null
@@ -217,6 +236,8 @@ export const RoomApp = z.object({
   /** an Other app set up as a named service (fixed when it was added); older servers omit it */
   preset: RoomAppPresetSeen,
   name: z.string(),
+  /** its own icon (a plain Other app only; left out: its name's first letter) */
+  icon: RoomAppIconSeen,
   /** the switches, every key of the kind's (ROOM_APP_SWITCHES) or the preset's (ROOM_APP_PRESET_SWITCHES) */
   events: z.record(z.string(), z.boolean()),
   quiet: z.boolean(),
@@ -301,6 +322,13 @@ export const SetRoomAppSecretBody = z.union([
 export type SetRoomAppSecretBody = z.infer<typeof SetRoomAppSecretBody>
 export const RoomAppSecretResult = z.object({ app: RoomApp, secret: z.string().optional() })
 export type RoomAppSecretResult = z.infer<typeof RoomAppSecretResult>
+/** "Change icon" › an image: its type (PNG, JPEG or WebP; the file's first bytes must say the same). */
+export const RoomAppIconQuery = z.object({ type: z.string().min(1).max(100) })
+/** GET of the image: `v` the version in its address (the current one is cached for a year). */
+export const RoomAppIconVersionQuery = z.object({ v: z.string().max(20).optional() })
+/** "Change icon" › an emoji: exactly one (the rule of a reaction), in its one form. */
+export const SetRoomAppEmojiBody = z.object({ emoji: z.string().max(32).refine(isStatusEmoji, 'one emoji').transform(emojiForm) }).strict()
+export type SetRoomAppEmojiBody = z.infer<typeof SetRoomAppEmojiBody>
 
 /** Sentry's Client Secret as Sentry shows it (checked in TC-1546): 64 hex characters. */
 export const SENTRY_SECRET_RE = /^[0-9a-f]{64}$/i
@@ -388,6 +416,14 @@ export const ROOM_APPS = {
     summary: `"Resume now" after the day's cap paused an app: as many messages again today, once a day (409 not_paused / already_resumed; the team's cap still applies). ${WHO} Audited.` }),
   exampleRoomApp: endpoint({ method: 'POST', path: '/api/rooms/:id/apps/:appId/example', auth: 'user', owner: 'B', status: 204, response: empty,
     summary: `"Show an example": a sample card from the app in the room, marked as an example (${ROOM_APP_EXAMPLES_PER_HOUR} an hour, not counted toward the cap). ${WHO}` }),
+  putRoomAppIcon: endpoint({ method: 'PUT', path: '/api/rooms/:id/apps/:appId/icon', auth: 'user', owner: 'B', query: RoomAppIconQuery, body: binary(AVATAR_MAX_BYTES), response: RoomApp,
+    summary: `"Change icon" › Upload an image, for a plain Other app (400 not_other for a named service, Sentry, GitHub or Google Forms): a square PNG, JPEG or WebP of 64–512 px, up to 256 KiB, as a profile photo (SVG and animations refused; metadata cut out). It replaces an emoji. At most ${ROOM_APP_ICON_CHANGES_PER_HOUR} icon changes per app and hour (429). ${WHO} Audited.` }),
+  setRoomAppEmoji: endpoint({ method: 'PUT', path: '/api/rooms/:id/apps/:appId/icon/emoji', auth: 'user', owner: 'B', body: SetRoomAppEmojiBody, response: RoomApp,
+    summary: `"Change icon" › Pick an emoji, for a plain Other app (400 not_other otherwise): exactly one emoji; it replaces an image. At most ${ROOM_APP_ICON_CHANGES_PER_HOUR} icon changes per app and hour (429). ${WHO} Audited.` }),
+  deleteRoomAppIcon: endpoint({ method: 'DELETE', path: '/api/rooms/:id/apps/:appId/icon', auth: 'user', owner: 'B', response: RoomApp,
+    summary: `"Remove icon": the app shows its name's first letter again (nothing to remove: unchanged). Counts toward the ${ROOM_APP_ICON_CHANGES_PER_HOUR} icon changes per app and hour (429). ${WHO} Audited when there was one.` }),
+  roomAppIcon: endpoint({ method: 'GET', path: '/api/rooms/:id/apps/:appId/icon', auth: 'user', owner: 'B', query: RoomAppIconVersionQuery, response: stream(false),
+    summary: 'An app\'s icon image, for anyone in the room (404 otherwise, and without an image); cached for a year when ?v= is the current version. An image only: nosniff and a sandbox policy.' }),
   deleteRoomApp: endpoint({ method: 'DELETE', path: '/api/rooms/:id/apps/:appId', auth: 'user', owner: 'B', status: 204, response: empty,
-    summary: `Remove an app from the room: its address stops working at once, its messages stay. ${WHO} Audited.` }),
+    summary: `Remove an app from the room: its address stops working at once, its messages stay (with its name's first letter: its icon goes with it). ${WHO} Audited.` }),
 } as const
