@@ -42,7 +42,7 @@ beforeAll(async () => {
   chatId = c.id
   const a = await ask('alice', chatId, fake({ say: 'Use the corporate seal or the CEO line.' }))
   answerId = a.started.assistantMessage.id
-  questionId = a.started.userMessage.id
+  questionId = a.started.userMessage!.id
 })
 afterAll(async () => { for (const s of Object.values(ws)) s.close(); await h.close() })
 
@@ -222,7 +222,7 @@ describe('replies', () => {
     const a = await ask('alice', c.id, fake({ say: 'v1' }))
     const v1 = a.started.assistantMessage.id
     await reply('bob', 'on v1', { chat: c.id, root: v1 })
-    const again = await h.api('alice').call(API.regenerate, { params: { id: c.id, messageId: v1 }, body: { clientMessageId: cm() } })
+    const again = await h.api('alice').call(API.regenerate, { params: { id: c.id, messageId: v1 }, body: {} })
     await ws.alice!.next('message.done', (f) => f.data.messageId === again.assistantMessage.id, 30_000)
     expect(await summaryOf('bob', c.id, again.assistantMessage.id)).toBeUndefined()
     const t = await thread('bob', { chat: c.id, root: v1 })

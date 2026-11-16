@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16 03:51
 - Branch: `feat/chat-answer-threads`
-- Status: in progress
+- Status: done
 - Where: trina-ax core: `server/src/chat`, `server/src/notifications`, `shared/src/api`, `web/src/components/chat`,
   `push-gateway/src/text.ts`. Why: chats, permissions and notifications go into the core first
   (docs/REPOSITORY-RULES.md). 넣을 곳: trina-ax 코어 (server/src/chat, shared/src/api, web/src/components/chat), 이유:
@@ -255,4 +255,15 @@ private chats.
 
 ## Result
 
-Filled in at the end.
+Built as planned (P1, the review's scope). Differences:
+
+- The notice table keeps the column name `source_id` for the thread's answer (the Inbox reads every notice table
+  through one union of `id, user_id, event_type, source_id, created_at, read_at, suppressed`); the partial unique index
+  is `(user_id, source_id) WHERE read_at IS NULL`.
+- The realtime fan-out works out who the answer is hidden from with `AnswerSight` per event; the review's fast path for
+  answers nobody is hidden from (L4) is left for later (cost only, not access).
+- A deleted reply's last unread notice is removed (not only marked read), so its Inbox row goes and its pushes with it.
+- The web service worker learned the new push code (its click opens the thread from the signed-in notice).
+- Not changed in P1: the Members dialog line, export, "Show it in the chat", the iPhone label.
+
+PR: see the branch's pull request to dev.
