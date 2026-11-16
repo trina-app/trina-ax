@@ -207,7 +207,7 @@ export const ja: Strings = {
       emails: '送ったメール',
     },
     usually: 'ふつうは2日ほど',
-    signup: 'プランを見て無料で始める',
+    signup: 'プランを見る',
     explore: '見て回る',
     popupTitle: 'ミナの初日、おつかれさまでした🎉',
     popupLine: 'ローンチキャンペーンを{time}で完成。ふつうは2日ほどかかります。',
