@@ -3231,7 +3231,7 @@ export class TurnExec {
       : [{ label: st('save', L), value: 'save' }, { label: st('dont', L), value: 'skip' }]
     // "Always allow" for team skill and rule saves (chat/always-allow.ts; the owner, 2026-11-13); not for a name that
     // is taken (that card asks for another name)
-    const ask = (req: TurnRequest & { options: { label: string; value: string }[] }) => dead ? this.askPerson(req, { timeoutMs: this.rt.askUserTimeoutMs() }) : this.askAlways('skill_save', req, 'save')
+    const ask = (req: TurnRequest & { options: { label: string; value: string }[] }) => dead ? this.askPerson(req, { timeoutMs: this.rt.askUserTimeoutMs() }) : this.askAlways('skill_save', req, 'save', { label: 'cardAlwaysSkills' })
     const { value: answer, missing } = await ask({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(),
       // a project's skills folder no live project has (yet): saved there, no chat follows it
@@ -3304,6 +3304,22 @@ export class TurnExec {
     try { this.files.skillApprovals.delete(authorize(this.rt.files.fx, this.rt.files.rules(), this.livePrincipal(), target, 'write', { createDirs: true }).rel) } catch { /* no such path: nothing was approved for it */ }
   }
 
+  /** After a skill or rule was saved in a shared chat (owner 2026-11-16, docs/decisions/20261116-shared-chat-skill-edits.md):
+   * the note that tells the AI to end its answer with one quiet line that the people here can see the change. null
+   * anywhere else, for a call that failed, and for any other file. */
+  sharedSkillNote(tool: string, args: unknown, isError: boolean): string | null {
+    if (!this.shared || isError) return null
+    if (tool !== 'write' && tool !== 'edit' && tool !== 'make_file' && tool !== 'edit_hwp') return null
+    const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
+    const out = tool === 'edit_hwp' && typeof a.output === 'string' ? this.hwpTarget(a) ?? undefined : undefined
+    const target = tool === 'make_file' ? (typeof a.output === 'string' && typeof a.format === 'string' ? makeFileOutputPath(a.output, a.format) : a.output) : tool === 'edit_hwp' ? out ?? a.file_path : a.file_path
+    if (typeof target !== 'string') return null
+    let rel: string
+    try { rel = authorize(this.rt.files.fx, this.rt.files.rules(), this.livePrincipal(), target, 'list').rel } catch { return null }
+    if (!skillRootOf(rel) && !/^users\/[^/]+\/skills(\/|$)/i.test(rel)) return null
+    return 'This chat is shared, and the skill change is saved. End your answer with one short, quiet line in the user\'s language that the people in this chat can see this change (for example "People in this chat can see this change."). Say nothing more about it.'
+  }
+
   /**
    * A skill called `name` at another level the person sees (docs/DECISIONS.md "Project skills"). `project`: saving into
    * a project: a wider skill (personal, group, team) of that name, or whose file or folder name it is, runs instead
@@ -3337,7 +3353,7 @@ export class TurnExec {
    */
   /** askPerson for a card of `kind` with "Always allow" (chat/always-allow.ts): no card while it is on (`yes` at once),
    * else the card offers it. */
-  async askAlways(kind: CardAlwaysKind, request: TurnRequest & { options: { label: string; value: string }[] }, yes: string, o: { onAlways?: () => void } = {}): Promise<CardAnswer> {
+  async askAlways(kind: CardAlwaysKind, request: TurnRequest & { options: { label: string; value: string }[] }, yes: string, o: { onAlways?: () => void; label?: 'cardAlways' | 'cardAlwaysSkills' } = {}): Promise<CardAnswer> {
     let missing: CardAnswer['missing'] = null
     const value = await withAlways(this.alwaysPlace(), kind, request.options, yes, async (options, more) => {
       const r = await this.askPerson({ ...request, options, ...more } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
@@ -3345,7 +3361,7 @@ export class TurnExec {
       // the person picked "Always allow" on this card (what else the card covers is kept by the caller)
       if ((Array.isArray(r.value) && r.value.length === 1 ? r.value[0] : r.value) === ALWAYS_VALUE) o.onAlways?.()
       return r.value
-    })
+    }, o.label)
     return { value, missing }
   }
 
