@@ -3,8 +3,8 @@
 // CREDENTIALS (AI connections, registered from ./credentials.ts, the same owner)
 // Contract: shared/src/api/admin.ts, shared/src/api/credentials.ts
 // Nothing here returns chat or memory contents: admins manage people, folders and engines, not conversations.
-import { linkPeopleIn, narrowsWithLinks, removeLinksIn } from '../files/shares'
-import { FILE_LINKS_DECIDE } from '../files/share-text'
+import { linkPeopleIn } from '../files/shares'
+import { editableRow as editableRowOf, onlyGrants as onlyGrantsOf, saveFolderAccess } from '../admin/folder-save'
 import { API, EngineId, OWNER_ONLY_SETTINGS, type EngineId as EngineIdT } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { newId } from '../db'
@@ -16,13 +16,11 @@ import { audit, listAudit } from '../admin/audit'
 import { createBudget, deleteBudget, listBudgets, updateBudget, usage } from '../admin/budgets'
 import { EngineStatusCache, engineStatusCache } from '../admin/engines'
 import {
-  actualFolderPath, afterAccessChange, assertNotInProject, captureState, dropFolderRow, ensureFolderRow, getFolder, getFolderByPath, isLimited, keepOfRow, listFolders, originKeepers, folderAccessNotice, FOLDER_ACCESS_NOTICE_DISMISSED,
-  previewRules, resolveFolderPath, rulesHashAt, rulesHashV1At, rulesOf, toFolder, validateRules, writeFolderAccess, type FolderRow,
+  afterAccessChange, assertNotInProject, captureState, dropFolderRow, keepOfRow, listFolders, originKeepers, folderAccessNotice, FOLDER_ACCESS_NOTICE_DISMISSED,
+  previewRules, rulesOf, toFolder, type FolderRow,
 } from '../admin/folders'
-import { isParkedRow, isTeamDefaultFolder } from '../admin/folder-keep'
 import { createGroup, deleteGroup, listGroups, updateGroup } from '../admin/groups'
 import { explainEdit, explainFolder, explainNewPerson, explainPerson, explainTree } from '../admin/access-explain'
-import { raiseToAbove } from '../admin/access-edit'
 import { oftenAskedSwitched } from '../chat/often-asked'
 import { BROWSER_POLICY_CHANGED, enginesEnabled, getTeamSettings, LOCALE_CHANGED, setEnginesEnabled, SPEECH_CHANGED, updateTeamSettings, WEB_ACCESS_CHANGED } from '../admin/settings'
 import { teamPolicyOff } from '../tools/web-allow-all'
@@ -136,61 +134,15 @@ export const adminRoutes: RouteModule = {
     // admins); a group's folder row stays while the group does (removing it cuts the group's link and the folder's
     // protection for good); a row parked with a trashed folder is not there (404). Which row is which: folder-keep.ts,
     // also sent as Folder.keep.
-    const editableRow = (id: string): FolderRow => {
-      const f = getFolder(ctx.db, id)
-      if (!f || isParkedRow(f.path)) return fail('not_found')
-      return f
-    }
-    // shared/ and skills/ keep at least one rule or a limit (with neither, everyone but the owner and admins gets what
-    // the team root gives)
-    const keepsRules = (p: string, rules: readonly unknown[], limited: boolean, locale: Locale) => {
-      if (!rules.length && !limited && isTeamDefaultFolder(p, ctx.files.fx.caseInsensitive)) fail('validation', msg('teamFolderKeepsRules', locale), { fields: { 'body.rules': 'shared/ and skills/ keep at least one rule' } })
-    }
-    // rules give view or edit (docs/DECISIONS.md "Folder access adds up like Google Drive (P2)"): a "no access" rule
-    // or a role rule is refused, said per rule
-    const onlyGrants = (rules: readonly { subjectType: string; access: string }[], locale: Locale, field = 'body.rules') => {
-      for (const [i, r] of rules.entries()) {
-        if (r.subjectType === 'role') fail('validation', msg('noRoleRules', locale), { fields: { [`${field}.${i}.subjectType`]: 'no_role_rules' }, params: { reason: 'no_role_rules' } })
-        if (r.access === 'none') fail('validation', msg('noDenyRules', locale), { fields: { [`${field}.${i}.access`]: 'no_deny_rules' }, params: { reason: 'no_deny_rules' } })
-      }
-    }
-    // A save that names the rules it started from (`expectedHash`, Folder.rulesHash) is refused when the folder's rules
-    // are not those any more: another admin, or the Members screen's skill manager switch, changed them in between, and
-    // saving would undo that unseen. Checked inside the save's transaction. Without the field: replaced as before.
-    const sameRules = (now: string, expected: string | undefined, locale: Locale) => {
-      if (expected !== undefined && expected !== now) fail('conflict', msg('rulesChanged', locale), { params: { reason: 'rules_changed' } })
-    }
+    const editableRow = (id: string): FolderRow => editableRowOf(ctx, id)
+    const onlyGrants = onlyGrantsOf
+    // shared/ and skills/ keep at least one rule, rules give view or edit, and a save names the rules it started from:
+    // admin/folder-save.ts (the one save of Admin › Folder permissions and the AI's change_folder_access)
     kit.handle(API.listFolders, () => ({ items: listFolders(ctx) }))
 
     kit.handle(API.createFolder, ({ c, body, auth }) => {
-      const locale = c.get('locale')
-      // a project's folder and anything in it: its members are changed on its page (before anything else is looked at)
-      assertNotInProject(body.path, locale)
-      onlyGrants(body.rules, locale)
-      validateRules(ctx.db, body.rules, locale)
-      // judged before anything is made on disk (create: true)
-      const typed = actualFolderPath(ctx, body.path)
-      if (typed !== null) keepsRules(typed, body.rules, body.limited ?? (getFolderByPath(ctx.db, typed)?.limited === 1), locale)
-      // another admin's rules made meanwhile: said as such, before anything is made on disk
-      if (body.expectedHash !== undefined && typed !== null) sameRules(rulesHashAt(ctx.db, typed), body.expectedHash, locale)
-      const { path: p, created } = resolveFolderPath(ctx, body.path, { create: body.create, locale })
-      const existing = getFolderByPath(ctx.db, p)
-      if (body.expectedHash !== undefined) sameRules(rulesHashAt(ctx.db, p), body.expectedHash, locale)
-      // a row with rules made meanwhile (a screen that read the folder list before it): told apart from a bare conflict
-      if (existing && (rulesOf(ctx.db, existing.id).length || existing.limited === 1)) fail('conflict', msg('folderExists', locale), { params: { reason: 'folder_exists' } })
-      const before = captureState(ctx.db)
-      const rulesBefore = ctx.files.rules()
-      const f = ctx.db.transaction(() => {
-        const row = ensureFolderRow(ctx.db, p)
-        if (!(body.limited ?? row.limited === 1)) body.rules = raiseToAbove(ctx.files.rules(), p, body.rules)
-        writeFolderAccess(ctx.db, row.id, { rules: body.rules, limited: body.limited }, auth.user.id)
-        // files here shared by link and someone loses the folder: the save must say what happens to those links
-        if (body.removeFileLinks === undefined && narrowsWithLinks(ctx.db, rulesBefore, p)) fail('conflict', FILE_LINKS_DECIDE[c.get('locale')] ?? FILE_LINKS_DECIDE.en, { params: { reason: 'file_links_decide', linkPeople: linkPeopleIn(ctx.db, p) } })
-        if (body.removeFileLinks) removeLinksIn(ctx.db, auth.user.id, p)
-        audit(ctx.db, { actor: auth.user.id, action: 'folder.create', target: p, detail: { created, rules: body.rules, ...(body.limited !== undefined ? { limited: body.limited } : {}) } })
-        return row
-      })()
-      afterAccessChange(ctx, before, { actor: auth.user.id, target: p, created: created ? [p] : [] })
+      // admin/folder-save.ts: the same checks and save as the AI's change_folder_access
+      const f = saveFolderAccess(ctx, auth.user.id, { path: body.path, create: body.create }, { rules: body.rules, limited: body.limited, expectedHash: body.expectedHash, removeFileLinks: body.removeFileLinks }, c.get('locale'))
       return toFolder(ctx, f)
     })
 
@@ -232,36 +184,8 @@ export const adminRoutes: RouteModule = {
     })
 
     kit.handle(API.putFolderRules, ({ c, params, body, auth }) => {
-      const f = editableRow(params.id)
-      assertNotInProject(f.path, c.get('locale'), 'params.id')
-      // a folder moved into users/ keeps its row; rules there are ignored, so refuse to edit them as if they worked
-      if (f.path === 'users' || f.path.startsWith('users/')) fail('validation', msg('rulesInUsers', c.get('locale')), { fields: { 'params.id': 'users/ cannot carry rules' } })
-      onlyGrants(body.rules, c.get('locale'))
-      keepsRules(f.path, body.rules, body.limited ?? f.limited === 1, c.get('locale'))
-      validateRules(ctx.db, body.rules, c.get('locale'))
-      const before = captureState(ctx.db)
-      const rulesBefore = ctx.files.rules()
-      const old = rulesOf(ctx.db, f.id)
-      const wasLimited = f.limited === 1
-      ctx.db.transaction(() => {
-        const now = getFolder(ctx.db, f.id)!
-        // a page from before Limit access (a rules-v1 hash, or a script without a hash) saving a limited folder without
-        // `limited`: it never showed the limit, so it is told to reload instead of saving over it (missing keeps the
-        // limit anyway: this is the second guard)
-        if (now.limited === 1 && body.limited === undefined && (body.expectedHash === undefined || body.expectedHash === rulesHashV1At(ctx.db, f.path)))
-          fail('conflict', msg('clientOutdated', c.get('locale')), { params: { reason: 'client_outdated' } })
-        sameRules(rulesHashAt(ctx.db, f.path), body.expectedHash, c.get('locale'))
-        // not limited: a rule lower than the folders above give is stored at that level (12-A at save time)
-        if (!(body.limited ?? now.limited === 1)) body.rules = raiseToAbove(ctx.files.rules(), f.path, body.rules)
-        writeFolderAccess(ctx.db, f.id, { rules: body.rules, limited: body.limited }, auth.user.id)
-        // "Remove those links too": in the save's own step (files/shares.ts)
-        // files here shared by link and someone loses the folder: the save must say what happens to those links
-        if (body.removeFileLinks === undefined && narrowsWithLinks(ctx.db, rulesBefore, f.path)) fail('conflict', FILE_LINKS_DECIDE[c.get('locale')] ?? FILE_LINKS_DECIDE.en, { params: { reason: 'file_links_decide', linkPeople: linkPeopleIn(ctx.db, f.path) } })
-        if (body.removeFileLinks) removeLinksIn(ctx.db, auth.user.id, f.path)
-        const limitedNow = isLimited(ctx.db, f.id)
-        audit(ctx.db, { actor: auth.user.id, action: 'folder.rules', target: f.path, detail: { before: old, after: body.rules, ...(limitedNow !== wasLimited ? { limited: { before: wasLimited, after: limitedNow } } : { limited: limitedNow }) } })
-      })()
-      afterAccessChange(ctx, before, { actor: auth.user.id, target: f.path })
+      // admin/folder-save.ts: the same checks and save as the AI's change_folder_access
+      const f = saveFolderAccess(ctx, auth.user.id, { folderId: params.id }, { rules: body.rules, limited: body.limited, expectedHash: body.expectedHash, removeFileLinks: body.removeFileLinks }, c.get('locale'))
       return toFolder(ctx, f)
     })
 
