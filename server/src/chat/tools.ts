@@ -54,6 +54,8 @@ import { postToRoomOff, postToRoomTool } from './post-to-room'
 import { shareWithPersonOff, shareWithPersonTool } from './share-with-person'
 import { stopSharingOff, stopSharingTool } from './stop-sharing'
 import { whoCanOpenOff, whoCanOpenTool } from './who-can-open'
+import { sharedWithMeOff, sharedWithMeTool } from './shared-with-me-tool'
+import { lookingAtOff, lookingAtTool } from './looking-at'
 import { hideUrls } from '../tools/audit-url'
 import { SHARE_JUDGE_REFUSAL } from '../skills/share-judge'
 import { FILE_RANK_REFUSAL } from '../onboarding/file-rank'
@@ -61,6 +63,7 @@ import { mergeTargets, SHARE_MERGE_REFUSAL } from '../skills/share-merge'
 import { deleteFilesTool } from './delete-files'
 import { projectMembersTool } from './project-members'
 import { readRooms } from './read-rooms'
+import { seenWhy } from './grant-reads'
 import { WEB_ACCESS_CHANGED } from '../admin/settings'
 import { isGuestUser } from '../credentials/guest-ai'
 import { GUEST_ROOM_TOOLS, GUEST_TURN_TOOLS, guestToolDescription } from './guest-tools'
@@ -204,6 +207,11 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // who can open a file, a folder or this chat, and how (chat/who-can-open.ts): read-only; in a shared chat only for
   // the chat itself and a file the asker named or attached; never a scheduled run, Slack, a template or restricted run
   if (!whoCanOpenOff(exec)) add(whoCanOpenTool(exec))
+  // the files shared with the person one by one, as a list the AI asks for (chat/shared-with-me-tool.ts), and what the
+  // person has open now (chat/looking-at.ts): only in the person's own chat (add() keeps them out of shared,
+  // confidential, guest and draft chats too)
+  if (!sharedWithMeOff(exec)) add(sharedWithMeTool(exec))
+  if (!lookingAtOff(exec)) add(lookingAtTool(exec))
   // edit_files is listed here so the engines and the model proxy allow it, but the MCP handler runs it
   // (mcp/protocol.ts editFiles): each file as its own edit call with the checks above. Never offered in confidential
   // chats (add() keeps to the local tools there). Reaching this call() means the handler did not: nothing is changed.
@@ -556,7 +564,7 @@ export function turnPerson(exec: TurnExec): TurnPerson {
  * of its own shows what the room card would have (the folder and every file of a move, a video's file), so its one yes
  * is given seeing all of it. */
 function roomLinePerson(exec: TurnExec, p: TurnPerson, call: { tool: string; args: unknown }): TurnPerson {
-  const lead = `${tr('roomsSeenWhy', p.locale)}\n\n`
+  const lead = `${tr(seenWhy(exec, 'roomsSeenWhy'), p.locale)}\n\n`
   const extra = (e?: ConfirmExtra): ConfirmExtra => (e?.details?.length ? e : { ...e, details: exec.roomCardDetails(call.tool, call.args) })
   return {
     ...p, roomsSeen: true,
@@ -816,7 +824,7 @@ function moveSkillTool(exec: TurnExec): Tool {
         : skillText('moveConfirm', L, { name: plan.skill.name, from, to: dest })
       // after a room read this card is the call's only one (chat/turn.ts ownCard): it leads with the room card's line
       const question = [
-        exec.ownCard('move_skill') ? tr('roomsSeenWhy', L) : '',
+        exec.ownCard('move_skill') ? tr(seenWhy(exec, 'roomsSeenWhy'), L) : '',
         `${head}\n${changeLine(plan, L)}\n${editorsLine(plan, L)}`,
         plan.shadows ? skillText('moveShadows', L, { name: plan.name, where: plan.shadows }) : '',
         why,

@@ -51,6 +51,8 @@
 import { withAlways } from './always-allow'
 import { actionOff, asksFor, askerPicks, askerText, asksToSend, fold, fromAsker, mainOnly, namedInFull, namesRecipient as namesPlace, othersWordsIn, ownWords, POST_ASK } from './shared-actions'
 import { readRooms } from './read-rooms'
+import { seenWhy } from './grant-reads'
+import { lookedPlace } from './looking-at'
 // (moved to chat/shared-actions.ts, kept here for the tests and older imports)
 export { namedByAsker, namesRecipient } from './shared-actions'
 import { isUuid7, ownFolderLabel, ownFolderWord, PostToRoomInput, uuidv7 } from '@mycel/shared'
@@ -322,7 +324,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // under the provenance lines, once: people who join later see it too (docs/DECISIONS.md "People who see a shared
         // chat later: nothing new is hidden")
         const laterLine = later && (none.confirm.provenance || all?.confirm.provenance) ? tr('postRoomLater', L) : ''
-        const question = [exec.roomsSeen ? tr('roomsSeenWhy', L) : '', ask, [...linesNone, extra, laterLine].filter(Boolean).join('\n')].filter(Boolean).join('\n\n')
+        const question = [exec.roomsSeen ? tr(seenWhy(exec, 'roomsSeenWhy'), L) : '', ask, [...linesNone, extra, laterLine].filter(Boolean).join('\n')].filter(Boolean).join('\n\n')
         const shown = first.body.slice(first.at)
         const marks = opaqueParts(shown)
         const options = [
@@ -360,9 +362,12 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const noteOk = first.at === 0 || fold(said).includes(fold(first.body.slice(0, first.at)))
         const place = a.data.room === undefined ? !!side && a.data.thread_id === undefined
           : !readRooms(exec) && a.data.thread_id === undefined && namedInFull(said, recipientNames(db, spec.userId, mine?.room ?? null, pendingTo).names)
-        const explicit = spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && !all && !linesNone.length && !laterLine && asksFor(POST_ASK, said)
+        // a room, a thread or a 1:1 chat's person the AI learned from looking_at in this turn is not the asker's word
+        // (chat/looking-at.ts): unless their own message names it, the card shows, "Always allow" or not
+        const fromLook = lookedPlace(exec, { roomId: roomId || null, threadRootId: threadRootId ?? null, names: recipientNames(db, spec.userId, mine?.room ?? null, pendingTo).names }, said)
+        const explicit = !fromLook && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && !all && !linesNone.length && !laterLine && asksFor(POST_ASK, said)
           && (plain ? theirText : !exec.shared && !exec.otherAuthors) && noteOk && place
-        const reply = explicit ? 'send' : await withAlways(alwaysOk ? exec.alwaysPlace?.() : null, all ? 'post_files' : 'post_to_room', options, all ? 'send_files' : 'send', (opts, more) => exec.waitForPerson({
+        const reply = explicit ? 'send' : await withAlways(alwaysOk && !fromLook ? exec.alwaysPlace?.() : null, all ? 'post_files' : 'post_to_room', options, all ? 'send_files' : 'send', (opts, more) => exec.waitForPerson({
           kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: othersWordsCard(exec, all ? 'post_files' : 'post_to_room', alwaysOk) ? `${tr('othersWordsWhy', L)}\n\n${question}` : question, options: opts, multiple: false, allowText: false, ...(more.note ? { note: more.note } : {}),
           details: [
             // the note goes as the person's own words, the text as the AI's answer: apart, as the room shows them

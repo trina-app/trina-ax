@@ -6507,6 +6507,7 @@ export const ko = {
   "fileLink.shareAction": "공유…",
   "fileLink.sharedBy": "{name}님이 공유함",
   "fileLink.sharedByFormer": "이전 멤버가 공유함",
+  "fileLink.askPrompt": "공유받은 이 파일에 대해: {name} ({link})\n",
   "fileLink.backToShared": "나에게 공유된 파일",
   "fileLink.needAccess": "권한이 필요해요",
   "fileLink.needAccessBody": "권한을 요청하거나, 권한이 있는 계정으로 로그인하세요.",

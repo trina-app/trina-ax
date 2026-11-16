@@ -28,6 +28,8 @@ import { tr } from './i18n'
 import { neutralizeTags } from './prompt'
 import { actionOff, askerPicks, askerText, asksToSend, attachedPaths, fromAsker, madeInTurn, mainOnly, namesFile, namesFileLoose, namedInFull, namesRecipient, ownWords, asksFor, SHARE_ASK } from './shared-actions'
 import { readRooms } from './read-rooms'
+import { seenWhy } from './grant-reads'
+import { lookedFile, lookedPerson } from './looking-at'
 import { withAlways } from './always-allow'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
@@ -191,7 +193,7 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         // own message names every recipient (another member's message must not pick who gets the asker's files) ----
         const one = who.length === 1 ? who[0]! : null
         const question = [
-          exec.roomsSeen ? tr('roomsSeenWhy', L) : '',
+          exec.roomsSeen ? tr(seenWhy(exec, 'roomsSeenWhy'), L) : '',
           one?.subjectType === 'user' ? tr('fileShareAsk', L, { who: oneLine(one.name, 40), n: String(plan.length) }) : one ? tr('fileShareAskGroup', L, { who: oneLine(one.name, 40), n: String(plan.length) }) : tr('fileShareAskMany', L, { who: oneLine(whoLine, 80), n: String(plan.length) }),
           tr(plan.length === 1 ? 'fileShareViewOne' : 'fileShareView', L),
         ].filter(Boolean).join('\n\n')
@@ -204,10 +206,14 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         // or attached by them. Nobody else's words chose who gets which file then; never in a run nobody watches
         const said = ownWords(askerText(db, spec.userMessageId))
         const mine = attachedPaths(db, spec.userMessageId)
-        const explicit = spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && asksFor(SHARE_ASK, said)
+        // a file or a person the AI learned from looking_at in this turn is not the asker's word (chat/looking-at.ts): unless
+        // their own message names it, the card shows, "Always allow" or not (a file's text must not get "what is open"
+        // shared)
+        const fromLook = plan.some((f) => lookedFile(exec, f.path, said, mine)) || who.some((w) => w.subjectType === 'user' && lookedPerson(exec, w.subjectId, recipientWords(db, w), said))
+        const explicit = !fromLook && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && asksFor(SHARE_ASK, said)
           && who.every((w) => namedInFull(said, recipientWords(db, w)))
           && plan.every((f) => mine.has(f.path) || namesFileLoose(said, f.path))
-        const reply = explicit ? 'share' : await withAlways(alwaysOk ? exec.alwaysPlace?.() : null, 'share_files', [{ label: tr('fileShareYes', L), value: 'share' }, { label: tr('fileShareNo', L), value: 'no' }], 'share', (options, more) => exec.waitForPerson({
+        const reply = explicit ? 'share' : await withAlways(alwaysOk && !fromLook ? exec.alwaysPlace?.() : null, 'share_files', [{ label: tr('fileShareYes', L), value: 'share' }, { label: tr('fileShareNo', L), value: 'no' }], 'share', (options, more) => exec.waitForPerson({
           kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: othersWordsCard(exec, 'share_files', alwaysOk) ? `${tr('othersWordsWhy', L)}\n\n${question}` : question, multiple: false, allowText: false, options, ...more,
           // each file by its name and place in words, never a team path: two files of one name read differently
           details: [{ label: tr('fileShareFiles', L), text: plan.map((f) => fileWords(db, f.path, L, spec.userId)).join('\n'), noSize: true }],

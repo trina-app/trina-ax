@@ -104,6 +104,18 @@ download it; **‹ Shared with me** takes you back to the list. Opening a file a
 read. A file leaves the list when you lose access to it (its owner removed you, moved it to the trash or can no longer
 edit it).
 
+Trina can use these files too. Ask "summarise the file Mina shared with me" and it looks through what was shared with
+you, also when a file in your own folders has the same name. On a shared file's page, **Ask Trina** opens a new chat
+with that file ready in the box. Trina can view a shared file, not change it.
+
+### "This file", "that thread"
+
+When you say "summarise this" or "reply in that thread" without a name, Trina checks what you have open in the app:
+the file, room, thread or chat on your screen, the window you are writing in first. It only does this when you point at
+something without naming it, and it asks when two things could be meant. Anything it shares or posts for you this way
+still shows you a card first, also when you chose **Always allow**. Nothing about your screen is kept: a closed window
+is forgotten, and a confidential chat is never reported.
+
 ## Working with files
 
 ![The Files screen: the team folder with Company-wide, Groups, Projects, Team skills and Personal](../images/files/files.webp "The Files screen")

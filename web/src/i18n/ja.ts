@@ -6463,6 +6463,7 @@ export const ja: Record<MessageKey, string> = {
   "fileLink.shareAction": "共有…",
   "fileLink.sharedBy": "{name} が共有",
   "fileLink.sharedByFormer": "以前のメンバーが共有",
+  "fileLink.askPrompt": "共有されたこのファイルについて：{name}（{link}）\n",
   "fileLink.backToShared": "自分に共有されたファイル",
   "fileLink.needAccess": "アクセス権が必要です",
   "fileLink.needAccessBody": "アクセスをリクエストするか、アクセスできるアカウントでサインインしてください。",
