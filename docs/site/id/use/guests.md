@@ -109,6 +109,8 @@ berisi hal milik mereka sendiri, seperti profil dan notifikasi.
 
 Di sebuah proyek, anggota proyek bisa melihat chat yang dimiliki tamu di sana. Tamu yang bisa memakai AI diberi tahu hal ini di halaman proyek.
 
+Tamu tidak menerima atau membagikan tautan file. Untuk memberi file kepada tamu, kirim file itu di obrolan grup atau proyek mereka.
+
 ## Satu obrolan grup dan satu proyek
 
 Tamu bisa berada di satu obrolan grup dan satu proyek sekaligus, tidak pernah lebih. Satu undangan membuka satu tempat.

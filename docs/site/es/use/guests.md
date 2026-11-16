@@ -113,6 +113,8 @@ tiene sus propias cosas, como su perfil y sus notificaciones.
 
 En un proyecto, los miembros del proyecto pueden ver los chats que tiene allí un invitado. A un invitado que puede usar IA se le avisa de esto en la página del proyecto.
 
+Los invitados no reciben ni comparten enlaces de archivos. Para darle un archivo a un invitado, publíquelo en su chat de grupo o en su proyecto.
+
 ## Un chat de grupo y un proyecto
 
 Un invitado puede estar en un chat de grupo y en un proyecto a la vez, nunca en más. Una invitación abre un solo lugar.
