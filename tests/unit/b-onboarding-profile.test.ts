@@ -142,7 +142,7 @@ describe('company profile API', () => {
     expect(main).toContain(block)
     // after the memories, before the team rules
     expect(main.indexOf('<company_profile>')).toBeLessThan(main.indexOf('## Team rules'))
-    expect(main).toContain('replaces the person, time, memories, company profile, project and files-shared-with-you parts')
+    expect(main).toContain('replaces the person, time, memories, company profile and project parts')
     expect(buildTurnContext(h.ctx.files, input('alice'))).toContain(block)
     // sub-agents get it too (team knowledge like the team rules; never the memories)
     expect(buildSubagentPrompt(h.ctx.files, input('alice'), [])).toContain(block)
