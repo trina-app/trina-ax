@@ -89,7 +89,7 @@ function appLine(s: Situation, L: Locale): string {
       return `- App: the ${PRODUCT.displayName} desktop app, but its browser is not connected to this answer${s.web ? ': if they need a website opened or used, read public pages with your web tools and say they can ask again in a moment, when the app\'s browser can join' : ''}.`
     case 'desktop-browser': if (s.guest) return `- App: the ${PRODUCT.displayName} desktop app.`
       return `- App: the ${PRODUCT.displayName} desktop app, with its browser next to the chat.`
-    case 'slack': return '- App: they asked from Slack, and your answer goes back to them there: no cards or buttons of the app show in Slack, so name any file you save by its team path.'
+    case 'slack': return '- App: they asked from Slack, and your answer goes back to them there: no cards or buttons of the app show in Slack, so name any file you save by its team path, also where you link it.'
     case 'schedule': return '- App: none. This is a scheduled task\'s run; nobody is watching.'
     default: return ''
   }
