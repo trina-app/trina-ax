@@ -562,6 +562,36 @@ describe('review 2, M-C: a run being started counts as alive; Undo of a folder s
   })
 })
 
+describe('Undo puts grants back with the Undo\'s time, not their old one (the gap is not access)', () => {
+  test('a file trashed while bob was off the share asks on restore after the Undo put him back', async () => {
+    const work = folder('undo-gap')
+    const cfg = h.ctx.config as { folderShares?: boolean }
+    cfg.folderShares = true
+    const alice = loadPrincipal(db(), 'alice')!
+    try {
+      ;(roomsOf(h.ctx) as unknown as { sendBudget: Map<string, unknown> }).sendBudget.clear()
+      folderSharesOf(h.ctx).change(alice, work, [{ subjectType: 'user', subjectId: 'bob' }], [], 'en')
+      const id = (db().query("SELECT id FROM file_shares WHERE kind = 'folder' AND state = 'live' AND path = ?").get(work) as { id: string }).id
+      db().query('UPDATE file_share_grants SET granted_at = ? WHERE share_id = ?').run(iso(Date.now() - 60_000), id)
+      const stop = folderSharesOf(h.ctx).change(alice, work, [], [], 'en', 'dialog', { stop: true })
+      const undoId = (stop.view as { undo?: { id: string } }).undo!.id
+      await Bun.sleep(5)
+      wr(`${work}/gap.md`, 'written while nobody was on the share\n')
+      const t = svc().remove('alice', `${work}/gap.md`)
+      await Bun.sleep(5)
+      const yes = await h.req('alice', '/api/files/shares/undo', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: undoId }) })
+      expect(yes.status).toBe(200)
+      const g = db().query("SELECT granted_at at, granted_by gb, via FROM file_share_grants WHERE share_id = ? AND subject_id = 'bob'").get(id) as { at: string; gb: string; via: string }
+      expect({ gb: g.gb, via: g.via }).toEqual({ gb: 'alice', via: 'dialog' })
+      expect(g.at > (db().query('SELECT deleted_at FROM trash_items WHERE id = ?').get(t.trashId) as { deleted_at: string }).deleted_at).toBe(true)
+      let err: any = null
+      try { svc().restoreTrash('alice', t.trashId) } catch (e) { err = e }
+      expect(err?.params).toEqual({ reason: 'audience_widened', viewersAdded: 1 })
+      expect(svc().restoreTrash('alice', t.trashId, { confirm: true }).entry.path).toBe(`${work}/gap.md`)
+    } finally { cfg.folderShares = undefined }
+  })
+})
+
 describe('review 2, Low: every way a folder share ends gives its people a fresh AI session', () => {
   const held = async () => { const c = (await h.api('bob').call(API.createChat, { body: {} })).id; db().query("UPDATE chats SET engine_session_id = 'held' WHERE id = ?").run(c); return c }
   const cleared = async (chat: string) => {

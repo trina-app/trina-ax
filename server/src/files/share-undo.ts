@@ -8,8 +8,10 @@
 //   - only while they may still take people off that share (its owner; the team owner and admins for a team file), the
 //     row is live and, for a folder, not paused. The team switch is not asked: this puts back what was there minutes ago;
 //   - each grant that is still valid now (an active member who is not a guest; a group that exists and that the person
-//     may share with; everyone on the team) with its OLD granted_by, granted_at and via. The others are skipped and
-//     counted. Nothing beyond the snapshot is ever added, and never more than the share's 50;
+//     may share with; everyone on the team) with its OLD granted_by and via, and the Undo's time as granted_at: the
+//     person had no access between the removal and the Undo, and "who could see this then" (share-readers.ts upTo, a
+//     trash or version restore) must not count them for that gap. The others are skipped and counted. Nothing beyond
+//     the snapshot is ever added, and never more than the share's 50;
 //   - quietly: no notice, no push, no sending budget.
 // The team owner's "Remove all file shares" closes every snapshot made before it. A snapshot of someone else, a used,
 // expired or unknown one all answer 404 (nothing about whose it is).
@@ -86,14 +88,15 @@ export function undoShares(ctx: AppContext, userId: string, id: string, L: Local
     ? g.subjectId !== me.id && !!db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL AND guest = 0").get(g.subjectId)
     : g.subjectType === 'group' && (g.subjectId === FILE_SHARE_EVERYONE || (!!db.query('SELECT 1 FROM groups WHERE id = ?').get(g.subjectId) && (isStaff(me) || me.groups.includes(g.subjectId))))
   let restored = 0
+  const at = new Date().toISOString()
   db.transaction(() => {
     // one use: a second press (or a second window) finds it used
-    if (db.query('UPDATE file_share_undos SET used_at = ? WHERE id = ? AND used_at IS NULL').run(new Date().toISOString(), id).changes !== 1) throw gone()
+    if (db.query('UPDATE file_share_undos SET used_at = ? WHERE id = ? AND used_at IS NULL').run(at, id).changes !== 1) throw gone()
     let have = (db.query('SELECT COUNT(*) n FROM file_share_grants WHERE share_id = ?').get(s.id) as { n: number }).n
     for (const g of grants) {
       if (have >= FILE_SHARE_MAX || !valid(g) || !['dialog', 'ai', 'request'].includes(g.via)) continue
       const n = db.query('INSERT INTO file_share_grants (share_id, subject_type, subject_id, role, granted_by, granted_at, via) VALUES (?,?,?,?,?,?,?) ON CONFLICT DO NOTHING')
-        .run(s.id, g.subjectType, g.subjectId, 'view', g.grantedBy, g.grantedAt, g.via).changes
+        .run(s.id, g.subjectType, g.subjectId, 'view', g.grantedBy, at, g.via).changes
       if (n) { restored++; have++ }
     }
   })()

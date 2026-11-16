@@ -48,8 +48,9 @@ review). Plan of this part: [20261116-1224-folder-share-server.md](../AGENTS/pla
 - **Rule: stopping is always the owner's.** Taking people off and Stop sharing never ask the team switch, for files as
   well as folders (before, with the switch off an owner could not remove their own file's people). Adding still does.
 - **Rule: Undo.** A removal stores what it took and can be undone once, by the person who removed, within 10 minutes:
-  the grants still valid come back with their old dates, quietly; the team owner's "Remove all file shares" closes
-  every earlier undo.
+  the grants still valid come back with their old giver and way, dated at the undo (they had no access in between, so
+  a restore's "who could see it then" does not count them for that gap), quietly; the team owner's "Remove all file
+  shares" closes every earlier undo.
 - **Lifecycle:** a rename or a move inside the owner's files keeps the link and the people; a move out of the owner's
   files or into a kept place ends it (the owner is told); trash parks it, restore brings it back, purge deletes it; a
   group's delete removes its entries from files and folders; an owner turned off shares nothing until back; removed:

@@ -195,6 +195,20 @@ describe('2. a shared folder opens by its link, for the people on it, and nothin
     expect(top.find((e) => e.name === 'Other')?.shared).toBeUndefined()
     const inside = (await alice.call('GET', '/api/files/tree' + q(mine('Area51', 'Work')))).entries as { name: string; shared?: string }[]
     expect(inside.every((e) => e.shared === 'through')).toBe(true)
+    // what its people never see (receiverSees: a hidden name, a project's folder) is not marked as shared
+    wr(mine('Area51', 'Work', '.notes'), 'mine only')
+    mk(mine('Area51', 'Work', 'ProjMark'))
+    h.ctx.db.query("INSERT INTO projects (id, name, folder_path) VALUES ('p-mark', 'Mark', ?)").run(mine('Area51', 'Work', 'ProjMark'))
+    try {
+      const marks = (await alice.call('GET', '/api/files/tree' + q(mine('Area51', 'Work')))).entries as { name: string; shared?: string }[]
+      expect(marks.find((e) => e.name === '.notes')).toBeDefined()
+      expect(marks.filter((e) => e.name === '.notes' || e.name === 'ProjMark').map((e) => e.shared)).toEqual([undefined, undefined])
+      expect(marks.filter((e) => e.name !== '.notes' && e.name !== 'ProjMark').every((e) => e.shared === 'through')).toBe(true)
+    } finally {
+      h.ctx.db.query("DELETE FROM projects WHERE id = 'p-mark'").run()
+      fs.rmSync(abs(mine('Area51', 'Work', '.notes')))
+      fs.rmSync(abs(mine('Area51', 'Work', 'ProjMark')), { recursive: true })
+    }
     // a file inside says which folder shares it (its owner only)
     const f = await alice.call('GET', '/api/files/shares' + q(mine('Area51', 'Work', 'plan.txt')))
     expect(f.through.map((t: any) => [t.name, t.people.map((p: any) => p.subjectId)])).toEqual([['Work', [ids.bob]]])
@@ -711,7 +725,7 @@ describe('8. an owner can always stop (D9, T15); the server undo (M6)', () => {
       expect(grants(id)).toBe(0)
     } finally { updateTeamSettings(h.ctx.db, { memberFileShares: true }) }
   })
-  test('(M6) undo: the actor only, once, 10 minutes, the still-valid grants with their old dates, quietly', async () => {
+  test('(M6) undo: the actor only, once, 10 minutes, the still-valid grants with their old giver and way (dated at the Undo), quietly', async () => {
     wr(mine('Undo', 'a.txt'), 'a')
     const p = mine('Undo')
     const id = (await share(alice, p, [user(ids.bob), user(ids.carl), user(ids.dana), group('*')])).link.id
@@ -731,14 +745,18 @@ describe('8. an owner can always stop (D9, T15); the server undo (M6)', () => {
     budget()
     const tokens = () => JSON.stringify([...(roomsOf(h.ctx) as unknown as { sendBudget: Map<string, unknown> }).sendBudget.entries()])
     const t0 = tokens()
+    const undoneAt = new Date().toISOString()
     const u = await alice.call('POST', '/api/files/shares/undo', { id: stop.undo.id })
     expect([u.restored, u.skipped]).toEqual([3, 1])
     expect(u.kind).toBe('folder')
     expect(tokens()).toBe(t0)
     await tick()
     expect(notices()).toBe(n0)
-    const after = h.ctx.db.query('SELECT subject_id, granted_by, granted_at, via FROM file_share_grants WHERE share_id = ? ORDER BY subject_id').all(id)
-    expect(after).toEqual(before.filter((g: any) => g.subject_id !== ids.dana))
+    const after = h.ctx.db.query('SELECT subject_id, granted_by, granted_at, via FROM file_share_grants WHERE share_id = ? ORDER BY subject_id').all(id) as { granted_at: string }[]
+    const dateless = (rows: any[]) => rows.map(({ granted_at: _at, ...g }) => g)
+    expect(dateless(after)).toEqual(dateless(before.filter((g: any) => g.subject_id !== ids.dana)))
+    // dated at the Undo, not at the first share: they had no access between the stop and the Undo (a restore's upTo)
+    for (const g of after) expect(g.granted_at >= undoneAt).toBe(true)
     expect(await names(bob, id)).toEqual(['a.txt'])
     expect(audits('folder_share.undo', id)).toEqual([{ personal: true, restored: 3, skipped: 1 }])
     // once

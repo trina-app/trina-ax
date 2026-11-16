@@ -550,7 +550,8 @@ function Files() {
       const r = await moveMany(ok, folder, {
         move: (body) => api.call(API.move, { body }),
         confirmNarrow: (count, n) => confirmDialog({ title: t('files.narrowTitle'), body: t('files.bulk.narrowBody', { count, n }), confirm: t('files.moveAnyway'), danger: true }),
-        confirmWiden: (count, n) => confirmDialog({ title: t('files.widenTitle'), body: t('files.bulk.widenBody', { count, n }), confirm: t('files.moveAnyway') }),
+        // into a folder of my own: only a folder share there adds people (its own sentence); else out of my personal folder
+        confirmWiden: (count, n) => confirmDialog({ title: t('files.widenTitle'), body: t(isOwnPath(folder, me.user.id) ? 'files.bulk.widenSharedBody' : 'files.bulk.widenBody', { count, n }), confirm: t('files.moveAnyway') }),
         confirmSkills: confirmSkillsOn,
       })
       each.settle(r)
@@ -721,7 +722,8 @@ function Files() {
       }
       const added = widenedBy(err)
       if (added !== null) {
-        if (!(await confirmDialog({ title: t('files.widenTitle'), body: t('files.widenBody', { n: added }), confirm: t('files.moveAnyway') }))) return null
+        // into a folder of my own (a move or a rename): only a folder share there adds people
+        if (!(await confirmDialog({ title: t('files.widenTitle'), body: t(isOwnPath(body.to, me.user.id) ? 'files.widenSharedBody' : 'files.widenBody', { n: added }), confirm: t('files.moveAnyway') }))) return null
         return await api.call(API.move, { body: { ...body, confirm: true } })
       }
       if (!(isApiError(err, 'conflict') && err.body.params?.reason === 'audience_narrowed')) throw err

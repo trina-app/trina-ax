@@ -226,6 +226,32 @@ test('Stop sharing names nested shares (files and folders), and Undo puts the pe
   await expect(page.getByTestId('file-share-row-user-olga')).toHaveCount(0)
 })
 
+test('a move into a shared folder says who more will see it: its own sentence with the count (one item and several)', async ({ page }) => {
+  await world(page, { grants: [{ path: WORK, to: { subjectType: 'user', subjectId: 'olga' }, by: 'bob' }] })
+  await page.goto(`/files?path=${encodeURIComponent('users/bob/Drafts')}`)
+  await rowMenu(page, 'Idea.md', t['files.move'])
+  const picker = page.getByRole('dialog').filter({ has: page.getByTestId('folder-pick') })
+  await picker.getByRole('button', { name: 'My files' }).click()
+  await picker.getByRole('button', { name: 'Work' }).click()
+  await picker.getByTestId('folder-pick').click()
+  const ask = page.getByRole('dialog', { name: t['files.widenTitle'] })
+  await expect(ask).toContainText(tr('files.widenSharedBody', { n: 1 }))
+  await expect(ask).not.toContainText(t['files.widenBody'].split(' means')[0]!)
+  await look(page, 'move-into-shared')
+  await ask.getByRole('button', { name: t['common.cancel'] }).click()
+  await expect(row(page, 'Idea.md')).toBeVisible()
+  // several at once: the count of items and of people
+  await page.goto(`/files?path=${encodeURIComponent('users/bob/Drafts')}`)
+  await row(page, 'Idea.md').getByTestId('file-check').click()
+  await page.getByTestId('bulk-move').click()
+  await picker.getByRole('button', { name: 'My files' }).click()
+  await picker.getByRole('button', { name: 'Work' }).click()
+  await picker.getByTestId('folder-pick').click()
+  await expect(ask).toContainText(tr('files.bulk.widenSharedBody', { count: 1, n: 1 }))
+  await ask.getByRole('button', { name: t['files.moveAnyway'] }).click()
+  await expect(row(page, 'Idea.md')).toHaveCount(0)
+})
+
 test('places that are never shared offer no Share; a project folder and a disk without creation times say why', async ({ page }) => {
   await world(page, { blocked: { 'users/bob/Drafts': 'disk' } })
   // the personal folder itself, in Personal

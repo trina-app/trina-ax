@@ -399,7 +399,9 @@ export class FolderShares {
     return { through: rows.slice(0, 8).map((r) => ({ path: r.path, name: plainLabel(baseName(r.path), 200), people: this.shares.rows(r.id, L) })) }
   }
   /** In a listing of the caller's own folder `parent`: which entries have people of their own ('own') and whether a
-   * shared folder at or above the listed one covers them all ('through'). One query (GET /api/files/tree). */
+   * shared folder at or above the listed one covers them ('through'): only an entry its people could see
+   * (share-places.ts receiverSees: not a hidden, temp, project or skill place), as the share's own listing and
+   * share-readers.ts count it. One query (GET /api/files/tree). */
   entryMarks(me: Principal, parent: readonly string[]): ((name: string) => 'own' | 'through' | undefined) | null {
     if (!this.gateOn() || parent[0] !== 'users' || parent[1] !== me.id) return null
     const rel = parent.join('/')
@@ -409,7 +411,8 @@ export class FolderShares {
     if (!rows.length) return null
     const own = new Set(rows.filter((r) => r.path.length > rel.length).map((r) => r.path.slice(rel.length + 1)))
     const through = rows.some((r) => r.path.length <= rel.length && r.kind === 'folder' && !r.paused_at)
-    return (name) => (own.has(name) ? 'own' : through ? 'through' : undefined)
+    const projects = through ? personalProjectFolders(this.db, me.id) : []
+    return (name) => (own.has(name) ? 'own' : through && receiverSees(this.db, [...parent, name], projects) ? 'through' : undefined)
   }
 
   /** GET /api/files/shares?path= for a folder the caller can read (`r`: authorized for them). */

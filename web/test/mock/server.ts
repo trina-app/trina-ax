@@ -6819,6 +6819,17 @@ export class MockServer {
       const covered = above(p).some((f) => shared(f) && !this.folderPaused.has(f))
       return { ...r, entries: r.entries.map((e) => ((this.fileGrants.get(e.path)?.length ?? 0) > 0 ? { ...e, shared: 'own' as const } : covered ? { ...e, shared: 'through' as const } : e)) }
     }
+    // like server/src/team-files/service.ts move (askWiden): into a folder of the mover's own that they share, from a place
+    // its people could not open, is asked first (409 audience_widened with how many more people)
+    const baseMove = h.move!
+    h.move = (c) => {
+      const to: string = c.body.to
+      if (this.folderSharesOn && c.body.askWiden && !c.body.confirm && ownerOf(to) === c.user.id && to.startsWith('users/')) {
+        const added = this.users.filter((u) => u.id !== c.user.id && grantFor(parentOf(to), u) !== null && grantFor(c.body.from, u) === null).length
+        if (added > 0) throw new Fail('conflict', 409, undefined, undefined, { reason: 'audience_widened', viewersAdded: added })
+      }
+      return baseMove(c)
+    }
     h.fileSharesCount = () => {
       const rows = [...this.fileGrants].filter(([p, l]) => l.length && this.files.has(p))
       return { files: rows.filter(([p]) => !isFolder(p)).length, people: new Set(rows.flatMap(([, l]) => l.map(key))).size, folders: rows.filter(([p]) => isFolder(p)).length }
