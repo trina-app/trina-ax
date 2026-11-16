@@ -8,6 +8,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { API, type TurnRequest } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { waitFor } from '../lib/wait'
+import { keepAlways } from '../../server/src/chat/always-allow'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -119,6 +121,38 @@ describe('a new team skill after reading something fewer people can see', () => 
       expect(r.cards[0]!.question).toContain('read content fewer people can see (')
       expect(fs.existsSync(abs('projects/kestrel/skills/visit-report/SKILL.md'))).toBe(true)
     } finally { fs.rmSync(abs('projects/kestrel/skills'), { recursive: true, force: true }) }
+  })
+
+  test('make_file into a skill folder: one card, the line names the file it makes', async () => {
+    try {
+      const r = await turn(fake(
+        { tool: 'read', args: { file_path: NOTES } },
+        { tool: 'make_file', args: { content: '# Visit guide\n', format: 'docx', output: 'skills/visit-report-6/guide' }, sayResult: true },
+      ), ['save'])
+      expect(r.cards.length).toBe(1)
+      const q = r.cards[0]!.question ?? ''
+      expect(q).toContain('read content fewer people can see (')
+      expect(q).toMatch(/can see [^\n]*guide\.docx/)
+      expect(fs.existsSync(abs('skills/visit-report-6/guide.docx'))).toBe(true)
+    } finally { fs.rmSync(abs('skills/visit-report-6'), { recursive: true, force: true }) }
+  })
+
+  test('a scheduled run with "Always allow" for skill saves on: the wider-audience check still stops it (nobody saw a card)', async () => {
+    keepAlways(h.ctx.db, 'carol', 'skill_save', null)
+    try {
+      const s = h.rt().schedules.create('carol', { title: 'Visit skill', prompt: readThenSave('visit-report-7'), repeat: 'daily', time: '09:00' }, undefined,
+        { allowedUrls: [], writeConnections: [], save: null, sources: [], personalSends: [] })
+      const { chatId } = h.rt().schedules.runNow('carol', s.id)
+      await waitFor(() => { const t = h.ctx.db.query('SELECT status FROM turns WHERE chat_id = ?').get(chatId) as { status: string } | null; return !!t && ['done', 'error', 'stopped', 'interrupted'].includes(t.status) }, { timeoutMs: 60_000 })
+      expect(fs.existsSync(abs('skills/visit-report-7/SKILL.md'))).toBe(false)
+      // it reached the save and the wider-audience check stopped it (not some other failure)
+      const turnId = (h.ctx.db.query('SELECT id FROM turns WHERE chat_id = ?').get(chatId) as { id: string }).id
+      const ev = h.ctx.db.query("SELECT summary, ok FROM tool_events WHERE turn_id = ? AND tool = 'write'").all(turnId) as { summary: string; ok: number }[]
+      expect(ev).toEqual([{ summary: 'write -> nobody to ask (scheduled run) (wider audience)', ok: 0 }])
+    } finally {
+      clearAlways()
+      fs.rmSync(abs('skills/visit-report-7'), { recursive: true, force: true })
+    }
   })
 
   test('nothing narrower read: the skill card as before, without the line', async () => {

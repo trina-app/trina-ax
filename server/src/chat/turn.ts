@@ -3257,8 +3257,10 @@ export class TurnExec {
     const dead = !!same?.hidden && !r.exists
     // the same save's wider-audience check (confirmWidening, after this card): asked on this card, so one yes covers
     // both and the person sees one card with everything the wider-audience card says (owner 2026-11-16, docs/decisions/
-    // 20261116-skill-save-one-card.md); a name that is taken saves nothing, so its card does not ask it
-    const w = dead ? undefined : widenOf(tool, args, (x) => this.hwpTarget(x))
+    // 20261116-skill-save-one-card.md); a name that is taken saves nothing, so its card does not ask it. Not in a
+    // scheduled run: nobody sees a card there, so its wider-audience check and the task's card cover (confirmWidening,
+    // chat/schedule-cover.ts) stay as they are
+    const w = dead || this.spec.clientKind === 'schedule' ? undefined : widenOf(tool, args, (x) => this.hwpTarget(x))
     const need = w ? this.widenNeed(w.target, w.extra) : null
     const wide = need ? this.widenSources(need) : null
     const preview: SkillWritePreview = { kind: 'skill_write', path: r.rel, isNew: !r.exists, skillName: skill?.name ?? null, ...(problem ? { problem } : {}), ...(same ? { sameName: { text: same.text, hidden: same.hidden } } : {}), diff, added: d?.added ?? 0, removed: d?.removed ?? 0, truncated: d?.truncated ?? false }
@@ -3273,7 +3275,7 @@ export class TurnExec {
       // a project's skills folder no live project has (yet): saved there, no chat follows it
       // the file and its folder in words (팀 스킬 › 회의록 › SKILL.md, place-words.ts); the preview's path shows on hover
       question: (project ? (project.live ? st('confirmProject', L, { project: project.project.name, path: this.place(r.rel), what }) : st('confirmProjectNone', L, { folder: this.place(project.folder), path: this.place(r.rel), what })) : group ? st('confirmGroup', L, { group: group.name, path: this.place(r.rel), what }) : st('confirm', L, { path: this.place(r.rel), what }))
-        + (need && wide ? '\n\n' + tr('skillWiden', L, { ai: aiCalled(L), sources: wide.from, target: this.place(need.segs.join('/')), n: String(need.viewers) }) : ''),
+        + (need && wide ? '\n\n' + tr('skillWiden', L, { ai: aiCalled(L), sources: wide.from, target: this.place(r.rel), n: String(need.viewers) }) : ''),
       options, multiple: false, allowText: false, preview, ...(options.length === 3 ? { buttons: true as const } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest & { options: { label: string; value: string }[] })
@@ -3284,8 +3286,8 @@ export class TurnExec {
       if (need) this.allowWidening(need)
       return null
     }
-    // a no on a card that also said more people can see it there: the AI is told that too
-    const wider = need && wide ? ` The same card also said that more people can see '${need.segs.join('/')}' (${need.viewers}) than can see what you read in this chat (${wide.fromForAi}); do not save it anywhere else that more people can see either.` : ''
+    // the save also went where more people can see (the card said so): the AI is told that too
+    const wider = need && wide ? ` Saving there would also put it where more people can see (${need.viewers}) than can see what you read in this chat (${wide.fromForAi}); do not save it anywhere else that more people can see either.` : ''
     auditLog(this.rt.db, { actor: this.spec.userId, action: 'skills.ai_write_refused', target: r.rel, detail: { tool, turnId: this.id, chatId: this.spec.chatId, answer: answer === null || answer === undefined ? 'none' : picked === 'rename' || picked === 'fix' ? picked : 'declined', ...(group ? { group: { id: group.id, name: group.name } } : {}), ...(project ? { project: { id: project.project.id, name: project.project.name } } : {}) } })
     if (dead && picked === 'rename') {
       return {

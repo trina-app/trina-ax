@@ -19,16 +19,21 @@
 - **One card.** confirmSkillWrite runs the same wider-audience check first (widenNeed on the call's target and copied
   files, chat/tools.ts widenOf). When it applies, the skill card's question gets one more paragraph with everything the
   wider-audience card said: what was read and where (the same place names, hidden for a place this person cannot see in
-  a shared chat), where it is saved and how many people can see it there (en "{ai} read content fewer people can see
-  ({sources}) before this save. {n} people can see {target}.", ko "{ai}가 볼 수 있는 사람이 더 적은 내용({sources})을
-  읽은 뒤에 저장하려고 해요. {target}에 저장하면 {n}명이 볼 수 있어요."). Nothing narrower read: the card as before.
+  a shared chat), where it is saved (the file the card names, a make_file output with its extension) and how many people
+  can see it there (en "{ai} read content fewer people can see ({sources}) before this save. {n} people can see
+  {target}.", ko "{ai}가 읽은 내용({sources})은 볼 수 있는 사람이 더 적어요. {target}에 저장하면 {n}명이 볼 수 있어요.").
+  Nothing narrower read: the card as before.
 - **One yes covers both.** Save on that card records the wider-audience yes for that folder and those sources for the
-  rest of the answer (as a yes on the wider-audience card does), so confirmWidening asks nothing after it. A no, no
-  answer or a scheduled run saves nothing; the refusal the AI reads also says more people can see it there and not to
-  save it anywhere else that more people can see.
-- **"Always allow skill edits I ask for" covers both.** The card's Always allow is still the `skill_save` kind
-  (chat/always-allow.ts; nothing new in Settings). Once it is on, a skill save has no card, and its wider-audience check
-  is covered too: the skill save kind is the person's choice for that whole save, which is team-wide (or group- or
+  rest of the answer (as a yes on the wider-audience card does), so confirmWidening asks nothing after it. A no or no
+  answer saves nothing; the refusal the AI reads also says saving there would put it where more people can see, and not
+  to save it anywhere else that more people can see.
+- **Not in a scheduled run.** Nobody sees a card there, so nothing is merged: a skill save in a run keeps its separate
+  wider-audience check and the task's card cover (confirmWidening, chat/schedule-cover.ts), as before. The person's
+  "Always allow" for skill saves alone does not let a run copy content fewer people can see into a skill (review of
+  this branch).
+- **"Always allow skill edits I ask for" covers both** (in the person's own chats). The card's Always allow is still the
+  `skill_save` kind (chat/always-allow.ts; nothing new in Settings). Once it is on, a skill save has no card, and its
+  wider-audience check is covered too: the skill save kind is the person's choice for that whole save, which is team-wide (or group- or
   project-wide) by nature and the card said so. The owner's rule: Always allow ends the asking for its scope, no
   guards that make the person's own choice ask again. It does not turn on `save_wider`: a save outside a skills folder
   still asks the wider-audience card (with its own Always allow).
@@ -40,7 +45,12 @@
 ## Tests
 
 tests/unit/b-skill-save-one-card.test.ts: one card with both texts and one yes; a no and its refusal; Always allow on that
-card, then no card at all; a save outside skills/ still gets the wider-audience card; no line when nothing narrower was
-read; a project skill.
+card, then no card at all; a save outside skills/ still gets the wider-audience card; a project skill; make_file into a
+skill folder (the line names the file with its extension); a scheduled run with Always allow for skill saves on is still
+stopped by the wider-audience check; no line when nothing narrower was read.
+
+Left as it is: after a room read, the room card (confirmRoomChange) and the skill card are still two cards for one skill
+save, and with Always allow for room changes on, the wider-audience card is asked there before the skill card. That is a
+different cause (the room-read guard) and is left for its own fix.
 
 Version impact: patch (one card fewer, one card line).
