@@ -57,3 +57,5 @@ Built as planned, with two changes found in real builds (mounted read-only from 
   dmg's `.DS_Store` has icon size 144, label size 13 and the two icons at (170,210) and (490,210).
 - The first orange design was replaced by the owner's pick "Option C · Guided" (light, chevron, one line).
 - Geist's notice is in NOTICE and docs/THIRD-PARTY-NOTICES.md (outlines only, no font file).
+
+PR: https://github.com/trina-app/trina-ax/pull/985 (on top of the electron-builder 26.15.3 PR).

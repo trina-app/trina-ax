@@ -6,7 +6,8 @@
      title bar included (32 points on macOS 26, 28 before), so the window shows the top 420 points; the last 32 are
      glow only. On a light picture Finder writes the icon names dark in light and dark mode.
      The line is Geist (SIL OFL 1.1) outlined to paths (15 px; 400 for the grey words, 600 for the names, tracking
-     -0.1 px), so rendering needs no fonts; to change the words, outline them the same way (fontTools SVGPathPen).
+     -0.1 px), so rendering needs no fonts; to change the words, outline them the same way (fontTools SVGPathPen) from
+     Geist-Variable.woff2 of the Geist release (github.com/vercel/geist-font), which this repository does not hold.
      Render both sizes:
      rsvg-convert -w 660 -h 452 desktop/scripts/dmg-background.svg -o desktop/build-resources/background.png
      rsvg-convert -w 1320 -h 904 desktop/scripts/dmg-background.svg -o desktop/build-resources/background@2x.png -->

@@ -1022,10 +1022,19 @@ describe('the Mac dmg window', () => {
       { x: 490, y: 210, type: 'link', path: '/Applications' },
     ])
     expect(dmg.iconSize).toBe(144)
+    expect((base.dmg as Dmg & { iconTextSize?: number }).iconTextSize).toBe(13)
     const svg = readFileSync(join(import.meta.dir, '../../desktop/scripts/dmg-background.svg'), 'utf8')
     expect(svg).toContain(`viewBox="0 0 ${one.w} ${one.h}"`)
-    // the art names the same two spots, and its chevron sits between them at their height
+    // the SVG's notes name the same two spots (keeps its comment true)
     for (const c of dmg.contents) expect(svg).toContain(`(${c.x},${c.y})`)
-    expect(svg).toMatch(new RegExp(`M\\d+ ${dmg.contents[0].y - 10} L\\d+ ${dmg.contents[0].y} L`))
+    // the drawn chevron: three marks at the icons' height, all between the two icons (144 points wide)
+    const [app, apps] = dmg.contents
+    const marks = [...svg.matchAll(/<path d="M(\d+) (\d+) L(\d+) (\d+) L\d+ \d+"/g)].map((m) => ({ x0: +m[1], tip: +m[3], y: +m[4] }))
+    expect(marks).toHaveLength(3)
+    for (const m of marks) {
+      expect(m.y).toBe(app.y)
+      expect(m.x0).toBeGreaterThan(app.x + 72)
+      expect(m.tip).toBeLessThan(apps.x - 72)
+    }
   })
 })
