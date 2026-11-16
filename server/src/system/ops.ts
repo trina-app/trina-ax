@@ -185,6 +185,23 @@ export class OpsService {
     } catch { return null }
   }
 
+  /** Why the available release is on hold after a failed try (hold failed / root_failed): the detail the bootstrap
+   * recorded for its last failed try, else root's. null: none recorded. (QA TC-3843) */
+  updateHoldReason(): string | null {
+    try {
+      const feed = this.updates.lastFeed()
+      if (!feed) return null
+      const v = feed.version
+      const rootFail = this.rootUpdateFailure()
+      const h = [...this.updates.history()].reverse().find((x) => x.result !== 'ok' && (x.to === v || (x.result === 'rolled_back' && x.from === v)) && x.detail)
+      let detail = h?.detail ?? null
+      if (!detail && rootFail?.version === v) {
+        try { const j = JSON.parse(fs.readFileSync(path.join(this.layout.rootDir!, 'update-failed.json'), 'utf8')) as { detail?: unknown }; detail = typeof j.detail === 'string' && j.detail ? j.detail : null } catch {}
+      }
+      return detail ? detail.slice(0, 300) : null
+    } catch { return null }
+  }
+
   private pausedLogged: string | null = null
   private autoFile() { return path.join(this.ctx.config.dataDir, 'update-auto.json') }
 

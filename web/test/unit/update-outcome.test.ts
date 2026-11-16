@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { Health, Job } from '@mycel/shared/api'
 import { translate } from '../../src/i18n'
-import { goBackOffered, releaseCannotRead, releasePaused, updateOutcome } from '../../src/lib/updateOutcome'
+import { goBackOffered, releaseCannotRead, releaseHeld, releasePaused, updateOutcome } from '../../src/lib/updateOutcome'
 
 const job = (o: Partial<Job> = {}): Job => ({
   id: '01900000-0000-7000-8000-0000000000aa', kind: 'update', status: 'done', progress: 1, message: null,
@@ -91,5 +91,19 @@ describe('a release that cannot open this server\'s data (a dev build migrated t
     for (const hold of [undefined, null, 'paused', 'rollout', 'failed', 'root_failed'] as const) expect(releaseCannotRead({ hold }), String(hold)).toBe(false)
     for (const l of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) expect(translate(l, 'adminHome.update.cannotRead', { version: '0.5.3' })).toContain('0.5.3')
     expect(translate('en', 'adminHome.update.cannotRead', { version: '0.5.3' })).toBe("Version 0.5.3 can't open this server's data yet. Waiting for a newer version.")
+  })
+})
+
+describe('a release on hold after a failed try (QA TC-3843)', () => {
+  test('releaseHeld is true for a failed or root-failed hold only', () => {
+    expect(releaseHeld({ hold: 'failed' })).toBe(true)
+    expect(releaseHeld({ hold: 'root_failed' })).toBe(true)
+    for (const hold of ['paused', 'rollout', 'cannot_read', null] as const) expect(releaseHeld({ hold })).toBe(false)
+    expect(releaseHeld(null)).toBe(false)
+  })
+  test('the words say held, why, and the retry asks first', () => {
+    expect(translate('en', 'system.held', { version: '0.5.8' })).toContain('on hold')
+    expect(translate('en', 'system.heldWhy', { reason: 'health check failed' })).toBe('Why it failed: health check failed')
+    expect(translate('en', 'system.retryShort')).toBe('Try this version again')
   })
 })

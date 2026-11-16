@@ -18,6 +18,11 @@ export const releasePaused = (u: Pick<UpdateStatus, 'hold'> | null | undefined):
  * button. */
 export const releaseCannotRead = (u: Pick<UpdateStatus, 'hold'> | null | undefined): boolean => u?.hold === 'cannot_read'
 
+/** The release's last try here failed or was rolled back, so it is on hold (UpdateStatus.hold failed / root_failed): Admin ›
+ * System says why and that it is held, and offers "Try this version again" (with a confirm) in place of "Install update"
+ * (QA TC-3843). */
+export const releaseHeld = (u: Pick<UpdateStatus, 'hold'> | null | undefined): boolean => u?.hold === 'failed' || u?.hold === 'root_failed'
+
 export type UpdateOutcome =
   | { kind: 'ok' }
   /** the version did not stay; message: the server's words (null: none, say it in the client's) */
