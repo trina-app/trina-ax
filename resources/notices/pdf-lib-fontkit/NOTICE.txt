@@ -1,0 +1,9 @@
+@pdf-lib/fontkit
+
+The Trina AX server uses the @pdf-lib/fontkit package, version 1.1.1 (https://github.com/Hopding/fontkit), to put
+text that is not Latin (Korean, for example) into PDFs with the edit_pdf tool (server/src/files/pdf-pages.ts). It is
+Andrew Dillon's fork of fontkit by Devon Govett (https://github.com/foliojs/fontkit). Trina AX ships it as the package
+has it, unchanged.
+
+The package's package.json states its licence as MIT, but the package carries no licence file. The MIT licence text
+of fontkit, with its copyright line, is in LICENSE.txt next to this file.

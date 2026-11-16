@@ -1,0 +1,212 @@
+// edit_pdf, merge_pdfs and split_pdf (owner 2026-11-16: "PDFs must be freely editable"; docs/decisions/
+// 20261116-edit-pdf.md): page work on existing PDFs the person may read, saved as NEW files. The PDFs, images
+// and the font are parsed only in the office worker (files/pdf-pages.ts, pdf-lib); this process reads the files, checks
+// access and places the results, as stamp_pdf does (tools/stamp-pdf.ts):
+// - read access to every PDF and image a call names, write access where each result goes (checked again when placed,
+//   team-files/place.ts), the same answer for a file that does not exist and one the person cannot open;
+// - by default a free name next to the original ("<name> (edited).pdf", "(merged)", "(part 1)", in the team's
+//   language), so nothing is overwritten; edit_pdf replaces the original only with replace: true, after a read of it in
+//   this turn (a new version, the old one in its history); an `output` that names an existing file the AI did not read
+//   gets a conflict copy (make-file.ts placeProduced);
+// - every result carries the bytes of what it is made from: the wider-audience check of make_file (confirmSources);
+// - never into a skill folder.
+import fs from 'node:fs'
+import path from 'node:path'
+import type { z } from 'zod'
+import type { EditPdfInput, MergePdfsInput, SplitPdfInput } from '@mycel/shared'
+import type { Locale } from '@mycel/shared/api'
+import type { AppContext } from '../context'
+import { teamDefaultLocale } from '../admin/settings'
+import { ext, officeWorkerWrite } from '../files/extract'
+import { serverFontDirs } from '../files/html-pdf'
+import { decodePagesResult, encodePagesRequest, PDF_PAGES_FILES_MAX, PDF_PAGES_INPUT_MAX, PDF_PAGES_MODE, type PageOp, type PagesJob, type PagesReport } from '../files/pdf-pages'
+import { STAMP_IMAGE_MAX } from '../files/pdf-stamp'
+import type { ToolCtx } from '../files/service'
+import { readRegular } from '../files/store'
+import { authorize } from '../policy/authorize'
+import { ToolError } from '../policy/errors'
+import { skillRootOf } from '../skills/guard'
+import { checkRegular, freeName } from '../team-files/place'
+import type { TeamFiles } from '../team-files/service'
+import { makeWorkDir } from './isolate'
+import { confirmSources, placeProduced, type MadeFile } from './make-file'
+
+type EditIn = z.output<typeof EditPdfInput>
+type MergeIn = z.output<typeof MergePdfsInput>
+type SplitIn = z.output<typeof SplitPdfInput>
+
+/** the words in default output names, in the team's language */
+export const PDF_WORDS: Record<'edited' | 'merged' | 'part', Record<Locale, string>> = {
+  edited: { ko: '수정', en: 'edited', id: 'diubah', ja: '編集', es: 'editado', zh: '已编辑' },
+  merged: { ko: '합침', en: 'merged', id: 'digabung', ja: '結合', es: 'combinado', zh: '合并' },
+  part: { ko: '부분', en: 'part', id: 'bagian', ja: 'パート', es: 'parte', zh: '部分' },
+}
+
+export const EDIT_PDF_DESCRIPTION = 'Change an existing PDF and save the result as a new PDF next to it (the original stays as it is): ' +
+  'operations, applied in order: remove_pages, keep_pages (extract pages), reorder_pages, rotate_pages, insert_pdf (pages of another PDF at a position), ' +
+  'stamp_image (a seal, signature or logo; PNG transparency kept), add_text (one line, e.g. a date at a spot), watermark (e.g. "DRAFT" across the page) and page_numbers. ' +
+  'Pages are written like "1,3-5,last", "2-last" or "all"; each operation sees the pages as they are after the ones before it. ' +
+  'Positions are a preset or { x_mm, y_mm } from the top-left of the page as it is shown. Works on scanned PDFs too. ' +
+  'It cannot change the PDF\'s own text or pictures. A PDF locked with a password cannot be changed. ' +
+  'Replace the original (replace: true) only when the user explicitly asks for that, after reading it. ' +
+  'After adding text, a stamp or a watermark, read the changed page of the new file with pages and as_images to check it before you answer.'
+export const MERGE_PDFS_DESCRIPTION = 'Join several PDFs into one new PDF, in the order given (a { path, pages } entry takes only those pages). ' +
+  'The files stay as they are; the new file is "<first name> (merged).pdf" next to the first one unless you give output.'
+export const SPLIT_PDF_DESCRIPTION = 'Split a PDF into several new PDFs: parts (one page list per file, e.g. ["1-3", "4-last"]) or every (a new file every N pages). ' +
+  'The original stays as it is; the parts are "<name> (part 1).pdf" … next to it unless you give output_folder.'
+
+/** The Pretendard file the server ships, for text that is not Latin (null: none here). */
+export function textFontFile(): string | null {
+  for (const d of serverFontDirs()) { const f = path.join(d, 'Pretendard-Regular.ttf'); try { if (fs.statSync(f).isFile()) return f } catch {} }
+  return null
+}
+
+interface Part { name: string; bytes: Uint8Array; rel: string }
+export interface PdfResult { made: MadeFile[]; pages: number[]; report: PagesReport; sources: string[] }
+
+function readPart(ctx: AppContext, files: TeamFiles, c: ToolCtx, p: string, kind: 'pdf' | 'image'): Part {
+  const r = authorize(files.fx, files.rules(), c.user, p, 'read')
+  if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`, 'is_folder')
+  if (kind === 'pdf' && ext(r.rel) !== 'pdf') throw new ToolError(`'${r.rel}' is not a .pdf`)
+  const max = kind === 'pdf' ? PDF_PAGES_INPUT_MAX : STAMP_IMAGE_MAX
+  if (checkRegular(r.abs).size > max) throw new ToolError(`'${r.rel}' is larger than ${max / 1024 / 1024} MB, too large to work on here`)
+  const bytes = readRegular(r.abs, max).bytes
+  ctx.files.quarantine.assertBytes(bytes)
+  return { name: r.rel, bytes, rel: r.rel }
+}
+
+/** Where a result goes: `output` (with .pdf) or a free "<base> (<word>).pdf" in `dir`; write access checked now. */
+function target(files: TeamFiles, c: ToolCtx, output: string | undefined, dir: string[], base: string, word: string) {
+  let rel: string
+  if (output !== undefined && output.trim() !== '') {
+    const o = output.trim().replace(/\/+$/, '')
+    rel = /\.pdf$/i.test(o) ? o : `${o}.pdf`
+  } else rel = [...dir, freeName(path.join(files.fx.root, ...dir), `${base.replace(/\.pdf$/i, '')} (${word}).pdf`)].join('/')
+  const out = authorize(files.fx, files.rules(), c.user, rel, 'write', { mustExist: false, createDirs: true })
+  if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder; give a file name ending in .pdf`, 'is_folder')
+  if (skillRootOf(out.rel)) throw new ToolError('a PDF made here is not saved in a skill folder; save it in a project or the person\'s own folder')
+  return out
+}
+
+async function runJob(ctx: AppContext, c: ToolCtx, job: PagesJob, parts: Part[]): Promise<{ report: PagesReport; files: Uint8Array[] }> {
+  const total = parts.reduce((n, p) => n + p.bytes.length, 0)
+  if (total > PDF_PAGES_INPUT_MAX + STAMP_IMAGE_MAX) throw new ToolError(`these files are ${Math.round(total / 1024 / 1024)} MB together, more than ${PDF_PAGES_INPUT_MAX / 1024 / 1024} MB; work on fewer or smaller files`)
+  const answer = await officeWorkerWrite(PDF_PAGES_MODE, encodePagesRequest(job, parts), c.signal)
+  let r: ReturnType<typeof decodePagesResult>
+  try { r = decodePagesResult(answer) } catch { throw new ToolError('the PDF tool gave a damaged answer; nothing was saved') }
+  for (const f of r.files) if (f.length < 5 || Buffer.from(f.subarray(0, 5)).toString('latin1') !== '%PDF-') throw new ToolError('the PDF tool gave a damaged answer; nothing was saved')
+  return r
+}
+
+async function place(ctx: AppContext, files: TeamFiles, c: ToolCtx, segs: string[], bytes: Uint8Array, tool: string): Promise<MadeFile> {
+  const work = makeWorkDir(path.join(ctx.config.dataDir, 'work'))
+  try {
+    const produced = path.join(work, 'out.pdf')
+    fs.writeFileSync(produced, bytes, { flag: 'wx', mode: 0o600 })
+    return await placeProduced(ctx, files, c, segs, produced, tool)
+  } finally { fs.rmSync(work, { recursive: true, force: true }) }
+}
+
+export async function editPdfFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a: EditIn): Promise<PdfResult> {
+  const src = readPart(ctx, files, c, a.file_path, 'pdf')
+  const parts: Part[] = [src]
+  const index = (p: string, kind: 'pdf' | 'image') => {
+    const got = readPart(ctx, files, c, p, kind)
+    const at = parts.findIndex((x) => x.rel === got.rel)
+    if (at >= 0) return at
+    if (parts.length >= PDF_PAGES_FILES_MAX) throw new ToolError(`one call takes at most ${PDF_PAGES_FILES_MAX} files`)
+    parts.push(got)
+    return parts.length - 1
+  }
+  const ops: PageOp[] = a.operations.map((op) => {
+    if ('insert_pdf' in op) return { insert_pdf: { ...op.insert_pdf, file: index(op.insert_pdf.file, 'pdf') } }
+    if ('stamp_image' in op) return { stamp_image: { ...op.stamp_image, image: index(op.stamp_image.image, 'image') } }
+    return op as PageOp
+  })
+  // text that is not Latin needs the Pretendard font, sent with the request (the worker reads no files)
+  const texts = a.operations.flatMap((op) => ('add_text' in op ? [op.add_text.text] : 'watermark' in op ? [op.watermark.text] : 'page_numbers' in op ? [op.page_numbers.format ?? ''] : []))
+  let font: number | null = null
+  if (texts.some((t) => /[^\x20-\x7e\xa0-\xff]/.test(t))) {
+    const f = textFontFile()
+    if (f) { parts.push({ name: 'font', rel: '', bytes: fs.readFileSync(f) }); font = parts.length - 1 }
+  }
+  const sources = [...new Set(parts.filter((p) => p.rel).map((p) => p.rel))]
+  if (a.replace === true && a.output !== undefined) throw new ToolError('give either replace: true or output, not both')
+  let out
+  if (a.replace === true) {
+    if (!c.files.readHashes.has(src.rel)) throw new ToolError(`to replace '${src.rel}' (its old version stays in its history), read it in this turn first. Replace it only when the user asked for that; otherwise leave replace out to save a new file next to it`)
+    out = authorize(files.fx, files.rules(), c.user, src.rel, 'write', { mustExist: true })
+  } else {
+    out = target(files, c, a.output, src.rel.split('/').slice(0, -1), src.rel.split('/').at(-1)!, PDF_WORDS.edited[teamDefaultLocale(ctx.db)] ?? 'edited')
+    if (out.rel === src.rel) throw new ToolError(`output is the original '${src.rel}'; to replace it use replace: true, only when the user asked for that`)
+  }
+  const r = await runJob(ctx, c, { kind: 'edit', ops, font }, parts)
+  await confirmSources(ctx, files, c, out.rel, out.segs, out.rel === src.rel ? sources.filter((s) => s !== src.rel) : sources)
+  const made = await place(ctx, files, c, out.segs, r.files[0]!, 'edit_pdf')
+  return { made: [made], pages: [r.report.files[0]!.pages], report: r.report, sources }
+}
+
+export async function mergePdfFiles(ctx: AppContext, files: TeamFiles, c: ToolCtx, a: MergeIn): Promise<PdfResult> {
+  const parts: Part[] = []
+  const list = a.files.map((f) => {
+    const p = typeof f === 'string' ? { path: f } : f
+    const got = readPart(ctx, files, c, p.path, 'pdf')
+    let at = parts.findIndex((x) => x.rel === got.rel)
+    if (at < 0) { parts.push(got); at = parts.length - 1 }
+    return { part: at, ...(p.pages ? { pages: p.pages } : {}) }
+  })
+  const first = parts[0]!
+  const out = target(files, c, a.output, first.rel.split('/').slice(0, -1), first.rel.split('/').at(-1)!, PDF_WORDS.merged[teamDefaultLocale(ctx.db)] ?? 'merged')
+  if (parts.some((p) => p.rel === out.rel)) throw new ToolError(`output '${out.rel}' is one of the files being joined; give another name`)
+  const r = await runJob(ctx, c, { kind: 'merge', files: list }, parts)
+  const sources = parts.map((p) => p.rel)
+  await confirmSources(ctx, files, c, out.rel, out.segs, sources)
+  const made = await place(ctx, files, c, out.segs, r.files[0]!, 'merge_pdfs')
+  return { made: [made], pages: [r.report.files[0]!.pages], report: r.report, sources }
+}
+
+export async function splitPdfFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a: SplitIn): Promise<PdfResult> {
+  const src = readPart(ctx, files, c, a.file_path, 'pdf')
+  let specs = a.parts
+  if (!specs) {
+    // every N pages: the parts are only known once the page count is; the worker counts, the server names them
+    specs = []
+    const every = a.every!
+    const count = await pageCount(ctx, c, src)
+    for (let s = 1; s <= count; s += every) specs.push(`${s}-${Math.min(count, s + every - 1)}`)
+    if (specs.length > 50) throw new ToolError(`that would make ${specs.length} files, more than 50; give a larger every`)
+  }
+  const word = PDF_WORDS.part[teamDefaultLocale(ctx.db)] ?? 'part'
+  const base = src.rel.split('/').at(-1)!.replace(/\.pdf$/i, '')
+  const folder = a.output_folder?.trim() ? authorize(files.fx, files.rules(), c.user, a.output_folder.trim().replace(/\/+$/, ''), 'write', { mustExist: false, createDirs: true }).segs : src.rel.split('/').slice(0, -1)
+  const outs = specs.map((_, i) => {
+    const dir = path.join(files.fx.root, ...folder)
+    const name = fs.existsSync(dir) ? freeName(dir, `${base} (${word} ${i + 1}).pdf`) : `${base} (${word} ${i + 1}).pdf`
+    return target(files, c, [...folder, name].join('/'), [], '', '')
+  })
+  const r = await runJob(ctx, c, { kind: 'split', parts: specs }, [src])
+  const made: MadeFile[] = []
+  for (const [i, out] of outs.entries()) {
+    await confirmSources(ctx, files, c, out.rel, out.segs, [src.rel])
+    made.push(await place(ctx, files, c, out.segs, r.files[i]!, 'split_pdf'))
+  }
+  return { made, pages: r.report.files.map((f) => f.pages), report: r.report, sources: [src.rel] }
+}
+
+/** a PDF's page count, through the worker (a split of the whole into one part) */
+async function pageCount(ctx: AppContext, c: ToolCtx, src: Part): Promise<number> {
+  const r = await runJob(ctx, c, { kind: 'split', parts: ['all'] }, [src])
+  return r.report.files[0]!.pages
+}
+
+/** The tool result for the AI: what was saved, and how to check it. */
+export function pdfResultText(tool: string, r: PdfResult, link: (p: string) => string, check: boolean): string {
+  const lines = r.made.map((m, i) => m.conflictCopyOf
+    ? `'${m.conflictCopyOf}' already exists and was not read in this turn, so this result was saved as '${m.path}' (${r.pages[i]} page${r.pages[i] === 1 ? '' : 's'}). Tell the user about both.`
+    : `Saved ${m.path} (${r.pages[i]} page${r.pages[i] === 1 ? '' : 's'}). Link for the user: ${link(m.path)}`)
+  const replaced = tool === 'edit_pdf' && r.made[0] && r.sources[0] === r.made[0].path && !r.made[0].conflictCopyOf
+  const kept = replaced ? `This is a new version of ${r.sources[0]}; the previous version is in its file history.` : `${r.sources.join(', ')} ${r.sources.length === 1 ? 'is' : 'are'} unchanged.`
+  const signed = r.report.signed ? ' A PDF here had a digital signature; tell the user that the new file no longer carries a valid signature.' : ''
+  const look = check ? `\nCheck the pages you drew on before you answer: read the new file with pages and as_images: true.` : ''
+  return `${lines.join('\n')}\n${kept}${signed}${look}`
+}

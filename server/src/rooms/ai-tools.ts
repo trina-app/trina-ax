@@ -12,7 +12,7 @@ import { FILE_TOOLS } from '@mycel/shared'
  */
 export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
   ...Object.keys(FILE_TOOLS), 'edit_files', 'skill', 'find_skills', 'ask_user', 'agent',
-  'make_file', 'edit_hwp', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact',
+  'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact',
   'room_file', 'save_room_file',
 ])
 
@@ -27,7 +27,7 @@ export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
 export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   ...Object.keys(FILE_TOOLS),
   'edit_files', 'skill', 'find_skills', 'ask_user',
-  'make_file', 'edit_hwp', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact', 'web_fetch', 'save_url',
+  'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact', 'web_fetch', 'save_url',
   // a file sent from the computer in a chat shared with people (chat/chat-file-tool.ts)
   'chat_file',
   // "send these to bob" (chat/post-to-room.ts): as the turn's own person, behind their card
@@ -39,8 +39,32 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
 /** The arguments that name where a call writes, per tool: a shared chat's read card counts them only when something
  * is there already (chat/turn.ts sharedSources); every other path argument counts as a read. */
 export const WRITE_TARGET_ARGS: Readonly<Record<string, readonly string[]>> = {
-  write: ['file_path'], edit: ['file_path'], make_file: ['output'], edit_hwp: ['output'], save_url: ['save_as'],
+  write: ['file_path'], edit: ['file_path'], make_file: ['output'], edit_hwp: ['output'], stamp_pdf: ['output'], edit_pdf: ['output'], merge_pdfs: ['output'], split_pdf: ['output_folder'], save_url: ['save_as'],
   move_files: ['to_folder'], copy_files: ['to_folder'], rename_file: ['new_name'],
+}
+
+/** Every team path a call names, nested ones too: the top-level PATH_ARGS, and the files inside edit_pdf's operations
+ * (insert_pdf.file, stamp_image.image) and merge_pdfs' list ({ path } entries). A shared chat's read card and its
+ * steps use this, so a file named inside a list is weighed like one named at the top. */
+export function namedPaths(tool: string, input: unknown): { key: string; value: string }[] {
+  const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
+  const out: { key: string; value: string }[] = []
+  for (const k of PATH_ARGS) for (const v of Array.isArray(a[k]) ? a[k] as unknown[] : [a[k]]) if (typeof v === 'string') out.push({ key: k, value: v })
+  if (tool === 'edit_pdf' && Array.isArray(a.operations)) {
+    for (const op of a.operations as Record<string, unknown>[]) {
+      const ins = op?.insert_pdf as { file?: unknown } | undefined
+      const st = op?.stamp_image as { image?: unknown } | undefined
+      if (typeof ins?.file === 'string') out.push({ key: 'insert_pdf.file', value: ins.file })
+      if (typeof st?.image === 'string') out.push({ key: 'stamp_image.image', value: st.image })
+    }
+  }
+  if (tool === 'merge_pdfs' && Array.isArray(a.files)) {
+    for (const f of a.files as unknown[]) {
+      const p = typeof f === 'string' ? f : f && typeof f === 'object' ? (f as { path?: unknown }).path : undefined
+      if (typeof p === 'string') out.push({ key: 'files', value: p })
+    }
+  }
+  return out
 }
 
 /** Tools that look through a folder and everything under it; in a shared chat without a path, the project folder. */
@@ -69,7 +93,7 @@ export const PARALLEL_READ_TOOLS: ReadonlySet<string> = new Set(
   ['list', 'glob', 'grep', 'read'].filter((t) => ROOM_READ_ONLY_TOOLS.has(t)))
 
 /** The arguments of our tools that name a team path (chat/turn.ts: what a call names joins the read scope). */
-export const PATH_ARGS: readonly string[] = ['file_path', 'path', 'source', 'output', 'template', 'from', 'to', 'to_folder', 'destination', 'file_paths', 'paths', 'sources', 'images', 'save_as']
+export const PATH_ARGS: readonly string[] = ['file_path', 'path', 'source', 'output', 'template', 'from', 'to', 'to_folder', 'destination', 'file_paths', 'paths', 'sources', 'images', 'image', 'save_as']
 
 /**
  * A person's own AI chat that has read their team chat rooms (chat/read-rooms.ts: chats.rooms_seen after a room tool,
