@@ -27,7 +27,6 @@ This file summarizes user-visible changes; it is not a list of every commit.
 - "You're no longer a member of <project>." now reads as a sentence, without quotes around the project's name.
 - Security: file reads now use the file that was checked. The AI's read tools, the file screen's text view, the search index and the other places that read a team file read it once, from the same open file that passed the permission check; a link placed under a personal folder is never followed, also when a folder changes while the file is being opened.
 - **Chats:** every section and folder of the Chats list folds now, on a phone too. A folded one shows a bold name and a badge with how many of its conversations are unread, or "@" when one mentions you, and stays folded on all your devices.
-- Linux: on Debian 12 the installer now installs workspace-mcp (Google Workspace connector). Debian 12's awk did not read the sha256 check of the Python requirements, so every install and repair stopped with "not a sha256" (QA TC-2848).
 - Security: when you delete the AI connection that came from the server's Claude token file (`set-claude-token`, office `--claude-token-file`) in Admin › AI providers, the token file is now overwritten and deleted too. Before, the token stayed on the server's disk after the delete. A file with another token is left. Revoke a token you no longer use at Claude as well.
 - Every pull request that touches the desktop app now builds and tests it on a Mac and on Windows before it is merged: the desktop tests, the Mac download (opened and looked into) and the Windows installer (installed, updated over and removed). Desktop breaks show up in review instead of at release time.
 - A chat with several people is called a **group chat** everywhere (it was also "group conversation" in some places), and the New conversation dialog lists channels under **Channels** with the same member count as the channel's header.
@@ -101,6 +100,7 @@ This file summarizes user-visible changes; it is not a list of every commit.
 ## 0.5.9 — 2026-11-16
 
 - 0.5.8 was not released (its tag exists, but its own updater had the permissions bug fixed below). Everything that was going to be in 0.5.8 is in 0.5.9 and listed here.
+- Linux: on Debian 12 the installer now installs workspace-mcp (Google Workspace connector). Debian 12's awk did not read the sha256 check of the Python requirements, so every install and repair stopped with "not a sha256" (QA TC-2848).
 - In Admin › Members, an owner or admin can no longer give a guest an e-mail that someone else in the team already uses. They see the same line as in Settings › Profile: "This e-mail is already used in this team." Team members can still share an address, as before.
 - **Settings › Connectors**: Sentry, Notion, Stripe and Atlassian now have **Add to a conversation** under their row. Pick one of the conversations where you may add apps and it opens with that service's Add an app guide (Atlassian opens Jira's). Nothing is added until you copy the Webhook URL, as before.
 - **Find work files on this computer** no longer closes, and stops looking, when you make the window narrow on My files.
