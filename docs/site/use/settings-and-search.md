@@ -82,6 +82,11 @@ For the owner and admins, **Phone › Phone notifications** chooses where the wh
 **Trina AX push (default)**, **Off**, or **Custom**, the address of your own push service for your own build of the
 phone app. Notifications on a phone never hold file or conversation content.
 
+Each conversation's bell picks its own level: **All messages**, **Mentions only** or **Off**. Channels are at
+**Mentions only** unless you change them, direct messages and group chats at **All messages**. At **Mentions only**
+a new message makes the conversation's name bold but adds no number, in the list, on **Chats** or on the app icon; a
+message that mentions you shows **@** and counts. At **Off** the number is grey and counts nowhere.
+
 ![Settings › Notifications for the owner: the Phone section with Phone notifications only when I'm away and Phone notifications set to Trina AX push (default), then This device](../images/settings/notifications.webp "Notifications")
 
 ## Delete your account
