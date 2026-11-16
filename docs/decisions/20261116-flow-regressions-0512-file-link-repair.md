@@ -6,8 +6,8 @@
   (links are still not made from backticked paths)
 - Branch: fix/flow-regressions-0512 (AI flow run on dev 30a54f4e2, FL-01 and FL-28)
 
-- **Ask:** answers linked the right label to a broken path: [단가표-2026.xlsx](…%EB%8B%A8%EA%B8%B0%ED%91%9C…) ("단기표") and
-  [2026-11-15-일요일-회의록.md](…일요일-을요일-회의록.md). The link opened nothing.
+- **Ask:** answers linked the right label to a broken path: the label `단가표-2026.xlsx` with a path holding `%EB%8B%A8%EA%B8%B0%ED%91%9C` ("단기표"), and
+  `2026-11-15-일요일-회의록.md` with a path ending in `일요일-을요일-회의록.md`. The link opened nothing.
 - **Why:** the instructions ask for /files/view?path=<team path, URL-encoded>, and the model writes the percent-encoding
   of Korean paths byte by byte itself. One wrong byte is another syllable (가 %EA%B0%80 → 기 %EA%B8%B0), or it repeats a
   word. Nothing in #1062's code builds these links; the server's own "Link for the user" lines (make_file and others)
