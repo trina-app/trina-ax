@@ -54,7 +54,7 @@
 - **Rule 6, the AI says one sentence.** The tools return no links any more; their result and the prompt tell the AI
   that the card shows the files, places and people, and to answer in one short sentence.
 
-- **Rule 7, the person taken off is told on the link page, not by a notice.** `file_share_stops` (migration 358) keeps
+- **Rule 7, the person taken off is told on the link page, not by a notice.** `file_share_stops` (migration 359) keeps
   who took whom off while they stay off. The link page then says "<name> stopped sharing this file" in place of "You
   need access" (still nothing about the file; asking again stays). No Activity notice and no push: a stop is not news
   the owner wants sent. Shared with me drops the file as before.
@@ -68,4 +68,4 @@
   another member's message, where it is off), `tests/unit/b-share-with-person.test.ts` (the record, no links, the other
   viewer), `web/test/unit/share-card.test.tsx`, `web/test/e2e/share-card.spec.ts`.
 
-- **Version impact:** minor (a new tool and step field; migration 358 is additive, reader 1).
+- **Version impact:** minor (a new tool and step field; migration 359 is additive, reader 1).

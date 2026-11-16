@@ -40,7 +40,7 @@ In:
    View link. The card reads the live state as the viewer (`POST /api/files/shares/cards`) for its button.
 6. Per viewer: in a chat other people see, only the asker gets `Step.shared` (ChatStore.viewSteps).
 7. A person whose access was stopped sees "<name> stopped sharing this file" on the link page (migration
-   `358_c_file_share_stops.sql`).
+   `359_c_file_share_stops.sql`).
 8. Prompt and tool results: one short sentence once the card exists.
 
 Out: folder sharing, edit rights, the "who can open this" tool and the next-step buttons' actions (another builder
@@ -61,7 +61,7 @@ needs no card when the person named the file and the person; the result card com
 
 ## Risks
 
-- Migration number 358 (component C range): other branches of this plan may pick the same number.
+- Migration number 359 (component C range): other branches of this plan may pick the same number.
 - `shared/src/tools.ts`, `server/src/chat/prompt.ts`, `server/src/chat/i18n.ts`, `server/src/chat/tools.ts` are edited
   by other branches of the plan too: additions only, in one place each.
 - Six languages for every new line.
@@ -77,7 +77,7 @@ a Playwright spec, hands-on reruns of MAN-011, MAN-012 and MAN-017.
 Built as planned, on `feat/ai-share-card-and-stop` (no pull request yet: the branch holds two open batches).
 
 - `stop_sharing` (server/src/chat/stop-sharing.ts), the owner's stop in `FileShares.change`, `canStop`, `stillOpens`,
-  `cards`, migration 358 and the link page's "<name> stopped sharing this file".
+  `cards`, migration 359 and the link page's "<name> stopped sharing this file".
 - `Step.shared` and `AskUserRequest.share` (shared/src/api/share-card.ts); `share_with_person` writes the record and
   returns no links.
 - Web: `ActionCard`, `ShareCard` (confirm rows, result, refusal, `registerShareNext`), `PostedCard`, the dialog's ✕
