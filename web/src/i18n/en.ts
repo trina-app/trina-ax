@@ -6786,5 +6786,11 @@ export const en: Record<MessageKey, string> = {
   "meeting.noteTitle": "Meeting notes, {date}",
   "meeting.gettingReady": "Getting ready ({mb} MB, first time only)…",
   "meeting.unavailable": "Meeting notes can't be used here. Ask your admin.",
-  "meeting.saveFailed": "The notes couldn't be saved. They're kept on this computer; try Stop again.",
+  "meeting.saveFailed": "The notes couldn't be saved. They're kept on this computer.",
+  "meeting.fileName": "Meeting notes",
+  "meeting.retry": "Try again",
+  "meeting.save": "Save",
+  "meeting.unsavedFound": "Notes from your last meeting weren't saved yet.",
+  "meeting.showWords": "Show the words",
+  "meeting.hideWords": "Hide the words",
 }

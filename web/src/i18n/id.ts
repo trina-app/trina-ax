@@ -6783,5 +6783,11 @@ export const id: Record<MessageKey, string> = {
   "meeting.noteTitle": "Catatan rapat, {date}",
   "meeting.gettingReady": "Menyiapkan ({mb} MB, hanya pertama kali)…",
   "meeting.unavailable": "Catatan rapat tidak bisa dipakai di sini. Tanyakan admin Anda.",
-  "meeting.saveFailed": "Catatan tidak bisa disimpan. Masih ada di komputer ini; tekan Berhenti lagi.",
+  "meeting.saveFailed": "Catatan tidak bisa disimpan. Masih ada di komputer ini.",
+  "meeting.fileName": "Catatan rapat",
+  "meeting.retry": "Coba lagi",
+  "meeting.save": "Simpan",
+  "meeting.unsavedFound": "Catatan dari rapat terakhir Anda belum disimpan.",
+  "meeting.showWords": "Tampilkan teks",
+  "meeting.hideWords": "Sembunyikan teks",
 }

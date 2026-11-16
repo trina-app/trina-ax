@@ -6739,5 +6739,11 @@ export const ja: Record<MessageKey, string> = {
   "meeting.noteTitle": "会議メモ、{date}",
   "meeting.gettingReady": "準備中（{mb} MB、初回のみ）…",
   "meeting.unavailable": "ここでは会議メモを使えません。管理者に確認してください。",
-  "meeting.saveFailed": "メモを保存できませんでした。このコンピューターに残っています。もう一度「停止」を押してください。",
+  "meeting.saveFailed": "メモを保存できませんでした。このコンピューターに残っています。",
+  "meeting.fileName": "会議メモ",
+  "meeting.retry": "再試行",
+  "meeting.save": "保存",
+  "meeting.unsavedFound": "前回の会議メモがまだ保存されていません。",
+  "meeting.showWords": "文字を表示",
+  "meeting.hideWords": "文字を隠す",
 }

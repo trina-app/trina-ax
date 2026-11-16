@@ -11,10 +11,11 @@ export function meetingBridge(b: DesktopBridge | null | undefined): NonNullable<
 
 const two = (n: number) => String(n).padStart(2, '0')
 
-/** "2026-11-17 14.05 Meeting notes.md" in the person's folder: the start's local date and time (no ":" in a file name) */
-export function notePath(me: string, startedAt: number, title: string): string {
+/** "2026-11-17 14.05 Meeting notes.md" in the person's folder: the start's local date and time and a fixed word (the
+ * same name at every save of one meeting) */
+export function notePath(me: string, startedAt: number, word: string): string {
   const d = new Date(startedAt)
-  const name = `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}.${two(d.getMinutes())} ${title}.md`
+  const name = `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}.${two(d.getMinutes())} ${word}.md`
   return `users/${me}/${MEETINGS_DIR}/${name.replace(/[\\/:*?"<>|]/g, ' ')}`
 }
 
@@ -24,12 +25,15 @@ export function lineClock(startedAt: number, ms: number): string {
   return `${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`
 }
 
+/** what was said, as text: Markdown's inline marks are escaped (a line starts with its time, so no block can begin) */
+export const escapeInline = (s: string) => s.replace(/[\\`*_[\]<>|]/g, (c) => `\\${c}`)
+
 /** The note: a title line, then one line per thing said with its time and who ("You" / "Others" in the person's words).
  * Lines are text only; nothing in them is read as Markdown structure (a leading "#" or "-" is escaped). */
 export function noteMarkdown(o: { title: string; startedAt: number; lines: DesktopMeetingLine[]; you: string; others: string }): string {
   const body = [...o.lines]
     .sort((a, b) => a.startMs - b.startMs)
-    .map((l) => `${lineClock(o.startedAt, l.startMs)} **${l.track === 'me' ? o.you : o.others}:** ${l.text.replace(/\s+/g, ' ').trim().replace(/^([#>\-*+]|\d+\.)/, '\\$1')}`)
+    .map((l) => `${lineClock(o.startedAt, l.startMs)} **${l.track === 'me' ? o.you : o.others}:** ${escapeInline(l.text.replace(/\s+/g, ' ').trim())}`)
   return `# ${o.title}\n\n${body.join('\n\n')}\n`
 }
 

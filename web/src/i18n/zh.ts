@@ -6711,5 +6711,11 @@ export const zh: Record<MessageKey, string> = {
   "meeting.noteTitle": "会议记录，{date}",
   "meeting.gettingReady": "正在准备（{mb} MB，仅首次）…",
   "meeting.unavailable": "这里不能使用会议记录。请询问管理员。",
-  "meeting.saveFailed": "记录没能保存。它还留在这台电脑上，请再按一次“停止”。",
+  "meeting.saveFailed": "记录没能保存。它还留在这台电脑上。",
+  "meeting.fileName": "会议记录",
+  "meeting.retry": "重试",
+  "meeting.save": "保存",
+  "meeting.unsavedFound": "上次会议的记录还没有保存。",
+  "meeting.showWords": "显示文字",
+  "meeting.hideWords": "隐藏文字",
 }

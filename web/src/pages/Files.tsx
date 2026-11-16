@@ -1061,7 +1061,7 @@ function Files() {
             )}
             {!projectsTop && findWork.button}
             {/* meeting notes (desktop app): only on My files */}
-            {!projectsTop && findWork.button && <MeetingNotesEntry />}
+            {!projectsTop && <MeetingNotesEntry here={path} />}
             {!projectsTop && (
             <Tooltip label={t('files.upload')}>
               <Button size="sm" variant="primary" className={clsx(tree && !canWrite && 'max-md:hidden')} onClick={() => fileInput.current?.click()} disabled={!canWrite} aria-label={t('files.upload')} data-testid="upload-button">

@@ -6739,5 +6739,11 @@ export const es: Record<MessageKey, string> = {
   "meeting.noteTitle": "Notas de reunión, {date}",
   "meeting.gettingReady": "Preparando ({mb} MB, solo la primera vez)…",
   "meeting.unavailable": "Las notas de reunión no se pueden usar aquí. Pregunte a su administrador.",
-  "meeting.saveFailed": "No se pudieron guardar las notas. Siguen en este equipo; pulse Detener de nuevo.",
+  "meeting.saveFailed": "No se pudieron guardar las notas. Siguen en este equipo.",
+  "meeting.fileName": "Notas de reunión",
+  "meeting.retry": "Reintentar",
+  "meeting.save": "Guardar",
+  "meeting.unsavedFound": "Las notas de su última reunión aún no se han guardado.",
+  "meeting.showWords": "Mostrar el texto",
+  "meeting.hideWords": "Ocultar el texto",
 }

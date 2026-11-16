@@ -6771,7 +6771,7 @@ export const ko = {
   "meeting.copied": "복사했어요",
   "meeting.noteForCall": "{app}로 이 통화를 기록하고 있어요. 소리는 남기지 않아요.",
   "meeting.you": "나",
-  "meeting.others": "상대",
+  "meeting.others": "다른 사람",
   "meeting.listeningEmpty": "말이 멈출 때마다 몇 초 뒤 여기에 글이 나타나요.",
   "meeting.late": "글이 늦게 오고 있어요. 모두 기록에 들어가요.",
   "meeting.noCallSound": "{app}가 통화 소리를 듣지 못하고 있어요.",
@@ -6783,7 +6783,13 @@ export const ko = {
   "meeting.noteTitle": "회의 기록, {date}",
   "meeting.gettingReady": "준비 중이에요 ({mb} MB, 처음 한 번만)…",
   "meeting.unavailable": "여기서는 회의 기록을 쓸 수 없어요. 관리자에게 물어보세요.",
-  "meeting.saveFailed": "기록을 저장하지 못했어요. 이 컴퓨터에 남아 있어요. 멈추기를 다시 눌러 주세요.",
+  "meeting.saveFailed": "기록을 저장하지 못했어요. 이 컴퓨터에 남아 있어요.",
+  "meeting.fileName": "회의 기록",
+  "meeting.retry": "다시 시도",
+  "meeting.save": "저장",
+  "meeting.unsavedFound": "지난 회의 기록이 아직 저장되지 않았어요.",
+  "meeting.showWords": "글 보기",
+  "meeting.hideWords": "글 숨기기",
 } as const
 
 export type MessageKey = keyof typeof ko
