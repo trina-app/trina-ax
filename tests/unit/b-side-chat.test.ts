@@ -50,7 +50,9 @@ test('the AI is told the room while I am in it; after I leave, or in a chat with
   const chat = await mia.client.call('POST', '/api/chats', { sideRoomId: team.id })
   expect(sideRoomOf(h.ctx.db, chat.id, mia.id)).toMatchObject({ id: team.id, kind: 'team', name: 'design' })
   // where room content is saved unless the person names a place: the team room's group folder (QA TC-3833)
-  expect(sideRoomOf(h.ctx.db, chat.id, mia.id)!.saveIn).toMatch(/^groups\//)
+  expect(sideRoomOf(h.ctx.db, chat.id, mia.id, h.ctx.files)!.saveIn).toMatch(/^groups\//)
+  // without the files (a room lookup only), no place
+  expect(sideRoomOf(h.ctx.db, chat.id, mia.id)!.saveIn).toBeUndefined()
   // another person's turn in my chat never gets my room (a side chat is never shared)
   expect(sideRoomOf(h.ctx.db, chat.id, nora.id)).toBeNull()
   const plain = await mia.client.call('POST', '/api/chats', {})
@@ -59,6 +61,32 @@ test('the AI is told the room while I am in it; after I leave, or in a chat with
   await owner.call('PATCH', `/api/admin/groups/${group.id}`, { memberIds: [nora.id] })
   expect(sideRoomOf(h.ctx.db, chat.id, mia.id)).toBeNull()
   expect((await mia.client.call('GET', `/api/chats/${chat.id}`)).sideRoomId).toBe(team.id)
+})
+
+// AI flow FL-28 (the owner's own case, 2026-11-17): in a group chat's side chat, "회의록 저장해줘" saved into the
+// person's own folder, which the room's people could not open. Room content goes where the room's people can open it.
+test('a group chat or a 1:1 saves where its people can open it: the narrowest team folder they all read, never My files when one fits', async () => {
+  const { owner, mia, nora, otto } = await setup()
+  const pia = await addMember(h, owner, { username: 'pia' })
+  const design = await owner.call('POST', '/api/admin/groups', { name: 'studio', memberIds: [mia.id, nora.id, pia.id] })
+  const studioPath = (h.ctx.db.query('SELECT f.path FROM groups g JOIN folders f ON f.id = g.folder_id WHERE g.id = ?').get(design.id) as { path: string }).path
+  const saveIn = async (body: object) => {
+    const room = await mia.client.call('POST', '/api/rooms', body)
+    const chat = await mia.client.call('POST', '/api/chats', { sideRoomId: room.id })
+    return sideRoomOf(h.ctx.db, chat.id, mia.id, h.ctx.files)!.saveIn
+  }
+  // everyone in it is in studio: its folder
+  expect(await saveIn({ kind: 'group', userIds: [nora.id, pia.id], name: 'launch' })).toBe(studioPath)
+  // otto is in no group: only the company-wide folder holds them all
+  expect(await saveIn({ kind: 'group', userIds: [nora.id, otto.id], name: 'mixed' })).toBe('shared')
+  // a 1:1 with someone of the same group: that group's folder; with otto, only shared/ would fit: the own folder
+  expect(await saveIn({ kind: 'dm', userId: pia.id })).toBe(studioPath)
+  expect(await saveIn({ kind: 'dm', userId: otto.id })).toBe(`users/${mia.id}`)
+  // the instructions say the place, and that no question about where comes first
+  const line = sideRoomSection({ id: 'r', kind: 'group', name: 'launch', saveIn: studioPath })
+  expect(line).toContain(`save it in ${studioPath}/`)
+  expect(line).toContain("the room's people can open it there")
+  expect(line).toContain('do not ask where first')
 })
 
 test('the instructions name the room and its id, say the chat is private and that only the buttons under an answer post', () => {
