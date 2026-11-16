@@ -487,7 +487,7 @@ describe('what a shared turn has', () => {
       tools: ['make_file', 'search'], history: [{ role: 'user', content: 'earlier' }], connected: '## Connected services\nCONN-CANARY', subagents: true, now: new Date('2026-11-07T09:00:00Z'),
       shared: { project: 'Falcon', audience: 4, asker: user.name }, roomReadable: (rel) => !rel.startsWith('groups/marketing') && !rel.startsWith('users/'), skillChanges: 'SKILL-CHANGES',
       // where things are in the app (chat/app-map.ts): its shared form, the same for everyone here
-      appMap: { view: 'shared', managed: false, devEnv: false },
+      appMap: { view: 'shared', managed: false, devEnv: false, office: false },
     }
     const built: [ReturnType<typeof turnPromptSections>, string][] = [
       [turnPromptSections(h.ctx.files, input), buildTurnPrompt(h.ctx.files, input)],

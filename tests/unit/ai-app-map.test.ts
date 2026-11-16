@@ -5,7 +5,7 @@ import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
-import { APP_MAP_KEYS, APP_MAP_PLACES, appLabel, appMapSection, type AppMapInput } from '../../server/src/chat/app-map'
+import { APP_MAP_KEYS, APP_MAP_PLACES, appLabel, appMapSection, appMapView, type AppMapInput } from '../../server/src/chat/app-map'
 import { APP_MAP_LABELS } from '../../server/src/chat/app-map-labels'
 import { SHARED_PROMPT_SECTIONS } from '../../server/src/chat/prompt'
 import { appMapLabelsText, LABELS_FILE } from '../../scripts/app-map-labels'
@@ -16,7 +16,7 @@ import { SYSTEM_GROUPS } from '../../web/src/pages/admin/systemGroups'
 
 const ROOT = path.resolve(import.meta.dir, '../..')
 const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8')
-const base: AppMapInput = { view: 'staff', managed: true, devEnv: false }
+const base: AppMapInput = { view: 'staff', managed: true, devEnv: false, office: false }
 
 /** Every .ts/.tsx file of the web app outside its dictionaries, as one text. */
 function webSource(): string {
@@ -39,7 +39,9 @@ describe('the labels come from the web app', () => {
   })
   test('a label reads as the screen does: the product name filled in, Korean in a Korean answer', () => {
     expect(appLabel('aiApps.title', 'ko')).not.toContain('{')
-    expect(appLabel('skills.catalog.title', 'ko')).not.toContain('{')
+    // the ready-made skills' row on the Skills page, without its count ("트리나가 준비한 스킬 · {n}개 더")
+    expect(appLabel('skills.catalog.more', 'ko')).not.toMatch(/[{·]/)
+    expect(appLabel('roomApps.menuList', 'ko')).toBe(DICTS.ko['roomApps.menuList'].split(' · ')[0])
     expect(appLabel('admin.system', 'ko')).toBe(DICTS.ko['admin.system'])
     expect(APP_MAP_LABELS['roomApps.menuAdd']!.en).toBe(DICTS.en['roomApps.menuAdd'])
   })
@@ -77,7 +79,7 @@ describe('the places it names still exist', () => {
     const has = (file: string, key: string) => expect({ file, key, there: read(file).includes(`'${key}'`) }).toEqual({ file, key, there: true })
     has('web/src/components/rooms/RoomMenu.tsx', 'roomApps.menuAdd')
     has('web/src/components/rooms/RoomMenu.tsx', 'rooms.menu.notify')
-    has('web/src/components/rooms/apps/AppsDialog.tsx', 'roomApps.listTitle')
+    has('web/src/components/rooms/RoomMenu.tsx', 'roomApps.menuList')
     has('web/src/components/chat/ChatTitleMenu.tsx', 'chat.rename')
     has('web/src/components/nav/NavFolders.tsx', 'navFolders.moveTo')
     has('web/src/components/chat/Messages.tsx', 'chat.regenerate')
@@ -86,7 +88,7 @@ describe('the places it names still exist', () => {
     has('web/src/pages/admin/Guests.tsx', 'guest.admin.title')
     has('web/src/components/GuestInvite.tsx', 'guest.invite.ai')
     has('web/src/components/AvailableSkills.tsx', 'skills.catalog.bring')
-    has('web/src/pages/Skills.tsx', 'skills.tabSkills')
+    has('web/src/components/AvailableSkills.tsx', 'skills.catalog.more')
     has('web/src/components/settings/RoomNotifySettings.tsx', 'notifications.quiet')
     has('web/src/components/onboarding/FindWorkFiles.tsx', 'files.findWork.entryButton')
     has('web/src/pages/Settings.tsx', 'settings.myEngine.model')
@@ -100,44 +102,51 @@ describe('who gets which map', () => {
     expect(staff).toContain(`${DICTS.ko['admin.settings']}: ${DICTS.ko['teamSettings.section.general']}`)
     expect(staff).toContain(DICTS.ko['handover.menu'])
     expect(member).not.toContain(DICTS.ko['handover.menu'])
-    expect(member).toContain(`Owner or admin, in ${DICTS.ko['admin.title']}`)
+    expect(member).toContain(`Also the owner's or an admin's, in ${DICTS.ko['admin.title']}`)
     // what is everyone's is in both
     for (const s of [staff, member]) for (const k of ['roomApps.menuAdd', 'notifications.quiet', 'settings.apps', 'skills.catalog.bring', 'files.findWork.entryButton'] as const) expect(s).toContain(DICTS.ko[k])
+  })
+  test('the form by role: owner and admin the full one, member the short one, any shared chat the neutral one', () => {
+    expect([appMapView('owner', false), appMapView('admin', false), appMapView('member', false)]).toEqual(['staff', 'staff', 'member'])
+    expect([appMapView('owner', true), appMapView('member', true)]).toEqual(['shared', 'shared'])
   })
   test('a shared chat: the Admin pages headed "owners and admins only", nothing about the asker', () => {
     const shared = appMapSection({ ...base, view: 'shared' }, 'ko')
     expect(shared).toContain('(owners and admins only)')
-    expect(shared).not.toContain('Owner or admin, in')
+    expect(shared).not.toContain("Also the owner's or an admin's")
     expect(SHARED_PROMPT_SECTIONS.appMap).toBe(true)
   })
   test('install facts: guest AI only on a managed install, the dev environment only where the server has it', () => {
     const managed = appMapSection(base, 'ko')
     const local = appMapSection({ ...base, managed: false }, 'ko')
     expect(managed).toContain(DICTS.ko['guest.ai.team'])
-    expect(local).toContain('Guest AI: none on this install')
-    expect(managed).not.toContain('none on this install')
+    expect(local).toContain("Guest AI: not on this team's")
+    expect(managed).not.toContain("Guest AI: not on")
     const dev = appMapSection({ ...base, devEnv: true }, 'ko')
     expect(dev).toContain(DICTS.ko['devEnv.title'])
     expect(managed).not.toContain(DICTS.ko['devEnv.title'])
-    expect(managed).toContain('No dev environment')
-    expect(appMapSection({ ...base, view: 'member', devEnv: true }, 'ko')).not.toContain('No dev environment')
+    expect(managed).toContain("doesn't have it")
+    expect(appMapSection({ ...base, view: 'member', devEnv: true }, 'ko')).not.toContain("doesn't have it")
+    // System's updates: an admin's too only on an office Mac (web systemGroups.ts `office`)
+    expect(managed).toContain(`owner also ${DICTS.ko['system.updates']}`)
+    expect(appMapSection({ ...base, office: true }, 'ko')).not.toContain(`owner also ${DICTS.ko['system.updates']}`)
   })
   test('the person\'s language: an English answer gets the English labels', () => {
     const en = appMapSection(base, 'en')
-    expect(en).toContain(`Settings › ${DICTS.en['settings.apps']}`)
+    expect(en).toContain(`Settings: ${DICTS.en['settings.apps']}`)
     expect(en).not.toMatch(/[가-힣]/)
   })
 })
 
 describe('size: it is in every turn', () => {
-  // a rough count (Hangul about 1 token a syllable, other text about 3.6 characters a token); it reads low: measured on
-  // 2026-11-16 with the engine (claude -p usage), the owner's Korean map is about 900 tokens, a member's about 620
-  const tokens = (s: string) => { const h = (s.match(/[가-힣]/g) ?? []).length; return Math.round(h + (s.length - h) / 3.6) }
-  test('at most 20 lines and about 650 tokens in its longest form', () => {
+  // a rough count calibrated on the engine's own usage (claude -p, 2026-11-16): Hangul about 1.45 tokens a syllable,
+  // other text about 3.6 characters a token
+  const tokens = (s: string) => { const h = (s.match(/[가-힣]/g) ?? []).length; return Math.round(h * 1.45 + (s.length - h) / 3.6) }
+  test('at most 20 lines and about 750 tokens in its longest form', () => {
     for (const view of ['staff', 'member', 'shared'] as const) for (const L of ['ko', 'en', 'ja'] as const) {
-      const s = appMapSection({ view, managed: true, devEnv: true }, L)
+      const s = appMapSection({ view, managed: true, devEnv: true, office: false }, L)
       expect({ view, L, lines: s.split('\n').length <= 20 }).toEqual({ view, L, lines: true })
-      expect({ view, L, small: tokens(s) <= 650 }).toEqual({ view, L, small: true })
+      expect({ view, L, small: tokens(s) <= 750 }).toEqual({ view, L, small: true })
     }
   })
 })

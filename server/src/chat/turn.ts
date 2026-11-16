@@ -86,6 +86,8 @@ import { hasCredentialFor, resolveCredential, type CredEngine } from '../credent
 import { connectionRoute } from '../credentials/access'
 import { isGuestUser } from '../credentials/guest-ai'
 import { situationOf } from './situation'
+import { appMapView } from './app-map'
+import { isManaged } from '../app-config'
 import { runKindOf } from '../system/deployment'
 import { guestPromptOf } from './guest-tools'
 import { credentialsOf, getRow, metaOf } from '../credentials/store'
@@ -795,9 +797,10 @@ export class TurnExec {
     // whatever engine.authMode says)
     const managedEngine = engine === 'claude-code' ? claude?.authMode === 'managed' && !!claude.modelProxy : engine === 'codex' ? codex?.auth === 'managed' : false
     const situation = this.shared ? null : situationOf(rt.ctx, { userId: spec.userId, role: this.principal.role, clientKind: spec.clientKind, browser: this.browser, engine, locale: spec.locale, managed: managedEngine, webSearch })
-    // where things are in the app (chat/app-map.ts): a member's short form, an owner's or admin's full one, a shared
-    // chat's role-neutral one; none for a guest
-    const appMap = guestTurn ? null : { view: this.shared ? 'shared' as const : this.principal.role === 'owner' || this.principal.role === 'admin' ? 'staff' as const : 'member' as const, managed: managedEngine, devEnv: devEnvFlag() }
+    // where things are in the app (chat/app-map.ts): none for a guest or a scheduled run (nobody to point anywhere);
+    // guest AI by the install, as Admin says it (routes/credentials.ts guestAiUnavailable), not by this turn's engine
+    const appMap = guestTurn || spec.clientKind === 'schedule' || this.templateScope ? null
+      : { view: appMapView(this.principal.role, !!this.shared), managed: isManaged(rt.ctx.config), devEnv: devEnvFlag(), office: !!rt.ctx.config.office }
     const runKind = runKindOf(rt.ctx.config)
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone,

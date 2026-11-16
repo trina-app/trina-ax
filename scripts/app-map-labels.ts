@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { Locale } from '../shared/src/api'
 import { DICTS } from '../web/src/i18n'
-import { APP_MAP_KEYS } from '../server/src/chat/app-map'
+import { APP_MAP_KEYS } from '../server/src/chat/app-map-keys'
 
 export const LABELS_FILE = path.resolve(import.meta.dir, '../server/src/chat/app-map-labels.ts')
 
