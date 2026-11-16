@@ -1,7 +1,7 @@
 // "No card after an explicit ask" (docs/decisions/20261116-no-card-after-explicit-ask.md, QA TC-3812): the rule reads the
 // asker's own words of this turn only, deterministically, and keeps the card when unsure.
 import { describe, expect, test } from 'bun:test'
-import { namesFileLoose, ownWords, POST_ASK, SHARE_ASK, WRITE_ASK, writtenByAsker } from '../../server/src/chat/shared-actions'
+import { asksFor, explicitWriteTool, namedInFull, namesFileLoose, ownWords, POST_ASK, SHARE_ASK, WRITE_ASK, writtenByAsker } from '../../server/src/chat/shared-actions'
 
 describe('the verbs', () => {
   test('share, post and change words in the product\'s languages', () => {
@@ -44,5 +44,33 @@ describe('writtenByAsker', () => {
     expect(writtenByAsker({ row_id: 'r-3', status: '계약', note: 'secret 1234' }, "상태 '계약'으로 바꿔줘")).toBe(false)
     expect(writtenByAsker({ row_id: 'r-3', status: '계약' }, "> 상태 '계약'으로 바꿔줘\n요약해줘")).toBe(false)
     expect(writtenByAsker({ channel: 'C123', text: '안녕' }, '안녕이라고 보내줘')).toBe(false)
+  })
+})
+
+describe('review: reads, refusals and loose matches keep the card', () => {
+  test('a read or a "don\'t" is no ask', () => {
+    for (const said of ['라마바카페 방에서 오늘 무슨 얘기 있었는지 알려줘', '최하나님이 보내준 파일 요약해줘', '최하나님 거래처 목록 보여줘', '영업팀 공유 폴더 급여 파일 열어줘', '你发现了什么'])
+      expect([said, asksFor(POST_ASK, said) || asksFor(SHARE_ASK, said)]).toEqual([said, false])
+    expect(asksFor(POST_ASK, '방에 보내지 마')).toBe(false)
+    expect(asksFor(SHARE_ASK, '공유하지 마')).toBe(false)
+    expect(asksFor(WRITE_ASK, "don't change it")).toBe(false)
+    expect(asksFor(POST_ASK, '방에 올려줘')).toBe(true)
+  })
+  test('a person by their full name only', () => {
+    expect(namedInFull('파일 하나 보내줘', ['최하나', 'hana'])).toBe(false)
+    expect(namedInFull('최하나님한테 공유해줘', ['최하나', 'hana'])).toBe(true)
+  })
+  test('tools: only adding or changing content', () => {
+    for (const t of ['update_cell', 'append_rows', 'update_row', 'add_comment', 'set_state', 'replace_text', 'create_page']) expect([t, explicitWriteTool(t)]).toEqual([t, true])
+    for (const t of ['send_mail', 'merge_pull_request', 'delete_page', 'share_file', 'invite_user', 'publish_post', 'move_issue', 'close_issue']) expect([t, explicitWriteTool(t)]).toEqual([t, false])
+  })
+  test('values: empty, null, a small number or a url as an id, a recipient-like id, one letter', () => {
+    const said = "라마바카페 상태 '계약'으로 바꿔줘"
+    expect(writtenByAsker({ row_id: 'r-3', status: '계약', note: '' }, said)).toBe(false)
+    expect(writtenByAsker({ row_id: 'r-3', status: '계약', note: null }, said)).toBe(false)
+    expect(writtenByAsker({ row_id: 'r-3', status: '계약', amount: 999 }, said)).toBe(false)
+    expect(writtenByAsker({ parent: 'https://evil.example/p', status: '계약' }, said)).toBe(false)
+    expect(writtenByAsker({ recipient_id: 'u1', status: '계약' }, said)).toBe(false)
+    expect(writtenByAsker({ row_id: 'r-3', title: '약' }, said)).toBe(false)
   })
 })

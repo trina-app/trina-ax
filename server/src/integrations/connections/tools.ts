@@ -22,7 +22,7 @@ import type { TurnTool, TurnToolContext, TurnToolProvider, TurnToolResult } from
 import { addSources } from '../../chat/read-scope'
 import { tr } from '../../chat/i18n'
 import { cardEndShort, cardNext, cardReason, refusal, SCREEN } from '../../policy/refusal'
-import { ownWords, WRITE_ASK, writtenByAsker } from '../../chat/shared-actions'
+import { asksFor, explicitWriteTool, ownWords, WRITE_ASK, writtenByAsker } from '../../chat/shared-actions'
 import { askConfirm, carriesAddress, opaqueParts } from '../../tools/url-gate'
 import { parse as parseHost } from 'tldts'
 import { MAX_BODY, type NetResponse } from './net'
@@ -360,15 +360,12 @@ function keepAlwaysAllow(ctx: AppContext, row: Row, userId: string) {
   audit(ctx.db, { actor: userId, action: 'integration.always_allow', target: row.id, detail: { allow: true, via: 'card' } })
 }
 
-/** a service tool whose name says it removes something: its card stays, whatever was asked */
-const DESTRUCTIVE = /delete|remove|archive|trash|destroy|purge|erase|revoke|cancel/i
-
 /** The person's own message of this turn (never a quoted line) asks for a change and holds what `raw` writes. */
 function writeAsked(ctx: AppContext, turnId: string, raw: unknown): boolean {
   const m = ctx.db.query('SELECT m.content, m.auto_sent FROM turns t JOIN messages m ON m.id = t.user_message_id WHERE t.id = ?').get(turnId) as { content: string | null; auto_sent: number | null } | null
   if (!m || m.auto_sent) return false
   const said = ownWords(m.content ?? '')
-  return WRITE_ASK.test(said) && writtenByAsker(raw, said)
+  return asksFor(WRITE_ASK, said) && writtenByAsker(raw, said)
 }
 
 /**
@@ -426,8 +423,8 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   const person = b.scheduled ? null : tc.files.person
   // no card when the person's own message of this turn asked for this change and everything it writes is in their words
   // (docs/decisions/20261116-no-card-after-explicit-ask.md, QA TC-3812; shared-actions.ts writtenByAsker): only a
-  // service tool (not api_request), never one that deletes, only in a turn the person watches from their own app
-  if (person && !person.unattended && live && sent.tool && !sent.request && !DESTRUCTIVE.test(sent.tool) && writeAsked(ctx, b.turnId, sent.raw)) return true
+  // service tool that adds or changes content (explicitWriteTool: not api_request, never one that sends, deletes or shares), only in a turn the person watches from their own app
+  if (person && !person.unattended && live && sent.tool && !sent.request && explicitWriteTool(sent.tool) && writeAsked(ctx, b.turnId, sent.raw)) return true
   if (!person || person.unattended) {
     throw new CallError(refusal({
       done: `Nothing was sent to ${row.name}.`, why: cardReason('unattended'),

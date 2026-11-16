@@ -23,7 +23,7 @@ import { fileSharesOf } from '../files/shares'
 import { isStaff } from '../policy/access'
 import { tr } from './i18n'
 import { neutralizeTags } from './prompt'
-import { actionOff, askerPicks, askerText, attachedPaths, madeInTurn, mainOnly, namesFile, namesFileLoose, namesRecipient, ownWords, SHARE_ASK } from './shared-actions'
+import { actionOff, askerPicks, askerText, attachedPaths, madeInTurn, mainOnly, namesFile, namesFileLoose, namedInFull, namesRecipient, ownWords, asksFor, SHARE_ASK } from './shared-actions'
 import { readRooms } from './read-rooms'
 import { withAlways } from './always-allow'
 import type { Tool } from './tools'
@@ -147,8 +147,8 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         // or attached by them. Nobody else's words chose who gets which file then; never in a run nobody watches
         const said = ownWords(askerText(db, spec.userMessageId))
         const mine = attachedPaths(db, spec.userMessageId)
-        const explicit = spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && SHARE_ASK.test(said)
-          && who.every((w) => namesRecipient(said, w.name, { names: recipientWords(db, w), person: w.subjectType === 'user' }))
+        const explicit = spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && asksFor(SHARE_ASK, said)
+          && who.every((w) => namedInFull(said, recipientWords(db, w)))
           && plan.every((f) => mine.has(f.path) || namesFileLoose(said, f.path))
         const reply = explicit ? 'share' : await withAlways(alwaysOk ? exec.alwaysPlace?.() : null, 'share_files', [{ label: tr('fileShareYes', L), value: 'share' }, { label: tr('fileShareNo', L), value: 'no' }], 'share', (options, more) => exec.waitForPerson({
           kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, multiple: false, allowText: false, options, ...more,
