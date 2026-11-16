@@ -9,7 +9,7 @@
 //   bun run ai:scenarios all [--jobs 3]               up --reset, run, judge, report
 //   bun run ai:scenarios down                         stop the server this tool started (by its pid, nothing else)
 //   bun run ai:scenarios list [--feature …] [--first-pass]   the cases, one line each
-//   bun run ai:scenarios flows run [--flow FL-01,…] [--group sharing] [--always] [--jobs 2] [--no-judge]
+//   bun run ai:scenarios flows run [--flow FL-01,…] [--group sharing] [--always] [--jobs 2] [--no-judge] [--keep-state]
 //                                                   the multi-step flows (flows.yaml); --always: people choose "Always allow"
 //   bun run ai:scenarios flows judge|report|list   judge a flow run; the report (default run + the latest --always run)
 //   bun run ai:scenarios mocks [down]               the MOCK services behind a quick tunnel, connected for the people
@@ -66,8 +66,11 @@ async function down() {
   say(alive(p) ? `server ${p} did not stop` : `server ${p} stopped`)
 }
 
-async function up() {
-  if (flag('--reset')) {
+/** start this tool's server and seed it; `reset` first deletes this tool's own folder (AISCEN_HOME). The flags come from
+ * the command line unless given (a flow run's reset keeps the server's dev environment and relay mode). */
+async function up(o: { reset?: boolean; devenv?: boolean; relay?: boolean } = {}) {
+  const devenv = o.devenv ?? flag('--devenv'), relay = o.relay ?? !flag('--no-relay')
+  if (o.reset ?? flag('--reset')) {
     await down()
     // only this tool's own folder (AISCEN_HOME), never anything else
     if (fs.existsSync(HOME) && fs.existsSync(path.join(HOME, 'data'))) fs.rmSync(HOME, { recursive: true, force: true })
@@ -75,12 +78,12 @@ async function up() {
   fs.mkdirSync(HOME, { recursive: true, mode: 0o700 })
   if (!serverPid()) {
     const env: Record<string, string> = { ...(process.env as Record<string, string>), TEAM_AX_DEV_DIR: HOME, TEAM_AX_DEV_PORT: String(PORT), TEAM_AX_DEV_RELAY_PORT: String(RELAY_PORT), NO_COLOR: '1' }
-    if (flag('--devenv')) env.MYCEL_DEV_ENV = '1'
+    if (devenv) env.MYCEL_DEV_ENV = '1'
     else delete env.MYCEL_DEV_ENV
-    fs.writeFileSync(path.join(HOME, 'devenv'), flag('--devenv') ? '1' : '0')
+    fs.writeFileSync(path.join(HOME, 'devenv'), devenv ? '1' : '0')
     const out = fs.openSync(LOG, 'a')
-    fs.writeFileSync(path.join(HOME, 'relay-mode'), flag('--no-relay') ? '0' : '1')
-    const child = Bun.spawn(['bun', 'run', 'scripts/dev.ts', ...(flag('--no-relay') ? ['--no-relay'] : [])], { cwd: ROOT, env, stdout: out, stderr: out, stdin: 'ignore' })
+    fs.writeFileSync(path.join(HOME, 'relay-mode'), relay ? '1' : '0')
+    const child = Bun.spawn(['bun', 'run', 'scripts/dev.ts', ...(relay ? [] : ['--no-relay'])], { cwd: ROOT, env, stdout: out, stderr: out, stdin: 'ignore' })
     child.unref()
     fs.writeFileSync(PID, String(child.pid))
     say(`server starting (pid ${child.pid}, log ${LOG})`)
@@ -234,6 +237,17 @@ function selectedFlows(all: Flow[]): Flow[] {
 
 async function runFlows(): Promise<string> {
   if (!(await healthy())) throw new Error(`no server on ${BASE}: run \`bun run ai:scenarios up\` first`)
+  // every run starts from the seeded company, on a fresh data folder: shares, grants and "Always allow" choices of an
+  // earlier run (the default run before the --always one) would otherwise carry over and change what the flows see.
+  // --keep-state runs on the server as it is.
+  if (!flag('--keep-state')) {
+    let relay = true
+    try { relay = fs.readFileSync(path.join(HOME, 'relay-mode'), 'utf8').trim() === '1' } catch {}
+    const devenv = devEnvOn()
+    say('fresh data for this run (the company as seeded; --keep-state to skip)')
+    mocksDown(HOME, say)
+    await up({ reset: true, devenv, relay })
+  }
   const fixture = JSON.parse(fs.readFileSync(STATE, 'utf8')) as FixtureState
   const always = flag('--always')
   const id = opt('--run') ?? `flows-${always ? 'always-' : ''}${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}`

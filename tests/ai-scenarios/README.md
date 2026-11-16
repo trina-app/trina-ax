@@ -211,6 +211,10 @@ bun run ai:scenarios flows run --always        # the same, the people choosing "
 bun run ai:scenarios flows report              # the latest default run plus the latest --always run
 ```
 
+Each `flows run` starts on a fresh data folder with the company as seeded: the server is reset (its dev environment
+and relay mode kept), so a share or an "Always allow" from the default run cannot carry into the `--always` run.
+`--keep-state` runs on the server as it is.
+
 - **Groups:** sharing and links (first), office, people, making (a proposal, a deck, a video, a report, all kept
   small), spreadsheets, documents, connectors, PDF, guest.
 - **Heavy steps** (`heavy: true`) are stopped after about 3 minutes and marked slow.
