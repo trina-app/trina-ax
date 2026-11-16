@@ -246,7 +246,9 @@ jobs:
           key: rhwp-${{ runner.os }}-${{ hashFiles('resources/hwp/manifest.json') }}
       - name: Pinned Hangul renderer
         run: bun run prepare:hwp
-      - name: Unit tests, shard ${{ matrix.shard }} of 5
+      # tests/unit and tests/security (TC-3846: the security suite never ran in CI before); files a Linux runner cannot
+      # run are listed with their reason in scripts/ci/unit-shard.ts CI_SKIPPED and printed here
+      - name: Unit + security tests, shard ${{ matrix.shard }} of 5
         run: bun scripts/ci/unit-shard.ts ${{ matrix.shard }} 5
 
   other:

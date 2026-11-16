@@ -3,10 +3,11 @@
 // rooms"; QA TC-1546, TC-1547, TC-1412).
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
 import crypto from 'node:crypto'
-import { ROOM_APPS_MAX } from '@mycel/shared/api'
+import { ROOM_APPS_MAX, ROOM_APPS_PER_HOUR } from '@mycel/shared/api'
 import { credentialsOf } from '../../server/src/credentials/store'
 import { rekeyCredentials } from '../../server/src/credentials/rekey'
 import { APP_DATA_NOTE, readRoom, searchRooms } from '../../server/src/rooms/reader'
+import { roomAppsOf } from '../../server/src/rooms/apps/service'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 import { addGuest } from './guest-lib'
 
@@ -218,4 +219,17 @@ test('the rooms list says where each person may add apps (Room.canManageApps, th
   // demoted: the list says so at once
   await owner.call('PATCH', `/api/admin/users/${ada.id}`, { role: 'member' })
   expect(await can(ada.client)).toMatchObject({ [team]: false, [everyone]: false })
+})
+
+test(`one person adds at most ${ROOM_APPS_PER_HOUR} apps an hour (429 with Retry-After); removing one does not give it back`, async () => {
+  const { mia, dm } = await setup()
+  const base = `/api/rooms/${dm}/apps`
+  expect(roomAppsOf(h.ctx).addsPerHour).toBe(ROOM_APPS_PER_HOUR)
+  for (let i = 0; i < ROOM_APPS_PER_HOUR; i++) {
+    const made = await mia.client.call('POST', base, { kind: 'other', name: `App ${i}` })
+    // removed again, so the room's cap (ROOM_APPS_MAX) is not what stops the next
+    await mia.client.call('DELETE', `${base}/${made.app.id}`)
+  }
+  const over = await mia.client.try('POST', base, { kind: 'other', name: 'One more' })
+  expect(over.status).toBe(429)
 })

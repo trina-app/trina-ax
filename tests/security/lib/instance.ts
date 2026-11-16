@@ -122,14 +122,15 @@ export interface Instance {
   close(): Promise<void>
 }
 
-/** Ports are taken in order from MYCEL_SEC_PORT (default 22180), one per instance, within the 22180-22199 range. */
-let nextPort = Number(process.env.MYCEL_SEC_PORT ?? 22180)
+/** A free port per instance; with MYCEL_SEC_PORT set, ports are taken in order from it. Fixed ports (22180 and up)
+ * collided with other test runs on the same machine and, in CI, with the unit tests sharing a shard (TC-3846). */
+let nextPort = process.env.MYCEL_SEC_PORT ? Number(process.env.MYCEL_SEC_PORT) : null
 export async function startInstance(name: string): Promise<Instance> {
   const base = path.join(WORK, 'security', name)
   fs.rmSync(base, { recursive: true, force: true })
   const team = path.join(base, 'team'), dataDir = path.join(base, 'data')
   for (const d of [team, dataDir]) fs.mkdirSync(d, { recursive: true, mode: 0o700 })
-  const port = nextPort++
+  const port = nextPort === null ? await freePort() : nextPort++
   // a model service that accepts every check (the world's AI connections are verified against it) and answers
   // nothing else: no request of a test ever reaches a real provider
   const provider = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: (req) => (/\/(models|count_tokens)$/.test(new URL(req.url).pathname) ? Response.json({ data: [], input_tokens: 1 }) : new Response('no', { status: 503 })) })
