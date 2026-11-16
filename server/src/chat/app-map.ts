@@ -71,7 +71,7 @@ export function appMapSection(o: AppMapInput, L: Locale): string {
     `- Chat title menu (its creator): ${q('chat.rename')}. Chat list: ${q('navFolders.new')}, ${q('navFolders.moveTo')}. Answer: ${q('chat.regenerate')}; own message: ${q('chat.edit')}.`,
     `- ${tr('cardAlways', L)} on a card: not asked again; undo in ${set(PRODUCT_NAMED_AFTER_AI ? 'settings.allowances' : 'settings.allowancesAi')}.`,
     `- Room ⋯ › ${q('roomApps.menuAdd')} (${q('roomApps.menuList')} once it has some): Google Forms or any service with a ${q('roomApps.address')} posts into the room.`,
-    `- Room bell or ⋯ › ${q('rooms.menu.notify')}: ${q('rooms.notify.mentions')}. ${q('notifications.quiet')}: ${set('notifications.title')}.`,
+    `- Room bell or ⋯ › ${q('rooms.menu.notify')}: ${q('rooms.notify.mentions')} / ${q('rooms.notify.off')}. ${q('notifications.quiet')}: ${set('notifications.title')}.`,
     `- ${q('settings.title')}: ${q('settings.apps')} (phone, Mac, Windows apps), ${q('settings.about')} (version), ${q('aiApps.title')} (team files from Claude or another AI app), ${q('settings.profile')} (their AI and model, if the team allows).`,
     `- ${q('sidebar.skills')}: ${q('skills.catalog.more')} (ready-made; owners and admins see it while some are missing); ${q('skills.catalog.bring')} (on a computer; a member's are reviewed).`,
     `- Desktop app only, not the Mac App Store one: ${q('sidebar.files')} › ${ownFolderLabel(L)} › ${q('files.findWork.entryButton')}.`,

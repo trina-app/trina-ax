@@ -20,6 +20,7 @@ export const APP_MAP_LABELS: Readonly<Record<string, Readonly<Record<Locale, str
   "roomApps.address": { ko: "Webhook URL", en: "Webhook URL", id: "Webhook URL", ja: "Webhook URL", es: "Webhook URL", zh: "Webhook URL" },
   "rooms.menu.notify": { ko: "알림 설정", en: "Notification settings", id: "Pengaturan notifikasi", ja: "通知設定", es: "Ajustes de notificaciones", zh: "通知设置" },
   "rooms.notify.mentions": { ko: "멘션만", en: "Mentions only", id: "Hanya sebutan", ja: "メンションのみ", es: "Solo menciones", zh: "仅提及" },
+  "rooms.notify.off": { ko: "끄기", en: "Off", id: "Mati", ja: "オフ", es: "Desactivadas", zh: "关闭" },
   "notifications.title": { ko: "알림", en: "Notifications", id: "Notifikasi", ja: "通知", es: "Notificaciones", zh: "通知" },
   "notifications.quiet": { ko: "방해 금지 시간", en: "Do not disturb", id: "Jangan ganggu", ja: "おやすみモード", es: "No molestar", zh: "免打扰" },
   "settings.apps": { ko: "앱", en: "Apps", id: "Aplikasi", ja: "アプリ", es: "Aplicaciones", zh: "应用" },

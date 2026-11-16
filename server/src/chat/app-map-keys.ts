@@ -8,7 +8,7 @@ export const APP_MAP_KEYS = [
   // cards and allowances (the card's own "Always allow" is the server's: chat/i18n.ts cardAlways)
   'settings.allowances', 'settings.allowancesAi',
   // rooms
-  'roomApps.menuAdd', 'roomApps.menuList', 'roomApps.address', 'rooms.menu.notify', 'rooms.notify.mentions',
+  'roomApps.menuAdd', 'roomApps.menuList', 'roomApps.address', 'rooms.menu.notify', 'rooms.notify.mentions', 'rooms.notify.off',
   // Settings
   'notifications.title', 'notifications.quiet', 'settings.apps', 'settings.about', 'aiApps.title', 'settings.profile',
   // skills, files
