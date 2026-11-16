@@ -23,7 +23,7 @@ import { appMapSection, type AppMapInput } from './app-map'
 import type { RunKind } from '../system/deployment'
 import { htmlPdfUnavailable } from '../files/html-pdf'
 import { AI_NAME, notFoundNext, SCREEN } from '../policy/refusal'
-import { CARD_WORDS_RULE, OTHERS_WORDS_RULE, POST_FILE_RULE, REFUSAL_NEXT_RULE, SAME_NAME_RULE, sendNotConnectedRule, sharedCommentsLine, WHICH_THREAD_RULE } from './share-words'
+import { CARD_WORDS_RULE, OTHERS_WORDS_RULE, POST_FILE_RULE, REFUSAL_NEXT_RULE, REFUSAL_NEXT_RULE_FOLDERS, SAME_NAME_RULE, SHARE_FOLDER_RULE, sendNotConnectedRule, sharedCommentsLine, WHICH_THREAD_RULE } from './share-words'
 import type { GuestPrompt } from './guest-tools'
 
 export const MEMORY_ITEM_MAX = MEMORY_TEXT_MAX
@@ -940,7 +940,8 @@ export function turnPromptSections(files: FileService, i: PromptInput): Section[
     // service that is not connected
     tools.has('ask_user') ? CARD_WORDS_RULE : '',
     SAME_NAME_RULE,
-    tools.has('share_with_person') || tools.has('post_to_room') ? REFUSAL_NEXT_RULE : '',
+    // (share_folder offered: folder sharing's gate is open, and the user's own folder is shared as a whole)
+    tools.has('share_with_person') || tools.has('post_to_room') ? (tools.has('share_folder') ? REFUSAL_NEXT_RULE_FOLDERS : REFUSAL_NEXT_RULE) : '',
     !i.shared && (tools.has('share_with_person') || tools.has('post_to_room')) ? OTHERS_WORDS_RULE : '',
     !i.guest && !i.shared && (tools.has('share_with_person') || tools.has('post_to_room')) ? sendNotConnectedRule(i.locale, tools.has('connect_service')) : '',
     tools.has('make_file') ? makeFileRule(tools.has('edit_hwp')) : '',
@@ -950,6 +951,7 @@ export function turnPromptSections(files: FileService, i: PromptInput): Section[
     tools.has('move_files') ? 'To move, copy or rename files of any type (PDF, images, Office files, chat attachments), use move_files, copy_files and rename_file; write only saves text. Files the user attached in a chat are in their .attachments folder: move them to keep them for the team.' : '',
     tools.has('delete_files') ? (i.guest ? GUEST_DELETE_RULE : DELETE_RULE) : '',
     tools.has('share_with_person') ? SHARE_FILES_RULE : '',
+    tools.has('share_folder') ? SHARE_FOLDER_RULE : '',
     tools.has('who_can_open') ? WHO_CAN_OPEN_RULE : '',
     // tools the AI calls when it needs them, one line each (docs/decisions/20261116-ai-screen-and-shared-tools.md): the
     // files shared with the person (no list in every turn), and what the person has open now

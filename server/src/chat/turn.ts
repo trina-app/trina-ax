@@ -2910,7 +2910,7 @@ export class TurnExec {
   sharedSources(tool: string, input: unknown): ReadSource[] {
     // share_with_person reads nothing into the chat: it grants the asker's own files to someone, behind their own card,
     // and gives back only the names the asker gave and the links (chat/share-with-person.ts)
-    if (tool === 'share_with_person' || tool === 'stop_sharing') return []
+    if (tool === 'share_with_person' || tool === 'stop_sharing' || tool === 'share_folder') return []
     // who_can_open reads no file: in a shared chat it answers only about the chat itself and a file the asker named or
     // attached in their own message (chat/who-can-open.ts)
     if (tool === 'who_can_open') return []

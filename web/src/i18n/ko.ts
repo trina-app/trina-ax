@@ -6706,6 +6706,7 @@ export const ko = {
   "shareCard.posted": "{room}에 올렸어요",
   "shareCard.postedPlain": "대화에 올렸어요",
   "fileLink.stoppedBy": "{name}님이 이 파일 공유를 중지했어요",
+  "shareCard.note.keptOwn": "안에서 따로 공유된 채로 남는 항목: {what}",
 } as const
 
 export type MessageKey = keyof typeof ko

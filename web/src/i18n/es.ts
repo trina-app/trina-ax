@@ -6662,4 +6662,5 @@ export const es: Record<MessageKey, string> = {
   "shareCard.posted": "Publicado en {room}",
   "shareCard.postedPlain": "Publicado en una conversación",
   "fileLink.stoppedBy": "{name} dejó de compartir este archivo",
+  "shareCard.note.keptOwn": "Dentro siguen compartidos por separado: {what}.",
 }

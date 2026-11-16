@@ -433,7 +433,8 @@ export class FolderShares {
     const wide = teamAllowsAlways(this.db) && alwaysOn(this.db, me.id, 'save_wider')
     return {
       ...base, link: s ? { id: s.id, url: fileLinkUrl(s.id) } : null,
-      canShare: !block && !off, ...(off ? { off: true as const } : {}),
+      // (taking people off and stopping are always the owner's: the AI's share card reads this, files/shares.ts cards)
+      canShare: !block && !off, canStop: true, ...(off ? { off: true as const } : {}),
       people: s ? this.shares.rows(s.id, L) : [],
       ...(block ? { blocked: block } : {}),
       ...(s?.paused_at ? { paused: true as const } : {}),

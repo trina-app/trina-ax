@@ -6634,4 +6634,5 @@ export const zh: Record<MessageKey, string> = {
   "shareCard.posted": "已发到{room}",
   "shareCard.postedPlain": "已发到聊天",
   "fileLink.stoppedBy": "{name}已停止共享此文件",
+  "shareCard.note.keptOwn": "其中仍单独共享的内容：{what}",
 }

@@ -52,7 +52,10 @@ export function refusalLine(t: T, s: StepShared): string | null {
   const r = s.refusal
   if (!r) return null
   const why = r.reason === 'not_owner' ? (r.owner ? t(`shareCard.why.notOwner.${s.op}`, { owner: r.owner }) : t('fileShare.ownerOnly'))
-    : r.reason === 'switched_off' ? t('fileShare.off')
+    : r.reason === 'switched_off' ? t(s.failed?.[0]?.folder ? 'fileShare.offFolder' : 'fileShare.off')
+    // a folder (share_folder): the Share dialog's own words for why it can't be shared, or that its share is paused
+    : r.reason === 'place' ? t(`fileShare.blocked.${r.block ?? 'system_place'}` as MessageKey)
+    : r.reason === 'paused' ? t('fileShare.paused')
     : t(`shareCard.why.${r.reason}`)
   // a partial result names the file it stopped at; a refusal's headline has it already
   return s.outcome === 'partial' && r.file ? `${t(`shareCard.refused.${s.op}`, { file: r.file })} ${why}` : why
@@ -62,6 +65,8 @@ export function refusalLine(t: T, s: StepShared): string | null {
  * through what (a stop), why it was refused. */
 export function shareNotes(t: T, locale: Locale, s: StepShared, restored = false): string[] {
   const out: string[] = []
+  // a folder (share_folder): its people see what is added to it later too
+  if (s.op === 'share' && s.outcome !== 'refused' && s.files[0]?.folder && s.who.length) out.push(t('fileShare.folderLater'))
   if (s.op === 'share' && s.outcome !== 'refused') {
     if (s.who.some((w) => w.everyone)) out.push(t('shareCard.note.everyoneLater'))
     else if (s.who.some((w) => w.subjectType === 'group')) out.push(t('shareCard.note.groupLater'))
@@ -80,6 +85,11 @@ export function shareNotes(t: T, locale: Locale, s: StepShared, restored = false
         : t(one ? `shareCard.still.${p.through === 'everyone' ? 'everyone' : 'folder'}.it` : `shareCard.still.${p.through === 'everyone' ? 'everyone' : 'folder'}.files`, { name: p.name, n: p.files }))
     }
     if (s.stillMore) out.push(t('shareCard.still.more', { n: s.stillMore }))
+    // a folder's stop: what inside stays shared on its own
+    if (s.keptOwn && (s.keptOwn.files || s.keptOwn.folders)) {
+      const what = listOf(locale, [s.keptOwn.files ? t('fileShare.holdsFiles', { n: s.keptOwn.files }) : '', s.keptOwn.folders ? t('fileShare.holdsFolders', { n: s.keptOwn.folders }) : ''].filter(Boolean))
+      out.push(t('shareCard.note.keptOwn', { what }))
+    }
   }
   const why = refusalLine(t, s)
   if (why) out.push(why)
@@ -91,6 +101,11 @@ export function isRestored(s: StepShared, live: readonly ShareCardState[] | null
   if (s.op !== 'stop' || s.outcome === 'refused' || !live || s.whoMore) return false
   const mine = s.files.map((f) => live.find((x) => x.id === f.linkId)).filter((x): x is Extract<ShareCardState, { path: string }> => !!x && !('gone' in x))
   return mine.length > 0 && mine.every((x) => s.who.every((w) => x.people.some((r) => r.subjectType === w.subjectType && r.subjectId === w.subjectId)))
+}
+
+/** The server's Undo of a folder's stop or removal (`Step.shared.undo`), while it is offered; null otherwise. */
+export function serverUndo(s: StepShared, now = Date.now()): string | null {
+  return s.op === 'stop' && s.outcome !== 'refused' && s.undo && Date.parse(s.undo.until) > now ? s.undo.id : null
 }
 
 /** The card's files the viewer can act on now (the Share dialog, Undo), in the card's order. */

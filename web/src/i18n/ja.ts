@@ -6662,4 +6662,5 @@ export const ja: Record<MessageKey, string> = {
   "shareCard.posted": "{room}に投稿しました",
   "shareCard.postedPlain": "トークに投稿しました",
   "fileLink.stoppedBy": "{name}さんがこのファイルの共有を停止しました",
+  "shareCard.note.keptOwn": "中で個別に共有されたまま残るもの: {what}",
 }

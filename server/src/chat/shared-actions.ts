@@ -95,6 +95,42 @@ export function namesFile(said: string, rel: string): boolean {
   return [fold(rel), name, stem].some((n) => n.length >= 3 && holds(text, n))
 }
 
+/** Quotation marks a person puts around a name: straight, curly, corner brackets, guillemets, backticks. */
+const QUOTES: readonly [string, string][] = [['"', '"'], ['“', '”'], ["'", "'"], ['‘', '’'], ['「', '」'], ['『', '』'], ['«', '»'], ['`', '`']]
+/** a place in words as compared: "My files › Projects › Work", also written with ">" or "/" between the parts */
+const placeKey = (s: string) => fold(s).replace(/\s*[›>/]\s*/g, ' › ')
+
+/**
+ * Does the asker's own message name this FOLDER (share_folder; security review M9)? `namesFile` is not used for
+ * folders: "Work" or "Reports" are in ordinary sentences, and names under 3 characters never match there. A folder is
+ * named only by:
+ * - its path (the team path, with or without a slash at the end), or its place in words as the app says it
+ *   (`place`: "My files › Projects › Work", from chat/place-words.ts);
+ * - its name inside quotation marks or backticks ("Work", “Work”, 'Work', 「Work」, `Work`), any length;
+ * - the app's own mention of it: attached to the message (`attached`), or linked in it (/files/view?path=… or
+ *   /files?path=…, the path the app put there).
+ * `said`: the asker's own words of this turn (quoted lines already left out: ownWords). Fails closed.
+ */
+export function namesFolder(said: string, rel: string, o: { place?: string; attached?: ReadonlySet<string> } = {}): boolean {
+  const path = rel.replace(/^\/+/, '').replace(/\/+$/, '')
+  if (!path || !said.trim()) return false
+  if (o.attached?.has(path) || o.attached?.has(`${path}/`)) return true
+  for (const m of said.matchAll(/\/files(?:\/view)?\?(?:[^\s)\]#]*&)?path=([^\s)\]&#]+)/g)) {
+    let p = ''
+    try { p = decodeURIComponent(m[1]!) } catch { continue }
+    if (p.replace(/^\/+/, '').replace(/\/+$/, '') === path) return true
+  }
+  const text = fold(said)
+  if (holds(text, fold(path))) return true
+  if (o.place) {
+    const pl = placeKey(o.place)
+    // (the place must hold more than the name: a place of one part is the name alone)
+    if (pl.includes(' › ') && placeKey(said).includes(pl)) return true
+  }
+  const name = fold(path.split('/').pop() ?? '')
+  return !!name && QUOTES.some(([a, b]) => text.includes(`${fold(a)}${name}${fold(b)}`))
+}
+
 /** The team files the asker attached to their own message of this turn. */
 export function attachedPaths(db: Database, messageId: string): Set<string> {
   const row = db.query('SELECT attachments FROM messages WHERE id = ?').get(messageId) as { attachments: string | null } | null

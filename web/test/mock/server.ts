@@ -2074,6 +2074,44 @@ export class MockServer {
       const who = [{ subjectType: 'user' as const, subjectId: bob.id, name: bob.name }]
       const row = (n: string) => ({ linkId: this.fileLinkOf(`users/${user.id}/${n}`), name: n, place })
       const grant = (n: string, on: boolean) => { const p = `users/${user.id}/${n}`; const rest = (this.fileGrants.get(p) ?? []).filter((x) => !(x.subjectType === 'user' && x.subjectId === bob.id)); this.fileGrants.set(p, on ? [...rest, { subjectType: 'user', subjectId: bob.id }] : rest) }
+      if (/folder/i.test(prompt)) {
+        let said = ''
+        // like server/src/chat/share-folder.ts (docs/decisions/20261116-share-folder-tool.md): "sharecard folder": the card
+        // always, with the folder row (what it holds) and the later-files line, then the result; "sharecard folder stop":
+        // no card (the folder named), the grant removed, the record with the server's Undo snapshot
+        const p = `users/${user.id}/QA-test`
+        this.files.set(p, { type: 'folder', mtime: now() })
+        for (const n of ['brief.md', 'notes.md']) if (!this.files.has(`${p}/${n}`)) this.putFile(`${p}/${n}`, `# ${n}\n`)
+        const frow = { linkId: this.fileLinkOf(p), name: 'QA-test', place: ko ? '내 파일' : 'My files', folder: { files: 2, folders: 0 } }
+        const fverb = ko ? '폴더 공유' : 'Share folder'
+        put(step({ id: 'S1', kind: 'tool', tool: 'share_folder', label: fverb }))
+        this.sharedBy.set(`${assistant.id}:S1`, user.id)
+        const others = (this.fileGrants.get(p) ?? []).filter((x) => !(x.subjectType === 'user' && x.subjectId === bob.id))
+        let fshared: NonNullable<Step['shared']> | undefined
+        if (/stop/i.test(prompt)) {
+          this.fileGrants.set(p, others)
+          const id = crypto.randomUUID().replace(/-/g, '').slice(0, 22)
+          const until = Date.now() + 10 * 60_000
+          this.shareUndos.set(id, { userId: user.id, path: p, grants: [{ subjectType: 'user', subjectId: bob.id }], until, used: false })
+          fshared = { op: 'stop', outcome: 'done', files: [frow], who, level: 'view', undo: { id, until: new Date(until).toISOString() } }
+          said = ko ? '공유를 중지했어요.' : 'Done, Bob can no longer open it.'
+        } else {
+          const answer = await ask({
+            kind: 'ask_user', origin: 'server', requestId: 'sf1', allowText: false, multiple: false,
+            question: ko ? `QA-test 폴더를 ${bob.name}에게 공유할까요?` : `Share QA-test with ${bob.name}?`,
+            options: [{ label: ko ? '공유하기' : 'Share', value: 'yes' }, { label: ko ? '공유하지 않기' : "Don't share", value: 'no' }],
+            share: { op: 'share', files: [{ name: 'QA-test', place: frow.place, folder: frow.folder }], who },
+          })
+          if (answer === 'yes') {
+            this.fileGrants.set(p, [...others, { subjectType: 'user', subjectId: bob.id }])
+            fshared = { op: 'share', outcome: 'done', files: [frow], who, level: 'view', notified: [bob.id] }
+            said = ko ? '공유했어요.' : `Done, ${bob.name} can view it now.`
+          } else said = ko ? '공유하지 않았어요.' : 'Okay, nothing was shared.'
+        }
+        put(step({ id: 'S1', kind: 'tool', tool: 'share_folder', label: fshared ? `${fverb} · ${bob.name}` : fverb, status: 'ok', endedAt: now(), ...(fshared ? { shared: fshared } : { detail: ko ? '공유하지 않았어요' : 'Not shared' }) }))
+        finish(said)
+        return
+      }
       const many = /many/i.test(prompt), stop = /stop/i.test(prompt), refusedCase = /refused/i.test(prompt)
       const tool = stop ? 'stop_sharing' : 'share_with_person'
       const verb = stop ? (ko ? '공유 중지' : 'Stop sharing') : (ko ? '파일 공유' : 'Share files')

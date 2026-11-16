@@ -29,6 +29,8 @@ import type { Step, StepFix } from '@mycel/shared/api'
 import { z } from 'zod'
 import { accessRouteFor, fileAccess, folderAccess, nameOf, NAMES_MAX, routeWords, sharedWithMeAccess, type AccessRoute } from '../files/access-routes'
 import { shareFixesOf } from '../files/share-fixes'
+import { folderSharesOpen } from '../files/folder-share-gate'
+import { fileSharesOf } from '../files/shares'
 import { findPeople, PERSON_REF, type Teammate } from '../rooms/reader'
 import { confidentialChat } from '../safe-ops/confidential'
 import { isPeopleRow, peopleAudience, subjectsOf } from './chat-audience'
@@ -185,7 +187,17 @@ export function whoCanOpenTool(exec: TurnExec): Tool {
           const lines: string[] = []
           const name = `The folder "${safe(d.place, 160)}"`
           if (d.personal) {
-            lines.push(`${name} is in the user's own files: only they can open it. A folder cannot be shared as a whole yet; the files in it can be shared one by one (share_with_person, when the user asks).`)
+            // folder sharing's gate open (files/folder-share-gate.ts): the folder's own share, as its owner's dialog says it
+            let folderShare: string | null = null
+            if (folderSharesOpen(ctx.config) && d.path.split('/')[1] === spec.userId) {
+              try {
+                const v = fileSharesOf(ctx).view(spec.userId, d.path, spec.locale)
+                folderShare = v.people.length
+                  ? `${name} is in the user's own files and shared with ${v.people.length === 1 ? 'one person or group' : `${v.people.length} people or groups`} (view only, files added later included): ${v.people.slice(0, NAMES_MAX).map((p) => safe(p.name, 80)).join(', ')}. share_folder takes people off it.`
+                  : `${name} is in the user's own files: only they can open it. It can be shared as a whole with share_folder, when the user asks.`
+              } catch { folderShare = null }
+            }
+            lines.push(folderShare ?? `${name} is in the user's own files: only they can open it. A folder cannot be shared as a whole yet; the files in it can be shared one by one (share_with_person, when the user asks).`)
             if (who && who.id !== spec.userId) lines.push(`${whoName} cannot open it.`)
             return ok(lines, 'own folder')
           }

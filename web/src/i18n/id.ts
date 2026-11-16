@@ -6706,4 +6706,5 @@ export const id: Record<MessageKey, string> = {
   "shareCard.posted": "Diposting di {room}",
   "shareCard.postedPlain": "Diposting ke percakapan",
   "fileLink.stoppedBy": "{name} berhenti membagikan berkas ini",
+  "shareCard.note.keptOwn": "Di dalamnya tetap dibagikan secara terpisah: {what}.",
 }

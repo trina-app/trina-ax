@@ -177,7 +177,7 @@ export class ChatStore {
       const st = steps[i]!
       // (share_with_person too: who got which files is the runner's: chat/shared-actions.ts)
       // (the record of a share or a stop, Step.shared, names files, places and people: the runner's card alone)
-      if (st.tool === 'post_to_room' || st.tool === 'share_with_person' || st.tool === 'stop_sharing') { const { detail: _d, posted: _p, shared: _sh, ...rest } = st; steps[i] = { ...rest, label: stepWords(st, view.locale ?? 'en') }; continue }
+      if (st.tool === 'post_to_room' || st.tool === 'share_with_person' || st.tool === 'stop_sharing' || st.tool === 'share_folder') { const { detail: _d, posted: _p, shared: _sh, ...rest } = st; steps[i] = { ...rest, label: stepWords(st, view.locale ?? 'en') }; continue }
       if (st.detail !== undefined || st.posted !== undefined || st.shared !== undefined) { const { detail: _d, posted: _p, shared: _sh, ...rest } = st; steps[i] = rest }
     }
     // a step's next steps (Step.fixes, files/share-fixes.ts): its runner's alone, as they are now (run since, or done)

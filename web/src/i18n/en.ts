@@ -6708,4 +6708,5 @@ export const en: Record<MessageKey, string> = {
   "shareCard.posted": "Posted in {room}",
   "shareCard.postedPlain": "Posted to a conversation",
   "fileLink.stoppedBy": "{name} stopped sharing this file",
+  "shareCard.note.keptOwn": "Still shared on their own inside it: {what}.",
 }
