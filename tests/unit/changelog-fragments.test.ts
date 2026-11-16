@@ -151,6 +151,11 @@ describe('the base to compare with', () => {
     expect(newUnreleasedLines(baseChangelog(clone, env)!, added)).toEqual(['- Only in this PR.'])
     // any other PR into main (a hotfix branch from main) still compares with main, so its new line fails
     expect(baseChangelog(clone, { GITHUB_BASE_REF: 'main', GITHUB_HEAD_REF: 'fix/hotfix' })).toBe(LOG)
+    // the branch pinned at dev for one release (docs/RELEASE-CI.md) is the release PR too; other release branches are not
+    expect(baseChangelog(clone, { GITHUB_BASE_REF: 'main', GITHUB_HEAD_REF: 'release/0.5.8-main' })).toBe(gathered)
+    expect(baseChangelog(clone, { GITHUB_BASE_REF: 'main', GITHUB_HEAD_REF: 'release/1.0.0-beta.2-main' })).toBe(gathered)
+    expect(baseChangelog(clone, { GITHUB_BASE_REF: 'main', GITHUB_HEAD_REF: 'release/0.5.8' })).toBe(LOG)
+    expect(baseChangelog(clone, { GITHUB_BASE_REF: 'main', GITHUB_HEAD_REF: 'release/x-main' })).toBe(LOG)
     const hotfix = LOG.replace('- Older note A.\n', '- Hotfix note.\n- Older note A.\n')
     expect(newUnreleasedLines(baseChangelog(clone, { GITHUB_BASE_REF: 'main', GITHUB_HEAD_REF: 'fix/hotfix' })!, hotfix)).toEqual(['- Hotfix note.'])
   })

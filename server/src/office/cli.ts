@@ -33,7 +33,7 @@
 //                                  the token goes to config/tunnel-token, cloudflared runs as a second LaunchAgent
 //                                  (<label>.tunnel), the server answers https://HOST. The tunnel itself (DNS, ingress)
 //                                  is made on the owner's Mac with scripts/office/public-address.ts
-//   tailscale-address on [--port N] | off | status
+//   tailscale-address on [--port N] [--bin PATH] | off | status
 //                                  the Tailscale address https://<machine>.<tailnet>.ts.net:<port> for the devices of
 //                                  the tailnet, from anywhere, with a real certificate (./tailscale.ts, docs/OFFICE.md
 //                                  "Tailscale 주소"). Needs the Tailscale app signed in and HTTPS certificates on for
@@ -795,14 +795,16 @@ async function waitTailnet(origin: string, seconds: number): Promise<'ok' | 'cer
   return last
 }
 
-/** teamax tailscale-address on [--port N] | off | status */
+/** teamax tailscale-address on [--port N] [--bin PATH] | off | status */
 export async function tailscaleAddress(home: string, args: string[], o: { run?: Run; restart?: (s: OfficeSettings) => Promise<void>; probe?: (origin: string) => Promise<'ok' | 'cert' | 'none'>; out?: (l: string) => void } = {}): Promise<number> {
   const [sub = 'status'] = args.filter((a, i) => !a.startsWith('--') && !args[i - 1]?.startsWith('--'))
   const out = o.out ?? console.log
   const before = loadSettings(home)
   const p = officePaths(home)
   if (sub === 'on') {
-    const bin = o.run ? (before.tailscaleBin ?? 'tailscale') : findTailscaleBin({ configured: before.tailscaleBin })
+    // --bin <path>: a Tailscale CLI outside the usual places (the not-found line below names this option)
+    const binArg = arg(args, '--bin')
+    const bin = o.run ? (binArg ?? before.tailscaleBin ?? 'tailscale') : findTailscaleBin({ configured: binArg ?? before.tailscaleBin })
     if (!bin) { out('Tailscale CLI를 찾지 못했어요 / the Tailscale CLI was not found: install the Tailscale app from https://tailscale.com/download/mac and sign in (or pass --bin <path>)'); return 1 }
     const run = o.run ?? runner(bin)
     const node = readNode(run)
@@ -812,7 +814,8 @@ export async function tailscaleAddress(home: string, args: string[], o: { run?: 
     // a port our own running listener holds is fine; one `tailscale serve` uses or another program holds is not
     const moved = before.tailscaleHost !== next.tailscaleHost || before.tailscalePort !== next.tailscalePort
     const bad = await portProblems({ ...next, appPort: 0, lanPort: 0, helperPort: 0, proxyPort: 0 } as OfficeSettings, { tailnetIp: moved ? node.ipv4 : null, servePorts: readServePorts(run) })
-      .then((l) => l.filter((x) => x.includes(String(next.tailscalePort))))
+      // portProblems names the install option (--tailscale-port); here the option is this command's --port
+      .then((l) => l.filter((x) => x.includes(String(next.tailscalePort))).map((x) => x.replace('with --tailscale-port <port>', 'with teamax tailscale-address on --port <port>')))
     if (bad.length) { for (const b of bad) out(b); return 1 }
     // the certificate first: nothing is written when Tailscale cannot give one
     fs.mkdirSync(p.tls, { recursive: true, mode: 0o700 })
@@ -846,7 +849,7 @@ export async function tailscaleAddress(home: string, args: string[], o: { run?: 
     out(`  log             ${p.officeLog}`)
     return 0
   }
-  out('usage: teamax tailscale-address on [--port N] | off | status')
+  out('usage: teamax tailscale-address on [--port N] [--bin PATH] | off | status')
   return 2
 }
 
@@ -1198,7 +1201,7 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     default:
-      console.error('usage: teamax install|start|stop|restart|status|logs [n]|info|card|setup-link|reset-link [--username U]|backup|archive [--out] FILE|restore-archive [--in] FILE [--replace]|public-address set HOST TOKEN-FILE|off|status|tailscale-address on [--port N]|off|status|desktop list|add FILE [--version x.y.z] [--keep]|remove FILE|update [status|check|now|pause|resume|channel stable|beta|time HH:MM]|check-ports|claude-mcp check|backups|restore FILE|uninstall-agent')
+      console.error('usage: teamax install|start|stop|restart|status|logs [n]|info|card|setup-link|reset-link [--username U]|backup|archive [--out] FILE|restore-archive [--in] FILE [--replace]|public-address set HOST TOKEN-FILE|off|status|tailscale-address on [--port N] [--bin PATH]|off|status|desktop list|add FILE [--version x.y.z] [--keep]|remove FILE|update [status|check|now|pause|resume|channel stable|beta|time HH:MM]|check-ports|claude-mcp check|backups|restore FILE|uninstall-agent')
       return 2
   }
 }

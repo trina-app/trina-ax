@@ -47,16 +47,19 @@ const readDone = (startedAt: string) => { try { return localStorage.getItem(done
  * the load failed, or "달성했어요" was dismissed in this browser. A load the connection failed (Home opened while it was
  * down, QA TC-231) is read again by itself, at once when the live connection is back (lib/autoRetry.ts, as LoadError
  * does), and a failed read keeps the card it had. */
-export function HomeGoal() {
+/** `onShown`: whether the card is on screen, once the goal was read (or could not be: false); Home hides the owner's
+ * "Ready in your team" while it is (one thing on Home, fix/onboarding-after-setup). */
+export function HomeGoal({ onShown }: { onShown?: (shown: boolean) => void } = {}) {
   const me = useMeStrict()
   const [goal, setGoal] = useState<TeamGoal | null>(null)
+  const [read, setRead] = useState(false)
   const [dismissed, setDismissed] = useState(false)
   // the connection failed the last read: it reads again until one works
   const [failed, setFailed] = useState(false)
   const live = useRef(false)
   const load = useCallback(() => api.call(API.getTeamGoal).then(
-    (r) => { if (live.current) { setGoal(r.goal); setFailed(false) } },
-    (e) => { if (live.current) setFailed(isConnectionError(e)) },
+    (r) => { if (live.current) { setGoal(r.goal); setFailed(false); setRead(true) } },
+    (e) => { if (live.current) { setFailed(isConnectionError(e)); setRead(true) } },
   ), [])
   useEffect(() => {
     live.current = true
@@ -64,7 +67,9 @@ export function HomeGoal() {
     return () => { live.current = false }
   }, [load, me.user.id])
   useAutoRetry(failed, load)
-  if (!goal || (goal.state === 'reached' && (dismissed || readDone(goal.startedAt)))) return null
+  const hidden = !goal || (goal.state === 'reached' && (dismissed || readDone(goal.startedAt)))
+  useEffect(() => { if (read) onShown?.(!hidden) }, [read, hidden, onShown])
+  if (hidden) return null
   const dismiss = () => {
     try { localStorage.setItem(doneKey(goal.startedAt), '1') } catch { /* this tab only */ }
     setDismissed(true)
@@ -160,11 +165,11 @@ export function GoalCard({ goal, onDismiss, link: given, hasSkills: givenSkills 
       )
     }
   }
-  // an invitation to make documents with colleagues, naming a few of this team's own skills (the goal's one first; owner
+  // how many people use the team's skills this week, naming a few of this team's own skills (the goal's one first; owner
   // 2026-11-11), never the intro deck; the count and the days follow it, small
   const deckPaths = [GENERAL_DECK_SKILL, ...(welcome?.general?.introDeckPath ? [welcome.general.introDeckPath] : [])]
   const titleNames = goalTitleSkills(named?.name ?? null, (prepared?.skills ?? []).map((p) => ({ path: p.path, name: skillLabel({ name: p.name, title: p.title }) })), deckPaths)
-  const titleText = goalTitleText(t, locale, titleNames)
+  const titleText = goalTitleText(t, locale, titleNames, goal.target)
   const title = <span className={phone ? 'font-medium text-ink' : 'font-semibold'}>{titleText}</span>
   // phones: the counts as the row's second line, so a wrap never leaves "남음" alone
   const counts = phone

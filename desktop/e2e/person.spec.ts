@@ -4,7 +4,9 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
-import { ACME, addTeam, answer, bindWindow, call, chrome, close, launch, newTurn, newUserData, result, run, SHOP, text } from './helpers'
+import { ACME, addTeam, answer, bindWindow, call, chrome, close, launch, newTurn, newUserData, result, run, SHOP, text, stopLeftoverApps } from './helpers'
+
+stopLeftoverApps()
 
 type Settings = { siteAccess: 'ask' | 'all'; always: string[]; privateAlways: string[]; teamAllowsAll: boolean }
 const teamFile = (userData: string, name: string) => {

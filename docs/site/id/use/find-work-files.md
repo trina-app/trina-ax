@@ -104,6 +104,27 @@ Klik **Tambahkan n file**. File masuk ke **File saya › Dari komputer ini**, di
 
 ![Added 7 files to My files › From this computer, dengan Undo, Open dan Close](../../images/find-work-files/added.webp "Setelah ditambahkan")
 
+## Bagikan sebagian ke tim
+
+Setelah file masuk, jendela yang sama bertanya **Ada yang mau dibagikan ke tim?** dan menampilkan file yang baru Anda
+tambahkan. **Tidak ada yang dicentang**, dan tidak ada yang dibagikan sampai Anda menekan **Bagikan**.
+
+- **Cocok dibagikan: Formulir** (juga Profil perusahaan, Materi merek, Aturan dan kebijakan, Materi pelatihan, Notulen rapat)
+  menandai jenis file yang biasanya disimpan bersama oleh tim. Ini hanya petunjuk, dari pilihan yang sama dengan daftar
+  sebelumnya atau dari nama file: centang yang Anda mau.
+- Di **Tambahkan orang atau grup**, tambahkan siapa yang boleh melihatnya: **Semua orang di tim** (pilihan pertama: semua
+  orang di tim, termasuk yang bergabung nanti, tidak termasuk tamu; satu baris menyebutkannya sebelum Anda menekan
+  **Bagikan**), rekan tim dengan nama, atau grup tempat Anda
+  bergabung (pemilik tim dan admin bisa menambahkan grup mana pun). Tamu tidak bisa ditambahkan.
+- Klik **Bagikan n file**. Setiap file yang dicentang dibagikan persis seperti dengan **Bagikan** di halaman File: orang
+  yang Anda tambahkan bisa membuka dan mengunduhnya (hanya lihat), dan melihatnya di **Aktivitas**. File yang tidak
+  dicentang tetap pribadi.
+- **Nanti saja** tidak membagikan apa pun. Setelahnya, **Bagikan ke tim** di jendela yang sama membawa Anda kembali ke
+  langkah ini, dan Anda selalu bisa membagikan file nanti lewat **⋯ › Bagikan** di halaman File, atau mencabut akses di
+  sana.
+
+Langkah ini tidak muncul jika tim Anda mematikan **Anggota bisa membagikan file milik mereka** (Admin › Pengaturan tim).
+
 ## Urungkan
 
 Tepat setelah menambahkan, di jendela yang sama, **Urungkan** memindahkan file yang ditambahkan pada kali ini ke sampah, beserta folder yang dibuatnya jika

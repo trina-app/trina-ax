@@ -557,6 +557,33 @@ pk_fetch https://example.com/x "" "" "${d}/x" || echo no-hash-refused`, { PK_BUN
     fs.rmSync(d, { recursive: true, force: true })
   })
 
+  test('a sha256 in the requirements is 64 hex characters: 63 or 65 stop it', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-py-'))
+    for (const h of ['a'.repeat(63), 'a'.repeat(65), 'g'.repeat(64)]) {
+      const l = clone(); l.python!['workspace-mcp']!.requirements = { [`workspace-mcp==${l.python!['workspace-mcp']!.version}`]: h }
+      fs.writeFileSync(path.join(d, 'l.json'), JSON.stringify(l))
+      const r = lib(`pk_load "${d}/l.json"; pk_python_requirements workspace-mcp >/dev/null || echo refused`, { PK_BUN: process.execPath })
+      expect(r.out.trim()).toBe('refused')
+      expect(r.err).toContain('not a sha256')
+    }
+    fs.rmSync(d, { recursive: true, force: true })
+  })
+
+  // TC-2848: Debian 12's awk (mawk 1.3.4 20200120) has no regex intervals: /^[0-9a-f]{64}$/ matches nothing there, so
+  // workspace-mcp never installed. No awk regex in the Linux install scripts may use {n} (bash's [[ =~ ]] may).
+  test('no awk regex in the Linux install scripts uses an interval {n}', () => {
+    const awkRegex = /(?:~\s*|[(,']\s*)\/((?:[^/\\\n]|\\.)+)\//g
+    let seen = 0
+    for (const f of [...INSTALLERS, 'scripts/system/packages.sh']) {
+      const code = codeLines(f).map(([, l]) => l).join('\n')
+      for (const m of code.matchAll(awkRegex)) {
+        seen++
+        expect(`${f}: ${m[1]}`).not.toMatch(/\{[0-9]+(,[0-9]*)?\}/)
+      }
+    }
+    expect(seen).toBeGreaterThan(10)
+  })
+
   // a fake python3: -c answers the version check (too old while <d>/old exists); -m venv DIR makes a venv whose python
   // stands for pip: it records its arguments and the requirements it got, and puts a program that starts (unless
   // <d>/broken exists; it fails while <d>/pip-fails exists)

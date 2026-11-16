@@ -4,7 +4,7 @@ import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { AppConfig } from '../../server/src/app-config'
-import { openDb } from '../../server/src/db'
+import { openDb, requiredReaderLevel } from '../../server/src/db'
 import { silentLogger } from '../../server/src/log'
 import { applyPendingRestore, BackupManager, lastRestore, recordRestore } from '../../server/src/system/backup'
 import { chatMarkdown, chatPath, memoriesCsv, runExport } from '../../server/src/system/export'
@@ -247,6 +247,9 @@ describe('DB restore (staged, applied at the next start)', () => {
     e.db.query("INSERT INTO users (id, username, name, role) VALUES ('later', 'later', 'Later', 'member')").run()
     const p = await e.mgr.stageDbRestore(m.id, 'olga')
     expect(p.backupId).toBe(m.id)
+    // the staged copy's reader level, for mycel-ctl's check of an older release (QA TC-2859, readerlevel.go)
+    expect(p.readerLevel).toBe(requiredReaderLevel(e.db))
+    expect(JSON.parse(fs.readFileSync(path.join(e.cfg.dataDir, 'restore-pending.json'), 'utf8')).readerLevel).toBe(p.readerLevel)
     e.db.close()
     const r = applyPendingRestore(e.cfg.dataDir, silentLogger)
     expect(r.applied).toBe(true)

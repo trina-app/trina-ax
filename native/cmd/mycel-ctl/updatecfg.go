@@ -212,7 +212,27 @@ var (
 	settingsLiveTurns = func(e *env, in *Install) (int, error) { return (&updater{e: e, in: in}).launcherLiveTurns() }
 	settingsAsServer  = func(e *env, in *Install, args ...string) error { return (&tenant{e: e, in: in}).asServer(nil, args...) }
 	settingsSleep     = time.Sleep
+	settingsHealth    = func(in *Install) map[string]any { return health(in.Port, 3*time.Second) }
+	// settingsStartWait: how long a restart here waits for the server to answer /api/health again
+	settingsStartWait = 3 * time.Minute
 )
+
+// settingsWaitStarted waits until the restarted server answers /api/health (at most settingsStartWait). The next step
+// of docs/BACKUP-RESTORE.md "Going back to the version before an update" stages a restore: a server that is still
+// starting takes it at once, so that step must not run before the start is over (QA TC-2859: a restore staged 3 s
+// after `auto-update off` was put back by the starting new version and migrated again).
+func settingsWaitStarted(e *env, in *Install) bool {
+	deadline := e.now().Add(settingsStartWait)
+	for {
+		if h := settingsHealth(in); h["ok"] == true {
+			return true
+		}
+		if !e.now().Before(deadline) {
+			return false
+		}
+		settingsSleep(2 * time.Second)
+	}
+}
 
 // settingsRestart restarts the server unit when no answer runs (at most maxWait); force: after maxWait anyway.
 func settingsRestart(e *env, in *Install, maxWait time.Duration, force bool) (bool, string, error) {
@@ -348,8 +368,10 @@ func cmdUpdateSwitch(e *env, args []string, name string) (int, error) {
 			return 1, err
 		} else if !restarted {
 			notes = append(notes, why)
+		} else if !settingsWaitStarted(e, in) {
+			notes = append(notes, fmt.Sprintf("the server restarted with the new setting but does not answer yet after %s: wait until `sudo mycel-ctl status` shows it running before the next step", settingsStartWait))
 		} else {
-			notes = append(notes, "the server restarted with the new setting")
+			notes = append(notes, "the server restarted with the new setting and answers again")
 		}
 	} else {
 		notes = append(notes, "no systemd: restart `mycel-ctl supervise` to apply")

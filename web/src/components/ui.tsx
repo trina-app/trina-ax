@@ -2,7 +2,7 @@
 // back to where it was (tab 5 "접근성").
 import clsx from 'clsx'
 import { Check, ChevronDown, CircleAlert, Copy, ExternalLink, Loader2, X } from 'lucide-react'
-import { cloneElement, createContext, isValidElement, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type AnchorHTMLAttributes, type ButtonHTMLAttributes, type ReactNode } from 'react'
+import { cloneElement, createContext, isValidElement, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type AnchorHTMLAttributes, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { create } from 'zustand'
 import { useT } from '../i18n'
@@ -339,6 +339,22 @@ export function useFocusTrap(ref: React.RefObject<HTMLElement | null>, open: boo
   }, [open, ref])
 }
 
+/** The footer of the Modal around it, set by what is inside (a step of a dialog whose buttons change with it): its
+ * buttons go to the Modal's footer row, which stays in sight under the scrolling body (the sheet's bottom padding and
+ * the phone's safe area kept), the same row as Modal's `footer`. Outside a Modal: drawn where it is. */
+const ModalFooterSlot = createContext<{ slot: HTMLElement | null; use: (on: boolean) => void } | null>(null)
+export function ModalFooter({ children }: { children: ReactNode }) {
+  const ctx = useContext(ModalFooterSlot)
+  const use = ctx?.use
+  useLayoutEffect(() => {
+    if (!use) return
+    use(true)
+    return () => use(false)
+  }, [use])
+  if (!ctx) return <>{children}</>
+  return ctx.slot ? createPortal(children, ctx.slot) : null
+}
+
 export function Modal({ open, onClose, title, children, width = 480, footer, returnTo }: { open: boolean; onClose: () => void; title: ReactNode; children: ReactNode; width?: number; footer?: ReactNode; returnTo?: HTMLElement | null }) {
   const t = useT()
   const ref = useRef<HTMLDivElement>(null)
@@ -346,6 +362,12 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
   useFocusTrap(ref, open, onClose, returnTo)
   // phones: Back closes the dialog (the one on top first), not the page under it (lib/backCloses.ts)
   useOverlayEntry(open, onClose)
+  // a footer set from inside (ModalFooter): its row, and how many ask for it
+  const [slot, setSlot] = useState<HTMLElement | null>(null)
+  const [inner, setInner] = useState(0)
+  const use = useCallback((on: boolean) => setInner((n) => n + (on ? 1 : -1)), [])
+  const slotCtx = useMemo(() => ({ slot, use }), [slot, use])
+  const hasFooter = !!footer || inner > 0
   if (!open) return null
   return (
     // in <body>, so a dialog opened from inside another dialog (Settings) is not inside it: the one below goes inert
@@ -363,7 +385,7 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
         aria-labelledby={titleId}
         tabIndex={-1}
         // phones: below the status bar; without a footer the body keeps clear of the home indicator itself
-        className={clsx('flex max-h-[min(calc(var(--app-h,100dvh)*0.92),calc(var(--app-h,100dvh)-var(--safe-top)-0.5rem))] w-full flex-col rounded-t-2xl bg-surface text-ink shadow-xl outline-none [--sticky-bg:var(--c-surface)] sm:max-h-[calc(100dvh-2rem)] sm:rounded-2xl', !footer && 'max-sm:pb-[var(--safe-bottom)]')}
+        className={clsx('flex max-h-[min(calc(var(--app-h,100dvh)*0.92),calc(var(--app-h,100dvh)-var(--safe-top)-0.5rem))] w-full flex-col rounded-t-2xl bg-surface text-ink shadow-xl outline-none [--sticky-bg:var(--c-surface)] sm:max-h-[calc(100dvh-2rem)] sm:rounded-2xl', !hasFooter && 'max-sm:pb-[var(--safe-bottom)]')}
         style={{ maxWidth: width }}
         onMouseDown={(e) => e.stopPropagation()}
       >
@@ -375,8 +397,8 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
             <X size={18} />
           </IconButton>
         </div>
-        <div className="scroll-thin min-h-0 overflow-y-auto overscroll-contain p-5 max-sm:px-4">{children}</div>
-        {footer && <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3 pb-[max(0.75rem,var(--safe-bottom))] max-sm:px-4">{footer}</div>}
+        <div className="scroll-thin min-h-0 overflow-y-auto overscroll-contain p-5 max-sm:px-4"><ModalFooterSlot.Provider value={slotCtx}>{children}</ModalFooterSlot.Provider></div>
+        <div ref={setSlot} className={clsx('shrink-0 flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3 pb-[max(0.75rem,var(--safe-bottom))] max-sm:px-4', hasFooter ? 'flex' : 'hidden')} data-testid="modal-footer">{footer}</div>
       </div>
     </div>,
     typeof document === 'undefined' ? null : document.body,

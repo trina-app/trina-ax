@@ -9,8 +9,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
 import { recordShared, WELCOME_SETTING } from '../../server/src/onboarding/welcome'
-import { getSetting, setSetting } from '../../server/src/admin/settings'
-import { WelcomeProgress } from '@mycel/shared/api'
+import { getSetting, setSetting, teamDefaultLocale } from '../../server/src/admin/settings'
+import { BRAND_FOLDER, WelcomeProgress } from '@mycel/shared/api'
+import type { Logger } from '../../server/src/log'
 
 let h: Harness
 afterEach(async () => { await h?.close() })
@@ -201,7 +202,8 @@ test('the AI step (docs/DECISIONS.md "W2"): absent until shown, skipped while ne
   expect(p.steps.ai).toBe('done')
   // finishing without files ("자료 없이 해 볼게요" of an older row) puts off the open steps, never the AI step
   const fresh = await owner.call('PATCH', '/api/onboarding/welcome', { finish: true })
-  expect(fresh.progress.steps).toMatchObject({ ai: 'done', profile: 'skipped', result: 'skipped', invite: 'skipped' })
+  // (the invite reads done: this team has members already, fix/onboarding-after-setup settlePutOff)
+  expect(fresh.progress.steps).toMatchObject({ ai: 'done', profile: 'skipped', result: 'skipped', invite: 'done' })
   expect(fresh.progress.finishedAt).not.toBeNull()
   expect(WelcomeProgress.safeParse(fresh.progress).success).toBe(true)
 })
@@ -250,4 +252,60 @@ test('a share recorded on a row that is not there, or not an object, changes not
   setSetting(h.ctx.db, WELCOME_SETTING, 'broken')
   recordShared(h.ctx, ownerId, [{ path: 'skills/weekly-report/SKILL.md', title: '주간 업무 보고', recommended: true }])
   expect(getSetting<unknown>(h.ctx.db, WELCOME_SETTING)).toBe('broken')
+})
+
+test('a team start that fails in shared/ leaves no group behind and says why in the log; asked again, it makes the one group', async () => {
+  const lines: { level: string; msg: string; fields?: Record<string, unknown> }[] = []
+  const log: Logger = { debug() {}, info() {}, warn: (msg, fields) => void lines.push({ level: 'warn', msg, fields }), error: (msg, fields) => void lines.push({ level: 'error', msg, fields }), child: () => log }
+  h = await harness('b-onboarding-welcome', {}, { log })
+  const owner = await withOwner(h)
+  await owner.call('PATCH', '/api/onboarding/welcome', { site: 'www.acme.example' })
+  const groups = () => (h.ctx.db.query('SELECT name FROM groups ORDER BY name').all() as { name: string }[]).map((g) => g.name)
+  const before = groups()
+  // a file where the brand folder goes (what a person may upload into shared/ before the steps)
+  const brand = path.join(h.ctx.files.fx.root, 'shared', BRAND_FOLDER[teamDefaultLocale(h.ctx.db)])
+  fs.mkdirSync(path.dirname(brand), { recursive: true })
+  fs.writeFileSync(brand, 'not a folder')
+  for (let i = 0; i < 2; i++) expect((await owner.try('POST', '/api/onboarding/welcome/team')).status).toBe(500)
+  expect(groups()).toEqual(before)
+  expect((getSetting<any>(h.ctx.db, WELCOME_SETTING)).teamGroup).toBeUndefined()
+  // an unexpected error: the app's own "unhandled error" line names it (not logged twice here)
+  const said = lines.filter((l) => l.msg === 'unhandled error' && l.fields?.path === '/api/onboarding/welcome/team')
+  expect(said).toHaveLength(2)
+  expect(String((said[0]!.fields?.err as Error).message)).toContain('not a folder')
+  expect(lines.filter((l) => l.msg.includes('in the welcome steps'))).toEqual([])
+  // the file moved away: the next start makes the team's one group (not "… 2")
+  fs.rmSync(brand)
+  const r = await owner.call('POST', '/api/onboarding/welcome/team')
+  expect(r.progress.teamGroup?.brandFolder).toBe(`shared/${BRAND_FOLDER[teamDefaultLocale(h.ctx.db)]}`)
+  expect(groups().filter((g) => !before.includes(g))).toEqual([r.progress.teamGroup!.name])
+  expect(r.progress.teamGroup!.name).not.toMatch(/ 2$/)
+})
+
+test('a team start with shared/ missing on disk makes it again (the likely hosted cause) and goes through', async () => {
+  h = await harness('b-onboarding-welcome')
+  const owner = await withOwner(h)
+  await owner.call('PATCH', '/api/onboarding/welcome', { site: 'www.acme.example' })
+  fs.rmSync(path.join(h.ctx.files.fx.root, 'shared'), { recursive: true, force: true })
+  const r = await owner.call('POST', '/api/onboarding/welcome/team')
+  expect(r.progress.teamGroup?.brandFolder).toBe(`shared/${BRAND_FOLDER[teamDefaultLocale(h.ctx.db)]}`)
+  expect(fs.statSync(path.join(h.ctx.files.fx.root, 'shared')).isDirectory()).toBe(true)
+})
+
+test('after the end, a step put off that got done elsewhere is recorded done on a read (the setup row stops naming it)', async () => {
+  h = await harness('b-onboarding-welcome')
+  const owner = await withOwner(h)
+  setSetting(h.ctx.db, WELCOME_SETTING, {
+    startedAt: '2026-11-04T00:00:00.000Z', updatedAt: '2026-11-04T00:00:00.000Z', finishedAt: '2026-11-04T00:03:00.000Z',
+    steps: { profile: 'skipped', result: null, skills: 'done', files: 'skipped', tools: 'skipped', invite: 'skipped' },
+  })
+  // nothing done elsewhere: all stay put off
+  let p = (await owner.call('GET', '/api/onboarding/welcome')).progress
+  expect([p.steps.profile, p.steps.files, p.steps.tools, p.steps.invite]).toEqual(['skipped', 'skipped', 'skipped', 'skipped'])
+  // someone joined (an invite from the team menu); the profile saved in Admin
+  await addMember(h, owner, { username: 'mia' })
+  await owner.call('PUT', '/api/onboarding/profile', { website: '', name: 'Acme', oneLine: 'Acme makes fans.', products: 'Fans', audience: '', tone: [], avoid: '', sources: [] })
+  p = (await owner.call('GET', '/api/onboarding/welcome')).progress
+  expect([p.steps.profile, p.steps.files, p.steps.tools, p.steps.invite]).toEqual(['done', 'skipped', 'skipped', 'done'])
+  expect(getSetting<any>(h.ctx.db, WELCOME_SETTING).steps.invite).toBe('done')
 })

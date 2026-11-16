@@ -1,1 +1,0 @@
-- Admin Home's **Guests** card reads "1 of 3" under its title, without "guests" a second time.

@@ -205,6 +205,11 @@
   "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
  },
  {
+  "file": "onboarding/welcome.ts",
+  "sql": "SELECT 1 FROM users WHERE role IN ('admin', 'member') AND guest = 0 AND deleted_at IS NULL LIMIT 1",
+  "reason": "guests left out by guest = 0: only whether someone besides the owner joined the team (the put-off invite step)"
+ },
+ {
   "file": "policy/convert-additive.ts",
   "sql": "SELECT id, name, role FROM users${} ORDER BY id",
   "reason": "the one-time additive conversion: it runs once, before migration 122 can have made any guest"
@@ -242,6 +247,11 @@
  {
   "file": "system/ops.ts",
   "sql": "SELECT id, locale FROM users WHERE role IN ('owner','admin') AND status = 'active' AND deleted_at IS NULL",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "notifications/service.ts",
+  "sql": "SELECT id FROM users WHERE role IN ('owner', 'admin') AND status = 'active' AND deleted_at IS NULL",
   "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
  }
 ]

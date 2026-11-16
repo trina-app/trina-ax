@@ -125,6 +125,21 @@ describe('draft rules (no server)', () => {
     expect(parseDraftAnswer('```json\n{"oneLine": "", "products": "", "tone": []}\n```', SITE)).toBeNull()
     expect(parseDraftAnswer('```json\n[1, 2]\n```', SITE)).toBeNull()
   })
+
+  test('the one-line intro is always filled when the draft names products (the invite introduces the team with it)', () => {
+    // the instructions ask for it from the products and customers when the pages do not say it in one sentence
+    for (const scope of [SITE, TEXT_SCOPE]) expect(draftSystemPrompt(scope, { locale: 'en' })).toContain('Always fill it when you filled products or audience')
+    // an answer that left it out anyway: the first line of the products, with the products' excerpt as its source
+    const p = parseDraftAnswer(JSON.stringify({ oneLine: '', products: '- Quiet desk fans for small offices\n- Fan repairs', audience: 'Small offices',
+      sources: [{ field: 'products', url: '', excerpt: 'quiet desk fans' }] }), TEXT_SCOPE)
+    expect(p?.oneLine).toBe('Quiet desk fans for small offices')
+    expect(p?.sources).toEqual([{ field: 'products', url: '', excerpt: 'quiet desk fans' }, { field: 'oneLine', url: '', excerpt: 'quiet desk fans' }])
+    // a given line is kept as it is; with no products there is nothing to write it from
+    expect(parseDraftAnswer(JSON.stringify({ oneLine: 'Acme makes fans.', products: 'Fans' }), TEXT_SCOPE)?.oneLine).toBe('Acme makes fans.')
+    expect(parseDraftAnswer(JSON.stringify({ oneLine: '', products: '', audience: 'Small offices' }), TEXT_SCOPE)?.oneLine).toBe('')
+    // at most the field's length
+    expect([...(parseDraftAnswer(JSON.stringify({ products: 'x'.repeat(400) }), TEXT_SCOPE)?.oneLine ?? '')].length).toBe(120)
+  })
 })
 
 describe('the page lines of a draft answer (no server)', () => {

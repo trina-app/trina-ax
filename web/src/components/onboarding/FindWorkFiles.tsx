@@ -10,13 +10,14 @@
 //            (never a personal-looking file, at most 100), at most 1 GB per add; a line for each folder macOS kept the
 //            app out of ("… can't see Downloads · Allow in Settings"), a cut folder, files over 50 MB, a folder left out
 // Nothing is read before Add: the files' contents are read by the upload, one by one (LocalDoc.open → workFiles.read).
-// Three places use it: My files (FindWorkFilesEntry) and an invited person's welcome card on Home (its optional "Bring
+// Three places use it: My files (useFindWorkFilesEntry) and an invited person's welcome card on Home (its optional "Bring
 // work files from this computer" row), both through useMyWorkFiles (the files go to My files › From this computer, the
-// member's own AI turn; the result has Open and Undo), and the setup's 팀 파일 step on the desktop app (TeamFilesStep: the owner's files go
+// member's own AI turn; then the share step, ShareFoundFiles.tsx: which of them to share with whom, nothing ticked, Not
+// now; the result has Open and Undo), and the setup's 팀 파일 step on the desktop app (TeamFilesStep: the owner's files go
 // to the team home as before, the team pick, then the step's own run and folder plan).
 import clsx from 'clsx'
 import { FolderSearch, Loader2, Undo2 } from 'lucide-react'
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { TEAM_FILES_LIMITS, type TeamFileReason, type TreeResponse } from '@mycel/shared/api'
@@ -38,9 +39,10 @@ import { toast } from '../../store/ui'
 import { startFolderUpload, stopFolderUpload } from '../FolderUploads'
 import { Tooltip } from '../Tooltip'
 import { FromCloudLine } from '../FromCloud'
-import { Button, ErrorNote, Modal, ProgressBar, useMediaQuery } from '../ui'
+import { Button, ErrorNote, Modal, ProgressBar, Skeleton, useMediaQuery } from '../ui'
 import { storagePlansAction } from '../StoragePlansLink'
 import { TickFold, TickRow, TickSearch } from './TickList'
+import { ShareFoundFiles, type SharedResult } from './ShareFoundFiles'
 
 const L = TEAM_FILES_LIMITS
 const TAG = 'find-work-files' as const
@@ -108,8 +110,8 @@ export interface FindWorkFilesProps {
   audience: 'me' | string
   /** where they go, in words (for the list's line) */
   placeName: string
-  /** add the ticked files; the caller starts the run */
-  onAdd: (docs: LocalDoc[]) => void
+  /** add the ticked files; the caller starts the run. `reasons`: the AI's reason for each of them it picked (by key) */
+  onAdd: (docs: LocalDoc[], reasons: ReadonlyMap<string, TeamFileReason>) => void
   /** leave (Cancel, nothing found, the app said no) */
   onClose: () => void
   phone?: boolean
@@ -178,7 +180,7 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
     setAdding(true)
     setRefused(false)
     const r = await confirmAdd(bridge, picked).finally(() => setAdding(false))
-    if (r === 'added') onAdd(picked)
+    if (r === 'added') onAdd(picked, new Map(picked.flatMap((d) => { const why = picks?.get(d.key); return why ? [[d.key, why] as const] : [] })))
     else if (r === 'refused') setRefused(true)
   }
   const [q, setQ] = useState('')
@@ -496,11 +498,13 @@ async function alreadyThere(docs: readonly LocalDoc[], base: string): Promise<Se
 /** The runs into My files (by their FolderUpload, which stays the same while the run's store entry is replaced on every
  * change): each file it made and each folder it made, for Undo. */
 const made = new WeakMap<FolderUpload, RunMade>()
+/** the same runs: the AI's reason for each file it picked, by the path it was added at (the share step's hint) */
+const reasonsOf = new WeakMap<FolderUpload, Map<string, TeamFileReason>>()
 
 /**
  * The My files dialog of "Find work files on this computer": the steps above, the files to My files › From this computer
  * (only the person sees them), as the person's own AI turn; then the run's result with Open and Undo. Two places open
- * it: the quiet line on My files (FindWorkFilesEntry) and the invited person's welcome card on Home (MemberWelcome.tsx,
+ * it: the toolbar button on My files (useFindWorkFilesEntry) and the invited person's welcome card on Home (MemberWelcome.tsx,
  * the optional "Bring work files from this computer" row). `available` is false in a browser, on a phone's app, in the
  * Mac App Store build, in a desktop app without the bridge's version, and for guests: nothing to show then.
  * `onChange`: the dialog closed or a run's Undo ended (the card reads its rows again); `onLanded`: a new file is up.
@@ -528,9 +532,10 @@ export function useMyWorkFiles(o: { onChange?: () => void; onLanded?: () => void
     if (available && takeResume(me.user.id, 'own', location.pathname + location.search)) start()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [available, me.user.id, location.pathname, location.search])
-  const add = (docs: LocalDoc[]) => {
+  const add = (docs: LocalDoc[], reasons: ReadonlyMap<string, TeamFileReason>) => {
     const record: RunMade = { files: [], folders: [] }
     const plan: FolderPlan = { files: docs.map((d) => ({ rel: `${FROM_COMPUTER}/${d.pick}/${d.rel}`, size: d.size, open: d.open })), folders: [], unreadable: [], skipped: 0 }
+    const why = new Map(docs.flatMap((d) => { const r = reasons.get(d.key); return r ? [[`${own}/${FROM_COMPUTER}/${d.pick}/${d.rel}`, r] as const] : [] }))
     const r = startFolderUpload(plan, own, (view) => toast({ level: 'error', text: `${errorText(view.refusal, currentLocale(), tNow('error.network'))} ${tNow('files.folderUpload.stopped', { n: view.waiting })}`, ...storagePlansAction(view.refusal) }), {
       tag: TAG,
       // a file of the person's that was there already (kept, nothing new made) is not the run's to take back
@@ -538,6 +543,7 @@ export function useMyWorkFiles(o: { onChange?: () => void; onLanded?: () => void
       onMade: (p) => record.folders.push(p),
     })
     made.set(r.run, record)
+    reasonsOf.set(r.run, why)
     setRun(r)
   }
   const dialog = bridge && available ? (
@@ -550,42 +556,82 @@ export function useMyWorkFiles(o: { onChange?: () => void; onLanded?: () => void
 }
 
 /**
- * My files on the desktop app (Windows, the Mac app from the website): one quiet line, "Find work files on this computer",
- * for anyone but guests. It opens the dialog above. Not in a browser, on a phone, in the Mac App Store build or an older
- * desktop app (no matching bridge).
+ * My files on the desktop app (Windows, the Mac app from the website): the toolbar button "Find work files", for anyone
+ * but guests, and the dialog it opens. Not in a browser, on a phone, in the Mac App Store build or an older desktop app
+ * (no matching bridge). The page calls this once and puts `button` in its computer toolbar and `dialog` outside its
+ * phone/computer branches (QA TC-3504): the Files page draws a different header at phone width, so a dialog that lived
+ * in the toolbar closed, and its look stopped, when the window was made that narrow. The dialog is the app's Modal
+ * (a bottom sheet at phone width), as from the welcome card.
  */
-export function FindWorkFilesEntry({ here }: { here: string }) {
+export function useFindWorkFilesEntry(here: string): { button: ReactNode; dialog: ReactNode } {
   const t = useT()
   const f = useMyWorkFiles()
-  if (!f.available || (here !== f.own && here !== runFolder(f.own))) return null
-  return (
-    <>
-      {/* a Files toolbar button beside Upload folder / Upload (icon only on a narrow page, like them); not on a phone;
-          a dialog already open stays when the window is made narrow */}
-      {!f.narrow && (
-        <Tooltip label={t('files.findWork.entryButton')}>
-          <Button size="sm" variant="ghost" onClick={f.start} aria-label={t('files.findWork.entryButton')} data-testid="files-find-work-entry">
-            <FolderSearch size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.findWork.entryButton')}</span>
-          </Button>
-        </Tooltip>
-      )}
-      {f.dialog}
-    </>
-  )
+  const shown = f.available && (here === f.own || here === runFolder(f.own))
+  // the button: beside Upload folder / Upload (icon only on a narrow page, like them); not at phone width
+  const button = shown && !f.narrow ? (
+    <Tooltip label={t('files.findWork.entryButton')}>
+      <Button size="sm" variant="ghost" onClick={f.start} aria-label={t('files.findWork.entryButton')} data-testid="files-find-work-entry">
+        <FolderSearch size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.findWork.entryButton')}</span>
+      </Button>
+    </Tooltip>
+  ) : null
+  // the dialog: the same at every width and whatever folder is on screen
+  return { button, dialog: f.dialog }
 }
 
-/** The run's progress, then "Added 6 files to My files › From this computer" with Open and Undo. */
+/** A file the run added, its place in words: "Documents › Sales", "OneDrive – Acme › Clients" (under From this computer). */
+function useLandedPlace(base: string) {
+  const t = useT()
+  const top = `${base}/${FROM_COMPUTER}/`
+  return (path: string) => {
+    const segs = (path.startsWith(top) ? path.slice(top.length) : path).split('/').slice(0, -1)
+    const root = segs[0] ? ROOT_OF[segs[0]] : undefined
+    return (root ? [t(ROOT_WORD[root]), ...segs.slice(1)] : segs).join(' › ')
+  }
+}
+
+/** The run's progress, then the share step (docs/decisions/20261116-find-files-share-step.md: the files it
+ * added, nothing ticked, Share or Not now; skipped when the person may not share), then "Added 6 files to My files › From
+ * this computer" with Open and Undo, the share's line, and "Share with your team" back to the step. */
 function RunResult({ run: start, onClose, onUndone, phone }: { run: Run; onClose: () => void; onUndone?: () => void; phone: boolean }) {
   const t = useT()
   const locale = useLocale()
   const navigate = useNavigate()
   const words = useFolderWords()
+  const place = useLandedPlace(start.view.base)
   const run = useRuns((s) => s.runs.find((r) => r.run === start.run) ?? (s.tagged[TAG]?.run === start.run ? s.tagged[TAG] : null)) ?? start
   const v = run.view
   const running = v.status === 'running'
   const [undo, setUndo] = useState<{ s: 'idle' } | { s: 'busy' } | { s: 'done'; n: number; until: string | null; failed: number } | { s: 'error'; text: string }>({ s: 'idle' })
   const folder = runFolder(start.view.base)
   const failed = run.run.rows().filter((r) => r.state === 'failed')
+  // the share step: asked once the run is done (may this person share their files: the team's switch), then shown first
+  const landed = made.get(start.run)?.files ?? []
+  const [stage, setStage] = useState<'check' | 'share' | 'result'>('check')
+  const [mayShare, setMayShare] = useState(false)
+  const [shared, setShared] = useState<SharedResult | null>(null)
+  useEffect(() => {
+    if (running || stage !== 'check') return
+    const first = landed[0]
+    if (!first) return setStage('result')
+    let live = true
+    api.call(API.fileShares, { query: { path: first } }).then(
+      (r) => { if (!live) return; setMayShare(r.canShare); setStage(r.canShare ? 'share' : 'result') },
+      () => { if (live) setStage('result') },
+    )
+    return () => { live = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [running, stage])
+  const addedLine = t('files.findWork.added', { n: v.done, place: words.path(folder, ' › ') })
+  if (!running && stage === 'check') return <div data-testid="find-work-run" data-status={v.status} data-stage="check"><Skeleton lines={3} /></div>
+  if (!running && stage === 'share') {
+    return (
+      <div data-testid="find-work-run" data-status={v.status} data-stage="share">
+        <ShareFoundFiles paths={landed} reasons={reasonsOf.get(start.run) ?? new Map()} where={place} phone={phone} added={addedLine}
+          onShared={(r) => { setShared(r); setStage('result') }} onSkip={() => setStage('result')} />
+      </div>
+    )
+  }
   const takeBack = async () => {
     const record = made.get(start.run)
     if (!record) return
@@ -605,9 +651,9 @@ function RunResult({ run: start, onClose, onUndone, phone }: { run: Run; onClose
   }
   const until = (iso: string | null) => (iso ? new Intl.DateTimeFormat(intlTag(locale), { month: 'long', day: 'numeric' }).format(new Date(iso)) : null)
   return (
-    <div className="space-y-4" data-testid="find-work-run" data-status={v.status}>
+    <div className="space-y-4" data-testid="find-work-run" data-status={v.status} data-stage={running ? 'running' : 'result'}>
       <h2 className="text-display font-semibold text-ink" role="status" data-testid="find-work-run-title">
-        {undo.s === 'done' && undo.n > 0 ? t('files.findWork.undone', { n: undo.n }) : undo.s === 'done' ? t('files.findWork.undoFailed', { n: undo.failed }) : running ? t('welcome.teamFiles.uploading', { k: v.done, n: v.total }) : t('files.findWork.added', { n: v.done, place: words.path(folder, ' › ') })}
+        {undo.s === 'done' && undo.n > 0 ? t('files.findWork.undone', { n: undo.n }) : undo.s === 'done' ? t('files.findWork.undoFailed', { n: undo.failed }) : running ? t('welcome.teamFiles.uploading', { k: v.done, n: v.total }) : addedLine}
       </h2>
       {running && <FromCloudLine active={v.active} />}
       {undo.s === 'done' && undo.until && <p className="text-sm text-muted" data-testid="find-work-undone-until">{t('files.findWork.undoneUntil', { date: until(undo.until)! })}</p>}
@@ -621,7 +667,19 @@ function RunResult({ run: start, onClose, onUndone, phone }: { run: Run; onClose
           </ul>
         </ErrorNote>
       )}
+      {shared && undo.s !== 'done' && shared.shared.length > 0 && <p className="text-sm text-ink" role="status" data-testid="find-work-shared">{t('files.findWork.share.done', { n: shared.shared.length, names: shared.names })}</p>}
+      {shared && undo.s !== 'done' && shared.failed.length > 0 && (
+        <ErrorNote>
+          {t('files.findWork.share.failed', { n: shared.failed.length })}
+          <ul className="mt-1 space-y-0.5" data-testid="find-work-share-failed">
+            {shared.failed.slice(0, 5).map((f) => <li key={f.path} className="truncate">{f.path.split('/').pop()} · {f.message}</li>)}
+          </ul>
+        </ErrorNote>
+      )}
       {undo.s !== 'done' && !running && <p className="text-label text-muted">{t('files.findWork.originalsStay')}</p>}
+      {mayShare && undo.s !== 'done' && !running && landed.length > 0 && (
+        <button type="button" className={clsx(quietLink, 'text-sm')} onClick={() => setStage('share')} data-testid="find-work-share-again">{t('files.findWork.share.again')}</button>
+      )}
       <div className={phone ? 'flex flex-col-reverse gap-2 [&>*]:w-full' : 'flex flex-wrap items-center justify-end gap-3'}>
         {running ? (
           <Button onClick={() => void stopFolderUpload(run)} data-testid="find-work-stop-upload">{t('welcome.teamFiles.stopUpload')}</Button>

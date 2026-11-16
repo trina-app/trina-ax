@@ -12,8 +12,8 @@
 //   - it works only while its maker could still make it (an active owner or admin), like an invite;
 //   - only one link is open: making a new one, or revoking, ends the old token for good (a new link = a new token);
 //   - the token is in the address's #fragment and reaches the server only in a POST body.
-// A link may name a team skill: someone who joins lands on it (its form) when they can open it, else on Home. The
-// starter a link could carry before (team files and "내 할 일 정리해 줘" for 할 일 정리, docs/DECISIONS.md "M") is gone
+// A link may name a team skill: the invite message names it; someone who joins still lands on Home (docs/DECISIONS.md
+// "A new member lands on Home"). The starter a link could carry before (team files and "내 할 일 정리해 줘" for 할 일 정리, docs/DECISIONS.md "M") is gone
 // with that skill (docs/DECISIONS.md "DS3"); its column stays in old databases and is no longer read or written.
 // The token is kept sealed at rest (token_enc, credentials/vault.ts AES-256-GCM with a key file in
 // <secrets>/team-links/) beside its sha256 (token_hash, the lookup), so the admin can copy the same link again later:
@@ -37,7 +37,6 @@ import { audit } from '../admin/audit'
 import { getSetting, getTeamSettings, setSetting } from '../admin/settings'
 import { landingSkill, readWelcome } from '../onboarding/welcome'
 import { readSkill } from '../chat/skills'
-import { skillMakerName } from '../skills/author'
 import { Vault } from '../credentials/vault'
 import { notifyTeamJoined, notifyTemplateOffers } from '../notifications/service'
 import { roomsOf } from '../rooms/service'
@@ -399,7 +398,6 @@ export async function joinTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.out
   // the link's groups as they are inside the write (below), not as read before the slow hash: an admin may change
   // them meanwhile (Admin › Members, QA TC-458), and a join in flight must not land in the groups just taken off
   let groups: string[] = []
-  let skillPath = r.skill_path
   let id = ''
   const tx = ctx.db.transaction((): TeamLinkProblem | 'ok' => {
     const now = a.now()
@@ -413,7 +411,6 @@ export async function joinTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.out
     if (why) return why
     if (ctx.db.query('UPDATE team_links SET uses = uses + 1 WHERE id = ? AND revoked_at IS NULL AND uses < max_uses AND expires_at > ?').run(r.id, at).changes !== 1) return 'used_up'
     groups = existingGroups(ctx.db, parseIds(fresh.group_ids))
-    skillPath = fresh.skill_path
     id = deriveUserId(ctx.db, b.username, ctx.files.fx.root)
     // always a member: a team link has no role of its own
     insertUser(ctx.db, { id, username: b.username, name: b.name, passwordHash, role: 'member', locale: b.locale ?? null, mustChangePassword: false, groupIds: groups })
@@ -442,16 +439,9 @@ export async function joinTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.out
   notifyTeamJoined(ctx, r.created_by ? [...owners, r.created_by] : owners, id)
   // and one line in the everyone room, so the rest of the team can say hello (rooms/service.ts memberJoined)
   roomsOf(ctx).memberJoined(id)
-  // the skill the link names, only when the new member can open it now (the folder rules decide, not the link)
-  const me = viewerOf(ctx, id)
-  const found = skillPath && me ? teamSkill(ctx, me, skillPath) : null
-  const skill = found ? { path: found.path, name: found.name, title: found.title } : null
-  // who made the skill (its file's first version; none for a starter pack's own text): the line above its form
-  // (docs/DECISIONS.md "S — The lead's way becomes a team skill")
-  const skillBy = skill ? skillMakerName(ctx.db, skill.path)?.name ?? null : null
-  // every skill lands on its form, a skill without fields too, whose box starts with the skill's own example (shared
-  // skillExample; docs/DECISIONS.md "W5"), never a chat with "이 방식대로 해 줘"
+  // a new member lands on Home and its welcome card, never on a skill form, even when the link names a skill: the invite
+  // message names it (docs/DECISIONS.md "A new member lands on Home"). `next` stays in the answer for older apps
   const signed = a.signIn(c, id, b.client, b.tokenMode)
-  return { ...signed, next: skill ? `/skills?run=${encodeURIComponent(skill.path)}` : null, skillBy }
+  return { ...signed, next: null }
 }
 

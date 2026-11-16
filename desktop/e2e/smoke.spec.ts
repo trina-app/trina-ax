@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
-import { ACME, addTeam, close, launch, newUserData, welcome } from './helpers'
+import { ACME, addTeam, close, launch, newUserData, welcome, stopLeftoverApps } from './helpers'
+
+stopLeftoverApps()
 
 test('smoke: welcome screen, add a team, the page gets the bridge', async () => {
   const app = await launch(newUserData())

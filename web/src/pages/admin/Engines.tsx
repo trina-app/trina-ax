@@ -13,7 +13,8 @@
 import clsx from 'clsx'
 import { ChevronRight } from 'lucide-react'
 import { useEffect, useId, useState, type ReactNode } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { setupReturnStep } from '../../lib/welcome'
 import { CompactRow } from '../../components/CompactRow'
 import type { EngineId, EngineStatus } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
@@ -154,8 +155,10 @@ function engineState(t: ReturnType<typeof useT>, e: EngineStatus): { ok: boolean
 function EngineLink({ e, look }: { e: EngineStatus; look: boolean }) {
   const t = useT()
   const st = engineState(t, e)
+  // opened from the welcome steps: the engine's page keeps their way back (on a phone it is the page's one back)
+  const { state } = useLocation()
   return (
-    <CompactRow testId="engine-row" data={{ 'data-engine': e.id, 'data-look': look ? 'true' : undefined }} to={`/admin/providers/${e.id}`}
+    <CompactRow testId="engine-row" data={{ 'data-engine': e.id, 'data-look': look ? 'true' : undefined }} to={`/admin/providers/${e.id}`} state={setupReturnStep(state) ? state : undefined}
       lead={<ProviderLogo mark={ENGINE_MARK[e.id]} small />} title={<span className="text-ink">{e.label}</span>}
       chip={<span className="flex items-center gap-3">
         {e.enabled ? <Badge tone={st.ok && !look ? 'ok' : 'warn'}>{st.text}</Badge> : <span className="text-xs text-faint">{t('appConnectors.off')}</span>}

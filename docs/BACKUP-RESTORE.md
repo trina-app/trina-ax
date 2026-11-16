@@ -93,6 +93,8 @@ Define `trina_admin` as in [Make a backup now](#make-a-backup-now), then:
    sudo mycel-ctl auto-update off
    ```
 
+   Do not go on to step 3 while the server is still starting: a starting server takes a staged copy at once, changes it again, and what was written since the update is lost. The command waits until the server answers again and then says "the server restarted with the new setting and answers again". If it says "does not answer yet" instead (or "not restarted"), wait until `curl -s http://127.0.0.1:47820/api/health` shows `"ok":true`.
+
 2. Find the copy of the database from just before the update:
 
    ```sh
@@ -116,6 +118,7 @@ Define `trina_admin` as in [Make a backup now](#make-a-backup-now), then:
    Look at the **first** line it prints (the result; lines starting with `note:` may follow, such as "root files 0.5.0 are newer than 0.4.0; kept", which is expected). It must start with `ok: 0.5.0 -> 0.4.0`. If it does not:
 
    - It starts with `rolled_back:`: the old version did not start and the server went back to the new one. Do steps 2–4 again.
+   - It starts with `error:` and says "cannot open this server's data yet ... has already updated the database to level N": the update you go back from raised the database level, and its `mycel-ctl` does not read the level of the staged copy (versions up to 0.5.8; QA TC-2859). Nothing was changed, and the copy is still staged. Cancel it as below and ask support; do not restart the server meanwhile. From 0.5.9 on, `mycel-ctl` checks the staged copy's level, so this works when you go back from 0.5.9 or a later version.
    - It starts with anything else (`error:`, `verify_failed:`, `busy:`): restart nothing yet, and run `sudo mycel-ctl status`. Its first line says which version runs now (`version …`).
      - `version 0.4.0` and the `health:` line shows `ok:true`: the old version runs and the copy was put back. Go on with step 5.
      - Otherwise, cancel the staged copy, then read the message, fix the cause and start again at step 2:

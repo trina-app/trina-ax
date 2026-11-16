@@ -67,10 +67,13 @@ a Google client per team does not scale. Instead the hosting service's control p
 return address on its console host and signs in for every hosted team (`server/src/integrations/google-drive/broker.ts`;
 wire contract `shared/src/cloud-protocol/drive-broker.ts`, MIT; control plane: trina-cloud `docs/drive-broker.md`).
 
-**When.** Only when the operator sets `MYCEL_GOOGLE_DRIVE_BROKER_URL` (the control plane's console origin, for example
-`https://account.trina.app`; https, or http to this machine) on a server that has NO Google client of its own (no
-`client.json`, no `MYCEL_GOOGLE_DRIVE_CLIENT_FILE`): a hosted server, or a self-installed one the hosting service
-registered (below). Without the variable nothing changes: the server makes no call to the hosting service. A server
+**When.** On a server that has NO Google client of its own (no `client.json`, no `MYCEL_GOOGLE_DRIVE_CLIENT_FILE`):
+a **hosted** server always, unless its environment turns it off (`MYCEL_GOOGLE_DRIVE_BROKER_URL` empty or `off`); with
+the variable left out it uses the edition's console, `https://` + `SERVICE_HOSTS.accountHost` (`shared/src/service-hosts.ts`),
+so a new hosted team can connect Drive with nothing set up. A **self-installed** server only when its operator sets
+`MYCEL_GOOGLE_DRIVE_BROKER_URL` (the control plane's console origin, for example `https://account.trina.app`; https,
+or http to this machine) and the hosting service registered it (below); without the variable nothing changes there: the
+server makes no call to the hosting service. (Under `NODE_ENV=test` a hosted test app gets no default.) A server
 with its own client keeps the direct flow above, unchanged, even with the variable. Even with the variable, Drive turns
 on only after the control plane answers that it serves this server (a signed `/status`, at start, then every 10
 minutes, every minute while it says no); until then the card says "Not available yet". Admin › Connected apps › Google
