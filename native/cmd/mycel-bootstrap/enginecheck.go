@@ -62,7 +62,7 @@ func checkEngine() engineResult {
 		if time.Now().After(until) {
 			return engineResult{skipped: fmt.Sprintf("the launcher did not answer at %s: %v", sock, err)}
 		}
-		time.Sleep(time.Second)
+		time.Sleep(min(time.Second, max(time.Until(until), 10*time.Millisecond)))
 	}
 	defer c.Close()
 	_ = c.SetDeadline(time.Now().Add(engineAnswerWait))

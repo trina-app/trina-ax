@@ -102,10 +102,10 @@ s.sendall(b"{\"op\":\"sandbox-check\"}\n"); sys.stdout.write(s.makefile().readli
 R=$(X runuser -u axserver -- python3 -I -c "$SC") || fail "engine check request"
 case "$R" in
   *'"ev":"sandbox-check"'*'"ok":true'*)
-    X bash -c 'd=$(readlink -f /var/lib/mycel/app/current) && find "$d" -printf "%m %p\n" > /root/engine-check-modes &&
+    X bash -c 'd=$(readlink -f /var/lib/mycel/app/current) && find "$d" ! -type l -printf "%m %p\n" > /root/engine-check-modes &&
       find "$d" -type d -exec chmod 0750 {} + && find "$d" -type f -perm -u+x -exec chmod 0750 {} + && find "$d" -type f ! -perm -u+x -exec chmod 0640 {} +'
     B=$(X runuser -u axserver -- python3 -I -c "$SC" || true)
-    X bash -c 'while read -r m p; do chmod "$m" "$p"; done < /root/engine-check-modes && rm /root/engine-check-modes'
+    X bash -c 'set -e; while read -r m p; do chmod "$m" "$p"; done < /root/engine-check-modes; rm /root/engine-check-modes' || fail "engine check: the version's modes could not be put back"
     case "$B" in *'"ok":false'*) pass "engine check: passes on the running version, fails on one left 0750/0640" ;; *) fail "engine check passed a 0750/0640 version: $B" ;; esac ;;
   *'bad request'*) echo "test: skip the engine check (the launcher of this kit does not know it)" ;;
   *) fail "engine check on the running version: $R" ;;

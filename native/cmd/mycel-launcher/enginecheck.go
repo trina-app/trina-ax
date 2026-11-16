@@ -17,6 +17,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -37,6 +38,11 @@ var engineCheckMu sync.Mutex
 
 func sandboxCheckOp(o *out) {
 	skipped, err := engineCheck()
+	var fe folderError
+	if errors.As(err, &fe) {
+		// the check's own folder, not the version: no proof against it
+		skipped, err = fe.Error(), nil
+	}
 	switch {
 	case err != nil:
 		o.send(map[string]any{"ev": "sandbox-check", "ok": false, "error": err.Error()})
@@ -59,10 +65,10 @@ func runEngineCheck() error {
 	}
 	dir := filepath.Join(filepath.Clean(*agentRoot), checkFolderName)
 	if err := os.RemoveAll(dir); err != nil {
-		return fmt.Errorf("check folder: %v", err)
+		return folderError{err}
 	}
 	if err := os.Mkdir(dir, 0o700); err != nil {
-		return fmt.Errorf("check folder: %v", err)
+		return folderError{err}
 	}
 	defer os.RemoveAll(dir)
 	t := checkTurnEnv(dir, bridge)
@@ -96,6 +102,11 @@ func runEngineCheck() error {
 	}
 	return nil
 }
+
+// folderError: the check folder could not be made (the agent root's problem, not the version's)
+type folderError struct{ err error }
+
+func (f folderError) Error() string { return "the check folder could not be made: " + f.err.Error() }
 
 // tailBuffer keeps the last 2 KiB written (the check's output: bwrap's or mycel-sandbox's message, the bridge's usage)
 type tailBuffer struct {
