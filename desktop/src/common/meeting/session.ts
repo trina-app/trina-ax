@@ -2,7 +2,8 @@
 // - readFrames: the capture helper's stdout (desktop/native/meeting-audio) as tracks of 16 kHz mono samples;
 // - MeetingSession: frames → pieces at pauses (chunker.ts) → the team server (POST /api/meetings/piece) → lines on
 //   meeting time. A piece the server says to send again (reason in MEETING_RETRY_REASONS) waits its Retry-After; any
-//   other refusal ends the meeting with the server's sentence. Pieces go out in order per track, at most two at once.
+//   other refusal ends the meeting with the server's sentence. Pieces go out in the order they were cut, at most two at
+//   once, so lines may arrive out of order (all() sorts them).
 // The sound is never written anywhere: a piece lives in memory until its answer.
 import { MEETING_RETRY_REASONS } from '@mycel/shared/api'
 import { chunker, pieceWav, RATE, type Chunker, type Piece, type Track } from './chunker'
@@ -60,6 +61,8 @@ export interface SessionDeps {
 
 /** at most this many pieces wait for the server; beyond it the oldest is dropped (about 5 minutes of speech) */
 export const MEETING_BACKLOG_MAX = 40
+/** after Stop, the pieces still waiting get this long for their answers; then the meeting ends without them */
+export const MEETING_FINISH_MS = 60_000
 const SEND_AT_ONCE = 2
 
 export class MeetingSession {
@@ -69,8 +72,9 @@ export class MeetingSession {
   private running = 0
   private stopped = false
   private refused = false
+  private stoppedAt: number | null = null
   private readonly lines: MeetingLine[] = []
-  private idle: (() => void) | null = null
+  private idleWaiters: (() => void)[] = []
 
   constructor(private readonly deps: SessionDeps) {
     this.cut = chunker((p) => this.enqueue(p))
@@ -85,9 +89,15 @@ export class MeetingSession {
 
   /** Stop: the open pieces go out, and this resolves once every piece has its answer (or was given up). */
   async finish(): Promise<MeetingLine[]> {
-    if (!this.stopped) this.cut.flush()
+    if (!this.stopped) { this.cut.flush(); this.stoppedAt = Date.now() }
     this.stopped = true
-    if (this.running || this.queue.length) await new Promise<void>((r) => { this.idle = r })
+    if (this.running || this.queue.length) {
+      // every caller waits for the same end (a Stop and a refusal during it); never longer than MEETING_FINISH_MS
+      await new Promise<void>((r) => {
+        this.idleWaiters.push(r)
+        setTimeout(r, Math.max(0, (this.stoppedAt ?? Date.now()) + MEETING_FINISH_MS - Date.now()))
+      })
+    }
     return this.all()
   }
 
@@ -108,7 +118,7 @@ export class MeetingSession {
       void this.run(p).finally(() => {
         this.running--
         this.deps.onBacklog?.(this.queue.length + this.running)
-        if (!this.running && !this.queue.length) { const r = this.idle; this.idle = null; r?.() }
+        if (!this.running && !this.queue.length) { const w = this.idleWaiters; this.idleWaiters = []; for (const r of w) r() }
         this.pump()
       })
     }
@@ -118,6 +128,8 @@ export class MeetingSession {
     const wav = pieceWav(p.samples)
     const sleep = this.deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
     for (let tries = 0; tries < 6; tries++) {
+      // the meeting was refused, or Stop was pressed a while ago: no more tries
+      if (this.refused || (this.stoppedAt !== null && Date.now() - this.stoppedAt > MEETING_FINISH_MS)) return
       let a: PieceAnswer
       try { a = await this.deps.send(wav) } catch { a = { ok: false, status: 0, reason: 'busy', retryAfterSec: 5, message: '' } }
       if (a.ok) {
@@ -130,7 +142,7 @@ export class MeetingSession {
         if (!this.refused) { this.refused = true; this.stopped = true; this.queue.length = 0; this.deps.onStop(a.message) }
         return
       }
-      if (this.stopped && this.queue.length === 0 && tries >= 2) return
+      if (this.stopped && tries >= 2) return
       await sleep(Math.min(30, Math.max(1, a.retryAfterSec ?? 5)) * 1000)
     }
   }

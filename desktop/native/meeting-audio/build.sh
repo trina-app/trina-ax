@@ -1,8 +1,9 @@
 #!/bin/bash
 # Build the meeting notes' sound helper (main.swift) for the Mac app: one universal program (arm64 + x86_64), macOS
 # 14.2+ (Core Audio process taps), Swift command line tools only (no Xcode project, as menubar/build.sh). The dist:mac*
-# scripts run it before electron-builder, which copies desktop/native-build/meeting-audio into the app's Resources
-# (electron-builder.config.ts extraResources) and signs it with the app (the inherit entitlements carry the microphone).
+# scripts run it before electron-builder, which copies desktop/native-build/meeting-audio next to the app's program in
+# Contents/MacOS (electron-builder.config.ts mac.extraFiles) and signs it with the app (the inherit entitlements carry
+# the microphone).
 set -euo pipefail
 cd "$(dirname "$0")"
 [ "$(uname -s)" = Darwin ] || { echo "meeting-audio: build on a Mac" >&2; exit 2; }

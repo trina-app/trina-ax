@@ -62,6 +62,8 @@ export default {
     // the meeting notes' sound helper (desktop/native/meeting-audio/build.sh, run by the dist:mac* scripts) next to the
     // app's own program in Contents/MacOS; electron-builder signs it with the app (the inherit entitlements: microphone)
     extraFiles: [{ from: 'native-build/meeting-audio', to: 'MacOS/meeting-audio' }],
+    // it is universal already, so the arm64 and x64 apps hold the same file: @electron/universal takes it as it is
+    x64ArchFiles: 'Contents/MacOS/meeting-audio',
     extraResources: Object.entries({ en: 'en', ko: 'ko', 'zh-Hans': 'zh-Hans', zh_CN: 'zh-Hans', ja: 'ja', es: 'es', es_419: 'es', id: 'id' })
       .map(([folder, lang]) => ({ from: `build-resources/mac-infoplist/${lang}.strings`, to: `${folder}.lproj/InfoPlist.strings` })),
   },

@@ -6,7 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { FrameReader, FRAME_ME, FRAME_OTHERS, MeetingSession, type MeetingLine, type PieceAnswer } from '../../desktop/src/common/meeting/session'
 import { RATE } from '../../desktop/src/common/meeting/chunker'
-import { meetingHelperPath, pieceAnswerOf } from '../../desktop/src/main/meeting'
+import { meetingHelperPath, MeetingRun, pieceAnswerOf } from '../../desktop/src/main/meeting'
 
 const frame = (kind: number, samples: Float32Array) => {
   const b = Buffer.alloc(5 + samples.length * 4)
@@ -79,6 +79,32 @@ describe('the meeting session', () => {
   })
 })
 
+describe('the meeting session at Stop', () => {
+  test('a refusal while Stop is finishing: both callers end, the sentence is said once', async () => {
+    let release!: () => void
+    const held = new Promise<void>((r) => { release = r })
+    const stops: string[] = []
+    let s!: MeetingSession
+    s = new MeetingSession({
+      send: async () => { await held; return { ok: false, status: 409, reason: 'off', message: 'Voice input is off.' } },
+      onLines: () => {}, onStop: (m) => { stops.push(m); void s.finish() }, sleep: async () => {},
+    })
+    talk(s, 'me', 2000)
+    const first = s.finish()
+    release()
+    await first
+    expect(stops).toEqual(['Voice input is off.'])
+  })
+  test('a piece that stays busy is given up after a few tries once Stop was pressed', async () => {
+    let sent = 0
+    const s = new MeetingSession({ send: async () => { sent++; return { ok: false, status: 503, reason: 'busy', retryAfterSec: 1, message: '' } }, onLines: () => {}, onStop: () => { throw new Error('no stop') }, sleep: async () => {} })
+    talk(s, 'me', 2000)
+    expect(await s.finish()).toEqual([])
+    expect(sent).toBeGreaterThanOrEqual(1)
+    expect(sent).toBeLessThanOrEqual(3)
+  })
+})
+
 describe('the main process side', () => {
   test("the server's answers as the session reads them", async () => {
     expect(await pieceAnswerOf(Response.json({ lines: [{ start: 0, end: 1, text: 'hi' }, { bad: 1 }] }))).toEqual({ ok: true, lines: [{ start: 0, end: 1, text: 'hi' }] })
@@ -86,12 +112,40 @@ describe('the main process side', () => {
     expect(busy).toEqual({ ok: false, status: 503, reason: 'busy', retryAfterSec: 5, message: 'Busy' })
     expect(await pieceAnswerOf(new Response('nope', { status: 500 }))).toEqual({ ok: false, status: 500, message: 'HTTP 500' })
   })
-  test('the helper is found next to the app on a Mac, or named for tests; none elsewhere', () => {
+  test('the helper is found next to the app on macOS 14.4+, or named for tests; none elsewhere', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'meet-'))
     fs.writeFileSync(path.join(dir, 'meeting-audio'), '')
-    expect(meetingHelperPath({}, path.join(dir, 'Trina AX'), 'darwin')).toBe(path.join(dir, 'meeting-audio'))
+    expect(meetingHelperPath({}, path.join(dir, 'Trina AX'), 'darwin', '25.6.0')).toBe(path.join(dir, 'meeting-audio'))
+    expect(meetingHelperPath({}, path.join(dir, 'Trina AX'), 'darwin', '23.4.0')).toBe(path.join(dir, 'meeting-audio'))
+    expect(meetingHelperPath({}, path.join(dir, 'Trina AX'), 'darwin', '23.2.0')).toBeNull()
     expect(meetingHelperPath({}, path.join(dir, 'Trina AX'), 'win32')).toBeNull()
     expect(meetingHelperPath({ MYCEL_MEETING_HELPER: path.join(dir, 'nope') }, '/x', 'darwin')).toBeNull()
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+  test('a helper that cannot start ends the meeting, no crash', async () => {
+    const ends: (string | null)[] = []
+    const run = new MeetingRun({ helper: '/nonexistent/meeting-audio', origin: 'http://127.0.0.1:9', session: { fetch: (() => { throw new Error('no') }) as any }, events: { onLines: () => {}, onStop: (m) => ends.push(m), onState: () => {} } })
+    run.start()
+    for (let i = 0; i < 50 && !ends.length; i++) await Bun.sleep(20)
+    expect(ends).toEqual([null])
+  })
+  test('a fake helper: its frames become a piece sent with the CSRF header; its state is read; Stop ends it', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'meet-'))
+    const raw = path.join(dir, 'frames.bin')
+    const parts = [tone(3000, 0.0005), tone(2000, 0.2), tone(1500, 0.0005)]
+    fs.writeFileSync(raw, Buffer.concat(parts.map((p) => frame(FRAME_ME, p))))
+    const helper = path.join(dir, 'helper.sh')
+    fs.writeFileSync(helper, `#!/bin/sh\necho '{"event":"started","microphone":true,"callSound":false,"callApps":[]}' >&2\ncat ${JSON.stringify(raw)}\nexec sleep 30\n`, { mode: 0o755 })
+    const calls: { url: string; csrf: string | null }[] = []
+    const fetch = async (url: string, init: RequestInit) => { calls.push({ url, csrf: new Headers(init.headers).get('x-mycel-csrf') }); return Response.json({ lines: [{ start: 0, end: 1, text: 'hello' }] }) }
+    const states: any[] = [], lines: MeetingLine[] = []
+    const run = new MeetingRun({ helper, origin: 'https://team.example', session: { fetch: fetch as any }, events: { onLines: (l) => lines.push(...l), onStop: () => {}, onState: (s) => states.push(s) } })
+    run.start()
+    for (let i = 0; i < 100 && !lines.length; i++) await Bun.sleep(20)
+    const all = await run.stop()
+    expect(states).toEqual([{ microphone: true, callSound: false, callApps: [] }])
+    expect(calls[0]).toEqual({ url: 'https://team.example/api/meetings/piece', csrf: '1' })
+    expect(all.map((l) => [l.track, l.text])).toEqual([['me', 'hello']])
     fs.rmSync(dir, { recursive: true, force: true })
   })
 })

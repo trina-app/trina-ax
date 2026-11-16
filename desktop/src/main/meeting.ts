@@ -5,6 +5,7 @@
 // process: stopping it stops only that PID. The bridge and the app's start dialog (slice 3) call start / stop.
 import { spawn, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import type { Session } from 'electron'
 import { CSRF_HEADER } from '@mycel/shared/api'
@@ -15,10 +16,13 @@ const PIECE_TIMEOUT_MS = 75_000
 
 /** The helper's path: next to the app's own program on a Mac (a packaged app), or MYCEL_MEETING_HELPER (tests, a dev
  * build with desktop/native-build/meeting-audio). Null where there is none (Windows until P3, the store build). */
-export function meetingHelperPath(env: NodeJS.ProcessEnv = process.env, execPath = process.execPath, platform = process.platform): string | null {
+export function meetingHelperPath(env: NodeJS.ProcessEnv = process.env, execPath = process.execPath, platform = process.platform, release = os.release()): string | null {
   const own = env.MYCEL_MEETING_HELPER
   if (own) return fs.existsSync(own) ? own : null
   if (platform !== 'darwin') return null
+  // macOS 14.4 (Darwin 23.4) and later: the plan's floor for process taps
+  const [maj = 0, min = 0] = release.split('.').map(Number)
+  if (maj < 23 || (maj === 23 && min < 4)) return null
   const p = path.join(path.dirname(execPath), 'meeting-audio')
   return fs.existsSync(p) ? p : null
 }
@@ -62,9 +66,21 @@ export class MeetingRun {
   start() {
     const child = spawn(this.o.helper, [], { stdio: ['pipe', 'pipe', 'pipe'] })
     this.child = child
-    child.stdout!.on('data', (b: Buffer) => {
-      try { for (const f of this.reader.push(b)) this.session.push(f) } catch { void this.stop(); this.o.events.onStop(null) }
-    })
+    const end = () => { if (this.ended) return; this.ended = true; void this.session.finish().then(() => this.o.events.onStop(null)) }
+    // a helper that cannot start (missing, not allowed to run) is an 'error' event, not a throw
+    child.on('error', () => { this.child = null; end() })
+    // ending stdin of a helper that is gone already gives EPIPE
+    child.stdin!.on('error', () => {})
+    const onData = (b: Buffer) => {
+      if (this.ended) return
+      try { for (const f of this.reader.push(b)) this.session.push(f) } catch {
+        // a broken stream: stop once (later chunks would fail on the same bytes)
+        child.stdout!.off('data', onData)
+        void this.stop()
+        this.o.events.onStop(null)
+      }
+    }
+    child.stdout!.on('data', onData)
     let err = ''
     child.stderr!.on('data', (b: Buffer) => {
       err = (err + b.toString('utf8')).slice(-8192)
@@ -77,7 +93,7 @@ export class MeetingRun {
         } catch { /* not an event line */ }
       }
     })
-    child.on('exit', () => { this.child = null; if (!this.ended) { this.ended = true; void this.session.finish().then(() => this.o.events.onStop(null)) } })
+    child.on('exit', () => { this.child = null; end() })
   }
 
   /** Stop listening; resolves with every line once the last pieces have their answers. */
@@ -86,7 +102,12 @@ export class MeetingRun {
     const c = this.child
     this.child = null
     // this meeting's own helper only (its PID), never by name
-    if (c && c.exitCode === null) { c.stdin?.end(); c.kill('SIGTERM') }
+    if (c && c.exitCode === null && c.signalCode === null) {
+      c.stdin?.end()
+      c.kill('SIGTERM')
+      // a helper stuck in Core Audio must not keep the meeting "on"
+      setTimeout(() => { if (c.exitCode === null && c.signalCode === null) c.kill('SIGKILL') }, 3000).unref()
+    }
     return this.session.finish()
   }
 

@@ -18,7 +18,8 @@ import Foundation
 
 let RATE = 16000.0
 let out = FileHandle.standardOutput
-let outLock = NSLock()
+/// frames are written here, never on the audio threads (the tap's IOProc is a real-time thread)
+let writeQueue = DispatchQueue(label: "meeting-audio.write")
 
 func event(_ dict: [String: Any]) {
   if let d = try? JSONSerialization.data(withJSONObject: dict), let s = String(data: d, encoding: .utf8) {
@@ -27,14 +28,16 @@ func event(_ dict: [String: Any]) {
 }
 
 func writeFrame(_ kind: UInt8, _ samples: UnsafeBufferPointer<Float>) {
-  if samples.isEmpty { return }
-  var head = Data([kind])
+  guard let base = samples.baseAddress, !samples.isEmpty else { return }
+  var frame = Data([kind])
   var n = UInt32(samples.count).littleEndian
-  head.append(Data(bytes: &n, count: 4))
-  var body = Data(capacity: samples.count * 4)
-  for s in samples { var v = s.bitPattern.littleEndian; body.append(Data(bytes: &v, count: 4)) }
-  outLock.lock(); defer { outLock.unlock() }
-  out.write(head + body)
+  frame.append(Data(bytes: &n, count: 4))
+  // float32 as it is: both Mac architectures are little-endian
+  frame.append(Data(bytes: base, count: samples.count * 4))
+  writeQueue.async {
+    // the app went away (a closed pipe): stop quietly, no crash report
+    do { try out.write(contentsOf: frame) } catch { exit(0) }
+  }
 }
 
 /// Converts any PCM buffer to 16 kHz mono float32 and writes it as frames of `kind`.
@@ -48,6 +51,8 @@ final class Resampler {
     if from == nil || from! != buffer.format {
       from = buffer.format
       converter = AVAudioConverter(from: buffer.format, to: to)
+      // every channel goes into the one (without it only the first channel is heard)
+      converter?.downmix = true
     }
     guard let conv = converter else { return }
     let cap = AVAudioFrameCount(Double(buffer.frameLength) * RATE / buffer.format.sampleRate) + 32
@@ -79,17 +84,18 @@ func startMic() -> Bool {
 }
 
 // ---------------- the call apps' sound ----------------
-/// bundle ids whose sound is "others": the call apps, and the browsers a Meet or Teams tab plays in
+/// bundle ids whose sound is "others": the call apps, and the browsers a Meet or Teams tab plays in (anything else a
+/// browser plays during the meeting is heard too). FaceTime's call sound plays from avconferenced.
 let CALL_APPS: [String] = [
   "us.zoom.xos", "com.microsoft.teams2", "com.microsoft.teams", "com.cisco.webexmeetingsapp", "Cisco-Systems.Spark",
-  "com.tinyspeck.slackmacgap", "com.apple.FaceTime", "com.google.Chrome", "com.apple.Safari", "com.microsoft.edgemac",
+  "com.tinyspeck.slackmacgap", "com.apple.FaceTime", "com.apple.avconferenced", "com.google.Chrome", "com.apple.Safari", "com.microsoft.edgemac",
   "company.thebrowser.Browser", "org.mozilla.firefox", "com.brave.Browser", "com.hnc.Discord", "com.skype.skype",
 ]
 
-func prop<T>(_ obj: AudioObjectID, _ sel: AudioObjectPropertySelector, _ initial: T) -> T? {
-  var addr = AudioObjectPropertyAddress(mSelector: sel, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-  var size = UInt32(MemoryLayout<T>.size)
-  var v = initial
+func tapFormat(_ obj: AudioObjectID) -> AudioStreamBasicDescription? {
+  var addr = AudioObjectPropertyAddress(mSelector: kAudioTapPropertyFormat, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+  var size = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
+  var v = AudioStreamBasicDescription()
   return AudioObjectGetPropertyData(obj, &addr, 0, nil, &size, &v) == noErr ? v : nil
 }
 
@@ -123,7 +129,7 @@ func startTap(_ processes: [AudioObjectID]) -> Bool {
   desc.muteBehavior = .unmuted
   desc.isPrivate = true
   guard AudioHardwareCreateProcessTap(desc, &tapID) == noErr else { event(["event": "error", "what": "tap"]); return false }
-  guard let fmt = prop(tapID, kAudioTapPropertyFormat, AudioStreamBasicDescription()) else { event(["event": "error", "what": "tap_format"]); return false }
+  guard let fmt = tapFormat(tapID) else { event(["event": "error", "what": "tap_format"]); return false }
   let aggDesc: [String: Any] = [
     kAudioAggregateDeviceNameKey: "Trina meeting notes",
     kAudioAggregateDeviceUIDKey: UUID().uuidString,
@@ -142,14 +148,19 @@ func startTap(_ processes: [AudioObjectID]) -> Bool {
   return true
 }
 
-func stopAll() {
-  engine.inputNode.removeTap(onBus: 0)
-  engine.stop()
+func stopTap() {
   if aggregateID != kAudioObjectUnknown {
     if let p = procID { AudioDeviceStop(aggregateID, p); AudioDeviceDestroyIOProcID(aggregateID, p) }
     AudioHardwareDestroyAggregateDevice(aggregateID)
   }
   if tapID != kAudioObjectUnknown { AudioHardwareDestroyProcessTap(tapID) }
+  aggregateID = AudioObjectID(kAudioObjectUnknown); tapID = AudioObjectID(kAudioObjectUnknown); procID = nil
+}
+/// main thread only
+func stopAll() {
+  engine.inputNode.removeTap(onBus: 0)
+  engine.stop()
+  stopTap()
 }
 
 // ---------------- main ----------------
@@ -159,17 +170,36 @@ if CommandLine.arguments.contains("--check") {
   event(["event": "check", "callApps": names])
   exit(0)
 }
-signal(SIGTERM) { _ in stopAll(); exit(0) }
-signal(SIGINT) { _ in stopAll(); exit(0) }
+// SIGTERM / SIGINT and a closed stdin (the app going away) stop on the main thread, never inside a signal handler
 signal(SIGPIPE, SIG_IGN)
+func quit() { stopAll(); writeQueue.sync {}; exit(0) }
+var signalSources: [DispatchSourceSignal] = []
+for sig in [SIGTERM, SIGINT] {
+  signal(sig, SIG_IGN)
+  let src = DispatchSource.makeSignalSource(signal: sig, queue: .main)
+  src.setEventHandler { quit() }
+  src.resume()
+  signalSources.append(src)
+}
 let micOk = startMic()
-let (procs, names) = callProcesses()
-let tapOk = procs.isEmpty ? false : startTap(procs)
+var (procs, names) = callProcesses()
+var tapOk = procs.isEmpty ? false : startTap(procs)
 event(["event": "started", "microphone": micOk, "callApps": names, "callSound": tapOk])
-if !micOk && !tapOk { stopAll(); exit(2) }
-// the app going away closes stdin: stop then
+if !micOk && procs.isEmpty { /* nothing to hear yet: a call app may start later */ }
+// a call app (or a Meet tab) that starts or stops its sound later: the tap follows, every 5 s
+let watch = DispatchSource.makeTimerSource(queue: .main)
+watch.schedule(deadline: .now() + 5, repeating: 5)
+watch.setEventHandler {
+  let (now, nowNames) = callProcesses()
+  if Set(now) == Set(procs) { return }
+  stopTap()
+  procs = now; names = nowNames
+  tapOk = now.isEmpty ? false : startTap(now)
+  event(["event": "callApps", "callApps": names, "callSound": tapOk])
+}
+watch.resume()
 DispatchQueue.global().async {
   while FileHandle.standardInput.availableData.count > 0 {}
-  stopAll(); exit(0)
+  DispatchQueue.main.async { quit() }
 }
 RunLoop.main.run()
