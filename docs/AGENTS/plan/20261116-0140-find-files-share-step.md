@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16 01:40
 - Branch: `feat/find-files-share-step`
-- Status: in progress
+- Status: done
 - Where: trina-ax (Team AX core: web onboarding / My files dialog). Why: Find work files and file share links are core
   screens (see docs/REPOSITORY-RULES.md)
 - Version impact: minor, a new step in an existing flow (no API, no migration)
@@ -29,7 +29,7 @@ In:
   with Sales" and a quiet "Share with your team" link back to the step (the way back from Not now).
 - Skipped by itself when the person may not share (team switch off: `GET /api/files/shares` says `off`).
 - Welcome card: unchanged rules (the row is done once a file landed); the dialog closing reloads the card.
-- en first, then ko, id, ja, es, zh. User doc (en + the five translations' pages get the new section), DECISIONS.md,
+- en first, then ko, id, ja, es, zh. User doc (en + the five translations' pages get the new section), docs/decisions/20261116-find-files-share-step.md,
   `changes/find-files-share-step.md`.
 
 Out:
@@ -54,4 +54,7 @@ Out:
 
 ## Result
 
-(filled in at the end)
+Built as planned: `ShareFoundFiles.tsx` (the step), `lib/shareFound.ts` (hint and the per-file share with 429
+retries), RunResult stages check → share → result in `FindWorkFiles.tsx`. Decision:
+docs/decisions/20261116-find-files-share-step.md. No endpoint, no migration. Open question for the owner: a one-press
+"whole team" share needs an everyone subject on file shares (a new permission path), not built.
