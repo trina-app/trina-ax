@@ -1,2 +1,0 @@
-- **Find work files on this computer** on Windows, when it looks through more places: files from Windows' recent list and Office's recent files now show even when Windows Search does not answer. Synced SharePoint libraries are now listed as their own places.
-- On Windows a file counts as opened only when Windows' or Office's recent list says so, and as recent when it was changed lately. Before, anything that merely read a file (unzipping, a virus scan) made it look "Opened today".

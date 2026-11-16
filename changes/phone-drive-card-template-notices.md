@@ -1,3 +1,0 @@
-- In the phone app, the Google Drive card in a chat now says "Connect Google Drive on a computer." like Settings, instead of offering a Google sign-in.
-- Team template notices now say "sign in again with your own account" for a sign-in template and "enter your own key again" for a key template.
-- A member an admin leaves out of a team template now gets one notice: "You no longer have access to <name>."
