@@ -198,6 +198,13 @@ describe('a chat link', () => {
       expect(accessRequestPushWanted(h.ctx, n.id)).toBe(false)
       expect((await answer(alice, q.id, 'approve')).body).toEqual({ state: 'closed' })
     } finally { h.ctx.db.query("UPDATE users SET status = 'active' WHERE id = ?").run(ids.carl) }
+    // dina asks, then becomes a guest: Share closes it, nothing is shared
+    const later = await chatOf(alice, 'Guest later')
+    await ask(dina, 'chat', later)
+    h.ctx.db.query('UPDATE users SET guest = 1 WHERE id = ?').run(ids.dina)
+    try {
+      expect((await answer(alice, requestOf('chat', later, ids.dina)!.id, 'approve')).body).toEqual({ state: 'closed' })
+    } finally { h.ctx.db.query('UPDATE users SET guest = 0 WHERE id = ?').run(ids.dina) }
   })
 })
 

@@ -42,38 +42,13 @@ import { subjectsOf } from './chat-audience'
 import { accessEditable, projectAccess, saveParticipants } from './project-access'
 import { canSeeProject, isTeamProject, mayEditProject, mayManageProject } from './projects'
 import type { ChatRow, ProjectRow } from './store'
+import { ACCESS_REQUEST_TEXT } from './access-request-text'
 
 type State = 'pending' | 'approved' | 'declined' | 'closed'
 interface RequestRow { id: string; kind: AccessKind; target_id: string; requester_id: string; owner_id: string; message: string | null; state: State; created_at: string }
 const COLS = 'id, kind, target_id, requester_id, owner_id, message, state, created_at'
 
-const TEXT: Record<'requestOff' | 'tooMany' | 'notSharer', Record<Locale, string>> = {
-  requestOff: {
-    en: 'You can\'t ask for access here. Ask the person who sent the link.',
-    ko: '여기서는 액세스를 요청할 수 없어요. 링크를 보낸 사람에게 물어보세요.',
-    id: 'Anda tidak bisa meminta akses di sini. Tanyakan kepada pengirim tautan.',
-    ja: 'ここではアクセスをリクエストできません。リンクを送った人に聞いてください。',
-    es: 'Aquí no puede pedir acceso. Pregunte a quien le envió el enlace.',
-    zh: '这里无法请求访问。请询问发送链接的人。',
-  },
-  tooMany: {
-    en: 'You\'ve asked for access many times. Try again later.',
-    ko: '액세스를 너무 많이 요청했어요. 나중에 다시 해 주세요.',
-    id: 'Anda sudah terlalu sering meminta akses. Coba lagi nanti.',
-    ja: 'アクセスのリクエストが多すぎます。後でもう一度お試しください。',
-    es: 'Ha pedido acceso muchas veces. Inténtelo más tarde.',
-    zh: '你请求访问的次数太多了。请稍后再试。',
-  },
-  notSharer: {
-    en: 'Only someone who can share it can answer this request.',
-    ko: '공유할 수 있는 사람만 이 요청에 답할 수 있어요.',
-    id: 'Hanya orang yang bisa membagikannya yang bisa menjawab permintaan ini.',
-    ja: '共有できる人だけがこのリクエストに答えられます。',
-    es: 'Solo quien puede compartirlo puede responder a esta solicitud.',
-    zh: '只有能共享它的人可以回复这个请求。',
-  },
-}
-const msg = (k: keyof typeof TEXT, L: Locale) => TEXT[k][L] ?? TEXT[k].en
+const msg = (k: keyof typeof ACCESS_REQUEST_TEXT, L: Locale) => ACCESS_REQUEST_TEXT[k][L] ?? ACCESS_REQUEST_TEXT[k].en
 const now = () => new Date().toISOString()
 const isAdmin = (p: Pick<Principal, 'role'>) => p.role === 'owner' || p.role === 'admin'
 
@@ -244,15 +219,17 @@ export class AccessRequests {
     const may = this.mayAnswer(me, row)
     const told = !!this.db.query("SELECT 1 FROM access_request_notices WHERE user_id = ? AND event_type = 'access.requested' AND source_id = ?").get(userId, `${row.kind}:${row.target_id}:${row.requester_id}`)
     if (!may && !told) return fail('not_found')
+    // someone it went to who may not share it now (an admin taken out of the folder): the others answer it, and they
+    // learn nothing of how it ended (review)
+    if (!may) return fail('forbidden', msg('notSharer', L), { params: { reason: 'access_request_not_sharer' } })
     const q = this.settle(row)
     if (q.state !== 'pending') return { state: q.state }
-    // the asker switched off or removed meanwhile: nobody waits any more
-    if (!loadPrincipal(this.db, q.requester_id)) {
+    // the asker switched off, removed, or made a guest meanwhile: nobody waits any more (a guest is never added this way)
+    const asker = loadPrincipal(this.db, q.requester_id)
+    if (!asker || asker.role === 'guest') {
       this.db.query("UPDATE access_requests SET state = 'closed', decided_at = ? WHERE id = ? AND state = 'pending'").run(now(), q.id)
       return { state: 'closed' }
     }
-    // someone it went to who may not share it now (an admin taken out of the folder): the others answer it
-    if (!may) return fail('forbidden', msg('notSharer', L), { params: { reason: 'access_request_not_sharer' } })
     const target = `${q.kind}:${q.target_id}`
     if (answer === 'decline') {
       this.db.query("UPDATE access_requests SET state = 'declined', decided_by = ?, decided_at = ? WHERE id = ? AND state = 'pending'").run(userId, now(), q.id)
@@ -308,7 +285,8 @@ export class AccessRequests {
   requestWaitsOn(userId: string, sourceId: string): boolean {
     const a = this.askedOf(userId, sourceId)
     if (!a || !a.may || a.request.state !== 'pending') return false
-    return !!loadPrincipal(this.db, a.asker)
+    const asker = loadPrincipal(this.db, a.asker)
+    return !!asker && asker.role !== 'guest'
   }
 
   /** An Activity row's details for its viewer (notifications/service.ts out). Names read now. */
