@@ -8,6 +8,7 @@ import { FILE_SHARE_TEXT } from '../../server/src/files/share-text'
 import { fileSharePushWanted } from '../../server/src/files/share-push'
 import { pushPathOf } from '../../server/src/notifications/push-events'
 import { updateTeamSettings } from '../../server/src/admin/settings'
+import { runAccountCleanups } from '../../server/src/auth/account-removal'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 
 let h: Harness
@@ -173,7 +174,7 @@ describe('one notice for several files in one press (TC-3510)', () => {
     expect(h.ctx.db.query("SELECT COUNT(*) n FROM file_share_notices WHERE user_id = ?").get(ids.carl)).toEqual({ n: expect.any(Number) })
   })
 
-  test('one send token for a press: 25 files in one press go through where 25 single shares would hit the budget', async () => {
+  test('a press costs one send token per 10 files: 25 files go through in one press where 25 single shares would hit the budget', async () => {
     const paths = Array.from({ length: 25 }, (_, i) => `users/${ids.bob}/bulk/f${i}.txt`)
     for (const p of paths) await put(bob, p, p)
     const r = await many(bob, paths, [user(ids.carl)])
@@ -191,11 +192,57 @@ describe('one notice for several files in one press (TC-3510)', () => {
     expect((await gina.raw('POST', '/api/files/shares/batch', { paths: [p], add: [user(ids.bob)] })).status).toBeGreaterThanOrEqual(400)
   })
 
-  test('a deleted sharer: their presses go with their account', async () => {
+  test('a deleted sharer: the account removal takes their presses; the list answers 404', async () => {
     const e = await addMember(h, owner, { username: 'erin' })
     const paths = ['1.txt', '2.txt'].map((n) => `users/${e.id}/go/${n}`)
     for (const p of paths) await put(e.client, p, p)
     await many(e.client, paths, [user(ids.bob)])
-    expect((h.ctx.db.query('SELECT COUNT(*) n FROM file_share_batches WHERE by_user = ?').get(e.id) as { n: number }).n).toBe(1)
+    const batch = (h.ctx.db.query('SELECT id FROM file_share_batches WHERE by_user = ?').get(e.id) as { id: string }).id
+    expect((await bob.call('GET', `/api/files/shared-batch/${batch}`)).files.length).toBe(2)
+    await runAccountCleanups(h.ctx, e.id)
+    expect(h.ctx.db.query('SELECT COUNT(*) n FROM file_share_batches WHERE id = ?').get(batch)).toEqual({ n: 0 })
+    expect(h.ctx.db.query('SELECT COUNT(*) n FROM file_share_batch_items WHERE batch_id = ?').get(batch)).toEqual({ n: 0 })
+    expect((await bob.raw('GET', `/api/files/shared-batch/${batch}`)).status).toBe(404)
+    const n = (await fileNotices(bob)).find((x) => x.sourceId === `b:${batch}`)
+    expect(n?.fileShare?.gone ?? true).toBe(true)
+  })
+})
+
+describe('no free probe of who exists; the budget by size (security review of #1038)', () => {
+  test('a press of paths the caller may not share never checks the people: a guest and a member answer the same, and the tries end in 429', async () => {
+    const p = await addMember(h, owner, { username: 'pia' })
+    const bogus = ['shared/nope-1.txt', 'shared/nope-2.txt']
+    const asGuest = await p.client.raw('POST', '/api/files/shares/batch', { paths: bogus, add: [user(ids.gina)] })
+    const asMember = await p.client.raw('POST', '/api/files/shares/batch', { paths: bogus, add: [user(ids.bob)] })
+    expect(asGuest.status).toBe(200)
+    expect(asMember.status).toBe(200)
+    const strip = (r: any) => r.failed.map((f: any) => [f.path, f.reason ?? null])
+    expect(strip(await asGuest.json())).toEqual(strip(await asMember.json()))
+    let limited = false
+    for (let i = 0; i < 40 && !limited; i++) limited = (await p.client.raw('POST', '/api/files/shares/batch', { paths: bogus, add: [user(ids.gina)] })).status === 429
+    expect(limited).toBe(true)
+  })
+
+  test('the single PUT takes the token before the people are checked: refused names end in 429 too', async () => {
+    const q2 = await addMember(h, owner, { username: 'quill' })
+    const f = `users/${q2.id}/probe.txt`
+    await put(q2.client, f, 'probe')
+    const first = await q2.client.raw('PUT', '/api/files/shares', { path: f, add: [user(ids.gina)], remove: [] })
+    expect(first.status).toBe(400)
+    let limited = false
+    for (let i = 0; i < 40 && !limited; i++) limited = (await q2.client.raw('PUT', '/api/files/shares', { path: f, add: [{ subjectType: 'user', subjectId: `nobody-${i}` }], remove: [] })).status === 429
+    expect(limited).toBe(true)
+    // someone else's file: refused for the file first (403), no word about the people, no token
+    expect((await q2.client.raw('PUT', '/api/files/shares', { path: `users/${ids.alice}/handbook.txt`, add: [user(ids.gina)], remove: [] })).status).toBe(404)
+  })
+
+  test('one token per 10 files: two presses of 100 use the burst, the third is refused; a press of 20 stays usable', async () => {
+    const r = await addMember(h, owner, { username: 'remy' })
+    const paths = Array.from({ length: 100 }, (_, i) => `users/${r.id}/hundred/f${i}.txt`)
+    for (const p of paths) await put(r.client, p, p)
+    expect((await r.client.raw('POST', '/api/files/shares/batch', { paths: paths.slice(0, 20), add: [user(ids.carl)] })).status).toBe(200)
+    const statuses: number[] = []
+    for (let i = 0; i < 3; i++) statuses.push((await r.client.raw('POST', '/api/files/shares/batch', { paths, add: [user(ids.carl)] })).status)
+    expect(statuses).toContain(429)
   })
 })

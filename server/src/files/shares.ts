@@ -157,6 +157,8 @@ export function ownerOf(db: Database, path: string): string | null {
 
 const UNDER = (col: string) => `(${col} = ? OR substr(${col}, 1, length(?) + 1) = ? || '/')`
 const ALL = FILE_SHARE_EVERYONE
+/** A Share press of several files takes one send token per this many files (shareMany) */
+export const BATCH_FILES_PER_TOKEN = 10
 /** SQL: a grant row `g` that reaches the person whose id is the bound `?` (twice): their own, a group's they are in, or
  * the whole team's (for an active member who is not a guest) */
 const REACHES = (g: string) => `((${g}.subject_type = 'user' AND ${g}.subject_id = ?) OR (${g}.subject_type = 'group' AND (${g}.subject_id IN (SELECT group_id FROM group_members WHERE user_id = ?)
@@ -485,16 +487,19 @@ export class FileShares {
     checkRegular(r.abs)
     const right = this.shareRight(me, rules, r.segs)
     if (!right.may) throw new HttpError('forbidden', msg(right.off ? 'off' : 'notOwner', L), { params: { reason: right.off ? 'file_shares_off' : 'file_share_not_owner' } })
+    // the room sending budget (chat sharing's rule) before the people are checked: an add is no free probe of who
+    // exists, and a refused name costs the same token as a real one (security review of #1038). A press of several
+    // files paid for its files already (shareMany)
+    if (add.length && !o.tokenTaken) this.takeToken(userId)
     this.checkSubjects(me, add, L)
     const share = this.ensure(r.rel, userId, r.st!)
     const have = new Set((this.db.query('SELECT subject_type, subject_id FROM file_share_grants WHERE share_id = ?').all(share.id) as { subject_type: string; subject_id: string }[]).map((g) => `${g.subject_type}:${g.subject_id}`))
     const fresh = add.filter((s) => !have.has(`${s.subjectType}:${s.subjectId}`))
     const gone = remove.filter((s) => have.has(`${s.subjectType}:${s.subjectId}`))
     if (have.size + fresh.length - gone.length > FILE_SHARE_MAX) throw new HttpError('validation', msg('full', L), { params: { reason: 'file_share_full' } })
-    // the room sending budget (chat sharing's rule): a share is no free probe of who exists (a press of several files
-    // takes one token for all: shareMany)
-    if (fresh.length && !o.tokenTaken) this.takeToken(userId)
-    const before = this.openers(share, r.segs)
+    // who may open it before and after: only when someone is added (each walks every account; a press re-sharing files
+    // that have them already, or a removal, skips it: security review of #1038)
+    const before = fresh.length ? this.openers(share, r.segs) : null
     const at = now()
     this.db.transaction(() => {
       for (const s of fresh) this.db.query('INSERT INTO file_share_grants (share_id, subject_type, subject_id, role, granted_by, granted_at, via) VALUES (?,?,?,?,?,?,?) ON CONFLICT DO NOTHING').run(share.id, s.subjectType, s.subjectId, 'view', userId, at, via)
@@ -504,8 +509,7 @@ export class FileShares {
         if (this.grantedTo(share.id, req.requester_id)) this.db.query("UPDATE file_access_requests SET state = 'approved', decided_by = ?, decided_at = ? WHERE id = ?").run(userId, at, req.id)
       }
     })()
-    const after = this.openers(share, r.segs)
-    const added = [...after].filter((id) => !before.has(id) && id !== userId)
+    const added = before ? [...this.openers(share, r.segs)].filter((id) => !before.has(id) && id !== userId) : []
     if (fresh.length || gone.length) {
       const everyone = fresh.some((s) => s.subjectType === 'group' && s.subjectId === ALL)
       audit(this.db, { actor: userId, action: fresh.length ? 'file.share' : 'file.unshare', target: this.auditTarget(share), detail: { ...this.auditPath(share), people: fresh.filter((s) => s.subjectType === 'user').length, groups: fresh.filter((s) => s.subjectType === 'group' && s.subjectId !== ALL).length, ...(everyone ? { everyone: true } : {}), removed: gone.length, via, ...(gone.length ? { reason: 'removed' } : {}) } })
@@ -531,19 +535,30 @@ export class FileShares {
   /**
    * Several files with the same people and groups in one press (POST /api/files/shares/batch; Find work files' step).
    * Each file is change()'s add with its own rules; a file refused is listed with the server's words and the rest go
-   * on. One send token for the press (the budget is about probing who exists, and the people are the same for every
-   * file), taken before anything is written. Then each person newly given access is told once: one file as before
+   * on. The send budget by size, one token per 10 files (a press of 20 takes 2; 100, 10), taken before anything is
+   * checked: the budget is about probing who exists (the people are the same for every file), and each file costs a
+   * hash on its first share and a walk over the accounts (security review of #1038). The people are checked only once
+   * one of the files is one the caller may share (a press of paths nobody may share learns nothing about who exists).
+   * Then each person newly given access is told once: one file as before
    * (its own notice), several as one notice of the press ("<name> shared 5 files with you", file_share_batches), pushed
    * when they were added by name.
    */
   shareMany(userId: string, paths: readonly string[], add: readonly Subject[], L: Locale): ShareFilesBatchResult {
     const me = this.principal(userId)
     if (!me || me.role === 'guest') throw new HttpError('not_found')
-    this.checkSubjects(me, add, L)
-    this.takeToken(userId)
+    const unique = [...new Set(paths)]
+    for (let i = 0; i < Math.max(1, Math.ceil(unique.length / BATCH_FILES_PER_TOKEN)); i++) this.takeToken(userId)
+    const rules = this.rules()
+    const mayAny = unique.some((p) => {
+      try {
+        const r = authorize(this.ctx.files.fx, rules, me, p, 'read')
+        return !!r.st && !r.st.isDirectory() && this.shareRight(me, rules, r.segs).may
+      } catch { return false }
+    })
+    if (mayAny) this.checkSubjects(me, add, L)
     const out: ShareFilesBatchResult = { shared: [], failed: [] }
     const got = new Map<string, string[]>()
-    for (const p of [...new Set(paths)]) {
+    for (const p of unique) {
       try {
         const r = this.change(userId, p, add, [], L, 'dialog', { quiet: true, tokenTaken: true })
         out.shared.push(r.view.path)

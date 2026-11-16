@@ -39,10 +39,16 @@ questions these answer, and the archive's "A member shares their own files" (#97
   `b:<batch id>` (`file_share_batches`, `file_share_batch_items`, migration 407). The notice and
   `GET /api/files/shared-batch/:id` (the list page `/f/batch/:id`) show only the files of the press the viewer can
   open now, and answer only someone the press told (404 otherwise; the id is 16 random bytes like a link's).
-- **The rate budget is per press, not per file.** The room send budget exists so a share is no free probe of who
-  exists. A press names the same people for every file, so it probes once; per file it would also cut a 25-file press
-  in half (20 at once, then one a second). One token per press, taken before anything is written; the press is capped
-  at 100 files (one add's files) and the notices are one per person per press, so a press cannot flood anyone.
+- **The rate budget is by the press's size: one token per 10 files.** The room send budget exists so a share is no
+  free probe of who exists. A press names the same people for every file, so it probes once; a token per file would
+  cut a 25-file press in half (20 at once, then one a second). But a file costs work (a hash of up to 32 MB on its
+  first share, a walk over the accounts when someone is added), so one token per 10 files (20 files: 2; 100: 10).
+  Taken before anything is checked.
+- **No free probe (security review of #1038, Low):** the people are checked only after the caller may share the file
+  (the PUT) or at least one file of the press, and the token is taken before that check, so a refused name costs the
+  same as a real one and a run of tries ends in 429. The "who may open it" walks run only when someone is added.
+- **Browser push:** the service worker (web/pwa/sw.js) knows `file.shared`: the generic line, and a click opens the file
+  or the press's list, the id from the signed-in notice.
 - **Push (new for file shares):** `file_share_push_deliveries`, pushed only for a share by name (`named=1`), like a
   chat shared by name: a group's or the whole team's people get the Activity row alone (sharing with everyone does not
   ring every phone). Wanted while unread, outside quiet hours, while a file of it still opens. Code `file.shared`;

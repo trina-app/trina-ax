@@ -258,6 +258,36 @@ test('a chat shared with me by name: the sharer as the title from the signed-in 
   expect(off.shown).toHaveLength(0)
 })
 
+test('a file shared with me (docs/decisions/20261116-file-share-everyone.md): the generic line only; a click opens the file or the press\'s list, the id from the signed-in notice, never from the payload', async () => {
+  const linkId = 'AbCdEfGhIjKlMnOpQrStUv', batchId = 'ZyXwVuTsRqPoNmLkJiHgFe'
+  const one = worker()
+  one.item({ id: 'event-1', code: 'file.shared', readAt: null, link: 'file', chatId: null, fileShare: { by: 'Mia', name: 'PRIVATE FILE.pdf', linkId } })
+  await one.push({ ...payload, code: 'file.shared', linkId: 'evil', path: '/evil' })
+  expect(one.shown).toHaveLength(1)
+  expect(one.shown[0]!.title).toBe(pushMessages('en').title)
+  expect(one.shown[0]!.options.body).toBe('Someone shared files with you.')
+  expect(JSON.stringify(one.shown)).not.toContain('PRIVATE')
+  expect(JSON.stringify(one.shown)).not.toContain('Mia')
+  await one.clickShown()
+  expect(one.navigated).toEqual([`https://team.example/f/${linkId}`])
+  const many = worker()
+  many.item({ id: 'event-1', code: 'file.shared', readAt: null, link: 'file', chatId: null, fileShare: { by: 'Mia', name: null, linkId: null, count: 5, batchId } })
+  await many.push({ ...payload, code: 'file.shared' })
+  await many.clickShown()
+  expect(many.navigated).toEqual([`https://team.example/f/batch/${batchId}`])
+  // no longer shared with me: the start page
+  const gone = worker()
+  gone.item({ id: 'event-1', code: 'file.shared', readAt: null, link: null, chatId: null, fileShare: { by: 'Mia', name: null, linkId: null, gone: true } })
+  await gone.push({ ...payload, code: 'file.shared' })
+  await gone.clickShown()
+  expect(gone.navigated).toEqual(['https://team.example/'])
+  // read meanwhile: nothing shown
+  const read = worker()
+  read.item({ id: 'event-1', code: 'file.shared', readAt: '2026-11-16T00:00:00.000Z', link: 'file', chatId: null, fileShare: { by: 'Mia', name: 'x', linkId } })
+  await read.push({ ...payload, code: 'file.shared' })
+  expect(read.shown).toHaveLength(0)
+})
+
 test('a room notice opens its room; the room id comes from the signed-in notice, never from the payload', async () => {
   const roomId = '0190f5a0-0000-7000-8000-000000000001'
   const messages = { title: 'Team', bodies: { 'room.dm': 'New direct message', 'room.mention': 'You were mentioned' } }
