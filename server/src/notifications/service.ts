@@ -347,11 +347,13 @@ export class Notifications {
    * no push. `roomsBytes`: the files in conversations as last measured (one number, never a name). */
   storageNotice(userId: string, sourceId: string, percent: number, roomsBytes: number | null, createdAt = new Date().toISOString()) {
     if (!this.active(userId) || createdAt < this.cutoff()) return
-    // one current fact: a full disk for days is one unread row, not one a day (the older one counts as read)
-    this.ctx.db.query("UPDATE storage_notices SET read_at=? WHERE user_id=? AND event_type='storage.filling' AND read_at IS NULL").run(createdAt, userId)
+    const id = newId()
     const r = this.ctx.db.query("INSERT INTO storage_notices(id,user_id,event_type,source_id,created_at,suppressed,percent,rooms_bytes) VALUES(?,?,'storage.filling',?,?,0,?,?) ON CONFLICT(user_id,event_type,source_id) DO NOTHING")
-      .run(newId(), userId, sourceId, createdAt, Math.max(0, Math.min(100, Math.floor(percent))), roomsBytes === null ? null : Math.max(0, Math.floor(roomsBytes)))
-    if (r.changes) this.signal(userId)
+      .run(id, userId, sourceId, createdAt, Math.max(0, Math.min(100, Math.round(percent))), roomsBytes === null ? null : Math.max(0, Math.floor(roomsBytes)))
+    if (!r.changes) return
+    // one current fact: a full disk for days is one unread row, not one a day (the older ones count as read)
+    this.ctx.db.query("UPDATE storage_notices SET read_at=? WHERE user_id=? AND event_type='storage.filling' AND read_at IS NULL AND id<>?").run(createdAt, userId, id)
+    this.signal(userId)
   }
   /** 팀장 넘기기 (admin/handover.ts): a join with the owner's lead link (source: the invite; also pushed), a transfer
    * (source: the transfer, to both people and the other admins), a locked password check (source: its window). Shown

@@ -30,6 +30,8 @@
     wraps them.
   "Isn't enough space for this file", not "is full": the guard refuses one write that does not fit, and a smaller file
   may still go. The shared `storage_full` sentence stays for the other places (Files, AI chat attachments).
+  The 413's plan page shows as "Choose a plan" everywhere a refused upload shows it (`StoragePlansLink`: Files rows,
+  folder uploads, chat attachments), as a 507's did.
 - **Changed from the plan:** "Ask {owner's name}" became "Ask an admin": the page has no owner's name for a member or
   guest, and "Ask an admin" is what other member screens say.
 - **For the next step:** the table's CHECK already lists `storage.cleanup` and it has `by_user` ("Ask people to clean

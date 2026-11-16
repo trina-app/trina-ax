@@ -4,3 +4,5 @@
 - A file sent in a conversation that does not fit on the team's disk now says who can help. Members and guests read
   "There isn't enough space on the team's storage for this file. Ask an admin to free some space." (no longer "Empty the
   trash", which they could not do); the owner and admins get **See what uses the space**.
+- A hosted team's owner and admins also get **Choose a plan** when an upload anywhere (Files, a folder, a conversation)
+  is refused because the disk has no room for that file, not only when the storage is over the plan.

@@ -288,11 +288,13 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     if (autoFocus) input.current?.focus({ preventScroll: true })
   }, [autoFocus])
   const roomTarget = (file: File) => targetOf(roomId, file)
+  /** a failed file's words: a full disk's by the role I have now (an upload can outlive a role change and this box) */
+  const failedText = (f: Upload) => (f.full ? storageFullText(staff, locale) : f.error)
   /** a failed file's words, in the language of this moment (the box may be gone by now: another room). A full disk
-   * says who can help, by role (rooms/storageRefusal.tsx); the rest as the server words it */
+   * is only marked (its words follow the role at render: failedText); the rest as the server words it */
   const failure = (e: unknown): Pick<Upload, 'error' | 'plans' | 'full'> => {
     const locale = currentLocale()
-    if (isStorageFull(e)) return { error: storageFullText(staff, locale), plans: storagePlansUrl(e), full: true }
+    if (isStorageFull(e)) return { error: undefined, plans: storagePlansUrl(e), full: true }
     return { error: errorText(e, locale, translate(locale, 'error.network')), plans: storagePlansUrl(e) }
   }
   /** A large file from this computer (one that goes in pieces) says what happens to it: waiting for its turn, being
@@ -621,18 +623,33 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                     item={isLocalImage(f.file) ? localItem(String(f.key), f.file, f.file.name) : roomItem(roomId, f.roomFile!)}
                   />
                   {/* a large picture says how far it is beside its tile (a small one is there in a moment) */}
-                  <span role="status" className={f.status === 'failed' ? FAILED_REASON : f.status === 'uploading' && says(f) ? 'text-faint tabular-nums' : 'sr-only'}>
-                    {f.status === 'uploading' ? (says(f) ? <span data-testid="room-file-progress"><UploadLabel progress={f.progress} busy={t('rooms.uploading', { name: f.file.name })} /></span> : t('rooms.uploading', { name: f.file.name })) : f.status === 'failed' ? <>{f.error}<RefusalLinks full={!!f.full && staff} plans={f.plans} /></> : formatSize(f.file.size, locale)}
-                  </span>
-                                  </li>
+                  {f.status === 'failed' ? (
+                    // the reason (announced), then its links in the same run of text, outside the live region
+                    <span className={FAILED_REASON}>
+                      <span role="status">{failedText(f)}</span>
+                      <RefusalLinks full={!!f.full && staff} plans={f.plans} />
+                    </span>
+                  ) : (
+                    <span role="status" className={f.status === 'uploading' && says(f) ? 'text-faint tabular-nums' : 'sr-only'}>
+                      {f.status === 'uploading' ? (says(f) ? <span data-testid="room-file-progress"><UploadLabel progress={f.progress} busy={t('rooms.uploading', { name: f.file.name })} /></span> : t('rooms.uploading', { name: f.file.name })) : formatSize(f.file.size, locale)}
+                    </span>
+                  )}
+                </li>
               ) : (
                 <li key={f.key} className={clsx('inline-flex max-w-full items-center gap-2 rounded-xl border py-1.5 pr-2 pl-2.5 text-xs', f.status === 'failed' ? 'border-danger/40 bg-danger-soft' : 'border-line bg-subtle')} data-testid="room-file-chip" data-status={f.status} data-team={f.teamPath ? '' : undefined}>
                   {f.status === 'uploading' ? <Loader2 size={14} className="animate-spin text-faint" aria-hidden /> : f.teamPath ? <FolderOpen size={14} className="text-accent-text" aria-hidden /> : <FileText size={14} className="text-muted" aria-hidden />}
                   <span className="max-w-[180px] truncate font-medium">{f.file.name}</span>
-                  <span role="status" className={f.status === 'failed' ? FAILED_REASON : 'text-faint'}>
-                    {f.status === 'uploading' ? (says(f) ? <span className="tabular-nums" data-testid="room-file-progress"><UploadLabel progress={f.progress} busy={t('rooms.uploading', { name: f.file.name })} /></span> : <span className="sr-only">{t('rooms.uploading', { name: f.file.name })}</span>) : f.status === 'failed' ? <>{f.error}<RefusalLinks full={!!f.full && staff} plans={f.plans} /></> : formatSize(f.file.size, locale)}
-                  </span>
-                                    <ChipRemove label={t('rooms.removeFile', { name: f.file.name })} onClick={() => removeFile(f)} />
+                  {f.status === 'failed' ? (
+                    <span className={FAILED_REASON}>
+                      <span role="status">{failedText(f)}</span>
+                      <RefusalLinks full={!!f.full && staff} plans={f.plans} />
+                    </span>
+                  ) : (
+                    <span role="status" className="text-faint">
+                      {f.status === 'uploading' ? (says(f) ? <span className="tabular-nums" data-testid="room-file-progress"><UploadLabel progress={f.progress} busy={t('rooms.uploading', { name: f.file.name })} /></span> : <span className="sr-only">{t('rooms.uploading', { name: f.file.name })}</span>) : formatSize(f.file.size, locale)}
+                    </span>
+                  )}
+                  <ChipRemove label={t('rooms.removeFile', { name: f.file.name })} onClick={() => removeFile(f)} />
                 </li>
               ),
             )}

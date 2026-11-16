@@ -401,16 +401,17 @@ export class StorageMonitor {
    * most once per 24 h while the disk stays there (a 95 % notice holds back the 80 % one too). The grace-period message
    * above does not hold it back: it comes on the next check. */
   private keepNotice(percent: number) {
-    if (!this.o.record || percent < WARN_PERCENT) return
-    const threshold = percent >= FULL_PERCENT ? 95 : 80
+    // whole percent, as the storage card rounds it: the threshold and the words never disagree
+    const shown = Math.round(percent)
+    if (!this.o.record || shown < WARN_PERCENT) return
+    const threshold = shown >= FULL_PERCENT ? 95 : 80
     const last = getSetting<string>(this.o.db, NOTICE_KEY[threshold])
     if (last && this.now() - Date.parse(last) < ALERT_EVERY_MS) return
     const at = new Date(this.now()).toISOString()
     setSetting(this.o.db, NOTICE_KEY[threshold], at)
     // a 95 % notice counts for 80 % too: a dip to 90 % the same day says nothing new
     if (threshold === 95) setSetting(this.o.db, NOTICE_KEY[80], at)
-    // rounded as the storage card shows it
-    this.o.record(threshold, Math.round(percent), this.breakdown?.rooms ?? null, at)
+    this.o.record(threshold, shown, this.breakdown?.rooms ?? null, at)
   }
 
   /** GET /api/admin/storage */
