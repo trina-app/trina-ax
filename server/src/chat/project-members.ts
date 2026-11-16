@@ -290,7 +290,7 @@ const panel = (L: Locale, name = '…') => `the project's page ("${say('where', 
 const ownChat = 'the user can ask in a chat of their own (a new AI chat)'
 
 /** What change_project_members needs of the chat turn (chat/turn.ts TurnExec): narrow, so the rules are tested alone. */
-export type MembersExec = Pick<TurnExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'files' | 'rt' | 'askPerson' | 'openRequests' | 'livePrincipal'> & Partial<Pick<TurnExec, 'alwaysPlace'>>
+export type MembersExec = Pick<TurnExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'files' | 'rt' | 'askPerson' | 'openRequests' | 'livePrincipal'> & Partial<Pick<TurnExec, 'othersWords'>> & Partial<Pick<TurnExec, 'alwaysPlace'>>
 
 /** Why the tool is refused in this turn whatever is asked (refusal() text and a short reason), or null: the person's own
  * chat with them there. */
@@ -457,7 +457,10 @@ export function projectMembersTool(exec: MembersExec): Tool {
     let answer: Awaited<ReturnType<MembersExec['askPerson']>>
     try {
       let missing: typeof answer.missing = null
-      const value = await withAlways(exec.alwaysPlace?.(), 'project_members', [{ label: MEMBERS_TEXT.yes[L], value: 'change' }, { label: MEMBERS_TEXT.no[L], value: 'skip' }], 'change', async (options, more) => {
+      // a chat that holds other people's words (it read rooms, or content someone else wrote: TurnExec.othersWords):
+      // the card, also under "Always allow" (a name in the person's messages may be the content's author, not an ask)
+      const steered = roomsRead || !!exec.othersWords
+      const value = await withAlways(steered ? null : exec.alwaysPlace?.(), 'project_members', [{ label: MEMBERS_TEXT.yes[L], value: 'change' }, { label: MEMBERS_TEXT.no[L], value: 'skip' }], 'change', async (options, more) => {
         const r = await exec.askPerson({
           kind: 'ask_user', origin: 'server', requestId, question: card.question, multiple: false, allowText: false,
           options, details: card.details, ...more,
