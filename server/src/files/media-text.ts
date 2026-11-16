@@ -11,7 +11,7 @@ import { PRODUCT } from '@mycel/shared'
 export const MEDIA_TEXT = {
   mac: {
     ko: '여기서는 아직 녹음·영상 파일을 열 수 없어요. 직접 들어 보시고 주요 내용을 알려 주시거나 받아 적은 글을 붙여 주시면 정리해 드릴게요.',
-    en: 'Recordings and videos can\'t be opened here yet. If you play it and tell me the main points, or paste a transcript, I can summarise it.',
+    en: 'Recordings and videos can\'t be opened here yet. If you play the file and tell me the main points, or paste a transcript, I can summarize it.',
     id: 'Rekaman dan video belum bisa dibuka di sini. Kalau Anda memutarnya lalu memberi tahu poin utamanya, atau menempelkan transkripnya, saya bisa merangkumnya.',
     ja: 'ここではまだ録音・動画ファイルを開けません。再生して要点を教えていただくか、書き起こしを貼り付けていただければ、まとめます。',
     es: 'Aquí todavía no se pueden abrir grabaciones ni videos. Si lo reproduce y me cuenta los puntos principales, o pega una transcripción, puedo resumirlo.',
@@ -23,16 +23,16 @@ export const MEDIA_TEXT = {
     en: 'You can also tell me by voice with the microphone button.',
     id: 'Anda juga bisa memberi tahu saya lewat suara dengan tombol mikrofon.',
     ja: 'マイクボタンを押して、声で伝えていただくこともできます。',
-    es: 'También puede decírmelo de viva voz con el botón del micrófono.',
+    es: 'También puede decírmelo por voz con el botón del micrófono.',
     zh: '也可以点麦克风按钮，用语音告诉我。',
   },
   noTool: {
-    ko: '지금은 여기서 녹음·영상 파일을 열 수 없어요. 관리자가 고칠 수 있어요.',
-    en: 'Recordings and videos can\'t be opened here right now. An admin can fix this.',
-    id: 'Rekaman dan video tidak bisa dibuka di sini saat ini. Admin dapat memperbaikinya.',
-    ja: '現在ここでは録音・動画ファイルを開けません。管理者が直せます。',
-    es: 'Ahora mismo aquí no se pueden abrir grabaciones ni videos. Un administrador puede solucionarlo.',
-    zh: '现在这里打不开录音和视频文件。管理员可以解决这个问题。',
+    ko: '지금은 여기서 녹음·영상 파일을 열 수 없어요. 직접 들어 보시고 주요 내용을 알려 주시거나 받아 적은 글을 붙여 주시면 정리해 드릴게요. 관리자가 고칠 수도 있어요.',
+    en: 'Recordings and videos can\'t be opened here right now. If you play the file and tell me the main points, or paste a transcript, I can summarize it. An admin can also fix this.',
+    id: 'Rekaman dan video tidak bisa dibuka di sini saat ini. Kalau Anda memutarnya lalu memberi tahu poin utamanya, atau menempelkan transkripnya, saya bisa merangkumnya. Admin juga dapat memperbaikinya.',
+    ja: '現在ここでは録音・動画ファイルを開けません。再生して要点を教えていただくか、書き起こしを貼り付けていただければ、まとめます。管理者が直すこともできます。',
+    es: 'Ahora mismo aquí no se pueden abrir grabaciones ni videos. Si lo reproduce y me cuenta los puntos principales, o pega una transcripción, puedo resumirlo. Un administrador también puede solucionarlo.',
+    zh: '现在这里打不开录音和视频文件。您可以播放后告诉我要点，或者粘贴文字稿，我来帮您整理。管理员也可以解决这个问题。',
   },
   /** `noTool` for an owner or admin, who can install it */
   noToolAdmin: {
@@ -92,7 +92,7 @@ export const MEDIA_TEXT = {
     zh: '现在正在读取其他视频。请稍后再读取一次。',
   },
   noRoom: {
-    ko: '남은 저장 공간이 부족해 이 파일을 읽을 수 없어요.',
+    ko: '여기에 남은 저장 공간이 부족해 이 파일을 읽을 수 없어요.',
     en: 'There is not enough free storage space to read this file.',
     id: 'Ruang penyimpanan kosong tidak cukup untuk membaca berkas ini.',
     ja: '空きストレージ容量が足りないため、このファイルを読み取れません。',

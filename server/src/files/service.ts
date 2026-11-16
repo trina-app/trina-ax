@@ -11,7 +11,7 @@ import { isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
 import type { ServerConfig } from '../config'
 import { getTeamSettings, teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { audit } from '../admin/audit'
-import { atLeast, loadPrincipal, RuleSet, setProjectsCaseInsensitive, type Principal } from '../policy/access'
+import { atLeast, isStaff, loadPrincipal, RuleSet, setProjectsCaseInsensitive, type Principal } from '../policy/access'
 import { authorize, type Authorized, type FsCtx } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { writeLimitText } from '../policy/refusal'
@@ -50,7 +50,8 @@ import { keepLongRetry, LONG_PIECE_SEC, longRetryLanguage } from '../jobs/speech
 import { pieceTurn, pieceWait } from '../jobs/whisper-turns'
 import * as media from './media'
 import { mediaText, personLocale, type MediaTextKey } from './media-text'
-import { voiceInputOn } from '../credentials/speech-key'
+import { voiceInputOn, voiceInputOutside } from '../credentials/speech-key'
+import { isSharedChat } from '../chat/shared'
 import { diskStat } from '../system/disk-stat'
 
 void ENGINE_BUILTIN_ALLOWED
@@ -736,10 +737,11 @@ export class FileService {
     // English line is for the AI
     if (tools === 'mac') {
       const out = refuse('mac', 'not on a Mac server yet')
-      const voice = voiceInputOn(this.db, this.speech) ? ' ' + mediaText(this.db, ctx.user.id, 'macVoice') : ''
+      const voice = this.micWorksInTurn(ctx) ? ' ' + mediaText(this.db, ctx.user.id, 'macVoice') : ''
       return { ...out, text: out.text + voice + '\n(Pass this on in plain words: say "here", never "server" or "Mac". Do not suggest changing or moving the install.)' }
     }
-    if (tools === 'missing') return refuse(ctx.user.role === 'owner' || ctx.user.role === 'admin' ? 'noToolAdmin' : 'noTool', 'no ffmpeg')
+    // what to install only for an owner or admin, and not where others read the answer
+    if (tools === 'missing') return refuse(isStaff(ctx.user) && !this.turnChatShared(ctx) ? 'noToolAdmin' : 'noTool', 'no ffmpeg')
     if (r.st!.size > media.MEDIA_INPUT_MAX) return refuse('tooLarge', 'too large', { gb: media.MEDIA_INPUT_MAX / 1024 ** 3 })
     if (a.frames === 0 && a.transcript === false) throw new ToolError('frames: 0 and transcript: false leave nothing to read', 'bad_media_args')
     const base = path.join(this.cfg.dataDir, 'work')
@@ -753,6 +755,22 @@ export class FileService {
       if (e instanceof ToolError && MEDIA_NOTE[e.code]) return refuse(MEDIA_NOTE[e.code]!, e.code, { h: media.MEDIA_MAX_SECONDS / 3600, gb: media.MEDIA_INPUT_MAX / 1024 ** 3 })
       throw e
     }
+  }
+
+  /** The chat's mic records in this turn (web/src/lib/voice.ts micState, voiceBlockedHere): voice input works here and
+   * the recording may go where it goes; a confidential chat keeps it from an outside service (a room-side AI chat is a
+   * chat of its own, so confidentialTurn covers Safe operations 1A too). No turn (the remote connector) or a scheduled
+   * task's: no mic. */
+  private micWorksInTurn(ctx: ToolCtx): boolean {
+    if (!ctx.turnId || !voiceInputOn(this.db, this.speech)) return false
+    // a scheduled task's turn has nobody at the mic
+    if (this.db.query('SELECT 1 FROM turns WHERE id = ? AND schedule_id IS NOT NULL').get(ctx.turnId)) return false
+    return !(voiceInputOutside(this.db) && confidentialTurn(this.db, ctx.turnId))
+  }
+  /** The turn's chat is seen by others (a shared project chat or a chat shared with people). */
+  private turnChatShared(ctx: ToolCtx): boolean {
+    const t = ctx.turnId ? this.db.query('SELECT chat_id FROM turns WHERE id = ?').get(ctx.turnId) as { chat_id: string } | null : null
+    return !!t && isSharedChat(this.db, t.chat_id)
   }
 
   private async readMediaNow(ctx: ToolCtx, a: ReadArgs, kind: MediaKind, r: Authorized, tools: media.MediaTools, base: string): Promise<ToolOutput> {

@@ -191,6 +191,48 @@ describe('arguments and where video reads work', () => {
       expect(F().mediaProbe).not.toHaveBeenCalled()
     } finally { tools.mockRestore() }
   })
+  test('the Mac note offers the mic only where it records: voice input on, a person at the chat, not confidential with an outside service', async () => {
+    const tools = spyOn(F(), 'mediaTools').mockReturnValue('mac')
+    const ffmpegBin = F().speech.ffmpegBin
+    const mic = 'You can also tell me by voice with the microphone button.'
+    const setKey = (k: string | null) => writeSpeechKey(credentialsOf(A.ctx), k)
+    try {
+      // 'local' needs whisper-cli and ffmpeg (beforeEach gives whisper-cli)
+      F().speech.ffmpegBin = null
+      expect((await read({ file_path: put('m1.m4a') })).out.text).not.toContain(mic)
+      F().speech.ffmpegBin = '/fake/ffmpeg'
+      expect((await read({ file_path: put('m2.m4a') })).out.text).toContain(mic)
+      // no chat turn (the remote connector) and a scheduled task: nobody at the mic
+      expect((await read({ file_path: put('m3.m4a') }, { turnId: null })).out.text).not.toContain(mic)
+      const sched = turn()
+      A.ctx.db.query("UPDATE turns SET schedule_id = 'sch-1' WHERE id = ?").run(sched)
+      expect((await read({ file_path: put('m4.m4a') }, { turnId: sched })).out.text).not.toContain(mic)
+      // OpenRouter: on in a normal chat, not in a confidential one (web/src/lib/voice.ts voiceBlockedHere)
+      updateTeamSettings(A.ctx.db, { speechProvider: 'openrouter' })
+      setKey(KEY)
+      expect((await read({ file_path: put('m5.m4a') })).out.text).toContain(mic)
+      const secret = turn()
+      A.ctx.db.query('INSERT INTO safe_ops_chats(chat_id, material) SELECT chat_id, 1 FROM turns WHERE id = ?').run(secret)
+      expect((await read({ file_path: put('m6.m4a') }, { turnId: secret })).out.text).not.toContain(mic)
+      // a confidential chat with voice on this computer: the recording stays here, so the mic works
+      updateTeamSettings(A.ctx.db, { speechProvider: 'local' })
+      expect((await read({ file_path: put('m7.m4a') }, { turnId: secret })).out.text).toContain(mic)
+    } finally { setKey(null); F().speech.ffmpegBin = ffmpegBin; tools.mockRestore() }
+  })
+  test('an admin learns which package is missing only in a chat nobody else sees', async () => {
+    const tools = spyOn(F(), 'mediaTools').mockReturnValue('missing')
+    try {
+      const own = A.toolCtx('alice', turn())
+      const admin = { ...own, user: { ...own.user, role: 'admin' as const } }
+      expect((await read({ file_path: put('s1.m4a') }, { ctx: admin })).out.text).toContain('the ffmpeg package is missing')
+      const shared = turn()
+      A.ctx.db.query("UPDATE chats SET people_shared_at = '2026-11-16T00:00:00Z' WHERE id = (SELECT chat_id FROM turns WHERE id = ?)").run(shared)
+      const there = A.toolCtx('alice', shared)
+      const out = (await read({ file_path: put('s2.m4a') }, { ctx: { ...there, user: { ...there.user, role: 'admin' as const } } })).out.text
+      expect(out).toContain("Recordings and videos can't be opened here right now")
+      expect(out).not.toMatch(/ffmpeg|package/i)
+    } finally { tools.mockRestore() }
+  })
   test('a file over 1 GiB is refused before it is copied', async () => {
     const rel = 'users/alice/huge.mov'
     fs.writeFileSync(path.join(A.team, rel), '')
