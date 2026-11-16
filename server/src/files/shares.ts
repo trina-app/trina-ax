@@ -908,9 +908,13 @@ export class FileShares {
     const waiting = this.db.query("SELECT created_at FROM file_access_requests WHERE share_id = ? AND requester_id = ? AND state = 'pending'").get(s.id, userId) as { created_at: string } | null
     if (waiting) return { status: 'already', askedAt: waiting.created_at }
     const t = Date.now()
-    const hour = (this.db.query('SELECT COUNT(*) n FROM file_access_requests WHERE requester_id = ? AND created_at > ?').get(userId, new Date(t - 3600_000).toISOString()) as { n: number }).n
+    // (with the chat and project requests: one set of limits for every ask, chat/access-requests.ts)
+    const hourAgo = new Date(t - 3600_000).toISOString(), dayAgo = new Date(t - 86400_000).toISOString()
+    const hour = (this.db.query('SELECT COUNT(*) n FROM file_access_requests WHERE requester_id = ? AND created_at > ?').get(userId, hourAgo) as { n: number }).n
+      + (this.db.query('SELECT COUNT(*) n FROM access_requests WHERE requester_id = ? AND created_at > ?').get(userId, hourAgo) as { n: number }).n
     const ownerKey = s.owner_id ?? ''
-    const day = (this.db.query('SELECT COUNT(*) n FROM file_access_requests WHERE requester_id = ? AND owner_id = ? AND created_at > ?').get(userId, ownerKey, new Date(t - 86400_000).toISOString()) as { n: number }).n
+    const day = (this.db.query('SELECT COUNT(*) n FROM file_access_requests WHERE requester_id = ? AND owner_id = ? AND created_at > ?').get(userId, ownerKey, dayAgo) as { n: number }).n
+      + (this.db.query('SELECT COUNT(*) n FROM access_requests WHERE requester_id = ? AND owner_id = ? AND created_at > ?').get(userId, ownerKey, dayAgo) as { n: number }).n
     if (hour >= FILE_REQUESTS_PER_HOUR || day >= FILE_REQUESTS_PER_OWNER_DAY) throw new HttpError('rate_limited', msg('tooMany', L), { retryAfter: 3600 })
     const note = message?.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').trim().slice(0, 500) || null
     const rid = newId()

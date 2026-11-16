@@ -123,23 +123,36 @@ export function chatAudienceView(ctx: AppContext, rt: ChatRuntime, userId: strin
 }
 
 /**
+ * Why this chat can never be shared with people by its creator, whoever asks (null: it can): a room's chat, a deleted or
+ * the server's own chat (not found); a chat in a project is shared with its members (or stays its creator's in a
+ * personal one); a scheduled run's chat and a room's side chat are never shared. Also the "Ask for access" of a chat's
+ * link (chat/access-requests.ts): a chat with a refusal here offers no request.
+ */
+export function peopleShareRefusal(ctx: AppContext, r: ChatRow): { status: 'not_found' } | { status: 'conflict'; reason: string; key: Parameters<typeof tr>[0] } | null {
+  if (r.room_id || r.deleted_at || isInternalChat(ctx.db, r.id)) return { status: 'not_found' }
+  if (r.project_id) {
+    const p = ctx.db.query('SELECT folder_path FROM projects WHERE id = ?').get(r.project_id) as { folder_path: string } | null
+    if (p && isPersonalFolder(p.folder_path)) return { status: 'conflict', reason: 'project_personal', key: 'chatSharePersonalProject' }
+    return { status: 'conflict', reason: 'share_people_in_project', key: 'chatSharePeopleInProject' }
+  }
+  if (scheduledRun(ctx, r)) return { status: 'conflict', reason: 'scheduled_run', key: 'chatShareScheduled' }
+  // a room's side chat holds the room's words; only the room's members may read them (QA TC-1010)
+  if (r.side_room_id) return { status: 'conflict', reason: 'side_chat', key: 'chatShareSideChat' }
+  return null
+}
+
+/**
  * The refusals of a change of who sees the chat, against the chat as it is now: someone else's chat is chatFor's 404
- * (or 403 for someone who sees it); a chat in a project is shared with its members (or stays its creator's in a
- * personal one); a scheduled run's chat and a room's side chat are never shared.
+ * (or 403 for someone who sees it); then peopleShareRefusal.
  */
 function changeable(ctx: AppContext, userId: string, a: ChatAccess, locale: Locale): void {
   const r = a.row
-  const no = (status: 'conflict' | 'validation', reason: string, key: Parameters<typeof tr>[0]): never => fail(status, tr(key, locale), { params: { reason } })
   if (r.room_id || r.deleted_at || isInternalChat(ctx.db, r.id)) fail('not_found')
   if (!a.creator) fail('forbidden', tr('chatShareCreatorOnly', locale), { params: { reason: 'chat_share_creator_only' } })
-  if (r.project_id) {
-    const p = ctx.db.query('SELECT folder_path FROM projects WHERE id = ?').get(r.project_id) as { folder_path: string } | null
-    if (p && isPersonalFolder(p.folder_path)) no('conflict', 'project_personal', 'chatSharePersonalProject')
-    no('conflict', 'share_people_in_project', 'chatSharePeopleInProject')
-  }
-  if (scheduledRun(ctx, r)) no('conflict', 'scheduled_run', 'chatShareScheduled')
-  // a room's side chat holds the room's words; only the room's members may read them (QA TC-1010)
-  if (r.side_room_id) no('conflict', 'side_chat', 'chatShareSideChat')
+  const no = peopleShareRefusal(ctx, r)
+  if (!no) return
+  if (no.status === 'not_found') return fail('not_found')
+  fail('conflict', tr(no.key, locale), { params: { reason: no.reason } })
 }
 
 /** The people a list of entries brings in who do not see the chat now (its creator left out), as principals. */

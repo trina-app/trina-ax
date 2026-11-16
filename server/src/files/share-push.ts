@@ -13,26 +13,37 @@ import { teamTimeZone } from '../admin/settings'
 import { getPreferences, pushEventEnabled } from '../notifications/preferences'
 import { fileSharesOf } from './shares'
 
-/** At most this many people's requests to open my files reach my phone a day (each request is one push, however many
+/** At most this many people's requests to open my files, chats or projects reach my phone a day (each request is one push, however many
  * devices); past it they land in Activity alone. The request limits are per asker, so many askers could otherwise ring
  * one owner without end (security review of #1118). */
 export const FILE_REQUEST_PUSHES_PER_DAY = 10
-/** Requests made before this server knew the push (migration 358 applied) are never pushed: on the update every unread
- * waiting request of the last day would ring at once. Read once per database. */
-const since = new WeakMap<Database, string>()
-const featureSince = (db: Database) => {
-  let at = since.get(db)
+/** Requests made before this server knew the push (migration `version` applied: 358 for files, 411 for chats and
+ * projects) are never pushed: on the update every unread waiting request of the last day would ring at once. Read once
+ * per database and version. */
+const since = new WeakMap<Database, Map<number, string>>()
+export function requestPushSince(db: Database, version: number): string {
+  let m = since.get(db)
+  if (!m) since.set(db, (m = new Map()))
+  let at = m.get(version)
   if (at === undefined) {
-    at = (db.query('SELECT applied_at FROM schema_migrations WHERE version = 358').get() as { applied_at: string } | null)?.applied_at ?? ''
-    since.set(db, at)
+    at = (db.query('SELECT applied_at FROM schema_migrations WHERE version = ?').get(version) as { applied_at: string } | null)?.applied_at ?? ''
+    m.set(version, at)
   }
   return at
 }
 /** Request pushes this person already got in the last day, other than this notice's (a notice re-armed by a new request
- * of the same asker counts once; the request limits bound those). */
-const requestPushesToday = (db: Database, n: Notice, now: number) => (db.query(`SELECT COUNT(DISTINCT d.notification_id) c FROM file_share_push_deliveries d
-  JOIN file_share_notices o ON o.id = d.notification_id WHERE o.user_id = ? AND o.event_type = 'file.access_requested' AND o.id <> ? AND d.attempts > 0 AND o.created_at > ?`)
-  .get(n.user_id, n.id, new Date(now - 86400_000).toISOString()) as { c: number }).c
+ * of the same asker counts once; the request limits bound those): the file requests' and the chat and project
+ * requests' together (chat/access-requests.ts), so one cap covers every "asked to open" push. */
+export function requestPushesToday(db: Database, userId: string, exceptId: string, now: number): number {
+  const day = new Date(now - 86400_000).toISOString()
+  const files = (db.query(`SELECT COUNT(DISTINCT d.notification_id) c FROM file_share_push_deliveries d
+    JOIN file_share_notices o ON o.id = d.notification_id WHERE o.user_id = ? AND o.event_type = 'file.access_requested' AND o.id <> ? AND d.attempts > 0 AND o.created_at > ?`)
+    .get(userId, exceptId, day) as { c: number }).c
+  const others = (db.query(`SELECT COUNT(DISTINCT d.notification_id) c FROM access_request_push_deliveries d
+    JOIN access_request_notices o ON o.id = d.notification_id WHERE o.user_id = ? AND o.event_type = 'access.requested' AND o.id <> ? AND d.attempts > 0 AND o.created_at > ?`)
+    .get(userId, exceptId, day) as { c: number }).c
+  return files + others
+}
 
 type Notice = { id: string; created_at: string; user_id: string; event_type: string; source_id: string; named: number; read_at: string | null; suppressed: number }
 const noticeOf = (db: Database, id: string) => db.query('SELECT id, created_at, user_id, event_type, source_id, named, read_at, suppressed FROM file_share_notices WHERE id = ?').get(id) as Notice | null
@@ -61,9 +72,9 @@ export function fileSharePushWanted(ctx: AppContext, notificationId: string, now
   // made or retried inside the quiet hours: dropped, as a chat share's push is
   if (inQuietHours(prefs.quietHours, teamTimeZone(ctx.db), now)) return false
   if (n.event_type === 'file.access_requested') {
-    const from = featureSince(ctx.db)
+    const from = requestPushSince(ctx.db, 358)
     if (!from || n.created_at < from) return false
-    if (requestPushesToday(ctx.db, n, now) >= FILE_REQUEST_PUSHES_PER_DAY) return false
+    if (requestPushesToday(ctx.db, n.user_id, n.id, now) >= FILE_REQUEST_PUSHES_PER_DAY) return false
   }
   return target(ctx, n) !== null
 }

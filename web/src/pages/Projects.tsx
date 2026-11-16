@@ -103,6 +103,7 @@ import { useFocusAfterRemove } from './admin/common'
 import { deleteLabel, mayDelete, mayManage, mayRename, saveProjectName, trashProject, useDeleteProject, useProjectMenuItems, useRenameProject, PROJECT_NAME_MAX, type Deleted } from '../components/projectActions'
 import { EditableTitle } from '../components/EditableTitle'
 import { isolate } from '../components/handover/isolate'
+import { LinkAskAccess } from '../components/LinkAskAccess'
 
 const PHONE = '(max-width: 767.98px)'
 
@@ -791,7 +792,10 @@ function ProjectPage() {
     else changeP(next)
   }
 
-  if (missing) return <div data-testid="project-missing" data-gone={goneFrom ? '' : undefined}><EmptyState screen title={goneFrom ? isolate(locale, 'projects.noLongerMember', { name: goneFrom }, ['name']) : t('projects.missing')}><Link to="/projects" className="text-accent-text underline">{t('projects.title')}</Link></EmptyState></div>
+  // a teammate's link to a project I am not in: Ask for access when its members can be changed (QA TC-4186,
+  // docs/decisions/20261116-chat-project-ask-access.md); taken out of it, or no such project: the one page
+  const missingPage = <div data-testid="project-missing" data-gone={goneFrom ? '' : undefined}><EmptyState screen title={goneFrom ? isolate(locale, 'projects.noLongerMember', { name: goneFrom }, ['name']) : t('projects.missing')}><Link to="/projects" className="text-accent-text underline">{t('projects.title')}</Link></EmptyState></div>
+  if (missing) return goneFrom ? missingPage : <LinkAskAccess kind="project" id={projectId!} onOpen={() => load({ fresh: true })} fallback={missingPage} />
   if (error) return <div className="p-6"><ErrorNote>{error}</ErrorNote></div>
   if (!p) return <Skeleton lines={6} className="p-6" />
   // the owner or an admin on a team project they are not a member of (or one in the trash, which nobody reads): its
