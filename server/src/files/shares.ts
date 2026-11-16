@@ -272,6 +272,9 @@ export function removeLinksIn(db: Database, actor: string, rel: string): number 
     n += db.query('DELETE FROM file_share_grants WHERE share_id = ?').run(id).changes
     db.query("UPDATE file_access_requests SET state = 'closed', decided_at = ? WHERE share_id = ? AND state = 'pending'").run(now(), id)
   }
+  // an earlier removal's Undo must not bring back what the folder save removes (second security review P6-2): every
+  // share under the folder, also one whose people were all taken off before (it has no grant now, but an open Undo)
+  db.query(`UPDATE file_share_undos SET used_at = ? WHERE used_at IS NULL AND share_id IN (SELECT s.id FROM file_shares s WHERE ${UNDER('s.path')})`).run(now(), rel, rel, rel)
   if (ids.length) { audit(db, { actor, action: 'file.unshare', target: rel.startsWith('users/') ? null : rel, detail: { files: ids.length, removed: n, reason: 'folder_narrowed' } }); sharesTouched(db) }
   return ids.length
 }
@@ -629,7 +632,7 @@ export class FileShares {
    * tool (chat/share-with-person.ts) call change(), which refuses every folder, so a folder is never shared through a
    * path that may skip its confirmation. `stop`: everyone at once, never with an add; `resume`: a paused folder's, alone.
    */
-  put(userId: string, rel0: string, add: readonly Subject[], remove: readonly Subject[], L: Locale, via: Via = 'dialog', o: { stop?: boolean; resume?: boolean; stepId?: string | null } = {}): { view: FileSharesView; added: string[] } {
+  put(userId: string, rel0: string, add: readonly Subject[], remove: readonly Subject[], L: Locale, via: Via = 'dialog', o: { stop?: boolean; resume?: boolean; stepId?: string | null; turnId?: string | null } = {}): { view: FileSharesView; added: string[] } {
     const me = this.principal(userId)
     if (!me || me.role === 'guest') throw new HttpError('not_found')
     if ((o.stop && add.length) || (o.resume && (add.length || remove.length || o.stop))) throw new HttpError('validation')

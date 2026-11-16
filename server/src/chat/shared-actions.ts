@@ -121,14 +121,20 @@ export function namesFolder(said: string, rel: string, o: { place?: string; atta
     if (p.replace(/^\/+/, '').replace(/\/+$/, '') === path) return true
   }
   const text = fold(said)
-  if (holds(text, fold(path))) return true
+  // a path of two parts or more ("Sales/Reports", "users/me/Work"), as a whole: nothing that continues a name or a path
+  // right before it, no letter or digit right after. A one-part path is the bare name, which is not enough
+  const p = fold(path)
+  if (p.includes('/') && new RegExp(`(?<![\\p{L}\\p{N}/])${escapeRe(p)}(?![\\p{L}\\p{N}])`, 'u').test(text)) return true
   if (o.place) {
     const pl = placeKey(o.place)
     // (the place must hold more than the name: a place of one part is the name alone)
     if (pl.includes(' › ') && placeKey(said).includes(pl)) return true
   }
   const name = fold(path.split('/').pop() ?? '')
-  return !!name && QUOTES.some(([a, b]) => text.includes(`${fold(a)}${name}${fold(b)}`))
+  if (!name) return false
+  // the name inside quotation marks (any of them, spaces inside allowed), or backticks
+  return new RegExp(`["'“”‘’«»「」『』]\\s*${escapeRe(name)}\\s*["'“”‘’«»「」『』]`, 'u').test(text)
+    || QUOTES.some(([a, b]) => text.includes(`${fold(a)}${name}${fold(b)}`))
 }
 
 /** The team files the asker attached to their own message of this turn. */

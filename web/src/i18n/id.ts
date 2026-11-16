@@ -6586,6 +6586,7 @@ export const id: Record<MessageKey, string> = {
   "audit.act.folder_share.resumed": "Berbagi folder diaktifkan lagi",
   "audit.act.folder_share.ended": "Berbagi folder berakhir",
   "audit.act.folder_share.undo": "Membatalkan perubahan pada folder yang dibagikan",
+  "audit.act.folder_share.refused": "Trina tidak membagikan atau menghentikan berbagi folder",
   "audit.act.file.shares_removed_all": "Menghapus semua berbagi file",
   // threads on AI answers in shared chats (docs/decisions/20261116-chat-answer-threads.md)
   "chat.thread.otherVersion": "Utas ini ada di versi lain dari jawaban ({index} dari {count}).",

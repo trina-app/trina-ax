@@ -176,6 +176,25 @@ describe('stopping and taking people off: narrowing, server Undo', () => {
     expect(() => undoShares(h.ctx, 'bob', rec.undo!.id, 'en')).toThrow()
   })
 
+  test('P6-3: the audit names the turn (add, remove, stop, and a refusal before any change); the undo snapshot names the step', async () => {
+    const dir = folder('bob', 'Audit')
+    const added = await turn('bob', `share ${dir} with Tess Yoon\n${sf({ folder: dir, add: ['Tess Yoon'] })}`, { answer: 'yes' })
+    const add = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'folder_share.add' AND actor_id = 'bob' ORDER BY id DESC").get() as { detail: string }
+    expect(JSON.parse(add.detail)).toMatchObject({ via: 'ai', turnId: added.turnId })
+    const removed = await turn('bob', `stop sharing ${dir} with Tess Yoon\n${sf({ folder: dir, remove: ['Tess Yoon'] })}`)
+    const rem = h.ctx.db.query("SELECT detail FROM audit_log WHERE action IN ('folder_share.remove', 'folder_share.stop') AND actor_id = 'bob' ORDER BY id DESC").get() as { detail: string }
+    expect(JSON.parse(rem.detail)).toMatchObject({ via: 'ai', turnId: removed.turnId })
+    const step = (await stepOf('bob', removed.chatId, removed.answerId))!
+    const undo = h.ctx.db.query('SELECT step_id FROM file_share_undos WHERE id = ?').get(step.shared!.undo!.id) as { step_id: string | null }
+    expect(undo.step_id).toBe(step.id)
+    // a refusal before any change: audited with the turn, no path or name in it
+    const refused = await turn('bob', `share it\n${sf({ folder: 'users/bob', add: ['Tess Yoon'] })}`)
+    const ref = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'folder_share.refused' AND actor_id = 'bob' ORDER BY id DESC").get() as { detail: string }
+    expect(JSON.parse(ref.detail)).toMatchObject({ via: 'ai', turnId: refused.turnId, why: 'refused: root' })
+    expect(ref.detail).not.toContain('users/')
+    expect(ref.detail).not.toContain('Tess')
+  })
+
   test('Undo skips someone who left the team and puts back the rest', async () => {
     const dir = folder('bob', 'Left')
     h.ctx.db.query("INSERT OR IGNORE INTO users (id, username, name, role, status, deleted_at) VALUES ('lee', 'lee', 'Lee Park', 'member', 'active', NULL)").run()
@@ -334,6 +353,18 @@ describe('namesFolder (M9)', () => {
     // another folder's quoted name or link is not this one
     expect(namesFolder('share "Work2" with Jun', rel)).toBe(false)
     expect(namesFolder(`share [x](/files/view?path=${encodeURIComponent('users/bob/Other')})`, rel)).toBe(false)
+  })
+  test('the one check for every folder tool (PR 7 used the same rules): a path needs a "/", as a whole', () => {
+    // a one-part path is the bare name: not enough
+    expect(namesFolder('share Reports with Jun', 'Reports')).toBe(false)
+    expect(namesFolder('share Sales/Reports with Jun', 'Sales/Reports')).toBe(true)
+    expect(namesFolder('share Sales/Reports/ with Jun', 'Sales/Reports')).toBe(true)
+    // part of a longer name or path is not this one
+    expect(namesFolder('share Sales/Reports2 with Jun', 'Sales/Reports')).toBe(false)
+    expect(namesFolder('share Old/Sales/Reports with Jun', 'Sales/Reports')).toBe(false)
+    // quotes with spaces inside, and mixed quotation marks
+    expect(namesFolder('share " Reports " with Jun', 'Reports')).toBe(true)
+    expect(namesFolder('share «Reports» with Jun', 'Reports')).toBe(true)
   })
   test('what looking_at reported is never the asker\'s word: only their own text counts', () => {
     // the tool reads the asker's own message only; a folder the screen showed is not in it

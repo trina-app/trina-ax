@@ -6588,6 +6588,7 @@ export const en: Record<MessageKey, string> = {
   "audit.act.folder_share.resumed": "Folder sharing turned back on",
   "audit.act.folder_share.ended": "Folder sharing ended",
   "audit.act.folder_share.undo": "Undid a change to a shared folder",
+  "audit.act.folder_share.refused": "Trina did not share or stop sharing a folder",
   "audit.act.file.shares_removed_all": "Removed all file shares",
   // threads on AI answers in shared chats (docs/decisions/20261116-chat-answer-threads.md)
   "chat.thread.otherVersion": "This thread is on another version of the answer ({index} of {count}).",

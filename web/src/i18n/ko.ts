@@ -6586,6 +6586,7 @@ export const ko = {
   "audit.act.folder_share.resumed": "폴더 공유를 다시 켬",
   "audit.act.folder_share.ended": "폴더 공유가 끝남",
   "audit.act.folder_share.undo": "공유한 폴더의 변경을 되돌림",
+  "audit.act.folder_share.refused": "트리나가 폴더 공유나 공유 중지를 하지 않음",
   "audit.act.file.shares_removed_all": "모든 파일 공유를 없앰",
   // threads on AI answers in shared chats (docs/decisions/20261116-chat-answer-threads.md)
   "chat.thread.otherVersion": "이 스레드는 다른 버전의 답({count}개 중 {index}번째)에 있어요.",

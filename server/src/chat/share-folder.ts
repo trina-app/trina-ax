@@ -25,6 +25,7 @@
 import { ShareFolderInput, uuidv7 } from '@mycel/shared'
 import { plainLabel, type FileShareRow, type FileShares as FileSharesView, type FolderShareBlock, type ShareCardFile, type Step, type StepShared, type TurnRequest } from '@mycel/shared/api'
 import { z } from 'zod'
+import { audit } from '../admin/audit'
 import { isGuestUser } from '../credentials/guest-ai'
 import { folderSharesOpen } from '../files/folder-share-gate'
 import { fileSharesOf } from '../files/shares'
@@ -88,7 +89,13 @@ export function shareFolderTool(exec: TurnExec): Tool {
     const verb = at >= 0 ? s.label.slice(0, at) : s.label
     return { label: what ? `${verb} · ${what}` : verb, ...(detail ? { detail } : {}), ...(shared ? { shared } : {}), ...(fixes?.length ? { fixes } : {}) }
   })
-  const no = (t: string, summary: string) => ({ ...text(t, true), summary: `share_folder -> ${summary}` })
+  // every refusal and "not done" is audited too (second security review P6-3): via ai, the turn, why in the tool's own
+  // short words (no names, no path), the folder's share row when it has one
+  let auditTarget: string | null = null
+  const no = (t: string, summary: string) => {
+    try { audit(db, { actor: spec.userId, action: 'folder_share.refused', target: auditTarget, detail: { personal: true, via: 'ai', turnId: spec.turnId, why: summary.slice(0, 120) } }) } catch {}
+    return { ...text(t, true), summary: `share_folder -> ${summary}` }
+  }
   return {
     name: SHARE_FOLDER_TOOL, description: SHARE_FOLDER_TOOL_DESCRIPTION, inputSchema: schema(ShareFolderInput),
     async call(args, files) {
@@ -106,6 +113,8 @@ export function shareFolderTool(exec: TurnExec): Tool {
         const adding = a.data.add.length > 0
         const op: 'share' | 'stop' = adding ? 'share' : 'stop'
         const stop = a.data.stop === true
+        // the step this call runs in: written on the undo snapshot (files/share-undo.ts)
+        const stepId = exec.runningStepId(SHARE_FOLDER_TOOL)
 
         // ---- which folder: one in the asker's own files, read as the Share dialog reads it ----
         const rel0 = a.data.folder.replace(/^\/+/, '').replace(/\/+$/, '')
@@ -116,6 +125,7 @@ export function shareFolderTool(exec: TurnExec): Tool {
         }
         if (v.kind !== 'folder') return no(`Nothing was changed: "${neutralizeTags(oneLine(v.path.split('/').pop() ?? v.path, 80))}" is a file, not a folder. Use ${adding ? 'share_with_person' : 'stop_sharing'} for files.`, 'refused: a file')
         const rel = v.path
+        auditTarget = v.link ? `file-share:${v.link.id}` : null
         const name = rel.split('/').pop() ?? rel
         const nameAi = neutralizeTags(oneLine(name, 80))
         const folderPlace = placeWords(db, rel, L, spec.userId)
@@ -252,7 +262,7 @@ export function shareFolderTool(exec: TurnExec): Tool {
         // ---- every check again inside the change (owner, place, disk, switch, runs, people, the 50, the identity) ----
         let r: { view: FileSharesView; added: string[] }
         try {
-          r = shares.put(spec.userId, rel, adding ? subjects : [], adding || stop ? [] : subjects, L, 'ai', { stop })
+          r = shares.put(spec.userId, rel, adding ? subjects : [], adding || stop ? [] : subjects, L, 'ai', { stop, stepId, turnId: spec.turnId })
         } catch (e) {
           const reason = e instanceof HttpError ? e.extra.params?.reason : undefined
           const block = e instanceof HttpError ? e.extra.params?.block as FolderShareBlock | undefined : undefined

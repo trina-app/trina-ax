@@ -32,5 +32,10 @@
   - Words: with the tool offered, `share_with_person` and the refusal rule send the person's own folder to
     `share_folder`; with the gate closed the interim "I can't share the whole folder yet, but I can share the files in
     it" stays.
+- **Second security review (P6-1..3):** Undo is an add, so for a file it also needs edit access now (an owner who lost
+  edit may still stop, never bring people back); a folder save that removes the links under it closes their open Undo
+  snapshots; `share_folder` writes its step on the snapshot and its turn in the `folder_share.add/remove/stop` audit,
+  and audits every refusal (`folder_share.refused`, why in short words, no names or paths). `namesFolder` is the one
+  check for every folder tool: a path counts only with a "/" and as a whole.
 - **Why:** the design's rule: a folder share never skips its card; narrowing is safe to run on the person's word and is
   repaired by the server's Undo.

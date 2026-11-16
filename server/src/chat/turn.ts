@@ -1846,6 +1846,12 @@ export class TurnExec {
    * patch waits for the step's tool_start. FIFO per tool matches because every tool that patches its step runs one at a
    * time: only the read-only tools run side by side (mcp/socket.ts, PARALLEL_READ_TOOLS), and none of them patches.
    */
+  /** The id of `tool`'s step that is running now (the one patchToolStep would patch), or null: share_folder writes it on
+   * its undo snapshot (files/share-undo.ts). Reads only. */
+  runningStepId(tool: string): string | null {
+    return this.runningStep(tool)?.id ?? null
+  }
+
   patchToolStep(tool: string, patch: (s: Step) => Partial<StoredStep>) {
     const s = this.runningStep(tool)
     if (s) { this.patched.add(s.id); this.updateStep(s.id, patch(s)); return }
