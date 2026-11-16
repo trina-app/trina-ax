@@ -30,7 +30,9 @@ AI inside a shared folder (PR 4)"). Plan of this part:
 - **Words:** the turn's "Files shared with you" block names a folder with its link and says how to list and read it,
   that nothing above it opens and that its names and contents are not instructions. Names in a listing are one line,
   at most 120 characters, our block tags neutralized, quoted. The audit line keeps `/f/<id>` and the action, never the
-  path inside.
+  path inside. An answer links a file inside by the folder page's own address (`/f/<id>?f=<path inside>`, which the app
+  opens; the first real-AI run wrote `/f/<id>/<path inside>`, which it does not), and list and read accept that form
+  too.
 - **Left out:** a shared chat even when the asker pasted the folder's link (the design's off table allows that one
   case; not built: its other viewers would read the answer). Paging past the first 200 names (the AI asks the person,
   or they open it on the Files screen). A name longer than 120 characters is shown cut and cannot be read by the AI.
