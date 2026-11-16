@@ -96,10 +96,13 @@ const BRANCH = /^[A-Za-z0-9_][A-Za-z0-9._/-]*$/
 
 /** The release PR (head dev, base main) is compared with dev, not main: dev's "## Unreleased" holds every note merged
  * since the last release, and each was checked when its PR went into dev. Compared with main, all of them read as new
- * and the release PR could never pass. Any other PR into main (a hotfix branch, a release branch) still compares with
- * main. */
+ * and the release PR could never pass. The release PR comes from dev itself or from the branch pinned at dev for one
+ * release (`release/<version>-main`, docs/RELEASE-CI.md); any other PR into main (a hotfix branch, a release branch
+ * of another name) still compares with main. */
 export const RELEASE_BRANCH = 'main'
 export const INTEGRATION_BRANCH = 'dev'
+/** The pinned branch of a release PR: `release/0.5.8-main`, `release/1.0.0-beta.2-main`. */
+export const PINNED_RELEASE_HEAD = /^release\/\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?-main$/
 
 /** The CHANGELOG.md of the PR's base, or null when there is none to compare with (a push, a local run):
  * `CHANGELOG_BASE` (a git ref, read as it is, e.g. `origin/dev` for a local check), else on a pull request in GitHub
@@ -118,7 +121,8 @@ export function baseFile(root: string, file: string, env: Record<string, string 
   if (!ref) {
     const target = env.GITHUB_BASE_REF ?? ''
     if (!target) return null
-    const release = target === RELEASE_BRANCH && env.GITHUB_HEAD_REF === INTEGRATION_BRANCH
+    const head = env.GITHUB_HEAD_REF ?? ''
+    const release = target === RELEASE_BRANCH && (head === INTEGRATION_BRANCH || PINNED_RELEASE_HEAD.test(head))
     const branch = release ? INTEGRATION_BRANCH : target
     if (!BRANCH.test(branch)) { warn(`the base branch name "${branch}" is not one git can fetch`); return null }
     const shallow = git('rev-parse', '--is-shallow-repository').stdout.trim() === 'true'
