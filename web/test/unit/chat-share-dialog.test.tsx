@@ -370,7 +370,7 @@ describe('the save model and every exit', () => {
     expect(ko('share.warn.places', { places: '내 파일', names: bob })).toBe('이 채팅은 내 파일도 참고했어요. Bob 님은 열 수 없는 곳이에요.')
     expect(ko('share.warn.files', { n: 1, names: sales })).toBe('답 1개가 Sales 그룹 사람들이 열 수 없는 파일을 참고했어요.')
     expect(ko('share.warn.places', { places: '내 파일', names: sales })).toBe('이 채팅은 내 파일도 참고했어요. Sales 그룹 사람들은 열 수 없는 곳이에요.')
-    expect(ko('share.warn.rooms', { names: sales })).toBe('이 채팅은 Sales 그룹 사람들이 없을 수도 있는 팀 대화방을 읽었어요.')
+    expect(ko('share.warn.rooms', { names: sales })).toBe('이 채팅은 Sales 그룹 사람들이 없을 수도 있는 채널을 읽었어요.')
     expect(ko('share.warn.files', { n: 1, names: both })).toBe('답 1개가 Bob 님, Sales 그룹 사람들이 열 수 없는 파일을 참고했어요.')
     expect(ko('share.widenList.title', { names: sales })).toBe('Sales 그룹 사람들이 보게 될 답')
     expect(ko('chat.share.widen', { n: 2, names: both })).toContain('Bob 님, Sales 그룹 사람들이 열 수 없는 곳')

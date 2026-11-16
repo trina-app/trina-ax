@@ -10,7 +10,9 @@ The team folder has five folders at the top, and the Files screen names them in 
 (`shared/`, 전사 공유 in Korean) is the company's material that everyone on the team sees: the setup's company intro,
 brand and meeting notes and the first company files go there, and forms and templates such as quotes and reports go in
 `shared/Templates/` (`shared/양식/` on a Korean team; the AI starts there when it makes that kind of document).
-**Groups** (`groups/`, 부서 in Korean) have one folder per department, seen by its people; **Projects** (`projects/`)
+**Groups** (`groups/`, 부서 in Korean) have one folder per department, seen by its people; in a
+group's room, **Files** next to the room's name opens that folder (for those who can see it), and Back returns to
+the room; **Projects** (`projects/`)
 one folder per project; **Team skills** (`skills/`) the skills and rules everyone's AI follows; **Personal** (`users/`)
 each person's own folder (**My folder**). Ask the AI to tidy up and finished work moves into an `Archive` folder (`보관`)
 of its area. Only the names on screen change; the paths stay as they are.

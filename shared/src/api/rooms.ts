@@ -543,6 +543,10 @@ export const Room = z.object({
    * room's owners and admins, a 1:1's and a group chat's members, never a guest). Older servers omit it */
   canManageApps: z.boolean().optional(),
   groupId: Uuid7.nullable(),
+  /** a team room's group folder (e.g. `groups/leads`), for the header's Files button: present only when the group has a
+   * folder and I can open it (the folder rules, as the Files page judges them). Absent for the other kinds, a group
+   * without a folder, someone the rules keep out, and older servers. */
+  groupFolder: z.string().min(1).optional(),
   memberCount: z.number().int().nonnegative(),
   /** up to 4 other members, for the avatars; a DM: the other person */
   peers: z.array(UserRef),

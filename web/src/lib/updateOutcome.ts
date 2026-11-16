@@ -22,6 +22,10 @@ export const releaseCannotRead = (u: Pick<UpdateStatus, 'hold'> | null | undefin
  * first check (no update-check.json yet) it says "not checked yet" (QA TC-2860). A check that failed says so. */
 export const updateCheckText = (u: Pick<UpdateStatus, 'checkFailed' | 'lastCheckedAt'>): 'system.checkFailed' | 'system.notCheckedYet' | 'system.upToDate' =>
   u.checkFailed ? 'system.checkFailed' : !u.lastCheckedAt ? 'system.notCheckedYet' : 'system.upToDate'
+/** The release's last try here failed or was rolled back, so it is on hold (UpdateStatus.hold failed / root_failed): Admin ›
+ * System says why and that it is held, and offers "Try this version again" (with a confirm) in place of "Install update"
+ * (QA TC-3843). */
+export const releaseHeld = (u: Pick<UpdateStatus, 'hold'> | null | undefined): boolean => u?.hold === 'failed' || u?.hold === 'root_failed'
 
 export type UpdateOutcome =
   | { kind: 'ok' }

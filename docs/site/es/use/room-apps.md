@@ -28,7 +28,7 @@ apps; elija una y se abre con la guía de ese servicio. Si aún no tiene ninguna
 
 ![Añadir una app: sus mensajes aparecen en la sala para todos los que están en ella; luego Formularios de Google, Otra app, GitHub y Sentry](../../images/room-apps/picker.webp "Añadir una app")
 
-Quién puede hacerlo: en una sala de equipo o en la sala de todos, sus propietarios y administradores; en un chat 1:1 o de grupo, cualquiera que esté en él.
+Quién puede hacerlo: en un canal (incluido el canal Todos), sus propietarios y administradores; en un mensaje directo (chat 1:1 o de grupo), cualquiera que esté en él.
 Las demás personas de la sala ven las tarjetas, responden en sus hilos y preguntan a Trina sobre ellas. Al tocar el nombre de la app
 se ve quién la configuró.
 

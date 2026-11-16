@@ -20,6 +20,7 @@ import { notificationsOf } from '../../server/src/notifications/service'
 import { pushPathOf } from '../../server/src/notifications/push-events'
 import { savePreferences } from '../../server/src/notifications/preferences'
 import { cancelDisabledPushDeliveries } from '../../server/src/notifications/push-events'
+import { hiddenAnswersCutover, setHiddenAnswersCutover } from '../../server/src/chat/shared-answers'
 
 setDefaultTimeout(90_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -373,5 +374,144 @@ describe('notices reach only who still sees the thread', () => {
     expect(threadVisibleTo(h.ctx, 'bob', c.id, root)).toBe(true)
     // the notices service knows the new event
     expect(typeof notificationsOf(h.ctx).chatThreadReply).toBe('function')
+  })
+})
+
+// ---------------- follow-ups of the security review (QA TC-3783 … TC-3788) ----------------
+describe('every route answers the one 404 for a hidden answer and a chat in the trash (TC-3787)', () => {
+  const routes = (chat: string, root: string, replyId: string) => [
+    ['list', () => thread('bob', { chat, root })],
+    ['reply', () => reply('bob', 'x', { chat, root })],
+    ['read', () => h.api('bob').call(API.markChatThreadRead, { params: { id: chat, messageId: root }, body: { upTo: replyId } })],
+    ['delete', () => h.api('bob').call(API.deleteChatThreadReply, { params: { id: chat, replyId } })],
+  ] as const
+
+  test('a chat in the trash: 404 for everyone but those who may manage it; its creator reads it, deletes nothing (TC-3783)', async () => {
+    const c = await h.api('alice').call(API.createChat, { body: { projectId } })
+    const a = await ask('alice', c.id, fake({ say: 'soon in the trash' }))
+    const root = a.started.assistantMessage.id
+    const r = await reply('bob', 'bob before the trash', { chat: c.id, root })
+    await h.api('alice').call(API.deleteChat, { params: { id: c.id } })
+    for (const [name, run] of routes(c.id, root, r.id)) {
+      const e = await errOf(run())
+      expect({ name, status: e.status, code: e.body.code, reason: e.body.params?.reason }).toEqual({ name, status: 404, code: 'not_found', reason: undefined })
+    }
+    const t = await thread('alice', { chat: c.id, root })
+    expect([t.readOnlyReason, t.canReply, t.replies.map((x) => x.canDelete)]).toEqual(['trash', false, [false]])
+    expect((await errOf(h.api('alice').call(API.deleteChatThreadReply, { params: { id: c.id, replyId: r.id } }))).status).toBe(404)
+    expect((await errOf(reply('alice', 'x', { chat: c.id, root }))).status).toBe(404)
+  })
+
+  test('safe operations: no delete, the API refuses it like any write (409 safe_ops) and the page offers none (TC-3784)', async () => {
+    const c = await h.api('alice').call(API.createChat, { body: { projectId } })
+    const a = await ask('alice', c.id, fake({ say: 'safe' }))
+    const root = a.started.assistantMessage.id
+    const r = await reply('alice', 'mine', { chat: c.id, root })
+    process.env.MYCEL_SAFE_OPS_1A = '1'
+    try {
+      const e = await errOf(h.api('alice').call(API.deleteChatThreadReply, { params: { id: c.id, replyId: r.id } }))
+      expect([e.status, e.body.params?.reason]).toEqual([409, 'safe_ops'])
+      expect((await thread('alice', { chat: c.id, root })).replies.map((x) => x.canDelete)).toEqual([false])
+    } finally { delete process.env.MYCEL_SAFE_OPS_1A }
+    expect((await thread('alice', { chat: c.id, root })).replies.map((x) => x.canDelete)).toEqual([true])
+  })
+
+  test('the notices are found by their answer and their chat through an index, never a scan of the table (TC-3785)', () => {
+    // (a statement of its own, finalized: a cached EXPLAIN of a DELETE left open would hold the server's next commit)
+    const plan = (sql: string) => {
+      const st = db().prepare(`EXPLAIN QUERY PLAN ${sql}`)
+      try { return (st.all('x') as { detail: string }[]).map((r) => r.detail).join(' | ') } finally { st.finalize() }
+    }
+    // what the triggers and settleNotices run
+    expect(plan('DELETE FROM chat_thread_notices WHERE source_id = ?')).toMatch(/USING (COVERING )?INDEX chat_thread_notices_source/)
+    expect(plan('DELETE FROM chat_thread_notices WHERE chat_id = ?')).toMatch(/USING (COVERING )?INDEX chat_thread_notices_chat/)
+    expect(plan('SELECT id FROM chat_thread_notices n WHERE n.source_id = ? AND n.read_at IS NULL')).toMatch(/USING (COVERING )?INDEX chat_thread_notices_(source|open)/)
+    for (const sql of ['DELETE FROM chat_thread_notices WHERE source_id = ?', 'DELETE FROM chat_thread_notices WHERE chat_id = ?']) expect(plan(sql)).not.toMatch(/^SCAN chat_thread_notices$/)
+  })
+
+  test('a purged chat takes its thread notices with it (TC-3785)', async () => {
+    const c = await h.api('alice').call(API.createChat, { body: { projectId } })
+    const a = await ask('alice', c.id, fake({ say: 'to purge' }))
+    const root = a.started.assistantMessage.id
+    await reply('bob', 'a notice for alice', { chat: c.id, root })
+    expect(notices('alice', root).length).toBe(1)
+    h.rt().purgeChat(c.id)
+    await waitFor(() => !db().query('SELECT 1 FROM chats WHERE id = ?').get(c.id))
+    expect(db().query('SELECT COUNT(*) AS n FROM chat_thread_notices WHERE chat_id = ? OR source_id = ?').get(c.id, root)).toEqual({ n: 0 })
+    expect(db().query('SELECT COUNT(*) AS n FROM chat_thread_replies WHERE chat_id = ?').get(c.id)).toEqual({ n: 0 })
+  })
+
+  test('an answer hidden from bob: the same 404 on every route; its asker still reads the thread', async () => {
+    const c = await h.api('alice').call(API.createChat, { body: { projectId } })
+    const a = await ask('alice', c.id, fake({ say: 'hidden from bob' }))
+    const root = a.started.assistantMessage.id
+    const r = await reply('alice', 'only alice sees this', { chat: c.id, root })
+    // an older answer with nothing recorded of what it read (chat/shared-answers.ts): hidden from all but its asker
+    const before = hiddenAnswersCutover(db())
+    setHiddenAnswersCutover(db(), '9999-12-31T00:00:00.000Z')
+    db().query('DELETE FROM shared_answer_reads WHERE message_id = ?').run(root)
+    try {
+      for (const [name, run] of routes(c.id, root, r.id)) {
+        const e = await errOf(run())
+        expect({ name, status: e.status, code: e.body.code, leaks: JSON.stringify(e.body).includes('only alice') }).toEqual({ name, status: 404, code: 'not_found', leaks: false })
+      }
+      expect(threadVisibleTo(h.ctx, 'bob', c.id, root)).toBe(false)
+      expect((await thread('alice', { chat: c.id, root })).replies.length).toBe(1)
+      // and no line under it in bob's messages
+      expect(await summaryOf('bob', c.id, root)).toBeUndefined()
+    } finally {
+      // put the setting back as it was, also when there was none
+      setHiddenAnswersCutover(db(), before)
+    }
+    expect(hiddenAnswersCutover(db())).toBe(before)
+  })
+})
+
+describe('chat events are not replayed to someone taken out of a people-shared chat (TC-3788)', () => {
+  test('bob, offline, taken out: his reconnect gets resync, not the chat\'s events since', async () => {
+    type Sub = { subjectType: 'user' | 'group'; subjectId: string }
+    const put = (subjects: Sub[], id: string, confirmKey?: string) => h.api('alice').call(API.putChatAudience, { params: { id }, body: { subjects, ...(confirmKey ? { confirmKey } : {}) } })
+    const share = async (id: string, subjects: Sub[]) => { let r = await put(subjects, id); if (r.status === 'confirm') r = await put(subjects, id, r.confirmKey); expect(r.status).toBe('saved') }
+    const c = await h.api('alice').call(API.createChat, { body: {} })
+    await ask('alice', c.id, fake({ say: 'first' }))
+    await share(c.id, [{ subjectType: 'user', subjectId: 'bob' }])
+    const bobWs = await h.ws('bob')
+    const hello = await bobWs.next('hello')
+    bobWs.close()
+    await bobWs.closedWith()
+    // something happens in the chat while bob's window is away: its chat.updated is buffered for him
+    await ask('alice', c.id, fake({ say: 'SECRET-AFTER-BOB-LEFT' }))
+    await share(c.id, [])
+    const again = await h.ws('bob', { epoch: hello.epoch, after: hello.seq })
+    const first = await again.next('resync', () => true, 5000).catch(() => null)
+    expect(first).not.toBeNull()
+    expect(again.frames.some((f) => (f.type === 'chat.updated' && (f as { data: { chat: unknown } }).data.chat !== null) || f.type.startsWith('message.'))).toBe(false)
+    again.close()
+    // her own window: the same replay goes through untouched
+    const aliceWs = await h.ws('alice')
+    const ah = await aliceWs.next('hello')
+    aliceWs.close()
+    await aliceWs.closedWith()
+    await h.api('alice').call(API.updateChat, { params: { id: c.id }, body: { title: 'renamed' } })
+    const back = await h.ws('alice', { epoch: ah.epoch, after: ah.seq })
+    expect((await back.next('hello')).resumed).toBe(true)
+    back.close()
+  })
+})
+
+describe('QA TC-3625: after Send to Trina, "add them to the project" in a shared chat', () => {
+  test('a shared chat offers neither change_project_members nor delete_files, and its prompt tells the AI to say so plainly', async () => {
+    const c = await h.api('alice').call(API.createChat, { body: { projectId } })
+    const tools = (await ask('alice', c.id, fake({ echo: 'tools' }))).done.content
+    expect(tools).toContain('read')
+    for (const name of ['change_project_members', 'delete_files']) expect({ name, offered: tools.includes(name) }).toEqual({ name, offered: false })
+    const sys = (await ask('alice', c.id, fake({ echo: 'system' }))).done.content
+    expect(sys).toContain("changing the project's members")
+    expect(sys).toContain('putting team files in the trash')
+    expect(sys).toContain('say plainly')
+    // a person's own chat in the same project does have them (the card is reachable there)
+    const own = await h.api('alice').call(API.createChat, { body: { projectId, private: true } })
+    const mine = (await ask('alice', own.id, fake({ echo: 'tools' }))).done.content
+    expect(mine).toContain('change_project_members')
   })
 })
