@@ -2240,7 +2240,7 @@ export const zh: Record<MessageKey, string> = {
   "groups.none": "还没有小组。",
   "groups.noMembers": "没有成员",
   "groups.deleteTitle": "删除小组“{name}”？",
-  "groups.deleteBody": "授予此小组的文件夹权限也会被移除。小组的聊天也会关闭，其中发送的文件会在 30 天后清除。",
+  "groups.deleteBody": "授予此小组的文件夹权限也会被移除。如果小组有聊天，聊天会关闭，其中发送的文件会在 30 天后清除。",
   "groups.deleteAiOff": "仅此小组使用的 AI 连接将被关闭：{names}",
   "rules.everyone": "所有人",
   "rules.group": "小组",

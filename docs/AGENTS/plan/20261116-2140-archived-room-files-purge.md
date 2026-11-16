@@ -77,3 +77,7 @@ Built, with the spec review's changes (a fresh subagent; it confirmed nothing re
 - The docs clause is a paragraph of its own (Admin › System help, six languages); deleting a group says files go after
   30 days (the confirm in six languages, the AI's `group_delete` description).
 - Risks correction: `room_files` has no `room_id` index; a scan a day is fine.
+After the diff review (a second fresh subagent): `reconcile` no longer counts as the day's run (a server restarted
+nightly would never purge); each purge has its own try/catch and a file that cannot be removed is logged, not thrown;
+batches of 100; tests for the clock guards (archive and file), no room files folder, a run cut short, a clock set back
+and thumbnails; the group-delete words say "if the group has a conversation" (the welcome team group has none).
