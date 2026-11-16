@@ -8,6 +8,9 @@ import { fileError, mapErrors } from '../team-files/errors'
 import { HeicPreviews, isHeic, noPreviewError } from '../files/heic-preview'
 import { componentC } from '../team-files/component'
 import { fileSharesOf, registerFileShareCleanup } from '../files/shares'
+import { folderSharesOf } from '../files/folder-shares'
+import { undoShares } from '../files/share-undo'
+import { streamChecked } from '../team-files/stream-checked'
 import { contentDisposition, streamFile } from '../team-files/download'
 import { embedNarrower } from '../team-files/embed'
 import { htmlPdfDownload, saveHtmlPdf } from '../team-files/html-pdf-save'
@@ -203,20 +206,31 @@ export const filesRoutes: RouteModule = {
     // a file shared one by one (files/shares.ts; docs/DECISIONS.md "A member shares their own files"): the link, the
     // dialog, the link page and its bytes, the request and its answer; Admin's counts and the team owner's Remove all
     const shares = fileSharesOf(ctx)
+    const folders = folderSharesOf(ctx)
     kit.handle(API.fileLink, ({ c, body, auth }) => mapErrors(c.get('locale'), () => shares.linkFor(auth.user.id, body.path)))
     kit.handle(API.fileShares, ({ c, query, auth }) => mapErrors(c.get('locale'), () => shares.view(auth.user.id, query.path, c.get('locale'))))
-    kit.handle(API.putFileShares, ({ c, body, auth }) => mapErrors(c.get('locale'), () => shares.change(auth.user.id, body.path, body.add, body.remove, c.get('locale')).view))
+    kit.handle(API.putFileShares, ({ c, body, auth }) => mapErrors(c.get('locale'), () => shares.put(auth.user.id, body.path, body.add, body.remove, c.get('locale'), 'dialog', { stop: body.stop, resume: body.resume }).view))
+    kit.handle(API.undoFileShares, ({ c, body, auth }) => mapErrors(c.get('locale'), () => undoShares(ctx, auth.user.id, body.id, c.get('locale'))))
     kit.handle(API.shareFilesBatch, ({ c, body, auth }) => mapErrors(c.get('locale'), () => shares.shareMany(auth.user.id, body.paths, body.add, c.get('locale'))))
     kit.handle(API.sharedBatch, ({ c, params, auth }) => mapErrors(c.get('locale'), () => shares.batchPage(auth.user.id, params.id)))
     kit.handle(API.sharedWithMe, ({ c, query, auth }) => mapErrors(c.get('locale'), () => shares.sharedWithMe(auth.user.id, query.cursor, query.limit)))
     kit.handle(API.sharedFile, ({ c, params, auth }) => mapErrors(c.get('locale'), () => shares.page(auth.user.id, params.id)))
     kit.handle(API.sharedFileDownload, ({ c, params, query, auth }) => mapErrors(c.get('locale'), () => {
       // the current bytes only, checked on every request (a removed person loses it at once); nothing else by id
+      if (query.sub !== undefined) {
+        // a file inside a shared folder (files/folder-shares.ts): `sub` on a file link is refused there (404). The
+        // bytes come from the one descriptor that is proven to be the file just checked (team-files/stream-checked.ts)
+        const f = folders.file(auth.user.id, params.id, query.sub, c.get('locale'))
+        ctx.files.quarantine.assertDownload(f.abs, c.req.raw.headers)
+        return streamChecked({ abs: f.abs, expect: f.expect, name: f.name, req: c.req.raw, disposition: query.disposition })
+      }
       const o = shares.open(auth.user.id, params.id)
       if (o.kind !== 'open') throw new HttpError('not_found')
       ctx.files.quarantine.assertDownload(o.abs, c.req.raw.headers)
       return streamFile({ abs: o.abs, name: o.name, req: c.req.raw, disposition: query.disposition, via: c.get('info')?.via })
     }))
+    kit.handle(API.sharedFolderList, ({ c, params, query, auth }) => mapErrors(c.get('locale'), () => folders.list(auth.user.id, params.id, query.sub, query.cursor, query.limit, c.get('locale'))))
+    kit.handle(API.sharedFolderEntry, ({ c, params, query, auth }) => mapErrors(c.get('locale'), () => folders.entry(auth.user.id, params.id, query.sub, c.get('locale'))))
     kit.handle(API.requestFileAccess, ({ c, params, body, auth }) => mapErrors(c.get('locale'), () => shares.request(auth.user.id, params.id, body.message, c.get('locale'))))
     kit.handle(API.answerFileRequest, ({ c, params, body, auth }) => mapErrors(c.get('locale'), () => shares.answer(auth.user.id, params.id, body.answer, c.get('locale'))))
     kit.handle(API.fileSharesCount, ({ c }) => mapErrors(c.get('locale'), () => shares.counts()))

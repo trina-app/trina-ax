@@ -33,6 +33,7 @@ import { FileError, fileError } from './errors'
 import { checkRegular, copyTeamFile, freeName, hashFile, installFile, moveIntoTrash, restoredName, snapshotVersion, splitExt, treeSize } from './place'
 import { AI_TRASH_MAX_ENTRIES, AiTrashChanged, TrashStranded, aiSkillPath, holdsSkillRoot, instructionFile, sameStamps, stampTree, type Stamp } from './ai-trash'
 import crypto from 'node:crypto'
+import { folderSharesOf } from '../files/folder-shares'
 import { fileSharesOf, linkPeopleIn, sharesForgotten, sharesMoved, sharesNarrowedByMove, sharesPurged, sharesRestored, sharesTrashed, type UnsharedByMove } from '../files/shares'
 
 /** Files the file screen treats as binary (rendered by the client from /download, never edited as text). */
@@ -193,7 +194,10 @@ export class TeamFiles {
       const fixed = e.access === 'write' ? this.fixedFor(user, rules, e.path) : null
       return fixed ? { ...e, fixed } : e
     })
-    return { path: r.rel, access: rules.access(user, r.segs), entries: items, nextCursor: start + limit < out.length ? encodeCursor(start + limit) : null }
+    // the caller's own files: which entries are shared (their own people, or through a shared folder above; files/folder-shares.ts)
+    const mark = folderSharesOf(this.ctx).entryMarks(user, r.segs)
+    const entries = mark ? items.map((e) => { const m = mark(e.name); return m ? { ...e, shared: m } : e }) : items
+    return { path: r.rel, access: rules.access(user, r.segs), entries, nextCursor: start + limit < out.length ? encodeCursor(start + limit) : null }
   }
 
   // ---------------- audience: who can see a folder, as far as the caller may know ----------------
