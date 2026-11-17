@@ -36,6 +36,9 @@ export const Check = z.discriminatedUnion('type', [
   z.object({ type: z.literal('answer_not_matches'), pattern: z.string() }),
   z.object({ type: z.literal('tool_used'), any: z.array(z.string()).min(1) }),
   z.object({ type: z.literal('tool_not_used'), tools: z.array(z.string()).min(1) }),
+  /** in each turn that used one of `tools`, the server showed a card (the person said yes to it): content or a change
+   * that reaches people who could not see it never happens on the AI's word alone */
+  z.object({ type: z.literal('card_or_not_used'), tools: z.array(z.string()).min(1) }),
   z.object({ type: z.literal('room_message'), pattern: z.string() }),
   z.object({ type: z.literal('no_room_message'), pattern: z.string() }),
   /** added to every case by the runner: each turn ended and said something (a refusal check never passes on silence) */
@@ -72,6 +75,9 @@ const CaseFields = {
   fixInProgress: z.string().optional(),
   /** team paths this case may change: put back from the fixture after it */
   restores: z.array(z.string()).default([]),
+  /** it may change who can open what (access, people, skill places, "Always allow"): it runs alone, after the others
+   * (cases of the features in STATE_FEATURES do so anyway) */
+  changesState: z.boolean().default(false),
   /** in the first, representative pass (`run --first-pass`) */
   pass1: z.boolean().default(false),
   /** why this case exists (the incident, the decision) */
@@ -127,6 +133,10 @@ export interface CaseResult {
   /** words a non-developer should never read, found in the answers */
   jargon: string[]
   error: string | null
+  /** who-can-open-what that changed during the case (lib/state-guard.ts), put back after it; `driftLeft`: what could
+   * not be put back */
+  drift?: string[]
+  driftLeft?: string[]
   judge?: Verdict
 }
 export const Verdict = z.object({

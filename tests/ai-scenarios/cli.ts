@@ -29,6 +29,7 @@ import { judgeFlow, writeFlowReport } from './lib/flow-report'
 import { mocksDown, mocksReset, mocksUp, readMocks } from './mock-services/up'
 import { writeReport } from './lib/report'
 import { runCase, type Env } from './lib/run-case'
+import { driftOf, ensureFolder, resetTo, stateOf, type State } from './lib/state-guard'
 import { coverageMarkdown, firstPass, loadCatalog } from './lib/catalog'
 import type { Case, CaseResult } from './lib/types'
 
@@ -122,6 +123,7 @@ async function owner(): Promise<ApiClient> {
 /** put a fixture file back as it was (a case that renames, moves or edits it) */
 async function restore(api: ApiClient, rel: string) {
   const folder = path.posix.dirname(rel), name = path.posix.basename(rel)
+  await ensureFolder(api, folder)
   await api.call(API.upload, { body: { fields: { folder, name, onExists: 'replace' }, file: new Blob([fs.readFileSync(fixtureFile(rel))]), filename: name } })
 }
 
@@ -162,6 +164,19 @@ async function run() {
   const own = await owner()
   const devenv = devEnvOn()
   say(`run ${id}: ${cases.length} cases, results in ${dir}`)
+  // who can open what as the run starts (the seeded team): after every case it is compared and put back
+  const base: State = stateOf(DATA, TEAM)
+  const userName = new Map((await own.call(API.listUsers)).items.map((u) => [u.id, u.username]))
+  let guarding = Promise.resolve()
+  const guard = (r: CaseResult) => (guarding = guarding.then(async () => {
+    const now = stateOf(DATA, TEAM)
+    const drift = driftOf(base, now)
+    if (!drift.length) return
+    r.drift = drift
+    say(`${r.id}: changed who can open what (${drift.length}): ${drift.slice(0, 4).join('; ')}${drift.length > 4 ? ' ...' : ''}; putting it back`)
+    const left = await resetTo(base, now, { owner: own, as, username: (id) => userName.get(id) ?? null, fixtureDir, log: say }, () => stateOf(DATA, TEAM))
+    if (left.length) { r.driftLeft = left; say(`${r.id}: not put back: ${left.join('; ')}`) }
+  }))
   // grouped by install: the team's dev environment setting is switched between groups (one server)
   for (const install of ['linux-nodevenv', 'office-mac', 'linux-devenv', 'managed'] as const) {
     const group = cases.filter((c) => c.install === install)
@@ -177,18 +192,21 @@ async function run() {
       continue
     }
     if (devenv) await own.call(API.updateDevEnvTeam, { body: install === 'linux-devenv' ? { enabled: true, acceptWarning: DEV_ENV_SRT_WARNING_VERSION } : { enabled: false } })
-    // cases that change shared files run alone after the others, so a rename never changes what another case sees
-    const parallel = group.filter((c) => !c.restores.length), serial = group.filter((c) => c.restores.length)
+    // cases that change shared files or who can open what run alone after the others, so a rename or a new grant never
+    // changes what another case sees
+    const alone = (c: Case) => !!c.restores.length || c.changesState || c.features.some((f) => STATE_FEATURES.has(f))
+    const parallel = group.filter((c) => !alone(c)), serial = group.filter(alone)
     const jobs = Math.max(1, Number(opt('--jobs') ?? 3))
     // a case and its variants work on the same files: one worker runs them one after another
     const byBase = new Map<string, Case[]>()
     for (const c of parallel) { const b = c.id.split('.')[0]!; byBase.set(b, [...(byBase.get(b) ?? []), c]) }
     const queue = [...byBase.values()]
     await Promise.all(Array.from({ length: Math.min(jobs, queue.length) }, async () => {
-      for (let g = queue.shift(); g; g = queue.shift()) for (const c of g) { const r = await runCase(c, env); writeResult(dir, r); await cleanUp(r) }
+      for (let g = queue.shift(); g; g = queue.shift()) for (const c of g) { const r = await runCase(c, env); await guard(r); writeResult(dir, r); await cleanUp(r) }
     }))
     for (const c of serial) {
       const r = await runCase(c, env)
+      await guard(r)
       writeResult(dir, r)
       await cleanUp(r)
       for (const rel of c.restores) await restore(own, rel).catch((e) => say(`restore ${rel}: ${e instanceof Error ? e.message : e}`))
@@ -197,6 +215,11 @@ async function run() {
   say(`done: ${id}`)
   return id
 }
+
+/** features whose cases may change who can open what: their cases run alone (Case.changesState) */
+const STATE_FEATURES = new Set(['admin.folders', 'admin.groups', 'admin.members', 'admin.guests', 'projects.members', 'skills.move', 'skills.share', 'skills.managers', 'files.share-links', 'chat.share', 'chat.allowances', 'rooms.members'])
+/** the fixture copy of a team folder (a seeded skill), or null */
+const fixtureDir = (rel: string) => { const p = path.join(import.meta.dir, 'fixture', 'files', rel); return fs.existsSync(p) && fs.statSync(p).isDirectory() ? p : null }
 
 function writeResult(dir: string, r: CaseResult) { fs.writeFileSync(path.join(dir, `${r.id}.json`), JSON.stringify(r, null, 1)) }
 function readResults(id: string): CaseResult[] {
@@ -208,7 +231,7 @@ async function judgeRun(id: string) {
   const cases = new Map(loadCatalog().map((c) => [c.id, c]))
   const fixture = JSON.parse(fs.readFileSync(STATE, 'utf8')) as FixtureState
   const only = opt('--case')?.split(',')
-  const results = readResults(id).filter((r) => (!only || only.includes(r.id)) && cases.has(r.id) && !r.error?.startsWith('blocked:') && (flag('--again') || !r.judge))
+  const results = readResults(id).filter((r) => (!only || only.includes(r.id)) && cases.has(r.id) && !r.error?.startsWith('blocked:') && !r.error?.startsWith('setup:') && (flag('--again') || !r.judge))
   const queue = [...results]
   const jobs = Math.max(1, Number(opt('--jobs') ?? 4))
   say(`judging ${queue.length} results of ${id} with Sonnet`)

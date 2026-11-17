@@ -34,6 +34,13 @@ bun run ai:scenarios up --reset                 # stop it, delete ~/.trina-aisce
 - **The judge** is `claude -p --model sonnet`, run with no tools, no MCP servers and no settings. It reads only what
   [`lib/judge.ts`](lib/judge.ts) gives it.
 
+**Cases stay apart.** A case runs in the place it names or not at all: if its person cannot open the project (or the
+room), the result is "setup", never a personal chat in its place, and it is not judged. Who can open what (folder rules,
+project and group people, where the team skills are, "Always allow") is read when the run starts and compared after
+every case ([`lib/state-guard.ts`](lib/state-guard.ts)): a change is recorded on the case's result (`drift`) and put
+back before the next case. Cases that may make such a change (`changesState`, or a feature such as admin.folders,
+projects.members, skills.move) run alone after the others. Room members and live file links are only recorded.
+
 Nothing here touches a real team. The fixture is a fictional company, and its password is in
 [`fixture/seed.ts`](fixture/seed.ts) because the server is local and thrown away.
 

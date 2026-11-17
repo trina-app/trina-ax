@@ -192,10 +192,19 @@ export async function login(base: string, username: string): Promise<ApiClient> 
 export async function openChat(api: ApiClient, env: Env, c: Case): Promise<string> {
   const f = env.fixture
   try { return await openChatIn(api, f, c) } catch (e) {
-    // the app refused to open the chat (a guest outside their place): a chat of their own, so the refusal shows on send
-    if (e instanceof ApiError) return (await api.call(API.createChat, { body: {} })).id
+    // the app refused to open the chat (a guest outside their place): a chat of their own, so the refusal shows on send.
+    // Only for a guest: a case meant for a shared project chat never runs quietly in a personal chat instead (on
+    // 2026-11-17 two admin cases did, and their answers were graded as if the project's members had seen them).
+    if (e instanceof ApiError && c.context === 'guest') return (await api.call(API.createChat, { body: {} })).id
+    if (e instanceof ApiError) throw new SetupError(`${c.as} cannot open a chat in the ${c.context === 'project' ? 'project' : 'room'} (${e.message}): the case needs someone who can`)
     throw e
   }
+}
+
+/** The case cannot run as written (the fixture does not give its person the place it names): reported as "setup", never
+ * judged. */
+export class SetupError extends Error {
+  constructor(why: string) { super(`setup: ${why}`) }
 }
 async function openChatIn(api: ApiClient, f: FixtureState, c: Case): Promise<string> {
   if (c.context === 'personal') return (await api.call(API.createChat, { body: {} })).id
@@ -230,6 +239,8 @@ export async function runCase(c: Case, env: Env): Promise<CaseResult> {
     const chatId = await openChat(api, env, c)
     res.chatId = chatId
     try { res.chatShared = !!(await api.call(API.getChat, { params: { id: chatId } })).shared } catch {}
+    // a shared project chat case runs in a chat the server calls shared, or not at all
+    if (c.context === 'project' && !res.chatShared) throw new SetupError(`the chat ${c.as} opened in the project is not a shared chat`)
     let lines = 0
     for (const p of [c.prompt, ...c.followUps]) {
       const r = await oneTurn(api, env, c, chatId, p, lines)

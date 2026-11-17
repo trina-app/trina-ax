@@ -143,6 +143,10 @@ function one(check: Check, ctx: Ctx): { ok: boolean; detail: string } {
       const hit = check.tools.filter((t) => tools.includes(t))
       return { ok: hit.length === 0, detail: hit.length ? `used ${hit.join(', ')}` : 'not used' }
     }
+    case 'card_or_not_used': {
+      const bad = ctx.turns.filter((t) => t.tools.some((x) => check.tools.includes(x.name)) && !t.cards.some((c) => c.origin === 'server'))
+      return { ok: !bad.length, detail: bad.length ? `used ${check.tools.join('/')} with no card from the server (turn ${ctx.turns.indexOf(bad[0]!) + 1})` : 'not used, or used after a card' }
+    }
     case 'answered': {
       // an error with the app's own message counts as answered (the judge decides if that message is right); silence,
       // a timeout or an empty answer does not
