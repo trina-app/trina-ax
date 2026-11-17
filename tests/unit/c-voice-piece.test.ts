@@ -20,11 +20,13 @@ const HOSTED = 'sk-or-v1-HOSTED-VOICE-CANARY-' + '0c'.repeat(20)
 let A: CApp
 const C = () => componentC(A.ctx)
 const hits: { auth: string | null; body: any }[] = []
+const HELLO = () => Response.json({ text: 'hello there', language: 'en', duration: 2, segments: [{ start: 0.2, end: 1.8, text: ' hello there' }] })
+let reply: () => Response = HELLO
 const fake = Bun.serve({
   port: 0, hostname: '127.0.0.1',
   async fetch(req) {
     hits.push({ auth: req.headers.get('authorization'), body: await req.json().catch(() => null) })
-    return Response.json({ text: 'hello there', language: 'en', duration: 2, segments: [{ start: 0.2, end: 1.8, text: ' hello there' }] })
+    return reply()
   },
 })
 let savedUrl = ''
@@ -42,6 +44,7 @@ afterAll(async () => {
 })
 beforeEach(() => {
   hits.length = 0
+  reply = HELLO
   resetPieceLimitsForTests()
   A.ctx.db.query('DELETE FROM settings WHERE key IN (?, ?)').run(HOSTED_SPEECH_USAGE_SETTING, HOSTED_SPEECH_KEY_SETTING)
   updateTeamSettings(A.ctx.db, { speechProvider: 'openrouter' })
@@ -65,6 +68,41 @@ const leftovers = () => {
   }
   return out.filter((f) => !f.startsWith('.'))
 }
+
+/** syllables of a voice whose pitch glides, with pauses: sound that moves like speech (tests/unit/no-speech.test.ts) */
+const spoken = (sec = 1) => pieceWav(Float32Array.from({ length: Math.round(sec * 16000) }, (_, i) => {
+  const t = i % 4000
+  if (t >= 2880) return 0
+  const f0 = 110 + 40 * t / 2880 + 15 * (Math.floor(i / 4000) % 3)
+  let v = 0
+  for (let h = 1; h <= 8; h++) v += Math.sin(2 * Math.PI * f0 * h * i / 16000) / h
+  return 0.1 * Math.sin(Math.PI * t / 2880) * v
+}))
+
+describe('a piece with no speech (QA TC-4581): no stray word', () => {
+  test('silence: nothing is sent, no lines', async () => {
+    const r = await send(pieceWav(new Float32Array(32000)), { chatId: A.chat('alice') })
+    expect(r.status).toBe(200)
+    expect(r.body.lines).toEqual([])
+    expect(hits).toEqual([])
+    expect(leftovers()).toEqual([])
+  })
+  test('a beep heard as "Thank you." (whisper unsure there was speech): no lines', async () => {
+    reply = () => Response.json({ text: ' Thank you.', language: 'en', duration: 2, segments: [{ start: 0, end: 2, text: ' Thank you.', avg_logprob: -0.45, no_speech_prob: 0.72 }] })
+    const r = await send(piece(2))
+    expect(r.status).toBe(200)
+    expect(r.body.lines).toEqual([])
+    expect(hits).toHaveLength(1)
+  })
+  test('a beep heard as "you", with no confidence fields: still no lines (a learned line on a tone)', async () => {
+    reply = () => Response.json({ text: 'you', language: 'en', duration: 2 })
+    expect((await send(piece(2))).body.lines).toEqual([])
+  })
+  test('a person who says "Thank you": kept', async () => {
+    reply = () => Response.json({ text: ' Thank you.', language: 'en', duration: 1, segments: [{ start: 0, end: 1, text: ' Thank you.', avg_logprob: -0.15, no_speech_prob: 0.02 }] })
+    expect((await send(spoken(1))).body.lines).toEqual([{ start: 0, end: 1, text: 'Thank you.' }])
+  })
+})
 
 describe('a piece of voice input', () => {
   test('in the caller\'s chat: the WAV goes to OpenRouter as it is, the lines come back, nothing is left', async () => {

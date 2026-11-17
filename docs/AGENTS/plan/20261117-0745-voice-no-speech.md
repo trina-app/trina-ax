@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-17 07:45
 - Branch: `fix/voice-no-speech`
-- Status: in progress
+- Status: done
 - Where: `server/src/jobs/`. Why: the stray words come from the speech model on the server, so the server decides
   that a recording had no speech (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a bug fix with no new setting or API
@@ -55,4 +55,10 @@ whisper.cpp run on a beep, noise and silence.
 
 ## Result
 
-Filled in at the end.
+Built as planned in `server/src/jobs/no-speech.ts`, used by `transcribe`, `transcribeOpenRouter` and `speechPiece`.
+whisper-cli now runs with `-ojf` (token probabilities); `parseOpenRouter` drops the lines whisper's own no-speech rule
+drops (this also applies to file reads through OpenRouter, the same rule whisper.cpp applies locally). Real runs
+(whisper.cpp 1.9, generated sound and macOS `say`): before, the small model wrote "you" on silence, "(beep)" on a beep,
+letter loops on noise, and the tiny model "Thank you for watching!" / "Thanks for watching." on white noise; after, all
+of them give no text, and "Yes", "Thank you.", "네." and a quiet sentence are kept. Not tested for real: OpenRouter
+(no key on the test Mac; covered by a fake with verbose_json fields).

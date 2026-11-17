@@ -21,6 +21,7 @@ import type { SpeechMeter } from '../credentials/hosted-speech'
 import { DOWNLOAD_IDLE_MS, downloadDeadline, downloadTotalMs, type DownloadDeadline } from '../http/download-deadline'
 import { ToolError } from '../policy/errors'
 import { extOf, MAC_AUDIO_EXT, macAudioTools, macDecode, macWavPiece, macWavSeconds, type MacAudioTools } from './mac-audio'
+import { keepSpeech, silent, soundOf, UNSURE_FIRST_P, type Sound } from './no-speech'
 
 export const WHISPER_MODELS = {
   tiny: { file: 'ggml-tiny.bin', size: 77_691_713, sha256: 'be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21' },
@@ -245,13 +246,17 @@ export async function transcribe(cfg: TranscribeConfig, input: string, name: str
       let audio = path.basename(src)
       if (cfg.ffmpegBin) audio = await convertToWav(cfg.ffmpegBin, work, audio, h, loc, 0.5)
       else if (mac) audio = await macToWav(mac, work, audio, h, loc, 0.5)
+      // a recording with no sound goes to no model; whisper's words for noise or a beep are dropped (jobs/no-speech.ts)
+      const sound = soundOfFile(work, audio)
+      if (silent(sound)) return { text: '', language: null, durationSec: sound!.seconds, segments: [] }
       const label = LABELS.run[loc]
       h.progress(0.55, label)
       const t0 = Date.now()
       const r = await whisperFile(cfg, model, work, audio, { language: o.language, signal: h.signal, timeoutMs: 60 * 60_000, onProgress: (f) => h.progress(0.55 + 0.45 * f, label) })
       // this server's speed for video reads (files/media.ts recordLocalSpeed): the length of the WAV ffmpeg made
       if (audio === 'audio.wav') { try { o.onTimed?.(Date.now() - t0, Math.max(0, fs.lstatSync(path.join(work, audio)).size - 44) / 32_000) } catch { /* not timed */ } }
-      return r
+      const { sure, ...heard } = keepSpeech(r, sound, whisperUnsure(r))
+      return heard
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }, h.signal)
 }
@@ -264,12 +269,12 @@ export async function transcribe(cfg: TranscribeConfig, input: string, name: str
 export async function whisperFile(cfg: TranscribeConfig, model: string, work: string, audio: string,
   o: { language?: string; signal?: AbortSignal; timeoutMs: number; onProgress?: (fraction: number) => void; noFallback?: boolean
     /** whisper.cpp's own guess of the language and how sure it is (0-1): its log line, so -np (no prints) is left out */
-    onLanguage?: (language: string, p: number) => void }): Promise<TranscribeResult> {
+    onLanguage?: (language: string, p: number) => void }): Promise<WhisperResult> {
   if (!cfg.whisperBin) throw MISSING_WHISPER()
   const lang = o.language && /^[a-z]{2}$/.test(o.language) ? o.language : 'auto'
   const r = await runIsolated({
     cmd: cfg.whisperBin, workDir: work, readPaths: [model], gpu: true, timeoutMs: o.timeoutMs, signal: o.signal, cpuThreads: cfg.threads,
-    args: ['-m', model, '-f', audio, '-l', lang, '-oj', '-of', 'out', ...(o.onLanguage ? [] : ['-np']), '-pp', '-t', String(cfg.threads), ...(o.noFallback ? ['-nf'] : [])],
+    args: ['-m', model, '-f', audio, '-l', lang, '-oj', '-ojf', '-of', 'out', ...(o.onLanguage ? [] : ['-np']), '-pp', '-t', String(cfg.threads), ...(o.noFallback ? ['-nf'] : [])],
     onStderr: (s) => {
       const d = /auto-detected language: ([a-z]{2,3}) \(p = ([\d.]+)\)/.exec(s)
       if (d) o.onLanguage?.(d[1]!, Number(d[2]))
@@ -336,14 +341,37 @@ export const MAC_FORMAT = (x: string) => fail(`이 형식(${x || '알 수 없음
 const WHISPER_JSON_MAX = 32 * 1024 ** 2
 export const UNREADABLE = () => fail('오디오 파일을 읽을 수 없어요.', 'The audio file could not be read.', 'Berkas audio tidak dapat dibaca.', "音声ファイルを読み取れませんでした。", "No se pudo leer el archivo de audio.", "无法读取音频文件。", 'bad_request')
 
-/** whisper-cli -oj output -> TranscribeResult */
-export function parseWhisperJson(s: string): TranscribeResult {
-  const j = JSON.parse(s) as { result?: { language?: string }; transcription?: { offsets?: { from: number; to: number }; text?: string }[] }
-  const segs = (j.transcription ?? []).map((t) => ({ start: (t.offsets?.from ?? 0) / 1000, end: (t.offsets?.to ?? 0) / 1000, text: (t.text ?? '').trim() })).filter((t) => t.text && !/^\[(BLANK_AUDIO|MUSIC|음악)\]$/i.test(t.text))
+/** whisper-cli's answer, with how sure it was of its surest line's first word (token probability 0-1, from -ojf; absent
+ * without token data) */
+export type WhisperResult = TranscribeResult & { sure?: number }
+/** whisper.cpp was unsure of every line (jobs/no-speech.ts UNSURE_FIRST_P) */
+export const whisperUnsure = (r: WhisperResult): boolean => r.sure !== undefined && r.sure < UNSURE_FIRST_P
+
+/** whisper-cli -oj / -ojf output -> WhisperResult */
+export function parseWhisperJson(s: string): WhisperResult {
+  type Tok = { text?: string; p?: number }
+  const j = JSON.parse(s) as { result?: { language?: string }; transcription?: { offsets?: { from: number; to: number }; text?: string; tokens?: Tok[] }[] }
+  let sure: number | undefined
+  const segs = (j.transcription ?? []).filter((t) => (t.text ?? '').trim() && !/^\[(BLANK_AUDIO|MUSIC|음악)\]$/i.test((t.text ?? '').trim())).map((t) => {
+    // the first word: the first token with a letter (whisper's own tokens are [_BEG_], [_TT_50]; " -" can come first)
+    const first = (t.tokens ?? []).find((k) => typeof k.p === 'number' && !/^\[_/.test(k.text ?? '') && /\p{L}/u.test(k.text ?? ''))
+    if (first) sure = Math.max(sure ?? 0, first.p!)
+    return { start: (t.offsets?.from ?? 0) / 1000, end: (t.offsets?.to ?? 0) / 1000, text: (t.text ?? '').trim() }
+  })
   return {
     text: segs.map((t) => t.text).join(' ').replace(/\s+/g, ' ').trim(),
     language: j.result?.language ?? null,
     durationSec: segs.length ? segs[segs.length - 1]!.end : null,
     segments: segs,
+    ...(sure !== undefined ? { sure } : {}),
   }
+}
+
+/** voice input checks at most this much of a recording's WAV for sound (about 17 minutes) */
+const SOUND_CHECK_MAX = 32 * 1024 ** 2
+/** soundOf the server's WAV `name` in `work` (read without following a link), or null (not such a WAV, too long) */
+function soundOfFile(work: string, name: string): Sound | null {
+  if (!/\.wav$/i.test(name)) return null
+  const got = readOutput(work, name, SOUND_CHECK_MAX)
+  return got.ok ? soundOf(got.bytes) : null
 }

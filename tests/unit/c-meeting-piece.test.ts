@@ -213,6 +213,39 @@ describe('a piece on this server', () => {
     expect(fs.existsSync(f)).toBe(false)
     expect(fs.readdirSync(d.stt.workBase).length).toBe(work)
   })
+  // whisper.cpp's JSON with token probabilities (-ojf), as 1.9 writes it: " you" over digital silence (first word 0.14
+  // sure) and " Yes" from a person (0.81); a beep is written as "(beep)"
+  test.skipIf(isolation() !== 'none')('a fake whisper-cli (QA TC-4581): its unsure word on a beep, "(beep)" and silence give no lines; a sure "Yes" is kept', async () => {
+    const d = deps()
+    const bin = path.join(A.data, 'fake-whisper-ojf')
+    fs.mkdirSync(d.stt.modelDir, { recursive: true })
+    fs.writeFileSync(path.join(d.stt.modelDir, 'm.bin'), Buffer.alloc(1000))
+    d.stt.whisperBin = bin
+    const answer = (text: string, p: number) => JSON.stringify({ result: { language: 'en' }, transcription: [{ offsets: { from: 0, to: 1000 }, text: ` ${text}`, tokens: [{ text: '[_BEG_]', p: 0.9 }, { text: ` ${text}`, p }, { text: '[_TT_50]', p: 0.1 }] }] })
+    const run = async (json: string, wav: Uint8Array) => {
+      // the script also leaves a mark that it ran, next to itself
+      fs.writeFileSync(bin, `#!/bin/sh\ntouch ${JSON.stringify(bin + '.ran')} 2>/dev/null\nprintf '%s' '${json}' > out.json\n`, { mode: 0o755 })
+      fs.rmSync(bin + '.ran', { force: true })
+      const f = path.join(A.data, 'piece-ojf.wav')
+      fs.writeFileSync(f, wav)
+      return meetingPiece(d, 'alice', f, { locale: 'en' })
+    }
+    const tone = pieceWav(Float32Array.from({ length: 16000 }, (_, i) => 0.5 * Math.sin(2 * Math.PI * 1000 * i / 16000)))
+    expect((await run(answer('you', 0.14), tone)).lines).toEqual([])
+    expect((await run(answer('(beep)', 0.41), tone)).lines).toEqual([])
+    // silence never reaches whisper.cpp
+    expect((await run(answer('you', 0.14), pieceWav(new Float32Array(16000)))).lines).toEqual([])
+    expect(fs.existsSync(bin + '.ran')).toBe(false)
+    // a person: syllables of a voice with pauses
+    const spoken = pieceWav(Float32Array.from({ length: 16000 }, (_, i) => {
+      const t = i % 4000
+      if (t >= 2880) return 0
+      let v = 0
+      for (let h = 1; h <= 8; h++) v += Math.sin(2 * Math.PI * (110 + 40 * t / 2880 + 15 * (Math.floor(i / 4000) % 3)) * h * i / 16000) / h
+      return 0.1 * Math.sin(Math.PI * t / 2880) * v
+    }))
+    expect((await run(answer('Yes', 0.81), spoken)).lines).toEqual([{ start: 0, end: 1, text: 'Yes' }])
+  })
 })
 
 describe("the app's WAV", () => {

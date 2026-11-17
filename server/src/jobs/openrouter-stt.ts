@@ -15,7 +15,8 @@ import type { JobHandle } from '../services'
 import { readOutput, runIsolated, type OutputRead } from '../tools/isolate'
 import { converterInputName, convertToWav, fail, LABELS, macToWav, UNREADABLE, type TranscribeConfig } from './transcribe'
 import { MAC_AUDIO_EXT } from './mac-audio'
-import { keepLongRetry, languageCode, LONG_PIECE_SEC, longRetryLanguage, scoreSegments, type ScoredAnswer } from './speech-language'
+import { confidence, keepLongRetry, languageCode, LONG_PIECE_SEC, longRetryLanguage, scoreSegments, UNSURE_LOGPROB, type ScoredAnswer } from './speech-language'
+import { keepSpeech, NO_SPEECH_LOGPROB, NO_SPEECH_PROB, silent, soundOf, UNSURE_NO_SPEECH, type Sound } from './no-speech'
 import { meterSeconds } from '../credentials/hosted-speech'
 
 /** formats the API takes as they are (when there is no ffmpeg) */
@@ -97,27 +98,45 @@ interface OrAnswer { text?: unknown; language?: unknown; duration?: unknown; seg
 /** an OpenRouter answer: how sure whisper was of it (speech-language.ts), the request's generation id
  * (`X-Generation-Id`, for OpenRouter's own record of which provider served it) and that provider when the answer
  * names it */
-export type OpenRouterAnswer = ScoredAnswer & { generation?: string; served?: string }
+export type OpenRouterAnswer = NoSpeechAnswer & { generation?: string; served?: string }
+/** an answer with the highest no-speech probability of its lines with text (verbose_json `no_speech_prob`, from the
+ * providers that give it) */
+export type NoSpeechAnswer = ScoredAnswer & { noSpeech?: number }
+
+type OrSegment = { start?: unknown; end?: unknown; text?: unknown; avg_logprob?: unknown; no_speech_prob?: unknown }
+const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
+/** whisper's own rule for a line with no speech (jobs/no-speech.ts NO_SPEECH_PROB): whisper.cpp drops such lines
+ * itself, a provider's answer may still hold them */
+const noSpeechLine = (s: OrSegment) => (num(s?.no_speech_prob) ?? 0) > NO_SPEECH_PROB && (num(s?.avg_logprob) ?? 0) < NO_SPEECH_LOGPROB
 
 /** OpenRouter's JSON -> TranscribeResult (language, duration, segments are optional there). The language as whisper's
- * code: Groq answers "Korean" where DeepInfra answers "ko". */
-export function parseOpenRouter(j: OrAnswer, fallback: { language: string | null; durationSec: number | null }): ScoredAnswer {
-  const text = typeof j.text === 'string' ? j.text.replace(/\s+/g, ' ').trim() : ''
+ * code: Groq answers "Korean" where DeepInfra answers "ko". Lines whisper itself would call no speech are left out. */
+export function parseOpenRouter(j: OrAnswer, fallback: { language: string | null; durationSec: number | null }): NoSpeechAnswer {
+  let text = typeof j.text === 'string' ? j.text.replace(/\s+/g, ' ').trim() : ''
   const duration = typeof j.duration === 'number' && Number.isFinite(j.duration) && j.duration >= 0 ? j.duration : fallback.durationSec
-  const raw = Array.isArray(j.segments) ? j.segments as { start?: unknown; end?: unknown; text?: unknown; avg_logprob?: unknown }[] : []
+  const all = Array.isArray(j.segments) ? j.segments as OrSegment[] : []
+  const raw = all.filter((s) => !noSpeechLine(s))
   let segments = raw
     .map((s) => ({ start: typeof s?.start === 'number' ? s.start : 0, end: typeof s?.end === 'number' ? s.end : 0, text: typeof s?.text === 'string' ? s.text.trim() : '' }))
     .filter((s) => s.text)
+  if (raw.length < all.length) text = segments.map((s) => s.text).join(' ').replace(/\s+/g, ' ').trim()
   if (!segments.length && text) segments = [{ start: 0, end: duration ?? 0, text }]
   const scored = scoreSegments(raw)
+  const probs = raw.filter((s) => typeof s?.text === 'string' && s.text.trim()).map((s) => num(s.no_speech_prob)).filter((p) => p !== undefined)
   return {
     text,
     language: languageCode(j.language) ?? fallback.language,
     durationSec: duration,
     segments,
     ...(scored ? { scored } : {}),
+    ...(probs.length ? { noSpeech: Math.max(...probs) } : {}),
   }
 }
+/** whisper was unsure of an OpenRouter answer: a line likely without speech, or words it was unsure of */
+export const openRouterUnsure = (r: NoSpeechAnswer): boolean =>
+  (r.noSpeech !== undefined && r.noSpeech > UNSURE_NO_SPEECH) || (!!r.scored && confidence(r.scored) < UNSURE_LOGPROB)
+/** An answer for voice input or a meeting piece without what whisper wrote for no speech (jobs/no-speech.ts). */
+export const openRouterSpeech = <T extends NoSpeechAnswer>(r: T, sound: Sound | null): T => keepSpeech(r, sound, openRouterUnsure(r))
 /** what a voice input job gives back (nothing of how sure whisper was, or which request it was) */
 const plain = (r: TranscribeResult): TranscribeResult => ({ text: r.text, language: r.language, durationSec: r.durationSec, segments: r.segments })
 
@@ -224,6 +243,8 @@ export async function transcribeOpenRouter(cfg: TranscribeConfig, key: string, m
   const work = fs.realpathSync(fs.mkdtempSync(path.join(cfg.workBase, 'stt-')))
   try {
     let audio: OutputRead, format: string, seconds: number | null = null
+    /** soundOf ffmpeg's WAV, before it is packed as FLAC */
+    let sent: Sound | null = null
     if (cfg.ffmpegBin) {
       // the input's name keeps only a known audio / video extension (see transcribe.ts)
       const src = path.join(work, converterInputName(name))
@@ -234,6 +255,7 @@ export async function transcribeOpenRouter(cfg: TranscribeConfig, key: string, m
       audio = readOutput(work, wavName, OPENROUTER_MAX_BYTES)
       format = 'wav'
       if (audio.ok) {
+        sent = soundOf(audio.bytes)
         // 16 kHz mono 16-bit PCM: 32 000 bytes a second
         seconds = (wavData(audio.bytes)?.length ?? Math.max(0, audio.bytes.length - 44)) / 32_000
         const packed = await openRouterAudio(cfg.ffmpegBin, work, wavName, audio.bytes, { signal: h.signal, workBytes: fs.statSync(src).size + audio.bytes.length })
@@ -250,6 +272,10 @@ export async function transcribeOpenRouter(cfg: TranscribeConfig, key: string, m
     } else { audio = readOutput(path.dirname(input), path.basename(input), OPENROUTER_MAX_BYTES); format = x }
     if (!audio.ok && audio.why === 'too_large') throw TOO_LARGE()
     if (!audio.ok) throw UNREADABLE()
+    // what the WAV holds (the server's, or a 16 kHz mono one sent as it is): silence is not sent at all, and whisper's
+    // words for noise or a beep are dropped (jobs/no-speech.ts)
+    const sound = sent ?? (format === 'wav' ? soundOf(audio.bytes) : null)
+    if (silent(sound)) return { text: '', language: null, durationSec: sound!.seconds, segments: [] }
     h.progress(0.4, LABELS.run[loc])
     let r = await sendToOpenRouter(cfg, key, model, audio.bytes, format, { language: o.language, signal: h.signal, seconds, again: o.again })
     const told = !o.language && o.team && (seconds ?? r.durationSec ?? 0) >= LONG_PIECE_SEC ? longRetryLanguage(r, { team: o.team }) : undefined
@@ -260,7 +286,7 @@ export async function transcribeOpenRouter(cfg: TranscribeConfig, key: string, m
       if (again && keepLongRetry(r, again, told)) r = { ...again, language: null }
     }
     h.progress(1, LABELS.run[loc])
-    return plain(r)
+    return plain(openRouterSpeech(r, sound))
   } finally { fs.rmSync(work, { recursive: true, force: true }) }
 }
 
