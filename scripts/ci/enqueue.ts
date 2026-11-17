@@ -51,17 +51,22 @@ export type Pr = {
   isDraft: boolean
   baseRefName: string
   headRefOid: string
-  statusCheckRollup?: { name?: string; context?: string; status?: string; state?: string; conclusion?: string }[]
+  statusCheckRollup?: { name?: string; context?: string; status?: string; state?: string; conclusion?: string; startedAt?: string; completedAt?: string }[]
 }
 
 export type CheckState = 'passed' | 'running' | 'failed' | 'missing'
 
-/** the state of the required check on the head, from gh's statusCheckRollup */
+/** the state of the required check on the head, from gh's statusCheckRollup: only the latest run with that name counts
+ *  (newest startedAt, else completedAt; a run with no timestamps is the oldest), so a stale cancelled or failed run
+ *  next to a green rerun does not block */
 export function requiredCheckState(rollup: Pr['statusCheckRollup']): CheckState {
   const runs = (rollup ?? []).filter((c) => c.name === REQUIRED_CHECK)
   if (runs.length === 0) return 'missing'
-  if (runs.some((c) => c.status !== 'COMPLETED')) return 'running'
-  return runs.every((c) => c.conclusion === 'SUCCESS' || c.conclusion === 'SKIPPED') ? 'passed' : 'failed'
+  const stamp = (c: (typeof runs)[number]) => c.startedAt || c.completedAt || ''
+  let last = runs[0]!
+  for (const c of runs) if (stamp(c) > stamp(last)) last = c
+  if (last.status !== 'COMPLETED') return 'running'
+  return last.conclusion === 'SUCCESS' || last.conclusion === 'SKIPPED' ? 'passed' : 'failed'
 }
 
 /** why this PR cannot be queued, or null when it can */

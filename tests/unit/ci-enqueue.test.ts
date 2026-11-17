@@ -61,6 +61,21 @@ describe('the decision from the check state', () => {
   })
 })
 
+describe('several runs of the required check on one head: the latest counts', () => {
+  const run = (startedAt: string, status: string, conclusion?: string) => ({ name: REQUIRED_CHECK, startedAt, status, conclusion })
+  test('reruns and cancelled runs', () => {
+    expect(requiredCheckState([run('2026-11-17T01:00:00Z', 'COMPLETED', 'CANCELLED'), run('2026-11-17T02:00:00Z', 'COMPLETED', 'SUCCESS')])).toBe('passed')
+    expect(requiredCheckState([run('2026-11-17T02:00:00Z', 'COMPLETED', 'SUCCESS'), run('2026-11-17T03:00:00Z', 'IN_PROGRESS')])).toBe('running')
+    expect(requiredCheckState([run('2026-11-17T03:00:00Z', 'COMPLETED', 'SUCCESS'), run('2026-11-17T01:00:00Z', 'COMPLETED', 'FAILURE')])).toBe('passed')
+    expect(requiredCheckState([run('2026-11-17T02:00:00Z', 'COMPLETED', 'SUCCESS'), run('2026-11-17T03:00:00Z', 'COMPLETED', 'FAILURE')])).toBe('failed')
+  })
+  test('completedAt is the fallback; no timestamps is the oldest', () => {
+    const a = { name: REQUIRED_CHECK, status: 'COMPLETED', conclusion: 'FAILURE' }
+    expect(requiredCheckState([{ ...a, completedAt: '2026-11-17T01:00:00Z' }, { ...a, conclusion: 'SUCCESS', completedAt: '2026-11-17T02:00:00Z' }])).toBe('passed')
+    expect(requiredCheckState([a, { ...a, conclusion: 'SUCCESS', startedAt: '2026-11-17T02:00:00Z' }])).toBe('passed')
+  })
+})
+
 describe('the GraphQL body', () => {
   test('expectedHeadOid always, jump only with --jump', () => {
     const a = enqueueArgs('PR_node', HEAD, false)
