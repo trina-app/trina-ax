@@ -23,7 +23,7 @@ on:
         required: true
         type: string
       runner:
-        description: the hosted macOS runner (empty = the repository variable RELEASE_MAC_RUNNER, else macos-15)
+        description: the macOS runner (empty = the repository variable RELEASE_MAC_RUNNER when release.yml calls this at a v* tag, else macos-15)
         required: false
         default: ""
         type: string
@@ -50,7 +50,7 @@ on:
         required: true
         type: string
       runner:
-        description: "The hosted macOS runner; empty = RELEASE_MAC_RUNNER, else macos-15"
+        description: "The hosted macOS runner; empty = macos-15 (macos-15-intel when the arm64 pool has no capacity)"
         required: false
         default: ""
         type: string
@@ -68,14 +68,31 @@ env:
 jobs:
   build:
     name: Mac app (dmg, Developer ID, notarized)
-    # the same pool as the office zip (release.yml build-office); macos-15-intel builds the same universal app
-    runs-on: ${{ inputs.runner || vars.RELEASE_MAC_RUNNER || 'macos-15' }}
+    # the same pool as the office zip (release.yml build-office); macos-15-intel builds the same universal app.
+    # RELEASE_MAC_RUNNER (which may name the self-hosted release Mac, docs/RELEASE-CI.md 13) applies only when release.yml
+    # at a v* tag called this (github.workflow_ref is the caller's); "Run workflow" here falls back to macos-15
+    runs-on: ${{ inputs.runner || (startsWith(github.workflow_ref, 'trina-app/trina-ax/.github/workflows/release.yml@refs/tags/v') && vars.RELEASE_MAC_RUNNER) || 'macos-15' }}
     # Apple's notarization takes the most: two submissions (the app, then the dmg) took 25-35 minutes each on
     # 2026-11-15, the whole job 65-72 minutes
     timeout-minutes: 150
     env:
       VERSION: ${{ inputs.version }}
     steps:
+      # the self-hosted release Mac (docs/RELEASE-CI.md 13) takes only release.yml at a v* tag of this repository (tag
+      # push or Run workflow with the tag); its job-started hook checks the same on the host before any step
+      - name: Release Mac runner guard
+        if: runner.environment == 'self-hosted'
+        env:
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          refuse() { echo "::error::the self-hosted release Mac runs only release.yml at a v* tag of trina-app/trina-ax: $*"; exit 1; }
+          [ "$REPO" = trina-app/trina-ax ] || refuse "repository $REPO"
+          [ "$EVENT" = push ] || [ "$EVENT" = workflow_dispatch ] || refuse "event $EVENT"
+          [[ "$REF" == refs/tags/v* ]] || refuse "ref $REF"
+          [[ "$WORKFLOW_REF" == "trina-app/trina-ax/.github/workflows/release.yml@refs/tags/v"* ]] || refuse "workflow $WORKFLOW_REF"
       - name: The version
         run: |
           if ! [[ "$VERSION" =~ ^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,6}(-[0-9A-Za-z]+(\.[0-9A-Za-z]+){0,3})?$ ]]; then echo "::error::version $VERSION is not like 0.5.5 or 0.5.5-beta.1"; exit 1; fi

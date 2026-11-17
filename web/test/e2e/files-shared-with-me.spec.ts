@@ -100,7 +100,7 @@ test('the empty list: one muted line, no button; the row is there before anythin
   for (const locale of SHOTS ? (['en', 'ko'] as const) : (['en'] as const)) {
     await world(page, CASES[1], locale, { grants: false })
     await page.goto('/files?view=shared')
-    await expect(page.getByTestId('shared-files-empty')).toHaveText(DICTS[locale]['filesPanel.sharedEmpty'])
+    await expect(page.getByTestId('shared-files-empty')).toHaveText(DICTS[locale]['filesPanel.sharedEmptyFolders']) // folder sharing is on
     await expect(page.getByTestId('shared-files-more')).toHaveCount(0)
     await shots(page, `admin-${locale}-empty`)
   }
