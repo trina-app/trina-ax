@@ -76,7 +76,7 @@ describe('a member finds the team skill quote-writer in every place', () => {
       const where = await places('bob', ['bob', 'alice'])
       for (const [place, chatId] of Object.entries(where)) {
         const [byTitle, byWord, loaded] = await lookup('bob', chatId)
-        expect({ place, found: byTitle }).toEqual({ place, found: expect.stringContaining('- quote-writer: 거래처 견적서를 만들고') })
+        expect({ place, found: byTitle }).toEqual({ place, found: expect.stringContaining('- quote-writer "견적서 작성": 거래처 견적서를 만들고') })
         expect({ place, found: byTitle }).not.toEqual({ place, found: expect.stringContaining('No skill matches') })
         expect({ place, found: byWord }).toEqual({ place, found: expect.stringContaining('(skills/quote-writer/SKILL.md)') })
         expect({ place, loaded }).toEqual({ place, loaded: expect.stringContaining('QUOTE-STEPS-7c1') })
