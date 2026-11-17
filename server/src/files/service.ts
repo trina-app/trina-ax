@@ -113,6 +113,10 @@ export class TurnFiles {
   imageSources = new Map<string, { hash: string; identity: string }>()
   bytesWritten = 0
   filesWritten = new Set<string>()
+  /** PDFs and documents the AI made in this turn (make_file and the PDF tools, not files it saved from the web or a room)
+   * and the sha256 it wrote, turn-wide: a later read does not change it, so "saved over by someone since" stays
+   * visible (tools/stamp-pdf.ts madeThisTurn) */
+  madeHashes = new Map<string, string>()
   /** saves under skills/ the person confirmed on the server's card in this turn: path -> sha256 of the confirmed
    * bytes, or '*' for a produced file (skills/guard.ts) */
   skillApprovals = new Map<string, string>()

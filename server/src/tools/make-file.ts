@@ -723,6 +723,9 @@ export async function printTeamHtml(ctx: AppContext, files: TeamFiles, user: Too
  * generated media such as generate_video) and edit_hwp's changed documents. An existing file the AI read in this turn
  * gets a new version (the old bytes in its history); one it has not read, or that changed since, is kept (conflict copy).
  */
+/** tools whose output the AI made itself (tools/stamp-pdf.ts madeThisTurn) */
+const MADE_BY = new Set(['make_file', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'stamp_pdf'])
+
 /** placeProduced options. `turnBytes: false`: the file does not count against the turn's write budget
  * (maxWriteBytesPerTurn, a guard against an AI writing in a loop): save_url's downloads, which the person sized on a
  * card over 1 GB and the disk check bounds (tools/save-url.ts). `detail`: more for the file event (the source URL). */
@@ -780,6 +783,8 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
   if (counted) c.files.bytesWritten += size
   c.files.filesWritten.add(rel)
   c.files.readHashes.set(rel, sha)
+  // made by the AI here (not a copy of someone's file from the web or a room): stamp_pdf / edit_pdf may change it in place
+  if (MADE_BY.has(tool)) c.files.madeHashes.set(rel, sha); else c.files.madeHashes.delete(rel)
   // a conflict copy is told to both people and listed in the original's history (before the copy's own event)
   if (conflictOf) recordConflictCopy(ctx.db, ctx.files.events, { original: conflictOf, copy: rel, userId: c.user.id, turnId: c.turnId, size, sha256: sha, tool })
   fileEvent(ctx.db, { turnId: c.turnId, userId: c.user.id, path: rel, action, size, sha256: sha, detail: { tool, ...po.detail, ...(conflictOf ? { conflictCopyOf: conflictOf } : {}) } })
