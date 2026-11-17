@@ -192,6 +192,6 @@ describe('the skills section keeps "load before you follow" and its size (review
 
 describe('"the server" is not a word for the person (ADM-07)', () => {
   test('the plain words rule names it', () => {
-    for (const stamp of [true, false]) expect(plainWordsRule(stamp)).toContain('tool names, the server or how it works inside')
+    for (const stamp of [true, false]) expect(plainWordsRule(stamp)).toContain('tool names, a server or how it works inside')
   })
 })
