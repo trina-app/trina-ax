@@ -1,0 +1,1 @@
+- CI: the security tests (tests/security: permission matrix, realtime resume and leaks, folder sharing …) now run on every pull request inside the unit test shards. Before, they never ran in CI, and a realtime security regression stayed on dev for 11 days (QA TC-3846).
