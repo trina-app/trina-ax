@@ -170,14 +170,19 @@ Conversations in **Chats** (channels and direct messages) are pinned the same wa
 Only you see your pins. A pin goes when you leave the conversation or hide it. You can pin up to 50 conversations.
 
 The **Chats** list shows every conversation: your pins, your folders, then **Channels** (the Everyone channel first, then
-by name) and **Direct messages** (one-to-one chats and group chats together, the latest first, each with the members' faces). Conversations you hid are behind **Hidden conversations (N)**.
+by name; private channels have a lock) and **Direct messages** (one-to-one chats and group chats without a name together, the latest first, each with the members' faces). Conversations you hid are behind **Hidden conversations (N)**.
+
+The **+** beside **Channels** is **Create a channel**: pick people and give it a name, and it is a private channel that
+only they see. The **+** beside **Direct messages** is **New message**: pick one person for a direct message, or several
+for a group chat named after them (if you already have one with exactly those people, it opens). To turn a group chat
+into a private channel, choose **···** › **Turn into a private channel** and give it a name.
 
 A direct chat with someone who left the team says "<name> left the team" and has no message box. The history stays readable.
 
 ## Team chat
 
 **Chats** on the bar on the left (on a phone, the **Chats** tab) is where people talk to each other: **Channels**
-(one for everyone in the team, and one per group) and **Direct messages** (one-to-one chats and group chats). **Mentions & threads**
+(one for everyone in the team, one per group, and the private channels you are in) and **Direct messages** (one-to-one chats and group chats). **Mentions & threads**
 at the top collects the messages that name you and the threads you follow.
 
 To message one person, click their photo or name beside a message (an @mention of them, or their row in a conversation's member list, works too). A small card opens with their name and title: **Message** opens your direct message with them. On a phone the card opens from the bottom of the screen. Your own card has **Edit profile** instead. Apps, and people who are no longer in the team, have no card; a guest can message only the people in their group chat or project.
@@ -219,7 +224,7 @@ and click **✕** (or choose **Remove preview** in the message's menu).
 ### Guests
 
 Someone from outside the team, such as an agency or a client, can join a group chat or a project as a guest, and be
-in one group chat and one project at most. In a group chat open its members (the name at the top), **Add to group chat**, then **Invite a guest**; in
+in one group chat and one project at most. In a group chat open its members (the name at the top), **Add people**, then **Invite a guest**; in
 a project, **Share** at the top of its page. Say who the link is for and whether they get AI, then **Create link**. The link
 works once: send it to them yourself.
 

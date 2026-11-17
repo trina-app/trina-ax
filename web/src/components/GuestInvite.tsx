@@ -38,7 +38,7 @@ export interface InvitePlace { kind: PlaceKind; id: string; name: string; person
 
 /** The row of an "Add people" list that opens the dialog (a ListRow, face box, like the room info's 초대하기). `any`: the
  * "New conversation" list's, which picks the place first (GuestInviteChoice.tsx GuestInviteFlow). */
-export function InviteGuestRow({ place, onOpen }: { place: PlaceKind | 'any'; onOpen: () => void }) {
+export function InviteGuestRow({ place, onOpen, privateRoom = false }: { place: PlaceKind | 'any'; onOpen: () => void; privateRoom?: boolean }) {
   const t = useT()
   return (
     <ListRow
@@ -46,7 +46,8 @@ export function InviteGuestRow({ place, onOpen }: { place: PlaceKind | 'any'; on
       face
       icon={<UserRoundPlus />}
       name={<span className="text-ink">{t('guest.invite.row')}</span>}
-      meta={t(place === 'room' ? 'guest.invite.rowRoom' : place === 'project' ? 'guest.invite.rowProject' : 'guest.invite.rowAny')}
+      // `privateRoom`: the room is a private channel (a named group room), and its words say so
+      meta={t(place === 'room' ? (privateRoom ? 'guest.invite.rowRoomPrivate' : 'guest.invite.rowRoom') : place === 'project' ? 'guest.invite.rowProject' : 'guest.invite.rowAny')}
       testId="invite-guest-row"
     />
   )

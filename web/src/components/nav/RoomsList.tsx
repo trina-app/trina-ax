@@ -3,33 +3,55 @@
 // Show more").
 import clsx from 'clsx'
 import { BellOff, Loader2, Pin } from 'lucide-react'
+import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import type { Room } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { uploadingIn, useRoomUploads } from '../../store/roomUploads'
-import { pinnedRooms, roomBadge, roomCounts } from '../../lib/rooms'
+import { isPrivateChannel, pinnedRooms, roomBadge, roomCounts } from '../../lib/rooms'
 import { RoomIcon, RoomName, useRoomTitle } from '../rooms/RoomIcon'
 import { RoomMenu, useRowMenu } from '../rooms/RoomMenu'
 import { CountPill } from '../CountPill'
 import { PresenceText } from '../Presence'
-import { dragRow } from './NavFolders'
+import { dragRow, SectionAddButton } from './NavFolders'
+import { PeoplePicker } from '../rooms/PeoplePicker'
+import { useMe } from '../../store/session'
+import { isGuestMe } from '../../lib/guests'
 import { rowBox, rowName } from '../list/List'
 
-/** The kinds' sections of the 대화 list, in this order: channels (전체 and the groups' rooms), then direct messages (1:1s
- * and group chats together, as Slack lists group DMs: docs/decisions/20261116-sidebar-channels-dms.md). */
+/** The kinds' sections of the 대화 list, in this order: channels (전체, the groups' rooms and the named group rooms, which
+ * are private channels), then direct messages (1:1s and the unnamed group rooms, as Slack lists group DMs:
+ * docs/decisions/20261116-sidebar-channels-dms.md, docs/decisions/20261117-named-groups-private-channels.md). */
 export const ROOM_SECTIONS = ['team', 'dm'] as const
 export type RoomSection = (typeof ROOM_SECTIONS)[number]
 export const SECTION_WORD = { team: 'rooms.section.team', dm: 'rooms.section.dm' } as const
-const sectionOf = (kind: Room['kind']): RoomSection => (kind === 'all' || kind === 'team' ? 'team' : 'dm')
+const sectionOf = (room: Pick<Room, 'kind'> & Partial<Pick<Room, 'name'>>): RoomSection => (room.kind === 'all' || room.kind === 'team' || isPrivateChannel({ kind: room.kind, name: room.name ?? null }) ? 'team' : 'dm')
+
+/** A kind section's "+" (as Slack has it): Channels' Create a channel (a name is required: a private channel), Direct
+ * messages' New message (one person: the DM; more: their group DM). Not for a guest, who makes neither
+ * (docs/decisions/20261117-named-groups-private-channels.md). */
+export function RoomSectionAction({ section }: { section: RoomSection }) {
+  const t = useT()
+  const guest = isGuestMe(useMe())
+  const [open, setOpen] = useState(false)
+  if (guest) return null
+  const channel = section === 'team'
+  return (
+    <>
+      <SectionAddButton label={t(channel ? 'rooms.section.newChannel' : 'rooms.newChat')} onClick={() => setOpen(true)} testId={channel ? 'rooms-new-channel' : 'rooms-new-message'} />
+      <PeoplePicker open={open} onClose={() => setOpen(false)} mode={channel ? { kind: 'channel' } : { kind: 'new' }} />
+    </>
+  )
+}
 
 /** The rooms not pinned or in a folder (`rest`, by latest activity, as the store has them), by kind
  * (docs/DECISIONS.md "Conversations by kind under Show more"): in each section any pins first (the
- * most recently pinned first), then channels with 전체 first and the others by the name their row shows (`titleOf`,
- * compared in the app's language, numbers by their value), direct messages (1:1s and group chats mixed) by latest
+ * most recently pinned first), then channels with 전체 first and the others (private channels among them) by the name their row shows (`titleOf`,
+ * compared in the app's language, numbers by their value), direct messages (1:1s and unnamed group rooms mixed) by latest
  * activity. A section with no room is left out. */
-export function roomSections<R extends Pick<Room, 'id' | 'kind'> & Partial<Pick<Room, 'pinnedAt'>>>(rest: R[], titleOf: (room: R) => string, locale: string): { section: RoomSection; rooms: R[] }[] {
+export function roomSections<R extends Pick<Room, 'id' | 'kind'> & Partial<Pick<Room, 'pinnedAt' | 'name'>>>(rest: R[], titleOf: (room: R) => string, locale: string): { section: RoomSection; rooms: R[] }[] {
   return ROOM_SECTIONS.map((section) => {
-    const of = rest.filter((r) => sectionOf(r.kind) === section)
+    const of = rest.filter((r) => sectionOf(r) === section)
     const others = of.filter((r) => !r.pinnedAt)
     if (section === 'team') {
       // each name worked out once, and one collator for the sort (the order of String.localeCompare in this language,
@@ -106,7 +128,7 @@ export function RoomRow({ room, onNavigate, section }: { room: Room; onNavigate:
       >
         {({ isActive }) => (
           <>
-            {/* a group chat: its people's faces (FaceStack), ringed in the row's colour */}
+            {/* an unnamed group room: its people's faces (FaceStack), ringed in the row's colour; a named one: a lock */}
             <RoomIcon room={room} size={20} presence faces on="subtle" selected={isActive} />
             {/* a long name is cut; the whole of it on hover */}
             <span className="truncate" title={title}>
