@@ -3339,6 +3339,7 @@ export const es: Record<MessageKey, string> = {
   'integrations.deleteBodyTeam': "Nadie que usara esta conexión podrá seguir usándola. También se eliminarán la clave y los datos de inicio de sesión guardados.",
   'integrations.signIn.waiting': "Complete el inicio de sesión en la nueva ventana. Esta página se actualizará cuando termine.",
   'integrations.signIn.notFinished': "El inicio de sesión aún no ha terminado. Si cerró la ventana, vuelva a intentarlo o cancele.",
+  'integrations.signIn.domainBlocked': "Si {name} indica que su administrador ha bloqueado este dominio, un administrador de su organización de {name} debe añadir primero la dirección de este equipo a los dominios permitidos. Después, vuelva a iniciar sesión.",
   'integrations.signIn.open': "Abrir ventana de inicio de sesión",
   'integrations.signIn.done': "Sesión iniciada.",
   'integrations.signIn.failed': "No se pudo iniciar sesión. Vuelva a intentarlo.",

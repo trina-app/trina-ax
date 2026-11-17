@@ -127,3 +127,12 @@ test('in the phone app: "Connect Canva on a computer." instead of the download l
     expect(html).toContain(translate('en', 'common.close'))
   } finally { await m.unmount() }
 })
+
+test('signing in to Atlassian: the wait says what its "blocked this domain" page means; other services say nothing (QA TC-4770)', async () => {
+  const flow: SignInState = { id: ID, flowId: 'flow-1', url: 'https://auth.atlassian.com/authorize?x=1', state: 'pending', reason: null }
+  const words = translate('en', 'integrations.signIn.domainBlocked', { name: 'Atlassian' })
+  const m = await mount(<MemoryRouter><SignInPanel flow={flow} name="Atlassian" url="https://mcp.atlassian.com/v2/mcp" onRetry={noop} onCancel={noop} /></MemoryRouter>)
+  try { expect(m.html()).toContain('integration-signin-domains'); expect(m.html()).toContain(words.slice(0, 30)) } finally { await m.unmount() }
+  const notion = await mount(<MemoryRouter><SignInPanel flow={flow} name="Notion" url="https://mcp.notion.com/mcp" onRetry={noop} onCancel={noop} /></MemoryRouter>)
+  try { expect(notion.html()).not.toContain('integration-signin-domains') } finally { await notion.unmount() }
+})

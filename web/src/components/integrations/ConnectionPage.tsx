@@ -216,7 +216,7 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
         status={(flow || failing || note || alert || teamOff) ? (
           <>
             {teamOff && <Note tone="warn" testId="integration-personal-off">{t('connectors.page.personalOff')}</Note>}
-            {flow && <SignInPanel flow={flow} name={i.name} onRetry={() => void actions.signIn.start(i.id)} onCancel={actions.signIn.cancel} />}
+            {flow && <SignInPanel flow={flow} name={i.name} url={i.url} onRetry={() => void actions.signIn.start(i.id)} onCancel={actions.signIn.cancel} />}
             {trouble && !flow && <Note tone="warn" testId="integration-error">{trouble}</Note>}
             {note && <Note tone="warn" testId="integration-check-failed">{t(note.key, { reason: note.reason, date: note.date ? formatDateTime(note.date, locale) : '' })}</Note>}
             {alert}

@@ -883,6 +883,9 @@ export class Integrations {
       // a Google app whose library cannot be reached now: nothing about the connection changed (it comes back by itself)
       if (row.google_app && e instanceof CallError) return getRow(this.db, row.id) ?? row
       const s = statusOf(e)
+      // a failure of our own (not the service's answer) still reads "did not answer like a connector" below; the log
+      // says what it was (QA TC-4770: a hider too large to build failed every check, with nothing in the log)
+      if (!s && !(e instanceof McpError)) this.ctx.log.warn('connection check failed in the server', { id: row.id, err: e instanceof Error ? `${e.name}: ${e.message.slice(0, 200)}` : typeof e })
       // the row as it is now: a call during the check may have found a sign-in needed (that stays), or an error
       const now = getRow(this.db, row.id)
       if (now && now.version === row.version && now.status === 'needs_auth' && row.status !== 'needs_auth') return now
