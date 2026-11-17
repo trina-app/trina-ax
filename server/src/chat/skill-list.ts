@@ -40,6 +40,14 @@ export function shortDescription(d: string, max = SKILL_LINE_DESCRIPTION_MAX): s
   return [...t].length > max ? [...t].slice(0, max - 1).join('').trimEnd() + '…' : t
 }
 
+/** The title people see (metadata `title`, "견적서 작성"), as a list line gives it after the name: ` "견적서 작성"`, one
+ * line, double quotes made single; nothing without a title or when it is the name. The AI names a skill by it to the
+ * person (scenario SKL-04: it listed "quote-writer" to a member who knows the skill as 견적서 작성). */
+export function skillTitleText(s: Pick<Skill, 'name' | 'title'>, tag: (s: string) => string = (x) => x): string {
+  const t = s.title ? oneLine(s.title) : ''
+  return t && fold(t) !== fold(oneLine(s.name)) ? ` "${tag(t).replace(/"/g, "'")}"` : ''
+}
+
 // ---------------- usage ----------------
 
 /** How much this person used each of `paths` lately: own uses 0.5^(age/7 days) each, other people's a quarter of that.
@@ -129,7 +137,7 @@ export function buildSkillList(skills: readonly Skill[], o: { order?: readonly s
   const tag = o.tag ?? ((s: string) => s)
   const shown = listOrder(skills)
   const dup = duplicateNames(shown)
-  const head = (s: Skill) => `- ${tag(oneLine(s.name))}${dup.has(fold(s.name)) ? ` (${s.path})` : ''}${skillTag(s, tag)}`
+  const head = (s: Skill) => `- ${tag(oneLine(s.name))}${skillTitleText(s, tag)}${dup.has(fold(s.name)) ? ` (${s.path})` : ''}${skillTag(s, tag)}`
   const desc = (s: Skill) => (s.description.trim() ? ': ' + tag(shortDescription(s.description)) : '')
   const rank = new Map<string, number>()
   for (const p of o.order ?? []) if (!rank.has(p)) rank.set(p, rank.size)
@@ -219,7 +227,7 @@ export function matchSkills(skills: readonly Skill[], query: string, o: { scores
   const out: SkillMatch[] = []
   for (const s of skills) {
     const at = pathWords(s.path)
-    const name = [...skillTokens(s.name), ...skillTokens(at.own)], description = skillTokens(s.description), parents = skillTokens(at.parents)
+    const name = [...skillTokens(s.name), ...skillTokens(at.own), ...skillTokens(s.title ?? '')], description = skillTokens(s.description), parents = skillTokens(at.parents)
     let score = 0, words = 0
     for (const t of q) {
       const n = name.some((x) => tokenMatch(x, t)), d = description.some((x) => tokenMatch(x, t)), p = parents.some((x) => tokenMatch(x, t))
@@ -227,7 +235,7 @@ export function matchSkills(skills: readonly Skill[], query: string, o: { scores
       score += (n ? 3 : 0) + (d ? 1 : 0) + (p ? 1 : 0)
     }
     if (!words) continue
-    if (whole.length >= 2 && (fold(s.name).includes(whole) || fold(at.own).includes(whole))) score += 3
+    if (whole.length >= 2 && (fold(s.name).includes(whole) || fold(at.own).includes(whole) || fold(s.title ?? '').includes(whole))) score += 3
     const used = o.scores?.get(s.path) ?? 0
     if (used > 0) score += Math.min(2, Math.log2(1 + used))
     out.push({ skill: s, score, words })
@@ -252,14 +260,15 @@ export function hintSkills(skills: readonly Skill[], message: string, o: { score
 }
 
 /** Resolve the name the AI gave the skill tool: the exact name, else the exact path, else the file or folder name, else
- * the name as its list line writes it (with its path, " [personal]", " [group: …]" or " [project: …]"). Only `skills`
+ * the title people see, else the name as its list line writes it (with its title, path, " [personal]", " [group: …]" or
+ * " [project: …]"). Only `skills`
  * (the person's own list) are candidates. `ambiguous`: several skills answer to it (their paths tell them apart). */
 export function resolveSkill(skills: readonly Skill[], input: string): { skill: Skill } | { ambiguous: Skill[] } | null {
   const exact = resolveName(skills, input)
   if (exact) return exact
   // the name as its list line writes it (buildSkillList): "Weekly (skills/a/weekly.md)", "draft-mail [personal]",
   // "quote [group: Sales]"
-  const t = oneLine(input).replace(/ \[personal\]$/i, '').replace(/ \[(?:group|project): [^\]]*\]$/i, '')
+  const t = oneLine(input).replace(/ \[personal\]$/i, '').replace(/ \[(?:group|project): [^\]]*\]$/i, '').replace(/ "[^"]*"(?=$| \()/, '')
   // "name (path)" for any skill of the list, a project's path included
   const asLine = skills.filter((s) => fold(t) === fold(`${oneLine(s.name)} (${s.path})`))
   if (asLine.length === 1) return { skill: asLine[0]! }
@@ -284,7 +293,10 @@ function resolveName(skills: readonly Skill[], input: string): { skill: Skill } 
   const alias = (s: Skill) => fold(isSkillManifest(s.path) ? path.posix.basename(path.posix.dirname(s.path)) : path.posix.basename(s.path, '.md'))
   const byAlias = skills.filter((s) => alias(s) === want)
   const best = Math.min(...byAlias.map(skillTier))
-  return pick(byAlias.filter((s) => skillTier(s) === best))
+  const aliased = pick(byAlias.filter((s) => skillTier(s) === best))
+  if (aliased) return aliased
+  // the title people see ("견적서 작성"), which the AI may pass after naming the skill by it
+  return pick(skills.filter((s) => !!s.title && fold(oneLine(s.title)) === want))
 }
 
 // ---------------- what changed since the session's instructions ----------------
@@ -316,7 +328,7 @@ export function skillChangesText(c: SkillChanges | 'stale', tag: (s: string) => 
   const lines: string[] = []
   let used = 0, left = 0
   const add = (l: string) => { if (used + l.length + 1 > SKILL_CHANGES_BUDGET) { left++; return } lines.push(l); used += l.length + 1 }
-  const line = (s: Skill) => `${tag(oneLine(s.name))}${skillTag(s, tag)}${s.description.trim() ? ': ' + tag(shortDescription(s.description)) : ''}`
+  const line = (s: Skill) => `${tag(oneLine(s.name))}${skillTitleText(s, tag)}${skillTag(s, tag)}${s.description.trim() ? ': ' + tag(shortDescription(s.description)) : ''}`
   for (const s of c.added) add(`- added: ${line(s)}`)
   for (const s of c.changed) add(`- changed: ${line(s)} (load it again with the skill tool before you follow it)`)
   for (const r of c.removed) add(`- removed: ${tag(oneLine(r.name))} (no longer available: do not use it)`)
