@@ -774,6 +774,8 @@ export const SPECS: Record<string, Spec> = {
   diagnostics: { build: (c) => c.get('/api/admin/diagnostics'), scope: 'byLevel' },
   // storage use of the team disk + the plan (admin and owner; system/storage.ts)
   storage: { build: (c) => c.get('/api/admin/storage'), scope: 'byLevel' },
+  // "Ask people to clean up" (system/storage-cleanup.ts): owner and admins; the answer is only the time, never who
+  askStorageCleanup: { build: (c) => c.post('/api/admin/storage/ask-cleanup'), scope: 'byLevel', check: (r) => { if (r.status === 200 && Object.keys(JSON.parse(r.text)).join() !== 'askedAt') throw new Error('the answer says more than when') } },
   // the plan card (admin and owner) and the operator's notices (everyone signed in, filtered by role): system/managed.ts
   plan: { build: (c) => c.get('/api/admin/plan'), scope: 'byLevel' },
   managedNotices: { build: (c) => c.get('/api/managed/notices'), scope: 'byLevel' },

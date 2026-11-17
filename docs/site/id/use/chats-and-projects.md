@@ -293,6 +293,8 @@ Mulai chat dari halaman proyek, atau pindahkan chat ke dalamnya dengan **Pindahk
 
 Tekan ⌘K (Ctrl+K di Windows) atau pilih **Cari** di bawah **Tanya Trina** untuk menemukan chat, pesan di percakapan Anda, proyek, file, skill, tugas terjadwal, dan koneksi MCP. [Baca tentang pencarian dan pengaturan](settings-and-search.md).
 
+**Berkas yang Anda kirim.** Ketik "Berkas yang Anda kirim" di Pencarian, atau buka dari pemberitahuan, untuk melihat berkas yang Anda kirim di percakapan Anda, yang terbesar lebih dulu, beserta ruang yang dipakainya. Menghapus satu berkas juga menghapus pesan yang dikirim bersamanya, untuk semua orang di percakapan.
+
 ## Chat yang dihapus
 
 Menghapus chat memindahkannya ke **Riwayat terhapus**, tempat Anda bisa mengembalikannya selama 7 hari secara bawaan. Admin bisa memilih 1 sampai 365 hari.

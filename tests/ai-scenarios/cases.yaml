@@ -1342,6 +1342,18 @@ cases:
     good: Yes - explains adding an app to a room (Integrations › Apps, a webhook address) in plain words.
     checks: []
 
+- id: ROOM-09
+  title: My own files in conversations, to tidy them
+  features: [rooms.sent-files]
+  lang: en
+  context: personal
+  as: daniel
+  prompt: Our storage is almost full. Where can I see the files I sent in chats and delete the big ones?
+  expect:
+    outcome: explain
+    good: Points to Files you sent (Search › "Files you sent"), largest first; says deleting a file deletes the message it was sent with; never claims to delete anything itself.
+    checks: []
+
 # ================================================================ skills
 - id: SKL-01
   title: Change the seal path in the quote skill

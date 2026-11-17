@@ -22,8 +22,9 @@ export function storageFullText(admin: boolean, locale: Locale): string {
 
 /** After a refused file's words, in the same line of text so it wraps with them (a phone's chip has no room for a row
  * of links): "See what uses the space" for the owner and admins when the disk is full, and a hosted team's "Choose a
- * plan" (StoragePlansLink, also the owner's and admins' only). Nothing for a member or guest. */
-export function RefusalLinks({ full, plans }: { full: boolean; plans?: string }) {
+ * plan" (StoragePlansLink, also the owner's and admins' only). A member or guest (`mine`): "See the files you sent", the
+ * one thing they can do about it (pages/SentFiles.tsx). */
+export function RefusalLinks({ full, plans, mine = false }: { full: boolean; plans?: string; mine?: boolean }) {
   const t = useT()
   return (
     <>
@@ -36,6 +37,14 @@ export function RefusalLinks({ full, plans }: { full: boolean; plans?: string })
         </>
       )}
       {plans && <>{' '}<StoragePlansLink url={plans} /></>}
+      {mine && (
+        <>
+          {' '}
+          <Link to="/sent-files" className="font-medium whitespace-nowrap text-accent-text underline" data-testid="room-storage-full-mine">
+            {t('rooms.storageFullMine')}
+          </Link>
+        </>
+      )}
     </>
   )
 }

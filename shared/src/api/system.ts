@@ -244,6 +244,9 @@ export const StorageStatus = z.object({
   measuredAt: IsoTime.nullable(),
   /** the plan's disk (the hosted cloud), else null. The rest of the plan: GET /api/admin/plan */
   planDiskGiB: z.number().nullable(),
+  /** when an owner or admin last pressed "Ask people to clean up", while it is still that day in the team's time zone
+   * (the button then reads "Asked today"); null otherwise; absent from an older server. Never who was asked. */
+  cleanupAskedAt: IsoTime.nullable().optional(),
 })
 export type StorageStatus = z.infer<typeof StorageStatus>
 
@@ -308,6 +311,7 @@ export const SYSTEM = {
   connectInfo: endpoint({ method: 'GET', path: '/api/connect-info', auth: 'user', owner: 'G', response: ConnectInfo, summary: 'Office-network address and certificate fingerprint for the desktop app (pinning).' }),
   lanFailure: endpoint({ method: 'POST', path: '/api/connect-info/lan-failure', auth: 'user', owner: 'G', status: 204, body: LanFailureBody, response: empty, summary: 'The desktop app could not use the office address (shown in Diagnostics).' }),
   updateConnection: endpoint({ method: 'PUT', path: '/api/admin/connection', auth: 'owner-reauth', owner: 'G', body: UpdateConnectionBody, response: ConnectionStatus, summary: 'Change the connection mode.' }),
+  askStorageCleanup: endpoint({ method: 'POST', path: '/api/admin/storage/ask-cleanup', auth: 'admin', owner: 'G', response: z.object({ askedAt: IsoTime }), summary: 'Ask the people whose files in conversations take the most space (over 1 GB each, else over 100 MB) to delete what they no longer need: an Activity notice each. Once a day for the team (a second press that day sends nothing). The answer and the audit row never say who or how many.' }),
   storage: endpoint({ method: 'GET', path: '/api/admin/storage', auth: 'admin', owner: 'G', response: StorageStatus, summary: 'Storage use of the team disk (statfs), what uses it, the plan\'s disk when there is one.' }),
   plan: endpoint({ method: 'GET', path: '/api/admin/plan', auth: 'admin', owner: 'G', response: PlanStatus, summary: 'The plan (plan.json): limits, what the team uses of them, where to change it. null without a plan file.' }),
   managedNotices: endpoint({ method: 'GET', path: '/api/managed/notices', auth: 'user', owner: 'G', response: ManagedNotices, summary: 'The operator\'s notices (notices.json) meant for the caller\'s role, in the caller\'s language.' }),
