@@ -102,6 +102,9 @@ const RUNS_CODE = new Set([
   // Windows
   'exe', 'msi', 'msix', 'msixbundle', 'appx', 'appxbundle', 'bat', 'cmd', 'com', 'scr', 'ps1', 'psm1', 'vbs', 'vbe', 'js', 'jse',
   'wsf', 'wsh', 'hta', 'lnk', 'url', 'scf', 'reg', 'cpl', 'inf', 'pif', 'application',
+  // disk images, help files, installers' patches and shortcuts that open or run something
+  'iso', 'img', 'vhd', 'vhdx', 'chm', 'msp', 'mst', 'appref-ms', 'settingcontent-ms', 'xll', 'jnlp', 'vb', 'wsc', 'sct', 'library-ms',
+  'search-ms', 'diagcab', 'scptd',
 ])
 
 /**

@@ -45,13 +45,16 @@
   before a page starts many downloads. Electron does none of these on its own (`setSavePath` writes no
   `com.apple.quarantine`, checked with Electron 44), so the app does them:
   - **Types that run code keep the save window** (`runsCode`): on the Mac `app command tool terminal sh zsh bash pkg
-    mpkg dmg jar webloc inetloc fileloc scpt applescript workflow action`, on Windows `exe msi msix msixbundle appx
-    appxbundle bat cmd com scr ps1 psm1 vbs vbe js jse wsf wsh hta lnk url scf reg cpl inf pif application`. The last
-    extension of the cleaned name decides, in any case (`a.pdf.exe` asks, `a.exe.pdf` does not).
-  - **Every saved file gets the mark** (`markDownloaded`): `com.apple.quarantine` (`0083;<time>;Trina AX;`, through
-    `xattr` with no shell) on the Mac, a `Zone.Identifier` stream with `ZoneId=3` and the http(s) addresses (never a
-    blob or data address, no user name or password) on Windows. Gatekeeper, SmartScreen and Office's Protected View
-    then treat it as they treat a browser's download. A failure to mark is logged, not shown.
+    mpkg dmg jar webloc inetloc fileloc scpt scptd applescript workflow action`, on Windows `exe msi msix msixbundle appx
+    appxbundle bat cmd com scr ps1 psm1 vbs vbe vb js jse wsf wsh wsc sct hta lnk url scf reg cpl inf pif application
+    appref-ms settingcontent-ms library-ms search-ms msp mst chm xll jnlp diagcab`, and disk images `iso img vhd vhdx`.
+    The last extension of the cleaned name decides, in any case (`a.pdf.exe` asks, `a.exe.pdf` does not).
+  - **Every file the team page downloads gets the mark** (`markDownloaded`), whether the app saved it or the person
+    chose the place in the save window (a runnable file, the save limit, an older team server): `com.apple.quarantine`
+    (`0083;<time>;Trina AX;`, through `xattr` with no shell) on the Mac, a `Zone.Identifier` stream with `ZoneId=3` and
+    the http(s) addresses (never a blob or data address, no user name or password) on Windows. Gatekeeper, SmartScreen
+    and Office's Protected View then treat it as they treat a browser's download. A failure to mark is logged, not
+    shown. The Mac App Store build is left to its sandbox, which marks the files it writes.
   - **Three direct saves in ten seconds from one page,** then the save window again until the ten seconds pass
     (`SaveBurst`).
 
@@ -61,7 +64,9 @@
 - **A failed download:** Chromium removes the part that arrived itself, so the app deletes nothing (it could otherwise
   remove a file that is not its own). An interrupted download that cannot resume frees its name at once.
 - **Tests:** `tests/unit/e-desktop-downloads.test.ts` (names, numbering, the path stays inside, Windows paths, two at
-  once, types that run code, the save limit, the quarantine and zone text), `web/test/unit/desktop-downloads.test.ts` (the notice, the action by number, nothing without the bridge). By
-  hand in the desktop app in dev: the same file twice, both names in the folder, the notice in light and dark.
+  once, types that run code, the save limit, the quarantine and zone text, the mark on files saved through the save
+  window too), `web/test/unit/desktop-downloads.test.ts` (the notice, the action by number, nothing without the
+  bridge). By hand in the desktop app in dev: the same file twice, both names in the folder, the notice in light and
+  dark.
   `MYCEL_DESKTOP_TEST_DOWNLOADS` names a stand-in folder in an unpacked app.
 - **Version impact:** patch.

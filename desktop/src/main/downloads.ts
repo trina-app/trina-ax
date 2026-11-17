@@ -59,8 +59,11 @@ export class DirectDownloads {
   private bursts = new WeakMap<WebContents, SaveBurst>()
   private next = 1
 
-  /** `dir`: the Downloads folder, or null where the save window stays (the Mac App Store build). */
-  constructor(private o: { dir: () => string | null }) {}
+  /**
+   * `dir`: the Downloads folder, or null where the save window stays (the Mac App Store build). `mark` and `mas` stand in
+   * for markDownloaded and process.mas in a test.
+   */
+  constructor(private o: { dir: () => string | null; mark?: typeof markDownloaded; mas?: boolean }) {}
 
   /** The page shows the notice (it listens to bridge:download); until its next page load. */
   pageReady(wc: WebContents) {
@@ -73,6 +76,30 @@ export class DirectDownloads {
   /** Once for each team session. */
   attach(ses: Session) {
     ses.on('will-download', (_e, item, wc) => {
+      const url = item.getURL()
+      const referrer = wc && !wc.isDestroyed() ? wc.getURL() : ''
+      /** set below when the app saves it itself (no save window) */
+      let direct: { id: number; key: string; picked: string } | null = null
+      // every finished download is marked, the ones the person saved through the save window too (a runnable file
+      // goes that way); the Mac App Store sandbox marks its own files
+      item.once('done', async (_done, state) => {
+        if (direct) this.inFlight.delete(direct.key)
+        const outcome = downloadOutcome(state)
+        const at = item.getSavePath() || direct?.picked || ''
+        if (outcome === 'saved' && at && !(this.o.mas ?? process.mas)) await (this.o.mark ?? markDownloaded)(at, { url, referrer })
+        if (!direct || !outcome || !wc) return
+        const { id } = direct
+        if (outcome === 'saved') {
+          this.saved.set(id, at)
+          for (const old of this.saved.keys()) {
+            if (this.saved.size <= REMEMBERED) break
+            this.saved.delete(old)
+          }
+        }
+        // the saved name, "(1)" and all: the person has to know which file it is
+        if (!wc.isDestroyed()) wc.send('bridge:download', { id, name: basename(at), ok: outcome === 'saved' } satisfies DownloadDone)
+      })
+
       let dir: string | null = null
       try {
         dir = this.o.dir()
@@ -95,31 +122,12 @@ export class DirectDownloads {
       if (!burst) this.bursts.set(wc, (burst = new SaveBurst()))
       if (!burst.take()) return
       const key = path.toLowerCase()
-      const picked = path
-      const url = item.getURL()
-      const referrer = wc.getURL()
       this.inFlight.add(key)
-      item.setSavePath(picked)
-      const id = this.next++
+      item.setSavePath(path)
+      direct = { id: this.next++, key, picked: path }
       // an interrupted download that cannot go on frees its name at once (Chromium removes the part that arrived)
       item.on('updated', (_e, state) => {
         if (state === 'interrupted' && !item.canResume()) this.inFlight.delete(key)
-      })
-      item.once('done', async (_done, state) => {
-        this.inFlight.delete(key)
-        const outcome = downloadOutcome(state)
-        if (!outcome) return
-        const at = item.getSavePath() || picked
-        if (outcome === 'saved') {
-          await markDownloaded(at, { url, referrer })
-          this.saved.set(id, at)
-          for (const old of this.saved.keys()) {
-            if (this.saved.size <= REMEMBERED) break
-            this.saved.delete(old)
-          }
-        }
-        // the saved name, "(1)" and all: the person has to know which file it is
-        if (!wc.isDestroyed()) wc.send('bridge:download', { id, name: basename(at), ok: outcome === 'saved' } satisfies DownloadDone)
       })
     })
   }

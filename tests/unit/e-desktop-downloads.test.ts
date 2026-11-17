@@ -1,6 +1,6 @@
 // The desktop app saves the team page's downloads straight into Downloads (desktop/src/common/downloads.ts, QA
 // TC-4638): the name is not trusted, a file that is there is never replaced, the path stays inside the folder.
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, mock, test } from 'bun:test'
 import { posix, win32 } from 'node:path'
 import {
   DIRECT_SAVES_MAX,
@@ -116,6 +116,8 @@ describe('runsCode: these keep the save window', () => {
   test('Mac and Windows types that run code', () => {
     for (const n of ['x.app', 'run.command', 'a.tool', 'a.terminal', 'a.sh', 'a.zsh', 'a.bash', 'a.pkg', 'a.mpkg', 'a.dmg', 'a.jar', 'a.webloc', 'a.inetloc', 'a.fileloc', 'a.scpt', 'a.applescript', 'a.workflow', 'a.action'])
       expect(runsCode(n)).toBe(true)
+    for (const n of ['a.iso', 'a.img', 'a.vhd', 'a.vhdx', 'a.chm', 'a.msp', 'a.mst', 'a.appref-ms', 'a.settingcontent-ms', 'a.xll', 'a.jnlp', 'a.vb', 'a.wsc', 'a.sct', 'a.library-ms', 'a.search-ms', 'a.diagcab', 'a.scptd'])
+      expect(runsCode(n)).toBe(true)
     for (const n of ['a.exe', 'a.msi', 'a.msix', 'a.msixbundle', 'a.appx', 'a.appxbundle', 'a.bat', 'a.cmd', 'a.com', 'a.scr', 'a.ps1', 'a.psm1', 'a.vbs', 'a.vbe', 'a.js', 'a.jse', 'a.wsf', 'a.wsh', 'a.hta', 'a.lnk', 'a.url', 'a.scf', 'a.reg', 'a.cpl', 'a.inf', 'a.pif', 'a.application'])
       expect(runsCode(n)).toBe(true)
   })
@@ -175,5 +177,107 @@ describe('the downloaded-from-the-internet mark', () => {
     )
     for (const url of ['blob:https://team.example/abc', 'data:text/plain,hi', 'file:///etc/passwd', 'javascript:x', 'not a url', 'https://a.example/\r\nZoneId=0', 7])
       expect(zoneIdentifierText({ url, referrer: url })).toBe('[ZoneTransfer]\r\nZoneId=3\r\n')
+  })
+})
+
+describe('DirectDownloads: every finished download is marked, the save window\'s too', async () => {
+  mock.module('electron', () => ({ shell: { showItemInFolder: () => {}, openPath: async () => '' } }))
+  const { DirectDownloads } = await import('../../desktop/src/main/downloads')
+  const { mkdtempSync, rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+
+  type Handler = (...a: any[]) => unknown
+  function fakeItem(name: string, url = 'https://team.example/api/files/1') {
+    const on: Record<string, Handler[]> = {}
+    let savePath = ''
+    return {
+      getFilename: () => name,
+      getURL: () => url,
+      getSavePath: () => savePath,
+      setSavePath: (p: string) => { savePath = p },
+      canResume: () => false,
+      on: (ev: string, h: Handler) => { (on[ev] ??= []).push(h) },
+      once: (ev: string, h: Handler) => { (on[ev] ??= []).push(h) },
+      /** the person chose this place in the save window */
+      choose: (p: string) => { savePath = p },
+      finish: async (state: string) => { for (const h of on.done ?? []) await h({}, state) },
+    }
+  }
+  function fakePage() {
+    const sent: unknown[] = []
+    return { sent, isDestroyed: () => false, getURL: () => 'https://team.example/rooms/2', on: () => {}, send: (_ch: string, v: unknown) => sent.push(v) }
+  }
+  function setup(o: { mas?: boolean } = {}) {
+    const dir = mkdtempSync(join(tmpdir(), 'dl-mark-'))
+    const marked: { path: string; url?: string; referrer?: string }[] = []
+    const dd = new DirectDownloads({ dir: () => dir, mas: o.mas ?? false, mark: async (path, m) => { marked.push({ path, url: m?.url, referrer: m?.referrer }) } })
+    let listener: Handler = () => {}
+    dd.attach({ on: (_ev: string, h: Handler) => { listener = h } } as any)
+    return { dir, dd, marked, start: (item: ReturnType<typeof fakeItem>, wc: ReturnType<typeof fakePage>) => listener({}, item, wc), done: () => rmSync(dir, { recursive: true, force: true }) }
+  }
+
+  test('a direct save is marked once, before the notice', async () => {
+    const t = setup()
+    const wc = fakePage()
+    t.dd.pageReady(wc as any)
+    const item = fakeItem('report.pdf')
+    t.start(item, wc)
+    expect(item.getSavePath()).toBe(join(t.dir, 'report.pdf'))
+    await item.finish('completed')
+    expect(t.marked).toEqual([{ path: join(t.dir, 'report.pdf'), url: 'https://team.example/api/files/1', referrer: 'https://team.example/rooms/2' }])
+    expect(wc.sent).toEqual([{ id: 1, name: 'report.pdf', ok: true }])
+    t.done()
+  })
+  test('a runnable file goes through the save window and is marked too, with no notice', async () => {
+    const t = setup()
+    const wc = fakePage()
+    t.dd.pageReady(wc as any)
+    const item = fakeItem('setup.exe')
+    t.start(item, wc)
+    expect(item.getSavePath()).toBe('')
+    item.choose('/chosen/setup.exe')
+    await item.finish('completed')
+    expect(t.marked.map((m) => m.path)).toEqual(['/chosen/setup.exe'])
+    expect(wc.sent).toEqual([])
+    t.done()
+  })
+  test('a page that is not ready, and the fourth save in a row, are marked through the save window', async () => {
+    const t = setup()
+    const notReady = fakePage()
+    const a = fakeItem('a.pdf')
+    t.start(a, notReady)
+    a.choose('/chosen/a.pdf')
+    await a.finish('completed')
+    const wc = fakePage()
+    t.dd.pageReady(wc as any)
+    const items = ['1.pdf', '2.pdf', '3.pdf', '4.pdf'].map((n) => fakeItem(n))
+    for (const it of items) t.start(it, wc)
+    expect(items[3].getSavePath()).toBe('')
+    items[3].choose('/chosen/4.pdf')
+    for (const it of items) await it.finish('completed')
+    expect(t.marked.map((m) => m.path)).toEqual(['/chosen/a.pdf', join(t.dir, '1.pdf'), join(t.dir, '2.pdf'), join(t.dir, '3.pdf'), '/chosen/4.pdf'])
+    t.done()
+  })
+  test('cancelled or failed: nothing marked; the Mac App Store build: left to its sandbox', async () => {
+    const t = setup()
+    const wc = fakePage()
+    t.dd.pageReady(wc as any)
+    const c = fakeItem('c.pdf')
+    t.start(c, wc)
+    await c.finish('cancelled')
+    const f = fakeItem('f.pdf')
+    t.start(f, wc)
+    await f.finish('interrupted')
+    expect(t.marked).toEqual([])
+    expect(wc.sent).toEqual([{ id: 2, name: 'f.pdf', ok: false }])
+    t.done()
+    const m = setup({ mas: true })
+    const i = fakeItem('x.exe')
+    m.start(i, fakePage())
+    i.choose('/chosen/x.exe')
+    await i.finish('completed')
+    expect(m.marked).toEqual([])
+    m.done()
   })
 })
