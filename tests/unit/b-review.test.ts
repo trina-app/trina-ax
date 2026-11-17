@@ -21,6 +21,8 @@ import { Hub, MAX_SOCKETS_PER_USER } from '../../server/src/realtime/hub'
 import { MAX_POLLERS_PER_USER } from '../../server/src/realtime/browser-relay'
 import { bunConn, type ConnHooks } from '../../server/src/routes/ws'
 import { ENVIRONMENT, WRITE_ACCESS_RULE, historyBlock, memoryBlock, neutralizeTags, teamRules, timeLine } from '../../server/src/chat/prompt'
+import { turnZone } from '../../server/src/routes/chats'
+import { SCHEDULE_TIME_DESCRIPTION } from '../../server/src/tools/schedules'
 import { LocalEngines, MODEL_RE } from '../../server/src/chat/engines'
 import { stepId } from '../../server/src/chat/turn'
 import type { AppContext } from '../../server/src/context'
@@ -108,12 +110,22 @@ describe('prompt blocks', () => {
     expect(l).toContain('give it in Asia/Jakarta')
     expect(l).not.toContain('give it in Asia/Seoul')
     // no zone from the device, the same zone, or a name the runtime does not know: the team zone, as before
-    for (const z of [undefined, null, 'Asia/Seoul', 'Mars/Olympus', 'x'.repeat(80)]) {
+    // schedules run in the team zone: the AI converts the person's time ("remind me at 9" from Jakarta = 11:00 Seoul)
+    expect(l).toContain('A schedule\'s time is in Asia/Seoul: convert a time the user gives (in Asia/Jakarta) to Asia/Seoul for it')
+    // the same zone spelled another way, or an offset rather than a zone name: the team zone, no device sentence
+    for (const z of [undefined, null, 'Asia/Seoul', 'asia/seoul', '+09:00', '+07:00', 'Mars/Olympus', 'x'.repeat(80)]) {
       const t = timeLine(now, 'Asia/Seoul', z)
       expect(t).toContain('at 11:08 AM (Asia/Seoul)')
       expect(t).toContain('give it in Asia/Seoul')
       expect(t).not.toContain("device is set")
     }
+    // the request field is stored by its canonical name; offsets and unknown names are dropped
+    expect(turnZone('asia/jakarta')).toBe('Asia/Jakarta')
+    expect(turnZone('Asia/Jakarta')).toBe('Asia/Jakarta')
+    expect(turnZone('UTC')).toBe('UTC')
+    for (const z of ['+07:00', 'Mars/Olympus', '', undefined]) expect(turnZone(z)).toBeUndefined()
+    // the schedule tool's time says which zone it is in and that the person's time is converted to it
+    expect(SCHEDULE_TIME_DESCRIPTION).toContain("in the team's time zone (convert a time the user gives in their own device zone")
   })
 
   test('the instructions say the AI runs on the team server, not on the user\'s computer', () => {

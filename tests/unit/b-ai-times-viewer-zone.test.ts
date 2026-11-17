@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import { API, uuidv7 } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { updateTeamSettings } from '../../server/src/admin/settings'
+import { readRoom } from '../../server/src/rooms/reader'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -57,6 +58,12 @@ describe("TC-4549: the AI gives times in the person's zone", () => {
     const team = await send(await newChat(), fake({ tool: 'room_read', args: { room }, sayResult: true }))
     expect(team.content).toContain('2026-11-17 11:08')
     expect(team.content).toContain('Times are in Asia/Seoul')
+  })
+
+  test('a range with no messages in it names its zone too', async () => {
+    const room = await roomWithMessage()
+    const r = readRoom(h.ctx.db, 'alice', 'Asia/Jakarta', { room, since: '2026-11-17 10:00', until: '2026-11-17 12:00' })
+    expect(r.text).toContain('from 2026-11-17 10:00 before 2026-11-17 12:00 (Asia/Jakarta)')
   })
 
   test('a zone the server does not know is not refused: the team zone is used', async () => {

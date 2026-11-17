@@ -42,7 +42,16 @@ export function isValidTimeZone(tz: unknown): tz is string {
 /** The zone the AI gives times in for one turn: the person's device zone when it sent a known one (the screen shows
  * them times in it), else the team's (QA TC-4549, docs/decisions/20261117-ai-times-viewer-zone.md). */
 export function shownTimeZone(person: string | null | undefined, team: string): string {
-  return isValidTimeZone(person) ? person : team
+  return canonicalTimeZone(person) ?? team
+}
+
+/** A device's zone as this runtime names it ("asia/seoul" → "Asia/Seoul"), or null: not a zone it knows, or an offset
+ * ("+07:00", which newer runtimes accept) rather than an IANA name. */
+export function canonicalTimeZone(z: unknown): string | null {
+  if (!isValidTimeZone(z)) return null
+  let c: string
+  try { c = new Intl.DateTimeFormat('en-US', { timeZone: z }).resolvedOptions().timeZone } catch { return null }
+  return c === 'UTC' || /^[A-Za-z]+(\/[A-Za-z0-9_+-]+)+$/.test(c) ? c : null
 }
 
 /** The process's own zone (the Mac's; UTC on most Linux servers). */

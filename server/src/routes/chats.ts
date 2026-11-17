@@ -64,12 +64,13 @@ import { chatGroups, otherChats } from '../chat/chat-groups'
 import { adoptLeftoverFolders } from '../chat/members-only-once'
 import { dismissUpdateNotice, joinUpdateNoticeProjects, updateNoticeProjects } from '../chat/old-projects'
 import { askSkillsOn, recordSkillsOn, skillsUnder } from '../skills/switch-on'
-import { isValidTimeZone } from '../system/time-zone'
+import { canonicalTimeZone } from '../system/time-zone'
 
 const WINDOW_RE = /^[A-Za-z0-9_-]{8,64}$/
-/** The sender's device time zone for the turn (TurnSpec.timeZone, QA TC-4549): a name this server does not know is
- * dropped (the team's zone is used), never a refusal (an older browser's list may differ from the server's). */
-export const turnZone = (z: string | undefined) => (isValidTimeZone(z) ? z : undefined)
+/** The sender's device time zone for the turn (TurnSpec.timeZone, QA TC-4549), by its canonical IANA name: a name this
+ * server does not know, or an offset, is dropped (the team's zone is used), never a refusal (an older browser's list
+ * may differ from the server's). */
+export const turnZone = (z: string | undefined) => canonicalTimeZone(z) ?? undefined
 export const windowOf = (c: Context<AppEnv>) => { const w = c.req.header(WINDOW_HEADER); return w && WINDOW_RE.test(w) ? w : null }
 const likeEscape = (s: string) => s.replace(/[\\%_]/g, (m) => '\\' + m)
 

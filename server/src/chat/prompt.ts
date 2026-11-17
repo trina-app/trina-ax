@@ -431,7 +431,8 @@ const browserSection = (i: PromptInput) => i.guest ? '' : i.browser ? BROWSER_RU
  */
 export function timeLine(now: Date, teamZone: string, personZone?: string | null): string {
   const z = shownTimeZone(personZone, teamZone)
-  const device = z === teamZone ? '' : ` The user's device is set to ${z}, and the app shows them every time in ${z}.`
+  // a schedule runs in the team zone (tools/schedules.ts time): the AI converts the person's time to it
+  const device = z === teamZone ? '' : ` The user's device is set to ${z}, and the app shows them every time in ${z}. A schedule's time is in ${teamZone}: convert a time the user gives (in ${z}) to ${teamZone} for it, and tell the user the time in ${z}.`
   return `Now: ${localTimeText(now, z)} (${z}); ${now.toISOString()} UTC. ${teamZone} is the team time zone, read from the team settings.${device} Times in tool results are UTC unless the result names their time zone (those in ${z} are ready as they are): when you mention a time to the user, give it in ${z}.`
 }
 

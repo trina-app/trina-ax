@@ -1586,6 +1586,11 @@ cases:
       expect: { outcome: explain, good: Schedules are not made from a shared chat; says plainly where she can make it., checks: [{ type: tool_not_used, tools: [schedule_create] }] }
     - key: room
       context: room-side
+    # TC-4549 review: her device is in Jakarta, the team in Seoul. Schedules run in the team zone, so 9:00 for her is
+    # 11:00 in the schedule; she is told 9:00 (her time).
+    - key: viewer-zone
+      timeZone: Asia/Jakarta
+      expect: { outcome: do, good: "Sets the reminder for Thursday at 11:00 in the team zone (Seoul), which is 09:00 on her Jakarta device, after the card, and tells her 9 AM (her time). A schedule at 09:00 Seoul (07:00 for her) is wrong.", checks: [{ type: tool_used, any: [schedule_create] }] }
     - key: guest
       context: guest
       as: partner

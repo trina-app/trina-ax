@@ -425,7 +425,7 @@ export function searchRooms(db: Database, userId: string, tz: string, o: SearchO
   }
   hits.sort((a, b) => b.row.created_at.localeCompare(a.row.created_at) || b.row.seq - a.row.seq)
   const top = hits.slice(0, limit)
-  const what = [words.length ? `with "${attr(words.join(' '), 200)}"` : '', o.person !== undefined ? `by ${attr(o.person, 100)}` : '', since ? `from ${localTime(since, tz)}` : '', until ? `before ${localTime(until, tz)}` : ''].filter(Boolean).join(' ')
+  const what = [words.length ? `with "${attr(words.join(' '), 200)}"` : '', o.person !== undefined ? `by ${attr(o.person, 100)}` : '', since ? `from ${localTime(since, tz)}` : '', until ? `before ${localTime(until, tz)}` : '', since || until ? `(${tz})` : ''].filter(Boolean).join(' ')
   const limits = skipped || partly
     ? ` One search looks at ${ROOM_SEARCH_BUDGET} messages in all, the rooms with the latest activity first: ${skipped ? `${skipped} room${skipped === 1 ? ' was' : 's were'} not searched` : ''}${skipped && partly ? ' and ' : ''}${partly ? `${partly} only in part` : ''}; narrow the search with room (or read a room with room_read and until).`
     : ''
@@ -527,7 +527,7 @@ export function readRoom(db: Database, userId: string, tz: string, o: ReadOption
   const rootText = root ? messageText(messagesOut(db, [root], me, false)[0]!, userId, tz) : ''
   const oldest = used.at(-1)
   const what = root ? 'the first message of a thread and its replies' : 'messages'
-  const range = [since ? `from ${localTime(since, tz)}` : '', until ? `before ${localTime(until, tz)}` : ''].filter(Boolean).join(' ')
+  const range = [since ? `from ${localTime(since, tz)}` : '', until ? `before ${localTime(until, tz)}` : '', since || until ? `(${tz})` : ''].filter(Boolean).join(' ')
   const head = used.length
     ? `${root ? `A thread in ${theRoom(room.kind, attr(title, 120))}` : TheRoom(room.kind, attr(title, 120))} (${memberLine(db, room.id, userId, o.memberIds, tz)}). The ${used.length} newest ${what === 'messages' ? 'messages' : 'replies'} the user can see${range ? ` ${range}` : ''}, oldest first. Times are in ${tz}.`
     : `${root ? `A thread in ${theRoom(room.kind, attr(title, 120))}` : TheRoom(room.kind, attr(title, 120))} (${memberLine(db, room.id, userId, o.memberIds, tz)}): no ${root ? 'replies' : 'messages'} the user can see${range ? ` ${range}` : ''}.`
