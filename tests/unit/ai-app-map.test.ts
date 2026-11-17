@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { MEETINGS_LABEL, PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
-import { APP_MAP_KEYS, APP_MAP_PLACES, appLabel, appMapSection, appMapView, type AppMapInput } from '../../server/src/chat/app-map'
+import { APP_MAP_KEYS, APP_MAP_PLACES, appLabel, appMapSection, appMapView, DEV_ENV_WORDS, type AppMapInput } from '../../server/src/chat/app-map'
 import { APP_MAP_LABELS } from '../../server/src/chat/app-map-labels'
 import { SHARED_PROMPT_SECTIONS } from '../../server/src/chat/prompt'
 import { appMapLabelsText, LABELS_FILE } from '../../scripts/app-map-labels'
@@ -132,12 +132,14 @@ describe('who gets which map', () => {
     expect(managed).not.toContain("Guest AI: not on")
     const dev = appMapSection({ ...base, devEnv: true }, 'ko')
     expect(dev).toContain(DICTS.ko['devEnv.title'])
-    // without it: the setting is named, only on a server set up for it, never "does not exist" (PRJ-05, ADM-07)
+    // without it: the setting is named, not on this team's app, never "does not exist" (PRJ-05, ADM-07), in everyday
+    // words: no "server", no "programs" (ADM-07.member, 2026-11-17)
     expect(managed).not.toContain("doesn't have it")
-    expect(managed).toContain(`${DICTS.ko['devEnv.title']} (the AI runs programs): only on a server set up for it, not this one`)
+    expect(managed).toContain(`${DICTS.ko['devEnv.title']} (${DEV_ENV_WORDS}): not on this team's`)
     const memberNoDev = appMapSection({ ...base, view: 'member' }, 'ko')
     expect(memberNoDev).not.toContain("doesn't have it")
-    expect(memberNoDev).toContain(`${DICTS.ko['devEnv.title']} (the AI runs programs; only on a server set up for it, not this one)`)
+    expect(memberNoDev).toContain(`${DICTS.ko['devEnv.title']} (${DEV_ENV_WORDS}; not on this team's`)
+    for (const s of [managed, memberNoDev, dev, appMapSection({ ...base, view: 'member', devEnv: true }, 'ko')]) expect(s).not.toMatch(/\bserver\b|\bprograms?\b/)
     // System's updates: an admin's too only on an office Mac (web systemGroups.ts `office`)
     expect(managed).toContain(`owner also ${DICTS.ko['system.updates']}`)
     expect(appMapSection({ ...base, office: true }, 'ko')).not.toContain(`owner also ${DICTS.ko['system.updates']}`)
@@ -203,11 +205,22 @@ describe('five places with no line before (catalog rerun 2026-11-17: ACC-04/05/0
       for (const w of want) expect({ view, L, w, there: s.includes(w) }).toEqual({ view, L, w, there: true })
     }
   })
+  test('sharing a chat: Share at the top right of the chat, in every form and language (CHT-04.how, 2026-11-17)', () => {
+    for (const view of ['staff', 'member', 'shared'] as const) for (const L of ['ko', 'en', 'ja', 'zh', 'es', 'id'] as const) {
+      const s = appMapSection({ ...base, view }, L)
+      expect({ view, L, there: s.includes(`top right ${DICTS[L]['projects.share']}: with people or groups`) }).toEqual({ view, L, there: true })
+    }
+    // the button is the chat header's (pages/Chat.tsx HeaderShare, labelled projects.share)
+    expect(fs.readFileSync(path.resolve(import.meta.dir, '../../web/src/components/HeaderShare.tsx'), 'utf8')).toContain("t('projects.share')")
+    expect(fs.readFileSync(path.resolve(import.meta.dir, '../../web/src/pages/Chat.tsx'), 'utf8')).toContain('<HeaderShare')
+  })
   test('what each one does, as the decisions say', () => {
     const s = appMapSection({ ...base, view: 'member' }, 'en')
-    // chat-answer-threads: shared chats only, people's words the AI does not read, Send to fills the box
+    // chat-answer-threads: shared chats only, Send to fills the box; the AI there reads it when someone asks
+    // (ai-reads-answer-comments, 2026-11-17: it no longer says the AI does not read it; CHT-16)
     expect(s).toContain("Shared chat (a project's or shared with people), under a finished answer")
-    expect(s).toContain('the AI does not read')
+    expect(s).toContain('the AI there reads it when someone asks')
+    expect(s).not.toContain('the AI does not read')
     expect(s).toContain('not in a private chat')
     // app sign-in: a Mac or Windows browser, no second password, not from a phone
     expect(s).toContain(`Mac or Windows browser ${DICTS.en['openApp.lineLink']} › ${DICTS.en['openApp.mac']} (or Windows)`)
@@ -252,12 +265,13 @@ describe('size: it is in every turn', () => {
   // other text about 3.6 characters a token
   const tokens = (s: string) => { const h = (s.match(/[가-힣]/g) ?? []).length; return Math.round(h * 1.45 + (s.length - h) / 3.6) }
   // the cap was 900; 1,200 since the five places of 2026-11-17 (docs/decisions/20261117-ai-app-map-five-places.md: the
-  // longest form, an owner's or admin's in Korean, measured about 1,189 after the other lines were cut)
-  test('at most 20 lines and about 1,200 tokens in its longest form, in every language', () => {
+  // longest form, an owner's or admin's in Korean, measured about 1,189 after the other lines were cut); 1,250 since
+  // where a chat is shared (docs/decisions/20261117-ai-facts-and-gaps.md: about 1,226)
+  test('at most 20 lines and about 1,250 tokens in its longest form, in every language', () => {
     for (const view of ['staff', 'member', 'shared'] as const) for (const L of ['ko', 'en', 'ja', 'zh', 'es', 'id'] as const) for (const devEnv of [true, false]) {
       const s = appMapSection({ view, managed: true, devEnv, office: false }, L)
       expect({ view, L, devEnv, lines: s.split('\n').length <= 20 }).toEqual({ view, L, devEnv, lines: true })
-      expect({ view, L, devEnv, small: tokens(s) <= 1200 }).toEqual({ view, L, devEnv, small: true })
+      expect({ view, L, devEnv, small: tokens(s) <= 1250 }).toEqual({ view, L, devEnv, small: true })
     }
   })
 })

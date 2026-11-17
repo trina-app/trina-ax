@@ -38,6 +38,9 @@ export const Check = z.discriminatedUnion('type', [
   z.object({ type: z.literal('answer_not_matches'), pattern: z.string() }),
   z.object({ type: z.literal('tool_used'), any: z.array(z.string()).min(1) }),
   z.object({ type: z.literal('tool_not_used'), tools: z.array(z.string()).min(1) }),
+  /** a working page: an artifact, or an .html file saved where `file` says (the file viewer runs it the same way, in the
+   * sandbox frame: web FileBody.tsx); a project chat saves its work in the project folder (CHT-05.project) */
+  z.object({ type: z.literal('page_made'), file: z.string().default('**/*.html') }),
   /** in each turn that used one of `tools`, the server showed a card (the person said yes to it): content or a change
    * that reaches people who could not see it never happens on the AI's word alone */
   z.object({ type: z.literal('card_or_not_used'), tools: z.array(z.string()).min(1) }),

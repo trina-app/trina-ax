@@ -1467,10 +1467,16 @@ cases:
       as: daniel
       prompt: 회의록 정리 스킬 돌려서 라마바카페 관련 할 일만 보여줘
       expect: { outcome: do, good: Uses the meeting skill; the 라마바카페 tasks (이소라 11/13, 박민호 11/17)., checks: [{ type: answer_matches, pattern: "13" }] }
+    # 이소라's only task in the 11/10 notes is the revised quote (11/13); 소개 자료 (11/20) is 최하나's (the base case's
+    # person), so this variant needs its own expectation (2026-11-17)
     - key: room
       context: room-side
       as: sora
       prompt: 회의록 정리 스킬로 내 할 일만 보여줘
+      expect:
+        outcome: do
+        good: Uses the meeting skill on the 11/10 notes and shows 이소라's task, the revised 라마바카페 quote due 11월 13일; no task of another person shown as hers, none invented.
+        checks: [{ type: answer_matches, pattern: "13" }, { type: answer_not_matches, pattern: "소개 자료" }]
     - key: guest
       context: guest
       as: partner
@@ -1897,9 +1903,16 @@ cases:
     checks:
       - { type: tool_used, any: [artifact] }
   variants:
+    # an .html page saved in the project folder is the same working page (it opens in the sandbox frame, scripts on),
+    # and a project chat saves its work there: either is right (2026-11-17)
     - key: project
       context: project
       as: sora
+      expect:
+        outcome: do
+        good: A working page that calculates amounts from the price list, either an artifact beside the chat or an .html page saved in the project folder and linked; it says where the prices came from.
+        checks:
+          - { type: page_made, file: "projects/**/*.html" }
 
 - id: CHT-06
   title: Company intro deck
@@ -2746,7 +2759,9 @@ cases:
   prompt: Someone replied under one of your answers in this chat. Who gets told about replies there, and can you read them?
   expect:
     outcome: explain
-    good: The person who asked and everyone who has replied in that thread are told (one notice per thread, a quiet "someone replied in a thread" push); everyone who can see the chat can open the thread; the AI reads a thread only when a person sends it with Send to Trina. No names or reply texts invented.
+    # docs/decisions/20261117-ai-reads-answer-comments.md: the AI reads a thread's comments when the asker refers to them
+    # (answer_comments), not only through Send to Trina
+    good: The person who asked and everyone who has replied in that thread are told (one notice per thread, a quiet "someone replied in a thread" push); everyone who can see the chat can open the thread; the AI reads the comments under its answers in this chat when someone here asks about them, and Send to Trina also puts a thread in the message box. No names or reply texts invented.
     checks: []
 
 - id: MTG-01

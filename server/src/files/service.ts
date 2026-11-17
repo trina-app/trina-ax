@@ -9,6 +9,7 @@ import { lineDiff } from '../skills/diff'
 import { isGuestUser } from '../credentials/guest-ai'
 import { FILE_LIST_NAME, isFileListName, mediaTranscriptsOffSmall, mediaTranscriptsOn, type SpeechHost, type TranscribeResult } from '@mycel/shared/api'
 import { cp949Text, isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
+import { imageFactsLine, seeThrough } from '../uploads/image'
 import type { ServerConfig } from '../config'
 import { getTeamSettings, teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { audit } from '../admin/audit'
@@ -472,6 +473,8 @@ export class FileService {
   /** Converter seams (tests replace them): an image file -> the model's JPEG, a PDF page -> the model's JPEG. */
   modelImage(name: string, bytes: Uint8Array, signal?: AbortSignal) { return modelImage(name, bytes, this.visionTools(), signal) }
   pdfPageImage(bytes: Uint8Array, page: number, signal?: AbortSignal) { return pdfPageImage(bytes, page, this.visionTools(), signal) }
+  /** Seam (tests replace it): how see-through a picture is, by an isolated ffmpeg look (uploads/image.ts). */
+  seeThrough(bytes: Uint8Array, signal?: AbortSignal) { return seeThrough(bytes, { workBase: path.join(this.cfg.dataDir, 'work'), signal }) }
   visionTools(): VisionTools { return visionTools({ nativeBin: this.cfg.nativeBin, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr, which }) }
 
   async read(ctx: ToolCtx, a: ReadArgs): Promise<ToolOutput> {
@@ -631,6 +634,9 @@ export class FileService {
     const full = this.imageBudget(ctx, 0)
     if (full) return { text: full, summary: `read ${r.rel} -> image not shown (turn image limit)` }
     const src = this.boundSource(ctx, r, VISION_INPUT_MAX)
+    // the file's own format, size and see-through parts (uploads/image.ts): the picture below is drawn on white, and a
+    // size read off it is a guess ("about 600 x 600", AI scenario VIEW-05, 2026-11-17)
+    const see = this.seeThrough(src.bytes, ctx.signal).catch(() => null)
     let jpeg: Buffer
     try { jpeg = await this.modelImage(src.rel, src.bytes, ctx.signal) } catch (e) {
       ctx.signal?.throwIfAborted()
@@ -647,7 +653,9 @@ export class FileService {
     ctx.files.sources.note(src.rel, 'read', { agent: ctx.files.agent, sha256: src.hash })
     ctx.files.imageBytes += jpeg.length
     ctx.files.imageCount++
-    const text = `Image ${src.rel} (shown below).`
+    const facts = imageFactsLine(src.bytes, await see)
+    ctx.signal?.throwIfAborted()
+    const text = `Image ${src.rel} (shown below).${facts ? ` ${facts}` : ''}`
     return { text, content: [{ type: 'text', text }, { type: 'image', mimeType: 'image/jpeg', data: jpeg.toString('base64') }], beforeDelivery,
       summary: `read ${src.rel} -> image ${jpeg.length}B` }
   }

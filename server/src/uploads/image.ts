@@ -72,6 +72,67 @@ export function mayHaveAlpha(b: Uint8Array): boolean {
   return false
 }
 
+/** A picture's format by its first bytes (never its name), as people name it, or null. */
+export function imageFormat(b: Uint8Array): 'PNG' | 'JPEG' | 'GIF' | 'WebP' | 'HEIC' | null {
+  if (b.byteLength >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'PNG'
+  if (b.byteLength >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'JPEG'
+  if (b.byteLength >= 6 && b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) return 'GIF'
+  if (b.byteLength >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return 'WebP'
+  if (looksHeic(b)) return 'HEIC'
+  return null
+}
+
+/** How see-through a picture is: `background` (its four corners are see-through: a seal or logo on nothing), `some`
+ * (some pixels, not the corners), `none`; null when it could not be looked at. */
+export type SeeThrough = 'background' | 'some' | 'none'
+/** the side of the alpha sample: small, and its corners are the picture's corners */
+const ALPHA_SAMPLE = 32
+
+/**
+ * Whether a picture has see-through pixels, and where: a picture that cannot have them (mayHaveAlpha: JPEG, a PNG
+ * without alpha or tRNS) is `none` without a look; one that can is shrunk to 32 x 32 by an isolated ffmpeg (its alpha
+ * only, one byte a pixel, as makeThumbnail looks), and its corners decide. The AI's own picture of an image is drawn on
+ * white (mycel-safeops vision), so without this it cannot tell a transparent seal from a white one (AI scenario
+ * VIEW-05, 2026-11-17). null: no ffmpeg, a format ffmpeg could not read, or a format this does not know.
+ */
+export async function seeThrough(bytes: Uint8Array, o: { ffmpeg?: string | null; workBase?: string; signal?: AbortSignal } = {}): Promise<SeeThrough | null> {
+  const format = imageFormat(bytes)
+  // a HEIC photo can carry an alpha picture too, rarely: not looked at
+  if (!format || format === 'HEIC') return null
+  if (!mayHaveAlpha(bytes.subarray(0, 64 * 1024))) return 'none'
+  const ffmpeg = o.ffmpeg === undefined ? which('ffmpeg') : o.ffmpeg
+  if (!ffmpeg) return null
+  const work = makeWorkDir(o.workBase)
+  try {
+    const input = path.join(work, `in.${format.toLowerCase()}`)
+    fs.writeFileSync(input, bytes, { mode: 0o600 })
+    const n = ALPHA_SAMPLE
+    const r = await runIsolated({
+      cmd: ffmpeg, workDir: work, timeoutMs: 20_000, maxStdout: n * n + 1, signal: o.signal,
+      args: ['-nostdin', '-hide_banner', '-loglevel', 'error', '-i', path.basename(input), '-frames:v', '1', '-vf', `scale=${n}:${n}:flags=area,format=rgba,alphaextract`, '-f', 'rawvideo', '-pix_fmt', 'gray', 'pipe:1'],
+    })
+    const a = r.stdout
+    if (r.code !== 0 || a.length !== n * n) return null
+    // a corner counts as see-through when it is mostly so (the shrink averages the edge of a seal into it)
+    const corners = [a[0]!, a[n - 1]!, a[n * (n - 1)]!, a[n * n - 1]!]
+    if (corners.every((x) => x < 64)) return 'background'
+    return a.some((x) => x < 255) ? 'some' : 'none'
+  } finally { fs.rmSync(work, { recursive: true, force: true }) }
+}
+
+/** One line on a picture for the AI: its format, its size as shown (EXIF orientation applied) and how see-through it
+ * is, each part only when known; '' when nothing is. `L`-free: the AI says it in the person's words. */
+export function imageFactsLine(bytes: Uint8Array, see: SeeThrough | null): string {
+  const format = imageFormat(bytes)
+  const size = format === 'HEIC' ? null : displaySize(bytes)
+  const parts = [format, size ? `${size.width} × ${size.height} pixels` : null].filter(Boolean)
+  const alpha = see === 'background' ? 'see-through background (shown white in your picture of it)'
+    : see === 'some' ? 'some see-through parts, not the background (shown white in your picture of it)'
+      : see === 'none' ? 'no see-through parts' : null
+  if (alpha) parts.push(alpha)
+  return parts.length ? `Read from the file itself: ${parts.join(', ')}. Say these as facts when asked.` : ''
+}
+
 /** The first `n` bytes of a file (fewer when it is shorter). */
 export function firstBytes(p: string, n = 64 * 1024): Buffer {
   const b = Buffer.alloc(n)
