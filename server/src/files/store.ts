@@ -66,9 +66,9 @@ export function readRegular(abs: string, maxBytes = 200 * 1024 * 1024, seen?: fs
   } finally { fs.closeSync(fd) }
 }
 
-/** The first `n` bytes of a regular, singly linked file (same refusals as readRegular): a CSV's column names. */
-export function readHead(abs: string, n: number): Buffer {
-  const { fd, st } = openToRead(abs)
+/** The first `n` bytes of a regular, singly linked file (same refusals and `seen` as readRegular): a CSV's column names. */
+export function readHead(abs: string, n: number, seen?: fs.Stats): Buffer {
+  const { fd, st } = openToRead(abs, seen)
   try {
     const bytes = Buffer.alloc(Math.min(n, st.size))
     const got = bytes.length ? fs.readSync(fd, bytes, 0, bytes.length, 0) : 0

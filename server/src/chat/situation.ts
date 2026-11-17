@@ -130,7 +130,7 @@ export function situationSection(s: Situation, L: Locale): string {
     : `- Deleting their account: themselves, in ${SCREEN.deleteAccount(L)}; done ${ACCOUNT_DELETION_GRACE_DAYS} days later, cancellable until then.`)
   // earlier versions and connected folders (AI scenario SYS-04, 2026-11-17: "I don't know where the version history is")
   if (s.connectedFolders !== undefined) lines.push(`- Files: earlier versions are in ${SCREEN.fileHistory(L)}. ${s.connectedFolders
-    ? `Connected folders: the owner can mirror a folder of the computer this server runs on (a NAS or Google Drive there too) read-only${s.role === 'owner' ? ` (${SCREEN.connectedFolders(L)})` : ''}; never one of the person's own computer.`
+    ? `Connected folders: the owner can mirror a folder of the computer the team's app runs on (a NAS or Google Drive there too) read-only${s.role === 'owner' ? ` (${SCREEN.connectedFolders(L)})` : ''}; only folders of that computer, not of anyone's other computers.`
     : 'Connected folders (a computer\'s folder kept in the team folder): not on this install.'}`)
   if (s.plan) {
     const caps = [s.plan.people !== null ? `up to ${s.plan.people} active people including the owner` : '', s.plan.guests !== null ? `${s.plan.guests} guests` : ''].filter(Boolean).join(', and ')

@@ -43,7 +43,7 @@ describe('the person block', () => {
   test('SYS-04: where an earlier version comes back; connected folders as this install has them', () => {
     const on = say({ connectedFolders: true }, 'ko')
     expect(on).toContain('earlier versions are in the file\'s ⋯ › Version history on the Files screen ("파일", "버전 기록")')
-    expect(on).toContain('Connected folders: the owner can mirror a folder of the computer this server runs on (a NAS or Google Drive there too) read-only; never one of the person\'s own computer.')
+    expect(on).toContain('Connected folders: the owner can mirror a folder of the computer the team\'s app runs on (a NAS or Google Drive there too) read-only; only folders of that computer, not of anyone\'s other computers.')
     // a member is not sent to an Admin page; the owner hears where
     expect(on).not.toContain('Admin › System › Connected folders')
     expect(say({ role: 'owner', connectedFolders: true })).toContain('(Admin › System › Connected folders)')
@@ -109,12 +109,19 @@ describe('a CSV row comes with its column names', () => {
     // not a CSV, or not readable as text
     expect(withCsvHeaders('shared/a.md:3:x', ['shared/a.md'], () => 'h')).toBe('shared/a.md:3:x')
     expect(withCsvHeaders('shared/b.csv:3:x', ['shared/b.csv'], () => null)).toBe('shared/b.csv:3:x')
+    // at most 10 files' column names; the rest only counted
+    const many = Array.from({ length: 13 }, (_, i) => `m/${i}.csv`)
+    const big = withCsvHeaders(many.map((p) => `${p}:2:x`).join('\n'), many, () => 'a,b')
+    expect(big.split('\n').filter((l) => l.endsWith(':1:a,b')).length).toBe(10)
+    expect(big).toEndWith('(3 more CSV files: read line 1 for the column names)')
   })
 
   test('firstLine: UTF-8 text only, BOM and CR dropped', () => {
-    expect(firstLine(Buffer.from('﻿a,b,c\r\n1,2,3\n'))).toBe('a,b,c')
+    expect(firstLine(Buffer.from('\uFEFFa,b,c\r\n1,2,3\n'))).toBe('a,b,c')
     expect(firstLine(Buffer.from('only line'))).toBe('only line')
-    expect(firstLine(Buffer.from([0xb0, 0xa1, 0x2c, 0x0a]))).toBeNull() // legacy Korean text
+    // legacy Korean text as Excel saves it (CP949): "\uAC70\uB798\uCC98,\uB2F4\uB2F9\uC790" (column names)
+    expect(firstLine(Buffer.from('b0c5b7a1c3b32cb4e3b4e7c0da0a', 'hex'))).toBe('\uAC70\uB798\uCC98,\uB2F4\uB2F9\uC790')
+    expect(firstLine(Buffer.from([0xff, 0xfe, 0xfd, 0x0a]))).toBeNull()
     expect(firstLine(Buffer.from('\n'))).toBeNull()
   })
 })

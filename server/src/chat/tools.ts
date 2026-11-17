@@ -417,7 +417,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       const main = !caller || caller.files === exec.files
       const rooms = name === 'grep' && !isError && main && !guest && hintsHere(exec, tools.has('rooms')) ? roomHint(exec, (args as { pattern?: unknown } | null)?.pattern) : null
       // the version an edit keeps, a Hangul document that cannot be changed here (chat/file-notes.ts), once a turn
-      const fact = fileNoteOnce(exec, fileNote({ name, isError, args, text, hangulOff: () => !hwpWritingOn(exec.rt.ctx), makeFile: tools.has('make_file') }), exec.spec.locale)
+      // the main AI's own call only: a sub-agent reports to it (its Word copy would be a second one), and a guest has no
+      // Files screen with a version history
+      const fact = !main || guest ? null : fileNoteOnce(exec, fileNote({ name, isError, args, text, hangulOff: () => !hwpWritingOn(exec.rt.ctx), makeFile: tools.has('make_file') }), exec.spec.locale)
       return [placed, skillNote, rooms, fact].filter(Boolean).join('\n') || undefined
     },
     // edit_files (mcp/protocol.ts): after a room read one card for the whole batch, before its first file
