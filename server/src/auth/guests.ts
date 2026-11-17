@@ -358,17 +358,10 @@ export function placeName(db: Database, place: GuestPlace): string {
   return (db.query('SELECT name FROM projects WHERE id = ?').get(place.id) as { name: string } | null)?.name ?? ''
 }
 
-/** A group chat's other members (the first 4 by when they joined) and its size. */
-export function roomPeers(db: Database, roomId: string, exceptUserId: string): { peers: { id: string; name: string }[]; memberCount: number } {
-  const peers = db.query('SELECT u.id, u.name FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? AND m.user_id <> ? ORDER BY m.joined_at, u.name LIMIT 4').all(roomId, exceptUserId) as { id: string; name: string }[]
-  const memberCount = (db.query('SELECT COUNT(*) n FROM room_members WHERE room_id = ?').get(roomId) as { n: number }).n
-  return { peers, memberCount }
-}
-
 type PlaceOut = 'left' | 'trashed' | 'gone'
 /** Me.guest / User.guest: the guest's places with their names (an active guest: the ones they are in now; a removed
  * one: each place they were last in, with why they are out of it), and their AI; undefined for anyone else. */
-export function guestDetail(db: Database, userId: string): { places: (GuestPlace & { name: string; out?: PlaceOut; peers?: { id: string; name: string }[]; memberCount?: number })[]; ai: GuestAiChoice; placeOut?: PlaceOut; leftThemselves?: true; teamAiGone?: true; aiUsedUp?: true; aiUse?: { usedTokens: number; usedUsd: number; resetsAt: string } } | undefined {
+export function guestDetail(db: Database, userId: string): { places: (GuestPlace & { name: string; out?: PlaceOut })[]; ai: GuestAiChoice; placeOut?: PlaceOut; leftThemselves?: true; teamAiGone?: true; aiUsedUp?: true; aiUse?: { usedTokens: number; usedUsd: number; resetsAt: string } } | undefined {
   const r = guestRow(db, userId)
   if (!r) return undefined
   const ai = guestAiChoice(db, userId)
@@ -376,13 +369,7 @@ export function guestDetail(db: Database, userId: string): { places: (GuestPlace
   const slots = guestSlots(db, userId)
   const rules = slots.some((p) => p.kind === 'project') ? RuleSet.fromDb(db) : undefined
   const outs = slots.map((p) => placeOutOf(db, userId, p, rules))
-  const places = slots.map((p, i) => {
-    const name = placeName(db, p)
-    // a group chat with no name of its own (a group DM): the other members, as the team's own lists title it. Only while the
-    // guest is in it; an admin sees this on the guest's row, and the guest in it already sees these people
-    const people = p.kind === 'room' && !name && !outs[i] ? roomPeers(db, p.id, userId) : null
-    return { ...p, name, ...(off && outs[i] ? { out: outs[i]! } : {}), ...(people ?? {}) }
-  }).filter((_, i) => off || outs[i] === null)
+  const places = slots.map((p, i) => ({ ...p, name: placeName(db, p), ...(off && outs[i] ? { out: outs[i]! } : {}) })).filter((_, i) => off || outs[i] === null)
   // only for a removed guest (an active guest is in a place: the server switches off one who is in none)
   const out = off ? placeOut(db, userId, rules) : null
   // Team AI picked, but its team AI account was deleted since (guests.team_credential_id is set NULL with it): No AI in
