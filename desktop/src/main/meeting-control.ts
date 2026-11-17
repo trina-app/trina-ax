@@ -7,7 +7,10 @@
 // The page gets state and lines (bridge:meeting-state / bridge:meeting-lines), never sound.
 import fs from 'node:fs'
 import path from 'node:path'
-import { dialog, Menu, nativeImage, shell, Tray, type BaseWindow, type Session } from 'electron'
+// Electron's dialog, menu bar item and shell are required when used (the unit tests run this file without Electron;
+// the bundle keeps electron external, so this is the same require the other main files make)
+import type { BaseWindow, Session, Tray } from 'electron'
+const electron = (): typeof import('electron') => require('electron')
 import { PRODUCT, type DesktopMeetingLine, type DesktopMeetingState } from '@mycel/shared'
 import { t, type UiLocale } from '../common/i18n'
 import { meetingHelperPath, MeetingRun } from './meeting'
@@ -190,7 +193,7 @@ export class MeetingControl {
     if (track === 'others' && this.s.problem === 'no_call_sound') this.set({ problem: undefined })
   }
 
-  openSoundSettings() { void shell.openExternal(MAC_SOUND_SETTINGS) }
+  openSoundSettings() { void electron().shell.openExternal(MAC_SOUND_SETTINGS) }
 
   private set(p: Partial<DesktopMeetingState>) {
     this.s = { ...this.s, ...p }
@@ -199,6 +202,7 @@ export class MeetingControl {
   }
 
   private async askDialog(): Promise<boolean> {
+    const { dialog } = electron()
     const L = this.d.locale()
     const w = this.d.win()
     const opts = {
@@ -217,8 +221,13 @@ export class MeetingControl {
 
   private showTray() {
     if (this.d.tray === false || this.tray) return
+    this.drawTray(electron())
+  }
+
+  private drawTray({ Menu, nativeImage, Tray: TrayClass }: typeof import('electron')) {
+    if (this.tray || !this.run) return
     const L = this.d.locale()
-    this.tray = new Tray(nativeImage.createEmpty())
+    this.tray = new TrayClass(nativeImage.createEmpty())
     this.tray.setToolTip(t(L, 'meeting.tray'))
     this.tray.setContextMenu(Menu.buildFromTemplate([
       { label: t(L, 'meeting.tray'), enabled: false },
