@@ -481,6 +481,8 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   }
   const newChat = () => {
     if (busy) return
+    // a recording was for the chat shown: it goes with it (its words are not put back into the new chat's box)
+    voice.abandon()
     setHistory(null)
     setChatId(null)
     setDraft('')
@@ -512,6 +514,8 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
     setHistory(null)
     setLimit(null)
     if (id === chatId) return
+    // a recording names the chat shown: it does not go on into another one
+    voice.abandon()
     stick.current = true
     try {
       await useChats.getState().loadThread(id)

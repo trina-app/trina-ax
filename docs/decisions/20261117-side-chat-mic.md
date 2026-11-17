@@ -26,9 +26,14 @@
   side chat passes it. Guests as before: speech to text is off their endpoint list, so a guest's recording is refused.
 - **One recording at a time:** the room's box, a thread's box and the side chat's box share the one microphone
   (`useVoiceInput`'s owner): while one records, the others' mics wait.
-- **Left out:** the mic still shows for a guest and their recording is refused, as in a room's box today (a separate
-  finding, not changed here). The phone's side chat keeps its two-row box (not the room's one-line box).
+- **Another chat:** "New chat" or a chat opened from 🕘 while recording throws the recording away (it was for the chat
+  shown), without putting words back into the other chat's box. The first question or file making the side chat does
+  not.
+- **Left out:** in the file viewer's column Esc is the viewer's (it is a dialog), as for a thread's box there: ✕ on the
+  bar cancels a recording. The mic still shows for a guest and their recording is refused, as in a room's box today (a
+  separate finding, QA TC-4575, not changed here). The phone's side chat keeps its two-row box (not the room's one-line
+  box).
 - **Tests:** `web/test/unit/side-chat.test.tsx` (the mic before send; none with voice input off),
-  `web/test/e2e/voice.spec.ts` "rooms" (a click, Space held, Esc, the chat named, the box's size while recording, the
+  `web/test/e2e/voice.spec.ts` "rooms" (a click, Space held, Esc, "New chat" while recording, the chat named, the box's size while recording, the
   room's mic waiting, live words, the confidential note, no mic without the server's tools).
 - **Version impact:** patch.

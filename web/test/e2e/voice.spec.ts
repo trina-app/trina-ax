@@ -475,8 +475,14 @@ test.describe('rooms', () => {
     await page.keyboard.press('Escape')
     await expect(bar).toHaveCount(0)
     await expect(input).toHaveValue('받아쓴 문장입니다')
-    // the side chat is still open (Esc was the recording's)
-    await expect(side).toBeVisible()
+    // "New chat" during a recording: the recording goes with the chat it was for, and the new chat's box is empty
+    await side.getByRole('button', { name: MIC }).click()
+    await expect(bar).toBeVisible()
+    await side.getByTestId('side-chat-new').click()
+    await expect(bar).toHaveCount(0)
+    await expect(input).toHaveValue('')
+    await expect(side.getByRole('button', { name: MIC })).toBeEnabled()
+    expect(await transcribeChats(page)).toEqual([null, chatId])
   })
 
   test('the ✦ side chat with voice input through OpenRouter: the words show above the bar while recording', async ({ page }) => {
