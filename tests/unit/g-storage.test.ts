@@ -291,6 +291,24 @@ describe('the monitor and the API', () => {
     fs.rmSync(path.join(sys, 'chat-files-orphans'), { recursive: true, force: true })
     fs.rmSync(path.join(sys, 'rooms-orphans'), { recursive: true, force: true })
   })
+  test('files sent in conversations are a line of their own, not in the team files; Other does not grow', async () => {
+    const sys = path.join(h.ctx.config.teamRoot, '.system')
+    await getOps(h.ctx)!.storage.measure()
+    const before = (await owner.call('GET', '/api/admin/storage')).breakdown
+    expect(typeof before.rooms).toBe('number')
+    fs.mkdirSync(path.join(sys, 'rooms', 'room-secret-xyz'), { recursive: true })
+    fs.writeFileSync(path.join(sys, 'rooms', 'room-secret-xyz', 'resignation letter.pdf'), Buffer.alloc(600_000))
+    await getOps(h.ctx)!.storage.measure()
+    const after = (await owner.call('GET', '/api/admin/storage')).breakdown
+    expect(after.rooms - before.rooms).toBeGreaterThanOrEqual(600_000)
+    expect(after.team - before.team).toBeLessThan(600_000)
+    expect(after.other).toBeLessThanOrEqual(before.other)
+    // one number: no names, conversations or people in the answer
+    const answer = JSON.stringify(await owner.call('GET', '/api/admin/storage'))
+    expect(answer).not.toContain('room-secret-xyz')
+    expect(answer).not.toContain('resignation')
+    fs.rmSync(path.join(sys, 'rooms', 'room-secret-xyz'), { recursive: true, force: true })
+  })
   test('from 80%: the owner and admins are told once per 24 h (audited)', () => {
     const ops = getOps(h.ctx)!
     expect(ops.storage.checkAlert()).toBe(false)
