@@ -147,7 +147,7 @@ export const StampPdfInput = z.strictObject({
   ]).optional().describe('Where on the page: a corner or "center", or { x_mm, y_mm } from the top-left corner of the page as it is shown (default "bottom-right")'),
   width_mm: z.number().min(3).max(1000).optional().describe('The image\'s width on the page in mm (default 30); its height follows the image\'s shape'),
   margin_mm: z.number().min(0).max(200).optional().describe('For a corner or the centre: the space to the page edges in mm (default 15)'),
-  output: optRelPath.describe('Where to save the new PDF (default: "<name> (stamped).pdf" next to the original). An existing file is never overwritten unless you read it in this turn'),
+  output: optRelPath.describe('Where to save the new PDF (default: "<name> (stamped).pdf" next to the original; a PDF you made in this turn gets the image on itself). An existing file is never overwritten unless you read it in this turn'),
 })
 /** edit_pdf, merge_pdfs, split_pdf: page work on existing PDFs, saved as new files (server/src/tools/pdf-tools.ts,
  * server/src/files/pdf-pages.ts). Pages are written like "1,3-5,last", "2-last" or "all". */
@@ -197,7 +197,7 @@ export const EditPdfOperation = z.union([
 export const EditPdfInput = z.strictObject({
   file_path: relPath.describe('The PDF to change'),
   operations: z.array(EditPdfOperation).min(1).max(30).describe('Applied in order; page numbers in each are the pages at that moment'),
-  output: optRelPath.describe('Where to save the new PDF (default: "<name> (edited).pdf" next to the original)'),
+  output: optRelPath.describe('Where to save the new PDF (default: "<name> (edited).pdf" next to the original; a PDF you made in this turn is changed in place)'),
   replace: z.boolean().optional().describe('true only when the user explicitly asks to replace the original (read it in this turn first; its old version stays in its history)'),
 })
 export const MergePdfsInput = z.strictObject({

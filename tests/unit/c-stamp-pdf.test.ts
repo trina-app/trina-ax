@@ -267,6 +267,51 @@ describe('the folder rules', () => {
   })
 })
 
+describe('a PDF the AI made in this turn (FL-08: the quote made in the team folder is stamped there)', () => {
+  test('without output the seal goes onto that file: one file in the team folder, the unstamped version in its history', async () => {
+    put('groups/marketing/quotes/form-fresh.pdf', bluePdf(2))
+    const call = turn('alice')
+    // the AI makes the quote PDF where the team keeps quotes (edit_pdf here: a new PDF made in this turn, as make_file)
+    const made = await call('edit_pdf', { file_path: 'groups/marketing/quotes/form-fresh.pdf', operations: [{ keep_pages: '1-2' }], output: 'groups/marketing/quotes/quote-fresh.pdf' })
+    expect(made.isError, made.text).toBe(false)
+    const rel = 'groups/marketing/quotes/quote-fresh.pdf'
+    const before = fs.readFileSync(file(rel))
+    const r = await call('stamp_pdf', { file_path: rel, image: 'groups/marketing/seal.png' })
+    expect(r.isError, r.text).toBe(false)
+    expect(r.text).toContain(`Saved a new version of ${rel} with the image on it; the previous version is in its file history.`)
+    // a wrong spot is fixed by making the PDF again, not by stamping the stamped file a second time
+    expect(r.text).toContain('make the PDF again the same way (same output) and stamp it again')
+    expect(fs.readFileSync(file(rel)).equals(before)).toBe(false)
+    // no "(stamped)" copy and no unstamped copy anywhere else
+    expect(fs.readdirSync(file('groups/marketing/quotes')).filter((n) => n.startsWith('quote-fresh'))).toEqual(['quote-fresh.pdf'])
+    expect((A.ctx.db.query('SELECT COUNT(*) AS n FROM file_versions WHERE path = ?').get(rel) as { n: number }).n).toBe(1)
+    const ev = A.ctx.db.query('SELECT action, detail FROM file_events WHERE path = ? ORDER BY id DESC LIMIT 1').get(rel) as { action: string; detail: string }
+    expect([ev.action, JSON.parse(ev.detail).tool]).toEqual(['update', 'stamp_pdf'])
+  })
+
+  test('a named output still wins; a file only read, made in an earlier turn, or saved over since is not changed', async () => {
+    put('groups/marketing/quotes/form-named.pdf', bluePdf(1))
+    const call = turn('alice')
+    await call('edit_pdf', { file_path: 'groups/marketing/quotes/form-named.pdf', operations: [{ keep_pages: '1' }], output: 'groups/marketing/quotes/quote-named.pdf' })
+    const named = await call('stamp_pdf', { file_path: 'groups/marketing/quotes/quote-named.pdf', image: 'groups/marketing/seal.png', output: 'groups/marketing/quotes/quote-named-sealed.pdf' })
+    expect(named.text).toContain('Saved groups/marketing/quotes/quote-named-sealed.pdf; groups/marketing/quotes/quote-named.pdf is unchanged.')
+    // only read in this turn: the person's file, so a copy next to it
+    put('groups/marketing/quotes/read-only-once.pdf', bluePdf(1))
+    await call('read', { file_path: 'groups/marketing/quotes/read-only-once.pdf', pages: '1' })
+    const read = await call('stamp_pdf', { file_path: 'groups/marketing/quotes/read-only-once.pdf', image: 'groups/marketing/seal.png' })
+    expect(read.text).toContain(`Saved groups/marketing/quotes/${stamped('read-only-once')}; groups/marketing/quotes/read-only-once.pdf is unchanged.`)
+    // made in an earlier turn: a copy
+    const later = await turn('alice')('stamp_pdf', { file_path: 'groups/marketing/quotes/quote-named.pdf', image: 'groups/marketing/seal.png' })
+    expect(later.text).toContain(`Saved groups/marketing/quotes/${stamped('quote-named')}; groups/marketing/quotes/quote-named.pdf is unchanged.`)
+    // made in this turn, then someone saved over it: theirs now, a copy
+    const call2 = turn('alice')
+    await call2('edit_pdf', { file_path: 'groups/marketing/quotes/form-named.pdf', operations: [{ keep_pages: '1' }], output: 'groups/marketing/quotes/quote-touched.pdf' })
+    put('groups/marketing/quotes/quote-touched.pdf', bluePdf(2))
+    const touched = await call2('stamp_pdf', { file_path: 'groups/marketing/quotes/quote-touched.pdf', image: 'groups/marketing/seal.png' })
+    expect(touched.text).toContain(`Saved groups/marketing/quotes/${stamped('quote-touched')}; groups/marketing/quotes/quote-touched.pdf is unchanged.`)
+  })
+})
+
 describe('where the tool is offered', () => {
   test('a shared chat and a room may use it; its output is where it writes', () => {
     expect(SHARED_TOOLS.has('stamp_pdf')).toBe(true)
