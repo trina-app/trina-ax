@@ -115,7 +115,8 @@ import { getUser } from '../auth/users'
 import { findRoomFile, localTime } from '../rooms/reader'
 import { namedPaths, OWN_CHAT_TEAM_TOOLS, OWN_WORDS_TOOLS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_OWN_CARD_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
 import { auditOnceUse, authorsWrite, everyoneWrites, folderAudience, folderId, grantFor, grantsOn, readersOf, ruledBetween, within } from '../rooms/ai-grants'
-import { privateToMe } from '../files/share-readers'
+import { privateToMe, sharedWithAnyoneAt } from '../files/share-readers'
+import { madeInChat } from './shared-actions'
 import { wouldSeeFrom } from '../rooms/history'
 import { isOwnerOrAdmin, roomRow } from '../rooms/store'
 import { ext } from '../files/extract'
@@ -2463,7 +2464,7 @@ export class TurnExec {
         : o.send ? cover.send(o.send) : undefined
       if (c !== undefined) return c
     }
-    // the person's own chat: a new file in their own folder (or one this answer made) goes on without a card; nobody but
+    // the person's own chat: a new file in their own folder (or one this answer or this chat made) goes on without a card; nobody but
     // them reads it, and the steps and the answer's file list show it
     if (!o.noCover && this.ownFolderTarget(tool, input, o.widen)) {
       if (o.main !== false) this.coverStep(tool, 'ownFolderStep')
@@ -2502,7 +2503,7 @@ export class TurnExec {
     const details = this.roomCardDetails(tool, input, words)
     // why every change here waits for a card, and what the AI does instead (docs/DECISIONS.md "Refusals say why, who and
     // what next": a scheduled run that read a room was told "the user did not allow this" for a card nobody saw)
-    const roomWhy = () => `This chat holds ${othersSource(this, 'messages from the user\'s team chat rooms (other people\'s words that may ask for changes)')}, so every change here waits for the user\'s yes on a card for the rest of this chat (only a new file in the user\'s own folder does not). Change nothing unless the user\'s own message asks for it, and say what you would have done`
+    const roomWhy = () => `This chat holds ${othersSource(this, 'messages from the user\'s team chat rooms (other people\'s words that may ask for changes)')}, so every change here waits for the user\'s yes on a card for the rest of this chat (only a new file in the user\'s own folder, or a file this chat made there, does not). Change nothing unless the user\'s own message asks for it, and say what you would have done`
     const refuse = (end: CardEnd, more?: { also: string; names: string[] }) => refusal({
       done: end === 'declined' ? `The user did not allow this (${tool}), so nothing was changed.` : `Not done (${tool}): nothing was changed.`,
       why: cardReason(end),
@@ -2722,7 +2723,8 @@ export class TurnExec {
   /**
    * In the person's own chat after a room read: the file in their own folder a call makes, when it needs no card, else
    * null (docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기"). write, make_file or edit_hwp making a new file, or edit, write or
-   * edit_hwp of a file this answer made (roomMadeHere); save_room_file making a new file (where its widen hook says it
+   * edit_hwp of a file this answer made (roomMadeHere) or, in the person's own chat, that this chat made where only they
+   * can open it (madeInChat + onlyMine, docs/decisions/20261117-own-folder-chat-made-no-card.md); save_room_file making a new file (where its widen hook says it
    * goes: the file's own name in a folder). The path as the file layer resolves it for the person (authorize 'write':
    * letter case, Unicode form; ".." and links refused there), inside users/<them>/, never in a hidden folder
    * (.attachments), a plugin's folder, users/<them>/skills or a project's folder, never an instruction-named file
@@ -2732,26 +2734,94 @@ export class TurnExec {
   private ownFolderTarget(tool: string, input: unknown, widen?: WidenOf): string[] | null {
     try {
       if (confidentialChat(this.rt.db, this.spec.chatId)) return null
+      // the PDF tools (QA TC-4703): every place the call may write must qualify (ownFolderPdf)
+      if (PDF_OUT_TOOLS.has(tool)) return this.ownFolderPdf(tool, input)
       const t = tool === 'save_room_file' ? (widen?.target ? { path: widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input, (src) => this.sourceRel(src))
       if (!t) return null
-      const fx = this.rt.files.fx
-      const r = authorize(fx, this.rt.files.rules(), this.livePrincipal(), t.path, 'write', { createDirs: true })
-      const segs = r.segs
-      if (segs.length < 3 || segs[0] !== 'users' || segs[1] !== this.spec.userId) return null
-      // only where nobody else reads it: a folder the person shares has its people (files/share-readers.ts)
-      if (!privateToMe(this.rt.db, this.spec.userId, segs)) return null
-      if (r.exists && (!r.st?.isFile() || !this.roomMadeHere(r.rel))) return null
-      if (!r.exists && !t.mayBeNew) return null
-      // a path an AI turn put in the trash (delete_files) is not a new file: writing it again without a card would put
-      // something the person never saw where they agreed something should go
-      if (!r.exists && componentC(this.rt.ctx).files.aiTrashed(r.rel)) return null
-      if (segs.some((x) => x.startsWith('.')) || inSkills(r.rel) || instructionLike(r.rel)) return null
-      if (fx.managed?.managerOf(segs) || fx.managed?.managerOf(segs.slice(0, -1))) return null
-      // a project's folder (a personal project): its dev environment may run a new file by its name (conftest.py, a
-      // Makefile, a package's scripts) with the person's login, so a file there still asks
-      if (this.inProjectFolder(r.rel)) return null
-      return segs
+      return this.ownFolderPlace(tool, t.path, t.mayBeNew)
     } catch { return null }
+  }
+
+  /** ownFolderTarget's test of one place a call writes (`p` as the AI gave it; `mayBeNew`: the call may make it there):
+   * the file in the person's own folder that needs no card, else null. Throws on a path the file layer refuses. */
+  private ownFolderPlace(tool: string, p: string, mayBeNew: boolean): string[] | null {
+    const fx = this.rt.files.fx
+    const r = authorize(fx, this.rt.files.rules(), this.livePrincipal(), p, 'write', { createDirs: true })
+    const segs = r.segs
+    if (segs.length < 3 || segs[0] !== 'users' || segs[1] !== this.spec.userId) return null
+    // only where nobody else reads it: a folder the person shares has its people (files/share-readers.ts)
+    if (!privateToMe(this.rt.db, this.spec.userId, segs)) return null
+    // a file this chat made, changed in a later answer (docs/decisions/20261117-own-folder-chat-made-no-card.md):
+    // only in the person's own chat (not a chat shared with others now, not a restricted turn), where nobody else can
+    // open the file in any way (onlyMine) and the server's file events say this chat made it (madeInChat)
+    // an existing file is changed only by the AI's own writing or a converter (never save_room_file: a room's bytes
+    // as they are over the person's draft; security review of this change)
+    if (r.exists && tool === 'save_room_file') return null
+    if (r.exists && (!r.st?.isFile() || !(this.roomMadeHere(r.rel) || (!this.shared && !this.restricted && this.onlyMine(segs) && madeInChat(this.rt.db, this.spec.chatId, this.spec.userId, r.rel))))) return null
+    if (!r.exists && !mayBeNew) return null
+    // a path an AI turn put in the trash (delete_files) is not a new file: writing it again without a card would put
+    // something the person never saw where they agreed something should go
+    if (!r.exists && componentC(this.rt.ctx).files.aiTrashed(r.rel)) return null
+    if (segs.some((x) => x.startsWith('.')) || inSkills(r.rel) || instructionLike(r.rel)) return null
+    if (fx.managed?.managerOf(segs) || fx.managed?.managerOf(segs.slice(0, -1))) return null
+    // a project's folder (a personal project): its dev environment may run a new file by its name (conftest.py, a
+    // Makefile, a package's scripts) with the person's login, so a file there still asks
+    if (this.inProjectFolder(r.rel)) return null
+    return segs
+  }
+
+  /**
+   * The PDF tools' places (QA TC-4703; tools/stamp-pdf.ts, tools/pdf-tools.ts), each tested as ownFolderPlace: an explicit
+   * output (".pdf" added as the tool does); edit_pdf's replace: the PDF itself; without an output a new free name the tool
+   * picks in the PDF's folder (merge_pdfs: the first file's; split_pdf: output_folder or the PDF's), tested with a name
+   * that is not there, and also the PDF itself when this answer wrote it (a PDF the AI made in this turn may be changed in
+   * place, docs/decisions/20261117-stamp-own-fresh-pdf.md). Any place that does not qualify: null (the card).
+   */
+  private ownFolderPdf(tool: string, input: unknown): string[] | null {
+    const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : null
+    if (!a) return null
+    const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null)
+    const withPdf = (o: string) => { const x = o.replace(/\/+$/, ''); return /\.pdf$/i.test(x) ? x : `${x}.pdf` }
+    const src = tool === 'merge_pdfs'
+      ? (Array.isArray(a.files) && a.files.length ? str(typeof a.files[0] === 'object' && a.files[0] ? (a.files[0] as { path?: unknown }).path : a.files[0]) : null)
+      : str(a.file_path)
+    if (!src) return null
+    const srcRel = this.sourceRel(src)
+    if (!srcRel) return null
+    const fresh = `${crypto.randomUUID()}.pdf`
+    const inDir = (dir: string) => `${dir.replace(/\/+$/, '')}/${fresh}`
+    const srcDir = srcRel.split('/').slice(0, -1).join('/')
+    const places: { p: string; mayBeNew: boolean }[] = []
+    const out = tool === 'stamp_pdf' ? stampOutputOf(a.output) : tool === 'split_pdf' ? null : (str(a.output) ? withPdf(str(a.output)!) : null)
+    if (tool === 'edit_pdf' && a.replace === true) places.push({ p: srcRel, mayBeNew: false })
+    else if (out) places.push({ p: out, mayBeNew: true })
+    else {
+      // the tool's own name keeps the PDF's: a hidden PDF gets a hidden result, which the own-folder rule never takes
+      if (srcRel.split('/').at(-1)!.startsWith('.')) return null
+      places.push({ p: inDir(tool === 'split_pdf' && str(a.output_folder) ? str(a.output_folder)! : srcDir), mayBeNew: true })
+      // without an output, stamp_pdf and edit_pdf may change a PDF this answer made in place
+      if ((tool === 'stamp_pdf' || tool === 'edit_pdf') && this.rt.db.query("SELECT 1 FROM file_events WHERE turn_id = ? AND path = ? AND action IN ('create', 'update') LIMIT 1").get(this.id, srcRel)) places.push({ p: srcRel, mayBeNew: false })
+    }
+    let first: string[] | null = null
+    for (const x of places) {
+      const segs = this.ownFolderPlace(tool, x.p, x.mayBeNew)
+      if (!segs) return null
+      first ??= segs
+    }
+    return first
+  }
+
+  /** Nobody but this person can open `segs` (actual names, inside their own folder) in any way now: no share row at it
+   * or above it that lets anyone in (a file's or a folder's, paused too: files/share-readers.ts sharedWithAnyoneAt;
+   * a bare link id with nobody on it lets nobody in), and
+   * no folder rule lets anyone else read it (rooms/ai-grants.ts readersOf: every active person the rules let read it,
+   * a folder share's people too). The real audience check, not the path alone. Fails closed. */
+  private onlyMine(segs: readonly string[]): boolean {
+    try {
+      if (segs.length < 3 || segs[0] !== 'users' || segs[1] !== this.spec.userId) return false
+      if (sharedWithAnyoneAt(this.rt.db, segs)) return false
+      return readersOf(this.rt.db, this.rt.files.rules(), segs).every((id) => id === this.spec.userId)
+    } catch { return false }
   }
 
   /** Is `rel` (actual names) a project's folder or inside one (any project, as its folder_path names it; one on the team
@@ -4321,6 +4391,9 @@ function teamSegs(p: unknown): string[] | null {
  * followed (no cover: the card). edit_hwp with an output (any string, an empty one too): the output's extension comes
  * from the document as the file layer resolves it (`source`, as tools/edit-hwp.ts does: "x.hwp/" is x.hwp), so an output
  * that lands on the document itself is seen as the existing file it is; a document that cannot be resolved: null. */
+/** the PDF tools whose output ownFolderTarget works out itself (ownFolderPdf) */
+const PDF_OUT_TOOLS = new Set(['stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf'])
+
 export function writeTargetOf(tool: string, input: unknown, source: (p: string) => string | null): { path: string; mayBeNew: boolean } | null {
   const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
   const str = (v: unknown) => (typeof v === 'string' ? v : '')

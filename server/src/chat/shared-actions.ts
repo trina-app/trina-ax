@@ -316,11 +316,50 @@ export function madeInTurn(db: Database, turnId: string, rel: string): boolean {
     if (prev && prev.action !== 'delete') return false
     if (db.query(`SELECT 1 FROM file_events p WHERE p.path = ?1 AND p.id > ?2 AND p.action <> 'rejected'
       AND NOT (p.turn_id IS NOT NULL AND p.turn_id = ?3 AND p.action IN ('create', 'update') AND ${ownWritingSql('p')}) LIMIT 1`).get(rel, made.id, turnId)) return false
-    // a folder above it moved, renamed, removed or made since: what is at the path now may be another file (a folder
-    // rename logs events at the folder's path only, never at the paths of the files inside)
-    const segs = rel.split('/')
-    const above = segs.slice(0, -1).map((_, i) => segs.slice(0, i + 1).join('/'))
-    return !above.length || !db.query(`SELECT 1 FROM file_events WHERE id > ? AND action <> 'rejected' AND path IN (${above.map(() => '?').join(',')}) LIMIT 1`).get(made.id, ...above)
+    return !folderAboveChanged(db, rel, made.id)
+  } catch { return false }
+}
+
+/** A folder above `rel` moved, renamed, removed or made after the file_events row `sinceId`: what is at the path now may
+ * be another file (a folder rename logs events at the folder's path only, never at the paths of the files inside). */
+function folderAboveChanged(db: Database, rel: string, sinceId: number): boolean {
+  const segs = rel.split('/')
+  const above = segs.slice(0, -1).map((_, i) => segs.slice(0, i + 1).join('/'))
+  return !!above.length && !!db.query(`SELECT 1 FROM file_events WHERE id > ? AND action <> 'rejected' AND path IN (${above.map(() => '?').join(',')}) LIMIT 1`).get(sinceId, ...above)
+}
+
+/** The tools whose file_events count as this chat making or changing a file itself (madeInChat): the AI's own text
+ * (write, edit, make_file) or a file it produced as asked from files it may read (make_file from a source, edit_hwp,
+ * stamp_pdf): new bytes written at that path. Never a copy, move or rename (copy_files, move_files, rename_file, the
+ * Files screen), a save from the web or a room (save_url, save_room_file), an upload, a restore or a conflict copy. */
+const CHAT_MADE_TOOLS = ['write', 'edit', 'make_file', 'edit_hwp', 'stamp_pdf'] as const
+/** detail keys that say a row put an older file, or another place's bytes as they were, at the path */
+const RELOCATED = ['copiedFrom', 'movedFrom', 'movedTo', 'conflictCopyOf', 'conflictOf', 'originalPath', 'copy', 'via', 'url', 'trashId', 'folder'] as const
+const chatWritingSql = (alias: string) => `${alias}.detail IS NOT NULL AND json_valid(${alias}.detail)
+  AND COALESCE(json_extract(${alias}.detail, '$.tool'), '') IN (${CHAT_MADE_TOOLS.map((t) => `'${t}'`).join(', ')})
+  AND ${RELOCATED.map((k) => `json_extract(${alias}.detail, '$.${k}') IS NULL`).join(' AND ')}`
+
+/**
+ * This chat made the file at `rel` (as the file layer names it), in any of the person's own answers of it, and nothing
+ * else has touched it since (docs/decisions/20261117-own-folder-chat-made-no-card.md): the newest 'create' at that path
+ * is a row of a turn of this chat by this person, written by one of CHAT_MADE_TOOLS with none of the RELOCATED keys; no
+ * live file was at the path before it (no row, or the last one removed it); every row at the path since is an 'update'
+ * by this chat's turns of this person through those tools (a person's save, an upload, a restore, a conflict, another
+ * chat, a delete: not the chat's file any more); and no folder above it changed since. Like madeInTurn, from the
+ * server's own file_events, never from what the AI says; fails closed.
+ */
+export function madeInChat(db: Database, chatId: string, userId: string, rel: string): boolean {
+  try {
+    const last = db.query("SELECT id FROM file_events WHERE path = ? AND action = 'create' ORDER BY id DESC LIMIT 1").get(rel) as { id: number } | null
+    if (!last) return false
+    const mine = `SELECT id FROM turns WHERE chat_id = ? AND user_id = ?`
+    const made = db.query(`SELECT e.id FROM file_events e WHERE e.id = ? AND e.user_id = ? AND e.turn_id IN (${mine}) AND ${chatWritingSql('e')}`).get(last.id, userId, chatId, userId) as { id: number } | null
+    if (!made) return false
+    const prev = db.query("SELECT action FROM file_events WHERE path = ? AND id < ? AND action <> 'rejected' ORDER BY id DESC LIMIT 1").get(rel, made.id) as { action: string } | null
+    if (prev && prev.action !== 'delete') return false
+    if (db.query(`SELECT 1 FROM file_events p WHERE p.path = ? AND p.id > ? AND p.action <> 'rejected'
+      AND NOT (p.action = 'update' AND p.user_id = ? AND p.turn_id IN (${mine}) AND ${chatWritingSql('p')}) LIMIT 1`).get(rel, made.id, userId, chatId, userId)) return false
+    return !folderAboveChanged(db, rel, made.id)
   } catch { return false }
 }
 
