@@ -4,10 +4,12 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import type { Database } from 'bun:sqlite'
 import { EventEmitter } from 'node:events'
-import { ENGINE_BUILTIN_ALLOWED, EditInput, GlobInput, GrepInput, ListInput, mediaKind, ReadInput, WriteInput, type MediaKind } from '@mycel/shared'
+import { ENGINE_BUILTIN_ALLOWED, EditInput, GlobInput, GrepInput, ListInput, mediaKind, ReadInput, VERSIONS_SHOWN_DEFAULT, WriteInput, type MediaKind } from '@mycel/shared'
+import { lineDiff } from '../skills/diff'
 import { isGuestUser } from '../credentials/guest-ai'
 import { FILE_LIST_NAME, isFileListName, mediaTranscriptsOffSmall, mediaTranscriptsOn, type SpeechHost, type TranscribeResult } from '@mycel/shared/api'
-import { isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
+import { cp949Text, isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
+import { imageFactsLine, seeThrough } from '../uploads/image'
 import type { ServerConfig } from '../config'
 import { getTeamSettings, teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { audit } from '../admin/audit'
@@ -24,7 +26,7 @@ import type { VirtualFile, VirtualFiles } from './virtual'
 import { SOURCE_LOCS_MAX, SourceLog } from './sources'
 import { locsOfRange } from './locations'
 import type { SourceLoc } from '@mycel/shared/api'
-import { atomicWrite, conflictCopyName, fileEvent, moveToTrash, readRegular, recordConflictCopy, saveVersion, sha256 } from './store'
+import { atomicWrite, conflictCopyName, fileEvent, moveToTrash, readHead, readRegular, recordConflictCopy, saveVersion, sha256 } from './store'
 import { newId } from '../db'
 import { consumeSkillApproval, editedText, requireSkillApproval } from '../skills/guard'
 import { skillWriteNote } from '../chat/skills'
@@ -112,6 +114,10 @@ export class TurnFiles {
   imageSources = new Map<string, { hash: string; identity: string }>()
   bytesWritten = 0
   filesWritten = new Set<string>()
+  /** PDFs and documents the AI made in this turn (make_file and the PDF tools, not files it saved from the web or a room)
+   * and the sha256 it wrote, turn-wide: a later read does not change it, so "saved over by someone since" stays
+   * visible (tools/stamp-pdf.ts madeThisTurn) */
+  madeHashes = new Map<string, string>()
   /** saves under skills/ the person confirmed on the server's card in this turn: path -> sha256 of the confirmed
    * bytes, or '*' for a produced file (skills/guard.ts) */
   skillApprovals = new Map<string, string>()
@@ -226,6 +232,25 @@ export interface SharedReads {
   folderChild?(user: Principal, input: unknown, L: Locale): SharedChild | null
 }
 
+/** A file's kept versions for the AI's read with `versions` (team-files/service.ts history / versionFile, set by
+ * component C): the very rows the Files screen's Version history shows the caller. */
+export interface VersionReads {
+  /** newest first; null when the caller sees no version of `rel` (none kept, or none they may read) */
+  list(userId: string, rel: string): Promise<{ current: { version: number; by: string | null; at: string | null } | null; items: { id: string; version: number; size: number; by: string | null; replacedBy: string | null; replacedAt: string; viaAi: boolean }[] } | null>
+  /** the stored bytes of one of those versions (the caller's own check again) */
+  bytes(userId: string, versionId: string, max: number): Uint8Array
+  /** where that version's content was saved (team paths for the read scope; the caller's own check again) */
+  places(userId: string, versionId: string): string[]
+}
+
+/** read with `versions`: the most text of the changes shown */
+export const VERSION_DIFF_MAX_CHARS = 8000
+/** ...and the most text of either side that is compared at all (above it: "too large to compare") */
+export const VERSION_DIFF_TEXT_MAX = 2 * 1024 * 1024
+/** ...and the most bytes of a plain text file (either side) that are read for it */
+export const VERSION_DIFF_BYTES_MAX = 6 * 1024 * 1024
+const NO_VERSIONS = (rel: string) => `'${rel}': no earlier versions are kept that you can see. The file has not been overwritten since it was made, or its earlier versions are not available to you.`
+
 /** A read made by a file's link names the file by that link, not by its path: only in our own words around the file
  * (its header, a quoted name), never inside the file's text. */
 function byLink(out: ToolOutput, rel: string, link: string): ToolOutput {
@@ -253,6 +278,8 @@ export class FileService {
   /** files shared with a person one by one (files/shares.ts grantedFile, set by component C): the read tools open them
    * by their link or path, view only (docs/decisions/20261116-shared-files-for-the-ai.md); null: none */
   shared: SharedReads | null = null
+  /** a file's kept versions (team-files/service.ts, set by component C); null: none */
+  versions: VersionReads | null = null
   constructor(readonly db: Database, readonly cfg: ServerConfig) {
     db.exec('PRAGMA synchronous = FULL')
     this.quarantine = new Quarantine(db, cfg.teamRoot)
@@ -433,21 +460,31 @@ export class FileService {
       for (const h of res.hits) if (h.loc) locs.set(h.path, [...(locs.get(h.path) ?? []), h.loc])
       for (const f of res.files) if (!virtual.has(f)) ctx.files.sources.note(f, 'grep', { agent: ctx.files.agent, locs: locs.get(f) })
     }
-    return { text: res.text, summary: `grep ${r.rel || '.'} pattern(len=${a.pattern.length}) mode=${a.output_mode ?? 'files_with_matches'} -> ${res.text === 'No matches' ? 0 : res.text.split('\n').length} lines, filtered=${res.stats.filtered}` }
+    // a CSV row without its column names: the AI took 620000 under 월평균주문액 for an unpaid balance of the same number
+    // (AI flow FL-13, 2026-11-17), so the result names each CSV's first line when it is not in it already
+    const text = (a.output_mode ?? 'files_with_matches') === 'content' ? withCsvHeaders(res.text, res.hits.map((h) => h.path).filter((f) => res.files.has(f) && !virtual.has(f)), (f) => {
+      // the very file the check saw (its lstat), as every read of the team folder (store.ts openToRead)
+      try { const c = authorize(this.fx, rules, ctx.user, f, 'read'); return firstLine(readHead(c.abs, CSV_HEADER_BYTES, c.st)) } catch { return null }
+    }) : res.text
+    return { text, summary: `grep ${r.rel || '.'} pattern(len=${a.pattern.length}) mode=${a.output_mode ?? 'files_with_matches'} -> ${text === 'No matches' ? 0 : text.split('\n').length} lines, filtered=${res.stats.filtered}` }
   }
 
   // ---------------- read ----------------
   /** Converter seams (tests replace them): an image file -> the model's JPEG, a PDF page -> the model's JPEG. */
   modelImage(name: string, bytes: Uint8Array, signal?: AbortSignal) { return modelImage(name, bytes, this.visionTools(), signal) }
   pdfPageImage(bytes: Uint8Array, page: number, signal?: AbortSignal) { return pdfPageImage(bytes, page, this.visionTools(), signal) }
+  /** Seam (tests replace it): how see-through a picture is, by an isolated ffmpeg look (uploads/image.ts). */
+  seeThrough(bytes: Uint8Array, signal?: AbortSignal) { return seeThrough(bytes, { workBase: path.join(this.cfg.dataDir, 'work'), signal }) }
   visionTools(): VisionTools { return visionTools({ nativeBin: this.cfg.nativeBin, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr, which }) }
 
   async read(ctx: ToolCtx, a: ReadArgs): Promise<ToolOutput> {
+    const wantsVersions = (a.versions !== undefined && a.versions !== false) || a.version !== undefined
     // the person's file list (not on disk): its lines, numbered; read like its folder's files, never an answer's source
     const vp = this.virtualPath(ctx, a.file_path)
     if (vp) {
       // its folder joins the read scope (same access as the list; the list itself is not on disk)
       ctx.files.readPaths.add(vp.segs.slice(0, -1).join('/'))
+      if (wantsVersions) return { text: NO_VERSIONS(vp.rel), summary: `read ${vp.rel} versions -> none (file list)` }
       return numberedLines(vp.rel, vp.file.text, a)
     }
     // a file inside a folder shared with the person, by its link (/f/<id>/<path inside>; files/shared-folder-reads.ts):
@@ -475,6 +512,9 @@ export class FileService {
         throw e
       }
     }
+    // a file's earlier versions and what changed (QA TC-4547, docs/decisions/20261117-ai-file-versions.md); after the
+    // file list, a shared folder's file and a file link are resolved above (those come back here by their path)
+    if (wantsVersions) return this.readVersions(ctx, a)
     const e = ext(a.file_path)
     const kind = mediaKind(a.file_path)
     if ((a.pages !== undefined || a.as_images) && e !== 'pdf') throw new ToolError('pages and as_images are only for PDF files', 'bad_pages')
@@ -483,6 +523,82 @@ export class FileService {
     if (isVisionImage(a.file_path)) return this.readImage(ctx, a)
     if (e === 'pdf') return this.readPdf(ctx, a)
     return this.readText(ctx, a)
+  }
+
+  /**
+   * read with `versions` / `version`: the versions the Files screen's Version history shows the caller (when, who saved
+   * them, size) and the changes between the current file and the version before it (or the chosen one), as text lines
+   * (Office, Hangul and PDF files through the same extractor as a read; PDF text layer only). The file is opened with
+   * the check a plain read uses first (readAuth), so a file the caller cannot read gives a plain read's refusal, and
+   * the versions themselves are the caller's own (history() judges each one as the Files screen does). Read-only: no
+   * card. The file joins the turn's read scope (what a later wider save is judged by), not its read-before-write
+   * hashes: the AI did not get the whole current text.
+   */
+  private async readVersions(ctx: ToolCtx, a: ReadArgs): Promise<ToolOutput> {
+    const r = this.readAuth(ctx, ctx.user, a.file_path)
+    if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; versions are kept for files`, 'is_folder')
+    ctx.files.readPaths.add(r.rel)
+    const h = this.versions ? await this.versions.list(ctx.user.id, r.rel) : null
+    const items = h?.items ?? []
+    if (a.version !== undefined && !items.some((v) => v.version === a.version)) {
+      throw new ToolError(`'${r.rel}' has no earlier version ${a.version}${items.length ? ` (kept: ${items.map((v) => v.version).join(', ')})` : ''}`, 'not_found')
+    }
+    if (!items.length) return { text: NO_VERSIONS(r.rel), summary: `read ${r.rel} versions -> none` }
+    const shown = items.slice(0, typeof a.versions === 'number' ? a.versions : VERSIONS_SHOWN_DEFAULT)
+    const name = (n: string | null) => n ?? 'someone no longer on the team'
+    // the same form as list's times (UTC, to the minute)
+    const at = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? iso : `${d.toISOString().slice(0, 16).replace('T', ' ')} UTC` }
+    const lines: string[] = [`Versions of '${r.rel}' (newest first):`]
+    if (h!.current) lines.push(`- now (version ${h!.current.version}): saved by ${name(h!.current.by)}${h!.current.at ? ` at ${at(h!.current.at)}` : ''}, ${human(r.st!.size)}`)
+    for (const v of shown) {
+      lines.push(`- version ${v.version}: ${v.by ? `saved by ${v.by}` : 'saved by someone earlier'}, ${human(v.size)}; replaced at ${at(v.replacedAt)} by ${name(v.replacedBy)}${v.viaAi ? ' (through the AI)' : ''}`)
+    }
+    if (items.length > shown.length) lines.push(`(${items.length - shown.length} older version${items.length - shown.length === 1 ? '' : 's'} not listed)`)
+    // the changes: the chosen version, else the newest kept one (the content just before the last save), against now
+    const base = a.version !== undefined ? items.find((v) => v.version === a.version)! : items[0]!
+    const label = `version ${base.version} → now`
+    lines.push('')
+    const kind = mediaKind(r.rel)
+    if (kind || isVisionImage(r.rel)) {
+      lines.push(`Changes (${label}): not shown for pictures, videos and sound; only the list above.`)
+    } else {
+      const tools = { pandoc: this.cfg.pandoc, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr, quarantine: this.quarantine, textLayerOnly: true }
+      let diff: string
+      // the compared version's text is shown: the places it was saved in join the read scope too (a file moved out of
+      // a narrower folder brings that folder's audience to a later save, room post or share)
+      // (fails closed: a place that cannot be looked up means no comparison)
+      let places: string[] | null = null
+      try { places = this.versions!.places(ctx.user.id, base.id) } catch {}
+      for (const p of places ?? []) ctx.files.readPaths.add(p)
+      let oldBytes: Uint8Array | 'gone' | 'large' = 'gone'
+      // the stored copy can be gone or unreadable (the history store's own errors) or over the read limit: the list stays
+      // a plain text file is read whole on both sides: over the cap by its stored size, not read at all
+      if (places && !isOffice(r.rel) && Math.max(r.st!.size, base.size) > VERSION_DIFF_BYTES_MAX) oldBytes = 'large'
+      else if (places) try { oldBytes = this.versions!.bytes(ctx.user.id, base.id, readMaxBytes()) } catch (e) { if (e instanceof ToolError && /too large/.test(e.message)) oldBytes = 'large' }
+      if (!places) diff = `Changes (${label}): could not be compared (where version ${base.version} was saved cannot be checked now, e.g. its folder is in the trash); only the list above.`
+      else if (oldBytes === 'gone') diff = `Changes (${label}): the content of version ${base.version} is no longer kept, so it cannot be compared.`
+      else if (oldBytes === 'large') diff = `Changes (${label}): the file is too large to compare here; only the list above.`
+      else try {
+        const now = await extractText(r.rel, readRegular(r.abs, readMaxBytes(), r.st).bytes, tools, ctx.signal)
+        const before = await extractText(r.rel, oldBytes, tools, ctx.signal)
+        if (now.length > VERSION_DIFF_TEXT_MAX || before.length > VERSION_DIFF_TEXT_MAX) {
+          diff = `Changes (${label}): the file is too large to compare here; only the list above.`
+        } else {
+          const d = lineDiff(before, now, VERSION_DIFF_MAX_CHARS)
+          diff = d.added + d.removed === 0
+            ? `Changes (${label}): the text is the same (only the file itself differs, e.g. formatting).`
+            : d.approximate
+              ? `Changes (${label}): too much changed to compare line by line; the changed part is shown whole (cut) as removed then added, so counts are not meaningful:\n${d.text}`
+              : `Changes (${label}; lines starting with "-" were removed, "+" added, "@@ -a,n +b,m @@" gives the line numbers before and now; ${d.removed} removed, ${d.added} added${d.truncated ? '; cut, read the file for the rest' : ''}):\n${d.text}`
+        }
+      } catch (e) {
+        if (!(e instanceof ToolError)) throw e
+        diff = `Changes (${label}): could not be shown (${e.message}).`
+      }
+      lines.push(diff)
+    }
+    ctx.files.sources.note(r.rel, 'read', { agent: ctx.files.agent })
+    return { text: lines.join('\n'), summary: `read ${r.rel} versions -> ${items.length} kept, compared v${base.version}` }
   }
 
   /** Text of a file (Office files converted), numbered lines. */
@@ -524,6 +640,10 @@ export class FileService {
       const note = this.visionFailure(ctx, e)
       return { text: note, isError: true, summary: `read ${r.rel} -> image not shown (${(e as ToolError).code})` }
     }
+    // the file's own format, size and see-through parts (uploads/image.ts): the picture below is drawn on white, and a
+    // size read off it is a guess ("about 600 x 600", AI scenario VIEW-05, 2026-11-17). Looked at only once the
+    // normalizer took the picture (it refuses huge ones first)
+    const facts = imageFactsLine(src.bytes, await this.seeThrough(src.bytes, ctx.signal).catch(() => null))
     ctx.signal?.throwIfAborted()
     const over = this.imageBudget(ctx, jpeg.length)
     if (over) return { text: over, summary: `read ${r.rel} -> image not shown (turn image limit)` }
@@ -534,7 +654,7 @@ export class FileService {
     ctx.files.sources.note(src.rel, 'read', { agent: ctx.files.agent, sha256: src.hash })
     ctx.files.imageBytes += jpeg.length
     ctx.files.imageCount++
-    const text = `Image ${src.rel} (shown below).`
+    const text = `Image ${src.rel} (shown below).${facts ? ` ${facts}` : ''}`
     return { text, content: [{ type: 'text', text }, { type: 'image', mimeType: 'image/jpeg', data: jpeg.toString('base64') }], beforeDelivery,
       summary: `read ${src.rel} -> image ${jpeg.length}B` }
   }
@@ -776,7 +896,7 @@ export class FileService {
   /** A converter's refusal as the note the AI gets (other errors go on to the caller). */
   private visionFailure(ctx: ToolCtx, e: unknown): string {
     const code = e instanceof ToolError ? e.code : ''
-    const key = ({ vision_too_large: 'tooLarge', vision_unsupported: 'unsupported', vision_damaged: 'damaged', vision_heavy: 'heavy', vision_busy: 'busy', vision_unavailable: 'unavailable' } as const)[code as 'vision_busy']
+    const key = ({ vision_too_large: 'tooLarge', vision_unsupported: 'unsupported', vision_damaged: 'damaged', vision_heavy: 'heavy', vision_busy: 'busy', vision_unavailable: 'unavailable', vision_no_heic: 'noHeic' } as const)[code as 'vision_busy']
     if (!key) throw e
     return visionText(this.db, ctx.user.id, key)
   }
@@ -1545,7 +1665,7 @@ export class FileService {
   }
 }
 
-type ReadArgs = { file_path: string; offset?: number; limit?: number; pages?: string; as_images?: boolean; time?: string; frames?: number; transcript?: boolean }
+type ReadArgs = { file_path: string; offset?: number; limit?: number; pages?: string; as_images?: boolean; time?: string; frames?: number; transcript?: boolean; versions?: boolean | number; version?: number }
 export interface BoundSource { rel: string; bytes: Buffer; hash: string; identity: string }
 /** a provider's answer for a piece; `languageP`: how sure whisper.cpp was of the language it heard (not from
  * OpenRouter); OpenRouter's: how sure whisper was of its words, its generation id and provider (openrouter-stt.ts) */
@@ -1615,3 +1735,41 @@ function numberedLines(rel: string, text: string, a: { offset?: number; limit?: 
 
 const short = (p: unknown) => (typeof p === 'string' ? p.slice(0, 200) : '')
 function human(n: number) { return n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB` }
+
+/** how much of a CSV is read for its first line */
+const CSV_HEADER_BYTES = 4096
+const CSV_EXT = /\.(csv|tsv)$/i
+/** column-name lines one result adds at most (a grep over a folder of monthly exports stays small) */
+const CSV_HEADERS_MAX = 10
+
+/** A file's first line as text (UTF-8, or legacy Korean CP949 as Excel saves it; no BOM, at most 500 characters), or
+ * null when it is neither. */
+export function firstLine(bytes: Uint8Array): string | null {
+  const nl = bytes.indexOf(10)
+  const head = nl >= 0 ? bytes.subarray(0, nl) : bytes
+  if (!head.length || head.includes(0)) return null
+  const text = isUtf8(head) ? Buffer.from(head).toString('utf8') : cp949Text(head)
+  if (text === null) return null
+  const line = text.replace(/^\uFEFF/, '').replace(/\r$/, '')
+  return line.trim() ? line.slice(0, 500) : null
+}
+
+/**
+ * A grep result (content mode) with the column names of each CSV/TSV file it shows rows of, when line 1 of that file is
+ * not in it already: one line per file at the end, "<path>:1:<first line>" under a heading. `header`: the file's first
+ * line, or null (not readable as text).
+ */
+export function withCsvHeaders(text: string, paths: string[], header: (path: string) => string | null): string {
+  const lines = text.split('\n')
+  const has = (p: string) => lines.some((l) => l.startsWith(`${p}:1:`) || l.startsWith(`${p}-1-`))
+  const add: string[] = []
+  let more = 0
+  for (const p of new Set(paths)) {
+    if (!CSV_EXT.test(p) || has(p)) continue
+    if (add.length >= CSV_HEADERS_MAX) { more++; continue }
+    const h = header(p)
+    if (h !== null) add.push(`${p}:1:${h}`)
+  }
+  const rest = more ? `\n(${more} more CSV file${more === 1 ? '' : 's'}: read line 1 for the column names)` : ''
+  return add.length ? `${text}\n(Line 1 of ${add.length === 1 ? 'this CSV file: its column names' : 'these CSV files: their column names'})\n${add.join('\n')}${rest}` : text
+}

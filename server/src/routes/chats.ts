@@ -64,8 +64,13 @@ import { chatGroups, otherChats } from '../chat/chat-groups'
 import { adoptLeftoverFolders } from '../chat/members-only-once'
 import { dismissUpdateNotice, joinUpdateNoticeProjects, updateNoticeProjects } from '../chat/old-projects'
 import { askSkillsOn, recordSkillsOn, skillsUnder } from '../skills/switch-on'
+import { canonicalTimeZone } from '../system/time-zone'
 
 const WINDOW_RE = /^[A-Za-z0-9_-]{8,64}$/
+/** The sender's device time zone for the turn (TurnSpec.timeZone, QA TC-4549), by its canonical IANA name: a name this
+ * server does not know, or an offset, is dropped (the team's zone is used), never a refusal (an older browser's list
+ * may differ from the server's). */
+export const turnZone = (z: string | undefined) => canonicalTimeZone(z) ?? undefined
 export const windowOf = (c: Context<AppEnv>) => { const w = c.req.header(WINDOW_HEADER); return w && WINDOW_RE.test(w) ? w : null }
 const likeEscape = (s: string) => s.replace(/[\\%_]/g, (m) => '\\' + m)
 
@@ -743,7 +748,7 @@ export const chatsRoutes: RouteModule = {
       checkBudget(ctx, auth.user.id, c.get('locale'))
       const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
       try {
-        return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom,
+        return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom, timeZone: turnZone(body.timeZone),
           user: { parentId, content: body.content, attachments: atts, clientMessageId: body.clientMessageId } })
       } catch (e) {
         if (isClientIdClash(e)) { const r = rt.existingTurn(chat.id, body.clientMessageId, auth.user.id); if (r) return r }
@@ -772,7 +777,7 @@ export const chatsRoutes: RouteModule = {
       busy(a, c.get('locale'), auth.user.id)
       checkBudget(ctx, auth.user.id, c.get('locale'))
       const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
-      return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom, answerTo: question })
+      return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom, timeZone: turnZone(body.timeZone), answerTo: question })
     })
 
     // a shared chat: one's own messages only
@@ -790,7 +795,7 @@ export const chatsRoutes: RouteModule = {
       checkBudget(ctx, auth.user.id, c.get('locale'))
       const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
       try {
-        return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom,
+        return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom, timeZone: turnZone(body.timeZone),
           user: { parentId: target.parent_id, content: body.content, attachments: atts, clientMessageId: body.clientMessageId } })
       } catch (e) {
         if (isClientIdClash(e)) { const r = rt.existingTurn(chat.id, body.clientMessageId, auth.user.id); if (r) return r }

@@ -8,7 +8,8 @@
 //
 // Based on Yogurt (github.com/FrigadeHQ/yogurt, app/src/main/asr/chunker.ts), MIT License,
 // Copyright (c) 2026 Frigade. The rules and their numbers are Yogurt's; the partial readings are left out. Voice input
-// asks for a shorter first piece (ChunkerOptions.firstMaxMs), so the first words show early even without a pause.
+// asks for a shorter first piece (ChunkerOptions.first*): it ends at the first short pause after firstMinMs, or at
+// firstMaxMs, so the first words show early (docs/AGENTS/plan/20261117-0845-voice-first-words.md).
 //
 // The session (MeetingSession): pieces → the team server → lines. A piece the server says to send again (reason in
 // MEETING_RETRY_REASONS) waits its Retry-After; any other refusal ends the session with the server's sentence. Pieces
@@ -85,6 +86,9 @@ const join = (wins: Win[]) => {
 export interface ChunkerOptions {
   /** the first piece of each track is cut at this length instead of MAX_PIECE_MS (voice input: words show early) */
   firstMaxMs?: number
+  /** the first piece may end this early, at a pause of firstPauseMs (default: only at the usual 1 s pause) */
+  firstMinMs?: number
+  firstPauseMs?: number
   /** clearly spoken sound a piece needs (default MIN_CLEAR_MS; voice input asks for less: a short "yes" is meant) */
   minClearMs?: number
 }
@@ -100,7 +104,11 @@ export interface Chunker {
 
 export function chunker(onPiece: (p: Piece) => void, opts: ChunkerOptions = {}): Chunker {
   const fresh = (): State => ({ next: null, rest: new Float32Array(0), open: null, winStart: 0, history: [], emitted: 0 })
-  const firstWins = Math.max(SEARCH_WINS + 1, Math.min(MAX_WINS, Math.round((opts.firstMaxMs ?? MAX_PIECE_MS) / 100)))
+  const firstWins = Math.max(2, Math.min(MAX_WINS, Math.round((opts.firstMaxMs ?? MAX_PIECE_MS) / 100)))
+  // a short first piece looks for its cut in its last second, not its last two (the cut stays after firstMinMs)
+  const firstSearch = Math.min(SEARCH_WINS, Math.max(1, firstWins - Math.round((opts.firstMinMs ?? 0) / 100)), firstWins - 1)
+  const firstMinWins = opts.firstMinMs !== undefined && opts.firstPauseMs !== undefined ? Math.round(opts.firstMinMs / 100) : null
+  const firstPauseWins = Math.max(1, Math.round((opts.firstPauseMs ?? 0) / 100))
   const tracks: Record<Track, State> = { me: fresh(), others: fresh() }
 
   const emit = (track: Track, st: State, startMs: number, wins: Win[]) => {
@@ -141,9 +149,12 @@ export function chunker(onPiece: (p: Piece) => void, opts: ChunkerOptions = {}):
     let quiet = 0
     while (quiet < wins.length && !wins[wins.length - 1 - quiet]!.voiced) quiet++
     if (quiet >= SILENCE_WINS) return close(track, st)
+    // the first piece: a short pause once it is long enough ends it
+    if (!st.emitted && firstMinWins !== null && quiet >= firstPauseWins && wins.length - quiet >= firstMinWins) return close(track, st)
     if (wins.length >= (st.emitted ? MAX_WINS : firstWins)) {
-      // the quietest of the last 2 s; the first of equals, so a flat run cuts as early as it may
-      let cut = wins.length - SEARCH_WINS
+      // the quietest of the last 2 s (a first piece: its last second); the first of equals, so a flat run cuts as early
+      // as it may
+      let cut = wins.length - (st.emitted ? SEARCH_WINS : firstSearch)
       for (let i = cut; i < wins.length; i++) if (wins[i]!.rms < wins[cut]!.rms) cut = i
       const head = wins.slice(0, cut + 1)
       const headStart = st.open.startMs

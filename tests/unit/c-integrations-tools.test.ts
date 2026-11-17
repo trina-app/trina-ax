@@ -7,7 +7,7 @@ import { TEAM_TOOL_PREFIX } from '@mycel/shared'
 import { makeCApp, type CApp, type Person } from '../lib/c-app'
 import { API_KEY, FakeServices, MCP_KEY } from '../lib/fake-services'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
-import { buildUrl, integrationToolProvider, MAX_RESULT_CHARS, toolName } from '../../server/src/integrations/connections/tools'
+import { buildUrl, connectionWays, integrationToolProvider, MAX_RESULT_CHARS, NO_CONNECTIONS, toolName } from '../../server/src/integrations/connections/tools'
 import { readScope, sourceLabel, widening } from '../../server/src/chat/read-scope'
 import { TurnFiles } from '../../server/src/files/service'
 import type { TurnTool, TurnToolContext } from '../../server/src/services'
@@ -118,7 +118,7 @@ describe('tools made per person', () => {
     expect(turn('erin').tools.has('team_teamboard__search_tasks')).toBe(true) // marketing
     expect(turn('erin').tools.has('my_tasks__search_tasks')).toBe(false)
     expect(turn('bob').tools.size).toBe(0)
-    expect(turn('bob').prompt).toBeNull()
+    expect(turn('bob').prompt).toContain(NO_CONNECTIONS)
     expect(turn('carol').tools.size).toBe(0)
   })
 
@@ -185,6 +185,34 @@ describe('tools made per person', () => {
       fake.tools = saved; fake.pageSize = 2
       await post('alice', `/api/integrations/${tasks.id}/refresh`, {})
     }
+  })
+})
+
+describe('what is connected is a checked fact, with the ways to connect (QA TC-4528)', () => {
+  test('a person with no usable connection is told so as checked, and where team and own connections are added', () => {
+    const e = turn('bob')
+    expect(e.tools.size).toBe(0)
+    expect(e.prompt).toContain('## Connected services')
+    expect(e.prompt).toContain(NO_CONNECTIONS)
+    expect(e.prompt).toContain('Admin › Connected apps, and there can ask a member to connect their own (Ask a member to connect)')
+    expect(e.prompt).toContain('Each person can also connect their own apps in Settings › Connectors, or ask you to connect one')
+    // with connections: the list says it was checked, and the ways are there too
+    const a = turn('alice')
+    expect(a.prompt).toContain('Services connected for this user (checked by the server for this answer)')
+    expect(a.prompt).toContain(connectionWays(true))
+    // a scheduled run: no connect card there, so the route leaves it out
+    expect(turn('bob', { scheduled: true }).prompt).not.toContain('connect_service')
+    expect(a.prompt).not.toContain(NO_CONNECTIONS)
+  })
+  test('a team that keeps members from connecting their own: the way says so', () => {
+    A.ctx.db.query("INSERT INTO settings (key, value) VALUES ('personalIntegrations', 'false')").run()
+    try {
+      const e = turn('bob')
+      expect(e.prompt).toContain('On this team people cannot add their own app connections')
+      expect(e.prompt).toContain('Google Drive and Google apps, and apps from a team template, can still be connected')
+      expect(e.prompt).not.toContain('Ask a member to connect')
+      expect(e.prompt).not.toContain('or ask you to connect one')
+    } finally { A.ctx.db.query("DELETE FROM settings WHERE key = 'personalIntegrations'").run() }
   })
 })
 

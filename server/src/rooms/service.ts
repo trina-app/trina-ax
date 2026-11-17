@@ -32,7 +32,7 @@
 // room_messages (author_kind 'ai', asked_by = who asked); an unposted private preview (visibility 'private') is filtered
 // everywhere (canSee / SEE_SQL) and makes no notice (notify()).
 import type { Database } from 'bun:sqlite'
-import { DEFAULT_LOCALE, inQuietHours, roomAlert, roomLevel, ROOM_GROUP_MAX, ROOM_REACTION_EMOJI_MAX, type Locale, type RoomAlertSettings, type RoomNotifyLevel, type Room, type RoomMember, type RoomMessage, type RoomMessagesPage, type RoomReaction, type RoomReactionEmoji, type RoomReadState, type RoomFileSearchPage, type RoomSearchPage, type RoomThreadPage, type RoomThreadReadState, type ServerEventInput, type MessageLinkAudience } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, inQuietHours, roomAlert, roomLevel, ROOM_GROUP_MAX, ROOM_REACTION_EMOJI_MAX, type Locale, type RoomAlertSettings, type RoomNotifyLevel, type Room, type RoomMember, type RoomMessage, type RoomMessagesPage, type RoomReaction, type RoomReactionEmoji, type RoomReadState, type RoomFileSearchPage, type MyRoomFilesPage, type RoomSearchPage, type RoomThreadPage, type RoomThreadReadState, type ServerEventInput, type MessageLinkAudience } from '@mycel/shared/api'
 import { cardLinks, keptAfterEdit, snapshotOf, snapshotOut, prepareLinkPreviews, readStored, seesLinked, snapshotAllowed, snapshotsAtSend, wipeSnapshotsOf, writeStored } from './link-previews'
 import { decodeCursor, encodeCursor } from '../chat/store'
 import type { AppContext } from '../context'
@@ -54,7 +54,7 @@ import {
 import { roomFilesOf } from './files'
 import { historyKinds, openHistories } from './history'
 import { countedUnreadIn } from './inbox'
-import { searchRoomFiles, searchRoomMessages, type SearchInput } from './search'
+import { searchRoomFiles, searchRoomMessages, type SearchInput, listMyRoomFiles } from './search'
 import { tr } from '../chat/i18n'
 import { roomMentionAllIn } from '@mycel/shared/api'
 import { loadPrincipal, type Principal, type RuleSet } from '../policy/access'
@@ -293,7 +293,7 @@ export class Rooms {
     const made = (this.groupsMade.get(userId) ?? []).filter((x) => x > t - HOUR_MS)
     if (made.length >= GROUPS_PER_HOUR) {
       const wait = Math.max(1, Math.ceil((made[0]! + HOUR_MS - t) / 1000))
-      fail('rate_limited', tr('roomGroupLimit', locale, { n: String(GROUPS_PER_HOUR), minutes: String(Math.ceil(wait / 60)) }), { retryAfter: wait })
+      fail('rate_limited', tr(named ? 'roomChannelLimit' : 'roomGroupLimit', locale, { n: String(GROUPS_PER_HOUR), minutes: String(Math.ceil(wait / 60)) }), { retryAfter: wait })
     }
     this.takeSendToken(userId)
     made.push(t)
@@ -409,10 +409,13 @@ export class Rooms {
   }
 
   /** '' or null: back to the server's name; a team room given its group's own name follows the group again. Team rooms
-   * and the everyone room: audited (room.rename), as their other changes are; a group chat not. */
+   * and the everyone room: audited (room.rename), as their other changes are; a group chat not. A group room that has a
+   * name is a private channel and keeps one: emptying it is refused (400 validation), so a channel never turns back
+   * into a group DM; a group DM can still be given a name (docs/decisions/20261117-named-groups-private-channels.md). */
   private rename(userId: string, room: RoomRow, raw: string | null) {
     if (!mayRename(this.db, room, userId)) fail('forbidden')
     let name = raw?.trim() || null
+    if (!name && room.kind === 'group' && room.name?.trim()) fail('validation', undefined, { fields: { 'body.name': 'a private channel needs a name' } })
     if (name && room.kind === 'team' && name === groupName(this.db, room)) name = null
     if ((room.name ?? null) === name) return
     // each rename is a line in the room: the same budget as sending
@@ -635,6 +638,13 @@ export class Rooms {
   searchFiles(userId: string, o: SearchInput): RoomFileSearchPage {
     this.syncFor(userId)
     return searchRoomFiles(this.db, userId, o)
+  }
+
+  /** "Files you sent": my own files in my rooms, largest first (rooms/search.ts listMyRoomFiles); my team rooms'
+   * histories opened first, as for the search. */
+  listMyFiles(userId: string, o: { cursor?: string; limit?: number }): MyRoomFilesPage {
+    this.syncFor(userId)
+    return listMyRoomFiles(this.db, userId, o)
   }
 
   /** Team files a person copied in with a phone's attach sheet (rooms/files.ts teamCopy), now sent in message

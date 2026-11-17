@@ -26,6 +26,7 @@ import { ToolError } from '../policy/errors'
 import { readOutput, runIsolated } from '../tools/isolate'
 import { OPENROUTER_MAX_BYTES, wavData } from '../jobs/openrouter-stt'
 import { saysOtherLanguage, writingSystem } from '../jobs/speech-language'
+import { withoutSoundTags } from '../jobs/no-speech'
 import { macSound, macToWavFile, macWavPiece, macWavSeconds, type MacAudioTools, type MacSource } from '../jobs/mac-audio'
 
 export { saysOtherLanguage, writingSystem }
@@ -610,7 +611,9 @@ export function pieceOf(r: TranscribeResult, offset: number, length: number, voi
   const raw = r.segments?.length ? r.segments : r.text ? [{ start: 0, end: length, text: r.text }] : []
   const segments = raw
     .filter((s) => !voice || soundNear(voice, Math.max(0, s.start), Math.min(Math.max(s.end, s.start), length)))
-    .map((s) => ({ start: offset + Math.max(0, s.start), end: offset + Math.min(Math.max(s.end, s.start), length), text: s.text.replace(/\s+/g, ' ').trim() }))
+    // whisper's sound tags inside a line ("[Coughing] …") go here, after the language retries read its raw answer
+    // ("[foreign language]" asks again without the language; jobs/no-speech.ts, TC-4674)
+    .map((s) => ({ start: offset + Math.max(0, s.start), end: offset + Math.min(Math.max(s.end, s.start), length), text: withoutSoundTags(s.text).replace(/\s+/g, ' ').trim() }))
     .filter((s) => s.text && !/^\[(BLANK_AUDIO|MUSIC|음악|music|silence)\]$/i.test(s.text))
   // told the language: what comes back is the hint, not a guess
   if (hint) return { segments, language: null, hint }

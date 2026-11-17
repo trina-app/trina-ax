@@ -4,8 +4,9 @@
 import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
+import { MEETINGS_LABEL, PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
-import { APP_MAP_KEYS, APP_MAP_PLACES, appLabel, appMapSection, appMapView, type AppMapInput } from '../../server/src/chat/app-map'
+import { APP_MAP_KEYS, APP_MAP_PLACES, appLabel, appMapSection, appMapView, DEV_ENV_WORDS, type AppMapInput } from '../../server/src/chat/app-map'
 import { APP_MAP_LABELS } from '../../server/src/chat/app-map-labels'
 import { SHARED_PROMPT_SECTIONS } from '../../server/src/chat/prompt'
 import { appMapLabelsText, LABELS_FILE } from '../../scripts/app-map-labels'
@@ -92,6 +93,13 @@ describe('the places it names still exist', () => {
     has('web/src/components/settings/RoomNotifySettings.tsx', 'notifications.quiet')
     has('web/src/components/onboarding/FindWorkFiles.tsx', 'files.findWork.entryButton')
     has('web/src/pages/Settings.tsx', 'settings.myEngine.model')
+    // the 2026-11-17 catalog's "where is it" misses (ACC-01/02, ROOM-07, CON-04, PRJ-04)
+    for (const k of ['chat.pin', 'rooms.info.rename', 'rooms.info.addPeople']) has('web/src/components/rooms/RoomMenu.tsx', k)
+    has('web/src/components/nav/AccountMenu.tsx', 'status.set')
+    has('web/src/components/nav/AccountMenu.tsx', 'presence.setAway')
+    for (const k of ['members.inviteToTeam', 'members.inviteMore', 'teamLink.title', 'members.resetLinkButton', 'members.reset']) has('web/src/pages/admin/Members.tsx', k)
+    has('web/src/pages/admin/Integrations.tsx', 'integrations.requests.add')
+    has('web/src/components/rail/Rail.tsx', 'inbox.title')
   })
 })
 
@@ -124,17 +132,132 @@ describe('who gets which map', () => {
     expect(managed).not.toContain("Guest AI: not on")
     const dev = appMapSection({ ...base, devEnv: true }, 'ko')
     expect(dev).toContain(DICTS.ko['devEnv.title'])
-    expect(managed).not.toContain(DICTS.ko['devEnv.title'])
-    expect(managed).toContain("doesn't have it")
-    expect(appMapSection({ ...base, view: 'member', devEnv: true }, 'ko')).not.toContain("doesn't have it")
+    // without it: the setting is named, not on this team's app, never "does not exist" (PRJ-05, ADM-07), in everyday
+    // words: no "server", no "programs" (ADM-07.member, 2026-11-17)
+    expect(managed).not.toContain("doesn't have it")
+    expect(managed).toContain(`${DICTS.ko['devEnv.title']} (${DEV_ENV_WORDS}): not on this team's`)
+    const memberNoDev = appMapSection({ ...base, view: 'member' }, 'ko')
+    expect(memberNoDev).not.toContain("doesn't have it")
+    expect(memberNoDev).toContain(`${DICTS.ko['devEnv.title']} (${DEV_ENV_WORDS}; not on this team's`)
+    expect(memberNoDev).toContain('so nobody can turn it on')
+    for (const s of [managed, memberNoDev, dev, appMapSection({ ...base, view: 'member', devEnv: true }, 'ko')]) expect(s).not.toMatch(/\bserver\b|\bprograms?\b/)
     // System's updates: an admin's too only on an office Mac (web systemGroups.ts `office`)
     expect(managed).toContain(`owner also ${DICTS.ko['system.updates']}`)
     expect(appMapSection({ ...base, office: true }, 'ko')).not.toContain(`owner also ${DICTS.ko['system.updates']}`)
   })
   test('the person\'s language: an English answer gets the English labels', () => {
     const en = appMapSection(base, 'en')
-    expect(en).toContain(`Settings: ${DICTS.en['settings.apps']}`)
+    expect(en).toContain(`Settings: ${DICTS.en['settings.profile']}`)
     expect(en).not.toMatch(/[가-힣]/)
+  })
+})
+
+describe('the places people asked about (scenario catalog 2026-11-17)', () => {
+  test('everyone: password, devices, photo, status, room menu, reactions, mentions, pinning, own connections, new project', () => {
+    for (const view of ['staff', 'member', 'shared'] as const) {
+      const s = appMapSection({ ...base, view }, 'ko')
+      const want = [
+        `${DICTS.ko['settings.security']} (${DICTS.ko['auth.changePassword']}; ${DICTS.ko['settings.devices']}`, DICTS.ko['status.set'], DICTS.ko['presence.setAway'],
+        DICTS.ko['rooms.info.rename'], DICTS.ko['rooms.info.addPeople'], DICTS.ko['rooms.react'], `${DICTS.ko['inbox.title']}.`, DICTS.ko['chat.pin'],
+        DICTS.ko['integrations.title'], `${DICTS.ko['projects.title']} › ${DICTS.ko['projects.new']}`,
+      ]
+      for (const w of want) expect({ view, w, there: s.includes(w) }).toEqual({ view, w, there: true })
+    }
+  })
+  test('a room\'s rename and add people are a group chat\'s; project creation can be owners and admins only', () => {
+    const s = appMapSection({ ...base, view: 'member' }, 'en')
+    expect(s).toContain(`A group chat's also ${DICTS.en['rooms.info.rename']}, ${DICTS.en['rooms.info.addPeople']}; a team room: people follow its group, owners and admins rename`)
+    expect(s).toContain('the team may keep team projects to owners and admins')
+  })
+  test('owners and admins: invites and the team link, a forgotten password, groups, the team\'s connections and asking a member to connect', () => {
+    for (const view of ['staff', 'shared'] as const) {
+      const s = appMapSection({ ...base, view }, 'ko')
+      for (const k of ['members.inviteToTeam', 'teamLink.title', 'members.resetLinkButton', 'members.reset', 'admin.groups', 'admin.integrations', 'integrations.requests.add'] as const) expect({ view, k, there: s.includes(DICTS.ko[k]) }).toEqual({ view, k, there: true })
+    }
+    // a member: who does it, not the Admin page's buttons
+    const member = appMapSection({ ...base, view: 'member' }, 'ko')
+    expect(member).toContain('invites, roles (admins: the owner only), a forgotten password (they make a reset link)')
+    // making someone an admin is the owner's (admin/users.ts ownerOnlyAdmins)
+    expect(appMapSection(base, 'en')).toContain('roles (admins: owner only)')
+    expect(member).not.toContain(DICTS.ko['members.resetLinkButton'])
+  })
+})
+
+describe('five places with no line before (catalog rerun 2026-11-17: ACC-04/05/06, CHT-13/14/16, SHR-03, FSH-03, MTG-01/02)', () => {
+  const LOCALES = ['ko', 'en', 'ja', 'zh', 'es', 'id'] as const
+  const aiNameIn = (L: (typeof LOCALES)[number]) => PRODUCT_NAMED_AFTER_AI ? DICTS[L]['rooms.aiName'] : PRODUCT.shortName
+  test('a shared chat: the thread line keeps only the labels and who is told (its instructions say the rest)', () => {
+    const s = appMapSection({ ...base, view: 'shared' }, 'en')
+    expect(s).toContain(`- Under a finished answer: ${DICTS.en['rooms.replyInThread']}, then `)
+    expect(s).toContain('the asker and repliers are told')
+    expect(s).not.toContain('not in a private chat')
+  })
+  test('every form, every language: each place by the label the app shows', () => {
+    for (const view of ['staff', 'member', 'shared'] as const) for (const L of LOCALES) {
+      const s = appMapSection({ ...base, view }, L)
+      const d = DICTS[L] as Record<string, string>
+      const want = [
+        `${d['sidebar.files']} › ${d['filesPanel.shared']}`, // Files › Shared with me
+        d['rooms.replyInThread'], d['chat.thread.sendToAi']!.replace('{name}', aiNameIn(L)), // threads under an answer
+        d['openApp.lineLink'], d['openApp.download'], // the desktop app hand-off
+        d['meeting.entry'], d['meeting.stop'], MEETINGS_LABEL[L], // meeting notes
+        d['folderAccess.menu'], d['fileShare.stop'], d['common.undo'], // folder sharing
+      ]
+      for (const w of want) expect({ view, L, w, there: s.includes(w) }).toEqual({ view, L, w, there: true })
+    }
+  })
+  test('sharing a chat: Share at the top right of the chat, in every form and language (CHT-04.how, 2026-11-17)', () => {
+    for (const view of ['staff', 'member', 'shared'] as const) for (const L of ['ko', 'en', 'ja', 'zh', 'es', 'id'] as const) {
+      const s = appMapSection({ ...base, view }, L)
+      expect({ view, L, there: s.includes(`top right ${DICTS[L]['projects.share']} (its starter): with people or groups`) }).toEqual({ view, L, there: true })
+    }
+    // the button is the chat header's (pages/Chat.tsx HeaderShare, labelled projects.share)
+    expect(fs.readFileSync(path.resolve(import.meta.dir, '../../web/src/components/HeaderShare.tsx'), 'utf8')).toContain("t('projects.share')")
+    expect(fs.readFileSync(path.resolve(import.meta.dir, '../../web/src/pages/Chat.tsx'), 'utf8')).toContain('<HeaderShare')
+  })
+  test('what each one does, as the decisions say', () => {
+    const s = appMapSection({ ...base, view: 'member' }, 'en')
+    // chat-answer-threads: shared chats only, Send to fills the box; the AI there reads it when someone asks
+    // (ai-reads-answer-comments, 2026-11-17: it no longer says the AI does not read it; CHT-16)
+    expect(s).toContain("Shared chat (a project's or shared with people), under a finished answer")
+    expect(s).toContain('the AI there reads it when someone asks')
+    expect(s).not.toContain('the AI does not read')
+    expect(s).toContain('not in a private chat')
+    // app sign-in: a Mac or Windows browser, no second password, not from a phone
+    expect(s).toContain(`Mac or Windows browser ${DICTS.en['openApp.lineLink']} › ${DICTS.en['openApp.mac']} (or Windows)`)
+    expect(s).toContain('no password')
+    // meeting notes: the Mac desktop app, no bot, the sound is not kept, the AI cannot listen or start it
+    // (only where the helper is: the Mac desktop app, not the Mac App Store build, and the team's voice input is on)
+    expect(s).toContain(`desktop app (not the Mac App Store one): ${DICTS.en['files.findWork.entryButton']}; on a Mac ${DICTS.en['meeting.entry']} (team voice input on`)
+    expect(s).toContain('sound not kept')
+    // MTG-02: the card offers a message for the call's chat; the note is written every 2 minutes (MeetingNotes.tsx)
+    expect(s).toContain('a line to tell the call, notes saved every 2 min in')
+    expect(s).toContain('the AI cannot listen or start it')
+    // folder sharing: view only, later files too, Undo right after (Files' toast; the server keeps it 10 minutes), team
+    // folders are the owner's or an admin's
+    expect(s).toContain('view only, later files too')
+    expect(s).toContain(`${DICTS.en['common.undo']} right after`)
+    expect(s).toContain('Team folders: owners and admins share')
+    // adding people needs the team's switch for members (files/shares.ts teamOn); taking people off never does
+    expect(s).toContain("the team can turn members' sharing off")
+  })
+  test('the places are where the map says', () => {
+    const has = (file: string, key: string) => expect({ file, key, there: read(file).includes(`'${key}'`) }).toEqual({ file, key, there: true })
+    has('web/src/components/panels/FilesPanel.tsx', 'filesPanel.shared')
+    has('web/src/components/chat/Messages.tsx', 'rooms.replyInThread')
+    has('web/src/components/chat/ChatThreadPanel.tsx', 'chat.thread.sendToAi')
+    has('web/src/components/onboarding/OpenAppLine.tsx', 'openApp.lineLink')
+    has('web/src/pages/OpenApp.tsx', 'openApp.download')
+    has('web/src/pages/OpenApp.tsx', 'openApp.mac')
+    has('web/src/components/MeetingNotes.tsx', 'meeting.entry')
+    has('web/src/components/MeetingNotes.tsx', 'meeting.stop')
+    has('web/src/pages/Files.tsx', 'folderAccess.menu')
+    has('web/src/components/FolderShareParts.tsx', 'fileShare.stop')
+    has('web/src/components/FolderShareParts.tsx', 'common.undo')
+    // the map says a folder can be shared: folder sharing is always on (its rollout gate was removed on dev)
+    // "Open the app" and "Take meeting notes" are both on My files (Files.tsx)
+    expect(read('web/src/pages/Files.tsx')).toContain('<OpenAppLine')
+    expect(read('web/src/pages/Files.tsx')).toContain('<MeetingNotesEntry')
   })
 })
 
@@ -142,11 +265,14 @@ describe('size: it is in every turn', () => {
   // a rough count calibrated on the engine's own usage (claude -p, 2026-11-16): Hangul about 1.45 tokens a syllable,
   // other text about 3.6 characters a token
   const tokens = (s: string) => { const h = (s.match(/[가-힣]/g) ?? []).length; return Math.round(h * 1.45 + (s.length - h) / 3.6) }
-  test('at most 20 lines and about 750 tokens in its longest form', () => {
-    for (const view of ['staff', 'member', 'shared'] as const) for (const L of ['ko', 'en', 'ja'] as const) {
-      const s = appMapSection({ view, managed: true, devEnv: true, office: false }, L)
-      expect({ view, L, lines: s.split('\n').length <= 20 }).toEqual({ view, L, lines: true })
-      expect({ view, L, small: tokens(s) <= 750 }).toEqual({ view, L, small: true })
+  // the cap was 900; 1,200 since the five places of 2026-11-17 (docs/decisions/20261117-ai-app-map-five-places.md: the
+  // longest form, an owner's or admin's in Korean, measured about 1,189 after the other lines were cut); 1,250 since
+  // where a chat is shared (docs/decisions/20261117-ai-facts-and-gaps.md: about 1,241)
+  test('at most 20 lines and about 1,250 tokens in its longest form, in every language', () => {
+    for (const view of ['staff', 'member', 'shared'] as const) for (const L of ['ko', 'en', 'ja', 'zh', 'es', 'id'] as const) for (const devEnv of [true, false]) {
+      const s = appMapSection({ view, managed: true, devEnv, office: false }, L)
+      expect({ view, L, devEnv, lines: s.split('\n').length <= 20 }).toEqual({ view, L, devEnv, lines: true })
+      expect({ view, L, devEnv, small: tokens(s) <= 1250 }).toEqual({ view, L, devEnv, small: true })
     }
   })
 })

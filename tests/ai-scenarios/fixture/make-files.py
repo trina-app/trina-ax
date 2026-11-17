@@ -229,6 +229,41 @@ def photo(path, label, colors, size=(1200, 800)):
     im.save(path)
 
 
+def heic_photo(path, kind, gps, taken):
+    """An iPhone-style HEIC: 3024 x 2016, camera, time and a GPS location in its EXIF (made with macOS sips)."""
+    W, H = 1600, 1066
+    f = path + '.tmp.jpg'
+    if kind == 'apple':
+        im = Image.new('RGB', (W, H), (205, 215, 225))
+        d = ImageDraw.Draw(im)
+        d.rectangle((0, 640, W, H), fill=(150, 100, 55))
+        d.ellipse((560, 300, 1040, 780), fill=(205, 35, 40))
+        d.ellipse((640, 340, 800, 460), fill=(235, 110, 110))
+        d.line((800, 320, 830, 210), fill=(90, 55, 25), width=22)
+        d.ellipse((830, 200, 980, 270), fill=(70, 160, 60))
+        d.ellipse((520, 760, 1080, 830), fill=(110, 70, 35))
+        d.rectangle((1050, 80, 1560, 260), fill=(250, 230, 40))
+        d.text((1305, 170), 'SALE 30%', font=ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc', 96), fill=(200, 20, 20), anchor='mm')
+    else:
+        im = Image.new('RGB', (W, H), (235, 225, 205))
+        d = ImageDraw.Draw(im)
+        d.rectangle((0, 700, W, H), fill=(120, 85, 55))
+        d.rectangle((600, 380, 1000, 760), fill=(250, 250, 250), outline=(120, 120, 120), width=6)
+        d.ellipse((600, 350, 1000, 430), fill=(90, 50, 25))
+        d.arc((950, 450, 1150, 650), 270, 90, fill=(250, 250, 250), width=40)
+        d.text((800, 600), 'COFFEE', font=ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc', 70), fill=(40, 40, 120), anchor='mm')
+    im = im.resize((3024, 2016), Image.LANCZOS)  # an iPhone's own size
+    e = Image.Exif()
+    e[0x010F] = 'Apple'
+    e[0x0110] = 'iPhone 15 Pro'
+    e.get_ifd(0x8769)[0x9003] = taken
+    g = e.get_ifd(0x8825)
+    g[1], g[2], g[3], g[4] = 'N', gps[0], 'E', gps[1]
+    im.save(f, quality=88, exif=e)
+    subprocess.run(['sips', '-s', 'format', 'heic', '-s', 'formatOptions', '55', f, '--out', path], check=True, capture_output=True)
+    os.remove(f)
+
+
 def scanned_pdf(path):
     """An image-only PDF that looks like a scanned paper (slightly turned, grey, noisy): no text layer."""
     W, H = 1240, 1754
@@ -330,6 +365,148 @@ def cover_letter(path):
     c.save()
 
 
+# Files that people send in team chat rooms (not team files): fixture/chatfiles/, uploaded by seed.ts into rooms.
+CHAT_OUT = os.path.join(HERE, 'chatfiles')
+
+
+def chat_out(name):
+    os.makedirs(CHAT_OUT, exist_ok=True)
+    return os.path.join(CHAT_OUT, name)
+
+
+def account_report_xlsx(path):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = '계좌신고서'
+    ws['A1'] = '계좌 신고서 (양식, 가상)'
+    ws['A1'].font = Font(bold=True, size=14)
+    rows = [('거래처명', '가나다상사(테스트)'), ('은행', '가나다은행(가짜)'), ('계좌번호', '000-0000-0000-00 (가짜)'),
+            ('예금주', '홍길동(가짜)'), ('사업자등록번호', '000-00-00000'), ('담당자 연락처', ''), ('신고일', ''), ('담당자 서명', '')]
+    for i, (k, v) in enumerate(rows, start=3):
+        ws.cell(row=i, column=1, value=k).font = Font(bold=True)
+        ws.cell(row=i, column=2, value=v)
+    ws.column_dimensions['A'].width = 18
+    ws.column_dimensions['B'].width = 32
+    wb.save(path)
+
+
+def business_license_pdf(path):
+    c = canvas.Canvas(path, pagesize=A4)
+    w, h = A4
+    c.setTitle('사업자등록증 (가상)')
+    c.setFont('KRB', 22)
+    c.drawCentredString(w / 2, h - 90, '사 업 자 등 록 증')
+    c.setFont('KR', 12)
+    for i, t in enumerate(['(일반과세자) 이 문서는 테스트용 가짜 서류입니다.', '상호: 가나다상사(테스트)', '대표자: 홍길동(가짜)',
+                           '사업자등록번호: 000-00-00000', '개업연월일: 2020년 1월 1일', '사업장 소재지: 서울특별시 가나구 다라로 1 (가상)',
+                           '업태: 도소매  종목: 사무용품']):
+        c.drawString(70, h - 150 - i * 30, t)
+    c.showPage()
+    c.save()
+
+
+def lead_list_xlsx(path):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = '리드'
+    ws.append(['업체', '담당', '상태'])
+    for r in [('다라치과(가상)', '이소라', '연락 전'), ('마바학원(가상)', 'Daniel', '견적 보냄'), ('바사카페(가상)', '이소라', '통화 완료')]:
+        ws.append(list(r))
+    wb.save(path)
+
+
+def quote_minji_xlsx(path):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = '견적서'
+    ws['A1'] = '견적서 (가상)'
+    ws['A1'].font = Font(bold=True, size=14)
+    ws.append([])
+    ws.append(['품목', '수량', '단가', '금액'])
+    for name, q, u in [('A4 복사용지 (박스)', 10, 27000), ('볼펜 0.5mm (갑)', 20, 6000), ('포스트잇 (팩)', 5, 9800)]:
+        ws.append([name, q, u, q * u])
+    ws.append(['합계(공급가액)', '', '', 439000])
+    wb.save(path)
+
+
+def refund_account_xlsx(path):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = '환불계좌 신청'
+    ws['A1'] = '환불 계좌 신청서 (양식, 가상)'
+    ws['A1'].font = Font(bold=True, size=14)
+    rows = [('신청인', '다라무역(테스트)'), ('은행', '가나다은행(가짜)'), ('계좌번호', '000-0000-0000-00 (가짜)'),
+            ('예금주', '김가짜(가짜)'), ('환불 사유', ''), ('신청일', ''), ('담당자 서명', '')]
+    for i, (k, v) in enumerate(rows, start=3):
+        ws.cell(row=i, column=1, value=k).font = Font(bold=True)
+        ws.cell(row=i, column=2, value=v)
+    ws.column_dimensions['A'].width = 18
+    ws.column_dimensions['B'].width = 32
+    wb.save(path)
+
+
+def bankbook_pdf(path):
+    c = canvas.Canvas(path, pagesize=A4)
+    w, h = A4
+    c.setTitle('통장 사본 (가상)')
+    c.setFont('KRB', 22)
+    c.drawCentredString(w / 2, h - 90, '통 장 사 본')
+    c.setFont('KR', 12)
+    for i, t in enumerate(['이 문서는 테스트용 가짜 서류입니다.', '은행: 가나다은행(가짜)', '계좌번호: 000-0000-0000-00 (가짜)',
+                           '예금주: 최가짜(가짜)', '개설일: 2020년 1월 1일']):
+        c.drawString(70, h - 150 - i * 30, t)
+    c.showPage()
+    c.save()
+
+
+def quote_daeun_xlsx(path):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = '견적서'
+    ws['A1'] = '견적서 (가상)'
+    ws['A1'].font = Font(bold=True, size=14)
+    ws.append([])
+    ws.append(['품목', '수량', '단가', '금액'])
+    for name, q, u in [('A4 복사용지 (박스)', 4, 27500), ('스테이플러 세트', 6, 12500)]:
+        ws.append([name, q, u, q * u])
+    ws.append(['합계(공급가액)', '', '', 185000])
+    wb.save(path)
+
+
+def account_form_pdf(path):
+    """A one-page blank account-report form (text layer, empty fields, a "(인)" sign spot lower right)."""
+    c = canvas.Canvas(path, pagesize=A4)
+    w, h = A4
+    c.setTitle('계좌 신고서 양식 (가상)')
+    c.setFont('KRB', 22)
+    c.drawCentredString(w / 2, h - 90, '계 좌 신 고 서')
+    c.setFont('KR', 10)
+    c.drawCentredString(w / 2, h - 112, '(양식, 테스트용 가짜 서류)')
+    c.setFont('KR', 13)
+    y = h - 180
+    for label in ['상호', '사업자등록번호', '대표자', '은행', '계좌번호', '예금주']:
+        c.drawString(70, y, label + ' :')
+        c.line(190, y - 3, 500, y - 3)
+        y -= 44
+    c.setFont('KR', 12)
+    c.drawString(70, y - 20, '위와 같이 계좌를 신고합니다.')
+    c.drawString(70, y - 44, '신고일 :        년     월     일')
+    c.drawRightString(500, y - 110, '신고인  대표자          (인)')
+    c.showPage()
+    c.save()
+
+
+def chat_files():
+    account_form_pdf(chat_out('계좌신고서-양식.pdf'))
+    refund_account_xlsx(chat_out('환불계좌-신청서.xlsx'))
+    bankbook_pdf(chat_out('통장사본.pdf'))
+    quote_daeun_xlsx(chat_out('견적서-다은.xlsx'))
+    account_report_xlsx(chat_out('계좌신고서.xlsx'))
+    business_license_pdf(chat_out('사업자등록증.pdf'))
+    lead_list_xlsx(chat_out('리드-목록.xlsx'))
+    quote_minji_xlsx(chat_out('견적서-민지.xlsx'))
+
+
 def main():
     # the text files next to these (Markdown, CSV, skills) are written by hand and kept
     os.makedirs(OUT, exist_ok=True)
@@ -345,11 +522,15 @@ def main():
     photo(out('groups/마케팅/사진/매장-전경.jpg'), '매장 전경 (예시)', [(40, 70, 90), (230, 180, 90), (90, 140, 120), (200, 90, 70)])
     photo(out('groups/마케팅/사진/IMG_2041.jpg'), '신제품 볼펜 (예시)', [(240, 240, 235), (30, 60, 160), (220, 60, 60), (40, 40, 40)])
     photo(out('groups/마케팅/사진/IMG_2042.jpg'), '재생지 박스 (예시)', [(200, 190, 160), (120, 100, 70), (240, 230, 200), (90, 120, 60)])
+    heic_photo(out('groups/마케팅/사진/IMG_3001.HEIC'), 'apple', ((37.0, 33.0, 59.0), (126.0, 58.0, 40.0)), '2026:11:10 14:05:09')
+    heic_photo(out('groups/마케팅/사진/IMG_3002.HEIC'), 'cup', ((35.0, 10.0, 20.0), (129.0, 4.0, 10.0)), '2026:11:11 09:30:00')
+    heic_photo(out('groups/마케팅/행사/IMG_3003.HEIC'), 'apple', ((37.0, 34.0, 10.0), (127.0, 0.0, 5.0)), '2026:11:12 11:00:00')
     scanned_pdf(out('projects/라마바카페-납품/방문보고서-스캔.pdf'))
     scanned_contract(out('projects/라마바카페-납품/계약서-서명본-스캔.pdf'))
     cover_letter(out('groups/영업/계약서/계약서-송부-커버레터.pdf'))
     shutil.copy(os.path.join(REPO, 'tests/fixtures/hwp/agreement.hwpx'), out('shared/양식/업무협약서-초안.hwpx'))
     shutil.copy(os.path.join(REPO, 'tests/fixtures/hwp/notice.hwpx'), out('shared/양식/공문-박람회-협조요청.hwpx'))
+    chat_files()
     print('written to', OUT)
 
 

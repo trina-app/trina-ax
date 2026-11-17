@@ -152,18 +152,21 @@ test('rooms: "@" over the count; the one count holds DMs and mentions once each,
   await showRooms(page)
   const badge = (name: string) => navRoomLinks(page).filter({ hasText: name }).getByTestId('room-unread')
   await expect(badge('Zed Park')).toHaveText(/^3/)
-  await expect(badge('마케팅팀')).toHaveText(/^12/)
+  // a channel at "Mentions only" (its default): 12 plain messages make the row bold, with no number (57c35ca3a,
+  // docs/decisions/20261116-mentions-only-no-count.md)
+  await expect(badge('마케팅팀')).toHaveCount(0)
   await expect(badge('영업팀')).toContainText('@')
   await expect(badge('전체')).toContainText('@')
   // the one count: the DM and the two mentions (each room once); the team room's 12 only make it bold
   await hide(page, true)
   await expect(page).toHaveTitle(/^\(3\) /)
   await hide(page, false)
-  // the phone: the 대화 tab's pill is the rail's number, the conversations with something unread (4, not 18 messages);
+  // the phone: the 대화 tab's pill is the rail's number, the conversations that count (3: the DM and the two mentions,
+  // not 18 messages, and not 마케팅팀's plain ones);
   // the AI's mark is for the AI chats only, and none wants me
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/')
-  await expect(tabMark(page, 'chats')).toContainText('4')
+  await expect(tabMark(page, 'chats')).toContainText('3')
   await expect(phoneAiMark(page)).toHaveCount(0)
 })
 

@@ -5,7 +5,7 @@ import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { APP_DOWNLOADS, PRODUCT } from '@mycel/shared'
-import { GUEST_LIMIT, guestPlacePath, inviteDeadReason, inviteGuest, type GuestPlaceView } from '../lib/guests'
+import { GUEST_LIMIT, guestPlacePath, inviteDeadReason, inviteGuest, joinLineKey, type GuestPlaceView } from '../lib/guests'
 import { type InviteInfo, type Locale, type PasswordResetInfo, type TeamLinkInfo } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
@@ -843,14 +843,15 @@ export function AcceptInvite() {
   )
 }
 
-/** A guest invite's line: "You'll join only the 'Quote prep' project. You won't see the rest of the team." (the general
- * words while the server does not name the place) */
+/** A guest invite's line: "You'll join only the 'Quote prep' project. You won't see the rest of the team." A room with no
+ * name is a group chat, a named one a private channel (lib/rooms.ts isPrivateChannel); the general words only while the
+ * server sends no place. */
 function GuestJoinLine({ place, ai }: { place: GuestPlaceView | null; ai: 'none' | 'team' | 'own' | null }) {
   const t = useT()
   return (
     <>
       <p className="text-ink" data-testid="invite-guest-place">
-        {place?.name ? t(place.kind === 'room' ? 'guest.join.room' : 'guest.join.project', { place: place.name }) : t('guest.join.some')}
+        {t(joinLineKey(place), { place: place?.name ?? '' })}
       </p>
       {/* their own sign-in: said before they join, so "connect your own" inside is no surprise */}
       {ai === 'own' && <p className="mt-2 text-muted" data-testid="invite-guest-own-ai">{t('guest.join.ownAi')}</p>}

@@ -22,7 +22,7 @@ The same question can use an HR file only for a person allowed to read it. The s
 - The server asks `https://updates.trina.app/ip` for its own public address every 30 minutes (`MYCEL_EXIT_ADDRESS_CHECK=off` stops it).
 - Each Codex web search sends the conversation so far to OpenAI's search service.
 
-Self-hosting is not offline. Hosting in AWS Seoul is where the team server runs, not where the AI provider processes data.
+Self-hosting is not offline. The hosting region (AWS Seoul, Virginia or Singapore) is where the team server runs, not where the AI provider processes data.
 
 ## Who can read what
 

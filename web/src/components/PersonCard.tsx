@@ -39,8 +39,10 @@ export type PersonLook = 'face' | 'name' | 'mention' | 'row'
 const LONG_PRESS_MS = 500
 
 const LOOK: Record<PersonLook, string> = {
-  face: 'flex cursor-pointer rounded-full transition hover:opacity-80 aria-expanded:opacity-80',
-  name: 'block max-w-full cursor-pointer truncate rounded-sm text-left hover:underline aria-expanded:underline',
+  // a phone: 44px to tap (index.css touch-hit), the photo around its middle, the name from its start so it does not
+  // reach back over the photo; the name's truncate is on its inner span (a clipping box would cut the tap box)
+  face: 'touch-hit flex cursor-pointer rounded-full transition hover:opacity-80 aria-expanded:opacity-80',
+  name: 'touch-hit-start block max-w-full cursor-pointer rounded-sm text-left hover:underline aria-expanded:underline',
   mention: 'cursor-pointer text-left hover:underline aria-expanded:underline',
   row: "block max-w-full cursor-pointer truncate text-left after:absolute after:inset-0 after:rounded-lg after:content-['']",
 }
@@ -75,7 +77,7 @@ export function PersonButton({ user, look, className, boxClassName, onGo, childr
       tip=""
       bare
       inline={look === 'mention'}
-      icon={children}
+      icon={look === 'name' ? <span className="block truncate">{children}</span> : children}
       className={clsx(look === 'row' ? 'static' : look === 'mention' && 'inline', boxClassName)}
       buttonClassName={clsx(LOOK[look], className)}
       startAligned

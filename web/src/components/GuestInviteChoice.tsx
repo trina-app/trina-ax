@@ -19,7 +19,9 @@
 //   - my own personal projects, when I may share them (as the project page's "Add people": the owner and admins, or
 //     members when the team lets them): the invite form shares one first, then makes the link (docs/DECISIONS.md
 //     "Guests into a personal project"). Such a row says "Only me".
-// A search box once there are more than a few; group chats first, then projects; a row picks the place.
+// A search box once there are more than a few; private channels (group rooms with a name, a lock) first, then group
+// chats (group DMs: no name, named after their people), then projects; a row picks the place. Both kinds of group room
+// take a guest (server: rooms.kind 'group'), so the words say "private channel or group chat" where either can be meant.
 import { FolderKanban, Lock, MessagesSquare } from 'lucide-react'
 import { isPrivateChannel } from '../lib/rooms'
 import { useEffect, useMemo, useState } from 'react'
@@ -141,6 +143,8 @@ export function GuestPlacePicker({ onPick }: { onPick: (place: InvitePlace) => v
   const projects = useMemo(() => (managed ?? []).filter((p) => !p.inTrash && (p.membersEditable || mayShareForGuest(p, me))).map((p) => ({ id: p.id, name: p.name, personal: mayShareForGuest(p, me) })), [managed, me])
   const needle = q.trim().toLocaleLowerCase(locale)
   const shownRooms = groupChats.filter((r) => matches(needle, locale, r.name))
+  const shownChannels = shownRooms.filter((r) => r.locked)
+  const shownGroups = shownRooms.filter((r) => !r.locked)
   const shownProjects = projects.filter((p) => matches(needle, locale, p.name))
   const loading = !failed && (!roomsLoaded || managed === null)
   const total = groupChats.length + projects.length
@@ -156,12 +160,22 @@ export function GuestPlacePicker({ onPick }: { onPick: (place: InvitePlace) => v
         <p className="text-sm text-muted" data-testid="guest-place-no-match">{t('guest.invite.noPlaceMatch')}</p>
       ) : (
         <div className="-mx-3">
-          {shownRooms.length > 0 && (
+          {shownChannels.length > 0 && (
+            <>
+              <p className={label}>{t('guest.invite.privateChannels')}</p>
+              <ul data-testid="guest-place-channels">
+                {shownChannels.map((r) => (
+                  <ListRow key={r.id} face icon={<Lock />} name={r.name} meta={t('rooms.members', { n: r.count })} onClick={() => onPick({ kind: 'room', id: r.id, name: r.name, privateChannel: true })} testId="guest-place-room" />
+                ))}
+              </ul>
+            </>
+          )}
+          {shownGroups.length > 0 && (
             <>
               <p className={label}>{t('guest.invite.groupChats')}</p>
               <ul data-testid="guest-place-rooms">
-                {shownRooms.map((r) => (
-                  <ListRow key={r.id} face icon={r.locked ? <Lock /> : <MessagesSquare />} name={r.name} meta={t('rooms.members', { n: r.count })} onClick={() => onPick({ kind: 'room', id: r.id, name: r.name })} testId="guest-place-room" />
+                {shownGroups.map((r) => (
+                  <ListRow key={r.id} face icon={<MessagesSquare />} name={r.name} meta={t('rooms.members', { n: r.count })} onClick={() => onPick({ kind: 'room', id: r.id, name: r.name, privateChannel: false })} testId="guest-place-room" />
                 ))}
               </ul>
             </>

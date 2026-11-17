@@ -16,6 +16,8 @@ import { fileOpener, roomsOf } from '../rooms/service'
 import { roomFilesOf } from '../rooms/files'
 import { deleteGrant, listGrants } from '../rooms/ai-grants'
 import { keptMediaCache } from '../auth/media-key'
+import { mapErrors } from '../team-files/errors'
+import { savedFiles, savePlan, saveToTeam } from '../rooms/save-to-team'
 
 export const roomsRoutes: RouteModule = {
   name: 'rooms',
@@ -52,6 +54,8 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.searchRoomMessages, ({ c, auth, query }) => { c.header('Cache-Control', 'no-store'); return rooms.search(auth.user.id, query) })
     // and the files sent with those messages, by name (the same rule: rooms/search.ts searchRoomFiles)
     kit.handle(API.searchRoomFiles, ({ c, auth, query }) => { c.header('Cache-Control', 'no-store'); return rooms.searchFiles(auth.user.id, query) })
+    // "Files you sent": my own, largest first (docs/decisions/20261116-room-files-cleanup.md)
+    kit.handle(API.listMyRoomFiles, ({ c, auth, query }) => { c.header('Cache-Control', 'no-store'); return rooms.listMyFiles(auth.user.id, query) })
     // the screen's language for a refusal ("@트리나" asks nothing: docs/DECISIONS.md "Room @트리나 code removed")
     kit.handle(API.sendRoomMessage, ({ c, auth, params, body }) => rooms.send(auth.user.id, params.id, body, { locale: c.get('locale'), ...(body.showMessages?.length ? { showMessages: body.showMessages } : {}) }))
     // message links (docs/DECISIONS.md "Message links and their previews", rooms/link-previews.ts): the composer's
@@ -103,6 +107,12 @@ export const roomsRoutes: RouteModule = {
       const unable = others.filter((m) => !fileOpener(ctx, m.user_id)(body.path)).length
       return { file, unable }
     })
+    // "Save to team folder" on a file of a room, a DM or a thread (rooms/save-to-team.ts, docs/decisions/
+    // 20261117-room-file-save-btn.md): the files saved where I can open them, the sheet's plan, and the copy, each with
+    // room_file's read checks and, for the copy, the AI's byte save (write access again, never an overwrite)
+    kit.handle(API.roomSavedFiles, ({ c, auth, params }) => { c.header('Cache-Control', 'no-store'); return savedFiles(ctx, auth.user.id, params.id) })
+    kit.handle(API.roomSavePlan, ({ c, auth, params, body }) => mapErrors(c.get('locale'), () => savePlan(ctx, auth.user.id, params.id, body.fileIds, body.folder), 'body.folder'))
+    kit.handle(API.saveRoomFilesToTeam, ({ c, auth, params, body }) => mapErrors(c.get('locale'), () => saveToTeam(ctx, auth.user.id, params.id, body.fileIds, body.folder), 'body.folder'))
     kit.handle(API.roomFile, ({ c, auth, params, query }) => {
       const f = files.open(auth.user.id, params.id, params.fileId, !!query.thumb)
       // a file on the safety check's download-only list (docs/SAFE-OPS-1A.md) goes only as a download (download=1): no

@@ -105,6 +105,11 @@ describe('a guest link and the cap (S7, M4)', () => {
     expect(own).toContain(t('teamLink.msg.ownAi'))
     const ko = guestLinkMessage((k, p) => translate('ko', k, p), { name: '미아', place, url: 'u', until: '11월 22일', ownAi: false })
     expect(ko).toContain("'Quote prep' 그룹 대화에 초대할게요. 이 그룹 대화만 보여요.")
+    // a room with a name of its own is a private channel, and the message says so (TC-4461)
+    const channel = { ...place, privateChannel: true }
+    expect(guestLinkMessage(t, { name: 'Mia', place: channel, url: 'u', until: 'd', ownAi: false })).toContain("I'm inviting you to our 'Quote prep' private channel on ")
+    expect(guestLinkMessage(t, { name: '', place: channel, url: 'u', until: 'd', ownAi: false })).toContain("You'll see only this private channel.")
+    expect(guestLinkMessage((k, p) => translate('ko', k, p), { name: '미아', place: channel, url: 'u', until: 'd', ownAi: false })).toContain("'Quote prep' 비공개 채널에 초대할게요. 이 비공개 채널만 보여요.")
   })
 
   test('the links that hold a place come with a full cap, from the read and from a refused Create link', () => {

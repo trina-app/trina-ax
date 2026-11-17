@@ -57,7 +57,7 @@ export const FEATURES: Feature[] = [
   { id: 'chat.cards', name: 'AI questions, confirmations and connect cards in a turn', area: 'AI chat', endpoints: ['listTurnRequests', 'answerTurn', 'connectTurn'] },
   { id: 'chat.sources', name: 'Answer sources', area: 'AI chat', endpoints: ['messageSources'] },
   { id: 'chat.share', name: 'Share a chat (with its project, or with chosen people and groups) or an answer to a room', area: 'AI chat', endpoints: ['shareChat', 'shareAnswerToRoom', 'getChatAudience', 'putChatAudience', 'previewChatAudience', 'hideChat', 'unhideChat', 'userSharedChats', 'chatFile', 'linkAccess', 'requestLinkAccess', 'answerAccessRequest'] },
-  { id: 'chat.threads', name: 'Threads on AI answers in shared chats (people talk under an answer, then send it to the AI)', area: 'AI chat', endpoints: ['listChatThread', 'sendChatThreadReply', 'deleteChatThreadReply', 'markChatThreadRead'], screens: ['/c/:chatId/t/:messageId'] },
+  { id: 'chat.threads', name: 'Threads on AI answers in shared chats (people talk under an answer; the AI reads it when asked, or someone sends it)', area: 'AI chat', endpoints: ['listChatThread', 'sendChatThreadReply', 'deleteChatThreadReply', 'markChatThreadRead'], screens: ['/c/:chatId/t/:messageId'] },
   { id: 'chat.engine', name: 'Pick the AI engine and model', area: 'AI chat', endpoints: ['chatEngines'] },
   { id: 'chat.artifacts', name: 'Artifacts made in a chat (pages, documents)', area: 'AI chat', endpoints: ['listChatArtifacts', 'getArtifact'] },
   { id: 'chat.decks', name: 'Intro decks (slides, PPTX, PDF)', area: 'AI chat', endpoints: ['*IntroDeck*', 'listDeckBuilds', 'deckBuildSlide'] },
@@ -102,8 +102,9 @@ export const FEATURES: Feature[] = [
   { id: 'rooms.message-links', name: 'Message links: Copy link, previews, Show message, remove preview', area: 'Rooms', endpoints: ['roomMessageLinkAudience', 'hideRoomLinkPreview'] },
   { id: 'rooms.members', name: 'Room members: invite, remove, leave, rename', area: 'Rooms', endpoints: ['updateRoom', 'listRoomMembers', 'inviteRoomMembers', 'removeRoomMember', 'leaveRoom'] },
   { id: 'rooms.hide-pin', name: 'Hide and pin conversations', area: 'Rooms', endpoints: ['setRoomHidden', 'pinRoom', 'unpinRoom'] },
-  { id: 'rooms.files', name: 'Files in a room', area: 'Rooms', endpoints: ['uploadRoomFile', 'attachRoomTeamFile', 'roomFile', 'roomFileHwpPreview'] },
+  { id: 'rooms.files', name: 'Files in a room', area: 'Rooms', endpoints: ['uploadRoomFile', 'attachRoomTeamFile', 'roomFile', 'roomFileHwpPreview', 'roomSavedFiles', 'roomSavePlan', 'saveRoomFilesToTeam'] },
   { id: 'rooms.search', name: 'Search messages and files of rooms', area: 'Rooms', endpoints: ['searchRoomMessages', 'searchRoomFiles'] },
+  { id: 'rooms.sent-files', name: 'Files you sent: my own files in rooms, largest first, delete', area: 'Rooms', endpoints: ['listMyRoomFiles'], screens: ['/sent-files'] },
   { id: 'rooms.activity', name: 'Activity: mentions and thread replies', area: 'Rooms', screens: ['/activity', '/activity/:noticeId'] },
   { id: 'rooms.apps', name: 'Apps posting in rooms (Sentry, GitHub, Google Forms, Notion, Typeform, Tally, Jotform, Stripe, Shopify, Zendesk, Jira, HubSpot; more services: Toss Payments, Channel Talk, PortOne; other services in Slack, Discord or JANDI format; added from a conversation menu or from "Add to a conversation" in Connectors)', area: 'Rooms', endpoints: ['listRoomApps', 'createRoomApp', 'getRoomAppAddress', 'updateRoomApp', 'setRoomAppSecret', 'rotateRoomApp', 'resumeRoomApp', 'exampleRoomApp', 'deleteRoomApp', 'putRoomAppIcon', 'setRoomAppEmoji', 'deleteRoomAppIcon', 'roomAppIcon'], screens: ['/rooms/:roomId'] },
 
@@ -173,8 +174,8 @@ export const FEATURES: Feature[] = [
   { id: 'admin.dev-env', name: 'Dev environment for the team', area: 'Admin', endpoints: ['devEnvTeam', 'updateDevEnvTeam'], screens: ['/admin/settings/dev-env'] },
 
   // ---------------- System ----------------
-  { id: 'system.storage', name: 'Storage use', area: 'System', endpoints: ['storage'], screens: ['/admin/system', '/admin/system/storage'] },
-  { id: 'system.updates', name: 'Server updates', area: 'System', endpoints: ['updateStatus', 'startUpdate', 'officeUpdateStatus', 'officeUpdateAction'], screens: ['/admin/system/updates'] },
+  { id: 'system.storage', name: 'Storage use', area: 'System', endpoints: ['storage', 'askStorageCleanup'], screens: ['/admin/system', '/admin/system/storage'] },
+  { id: 'system.updates', name: 'Server updates', area: 'System', endpoints: ['updateStatus', 'startUpdate', 'officeUpdateStatus', 'officeUpdateAction', 'officeClaudeMcpNotice'], screens: ['/admin/system/updates'] },
   { id: 'system.health', name: 'Health and diagnostics', area: 'System', endpoints: ['diagnostics'], screens: ['/admin/system/health'] },
   { id: 'system.connection', name: 'Team address and office network', area: 'System', endpoints: ['connection', 'updateConnection', 'connectInfo', 'lanFailure'], screens: ['/admin/system/connection'] },
   { id: 'system.backups', name: 'Backups and restore', area: 'System', endpoints: ['listBackups', 'startBackup', 'startRestore'], screens: ['/admin/system/backups'] },

@@ -52,7 +52,8 @@ test("a room photo's right-click: the app's menu at the pointer; 링크 복사 c
   const pic = page.getByTestId('room-image')
   const box = (await pic.boundingBox())!
   await page.mouse.click(box.x + 20, box.y + 20, { button: 'right' })
-  await expect(items(page)).toHaveText(['이미지 복사', '링크 복사', '내려받기', '트리나에게 이 파일 묻기'])
+  // a room file has 팀 폴더에 저장 too (docs/decisions/20261117-room-file-save-btn.md)
+  await expect(items(page)).toHaveText(['이미지 복사', '링크 복사', '내려받기', '팀 폴더에 저장', '트리나에게 이 파일 묻기'])
   // at the pointer: its top left corner there
   const m = (await menu(page).boundingBox())!
   expect(Math.abs(m.x - (box.x + 20))).toBeLessThan(2)
@@ -100,7 +101,7 @@ test('the keyboard: the menu key and Shift+F10 open it on the focused photo, Esc
   await expect(menu(page)).toHaveCount(0)
   await expect(pic).toBeFocused()
   await page.keyboard.press('ContextMenu')
-  await expect(items(page)).toHaveCount(4)
+  await expect(items(page)).toHaveCount(5)
   await page.keyboard.press('Escape')
   // Shift+right-click keeps the browser's own menu: the app's does not open
   await pic.click({ button: 'right', modifiers: ['Shift'] })
@@ -110,7 +111,7 @@ test('the keyboard: the menu key and Shift+F10 open it on the focused photo, Esc
 test('a file chip: no 이미지 복사; the viewer picture: its menu, and 링크 복사 there too', async ({ page }) => {
   await openRoom(page)
   await page.getByTestId('room-file-open').click({ button: 'right' })
-  await expect(items(page)).toHaveText(['링크 복사', '내려받기', '트리나에게 이 파일 묻기'])
+  await expect(items(page)).toHaveText(['링크 복사', '내려받기', '팀 폴더에 저장', '트리나에게 이 파일 묻기'])
   await page.keyboard.press('Escape')
 
   await page.getByTestId('room-image').click()
@@ -157,7 +158,7 @@ test.describe('phone width', () => {
   test('the same menu is a sheet from the bottom', async ({ page }) => {
     await openRoom(page)
     await page.getByTestId('room-image').click({ button: 'right' })
-    await expect(items(page)).toHaveCount(4)
+    await expect(items(page)).toHaveCount(5)
     const m = (await menu(page).boundingBox())!
     expect(m.x).toBe(0)
     expect(Math.round(m.y + m.height)).toBe(780)

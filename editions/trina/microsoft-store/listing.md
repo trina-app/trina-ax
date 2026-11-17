@@ -114,7 +114,7 @@ IN THE APP
 • Switch between several teams
 
 YOUR SERVER, YOUR DATA
-Run Trina AX on your own Mac mini or server, or on a dedicated AWS Seoul server hosted by Trina. Trina AX is open source (AGPL-3.0): github.com/trina-app/trina-ax
+Run Trina AX on your own Mac mini or server, or on a dedicated server hosted by Trina in AWS Seoul, Virginia or Singapore. Trina AX is open source (AGPL-3.0): github.com/trina-app/trina-ax
 
 GETTING STARTED
 You need a Trina AX team server and an account. Self-hosting is free. Learn about hosting at ax.trina.app. AI usage is billed separately by your AI provider, such as Anthropic or OpenAI.
@@ -169,7 +169,7 @@ Claude is a trademark of Anthropic. Codex is a trademark of OpenAI. Trina AX is 
 • 여러 팀을 오가며 쓰기
 
 ■ 우리 서버, 우리 자료
-사무실 맥 미니나 회사 서버에 직접 설치하거나, 트리나가 운영하는 AWS 서울 전용 서버를 쓸 수 있어요. 코드는 GitHub에 공개된 오픈소스(AGPL-3.0)예요. github.com/trina-app/trina-ax
+사무실 맥 미니나 회사 서버에 직접 설치하거나, 트리나가 AWS 서울·버지니아·싱가포르에서 운영하는 전용 서버를 쓸 수 있어요. 코드는 GitHub에 공개된 오픈소스(AGPL-3.0)예요. github.com/trina-app/trina-ax
 
 ■ 시작하기
 트리나 AX 팀 서버와 계정이 필요해요. 직접 설치는 무료예요. 호스팅과 도입 상담은 ax.trina.app에서 안내해 드려요. AI 사용료는 Anthropic·OpenAI 같은 AI 회사에 따로 내요.
@@ -229,7 +229,7 @@ Claude 会读取你有权打开的团队文件夹：方案、价目表、会议�
 • 在多个团队之间切换
 
 你的服务器，你的数据
-Trina AX 可以安装在你们自己的 Mac mini 或服务器上，也可以使用 Trina 托管的 AWS 首尔专用服务器。Trina AX 是开源软件（AGPL-3.0）：github.com/trina-app/trina-ax
+Trina AX 可以安装在你们自己的 Mac mini 或服务器上，也可以使用 Trina 在 AWS 首尔、弗吉尼亚或新加坡托管的专用服务器。Trina AX 是开源软件（AGPL-3.0）：github.com/trina-app/trina-ax
 
 开始使用
 你需要一台 Trina AX 团队服务器和一个账号。自行安装免费。托管方案请访问 ax.trina.app 了解。AI 使用费由你的 AI 服务商（如 Anthropic 或 OpenAI）另行收取。

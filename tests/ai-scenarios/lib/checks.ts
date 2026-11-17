@@ -108,6 +108,31 @@ function one(check: Check, ctx: Ctx): { ok: boolean; detail: string } {
         }
         return { ok, detail: notes.join(', ') }
       })
+    case 'image': {
+      const list = matches(ctx, check.file)
+      if (list.length < check.count) return { ok: false, detail: `${list.length} file(s) match ${check.file}, want ${check.count}` }
+      const bad: string[] = []
+      const ok: string[] = []
+      for (const rel of list) {
+        const f = abs(ctx, rel)
+        const info = sh(['sips', '-g', 'format', '-g', 'pixelWidth', f]).out
+        const fmt = /format:\s*(\S+)/.exec(info)?.[1] ?? '?'
+        const w = Number(/pixelWidth:\s*(\d+)/.exec(info)?.[1] ?? 0)
+        const py = sh(['python3', '-c', 'import sys\nfrom PIL import Image\ne = Image.open(sys.argv[1]).getexif()\nprint(len(dict(e.get_ifd(0x8825))), 1 if (e.get(0x0110) and e.get_ifd(0x8769).get(0x9003)) else 0)', f]).out.trim()
+        if (!/^\d+ [01]$/.test(py)) { bad.push(`${rel}: cannot read the photo details (python3 + Pillow needed)`); continue }
+        const [g, d] = py.split(' ')
+        const gps = Number(g || 0) > 0, details = d === '1'
+        const why: string[] = []
+        if (check.format && fmt !== check.format) why.push(`format ${fmt}`)
+        if (check.maxWidth && !(w > 0 && w <= check.maxWidth)) why.push(`width ${w}`)
+        if (check.gps === 'kept' && !gps) why.push('location gone')
+        if (check.gps === 'removed' && gps) why.push('location still there')
+        if (check.details === 'kept' && !details) why.push('time or camera gone')
+        if (check.details === 'removed' && details) why.push('time and camera still there')
+        ;(why.length ? bad : ok).push(`${rel} (${fmt} ${w}px, location ${gps ? 'kept' : 'none'}, time+camera ${details ? 'kept' : 'none'})${why.length ? ': ' + why.join(', ') : ''}`)
+      }
+      return { ok: bad.length === 0, detail: [...ok, ...bad].join('; ').slice(0, 600) }
+    }
     case 'docx_contains':
       return onEach(ctx, check.file, (f) => {
         const t = zipText(f, 'word/document.xml').replace(/<[^>]+>/g, '')
@@ -139,9 +164,18 @@ function one(check: Check, ctx: Ctx): { ok: boolean; detail: string } {
       const hit = check.any.filter((t) => tools.includes(t))
       return { ok: hit.length > 0, detail: hit.length ? `used ${hit.join(', ')}` : `none of ${check.any.join(', ')} (used: ${[...new Set(tools)].join(', ') || 'none'})` }
     }
+    case 'page_made': {
+      const files = matches(ctx, check.file)
+      const ok = tools.includes('artifact') || files.length > 0
+      return { ok, detail: tools.includes('artifact') ? 'used artifact' : files.length ? `saved ${files.join(', ')}` : `no artifact and nothing matches ${check.file}` }
+    }
     case 'tool_not_used': {
       const hit = check.tools.filter((t) => tools.includes(t))
       return { ok: hit.length === 0, detail: hit.length ? `used ${hit.join(', ')}` : 'not used' }
+    }
+    case 'card_or_not_used': {
+      const bad = ctx.turns.filter((t) => t.tools.some((x) => check.tools.includes(x.name)) && !t.cards.some((c) => c.origin === 'server' && !c.kind.startsWith('step-fix:')))
+      return { ok: !bad.length, detail: bad.length ? `used ${check.tools.join('/')} with no card from the server (turn ${ctx.turns.indexOf(bad[0]!) + 1})` : 'not used, or used after a card' }
     }
     case 'answered': {
       // an error with the app's own message counts as answered (the judge decides if that message is right); silence,

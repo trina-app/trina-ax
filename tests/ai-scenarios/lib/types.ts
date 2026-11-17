@@ -26,6 +26,8 @@ export const Check = z.discriminatedUnion('type', [
   /** page N is shown turned by `deg` (0 = upright): the page's own rotation, or a page laid out the other way round */
   z.object({ type: z.literal('pdf_upright'), file: z.string(), page: z.number().int().positive() }),
   z.object({ type: z.literal('xlsx'), file: z.string(), header: z.string().optional(), formula: z.boolean().optional(), chart: z.boolean().optional(), cell: z.object({ ref: z.string(), equals: z.union([z.string(), z.number()]) }).optional() }),
+  // photos: every changed file that matches `file` is read; `count` of them at least; JPEG, no wider than `maxWidth`, with or without a GPS location
+  z.object({ type: z.literal('image'), file: z.string(), count: z.number().int().positive().default(1), format: z.enum(['jpeg', 'png', 'webp']).optional(), maxWidth: z.number().int().positive().optional(), gps: z.enum(['kept', 'removed']).optional(), details: z.enum(['kept', 'removed']).optional() }),
   z.object({ type: z.literal('docx_contains'), file: z.string(), text: z.string() }),
   z.object({ type: z.literal('pptx_slides'), file: z.string(), min: z.number().int().positive() }),
   z.object({ type: z.literal('file_contains'), path: z.string(), text: z.string() }),
@@ -36,6 +38,12 @@ export const Check = z.discriminatedUnion('type', [
   z.object({ type: z.literal('answer_not_matches'), pattern: z.string() }),
   z.object({ type: z.literal('tool_used'), any: z.array(z.string()).min(1) }),
   z.object({ type: z.literal('tool_not_used'), tools: z.array(z.string()).min(1) }),
+  /** a working page: an artifact, or an .html file saved where `file` says (the file viewer runs it the same way, in the
+   * sandbox frame: web FileBody.tsx); a project chat saves its work in the project folder (CHT-05.project) */
+  z.object({ type: z.literal('page_made'), file: z.string().default('**/*.html') }),
+  /** in each turn that used one of `tools`, the server showed a card (the person said yes to it): content or a change
+   * that reaches people who could not see it never happens on the AI's word alone */
+  z.object({ type: z.literal('card_or_not_used'), tools: z.array(z.string()).min(1) }),
   z.object({ type: z.literal('room_message'), pattern: z.string() }),
   z.object({ type: z.literal('no_room_message'), pattern: z.string() }),
   /** added to every case by the runner: each turn ended and said something (a refusal check never passes on silence) */
@@ -72,6 +80,12 @@ const CaseFields = {
   fixInProgress: z.string().optional(),
   /** team paths this case may change: put back from the fixture after it */
   restores: z.array(z.string()).default([]),
+  /** it may change who can open what (access, people, skill places, "Always allow"): it runs alone, after the others
+   * (cases of the features in STATE_FEATURES do so anyway) */
+  changesState: z.boolean().default(false),
+  /** the asker's device time zone, sent with each turn as the web app does (IANA, e.g. Asia/Jakarta; QA TC-4549):
+   * the AI gives its times in it. Without it no zone is sent (the team's is used). */
+  timeZone: z.string().optional(),
   /** in the first, representative pass (`run --first-pass`) */
   pass1: z.boolean().default(false),
   /** why this case exists (the incident, the decision) */
@@ -85,8 +99,10 @@ export const Variant = z.object({
   key: z.string().regex(/^[a-z0-9-]+$/),
   // without the base fields' defaults: a field the variant leaves out comes from the base case, not from the default
   ...Object.fromEntries(Object.entries(CaseFields).map(([k, v]) => [k, (v instanceof z.ZodDefault ? (v.unwrap() as z.ZodType) : (v as z.ZodType)).optional()])) as { [K in keyof typeof CaseFields]: z.ZodOptional<z.ZodType<z.output<(typeof CaseFields)[K]>>> },
-})
-export const CaseInput = z.object({ id: z.string().regex(/^[A-Z]+-\d{2,3}$/), ...CaseFields, variants: z.array(Variant).default([]) })
+}).strict()
+// strict: a field this runner does not know (a newer cases.yaml read by an older runner) stops the run instead of being
+// dropped. TC-4549: an older runner dropped `timeZone`, ran the Jakarta cases with no zone and reported Seoul times.
+export const CaseInput = z.object({ id: z.string().regex(/^[A-Z]+-\d{2,3}$/), ...CaseFields, variants: z.array(Variant).default([]) }).strict()
 export const Catalog = z.object({ version: z.number().int().positive(), cases: z.array(CaseInput) })
 
 export interface ToolCall { name: string; input: unknown; ok: boolean; result?: string }
@@ -127,6 +143,10 @@ export interface CaseResult {
   /** words a non-developer should never read, found in the answers */
   jargon: string[]
   error: string | null
+  /** who-can-open-what that changed during the case (lib/state-guard.ts), put back after it; `driftLeft`: what could
+   * not be put back */
+  drift?: string[]
+  driftLeft?: string[]
   judge?: Verdict
 }
 export const Verdict = z.object({

@@ -33,6 +33,7 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+import { assertNoCommonJsUpng, pdfLibBundlePlugins } from '../server/src/files/bundle-pins'
 import { inspectInstaller, MANIFEST } from '../server/src/office/desktop'
 import { PRODUCT, productEnv } from '../shared/src/product'
 import { stageHwp } from './hwp-bundle'
@@ -237,8 +238,11 @@ export async function buildOffice(o: {
     const res = await Bun.build({
       entrypoints: [path.join(REPO, entry)], target: 'bun', outdir: path.join(stage, '.build'), naming: '[name].js', minify: false,
       define: { 'process.env.MYCEL_BUILD_VERSION': JSON.stringify(o.version) },
+      plugins: pdfLibBundlePlugins(),
     })
     if (!res.success) throw new Error(res.logs.map(String).join('\n'))
+    // a PNG decoder bundled as CommonJS would fail every PDF image: stop the build here (bundle-pins.ts)
+    for (const f of res.outputs) assertNoCommonJsUpng(f.path)
     fs.renameSync(res.outputs[0]!.path, path.join(app, 'server', 'src', out))
   }
   fs.rmSync(path.join(stage, '.build'), { recursive: true, force: true })

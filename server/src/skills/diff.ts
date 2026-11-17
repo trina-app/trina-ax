@@ -1,7 +1,8 @@
 // A small line diff for the "save under skills/?" confirmation card (team skills, docs/DECISIONS.md "팀 스킬 관리"):
 // unified-diff hunks with three lines of context, cut when long. Common head and tail are skipped first; the middle
 // is compared line by line (LCS) when it is small enough, otherwise shown as removed + added.
-export interface LineDiff { text: string; added: number; removed: number; truncated: boolean }
+/** approximate: the changed middle was too long to compare line by line, so all of it is shown as removed + added */
+export interface LineDiff { text: string; added: number; removed: number; truncated: boolean; approximate: boolean }
 
 const CONTEXT = 3
 const MAX_CELLS = 4_000_000
@@ -43,7 +44,7 @@ export function lineDiff(before: string, after: string, maxChars = 6000): LineDi
   let text = out.join('\n')
   let truncated = false
   if (text.length > maxChars) { text = text.slice(0, maxChars).replace(/\n[^\n]*$/, '') + '\n…'; truncated = true }
-  return { text, added, removed, truncated }
+  return { text, added, removed, truncated, approximate: am.length * bm.length > MAX_CELLS }
 }
 
 function splitLines(s: string): string[] {

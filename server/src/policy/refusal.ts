@@ -153,8 +153,20 @@ const LABEL = {
   usage: t('사용량', 'Usage', 'Penggunaan', '使用量', 'Uso', '用量'),
   // Admin › System (web admin.system)
   system: t('시스템', 'System', 'Sistem', 'システム', 'Sistema', '系统'),
+  // Settings › Profile › Delete account (web settings.profile, accountDeletion.title)
+  profile: t('프로필', 'Profile', 'Profil', 'プロフィール', 'Perfil', '个人资料'),
+  deleteAccount: t('계정 삭제', 'Delete account', 'Hapus akun', 'アカウントの削除', 'Eliminar la cuenta', '删除账号'),
+  // Admin › Members & invites, a person's ⋯ › Transfer ownership (web admin.members, handover.menu)
+  members: t('멤버·초대', 'Members & invites', 'Anggota & undangan', 'メンバーと招待', 'Miembros e invitaciones', '成员与邀请'),
+  handover: t('팀장 넘기기', 'Transfer ownership', 'Serahkan kepemilikan', 'オーナーを引き継ぐ', 'Ceder la propiedad', '转让所有权'),
+  // a file's ⋯ › Version history on the Files screen (web files.history)
+  history: t('버전 기록', 'Version history', 'Riwayat versi', 'バージョン履歴', 'Historial de versiones', '版本历史'),
+  // Admin › System › Connected folders (web connected.title)
+  connectedFolders: t('연결 폴더', 'Connected folders', 'Folder tersambung', '接続済みフォルダー', 'Carpetas conectadas', '已连接的文件夹'),
   // a shared project chat's title menu (web chat.continuePrivately)
   continuePrivately: t('나만 보는 채팅에서 이어 하기', 'Continue in a chat only you see', 'Lanjutkan di obrolan yang hanya Anda lihat', '自分だけのチャットで続ける', 'Continuar en un chat que solo ve usted', '在只有你能看到的对话中继续'),
+  // the button under an answer in a person's own chat that sends it to the team's skill managers (web suggest.button)
+  suggest: t('스킬로 제안', 'Suggest as skill', 'Usulkan sebagai skill', 'スキルとして提案', 'Sugerir como habilidad', '建议为技能'),
 } satisfies Record<string, L5>
 // the AI's name in the side panel's button (web sideChat.open {name}; chat/i18n.ts aiCalled)
 export const AI_NAME = PRODUCT_NAMED_AFTER_AI ? t('트리나', 'Trina', 'Trina', 'トリナ', 'Trina', 'Trina') : t('AI', 'AI', 'AI', 'AI', 'IA', 'AI')
@@ -179,6 +191,11 @@ export const SCREEN = {
   adminProviders: (L: Locale) => `Admin › AI providers ("${LABEL.admin[L]} › ${LABEL.providers[L]}")`,
   usage: (L: Locale) => `Settings › Usage ("${LABEL.settings[L]} › ${LABEL.usage[L]}")`,
   adminSystem: (L: Locale) => `Admin › System ("${LABEL.admin[L]} › ${LABEL.system[L]}")`,
+  deleteAccount: (L: Locale) => `Settings › Profile › Delete account ("${LABEL.settings[L]} › ${LABEL.profile[L]} › ${LABEL.deleteAccount[L]}")`,
+  /** the owner's handover: Admin › Members & invites, the person's ⋯ menu */
+  handover: (L: Locale) => `Admin › Members & invites › a person's ⋯ › Transfer ownership ("${LABEL.admin[L]} › ${LABEL.members[L]}", "${LABEL.handover[L]}")`,
+  fileHistory: (L: Locale) => `the file's ⋯ › Version history on the Files screen ("${LABEL.files[L]}", "${LABEL.history[L]}")`,
+  connectedFolders: (L: Locale) => `Admin › System › Connected folders ("${LABEL.admin[L]} › ${LABEL.system[L]} › ${LABEL.connectedFolders[L]}")`,
   rooms: (L: Locale) => `Conversations ("${LABEL.rooms[L]}")`,
   sideChat: (L: Locale) => `the room's side panel ("${LABEL.sideChat[L].replace('{name}', AI_NAME[L])}")`,
   ownChat: (_L: Locale) => 'a chat of their own (a new AI chat)',
@@ -233,8 +250,47 @@ export function readOnlyNote(db: Database, text: string, L: Locale, o: { userId:
   const m = /read-only(?: folder)?: you cannot (?:change|create files in) '([^']*)'/.exec(text)
   if (!m || text.includes(`Write access to '${m[1]}'`)) return null
   const g = writeGranters(db, m[1]!, L, o.sees, o.nameable)
+  if (m[1]!.split('/')[0]!.normalize('NFC').toLowerCase() === 'skills') return `Write access to '${m[1]}': ${g.who} can give it (${g.how}). ${teamSkillNext(L, o.button)}`
   const own = o.button ? `they also get a button under your answer to save it in their own folder (users/${o.userId}), and you may save it there if they ask` : `you may save it in their own folder (users/${o.userId}) if they ask`
   return `Write access to '${m[1]}': ${g.who} can give it (${g.how}). Next step: tell the user so; ${own}.`
+}
+
+/**
+ * The next step after a read-only team skill (skills/…): the people who manage team skills change it; the person can
+ * send the change for review with the "Suggest as skill" button under the answer (`button`: a person's own chat, where
+ * the answer has it; web Messages.tsx canSuggest), or keep a personal copy. Scenario SKL-02.member: the note offered
+ * "save it in their own folder (users/<id>)" and the AI pasted the whole changed skill for the person to copy by hand.
+ */
+function teamSkillNext(L: Locale, button: boolean): string {
+  const suggest = button ? `the "${LABEL.suggest[L]}" button under your answer sends this change to them for review (say the change in a sentence or two for it), or, ` : ''
+  return 'Next step: tell the user in a sentence that only the people who manage team skills change a team skill; then offer, a line each: ' +
+    `${suggest}if they ask, you save a personal copy with the change, which replaces the team skill for them only. Do not paste the whole changed text for them to copy by hand.`
+}
+
+/** After a team skill (skills/…) the person may not change was loaded with the skill tool (`readOnly`): what to do if
+ * they ask to change it, so the AI need not try the edit first to learn it; null otherwise. */
+export function readOnlySkillLine(rel: string, readOnly: boolean, L: Locale, button: boolean): string | null {
+  if (!readOnly || rel.split('/')[0]!.normalize('NFC').toLowerCase() !== 'skills') return null
+  const suggest = button ? `the "${LABEL.suggest[L]}" button under your answer (sends the change for review) or ` : ''
+  return `This user cannot change this team skill; only the people who manage team skills can. If asked to change it, offer ${suggest}a personal copy that replaces it for them only; never paste the whole changed text.`
+}
+
+/**
+ * After "not found or no access" on a team project's path that the person cannot read (`sees`: the project folder,
+ * projects/<name>, by the rules, on its real name as authorize resolves it; `lists`: may they list projects/): they are not a member of a project there. That is true whether or not the project
+ * exists, so the text is the same for both and still says nothing about the path (policy/authorize.ts keeps one answer
+ * for both; notFoundNext). projects/ itself refused means they read no project at all. Null for any other text, path or
+ * a project they read (a missing file in it). Scenario PRJ-01.outsider: the AI could not tell a person who is not in
+ * the project why it found nothing.
+ */
+export function projectNotFoundNote(text: string, o: { sees: (segs: string[]) => boolean; lists: () => boolean }): string | null {
+  const m = /Access denied: not found or no access: '([^']*)'/.exec(text)
+  if (!m || text.includes("Only a project's members see it")) return null
+  const segs = m[1]!.split('/').filter(Boolean)
+  if (segs[0]?.normalize('NFC').toLowerCase() !== 'projects') return null
+  if (segs.length === 1) return o.lists() ? null : "The user is a member of no team project: only a project's members see it. Next step: say so plainly; if they should be in one, the person who made it or an admin can add them."
+  if (o.sees(segs.slice(0, 2))) return null
+  return `Only a project's members see it: the user is not a member of a project called "${oneLine(segs[1]!).replace(/"/g, "'")}" (the same answer whether or not one exists, so do not say whether it does). Next step: say so plainly; if they should be in it, the person who made that project or an admin can add them.`
 }
 
 /** B7: the per-answer write limits (files/service.ts limits, tools/make-file.ts), with their numbers and what to do. */

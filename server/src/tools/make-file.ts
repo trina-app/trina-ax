@@ -87,6 +87,15 @@ export const PPTX_PDF_HINT =
   '(text, pictures, tables, colours and shapes in their places). Use this whenever the user wants a deck as a PDF: never rewrite the slides as ' +
   'Markdown or HTML for it. The result says what could not be drawn (charts, diagrams); tell the user that. '
 
+/** make_file's words for pictures in a .docx (tools/index.ts). Before it, an AI asked for a Word contract with
+ * the company seal beside its signature mark said a picture cannot go into a Word file and made a PDF (scenario catalog EDIT-06). */
+export const OFFICE_PICTURE_HINT =
+  'Pictures in Word: a Markdown image ![](shared/stamps/seal.png){width=3cm} becomes a real picture in the .docx at the width given (cm, in, px or %), ' +
+  'where it stands: on the same line as the text (after the signature mark for a seal, such as "(\uC778)"); leave the alt text empty, or a picture on a ' +
+  'line of its own gets that text as a caption. To add a picture to an existing Word file, read it and make a new .docx with its text and the picture ' +
+  '(a new name; the original stays); only the text, headings, lists and simple tables carry over, not its layout, fonts, headers or footers: say so in one ' +
+  'sentence. Never say a picture cannot go into a Word file. (PowerPoint fits a picture to the slide and takes no width; Hangul .hwpx takes no pictures.) '
+
 /** make_file's description where this server prints HTML (tools/index.ts). Before it, an AI asked to turn a quote's
  * .html into a PDF rewrote it as Markdown tables (losing its navy headers, highlights, merged cells and A4 layout) and
  * told the person to print it from Chrome. */
@@ -714,6 +723,9 @@ export async function printTeamHtml(ctx: AppContext, files: TeamFiles, user: Too
  * generated media such as generate_video) and edit_hwp's changed documents. An existing file the AI read in this turn
  * gets a new version (the old bytes in its history); one it has not read, or that changed since, is kept (conflict copy).
  */
+/** tools whose output the AI made itself (tools/stamp-pdf.ts madeThisTurn) */
+const MADE_BY = new Set(['make_file', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'stamp_pdf'])
+
 /** placeProduced options. `turnBytes: false`: the file does not count against the turn's write budget
  * (maxWriteBytesPerTurn, a guard against an AI writing in a loop): save_url's downloads, which the person sized on a
  * card over 1 GB and the disk check bounds (tools/save-url.ts). `detail`: more for the file event (the source URL). */
@@ -771,6 +783,8 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
   if (counted) c.files.bytesWritten += size
   c.files.filesWritten.add(rel)
   c.files.readHashes.set(rel, sha)
+  // made by the AI here (not a copy of someone's file from the web or a room): stamp_pdf / edit_pdf may change it in place
+  if (MADE_BY.has(tool)) c.files.madeHashes.set(rel, sha); else c.files.madeHashes.delete(rel)
   // a conflict copy is told to both people and listed in the original's history (before the copy's own event)
   if (conflictOf) recordConflictCopy(ctx.db, ctx.files.events, { original: conflictOf, copy: rel, userId: c.user.id, turnId: c.turnId, size, sha256: sha, tool })
   fileEvent(ctx.db, { turnId: c.turnId, userId: c.user.id, path: rel, action, size, sha256: sha, detail: { tool, ...po.detail, ...(conflictOf ? { conflictCopyOf: conflictOf } : {}) } })

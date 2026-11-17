@@ -184,7 +184,7 @@ di bagian atas mengumpulkan pesan yang menyebut nama Anda dan utas yang Anda iku
 
 Untuk mengirim pesan ke satu orang, klik foto atau namanya di samping pesan (@mention orang itu, atau barisnya di daftar anggota percakapan, juga bisa). Sebuah kartu kecil terbuka dengan nama dan jabatannya: **Kirim pesan** membuka obrolan 1:1 Anda dengan orang itu. Di ponsel, kartu terbuka dari bawah layar. Kartu Anda sendiri berisi **Edit profil**. Aplikasi dan orang yang sudah tidak ada di tim tidak punya kartu; tamu hanya bisa mengirim pesan ke orang di obrolan grup atau proyeknya.
 
-Untuk mengajak orang dari luar tim, pilih **Undang tamu** saat Anda menambahkan orang ke obrolan grup atau proyek. [Baca tentang tamu](guests.md).
+Untuk mengajak orang dari luar tim, pilih **Undang tamu** saat Anda menambahkan orang ke saluran privat, obrolan grup, atau proyek. [Baca tentang tamu](guests.md).
 
 ![Daftar Obrolan: Mentions & threads, Saluran dengan Everyone dan Marketing, lalu Pesan langsung dengan satu obrolan grup dan satu pesan langsung](../../images/chats/rooms-list.webp "Daftar Obrolan")
 
@@ -194,6 +194,11 @@ Tombol **✦** di bagian atas ruang obrolan membuka chat samping dengan Trina di
 menjawab dengan apa yang boleh Anda buka. Jika sebuah jawaban layak dibagikan, **Kirim ke ruang** di bawahnya menaruhnya di ruang obrolan sebagai pesan
 Anda (**Kirim ke utas** jika Anda bertanya tentang satu pesan). Jika sebagian orang di ruang obrolan tidak bisa membuka file yang dipakai
 jawaban itu, aplikasi memberi tahu Anda dulu dan menunggu persetujuan Anda.
+
+Saat sebuah utas terbuka, **✦** membuka chat samping di sebelah utas itu, dan keduanya tetap terlihat (di jendela kecil,
+ruang obrolan memberi tempat untuk keduanya). Kotak chat samping lalu bertuliskan **Melihat utas ini**: pertanyaan Anda
+adalah tentang utas itu, dan jawabannya bisa langsung dikirim ke sana. Tekan **✕** di baris itu untuk bertanya tentang
+seluruh percakapan.
 
 ![Saluran Marketing: pesan yang menyebut Jordan, utas dengan 2 balasan, dan jawaban Trina yang dikirim dari chat samping](../../images/chats/room.webp "Saluran")
 
@@ -220,8 +225,8 @@ lalu klik **✕** (atau pilih **Hapus pratinjau** di menu pesan).
 
 ### Tamu
 
-Orang dari luar tim, misalnya agensi atau klien, bisa bergabung ke obrolan grup atau proyek sebagai
-tamu, dan berada di paling banyak satu obrolan grup dan satu proyek. Di obrolan grup, buka anggotanya (nama di bagian atas), **Undang orang**, lalu **Undang tamu**; di
+Orang dari luar tim, misalnya agensi atau klien, bisa bergabung ke saluran privat, obrolan grup, atau proyek sebagai
+tamu, dan berada di paling banyak satu saluran privat atau obrolan grup, dan satu proyek. Di saluran privat atau obrolan grup, buka anggotanya (nama di bagian atas), **Undang orang**, lalu **Undang tamu**; di
 proyek, **Tambah orang** di **Anggota**. Tuliskan untuk siapa tautan itu dan apakah ia mendapat AI, lalu **Buat tautan**. Tautan itu
 hanya bisa dipakai satu kali: kirimkan sendiri kepadanya.
 
@@ -292,6 +297,8 @@ Mulai chat dari halaman proyek, atau pindahkan chat ke dalamnya dengan **Pindahk
 ## Menemukan apa saja
 
 Tekan ⌘K (Ctrl+K di Windows) atau pilih **Cari** di bawah **Tanya Trina** untuk menemukan chat, pesan di percakapan Anda, proyek, file, skill, tugas terjadwal, dan koneksi MCP. [Baca tentang pencarian dan pengaturan](settings-and-search.md).
+
+**Berkas yang Anda kirim.** Ketik "Berkas yang Anda kirim" di Pencarian, atau buka dari pemberitahuan, untuk melihat berkas yang Anda kirim di percakapan Anda, yang terbesar lebih dulu, beserta ruang yang dipakainya. Menghapus satu berkas juga menghapus pesan yang dikirim bersamanya, untuk semua orang di percakapan.
 
 ## Chat yang dihapus
 

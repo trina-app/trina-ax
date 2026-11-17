@@ -29,6 +29,9 @@ export const GrepInput = z.strictObject({
   head_limit: z.number().int().min(1).max(5000).optional().describe('Max output lines/entries (default 200)'),
   multiline: z.boolean().optional(),
 })
+/** read with `versions`: how many earlier versions are listed (default, at most) */
+export const VERSIONS_SHOWN_DEFAULT = 5
+export const VERSIONS_SHOWN_MAX = 20
 export const ReadInput = z.strictObject({
   file_path: relPath,
   offset: z.number().int().min(1).optional().describe('1-based line to start from (text files; for a PDF, lines of its text layer as grep reports them)'),
@@ -38,6 +41,8 @@ export const ReadInput = z.strictObject({
   time: z.string().max(40).optional().describe('Video and audio only: the part to read, e.g. "1:00-2:30", "90-150" (seconds) or "0:05" (one moment). Without it: the whole file, as far as one read goes (the result says what to read next).'),
   frames: z.number().int().min(0).max(20).optional().describe('Video only: how many pictures, evenly spaced (0-20; default up to 12). Fewer give bigger pictures: 1-4 for small text on a screen. 0: the transcript only (then a read covers up to 30 minutes of sound).'),
   transcript: z.boolean().optional().describe('Video and audio only: false skips the transcript of the sound.'),
+  versions: z.union([z.boolean(), z.number().int().min(1).max(VERSIONS_SHOWN_MAX)]).optional().describe(`Instead of the text: the file's earlier versions (when, who saved them, size; true = the last ${VERSIONS_SHOWN_DEFAULT}, or how many, up to ${VERSIONS_SHOWN_MAX}) and the changes between the version before the current one and the file now. Use it for "what changed", "who changed it", "what did it say before".`),
+  version: z.number().int().min(1).optional().describe('With or without versions: compare this earlier version (its number from the list) with the file now, instead of the version before the current one.'),
 })
 export const WriteInput = z.strictObject({
   file_path: relPath,
@@ -142,7 +147,7 @@ export const StampPdfInput = z.strictObject({
   ]).optional().describe('Where on the page: a corner or "center", or { x_mm, y_mm } from the top-left corner of the page as it is shown (default "bottom-right")'),
   width_mm: z.number().min(3).max(1000).optional().describe('The image\'s width on the page in mm (default 30); its height follows the image\'s shape'),
   margin_mm: z.number().min(0).max(200).optional().describe('For a corner or the centre: the space to the page edges in mm (default 15)'),
-  output: optRelPath.describe('Where to save the new PDF (default: "<name> (stamped).pdf" next to the original). An existing file is never overwritten unless you read it in this turn'),
+  output: optRelPath.describe('Where to save the new PDF (default: "<name> (stamped).pdf" next to the original; a PDF you made in this turn gets the image on itself). An existing file is never overwritten unless you read it in this turn'),
 })
 /** edit_pdf, merge_pdfs, split_pdf: page work on existing PDFs, saved as new files (server/src/tools/pdf-tools.ts,
  * server/src/files/pdf-pages.ts). Pages are written like "1,3-5,last", "2-last" or "all". */
@@ -192,7 +197,7 @@ export const EditPdfOperation = z.union([
 export const EditPdfInput = z.strictObject({
   file_path: relPath.describe('The PDF to change'),
   operations: z.array(EditPdfOperation).min(1).max(30).describe('Applied in order; page numbers in each are the pages at that moment'),
-  output: optRelPath.describe('Where to save the new PDF (default: "<name> (edited).pdf" next to the original)'),
+  output: optRelPath.describe('Where to save the new PDF (default: "<name> (edited).pdf" next to the original; a PDF you made in this turn is changed in place)'),
   replace: z.boolean().optional().describe('true only when the user explicitly asks to replace the original (read it in this turn first; its old version stays in its history)'),
 })
 export const MergePdfsInput = z.strictObject({
@@ -205,6 +210,24 @@ export const SplitPdfInput = z.strictObject({
   every: z.number().int().min(1).max(10_000).optional().describe('Or: a new file every this many pages'),
   output_folder: optRelPath.describe('Where the parts go (default: next to the original); named "<name> (part 1).pdf" …'),
 }).refine((v) => (v.parts === undefined) !== (v.every === undefined), { message: 'give exactly one of parts or every' })
+// Smaller copies of photos (server/src/tools/resize-images.ts, docs/decisions/20261117-resize-photos.md)
+const photoSide = z.number().int().min(16).max(20_000)
+export const ResizeImagesInput = z.strictObject({
+  paths: z.array(relPath).min(1).max(20).describe('The photos (JPEG, PNG, WebP or HEIC), 1-20, e.g. ["groups/Marketing/photos/IMG_2041.jpg"]'),
+  longest_side: photoSide.optional().describe('The longest side in pixels, e.g. 1200; the other side follows'),
+  width: photoSide.optional().describe('The width in pixels ("1200 px wide"); the height follows'),
+  max_mb: z.number().min(0.01).max(30).optional().describe('The most each copy may weigh, in MB ("under 2MB" = 2, "500KB" = 0.5); may be given with longest_side or width'),
+  preset: z.enum(['smaller', 'email', 'web']).optional().describe('Instead of the numbers: "smaller" = half the size, "email" = 1600 px and under 1 MB, "web" = 1920 px and under 500 KB'),
+  output: optRelPath.describe('Only for one photo: where to save the copy (default: "<name>-<word>.<ext>" next to it)'),
+  output_folder: optRelPath.describe('Where the copies go (default: next to each original)'),
+  replace: z.boolean().optional().describe('true only when the user explicitly asks to replace the originals (read each in this turn first; the old version stays in its history)'),
+  remove_details: z.enum(['location', 'all']).optional().describe('Only when the user asks: "location" removes where the photo was taken ("without the location"), "all" removes every photo detail (location, time taken, camera). Left out, the copies keep them'),
+  format: z.enum(['jpeg', 'png']).optional().describe('Only when the user names a format for the copies. Left out: JPEG stays JPEG, PNG stays PNG, HEIC and WebP become JPEG'),
+}).refine((v) => v.longest_side !== undefined || v.width !== undefined || v.max_mb !== undefined || v.preset !== undefined, { message: 'give longest_side, width, max_mb or preset' })
+  .refine((v) => v.preset === undefined || (v.longest_side === undefined && v.width === undefined && v.max_mb === undefined), { message: 'give either preset or the numbers, not both' })
+  .refine((v) => v.output === undefined || v.paths.length === 1, { message: 'output is only for one photo; use output_folder for several' })
+  .refine((v) => !v.replace || (v.output === undefined && v.output_folder === undefined), { message: 'give either replace: true or output / output_folder, not both' })
+export const ResizeImagesOutput = z.object({ paths: z.array(z.string()) })
 export const PdfFilesOutput = z.object({ paths: z.array(z.string()), pages: z.array(z.number()) })
 
 export const StampPdfOutput = z.object({ path: z.string(), size: z.number(), sha256: z.string(), page: z.number(), pages: z.number(), conflictCopyOf: z.string().optional() })
@@ -334,8 +357,11 @@ export const SaveUrlOutput = z.object({ url: z.string(), path: z.string(), size:
 const when = z.string().min(1).max(40)
 /** rooms: the rooms the person is in now, or (with query, person, since or until) the messages they can see that match */
 export const RoomsInput = z.strictObject({
-  query: z.string().min(1).max(200).optional().describe('Words to look for in the messages (all of them, any case). Without query, person, since and until the rooms are listed.'),
+  query: z.string().min(1).max(200).optional().describe('Words to look for (all of them, any case), each in a message\'s text or in the name of a file sent with it; a file type word ("excel", "pdf", "docx", "photo") matches files of that type. Without query, person, from_me, with_person, files, since and until the rooms are listed.'),
   person: z.string().min(1).max(100).optional().describe('Only messages written by this person (their name or part of it, e.g. "Minji").'),
+  from_me: z.boolean().optional().describe('Only messages the user sent themself ("the file I sent").'),
+  with_person: z.string().min(1).max(100).optional().describe('Only rooms this person is in: their 1:1 chat with the user, the group chats and team rooms they share, not the room for everyone ("what I sent to Minji").'),
+  files: z.boolean().optional().describe('Only messages that came with files (each hit names the file and its file_id).'),
   room: z.string().min(1).max(200).optional().describe('Only this room (its name, the other person\'s name for a 1:1 chat, or its id). Without a search it narrows the list.'),
   since: when.optional().describe('Messages from this date or time on, e.g. "2026-11-01" or "2026-11-01T09:00" (the team\'s time zone).'),
   until: when.optional().describe('Messages before this date or time (a date alone: up to the end of that day).'),
@@ -398,6 +424,7 @@ export const ShareWithPersonInput = z.strictObject({
 export const StopSharingInput = z.strictObject({
   paths: z.array(relPath).min(1).max(10).describe('The files to stop sharing (1-10): files the user owns, or team files for an admin.'),
   people: z.array(z.string().min(1).max(200)).min(1).max(10).optional().describe('Who loses access: a teammate\'s or a group\'s name as the user wrote it, or person:<id> / group:<id> from the candidates a previous call gave. Leave it out to stop sharing the files with everyone they were shared with.'),
+  same_name: z.boolean().optional().describe('true when paths are the several files that fit one name the user gave: the tool keeps only those the user can stop sharing (with the people named) and acts on that one, or returns those to ask about, or says why none can be.'),
 })
 /** share_folder (server/src/chat/share-folder.ts; docs/decisions/20261116-share-folder-tool.md): a folder in the user's
  * own files for teammates or groups, view only, files added later included; an add always behind the server's card.
@@ -422,6 +449,12 @@ export const SharedWithMeInput = z.strictObject({
 })
 /** looking_at (server/src/chat/looking-at.ts): what the user has open in the app now; no parameters */
 export const LookingAtInput = z.strictObject({})
+/** answer_comments (server/src/chat/answer-comments.ts; docs/decisions/20261117-ai-reads-answer-comments.md): read-only.
+ * The comments people left under answers in this chat (each answer's thread beside the chat). */
+export const AnswerCommentsInput = z.strictObject({
+  message_id: z.string().trim().min(1).max(100).optional().describe('The answer whose comments to read: its message id. Leave it out to get the answers in this chat that have comments, the most recent first.'),
+  limit: z.number().int().min(1).max(50).optional().describe('How many comments to show per answer, the newest (default 20, at most 50).'),
+})
 /** change_project_members in a person's own chat (server/src/chat/project-members.ts): people and groups added to or
  * removed from a team project after their yes on the server's card. Names as the user wrote them; an id only from the
  * candidates the tool gave back for that name. */
@@ -455,7 +488,8 @@ export const FILE_TOOLS = {
   list: { input: ListInput, description: 'List a folder of the team files. Only things you are allowed to see are shown. Folders end with "/".' },
   glob: { input: GlobInput, description: 'Find files by name pattern (e.g. "**/*.pdf"). Returns paths relative to the team root. Folders you cannot access are skipped.' },
   grep: { input: GrepInput, description: 'Search file contents with a regular expression (ripgrep). Also searches text extracted from .docx/.pptx/.xlsx/.pdf. Images have no searchable text, and scanned PDF pages may have none: read them to see them. Folders you cannot access are skipped.' },
-  read: { input: ReadInput, description: 'Read a file. Text returns numbered lines (cat -n style); use offset/limit for long files. Word/Excel/PowerPoint files are converted to text. Images (PNG, JPEG, GIF, WebP, HEIC, TIFF, BMP) are shown to you as images. PDFs: give pages (e.g. "1-5"; at most 20 per call, required over 10 pages); pages with text come back as text, pages without a text layer (scans) as images; as_images also shows text pages as images. Videos (mp4, mov, m4v, webm, mkv, avi, 3gp) come back as frames (pictures with their times) and a timed transcript of the sound; audio files (mp3, m4a, wav, aac, flac, ogg, opus, amr, aiff, caf, wma) as a timed transcript. Use time (e.g. "1:00-2:30") to look at a part, frames for how many pictures, transcript: false to skip the sound.' },
+  read: { input: ReadInput, description: 'Read a file. Text returns numbered lines (cat -n style); use offset/limit for long files. Word/Excel/PowerPoint files are converted to text. Images (PNG, JPEG, GIF, WebP, HEIC, TIFF, BMP) are shown to you as images. PDFs: give pages (e.g. "1-5"; at most 20 per call, required over 10 pages); pages with text come back as text, pages without a text layer (scans) as images; as_images also shows text pages as images. Videos (mp4, mov, m4v, webm, mkv, avi, 3gp) come back as frames (pictures with their times) and a timed transcript of the sound; audio files (mp3, m4a, wav, aac, flac, ogg, opus, amr, aiff, caf, wma) as a timed transcript. Use time (e.g. "1:00-2:30") to look at a part, frames for how many pictures, transcript: false to skip the sound. ' +
+    'Overwritten versions are kept: versions: true lists who saved each version and when, and shows what the last save changed (version: n compares an earlier one with the file now). Use it when asked what changed in a file, who changed it or what it said before, instead of saying there is no history.' },
   write: { input: WriteInput, description: 'Create a text file or overwrite one. An existing file must be read first in this conversation turn. If someone else changed it since you read it, your version is saved as a conflict copy instead. The server checks access on each call: call it when asked, even if the folder looks read-only. An HTML page\'s preview shows only team files: put images next to it (save_url saves one from the web) and use relative paths.' },
   edit: { input: EditInput, description: 'Replace an exact string in a text file you have read in this turn. old_string must be unique unless replace_all is true. The server checks access on each call: call it when asked, even if the folder looks read-only.' },
 } as const
@@ -469,6 +503,7 @@ export const OTHER_TOOLS = {
   edit_pdf: { input: EditPdfInput, output: PdfFilesOutput },
   merge_pdfs: { input: MergePdfsInput, output: PdfFilesOutput },
   split_pdf: { input: SplitPdfInput, output: PdfFilesOutput },
+  resize_images: { input: ResizeImagesInput, output: ResizeImagesOutput },
   share_file: { input: ShareFileInput, output: ShareFileOutput },
   move_files: { input: MoveFilesInput, output: MoveFilesOutput },
   copy_files: { input: CopyFilesInput, output: CopyFilesOutput },
@@ -496,6 +531,7 @@ export const OTHER_TOOLS = {
   share_folder: { input: ShareFolderInput, output: TextOutput },
   shared_with_me: { input: SharedWithMeInput, output: TextOutput },
   looking_at: { input: LookingAtInput, output: TextOutput },
+  answer_comments: { input: AnswerCommentsInput, output: TextOutput },
   change_project_members: { input: ChangeProjectMembersInput, output: TextOutput },
   who_can_open: { input: WhoCanOpenInput, output: TextOutput },
   change_folder_access: { input: ChangeFolderAccessInput, output: TextOutput },

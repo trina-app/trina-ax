@@ -23,7 +23,7 @@ permisos de carpetas, invitar a su equipo, preparar una habilidad del equipo, ha
 | **Actividad** | Uso, Registro de actividad |
 | **Equipo** | Configuración del equipo, Sistema |
 
-**Miembros e invitaciones** también enumera a los invitados: personas de fuera del equipo que están, como máximo, en un chat de grupo y en un proyecto. [Más información sobre los invitados](guests.md).
+**Miembros e invitaciones** también enumera a los invitados: personas de fuera del equipo que están, como máximo, en un canal privado o chat de grupo, y en un proyecto. [Más información sobre los invitados](guests.md).
 
 :::note
 Las versiones anteriores tenían las cuentas de IA en su propia página **Conexiones de IA**, junto a **Motores de IA**
@@ -50,7 +50,7 @@ autorizada de Claude u OpenAI. Cada fila muestra si ese motor está listo.
 #### Invite al equipo
 Empiece con un grupo piloto pequeño y después confirme los roles y el acceso a las carpetas. **Miembros e invitaciones** también enumera a los [invitados](#invitados) del equipo.
 Debajo de la lista, **Enlaces de invitación** muestra solo los enlaces que aún funcionan: el enlace de invitación del equipo y los enlaces de
-invitación que nadie ha usado todavía. Un enlace usado o vencido, o un enlace de invitado cuyo chat de grupo o proyecto ya no existe, sale de la lista; quién se unió aparece en la lista de miembros y en el [Registro de actividad](#registro-de-actividad).
+invitación que nadie ha usado todavía. Un enlace usado o vencido, o un enlace de invitado cuyo canal privado, chat de grupo o proyecto ya no existe, sale de la lista; quién se unió aparece en la lista de miembros y en el [Registro de actividad](#registro-de-actividad).
 
 #### Añada una primera habilidad
 Copie una habilidad inicial y revise su resultado comparándolo con las fuentes. [Más información sobre las habilidades](team-skills.md).
@@ -87,11 +87,11 @@ cuenta tiene Volver a comprobar, Subir / Bajar, cambiar el nombre, reemplazar, d
 ## Invitados
 
 **Administración › Miembros e invitaciones** termina con **Invitados**: personas de fuera del equipo, cada una como máximo en un
-chat de grupo y en un proyecto, que no ocupan plazas. Cada fila indica dónde está el invitado y qué IA tiene. Su menú **⋯** tiene
+canal privado o chat de grupo, y en un proyecto, que no ocupan plazas. Cada fila indica dónde está el invitado y qué IA tiene. Su menú **⋯** tiene
 **Cambiar IA** (sin IA, su propio inicio de sesión o una cuenta de IA del equipo con un límite mensual), **Hacer miembro
-del equipo** y **Quitar invitado**. Los miembros invitan a los invitados ellos mismos desde un chat de grupo o
+del equipo** y **Quitar invitado**. Los miembros invitan a los invitados ellos mismos desde un canal privado, un chat de grupo o
 un proyecto ([Invitados](chats-and-projects.md#invitados)). Los propietarios y los administradores también pueden elegir
-aquí **Invitar al equipo** › **Invitado** y elegir el chat de grupo o el proyecto ([Invitados: desde
+aquí **Invitar al equipo** › **Invitado** y elegir el canal privado, el chat de grupo o el proyecto ([Invitados: desde
 Administración](guests.md#desde-administración)). Un equipo sin invitados no tiene sección **Invitados**; para
 comprobarlo, elija **Invitados** en la lista de roles.
 
@@ -134,7 +134,7 @@ Desde la versión 0.4.0. En la 0.3.0 y anteriores, todo esto y los motores está
 
 ## Sistema
 
-**Administración › Sistema** muestra el almacenamiento del equipo, la versión y las actualizaciones, el estado del servidor, cómo llega el equipo al servidor, las carpetas conectadas, las copias de seguridad y la exportación, en secciones simples. El almacenamiento muestra los archivos que las personas envían en las conversaciones en una línea propia, **Archivos en conversaciones**: un solo número para todo el equipo, nunca por persona ni por conversación. Los archivos de los chats y conversaciones eliminados cuentan en **Archivos del equipo** ("En Archivos del equipo hay 120 MB de chats y conversaciones eliminados, que se borran a los 30 días"): se conservan 30 días para poder recuperarlos. Cuando el disco está lleno al 80%, y de nuevo al 95%, el propietario y los administradores encuentran un aviso en **Actividad** (como mucho una vez al día cada uno) que abre esta tarjeta. Cuando un archivo enviado en una conversación no cabe, un miembro o invitado lee que no hay espacio suficiente y que lo pida a un administrador; el propietario y los administradores ven **Ver qué ocupa el espacio**. El estado enumera primero lo que requiere atención, como un motor que falta, una comprobación fallida o las actualizaciones automáticas desactivadas; las comprobaciones superadas se pliegan en una línea con **Ver detalles**. Un administrador que no es el propietario ve el plan, el almacenamiento y, en un Mac de la oficina, las actualizaciones automáticas. Para que un disco pequeño no se llene, las copias de seguridad omiten las carpetas que se reconstruyen automáticamente, y se borran las cachés que nadie usó en 14 días. Sus propios archivos nunca se tocan. Cuando una actualización espera a que terminen las tareas en curso, Sistema lo indica; ofrece **Esperar y actualizar** o **Actualizar ahora de todos modos**.
+**Administración › Sistema** muestra el almacenamiento del equipo, la versión y las actualizaciones, el estado del servidor, cómo llega el equipo al servidor, las carpetas conectadas, las copias de seguridad y la exportación, en secciones simples. El almacenamiento muestra los archivos que las personas envían en las conversaciones en una línea propia, **Archivos en conversaciones**: un solo número para todo el equipo, nunca por persona ni por conversación. Los archivos de los chats y conversaciones eliminados cuentan en **Archivos del equipo** ("En Archivos del equipo hay 120 MB de chats y conversaciones eliminados, que se borran a los 30 días"): se conservan 30 días para poder recuperarlos. Cuando el disco está lleno al 80%, y de nuevo al 95%, el propietario y los administradores encuentran un aviso en **Actividad** (como mucho una vez al día cada uno) que abre esta tarjeta. Cuando un archivo enviado en una conversación no cabe, un miembro o invitado lee que no hay espacio suficiente y que lo pida a un administrador, con **Ver los archivos que envió**; el propietario y los administradores ven **Ver qué ocupa el espacio**. Debajo de las líneas, **Pedir que ordenen archivos** envía un aviso a las personas cuyos archivos en conversaciones ocupan más espacio, para que eliminen lo que ya no necesiten (una vez al día; no verá quiénes). El estado enumera primero lo que requiere atención, como un motor que falta, una comprobación fallida o las actualizaciones automáticas desactivadas; las comprobaciones superadas se pliegan en una línea con **Ver detalles**. Un administrador que no es el propietario ve el plan, el almacenamiento y, en un Mac de la oficina, las actualizaciones automáticas. Para que un disco pequeño no se llene, las copias de seguridad omiten las carpetas que se reconstruyen automáticamente, y se borran las cachés que nadie usó en 14 días. Sus propios archivos nunca se tocan. Cuando una actualización espera a que terminen las tareas en curso, Sistema lo indica; ofrece **Esperar y actualizar** o **Actualizar ahora de todos modos**.
 
 ![Administración en un teléfono: una sola lista de las áreas de administración, con las cinco pestañas abajo](../../images/admin/admin-phone.webp "Administración en un teléfono")
 

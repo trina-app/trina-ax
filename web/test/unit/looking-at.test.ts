@@ -15,10 +15,11 @@ describe('lookingOf: the address and the panel as ids', () => {
     ['/', '', { screen: 'home' }],
     ['/', '?project=p-1&prompt=secret%20words', { screen: 'home', projectId: 'p-1' }],
     [`/c/${id(1)}`, '', { screen: 'chat', chatId: id(1) }],
-    [`/c/${id(1)}/t/${id(2)}`, '', { screen: 'chat', chatId: id(1) }],
     ['/rooms', '', { screen: 'rooms' }],
     [`/rooms/${id(3)}`, '', { screen: 'room', roomId: id(3) }],
     [`/rooms/${id(3)}/t/${id(4)}`, '', { screen: 'room', roomId: id(3), threadRootId: id(4) }],
+    // an answer's thread beside a chat (the AI's answer_comments puts it first)
+    [`/c/${id(1)}/t/${id(4)}`, '', { screen: 'chat', chatId: id(1), threadRootId: id(4) }],
     ['/files', '?path=marketing', { screen: 'files' }],
     ['/files', '?view=shared', { screen: 'shared_files' }],
     ['/files/view', '?path=sales%2FQuote%20v2.pdf', { screen: 'file', filePath: 'sales/Quote v2.pdf' }],

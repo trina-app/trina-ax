@@ -1224,8 +1224,7 @@ export class FileShares {
     const files = n('file'), folders = n('folder')
     let people = 0
     for (const r of this.db.query("SELECT DISTINCT g.share_id id FROM file_share_grants g JOIN file_shares s ON s.id = g.share_id WHERE s.state = 'live'").all() as { id: string }[]) people += this.grantees(r.id).size
-    // (the folders' count only once folders can be shared: with the gate closed the answer is the one before this work)
-    return { files, people, ...(folderSharesOf(this.ctx).gateOn() ? { folders } : {}) }
+    return { files, people, folders }
   }
   removeAll(userId: string, L: Locale): { files: number; people: number; folders?: number } {
     const me = this.principal(userId)

@@ -114,7 +114,10 @@ export const resetLinkText = (r: NonNullable<InboxNotification['resetLink']>, t:
 export function joinedText(j: NonNullable<InboxNotification['joined']>, t: T): string {
   if (!j.guestPlace) return t('teamLink.joinedNotice', { name: j.name })
   if (j.guestPlace.name) return t('teamLink.joinedGuest', { name: j.name, place: j.guestPlace.name })
-  return t(j.guestPlace.kind === 'project' ? 'teamLink.joinedGuestProject' : 'teamLink.joinedGuestChat', { name: j.name })
+  if (j.guestPlace.kind === 'project') return t('teamLink.joinedGuestProject', { name: j.name })
+  // no name and the reader is in the place or is an admin (id is not null): the room has no name of its own, a group chat;
+  // for anyone else the room may be a private channel the reader cannot see, so the general words
+  return t(j.guestPlace.id !== null ? 'teamLink.joinedGuestGroup' : 'teamLink.joinedGuestChat', { name: j.name })
 }
 
 /** A team template's notice (QA TC-2980): it is ready, it changed (sign in again with your own account, or enter your
@@ -173,6 +176,8 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'storage.filling' && item.storage) return !item.storage.roomsBytes
     ? t('notifications.event.storage.fillingPct', { pct: item.storage.percent })
     : t('notifications.event.storage.fillingRooms', { pct: item.storage.percent, size: formatSize(item.storage.roomsBytes, locale) })
+  // asked to tidy my files in conversations: who asked while their account is there
+  if (item.code === 'storage.cleanup') return item.cleanup?.by ? t('notifications.event.storage.cleanupNamed', { name: item.cleanup.by }) : t('notifications.event.storage.cleanup')
   const title = item.schedule?.title
   // a sign-in template: the member signs in with their own account; a key template: their own key (QA TC-3052)
   if (item.code === 'schedule.failure' && item.needsKey) return title
@@ -281,6 +286,8 @@ export function noticeLink(item: InboxNotification): { to: string; testId: strin
   if (item.link === 'skills') return { to: skillsLink(item), testId: 'notification-skills-link' }
   // the disk filling: the storage card (a phone's System › Storage; a computer lands on the card)
   if (item.link === 'admin_storage') return { to: '/admin/system/storage', testId: 'notification-storage-link' }
+  // asked to tidy my files in conversations: Files you sent
+  if (item.link === 'sent_files') return { to: '/sent-files', testId: 'notification-sent-files-link' }
   return null
 }
 

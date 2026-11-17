@@ -10,10 +10,10 @@
 // still the same file, the same size and date. Pure: the file system comes in as WorkFs, so it is unit-tested in
 // tests/unit/e-desktop-work-files.test.ts; desktop/src/main/work-files.ts wires it to Electron and node:fs.
 import { posix, win32 } from 'node:path'
-import { considered, fileExt, neverListed, savedPage, softwareFolder, tooSmall, WORK_FILES_LIMITS } from '@mycel/shared/file-scan'
+import { considered, fileExt, neverListed, savedPage, softwareFolder, WORK_FILES_LIMITS } from '@mycel/shared/file-scan'
 import type { WorkCloudProvider, WorkFileMeta, WorkFileRead, WorkFolderId, WorkRootId, WorkRootResult } from '@mycel/shared'
 import { browserOwnerChange, type MeResult } from './browser-owner'
-import { isRecent, MIN_BYTES, type IndexedFile } from './work-index'
+import { isRecent, type IndexedFile } from './work-index'
 import { cloudProviderOf, placeOf, type Place } from './work-places'
 import { folderKey, macBlocked } from './folder-access'
 
@@ -353,7 +353,7 @@ class FolderQueue {
 
 /** The index's files under one folder (work-index.ts) → the look's files, as a walk would give them: only paths inside
  * the folder's real path whose folder's real path is that same folder (no link on the way, a network or other volume
- * never), no never-listed part on the way, a document type, recent, between MIN_BYTES and fileBytes; each lstat'ed (a
+ * never), no never-listed part on the way, a document type, recent, not empty and at most fileBytes; each lstat'ed (a
  * file, not a link) for the read's later checks. At most `max`, the most recently touched first.
  * Part 5: the file itself is never opened (its folder's real path and its lstat say what a realpath of it would, without
  * making a cloud provider fetch it); an online-only file on Windows (the index's attributes) gets no call at all here
@@ -403,7 +403,9 @@ export async function filesFromIndex(root: WorkRoot, real: string, indexed: read
     for (const c of checks) {
       if (!c) continue
       if (c.st.size > fileBytes) { out.tooBig++; continue }
-      if (c.st.size < MIN_BYTES || tooSmall(fileExt(c.parts.at(-1)!), c.st.size)) continue
+      // an empty file is nothing; a small one (an empty template, a note of a few lines) is listed so that search by name
+      // finds it, and the page keeps it out of the picks (web/src/lib/workFiles.ts notWork: tooSmall)
+      if (c.st.size === 0) continue
       if (undated(c.f) && !isRecent({ used: null, modified: c.st.mtimeMs }, now)) continue
       const same = `${c.st.dev}:${c.st.ino}`
       if (o.seen && c.st.ino !== 0n) { if (o.seen.has(same)) continue; o.seen.add(same) }
@@ -531,8 +533,10 @@ export async function lookRoots(roots: readonly WorkRoot[], fs: WorkFs, o: LookO
           if (k.org) f.org = k.org.slice(0, 120)
         }
       }
-      // an empty template, a stub, a text note of a few lines: no work document (the index's files: filesFromIndex)
-      for (const x of w.files) if (tooSmall(x.ext, x.size)) w.found.delete(x.id)
+      // an empty file is nothing. A small one (an empty template, a text note of a few lines) stays listed: search by name
+      // must find every file the look saw (MAN-057: three quotes of 27 to 53 bytes were dropped here, so "quote" found
+      // nothing). The page keeps small files out of the picks and the AI (web/src/lib/workFiles.ts notWork: tooSmall).
+      for (const x of w.files) if (x.size === 0) w.found.delete(x.id)
       w.files = w.files.filter((x) => w.found.has(x.id))
       for (const x of w.files) {
         const fx = w.found.get(x.id)!

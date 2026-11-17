@@ -110,23 +110,27 @@ export type PushEventType = z.infer<typeof PushEventType>
  * taking this server's key because the team address was moved to another key, engine.start_failed to the owners and
  * admins once when the AI could not start on this server (engine_start_notices, migration 127; QA TC-3521), storage.filling
  * to the owners and admins when the team's disk is 80 % and again 95 % full (storage_notices, migration 702;
- * docs/decisions/20261116-storage-full-notices.md), and account.deletion_due to a person whose
+ * docs/decisions/20261116-storage-full-notices.md), storage.cleanup to the people an owner or admin asked to
+ * tidy their files in conversations (the same table; docs/decisions/20261116-room-files-cleanup.md), and account.deletion_due to a person whose
  * open account deletion request got its automatic date when this server started deleting by itself (account_deletion_due_notices),
  * and chat.shared to a person someone shared a chat with, by name or through a group (chat_share_notices), and room_app.paused to the people who manage an app in a room that paused for the day
  * (room_app_notices; a push too: PushEventType), and room_app.leaver to the people who may manage an app in a room
  * when someone who was shown its address can no longer manage it (room_app_leaver_notices, migration 352; docs/DECISIONS.md
  * "Apps posting in rooms"). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'service.closed', 'files.stored_key', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'engine.start_failed', 'storage.filling', 'account.deletion_due', 'room_app.leaver', 'file.access_answered', 'file.unshared_by_move', 'access.answered'])
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'service.closed', 'files.stored_key', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'engine.start_failed', 'storage.filling', 'storage.cleanup', 'account.deletion_due', 'room_app.leaver', 'file.access_answered', 'file.unshared_by_move', 'access.answered'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
-  createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project', 'integrations', 'admin_credentials', 'room', 'admin_members', 'admin_connectors', 'account_deletion', 'file', 'chat_thread', 'admin_storage']).nullable(),
+  createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project', 'integrations', 'admin_credentials', 'room', 'admin_members', 'admin_connectors', 'account_deletion', 'file', 'chat_thread', 'admin_storage', 'sent_files']).nullable(),
   /** scheduled runs only: succeeded / finished with problems / failed (the inbox text follows it; older servers omit it) */
   outcome: ScheduleRunOutcome.nullable().optional(),
   /** 'storage.filling' only: how full the team's disk was (the plan's view, whole percent) and the files in conversations
    * as last measured then (null: not measured yet). One number for the team, never a name. Link 'admin_storage' (Admin ›
    * System › Storage) while the reader is still the owner or an admin. */
   storage: z.object({ percent: z.number().int().min(0).max(100), roomsBytes: z.number().nonnegative().nullable() }).optional(),
+  /** 'storage.cleanup' only: who asked (an owner or admin, by name while the account is active; null: "An admin"). Link
+   * 'sent_files' (Files you sent). */
+  cleanup: z.object({ by: z.string().nullable() }).optional(),
   /** 'schedule.success' and 'schedule.failure' for one task's run (not `review`), while the task is the person's and
    * there: its title, one plain line (plainLabel), so the Inbox says which task it was. Read when the notice is read,
    * never stored with it, and never in a push (the lock screen stays generic, server/src/notifications/text.ts). A

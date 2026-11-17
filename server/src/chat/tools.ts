@@ -5,6 +5,7 @@ import { confidentialChat, localTool } from "../safe-ops/confidential"
 import { stampOutputOf } from '../tools/stamp-pdf'
 import { commentDocxOutput } from '../tools/comment-docx'
 import { chatFileOffered, chatFileTool } from './chat-file-tool'
+import { answerCommentsOff, answerCommentsTool } from './answer-comments'
 import path from 'node:path'
 import { z } from 'zod'
 import { AskUserInput, ConnectServiceInput, EDIT_FILES_DESCRIPTION, EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS, FindSkillsInput, ForgetInput, MoveSkillInput, RememberInput, SetTitleInput, SkillInput, uuidv7 } from '@mycel/shared'
@@ -21,10 +22,12 @@ import { st as skillText } from '../skills/text'
 import { audit as auditLog } from '../admin/audit'
 import { HttpError } from '../http/errors'
 import { foldKey } from '../policy/names'
-import { frequentSkills, matchSkills, resolveSkill, shortDescription, skillTag, usageScores } from './skill-list'
+import { frequentSkills, matchSkills, resolveSkill, shortDescription, skillTag, skillTitleText, usageScores } from './skill-list'
 import { addSources, sourceOf, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
 import { atLeast, isStaff, type Principal } from '../policy/access'
+import { walk } from '../policy/resolve'
+import { sideRoomOf } from './side-room'
 import { tr } from './i18n'
 import { optionWords, threadOptionWords } from './share-words'
 import { threadLook } from './thread-look'
@@ -32,7 +35,7 @@ import { alwaysHere, withAlways } from './always-allow'
 import { fromAsker, othersWordsIn } from './shared-actions'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
 import type { StoredStep } from './store'
-import { cardEndShort, endOfText, readOnlyNote, type CardOutcome } from '../policy/refusal'
+import { cardEndShort, endOfText, projectNotFoundNote, readOnlyNote, readOnlySkillLine, type CardOutcome } from '../policy/refusal'
 import type { TurnFiles } from '../files/service'
 import { extractUrls, gateUrl, type ConfirmExtra, type TurnPerson } from '../tools/url-gate'
 import { ToolError } from '../policy/errors'
@@ -51,6 +54,7 @@ import { SEARCH_TOOLS, SHARED_TOOLS } from '../rooms/ai-tools'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
 import { roomReadTools } from './room-tools'
 import { hintsHere, roomHint } from './room-hint'
+import { fileNote, fileNoteOnce } from './file-notes'
 import { skillFilesTool } from './skill-files'
 import { postToRoomOff, postToRoomTool } from './post-to-room'
 import { shareWithPersonOff, shareWithPersonTool } from './share-with-person'
@@ -101,7 +105,7 @@ const zodText = (e: z.ZodError) => 'Invalid input: ' + e.issues.map((i) => `${i.
 export const B_TOOL_DESCRIPTIONS = {
   remember: 'Remember one lasting fact or preference about the user for future chats (one short sentence, under 300 characters). Only when the user wants it kept. Returns the memory id.',
   forget: 'Forget one memory by its id (the ids are shown in the memories block of your instructions).',
-  ask_user: 'Ask the user a question and wait for the answer. Offer options when you can; allowText also shows a text box on the card. The user can always answer in their own words from the message box instead. Returns {"answer": ...} with an option value or the user\'s own text (a list of them when multiple), or {"skipped": true} when the user does not answer in time.',
+  ask_user: 'Ask the user a question and wait for the answer. When more than one thing is unclear (which file, and to whom or where), ask about all of them in this one question (options for the likeliest pairs, and allowText for the rest) rather than guessing the rest. Offer options when you can; allowText also shows a text box on the card. The user can always answer in their own words from the message box instead. Returns {"answer": ...} with an option value or the user\'s own text (a list of them when multiple), or {"skipped": true} when the user does not answer in time.',
   connect_service: 'Connect a service for the user (an MCP server or an HTTP API: Notion, Linear, GitHub, Higgsfield, any other), or their Google Drive (target google_drive). Fill in the service\'s official address from its documentation (prefer its MCP endpoint, and oauth when it offers sign-in); the user then pastes their key into the card or signs in there. The key never reaches you: never ask for it in the chat. Returns {"connected": true, "name", "status", "tools"} once it works, or {"skipped": true} when the user does not finish the card; without a card, a text says why (a field to fix, a connection that already exists, or what is not allowed). The result says when its tools are offered: in most chats this same answer goes on with them (then do what the request needed them for), else from the user\'s next message.',
   set_title: 'Name this new chat: a short title in the user\'s language that says what the person wants (2-60 characters). Call it once, early in your answer. Never put keys, tokens, passwords, personal data or quotes of the message in it.',
   skill: 'Load one of the user\'s skills (a saved team or personal workflow) by its name as listed under Team skills in your instructions, and get its full steps. Call it when a request matches a skill, before you follow it; then follow the steps and say which skill you used. A folder skill\'s other files are read with read, relative to the folder the result names.',
@@ -202,6 +206,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // a file sent from the computer in a chat shared with people (chat/chat-file-tool.ts): read as this person while they
   // see the chat; only where the chat holds such files or is shared with people
   if (chatFileOffered(exec)) add(chatFileTool(exec))
+  // the comments under answers in this chat, read as this person while they see the chat (chat/answer-comments.ts):
+  // a shared chat or one that still holds replies; never a scheduled run, Slack, a confidential, template or restricted
+  // run, nor a sub-agent (PARENT_ONLY_TOOLS)
+  if (!answerCommentsOff(exec)) add(answerCommentsTool(exec))
   // the AI posts to one of the person's rooms, a thread there or a teammate, after their yes on one server card
   // (chat/post-to-room.ts): in their own chat and in a shared one (as the turn's own person, SHARED_TOOLS), never in a
   // confidential, draft or template chat, a scheduled run or a question from Slack (postToRoomOff)
@@ -211,7 +219,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   if (!shareWithPersonOff(exec)) add(shareWithPersonTool(exec))
   // ...and taking that access away again (chat/stop-sharing.ts): the same places, never a scheduled run
   if (!stopSharingOff(exec)) add(stopSharingTool(exec))
-  // a folder in the person's own files (chat/share-folder.ts): only once folder sharing's gate is open; an add always
+  // a folder in the person's own files (chat/share-folder.ts): an add always
   // behind its card; never a scheduled run, Slack, a confidential, template or restricted run, a guest
   if (!shareFolderOff(exec)) add(shareFolderTool(exec))
   // who can open a file, a folder or this chat, and how (chat/who-can-open.ts): read-only; in a shared chat only for
@@ -407,15 +415,24 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // a read-only refusal: who can give write access, and the person's own folder (B2, policy/refusal.ts); the
       // tool's own text stays as it is (the same for every caller)
       if (isError && text) { const ro = readOnlyFor(exec, text); if (ro) return ro }
+      // "not found or no access" on a team project the person is not in: they are not a member (the same for a missing
+      // project; policy/refusal.ts projectNotFoundNote). A guest's AI says who invited them instead (guestSection).
+      if (isError && text && !guest) { const pn = notMemberFor(exec, text); if (pn) return pn }
       // a skill saved in a shared chat: one quiet line in the answer that the people here can see it
       const skillNote = exec.sharedSkillNote(name, args, isError)
+      // a new skill's SKILL.md saved with held files on its card: write them again unchanged (chat/skill-held.ts)
+      const heldNote = exec.heldSaveNote(name, args, isError)
       const placed = exec.placementNote(tools.has('move_files'))
       // a search of the team files by the main AI (a sub-agent has no rooms tool): the person's rooms that mention the
       // same words, counted (chat/room-hint.ts); only where the rooms tool is offered (never a shared, confidential,
       // draft, template or guest chat) and a room read stays in this chat (no scheduled run, Slack or side chat)
       const main = !caller || caller.files === exec.files
       const rooms = name === 'grep' && !isError && main && !guest && hintsHere(exec, tools.has('rooms')) ? roomHint(exec, (args as { pattern?: unknown } | null)?.pattern) : null
-      return [placed, skillNote, rooms].filter(Boolean).join('\n') || undefined
+      // the version an edit keeps, a Hangul document that cannot be changed here (chat/file-notes.ts), once a turn
+      // the main AI's own call only: a sub-agent reports to it (its Word copy would be a second one), and a guest has no
+      // Files screen with a version history
+      const fact = !main || guest ? null : fileNoteOnce(exec, fileNote({ name, isError, args, text, hangulOff: () => !hwpWritingOn(exec.rt.ctx), makeFile: tools.has('make_file') }), exec.spec.locale)
+      return [placed, skillNote, heldNote, rooms, fact].filter(Boolean).join('\n') || undefined
     },
     // edit_files (mcp/protocol.ts): after a room read one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {
@@ -508,14 +525,35 @@ function mergeAllows(exec: TurnExec, name: string, args: unknown): boolean {
  * text that happens to say so). A project's creator is mentioned only when the person may read that project folder, and
  * named only where everyone who sees the answer may: in a shared chat the answer reaches all of them, so only when every
  * one of them may read that folder (roomReadable; none known: never), else "the project's creator". */
-export function readOnlyFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spec' | 'shared' | 'roomReadable'>, text: string): string | null {
+export function readOnlyFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spec' | 'shared' | 'roomReadable'> & { restricted?: boolean }, text: string): string | null {
   if (!text.startsWith('Access denied: read-only')) return null
   const rules = exec.rt.files.rules(), me = exec.livePrincipal()
   const group = !!exec.shared
   return readOnlyNote(exec.rt.db, text, exec.spec.locale, {
-    userId: exec.spec.userId, sees: (segs) => atLeast(rules.access(me, segs), 'read'), button: !group,
+    userId: exec.spec.userId, sees: (segs) => atLeast(rules.access(me, segs), 'read'), button: answerHasButtons(exec),
     nameable: (segs) => !group || !!exec.roomReadable?.(segs.join('/')),
   })
+}
+
+/** After "not found or no access" on projects/ or a team project the person cannot read: they are not a member of a
+ * project there (policy/refusal.ts projectNotFoundNote; scenario PRJ-01.outsider). */
+export function notMemberFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal'>, text: string): string | null {
+  if (!text.startsWith('Access denied: not found or no access')) return null
+  const rules = exec.rt.files.rules(), me = exec.livePrincipal(), fx = exec.rt.files.fx
+  // the rules compare real folder names, and authorize finds a folder ignoring case on a case-insensitive disk (an
+  // office Mac) but names the path as typed: decide on the real name, as authorize did
+  const real = (segs: string[]) => { const w = walk(fx.root, segs, fx.caseInsensitive); return [...w.actual, ...w.missing] }
+  return projectNotFoundNote(text, { sees: (segs) => atLeast(rules.access(me, real(segs)), 'read'), lists: () => rules.canList(me, real(['projects'])) })
+}
+
+/** Does the answer get the buttons under it ("save in my folder", "Suggest as skill")? Only in a person's own chat in
+ * the app (web Chat.tsx canSuggest={!shared}): not a shared chat, a ✦ side chat (SideChatPanel canSuggest={false}), a
+ * scheduled run, Slack or a restricted turn (a draft or a judge). */
+export function answerHasButtons(exec: Pick<TurnExec, 'rt' | 'spec' | 'shared'> & { restricted?: boolean }): boolean {
+  if (exec.shared || exec.restricted) return false
+  const kind = exec.spec.clientKind
+  if (kind && !LIVE_CLIENTS.has(kind)) return false
+  try { return !sideRoomOf(exec.rt.db, exec.spec.chatId, exec.spec.userId) } catch { return true }
 }
 
 /** The audit line's words for a room card's refusal and a shared chat's read refusal: what happened (a scheduled run
@@ -695,7 +733,10 @@ function skillTools(exec: TurnExec): Tool[] {
         // reporting is auxiliary (admin/skill-usage.ts: team and group skills, never a personal one); a loaded skill is a
         // run (the onboarding goal counts it), unlike a plain read of the file
         try { recordSkillUse(rt.db, { turnId: spec.turnId, userId: spec.userId, skill, source: 'tool' }) } catch { rt.log.warn('skill usage recording failed', { turn: spec.turnId }) }
-        return { ...text(skillBlock(skill, '', 'loaded')), summary: `skill -> ${isPersonalSkill(skill.path) ? 'a personal skill' : skill.path}` }
+        // a team skill the person may not change: what to offer if they ask to change it (scenario SKL-02.member: the AI
+        // loaded it, never tried the edit, and pasted the whole changed skill for the person to copy)
+        const ro = readOnlySkillLine(skill.path, !atLeast(rt.files.rules().access(user, skill.path.split('/')), 'write'), spec.locale, answerHasButtons(exec))
+        return { ...text(skillBlock(skill, '', 'loaded') + (ro ? `\n${ro}` : '')), summary: `skill -> ${isPersonalSkill(skill.path) ? 'a personal skill' : skill.path}` }
       },
     },
     {
@@ -717,7 +758,7 @@ function skillTools(exec: TurnExec): Tool[] {
         const scores = usageScores(rt.db, spec.userId, skills.map((s) => s.path))
         const hits = matchSkills(skills, a.data.query, { scores })
         const q = neutralizeTags(clipName(a.data.query, 80))
-        const line = (s: Skill) => `- ${neutralizeTags(clipName(s.name, 64))}${skillTag(s, neutralizeTags)}${s.description.trim() ? ': ' + neutralizeTags(shortDescription(s.description, 300)) : ''} (${s.path})`
+        const line = (s: Skill) => `- ${neutralizeTags(clipName(s.name, 64))}${skillTitleText(s, neutralizeTags)}${skillTag(s, neutralizeTags)}${s.description.trim() ? ': ' + neutralizeTags(shortDescription(s.description, 300)) : ''} (${s.path})`
         const searched = `${skills.length} skill${skills.length === 1 ? '' : 's'} searched`
         if (!hits.length) {
           if (!skills.length) return { ...text([`No skill this user can use matches "${q}" (${searched}).`, ...managedLines(user, a.data.query, line)].join('\n')), summary: 'find_skills -> 0 found' }

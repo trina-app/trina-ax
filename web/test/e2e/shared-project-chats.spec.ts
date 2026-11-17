@@ -32,7 +32,9 @@ async function audit(page: Page, where: string) {
 }
 
 /** A team project on marketing/, its setting on (or off) */
-const NOT_FOUND_WHY = '만든 사람만 볼 수 있는 채팅이거나, 삭제됐거나, 내가 멤버가 아닌 프로젝트의 채팅일 수 있어요. 링크를 보낸 사람에게 나와 공유해 달라고 해 주세요.'
+// a private (🔒) chat of a team project can never be asked for: the link page's one plain line, no button, no reason
+// (efcb894aa, docs/decisions/20261116-chat-project-ask-access.md)
+const CANT_ASK = '여기에는 권한을 요청할 수 없어요. 링크를 보낸 사람에게 물어보세요.'
 async function project(page: Page, share = true) {
   const r = await post(page, '/api/projects', { name: 'Launch', scope: 'team', folderPath: 'marketing', instructions: '' })
   expect(r.status()).toBe(201)
@@ -131,12 +133,14 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       const chatId = page.url().split('/c/')[1]!
       await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
       await expect(page.getByTestId('chat-shared')).toHaveCount(0)
-      // Bob: not on the project page, its link is the page every chat that cannot be opened gets
+      // Bob: not on the project page; its link says it cannot be asked for, and nothing of it
       const b = await bob(browser)
       await b.goto(`/projects/${id}`)
       await expect(b.getByTestId('project-chats-empty')).toBeVisible()
       await b.goto(`/c/${chatId}`)
-      await expect(b.getByTestId('chat-not-found-why')).toHaveText(NOT_FOUND_WHY)
+      await expect(b.getByTestId('link-access-cant-ask-line')).toHaveText(CANT_ASK)
+      await expect(b.getByTestId('link-access-ask-button')).toHaveCount(0)
+      await expect(b.getByTestId('link-access-cant-ask')).not.toContainText('내 메일')
       await b.context().close()
       // back on the project: the row has a lock, a line offers to share it, and the next new chat starts shared again
       await page.goto(`/projects/${id}`)
@@ -206,7 +210,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       expect(msgs.items).toEqual([])
       const b = await bob(browser)
       await b.goto(`/c/${sent}`)
-      await expect(b.getByTestId('chat-not-found-why')).toBeVisible()
+      await expect(b.getByTestId('link-access-cant-ask-line')).toHaveText(CANT_ASK)
       await b.context().close()
     })
 
@@ -676,8 +680,10 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       expect((await post(page, '/__test/revoke', { path: 'marketing' })).ok()).toBeTruthy()
       await expect(bobRow).toHaveCount(0)
       await expect(inList).toHaveCount(0)
-      // the open chat turns into the not-found page at once: no old messages, no box that cannot send (QA TC-961)
-      await expect(b3.getByTestId('chat-not-found')).toBeVisible()
+      // the open chat turns at once into the page of a chat he cannot open: no old messages, no box that cannot send
+      // (QA TC-961); since efcb894aa that page is Ask for access (to join the project), with nothing of the chat
+      await expect(b3.getByTestId('link-access-ask')).toBeVisible()
+      await expect(b3.getByTestId('link-access-ask')).not.toContainText('출시 체크리스트')
       await expect(b3.getByTestId('messages')).toHaveCount(0)
       const after = frames.slice(from).map((f) => JSON.parse(f) as { type: string; data?: { chatId?: string; change?: string; chat?: unknown } }).filter((f) => f.data?.chatId === chatId)
       expect(after.map((f) => [f.type, f.data!.change, f.data!.chat])).toEqual([['chat.updated', 'deleted', null]])

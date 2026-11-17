@@ -19,7 +19,7 @@ import { useLocale, useT } from '../i18n'
 import { accessChanged } from '../store/live'
 import { audienceRead, keptAudience } from '../store/teamFiles'
 import { isAdmin, useMeStrict } from '../store/session'
-import { offersFolderShare, useFolderSharesOn, type OwnShare } from '../lib/folder-share'
+import { offersFolderShare, type OwnShare } from '../lib/folder-share'
 import { openFileShare } from './FileShareDialog'
 import { peopleText } from './FolderShareParts'
 import { Button, ErrorNote, Modal, Skeleton } from './ui'
@@ -82,16 +82,15 @@ export function useFolderAccess(path: string | null, place: ChipPlace | null, ad
 }
 
 /** The chip for the folder on screen; nothing where a member learns nothing new, while loading, or after a failure.
- * Folder sharing open (Me.server.folderShares): a folder of mine that can be shared says "Shared" (people on it, or on a
+ * A folder of mine that can be shared says "Shared" (people on it, or on a
  * folder above it) or "Only you see it", and opens the Share dialog (`own`: the Files page's read of it). */
 export function FolderAccessChip({ path, access, project, onOpen, own = null }: { path: string; access: Access; project: Project | null; onOpen: () => void; own?: OwnShare | null }) {
   const me = useMeStrict()
-  const shareOn = useFolderSharesOn()
-  if (shareOn && offersFolderShare(path, me.user.id)) return own ? <OwnShareChip path={path} own={own} /> : null
+  if (offersFolderShare(path, me.user.id)) return own ? <OwnShareChip path={path} own={own} /> : null
   return <AccessChip path={path} access={access} project={project} onOpen={onOpen} />
 }
 
-/** My own folder's chip once folder sharing is open: Shared (with whom, in its name) or Only you; it opens the dialog */
+/** My own folder's chip: Shared (with whom, in its name) or Only you; it opens the dialog */
 function OwnShareChip({ path, own }: { path: string; own: OwnShare }) {
   const t = useT()
   const Icon = own.shared ? Users : UserRound

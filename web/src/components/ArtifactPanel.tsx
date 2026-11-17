@@ -30,7 +30,7 @@ import SandboxFrame, { StaticFrame } from './SandboxFrame'
 import ExternalImagesNote from './ExternalImagesNote'
 import { useFrameFiles } from '../lib/useFrameFiles'
 import type { FrameFiles } from '../lib/frame-files'
-import { Button, CopyButton, IconButton, Spinner } from './ui'
+import { Button, CopyButton, IconButton, PreviewLoading, Spinner } from './ui'
 import { PanelExpandButton } from './SidePanelFrame'
 
 let compiler: Promise<CompileFn> | null = null
@@ -238,7 +238,7 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
         {error ? (
           <p className="p-6 text-sm text-danger">{errorText(error, locale, t('error.network'))}</p>
         ) : content === null ? (
-          <Spinner className="p-6" label={t('common.loading')} />
+          <PreviewLoading label={t('common.loading')} />
         ) : showCode ? (
           <div className="p-3">
             <CodeBlock lang={type === 'react' ? 'jsx' : type === 'html' || type === 'svg' ? 'xml' : type === 'code' ? artifact?.language ?? summary?.language ?? null : type ?? null} code={content} />

@@ -8,7 +8,7 @@ There are four ways to run Trina AX. Pick the one that fits who will look after 
 | | Trina hosting | Linux server | Office Mac | Local demo |
 |---|---|---|---|---|
 | **Best for** | Teams without IT | Teams with an IT owner | A small office with a dedicated Mac | Looking around |
-| **Who runs it** | Trina, in AWS Seoul | Your IT | Your office operator | You |
+| **Who runs it** | Trina, in AWS Seoul, Virginia or Singapore | Your IT | Your office operator | You |
 | **AI** | Your authorized Claude or OpenAI connection | Same | Claude (no Codex) | Off |
 | **OS isolation** | Yes | Yes | Runs as the signed-in user | No |
 | **Reach from outside the office** | Yes | Your network setup | Optional: a Tailscale address (devices on your tailnet, no certificate to install) or a Cloudflare Tunnel address | No |
@@ -94,7 +94,7 @@ Guests (people from outside the team) can't use AI on an office Mac installed th
 Full guide: [Office Mac](../../OFFICE.en.md).
 
 @tab Trina hosting
-Trina runs the team server for you in AWS Seoul, and installs updates during the maintenance window. You bring an authorized Claude or OpenAI connection.
+Trina runs the team server for you in AWS Seoul, Virginia or Singapore, and installs updates during the maintenance window. You bring an authorized Claude or OpenAI connection.
 
 [See the current plans](https://ax.trina.app/#pricing), or email contact@trina.app.
 

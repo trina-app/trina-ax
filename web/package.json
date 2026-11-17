@@ -1,6 +1,6 @@
 {
   "name": "@mycel/web",
-  "version": "0.5.12",
+  "version": "0.5.13",
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",
@@ -15,6 +15,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "bun test test/unit",
     "e2e": "bunx playwright test -c playwright.config.ts",
+    "e2e:guard": "bunx playwright test -c playwright.config.ts --project=chromium chat-project-ask-access mentions-only-count",
     "mock": "bun test/mock/serve.ts"
   },
   "dependencies": {

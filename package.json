@@ -28,6 +28,7 @@
     "typecheck": "bunx tsc -p tsconfig.json --noEmit && bun run --cwd web typecheck && bun run --cwd desktop typecheck",
     "test": "bun run scripts/test-all.ts",
     "test:unit": "bun test tests/unit",
+    "queue": "bun scripts/ci/enqueue.ts",
     "test:stage1": "bun run tests/stage1.ts",
     "test:stage1:fast": "bun run tests/stage1.ts --no-claude --no-docker",
     "test:fuzz:fast": "bun run tests/fuzz/run-fast.ts",

@@ -26,6 +26,10 @@ Plan: `docs/AGENTS/plan/20261116-1500-ai-share-words.md`.
     listed, subfolders and hidden files left out). For a team folder it also says the truth the old text hid: the team
     owner or an admin shares a team folder with Share on the folder in Files. In a shared chat nothing of the folder is
     listed.
+    - Update: gate removed, always on (owner 2026-11-17). The interim "I can't share the whole folder yet" words are gone. Where `share_folder` is
+      offered the person's own folder goes there; where it is not (a guest, a scheduled run) the answer says
+      share_with_person shares files only, that the whole folder is shared with Share on it in Files (not for a guest),
+      and offers the files in it.
   - Nobody by that name (a guest, a person outside the team and a group the person is not in still read the same, on
     purpose): who files can be shared with, and what works for a guest (posting the file to a chat they are in).
   - A room that is not found: the AI calls `rooms` and offers the two or three closest. The room list is not put into
@@ -62,6 +66,14 @@ Plan: `docs/AGENTS/plan/20261116-1500-ai-share-words.md`.
 - **Comments under an answer.** In a shared chat the AI is told that comments exist, that it cannot read them, and that
   "Send to Trina" in the thread brings them to it. It still does not read threads
   (`20261116-chat-answer-threads.md`).
+- **Only files the person can act on (2026-11-17).** On qa.trina.app "Stop sharing QA-plan.md with qa-member2" asked
+  "which one?" over four files of that name, two of them Company-wide copies the person could never change.
+  `SAME_NAME_RULE` now says: for an action, offer as choices only the files the person can do it to; one is used without
+  asking and named by its place in words; none is said plainly with the next step. share_with_person and share_folder
+  carry the same line (`SAME_NAME_ACT_LINE`). stop_sharing does the filtering itself: with `same_name: true` and the
+  several paths, it keeps the files that have a share the person may remove (with the people named), acts on the only
+  one (its result says `which`), returns only those to ask about, or says for each why not (`stopCandidates`). In a
+  shared chat the result names no places or owners. No permission changes: the stop runs its usual checks and card.
 - **Left out:** buttons under a refusal (Ask Mina, Share N files), stop sharing, "who can open this", folder sharing:
   other parts of the plan. The step line of an `ask_user` answer still shows the value the AI gave.
 - **Tests:** `tests/unit/b-ai-share-words.test.ts` (each rule, where it is in the instructions, each refusal, place

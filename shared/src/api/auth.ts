@@ -128,8 +128,8 @@ export const Me = z.object({
      * 'folder' = a self-installed server without a feed (the owner copies the release's files in). Absent: an office Mac
      * (teamax desktop add), dev, a hosted tenant without a feed, or an older server. */
     windowsApp: z.enum(['feed', 'folder']).optional(),
-    /** folder sharing is open on this server (server/src/files/folder-shares.ts gateOn): a person can share a folder in
-     * their own files. Absent = closed (or an older server): the web shows nothing of it. */
+    /** Always true: folder sharing is always on (owner 2026-11-17). Kept only for web and app builds from before, which
+     * show folder sharing only when it is true; current clients do not read it. */
     folderShares: z.literal(true).optional(),
   }),
   /** last password reset by an admin / owner recovery: settings shows "last reset: who, when" (tab 5). by null = owner recovery on the server Mac */

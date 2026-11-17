@@ -317,12 +317,36 @@ function ChoiceRow({ choices, busy, error, className }: { choices: [Choice, Choi
   )
 }
 
-/** What the AI is about to save under skills/ (team skills and rules every teammate's AI follows): the diff. */
+/** A new skill's SKILL.md in plain words (QA MAN-052: the card showed only the raw file, "---", "name:", "## Steps"):
+ * its description and the titles of its parts, read from the diff (a new file: every line added). null for a change,
+ * a rule or a file that is not a skill. */
+export function newSkillSummary(p: Pick<SkillWritePreview, 'isNew' | 'skillName' | 'diff'>): { description: string | null; parts: string[] } | null {
+  if (!p.isNew || !p.skillName) return null
+  const lines = p.diff.split('\n')
+  if (!lines[0]?.startsWith('@@')) return null
+  const text = lines.slice(1).filter((l) => l.startsWith('+')).map((l) => l.slice(1))
+  let i = 0
+  let description: string | null = null
+  if (text[0]?.trim() === '---') {
+    for (i = 1; i < text.length && text[i]!.trim() !== '---'; i++) {
+      const m = /^description:\s*(.+)$/.exec(text[i]!.trim())
+      if (m) description = m[1]!.replace(/^["']|["']$/g, '').trim() || null
+    }
+    i++
+  }
+  const parts = text.slice(i).map((l) => /^#{2,3}\s+(.+)$/.exec(l.trim())?.[1]?.trim()).filter((x): x is string => !!x).slice(0, 8)
+  return { description, parts }
+}
+
+/** What the AI is about to save under skills/ (team skills and rules every teammate's AI follows): the diff. A new
+ * skill first in plain words (what it does, its parts), the file itself one click away. */
 function SkillPreview({ p }: { p: SkillWritePreview }) {
   const t = useT()
   const words = useFolderWords()
   const lines = p.diff.split('\n')
   const isDiff = lines[0]?.startsWith('@@')
+  const sum = newSkillSummary(p)
+  const plain = sum && (sum.description || sum.parts.length) ? sum : null
   return (
     <div className="mb-2 overflow-hidden rounded-lg border border-line" data-testid="skill-preview">
       <div className="flex flex-wrap items-center gap-2 border-b border-line bg-subtle px-3 py-1.5 text-xs">
@@ -337,25 +361,69 @@ function SkillPreview({ p }: { p: SkillWritePreview }) {
           </span>
         )}
       </div>
-      {isDiff ? (
-        <pre className="scroll-thin max-h-64 overflow-auto px-0 py-1 font-mono text-code-sm leading-5" data-testid="skill-preview-diff">
-          {lines.map((l, i) => (
-            <div
-              key={i}
-              className={clsx('px-3 whitespace-pre-wrap [overflow-wrap:anywhere]', l.startsWith('+') ? 'bg-ok-soft text-ok' : l.startsWith('-') ? 'bg-danger-soft text-danger' : l.startsWith('@@') ? 'text-faint' : '')}
-            >
-              {l || ' '}
-            </div>
-          ))}
-        </pre>
+      {plain && (
+        <div className="space-y-1 px-3 py-2 text-sm" data-testid="skill-preview-summary">
+          {plain.description && <p data-testid="skill-preview-does"><span className="text-muted">{t('ask.skillDoes')}</span> {plain.description}</p>}
+          {plain.parts.length > 0 && <p data-testid="skill-preview-parts"><span className="text-muted">{t('ask.skillParts')}</span> {plain.parts.join(' · ')}</p>}
+        </div>
+      )}
+      {isDiff && plain ? (
+        <details className="border-t border-line" data-testid="skill-preview-file">
+          <summary className="cursor-pointer px-3 py-1.5 text-xs text-muted hover:text-ink">{t('ask.skillShowFile')}</summary>
+          <SkillDiff lines={lines} />
+        </details>
+      ) : isDiff ? (
+        <SkillDiff lines={lines} />
       ) : (
         <p className="px-3 py-2 text-xs text-muted">{p.diff}</p>
       )}
       {p.truncated && <p className="border-t border-line px-3 py-1 text-micro text-faint">{t('ask.skillTruncated')}</p>}
+      {p.files?.length ? <HeldFiles files={p.files} /> : null}
       {p.problem && <p className="border-t border-line bg-warn-soft px-3 py-1.5 text-xs text-warn" data-testid="skill-preview-problem">{issueText(t, { path: p.path, problem: p.problem })}</p>}
       {/* a skill of the same name at another level the person sees: which one runs (the server's words) */}
       {p.sameName && <p className="border-t border-line bg-warn-soft px-3 py-1.5 text-xs text-warn" data-testid="skill-preview-same-name" data-hidden={p.sameName.hidden || undefined}>{p.sameName.text}</p>}
     </div>
+  )
+}
+
+/** A new skill's other files that the same card saves (a form, a template; docs/decisions/
+ * 20261117-new-skill-files-on-card.md): each by name, size and first lines, its whole text one click away. */
+function HeldFiles({ files }: { files: NonNullable<SkillWritePreview['files']> }) {
+  const t = useT()
+  return (
+    <div className="border-t border-line px-3 py-2 text-sm" data-testid="skill-preview-files">
+      <p className="text-muted">{t('ask.skillFiles', { count: files.length })}</p>
+      <ul className="mt-1 space-y-1">
+        {files.map((f) => (
+          <li key={f.path} data-testid="skill-preview-held">
+            <details>
+              <summary className="cursor-pointer">
+                <span className="font-medium" title={f.path}>{f.path.split('/').at(-1)}</span>{' '}
+                <span className="font-mono text-xs text-faint">{f.size} B</span>
+                {f.lines && <span className="block whitespace-pre-wrap pl-4 text-xs text-muted [overflow-wrap:anywhere]">{f.lines}</span>}
+              </summary>
+              <pre className="scroll-thin mt-1 max-h-64 overflow-auto rounded bg-subtle px-3 py-1 font-mono text-code-sm leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]" data-testid="skill-preview-held-text">{f.text}</pre>
+            </details>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+/** The skill card's diff: added lines green, removed red. */
+function SkillDiff({ lines }: { lines: string[] }) {
+  return (
+    <pre className="scroll-thin max-h-64 overflow-auto px-0 py-1 font-mono text-code-sm leading-5" data-testid="skill-preview-diff">
+      {lines.map((l, i) => (
+        <div
+          key={i}
+          className={clsx('px-3 whitespace-pre-wrap [overflow-wrap:anywhere]', l.startsWith('+') ? 'bg-ok-soft text-ok' : l.startsWith('-') ? 'bg-danger-soft text-danger' : l.startsWith('@@') ? 'text-faint' : '')}
+        >
+          {l || ' '}
+        </div>
+      ))}
+    </pre>
   )
 }
 

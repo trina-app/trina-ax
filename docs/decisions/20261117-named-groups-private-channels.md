@@ -40,3 +40,25 @@ group room are core.
   `web/test/unit/rooms-lib.test.ts`, `tests/unit/b-rooms-group.test.ts` (one-person channel, group DM reopened),
   `web/test/e2e/private-channels.spec.ts`.
 - Version impact: **patch** (words, list placement and a looser create rule; no DB or URL change).
+
+## Follow-ups (2026-11-17, branch fix/private-channel-followups, QA TC-4461, TC-4554)
+
+- **What a guest joins:** any live group room (kind `group`, `server/src/auth/guests.ts` claimGuestRoom,
+  `guest-invites.ts` placeAlive): a private channel **or** a group DM. So the guest words name the kind where it is
+  known and both where it is not: a named place says "private channel" (`guest.inRoom`, `guest.admin.room`,
+  `guest.join.room`, `guest.invite.whereRoom`, `guest.invite.msgRoom*`; the server's `placeName` is the room's own name,
+  trimmed, so a name there means a private channel); a group DM picked in the app keeps "group chat"
+  (`guest.invite.whereRoomGroup`, `guest.invite.msgRoomGroup*`, `guest.admin.roomGroup`); the rule and the "gone"
+  lines say "private channel or group chat" (`guest.onePlace`, `guest.onePlaceShort`, the server's `guestOnePlace`,
+  `invitePlaceGone`, `guestNoPlaceGone`, `guestNoPlaceLeft`, Admin › Guests, `members.inviteGuestLine`). The place
+  picker lists **Private channels** and **Group chats** under two headings.
+- **Server guard:** PATCH /api/rooms/:id refuses `""`, spaces or null as the name of a group room that has one (400
+  validation, `body.name`), for every member; a group room with no name can still be given one. The hourly room limit
+  says "private channels and group chats" when the room being made has a name (`roomChannelLimit`; one count for both).
+- **Focus:** New message focuses the people search (`data-autofocus`); Create a channel still focuses the name.
+- **Phone header:** the room's mark (lock, #, people) shows before the title at phone width too, 16 px, inside the back
+  button's empty right padding; a DM shows none there (the name and the presence dot are enough).
+- **zh:** `rooms.newChat` 发消息 (新消息 read as "you have a new message").
+- Tests: `tests/unit/b-rooms-group.test.ts` (the guard, the limit's words), `tests/security/lib/rooms-cases.ts`
+  (updateRoom), `web/test/unit/guest-walkthrough.test.ts`, `web/test/e2e/guest-invite-people.spec.ts` (two headings),
+  `web/test/e2e/private-channels.spec.ts` (focus).

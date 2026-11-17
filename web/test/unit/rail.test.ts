@@ -56,6 +56,8 @@ const DECIDED: Record<string, RailItem | null> = {
   'admin/:section/:sub': null,
   'admin/:section/:sub/:item': null,
   trash: 'ai',
+  // "Files you sent" (pages/SentFiles.tsx): the conversations'
+  'sent-files': 'chats',
   skills: 'ai',
   'skills/share/:id': 'ai',
   scheduled: 'ai',

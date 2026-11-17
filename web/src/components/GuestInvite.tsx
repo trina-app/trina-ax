@@ -33,8 +33,10 @@ import { LocalLinkNote } from './LocalLinkNote'
 import { absoluteUrl } from './handover/LeadInvite'
 import { namedProduct } from '../lib/tabs'
 
-/** `personal`: one of my personal projects (GuestInviteChoice.tsx mayShareForGuest), shared before the link is made. */
-export interface InvitePlace { kind: PlaceKind; id: string; name: string; personal?: true }
+/** `personal`: one of my personal projects (GuestInviteChoice.tsx mayShareForGuest), shared before the link is made.
+ * `privateChannel`: a room with a name of its own (lib/rooms.ts isPrivateChannel), worded as a private channel; a room
+ * without one is a group DM, worded as a group chat (`name` is then its people's names). */
+export interface InvitePlace { kind: PlaceKind; id: string; name: string; personal?: true; privateChannel?: boolean }
 
 /** The row of an "Add people" list that opens the dialog (a ListRow, face box, like the room info's 초대하기). `any`: the
  * "New conversation" list's, which picks the place first (GuestInviteChoice.tsx GuestInviteFlow). */
@@ -378,7 +380,7 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose, onFull }
       {limit === undefined ? <Skeleton lines={4} /> : (
         <form className="space-y-4" data-testid="guest-invite-dialog" onSubmit={(e) => { e.preventDefault(); void create() }}>
           <p className="text-sm leading-6 break-keep text-muted" data-testid="guest-invite-where">
-            {t(place.kind === 'room' ? 'guest.invite.whereRoom' : 'guest.invite.whereProject', { place: place.name })}
+            {t(place.kind === 'room' ? (place.privateChannel ? 'guest.invite.whereRoom' : 'guest.invite.whereRoomGroup') : 'guest.invite.whereProject', { place: place.name })}
           </p>
           {personal && <p className="text-sm leading-6 break-keep text-muted" data-testid="guest-invite-personal">{t('guest.invite.personalProject')} {t('projects.shareConfirmFinal')}</p>}
           <Field label={t('guest.invite.name')}>
@@ -415,9 +417,11 @@ export function guestLinkMessage(t: ReturnType<typeof useT>, o: { name: string; 
   const product = namedProduct(t)
   const name = o.name.trim()
   const room = o.place.kind === 'room'
+  // a private channel by its kind; a group DM (no name of its own) as a group chat
+  const channel = room && !!o.place.privateChannel
   const hello = name
-    ? t(room ? 'guest.invite.msgRoom' : 'guest.invite.msgProject', { ...product, name, place: o.place.name })
-    : t(room ? 'guest.invite.msgRoomNoName' : 'guest.invite.msgProjectNoName', { ...product, place: o.place.name })
+    ? t(channel ? 'guest.invite.msgRoom' : room ? 'guest.invite.msgRoomGroup' : 'guest.invite.msgProject', { ...product, name, place: o.place.name })
+    : t(channel ? 'guest.invite.msgRoomNoName' : room ? 'guest.invite.msgRoomGroupNoName' : 'guest.invite.msgProjectNoName', { ...product, place: o.place.name })
   return [hello, o.ownAi && t('teamLink.msg.ownAi'), t('guest.invite.msgJoin', { date: o.until, url: o.url })].filter(Boolean).join('\n')
 }
 
@@ -506,7 +510,8 @@ export function guestElsewhere(p: Pick<Person, 'guest' | 'guestPlaces'>, here: {
   return p.guestPlaces?.find((pl) => pl.kind === here.kind && (here.id === undefined || pl.id !== here.id)) ?? null
 }
 
-/** The words of a greyed-out guest's row: "In the 'Quote prep' room" (or project). */
+/** The words of a greyed-out guest's row: "In the 'Quote prep' private channel" (or project). A room's name here is its
+ * own (server auth/guests.ts placeName), so a named room is a private channel; a group DM has none and says the rule. */
 export function elsewhereText(t: ReturnType<typeof useT>, place: GuestPlaceView): string {
   return place.name ? t(place.kind === 'room' ? 'guest.inRoom' : 'guest.inProject', { place: place.name }) : t('guest.onePlaceShort')
 }

@@ -7,7 +7,8 @@
 // - by default a free name next to the original ("<name> (edited).pdf", "(merged)", "(part 1)", in the team's
 //   language), so nothing is overwritten; edit_pdf replaces the original only with replace: true, after a read of it in
 //   this turn (a new version, the old one in its history); an `output` that names an existing file the AI did not read
-//   gets a conflict copy (make-file.ts placeProduced);
+//   gets a conflict copy (make-file.ts placeProduced); a PDF the AI made itself in this turn and nobody changed since is
+//   changed in place by edit_pdf without output (stamp-pdf.ts madeThisTurn; docs/decisions/20261117-stamp-own-fresh-pdf.md);
 // - every result carries the bytes of what it is made from: the wider-audience check of make_file (confirmSources);
 // - never into a skill folder.
 import fs from 'node:fs'
@@ -30,6 +31,7 @@ import { checkRegular, freeName } from '../team-files/place'
 import type { TeamFiles } from '../team-files/service'
 import { makeWorkDir } from './isolate'
 import { confirmSources, placeProduced, type MadeFile } from './make-file'
+import { madeThisTurn } from './stamp-pdf'
 
 type EditIn = z.output<typeof EditPdfInput>
 type MergeIn = z.output<typeof MergePdfsInput>
@@ -42,7 +44,7 @@ export const PDF_WORDS: Record<'edited' | 'merged' | 'part', Record<Locale, stri
   part: { ko: '부분', en: 'part', id: 'bagian', ja: 'パート', es: 'parte', zh: '部分' },
 }
 
-export const EDIT_PDF_DESCRIPTION = 'Change an existing PDF and save the result as a new PDF next to it (the original stays as it is): ' +
+export const EDIT_PDF_DESCRIPTION = 'Change an existing PDF and save the result as a new PDF next to it (the original stays as it is; a PDF you made in this turn is changed in place unless you give output): ' +
   'operations, applied in order: remove_pages, keep_pages (extract pages), reorder_pages, rotate_pages, insert_pdf (pages of another PDF at a position), ' +
   'stamp_image (a seal, signature or logo; PNG transparency kept), add_text (one line, e.g. a date at a spot), watermark (e.g. "DRAFT" across the page) and page_numbers. ' +
   'Pages are written like "1,3-5,last", "2-last" or "all"; each operation sees the pages as they are after the ones before it. ' +
@@ -144,6 +146,10 @@ export async function editPdfFile(ctx: AppContext, files: TeamFiles, c: ToolCtx,
   let out
   if (a.replace === true) {
     if (!c.files.readHashes.has(src.rel)) throw new ToolError(`to replace '${src.rel}' (its old version stays in its history), read it in this turn first. Replace it only when the user asked for that; otherwise leave replace out to save a new file next to it`)
+    out = authorize(files.fx, files.rules(), c.user, src.rel, 'write', { mustExist: true })
+    if (skillRootOf(out.rel)) throw new ToolError('a PDF in a skill folder is not changed here; save the result in a project or the person\'s own folder')
+  } else if ((a.output === undefined || a.output.trim() === '') && madeThisTurn(c, src.rel, src.bytes)) {
+    // the AI's own PDF of this turn: changed in place (a new version), no unchanged copy left next to it
     out = authorize(files.fx, files.rules(), c.user, src.rel, 'write', { mustExist: true })
     if (skillRootOf(out.rel)) throw new ToolError('a PDF in a skill folder is not changed here; save the result in a project or the person\'s own folder')
   } else {
