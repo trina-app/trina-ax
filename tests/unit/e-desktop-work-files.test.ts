@@ -6,7 +6,7 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { inOneDrive, lookRoots, scanRoots, WorkFileSessions, type WorkDirent, type WorkFs, type WorkRoot, type WorkStat } from '../../desktop/src/common/work-files'
+import { inOneDrive, lookRoots, pickRefused, pickTarget, scanRoots, WorkFileSessions, type WorkDirent, type WorkFs, type WorkRoot, type WorkStat } from '../../desktop/src/common/work-files'
 import { findDocs } from '../../web/src/lib/teamFiles'
 import { docsFromScan, forAiRecent, personalList, workCandidates } from '../../web/src/lib/workFiles'
 
@@ -585,7 +585,8 @@ describe('owner 2026-11-15: "they\'re work files, but it only brought really use
 })
 
 describe('MAN-057 (2026-11-17, Windows 11): "quote" found nothing in Documents › QA desktop test › Quotes', () => {
-  // the PC's Documents as the walk saw it: code projects (skipped by softwareFolder), a folder too deep (the cut line),
+  // the PC's Documents as the walk saw it: code projects (skipped by softwareFolder), a deep folder (cut at four folders
+  // down before the second fix),
   // and three quotes of 27 to 53 bytes that the walk reached and then dropped as too small
   const NOW = Date.UTC(2026, 10, 17, 9)
   const NO_WORDS = { names: [], domains: [], people: [] }
@@ -605,17 +606,19 @@ describe('MAN-057 (2026-11-17, Windows 11): "quote" found nothing in Documents �
   test('the walk lists the small quotes (an empty file stays out); the page finds them by name and keeps them out of the picks', async () => {
     const f = tree()
     const r = await lookRoots(ROOTS, f.fs, { platform: 'win32', newId: () => `id${n++}`, now: () => NOW, index: async () => null })
-    expect(r.roots[0]).toMatchObject({ how: 'walk', cut: true })
+    // six folders down since the second MAN-057 fix: the Codex tree is reached, nothing is cut
+    expect(r.roots[0]).toMatchObject({ how: 'walk', cut: false })
     const names = r.files.map((x) => x.name).sort()
-    expect(names).toEqual(['Price-list-2026.txt', 'Quote-Hanbit-Q1001.txt', 'Quote-Sora-Q1002.txt', 'lunch.txt'])
+    expect(names).toEqual(['Price-list-2026.txt', 'Quote-Hanbit-Q1001.txt', 'Quote-Sora-Q1002.txt', 'deep.md', 'lunch.txt'])
     const docs = docsFromScan(r.files, async () => ({ ok: false, reason: 'unknown' }))
     // the search matches the path inside the folder (Quotes/…): all three files of the Quotes folder
     expect(findDocs(docs, 'quote').map((d) => d.name).sort()).toEqual(['Price-list-2026.txt', 'Quote-Hanbit-Q1001.txt', 'Quote-Sora-Q1002.txt'])
     // never suggested and never sent to the AI: a text note of a few lines (tooSmall)
-    expect(workCandidates(docs, NOW)).toEqual([])
-    expect(forAiRecent(docs, NO_WORDS, NOW)).toEqual([])
+    const small = docs.filter((d) => d.name !== 'deep.md')
+    expect(workCandidates(small, NOW)).toEqual([])
+    expect(forAiRecent(small, NO_WORDS, NOW)).toEqual([])
     // nor in the "May be personal" fold: a small file with a personal-looking path is found by name only
-    const mine = docs.map((d) => ({ ...d, personal: true }))
+    const mine = small.map((d) => ({ ...d, personal: true }))
     expect(personalList(mine, NOW)).toEqual([])
     expect(personalList([{ ...mine[0]!, size: 9000 }], NOW).map((d) => d.name)).toEqual([mine[0]!.name])
   })
@@ -626,5 +629,229 @@ describe('MAN-057 (2026-11-17, Windows 11): "quote" found nothing in Documents �
     const r = await lookRoots([ROOTS[0]!], f.fs, { platform: 'darwin', newId: () => `id${n++}`, now: () => NOW, index: async () => [at('Quotes/Quote-Hanbit-Q1001.txt', 53), at('Quotes/empty.txt', 0)] })
     expect(r.roots[0]).toMatchObject({ how: 'index' })
     expect(r.files.map((x) => x.name)).toEqual(['Quote-Hanbit-Q1001.txt'])
+  })
+})
+
+describe('MAN-057, second look (2026-11-17): a big Documents left the quotes out and there was no way to pick a folder', () => {
+  const NOW = Date.UTC(2026, 10, 17, 9)
+  const DAY = 86_400_000
+  /** A Documents as a real office PC has it: thousands of loose junk files at the top, programs' folders, a fresh folder
+   * of thousands of exported notes (newest of all), fresh deep trees, and three quotes two folders down. */
+  function bigDocuments(): Record<string, Node> {
+    const top: Record<string, Node> = {}
+    for (let i = 0; i < 4000; i++) top[`log-${i}.tmp`] = file(500, NOW - DAY)
+    for (let i = 0; i < 1500; i++) top[`IMG_${i}.jpg`] = file(90_000, NOW - DAY)
+    for (let i = 0; i < 300; i++) top[`Folder ${String(i).padStart(3, '0')}`] = dir({ [`f${i}.bin`]: file() }, NOW - 400 * DAY)
+    const notes: Record<string, Node> = {}
+    for (let i = 0; i < 12_000; i++) notes[`note-${i}.txt`] = file(3000, NOW)
+    const modules: Record<string, Node> = {}
+    for (let i = 0; i < 3000; i++) modules[`m${i}.md`] = file(4000, NOW)
+    // a fresh unzipped tree, deep and wide (each level newer than the Quotes folder)
+    const fresh = (depth: number): Node => dir(depth ? Object.fromEntries(Array.from({ length: 6 }, (_, i) => [`d${depth}-${i}`, fresh(depth - 1)])) : { 'part.pdf': file(5000, NOW) }, NOW)
+    return {
+      ...top,
+      'Exported notes': dir(notes, NOW),
+      'Unzipped dataset': fresh(5),
+      node_modules: dir(modules, NOW),
+      '.git': dir({ 'packed.md': file(9000, NOW) }, NOW),
+      'My Games': dir(Object.fromEntries(Array.from({ length: 2000 }, (_, i) => [`save${i}.txt`, file(3000, NOW)])), NOW),
+      Cache: dir(Object.fromEntries(Array.from({ length: 2000 }, (_, i) => [`c${i}.csv`, file(3000, NOW)])), NOW),
+      'QA desktop test': dir({
+        Quotes: dir({ 'Quote-Hanbit-Q1001.xlsx': file(18_000, NOW - 2 * DAY), 'Quote-Sora-Q1002.xlsx': file(21_000, NOW - 2 * DAY), 'Quote-Mirae-Q1003.xlsx': file(19_500, NOW - 2 * DAY) }, NOW - 2 * DAY),
+      }, NOW - 2 * DAY),
+    }
+  }
+  const QUOTES = ['Quote-Hanbit-Q1001.xlsx', 'Quote-Mirae-Q1003.xlsx', 'Quote-Sora-Q1002.xlsx']
+  /** a clock that moves with the work: a folder's listing 1 ms per 100 entries, each lstat 0.2 ms (a slow laptop disk
+   * with a virus scanner is slower; the limits are what count) */
+  const timed = (fs: WorkFs) => {
+    let clock = 0
+    const timedFs: WorkFs = {
+      ...fs,
+      readdir: async (p, max) => { const out = await fs.readdir(p, max); clock += 1 + out.length / 100; return out },
+      lstat: async (p) => { clock += 0.2; return fs.lstat(p) },
+    }
+    return { fs: timedFs, now: () => clock, spent: () => clock }
+  }
+  /** The fake's paths as Windows names them (C:\Users\alex\…): realpath answers in Windows form, everything else is
+   * handed to the posix fake with its backslashes turned. */
+  const windowsFs = (fs: WorkFs): WorkFs => {
+    const toPosix = (p: string) => '/' + p.replace(/\\/g, '/').replace(/^\/+/, '').replace(/^C:\//i, '')
+    const toWin = (p: string) => 'C:' + p.replace(/\//g, '\\')
+    return { readdir: (p, m) => fs.readdir(toPosix(p), m), lstat: (p) => fs.lstat(toPosix(p)), realpath: async (p) => toWin(await fs.realpath(toPosix(p))), open: (p) => fs.open(toPosix(p)) }
+  }
+  const WIN_ROOTS: WorkRoot[] = [
+    { id: 'documents', path: 'C:\\Users\\alex\\Documents', oneDrive: false },
+    { id: 'desktop', path: 'C:\\Users\\alex\\Desktop', oneDrive: false },
+    { id: 'downloads', path: 'C:\\Users\\alex\\Downloads', oneDrive: false },
+  ]
+
+  for (const platform of ['darwin', 'win32'] as const) {
+    test(`${platform}: the quotes are found under thousands of junk files and fresh big folders, within the walk's time`, async () => {
+      const f = fakeFs(home({ Documents: dir(bigDocuments()), Desktop: dir({ 'Plan.docx': file(9000, NOW) }), Downloads: dir() }))
+      const base = platform === 'win32' ? windowsFs(f.fs) : f.fs
+      const t = timed(base)
+      const roots = platform === 'win32' ? WIN_ROOTS : ROOTS
+      const r = await lookRoots(roots, t.fs, { platform, newId: () => `id${n++}`, now: t.now, index: async () => null })
+      const docs = r.files.filter((x) => x.root === 'documents')
+      expect(docs.filter((x) => QUOTES.includes(x.name)).map((x) => [x.name, x.folder]).sort()).toEqual(QUOTES.map((q) => [q, 'QA desktop test/Quotes']))
+      // the junk is never listed: programs' folders, caches, games' saves, loose pictures
+      expect(docs.some((x) => /^(m\d+\.md|packed\.md|save\d+\.txt|c\d+\.csv|IMG_\d+\.jpg)$/.test(x.name))).toBe(false)
+      expect(f.calls.some((c) => /\/(node_modules|\.git|My Games|Cache)$/.test(c) && c.startsWith('readdir'))).toBe(false)
+      // the big folder of notes gives at most its share; the look stays within its time and memory
+      expect(docs.filter((x) => x.name.startsWith('note-')).length).toBeLessThanOrEqual(400)
+      expect(docs.length).toBeLessThanOrEqual(5000)
+      expect(t.spent()).toBeLessThan(20_000)
+      expect(r.files.find((x) => x.name === 'Plan.docx')?.root).toBe('desktop')
+      // the page finds them by name, and they are ordinary work files (not too small)
+      const found = docsFromScan(r.files, async () => ({ ok: false, reason: 'unknown' }))
+      expect(findDocs(found, 'quote').map((d) => d.name).sort()).toEqual(QUOTES)
+      expect(workCandidates(found, NOW).filter((d) => QUOTES.includes(d.name)).length).toBe(3)
+      // a picked file is read from the place it was found, never a path from the page
+      const s = new WorkFileSessions(base, platform)
+      s.begin('o', r.found)
+      const id = docs.find((x) => x.name === QUOTES[0])!.id
+      expect(s.allow('o', [id])).toBe(true)
+      expect((await s.read('o', id)).ok).toBe(true)
+    })
+  }
+
+  test('the walk is breadth first: a level is done before the next one down, whatever is newer deeper down', async () => {
+    const deep = (d: number): Node => dir(d ? { [`x${d}`]: deep(d - 1), [`y${d}`]: deep(d - 1) } : { 'leaf.pdf': file(5000, NOW) }, NOW)
+    const f = fakeFs(home({ Documents: dir({ Fresh: deep(6), Clients: dir({ Acme: dir({ 'Quote.xlsx': file(9000, NOW - 300 * DAY) }, NOW - 300 * DAY) }, NOW - 300 * DAY) }), Desktop: dir(), Downloads: dir() }))
+    const r = await scanRoots([ROOTS[0]!], f.fs, opts({ limits: { walkFiles: 12 } }))
+    expect(r.roots[0]!.cut).toBe(true)
+    expect(r.files.map((x) => x.name)).toContain('Quote.xlsx')
+  })
+
+  test('one folder of thousands gives its share, office types first; its neighbours are still walked', async () => {
+    const many: Record<string, Node> = {}
+    for (let i = 0; i < 2000; i++) many[`note-${i}.txt`] = file(3000, NOW)
+    many['Budget 2026.xlsx'] = file(9000, NOW)
+    many['Contract.docx'] = file(9000, NOW)
+    const f = fakeFs(home({ Documents: dir({ Inbox: dir(many, NOW), Quotes: dir({ 'Quote.xlsx': file(9000, NOW - DAY) }, NOW - DAY) }), Desktop: dir(), Downloads: dir() }))
+    const r = await scanRoots([ROOTS[0]!], f.fs, opts({ limits: { folderDocs: 50 } }))
+    const names = r.files.map((x) => x.name)
+    expect(names).toContain('Budget 2026.xlsx')
+    expect(names).toContain('Contract.docx')
+    expect(names).toContain('Quote.xlsx')
+    expect(names.filter((x) => x.startsWith('note-')).length).toBe(48)
+    expect(r.roots[0]!.cut).toBe(true)
+    // a folder of more entries than one folder gives: the rest is not read, the folders beside it are
+    const wide: Record<string, Node> = {}
+    for (let i = 0; i < 300; i++) wide[`junk-${i}.bin`] = file()
+    const g = fakeFs(home({ Documents: dir({ Wide: dir(wide, NOW), Quotes: dir({ 'Quote.xlsx': file(9000, NOW - DAY) }, NOW - DAY) }), Desktop: dir(), Downloads: dir() }))
+    const w = await scanRoots([ROOTS[0]!], g.fs, opts({ limits: { folderEntries: 100 } }))
+    expect(w.files.map((x) => x.name)).toEqual(['Quote.xlsx'])
+    expect(w.roots[0]!.cut).toBe(true)
+  })
+
+  test('Windows: a folder is walked even when Windows Search knows a few files in it, and does not wait for it', async () => {
+    const f = fakeFs(home({ Documents: dir(bigDocuments()), Desktop: dir(), Downloads: dir() }))
+    const fs = windowsFs(f.fs)
+    const row = (p: string) => ({ path: `C:\\Users\\alex\\Documents\\${p}`, used: null, modified: NOW - DAY, useCount: null, size: 9000, origins: [], authors: ['Bo Kim'], org: 'Acme', listed: false })
+    // the index knows two files (its 2,000 newest rows of the whole home folder held no more of Documents)
+    const two = [row('QA desktop test\\Quotes\\Quote-Sora-Q1002.xlsx'), row('Old plan.docx')]
+    let late: (v: unknown) => void = () => {}
+    const slow = new Promise((ok) => { late = ok })
+    const r = await lookRoots([WIN_ROOTS[0]!], fs, {
+      platform: 'win32', newId: () => `id${n++}`, now: () => NOW, recentWaitMs: 200,
+      index: async () => { await slow; return two },
+      walkToo: (root) => root.id === 'documents',
+    })
+    late(null)
+    expect(r.roots[0]).toMatchObject({ how: 'walk' })
+    expect(r.files.filter((x) => QUOTES.includes(x.name)).length).toBe(3)
+    // answered in time, its rows add what they know to the walked files (who wrote it, the company)
+    const g = fakeFs(home({ Documents: dir(bigDocuments()), Desktop: dir(), Downloads: dir() }))
+    const q = await lookRoots([WIN_ROOTS[0]!], windowsFs(g.fs), { platform: 'win32', newId: () => `id${n++}`, now: () => NOW, index: async () => two, walkToo: () => true })
+    expect(q.files.filter((x) => QUOTES.includes(x.name)).length).toBe(3)
+    expect(q.files.find((x) => x.name === 'Quote-Sora-Q1002.xlsx')).toMatchObject({ authors: ['Bo Kim'], org: 'Acme' })
+    // without walkToo (another place): the index's files only, as before
+    const h = fakeFs(home({ Documents: dir(bigDocuments()), Desktop: dir(), Downloads: dir() }))
+    const only = await lookRoots([WIN_ROOTS[0]!], windowsFs(h.fs), { platform: 'win32', newId: () => `id${n++}`, now: () => NOW, index: async () => two })
+    expect(only.roots[0]).toMatchObject({ how: 'index' })
+    expect(only.files.map((x) => x.name)).toEqual(['Quote-Sora-Q1002.xlsx'])
+  })
+
+  test('"Choose a folder…" never looks through the apps\' data or a never-listed folder; a Mac\'s cloud drives are fine', () => {
+    expect(pickRefused('/Users/alex/Documents/QA desktop test/Quotes', 'darwin')).toBe(false)
+    expect(pickRefused('/Volumes/NAS/Sales', 'darwin')).toBe(false)
+    expect(pickRefused('/Users/alex/Library/CloudStorage/OneDrive-Acme/Quotes', 'darwin')).toBe(false)
+    expect(pickRefused('/Users/alex/Library/Mobile Documents/com~apple~CloudDocs/Work', 'darwin')).toBe(false)
+    expect(pickRefused('/Users/alex/Library/CloudStorage', 'darwin')).toBe(true)
+    expect(pickRefused('/Users/alex/Library/Application Support/Slack', 'darwin')).toBe(true)
+    expect(pickRefused('/Users/alex/.ssh', 'darwin')).toBe(true)
+    expect(pickRefused('/Users/alex/code/app/node_modules', 'darwin')).toBe(true)
+    expect(pickRefused('C:\\Users\\alex\\Documents\\QA desktop test\\Quotes', 'win32')).toBe(false)
+    expect(pickRefused('D:\\Work', 'win32')).toBe(false)
+    expect(pickRefused('C:\\Users\\alex\\AppData\\Roaming\\Microsoft', 'win32')).toBe(true)
+    expect(pickRefused('C:\\Users\\alex\\Documents\\My Games', 'win32')).toBe(true)
+    // the system's folders and another person's (review of MAN-057)
+    for (const x of ['C:\\Windows\\System32', 'C:\\Program Files\\Acme', 'C:\\Program Files (x86)', 'C:\\ProgramData\\x', 'C:\\Users\\bo\\Documents']) expect(pickRefused(x, 'win32', 'C:\\Users\\alex')).toBe(true)
+    expect(pickRefused('C:\\Users\\Alex\\Documents', 'win32', 'C:\\Users\\alex')).toBe(false)
+    expect(pickRefused('C:\\Users\\Public\\Documents', 'win32', 'C:\\Users\\alex')).toBe(false)
+    for (const x of ['/System/Library', '/private/etc', '/usr/local', '/Applications/Numbers.app', '/Users/bo/Documents', '/Library/Preferences']) expect(pickRefused(x, 'darwin', '/Users/alex')).toBe(true)
+    expect(pickRefused('/Users/Shared/Team', 'darwin', '/Users/alex')).toBe(false)
+  })
+
+  test('"Choose a folder…": inside one of the three folders (case, separators), or a folder of its own; never a whole path', () => {
+    const win = ['C:\\Users\\alex\\Documents', 'C:\\Users\\alex\\Desktop', null]
+    expect(pickTarget('C:\\Users\\Alex\\documents\\QA desktop test\\Quotes', win, 'win32')).toEqual({ root: 0, parts: ['QA desktop test', 'Quotes'], label: 'Quotes' })
+    expect(pickTarget('C:\\Users\\alex\\Desktop\\', win, 'win32')).toEqual({ root: 1, parts: [], label: 'Desktop' })
+    // a sibling whose name starts like a root's is not inside it
+    expect(pickTarget('C:\\Users\\alex\\Documents2\\x', win, 'win32').root).toBe(-1)
+    expect(pickTarget('C:\\Users\\alex\\..Documents', win, 'win32').root).toBe(-1)
+    // a drive's top: its letter, never "D:\\"
+    expect(pickTarget('D:\\', win, 'win32')).toEqual({ root: -1, parts: [], label: 'D' })
+    // a folder named like a root folder keeps apart from it (its files would take the same names)
+    expect(pickTarget('D:\\Archive\\Documents', win, 'win32').label).toBe('Documents (Archive)')
+    const mac = ['/Users/alex/Documents', '/Users/alex/Desktop', '/Users/alex/Downloads']
+    expect(pickTarget('/Users/alex/documents/Clients/Acme', mac, 'darwin')).toEqual({ root: 0, parts: ['Clients', 'Acme'], label: 'Acme' })
+    expect(pickTarget('/Volumes/NAS/Sales', mac, 'darwin')).toEqual({ root: -1, parts: [], label: 'Sales' })
+  })
+
+  test('the time is shared: a slow first folder leaves the others their share; a cloud folder answered by the index still counts after the end', async () => {
+    const big = () => dir(Object.fromEntries(Array.from({ length: 120 }, (_, i) => [`sub${i}`, dir({ [`doc${i}.pdf`]: file(5000, NOW) }, NOW)])), NOW)
+    const f = fakeFs(home({ Documents: big(), Desktop: big(), Downloads: big(), OneDrive: dir({ 'Plan.docx': file(9000, NOW) }) }))
+    // every folder read takes 20 ms: Documents alone would need 2.4 s of the look's 3 s
+    const slow: WorkFs = { ...f.fs, readdir: async (p, max) => { await new Promise((r) => setTimeout(r, 20)); return f.fs.readdir(p, max) } }
+    const cloud: WorkRoot = { id: 'cloud', path: '/Users/alex/OneDrive', oneDrive: false, place: 'OneDrive' }
+    let ready: (v: unknown) => void = () => {}
+    const indexDone = new Promise((ok) => { ready = ok })
+    setTimeout(() => ready(null), 3500)
+    const t0 = Date.now()
+    const r = await lookRoots([...ROOTS, cloud], slow, {
+      platform: 'darwin', newId: () => `id${n++}`, now: () => Date.now(), deadline: Date.now() + 3000, recentWaitMs: 6000,
+      walkToo: (root) => root.id !== 'cloud', noWalk: (root) => root.id === 'cloud',
+      index: async () => { await indexDone; return [{ path: '/Users/alex/OneDrive/Plan.docx', used: null, modified: NOW, useCount: null, size: 9000, origins: [], authors: [], org: null }] },
+    })
+    const spent = Date.now() - t0
+    // each of the three folders was walked (none skipped), each cut by its share
+    expect(r.roots.slice(0, 3).map((x) => x.state)).toEqual(['ok', 'ok', 'ok'])
+    expect(r.roots.slice(0, 3).every((x) => x.checked > 0)).toBe(true)
+    // the cloud folder, never walked, gets its rows after the end
+    expect(r.files.find((x) => x.name === 'Plan.docx')?.root).toBe('cloud')
+    expect(spent).toBeLessThan(3000 + 2000 + 500)
+  })
+
+  test('the bridge: pickFolder is the page\'s only way to name a folder, and it names none (the system\'s window does)', () => {
+    const main = readFileSync(join(import.meta.dir, '../../desktop/src/main/main.ts'), 'utf8')
+    expect(main).toContain("ipcMain.handle('bridge:work-files-pick-folder', (e) => (fromApp(e) && e.senderFrame ? win!.workFiles.pickFolder(e.senderFrame.origin) : { state: 'unavailable' }))")
+    const preload = readFileSync(join(import.meta.dir, '../../desktop/src/preload/app.ts'), 'utf8')
+    expect(preload).toContain("pickFolder: () => ipcRenderer.invoke('bridge:work-files-pick-folder'),")
+    const ctl = readFileSync(join(import.meta.dir, '../../desktop/src/main/work-files.ts'), 'utf8')
+    // only after a look (the consent window's yes), never home or above, never the apps' data
+    const pick = ctl.slice(ctl.indexOf('async pickFolder('), ctl.indexOf('private async consent('))
+    expect(pick).toContain('if (!this.sessions.has(origin)) return { state: \'cancelled\' }')
+    expect(pick).toContain('opensHome(realPicked, FOLDER_SYSTEM, process.platform)')
+    expect(pick).toContain('pickRefused(realPicked, process.platform, ')
+    // a page script cannot open the window again and again: the person's own press, and a pause after each answer
+    expect(pick).toContain('Date.now() - this.o.lastInput() > PERSON_INPUT_MS && !this.o.assistive()')
+    expect(pick).toContain('this.quietUntil = Date.now() + COOLDOWN_MS')
+    // a share one call at a time; a cloud drive's folder never walked into online-only folders
+    expect(ctl).toContain("...(o.picked.serial ? { serial: true } : {}),")
+    expect(ctl).toContain("placeholders: (paths: string[]) => macDatalessSet(paths)")
+    expect(pick).toContain('this.sessions.extend(origin, res.found)')
   })
 })

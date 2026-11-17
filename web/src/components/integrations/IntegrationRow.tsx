@@ -133,6 +133,16 @@ export function useSignIn(onCompleted: (id: string) => void, onGone?: () => void
       returnPort.current = port
       const r = await api.call(API.authorizeIntegration, { params: { id }, body: port ? { loopbackPort: port } : {} })
       if (g !== generation.current) return
+      // the service needs no sign-in and works without one: the server made it a connection with no sign-in, so there
+      // is no page to open (QA TC-4771); it reads as connected, like a sign-in that finished
+      if ('connected' in r) {
+        popup.current?.close()
+        popup.current = null
+        dropReturn()
+        setS(null)
+        done.current(id)
+        return
+      }
       if (!r.loopback) dropReturn()
       let url: string
       try {

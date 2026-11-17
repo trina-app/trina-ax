@@ -14,11 +14,11 @@ import type { ConsentAsk } from './work-consent-window'
 import { WORK_FILES_BRIDGE_VERSION, WORK_FILES_WIDE_VERSION, type FullDiskState, type WorkCloudProvider, type WorkFileAdd, type WorkFileRead, type WorkFileScan, type WorkFolderId, type WorkRootId } from '@mycel/shared'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { opensHome } from '../common/folder-access'
-import { inOneDrive, lookRoots, lookWide, WORK_ROOTS, WorkFileSessions, type WorkFs, type WorkRoot, type WorkStat } from '../common/work-files'
+import { FALLBACK_LIMITS, inOneDrive, lookRoots, lookWide, pickRefused, pickTarget, WORK_ROOTS, WorkFileSessions, type WorkFs, type WorkRoot, type WorkStat } from '../common/work-files'
 import { execFile } from 'node:child_process'
 import { considered, neverListed } from '@mycel/shared/file-scan'
 import { macPath, parseMdfind, RECENT_DAYS, type IndexedFile, type WindowsLook } from '../common/work-index'
-import type { Place } from '../common/work-places'
+import { cloudProviderOf, type Place } from '../common/work-places'
 import { macHints, windowsFixedDrives, windowsIndex } from './work-index-run'
 import { fullDiskState, macCloudOnly, macDatalessSet, macPlaceIndex, macRecent, MAC_FULL_DISK_SETTINGS, widePlaces } from './work-places-run'
 import type { MeResult } from '../common/browser-owner'
@@ -106,6 +106,15 @@ const WIDE_MS = 20_000
 const PLACE_LIMITS = { depth: 4, walkFiles: 10_000, rootMs: 4000 } as const
 
 const ROOT_KEY: Record<WorkFolderId, UiKey> = { documents: 'workFiles.documents', desktop: 'workFiles.desktop', downloads: 'workFiles.downloads' }
+
+const isFolderId = (id: WorkRootId): id is WorkFolderId => id === 'documents' || id === 'desktop' || id === 'downloads'
+/** Windows: the three folders (and a messenger's folder, small, looked at before them) are walked even when Windows
+ * Search knows files in them, and its rows join after the walk (common/work-files.ts LookOptions.walkToo; MAN-057), so no
+ * walk waits for Windows Search first. A folder OneDrive keeps is not walked in the wide look (noWalk). */
+const WINDOWS_WALK_TOO = (root: WorkRoot) => process.platform === 'win32' && (isFolderId(root.id) || root.id === 'messenger') && !root.oneDrive
+/** Windows Search's run (one PowerShell, up to 10 s) is started before the walks; each walked folder waits this long at
+ * most for its rows after its walk */
+const WINDOWS_INDEX_WAIT_MS = 6000
 
 export class WorkFilesController {
   private readonly sessions = new WorkFileSessions(NODE_WORK_FS, process.platform)
@@ -197,11 +206,33 @@ export class WorkFilesController {
 
   /** The roots looked at: the index first (one Windows Search run for all of them; Spotlight per folder, after its
    * question), the walk when there is none (common/work-files.ts lookRoots). */
-  private look(roots: WorkRoot[], generation: number) {
+  private look(roots: WorkRoot[], generation: number, o: { picked?: { serial: boolean; cloud: boolean } } = {}) {
     let win: Promise<WindowsLook> | null = null
     const downloads = roots.find((r) => r.id === 'downloads')?.path ?? null
+    // a folder the person picked themselves is walked, never answered by the index alone; never an online-only folder
+    // (a Mac asks for each folder's flags first; a Windows cloud drive's folder is never walked: the index answers), and
+    // a network share or another volume one call at a time
+    if (o.picked) {
+      const winCloud = process.platform === 'win32' && o.picked.cloud
+      return lookRoots(roots, NODE_WORK_FS, {
+        platform: process.platform,
+        deadline: Date.now() + FALLBACK_LIMITS.rootMs,
+        stopped: () => this.stopped || generation !== this.generation,
+        onProgress: (p) => { if (generation === this.generation) this.o.progress(p) },
+        allowed: async (root) => !(await opensHome(root.path, FOLDER_SYSTEM, process.platform)),
+        index: async () => (winCloud ? (await windowsIndex(roots.map((r) => r.path), null)).index : null),
+        ...(winCloud ? { noWalk: () => true } : {}),
+        ...(o.picked.serial ? { serial: true } : {}),
+        ...(process.platform === 'darwin' ? { placeholders: (paths: string[]) => macDatalessSet(paths), enrich: (paths: string[], until: { deadline: number; stopped: () => boolean }) => macHints(paths, until) } : {}),
+        newId: () => randomBytes(12).toString('base64url'),
+      })
+    }
+    // Windows Search starts now; the walks do not wait for it (walkToo)
+    if (process.platform === 'win32') win = windowsIndex(roots.map((r) => r.path), downloads)
     return lookRoots(roots, NODE_WORK_FS, {
       platform: process.platform,
+      // the three folders share one end (each walk gets its share of what is left: review of MAN-057)
+      deadline: Date.now() + WIDE_MS,
       stopped: () => this.stopped || generation !== this.generation,
       onProgress: (p) => { if (generation === this.generation) this.o.progress(p) },
       // never the home folder or one that holds it (Documents moved to C:\Users\alex, a Desktop linked to home)
@@ -209,6 +240,8 @@ export class WorkFilesController {
       // Windows: Windows Search with the recent lists; a Mac walks (faster than listing through Spotlight) and asks
       // Spotlight about the newest documents
       index: async () => (process.platform === 'win32' ? (await (win ??= windowsIndex(roots.map((r) => r.path), downloads))).index : null),
+      walkToo: WINDOWS_WALK_TOO,
+      recentWaitMs: WINDOWS_INDEX_WAIT_MS,
       // a Mac: Spotlight's last-opened documents of each walked folder join the walk (never cut away by its limits)
       ...(process.platform === 'darwin' ? { enrich: (paths: string[], until: { deadline: number; stopped: () => boolean }) => macHints(paths, until), recentIn: (real: string) => macOpenedIn(real) } : {}),
       newId: () => randomBytes(12).toString('base64url'),
@@ -219,15 +252,18 @@ export class WorkFilesController {
    * folders, then the files opened lately anywhere in the home folder (and, on Windows, other drives and shares). */
   private async lookWide(folders: WorkRoot[], places: Place[], generation: number) {
     const home = app.getPath('home')
-    const deadline = Date.now() + WIDE_MS
-    // messengers' and work folders first (a messenger's folder inside Downloads keeps its name). Windows: then the three
-    // folders, then the cloud drives (a Documents moved into OneDrive stays "Documents (OneDrive)"). A Mac: the cloud
-    // drives before the three folders, whose walks could otherwise use up the look's time (their Spotlight rows are
-    // asked for at the start anyway)
+    let deadline = Date.now() + WIDE_MS
+    // messengers' and work folders first (a messenger's folder inside Downloads keeps its name). Windows: the messengers'
+    // folders, then the three folders (walked, MAN-057: a work folder's walk before them could leave Documents no time),
+    // then the work folders, then the cloud drives (a Documents moved into OneDrive stays "Documents (OneDrive)"). A Mac:
+    // the cloud drives before the three folders, whose walks could otherwise use up the look's time (their Spotlight rows
+    // are asked for at the start anyway)
     const place = (x: Place): WorkRoot => ({ id: x.kind, path: x.path, oneDrive: false, place: x.label })
     const cloud = places.filter((x) => x.kind === 'cloud').map(place)
     const others = places.filter((x) => x.kind !== 'cloud').map(place)
-    const roots: WorkRoot[] = process.platform === 'win32' ? [...others, ...folders, ...cloud] : [...others, ...cloud, ...folders]
+    const messengers = others.filter((x) => x.id === 'messenger')
+    const work = others.filter((x) => x.id !== 'messenger')
+    const roots: WorkRoot[] = process.platform === 'win32' ? [...messengers, ...folders, ...work, ...cloud] : [...others, ...cloud, ...folders]
     const stopped = () => this.stopped || generation !== this.generation
     const common = {
       platform: process.platform,
@@ -244,8 +280,15 @@ export class WorkFilesController {
       const all = windowsIndex([home, ...outside], folders.find((r) => r.id === 'downloads')?.path ?? null, { home, drives: true, lists: true })
       const fixed = windowsFixedDrives()
       const fixedNow = await fixed
+      // the look's time starts after the drives are known (a PowerShell start of a few seconds is not the walks' time)
+      deadline = Date.now() + WIDE_MS
       return lookWide(roots, NODE_WORK_FS, {
         ...common,
+        deadline,
+        walkToo: WINDOWS_WALK_TOO,
+        recentWaitMs: WINDOWS_INDEX_WAIT_MS,
+        // the recent files anywhere (after the roots) keep this much of the look's time
+        reserveMs: 3000,
         // a cloud drive's folder is never walked on Windows (a walk would touch online-only files): the index only
         noWalk: (root) => root.id === 'cloud' || root.oneDrive,
         index: async () => (await all).index,
@@ -320,6 +363,54 @@ export class WorkFilesController {
       if (generation !== this.generation || !this.sessions.extend(origin, res.found)) return { state: 'cancelled' }
       // the files are named from the folder the person picked (under its root's name)
       const prefix = rel ? lib.relative(realRoot, realPicked).split(lib.sep).join('/') : ''
+      return { state: 'done', stopped: res.stopped, roots: res.roots, files: res.files.map((f) => ({ ...f, folder: [prefix, f.folder].filter(Boolean).join('/') })) }
+    } finally {
+      this.busy = false
+    }
+  }
+
+  /** "Choose a folder…" (MAN-057): after a look, the person points the app at one folder the look missed. The system's
+   * folder window opens at Documents; the person's pick there is their permission, and that folder is walked now (never
+   * answered by the index alone). Any folder but the home folder or one that holds it (a drive's top on the system disk)
+   * and the apps' data (AppData, Library, a dot folder, node_modules: common rules, neverListed). Inside one of the three
+   * folders its files are named under it; elsewhere under the folder's own name. They join the latest look. */
+  async pickFolder(origin: string): Promise<WorkFileScan> {
+    const win = this.o.win()
+    if (!win || win.isDestroyed() || !workFilesVersion({ platform: process.platform, mas: process.mas })) return { state: 'unavailable' }
+    if (this.busy || Date.now() < this.quietUntil) return { state: 'busy' }
+    if (!this.sessions.has(origin)) return { state: 'cancelled' }
+    // the person's own press on the page just now (a page script cannot open the window again and again; assistive
+    // technology "presses" with no key or mouse event)
+    if (Date.now() - this.o.lastInput() > PERSON_INPUT_MS && !this.o.assistive()) return { state: 'busy' }
+    this.busy = true
+    this.stopped = false
+    const generation = this.generation
+    try {
+      const L = this.o.locale()
+      const roots = this.roots()
+      const start = roots.find((r) => r.id === 'documents')?.path
+      const r = await dialog.showOpenDialog(win, { ...(start ? { defaultPath: start } : {}), properties: ['openDirectory'], message: t(L, 'workFiles.pickAnyMessage'), buttonLabel: t(L, 'workFiles.pickButton') })
+      // a closed window waits a moment before the next (as the consent window)
+      this.quietUntil = Date.now() + COOLDOWN_MS
+      const picked = r.canceled ? null : r.filePaths[0]
+      if (!picked || generation !== this.generation || !this.sessions.has(origin)) return { state: 'cancelled' }
+      const realPicked = await realpath(picked).catch(() => null)
+      const home = app.getPath('home')
+      // never home or one that holds it, the apps' data or the system's folders (common/work-files.ts pickRefused)
+      if (!realPicked || (await opensHome(realPicked, FOLDER_SYSTEM, process.platform)) || pickRefused(realPicked, process.platform, await realpath(home).catch(() => home))) return { state: 'cancelled' }
+      const realRoots = await Promise.all(roots.map((x) => realpath(x.path).catch(() => null)))
+      const at = pickTarget(realPicked, realRoots, process.platform)
+      const inRoot = at.root >= 0 ? roots[at.root]! : null
+      // the folder's own name goes with it (the page says "12 files in Quotes"); under one of the three folders the files
+      // are still named under that folder (the page ignores a place there)
+      const target: WorkRoot = inRoot ? { ...inRoot, path: realPicked, place: at.label } : { id: 'folder', path: realPicked, oneDrive: inOneDrive(realPicked, process.platform), place: at.label }
+      // a share or another volume: one call at a time (Windows: not a fixed drive; a Mac: under /Volumes)
+      const fixed = process.platform === 'win32' ? await windowsFixedDrives() : []
+      const serial = process.platform === 'win32' ? realPicked.startsWith('\\\\') || !fixed.some((d) => realPicked.toLowerCase().startsWith(d.toLowerCase())) : realPicked.startsWith('/Volumes/')
+      const cloud = target.oneDrive || !!cloudProviderOf(realPicked, process.platform)
+      const res = await this.look([target], generation, { picked: { serial, cloud } })
+      if (generation !== this.generation || !this.sessions.extend(origin, res.found)) return { state: 'cancelled' }
+      const prefix = at.parts.join('/')
       return { state: 'done', stopped: res.stopped, roots: res.roots, files: res.files.map((f) => ({ ...f, folder: [prefix, f.folder].filter(Boolean).join('/') })) }
     } finally {
       this.busy = false

@@ -351,6 +351,22 @@ export function flowReasonKey(reason: string | null): MessageKey {
 /** sign-in (OAuth) is offered: a connection with sign-in that the person manages (an MCP server, or an API with its own app) */
 export const canSignIn = (i: Integration) => i.auth === 'oauth' && i.canManage
 
+/** Sign in is offered on a connection's page (ConnectionPage.tsx, in Settings and in Admin alike): whoever manages it
+ * (canSignIn: a team connection only for an admin, the rule the server keeps), on a computer, while the team has not
+ * turned members' own connections off. `readOnly`: Settings shows a team connection without managing it (Admin does);
+ * the one sign-in it still offers is one only an app on the computer can do (`oauth_desktop_only`), when this window is
+ * that app (`computer`: lib/desktop.ts signsInOnComputer), so an admin in the desktop app is not sent to "open the
+ * desktop app" (QA TC-4794). */
+export function signInOffered(i: Integration, where: { readOnly?: boolean; phone: boolean; computer: boolean }): boolean {
+  if (!canSignIn(i) || where.phone || i.personalOff) return false
+  return !where.readOnly || computerSignIn(i, where.computer)
+}
+
+/** Waiting for a sign-in that only an app on the computer can do (`oauth_desktop_only`, never signed in), and this
+ * window is such an app: the page offers it here instead of the server's "open the desktop app". */
+export const computerSignIn = (i: Pick<Integration, 'lastErrorReason' | 'hasSecret'>, computer: boolean) =>
+  computer && i.lastErrorReason === 'oauth_desktop_only' && !i.hasSecret
+
 /** Personal connections first, then team ones; each by name. */
 export function splitByScope(items: Integration[]): { mine: Integration[]; team: Integration[] } {
   const byName = (a: Integration, b: Integration) => a.name.localeCompare(b.name)

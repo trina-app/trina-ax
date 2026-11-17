@@ -20,9 +20,11 @@ const IMAGES = new Set(['png', 'jpg', 'jpeg'])
 /** a folder whose pictures are brand material */
 const brandFolder = (name: string) => /logo|brand|브랜드|로고/i.test(name)
 
-/** Folders never entered (case does not matter). Library is the Mac's app data in a home folder; AppData Windows'. The
- * rest are a package manager's or a Python environment's trees. */
-const NEVER = new Set(['node_modules', '.git', 'library', 'appdata', 'bower_components', '__pycache__', 'site-packages', 'dist-packages', 'deriveddata'])
+/** Folders never entered (case does not matter). Library is the Mac's app data in a home folder; AppData Windows'. Then
+ * a package manager's or a Python environment's trees, caches, and the folders programs make inside a Windows Documents
+ * (games' saves, PowerShell's modules, IIS Express's sites): thousands of files that are never a person's documents
+ * (MAN-057, 2026-11-17: a big Documents used up the look before its real folders). */
+const NEVER = new Set(['node_modules', '.git', 'library', 'appdata', 'bower_components', '__pycache__', 'site-packages', 'dist-packages', 'deriveddata', 'venv', 'cache', 'caches', 'my games', 'windowspowershell', 'iisexpress', 'steamlibrary'])
 /** A browser's "Save page as" folder name ("Report_files", "보고서_파일", "Bericht-Dateien"): Chrome, Edge, Firefox and
  * Safari in the app's languages and the common European ones. A name alone is not enough ("Client_files" is a person's):
  * savedPage below decides with what is beside it or in it. */
@@ -113,6 +115,11 @@ export function copyOf(name: string): string | null {
   return base ? base + ext : null
 }
 
+/** Office documents first, then the other document types, then pictures: when a folder holds more documents than the
+ * look lists of one folder (WORK_FILES_LIMITS.folderDocs), the ones a person works in are kept. Lower is first. */
+const OFFICE = new Set(['xlsx', 'xls', 'docx', 'doc', 'pptx', 'ppt', 'pdf', 'hwp', 'hwpx', 'csv', 'key', 'pages', 'numbers'])
+export const docRank = (name: string) => { const ext = fileExt(name); return OFFICE.has(ext) ? 0 : DOCS.has(ext) ? 1 : 2 }
+
 /** A file the look considers, by its type and the folders it is in: a document, or a png or jpg in a brand folder (never a
  * screenshot). */
 export function considered(name: string, folders: readonly string[]): boolean {
@@ -133,6 +140,12 @@ export const WORK_FILES_LIMITS = {
   walkFiles: 50_000,
   /** … or this many folders down … */
   depth: 6,
+  /** one folder: at most this many entries read (a name each, cheap; a folder of more is cut, the folders beside it are
+   * still walked) … */
+  folderEntries: 20_000,
+  /** … and at most this many of its documents listed (office types first, docRank): a folder of thousands never uses
+   * up the look before the folders beside it */
+  folderDocs: 400,
   /** … or after this long (the time macOS waits for the person's answer to its own question does not count) */
   rootMs: 15_000,
   /** all three folders together */

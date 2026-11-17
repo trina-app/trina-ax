@@ -483,6 +483,19 @@ idle minutes; a 404 for it starts a new one.
   key, or an own app below). Tokens refresh ahead of expiry and after a 401, one refresh at a time per connection; `invalid_grant` means
   "sign in again". Deleting a connection, or a change that drops its sign-in, removes the local tokens first and then
   asks the service to revoke them (RFC 7009, best effort).
+- **Services that need no sign-in, added with sign-in** (QA TC-4771, DeepWiki). Sign-in is the form's default way in,
+  so a public server is often added with it. When Sign in finds no sign-in at all (`NoSignInFound`: no
+  protected-resource and no authorization-server document answered at any address, each answered 4xx or something that
+  is not a JSON object, and none was down with a 5xx, a redirect or a network error), the server answered `initialize`
+  without a key (no 401) and it also lists its tools without one, the connection is changed to no sign-in
+  (`auth: 'none'`, as if chosen under Advanced; it is checked and its tools saved; the audit entry says
+  `via: 'no_signin_probe'`) and `authorize` answers `{ connected: true }` with no flow, only when that check connected
+  it. Only a connection never signed in, without its own app and not from a template (a template's members bring their
+  own key or sign-in). The write happens only while the connection is as it was read before the probe (same version
+  and address, no sign-in stored): a sign-in that finished meanwhile, or an address changed, keeps its own state and
+  the old answer is given. The requests go through the same address rules as every other. Metadata that answered but
+  cannot be used (another resource or issuer, no S256, no code), a metadata address that is down, and a server that
+  refuses its tool list without a key all keep `oauth_unsupported`.
 - **Services that accept only apps they approved.** Some refuse the app registered for them: the registration answers
   400 or 403 (Figma 403 outside its catalog, Vercel, Square, Intercom and Indeed 400 for a callback not on their list,
   Railway 403 "registration is disabled"; any 4xx naming `invalid_redirect_uri` or `invalid_client_metadata` counts

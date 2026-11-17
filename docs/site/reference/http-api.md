@@ -362,7 +362,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `PATCH` | `/api/integrations/:id` | Signed in | Change a connection: the owner of a personal one, an admin for a team one. A new address drops the stored key. |
 | `DELETE` | `/api/integrations/:id` | Signed in | Delete a connection (OAuth: revocation is tried, the local tokens go first). |
 | `POST` | `/api/integrations/:id/refresh` | Signed in | Check the connection now; MCP: save its current tool list. |
-| `POST` | `/api/integrations/:id/authorize` | Signed in | Start signing in at the service (OAuth with PKCE) in a browser window: an MCP server, or an API with your own app. From the desktop app, loopbackPort names its return address on this computer for services that take only that. |
+| `POST` | `/api/integrations/:id/authorize` | Signed in | Start signing in at the service (OAuth with PKCE) in a browser window: an MCP server, or an API with your own app. From the desktop app, loopbackPort names its return address on this computer for services that take only that. `connected`: an MCP server that offers no sign-in and works without one; it is now a connection with no sign-in, and there is nothing to open. |
 | `DELETE` | `/api/integrations/:id/always-allow` | Signed in | Ask again before the AI changes something at a team connection: ends my own Always allow there (never the team's rule). |
 | `POST` | `/api/integrations/:id/tools` | Signed in | Turn one tool of an MCP connection on or off for the AI (whoever manages the connection). New tools are on. |
 | `GET` | `/api/integrations/flows/:id` | Signed in | Poll a sign-in started by this same session. |

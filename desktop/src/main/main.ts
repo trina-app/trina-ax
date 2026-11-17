@@ -382,6 +382,8 @@ function registerIpc() {
   ipcMain.on('bridge:work-files-settings', (e) => fromApp(e) && win!.workFiles.openSettings())
   // "Choose it yourself": a folder macOS kept the app out of, picked in the system's folder window (only a root's id)
   ipcMain.handle('bridge:work-files-pick', (e, id: unknown) => (fromApp(e) && e.senderFrame && (id === 'documents' || id === 'desktop' || id === 'downloads') ? win!.workFiles.pickRoot(e.senderFrame.origin, id) : { state: 'unavailable' }))
+  // "Choose a folder…" (MAN-057): any folder the person picks in the system's folder window, after a look (no path from the page)
+  ipcMain.handle('bridge:work-files-pick-folder', (e) => (fromApp(e) && e.senderFrame ? win!.workFiles.pickFolder(e.senderFrame.origin) : { state: 'unavailable' }))
 
   // Settings > Browser on the team page (shared/src/desktop-bridge.ts DesktopBrowserSettings): read the setting, go
   // back to asking, remove one always-allowed site, clear them all. Nothing here makes the browser more open: "all" is
