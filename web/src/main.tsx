@@ -20,6 +20,7 @@ import { toast } from './store/ui'
 import { setPushSession } from './lib/push'
 import { setMobilePushSession } from './lib/mobile-push'
 import { guardFileDrops } from './lib/fileDrop'
+import { initDesktopDownloads } from './lib/desktopDownloads'
 import './index.css'
 import './theme.edition.css'
 
@@ -29,6 +30,8 @@ applyTheme(storedTheme())
 applyTextSize(storedTextSize())
 watchSystemTheme()
 document.documentElement.lang = useLocaleStore.getState().locale
+// the desktop app saves downloads straight into Downloads once this page shows the notice for them
+initDesktopDownloads()
 initMobile(error => toast({ level: 'error', text: t(error instanceof MobileFileTooLarge ? 'mobile.fileTooLarge' : 'mobile.saveFailed') }))
 useSession.subscribe(state => {
   const status = state.status

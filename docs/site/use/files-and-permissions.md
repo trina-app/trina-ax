@@ -152,6 +152,7 @@ is forgotten, and a confidential chat is never reported.
 ![Files on a phone: Recent files, Team folders, Project folders, My files and Trash](../images/files/files-phone.webp "Files on a phone")
 
 - **Upload** files or whole folders from the Files screen.
+- **Download**: in the desktop app a file you download goes straight into your computer's Downloads folder, and a notice offers **Show in folder**. A file with the same name is kept: the new one is saved as "name (1)". In a browser, the browser decides where downloads go.
 - **History**: every change keeps a version you can open or restore.
 - **Trash**: **Files › Trash** lists what you could restore, by name and the place it was in ("price-sheet.xlsx · Company-wide › Sales"). A file deleted more than once is one row with its copies: **Restore** brings back the latest, and opening the row restores any other copy. If the list has other people's deletes, **Deleted by me** shows only yours. Items are removed for good after the team's retention period (Admin › Team settings, 30 days by default); each row says when.
 - **Formats**: the AI reads text from PDF, Office and HWP/HWPX files, and sees photos and scanned pages as images (admins can turn that off). Linux servers run no OCR.

@@ -350,9 +350,11 @@ function guestAiUse(db: Database, userId: string, now = new Date()): { usedToken
   return { usedTokens: used.tokens, usedUsd: used.usd, resetsAt: periodEnd('month', now, tz).toISOString() }
 }
 
-/** The name of a place as the team calls it (a group chat's name, '' when it has none; a project's name). */
+/** The name of a place as the team calls it (a private channel's name, '' for a group DM, which has none; a project's
+ * name). The app words a named room as a private channel (guest.inRoom, guest.admin.room, guest.join.room). */
 export function placeName(db: Database, place: GuestPlace): string {
-  if (place.kind === 'room') return (db.query('SELECT name FROM rooms WHERE id = ?').get(place.id) as { name: string | null } | null)?.name ?? ''
+  // trimmed: a name of only spaces is no name (a group DM, not a private channel), as the app reads it
+  if (place.kind === 'room') return (db.query('SELECT name FROM rooms WHERE id = ?').get(place.id) as { name: string | null } | null)?.name?.trim() ?? ''
   return (db.query('SELECT name FROM projects WHERE id = ?').get(place.id) as { name: string } | null)?.name ?? ''
 }
 

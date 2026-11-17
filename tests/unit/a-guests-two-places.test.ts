@@ -13,7 +13,7 @@ setDefaultTimeout(120_000)
 let h: Harness
 afterEach(async () => { await h?.close() })
 
-const EN_ONE_PLACE = 'A guest can be in one group chat and one project. To add them to more, make them a team member.'
+const EN_ONE_PLACE = 'A guest can be in one private channel or group chat, and one project. To add them to more, make them a team member.'
 
 /**
  * mia makes the group chat "Room R" (rita, otto) and the project Quote (nora); otto has the project Secret alone; pat

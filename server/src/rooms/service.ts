@@ -293,7 +293,7 @@ export class Rooms {
     const made = (this.groupsMade.get(userId) ?? []).filter((x) => x > t - HOUR_MS)
     if (made.length >= GROUPS_PER_HOUR) {
       const wait = Math.max(1, Math.ceil((made[0]! + HOUR_MS - t) / 1000))
-      fail('rate_limited', tr('roomGroupLimit', locale, { n: String(GROUPS_PER_HOUR), minutes: String(Math.ceil(wait / 60)) }), { retryAfter: wait })
+      fail('rate_limited', tr(named ? 'roomChannelLimit' : 'roomGroupLimit', locale, { n: String(GROUPS_PER_HOUR), minutes: String(Math.ceil(wait / 60)) }), { retryAfter: wait })
     }
     this.takeSendToken(userId)
     made.push(t)
@@ -409,10 +409,13 @@ export class Rooms {
   }
 
   /** '' or null: back to the server's name; a team room given its group's own name follows the group again. Team rooms
-   * and the everyone room: audited (room.rename), as their other changes are; a group chat not. */
+   * and the everyone room: audited (room.rename), as their other changes are; a group chat not. A group room that has a
+   * name is a private channel and keeps one: emptying it is refused (400 validation), so a channel never turns back
+   * into a group DM; a group DM can still be given a name (docs/decisions/20261117-named-groups-private-channels.md). */
   private rename(userId: string, room: RoomRow, raw: string | null) {
     if (!mayRename(this.db, room, userId)) fail('forbidden')
     let name = raw?.trim() || null
+    if (!name && room.kind === 'group' && room.name?.trim()) fail('validation', undefined, { fields: { 'body.name': 'a private channel needs a name' } })
     if (name && room.kind === 'team' && name === groupName(this.db, room)) name = null
     if ((room.name ?? null) === name) return
     // each rename is a line in the room: the same budget as sending
