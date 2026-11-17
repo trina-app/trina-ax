@@ -67,8 +67,8 @@ describe('a new team skill after reading something fewer people can see', () => 
       // the skill card's own words …
       expect(q).toContain('team skill')
       expect(q).toContain('visit-report')
-      // … and everything the wider-audience card said: what was read, that fewer people see it, how many see the target
-      expect(q).toContain('read content fewer people can see (')
+      // … and everything the wider-audience card said: where it came from (with how many see it), how many see the target
+      expect(q).toMatch(/This came from .+ \((\d+ (person|people)|only you)\)\./)
       expect(q).toMatch(/\d+ (person|people) can see /)
       expect(r.cards[0]!.options?.map((o) => o.value)).toEqual(['save', '__always', 'skip'])
       expect(fs.existsSync(abs('skills/visit-report/SKILL.md'))).toBe(true)
@@ -103,8 +103,8 @@ describe('a new team skill after reading something fewer people can see', () => 
         { tool: 'write', args: { file_path: 'shared/visit-summary.md', content: 'Summary\n' }, sayResult: true },
       ), ['save'])
       expect(r.cards.length).toBe(1)
-      expect(r.cards[0]!.question).toContain('fewer people can see')
-      expect(r.cards[0]!.question).toContain('Save it?')
+      expect(r.cards[0]!.question).toContain('This came from ')
+      expect(r.cards[0]!.question).toMatch(/Save it to .+ \(\d+ (person|people)\)\?/)
       expect(fs.existsSync(abs('shared/visit-summary.md'))).toBe(true)
     } finally { fs.rmSync(abs('shared/visit-summary.md'), { force: true }) }
   })
@@ -118,7 +118,7 @@ describe('a new team skill after reading something fewer people can see', () => 
       ), ['save'])
       expect(r.cards.length).toBe(1)
       expect(r.cards[0]!.question).toContain('Kestrel')
-      expect(r.cards[0]!.question).toContain('read content fewer people can see (')
+      expect(r.cards[0]!.question).toMatch(/This came from .+ \((\d+ (person|people)|only you)\)\./)
       expect(fs.existsSync(abs('projects/kestrel/skills/visit-report/SKILL.md'))).toBe(true)
     } finally { fs.rmSync(abs('projects/kestrel/skills'), { recursive: true, force: true }) }
   })
@@ -131,7 +131,7 @@ describe('a new team skill after reading something fewer people can see', () => 
       ), ['save'])
       expect(r.cards.length).toBe(1)
       const q = r.cards[0]!.question ?? ''
-      expect(q).toContain('read content fewer people can see (')
+      expect(q).toMatch(/This came from .+ \((\d+ (person|people)|only you)\)\./)
       expect(q).toMatch(/can see [^\n]*guide\.docx/)
       expect(fs.existsSync(abs('skills/visit-report-6/guide.docx'))).toBe(true)
     } finally { fs.rmSync(abs('skills/visit-report-6'), { recursive: true, force: true }) }
@@ -159,7 +159,7 @@ describe('a new team skill after reading something fewer people can see', () => 
     try {
       const r = await turn(fake({ tool: 'write', args: { file_path: 'skills/plain-skill/SKILL.md', content: skill('plain-skill') }, sayResult: true }), ['save'])
       expect(r.cards.length).toBe(1)
-      expect(r.cards[0]!.question).not.toContain('fewer people can see')
+      expect(r.cards[0]!.question).not.toContain('This came from ')
       expect(fs.existsSync(abs('skills/plain-skill/SKILL.md'))).toBe(true)
     } finally { fs.rmSync(abs('skills/plain-skill'), { recursive: true, force: true }) }
   })

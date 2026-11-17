@@ -147,17 +147,25 @@ export const TEXT = {
   connectConnected: STEP_TEXT.connectConnected,
   connectNotConnected: STEP_TEXT.connectNotConnected,
   browserSite: t('사내망 주소 {host}를 열어도 될까요?', 'May the AI open the office-network address {host}?', 'Bolehkan AI membuka alamat jaringan kantor {host}?', "AIが社内ネットワークのアドレス{host}を開いてもよろしいですか？", "¿Puede la IA abrir la dirección de red interna {host}?", "允许AI打开办公网络地址{host}吗？"),
-  /** {ai}: the AI as the room cards name it (aiCalled), so a card that asks for both says one name */
-  widenConfirm: t('{ai}가 볼 수 있는 사람이 더 적은 내용({sources})을 읽은 뒤 {target}에 저장하려고 해요. 이곳은 {n}명이 볼 수 있어요. 저장할까요?',
-    '{ai} read content fewer people can see ({sources}) and now wants to save to {target}, which {n, plural, one {# person} other {# people}} can see. Save it?',
-    '{ai} membaca konten yang hanya bisa dilihat lebih sedikit orang ({sources}) dan sekarang ingin menyimpan ke {target}, yang bisa dilihat {n} orang. Simpan?', "{ai}は閲覧できる人が少ない内容（{sources}）を読み取り、{n}人が閲覧できる{target}に保存しようとしています。保存しますか？", "{ai} leyó contenido que menos personas pueden ver ({sources}) y quiere guardarlo en {target}, visible para {n, plural, one {# persona} other {# personas}}. ¿Guardarlo?", "{ai}读取了可见范围更小的内容（{sources}），现在想保存到{target}，那里有{n, plural, one {#人} other {#人}}可以看到。要保存吗？"),
+  /** the wider-audience card, in plain words (docs/decisions/20261117-ai-save-my-files-default.md, QA TC-4792): where
+   * it came from, each source with how many people can see it (widenFrom / widenFromYou), and the place with how many
+   * can see it there. {ai} is passed for the room card's lead and not said here, so a card that asks for both says
+   * one name. Before: "{ai} read content fewer people can see ({sources}) and now wants to save to {target}, which {n}
+   * people can see. Save it?" */
+  widenConfirm: t('이 내용은 {sources}에서 왔어요. {n}명이 볼 수 있는 {target}에 저장할까요?',
+    'This came from {sources}. Save it to {target} ({n, plural, one {# person} other {# people}})?',
+    'Ini berasal dari {sources}. Simpan ke {target} ({n} orang)?', "この内容は{sources}から来ています。{n}人が見られる{target}に保存しますか？", "Esto viene de {sources}. ¿Guardarlo en {target} ({n, plural, one {# persona} other {# personas}})?", "这些内容来自{sources}。要保存到{target}（{n, plural, one {#人} other {#人}}可以看到）吗？"),
+  /** a source on the wider-audience card with how many people can see it now (read-scope.ts sourceViewerCount) */
+  widenFrom: t('{source}({n}명)', '{source} ({n, plural, one {# person} other {# people}})', '{source} ({n} orang)', "{source}（{n}人）", "{source} ({n, plural, one {# persona} other {# personas}})", "{source}（{n, plural, one {#人} other {#人}}）"),
+  /** ...when only the person can see it */
+  widenFromYou: t('{source}(나만)', '{source} (only you)', '{source} (hanya Anda)', "{source}（自分だけ）", "{source} (solo usted)", "{source}（仅你自己）"),
   widenSave: t('저장하기', 'Save', 'Simpan', "保存", "Guardar", "保存"),
   widenDont: t('저장하지 않기', 'Don’t save', 'Jangan simpan', "保存しない", "No guardar", "不保存"),
   /** the skill card's line when the same save also goes where more people can see (chat/turn.ts confirmSkillWrite): what
    * the wider-audience card (widenConfirm) says, on the one card; {target} as it names the place */
-  skillWiden: t('{ai}가 읽은 내용({sources})은 볼 수 있는 사람이 더 적어요. {target}에 저장하면 {n}명이 볼 수 있어요.',
-    '{ai} read content fewer people can see ({sources}) before this save. {n, plural, one {# person} other {# people}} can see {target}.',
-    '{ai} membaca konten yang hanya bisa dilihat lebih sedikit orang ({sources}) sebelum menyimpan ini. {target} bisa dilihat {n} orang.', "{ai}は閲覧できる人が少ない内容（{sources}）を読んでから保存しようとしています。{target}は{n}人が閲覧できます。", "{ai} leyó contenido que menos personas pueden ver ({sources}) antes de guardar esto. {target} es visible para {n, plural, one {# persona} other {# personas}}.", "{ai}在保存前读取了可见范围更小的内容（{sources}）。{target}有{n, plural, one {#人} other {#人}}可以看到。"),
+  skillWiden: t('이 내용은 {sources}에서 왔어요. {target}에 저장하면 {n}명이 볼 수 있어요.',
+    'This came from {sources}. {n, plural, one {# person} other {# people}} can see {target}.',
+    'Ini berasal dari {sources}. {target} bisa dilihat {n} orang.', "この内容は{sources}から来ています。{target}は{n}人が見られます。", "Esto viene de {sources}. {target} es visible para {n, plural, one {# persona} other {# personas}}.", "这些内容来自{sources}。{target}有{n, plural, one {#人} other {#人}}可以看到。"),
   /** the skill card's line when it also saves a new skill's held files (chat/turn.ts askSkillWrite, docs/decisions/
    * 20261117-new-skill-files-on-card.md): how many and their names; the card lists each with its text */
   skillWithFiles: t('이 스킬과 함께 파일 {n}개도 저장해요: {names}. 아래에서 내용을 볼 수 있어요.',

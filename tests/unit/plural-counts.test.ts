@@ -34,12 +34,14 @@ describe('fillPlurals', () => {
 describe('server messages', () => {
   test('the card before the AI saves where more people see it', () => {
     const one = tr('widenConfirm', 'en', { sources: 'users/a/x.md', target: 'shared', n: '1' })
-    expect(one).toContain('which 1 person can see')
-    expect(tr('widenConfirm', 'en', { sources: 's', target: 't', n: '5' })).toContain('which 5 people can see')
-    expect(tr('widenConfirm', 'es', { sources: 's', target: 't', n: '1' })).toContain('visible para 1 persona.')
-    expect(tr('widenConfirm', 'ko', { sources: 's', target: 't', n: '1' })).toContain('1명이 볼 수 있어요')
+    expect(one).toContain('Save it to shared (1 person)?')
+    expect(tr('widenConfirm', 'en', { sources: 's', target: 't', n: '5' })).toContain('(5 people)?')
+    expect(tr('widenConfirm', 'es', { sources: 's', target: 't', n: '1' })).toContain('(1 persona)?')
+    expect(tr('widenConfirm', 'ko', { sources: 's', target: 't', n: '1' })).toContain('1명이 볼 수 있는')
+    expect(tr('widenFrom', 'en', { source: 'x', n: '1' })).toBe('x (1 person)')
+    expect(tr('widenFrom', 'en', { source: 'x', n: '3' })).toBe('x (3 people)')
     // a value is put in as written, never read as a count
-    expect(tr('widenConfirm', 'en', { sources: '{n, plural, one {x} other {y}}', target: 't', n: '2' })).toContain('({n, plural, one {x} other {y}})')
+    expect(tr('widenConfirm', 'en', { sources: '{n, plural, one {x} other {y}}', target: 't', n: '2' })).toContain('from {n, plural, one {x} other {y}}.')
   })
   test('moving and copying files: "item" / "items", "person" / "people", "it" / "them"', () => {
     const fill = (s: string, v: Record<string, string | number>, l: string) => fillPlurals(s, v, l).replace(/\{(\w+)\}/g, (_, k) => String(v[k]))

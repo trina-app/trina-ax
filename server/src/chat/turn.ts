@@ -41,6 +41,7 @@ import { fileSharesOf } from '../files/shares'
 import { SERVER_OWN_FOLDERS } from '../files/own-folders'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, instructionFiles, neutralizeTags, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
 import { sideRoomOf } from './side-room'
+import { saveAudienceNote } from './save-audience'
 import { quotesAppOnBranch, readRooms, withoutQuoteLines } from './read-rooms'
 import { grantOnly, othersSource, seenWhy } from './grant-reads'
 import { componentC } from '../team-files/component'
@@ -72,7 +73,7 @@ import { buildToolSet, widenOf, type ChatToolSet } from './tools'
 import type { ToolCard } from '../services'
 import { ConnectOutcome, type ConnectCard } from './connect-service'
 import { devEnvFlag, mayUseDevEnv } from '../devenv/setting'
-import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, widening, type ReadSource } from './read-scope'
+import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, sourceViewerCount, widening, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
 import { cardEndShort, cardNext, cardReason, refusal, SCREEN, type CardEnd } from '../policy/refusal'
 import { readRegular, sha256, sha256Regular } from '../files/store'
@@ -421,6 +422,8 @@ export class TurnExec {
   /** new files of this turn left loose at the top of shared/, a group's folder or the team root that no note named yet
    * (file-placement.ts) */
   private loosePlaced: string[] = []
+  /** new files of this turn whose audience line (chat/save-audience.ts) is not said yet */
+  private newSaved: string[] = []
   private registered = false
   private thinkingStep: Step | null = null
   private toolNames = new Map<string, string>()
@@ -3412,8 +3415,18 @@ export class TurnExec {
     const me = this.livePrincipal()
     const L = this.spec.locale
     const labels = { mine: tr('scopeMine', L), root: tr('scopeRoot', L), room: tr('scopeRoom', L), chat: tr('scopeChatFiles', L) }
-    const label = (s: ReadSource, own: boolean) => ((this.shared || this.othersWrote) && !this.seesSource(s, me) ? tr('sharedScopeOther', L) : sourceLabel(this.rt.db, s, this.spec.userId, labels, own ? { ownNames: true, place: (p) => this.place(p) } : {}))
-    return { from: [...new Set(need.narrower.map((s) => label(s, true)))].join(', '), fromForAi: [...new Set(need.narrower.map((s) => label(s, false)))].join(', ') }
+    const hidden = (s: ReadSource) => (this.shared || this.othersWrote) && !this.seesSource(s, me)
+    const label = (s: ReadSource, own: boolean) => (hidden(s) ? tr('sharedScopeOther', L) : sourceLabel(this.rt.db, s, this.spec.userId, labels, own ? { ownNames: true, place: (p) => this.place(p) } : {}))
+    // on the card each source says how many people can see it now ("(3 people)", "(only you)"; docs/decisions/
+    // 20261117-ai-save-my-files-default.md), beside the place's own count; a place someone else opened keeps no count
+    const rules = this.rt.files.rules()
+    const counted = (s: ReadSource) => {
+      const l = label(s, true)
+      if (hidden(s)) return l
+      const c = sourceViewerCount(this.rt.db, rules, s, this.spec.userId)
+      return c.onlyReader ? tr('widenFromYou', L, { source: l }) : tr('widenFrom', L, { source: l, n: String(c.n) })
+    }
+    return { from: [...new Set(need.narrower.map(counted))].join(', '), fromForAi: [...new Set(need.narrower.map((s) => label(s, false)))].join(', ') }
   }
 
   /** A yes to saving where more people can see (askWidening, or the skill card that carries it): these sources for that
@@ -3906,6 +3919,10 @@ export class TurnExec {
     for (const r of rows) {
       if (r.action === 'create' || r.action === 'update' || r.action === 'delete' || r.action === 'restore') changes.push({ path: r.path, action: r.action, by, turnId: this.id })
       else if (r.action === 'upload') changes.push({ path: r.path, action: 'create', by, turnId: this.id })
+      if (r.action === 'create' || r.action === 'upload') {
+        const d = r.action === 'create' ? parseJson(r.detail) : {}
+        if (!d.folder && !d.conflictOf) this.newSaved.push(r.path)
+      }
       if (r.action === 'create' && looseArea(r.path) !== null) {
         // a new file, not a folder, a conflict copy beside its original or a rename in place
         const d = parseJson(r.detail)
@@ -3939,6 +3956,24 @@ export class TurnExec {
     this.loosePlaced = []
     if (!paths.length || !canMove || this.templateScope) return ''
     try { return placementNote(this.rt.files, this.livePrincipal(), paths, this.roomReadable) } catch { return '' }
+  }
+
+  /**
+   * After a tool call (chat/tools.ts): who can open the new files it saved, from their real folders (chat/save-audience.ts,
+   * docs/decisions/20261117-ai-save-my-files-default.md), or ''. In a ✦ side chat it also counts the room's people, so
+   * the answer never says "everyone in the room can open it" of a folder that is wider or narrower than the room.
+   * `say` false (a sub-agent's call, a guest): the files are dropped from the list without a line.
+   */
+  audienceNote(say = true): string {
+    if (!this.newSaved.length) return ''
+    const paths = this.newSaved
+    this.newSaved = []
+    if (!say) return ''
+    try {
+      const side = sideRoomOf(this.rt.db, this.spec.chatId, this.spec.userId)
+      const room = side ? (this.rt.db.query("SELECT m.user_id FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? AND u.status = 'active' AND u.deleted_at IS NULL").all(side.id) as { user_id: string }[]).map((x) => x.user_id) : null
+      return saveAudienceNote(this.rt.db, this.rt.files.rules(), paths, this.spec.userId, room)
+    } catch { return '' }
   }
 
   private fileSummary(): FileChangeSummary | null {
