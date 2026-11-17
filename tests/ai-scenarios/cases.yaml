@@ -1448,7 +1448,7 @@ cases:
     - key: member
       as: daniel
       pass1: true
-      expect: { outcome: explain, good: 'A member cannot change team skills; plain words, telling the skill managers what to change (or a personal copy); never that a "Suggest as skill" button sends the change; not a pasted file to copy by hand.', checks: [] }
+      expect: { outcome: explain, good: 'A member cannot change team skills; plain words, telling the skill managers what to change (or a personal copy); never that a "Suggest as skill" button sends the change. A short request for her to send the managers is fine; the whole changed skill pasted to copy by hand is not.', checks: [] }
     - key: approval
       lang: ko
       as: daniel
