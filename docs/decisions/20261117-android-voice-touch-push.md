@@ -17,10 +17,13 @@
     mic again and choose Allow", with no Settings button;
   - NotAllowedError otherwise, and every refusal inside the phone app (there the phone asks, never the page):
     "blocked" with where to allow it, and the phone app's Open Settings;
-  - NotFoundError and the like in a browser: "no microphone found"; anything else (NotReadableError, AbortError):
+  - NotFoundError in a browser: "no microphone found"; anything else (NotReadableError, AbortError, OverconstrainedError):
     "couldn't start, another app may be using it";
-  - inside the phone app, missing or failed: "couldn't start; if it keeps happening, update the app". 1.0.8 gets
-    this until people install the next build.
+  - inside the phone app, missing or failed: "couldn't start, try again in a moment"; the Android app 1.0.8 and
+    older (MobileConfig `appVersion`) adds "if it keeps happening, update the app";
+  - a refusal's "would still ask" is read right after the refusal, not from a cached change event that may still be
+    on its way after Block; a second refusal in a row in the same box says "blocked" anyway (Safari keeps saying
+    "prompt" after Don't Allow and refuses again without asking).
 - **TC-4741 (message box buttons 35–37 dp):** these are the drawn sizes that Android's view tree reports. Each button
   already takes taps from a 44 px box (index.css `touch-hit`; the mic keeps 4 px before send, so the two boxes do not
   overlap). An e2e at 390 px with touch (phone-targets.spec.ts) now checks a room's 📎, mic and send, and the AI chat's
@@ -34,7 +37,10 @@
   Google or push.trina.app. On Android the gateway sends an FCM *notification* message (push-gateway/src/fcm.ts).
   Android draws it itself while the app is in the background, without running any app code, so the app gets no chance
   to ask first. Doing the same on Android needs:
-  - data-only messages from the gateway. The 1.0.8 app and older would not draw those, so it needs versioning;
+  - data-only messages from the gateway. expo-notifications in the 1.0.8 app would draw those itself from
+    `data.title` / `data.message`, and a payload without text would show a blank notification, so the switch needs
+    versioning. Android may also lower the priority of high-priority data messages that end in no shown notification,
+    which matters for the time limit;
   - a native FirebaseMessagingService that takes over from expo-notifications' service and builds the notification
     itself;
   - the label key kept where that service can read it;

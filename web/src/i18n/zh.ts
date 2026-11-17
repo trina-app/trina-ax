@@ -711,6 +711,7 @@ export const zh: Record<MessageKey, string> = {
   "voice.noMic": "未找到麦克风。请连接或打开麦克风后重试。",
   "voice.micFailed": "麦克风无法启动。可能有其他应用正在使用它。请稍后重试。",
   "voice.micFailedApp": "麦克风无法启动。请稍后重试。如果问题持续，请更新应用。",
+  "voice.micFailedPhone": "麦克风无法启动。请稍后重试。",
   "voice.tooLong": "录音太长。请保持在 50 MB 以内。",
   "voice.failed": "转写失败。",
   "voice.empty": "没有识别到内容。请重新录音。",

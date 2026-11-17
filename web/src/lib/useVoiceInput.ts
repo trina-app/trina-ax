@@ -165,7 +165,10 @@ export function useVoiceInput(o: VoiceInputOptions) {
   /** another box records or transcribes now */
   const elsewhere = () => owner !== null && owner !== self.current
 
-  const micKey = (e: RecorderError) => micErrorKey(e.code, { app: mobileApp(), permission: permission.current })
+  // a refusal's words: the browser's answer read right after it (else the last one seen); a second refusal in a row in
+  // this box is "blocked" even while the browser says it would ask
+  const refusals = useRef(0)
+  const micKey = (e: RecorderError) => micErrorKey(e.code, { app: mobileApp(), permission: e.permission ?? permission.current, refusedBefore: refusals.current > 1 })
   const noteText = (n: VoiceNote): string => {
     const { t, locale } = words.current
     if (n.kind === 'blocked') return t(opts.current.room ? 'voice.confidentialRoom' : 'voice.confidential')
@@ -324,6 +327,8 @@ export function useVoiceInput(o: VoiceInputOptions) {
           focusWanted.current = { at }
         },
         note: (n) => {
+          if (n?.kind === 'error' && n.error instanceof RecorderError && n.error.code === 'denied') refusals.current++
+          else if (n?.kind === 'error') refusals.current = 0
           const text = n ? noteText(n) : null
           // the phone app can open its own page in the phone's Settings: the box shows a button beside this note
           setSettingsFor(n?.kind === 'error' && n.error instanceof RecorderError && micBlocked(micKey(n.error)) && canOpenAppSettings() ? text : null)

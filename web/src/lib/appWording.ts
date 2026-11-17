@@ -12,20 +12,30 @@ export function micDeniedKey(app: Pick<MobileConfig, 'platform'> | null): 'voice
   return app.platform === 'ios' ? 'voice.deniedIos' : 'voice.deniedAndroid'
 }
 
-export type MicErrorKey = ReturnType<typeof micDeniedKey> | 'voice.notAllowed' | 'voice.noMic' | 'voice.micFailed' | 'voice.micFailedApp' | 'voice.unsupported'
+export type MicErrorKey = ReturnType<typeof micDeniedKey> | 'voice.notAllowed' | 'voice.noMic' | 'voice.micFailed' | 'voice.micFailedApp' | 'voice.micFailedPhone' | 'voice.unsupported'
+
+/** The Android app that lacked the permission its WebView needs for the microphone (QA TC-4740): 1.0.8 and older. */
+export function androidAppWithoutMic(app: Pick<MobileConfig, 'platform' | 'appVersion'>): boolean {
+  if (app.platform !== 'android') return false
+  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(app.appVersion)
+  if (!m) return false
+  const [a, b, c] = [Number(m[1]), Number(m[2]), Number(m[3])]
+  return a < 1 || (a === 1 && (b < 0 || (b === 0 && c <= 8)))
+}
 
 /** What the message box says when the microphone did not start (lib/recorder.ts RecorderError), honestly by cause:
  * - refused, and the browser would still ask (`permission` "prompt": the question was closed or answered "not now"):
- *   ask again by tapping the mic. Only in a browser: inside the phone app the phone answers, and a phone that refused
- *   is changed in its Settings;
+ *   ask again by tapping the mic, unless this box was refused just before (`refusedBefore`: Safari keeps saying
+ *   "prompt" after Don't Allow and refuses again without asking), then blocked. Only in a browser: inside the phone app
+ *   the phone answers, and a phone that refused is changed in its Settings;
  * - refused otherwise: blocked, and where to allow it (micDeniedKey), with the phone app's Open Settings;
  * - no microphone (a computer without one) or one that did not start: never "blocked". Inside the phone app the phone
- *   always has one, so both are "could not start" there, with the app update as the way out when it keeps happening
- *   (the Android app 1.0.8 and older lacked a permission the WebView needs, QA TC-4740). */
-export function micErrorKey(code: RecorderErrorCode, o: { app: Pick<MobileConfig, 'platform'> | null; permission: PermissionState | null }): MicErrorKey {
+ *   always has one, so both are "could not start" there; the Android app 1.0.8 and older is told to update (it lacked a
+ *   permission the WebView needs, QA TC-4740), any other app version to try again. */
+export function micErrorKey(code: RecorderErrorCode, o: { app: Pick<MobileConfig, 'platform' | 'appVersion'> | null; permission: PermissionState | null; refusedBefore?: boolean }): MicErrorKey {
   if (code === 'unsupported') return 'voice.unsupported'
-  if (code === 'denied') return !o.app && o.permission === 'prompt' ? 'voice.notAllowed' : micDeniedKey(o.app)
-  if (o.app) return 'voice.micFailedApp'
+  if (code === 'denied') return !o.app && o.permission === 'prompt' && !o.refusedBefore ? 'voice.notAllowed' : micDeniedKey(o.app)
+  if (o.app) return androidAppWithoutMic(o.app) ? 'voice.micFailedApp' : 'voice.micFailedPhone'
   return code === 'missing' ? 'voice.noMic' : 'voice.micFailed'
 }
 

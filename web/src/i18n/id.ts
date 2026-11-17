@@ -729,6 +729,7 @@ export const id: Record<MessageKey, string> = {
   "voice.noMic": "Mikrofon tidak ditemukan. Hubungkan atau nyalakan mikrofon, lalu coba lagi.",
   "voice.micFailed": "Mikrofon tidak bisa dimulai. Mungkin aplikasi lain sedang memakainya. Coba lagi sebentar lagi.",
   "voice.micFailedApp": "Mikrofon tidak bisa dimulai. Coba lagi sebentar lagi. Jika terus terjadi, perbarui aplikasi Anda.",
+  "voice.micFailedPhone": "Mikrofon tidak bisa dimulai. Coba lagi sebentar lagi.",
   'voice.tooLong': 'Rekaman terlalu panjang. Buat rekaman di bawah 50 MB.',
   'voice.failed': 'Transkripsi gagal.',
   'voice.empty': 'Tidak ada suara yang dikenali. Coba rekam lagi.',

@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
-import { chatItemKey, externalImageHintKey, messagePreviewDescKey, micBlocked, micDeniedKey, micErrorKey } from '../../src/lib/appWording'
+import { androidAppWithoutMic, chatItemKey, externalImageHintKey, messagePreviewDescKey, micBlocked, micDeniedKey, micErrorKey } from '../../src/lib/appWording'
 import { recorderErrorOf } from '../../src/lib/recorder'
 import { Markdown } from '../../src/components/Markdown'
 import { DICTS, translate } from '../../src/i18n'
@@ -39,8 +39,8 @@ describe('why the microphone did not start', () => {
   const err = (name: string) => Object.assign(new Error(name), { name })
   test("getUserMedia's refusal by name: refused, no microphone, or failed for another reason", () => {
     for (const n of ['NotAllowedError', 'PermissionDeniedError', 'SecurityError']) expect(recorderErrorOf(err(n))).toBe('denied')
-    for (const n of ['NotFoundError', 'DevicesNotFoundError', 'OverconstrainedError', 'ConstraintNotSatisfiedError']) expect(recorderErrorOf(err(n))).toBe('missing')
-    for (const n of ['NotReadableError', 'TrackStartError', 'AbortError', 'TypeError', '']) expect(recorderErrorOf(err(n))).toBe('failed')
+    for (const n of ['NotFoundError', 'DevicesNotFoundError']) expect(recorderErrorOf(err(n))).toBe('missing')
+    for (const n of ['NotReadableError', 'TrackStartError', 'AbortError', 'OverconstrainedError', 'TypeError', '']) expect(recorderErrorOf(err(n))).toBe('failed')
     expect(recorderErrorOf(undefined)).toBe('failed')
     expect(recorderErrorOf('NotAllowedError')).toBe('failed')
   })
@@ -49,6 +49,8 @@ describe('why the microphone did not start', () => {
     expect(micErrorKey('denied', { app: null, permission: 'denied' })).toBe('voice.denied')
     expect(micErrorKey('denied', { app: null, permission: null })).toBe('voice.denied')
     expect(micErrorKey('denied', { app: null, permission: 'granted' })).toBe('voice.denied')
+    // a second refusal in a row: Safari keeps saying "prompt" after Don't Allow and refuses without asking
+    expect(micErrorKey('denied', { app: null, permission: 'prompt', refusedBefore: true })).toBe('voice.denied')
   })
   test('a browser: no microphone, or one that did not start, is never "blocked"', () => {
     expect(micErrorKey('missing', { app: null, permission: 'granted' })).toBe('voice.noMic')
@@ -56,24 +58,31 @@ describe('why the microphone did not start', () => {
     expect(micErrorKey('unsupported', { app: null, permission: null })).toBe('voice.unsupported')
   })
   test("the phone app: a refusal is blocked in the phone's Settings (the phone asks, never the page); anything else could not start", () => {
+    const android = (appVersion: string) => ({ platform: 'android' as const, appVersion }), ios = { platform: 'ios' as const, appVersion: '1.0.8' }
     for (const permission of ['prompt', 'denied', null] as const) {
-      expect(micErrorKey('denied', { app: { platform: 'android' }, permission })).toBe('voice.deniedAndroid')
-      expect(micErrorKey('denied', { app: { platform: 'ios' }, permission })).toBe('voice.deniedIos')
+      expect(micErrorKey('denied', { app: android('1.0.9'), permission })).toBe('voice.deniedAndroid')
+      expect(micErrorKey('denied', { app: ios, permission })).toBe('voice.deniedIos')
     }
-    for (const code of ['missing', 'failed'] as const) for (const platform of ['android', 'ios'] as const)
-      expect(micErrorKey(code, { app: { platform }, permission: 'granted' })).toBe('voice.micFailedApp')
+    for (const code of ['missing', 'failed'] as const) {
+      // the Android app without the WebView's audio permission (1.0.8 and older) is told to update; no other app is
+      for (const v of ['1.0.8', '1.0.0', '0.9.12']) expect(micErrorKey(code, { app: android(v), permission: 'granted' })).toBe('voice.micFailedApp')
+      for (const v of ['1.0.9', '1.1.0', '2.0.0', 'odd']) expect(micErrorKey(code, { app: android(v), permission: 'granted' })).toBe('voice.micFailedPhone')
+      expect(micErrorKey(code, { app: ios, permission: 'granted' })).toBe('voice.micFailedPhone')
+    }
+    expect(androidAppWithoutMic(android('1.0.10'))).toBe(false)
+    expect(androidAppWithoutMic(ios)).toBe(false)
   })
   test('Open Settings goes only with a "blocked" note', () => {
     expect(['voice.denied', 'voice.deniedIos', 'voice.deniedAndroid'].every((k) => micBlocked(k as never))).toBe(true)
-    for (const k of ['voice.notAllowed', 'voice.noMic', 'voice.micFailed', 'voice.micFailedApp', 'voice.unsupported'] as const) expect(micBlocked(k)).toBe(false)
+    for (const k of ['voice.notAllowed', 'voice.noMic', 'voice.micFailed', 'voice.micFailedApp', 'voice.micFailedPhone', 'voice.unsupported'] as const) expect(micBlocked(k)).toBe(false)
   })
   test('the words: none of the other notes says blocked; the app\'s never send to the browser', () => {
     for (const l of LOCALES) {
-      for (const k of ['voice.notAllowed', 'voice.noMic', 'voice.micFailed', 'voice.micFailedApp'] as const) {
+      for (const k of ['voice.notAllowed', 'voice.noMic', 'voice.micFailed', 'voice.micFailedApp', 'voice.micFailedPhone'] as const) {
         expect(translate(l, k)).not.toBe(translate(l, 'voice.denied'))
         expect(translate(l, k)).not.toMatch(/blocked|막혀|ブロック|bloqueado|diblokir|阻止/i)
       }
-      for (const w of BROWSER_WORDS) expect(translate(l, 'voice.micFailedApp')).not.toMatch(w)
+      for (const k of ['voice.micFailedApp', 'voice.micFailedPhone'] as const) for (const w of BROWSER_WORDS) expect(translate(l, k)).not.toMatch(w)
     }
     expect(translate('en', 'voice.micFailedApp')).toContain('update the app')
   })

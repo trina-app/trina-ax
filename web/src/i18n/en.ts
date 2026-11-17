@@ -729,6 +729,7 @@ export const en: Record<MessageKey, string> = {
   "voice.noMic": "No microphone found. Connect one or turn it on, then try again.",
   "voice.micFailed": "The microphone couldn't start. Another app may be using it. Try again in a moment.",
   "voice.micFailedApp": "The microphone couldn't start. Try again in a moment. If it keeps happening, update the app.",
+  "voice.micFailedPhone": "The microphone couldn't start. Try again in a moment.",
   'voice.tooLong': 'The recording is too long. Keep recordings under 50 MB.',
   'voice.failed': 'Transcription failed.',
   'voice.empty': "Nothing was recognized. Please record again.",

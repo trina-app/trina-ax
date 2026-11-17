@@ -712,6 +712,7 @@ export const es: Record<MessageKey, string> = {
   "voice.noMic": "No se encontró ningún micrófono. Conecte uno o enciéndalo y vuelva a intentarlo.",
   "voice.micFailed": "El micrófono no pudo iniciarse. Puede que otra aplicación lo esté usando. Vuelva a intentarlo en un momento.",
   "voice.micFailedApp": "El micrófono no pudo iniciarse. Vuelva a intentarlo en un momento. Si sigue ocurriendo, actualice la aplicación.",
+  "voice.micFailedPhone": "El micrófono no pudo iniciarse. Vuelva a intentarlo en un momento.",
   'voice.tooLong': "La grabación es demasiado larga. Debe ocupar menos de 50 MB.",
   'voice.failed': "No se pudo transcribir.",
   'voice.empty': "No se reconoció nada. Vuelva a grabar.",
