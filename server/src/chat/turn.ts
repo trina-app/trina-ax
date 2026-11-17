@@ -126,6 +126,8 @@ import { publicStep, type ChatRow, type ProjectRow, type StoredStep } from './st
 import { inPeopleAudience, isPeopleRow, peopleAudience } from './chat-audience'
 import { SEARCH_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
 import { shownTimeZone } from '../system/time-zone'
+import { mayManageProject, projectMembersBy } from './projects'
+import { membersView } from './project-access'
 
 /** A search's path that names no folder: none, empty, or only separators and "." ("/", "./", "//", "\\", " . ") —
  * the team root, which a shared chat never searches by default (TurnExec.sharedArgs). */
@@ -685,7 +687,7 @@ export class TurnExec {
     const chat = rt.store.chatRow(spec.chatId)
     const userMsg = rt.store.messageRow(spec.userMessageId)
     if (!chat || !userMsg) { this.error = engineError('crash', spec.locale); return }
-    this.narration = new NarrationHold(narrationScript(spec.locale, userMsg.content, this.previousUserText(userMsg.parent_id)))
+    this.narration = new NarrationHold(narrationScript(spec.locale, userMsg.content, this.previousUserText(userMsg.parent_id)), userMsg.content)
     if (this.oldRoomSession) { this.error = engineError('crash', spec.locale); return }
     // a shared project chat is never confidential (read-only while safe operations are on), and runs only while its
     // person still sees its project (access may have gone while the turn waited in the queue)
@@ -817,7 +819,12 @@ export class TurnExec {
     const skills = usableSkills ?? (this.roomReadable ? allSkills.filter((s) => this.roomReadable!(s.path)) : allSkills)
     const skillScores = usageScores(rt.db, spec.userId, skills.map((s) => s.path))
     const skillList = buildSkillList(skills, { order: chatSkillOrder(rt.db, spec.chatId, spec.userId, () => descriptionOrder(skills, skillScores)), tag: neutralizeTags })
-    const shared = this.shared ? { project: this.shared.kind === 'project' ? this.shared.project.name : null, audience: this.sharedAudience().length, asker: this.principal.name } : null
+    // a shared project chat: who changes its members when this person may not (prompt.ts sharedSection)
+    const sharedProject = this.shared?.kind === 'project' ? this.shared.project : null
+    const shared = this.shared ? {
+      project: sharedProject ? sharedProject.name : null, audience: this.sharedAudience().length, asker: this.principal.name,
+      members: sharedProject ? projectMembersBy(rt.db, sharedProject, membersView(rt.ctx, sharedProject, this.principal, mayManageProject(rt.files, this.principal, sharedProject))) : null,
+    } : null
     // a chat opened from a room's side panel (✦ Trina): the room, while the person is still in it and it is not archived
     const sideRoom = sideRoomOf(rt.db, spec.chatId, spec.userId, rt.files)
     // who the person is and where (chat/situation.ts): their role and what it may open, the app, whose AI answers, what
@@ -1607,7 +1614,8 @@ export class TurnExec {
         // a status line in another script before the call is dropped here (chat/narration.ts); the main AI's calls only
         // a sub-agent's call leaves the main AI's piece undecided (only the redactor's end goes out)
         if (e.parentId) this.emitText(this.answerText.flush())
-        else { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart()))); this.flushText() }
+        // (a piece copied into the call's arguments is content: a message it posts, a file it writes)
+        else { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart(e.input)))); this.flushText() }
         this.attemptHadOutput = true
         this.producedOutput = true
         // which agent made the call: the gate gives a sub-agent's calls that sub-agent's own state (TurnFiles.forCall)

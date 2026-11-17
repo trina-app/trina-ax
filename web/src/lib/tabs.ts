@@ -28,7 +28,8 @@ const AI_PAGES = ['/scheduled', '/skills', '/trash', '/connectors/authorize']
 
 export function tabOf(path: string): Tab | null {
   if (path === '/' || path.startsWith('/c/') || AI_PAGES.some((p) => under(path, p))) return 'ai'
-  if (under(path, '/rooms')) return 'chats'
+  // "Files you sent" (pages/SentFiles.tsx) is the conversations'
+  if (under(path, '/rooms') || path === '/sent-files') return 'chats'
   // the new chat's own page (/new)
   if (path === '/new') return 'ai'
   if (under(path, '/projects')) return 'projects'
@@ -56,6 +57,7 @@ const PAGE_TITLE: [string, MessageKey][] = [
   ['/scheduled', 'settings.schedules'],
   ['/skills', 'skills.title'],
   ['/trash', 'trash.title'],
+  ['/sent-files', 'sentFiles.title'],
   ['/admin', 'admin.title'],
   ['/activity', 'inbox.title'],
 ]

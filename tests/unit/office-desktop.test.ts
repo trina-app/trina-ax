@@ -333,6 +333,15 @@ describe('build-office.ts --desktop-prebuilt / --with-desktop', () => {
 })
 
 describe('office-install.sh finds the installers next to the bundle', () => {
+  // the installer runs the office CLI from source; pulling the team server's rooms/notifications into it made each run
+  // ~3x slower (520 modules instead of ~70) and the check-only test below time out on CI
+  test('the office CLI stays small: no rooms, notifications or routes in its imports', async () => {
+    const r = await Bun.build({ entrypoints: [path.join(REPO, 'server', 'src', 'office', 'cli.ts')], target: 'bun', metafile: true, packages: 'external' })
+    const inputs = Object.keys(r.metafile!.inputs)
+    expect(inputs.filter(i => /server\/src\/(rooms|notifications|routes)\//.test(i))).toEqual([])
+    expect(inputs.length).toBeLessThan(150)
+  })
+
   test('check-only says which installer it would offer', () => {
     const top = path.join(BASE, 'unzipped')
     const B = path.join(top, 'TeamAX-office-9.9.9')

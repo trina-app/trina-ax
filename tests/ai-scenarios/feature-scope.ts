@@ -57,7 +57,7 @@ export const FEATURE_SCOPE: Record<string, Scope> = {
   // Files
   'files.browse': { reach: 'acts', tools: ['list', 'glob'] },
   'files.view': { reach: 'acts', tools: ['read', 'hwp_render'] },
-  'files.edit': { reach: 'acts', tools: ['write', 'edit', 'edit_files', 'edit_hwp', 'make_file'] },
+  'files.edit': { reach: 'acts', tools: ['write', 'edit', 'edit_files', 'edit_hwp', 'make_file', 'resize_images'] },
   'files.upload': { reach: 'acts', tools: ['chat_file', 'save_url', 'save_room_file'], why: 'files sent in a chat or a room, saved to the team folder' },
   'files.organize': { reach: 'acts', tools: ['move_files', 'copy_files', 'rename_file', 'delete_files'] },
   'files.versions': { reach: 'acts', tools: ['read'], why: 'read with versions: who changed a file and what changed (TC-4547); restoring an old version is explained (Files screen)' },
@@ -79,6 +79,7 @@ export const FEATURE_SCOPE: Record<string, Scope> = {
   'rooms.hide-pin': { reach: 'explains' },
   'rooms.files': { reach: 'acts', tools: ['room_file', 'save_room_file'] },
   'rooms.search': { reach: 'acts', tools: ['room_read', 'rooms'] },
+  'rooms.sent-files': { reach: 'explains' },
   'rooms.activity': { reach: 'explains' },
   'rooms.apps': { reach: 'explains' },
   // Skills

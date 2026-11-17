@@ -194,6 +194,10 @@ responde con lo que usted puede abrir. Cuando vale la pena compartir una respues
 (**Enviar al hilo** si preguntó sobre un mensaje). Si algunas personas de la sala no pueden abrir un archivo que usó la respuesta,
 la app se lo dice antes y espera su confirmación.
 
+Con un hilo abierto, **✦** abre el chat lateral junto al hilo y los dos siguen en pantalla (en una ventana pequeña la
+sala les deja el sitio). El cuadro del chat lateral dice entonces **Viendo este hilo**: su pregunta trata de ese hilo y la
+respuesta puede ir directamente a él. Pulse **✕** en esa línea para preguntar sobre toda la conversación.
+
 ![El canal Marketing: un mensaje que menciona a Jordan, un hilo con 2 respuestas y la respuesta de Trina enviada desde el chat lateral](../../images/chats/room.webp "Un canal")
 
 #### Responder en un hilo
@@ -291,6 +295,8 @@ Empiece un chat desde la página del proyecto, o lleve un chat a él con **Mover
 ## Encontrar cualquier cosa
 
 Pulse ⌘K (Ctrl+K en Windows) o elija **Buscar** bajo **Preguntar a Trina** para encontrar chats, mensajes de sus conversaciones, proyectos, archivos, habilidades, tareas programadas y conexiones MCP. [Más información sobre la búsqueda y la configuración](settings-and-search.md).
+
+**Archivos que envió.** Escriba "Archivos que envió" en Buscar, o ábralo desde un aviso, para ver los archivos que envió en sus conversaciones, los más grandes primero, con el espacio que ocupan. Eliminar uno elimina el mensaje con el que se envió, para todos en la conversación.
 
 ## Chats eliminados
 

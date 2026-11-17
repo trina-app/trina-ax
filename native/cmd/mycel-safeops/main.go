@@ -1,6 +1,8 @@
 // Fixed helper. The 1A modes (png, jpeg, webp, heic, pptx and the broker operations) run only inside the qualified
 // converter sandbox; `vision` (the image the AI sees on read, server/src/files/vision.ts) runs in the ordinary
-// converter isolation (server/src/tools/isolate.ts). No mode takes a path, command or model-chosen argument.
+// converter isolation (server/src/tools/isolate.ts), and so does `resize` (smaller copies of photos,
+// server/src/tools/resize-images.ts). No mode takes a path or command; resize's only arguments are four bounded
+// decimal numbers, checked here and again in safeops.Resize.
 package main
 
 import (
@@ -16,6 +18,10 @@ import (
 )
 
 func main() {
+	if len(os.Args) == 6 && os.Args[1] == "resize" {
+		resize(os.Args[2:])
+		return
+	}
 	if len(os.Args) > 2 {
 		parent, e := strconv.Atoi(os.Getenv("MYCEL_BROKER_PARENT"))
 		if e != nil || safebroker.ParentGuard(parent) != nil {
@@ -121,6 +127,39 @@ func vision() {
 		os.Exit(3)
 	}
 	out, err := safeops.Vision(b)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(3)
+	}
+	if _, err = os.Stdout.Write(out); err != nil {
+		os.Exit(1)
+	}
+}
+
+// resize <longest side> <width> <permille> <max bytes>: stdin (at most safeops.ResizeInputMax bytes) -> one new JPEG or
+// PNG on stdout. 0 leaves a control out. A refusal exits 3 with one fixed reason line on stderr ("resize: pixel
+// limit" ...), never text taken from the input.
+func resize(args []string) {
+	n := make([]int, 4)
+	for i, a := range args {
+		if len(a) < 1 || len(a) > 9 {
+			fmt.Fprintln(os.Stderr, safeops.ErrResizeSpec)
+			os.Exit(2)
+		}
+		for _, c := range a {
+			if c < '0' || c > '9' {
+				fmt.Fprintln(os.Stderr, safeops.ErrResizeSpec)
+				os.Exit(2)
+			}
+		}
+		n[i], _ = strconv.Atoi(a)
+	}
+	b, err := safeops.ReadBounded(os.Stdin, safeops.ResizeInputMax)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, safeops.ErrResizeBytes)
+		os.Exit(3)
+	}
+	out, err := safeops.Resize(b, safeops.ResizeSpec{Side: n[0], Width: n[1], Permille: n[2], MaxBytes: n[3]})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(3)

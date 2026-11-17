@@ -4,6 +4,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import * as XLSX from 'xlsx'
+import { displaySize } from '../../../server/src/uploads/image'
 import type { Check, CheckResult, TurnRecord } from './types'
 
 interface Ctx { teamRoot: string; changed: string[]; turns: TurnRecord[]; room: string }
@@ -107,6 +108,14 @@ function one(check: Check, ctx: Ctx): { ok: boolean; detail: string } {
           notes.push(`${check.cell.ref}=${v?.v}`)
         }
         return { ok, detail: notes.join(', ') }
+      })
+    case 'image':
+      return onEach(ctx, check.file, (f) => {
+        const b = fs.readFileSync(f)
+        const s = displaySize(b)
+        if (!s) return { ok: false, detail: 'not a picture with a readable size' }
+        const ok = (!check.maxSide || Math.max(s.width, s.height) <= check.maxSide) && (!check.maxWidth || s.width <= check.maxWidth) && (!check.maxBytes || b.length <= check.maxBytes)
+        return { ok, detail: `${s.width}x${s.height}, ${b.length} bytes` }
       })
     case 'docx_contains':
       return onEach(ctx, check.file, (f) => {

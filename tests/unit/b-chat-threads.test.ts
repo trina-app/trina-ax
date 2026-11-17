@@ -510,7 +510,7 @@ describe('QA TC-3625: after Send to Trina, "add them to the project" in a shared
     expect(tools).toContain('read')
     for (const name of ['change_project_members', 'delete_files']) expect({ name, offered: tools.includes(name) }).toEqual({ name, offered: false })
     const sys = (await ask('alice', c.id, fake({ echo: 'system' }))).done.content
-    expect(sys).toContain("changing the project's members")
+    expect(sys).toContain("Only an admin changes this project's members")
     expect(sys).toContain('putting team files in the trash')
     expect(sys).toContain('say plainly')
     // a person's own chat in the same project does have them (the card is reachable there)

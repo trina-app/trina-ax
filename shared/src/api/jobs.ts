@@ -33,6 +33,9 @@ export const MeetingPieceResult = z.object({
   /** the lines heard, times in seconds from the piece's start */
   lines: z.array(z.object({ start: z.number(), end: z.number(), text: z.string() })),
   language: z.string().nullable(),
+  /** voice input: the language hint was not used for these words (the provider refused it, or whisper doubted it and
+   * the answer without it was kept); the app sends the rest of the recording without it */
+  hinted: z.literal(false).optional(),
 })
 export type MeetingPieceResult = z.infer<typeof MeetingPieceResult>
 /** whether meeting notes can start now: `off` (voice input off, no key, no whisper.cpp), `confidential` (Safe

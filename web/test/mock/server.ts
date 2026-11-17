@@ -40,7 +40,8 @@
 // {…SkillsOverview.aiList} (the Team skills page's "how many skills the AI sees" counts, until the next reset),
 // POST /__test/speech {provider, key?: boolean, chosen?: false}
 // (the team's speech provider and whether an OpenRouter key is set; chosen false: not chosen, read from the key),
-// GET-or-POST /__test/transcribe-chats (the chat id each voice input named, null for a new chat; a confidential chat's
+// POST /__test/piece-languages (the language hint each live voice input piece named); GET-or-POST
+// /__test/transcribe-chats (the chat id each voice input named, null for a new chat; a confidential chat's
 // recording with OpenRouter is refused, 403), POST
 // /__test/transcribe-progress {message, progress, ms, queuedMs?} (the next transcription jobs say that label first, as a
 // server that downloads its speech model does, and end after `ms`; until the next reset). queuedMs: each waits that long
@@ -505,6 +506,10 @@ export class MockServer {
   pushGateway: import('@mycel/shared/api').PushGatewaySetting = { choice: 'default', url: null, defaultHost: 'push.trina.app', lockedBy: null }
   /** the chat id each voice input named (null: a new chat) */
   transcribeChats: (string | null)[] = []
+  /** the language hint each live voice input piece named (null: none) */
+  pieceLanguages: (string | null)[] = []
+  /** live pieces answer that the hint was not used (POST /__test/piece-languages {dropHint: true}) */
+  pieceDropHint = false
   /** transcription jobs report this label first and end after `ms` (POST /__test/transcribe-progress) */
   transcribeProgress: { message: string; progress: number | null; ms: number; queuedMs: number } | null = null
   /** GET /api/admin/speech-host: a 4-core self-installed server that has not measured its speed yet, with whisper.cpp and
@@ -568,6 +573,8 @@ export class MockServer {
   integrationTemplates: (Omit<IntegrationTemplate, 'connected'> & { version: number })[] = []
   /** Team AX Cloud (server/src/system/deployment.ts): /__test/cloud switches it on until the next reset */
   cloud = false
+  /** "Ask people to clean up" pressed (until the next reset) */
+  cleanupAskedAt: string | null = null
   /** the 7-day team goal Home shows owners and admins (onboarding G): none unless /__test/team-goal sets one */
   teamGoal: TeamGoal | null = null
   /** Home's frequent skills (GET /api/skills/popular): none unless /__test/popular-skills names some by path */
@@ -661,6 +668,7 @@ export class MockServer {
     this.serverVersion = '0.1.0'
     this.aiList = undefined
     this.cloud = false
+    this.cleanupAskedAt = null
     this.teamGoal = null
     this.popular = []
     this.oftenAsked = { team: [], groups: {} }
@@ -766,6 +774,8 @@ export class MockServer {
     this.speechChosen = true
     this.pushGateway = { choice: 'default', url: null, defaultHost: 'push.trina.app', lockedBy: null }
     this.transcribeChats = []
+    this.pieceLanguages = []
+    this.pieceDropHint = false
     this.transcribeProgress = null
     this.speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null, hostedNewSec: null, localMissing: [] }
     if (o.teamLocale) this.settings.defaultLocale = o.teamLocale
@@ -2993,6 +3003,13 @@ export class MockServer {
       }
     },
     // and the files sent with them, by name (every word), newest first, like the server's
+    // like server/src/rooms/search.ts listMyRoomFiles: my own files of messages not deleted, largest first
+    listMyRoomFiles: (c) => {
+      const items = this.rooms.flatMap((room) => (this.roomMessages.get(room.id) ?? []).filter((m) => !m.deletedAt && !m.event && m.authorKind !== 'ai' && m.author?.id === c.user.id).flatMap((m) => m.files.map((file) => ({ m, room, file }))))
+        .sort((a, b) => b.file.size - a.file.size)
+      const rooms = [...new Set(items.map((x) => x.room))].map((r) => ({ id: r.id, kind: r.kind, name: r.name, peers: r.peers, memberCount: r.memberCount }))
+      return { items: items.map(({ m, file }) => ({ file, messageId: m.id, roomId: m.roomId, threadRootId: m.threadRootId ?? null, author: m.author, createdAt: m.createdAt })), rooms, nextCursor: null, totalBytes: items.reduce((n, x) => n + x.file.size, 0) }
+    },
     searchRoomFiles: (c) => {
       const words = String(c.query.q ?? '').trim().toLowerCase().split(/\s+/).filter(Boolean)
       const items = this.rooms.flatMap((room) => (this.roomMessages.get(room.id) ?? []).filter((m) => !m.deletedAt && !m.event).flatMap((m) => m.files.filter((f) => words.every((w) => f.name.toLowerCase().includes(w))).map((file) => ({ m, room, file }))))
@@ -3864,7 +3881,8 @@ export class MockServer {
     // voice input while recording (a team whose voice input goes to OpenRouter): each piece answered at once
     transcribePiece: (c) => {
       this.transcribeGate(c.body.chatId)
-      return { lines: [{ start: 0, end: 1, text: '받아쓴 문장입니다' }], language: 'ko' }
+      this.pieceLanguages.push(c.body.language ?? null)
+      return { lines: [{ start: 0, end: 1, text: '받아쓴 문장입니다' }], language: 'ko', ...(this.pieceDropHint && c.body.language ? { hinted: false as const } : {}) }
     },
     pollCalls: () => ({ calls: [] }),
     // like server/src/routes/browser.ts: a result for a call this server is not waiting for is 404 (the mock never makes calls)
@@ -4712,8 +4730,10 @@ export class MockServer {
     storage: () => ({
       totalBytes: 50 * 1024 ** 3, usedBytes: 41 * 1024 ** 3, freeBytes: 9 * 1024 ** 3, percent: 82, level: 'warn', reserveBytes: 1024 ** 3, writesRefused: false, graceEndsAt: null,
       breakdown: { kept: 1.2 * 1024 ** 3, rooms: 6.4 * 1024 ** 3, team: 23.6 * 1024 ** 3, history: 4 * 1024 ** 3, trash: 3 * 1024 ** 3, backups: 2 * 1024 ** 3, models: 0.5 * 1024 ** 3, data: 0.3 * 1024 ** 3, app: 0.2 * 1024 ** 3, other: 1024 ** 3 },
-      measuredAt: now(), planDiskGiB: this.cloud ? 50 : null,
+      measuredAt: now(), planDiskGiB: this.cloud ? 50 : null, cleanupAskedAt: this.cleanupAskedAt,
     }),
+    // like server/src/system/storage-cleanup.ts: once a day, the answer only the time
+    askStorageCleanup: () => ({ askedAt: (this.cleanupAskedAt ??= now()) }),
     // like server/src/system/managed.ts: the plan card and the operator's notices on Team AX Cloud (none self-hosted)
     plan: (c) => ({
       plan: this.cloud ? {
@@ -6201,6 +6221,10 @@ export class MockServer {
       this.speechChosen = body.chosen !== false
     }
     else if (p === '/__test/transcribe-chats') return Response.json(this.transcribeChats)
+    else if (p === '/__test/piece-languages') {
+      if (typeof body.dropHint === 'boolean') this.pieceDropHint = body.dropHint
+      return Response.json(this.pieceLanguages)
+    }
     else if (p === '/__test/transcribe-progress') this.transcribeProgress = { message: String(body.message), progress: typeof body.progress === 'number' ? body.progress : null, ms: Number(body.ms ?? 3000), queuedMs: Number(body.queuedMs ?? 0) }
     else if (p === '/__test/ai-version') {
       // a stored version of a file that an AI answer saved (POST {path, by, chatId?}): `chatId` only where the server would

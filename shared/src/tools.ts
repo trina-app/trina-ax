@@ -210,6 +210,22 @@ export const SplitPdfInput = z.strictObject({
   every: z.number().int().min(1).max(10_000).optional().describe('Or: a new file every this many pages'),
   output_folder: optRelPath.describe('Where the parts go (default: next to the original); named "<name> (part 1).pdf" …'),
 }).refine((v) => (v.parts === undefined) !== (v.every === undefined), { message: 'give exactly one of parts or every' })
+// Smaller copies of photos (server/src/tools/resize-images.ts, docs/decisions/20261117-resize-photos.md)
+const photoSide = z.number().int().min(16).max(20_000)
+export const ResizeImagesInput = z.strictObject({
+  paths: z.array(relPath).min(1).max(20).describe('The photos (JPEG, PNG or WebP), 1-20, e.g. ["groups/Marketing/photos/IMG_2041.jpg"]'),
+  longest_side: photoSide.optional().describe('The longest side in pixels, e.g. 1200; the other side follows'),
+  width: photoSide.optional().describe('The width in pixels ("1200 px wide"); the height follows'),
+  max_mb: z.number().min(0.01).max(30).optional().describe('The most each copy may weigh, in MB ("under 2MB" = 2, "500KB" = 0.5); may be given with longest_side or width'),
+  preset: z.enum(['smaller', 'email', 'web']).optional().describe('Instead of the numbers: "smaller" = half the size, "email" = 1600 px and under 1 MB, "web" = 1920 px and under 500 KB'),
+  output: optRelPath.describe('Only for one photo: where to save the copy (default: "<name>-<word>.<ext>" next to it)'),
+  output_folder: optRelPath.describe('Where the copies go (default: next to each original)'),
+  replace: z.boolean().optional().describe('true only when the user explicitly asks to replace the originals (read each in this turn first; the old version stays in its history)'),
+}).refine((v) => v.longest_side !== undefined || v.width !== undefined || v.max_mb !== undefined || v.preset !== undefined, { message: 'give longest_side, width, max_mb or preset' })
+  .refine((v) => v.preset === undefined || (v.longest_side === undefined && v.width === undefined && v.max_mb === undefined), { message: 'give either preset or the numbers, not both' })
+  .refine((v) => v.output === undefined || v.paths.length === 1, { message: 'output is only for one photo; use output_folder for several' })
+  .refine((v) => !v.replace || (v.output === undefined && v.output_folder === undefined), { message: 'give either replace: true or output / output_folder, not both' })
+export const ResizeImagesOutput = z.object({ paths: z.array(z.string()) })
 export const PdfFilesOutput = z.object({ paths: z.array(z.string()), pages: z.array(z.number()) })
 
 export const StampPdfOutput = z.object({ path: z.string(), size: z.number(), sha256: z.string(), page: z.number(), pages: z.number(), conflictCopyOf: z.string().optional() })
@@ -476,6 +492,7 @@ export const OTHER_TOOLS = {
   edit_pdf: { input: EditPdfInput, output: PdfFilesOutput },
   merge_pdfs: { input: MergePdfsInput, output: PdfFilesOutput },
   split_pdf: { input: SplitPdfInput, output: PdfFilesOutput },
+  resize_images: { input: ResizeImagesInput, output: ResizeImagesOutput },
   share_file: { input: ShareFileInput, output: ShareFileOutput },
   move_files: { input: MoveFilesInput, output: MoveFilesOutput },
   copy_files: { input: CopyFilesInput, output: CopyFilesOutput },

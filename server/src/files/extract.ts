@@ -18,6 +18,7 @@ import { runIsolated, waitsBehindPeople } from '../tools/isolate'
 import { inProcessParseMax } from '../system/limits'
 import { OFFICE_TEXT_MAX, TOOL_ERROR_EXIT, WORKER_EXT } from './office-parse'
 import { tooComplex } from './zip-guard'
+import { assertNoCommonJsUpng, pdfLibBundlePlugins } from './bundle-pins'
 import { quoteLines, SECTION_MARK } from './ooxml'
 
 export const OFFICE_EXT = ['docx', 'pptx', 'odt', 'xlsx', 'xls', 'ods', 'pdf', 'hwp', 'hwpx'] as const
@@ -98,9 +99,12 @@ export function officeWorkerScript(): Promise<string> {
     if (!fs.existsSync(src)) throw new Error('office-worker.js is missing next to the server files')
     const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'office-worker-')))
     process.once('exit', () => { try { fs.rmSync(dir, { recursive: true, force: true }) } catch {} })
-    const res = await Bun.build({ entrypoints: [src], target: 'bun', outdir: dir, naming: 'office-worker.js', minify: false })
+    const out = path.join(dir, 'office-worker.js')
+    // the PNG decoder is pinned to its ES module and a CommonJS bundle of it fails here (bundle-pins.ts)
+    const res = await Bun.build({ entrypoints: [src], target: 'bun', outdir: dir, naming: 'office-worker.js', minify: false, plugins: pdfLibBundlePlugins() })
     if (!res.success) throw new Error('office worker build failed: ' + res.logs.map(String).join('\n'))
-    return path.join(dir, 'office-worker.js')
+    assertNoCommonJsUpng(out)
+    return out
   })().catch((e) => { workerScript = null; throw e }))
 }
 

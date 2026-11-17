@@ -25,6 +25,11 @@ export const GUARD_TESTS = [
   'tests/unit/c-tools.test.ts', // exact tool lists: change them when a PR adds a tool
   'tests/unit/i-wiring.test.ts',
   'tests/unit/b-browser.test.ts',
+  // guards that failed batch CIs on 2026-11-17 though check:prepush was green (about 30 s together)
+  'tests/unit/c-reader-counters.test.ts', // every new access check or users/ shortcut is reviewed for folder shares
+  'tests/unit/a-account-removal-coverage.test.ts', // every new user-id column goes with a deleted account or is kept on purpose
+  'tests/unit/system-packages.test.ts', // no script pins a download of its own: scripts/system/packages.json
+  'tests/unit/ai-scenarios-catalog.test.ts', // every feature has a feature-scope line and, if the AI reaches it, a case
 ]
 
 export interface Step { name: string, cmd: string[], env?: Record<string, string>, hint: (out: string) => string[] }
@@ -102,6 +107,10 @@ export function hintsFor(stepName: string, out: string): string[] {
     if (/Korean|[가-힣]/.test(out) && /outside|screen text|table/i.test(out)) h.push('Korean text outside a ko table: take the words from the i18n table, or list the file in tests/unit/i18n-languages.test.ts with a reason')
     if (/product name|literal product/i.test(out)) h.push('product name spelled out in code or a comment: write <app>')
     if (/(c-tools|i-wiring|b-browser|b-chat)\.test\.ts/.test(out) && /(toEqual|toBe|Expected|Received)/.test(out)) h.push('exact tool list: a PR that adds a tool must add it to the list in c-tools / i-wiring / b-browser / b-chat tests')
+    if (/counts readers|reviewed for folder shares/.test(out)) h.push('a new access check or users/ shortcut: add the file and its new count to REVIEWED in tests/unit/c-reader-counters.test.ts with the reason it is safe for folder shares (or go through files/share-readers.ts)')
+    if (/user column is removed or kept|cleanup hook \(auth\/account-removal\.ts\)/.test(out)) h.push('a new table with a user id: add table.column to a cleanup hook (e.g. server/src/chat/account-cleanup.ts) or to KEPT_WITH_ACCOUNT in server/src/auth/account-removal.ts with the reason')
+    if (/pins a download of its own/.test(out)) h.push('a script pins its own download: read it from scripts/system/packages.json, or add a narrow PINS_ALLOWED entry in tests/unit/system-packages.test.ts with the reason')
+    if (/catalog does not hold together|has no line in tests\/ai-scenarios\/feature-scope\.ts|every feature the AI reaches has a case/.test(out)) h.push('a new feature in docs/features.ts: add its line to tests/ai-scenarios/feature-scope.ts and, for acts or explains, a case in tests/ai-scenarios/cases.yaml')
     if (/missing|placeholder|plural/i.test(out) && stepName === 'check:i18n') h.push('a text is missing in a language, or its {placeholders} differ: add it in all six languages (merge origin/dev first if a dev merge brought the key)')
   }
   if (stepName === 'check:docs' && /merge marker|Unreleased/.test(out)) h.push('changelog: put the note in a new changes/<topic>.md, not in CHANGELOG.md; remove merge markers')
