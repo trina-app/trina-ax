@@ -33,6 +33,8 @@ on:
   # offline and HWP desktop specs run on the web build, so a web change that breaks them shows up right after its merge
   push:
     branches: [dev]
+  # no merge_group on purpose: these jobs are not required on dev and hosted macOS runners are short, so a merge queue
+  # entry never waits on them (docs/decisions/20261117-merge-queue.md); they stay advisory on the PR and the push.
   workflow_dispatch:
 
 concurrency:

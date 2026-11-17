@@ -13,7 +13,14 @@ on:
     # had 14; with these six left out a pull request needs 9 (2026-11-10, jobs waited up to 30 min in the queue).
     # A push to dev cancels the run of the push before it (concurrency below), so a burst of merges tests the last one.
     branches: [main, dev]
+  # dev has a merge queue (docs/decisions/20261117-merge-queue.md): a pull request to dev runs the quick jobs only
+  # (what changed, typecheck/docs/native, the phone app); the queue runs everything on each queued entry (merge_group,
+  # the PR on top of dev and of the entries ahead of it). The required check "typecheck, native, unit, fast fuzz, web,
+  # relay" reports on both. `labeled`: the label full-ci on a pull request runs everything there too.
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
   workflow_call:
     inputs:
@@ -24,7 +31,10 @@ on:
 
 concurrency:
   # a called run (release.yml, msstore.yml) has its own group per calling workflow: a push to main never cancels it, and
-  # a store package's tests never cancel the release's tests of the same commit (github.workflow is the caller's name)
+  # a store package's tests never cancel the release's tests of the same commit (github.workflow is the caller's name).
+  # A pull request: refs/pull/<n>/merge, so a new push stops that PR's older run. A queued entry (merge_group):
+  # refs/heads/gh-readonly-queue/dev/pr-<n>-<sha>, one ref per entry, so entries never cancel each other; a rebuilt
+  # entry gets a new ref of its own.
   group: ci-${{ inputs.ref && format('call-{0}-{1}', github.workflow, inputs.ref) || github.ref }}
   cancel-in-progress: true
 
@@ -40,31 +50,68 @@ env:
   PANDOC_VERSION: 3.9.0.2
 
 jobs:
-  # A pull request that changes only Markdown directly in docs/, docs/decisions/ or changes/ (decisions, fragments) runs the
-  # doc checks alone (docs job below), not the ~10 minutes of builds and tests: those files reach no build. Anything
-  # else, a push, a manual or a called run runs everything. The required check (check job) passes on either path.
+  # A pull request or queued entry that changes only Markdown directly in docs/, docs/decisions/ or changes/ (decisions,
+  # fragments) runs the doc checks alone (docs job below), not the ~10 minutes of builds and tests: those files reach no
+  # build. Otherwise `mode` (docs/decisions/20261117-merge-queue.md) picks the jobs:
+  #   quick   a pull request to dev while the repository variable MERGE_QUEUE is "on" (set it only after dev's ruleset
+  #           has the merge queue rule; unset it first to turn the queue off): typecheck, docs, native (+ the phone app
+  #           job); the unit shards and "fast fuzz, web, relay" are skipped (the merge queue runs them). The label
+  #           full-ci runs everything (full) instead.
+  #   tested  the push to dev made by the merge queue (actor github-merge-queue[bot]): the queue fast-forwards dev to
+  #           the entry's commit it has just tested, so this SHA passed every job already; only the Linux jobs run.
+  #   full    everything else: a queued entry (merge_group), a pull request to main (main's ruleset needs the check),
+  #           any other push to dev (an admin merge past the queue) or main, a manual run, a release's call.
+  # The required check (check job) passes on each path only when the jobs of that path passed.
   scope:
     name: what changed
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     outputs:
       docs_only: ${{ steps.diff.outputs.docs_only }}
+      mode: ${{ steps.diff.outputs.mode }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         with:
-          # the pull request's merge commit and its first parent (the base): their difference is what the PR changes
+          # pull_request: the PR's merge commit and its first parent (the base): their difference is what the PR changes.
+          # merge_group: the entry's commit; its base is fetched below (a diff of two commits needs only their trees)
           fetch-depth: 2
           persist-credentials: false
       - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          ACTOR: ${{ github.actor }}
+          BASE_REF: ${{ github.base_ref }}
+          FULL_CI_LABEL: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          CALLED: ${{ inputs.ref != '' && inputs.ref != null }}
+          MERGE_QUEUE: ${{ vars.MERGE_QUEUE }}
         run: |
           docs_only=false
-          if [ "${{ github.event_name }}" = pull_request ]; then
+          files=""
+          if [ "$EVENT" = pull_request ]; then
             files=$(git diff --name-only HEAD^1 HEAD)
+          elif [ "$EVENT" = merge_group ]; then
+            # this entry and every entry ahead of it, against dev as the queue found it
+            # (a failed fetch only costs the docs-only shortcut: the entry runs everything)
+            if git fetch --no-tags --depth=1 origin "$GROUP_BASE"; then files=$(git diff --name-only "$GROUP_BASE" HEAD)
+            else echo "::warning::could not fetch the queue's base $GROUP_BASE; running every job"; fi
+          fi
+          if [ -n "$files" ]; then
             echo "$files"
-            if [ -n "$files" ] && ! printf '%s\n' "$files" | grep -Ev '^(docs|docs/decisions|changes)/[^/]+\.md$' > /dev/null; then docs_only=true; fi
+            if ! printf '%s\n' "$files" | grep -Ev '^(docs|docs/decisions|changes)/[^/]+\.md$' > /dev/null; then docs_only=true; fi
+          fi
+          mode=full
+          if [ "$CALLED" = true ]; then
+            mode=full
+          elif [ "$EVENT" = pull_request ] && [ "$BASE_REF" = dev ] && [ "$MERGE_QUEUE" = on ] && [ "$FULL_CI_LABEL" != true ]; then
+            mode=quick
+          elif [ "$EVENT" = push ] && [ "$REF" = refs/heads/dev ] && [ "$ACTOR" = 'github-merge-queue[bot]' ]; then
+            mode=tested
           fi
           echo "docs_only=$docs_only" | tee -a "$GITHUB_OUTPUT"
+          echo "mode=$mode" | tee -a "$GITHUB_OUTPUT"
 
   docs:
     name: docs only
@@ -90,7 +137,8 @@ jobs:
   static:
     name: typecheck, docs, native
     needs: scope
-    if: needs.scope.outputs.docs_only != 'true'
+    # every mode but `tested` (the queue's own push to dev: this commit passed it as a queued entry)
+    if: needs.scope.outputs.docs_only != 'true' && needs.scope.outputs.mode != 'tested'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -180,7 +228,8 @@ jobs:
   unit:
     name: unit tests (${{ matrix.shard }}/5)
     needs: scope
-    if: needs.scope.outputs.docs_only != 'true'
+    # mode full only: skipped on a pull request to dev (the merge queue runs it) and on the queue's push to dev
+    if: needs.scope.outputs.docs_only != 'true' && needs.scope.outputs.mode == 'full'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
@@ -258,7 +307,8 @@ jobs:
   other:
     name: fast fuzz, web, relay
     needs: scope
-    if: needs.scope.outputs.docs_only != 'true'
+    # mode full only, like the unit shards
+    if: needs.scope.outputs.docs_only != 'true' && needs.scope.outputs.mode == 'full'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -341,25 +391,38 @@ jobs:
         run: bun run test:relay
 
   check:
-    # the name the default branch's ruleset requires (and release.yml's test needs): every job above passed
+    # the name the dev and main rulesets require (and release.yml's test needs): every job of this run's mode passed.
+    # It runs on every event (always()), so the required name reports on a pull request, on a queued entry
+    # (merge_group) and on a push alike; a merge queue entry with no report would wait until the queue's time-out.
+    # Only the jobs above are in `needs`: the phone app, the Linux jobs and desktop.yml's macOS / Windows jobs are not
+    # required on dev and never hold up a queued entry.
     name: typecheck, native, unit, fast fuzz, web, relay
     needs: [scope, docs, static, unit, other]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
-      - name: Every job passed
+      - name: Every job of this mode passed
         env:
           DOCS_ONLY: ${{ needs.scope.outputs.docs_only }}
+          MODE: ${{ needs.scope.outputs.mode }}
           SCOPE: ${{ needs.scope.result }}
           DOCS: ${{ needs.docs.result }}
-          RESULTS: ${{ needs.static.result }} ${{ needs.unit.result }} ${{ needs.other.result }}
+          STATIC: ${{ needs.static.result }}
+          HEAVY: ${{ needs.unit.result }} ${{ needs.other.result }}
         run: |
-          echo "scope: $SCOPE, docs only: $DOCS_ONLY, docs: $DOCS, static, unit, other: $RESULTS"
+          echo "scope: $SCOPE, mode: $MODE, docs only: $DOCS_ONLY, docs: $DOCS, static: $STATIC, unit + other: $HEAVY"
           [ "$SCOPE" = success ] || exit 1
-          # a docs-only pull request: the doc checks passed (the build and test jobs were skipped on purpose)
+          # docs only: the doc checks passed (the build and test jobs were skipped on purpose)
           if [ "$DOCS_ONLY" = true ]; then [ "$DOCS" = success ]; exit; fi
-          for r in $RESULTS; do [ "$r" = success ] || exit 1; done
+          case "$MODE" in
+            # the queue's push to dev: the same commit passed every job as a queued entry
+            tested) [ "$STATIC" = skipped ] || exit 1 ;;
+            # a pull request to dev: typecheck, docs, native passed; the unit shards and fuzz/web/relay run in the queue
+            quick) [ "$STATIC" = success ] || exit 1; for r in $HEAVY; do [ "$r" = skipped ] || exit 1; done ;;
+            full) [ "$STATIC" = success ] || exit 1; for r in $HEAVY; do [ "$r" = success ] || exit 1; done ;;
+            *) echo "unknown mode '$MODE'"; exit 1 ;;
+          esac
 
   mobile:
     # The phone app (mobile/) has its own npm lockfile, and the root typecheck leaves it out. Its own job, so it never
@@ -389,8 +452,9 @@ jobs:
 
   linux-docker:
     name: Linux attack suite (T1, bwrap + nftables + cgroups in Docker)
-    # not on a pull request: on the merge to dev, on main and in a release's test run (see `on:` above)
-    if: github.event_name != 'pull_request'
+    # not on a pull request and not on a queued entry (not required on dev: a queued entry never waits on it): on the
+    # push to dev, on main and in a release's test run (see `on:` above)
+    if: github.event_name != 'pull_request' && github.event_name != 'merge_group'
     # amd64 and arm64: the seccomp table, the whisper CPU pick and bwrap's behaviour differ by architecture.
     strategy:
       fail-fast: false
@@ -450,8 +514,9 @@ jobs:
 
   linux-bundle:
     name: Linux release bundle (L19) + verify-bundle
-    # not on a pull request: on the merge to dev, on main and in a release's test run (see `on:` above)
-    if: github.event_name != 'pull_request'
+    # not on a pull request and not on a queued entry (not required on dev: a queued entry never waits on it): on the
+    # push to dev, on main and in a release's test run (see `on:` above)
+    if: github.event_name != 'pull_request' && github.event_name != 'merge_group'
     strategy:
       fail-fast: false
       matrix:
@@ -506,8 +571,9 @@ jobs:
 
   linux-install:
     name: Linux install test (T2, systemd on a VM runner)
-    # not on a pull request: on the merge to dev, on main and in a release's test run (see `on:` above)
-    if: github.event_name != 'pull_request'
+    # not on a pull request and not on a queued entry (not required on dev: a queued entry never waits on it): on the
+    # push to dev, on main and in a release's test run (see `on:` above)
+    if: github.event_name != 'pull_request' && github.event_name != 'merge_group'
     # paths filter and the daily schedule are enforced in the real feed; here the job just has to be correct.
     strategy:
       fail-fast: false
