@@ -25,6 +25,11 @@
 // "Share to room" sends the answer, never these. On a computer no team-folder files here (the full chat has them); a phone's
 // 📎 is the attach sheet every message box has there (components/chat/AttachSheet.tsx), its 팀 파일 attached by reference
 // as in the full chat's box.
+// Voice input as in every message box (lib/useVoiceInput.ts, components/VoiceBar.tsx; docs/decisions/
+// 20261117-side-chat-mic.md): the mic right before send, Space held in the box on a computer, a finger held on the
+// mic; the words go to the end of the box and are never sent by themselves. The recording names the side chat shown (an
+// ordinary chat of mine; none yet: the server answers as for a new chat), so a confidential one says why instead of
+// recording (lib/voice.ts voiceBlockedHere), as the full chat's box does.
 // Which chat it shows, its draft, its quote, its files and whether it is open are kept per room on this page
 // (store/sideChats.ts; the files in the composer's stash, `side:<room id>`): every panel of the room is the same chat, and
 // a draft stays for this page's session. The files were uploaded into the chat shown, so another chat (New chat, 🕘)
@@ -51,6 +56,9 @@ import { markerOf } from '../../lib/sessionMarkers'
 import { quotes, sendTargets } from '../../lib/sideChatSend'
 import { aiName } from '../../lib/tabs'
 import { readStash } from '../../lib/teamAttach'
+import { useConfidentialChat } from '../../lib/confidential'
+import { useVoiceInput } from '../../lib/useVoiceInput'
+import { micState, voiceBlockedHere } from '../../lib/voice'
 import { useStickToBottom } from '../../lib/stickToBottom'
 import { useLocale, useT } from '../../i18n'
 import { useChats } from '../../store/chats'
@@ -68,7 +76,8 @@ import { FileDropZone, type DropTarget } from '../FileDropZone'
 import { AssistantMessage, UserMessage } from '../chat/Messages'
 import { ImageGroup, ViewerMeta } from '../ImageViewer'
 import { Tooltip } from '../Tooltip'
-import { IconButton, useMediaQuery } from '../ui'
+import { Button, IconButton, useMediaQuery } from '../ui'
+import { VoiceBar, VoiceHeld, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { CalmNotice, LoadError } from '../LoadError'
 import { AiFace } from './AiFace'
 import { RoomSideColumn } from './RoomSideColumn'
@@ -386,11 +395,35 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   // the AI limit used up is a known state: the calm notice under the box (as under the full chat's box, chat/Composer.tsx)
   // and the text kept, never a warning toast (owner rule; QA TC-2895)
   const [limit, setLimit] = useState<string | null>(null)
+  // voice input, as in every message box: under the team's switch (no mic while it is off), for the side chat shown (a
+  // confidential chat's recording never goes to an outside speech service: the note instead)
+  const mic = micState(me)
+  const confidential = useConfidentialChat(chatId ?? null)
+  const [voiceError, setVoiceError] = useState<string | null>(null)
+  const boxRoot = useRef<HTMLDivElement>(null)
+  const voice = useVoiceInput({
+    input: box,
+    root: boxRoot,
+    text: draft,
+    replace: (next) => setDraft(next),
+    // (read from the store: a live recording's next words may come before the panel renders again)
+    append: (said) => setDraft((cur) => (cur.trim() ? `${cur.trimEnd()} ${said}` : said)),
+    chatId: chatId ?? null,
+    blocked: voiceBlockedHere(me, confidential),
+    enabled: mic === 'on' && !guestNoAi,
+    menuOpen: false,
+    onError: setVoiceError,
+  })
+  // how tall the text box is, for the text that stands in its place while recording (the person's text size changes it)
+  const heldHeight = useRef<number | undefined>(undefined)
+  useLayoutEffect(() => {
+    if (box.current?.offsetHeight) heldHeight.current = box.current.offsetHeight
+  })
   // the room's apps (docs/DECISIONS.md "Apps posting in rooms"): one chip chosen by the apps that posted here, from the
   // messages on screen (a member cannot list the apps)
   const chip = useRooms((s) => (s.timeline?.roomId === roomId ? appChip(s.timeline.messages) : null))
   // what the box sends: its text and its files (all uploaded); an answer to the AI's question is the text alone
-  const canSend = chatId !== undefined && (question ? !!draft.trim() : !busy && !files.uploading && (!!draft.trim() || files.ready.length > 0))
+  const canSend = chatId !== undefined && !voice.busy && (question ? !!draft.trim() : !busy && !files.uploading && (!!draft.trim() || files.ready.length > 0))
   const sendLabel = question ? t('sideChat.answer') : t('sideChat.send')
   // an answer to the AI's question typed here goes to the AI: as under the full chat's box, the "no passwords" line and
   // a key-looking answer held for "Send anyway" (the question's card leaves typing to this box: AskCard BoxAnswers)
@@ -402,6 +435,8 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
     // the text)
     const atts = asked === undefined && !question ? files.attachments() : []
     if ((!text && !atts.length) || chatId === undefined) return
+    // the box's text while it is recorded into or the words are on their way: not sent (a starter or quick ask goes)
+    if (asked === undefined && voice.busy) return
     // the AI waits for the answer to its question: the text answers it (never a new message while its answer runs)
     if (question && chatId) {
       setLimit(null)
@@ -446,6 +481,8 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   }
   const newChat = () => {
     if (busy) return
+    // a recording was for the chat shown: it goes with it (its words are not put back into the new chat's box)
+    voice.abandon()
     setHistory(null)
     setChatId(null)
     setDraft('')
@@ -477,6 +514,8 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
     setHistory(null)
     setLimit(null)
     if (id === chatId) return
+    // a recording names the chat shown: it does not go on into another one
+    voice.abandon()
     stick.current = true
     try {
       await useChats.getState().loadThread(id)
@@ -659,65 +698,90 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
             }}
           />
         )}
-        <div className="rounded-xl border border-line bg-canvas transition focus-within:border-line-strong" data-testid="side-chat-box">
+        <VoiceLive voice={voice} />
+        <div ref={boxRoot} className="rounded-xl border border-line bg-canvas transition focus-within:border-line-strong" data-testid="side-chat-box">
           {question && (
             <p id={noSecretsId} className="px-3 pt-2 text-xs text-faint" data-testid="side-chat-no-secrets">
               {t('ask.noSecrets')}
             </p>
           )}
           <ComposerFileList files={files.files} onRemove={files.removeFile} className="px-3 pt-2.5" />
-          <textarea
-            ref={box}
-            value={draft}
-            onChange={(e) => { setDraft(e.target.value); setLimit(null) }}
-            onPaste={files.onPaste}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault()
-                void send()
-              }
-            }}
-            rows={2}
-            maxLength={20_000}
-            placeholder={boxLabel}
-            aria-label={boxLabel}
-            aria-describedby={question ? noSecretsId : undefined}
-            className="block max-h-40 w-full resize-none bg-transparent px-4.5 pt-2.5 text-sm text-ink outline-none placeholder:text-faint"
-            data-testid="side-chat-input"
-          />
-          {/* the box's row, as every message box has it (chat/ComposerToolbar.tsx): the clip on the left; on the right
-              the room box's send button (RoomComposer): ↑ on a round button, its name (보내기, or 답하기 while the AI
-              waits for an answer to its question) in the tooltip */}
-          <ComposerToolbar
-            testId="side-chat-tools"
-            start={phone ? (
-              <AttachSheet key={filesDraft(roomId)} onFiles={(all) => void files.addFiles(all)} room={MESSAGE_ATTACHMENTS_MAX - files.live.length} onTeam={() => setTeamPicker(true)} icon={<Paperclip size={18} aria-hidden />} testId="side-chat-attach" filesTestId="side-chat-file-input" />
-            ) : (
-              <>
-                <IconButton tip compact label={t('composer.attach')} onClick={() => picker.current?.click()} data-testid="side-chat-attach">
-                  <Paperclip size={18} aria-hidden />
-                </IconButton>
-                <input ref={picker} type="file" multiple hidden onChange={files.onPicked} data-testid="side-chat-file-input" />
-              </>
-            )}
-            end={
-              <Tooltip label={sendLabel}>
-                <button
-                  type="button"
-                  onClick={() => void send()}
-                  disabled={!canSend}
-                  aria-label={sendLabel}
-                  className={clsx('touch-hit flex size-9 shrink-0 items-center justify-center rounded-full transition max-sm:size-10', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')}
-                  data-testid="side-chat-send"
-                >
-                  <ArrowUp size={18} aria-hidden />
-                </button>
-              </Tooltip>
-            }
-          />
+          {voice.recording ? (
+            // the box keeps its height: the text as it was on top, as tall as the text box was (it cannot be typed in while
+            // recording; a live recording's words show there as they come), the bar in the row's place (ComposerToolbar's
+            // own padding; ✓ is as large as send at every width), ✕ and ✓ where the clip and send were
+            <>
+              <VoiceHeld text={draft || boxLabel} textClass="text-sm" style={{ height: heldHeight.current }} className={clsx('px-4.5 pt-2.5', draft ? 'text-ink' : 'text-faint')} testId="side-chat-text-held" />
+              <VoiceBar voice={voice} className="box-content min-h-9 px-3 pt-1 pb-2.5" />
+            </>
+          ) : (
+            <>
+              <VoiceProgress voice={voice} text={draft} className="px-4.5 pt-2.5" />
+              <textarea
+                ref={box}
+                value={draft}
+                onChange={(e) => { setDraft(e.target.value); setLimit(null) }}
+                onPaste={files.onPaste}
+                onKeyDown={(e) => {
+                  if (voice.onKeyDown(e)) return
+                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault()
+                    void send()
+                  }
+                }}
+                rows={2}
+                maxLength={20_000}
+                placeholder={voice.transcribing ? voice.transcribingText : boxLabel}
+                // not disabled: the focus stays in the box while the words are on their way
+                readOnly={voice.busy}
+                aria-busy={voice.transcribing || undefined}
+                aria-label={boxLabel}
+                aria-describedby={question ? noSecretsId : undefined}
+                className="block max-h-40 w-full resize-none bg-transparent px-4.5 pt-2.5 text-sm text-ink outline-none placeholder:text-faint"
+                data-testid="side-chat-input"
+              />
+              {/* the box's row, as every message box has it (chat/ComposerToolbar.tsx): the clip on the left; on the right
+                  the mic and the room box's send button (RoomComposer): ↑ on a round button, its name (보내기, or 답하기 while the AI
+                  waits for an answer to its question) in the tooltip */}
+              <ComposerToolbar
+                testId="side-chat-tools"
+                start={phone ? (
+                  <AttachSheet key={filesDraft(roomId)} onFiles={(all) => void files.addFiles(all)} room={MESSAGE_ATTACHMENTS_MAX - files.live.length} onTeam={() => setTeamPicker(true)} icon={<Paperclip size={18} aria-hidden />} testId="side-chat-attach" filesTestId="side-chat-file-input" />
+                ) : (
+                  <>
+                    <IconButton tip compact label={t('composer.attach')} onClick={() => picker.current?.click()} data-testid="side-chat-attach">
+                      <Paperclip size={18} aria-hidden />
+                    </IconButton>
+                    <input ref={picker} type="file" multiple hidden onChange={files.onPicked} data-testid="side-chat-file-input" />
+                  </>
+                )}
+                end={<>
+                  <VoiceMic voice={voice} mic={mic} tip />
+                  <Tooltip label={sendLabel}>
+                    <button
+                      type="button"
+                      onClick={() => void send()}
+                      disabled={!canSend}
+                      aria-label={sendLabel}
+                      className={clsx('touch-hit flex size-9 shrink-0 items-center justify-center rounded-full transition max-sm:size-10', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')}
+                      data-testid="side-chat-send"
+                    >
+                      <ArrowUp size={18} aria-hidden />
+                    </button>
+                  </Tooltip>
+                </>}
+              />
+            </>
+          )}
         </div>
         {limit && <CalmNotice className="mt-2" testId="side-chat-limit" icon={<CirclePause size={16} />} title={limit} />}
         {fileError && <p role="alert" className="pt-1.5 text-xs text-danger" data-testid="side-chat-file-error">{fileError}</p>}
+        {voiceError && (
+          <p role="alert" className="pt-1.5 text-xs text-danger" data-testid="side-chat-voice-error">
+            {voiceError}
+            {voice.settingsFor === voiceError && <Button size="sm" className="ml-2 align-middle" onClick={voice.openSettings} data-testid="voice-open-settings">{t('voice.openSettings')}</Button>}
+          </p>
+        )}
         {phone && (
           <TeamFilePicker
             open={teamPicker}

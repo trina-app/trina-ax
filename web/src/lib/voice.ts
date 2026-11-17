@@ -3,7 +3,7 @@
 // Me.team.voiceInput; an older server leaves it out, which means on (it always had whisper.cpp). In a confidential chat a
 // recording never goes to OpenRouter (voiceBlockedHere; the server is the gate). Rooms and threads take voice input too
 // (lib/useVoiceInput.ts), under the same switch; a room names no chat, so it is blocked while every chat is confidential
-// (voiceBlockedInRoom).
+// (voiceBlockedInRoom). A guest has no mic anywhere: the server takes no recording from a guest.
 import type { Me } from '@mycel/shared/api'
 
 export type MicState = 'on' | 'hidden'
@@ -11,7 +11,10 @@ export type MicState = 'on' | 'hidden'
 /** Voice input can't be used on this server (off, or "this server" without what it needs): no mic for anyone, owners
  * and admins included (owner 2026-11-11: a crossed-out mic in the box is noise; the switch is in Admin › Team
  * settings). */
-export function micState(me: Pick<Me, 'team'> | null | undefined): MicState {
+export function micState(me: (Pick<Me, 'team'> & { user?: Pick<Me['user'], 'role'> }) | null | undefined): MicState {
+  // a guest: speech to text is not on a guest's list (server auth/guest-endpoints.ts, uploads/sessions.ts: every
+  // recording is refused), so no mic in any box rather than one that always fails (QA TC-4575)
+  if (me?.user?.role === 'guest') return 'hidden'
   return me?.team?.voiceInput === false ? 'hidden' : 'on'
 }
 
