@@ -8,7 +8,7 @@ import { ENGINE_BUILTIN_ALLOWED, EditInput, GlobInput, GrepInput, ListInput, med
 import { lineDiff } from '../skills/diff'
 import { isGuestUser } from '../credentials/guest-ai'
 import { FILE_LIST_NAME, isFileListName, mediaTranscriptsOffSmall, mediaTranscriptsOn, type SpeechHost, type TranscribeResult } from '@mycel/shared/api'
-import { isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
+import { cp949Text, isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
 import type { ServerConfig } from '../config'
 import { getTeamSettings, teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { audit } from '../admin/audit'
@@ -25,7 +25,7 @@ import type { VirtualFile, VirtualFiles } from './virtual'
 import { SOURCE_LOCS_MAX, SourceLog } from './sources'
 import { locsOfRange } from './locations'
 import type { SourceLoc } from '@mycel/shared/api'
-import { atomicWrite, conflictCopyName, fileEvent, moveToTrash, readRegular, recordConflictCopy, saveVersion, sha256 } from './store'
+import { atomicWrite, conflictCopyName, fileEvent, moveToTrash, readHead, readRegular, recordConflictCopy, saveVersion, sha256 } from './store'
 import { newId } from '../db'
 import { consumeSkillApproval, editedText, requireSkillApproval } from '../skills/guard'
 import { skillWriteNote } from '../chat/skills'
@@ -455,7 +455,13 @@ export class FileService {
       for (const h of res.hits) if (h.loc) locs.set(h.path, [...(locs.get(h.path) ?? []), h.loc])
       for (const f of res.files) if (!virtual.has(f)) ctx.files.sources.note(f, 'grep', { agent: ctx.files.agent, locs: locs.get(f) })
     }
-    return { text: res.text, summary: `grep ${r.rel || '.'} pattern(len=${a.pattern.length}) mode=${a.output_mode ?? 'files_with_matches'} -> ${res.text === 'No matches' ? 0 : res.text.split('\n').length} lines, filtered=${res.stats.filtered}` }
+    // a CSV row without its column names: the AI took 620000 under 월평균주문액 for an unpaid balance of the same number
+    // (AI flow FL-13, 2026-11-17), so the result names each CSV's first line when it is not in it already
+    const text = (a.output_mode ?? 'files_with_matches') === 'content' ? withCsvHeaders(res.text, res.hits.map((h) => h.path).filter((f) => res.files.has(f) && !virtual.has(f)), (f) => {
+      // the very file the check saw (its lstat), as every read of the team folder (store.ts openToRead)
+      try { const c = authorize(this.fx, rules, ctx.user, f, 'read'); return firstLine(readHead(c.abs, CSV_HEADER_BYTES, c.st)) } catch { return null }
+    }) : res.text
+    return { text, summary: `grep ${r.rel || '.'} pattern(len=${a.pattern.length}) mode=${a.output_mode ?? 'files_with_matches'} -> ${text === 'No matches' ? 0 : text.split('\n').length} lines, filtered=${res.stats.filtered}` }
   }
 
   // ---------------- read ----------------
@@ -1718,3 +1724,41 @@ function numberedLines(rel: string, text: string, a: { offset?: number; limit?: 
 
 const short = (p: unknown) => (typeof p === 'string' ? p.slice(0, 200) : '')
 function human(n: number) { return n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB` }
+
+/** how much of a CSV is read for its first line */
+const CSV_HEADER_BYTES = 4096
+const CSV_EXT = /\.(csv|tsv)$/i
+/** column-name lines one result adds at most (a grep over a folder of monthly exports stays small) */
+const CSV_HEADERS_MAX = 10
+
+/** A file's first line as text (UTF-8, or legacy Korean CP949 as Excel saves it; no BOM, at most 500 characters), or
+ * null when it is neither. */
+export function firstLine(bytes: Uint8Array): string | null {
+  const nl = bytes.indexOf(10)
+  const head = nl >= 0 ? bytes.subarray(0, nl) : bytes
+  if (!head.length || head.includes(0)) return null
+  const text = isUtf8(head) ? Buffer.from(head).toString('utf8') : cp949Text(head)
+  if (text === null) return null
+  const line = text.replace(/^\uFEFF/, '').replace(/\r$/, '')
+  return line.trim() ? line.slice(0, 500) : null
+}
+
+/**
+ * A grep result (content mode) with the column names of each CSV/TSV file it shows rows of, when line 1 of that file is
+ * not in it already: one line per file at the end, "<path>:1:<first line>" under a heading. `header`: the file's first
+ * line, or null (not readable as text).
+ */
+export function withCsvHeaders(text: string, paths: string[], header: (path: string) => string | null): string {
+  const lines = text.split('\n')
+  const has = (p: string) => lines.some((l) => l.startsWith(`${p}:1:`) || l.startsWith(`${p}-1-`))
+  const add: string[] = []
+  let more = 0
+  for (const p of new Set(paths)) {
+    if (!CSV_EXT.test(p) || has(p)) continue
+    if (add.length >= CSV_HEADERS_MAX) { more++; continue }
+    const h = header(p)
+    if (h !== null) add.push(`${p}:1:${h}`)
+  }
+  const rest = more ? `\n(${more} more CSV file${more === 1 ? '' : 's'}: read line 1 for the column names)` : ''
+  return add.length ? `${text}\n(Line 1 of ${add.length === 1 ? 'this CSV file: its column names' : 'these CSV files: their column names'})\n${add.join('\n')}${rest}` : text
+}

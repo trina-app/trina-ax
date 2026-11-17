@@ -66,6 +66,16 @@ export function readRegular(abs: string, maxBytes = 200 * 1024 * 1024, seen?: fs
   } finally { fs.closeSync(fd) }
 }
 
+/** The first `n` bytes of a regular, singly linked file (same refusals and `seen` as readRegular): a CSV's column names. */
+export function readHead(abs: string, n: number, seen?: fs.Stats): Buffer {
+  const { fd, st } = openToRead(abs, seen)
+  try {
+    const bytes = Buffer.alloc(Math.min(n, st.size))
+    const got = bytes.length ? fs.readSync(fd, bytes, 0, bytes.length, 0) : 0
+    return bytes.subarray(0, Math.max(0, got))
+  } finally { fs.closeSync(fd) }
+}
+
 /**
  * sha256 of a regular, singly linked file (no final symlink followed), read in 4 MiB pieces: no size limit and never
  * the whole file in memory. Synchronous, for checks that run inside authorize(); same refusals as readRegular, and the

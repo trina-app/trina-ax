@@ -54,6 +54,7 @@ import { SEARCH_TOOLS, SHARED_TOOLS } from '../rooms/ai-tools'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
 import { roomReadTools } from './room-tools'
 import { hintsHere, roomHint } from './room-hint'
+import { fileNote, fileNoteOnce } from './file-notes'
 import { skillFilesTool } from './skill-files'
 import { postToRoomOff, postToRoomTool } from './post-to-room'
 import { shareWithPersonOff, shareWithPersonTool } from './share-with-person'
@@ -425,7 +426,11 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // draft, template or guest chat) and a room read stays in this chat (no scheduled run, Slack or side chat)
       const main = !caller || caller.files === exec.files
       const rooms = name === 'grep' && !isError && main && !guest && hintsHere(exec, tools.has('rooms')) ? roomHint(exec, (args as { pattern?: unknown } | null)?.pattern) : null
-      return [placed, skillNote, rooms].filter(Boolean).join('\n') || undefined
+      // the version an edit keeps, a Hangul document that cannot be changed here (chat/file-notes.ts), once a turn
+      // the main AI's own call only: a sub-agent reports to it (its Word copy would be a second one), and a guest has no
+      // Files screen with a version history
+      const fact = !main || guest ? null : fileNoteOnce(exec, fileNote({ name, isError, args, text, hangulOff: () => !hwpWritingOn(exec.rt.ctx), makeFile: tools.has('make_file') }), exec.spec.locale)
+      return [placed, skillNote, rooms, fact].filter(Boolean).join('\n') || undefined
     },
     // edit_files (mcp/protocol.ts): after a room read one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {
