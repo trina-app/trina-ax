@@ -87,7 +87,7 @@ export const silent = (s: Sound | null): boolean => !!s && s.peakDb < SILENT_DB
 /** quiet, or not moving like speech */
 const weak = (s: Sound | null): boolean => !!s && (s.peakDb < QUIET_DB || !s.speechLike)
 
-/** whisper's marks for sound with no words: [BLANK_AUDIO], (beep), (music), [음악], ♪, *click* */
+/** whisper's marks for sound with no words: [BLANK_AUDIO], (beep), (music), [music in Korean], ♪, *click* */
 export const NOT_WORDS = /^\s*(?:[[(（][^\])）]{0,40}[\])）]|\*[^*]{0,40}\*|[♪♫♬\s]+)\s*$/
 
 /** Lines whisper learned from video subtitles and writes for sound with no speech, compared whole after
@@ -98,15 +98,15 @@ const HALLUCINATIONS = new Set([
   'thankyousomuchforwatching', 'thanksforwatchingandseeyounexttime', 'pleasesubscribe', 'likeandsubscribe',
   'pleaselikeandsubscribe', 'bye', 'byebye', 'theend',
   // thank you for watching / thank you / please subscribe and like
-  '시청해주셔서감사합니다', '감사합니다',
-  '구독과좋아요부탁드립니다',
+  '\uC2DC\uCCAD\uD574\uC8FC\uC154\uC11C\uAC10\uC0AC\uD569\uB2C8\uB2E4', '\uAC10\uC0AC\uD569\uB2C8\uB2E4',
+  '\uAD6C\uB3C5\uACFC\uC88B\uC544\uC694\uBD80\uD0C1\uB4DC\uB9BD\uB2C8\uB2E4',
   'ご視聴ありがとうございました', 'ありがとうございました', 'ご清聴ありがとうございました', 'チャンネル登録お願いします',
   '谢谢观看', '谢谢大家', '感谢观看', '謝謝觀看', '谢谢',
   'terimakasih', 'terimakasihtelahmenonton', 'terimakasihsudahmenonton',
   'gracias', 'graciasporver', 'graciasporverelvideo', 'suscribete', 'muchasgracias',
 ])
 /** subtitle credits ("Subtitles by the Amara.org community", 字幕由Amara.org社区提供, "Subtítulos realizados por ...") */
-const CREDIT = /^(?:(?:subtitles?|captions?|transcri(?:bed|ption)|translat(?:ed|ion))(?:by|madeby|providedby|realizadospor)|subt[ií]tulos|字幕|amaraorg|자막)/
+const CREDIT = /^(?:(?:subtitles?|captions?|transcri(?:bed|ption)|translat(?:ed|ion))(?:by|madeby|providedby|realizadospor)|subt[ií]tulos|字幕|amaraorg|\uC790\uB9C9)/
 
 /** lower case, no punctuation, symbols or spaces */
 const normalize = (t: string) => t.normalize('NFKC').toLowerCase().replace(/[\p{P}\p{S}\s]+/gu, '')
