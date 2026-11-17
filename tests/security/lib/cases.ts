@@ -781,6 +781,7 @@ export const SPECS: Record<string, Spec> = {
   startUpdate: { skipPositive: true, build: (c) => c.post('/api/admin/update', { password: 'wrong-pass' }), scope: 'byLevel' },
   // office mode automatic updates (admin and owner): status is null outside office mode; "now" re-asks the password
   officeUpdateStatus: { build: (c) => c.get('/api/admin/office-update'), scope: 'byLevel' },
+  officeClaudeMcpNotice: { build: (c) => c.get('/api/admin/office-claude-mcp-notice'), scope: 'byLevel' },
   officeUpdateAction: { skipPositive: true, build: (c) => c.post('/api/admin/office-update', { action: 'now', password: 'wrong-pass' }), scope: 'byLevel' },
   listBackups: { build: (c) => c.get('/api/admin/backups'), scope: 'byLevel' },
   startBackup: { build: (c) => c.post('/api/admin/backup', { scope: 'db' }), scope: 'byLevel' },
