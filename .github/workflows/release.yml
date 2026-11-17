@@ -48,7 +48,7 @@ on:
         default: false
         type: boolean
       mac_runner:
-        description: "The hosted macOS runner for the office zip; empty = the repository variable RELEASE_MAC_RUNNER, else macos-15. macos-15-intel draws from another pool when the arm64 Macs have no capacity."
+        description: "The macOS runner for the office zip and the Mac app; empty = the repository variable RELEASE_MAC_RUNNER, else macos-15. macos-15-intel draws from another hosted pool when the arm64 Macs have no capacity; trina-mac-release is the self-hosted release Mac (docs/RELEASE-CI.md 13)."
         required: false
         default: ""
         type: string
@@ -272,6 +272,21 @@ jobs:
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
     steps:
+      # the self-hosted release Mac (docs/RELEASE-CI.md 13) takes only release.yml at a v* tag of this repository (tag
+      # push or Run workflow with the tag); its job-started hook checks the same on the host before any step
+      - name: Release Mac runner guard
+        if: runner.environment == 'self-hosted'
+        env:
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          refuse() { echo "::error::the self-hosted release Mac runs only release.yml at a v* tag of trina-app/trina-ax: $*"; exit 1; }
+          [ "$REPO" = trina-app/trina-ax ] || refuse "repository $REPO"
+          [ "$EVENT" = push ] || [ "$EVENT" = workflow_dispatch ] || refuse "event $EVENT"
+          [[ "$REF" == refs/tags/v* ]] || refuse "ref $REF"
+          [[ "$WORKFLOW_REF" == "trina-app/trina-ax/.github/workflows/release.yml@refs/tags/v"* ]] || refuse "workflow $WORKFLOW_REF"
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ needs.prepare.outputs.sha }}

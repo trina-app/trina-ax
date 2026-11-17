@@ -153,7 +153,8 @@ describe('in my own chat', () => {
     put('shared/alices.txt', 'a')
     h.ctx.db.query("INSERT INTO file_events (turn_id, user_id, path, action) VALUES (NULL, 'alice', 'shared/alices.txt', 'create')").run()
     const cases: [Record<string, unknown>, string][] = [
-      [{ paths: ['users/bob'], people: ['Tess Yoon'] }, 'Nothing was shared: "내 폴더" is a folder, and a whole folder cannot be shared yet'],
+      // (folder sharing is on: a folder of the person's own goes to share_folder, whose own words say what can be shared)
+      [{ paths: ['users/bob'], people: ['Tess Yoon'] }, 'Nothing was shared: "내 폴더" is a folder, and share_with_person shares files only. Next step: call share_folder'],
       [{ paths: ['shared/alices.txt'], people: ['Tess Yoon'] }, 'is Alice Kim\'s file, so only Alice Kim can add people to it'],
       [{ paths: ['users/bob/photo-1.png'], people: ['Nobody Here'] }, 'no teammate or group matches'],
     ]
