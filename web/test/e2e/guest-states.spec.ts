@@ -83,7 +83,7 @@ test.describe('computer', () => {
       ['expired', 'This invite link has expired. Ask the person who invited you for a new one.'],
       ['revoked', 'This invite link was turned off. Ask the person who invited you for a new one.'],
       ['inviter_gone', 'The person who made this link can no longer invite you. Ask them or someone else on the team for a new link.'],
-      ['place_gone', 'The group chat or project this link was for is no longer there. Ask the person who invited you.'],
+      ['place_gone', 'The private channel, group chat or project this link was for is no longer there. Ask the person who invited you.'],
     ]
     // a guest's page speaks the guest's browser language (guest walkthrough S10): an English browser here
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, timezoneId: 'Asia/Seoul', locale: 'en-US' })
@@ -148,7 +148,7 @@ test.describe('computer', () => {
     await page.getByTestId('guests-show-removed').click()
     await expect(page.getByTestId('guest-row-lena')).toContainText("No longer in 'Quote prep'")
     await expect(page.getByTestId('guest-row-tara')).toContainText('Project · Launch plan · in the trash')
-    await expect(page.getByTestId('guest-row-gwen')).toContainText('Their group chat or project is gone')
+    await expect(page.getByTestId('guest-row-gwen')).toContainText('Their private channel, group chat or project is gone')
     // a Team AI whose account was deleted: said, with Change AI in its menu
     await expect(page.getByTestId('guest-row-abel')).toContainText('Team AI · account removed')
     await shoot(page, 'admin-guests-removed', async () => { await page.goto('/admin/members'); await page.getByTestId('guests-show-removed').click(); await page.getByTestId('guests-section').scrollIntoViewIfNeeded() })
@@ -173,7 +173,7 @@ test.describe('computer', () => {
     const openRefused = async () => {
       await menu(page, 'mona').click()
       await page.getByTestId('guest-on-mona').click()
-      await expect(page.getByTestId('guest-no-place')).toHaveText("Their group chat or project is gone, so there's nothing to bring them back to. Invite them again or make them a team member.")
+      await expect(page.getByTestId('guest-no-place')).toHaveText("Their private channel, group chat or project is gone, so there's nothing to bring them back to. Invite them again or make them a team member.")
     }
     await openRefused()
     await shoot(page, 'admin-guest-no-place', async () => { await page.goto('/admin/members'); await page.getByTestId('guests-show-removed').click(); await openRefused() })

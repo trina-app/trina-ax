@@ -91,6 +91,8 @@ test('채널 만들기 asks for a name; 새 메시지 has no name field', async 
 
   await panel(page).getByTestId('rooms-new-message').click()
   await expect(page.getByRole('dialog').getByRole('heading')).toHaveText(t['rooms.newChat'])
+  // the cursor starts in the people search, not on Close (TC-4461 follow-up)
+  await expect(page.getByRole('dialog').getByTestId('people-search')).toBeFocused()
   const rows = page.getByRole('dialog').getByTestId('people-row')
   await rows.nth(0).getByTestId('picker-tick').check()
   await rows.nth(1).getByTestId('picker-tick').check()

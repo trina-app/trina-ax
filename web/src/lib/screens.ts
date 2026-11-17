@@ -94,6 +94,9 @@ export function screenOf(to: string): Screen {
       return b === 'share' && c ? s('ai', '/skills') : s('ai', '/', '/skills')
     case 'trash':
       return s('ai', '/')
+    case 'sent-files':
+      // "Files you sent" (pages/SentFiles.tsx): a page of the conversations' tab, under its list
+      return s('chats', '/rooms')
     case 'welcome':
       // Getting started (pages/Welcome.tsx), a flow of its own over the tabs: each step a screen (?step=), under the step
       // a phone shows before it (도구 연결 is a computer's: lib/welcome.ts prevStep), the first one (and the AI step, which
@@ -182,6 +185,7 @@ const TITLES: [RegExp, MessageKey][] = [
   [/^\/scheduled(\/|$)/, 'settings.schedules'],
   [/^\/skills(\/|$)/, 'skills.title'],
   [/^\/trash$/, 'trash.title'],
+  [/^\/sent-files$/, 'sentFiles.title'],
   [/^\/admin$/, 'admin.title'],
   [/^\/rooms$/, 'tabs.chats'],
   [/^\/welcome$/, 'welcome.eyebrow'],

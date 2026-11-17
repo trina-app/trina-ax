@@ -1,7 +1,7 @@
 // One click from the Trina side chat (components/rooms/SendHere.tsx, docs/DECISIONS.md "Trina side chat: send here"):
 // an answer to a question about a room message goes to that message's thread ("스레드에 보내기"; a follow-up keeps it),
-// ▾ sends it to the room; then "✓ … 보냈어요 · 보기", the focus on 보기, and 보기 opens the thread (in the right column;
-// ✦ brings the same side chat back, still saying it was sent) or the room at the message. The server's confirm shows only
+// ▾ sends it to the room; then "✓ … 보냈어요 · 보기", the focus on 보기, and 보기 opens the thread (beside the side
+// chat, which still says it was sent: docs/decisions/20261117-thread-plus-trina.md) or the room at the message. The server's confirm shows only
 // the confirm step with the target; 취소 gives the focus back. An older side chat (a quote without a thread) sends to the
 // room only. A phone: the thread takes the whole screen, its back arrow returns to the room, ✦ to the side chat; 보기 of
 // a room send closes the side chat so the room shows. The room through page.route (rooms-mock.ts), the share endpoint
@@ -109,7 +109,7 @@ async function historyTitles(side: Locator) {
   return items
 }
 
-test('an answer about a message goes to its thread with one click; 보기 opens the thread; ✦ brings the side chat back, still sent', async ({ page }) => {
+test('an answer about a message goes to its thread with one click; 보기 opens the thread beside the side chat, still sent', async ({ page }) => {
   const { shares, side, content } = await open(page)
   // the question carries the thread (hidden in its bubble); the answer's control names it
   const [head, quoted, blank, asked] = content.split('\n')
@@ -143,18 +143,18 @@ test('an answer about a message goes to its thread with one click; 보기 opens 
   await ask(side, '더 짧게 한 줄로')
   await expect(side.locator('[data-testid="assistant-message"][data-status="done"]')).toHaveCount(2, { timeout: 20_000 })
   await expect(lastAnswer(side).getByTestId('send-here-thread')).toBeVisible()
-  // 보기: the thread in the right column at the reply; the side chat is gone from there
+  // 보기: the thread at the reply, as a column between the room and the side chat, which stays and still says "sent"
   await answer.getByTestId('send-here-view').click()
   await expect(page).toHaveURL(new RegExp(`/rooms/${ROOM_ID}/t/${MSG}\\?m=`))
   const thread = page.getByTestId('room-thread')
   await expect(thread.locator('[data-highlight]')).toContainText(ANSWER)
-  await expect(page.getByTestId('room-side-chat')).toHaveCount(0)
-  // ✦: the same side chat again, the answer still sent
-  await page.getByTestId('room-side-chat-button').click()
-  await expect(page.getByTestId('room-thread')).toHaveCount(0)
-  const again = page.getByTestId('room-side-chat')
-  await expect(again.locator('[data-testid="assistant-message"]').first().getByTestId('send-here-sent')).toHaveText('스레드에 보냈어요·보기')
+  await expect(page.getByTestId('room-page')).toHaveAttribute('data-columns', 'three')
+  await expect(side.locator('[data-testid="assistant-message"]').first().getByTestId('send-here-sent')).toHaveText('스레드에 보냈어요·보기')
+  // the thread's ✕: one step back to the room, the same side chat beside it
+  await thread.getByTestId('thread-close').click()
+  await expect(thread).toHaveCount(0)
   await expect(page).toHaveURL(new RegExp(`/rooms/${ROOM_ID}$`))
+  await expect(side.locator('[data-testid="assistant-message"]')).toHaveCount(2)
 })
 
 test('▾ sends to the room instead; 보기 marks the message in the room and the side chat stays beside it', async ({ page }) => {

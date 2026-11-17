@@ -31,6 +31,7 @@ import type { RouteModule } from './module'
 import { feature, isHosted } from '../system/deployment'
 import { noticesFor, planStatus } from '../system/managed'
 import { setApiEnginePublicOnly } from '../system/egress'
+import { askCleanup } from '../system/storage-cleanup'
 
 const opsByCtx = new WeakMap<AppContext, OpsService>()
 /** The ops service of a running server (tests, CLI). */
@@ -139,6 +140,8 @@ export const systemRoutes: RouteModule = {
     kit.handle(API.diagnostics, ({ c }) => ops().diagnostics(c.get('locale')))
 
     kit.handle(API.storage, () => ops().storage.status())
+    // "Ask people to clean up" (system/storage-cleanup.ts): never who or how many
+    kit.handle(API.askStorageCleanup, ({ auth }) => askCleanup(ctx, auth.user.id))
 
     // the plan (plan.json) and the operator's notices (notices.json): system/limits.ts, system/managed.ts
     kit.handle(API.plan, ({ c }) => planStatus(ctx.db, c.get('locale')))

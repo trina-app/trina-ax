@@ -36,7 +36,7 @@
 // shown or opened: a fast Enter opens the top row shown at that moment. The highlighted row is kept by its key, so
 // results arriving above it do not move it.
 import clsx from 'clsx'
-import { Bell, BookMarked, Cable, CalendarClock, CalendarPlus, ChevronDown, CornerDownLeft, File as FileIcon, FileSearch, Folder, FolderKanban, FolderOpen, FolderPlus, Gauge, Image as ImageIcon, Link2, MessageSquare, MoreHorizontal, Pencil, Plus, Shield, Trash2, UserPlus, X } from 'lucide-react'
+import { Bell, BookMarked, Paperclip, Cable, CalendarClock, CalendarPlus, ChevronDown, CornerDownLeft, File as FileIcon, FileSearch, Folder, FolderKanban, FolderOpen, FolderPlus, Gauge, Image as ImageIcon, Link2, MessageSquare, MoreHorizontal, Pencil, Plus, Shield, Trash2, UserPlus, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react'
 import { matchPath, useLocation, useNavigate } from 'react-router-dom'
 import { nameMatch, searchWords } from '@mycel/shared'
@@ -553,6 +553,8 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     // may not add their own). "MCP", "Connectors" and "Settings" find it.
     if (m) list.push({ key: 'act:mcp', kind: 'action', icon: Plus, title: t('search.addMcp'), href: admin && m.personalAllowed ? `${CONNECTORS_HOME}?add=1` : CONNECTORS_HOME, terms: `MCP ${t('integrations.title')} ${t('settings.title')}` })
     if (!guest) list.push({ key: 'act:files', kind: 'action', icon: FolderOpen, title: t('search.openFiles'), href: '/files', terms: t('files.root') })
+    // my own files in conversations, largest first, to tidy (guests too: pages/SentFiles.tsx)
+    list.push({ key: 'act:sentFiles', kind: 'action', icon: Paperclip, title: t('sentFiles.title'), href: '/sent-files', terms: `${t('search.tab.files')} ${t('rooms.title')}`, typed: true })
     // 모든 프로젝트 and Usage (in Settings) are found here too
     list.push(
       { key: 'act:projects', kind: 'action', icon: FolderKanban, title: t('sidebar.projects'), href: '/projects', typed: true },
@@ -615,7 +617,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
       else if (tab === 'skills') push('skills', typeLabel('skills'), allSkills.map(skillRow))
       else if (tab === 'scheduled') push('scheduled', typeLabel('scheduled'), allSchedules.map((s) => scheduleRow(s)))
       else if (tab === 'mcp') push('mcp', typeLabel('mcp'), allMcp.map((i) => mcpRow(i)))
-      else if (tab === 'files') push('files', typeLabel('files'), actions.filter((a) => a.key === 'act:files'))
+      else if (tab === 'files') push('files', typeLabel('files'), actions.filter((a) => a.key === 'act:files' || a.key === 'act:sentFiles'))
       // 대화: my rooms as the 대화 list has them (pinned first), to jump to one
       else if (tab === 'rooms') push('rooms', typeLabel('rooms'), pinnedFirst(shownInLists(myRooms)).slice(0, ROOMS_FEW).map((r) => roomRow(r, roomTitle(r))))
       return out
@@ -623,6 +625,8 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     if (tab === 'rooms') {
       push('people', t('search.roomsPeople'), roomsAndPeople(myRooms, people ?? [], meId, query, roomTitle, ROOMS_FEW).map((x) => ('room' in x ? roomRow(x.room, x.name) : personRow(x.person))))
       if (hitsNow) push('messages', t('search.messages'), [...hitsNow.items.slice(0, hitsShown).map(messageRow), ...(hitsShown < hitsNow.items.length || hitsNow.next ? [moreMessagesRow()] : [])])
+      // "Files you sent" is the conversations' too: found here by its words
+      push('actions', t('search.actions'), actions.filter((a) => a.key === 'act:sentFiles' && has(query, a.title, a.terms)))
       return out
     }
 
@@ -1017,7 +1021,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
  * the time, and one line of its text with the typed text marked. */
 /** Where a hit is, as its row says it: a team room and the everyone room as #name; a 1:1 chat as such, with the other
  * person unless they wrote it; a group chat by its name. */
-function useWhere(): (room: RoomSearchRoom | undefined, authorId: string | undefined) => string {
+export function useWhere(): (room: RoomSearchRoom | undefined, authorId: string | undefined) => string {
   const t = useT()
   const title = useRoomTitle()
   return (room, authorId) => {

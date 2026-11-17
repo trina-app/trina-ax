@@ -187,7 +187,7 @@ at the top collects the messages that name you and the threads you follow.
 
 To message one person, click their photo or name beside a message (an @mention of them, or their row in a conversation's member list, works too). A small card opens with their name and title: **Message** opens your direct message with them. On a phone the card opens from the bottom of the screen. Your own card has **Edit profile** instead. Apps, and people who are no longer in the team, have no card; a guest can message only the people in their group chat or project.
 
-To bring in someone from outside the team, choose **Invite a guest** when you add people to a group chat or a project. [Read about guests](guests.md).
+To bring in someone from outside the team, choose **Invite a guest** when you add people to a private channel, a group chat or a project. [Read about guests](guests.md).
 
 ![The Chats list: Mentions & threads, Channels with Everyone and Marketing, then Direct messages with a group chat and a direct message](../images/chats/rooms-list.webp "The Chats list")
 
@@ -197,6 +197,10 @@ The **✦** button at the top of a conversation opens a side chat with Trina nex
 answers with what you may open. When an answer is worth sharing, **Send** under it puts it in the conversation as your
 message (or in the thread when you asked about one message). If some people in the conversation cannot open a file the answer
 used, the app tells you first and waits for your yes.
+
+With a thread open, **✦** opens the side chat beside the thread, and both stay on screen (in a small window the
+conversation makes way for the two). The side chat's box then says **Looking at this thread**: your question is about that
+thread, and the answer can go straight into it. Press **✕** on that line to ask about the whole conversation instead.
 
 ![The Marketing channel: a message that names Jordan, a thread with 2 replies, and Trina's answer sent from the side chat](../images/chats/room.webp "A channel")
 
@@ -223,8 +227,8 @@ and click **✕** (or choose **Remove preview** in the message's menu).
 
 ### Guests
 
-Someone from outside the team, such as an agency or a client, can join a group chat or a project as a guest, and be
-in one group chat and one project at most. In a group chat open its members (the name at the top), **Add people**, then **Invite a guest**; in
+Someone from outside the team, such as an agency or a client, can join a private channel, a group chat or a project as a guest, and be
+in one private channel or group chat, and one project, at most. In a private channel or group chat open its members (the name at the top), **Add people**, then **Invite a guest**; in
 a project, **Share** at the top of its page. Say who the link is for and whether they get AI, then **Create link**. The link
 works once: send it to them yourself.
 
@@ -295,6 +299,8 @@ Start a chat from the project's page, or move a chat in with **Move to project**
 ## Find anything
 
 Press ⌘K (Ctrl+K on Windows) or choose **Search** under **Ask Trina** to find chats, messages in your conversations, projects, files, skills, scheduled tasks and MCP connections. [Read about search and settings](settings-and-search.md).
+
+**Files you sent.** Type "Files you sent" in Search, or open it from a notice, to see the files you sent in your conversations, largest first, with the space they take. Deleting one deletes the message it was sent with, for everyone in the conversation.
 
 ## Deleted chats
 

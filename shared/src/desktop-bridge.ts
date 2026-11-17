@@ -200,6 +200,10 @@ export type WorkFileAdd = { state: 'added' | 'refused' | 'cancelled' | 'unavaila
 /** How setAccess ended. 'changed' for "all" only after the person confirmed the desktop app's own dialog. */
 export type DesktopAccessOutcome = 'changed' | 'unchanged' | 'cancelled' | 'not-allowed' | 'busy' | 'unavailable'
 
+/** A download of the team page ended in the desktop app: `name` as it was saved ("report (1).pdf"), `ok` false when
+ * it failed or was interrupted (nothing is left in the folder). */
+export interface DesktopDownloadDone { id: number; name: string; ok: boolean }
+
 export interface DesktopBridge {
   bridgeVersion: number
   /** desktop app (shell) version, e.g. "0.1.0" */
@@ -293,6 +297,14 @@ export interface DesktopBridge {
    * on the computer's clipboard as a picture; false when they are no PNG or too large. The app fetches nothing.
    * Optional: desktop apps before this addition do not have it (the page writes the async clipboard). */
   copyImage?(png: Uint8Array): Promise<boolean>
+  /** Downloads in the desktop app go straight into the computer's Downloads folder, with no save window, once the page
+   * listens here: the page shows the notice ("Saved to Downloads", or that it failed). `show(id)` opens the folder with
+   * that file selected; the page names the download by its number, never a path. Optional: desktop apps before this
+   * addition and the Mac App Store build do not have it (the save window opens, as before). */
+  downloads?: {
+    onDone(cb: (d: DesktopDownloadDone) => void): () => void
+    show(id: number): void
+  }
   /**
    * "Find work files on this computer" (docs/DECISIONS.md "Find work files on this computer"). The page never names a
    * path: scan() first shows the app's own dialog (no web page draws it) and looks through Documents, Desktop and

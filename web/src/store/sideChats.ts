@@ -18,6 +18,10 @@ export interface SideChatState {
   /** the asks taken in (SideSeed.key, the latest last): a panel drawn again with one of them (the room page keeps its
    * last ask) does not quote it again */
   seedKeys: string[]
+  /** the thread whose "Looking at this thread" chip the person took off the box (its first message's id): questions
+   * go without that thread until another thread opens beside the side chat, this one is opened again, or the side chat
+   * is closed */
+  chipOff: string | null
   /** it is open: a panel shows it, or a thread took its place in the column (the room page's or the file viewer's), so
    * the next panel shows the same chat. False (not opened on this page yet, or closed since: ✕, ‹ or ✦ on the room
    * page, the room left, the thread in its place closed, the file viewer that showed it closed): the next panel opens it
@@ -38,7 +42,7 @@ export interface SendHereState {
   attempt?: { to: string; id: string } | null
 }
 
-const EMPTY: SideChatState = { chatId: undefined, draft: '', quoted: null, seedKeys: [], open: false }
+const EMPTY: SideChatState = { chatId: undefined, draft: '', quoted: null, seedKeys: [], chipOff: null, open: false }
 /** how many asks a room remembers taking in */
 export const SEED_KEYS_MAX = 20
 
@@ -63,7 +67,8 @@ export const useSideChats = create<SideChatsState>((set) => ({
   sends: {},
   goneRoots: {},
   patch: (roomId, p) => set((s) => ({ byRoom: { ...s.byRoom, [roomId]: { ...(s.byRoom[roomId] ?? EMPTY), ...p } } })),
-  close: (roomId) => set((s) => (s.byRoom[roomId]?.open ? { byRoom: { ...s.byRoom, [roomId]: { ...s.byRoom[roomId], open: false } } } : {})),
+  // (the chip's ✕ lasts while its thread stays open beside this opening of the side chat)
+  close: (roomId) => set((s) => (s.byRoom[roomId]?.open ? { byRoom: { ...s.byRoom, [roomId]: { ...s.byRoom[roomId], open: false, chipOff: null } } } : {})),
   patchSend: (answerId, p) => set((s) => ({ sends: { ...s.sends, [answerId]: { ...s.sends[answerId], ...p } } })),
   rootGone: (rootId) => set((s) => ({ goneRoots: { ...s.goneRoots, [rootId]: true } })),
   drop: (roomId) => set((s) => {

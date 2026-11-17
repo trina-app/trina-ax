@@ -38,7 +38,7 @@ import { resetAdminReads } from './store/adminPeople'
 import { useRailMemory } from './lib/rail'
 import { setBeforePersonSwitch, useMe, useSession } from './store/session'
 import { isGuestMe } from './lib/guests'
-import { forgetRoomUploads } from './store/roomUploads'
+import { forgetKept, forgetRoomUploads, restoreRoomUploads } from './store/roomUploads'
 import { clearLocalData } from './lib/localData'
 import { forgetStepsSeen } from './lib/welcome'
 import Layout from './components/Layout'
@@ -74,6 +74,7 @@ const ProjectHome = lazy(() => import('./pages/Projects').then((m) => ({ default
 const ProjectFiles = lazy(() => import('./pages/Projects').then((m) => ({ default: m.ProjectFiles })))
 const AdminLayout = lazy(() => import('./pages/admin/AdminLayout'))
 const Trash = lazy(() => import('./pages/Trash'))
+const SentFiles = lazy(() => import('./pages/SentFiles'))
 const Skills = lazy(() => import('./pages/Skills'))
 const SkillSharePage = lazy(() => import('./pages/SkillSharePage'))
 const ScheduledList = lazy(() => import('./pages/Scheduled').then((m) => ({ default: m.ScheduledList })))
@@ -184,6 +185,20 @@ setBeforePersonSwitch(() => {
 const mediaKeyOf = (s: ReturnType<typeof useSession.getState>) => (s.status.kind === 'signed-in' ? s.status.me.session?.mediaKey ?? null : null)
 setMediaKey(mediaKeyOf(useSession.getState()))
 useSession.subscribe((s) => setMediaKey(mediaKeyOf(s)))
+
+// the files this tab's room boxes held before the page loaded again are there again (store/roomUploads.ts), for the
+// person they belong to and before their screens draw; not while a forced password change is in the way (the session's
+// stores are emptied until it is done: useSessionLifecycle below). Nobody signed in (the sign-in ended while the page
+// was away): what the tab remembers goes. A server that does not answer (it is restarting) says nothing about who
+// is here: it stays
+const restoreUploadsOf = (s: ReturnType<typeof useSession.getState>) => {
+  if (s.status.kind === 'signed-in') {
+    const user = s.status.me?.user
+    if (user?.id && !user.mustChangePassword) restoreRoomUploads(user.id)
+  } else if (s.status.kind === 'signed-out') forgetKept()
+}
+restoreUploadsOf(useSession.getState())
+useSession.subscribe(restoreUploadsOf)
 
 /** The page load after another person signed in over the signed-in one (tests replace it). */
 export const personSwitch = { reload: () => location.reload() }
@@ -389,6 +404,8 @@ function Gate() {
           {/* a team connection's page in Admin › Connectors (/admin/connectors/mcp/<id>) */}
           <Route path="admin/:section/:sub/:item" element={<NotForGuests><AdminLayout /></NotForGuests>} />
           <Route path="trash" element={<Trash />} />
+          {/* my own files in conversations ("Files you sent"), guests too: no menu item */}
+          <Route path="sent-files" element={<SentFiles />} />
           <Route path="skills" element={<NotForGuests><Skills /></NotForGuests>} />
           {/* a share proposal of the owner's or admin's own (내 스킬 가져오기): the Claude Code notice leads here */}
           <Route path="skills/share/:id" element={<NotForGuests><SkillSharePage /></NotForGuests>} />
