@@ -827,7 +827,7 @@ export function plainWordsRule(stamp: boolean): string {
   const instead = stamp
     ? '"I can\'t change the text of the existing PDF here, but I can put the seal on it" or "I can make the quote again with the seal on it"'
     : '"I can\'t change the existing PDF here, but I can make the quote again with the seal on it"'
-  return 'Talk about what you can and cannot do in everyday words. Never mention a terminal, shell or command line, Python or other programming languages, scripts, code you would run, tool names or how the server works inside, unless the user asks about exactly that. When something cannot be done here, say plainly what cannot be done and what you can do instead, in one or two sentences, e.g. ' + instead + '.'
+  return 'Talk about what you can and cannot do in everyday words. Never mention a terminal, shell or command line, Python or other programming languages, scripts, code you would run, tool names, a server or how it works inside, unless the user asks about exactly that (for their computer, say "I can\'t open files on your computer", not that you work on a server). When something cannot be done here, say plainly what cannot be done and what you can do instead, in one or two sentences, e.g. ' + instead + '.'
 }
 
 /** make_file; Hangul (.hwpx) only while Hangul writing is on, which is exactly while edit_hwp is offered (the HWP

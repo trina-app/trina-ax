@@ -153,6 +153,16 @@ const LABEL = {
   usage: t('사용량', 'Usage', 'Penggunaan', '使用量', 'Uso', '用量'),
   // Admin › System (web admin.system)
   system: t('시스템', 'System', 'Sistem', 'システム', 'Sistema', '系统'),
+  // Settings › Profile › Delete account (web settings.profile, accountDeletion.title)
+  profile: t('프로필', 'Profile', 'Profil', 'プロフィール', 'Perfil', '个人资料'),
+  deleteAccount: t('계정 삭제', 'Delete account', 'Hapus akun', 'アカウントの削除', 'Eliminar la cuenta', '删除账号'),
+  // Admin › Members & invites, a person's ⋯ › Transfer ownership (web admin.members, handover.menu)
+  members: t('멤버·초대', 'Members & invites', 'Anggota & undangan', 'メンバーと招待', 'Miembros e invitaciones', '成员与邀请'),
+  handover: t('팀장 넘기기', 'Transfer ownership', 'Serahkan kepemilikan', 'オーナーを引き継ぐ', 'Ceder la propiedad', '转让所有权'),
+  // a file's ⋯ › Version history on the Files screen (web files.history)
+  history: t('버전 기록', 'Version history', 'Riwayat versi', 'バージョン履歴', 'Historial de versiones', '版本历史'),
+  // Admin › System › Connected folders (web connected.title)
+  connectedFolders: t('연결 폴더', 'Connected folders', 'Folder tersambung', '接続済みフォルダー', 'Carpetas conectadas', '已连接的文件夹'),
   // a shared project chat's title menu (web chat.continuePrivately)
   continuePrivately: t('나만 보는 채팅에서 이어 하기', 'Continue in a chat only you see', 'Lanjutkan di obrolan yang hanya Anda lihat', '自分だけのチャットで続ける', 'Continuar en un chat que solo ve usted', '在只有你能看到的对话中继续'),
 } satisfies Record<string, L5>
@@ -179,6 +189,11 @@ export const SCREEN = {
   adminProviders: (L: Locale) => `Admin › AI providers ("${LABEL.admin[L]} › ${LABEL.providers[L]}")`,
   usage: (L: Locale) => `Settings › Usage ("${LABEL.settings[L]} › ${LABEL.usage[L]}")`,
   adminSystem: (L: Locale) => `Admin › System ("${LABEL.admin[L]} › ${LABEL.system[L]}")`,
+  deleteAccount: (L: Locale) => `Settings › Profile › Delete account ("${LABEL.settings[L]} › ${LABEL.profile[L]} › ${LABEL.deleteAccount[L]}")`,
+  /** the owner's handover: Admin › Members & invites, the person's ⋯ menu */
+  handover: (L: Locale) => `Admin › Members & invites › a person's ⋯ › Transfer ownership ("${LABEL.admin[L]} › ${LABEL.members[L]}", "${LABEL.handover[L]}")`,
+  fileHistory: (L: Locale) => `the file's ⋯ › Version history on the Files screen ("${LABEL.files[L]}", "${LABEL.history[L]}")`,
+  connectedFolders: (L: Locale) => `Admin › System › Connected folders ("${LABEL.admin[L]} › ${LABEL.system[L]} › ${LABEL.connectedFolders[L]}")`,
   rooms: (L: Locale) => `Conversations ("${LABEL.rooms[L]}")`,
   sideChat: (L: Locale) => `the room's side panel ("${LABEL.sideChat[L].replace('{name}', AI_NAME[L])}")`,
   ownChat: (_L: Locale) => 'a chat of their own (a new AI chat)',
