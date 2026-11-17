@@ -62,6 +62,8 @@ function Sheet({ roomId, fileIds }: { roomId: string; fileIds: string[] }) {
       const p = await api.call(API.roomSavePlan, { params: { id: roomId }, body: { fileIds, folder: path } })
       if (p.folder) setPlace({ path: p.folder.path, why: 'picked', outside: p.folder.outside })
     } catch (e) {
+      // the folder picked away from is not kept as the target: the person picks again
+      setPlace(null)
       const key = saveRefusalKey(e)
       setError(key ? t(key) : errorText(e, locale, t('error.network')))
     }

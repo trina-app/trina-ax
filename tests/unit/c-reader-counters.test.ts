@@ -110,6 +110,7 @@ const REVIEWED: Record<string, { n: Counts; why: string }> = {
   "server/src/policy/legacy-deepest.ts": { n: {"access": 1, "users/": 2}, why: "the old rule model (conversion only)" },
   "server/src/promo-video/save.ts": { n: {"users/": 1}, why: "the default users/<id>/videos/ (never shared); a chosen place goes through confirmSources -> confirmWidening" },
   "server/src/realtime/hub.ts": { n: {"access": 1}, why: "replayed file events: by path" },
+  "server/src/rooms/save-to-team.ts": { n: {"readerCheck": 1, "activePeople": 1, "access": 1, "import:activePeople": 1, "import:readerCheck": 1}, why: "outsideRoom counts with readerCheck (share readers included); access: the viewer's own read of a saved place" },
   "server/src/rooms/ai-grants.ts": { n: {"activePeople": 3, "folderAudience": 4, "shareReaders": 1, "readersOf": 1, "readersAt": 1, "access": 1, "import:readersAt": 1, "import:shareReaders": 1}, why: "readersOf = readersAt; folderAudience adds share readers" },
   "server/src/rooms/history.ts": { n: {"viewersOf": 1, "import:viewersOf": 1}, why: "viewersOf" },
   "server/src/routes/chats.ts": { n: {"users/": 6}, why: "a personal project's folder: path tests" },

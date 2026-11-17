@@ -22,11 +22,12 @@ export function folderOfPath(path: string, words: { path: (p: string, sep?: stri
 }
 
 /** The message key for a save the server refused for a reason the sheet can explain; null: the server's own words. */
-export function saveRefusalKey(e: unknown): 'rooms.save.skillsFolder' | 'rooms.save.badName' | 'rooms.save.tooLarge' | null {
+export function saveRefusalKey(e: unknown): 'rooms.save.skillsFolder' | 'rooms.save.badName' | 'rooms.save.tooLarge' | 'rooms.save.held' | null {
   if (!(e instanceof ApiError)) return null
   const reason = e.body.params?.reason
   if (reason === 'skills_folder') return 'rooms.save.skillsFolder'
   if (reason === 'instruction_file') return 'rooms.save.badName'
   if (reason === 'too_large' || e.status === 413) return 'rooms.save.tooLarge'
+  if (reason === 'quarantined') return 'rooms.save.held'
   return null
 }

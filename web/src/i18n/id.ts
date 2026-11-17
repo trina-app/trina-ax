@@ -5390,6 +5390,7 @@ export const id: Record<MessageKey, string> = {
   "rooms.save.skillsFolder": "File dari percakapan tidak dapat disimpan di folder skill. Pilih folder lain.",
   "rooms.save.badName": "File dengan nama ini tidak dapat disimpan dari percakapan.",
   "rooms.save.tooLarge": "File ini lebih dari 50 MB. Unduh dulu, lalu unggah di layar File.",
+  "rooms.save.held": "File ini ditahan oleh pemeriksaan keamanan tim, jadi tidak dapat disimpan ke folder tim.",
   // 팀장 넘기기 (docs/DECISIONS.md "W6"; components/handover/): the confirm, the lead flag on an invite, Home's card, the Inbox rows
   "handover.menu": "Serahkan kepemilikan",
   "handover.title": "Jadikan {name} owner?",

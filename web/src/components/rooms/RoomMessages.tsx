@@ -672,11 +672,11 @@ function FileChip({ roomId, f, siblings }: { roomId: string; f: RoomFile; siblin
       </button>
       {/* in the team folder where I can open it: a quiet link to it (its folder's name; the whole place in the tooltip) */}
       {team?.saved && <InTeamLink path={team.saved} onOpen={team.open} />}
-      {/* not there yet: a small save icon beside the download, only on hover and keyboard focus with a mouse (on a touch
-          screen it is in the long-press menu) */}
+      {/* not there yet: a small save icon beside the download, only on hover and keyboard focus with a mouse (no gap when
+          hidden; on a touch screen it is in the long-press menu) */}
       {team && !team.saved && (
         <Tooltip label={t('rooms.save.action')}>
-          <button type="button" onClick={team.save} aria-label={t('rooms.save.actionFor', { name: f.name })} className="inline-flex shrink-0 items-center justify-center px-1.5 text-faint opacity-0 group-hover/chip:opacity-100 group-focus-within/chip:opacity-100 hover:bg-hover hover:text-ink focus-visible:opacity-100 pointer-coarse:hidden" data-testid="room-file-save">
+          <button type="button" onClick={team.save} aria-label={t('rooms.save.actionFor', { name: f.name })} className="hidden shrink-0 items-center justify-center px-1.5 text-faint hover:bg-hover hover:text-ink pointer-fine:group-hover/chip:inline-flex pointer-fine:group-focus-within/chip:inline-flex" data-testid="room-file-save">
             <FolderInput size={13} aria-hidden />
           </button>
         </Tooltip>
@@ -700,7 +700,8 @@ function InTeamLink({ path, onOpen }: { path: string; onOpen: () => void }) {
     <Tooltip label={label}>
       <button type="button" onClick={onOpen} aria-label={label} className="touch-hit inline-flex max-w-[140px] shrink-0 items-center gap-1 px-1.5 text-faint hover:bg-hover hover:text-ink" data-testid="room-file-in-team">
         <FolderCheck size={13} className="shrink-0 text-accent-text" aria-hidden />
-        <span className="truncate">{where.short}</span>
+        {/* a phone keeps the file's name readable: the icon alone, the place in its name */}
+        <span className="truncate max-md:hidden">{where.short}</span>
       </button>
     </Tooltip>
   )

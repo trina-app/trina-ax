@@ -5346,6 +5346,7 @@ export const es: Record<MessageKey, string> = {
   "rooms.save.skillsFolder": "Los archivos de una conversación no se pueden guardar en una carpeta de habilidades. Elija otra carpeta.",
   "rooms.save.badName": "No se puede guardar desde una conversación un archivo con este nombre.",
   "rooms.save.tooLarge": "Este archivo supera los 50 MB. Descárguelo y luego súbalo en la pantalla Archivos.",
+  "rooms.save.held": "El control de seguridad del equipo retiene este archivo, así que no se puede guardar en la carpeta del equipo.",
   // 팀장 넘기기 (docs/DECISIONS.md "W6"; components/handover/): the confirm, the lead flag on an invite, Home's card, the Inbox rows
   "handover.menu": "Ceder la propiedad",
   "handover.title": "¿Hacer a {name} propietario?",

@@ -5321,6 +5321,7 @@ export const zh: Record<MessageKey, string> = {
   "rooms.save.skillsFolder": "对话中的文件不能保存到技能文件夹。请选择其他文件夹。",
   "rooms.save.badName": "无法从对话中保存这个名称的文件。",
   "rooms.save.tooLarge": "这个文件超过 50 MB。请先下载，再在文件页面上传。",
+  "rooms.save.held": "这个文件被团队的安全检查暂扣，无法保存到团队文件夹。",
   "handover.menu": "转让所有权",
   "handover.title": "将{name}设为所有者？",
   "handover.checkLead": "用途：{leadFor} · 你是否亲自确认过这是正确的人？成为所有者后，对方可以移除你。",

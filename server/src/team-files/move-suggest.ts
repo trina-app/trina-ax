@@ -287,7 +287,7 @@ function recentFolders(files: TeamFiles, user: Principal, rules: RuleSet, skip: 
 
 const started = new Map<string, number[]>()
 /** Count one request for `userId`, or 429 when they made too many in the last minute. */
-function admit(userId: string) {
+export function admitSuggest(userId: string) {
   const now = Date.now()
   const times = (started.get(userId) ?? []).filter((t) => t > now - RATE_WINDOW_MS)
   if (times.length >= SUGGEST_RATE_MAX) {
@@ -300,7 +300,7 @@ function admit(userId: string) {
 
 /** The Move picker's suggestions for `paths` (each readable by the person, else the policy's not-found). */
 export async function moveSuggestions(files: TeamFiles, userId: string, paths: readonly string[]): Promise<MoveSuggestions> {
-  admit(userId)
+  admitSuggest(userId)
   const user = files.principal(userId)
   const rules = files.rules()
   const items = [...new Set(paths)].map((p) => authorize(files.fx, rules, user, p, 'read', { mustExist: true }))
@@ -343,7 +343,6 @@ export const CONTEXT_WORDS = 8
  * and rank as the Move picker; nothing is read that the person could not see there.
  */
 export async function suggestForNames(files: TeamFiles, userId: string, items: readonly { name: string; context?: string }[]): Promise<MoveSuggestions> {
-  admit(userId)
   const user = files.principal(userId)
   const rules = files.rules()
   const lines = (() => { try { return fileListOf(files.ctx).lineFields(user, rules) } catch { return () => null } })()

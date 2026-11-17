@@ -34,9 +34,9 @@ import { readRegular } from '../files/store'
 import { readerCheck } from '../files/share-readers'
 import { TurnFiles, type ToolCtx } from '../files/service'
 import { placeProduced } from '../tools/make-file'
-import { suggestForNames } from '../team-files/move-suggest'
+import { admitSuggest, suggestForNames } from '../team-files/move-suggest'
 import { findRoomFile } from './reader'
-import { recordRoomFileSave } from './file-saves'
+import { recordRoomFileSave, statKey } from './file-saves'
 import { roomFilesOf } from './files'
 import { memberRow, messageRow, roomRow, type FileRow, type MessageRow, type RoomRow } from './store'
 
@@ -52,14 +52,14 @@ const SNIFF_MAX = 256 * 1024
 // family register), in the six languages of the app; non-Latin words are written as escapes (patterns, not screen text).
 const SENSITIVE_WORDS = new RegExp([
   // Korean: ID card, resident registration, resident number, bank book, passport, driver's licence, alien registration,
-  // family relations, personal information
+  // family relations (not "personal information": a privacy policy or a privacy team's room would lose every suggestion)
   '\\uC2E0\\uBD84\\uC99D', '\\uC8FC\\uBBFC\\uB4F1\\uB85D', '\\uC8FC\\uBBFC\\uBC88\\uD638', '\\uD1B5\\uC7A5', '\\uC5EC\\uAD8C',
-  '\\uC6B4\\uC804\\uBA74\\uD5C8', '\\uC678\\uAD6D\\uC778\\uB4F1\\uB85D', '\\uAC00\\uC871\\uAD00\\uACC4', '\\uAC1C\\uC778\\uC815\\uBCF4',
+  '\\uC6B4\\uC804\\uBA74\\uD5C8', '\\uC678\\uAD6D\\uC778\\uB4F1\\uB85D', '\\uAC00\\uC871\\uAD00\\uACC4',
   // Japanese and Chinese: ID card (both), bank book (both), passport (both), driver's licence, My Number, residence card,
-  // bank card, personal information (both)
+  // bank card
   '\\u8EAB\\u5206\\u8A3C', '\\u8EAB\\u4EFD\\u8BC1', '\\u901A\\u5E33', '\\u5B58\\u6298', '\\u62A4\\u7167', '\\u30D1\\u30B9\\u30DD\\u30FC\\u30C8',
   '\\u514D\\u8A31\\u8A3C', '\\u9A7E\\u9A76\\u8BC1', '\\u30DE\\u30A4\\u30CA\\u30F3\\u30D0\\u30FC', '\\u5728\\u7559\\u30AB\\u30FC\\u30C9',
-  '\\u94F6\\u884C\\u5361', '\\u4E2A\\u4EBA\\u4FE1\\u606F', '\\u500B\\u4EBA\\u60C5\\u5831',
+  '\\u94F6\\u884C\\u5361',
   // English, Indonesian, Spanish: whole words (an underscore, a dash or a digit next to one still splits it: "KTP_budi")
   ...['id[\\s_-]?card', 'identity[\\s_-]?card', 'passport', 'bank[\\s_-]?book', 'bankbook', 'bank[\\s_-]?statement',
     "driver'?s?[\\s_-]?licen[cs]e", 'resident[\\s_-]?registration', 'social[\\s_-]?security', 'ssn', 'ktp', 'npwp',
@@ -117,7 +117,7 @@ function writableFolder(files: TeamFiles, user: Principal, rules: RuleSet, raw: 
   if (segs.some((s, i) => badSegment(s) !== null || hiddenEntry(s, i))) fail('not_found')
   const a = authorize(files.fx, rules, user, p, 'list')
   if (!a.st?.isDirectory()) throw new ToolError(`'${a.rel}' is a file`, 'not_folder')
-  if (inSkills(a.rel)) throw new HttpError('validation', 'Files from a conversation are not saved in a skills folder.', { params: { reason: 'skills_folder' } })
+  if (inSkills(a.rel) || /^users\/[^/]+\/skills(\/|$)/i.test(a.rel)) throw new HttpError('validation', 'Files from a conversation are not saved in a skills folder.', { params: { reason: 'skills_folder' } })
   authorize(files.fx, rules, user, a.rel, 'write')
   return a.rel
 }
@@ -131,23 +131,28 @@ function outsideRoom(ctx: AppContext, rules: RuleSet, roomId: string, folder: st
 }
 
 // ---------------- same bytes ----------------
-const shaCache = new Map<string, string>()
-/** The sha256 of the team file at `abs` when it has `size` bytes (else null: it cannot be the same file). */
-async function shaIfSize(abs: string, size: number): Promise<string | null> {
+const hashing = new Map<string, Promise<string>>()
+/** The team file's identity and, when it has `size` bytes, its sha256 (hashed once even when asked at the same time);
+ * `seen`: the identity its bytes were last found to be the room file's (no hash then). null: not a file of that size. */
+async function bytesOf(abs: string, size: number, sha: string, seen: string | null): Promise<{ sha: string; key: string } | null> {
   let st: fs.Stats
   try { st = checkRegular(abs) } catch { return null }
   if (st.size !== size) return null
-  const k = `${abs}\0${st.ino}\0${st.size}\0${st.mtimeMs}`
-  const hit = shaCache.get(k)
-  if (hit) return hit
-  const h = await hashFile(abs)
-  shaCache.set(k, h)
-  if (shaCache.size > 1000) shaCache.delete(shaCache.keys().next().value!)
-  return h
+  const key = statKey(st)
+  if (seen === key) return { sha, key }
+  const k = `${abs}\0${key}`
+  let p = hashing.get(k)
+  if (!p) {
+    p = hashFile(abs).finally(() => hashing.delete(k))
+    hashing.set(k, p)
+  }
+  return { sha: await p, key }
 }
 
-/** The first tracked place of this file that is still there with its bytes and that `user` may open, or null. */
-async function placeOf(files: TeamFiles, user: Principal, rules: RuleSet, file: Pick<FileRow, 'id' | 'sha256' | 'size'>, rows: { path: string; sha256: string }[]): Promise<string | null> {
+type SaveRow = { path: string; sha256: string; seen: string | null }
+/** The first tracked place of this file that is still there with its bytes and that `user` may open, or null. A place
+ * hashed again is remembered by its identity on disk, so the next read does not hash it. */
+async function placeOf(ctx: AppContext, files: TeamFiles, user: Principal, rules: RuleSet, file: Pick<FileRow, 'id' | 'sha256' | 'size'>, rows: SaveRow[]): Promise<string | null> {
   for (const r of rows) {
     if (r.sha256 !== file.sha256) continue
     const segs = r.path.split('/')
@@ -155,10 +160,15 @@ async function placeOf(files: TeamFiles, user: Principal, rules: RuleSet, file: 
     let a
     try { a = authorize(files.fx, rules, user, r.path, 'read', { mustExist: true }) } catch { continue }
     if (!a.st?.isFile()) continue
-    if ((await shaIfSize(a.abs, file.size)) === file.sha256) return a.rel
+    const b = await bytesOf(a.abs, file.size, file.sha256, r.seen)
+    if (b?.sha !== file.sha256) continue
+    if (b.key !== r.seen) ctx.db.query('UPDATE room_file_saves SET seen = ? WHERE file_id = ? AND path = ?').run(b.key, file.id, r.path)
+    return a.rel
   }
   return null
 }
+
+const savedRows = (ctx: AppContext, fileId: string) => ctx.db.query('SELECT path, sha256, seen FROM room_file_saves WHERE file_id = ? ORDER BY saved_at DESC').all(fileId) as SaveRow[]
 
 // ---------------- the three calls ----------------
 /** GET /api/rooms/:id/saved-files: this room's files that are in the team folder where this viewer can open them. */
@@ -168,8 +178,8 @@ export async function savedFiles(ctx: AppContext, userId: string, roomId: string
   // a member of the room now, the room not archived (else 404 like a room that is not there)
   const room = roomRow(ctx.db, roomId)
   if (!room || room.archived_at || !memberRow(ctx.db, roomId, userId)) fail('not_found')
-  const rows = ctx.db.query(`SELECT s.file_id, s.path, s.sha256, f.sha256 AS file_sha, f.size FROM room_file_saves s JOIN room_files f ON f.id = s.file_id
-    WHERE f.room_id = ? AND f.message_id IS NOT NULL ORDER BY s.saved_at DESC LIMIT ?`).all(roomId, SAVED_ROWS_MAX) as { file_id: string; path: string; sha256: string; file_sha: string; size: number }[]
+  const rows = ctx.db.query(`SELECT s.file_id, s.path, s.sha256, s.seen, f.sha256 AS file_sha, f.size FROM room_file_saves s JOIN room_files f ON f.id = s.file_id
+    WHERE f.room_id = ? AND f.message_id IS NOT NULL ORDER BY s.saved_at DESC LIMIT ?`).all(roomId, SAVED_ROWS_MAX) as (SaveRow & { file_id: string; file_sha: string; size: number })[]
   if (!rows.length) return { items: [] }
   const files = componentC(ctx).files
   const user = files.principal(userId)
@@ -180,7 +190,7 @@ export async function savedFiles(ctx: AppContext, userId: string, roomId: string
   for (const [fileId, list] of byFile) {
     // the file's message still there and visible to this viewer (the room's own read check)
     try { rooms.open(userId, roomId, fileId, false) } catch { continue }
-    const at = await placeOf(files, user, rules, { id: fileId, sha256: list[0]!.file_sha, size: list[0]!.size }, list)
+    const at = await placeOf(ctx, files, user, rules, { id: fileId, sha256: list[0]!.file_sha, size: list[0]!.size }, list)
     if (at) items.push({ fileId, path: at })
   }
   return { items }
@@ -189,6 +199,8 @@ export async function savedFiles(ctx: AppContext, userId: string, roomId: string
 /** POST /api/rooms/:id/save-plan: the sheet's files, the folder it pre-selects and, for `folder`, its audience. */
 export async function savePlan(ctx: AppContext, userId: string, roomId: string, fileIds: readonly string[], folder?: string): Promise<RoomSavePlan> {
   noGuests(ctx, userId)
+  // every plan counts (it reads files and may hash), with or without a suggestion: the Move picker's limit
+  admitSuggest(userId)
   const found = [...new Set(fileIds)].slice(0, SAVE_FILES_MAX).map((id) => lookup(ctx, userId, roomId, id))
   const files = componentC(ctx).files
   const user = files.principal(userId)
@@ -196,8 +208,7 @@ export async function savePlan(ctx: AppContext, userId: string, roomId: string, 
   const rooms = roomFilesOf(ctx)
   const out: RoomSavePlan = { files: [], suggestion: null, sensitive: false }
   for (const f of found) {
-    const rows = ctx.db.query('SELECT path, sha256 FROM room_file_saves WHERE file_id = ? ORDER BY saved_at DESC').all(f.file.id) as { path: string; sha256: string }[]
-    const savedPath = await placeOf(files, user, rules, f.file, rows)
+    const savedPath = await placeOf(ctx, files, user, rules, f.file, savedRows(ctx, f.file.id))
     out.files.push({ id: f.file.id, name: f.file.name, size: f.file.size, ...(savedPath ? { savedPath } : {}) })
     const sniff = () => {
       if (f.file.size > SNIFF_MAX) return null
@@ -236,16 +247,23 @@ export async function saveToTeam(ctx: AppContext, userId: string, roomId: string
     if (badSegment(f.file.name) !== null || instructionLike(target)) throw new HttpError('validation', 'A file with this name is not saved from a conversation.', { params: { reason: 'instruction_file' } })
   }
   const saved: RoomSaveResult['saved'] = []
-  const turn = new TurnFiles()
   for (const f of found) {
     const target = `${at}/${f.file.name}`
     const rules = files.rules()
     const user = files.principal(userId)
-    // the same bytes there already: that is where it is (no second copy)
+    // the same bytes there already (at its own name, or a copy made beside another file earlier, in this folder): that
+    // is where it is, no second copy
+    const here = savedRows(ctx, f.file.id).filter((r) => r.path.slice(0, r.path.lastIndexOf('/')) === at)
+    const before = await placeOf(ctx, files, user, rules, f.file, here)
+    if (before) {
+      saved.push({ fileId: f.file.id, path: before, existed: true })
+      continue
+    }
     try {
       const a = authorize(files.fx, rules, user, target, 'read', { mustExist: true })
-      if (a.st?.isFile() && (await shaIfSize(a.abs, f.file.size)) === f.file.sha256) {
-        recordRoomFileSave(ctx, f.file.id, a.rel, f.file.sha256, f.file.size)
+      const b = a.st?.isFile() ? await bytesOf(a.abs, f.file.size, f.file.sha256, null) : null
+      if (b?.sha === f.file.sha256) {
+        recordRoomFileSave(ctx, f.file.id, a.rel, f.file.sha256, f.file.size, b.key)
         saved.push({ fileId: f.file.id, path: a.rel, existed: true })
         continue
       }
@@ -261,9 +279,13 @@ export async function saveToTeam(ctx: AppContext, userId: string, roomId: string
       ctx.files.quarantine.assertBytes(bytes)
       fs.writeFileSync(tmp, bytes, { mode: 0o600 })
       // the person confirmed the place on the sheet, which showed who can see it: no further card
-      const c: ToolCtx = { user, turnId: null, files: turn }
+      // a fresh record of reads for each file: one that says a file of this name was "read" would let the next file of
+      // the same name (two in one message) replace it instead of going beside it
+      const c: ToolCtx = { user, turnId: null, files: new TurnFiles() }
       const made = await placeProduced(ctx, files, c, target.split('/'), tmp, 'save_room_file', undefined, { turnBytes: false, detail: { type: f.file.mime, by: 'person' } })
-      recordRoomFileSave(ctx, f.file.id, made.path, made.sha256, made.size)
+      let seen: string | null = null
+      try { seen = statKey(fs.statSync(path.join(files.root, ...made.path.split('/')))) } catch { /* hashed on the next read */ }
+      recordRoomFileSave(ctx, f.file.id, made.path, made.sha256, made.size, seen)
       saved.push({ fileId: f.file.id, path: made.path, existed: false, ...(made.conflictCopyOf ? { nextTo: made.conflictCopyOf } : {}) })
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }

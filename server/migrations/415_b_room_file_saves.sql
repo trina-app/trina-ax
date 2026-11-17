@@ -4,6 +4,8 @@
 --     (rooms/save-to-team.ts) or the AI's save_room_file. `sha256` is the copy's bytes as saved (the room file's own);
 --     `size` the same bytes' length. A row only says where to look: every read checks again that the file is still
 --     there with those bytes and that the viewer may open it, so a moved, changed or deleted copy simply stops counting.
+--   `seen`: the copy's identity on disk when its bytes were last found to be these (inode, size, mtime): a later read
+--     that finds the same identity trusts it without hashing again (a room's list is read on every room open).
 --   No user column: who saved it is in file_events, and the row is about the file, not the person.
 -- Additive only (reader 1): an older build ignores the table. Numbered 415: 414 is taken by an open PR.
 CREATE TABLE room_file_saves (
@@ -11,6 +13,7 @@ CREATE TABLE room_file_saves (
   path TEXT NOT NULL,
   sha256 TEXT NOT NULL,
   size INTEGER NOT NULL,
+  seen TEXT,
   saved_at TEXT NOT NULL,
   PRIMARY KEY (file_id, path)
 );

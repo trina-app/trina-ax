@@ -5390,6 +5390,7 @@ export const ko = {
   "rooms.save.skillsFolder": "대화의 파일은 스킬 폴더에 저장할 수 없어요. 다른 폴더를 골라 주세요.",
   "rooms.save.badName": "이 이름의 파일은 대화에서 저장할 수 없어요.",
   "rooms.save.tooLarge": "50MB보다 큰 파일이에요. 내려받은 뒤 파일 화면에서 올려 주세요.",
+  "rooms.save.held": "팀의 안전 검사에서 보류된 파일이라 팀 폴더에 저장할 수 없어요.",
   // 팀장 넘기기 (docs/DECISIONS.md "W6"; components/handover/): the confirm, the lead flag on an invite, Home's card, the Inbox rows
   "handover.menu": "팀장 넘기기",
   "handover.title": "{name}님을 팀장으로 정할까요?",

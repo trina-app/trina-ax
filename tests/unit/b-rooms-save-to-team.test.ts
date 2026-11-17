@@ -100,6 +100,22 @@ describe('the copy', () => {
     expect(fs.readFileSync(team(r.saved[0]!.path), 'utf8')).toBe('version B')
   })
 
+  test('two files with one name in one message: both kept, the second beside the first (never over it)', async () => {
+    const a = await upload('alice', rooms.all, 'dup-name.txt', 'AAAA first')
+    const b = await upload('alice', rooms.all, 'dup-name.txt', 'BBBB second')
+    await h.api('alice').call(API.sendRoomMessage, { params: { id: rooms.all }, body: { body: '', clientMessageId: cm(), mentions: [], fileIds: [a, b] } })
+    const r = await saveOk('alice', rooms.all, [a, b], 'shared')
+    expect(r.saved[0]!.path).toBe('shared/dup-name.txt')
+    expect(r.saved[1]!.path).not.toBe('shared/dup-name.txt')
+    expect(r.saved[1]!.nextTo).toBe('shared/dup-name.txt')
+    expect(fs.readFileSync(team('shared/dup-name.txt'), 'utf8')).toBe('AAAA first')
+    expect(fs.readFileSync(team(r.saved[1]!.path), 'utf8')).toBe('BBBB second')
+    // the second saved again: found beside the first, no third copy
+    const again = await saveOk('alice', rooms.all, [b], 'shared')
+    expect(again.saved[0]).toMatchObject({ path: r.saved[1]!.path, existed: true })
+    expect(fs.readdirSync(team('shared')).filter((n) => n.includes('dup-name'))).toHaveLength(2)
+  })
+
   test('several files of one message in one save', async () => {
     const a = await upload('alice', rooms.marketing, 'brief-a.md', 'A')
     const b = await upload('alice', rooms.marketing, 'brief-b.md', 'B')
@@ -138,6 +154,10 @@ describe('who and where', () => {
       expect(sk.status).toBe(400)
       expect(((await sk.json()) as { error: { params?: { reason?: string } } }).error.params?.reason).toBe('skills_folder')
     }
+    // a personal skills folder is a skills folder too
+    fs.mkdirSync(team('users/alice/skills'), { recursive: true })
+    const own = await save('alice', rooms.all, [fileId], 'users/alice/skills')
+    expect(((await own.json()) as { error: { params?: { reason?: string } } }).error.params?.reason).toBe('skills_folder')
     for (const bad of ['.system/rooms', 'shared/../groups/finance', '../outside', 'shared/etc-link', 'groups/marketing/finance-dir', 'shared/glossary.md'])
       expect([400, 403, 404, 409, 422]).toContain((await save('alice', rooms.all, [fileId], bad)).status)
     expect(fs.existsSync(team('groups/finance/where-to.txt'))).toBe(false)

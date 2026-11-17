@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-17 10:12
 - Branch: `feat/room-file-save-btn`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`server/src/rooms/save-to-team.ts`, `server/src/routes/rooms.ts`,
   `server/src/team-files/move-suggest.ts`, `shared/src/api/rooms.ts`, `web/src/components/rooms/RoomMessages.tsx`,
   `web/src/components/FileMenu.tsx`, a new `web/src/components/rooms/SaveToTeamSheet.tsx`). Why: chat, permissions and
@@ -68,4 +68,10 @@ move-suggest tests, security matrix rooms cases, guest endpoints); web unit test
 
 ## Result
 
-(filled in at the end)
+Built as planned, migration 415 (414 went to another PR). The AI's save_room_file records its saves too (one line in
+`chat/room-tools.ts`, the coordination with the room-file search work). Changed after the independent review: one
+record of reads per file (two same-named files in one message overwrote each other), a copy made beside another file
+earlier counts as saved, the saved list hashes a copy only when it changed on disk (the `seen` column), every plan is rate
+limited, a personal skills folder is refused, a refused folder pick clears the target, the quarantine refusal is
+translated, the store is forgotten when another person signs in, the desktop icon leaves no gap, and the phone link is the
+icon alone.

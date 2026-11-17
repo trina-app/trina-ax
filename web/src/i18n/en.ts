@@ -5391,6 +5391,7 @@ export const en: Record<MessageKey, string> = {
   "rooms.save.skillsFolder": "Files from a conversation can't go in a skills folder. Pick another folder.",
   "rooms.save.badName": "A file with this name can't be saved from a conversation.",
   "rooms.save.tooLarge": "This file is larger than 50 MB. Download it, then upload it on the Files screen.",
+  "rooms.save.held": "This file is held by the team's safety check, so it can't be saved to the team folder.",
   // 팀장 넘기기 (docs/DECISIONS.md "W6"; components/handover/): the confirm, the lead flag on an invite, Home's card, the Inbox rows
   "handover.menu": "Transfer ownership",
   "handover.title": "Make {name} the owner?",

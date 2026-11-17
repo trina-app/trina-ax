@@ -5346,6 +5346,7 @@ export const ja: Record<MessageKey, string> = {
   "rooms.save.skillsFolder": "トークのファイルはスキルフォルダーに保存できません。別のフォルダーを選んでください。",
   "rooms.save.badName": "この名前のファイルはトークから保存できません。",
   "rooms.save.tooLarge": "50 MBを超えるファイルです。ダウンロードしてから、ファイル画面でアップロードしてください。",
+  "rooms.save.held": "チームの安全チェックで保留されているため、このファイルはチームフォルダーに保存できません。",
   // 팀장 넘기기 (docs/DECISIONS.md "W6"; components/handover/): the confirm, the lead flag on an invite, Home's card, the Inbox rows
   "handover.menu": "オーナーを引き継ぐ",
   "handover.title": "{name}さんをオーナーにしますか？",
