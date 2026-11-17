@@ -56,8 +56,10 @@ whisper.cpp run on a beep, noise and silence.
 ## Result
 
 Built as planned in `server/src/jobs/no-speech.ts`, used by `transcribe`, `transcribeOpenRouter` and `speechPiece`.
-whisper-cli now runs with `-ojf` (token probabilities); `parseOpenRouter` drops the lines whisper's own no-speech rule
-drops (this also applies to file reads through OpenRouter, the same rule whisper.cpp applies locally). Real runs
+whisper-cli runs with `-ojf` (token probabilities) for voice input and meeting pieces only; OpenRouter lines that
+whisper's own no-speech rule calls no speech are dropped only there too (file reads keep their transcripts). After an
+independent review the sound check became relative (quiet speech at -40 to -55 dBFS is speech) and finds a beep as a
+pure tone (autocorrelation), so a beep over room noise is not speech. Real runs
 (whisper.cpp 1.9, generated sound and macOS `say`): before, the small model wrote "you" on silence, "(beep)" on a beep,
 letter loops on noise, and the tiny model "Thank you for watching!" / "Thanks for watching." on white noise; after, all
 of them give no text, and "Yes", "Thank you.", "네." and a quiet sentence are kept. Not tested for real: OpenRouter
