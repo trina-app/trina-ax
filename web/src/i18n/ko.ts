@@ -3039,6 +3039,7 @@ export const ko = {
   'ask.skillDoes': '하는 일:',
   'ask.skillParts': '구성:',
   'ask.skillShowFile': '파일 보기',
+  'ask.skillFiles': '함께 저장되는 파일 {count}개 (눌러서 내용 보기):',
   'ask.detailSize': '{n}자',
   'ask.detailAll': "전체 보기",
   'ask.detailLess': "접기",

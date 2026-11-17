@@ -420,6 +420,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       if (isError && text && !guest) { const pn = notMemberFor(exec, text); if (pn) return pn }
       // a skill saved in a shared chat: one quiet line in the answer that the people here can see it
       const skillNote = exec.sharedSkillNote(name, args, isError)
+      // a new skill's SKILL.md saved with held files on its card: write them again unchanged (chat/skill-held.ts)
+      const heldNote = exec.heldSaveNote(name, args, isError)
       const placed = exec.placementNote(tools.has('move_files'))
       // a search of the team files by the main AI (a sub-agent has no rooms tool): the person's rooms that mention the
       // same words, counted (chat/room-hint.ts); only where the rooms tool is offered (never a shared, confidential,
@@ -430,7 +432,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // the main AI's own call only: a sub-agent reports to it (its Word copy would be a second one), and a guest has no
       // Files screen with a version history
       const fact = !main || guest ? null : fileNoteOnce(exec, fileNote({ name, isError, args, text, hangulOff: () => !hwpWritingOn(exec.rt.ctx), makeFile: tools.has('make_file') }), exec.spec.locale)
-      return [placed, skillNote, rooms, fact].filter(Boolean).join('\n') || undefined
+      return [placed, skillNote, heldNote, rooms, fact].filter(Boolean).join('\n') || undefined
     },
     // edit_files (mcp/protocol.ts): after a room read one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {

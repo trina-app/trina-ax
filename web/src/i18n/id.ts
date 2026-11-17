@@ -3040,6 +3040,7 @@ export const id: Record<MessageKey, string> = {
   'ask.skillDoes': 'Fungsinya:',
   'ask.skillParts': 'Bagian:',
   'ask.skillShowFile': 'Tampilkan berkas',
+  'ask.skillFiles': 'Juga disimpan bersamanya ({count} berkas, ketuk untuk melihat isinya):',
   'ask.detailSize': '{n} karakter',
   'ask.detailAll': "Lihat semua",
   'ask.detailLess': "Ciutkan",
