@@ -47,9 +47,12 @@ regular() { [ -f "$1" ] && [ ! -L "$1" ]; }
 # Node.js for the jobs: the one list's darwin-arm64 pin (scripts/system/packages.json; docs/DECISIONS.md "One list of
 # system packages"), read through packages.sh with macOS's own jq (/usr/bin/jq), never a pin of this script's own
 PK_LIST="$HERE/../../system/packages.json"
+# never a reader or folder from the environment (sudo -E): only this checkout's list, read with /usr/bin/jq
+PK_BUN=
+PK_OPT=/opt/trina
 [ -f "$PK_LIST" ] || die "no $PK_LIST: run from the repository checkout"
 . "$HERE/../../system/packages.sh"
-NODE_LINE=$(pk_flat | awk -F '\t' '$1 == "F" && $2 == "node" && $3 == "darwin-arm64" { print $4 " " $5 " " $6 }') || die "cannot read $PK_LIST"
+NODE_LINE=$(pk_flat | awk -F '\t' '$1 == "F" && $2 == "node" && $3 == "darwin-arm64" { print $4 " " $5 " " $6 }' | head -n 1) || die "cannot read $PK_LIST"
 read -r NODE_VERSION NODE_URL NODE_SHA256 <<<"$NODE_LINE"
 [ -n "${NODE_SHA256:-}" ] || die "no darwin-arm64 Node.js in $PK_LIST"
 
