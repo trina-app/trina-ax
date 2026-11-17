@@ -40,6 +40,7 @@ const KEEP: Record<string, readonly string[]> = {
   edit_pdf: ['file_path'],
   merge_pdfs: ['files'],
   split_pdf: ['file_path', 'parts', 'every'],
+  resize_images: ['paths', 'longest_side', 'width', 'max_mb', 'preset'],
   comment_docx: ['file_path'],
   artifact: ['edits'],
   rename_file: ['path'],
