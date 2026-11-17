@@ -1,4 +1,4 @@
-# CI: typecheck (incl. web + desktop; the phone app in its own job), native build, unit tests (in 5 shards at once:
+# CI: typecheck (incl. web + desktop; the phone app in its own job), native build, unit tests (in 7 shards at once:
 # scripts/ci/unit-shard.ts), fast fuzz, web tests + build, relay suite, and the Linux job with unprivileged accounts in Docker.
 # Real-engine tests (Claude Code / Codex logins, model calls) never run here: they need the owner's accounts and
 # run locally with `bun run test:stage1`.
@@ -133,9 +133,11 @@ jobs:
       - run: bun run features:check
       - run: bun run check:docs
 
-  # The unit tests took ~30 of the ~35 minutes of one job. They now run as 5 jobs at once
+  # The unit tests took ~30 of the ~35 minutes of one job. They now run as 7 jobs at once
   # (scripts/ci/unit-shard.ts spreads the files by their earlier times), beside the static checks and the
-  # fuzz / web / relay job. Each job sets up the same tools as before. The last job keeps the old job's name, the
+  # fuzz / web / relay job; none of them waits for another (all need only `scope`). 7 shards: ~6 minutes of tests each,
+  # about as long as "fast fuzz, web, relay", and a full run holds 9 long jobs, so two queued entries (18) plus a pull
+  # request's quick run fit the org's 20 (docs/decisions/20261117-faster-full-run.md). Each job sets up the same tools as before. The last job keeps the old job's name, the
   # check the default branch's ruleset requires: it passes only when every job above it passed.
   static:
     name: typecheck, docs, native
@@ -229,7 +231,7 @@ jobs:
           retention-days: 7
 
   unit:
-    name: unit tests (${{ matrix.shard }}/5)
+    name: unit tests (${{ matrix.shard }}/7)
     needs: scope
     # mode full only: skipped on a pull request to dev (the merge queue runs it) and on the queue's push to dev
     if: needs.scope.outputs.docs_only != 'true' && needs.scope.outputs.mode == 'full'
@@ -239,7 +241,8 @@ jobs:
       # every shard runs to the end: one failing shard does not hide another's failures
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5]
+        # the count is also in the job name and the test step below, and in tests/unit/ci-unit-shard.test.ts SHARDS
+        shard: [1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -293,8 +296,26 @@ jobs:
           fi
           bwrap --unshare-all --ro-bind / / true
       - run: bun install --frozen-lockfile
+      # the native programs kept between runs, keyed on native/ (its Go sources, go.sum and build.sh) and the Go version:
+      # the build is reproducible (-trimpath, -buildvcs=false), so the same key means the same bytes. ~45 s per job on
+      # a hit. The static job always builds them and runs go vet / go test.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        id: native-cache
+        with:
+          path: |
+            native/bin/darwin-amd64
+            native/bin/darwin-arm64
+            native/bin/linux-amd64
+            native/bin/linux-arm64
+          key: native-bin-${{ runner.os }}-go${{ env.GO_VERSION }}-${{ hashFiles('native/**') }}
       - name: Native build (darwin + linux, amd64 + arm64)
-        run: ARCHS="amd64 arm64" bash native/build.sh
+        env:
+          HIT: ${{ steps.native-cache.outputs.cache-hit }}
+        run: |
+          # a hit must hold every program (5 per darwin arch, 9 per linux arch); anything less builds them again
+          n=$(find native/bin/darwin-amd64 native/bin/darwin-arm64 native/bin/linux-amd64 native/bin/linux-arm64 -type f 2>/dev/null | wc -l)
+          if [ "$HIT" = true ] && [ "$n" -ge 28 ]; then echo "native programs from the cache ($n files)"; exit 0; fi
+          ARCHS="amd64 arm64" bash native/build.sh
       # the pinned rhwp CLI (prepare:hwp checks its sha256 and downloads it only when missing or different)
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -304,8 +325,8 @@ jobs:
         run: bun run prepare:hwp
       # tests/unit and tests/security (TC-3846: the security suite never ran in CI before); files a Linux runner cannot
       # run are listed with their reason in scripts/ci/unit-shard.ts CI_SKIPPED and printed here
-      - name: Unit + security tests, shard ${{ matrix.shard }} of 5
-        run: bun scripts/ci/unit-shard.ts ${{ matrix.shard }} 5
+      - name: Unit + security tests, shard ${{ matrix.shard }} of 7
+        run: bun scripts/ci/unit-shard.ts ${{ matrix.shard }} 7
 
   other:
     name: fast fuzz, web, relay
@@ -367,8 +388,26 @@ jobs:
           fi
           bwrap --unshare-all --ro-bind / / true
       - run: bun install --frozen-lockfile
+      # the native programs kept between runs, keyed on native/ (its Go sources, go.sum and build.sh) and the Go version:
+      # the build is reproducible (-trimpath, -buildvcs=false), so the same key means the same bytes. ~45 s per job on
+      # a hit. The static job always builds them and runs go vet / go test.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        id: native-cache
+        with:
+          path: |
+            native/bin/darwin-amd64
+            native/bin/darwin-arm64
+            native/bin/linux-amd64
+            native/bin/linux-arm64
+          key: native-bin-${{ runner.os }}-go${{ env.GO_VERSION }}-${{ hashFiles('native/**') }}
       - name: Native build (darwin + linux, amd64 + arm64)
-        run: ARCHS="amd64 arm64" bash native/build.sh
+        env:
+          HIT: ${{ steps.native-cache.outputs.cache-hit }}
+        run: |
+          # a hit must hold every program (5 per darwin arch, 9 per linux arch); anything less builds them again
+          n=$(find native/bin/darwin-amd64 native/bin/darwin-arm64 native/bin/linux-amd64 native/bin/linux-arm64 -type f 2>/dev/null | wc -l)
+          if [ "$HIT" = true ] && [ "$n" -ge 28 ]; then echo "native programs from the cache ($n files)"; exit 0; fi
+          ARCHS="amd64 arm64" bash native/build.sh
       # the pinned rhwp CLI (prepare:hwp checks its sha256 and downloads it only when missing or different)
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:

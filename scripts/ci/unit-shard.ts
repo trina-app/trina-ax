@@ -2,13 +2,15 @@
 // realtime resume and leaks, …), so they run as several jobs at once (.github/workflows/ci.yml "unit", the required
 // check). Every test file goes to exactly one shard; a security file that cannot run on a Linux runner is in
 // CI_SKIPPED below with its reason, and every shard prints that list (never left out silently). The files are spread by how long each
-// took in an earlier CI run (scripts/ci/unit-times.json, seconds per file; refresh it with
-// `bun scripts/ci/unit-shard.ts --times <a CI job log>`): the longest first, each to the shard with the least time
+// took in earlier CI runs (scripts/ci/unit-times.json, seconds per file; refresh it with
+// `bun scripts/ci/unit-shard.ts --times <CI job logs of the unit step...>`, the median per file): the longest first, each to the shard with the least time
 // so far (a file not in the list counts as the median). The split depends only on the file list and the times, so
 // every job of the same commit computes the same split.
 //   bun scripts/ci/unit-shard.ts <index> <total>     run shard <index> (1-based) of <total>
 //   bun scripts/ci/unit-shard.ts --plan <total>      print the split and each shard's expected seconds
-//   bun scripts/ci/unit-shard.ts --times <log>       write unit-times.json from a CI log of the unit test step
+//   bun scripts/ci/unit-shard.ts --times <log>...    write unit-times.json from CI logs of the unit test step (every
+//                                                    shard's log of a few runs: each file's median, so one slow runner
+//                                                    does not skew the split)
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -72,13 +74,27 @@ export function timesFromLog(log: string): Record<string, number> {
   return out
 }
 
+/** Each file's median seconds over several logs (a file in only some logs takes the median of those). */
+export function timesFromLogs(logs: readonly string[]): Record<string, number> {
+  const all: Record<string, number[]> = {}
+  for (const log of logs) for (const [f, t] of Object.entries(timesFromLog(log))) (all[f] ??= []).push(t)
+  const out: Record<string, number> = {}
+  for (const [f, v] of Object.entries(all)) {
+    v.sort((a, b) => a - b)
+    const m = v.length % 2 ? v[(v.length - 1) / 2]! : (v[v.length / 2 - 1]! + v[v.length / 2]!) / 2
+    out[f] = Math.round(m * 10) / 10
+  }
+  return out
+}
+
 if (import.meta.main) {
-  const [a, b] = process.argv.slice(2)
+  const [a, b, ...rest] = process.argv.slice(2)
   const times = fs.existsSync(TIMES) ? (JSON.parse(fs.readFileSync(TIMES, 'utf8')) as Record<string, number>) : {}
   if (a === '--times') {
-    const t = timesFromLog(fs.readFileSync(b!, 'utf8'))
+    const logs = [b!, ...rest]
+    const t = timesFromLogs(logs.map((f) => fs.readFileSync(f, 'utf8')))
     fs.writeFileSync(TIMES, JSON.stringify(Object.fromEntries(Object.entries(t).sort(([x], [y]) => x.localeCompare(y))), null, 1) + '\n')
-    console.log(`${Object.keys(t).length} files written to ${path.relative(ROOT, TIMES)}`)
+    console.log(`${Object.keys(t).length} files from ${logs.length} logs written to ${path.relative(ROOT, TIMES)}`)
   } else if (a === '--plan') {
     split(unitFiles(), times, Number(b)).forEach((s, i) => console.log(`shard ${i + 1}: ${s.files.length} files, ~${s.seconds}s`))
   } else {
