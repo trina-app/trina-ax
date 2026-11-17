@@ -70,6 +70,7 @@ import { isOwnPath, offersFolderShare, useOwnFolderShare } from '../lib/folder-s
 import FolderUploads, { startFolderUpload, useFolderUploadsSettled } from '../components/FolderUploads'
 import { TeamFilesEntry } from '../components/onboarding/TeamFilesStep'
 import { useFindWorkFilesEntry } from '../components/onboarding/FindWorkFiles'
+import { MeetingNotesEntry } from '../components/MeetingNotes'
 import { OpenAppLine } from '../components/onboarding/OpenAppLine'
 import SuggestSkillDialog from '../components/SuggestSkillDialog'
 import { SkillIssues } from '../components/SkillIssues'
@@ -1059,6 +1060,8 @@ function Files() {
               </>
             )}
             {!projectsTop && findWork.button}
+            {/* meeting notes (desktop app): only on My files */}
+            {!projectsTop && <MeetingNotesEntry here={path} />}
             {!projectsTop && (
             <Tooltip label={t('files.upload')}>
               <Button size="sm" variant="primary" className={clsx(tree && !canWrite && 'max-md:hidden')} onClick={() => fileInput.current?.click()} disabled={!canWrite} aria-label={t('files.upload')} data-testid="upload-button">

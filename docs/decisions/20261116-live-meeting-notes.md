@@ -49,6 +49,27 @@ Plan: [docs/AGENTS/plan/20261116-1903-live-meeting-notes.md](../AGENTS/plan/2026
 - **Sending pieces (slice 2):** at most two at once, in order; a refusal is sent again only for the reasons in
   `MEETING_RETRY_REASONS` (a network failure counts as `busy`); any other refusal stops the meeting once with the
   server's sentence; at most 40 pieces wait (the oldest is dropped beyond).
+- **The bridge (slice 3):** `DesktopBridge.meeting` (`MEETING_BRIDGE_VERSION` 1) only where the helper exists (a Mac,
+  macOS 14.4+, not the store build). `start()` makes the main process show its own dialog every time, Cancel the
+  default; nothing listens without that click. The meeting belongs to the main process (a reload keeps it); another team
+  is not opened while it runs. While listening, a menu bar item drawn by the app ("● 12:03", with Stop) shows it: a page
+  cannot hide it. "Can't hear the call": a call-only app (Zoom, Teams, Webex, FaceTime; not a browser or Slack) runs,
+  its tap is up, and the microphone hears speech for 20 s while the call's sound stays silent.
+- **Start only from the person (review of #1157):** `start()` shows the dialog only within 3 s of the person's own key
+  or click on the team page (Electron's input events, as Find work files), and not again within 3 s of a Cancel; a
+  team switch or sign-out while the dialog is open cancels it.
+- **Ends:** Stop (the card or the menu bar), 10 minutes with nobody speaking, 4 hours, the window closing, a sign-out
+  or another person signing in, a refusal of the server. Another team is not opened, nor the meeting's team removed,
+  while it runs (a reload of the same team is fine). The lines are kept in the app's data folder
+  (`meeting-unsaved.json`) until the page says its note is saved; the page offers to save them when it opens again.
+  Deferred: a File menu item (⌘⇧M).
+- **The page (slice 4):** one button on My files (the person's own folder) and one small card on every page while a
+  meeting runs: the red dot and time, Stop, the consent line with "Copy a message for the call's chat", and the words
+  as they come (the card folds to its first row). The note is Markdown in My files › Meetings (`MEETINGS_DIR`), named
+  "<date> <time> Meeting notes.md", written every 2 minutes and when the meeting ends, whatever ended it (the same
+  file, replaced); a failed save offers Try again.
+  Left out on purpose: a meetings list, a summary, speaker names, a language picker, a floating window, settings.
 - **Tests:** `tests/unit/c-meeting-piece.test.ts`, `tests/unit/e-desktop-meeting-chunker.test.ts`, `tests/unit/e-desktop-meeting-session.test.ts`,
-  `tests/unit/mac-permission-languages.test.ts`.
+  `tests/unit/mac-permission-languages.test.ts`, `tests/unit/e-desktop-meeting-control.test.ts`,
+  `web/test/unit/meetingNotes.test.ts`.
 - **Version impact:** minor (two new calls; the desktop side follows in the same plan).
