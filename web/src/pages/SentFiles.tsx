@@ -98,7 +98,10 @@ export default function SentFiles() {
                   to={gone ? undefined : roomFileHref(h)}
                   icon={<Icon />}
                   name={h.file.name}
-                  meta={[where(rooms.get(h.roomId), h.author?.id), listTime(h.createdAt, locale, t('sidebar.yesterday')), formatSize(h.file.size, locale)].filter(Boolean).join(' · ')}
+                  // where it was sent is shortened first; the time and the size (what the list is sorted by) stay whole
+                  meta={where(rooms.get(h.roomId), h.author?.id) || undefined}
+                  metaKeep={[listTime(h.createdAt, locale, t('sidebar.yesterday')), formatSize(h.file.size, locale)].filter(Boolean).join(' · ')}
+                  metaTestId="sent-file-meta"
                   disabled={gone}
                   actions={
                     <IconButton label={t('common.deleteNamed', { name: h.file.name })} disabled={gone} onClick={() => void remove(h)} data-testid="sent-file-delete">

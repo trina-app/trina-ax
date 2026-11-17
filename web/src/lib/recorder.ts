@@ -19,18 +19,28 @@ function pickMime() {
 /** The wave in the recording bar (components/VoiceBar.tsx): a bar is never shorter than a dot, never taller than this. */
 export const WAVE_DOT_PX = 3
 export const WAVE_MAX_PX = 32
-/** A level at or under this draws every bar as a dot: nothing was heard. */
+/** A level at or under this draws every bar as a dot: nothing was heard (about -45 dBFS on the scale of inputLevel). */
 export const HEARD_LEVEL = WAVE_DOT_PX / WAVE_MAX_PX
 /** Nothing heard for this long since the recording started: the bar says so. */
 export const SILENT_AFTER_MS = 3000
 
-/** The input level, 0 to 1, of the analyser's 8-bit samples (128 is no sound): four times their RMS, so that ordinary
- * speech fills most of the wave. */
+/** The level that draws the wave's tallest bars, and the one under which every bar is a dot (dBFS, RMS). Measured on a
+ * MacBook's built-in microphone through the app's own settings (echo cancellation, noise suppression, the browser's
+ * gain control): a quiet room about -52 (90% under -46), speech a little away from the Mac about -33, close speech
+ * -22 to -16. A level linear in the RMS (the former four times the RMS) drew -33 dBFS as a row of dots: the wave
+ * stood still while the words were transcribed. */
+export const LEVEL_FLOOR_DB = -48
+export const LEVEL_FULL_DB = -15
+
+/** The input level, 0 to 1, of the analyser's samples (-1 to 1, getFloatTimeDomainData): their RMS in dBFS, from
+ * LEVEL_FLOOR_DB (0) to LEVEL_FULL_DB (1). Float samples, because the 8-bit ones round quiet speech to no sound. */
 export function inputLevel(samples: ArrayLike<number>): number {
   if (!samples.length) return 0
   let sum = 0
-  for (let i = 0; i < samples.length; i++) sum += ((samples[i]! - 128) / 128) ** 2
-  return Math.min(1, Math.sqrt(sum / samples.length) * 4)
+  for (let i = 0; i < samples.length; i++) sum += samples[i]! ** 2
+  if (!sum) return 0
+  const db = 10 * Math.log10(sum / samples.length)
+  return Math.min(1, Math.max(0, (db - LEVEL_FLOOR_DB) / (LEVEL_FULL_DB - LEVEL_FLOOR_DB)))
 }
 
 /** The height of the wave's bar `i` at this level: the bars differ, and their pattern moves on each second. */
@@ -119,7 +129,7 @@ export function useRecorder() {
       source.connect(proc)
       proc.connect(ac.destination)
     }
-    const data = new Uint8Array(analyser.fftSize)
+    const data = new Float32Array(analyser.fftSize)
     const t0 = Date.now()
     let heard = false
     let said = false
@@ -135,7 +145,7 @@ export function useRecorder() {
         asked = Date.now()
         void ac.resume().catch(() => {})
       }
-      analyser.getByteTimeDomainData(data)
+      analyser.getFloatTimeDomainData(data)
       const lv = inputLevel(data)
       setLevel(lv)
       if (!heard) {
