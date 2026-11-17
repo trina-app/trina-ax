@@ -67,6 +67,11 @@ export function usePaneState(): DesktopPaneState {
  * (its window has the pane), so sign-in inside the desktop app must say so. */
 export const clientKind = (): 'web' | 'desktop' | 'mobile' => (isDesktop() ? 'desktop' : mobileApp() ? 'mobile' : 'web')
 
+/** This window signs in at a service that takes only an app on the computer (Canva, Intercom, Square; the server's
+ * `oauth_desktop_only`): a desktop app with the one-time return address that openSignInReturn opens. Outside the desktop
+ * app, and in one from before that address, the page says to open the desktop app instead (QA TC-4794). */
+export const signsInOnComputer = (bridge: DesktopBridge | null = desktop()): boolean => typeof bridge?.signInReturn?.open === 'function'
+
 /** The desktop app's one-time return address for a connector sign-in (DesktopBridge.signInReturn: a service that takes
  * only an app on the computer, such as Canva): its port, or null outside the desktop app, in an app from before it, or
  * when the app could not open one. */

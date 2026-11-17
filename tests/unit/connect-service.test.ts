@@ -410,7 +410,7 @@ describe('the card', () => {
     const now = new Date().toISOString(), later = new Date(Date.now() + 3600_000).toISOString()
     h.ctx.db.query("INSERT INTO sessions(id,user_id,token_hash,client,created_at,last_seen_at,expires_at) VALUES('cs-oauth','alice','cs-oauth-hash','web',?,?,?)").run(now, now, later)
     const ints = integrationsOf(h.ctx)
-    const f = await ints.authorize({ id: 'alice', role: 'member' }, 'cs-oauth', r.body.integrationId, 'https://team.example.test', 'en')
+    const f = await ints.authorize({ id: 'alice', role: 'member' }, 'cs-oauth', r.body.integrationId, 'https://team.example.test', 'en') as { authorizationUrl: string }
     expect(await ints.callback(svc.authorize(f.authorizationUrl), { userId: 'alice', sessionId: 'cs-oauth' })).toEqual({ ok: true })
     expect((await post('alice', t.turnId, { action: 'done', requestId: card.requestId })).body).toMatchObject({ state: 'connected', integrationId: r.body.integrationId })
     expect(JSON.parse((await doneOf(t.messageId)).content.match(/\{.*\}/)![0])).toMatchObject({ connected: true, name: 'Board', status: 'connected' })
@@ -616,7 +616,7 @@ describe('the card, finished in other ways', () => {
     const id = r.body.integrationId as string
     session('alice', 'cs-oauth-card')
     const ints = integrationsOf(h.ctx)
-    const f = await ints.authorize({ id: 'alice', role: 'member' }, 'cs-oauth-card', id, 'https://team.example.test', 'en')
+    const f = await ints.authorize({ id: 'alice', role: 'member' }, 'cs-oauth-card', id, 'https://team.example.test', 'en') as { authorizationUrl: string }
     const stored = () => h.ctx.db.query('SELECT status, secret_enc IS NOT NULL AS signed FROM integrations WHERE id = ?').get(id) as { status: string; signed: number } | null
     await held('/mcp-oauth', async (go) => {
       const signedIn = ints.callback(svc.authorize(f.authorizationUrl), { userId: 'alice', sessionId: 'cs-oauth-card' })
@@ -830,7 +830,7 @@ describe('signing in again to one\'s own connection', () => {
     expect(r.body).toMatchObject({ state: 'sign_in', integrationId: mine.id })
     session('alice', 'cs-again')
     const ints = integrationsOf(h.ctx)
-    const f = await ints.authorize({ id: 'alice', role: 'member' }, 'cs-again', mine.id, 'https://team.example.test', 'en')
+    const f = await ints.authorize({ id: 'alice', role: 'member' }, 'cs-again', mine.id, 'https://team.example.test', 'en') as { authorizationUrl: string }
     expect(await ints.callback(svc.authorize(f.authorizationUrl), { userId: 'alice', sessionId: 'cs-again' })).toEqual({ ok: true })
     expect((await post('alice', t.turnId, { action: 'done', requestId: card.requestId })).body).toMatchObject({ state: 'connected', integrationId: mine.id })
     expect(resultOf(await doneOf(t.messageId))).toMatchObject({ connected: true, name: 'Board again', status: 'connected' })

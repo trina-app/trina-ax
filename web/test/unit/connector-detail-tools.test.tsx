@@ -126,3 +126,70 @@ test('Check again under way shows on the page until it answers', async () => {
     await m.until(() => m.find('connection-status')?.getAttribute('data-state') !== 'checking', 'checking ends')
   } finally { await m.unmount(); globalThis.fetch = realFetch }
 })
+
+// QA TC-4794: a team Canva connection that only an app on the computer can sign in (oauth_desktop_only). Settings shows a
+// team connection read-only; in the desktop app (the bridge with its one-time return address) its admin gets the same
+// Sign in as Admin › Connected apps, and no "open the desktop app". The web keeps the server's words and no button; a
+// member never gets Sign in (a team connection is signed in by an admin only).
+const canva: Integration = {
+  ...failing, id: '01900000-0000-7000-8000-0000000000c2', name: 'Canva', slug: 'canva', url: 'https://mcp.canva.com/mcp', auth: 'oauth', hasSecret: false,
+  status: 'needs_auth', lastError: 'Canva only lets you sign in from an app on your computer. Open the Trina desktop app and connect it there.',
+  lastErrorReason: 'oauth_desktop_only', tools: [], toolsTotal: undefined,
+}
+
+function SettingsPage({ i }: { i: Integration }) {
+  const actions = useIntegrationActions({ add: () => {}, replace: () => {}, reload: () => {} })
+  return <MemoryRouter><ConnectionPage inSettings i={i} actions={actions} readOnly={i.scope === 'team'} onEdit={() => {}} about="" /></MemoryRouter>
+}
+
+async function onDesktop<T>(run: () => Promise<T>, bridge: Record<string, unknown> = { bridgeVersion: 1, signInReturn: { open: async () => null, close: () => {} } }): Promise<T> {
+  Object.assign(globalThis, { mycelDesktop: bridge })
+  try { return await run() } finally { delete (globalThis as Record<string, unknown>).mycelDesktop }
+}
+
+test('TC-4794: in the desktop app, Settings offers Sign in on a team Canva connection to its admin, like Admin does', async () => {
+  const notSignedIn = `${translate('en', 'connectors.err.notSignedIn')} ${translate('en', 'connectors.step.signInFirst')}`
+  await onDesktop(async () => {
+    for (const page of [<SettingsPage key="s" i={canva} />, <Page key="a" i={canva} />]) {
+      const m = await mount(page)
+      try {
+        expect(m.find('integration-signin-start')).not.toBeNull()
+        expect(m.get('integration-error').textContent).toBe(notSignedIn)
+        expect(m.html()).not.toContain(canva.lastError!)
+        // Settings still does not manage a team connection: edit and delete stay in Admin
+        if (page.key === 's') expect(m.find('connection-menu')).toBeNull()
+      } finally { await m.unmount() }
+    }
+    // a member: no Sign in (the server's words for them say to tell an admin)
+    const member = { ...canva, canManage: false, lastError: 'The team\'s key or sign-in for this service is not working. Tell your admin.' }
+    const m = await mount(<SettingsPage i={member} />)
+    try {
+      expect(m.find('integration-signin-start')).toBeNull()
+      expect(m.get('integration-error').textContent).toBe(`${translate('en', 'connectors.err.notSignedIn')} ${translate('en', 'connectors.step.askAdmin')}`)
+    } finally { await m.unmount() }
+  })
+  // a desktop app from before the return address cannot do it: Settings stays as on the web
+  await onDesktop(async () => {
+    const m = await mount(<SettingsPage i={canva} />)
+    try {
+      expect(m.find('integration-signin-start')).toBeNull()
+      expect(m.get('integration-error').textContent).toBe(canva.lastError!)
+    } finally { await m.unmount() }
+  }, { bridgeVersion: 1 })
+})
+
+test('TC-4794: on the web, Settings keeps "open the desktop app" for a team Canva connection, with no Sign in', async () => {
+  const m = await mount(<SettingsPage i={canva} />)
+  try {
+    expect(m.find('integration-signin-start')).toBeNull()
+    expect(m.get('integration-error').textContent).toBe(canva.lastError!)
+  } finally { await m.unmount() }
+  // another team connection in Settings is still managed in Admin, in the desktop app too
+  await onDesktop(async () => {
+    const n = await mount(<SettingsPage i={{ ...canva, name: 'Notion', url: 'https://mcp.notion.com/mcp', lastErrorReason: 'sign_in', lastError: 'Sign in.' }} />)
+    try {
+      expect(n.find('integration-signin-start')).toBeNull()
+      expect(n.get('integration-error').textContent).toBe(`${translate('en', 'connectors.err.notSignedIn')} ${translate('en', 'connectors.step.inAdmin')}`)
+    } finally { await n.unmount() }
+  })
+})
