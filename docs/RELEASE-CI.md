@@ -584,14 +584,34 @@ self-hosted 러너. 이 레포는 공개라 누구나 PR을 열 수 있다. 그�
 v\* tag may use it, each job gets a fresh one-time runner, and the runner account cannot reach the rest of the Mac.
 
 **지금 상태: 꺼져 있음 (준비만, 2026-11-17).** hosted 맥 러너가 돌아와 0.5.11은 hosted에서 빌드·서명·공증됐다. 이 맥에는 아무것도
-설치되지 않았다(계정, 볼륨, 데몬, GitHub 러너 등록 없음). 워크플로 변경은 레포 변수 `RELEASE_MAC_RUNNER`가 `trina-mac-release`일 때만
-이 러너를 고르므로, 쓰지 않는 동안 아무 비용도 없다. Status: off; nothing is installed. The workflows pick this runner only when
+설치되지 않았다(계정, 볼륨, 데몬, GitHub 러너 등록 없음). 레포 변수 `RELEASE_MAC_RUNNER`는 없다(2026-11-17 19:49Z에 지움; 기본
+macos-15). 워크플로 변경은 그 변수가 `trina-mac-release`일 때만 이 러너를 고르므로, 쓰지 않는 동안 아무 비용도 없다. Status: off; nothing is installed. The workflows pick this runner only when
 `RELEASE_MAC_RUNNER=trina-mac-release`.
 
-**켜기 (switch on, hosted 맥이 다시 없을 때)**: 아래 "설치" 1–3(토큰, 받기, `sudo bash ~/.tfx/mac-runner/root-steps.sh` =
-`setup.sh`)이 모두 PASS면 변수 하나로 켠다: `gh variable set RELEASE_MAC_RUNNER --repo trina-app/trina-ax --body trina-mac-release`. 끄기는
-같은 변수를 `macos-15`(또는 `macos-15-intel`)로. 설치가 남아 있어도 변수가 hosted를 가리키면 이 맥은 job을 받지 않는다(러너는
-기다리기만 한다; 완전히 치우려면 "지우기").
+**켜기는 대표만 (owner only).** 러너 등록(`root-steps.sh`/`setup.sh`)과 `RELEASE_MAC_RUNNER` 변경은 대표가 그때 명시적으로 OK한 뒤에만
+한다. 에이전트·릴리스 담당이 스스로 켜지 않는다. Switching on is owner-only: no registration and no variable change without the owner's
+explicit OK at that time.
+
+**켜기 전에 반드시 (mandatory before switching on)** — 하나라도 아니면 켜지 않는다:
+
+1. **러너 쪽 문(host-side gate)**: job-started hook(`/Library/TrinaCI/job-started.sh`)이 release.yml at v\* 태그(main에 있는 커밋)가 아닌
+   job을 step 전에 거절하고 그 job을 끝낸다. setup.sh가 설치하고, 일회성 데몬 검사가 "hook refusal kills Runner.Worker" PASS로 확인한다.
+2. **러너를 워크플로로 제한(runner group / selected workflows)**: 요금제가 허락하면 runner group을 "Selected workflows: release.yml at
+   refs/tags/v\*"로 제한하고 러너를 그 그룹에 둔다. 2026-11-17 현재 조직은 Free 요금제라(`gh api orgs/trina-app --jq .plan.name` = free) custom runner group이 없다.
+   그동안은 1·3·4와 라벨로 막고, 요금제가 바뀌면 이것을 먼저 한다.
+3. **fork PR 승인**: 레포 설정 "Require approval for all outside collaborators"(API `approval_policy: all_external_contributors`).
+   2026-11-17에 켰다. 켜기 전에 `gh api repos/trina-app/trina-ax/actions/permissions/fork-pr-contributor-approval`로 다시 확인한다.
+4. **레포 러너만**: 러너는 이 레포(trina-app/trina-ax)에만 등록한다. 조직(org) 러너로 절대 등록하지 않는다. supervisor는
+   `repos/trina-app/trina-ax/actions/runners/generate-jitconfig`만 부른다.
+
+각 job의 첫 step "Release Mac runner guard"는 **덧붙인 방어(defense in depth)일 뿐**이다. fork PR이 워크플로를 고쳐 이 라벨을 고르면
+그 step은 없으니, 막는 것은 위 1–4다.
+
+**켜기 (switch on, hosted 맥이 다시 없을 때, 대표 OK 뒤)**: 위 1–4를 확인하고, 아래 "설치" 1–3(토큰, 받기,
+`sudo bash ~/.tfx/mac-runner/root-steps.sh` = `setup.sh`)이 모두 PASS면 `gh variable set RELEASE_MAC_RUNNER --repo trina-app/trina-ax --body
+trina-mac-release`. **끄기**: 변수를 지우거나(기본 macos-15) hosted 라벨로 바꾸고, 러너도 멈춘다(`sudo launchctl bootout
+system/app.trina.ci.runner`, 기다리던 러너 등록은 "지우기" 2). 변수만 바꾸면 릴리스는 hosted로 가지만, 설치된 러너는 이 라벨을 고른
+job을 계속 기다린다(1이 막는다). 완전히 치우려면 "지우기".
 
 **누가 쓸 수 있나 (who may run on it)**
 
@@ -601,8 +621,8 @@ v\* tag may use it, each job gets a fresh one-time runner, and the runner accoun
   `RELEASE_MAC_RUNNER=trina-mac-release`로 고른다(Run workflow의 `mac_runner` 입력이 먼저). mac-app.yml·mac-whisper.yml은
   release.yml이 v\* 태그에서 부를 때만 이 변수를 본다(`github.workflow_ref`는 부른 쪽). PR(Desktop e2e, unsigned dmg 검사,
   whisper-cli PR 검사)과 그 워크플로들의 Run workflow는 hosted에 남는다.
-- 문 두 겹: (1) 러너의 job-started hook(`/Library/TrinaCI/job-started.sh`, 워크플로가 건너뛸 수 없다)과 (2) 각 job의 첫 step
-  "Release Mac runner guard"(self-hosted에서만). 둘 다 `github.repository == trina-app/trina-ax`, 이벤트 push 또는 workflow_dispatch,
+- 문 두 겹: (1) 러너의 job-started hook(`/Library/TrinaCI/job-started.sh`, 워크플로가 건너뛸 수 없다; 이것이 진짜 문)과 (2) 각 job의
+  첫 step "Release Mac runner guard"(self-hosted에서만; 덧붙인 방어, fork가 고친 워크플로에는 없다). 둘 다 `github.repository == trina-app/trina-ax`, 이벤트 push 또는 workflow_dispatch,
   ref `refs/tags/v*`, `github.workflow_ref`가 `trina-app/trina-ax/.github/workflows/release.yml@refs/tags/v*`일 때만 통과한다. hook은
   태그의 커밋이 main에 있는지도 본다(공개 API `compare/main...<sha>`가 identical/behind; prepare와 같은 규칙). 태그 ruleset을 건너뛸 수
   있는 사람(maintain·admin)이 아무 커밋에 태그를 달아 자기 release.yml을 가져오는 길을 막는다. hook이 거절하면 그 job의
@@ -692,7 +712,7 @@ sudo bash <레포>/scripts/macos/release-runner/remove.sh
 export GH_TOKEN=$(gh auth token -u trina-app-admin)
 for id in $(gh api repos/trina-app/trina-ax/actions/runners --jq '.runners[] | select(.name | startswith("trina-mac-")) | .id'); do
   gh api -X DELETE "repos/trina-app/trina-ax/actions/runners/$id"; done
-gh variable set RELEASE_MAC_RUNNER --repo trina-app/trina-ax --body macos-15-intel
+gh variable delete RELEASE_MAC_RUNNER --repo trina-app/trina-ax   # unset = hosted macos-15
 # 3) fine-grained 토큰을 GitHub에서 지운다(trina-app-admin → Settings → Developer settings → Fine-grained tokens)
 ```
 

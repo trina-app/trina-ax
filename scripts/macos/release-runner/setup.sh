@@ -52,6 +52,13 @@ OWNER_HOME=$(dscl . -read "/Users/$OWNER" NFSHomeDirectory | awk '{print $2}')
 STAGE="$OWNER_HOME/.tfx/mac-runner-stage"
 RUNNER_TGZ="$STAGE/actions-runner-osx-arm64-$RUNNER_VERSION.tar.gz"
 NODE_TGZ="$STAGE/node-$NODE_VERSION-darwin-arm64.tar.gz"
+# switching on is owner-only (docs/RELEASE-CI.md 13): confirm at the prompt, or TRINA_CI_OWNER_OK=yes without a terminal
+if [ "${TRINA_CI_OWNER_OK:-}" != yes ]; then
+  [ -t 0 ] || die "switching the release Mac runner on needs the owner's OK: run in a terminal, or set TRINA_CI_OWNER_OK=yes"
+  printf 'This registers a self-hosted runner for the public repo trina-app/trina-ax on this Mac.\n'
+  printf 'The owner has given an explicit OK, and docs/RELEASE-CI.md 13 "켜기 전에 반드시" 1-4 are checked? Type yes: '
+  IFS= read -r ok; [ "$ok" = yes ] || die "not confirmed"
+fi
 TOKEN_FILE=${1:--}
 TOKEN=""
 if [ "$TOKEN_FILE" != - ]; then
