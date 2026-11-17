@@ -52,6 +52,9 @@
   (Files › Shared with me, in the asker's language) and that they are the asker's alone: the AI does not search the
   asker's own folder for them and does not suggest attaching them to the shared chat. `shared_with_me`, if reached
   there anyway, says the same instead of "ask for the link" (links to shared files do not open in a shared chat).
+- **Left for later:** the read card lists boundary folders (`sharedSources`), while a root search also starts at
+  each `projects/<name>` of the staff project zone (`allowedRoots`); a project folder with no `folders` row (an older
+  build's) would be checked as the team root. The same gap was there for path `"projects"` before this change.
 - **Unchanged:** the read card, who it counts, what a no does; the asker-named rules for files, folders and
   recipients in a chat others wrote in; Always allow; the cards themselves.
 - **Tests:** `tests/unit/shared-chat-share-find.test.ts` (the name rules, the group limit, the instructions, the

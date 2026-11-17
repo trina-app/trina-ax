@@ -30,6 +30,9 @@ describe('FSH-01: a person named with "(님)이랑 / 와 / 하고" right before 
     expect(namesRecipient('\uBBFC\uD638\uB791 \uACF5\uC720\uD558\uBA74 \uC548 \uB418\uB2C8\uAE4C \uC9C0\uC218\uD55C\uD14C\uB9CC \uACF5\uC720\uD574\uC918', '\uBBFC\uD638', MINHO)).toBe(false)
     expect(namesRecipient('\uBBFC\uD638 \uB2D8\uC774\uB791 \uACF5\uC720\uD588\uB358 \uACAC\uC801\uC11C \uC9C0\uC218\uD55C\uD14C \uACF5\uC720\uD574\uC918', '\uBBFC\uD638', MINHO)).toBe(false)
     expect(namesRecipient('"Q4" \uD3F4\uB354, \uBBFC\uD638\uB791 \uACF5\uC720 \uC548 \uB41C \uAC70 \uC9C0\uC218\uD55C\uD14C \uACF5\uC720\uD574\uC918', '\uBBFC\uD638', MINHO)).toBe(false)
+    // the request word going on as thanks, a question, a permission or a report (second review)
+    for (const said of ['\uBBFC\uD638\uB791 \uACF5\uC720\uD574\uC918\uC11C \uACE0\uB9C8\uC6CC\uC694', '\uBBFC\uD638\uB791 \uACF5\uC720\uD574\uC918\uC57C \uD558\uB098\uC694?', '\uBBFC\uD638\uB791 \uACF5\uC720\uD574\uC918\uB3C4 \uB418\uB098?', '\uBBFC\uD638\uB791 \uACF5\uC720\uD574 \uB2EC\uB77C\uACE0 \uD588\uB358 \uD30C\uC77C \uC9C0\uC218\uD55C\uD14C \uBCF4\uB0B4\uC918']) expect([said, namesRecipient(said, '\uBBFC\uD638', MINHO)]).toEqual([said, false])
+    expect(namesRecipient('\uBBFC\uD638\uB791 \uACF5\uC720\uD574 \uC8FC\uC138\uC694.', '\uBBFC\uD638', MINHO)).toBe(true)
     // another person's name is not 민호
     expect(namesRecipient('\uC9C0\uC6B0 \uB2D8\uC774\uB791 \uACF5\uC720\uD574\uC918', '\uBBFC\uD638', MINHO)).toBe(false)
   })

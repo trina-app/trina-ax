@@ -120,8 +120,9 @@ const SEES_AFTER_HONORIFIC = '\\s?(?:\\uB2D8|\\uC528)(?:\\uC774|\\uAC00)?\\s?(?:
 const JOIN_KO = '(?:\\uC774\\uD558\\uACE0|\\uC774\\uB791|\\uD558\\uACE0|\\uB791|\\uC640|\\uACFC)'
 /** "(님)이랑/랑/와/과/하고 공유해줘" right after a name: share WITH that person ("민호 님이랑 공유해줘", AI scenario
  * FSH-01, 2026-11-17). Only with the request itself next to it (공유해 + 줘, 주세요, 주시겠어요, 주십시오, 달라): "민호 님과
- * 회의한 내용", "민호랑 공유했던 견적서", "민호랑 공유하면 안 되니까" name nobody to share with */
-const JOIN_SHARE_KO = `${HONORIFIC}${JOIN_KO}\\s?\\uACF5\\uC720\\s?\\uD574\\s?(?:\\uC918|\\uC8FC\\uC138\\uC694|\\uC8FC\\uC2DC\\uACA0|\\uC8FC\\uC2ED\\uC2DC\\uC624|\\uB2EC\\uB77C)`
+ * 회의한 내용", "민호랑 공유했던 견적서", "민호랑 공유하면 안 되니까", and a request word that goes on as something else
+ * ("공유해줘서 고마워요", "공유해줘야 하나요", "공유해줘도 되나", "공유해 달라고 했던") name nobody to share with */
+const JOIN_SHARE_KO = `${HONORIFIC}${JOIN_KO}\\s?\\uACF5\\uC720\\s?\\uD574\\s?(?:\\uC918|\\uC8FC\\uC138\\uC694|\\uC8FC\\uC2DC\\uACA0|\\uC8FC\\uC2ED\\uC2DC\\uC624|\\uB2EC\\uB77C)(?!\\s?(?:\\uC11C|\\uC57C|\\uB3C4|\\uACE0|\\uB77C|\\uC694\\s?\\?))`
 const AFTER_PLACE = '(?:\\uC5D0\\uB2E4\\uAC00|\\uBC29\\uC73C\\uB85C|\\uCC44\\uB110\\uC5D0|\\uC5D0\\uB2E4|\\uD55C\\uD14C|\\uBC29\\uC5D0|\\uC5D0\\uAC8C|\\uC5D0|\\uAED8)'
 function holdsAsRecipient(text: string, n: string, place: boolean, peers: readonly string[] = []): boolean {
   if (!holdsName(text, n)) return false
