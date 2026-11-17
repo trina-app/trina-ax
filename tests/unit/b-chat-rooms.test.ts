@@ -292,6 +292,16 @@ describe('limits and search', () => {
     expect(searchRooms(h.ctx.db, 'alice', TZ, { since: '2026-10-03', until: '2026-10-03', room: roomId }).count).toBe(1)
     expect(searchRooms(h.ctx.db, 'alice', TZ, { query: '100%_예산', room: roomId }).count).toBe(0)
     expect(searchRooms(h.ctx.db, 'alice', TZ, { query: '예산', room: roomId }).seen).toEqual([{ roomId, fromSeq: expect.any(Number) }])
+    // a search finds the words only: read the room before saying someone wrote nothing (AI flow FL-14, 2026-11-17)
+    expect(words.text).toContain('Only messages with this word are found: before you say someone did not write something, or that this room does not have it, read the room\'s newest messages with room_read.')
+    const miss = searchRooms(h.ctx.db, 'alice', TZ, { query: '라마바 카페', room: roomId })
+    expect(miss.count).toBe(0)
+    expect(miss.text).toContain('Only messages with these words are found')
+    // all rooms: only the room where it would have been said, never every room
+    const everywhere = searchRooms(h.ctx.db, 'alice', TZ, { query: 'no-such-words-anywhere' })
+    expect(everywhere.count).toBe(0)
+    expect(everywhere.text).toContain('read the newest messages of the room where they would have said it with room_read (not every room).')
+    expect(searchRooms(h.ctx.db, 'alice', TZ, { person: 'Erin Yoo님', room: roomId }).text).not.toContain('Only messages with')
   })
 })
 

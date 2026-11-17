@@ -429,7 +429,12 @@ export function searchRooms(db: Database, userId: string, tz: string, o: SearchO
   const limits = skipped || partly
     ? ` One search looks at ${ROOM_SEARCH_BUDGET} messages in all, the rooms with the latest activity first: ${skipped ? `${skipped} room${skipped === 1 ? ' was' : 's were'} not searched` : ''}${skipped && partly ? ' and ' : ''}${partly ? `${partly} only in part` : ''}; narrow the search with room (or read a room with room_read and until).`
     : ''
-  if (!top.length) return { text: `No messages the user can see ${what || 'match'}${o.room !== undefined ? ' in that room' : ' in their rooms'}.${limits}`, seen: [], ok: true, count: 0 }
+  // a search finds the words, not the meaning: asked to add a teammate's room comment, the AI searched the client's name,
+  // missed "제안서에 무료 배송 조건도 넣어주세요" (no client name in it) and said the teammate had written nothing (AI flow
+  // FL-14, 2026-11-17)
+  // one room: read its newest messages; all rooms: only the room where it would have been said, not every room
+  const wordsOnly = !words.length ? '' : ` Only messages with ${words.length === 1 ? 'this word' : 'these words'} are found: before you say someone did not write something${o.room !== undefined ? ', or that this room does not have it, read the room\'s newest messages with room_read.' : ', read the newest messages of the room where they would have said it with room_read (not every room).'}`
+  if (!top.length) return { text: `No messages the user can see ${what || 'match'}${o.room !== undefined ? ' in that room' : ' in their rooms'}.${limits}${wordsOnly}`, seen: [], ok: true, count: 0 }
   // each room's messages as its member sees them (files, threads), then in time order again
   const seen = new Map<string, number>()
   const shown = new Map<string, string>()
@@ -450,7 +455,7 @@ export function searchRooms(db: Database, userId: string, tz: string, o: SearchO
   }
   return {
     text: [
-      `Messages the user can see in their team chat rooms ${what}, the newest first (${top.length}${hits.length > top.length ? ` of more: narrow the search or raise limit` : ''}${o.room === undefined && rooms.length >= ROOM_SEARCH_ROOMS ? `; the ${ROOM_SEARCH_ROOMS} rooms with the latest activity were searched` : ''}). Each search looks at the newest ${ROOM_SEARCH_SCAN} messages of a room.${limits} Long messages are shown in part: read the room or thread for all of one. Times are in ${tz}.`,
+      `Messages the user can see in their team chat rooms ${what}, the newest first (${top.length}${hits.length > top.length ? ` of more: narrow the search or raise limit` : ''}${o.room === undefined && rooms.length >= ROOM_SEARCH_ROOMS ? `; the ${ROOM_SEARCH_ROOMS} rooms with the latest activity were searched` : ''}). Each search looks at the newest ${ROOM_SEARCH_SCAN} messages of a room.${limits}${wordsOnly} Long messages are shown in part: read the room or thread for all of one. Times are in ${tz}.`,
       DATA_NOTE,
       '<room_messages search="yes">', ...parts, '</room_messages>',
       cut ? `${cut} more not shown (too long for one result): narrow the search.` : '',
