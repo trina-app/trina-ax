@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type RefObject } from 'react'
 import type { CellObject } from 'xlsx'
 import { useLocale, useT } from '../../i18n'
 import { guardLinks } from '../../lib/safeLinks'
+import { PreviewLoading } from '../ui'
 import { SHEET_PREVIEW_ROWS, rangeCellIds, sheetMeta, startSheetIndex, type SheetMeta } from '../../lib/sheetPreview'
 
 /** Links in a drawn document: http(s) only, opened after asking, in a new window (lib/safeLinks.ts). */
@@ -55,7 +56,7 @@ function useRender(render: (el: HTMLDivElement) => Promise<void | (() => void)>,
 function Status({ busy, error, what }: { busy: boolean; error: string | null; what: string }) {
   const t = useT()
   if (error) return <p className="p-6 text-sm text-danger">{t('preview.cantOpen', { what, error })}</p>
-  if (busy) return <p className="p-6 text-sm text-faint">{t('common.loading')}</p>
+  if (busy) return <PreviewLoading overlay label={t('common.loading')} />
   return null
 }
 
@@ -68,10 +69,10 @@ export function DocxView({ blob }: { blob: Blob }) {
     fixRenderedBullets(el)
   }, [blob])
   return (
-    <>
+    <div className="relative min-h-full">
       <Status busy={busy} error={error} what={t('preview.kind.docx')} />
       <div ref={ref} className="docx-host" />
-    </>
+    </div>
   )
 }
 
@@ -101,10 +102,10 @@ export function PptxView({ blob, width, startSlide }: { blob: Blob; width: numbe
     return () => viewer.destroy()
   }, [blob, w, startSlide])
   return (
-    <>
+    <div className="relative min-h-full">
       <Status busy={busy} error={error} what={t('preview.kind.pptx')} />
       <div ref={ref} className="mx-auto py-3" style={{ width: w }} />
-    </>
+    </div>
   )
 }
 
@@ -156,7 +157,7 @@ export function SheetView({ blob, startSheet, range }: { blob: Blob; startSheet?
     return () => { for (const c of cells) delete c.dataset.sourceCell }
   }, [targetOpen, range, active, sheets])
   if (error) return <p className="p-6 text-sm text-danger">{t('preview.cantOpen', { what: t('preview.kind.sheet'), error })}</p>
-  if (!sheets) return <p className="p-6 text-sm text-faint">{t('common.loading')}</p>
+  if (!sheets) return <PreviewLoading label={t('common.loading')} />
   const current = sheets[active]
   return (
     <div className="flex h-full flex-col">

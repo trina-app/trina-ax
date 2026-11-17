@@ -28,7 +28,7 @@ import 'react-pdf/dist/Page/AnnotationLayer.css'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { Download, MoveHorizontal, ZoomIn, ZoomOut } from 'lucide-react'
 import { useT } from '../../i18n'
-import { Button, IconButton } from '../ui'
+import { Button, IconButton, PreviewLoading } from '../ui'
 import { pdfjsDataOptions } from '../../lib/pdfjs-assets'
 import { clamp, usePinch, type Pt } from '../../lib/usePinch'
 import { anchorAt, anchorTop, currentPage, layoutTop, pageHeight, pageLayout, pageStart, pageWindow, scrollLeftAfterZoom, type PageAnchor, type PageSize, type PageView } from '../../lib/pdfPages'
@@ -328,12 +328,12 @@ export default function PdfView({ blob, width, startPage, download, thumbnails }
         options={OPTIONS}
         // as wide as the widest page: a page wider than the panel (zoomed in) scrolls to its left edge too. No scroll
         // anchoring: the place being read is kept here (the browser's would fight it while pages change size)
-        className="w-max min-w-full [overflow-anchor:none]"
+        className="relative min-h-full w-max min-w-full [overflow-anchor:none]"
         onLoadSuccess={setPdf}
         onLoadError={(e) => fail(e.message)}
         // a link in the file to one of its pages: the page may not be drawn, so it is scrolled to here
         onItemClick={({ pageNumber }) => goToNow.current(pageNumber - 1)}
-        loading={<p className="p-6 text-sm text-faint">{t('common.loading')}</p>}
+        loading={<PreviewLoading overlay label={t('common.loading')} />}
       >
         {pages > 0 && (
           // sticky in the panel's scroll box and as wide as the panel: it stays in view when the pages scroll down or
