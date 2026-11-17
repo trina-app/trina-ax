@@ -162,7 +162,9 @@ export const SESSION_STASH_MAX = 20 * 1024 * 1024
 export interface WidenOf { target: string; extra: string[]; read?: ReadSource[] }
 /** The wider-audience card's facts (TurnExec.widenNeed): where it saves, its folder, the narrower places read, how many
  * people can see the target. */
-export interface WidenNeed { segs: string[]; dir: string; narrower: ReadSource[]; viewers: number }
+/** `blind`: how many of the place's readers cannot see at least one of `narrower` now (missingReaders): the card says it,
+ * so an overlap ("3 people" from, "3 people" at the place) never reads as safe (docs/decisions/20261117-ai-save-my-files-default.md) */
+export interface WidenNeed { segs: string[]; dir: string; narrower: ReadSource[]; viewers: number; blind: number }
 /** A room whose words are in a session, and the oldest message of it that was read (null: none; TurnExec.sessionRooms) */
 type SessionRoom = { id: string; from: number | null }
 
@@ -3342,7 +3344,14 @@ export class TurnExec {
         .map((d) => new Set(Array.isArray(d.sources) ? d.sources.filter((x): x is string => typeof x === 'string') : []))
       if (keys.some((k) => narrower.every((s) => k.has(sourceKey(s))))) return null
     }
-    return { segs, dir, narrower, viewers: w.targetViewers }
+    // who at the place cannot see where it came from, by the same reader as the read scope's own check (the chat's creator)
+    const blind = new Set(missingReaders(this.rt.db, rules, narrower, readersOf(this.rt.db, rules, segs), this.chatReader()).flatMap((m) => m.missing)).size
+    return { segs, dir, narrower, viewers: w.targetViewers, blind }
+  }
+
+  /** The person whose reads a chat's read scope holds: its creator, as the read scope's own check takes it (read-scope.ts). */
+  private chatReader(): string {
+    return (this.rt.db.query('SELECT user_id FROM chats WHERE id = ?').get(this.spec.chatId) as { user_id: string } | null)?.user_id ?? this.spec.userId
   }
 
   /**
@@ -3381,7 +3390,7 @@ export class TurnExec {
     const { value: answer, missing } = await ask({
       // the place in words, not its path; a PowerPoint's SHA-256 (safe operations) is not on the card: the approval is
       // bound to those bytes on the server (o.binding, safe-ops/publication.ts) and the hash is in the activity log
-      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: (o.lead ?? '') + tr('widenConfirm', L, { ai: aiCalled(L), sources: from, target: this.place(need.segs.join('/')), n: String(need.viewers) }) + (o.extra ?? ''),
+      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: (o.lead ?? '') + tr('widenConfirm', L, { ai: aiCalled(L), sources: from, target: this.place(need.segs.join('/')), n: String(need.viewers), m: String(need.blind) }) + (o.extra ?? ''),
       options: [{ label: tr('widenSave', L), value: 'save' }, { label: tr('widenDont', L), value: 'skip' }], multiple: false, allowText: false,
       ...(o.details?.length ? { details: o.details } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
@@ -3420,10 +3429,11 @@ export class TurnExec {
     // on the card each source says how many people can see it now ("(3 people)", "(only you)"; docs/decisions/
     // 20261117-ai-save-my-files-default.md), beside the place's own count; a place someone else opened keeps no count
     const rules = this.rt.files.rules()
+    const reader = this.chatReader()
     const counted = (s: ReadSource) => {
       const l = label(s, true)
       if (hidden(s)) return l
-      const c = sourceViewerCount(this.rt.db, rules, s, this.spec.userId)
+      const c = sourceViewerCount(this.rt.db, rules, s, reader)
       return c.onlyReader ? tr('widenFromYou', L, { source: l }) : tr('widenFrom', L, { source: l, n: String(c.n) })
     }
     return { from: [...new Set(need.narrower.map(counted))].join(', '), fromForAi: [...new Set(need.narrower.map((s) => label(s, false)))].join(', ') }
@@ -3610,7 +3620,7 @@ export class TurnExec {
       // the file and its folder in words (팀 스킬 › 회의록 › SKILL.md, place-words.ts); the preview's path shows on hover
       question: (project ? (project.live ? st('confirmProject', L, { project: project.project.name, path: this.place(r.rel), what }) : st('confirmProjectNone', L, { folder: this.place(project.folder), path: this.place(r.rel), what })) : group ? st('confirmGroup', L, { group: group.name, path: this.place(r.rel), what }) : st('confirm', L, { path: this.place(r.rel), what }))
         + (held?.size ? '\n\n' + tr('skillWithFiles', L, { n: String(held.size), names: [...held.keys()].map((k) => k.split('/').at(-1)!).join(', ') }) : '')
-        + (need && wide ? '\n\n' + tr('skillWiden', L, { ai: aiCalled(L), sources: wide.from, target: this.place(r.rel), n: String(need.viewers) }) : ''),
+        + (need && wide ? '\n\n' + tr('skillWiden', L, { ai: aiCalled(L), sources: wide.from, target: this.place(r.rel), n: String(need.viewers), m: String(need.blind) }) : ''),
       options, multiple: false, allowText: false, preview, ...(options.length === 3 ? { buttons: true as const } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest & { options: { label: string; value: string }[] })
@@ -3962,7 +3972,7 @@ export class TurnExec {
    * After a tool call (chat/tools.ts): who can open the new files it saved, from their real folders (chat/save-audience.ts,
    * docs/decisions/20261117-ai-save-my-files-default.md), or ''. In a ✦ side chat it also counts the room's people, so
    * the answer never says "everyone in the room can open it" of a folder that is wider or narrower than the room.
-   * `say` false (a sub-agent's call, a guest): the files are dropped from the list without a line.
+   * `say` false (a sub-agent's call, a guest, a turn where who_can_open is off): the files are dropped without a line.
    */
   audienceNote(say = true): string {
     if (!this.newSaved.length) return ''
@@ -3972,7 +3982,8 @@ export class TurnExec {
     try {
       const side = sideRoomOf(this.rt.db, this.spec.chatId, this.spec.userId)
       const room = side ? (this.rt.db.query("SELECT m.user_id FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? AND u.status = 'active' AND u.deleted_at IS NULL").all(side.id) as { user_id: string }[]).map((x) => x.user_id) : null
-      return saveAudienceNote(this.rt.db, this.rt.files.rules(), paths, this.spec.userId, room)
+      // a shared chat: others read the answer, so no count of the asker's folders (only "only the user" or the whole team)
+      return saveAudienceNote(this.rt.db, this.rt.files.rules(), paths, this.spec.userId, { room, shared: !!this.shared })
     } catch { return '' }
   }
 

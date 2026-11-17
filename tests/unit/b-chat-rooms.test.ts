@@ -354,7 +354,7 @@ describe('in a chat', () => {
     const third = await h.api('alice').call(API.sendMessage, { params: { id: chat }, body: { content: fake({ tool: 'read', args: { file_path: target } }, { tool: 'write', args: { file_path: target, content: 'with a yes\n' } }, { say: 'saved' }), clientMessageId: cm(), attachmentIds: [] } })
     // the room is in the chat's read scope: saving where more people can see (shared/) is the one card, naming the room
     const card3 = await ws.alice!.next('turn.request', (f) => f.data.turnId === third.turnId && f.data.request.kind === 'ask_user', 15_000)
-    expect((card3.data.request as { question: string }).question).toMatch(/This came from .+ \(\d+ (person|people)\)\. Save it to .+ \(\d+ (person|people)\)\?/)
+    expect((card3.data.request as { question: string }).question).toMatch(/This came from .+ \(\d+ (person|people)\)\. Save it to .+ \(\d+ (person|people), \d+ of them can’t see where it came from\)\?/)
     await h.api('alice').call(API.answerTurn, { params: { id: third.turnId }, body: { kind: 'ask_user', requestId: card3.data.request.requestId, answer: 'save' } })
     await ws.alice!.next('message.done', (f) => f.data.message.turnId === third.turnId, 30_000)
     expect(fs.readFileSync(abs(), 'utf8')).toBe('with a yes\n')

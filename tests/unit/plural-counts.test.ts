@@ -33,15 +33,16 @@ describe('fillPlurals', () => {
 
 describe('server messages', () => {
   test('the card before the AI saves where more people see it', () => {
-    const one = tr('widenConfirm', 'en', { sources: 'users/a/x.md', target: 'shared', n: '1' })
-    expect(one).toContain('Save it to shared (1 person)?')
-    expect(tr('widenConfirm', 'en', { sources: 's', target: 't', n: '5' })).toContain('(5 people)?')
-    expect(tr('widenConfirm', 'es', { sources: 's', target: 't', n: '1' })).toContain('(1 persona)?')
-    expect(tr('widenConfirm', 'ko', { sources: 's', target: 't', n: '1' })).toContain('1명이 볼 수 있는')
+    const one = tr('widenConfirm', 'en', { sources: 'users/a/x.md', target: 'shared', n: '1', m: '1' })
+    expect(one).toContain('Save it to shared (1 person, 1 of them can’t see where it came from)?')
+    expect(tr('widenConfirm', 'en', { sources: 's', target: 't', n: '5', m: '3' })).toContain('(5 people, 3 of them')
+    expect(tr('widenConfirm', 'es', { sources: 's', target: 't', n: '1', m: '1' })).toContain('(1 persona; 1 no puede ver')
+    expect(tr('widenConfirm', 'es', { sources: 's', target: 't', n: '5', m: '2' })).toContain('(5 personas; 2 no pueden ver')
+    expect(tr('widenConfirm', 'ko', { sources: 's', target: 't', n: '1', m: '1' })).toContain('(1명, 그중 1명은')
     expect(tr('widenFrom', 'en', { source: 'x', n: '1' })).toBe('x (1 person)')
     expect(tr('widenFrom', 'en', { source: 'x', n: '3' })).toBe('x (3 people)')
     // a value is put in as written, never read as a count
-    expect(tr('widenConfirm', 'en', { sources: '{n, plural, one {x} other {y}}', target: 't', n: '2' })).toContain('from {n, plural, one {x} other {y}}.')
+    expect(tr('widenConfirm', 'en', { sources: '{n, plural, one {x} other {y}}', target: 't', n: '2', m: '1' })).toContain('from {n, plural, one {x} other {y}}.')
   })
   test('moving and copying files: "item" / "items", "person" / "people", "it" / "them"', () => {
     const fill = (s: string, v: Record<string, string | number>, l: string) => fillPlurals(s, v, l).replace(/\{(\w+)\}/g, (_, k) => String(v[k]))

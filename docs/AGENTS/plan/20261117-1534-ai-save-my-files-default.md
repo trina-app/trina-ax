@@ -25,9 +25,13 @@ In:
   the chat's project, the side chat's room save place, a scheduled task's folder). Company-wide is not picked because
   the content looks like it belongs there (its purpose line, the templates line).
 - The wider-audience card (widenConfirm, skillWiden): "This came from <source> (3 people). Save it to <place> (10
-  people)?" in all six languages. Same facts, same buttons, same rules for when it asks.
+  people, 7 of them can't see where it came from)?" in all six languages. Same facts plus who at the place cannot see
+  the source (review of #1232: an overlap must not read as safe); same buttons, same rules for when it asks.
+- A file made from an existing file stays next to it (FL-15), and no "where?" question (review of #1232).
 - A line at the end of each new file's save result: who can open it now, from its folder (only the user / the whole
   team / a count; in a side chat how many of the room's people and how many outside). The who-can-open rule allows it.
+  Same gates as who_can_open (confidential, scheduled, Slack, template runs; guests; sub-agents); in a shared chat no
+  counts beyond "only the user" / "the whole team".
 
 Out:
 - The room save places decided in 20261116-flow-regressions-0512-save-place.md and 20261117-room-notes-not-company-wide.md

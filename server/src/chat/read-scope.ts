@@ -191,14 +191,21 @@ export function sourceViewerCount(db: Database, rules: RuleSet, s: ReadSource, r
   return { n: v.size, onlyReader: v.size === 1 && !!reader && v.has(reader) }
 }
 
-/** Who may open a team path now, as people are counted on screen: the active people the folder rules and a folder
- * share let read it (files/share-readers.ts readersAt), and whether that is the whole team (guests not counted as
- * the team). The save's audience line (chat/save-audience.ts) says it from this, never from a guess. */
-export function pathAudience(db: Database, rules: RuleSet, segs: readonly string[]): { ids: Set<string>; wholeTeam: boolean } {
-  const people = activePeople(db)
+/** Who may open a team path now, as people are counted on screen: the active people (`people`, loaded once by the
+ * caller for several paths) the folder rules and a folder share let read it (files/share-readers.ts readersAt), and
+ * whether that is the whole team: every active person who is not a guest (`teamSize` of them). The save's audience
+ * line (chat/save-audience.ts) says it from this, never from a guess. */
+export function pathAudience(db: Database, rules: RuleSet, segs: readonly string[], people: readonly Principal[]): { ids: Set<string>; wholeTeam: boolean; teamSize: number } {
   const ids = readersAt(db, rules, segs, people)
   const team = people.filter((p) => p.role !== 'guest')
-  return { ids, wholeTeam: team.length > 1 && team.every((p) => ids.has(p.id)) }
+  return { ids, wholeTeam: team.length > 1 && team.every((p) => ids.has(p.id)), teamSize: team.length }
+}
+
+/** The active people for pathAudience, once per tool result; null on a team larger than `max` (the walk is skipped, as
+ * files/access-routes.ts folderAccess does). */
+export function audiencePeople(db: Database, max: number): Principal[] | null {
+  const n = (db.query("SELECT COUNT(*) n FROM users WHERE status = 'active' AND deleted_at IS NULL").get() as { n: number }).n
+  return n > max ? null : activePeople(db)
 }
 
 /** Who sees a chat's own files and its answers' comments now (chat/chat-files.ts, chat/answer-comments.ts): a chat shared

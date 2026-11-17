@@ -17,6 +17,8 @@ import { labeledPath } from '@mycel/shared'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { folderPurposeLines, saveNewPlaceRule } from '../../server/src/chat/prompt'
 import { audienceWords, saveAudienceNote } from '../../server/src/chat/save-audience'
+import { audiencePeople } from '../../server/src/chat/read-scope'
+import { newLinkId } from '../../server/src/files/shares'
 import { tr } from '../../server/src/chat/i18n'
 
 setDefaultTimeout(90_000)
@@ -69,6 +71,9 @@ describe('the default place is My files', () => {
     expect(rule).toContain("goes in the user's own folder users/alice/")
     expect(rule).toContain('unless the user names another place or the task clearly names one')
     expect(rule).toContain('Never pick a team folder (shared/, a group\'s, a project\'s) yourself because the content looks like it belongs there')
+    // a file made from an existing one stays next to it (filePlacementRule, AI flow FL-15), and no "where?" question
+    expect(rule).toContain('A file made from an existing file (a PDF of a deck, a resized picture, a copy in another format) goes next to it, as the rule on where files go says.')
+    expect(rule).toContain('Do not ask where first.')
     const shared = folderPurposeLines('en', 'alice', 'shared/Templates').find((l) => l.startsWith('- shared/'))!
     expect(shared).toContain('a new file goes here only when the user or the task names it')
     const templates = folderPurposeLines('en', 'alice', 'shared/Templates').find((l) => l.startsWith('Forms and templates'))!
@@ -95,7 +100,7 @@ describe('a place the person names', () => {
     expect(no.cards).toHaveLength(1)
     expect(fs.existsSync(at('shared/Meeting notes/sunday-no.md'))).toBe(false)
     const q = no.cards[0]!.question
-    expect(q).toContain(`This came from messages of the conversation 'leads-${rooms}' (2 people). Save it to ${W('shared/Meeting notes/sunday-no.md')} (${n} people)?`)
+    expect(q).toContain(`This came from messages of the conversation 'leads-${rooms}' (2 people). Save it to ${W('shared/Meeting notes/sunday-no.md')} (${n} people, ${n - 2} of them can’t see where it came from)?`)
     expect(q).not.toContain('read content fewer people can see')
 
     const yes = await run('alice', await newChat('alice'), `Save the summary in Company-wide › Meeting notes\n${fake({ tool: 'room_read', args: { room: roomId } }, write('shared/Meeting notes/sunday.md'))}`, () => 'save')
@@ -105,12 +110,31 @@ describe('a place the person names', () => {
     expect(yes.content).toContain(`shared/Meeting notes/sunday.md: everyone in the team (${n} people).`)
   })
 
+  test('an overlap that does not grow the count still says who at the place cannot see the source', async () => {
+    // a group of alice and erin: as many people as the room of alice and bob, but erin cannot read the room
+    const g = await h.api('dana').call(API.createGroup, { body: { name: `overlap-${rooms}`, memberIds: ['alice', 'erin'] } })
+    const dir = (h.ctx.db.query('SELECT f.path FROM groups g JOIN folders f ON f.id = g.folder_id WHERE g.id = ?').get(g.id) as { path: string }).path
+    const roomId = await groupChat('alice', ['bob'])
+    const r = await run('alice', await newChat('alice'), `Save it in the ${dir} folder\n${fake({ tool: 'room_read', args: { room: roomId } }, write(`${dir}/overlap.md`))}`, () => 'skip')
+    expect(r.cards).toHaveLength(1)
+    // the place: alice, erin and the owners/admins who read every group folder; all but alice miss the room
+    expect(r.cards[0]!.question).toMatch(new RegExp(`\\((\\d+) people, (\\d+) of them can’t see where it came from\\)\\?$`))
+    const [, n, m] = r.cards[0]!.question.match(/\((\d+) people, (\d+) of them/)!
+    expect(Number(m)).toBe(Number(n) - 1)
+    expect(Number(n)).toBeGreaterThanOrEqual(2)
+    expect(fs.existsSync(at(`${dir}/overlap.md`))).toBe(false)
+  })
+
   test('the card in the other languages keeps the facts: source with its count, place with its count', () => {
     const from = tr('widenFrom', 'ko', { source: "'leads' 대화의 메시지", n: '3' })
     expect(from).toBe("'leads' 대화의 메시지(3명)")
-    expect(tr('widenConfirm', 'ko', { sources: from, target: '전사 공유 › 회의록', n: '10' })).toBe("이 내용은 'leads' 대화의 메시지(3명)에서 왔어요. 10명이 볼 수 있는 전사 공유 › 회의록에 저장할까요?")
-    expect(tr('widenConfirm', 'id', { sources: 'x (3 orang)', target: 'Company-wide', n: '10' })).toBe('Ini berasal dari x (3 orang). Simpan ke Company-wide (10 orang)?')
-    expect(tr('widenConfirm', 'es', { sources: 'x', target: 'y', n: '10' })).toBe('Esto viene de x. ¿Guardarlo en y (10 personas)?')
+    expect(tr('widenConfirm', 'ko', { sources: from, target: '전사 공유 › 회의록', n: '10', m: '7' })).toBe("이 내용은 'leads' 대화의 메시지(3명)에서 왔어요. 전사 공유 › 회의록(10명, 그중 7명은 나온 곳을 볼 수 없음)에 저장할까요?")
+    expect(tr('widenConfirm', 'en', { sources: 'x (3 people)', target: 'Sales › x', n: '3', m: '1' })).toBe('This came from x (3 people). Save it to Sales › x (3 people, 1 of them can’t see where it came from)?')
+    expect(tr('widenConfirm', 'id', { sources: 'x (3 orang)', target: 'Company-wide', n: '10', m: '7' })).toBe('Ini berasal dari x (3 orang). Simpan ke Company-wide (10 orang, 7 di antaranya tidak bisa melihat asalnya)?')
+    expect(tr('widenConfirm', 'es', { sources: 'x', target: 'y', n: '10', m: '1' })).toBe('Esto viene de x. ¿Guardarlo en y (10 personas; 1 no puede ver de dónde viene)?')
+    expect(tr('widenConfirm', 'es', { sources: 'x', target: 'y', n: '10', m: '7' })).toContain('7 no pueden ver')
+    expect(tr('widenConfirm', 'ja', { sources: 'x', target: 'y', n: '10', m: '7' })).toContain('（10人、うち7人は元の場所を見られません）')
+    expect(tr('widenConfirm', 'zh', { sources: 'x', target: 'y', n: '10', m: '7' })).toContain('其中7人看不到内容的来源')
     expect(tr('widenFromYou', 'es', { source: 'su carpeta personal' })).toBe('su carpeta personal (solo usted)')
     expect(tr('widenFromYou', 'id', { source: 'folder pribadi Anda' })).toBe('folder pribadi Anda (hanya Anda)')
   })
@@ -128,13 +152,46 @@ describe('who can open it, in a side chat', () => {
     expect(wide.content).toContain(`shared/side-notes.md: everyone in the team (${n} people); all 2 of the room's people, and ${n - 2} ${n - 2 === 1 ? 'person' : 'people'} outside the room.`)
   })
 
-  test('the words alone: a folder the room cannot all open says how many of them can', () => {
+  test('the words alone: a folder the room cannot all open says how many of them can; a shared chat gets no counts', () => {
     const rules = h.ctx.files.rules()
-    const ids = (h.ctx.db.query("SELECT id FROM users WHERE status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((r) => r.id)
-    expect(audienceWords(h.ctx.db, rules, 'users/alice/x.md', 'alice', ['alice', 'bob'])).toBe("only the user; 1 of the room's 2 people, nobody outside the room")
-    expect(audienceWords(h.ctx.db, rules, 'users/alice/x.md', 'alice')).toBe('only the user')
+    const everyone = audiencePeople(h.ctx.db, 2000)!
+    const ids = everyone.map((p) => p.id)
+    expect(audienceWords(h.ctx.db, rules, 'users/alice/x.md', 'alice', everyone, { room: ['alice', 'bob'] })).toBe("only the user; 1 of the room's 2 people, nobody outside the room")
+    expect(audienceWords(h.ctx.db, rules, 'users/alice/x.md', 'alice', everyone)).toBe('only the user')
     expect(saveAudienceNote(h.ctx.db, rules, [], 'alice')).toBe('')
-    // the whole team reads shared/ in the fixture
-    expect(audienceWords(h.ctx.db, rules, 'shared/x.md', 'alice', ids)).toContain(`all ${ids.length} of the room's people, nobody outside the room`)
+    // the whole team reads shared/ in the fixture; "everyone in the team" counts the team as wholeTeam does (no guests)
+    const team = everyone.filter((p) => p.role !== 'guest').length
+    expect(audienceWords(h.ctx.db, rules, 'shared/x.md', 'alice', everyone)).toBe(`everyone in the team (${team} people)`)
+    expect(audienceWords(h.ctx.db, rules, 'shared/x.md', 'alice', everyone, { room: ids })).toContain(`of the room's people`)
+    // a shared chat: only "only the user" or the whole team, never a count of the asker's folders, no room part
+    expect(audienceWords(h.ctx.db, rules, 'users/alice/x.md', 'alice', everyone, { shared: true, room: ['alice', 'bob'] })).toBe('only the user')
+    expect(audienceWords(h.ctx.db, rules, 'shared/x.md', 'alice', everyone, { shared: true })).toBe(`everyone in the team (${team} people)`)
+    const g = h.ctx.db.query('SELECT f.path FROM groups g JOIN folders f ON f.id = g.folder_id LIMIT 1').get() as { path: string }
+    expect(audienceWords(h.ctx.db, rules, `${g.path}/x.md`, 'alice', everyone, { shared: true })).toBeNull()
+    expect(saveAudienceNote(h.ctx.db, rules, [`${g.path}/x.md`], 'alice', { shared: true })).toBe('')
+    // past WALK_MAX: no walk, no line
+    expect(audiencePeople(h.ctx.db, 1)).toBeNull()
+  })
+
+  test('a My files subfolder shared with others says how many people', async () => {
+    fs.mkdirSync(at('users/alice/Shared-out'), { recursive: true })
+    // alice shares the folder with bob (a live folder share, as the Share dialog saves it)
+    const id = newLinkId(), now = new Date().toISOString()
+    h.ctx.db.query("INSERT INTO file_shares (id, path, ino, dev, owner_id, state, created_by, created_at, kind, folder_id) VALUES (?,?,0,0,'alice','live','alice',?,'folder','0:0:1')").run(id, 'users/alice/Shared-out', now)
+    h.ctx.db.query("INSERT INTO file_share_grants (share_id, subject_type, subject_id, role, granted_by, granted_at, via) VALUES (?,'user','bob','view','alice',?,'dialog')").run(id, now)
+    const r = await run('alice', await newChat('alice'), fake(write('users/alice/Shared-out/new.md')))
+    expect(r.content).toContain('users/alice/Shared-out/new.md: 2 people.')
+  })
+})
+
+describe('where the line is not said', () => {
+  test('a sub-agent\'s save gets no audience line; a confidential chat gets none', async () => {
+    const sub = await run('alice', await newChat('alice'), fake({ agents: [{ id: 'a1', type: 'general-purpose', description: 'save', steps: [{ tool: 'write', args: { file_path: 'users/alice/sub-notes.md', content: 'x\n' }, sayChildResult: true }] }] }))
+    expect(fs.existsSync(at('users/alice/sub-notes.md'))).toBe(true)
+    expect(sub.content).not.toContain('Who can open the new file now')
+    const chat = await newChat('alice')
+    h.ctx.db.query('INSERT INTO safe_ops_chats (chat_id, material) VALUES (?, 1)').run(chat)
+    const conf = await run('alice', chat, fake(write('users/alice/conf-notes.md')))
+    expect(conf.content).not.toContain('Who can open the new file now')
   })
 })

@@ -509,9 +509,10 @@ export function templatesFolder(files: FileService, user: Principal, shown?: ((r
  * notes, which 10 people can open, because the folder purposes say meeting notes belong there; the wider-audience card
  * asked, but the AI should not have picked that place. A shared place is for when the person names it or the task does
  * (a skill's steps, this chat's project, a side chat's room save place, a scheduled task's folder); the card still
- * asks then. Not for a guest (GUEST_PLACEMENT_RULE).
+ * asks then. A file made from an existing one stays next to it (filePlacementRule, AI flow FL-15). Not for a guest
+ * (GUEST_PLACEMENT_RULE).
  */
-export const saveNewPlaceRule = (userId: string) => `New content you make (a summary, notes, a file built from a link, a chat or a room, a generated document) goes in the user's own folder users/${userId}/ (in the subfolder that fits) unless the user names another place or the task clearly names one (a skill's steps, this chat's project, a side chat's room save place, a scheduled task's folder). Never pick a team folder (shared/, a group's, a project's) yourself because the content looks like it belongs there, such as meeting notes or a filled form. After saving, say where it is; the user can ask you to share it or move it.`
+export const saveNewPlaceRule = (userId: string) => `New content you make (a summary, notes, a file built from a link, a chat or a room, a generated document) goes in the user's own folder users/${userId}/ (in the subfolder that fits) unless the user names another place or the task clearly names one (a skill's steps, this chat's project, a side chat's room save place, a scheduled task's folder). A file made from an existing file (a PDF of a deck, a resized picture, a copy in another format) goes next to it, as the rule on where files go says. Never pick a team folder (shared/, a group's, a project's) yourself because the content looks like it belongs there, such as meeting notes or a filled form. Do not ask where first. After saving, say where it is; the user can ask you to share it or move it.`
 
 /**
  * Where a new file goes (docs/DECISIONS.md "The in-app AI keeps the team's folders tidy"). Asked to put a quote "in

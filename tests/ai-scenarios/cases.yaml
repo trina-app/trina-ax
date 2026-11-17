@@ -3063,4 +3063,12 @@ cases:
         good: "Saves it in the company-wide meeting-notes folder she named, after the card that says where it came from (the leads chat, 3 people) and how many people can see that folder; says who can open it as the save's result says."
         checks:
           - { type: file_created, file: "shared/**" }
+    - key: room-side
+      context: room-side
+      prompt: 이 방 대화 회의록으로 요약해서 파일로 저장해줘
+      expect:
+        outcome: do
+        good: "Reads this room (라마바카페 건: sora, daniel, minho) and saves the notes at the room's save place (the department folder all three share, or her own folder followed by a share with daniel and minho), not in Company-wide; does not ask where first. Says who can open the file exactly as the save's (and any share's) result says, never \"everyone in the room\" unless that result says all of the room's people can open it."
+        checks:
+          - { type: no_file_created, file: "shared/**" }
   why: QA TC-4792 (MAN-026/027) — a 3-person room's notes went to Company-wide (10 people) and the answer said everyone in the room could open them (docs/decisions/20261117-ai-save-my-files-default.md).
