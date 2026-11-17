@@ -11,7 +11,7 @@ import type { Group, Integration, IntegrationAccess, IntegrationFlow, User } fro
 import { api, API, ApiError, errorText, isApiError } from '../../lib/api'
 import { closeSignInReturn, openSignInReturn } from '../../lib/desktop'
 import { mobileApp } from '../../lib/mobile'
-import { audienceOf, authorizationUrl, flowReasonKey } from '../../lib/integrations'
+import { audienceOf, authorizationUrl, flowReasonKey, signInReturnHost } from '../../lib/integrations'
 import { openSignInWindow, reserveSignInWindow as reserveWindow, signInPlace } from '../../lib/driveSignIn'
 import { useLocale, useT } from '../../i18n'
 import { SIGN_IN_WAIT_MINUTES, useWaitLimit } from '../../lib/signInWait'
@@ -337,7 +337,7 @@ export function SignInPanel({ flow, onRetry, onCancel, name, url, phone = !!mobi
         // a spinner and how long it can take (QA TC-2132): the wait ends by itself (useWaitLimit)
         <WaitLine text={t(flow.away ? 'integrations.signIn.notFinished' : 'integrations.signIn.waiting')} hint={t('connect.wait.limit', { n: SIGN_IN_WAIT_MINUTES })} testId="integration-signin-wait" />
       )}
-      {!failed && name && url && adminAllowsDomains(url) && <p className="text-xs break-words text-faint" data-testid="integration-signin-domains">{t('integrations.signIn.domainBlocked', { name })}</p>}
+      {!failed && name && url && adminAllowsDomains(url) && <p className="text-xs break-words text-faint" data-testid="integration-signin-domains">{t('integrations.signIn.domainBlocked', { name, host: signInReturnHost(flow.url) })}</p>}
       <div className="flex flex-wrap items-center gap-2">
         {!failed && flow.url && (
           <LinkButton variant="primary" size="sm" href={flow.url}>

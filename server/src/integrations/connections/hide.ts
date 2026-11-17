@@ -11,20 +11,34 @@
 // Values shorter than MIN_SECRET are left alone: they would hide ordinary words. Not caught: a service that changes the
 // value in another way (hashes it, hex-encodes it, changes its case, splits or reverses it).
 //
-// Size: every character of every value is spelled out in all of its forms, about 200 pattern characters per character
-// of a value, and Bun's regular expressions stop at about a million ("regular expression too large"). Long OAuth tokens
-// (Atlassian's v2 sign-in, QA TC-4770), and the earlier tokens a server keeps hiding after refreshes, went past that:
-// the person's whole redactor failed, and so did every check of the connection. So all values together get at most
-// MAX_PATTERN_CHARS: while they fit, every form of every value is caught; past that, the longest values first give up
-// the escaped forms of their letters and digits (no escaper writes those; their other characters keep every form),
-// then, if still too large, their base64 forms.
+// Size: spelled out in all of its forms, a character of a value takes about 200 pattern characters, and Bun refuses a
+// regular expression much over about a million ("regular expression too large"). Long OAuth tokens (Atlassian's v2
+// sign-in, QA TC-4770), and the earlier tokens a server keeps hiding after refreshes, went past that: the person's
+// whole redactor failed, and so did every check of the connection. So:
+// - each value's forms depend on that value only, never on how many others there are: a value of LONG_SECRET
+//   characters or more matches its letters and digits only as written (no escaper writes those; its other characters
+//   keep every escaped form, and its base64 forms stay); a shorter one keeps every form;
+// - the patterns go into as many regular expressions as needed, longest value first, each at most MAX_GROUP_CHARS;
+// - a value too large for one of them on its own drops its base64 forms; still too large, SecretTooLarge is thrown
+//   (never a value left out): whoever builds the hider fails closed (redact.ts, service.ts hider);
+// - patterns and built chains are kept (a small cache), so a hider of the same values costs nothing the next time.
+
+import crypto from 'node:crypto'
 
 export const HIDDEN = '[hidden key]'
 /** shorter values are not hidden (they would match ordinary words) */
 export const MIN_SECRET = 8
-/** the most pattern characters all values of one hider may take (see Size above; well under Bun's limit, and building
- * one this size takes about 0.1 s) */
-export const MAX_PATTERN_CHARS = 500_000
+/** values this long or longer match their letters and digits only as written (see Size above) */
+export const LONG_SECRET = 64
+/** the most pattern characters one regular expression of a hider takes (see Size above) */
+export const MAX_GROUP_CHARS = 400_000
+
+/** A stored value too large to hide in any form we can build: the hider is not made, and its maker withholds instead.
+ * The message names only the length. */
+export class SecretTooLarge extends Error {
+  name = 'SecretTooLarge'
+  constructor(readonly length: number) { super(`a stored secret of ${length} characters is too large to hide`) }
+}
 
 const literal = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 /** a number in hex digits, each letter in either case: 0x2f -> "2[fF]" */
@@ -81,35 +95,93 @@ function valuePatterns(v: string, level: 0 | 1 | 2): string[] {
   const plain = level > 0
   return level === 2 ? [textPattern(v, false, true)] : [textPattern(v, false, plain), ...base64Patterns(v, plain)]
 }
+const patternSize = (ps: readonly string[]) => ps.reduce((n, p) => n + p.length + 1, 0)
 
-/** One pattern (flag g) for every form of these values, or null when there is nothing to hide. At most about
- * MAX_PATTERN_CHARS long: past that, the longest values are matched in fewer forms (see Size above). */
-export function secretRegex(values: Iterable<string | null | undefined>): RegExp | null {
-  const vs = secretValuesOf(values)
-  if (!vs.length) return null
-  const chosen = new Map(vs.map((v) => [v, valuePatterns(v, 0)]))
-  const size = (ps: string[]) => ps.reduce((n, p) => n + p.length + 1, 0)
-  let total = vs.reduce((n, v) => n + size(chosen.get(v)!), 0)
-  const longestFirst = [...vs].sort((a, b) => b.length - a.length)
-  for (const level of [1, 2] as const) {
-    for (const v of longestFirst) {
-      if (total <= MAX_PATTERN_CHARS) break
-      const next = valuePatterns(v, level)
-      total += size(next) - size(chosen.get(v)!)
-      chosen.set(v, next)
-    }
+/** A Map that forgets the entry used longest ago past `max` entries. */
+class Lru<K, V> {
+  private m = new Map<K, V>()
+  constructor(private max: number) {}
+  get(k: K): V | undefined {
+    const v = this.m.get(k)
+    if (v !== undefined) { this.m.delete(k); this.m.set(k, v) }
+    return v
   }
-  // longer values first (a value before a shorter one inside it, whatever forms each kept), and within a value the
-  // longer patterns first (a whole base64 text before its core)
-  const patterns = new Set(longestFirst.flatMap((v) => [...chosen.get(v)!].sort((a, b) => b.length - a.length)))
-  return new RegExp([...patterns].join('|'), 'g')
+  set(k: K, v: V) {
+    this.m.delete(k)
+    this.m.set(k, v)
+    if (this.m.size > this.max) this.m.delete(this.m.keys().next().value as K)
+  }
+  clear() { this.m.clear() }
 }
+const PATTERNS = new Lru<string, readonly string[]>(512)
+const CHAINS = new Lru<string, readonly RegExp[]>(64)
+
+/** One value's patterns, longest first (see Size above); SecretTooLarge when even its smallest do not fit one group. */
+export function patternsOf(v: string): readonly string[] {
+  const have = PATTERNS.get(v)
+  if (have) return have
+  let ps = valuePatterns(v, v.length >= LONG_SECRET ? 1 : 0)
+  if (patternSize(ps) > MAX_GROUP_CHARS) ps = valuePatterns(v, 2)
+  if (patternSize(ps) > MAX_GROUP_CHARS) throw new SecretTooLarge(v.length)
+  // within a value the longer patterns first (a whole base64 text before its core)
+  const sorted = [...ps].sort((a, b) => b.length - a.length)
+  PATTERNS.set(v, sorted)
+  return sorted
+}
+
+/** The regular expressions (flag g) for every form of these values, longest value first, each at most MAX_GROUP_CHARS;
+ * empty when there is nothing to hide. Hiding applies them in order (hideWith). SecretTooLarge: see Size above. */
+export function secretRegexes(values: Iterable<string | null | undefined>): readonly RegExp[] {
+  const vs = secretValuesOf(values).sort((a, b) => b.length - a.length || (a < b ? -1 : a > b ? 1 : 0))
+  if (!vs.length) return []
+  const key = crypto.createHash('sha256').update(vs.join('\0')).digest('hex')
+  const have = CHAINS.get(key)
+  if (have) return have
+  // longer values first (a value before a shorter one inside it), in groups of at most MAX_GROUP_CHARS
+  const groups: string[][] = []
+  let size = Infinity
+  const seen = new Set<string>()
+  for (const v of vs) {
+    const ps = patternsOf(v).filter((p) => !seen.has(p))
+    for (const p of ps) seen.add(p)
+    const n = patternSize(ps)
+    if (!ps.length) continue
+    if (size + n > MAX_GROUP_CHARS) { groups.push([]); size = 0 }
+    groups.at(-1)!.push(...ps)
+    size += n
+  }
+  const chain = groups.map((g) => new RegExp(g.join('|'), 'g'))
+  CHAINS.set(key, chain)
+  return chain
+}
+
+/** `text` with every match of the chain replaced, one regular expression after the other. */
+export function hideWith(res: readonly RegExp[], text: string, replace: string | ((m: string) => string) = HIDDEN): string {
+  let out = text
+  for (const re of res) out = typeof replace === 'string' ? out.replace(re, replace) : out.replace(re, replace)
+  return out
+}
+
+/** whether any regular expression of the chain matches somewhere in `text` */
+export function matchesAny(res: readonly RegExp[], text: string): boolean {
+  return res.some((re) => text.search(re) >= 0)
+}
+
+/** An error for the log: its name and the start of its message with every long token-like run taken out (an error
+ * from parsing or building may quote what it was given). */
+export function errorForLog(e: unknown): string {
+  if (!(e instanceof Error)) return typeof e
+  return `${e.name}: ${e.message.slice(0, 200).replace(/[A-Za-z0-9._~+\/=%-]{20,}/g, '[…]')}`
+}
+
+/** forget the kept patterns and chains (tests) */
+export function clearSecretCache() { PATTERNS.clear(); CHAINS.clear() }
 
 /** A function that replaces every form of these values with HIDDEN. Values shorter than MIN_SECRET are left out. */
 export function secretHider(values: Iterable<string | null | undefined>): (text: string) => string {
-  const re = secretRegex(values)
-  if (!re) return (s) => s
-  return (text) => text.replace(re, HIDDEN)
+  const res = secretRegexes(values)
+  if (!res.length) return (s) => s
+  return (text) => hideWith(res, text)
 }
 
 /** The same for every string (and key) in a JSON-like value. */

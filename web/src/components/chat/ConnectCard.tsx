@@ -23,6 +23,7 @@ import type { TurnConnectResult } from '@mycel/shared/api'
 import { errorText, isApiError } from '../../lib/api'
 import { cardTrust, connectCase, notOfficialOf, connectWithKey, connectWithoutKey, finishConnect, hostOffName, skipConnect, type ConnectAccess, type ConnectServiceRequest } from '../../lib/connectCard'
 import { builtInName } from '../../lib/googleApps'
+import { signInReturnHost } from '../../lib/integrations'
 import { mobileApp } from '../../lib/mobile'
 import { canSeal } from '../../lib/seal'
 import { useLocale, useT } from '../../i18n'
@@ -350,7 +351,7 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
             {['starting', 'pending', 'exchanging'].includes(flow.state) ? (
               <>
                 <p role="status">{t('integrations.signIn.waiting')}</p>
-                {service && adminAllowsDomains(service.url) && <p className="text-xs break-words text-faint" data-testid="connect-signin-domains">{t('integrations.signIn.domainBlocked', { name })}</p>}
+                {service && adminAllowsDomains(service.url) && <p className="text-xs break-words text-faint" data-testid="connect-signin-domains">{t('integrations.signIn.domainBlocked', { name, host: signInReturnHost(flow.url) })}</p>}
               </>
             ) : (
               <p role="alert" className="text-danger">

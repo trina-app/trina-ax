@@ -453,3 +453,13 @@ export function connectionRowStatus(i: Pick<Integration, 'auth' | 'hasSecret' | 
   if (awaitingFirstSignIn(i)) return 'signin'
   return i.status === 'connected' ? 'connected' : i.status === 'needs_auth' ? 'reconnect' : 'attention'
 }
+
+/** The address a sign-in returns to (its redirect_uri's host: the one a service's admins allow, QA TC-4770), from the
+ * service's sign-in address; this page's host when that does not say. */
+export function signInReturnHost(authorizationUrl: string | null | undefined): string {
+  try {
+    const back = new URL(authorizationUrl ?? '').searchParams.get('redirect_uri')
+    if (back) return new URL(back).host
+  } catch { /* not an address: this page's */ }
+  return typeof location === 'undefined' ? '' : location.host
+}

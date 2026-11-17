@@ -15,7 +15,7 @@ import { fail, HttpError } from '../../http/errors'
 import { resolveLayout } from '../../system/layout'
 import { egressOf } from '../../tools/egress'
 import { checkHostName, isLocalAddress, isPublicAddress } from '../../tools/web-fetch'
-import { secretHider } from './hide'
+import { errorForLog, secretHider, SecretTooLarge } from './hide'
 import { MCP_CALL_IDLE_MS, MCP_CALL_TIMEOUT_MS, MCP_LIST_TIMEOUT_MS, McpClient, McpError } from './mcp'
 import { NetError, serviceRequest, TIMEOUT_MS, type NetOptions, type NetResponse } from './net'
 import { authorizationUrl, CALLBACK_PATH, canonicalResource, chooseClient, discover, documentOrigins, GrantError, issuerMatches, loopbackClient, loopbackPortOk, manualServer, ownClient, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens, type OwnClient } from './oauth'
@@ -808,7 +808,8 @@ export class Integrations {
       if (!v) return () => WITHHELD
       values.push(...v)
     }
-    return secretHider(values)
+    // a value too large to hide (hide.ts SecretTooLarge): fails closed, as an unreadable one
+    try { return secretHider(values) } catch (e) { if (e instanceof SecretTooLarge) return () => WITHHELD; throw e }
   }
 
   private async revokeTokens(s: Secret) {
@@ -885,7 +886,7 @@ export class Integrations {
       const s = statusOf(e)
       // a failure of our own (not the service's answer) still reads "did not answer like a connector" below; the log
       // says what it was (QA TC-4770: a hider too large to build failed every check, with nothing in the log)
-      if (!s && !(e instanceof McpError)) this.ctx.log.warn('connection check failed in the server', { id: row.id, err: e instanceof Error ? `${e.name}: ${e.message.slice(0, 200)}` : typeof e })
+      if (!s && !(e instanceof McpError)) this.ctx.log.warn('connection check failed in the server', { id: row.id, err: errorForLog(e) })
       // the row as it is now: a call during the check may have found a sign-in needed (that stays), or an error
       const now = getRow(this.db, row.id)
       if (now && now.version === row.version && now.status === 'needs_auth' && row.status !== 'needs_auth') return now

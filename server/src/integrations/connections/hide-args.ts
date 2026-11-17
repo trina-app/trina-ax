@@ -9,8 +9,8 @@
 // form that the text it replaces already holds, and write keeps a form the file it overwrites already holds (their
 // own uploaded file with their key in it is not changed by an AI rewrite). Paths the tool only reads (make_file's
 // source and template, a promo's sources and logo) are left too.
-import { HIDDEN } from './hide'
-import type { Redactor } from './redact'
+import { HIDDEN, hideWith } from './hide'
+import { nothingToHide, type Redactor } from './redact'
 
 type Obj = Record<string, unknown>
 const isObj = (v: unknown): v is Obj => !!v && typeof v === 'object' && !Array.isArray(v)
@@ -25,9 +25,9 @@ function deep(v: unknown, hide: (s: string) => string, keep: ReadonlySet<string>
 
 /** `text` with every key form hidden except the forms that `kept` holds as written */
 export function hideExcept(r: Redactor, text: string, kept: string | null | undefined): string {
-  if (!r.re || !text) return text
-  if (!kept) return r.hide(text)
-  return text.replace(r.re, (m) => (kept.includes(m) ? m : HIDDEN))
+  if (nothingToHide(r) || !text) return text
+  if (!kept || r.withheld) return r.hide(text)
+  return hideWith(r.res, text, (m) => (kept.includes(m) ? m : HIDDEN))
 }
 
 /** The tools whose arguments are saved somewhere, and what of them stays as given (see above). */
@@ -65,7 +65,9 @@ export interface HiddenArgs { args: unknown; hidden: boolean; note?: string }
  */
 export function hideKeysInArgs(name: string, args: unknown, r: Redactor, current?: (path: string) => string | null): HiddenArgs {
   const keep = KEEP[name]
-  if (!keep || !r.re || !isObj(args)) return { args, hidden: false }
+  if (!keep || nothingToHide(r) || !isObj(args)) return { args, hidden: false }
+  // the keys could not be made into a hider: nothing is saved unchecked
+  if (r.withheld) throw new KeyRefusal(UNCHECKED_REFUSAL, 'stored keys could not be read')
   const out = deep(args, r.hide, new Set(keep)) as Obj
   if (name === 'write' && typeof args.content === 'string') {
     // the file it overwrites is the one at the path it really writes: the hidden one
@@ -126,7 +128,8 @@ export const UNCHECKED_REFUSAL = `Nothing was sent: one of the user's stored con
  * do not match across them), and for base64 data that holds one (a file with a hole in it would be sent otherwise).
  */
 export function hideAllArgs(args: unknown, r: Redactor): HiddenArgs {
-  if (!r.re) return { args, hidden: false }
+  if (nothingToHide(r)) return { args, hidden: false }
+  if (r.withheld) throw new KeyRefusal(UNCHECKED_REFUSAL, 'stored keys could not be read')
   let hidden = false
   const one = (s: string): string => {
     const h = r.hide(s)
