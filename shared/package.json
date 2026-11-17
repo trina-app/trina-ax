@@ -31,6 +31,7 @@
     "./app-links": "./src/app-links.ts",
     "./skill-roots": "./src/skill-roots.ts",
     "./release-manifest": "./src/release-manifest.ts",
-    "./sentry-report": "./src/sentry-report.ts"
+    "./sentry-report": "./src/sentry-report.ts",
+    "./speech-pieces": "./src/speech-pieces.ts"
   }
 }

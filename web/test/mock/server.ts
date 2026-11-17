@@ -3855,6 +3855,11 @@ export class MockServer {
       this.transcribeGate(c.body.chatId)
       return { status: 202, body: { jobId: this.transcribeJob(c.user) } }
     },
+    // voice input while recording (a team whose voice input goes to OpenRouter): each piece answered at once
+    transcribePiece: (c) => {
+      this.transcribeGate(c.body.chatId)
+      return { lines: [{ start: 0, end: 1, text: '받아쓴 문장입니다' }], language: 'ko' }
+    },
     pollCalls: () => ({ calls: [] }),
     // like server/src/routes/browser.ts: a result for a call this server is not waiting for is 404 (the mock never makes calls)
     postResult: () => fail('not_found', 404),
