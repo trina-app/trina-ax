@@ -43,6 +43,7 @@ import { quotesAppOnBranch, readRooms, withoutQuoteLines } from './read-rooms'
 import { seenWhy } from './grant-reads'
 import { componentC } from '../team-files/component'
 import { looseArea, placementNote } from './file-placement'
+import { FileLinkRepair, fileLinkResolver } from './file-link-repair'
 import { buildAgentDefinitions, initProblem, LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS, PARENT_ONLY_TOOLS, SUBTASK_STEPS_KEPT, subtaskSummary } from './subagents'
 import { getTeamSettings } from '../admin/settings'
 import { everyoneMayUse, invokedSkill, isGroupSkill, listSkills, mayNotUse, ownPersonalSkill, projectOfFolder, projectSkillSections, sameSkillName, skillAlias, skillFolder, skillTier, widerSkillsNamed, type ChatProject, type SkillScope } from './skills'
@@ -451,6 +452,8 @@ export class TurnExec {
    * (integrations/connections/redact.ts); read again after each tool call (a call may refresh a token) */
   private redactorNow: Redactor | null = null
   private readonly answerText = new RedactingText(() => this.redactor())
+  /** team-file links whose path the AI typed wrong, pointed at the file their label names (chat/file-link-repair.ts) */
+  private readonly fileLinks = new FileLinkRepair((p, label) => fileLinkResolver(this.rt.files, () => this.livePrincipal(), () => this.turnFilePaths())(p, label))
   /** English status lines before a tool call, held until the call decides them (chat/narration.ts); set once the
    * person's message is read */
   private narration = new NarrationHold(null)
@@ -810,7 +813,7 @@ export class TurnExec {
     const skillList = buildSkillList(skills, { order: chatSkillOrder(rt.db, spec.chatId, spec.userId, () => descriptionOrder(skills, skillScores)), tag: neutralizeTags })
     const shared = this.shared ? { project: this.shared.kind === 'project' ? this.shared.project.name : null, audience: this.sharedAudience().length, asker: this.principal.name } : null
     // a chat opened from a room's side panel (✦ Trina): the room, while the person is still in it and it is not archived
-    const sideRoom = sideRoomOf(rt.db, spec.chatId, spec.userId)
+    const sideRoom = sideRoomOf(rt.db, spec.chatId, spec.userId, rt.files)
     // who the person is and where (chat/situation.ts): their role and what it may open, the app, whose AI answers, what
     // they may add themselves; never in a shared chat (prompt.ts SHARED_PROMPT_SECTIONS)
     // `managed`: the same check as the guest gate above (Codex runs on the team's connections on an installed server
@@ -1583,7 +1586,7 @@ export class TurnExec {
       case 'thinking':
         // more comes after thinking: a held status line is dropped as before a call, anything else goes out before the
         // thinking step (its place in the answer stays right)
-        this.emitText(this.answerText.push(this.narration.toolStart()))
+        this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart())))
         this.flushText()
         if (!this.thinkingStep) this.thinkingStep = this.addStep({ kind: 'thinking', label: tr('thinking', this.spec.locale), status: 'running' })
         return
@@ -1598,7 +1601,7 @@ export class TurnExec {
         // a status line in another script before the call is dropped here (chat/narration.ts); the main AI's calls only
         // a sub-agent's call leaves the main AI's piece undecided (only the redactor's end goes out)
         if (e.parentId) this.emitText(this.answerText.flush())
-        else { this.emitText(this.answerText.push(this.narration.toolStart())); this.flushText() }
+        else { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart()))); this.flushText() }
         this.attemptHadOutput = true
         this.producedOutput = true
         // which agent made the call: the gate gives a sub-agent's calls that sub-agent's own state (TurnFiles.forCall)
@@ -1749,12 +1752,12 @@ export class TurnExec {
   }
 
   /** Engine text: let out (streamed and saved) through the redactor; the end that could start a secret waits. */
-  appendText(t: string) { this.emitText(this.answerText.push(this.narration.push(t))) }
+  appendText(t: string) { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.push(t)))) }
   /** Everything held back (an undecided piece, the redactor's end), let out now (before a step, a retry's separator,
    * the end). */
-  flushText() { this.emitText(this.answerText.push(this.narration.flush())); this.emitText(this.answerText.flush()) }
+  flushText() { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.flush()) + this.fileLinks.flush())); this.emitText(this.answerText.flush()) }
   /** The answer so far as the engine wrote it, the part still held back included (separator checks). */
-  get writtenText(): string { return this.content + this.answerText.held + this.narration.held }
+  get writtenText(): string { return this.content + this.answerText.held + this.fileLinks.held + this.narration.held }
   /** The person's message before this one (a short "ok" or "continue" answers in that message's language), or null. */
   private previousUserText(parentId: string | null): string | null {
     let cur = parentId
@@ -1770,6 +1773,7 @@ export class TurnExec {
   /** Discard the answer text from `at` on (streamed and saved), the part still held back included. */
   private discardTextFrom(at: number) {
     this.answerText.clear()
+    this.fileLinks.clear()
     this.narration.clear()
     if (at >= this.content.length) return
     this.content = this.content.slice(0, at)
@@ -3710,6 +3714,27 @@ export class TurnExec {
   }
 
   // ---------------- files ----------------
+  /** A file of the same folder and kind (`ext`) whose content this turn's agents read (the source list, not the hashes
+   * an edit or write leaves), other than `rel` and other than files this turn made, and still there. */
+  private readBeside(rel: string, folder: string, ext: string): boolean {
+    let made: Set<string> | null = null
+    for (const e of this.files.sources.entries()) {
+      const f = e.path
+      if (f === rel || !e.via.has('read')) continue
+      const n = f.slice(f.lastIndexOf('/') + 1), i = n.lastIndexOf('.')
+      if (f.split('/').slice(0, -1).join('/') !== folder || i <= 0 || n.slice(i).toLowerCase() !== ext) continue
+      made ??= new Set((this.rt.db.query("SELECT path FROM file_events WHERE turn_id = ? AND action IN ('create', 'upload')").all(this.id) as { path: string }[]).map((x) => x.path))
+      if (made.has(f)) continue
+      try { if (fs.statSync(path.join(this.rt.files.fx.root, ...f.split('/'))).isFile()) return true } catch { /* gone */ }
+    }
+    return false
+  }
+
+  /** the team paths this turn's tools created or changed (file-link-repair.ts: a link to one of them by its name) */
+  private turnFilePaths(): string[] {
+    return (this.rt.db.query("SELECT DISTINCT path FROM file_events WHERE turn_id = ? AND action IN ('create', 'update', 'upload')").all(this.id) as { path: string }[]).map((r) => r.path)
+  }
+
   /** After every tool call: new file_events of this turn -> files.changed for everyone who can see the path. */
   afterTool() {
     // a tool may mark the chat itself (a connection's or Google Drive's answer taints it): on the turn before its next call
@@ -3727,7 +3752,15 @@ export class TurnExec {
         const d = parseJson(r.detail)
         const folderOf = (p: string) => p.split('/').slice(0, -1).join('/')
         const renamed = typeof d.movedFrom === 'string' && folderOf(d.movedFrom) === folderOf(r.path)
-        if (!d.folder && !d.conflictCopyOf && !d.conflictOf && !renamed) this.loosePlaced.push(r.path)
+        // made from a file in the same folder (make_file's PDF of a deck, a docx of a draft; its source only, not an
+        // embedded picture or template): it belongs next to its source, and the note made the AI move the source too into a folder nobody asked for (AI flow FL-15, 11-17)
+        const besideSource = typeof d.from === 'string' && folderOf(d.from) === folderOf(r.path)
+        // made beside a file of the same kind this turn read there (a new deck from the team's deck): the folder's own
+        // way. The note made the AI regroup both into a "발표자료" folder nobody asked for, a turn later (AI flow FL-15,
+        // always mode on dev 552bcfd56)
+        const extOf = (p: string) => { const n = p.slice(p.lastIndexOf('/') + 1); const i = n.lastIndexOf('.'); return i > 0 ? n.slice(i).toLowerCase() : '' }
+        const besideRead = !!extOf(r.path) && this.readBeside(r.path, folderOf(r.path), extOf(r.path))
+        if (!d.folder && !d.conflictCopyOf && !d.conflictOf && !renamed && !besideSource && !besideRead) this.loosePlaced.push(r.path)
       }
     }
     if (changes.length) this.rt.publishFileChanges(changes)
@@ -3867,7 +3900,7 @@ export class TurnExec {
   /** The end state in the DB; returns the answer's status. */
   private finishState(): MessageStatus {
     // stopped or failed with a status line held: it is dropped like before a call (anything else goes out)
-    this.finishStep('text', () => { if (this.stopReason || this.error) this.emitText(this.answerText.push(this.narration.toolStart())); this.flushText() })
+    this.finishStep('text', () => { if (this.stopReason || this.error) this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart()))); this.flushText() })
     if (this.narration.dropped) this.rt.log.info('status lines left out of the answer', { turn: this.id, pieces: this.narration.dropped })
     this.finishStep('held answers', () => this.dropHeldAnswers())
     // the whole answer once more: an escaped or base64 form of a secret cut across two pieces (message.done below

@@ -37,6 +37,7 @@ import { pluginsOf } from '../plugins/manager'
 import { cancelPushSession } from '../notifications/push-events'
 import { webAllowAll } from '../tools/web-allow-all'
 import { mediaKeyOf } from './media-key'
+import { voidAppSignInCodes } from './app-signin'
 import { folderSharesOpen } from '../files/folder-share-gate'
 
 export const SESSION_TTL_MS = 30 * 24 * 3600_000
@@ -196,9 +197,11 @@ export class AuthService implements SessionService {
 
   /**
    * End every session of a person (except `keep`): password changed / reset, account disabled or deleted.
-   * Sockets of the ended sessions close; with `keep` only the other sessions' sockets are closed.
+   * Sockets of the ended sessions close; with `keep` only the other sessions' sockets are closed. The person's unspent
+   * desktop sign-in codes go too (auth/app-signin.ts): a code made before must not sign anyone in after this.
    */
   endUserSessions(userId: string, reason: EndReason, keep?: string): number {
+    voidAppSignInCodes(this.db, userId)
     const ids = (this.db.query('SELECT id FROM sessions WHERE user_id = ? AND id IS NOT ?').all(userId, keep ?? null) as { id: string }[]).map((r) => r.id)
     this.db.query('DELETE FROM sessions WHERE user_id = ? AND id IS NOT ?').run(userId, keep ?? null)
     for (const id of ids) cancelPushSession(this.ctx, id)

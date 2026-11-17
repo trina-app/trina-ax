@@ -15,7 +15,7 @@ export const APP_DOWNLOADS: AppDownloads = {
    * fallback lead: web/src/lib/team-link.ts getAppHref) */
   android: 'https://play.google.com/store/apps/details?id=app.trina.ax',
   /** the desktop app's Mac App Store listing */
-  mac: 'https://apps.apple.com/app/trina-ax/id6829192435?platform=mac',
+  mac: '',
   /** the desktop app's Microsoft Store listing */
   windows: '',
 }

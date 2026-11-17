@@ -18,6 +18,7 @@ import { isTextField } from '../lib/viewport'
 import { clearLocalData } from '../lib/localData'
 import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupSite } from '../lib/setupLink'
 import { setAfterSetup } from '../lib/welcome'
+import { afterSetupPath, pageOrigin } from '../lib/open-app'
 import { landingPath } from '../lib/tabs'
 import { forgetJoinToken, getAppHref, openInAppHref, openInAppShown, setAfterJoin, tabJoinToken } from '../lib/team-link'
 import { safeNext } from '../lib/nav'
@@ -122,7 +123,7 @@ export function BrowserLanguageOffer() {
  * that box's bottom edge, above the keyboard (QA TC-272). Inside the phone app the website's footer (the source code
  * link, the language select) is left out: the app's Settings › About has the source offer, and the language is the
  * person's or the team's. */
-function AuthFrame({ title, children, sub, switcher = true }: { title: string; children: ReactNode; sub?: ReactNode; switcher?: boolean }) {
+export function AuthFrame({ title, children, sub, switcher = true }: { title: string; children: ReactNode; sub?: ReactNode; switcher?: boolean }) {
   const inApp = !!mobileApp()
   const box = useFieldAboveBar()
   return (
@@ -438,10 +439,12 @@ export function Setup() {
       // the company website from the link: the company profile step starts from it (components/onboarding)
       rememberSetupSite(link.site)
       forgetSetupToken()
-      // then the welcome steps (pages/Welcome.tsx): set before the session switch re-renders /setup (App.tsx AfterSetup)
-      setAfterSetup('/welcome')
+      // then the welcome steps (pages/Welcome.tsx), or first, in a Mac or Windows browser, the offer to continue in the
+      // desktop app (pages/OpenApp.tsx; lib/open-app.ts): set before the session switch re-renders /setup (App.tsx AfterSetup)
+      const next = afterSetupPath({ platform: platform(), client: clientKind(), origin: pageOrigin() })
+      setAfterSetup(next)
       signedIn(r.me)
-      navigate('/welcome', { replace: true })
+      navigate(next, { replace: true })
     })
   }
   return (
@@ -558,7 +561,7 @@ function SignInInstead() {
  * systems only. On Android, without the app, Chrome opens the "Get the app" address instead. */
 function OpenInApp({ path }: { path: string }) {
   const t = useT()
-  const href = openInAppHref({ scheme: PRODUCT.linkScheme, origin: window.location.origin, path, platform: platform(), androidPackage: APP_LINKS.androidPackage, androidFallback: getAppHref('android', clientKind(), APP_DOWNLOADS) })
+  const href = openInAppHref({ scheme: PRODUCT.linkScheme, origin: pageOrigin(), path, platform: platform(), androidPackage: APP_LINKS.androidPackage, androidFallback: getAppHref('android', clientKind(), APP_DOWNLOADS) })
   if (!openInAppShown(clientKind(), href)) return null
   return (
     <p className="mt-2 text-center text-sm">
