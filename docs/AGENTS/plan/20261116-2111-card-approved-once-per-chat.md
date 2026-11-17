@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16 21:11
 - Branch: `fix/card-approved-once-per-chat`
-- Status: in progress
+- Status: done
 - Where: server (component B chat gates, component C connection gate). Why: the AI flow check of 2026-11-17 counted
   repeated cards for the same action in one chat (see docs/REPOSITORY-RULES.md)
 - Version impact: patch: fewer repeated cards, no new screen or setting (one table, migration 413)
@@ -53,4 +53,7 @@ c-card-approved-once-connector.test.ts and the room, post, connection and stamp 
 
 ## Result
 
-(filled in at the end)
+PR #1168. Built as planned, plus the independent review's must-fixes (keyed recipient paths, share-like tools never
+kept, drafts only from create-style tools and dropped on any write in any chat, instruction files never kept) and shared
+chats left out. Real AI, default mode: FL-08 9 → 6 prompts, FL-12 4 → 2 (one run 3: an edited draft made without its
+own card still asks before it is sent, by design).
