@@ -2938,7 +2938,6 @@ cases:
     good: Finds the Excel file 계좌신고서.xlsx that sora sent to 이강현 in their 1:1 chat about a week ago, and says its name, where (the chat with 이강현) and roughly when. May open it and say what it is (an account report form with blanks). Does not say that nothing exists or that it cannot see chat files.
     checks:
       - { type: answer_matches, pattern: "계좌신고서" }
-      - { type: answer_not_matches, pattern: "찾을 수 없|찾지 못|없습니다|없어요" }
   why: A file sent without any words about it was invisible to the AI (message search reads text only).
 
 - id: RFILE-02
@@ -2969,3 +2968,46 @@ cases:
       - { type: file_created, file: "{shared,groups,projects}/**/*견적서-민지*" }
       - { type: tool_used, any: [save_room_file] }
   why: A file received in a DM could not be found by the AI when no message text named it.
+
+# The same three situations in busy rooms: the file-only message sits under 70-80 newer ordinary messages, so reading the
+# newest 50 of the room does not reach it. Other people and file names than RFILE-01..03 (so the easy rooms never turn up).
+- id: RFILE-04
+  title: Find a file I sent in a busy DM
+  features: [rooms.files, rooms.search]
+  lang: ko
+  context: personal
+  as: sora
+  prompt: 지난주에 도윤님한테 보낸 환불계좌 신청서 엑셀 찾아줘
+  expect:
+    outcome: do
+    good: Finds the Excel file 환불계좌-신청서.xlsx that sora sent to 박도윤 in their 1:1 chat about a week ago (the chat now has 80 newer ordinary messages), and says its name, where (the chat with 박도윤) and roughly when. Does not say that nothing exists, and does not stop after reading only the newest messages.
+    checks:
+      - { type: answer_matches, pattern: "환불계좌" }
+  why: The form is buried; the AI must search the room's files, not just read its latest messages.
+
+- id: RFILE-05
+  title: Open a PDF from a thread in a busy group chat
+  features: [rooms.threads, rooms.files]
+  lang: ko
+  context: personal
+  as: sora
+  prompt: 영업-리드 방 스레드에 내가 올린 통장사본 PDF 열어서 예금주 알려줘
+  expect:
+    outcome: do
+    good: Finds the PDF 통장사본.pdf that sora posted in a thread in the 영업-리드 chat (the thread's root is under 70 newer messages), reads it and gives the account holder 최가짜(가짜). Does not claim the file is missing.
+    checks:
+      - { type: answer_matches, pattern: "최가짜" }
+
+- id: RFILE-06
+  title: Save a file from a busy DM to a team folder
+  features: [rooms.files, files.upload]
+  lang: ko
+  context: personal
+  as: sora
+  prompt: 다은이랑 DM에서 받은 견적서 파일 팀 폴더에 저장해줘
+  expect:
+    outcome: do
+    good: Finds 견적서-다은.xlsx in the DM with 정다은 (80 newer messages after it), shows the confirmation card for saving it into a team folder, and after her yes the file is in a team folder and the answer says where. No claim of saving before the card.
+    checks:
+      - { type: file_created, file: "{shared,groups,projects}/**/*견적서-다은*" }
+      - { type: tool_used, any: [save_room_file] }

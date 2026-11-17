@@ -61,13 +61,15 @@ Nothing here touches a real team. The fixture is a fictional company, and its pa
 | junho | 정준호 | member | 재무 | in neither the project nor the room |
 | kanghyun | 이강현 | member | | the other side of a DM and a member of the leads chat |
 | minji | 김민지 | member | | sends a quote file in a DM |
+| doyun | 박도윤 | member | | DM partner and a member of the 영업-리드 chat (busy rooms) |
+| daeun | 정다은 | member | | sends a quote file in a busy DM |
 | partner | | guest | | a guest of the project |
 
 **Places**
 
 - A personal chat for each person.
 - The team project **라마바카페 납품**, with its shared chat: members 영업 and hana.
-- Files sent in chat as file-only messages ([`fixture/chatfiles`](fixture/chatfiles), made by `make-files.py`): a DM sora → kanghyun with `계좌신고서.xlsx` (its date is set to a week ago in the server's SQLite after seeding, because the API cannot backdate); the group chat **leads** (sora, daniel, kanghyun) with a root message and a thread whose replies are `사업자등록증.pdf` and `리드-목록.xlsx`; a DM minji → sora with `견적서-민지.xlsx`. No message text names its file.
+- Files sent in chat as file-only messages ([`fixture/chatfiles`](fixture/chatfiles), made by `make-files.py`): a DM sora → kanghyun with `계좌신고서.xlsx` (its date is set to a week ago in the server's SQLite after seeding, because the API cannot backdate); the group chat **leads** (sora, daniel, kanghyun) with a root message and a thread whose replies are `사업자등록증.pdf` and `리드-목록.xlsx`; a DM minji → sora with `견적서-민지.xlsx`. No message text names its file. The same three again in busy rooms (other people and file names: a DM with doyun with `환불계좌-신청서.xlsx`, the chat 영업-리드 with a thread holding `통장사본.pdf`, a DM from daeun with `견적서-다은.xlsx`), each file buried under 70-80 newer ordinary messages written straight into SQLite, so a read of the newest 50 messages of the room does not reach it.
 - The group chat **라마바카페 건** (sora, daniel, minho), with five messages, a thread and a PDF sent into it. Each
   member also has the ✦ side chat beside it.
 

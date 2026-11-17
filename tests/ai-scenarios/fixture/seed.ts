@@ -35,6 +35,8 @@ export const COMPANY: DemoCompany = {
     { username: 'junho', name: '정준호', role: 'member', group: '재무' },
     { username: 'kanghyun', name: '이강현', role: 'member', group: null },
     { username: 'minji', name: '김민지', role: 'member', group: null },
+    { username: 'doyun', name: '박도윤', role: 'member', group: null },
+    { username: 'daeun', name: '정다은', role: 'member', group: null },
   ],
   groups: [
     { name: '영업', description: '거래처, 견적, 계약' },
@@ -194,6 +196,67 @@ export async function seedFixture(o: { base: string; setupToken: string | null; 
       }
       db.close()
     } else o.log('fixture: no data folder, the 계좌신고서 message keeps today\'s date')
+  }
+
+  // 3c. the same three situations in BUSY rooms: the file-only message is buried under newer ordinary messages, so a default
+  //     read of the room (the newest 50) does not reach it (RFILE-0x.busy). Other people and other file names than 3b, so a
+  //     search in the easy rooms never meets the busy ones: (a) sora -> doyun DM, 환불계좌-신청서.xlsx a week ago, then 80 newer
+  //     messages; (b) the group chat 영업-리드 (sora, daniel, doyun): a root with a thread (통장사본.pdf, 리드-목록.xlsx), then
+  //     70 newer root messages; (c) daeun -> sora DM, 견적서-다은.xlsx, then 80 newer messages. The filler is written straight
+  //     into SQLite like the backdating (seq from rooms.last_seq, as the server does), spread over the days after the file.
+  if (o.dataDir) {
+    const doyun = await login(o.base, 'doyun', PASSWORD)
+    const daeun = await login(o.base, 'daeun', PASSWORD)
+    const mimeOf2 = (n: string) => n.endsWith('.pdf') ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    const send2 = async (c: ApiClient, roomId: string, name: string, text: string, threadRootId?: string) => {
+      const f = await c.call(API.uploadRoomFile, { params: { id: roomId }, body: { fields: {}, file: new Blob([fs.readFileSync(path.join(CHAT_FILES, name))], { type: mimeOf2(name) }), filename: name } })
+      const m = await c.call(API.sendRoomMessage, { params: { id: roomId }, body: { body: text, fileIds: [f.id], ...(threadRootId ? { threadRootId } : {}), mentions: [], clientMessageId: crypto.randomUUID() } })
+      await Bun.sleep(50)
+      return { message: m, file: f }
+    }
+    const BUSY_LEADS = '영업-리드'
+    const dmD = await sora.call(API.createRoom, { body: { kind: 'dm', userId: id('doyun') } })
+    const refund = await send2(sora, dmD.id, '환불계좌-신청서.xlsx', '보내드려요')
+    const busyLeads = await sora.call(API.createRoom, { body: { kind: 'group', userIds: [id('daniel'), id('doyun')], name: BUSY_LEADS } })
+    const busyRoot = await sora.call(API.sendRoomMessage, { params: { id: busyLeads.id }, body: { body: '이번 달 신규 리드 서류 모아둘게요', mentions: [], clientMessageId: crypto.randomUUID() } })
+    await send2(sora, busyLeads.id, '통장사본.pdf', '올렸어요', busyRoot.id)
+    await send2(sora, busyLeads.id, '리드-목록.xlsx', '이것도요', busyRoot.id)
+    const dmE = await daeun.call(API.createRoom, { body: { kind: 'dm', userId: id('sora') } })
+    const quoteE = await send2(daeun, dmE.id, '견적서-다은.xlsx', '확인 부탁드려요')
+    const LINES = ['점심 뭐 드실래요?', '오늘 회의 몇 시였죠?', '네, 확인했습니다.', '조금 늦을 것 같아요.', '내일 오전에 전화드릴게요.', '감사합니다!', '그 건은 다음 주에 얘기해요.',
+      '비 오네요, 우산 챙기세요.', '프린터 용지가 떨어졌어요.', '일정 공유 드려요.', '좋아요, 그렇게 해요.', '잠깐 통화 가능하세요?', '커피 한잔 하실래요?', '월요일에 뵙겠습니다.',
+      '샘플은 내일 도착한대요.', '네, 알겠습니다.', '퇴근 전에 한 번 더 볼게요.', '주차 자리 있어요?', '회의실 예약해 둘게요.', '오늘 정말 바쁘네요.']
+    const db = new (await import('bun:sqlite')).Database(path.join(o.dataDir, 'app.db'))
+    db.exec('PRAGMA busy_timeout = 10000')
+    const put = (roomId: string, author: string, body: string, at: string) => {
+      const seq = (db.query('UPDATE rooms SET last_seq = last_seq + 1 WHERE id = ? RETURNING last_seq').get(roomId) as { last_seq: number }).last_seq
+      db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, visibility, body, mentions, created_at) VALUES (?, ?, ?, 'user', ?, 'room', ?, '[]', ?)`).run(crypto.randomUUID(), roomId, seq, author, body, at)
+    }
+    const day = 86400_000
+    const t0 = Date.now()
+    const filler = (roomId: string, authors: string[], n: number, fromDaysAgo: number) => {
+      for (let i = 0; i < n; i++) {
+        const at = new Date(t0 - fromDaysAgo * day + (i + 1) * ((fromDaysAgo - 0.1) * day / (n + 1))).toISOString()
+        put(roomId, authors[i % authors.length]!, `${LINES[(i * 7 + 3) % LINES.length]} (${i + 1})`, at)
+      }
+      db.query('UPDATE rooms SET activity_at = ? WHERE id = ?').run(new Date(t0 - 0.1 * day).toISOString(), roomId)
+    }
+    // the file messages: dated 7 days (the form), 3 days (the thread), 6 days (the quote) ago; the filler comes after them
+    const setAt = (mid: string, fid: string | null, daysAgo: number) => {
+      const at = new Date(t0 - daysAgo * day).toISOString()
+      db.query('UPDATE room_messages SET created_at = ? WHERE id = ?').run(at, mid)
+      if (fid) db.query('UPDATE room_files SET created_at = ? WHERE id = ?').run(at, fid)
+    }
+    setAt(refund.message.id, refund.file.id, 7)
+    setAt(busyRoot.id, null, 3.05)
+    db.query('UPDATE room_messages SET created_at = ? WHERE thread_root_id = ?').run(new Date(t0 - 3 * day).toISOString(), busyRoot.id)
+    db.query('UPDATE room_files SET created_at = ? WHERE room_id = ?').run(new Date(t0 - 3 * day).toISOString(), busyLeads.id)
+    setAt(quoteE.message.id, quoteE.file.id, 6)
+    filler(dmD.id, [id('sora'), id('doyun')], 80, 6.9)
+    filler(busyLeads.id, [id('sora'), id('daniel'), id('doyun')], 70, 3)
+    filler(dmE.id, [id('sora'), id('daeun')], 80, 5.9)
+    db.close()
+    o.log('busy rooms seeded (80 / 70 / 80 newer messages after the files)')
   }
 
   // 4. a guest: the client's buyer, invited into the project by the owner (no AI on a server that runs on this Mac's own
