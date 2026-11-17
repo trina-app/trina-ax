@@ -69,6 +69,7 @@ import type { ChatRuntime } from './runtime'
 import { blankTeamAttachment, stopReasonOf, type MessageRow } from './store'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { buildToolSet, widenOf, type ChatToolSet } from './tools'
+import { noSearchPath, PROJECT_SEARCH_NOTE, SKIP_OWN, wholeTeamPath } from './search-path'
 import type { ToolCard } from '../services'
 import { ConnectOutcome, type ConnectCard } from './connect-service'
 import { devEnvFlag, mayUseDevEnv } from '../devenv/setting'
@@ -130,9 +131,7 @@ import { shownTimeZone } from '../system/time-zone'
 import { mayManageProject, projectMembersBy } from './projects'
 import { membersView } from './project-access'
 
-/** A search's path that names no folder: none, empty, or only separators and "." ("/", "./", "//", "\\", " . ") —
- * the team root, which a shared chat never searches by default (TurnExec.sharedArgs). */
-export const noSearchPath = (p: unknown): boolean => typeof p !== 'string' || p.replace(/\\/g, '/').split('/').every((s) => s.trim() === '' || s.trim() === '.')
+export { noSearchPath } from './search-path'
 
 /** One answer has no time limit (owner decision 2026-11-14, docs/DECISIONS.md "No time limit on one answer"): it ends
  * when the engine is done, at the tool rounds, at a budget or at Stop. Only a stalled engine is ended: nothing from it
@@ -2961,13 +2960,25 @@ export class TurnExec {
     try { return missingReaders(this.rt.db, this.rt.files.rules(), scope, this.sharedAudience()).length > 0 } catch { return true }
   }
 
+  /** A search of this turn stayed in the project folder (sharedArgs): the note for its result, the first time only. */
+  projectSearchNote(): string | null {
+    if (this.shared?.kind !== 'project' || this.projectSearchNoted) return null
+    this.projectSearchNoted = true
+    return PROJECT_SEARCH_NOTE
+  }
+  private projectSearchNoted = false
+
   /** A shared chat's call as it runs: a search without a path looks in the project folder only (the project's people
    * may all read it), or in a chat shared with people and groups in the one folder everyone in it may read
    * (peopleSearchPlace; none: sharedSearchRefusal refuses the call first, and this never falls back to the sender's whole
-   * access); the AI is told so in its instructions. */
+   * access); the AI is told so in its instructions. In a project chat "/" alone (WHOLE_TEAM_PATH) is the team root:
+   * every folder the person can open, behind the read card. */
   sharedArgs(tool: string, args: unknown): unknown {
     if (!this.shared || !SEARCH_TOOLS.has(tool) || !args || typeof args !== 'object') return args
     const a = args as Record<string, unknown>
+    // "/" alone in a project chat: the whole team folder the person can open (the read card asks first for any place
+    // some of the chat's people cannot open, the person's own folder included)
+    if (this.shared.kind === 'project' && wholeTeamPath(a.path)) return { ...a, path: '' }
     if (!noSearchPath(a.path)) return args
     if (this.shared.kind === 'project') return { ...a, path: this.shared.project.folder_path }
     const place = this.peopleSearchPlace()
@@ -3032,7 +3043,8 @@ export class TurnExec {
           if (readable(f ? f.split('/') : [])) out.push(sourceOf(this.rt.db, rules, f))
         }
         const mine = fold(`users/${me.id}`)
-        if (bases.some((b) => b === '' || b === 'users' || b === mine || b.startsWith(mine + '/'))) out.push({ type: 'user', id: me.id })
+        // (a project chat's "/" search leaves the person's own folder out: SKIP_OWN, files/service.ts)
+        if (!(input && typeof input === 'object' && SKIP_OWN.has(input)) && bases.some((b) => b === '' || b === 'users' || b === mine || b.startsWith(mine + '/'))) out.push({ type: 'user', id: me.id })
       } else {
         // the names a listing shows: each folder the person sees there by its name (who else would see that name), the
         // files by the folder's readers; a folder they cannot list at all: what note() makes of the path

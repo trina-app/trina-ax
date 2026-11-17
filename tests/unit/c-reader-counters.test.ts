@@ -94,7 +94,7 @@ const REVIEWED: Record<string, { n: Counts; why: string }> = {
   "server/src/files/share-fixes.ts": { n: {"users/": 1}, why: "Ask an admin is for team folders only" },
   "server/src/files/access-routes.ts": { n: {"users/": 2}, why: "who_can_open: a personal path's folder lets in its person alone; a personal folder's own share and a file's shared folders are read in who-can-open.ts (the Share dialog's view, FolderShares.throughOf)" },
   "server/src/files/search.ts": { n: {"access": 1}, why: "the caller's own sight" },
-  "server/src/files/service.ts": { n: {"shareReaders": 2, "access": 1, "import:shareReaders": 1}, why: "the old restore path refuses a restore into a folder shared since; the access line: the caller's own sight" },
+  "server/src/files/service.ts": { n: {"shareReaders": 2, "access": 1, "users/": 1, "import:shareReaders": 1}, why: "the old restore path refuses a restore into a folder shared since; the access line: the caller's own sight; the users/ line only leaves the person's own folder OUT of a shared project chat's \"/\" search (skipOwnOf: narrows what a search returns, never grants or reads more)" },
   "server/src/files/share-places.ts": { n: {"users/": 3}, why: "where a folder share may live" },
   "server/src/files/share-readers.ts": { n: {"shareReaders": 5, "readersAt": 1, "readerCheck": 1, "privateToMe": 1, "access": 2, "users/": 6}, why: "the hook itself" },
   "server/src/files/share-undo.ts": { n: {"access": 1, "users/": 1}, why: "Undo needs edit access by the folder rules (PR 6, second review); audit wording" },
