@@ -18,6 +18,7 @@ import { runIsolated, waitsBehindPeople } from '../tools/isolate'
 import { inProcessParseMax } from '../system/limits'
 import { OFFICE_TEXT_MAX, TOOL_ERROR_EXIT, WORKER_EXT } from './office-parse'
 import { tooComplex } from './zip-guard'
+import { assertNoCommonJsUpng, pdfLibBundlePlugins } from './bundle-pins'
 import { quoteLines, SECTION_MARK } from './ooxml'
 
 export const OFFICE_EXT = ['docx', 'pptx', 'odt', 'xlsx', 'xls', 'ods', 'pdf', 'hwp', 'hwpx'] as const
@@ -99,23 +100,11 @@ export function officeWorkerScript(): Promise<string> {
     const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'office-worker-')))
     process.once('exit', () => { try { fs.rmSync(dir, { recursive: true, force: true }) } catch {} })
     const out = path.join(dir, 'office-worker.js')
-    // pdf-lib's PNG reader imports @pdf-lib/upng, a package with both an ES module ("module") and a CommonJS file
-    // ("main", whose export is `{ default: UPNG }`). Bun.build sometimes took the CommonJS one for that import and
-    // bundled `import_upng.default.decode`, which is not a function: every stamp_pdf / edit_pdf image of that process
-    // then failed with "a damaged PNG or JPG" (b-card-approved-once and others failed now and then in CI, 2026-11-17).
-    // The ES module is named here, so the choice does not depend on the bundler's order of work; a bundle that still
-    // has the CommonJS import is built again, and one that keeps it fails here with the reason.
-    let upng: string | null = null
-    try { upng = path.join(path.dirname(require.resolve('@pdf-lib/upng/package.json', { paths: [path.dirname(require.resolve('pdf-lib/package.json', { paths: [import.meta.dir] }))] })), 'UPNG.js') } catch { /* not found: the bundler decides */ }
-    const plugins = upng && fs.existsSync(upng)
-      ? [{ name: 'pin-upng-es', setup(b: import('bun').PluginBuilder) { b.onResolve({ filter: /^@pdf-lib\/upng$/ }, () => ({ path: upng! })) } }]
-      : []
-    for (let attempt = 1; ; attempt++) {
-      const res = await Bun.build({ entrypoints: [src], target: 'bun', outdir: dir, naming: 'office-worker.js', minify: false, plugins })
-      if (!res.success) throw new Error('office worker build failed: ' + res.logs.map(String).join('\n'))
-      if (!fs.readFileSync(out, 'utf8').includes('import_upng')) return out
-      if (attempt >= 3) throw new Error('office worker build failed: the PNG reader was bundled as a CommonJS import (import_upng)')
-    }
+    // the PNG decoder is pinned to its ES module and a CommonJS bundle of it fails here (bundle-pins.ts)
+    const res = await Bun.build({ entrypoints: [src], target: 'bun', outdir: dir, naming: 'office-worker.js', minify: false, plugins: pdfLibBundlePlugins() })
+    if (!res.success) throw new Error('office worker build failed: ' + res.logs.map(String).join('\n'))
+    assertNoCommonJsUpng(out)
+    return out
   })().catch((e) => { workerScript = null; throw e }))
 }
 
