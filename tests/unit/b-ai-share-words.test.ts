@@ -370,8 +370,19 @@ describe('through the tools', () => {
     return { content: done.data.message.content as string, card }
   }
 
-  test('a folder: refused as before, now with the files in it the person can share (subfolders and hidden files left out)', async () => {
+  test('a folder of my own, folder sharing on: refused without a card, the next step is share_folder (not the files in it)', async () => {
     const r = await turn('bob', share({ paths: ['users/bob/QA-test'], people: ['Tess Yoon'] }))
+    expect(r.card).toBeNull()
+    expect(r.content).toContain('Nothing was shared: "내 폴더 › QA-test" is a folder, and share_with_person shares files only. Next step: call share_folder with this folder and the same people')
+    expect(r.content).not.toContain('cannot be shared yet')
+    expect(h.ctx.db.query("SELECT COUNT(*) n FROM file_shares WHERE path LIKE 'users/bob/QA-test%'").get()).toEqual({ n: 0 })
+  })
+
+  test('a folder with folder sharing switched off: refused as before, now with the files in it the person can share (subfolders and hidden files left out)', async () => {
+    const cfg = h.ctx.config as { folderShares?: boolean }
+    cfg.folderShares = false
+    let r
+    try { r = await turn('bob', share({ paths: ['users/bob/QA-test'], people: ['Tess Yoon'] })) } finally { cfg.folderShares = undefined }
     expect(r.card).toBeNull()
     expect(r.content).toContain('Nothing was shared: "내 폴더 › QA-test" is a folder, and a whole folder cannot be shared yet')
     expect(r.content).toContain('"I can\'t share the whole folder yet, but I can share the 3 files in it"')

@@ -11,8 +11,8 @@
 //    a connection's write sees the chat as having read outside content;
 //  - off in a scheduled run, where grant reads are off (a shared chat, a guest, Slack, …), and in a sub-agent.
 //
-// Shares are made here as rows (the gate stays closed on every server; nothing here opens it): alice shares folders of
-// her own files with bob. erin is not on any share.
+// Shares are made here as rows (the reads below do not look at the gate, which is open by default since it was
+// switched on): alice shares folders of her own files with bob. erin is not on any share.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -89,8 +89,8 @@ afterAll(async () => {
   await h?.close()
 })
 
-test('the gate stays closed: these tests reach the folder rows directly', () => {
-  expect(FOLDER_SHARES_OPEN).toBe(false)
+test('the gate is open by default; these tests reach the folder rows directly either way', () => {
+  expect(FOLDER_SHARES_OPEN).toBe(true)
 })
 
 describe('list and read by link, never by path', () => {
