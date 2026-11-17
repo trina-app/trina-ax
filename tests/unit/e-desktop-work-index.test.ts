@@ -172,15 +172,16 @@ const newId = () => `id${n++}`
 const idx = (path: string, o: Partial<IndexedFile> = {}): IndexedFile => ({ path, used: NOW - 3 * DAY, modified: NOW - 20 * DAY, useCount: 2, size: 5000, origins: [], authors: [], org: null, ...o })
 
 describe('the look with the index', () => {
-  test('index hits: inside the folder, no link on the way, a document, recent, 1 KB to 50 MB; the hints kept; nothing opened', async () => {
+  test('index hits: inside the folder, no link on the way, a document, recent, not empty and up to 50 MB; the hints kept; nothing opened', async () => {
     const { fs, calls } = fakeFs({ Users: dir({ alex: dir({
-      Documents: dir({ Clients: dir({ 'Plan.docx': file() }), 'old.pdf': file(5000, NOW - 400 * DAY), 'tiny.txt': file(10), 'movie.mp4': file(), 'big.pdf': file(60 * 1024 * 1024), 'via-link': { link: '/Users/alex/.secret' }, node_modules: dir({ 'x.md': file() }) }),
+      Documents: dir({ Clients: dir({ 'Plan.docx': file() }), 'old.pdf': file(5000, NOW - 400 * DAY), 'tiny.txt': file(10), 'empty.pdf': file(0), 'movie.mp4': file(), 'big.pdf': file(60 * 1024 * 1024), 'via-link': { link: '/Users/alex/.secret' }, node_modules: dir({ 'x.md': file() }) }),
       '.secret': dir({ 'key.pdf': file() }),
     }) }) })
     const r = await filesFromIndex(ROOTS[0]!, '/Users/alex/Documents', [
       idx('/Users/alex/Documents/Clients/Plan.docx', { origins: ['acme.slack.com'], authors: ['Bo'], org: 'Acme' }),
       idx('/Users/alex/Documents/old.pdf', { used: null, modified: NOW - 400 * DAY }),
       idx('/Users/alex/Documents/tiny.txt'),
+      idx('/Users/alex/Documents/empty.pdf'),
       idx('/Users/alex/Documents/movie.mp4'),
       idx('/Users/alex/Documents/big.pdf'),
       idx('/Users/alex/Documents/via-link/key.pdf'),
@@ -188,7 +189,8 @@ describe('the look with the index', () => {
       idx('/Users/alex/Desktop/elsewhere.pdf'),
       idx('/Users/alex/Documents'),
     ], fs, { platform: 'darwin', newId, now: () => NOW })
-    expect(r.files.map((x) => `${x.folder}/${x.name}`)).toEqual(['Clients/Plan.docx'])
+    // a small file is listed (search by name finds it; the page keeps it out of the picks: MAN-057); an empty one is not
+    expect(r.files.map((x) => `${x.folder}/${x.name}`)).toEqual(['Clients/Plan.docx', '/tiny.txt'])
     expect(r.files[0]).toMatchObject({ used: NOW - 3 * DAY, useCount: 2, origins: ['acme.slack.com'], authors: ['Bo'], org: 'Acme', root: 'documents' })
     expect(r.tooBig).toBe(1)
     expect(JSON.stringify(r.files)).not.toContain('/Users/alex')

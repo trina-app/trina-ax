@@ -1,0 +1,1 @@
+- On a phone, **Files you sent** now always shows each file's size. For a file sent in a direct message, the person's name is shortened instead.
