@@ -10,6 +10,7 @@
 // trash setting. The yes is bound to the plan (TeamFiles.planAiTrash: every entry on disk, who reads and writes
 // it, the trash setting), checked again around the move itself. No earlier answer, room grant or "always allow" covers
 // it; at most two such cards per answer, none after a "no", one card open at a time. One audit row per call.
+import { grantOnly } from './grant-reads'
 import { placeWords } from './place-words'
 import { DeleteFilesInput, uuidv7 } from '@mycel/shared'
 import type { Locale, TurnRequest } from '@mycel/shared/api'
@@ -76,6 +77,7 @@ export const DELETE_REFUSAL = {
   shared: `${NONE}: the AI does not delete files in a shared project chat (everyone in the project writes and reads it). Tell the user to ask in their own AI chat, or that ${SCREEN}.`,
   others: `${NONE}: other people's messages are in this chat, and one of them could ask for the delete. Tell the user to ask in a new chat of their own, or that ${SCREEN}.`,
   roomsSeen: `${NONE}: this chat holds messages from the user's team chat rooms or quotes another person's message (other people's words), and one of them could ask for the delete. Tell the user to ask in a new chat, or that ${SCREEN}.`,
+  sharedFile: `${NONE}: this chat read a file someone shared with the user (other people's words, not the user's own), and its text could ask for the delete. Tell the user to ask in a new chat, or that ${SCREEN}.`,
   slack: `${NONE}: the AI does not delete files in a chat asked from Slack. Tell the user to ask in the app's AI chat, or that ${SCREEN}.`,
   confidential: `${NONE}: the AI does not delete files in a confidential chat. Tell the user ${SCREEN}.`,
   restricted: `${NONE}: this chat has no file tools.`,
@@ -90,7 +92,7 @@ export type DeleteRefusal = keyof typeof DELETE_REFUSAL
 export type DeleteExec = Pick<TurnExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'files' | 'rt' | 'waitForPerson' | 'openRequests' | 'livePrincipal'> & Partial<Pick<TurnExec, 'alwaysPlace'>>
 
 /** Why delete_files is refused in this turn whatever is asked, or null: only the person's own chat, with them there. */
-export function deleteFilesRefusal(exec: Pick<DeleteExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'rt'> & Partial<Pick<TurnExec, 'alwaysPlace'>>): DeleteRefusal | null {
+export function deleteFilesRefusal(exec: Pick<DeleteExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'rt'> & Partial<Pick<TurnExec, 'alwaysPlace' | 'files'>>): DeleteRefusal | null {
   if (exec.restricted) return 'restricted'
   if (exec.templateRun) return 'template'
   // a scheduled run has nobody to answer the card: only the person's own "Always allow" for deletes lets it go on (owner 2026-11-14)
@@ -100,7 +102,8 @@ export function deleteFilesRefusal(exec: Pick<DeleteExec, 'spec' | 'shared' | 'r
   if (exec.otherAuthors) return 'others'
   if (exec.fromSlack) return 'slack'
   // has read rooms: a room read, a ✦ side chat, or another person's message quoted on this branch (chat/read-rooms.ts)
-  if (readRooms(exec)) return 'roomsSeen'
+  // (words only: a mark that came from a file shared with the person alone says so, chat/grant-reads.ts)
+  if (readRooms(exec)) return grantOnly(exec) ? 'sharedFile' : 'roomsSeen'
   return null
 }
 

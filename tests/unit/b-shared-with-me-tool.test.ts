@@ -10,7 +10,8 @@ import { uuidv7 } from '@mycel/shared'
 import { API, FILE_SHARE_EVERYONE, type Room } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { dropAlways, keepAlways } from '../../server/src/chat/always-allow'
-import { readByGrant, seenWhy } from '../../server/src/chat/grant-reads'
+import { othersSource, readByGrant, seenWhy, SHARED_FILE_SOURCE } from '../../server/src/chat/grant-reads'
+import { DELETE_REFUSAL, deleteFilesRefusal } from '../../server/src/chat/delete-files'
 import { tr } from '../../server/src/chat/i18n'
 import { GUEST_TURN_TOOLS } from '../../server/src/chat/guest-tools'
 import { readRooms } from '../../server/src/chat/read-rooms'
@@ -261,6 +262,40 @@ describe('a file read through a grant is other people\'s words', () => {
       expect(tr('sharedFileSeenConfirm', l, { ai: 'AI', what: 'W' })).toContain('W')
     }
     expect(tr('sharedFileSeenWhy', 'en')).toBe("A file someone shared with you (other people's words) was read here, so changes are asked first.")
+  })
+
+  test('refusals after a grant read name "a file someone shared" with the user, not their team chat rooms (delete, a change left unanswered); a room read keeps the room words', async () => {
+    const rules = RuleSet.load(h.ctx.db)
+    // the words picked from what the chat holds (the gate itself asks the marks: readRooms with rooms_seen)
+    const chat = (await h.api('bob').call(API.createChat, { body: {} })).id
+    addSources(h.ctx.db, chat, [sourceOf(h.ctx.db, rules, 'users/alice/quote.md')])
+    const seen = { ...(exec(chat) as object), roomsSeen: true } as never
+    expect(othersSource(seen, 'ROOM')).toBe(SHARED_FILE_SOURCE)
+    expect(deleteFilesRefusal(seen)).toBe('sharedFile')
+    expect(DELETE_REFUSAL.sharedFile).toContain('a file someone shared with the user')
+    expect(DELETE_REFUSAL.sharedFile).not.toContain('chat room')
+    addSources(h.ctx.db, chat, [{ type: 'room', id: financeRoom }])
+    expect(othersSource(seen, 'ROOM')).toBe('ROOM')
+    expect(deleteFilesRefusal(seen)).toBe('roomsSeen')
+
+    // end to end: bob's AI reads alice's shared file, then tries to delete one of his files; then a change whose card nobody answers
+    const id = await linkOf('alice', 'users/alice/quote.md')
+    const read = fake({ tool: 'read', args: { file_path: `/f/${id}` } })
+    const del = fake({ tool: 'delete_files', args: { paths: ['users/bob/payroll.md'] }, sayResult: true })
+    // (the chat is marked once the read is noted: the delete comes in the next message of the same chat)
+    const first = await turn('bob', read)
+    const d = await turn('bob', del, { chat: first.chatId })
+    expect(d.cards).toBe(0)
+    expect(d.content).toContain('a file someone shared with the user')
+    expect(d.content).not.toContain('team chat rooms')
+    expect(fs.existsSync(path.join(h.ctx.files.fx.root, 'users/bob/payroll.md'))).toBe(true)
+    const write = fake({ tool: 'write', args: { file_path: 'groups/finance/declined-after-shared.md', content: 'x' }, sayResult: true })
+    // (left unanswered: the card runs out, and the refusal says why every change here asks)
+    const w = await turn('bob', `${read}\n${write}`, { answer: null })
+    expect(w.card!.question).toContain(tr('sharedFileSeenWhy', 'ko').slice(0, 20))
+    expect(w.content).toContain('a file someone shared with the user')
+    expect(w.content).not.toContain('team chat rooms')
+    expect(fs.existsSync(path.join(h.ctx.files.fx.root, 'groups/finance/declined-after-shared.md'))).toBe(false)
   })
 
   // Rule A (#1143, the owner's 11-13 rule): the person's own "Always allow" is final, also after a grant read; the guards

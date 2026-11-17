@@ -51,6 +51,13 @@ export function grantOnly(exec: GrantReadExec): boolean {
   try { return readByGrant(exec) && !roomCameIn(exec) } catch { return false }
 }
 
+/** The AI-facing words for where the other people's words in this chat came from (refusals the AI relays): a file shared
+ * with the person when that is the only cause (grantOnly), else `room` (the caller's own room wording). */
+export const SHARED_FILE_SOURCE = 'a file someone shared with the user (other people\'s words, not the user\'s own)'
+export function othersSource(exec: GrantReadExec, room: string): string {
+  return grantOnly(exec) ? SHARED_FILE_SOURCE : room
+}
+
 const FILE_WORDS = { roomsSeenWhy: 'sharedFileSeenWhy', roomsSeenConfirm: 'sharedFileSeenConfirm', roomsSeenConfirmRead: 'sharedFileSeenConfirmRead' } as const
 /** The sentence that says why this chat asks first: about a file shared with the person when that is the cause and no
  * room's words came in, else the room sentence as before. Never throws (words only: the room sentence on any doubt). */

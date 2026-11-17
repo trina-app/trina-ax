@@ -24,6 +24,7 @@ import { planFolderAction, runFolderAction, type FolderActionInput, type FolderP
 import { levelFolder, levelLabel, peopleNames, peopleText, seesWho, type Level } from '../skills/move'
 import { st } from '../skills/text'
 import { neutralizeTags } from './prompt'
+import { grantOnly } from './grant-reads'
 import { readRooms } from './read-rooms'
 import type { TurnExec } from './turn'
 
@@ -37,7 +38,7 @@ const bad = (t: string, summary: string) => ({ ...text(t, true), summary: `${SKI
 const clip = (s: string, n = 120) => { const t = s.replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t }
 const nothing = (why: string, next: string) => `Nothing was changed. Why: ${why}. Next step: ${next}.`
 /** S7's reason: other people's words came into this chat (chat/read-rooms.ts) */
-const ROOM_READ_WHY = 'this chat read a team chat room or quotes another person\'s message (other people\'s words), so nothing is put into a skill folder from it'
+const roomReadWhy = (exec: TurnExec) => `this chat ${grantOnly(exec) ? 'read a file someone shared with the user (other people\'s words, not the user\'s own)' : 'read a team chat room or quotes another person\'s message (other people\'s words)'}, so nothing is put into a skill folder from it`
 
 /** Why this chat or this caller gets no skill_files card at all (null: go on). `files`: the calling agent's state (a
  * sub-agent's, or a call whose agent is not known, is not the main AI's). */
@@ -55,7 +56,7 @@ export function skillFilesRefusal(exec: TurnExec, args: unknown, files?: TurnFil
   // someone else wrote in this chat (it was shared): their words are in it
   if (exec.rt.db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? LIMIT 1").get(exec.spec.chatId, exec.spec.userId)) return r('other people wrote in this chat; skill folders are changed only in a chat of the user\'s own', 'the user can ask in a new chat of their own, or do it on the Files screen', 'others wrote here')
   // a chat that has read rooms (a room read, a side chat, a quoted message): nothing goes into a skill folder (S7)
-  if (intoSkills(args) && readRooms(exec)) return r(ROOM_READ_WHY, 'the user can ask in a new chat, or do it on the Files screen', 'into skills after a room read')
+  if (intoSkills(args) && readRooms(exec)) return r(roomReadWhy(exec), 'the user can ask in a new chat, or do it on the Files screen', 'into skills after a room read')
   return null
 }
 
@@ -87,7 +88,7 @@ export function skillFilesTool(exec: TurnExec) {
       const plan = planFolderAction(ctx, user, a)
       // a next step the user hears in their own language: given to the AI as it is to be said
       if ('refused' in plan) return bad(`Not ${verb}. Why: ${neutralizeTags(plan.refused.why)}. Next step: ${neutralizeTags(plan.refused.next)}.${plan.refused.say ? ` Say it as: "${st(plan.refused.say, spec.locale)}"` : ''}`, `refused: ${clip(plan.refused.why, 80)}`)
-      if (plan.kind === 'in' && readRooms(exec)) return bad(nothing(ROOM_READ_WHY, 'the user can ask in a new chat, or do it on the Files screen'), 'refused: into skills after a room read')
+      if (plan.kind === 'in' && readRooms(exec)) return bad(nothing(roomReadWhy(exec), 'the user can ask in a new chat, or do it on the Files screen'), 'refused: into skills after a room read')
       const L = spec.locale
       // names only now, after every check passed (S3), and only where the person may see who is there (seesWho)
       const names = (ids: readonly string[], l: Level | null) => (l && seesWho(ctx, user, l) ? peopleText(peopleNames(ctx, ids, L, 5), L) : null)
