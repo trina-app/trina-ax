@@ -15,7 +15,7 @@ type Ev = { text: string } | 'tool' | 'end'
 function run(hold: NarrationHold, evs: Ev[], n = 7): string {
   let out = ''
   for (const e of evs) {
-    if (e === 'tool') out += hold.toolStart()
+    if (e === 'tool') out += hold.toolStart({ path: 'shared' }) // a call of the main AI, its arguments known
     else if (e === 'end') out += hold.flush()
     else for (let i = 0; i < e.text.length; i += n) out += hold.push(e.text.slice(i, i + n))
   }
@@ -114,6 +114,40 @@ describe('NarrationHold', () => {
       'We moved the meeting notes to the project folder.', 'Thanks for the report.', 'Q3 Sales Report', 'Project Phoenix Kickoff Notes',
       'Lamaba Cafe Price List', 'The user guide is attached.', 'Dear team, the contract is signed.', 'Read more at https://example.com/file'])
       expect(run(ko(), [{ text: piece }, 'tool', { text: '\n\n끝.' }, 'end']), piece).toBe(piece + '\n\n끝.')
+  })
+
+  test('a work note is dropped only before a real call: thinking, a stop or an error keep it (review of the 11-17 rule)', () => {
+    const h = ko()
+    h.push('Find the price list first.')
+    expect(h.toolStart()).toBe('Find the price list first.') // no arguments: thinking / stop / error
+    const s = ko()
+    s.push('Let me check the folder.')
+    expect(s.toolStart()).toBe('') // #1066's status openings drop there as before
+  })
+
+  test('the review\'s probe: orders and plans said to people, common office words, sentence-case titles are kept', () => {
+    for (const piece of ['Read the attached file before the meeting.', 'Use the link below to sign the contract.',
+      'Check the invoice against the PO before paying.', 'Use code SAVE10 at checkout.', 'Read the contract carefully; the penalty clause changed.',
+      'Find attached the signed copy.', "I'll send the invoice tomorrow.", "I'll call the client after lunch.", 'Project kickoff on Monday.',
+      'Server maintenance tonight.', 'Drive safely.', 'The project is on hold.', 'This version is final.', 'Edit: the deadline moved to Friday.',
+      'Photos from the event.', 'Error: file not found.', 'Q3 project plan', 'Server migration checklist', 'Photo release form',
+      'Draft agreement for Acme Corp', 'New hire onboarding project', 'Send it and/or post it.', 'This user has admin rights.',
+      "User's guide attached.", 'Meet at 5 a.m. sharp.', 'The file link in my last answer had a typo.'])
+      expect(run(ko(), [{ text: piece }, 'tool', { text: '\n\n끝.' }, 'end']), piece).toBe(piece + '\n\n끝.')
+  })
+
+  test('a piece posted with small changes (Markdown, HTML, an emoji, an entity) still counts as copied', () => {
+    const cases: [string, unknown][] = [
+      ['Price list updated. Check the shared folder.', { text: '📢 Price list updated! Check the shared folder.' }],
+      ['The updated price list is in the shared folder.', { text: '**The updated price list** is in the shared folder.' }],
+      ['The updated price list is in the shared folder.', { html: '<p>The updated price list is in the <b>shared folder</b>.</p>' }],
+      ["I'll read the file tonight.", { text: 'I&#39;ll read the file tonight.' }],
+    ]
+    for (const [piece, input] of cases) {
+      const h = ko()
+      h.push(piece)
+      expect(h.toolStart(input), piece).toBe(piece)
+    }
   })
 
   test('known gaps: kept although they are notes (numbers with units, another language, Markdown)', () => {

@@ -20,9 +20,10 @@ In: the hold in chat/narration.ts. Position stays the main rule: only a piece th
 tool call can be dropped, never the last piece (the answer after the last call), and only in a ko/ja/zh answer with no
 request for another language. New: such a piece is also a note when it names the work (a file, a folder, a thread, a
 page, a skill …), gives itself an order or a plan, or talks about "the user", unless it speaks to people (you, we,
-hi, please …), reports to the person (I can't, I didn't, I used …, "… says"), is a title, or is copied into that
-call's arguments (a message it posts, a file it writes) or taken from the person's message. "page 2 first" is no
-longer read as a number with a unit.
+hi, please …), is an order said to people, reports to the person (I can't, I didn't, I used …, "… says"), is a title,
+or is copied into that call's arguments (a message it posts, a file it writes) or taken from the person's message. "page 2 first" is no
+longer read as a number with a unit. Work notes are judged only before a real call (not on thinking, a stop or an
+error).
 Out: notes in the answer's own language; notes with measurements ("191mm + 15mm"), notes in another Latin language
 (German); showing dropped notes in the steps area (kept simple: dropped, as in #1066). 0 prompt tokens.
 
