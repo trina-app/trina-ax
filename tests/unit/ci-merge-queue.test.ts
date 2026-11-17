@@ -45,11 +45,15 @@ describe('the required check reports on every event', () => {
     expect(ci.jobs.scope!.if).toBeUndefined()
   })
 
-  test('the Linux jobs run on neither a pull request nor a queued entry; the phone app job runs everywhere', () => {
+  test('the Linux jobs run on neither a pull request nor a queued entry; the phone app typecheck runs everywhere', () => {
     for (const id of ['linux-docker', 'linux-bundle', 'linux-install']) {
       expect(ci.jobs[id]!.if).toBe("github.event_name != 'pull_request' && github.event_name != 'merge_group'")
     }
-    expect(ci.jobs.mobile!.if).toBeUndefined()
+    // its own job except on a queued entry, where "typecheck, docs, native, relay" runs the same steps (one job fewer)
+    expect(ci.jobs.mobile!.if).toBe("github.event_name != 'merge_group'")
+    const own = (ci.jobs.mobile!.steps ?? []).map((x) => x.run).filter(Boolean)
+    const inStatic = (ci.jobs.static!.steps ?? []).filter((x) => (x as { if?: string }).if?.startsWith("github.event_name == 'merge_group'"))
+    expect(inStatic.map((x) => x.run).filter(Boolean)).toEqual(own)
   })
 
   test('no workflow with macOS or Windows jobs runs on merge_group (hosted macOS runners are short)', () => {
