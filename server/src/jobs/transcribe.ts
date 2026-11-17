@@ -252,7 +252,7 @@ export async function transcribe(cfg: TranscribeConfig, input: string, name: str
       const label = LABELS.run[loc]
       h.progress(0.55, label)
       const t0 = Date.now()
-      const r = await whisperFile(cfg, model, work, audio, { language: o.language, signal: h.signal, timeoutMs: 60 * 60_000, onProgress: (f) => h.progress(0.55 + 0.45 * f, label) })
+      const r = await whisperFile(cfg, model, work, audio, { language: o.language, signal: h.signal, timeoutMs: 60 * 60_000, tokens: true, onProgress: (f) => h.progress(0.55 + 0.45 * f, label) })
       // this server's speed for video reads (files/media.ts recordLocalSpeed): the length of the WAV ffmpeg made
       if (audio === 'audio.wav') { try { o.onTimed?.(Date.now() - t0, Math.max(0, fs.lstatSync(path.join(work, audio)).size - 44) / 32_000) } catch { /* not timed */ } }
       const { sure, ...heard } = keepSpeech(r, sound, whisperUnsure(r))
@@ -269,12 +269,14 @@ export async function transcribe(cfg: TranscribeConfig, input: string, name: str
 export async function whisperFile(cfg: TranscribeConfig, model: string, work: string, audio: string,
   o: { language?: string; signal?: AbortSignal; timeoutMs: number; onProgress?: (fraction: number) => void; noFallback?: boolean
     /** whisper.cpp's own guess of the language and how sure it is (0-1): its log line, so -np (no prints) is left out */
-    onLanguage?: (language: string, p: number) => void }): Promise<WhisperResult> {
+    onLanguage?: (language: string, p: number) => void
+    /** -ojf: each token's probability, for how sure whisper was (WhisperResult.sure; voice input and meeting pieces) */
+    tokens?: boolean }): Promise<WhisperResult> {
   if (!cfg.whisperBin) throw MISSING_WHISPER()
   const lang = o.language && /^[a-z]{2}$/.test(o.language) ? o.language : 'auto'
   const r = await runIsolated({
     cmd: cfg.whisperBin, workDir: work, readPaths: [model], gpu: true, timeoutMs: o.timeoutMs, signal: o.signal, cpuThreads: cfg.threads,
-    args: ['-m', model, '-f', audio, '-l', lang, '-oj', '-ojf', '-of', 'out', ...(o.onLanguage ? [] : ['-np']), '-pp', '-t', String(cfg.threads), ...(o.noFallback ? ['-nf'] : [])],
+    args: ['-m', model, '-f', audio, '-l', lang, '-oj', ...(o.tokens ? ['-ojf'] : []), '-of', 'out', ...(o.onLanguage ? [] : ['-np']), '-pp', '-t', String(cfg.threads), ...(o.noFallback ? ['-nf'] : [])],
     onStderr: (s) => {
       const d = /auto-detected language: ([a-z]{2,3}) \(p = ([\d.]+)\)/.exec(s)
       if (d) o.onLanguage?.(d[1]!, Number(d[2]))
@@ -341,21 +343,34 @@ export const MAC_FORMAT = (x: string) => fail(`이 형식(${x || '알 수 없음
 const WHISPER_JSON_MAX = 32 * 1024 ** 2
 export const UNREADABLE = () => fail('오디오 파일을 읽을 수 없어요.', 'The audio file could not be read.', 'Berkas audio tidak dapat dibaca.', "音声ファイルを読み取れませんでした。", "No se pudo leer el archivo de audio.", "无法读取音频文件。", 'bad_request')
 
-/** whisper-cli's answer, with how sure it was of its surest line's first word (token probability 0-1, from -ojf; absent
+/** whisper-cli's answer, with how sure it was of its surest line's start (token probability 0-1, from -ojf; absent
  * without token data) */
 export type WhisperResult = TranscribeResult & { sure?: number }
 /** whisper.cpp was unsure of every line (jobs/no-speech.ts UNSURE_FIRST_P) */
 export const whisperUnsure = (r: WhisperResult): boolean => r.sure !== undefined && r.sure < UNSURE_FIRST_P
+
+/** how sure whisper was of a line's start: its first word's probability, or the mean of its first two or three words
+ * when that is at least LINE_MEAN_SURE (whisper-cli keeps the probability of a CJK character's first byte piece, which
+ * can be low on a word it was sure of; a loop over noise stays low: 0.06, 0.07, 0.84 -> 0.32; 0.08, 0.48, 0.84 -> 0.47) */
+const LINE_MEAN_SURE = 0.5
+const lineStart = (ps: number[]): number | undefined => {
+  if (ps.length < 2) return ps[0]
+  const head = ps.slice(0, 3), mean = head.reduce((a, p) => a + p, 0) / head.length
+  return mean >= LINE_MEAN_SURE ? Math.max(ps[0]!, mean) : ps[0]!
+}
 
 /** whisper-cli -oj / -ojf output -> WhisperResult */
 export function parseWhisperJson(s: string): WhisperResult {
   type Tok = { text?: string; p?: number }
   const j = JSON.parse(s) as { result?: { language?: string }; transcription?: { offsets?: { from: number; to: number }; text?: string; tokens?: Tok[] }[] }
   let sure: number | undefined
-  const segs = (j.transcription ?? []).filter((t) => (t.text ?? '').trim() && !/^\[(BLANK_AUDIO|MUSIC|음악)\]$/i.test((t.text ?? '').trim())).map((t) => {
-    // the first word: the first token with a letter (whisper's own tokens are [_BEG_], [_TT_50]; " -" can come first)
-    const first = (t.tokens ?? []).find((k) => typeof k.p === 'number' && !/^\[_/.test(k.text ?? '') && /\p{L}/u.test(k.text ?? ''))
-    if (first) sure = Math.max(sure ?? 0, first.p!)
+  // [BLANK_AUDIO], [MUSIC], and [music] in Korean
+  const blank = /^\[(BLANK_AUDIO|MUSIC|\uC74C\uC545)\]$/i
+  const segs = (j.transcription ?? []).filter((t) => (t.text ?? '').trim() && !blank.test((t.text ?? '').trim())).map((t) => {
+    // the words: tokens with a letter (whisper's own tokens are [_BEG_], [_TT_50]; " -" can come first)
+    const words = (t.tokens ?? []).filter((k) => typeof k.p === 'number' && !/^\[_/.test(k.text ?? '') && /\p{L}/u.test(k.text ?? '')).map((k) => k.p!)
+    const p = lineStart(words)
+    if (p !== undefined) sure = Math.max(sure ?? 0, p)
     return { start: (t.offsets?.from ?? 0) / 1000, end: (t.offsets?.to ?? 0) / 1000, text: (t.text ?? '').trim() }
   })
   return {

@@ -255,7 +255,7 @@ export async function speechPiece(deps: MeetingDeps, userId: string, file: strin
           try {
             fs.copyFileSync(file, path.join(work, 'piece.wav'), fs.constants.COPYFILE_FICLONE)
             // no temperature fallback, as a video read's pieces (whisper-turns, transcribe.ts whisperFile noFallback)
-            return await whisperFile(deps.stt, model, work, 'piece.wav', { language: lang, signal: both, timeoutMs: MEETING_PIECE_TIMEOUT_MS, noFallback: true })
+            return await whisperFile(deps.stt, model, work, 'piece.wav', { language: lang, signal: both, timeoutMs: MEETING_PIECE_TIMEOUT_MS, noFallback: true, tokens: true })
           } finally { fs.rmSync(work, { recursive: true, force: true }) }
         }, { signal: ac.signal, waitMs: MEETING_TURN_WAIT_MS })
         if (!got.ok) throw MEETING_BUSY()

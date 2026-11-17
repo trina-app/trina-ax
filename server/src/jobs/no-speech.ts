@@ -5,7 +5,7 @@
 // 1. soundOf: what the server's own 16 kHz mono 16-bit WAV holds (the conversion's audio.wav, or the app's piece);
 //    silent sound (SILENT_DB) goes to no model at all, so it costs no whisper.cpp turn and no OpenRouter request;
 // 2. keepSpeech, on whisper's answer: its marks for sound with no words are dropped, and the rest too when the sound
-//    is weak (quiet, or a tone / steady noise that does not move like speech) and whisper was unsure of it, or when
+//    is weak (a tone or steady noise that does not move like speech) and whisper was unsure of it, or when
 //    every line is one of those learned lines (HALLUCINATIONS) on weak sound. A person who says "Thank you" makes
 //    sound that moves like speech, so that is kept.
 // Measured 2026-11-17 with whisper.cpp 1.9 and the small model on generated sound and macOS `say` speech: digital
@@ -16,16 +16,25 @@ import type { TranscribeResult } from '@mycel/shared/api'
 /** the loudest 20 ms frame (RMS, dBFS) under this: silence, nothing is sent to a model (speech from a quiet room
  * microphone peaks around -45 dBFS, its frames at -50; a 2 s pink noise at -60 made whisper write nothing anyway) */
 export const SILENT_DB = -60
-/** the loudest frame under this: quiet sound (weak) */
-export const QUIET_DB = -50
-/** frames count as sound above this, and within SOUND_RANGE_DB of the loudest */
-const SOUND_FLOOR_DB = -55
+/** frames count as sound within SOUND_RANGE_DB of the loudest (and above SOUND_FLOOR_DB, digital silence): relative,
+ * so quiet speech is measured as loud speech is (an absolute -55 floor cut a quiet "Thanks" at -43 dBFS to its vowel,
+ * and -75 a quiet "yes" in Korean at -51 to its loudest frames) */
+const SOUND_FLOOR_DB = -85
 const SOUND_RANGE_DB = 30
 /** speech moves: the level of its sound frames spreads by this much (standard deviation, dB) and their zero-crossing
- * rate by this much. Measured: speech 3-9 dB and 0.012-0.35 (a quiet "hello" 3.0 dB, "ne" 0.012); a steady tone
- * 0.0 dB and 0.002, pink, brown and white noise 0.3-1.8 dB (zero crossings 0.02-0.03) */
+ * rate by this much. Measured (macOS say, 0-40 dB down, with and without a -75 dBFS noise floor): speech 5.9-11.7 dB and
+ * 0.013-0.35; white, pink and brown noise 0.3-1.8 dB (zero crossings 0.02-0.03) */
 const SPEECH_SPREAD_DB = 2
 const SPEECH_ZCR_SPREAD = 0.006
+/** a beep is a pure tone: a frame whose autocorrelation reaches TONE_R at some lag (a sine's half period gives -1)
+ * is tonal, and sound whose loudest frames (within TONE_CORE_DB of the peak) are tonal in more than TONE_SHARE of
+ * them is a tone, whatever noise is around it. Measured: beeps and a chime 1.00 at any level above the noise; speech
+ * 0.00-0.30 (a Korean "thank you" 0.30, a Korean "yes" 0.09), noise 0.00 */
+const TONE_R = -0.9
+const TONE_CORE_DB = 10
+const TONE_SHARE = 0.6
+/** at most this many of the loudest frames are looked at for a tone (each costs about 25 000 multiplications) */
+const TONE_FRAMES = 400
 /** whisper.cpp was unsure of a line whose first word is less sure than this (its token probability, -ojf) */
 export const UNSURE_FIRST_P = 0.3
 /** OpenRouter: a line whose no-speech probability is above this and avg_logprob under NO_SPEECH_LOGPROB is no speech
@@ -74,18 +83,45 @@ export function soundOf(wav: Uint8Array): Sound | null {
     levels.push(20 * Math.log10(Math.max(1, Math.sqrt(sq / FRAME)) / 32768))
     zcrs.push(z / FRAME)
   }
-  const peakDb = levels.length ? Math.max(...levels) : -Infinity
+  let peakDb = -Infinity
+  for (const l of levels) if (l > peakDb) peakDb = l
   const floor = Math.max(SOUND_FLOOR_DB, peakDb - SOUND_RANGE_DB)
   const loud = levels.map((l, i) => (l > floor ? i : -1)).filter((i) => i >= 0)
   const spread = (v: number[]) => { const m = v.reduce((a, x) => a + x, 0) / v.length; return Math.sqrt(v.reduce((a, x) => a + (x - m) ** 2, 0) / v.length) }
   const speechLike = loud.length >= 5 && spread(loud.map((i) => levels[i]!)) >= SPEECH_SPREAD_DB && spread(loud.map((i) => zcrs[i]!)) >= SPEECH_ZCR_SPREAD
+    && !tone(data, levels.map((l, i) => (l > peakDb - TONE_CORE_DB ? i : -1)).filter((i) => i >= 0))
   return { seconds: n / 16000, peakDb, soundSec: loud.length * FRAME / 16000, speechLike }
+}
+
+/** the frames `core` (indexes) are mostly a pure tone (TONE_SHARE of at most TONE_FRAMES, picked evenly) */
+function tone(data: Buffer, core: number[]): boolean {
+  if (!core.length) return false
+  const step = Math.max(1, core.length / TONE_FRAMES)
+  const x = new Float64Array(FRAME)
+  let tonal = 0, seen = 0
+  for (let k = 0; k < core.length; k += step) {
+    const f = core[Math.floor(k)]!
+    let m = 0
+    for (let i = 0; i < FRAME; i++) { x[i] = data.readInt16LE((f * FRAME + i) * 2); m += x[i]! }
+    m /= FRAME
+    let e = 0
+    for (let i = 0; i < FRAME; i++) { x[i]! -= m; e += x[i]! * x[i]! }
+    seen++
+    if (e <= 0) continue
+    // lags 2-80 samples: tones from 100 Hz to 4 kHz reach -1 at their half period
+    for (let t = 2; t <= 80; t++) {
+      let c = 0
+      for (let i = 0; i + t < FRAME; i++) c += x[i]! * x[i + t]!
+      if ((c / e) * FRAME / (FRAME - t) < TONE_R) { tonal++; break }
+    }
+  }
+  return tonal > seen * TONE_SHARE
 }
 
 /** nothing worth sending to a model */
 export const silent = (s: Sound | null): boolean => !!s && s.peakDb < SILENT_DB
-/** quiet, or not moving like speech */
-const weak = (s: Sound | null): boolean => !!s && (s.peakDb < QUIET_DB || !s.speechLike)
+/** not moving like speech (a tone, steady noise); quiet speech is speech (silence is SILENT_DB) */
+const weak = (s: Sound | null): boolean => !!s && !s.speechLike
 
 /** whisper's marks for sound with no words: [BLANK_AUDIO], (beep), (music), [music in Korean], ♪, *click* */
 export const NOT_WORDS = /^\s*(?:[[(（][^\])）]{0,40}[\])）]|\*[^*]{0,40}\*|[♪♫♬\s]+)\s*$/

@@ -99,9 +99,10 @@ interface OrAnswer { text?: unknown; language?: unknown; duration?: unknown; seg
  * (`X-Generation-Id`, for OpenRouter's own record of which provider served it) and that provider when the answer
  * names it */
 export type OpenRouterAnswer = NoSpeechAnswer & { generation?: string; served?: string }
-/** an answer with the highest no-speech probability of its lines with text (verbose_json `no_speech_prob`, from the
- * providers that give it) */
-export type NoSpeechAnswer = ScoredAnswer & { noSpeech?: number }
+/** an answer with whisper's no-speech signals (verbose_json `no_speech_prob`, from the providers that give it): the
+ * lowest no-speech probability of its lines with text, and which of its `segments` whisper's own rule calls no speech
+ * (only when one does) */
+export type NoSpeechAnswer = ScoredAnswer & { noSpeech?: number; noSpeechLines?: boolean[] }
 
 type OrSegment = { start?: unknown; end?: unknown; text?: unknown; avg_logprob?: unknown; no_speech_prob?: unknown }
 const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
@@ -110,33 +111,42 @@ const num = (v: unknown): number | undefined => (typeof v === 'number' && Number
 const noSpeechLine = (s: OrSegment) => (num(s?.no_speech_prob) ?? 0) > NO_SPEECH_PROB && (num(s?.avg_logprob) ?? 0) < NO_SPEECH_LOGPROB
 
 /** OpenRouter's JSON -> TranscribeResult (language, duration, segments are optional there). The language as whisper's
- * code: Groq answers "Korean" where DeepInfra answers "ko". Lines whisper itself would call no speech are left out. */
+ * code: Groq answers "Korean" where DeepInfra answers "ko". Every line is kept (a file read's transcript as before);
+ * voice input and meeting pieces drop the no-speech ones (openRouterSpeech). */
 export function parseOpenRouter(j: OrAnswer, fallback: { language: string | null; durationSec: number | null }): NoSpeechAnswer {
-  let text = typeof j.text === 'string' ? j.text.replace(/\s+/g, ' ').trim() : ''
+  const text = typeof j.text === 'string' ? j.text.replace(/\s+/g, ' ').trim() : ''
   const duration = typeof j.duration === 'number' && Number.isFinite(j.duration) && j.duration >= 0 ? j.duration : fallback.durationSec
-  const all = Array.isArray(j.segments) ? j.segments as OrSegment[] : []
-  const raw = all.filter((s) => !noSpeechLine(s))
-  let segments = raw
-    .map((s) => ({ start: typeof s?.start === 'number' ? s.start : 0, end: typeof s?.end === 'number' ? s.end : 0, text: typeof s?.text === 'string' ? s.text.trim() : '' }))
-    .filter((s) => s.text)
-  if (raw.length < all.length) text = segments.map((s) => s.text).join(' ').replace(/\s+/g, ' ').trim()
+  const raw = Array.isArray(j.segments) ? (j.segments as OrSegment[]).filter((s) => typeof s?.text === 'string' && s.text.trim()) : []
+  let segments = raw.map((s) => ({ start: typeof s?.start === 'number' ? s.start : 0, end: typeof s?.end === 'number' ? s.end : 0, text: (s.text as string).trim() }))
+  const flags = raw.map(noSpeechLine)
   if (!segments.length && text) segments = [{ start: 0, end: duration ?? 0, text }]
   const scored = scoreSegments(raw)
-  const probs = raw.filter((s) => typeof s?.text === 'string' && s.text.trim()).map((s) => num(s.no_speech_prob)).filter((p) => p !== undefined)
+  const probs = raw.map((s) => num(s.no_speech_prob)).filter((p) => p !== undefined)
   return {
     text,
     language: languageCode(j.language) ?? fallback.language,
     durationSec: duration,
     segments,
     ...(scored ? { scored } : {}),
-    ...(probs.length ? { noSpeech: Math.max(...probs) } : {}),
+    // every line likely without speech, as whisperUnsure needs every line unsure
+    ...(probs.length ? { noSpeech: Math.min(...probs) } : {}),
+    ...(flags.some(Boolean) ? { noSpeechLines: flags } : {}),
   }
 }
-/** whisper was unsure of an OpenRouter answer: a line likely without speech, or words it was unsure of */
+/** whisper was unsure of an OpenRouter answer: every line likely without speech, or words it was unsure of */
 export const openRouterUnsure = (r: NoSpeechAnswer): boolean =>
   (r.noSpeech !== undefined && r.noSpeech > UNSURE_NO_SPEECH) || (!!r.scored && confidence(r.scored) < UNSURE_LOGPROB)
-/** An answer for voice input or a meeting piece without what whisper wrote for no speech (jobs/no-speech.ts). */
-export const openRouterSpeech = <T extends NoSpeechAnswer>(r: T, sound: Sound | null): T => keepSpeech(r, sound, openRouterUnsure(r))
+/** An answer for voice input or a meeting piece without what whisper wrote for no speech: the lines its own rule calls
+ * no speech, then jobs/no-speech.ts keepSpeech. */
+export function openRouterSpeech<T extends NoSpeechAnswer>(r: T, sound: Sound | null): T {
+  const { noSpeechLines: flags, ...rest } = r
+  let a = rest as T
+  if (flags && a.segments?.length === flags.length) {
+    const segments = a.segments.filter((_, i) => !flags[i])
+    a = { ...a, segments, text: segments.map((l) => l.text).join(' ').replace(/\s+/g, ' ').trim() }
+  }
+  return keepSpeech(a, sound, openRouterUnsure(r))
+}
 /** what a voice input job gives back (nothing of how sure whisper was, or which request it was) */
 const plain = (r: TranscribeResult): TranscribeResult => ({ text: r.text, language: r.language, durationSec: r.durationSec, segments: r.segments })
 
