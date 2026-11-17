@@ -84,7 +84,8 @@ jobs:
           fi
           if ! [[ "$AWS_ROLE_ARN" =~ ^arn:aws:iam::([0-9]{12}):role/[A-Za-z0-9+=,.@_/-]+$ ]]; then echo "::error::AWS_ROLE_ARN is not an IAM role ARN"; exit 1; fi
           echo "account=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
-          if ! [[ "$AMI_SUBNET_ID" =~ ^subnet-[0-9a-f]+$ ]]; then echo "::error::AMI_SUBNET_ID is not a subnet id"; exit 1; fi
+          # one subnet, or a comma list of subnets of one VPC in other zones, tried in order when a zone has no capacity
+          if ! [[ "$AMI_SUBNET_ID" =~ ^subnet-[0-9a-f]+(,subnet-[0-9a-f]+)*$ ]]; then echo "::error::AMI_SUBNET_ID is not a subnet id or a comma list of them"; exit 1; fi
           echo "run=true" >> "$GITHUB_OUTPUT"
       # the commit checked above, not the tag again (it could move in between)
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
