@@ -136,6 +136,8 @@ flows:
   fixInProgress: stamp_pdf tool (other agent's PR) for the seal steps
   features: [files.edit, rooms.messages, connectors.google-apps, skills.list]
   steps:
+    - say: setup, the team's skill names the seal file as it is now (the fixture's old path is for the SKL-01 cases)
+      event: { type: file_edit, as: jiwoo, path: skills/quote-writer/SKILL.md, from: "shared/도장/직인.png", to: "shared/도장/회사직인.png" }
     - say: sora asks for a quote PDF with the seal
       ask: { as: sora, chat: s1, heavy: true, prompt: "사아자 베이커리 견적서 PDF 만들어줘. A4 복사용지 5박스, 볼펜 2갑. 마지막 장 (인)에 회사 직인 찍어서" }
       checks:
