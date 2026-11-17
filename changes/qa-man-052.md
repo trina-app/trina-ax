@@ -1,0 +1,1 @@
+- "Make this a skill for the team" now asks once for the skill's name when you did not give one, keeps a short form inside the skill, and shows one save card instead of one per file. The card says what the skill does and lists its parts; the file itself is under "Show the file".

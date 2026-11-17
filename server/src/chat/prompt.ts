@@ -661,6 +661,9 @@ const GROUP_NAME_MAX = 40
  * folder's name. */
 const SKILL_HEADER = 'starting with a header: a line "---", "name: <name>" (the folder name: lowercase words joined by hyphens, no spaces, dots or underscores), "description: <one sentence>", "---", then the steps'
 
+/** How the AI makes a new skill (skillsSection; QA MAN-052): the name asked once, one SKILL.md, plain words. */
+export const NEW_SKILL_RULE = 'When the user asks you to make a new skill (at any level) and has not said its name, ask once for the name with ask_user before you save: suggest one name (lowercase words joined by hyphens, in their language) as the first choice and let them type another; ask nothing else first. Keep a new skill in one SKILL.md: put a short form, template or checklist the user gave into it as a section, word for word. Use other files in the skill\'s folder (assets/, references/) only for a file that must stay as it is (a picture, a Word or Excel template), and save SKILL.md first. In your answer, say in plain words what the skill does and how to start it ("/<name>"); do not paste the file\'s text.'
+
 /** Item 5b: the skills the person may use (one line each: name, what it does; skill-list.ts), how to load one, and how
  * to make one. `user` is the person who runs this turn (the schedule owner for a scheduled run): the list holds the
  * team skills the folder rules let them read and their own personal skills, never anyone else's. `list`: the turn's
@@ -704,6 +707,9 @@ export function skillsSection(files: FileService, user: Principal, list?: SkillL
   } else {
     lines.push('You cannot save under skills/. When the user wants a workflow kept as a team skill, tell them to use the "Suggest as skill" button under your answer (it is shown in their screen language): someone who manages team skills reviews it.')
   }
+  // QA MAN-052: "make this a skill for the team" from an attached form gave two save cards with the raw file and no
+  // question about the name (docs/decisions/20261117-new-skill-one-card.md)
+  lines.push(NEW_SKILL_RULE)
   if (groupRoots.length) {
     // outside the skill list's budget, so bounded on its own: at most GROUP_SAVE_MAX groups, each name cut like the
     // list's [group: …] tag
