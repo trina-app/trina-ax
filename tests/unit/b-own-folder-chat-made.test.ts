@@ -14,9 +14,10 @@ import path from 'node:path'
 import { API, uuidv7, type RoomMessage, type TurnRequest } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import crypto from 'node:crypto'
-import { roomsOf } from '../../server/src/rooms/service'
+import { fileOpener, roomsOf } from '../../server/src/rooms/service'
 import { roomFilesOf } from '../../server/src/rooms/files'
-import { newLinkId } from '../../server/src/files/shares'
+import { fileSharesOf, newLinkId } from '../../server/src/files/shares'
+import { sharedWithAnyoneAt } from '../../server/src/files/share-readers'
 import { madeInChat } from '../../server/src/chat/shared-actions'
 import { pngRgbaOf } from '../lib/images'
 import { makePagedPdf } from '../lib/pdf'
@@ -134,10 +135,23 @@ describe('FL-08 rerun: a link nobody is on', () => {
     const pdf = `${dir}/quote.md`
     const chat = await newChat('alice')
     await run('alice', chat, `draft\n${fake(write(pdf, 'v1\n'), { say: 'ok' })}`)
-    // the link row files/shares.ts linkFor makes on first use (share-fixes.ts when it offers [볼 수 있게 하기]): no people
-    share(pdf, 'file', [])
+    // a room post linking the file (post_to_room: a link only; attachments are copies), then the link row files/shares.ts
+    // linkFor makes on first use (share-fixes.ts when it offers [볼 수 있게 하기]): no people on it
+    await send('alice', roomId, `the draft: /files/view?path=${encodeURIComponent(pdf)}`)
+    const link = fileSharesOf(h.ctx).linkFor('alice', pdf)
+    // batch 5 review: none of it lets a room member open the file without a grant row (the room's link check and the
+    // link page both go by the folder rules or a grant)
+    expect(fileOpener(h.ctx, 'erin')(pdf)).toBe(false)
+    expect(fileSharesOf(h.ctx).open('erin', link.id).kind).toBe('no_access')
+    expect(sharedWithAnyoneAt(h.ctx.db, pdf.split('/'))).toBe(false)
     const r = await run('alice', chat, `fix\n${fake(roomRead(roomId), ...fix(pdf, 'v2\n'), { say: 'x' })}`)
     expect(r.cards.map((c) => c.question)).toEqual([])
+    expect(read(pdf)).toBe('v2\n')
+    // the [볼 수 있게 하기] tap (a grant row): erin opens it, and the next change asks again
+    h.ctx.db.query("INSERT INTO file_share_grants (share_id, subject_type, subject_id, role, granted_by, granted_at, via) VALUES (?,'user','erin','view','alice',?,'ai')").run(link.id, new Date().toISOString())
+    expect(fileSharesOf(h.ctx).open('erin', link.id).kind).toBe('open')
+    const after = await run('alice', chat, `again\n${fake(...fix(pdf, 'v3\n'), { say: 'x' })}`)
+    expect(after.cards).toHaveLength(1)
     expect(read(pdf)).toBe('v2\n')
   })
 })
