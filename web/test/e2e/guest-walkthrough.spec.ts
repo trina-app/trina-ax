@@ -145,7 +145,7 @@ test.describe('the cap and the link', () => {
     // S8: Admin's invite list names the room
     await page.goto('/admin/members')
     await expect(page.getByTestId('invite-list')).toContainText('견적 준비')
-    await expect(page.getByTestId('invite-list')).not.toContainText(ko('guest.admin.inviteRoom'))
+    await expect(page.getByTestId('invite-list')).not.toContainText(ko('guest.admin.inviteRoomGroup'))
   })
 })
 
