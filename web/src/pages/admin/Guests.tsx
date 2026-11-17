@@ -24,7 +24,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { GUEST_FILE_DEFAULT, GUEST_FILE_MAX, type Credential, type GuestAiChoice, type GuestFileMax, type Locale, type User } from '@mycel/shared/api'
 import { api, API, isApiError } from '../../lib/api'
-import { GUEST_NO_PLACE, guestRowState, trashedProjectOf, userGuest, type GuestPlaceOut, type GuestPlaceOutView } from '../../lib/guests'
+import { useRoomTitle } from '../../components/rooms/RoomIcon'
+import { GUEST_NO_PLACE, guestRowState, trashedProjectOf, userGuest, type GuestPlaceOut, type GuestPlaceOutView, type GuestPlaceView } from '../../lib/guests'
 import { useLocale, useT } from '../../i18n'
 import { isAdmin, useMeStrict } from '../../store/session'
 import { toast } from '../../store/ui'
@@ -109,6 +110,7 @@ export function GuestsSection({ guests, filtered = false, connections, focusId, 
   deletionDue?: Record<string, string>
 }) {
   const t = useT()
+  const roomTitle = useRoomTitle()
   const locale = useLocale()
   const me = useMeStrict()
   const act = useAction()
@@ -203,7 +205,7 @@ export function GuestsSection({ guests, filtered = false, connections, focusId, 
           {sorted.map((u) => {
             const g = userGuest(u)
             // their group chat and their project, each in its own words (a removed guest's: why they are out of it)
-            const where = placesWords(t, g?.places ?? [], g?.out ?? null, g?.leftThemselves ?? false)
+            const where = placesWords(t, roomTitle, g?.places ?? [], g?.out ?? null, g?.leftThemselves ?? false)
             const trashed = trashedProjectOf(g)
             // a removed guest: where they are (or why not) and that they are off, no AI (they cannot use it); the line may
             // take two lines on a phone so the status is never cut
@@ -258,6 +260,8 @@ export function GuestsSection({ guests, filtered = false, connections, focusId, 
   )
 }
 
+type RoomTitle = ReturnType<typeof useRoomTitle>
+
 /** A place name at most this long in a guest's row (a phone's two lines also hold the status after it). */
 const PLACE_NAME_MAX = 28
 /** a letter counts 1, a Korean / Japanese / Chinese character 2 (it is as wide as two) */
@@ -279,13 +283,19 @@ function clipPlaceName(name: string): string {
  * trash, or gone (the name of a deleted place is not known any more). */
 /** A guest's places on their row: "Group chat · Quote prep · Project · Launch" (a removed guest's each with why they
  * are out of it; "gone" said once). */
-function placesWords(t: ReturnType<typeof useT>, places: readonly GuestPlaceOutView[], out: GuestPlaceOut | null, self = false): string | null {
+export function placesWords(t: ReturnType<typeof useT>, roomTitle: RoomTitle, places: readonly GuestPlaceOutView[], out: GuestPlaceOut | null, self = false): string | null {
   if (!places.length) return out === 'gone' ? t('guest.admin.outGone') : null
-  const words = [...new Set(places.map((pl) => placeWords(t, pl, pl.out ?? null, self)).filter((w): w is string => !!w))]
+  const words = [...new Set(places.map((pl) => placeWords(t, roomTitle, pl, pl.out ?? null, self)).filter((w): w is string => !!w))]
   return words.length ? words.join(' · ') : null
 }
-function placeWords(t: ReturnType<typeof useT>, place: { kind: 'room' | 'project'; name?: string } | null, out: GuestPlaceOut | null, self = false): string | null {
+function placeWords(t: ReturnType<typeof useT>, roomTitle: RoomTitle, place: GuestPlaceView | null, out: GuestPlaceOut | null, self = false): string | null {
   if (out === 'gone') return t('guest.admin.outGone')
+  // a group chat with no name of its own (the server sends '' for it): "Group chat", then its first two other members (and how many more) when the
+  // server sent them, as a group DM is titled elsewhere; two, so a phone's two lines still hold the status after them. Only while the guest is in it: what they left has no name to say
+  if (place?.kind === 'room' && !place.name?.trim()) {
+    if (out) return null
+    return place.peers?.length ? t('guest.admin.roomGroup', { place: roomTitle({ kind: 'group', name: null, peers: place.peers.slice(0, 2), memberCount: place.memberCount }) }) : t('guest.admin.groupChat')
+  }
   if (!place?.name) return null
   // a very long name is shortened here, so the words after it ("in the trash", "Disabled") are never the part that is cut
   const name = clipPlaceName(place.name)

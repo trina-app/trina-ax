@@ -241,6 +241,7 @@ export const id: Record<MessageKey, string> = {
   "guest.admin.hideLeftRemoved": "Sembunyikan tamu yang keluar atau dikeluarkan",
   "guest.admin.room": "Saluran privat · {place}",
   "guest.admin.roomGroup": "Obrolan grup · {place}",
+  "guest.admin.groupChat": "Obrolan grup",
   "guest.admin.project": "Proyek · {place}",
   "guest.admin.outLeft": "Sudah tidak di '{place}'",
   "guest.admin.outLeftSelf": "Keluar sendiri dari '{place}'",

@@ -1,6 +1,6 @@
 // Building blocks shared by every REST endpoint and WebSocket event (design tab 4).
 import { z } from 'zod'
-import { Uuid7 } from '../ids'
+import { UserId, Uuid7 } from '../ids'
 
 // ---------------- transport constants ----------------
 /** Session cookie for web/desktop: __Host- prefix = Secure, Path=/, no Domain (another team's subdomain can't overwrite it). */
@@ -110,7 +110,13 @@ export const GuestDetail = z.object({
   /** the group chat and/or the project they are in (at most one of each kind; the group chat first). An active guest:
    * the places they are in now. A removed guest (account off): each place they were last in, with `out` saying why
    * they are not in it now. */
-  places: z.array(GuestPlaceNamed.extend({ out: GuestPlaceOut.optional() })).max(2),
+  places: z.array(GuestPlaceNamed.extend({
+    out: GuestPlaceOut.optional(),
+    /** a group chat with no name of its own, while the guest is in it: its other members (at most 4, the guest left out)
+     * and how many people it has, so a screen can title it as a group DM is titled (lib/rooms.ts roomTitle) */
+    peers: z.array(z.object({ id: UserId, name: z.string() })).max(4).optional(),
+    memberCount: z.number().int().nonnegative().optional(),
+  })).max(2),
   ai: GuestAiChoice,
   /** a removed guest (account off) who is in none of their places now, the reason that decides whether switching them
    * on can work ('trashed' when their project is in the trash, else 'left' when a place is still there, else 'gone').

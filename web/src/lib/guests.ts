@@ -9,7 +9,7 @@ import type { GuestAi, GuestAiChoice, GuestPlace, Invite, InviteInfo, Me, Person
 export type PlaceKind = GuestPlace['kind']
 /** A guest's place as the screens name it (the invite page knows no id; an add list knows only the kind of a place
  * the viewer is not in). */
-export interface GuestPlaceView { kind: PlaceKind; id?: string; name?: string }
+export interface GuestPlaceView { kind: PlaceKind; id?: string; name?: string; /** an unnamed group chat's other members and size (Admin's guest row titles it by them) */ peers?: { id: string; name: string }[]; memberCount?: number }
 /** A removed guest's place with why they are out of it (User.guest.places[].out). */
 export type GuestPlaceOutView = GuestPlaceView & { out?: GuestPlaceOut }
 
