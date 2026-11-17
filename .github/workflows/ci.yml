@@ -347,7 +347,7 @@ jobs:
           if [ "$HIT" = true ] && [ "$n" -ge 28 ]; then echo "native programs from the cache ($n files)"; exit 0; fi
           ARCHS="amd64 arm64" bash native/build.sh
       - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        if: github.event_name == 'push' && steps.native-cache.outputs.cache-hit != 'true'
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && steps.native-cache.outputs.cache-hit != 'true'
         # several jobs of one run may try; the first saves, the others only warn
         continue-on-error: true
         with:
@@ -452,7 +452,7 @@ jobs:
           if [ "$HIT" = true ] && [ "$n" -ge 28 ]; then echo "native programs from the cache ($n files)"; exit 0; fi
           ARCHS="amd64 arm64" bash native/build.sh
       - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        if: github.event_name == 'push' && steps.native-cache.outputs.cache-hit != 'true'
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && steps.native-cache.outputs.cache-hit != 'true'
         # several jobs of one run may try; the first saves, the others only warn
         continue-on-error: true
         with:
