@@ -179,7 +179,8 @@ describe('an admin: the card every time, then the dialog\'s own save', () => {
   })
 
   test('a no stops the answer\'s other cards; a fourth card in an answer is refused', async () => {
-    const r = await turn('carol', `${call({ folder: 'Plans', action: 'add', who: { name: 'Bob Lee' } })}\n${call({ folder: 'Plans', action: 'add', who: { name: 'Erin Yoo' } })}`, { answer: 'no' })
+    // (Erin views Plans through her group already: edit, so the second call would change her access and need a card)
+    const r = await turn('carol', `${call({ folder: 'Plans', action: 'add', who: { name: 'Bob Lee' } })}\n${call({ folder: 'Plans', action: 'add', who: { name: 'Erin Yoo' }, access: 'edit' })}`, { answer: 'no' })
     expect(r.cards).toHaveLength(1)
     const ai = audits('folder.ai_access', r.turnId)
     expect(ai.map((a) => a.outcome)).toEqual(['declined', 'refused'])
@@ -201,6 +202,22 @@ describe('an admin: the card every time, then the dialog\'s own save', () => {
     expect(audits('folder.ai_access', none.turnId)[0]).toMatchObject({ outcome: 'refused', reason: 'no_rule' })
     const change = await turn('carol', call({ folder: 'Archive', action: 'change', who: { name: 'Bob Lee' }, access: 'edit' }), { answer: 'change' })
     expect(audits('folder.ai_access', change.turnId)[0]).toMatchObject({ reason: 'no_rule' })
+  })
+
+  test('QA TC-4390: a change that changes nobody\'s access (Erin opens it through her group already) → no card, nothing saved, one plain sentence', async () => {
+    fs.mkdirSync(path.join(h.ctx.files.fx.root, 'Same'), { recursive: true })
+    setFolderAccess(h.ctx.db, 'Same', [{ subjectType: 'group', subjectId: marketing, access: 'read' }], null, { limited: true })
+    const before = rulesAt('Same')
+    const r = await turn('carol', call({ folder: 'Same', action: 'add', who: { name: 'Erin Yoo' }, access: 'view' }), { answer: 'change' })
+    expect(r.cards).toHaveLength(0)
+    expect(rulesAt('Same')).toEqual(before)
+    expect(audits('folder.ai_access', r.turnId)[0]).toMatchObject({ outcome: 'refused', reason: 'no_change', target: 'Same' })
+    // carol's app is in Korean: the one sentence the AI is told to say, in her language
+    expect(r.content).toContain(FOLDER_TEXT.noChange.ko.split('{folder}')[0]!)
+    expect(r.content).not.toContain(tr('cardAlwaysNoteFolderAccess', 'ko'))
+    // a change that does change someone's access still shows the card
+    const real = await turn('carol', call({ folder: 'Same', action: 'add', who: { name: 'Bob Lee' }, access: 'view' }), { answer: 'no' })
+    expect(real.cards).toHaveLength(1)
   })
 
   test('never users/, a project\'s folder, skills/, the team root; a guest only in their one project', async () => {
@@ -331,11 +348,12 @@ describe('"Always allow" for team folder access (kind folder_access; Rule A)', (
   test('on: after outside content no refusal and no card (the owner\'s rule: the choice is final); a narrowing keeps file links', async () => {
     h.ctx.db.query("INSERT OR IGNORE INTO card_always_allow (user_id, kind, created_at) VALUES ('carol', 'folder_access', ?)").run(new Date().toISOString())
     try {
-      const after = await turn('carol', `summarise the note\n${hidden({ folder: 'Plans', action: 'add', who: { name: 'Erin Yoo' }, access: 'view' })}`, {
+      // (edit: Erin views Plans through her group already, and a change that changes nobody's access is not made)
+      const after = await turn('carol', `summarise the note\n${hidden({ folder: 'Plans', action: 'add', who: { name: 'Erin Yoo' }, access: 'edit' })}`, {
         before: (chatId) => { h.ctx.db.query('UPDATE chats SET rooms_seen = 1, others_words = 1 WHERE id = ?').run(chatId) },
       })
       expect(after.cards).toHaveLength(0)
-      expect(rulesAt('Plans')).toContainEqual({ t: 'user', s: 'erin', a: 'read' })
+      expect(rulesAt('Plans')).toContainEqual({ t: 'user', s: 'erin', a: 'write' })
       await turn('carol', call({ folder: 'Plans', action: 'remove', who: { name: 'Erin Yoo' } }))
       // a narrowing that would take file links away: "Always allow" never decides it; the links stay
       fileSharesOf(h.ctx).change('carol', 'Docs/memo.md', [{ subjectType: 'user', subjectId: 'bob' }], [], 'en')
