@@ -100,6 +100,7 @@ export function componentC(ctx: AppContext): ComponentC {
       }
     },
     bytes(userId, versionId, max) { return readRegular(files.versionFile(userId, versionId).abs, max).bytes },
+    places: (userId, versionId) => files.versionPlaces(userId, versionId),
   }
   const teamRefs = new TeamFileRefs(ctx, files)
   const attachments = new Attachments(ctx, files, teamRefs)

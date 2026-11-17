@@ -234,10 +234,15 @@ export interface VersionReads {
   list(userId: string, rel: string): Promise<{ current: { version: number; by: string | null; at: string | null } | null; items: { id: string; version: number; size: number; by: string | null; replacedBy: string | null; replacedAt: string; viaAi: boolean }[] } | null>
   /** the stored bytes of one of those versions (the caller's own check again) */
   bytes(userId: string, versionId: string, max: number): Uint8Array
+  /** where that version's content was saved (team paths for the read scope; the caller's own check again) */
+  places(userId: string, versionId: string): string[]
 }
 
 /** read with `versions`: the most text of the changes shown */
 export const VERSION_DIFF_MAX_CHARS = 8000
+/** ...and the most text of either side that is compared at all (above it: "too large to compare") */
+export const VERSION_DIFF_TEXT_MAX = 2 * 1024 * 1024
+const NO_VERSIONS = (rel: string) => `'${rel}': no earlier versions are kept that you can see. The file has not been overwritten since it was made, or its earlier versions are not available to you.`
 
 /** A read made by a file's link names the file by that link, not by its path: only in our own words around the file
  * (its header, a quoted name), never inside the file's text. */
@@ -458,13 +463,13 @@ export class FileService {
   visionTools(): VisionTools { return visionTools({ nativeBin: this.cfg.nativeBin, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr, which }) }
 
   async read(ctx: ToolCtx, a: ReadArgs): Promise<ToolOutput> {
-    // a file's earlier versions and what changed (QA TC-4547, docs/decisions/20261117-ai-file-versions.md)
-    if ((a.versions !== undefined && a.versions !== false) || a.version !== undefined) return this.readVersions(ctx, a)
+    const wantsVersions = (a.versions !== undefined && a.versions !== false) || a.version !== undefined
     // the person's file list (not on disk): its lines, numbered; read like its folder's files, never an answer's source
     const vp = this.virtualPath(ctx, a.file_path)
     if (vp) {
       // its folder joins the read scope (same access as the list; the list itself is not on disk)
       ctx.files.readPaths.add(vp.segs.slice(0, -1).join('/'))
+      if (wantsVersions) return { text: NO_VERSIONS(vp.rel), summary: `read ${vp.rel} versions -> none (file list)` }
       return numberedLines(vp.rel, vp.file.text, a)
     }
     // a file inside a folder shared with the person, by its link (/f/<id>/<path inside>; files/shared-folder-reads.ts):
@@ -492,6 +497,9 @@ export class FileService {
         throw e
       }
     }
+    // a file's earlier versions and what changed (QA TC-4547, docs/decisions/20261117-ai-file-versions.md); after the
+    // file list, a shared folder's file and a file link are resolved above (those come back here by their path)
+    if (wantsVersions) return this.readVersions(ctx, a)
     const e = ext(a.file_path)
     const kind = mediaKind(a.file_path)
     if ((a.pages !== undefined || a.as_images) && e !== 'pdf') throw new ToolError('pages and as_images are only for PDF files', 'bad_pages')
@@ -520,7 +528,7 @@ export class FileService {
     if (a.version !== undefined && !items.some((v) => v.version === a.version)) {
       throw new ToolError(`'${r.rel}' has no earlier version ${a.version}${items.length ? ` (kept: ${items.map((v) => v.version).join(', ')})` : ''}`, 'not_found')
     }
-    if (!items.length) return { text: `'${r.rel}': no earlier versions are kept that you can see. The file has not been overwritten since it was made, or its earlier versions are not available to you.`, summary: `read ${r.rel} versions -> none` }
+    if (!items.length) return { text: NO_VERSIONS(r.rel), summary: `read ${r.rel} versions -> none` }
     const shown = items.slice(0, typeof a.versions === 'number' ? a.versions : VERSIONS_SHOWN_DEFAULT)
     const name = (n: string | null) => n ?? 'someone no longer on the team'
     // the same form as list's times (UTC, to the minute)
@@ -541,13 +549,30 @@ export class FileService {
     } else {
       const tools = { pandoc: this.cfg.pandoc, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr, quarantine: this.quarantine, textLayerOnly: true }
       let diff: string
-      try {
+      // the compared version's text is shown: the places it was saved in join the read scope too (a file moved out of
+      // a narrower folder brings that folder's audience to a later save, room post or share)
+      // (fails closed: a place that cannot be looked up means no comparison)
+      let places: string[] | null = null
+      try { places = this.versions!.places(ctx.user.id, base.id) } catch {}
+      for (const p of places ?? []) ctx.files.readPaths.add(p)
+      let oldBytes: Uint8Array | 'gone' | 'large' = 'gone'
+      // the stored copy can be gone or unreadable (the history store's own errors) or over the read limit: the list stays
+      if (places) try { oldBytes = this.versions!.bytes(ctx.user.id, base.id, readMaxBytes()) } catch (e) { if (e instanceof ToolError && /too large/.test(e.message)) oldBytes = 'large' }
+      if (oldBytes === 'gone') diff = `Changes (${label}): the content of version ${base.version} is no longer kept, so it cannot be compared.`
+      else if (oldBytes === 'large') diff = `Changes (${label}): the file is too large to compare here; only the list above.`
+      else try {
         const now = await extractText(r.rel, readRegular(r.abs, readMaxBytes(), r.st).bytes, tools, ctx.signal)
-        const before = await extractText(r.rel, this.versions!.bytes(ctx.user.id, base.id, readMaxBytes()), tools, ctx.signal)
-        const d = lineDiff(before, now, VERSION_DIFF_MAX_CHARS)
-        diff = d.added + d.removed === 0
-          ? `Changes (${label}): the text is the same (only the file itself differs, e.g. formatting).`
-          : `Changes (${label}; lines starting with "-" were removed, "+" added, "@@ -a,n +b,m @@" gives the line numbers before and now; ${d.removed} removed, ${d.added} added${d.truncated ? '; cut, read the file for the rest' : ''}):\n${d.text}`
+        const before = await extractText(r.rel, oldBytes, tools, ctx.signal)
+        if (now.length > VERSION_DIFF_TEXT_MAX || before.length > VERSION_DIFF_TEXT_MAX) {
+          diff = `Changes (${label}): the file is too large to compare here; only the list above.`
+        } else {
+          const d = lineDiff(before, now, VERSION_DIFF_MAX_CHARS)
+          diff = d.added + d.removed === 0
+            ? `Changes (${label}): the text is the same (only the file itself differs, e.g. formatting).`
+            : d.approximate
+              ? `Changes (${label}): too much changed to compare line by line; the changed part is shown whole (cut) as removed then added, so counts are not meaningful:\n${d.text}`
+              : `Changes (${label}; lines starting with "-" were removed, "+" added, "@@ -a,n +b,m @@" gives the line numbers before and now; ${d.removed} removed, ${d.added} added${d.truncated ? '; cut, read the file for the rest' : ''}):\n${d.text}`
+        }
       } catch (e) {
         if (!(e instanceof ToolError)) throw e
         diff = `Changes (${label}): could not be shown (${e.message}).`

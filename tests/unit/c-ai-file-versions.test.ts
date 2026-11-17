@@ -124,4 +124,76 @@ describe('read with versions (TC-4547)', () => {
     expect(r.text).toContain('+Budget: 250')
     expect(r.text).not.toContain('-Owner')
   })
+
+  // review round 1
+  test('a file moved out of a narrower folder: its old place joins the read scope; who cannot read that place sees only later versions', async () => {
+    const from = 'groups/finance/moved.md', to = 'shared/qa/moved.md'
+    await save('bob', from, 'salary 9000\n', null)
+    await save('bob', from, 'salary 9500\n', 'salary 9000\n')
+    expect((await A.json('/api/files/move', { ...jsonBody({ from, to }), as: 'bob' })).status).toBe(200)
+    const b = await read('bob', { file_path: to, versions: true })
+    expect(b.text).toContain('-salary 9000')
+    expect(b.files.readPaths.has(from)).toBe(true)
+    expect([...b.files.readPaths].some((p) => p === 'groups/finance')).toBe(true)
+    // alice can read the file where it is now, not where those versions were saved
+    const a0 = await read('alice', { file_path: to, versions: true })
+    expect(a0.isError).toBe(false)
+    expect(a0.text).toMatch(/no earlier versions/i)
+    expect(a0.text).not.toContain('9000')
+    // a save in the shared place makes a version alice may see; still nothing of finance's text but the current one
+    await save('alice', to, 'salary hidden\n', 'salary 9500\n')
+    const a = await read('alice', { file_path: to, versions: true })
+    expect(a.text).not.toContain('9000')
+    expect(a.text).toContain('-salary 9500')
+    expect(a.files.readPaths.has(from)).toBe(false)
+  })
+
+  test('a version whose folder is in the trash stays hidden from a member', async () => {
+    const inside = 'groups/marketing/salaries/note.md', out = 'shared/qa/note.md'
+    await save('carol', inside, 'pay A\n', null)
+    await save('carol', inside, 'pay B\n', 'pay A\n')
+    expect((await A.json('/api/files/move', { ...jsonBody({ from: inside, to: out }), as: 'carol' })).status).toBe(200)
+    expect((await A.json('/api/files?' + new URLSearchParams({ path: 'groups/marketing/salaries' }), { method: 'DELETE', headers: { 'x-mycel-csrf': '1' }, as: 'carol' })).status).toBe(200)
+    const r = await read('alice', { file_path: out, versions: true })
+    expect(r.isError).toBe(false)
+    expect(r.text).not.toContain('pay A')
+  })
+
+  test('a binary file, a very large one, and a version whose stored copy is gone keep the list', async () => {
+    const bin = 'shared/qa/blob.bin'
+    saveVersion(A.ctx.db, A.team, bin, new Uint8Array([0, 1, 2, 0, 3]), { userId: 'erin', turnId: null })
+    fs.writeFileSync(path.join(A.team, ...bin.split('/')), new Uint8Array([0, 9, 9, 0, 9]))
+    const b = await read('alice', { file_path: bin, versions: true })
+    expect(b.isError).toBe(false)
+    expect(b.text).toContain('version 1')
+    expect(b.text).toMatch(/binary/)
+
+    const big = 'shared/qa/big.txt'
+    const line = 'x'.repeat(99) + '\n'
+    saveVersion(A.ctx.db, A.team, big, Buffer.from(line.repeat(22_000)), { userId: 'erin', turnId: null })
+    fs.writeFileSync(path.join(A.team, ...big.split('/')), line.repeat(22_001))
+    const g = await read('alice', { file_path: big, versions: true })
+    expect(g.isError).toBe(false)
+    expect(g.text).toMatch(/too large to compare/)
+
+    const gone = 'shared/qa/gone.md'
+    await save('alice', gone, 'old\n', null)
+    await save('erin', gone, 'new\n', 'old\n')
+    const row = A.ctx.db.query('SELECT storage_path FROM file_versions WHERE path = ?').get(gone) as { storage_path: string }
+    fs.rmSync(path.join(A.team, ...row.storage_path.split('/')))
+    const n = await read('alice', { file_path: gone, versions: true })
+    expect(n.isError).toBe(false)
+    expect(n.text).toContain('Erin Yoo')
+    expect(n.text).toMatch(/no longer kept/)
+  })
+
+  test('a change too long to compare line by line says so instead of giving counts', async () => {
+    const f = 'shared/qa/rewrite.txt'
+    const text = (tag: string) => Array.from({ length: 2100 }, (_, i) => `${tag} ${i}`).join('\n') + '\n'
+    saveVersion(A.ctx.db, A.team, f, Buffer.from(text('old')), { userId: 'erin', turnId: null })
+    fs.writeFileSync(path.join(A.team, ...f.split('/')), text('new'))
+    const r = await read('alice', { file_path: f, versions: true })
+    expect(r.text).toMatch(/too much changed to compare line by line/)
+    expect(r.text).not.toMatch(/2100 removed/)
+  })
 })
