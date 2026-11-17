@@ -50,6 +50,32 @@
   never `.system/`, and the target never an instruction file name (CLAUDE.md and the like). Every file and the folder are
   checked before anything is copied. The file history records it (`save_room_file`, by the person). The sheet showing
   the audience is the confirmation; there is no second card.
+- **After hands-on QA (11-17, branch fix/save-to-team-bugs; TC-4803..4805):**
+  - *Identical files are one file.* Two files of a save with the same bytes are copied once and both point at that copy
+    (the second `existed: true`, the same path); the plan marks the second `sameAs` the first, the sheet says "Same file
+    as above" (it has no tick of its own) and the toast says how many were the same, so it was saved once. The "already
+    there" check looks at every room file's tracked place with these bytes in the chosen folder, not only this file's, so
+    the same bytes sent again later find the earlier copy and the "(n)" numbering never skips or doubles.
+  - *Personal is per file.* `files[].sensitive` per file; the suggestion is computed from the files that look ordinary,
+    and is null only when every file to save looks personal. On a sheet of two or more files to save, each has a tick;
+    personal-looking ones start unticked when ordinary ones are there (so one click never takes them into the suggested
+    folder), with "Looks personal" on the row and one note. A one-file sheet has no tick.
+  - *More personal documents:* employment and salary contracts, HR records, CVs, payroll and pay words, health check-ups,
+    medical certificates, transcripts, in the six languages (`rooms/sensitive.ts`). Broad words (급여, 연봉, salary,
+    payroll, CV, resume, gaji, salario …) count in the file name only, never in chat words ("광고 성적" is an ad's
+    performance). An HR, contract or medical word plus a Korean personal name at the start or end of the name
+    (2–4 syllables after "_", a space or "-", a common surname first, not an ordinary word like 양식 or a team or company
+    name like 마케팅팀 or 삼성전자) counts too, in any position, in brackets, before a job title or 님, after NFKC (full
+    width, a Mac upload's NFD). 계약/용역 need a three-syllable name (company names are often two). A false alarm costs one
+    suggestion; a miss could publish a person's contract.
+    Known limits (independent review, 11-18): a name glued to the word ("홍길동계약서"), English names
+    ("Contract_John_Smith"), visas; three-syllable company names ("계약서_이마트") still lose their suggestion.
+  - *Better names, still no model:* common work folders match across languages (회의록 ↔ meeting notes ↔ minutes ↔ 議事録,
+    견적 ↔ quotes, 계약 ↔ contracts, 인보이스/세금계산서 ↔ invoices, 보고서 ↔ reports, 디자인 ↔ design, 마케팅 ↔
+    marketing; `team-files/move-suggest.ts` CONCEPTS, also used by the Move picker): a folder whose name is that group
+    counts as fully named, by the file's own name only (never a description or the room's words); Latin words match
+    whole terms or their plurals, never a cut-off ("repo" is not "report"); a bare 회의 only at a word's end. For the save sheet's one folder, a folder is Suggested only when it fits every ordinary file
+    (`rank(..., { every: true })`: the lowest score, not the mean); otherwise Recent, the fallback only.
 - **Guests:** cannot save (their AI has no save_room_file either). The three endpoints are not in
   `auth/guest-endpoints.ts` (403), each function checks again, and the screens show no save for a guest.
 - **Screens, small rules:** on a pointer device the icon's 24px is always kept (invisible until the chip is hovered or
@@ -59,9 +85,9 @@
   saved is kept per signed-in person in the tab and forgotten when someone else signs in.
 - **Left out:** live updates of "In team folder" for other people (they see it on the next room load); the image viewer's
   own buttons; OCR for the sensitivity hint.
-- **Tests:** `tests/unit/b-rooms-save-to-team.test.ts` (bytes, same bytes, beside a different file, several files,
+- **Tests:** `tests/unit/b-rooms-save-to-team.test.ts` (QA 11-17: identical files, the numbering, HR documents and names, names across languages, every-file rule, per-file personal; bytes, same bytes, beside a different file, several files,
   outside the room, guest, other group's folder, skills/, read-only, `.system`, path tricks, instruction name,
   quarantine, unsent upload, deleted message, all-or-nothing, suggestion, audience, sensitive, per-viewer saved list),
-  the permission matrix cases in `tests/security/lib/rooms-cases.ts`, web `test/unit/room-save-sheet.test.tsx`, e2e
+  the permission matrix cases in `tests/security/lib/rooms-cases.ts`, `tests/unit/c-move-suggest.test.ts` (work-folder groups, every), web `test/unit/room-save-sheet.test.tsx`, e2e
   `web/test/e2e/room-save-to-team.spec.ts`.
 - **Version impact:** minor (three endpoints, one additive table).
