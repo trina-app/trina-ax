@@ -38,5 +38,17 @@ Plan: [docs/AGENTS/plan/20261116-1903-live-meeting-notes.md](../AGENTS/plan/2026
   meetings.
 - **Limits:** members only (the guest allow-list), two pieces under way per person (429), one piece at most 15.5 s,
   with the app's exact WAV header (RIFF size, byte rate, block align checked: the OpenRouter path forwards it as it is).
-- **Tests:** `tests/unit/c-meeting-piece.test.ts`, `tests/unit/e-desktop-meeting-chunker.test.ts`.
+- **Capture on a Mac (slice 2):** a Swift helper (`desktop/native/meeting-audio`, universal, macOS 14.2+, built by the
+  `dist:mac*` scripts with `swiftc`, no Xcode project) next to the app's program in `Contents/MacOS`, signed with the
+  app. It taps only the sound of running call apps (Zoom, Teams, Webex, Slack, FaceTime, Discord, Skype and the browsers
+  a Meet or Teams tab plays in) with a Core Audio process tap, reads the microphone with AVAudioEngine, and writes 16 kHz
+  mono frames to stdout; nothing to disk. Electron's own loopback was not used: Chromium's display capture brings the
+  Screen Recording question. The main process starts it per meeting and stops only its own PID. Info.plist gets
+  `NSAudioCaptureUsageDescription` in six languages, and the microphone text names meeting notes. The Mac App Store
+  build ships no helper (`extraFiles: []`).
+- **Sending pieces (slice 2):** at most two at once, in order; a refusal is sent again only for the reasons in
+  `MEETING_RETRY_REASONS` (a network failure counts as `busy`); any other refusal stops the meeting once with the
+  server's sentence; at most 40 pieces wait (the oldest is dropped beyond).
+- **Tests:** `tests/unit/c-meeting-piece.test.ts`, `tests/unit/e-desktop-meeting-chunker.test.ts`, `tests/unit/e-desktop-meeting-session.test.ts`,
+  `tests/unit/mac-permission-languages.test.ts`.
 - **Version impact:** minor (two new calls; the desktop side follows in the same plan).
