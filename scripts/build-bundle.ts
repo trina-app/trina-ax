@@ -37,6 +37,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { assertNoCommonJsUpng, pdfLibBundlePlugins } from '../server/src/files/bundle-pins'
 import { packBundle, packTimeMs, signManifest, writeManifest } from '../server/src/system/bundle'
 import { walkTree } from '../server/src/system/manifest'
 import { gzipCompress, writeAtomic } from '../server/src/system/streams'
@@ -130,8 +131,11 @@ async function buildServerEntries(dir: string, version: string): Promise<void> {
       naming: out,
       define: { 'process.env.MYCEL_BUILD_VERSION': JSON.stringify(version) },
       minify: false,
+      plugins: pdfLibBundlePlugins(),
     })
     if (!res.success) throw new Error(res.logs.map(String).join('\n'))
+    // a PNG decoder bundled as CommonJS would fail every PDF image: stop the release here (bundle-pins.ts)
+    for (const o of res.outputs) assertNoCommonJsUpng(o.path)
   }
 }
 
