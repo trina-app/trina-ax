@@ -30,6 +30,32 @@ describe('the first piece', () => {
     expect(ms(got[1]!)).toBeGreaterThan(5000)
     for (const p of got) expect(ms(p)).toBeLessThanOrEqual(MAX_PIECE_MS)
   })
+  const voiceFirst = { firstMaxMs: 2500, firstMinMs: 1500, firstPauseMs: 300 }
+  test('voice input: the first piece ends at a short pause once 1.5 s were said; the next waits for the usual 1 s pause', () => {
+    const got: Piece[] = []
+    const c = chunker((p) => got.push(p), voiceFirst)
+    frames([quiet(3000), loud(1800), quiet(400), loud(1800), quiet(400), loud(1800), quiet(1500)], (f, at) => c.push('me', at, f))
+    c.flush()
+    expect(got).toHaveLength(2)
+    expect(ms(got[0]!)).toBeGreaterThanOrEqual(1800)
+    expect(ms(got[0]!)).toBeLessThanOrEqual(2100)
+    // the cut is right after the first sentence (its start is the pause plus a little quiet)
+    expect(got[1]!.startMs).toBeGreaterThan(got[0]!.startMs + 1700)
+  })
+  test('voice input: a pause before 1.5 s does not end it; without a pause it is cut between 1.5 and 2.5 s', () => {
+    const early: Piece[] = []
+    const a = chunker((p) => early.push(p), voiceFirst)
+    frames([quiet(3000), loud(800), quiet(400), loud(3000), quiet(1500)], (f, at) => a.push('me', at, f))
+    a.flush()
+    expect(ms(early[0]!)).toBeGreaterThan(1500)
+    const flat: Piece[] = []
+    const b = chunker((p) => flat.push(p), voiceFirst)
+    frames([quiet(3000), loud(10_000)], (f, at) => b.push('me', at, f))
+    b.flush()
+    expect(ms(flat[0]!)).toBeGreaterThanOrEqual(1500)
+    expect(ms(flat[0]!)).toBeLessThanOrEqual(2500)
+    expect(ms(flat[1]!)).toBeGreaterThan(2500)
+  })
   test('without the option the first piece is as long as any (meeting notes)', () => {
     const got: Piece[] = []
     const c = chunker((p) => got.push(p))

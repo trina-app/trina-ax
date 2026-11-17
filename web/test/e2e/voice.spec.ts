@@ -100,7 +100,7 @@ test('voice input through OpenRouter shows the words while recording; ✓ finish
   await signIn(page)
   await page.getByRole('button', { name: MIC }).click()
   await expect(page.getByRole('group', { name: '녹음 중' })).toBeVisible()
-  // the first piece is cut by 4 s at the latest: its words show above the bar while it still records
+  // the first piece is cut by 2.5 s of speech at the latest: its words show above the bar while it still records
   await expect(page.getByTestId('composer-text-held')).toContainText('받아쓴 문장입니다', { timeout: 12_000 })
   await expect(page.getByRole('group', { name: '녹음 중' })).toBeVisible()
   await page.getByRole('button', { name: '녹음 끝내기' }).click()
@@ -109,7 +109,27 @@ test('voice input through OpenRouter shows the words while recording; ✓ finish
   const log = (await (await page.request.post('/__test/log')).json()) as string[]
   expect(log).toContain('POST /api/transcribe/piece')
   expect(log).not.toContain('POST /api/transcribe')
+  // each piece names the app's language (Korean here) as a hint
+  const hints = (await (await page.request.post('/__test/piece-languages')).json()) as (string | null)[]
+  expect(hints.length).toBeGreaterThan(0)
+  expect(hints.every((h) => h === 'ko')).toBe(true)
   expect((await transcribeChats(page)).every((c) => c === null)).toBe(true)
+})
+
+test('a piece the server says it did not use the hint for: the rest of the recording goes without it', async ({ page }) => {
+  await reset(page)
+  await speech(page, 'openrouter', true)
+  await page.request.post('/__test/piece-languages', { data: { dropHint: true } })
+  await signIn(page)
+  await page.getByRole('button', { name: MIC }).click()
+  await expect(page.getByTestId('composer-text-held')).toContainText('받아쓴 문장입니다', { timeout: 12_000 })
+  await page.waitForTimeout(800)
+  await page.getByRole('button', { name: '녹음 끝내기' }).click()
+  await expect(page.getByTestId('voice-bar')).toHaveCount(0)
+  const hints = (await (await page.request.post('/__test/piece-languages')).json()) as (string | null)[]
+  expect(hints[0]).toBe('ko')
+  expect(hints.length).toBeGreaterThan(1)
+  expect(hints.slice(1).every((h) => h === null)).toBe(true)
 })
 
 test('Esc throws a live recording away: the box is back as it was', async ({ page }) => {
