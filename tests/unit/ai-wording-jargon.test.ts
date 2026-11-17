@@ -9,7 +9,7 @@ import { Database } from 'bun:sqlite'
 import type { Skill } from '../../server/src/chat/skills'
 import { buildSkillList, matchSkills, resolveSkill, skillChanges, skillChangesText } from '../../server/src/chat/skill-list'
 import { plainWordsRule, sharedSection, skillBlock, skillHintsBlock } from '../../server/src/chat/prompt'
-import { projectNotFoundNote, readOnlyNote } from '../../server/src/policy/refusal'
+import { projectNotFoundNote, readOnlyNote, readOnlySkillLine } from '../../server/src/policy/refusal'
 import { projectMembersBy } from '../../server/src/chat/projects'
 import { notMemberFor } from '../../server/src/chat/tools'
 
@@ -78,6 +78,15 @@ describe('a read-only team skill (SKL-02.member)', () => {
     expect(note).not.toContain('Suggest as skill')
     expect(note).toContain('if they ask, you save a personal copy with the change')
     expect(note).toContain('Do not paste the whole changed text')
+  })
+
+  test('a loaded team skill the person cannot change says so up front, the same next step', () => {
+    const line = readOnlySkillLine('skills/weekly-report/SKILL.md', true, 'en', true)!
+    expect(line.startsWith('This user cannot change this team skill. If they ask to change it, tell the user in a sentence that only the people who manage team skills change a team skill;')).toBe(true)
+    expect(line).toContain('"Suggest as skill" button under your answer')
+    expect(line).toContain('Do not paste the whole changed text for them to copy by hand.')
+    expect(readOnlySkillLine('skills/weekly-report/SKILL.md', false, 'en', true)).toBeNull()
+    expect(readOnlySkillLine('users/d/skills/x/SKILL.md', true, 'en', true)).toBeNull()
   })
 
   test('other folders keep their note', () => {

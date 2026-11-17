@@ -32,6 +32,8 @@
   - A read-only team skill (skills/…) gets its own next step: only the people who manage team skills change it; in the
     person's own chat the "Suggest as skill" button (in their language) sends the change for review; on request a
     personal copy; "Do not paste the whole changed text for them to copy by hand." Other folders keep their note.
+    The same next step follows a team skill the person may not change when the skill tool loads it: in the first
+    real-AI run after the fix, one answer loaded the skill, never tried the edit, and pasted the whole file.
   - After `not found or no access` on projects/ or projects/<name>/… that the person cannot read, the file tools add:
     the person is not a member of a project called "<name>", the same answer whether or not one exists (so nothing
     about the path is revealed), and the person who made it or an admin can add them. projects/ itself refused: they are

@@ -32,7 +32,7 @@ import { alwaysHere, withAlways } from './always-allow'
 import { fromAsker, othersWordsIn } from './shared-actions'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
 import type { StoredStep } from './store'
-import { cardEndShort, endOfText, projectNotFoundNote, readOnlyNote, type CardOutcome } from '../policy/refusal'
+import { cardEndShort, endOfText, projectNotFoundNote, readOnlyNote, readOnlySkillLine, type CardOutcome } from '../policy/refusal'
 import type { TurnFiles } from '../files/service'
 import { extractUrls, gateUrl, type ConfirmExtra, type TurnPerson } from '../tools/url-gate'
 import { ToolError } from '../policy/errors'
@@ -706,7 +706,10 @@ function skillTools(exec: TurnExec): Tool[] {
         // reporting is auxiliary (admin/skill-usage.ts: team and group skills, never a personal one); a loaded skill is a
         // run (the onboarding goal counts it), unlike a plain read of the file
         try { recordSkillUse(rt.db, { turnId: spec.turnId, userId: spec.userId, skill, source: 'tool' }) } catch { rt.log.warn('skill usage recording failed', { turn: spec.turnId }) }
-        return { ...text(skillBlock(skill, '', 'loaded')), summary: `skill -> ${isPersonalSkill(skill.path) ? 'a personal skill' : skill.path}` }
+        // a team skill the person may not change: what to offer if they ask to change it (scenario SKL-02.member: the AI
+        // loaded it, never tried the edit, and pasted the whole changed skill for the person to copy)
+        const ro = readOnlySkillLine(skill.path, !atLeast(rt.files.rules().access(user, skill.path.split('/')), 'write'), spec.locale, !exec.shared)
+        return { ...text(skillBlock(skill, '', 'loaded') + (ro ? `\n${ro}` : '')), summary: `skill -> ${isPersonalSkill(skill.path) ? 'a personal skill' : skill.path}` }
       },
     },
     {

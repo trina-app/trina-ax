@@ -252,6 +252,13 @@ function teamSkillNext(L: Locale, button: boolean): string {
     `${suggest}if they ask, you save a personal copy with the change, which replaces the team skill for them only. Do not paste the whole changed text for them to copy by hand.`
 }
 
+/** After a team skill (skills/…) the person may not change was loaded with the skill tool (`readOnly`): what to do if
+ * they ask to change it, so the AI need not try the edit first to learn it; null otherwise. */
+export function readOnlySkillLine(rel: string, readOnly: boolean, L: Locale, button: boolean): string | null {
+  if (!readOnly || rel.split('/')[0]!.normalize('NFC').toLowerCase() !== 'skills') return null
+  return `This user cannot change this team skill. If they ask to change it, ${teamSkillNext(L, button).replace(/^Next step: t/, 't')}`
+}
+
 /**
  * After "not found or no access" on a team project's path that the person cannot read (`sees`: the project folder,
  * projects/<name>, by the rules): they are not a member of a project there. That is true whether or not the project
