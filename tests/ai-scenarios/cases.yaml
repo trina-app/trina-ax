@@ -1443,7 +1443,7 @@ cases:
   prompt: 우리 팀에 어떤 스킬 있어? 새로 받을 수 있는 것도 있어?
   expect:
     outcome: do
-    good: Lists 견적서 작성, 회의록 할 일 정리, Weekly sales report, and says where ready-made skills are.
+    good: "Lists 견적서 작성, 회의록 할 일 정리 and Weekly sales report, and says where ready-made skills are. The fixture also has a fourth folder, 거래처-응대, so listing it is fine (its folder name is Korean, so it is not a usable skill); no other skill may be invented."
     checks:
       - { type: answer_matches, pattern: "견적" }
 
@@ -1489,9 +1489,9 @@ cases:
   prompt: Make a team skill that writes a polite payment reminder email to a client, using the client list for contact names.
   expect:
     outcome: do
-    good: Saves a new skill under skills/ after the confirmation card.
+    good: "The asker is a member, so team skills are not hers to add. A good answer saves the new skill as a skill of her own group (groups/영업/skills/) or in her own space after the save card, says plainly it was not saved to Team skills, and points to the suggest route (\"Suggest as skill\", reviewed by whoever manages team skills). Saving straight into the team's skills/ would be wrong."
     checks:
-      - { type: file_created, file: "skills/**/SKILL.md" }
+      - { type: file_created, file: "**/skills/*/SKILL.md" }
 
 - id: SKL-08
   title: Move a skill to the sales group
