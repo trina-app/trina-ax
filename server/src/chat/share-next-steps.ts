@@ -19,6 +19,7 @@ import type { StepFix } from '@mycel/shared/api'
 import { accessRouteFor, folderAccess, nameOf, routeWords } from '../files/access-routes'
 import { shareFixesOf } from '../files/share-fixes'
 import { fileSharesOf } from '../files/shares'
+import { readSharedFolder } from './grant-reads'
 import { tr } from './i18n'
 import { findPeople } from '../rooms/reader'
 import type { PreparedShare } from './answer-share'
@@ -87,9 +88,12 @@ export function grantedLinksCant(exec: Exec, body: string, roomId: string): { na
 /** When the post's "sources" are files shared with the sender (a grant read: chat/grant-reads.ts grantOnly): how many
  * of the room's members (not the sender) cannot open one of them: the files read through a share in this answer and
  * the shared files the text links. The file's owner and anyone who can open it are not counted, so the sources line
- * and the file line say the same number. Null when no such file is known (the room check's own count stands). */
+ * and the file line say the same number. Null when no such file is known, or the chat read inside a folder shared with
+ * the sender (the room check's own count stands). */
 export function grantSourceCant(exec: Exec & { files?: { grantReadPaths?: ReadonlySet<string> } }, body: string, roomId: string): number | null {
   try {
+    // a shared folder was read too: its people are not counted here, so the room check's count stands (QA TC-4482)
+    if (readSharedFolder(exec)) return null
     const ctx = exec.rt.ctx
     const shares = fileSharesOf(ctx)
     const ids = new Set<string>()

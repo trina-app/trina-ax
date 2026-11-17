@@ -29,6 +29,7 @@ import { loadPrincipal, RuleSet } from '../../server/src/policy/access'
 import { addSources, sourceOf } from '../../server/src/chat/read-scope'
 import { othersSource, readByGrant, seenWhy } from '../../server/src/chat/grant-reads'
 import { tr } from '../../server/src/chat/i18n'
+import { grantSourceCant } from '../../server/src/chat/share-next-steps'
 import { SHARED_FOLDERS_HOWTO } from '../../server/src/chat/shared-with-me-tool'
 import { dropAlways, keepAlways } from '../../server/src/chat/always-allow'
 import { outsideSeen } from '../../server/src/integrations/connections/tools'
@@ -455,6 +456,26 @@ describe('the mark (T13): names and contents in a shared folder are the sharer\'
     const hers = (await h.api('alice').call(API.createChat, { body: {} })).id
     addSources(db(), hers, [sourceOf(db(), RuleSet.load(db()), dir)])
     expect(readByGrant(gexec(hers, [], 'alice'))).toBe(false)
+  })
+
+  test('TC-4482: the post card after a folder listing keeps the room check\'s count; a paused share keeps the shared-file words', async () => {
+    // a file alice shares with bob one by one, linked in the post; a room of bob's with someone it was not shared with
+    wr('users/alice/one-by-one.md', 'one by one')
+    await h.api('alice').call(API.putFileShares, { body: { path: 'users/alice/one-by-one.md', add: [{ subjectType: 'user', subjectId: 'bob' }], remove: [] } })
+    const link = ((await h.api('alice').call(API.fileLink, { body: { path: 'users/alice/one-by-one.md' } })) as { id: string }).id
+    const room = (db().query("SELECT m.room_id id FROM room_members m WHERE m.user_id = 'bob' AND EXISTS (SELECT 1 FROM room_members o WHERE o.room_id = m.room_id AND o.user_id NOT IN ('bob', 'alice')) LIMIT 1").get() as { id: string }).id
+    const body = `see /f/${link}`
+    // control: a chat with no shared folder read counts who cannot open the linked shared file
+    const plain = (await h.api('bob').call(API.createChat, { body: {} })).id
+    expect(grantSourceCant(gexec(plain), body, room)).toBeGreaterThan(0)
+    // after a listing of a shared folder: the room check's own count stands (its people are not in this count)
+    const dir = folder(), id = shareDir(dir)
+    bucket()
+    const listed = await turn(`look\n${fake({ tool: 'list', args: { path: `/f/${id}` } })}`)
+    expect(grantSourceCant(gexec(listed.chatId), body, room)).toBeNull()
+    // the share paused (or ended) later: the words still say a shared file was read
+    db().query('UPDATE file_shares SET paused_at = ? WHERE id = ?').run(new Date().toISOString(), id)
+    try { expect(seenWhy(gexec(listed.chatId), 'roomsSeenWhy')).toBe('sharedFileSeenWhy') } finally { db().query('UPDATE file_shares SET paused_at = NULL WHERE id = ?').run(id) }
   })
 
   test('(R) a scheduled run cannot list or read a shared folder (T34)', async () => {

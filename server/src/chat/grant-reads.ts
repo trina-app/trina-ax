@@ -56,6 +56,13 @@ export function grantOnly(exec: GrantReadExec): boolean {
   try { return readByGrant(exec) && !roomCameIn(exec) } catch { return false }
 }
 
+/** Did this chat read inside a folder someone else shares with the person (such a place in its read scope)? Then the
+ * room check's own count of who cannot see the sources stands on the post card: the count of files shared one by one
+ * (chat/share-next-steps.ts grantSourceCant) does not cover a shared folder. Never throws. */
+export function readSharedFolder(exec: GrantReadExec): boolean {
+  try { return (readScope(exec.rt.db, exec.spec.chatId) ?? []).some((s) => s.type === 'user' && !!s.share && !s.via && s.id !== exec.spec.userId) } catch { return false }
+}
+
 /** The AI-facing words for where the other people's words in this chat came from (refusals the AI relays): a file shared
  * with the person when that is the only cause (grantOnly), else `room` (the caller's own room wording). */
 export const SHARED_FILE_SOURCE = 'a file someone shared with the user (other people\'s words, not the user\'s own)'
