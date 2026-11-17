@@ -16,6 +16,8 @@ import { makePdf } from '../lib/pdf'
 import { roomFilesOf } from '../../server/src/rooms/files'
 import { roomMatchCount, searchRooms } from '../../server/src/rooms/reader'
 import { ROOM_TOOL_DESCRIPTIONS } from '../../server/src/chat/room-tools'
+import { roomTool } from '../../server/src/connectors/remote-mcp/rooms'
+import type { TurnFiles } from '../../server/src/files/service'
 
 setDefaultTimeout(90_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -184,6 +186,73 @@ describe('only what the person can see', () => {
     expect(searchRooms(h.ctx.db, 'alice', TZ, { query: 'old-draft' }).count).toBe(1)
     await h.api('alice').call(API.deleteRoomMessage, { params: { id: dmId, messageId: m.id } })
     expect(searchRooms(h.ctx.db, 'alice', TZ, { query: 'old-draft' }).count).toBe(0)
+  })
+})
+
+describe('second review round', () => {
+  test('with_person: the 1:1 chat and shared group chats, not the room for everyone; with room, only that room if they are in it', async () => {
+    // (the fixture's short group ids do not pass the room list's contract: read the everyone room's id directly)
+    const everyone = h.ctx.db.query("SELECT r.id FROM rooms r JOIN room_members m ON m.room_id = r.id AND m.user_id = 'alice' WHERE r.kind = 'all'").get() as { id: string }
+    const f = await upload('alice', everyone.id, 'all-hands-notes.xlsx', sheet([['x']]))
+    await send('alice', everyone.id, 'notes from today', { fileIds: [f.id] })
+    const r = searchRooms(h.ctx.db, 'alice', TZ, { from_me: true, with_person: 'Erin', files: true })
+    expect(r.text).not.toContain(f.id)
+    expect(r.text).toContain(form.id)
+    // the everyone room named: it is looked at
+    expect(searchRooms(h.ctx.db, 'alice', TZ, { from_me: true, with_person: 'Erin', files: true, room: everyone.id }).text).toContain(f.id)
+    expect(searchRooms(h.ctx.db, 'alice', TZ, { with_person: 'Bob', files: true, room: dmId }).text).toContain('Nobody named')
+    expect(searchRooms(h.ctx.db, 'alice', TZ, { with_person: 'Bob', files: true, room: leadsId }).count).toBeGreaterThan(0)
+  })
+  test('from_me with somebody else as person says the two disagree', () => {
+    const r = searchRooms(h.ctx.db, 'alice', TZ, { from_me: true, person: 'Erin' })
+    expect(r.count).toBe(0)
+    expect(r.text).toContain('different people')
+    expect(searchRooms(h.ctx.db, 'alice', TZ, { from_me: true, person: 'Alice', files: true, room: dmId }).count).toBe(1)
+  })
+  test('a picture word finds a picture stored as a plain file (too big or unusual for a picture) by its name ending', async () => {
+    const f = await upload('erin', dmId, 'IMG_1234.jpg', new TextEncoder().encode('not really a jpeg'))
+    await send('erin', dmId, '', { fileIds: [f.id] })
+    expect(searchRooms(h.ctx.db, 'alice', TZ, { query: 'photo', room: dmId }).text).toContain(f.id)
+    expect(searchRooms(h.ctx.db, 'alice', TZ, { query: '사진', room: dmId }).text).toContain(f.id)
+  })
+  test('"_" and "\\" in a word are letters; the prompt count takes no type words', async () => {
+    const f = await upload('alice', dmId, 'q3_plan-v2.csv', new TextEncoder().encode('a,b\n'))
+    await send('alice', dmId, '', { fileIds: [f.id] })
+    expect(searchRooms(h.ctx.db, 'alice', TZ, { query: 'q3_plan-v2' }).count).toBe(1)
+    expect(searchRooms(h.ctx.db, 'alice', TZ, { query: 'q3\\plan' }).count).toBe(0)
+    expect(searchRooms(h.ctx.db, 'alice', TZ, { query: 'q3%plan' }).count).toBe(0)
+    expect(searchRooms(h.ctx.db, 'alice', TZ, { query: 'q3_plan_v2' }).count).toBe(0)
+    expect(roomMatchCount(h.ctx.db, 'alice', 'excel').messages).toBe(0)
+    expect(searchRooms(h.ctx.db, 'alice', TZ, { query: 'excel' }).count).toBeGreaterThan(0)
+  })
+  test('a hidden old answer and its thread: their files are found by nobody it is hidden from', async () => {
+    const root = await send('erin', leadsId, 'hidden root', { fileIds: [(await upload('erin', leadsId, 'hidden-root-file.pdf', makePdf(['x']))).id] })
+    await send('erin', leadsId, '', { fileIds: [(await upload('erin', leadsId, 'hidden-reply-file.pdf', makePdf(['y']))).id], threadRootId: root.id })
+    const seq = (h.ctx.db.query('SELECT seq FROM room_messages WHERE id = ?').get(root.id) as { seq: number }).seq
+    h.ctx.db.query('INSERT INTO room_hidden_answers (room_id, user_id, message_id, see_seq) VALUES (?, ?, ?, ?)').run(leadsId, 'bob', root.id, seq)
+    for (const q of ['hidden-root-file', 'hidden-reply-file']) {
+      expect(searchRooms(h.ctx.db, 'bob', TZ, { query: q }).count).toBe(0)
+      expect(roomMatchCount(h.ctx.db, 'bob', q).messages).toBe(0)
+      expect(searchRooms(h.ctx.db, 'alice', TZ, { query: q }).count).toBe(1)
+    }
+    expect(searchRooms(h.ctx.db, 'bob', TZ, { files: true }).text).not.toContain('hidden-')
+  })
+  test('an archived room\'s files are not found', async () => {
+    const g = (await h.api('alice').call(API.createRoom, { body: { kind: 'group', userIds: ['erin'], name: 'old project' } })).id
+    const f = await upload('alice', g, 'archived-contract.pdf', makePdf(['z']))
+    await send('alice', g, '', { fileIds: [f.id] })
+    expect(searchRooms(h.ctx.db, 'alice', TZ, { query: 'archived-contract' }).count).toBe(1)
+    h.ctx.db.query('UPDATE rooms SET archived_at = ? WHERE id = ?').run(new Date().toISOString(), g)
+    expect(searchRooms(h.ctx.db, 'alice', TZ, { query: 'archived-contract' }).count).toBe(0)
+    expect(searchRooms(h.ctx.db, 'alice', TZ, { with_person: 'Erin', files: true }).text).not.toContain(f.id)
+  })
+  test('an AI app connection gets the same search: the new filters make it a search, the rooms shown are its sources', async () => {
+    const r = await roomTool(h.ctx, h.ctx.files.principal('alice'), 'rooms', { from_me: true, with_person: 'Erin', files: true }, {} as TurnFiles, {} as never)
+    const t = r.content.map((c) => (c.type === 'text' ? c.text : '')).join('')
+    expect(t).toContain(`file_id=${form.id}`)
+    expect(r.seen.map((x) => x.id)).toEqual(expect.arrayContaining([dmId, leadsId]))
+    const bob = await roomTool(h.ctx, h.ctx.files.principal('bob'), 'rooms', { query: '계좌신고서' }, {} as TurnFiles, {} as never)
+    expect(bob.content.map((c) => (c.type === 'text' ? c.text : '')).join('')).not.toContain(form.id)
   })
 })
 

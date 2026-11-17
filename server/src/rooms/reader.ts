@@ -88,7 +88,7 @@ const strip = (s: string) => {
 /** Words that name a kind of file rather than a file ("the excel I sent"): a search word like these also matches files
  * of that type by their name's ending (or, for pictures, their kind); `any`: any file at all. Matching data, not screen
  * text. */
-const FILE_TYPE_WORDS: { re: RegExp; ext?: string[]; image?: true; any?: true }[] = [{ re: /^(엑셀|excel|xlsx?|csv|스프레드시트|spreadsheet|시트|sheet)$/i, ext: ['xlsx', 'xls', 'xlsm', 'csv', 'ods'] }, { re: /^(pdf|피디에프)$/i, ext: ['pdf'] }, { re: /^(워드|word|docx?)$/i, ext: ['docx', 'doc', 'odt'] }, { re: /^(한글|hwpx?)$/i, ext: ['hwp', 'hwpx'] }, { re: /^(ppt|pptx|파워포인트|powerpoint|슬라이드|slides?|deck)$/i, ext: ['pptx', 'ppt', 'odp'] }, { re: /^(사진|이미지|그림|스크린샷|캡처|image|images|photo|photos|picture|screenshot|png|jpe?g|heic)$/i, image: true }, { re: /^(파일|첨부|첨부파일|file|files|attachment|attachments)$/i, any: true }]
+const FILE_TYPE_WORDS: { re: RegExp; ext?: string[]; image?: true; any?: true }[] = [{ re: /^(엑셀|excel|xlsx?|csv|스프레드시트|spreadsheet|시트|sheet)$/i, ext: ['xlsx', 'xls', 'xlsm', 'csv', 'ods'] }, { re: /^(pdf|피디에프)$/i, ext: ['pdf'] }, { re: /^(워드|docx?)$/i, ext: ['docx', 'doc', 'odt'] }, { re: /^(한글|hwpx?)$/i, ext: ['hwp', 'hwpx'] }, { re: /^(ppt|pptx|파워포인트|powerpoint|슬라이드|slides?|deck)$/i, ext: ['pptx', 'ppt', 'odp'] }, { re: /^(사진|이미지|그림|스크린샷|캡처|image|images|photo|photos|picture|screenshot|png|jpe?g|heic)$/i, image: true, ext: ['png', 'jpg', 'jpeg', 'heic', 'heif', 'gif', 'webp', 'bmp', 'tif', 'tiff'] }, { re: /^(파일|첨부|첨부파일|file|files|attachment|attachments)$/i, any: true }]
 const likeOf = (w: string) => `%${w.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
 /** One search word as SQL on room_messages `m`: in the message's text or in the name of a file sent with it (or, for a
  * file type word with `types`, a file of that type). */
@@ -392,11 +392,15 @@ export interface SearchOptions {
 /** Is a rooms call a search (else the list)? Any filter but room makes it one. */
 export const isRoomSearch = (a: SearchOptions): boolean =>
   a.query !== undefined || a.person !== undefined || a.since !== undefined || a.until !== undefined || a.from_me === true || a.with_person !== undefined || a.files === true
-/** The people whose name holds `name` ("김민지님" too), at most 200 ids */
-function peopleNamed(db: Database, name: string): string[] | null {
+/** The people whose name holds `name` ("김민지님" too), at most 200 ids; `active`: only accounts in use now */
+function peopleNamed(db: Database, name: string, active = false): string[] | null {
   const p = norm(strip(name.trim())) || norm(name)
-  return p ? (db.query('SELECT id, name FROM users ORDER BY name, id').all() as { id: string; name: string }[]).filter((u) => norm(u.name).includes(p)).map((u) => u.id).slice(0, 200) : null
+  const sql = `SELECT id, name FROM users${active ? " WHERE status = 'active' AND deleted_at IS NULL" : ''} ORDER BY name, id`
+  return p ? (db.query(sql).all() as { id: string; name: string }[]).filter((u) => norm(u.name).includes(p)).map((u) => u.id).slice(0, 200) : null
 }
+/** with_person looks at a 1:1 chat first, then group chats, then team rooms (the everyone room, which everyone is in,
+ * says nothing about who a message was for and is left out unless `room` names it) */
+const WITH_ORDER: Record<RoomKind, number> = { dm: 0, group: 1, team: 2, all: 3 }
 
 /** How many messages the person sees in their rooms hold `word` (in their text or a file name sent with them), counted
  * the way searchRooms looks (the same rooms, the same window per room and in all, what they see: after they joined, no
@@ -434,9 +438,11 @@ export function searchRooms(db: Database, userId: string, tz: string, o: SearchO
   // with_person: only my rooms that one of the people of that name is in now (their members are what I see in each room
   // anyway); nobody of that name in a room with me: no room
   if (o.with_person !== undefined) {
-    const others = (peopleNamed(db, o.with_person) ?? []).filter((id) => id !== userId)
+    const others = (peopleNamed(db, o.with_person, true) ?? []).filter((id) => id !== userId)
     const inRoom = db.query(`SELECT 1 FROM room_members WHERE room_id = ? AND user_id IN (SELECT value FROM json_each(?)) LIMIT 1`)
-    rooms = others.length ? rooms.filter((r) => !!inRoom.get(r.room.id, JSON.stringify(others))) : []
+    rooms = others.length ? rooms.filter((r) => (o.room !== undefined || r.room.kind !== 'all') && !!inRoom.get(r.room.id, JSON.stringify(others))) : []
+    // stable: the latest activity first within each kind
+    rooms = rooms.map((r, i) => ({ r, i })).sort((a, b) => WITH_ORDER[a.r.room.kind] - WITH_ORDER[b.r.room.kind] || a.i - b.i).map((x) => x.r)
   }
   if (o.room === undefined) rooms = rooms.slice(0, ROOM_SEARCH_ROOMS)
   const limit = Math.min(ROOM_SEARCH_MAX, Math.max(1, o.limit ?? ROOM_SEARCH_DEFAULT))
@@ -444,7 +450,10 @@ export function searchRooms(db: Database, userId: string, tz: string, o: SearchO
   // the people whose name holds what was given ("김민지님" too); nobody: no message, as for a person who wrote nothing
   let authors: string[] | null = null
   if (o.person !== undefined) authors = peopleNamed(db, o.person)
-  if (o.from_me) authors = authors === null ? [userId] : authors.filter((id) => id === userId)
+  if (o.from_me) {
+    if (authors !== null && !authors.includes(userId)) return { text: `from_me and person "${attr(o.person ?? '', 100)}" name different people: give one of them (with_person for the people a message went to).`, seen: [], ok: true, count: 0 }
+    authors = [userId]
+  }
   const hits: { row: MessageRow; mine: Mine }[] = []
   // the positions left to look at: each room takes what it holds after my join, up to ROOM_SEARCH_SCAN, newest first
   let budget = Math.max(0, o.budget ?? ROOM_SEARCH_BUDGET)

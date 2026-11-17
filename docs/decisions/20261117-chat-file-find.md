@@ -10,9 +10,10 @@
 - **What was there:** `rooms` searched message text only. A file sent with no words, or with words that do not name it,
   was found only when the AI read the whole room (or thread) and the file was among the newest 50 messages it read.
 - **Rule:** each `rooms` search word matches a message's text or the name of a file sent with it; a few file type words
-  ("excel", "pdf", "word", "photo", and their Korean words) also match files of that type, "file"/"attachment" any
-  file. New filters: `from_me` (the user's own messages), `with_person` (only the user's rooms that person is in now:
-  their 1:1 chat, shared group chats and rooms), `files` (only messages with files). Each hit already listed its files
+  ("excel", "pdf", "docx", "photo", and their Korean words) also match files of that type (by name ending; pictures by
+  kind too), "file"/"attachment" any file. New filters: `from_me` (the user's own messages), `with_person` (only the
+  user's rooms that person, an active account, is in now: their 1:1 chat first, then shared group chats and team rooms;
+  the room for everyone only when `room` names it, since everyone is in it), `files` (only messages with files). Each hit already listed its files
   with `file_id` and the hit's `room_id`; the result now says to read one with `room_file`. The grep hint's count
   (chat/room-hint.ts) counts file names too, without the type words.
 - **What stays:** the same rooms (the person's own, not archived; a guest's AI has no `rooms`), the same messages
