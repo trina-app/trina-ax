@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'bun:test'
 import { ApiError, INTEGRATION_TOOLS_MAX, IntegrationInput, IntegrationPatch, type Integration } from '@mycel/shared/api'
 import {
-  appPatch, audienceOf, authorizationUrl, authOf, canSignIn, covers, flowReasonKey, storedSecretStays, dropsSecret, emptyForm, formFrom, formFromTemplate, lastCheckNote, methodsFor, needsKey, normalAccess, sameAccess, serverFieldErrors, splitByScope, toInput, toPatch, toolsShortfall, urlProblem, usesApp, validate, withKind,
+  appPatch, audienceOf, authorizationUrl, authOf, canSignIn, computerSignIn, covers, flowReasonKey, storedSecretStays, dropsSecret, emptyForm, formFrom, formFromTemplate, lastCheckNote, methodsFor, needsKey, normalAccess, sameAccess, serverFieldErrors, signInOffered, splitByScope, toInput, toPatch, toolsShortfall, urlProblem, usesApp, validate, withKind,
   type IntegrationForm,
 } from '../../src/lib/integrations'
 import { DICTS, translate } from '../../src/i18n'
@@ -310,4 +310,20 @@ test('TC-020: why a sign-in failed, in words in every language; an unknown code 
     expect(theirs).not.toContain(translate(l, 'integrations.advanced'))
     expect(theirs).not.toMatch(/\b(client_template|invalid_client)\b/)
   }
+})
+
+// QA TC-4794: one rule for Sign in on a connection's page, in Settings and Admin alike
+test('Sign in is offered to whoever manages it; Settings (read-only) only for a sign-in only this computer app can do', () => {
+  const desk = connection({ auth: 'oauth', scope: 'team', hasSecret: false, status: 'needs_auth', lastErrorReason: 'oauth_desktop_only' })
+  const at = { phone: false, computer: true }
+  expect(signInOffered(desk, at)).toBe(true)
+  expect(signInOffered(desk, { ...at, readOnly: true })).toBe(true)
+  expect(signInOffered(desk, { ...at, readOnly: true, computer: false })).toBe(false)
+  expect(signInOffered(desk, { ...at, computer: false })).toBe(true)
+  expect(signInOffered(desk, { ...at, phone: true })).toBe(false)
+  expect(signInOffered({ ...desk, canManage: false }, at)).toBe(false)
+  expect(signInOffered({ ...desk, personalOff: true }, at)).toBe(false)
+  expect(signInOffered({ ...desk, lastErrorReason: 'sign_in' }, { ...at, readOnly: true })).toBe(false)
+  expect(computerSignIn({ ...desk, hasSecret: true }, true)).toBe(false)
+  expect(computerSignIn(desk, false)).toBe(false)
 })
