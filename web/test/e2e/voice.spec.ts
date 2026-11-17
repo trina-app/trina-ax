@@ -93,6 +93,36 @@ test('every chat confidential (Safe operations 1A): a new chat says why too; on 
   expect(await transcribeChats(page)).toEqual([null])
 })
 
+test('voice input through OpenRouter shows the words while recording; ✓ finishes with the last piece', async ({ page }) => {
+  await reset(page)
+  await speech(page, 'openrouter', true)
+  await signIn(page)
+  await page.getByRole('button', { name: MIC }).click()
+  await expect(page.getByRole('group', { name: '녹음 중' })).toBeVisible()
+  // the first piece is cut by 4 s at the latest: its words show above the bar while it still records
+  await expect(page.getByTestId('composer-text-held')).toContainText('받아쓴 문장입니다', { timeout: 12_000 })
+  await expect(page.getByRole('group', { name: '녹음 중' })).toBeVisible()
+  await page.getByRole('button', { name: '녹음 끝내기' }).click()
+  await expect(page.getByTestId('voice-bar')).toHaveCount(0)
+  await expect(page.getByTestId('composer-input')).toHaveValue(/^받아쓴 문장입니다( 받아쓴 문장입니다)*$/)
+  const log = (await (await page.request.post('/__test/log')).json()) as string[]
+  expect(log).toContain('POST /api/transcribe/piece')
+  expect(log).not.toContain('POST /api/transcribe')
+  expect((await transcribeChats(page)).every((c) => c === null)).toBe(true)
+})
+
+test('Esc throws a live recording away: the box is back as it was', async ({ page }) => {
+  await reset(page)
+  await speech(page, 'openrouter', true)
+  await signIn(page)
+  await page.getByTestId('composer-input').fill('my draft')
+  await page.getByRole('button', { name: MIC }).click()
+  await expect(page.getByTestId('composer-text-held')).toContainText('my draft 받아쓴 문장입니다', { timeout: 12_000 })
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('voice-bar')).toHaveCount(0)
+  await expect(page.getByTestId('composer-input')).toHaveValue('my draft')
+})
+
 /** hold Space in the focused box until the bar shows, then let it go */
 async function holdSpace(page: Page) {
   await page.keyboard.down('Space')
@@ -276,6 +306,24 @@ test.describe('rooms', () => {
     expect(await transcribeChats(page)).toEqual([null])
     await page.getByTestId('room-send').click()
     await expect.poll(() => room.sent.map((m) => m.body)).toEqual(['받아쓴 문장입니다'])
+  })
+
+  test('a room with voice input through OpenRouter: the words show above the bar while recording, nothing is sent', async ({ page }) => {
+    await reset(page)
+    await speech(page, 'openrouter', true)
+    const room = await routeRoom(page, { members: [{ id: 'sora', name: '소라님' }], messages: [ROOT] })
+    await signIn(page)
+    await page.goto(`/rooms/${ROOM_ID}`)
+    const composer = page.getByTestId('room-composer')
+    await composer.getByRole('button', { name: MIC }).click()
+    const bar = page.getByRole('group', { name: '녹음 중' })
+    await expect(page.getByTestId('room-text-held')).toContainText('받아쓴 문장입니다', { timeout: 12_000 })
+    await expect(bar).toBeVisible()
+    await bar.getByRole('button', { name: '녹음 끝내기' }).click()
+    await expect(bar).toHaveCount(0)
+    await expect(page.getByTestId('room-input')).toHaveValue(/^받아쓴 문장입니다( 받아쓴 문장입니다)*$/)
+    expect(room.sent).toEqual([])
+    expect((await transcribeChats(page)).every((c) => c === null)).toBe(true)
   })
 
   test('a click in a room records until ✓, with the hint to hold Space until that was used once; a thread has the mic too', async ({ page }) => {

@@ -4,6 +4,8 @@
 // idle → waiting (Space held in the box, up to HOLD_MS) → starting (the microphone is asked for) → recording (hold:
 // ends when Space or the finger is let go; toggle: ends with ✓; press: a finger on the mic for less than HOLD_MS so
 // far) → transcribing (the upload and the job) → idle, the words at the end of the box. Never sent by itself.
+// Live (a team whose voice input goes to OpenRouter, lib/liveDictation.ts): the words go to the end of the box while
+// recording, and transcribing is only the wait for the last pieces after Stop (VoiceDeps.settle). No other phase.
 //
 // Hold Space (computers only, the caller says so): a plain Space in the box (no repeat, no IME, no modifier, no "/",
 // "#" or "@" list open) waits. In an empty box the Space is held back; in a box with text it types as usual and later
@@ -60,6 +62,10 @@ export interface VoiceDeps {
   cancel(): void
   /** the recording's words ('' when nothing was heard); the signal aborts it */
   transcribe(file: File, signal: AbortSignal): Promise<string>
+  /** a live recording (its words went to the box while it was recorded), after stop(): resolves once its last pieces are
+   * in, true when any words went in; rejects with the reason it was refused. The signal aborts it (the words go out of
+   * the box again). null: not live, the file is transcribed. */
+  settle?(signal: AbortSignal): Promise<boolean> | null
   /** the words for the end of the box */
   append(said: string): void
   /** the Space held back in an empty box after all: one space at the caret */
@@ -252,6 +258,24 @@ export class VoiceInput {
       file = null
     }
     if (abort.signal.aborted || run !== this.run) return
+    const settling = this.d.settle?.(abort.signal) ?? null
+    if (settling) {
+      try {
+        const heard = await settling
+        if (abort.signal.aborted || run !== this.run) return
+        this.reset()
+        if (heard) {
+          this.live = 'inserted'
+          this.d.focusBox(null)
+        } else this.d.note({ kind: 'empty' })
+      } catch (e) {
+        if (abort.signal.aborted || run !== this.run) return
+        this.reset()
+        this.d.note({ kind: 'error', error: e })
+      }
+      this.d.changed()
+      return
+    }
     if (!file) return this.reset()
     try {
       const said = (await this.d.transcribe(file, abort.signal)).trim()
