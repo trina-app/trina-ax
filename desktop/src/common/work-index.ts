@@ -13,8 +13,6 @@ import { DOC_TYPES } from '@mycel/shared/file-scan'
 
 /** How far back a file counts as recent (owner, 2026-11-15: "only files used recently", about six months). */
 export const RECENT_DAYS = 180
-/** Smaller files are no work document (an empty template, a stub); bigger ones are not offered (the file screen takes them). */
-export const MIN_BYTES = 1024
 
 /** What the index knows of one file. Dates in ms; null when the index has none. */
 export interface IndexedFile {
