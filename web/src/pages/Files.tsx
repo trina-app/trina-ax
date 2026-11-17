@@ -66,7 +66,7 @@ import FileUploads from '../components/FileUploads'
 import FolderPicker from '../components/FolderPicker'
 import { FolderAccessChip, FolderAccessPanel, offersFolderAccess } from '../components/FolderAccess'
 import { openFileShare, useCopyTeamFileLink } from '../components/FileShareDialog'
-import { isOwnPath, offersFolderShare, useFolderSharesOn, useOwnFolderShare } from '../lib/folder-share'
+import { isOwnPath, offersFolderShare, useOwnFolderShare } from '../lib/folder-share'
 import FolderUploads, { startFolderUpload, useFolderUploadsSettled } from '../components/FolderUploads'
 import { TeamFilesEntry } from '../components/onboarding/TeamFilesStep'
 import { useFindWorkFilesEntry } from '../components/onboarding/FindWorkFiles'
@@ -245,7 +245,6 @@ function Files() {
   }, [loadProjects])
   const byFolder = useMemo(() => projectsByFolder(projects), [projects])
   // folder sharing (open on this server): the folder on screen, if it is one of mine that can be shared
-  const folderShares = useFolderSharesOn()
   const ownShare = useOwnFolderShare(path, me.user.id)
   // back from Admin's Share dialog opened with from=files (AccessTree): the folder's Share dialog opens again
   // once the folder is here, where the chip would show; the address loses `access` (a reload does not open it again)
@@ -1246,9 +1245,9 @@ function Files() {
                           onProject={(a) => navigate(`/projects/${a.project.id}`)}
                           onSuggest={me.user.role !== 'guest' && e.type === 'file' && e.path.startsWith(`users/${me.user.id}/`) && /\.(md|txt)$/i.test(e.name) ? () => setSuggesting(e.path) : null}
                           onAccess={e.type !== 'folder' ? null
-                            // folder sharing open: a folder in my own files is shared in the file Share dialog, and my
-                            // personal folder itself and the places Trina keeps there offer no Share at all
-                            : folderShares && isOwnPath(e.path, me.user.id) ? (offersFolderShare(e.path, me.user.id) ? () => openFileShare(e.path) : null)
+                            // a folder in my own files is shared in the file Share dialog, and my personal folder
+                            // itself and the places Trina keeps there offer no Share at all
+                            : isOwnPath(e.path, me.user.id) ? (offersFolderShare(e.path, me.user.id) ? () => openFileShare(e.path) : null)
                             : offersFolderAccess(e.path, e.access, me.user.id, byFolder.get(e.path.normalize('NFC')) ?? null) ? () => setAccessFor({ path: e.path, access: e.access }) : null}
                           sharedThrough={ownShare?.through ?? null}
                         />

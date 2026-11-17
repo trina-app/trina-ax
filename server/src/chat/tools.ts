@@ -210,7 +210,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   if (!shareWithPersonOff(exec)) add(shareWithPersonTool(exec))
   // ...and taking that access away again (chat/stop-sharing.ts): the same places, never a scheduled run
   if (!stopSharingOff(exec)) add(stopSharingTool(exec))
-  // a folder in the person's own files (chat/share-folder.ts): only once folder sharing's gate is open; an add always
+  // a folder in the person's own files (chat/share-folder.ts): an add always
   // behind its card; never a scheduled run, Slack, a confidential, template or restricted run, a guest
   if (!shareFolderOff(exec)) add(shareFolderTool(exec))
   // who can open a file, a folder or this chat, and how (chat/who-can-open.ts): read-only; in a shared chat only for

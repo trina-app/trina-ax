@@ -29,7 +29,6 @@ import type { Step, StepFix } from '@mycel/shared/api'
 import { z } from 'zod'
 import { accessRouteFor, fileAccess, folderAccess, nameOf, NAMES_MAX, routeWords, sharedWithMeAccess, type AccessRoute } from '../files/access-routes'
 import { shareFixesOf } from '../files/share-fixes'
-import { folderSharesOpen } from '../files/folder-share-gate'
 import { fileSharesOf } from '../files/shares'
 import { findPeople, PERSON_REF, type Teammate } from '../rooms/reader'
 import { confidentialChat } from '../safe-ops/confidential'
@@ -188,9 +187,9 @@ export function whoCanOpenTool(exec: TurnExec): Tool {
           const lines: string[] = []
           const name = `The folder "${safe(d.place, 160)}"`
           if (d.personal) {
-            // folder sharing's gate open (files/folder-share-gate.ts): the folder's own share, as its owner's dialog says it
+            // the folder's own share, as its owner's dialog says it
             let folderShare: string | null = null
-            if (folderSharesOpen(ctx.config) && d.path.split('/')[1] === spec.userId) {
+            if (d.path.split('/')[1] === spec.userId) {
               try {
                 const v = fileSharesOf(ctx).view(spec.userId, d.path, spec.locale)
                 folderShare = v.people.length
@@ -198,7 +197,7 @@ export function whoCanOpenTool(exec: TurnExec): Tool {
                   : `${name} is in the user's own files: only they can open it. It can be shared as a whole with share_folder, when the user asks.`
               } catch { folderShare = null }
             }
-            lines.push(folderShare ?? `${name} is in the user's own files: only they can open it. A folder cannot be shared as a whole yet; the files in it can be shared one by one (share_with_person, when the user asks).`)
+            lines.push(folderShare ?? `${name} is in the user's own files: only they can open it.`)
             if (who && who.id !== spec.userId) lines.push(`${whoName} cannot open it.`)
             return ok(lines, 'own folder')
           }
@@ -228,9 +227,9 @@ export function whoCanOpenTool(exec: TurnExec): Tool {
         // ---- a file the person can open by the folder rules ----
         const file = f!
         const lines: string[] = []
-        // the shared folders above it (its owner only, with folder sharing's gate open; merge of AI and folder sharing)
+        // the shared folders above it (its owner only; merge of AI and folder sharing)
         let through: { name: string; people: { subjectType: 'user' | 'group'; subjectId: string; name: string; everyone?: boolean }[] }[] = []
-        if (file.mine && folderSharesOpen(ctx.config)) { try { through = fileSharesOf(ctx).view(spec.userId, file.path, spec.locale).through ?? [] } catch {} }
+        if (file.mine) { try { through = fileSharesOf(ctx).view(spec.userId, file.path, spec.locale).through ?? [] } catch {} }
         const owner = file.mine ? 'the user\'s own file' : file.owner ? `${safe(file.owner.name, 80)}'s file` : 'a team file with no known owner'
         lines.push(`"${safe(file.name)}" in "${safe(file.place, 160)}" is ${owner}. The user can open it${file.self ? ` (${words(file.self)})` : ''}.`)
         if (file.full) {

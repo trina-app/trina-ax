@@ -947,7 +947,7 @@ export function turnPromptSections(files: FileService, i: PromptInput): Section[
     // service that is not connected
     tools.has('ask_user') ? CARD_WORDS_RULE : '',
     SAME_NAME_RULE,
-    // (share_folder offered: folder sharing's gate is open, and the user's own folder is shared as a whole)
+    // (share_folder offered: the user's own folder is shared as a whole; not offered to a guest or a scheduled run)
     tools.has('share_with_person') || tools.has('post_to_room') ? (tools.has('share_folder') ? REFUSAL_NEXT_RULE_FOLDERS : REFUSAL_NEXT_RULE) : '',
     !i.shared && (tools.has('share_with_person') || tools.has('post_to_room')) ? OTHERS_WORDS_RULE : '',
     !i.guest && !i.shared && (tools.has('share_with_person') || tools.has('post_to_room')) ? sendNotConnectedRule(i.locale, tools.has('connect_service')) : '',

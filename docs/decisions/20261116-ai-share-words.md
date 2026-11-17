@@ -26,6 +26,10 @@ Plan: `docs/AGENTS/plan/20261116-1500-ai-share-words.md`.
     listed, subfolders and hidden files left out). For a team folder it also says the truth the old text hid: the team
     owner or an admin shares a team folder with Share on the folder in Files. In a shared chat nothing of the folder is
     listed.
+    - Update: gate removed, always on (owner 2026-11-17). The interim "I can't share the whole folder yet" words are gone. Where `share_folder` is
+      offered the person's own folder goes there; where it is not (a guest, a scheduled run) the answer says
+      share_with_person shares files only, that the whole folder is shared with Share on it in Files (not for a guest),
+      and offers the files in it.
   - Nobody by that name (a guest, a person outside the team and a group the person is not in still read the same, on
     purpose): who files can be shared with, and what works for a guest (posting the file to a chat they are in).
   - A room that is not found: the AI calls `rooms` and offers the two or three closest. The room list is not put into

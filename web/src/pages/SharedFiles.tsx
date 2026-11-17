@@ -17,7 +17,6 @@ import { useLocale, useT } from '../i18n'
 import { errorText } from '../lib/api'
 import { formatShortDate } from '../lib/format'
 import { FILES_SHARED as SHARED_WITH_ME } from '../lib/nav'
-import { useFolderSharesOn } from '../lib/folder-share'
 import { useGoBack } from '../lib/back'
 import { useBackLabel } from '../lib/backStack'
 import { PhonePageBar } from '../components/phone/PhonePageBar'
@@ -33,7 +32,6 @@ const STALE_MS = 30_000
 export default function SharedFiles() {
   const t = useT(), locale = useLocale()
   const list = useFileLists((s) => s.shared)
-  const folderShares = useFolderSharesOn()
   const [error, setError] = useState<string | null>(null)
   const [more, setMore] = useState(false)
   const phone = useMediaQuery('(max-width: 767.98px)')
@@ -103,7 +101,7 @@ export default function SharedFiles() {
         {!items && !error && <Skeleton lines={5} className="py-2" />}
         {items && !items.length && !next && (
           <div data-testid="shared-files-empty">
-            <EmptyState title={t(folderShares ? 'filesPanel.sharedEmptyFolders' : 'filesPanel.sharedEmpty')} />
+            <EmptyState title={t('filesPanel.sharedEmptyFolders')} />
           </div>
         )}
         {items && items.length > 0 && (

@@ -61,11 +61,13 @@ describe('the rules', () => {
 
   test('a refusal is passed on with its next step; folders and "already has access" are said truthfully', () => {
     expect(REFUSAL_NEXT_RULE).toContain('do not stop at "I can\'t": say why in one plain sentence and offer the next step its result names')
-    expect(REFUSAL_NEXT_RULE).toContain('A whole folder cannot be shared yet: offer to share the files in it')
+    expect(REFUSAL_NEXT_RULE).toContain('A whole folder is not shared from here: a folder in the user\'s own files is shared with Share on the folder in Files, or offer to share the files in it')
+    expect(REFUSAL_NEXT_RULE).not.toContain('yet')
     expect(REFUSAL_NEXT_RULE).toContain('a team folder is shared by the team owner or an admin with Share on the folder in Files')
     expect(REFUSAL_NEXT_RULE).toContain('When the person already has access, say so: that is not a refusal.')
     expect(SHARE_WITH_PERSON_DESCRIPTION.endsWith(SHARE_FOLDER_DESCRIPTION)).toBe(true)
-    expect(SHARE_FOLDER_DESCRIPTION).toContain('A whole folder cannot be shared yet')
+    expect(SHARE_FOLDER_DESCRIPTION).toContain('This tool shares files, not a whole folder')
+    expect(SHARE_FOLDER_DESCRIPTION).not.toContain('yet')
   })
 
   test('a service that is not connected: how to connect, and a draft meanwhile', () => {
@@ -185,13 +187,17 @@ describe('the refusals: why, then the next step', () => {
     expect(SHARE_NO.off('Quote.xlsx', 'en', false)).toContain('what was shared before still opens')
   })
 
-  test('a folder: the files in it instead; never "folders cannot be shared" for a team folder', () => {
+  test('a folder where share_folder is not offered: Share in Files or the files in it instead; never "yet"', () => {
     const three = SHARE_NO.folder('My folder › QA-test', { files: ['users/u/QA-test/a.md', 'users/u/QA-test/b.md', 'users/u/QA-test/c.md'], more: 0, teamFolder: false, staff: false })
-    expect(three).toContain('"I can\'t share the whole folder yet, but I can share the 3 files in it"')
+    expect(three).toContain('they can share the whole folder (files added later included) with Share on the folder in Files')
+    expect(three).toContain('offer to share the 3 files in it instead')
+    expect(three).not.toContain('yet')
+    // a guest cannot share a folder anywhere: no Share in Files line
+    expect(SHARE_NO.folder('X', { files: ['users/u/X/a.md'], more: 0, teamFolder: false, staff: false, guest: true })).not.toContain('Share on the folder')
     expect(three).toContain('- users/u/QA-test/a.md\n- users/u/QA-test/b.md\n- users/u/QA-test/c.md')
     expect(three).not.toContain('team folder')
-    expect(SHARE_NO.folder('X', { files: ['users/u/X/a.md'], more: 0, teamFolder: false, staff: false })).toContain('but I can share the file in it"')
-    expect(SHARE_NO.folder('X', { files: Array.from({ length: 10 }, (_, i) => `users/u/X/${i}.md`), more: 4, teamFolder: false, staff: false })).toContain('I can share the 14 files in it')
+    expect(SHARE_NO.folder('X', { files: ['users/u/X/a.md'], more: 0, teamFolder: false, staff: false })).toContain('offer to share the file in it instead')
+    expect(SHARE_NO.folder('X', { files: Array.from({ length: 10 }, (_, i) => `users/u/X/${i}.md`), more: 4, teamFolder: false, staff: false })).toContain('offer to share the 14 files in it instead')
     expect(SHARE_NO.folder('X', { files: Array.from({ length: 10 }, (_, i) => `users/u/X/${i}.md`), more: 4, teamFolder: false, staff: false })).toContain('(and 4 more: list the folder for the rest)')
     expect(SHARE_NO.folder('X', { files: [], more: 0, teamFolder: false, staff: false })).toContain('There is no file right in it that the user can share')
     // a team folder: an owner or admin shares it on the Files screen (for an admin: they can do it themselves)
@@ -378,19 +384,7 @@ describe('through the tools', () => {
     expect(h.ctx.db.query("SELECT COUNT(*) n FROM file_shares WHERE path LIKE 'users/bob/QA-test%'").get()).toEqual({ n: 0 })
   })
 
-  test('a folder with folder sharing switched off: refused as before, now with the files in it the person can share (subfolders and hidden files left out)', async () => {
-    const cfg = h.ctx.config as { folderShares?: boolean }
-    cfg.folderShares = false
-    let r
-    try { r = await turn('bob', share({ paths: ['users/bob/QA-test'], people: ['Tess Yoon'] })) } finally { cfg.folderShares = undefined }
-    expect(r.card).toBeNull()
-    expect(r.content).toContain('Nothing was shared: "내 폴더 › QA-test" is a folder, and a whole folder cannot be shared yet')
-    expect(r.content).toContain('"I can\'t share the whole folder yet, but I can share the 3 files in it"')
-    expect(r.content).toContain('- users/bob/QA-test/a.md\n- users/bob/QA-test/b.md\n- users/bob/QA-test/c.md')
-    expect(r.content).not.toContain('d.md')
-    expect(r.content).not.toContain('.hidden')
-    // nothing was shared by the refusal
-    expect(h.ctx.db.query("SELECT COUNT(*) n FROM file_shares WHERE path LIKE 'users/bob/QA-test/%'").get()).toEqual({ n: 0 })
+  test('the files in a folder the person can share, for the folder answer where share_folder is not offered (subfolders and hidden files left out)', async () => {
     // the helper alone: only files the Share dialog's own check lets this person share
     expect(shareableIn(h.ctx.files.fx.root, fileSharesOf(h.ctx), 'bob', 'users/bob/QA-test', 'ko')).toEqual({ files: ['users/bob/QA-test/a.md', 'users/bob/QA-test/b.md', 'users/bob/QA-test/c.md'], more: 0 })
     expect(shareableIn(h.ctx.files.fx.root, fileSharesOf(h.ctx), 'bob', 'shared', 'ko')).toEqual({ files: [], more: 0 })

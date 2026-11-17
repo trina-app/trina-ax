@@ -3,8 +3,7 @@
 // that they share has more readers than its owner, so every "who reads this path" answer counts the share's people,
 // and every writer into it asks first. The tests the security review asked for are marked (R).
 //
-// Shares are made here as rows (the gate stays closed on every server until the web part opens it; the hook does not
-// look at the gate): alice shares folders of her own files with bob (or the whole team).
+// Shares are made here as rows: alice shares folders of her own files with bob (or the whole team).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -347,8 +346,6 @@ describe('H1: the dev environment never writes in a shared folder (R)', () => {
 
   test('a share add is refused (409 folder_share_run_active) while a run of the owner is alive; the dialog says why', () => {
     const work = folder('alive')
-    const cfg = h.ctx.config as { folderShares?: boolean }
-    cfg.folderShares = true
     const alice = loadPrincipal(db(), 'alice')!
     const budget = () => (roomsOf(h.ctx) as unknown as { sendBudget: Map<string, unknown> }).sendBudget.clear()
     const runId = 'run-' + crypto.randomUUID()
@@ -372,7 +369,6 @@ describe('H1: the dev environment never writes in a shared folder (R)', () => {
       expect(ok.view.people.map((p) => p.subjectId)).toEqual(['bob'])
     } finally {
       db().query('DELETE FROM dev_env_runs WHERE id = ?').run(runId)
-      cfg.folderShares = undefined
     }
   })
 })
@@ -380,18 +376,14 @@ describe('H1: the dev environment never writes in a shared folder (R)', () => {
 describe('T16: people who stop reaching a shared folder start a fresh AI session', () => {
   test('Stop sharing resets the receiver\'s engine sessions', async () => {
     const work = folder('reset')
-    const cfg = h.ctx.config as { folderShares?: boolean }
-    cfg.folderShares = true
-    try {
-      const alice = loadPrincipal(db(), 'alice')!
-      ;(roomsOf(h.ctx) as unknown as { sendBudget: Map<string, unknown> }).sendBudget.clear()
-      folderSharesOf(h.ctx).change(alice, work, [{ subjectType: 'user', subjectId: 'bob' }], [], 'en')
-      const chat = (await h.api('bob').call(API.createChat, { body: {} })).id
-      db().query("UPDATE chats SET engine_session_id = 'held' WHERE id = ?").run(chat)
-      folderSharesOf(h.ctx).change(alice, work, [], [], 'en', 'dialog', { stop: true })
-      for (let i = 0; i < 40 && (db().query('SELECT engine_session_id s FROM chats WHERE id = ?').get(chat) as { s: string | null }).s; i++) await Bun.sleep(25)
-      expect((db().query('SELECT engine_session_id s FROM chats WHERE id = ?').get(chat) as { s: string | null }).s).toBeNull()
-    } finally { cfg.folderShares = undefined }
+    const alice = loadPrincipal(db(), 'alice')!
+    ;(roomsOf(h.ctx) as unknown as { sendBudget: Map<string, unknown> }).sendBudget.clear()
+    folderSharesOf(h.ctx).change(alice, work, [{ subjectType: 'user', subjectId: 'bob' }], [], 'en')
+    const chat = (await h.api('bob').call(API.createChat, { body: {} })).id
+    db().query("UPDATE chats SET engine_session_id = 'held' WHERE id = ?").run(chat)
+    folderSharesOf(h.ctx).change(alice, work, [], [], 'en', 'dialog', { stop: true })
+    for (let i = 0; i < 40 && (db().query('SELECT engine_session_id s FROM chats WHERE id = ?').get(chat) as { s: string | null }).s; i++) await Bun.sleep(25)
+    expect((db().query('SELECT engine_session_id s FROM chats WHERE id = ?').get(chat) as { s: string | null }).s).toBeNull()
   })
 
   test('a move out of a shared folder resets the sessions of the share\'s people (TeamFiles readersOf)', async () => {
@@ -536,59 +528,51 @@ describe('review 2, M-C: a run being started counts as alive; Undo of a folder s
   })
   test('a share add and an Undo of a folder share are refused while a run is being started', async () => {
     const work = folder('undo-alive')
-    const cfg = h.ctx.config as { folderShares?: boolean }
-    cfg.folderShares = true
     const alice = loadPrincipal(db(), 'alice')!
     const budget = () => (roomsOf(h.ctx) as unknown as { sendBudget: Map<string, unknown> }).sendBudget.clear()
+    budget()
+    folderSharesOf(h.ctx).change(alice, work, [{ subjectType: 'user', subjectId: 'bob' }], [], 'en')
+    const stop = folderSharesOf(h.ctx).change(alice, work, [], [], 'en', 'dialog', { stop: true })
+    const undoId = (stop.view as { undo?: { id: string } }).undo!.id
+    const done = startingRun('alice')
     try {
       budget()
-      folderSharesOf(h.ctx).change(alice, work, [{ subjectType: 'user', subjectId: 'bob' }], [], 'en')
-      const stop = folderSharesOf(h.ctx).change(alice, work, [], [], 'en', 'dialog', { stop: true })
-      const undoId = (stop.view as { undo?: { id: string } }).undo!.id
-      const done = startingRun('alice')
-      try {
-        budget()
-        let err: any = null
-        try { folderSharesOf(h.ctx).change(alice, work, [{ subjectType: 'user', subjectId: 'bob' }], [], 'en') } catch (e) { err = e }
-        expect(err?.extra?.params?.reason).toBe('folder_share_run_active')
-        const no = await h.req('alice', '/api/files/shares/undo', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: undoId }) })
-        expect(no.status).toBe(409)
-        expect(((await no.json()) as any).error.params.reason).toBe('folder_share_run_active')
-      } finally { done() }
-      // the run is gone: the same Undo (not used up by the refusal) puts bob back
-      const yes = await h.req('alice', '/api/files/shares/undo', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: undoId }) })
-      expect(yes.status).toBe(200)
-    } finally { cfg.folderShares = undefined }
+      let err: any = null
+      try { folderSharesOf(h.ctx).change(alice, work, [{ subjectType: 'user', subjectId: 'bob' }], [], 'en') } catch (e) { err = e }
+      expect(err?.extra?.params?.reason).toBe('folder_share_run_active')
+      const no = await h.req('alice', '/api/files/shares/undo', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: undoId }) })
+      expect(no.status).toBe(409)
+      expect(((await no.json()) as any).error.params.reason).toBe('folder_share_run_active')
+    } finally { done() }
+    // the run is gone: the same Undo (not used up by the refusal) puts bob back
+    const yes = await h.req('alice', '/api/files/shares/undo', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: undoId }) })
+    expect(yes.status).toBe(200)
   })
 })
 
 describe('Undo puts grants back with the Undo\'s time, not their old one (the gap is not access)', () => {
   test('a file trashed while bob was off the share asks on restore after the Undo put him back', async () => {
     const work = folder('undo-gap')
-    const cfg = h.ctx.config as { folderShares?: boolean }
-    cfg.folderShares = true
     const alice = loadPrincipal(db(), 'alice')!
-    try {
-      ;(roomsOf(h.ctx) as unknown as { sendBudget: Map<string, unknown> }).sendBudget.clear()
-      folderSharesOf(h.ctx).change(alice, work, [{ subjectType: 'user', subjectId: 'bob' }], [], 'en')
-      const id = (db().query("SELECT id FROM file_shares WHERE kind = 'folder' AND state = 'live' AND path = ?").get(work) as { id: string }).id
-      db().query('UPDATE file_share_grants SET granted_at = ? WHERE share_id = ?').run(iso(Date.now() - 60_000), id)
-      const stop = folderSharesOf(h.ctx).change(alice, work, [], [], 'en', 'dialog', { stop: true })
-      const undoId = (stop.view as { undo?: { id: string } }).undo!.id
-      await Bun.sleep(5)
-      wr(`${work}/gap.md`, 'written while nobody was on the share\n')
-      const t = svc().remove('alice', `${work}/gap.md`)
-      await Bun.sleep(5)
-      const yes = await h.req('alice', '/api/files/shares/undo', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: undoId }) })
-      expect(yes.status).toBe(200)
-      const g = db().query("SELECT granted_at at, granted_by gb, via FROM file_share_grants WHERE share_id = ? AND subject_id = 'bob'").get(id) as { at: string; gb: string; via: string }
-      expect({ gb: g.gb, via: g.via }).toEqual({ gb: 'alice', via: 'dialog' })
-      expect(g.at > (db().query('SELECT deleted_at FROM trash_items WHERE id = ?').get(t.trashId) as { deleted_at: string }).deleted_at).toBe(true)
-      let err: any = null
-      try { svc().restoreTrash('alice', t.trashId) } catch (e) { err = e }
-      expect(err?.params).toEqual({ reason: 'audience_widened', viewersAdded: 1 })
-      expect(svc().restoreTrash('alice', t.trashId, { confirm: true }).entry.path).toBe(`${work}/gap.md`)
-    } finally { cfg.folderShares = undefined }
+    ;(roomsOf(h.ctx) as unknown as { sendBudget: Map<string, unknown> }).sendBudget.clear()
+    folderSharesOf(h.ctx).change(alice, work, [{ subjectType: 'user', subjectId: 'bob' }], [], 'en')
+    const id = (db().query("SELECT id FROM file_shares WHERE kind = 'folder' AND state = 'live' AND path = ?").get(work) as { id: string }).id
+    db().query('UPDATE file_share_grants SET granted_at = ? WHERE share_id = ?').run(iso(Date.now() - 60_000), id)
+    const stop = folderSharesOf(h.ctx).change(alice, work, [], [], 'en', 'dialog', { stop: true })
+    const undoId = (stop.view as { undo?: { id: string } }).undo!.id
+    await Bun.sleep(5)
+    wr(`${work}/gap.md`, 'written while nobody was on the share\n')
+    const t = svc().remove('alice', `${work}/gap.md`)
+    await Bun.sleep(5)
+    const yes = await h.req('alice', '/api/files/shares/undo', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: undoId }) })
+    expect(yes.status).toBe(200)
+    const g = db().query("SELECT granted_at at, granted_by gb, via FROM file_share_grants WHERE share_id = ? AND subject_id = 'bob'").get(id) as { at: string; gb: string; via: string }
+    expect({ gb: g.gb, via: g.via }).toEqual({ gb: 'alice', via: 'dialog' })
+    expect(g.at > (db().query('SELECT deleted_at FROM trash_items WHERE id = ?').get(t.trashId) as { deleted_at: string }).deleted_at).toBe(true)
+    let err: any = null
+    try { svc().restoreTrash('alice', t.trashId) } catch (e) { err = e }
+    expect(err?.params).toEqual({ reason: 'audience_widened', viewersAdded: 1 })
+    expect(svc().restoreTrash('alice', t.trashId, { confirm: true }).entry.path).toBe(`${work}/gap.md`)
   })
 })
 

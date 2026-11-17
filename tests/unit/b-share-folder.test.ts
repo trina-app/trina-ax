@@ -5,8 +5,8 @@
 // narrows, so it runs
 // without a card when the asker's own message names the folder, and its record carries the server's Undo. A folder is
 // named only by its path, its place in words, a quoted name or the app's own mention. Off where nobody can answer a
-// card; in a chat with other people's words only what the asker's own message names. With the gate closed the tool is
-// not there and share_with_person keeps B1's "the files in it" path.
+// card; in a chat with other people's words only what the asker's own message names. Folder sharing is always on (its
+// rollout gate was removed, owner 2026-11-17).
 // The fixture team: alice and erin in marketing, bob in finance, carol admin, dana owner (b-harness people), tess added.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
@@ -39,12 +39,10 @@ const swp = (args: Record<string, unknown>) => fake({ tool: 'share_with_person',
 let h: Harness
 const socks: Record<string, TestSocket> = {}
 let clock = Date.now()
-const gate = (on: boolean) => { (h.ctx.config as { folderShares?: boolean }).folderShares = on }
 beforeAll(async () => {
   h = await startHarness({ name: 'b-share-folder', askUserTimeoutMs: 6000, stallTimeoutMs: 60_000 })
   roomsOf(h.ctx).clock = () => (clock += 60_000)
   h.ctx.db.query("INSERT INTO users (id, username, name, role, status, deleted_at) VALUES ('tess', 'tess', 'Tess Yoon', 'member', 'active', NULL)").run()
-  gate(true)
   for (const u of ['alice', 'bob', 'carol']) { socks[u] = await h.ws(u, { windowId: `win-sf-${u}` }); await socks[u]!.next('hello') }
 })
 afterAll(async () => { for (const s of Object.values(socks)) s.close(); await h?.close() })
@@ -210,8 +208,8 @@ describe('sharing a folder: always the card', () => {
     expect(TEAM_FOLDER_CALL).toContain('"Ask an admin"')
     for (const s of [SHARE_FOLDER_TOOL_DESCRIPTION, SHARE_FOLDER_RULE]) { expect(s).toContain(FIND_FOLDER_LINE); expect(s).toContain(TEAM_FOLDER_CALL) }
     expect(WHO_CAN_OPEN_DESCRIPTION).toContain(FIND_FOLDER_LINE)
-    // the gate closed: share_with_person's interim folder words find the folder too; the refusal rule names only the
-    // tool that is there (never share_folder)
+    // where share_folder is not offered (a guest, a scheduled run): share_with_person's folder words find the folder too;
+    // the refusal rule names only the tool that is there (never share_folder)
     expect(SHARE_FOLDER_DESCRIPTION).toContain(FIND_FOLDER_LINE)
     expect(REFUSAL_NEXT_RULE).toContain('call change_folder_access when you have it')
     expect(REFUSAL_NEXT_RULE).not.toContain('share_folder')
@@ -348,8 +346,8 @@ describe('other people\'s words in the chat', () => {
   })
 })
 
-describe('where it is off; the gate; the lists', () => {
-  test('never in a scheduled run, a confidential chat, Slack, a restricted run, for a guest, or with the gate closed', () => {
+describe('where it is off; the lists', () => {
+  test('never in a scheduled run, a confidential chat, Slack, a restricted run, or for a guest; always on otherwise', () => {
     const base = { restricted: false, templateRun: null, rt: { db: h.ctx.db, ctx: h.ctx }, spec: { clientKind: 'web', chatId: 'none', userId: 'bob' } } as never
     expect(shareFolderOff(base)).toBeNull()
     expect(shareFolderOff({ ...(base as object), spec: { clientKind: 'schedule', chatId: 'none', userId: 'bob' } } as never)?.summary).toContain('scheduled run')
@@ -360,8 +358,7 @@ describe('where it is off; the gate; the lists', () => {
     const guest = shareFolderOff({ ...(base as object), spec: { clientKind: 'web', chatId: 'none', userId: 'gus' } } as never)
     // (a guest account without a guest grant reads as an ordinary member to isGuestUser; the tool list keeps guests out)
     expect(guest === null || guest.summary.includes('guest')).toBe(true)
-    gate(false)
-    try { expect(shareFolderOff(base)?.summary).toContain('not on this server') } finally { gate(true) }
+    expect(shareFolderOff(base)).toBeNull()
   })
 
   test('the lists: main AI only, a shared chat\'s list, its own words, no room card for it', () => {
@@ -371,7 +368,7 @@ describe('where it is off; the gate; the lists', () => {
     expect(ROOMS_SEEN_READ_ONLY_TOOLS.has('share_folder')).toBe(true)
   })
 
-  test('gate open: offered, and share_with_person sends the user\'s own folder to share_folder; gate closed: not offered, the interim "files in it" path', async () => {
+  test('offered, and share_with_person sends the user\'s own folder to share_folder (no interim "files in it" answer)', async () => {
     const dir = folder('bob', 'Gate')
     const tools = async () => (await turn('bob', fake({ echo: 'tools' }))).content.split(',').map((t) => t.replace(/^mcp__team__/, ''))
     const desc = async () => JSON.parse((await turn('bob', fake({ echo: 'toolDescriptions' }))).content) as Record<string, string>
@@ -380,24 +377,13 @@ describe('where it is off; the gate; the lists', () => {
     const open = await turn('bob', `share it\n${swp({ paths: [dir], people: ['Tess Yoon'] })}`)
     expect(open.content).toContain('call share_folder')
     expect(open.content).not.toContain('cannot be shared yet')
-    gate(false)
-    try {
-      expect(await tools()).not.toContain('share_folder')
-      const closed = await turn('bob', `share it\n${swp({ paths: [dir], people: ['Tess Yoon'] })}`)
-      expect(closed.content).toContain("I can't share the whole folder yet")
-      // B1's interim path: the files in it, by count, for the user's yes (merge of AI sharing and folder sharing)
-      expect(closed.content).toMatch(/but I can share the \d+ files in it/)
-      expect(cardsTo('bob', closed.turnId)).toBe(0)
-      expect(closed.content).not.toContain('share_folder')
-    } finally { gate(true) }
-    // the rule the prompt carries follows the tool
-    expect(REFUSAL_NEXT_RULE).toContain('cannot be shared yet')
+    expect(open.content).not.toContain("I can't share the whole folder")
+    // the rule the prompt carries follows the tool; no rule says "yet"
+    expect(REFUSAL_NEXT_RULE).not.toContain('yet')
+    expect(REFUSAL_NEXT_RULE).toContain('Share on the folder in Files')
     expect(REFUSAL_NEXT_RULE_FOLDERS).toContain('share_folder')
-    expect(REFUSAL_NEXT_RULE_FOLDERS).not.toContain('cannot be shared yet')
-    const sys = async () => (await turn('bob', fake({ echo: 'system' }))).content
-    expect(await sys()).toContain(REFUSAL_NEXT_RULE_FOLDERS)
-    gate(false)
-    try { const s = await sys(); expect(s).toContain(REFUSAL_NEXT_RULE); expect(s).not.toContain('share_folder') } finally { gate(true) }
+    expect(REFUSAL_NEXT_RULE_FOLDERS).not.toContain('yet')
+    expect(await (async () => (await turn('bob', fake({ echo: 'system' }))).content)()).toContain(REFUSAL_NEXT_RULE_FOLDERS)
   })
 
   test('the card record\'s folder reasons are the Share dialog\'s', () => {

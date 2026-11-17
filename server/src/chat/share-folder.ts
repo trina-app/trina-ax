@@ -16,7 +16,7 @@
 // - A folder is "named" only by its path, its place in words, a quoted name or the app's own mention (M9): "Work" or
 //   "Reports" in a sentence never count. What looking_at reported is never the person's word (namesFolder reads the
 //   asker's own message only).
-// - Off (shareFolderOff): the gate closed, a scheduled run, a confidential chat, Slack, a restricted or template run, a
+// - Off (shareFolderOff): a scheduled run, a confidential chat, Slack, a restricted or template run, a
 //   guest's turn; refused for a sub-agent (mainOnly; subagents.ts PARENT_ONLY_TOOLS). Not offered to a room's AI or
 //   the remote connector. Where other people's words are in the turn (a shared chat, a chat others wrote in, a room or a
 //   shared file read, content someone else wrote: othersWordsIn) it acts only when the asker's own message names the
@@ -28,7 +28,6 @@ import { plainLabel, type FileShareRow, type FileShares as FileSharesView, type 
 import { z } from 'zod'
 import { audit } from '../admin/audit'
 import { isGuestUser } from '../credentials/guest-ai'
-import { folderSharesOpen } from '../files/folder-share-gate'
 import { fileSharesOf } from '../files/shares'
 import { HttpError } from '../http/errors'
 import { isStaff } from '../policy/access'
@@ -62,7 +61,6 @@ const NAMED = 'Ask the user to say which folder to share, by its full name in qu
 /** Why share_folder is not offered in this turn (and refused when reached anyway), or null: it is. Never in a run nobody
  * watches (no Always allow kind lets a scheduled run through: actionOff with null), never for a guest. */
 export function shareFolderOff(exec: Pick<TurnExec, 'restricted' | 'templateRun' | 'spec' | 'rt'>): { text: string; summary: string } | null {
-  if (!folderSharesOpen(exec.rt.ctx.config)) return { text: 'Nothing was changed: folders cannot be shared on this server yet.', summary: 'share_folder -> refused: not on this server' }
   const off = actionOff(exec, null)
   if (off === 'schedule') return { text: 'Nothing was changed: a scheduled run has nobody to answer the card a folder share needs. Tell the user to ask in one of their own chats, or to use Share on the folder in Files.', summary: 'share_folder -> refused: scheduled run' }
   if (off === 'confidential') return { text: 'Nothing was changed: this is a confidential conversation (safe operations), and nothing of it goes to other people. Tell the user they can use Share on the folder in Files.', summary: 'share_folder -> refused: confidential chat' }

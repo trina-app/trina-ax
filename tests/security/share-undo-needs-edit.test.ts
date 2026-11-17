@@ -12,7 +12,7 @@ import { addMember, harness, withOwner, type Client, type Harness } from '../uni
 let h: Harness, owner: Client, alice: Client, bob: Client, ids: Record<string, string>
 const budget = () => (roomsOf(h.ctx) as unknown as { sendBudget: Map<string, unknown> }).sendBudget.clear()
 beforeAll(async () => {
-  h = await harness('sr2-undo', { folderShares: true })
+  h = await harness('sr2-undo')
   owner = await withOwner(h)
   const a = await addMember(h, owner, { username: 'alice' })
   const b = await addMember(h, owner, { username: 'bob' })

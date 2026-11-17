@@ -108,7 +108,6 @@ for (const width of [1440, 390]) {
 
     test('a folder (share_folder): the card shows the folder row and the later-files line, turns into the result; a stop\'s Undo is the server\'s', async ({ page }) => {
       const errors = await start(page)
-      await page.request.post('/__test/folder-shares', { headers: H, data: { on: true } })
       await ask(page, 'sharecard folder share QA-test with Bob')
       const card = page.getByTestId('ask-card')
       await expect(card.getByTestId('share-ask-title')).toHaveText('Share QA-test with Bob?')
