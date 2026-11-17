@@ -166,14 +166,19 @@ Las conversaciones de **Chats** (canales y mensajes directos, incluidos los chat
 Solo usted ve lo que ha fijado. Una conversación deja de estar fijada cuando sale de la conversación o la oculta. Puede fijar hasta 50 conversaciones.
 
 La lista **Chats** muestra todas las conversaciones: las fijadas, sus carpetas y luego **Canales** (primero el canal Todos y después
-por nombre) y **Mensajes directos** (los chats 1:1 y los chats de grupo juntos, el más reciente primero, cada uno con las caras de sus miembros). Las conversaciones que ocultó están en **Conversaciones ocultas (N)**.
+por nombre; los canales privados llevan un candado) y **Mensajes directos** (los chats 1:1 y los chats de grupo sin nombre juntos, el más reciente primero, cada uno con las caras de sus miembros). Las conversaciones que ocultó están en **Conversaciones ocultas (N)**.
+
+El **+** junto a **Canales** es **Crear un canal**: elija a las personas y póngale un nombre, y será un canal privado que
+solo ellas ven. El **+** junto a **Mensajes directos** es **Nuevo mensaje**: elija a una persona para un mensaje directo,
+o a varias para un chat de grupo con sus nombres (si ya tiene uno con exactamente esas personas, se abre ese). Para
+convertir un chat de grupo en canal privado, elija **···** › **Convertir en canal privado** y póngale un nombre.
 
 Un chat directo con alguien que dejó el equipo dice "<nombre> dejó el equipo" y no tiene cuadro de mensaje. El historial se puede seguir leyendo.
 
 ## Chat del equipo
 
 **Chats** en la barra de la izquierda (en un teléfono, la pestaña **Chats**) es donde las personas hablan entre sí: **Canales**
-(uno para todo el equipo, y uno por grupo) y **Mensajes directos** (chats 1:1 y chats de grupo). **Menciones e hilos**,
+(uno para todo el equipo, uno por grupo y los canales privados en los que está) y **Mensajes directos** (chats 1:1 y chats de grupo). **Menciones e hilos**,
 arriba, reúne los mensajes que le mencionan y los hilos que sigue.
 
 Para escribir a una sola persona, haga clic en su foto o en su nombre junto a un mensaje (también sirve una @mención o su fila en la lista de miembros de una conversación). Se abre una tarjeta pequeña con su nombre y su cargo: **Enviar mensaje** abre su chat 1:1 con esa persona. En un teléfono la tarjeta se abre desde la parte inferior de la pantalla. Su propia tarjeta tiene **Editar perfil**. Las aplicaciones y las personas que ya no están en el equipo no tienen tarjeta; un invitado solo puede escribir a las personas de su chat de grupo o de su proyecto.

@@ -1,14 +1,15 @@
 // What stands for a room in a list or a header: the other person's picture in a DM, a "#" for a group's room, the
-// people mark for the everyone room and two speech bubbles for a group chat. Decorative: the room's name is always
+// people mark for the everyone room, a lock for a named group room (a private channel,
+// docs/decisions/20261117-named-groups-private-channels.md) and two speech bubbles for an unnamed group chat. Decorative: the room's name is always
 // written beside it. `presence`: a DM's picture carries the other person's online dot (components/Presence.tsx; the
 // caller says the state in words after the name, PresenceText). A group chat has none, as in Slack. `faces`: in the
-// lists, where group chats sit among the direct messages (docs/decisions/20261116-sidebar-channels-dms.md), a group chat
+// lists, where unnamed group chats sit among the direct messages (docs/decisions/20261116-sidebar-channels-dms.md), one
 // shows two of its people's faces in one picture's box (the shared FaceStack's `fit`) instead of the speech bubbles.
-import { Hash, MessagesSquare, Users } from 'lucide-react'
+import { Hash, Lock, MessagesSquare, Users } from 'lucide-react'
 import { Fragment, useCallback } from 'react'
 import type { Room } from '@mycel/shared/api'
 import { translate, useLocale, useT } from '../../i18n'
-import { roomTitle, TITLE_NAMES } from '../../lib/rooms'
+import { isPrivateChannel, roomTitle, TITLE_NAMES } from '../../lib/rooms'
 import { useAvatarOf, useFaceOf, usePeople, usePeopleList } from '../../store/people'
 import { useMe } from '../../store/session'
 import { Avatar } from '../Avatar'
@@ -79,13 +80,14 @@ export function RoomIcon({ room, size, glyph, tile, presence, faces, selected, o
   usePeopleList()
   const peer = useAvatarOf(room.kind === 'dm' ? (room.peers[0] ?? null) : null)
   const faceOf = useFaceOf()
-  if (faces && room.kind === 'group' && room.peers.length) {
+  const locked = isPrivateChannel(room)
+  if (faces && room.kind === 'group' && !locked && room.peers.length) {
     const people = room.peers.slice(0, GROUP_FACES).map(faceOf)
     // in the box of one picture, so the name lines up with a 1:1's
     return <FaceStack people={people} count={people.length} fit={size} on={on} hoverRing selected={selected} testId="room-group" />
   }
   if (room.kind === 'dm') return peer ? (presence ? <PresenceFace user={peer} size={size} /> : <Avatar user={peer} size={size} />) : <span aria-hidden className="shrink-0 rounded-full bg-hover" style={{ width: size, height: size }} />
-  const Icon = room.kind === 'all' ? Users : room.kind === 'group' ? MessagesSquare : Hash
+  const Icon = room.kind === 'all' ? Users : locked ? Lock : room.kind === 'group' ? MessagesSquare : Hash
   if (!tile)
     return (
       <span aria-hidden className="flex shrink-0 items-center justify-center text-muted" style={{ width: size, height: size }}>

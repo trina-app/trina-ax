@@ -261,13 +261,31 @@ export class Rooms {
     return this.get(userId, found.id)
   }
 
-  /** A group chat of me and `userIds` (at least two others, active people of this team; not audited). Its name is
-   * optional: without one the app shows the other members' names. Everyone in it sees it from its first line. */
+  /** A group room of me and `userIds` (active people of this team; not audited). With a name it is a private channel
+   * (at least one other person); without one a group DM (at least two others), named after its people in the app, and
+   * a group DM of exactly these people that I am in already is opened instead of a second one
+   * (docs/decisions/20261117-named-groups-private-channels.md). Everyone in it sees it from its first line. */
   createGroup(userId: string, userIds: readonly string[], name?: string | null, locale: Locale = 'en'): Room {
     // a guest makes no group chat: a member puts them into one (one group chat at most)
     if (isGuest(this.db, userId)) fail('forbidden')
     const others = [...new Set(userIds)].filter((id) => id !== userId)
-    if (others.length < 2) fail('validation', undefined, { fields: { 'body.userIds': 'at least two other people' } })
+    const named = !!name?.trim()
+    if (others.length < (named ? 1 : 2)) fail('validation', undefined, { fields: { 'body.userIds': named ? 'at least one other person' : 'at least two other people' } })
+    if (!named && others.length + 1 <= ROOM_GROUP_MAX) {
+      const everyone = [userId, ...others]
+      const same = this.db
+        .query(
+          `SELECT r.id FROM rooms r WHERE r.kind = 'group' AND r.archived_at IS NULL AND (r.name IS NULL OR TRIM(r.name) = '')
+             AND (SELECT COUNT(*) FROM room_members m WHERE m.room_id = r.id) = ?
+             AND (SELECT COUNT(*) FROM room_members m WHERE m.room_id = r.id AND m.user_id IN (${everyone.map(() => '?').join(', ')})) = ?
+           ORDER BY r.activity_at DESC LIMIT 1`,
+        )
+        .get(everyone.length, ...everyone, everyone.length) as { id: string } | null
+      if (same) {
+        this.unhide(same.id, [userId])
+        return this.get(userId, same.id)
+      }
+    }
     if (others.length + 1 > ROOM_GROUP_MAX) fail('validation', undefined, { fields: { 'body.userIds': `at most ${ROOM_GROUP_MAX} people` } })
     this.assertActive(others)
     // it lands in up to 99 people's lists: the same budget as sending, and at most GROUPS_PER_HOUR an hour

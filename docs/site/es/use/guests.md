@@ -25,7 +25,7 @@ Junto al nombre de un invitado verá una etiqueta **Invitado**, y un chat o proy
 - **A un chat de grupo:** cualquier persona de ese chat.
 - **A un proyecto:** la persona que creó el proyecto, o un propietario o administrador.
 
-No tiene que abrir antes el chat o el proyecto: **Nueva conversación** empieza con **Invitar a un invitado**, y los
+No tiene que abrir antes el chat o el proyecto: **Nuevo mensaje** empieza con **Invitar a un invitado**, y los
 propietarios y administradores también encuentran **Invitado** en **Invitar a personas** y en **Administración ›
 Miembros e invitaciones › Invitar al equipo**. Vea [Sin abrir el chat ni el proyecto](#sin-abrir-el-chat-ni-el-proyecto)
 y [Desde Administración](#desde-administración) más abajo.
@@ -63,7 +63,7 @@ Un enlace solo funciona mientras la persona que lo creó todavía pueda invitar.
 
 ### Sin abrir el chat ni el proyecto
 
-- **Nueva conversación** (el **+** encima de sus conversaciones): la primera fila es **Invitar a un invitado**.
+- **Nuevo mensaje** (el **+** encima de sus conversaciones): la primera fila es **Invitar a un invitado**.
 - **Invitar a personas** (propietarios y administradores: el menú del equipo debajo del logotipo del equipo, la
   búsqueda, o **Yo** en el teléfono): elija **Invitado** en la parte superior del cuadro (al principio está elegido
   **Miembro del equipo**).

@@ -3,7 +3,7 @@
 import { describe, expect, test } from 'bun:test'
 import { uuidv7 } from '@mycel/shared/api'
 import { translate } from '../../src/i18n'
-import { eventText, groupRuns, insertMention, matchMembers, mentionAt, mentionParts, mentionsIn, mentionTokens, tokenMentions, plainLine, readUpTo, roomBadge, roomEmptyKey, roomTitle, threadClosing, threadOpening, totalUnread } from '../../src/lib/rooms'
+import { eventText, groupRuns, isPrivateChannel, insertMention, matchMembers, mentionAt, mentionParts, mentionsIn, mentionTokens, tokenMentions, plainLine, readUpTo, roomBadge, roomEmptyKey, roomTitle, threadClosing, threadOpening, totalUnread } from '../../src/lib/rooms'
 import { at, BEN, CY, ME, message, room } from './rooms-fixtures'
 
 const R = uuidv7()
@@ -275,5 +275,17 @@ describe('the empty room line (QA TC-1973)', () => {
     expect(translate('en', roomEmptyKey(room({ id: R, kind: 'dm', peers: [BEN] })))).toBe('No messages yet. Send the first one.')
     expect(translate('en', roomEmptyKey({ ...room({ id: R, kind: 'dm', peers: [BEN] }), gone: true }))).toBe('No messages.')
     expect(translate('en', roomEmptyKey(null))).toBe('No messages yet. Send the first one.')
+  })
+})
+
+describe('isPrivateChannel: a named group room is a private channel, an unnamed one a group DM', () => {
+  test('by kind and name', () => {
+    expect(isPrivateChannel({ kind: 'group', name: 'Launch' })).toBe(true)
+    expect(isPrivateChannel({ kind: 'group', name: null })).toBe(false)
+    expect(isPrivateChannel({ kind: 'group', name: '' })).toBe(false)
+    expect(isPrivateChannel({ kind: 'group', name: '   ' })).toBe(false)
+    // team rooms and the everyone room are channels already; a DM never
+    expect(isPrivateChannel({ kind: 'team', name: 'Design' })).toBe(false)
+    expect(isPrivateChannel({ kind: 'dm', name: 'x' })).toBe(false)
   })
 })
