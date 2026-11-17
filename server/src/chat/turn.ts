@@ -103,7 +103,7 @@ import { credentialsOf, getRow, metaOf } from '../credentials/store'
 import { dummyAuthJson } from '../credentials/codex-home'
 import { afterUsage } from '../admin/budget-watch'
 import type { QueueTiming } from './fair-queue'
-import { RedactingText, redactorFor, type Redactor } from '../integrations/connections/redact'
+import { nothingToHide, RedactingText, redactorFor, type Redactor } from '../integrations/connections/redact'
 import { DraftPages, draftScopeOf, draftSystemPrompt, inWebScope, type DraftTurn } from '../onboarding/draft'
 import { BrandCollector } from '../onboarding/brand-assets'
 import { skillDraftOf, skillDraftSystemPrompt, type SkillDraftScope } from '../onboarding/skill-draft'
@@ -1887,7 +1887,7 @@ export class TurnExec {
   /** a step's words with the person's stored connection secrets hidden (the label may quote the tool's input) */
   private redactStep<T extends Partial<StoredStep>>(s: T): T {
     const r = this.redactor()
-    if (!r.re) return s
+    if (nothingToHide(r)) return s
     const out: T = { ...s }
     if (out.label !== undefined) out.label = r.hide(out.label)
     if (out.sv) out.sv = { ...out.sv, label: r.hide(out.sv.label) }
