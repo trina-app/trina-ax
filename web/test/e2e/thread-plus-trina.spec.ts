@@ -20,7 +20,8 @@ const id = (n: number) => `019a5f00-0000-7000-8000-0000000003${String(n).padStar
 const ROOT = id(1)
 const OTHER = id(5)
 
-async function open(page: Page, o: { thread?: string | null } = {}) {
+/** `reply`: one more reply in the first thread (a link to a team file, say) */
+async function open(page: Page, o: { thread?: string | null; reply?: string } = {}) {
   await reset(page)
   const room = await routeRoom(page, {
     members: [SORA, BEN],
@@ -28,6 +29,7 @@ async function open(page: Page, o: { thread?: string | null } = {}) {
       { id: ROOT, author: SORA, body: '이번 주 시안 검토 일정 공유드려요. 금요일까지 피드백 부탁드립니다.', extra: { thread: { replyCount: 2, lastReplyAt: '2026-11-05T09:03:00.000Z', repliers: [SORA, BEN], newReplies: false } } },
       { id: id(2), author: SORA, body: '로고 버전 두 개 중에 어느 쪽이 나은지 의견 주세요.', threadRootId: ROOT },
       { id: id(3), author: BEN, body: '두 번째 안이 좋아 보여요. 색 대비가 더 분명해요.', threadRootId: ROOT },
+      ...(o.reply ? [{ id: id(4), author: SORA, body: o.reply, threadRootId: ROOT }] : []),
       { id: OTHER, author: BEN, body: '다음 주 회의는 화요일 오전으로 옮길게요.', extra: { thread: { replyCount: 1, lastReplyAt: '2026-11-05T09:05:00.000Z', repliers: [SORA], newReplies: false } } },
       { id: id(6), author: SORA, body: '화요일 좋아요.', threadRootId: OTHER },
     ],
@@ -170,6 +172,24 @@ test('1280: the list folds away for the three columns and comes back when one cl
   await expect(page.getByTestId('room-side-chat')).toHaveCount(0)
   await expect(page.getByTestId('chats-panel')).toBeVisible()
   await expect(page.getByTestId('room-thread')).toBeVisible()
+  // the other way round: the side chat open, a thread opened from the room. The list folds, both show, and the
+  // keyboard is not taken into the side chat (the two were never drawn over the room on the way)
+  await page.getByTestId('room-thread').getByTestId('thread-close').click()
+  await page.getByTestId('room-side-chat-button').click()
+  await expect(page.getByTestId('room-side-chat').getByTestId('side-chat-input')).toBeFocused()
+  await page.getByTestId('room').locator('textarea').first().focus()
+  await page.evaluate(() => {
+    const w = window as unknown as { __modes: (string | null)[] }
+    w.__modes = []
+    const el = document.querySelector('[data-testid="room-page"]')!
+    new MutationObserver(() => w.__modes.push(el.getAttribute('data-columns'))).observe(el, { attributes: true, attributeFilter: ['data-columns'] })
+  })
+  await page.getByTestId('room-thread-line').first().click()
+  await expect(page.getByTestId('room-page')).toHaveAttribute('data-columns', 'three')
+  await expect(page.getByTestId('room-side-chat')).toBeVisible()
+  await expect(page.getByTestId('chats-panel')).toHaveCount(0)
+  await expect(page.getByTestId('room-side-chat').getByTestId('side-chat-input')).not.toBeFocused()
+  expect(await page.evaluate(() => (window as unknown as { __modes: (string | null)[] }).__modes)).toEqual(['three'])
 })
 
 test('1024: the thread and the side chat share the row over the room; Esc closes one a press; a thread opened from the room takes the side chat\'s place', async ({ page }) => {
@@ -195,6 +215,11 @@ test('1024: the thread and the side chat share the row over the room; Esc closes
   await expect(page.getByRole('region', { name: '스레드' })).toBeVisible()
   await audit(page, 'thread and side chat')
 
+  // Esc while an input method composes (Korean, Japanese) cancels the composition: no panel closes
+  await page.evaluate(() => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true })))
+  await page.evaluate(() => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 229, bubbles: true, cancelable: true })))
+  await expect(side).toBeVisible()
+  await expect(thread).toBeVisible()
   // Esc with the keyboard in the side chat: it closes; the thread stays beside the room, which is in reach again
   await page.keyboard.press('Escape')
   await expect(side).toHaveCount(0)
@@ -264,13 +289,18 @@ test('a phone: asking about a message of a thread opens the side chat over the t
   await expect(page.getByTestId('room')).toBeVisible()
 })
 
-test('"View" under an answer sent to the open thread keeps one step back to the room', async ({ page }) => {
-  const room = await open(page)
+/** the share endpoint as the server answers it: the answer goes into the room or the thread */
+async function routeShare(page: Page, room: Awaited<ReturnType<typeof routeRoom>>) {
   await page.route(/\/api\/chats\/[^/]+\/messages\/[^/]+\/share-to-room$/, async (route) => {
     const b = route.request().postDataJSON() as { threadRootId?: string }
     const m = room.add({ author: { id: 'olga', name: 'Olga' }, body: '정리: 수요일까지 시안 2개.', ...(b.threadRootId ? { threadRootId: b.threadRootId } : {}), extra: { sharedAnswer: { at: 0, cut: false } } })
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'sent', message: m, cut: false }) })
   })
+}
+
+test('"View" under an answer sent to the open thread keeps one step back to the room', async ({ page }) => {
+  const room = await open(page)
+  await routeShare(page, room)
   // opened from the room, so the thread is one step from it
   await page.goto(`/rooms/${ROOM_ID}`)
   await page.getByTestId('room-thread-line').first().click()
@@ -293,4 +323,114 @@ test('"View" under an answer sent to the open thread keeps one step back to the 
   await expect(thread).toHaveCount(0)
   await expect(page).toHaveURL(new RegExp(`/rooms/${ROOM_ID}$`))
   await expect(side).toBeVisible()
+})
+
+test('a phone: "View" under an answer sent to the thread under the side chat shows that thread; ‹ is the room; ✦ brings the same chat back', async ({ page }) => {
+  const room = await open(page, { thread: null })
+  await routeShare(page, room)
+  // (opened from the room: the thread is one step from it)
+  await page.getByTestId('room-thread-line').first().click()
+  const thread = page.getByTestId('room-thread')
+  const side = page.getByTestId('room-side-chat')
+  await expect(thread.getByTestId('room-message')).toHaveCount(3)
+  await page.getByTestId('room-side-chat-button').click()
+  await expect(side.getByTestId('side-chat-thread-chip')).toBeVisible()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(page.getByTestId('room-page')).toHaveAttribute('data-columns', 'one')
+  await ask(page, '한 줄로 정리해 줘')
+  const answer = side.locator('[data-testid="assistant-message"]').first()
+  await answer.getByTestId('send-here-thread').click()
+  await expect(answer.getByTestId('send-here-sent')).toBeVisible()
+  await answer.getByTestId('send-here-view').click()
+  // the side chat steps aside: the thread with the reply, in reach
+  await expect(side).toHaveCount(0)
+  await expect(thread).toBeVisible()
+  await expect(thread).not.toHaveAttribute('inert', /.*/)
+  await expect(thread.getByTestId('room-message')).toHaveCount(4)
+  await expect(page).toHaveURL(new RegExp(`/rooms/${ROOM_ID}/t/${ROOT}\\?m=`))
+  // ‹: the room (one step); its ✦: the same chat, still saying it was sent
+  await thread.getByTestId('thread-back').click()
+  await expect(thread).toHaveCount(0)
+  await expect(page.getByTestId('room')).toBeVisible()
+  await expect(page).toHaveURL(new RegExp(`/rooms/${ROOM_ID}$`))
+  await page.getByTestId('room-side-chat-button').click()
+  await expect(side.getByTestId('user-text')).toHaveCount(1)
+  await expect(side.locator('[data-testid="assistant-message"]').first().getByTestId('send-here-sent')).toBeVisible()
+})
+
+test('a file preview beside both: the page shows thread and side chat; Esc closes the preview first; in a small window one panel at a time', async ({ page }) => {
+  const origin = new URL(test.info().project.use.baseURL!).origin
+  await open(page, { reply: `보고서 여기 있어요: ${origin}/files/view?path=marketing%2Fplan.md` })
+  const pageEl = page.getByTestId('room-page')
+  const thread = page.getByTestId('room-thread')
+  const side = page.getByTestId('room-side-chat')
+  await page.getByTestId('room-side-chat-button').click()
+  await expect(pageEl).toHaveAttribute('data-columns', 'three')
+  await thread.getByTestId('room-link').click()
+  await expect(page.getByTestId('file-panel')).toContainText('launch')
+  // the preview takes its width first (the page keeps 740 px): thread and side chat share the page, each 320 or more
+  await expect(pageEl).toHaveAttribute('data-columns', 'pair')
+  const [th, s, p] = [await box(thread), await box(side), await box(page.getByTestId('side-panel'))]
+  expect(th.width).toBeGreaterThanOrEqual(320)
+  expect(s.width).toBeGreaterThanOrEqual(320)
+  expect(Math.round(s.x + s.width)).toBeLessThanOrEqual(Math.round(p.x) + 1)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1440)
+  // Esc: the preview first, and only it; the three columns are back, where Esc closes nothing
+  await side.getByTestId('side-chat-input').focus()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('side-panel')).toHaveCount(0)
+  await expect(side).toBeVisible()
+  await expect(thread).toBeVisible()
+  await expect(pageEl).toHaveAttribute('data-columns', 'three')
+  await page.keyboard.press('Escape')
+  await expect(side).toBeVisible()
+  await expect(thread).toBeVisible()
+
+  // the desktop app's smallest window with a preview: no room for two panels, the side chat is over the thread
+  await thread.getByTestId('room-link').click()
+  await expect(page.getByTestId('file-panel')).toBeVisible()
+  await page.setViewportSize({ width: 900, height: 700 })
+  await expect(pageEl).toHaveAttribute('data-columns', 'one')
+  await expect(thread).toHaveAttribute('inert', /.*/)
+  const [row, over] = [await box(pageEl), await box(side)]
+  expect([Math.round(over.x), Math.round(over.width)]).toEqual([Math.round(row.x), Math.round(row.width)])
+  // Esc: the preview, then the side chat; the thread is in reach again
+  await side.getByTestId('side-chat-input').focus()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('side-panel')).toHaveCount(0)
+  await expect(side).toBeVisible()
+  await page.setViewportSize({ width: 1440, height: 900 })
+})
+
+test('the meeting-notes card (desktop app) sits above the message box of a panel on the right', async ({ page }) => {
+  // a desktop bridge whose meeting is listening (shots-meeting-notes.spec.ts has the full stand-in)
+  await page.addInitScript(() => {
+    const noop = () => {}
+    const state = { state: 'listening', startedAt: Date.now() - 754_000, microphone: true, callSound: true, callApps: ['us.zoom.xos'] }
+    ;(window as unknown as Record<string, unknown>).mycelDesktop = {
+      bridgeVersion: 1, appVersion: '0.5.12', platform: 'darwin',
+      browser: { run: async (c: { callId: string }) => ({ callId: c.callId, ok: false, content: [], error: 'no pane' }), cancel: noop },
+      pane: { open: noop, close: noop, toggle: noop, getState: async () => ({ open: false, tabs: [], driving: false }), onState: () => noop },
+      connection: { get: async () => ({ route: 'remote', origin: location.origin, teamAddress: location.origin, fingerprintMismatch: false }), onChange: () => noop },
+      notify: noop, openTeams: noop,
+      meeting: { version: 1, state: async () => state, lines: async () => [], start: async () => state, stop: async () => [], onLines: () => noop, onState: () => noop, openSoundSettings: noop, unsaved: async () => null, saved: noop },
+    }
+  })
+  await page.route('**/api/meetings/status', (r) => r.fulfill({ json: { state: 'ready' } }))
+  await open(page, { thread: null })
+  const card = page.getByTestId('meeting-card')
+  await expect(card).toBeVisible()
+  await expect(card).not.toHaveAttribute('data-raised', /.*/)
+  // a thread on the right: the card is above its reply box
+  await page.getByTestId('room-thread-line').first().click()
+  await expect(card).toHaveAttribute('data-raised', 'true')
+  const above = async (l: Locator) => expect((await box(card)).y + (await box(card)).height).toBeLessThanOrEqual((await box(l)).y)
+  await above(page.getByTestId('room-thread').locator('textarea').first())
+  // the side chat too: above its box, the chip included
+  await page.getByTestId('room-side-chat-button').click()
+  await above(page.getByTestId('side-chat-thread-chip'))
+  // both closed: back in its corner
+  await page.getByTestId('room-side-chat').getByTestId('side-chat-close').click()
+  await page.getByTestId('room-thread').getByTestId('thread-close').click()
+  await expect(card).not.toHaveAttribute('data-raised', /.*/)
 })

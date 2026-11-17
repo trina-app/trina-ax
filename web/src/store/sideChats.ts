@@ -19,7 +19,8 @@ export interface SideChatState {
    * last ask) does not quote it again */
   seedKeys: string[]
   /** the thread whose "Looking at this thread" chip the person took off the box (its first message's id): questions
-   * go without that thread until another thread opens beside the side chat, or this one is opened again */
+   * go without that thread until another thread opens beside the side chat, this one is opened again, or the side chat
+   * is closed */
   chipOff: string | null
   /** it is open: a panel shows it, or a thread took its place in the column (the room page's or the file viewer's), so
    * the next panel shows the same chat. False (not opened on this page yet, or closed since: ✕, ‹ or ✦ on the room
@@ -66,7 +67,8 @@ export const useSideChats = create<SideChatsState>((set) => ({
   sends: {},
   goneRoots: {},
   patch: (roomId, p) => set((s) => ({ byRoom: { ...s.byRoom, [roomId]: { ...(s.byRoom[roomId] ?? EMPTY), ...p } } })),
-  close: (roomId) => set((s) => (s.byRoom[roomId]?.open ? { byRoom: { ...s.byRoom, [roomId]: { ...s.byRoom[roomId], open: false } } } : {})),
+  // (the chip's ✕ lasts while its thread stays open beside this opening of the side chat)
+  close: (roomId) => set((s) => (s.byRoom[roomId]?.open ? { byRoom: { ...s.byRoom, [roomId]: { ...s.byRoom[roomId], open: false, chipOff: null } } } : {})),
   patchSend: (answerId, p) => set((s) => ({ sends: { ...s.sends, [answerId]: { ...s.sends[answerId], ...p } } })),
   rootGone: (rootId) => set((s) => ({ goneRoots: { ...s.goneRoots, [rootId]: true } })),
   drop: (roomId) => set((s) => {

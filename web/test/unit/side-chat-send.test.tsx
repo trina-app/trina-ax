@@ -153,12 +153,19 @@ test('a thread line counts for its own question only: the chip off (or the threa
 
 test('a question with a thread line is copied and edited without it, and an edit keeps it', () => {
   const original = withThread({ rootId: ROOT, author: 'Ben', at: 'x' }, 'what was decided?', time)
-  expect(shownQuestion(original)).toBe('what was decided?')
-  expect(keepThreadRef('what was decided, in Korean?', original)).toBe(original.replace('what was decided?', 'what was decided, in Korean?'))
-  expect(threadRefOf(keepThreadRef('anything else', original))).toBe(ROOT)
+  expect(shownQuestion(original, true)).toBe('what was decided?')
+  expect(keepThreadRef('what was decided, in Korean?', original, true)).toBe(original.replace('what was decided?', 'what was decided, in Korean?'))
+  expect(threadRefOf(keepThreadRef('anything else', original, true))).toBe(ROOT)
   // a quoted message as before: shown without its token
-  expect(shownQuestion(quoteOf(ROOT, 'logo drafts?'))).toBe(hideThreadRef(quoteOf(ROOT, 'logo drafts?')))
-  expect(shownQuestion('plain')).toBe('plain')
+  expect(shownQuestion(quoteOf(ROOT, 'logo drafts?'), true)).toBe(hideThreadRef(quoteOf(ROOT, 'logo drafts?')))
+  expect(shownQuestion('plain', true)).toBe('plain')
+  // a chat that is no side chat shows no mark for such a line: typed by hand there, it stays as typed in copy and edit
+  expect(shownQuestion(original)).toBe(hideThreadRef(original))
+  expect(keepThreadRef(hideThreadRef(original), original)).toBe(original)
+  // who started the thread is gone: the line is the time alone, and still a thread line
+  const noName = withThread({ rootId: ROOT, author: '', at: 'x' }, 'q', time)
+  expect(noName).toBe(`> 🧵 Nov 5, 9:00 AM${threadRefToken(ROOT)}\n\nq`)
+  expect(threadLineOf(noName)).toMatchObject({ rootId: ROOT, author: 'Nov 5, 9:00 AM', at: '', question: 'q' })
 })
 
 test('an edit keeps the token while the quote\'s header line is the same; a quote rewritten or taken out leaves it', () => {

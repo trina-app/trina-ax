@@ -367,7 +367,7 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, showAutho
   // the box shows a "#" room token as "#<title>"; what is sent again keeps its room (lib/roomRefs.ts); a side chat's
   // quote shows without its thread, which goes back on while the quote's header line stays (lib/sideChatSend.ts); a
   // thread line (the box's "Looking at this thread" chip put it there) is not shown at all and stays on an edit
-  const shown = shownQuestion(m.content)
+  const shown = shownQuestion(m.content, sideChat)
   const [draft, setDraft] = useState(() => fromWire(shown).text)
   /** the edited text looks like a key: it waits for "Send anyway" (SecretWarning) */
   const secret = useSecretHold(draft)
@@ -376,7 +376,7 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, showAutho
   useAutoGrow(editRef, [draft, editing])
   const sendEdit = () => {
     setEditing(false)
-    onEdit(m, keepThreadRef(toWire(draft, fromWire(shown).picked), m.content))
+    onEdit(m, keepThreadRef(toWire(draft, fromWire(shown).picked), m.content, sideChat))
   }
   const resend = useChats((s) => s.resend)
   const discard = useChats((s) => s.discardLocal)

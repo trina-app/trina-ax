@@ -56,10 +56,11 @@ export function sendTargets(messages: readonly { id: string; role: string; conte
 }
 
 /** An edited question (the box showed it without the token): its quote's thread back on while the quote's header line is
- * still the first line as it was; a quote taken out or rewritten leaves it out (its answers then go to the room). A
- * question with a thread line was edited without it (shownQuestion): the line goes back on top as it was. */
-export function keepThreadRef(edited: string, original: string): string {
-  const line = threadLineOf(original)
+ * still the first line as it was; a quote taken out or rewritten leaves it out (its answers then go to the room).
+ * `sideChat`: a side chat's question with a thread line was edited without it (shownQuestion): the line goes back on top
+ * as it was. */
+export function keepThreadRef(edited: string, original: string, sideChat = false): string {
+  const line = sideChat ? threadLineOf(original) : null
   if (line) return `${line.line}\n\n${edited}`
   const rootId = threadRefOf(original)
   if (!rootId || threadRefOf(edited)) return edited
@@ -69,6 +70,7 @@ export function keepThreadRef(edited: string, original: string): string {
   return first === head ? first + threadRefToken(rootId) + edited.slice(first.length) : edited
 }
 
-/** A question as the person copies or edits it: without its quote's thread token, and without a thread line (the app
- * put that there, they did not type it). */
-export const shownQuestion = (content: string): string => threadLineOf(content)?.question ?? hideThreadRef(content)
+/** A question as the person copies or edits it: without its quote's thread token and, in a side chat (`sideChat`: its
+ * bubble shows the line as a mark), without a thread line: the app put that there, they did not type it. Any other
+ * chat shows a line of that shape as it was typed. */
+export const shownQuestion = (content: string, sideChat = false): string => (sideChat ? threadLineOf(content)?.question : undefined) ?? hideThreadRef(content)

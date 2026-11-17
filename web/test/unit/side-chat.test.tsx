@@ -592,6 +592,29 @@ test('📎 attaches a file into the side chat: a chip with its size and ✕; sen
   }
 })
 
+test('a file alone with the thread\'s chip on: the thread line goes with it; ✕ on the chip and it goes as a file alone', async () => {
+  signIn()
+  const id = uuidv7()
+  serve(id, [], UNSEEN)
+  const beside = { rootId: root.id, author: BEN.name, at: root.createdAt }
+  const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} thread={beside} /></MemoryRouter>)
+  try {
+    await m.until(() => !!m.find('side-chat-open-full'), 'the chat found')
+    expect(m.find('side-chat-thread-chip')).not.toBeNull()
+    await pick(m, [pdf()])
+    await m.until(() => chips(m)[0]?.getAttribute('data-status') === 'done', 'the file attached')
+    await m.click('side-chat-send')
+    await m.until(() => sentTo(id), 'the file sent')
+    expect(sentTo(id)!.body).toMatchObject({ content: withThread(beside, '', (iso) => formatDateTime(iso, 'en')), attachmentIds: [attached[0]!.id] })
+    // the bubble: the thread's mark and the file, no line
+    expect(m.get('user-quote-thread').textContent).toContain(BEN.name)
+    expect(m.get('user-message').textContent).toContain('acme-brief.pdf')
+    expect((m.get('user-message').textContent ?? '').includes('thread_id')).toBe(false)
+  } finally {
+    await m.unmount()
+  }
+})
+
 test('a picture pasted into the box shows as itself at once (not pasted as text); ✕ takes it out; a dropped file is attached too', async () => {
   signIn()
   const id = uuidv7()

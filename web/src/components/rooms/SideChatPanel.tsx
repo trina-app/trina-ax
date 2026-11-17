@@ -155,6 +155,11 @@ export function threadClosedOn(roomId: string) {
 export function handOffToThread(roomId: string) {
   handedOff.thread.add(roomId)
 }
+/** The person opened or closed the side chat on the room page themselves: a hand-off to a thread is over (a thread
+ * that later takes the side chat's place closes it again when it closes). */
+export function handOffDone(roomId: string) {
+  handedOff.thread.delete(roomId)
+}
 /** The room page left the room: its side chat is closed (back in it, ✦ opens it afresh). */
 export function roomLeft(roomId: string) {
   handedOff.viewer.delete(roomId)
@@ -227,7 +232,8 @@ export interface SideThread { rootId: string; author: string; at: string }
 /** The question as it is sent with the chip on: the thread line (shared rooms.ts THREAD_LINE: who started the thread,
  * when, the thread's token), then what I ask. No message text: the AI reads the thread itself. */
 export function withThread(thread: SideThread, question: string, time: (iso: string) => string): string {
-  return `${THREAD_LINE}${oneLineName(`${thread.author} · ${time(thread.at)}`)}`.trimEnd() + threadRefToken(thread.rootId) + `\n\n${question}`
+  // (a first message whose author is gone has no name: the line is the time alone)
+  return `${THREAD_LINE}${oneLineName([thread.author, time(thread.at)].filter(Boolean).join(' · '))}`.trimEnd() + threadRefToken(thread.rootId) + `\n\n${question}`
 }
 
 /** the questions an empty side chat offers (like Slackbot's): what I missed, what is for me, the latest discussion */
@@ -709,7 +715,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
           {chipOn && (
             <div className="flex px-3 pt-2.5">
               <span className="inline-flex max-w-full items-center gap-1.5 rounded-xl border border-line bg-subtle py-0.5 pr-0.5 pl-2.5 text-xs text-muted" data-testid="side-chat-thread-chip">
-                <Eye size={13} aria-hidden className="shrink-0" />
+                <Eye size={12} aria-hidden className="shrink-0" />
                 <span className="truncate">{t('sideChat.threadChip')}</span>
                 <IconButton compact label={t('sideChat.threadChipOff')} onClick={() => { patch({ chipOff: looking!.rootId }); box.current?.focus() }} data-testid="side-chat-thread-chip-off">
                   <X size={13} aria-hidden />

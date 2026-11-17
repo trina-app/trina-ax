@@ -30,7 +30,7 @@ export function roomColumns(row: number | null): RoomColumns {
 }
 
 /** The element's width, read before the first paint and again whenever it changes (null until measured, and where
- * nothing lays the page out). */
+ * nothing lays the page out). A caller that lays itself out by it draws again on every change. */
 export function useElementWidth(ref: RefObject<HTMLElement | null>): number | null {
   const [width, setWidth] = useState<number | null>(null)
   useLayoutEffect(() => {

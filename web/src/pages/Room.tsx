@@ -37,7 +37,7 @@ import { isUuid7, type RoomMember, type RoomMessage } from '@mycel/shared/api'
 import { isApiError } from '../lib/api'
 import { lookingAt, onWindowFocus } from '../lib/attention'
 import { readUpTo, roomEmptyKey, threadClosing, threadOpening } from '../lib/rooms'
-import { roomColumns, THREE_MIN, useElementWidth } from '../lib/roomColumns'
+import { roomColumns, useElementWidth } from '../lib/roomColumns'
 import { getSidePanel } from '../lib/sidePanel'
 import { PANEL_ALWAYS_BOTH_PX } from '../components/rail/railPanel'
 import { PANEL_ID } from '../components/panels/PanelFrame'
@@ -60,7 +60,7 @@ import { mayManageApps, useRoomApps } from '../store/roomApps'
 import { isAppService } from '../lib/roomApps'
 import { RoomNotifyMenu, roomNotify } from '../components/rooms/RoomNotifyMenu'
 import { ThreadPanel } from '../components/rooms/ThreadPanel'
-import { handOffToThread, roomLeft, SideChatPanel, threadClosedOn, type SideSeed, type SideThread } from '../components/rooms/SideChatPanel'
+import { handOffDone, handOffToThread, roomLeft, SideChatPanel, threadClosedOn, type SideSeed, type SideThread } from '../components/rooms/SideChatPanel'
 import { RoomSideColumn } from '../components/rooms/RoomSideColumn'
 import { RoomAskHint, useRoomAskHint } from '../components/rooms/RoomAskHint'
 import { AiMark } from '../components/rooms/AiFace'
@@ -149,7 +149,11 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // ✦ Trina: my private side chat beside the room (components/rooms/SideChatPanel.tsx), beside a thread when one is
   // open. In the store (side), gone when the page leaves the room
   const sideOpen = useRooms((s) => s.side[roomId] === 'trina')
-  const setSideOpen = useCallback((on: boolean) => useRooms.getState().setSide(roomId, on ? 'trina' : null), [roomId])
+  // (opened by the person: a hand-off to a thread, 보기, is over: SideChatPanel.tsx handOffDone)
+  const setSideOpen = useCallback((on: boolean) => {
+    if (on) handOffDone(roomId)
+    useRooms.getState().setSide(roomId, on ? 'trina' : null)
+  }, [roomId])
   // a phone's header: ‹, the name, ✦ and ⋯ only (QA TC-257)
   const wide = useMediaQuery('(min-width: 768px)')
   // a narrow computer window (below 812 px: the 72 px rail and a room of 420 px beside a 320 px thread do not fit;
@@ -160,20 +164,25 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // the thread and the side chat together (lib/roomColumns.ts), by the width of the page's own row: three columns, the
   // two over the room, or one at a time (a phone; a row squeezed by a file preview beside the page)
   const page = useRef<HTMLDivElement>(null)
-  const row = useElementWidth(page)
+  /** The row's width once the conversation list has folded for the two panels (components/rail/railPanel.ts): the
+   * page as it is laid out now, plus the list while it still shows in a window where it folds for them. Read from the
+   * page itself (the render in which the second panel opens comes before the list is gone, and before any resize is
+   * told), so the first frame of the two is already the right layout. null: not laid out (a test). */
+  const rowForBoth = useCallback((): number | null => {
+    const now = page.current?.offsetWidth
+    if (!now) return null
+    const list = window.innerWidth < PANEL_ALWAYS_BOTH_PX ? document.getElementById(PANEL_ID)?.offsetWidth ?? 0 : 0
+    return now + list
+  }, [])
+  // (drawn again whenever the row changes size: a window resize, the list folding, a file preview beside the page)
+  useElementWidth(page)
   const both = !!threadId && sideOpen
-  const columns = both ? roomColumns(row) : null
+  const columns = both ? roomColumns(rowForBoth()) : null
   const pair = columns === 'pair'
   /** the side chat over the thread */
   const over = columns === 'one'
-  /** would the room, a thread and the side chat fit as three columns, once the conversation list has folded for them
-   * (components/rail/railPanel.ts)? Not measured (a test without layout): yes. */
-  const fitsThree = useCallback(() => {
-    const now = page.current?.offsetWidth
-    if (!now) return true
-    const list = window.innerWidth < PANEL_ALWAYS_BOTH_PX ? document.getElementById(PANEL_ID)?.offsetWidth ?? 0 : 0
-    return now + list >= THREE_MIN
-  }, [])
+  /** would the room, a thread and the side chat fit as three columns? Not laid out (a test): yes. */
+  const fitsThree = useCallback(() => roomColumns(rowForBoth()) === 'three', [rowForBoth])
   // the open thread as the side chat's box names it (SideChatPanel.tsx `thread`): its first message, when the window
   // has it and it can have a thread
   const threadRoot = useRooms((s) => (threadId ? s.threadViews[placeKey(roomId, threadId)]?.root ?? findMessage(s, roomId, threadId) ?? null : null))
@@ -185,8 +194,9 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   }, [threadRoot?.id, threadRoot?.author?.name, threadRoot?.app?.name, threadRoot?.visibility, t])
   // a thread opened from the room while the side chat is open: where the three would not fit as columns it takes the
   // side chat's place, as before (a click in the room does not make the room give way; the side chat stays open: ✦
-  // brings it back beside the thread). A thread in place of another keeps what shows. That thread closing with nothing
-  // in its place closes the side chat; so do the side chat's ✕, ‹ or ✦
+  // brings it back beside the thread). openThread below does that with the click; this is for a thread opened by its
+  // address (a notice, Back or Forward). A thread in place of another keeps what shows. That thread closing with
+  // nothing in its place closes the side chat; so do the side chat's ✕, ‹ or ✦
   const lastThread = useRef(threadId)
   useEffect(() => {
     const was = lastThread.current
@@ -198,6 +208,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     if (was !== threadId && sideChatOf(useSideChats.getState(), roomId).chipOff) useSideChats.getState().patch(roomId, { chipOff: null })
   }, [threadId, roomId, fitsThree, setSideOpen])
   const closeSide = useCallback(() => {
+    handOffDone(roomId)
     useSideChats.getState().close(roomId)
     setSideOpen(false)
   }, [roomId, setSideOpen])
@@ -241,9 +252,12 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // or a notice closes to its room
   const openThread = useCallback((id: string, focus = false) => {
     setFocusThread(focus)
+    // the side chat open and no room for three columns: the thread takes its place, in the same step (the list never
+    // folds for a moment in between)
+    if (!threadId && useRooms.getState().side[roomId] === 'trina' && !fitsThree()) setSideOpen(false)
     const to = threadOpening(roomId, id, { threadId, fromRoom })
     navigate(to.path, { replace: to.replace, state: to.state })
-  }, [navigate, roomId, threadId, fromRoom])
+  }, [navigate, roomId, threadId, fromRoom, fitsThree, setSideOpen])
   const closeThread = useCallback(() => {
     const to = threadClosing(roomId, fromRoom)
     if (to === -1) navigate(-1)

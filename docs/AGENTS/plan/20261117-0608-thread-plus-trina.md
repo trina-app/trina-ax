@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-17 06:08
 - Branch: `feat/thread-plus-trina`
-- Status: in progress
+- Status: done
 - Where: trina-ax `web/src/pages/Room.tsx`, `web/src/components/rooms/` (`RoomSideColumn.tsx`, `SideChatPanel.tsx`),
   `web/src/components/rail/` (when the list folds), `web/src/components/chat/Messages.tsx` (the question's bubble),
   `shared/src/api/rooms.ts` (the thread line of a question), `server/src/chat/prompt.ts` (one line of the side panel's
@@ -166,7 +166,7 @@ question, they see it and can take it off.
   longer closes the thread; the quote takes the chip's place.
 - Meeting-notes card (desktop app, `components/MeetingNotes.tsx`): fixed to the window's bottom right, 352 px wide,
   so today it already sits on the thread's or the side chat's message box when one is open. While a room shows a
-  panel on its right, the card sits above that panel's message box (raised by a fixed step, 10rem) instead of on it.
+  panel on its right, the card sits above that panel's message box (raised by a fixed step, 12rem: the box with its chip is about 185 px high) instead of on it.
   A very tall draft can still reach it; the card folds to one row.
 
 **On the server (no code but one prompt line; recorded in the decision).**
@@ -247,6 +247,32 @@ today's rule where three do not fit; no divider while both are open; edit and co
 when the chip returns; the phone's way to the chip said plainly; the viewer's start rule; the meeting card's place
 decided; the server's side effects written down.
 
+## Code review (independent, 2026-11-17)
+
+Verdict: approve with changes. Fixed: `side-chat-send.spec.ts` asserted the old rule after "View"; at 1280 the first
+frame of the two used the row's width from before the list folded (the pair flashed over the room and the keyboard
+went into the side chat): the page now reads its row as it draws, with the list's width while it still shows; the
+thread that takes the side chat's place does so in the click's own step (no fold of the list in between); the edit
+and copy rule of a thread line is a side chat's only; the rail folds only for a real thread address; a hand-off
+ends when the person opens or closes the side chat; the chip's ✕ ends with the side chat; a thread whose first
+author is gone. Tests added for each, and for Esc while an input method composes, a file preview beside both, one
+panel at a time in a small window, the viewer's start rule, the meeting card and a file sent alone with the chip on.
+
 ## Result
 
-(filled in at the end)
+Built as planned after the review:
+
+- `web/src/lib/roomColumns.ts` (the row decides: three, pair, one), `pages/Room.tsx` (both panels drawn; the pair
+  and the side chat over the thread as covers; Esc, focus, read marks, "View", the chip's reset),
+  `components/rooms/RoomSideColumn.tsx` (`shared`, `inert`), `components/rail/` (the list folds below 1448 px while
+  both are open), `components/rooms/SideChatPanel.tsx` (`thread`, the chip, `withThread`, `onViewThread`),
+  `store/sideChats.ts` (`chipOff`), shared `rooms.ts` (`THREAD_LINE`, `threadLineOf`, `nearestThreadOf`,
+  `sideQuoteOf` kind `thread`), `lib/sideChatSend.ts`, `chat/Messages.tsx` (the bubble's mark, edit and copy),
+  `server/src/chat/prompt.ts` (one line), `title.ts`, `ViewerColumn.tsx` (start rule), `MeetingNotes.tsx` (the card
+  12rem up beside a panel), six languages, the guide's page in six languages.
+- Differs from the first plan (all from the review, see above): no divider while both are open; 1448 not 1420; a
+  thread opened from the room keeps the old rule where three do not fit; a thread line counts once.
+- Screenshots looked at for every state at 1440, 1280, 1024 and 390, light and dark (Korean; English at 1440 and
+  390): `THREAD_TRINA_SHOTS=<folder> bunx playwright test test/e2e/shots-thread-plus-trina.spec.ts`. New text is
+  13 px (the size of the file chips, the quote mark and Send to thread beside it); nothing new has a size of its own.
+- PR: (link added when it opens)

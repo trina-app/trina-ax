@@ -39,6 +39,10 @@
   while the side chat is open keeps the old rule where three would not fit even with the list folded: the thread takes
   the side chat's place (a click in the room must not make the room disappear) and ✦ brings the same chat back beside
   it. A thread in place of another keeps what shows.
+- **The first frame is the right layout.** The page reads its own row as it draws and adds the list's width while
+  the list still shows in a window where it folds for the two (`Room.tsx rowForBoth`): the render in which the second
+  panel opens comes before the list is gone. Without it, at 1280 the two were drawn over the room for one frame and
+  the keyboard jumped into the side chat (found in the code review).
 - **"View" under a sent answer** opens the thread through the room page (`threadOpening`: in place of an open thread,
   so the thread's ✕ steps back to the room once). Where the side chat would hide that thread, it steps aside as a
   hand-off (✦ brings the same chat back).
@@ -59,12 +63,13 @@
   - the side panel's instructions gain one line (`prompt.ts sideRoomSection`): such a first line means that thread,
     read it first; a question without it is about the room;
   - the bubble shows "Thread · who · when" (never the line or the id); copy and edit show the question without the
-    line, and saving an edit keeps it (`lib/sideChatSend.ts shownQuestion`, `keepThreadRef`);
+    line, and saving an edit keeps it (`lib/sideChatSend.ts shownQuestion`, `keepThreadRef`; in a side chat only: a
+    line of that shape typed by hand in another chat is text like any other);
   - the answer offers **Send to thread** for that thread, and `post_to_room` goes there;
   - an empty chat offers one starter, **Summarize this thread**, and the "Looking at <room> with you" line is not drawn
     (one line says what is looked at).
 - **✕** takes the chip off for the open thread (`store/sideChats.ts chipOff`): questions go as typed, about the room.
-  It is back when the thread is closed and opened again, or another opens. A message quoted with "Ask ✦ about this"
+  It is back when the thread is closed and opened again, another opens, or the side chat is closed and opened. A message quoted with "Ask ✦ about this"
   takes the chip's place while its card shows. No chip for a guest whose AI cannot read the room.
 - **A thread line counts for its own question only** (`nearestThreadOf`, web `sendTargets`): a quoted message's thread
   still carries on to follow-ups without a quote, but the chip puts its line on every question while it is on, so a
@@ -82,7 +87,7 @@
   read until they show again. (The room under a sheet at 768 to 811 px was marked read before: wrong for the same
   reason, fixed with it.)
 - **What is remembered.** Nothing new: the thread is the address; the side chat is open while the page stays in the
-  room and closes when it leaves; the chip's ✕ lasts while that thread stays open; the single panel's width as before.
+  room and closes when it leaves; the chip's ✕ lasts while that thread and the side chat stay open; the single panel's width as before.
 - **The file viewer** keeps one thing at a time in its column. It starts on the side chat only when the room page
   shows the side chat without a thread, so a picture opened from the thread beside it starts on its thread.
 - **Meeting-notes card** (desktop app): fixed to the window's bottom right, it sat on the message box of a thread or

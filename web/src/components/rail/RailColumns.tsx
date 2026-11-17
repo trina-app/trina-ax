@@ -6,6 +6,7 @@
 // while a room shows its thread and side chat together (railPanel.ts), and may be hidden below 1052 px by the person. What is on screen is remembered as what is open in its place (lib/rail.ts).
 import { useEffect } from 'react'
 import { matchPath, useLocation } from 'react-router-dom'
+import { isUuid7 } from '@mycel/shared/api'
 import { rememberRail, useRailHere } from '../../lib/rail'
 import { useSidePanel } from '../../lib/sidePanel'
 import { useRooms } from '../../store/rooms'
@@ -36,7 +37,8 @@ function useRailPanelShown(): { has: boolean; state: ReturnType<typeof panelStat
   const hidden = useRailPanel((s) => s.hidden)
   // a room with its thread and its side chat both open: three columns, which need the list's width below 1448 px
   const wideForBoth = useMediaQuery(`(min-width: ${PANEL_ALWAYS_BOTH_PX}px)`)
-  const both = side && !!matchPath('/rooms/:roomId/t/:messageId', pathname) && !wideForBoth
+  // (a thread the room page shows: an address that names no message shows "not found", not a thread)
+  const both = side && isUuid7(matchPath('/rooms/:roomId/t/:messageId', pathname)?.params.messageId) && !wideForBoth
   return { has, state: panelState({ wide, crowded: thread || side || panel, hidden, both }) }
 }
 
