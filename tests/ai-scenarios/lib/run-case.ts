@@ -191,6 +191,15 @@ export async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string,
   return { rec, lines: all.length }
 }
 
+/** The room messages a case's AI posted (post_to_room results that say "sent"): where and which. */
+export function roomPostsOf(r: Pick<CaseResult, 'turns'>): { roomId: string; messageId: string }[] {
+  return r.turns.flatMap((t) => t.tools).filter((x) => x.name === 'post_to_room' && x.ok && x.result).flatMap((x) => {
+    const sent = /"status"\s*:\s*"sent"/.test(x.result!)
+    const room = /"room_id"\s*:\s*"([^"]+)"/.exec(x.result!)?.[1], msg = /"message_id"\s*:\s*"([^"]+)"/.exec(x.result!)?.[1]
+    return sent && room && msg ? [{ roomId: room, messageId: msg }] : []
+  })
+}
+
 export async function login(base: string, username: string): Promise<ApiClient> {
   const r = await new ApiClient({ baseUrl: base }).call(API.login, { body: { username, password: PASSWORD, client: 'web', tokenMode: 'bearer' } })
   return new ApiClient({ baseUrl: base, token: r.token! })

@@ -1,7 +1,10 @@
-// The absurd-prompt detector of the AI scenario flows (tests/ai-scenarios/lib/flow-report.ts), on made-up runs.
+// The absurd-prompt detector of the AI scenario flows (tests/ai-scenarios/lib/flow-report.ts), on made-up runs; what the
+// judge is told (lib/judge.ts givenFacts) and the room posts a case's clean-up deletes (lib/run-case.ts roomPostsOf).
 import { describe, expect, test } from 'bun:test'
 import { normUrl, type FlowResult } from '../ai-scenarios/lib/flow'
 import { absurdPrompts } from '../ai-scenarios/lib/flow-report'
+import { givenFacts } from '../ai-scenarios/lib/judge'
+import { roomPostsOf } from '../ai-scenarios/lib/run-case'
 
 const card = (question: string, hasAlways = true) => ({ kind: 'server-card', origin: 'server' as const, question, answer: 'yes', options: [], hasAlways })
 const run = (steps: { prompt: string; context?: string; cards: ReturnType<typeof card>[]; seenUrls?: string[] }[]): FlowResult => ({
@@ -33,5 +36,26 @@ describe('absurd prompts', () => {
   })
   test('a flow with no prompts has no flags', () => {
     expect(absurdPrompts(run([{ prompt: '요약해줘', cards: [] }]), { roomName: '라마바카페 건', afterAlways: run([{ prompt: 'x', cards: [] }]) })).toEqual([])
+  })
+})
+
+describe('what the judge is told, and what a case leaves behind', () => {
+  test('the judge knows the time of day the AI was given, in the team zone (EDIT-17: "already night" at 23:52)', () => {
+    const c = { install: 'local-login' } as unknown as Parameters<typeof givenFacts>[0]
+    expect(givenFacts(c, { startedAt: '2026-11-17T14:52:00.000Z' })).toContain('when this case started: Tuesday 2026-11-17 23:52')
+    expect(givenFacts(c)).not.toContain('when this case started')
+    // what the AI can do when asked (SYS-04) and what a card's answer is (CHT-02)
+    expect(givenFacts(c)).toContain("read a file's earlier\nversions")
+    expect(givenFacts(c)).toContain('the answer shown is what the person pressed')
+  })
+  test('the room posts a case made are found for clean-up, only the ones that went', () => {
+    const tool = (result: string, ok = true) => ({ name: 'post_to_room', input: {}, ok, result })
+    const turns = [{ tools: [
+      tool('{"status":"sent","room":"라마바카페 건","room_id":"r1","message_id":"m1","note":"x"}'),
+      tool('Nothing was posted: the user chose not to send it'),
+      tool('{"status":"sent","room_id":"r2","message_id":"m2"}', false),
+      { name: 'read', input: {}, ok: true, result: '{"status":"sent","room_id":"r3","message_id":"m3"}' },
+    ] }] as unknown as Parameters<typeof roomPostsOf>[0]['turns']
+    expect(roomPostsOf({ turns })).toEqual([{ roomId: 'r1', messageId: 'm1' }])
   })
 })
