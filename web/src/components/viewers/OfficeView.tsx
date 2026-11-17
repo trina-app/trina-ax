@@ -56,7 +56,7 @@ function useRender(render: (el: HTMLDivElement) => Promise<void | (() => void)>,
 function Status({ busy, error, what }: { busy: boolean; error: string | null; what: string }) {
   const t = useT()
   if (error) return <p className="p-6 text-sm text-danger">{t('preview.cantOpen', { what, error })}</p>
-  if (busy) return <PreviewLoading label={t('common.loading')} />
+  if (busy) return <PreviewLoading overlay label={t('common.loading')} />
   return null
 }
 
@@ -69,10 +69,10 @@ export function DocxView({ blob }: { blob: Blob }) {
     fixRenderedBullets(el)
   }, [blob])
   return (
-    <>
+    <div className="relative min-h-full">
       <Status busy={busy} error={error} what={t('preview.kind.docx')} />
       <div ref={ref} className="docx-host" />
-    </>
+    </div>
   )
 }
 
@@ -102,10 +102,10 @@ export function PptxView({ blob, width, startSlide }: { blob: Blob; width: numbe
     return () => viewer.destroy()
   }, [blob, w, startSlide])
   return (
-    <>
+    <div className="relative min-h-full">
       <Status busy={busy} error={error} what={t('preview.kind.pptx')} />
       <div ref={ref} className="mx-auto py-3" style={{ width: w }} />
-    </>
+    </div>
   )
 }
 

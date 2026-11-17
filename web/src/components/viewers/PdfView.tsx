@@ -328,12 +328,12 @@ export default function PdfView({ blob, width, startPage, download, thumbnails }
         options={OPTIONS}
         // as wide as the widest page: a page wider than the panel (zoomed in) scrolls to its left edge too. No scroll
         // anchoring: the place being read is kept here (the browser's would fight it while pages change size)
-        className="w-max min-w-full [overflow-anchor:none]"
+        className="relative min-h-full w-max min-w-full [overflow-anchor:none]"
         onLoadSuccess={setPdf}
         onLoadError={(e) => fail(e.message)}
         // a link in the file to one of its pages: the page may not be drawn, so it is scrolled to here
         onItemClick={({ pageNumber }) => goToNow.current(pageNumber - 1)}
-        loading={<PreviewLoading label={t('common.loading')} />}
+        loading={<PreviewLoading overlay label={t('common.loading')} />}
       >
         {pages > 0 && (
           // sticky in the panel's scroll box and as wide as the panel: it stays in view when the pages scroll down or
