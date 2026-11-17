@@ -4233,6 +4233,7 @@ export const zh: Record<MessageKey, string> = {
   "sideChat.new": "新对话",
   "sideChat.openFull": "以完整对话打开",
   "sideChat.empty": "向{name}询问此聊天的内容。只有你能看到这个对话。需要时可以把回答分享到聊天。",
+  "sideChat.emptyThread": "向{name}询问这个话题的内容。只有你能看到这个对话。需要时可以把回答分享到话题。",
   "sideChat.emptyGuest": "引用或粘贴这个聊天里的消息来询问{name}。只有你能看到这个对话。",
   "sideChat.placeholder": "向{name}询问此聊天的内容…",
   "sideChat.send": "发送",

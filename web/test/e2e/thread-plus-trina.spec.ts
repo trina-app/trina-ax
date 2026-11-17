@@ -98,6 +98,7 @@ test('1440: ✦ on a thread keeps the thread: three columns, the list folds; the
   await expect(side.getByTestId('side-chat-thread-chip-off')).toHaveAccessibleName('대화 전체에 대해 묻기')
   await expect(side.getByTestId('side-chat-context')).toHaveCount(0)
   await expect(side.getByTestId('side-chat-starter-thread')).toHaveText('이 스레드 요약')
+  await expect(side.getByTestId('side-chat-intro')).toHaveText(/^이 스레드에 대해 .+에게 물어보세요/)
   await expect(side.getByTestId('side-chat-starter-catchUp')).toHaveCount(0)
   await expect(side.getByTestId('side-chat-input')).toHaveAttribute('placeholder', /이 스레드에 대해/)
   await expect(side.getByTestId('side-chat-input')).toBeFocused()

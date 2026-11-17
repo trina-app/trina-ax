@@ -4247,6 +4247,7 @@ export const ja: Record<MessageKey, string> = {
   "sideChat.new": "新しいチャット",
   "sideChat.openFull": "全画面のチャットで開く",
   "sideChat.empty": "このトークについて{name}に質問できます。このチャットはあなただけに表示されます。回答はいつでもトークに共有できます。",
+  "sideChat.emptyThread": "このスレッドについて{name}に質問できます。このチャットはあなただけに表示されます。回答はいつでもスレッドに共有できます。",
   "sideChat.emptyGuest": "このトークのメッセージを引用するか貼り付けて、{name}に質問できます。このチャットはあなただけに表示されます。",
   "sideChat.placeholder": "このトークについて{name}に質問…",
   "sideChat.send": "送信",

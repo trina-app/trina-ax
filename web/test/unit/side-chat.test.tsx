@@ -1001,6 +1001,7 @@ test('a thread beside the side chat: both show; the box\'s chip names the thread
     expect(m.find('side-chat-thread-chip')).toBeNull()
     expect(m.find('side-chat-context')).not.toBeNull()
     expect(m.find('side-chat-starter-catchUp')).not.toBeNull()
+    expect(m.get('side-chat-intro').textContent).toBe(en('sideChat.empty', { name: aiName((k) => en(k)) }))
     // a thread opens: the side chat stays beside it (docs/decisions/20261117-thread-plus-trina.md), its box says so
     await act(async () => { await go(`/rooms/${team.id}/t/${root.id}`) })
     await m.until(() => !!m.find('room-thread') && !!m.find('side-chat-thread-chip'), 'the thread beside the side chat, its chip in the box')
@@ -1012,6 +1013,8 @@ test('a thread beside the side chat: both show; the box\'s chip names the thread
     expect(m.find('side-chat-context')).toBeNull()
     expect(m.find('side-chat-starter-catchUp')).toBeNull()
     expect(m.get('side-chat-starter-thread').textContent).toBe(en('roomApps.chipThread'))
+    // the intro line says thread too (and conversation again once the chip is off: below, after an answer, it is gone)
+    expect(m.get('side-chat-intro').textContent).toBe(en('sideChat.emptyThread', { name: aiName((k) => en(k)) }))
     // a question with the chip on: the thread line on top (who started it, when, its id), no message text
     await askInSide(m, 'what was decided?')
     expect(sent().at(-1)).toBe(withThread({ rootId: root.id, author: BEN.name, at: root.createdAt }, 'what was decided?', (iso) => formatDateTime(iso, 'en')))

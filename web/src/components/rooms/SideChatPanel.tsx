@@ -612,7 +612,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
                     <Eye size={12} aria-hidden className="shrink-0" /><span className="truncate">{t('sideChat.context', { room: roomTitle })}</span>
                   </span>
                 )}
-                <p className="max-w-[280px] text-sm text-muted">{t('sideChat.empty', { name })}</p>
+                <p className="max-w-[280px] text-sm text-muted" data-testid="side-chat-intro">{t(chipOn ? 'sideChat.emptyThread' : 'sideChat.empty', { name })}</p>
               </>)}
               {/* (no starters while no AI answers a guest: they would only fail; components/GuestView.tsx) */}
               {!quoted && !guestNoAi && !guestWaits && !roomUnread && (
