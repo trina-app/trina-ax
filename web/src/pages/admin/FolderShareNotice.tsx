@@ -1,21 +1,19 @@
-// Admin › Home, once (folder sharing, docs/AGENTS/plan/20261116-1330-folder-share-web.md; the design's L6): when folder
-// sharing opens on the server, the owner and admins read one line that members can now share folders in their own files,
+// Admin › Home, once (folder sharing, docs/AGENTS/plan/20261116-1330-folder-share-web.md; the design's L6): the owner
+// and admins read one line that members can now share folders in their own files,
 // and where to turn it off. Closed with ✕ (or followed to Team settings) it never shows again, on any device
 // (prefs.folderShareNotice, PATCH /api/me), as the room's one-time line (components/rooms/RoomAskHint.tsx).
 import { X } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useT } from '../../i18n'
-import { useFolderSharesOn } from '../../lib/folder-share'
 import { isAdmin, useSession } from '../../store/session'
 import { IconButton } from '../../components/ui'
 
 export function FolderShareNotice() {
   const t = useT()
-  const on = useFolderSharesOn()
   const state = useSession((s) => (s.status.kind === 'signed-in' && isAdmin(s.status.me) ? s.status.me.user.prefs?.folderShareNotice ?? 'new' : null))
   const [gone, setGone] = useState(false)
-  if (!on || state !== 'new' || gone) return null
+  if (state !== 'new' || gone) return null
   const seen = () => {
     setGone(true)
     void useSession.getState().updatePrefs({ folderShareNotice: 'seen' }).catch(() => {})

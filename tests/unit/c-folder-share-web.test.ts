@@ -1,39 +1,26 @@
-// Folder sharing's web part, the server pieces it needs (docs/AGENTS/plan/20261116-1330-folder-share-web.md): the
-// gate's one switch in code is open (closing it again is that one line; tests close it with config.folderShares), the sign-in answer tells the web whether folder sharing is open
-// (Me.server.folderShares, absent while closed), the one-time admin line's preference is kept, and the web's list of
-// places that are never shared (shared/src/folder-share-places.ts, a hint for the menus) is the server's own.
+// Folder sharing's web part, the server pieces it needs (docs/AGENTS/plan/20261116-1330-folder-share-web.md). Folder
+// sharing is always on (its rollout gate was removed, owner 2026-11-17): the sign-in answer still says so
+// (Me.server.folderShares, always true, for web and app builds from before that show folder sharing only when it is
+// true), the one-time admin line's preference is kept, and the web's list of places that are never shared
+// (shared/src/folder-share-places.ts, a hint for the menus) is the server's own.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { SHARE_KEPT_NAMES } from '@mycel/shared'
-import { FOLDER_SHARES_OPEN, folderSharesOpen } from '../../server/src/files/folder-share-gate'
 import { keptNames } from '../../server/src/files/share-places'
 import { harness, withOwner, type Client, type Harness } from './a-lib'
-
-test('the switch in code is open; a test config closes it, nothing else does', () => {
-  expect(FOLDER_SHARES_OPEN).toBe(true)
-  expect(folderSharesOpen({})).toBe(true)
-  expect(folderSharesOpen({ folderShares: true })).toBe(true)
-  expect(folderSharesOpen({ folderShares: false })).toBe(false)
-})
 
 test('the web\'s never-shared names are the server\'s kept names, in the same order', () => {
   expect([...SHARE_KEPT_NAMES]).toEqual(keptNames())
 })
 
 describe('Me.server.folderShares', () => {
-  let closed: Harness, open: Harness, a: Client, b: Client
+  let open: Harness, b: Client
   beforeAll(async () => {
-    closed = await harness('c-folder-share-web-closed', { folderShares: false })
     open = await harness('c-folder-share-web-open')
-    a = await withOwner(closed)
     b = await withOwner(open)
   }, 60_000)
-  afterAll(() => { closed.close(); open.close() })
+  afterAll(() => { open.close() })
 
-  test('absent while the gate is closed: the web shows nothing of folder sharing', async () => {
-    const me = await a.call('GET', '/api/me')
-    expect(me.server.folderShares).toBeUndefined()
-  })
-  test('true while it is open (the default)', async () => {
+  test('always true (older builds hide folder sharing without it)', async () => {
     const me = await b.call('GET', '/api/me')
     expect(me.server.folderShares).toBe(true)
   })

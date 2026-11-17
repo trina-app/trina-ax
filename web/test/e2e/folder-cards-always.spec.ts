@@ -10,10 +10,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { CSRF_HEADER } from '@mycel/shared/api'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
 
-const H = { [CSRF_HEADER]: '1' }
 const lastAnswer = (page: Page) => page.getByTestId('assistant-message').last()
 async function ask(page: Page, text: string) {
   await page.getByTestId('composer-input').fill(text)
@@ -52,7 +50,6 @@ for (const width of [1440, 390]) {
 
     test('share_folder: the card offers Always allow with the folder words; chosen, the folder is shared and the next folder share has no card; Settings lists it', async ({ page }) => {
       const errors = await start(page)
-      await page.request.post('/__test/folder-shares', { headers: H, data: { on: true } })
       await ask(page, 'sharecard folder always share QA-test with Bob')
       const card = page.getByTestId('ask-card')
       await expect(card).toHaveAttribute('data-kind', 'buttons')

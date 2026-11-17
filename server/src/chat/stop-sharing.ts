@@ -159,7 +159,7 @@ export function stopSharingTool(exec: TurnExec): Tool {
         for (const p of paths) {
           let v
           try { v = shares.view(spec.userId, p, L) } catch (e) { return no(`Nothing was changed: "${neutralizeTags(oneLine(p, 120))}" ${why(e, 'is not a file the user can open')}. Check the path with list or glob.`, 'refused: not a file') }
-          // (with folder sharing's gate open the dialog's read answers for a folder too: a folder is share_folder's)
+          // (the dialog's read answers for a folder too: a folder is share_folder's)
           if (v.kind === 'folder') return no('Nothing was changed: that is a folder, and stop_sharing takes people off files only. Next step: call share_folder with the folder and remove (or stop: true for everyone).', 'refused: a folder')
           if (!v.canStop) {
             // the refusal as a card from the server's record: whose file it is, and the next step as data

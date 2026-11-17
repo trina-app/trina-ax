@@ -32,6 +32,8 @@
   - Words: with the tool offered, `share_with_person` and the refusal rule send the person's own folder to
     `share_folder`; with the gate closed the interim "I can't share the whole folder yet, but I can share the files in
     it" stays.
+  - Update: gate removed, always on (owner 2026-11-17). The closed path and the interim words are gone; share_folder is off only where nobody can
+    answer its card, in a confidential chat, Slack, a restricted or template run, and for a guest.
 - **Second security review (P6-1..3):** Undo is an add, so for a file it also needs edit access now (an owner who lost
   edit may still stop, never bring people back); a folder save that removes the links under it closes their open Undo
   snapshots; `share_folder` writes its step on the snapshot and its turn in the `folder_share.add/remove/stop` audit,
