@@ -14,18 +14,19 @@ import Composer from '../../src/components/chat/Composer'
 import { FileDropZone, useDropTarget } from '../../src/components/FileDropZone'
 import { RoomComposer } from '../../src/components/rooms/RoomComposer'
 import { translate, useLocaleStore } from '../../src/i18n'
-import { guardFileDrops } from '../../src/lib/fileDrop'
+import { filesOfDrop, guardFileDrops, withoutFolders } from '../../src/lib/fileDrop'
 import { TEAM_FILE_DRAG_TYPE, forgetTeamAttach } from '../../src/lib/teamAttach'
 import RoomPage from '../../src/pages/Room'
 import { useChats } from '../../src/store/chats'
 import { useRooms } from '../../src/store/rooms'
 import { dropRoomUploads, forgetRoomUploads, setPlaceUploads, SIGN_OUT_WAIT_MS, uploadingIn, useRoomUploads } from '../../src/store/roomUploads'
-import { fingerprint } from '../../src/lib/upload'
+import { fingerprint, unreadableFile } from '../../src/lib/upload'
 import { UPLOADS_KEY } from '../../src/lib/localData'
 import type { UploadProgress } from '../../src/lib/upload'
 import { isBusy } from '../../src/lib/busy'
 import { RoomUploadMark } from '../../src/components/nav/RoomsList'
 import { useSession } from '../../src/store/session'
+import { useUi } from '../../src/store/ui'
 import { FakeEvent, installDom, mount, removeDom, type FakeElement, type Mounted } from './dom-host'
 import { CHAT } from './fixtures'
 import { at, BEN, ME, message, room } from './rooms-fixtures'
@@ -678,4 +679,174 @@ test('the page-wide guard: a file dropped where nothing took it is not opened in
     await fire(m.get('msg'), 'dragenter', filesDrag())
     expect(overlays(m)).toHaveLength(1)
   } finally { await m.unmount() }
+})
+
+// ---------------- folders dropped with files (TC-4483) ----------------
+// A folder is no attachment: the browser hands it over as a File with no bytes, whose upload failed with "Couldn't reach
+// the team server". Every box leaves the folders out, says so once per drop, and attaches the files beside them.
+
+/** what reading a dropped folder's File does in a browser */
+const notFound = () => Promise.reject(new DOMException('A requested file or directory could not be found.', 'NotFoundError'))
+/** a dropped folder as the browser gives it: a File with no bytes and no type that cannot be read */
+const folderFile = (name: string) => Object.assign(new File([], name), { arrayBuffer: notFound })
+const txt = (name = 'notes.txt') => new File(['meeting notes'], name, { type: 'text/plain' })
+type FolderDt = Dt & { items: { kind: string; getAsFile: () => File | null; webkitGetAsEntry: () => { isDirectory: boolean; isFile: boolean } | null }[] }
+/** a drag of files and folders with each item's entry, as Chromium, WebKit, Firefox and the desktop app give it */
+function folderDrag(folders: string[], list: File[]): FolderDt {
+  const dirs = folders.map(folderFile)
+  const item = (file: File, dir: boolean) => ({ kind: 'file', getAsFile: () => file, webkitGetAsEntry: () => ({ isDirectory: dir, isFile: !dir }) })
+  return { ...filesDrag([...list, ...dirs]), items: [...list.map((f) => item(f, false)), ...dirs.map((f) => item(f, true))] }
+}
+async function dropDt(el: FakeElement, dt: Dt) {
+  await fire(el, 'dragenter', dt)
+  await fire(el, 'dragover', dt)
+  return fire(el, 'drop', dt)
+}
+const folderToasts = () => useUi.getState().toasts.filter((x) => x.text === ko('composer.folders'))
+
+describe('folders are never attachments', () => {
+  test('filesOfDrop: entries tell the folders, which are counted and left out; without entries every file comes back', () => {
+    const dt = folderDrag(['photos', 'drafts', 'old'], [txt()])
+    const got = filesOfDrop(dt as unknown as DataTransfer)
+    expect(got.files.map((f) => f.name)).toEqual(['notes.txt'])
+    expect(got.folders).toBe(3)
+    // a browser without entries (the fake drags above, older engines): all of dt.files, withoutFolders sorts them
+    const plain = filesOfDrop(filesDrag([txt(), folderFile('photos')]) as unknown as DataTransfer)
+    expect(plain.files.map((f) => f.name)).toEqual(['notes.txt', 'photos'])
+    expect(plain.folders).toBe(0)
+  })
+
+  test('withoutFolders: no bytes, no type and a failed read is a folder; an empty file, a typed file and one whose drop entry said "file" are not', async () => {
+    const empty = new File([], 'LICENSE')
+    const got = await withoutFolders([txt(), folderFile('photos'), empty, Object.assign(new File([], 'blank.txt', { type: 'text/plain' }), { arrayBuffer: notFound })])
+    expect(got.files.map((f) => f.name)).toEqual(['notes.txt', 'LICENSE', 'blank.txt'])
+    expect(got.folders).toBe(1)
+    // an entry said it is a file: kept, even if it cannot be read (its upload then says so)
+    const marked = folderFile('Makefile')
+    filesOfDrop({ files: [marked], items: [{ kind: 'file', getAsFile: () => marked, webkitGetAsEntry: () => ({ isDirectory: false, isFile: true }) }] } as unknown as DataTransfer)
+    expect((await withoutFolders([marked])).folders).toBe(0)
+  })
+
+  test('unreadableFile: a failed read is not a lost connection', () => {
+    expect(unreadableFile(new DOMException('x', 'NotFoundError'))).toBe(true)
+    expect(unreadableFile(new DOMException('x', 'NotReadableError'))).toBe(true)
+    expect(unreadableFile(new DOMException('x', 'AbortError'))).toBe(false)
+    expect(unreadableFile(new TypeError('Failed to fetch'))).toBe(false)
+  })
+})
+
+describe('folders dropped on each box', () => {
+  beforeAll(() => { globalThis.XMLHttpRequest = FakeXhr as unknown as typeof XMLHttpRequest })
+  afterAll(() => { globalThis.XMLHttpRequest = realXhr })
+  afterEach(() => {
+    globalThis.fetch = realFetch
+    useSession.setState({ status })
+    useRooms.getState().reset()
+    useChats.getState().reset()
+    useRoomUploads.setState({ byPlace: {} })
+    useUi.setState({ toasts: [] } as never)
+    forgetTeamAttach()
+  })
+  const signIn = () => useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name }, server: { allChatsConfidential: false } } as unknown as Me } })
+
+  test('the room and the thread beside it: the file is attached, three folders add no chip and one line, nothing uploaded for them', async () => {
+    signIn()
+    serve()
+    useRooms.setState({ rooms: [r], loaded: true })
+    const m = await page(`/rooms/${r.id}/t/${root.id}`)
+    try {
+      await m.until(() => m.container.querySelectorAll('[data-testid="room-composer"]').length === 2, 'both boxes')
+      const [roomBox, threadBox] = [m.get('room').querySelector('[data-testid="room-composer"]')!, m.get('room-thread').querySelector('[data-testid="room-composer"]')!]
+      const chips = (box: FakeElement) => [...box.querySelectorAll('[data-testid="room-file-chip"]')]
+      const drop = await dropDt(m.get('room-scroller'), folderDrag(['photos', 'drafts', 'old'], [txt()]))
+      expect(drop.defaultPrevented).toBe(true)
+      await m.until(() => chips(roomBox)[0]?.getAttribute('data-status') === 'done', 'the file\'s chip')
+      await m.settle(30)
+      expect(chips(roomBox)).toHaveLength(1)
+      expect(roomUploads).toEqual(['notes.txt'])
+      expect(folderToasts()).toHaveLength(1)
+      // the thread's box: only a folder, so no chip at all, and its own one line
+      await dropDt(m.get('thread-scroller'), folderDrag(['reports'], []))
+      await m.settle(30)
+      expect(chips(threadBox)).toHaveLength(0)
+      expect(roomUploads).toEqual(['notes.txt'])
+      expect(folderToasts()).toHaveLength(2)
+    } finally { await m.unmount() }
+  })
+
+  test('a room box on its own, a browser without entries: the folder is told by its failed read; a picked folder is left out the same way', async () => {
+    signIn()
+    serve()
+    const m = await mount(<RoomComposer roomId={r.id} members={[ME, BEN]} meId={ME.id} onSent={() => {}} />)
+    try {
+      await dropDt(m.get('room-composer'), filesDrag([txt(), folderFile('photos')]))
+      await m.until(() => roomChips(m)[0]?.getAttribute('data-status') === 'done', 'the file\'s chip')
+      await m.settle(30)
+      expect(roomChips(m)).toHaveLength(1)
+      expect(folderToasts()).toHaveLength(1)
+      const input = m.get('room-file-input')
+      Object.assign(input, { files: [folderFile('drafts')] })
+      await act(async () => { input.dispatchEvent(new FakeEvent('change', { bubbles: true })) })
+      await m.settle(30)
+      expect(roomChips(m)).toHaveLength(1)
+      expect(roomUploads).toEqual(['notes.txt'])
+      expect(folderToasts()).toHaveLength(2)
+    } finally { await m.unmount() }
+  })
+
+  test('a file the browser cannot read says so on its chip, not "Couldn\'t reach the team server"', async () => {
+    signIn()
+    serve()
+    const m = await mount(<RoomComposer roomId={r.id} members={[ME, BEN]} meId={ME.id} onSent={() => {}} />)
+    try {
+      const gone = Object.assign(txt('moved.txt'), { arrayBuffer: () => Promise.reject(new DOMException('x', 'NotReadableError')) })
+      await dropDt(m.get('room-composer'), filesDrag([gone]))
+      await m.until(() => roomChips(m)[0]?.getAttribute('data-status') === 'failed', 'the failed chip')
+      expect(roomChips(m)[0]!.textContent).toContain(ko('composer.unreadable'))
+      expect(roomChips(m)[0]!.textContent).not.toContain(ko('error.network'))
+      expect(folderToasts()).toHaveLength(0)
+    } finally { await m.unmount() }
+  })
+
+  test('the ✦ side chat: the file goes with my next question, the folders add no chip and one line under the box', async () => {
+    signIn()
+    const { side } = serve()
+    useRooms.setState({ rooms: [r], loaded: true })
+    useRooms.getState().setSide(r.id, 'trina')
+    const m = await page(`/rooms/${r.id}`)
+    try {
+      await m.until(() => m.find('side-chat-empty'), 'the side chat')
+      await dropDt(m.get('side-chat-scroller'), folderDrag(['photos', 'drafts'], [txt()]))
+      const sideChips = () => chipsIn(m, 'side-chat-box', 'attachment-chip')
+      await m.until(() => sideChips()[0]?.getAttribute('data-status') === 'done', 'the side chat\'s chip')
+      expect(sideChips()).toHaveLength(1)
+      expect(chatUploads).toEqual([{ chatId: side, name: 'notes.txt' }])
+      expect(m.get('side-chat-file-error').textContent).toBe(ko('composer.folders'))
+    } finally { await m.unmount() }
+  })
+
+  test('the AI chat box in its page\'s column: the file is attached, the folders say one line, and a failed read has its own words', async () => {
+    signIn()
+    serve()
+    const m = await mount(
+      <FileDropZone data-testid="page">
+        <p data-testid="answer">an answer</p>
+        <Composer draftId={`project:folders-${crypto.randomUUID()}`} ensureChat={async () => CHAT} running={false} onSend={async () => {}} onStop={async () => {}} engine={{ engine: undefined, model: undefined }} />
+      </FileDropZone>,
+    )
+    try {
+      const chips = () => [...m.container.querySelectorAll('[data-testid="attachment-chip"]')]
+      await dropDt(m.get('answer'), folderDrag(['photos', 'drafts', 'old'], [txt()]))
+      await m.until(() => chips()[0]?.getAttribute('data-status') === 'done', 'the file\'s chip')
+      expect(chips()).toHaveLength(1)
+      expect(chatUploads.map((u) => u.name)).toEqual(['notes.txt'])
+      const alert = () => [...m.container.querySelectorAll('[role="alert"]')].map((x) => x.textContent).filter(Boolean)
+      expect(alert()).toContain(ko('composer.folders'))
+      // a file that cannot be read: its own words on its chip
+      const gone = Object.assign(txt('moved.txt'), { arrayBuffer: () => Promise.reject(new DOMException('x', 'NotFoundError')) })
+      await dropDt(m.get('answer'), filesDrag([gone]))
+      await m.until(() => chips()[1]?.getAttribute('data-status') === 'failed', 'the failed chip')
+      expect(chips()[1]!.textContent).toContain(ko('composer.unreadable'))
+    } finally { await m.unmount() }
+  })
 })

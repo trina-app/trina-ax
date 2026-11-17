@@ -638,6 +638,8 @@ export const zh: Record<MessageKey, string> = {
   "composer.teamFile": "团队文件 · {path}",
   "composer.tooMany": "{n, plural, one {一条消息最多可添加#个附件。} other {一条消息最多可添加#个附件。}}",
   "composer.fileTooBig": "{name}超过{max}，无法添加为附件。",
+  'composer.folders': "无法在这里发送文件夹。请选择其中的文件，或先将文件夹压缩为 ZIP。",
+  'composer.unreadable': "无法读取此文件。",
   "drop.here": "拖放到这里添加附件",
   "drop.noBox": "这里无法发送消息，所以无法添加附件。",
   "drop.trashed": "此对话在回收站中，所以无法添加附件。",

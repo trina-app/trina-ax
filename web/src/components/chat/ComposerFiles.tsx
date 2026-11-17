@@ -31,9 +31,9 @@ import { formatSize } from '../../lib/format'
 import { previewKind, serverPreview } from '../../lib/preview'
 import { openFilePreview, openTeamFile } from '../../lib/sidePanel'
 import { loadChips, patchStash, readStash, saveChips, shareStash, subscribeStash, TEAM_FILE_DRAG_TYPE, writeStash, type AttachResult } from '../../lib/teamAttach'
-import { cancelUpload, splitOversize, uploadFile, uploadPercent, type UploadProgress } from '../../lib/upload'
+import { cancelUpload, splitOversize, unreadableFile, uploadFile, uploadPercent, type UploadProgress } from '../../lib/upload'
 import { pastedFiles } from '../../lib/paste'
-import { dragKind, type DropKind } from '../../lib/fileDrop'
+import { dragKind, filesOfDrop, withoutFolders, type DropKind } from '../../lib/fileDrop'
 import { attachmentItem, localItem } from '../../lib/imageViewer'
 import { useFolderWords } from '../../lib/folderLabels'
 import { useLocale, useT } from '../../i18n'
@@ -120,9 +120,15 @@ export function useComposerFiles({ userId, draftId, ensureChat, onError, reload 
   const live = (list: Pending[]) => list.filter((f) => f.status !== 'failed')
   const room = () => MESSAGE_ATTACHMENTS_MAX - live(filesRef.current).length
 
-  const addFiles = async (all: File[]) => {
-    if (!all.length || !computer) return
+  /** `dropFolders`: the folders a drop held besides (lib/fileDrop.ts filesOfDrop). A folder is never a chip: one line
+   * says so, however many there were; the files beside them go on as usual. */
+  const addFiles = async (picked: File[], dropFolders = 0) => {
+    if ((!picked.length && !dropFolders) || !computer) return
     onError(null)
+    const sorted = await withoutFolders(picked)
+    const all = sorted.files
+    if (dropFolders + sorted.folders) onError(t('composer.folders'))
+    if (!all.length) return
     // a file over what the server takes is refused here, before anything is read or sent (the sha256 of a huge file
     // would take minutes before the server could say no)
     // (a guest: the team's guest limit)
@@ -156,7 +162,8 @@ export function useComposerFiles({ userId, draftId, ensureChat, onError, reload 
         } catch (e) {
           // removed while uploading: drop the server's half-received session as well
           if (it.abort.signal.aborted) return it.abort.signal.reason === SIGNED_OUT ? undefined : void cancelUpload(it.file!, target, api)
-          update(it.id, { status: 'failed', error: errorText(e, locale, t('error.network')), plans: storagePlansUrl(e) })
+          // a file the browser could not read is not a lost connection (TC-4483)
+          update(it.id, { status: 'failed', error: unreadableFile(e) ? t('composer.unreadable') : errorText(e, locale, t('error.network')), plans: storagePlansUrl(e) })
         }
       }),
     )
@@ -252,7 +259,7 @@ const taken = new WeakSet<object>()
  * Moving over its own parts is not leaving it: a count of the enters and leaves that reached it, and the element the
  * pointer goes to (`relatedTarget`) when the browser says. Off on a drop, on leaving it, at the drag's end and on Esc.
  * A picture or link dragged from the page itself is not a file from this computer (lib/fileDrop.ts dragKind). */
-export function useFileDrop({ files, teamPath, refusal }: { files?: (files: File[]) => void; teamPath?: (path: string) => void; refusal?: (kind: DropKind) => string | null }) {
+export function useFileDrop({ files, teamPath, refusal }: { files?: (files: File[], folders: number) => void; teamPath?: (path: string) => void; refusal?: (kind: DropKind) => string | null }) {
   const [over, setOver] = useState<{ kind: DropKind; refusal: string | null; covered: boolean } | null>(null)
   const depth = useRef(0)
   const zone = useRef<HTMLElement | null>(null)
@@ -335,8 +342,10 @@ export function useFileDrop({ files, teamPath, refusal }: { files?: (files: File
         if (refusal?.(kind)) return
         const path = kind === 'team' ? e.dataTransfer.getData(TEAM_FILE_DRAG_TYPE) : ''
         if (path) return teamPath?.(path)
-        const list = Array.from(e.dataTransfer.files ?? [])
-        if (list.length && files) files(list)
+        // the folders in it are left out here and counted (lib/fileDrop.ts filesOfDrop): the box says once that they
+        // cannot be sent
+        const { files: list, folders } = filesOfDrop(e.dataTransfer)
+        if ((list.length || folders) && files) files(list, folders)
       },
     },
   }

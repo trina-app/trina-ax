@@ -655,6 +655,8 @@ export const id: Record<MessageKey, string> = {
   'composer.teamFile': 'Berkas tim · {path}',
   'composer.tooMany': 'Anda bisa melampirkan hingga {n} berkas per pesan.',
   'composer.fileTooBig': "{name} lebih besar dari {max} dan tidak bisa dilampirkan.",
+  'composer.folders': "Folder tidak bisa dikirim di sini. Pilih file di dalamnya, atau kompres folder menjadi zip terlebih dahulu.",
+  'composer.unreadable': "File ini tidak bisa dibaca.",
   'drop.here': 'Lepas di sini untuk melampirkan',
   'drop.noBox': "Pesan tidak bisa dikirim di sini, jadi tidak ada yang bisa dilampirkan.",
   'drop.trashed': "Chat ini ada di tempat sampah, jadi tidak ada yang bisa dilampirkan.",

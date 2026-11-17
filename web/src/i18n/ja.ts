@@ -639,6 +639,8 @@ export const ja: Record<MessageKey, string> = {
   'composer.teamFile': "チームのファイル · {path}",
   'composer.tooMany': "{n, plural, one {1つのメッセージに添付できるファイルは#個までです。} other {1つのメッセージに添付できるファイルは#個までです。}}",
   'composer.fileTooBig': "{name}は{max}を超えているため添付できません。",
+  'composer.folders': "フォルダはここでは送れません。中のファイルを選ぶか、先にフォルダをZIPに圧縮してください。",
+  'composer.unreadable': "このファイルを読み取れませんでした。",
   'drop.here': 'ここにドロップすると添付されます',
   'drop.noBox': "ここではメッセージを送信できないため、添付できません。",
   'drop.trashed': "このチャットはゴミ箱にあるため、添付できません。",

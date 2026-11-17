@@ -318,7 +318,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
     reload: false,
   })
   // files dropped anywhere on the panel (FileDropZone), with the box's own check: no room left for one more refuses the drop
-  const dropTarget: DropTarget = { files: (all) => void files.addFiles(all), refusal: () => (files.live.length >= MESSAGE_ATTACHMENTS_MAX ? t('composer.tooMany', { n: MESSAGE_ATTACHMENTS_MAX }) : null) }
+  const dropTarget: DropTarget = { files: (all, folders) => void files.addFiles(all, folders), refusal: () => (files.live.length >= MESSAGE_ATTACHMENTS_MAX ? t('composer.tooMany', { n: MESSAGE_ATTACHMENTS_MAX }) : null) }
   const picker = useRef<HTMLInputElement>(null)
   // below 768px: the attach sheet and its team-file picker instead of the clip's file input
   const phone = useMediaQuery('(max-width: 767.98px)')
