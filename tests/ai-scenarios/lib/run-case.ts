@@ -8,7 +8,7 @@ import path from 'node:path'
 import { API, ApiClient, ApiError, type Message, type OpenTurnRequest } from '../../../shared/src/api'
 import { TEAM_TOOL_PREFIX } from '../../../shared/src/product'
 import { goAhead } from '../../../scripts/demo/company/chat-run'
-import { PASSWORD, type FixtureState } from '../fixture/seed'
+import { PASSWORD, TEAM_ZONE, type FixtureState } from '../fixture/seed'
 import { runChecks } from './checks'
 import type { Case, CaseResult, CardSeen, ToolCall, TurnRecord } from './types'
 
@@ -103,7 +103,9 @@ export async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string,
   const started = Date.now()
   let sent: { assistantMessage: { id: string } }
   try {
-    sent = await api.call(API.sendMessage, { params: { id: chatId }, body: { content: prompt, attachmentIds: [], clientMessageId: crypto.randomUUID(), ...(c.timeZone ? { timeZone: c.timeZone } : {}) } })
+    // the device's zone, as the web app sends it with every turn (QA TC-4549): the case's, else the team's, so no turn
+    // falls back on whatever the server does without one
+    sent = await api.call(API.sendMessage, { params: { id: chatId }, body: { content: prompt, attachmentIds: [], clientMessageId: crypto.randomUUID(), timeZone: c.timeZone ?? TEAM_ZONE } })
   } catch (e) {
     // the app itself said no (a guest without AI, a limit): what the person reads is the message
     if (!(e instanceof ApiError)) throw e

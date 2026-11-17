@@ -44,6 +44,8 @@ describe('what the judge is told, and what a case leaves behind', () => {
     const c = { install: 'local-login' } as unknown as Parameters<typeof givenFacts>[0]
     expect(givenFacts(c, { startedAt: '2026-11-17T14:52:00.000Z' })).toContain('when this case started: Tuesday 2026-11-17 23:52')
     expect(givenFacts(c)).not.toContain('when this case started')
+    // a case sent from a Jakarta device: the time there
+    expect(givenFacts({ ...c, timeZone: 'Asia/Jakarta' }, { startedAt: '2026-11-17T14:52:00.000Z' })).toContain('in Asia/Jakarta, the zone the person\'s device sent (when this case started: Tuesday 2026-11-17 21:52')
     // what the AI can do when asked (SYS-04) and what a card's answer is (CHT-02)
     expect(givenFacts(c)).toContain("read a file's earlier\nversions")
     expect(givenFacts(c)).toContain('the answer shown is what the person pressed')
