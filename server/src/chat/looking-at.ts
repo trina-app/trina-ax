@@ -27,6 +27,7 @@ import type { Looked, WindowLook } from '../realtime/looking'
 import { roomsOf } from '../rooms/service'
 import { members } from '../rooms/store'
 import { localTime } from '../rooms/reader'
+import { shownTimeZone } from '../system/time-zone'
 import { confidentialChat } from '../safe-ops/confidential'
 import { roomTitleFor } from './post-to-room'
 import { canSeeProject } from './projects'
@@ -140,7 +141,7 @@ export function describeLooked(exec: Exec, x: Looked, record: LookedAt | null, L
         const root = rooms.threadRootOf(mine.room.id, x.threadRootId, mine.me)
         if (root) {
           const by = root.author_kind === 'ai' ? 'the AI' : q(rt.store.userRef(root.author_id)?.name ?? 'someone', 40)
-          line += `, in it the thread started by ${by} on ${localTime(root.created_at, rt.timeZone)} (thread_id ${root.id}; read it with room_read)`
+          line += `, in it the thread started by ${by} on ${localTime(root.created_at, shownTimeZone(spec.timeZone, rt.timeZone))} (${shownTimeZone(spec.timeZone, rt.timeZone)}; thread_id ${root.id}; read it with room_read)`
           record?.threads.add(root.id)
         }
       }

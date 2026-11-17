@@ -4,7 +4,8 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import type { Database } from 'bun:sqlite'
 import { EventEmitter } from 'node:events'
-import { ENGINE_BUILTIN_ALLOWED, EditInput, GlobInput, GrepInput, ListInput, mediaKind, ReadInput, WriteInput, type MediaKind } from '@mycel/shared'
+import { ENGINE_BUILTIN_ALLOWED, EditInput, GlobInput, GrepInput, ListInput, mediaKind, ReadInput, VERSIONS_SHOWN_DEFAULT, WriteInput, type MediaKind } from '@mycel/shared'
+import { lineDiff } from '../skills/diff'
 import { isGuestUser } from '../credentials/guest-ai'
 import { FILE_LIST_NAME, isFileListName, mediaTranscriptsOffSmall, mediaTranscriptsOn, type SpeechHost, type TranscribeResult } from '@mycel/shared/api'
 import { isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
@@ -226,6 +227,25 @@ export interface SharedReads {
   folderChild?(user: Principal, input: unknown, L: Locale): SharedChild | null
 }
 
+/** A file's kept versions for the AI's read with `versions` (team-files/service.ts history / versionFile, set by
+ * component C): the very rows the Files screen's Version history shows the caller. */
+export interface VersionReads {
+  /** newest first; null when the caller sees no version of `rel` (none kept, or none they may read) */
+  list(userId: string, rel: string): Promise<{ current: { version: number; by: string | null; at: string | null } | null; items: { id: string; version: number; size: number; by: string | null; replacedBy: string | null; replacedAt: string; viaAi: boolean }[] } | null>
+  /** the stored bytes of one of those versions (the caller's own check again) */
+  bytes(userId: string, versionId: string, max: number): Uint8Array
+  /** where that version's content was saved (team paths for the read scope; the caller's own check again) */
+  places(userId: string, versionId: string): string[]
+}
+
+/** read with `versions`: the most text of the changes shown */
+export const VERSION_DIFF_MAX_CHARS = 8000
+/** ...and the most text of either side that is compared at all (above it: "too large to compare") */
+export const VERSION_DIFF_TEXT_MAX = 2 * 1024 * 1024
+/** ...and the most bytes of a plain text file (either side) that are read for it */
+export const VERSION_DIFF_BYTES_MAX = 6 * 1024 * 1024
+const NO_VERSIONS = (rel: string) => `'${rel}': no earlier versions are kept that you can see. The file has not been overwritten since it was made, or its earlier versions are not available to you.`
+
 /** A read made by a file's link names the file by that link, not by its path: only in our own words around the file
  * (its header, a quoted name), never inside the file's text. */
 function byLink(out: ToolOutput, rel: string, link: string): ToolOutput {
@@ -253,6 +273,8 @@ export class FileService {
   /** files shared with a person one by one (files/shares.ts grantedFile, set by component C): the read tools open them
    * by their link or path, view only (docs/decisions/20261116-shared-files-for-the-ai.md); null: none */
   shared: SharedReads | null = null
+  /** a file's kept versions (team-files/service.ts, set by component C); null: none */
+  versions: VersionReads | null = null
   constructor(readonly db: Database, readonly cfg: ServerConfig) {
     db.exec('PRAGMA synchronous = FULL')
     this.quarantine = new Quarantine(db, cfg.teamRoot)
@@ -443,11 +465,13 @@ export class FileService {
   visionTools(): VisionTools { return visionTools({ nativeBin: this.cfg.nativeBin, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr, which }) }
 
   async read(ctx: ToolCtx, a: ReadArgs): Promise<ToolOutput> {
+    const wantsVersions = (a.versions !== undefined && a.versions !== false) || a.version !== undefined
     // the person's file list (not on disk): its lines, numbered; read like its folder's files, never an answer's source
     const vp = this.virtualPath(ctx, a.file_path)
     if (vp) {
       // its folder joins the read scope (same access as the list; the list itself is not on disk)
       ctx.files.readPaths.add(vp.segs.slice(0, -1).join('/'))
+      if (wantsVersions) return { text: NO_VERSIONS(vp.rel), summary: `read ${vp.rel} versions -> none (file list)` }
       return numberedLines(vp.rel, vp.file.text, a)
     }
     // a file inside a folder shared with the person, by its link (/f/<id>/<path inside>; files/shared-folder-reads.ts):
@@ -475,6 +499,9 @@ export class FileService {
         throw e
       }
     }
+    // a file's earlier versions and what changed (QA TC-4547, docs/decisions/20261117-ai-file-versions.md); after the
+    // file list, a shared folder's file and a file link are resolved above (those come back here by their path)
+    if (wantsVersions) return this.readVersions(ctx, a)
     const e = ext(a.file_path)
     const kind = mediaKind(a.file_path)
     if ((a.pages !== undefined || a.as_images) && e !== 'pdf') throw new ToolError('pages and as_images are only for PDF files', 'bad_pages')
@@ -483,6 +510,82 @@ export class FileService {
     if (isVisionImage(a.file_path)) return this.readImage(ctx, a)
     if (e === 'pdf') return this.readPdf(ctx, a)
     return this.readText(ctx, a)
+  }
+
+  /**
+   * read with `versions` / `version`: the versions the Files screen's Version history shows the caller (when, who saved
+   * them, size) and the changes between the current file and the version before it (or the chosen one), as text lines
+   * (Office, Hangul and PDF files through the same extractor as a read; PDF text layer only). The file is opened with
+   * the check a plain read uses first (readAuth), so a file the caller cannot read gives a plain read's refusal, and
+   * the versions themselves are the caller's own (history() judges each one as the Files screen does). Read-only: no
+   * card. The file joins the turn's read scope (what a later wider save is judged by), not its read-before-write
+   * hashes: the AI did not get the whole current text.
+   */
+  private async readVersions(ctx: ToolCtx, a: ReadArgs): Promise<ToolOutput> {
+    const r = this.readAuth(ctx, ctx.user, a.file_path)
+    if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; versions are kept for files`, 'is_folder')
+    ctx.files.readPaths.add(r.rel)
+    const h = this.versions ? await this.versions.list(ctx.user.id, r.rel) : null
+    const items = h?.items ?? []
+    if (a.version !== undefined && !items.some((v) => v.version === a.version)) {
+      throw new ToolError(`'${r.rel}' has no earlier version ${a.version}${items.length ? ` (kept: ${items.map((v) => v.version).join(', ')})` : ''}`, 'not_found')
+    }
+    if (!items.length) return { text: NO_VERSIONS(r.rel), summary: `read ${r.rel} versions -> none` }
+    const shown = items.slice(0, typeof a.versions === 'number' ? a.versions : VERSIONS_SHOWN_DEFAULT)
+    const name = (n: string | null) => n ?? 'someone no longer on the team'
+    // the same form as list's times (UTC, to the minute)
+    const at = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? iso : `${d.toISOString().slice(0, 16).replace('T', ' ')} UTC` }
+    const lines: string[] = [`Versions of '${r.rel}' (newest first):`]
+    if (h!.current) lines.push(`- now (version ${h!.current.version}): saved by ${name(h!.current.by)}${h!.current.at ? ` at ${at(h!.current.at)}` : ''}, ${human(r.st!.size)}`)
+    for (const v of shown) {
+      lines.push(`- version ${v.version}: ${v.by ? `saved by ${v.by}` : 'saved by someone earlier'}, ${human(v.size)}; replaced at ${at(v.replacedAt)} by ${name(v.replacedBy)}${v.viaAi ? ' (through the AI)' : ''}`)
+    }
+    if (items.length > shown.length) lines.push(`(${items.length - shown.length} older version${items.length - shown.length === 1 ? '' : 's'} not listed)`)
+    // the changes: the chosen version, else the newest kept one (the content just before the last save), against now
+    const base = a.version !== undefined ? items.find((v) => v.version === a.version)! : items[0]!
+    const label = `version ${base.version} → now`
+    lines.push('')
+    const kind = mediaKind(r.rel)
+    if (kind || isVisionImage(r.rel)) {
+      lines.push(`Changes (${label}): not shown for pictures, videos and sound; only the list above.`)
+    } else {
+      const tools = { pandoc: this.cfg.pandoc, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr, quarantine: this.quarantine, textLayerOnly: true }
+      let diff: string
+      // the compared version's text is shown: the places it was saved in join the read scope too (a file moved out of
+      // a narrower folder brings that folder's audience to a later save, room post or share)
+      // (fails closed: a place that cannot be looked up means no comparison)
+      let places: string[] | null = null
+      try { places = this.versions!.places(ctx.user.id, base.id) } catch {}
+      for (const p of places ?? []) ctx.files.readPaths.add(p)
+      let oldBytes: Uint8Array | 'gone' | 'large' = 'gone'
+      // the stored copy can be gone or unreadable (the history store's own errors) or over the read limit: the list stays
+      // a plain text file is read whole on both sides: over the cap by its stored size, not read at all
+      if (places && !isOffice(r.rel) && Math.max(r.st!.size, base.size) > VERSION_DIFF_BYTES_MAX) oldBytes = 'large'
+      else if (places) try { oldBytes = this.versions!.bytes(ctx.user.id, base.id, readMaxBytes()) } catch (e) { if (e instanceof ToolError && /too large/.test(e.message)) oldBytes = 'large' }
+      if (!places) diff = `Changes (${label}): could not be compared (where version ${base.version} was saved cannot be checked now, e.g. its folder is in the trash); only the list above.`
+      else if (oldBytes === 'gone') diff = `Changes (${label}): the content of version ${base.version} is no longer kept, so it cannot be compared.`
+      else if (oldBytes === 'large') diff = `Changes (${label}): the file is too large to compare here; only the list above.`
+      else try {
+        const now = await extractText(r.rel, readRegular(r.abs, readMaxBytes(), r.st).bytes, tools, ctx.signal)
+        const before = await extractText(r.rel, oldBytes, tools, ctx.signal)
+        if (now.length > VERSION_DIFF_TEXT_MAX || before.length > VERSION_DIFF_TEXT_MAX) {
+          diff = `Changes (${label}): the file is too large to compare here; only the list above.`
+        } else {
+          const d = lineDiff(before, now, VERSION_DIFF_MAX_CHARS)
+          diff = d.added + d.removed === 0
+            ? `Changes (${label}): the text is the same (only the file itself differs, e.g. formatting).`
+            : d.approximate
+              ? `Changes (${label}): too much changed to compare line by line; the changed part is shown whole (cut) as removed then added, so counts are not meaningful:\n${d.text}`
+              : `Changes (${label}; lines starting with "-" were removed, "+" added, "@@ -a,n +b,m @@" gives the line numbers before and now; ${d.removed} removed, ${d.added} added${d.truncated ? '; cut, read the file for the rest' : ''}):\n${d.text}`
+        }
+      } catch (e) {
+        if (!(e instanceof ToolError)) throw e
+        diff = `Changes (${label}): could not be shown (${e.message}).`
+      }
+      lines.push(diff)
+    }
+    ctx.files.sources.note(r.rel, 'read', { agent: ctx.files.agent })
+    return { text: lines.join('\n'), summary: `read ${r.rel} versions -> ${items.length} kept, compared v${base.version}` }
   }
 
   /** Text of a file (Office files converted), numbered lines. */
@@ -1545,7 +1648,7 @@ export class FileService {
   }
 }
 
-type ReadArgs = { file_path: string; offset?: number; limit?: number; pages?: string; as_images?: boolean; time?: string; frames?: number; transcript?: boolean }
+type ReadArgs = { file_path: string; offset?: number; limit?: number; pages?: string; as_images?: boolean; time?: string; frames?: number; transcript?: boolean; versions?: boolean | number; version?: number }
 export interface BoundSource { rel: string; bytes: Buffer; hash: string; identity: string }
 /** a provider's answer for a piece; `languageP`: how sure whisper.cpp was of the language it heard (not from
  * OpenRouter); OpenRouter's: how sure whisper was of its words, its generation id and provider (openrouter-stt.ts) */

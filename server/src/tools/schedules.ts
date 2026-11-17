@@ -27,11 +27,15 @@ import type { Database } from 'bun:sqlite'
 
 export const SCHEDULE_TOOL_NAMES = ['schedule_create', 'schedule_list', 'schedule_delete'] as const
 
+/** Schedules run in the team's time zone (chat/schedules.ts); "Now:" in the instructions is in the person's device zone
+ * when it differs (QA TC-4549, chat/prompt.ts timeLine), so the AI converts the person's time to the team's. */
+export const SCHEDULE_TIME_DESCRIPTION = 'HH:MM, 24-hour, in the team\'s time zone (convert a time the user gives in their own device zone, when the instructions name one)'
+
 const CreateInput = z.object({
   title: z.string().max(80).describe('Short name, e.g. "Weekly meeting digest"'),
   prompt: z.string().max(4000).describe('The full instruction to run each time, written so it works without this conversation (name the folders and the output)'),
   repeat: z.enum(['once', 'daily', 'weekdays', 'weekly', 'monthly']),
-  time: z.string().describe('HH:MM, 24-hour, in the team\'s time zone'),
+  time: z.string().describe(SCHEDULE_TIME_DESCRIPTION),
   weekday: z.number().int().min(0).max(6).optional().describe('weekly: 0 = Sunday … 6 = Saturday'),
   day: z.number().int().min(1).max(28).optional().describe('monthly: 1–28'),
   date: z.string().optional().describe('once: YYYY-MM-DD'),

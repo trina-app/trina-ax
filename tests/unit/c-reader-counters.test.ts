@@ -78,6 +78,7 @@ const REVIEWED: Record<string, { n: Counts; why: string }> = {
   "server/src/chat/widening.ts": { n: {"viewersOf": 1, "readersAmong": 2, "access": 1, "import:viewersOf": 1}, why: "readersAmong sends a share source to viewersOf; its access line is for folder and root sources" },
   "server/src/connectors/remote-mcp/guide.ts": { n: {"users/": 1}, why: "guide wording" },
   "server/src/connectors/remote-mcp/rooms.ts": { n: {"roomWidening": 1, "import:roomWidening": 1}, why: "roomWidening" },
+  "server/src/connectors/remote-mcp/tools.ts": { n: {"access": 1}, why: "a connector read with versions: an old place that is gone joins the scope only when the person may read it by the folder rules (the caller's own sight; fails closed, a share never widens it)" },
   "server/src/connectors/remote-mcp/upload.ts": { n: {"widening": 1, "access": 1, "users/": 1, "import:widening": 1}, why: "write/edit/upload_file go through widening; the access line: where the caller may write; users/: a personal skills folder" },
   "server/src/demo/replay.ts": { n: {"users/": 3}, why: "demo replay path swap" },
   "server/src/devenv/srt/access.ts": { n: {"audienceOf": 2, "access": 1, "users/": 6}, why: "audienceOf counts share readers (W6); runMayWrite refuses shared folders (D11); users/ lines: a run sees only its own personal folder" },
