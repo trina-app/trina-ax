@@ -119,12 +119,12 @@ describe('enqueue', () => {
     expect(f.calls.length).toBe(2)
   })
   test('a GraphQL error prints the message, not a stack', () => {
-    const f = fake({}, { ok: false, stdout: '{"errors":[{"message":"Pull request is not mergeable"}]}' })
+    const f = fake({}, false, { ok: false, stdout: '{"errors":[{"message":"Pull request is not mergeable"}]}' })
     const r = enqueue(['7'], f.run)
     expect(r.code).toBe(1)
     expect(r.out.join('\n')).toContain('Pull request is not mergeable')
     expect(r.out.join('\n')).not.toContain('    at ')
-    const g = fake({}, { ok: true, stdout: '{"data":{"enqueuePullRequest":null},"errors":[{"message":"nope"}]}' })
+    const g = fake({}, false, { ok: true, stdout: '{"data":{"enqueuePullRequest":null},"errors":[{"message":"nope"}]}' })
     expect(enqueue(['7'], g.run).out.join('\n')).toContain('nope')
   })
   test('usage and bad arguments never call gh', () => {
