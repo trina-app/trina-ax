@@ -114,7 +114,10 @@ export const resetLinkText = (r: NonNullable<InboxNotification['resetLink']>, t:
 export function joinedText(j: NonNullable<InboxNotification['joined']>, t: T): string {
   if (!j.guestPlace) return t('teamLink.joinedNotice', { name: j.name })
   if (j.guestPlace.name) return t('teamLink.joinedGuest', { name: j.name, place: j.guestPlace.name })
-  return t(j.guestPlace.kind === 'project' ? 'teamLink.joinedGuestProject' : 'teamLink.joinedGuestChat', { name: j.name })
+  if (j.guestPlace.kind === 'project') return t('teamLink.joinedGuestProject', { name: j.name })
+  // no name and the reader is in the place or is an admin (id is not null): the room has no name of its own, a group chat;
+  // for anyone else the room may be a private channel the reader cannot see, so the general words
+  return t(j.guestPlace.id !== null ? 'teamLink.joinedGuestGroup' : 'teamLink.joinedGuestChat', { name: j.name })
 }
 
 /** A team template's notice (QA TC-2980): it is ready, it changed (sign in again with your own account, or enter your

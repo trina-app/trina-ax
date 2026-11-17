@@ -26,7 +26,11 @@ describe('joined notice', () => {
   test('a member joined the team; a guest joined their place as a guest (a group DM with no name, or a place the reader is not in, says so)', () => {
     expect(joinedText({ name: 'Nora' }, en)).toBe('Nora joined the team.')
     expect(joinedText({ name: 'Gina', guestPlace: { kind: 'project', name: 'Quote prep' } }, en)).toBe("Gina joined 'Quote prep' as a guest.")
-    expect(joinedText({ name: 'Gina', guestPlace: { kind: 'room', name: '' } }, en)).toBe('Gina joined a private channel or group chat as a guest.')
+    // no name, the reader is in the room or is an admin (id is a string or absent): the room has no name of its own, a group chat
+    expect(joinedText({ name: 'Gina', guestPlace: { kind: 'room', name: '' } }, en)).toBe('Gina joined a group chat as a guest.')
+    expect(joinedText({ name: 'Gina', guestPlace: { kind: 'room', name: '', id: 'r1' } }, en)).toBe('Gina joined a group chat as a guest.')
+    // no name and the reader sees nothing of the room (id null): it could be a private channel, so the general words
+    expect(joinedText({ name: 'Gina', guestPlace: { kind: 'room', name: '', id: null } }, en)).toBe('Gina joined a private channel or group chat as a guest.')
     expect(joinedText({ name: 'Gina', guestPlace: { kind: 'project', name: '' } }, en)).toBe('Gina joined a project as a guest.')
   })
 })

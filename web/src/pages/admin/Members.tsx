@@ -166,7 +166,9 @@ export default function Members() {
     const name = pl.name || (pl.kind === 'project' ? projectsById[pl.id]?.name : room && roomTitle(room))
     // the server's name is a room's own (a private channel); a title from my rooms list is a group DM's unless it has one
     const groupDm = pl.kind === 'room' && !pl.name && !!room && !isPrivateChannel(room)
-    return name ? t(pl.kind === 'room' ? (groupDm ? 'guest.admin.roomGroup' : 'guest.admin.room') : 'guest.admin.project', { place: name }) : t(pl.kind === 'room' ? 'guest.admin.inviteRoom' : 'guest.admin.inviteProject')
+    // a guest's room is always a group room: a private channel when it has a name of its own, else a group chat. So a
+    // room the server sent no name for (and I am not in) is a group chat, not "a private channel or group chat"
+    return name ? t(pl.kind === 'room' ? (groupDm ? 'guest.admin.roomGroup' : 'guest.admin.room') : 'guest.admin.project', { place: name }) : t(pl.kind === 'room' ? 'guest.admin.inviteRoomGroup' : 'guest.admin.inviteProject')
   }
   // only the links that still work: a used or expired one says nothing new (the person is in the lists below)
   const openInvites = invites.data && openInviteLinks(invites.data)
