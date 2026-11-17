@@ -30,7 +30,10 @@ async function sendFiles(user: string, roomId: string, files: [string, number][]
   files.forEach(([, size], i) => h.ctx.db.query('UPDATE room_files SET size = ? WHERE id = ?').run(size, up[i]!.id))
   return { message: m, files: up }
 }
-const groupChat = async (by: string, others: string[]) => (await h.api(by).call(API.createRoom, { body: { kind: 'group', userIds: others } })).id
+// named: an unnamed group of the same people is one group DM (the second create returns the first), and these cases
+// need separate conversations of the same people
+let groupNo = 0
+const groupChat = async (by: string, others: string[]) => (await h.api(by).call(API.createRoom, { body: { kind: 'group', name: `sent files ${++groupNo}`, userIds: others } })).id
 const mine = (user: string, cursor?: string) => h.api(user).call(API.listMyRoomFiles, { query: cursor ? { cursor, limit: 2 } : { limit: 2 } }) as Promise<MyRoomFilesPage>
 const names = (p: MyRoomFilesPage) => p.items.map((i) => i.file.name)
 
