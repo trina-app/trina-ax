@@ -13,6 +13,7 @@ import { Emitter } from '../lib/emitter'
 import { defaultWsBase, RealtimeClient, type ConnState } from '../lib/realtime'
 import { startActivity } from '../lib/presence'
 import { setTypingOut } from '../lib/roomTyping'
+import { lookingConnected, setLookingOut } from '../lib/lookingAt'
 import { t } from '../i18n'
 import { useChats } from './chats'
 import { useDeckBuilds } from './deckBuilds'
@@ -348,6 +349,8 @@ export function startLive() {
     onHello: ({ serverVersion }) => {
       // the server takes a window that has just connected as in use: say how this one is
       activity?.connected()
+      // ...and knows nothing of what it shows (lib/lookingAt.ts): the current screen once more
+      lookingConnected()
       serverHello(serverVersion)
     },
   })
@@ -355,6 +358,8 @@ export function startLive() {
   activity = startActivity((state) => client?.send({ type: 'presence', state }), desktop()?.systemActivity?.onChange, !!desktop())
   // this window's "typing" in a room's box (lib/roomTyping.ts decides when; dropped while disconnected)
   setTypingOut((roomId, threadRootId, typing) => client?.send({ type: 'room.typing', roomId, threadRootId, typing }))
+  // what this window shows now, for the AI's looking_at tool (lib/lookingAt.ts decides when; never queued)
+  setLookingOut((f) => client?.send(f) ?? false)
   client.start()
   // neither the session markers nor the room sound ever stop the live updates
   try { startSessionMarkers() } catch { /* no markers' extras in this window */ }
@@ -377,6 +382,7 @@ export function stopLive() {
   usePresence.getState().clear()
   useTyping.getState().clear()
   setTypingOut(() => {})
+  setLookingOut(null)
   window.removeEventListener('online', nudge)
   document.removeEventListener('visibilitychange', onVisible)
 }

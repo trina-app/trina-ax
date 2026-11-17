@@ -10,19 +10,22 @@ import { ToolError } from '../policy/errors'
 import { hwpText, hwpxText } from './hwp'
 import { checkZip, isZip, tooComplex } from './zip-guard'
 import { docxExtraText, pptxExtraText } from './ooxml'
+import { DOCX_COMMENT_MODE, docxCommentRequest } from './docx-comment'
 import { hwpxWriteRequest } from './hwpx-write'
 import { hwpxEditRequest, hwpxVerifyRequest } from './hwpx-edit'
 import { hwpEditRequest, hwpVerifyRequest } from './hwp-edit'
 import { HWP_EDIT_MODE, HWP_VERIFY_MODE, HWPX_EDIT_MODE, HWPX_VERIFY_MODE, HWPX_WRITE_MODE } from './hwpx-check'
 import { PDF_STAMP_MODE, stampPdfRequest } from './pdf-stamp'
 import { PDF_PAGES_MODE, pdfPagesRequest } from './pdf-pages'
+import { PPTX_HTML_MODE, pptxHtmlRequest } from './pptx-html'
 
 export const WORKER_EXT = new Set(['xlsx', 'xls', 'ods', 'hwp', 'hwpx'])
 /** worker modes that give only the parts of a .docx / .pptx that pandoc drops (ooxml.ts); pandoc still gives the body */
 export const EXTRA_MODES = new Set(['docx-extra', 'pptx-extra'])
 /** worker modes that make a file: stdin is the request, stdout the file's bytes (make_file's .hwpx, hwpx-write.ts; edit_hwp's
- * changed .hwpx or .hwp with its report and the checks run again on it, hwpx-edit.ts and hwp-edit.ts) */
-export const WRITE_MODES = new Set([HWPX_WRITE_MODE, HWPX_EDIT_MODE, HWPX_VERIFY_MODE, HWP_EDIT_MODE, HWP_VERIFY_MODE, PDF_STAMP_MODE, PDF_PAGES_MODE])
+ * changed .hwpx or .hwp with its report and the checks run again on it, hwpx-edit.ts and hwp-edit.ts; make_file's PDF of a
+ * .pptx: the deck drawn as a page per slide, pptx-html.ts) */
+export const WRITE_MODES = new Set([HWPX_WRITE_MODE, HWPX_EDIT_MODE, HWPX_VERIFY_MODE, HWP_EDIT_MODE, HWP_VERIFY_MODE, PDF_STAMP_MODE, PDF_PAGES_MODE, PPTX_HTML_MODE])
 /** the worker's exit code when stderr holds a ToolError message (office-worker.ts) */
 export const TOOL_ERROR_EXIT = 3
 /** UTF-8 bytes of text out of one file (the worker's stdout cap in extract.ts is a little larger; hwp.ts keeps its
@@ -159,6 +162,9 @@ export function sheetText(bytes: Uint8Array): string {
   return out.join('\n\n')
 }
 
+// comment_docx's mode: Word comments added to a .docx (docx-comment.ts), a write mode like the others above
+WRITE_MODES.add(DOCX_COMMENT_MODE)
+
 /** Text of one file of a WORKER_EXT format (or an EXTRA_MODES mode); ToolError for a file it cannot or will not read. */
 export function officeText(ext: string, bytes: Uint8Array): string {
   switch (ext) {
@@ -177,10 +183,12 @@ export function officeWrite(mode: string, input: Uint8Array): Uint8Array | Promi
   if (mode === PDF_STAMP_MODE) return stampPdfRequest(input)
   // edit_pdf, merge_pdfs, split_pdf (pdf-pages.ts): page work on existing PDFs
   if (mode === PDF_PAGES_MODE) return pdfPagesRequest(input)
+  if (mode === DOCX_COMMENT_MODE) return docxCommentRequest(input)
   if (mode === HWPX_WRITE_MODE) return hwpxWriteRequest(input)
   if (mode === HWPX_EDIT_MODE) return hwpxEditRequest(input)
   if (mode === HWPX_VERIFY_MODE) return hwpxVerifyRequest(input)
   if (mode === HWP_EDIT_MODE) return hwpEditRequest(input)
   if (mode === HWP_VERIFY_MODE) return hwpVerifyRequest(input)
+  if (mode === PPTX_HTML_MODE) return pptxHtmlRequest(input)
   throw new ToolError(`not a mode of the office worker: ${mode}`)
 }

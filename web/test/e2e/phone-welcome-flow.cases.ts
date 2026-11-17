@@ -28,6 +28,11 @@ async function newOwner(page: Page) {
   await page.getByTestId('setup-username').fill('kim')
   await page.getByTestId('setup-password').fill('a long password 1')
   await page.getByTestId('setup-submit').click()
+  // these browsers say Windows (Chromium) or Mac (WebKit) at phone width, not a real phone: they are offered the desktop
+  // app first (pages/OpenApp.tsx); a real phone goes straight on (open-app.spec.ts)
+  const offer = page.getByTestId('open-app-browser')
+  await expect(offer.or(title(page)).first()).toBeVisible()
+  if (await offer.isVisible()) await offer.click()
   await stepIs(page, 'profile')
   await expect(title(page)).toHaveText('1/4 회사 소개')
 }

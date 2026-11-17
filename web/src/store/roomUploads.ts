@@ -24,6 +24,8 @@ export interface RoomUpload {
   error?: string
   /** a storage-full refusal: the plan page it names, linked for the owner and admins (StoragePlansLink.tsx) */
   plans?: string
+  /** refused because the team's disk is full (rooms/storageRefusal.tsx): the owner and admins get "See what takes space" */
+  full?: boolean
   abort: AbortController
   /** a team file (the attach sheet's team files): its team path, and once copied how many other members cannot open it */
   teamPath?: string

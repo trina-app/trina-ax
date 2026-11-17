@@ -16,7 +16,7 @@ function strings(file: string): Record<string, string> {
 test('every permission prompt is in each language, and English matches the Info.plist base', async () => {
   const mac = ((await import('../../desktop/electron-builder.config')).default as { mac: Mac }).mac
   const prompts = Object.entries(mac.extendInfo).filter(([k]) => k.endsWith('UsageDescription'))
-  expect(prompts.length).toBe(5)
+  expect(prompts.length).toBe(6)
   // the base is one language now, not "English / Korean"
   for (const [, v] of prompts) expect(String(v)).not.toMatch(/[가-힣]/)
   expect(mac.extendInfo.CFBundleLocalizations).toEqual(['en', 'ko', 'zh-Hans', 'ja', 'es', 'id'])

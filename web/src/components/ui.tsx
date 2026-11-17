@@ -496,11 +496,14 @@ export function DialogHost() {
 }
 
 // ---------------- toasts ----------------
-/** Phones: how far above the window's bottom edge the highest bottom bar starts (the tab bar, a message box: marked
- * data-bottom-bar), so toasts sit above it instead of over it. null on wider screens or with no bar on screen. While a
+/** How far above the window's bottom edge the highest bottom bar starts (the tab bar, a message box with the line under
+ * it: marked data-bottom-bar), so toasts sit above it instead of over it. On a phone every bar counts; on a wider screen
+ * only a bar under the toasts' column (the right edge, TOAST_COLUMN wide), so a message box beside the column moves
+ * nothing. null with no such bar on screen. While a
  * toast shows it is measured again, one frame after anything that can move the bars has settled: a resize of the
  * window or the visual viewport (the phone keyboard), a bar resizing, and the page changing under it (another route
  * mounts another bar). */
+const TOAST_COLUMN = 12 + 384
 function useBottomBarLift(toasts: unknown[]) {
   const [lift, setLift] = useState<number | null>(null)
   useLayoutEffect(() => {
@@ -512,7 +515,9 @@ function useBottomBarLift(toasts: unknown[]) {
     const measure = () => {
       frame = 0
       const phone = typeof window.matchMedia === 'function' && !window.matchMedia('(min-width: 768px)').matches
-      const els = phone ? [...document.querySelectorAll<HTMLElement>('[data-bottom-bar]')] : []
+      // (the column of the toasts on a wider screen: right-3, w-96)
+      const columnLeft = window.innerWidth - TOAST_COLUMN
+      const els = [...document.querySelectorAll<HTMLElement>('[data-bottom-bar]')].filter((el) => phone || el.getBoundingClientRect().right > columnLeft)
       // watch the bars only when they are other elements than before: observing again makes the observer report again,
       // which would measure again every frame
       if (els.length !== watched.length || els.some((el, i) => el !== watched[i])) {

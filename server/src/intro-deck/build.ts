@@ -264,7 +264,7 @@ export function runDeckStep(ctx: AppContext, a: IntroDeckStep, t: ToolCtx, o: We
 }
 
 /** Outside text reached the AI in this chat: `remember` asks first from now on (as after web_fetch or a Drive read). */
-const taint = (ctx: Pick<AppContext, 'db'>, chatId: string) => ctx.db.query('UPDATE chats SET session_tainted = 1 WHERE id = ?').run(chatId)
+const taint = (ctx: Pick<AppContext, 'db'>, chatId: string) => ctx.db.query('UPDATE chats SET session_tainted = 1, others_words = 1 WHERE id = ?').run(chatId)
 
 /** The `read` step's answer: the pages as quoted external data (web_fetch's wrapper), and the chat marked as having
  * read outside content. */

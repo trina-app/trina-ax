@@ -1,5 +1,6 @@
 /* macOS permission prompts (ja). The English base is mac.extendInfo in desktop/electron-builder.config.ts. */
-"NSMicrophoneUsageDescription" = "チャットの音声入力にマイクを使います。";
+"NSMicrophoneUsageDescription" = "音声入力と会議メモにマイクを使います。";
+"NSAudioCaptureUsageDescription" = "会議メモは通話の音声を聞いて、話された内容を書き留めます。音声は保存しません。";
 "NSLocalNetworkUsageDescription" = "オフィス内からチームサーバーに直接接続します。";
 "NSDesktopFolderUsageDescription" = "ここで仕事のファイルを探します。ファイルの中身は、追加するまでこのMacから出ません。";
 "NSDocumentsFolderUsageDescription" = "ここで仕事のファイルを探します。ファイルの中身は、追加するまでこのMacから出ません。";

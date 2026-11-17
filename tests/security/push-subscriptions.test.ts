@@ -6,10 +6,12 @@ import { EventEmitter } from 'node:events'
 import type https from 'node:https'
 import { harness, withOwner, addMember, type Harness } from '../unit/a-lib'
 import { createPushTransport, validatePushEndpoint, type PushSend } from '../../server/src/notifications/push-transport'
-import { readPushConfig, pushConfigPath } from '../../server/src/notifications/push-config'
+import { padPrivateKey, readPushConfig, pushConfigPath } from '../../server/src/notifications/push-config'
 import { pushOf } from '../../server/src/notifications/push-service'
 import { notificationsOf } from '../../server/src/notifications/service'
-const pair=()=>{const e=crypto.createECDH('prime256v1');e.generateKeys();return{publicKey:e.getPublicKey().toString('base64url'),privateKey:e.getPrivateKey().toString('base64url')}}
+// padded: Node's getPrivateKey drops leading zero bytes (1 key in 256 is 31 bytes) and web-push then throws "Vapid
+// private key should be 32 bytes" (CI, PR #1088); readPushConfig pads a stored key the same way
+const pair=()=>{const e=crypto.createECDH('prime256v1');e.generateKeys();return{publicKey:e.getPublicKey().toString('base64url'),privateKey:padPrivateKey(e.getPrivateKey().toString('base64url'))}}
 function sendInput():PushSend{return{config:{enabled:true,subject:'mailto:push@example.test',...pair()},subscription:{endpoint:'https://fcm.googleapis.com/fcm/send/synthetic',keys:{p256dh:pair().publicKey,auth:crypto.randomBytes(16).toString('base64url')}},payload:{notificationId:'opaque-event',subscriptionId:'opaque-subscription',code:'schedule.success'},signal:new AbortController().signal,beforeSend:()=>true,ttlSeconds:60}}
 let h:Harness|undefined
 afterEach(async()=>{await h?.close();h=undefined})

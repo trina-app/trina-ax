@@ -276,6 +276,25 @@ describe('links from outside (phase 2): the reader and screen ④\'s gate', () =
       expect(m.readAppLink(`https://acme.trina.app/join#t=${JOIN}`, DESK)).toBeNull()
     }
   })
+  test('the one-time sign-in link is read only where the desktop app asks for it (appSignIn); the box and the phone refuse it', () => {
+    const code = 'Zm9vYmFyYmF6cXV4MDEyMzQ1Njc4OWFiY2RlZmdoaWo'
+    const inner = `https://acme.trina.app/app-signin#c=${code}`
+    for (const m of [shared, phone]) {
+      expect(m.readAppLink(link(inner), { ...DESK, appSignIn: true })).toEqual(acme(`/app-signin#c=${code}`) as never)
+      // the phone's scheme and universal links, and a desktop reader that did not ask: refused
+      expect(m.readAppLink(link(inner), PHONE_LINKS)).toEqual(err('invalid') as never)
+      expect(m.readAppLink(inner, PHONE_LINKS)).toBeNull()
+      expect(m.readAppLink(link(inner), DESK)).toEqual(err('invalid') as never)
+      // the box, desktop and phone
+      expect(m.parseTeamInput(inner, DESKTOP)).toEqual(err('invalid') as never)
+      expect(m.parseTeamInput(inner, PHONE)).toEqual(err('invalid') as never)
+      // a query, a second key, a short or long code: cut off
+      for (const bad of [`https://acme.trina.app/app-signin?c=${code}`, `${inner}&c=x`, `https://acme.trina.app/app-signin#c=${code.slice(2)}`, `${inner}AA`])
+        expect(m.parseTeamInput(bad, { ...DESKTOP, appSignIn: true })).toEqual(err('link') as never)
+      expect(m.isSignInPath('/app-signin')).toBe(true)
+      expect(m.isSignInPath('/app-signin/x')).toBe(false)
+    }
+  })
   test('④ cannot be skipped: nothing without a yes, a yes for the host it showed, only once ④ has been on screen a while, once', () => {
     for (const m of [shared, phone]) {
       const g = new m.LinkGate(600)

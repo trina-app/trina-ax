@@ -1,7 +1,7 @@
 // Settings > Apps (pages/Settings.tsx, components/settings/AppList.tsx, InstallGuide.tsx and InstallPictures.tsx): the
 // team address, then every phone and desktop app with one way to get it (the edition's store listings and download page,
-// APP_DOWNLOADS, and the team server's installers: a fixture here; the Mac row offers the App Store first and folds the
-// server's installer under it), then, in a web browser, how to install the page as an
+// APP_DOWNLOADS, and the team server's installers: a fixture here; the Mac row offers the App Store listing or the
+// download page, never the server's unsigned installer), then, in a web browser, how to install the page as an
 // app, whose steps come with pictures that follow the browser (Chrome and Edge, Safari on a Mac; Firefox cannot
 // install). The links are this build's edition links (APP_DOWNLOADS; a build without them is covered by
 // web/test/unit/apps.test.ts), the team server's installer list is a fixture, and no link is followed.
@@ -59,7 +59,7 @@ const noOverflow = (page: Page) => page.evaluate(() => document.documentElement.
 test.describe('a Mac in Chrome', () => {
   test.use({ userAgent: UA.macChrome, viewport: { width: 1440, height: 900 } })
   test('every app with one way to get it: the phones with one QR code, this Mac marked, the Windows installer', async ({ page }) => {
-    test.skip(!APP_DOWNLOADS.page || !APP_DOWNLOADS.iphone || !APP_DOWNLOADS.mac, 'an edition without store links')
+    test.skip(!APP_DOWNLOADS.page || !APP_DOWNLOADS.iphone, 'an edition without store links')
     const dialog = await open(page)
     const phones = dialog.getByTestId('apps-phone')
     await expect(phones.getByTestId('app-link-iphone')).toHaveAttribute('href', APP_DOWNLOADS.iphone)
@@ -68,7 +68,7 @@ test.describe('a Mac in Chrome', () => {
     await expect(dialog.getByTestId('apps-phone-qr').getByRole('img', { name: '앱 받기 QR 코드' })).toBeVisible()
     const mac = dialog.getByTestId('app-row-mac')
     await expect(mac).toContainText('이 컴퓨터용')
-    await expect(mac.getByTestId('app-link-mac')).toHaveAttribute('href', APP_DOWNLOADS.mac)
+    await expect(mac.getByTestId('app-link-mac')).toHaveAttribute('href', APP_DOWNLOADS.mac || APP_DOWNLOADS.page)
     await expect(dialog.getByTestId('desktop-none-here')).toHaveCount(0)
     // Windows is its own row: its installer from the team server, without the steps (they are for a Windows PC)
     await expect(windowsLink(page)).toHaveAttribute('href', '/downloads/Trina-AX-Setup-0.3.0-x64.exe')
@@ -79,12 +79,12 @@ test.describe('a Mac in Chrome', () => {
     expect(await y(page, 'apps-computer')).toBeLessThan(await y(page, 'install-guide-desktop'))
     expect(await noOverflow(page)).toBe(true)
   })
-  test("the server's Mac installer too: the Mac row is still only the App Store, no installer file (owner, 2026-11-11)", async ({ page }) => {
-    test.skip(!APP_DOWNLOADS.mac, 'an edition without a Mac App Store listing')
+  test("the server's Mac installer too: the Mac row is still only the listing or the download page, no installer file (owner, 2026-11-11)", async ({ page }) => {
+    test.skip(!APP_DOWNLOADS.mac && !APP_DOWNLOADS.page, 'an edition without a Mac App Store listing or download page')
     const dialog = await open(page, { downloads: MAC_AND_WINDOWS })
     const mac = dialog.getByTestId('app-row-mac')
-    await expect(mac.getByTestId('app-link-mac')).toHaveAttribute('href', APP_DOWNLOADS.mac)
-    await expect(mac.getByTestId('app-link-mac')).toContainText('App Store')
+    await expect(mac.getByTestId('app-link-mac')).toHaveAttribute('href', APP_DOWNLOADS.mac || APP_DOWNLOADS.page)
+    if (APP_DOWNLOADS.mac) await expect(mac.getByTestId('app-link-mac')).toContainText('App Store')
     await expect(mac.getByRole('link')).toHaveCount(1)
     await expect(dialog.getByTestId('app-file-mac')).toHaveCount(0)
     await expect(dialog.locator('a[href$=".dmg"]')).toHaveCount(0)

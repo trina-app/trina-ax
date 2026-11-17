@@ -52,6 +52,20 @@ test('three options keep the radios and [답하기]', async () => {
   }
 })
 
+test('four choices from the server (the team folder card asking about file shares, with Always allow): radios, and the line under them shown', async () => {
+  installDom()
+  const note = '1 person has files in it shared one by one.\n\nFrom now on Trina changes who can open team folders without asking.'
+  const card: Ask = { ...serverCard([{ label: 'Change and remove file shares', value: 'change_remove' }, { label: 'Change, keep file shares', value: 'change_keep' }, { label: 'Always allow', value: '__always' }, { label: 'Cancel', value: 'no' }]), buttons: true, note }
+  const m = await mount(<AskCard req={{ request: card }} onAnswer={async () => {}} />)
+  try {
+    expect(m.html().split('type="radio"').length - 1).toBe(4)
+    expect(m.get('ask-note').textContent).toBe(note)
+  } finally {
+    await m.unmount()
+    removeDom()
+  }
+})
+
 test('three choices the server marks as buttons: in the page in its order (main, secondary, quiet), shown as a row with the main one last, the line under it, no radios', async () => {
   installDom()
   const answers: unknown[] = []
