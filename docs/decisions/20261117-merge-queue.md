@@ -77,6 +77,17 @@
   request, and Desktop e2e on every push to dev. dev-build.yml, feature-map.yml, release.yml, team-image.yml and
   feed.yml are unchanged (they run on the push to dev, on tags or by hand). main's ruleset is unchanged: a pull request
   to main always runs in full mode.
+- **Desktop PRs:** the Desktop workflow's pull request jobs (Desktop e2e, Mac dmg check, Windows installer) still run on
+  pull requests that touch their paths (`desktop/`, `shared/`, and the rest of desktop.yml's `paths`). They are
+  advisory and never part of the queue, so the queue lands such a PR without them: look at those three results
+  **before** queueing it. When hosted macOS runners are short, run the Mac jobs locally and post the result on the PR
+  (Bun 1.3.12, `CI=true`, no signing):
+
+  ```bash
+  bun install --frozen-lockfile && bun run build:web && bun run prepare:hwp
+  (cd desktop && bun build.ts && bunx playwright test -c e2e/ci.config.ts)
+  CSC_IDENTITY_AUTO_DISCOVERY=false bun run --cwd desktop dist:mac && bun scripts/ci/dmg-check.ts desktop/release
+  ```
 - **How a session merges:** after the independent review and the quick checks,
   `gh pr merge <n> --merge --match-head-commit <sha>`. With a queue gh (2.96, `pkg/cmd/pr/merge`) does not merge: it
   calls `enablePullRequestAutoMerge` with the expected head (so `--match-head-commit` is honoured: a newer push

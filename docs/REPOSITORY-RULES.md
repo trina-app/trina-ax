@@ -40,7 +40,11 @@ dev에는 merge queue가 있다(결정: [decisions/20261117-merge-queue.md](deci
 - CI를 다시 돌리려고 dev를 브랜치에 병합하지 않는다. dev 병합은 충돌을 풀 때만 한다.
 - 전체 검사는 PR마다 큐에서 한 번 돈다(묶음마다 한 번이 아니다). 작고 관련된 변경은 한 PR로 묶어서 큐에 넣는다.
 - 위험한 PR은 큐에 넣기 전에 `gh workflow run ci.yml --ref <브랜치>`로 전체 검사를 돌린다(라벨은 쓰지 않는다). 핫픽스·릴리스 PR은 관리자가 큐 맨 앞으로 넣을 수 있다(진행 중인 항목이 모두 다시 돈다, 결정 문서의 명령).
-- macOS·Windows·Desktop 작업은 필수가 아니고 큐를 기다리게 하지 않는다. PR(경로 필터)과 dev 푸시에서 참고용으로 돈다.
+- Desktop 워크플로의 PR 작업(Desktop e2e, Mac dmg 검사, Windows 설치 프로그램)은 `desktop/` 등 `desktop.yml`의 경로를 건드린 PR에서 그대로 돈다. 참고용이고 큐에는 절대 들어가지 않는다. 그런 PR은 큐에 넣기 **전에** 이 세 결과를 확인한다.
+- 호스팅 macOS 러너가 모자라면 Mac 작업을 로컬에서 돌리고 결과를 PR에 남긴다(Bun 1.3.12, `CI=true`, 서명 없음):
+  - `bun install --frozen-lockfile && bun run build:web && bun run prepare:hwp`
+  - `cd desktop && bun build.ts && bunx playwright test -c e2e/ci.config.ts`
+  - `CSC_IDENTITY_AUTO_DISCOVERY=false bun run --cwd desktop dist:mac && bun scripts/ci/dmg-check.ts desktop/release`
 
 ## 공개 기여 / Public contributions
 
