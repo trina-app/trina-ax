@@ -36,7 +36,7 @@ import { toast } from '../store/ui'
 import { useMe } from '../store/session'
 import { PeoplePicker } from '../components/rooms/PeoplePicker'
 import { RoomIcon, RoomName, useRoomTitle } from '../components/rooms/RoomIcon'
-import { ROW_MENU_BUTTON, ROW_MENU_SHOWN, RoomPinIcon, RoomUploadMark, SECTION_WORD, UnreadBadge } from '../components/nav/RoomsList'
+import { ROW_MENU_BUTTON, ROW_MENU_SHOWN, RoomPinIcon, RoomSectionAction, RoomUploadMark, SECTION_WORD, UnreadBadge } from '../components/nav/RoomsList'
 import { useFolders } from '../components/nav/NavFolders'
 import { foldedLook, roomsByKind } from '../components/panels/RoomsByKind'
 import { RoomMenu, useRowMenu } from '../components/rooms/RoomMenu'
@@ -121,6 +121,7 @@ export default function Rooms() {
                 foldId={s.folder ? `room-folder:${s.folder.id}` : undefined}
                 label={s.folder ? s.folder.name : s.key === 'pinned' ? t('chat.pinned') : t(SECTION_WORD[s.key])}
                 {...foldedLook(s.rooms, 'rooms-section-pill')}
+                action={s.folder || s.key === 'pinned' ? undefined : <RoomSectionAction section={s.key} />}
                 headClassName="pr-2 pl-2 sm:pr-4 sm:pl-4"
                 indent={false}
                 labelTestId="rooms-section-head"

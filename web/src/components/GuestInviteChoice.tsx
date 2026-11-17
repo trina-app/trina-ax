@@ -20,7 +20,8 @@
 //     members when the team lets them): the invite form shares one first, then makes the link (docs/DECISIONS.md
 //     "Guests into a personal project"). Such a row says "Only me".
 // A search box once there are more than a few; group chats first, then projects; a row picks the place.
-import { FolderKanban, MessagesSquare } from 'lucide-react'
+import { FolderKanban, Lock, MessagesSquare } from 'lucide-react'
+import { isPrivateChannel } from '../lib/rooms'
 import { useEffect, useMemo, useState } from 'react'
 import { useLocale, useT } from '../i18n'
 import { ListRow } from './list/List'
@@ -134,7 +135,7 @@ export function GuestPlacePicker({ onPick }: { onPick: (place: InvitePlace) => v
     if (!st.loaded || st.failed) void st.loadRooms()
     readManagedList({ fresh: true }).catch(() => setProjectsFailed(true))
   }
-  const groupChats = useMemo(() => rooms.filter((r) => r.kind === 'group').map((r) => ({ id: r.id, name: roomTitle(r), count: r.memberCount })), [rooms, roomTitle])
+  const groupChats = useMemo(() => rooms.filter((r) => r.kind === 'group').map((r) => ({ id: r.id, name: roomTitle(r), count: r.memberCount, locked: isPrivateChannel(r) })), [rooms, roomTitle])
   // no count for a project: who sees it (Project.audience) is not who is in it, as a group chat's count is
   const me = useMe()
   const projects = useMemo(() => (managed ?? []).filter((p) => !p.inTrash && (p.membersEditable || mayShareForGuest(p, me))).map((p) => ({ id: p.id, name: p.name, personal: mayShareForGuest(p, me) })), [managed, me])
@@ -160,7 +161,7 @@ export function GuestPlacePicker({ onPick }: { onPick: (place: InvitePlace) => v
               <p className={label}>{t('guest.invite.groupChats')}</p>
               <ul data-testid="guest-place-rooms">
                 {shownRooms.map((r) => (
-                  <ListRow key={r.id} face icon={<MessagesSquare />} name={r.name} meta={t('rooms.members', { n: r.count })} onClick={() => onPick({ kind: 'room', id: r.id, name: r.name })} testId="guest-place-room" />
+                  <ListRow key={r.id} face icon={r.locked ? <Lock /> : <MessagesSquare />} name={r.name} meta={t('rooms.members', { n: r.count })} onClick={() => onPick({ kind: 'room', id: r.id, name: r.name })} testId="guest-place-room" />
                 ))}
               </ul>
             </>

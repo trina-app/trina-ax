@@ -8,6 +8,7 @@ import { api, API, ApiError, isNetworkError } from '../lib/api'
 import { optimisticEdits, optimisticPending } from '../lib/optimistic'
 import { waitForUpdate, waitsForUpdate } from '../lib/serverUpdating'
 import { keepFaces } from '../lib/sharedChat'
+import { browserTimeZone } from '../lib/time-zones'
 import { applyCreated, applyDelta, applyDone, applyStep, emptyThread, markLocal, mergeFresh, mergeTurnStarted, optimisticUserMessage, prependPage, runningMessage, type Delta, type Thread } from './thread'
 
 const PAGE = 50
@@ -133,6 +134,10 @@ export function showThrough(chatId: string, answerId: string | null) {
   else throughs.delete(chatId)
 }
 const throughOf = (chatId: string) => { const id = throughs.get(chatId); return id ? { through: id } : {} }
+/** This device's time zone, sent with every turn: the screen shows times in it, so the AI gives its times in it too
+ * (QA TC-4549); the server uses the team's zone without it. */
+const turnTimeZone = (): string | undefined => browserTimeZone() ?? undefined
+
 /** chatId -> local changes of the visible branch (a send, regenerate or edit answered, a branch switch): a reload that
  * began before one is read again instead of used (it would take the new question and answer away) */
 const changes = new Map<string, number>()
@@ -480,7 +485,7 @@ export const useChats = create<ChatsState>((set, get) => {
         const epoch = queueEpoch
         const started = await api.call(API.sendMessage, {
           params: { id: job.chatId },
-          body: { content: job.content, attachmentIds: job.attachmentIds, parentId: job.parentId, engine: job.engine, model: job.model, clientMessageId: job.clientMessageId },
+          body: { content: job.content, attachmentIds: job.attachmentIds, parentId: job.parentId, engine: job.engine, model: job.model, clientMessageId: job.clientMessageId, timeZone: turnTimeZone() },
         })
         if (session !== generation) return
         outbox.delete(localId)
@@ -673,14 +678,14 @@ export const useChats = create<ChatsState>((set, get) => {
 
     async regenerate(chatId, assistantId, engine) {
       const session = generation, epoch = queueEpoch
-      const started = await api.call(API.regenerate, { params: { id: chatId, messageId: assistantId }, body: { engine: engine?.engine, model: engine?.model } })
+      const started = await api.call(API.regenerate, { params: { id: chatId, messageId: assistantId }, body: { engine: engine?.engine, model: engine?.model, timeZone: turnTimeZone() } })
       if (session === generation) afterStarted(chatId, started, { cutAt: assistantId }, epoch)
     },
 
     async edit(chatId, userMessageId, content, attachments) {
       const session = generation, epoch = queueEpoch
       // a team file that is no longer available stays out of the edited copy (the server would refuse it)
-      const started = await api.call(API.editMessage, { params: { id: chatId, messageId: userMessageId }, body: { content, attachmentIds: attachments.filter((a) => !a.unavailable).map((a) => a.id), clientMessageId: uuidv7() } })
+      const started = await api.call(API.editMessage, { params: { id: chatId, messageId: userMessageId }, body: { content, attachmentIds: attachments.filter((a) => !a.unavailable).map((a) => a.id), clientMessageId: uuidv7(), timeZone: turnTimeZone() } })
       if (session === generation) afterStarted(chatId, started, { cutAt: userMessageId }, epoch)
     },
 

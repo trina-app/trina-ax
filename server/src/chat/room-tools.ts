@@ -20,6 +20,7 @@
 //     must not learn who talks to whom
 import { noteRoomLinks } from '../tools/url-gate'
 import { isGuestUser } from '../credentials/guest-ai'
+import { shownTimeZone } from '../system/time-zone'
 import { guestPlace } from '../auth/guests'
 import type { GuestPlace } from '@mycel/shared/api'
 import fs from 'node:fs'
@@ -134,7 +135,7 @@ export function roomReadTools(exec: TurnExec): Tool[] {
         if (no) return { ...text(no, true), summary: 'rooms -> denied: account disabled' }
         syncMine()
         const search = a.data.query !== undefined || a.data.person !== undefined || a.data.since !== undefined || a.data.until !== undefined
-        const r = search ? searchRooms(rt.db, spec.userId, rt.timeZone, a.data) : listRooms(rt.db, spec.userId, rt.timeZone, a.data.room)
+        const r = search ? searchRooms(rt.db, spec.userId, shownTimeZone(spec.timeZone, rt.timeZone), a.data) : listRooms(rt.db, spec.userId, shownTimeZone(spec.timeZone, rt.timeZone), a.data.room)
         record(r)
         return { ...text(r.text, !r.ok), summary: `rooms -> ${search ? 'search' : 'list'}${r.ok ? `, ${r.count ?? 0} shown` : ', invalid input'}` }
       },
@@ -149,7 +150,7 @@ export function roomReadTools(exec: TurnExec): Tool[] {
         syncMine()
         const refused = guestRoomRefusal(a.data.room)
         if (refused) { label('room_read'); return { ...text(refused, false), summary: 'room_read -> no room (guest)' } }
-        const r = noRoomsTool(readRoom(rt.db, spec.userId, rt.timeZone, a.data))
+        const r = noRoomsTool(readRoom(rt.db, spec.userId, shownTimeZone(spec.timeZone, rt.timeZone), a.data))
         record(r)
         // a side chat's own room: its links are this conversation's (tools/url-gate.ts noteRoomLinks)
         if (r.ok) try { noteRoomLinks(rt.db, spec.chatId, spec.userId, r.text) } catch {}
@@ -213,7 +214,7 @@ export function roomReadTools(exec: TurnExec): Tool[] {
 function readRoomFile(exec: TurnExec, files: TurnFiles, a: RoomFileArgs, named: (name: string) => void) {
   const { rt, spec } = exec
   return readRoomFileFor({
-    ctx: rt.ctx, userId: spec.userId, timeZone: rt.timeZone, signal: exec.abort.signal,
+    ctx: rt.ctx, userId: spec.userId, timeZone: shownTimeZone(spec.timeZone, rt.timeZone), signal: exec.abort.signal,
     toolCtx: () => ({ user: exec.livePrincipal(), turnId: spec.turnId, files, signal: exec.abort.signal }),
     seen: (s) => addSources(rt.db, spec.chatId, [s]),
     // a guest's turn has no save_room_file (chat/guest-tools.ts): never told to use it
@@ -259,7 +260,7 @@ export async function readRoomFileFor(r: RoomFileReader, a: RoomFileArgs, named:
   r.seen({ type: 'room', id: room.id, fromSeq: message.thread_root_seq ?? message.seq })
   named(file.name)
   const where = `the ${neutralizeTags(roomKindLine(room.kind, title.replace(/[\r\n"<>]+/g, ' ').slice(0, 120)))}`
-  const head = `The file "${neutralizeTags(file.name.replace(/[\r\n"]+/g, ' ').slice(0, 200))}" (${file.mime.split(';')[0]}, ${file.size} bytes, file_id=${file.id}), sent by ${author ? neutralizeTags(author.replace(/[\r\n"<>]+/g, ' ').slice(0, 80)) : 'someone no longer here'} on ${localTime(message.created_at, timeZone)} (the team's time zone) in ${where}. ${FILE_NOTE}`
+  const head = `The file "${neutralizeTags(file.name.replace(/[\r\n"]+/g, ' ').slice(0, 200))}" (${file.mime.split(';')[0]}, ${file.size} bytes, file_id=${file.id}), sent by ${author ? neutralizeTags(author.replace(/[\r\n"<>]+/g, ' ').slice(0, 80)) : 'someone no longer here'} on ${localTime(message.created_at, timeZone)} (${timeZone}) in ${where}. ${FILE_NOTE}`
   const kind = mediaKind(file.name)
   if (kind) return { ...text(`${head}\nThis is a${kind === 'audio' ? 'n audio' : ' video'} file: video and audio sent in a room cannot be read here, only its name is known. The user can open it in the room${r.canSave ? '; or, if the user wants, save a copy to a team folder with save_room_file and read it there with read' : ', or save it to the team folder and ask again'}.`), summary: `room_file -> ${kind} not read` }
   const pdf = ext(file.name) === 'pdf'
@@ -402,7 +403,7 @@ function saveTarget(exec: TurnExec, a: SaveArgs): SaveRefusal | SaveFound {
   // posted while the card waits must not be the one copied)
   const id = a.file.trim().replace(/^file_id=/, '')
   if (!isUuid7(id)) return { text: `Give the file's file_id (from room_read), not its name: two files in a room may share a name.`, summary: 'save_room_file -> refused: not a file id' }
-  const found = findRoomFile(rt.db, spec.userId, a.room, id, rt.timeZone)
+  const found = findRoomFile(rt.db, spec.userId, a.room, id, shownTimeZone(spec.timeZone, rt.timeZone))
   if ('text' in found) return { text: found.text, summary: 'save_room_file -> not found' }
   const { file, message, room } = found
   if (rt.files.quarantine.hasHash(file.sha256)) return { text: 'This file is held by the team\'s safety check, so it cannot be saved.', summary: 'save_room_file -> held' }
@@ -468,7 +469,7 @@ function saveWiden(exec: TurnExec, a: SaveArgs | undefined): WidenOf | undefined
 function saveLabel(exec: TurnExec) {
   return (args: unknown, locale: Locale) => {
     const a = (args && typeof args === 'object' ? args : {}) as { room?: unknown; file?: unknown; save_as?: unknown }
-    const f = typeof a.file === 'string' && typeof a.room === 'string' ? findRoomFile(exec.rt.db, exec.spec.userId, a.room, a.file, exec.rt.timeZone) : null
+    const f = typeof a.file === 'string' && typeof a.room === 'string' ? findRoomFile(exec.rt.db, exec.spec.userId, a.room, a.file, shownTimeZone(exec.spec.timeZone, exec.rt.timeZone)) : null
     const verb = FILE_STEP_VERB.save_room_file![locale]
     if (!f || 'text' in f) return verb
     const name = f.file.name.replace(/\s+/g, ' ').slice(0, 80)

@@ -10,6 +10,10 @@ export interface TitleWords { all: string; gone: string; names?: (names: string,
 /** How many of a group chat's other members its title names before "외 N명". */
 export const TITLE_NAMES = 3
 
+/** A group room with a name of its own is a private channel (listed under Channels with a lock); one with no name is a
+ * group DM, titled by its people (docs/decisions/20261117-named-groups-private-channels.md). Renaming moves it. */
+export const isPrivateChannel = (room: Pick<Room, 'kind' | 'name'>): boolean => room.kind === 'group' && !!room.name?.trim()
+
 /** The room's own name when it has one; else team: the group's name; all: the app's word for everyone; dm: the other
  * person (peers[0]); group: the other members (the first TITLE_NAMES of peers, then how many more). */
 export function roomTitle(room: Pick<Room, 'kind' | 'name' | 'peers'> & Partial<Pick<Room, 'memberCount'>>, words: TitleWords): string {

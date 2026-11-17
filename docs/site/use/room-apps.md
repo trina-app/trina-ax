@@ -24,7 +24,7 @@ status line changes as things move on.
 
 You can also start from **Settings › Connectors**. Sentry, Notion, Stripe and Atlassian (for Jira) have
 **Add to a conversation** under their row. It lists only the conversations where you may add apps; pick one and
-it opens with that service's guide. If you have none yet, start one with **New conversation** first.
+it opens with that service's guide. If you have none yet, start one with **New message** first.
 
 ![Add an app: its messages appear in the conversation for everyone in it, then Google Forms, Other app, GitHub and Sentry](../images/room-apps/picker.webp "Add an app")
 

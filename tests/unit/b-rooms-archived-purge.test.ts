@@ -21,7 +21,7 @@ async function upload(user: string, roomId: string, name: string): Promise<RoomF
   return roomFilesOf(h.ctx).create(user, roomId, name, src, createHash('sha256').update(bytes).digest('hex'))
 }
 async function roomWithFile(name: string) {
-  const roomId = (await h.api('alice').call(API.createRoom, { body: { kind: 'group', userIds: ['erin', 'carol'] } })).id
+  const roomId = (await h.api('alice').call(API.createRoom, { body: { kind: 'group', userIds: ['erin', 'carol'], name } })).id // named: each a room of its own (the same people's group DM would be opened again)
   const f = await upload('alice', roomId, name)
   const m = await h.api('alice').call(API.sendRoomMessage, { params: { id: roomId }, body: { body: 'here', clientMessageId: 'cm-' + uuidv7(), mentions: [], fileIds: [f.id] } }) as RoomMessage
   return { roomId, file: f, messageId: m.id }
