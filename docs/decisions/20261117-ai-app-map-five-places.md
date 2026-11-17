@@ -30,25 +30,26 @@ Plan: [docs/AGENTS/plan/20261117-0702-ai-wording-app-map.md](../AGENTS/plan/2026
     one-time sign-in); not from a phone (lib/open-app.ts, pages/OpenApp.tsx).
   - **Meeting notes:** shipped on this base (Meeting notes 1/4–4/4 merged, no flag): My files › Take meeting notes in
     the Mac desktop app (not the Mac App Store build: it ships no helper) when the team has voice input; no bot joins, it asks first, Stop at any time, the sound is not
-    kept, the notes go to My files › Meetings; the AI cannot listen or start it
+    kept, the card offers a line to tell the call, the notes are saved every 2 minutes to My files › Meetings (MTG-02
+    failed both after-runs without those two facts); the AI cannot listen or start it
     ([live-meeting-notes](20261116-live-meeting-notes.md)).
 - **Size:** measured the size test's way (Hangul 1.45 tokens a syllable, other text 3.6 characters a token), managed
   install, no dev environment:
 
   | form | before | after |
   |---|---|---|
-  | owner or admin, Korean (the longest after) | 886 | 1,177 |
-  | shared chat, Korean (the longest before) | 893 | 1,151 |
-  | member, Korean | 639 | 931 |
-  | owner or admin, English | 661 | 899 |
+  | owner or admin, Korean (the longest after) | 886 | 1,189 |
+  | shared chat, Korean (the longest before) | 893 | 1,163 |
+  | member, Korean | 639 | 943 |
+  | owner or admin, English | 661 | 911 |
 
-  The five places alone measured about 330 tokens in Korean. The rest of the map was cut first (a shorter opening line,
+  The five places alone measured about 340 tokens in Korean. The rest of the map was cut first (a shorter opening line,
   "their own … accounts" dropped, the photo menu, projects and skills merged into the lines beside them, the
   find-work-files line merged into the My files line, the shared chat's thread line cut to its labels), about 40
   tokens, and lines stay at most 20 (19 for an owner or admin). The other lines each name places people asked about in
   earlier catalog runs (the independent review kept "Google Forms or" and "Claude or" for ROOM-08 and the Claude case).
-  So the cap moves to **1,200**: about 290 more tokens in every fresh session's instructions for a Korean owner or
-  admin, about 240 in English, with about 20 tokens of room. The size test now checks all six languages (Spanish, the
+  So the cap moves to **1,200**: about 300 more tokens in every fresh session's instructions for a Korean owner or
+  admin, about 250 in English, with about 10 tokens of room. The size test now checks all six languages (Spanish, the
   longest of the others, about 1,010).
 - **Not split out:** the map is part of a fresh session's instructions, built once per session (turn.ts), so a line
   "only when relevant" would hang on the session's first message, and the catalog's questions came from personal and

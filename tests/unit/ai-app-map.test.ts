@@ -217,6 +217,8 @@ describe('five places with no line before (catalog rerun 2026-11-17: ACC-04/05/0
     // (only where the helper is: the Mac desktop app, not the Mac App Store build, and the team's voice input is on)
     expect(s).toContain(`desktop app (not the Mac App Store one): ${DICTS.en['files.findWork.entryButton']}; on a Mac ${DICTS.en['meeting.entry']} (team voice input on`)
     expect(s).toContain('sound not kept')
+    // MTG-02: the card offers a message for the call's chat; the note is written every 2 minutes (MeetingNotes.tsx)
+    expect(s).toContain('a line to tell the call, notes saved every 2 min in')
     expect(s).toContain('the AI cannot listen or start it')
     // folder sharing: view only, later files too, Undo right after (Files' toast; the server keeps it 10 minutes), team
     // folders are the owner's or an admin's
@@ -252,7 +254,7 @@ describe('size: it is in every turn', () => {
   // other text about 3.6 characters a token
   const tokens = (s: string) => { const h = (s.match(/[가-힣]/g) ?? []).length; return Math.round(h * 1.45 + (s.length - h) / 3.6) }
   // the cap was 900; 1,200 since the five places of 2026-11-17 (docs/decisions/20261117-ai-app-map-five-places.md: the
-  // longest form, an owner's or admin's in Korean, measured about 1,177 after the other lines were cut)
+  // longest form, an owner's or admin's in Korean, measured about 1,189 after the other lines were cut)
   test('at most 20 lines and about 1,200 tokens in its longest form, in every language', () => {
     for (const view of ['staff', 'member', 'shared'] as const) for (const L of ['ko', 'en', 'ja', 'zh', 'es', 'id'] as const) for (const devEnv of [true, false]) {
       const s = appMapSection({ view, managed: true, devEnv, office: false }, L)

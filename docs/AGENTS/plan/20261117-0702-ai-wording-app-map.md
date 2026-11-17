@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-17 07:02
 - Branch: `fix/ai-wording-app-map` (stacked on `batch/1117a`, which carries #1185's app map change)
-- Status: in progress
+- Status: done
 - Where: server/src/chat/app-map.ts (the "Where things are in the app" section of every turn's instructions). Why: the
   AI's map of the app lives there (docs/decisions/20261116-ai-app-map.md).
 - Version impact: patch (the AI's answers change; no screen, API or data change)
@@ -54,4 +54,14 @@ names). Labels in six languages come from the generator, so no hand-written Kore
 
 ## Result
 
-Filled in at the end.
+Built as planned, with one difference: the size cap moves from 900 to 1,200 (measured: the longest form, an owner's or
+admin's in Korean, 886 → 1,189 tokens by the test's estimate; reasons in
+docs/decisions/20261117-ai-app-map-five-places.md). The size test now covers all six languages. Meeting notes were
+shipped on this base (no flag), so they are in. The independent review added the team's switch for members' sharing,
+the Continue in the Mac app button, "not the Mac App Store build" for meeting notes, kept Google Forms and Claude in
+their lines, and cut the shared chat's thread line to its labels.
+
+Real AI on the 12 results (two runs each, relay on): before 0/12 and 1/12 passed; after 10/12 and 10/12. The after
+failures were MTG-02 twice (no file save facts; the map now says notes are saved every 2 minutes and the card offers a
+line to tell the call, not rerun), ACC-05 once and CHT-14 once (the judge called true labels or facts invented). No PR
+yet (local branch only).
