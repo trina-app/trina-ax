@@ -14,7 +14,7 @@ function selectionRules(): { selector: string; body: string }[] {
 }
 
 // text drawn by a layer behind the box: the system colour at partial strength so that text stays readable
-const SEE_THROUGH = ['.room-ref-field::selection']
+const SEE_THROUGH = ['.room-ref-field::selection', 'textarea[data-token-input]::selection']
 
 test('no ::selection rule paints the app\'s own colour', () => {
   for (const { selector, body } of selectionRules()) {
