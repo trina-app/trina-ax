@@ -50,7 +50,9 @@ test('the AI is told the room while I am in it; after I leave, or in a chat with
   const chat = await mia.client.call('POST', '/api/chats', { sideRoomId: team.id })
   expect(sideRoomOf(h.ctx.db, chat.id, mia.id)).toMatchObject({ id: team.id, kind: 'team', name: 'design' })
   // where room content is saved unless the person names a place: the team room's group folder (QA TC-3833)
-  expect(sideRoomOf(h.ctx.db, chat.id, mia.id)!.saveIn).toMatch(/^groups\//)
+  expect(sideRoomOf(h.ctx.db, chat.id, mia.id, h.ctx.files)!.saveIn).toMatch(/^groups\//)
+  // without the files (a room lookup only), no place
+  expect(sideRoomOf(h.ctx.db, chat.id, mia.id)!.saveIn).toBeUndefined()
   // another person's turn in my chat never gets my room (a side chat is never shared)
   expect(sideRoomOf(h.ctx.db, chat.id, nora.id)).toBeNull()
   const plain = await mia.client.call('POST', '/api/chats', {})
@@ -59,6 +61,38 @@ test('the AI is told the room while I am in it; after I leave, or in a chat with
   await owner.call('PATCH', `/api/admin/groups/${group.id}`, { memberIds: [nora.id] })
   expect(sideRoomOf(h.ctx.db, chat.id, mia.id)).toBeNull()
   expect((await mia.client.call('GET', `/api/chats/${chat.id}`)).sideRoomId).toBe(team.id)
+})
+
+// AI flow FL-28 (the owner's own case, 2026-11-17): in a group chat's side chat, "회의록 저장해줘" saved into the
+// person's own folder, which the room's people could not open. Room content goes where the room's people can open it.
+test('a group chat saves where its people can open it (the smallest group they share, else shared/); a 1:1 in the own folder', async () => {
+  const { owner, mia, nora, otto } = await setup()
+  const pia = await addMember(h, owner, { username: 'pia' })
+  const design = await owner.call('POST', '/api/admin/groups', { name: 'studio', memberIds: [mia.id, nora.id, pia.id] })
+  const studioPath = (h.ctx.db.query('SELECT f.path FROM groups g JOIN folders f ON f.id = g.folder_id WHERE g.id = ?').get(design.id) as { path: string }).path
+  const saveIn = async (body: object) => {
+    const room = await mia.client.call('POST', '/api/rooms', body)
+    const chat = await mia.client.call('POST', '/api/chats', { sideRoomId: room.id })
+    return sideRoomOf(h.ctx.db, chat.id, mia.id, h.ctx.files)!.saveIn
+  }
+  // everyone in it is in studio: its folder
+  expect(await saveIn({ kind: 'group', userIds: [nora.id, pia.id], name: 'launch' })).toBe(studioPath)
+  // otto is in no group: only the company-wide folder holds them all
+  expect(await saveIn({ kind: 'group', userIds: [nora.id, otto.id], name: 'mixed' })).toBe('shared')
+  // the owner reads every group's folder: only the others decide, and the smallest group they share wins (design: 2)
+  const owner1 = (h.ctx.db.query("SELECT id FROM users WHERE role = 'owner'").get() as { id: string }).id
+  const designPath = (h.ctx.db.query("SELECT f.path FROM groups g JOIN folders f ON f.id = g.folder_id WHERE g.name = 'design'").get() as { path: string }).path
+  expect(await saveIn({ kind: 'group', userIds: [nora.id, owner1], name: 'with boss' })).toBe(designPath)
+  // a 1:1 stays private: the person's own folder, also with someone of the same group
+  expect(await saveIn({ kind: 'dm', userId: pia.id })).toBe(`users/${mia.id}`)
+  expect(await saveIn({ kind: 'dm', userId: otto.id })).toBe(`users/${mia.id}`)
+  // the instructions say the place, and that no question about where comes first
+  const line = sideRoomSection({ id: 'r', kind: 'group', name: 'launch', saveIn: studioPath })
+  expect(line).toContain(`save it in ${studioPath}/`)
+  expect(line).toContain("the room's people can open it there")
+  expect(line).toContain('do not ask where first')
+  // a folder named by its name is that folder where it is, not one made inside the default (AI flow FL-29)
+  expect(line).toContain('is that folder where it already is in the team folders (find it first), not one inside this default')
 })
 
 test('the instructions name the room and its id, say the chat is private and that only the buttons under an answer post', () => {
