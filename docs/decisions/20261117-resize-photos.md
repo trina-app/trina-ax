@@ -56,7 +56,16 @@ Plan: docs/AGENTS/plan/20261117-0300-resize-images.md. Scenario case EDIT-16.
     in phone photos (as the preview does).
   - No decoder on an install: one plain sentence, "이 서버에서는 아이폰 사진(HEIC)을 열 수 없어요. JPEG로 저장해서 다시
     올려 주세요" (`vision_no_heic` / VISION_TEXT.noHeic for reads; the same words asked of the AI for resize_images).
-  - The AI sees HEIC: Claude's image input takes only JPEG, PNG, GIF and WebP (platform.claude.com vision docs,
+  - Previews (the owner's screenshot, 2026-11-17: the AI read a HEIC on potenlab.trina.app, but the app showed no
+    picture). The file viewer already showed the server's JPEG (GET /api/files/preview). The gaps were the
+    attachment squares and thumbnails: makeThumbnail used ffmpeg, which decodes only a phone HEIC's first tile or
+    nothing, and the message box drew the local bytes, which Chrome cannot. Now makeThumbnail (uploads/image.ts) sends
+    a HEIC (known by name or, for room and chat files stored without a name, by its `ftyp` brand) through the same
+    size check and decoder, then `mycel-safeops resize` (no details, JPEG, upright); the chat and room message boxes
+    show that thumbnail once the photo is uploaded (ChipThumb isHeicName), and a picture icon when none could be made.
+    The Files list shows icons, not thumbnails, for every image, so nothing changes there.
+  - The AI sees HEIC (this already worked on Linux 0.5.12: the engine's own Read is denied, engine/claude.ts, and our
+    read converts through files/vision.ts modelImage with the same decoders): Claude's image input takes only JPEG, PNG, GIF and WebP (platform.claude.com vision docs,
     checked 2026-11-17), and every read path (read, chat_file, room_file, Drive and mail attachments) already converts
     through modelImage; it now checks the declared size first and has the plain no-decoder sentence.
 - **Saving:** a new file "<name>-<word>.<ext>" next to the original (the word in the team's language, "IMG_2041-작게.jpg"),

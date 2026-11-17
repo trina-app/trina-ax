@@ -182,3 +182,22 @@ describe('the AI sees iPhone photos', () => {
     expect(VISION_TEXT.noHeic.ko).toBe('이 서버에서는 아이폰 사진(HEIC)을 열 수 없어요. JPEG로 저장해서 다시 올려 주세요.')
   })
 })
+
+describe('thumbnails of iPhone photos (chat attachments, room and chat files)', () => {
+  conv('made through the HEIC decoder, upright, with no photo details; a room file stored without its name too', async () => {
+    const { makeThumbnail } = await import('../../server/src/uploads/image')
+    const dir = fs.mkdtempSync(path.join(A.data, 'thumbs-'))
+    // stored like a room file: no extension
+    const src = path.join(dir, 'f-0001')
+    fs.writeFileSync(src, HEIC)
+    const made = await makeThumbnail(src, path.join(dir, 't'), 160, dir, null)
+    expect(made).toBe('jpg')
+    const jpg = fs.readFileSync(path.join(dir, 't.jpg'))
+    expect(imageSize(jpg)).toEqual({ width: 100, height: 160 })
+    expect(jpg.includes('iPhone 15 Pro')).toBe(false)
+    expect(jpg.includes('Exif')).toBe(false)
+    // a bomb is not decoded
+    fs.writeFileSync(src, declaring(HEIC, 60_000, 60_000))
+    expect(await makeThumbnail(src, path.join(dir, 'b'), 160, dir, null)).toBeNull()
+  })
+})

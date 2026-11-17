@@ -13,9 +13,13 @@ import { Tooltip } from './Tooltip'
 import { useViewerItem } from './ImageViewer'
 import type { ViewerItem } from '../lib/imageViewer'
 
-/** A file this computer gave as a picture (its type, as the browser reports it; a chip given back by the server has
- * none). */
-export const isLocalImage = (file: File): boolean => typeof file.type === 'string' && file.type.startsWith('image/')
+/** An iPhone photo (HEIC / HEIF): Chrome, Edge and Firefox cannot draw it, so its square shows the server's thumbnail
+ * once it is uploaded (server/src/uploads/image.ts makes it with the same decoder as the file panel's preview). */
+export const isHeicName = (name: string): boolean => /\.(heic|heif)$/i.test(name)
+
+/** A file this computer gave as a picture the browser can draw itself (its type, as the browser reports it; a chip
+ * given back by the server has none). A HEIC photo is not one: see isHeicName. */
+export const isLocalImage = (file: File): boolean => typeof file.type === 'string' && file.type.startsWith('image/') && !isHeicName(file.name)
 
 const SQUARE = 'size-16 shrink-0 rounded-lg'
 

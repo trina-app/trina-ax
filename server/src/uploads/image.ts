@@ -98,7 +98,8 @@ export interface ThumbOptions {
  * from a first ffmpeg run; any byte under 255 makes it a PNG. When that look fails the JPEG one is made, as before.
  * The file is written under a temporary name and renamed, so a reader never gets half of it. */
 export async function makeThumbnail(src: string, dstBase: string, max = 320, workBase?: string, ffmpeg = which('ffmpeg'), o: ThumbOptions = {}): Promise<ThumbExt | null> {
-  if (isHeic(src)) return o.transparentOnly ? null : heicThumbnail(src, dstBase, max, o)
+  // room and chat files are stored without their name: a HEIC is known by its first bytes too
+  if (isHeic(src) || looksHeic(firstBytes(src))) return o.transparentOnly ? null : heicThumbnail(src, dstBase, max, o)
   if (!ffmpeg) return null
   const alphaPossible = mayHaveAlpha(firstBytes(src))
   if (o.transparentOnly && !alphaPossible) return null
@@ -133,6 +134,10 @@ export async function makeThumbnail(src: string, dstBase: string, max = 320, wor
     return ext
   } finally { fs.rmSync(work, { recursive: true, force: true }) }
 }
+
+const HEIC_BRANDS = new Set(['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'mif1', 'msf1'])
+/** a HEIF still image by its file-type box (major brand) */
+export const looksHeic = (b: Uint8Array): boolean => b.length >= 12 && Buffer.from(b.subarray(4, 8)).toString('latin1') === 'ftyp' && HEIC_BRANDS.has(Buffer.from(b.subarray(8, 12)).toString('latin1'))
 
 function writeThumb(dstBase: string, ext: ThumbExt, b: Uint8Array) {
   const dst = `${dstBase}.${ext}`
