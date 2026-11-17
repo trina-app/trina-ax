@@ -209,7 +209,9 @@ body { background: var(--c-canvas); color: var(--c-ink); -webkit-font-smoothing:
 /* Japanese takes a Japanese face first: in Apple SD Gothic Neo / Noto Sans KR the full-width marks （）：？ get Korean
    metrics and ・ is drawn as a narrow middle dot (QA TC-2525) */
 :root:lang(ja) { --font-sans: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", Meiryo, "Noto Sans JP", "Noto Sans CJK JP", "Segoe UI", Roboto, system-ui, sans-serif; }
-::selection { background: var(--c-accent-soft); }
+/* Selected text uses the browser's and system's own colour (the usual blue), on every surface: the app's tint was almost
+   the page's own colour and the hovered row's (QA TC-4592). No ::selection background or colour here (a unit test keeps
+   it so); the page declares color-scheme (index.html, lib/theme.ts) so a dark page gets the dark system selection. */
 /* components/TokenTextarea.tsx: while the box has text, its own letters are not drawn. The layer over it draws them,
    its tokens in colour, and the one under it only the tokens' backgrounds; the box's caret, selection (see-through, so a
    token's background shows under it), an IME's background, spell check and placeholder are in between. */
@@ -217,7 +219,7 @@ textarea[data-token-input]:not(:placeholder-shown) { -webkit-text-fill-color: tr
 /* an empty box's hint stays on one line, cut at the end, so the box does not grow from it (the largest text size on a
    phone, a wide system font); a transcription job's label (aria-busy) still wraps and grows the box (RoomComposer) */
 textarea[data-token-input]:placeholder-shown:not([aria-busy]) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-textarea[data-token-input]::selection { -webkit-text-fill-color: transparent; background: color-mix(in srgb, var(--c-accent) 24%, transparent); }
+textarea[data-token-input]::selection { -webkit-text-fill-color: transparent; }
 [data-token-layer="back"] > div, [data-token-layer="back"] [data-token] { color: transparent !important; }
 [data-token-box]:not([data-composing]) > [data-token-layer="front"] [data-token] { background: none !important; box-shadow: none !important; }
 /* While an IME writes, the box paints its own letters, so the IME's underline (drawn in their colour) shows; the front
@@ -230,9 +232,10 @@ textarea[data-token-input]::selection { -webkit-text-fill-color: transparent; ba
   [data-token-layer] { visibility: hidden; }
 }
 /* The AI chat's message box with "#" room tokens (components/chat/RoomRefMenu.tsx): a layer behind it draws the text,
-   so its own is transparent; the caret stays, and the selection lets that text show through. */
+   so its own is transparent; the caret stays, and the selection lets that text show through: the system's selection
+   colour at partial strength (an opaque one would hide the text behind it). */
 .room-ref-field { color: transparent; caret-color: var(--c-ink); }
-.room-ref-field::selection { color: transparent; background: color-mix(in srgb, var(--c-accent) 26%, transparent); }
+.room-ref-field::selection { color: transparent; background: color-mix(in srgb, Highlight 55%, transparent); }
 
 /* The online-status dot on a picture (components/Presence.tsx; docs/DECISIONS.md "접속 상태"): a 2 px ring in the
    colour behind the picture, as Slack draws it; a row sets --presence-bg to its own (its hover, the current row). Online
