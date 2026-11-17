@@ -168,6 +168,13 @@ export async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string,
   }
   // still none: the steps the app shows under the answer (names and ok only, no inputs)
   if (!t.tools.length && m?.steps.length) t = { ...t, tools: m.steps.filter((x) => x.tool).map((x) => ({ name: x.tool!.replace(/^mcp__[^_]+__/, ''), input: { label: x.label }, ok: x.status === 'ok' })) }
+  // the buttons the server put under the answer's steps (Step.fixes: "Ask <owner>", "Let them view", ...): the person
+  // sees them as the next step, so the judge does too (they are offers, not cards that were answered)
+  for (const st of m?.steps ?? []) {
+    for (const f of ((st as { fixes?: { kind: string; file?: string; owner?: string; count?: number; state?: string }[] }).fixes ?? [])) {
+      cards.push({ kind: `step-fix:${f.kind}`, origin: 'server', question: `${f.kind} for ${f.file ?? '?'}${f.owner ? ` (asks ${f.owner})` : ''}${f.count !== undefined ? `, ${f.count} people` : ''}; ${f.state ?? 'open'}`.slice(0, 400), answer: null })
+    }
+  }
   const rec: TurnRecord = {
     prompt,
     status: slow ? 'slow' : m?.status ?? 'timeout',

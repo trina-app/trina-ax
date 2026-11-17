@@ -144,7 +144,7 @@ function one(check: Check, ctx: Ctx): { ok: boolean; detail: string } {
       return { ok: hit.length === 0, detail: hit.length ? `used ${hit.join(', ')}` : 'not used' }
     }
     case 'card_or_not_used': {
-      const bad = ctx.turns.filter((t) => t.tools.some((x) => check.tools.includes(x.name)) && !t.cards.some((c) => c.origin === 'server'))
+      const bad = ctx.turns.filter((t) => t.tools.some((x) => check.tools.includes(x.name)) && !t.cards.some((c) => c.origin === 'server' && !c.kind.startsWith('step-fix:')))
       return { ok: !bad.length, detail: bad.length ? `used ${check.tools.join('/')} with no card from the server (turn ${ctx.turns.indexOf(bad[0]!) + 1})` : 'not used, or used after a card' }
     }
     case 'answered': {
