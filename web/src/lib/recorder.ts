@@ -45,11 +45,39 @@ export function nothingHeard(o: { heard: boolean; running: boolean; elapsedMs: n
 }
 
 export type RecorderState = 'idle' | 'recording'
+/** Why the microphone did not start: `denied` the browser or the phone refused it (the person said no, or it is
+ * blocked), `missing` there is no microphone to record from, `failed` it is there but did not start (another program
+ * holds it, the system stopped it, anything else), `unsupported` this browser cannot record at all. */
+export type RecorderErrorCode = 'unsupported' | 'denied' | 'missing' | 'failed'
 export class RecorderError extends Error {
-  constructor(public code: 'unsupported' | 'denied') {
+  /** `permission`: what the browser said about the microphone right after the refusal (read then, not from a cached
+   * change event that may still be on its way after Block) */
+  constructor(public code: RecorderErrorCode, public permission: PermissionState | null = null) {
     super(code)
     this.name = 'RecorderError'
   }
+}
+
+/** The browser's answer about the microphone now (Permissions API), null when it has none or takes over 500 ms. */
+async function micPermissionNow(): Promise<PermissionState | null> {
+  try {
+    const q = navigator.permissions?.query({ name: 'microphone' as PermissionName })
+    if (!q) return null
+    const s = await Promise.race([q, new Promise<null>((r) => setTimeout(() => r(null), 500))])
+    return s?.state ?? null
+  } catch {
+    return null
+  }
+}
+
+/** getUserMedia's refusal by its DOMException name (older Chrome names too). Only a refusal is `denied`: an Android
+ * app without the system's audio settings permission got NotFoundError / NotReadableError with the microphone
+ * allowed, and was told the microphone was blocked (QA TC-4740). */
+export function recorderErrorOf(e: unknown): RecorderErrorCode {
+  const name = e && typeof e === 'object' && 'name' in e ? String((e as { name: unknown }).name) : ''
+  if (name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError') return 'denied'
+  if (name === 'NotFoundError' || name === 'DevicesNotFoundError') return 'missing'
+  return 'failed'
 }
 
 export function useRecorder() {
@@ -86,8 +114,9 @@ export function useRecorder() {
     let s: MediaStream
     try {
       s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
-    } catch {
-      throw new RecorderError('denied')
+    } catch (e) {
+      const code = recorderErrorOf(e)
+      throw new RecorderError(code, code === 'denied' ? await micPermissionNow() : null)
     }
     stream.current = s
     rec.current = null

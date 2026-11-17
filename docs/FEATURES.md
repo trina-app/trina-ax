@@ -70,7 +70,7 @@ stop that: the coverage is still uploaded and the tab still rewritten, and then 
 tests (spec file and line, title, first error line) in the run summary (`scripts/features/e2e-failures.ts`). It is not a
 required check, so it does not block a merge. On a dev push a summary job merges the shards and keeps one issue labelled
 `web-e2e-dev` open while dev is red (closed on a green run); runs are never cancelled half way, and only pushes to the
-paths that can change the result start it ([RELEASE-CI.md](RELEASE-CI.md) section 14). One-time setup by the sheet's owner:
+paths that can change the result start it ([RELEASE-CI.md](RELEASE-CI.md) section 15). One-time setup by the sheet's owner:
 
 1. Google Cloud console → a project → **IAM & Admin › Service accounts** → create one (no roles needed) → **Keys › Add
    key › JSON**. Enable the **Google Sheets API** for the project.

@@ -24,7 +24,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { GUEST_FILE_DEFAULT, GUEST_FILE_MAX, type Credential, type GuestAiChoice, type GuestFileMax, type Locale, type User } from '@mycel/shared/api'
 import { api, API, isApiError } from '../../lib/api'
-import { GUEST_NO_PLACE, guestRowState, trashedProjectOf, userGuest, type GuestPlaceOut, type GuestPlaceOutView } from '../../lib/guests'
+import { GUEST_NO_PLACE, guestRowState, trashedProjectOf, userGuest, type GuestPlaceOut, type GuestPlaceOutView, type GuestPlaceView } from '../../lib/guests'
 import { useLocale, useT } from '../../i18n'
 import { isAdmin, useMeStrict } from '../../store/session'
 import { toast } from '../../store/ui'
@@ -279,13 +279,16 @@ function clipPlaceName(name: string): string {
  * trash, or gone (the name of a deleted place is not known any more). */
 /** A guest's places on their row: "Group chat · Quote prep · Project · Launch" (a removed guest's each with why they
  * are out of it; "gone" said once). */
-function placesWords(t: ReturnType<typeof useT>, places: readonly GuestPlaceOutView[], out: GuestPlaceOut | null, self = false): string | null {
+export function placesWords(t: ReturnType<typeof useT>, places: readonly GuestPlaceOutView[], out: GuestPlaceOut | null, self = false): string | null {
   if (!places.length) return out === 'gone' ? t('guest.admin.outGone') : null
   const words = [...new Set(places.map((pl) => placeWords(t, pl, pl.out ?? null, self)).filter((w): w is string => !!w))]
   return words.length ? words.join(' · ') : null
 }
-function placeWords(t: ReturnType<typeof useT>, place: { kind: 'room' | 'project'; name?: string } | null, out: GuestPlaceOut | null, self = false): string | null {
+function placeWords(t: ReturnType<typeof useT>, place: GuestPlaceView | null, out: GuestPlaceOut | null, self = false): string | null {
   if (out === 'gone') return t('guest.admin.outGone')
+  // a group chat with no name of its own (the server sends ''): just "Group chat". Its members are left out on purpose: admins
+  // do not learn who talks to whom in group chats (docs/DECISIONS.md). Only while the guest is in it: what they left has no name to say
+  if (place?.kind === 'room' && !place.name?.trim()) return out ? null : t('guest.admin.groupChat')
   if (!place?.name) return null
   // a very long name is shortened here, so the words after it ("in the trash", "Disabled") are never the part that is cut
   const name = clipPlaceName(place.name)
