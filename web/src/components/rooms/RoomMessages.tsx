@@ -672,11 +672,12 @@ function FileChip({ roomId, f, siblings }: { roomId: string; f: RoomFile; siblin
       </button>
       {/* in the team folder where I can open it: a quiet link to it (its folder's name; the whole place in the tooltip) */}
       {team?.saved && <InTeamLink path={team.saved} onOpen={team.open} />}
-      {/* not there yet: a small save icon beside the download, only on hover and keyboard focus with a mouse (no gap when
-          hidden; on a touch screen it is in the long-press menu) */}
+      {/* not there yet: a small save icon beside the download, seen only on hover and keyboard focus with a mouse; its
+          place is kept (a fixed 24px) so the chip never changes width and a row of chips never re-wraps; on a touch
+          screen it is not there at all (the long-press menu has it) */}
       {team && !team.saved && (
         <Tooltip label={t('rooms.save.action')}>
-          <button type="button" onClick={team.save} aria-label={t('rooms.save.actionFor', { name: f.name })} className="hidden shrink-0 items-center justify-center px-1.5 text-faint hover:bg-hover hover:text-ink pointer-fine:group-hover/chip:inline-flex pointer-fine:group-focus-within/chip:inline-flex" data-testid="room-file-save">
+          <button type="button" onClick={team.save} aria-label={t('rooms.save.actionFor', { name: f.name })} className="inline-flex w-6 shrink-0 items-center justify-center text-faint opacity-0 hover:bg-hover hover:text-ink focus-visible:opacity-100 group-hover/chip:opacity-100 group-focus-within/chip:opacity-100 pointer-coarse:hidden" data-testid="room-file-save">
             <FolderInput size={13} aria-hidden />
           </button>
         </Tooltip>

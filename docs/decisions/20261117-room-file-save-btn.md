@@ -29,9 +29,10 @@
   `suggestForNames`): the file's name, then the room's name (not a DM's: a person's name) and the words of its message and
   thread root, against the folders the person can write, their file names and the person's own file-list lines. Free,
   well under 2 s, the same with the AI off, and no prompt-injection path from a message. The Move picker's rate limit
-  applies to every plan (30 a minute per person). The owner's "AI-suggested" is met by the file list the AI keeps per folder; a model call would add cost and
-  latency for little (Dropbox and our own Move picker found name rules beat a model here).
-- **Sensitive-looking files:** an ID card, passport, driver's licence, bank book, resident or family register (by the
+  applies to every plan (30 a minute per person). The coordinator (11-17) kept it with no model call: the label is
+  "Suggested" (ko 추천), never "AI".
+- **Sensitive-looking files:** an ID card, passport, driver's licence, bank book (and its copy), payslip, employment
+  certificate, seal certificate, resident register copy (등본/초본), resident or family register (by the
   file name or the message's words, in the six languages) or a resident registration number (in those words, or in a
   small text file's content) get no suggestion. Pictures, PDFs and spreadsheets are not read for it (room files have no
   OCR text). "Personal information" is not a trigger word: a privacy policy, or a privacy team's room, would lose every
@@ -42,14 +43,18 @@
   download-only list; at most 50 MB) and the AI's byte save (`placeProduced`: write access checked again, the storage
   check, never an overwrite: a different file of that name stays and the copy goes beside it; the same bytes already
   there, at its own name or as a copy made beside another file earlier, count as saved, no second copy; two files with
-  one name in one message both stay, the second beside the first). The folder must exist, be one the person can see and
+  one name in one message both stay, the second beside the first). A copy beside a different file is named
+  "name (2).ext", "name (3).ext" (`team-files/place.ts freeName`), not the AI's "name (conflict copy - <person> …)": the
+  person saved it themselves (the coordinator, 11-17; only this path). The folder must exist, be one the person can see and
   write, never under skills/ or a personal skills folder,
   never `.system/`, and the target never an instruction file name (CLAUDE.md and the like). Every file and the folder are
   checked before anything is copied. The file history records it (`save_room_file`, by the person). The sheet showing
   the audience is the confirmation; there is no second card.
 - **Guests:** cannot save (their AI has no save_room_file either). The three endpoints are not in
   `auth/guest-endpoints.ts` (403), each function checks again, and the screens show no save for a guest.
-- **Screens, small rules:** the desktop icon takes no space until the chip is hovered or focused; on a phone a saved
+- **Screens, small rules:** on a pointer device the icon's 24px is always kept (invisible until the chip is hovered or
+  focused), so hovering never changes the chip's width or re-wraps a row of chips (the coordinator, 11-17); a touch
+  screen has no icon; on a phone a saved
   file's link is the folder icon alone (the file's name stays readable), its place in the accessible name. What was
   saved is kept per signed-in person in the tab and forgotten when someone else signs in.
 - **Left out:** live updates of "In team folder" for other people (they see it on the next room load); the image viewer's

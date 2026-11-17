@@ -29,7 +29,7 @@ import { inSkills } from '../skills/guard'
 import { instructionLike } from '../chat/turn'
 import { componentC } from '../team-files/component'
 import { activePeople, type TeamFiles } from '../team-files/service'
-import { checkRegular, hashFile } from '../team-files/place'
+import { checkRegular, freeName, hashFile } from '../team-files/place'
 import { readRegular } from '../files/store'
 import { readerCheck } from '../files/share-readers'
 import { TurnFiles, type ToolCtx } from '../files/service'
@@ -52,18 +52,25 @@ const SNIFF_MAX = 256 * 1024
 // family register), in the six languages of the app; non-Latin words are written as escapes (patterns, not screen text).
 const SENSITIVE_WORDS = new RegExp([
   // Korean: ID card, resident registration, resident number, bank book, passport, driver's licence, alien registration,
-  // family relations (not "personal information": a privacy policy or a privacy team's room would lose every suggestion)
+  // family relations, payslip, employment certificate, resident register copy (both kinds), seal certificate (not
+  // "personal information": a privacy policy or a privacy team's room would lose every suggestion)
   '\\uC2E0\\uBD84\\uC99D', '\\uC8FC\\uBBFC\\uB4F1\\uB85D', '\\uC8FC\\uBBFC\\uBC88\\uD638', '\\uD1B5\\uC7A5', '\\uC5EC\\uAD8C',
-  '\\uC6B4\\uC804\\uBA74\\uD5C8', '\\uC678\\uAD6D\\uC778\\uB4F1\\uB85D', '\\uAC00\\uC871\\uAD00\\uACC4',
+  '\\uC6B4\\uC804\\uBA74\\uD5C8', '\\uAE09\\uC5EC\\uBA85\\uC138', '\\uC7AC\\uC9C1\\uC99D\\uBA85', '\\uB4F1\\uBCF8', '\\uCD08\\uBCF8',
+  '\\uC778\\uAC10\\uC99D\\uBA85', '\\uC678\\uAD6D\\uC778\\uB4F1\\uB85D', '\\uAC00\\uC871\\uAD00\\uACC4',
   // Japanese and Chinese: ID card (both), bank book (both), passport (both), driver's licence, My Number, residence card,
-  // bank card
+  // bank card; payslip (ja, zh), employment certificate (ja, zh), seal certificate (ja), family register (ja/zh),
+  // resident record (ja)
   '\\u8EAB\\u5206\\u8A3C', '\\u8EAB\\u4EFD\\u8BC1', '\\u901A\\u5E33', '\\u5B58\\u6298', '\\u62A4\\u7167', '\\u30D1\\u30B9\\u30DD\\u30FC\\u30C8',
   '\\u514D\\u8A31\\u8A3C', '\\u9A7E\\u9A76\\u8BC1', '\\u30DE\\u30A4\\u30CA\\u30F3\\u30D0\\u30FC', '\\u5728\\u7559\\u30AB\\u30FC\\u30C9',
-  '\\u94F6\\u884C\\u5361',
+  '\\u94F6\\u884C\\u5361', '\\u7D66\\u4E0E\\u660E\\u7D30', '\\u5DE5\\u8D44\\u5355', '\\u5728\\u7C4D\\u8A3C\\u660E', '\\u5728\\u804C\\u8BC1\\u660E',
+  '\\u5370\\u9451\\u8A3C\\u660E', '\\u6236\\u7C4D', '\\u6237\\u53E3\\u672C', '\\u4F4F\\u6C11\\u7968',
   // English, Indonesian, Spanish: whole words (an underscore, a dash or a digit next to one still splits it: "KTP_budi")
   ...['id[\\s_-]?card', 'identity[\\s_-]?card', 'passport', 'bank[\\s_-]?book', 'bankbook', 'bank[\\s_-]?statement',
     "driver'?s?[\\s_-]?licen[cs]e", 'resident[\\s_-]?registration', 'social[\\s_-]?security', 'ssn', 'ktp', 'npwp',
-    'kartu[\\s_-]?keluarga', 'buku[\\s_-]?tabungan', 'pasaporte', 'dni'].map((w) => `(?<![\\p{L}])${w}(?![\\p{L}])`),
+    'kartu[\\s_-]?keluarga', 'buku[\\s_-]?tabungan', 'pasaporte', 'dni',
+    'pay[\\s_-]?slip', 'pay[\\s_-]?stub', 'salary[\\s_-]?statement', 'employment[\\s_-]?certificate',
+    'certificate[\\s_-]?of[\\s_-]?employment', 'family[\\s_-]?(?:relation|register)', 'seal[\\s_-]?certificate',
+    'slip[\\s_-]?gaji', 'surat[\\s_-]?keterangan[\\s_-]?kerja', 'n[oó]mina', 'certificado[\\s_-]?de[\\s_-]?empresa'].map((w) => `(?<![\\p{L}])${w}(?![\\p{L}])`),
 ].join('|'), 'iu')
 /** a Korean resident registration number (as the file list's scrubber knows it: file-list/format.ts) */
 const RESIDENT_NUMBER = /\b\d{6}\s*-\s*[1-8]\d{6}\b/
@@ -282,11 +289,15 @@ export async function saveToTeam(ctx: AppContext, userId: string, roomId: string
       // a fresh record of reads for each file: one that says a file of this name was "read" would let the next file of
       // the same name (two in one message) replace it instead of going beside it
       const c: ToolCtx = { user, turnId: null, files: new TurnFiles() }
-      const made = await placeProduced(ctx, files, c, target.split('/'), tmp, 'save_room_file', undefined, { turnBytes: false, detail: { type: f.file.mime, by: 'person' } })
+      // a different file has the name: this copy is "name (2).ext" beside it (the person's own save, so not the AI's
+      // "conflict copy - <name>" wording); placeProduced still never overwrites if one appears in between
+      const free = freeName(path.join(files.root, ...at.split('/')), f.file.name)
+      const made = await placeProduced(ctx, files, c, [...at.split('/'), free], tmp, 'save_room_file', undefined, { turnBytes: false, detail: { type: f.file.mime, by: 'person' } })
+      const nextTo = made.conflictCopyOf ?? (free !== f.file.name ? target : undefined)
       let seen: string | null = null
       try { seen = statKey(fs.statSync(path.join(files.root, ...made.path.split('/')))) } catch { /* hashed on the next read */ }
       recordRoomFileSave(ctx, f.file.id, made.path, made.sha256, made.size, seen)
-      saved.push({ fileId: f.file.id, path: made.path, existed: false, ...(made.conflictCopyOf ? { nextTo: made.conflictCopyOf } : {}) })
+      saved.push({ fileId: f.file.id, path: made.path, existed: false, ...(nextTo ? { nextTo } : {}) })
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }
   return { saved }

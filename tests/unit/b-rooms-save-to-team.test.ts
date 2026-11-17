@@ -95,7 +95,8 @@ describe('the copy', () => {
     const r = await saveOk('alice', rooms.all, [other.fileId], 'shared')
     expect(r.saved[0]!.existed).toBe(false)
     expect(r.saved[0]!.nextTo).toBe('shared/plan-same.txt')
-    expect(r.saved[0]!.path).not.toBe('shared/plan-same.txt')
+    // the person's own save: "name (2).ext", not the AI's "conflict copy - <name>"
+    expect(r.saved[0]!.path).toBe('shared/plan-same (2).txt')
     expect(fs.readFileSync(team('shared/plan-same.txt'), 'utf8')).toBe('version A')
     expect(fs.readFileSync(team(r.saved[0]!.path), 'utf8')).toBe('version B')
   })
@@ -106,7 +107,7 @@ describe('the copy', () => {
     await h.api('alice').call(API.sendRoomMessage, { params: { id: rooms.all }, body: { body: '', clientMessageId: cm(), mentions: [], fileIds: [a, b] } })
     const r = await saveOk('alice', rooms.all, [a, b], 'shared')
     expect(r.saved[0]!.path).toBe('shared/dup-name.txt')
-    expect(r.saved[1]!.path).not.toBe('shared/dup-name.txt')
+    expect(r.saved[1]!.path).toBe('shared/dup-name (2).txt')
     expect(r.saved[1]!.nextTo).toBe('shared/dup-name.txt')
     expect(fs.readFileSync(team('shared/dup-name.txt'), 'utf8')).toBe('AAAA first')
     expect(fs.readFileSync(team(r.saved[1]!.path), 'utf8')).toBe('BBBB second')
@@ -215,7 +216,8 @@ describe('the plan', () => {
   })
 
   test('looksSensitive: names and words in the app\'s languages; ordinary names pass', () => {
-    for (const n of ['passport.png', 'ID card front.jpg', 'bank-book.pdf', 'KTP_budi.jpg', '通帳.pdf', '身份证.png', 'pasaporte.pdf', '통장사본.pdf'])
+    for (const n of ['passport.png', 'ID card front.jpg', 'bank-book.pdf', 'KTP_budi.jpg', '通帳.pdf', '身份证.png', 'pasaporte.pdf', '통장사본.pdf', '급여명세서_11월.pdf', '재직증명서.pdf', '가족관계증명서.pdf', '주민등록등본.pdf', '주민등록초본.pdf',
+      '인감증명서.pdf', '여권.jpg', '운전면허증.png', 'payslip-nov.pdf', 'Pay Slip.pdf', 'employment certificate.pdf', 'slip_gaji_okt.pdf', 'nómina-octubre.pdf', '給与明細.pdf', '工资单.pdf', '住民票.pdf'])
       expect(looksSensitive(n, '')).toBe(true)
     expect(looksSensitive('scan.jpg', 'here is my resident registration card')).toBe(true)
     for (const n of ['q4-quote.pdf', 'campaign-brief.docx', 'identity-guidelines.pdf', 'idcards-design.fig'])
