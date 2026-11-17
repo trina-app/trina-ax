@@ -22,7 +22,7 @@
     after SKILL.md exists, saves with no card. Different bytes, another path, a later answer, or a "Don't save" ask on
     their own card (or are only held again while no SKILL.md is there). The wider-audience check still runs on that
     write: the held file's own folder (assets/) is covered by the SKILL.md card's yes only for the same sources and no
-    more people than that card named; anything new asks. Once a SKILL.md got its Save, nothing more is held for that
+    other people than that card named (folderAudience); anything new asks. Once a SKILL.md got its Save, nothing more is held for that
     folder in the answer (a file checked before the SKILL.md reached the disk gets its own card, never a dead hold).
   - **What may be held** (structural, no text matching): `.md .txt .csv .tsv` inside the skill's folder, at most
     16,000 bytes, no NUL, no skill header (`---` first), not instruction-named (SKILL, CLAUDE, AGENT(S), GEMINI, COPILOT,

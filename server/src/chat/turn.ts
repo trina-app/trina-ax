@@ -3601,8 +3601,9 @@ export class TurnExec {
         for (const f of held.values()) {
           ;(this.skillHeldYes ??= new Map()).set(f.rel, f.sha)
           // its own folder (assets/) where more people can see: covered when this card said so for the same sources
-          // and no more people (else its second write asks the wider-audience card)
-          if (f.need && need && f.need.viewers <= need.viewers && f.need.narrower.every((x) => shown.has(sourceKey(x)))) this.allowWidening(f.need)
+          // and the same people (folderAudience; else its second write asks the wider-audience card)
+          const aud = (dir: string) => { try { return folderAudience(this.rt.db, this.rt.files.rules(), dir.split('/').filter(Boolean)) } catch { return null } }
+          if (f.need && need && f.need.narrower.every((x) => shown.has(sourceKey(x))) && aud(f.need.dir) !== null && aud(f.need.dir) === aud(need.dir)) this.allowWidening(f.need)
         }
         ;(this.skillHeldNote ??= new Map()).set(r.rel, [...held.keys()])
       }
