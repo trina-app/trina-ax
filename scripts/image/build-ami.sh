@@ -401,17 +401,19 @@ launch() {
   --user-data "file://$WORK/user-data" \
   --query 'Instances[0].InstanceId' --output text
 }
-# no capacity in a zone: the next subnet (a refused RunInstances makes nothing, so there is nothing to remove for it;
+# no capacity (or no such instance type) in a zone: the next subnet (a refused RunInstances makes nothing, so there is nothing to remove for it;
 # the security group stays for the next try and is deleted at the end or by the clean-up on a failure as before)
 INSTANCE=""
 i=0
 while [[ $i -lt ${#SUBNETS[@]} ]]; do
   if INSTANCE="$(launch "${SUBNETS[$i]}" 2>"$WORK/run-instances.err")"; then
+    cat "$WORK/run-instances.err" >&2
     SUBNET="${SUBNETS[$i]}"; AZ="${SUB_AZ[$i]}"; AZ_ID="${SUB_AZ_ID[$i]}"
     break
   fi
   cat "$WORK/run-instances.err" >&2
-  if grep -q InsufficientInstanceCapacity "$WORK/run-instances.err" && [[ $((i + 1)) -lt ${#SUBNETS[@]} ]]; then
+  # Unsupported: the zone does not offer the builder type at all (not every zone has t3a)
+  if grep -qE 'InsufficientInstanceCapacity|\(Unsupported\)' "$WORK/run-instances.err" && [[ $((i + 1)) -lt ${#SUBNETS[@]} ]]; then
     say "no $BUILDER_TYPE capacity in ${SUB_AZ[$i]}: trying ${SUB_AZ[$((i + 1))]} (${SUBNETS[$((i + 1))]})"
     i=$((i + 1)); INSTANCE=""
     continue

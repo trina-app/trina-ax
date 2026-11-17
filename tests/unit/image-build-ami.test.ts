@@ -48,6 +48,11 @@ case "$a" in
         echo "An error occurred (InsufficientInstanceCapacity) when calling the RunInstances operation (reached max retries: 2): We currently do not have sufficient t3a.medium capacity in the Availability Zone you requested" >&2; exit 254
       fi
     done
+    for x in \${UNSUPPORTED:-}; do
+      if [[ "$a" == *" --subnet-id $x "* ]]; then
+        echo "An error occurred (Unsupported) when calling the RunInstances operation: Your requested instance type (t3a.medium) is not supported in your requested Availability Zone" >&2; exit 254
+      fi
+    done
     echo i-0build ;;
   *" create-volume "*) echo vol-0work ;;
   *" describe-instances "*) echo 198.51.100.7 ;;
@@ -212,6 +217,14 @@ describe('build-ami.sh', () => {
     expect(new Set(tries.map((x) => /--security-group-ids (\S+)/.exec(x)?.[1]))).toEqual(new Set(['sg-0build']))
     expect(call(c, 'create-volume')).toContain('--availability-zone ap-northeast-2b')
     expect(call(c, 'delete-security-group')).toContain('--group-id sg-0build')
+  })
+
+  test('a zone that does not offer the builder type (Unsupported): the next subnet too', () => {
+    const s = setup()
+    const r = run(s, [], { UNSUPPORTED: 'subnet-0abc' }, 'subnet-0abc,subnet-0ccc')
+    expect(r.code).toBe(0)
+    expect(r.calls.filter((x) => x.includes('run-instances')).map((x) => /--subnet-id (\S+)/.exec(x)?.[1])).toEqual(['subnet-0abc', 'subnet-0ccc'])
+    expect(call(r.calls, 'create-volume')).toContain('--availability-zone ap-northeast-2c')
   })
 
   test('no capacity in the last zone of the list: stop, and the security group is removed', () => {
