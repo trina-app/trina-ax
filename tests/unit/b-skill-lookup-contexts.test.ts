@@ -1,9 +1,11 @@
 // A team skill is found the same way in every place a member talks to the AI (the 2026-11-17 scenario catalog:
 // SKL-01 and its variants). Covered, with the fake engine through the real launcher and gate: a member finds the team
 // skill skills/quote-writer/SKILL.md by the words of its title and description (Korean, folder name in English) with
-// find_skills, and loads it with the skill tool, in their own chat, in a shared project chat and in a room's ✦ side
-// chat; the same skill moved into a group (move_skill's target, groups/<folder>/skills/) is found by a member of that
-// group in all three places (with group members only) and stays out of reach of someone outside the group.
+// find_skills, and loads it with the skill tool, in their own chat, in a shared project chat (its own code path:
+// the chat's readers) and in a room's ✦ side chat (checked to be one; it runs the own-chat path); the same skill moved
+// into a group (move_skill's target, groups/<folder>/skills/) is found by a member of that group in all three places
+// (with group members only), and neither listed nor loaded for someone outside the group, in their own chat or in a
+// shared project chat with a group member.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -50,11 +52,16 @@ const send = async (user: string, chatId: string, content: string) => {
 async function places(user: string, memberIds: string[]): Promise<Record<string, string>> {
   const own = (await h.api(user).call(API.createChat, { body: {} })).id
   const proj = await h.api(user).call(API.createProject, { body: { name: `견적 ${uuidv7().slice(-6)}`, instructions: '', participants: memberIds.filter((id) => id !== user).map((id) => ({ subjectType: 'user' as const, subjectId: id })) } })
-  const project = (await h.api(user).call(API.createChat, { body: { projectId: proj.id } })).id
+  const projectChat = await h.api(user).call(API.createChat, { body: { projectId: proj.id } })
+  // the places are what they say: a shared project chat, a side chat of this room
+  expect(projectChat.shared).toBeTruthy()
+  const project = projectChat.id
   const g = await h.api('dana').call(API.createGroup, { body: { name: `skill-room-${uuidv7().slice(-6)}`, memberIds } })
   const room = (await h.api(user).call(API.listRooms)).items.find((x) => x.kind === 'team' && x.groupId === g.id)
   if (!room) throw new Error('no team room')
-  const side = (await h.api(user).call(API.createChat, { body: { sideRoomId: room.id } })).id
+  const sideChat = await h.api(user).call(API.createChat, { body: { sideRoomId: room.id } })
+  expect(sideChat.sideRoomId).toBe(room.id)
+  const side = sideChat.id
   return { own, project, side }
 }
 
@@ -93,8 +100,16 @@ describe('the same skill moved into a group', () => {
         expect({ place, found: byTitle }).toEqual({ place, found: expect.stringContaining(`(${folder}/skills/quote-writer/SKILL.md)`) })
         expect({ place, loaded }).toEqual({ place, loaded: expect.stringContaining('QUOTE-STEPS-7c1') })
       }
-      const bob = await lookup('bob', (await h.api('bob').call(API.createChat, { body: {} })).id)
-      expect(bob[2]).not.toContain('QUOTE-STEPS-7c1')
+      // bob, outside the group: not listed, not loaded, in his own chat and in a shared project chat with alice
+      const own = (await h.api('bob').call(API.createChat, { body: {} })).id
+      const proj = await h.api('alice').call(API.createProject, { body: { name: `견적 ${uuidv7().slice(-6)}`, instructions: '', participants: [{ subjectType: 'user', subjectId: 'bob' }] } })
+      const shared = (await h.api('bob').call(API.createChat, { body: { projectId: proj.id } })).id
+      for (const chatId of [own, shared]) {
+        const [byTitle, , loaded] = await lookup('bob', chatId)
+        expect(byTitle).not.toContain(`${folder}/skills/quote-writer`)
+        expect(loaded).toContain('No skill called "quote-writer"')
+        expect(loaded).not.toContain('QUOTE-STEPS-7c1')
+      }
     } finally { fs.rmSync(path.join(h.team, folder, 'skills'), { recursive: true, force: true }) }
   })
 })
