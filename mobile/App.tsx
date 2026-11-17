@@ -32,6 +32,8 @@ import { readSessionCheck, sessionCheckScript } from './src/session-check'
 import { LeaveAsk, OneSwitch, ended, oweForSwitch, owesSignOut, signedOut } from './src/leave'
 
 const product = mobileProduct(Constants.expoConfig?.extra?.teamAxEdition)
+/** The launch screen's background (app.config.ts, expo-splash-screen), light in both of the phone's modes. */
+const LAUNCH = product.background ?? LIGHT.canvas
 /** the hosted team domain (bare names) and the install guide link of ③, from the edition (app.config.ts) */
 const service = mobileService(Constants.expoConfig?.extra?.teamAxService, Constants.expoConfig?.extra?.teamAxService)
 const VERSION = Constants.expoConfig?.version ?? '1.0.0'
@@ -112,6 +114,8 @@ const bootstrap = (config: MobileConfig, ready = false, document?: string) => `i
 
 export default function App() {
   const [team, setTeam] = useState<TeamAddress | null | undefined>()
+  // true until the team's first page has loaded once in this run of the app (the launch screen's light paper until then)
+  const [launching, setLaunching] = useState(true), shown = useCallback(() => setLaunching(false), [])
   // the first-run box over the team that is still connected ("다른 팀에 연결"): the team stays until another one answered
   // and the person said yes
   const [adding, setAdding] = useState(false)
@@ -211,11 +215,16 @@ export default function App() {
   }
   // Android: the status bar icons and the three-button bar's contrast scrim follow the look (React Native set the scrim
   // once, from the phone's look at launch)
-  return <SafeAreaProvider><Look.Provider value={dark ? DARK : LIGHT}>{Platform.OS === 'android' && <><StatusBar style={dark ? 'light' : 'dark'} /><NavigationBar style={dark ? 'light' : 'dark'} /></>}
-    {team === undefined ? <Center><ActivityIndicator color={product.accent} /></Center>
+  // from the launch screen until the team's first page has loaded (the saved team is read, then the page loads) the app
+  // keeps the launch screen's light paper in both of the phone's modes, and the bars' icons stay dark on it; after that
+  // everything follows the page's or the phone's look (owner 2026-11-17: the launch must not look dark)
+  const starting = team === undefined, launch = starting || (team !== null && launching)
+  const bars = dark && !launch ? 'light' : 'dark'
+  return <SafeAreaProvider><Look.Provider value={dark ? DARK : LIGHT}>{Platform.OS === 'android' && <><StatusBar style={bars} /><NavigationBar style={bars} /></>}
+    {starting ? <Center background={LAUNCH}><ActivityIndicator color={product.accent} /></Center>
       : team === null ? <Setup current={null} onDone={connect} />
       : <>
-        <TeamWeb key={team.origin} address={team} hidden={adding || !!link} pads={padsAtLaunch.current === team.origin} signOut={owed.current?.origin === team.origin ? owed.current : signOut.current} leaving={leaving} opened={opened} onDevice={id => { device.current = id }} onAppearance={look => setPage(p => p?.dark === look.dark && p.system === look.system ? p : look)}
+        <TeamWeb key={team.origin} address={team} launch={launch} onShown={shown} hidden={adding || !!link} pads={padsAtLaunch.current === team.origin} signOut={owed.current?.origin === team.origin ? owed.current : signOut.current} leaving={leaving} opened={opened} onDevice={id => { device.current = id }} onAppearance={look => setPage(p => p?.dark === look.dark && p.system === look.system ? p : look)}
           onChangeTeam={() => setAdding(true)} />
         {adding && <View style={StyleSheet.absoluteFill}><Setup current={team.origin} onBack={closeAdding}
           // the same team again: its page opens there (a link's join page, or its start)
@@ -232,9 +241,9 @@ export default function App() {
 }
 // Insets as explicit padding on every native screen: with edge-to-edge (Android, targetSdk 36) the app draws under the
 // status bar and the gesture bar, and buttons must stay clear of both.
-function Center({ children }: { children: ReactNode }) {
+function Center({ children, background }: { children: ReactNode; background?: string }) {
   const i = useSafeAreaInsets(), c = useContext(Look)
-  return <View style={[s.fill, s.center, { backgroundColor: c.canvas, paddingTop: i.top + 24, paddingBottom: i.bottom + 24, paddingLeft: i.left + 24, paddingRight: i.right + 24 }]}>{children}</View>
+  return <View style={[s.fill, s.center, { backgroundColor: background ?? c.canvas, paddingTop: i.top + 24, paddingBottom: i.bottom + 24, paddingLeft: i.left + 24, paddingRight: i.right + 24 }]}>{children}</View>
 }
 /** A sleeping free trial team is starting while it is added (about a minute): a calm wait, not an error; the add goes
  * on by itself when it answers (src/team-check.ts, QA wake gap 1). */
@@ -446,7 +455,7 @@ function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: Lin
   </View>
 }
 type Failure = 'offline' | 'unreachable' | 'updating'
-function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, onAppearance, onChangeTeam }: { address: TeamAddress; hidden: boolean; pads: boolean; signOut: ReinstallSignOut | null; leaving: { current: Leaving | null }; opened: { path: string; n: number } | null; onDevice: (id: string) => void; onAppearance: (look: PageLook) => void; onChangeTeam: () => void }) {
+function TeamWeb({ address, launch, onShown, hidden, pads, signOut, leaving, opened, onDevice, onAppearance, onChangeTeam }: { address: TeamAddress; launch: boolean; onShown: () => void; hidden: boolean; pads: boolean; signOut: ReinstallSignOut | null; leaving: { current: Leaving | null }; opened: { path: string; n: number } | null; onDevice: (id: string) => void; onAppearance: (look: PageLook) => void; onChangeTeam: () => void }) {
   const web = useRef<WebHandle>(null), navigation = useRef(0), loadFailed = useRef(false), cleanup = useRef(Promise.resolve()), ready = useRef(false)
   const [canBack, setCanBack] = useState(false), [pathname, setPathname] = useState(address.entryPath), [failed, setFailed] = useState<Failure | null>(null)
   // where Back goes in the document on screen, as the page said (nav-v1, src/nav.ts); null until it has (an older
@@ -651,9 +660,11 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
   // report none). Any other page keeps the app's padding (src/look.ts frame). The sign-in pages end above the app's own
   // "another team" footer.
   const edges = frame({ selfPadded, android: Platform.OS === 'android', footer: showFooter, keyboard, insets })
-  return <View style={[s.fill, { backgroundColor: c.canvas, paddingTop: edges.top, paddingLeft: insets.left, paddingRight: insets.right, paddingBottom: edges.bottom }]}
+  // the launch screen's paper until the first page has loaded (Root), the look's canvas after
+  const canvas = launch ? LAUNCH : c.canvas
+  return <View style={[s.fill, { backgroundColor: canvas, paddingTop: edges.top, paddingLeft: insets.left, paddingRight: insets.right, paddingBottom: edges.bottom }]}
     accessibilityElementsHidden={hidden} importantForAccessibility={hidden ? 'no-hide-descendants' : 'auto'}><View style={s.fill}>
-    <WebView ref={web} source={{ uri: source }} style={[s.fill, { backgroundColor: c.canvas }]}
+    <WebView ref={web} source={{ uri: source }} style={[s.fill, { backgroundColor: canvas }]}
       injectedJavaScriptBeforeContentLoaded={insetJs}
       originWhitelist={['*']} applicationNameForUserAgent={`${product.userAgent}/${VERSION}`}
       sharedCookiesEnabled thirdPartyCookiesEnabled={false} mixedContentMode="never" allowFileAccess={false}
@@ -696,7 +707,7 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
       // and only a new document gets the bridge again. Installing it again for a step gave the page a new nonce, which
       // cancelled what was on its way (QA TC-251: the photo picker's pick).
       onLoadEnd={event => {
-        stuck.current.cancel()
+        stuck.current.cancel(); if (launch) onShown()
         if (ready.current && pageDocument.current && !loadFailed.current && sameTeam(address.origin, event.nativeEvent.url)) { web.current?.injectJavaScript(sameDocumentScript(pageDocument.current)); return }
         settle(event.nativeEvent.url)
       }}
@@ -731,7 +742,7 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
       onError={event => { loadFailed.current = true; fail(offlineError(event.nativeEvent.code, event.nativeEvent.description) ? 'offline' : 'unreachable') }}
       onHttpError={event => { if (event.nativeEvent.statusCode >= 500) fail('unreachable') }}
       onContentProcessDidTerminate={() => fail('unreachable')} onRenderProcessGone={() => fail('unreachable')}
-      startInLoadingState renderLoading={() => <View style={[StyleSheet.absoluteFill, s.center, { backgroundColor: c.canvas }]}><ActivityIndicator color={product.accent} /></View>}
+      startInLoadingState renderLoading={() => <View style={[StyleSheet.absoluteFill, s.center, { backgroundColor: canvas }]}><ActivityIndicator color={product.accent} /></View>}
       testID="team-web" />
     </View>
     {showFooter && <View style={[s.footer, { backgroundColor: c.canvas, paddingBottom: insets.bottom + 8 }]}>

@@ -11,7 +11,7 @@
   version, clear space, minimum size, colours, don'ts). Light backgrounds take the light mark; dark backgrounds the dark
   mark. Every app icon (web tab and home screen, desktop on macOS and Windows, iPhone, Android, Microsoft Store) is the
   light tile, toned from `#FBF9F4` to `#EFE9DE` so it does not vanish on a white home screen; the rounded tile has a
-  hairline edge (dropped where the system cuts the corners). The phone's launch screen is light, dark in dark mode.
+  hairline edge (dropped where the system cuts the corners). The phone's launch screen is light in both of the phone's modes (owner 2026-11-17: in 1.0.8 it was dark in dark mode, and that read as "still dark"); the app follows dark mode once the page is on screen.
 - **Why:** one recognisable logo everywhere, matching the website, which already showed the light mark on light pages.
 - **Left out:** store uploads happen with the next builds (phones 1.0.8, desktop 0.5.9; Google Play's 512 px store icon
   is uploaded in Play Console, `app-icon-512.png`). The notification icon and the Mac menu bar helper stay monochrome.

@@ -1,4 +1,4 @@
-export interface MobileProduct { name: string; accent: string; userAgent: string; scheme: string; bundleId: string; background?: string; backgroundDark?: string; appleTeamId?: string }
+export interface MobileProduct { name: string; accent: string; userAgent: string; scheme: string; bundleId: string; background?: string; appleTeamId?: string }
 /** accent: this edition's (Trina Signal Orange, --c-accent in web/src/theme.edition.css); an edition config may replace it. */
 export const DEFAULT_PRODUCT: MobileProduct = { name: 'Team AX', accent: '#e8521a', userAgent: 'TeamAX-Mobile', scheme: 'teamax-mobile', bundleId: 'app.teamax.mobile.dev' }
 
@@ -24,8 +24,6 @@ export function mobileProduct(value: unknown): MobileProduct {
     bundleId: typeof v.bundleId === 'string' && /^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*){1,6}$/.test(v.bundleId) ? v.bundleId : DEFAULT_PRODUCT.bundleId,
     // launch screen and Android icon background; the Apple developer team that signs the iOS build (not a secret)
     ...(typeof v.background === 'string' && /^#[a-f0-9]{6}$/i.test(v.background) ? { background: v.background } : {}),
-    // the launch screen's background in dark mode (with the edition's mobile/splash-icon-dark.png)
-    ...(typeof v.backgroundDark === 'string' && /^#[a-f0-9]{6}$/i.test(v.backgroundDark) ? { backgroundDark: v.backgroundDark } : {}),
     ...(typeof v.appleTeamId === 'string' && /^[A-Z0-9]{10}$/.test(v.appleTeamId) ? { appleTeamId: v.appleTeamId } : {}),
   }
 }

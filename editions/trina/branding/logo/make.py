@@ -113,13 +113,12 @@ def main():
     png('desktop/scripts/trina-icon.svg', 'desktop/build-resources/icon.png', 1024)
 
     # phones (mobile/app.config.ts): iOS icon full-bleed; Android adaptive foreground (mark only) on adaptive-background;
-    # the launch screen's mark (light) and its dark-mode twin. The notification icon stays the white silhouette.
+    # the launch screen's mark (light, in both of the phone's modes). The notification icon stays the white silhouette.
     M = 'editions/trina/branding/mobile'
     write(f'{M}/icon.svg', square_tile(0.83)); png(f'{M}/icon.svg', f'{M}/icon.png', 1024)
     write(f'{M}/adaptive-icon.svg', svg(scaled('light', 0.5))); png(f'{M}/adaptive-icon.svg', f'{M}/adaptive-icon.png', 1024)
     write(f'{M}/adaptive-background.svg', svg(f'<defs>{GRADIENT}</defs><rect width="32" height="32" fill="url(#bg)"/>')); png(f'{M}/adaptive-background.svg', f'{M}/adaptive-background.png', 1024)
     write(f'{M}/splash-icon.svg', svg(scaled('light', 1))); png(f'{M}/splash-icon.svg', f'{M}/splash-icon.png', 1024)
-    write(f'{M}/splash-icon-dark.svg', svg(scaled('dark', 1))); png(f'{M}/splash-icon-dark.svg', f'{M}/splash-icon-dark.png', 1024)
 
     # Microsoft Store tiles: the square icon, and the wide tile
     S = 'editions/trina/microsoft-store/build-resources'

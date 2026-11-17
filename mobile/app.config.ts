@@ -10,7 +10,7 @@ const VERSION = '1.0.8'
 
 /** `MYCEL_MOBILE_EDITION=<name>` reads editions/<name>/branding/mobile.json (only the fields src/product.ts accepts) and
  * the fixed asset names in editions/<name>/branding/mobile/. Without it the neutral Team AX defaults apply. */
-function edition(projectRoot: string): { values: unknown; service: unknown; source: unknown; assets: (Record<'icon' | 'adaptive' | 'splash' | 'notification', string> & { adaptiveBackground?: string; splashDark?: string }) | null } {
+function edition(projectRoot: string): { values: unknown; service: unknown; source: unknown; assets: (Record<'icon' | 'adaptive' | 'splash' | 'notification', string> & { adaptiveBackground?: string }) | null } {
   const name = process.env.MYCEL_MOBILE_EDITION
   if (!name) return { values: undefined, service: undefined, source: undefined, assets: null }
   if (!/^[a-z][a-z0-9-]{0,30}$/.test(name)) throw new Error('MYCEL_MOBILE_EDITION must be an edition folder name')
@@ -23,9 +23,9 @@ function edition(projectRoot: string): { values: unknown; service: unknown; sour
   const file = (n: string) => path.join(dir, 'mobile', n)
   const assets = { icon: file('icon.png'), adaptive: file('adaptive-icon.png'), splash: file('splash-icon.png'), notification: file('notification-icon.png') }
   if (!Object.values(assets).every(f => fs.existsSync(path.join(projectRoot, f)))) return { values, service, source, assets: null }
-  // optional: the Android icon's background picture (else the background colour) and the launch screen's dark-mode mark
+  // optional: the Android icon's background picture (else the background colour)
   const extra = (n: string) => fs.existsSync(path.join(projectRoot, file(n))) ? file(n) : undefined
-  return { values, service, source, assets: { ...assets, adaptiveBackground: extra('adaptive-background.png'), splashDark: extra('splash-icon-dark.png') } }
+  return { values, service, source, assets: { ...assets, adaptiveBackground: extra('adaptive-background.png') } }
 }
 
 function buildNumber(): string {
@@ -91,8 +91,9 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
       // aps-environment entitlement; Xcode's App Store export switches it to production.
       // Android's status bar icon is a white silhouette (otherwise the system shows a plain circle)
       ['expo-notifications', { defaultChannel: 'default', ...(chosen.assets ? { icon: chosen.assets.notification, color: product.accent } : {}) }],
-      // the launch screen follows the phone's light or dark mode when the edition has a dark mark (backgroundDark)
-      ['expo-splash-screen', { backgroundColor: background, ...(chosen.assets ? { image: chosen.assets.splash, imageWidth: 112 } : {}), ...(chosen.assets?.splashDark && product.backgroundDark ? { dark: { backgroundColor: product.backgroundDark, image: chosen.assets.splashDark } } : {}) }],
+      // the launch screen is the brand's light one in both of the phone's modes (owner 2026-11-17: the light logo is the
+      // brand, also on a phone in dark mode); no `dark` entry, so iOS and Android (values-night) get no dark variant
+      ['expo-splash-screen', { backgroundColor: background, ...(chosen.assets ? { image: chosen.assets.splash, imageWidth: 112 } : {}) }],
       // target 36 (Play's requirement since 2026-08-31); compile against 37, which the SDK 58 modules require
       ['expo-build-properties', { android: { targetSdkVersion: 36, compileSdkVersion: 37 } }],
       // release signing from the environment, never from a file in the repository (scripts/android-release.sh)
