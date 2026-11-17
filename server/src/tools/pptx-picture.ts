@@ -6,7 +6,8 @@
 // Before the second pandoc run, such a slide is rewritten into two columns (text, picture), which pandoc puts on the
 // "Two Content" layout: the title and the text keep the layout's size and bullets like every other slide. The alt
 // text of those pictures is dropped, so no caption is drawn (pandoc names the picture after its file either way).
-// Slides that already use columns, pictures alone, and pictures inside a sentence are left as they are.
+// Slides that already use columns, pictures alone, pictures inside a sentence, slides with more than one picture and
+// slides with a table are left as they are.
 
 type Node = { t?: string; c?: unknown }
 
@@ -53,9 +54,11 @@ export function pictureBesideText(ast: { blocks?: Node[] }, slideLevel: number):
     const notes = body.filter(isNotes)
     const rest = body.filter((b) => !isNotes(b))
     const pics = rest.map((b) => figureInlines(b) ?? pictureInlines(b))
-    const hasPicture = pics.some((p) => p !== null)
+    const images = pics.flatMap((p) => p ?? []).filter((x) => x.t === 'Image').length
     const hasText = pics.some((p) => p === null)
-    if (!hasPicture || !hasText || rest.some(isColumns)) { out.push(...body); body = []; return }
+    // one picture only: pandoc draws just the first picture of a column. No table: text then a table in one column
+    // goes on the "Comparison" layout, with the text in its small heading box.
+    if (images !== 1 || !hasText || rest.some((b) => isColumns(b) || b.t === 'Table')) { out.push(...body); body = []; return }
     const text = rest.filter((_, i) => pics[i] === null)
     const pictures = pics.filter((p): p is Node[] => p !== null).map(bare)
     // the column that comes first in the Markdown stays on the left

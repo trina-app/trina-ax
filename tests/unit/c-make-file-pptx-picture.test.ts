@@ -84,6 +84,13 @@ describe.skipIf(!pandoc)('make_file pptx: a photo on a slide with text (TC-4445)
     expect(s.notes).toBe(true)
   })
 
+  test('two photos beside text: none is dropped', async () => {
+    const md = '## Products\n\n- a\n\n![one](users/alice/photos/IMG_2041.png)\n\n![two](users/alice/photos/IMG_2041.png)\n'
+    const r = await make({ content: md, format: 'pptx', output: 'users/alice/deck/two.pptx', expected_slides: 1 })
+    expect(r.isError, r.text).toBe(false)
+    expect(slidePart('users/alice/deck/two.pptx', 1).xml.split('<p:pic>').length - 1).toBe(2)
+  })
+
   test('a slide with only a photo, and a deck without photos, are made as before', async () => {
     const r = await make({ content: '## Cover\n\n![Cover photo](users/alice/photos/IMG_2041.png)\n\n## Text\n\n- a\n- b\n', format: 'pptx', output: 'users/alice/deck/plain.pptx', expected_slides: 2 })
     expect(r.isError, r.text).toBe(false)
@@ -128,6 +135,11 @@ describe('pictureBesideText', () => {
       [h(2), para('x')],
       [h(2), { t: 'Para', c: [{ t: 'Str', c: 'see' }, { t: 'Space' }, img('a')] }],
       [h(2), para('x'), figure('a'), { t: 'Div', c: [['', ['columns'], []], []] }],
+      // pandoc draws only the first picture of a column, so two pictures stay where pandoc puts them
+      [h(2), para('x'), figure('a'), figure('b')],
+      [h(2), para('x'), { t: 'Para', c: [img('a'), { t: 'Space' }, img('b')] }],
+      // a table in the text column would go on the Comparison layout (text in its small heading box)
+      [h(2), para('x'), { t: 'Table', c: [] }, figure('a')],
     ]
     for (const blocks of cases) {
       const before = JSON.stringify(blocks)
