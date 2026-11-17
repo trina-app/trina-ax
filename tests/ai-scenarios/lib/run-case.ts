@@ -103,7 +103,7 @@ export async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string,
   const started = Date.now()
   let sent: { assistantMessage: { id: string } }
   try {
-    sent = await api.call(API.sendMessage, { params: { id: chatId }, body: { content: prompt, attachmentIds: [], clientMessageId: crypto.randomUUID() } })
+    sent = await api.call(API.sendMessage, { params: { id: chatId }, body: { content: prompt, attachmentIds: [], clientMessageId: crypto.randomUUID(), ...(c.timeZone ? { timeZone: c.timeZone } : {}) } })
   } catch (e) {
     // the app itself said no (a guest without AI, a limit): what the person reads is the message
     if (!(e instanceof ApiError)) throw e

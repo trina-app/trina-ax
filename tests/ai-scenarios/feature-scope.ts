@@ -60,7 +60,7 @@ export const FEATURE_SCOPE: Record<string, Scope> = {
   'files.edit': { reach: 'acts', tools: ['write', 'edit', 'edit_files', 'edit_hwp', 'make_file'] },
   'files.upload': { reach: 'acts', tools: ['chat_file', 'save_url', 'save_room_file'], why: 'files sent in a chat or a room, saved to the team folder' },
   'files.organize': { reach: 'acts', tools: ['move_files', 'copy_files', 'rename_file', 'delete_files'] },
-  'files.versions': { reach: 'explains' },
+  'files.versions': { reach: 'acts', tools: ['read'], why: 'read with versions: who changed a file and what changed (TC-4547); restoring an old version is explained (Files screen)' },
   'files.trash': { reach: 'acts', tools: ['delete_files'] },
   'files.share-links': { reach: 'acts', tools: ['share_file', 'share_with_person'] },
   'files.shared-with-me': { reach: 'acts', tools: ['shared_with_me', 'read', 'list'], why: 'the person\'s own chat and the ✦ side chat only; in a shared chat the AI explains where the list is' },

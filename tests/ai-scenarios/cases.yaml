@@ -1213,6 +1213,13 @@ cases:
       as: sora
       prompt: 라마바카페 건 방에서 정한 단가 여기 정리해줘
       expect: { outcome: explain, good: Rooms are not read in a shared chat (its members may not be in the room); says so plainly and offers the side chat or her own chat., checks: [] }
+    # TC-4549: a Jakarta browser on a Seoul team read every time two hours late (11:08 where the room showed 9:08 AM).
+    # The device zone goes with the turn; the times said must be the ones her screen shows.
+    - key: viewer-zone
+      context: personal
+      timeZone: Asia/Jakarta
+      prompt: In the Lamaba Cafe group chat, who said what about the price and at what time? Short list with times.
+      expect: { outcome: do, good: "Lists who said what about the price with the time of each message in Jakarta time (WIB, UTC+7), the times the room shows on her device: two hours earlier than the Seoul times in the team setting. No Seoul times; no 'KST'.", checks: [{ type: answer_matches, pattern: "27,?000" }, { type: answer_not_matches, pattern: "KST|Seoul" }] }
 
 - id: ROOM-03
   title: Thread replies
@@ -1552,6 +1559,25 @@ cases:
       - { type: answer_matches, pattern: "7일" }
   why: Team skills in folders with Korean names are left out without a word (server/src/chat/skills.ts SKILL_NAME_RE); first run 2026-11-16, FLOW-02.
 
+- id: SKL-12
+  title: A quote takes the next free number
+  features: [skills.list, files.edit]
+  lang: ko
+  context: personal
+  as: hana
+  prompt: quick-quote 스킬로 바나 상사 견적서 하나 만들어줘. A4 복사용지 10박스, 단가 27,000원.
+  followUps:
+    - 아 바나 상사 수량 12박스로 고쳐줘. 같은 견적서 수정이야.
+  reply: 네, 그렇게 해주세요.
+  expect:
+    outcome: do
+    good: "Her quotes folder already holds today's Q-<today>-01 (다라 치과의원). The new 바나 상사 quote gets the next free number, Q-<today>-02, never -01 again; the earlier -01 file is left as it is. The revision to 12 boxes keeps -02 (the same file updated, or a revised copy still numbered -02), never a new -03. Saying the 10-box version stays in the file's version history is true (an overwritten file keeps its earlier versions)."
+    checks:
+      - { type: file_created, file: "users/hana/견적/Q-*-02*" }
+      - { type: no_file_created, file: "users/hana/견적/Q-*-01*" }
+      - { type: no_file_created, file: "users/hana/견적/Q-*-03*" }
+  why: "TC-4550: on qa three quotes made with a skill that showed Q-YYYYMMDD-01 were all -01 in the same folder (the AI copied the example). Fixed by the running-number line in every skill block (chat/prompt.ts RUNNING_NUMBER_RULE, docs/decisions/20261117-quote-next-number.md). The -01 file is made at every `up` (fixture/seed.ts), so it carries today's date."
+
 # ================================================================ schedules
 - id: SCH-01
   title: A reminder
@@ -1572,6 +1598,11 @@ cases:
       expect: { outcome: explain, good: Schedules are not made from a shared chat; says plainly where she can make it., checks: [{ type: tool_not_used, tools: [schedule_create] }] }
     - key: room
       context: room-side
+    # TC-4549 review: her device is in Jakarta, the team in Seoul. Schedules run in the team zone, so 9:00 for her is
+    # 11:00 in the schedule; she is told 9:00 (her time).
+    - key: viewer-zone
+      timeZone: Asia/Jakarta
+      expect: { outcome: do, good: "Sets the reminder for Thursday at 11:00 in the team zone (Seoul), which is 09:00 on her Jakarta device, after the card, and tells her 9 AM (her time). A schedule at 09:00 Seoul (07:00 for her) is wrong.", checks: [{ type: tool_used, any: [schedule_create] }] }
     - key: guest
       context: guest
       as: partner
@@ -2019,6 +2050,7 @@ cases:
     good: Points to Settings › usage and account deletion; no invented numbers.
     checks: []
 
+
 - id: HOME-01
   title: What can I do here
   features: [home.start, onboarding.member-welcome, onboarding.welcome, onboarding.goal]
@@ -2171,7 +2203,7 @@ cases:
   prompt: 우리 팀 시간대 서울로 돼 있는지 확인하고 아니면 바꿔줘
   expect:
     outcome: explain
-    good: Where to see or change it (Admin › Team settings); no invented answer.
+    good: Says the team time zone is already Seoul (Asia/Seoul), so nothing needs changing, and where to see or change it (Admin › Team settings); no invented answer.
     checks: []
   variants:
     - key: member
@@ -2179,6 +2211,15 @@ cases:
       lang: en
       prompt: Change our team's time zone to Seoul.
       expect: { outcome: refuse, good: Only the owner or admins; plain words., checks: [] }
+    # TC-3700: the answer said it had not opened the setting and still said "yes, Seoul" (the zone in its
+    # instructions is the team setting; the instructions now say so)
+    - key: ask
+      as: sora
+      prompt: 우리 팀 시간대 서울로 설정돼 있어?
+      expect:
+        outcome: do
+        good: Says the team time zone is set to Seoul (Asia/Seoul) and that an owner or admin changes it in Admin; never says it could not check while also answering.
+        checks: [{ type: answer_matches, pattern: "서울|Seoul" }]
 
 - id: ADM-06
   title: Plugins and voice

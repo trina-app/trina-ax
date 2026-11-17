@@ -268,6 +268,21 @@ flows:
       checks:
         - { type: answer_matches, pattern: "12/5|12월 5일|Dec(ember)? 5" }
 
+- id: FL-30
+  title: A teammate changes one line of a shared file; the AI says who changed what (QA TC-4547)
+  group: office
+  features: [files.versions, files.view]
+  steps:
+    - say: daniel moves the next meeting in the shared meeting notes
+      event: { type: file_edit, as: daniel, path: "shared/회의록/2026-11-10-주간회의.md", from: "오전 10시", to: "오후 3시" }
+    - say: sora asks what daniel changed
+      ask: { as: sora, chat: s1, prompt: "다니엘이 주간회의 회의록에서 뭐 바꿨어?" }
+      checks:
+        - { type: tool_used, any: [read] }
+        - { type: answer_matches, pattern: "오전 10시" }
+        - { type: answer_matches, pattern: "오후 3시" }
+        - { type: answer_not_matches, pattern: "버전 기록.{0,20}(없|못)|version history" }
+
 # ================================================================ making things (kept small)
 - id: FL-14
   title: "A proposal (1 page): draft, a comment in the room, revise, share"

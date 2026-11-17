@@ -78,6 +78,9 @@ const CaseFields = {
   /** it may change who can open what (access, people, skill places, "Always allow"): it runs alone, after the others
    * (cases of the features in STATE_FEATURES do so anyway) */
   changesState: z.boolean().default(false),
+  /** the asker's device time zone, sent with each turn as the web app does (IANA, e.g. Asia/Jakarta; QA TC-4549):
+   * the AI gives its times in it. Without it no zone is sent (the team's is used). */
+  timeZone: z.string().optional(),
   /** in the first, representative pass (`run --first-pass`) */
   pass1: z.boolean().default(false),
   /** why this case exists (the incident, the decision) */
@@ -91,8 +94,10 @@ export const Variant = z.object({
   key: z.string().regex(/^[a-z0-9-]+$/),
   // without the base fields' defaults: a field the variant leaves out comes from the base case, not from the default
   ...Object.fromEntries(Object.entries(CaseFields).map(([k, v]) => [k, (v instanceof z.ZodDefault ? (v.unwrap() as z.ZodType) : (v as z.ZodType)).optional()])) as { [K in keyof typeof CaseFields]: z.ZodOptional<z.ZodType<z.output<(typeof CaseFields)[K]>>> },
-})
-export const CaseInput = z.object({ id: z.string().regex(/^[A-Z]+-\d{2,3}$/), ...CaseFields, variants: z.array(Variant).default([]) })
+}).strict()
+// strict: a field this runner does not know (a newer cases.yaml read by an older runner) stops the run instead of being
+// dropped. TC-4549: an older runner dropped `timeZone`, ran the Jakarta cases with no zone and reported Seoul times.
+export const CaseInput = z.object({ id: z.string().regex(/^[A-Z]+-\d{2,3}$/), ...CaseFields, variants: z.array(Variant).default([]) }).strict()
 export const Catalog = z.object({ version: z.number().int().positive(), cases: z.array(CaseInput) })
 
 export interface ToolCall { name: string; input: unknown; ok: boolean; result?: string }

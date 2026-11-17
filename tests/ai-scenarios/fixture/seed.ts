@@ -16,6 +16,8 @@ export const PERSONAL_FILES = path.join(import.meta.dir, 'personal')
 /** every fixture account signs in with this (a local, throwaway test server; never a real team) */
 export const PASSWORD = DEMO_PASSWORD
 export const GUEST = { username: 'partner', name: '라마바카페 구매담당', password: DEMO_PASSWORD }
+/** the team's time zone (Admin › Team settings) */
+export const TEAM_ZONE = 'Asia/Seoul'
 export const PROJECT = { name: '라마바카페 납품', folderPath: 'projects/라마바카페-납품' }
 export const ROOM_NAME = '라마바카페 건'
 
@@ -54,7 +56,7 @@ export const COMPANY: DemoCompany = {
     website: '', name: '가나다오피스', oneLine: '서울의 사무용품 유통 회사(가상)', products: '복사용지, 문구, 사무 소모품 납품',
     audience: '카페, 학원, 병원 같은 소규모 거래처', tone: ['정중하게', '짧게'], avoid: '', sources: [],
   },
-  settings: { timeZone: 'Asia/Seoul' },
+  settings: { timeZone: TEAM_ZONE },
 }
 
 export interface FixtureState {
@@ -97,6 +99,16 @@ export async function seedFixture(o: { base: string; setupToken: string | null; 
     }
   }
   for (const u of fs.readdirSync(PERSONAL_FILES)) await putPersonal(await login(o.base, u, PASSWORD), `users/${u}`, path.join(PERSONAL_FILES, u))
+  // TC-4550: hana's quotes folder already holds today's first quote (today in the team's zone, as the AI reads it), so a
+  // new quote made with her quick-quote skill takes -02. Made at every `up`: a fixture file could not carry today's date.
+  {
+    const hana = await login(o.base, 'hana', PASSWORD)
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: TEAM_ZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()).replaceAll('-', '')
+    try { await hana.call(API.mkdir, { body: { path: 'users/hana/견적' } }) } catch (e) { if (!(e instanceof ApiError && e.status === 409)) throw e }
+    const name = `Q-${today}-01-다라치과.md`
+    const text = `# 견적서\n\n- 견적번호: Q-${today}-01\n- 거래처: 다라 치과의원\n\n| 품목 | 수량 | 단가 | 금액 |\n|---|---|---|---|\n| A4 복사용지 (박스) | 5 | 27,000 | 135,000 |\n\n공급가액 135,000원 · 부가세 13,500원 · 합계 148,500원\n`
+    try { await hana.call(API.upload, { body: { fields: { folder: 'users/hana/견적', name, onExists: 'fail' }, file: new Blob([text]), filename: name } }) } catch (e) { if (!(e instanceof ApiError && e.status === 409)) throw e }
+  }
   // what sora shared by name (for the "shared with me" cases): her visit memo with hana, her proposal folder with daniel.
   // Both are view only; a share that the server refuses (a team without file sharing) is only said, the cases then fail as setup.
   const sora0 = await login(o.base, 'sora', PASSWORD)
