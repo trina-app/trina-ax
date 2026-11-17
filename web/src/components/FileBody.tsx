@@ -11,7 +11,7 @@
 // page pictures (viewers/HwpView: the HWP Preview plugin), a team file's by its path and, while the preview is on here
 // (Me.server.hwpPreview), a room file's through the room (/api/rooms/:id/files/:fileId/hwp-preview).
 import clsx from 'clsx'
-import { Download, Loader2 } from 'lucide-react'
+import { Download } from 'lucide-react'
 import Papa from 'papaparse'
 import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
@@ -33,7 +33,7 @@ import ExternalImagesNote from './ExternalImagesNote'
 import { useFrameFiles } from '../lib/useFrameFiles'
 import { useMe } from '../store/session'
 import { fileRead, keptFile, sameBytes } from '../store/teamFiles'
-import { Button, useMediaQuery } from './ui'
+import { Button, PreviewLoading, useMediaQuery } from './ui'
 import { Tooltip } from './Tooltip'
 import { useViewerItem } from './ImageViewer'
 
@@ -226,17 +226,15 @@ export default function FileBody({ file, loaded, width, download, onRetry, openP
       </p>
     )
   if (renderer === 'hwp' && file.source === 'team')
-    return <Suspense fallback={<p className="p-6 text-sm text-faint">{t('common.loading')}</p>}><HwpView key={file.path} source={{ kind: 'team', path: file.path }} download={download} startPage={file.at?.kind === 'page' ? file.at.page : undefined} /></Suspense>
+    return <Suspense fallback={<PreviewLoading label={t('common.loading')} />}><HwpView key={file.path} source={{ kind: 'team', path: file.path }} download={download} startPage={file.at?.kind === 'page' ? file.at.page : undefined} /></Suspense>
   if (renderer === 'hwp' && file.source === 'room')
-    return <Suspense fallback={<p className="p-6 text-sm text-faint">{t('common.loading')}</p>}><HwpView key={file.fileId} source={{ kind: 'room', roomId: file.roomId, fileId: file.fileId }} download={download} /></Suspense>
+    return <Suspense fallback={<PreviewLoading label={t('common.loading')} />}><HwpView key={file.fileId} source={{ kind: 'room', roomId: file.roomId, fileId: file.fileId }} download={download} /></Suspense>
   if (renderer === 'hwp' || renderer === 'loading' || !blob || !kind)
     return (
-      <p className="flex items-center gap-2 p-6 text-sm text-faint">
-        <Loader2 size={14} className="animate-spin" aria-hidden /> {t('common.loading')}
-      </p>
+      <PreviewLoading label={t('common.loading')} />
     )
   return (
-    <Suspense fallback={<p className="p-6 text-sm text-faint">{t('common.loading')}</p>}>
+    <Suspense fallback={<PreviewLoading label={t('common.loading')} />}>
       <Viewer renderer={renderer} kind={kind} blob={blob} width={width} name={file.name} at={file.source === 'team' ? file.at : undefined} path={file.source === 'team' ? file.path : null} download={download} file={file} openPicture={openPicture} thumbnails={thumbnails} />
     </Suspense>
   )
@@ -349,9 +347,7 @@ function TextKinds({ kind, blob, name, path }: { kind: PreviewKind; blob: Blob; 
   if (framed && scripts === null) return null
   if (framed && !files)
     return (
-      <p className="flex items-center gap-2 p-6 text-sm text-faint">
-        <Loader2 size={14} className="animate-spin" aria-hidden /> {t('common.loading')}
-      </p>
+      <PreviewLoading label={t('common.loading')} />
     )
   // on a phone, an HTML page wider than the preview (a quotation drawn as a 794 px page) is fitted to its width, with
   // "실제 크기" above it, and a pinch inside it zooms the page (lib/pageFit.ts; QA TC-259). Computers: as before

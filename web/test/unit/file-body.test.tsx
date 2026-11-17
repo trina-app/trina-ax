@@ -183,6 +183,10 @@ test('the card, busy and error states from the bytes read', async () => {
 
   const loading = await body(room, { kind: 'pdf', blob: null, error: null, downloadOnly: false })
   expect(loading.container.textContent).toContain(en('common.loading'))
+  // the wait is one shared block that fills the preview area and centres the spinner and its words (TC-4751)
+  const wait = loading.container.querySelector('[data-testid="preview-loading"]')
+  expect(wait?.getAttribute('role')).toBe('status')
+  expect(wait?.getAttribute('class')).toMatch(/h-full[\s\S]*items-center[\s\S]*justify-center/)
 })
 
 test('a picture opens the image viewer alone, or the caller\'s viewer when it passes one', async () => {

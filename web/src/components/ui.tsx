@@ -176,6 +176,19 @@ export function Spinner({ className, label }: { className?: string; label?: stri
   )
 }
 
+/** The wait inside a file preview (the side panel, the Files screen, a chat's file, the full-page viewer, a shared
+ * link): the spinner and its words in the middle of the preview area, whatever the viewer behind it is. It fills the
+ * scroll box it sits in (`h-full`, at least 10rem when that box has no height of its own), so the paper page around it
+ * keeps its size when the file appears. */
+export function PreviewLoading({ label, testId = 'preview-loading' }: { label: string; testId?: string }) {
+  return (
+    <div role="status" className="flex h-full min-h-40 w-full items-center justify-center gap-2 p-6 text-sm text-faint" data-testid={testId}>
+      <Loader2 size={14} className="animate-spin" aria-hidden />
+      <span>{label}</span>
+    </div>
+  )
+}
+
 /** A wait people can see (QA TC-2132): the spinner, what it waits for, and under it how long it can take (`hint`: a
  * truthful limit, from the constant that ends the wait). One `status` region for both lines. */
 export function WaitLine({ text, hint, className, testId }: { text: ReactNode; hint?: ReactNode; className?: string; testId?: string }) {
