@@ -50,6 +50,7 @@ import { authorize } from '../policy/authorize'
 import { inZone } from '../policy/zone'
 import { cardNext, cardReason, refusal, type CardEnd } from '../policy/refusal'
 import { confidentialChat } from '../safe-ops/confidential'
+import { seenWhy } from './grant-reads'
 import { tr } from './i18n'
 import { placeWords } from './place-words'
 import { groupSubject, matchName, shownName, type Subject } from './project-members'
@@ -292,7 +293,7 @@ export function folderAccessToolFor(exec: FolderExec): Tool {
     // ---- the card, with "Always allow" (kind folder_access, the owner's 11-13 rule; Rule A: once chosen it is final, no
     // card). No explicit-ask skip (M8). A narrowing that would take file links away is never decided by "Always allow":
     // it keeps the links (removeFileLinks false), the person's choice is only ever theirs on the card ----
-    const card = cardOf(p, L, readRooms(exec) ? tr('roomsSeenWhy', L) : null)
+    const card = cardOf(p, L, readRooms(exec) ? tr(seenWhy(exec, 'roomsSeenWhy'), L) : null)
     const requestId = uuidv7()
     const base = { subjectType: subject.subjectType, gained: p.gainedCount, lost: p.lostCount, requestId, ...(alwaysOn ? { always: true } : {}) }
     state.shown++
