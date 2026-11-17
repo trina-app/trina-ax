@@ -162,6 +162,14 @@ describe('a request to open my file', () => {
 })
 
 describe('what else stops a request push (security review of #1118)', () => {
+  // many askers for the day's cap below (the request limits are per asker): 12 new members, each a few password hashes
+  // (64 MiB argon2id), took 3-7.5 s on CI runners inside the test and ran past bun's 5 s limit. Made here, side by side
+  // (the server runs 4 hashes at once).
+  let askers: Client[] = []
+  beforeAll(async () => {
+    askers = (await Promise.all(Array.from({ length: FILE_REQUEST_PUSHES_PER_DAY + 2 }, (_, i) => addMember(h, owner, { username: `asker${i}` })))).map((m) => m.client)
+  }, 60_000)
+
   test('the file deleted, or moved away outside the app: not wanted, and an old tap opens nothing', async () => {
     const a = `users/${ids.alice}/gone-trash.txt`, b = `users/${ids.alice}/gone-disk.txt`
     await put(alice, a, 'a'); await put(alice, b, 'b')
@@ -205,9 +213,8 @@ describe('what else stops a request push (security review of #1118)', () => {
   })
 
   test(`at most ${FILE_REQUEST_PUSHES_PER_DAY} request pushes a day to one person from many askers; the rest land in Activity alone`, async () => {
-    // many askers (the request limits are per asker): fresh members, one request each to olga's files
-    const askers: Client[] = []
-    for (let i = 0; i < FILE_REQUEST_PUSHES_PER_DAY + 2; i++) askers.push((await addMember(h, owner, { username: `asker${i}` })).client)
+    // one request from each fresh member (made above) to olga's files
+    expect(askers).toHaveLength(FILE_REQUEST_PUSHES_PER_DAY + 2)
     // olga's earlier request pushes (the team-file test above) are not today's count here
     h.ctx.db.query('DELETE FROM file_share_push_deliveries WHERE notification_id IN (SELECT id FROM file_share_notices WHERE user_id = ?)').run(ids.olga)
     const ph = phones([ids.olga])
@@ -227,7 +234,7 @@ describe('what else stops a request push (security review of #1118)', () => {
       const rows = ((await owner.call('GET', '/api/notifications?limit=100')).items as any[]).filter((x) => x.eventType === 'file.access_requested' && x.fileShare?.canAnswer)
       expect(rows.length).toBeGreaterThanOrEqual(askers.length)
     } finally { await ph.p.stop() }
-  }, 30_000) // 12 members and 12 requests: 3-4.6 s on CI runners, too close to bun's 5 s default
+  })
 })
 
 describe('Settings › Notifications "File sharing"', () => {
