@@ -24,6 +24,7 @@ import { markConfidentialTurn } from '../../server/src/safe-ops/confidential'
 import { chatUrls } from '../../server/src/tools/url-gate'
 import { setLauncherForgetForTests } from '../../server/src/chat/forget'
 import { SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
+import { PROJECT_SEARCH_NOTE } from '../../server/src/chat/search-path'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, SHARED_PROMPT_SECTIONS, subagentPromptSections, turnContextSections, turnPromptSections, type PromptInput } from '../../server/src/chat/prompt'
 import { loadPrincipal } from '../../server/src/policy/access'
 import { runExport } from '../../server/src/system/export'
@@ -412,6 +413,32 @@ describe('the read card', () => {
     const listing = await ask('alice', chat.id, fake({ tool: 'list', args: { path: '' } }, { say: 'listed' }))
     expect(listing.done.content).toBe('listed')
     expect(cards()).toBe(n)
+  })
+
+  test('a search that stayed in the project folder says so once; path "/" looks through every folder behind the card (FIND-01)', async () => {
+    const chat = await newShared()
+    // no path: the result says only the project folder was searched, and how to look further, naming no folder
+    const quiet = await ask('alice', chat.id, fake({ tool: 'grep', args: { pattern: 'Autumn|Falcon' }, sayResult: true }, { tool: 'glob', args: { pattern: '**/*.md', path: '' }, sayResult: true }))
+    expect(quiet.done.content).toContain(PROJECT_SEARCH_NOTE)
+    // once a turn
+    expect(quiet.done.content.split(PROJECT_SEARCH_NOTE).length).toBe(2)
+    expect(PROJECT_SEARCH_NOTE).not.toMatch(/groups|marketing|users\//)
+    // "/": the team root as alice can open it; marketing and her own folder are not bob's, so the card asks first
+    const wide = await askWithCard('alice', chat.id, fake({ tool: 'grep', args: { pattern: 'Autumn', path: '/' }, sayResult: true }), 'share')
+    expect((wide.card as { question: string }).question).toContain('your personal folder')
+    expect(wide.done.content).toContain('groups/marketing/campaign-brief.md')
+    expect(wide.done.content).not.toContain(PROJECT_SEARCH_NOTE)
+    // a no reads nothing from there
+    const no = await askWithCard('alice', chat.id, fake({ tool: 'glob', args: { pattern: '**/campaign-brief.md', path: '/' }, sayResult: true }), 'skip')
+    expect(no.done.content).not.toContain('campaign-brief')
+  })
+
+  test('sharing with a group the asker is not in says the plain limit first, before any file rule (SHR-01)', async () => {
+    const chat = await newShared()
+    const r = await ask('alice', chat.id, fake({ tool: 'share_with_person', args: { paths: ['users/alice/todo.md'], people: ['finance team'] }, sayResult: true }))
+    expect(r.done.content).toContain('the user is not in a group by that name, and a member shares files only with groups they are in')
+    expect(r.done.content).toContain('sharing it with the people of that group by name')
+    expect(r.done.content).not.toContain('a file is shared only when the user named it')
   })
 
   test("an admin's listing that shows names others cannot see asks first", async () => {

@@ -28,6 +28,7 @@ describe('screen names the AI is told match the app', () => {
       expect(SCREEN.connectors(L)).toBe(`Settings › Connectors ("${d['settings.title']} › ${d['integrations.title']}")`)
       expect(SCREEN.adminMcp(L)).toBe(`Admin › Connected apps ("${d['admin.title']} › ${d['admin.integrations']}")`)
       expect(SCREEN.adminSettings(L)).toBe(`Admin ("${d['admin.title']}")`)
+      expect(SCREEN.sharedWithMe(L)).toBe(`Files › Shared with me ("${d['sidebar.files']} › ${d['filesPanel.shared']}")`)
     }
   })
 })

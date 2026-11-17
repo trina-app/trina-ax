@@ -163,6 +163,8 @@ const LABEL = {
   history: t('버전 기록', 'Version history', 'Riwayat versi', 'バージョン履歴', 'Historial de versiones', '版本历史'),
   // Admin › System › Connected folders (web connected.title)
   connectedFolders: t('연결 폴더', 'Connected folders', 'Folder tersambung', '接続済みフォルダー', 'Carpetas conectadas', '已连接的文件夹'),
+  // Files › Shared with me: the files panel's section of files and folders shared with the person (web filesPanel.shared)
+  sharedWithMe: t('나에게 공유된 파일', 'Shared with me', 'Dibagikan ke saya', '自分に共有されたファイル', 'Compartidos conmigo', '与我共享的文件'),
   // a shared project chat's title menu (web chat.continuePrivately)
   continuePrivately: t('나만 보는 채팅에서 이어 하기', 'Continue in a chat only you see', 'Lanjutkan di obrolan yang hanya Anda lihat', '自分だけのチャットで続ける', 'Continuar en un chat que solo ve usted', '在只有你能看到的对话中继续'),
   // the button under an answer in a person's own chat that sends it to the team's skill managers (web suggest.button)
@@ -202,6 +204,8 @@ export const SCREEN = {
   /** a shared project chat's title menu item that opens a new private chat in the same project with the last question
    * (web chat.continuePrivately) */
   continuePrivately: (L: Locale) => LABEL.continuePrivately[L],
+  /** Files › Shared with me: what teammates shared with the person one by one */
+  sharedWithMe: (L: Locale) => `Files › Shared with me ("${LABEL.files[L]} › ${LABEL.sharedWithMe[L]}")`,
 } as const satisfies Record<string, (L: Locale) => string>
 
 // ---------------- who can give access ----------------

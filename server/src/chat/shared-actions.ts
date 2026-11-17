@@ -118,6 +118,9 @@ const AFTER_PERSON = `${HONORIFIC}(?:\\uC774\\uC5D0\\uAC8C|\\uC774\\uD55C\\uD14C
 /** "(가) 볼 수 / 보게" names a person only with 이/가 or 님/씨 on the name ("바로 볼 수 있게" is an adverb) */
 const SEES_AFTER_HONORIFIC = '\\s?(?:\\uB2D8|\\uC528)(?:\\uC774|\\uAC00)?\\s?(?:\\uBCFC\\s?\\uC218(?!\\s?\\uC5C6)|\\uBCF4\\uAC8C|\\uBCF4\\uB3C4\\uB85D)'
 const JOIN_KO = '(?:\\uC774\\uD558\\uACE0|\\uC774\\uB791|\\uD558\\uACE0|\\uB791|\\uC640|\\uACFC)'
+/** "(님)이랑/랑/와/과/하고 공유" right after a name: share WITH that person ("민호 님이랑 공유해줘", AI scenario FSH-01,
+ * 2026-11-17). Only with the share word itself next to it: "민호 님과 회의한 내용 공유해줘" is about a meeting with 민호 */
+const JOIN_SHARE_KO = `${HONORIFIC}${JOIN_KO}\\s?\\uACF5\\uC720`
 const AFTER_PLACE = '(?:\\uC5D0\\uB2E4\\uAC00|\\uBC29\\uC73C\\uB85C|\\uCC44\\uB110\\uC5D0|\\uC5D0\\uB2E4|\\uD55C\\uD14C|\\uBC29\\uC5D0|\\uC5D0\\uAC8C|\\uC5D0|\\uAED8)'
 function holdsAsRecipient(text: string, n: string, place: boolean, peers: readonly string[] = []): boolean {
   if (!holdsName(text, n)) return false
@@ -125,7 +128,7 @@ function holdsAsRecipient(text: string, n: string, place: boolean, peers: readon
   const L = '(?<![\\p{L}\\p{N}])'
   const R = '(?:(?![\\p{L}\\p{N}])|(?=\\p{Script=Hangul}))'
   if (new RegExp(`${place ? BEFORE_PLACE : AFTER_ONE_NAMED + BEFORE_PERSON}${e}${R}`, 'u').test(text)) return true
-  if (new RegExp(`${L}${e}(?:${place ? AFTER_PLACE : `${AFTER_PERSON}|${SEES_AFTER_HONORIFIC}`})`, 'u').test(text)) return true
+  if (new RegExp(`${L}${e}(?:${place ? AFTER_PLACE : `${AFTER_PERSON}|${SEES_AFTER_HONORIFIC}|${JOIN_SHARE_KO}`})`, 'u').test(text)) return true
   const ps = [...new Set(peers.map(fold))].filter((p) => p.length >= 2 && p !== n).slice(0, 10).map(escapeRe)
   if (place || !ps.length) return false
   const P = `(?:${ps.join('|')})`
@@ -203,8 +206,20 @@ export function namesFile(said: string, rel: string): boolean {
   if (!text) return false
   const name = fold(rel.split('/').pop() ?? '')
   const stem = name.replace(/\.[^.]+$/, '')
-  return [fold(rel), name, stem].some((n) => n.length >= 3 && holds(text, n))
+  if ([fold(rel), name, stem].some((n) => n.length >= 3 && holds(text, n))) return true
+  const core = coreName(stem)
+  return core !== stem && core.length >= 3 && holdsCore(text, core)
 }
+
+/** The name without its date or number (coreName) in the person's words, with no other date or number right after it
+ * ("ledger-3" never names ledger-4.txt) and, outside Hangul, as a whole word. */
+const holdsCore = (said: string, core: string): boolean =>
+  new RegExp(`${HANGUL.test(core) ? '' : `(?<!${WORD_EDGE})`}${escapeRe(core)}(?![\\s_\\-.]*v?\\d)${HANGUL.test(core) ? '' : `(?!${WORD_EDGE})`}`, 'iu').test(said)
+
+/** A file's name without the date, number or version at its end: "단가표" for 단가표-2026, "report" for report_v2,
+ * "견적서-라마바카페" for 견적서-라마바카페-2026-11 (people call a file by what it is: AI scenario SHR-01, 2026-11-17).
+ * The name itself when nothing is cut. */
+export const coreName = (stem: string): string => stem.replace(/(?:[\s_\-.]+v?\d[\d\s_\-.]*)+$/i, '').trim()
 
 /** Quotation marks a person puts around a name: straight, curly, corner brackets, guillemets, backticks. */
 const QUOTES: readonly [string, string][] = [['"', '"'], ['“', '”'], ["'", "'"], ['‘', '’'], ['「', '」'], ['『', '』'], ['«', '»'], ['`', '`']]
@@ -357,8 +372,12 @@ export const asksFor = (verbs: RegExp, said: string): boolean => verbs.test(said
 export function namesFileLoose(said: string, rel: string): boolean {
   if (namesFile(said, rel)) return true
   const squash = (x: string) => fold(x).replace(/[\s_.\-]+/g, '')
-  const stem = squash((rel.split('/').pop() ?? '').replace(/\.[^.]+$/, ''))
-  return HANGUL.test(stem) && stem.length >= 3 && squash(said).includes(stem)
+  const raw = (rel.split('/').pop() ?? '').replace(/\.[^.]+$/, '')
+  const said0 = squash(said)
+  const full = squash(raw), core = squash(coreName(raw))
+  if (HANGUL.test(full) && full.length >= 3 && said0.includes(full)) return true
+  // (also without the date or number at its end, with no other one right after it in the person's words)
+  return core !== full && HANGUL.test(core) && core.length >= 3 && new RegExp(`${escapeRe(core)}(?!v?\\d)`, 'u').test(said0)
 }
 
 /** A person or place named in full in the person's words (a full name, a username, a room's name; two letters at

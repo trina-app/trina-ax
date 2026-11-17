@@ -66,7 +66,11 @@ export function sharedWithMeTool(exec: TurnExec): Tool {
       const a = SharedWithMeInput.safeParse(args)
       if (!a.success) return text('Invalid input: ' + a.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '), true)
       const off = sharedWithMeOff(exec)
-      if (off) return { ...text(`Not available here (${off}). Ask the user for the file's link.`, true), summary: 'shared_with_me -> refused: not here' }
+      // a shared chat: files shared with the person are theirs alone, and their links do not open here either (no grant
+      // reads): where they are instead, never "send the link" (AI scenario SWM-01.project)
+      if (off) return { ...text(exec.shared
+        ? 'Not available in a shared chat: files and folders shared with the user one by one are theirs alone, and they do not open here. Tell the user plainly that they can open them in Files › Shared with me, or ask in a chat only they see. Do not search their own folder for them.'
+        : `Not available here (${off}). Ask the user for the file's link.`, true), summary: 'shared_with_me -> refused: not here' }
       const main = mainOnly(exec, files)
       if (main === 'sub-agent') return { ...text('Not available to a sub-agent. The main assistant passes you the file\'s link.', true), summary: 'shared_with_me -> refused: sub-agent' }
       if (main === 'disabled') return { ...text('Access denied: this account is disabled.', true), summary: 'shared_with_me -> denied: account disabled' }
