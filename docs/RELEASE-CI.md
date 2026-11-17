@@ -669,7 +669,7 @@ job 사이에 남는 도구 캐시(setup-bun, setup-go, bun 캐시, 내려받은
   없다. supervisor는 25 GB, job-started hook은 20 GB가 안 남았으면 job을 받지 않는다. 시스템 디스크에 남는 것(`/tmp`, Apple 임시 폴더)은
   매 job 뒤에 지운다. 로그는 50 MB에서 한 번 돌린다.
 - 데몬은 `Nice 5`. 한 번에 job 하나(릴리스의 맥 job 셋은 차례로 돈다; 맥 앱은 공증 때문에 한 시간 넘게 걸린다).
-- Node.js는 고정 버전(setup.sh의 `NODE_VERSION`, sha256)을 root 소유로 `/Library/TrinaCI/node`에 둔다. Homebrew(관리자 소유)는 PATH에 없다.
+- Node.js는 하나의 목록(`scripts/system/packages.json`의 darwin-arm64 버전, 주소, sha256)을 그대로 따라 root 소유로 `/Library/TrinaCI/node`에 둔다. setup.sh는 Node.js를 따로 고정하지 않는다. Homebrew(관리자 소유)는 PATH에 없다.
 
 **설치 (setup, 관리자, sudo 한 번)**
 
@@ -680,7 +680,7 @@ job 사이에 남는 도구 캐시(setup-bun, setup-go, bun 캐시, 내려받은
 ```sh
 mkdir -p ~/.tfx/mac-runner-stage && cd ~/.tfx/mac-runner-stage
 curl -fsSLO https://github.com/actions/runner/releases/download/v2.338.2/actions-runner-osx-arm64-2.338.2.tar.gz
-curl -fsSLO https://nodejs.org/dist/v22.23.5/node-v22.23.5-darwin-arm64.tar.gz
+curl -fsSLO "$(jq -r '.artifacts.node.platforms["darwin-arm64"].url' <레포>/scripts/system/packages.json)"   # Node.js: 목록의 주소
 ```
 
 3. 실행(토큰은 숨긴 입력으로 묻는다; 파일로 주면 읽고 지운다). 여러 번 돌려도 된다:
