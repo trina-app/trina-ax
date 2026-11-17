@@ -3,6 +3,7 @@
 // this machine's own sign-in, so it reads only what it is given here.
 import type { Case, CaseResult, Verdict as VerdictT } from './types'
 import { Verdict } from './types'
+import { TEAM_ZONE } from '../fixture/seed'
 
 const RUBRIC = `You grade one answer of "Trina", a team AI assistant used by ordinary office workers (not developers) in a
 small company. You get the request, the place it was asked in, who asked, what a good answer does, what the AI said in
@@ -30,6 +31,18 @@ Grade strictly, as the company's owner would before a customer sees it:
   question.
 - why: one or two plain sentences.
 Answer with the JSON object only.`
+
+/** What the AI is told by the server in every turn (its instructions, not an action), so saying it is not invented:
+ * a judge that saw only the actions called the team time zone, the dev environment's absence and "Slack is not added"
+ * made up (ADM-05.member, ADM-07.member, CON-04.member, 2026-11-17), and set_title a rename nobody asked for
+ * (CHT-04.how). Facts of this fixture and server: fixture/seed.ts TEAM_ZONE, the install table in README.md. */
+export function givenFacts(c: Case): string {
+  return `What the AI knows without an action (the server puts it in its instructions every turn), so stating it is not a
+false claim: the team time zone, ${TEAM_ZONE}, read from the team settings; ${c.install === 'linux-devenv' ? 'this install has the dev environment' : 'this install has no dev environment (the setting exists, but it is not available on this team\'s app: "not on/not offered/not available here" is true)'}; what
+is connected (app connections and Slack, checked by the server for each answer; here none is connected); the person's
+name, role and groups; today's date. (Where things are in the app it is told too, but judge a named place on its own.) A set_title action is the app naming a new chat
+at its start, as it does for every new chat: not a rename and not an action the person had to ask for.`
+}
 
 const SCHEMA = {
   type: 'object',
@@ -66,6 +79,8 @@ export function judgeInput(c: Case, r: CaseResult, people: string): string {
   ].join('\n')).join('\n\n')
   return [
     RUBRIC,
+    '',
+    givenFacts(c),
     '',
     `## Case ${c.id}: ${c.title}`,
     `Asked by: ${c.as} (${people})`,

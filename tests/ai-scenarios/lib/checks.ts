@@ -164,6 +164,11 @@ function one(check: Check, ctx: Ctx): { ok: boolean; detail: string } {
       const hit = check.any.filter((t) => tools.includes(t))
       return { ok: hit.length > 0, detail: hit.length ? `used ${hit.join(', ')}` : `none of ${check.any.join(', ')} (used: ${[...new Set(tools)].join(', ') || 'none'})` }
     }
+    case 'page_made': {
+      const files = matches(ctx, check.file)
+      const ok = tools.includes('artifact') || files.length > 0
+      return { ok, detail: tools.includes('artifact') ? 'used artifact' : files.length ? `saved ${files.join(', ')}` : `no artifact and nothing matches ${check.file}` }
+    }
     case 'tool_not_used': {
       const hit = check.tools.filter((t) => tools.includes(t))
       return { ok: hit.length === 0, detail: hit.length ? `used ${hit.join(', ')}` : 'not used' }
