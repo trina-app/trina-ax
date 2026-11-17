@@ -436,7 +436,7 @@ describe('the push', () => {
       expect(codes.some((s) => s.payload.code === 'access.requested')).toBe(true)
       expect(codes.some((s) => s.payload.code === 'file.access_requested')).toBe(true)
     } finally { await ph.p.stop() }
-  })
+  }, 30_000) // adds 12 members (password hashing): over 5 s on a busy CI runner (PR #1088)
 })
 
 describe('account removal', () => {
