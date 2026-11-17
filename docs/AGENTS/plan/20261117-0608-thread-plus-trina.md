@@ -275,4 +275,4 @@ Built as planned after the review:
 - Screenshots looked at for every state at 1440, 1280, 1024 and 390, light and dark (Korean; English at 1440 and
   390): `THREAD_TRINA_SHOTS=<folder> bunx playwright test test/e2e/shots-thread-plus-trina.spec.ts`. New text is
   13 px (the size of the file chips, the quote mark and Send to thread beside it); nothing new has a size of its own.
-- PR: (link added when it opens)
+- PR: https://github.com/trina-app/trina-ax/pull/1206
