@@ -45,11 +45,25 @@ export function nothingHeard(o: { heard: boolean; running: boolean; elapsedMs: n
 }
 
 export type RecorderState = 'idle' | 'recording'
+/** Why the microphone did not start: `denied` the browser or the phone refused it (the person said no, or it is
+ * blocked), `missing` there is no microphone to record from, `failed` it is there but did not start (another program
+ * holds it, the system stopped it, anything else), `unsupported` this browser cannot record at all. */
+export type RecorderErrorCode = 'unsupported' | 'denied' | 'missing' | 'failed'
 export class RecorderError extends Error {
-  constructor(public code: 'unsupported' | 'denied') {
+  constructor(public code: RecorderErrorCode) {
     super(code)
     this.name = 'RecorderError'
   }
+}
+
+/** getUserMedia's refusal by its DOMException name (older Chrome names too). Only a refusal is `denied`: an Android
+ * app without the system's audio settings permission got NotFoundError / NotReadableError with the microphone
+ * allowed, and was told the microphone was blocked (QA TC-4740). */
+export function recorderErrorOf(e: unknown): RecorderErrorCode {
+  const name = e && typeof e === 'object' && 'name' in e ? String((e as { name: unknown }).name) : ''
+  if (name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError') return 'denied'
+  if (name === 'NotFoundError' || name === 'DevicesNotFoundError' || name === 'OverconstrainedError' || name === 'ConstraintNotSatisfiedError') return 'missing'
+  return 'failed'
 }
 
 export function useRecorder() {
@@ -86,8 +100,8 @@ export function useRecorder() {
     let s: MediaStream
     try {
       s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
-    } catch {
-      throw new RecorderError('denied')
+    } catch (e) {
+      throw new RecorderError(recorderErrorOf(e))
     }
     stream.current = s
     rec.current = null

@@ -137,8 +137,9 @@ test('the Trina edition builds app.trina.ax for iPhone only, with usage strings,
     expect((c.locales?.['zh-Hans'] as { ios: Record<string, string> }).ios[key]).toMatch(/[\u4e00-\u9fff]/)
   }
   expect(c.android).toMatchObject({ package: 'app.trina.ax', versionCode: 1 })
-  // camera and microphone for the team page as on iOS; no overlay windows
-  expect(c.android?.permissions).toEqual(['android.permission.CAMERA', 'android.permission.RECORD_AUDIO'])
+  // camera and microphone for the team page as on iOS, and the audio settings the WebView's microphone needs (QA
+  // TC-4740: without it getUserMedia failed with the microphone allowed); no overlay windows
+  expect(c.android?.permissions).toEqual(['android.permission.CAMERA', 'android.permission.RECORD_AUDIO', 'android.permission.MODIFY_AUDIO_SETTINGS'])
   expect(c.android?.blockedPermissions).toEqual(['android.permission.SYSTEM_ALERT_WINDOW'])
   expect(JSON.stringify(c.plugins)).toContain('"targetSdkVersion":36,"compileSdkVersion":37')
   expect(c.plugins).toContain('./plugins/release-signing.js')

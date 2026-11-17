@@ -19,7 +19,7 @@ import type { TextEdit } from './textTokens'
 import { uploadFile } from './upload'
 import { recordingAsWav } from './wavRecording'
 import { useSession } from '../store/session'
-import { micDeniedKey } from './appWording'
+import { micBlocked, micErrorKey } from './appWording'
 import { canOpenAppSettings, mobileApp, openAppSettings } from './mobile'
 import { CAP_MS, jobLabel, jobWaiting, VoiceInput, WARN_MS, type VoiceNote } from './voiceInput'
 import { useLocale, useT } from '../i18n'
@@ -165,12 +165,14 @@ export function useVoiceInput(o: VoiceInputOptions) {
   /** another box records or transcribes now */
   const elsewhere = () => owner !== null && owner !== self.current
 
+  const micKey = (e: RecorderError) => micErrorKey(e.code, { app: mobileApp(), permission: permission.current })
   const noteText = (n: VoiceNote): string => {
     const { t, locale } = words.current
     if (n.kind === 'blocked') return t(opts.current.room ? 'voice.confidentialRoom' : 'voice.confidential')
     if (n.kind === 'empty') return t('voice.empty')
-    // a blocked mic is allowed again in the browser's settings, or inside the phone app in the phone's Settings
-    if (n.error instanceof RecorderError) return t(n.error.code === 'denied' ? micDeniedKey(mobileApp()) : 'voice.unsupported')
+    // a blocked mic is allowed again in the browser's settings, or inside the phone app in the phone's Settings; a mic
+    // that is missing or did not start is said as such, never as blocked (lib/appWording.ts micErrorKey)
+    if (n.error instanceof RecorderError) return t(micKey(n.error))
     return errorText(n.error, locale, t('error.network'))
   }
 
@@ -324,7 +326,7 @@ export function useVoiceInput(o: VoiceInputOptions) {
         note: (n) => {
           const text = n ? noteText(n) : null
           // the phone app can open its own page in the phone's Settings: the box shows a button beside this note
-          setSettingsFor(n?.kind === 'error' && n.error instanceof RecorderError && n.error.code === 'denied' && canOpenAppSettings() ? text : null)
+          setSettingsFor(n?.kind === 'error' && n.error instanceof RecorderError && micBlocked(micKey(n.error)) && canOpenAppSettings() ? text : null)
           opts.current.onError(text)
         },
         blocked: () => opts.current.blocked,
