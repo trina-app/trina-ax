@@ -32,9 +32,23 @@ case "$a" in
   *" describe-images "*"--image-ids ami-0source "*) printf 'x86_64\\t/dev/xvda\\t/dev/xvda\\tsnap-0source\\tdebian-13-amd64-20261101-1\\n' ;;
   *" describe-images "*"--filters "*) echo "\${EXISTING_AMI:-}" ;;
   *" describe-images "*"--image-ids ami-0new "*) printf 'available\\tsnap-0new\\tTrue\\n' ;;
-  *" describe-subnets "*) printf 'vpc-0test\\tap-northeast-2a\\tapne2-az1\\n' ;;
+  *" describe-subnets "*)
+    # subnet-0abc / subnet-0ccc / subnet-0bbb: zones 2a / 2c / 2b; subnet-0eee is in another VPC
+    case "$a" in
+      *" subnet-0ccc "*) printf 'vpc-0test\\tap-northeast-2c\\tapne2-az3\\n' ;;
+      *" subnet-0bbb "*) printf 'vpc-0test\\tap-northeast-2b\\tapne2-az2\\n' ;;
+      *" subnet-0eee "*) printf 'vpc-0else\\tap-northeast-2c\\tapne2-az3\\n' ;;
+      *) printf 'vpc-0test\\tap-northeast-2a\\tapne2-az1\\n' ;;
+    esac ;;
   *" create-security-group "*) echo sg-0build ;;
-  *" run-instances "*) echo i-0build ;;
+  *" run-instances "*)
+    # NO_CAPACITY="subnet-0abc subnet-0ccc": AWS has no builder capacity in those subnets' zones
+    for x in \${NO_CAPACITY:-}; do
+      if [[ "$a" == *" --subnet-id $x "* ]]; then
+        echo "An error occurred (InsufficientInstanceCapacity) when calling the RunInstances operation (reached max retries: 2): We currently do not have sufficient t3a.medium capacity in the Availability Zone you requested" >&2; exit 254
+      fi
+    done
+    echo i-0build ;;
   *" create-volume "*) echo vol-0work ;;
   *" describe-instances "*) echo 198.51.100.7 ;;
   *" create-snapshot "*) echo snap-0new ;;
@@ -89,9 +103,9 @@ function setup() {
   return { dir, bin, kit, out, log: path.join(dir, 'calls.log') }
 }
 
-function run(s: ReturnType<typeof setup>, args: string[], env: Record<string, string> = {}) {
+function run(s: ReturnType<typeof setup>, args: string[], env: Record<string, string> = {}, subnet = 'subnet-0abc') {
   const p = Bun.spawnSync(['/bin/bash', SCRIPT, '--kit', s.kit, '--enroll-bin', path.join(s.dir, 'mycel-enroll'),
-    '--link-bin', path.join(s.dir, 'mycel-link'), '--subnet-id', 'subnet-0abc', '--ssh-cidr', '198.51.100.1/32',
+    '--link-bin', path.join(s.dir, 'mycel-link'), '--subnet-id', subnet, '--ssh-cidr', '198.51.100.1/32',
     '--date', '20261105', '--out', s.out, '--yes', '--account', '111122223333', ...args], {
     env: { PATH: `${s.bin}:${path.dirname(OPENSSL ?? '/usr/bin/openssl')}:/usr/bin:/bin:/usr/sbin:/sbin`, HOME: s.dir,
       TMPDIR: s.dir, STUB_LOG: s.log, STUB_TEMPLATE: '0.3.0-d13-20261105', ...env },
@@ -182,6 +196,50 @@ describe('build-ami.sh', () => {
     expect(at(c, 'delete-security-group')).toBeGreaterThan(at(c, 'wait instance-terminated'))
     expect(fs.existsSync(path.join(s.out, 'teamax-0.3.0-d13-20261105.ami.json'))).toBe(false)
     expect(fs.readFileSync(path.join(s.out, 'ami-build-0.3.0-d13-20261105.state'), 'utf8')).toBe('')
+  })
+
+  test('no builder capacity in a zone: the next subnet in the list, the work volume in its zone, one security group', () => {
+    const s = setup()
+    const r = run(s, [], { NO_CAPACITY: 'subnet-0abc subnet-0ccc' }, 'subnet-0abc,subnet-0ccc,subnet-0bbb')
+    expect(r.out).toContain('build-ami: done: AMI ami-0new')
+    expect(r.code).toBe(0)
+    const c = r.calls
+    const tries = c.filter((x) => x.includes('run-instances'))
+    expect(tries.map((x) => /--subnet-id (\S+)/.exec(x)?.[1])).toEqual(['subnet-0abc', 'subnet-0ccc', 'subnet-0bbb'])
+    expect(r.out).toContain('no t3a.medium capacity in ap-northeast-2a: trying ap-northeast-2c (subnet-0ccc)')
+    expect(r.out).toContain('no t3a.medium capacity in ap-northeast-2c: trying ap-northeast-2b (subnet-0bbb)')
+    expect(c.filter((x) => x.includes('create-security-group'))).toHaveLength(1)
+    expect(new Set(tries.map((x) => /--security-group-ids (\S+)/.exec(x)?.[1]))).toEqual(new Set(['sg-0build']))
+    expect(call(c, 'create-volume')).toContain('--availability-zone ap-northeast-2b')
+    expect(call(c, 'delete-security-group')).toContain('--group-id sg-0build')
+  })
+
+  test('no capacity in the last zone of the list: stop, and the security group is removed', () => {
+    const s = setup()
+    const r = run(s, [], { NO_CAPACITY: 'subnet-0abc subnet-0ccc' }, 'subnet-0abc,subnet-0ccc')
+    expect(r.code).not.toBe(0)
+    expect(r.out).toContain('run-instances failed in ap-northeast-2c (subnet-0ccc)')
+    const c = r.calls
+    expect(at(c, 'create-volume')).toBe(-1)
+    expect(at(c, 'terminate-instances')).toBe(-1)
+    expect(call(c, 'delete-security-group')).toContain('--group-id sg-0build')
+  })
+
+  test('another failure of RunInstances is not retried in the next zone', () => {
+    const s = setup()
+    const r = run(s, [], { FAIL_AT: 'run-instances' }, 'subnet-0abc,subnet-0ccc')
+    expect(r.code).not.toBe(0)
+    expect(r.calls.filter((x) => x.includes('run-instances'))).toHaveLength(1)
+    expect(r.out).toContain('run-instances failed in ap-northeast-2a (subnet-0abc)')
+    expect(call(r.calls, 'delete-security-group')).toContain('--group-id sg-0build')
+  })
+
+  test('subnets of two VPCs: stop before any create call', () => {
+    const s = setup()
+    const r = run(s, [], {}, 'subnet-0abc,subnet-0eee')
+    expect(r.code).not.toBe(0)
+    expect(r.out).toContain('subnet subnet-0eee is in vpc-0else, not in vpc-0test')
+    expect(at(r.calls, 'create-security-group')).toBe(-1)
   })
 
   test('RegisterImage fails: the unregistered snapshot is deleted too', () => {

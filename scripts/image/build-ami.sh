@@ -12,7 +12,10 @@
 #                               machine can belong to another company
 #   --subnet-id subnet-…        (required) a subnet with a route to the internet and a NACL that lets SSH in from
 #                               --ssh-cidr (the hostd subnet of trina-teams, or a default-VPC subnet). Not a team subnet:
-#                               their NACL blocks inbound SSH.
+#                               their NACL blocks inbound SSH. A comma list (subnet-a,subnet-c,subnet-b) of subnets in
+#                               one VPC, each in another zone, is tried in that order: when AWS has no --builder-type
+#                               capacity in a subnet's zone (InsufficientInstanceCapacity) the builder starts in the next
+#                               one, with the same security group, and the work volume follows it to that zone
 #   --source-ami ami-…          default: the newest official Debian 13 amd64 AMI (Debian's SSM parameter), always
 #                               checked against Debian's owner id 136693071363
 #   --builder-type t3a.medium   --ssh-cidr <your IP>/32 (default: from https://checkip.amazonaws.com)
@@ -177,7 +180,8 @@ fi
 # a signed manifest is installable; a kitless image must never be
 [[ $ALLOW_MISSING_KIT == 0 || -z "$SIGN_KEY" ]] || die "--sign-key and --allow-missing-kit exclude each other (a kitless AMI is never for production)"
 [[ -n "$SUBNET" ]] || die "--subnet-id is required (a subnet with internet access whose NACL lets SSH in; see --help)"
-[[ "$SUBNET" =~ ^subnet-[0-9a-f]+$ ]] || die "--subnet-id looks wrong: $SUBNET"
+[[ "$SUBNET" =~ ^subnet-[0-9a-f]+(,subnet-[0-9a-f]+)*$ ]] || die "--subnet-id looks wrong: $SUBNET"
+IFS=, read -r -a SUBNETS <<<"$SUBNET"
 [[ -z "$SOURCE_AMI" || "$SOURCE_AMI" =~ ^ami-[0-9a-f]+$ ]] || die "--source-ami looks wrong: $SOURCE_AMI"
 [[ "$BUILDER_TYPE" =~ ^t3a\.(medium|large)$ ]] || die "--builder-type is t3a.medium or t3a.large"
 for kv in ${EXTRA_TAGS[@]+"${EXTRA_TAGS[@]}"}; do [[ "$kv" =~ ^[A-Za-z0-9:._/-]+=[A-Za-z0-9:._/@+-]*$ ]] || die "--tag $kv: use K=V with plain characters"; done
@@ -319,10 +323,18 @@ read -r SRC_ARCH SRC_ROOTDEV SRC_BDM_DEV SRC_SNAP SRC_NAME <<<"$(q 'x86_64 /dev/
 [[ "$SRC_ROOTDEV" == /dev/xvda && "$SRC_BDM_DEV" == /dev/xvda ]] || die "$SOURCE_AMI root device is $SRC_ROOTDEV ($SRC_BDM_DEV), expected /dev/xvda"
 [[ "$SRC_SNAP" =~ ^snap- ]] || die "$SOURCE_AMI has no root snapshot"
 say "source $SOURCE_AMI ($SRC_NAME), root snapshot $SRC_SNAP"
-read -r VPC AZ AZ_ID <<<"$(q 'vpc-DRYRUN ap-northeast-2a apne2-az1' ec2 describe-subnets --subnet-ids "$SUBNET" \
-  --query 'Subnets[0].[VpcId,AvailabilityZone,AvailabilityZoneId]' --output text)"
-[[ "$VPC" =~ ^vpc- ]] || die "subnet $SUBNET not found in $REGION"
-say "subnet $SUBNET in $VPC, $AZ ($AZ_ID)"
+# each subnet's VPC and zone, in the order given (bash 3.2: parallel arrays, no associative ones). One security group
+# serves them all, so they must share a VPC.
+SUB_VPC=(); SUB_AZ=(); SUB_AZ_ID=()
+for s in "${SUBNETS[@]}"; do
+  read -r v z zid <<<"$(q 'vpc-DRYRUN ap-northeast-2a apne2-az1' ec2 describe-subnets --subnet-ids "$s" \
+    --query 'Subnets[0].[VpcId,AvailabilityZone,AvailabilityZoneId]' --output text)"
+  [[ "$v" =~ ^vpc- ]] || die "subnet $s not found in $REGION"
+  [[ ${#SUB_VPC[@]} -eq 0 || "$v" == "${SUB_VPC[0]}" ]] || die "subnet $s is in $v, not in ${SUB_VPC[0]} like ${SUBNETS[0]}: list subnets of one VPC"
+  SUB_VPC+=("$v"); SUB_AZ+=("$z"); SUB_AZ_ID+=("$zid")
+  say "subnet $s in $v, $z ($zid)"
+done
+SUBNET="${SUBNETS[0]}"; VPC="${SUB_VPC[0]}"; AZ="${SUB_AZ[0]}"; AZ_ID="${SUB_AZ_ID[0]}"
 EXIST="$(q None ec2 describe-images --owners self --filters "Name=tag:ax:template,Values=$TEMPLATE_VERSION" --query 'Images[].ImageId' --output text)"
 [[ -z "$EXIST" || "$EXIST" == None ]] || die "an AMI for template $TEMPLATE_VERSION exists already: $EXIST (use another --date, or deregister it)"
 if [[ -z "$SSH_CIDR" ]]; then
@@ -378,18 +390,37 @@ q - ec2 authorize-security-group-ingress --group-id "$SG" --protocol tcp --port 
 say "security group $SG (tcp 22 from $SSH_CIDR)"
 
 BDM="[{\"DeviceName\":\"/dev/xvda\",\"Ebs\":{\"VolumeSize\":20,\"VolumeType\":\"gp3\",\"Encrypted\":true,\"DeleteOnTermination\":true}}]"
-INSTANCE="$(q i-DRYRUN ec2 run-instances --image-id "$SOURCE_AMI" --instance-type "$BUILDER_TYPE" \
-  --subnet-id "$SUBNET" --security-group-ids "$SG" --associate-public-ip-address \
+launch() {
+  q i-DRYRUN ec2 run-instances --image-id "$SOURCE_AMI" --instance-type "$BUILDER_TYPE" \
+  --subnet-id "$1" --security-group-ids "$SG" --associate-public-ip-address \
   --block-device-mappings "$BDM" \
   --metadata-options HttpTokens=required,HttpPutResponseHopLimit=1,HttpEndpoint=enabled,InstanceMetadataTags=disabled \
   --instance-initiated-shutdown-behavior terminate \
   --tag-specifications "$(tagspec instance "$BUILD_NAME" ami-build "ax:template=$TEMPLATE_VERSION")" \
                        "$(tagspec volume "$BUILD_NAME-root" ami-build "ax:template=$TEMPLATE_VERSION")" \
   --user-data "file://$WORK/user-data" \
-  --query 'Instances[0].InstanceId' --output text)"
+  --query 'Instances[0].InstanceId' --output text
+}
+# no capacity in a zone: the next subnet (a refused RunInstances makes nothing, so there is nothing to remove for it;
+# the security group stays for the next try and is deleted at the end or by the clean-up on a failure as before)
+INSTANCE=""
+i=0
+while [[ $i -lt ${#SUBNETS[@]} ]]; do
+  if INSTANCE="$(launch "${SUBNETS[$i]}" 2>"$WORK/run-instances.err")"; then
+    SUBNET="${SUBNETS[$i]}"; AZ="${SUB_AZ[$i]}"; AZ_ID="${SUB_AZ_ID[$i]}"
+    break
+  fi
+  cat "$WORK/run-instances.err" >&2
+  if grep -q InsufficientInstanceCapacity "$WORK/run-instances.err" && [[ $((i + 1)) -lt ${#SUBNETS[@]} ]]; then
+    say "no $BUILDER_TYPE capacity in ${SUB_AZ[$i]}: trying ${SUB_AZ[$((i + 1))]} (${SUBNETS[$((i + 1))]})"
+    i=$((i + 1)); INSTANCE=""
+    continue
+  fi
+  die "run-instances failed in ${SUB_AZ[$i]} (${SUBNETS[$i]})"
+done
 [[ "$INSTANCE" =~ ^i- ]] || die "run-instances answered '$INSTANCE'"
 record instance "$INSTANCE"
-say "builder $INSTANCE ($BUILDER_TYPE)"
+say "builder $INSTANCE ($BUILDER_TYPE) in $AZ ($SUBNET)"
 
 VOLUME="$(q vol-DRYRUN ec2 create-volume --snapshot-id "$SRC_SNAP" --availability-zone "$AZ" --size "$ROOT_GB" \
   --volume-type gp3 --encrypted \
