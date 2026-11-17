@@ -19,7 +19,7 @@ function pickMime() {
 /** The wave in the recording bar (components/VoiceBar.tsx): a bar is never shorter than a dot, never taller than this. */
 export const WAVE_DOT_PX = 3
 export const WAVE_MAX_PX = 32
-/** A level at or under this draws every bar as a dot: nothing was heard. */
+/** A level at or under this draws every bar as a dot: nothing was heard (about -45 dBFS on the scale of inputLevel). */
 export const HEARD_LEVEL = WAVE_DOT_PX / WAVE_MAX_PX
 /** Nothing heard for this long since the recording started: the bar says so. */
 export const SILENT_AFTER_MS = 3000
