@@ -44,6 +44,7 @@ import { refreshWindowsApp, WINDOWS_EVERY_MS, WINDOWS_FIRST_MS, WINDOWS_TEXT, wi
 import { getChatRuntime } from '../chat/runtime'
 import { egressSettled, egressStatus, EXIT_ADDRESS_URL, exitAddressCheckOff } from '../tools/egress'
 import { diskStat, unknownChanged } from './disk-stat'
+import { notifyStorageFilling } from '../notifications/service'
 
 /** the bootstrap's history detail of a version kept although the AI engine could not start on this server
  * (native/cmd/mycel-bootstrap/enginecheck.go engineHostDetail; the same words) */
@@ -129,6 +130,7 @@ export class OpsService {
       db: ctx.db, teamRoot: this.layout.teamRoot, dataDir: this.layout.dataDir, appDir: this.layout.appDir, now: o.now ? () => this.now().getTime() : undefined,
       absoluteRule: () => !(this.platform() === 'linux' && ctx.config.mode === 'prod'),
       audit: (detail, action = 'storage.warn') => audit(ctx.db, { actor: null, action, target: null, detail }),
+      record: (threshold, percent, roomsBytes, at) => notifyStorageFilling(ctx, threshold, percent, roomsBytes, at),
       notify: (m) => {
         try {
           const admins = ctx.db.query("SELECT id, locale FROM users WHERE role IN ('owner','admin') AND status = 'active' AND deleted_at IS NULL").all() as { id: string; locale: Locale | null }[]

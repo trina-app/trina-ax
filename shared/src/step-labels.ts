@@ -78,9 +78,19 @@ export const FILE_STEP_VERB: Record<string, T> = {
   post_to_room: t('대화에 보내기', 'Send to conversation', 'Kirim ke percakapan', 'トークに送る', 'Enviar a la conversación', "发送到聊天"),
   // the AI shares the person's own files with teammates after their yes on its card (server/src/chat/share-with-person.ts)
   share_with_person: t('파일 공유', 'Share files', 'Bagikan berkas', 'ファイルを共有', 'Compartir archivos', '共享文件'),
+  stop_sharing: t('공유 중지', 'Stop sharing', 'Berhenti membagikan', '共有を停止', 'Dejar de compartir', '停止共享'),
+  // the AI shares a folder in the person's own files, or stops (server/src/chat/share-folder.ts)
+  share_folder: t('폴더 공유', 'Share folder', 'Bagikan folder', 'フォルダを共有', 'Compartir carpeta', '共享文件夹'),
+  // the files shared with the person, listed when the AI asks (server/src/chat/shared-with-me-tool.ts), and what they have
+  // open now (server/src/chat/looking-at.ts)
+  shared_with_me: t('공유받은 파일 확인', 'Check files shared with you', 'Periksa berkas yang dibagikan kepada Anda', '共有されたファイルを確認', 'Ver archivos compartidos con usted', '查看共享给你的文件'),
+  looking_at: t('열어 둔 화면 확인', 'Check what you have open', 'Periksa yang sedang Anda buka', '開いている画面を確認', 'Ver lo que tiene abierto', '查看你打开的内容'),
   // the AI changes a team project's members after the person's yes on its card (server/src/chat/project-members.ts):
   // "프로젝트 멤버 바꾸기 · 견적"
   change_project_members: t('프로젝트 멤버 바꾸기', 'Change project members', 'Ubah anggota proyek', 'プロジェクトのメンバーを変更', 'Cambiar miembros del proyecto', "更改项目成员"),
+  // the AI looks up who can open a file, a folder or the chat (server/src/chat/who-can-open.ts); never a path or a name
+  who_can_open: t('누가 볼 수 있는지 확인', 'Check who can open it', 'Periksa siapa yang bisa membuka', '開ける人を確認', 'Comprobar quién puede abrirlo', '查看谁可以打开'),
+  change_folder_access: t('폴더 권한 바꾸기', 'Change folder access', 'Ubah akses folder', 'フォルダのアクセスを変更', 'Cambiar el acceso a la carpeta', '更改文件夹权限'),
 }
 
 /** Verb of an in-app browser step: "<verb> · <url>". */
@@ -181,6 +191,9 @@ export const STEP_TEXT = {
   scheduleCoverStep: t('예약 작업에서 허용', 'allowed on the scheduled task', 'diizinkan di tugas terjadwal', "定期タスクで許可", "permitido en la tarea programada", "已在定时任务中允许"),
   /** the step of a call that made a new file in the person's own folder after a room read, with no card */
   ownFolderStep: t('내 폴더라 묻지 않고 저장', 'saved without asking: your own folder', 'disimpan tanpa bertanya: folder Anda sendiri', "自分のフォルダーなので確認せずに保存", "guardado sin preguntar: su propia carpeta", "未询问直接保存：你自己的文件夹"),
+  /** the step of a call the person allowed on a card for the same file or recipients earlier in this chat
+   * (server chat/card-approvals.ts) */
+  chatOnceStep: t('이 대화에서 허용한 대로 진행', 'allowed earlier in this chat', 'diizinkan sebelumnya di chat ini', "このチャットで許可済み", "permitido antes en este chat", "已在此聊天中允许过"),
 } satisfies Record<string, T>
 export type StepTextKey = keyof typeof STEP_TEXT
 
@@ -188,7 +201,7 @@ export type StepTextKey = keyof typeof STEP_TEXT
 const TEXT_STEP_TOOLS = new Set(['ask_user', 'remember', 'forget', 'agent', 'refusal', 'demo_replay', 'engine', 'attachment'])
 
 /** The words that may end any step's line after " · ": why the call went on without a card (STEP_TEXT above). */
-export const COVER_STEP_KEYS = ['roomGrantStep', 'roomOnceStep', 'scheduleCoverStep', 'ownFolderStep'] as const satisfies readonly StepTextKey[]
+export const COVER_STEP_KEYS = ['roomGrantStep', 'roomOnceStep', 'scheduleCoverStep', 'ownFolderStep', 'chatOnceStep'] as const satisfies readonly StepTextKey[]
 
 /** The word for a step whose tool has no verb of its own, when only the words of a step may show. */
 export const STEP_WORDS_OTHER: T = t('작업', 'Step', 'Langkah', "ステップ", "Paso", "步骤")
@@ -309,6 +322,8 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'chat_file': return verb!
     case 'post_to_room': { const w = roomWord(a.room); return w ? `${verb} · ${clip(w, 60)}` : verb! }
     case 'change_project_members': return a.project ? `${verb} · ${clip(a.project, 60)}` : verb!
+    // the folder by its own name (its last part): the path stays out of the step
+    case 'change_folder_access': { const f = typeof a.folder === 'string' ? a.folder.replace(/\/+$/, '').split('/').pop() : ''; return f ? `${verb} · ${clip(f, 60)}` : verb! }
     case 'save_room_file': { const w = roomWord(a.file); return w ? `${verb} · ${clip(w, 60)}${a.save_as ? ` → ${clip(a.save_as, 60)}` : ''}` : verb! }
     case 'box_shell': return `${verb} · ${clip(String(a.command ?? '').split('\n')[0], 80)}${a.job ? ` (${STEP_TEXT.jobSuffix[locale]})` : a.background ? ` (${STEP_TEXT.backgroundSuffix[locale]})` : ''}`
     case 'ask_user': return stepText('asked', locale, { q: clip(a.question, 120) })

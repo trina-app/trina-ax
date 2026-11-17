@@ -219,6 +219,9 @@ const Bytes = z.number().nonnegative()
 export const StorageBreakdown = z.object({
   /** of team: files of deleted chats and rooms, kept 30 days before they are removed (absent from an older server) */
   kept: Bytes.optional(),
+  /** files sent in conversations (<team>/.system/rooms; not in `team`). One number for the whole team, never split by
+   * person or conversation (docs/decisions/20261116-room-files-storage-line.md). Absent from an older server */
+  rooms: Bytes.optional(),
   team: Bytes, history: Bytes, trash: Bytes, backups: Bytes, models: Bytes, data: Bytes, app: Bytes, other: Bytes })
 export type StorageBreakdown = z.infer<typeof StorageBreakdown>
 export const StorageStatus = z.object({

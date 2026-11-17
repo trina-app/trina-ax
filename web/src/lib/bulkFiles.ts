@@ -75,6 +75,21 @@ export function widenedBy(err: unknown): number | null {
   return Number(err.body.params.viewersAdded ?? 0)
 }
 
+/**
+ * Send a change the server may refuse because it puts something into a folder its owner shares with more people
+ * (409 audience_widened: a restore, a copy or a move into a shared folder). On that answer the person is asked (`ask`
+ * with how many more people) and, on yes, it is sent again confirmed. A no throws the server's refusal.
+ */
+export async function sendWidening<R>(send: (confirm: boolean) => Promise<R>, ask: (viewersAdded: number) => Promise<boolean>): Promise<R> {
+  try {
+    return await send(false)
+  } catch (error) {
+    const n = widenedBy(error)
+    if (n === null || !(await ask(n))) throw error
+    return send(true)
+  }
+}
+
 /** the skills a move would turn on (a project's folder moved to projects/<name>: docs/DECISIONS.md "Project skills"),
  * when the server refused it for that, else null */
 export function projectSkillsOn(err: unknown): string[] | null {
@@ -137,7 +152,7 @@ export async function moveMany(items: readonly FileEntry[], folder: string, o: {
   return out
 }
 
-type CopyBody = { from: string; to: string; onExists: 'rename'; dryRun?: boolean }
+type CopyBody = { from: string; to: string; onExists: 'rename'; dryRun?: boolean; confirm?: boolean }
 
 /**
  * Share by copying (POST /api/files/copy) each file into `folder`. First a dry run per file: when the copies would be
@@ -166,7 +181,8 @@ export async function shareMany(items: readonly FileEntry[], folder: string, o: 
   }
   for (const { entry, body } of ok) {
     try {
-      await o.copy(body)
+      // (the person said yes to more people seeing them: a copy into a folder its owner shares asks for that yes)
+      await o.copy(added > 0 ? { ...body, confirm: true } : body)
       out.done.push(entry)
     } catch (error) {
       out.failed.push({ entry, error })

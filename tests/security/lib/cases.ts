@@ -183,6 +183,11 @@ export const SPECS: Record<string, Spec> = {
     } },
   acceptInvite: { skipPositive: true, build: (c, w) => c.post(`/api/invites/${w.ids.inviteToken}/accept`, { username: 'newbie' + Math.random().toString(36).slice(2, 7), name: 'New Bie', password: 'Fresh-pass-Owl-3321-xy' }), scope: 'byLevel' },
   passwordResetInfo: { build: (c, w) => c.get(`/api/password-resets/${w.ids.resetToken}`), scope: 'byLevel' },
+  // the desktop app's one-time sign-in code (server/src/auth/app-signin.ts): every signed-in person makes their own (a
+  // guest is off the list); a made-up code signs nobody in
+  appSignIn: { build: (c) => c.post('/api/auth/app-signin'), scope: 'byLevel' },
+  redeemAppSignIn: { skipPositive: true, build: (c) => c.post('/api/auth/app-signin/redeem', { code: 'A'.repeat(43) }), scope: 'byLevel',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: a made-up app sign-in code signed in: ${r.text}`) } },
   completePasswordReset: { skipPositive: true, build: (c, w) => c.post(`/api/password-resets/${w.ids.resetToken}`, { password: 'Changed-pass-Fox-9087-qq' }), scope: 'byLevel',
     todo: {}, },
 
@@ -550,6 +555,13 @@ export const SPECS: Record<string, Spec> = {
   getJob: { build: (c, w) => c.get(`/api/jobs/${w.ids.jobAlice}`), scope: 'own-alice' },
   cancelJob: { build: (c, w) => c.post(`/api/jobs/${w.ids.jobAlice}/cancel`), scope: 'own-alice' },
   transcribe: { build: (c, w) => c.req('POST', '/api/transcribe', undefined, { form: tform(w.ids.chatA) }), scope: 'own-alice-chat' },
+  // voice input while recording: the same chat check as a whole recording (alice's chat only); the world has voice input
+  // off, so an allowed caller's piece is refused (409) too
+  transcribePiece: { skipPositive: true, build: (c, w) => c.req('POST', '/api/transcribe/piece', undefined, { form: tform(w.ids.chatA) }), scope: 'own-alice-chat' },
+  // meeting notes (desktop app): any signed-in member for themselves; guests are not on the allow-list. The world has
+  // voice input off, so a piece is refused (409) for an allowed caller too: covered by the deny matrix
+  meetingStatus: { build: (c) => c.get('/api/meetings/status'), scope: 'self' },
+  meetingPiece: { skipPositive: true, build: (c) => c.req('POST', '/api/meetings/piece', undefined, { form: tform(undefined) }), scope: 'self' },
 
   // ---- browser relay (own session/window) ----
   pollCalls: { build: (c) => c.get('/api/browser/calls?windowId=win-xxxxxxxx&waitMs=1'), scope: 'self' },
@@ -788,7 +800,7 @@ export const SPECS: Record<string, Spec> = {
 // multipart helpers
 function uform(folder: string, name: string): FormData { const f = new FormData(); f.set('folder', folder); f.set('name', name); f.set('file', new File([Buffer.from('x')], name)); return f }
 function aform(chatId: string, name: string): FormData { const f = new FormData(); f.set('chatId', chatId); f.set('name', name); f.set('file', new File([png()], name, { type: 'image/png' })); return f }
-function tform(chatId: string): FormData { const f = new FormData(); f.set('chatId', chatId); f.set('file', new File([Buffer.from('RIFF')], 'a.wav', { type: 'audio/wav' })); return f }
+function tform(chatId: string | undefined): FormData { const f = new FormData(); if (chatId) f.set('chatId', chatId); f.set('file', new File([Buffer.from('RIFF')], 'a.wav', { type: 'audio/wav' })); return f }
 const png = () => Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
 
 export function allCases(): Case[] {

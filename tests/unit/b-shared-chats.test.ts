@@ -479,7 +479,7 @@ describe('what a shared turn has', () => {
   })
 
   test('the instructions: only SHARED_PROMPT_SECTIONS, nothing about the person; the transcript says who wrote what', async () => {
-    expect(Object.entries(SHARED_PROMPT_SECTIONS).filter(([, ok]) => !ok).map(([id]) => id).sort()).toEqual(['browser', 'connected', 'memories', 'sharedWithMe', 'sideRoom', 'situation'])
+    expect(Object.entries(SHARED_PROMPT_SECTIONS).filter(([, ok]) => !ok).map(([id]) => id).sort()).toEqual(['browser', 'connected', 'memories', 'sideRoom', 'situation'])
     const user = loadPrincipal(db(), 'alice')!
     const input: PromptInput = {
       user, groupNames: ['ZZ-GROUP-CANARY'], locale: 'en', timeZone: 'UTC', memories: [{ id: 'm1', text: 'MEMORY-CANARY' }],
@@ -488,7 +488,6 @@ describe('what a shared turn has', () => {
       shared: { project: 'Falcon', audience: 4, asker: user.name }, roomReadable: (rel) => !rel.startsWith('groups/marketing') && !rel.startsWith('users/'), skillChanges: 'SKILL-CHANGES',
       // where things are in the app (chat/app-map.ts): its shared form, the same for everyone here
       appMap: { view: 'shared', managed: false, devEnv: false, office: false },
-      sharedWithMe: { files: [{ id: 'x'.repeat(22), name: 'SHARED-FILE-CANARY', url: '/f/' + 'x'.repeat(22), sharedBy: null, at: '2026-11-16', to: { kind: 'you' as const } }], more: false },
     }
     const built: [ReturnType<typeof turnPromptSections>, string][] = [
       [turnPromptSections(h.ctx.files, input), buildTurnPrompt(h.ctx.files, input)],
@@ -497,7 +496,7 @@ describe('what a shared turn has', () => {
     ]
     for (const [sections, prompt] of built) {
       for (const sec of sections) if (sec.text) expect({ id: sec.id, in: prompt.includes(sec.text) }).toEqual({ id: sec.id, in: SHARED_PROMPT_SECTIONS[sec.id] === true })
-      for (const canary of ['MEMORY-CANARY', 'CONN-CANARY', 'ZZ-GROUP-CANARY', 'SHARED-FILE-CANARY', 'role member', 'groups/marketing']) expect({ canary, in: prompt.includes(canary) }).toEqual({ canary, in: false })
+      for (const canary of ['MEMORY-CANARY', 'CONN-CANARY', 'ZZ-GROUP-CANARY', 'role member', 'groups/marketing']) expect({ canary, in: prompt.includes(canary) }).toEqual({ canary, in: false })
     }
     expect(buildTurnPrompt(h.ctx.files, input)).toContain('## Shared project chat')
     expect(buildTurnPrompt(h.ctx.files, input)).toContain('## Where things are in the app')

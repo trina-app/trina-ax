@@ -751,6 +751,7 @@ describe('every install path reads the list', () => {
     'tests/linux/Dockerfile': { why: 'the Linux test container (its pandoc and typst for the tests)', lines: ['typst-$T-unknown-linux-musl.tar.xz'] },
     'tests/linux/Dockerfile.srt': { why: 'the srt attack test container: its node is the list\'s (checked below)', lines: ['no node pin for $TARGETARCH'] },
     'scripts/vm/macos-vm.sh': { why: 'the digest of the macOS test VM image', lines: ['ghcr.io/cirruslabs/macos-tahoe-base@sha256:'] },
+    'scripts/macos/release-runner/setup.sh': { why: 'the self-hosted release runner host: the GitHub Actions runner tarball, which the list does not hold (its Node.js comes from the list)', lines: ['RUNNER_SHA256='] },
   }
   /** is this command of file f allowed by the list (a command that holds one of the file's fragments)? */
   const allowedBy = (list: Record<string, Allow>, f: string, l: string) => !!list[f]?.lines.some((x) => l.includes(x))

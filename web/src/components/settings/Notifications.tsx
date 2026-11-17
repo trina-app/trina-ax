@@ -5,6 +5,7 @@ import { fileBatchUrl, fileLinkUrl, isGoogleRequestable, type InboxNotification,
 import { api, API, errorText } from '../../lib/api'
 import { connectionHref, connectorHref, CONNECTORS_HOME } from '../../lib/connectors'
 import { firstRunText } from '../../lib/teamGoal'
+import { formatSize } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { accessChanged, reloadAsked } from '../../store/live'
 import { peekCached, rememberCached } from '../../store/listCache'
@@ -166,6 +167,12 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   // an own connection other than Google Drive that needs a sign-in again, by its name (QA TC-2945)
   if (item.code === 'connection.reconnect' && item.connection) return t('notifications.event.connection.reconnectNamed', { name: item.connection.name })
   if (item.code === 'integration.template' || item.code === 'integration.template_reconnect') return templateText(item, t)
+  // the team's disk is filling (owners and admins): how full, and the files in conversations once measured (none: not
+  // named); one no
+  // longer an admin gets no numbers and falls through to the plain words below
+  if (item.code === 'storage.filling' && item.storage) return !item.storage.roomsBytes
+    ? t('notifications.event.storage.fillingPct', { pct: item.storage.percent })
+    : t('notifications.event.storage.fillingRooms', { pct: item.storage.percent, size: formatSize(item.storage.roomsBytes, locale) })
   const title = item.schedule?.title
   // a sign-in template: the member signs in with their own account; a key template: their own key (QA TC-3052)
   if (item.code === 'schedule.failure' && item.needsKey) return title
@@ -201,8 +208,15 @@ export function fileShareText(item: InboxNotification, t: T): string {
   // several files in one press (docs/decisions/20261116-file-share-everyone.md): "Mina shared 5 files with you"
   if (code === 'file.shared' && f && !f.gone && f.count && f.batchId) return f.by ? t('notifications.event.file.sharedMany', { by: f.by, n: f.count }) : t('notifications.event.file.sharedManyNoName', { n: f.count })
   if (!f || f.gone || !f.name) return code === 'file.shared' ? t('notifications.event.file.gone') : t(`notifications.event.${code}`)
+  // a folder (folder sharing): shared with me; to its owner, paused (the folder on the server is not the one shared) or
+  // ended (their move put it where nothing is shared)
+  if (f.folder === 'paused') return t('notifications.event.file.folderPaused', { name: f.name })
+  if (f.folder === 'ended') return t('notifications.event.file.folderEnded', { name: f.name })
   if (!f.by) return t(`notifications.event.${code}`)
+  if (code === 'file.shared' && f.folder === 'shared') return t('notifications.event.file.sharedFolder', { by: f.by, name: f.name })
   if (code === 'file.shared') return t('notifications.event.file.sharedNamed', { by: f.by, name: f.name })
+  // asked for someone else ("Ask <owner>" under an AI step): who would get it
+  if (code === 'file.access_requested' && f.for) return t('notifications.event.file.access_requestedFor', { by: f.by, name: f.name, for: f.for })
   if (code === 'file.access_requested') return t('notifications.event.file.access_requestedNamed', { by: f.by, name: f.name })
   return t('notifications.event.file.unshared_by_moveNamed', { by: f.by, name: f.name })
 }
@@ -265,6 +279,8 @@ export function noticeLink(item: InboxNotification): { to: string; testId: strin
   if (item.link === 'account_deletion') return { to: '/settings/account/delete', testId: 'notification-deletion-due-link' }
   if (item.link === 'admin_members') return { to: `/admin/members?member=${encodeURIComponent(item.sourceId)}`, testId: 'notification-deletion-link' }
   if (item.link === 'skills') return { to: skillsLink(item), testId: 'notification-skills-link' }
+  // the disk filling: the storage card (a phone's System › Storage; a computer lands on the card)
+  if (item.link === 'admin_storage') return { to: '/admin/system/storage', testId: 'notification-storage-link' }
   return null
 }
 

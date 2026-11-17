@@ -206,6 +206,48 @@ export function namesFile(said: string, rel: string): boolean {
   return [fold(rel), name, stem].some((n) => n.length >= 3 && holds(text, n))
 }
 
+/** Quotation marks a person puts around a name: straight, curly, corner brackets, guillemets, backticks. */
+const QUOTES: readonly [string, string][] = [['"', '"'], ['“', '”'], ["'", "'"], ['‘', '’'], ['「', '」'], ['『', '』'], ['«', '»'], ['`', '`']]
+/** a place in words as compared: "My files › Projects › Work", also written with ">" or "/" between the parts */
+const placeKey = (s: string) => fold(s).replace(/\s*[›>/]\s*/g, ' › ')
+
+/**
+ * Does the asker's own message name this FOLDER (share_folder; security review M9)? `namesFile` is not used for
+ * folders: "Work" or "Reports" are in ordinary sentences, and names under 3 characters never match there. A folder is
+ * named only by:
+ * - its path (the team path, with or without a slash at the end), or its place in words as the app says it
+ *   (`place`: "My files › Projects › Work", from chat/place-words.ts);
+ * - its name inside quotation marks or backticks ("Work", “Work”, 'Work', 「Work」, `Work`), any length;
+ * - the app's own mention of it: attached to the message (`attached`), or linked in it (/files/view?path=… or
+ *   /files?path=…, the path the app put there).
+ * `said`: the asker's own words of this turn (quoted lines already left out: ownWords). Fails closed.
+ */
+export function namesFolder(said: string, rel: string, o: { place?: string; attached?: ReadonlySet<string> } = {}): boolean {
+  const path = rel.replace(/^\/+/, '').replace(/\/+$/, '')
+  if (!path || !said.trim()) return false
+  if (o.attached?.has(path) || o.attached?.has(`${path}/`)) return true
+  for (const m of said.matchAll(/\/files(?:\/view)?\?(?:[^\s)\]#]*&)?path=([^\s)\]&#]+)/g)) {
+    let p = ''
+    try { p = decodeURIComponent(m[1]!) } catch { continue }
+    if (p.replace(/^\/+/, '').replace(/\/+$/, '') === path) return true
+  }
+  const text = fold(said)
+  // a path of two parts or more ("Sales/Reports", "users/me/Work"), as a whole: nothing that continues a name or a path
+  // right before it, no letter or digit right after. A one-part path is the bare name, which is not enough
+  const p = fold(path)
+  if (p.includes('/') && new RegExp(`(?<![\\p{L}\\p{N}/])${escapeRe(p)}(?![\\p{L}\\p{N}])`, 'u').test(text)) return true
+  if (o.place) {
+    const pl = placeKey(o.place)
+    // (the place must hold more than the name: a place of one part is the name alone)
+    if (pl.includes(' › ') && placeKey(said).includes(pl)) return true
+  }
+  const name = fold(path.split('/').pop() ?? '')
+  if (!name) return false
+  // the name inside quotation marks (any of them, spaces inside allowed), or backticks
+  return new RegExp(`["'“”‘’«»「」『』]\\s*${escapeRe(name)}\\s*["'“”‘’«»「」『』]`, 'u').test(text)
+    || QUOTES.some(([a, b]) => text.includes(`${fold(a)}${name}${fold(b)}`))
+}
+
 /** The team files the asker attached to their own message of this turn. */
 export function attachedPaths(db: Database, messageId: string): Set<string> {
   const row = db.query('SELECT attachments FROM messages WHERE id = ?').get(messageId) as { attachments: string | null } | null
@@ -299,6 +341,9 @@ export const WRITE_ASK = re([`(\\uBC14\\uAFD4|\\uACE0\\uCCD0|\\uB123\\uC5B4|\\uB
   '\\b(update|change|add|create|make|set|move|write|edit|fix|comment|ubah|tambah|buat)\\b'])
 /** "don't" in the person's words: -지 마 / -지 말 / 하지 않, 안 해, don't, do not, never, jangan, no … */
 const ASK_NOT = re(['\\uC9C0\\s?\\uB9C8', '\\uC9C0\\s?\\uB9D0', '\\uC9C0\\s?\\uC54A', "\\b(don'?t|do not|never|jangan)\\b"])
+
+/** The person's words say "don't" (a narrowing action that needs no request verb reads this alone: chat/stop-sharing.ts). */
+export const saysDont = (said: string): boolean => ASK_NOT.test(said)
 
 /** The asker's own words of this turn without quoted lines (a quote is someone else's words). */
 export function ownWords(said: string): string {

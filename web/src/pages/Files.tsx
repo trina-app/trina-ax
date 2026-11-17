@@ -25,12 +25,12 @@
 // projects and files"); a question the server asks (who would lose or gain sight of it) is asked with the row already
 // moved, and a no puts it back.
 import clsx from 'clsx'
-import { ArchiveRestore, BookmarkPlus, ImageIcon, Link2, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, Paperclip, Pencil, Plus, Presentation, Search, Signpost, SquareCheck, RefreshCw, Trash2, Upload, UserPlus, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
+import { ArchiveRestore, BookmarkPlus, ImageIcon, Link2, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, Paperclip, Pencil, Plus, Presentation, Search, Signpost, SquareCheck, RefreshCw, Trash2, Upload, UserPlus, Users, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { type Access, type FileEntry, type FileHistoryEvent, type FileVersion, type HistoryResponse, type TrashItem, type TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText, fileUrl, isApiError, startDownload, versionDownloadUrl } from '../lib/api'
-import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, isFixed, moveMany, projectSkillsOn, selectable, widenedBy, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
+import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, isFixed, moveMany, projectSkillsOn, selectable, sendWidening, widenedBy, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
 import { formatDateTime, formatShortDateTime, formatSize, intlTag } from '../lib/format'
 import { groupTrash, mergePage, placeWords, purgeIn, retentionDays, showWhoSwitch, trashPlace, type PlaceWords } from '../lib/trashList'
 import { ListRow } from '../components/list/List'
@@ -54,7 +54,7 @@ import { SIGNED_OUT } from '../lib/localData'
 import { markBusy } from '../lib/busy'
 import { useLocale, useT } from '../i18n'
 import { aiName } from '../lib/tabs'
-import { accessChanged, filesChanged, reloadAsked } from '../store/live'
+import { accessChanged, fileSharesChanged, filesChanged, reloadAsked } from '../store/live'
 import { readManagedList, readProjectList, useProjects } from '../store/projects'
 import { useDeleteProject } from '../components/projectActions'
 import { dropFolders, FOLDER_PAGE, folderKey, keptFolder, readFolder } from '../store/teamFiles'
@@ -66,9 +66,12 @@ import FileUploads from '../components/FileUploads'
 import FolderPicker from '../components/FolderPicker'
 import { FolderAccessChip, FolderAccessPanel, offersFolderAccess } from '../components/FolderAccess'
 import { openFileShare, useCopyTeamFileLink } from '../components/FileShareDialog'
+import { isOwnPath, offersFolderShare, useFolderSharesOn, useOwnFolderShare } from '../lib/folder-share'
 import FolderUploads, { startFolderUpload, useFolderUploadsSettled } from '../components/FolderUploads'
 import { TeamFilesEntry } from '../components/onboarding/TeamFilesStep'
 import { useFindWorkFilesEntry } from '../components/onboarding/FindWorkFiles'
+import { MeetingNotesEntry } from '../components/MeetingNotes'
+import { OpenAppLine } from '../components/onboarding/OpenAppLine'
 import SuggestSkillDialog from '../components/SuggestSkillDialog'
 import { SkillIssues } from '../components/SkillIssues'
 import { isSkillsPath } from '../lib/skillIssues'
@@ -242,6 +245,9 @@ function Files() {
     return accessChanged.on(() => void loadProjects())
   }, [loadProjects])
   const byFolder = useMemo(() => projectsByFolder(projects), [projects])
+  // folder sharing (open on this server): the folder on screen, if it is one of mine that can be shared
+  const folderShares = useFolderSharesOn()
+  const ownShare = useOwnFolderShare(path, me.user.id)
   // back from Admin's Share dialog opened with from=files (AccessTree): the folder's Share dialog opens again
   // once the folder is here, where the chip would show; the address loses `access` (a reload does not open it again)
   const accessParam = params.get('access')
@@ -378,10 +384,13 @@ function Files() {
     })
     const offB = reloadAsked.on(() => void load())
     const offC = accessChanged.on(() => void load())
+    // folder sharing: the Shared marks of my own files change with any share (file_shares_changed, or my dialog)
+    const offD = fileSharesChanged.on(() => { if (isOwnPath(path, me.user.id)) void load() })
     return () => {
       offA()
       offB()
       offC()
+      offD()
     }
   }, [path, load, loadProjects])
 
@@ -543,7 +552,8 @@ function Files() {
       const r = await moveMany(ok, folder, {
         move: (body) => api.call(API.move, { body }),
         confirmNarrow: (count, n) => confirmDialog({ title: t('files.narrowTitle'), body: t('files.bulk.narrowBody', { count, n }), confirm: t('files.moveAnyway'), danger: true }),
-        confirmWiden: (count, n) => confirmDialog({ title: t('files.widenTitle'), body: t('files.bulk.widenBody', { count, n }), confirm: t('files.moveAnyway') }),
+        // into a folder of my own: only a folder share there adds people (its own sentence); else out of my personal folder
+        confirmWiden: (count, n) => confirmDialog({ title: t('files.widenTitle'), body: t(isOwnPath(folder, me.user.id) ? 'files.bulk.widenSharedBody' : 'files.bulk.widenBody', { count, n }), confirm: t('files.moveAnyway') }),
         confirmSkills: confirmSkillsOn,
       })
       each.settle(r)
@@ -714,7 +724,8 @@ function Files() {
       }
       const added = widenedBy(err)
       if (added !== null) {
-        if (!(await confirmDialog({ title: t('files.widenTitle'), body: t('files.widenBody', { n: added }), confirm: t('files.moveAnyway') }))) return null
+        // into a folder of my own (a move or a rename): only a folder share there adds people
+        if (!(await confirmDialog({ title: t('files.widenTitle'), body: t(isOwnPath(body.to, me.user.id) ? 'files.widenSharedBody' : 'files.widenBody', { n: added }), confirm: t('files.moveAnyway') }))) return null
         return await api.call(API.move, { body: { ...body, confirm: true } })
       }
       if (!(isApiError(err, 'conflict') && err.body.params?.reason === 'audience_narrowed')) throw err
@@ -780,7 +791,7 @@ function Files() {
       const dry = await api.call(API.copy, { body: { ...body, dryRun: true } })
       const n = 'viewersAdded' in dry ? dry.viewersAdded : 0
       if (n > 0 && !(await confirmDialog({ title: t('files.shareTitle', { name: e.name }), body: t('files.shareBody', { n }), confirm: t('files.shareCopy') }))) return
-      const r = await api.call(API.copy, { body })
+      const r = await api.call(API.copy, { body: n > 0 ? { ...body, confirm: true } : body })
       if ('path' in r) toast({ level: 'success', text: t('files.shared', { path: words.path(r.path) }) })
       void load()
     } catch (err) {
@@ -788,11 +799,13 @@ function Files() {
     }
   }
 
+  /** A restore into a folder its owner shares now (409 audience_widened): asked once per item, then sent confirmed. */
+  const askRestoreWiden = (n: number) => confirmDialog({ title: t('files.widenTitle'), body: t('files.restoreWidenBody', { n }), confirm: t('common.restore') })
   /** Undo of the trash: the rows back at once (the server's copy, " (restored)" when the name was taken meanwhile). */
   const untrash = (items: readonly { entry: FileEntry; trashId: string }[]) =>
     Promise.all(
       items.map(({ entry, trashId }) =>
-        placeEntry<MoveResult>({ key: fileChangeKey(entry.path), from: null, to: madeEntry(entry), send: () => api.call(API.restoreTrash, { params: { id: trashId } }), confirmed: (r) => r.entry }),
+        placeEntry<MoveResult>({ key: fileChangeKey(entry.path), from: null, to: madeEntry(entry), send: () => sendWidening((confirm) => api.call(API.restoreTrash, { params: { id: trashId }, ...(confirm ? { query: { confirm: '1' as const } } : {}) }), askRestoreWiden), confirmed: (r) => r.entry }),
       ),
     ).then(() => void onScreen.current?.load())
 
@@ -949,7 +962,7 @@ function Files() {
     <>
       {/* who else sees this folder: a count where a member can write, their own folder, a project's folder;
           everything for admins (nothing at the top folders and the root) */}
-      <FolderAccessChip key={tree.path} path={tree.path} access={tree.access} project={byFolder.get(tree.path.normalize('NFC')) ?? null} onOpen={() => setAccessFor({ path: tree.path, access: tree.access })} />
+      <FolderAccessChip key={tree.path} path={tree.path} access={tree.access} project={byFolder.get(tree.path.normalize('NFC')) ?? null} onOpen={() => setAccessFor({ path: tree.path, access: tree.access })} own={ownShare} />
       {/* Personal (users/): what a member can do there is open their own folder inside, so it is not called
           read-only (docs/DECISIONS.md "A welcome for invited people") */}
       {tree.access !== 'write' && (personal ? (
@@ -1048,6 +1061,8 @@ function Files() {
               </>
             )}
             {!projectsTop && findWork.button}
+            {/* meeting notes (desktop app): only on My files */}
+            {!projectsTop && <MeetingNotesEntry here={path} />}
             {!projectsTop && (
             <Tooltip label={t('files.upload')}>
               <Button size="sm" variant="primary" className={clsx(tree && !canWrite && 'max-md:hidden')} onClick={() => fileInput.current?.click()} disabled={!canWrite} aria-label={t('files.upload')} data-testid="upload-button">
@@ -1134,6 +1149,9 @@ function Files() {
           <FileUploads here={path} />
           <FolderUploads here={path} />
           <TeamFilesEntry here={path} />
+          {/* My files in a Mac or Windows browser: where the app's "Find work files on this computer" would be, one quiet
+              line that the app does that (components/onboarding/OpenAppLine.tsx; never a guest, a phone or inside the apps) */}
+          {path === `users/${me.user.id}` && <OpenAppLine className="mx-4 mb-2 px-1.5 max-md:mt-3 sm:mx-6" />}
           {/* computer files over the list go to this folder; over a folder row, into that folder (the row shows it) */}
           <div className={clsx('scroll-thin relative min-h-0 flex-1 overflow-y-auto px-2 pb-6 sm:px-4', drag && !over && 'bg-accent-soft/40 ring-2 ring-accent ring-inset')}>
             {phone && (
@@ -1230,7 +1248,12 @@ function Files() {
                           membersOnly={e.type === 'folder' && e.access === 'none' && isAdmin(me) && isProjectsFolder(e.path)}
                           onProject={(a) => navigate(`/projects/${a.project.id}`)}
                           onSuggest={me.user.role !== 'guest' && e.type === 'file' && e.path.startsWith(`users/${me.user.id}/`) && /\.(md|txt)$/i.test(e.name) ? () => setSuggesting(e.path) : null}
-                          onAccess={e.type === 'folder' && offersFolderAccess(e.path, e.access, me.user.id, byFolder.get(e.path.normalize('NFC')) ?? null) ? () => setAccessFor({ path: e.path, access: e.access }) : null}
+                          onAccess={e.type !== 'folder' ? null
+                            // folder sharing open: a folder in my own files is shared in the file Share dialog, and my
+                            // personal folder itself and the places Trina keeps there offer no Share at all
+                            : folderShares && isOwnPath(e.path, me.user.id) ? (offersFolderShare(e.path, me.user.id) ? () => openFileShare(e.path) : null)
+                            : offersFolderAccess(e.path, e.access, me.user.id, byFolder.get(e.path.normalize('NFC')) ?? null) ? () => setAccessFor({ path: e.path, access: e.access }) : null}
+                          sharedThrough={ownShare?.through ?? null}
                         />
                       ))}
                     </tbody>
@@ -1382,7 +1405,7 @@ function TwoLines({ phone, meta, children }: { phone: boolean; meta: string; chi
   )
 }
 
-function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, draggable, onDragStart, onDragEnd, dragged, dropTarget, drop, onOpen, onChat, onAddToChat, chatTitle, onRename, onMove, onShare, onDelete, onHistory, project, membersOnly = false, onProject, onSuggest, onAccess }: { e: FileEntry; selected: boolean; open: boolean; checked: boolean; onCheck: (shift: boolean) => void; pressSelect: boolean; selecting: boolean; draggable: boolean; onDragStart: (ev: React.DragEvent) => void; onDragEnd: () => void; dragged: boolean; dropTarget: DropHandlers | null; drop: DropOver | null; onOpen: () => void; onChat: () => void; onAddToChat: (() => void) | null; chatTitle: string; onRename: () => void; onMove: () => void; onShare: () => void; onDelete: () => void; onHistory: () => void; project: FolderProjectAction; membersOnly?: boolean; onProject: (a: NonNullable<FolderProjectAction>) => void; onSuggest: (() => void) | null; onAccess: (() => void) | null }) {
+function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, draggable, onDragStart, onDragEnd, dragged, dropTarget, drop, onOpen, onChat, onAddToChat, chatTitle, onRename, onMove, onShare, onDelete, onHistory, project, membersOnly = false, onProject, onSuggest, onAccess, sharedThrough = null }: { e: FileEntry; selected: boolean; open: boolean; checked: boolean; onCheck: (shift: boolean) => void; pressSelect: boolean; selecting: boolean; draggable: boolean; onDragStart: (ev: React.DragEvent) => void; onDragEnd: () => void; dragged: boolean; dropTarget: DropHandlers | null; drop: DropOver | null; onOpen: () => void; onChat: () => void; onAddToChat: (() => void) | null; chatTitle: string; onRename: () => void; onMove: () => void; onShare: () => void; onDelete: () => void; onHistory: () => void; project: FolderProjectAction; membersOnly?: boolean; onProject: (a: NonNullable<FolderProjectAction>) => void; onSuggest: (() => void) | null; onAccess: (() => void) | null; sharedThrough?: string | null }) {
   const t = useT()
   const locale = useLocale()
   const words = useFolderWords()
@@ -1568,6 +1591,21 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
               <Badge>{t('accessTree.membersOnly')}</Badge>
             </span>
           )}
+          {/* folder sharing: people of its own on it, or a shared folder above it (my own files only; a hidden name is
+              never shown to the people on the folder, so it is not marked) */}
+          {e.shared && !(e.shared === 'through' && e.name.startsWith('.')) && (
+            <span className="shrink-0" data-testid="file-shared" data-shared={e.shared}>
+              {e.shared === 'through' && sharedThrough ? (
+                <Tooltip label={t('files.sharedThrough', { folder: sharedThrough })}>
+                  <span tabIndex={0} className="inline-flex rounded-md focus-visible:outline-2 focus-visible:outline-accent">
+                    <Badge><Users size={11} aria-hidden /> <span aria-hidden>{t('files.sharedBadge')}</span><span className="sr-only">{t('files.sharedThrough', { folder: sharedThrough })}</span></Badge>
+                  </span>
+                </Tooltip>
+              ) : (
+                <Badge><Users size={11} aria-hidden /> {t('files.sharedBadge')}</Badge>
+              )}
+            </span>
+          )}
           {!folder && isConflictCopy(e.name) && <Badge tone="warn">{t('files.conflictCopy')}</Badge>}
           {aiOff && <span className="shrink-0" data-testid="file-download-only"><Badge>{t('files.downloadOnly')}</Badge></span>}
           {/* not on Personal: the person's own folder inside is theirs to change */}
@@ -1651,7 +1689,7 @@ function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: ()
     if (!(await confirmDialog({ title: t('files.restoreTitle', { version: v.version }), body: t('files.restoreBody'), confirm: t('common.restore') }))) return
     setBusy(v.id)
     try {
-      await api.call(API.restoreVersion, { body: { path, versionId: v.id } })
+      await sendWidening((confirm) => api.call(API.restoreVersion, { body: { path, versionId: v.id, ...(confirm ? { confirm: true } : {}) } }), (n) => confirmDialog({ title: t('files.widenTitle'), body: t('files.restoreWidenBody', { n }), confirm: t('common.restore') }))
       toast({ level: 'success', text: t('files.restored', { version: v.version }) })
       onRestored()
       onClose()
@@ -1832,7 +1870,7 @@ function TrashView({ projects }: { projects: readonly { name: string; folderPath
           const rest = cur.filter((x) => x.id !== it.id)
           return out ? rest : [...rest.slice(0, Math.max(0, at)), it, ...rest.slice(Math.max(0, at))]
         }),
-      send: () => api.call(API.restoreTrash, { params: { id: it.id } }),
+      send: () => sendWidening((confirm) => api.call(API.restoreTrash, { params: { id: it.id }, ...(confirm ? { query: { confirm: '1' as const } } : {}) }), (n) => confirmDialog({ title: t('files.widenTitle'), body: t('files.restoreWidenBody', { n }), confirm: t('common.restore') })),
     })
     if (r.ok && r.newest) toast({ level: 'success', text: t('files.restoredTo', { path: placeWords(parentPath(r.reply.entry.path), place) }) })
     // a project came back with its folder: the project lists read it again (its card, its members' too)

@@ -192,7 +192,9 @@ interface Row { link: string; rel: string | null; name: string; size: number; un
 
 /** Provenance for one choice of attached files, with what the key binds (`keys`); `hidden`: a member would see a room
  * it read but for old answers hidden from them (never sent); `kept`: what it used, for the message (later members). */
-export interface Prov { missing: Set<string>; places: AnswerSharePlace[]; otherPlaces: boolean; unknown: boolean; keys: string[]; hidden: boolean; kept: AnswerScopeKept }
+export interface Prov { missing: Set<string>; places: AnswerSharePlace[]; otherPlaces: boolean; unknown: boolean; keys: string[]; hidden: boolean; kept: AnswerScopeKept
+  /** the places that count, with who misses each and its files (chat/share-next-steps.ts: "Let them view" after a post) */
+  counted?: CountedSource[] }
 
 /** What a shared answer used, as kept with its message (room_messages.source_scope): the sources checked when it was
  * sent, the files that went with it and the paths it links to (as names), and `unknown` when not all of it is known
@@ -441,7 +443,7 @@ export async function answerCheck(ctx: AppContext, userId: string, to: string | 
         ...rows.filter((r) => r.rel).map((r): ReadSource => ({ type: 'name', path: r.rel! }))],
       unknown: p.unknown || p.roomsUnseen || rows.some((r) => r.rel === null),
     }
-    return { missing: p.missing, places: p.places, otherPlaces: p.otherPlaces, unknown: p.unknown, keys: p.keys, hidden: p.hidden, kept }
+    return { missing: p.missing, places: p.places, otherPlaces: p.otherPlaces, unknown: p.unknown, keys: p.keys, hidden: p.hidden, kept, counted: p.counted }
   }
 
   /** what an older client is told and sends back (`confirm`): nobody attached, so every row's people count */

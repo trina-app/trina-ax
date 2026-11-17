@@ -56,6 +56,16 @@ export const CHAT_FILES_FOLDER = { ko: '채팅 첨부', en: 'Chat attachments', 
 export const FROM_COMPUTER_DIR = 'From this computer'
 export const FROM_COMPUTER_LABEL = { ko: '이 컴퓨터에서', en: 'From this computer', id: 'Dari komputer ini', ja: 'このコンピューターから', es: 'De este ordenador', zh: '来自这台电脑' } as const satisfies T
 
+/** Meeting notes from the desktop app (docs/decisions/20261116-live-meeting-notes.md): users/<id>/<this>/, one name on
+ * disk, shown in the person's words. */
+export const MEETINGS_DIR = 'Meetings'
+export const MEETINGS_LABEL = { ko: '회의', en: 'Meetings', id: 'Rapat', ja: '会議', es: 'Reuniones', zh: '会议' } as const satisfies T
+
+/** A removed member's whole personal folder is handed to the team owner under users/<owner>/<this>/ (admin/users.ts),
+ * named in the team's language when it is made. Nothing at or inside a folder with any of these names is ever shared
+ * (server/src/files/share-places.ts). */
+export const ARCHIVE_DIR = { ko: '보관된 계정', en: 'Archived accounts', id: 'Akun diarsipkan', ja: 'アーカイブ済みアカウント', es: 'Cuentas archivadas', zh: '已归档账号' } as const satisfies T
+
 const isTop = (s: string): s is TopFolder => (TOP_FOLDERS as readonly string[]).includes(s)
 
 /** One folder's name in words: a top folder's label, the person's own folder (`me`: their id) as "내 파일"
@@ -65,6 +75,7 @@ export function folderLabel(path: string, locale: Locale, me?: string | null): s
   if (isTop(path)) return TOP_FOLDER_LABELS[path][locale] ?? TOP_FOLDER_LABELS[path].en
   if (me && path === `users/${me}`) return ownFolderLabel(locale)
   if (me && path === `users/${me}/${FROM_COMPUTER_DIR}`) return FROM_COMPUTER_LABEL[locale] ?? FROM_COMPUTER_LABEL.en
+  if (me && path === `users/${me}/${MEETINGS_DIR}`) return MEETINGS_LABEL[locale] ?? MEETINGS_LABEL.en
   return null
 }
 

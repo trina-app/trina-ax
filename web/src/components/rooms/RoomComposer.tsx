@@ -41,14 +41,14 @@ import { api, API, errorText, roomFileUrl } from '../../lib/api'
 import { markBusy } from '../../lib/busy'
 import { formatSize } from '../../lib/format'
 import { NO_UPLOADS, nextUploadKey, roomTarget as targetOf, setPlaceUploads, useRoomUploads, type RoomUpload } from '../../store/roomUploads'
-import { cancelUpload, SINGLE_REQUEST_MAX, uploadFile, uploadPercent } from '../../lib/upload'
+import { cancelUpload, SINGLE_REQUEST_MAX, unreadableFile, uploadFile, uploadPercent } from '../../lib/upload'
 import { UploadLabel } from '../UploadLabel'
 import { pastedFiles } from '../../lib/paste'
 import { useVoiceInput } from '../../lib/useVoiceInput'
 import { micState, voiceBlockedInRoom } from '../../lib/voice'
 import { currentLocale, translate, useLocale, useT } from '../../i18n'
 import { myUploadMax } from '../../lib/guests'
-import { useMe } from '../../store/session'
+import { isAdmin, useMe } from '../../store/session'
 import { findMessage, keepRoomDraft, onRoomDraftElsewhere, placeKey, restoreRoomDraft, roomDraftMentions, roomDrafts as drafts, useRooms } from '../../store/rooms'
 import { failedEdits, hasRoomBox, registerRoomBox, useRoomEdit } from '../../store/roomEdit'
 import { usePeople } from '../../store/people'
@@ -61,13 +61,15 @@ import { Tooltip } from '../Tooltip'
 import { ChipRemove, FAILED_REASON, isLocalImage, PictureTile } from '../ChipThumb'
 import { ImageGroup } from '../ImageViewer'
 import { localItem, roomItem } from '../../lib/imageViewer'
-import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
+import { VoiceBar, VoiceHeld, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { MENTION_ALL_WORDS, pickedInMessage, useEveryone, useMentionMenu } from './useMentionMenu'
 import { useTextSize } from '../../lib/textSize'
 import { usePanelExpanded } from '../../lib/sidePanel'
 import { useFileDrop } from '../chat/ComposerFiles'
+import { withoutFolders } from '../../lib/fileDrop'
 import { useDropTarget } from '../FileDropZone'
-import { StoragePlansLink, storagePlansUrl } from '../StoragePlansLink'
+import { storagePlansUrl } from '../StoragePlansLink'
+import { isStorageFull, RefusalLinks, storageFullText } from './storageRefusal'
 import { AttachSheet } from '../chat/AttachSheet'
 import { ComposerToolbar } from '../chat/ComposerToolbar'
 import TeamFilePicker from '../chat/TeamFilePicker'
@@ -146,6 +148,8 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   const everyone = useEveryone(roomId, members, meId)
   const others = members.filter((m) => m.id !== meId).length
   const me = useMe()
+  // the owner or an admin (never a guest): a full disk's refusal links what takes the space
+  const staff = isAdmin(me)
   // the largest file I may send here: 1 GB, or for a guest what the team allows guests (Me.team.uploadMaxBytes;
   // the server checks it again)
   const fileMax = myUploadMax(me, ROOM_FILE_MAX)
@@ -171,7 +175,10 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     replace: mention.inputProps.onTextChange,
     append: (said) => {
       const cur = latest.current
-      setText(cur.trim() ? `${cur.trimEnd()} ${said}` : said)
+      const next = cur.trim() ? `${cur.trimEnd()} ${said}` : said
+      // a live recording's next words may come before the box renders again
+      latest.current = next
+      setText(next)
     },
     blocked: voiceBlockedInRoom(me),
     enabled: mic === 'on',
@@ -179,6 +186,9 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     onError: setVoiceError,
     afterFocus: mention.inputProps.onSelect,
   })
+  // another room or thread in the same box: a recording for the last one goes (its words stay with that room's draft)
+  const abandonVoice = voice.abandon
+  useEffect(() => () => abandonVoice(), [key]) // eslint-disable-line react-hooks/exhaustive-deps
   // the draft keeps its mentions too
   useEffect(() => {
     if (editingNow.current) return
@@ -285,6 +295,17 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     if (autoFocus) input.current?.focus({ preventScroll: true })
   }, [autoFocus])
   const roomTarget = (file: File) => targetOf(roomId, file)
+  /** a failed file's words: a full disk's by the role I have now (an upload can outlive a role change and this box) */
+  const failedText = (f: Upload) => (f.full ? storageFullText(staff, locale) : f.error)
+  /** a failed file's words, in the language of this moment (the box may be gone by now: another room). A full disk
+   * is only marked (its words follow the role at render: failedText); the rest as the server words it */
+  const failure = (e: unknown): Pick<Upload, 'error' | 'plans' | 'full'> => {
+    const locale = currentLocale()
+    if (isStorageFull(e)) return { error: undefined, plans: storagePlansUrl(e), full: true }
+    // a file the browser could not read is not a lost connection (TC-4483)
+    if (unreadableFile(e)) return { error: translate(locale, 'composer.unreadable') }
+    return { error: errorText(e, locale, translate(locale, 'error.network')), plans: storagePlansUrl(e) }
+  }
   /** A large file from this computer (one that goes in pieces) says what happens to it: waiting for its turn, being
    * checked, its percent, finishing (components/UploadLabel.tsx, as on the Files page). A small one is up in a moment:
    * it only spins, with its percent once there is one (a slow connection). */
@@ -301,12 +322,17 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
       // to do for a small file). Leaving the room does not stop it (store/roomUploads.ts)
       if (u.abort.signal.aborted) { void cancelUpload(u.file, roomTarget(u.file), api); return }
       // the box may be gone by now (another room): the reason in the language of this moment
-      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'failed', error: errorText(e, currentLocale(), translate(currentLocale(), 'error.network')), plans: storagePlansUrl(e) } : x)))
+      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'failed', ...failure(e) } : x)))
     }
   }
 
-  const addFiles = (picked: File[]) => {
+  /** `dropFolders`: the folders a drop held besides (lib/fileDrop.ts filesOfDrop). A folder is never a chip: one line
+   * says so, however many there were; the files beside them go on as usual (TC-4483). */
+  const addFiles = async (all: File[], dropFolders = 0) => {
     const room = ROOM_FILES_MAX - files.length
+    const sorted = await withoutFolders(all)
+    if (dropFolders + sorted.folders) toast({ level: 'warn', text: t('composer.folders') })
+    const picked = sorted.files
     if (picked.length > room) toast({ level: 'warn', text: t('rooms.tooMany', { n: ROOM_FILES_MAX }) })
     const added: Upload[] = []
     for (const file of picked.slice(0, Math.max(0, room))) {
@@ -331,7 +357,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
       setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'done', roomFile: r.file, unable: r.unable, file: { name: r.file.name, size: r.file.size } as File } : x)))
     } catch (e) {
       if (u.abort.signal.aborted) return
-      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'failed', error: errorText(e, currentLocale(), translate(currentLocale(), 'error.network')), plans: storagePlansUrl(e) } : x)))
+      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'failed', ...failure(e) } : x)))
     }
   }
   const addTeamFiles = (picked: FileEntry[]) => {
@@ -439,7 +465,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
           hidden
           data-testid="room-file-input"
           onChange={(e) => {
-            addFiles(Array.from(e.target.files ?? []))
+            void addFiles(Array.from(e.target.files ?? []))
             e.target.value = ''
           }}
         />
@@ -465,7 +491,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
         const pasted = pastedFiles(e.clipboardData)
         if (pasted.length) {
           e.preventDefault()
-          addFiles(pasted)
+          void addFiles(pasted)
         }
       }}
       onKeyDown={(e) => {
@@ -611,19 +637,32 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                     item={isLocalImage(f.file) ? localItem(String(f.key), f.file, f.file.name) : roomItem(roomId, f.roomFile!)}
                   />
                   {/* a large picture says how far it is beside its tile (a small one is there in a moment) */}
-                  <span role="status" className={f.status === 'failed' ? FAILED_REASON : f.status === 'uploading' && says(f) ? 'text-faint tabular-nums' : 'sr-only'}>
-                    {f.status === 'uploading' ? (says(f) ? <span data-testid="room-file-progress"><UploadLabel progress={f.progress} busy={t('rooms.uploading', { name: f.file.name })} /></span> : t('rooms.uploading', { name: f.file.name })) : f.status === 'failed' ? f.error : formatSize(f.file.size, locale)}
-                  </span>
-                  {f.status === 'failed' && <StoragePlansLink url={f.plans} />}
+                  {f.status === 'failed' ? (
+                    // the reason (announced), then its links in the same run of text, outside the live region
+                    <span className={FAILED_REASON}>
+                      <span role="status">{failedText(f)}</span>
+                      <RefusalLinks full={!!f.full && staff} plans={f.plans} />
+                    </span>
+                  ) : (
+                    <span role="status" className={f.status === 'uploading' && says(f) ? 'text-faint tabular-nums' : 'sr-only'}>
+                      {f.status === 'uploading' ? (says(f) ? <span data-testid="room-file-progress"><UploadLabel progress={f.progress} busy={t('rooms.uploading', { name: f.file.name })} /></span> : t('rooms.uploading', { name: f.file.name })) : formatSize(f.file.size, locale)}
+                    </span>
+                  )}
                 </li>
               ) : (
                 <li key={f.key} className={clsx('inline-flex max-w-full items-center gap-2 rounded-xl border py-1.5 pr-2 pl-2.5 text-xs', f.status === 'failed' ? 'border-danger/40 bg-danger-soft' : 'border-line bg-subtle')} data-testid="room-file-chip" data-status={f.status} data-team={f.teamPath ? '' : undefined}>
                   {f.status === 'uploading' ? <Loader2 size={14} className="animate-spin text-faint" aria-hidden /> : f.teamPath ? <FolderOpen size={14} className="text-accent-text" aria-hidden /> : <FileText size={14} className="text-muted" aria-hidden />}
                   <span className="max-w-[180px] truncate font-medium">{f.file.name}</span>
-                  <span role="status" className={f.status === 'failed' ? FAILED_REASON : 'text-faint'}>
-                    {f.status === 'uploading' ? (says(f) ? <span className="tabular-nums" data-testid="room-file-progress"><UploadLabel progress={f.progress} busy={t('rooms.uploading', { name: f.file.name })} /></span> : <span className="sr-only">{t('rooms.uploading', { name: f.file.name })}</span>) : f.status === 'failed' ? f.error : formatSize(f.file.size, locale)}
-                  </span>
-                  {f.status === 'failed' && <StoragePlansLink url={f.plans} />}
+                  {f.status === 'failed' ? (
+                    <span className={FAILED_REASON}>
+                      <span role="status">{failedText(f)}</span>
+                      <RefusalLinks full={!!f.full && staff} plans={f.plans} />
+                    </span>
+                  ) : (
+                    <span role="status" className="text-faint">
+                      {f.status === 'uploading' ? (says(f) ? <span className="tabular-nums" data-testid="room-file-progress"><UploadLabel progress={f.progress} busy={t('rooms.uploading', { name: f.file.name })} /></span> : <span className="sr-only">{t('rooms.uploading', { name: f.file.name })}</span>) : formatSize(f.file.size, locale)}
+                    </span>
+                  )}
                   <ChipRemove label={t('rooms.removeFile', { name: f.file.name })} onClick={() => removeFile(f)} />
                 </li>
               ),
@@ -638,15 +677,17 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
         )}
         {voice.recording ? (
           phone ? (
-            // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where the clip and send were: nothing moves
-            <VoiceBar voice={voice} className="box-content min-h-composer-line py-1.5 pr-3 pl-2" />
+            // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where the clip and send were: nothing moves;
+            // once a live recording put words in, the box's text shows above it
+            <>
+              {voice.heard && <VoiceHeld text={text} className="max-h-32 px-4 pt-2.5 text-ink" testId="room-text-held" />}
+              <VoiceBar voice={voice} className="box-content min-h-composer-line py-1.5 pr-3 pl-2" />
+            </>
           ) : (
             // a computer's box keeps its height: the text as it was on top (it cannot be typed in while recording), the
             // bar in the row's place (as tall as ComposerToolbar), ✕ and ✓ where the clip and send were
             <>
-              <p aria-hidden className={clsx('max-h-[200px] overflow-hidden px-4.5 pt-3 pb-1 text-reading leading-reading break-words whitespace-pre-wrap', text ? 'text-ink' : 'text-faint')} data-testid="room-text-held">
-                {text || placeholder}
-              </p>
+              <VoiceHeld text={text || placeholder} className={clsx('max-h-[200px] px-4.5 pt-3 pb-1', text ? 'text-ink' : 'text-faint')} testId="room-text-held" />
               <VoiceBar voice={voice} className="box-content min-h-9 px-3 pt-1 pb-2.5" />
             </>
           )

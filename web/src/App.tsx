@@ -47,6 +47,7 @@ import { ChunkErrorBoundary } from './components/ChunkErrorBoundary'
 import { AnnounceProvider, Button, DialogHost, Spinner, Toaster } from './components/ui'
 import { StatusDialogHost } from './components/StatusMessage'
 import { AcceptInvite, ForcedPassword, InviteWhileSignedIn, Login, ResetPassword, Setup, signedInHome, TeamJoin } from './pages/Auth'
+import { AppSignIn, OpenApp } from './pages/OpenApp'
 import Home from './pages/Home'
 import SettingsDialog from './components/settings/SettingsDialog'
 import { ImageViewerHost } from './components/ImageViewer'
@@ -326,6 +327,8 @@ function Gate() {
         {/* the team invite link: the token is after # (never in a path or a log) */}
         <Route path="/join" element={<TeamJoin />} />
         <Route path="/reset-password/:token" element={<ResetPassword />} />
+        {/* the desktop app's one-time sign-in (pages/OpenApp.tsx): the code is after # (never in a path or a log) */}
+        <Route path="/app-signin" element={<AppSignIn />} />
         <Route path="/slack/done" element={<Suspense fallback={<Splash />}><SlackDone signedIn={false} /></Suspense>} />
         <Route path="*" element={<Navigate to={`/login${next}`} replace />} />
       </Routes>
@@ -414,6 +417,10 @@ function Gate() {
         <Route path="/join" element={<AfterJoin />} />
         {/* a reset link opened while someone is signed in (a shared computer): using it signs that person in instead */}
         <Route path="/reset-password/:token" element={<ResetPassword />} />
+        {/* after setup in a Mac or Windows browser: continue in the desktop app, or in the browser (pages/OpenApp.tsx) */}
+        <Route path="/open-app" element={<NotForGuests><OpenApp /></NotForGuests>} />
+        {/* the desktop app's one-time sign-in while someone is signed in: the code replaces that session */}
+        <Route path="/app-signin" element={<AppSignIn />} />
       </Routes>
       </div>
       </RealPath.Provider>

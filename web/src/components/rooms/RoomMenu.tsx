@@ -15,7 +15,7 @@
 // The room header's "⋯" of a group chat or a DM also has 초대하기 (`onInvite`, for everyone but a guest; docs/DECISIONS.md
 // "Guests from Invite people"): the room info's add list, whose first row is "Invite a guest". Before 알림 설정, right
 // after the pin; a row of a list has none (it opens the room first).
-import { Bell, Blocks, Eye, EyeOff, Link2, LogOut, Pencil, Pin, PinOff, UserPlus } from 'lucide-react'
+import { Bell, Blocks, Eye, EyeOff, Link2, Lock, LogOut, Pencil, Pin, PinOff, UserPlus } from 'lucide-react'
 import { useRef, useState, type RefObject } from 'react'
 import { ROOM_NAME_MAX, type Room } from '@mycel/shared/api'
 import { errorText } from '../../lib/api'
@@ -24,6 +24,7 @@ import { useRooms } from '../../store/rooms'
 import { mayManageApps, useRoomApps } from '../../store/roomApps'
 import { useMe } from '../../store/session'
 import { isGuestMe } from '../../lib/guests'
+import { isPrivateChannel } from '../../lib/rooms'
 import { toast } from '../../store/ui'
 import { confirmDialog, promptDialog, useCopy } from '../ui'
 import { useNameFallback } from './RoomIcon'
@@ -55,6 +56,8 @@ export function useRoomMenuItems(room: Room, onNotify: () => void, phone?: Phone
   const t = useT()
   const locale = useLocale()
   const { copy } = useCopy()
+  // a named group room: a private channel (its words say so)
+  const locked = isPrivateChannel(room)
   const fail = (e: unknown) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
   const show = () => void useRooms.getState().setHidden(room.id, false).catch(fail)
   // on screen at once; a failure undoes it with its own toast (store/rooms.ts setPinned)
@@ -78,18 +81,23 @@ export function useRoomMenuItems(room: Room, onNotify: () => void, phone?: Phone
     toast({ level: 'info', text: t(room.kind === 'dm' ? 'rooms.menu.hiddenDm' : 'rooms.menu.hiddenRoom'), action: { label: t('common.undo'), run: () => void undo() } })
   }
   const leave = async () => {
-    const ok = await confirmDialog({ title: t('rooms.info.leaveTitle'), body: t(isGuestMe(me) ? 'rooms.info.leaveBodyGuest' : 'rooms.info.leaveBody'), confirm: t('rooms.info.leave'), danger: true })
+    const ok = await confirmDialog(locked
+      ? { title: t('rooms.info.leaveTitlePrivate'), body: t(isGuestMe(me) ? 'rooms.info.leaveBodyGuestPrivate' : 'rooms.info.leaveBodyPrivate'), confirm: t('rooms.info.leavePrivate'), danger: true }
+      : { title: t('rooms.info.leaveTitle'), body: t(isGuestMe(me) ? 'rooms.info.leaveBodyGuest' : 'rooms.info.leaveBody'), confirm: t('rooms.info.leave'), danger: true })
     if (ok) await useRooms.getState().leave(room.id).catch(fail)
   }
   const fallbackOf = useNameFallback()
   const rename = async (typed?: string): Promise<void> => {
+    // a group room: a group DM is turned into a private channel by naming it, and a private channel keeps a name (it
+    // stays a channel: docs/decisions/20261117-named-groups-private-channels.md); a team room's empty name goes back
+    const group = room.kind === 'group'
     const name = await promptDialog({
-      title: t('rooms.info.rename'),
-      body: t(room.kind === 'group' ? 'rooms.info.nameHintGroup' : 'rooms.info.nameHintTeam'),
-      label: t(room.kind === 'group' ? 'rooms.info.nameLabel' : 'rooms.info.nameLabelChannel'),
+      title: t(group && !locked ? 'rooms.menu.makePrivate' : 'rooms.info.rename'),
+      ...(group ? (locked ? {} : { body: t('rooms.menu.makePrivateBody') }) : { body: t('rooms.info.nameHintTeam') }),
+      label: t(group ? 'rooms.info.nameLabelPrivate' : 'rooms.info.nameLabelChannel'),
       initial: typed ?? room.name ?? '',
-      placeholder: fallbackOf(room),
-      allowEmpty: true,
+      placeholder: group ? '' : fallbackOf(room),
+      allowEmpty: !group,
       maxLength: ROOM_NAME_MAX,
       confirm: t('common.save'),
     })
@@ -112,10 +120,10 @@ export function useRoomMenuItems(room: Room, onNotify: () => void, phone?: Phone
       case 'pin': return { label: t('chat.pin'), icon: <Pin size={14} aria-hidden />, onSelect: () => setPinned(true), testId: 'room-menu-pin' }
       case 'unpin': return { label: t('chat.unpin'), icon: <PinOff size={14} aria-hidden />, onSelect: () => setPinned(false), testId: 'room-menu-unpin' }
       case 'notify': return { label: t('rooms.menu.notify'), ...(level ? { hint: `· ${level}` } : {}), icon: <Bell size={14} aria-hidden />, onSelect: onNotify, testId: 'room-menu-notify' }
-      case 'rename': return { label: t('rooms.info.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: () => void rename(), testId: 'room-menu-rename' }
+      case 'rename': return { label: t(room.kind === 'group' && !locked ? 'rooms.menu.makePrivate' : 'rooms.info.rename'), icon: room.kind === 'group' && !locked ? <Lock size={14} aria-hidden /> : <Pencil size={14} aria-hidden />, onSelect: () => void rename(), testId: 'room-menu-rename' }
       case 'apps': return { label: appCount ? t('roomApps.menuList', { count: appCount }) : t('roomApps.menuAdd'), icon: <Blocks size={14} aria-hidden />, onSelect: () => useRoomApps.getState().open(room.id), testId: 'room-menu-apps' }
       case 'copyLink': return { label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: () => void copyLink(), testId: 'room-menu-link' }
-      case 'leave': return { label: t('rooms.info.leave'), icon: <LogOut size={14} aria-hidden />, danger: true, onSelect: () => void leave(), testId: 'room-menu-leave' }
+      case 'leave': return { label: t(locked ? 'rooms.info.leavePrivate' : 'rooms.info.leave'), icon: <LogOut size={14} aria-hidden />, danger: true, onSelect: () => void leave(), testId: 'room-menu-leave' }
       case 'hide': return { label: t(room.kind === 'dm' ? 'rooms.menu.hideDm' : 'rooms.menu.hide'), icon: <EyeOff size={14} aria-hidden />, onSelect: () => void hide(), testId: 'room-menu-hide' }
       case 'show': return { label: t('rooms.menu.show'), icon: <Eye size={14} aria-hidden />, onSelect: show, testId: 'room-menu-show' }
     }
@@ -123,7 +131,7 @@ export function useRoomMenuItems(room: Room, onNotify: () => void, phone?: Phone
   // 초대하기 after the pin (or first), for a group chat or a DM, never for a guest
   if (onInvite && (room.kind === 'group' || room.kind === 'dm') && !room.gone && !isGuestMe(me)) {
     const at = items[0]?.testId === 'room-menu-pin' || items[0]?.testId === 'room-menu-unpin' ? 1 : 0
-    items.splice(at, 0, { label: t(room.kind === 'dm' ? 'rooms.info.addPeople' : 'rooms.info.invite'), icon: <UserPlus size={14} aria-hidden />, onSelect: onInvite, testId: 'room-menu-invite' })
+    items.splice(at, 0, { label: t(locked ? 'rooms.info.invitePrivate' : 'rooms.info.addPeople'), icon: <UserPlus size={14} aria-hidden />, onSelect: onInvite, testId: 'room-menu-invite' })
   }
   return phone?.first?.length ? [...phone.first, ...items] : items
 }

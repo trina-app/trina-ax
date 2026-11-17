@@ -6,6 +6,7 @@ import clsx from 'clsx'
 import { Loader2, ShieldAlert, WifiOff } from 'lucide-react'
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { matchPath, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { useReportLooking } from './LookingReporter'
 import { PRODUCT } from '@mycel/shared'
 import { useOverlayEntry } from '../lib/backCloses'
 import { mayReloadNow } from '../lib/reload-guard'
@@ -33,6 +34,7 @@ import { ChunkErrorBoundary } from './ChunkErrorBoundary'
 import { DemoBar, useDemoInfo } from './demo/Demo'
 import { Spinner, useMediaQuery } from './ui'
 import SidePanelFrame from './SidePanelFrame'
+import { MeetingNotesCard } from './MeetingNotes'
 import { RailColumns } from './rail/RailColumns'
 import { PANEL_ID } from './panels/PanelFrame'
 const ArtifactPanel = lazy(() => import('./ArtifactPanel'))
@@ -41,6 +43,8 @@ const BrowserPanel = lazy(() => import('./BrowserPanel'))
 
 export default function Layout() {
   const t = useT()
+  // what this window shows, told to the server for the AI's looking_at tool (the one place that reports it)
+  useReportLooking()
   const setSearchOpen = useUi((s) => s.setSearchOpen)
   const panel = useSidePanel()
   // "크게 보기" (lib/sidePanel.ts): the panel takes the page's place beside the rail; the page stays mounted, hidden
@@ -186,6 +190,8 @@ export default function Layout() {
           <BottomTabs />
           {/* phones: the 트리나 tab's ☰ drawer (the AI's history) */}
           <TrinaDrawer />
+          {/* meeting notes (desktop app): the one card while a meeting runs, on every page */}
+          <MeetingNotesCard />
         </main>
         {panel && (
           // beside an open thread (a file a reply links to) the panel leaves the room and the thread their minimums

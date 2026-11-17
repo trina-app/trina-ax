@@ -1,5 +1,5 @@
 // Component C: chunked upload sessions (8 MB chunks, resumable, sha256-checked) and chat attachments.
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, spyOn, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { UPLOAD_CHUNK_SIZE, uuidv7 } from '@mycel/shared/api'
@@ -9,6 +9,7 @@ import { MAX_OPEN_SESSIONS, SESSION_MAX_MS, SESSION_TTL_MS } from '../../server/
 import { JOBS_PER_USER } from '../../server/src/jobs/service'
 import { jsonBody, makeCApp, sha256hex, type CApp } from '../lib/c-app'
 import { which } from '../../server/src/config'
+import { Plan, setPlanForTests } from '../../server/src/system/limits'
 
 // the app setup (database, migrations, team folder, server) takes seconds on a busy machine: room for it and the cases
 setDefaultTimeout(30_000)
@@ -127,6 +128,22 @@ describe('upload sessions', () => {
     // a retried complete answers the same; the part file is gone
     expect((await A.json(`/api/upload-sessions/${s.body.id}/complete`, { method: 'POST', as: 'alice' })).body).toEqual(done.body)
     expect(fs.existsSync(path.join(A.data, 'uploads', `${s.body.id}.part`))).toBe(false)
+  })
+  test('a disk without room for the file: 413 with reason disk_full, and the plan\'s page when there is one (docs/decisions/20261116-storage-full-notices.md)', async () => {
+    const data = blob(UPLOAD_CHUNK_SIZE + 1, 9)
+    // a 20 GB disk with 800 MB free: above the storage guard's 512 MB reserve, under the file plus the session's 1 GB
+    // margin (on a small hosted disk this answer comes first)
+    const spy = spyOn(fs, 'statfsSync').mockImplementation((() => ({ type: 0, bsize: 4096, blocks: 5_242_880, bfree: 204_800, bavail: 204_800, files: 0, ffree: 0 })) as unknown as typeof fs.statfsSync)
+    try {
+      const r = await create({ kind: 'path', path: 'shared/no-room.bin' }, data)
+      expect(r.status).toBe(413)
+      expect(r.body.error).toMatchObject({ code: 'payload_too_large', params: { reason: 'disk_full' } })
+      expect(r.body.error.params.manageUrl).toBeUndefined()
+      setPlanForTests(Plan.parse({ format: 1, plan: 'team', maxConcurrency: 1, memoryMiB: 2048, cpuCores: 1, diskGiB: 500, maxActiveMembers: 5, links: { account: 'https://example.invalid/plans', status: 'https://example.invalid/status', support: 'support@example.invalid' } }))
+      const hosted = await create({ kind: 'path', path: 'shared/no-room.bin' }, data)
+      expect(hosted.status).toBe(413)
+      expect(hosted.body.error.params).toMatchObject({ reason: 'disk_full', manageUrl: 'https://example.invalid/plans' })
+    } finally { spy.mockRestore(); setPlanForTests(undefined) }
   })
   test('unfinished sessions are limited per person until cancelled: a cancel frees the slot and the part file', async () => {
     const data = blob(UPLOAD_CHUNK_SIZE + 1, 3)

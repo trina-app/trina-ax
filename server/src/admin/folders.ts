@@ -30,6 +30,7 @@ import { peopleChatsLost, rememberAudience } from '../chat/chat-audience'
 import { groupFoldersChanged, syncRoomsNow, teamRoomSeats } from '../rooms/service'
 import { recheckHistories } from '../rooms/history'
 import { checkDriveShareOwners } from '../integrations/google-drive/shares'
+import { anyFolderShare } from '../files/share-readers'
 
 export interface FolderRow { id: string; path: string; created_at: string; limited?: number }
 interface RuleRow { id: string; folder_id: string; subject_type: FolderRule['subjectType']; subject_id: string | null; access: Access; updated_by: string | null; updated_at: string; origin?: string | null }
@@ -495,6 +496,17 @@ export function afterAccessChange(ctx: AppContext, before: AccessState, by: { ac
   for (const [userId, paths] of losses) {
     const chatsReset = resetEngineSessions(ctx, userId)
     out.push({ userId, paths, chatsReset })
+  }
+  // someone who left a group (or the team) while folders of the team are shared: a folder share through that group may
+  // have reached them (files/share-readers.ts; the grants are read live, so nothing else changes): a fresh engine
+  // session, as for a folder they lost (a resumed one may hold what they read there)
+  if (anyFolderShare(ctx.db)) {
+    const afterGroups = new Map(after.principals.map((p) => [p.id, p.groups]))
+    for (const pb of before.principals) {
+      if (losses.has(pb.id)) continue
+      const ga = afterGroups.get(pb.id)
+      if (!ga || pb.groups.some((g) => !ga.includes(g))) { try { resetEngineSessions(ctx, pb.id) } catch { /* their next turn starts fresh when it cannot resume */ } }
+    }
   }
   // every person whose access changed in a way they can tell re-reads open folders (tab 5 "권한 회수")
   const paths = decidingPaths(before, after)

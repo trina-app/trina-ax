@@ -1,5 +1,6 @@
 /* macOS permission prompts (zh-Hans). The English base is mac.extendInfo in desktop/electron-builder.config.ts. */
-"NSMicrophoneUsageDescription" = "在聊天中使用语音输入时会用到麦克风。";
+"NSMicrophoneUsageDescription" = "语音输入和会议记录会使用麦克风。";
+"NSAudioCaptureUsageDescription" = "会议记录会收听通话的声音，把说的话记下来。声音不会被保存。";
 "NSLocalNetworkUsageDescription" = "在办公室内直接连接到你的团队服务器。";
 "NSDesktopFolderUsageDescription" = "在这里查找工作文件。文件内容在你选择添加之前一直留在这台 Mac 上。";
 "NSDocumentsFolderUsageDescription" = "在这里查找工作文件。文件内容在你选择添加之前一直留在这台 Mac 上。";

@@ -173,14 +173,17 @@ export class RealtimeClient {
    * browser.result can carry a screenshot): past OUTBOX_MAX_FRAMES or OUTBOX_MAX_BYTES the oldest frames are dropped —
    * the server has long given up on those calls by then.
    */
-  send(frame: ClientFrame) {
+  send(frame: ClientFrame): boolean {
     const s = JSON.stringify(ClientFrame.parse(frame))
-    if (this.ws && this.ws.readyState === OPEN && this.state === 'open') this.ws.send(s)
-    else if (frame.type !== 'ping' && frame.type !== 'presence' && frame.type !== 'room.typing') {
+    if (this.ws && this.ws.readyState === OPEN && this.state === 'open') { this.ws.send(s); return true }
+    // (`looking`, what this window shows: only the newest state matters, and it goes again after each hello,
+    // lib/lookingAt.ts)
+    if (frame.type !== 'ping' && frame.type !== 'presence' && frame.type !== 'room.typing' && frame.type !== 'looking') {
       this.outbox.push(s)
       this.outboxBytes += s.length
       while (this.outbox.length > OUTBOX_MAX_FRAMES || (this.outboxBytes > OUTBOX_MAX_BYTES && this.outbox.length > 1)) this.outboxBytes -= this.outbox.shift()!.length
     }
+    return false
   }
 
   /** Frames waiting for the connection (tests). */

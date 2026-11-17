@@ -1,5 +1,7 @@
-// CI: run one shard of the unit tests (tests/unit), so the ~30 minutes of unit tests run as several jobs at once
-// (.github/workflows/ci.yml "unit"). Every test file goes to exactly one shard. The files are spread by how long each
+// CI: run one shard of the unit tests (tests/unit) and the security tests (tests/security: the permission matrix,
+// realtime resume and leaks, …), so they run as several jobs at once (.github/workflows/ci.yml "unit", the required
+// check). Every test file goes to exactly one shard; a security file that cannot run on a Linux runner is in
+// CI_SKIPPED below with its reason, and every shard prints that list (never left out silently). The files are spread by how long each
 // took in an earlier CI run (scripts/ci/unit-times.json, seconds per file; refresh it with
 // `bun scripts/ci/unit-shard.ts --times <a CI job log>`): the longest first, each to the shard with the least time
 // so far (a file not in the list counts as the median). The split depends only on the file list and the times, so
@@ -13,7 +15,15 @@ import path from 'node:path'
 const ROOT = path.resolve(import.meta.dir, '..', '..')
 const TIMES = path.join(import.meta.dir, 'unit-times.json')
 
-/** Every unit test file, as a path from the repository root, sorted. */
+/** The folders whose test files CI runs in the shards. tests/security was missing until TC-3846: a realtime security
+ * regression went unnoticed on dev for 11 days. */
+export const TEST_DIRS = ['tests/unit', 'tests/security'] as const
+
+/** Test files CI does not run, each with the reason (printed by every shard). Files that guard only some of their
+ * tests with `describe.skipIf(!mac)` (macOS sandbox-exec, the login keychain) stay in: bun reports those as skipped. */
+export const CI_SKIPPED: Readonly<Record<string, string>> = {}
+
+/** Every unit and security test file CI runs, as a path from the repository root, sorted. */
 export function unitFiles(root = ROOT): string[] {
   const out: string[] = []
   const walk = (dir: string) => {
@@ -23,8 +33,8 @@ export function unitFiles(root = ROOT): string[] {
       else if (/\.test\.tsx?$/.test(e.name)) out.push(rel)
     }
   }
-  walk('tests/unit')
-  return out.sort()
+  for (const d of TEST_DIRS) walk(d)
+  return out.filter((f) => !(f in CI_SKIPPED)).sort()
 }
 
 /** The files split into `total` shards, the longest first onto the shard with the least expected time. */
@@ -49,7 +59,7 @@ export function timesFromLog(log: string): Record<string, number> {
   const marks: { file: string; at: number }[] = []
   let end = 0
   for (const line of log.split('\n')) {
-    const m = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d+)Z (?:##\[group\])?(tests\/unit\/\S+\.test\.tsx?):$/.exec(line)
+    const m = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d+)Z (?:##\[group\])?(tests\/(?:unit|security)\/\S+\.test\.tsx?):$/.exec(line)
     if (m) marks.push({ file: m[2]!, at: Date.parse(`${m[1]!.slice(0, 23)}Z`) })
     const e = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d+)Z\s+\d+ pass$/.exec(line)
     if (e) end = Date.parse(`${e[1]!.slice(0, 23)}Z`)
@@ -78,7 +88,8 @@ if (import.meta.main) {
       process.exit(2)
     }
     const shard = split(unitFiles(), times, total)[index - 1]!
-    console.log(`unit tests, shard ${index}/${total}: ${shard.files.length} files, ~${shard.seconds}s expected`)
+    console.log(`unit + security tests, shard ${index}/${total}: ${shard.files.length} files, ~${shard.seconds}s expected`)
+    for (const [f, why] of Object.entries(CI_SKIPPED)) console.log(`not run in CI: ${f} (${why})`)
     const p = Bun.spawnSync(['bun', 'test', ...shard.files.map((f) => `./${f}`)], { cwd: ROOT, stdout: 'inherit', stderr: 'inherit', env: process.env })
     process.exit(p.exitCode ?? 1)
   }

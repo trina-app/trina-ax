@@ -22,6 +22,7 @@ import { ListRow } from '../list/List'
 import { useNameFallback, useRoomTitle } from './RoomIcon'
 import { GuestTagFor, isGuestNow } from '../GuestTag'
 import { isGuestMe } from '../../lib/guests'
+import { isPrivateChannel } from '../../lib/rooms'
 import { PersonButton } from '../PersonCard'
 
 export function MembersDialog({ open, onClose, room, members, meId, onInvite }: { open: boolean; onClose: () => void; room: Room | null; members: RoomMember[] | undefined; meId: string | null; onInvite: () => void }) {
@@ -31,11 +32,12 @@ export function MembersDialog({ open, onClose, room, members, meId, onInvite }: 
   const byId = usePeople((s) => s.byId)
   const sorted = members ? [...members].sort((a, b) => Number(b.user.id === meId) - Number(a.user.id === meId) || Number(b.user.id === room?.managerId) - Number(a.user.id === room?.managerId) || a.user.name.localeCompare(b.user.name)) : null
   const group = room?.kind === 'group'
+  const locked = !!room && isPrivateChannel(room)
   // the manager, and an owner or admin who is in it, take someone out (never themselves: they leave)
   const mayRemove = group && !!meId && (room?.managerId === meId || me?.user.role === 'owner' || me?.user.role === 'admin')
   const remove = async (id: string, name: string) => {
     if (!room) return
-    const ok = await confirmDialog({ title: t('rooms.info.removeTitle', { name }), body: t(isGuestNow(id) ? 'rooms.info.removeBodyGuest' : 'rooms.info.removeBody'), confirm: t('rooms.info.remove'), danger: true })
+    const ok = await confirmDialog({ title: t('rooms.info.removeTitle', { name }), body: t(isGuestNow(id) ? (locked ? 'rooms.info.removeBodyGuestPrivate' : 'rooms.info.removeBodyGuest') : 'rooms.info.removeBody'), confirm: t('rooms.info.remove'), danger: true })
     if (!ok) return
     await useRooms.getState().removeMember(room.id, id).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))
   }
@@ -47,7 +49,7 @@ export function MembersDialog({ open, onClose, room, members, meId, onInvite }: 
             with the dialog's 20px (16px on a phone) */}
         {(group || room?.kind === 'dm') && !isGuestMe(me) && (
           <ul className="px-2 py-1 max-sm:px-1">
-            <ListRow onClick={onInvite} face icon={<Plus />} name={<span className="text-ink">{t(group ? 'rooms.info.invite' : 'rooms.info.addPeople')}</span>} testId="room-invite" />
+            <ListRow onClick={onInvite} face icon={<Plus />} name={<span className="text-ink">{t(locked ? 'rooms.info.invitePrivate' : 'rooms.info.addPeople')}</span>} testId="room-invite" />
           </ul>
         )}
         {!sorted ? (
@@ -104,24 +106,28 @@ export function MembersDialog({ open, onClose, room, members, meId, onInvite }: 
 }
 
 /** The room's name, a tap away from editing it: Enter or 저장 saves, Esc or 취소 puts it back. Empty goes back to the
- * server's name (a team room's group, the everyone room's word, a group chat's members). */
+ * server's name (a team room's group, the everyone room's word). A group room never saves an empty name: a group DM
+ * named here turns into a private channel, and a private channel stays one
+ * (docs/decisions/20261117-named-groups-private-channels.md). */
 function NameRow({ room }: { room: Room }) {
   const t = useT()
   const title = useRoomTitle()(room)
   const fallback = useNameFallback()(room)
   const [draft, setDraft] = useState<string | null>(null)
+  const group = room.kind === 'group'
+  const locked = isPrivateChannel(room)
   // the new name shows at once; a failure puts the old one back with its own toast (store/rooms.ts rename) and opens
   // the field again with the name typed (unless it was opened again meanwhile)
   const save = () => {
     if (draft === null) return
     const next = draft.trim()
     setDraft(null)
-    if (next === (room.name ?? '')) return
+    if (next === (room.name ?? '') || (group && !next)) return
     void useRooms.getState().rename(room.id, next || null).then((ok) => { if (!ok) setDraft((d) => d ?? next) })
   }
   if (draft === null)
     return (
-      <button type="button" onClick={() => setDraft(room.name ?? '')} className="group flex w-full items-center gap-2 px-5 py-3 text-left hover:bg-hover max-sm:px-4" data-testid="room-name" aria-label={`${t('rooms.info.rename')}: ${title}`}>
+      <button type="button" onClick={() => setDraft(room.name ?? '')} className="group flex w-full items-center gap-2 px-5 py-3 text-left hover:bg-hover max-sm:px-4" data-testid="room-name" aria-label={`${t(group && !locked ? 'rooms.menu.makePrivate' : 'rooms.info.rename')}: ${title}`}>
         <span className="min-w-0 flex-1 truncate text-base font-medium text-ink">{title}</span>
         <Pencil size={14} className="shrink-0 text-faint group-hover:text-ink" aria-hidden />
       </button>
@@ -135,7 +141,7 @@ function NameRow({ room }: { room: Room }) {
       }}
     >
       <label className="block">
-        <span className="sr-only">{t(room.kind === 'group' ? 'rooms.info.nameLabel' : 'rooms.info.nameLabelChannel')}</span>
+        <span className="sr-only">{t(group ? 'rooms.info.nameLabelPrivate' : 'rooms.info.nameLabelChannel')}</span>
         <input
           autoFocus
           value={draft}
@@ -148,17 +154,17 @@ function NameRow({ room }: { room: Room }) {
               setDraft(null)
             }
           }}
-          placeholder={fallback}
+          placeholder={group ? t('rooms.info.nameLabelPrivate') : fallback}
           className={inputCls}
           data-testid="room-name-input"
         />
       </label>
       <div className="mt-2 flex items-center gap-2">
-        <p className="mr-auto text-xs text-muted">{room.kind === 'group' ? t('rooms.info.nameHintGroup') : t('rooms.info.nameHintTeam')}</p>
+        <p className="mr-auto text-xs text-muted">{group ? (locked ? '' : t('rooms.menu.makePrivateBody')) : t('rooms.info.nameHintTeam')}</p>
         <Button size="sm" variant="ghost" onClick={() => setDraft(null)}>
           {t('common.cancel')}
         </Button>
-        <Button size="sm" variant="primary" type="submit" data-testid="room-name-save">
+        <Button size="sm" variant="primary" type="submit" disabled={group && !draft.trim()} data-testid="room-name-save">
           {t('common.save')}
         </Button>
       </div>

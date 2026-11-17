@@ -44,12 +44,16 @@ const buttonEvent = (s: Socket) => s.frames.find((f) => f.type === 'room.updated
 
 describe('resume after the Files button event', () => {
   test('a window from before the rule change resumes with the notice and the room without the button, not resync', async () => {
+    // the window stays open through the rule change, so it has seen everything before it (a late event of the setup
+    // included); closed only then, it resumes from just before the notice. (Taking hello.seq raced such an event: the
+    // change dropped it with the rest of the buffer and the resume was rightly a resync; CI, PR #1088.)
     const s0 = await open(bob, { windowId: 'win-bob-1' })
     const hello = await s0.next('hello')
-    s0.close(); await s0.closedWith()
     // the folder open to cara alone: bob loses it
     await owner.ok('PUT', `/api/admin/folders/${leads.folderId}/rules`, { rules: [{ subjectType: 'user', subjectId: 'cara', access: 'read' }] })
-    const s = await open(bob, { windowId: 'win-bob-1', epoch: hello.epoch, after: String(hello.seq) })
+    const notice = await s0.next('notice', (f) => f.data.code === 'access_changed')
+    s0.close(); await s0.closedWith()
+    const s = await open(bob, { windowId: 'win-bob-1', epoch: hello.epoch, after: String(notice.seq - 1) })
     await Bun.sleep(300)
     expect(s.frames[0]).toMatchObject({ type: 'hello', resumed: true })
     expect(s.frames.some((f) => f.type === 'resync')).toBe(false)

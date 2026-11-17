@@ -362,11 +362,16 @@ describe('in a chat', () => {
       expect((again.query('SELECT rooms_seen FROM chats WHERE id = ?').get(chat) as { rooms_seen: number }).rooms_seen).toBe(1)
       again.close()
     } finally { fs.rmSync(dir, { recursive: true, force: true }) }
-    const fourth = await h.api('alice').call(API.sendMessage, { params: { id: chat }, body: { content: fake({ tool: 'read', args: { file_path: target } }, { tool: 'write', args: { file_path: target, content: 'no\n' } }, { say: 'x' }), clientMessageId: cm(), attachmentIds: [] } })
+    // (the same file again is covered by the yes above for the rest of this chat: docs/decisions/
+    // 20261117-card-approved-once-per-chat.md; another file still waits for a yes)
+    const other2 = `${target}.other.md`
+    fs.writeFileSync(path.join(h.team, other2), 'other\n')
+    const fourth = await h.api('alice').call(API.sendMessage, { params: { id: chat }, body: { content: fake({ tool: 'read', args: { file_path: other2 } }, { tool: 'write', args: { file_path: other2, content: 'no\n' } }, { say: 'x' }), clientMessageId: cm(), attachmentIds: [] } })
     const card4 = await ws.alice!.next('turn.request', (f) => f.data.turnId === fourth.turnId && f.data.request.kind === 'ask_user', 15_000)
     await h.api('alice').call(API.answerTurn, { params: { id: fourth.turnId }, body: { kind: 'ask_user', requestId: card4.data.request.requestId, answer: 'skip' } })
     await ws.alice!.next('message.done', (f) => f.data.message.turnId === fourth.turnId, 30_000)
-    expect(fs.readFileSync(abs(), 'utf8')).toBe('with a yes\n')
+    expect(fs.readFileSync(path.join(h.team, other2), 'utf8')).toBe('other\n')
+    fs.rmSync(path.join(h.team, other2), { force: true })
     fs.rmSync(abs(), { force: true })
   })
 

@@ -30,10 +30,18 @@ export const LINK_SCHEME: string = PRODUCT.linkScheme
 /** A link that opened the app from outside: `<scheme>://open?url=<team link>` only (the desktop declares no web
  * domains), read with the box's rules but stricter: https only, and never this machine (a link from a web page must
  * not point the app, its team view and its bridge at a local port). Typed addresses keep http to this machine for
- * development. null: not a link for this app. */
+ * development. Only here, the team's one-time sign-in link (`/app-signin#c=<code>`, the web's "Continue in the Mac
+ * app") is read too; the box and the phone refuse it (shared/src/team-link.ts appSignIn). null: not a link for this app. */
 export function readDesktopLink(raw: string): TeamInput | null {
-  const p = readAppLink(raw, { ...DESKTOP_INPUT, loopbackHttp: false, scheme: LINK_SCHEME, universal: false })
+  const p = readAppLink(raw, { ...DESKTOP_INPUT, loopbackHttp: false, scheme: LINK_SCHEME, universal: false, appSignIn: true })
   return p?.ok && p.loopback ? { ok: false, error: 'insecure' } : p
+}
+
+/** The page a link opens, as the first-run box may be given it again (the "renamed" answer's next address goes back
+ * through parseTeamAddress): a one-time sign-in link's page is not one the box reads, so it is the team's start there.
+ * The code is spent or dead by then anyway. */
+export function retypablePath(entryPath: string): string {
+  return /^\/app-signin(?:[/?#]|$)/i.test(entryPath) ? '/' : entryPath
 }
 
 /** An id in a page address: the server's ids (uuidv7) and nothing that could move the path (no `.`, `%`, `/`, `\`). */
