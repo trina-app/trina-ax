@@ -889,6 +889,8 @@ export class ChatRuntime {
     chat: ChatRow | (() => ChatRow); userId: string; locale: Locale; windowId: string | null; clientKind: string | null
     engine: EngineId; model: string | null
     substitutedFrom?: EngineId
+    /** the person's device time zone (TurnSpec.timeZone) */
+    timeZone?: string
     user?: { parentId: string | null; content: string; attachments: Attachment[]; clientMessageId: string }
     answerTo?: MessageRow
     scheduled?: { id: string; dueAt: string; commit(chatId: string): void }
@@ -945,7 +947,7 @@ export class ChatRuntime {
       o.scheduled?.commit(chat.id)
     })()
     const spec: TurnSpec & QueueTiming = { turnId, chatId: chat.id, userId: o.userId, assistantId, userMessageId, windowId: o.windowId, clientKind: o.clientKind, engine: o.engine, model: o.model, locale: o.locale,
-      queueSeq, ...(o.substitutedFrom ? { substitutedFrom: o.substitutedFrom } : {}) }
+      queueSeq, ...(o.substitutedFrom ? { substitutedFrom: o.substitutedFrom } : {}), ...(o.timeZone ? { timeZone: o.timeZone } : {}) }
     // what the sending window shows at this moment, for looking_at (realtime/looking.ts; never for a scheduled run)
     if (o.windowId && !o.scheduled) this.looking.snapshot(turnId, o.userId, o.windowId)
     // as the person who sent it sees them (a shared chat: chat/shared.ts messageFor)

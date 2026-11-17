@@ -425,8 +425,9 @@ describe('in a chat', () => {
     const r = await turn('alice', chat, fake({ tool: 'room_file', args: { room: roomId, file: f.id }, sayResult: true }))
     expect(r.done.content).toContain('결정: 다음 주 월요일 출시')
     expect(r.done.content).toContain('sent by Erin Yoo')
-    // the time it was sent is in the team's time zone and says so (the prompt's time line: other tool times are UTC)
-    expect(r.done.content).toMatch(/sent by Erin Yoo on \d{4}-\d{2}-\d{2} \d{2}:\d{2} \(the team's time zone\) in /)
+    // the time it was sent names its zone, the turn's (the team's here: no device zone was sent; TC-4549), so it is not
+    // converted again (the prompt's time line: other tool times are UTC)
+    expect(r.done.content).toMatch(/sent by Erin Yoo on \d{4}-\d{2}-\d{2} \d{2}:\d{2} \([A-Za-z_/+-]+\) in /)
     expect(r.done.steps!.find((s) => s.tool === 'room_file')?.label).toBe('Read conversation file · 회의록.md')
     // by its name too; bob, invited later, does not see the message it came with: no such file for him
     expect((await turn('alice', chat, fake({ tool: 'room_file', args: { room: roomId, file: '회의록.md' }, sayResult: true }))).done.content).toContain('다음 주 월요일')

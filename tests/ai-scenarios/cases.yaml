@@ -1223,6 +1223,13 @@ cases:
       as: sora
       prompt: 라마바카페 건 방에서 정한 단가 여기 정리해줘
       expect: { outcome: explain, good: Rooms are not read in a shared chat (its members may not be in the room); says so plainly and offers the side chat or her own chat., checks: [] }
+    # TC-4549: a Jakarta browser on a Seoul team read every time two hours late (11:08 where the room showed 9:08 AM).
+    # The device zone goes with the turn; the times said must be the ones her screen shows.
+    - key: viewer-zone
+      context: personal
+      timeZone: Asia/Jakarta
+      prompt: In the Lamaba Cafe group chat, who said what about the price and at what time? Short list with times.
+      expect: { outcome: do, good: "Lists who said what about the price with the time of each message in Jakarta time (WIB, UTC+7), the times the room shows on her device: two hours earlier than the Seoul times in the team setting. No Seoul times; no 'KST'.", checks: [{ type: answer_matches, pattern: "27,?000" }, { type: answer_not_matches, pattern: "KST|Seoul" }] }
 
 - id: ROOM-03
   title: Thread replies

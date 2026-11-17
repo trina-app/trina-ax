@@ -125,6 +125,7 @@ import { clearChatFolder } from './forget'
 import { publicStep, type ChatRow, type ProjectRow, type StoredStep } from './store'
 import { inPeopleAudience, isPeopleRow, peopleAudience } from './chat-audience'
 import { SEARCH_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
+import { shownTimeZone } from '../system/time-zone'
 
 /** A search's path that names no folder: none, empty, or only separators and "." ("/", "./", "//", "\\", " . ") —
  * the team root, which a shared chat never searches by default (TurnExec.sharedArgs). */
@@ -172,6 +173,9 @@ export interface TurnSpec extends QueueTiming {
   engine: EngineId
   model: string | null
   locale: Locale
+  /** the person's device time zone sent with the turn (a known IANA name; routes/chats.ts turnZone): the AI gives its
+   * times in it, the screen shows them in it (QA TC-4549). None: the team's (a scheduled run, an older app). */
+  timeZone?: string
   /** the chat's engine is switched off: this turn runs on the team default (step note) */
   substitutedFrom?: EngineId
 }
@@ -834,7 +838,7 @@ export class TurnExec {
     // never in a scheduled run: nobody watches it, and a file another member shared must not act there
     this.files.grantReads = !this.shared && !guestPrompt && !this.restricted && !confidential && !this.slackChat && !this.templateScope && spec.clientKind !== 'schedule'
     const promptInput = (fresh: boolean): PromptInput => ({
-      user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone,
+      user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone, personTimeZone: spec.timeZone,
       // personal memories are not part of a shared project chat
       memories: this.shared ? [] : rt.memoriesForPrompt(spec.userId), project, browser: this.browser, tools: extraTools,
       // the web or a phone: the AI says the desktop app has the browser (prompt.ts NO_BROWSER_RULE)
@@ -2834,6 +2838,9 @@ export class TurnExec {
   /** The words a cover adds to this call's step, for a tool that patches its own step once per call ('' for none). */
   takeStepSuffix(tool: string): string { return this.stepSuffixes.get(tool)?.shift() ?? '' }
 
+  /** The zone of the times this turn shows the model and the person: the device's, else the team's (QA TC-4549). */
+  get shownZone(): string { return shownTimeZone(this.spec.timeZone, this.rt.timeZone) }
+
   /** A file of this room by its id, as the person sees it (rooms/reader.ts findRoomFile), for the card: its name, who
    * sent it, when and how big (two files may share a name), or null. The room the call names (save_room_file's `room`),
    * named first as they see it ("#leads"). */
@@ -2841,11 +2848,11 @@ export class TurnExec {
     const room = roomRef
     if (!room || !ref) return null
     try {
-      const f = findRoomFile(this.rt.db, this.spec.userId, room, ref, this.rt.timeZone)
+      const f = findRoomFile(this.rt.db, this.spec.userId, room, ref, this.shownZone)
       if ('text' in f) return null
       const size = f.file.size >= 1024 * 1024 ? `${(f.file.size / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(f.file.size / 1024))} KB`
       const where = `#${f.title.replace(/\s+/g, ' ').trim().slice(0, 80)}, `
-      return `${f.file.name} (${where}${f.author ?? '?'}, ${localTime(f.message.created_at, this.rt.timeZone)}, ${size})`
+      return `${f.file.name} (${where}${f.author ?? '?'}, ${localTime(f.message.created_at, this.shownZone)}, ${size})`
     } catch { return null }
   }
 

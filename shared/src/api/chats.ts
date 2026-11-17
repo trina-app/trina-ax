@@ -290,6 +290,11 @@ export type OftenAsked = z.infer<typeof OftenAsked>
 export const ListMessagesQuery = PageQuery.extend({ through: Uuid7.optional() })
 export const MessagesPage = page(Message)
 
+/** The sender's device time zone (IANA, e.g. "Asia/Jakarta"): the screen shows times in it, so the AI gives its times
+ * in it too (QA TC-4549, docs/decisions/20261117-ai-times-viewer-zone.md). A name the server does not know is ignored
+ * (the team's time zone is used), not refused. */
+export const TurnTimeZone = z.string().max(64).optional()
+
 export const SendMessageBody = z.object({
   content: z.string().max(200_000),
   /** uploaded via POST /api/uploads or an upload session with target attachment */
@@ -302,6 +307,7 @@ export const SendMessageBody = z.object({
   model: z.string().max(100).nullable().optional(),
   /** client-generated id; resending the same clientMessageId after a reconnect returns the first result (idempotent) */
   clientMessageId: z.string().min(8).max(64),
+  timeZone: TurnTimeZone,
 }).refine((b) => b.content.trim().length > 0 || b.attachmentIds.length > 0, { message: 'empty message', path: ['content'] })
 
 /** Response of send / edit / regenerate: the turn is queued; text arrives over the WebSocket. */
@@ -328,6 +334,7 @@ export type ChatQueueSnapshot = z.infer<typeof ChatQueueSnapshot>
 export const RegenerateBody = z.object({
   engine: EngineId.optional(),
   model: z.string().max(100).nullable().optional(),
+  timeZone: TurnTimeZone,
 })
 /** Edit a user message: adds a sibling user message (same parent) and answers it. Team-folder file changes of the
  * old branch are NOT undone (the UI says so). */
@@ -337,6 +344,7 @@ export const EditMessageBody = z.object({
   engine: EngineId.optional(),
   model: z.string().max(100).nullable().optional(),
   clientMessageId: z.string().min(8).max(64),
+  timeZone: TurnTimeZone,
 })
 /** Show another branch: messageId is any message; the chat's active leaf becomes the newest leaf under it. */
 export const SelectBranchBody = z.object({ messageId: Uuid7 })

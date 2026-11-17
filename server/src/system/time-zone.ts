@@ -39,6 +39,12 @@ export function isValidTimeZone(tz: unknown): tz is string {
   try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return true } catch { return false }
 }
 
+/** The zone the AI gives times in for one turn: the person's device zone when it sent a known one (the screen shows
+ * them times in it), else the team's (QA TC-4549, docs/decisions/20261117-ai-times-viewer-zone.md). */
+export function shownTimeZone(person: string | null | undefined, team: string): string {
+  return isValidTimeZone(person) ? person : team
+}
+
 /** The process's own zone (the Mac's; UTC on most Linux servers). */
 export function processTimeZone(): string {
   const z = Intl.DateTimeFormat().resolvedOptions().timeZone
