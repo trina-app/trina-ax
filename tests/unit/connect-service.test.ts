@@ -199,6 +199,27 @@ describe('connect_service without a card', () => {
     expect(rowsAt(`${svc.base}/mcp-key`)).toEqual([])
   })
 
+  // AI scenario CON-01.calendar (2026-11-17): the AI looked up Google's preview MCP address for Calendar, filled in an
+  // unknown service there and cited "Calendar MCP server" pages. The four built-in Google apps answer by name instead.
+  test('Gmail, Google Calendar (also by a Google API address or a Korean name): no card, their own page, ask nothing first', async () => {
+    const t = await start('bob',
+      { name: 'Google Calendar', kind: 'mcp', url: 'https://calendarmcp.googleapis.com/mcp/v1', auth: 'oauth' },
+      { name: 'Gmail' },
+      { name: '구글 캘린더' },
+      { name: 'My mail', kind: 'mcp', url: 'https://gmailmcp.googleapis.com/mcp/v1', auth: 'oauth' },
+    )
+    const m = await doneOf(t.messageId)
+    expect(cards(t.turnId)).toEqual([])
+    expect(m.content.split('one of the app\'s built-in Google apps: it connects on its own page').length - 1).toBe(4)
+    expect(m.content).toContain('Google Calendar is one of')
+    expect(m.content).toContain('Gmail is one of')
+    expect(m.content).toContain('Ask nothing about the task until it is connected')
+    expect(m.content).not.toMatch(/MCP server|a service needs url/)
+    expect(rowsAt('https://calendarmcp.googleapis.com/mcp/v1')).toEqual([])
+    const events = h.ctx.db.query("SELECT summary FROM tool_events WHERE turn_id = ? AND tool = 'connect_service'").all(t.turnId) as { summary: string }[]
+    expect(events.map((e) => e.summary)).toEqual(Array(4).fill('connect_service -> no card (google app)'))
+  })
+
   test('personal connections off, the person\'s own connection works: it says it is not used, never that its tools are there (QA TC-2930)', async () => {
     const url = `${svc.base}/mcp-open?own=tc2930`
     const mine = await h.api('alice').call(API.createIntegration, { body: { kind: 'mcp', name: 'Own board', url, auth: 'none', writePolicy: 'ask' } })

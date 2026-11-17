@@ -8,7 +8,7 @@ import { API, ApiError, CHAT_ERROR_MESSAGES, uuidv7, type Attachment, type Messa
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import type { TurnToolProvider } from '../../server/src/services'
-import { FIND_FILE_RULE, LANGUAGE_RULE, NO_BROWSER_RULE, SUBAGENT_LANGUAGE_RULE, WRITE_ACCESS_RULE } from '../../server/src/chat/prompt'
+import { answerLanguageLine, FIND_FILE_RULE, LANGUAGE_RULE, NO_BROWSER_RULE, SUBAGENT_LANGUAGE_RULE, WRITE_ACCESS_RULE } from '../../server/src/chat/prompt'
 import { FILE_TOOLS } from '../../shared/src/tools'
 import { unansweredStep } from '../../shared/src/step-labels'
 import { MEMORY_HEADROOM_MIB, setAvailableMemoryForTests, setLimitsPlatformForTests } from '../../server/src/system/limits'
@@ -540,7 +540,7 @@ describe('instructions', () => {
     expect(s).toContain('Read-only folders: projects/falcon/public, skills')
     // B-W4-2 / PERM-07: call write or edit and let the server refuse, so the own-folder recovery button can show
     expect(s).toContain(WRITE_ACCESS_RULE)
-    expect(s).toContain('Answer in English')
+    expect(s).toContain(answerLanguageLine('en'))
     expect(s).toContain('### skills/team-rules.md')
     expect(s).toContain('## Project: Falcon')
     expect(s).toContain('<project_instructions>\nAlways cite the plan file.\n</project_instructions>')
@@ -555,7 +555,7 @@ describe('instructions', () => {
   test('the answer language covers the text between tool calls: Claude, a resumed Claude session, Codex', async () => {
     const bob = await h.ws('bob', { windowId: 'win-bob-language' })
     await bob.next('hello')
-    const line = `Answer in Korean (한국어) unless the user writes in another language or asks otherwise.\n${LANGUAGE_RULE}`
+    const line = `${answerLanguageLine('ko')}\n${LANGUAGE_RULE}`
     try {
       const claude = await newChat('bob')
       const first = await ask(h, bob, 'bob', claude.id, fake({ echo: 'system' }))

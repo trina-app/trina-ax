@@ -228,6 +228,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/skills/share-merge.ts': { why: '내 스킬 가져오기 v5: the merge chat\'s title and its fixed request (ko next to en/id/ja/es), and the Inbox words its comments quote' },
   'server/src/skills/share-judge.ts': { why: 'the example title the skill share judge gets (ko next to en/id/ja/es)' },
   'server/src/skills/folder-actions.ts': { why: 'a skill folder name in another language, as the example the AI gets when a name is refused (#1069: any language), not screen text', also: /suggest a name like "estimate-docs" or "견적-문서"/ },
+  'server/src/chat/connect-google-app.ts': { why: 'the Korean names people type for Gmail, Google Calendar, Docs and Sheets (지메일, 구글 캘린더 …), matched to tell a built-in Google app (not screen text)', also: /^\s*(gmail|calendar|docs|sheets): \[/ },
   'server/src/chat/narration.ts': { why: 'the Hangul letter range that tells a Korean answer, and the Korean words of a message asking for another language or English copy (matched, not screen text; #1066)', also: /^\s*ko: \/\[|^\s*'(영어|영작)'/ },
   'server/src/chat/room-hint.ts': { why: 'Korean words the room hint skips when it matches a request to room messages (a stop-word list, not screen text; #1078)', also: /^const STOP = new Set\(/ },
   'server/src/skills/share-check.ts': { why: 'Korean words that tell the AI to run a script (matched in a SKILL.md, not screen text)', also: /^\s*\/스크립트\[/ },

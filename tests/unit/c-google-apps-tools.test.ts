@@ -92,7 +92,7 @@ describe('calls', () => {
   test('a read runs without a card, with the person\'s own token only; the answer is external data with no token in it', async () => {
     const p = person('no')
     const t = turn('alice', { person: p })
-    expect(t.prompt).toContain('Gmail (personal connection, MCP server)')
+    expect(t.prompt).toContain('Gmail (personal connection)')
     expect([...t.tools.keys()].every((n) => n.startsWith('my_gmail__'))).toBe(true)
     // Docs and Sheets read tools send plain questions to drive_read (not connected here: the catalog says so)
     lib.calls = []

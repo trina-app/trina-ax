@@ -9,7 +9,7 @@ import { API, CHAT_ERROR_MESSAGES, type Step } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { SUBTASK_STEPS_KEPT } from '../../server/src/chat/subagents'
-import { LANGUAGE_RULE, SUBAGENT_LANGUAGE_RULE } from '../../server/src/chat/prompt'
+import { answerLanguageLine, LANGUAGE_RULE, SUBAGENT_LANGUAGE_RULE } from '../../server/src/chat/prompt'
 
 setDefaultTimeout(40_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -95,7 +95,7 @@ describe('sub-tasks under the answer', () => {
       expect(childPrompt).not.toContain('MEMORY-NOT-FOR-CHILDREN')
       expect(childPrompt).not.toContain('previous_conversation')
       // the report in the person's language (QA 0.2.12 B6), right after the answer-language line
-      expect(childPrompt).toContain(`Answer in English unless the user writes in another language or asks otherwise.\n${SUBAGENT_LANGUAGE_RULE}`)
+      expect(childPrompt).toContain(`${answerLanguageLine('en')}\n${SUBAGENT_LANGUAGE_RULE}`)
       expect(childPrompt).not.toContain(LANGUAGE_RULE)
       const args = JSON.parse(argsJson!) as string[]
       expect(args[args.indexOf('--tools') + 1]).toBe('WebSearch,Agent')

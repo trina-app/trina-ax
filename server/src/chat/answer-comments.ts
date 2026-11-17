@@ -135,7 +135,7 @@ export function answerCommentsTool(exec: TurnExec): Tool {
       }
       const more = roots.length > ANSWER_COMMENTS_THREADS
       roots = roots.slice(0, ANSWER_COMMENTS_THREADS)
-      if (!roots.length) return { ...text('No comments under answers in this chat that the user can see.'), summary: `${ANSWER_COMMENTS_TOOL} -> none` }
+      if (!roots.length) return { ...text('No comments under answers in this chat that the user can see: nobody has replied under an answer here (comments show at once; none are waiting). Say so plainly and never guess what was said.'), summary: `${ANSWER_COMMENTS_TOOL} -> none` }
 
       const blocks: string[] = []
       let size = 0, shownThreads = 0, shownComments = 0, full = false
