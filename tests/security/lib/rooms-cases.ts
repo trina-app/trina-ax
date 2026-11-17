@@ -224,6 +224,35 @@ export const ROOM_SPECS: Record<string, Spec> = {
     build: (c, w) => c.get(`/api/rooms/${w.ids.dmRoom}/files/${w.ids.dmFile}?download=1`), scope: 'room-dm',
     check: (r) => { if (r.status === 200 && !r.headers.get('content-disposition')?.includes(C.dmFileName)) throw new Error('the member did not get the room file') },
   },
+  // "Save to team folder" (rooms/save-to-team.ts): the DM's two people only, the owner and the admin outside it get 404
+  // like a room they are not in. The copy goes to shared/ (both may write it): the first caller copies, the second finds
+  // the same bytes there; either way the team file holds the DM picture's bytes and the saved list names it
+  roomSavedFiles: { build: (c, w) => c.get(`/api/rooms/${w.ids.dmRoom}/saved-files`), scope: 'room-dm' },
+  roomSavePlan: {
+    build: (c, w) => c.post(`/api/rooms/${w.ids.dmRoom}/save-plan`, { fileIds: [w.ids.dmFile] }), scope: 'room-dm',
+    check: async (r, w, who) => {
+      if (r.status !== 200) return
+      if (r.json?.files?.[0]?.name !== `${C.dmFileName}.png`) throw new Error(`${who}: the plan did not name the DM file`)
+      // a folder of another group: not found, never its audience
+      const fin = await w.as[who].req('POST', `/api/rooms/${w.ids.dmRoom}/save-plan`, { fileIds: [w.ids.dmFile], folder: 'groups/finance' })
+      if (fin.status !== 404) throw new Error(`${who}: another group's folder in the plan answered ${fin.status}`)
+    },
+  },
+  saveRoomFilesToTeam: {
+    build: (c, w) => c.post(`/api/rooms/${w.ids.dmRoom}/save-to-team`, { fileIds: [w.ids.dmFile], folder: 'shared' }), scope: 'room-dm',
+    check: async (r, w, who) => {
+      if (r.status !== 200) return
+      const saved = r.json?.saved?.[0]
+      if (saved?.path !== `shared/${C.dmFileName}.png`) throw new Error(`${who}: saved as ${JSON.stringify(saved)}`)
+      const list = await w.as[who].req('GET', `/api/rooms/${w.ids.dmRoom}/saved-files`)
+      if (!list.json?.items?.some((i: { path: string }) => i.path === saved.path)) throw new Error(`${who}: the saved list does not name it`)
+      // into another group's folder or skills/: refused
+      for (const folder of ['groups/finance', 'skills', '.system']) {
+        const no = await w.as[who].req('POST', `/api/rooms/${w.ids.dmRoom}/save-to-team`, { fileIds: [w.ids.dmFile], folder })
+        if (no.status < 400) throw new Error(`${who}: saved into ${folder}: ${no.status}`)
+      }
+    },
+  },
   // a Hangul file's pages (the HWP Preview plugin): the room file's checks first, so the DM's two people pass them and
   // are told the picture is no Hangul file (503 unsupported, never the plugin's state); everyone else, the owner and
   // the admin included, gets 404 as for the file itself
