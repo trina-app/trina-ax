@@ -190,7 +190,7 @@ for (const role of ['owner', 'member', 'guest'] as const) test(`screenshots for 
             await page.getByTestId('login-username').fill('gina')
             await page.getByTestId('login-password').fill('gina password 1')
             await page.getByTestId('login-submit').click()
-            await page.waitForURL((u) => !u.pathname.startsWith('/login'))
+            await expect(page.getByTestId('login-submit')).toHaveCount(0)
           }
         }
         await page.goto(place === 'thread' ? `/rooms/${ROOM_ID}/t/${id(1)}` : `/rooms/${ROOM_ID}`)

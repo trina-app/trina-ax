@@ -47,7 +47,7 @@ const team = (rel: string) => path.join(h.ctx.files.fx.root, ...rel.split('/'))
 async function upload(user: string, roomId: string, name: string, bytes: string | Uint8Array): Promise<string> {
   const form = new FormData()
   form.set('name', name)
-  form.set('file', new File([typeof bytes === 'string' ? new TextEncoder().encode(bytes) : bytes], 'file'))
+  form.set('file', new File([Buffer.from(typeof bytes === 'string' ? new TextEncoder().encode(bytes) : bytes)], 'file'))
   const r = await h.req(user, `/api/rooms/${roomId}/files`, { method: 'POST', body: form })
   expect(r.status).toBe(201)
   return ((await r.json()) as { id: string }).id
@@ -151,7 +151,7 @@ describe('who and where', () => {
     expect(((await r.json()) as { error: { params?: { reason?: string } } }).error.params?.reason).toBe('instruction_file')
     expect(fs.existsSync(team('shared/policies/CLAUDE.md'))).toBe(false)
     const held = await sendFile('alice', rooms.all, 'held.bin', 'HELD-BYTES-1')
-    h.ctx.files.quarantine.add(Buffer.from('HELD-BYTES-1'), 'bin')
+    h.ctx.files.quarantine.add(Buffer.from('HELD-BYTES-1'), 'pptx')
     expect((await save('alice', rooms.all, [held.fileId], 'shared')).status).toBe(503)
     const unsent = await upload('alice', rooms.all, 'unsent.txt', 'u')
     expect((await save('alice', rooms.all, [unsent], 'shared')).status).toBe(404)
