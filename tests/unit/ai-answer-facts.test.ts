@@ -9,6 +9,7 @@ import { situationOf, situationSection, type Situation } from '../../server/src/
 import { plainWordsRule } from '../../server/src/chat/prompt'
 import { fileNote, fileNoteOnce, hangulReadNote, versionKeptNote } from '../../server/src/chat/file-notes'
 import { firstLine, withCsvHeaders } from '../../server/src/files/service'
+import { setMemberChoice } from '../../server/src/admin/engine-choice'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 
 setDefaultTimeout(60_000)
@@ -51,6 +52,15 @@ describe('the person block', () => {
     expect(say({ connectedFolders: false })).toContain('Connected folders (a computer\'s folder kept in the team folder): not on this install.')
     // not known: not said
     expect(say({})).not.toContain('Version history')
+  })
+
+  test('SYS-04: what the AI itself can do with versions (show who saved each and what changed), and that bringing one back is the person\'s', () => {
+    // a rerun (dev f394c9258, 2026-11-17) offered to "restore the old content" itself: the AI reads versions, the Restore
+    // button is the person's (files/service.ts readVersions, web Version history)
+    const t = say({ connectedFolders: true })
+    expect(t).toContain('you can show who saved each version and what changed (read with versions)')
+    expect(t).toContain('bringing one back is the person\'s Restore there (the current one is kept as a version too)')
+    expect(say({ connectedFolders: false })).toContain('read with versions')
   })
 
   test('situationOf says whether this install has connected folders (a hosted team does not)', () => {
@@ -155,6 +165,20 @@ describe('in a chat turn', () => {
     const r = await ask(h, sock, 'alice', await chat(), fake({ tool: 'grep', args: { pattern: 'Acme', path: 'shared', output_mode: 'content' }, sayResult: true }))
     expect(r.done.content).toContain('shared/clients.csv:2:Acme,Kim,2026-10-28,620000')
     expect(r.done.content).toContain('(Line 1 of this CSV file: its column names)\nshared/clients.csv:1:client,contact,last_order,monthly_avg')
+  })
+
+  test('CON-07.member: the turn\'s map names an own AI and model only once the team lets this member pick one', async () => {
+    const profile = (t: string) => t.split('\n').find((l) => l.startsWith('- Settings: '))!
+    try {
+      setMemberChoice(h.ctx, { mode: 'off', groupIds: [], userIds: [] })
+      const off = (await ask(h, sock, 'alice', await chat(), fake({ echo: 'system' }))).done.content
+      expect(profile(off)).not.toMatch(/own AI and model|if allowed/)
+      expect(off).toContain('who may pick their own AI model')
+      setMemberChoice(h.ctx, { mode: 'selected', groupIds: [], userIds: ['alice'] })
+      const on = (await ask(h, sock, 'alice', await chat(), fake({ echo: 'system' }))).done.content
+      expect(profile(on)).toContain('own AI and model for new chats')
+      expect(on).not.toContain('who may pick their own AI model')
+    } finally { setMemberChoice(h.ctx, { mode: 'off', groupIds: [], userIds: [] }) }
   })
 
   test('EDIT-07: a Hangul document read while Hangul writing is off says to make the Word copy', async () => {

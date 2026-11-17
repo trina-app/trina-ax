@@ -28,7 +28,7 @@ import { FlowCatalog, flowChanged, runFlow, type Flow, type FlowResult } from '.
 import { judgeFlow, writeFlowReport } from './lib/flow-report'
 import { mocksDown, mocksReset, mocksUp, readMocks } from './mock-services/up'
 import { writeReport } from './lib/report'
-import { runCase, type Env } from './lib/run-case'
+import { roomPostsOf, runCase, type Env } from './lib/run-case'
 import { driftOf, ensureFolder, resetTo, stateOf, type State } from './lib/state-guard'
 import { coverageMarkdown, firstPass, loadCatalog } from './lib/catalog'
 import type { Case, CaseResult } from './lib/types'
@@ -138,7 +138,13 @@ const personalFixture = (rel: string) => { const m = /^users\/([^/]+)\/(.+)$/.ex
 /** After a case: what it made goes to the trash and the fixture files it changed or removed come back, so the next
  * case sees the team as seeded (a stamped copy left by one case once made the next answer "it is done already").
  * Files in someone's own folder are handled as that person. */
-async function cleanUp(r: CaseResult) {
+async function cleanUp(r: CaseResult, actor?: string) {
+  // the AI's room posts are deleted by their sender (the case's person): a later case, or the same case run again on
+  // this server, read "the quote was posted 3 times tonight" and answered from that (CHT-02, dev f394c9258,
+  // 2026-11-17). A deleted message is left out of what the AI reads (server/src/rooms/reader.ts).
+  if (actor) for (const p of roomPostsOf(r)) {
+    try { await (await as(actor)).call(API.deleteRoomMessage, { params: { id: p.roomId, messageId: p.messageId } }) } catch (e) { say(`clean-up room post ${p.messageId}: ${e instanceof Error ? e.message : e}`) }
+  }
   for (const rel of r.changed) {
     const owner = /^users\/([^/]+)\//.exec(rel)?.[1] ?? 'jiwoo'
     try {
@@ -202,13 +208,13 @@ async function run() {
     for (const c of parallel) { const b = c.id.split('.')[0]!; byBase.set(b, [...(byBase.get(b) ?? []), c]) }
     const queue = [...byBase.values()]
     await Promise.all(Array.from({ length: Math.min(jobs, queue.length) }, async () => {
-      for (let g = queue.shift(); g; g = queue.shift()) for (const c of g) { const r = await runCase(c, env); await guard(r); writeResult(dir, r); await cleanUp(r) }
+      for (let g = queue.shift(); g; g = queue.shift()) for (const c of g) { const r = await runCase(c, env); await guard(r); writeResult(dir, r); await cleanUp(r, c.as) }
     }))
     for (const c of serial) {
       const r = await runCase(c, env)
       await guard(r)
       writeResult(dir, r)
-      await cleanUp(r)
+      await cleanUp(r, c.as)
       for (const rel of c.restores) await restore(own, rel).catch((e) => say(`restore ${rel}: ${e instanceof Error ? e.message : e}`))
     }
   }

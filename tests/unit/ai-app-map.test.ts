@@ -145,6 +145,22 @@ describe('who gets which map', () => {
     expect(managed).toContain(`owner also ${DICTS.ko['system.updates']}`)
     expect(appMapSection({ ...base, office: true }, 'ko')).not.toContain(`owner also ${DICTS.ko['system.updates']}`)
   })
+  test('CON-07: Settings › Profile names an own AI and model only for someone who may pick one', () => {
+    // a member on the computer's own sign-in read "own AI and model, if allowed" and told the asker that Profile might
+    // let them pick one (dev f394c9258 rerun, 2026-11-17): the server knows whether this person may (canChooseEngine)
+    const profile = `${DICTS.en['settings.profile']} (photo, name`
+    const may = appMapSection({ ...base, view: 'member', pickModel: true }, 'en')
+    const mayNot = appMapSection({ ...base, view: 'member', pickModel: false }, 'en')
+    expect(may).toContain(`${profile}; own AI and model for new chats)`)
+    expect(mayNot).toContain(`${profile})`)
+    expect(mayNot).not.toMatch(/own AI and model|if allowed/)
+    // who may pick is the owner's or an admin's
+    expect(mayNot).toContain('who may pick their own AI model')
+    expect(may).not.toContain('who may pick their own AI model')
+    // an owner or admin always may; a shared chat says nothing about the asker
+    expect(appMapSection({ ...base, pickModel: true }, 'en')).toContain(`${profile}; own AI and model for new chats)`)
+    expect(appMapSection({ ...base, view: 'shared' }, 'en')).toContain(`${profile}; own AI and model, if allowed)`)
+  })
   test('the person\'s language: an English answer gets the English labels', () => {
     const en = appMapSection(base, 'en')
     expect(en).toContain(`Settings: ${DICTS.en['settings.profile']}`)
@@ -269,8 +285,8 @@ describe('size: it is in every turn', () => {
   // longest form, an owner's or admin's in Korean, measured about 1,189 after the other lines were cut); 1,250 since
   // where a chat is shared (docs/decisions/20261117-ai-facts-and-gaps.md: about 1,241)
   test('at most 20 lines and about 1,250 tokens in its longest form, in every language', () => {
-    for (const view of ['staff', 'member', 'shared'] as const) for (const L of ['ko', 'en', 'ja', 'zh', 'es', 'id'] as const) for (const devEnv of [true, false]) {
-      const s = appMapSection({ view, managed: true, devEnv, office: false }, L)
+    for (const view of ['staff', 'member', 'shared'] as const) for (const L of ['ko', 'en', 'ja', 'zh', 'es', 'id'] as const) for (const devEnv of [true, false]) for (const pickModel of view === 'shared' ? [undefined] : view === 'staff' ? [true] : [true, false]) {
+      const s = appMapSection({ view, managed: true, devEnv, office: false, pickModel }, L)
       expect({ view, L, devEnv, lines: s.split('\n').length <= 20 }).toEqual({ view, L, devEnv, lines: true })
       expect({ view, L, devEnv, small: tokens(s) <= 1250 }).toEqual({ view, L, devEnv, small: true })
     }
