@@ -251,7 +251,7 @@ describe('conversion queue (QA review: memory, starvation)', () => {
     for (const c of f.calls.splice(0)) c.resolve(JPEG)
     await Promise.all([a, b])
     const again = pv.jpeg(late, { user: 'c' })
-    await tick()
+    await until(() => f.calls.length >= 1)
     expect(f.calls.length).toBe(1)
     f.calls[0]!.resolve(JPEG)
     expect((await again)?.bytes.equals(JPEG)).toBe(true)
@@ -274,10 +274,10 @@ describe('conversion queue (QA review: memory, starvation)', () => {
     const a = new AbortController(), b = new AbortController(), w = new AbortController()
     const ra = pv.jpeg(photo('photo of a'), { user: 'a', signal: a.signal }).catch((e) => e)
     const rb = pv.jpeg(photo('photo of b'), { user: 'b', signal: b.signal }).catch((e) => e)
-    // the content hash is async: wait until a and b hold both runs before w comes
-    for (let i = 0; i < 50 && pv.stats().running < 2; i++) await tick()
+    // the content hash and the read are async: wait until the conversions of a and b have started before w comes
+    await until(() => f.calls.length >= 2)
     const rw = pv.jpeg(photo(), { user: 'w', signal: w.signal })
-    await tick()
+    await until(() => pv.stats().waiting >= 1)
     expect(pv.stats()).toEqual({ running: 2, waiting: 1 })
     w.abort()
     const out = await settle(rw)
@@ -285,7 +285,7 @@ describe('conversion queue (QA review: memory, starvation)', () => {
     expect(pv.stats()).toEqual({ running: 2, waiting: 0 })
     // the only caller of a running conversion goes away: the converter gets the stop signal and the slot is free
     a.abort()
-    await tick()
+    await until(() => pv.stats().running <= 1)
     expect(f.calls.find((c) => Buffer.from(c.bytes).toString() === 'photo of a')!.signal?.aborted).toBe(true)
     expect(pv.stats()).toEqual({ running: 1, waiting: 0 })
     b.abort()
@@ -299,6 +299,8 @@ describe('conversion queue (QA review: memory, starvation)', () => {
     const gone = new AbortController()
     const r1 = pv.jpeg(same, { user: 'a', signal: gone.signal }).catch((e) => e)
     const r2 = pv.jpeg(copy, { user: 'b' })
+    // the conversion has started (after the hash and the read); one more tick, so the copy's request has joined it
+    await until(() => f.calls.length >= 1)
     await tick()
     expect(f.calls.length).toBe(1)
     gone.abort()
