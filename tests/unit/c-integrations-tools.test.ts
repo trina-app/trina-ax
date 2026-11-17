@@ -195,19 +195,23 @@ describe('what is connected is a checked fact, with the ways to connect (QA TC-4
     expect(e.prompt).toContain('## Connected services')
     expect(e.prompt).toContain(NO_CONNECTIONS)
     expect(e.prompt).toContain('Admin › Connected apps, and there can ask a member to connect their own (Ask a member to connect)')
-    expect(e.prompt).toContain('Each person can also connect their own services in Settings › Connectors')
+    expect(e.prompt).toContain('Each person can also connect their own apps in Settings › Connectors, or ask you to connect one')
     // with connections: the list says it was checked, and the ways are there too
     const a = turn('alice')
     expect(a.prompt).toContain('Services connected for this user (checked by the server for this answer)')
     expect(a.prompt).toContain(connectionWays(true))
+    // a scheduled run: no connect card there, so the route leaves it out
+    expect(turn('bob', { scheduled: true }).prompt).not.toContain('connect_service')
     expect(a.prompt).not.toContain(NO_CONNECTIONS)
   })
   test('a team that keeps members from connecting their own: the way says so', () => {
     A.ctx.db.query("INSERT INTO settings (key, value) VALUES ('personalIntegrations', 'false')").run()
     try {
       const e = turn('bob')
-      expect(e.prompt).toContain('Members cannot connect services of their own on this team')
-      expect(e.prompt).not.toContain('Settings › Connectors, or ask you')
+      expect(e.prompt).toContain('On this team people cannot add their own app connections')
+      expect(e.prompt).toContain('Google Drive and Google apps, and apps from a team template, can still be connected')
+      expect(e.prompt).not.toContain('Ask a member to connect')
+      expect(e.prompt).not.toContain('or ask you to connect one')
     } finally { A.ctx.db.query("DELETE FROM settings WHERE key = 'personalIntegrations'").run() }
   })
 })

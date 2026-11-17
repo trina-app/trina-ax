@@ -1241,19 +1241,20 @@ function sharedAccount(row: Row): string {
   return `, the team's shared Google account${at}, connected by an admin for the people it is shared with; when the user also has their own ${row.name}, use their own unless they ask for the team's or the shared account`
 }
 
-/** The provider chat turns ask for this person's tools (chat/tools.ts buildToolSet). */
-
-/** The connections section when this person can use none (no own connection, no team one shared with them). Slack and
- * Google Drive have their own lines. */
-export const NO_CONNECTIONS = 'Checked by the server for this answer: no connected service (Admin › Connected apps or Settings › Connectors) is usable by this user, neither their own nor one the team shares with them. When they ask what is connected, say that as checked, not as a guess.'
-/** How connections are added, for the person's question "where do I connect X / can I connect it myself". `personal`:
- * the team lets members connect their own services (Team settings). */
-export function connectionWays(personal: boolean): string {
-  return 'How connections are added: an owner or admin connects a service for the whole team in Admin › Connected apps, and there can ask a member to connect their own (Ask a member to connect). ' +
-    (personal ? 'Each person can also connect their own services in Settings › Connectors, or ask you to connect one (connect_service).'
-      : 'Members cannot connect services of their own on this team (an admin turned that off); they ask an owner or admin.')
+/** The connections section when this person can use none (no own connection, no team one shared with them, no team
+ * template for them). Google Drive and Slack are kept elsewhere: Slack has its own section, Drive answers through its
+ * tools. */
+export const NO_CONNECTIONS = 'Checked by the server for this answer: this user has no app connection (none of their own, none the team shares with them). Google Drive and Slack are separate: Slack\'s state is in its own section, and whether Google Drive is connected shows when you use the Drive tools. When the user asks what is connected, state this plainly as the current state.'
+/** How connections are added, for "where do I connect X / can I connect it myself". `personal`: the team lets people
+ * add their own connections (Team settings); `scheduled`: a scheduled run, where no connect card is shown. */
+export function connectionWays(personal: boolean, scheduled = false): string {
+  const team = 'How connections are added: an owner or admin adds an app for the whole team in Admin › Connected apps' +
+    (personal ? ', and there can ask a member to connect their own (Ask a member to connect). ' : '. ')
+  if (!personal) return team + 'On this team people cannot add their own app connections (an admin turned that off); Google Drive and Google apps, and apps from a team template, can still be connected in Settings › Connectors. For anything else, ask an owner or admin.'
+  return team + `Each person can also connect their own apps in Settings › Connectors${scheduled ? '.' : ', or ask you to connect one (connect_service).'}`
 }
 
+/** The provider chat turns ask for this person's tools (chat/tools.ts buildToolSet). */
 export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
   return {
     name: 'integrations',
@@ -1329,12 +1330,12 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
       // what is connected is a fact the server checked for this answer, also when it is nothing, and the ways to add one
       // (QA TC-4528: asked about team connections, the AI said "nothing connected" from silence and left out the
       // member's own route); docs/decisions/20261117-connections-check-first.md
-      const how = connectionWays(getTeamSettings(ctx.db).personalIntegrations)
+      const how = connectionWays(getTeamSettings(ctx.db).personalIntegrations, b.scheduled)
       if (!lines.length) {
-        const none = ['## Connected services', NO_CONNECTIONS, how].join('\n')
-        return { tools, prompt: none, context: none }
+        // a resumed session gets only the fact (it is sent with every message there), the instructions both
+        return { tools, prompt: ['## Connected services', NO_CONNECTIONS, how].join('\n'), context: ['## Connected services', NO_CONNECTIONS].join('\n') }
       }
-      const head = lines.length ? [
+      const head = [
         '## Connected services',
         'Services connected for this user (checked by the server for this answer), with tools you can use when the user asks for something there:',
         ...lines,
@@ -1344,7 +1345,7 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
         // only where a connection's own tools are there to take a file (an MCP server's; not api_request), and never
         // in a scheduled run, which attaches nothing
         ...(index.size && !b.scheduled ? [ATTACH_HOW] : []),
-      ].join('\n') : null
+      ].join('\n')
       const prompt = head && lookup ? `${head}\n\n${lookup.full}` : head
       const context = head && lookup ? `${head}\n\n${lookup.short}` : head
       return { tools, prompt, context }
