@@ -176,16 +176,42 @@ describe('the language hint (the app\'s language)', () => {
     expect(hits[1]!.body.language).toBeUndefined()
     expect(r.body.lines[0].text).toBe("Let's go in on Friday.")
     expect(r.body.language).toBe('en')
+    // the app sends the rest without the hint
+    expect(r.body.hinted).toBe(false)
+  })
+  test('a hinted answer a little unsure (a short piece in the right language) is kept with no second request', async () => {
+    replies = [said('네 알겠습니다', 'korean', -0.5)]
+    const r = await send(piece(2), { language: 'ko' })
+    expect(hits).toHaveLength(1)
+    expect(r.body.hinted).toBeUndefined()
+  })
+  test('the answer without the hint loses when whisper is unsure of it too, or it is not in its own language\'s script', async () => {
+    replies = [said('안녕하세요 여러분', 'korean', -0.8), said('こんにちは', 'japanese', -0.5)]
+    const a = await send(piece(2), { language: 'ko' })
+    expect(a.body.lines[0].text).toBe('안녕하세요 여러분')
+    expect(a.body.hinted).toBeUndefined()
+    replies = [said('Selamat pagi semua', 'indonesian', -0.9), said('Selamat pagi semua', 'korean', -0.1)]
+    const b = await send(piece(2), { language: 'id' })
+    expect(b.body.language).toBe('id')
+    expect(hits).toHaveLength(4)
+  })
+  test('the second request is on the meter too (OpenRouter bills both)', async () => {
+    writeSpeechKey(credentialsOf(A.ctx), null)
+    writeHostedSpeechKey(credentialsOf(A.ctx), HOSTED)
+    replies = [said('이제 금요일에', 'korean', -0.9), said('Friday then', 'english', -0.1)]
+    await send(piece(2), { language: 'ko' })
+    expect(hostedSpeechUsage(A.ctx.db).usedSec).toBe(4)
   })
   test('the "foreign language" caption with the hint: the answer without it is kept', async () => {
     replies = [said('(speaking in foreign language)', 'english', -0.3), said('おはようございます', 'japanese', -0.2)]
     const r = await send(piece(2), { language: 'en' })
     expect(r.body.lines[0].text).toBe('おはようございます')
   })
-  test('a provider that refuses the language field (400): sent again without it, no error', async () => {
-    replies = [() => new Response('bad field', { status: 400 })]
+  test('a provider that refuses the language field (400): sent again without it, no error, never a third time', async () => {
+    replies = [() => new Response('bad field', { status: 400 }), said('maybe', 'english', -1.5)]
     const r = await send(piece(2), { language: 'ko' })
     expect(r.status).toBe(200)
+    expect(r.body.hinted).toBe(false)
     expect(hits).toHaveLength(2)
     expect(hits[0]!.body.language).toBe('ko')
     expect(hits[1]!.body.language).toBeUndefined()

@@ -97,7 +97,7 @@ interface OrAnswer { text?: unknown; language?: unknown; duration?: unknown; seg
 /** an OpenRouter answer: how sure whisper was of it (speech-language.ts), the request's generation id
  * (`X-Generation-Id`, for OpenRouter's own record of which provider served it) and that provider when the answer
  * names it */
-export type OpenRouterAnswer = ScoredAnswer & { generation?: string; served?: string }
+export type OpenRouterAnswer = ScoredAnswer & { generation?: string; served?: string; hinted?: false }
 
 /** OpenRouter's JSON -> TranscribeResult (language, duration, segments are optional there). The language as whisper's
  * code: Groq answers "Korean" where DeepInfra answers "ko". */
@@ -287,7 +287,7 @@ export async function sendToOpenRouter(cfg: TranscribeConfig, key: string, model
   if (!res.ok) {
     await res.body?.cancel().catch(() => {})
     // `hintOnly`: the language was only a hint; a provider that refuses the field (400) gets the sound without it
-    if (o.hintOnly && lang && res.status === 400) return sendToOpenRouter(cfg, key, model, audio, format, { ...o, language: undefined, hintOnly: false })
+    if (o.hintOnly && lang && res.status === 400) return { ...await sendToOpenRouter(cfg, key, model, audio, format, { ...o, language: undefined, hintOnly: false }), hinted: false }
     throw openRouterFailure(res.status)
   }
   let j: OrAnswer

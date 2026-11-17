@@ -508,6 +508,8 @@ export class MockServer {
   transcribeChats: (string | null)[] = []
   /** the language hint each live voice input piece named (null: none) */
   pieceLanguages: (string | null)[] = []
+  /** live pieces answer that the hint was not used (POST /__test/piece-languages {dropHint: true}) */
+  pieceDropHint = false
   /** transcription jobs report this label first and end after `ms` (POST /__test/transcribe-progress) */
   transcribeProgress: { message: string; progress: number | null; ms: number; queuedMs: number } | null = null
   /** GET /api/admin/speech-host: a 4-core self-installed server that has not measured its speed yet, with whisper.cpp and
@@ -770,6 +772,7 @@ export class MockServer {
     this.pushGateway = { choice: 'default', url: null, defaultHost: 'push.trina.app', lockedBy: null }
     this.transcribeChats = []
     this.pieceLanguages = []
+    this.pieceDropHint = false
     this.transcribeProgress = null
     this.speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null, hostedNewSec: null, localMissing: [] }
     if (o.teamLocale) this.settings.defaultLocale = o.teamLocale
@@ -3863,7 +3866,7 @@ export class MockServer {
     transcribePiece: (c) => {
       this.transcribeGate(c.body.chatId)
       this.pieceLanguages.push(c.body.language ?? null)
-      return { lines: [{ start: 0, end: 1, text: '받아쓴 문장입니다' }], language: 'ko' }
+      return { lines: [{ start: 0, end: 1, text: '받아쓴 문장입니다' }], language: 'ko', ...(this.pieceDropHint && c.body.language ? { hinted: false as const } : {}) }
     },
     pollCalls: () => ({ calls: [] }),
     // like server/src/routes/browser.ts: a result for a call this server is not waiting for is 404 (the mock never makes calls)
@@ -6200,7 +6203,10 @@ export class MockServer {
       this.speechChosen = body.chosen !== false
     }
     else if (p === '/__test/transcribe-chats') return Response.json(this.transcribeChats)
-    else if (p === '/__test/piece-languages') return Response.json(this.pieceLanguages)
+    else if (p === '/__test/piece-languages') {
+      if (typeof body.dropHint === 'boolean') this.pieceDropHint = body.dropHint
+      return Response.json(this.pieceLanguages)
+    }
     else if (p === '/__test/transcribe-progress') this.transcribeProgress = { message: String(body.message), progress: typeof body.progress === 'number' ? body.progress : null, ms: Number(body.ms ?? 3000), queuedMs: Number(body.queuedMs ?? 0) }
     else if (p === '/__test/ai-version') {
       // a stored version of a file that an AI answer saved (POST {path, by, chatId?}): `chatId` only where the server would

@@ -193,14 +193,14 @@ export function useVoiceInput(o: VoiceInputOptions) {
 
   /** one piece to the server, its answer as the piece session reads it (a refusal's reason decides a second try).
    * `told.language`: the app's language (the person's, else the team's) as a hint, so a short first piece is not heard
-   * as another language; once the server hears another language (it drops a hint whisper was unsure of), the rest of
-   * the recording goes without it. */
+   * as another language; once the server says it did not use it (the provider refused it, or whisper doubted it and
+   * the answer without it was kept), the rest of the recording goes without it. */
   const sendPiece = async (wav: Uint8Array, signal: AbortSignal, told: { language: string | null }): Promise<PieceAnswer> => {
     const chatId = opts.current.chatId
     const language = told.language
     try {
       const r = await api.call(API.transcribePiece, { body: { fields: { ...(chatId ? { chatId } : {}), ...(language ? { language } : {}) }, file: new Blob([new Uint8Array(wav)], { type: 'audio/wav' }), filename: 'piece.wav' }, signal })
-      if (language && r.language && r.language !== language && r.lines.length) told.language = null
+      if (r.hinted === false) told.language = null
       return { ok: true, lines: r.lines }
     } catch (e) {
       if (!(e instanceof ApiError) || signal.aborted) throw e

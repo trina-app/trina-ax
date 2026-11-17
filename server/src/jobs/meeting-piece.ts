@@ -20,7 +20,7 @@ import { MEETING_PIECE_MAX_SEC, type Locale, type MeetingPieceResult, type Meeti
 import { fail, modelReady, ensureModel, whisperFile, WHISPER_MODELS, type TranscribeConfig } from './transcribe'
 import { sendToOpenRouter, SPEECH_CONFIDENTIAL, SPEECH_NO_KEY, SPEECH_OFF } from './openrouter-stt'
 import { pieceTurn } from './whisper-turns'
-import { confidence, saysOtherLanguage, UNSURE_LOGPROB, type ScoredAnswer } from './speech-language'
+import { confidence, saysOtherLanguage, scriptOf, UNSURE_LOGPROB, writingSystem, type ScoredAnswer } from './speech-language'
 import { JobFailure } from './service'
 
 /** above this (seconds of whisper, model loading included, per second of sound) a server cannot keep up with a
@@ -106,19 +106,26 @@ export function pieceSeconds(head: Uint8Array, size: number): number | null {
   return sec > 0 && sec <= MEETING_PIECE_MAX_SEC ? sec : null
 }
 
-/** a hinted answer that may be in the wrong language: only the "foreign language" caption, or whisper unsure of it */
+/** whisper doubts a hinted voice piece below this mean avg_logprob: lower than UNSURE_LOGPROB (measured on a minute and
+ * more), since a 2 s piece in the right language often scores near -0.4; a translation scored -0.48 to -2.3 */
+export const VOICE_HINT_DOUBT_LOGPROB = -0.6
+/** a hinted answer that may be in the wrong language: only the "foreign language" caption, or whisper very unsure of it */
 export function hintDoubtful(r: ScoredAnswer): boolean {
-  return saysOtherLanguage(r) || (!!r.scored && confidence(r.scored) < UNSURE_LOGPROB)
+  return saysOtherLanguage(r) || (!!r.scored && confidence(r.scored) < VOICE_HINT_DOUBT_LOGPROB)
 }
-/** the answer without the hint replaces the hinted one: words where the hinted one had only the caption, or whisper
- * surer of it by HINT_MARGIN */
-const HINT_MARGIN = 0.1
+/** the answer without the hint replaces the hinted one: words where the hinted one had only the caption; else whisper
+ * sure of it (UNSURE_LOGPROB), surer than of the hinted one by HINT_MARGIN, and written in its own language's script
+ * (whisper's id/ms or ko/ja guesses on a short piece must not win on a score alone) */
+const HINT_MARGIN = 0.2
 export function keepUntold(told: ScoredAnswer, free: ScoredAnswer): boolean {
   if (!free.text.trim() || saysOtherLanguage(free)) return false
   if (saysOtherLanguage(told)) return true
   if (!told.scored || !free.scored) return false
+  const script = free.language ? scriptOf(free.language) : null
+  if (script && writingSystem(free.text) !== script) return false
   const over = Math.max(told.scored.covered, free.scored.covered)
-  return confidence(free.scored, over) > confidence(told.scored, over) + HINT_MARGIN
+  const sure = confidence(free.scored, over)
+  return sure >= UNSURE_LOGPROB && sure > confidence(told.scored, over) + HINT_MARGIN
 }
 
 /** whisper's marks for sound with no words ([BLANK_AUDIO], (music), [음악]) are not lines */
@@ -249,17 +256,21 @@ export async function speechPiece(deps: MeetingDeps, userId: string, file: strin
     const timer = setTimeout(stop, MEETING_PIECE_TIMEOUT_MS)
     try {
       let r: { segments?: { start: number; end: number; text: string }[]; text: string; language: string | null }
+      /** false: voice input's hint was not used for these words (refused by the provider, or doubted and replaced) */
+      let hinted: false | undefined
       if (provider === 'openrouter') {
         const or = deps.openRouter()
         if (!or) throw NO_KEY()
         let got = await sendToOpenRouter(deps.stt, or.key, or.model, bytes!, 'wav', { language: lang, signal: ac.signal, seconds, hintOnly: voice })
         // voice input's language is the app's, only a hint: whisper told a language the person did not speak translates
         // (speech-language.ts) and is unsure of it, or writes the "foreign language" caption; then the piece goes once
-        // more without it, and the answer whisper is surer of is kept
-        if (voice && lang && hintDoubtful(got)) {
-          const free = await sendToOpenRouter(deps.stt, or.key, or.model, bytes!, 'wav', { signal: ac.signal, seconds }).catch(() => null)
-          if (free && keepUntold(got, free)) got = free
+        // more without it (one more request on the meter: OpenRouter bills it too), and that answer is kept only when
+        // whisper is sure of it. Not when the hint was not used at all (a provider that refused the field).
+        if (voice && lang && got.hinted !== false && hintDoubtful(got)) {
+          const free = await sendToOpenRouter(deps.stt, or.key, or.model, bytes!, 'wav', { signal: ac.signal, seconds }).catch((e) => { if (ac.signal.aborted) throw e; return null })
+          if (free && keepUntold(got, free)) got = { ...free, hinted: false }
         }
+        hinted = got.hinted
         r = got
       } else {
         if (!deps.stt.whisperBin) throw OFF()
@@ -277,7 +288,9 @@ export async function speechPiece(deps: MeetingDeps, userId: string, file: strin
           try {
             fs.copyFileSync(file, path.join(work, 'piece.wav'), fs.constants.COPYFILE_FICLONE)
             // no temperature fallback, as a video read's pieces (whisper-turns, transcribe.ts whisperFile noFallback)
-            return await whisperFile(deps.stt, model, work, 'piece.wav', { language: lang, signal: both, timeoutMs: MEETING_PIECE_TIMEOUT_MS, noFallback: true })
+            // (voice input's hint is the app's language, not the speaker's: whisper.cpp told it would translate, so it
+            // guesses there)
+            return await whisperFile(deps.stt, model, work, 'piece.wav', { language: voice ? undefined : lang, signal: both, timeoutMs: MEETING_PIECE_TIMEOUT_MS, noFallback: true })
           } finally { fs.rmSync(work, { recursive: true, force: true }) }
         }, { signal: ac.signal, waitMs: MEETING_TURN_WAIT_MS })
         if (!got.ok) throw MEETING_BUSY()
@@ -287,7 +300,7 @@ export async function speechPiece(deps: MeetingDeps, userId: string, file: strin
       const lines = (r.segments?.length ? r.segments : r.text ? [{ start: 0, end: seconds, text: r.text }] : [])
         .map((l) => { const start = Math.min(seconds!, Math.max(0, l.start)); return { start, end: Math.min(seconds!, Math.max(start, l.end)), text: l.text.replace(/\s+/g, ' ').trim() } })
         .filter((l) => l.text && !NOT_WORDS.test(l.text))
-      return { lines, language: r.language }
+      return { lines, language: r.language, ...(voice && lang && hinted === false ? { hinted: false as const } : {}) }
     } catch (e) {
       if (e instanceof JobFailure) throw e
       // the time limit (not the app going away): send it again later
