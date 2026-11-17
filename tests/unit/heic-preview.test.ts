@@ -135,14 +135,20 @@ describe('fallback', () => {
   })
 })
 
-/** A fake converter: each call waits until the test settles it. */
+/** A fake converter: each call waits until the test settles it. `finish` ends the test's hold: the calls held now
+ * and every later call answer `bytes` at once, so a queue empties however long the steps between two conversions
+ * take (the cache write, the next file's read). A loop that settles "the calls of this tick" does not: on a slow
+ * runner the next conversion starts after the loop has looked, and nothing ever settles it. */
 function fakeConverter() {
   const calls: { bytes: Uint8Array; signal?: AbortSignal; resolve: (b: Buffer) => void; reject: (e: unknown) => void }[] = []
+  let answer: Buffer | null = null
   const convert = (bytes: Uint8Array, _t: HeicTools, signal?: AbortSignal) => new Promise<Buffer | null>((resolve, reject) => {
+    if (answer) return resolve(answer)
     calls.push({ bytes, signal, resolve, reject })
     signal?.addEventListener('abort', () => reject(new Error('converter stopped')), { once: true })
   })
-  return { calls, convert }
+  const finish = (bytes: Buffer) => { answer = bytes; for (const c of calls.splice(0)) c.resolve(bytes) }
+  return { calls, convert, finish }
 }
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3])
 let seq = 0
@@ -156,21 +162,26 @@ function photo(content?: string): string {
 const settle = <T>(p: Promise<T>, ms = 300) =>
   Promise.race([p.then((v) => ({ ok: v }), (e) => ({ err: e })), new Promise<'pending'>((r) => setTimeout(() => r('pending'), ms))])
 const tick = () => new Promise((r) => setTimeout(r, 20))
+/** Wait for a state of the queue (a file is hashed and read before its conversion starts: more than one tick on a
+ * busy runner). The expectation after it reports a state that never came. */
+const until = async (cond: () => boolean, ms = 10_000) => { for (let waited = 0; !cond() && waited < ms; waited += 20) await tick() }
 
 describe('conversion queue (QA review: memory, starvation)', () => {
   test('the queue has a limit: over it, "busy" at once (not a long wait)', async () => {
     const f = fakeConverter()
     const pv = new HeicPreviews(path.join(tmp, 'cache-q1'), NONE, undefined, f.convert)
     const held = Array.from({ length: PREVIEW_RUNS_MAX + PREVIEW_QUEUE_MAX }, (_, i) => pv.jpeg(photo(), { user: `u${i}` }).catch(() => null))
-    await tick()
+    await until(() => f.calls.length >= PREVIEW_RUNS_MAX && pv.stats().waiting >= PREVIEW_QUEUE_MAX)
     expect(f.calls.length).toBe(PREVIEW_RUNS_MAX)
     const over = await settle(pv.jpeg(photo(), { user: 'late' }))
     expect(over).not.toBe('pending')
     expect((over as { err: ToolError }).err?.code).toBe('busy')
     // the waiting requests hold no file bytes: only the running conversions have read their file
     expect(pv.stats()).toEqual({ running: PREVIEW_RUNS_MAX, waiting: PREVIEW_QUEUE_MAX })
-    for (let i = 0; i < 20 && f.calls.some((c) => c); i++) { for (const c of f.calls.splice(0)) c.resolve(JPEG); await tick() }
-    await Promise.all(held)
+    // every held request gets its preview: the waiting ones run as the runs come free
+    f.finish(JPEG)
+    expect((await Promise.all(held)).map((r) => r?.bytes.equals(JPEG))).toEqual(held.map(() => true))
+    expect(pv.stats()).toEqual({ running: 0, waiting: 0 })
   })
   test('one person runs one conversion and has at most one more waiting; more: "busy" at once', async () => {
     expect(PREVIEW_PER_USER_MAX).toBe(1)
@@ -179,16 +190,16 @@ describe('conversion queue (QA review: memory, starvation)', () => {
     const f = fakeConverter()
     const pv = new HeicPreviews(path.join(tmp, 'cache-q2'), NONE, undefined, f.convert)
     const held = Array.from({ length: 2 }, () => pv.jpeg(photo(), { user: 'mallory' }).catch(() => null))
-    await tick()
+    await until(() => pv.stats().running + pv.stats().waiting >= 2)
     // a free run is left, but it is not for mallory: her second file waits
     expect(pv.stats()).toEqual({ running: 1, waiting: 1 })
     const over = await settle(pv.jpeg(photo(), { user: 'mallory' }))
     expect((over as { err: ToolError }).err?.code).toBe('busy')
     // another person is not blocked: the free run is hers at once
     const other = pv.jpeg(photo(), { user: 'alice' })
-    await tick()
+    await until(() => f.calls.length >= 2)
     expect(f.calls.length).toBe(2)
-    for (let i = 0; i < 20 && pv.stats().running + pv.stats().waiting > 0; i++) { for (const c of f.calls.splice(0)) c.resolve(JPEG); await tick() }
+    f.finish(JPEG)
     expect((await other)?.bytes.equals(JPEG)).toBe(true)
     await Promise.all(held)
   })
@@ -198,10 +209,11 @@ describe('conversion queue (QA review: memory, starvation)', () => {
     // bob and mallory hold both runs; mallory has one more file waiting and sends more
     const bob = pv.jpeg(photo('bob'), { user: 'bob' })
     const mallory = Array.from({ length: 6 }, (_, i) => pv.jpeg(photo(`mallory ${i}`), { user: 'mallory' }).catch((e) => e))
-    await tick()
+    // bob and mallory's first file run (their conversions have started), her second waits; the four others got "busy"
+    await until(() => f.calls.length >= 2 && pv.stats().waiting >= 1)
     expect(pv.stats()).toEqual({ running: 2, waiting: 1 })
     const alice = pv.jpeg(photo('alice'), { user: 'alice' })
-    await tick()
+    await until(() => pv.stats().waiting >= 2)
     expect(pv.stats()).toEqual({ running: 2, waiting: 2 })
     // mallory's conversion ends (one conversion time): the free run goes to alice, not to mallory's next file
     const isMallory = (c: { bytes: Uint8Array }) => Buffer.from(c.bytes).toString().startsWith('mallory ')
@@ -216,7 +228,7 @@ describe('conversion queue (QA review: memory, starvation)', () => {
     // the requests past mallory's limits got "busy" at once (which ones depends on the hashing order)
     const outs = await Promise.all(mallory.map((p) => settle(p, 50)))
     expect(outs.filter((o) => o !== 'pending' && (o as { ok: { code?: string } }).ok?.code === 'busy').length).toBe(4)
-    for (let i = 0; i < 20 && pv.stats().running + pv.stats().waiting > 0; i++) { for (const c of f.calls.splice(0)) c.resolve(JPEG); await tick() }
+    f.finish(JPEG)
     expect((await alice)?.bytes.equals(JPEG)).toBe(true)
     expect((await bob)?.bytes.equals(JPEG)).toBe(true)
     await Promise.all(mallory)
@@ -239,7 +251,7 @@ describe('conversion queue (QA review: memory, starvation)', () => {
     for (const c of f.calls.splice(0)) c.resolve(JPEG)
     await Promise.all([a, b])
     const again = pv.jpeg(late, { user: 'c' })
-    await tick()
+    await until(() => f.calls.length >= 1)
     expect(f.calls.length).toBe(1)
     f.calls[0]!.resolve(JPEG)
     expect((await again)?.bytes.equals(JPEG)).toBe(true)
@@ -262,10 +274,10 @@ describe('conversion queue (QA review: memory, starvation)', () => {
     const a = new AbortController(), b = new AbortController(), w = new AbortController()
     const ra = pv.jpeg(photo('photo of a'), { user: 'a', signal: a.signal }).catch((e) => e)
     const rb = pv.jpeg(photo('photo of b'), { user: 'b', signal: b.signal }).catch((e) => e)
-    // the content hash is async: wait until a and b hold both runs before w comes
-    for (let i = 0; i < 50 && pv.stats().running < 2; i++) await tick()
+    // the content hash and the read are async: wait until the conversions of a and b have started before w comes
+    await until(() => f.calls.length >= 2)
     const rw = pv.jpeg(photo(), { user: 'w', signal: w.signal })
-    await tick()
+    await until(() => pv.stats().waiting >= 1)
     expect(pv.stats()).toEqual({ running: 2, waiting: 1 })
     w.abort()
     const out = await settle(rw)
@@ -273,7 +285,7 @@ describe('conversion queue (QA review: memory, starvation)', () => {
     expect(pv.stats()).toEqual({ running: 2, waiting: 0 })
     // the only caller of a running conversion goes away: the converter gets the stop signal and the slot is free
     a.abort()
-    await tick()
+    await until(() => pv.stats().running <= 1)
     expect(f.calls.find((c) => Buffer.from(c.bytes).toString() === 'photo of a')!.signal?.aborted).toBe(true)
     expect(pv.stats()).toEqual({ running: 1, waiting: 0 })
     b.abort()
@@ -287,6 +299,8 @@ describe('conversion queue (QA review: memory, starvation)', () => {
     const gone = new AbortController()
     const r1 = pv.jpeg(same, { user: 'a', signal: gone.signal }).catch((e) => e)
     const r2 = pv.jpeg(copy, { user: 'b' })
+    // the conversion has started (after the hash and the read); one more tick, so the copy's request has joined it
+    await until(() => f.calls.length >= 1)
     await tick()
     expect(f.calls.length).toBe(1)
     gone.abort()
