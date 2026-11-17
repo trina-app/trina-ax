@@ -45,7 +45,7 @@ const ASKS_FOR_OTHER_LANGUAGE = new RegExp([
 
 /** The longest piece (trimmed) that can be dropped, and at most this many sentences and lines. */
 export const NARRATION_MAX_CHARS = 200
-const NARRATION_MAX_SENTENCES = 3
+const NARRATION_MAX_SENTENCES = 2
 const NARRATION_MAX_LINES = 2
 
 /** What the AI does while it works: the verbs of a status line ("Let me check …", "Now renaming …"; "now" only with
@@ -71,7 +71,7 @@ const WORK_NOUN = /\b(?:file|files|filename|folders?|subfolders?|threads?|rooms?
  * "Search files.", not "Find attached …"), or a common verb in a note's shape: after an earlier sentence ("Only one
  * thread; read it."), or ending on first / instead / both / it ("Use edit_pdf instead."), not "Read the attached file
  * before the meeting." … */
-const SELF_ORDER = /(?:^|[.;:]\s+)(?:(?:i\s+)?need\s+(?:to\s+)?|(?:find(?!\s+(?:attached|enclosed|below|out))|search|load|fetch|look\s+for|overwrite|regenerate)\b)/i
+const SELF_ORDER = new RegExp(`(?:^|[.;:]\\s+)(?:(?:i\\s+)?need\\s+to\\s+${WORK}\\b|(?:find(?!\\s+(?:attached|enclosed|below|out))|search(?!\\s+(?:is|are|was|were|results?)\\b)|overwrite|regenerate)\\b|(?:load|fetch)\\s+(?:it|them)\\b)`, 'i')
 const NOTE_ORDER = /(?:[.;:]\s+(?:read|use|save|check|try|open)\b)|^(?:read|use|save|check|try|open)\b[^.;:]*(?:\b(?:first|instead|both|it|them|again|once)|\bthen (?:regenerate|redo|retry|overwrite|save|print))[.]?$/i
 /** An order said to people ("Read the attached file before the meeting.", "Use code SAVE10 at checkout."): a piece that
  * opens with a verb and has no note shape (NOTE_ORDER, SELF_ORDER) is content. */
@@ -81,7 +81,7 @@ const OWN_PLAN = new RegExp(`\\b(?:i'll|i will|let me|i'm going to|i am going to
 /** … or the person as "the user" ("Skills folder is read-only for this user", "User's own dictated words."). */
 const THE_USER = /\b(?:the|this) user(?:'s|\s+(?:wants|asked|asks|needs|said|says|requested|probably|explicitly))\b|\bfor (?:the|this) user\b|^user(?:'s own| asked)\b/i
 /** Words said to people: content, never a note ("Hi all, the price list is in the shared folder.", "Your file is ready."). */
-const TO_PEOPLE = /\bteam\s*[,!]|\b(?:you|your|yours|my|we|our|ours|us|everyone|hi|hello|hey|dear|please|thanks|thank|regards|cheers|welcome)\b/i
+const TO_PEOPLE = /\bteam\s*[,!]|^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?,|,\s*[A-Z][a-z]+[.!]?$|\b(?:mr|ms|mrs|dr)\.|\b(?:you|your|yours|my|we|our|ours|us|everyone|folks|kindly|fyi|heads up|hi|hello|hey|dear|please|thanks|thank|regards|cheers|welcome)\b/i
 /** A title: two or more words, every word of four letters or more capitalised ("Q3 Sales Report"). */
 const isTitle = (t: string) => {
   const words = t.replace(/[.:]$/, '').split(/\s+/).filter(Boolean)
@@ -90,16 +90,18 @@ const isTitle = (t: string) => {
 /** A report to the person, not a note: what the AI did, could not do or can do ("I didn't change the original.", "I
  * can't open that chat.", "I used the quote skill."), what a source says, a piece that adds to the answer ("Also, …",
  * "According to …", "One note: …") or leads into what follows ("…:"). */
-const REPORT = /\bi (?:can|could|can't|cannot|couldn't|didn't|did not|haven't|have not|have no|don't|do not|wasn't|won't|found|changed|left|made|saved|moved|updated|sent|stamped|put|wrote|used|added|removed|kept)\b|\bi've\b|\b(?:says|said|shows|showed)\b|^(?:also|one note|note|according to|however|but|so|btw|by the way|for example|error|warning|notice|reminder|update)\b|:$/i
+const REPORT = /\bi (?:can|could|can't|cannot|couldn't|didn't|did not|haven't|have not|have no|don't|do not|wasn't|won't|found|changed|left|made|saved|moved|updated|sent|stamped|put|wrote|used|added|removed|kept)\b|\bi've\b|\b(?:says|said|shows|showed)\b|^(?:also|one note|note|according to|however|but|so|btw|by the way|for example|error|warning|notice|reminder|update)\b|\b(?:do not|don't|never|must|should|not found|expired|protected|skipped|kept|match|matches the|mismatch|ready|due|deadline|confidential|attached)\b|:$/i
+/** A note's shape around a named work thing: a ";" joining fragments ("No subfolders; save at project top."), or a
+ * telegraphic opening ("Only one file.", "No dedicated room", "Matches quote-writer skill.", "Now the PDF, …",
+ * "Leaving page out", "Following the existing naming pattern"). */
+const NOTE_MARK = /;|^(?:now|following|existing|leaving|checking|trying|only|no|matches|nine|two|three)\b/i
 /** A note about the work, in no fixed opening (whole piece, names and `code` taken out): an order or plan of its own,
- * "the user", or a short line (100 characters at most) that names the work. */
+ * "the user", or a short line (100 characters at most) that names the work in a note's shape. */
 const isWorkNote = (t: string) => {
   t = t.trim()
   if (TO_PEOPLE.test(t) || REPORT.test(t) || isTitle(t)) return false
-  // (a telegraphic order of four words or fewer that names the work is a note: "Try team-root path.")
-  const telegraphic = t.split(/\s+/).length <= 4 && WORK_NOUN.test(t)
-  if (ORDER_TO_PEOPLE.test(t) && !NOTE_ORDER.test(t) && !SELF_ORDER.test(t) && !telegraphic) return false
-  return SELF_ORDER.test(t) || NOTE_ORDER.test(t) || OWN_PLAN.test(t) || THE_USER.test(t) || (WORK_NOUN.test(t) && t.length <= 100)
+  if (ORDER_TO_PEOPLE.test(t) && !NOTE_ORDER.test(t) && !SELF_ORDER.test(t)) return false
+  return SELF_ORDER.test(t) || NOTE_ORDER.test(t) || OWN_PLAN.test(t) || THE_USER.test(t) || (WORK_NOUN.test(t) && NOTE_MARK.test(t) && t.length <= 100)
 }
 
 /** typographic dashes, apostrophes and ellipses count as ASCII (the model writes "—" and "I’ll") */
@@ -162,7 +164,7 @@ const norm = (s: string) => s.replace(/<[^>\n]{0,200}>/g, ' ').replace(/&(?:#39|
 
 /** Every string in a call's arguments, joined. */
 function argText(input: unknown, out: string[] = [], depth = 0): string[] {
-  if (depth > 6 || out.length > 2000) return out
+  if (depth > 12 || out.length > 2000) return out
   if (typeof input === 'string') out.push(input)
   else if (Array.isArray(input)) for (const v of input) argText(v, out, depth + 1)
   else if (input && typeof input === 'object') for (const v of Object.values(input)) argText(v, out, depth + 1)
@@ -176,7 +178,13 @@ function copied(piece: string, input: unknown, message: string): boolean {
   if (p.length < 8) return false
   if (norm(message).includes(p)) return true
   const args = argText(input).join('\n')
-  return norm(args.length > 1_000_000 ? args.slice(0, 1_000_000) : args).includes(p)
+  const a = norm(args.length > 1_000_000 ? args.slice(0, 1_000_000) : args)
+  if (a.includes(p)) return true
+  // posted with a small edit ("Price list updated (v3). Check the shared folder."): 80% of its words are there
+  const words = p.split(' ').filter((w) => w.length >= 3)
+  if (words.length < 3) return false
+  const have = new Set(a.split(' '))
+  return words.filter((w) => have.has(w)).length >= 0.8 * words.length
 }
 
 /** A whole piece that is a status line: it has Latin letters and nothing marks it as content. */

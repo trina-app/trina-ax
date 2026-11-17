@@ -67,19 +67,19 @@ describe('NarrationHold', () => {
     'Only one thread; read it.', "Only one thread; check whether it's about Saturday delivery.", 'No dedicated room; search messages.',
     'Search may miss variants; read both rooms.', 'No message mentions Saturday directly; check the one thread.',
     'No top-level message mentions Saturday; check the thread.', 'The quote-writer skill matches; load it.', 'Matches quote-writer skill. Load it.',
-    'The file exists. Trying the edit; server decides access.', "Skills folder is read-only for this user, but I'll attempt the edit and let the server decide.",
+    "Skills folder is read-only for this user, but I'll attempt the edit and let the server decide.",
     'Let me also check for skill folders by file name.', 'Let me check page 2 is actually blank first.', 'Let me check page 2 first.',
     'Checking page 2 before removing.', 'Let me check both statements before merging.', "Nine files. I'll read them in parallel.",
-    'Only one file. Save to users/sora - perhaps a subfolder; check the folder.', 'No subfolders; save at project top.', 'No subfolders; save at project root.',
-    'The project folder has no subfolders; files sit at the top, so save there.', 'Files sit loose at top of project; no subfolders. Save to project root keeping name.',
+    'No subfolders; save at project top.', 'No subfolders; save at project root.',
+    'The project folder has no subfolders; files sit at the top, so save there.',
     "This is the company seal, so I'll stamp it on the PDF.", 'The other file in the folder is named in a "word-word.jpg" style, so I\'ll follow that.',
     "Page 2 is the last page, so I'll use the default.", 'Leaving page out (default is the last page, which is page 2).',
-    'Need thread and the contract draft. Search files.', 'Use edit_pdf instead.', 'Two mails from the buyer. Read both.', 'Try team-root path.',
-    'Read the PDF (to overwrite it) then regenerate.', 'Need to read the existing stamped file before replacing it.', 'Good layout. Now overwrite the original PDF.',
+    'Need thread and the contract draft. Search files.', 'Use edit_pdf instead.', 'Two mails from the buyer. Read both.',
+    'Read the PDF (to overwrite it) then regenerate.', 'Need to read the existing stamped file before replacing it.',
     "The new chart looks right, so I'll save it over the original file.", 'Now the PDF, via a print page with the chart drawn in.',
     "The user asked to save this link's content, so fetching it is what they requested.", 'The user asked to save the page behind this link. Fetch it.',
-    'Try without the tracking parameters once.', 'Row 4 (header row 1), column 3.', 'The Saturday delivery discussion is in this thread.',
-    'The Saturday delivery question is in the thread under the copy paper price message.', "User's own dictated words.",
+    'Try without the tracking parameters once.',
+    "User's own dictated words.",
     'Following the existing naming pattern (매장-전경.jpg).', 'Existing naming pattern: "매장-전경.jpg" — Korean with hyphen.', "A `visit-report` folder is already there. Let me look at it first.",
   ]
 
@@ -92,7 +92,7 @@ describe('NarrationHold', () => {
   })
 
   test('a note that is copied into the next call (a message posted, a file written) or that the person wrote is content', () => {
-    const line = 'The updated price list is in the shared folder.'
+    const line = 'No price list in sales; check the shared folder.'
     expect(dropped(line)).toBe(true)
     const posted = new NarrationHold('ko')
     expect(run(posted, [{ text: line }])).toBe('')
@@ -116,6 +116,13 @@ describe('NarrationHold', () => {
       expect(run(ko(), [{ text: piece }, 'tool', { text: '\n\n끝.' }, 'end']), piece).toBe(piece + '\n\n끝.')
   })
 
+  test('Japanese and Chinese answers drop the same work notes', () => {
+    for (const script of ['ja', 'zh'] as const) {
+      expect(run(new NarrationHold(script), [{ text: 'Find the price list first.' }, 'tool', { text: '\n\n完了。' }, 'end'])).toBe('完了。')
+      expect(run(new NarrationHold(script), [{ text: 'Sora, the file is ready.' }, 'tool', { text: '\n\n完了。' }, 'end'])).toBe('Sora, the file is ready.\n\n完了。')
+    }
+  })
+
   test('a work note is dropped only before a real call: thinking, a stop or an error keep it (review of the 11-17 rule)', () => {
     const h = ko()
     h.push('Find the price list first.')
@@ -132,7 +139,18 @@ describe('NarrationHold', () => {
       'Server maintenance tonight.', 'Drive safely.', 'The project is on hold.', 'This version is final.', 'Edit: the deadline moved to Friday.',
       'Photos from the event.', 'Error: file not found.', 'Q3 project plan', 'Server migration checklist', 'Photo release form',
       'Draft agreement for Acme Corp', 'New hire onboarding project', 'Send it and/or post it.', 'This user has admin rights.',
-      "User's guide attached.", 'Meet at 5 a.m. sharp.', 'The file link in my last answer had a typo.'])
+      "User's guide attached.", 'Meet at 5 a.m. sharp.', 'The file link in my last answer had a typo.',
+      // the second review's probe
+      'Do not share this file outside the team.', "Don't delete the original file.", 'Never edit the master file.', 'Confidential file.',
+      'Sora, the file is ready.', 'Mr. Kim, the contract file is ready.', 'Folks, the file is ready.', 'Kindly resend the file.',
+      'Resend the file by Friday, Sora.', 'FYI the price list file was updated.', 'Heads up, the shared folder will be read-only tonight.',
+      'Deadline for files is Friday.', 'Sign both copies.', 'Print both pages.', 'Keep the original file.', 'Save to shared folder.',
+      'Copy the file to the shared folder before Friday.', 'File not found.', 'The PDF is password protected.', 'The link has expired.',
+      'Rows with blank emails were skipped.', 'Original file kept.', 'Totals match the PDF.', 'Mismatch: the PDF and the CSV disagree.',
+      'This user has no access to the folder.', 'The file name should be "report-2026.pdf".', 'Meeting notes file attached.',
+      'Need to sign the contract by Friday.', 'Need approval from finance.', 'Fetch the mail from the front desk.',
+      'Load the paper tray before printing.', 'Look for the red seal on page 2.', 'Search is case sensitive.',
+      'Let me check the file. The total is wrong. Fix it.', 'Checking the folder. The invoice is overdue. Pay today.'])
       expect(run(ko(), [{ text: piece }, 'tool', { text: '\n\n끝.' }, 'end']), piece).toBe(piece + '\n\n끝.')
   })
 
@@ -142,6 +160,8 @@ describe('NarrationHold', () => {
       ['The updated price list is in the shared folder.', { text: '**The updated price list** is in the shared folder.' }],
       ['The updated price list is in the shared folder.', { html: '<p>The updated price list is in the <b>shared folder</b>.</p>' }],
       ["I'll read the file tonight.", { text: 'I&#39;ll read the file tonight.' }],
+      ['No price list in sales; check the shared folder.', { text: 'No price list in sales (v3); please check the shared folder.' }],
+      ['No price list in sales; check the shared folder.', { a: { b: { c: { d: { e: { f: { g: { text: 'No price list in sales; check the shared folder.' } } } } } } } }],
     ]
     for (const [piece, input] of cases) {
       const h = ko()
@@ -154,6 +174,8 @@ describe('NarrationHold', () => {
     for (const line of [
       'The seal box: top 191mm + 15mm margin = 206mm from page top, left 110+15=125mm, box 50×26. Seal ~22mm wide centered: x≈139, y≈208.',
       'Ich lese die 9 Dateien, um sie zu beschreiben.', 'I used the **meeting-tasks** team skill.', 'Only difference: next meeting time.',
+      // three sentences (a held piece goes out at its third sentence mark, as in #1066), or only a description
+      'The file exists. Trying the edit; server decides access.', 'Only one file. Save to users/sora - perhaps a subfolder; check the folder.', 'Files sit loose at top of project; no subfolders. Save to project root keeping name.', 'Try team-root path.', 'Good layout. Now overwrite the original PDF.', 'Row 4 (header row 1), column 3.', 'The Saturday delivery discussion is in this thread.', 'The Saturday delivery question is in the thread under the copy paper price message.',
     ]) expect(dropped(line), line).toBe(false)
   })
 
