@@ -3,7 +3,8 @@
 // there is such a setting"), sending people to an admin, or saying a feature does not exist (AI scenario check, first
 // run 2026-11-16, root cause #2).
 //
-// One line per place, about 25 lines. The places are named by the labels the person's app shows, in their language:
+// One line per place or group of places, at most 20 lines (docs/decisions/20261117-ai-app-map-five-places.md: Shared
+// with me, folder sharing, threads under an answer, Open the app, meeting notes). The places are named by the labels the person's app shows, in their language:
 // each label is a web i18n key (APP_MAP_KEYS), its words in app-map-labels.ts, generated from web/src/i18n by
 // scripts/app-map-labels.ts; tests/unit/ai-app-map.test.ts fails when a key is gone or its words changed, and when a
 // Settings tab, Admin page, Team settings group or System group named here is gone.
@@ -17,7 +18,7 @@
 // A guest gets none (none of the team's screens are theirs; the guest section says what they can do).
 // Install facts: guest AI only where the AI runs on the team's connections (managed); the dev environment only where
 // the server has it (MYCEL_DEV_ENV, devenv/setting.ts devEnvFlag); otherwise one line says it is not on this install.
-import { ownFolderLabel, PRODUCT } from '@mycel/shared'
+import { MEETINGS_LABEL, ownFolderLabel, PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI, type Locale } from '@mycel/shared/api'
 import { APP_MAP_LABELS } from './app-map-labels'
 import { APP_MAP_KEYS, type AppMapKey } from './app-map-keys'
@@ -49,13 +50,15 @@ export interface AppMapInput {
 export const appMapView = (role: string, shared: boolean): AppMapInput['view'] => shared ? 'shared' : role === 'owner' || role === 'admin' ? 'staff' : 'member'
 
 /** One label in the person's language: `{product}` is the product's name (the AI's name for the ready-made skills, as
- * the Skills page says it: web lib/tabs.ts namedProduct), `{level}` "…". */
+ * the Skills page says it: web lib/tabs.ts namedProduct), `{name}` the AI's name. */
 export function appLabel(key: AppMapKey, L: Locale): string {
   const row = APP_MAP_LABELS[key]
   const text = row?.[L] ?? row?.en ?? key
   const product = key === 'skills.catalog.more' && PRODUCT_NAMED_AFTER_AI ? appLabelRaw('rooms.aiName', L) : PRODUCT.displayName
+  // `{name}` is the AI's name, as the thread's button says it (web lib/tabs.ts aiName)
+  const name = PRODUCT_NAMED_AFTER_AI ? appLabelRaw('rooms.aiName', L) : PRODUCT.shortName
   // a count after " · " ("트리나가 준비한 스킬 · {n}개 더", "연동 · {count}") is the screen's, not the place's name
-  return text.split(' · ')[0]!.replaceAll('{product}', product)
+  return text.split(' · ')[0]!.replaceAll('{product}', product).replaceAll('{name}', name)
 }
 const appLabelRaw = (key: string, L: Locale) => APP_MAP_LABELS[key]?.[L] ?? APP_MAP_LABELS[key]?.en ?? key
 
@@ -67,16 +70,16 @@ export function appMapSection(o: AppMapInput, L: Locale): string {
   const here = `this team's ${PRODUCT.displayName}`
   const lines = [
     '## Where things are in the app',
-    'Asked where or how to do something in the app, answer from this map with its labels. Not here: say you are not sure, not that it does not exist.',
+    'Asked where or how in the app: answer from this map, with its labels; not here: say you are not sure, never that it does not exist.',
     `- Chat title menu (its creator): ${q('chat.rename')}. A chat's ⋯ in the list: ${q('chat.pin')}, ${q('navFolders.moveTo')}; ${q('navFolders.new')}. Answer: ${q('chat.regenerate')}; own message: ${q('chat.edit')}.`,
+    `- Shared chat (a project's or shared with people), under a finished answer: ${q('rooms.replyInThread')}: people's talk, the AI does not read it; there ${q('chat.thread.sendToAi')} puts it in the message box to edit and send. Asker and repliers are told; not in a private chat.`,
     `- ${tr('cardAlways', L)} on a card: not asked again; undo in ${set(PRODUCT_NAMED_AFTER_AI ? 'settings.allowances' : 'settings.allowancesAi')}.`,
-    `- Room ⋯: ${q('chat.pin')}, ${q('roomApps.menuAdd')} (${q('roomApps.menuList')} once it has some): Google Forms or any service posts into the room by its ${q('roomApps.address')}. A group chat's also ${q('rooms.info.rename')}, ${q('rooms.info.addPeople')}; a team room: people follow its group, owners and admins rename.`,
+    `- Room ⋯: ${q('chat.pin')}, ${q('roomApps.menuAdd')} (${q('roomApps.menuList')} once it has some): a service posts into the room by its ${q('roomApps.address')}. A group chat's also ${q('rooms.info.rename')}, ${q('rooms.info.addPeople')}; a team room: people follow its group, owners and admins rename.`,
     `- Room bell or ⋯ › ${q('rooms.menu.notify')}: ${q('rooms.notify.mentions')} / ${q('rooms.notify.off')}. ${q('notifications.quiet')}: ${set('notifications.title')}. Message hover: ${q('rooms.react')}. Mentions, thread replies: ${q('inbox.title')}.`,
-    `- ${q('settings.title')}: ${q('settings.profile')} (photo, name; their AI and model, if allowed), ${q('settings.security')} (${q('auth.changePassword')}; ${q('settings.devices')}: sign one out), ${q('integrations.title')} (their own Slack, Google… accounts), ${q('settings.apps')} (phone, Mac, Windows apps), ${q('settings.about')} (version), ${q('aiApps.title')} (team files from Claude or another AI app).`,
-    `- Own photo menu: ${q('status.set')}, ${q('presence.setAway')}.`,
-    `- ${q('projects.title')} › ${q('projects.new')}: anyone (the team may keep team projects to owners and admins).`,
-    `- ${q('sidebar.skills')}: ${q('skills.catalog.more')} (ready-made; owners and admins see it while some are missing); ${q('skills.catalog.bring')} (on a computer; a member's are reviewed).`,
-    `- Desktop app only, not the Mac App Store one: ${q('sidebar.files')} › ${ownFolderLabel(L)} › ${q('files.findWork.entryButton')}.`,
+    `- ${q('settings.title')}: ${q('settings.profile')} (photo, name; own AI and model, if allowed), ${q('settings.security')} (${q('auth.changePassword')}; ${q('settings.devices')}: sign one out), ${q('integrations.title')} (own Slack, Google…), ${q('settings.apps')} (phone, computer apps), ${q('settings.about')} (version), ${q('aiApps.title')} (team files from another AI app). Own photo menu: ${q('status.set')}, ${q('presence.setAway')}.`,
+    `- ${q('projects.title')} › ${q('projects.new')}: anyone (the team may keep team projects to owners and admins). ${q('sidebar.skills')}: ${q('skills.catalog.more')} (ready-made; owners and admins see it while some are missing); ${q('skills.catalog.bring')} (on a computer; a member's are reviewed).`,
+    `- ${q('sidebar.files')} › ${q('filesPanel.shared')}: files and folders shared with them, newest first. In ${ownFolderLabel(L)}, a folder's ⋯ › ${q('folderAccess.menu')}: view only, later files too; take people off or ${q('fileShare.stop')} anytime, ${q('common.undo')} right after. Team folders: owners and admins share.`,
+    `- ${q('sidebar.files')} › ${ownFolderLabel(L)}: ${q('files.findWork.entryButton')} (desktop app, not the Mac App Store one); ${q('meeting.entry')} (Mac desktop app, team voice input on: no bot joins, asks first, ${q('meeting.stop')} on its card, sound not kept, notes in ${MEETINGS_LABEL[L]}; you cannot listen or start it); in a Mac or Windows browser ${q('openApp.lineLink')} opens the desktop app signed in, no password (not opened: ${q('openApp.download')}, press again; not from a phone).`,
   ]
   if (o.view === 'member') {
     // situation.ts's member line already names folders, groups, connected apps, plugins, AI accounts and team settings
