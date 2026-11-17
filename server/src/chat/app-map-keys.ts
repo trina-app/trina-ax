@@ -16,6 +16,10 @@ export const APP_MAP_KEYS = [
   'notifications.title', 'notifications.quiet', 'settings.apps', 'settings.about', 'aiApps.title', 'settings.profile', 'integrations.title',
   // skills, files
   'skills.catalog.more', 'skills.catalog.bring', 'files.findWork.entryButton',
+  // the 2026-11-17 catalog rerun: Shared with me, folder sharing, threads under an answer, the desktop app hand-off,
+  // meeting notes (the Meetings folder's name is shared/folder-labels.ts MEETINGS_LABEL, not a web key)
+  'filesPanel.shared', 'folderAccess.menu', 'fileShare.stop', 'common.undo', 'rooms.replyInThread', 'chat.thread.sendToAi',
+  'openApp.lineLink', 'openApp.mac', 'openApp.download', 'meeting.entry', 'meeting.stop',
   // Admin
   'admin.members', 'members.inviteToTeam', 'members.inviteMore', 'teamLink.title', 'members.resetLinkButton', 'members.reset', 'admin.groups',
   'admin.integrations', 'integrations.requests.add', 'handover.menu', 'guest.admin.title', 'guest.invite.ai', 'guest.ai.none', 'guest.ai.own', 'guest.ai.team',

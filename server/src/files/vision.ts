@@ -135,6 +135,9 @@ async function slot<T>(f: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   }
 }
 
+/** the same slots for other image work of the Go helper (tools/resize-images.ts): one queue for all of it */
+export const imageSlot = slot
+
 /** conversions running and waiting (tests) */
 export const visionStats = () => ({ running, waiting: waiting.length })
 

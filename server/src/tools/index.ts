@@ -1,13 +1,14 @@
 // The non-file engine tools of component C, registered into the MCP tool registry of this server instance:
 // make_file, edit_hwp (tools/edit-hwp.ts; Hangul writing only while the HWP plugin is on, tools/hwp-writing.ts), stamp_pdf
 // (tools/stamp-pdf.ts: an image on a page of an existing PDF), share_file, artifact, web_fetch (design tab 3 "도구 목록"), save_url (tools/save-url.ts), and move_files / copy_files / rename_file
-// (tools/file-moves.ts). Inputs are the shared contracts
+// (tools/file-moves.ts), resize_images (tools/resize-images.ts: smaller copies of photos). Inputs are the shared contracts
 // (shared/src/tools.ts); the engine sees mcp__team__<name>.
 import { registerHwpRender } from './hwp-render'
-import { ArtifactInput, EditHwpInput, MakeFileInput, SaveUrlInput, ShareFileInput, StampPdfInput, EditPdfInput, MergePdfsInput, SplitPdfInput, WebFetchInput } from '@mycel/shared'
+import { ArtifactInput, EditHwpInput, MakeFileInput, ResizeImagesInput, SaveUrlInput, ShareFileInput, StampPdfInput, EditPdfInput, MergePdfsInput, SplitPdfInput, WebFetchInput } from '@mycel/shared'
 import { editHwpFile, editHwpFileText } from './edit-hwp'
 import { STAMP_PDF_DESCRIPTION, stampPdfFile, stampPdfText } from './stamp-pdf'
 import { EDIT_PDF_DESCRIPTION, editPdfFile, MERGE_PDFS_DESCRIPTION, mergePdfFiles, pdfResultText, SPLIT_PDF_DESCRIPTION, splitPdfFile, type PdfResult } from './pdf-tools'
+import { RESIZE_IMAGES_DESCRIPTION, resizeImages, resizeResultText } from './resize-images'
 import { hwpWritingOffTextFor, hwpWritingOn, MakeFileInputWithoutHwpx, writesHangul } from './hwp-writing'
 import { fileShareUrl } from '@mycel/shared/api'
 import { fileSharesOf } from '../files/shares'
@@ -33,7 +34,7 @@ import { redirectGuard, webEcho } from './connection-urls'
 import { precheckTarget, webFetch, wrapExternal, type FetchOptions } from './web-fetch'
 import { SAVE_URL_DESCRIPTION, saveUrl, type SaveUrlOptions } from './save-url'
 
-export const C_TOOL_NAMES = ['hwp_render', 'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'share_file', 'artifact', 'web_fetch', 'save_url'] as const
+export const C_TOOL_NAMES = ['hwp_render', 'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'share_file', 'artifact', 'web_fetch', 'save_url'] as const
 
 const human = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`)
 
@@ -197,6 +198,22 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
     async run(a, t) {
       const r = await splitPdfFile(ctx, c.files, t, a)
       return { text: pdfResultText('split_pdf', r, pdfLink, false), summary: pdfSummary('split_pdf', r), structured: pdfStructured(r) }
+    },
+  })
+
+  // smaller copies of photos (tools/resize-images.ts, QA TC-4539)
+  reg.register({
+    name: 'resize_images',
+    description: RESIZE_IMAGES_DESCRIPTION,
+    input: ResizeImagesInput,
+    describe: (a) => `resize_images ${a.paths.length} photo${a.paths.length === 1 ? '' : 's'}${a.preset ? ` ${a.preset}` : ''}${a.longest_side ? ` side ${a.longest_side}` : ''}${a.width ? ` width ${a.width}` : ''}${a.max_mb ? ` max ${a.max_mb} MB` : ''}${a.replace ? ' replace' : a.output_folder ? ` -> ${a.output_folder}` : a.output ? ` -> ${a.output}` : ''}`,
+    async run(a, t) {
+      const r = await resizeImages(ctx, c.files, t, a)
+      return {
+        text: resizeResultText(r, pdfLink),
+        summary: `resize_images ${r.made.map((m) => `${m.src} -> ${m.made.path} ${m.made.size}B${m.made.conflictCopyOf ? ' (conflict copy)' : ''}`).join(', ')}${r.skipped.length ? ` (${r.skipped.length} not done)` : ''}`.slice(0, 1000),
+        structured: { paths: r.made.map((m) => m.made.path) },
+      }
     },
   })
 

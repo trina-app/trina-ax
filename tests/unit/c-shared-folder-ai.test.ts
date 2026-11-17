@@ -25,11 +25,14 @@ import { folderLinkOf, sharedFolderChild, sharedFoldersWith } from '../../server
 import { TurnFiles, type ToolCtx } from '../../server/src/files/service'
 import { componentC } from '../../server/src/team-files/component'
 import { loadPrincipal, RuleSet } from '../../server/src/policy/access'
-import { sourceOf } from '../../server/src/chat/read-scope'
+import { addSources, sourceOf } from '../../server/src/chat/read-scope'
+import { othersSource, readByGrant, seenWhy } from '../../server/src/chat/grant-reads'
+import { tr } from '../../server/src/chat/i18n'
+import { grantSourceCant } from '../../server/src/chat/share-next-steps'
 import { SHARED_FOLDERS_HOWTO } from '../../server/src/chat/shared-with-me-tool'
 import { dropAlways, keepAlways } from '../../server/src/chat/always-allow'
 import { outsideSeen } from '../../server/src/integrations/connections/tools'
-import { DELETE_REFUSAL } from '../../server/src/chat/delete-files'
+import { DELETE_REFUSAL, deleteFilesRefusal } from '../../server/src/chat/delete-files'
 import { teamTimeZone } from '../../server/src/admin/settings'
 import { zonedDay } from '../../server/src/system/time-zone'
 
@@ -328,6 +331,10 @@ async function turn(content: string, chat?: string, parentId?: null) {
 }
 const marks = (chatId: string) => db().query('SELECT rooms_seen AS r, others_words AS o FROM chats WHERE id = ?').get(chatId) as { r: number; o: number }
 const shareRow = (p: string) => db().query("SELECT 1 FROM file_shares WHERE path = ? AND kind != 'folder'").get(p)
+/** what the words read from a chat (chat/grant-reads.ts): its id, this turn's reads not yet noted, whose chat */
+const gexec = (chatId: string, readPaths: string[] = [], who = 'bob') => ({ rt: h.rt(), spec: { userId: who, chatId, assistantId: '' }, roomsSeen: false, files: { readPaths: new Set(readPaths) } }) as never
+/** one of the person's team chat rooms */
+const roomOf = (who: string) => (db().query("SELECT r.id FROM rooms r JOIN room_members m ON m.room_id = r.id WHERE m.user_id = ? LIMIT 1").get(who) as { id: string }).id
 
 describe('the mark (T13): names and contents in a shared folder are the sharer\'s words', () => {
   test('(R) a listing alone marks the chat for good: rooms_seen and others_words', async () => {
@@ -391,8 +398,79 @@ describe('the mark (T13): names and contents in a shared folder are the sharer\'
     expect(fs.existsSync(abs('shared/after-folder-list.md'))).toBe(false)
     wr('users/bob/keep-me.md', 'keep')
     const del = await turn(`go on\n${fake({ tool: 'delete_files', args: { paths: ['users/bob/keep-me.md'] }, sayResult: true })}`, first.chatId)
-    expect(del.content).toContain(DELETE_REFUSAL.roomsSeen)
+    expect(del.content).toContain(DELETE_REFUSAL.sharedFile)
     expect(fs.existsSync(abs('users/bob/keep-me.md'))).toBe(true)
+  })
+
+  // QA TC-4482: the words name the real source. A listing (or a read) inside a folder shared with the person marks the chat
+  // as a room read does (the gates above); the card and the refusals after it say a file someone shared with the user,
+  // not "messages from the user's team chat rooms". A room read too keeps the room words (chat/grant-reads.ts grantOnly).
+  test('TC-4482: after only a listing of a shared folder, the card and refusals name a shared file, not team chat rooms', async () => {
+    const dir = folder(), id = shareDir(dir)
+    // the place as the read scope keeps it: in alice's files, opened for bob only through the share
+    expect(readByGrant(gexec('none', [dir]))).toBe(true)
+    bucket()
+    const first = await turn(`look\n${fake({ tool: 'list', args: { path: `/f/${id}` } })}`)
+    expect(marks(first.chatId)).toEqual({ r: 1, o: 1 })
+    // the next answer: what the chat keeps (no grant read pending) still says a shared file
+    expect(readByGrant(gexec(first.chatId))).toBe(true)
+    expect(seenWhy(gexec(first.chatId), 'roomsSeenWhy')).toBe('sharedFileSeenWhy')
+    wr('users/bob/keep-listed.md', 'keep')
+    const del = await turn(`go on\n${fake({ tool: 'delete_files', args: { paths: ['users/bob/keep-listed.md'] }, sayResult: true })}`, first.chatId)
+    expect(del.content).toContain(DELETE_REFUSAL.sharedFile)
+    expect(del.content).not.toContain('team chat rooms')
+    expect(fs.existsSync(abs('users/bob/keep-listed.md'))).toBe(true)
+    // a change whose card nobody answers: the card's sentence and the refusal name the shared file
+    const w = await turn(`go on\n${fake({ tool: 'write', args: { file_path: 'shared/after-listed.md', content: 'x' }, sayResult: true })}`, first.chatId)
+    expect(w.cards).toHaveLength(1)
+    expect(w.cards[0]!.question).toContain(tr('sharedFileSeenWhy', 'ko').slice(0, 20))
+    expect(w.cards[0]!.question).not.toContain(tr('roomsSeenWhy', 'ko').slice(0, 12))
+    expect(w.content).toContain('a file someone shared with the user')
+    expect(w.content).not.toContain('team chat rooms')
+    expect(fs.existsSync(abs('shared/after-listed.md'))).toBe(false)
+  })
+
+  test('TC-4482: a read inside a shared folder says a shared file too; a room read alone, or a room with the listing, keeps the room words', async () => {
+    const dir = folder(), id = shareDir(dir)
+    bucket()
+    const read = await turn(`read it\n${fake({ tool: 'read', args: { file_path: `/f/${id}/report.md` } })}`)
+    expect(seenWhy(gexec(read.chatId), 'roomsSeenWhy')).toBe('sharedFileSeenWhy')
+    expect(deleteFilesRefusal({ ...(gexec(read.chatId) as object), roomsSeen: true } as never)).toBe('sharedFile')
+    // mixed: the listing and a room's messages in the same chat: the room words, as #1175 keeps them
+    bucket()
+    const mixed = await turn(`look\n${fake({ tool: 'list', args: { path: `/f/${id}` } })}`)
+    addSources(db(), mixed.chatId, [{ type: 'room', id: roomOf('bob') }])
+    expect(seenWhy(gexec(mixed.chatId), 'roomsSeenWhy')).toBe('roomsSeenWhy')
+    expect(othersSource(gexec(mixed.chatId), 'ROOM')).toBe('ROOM')
+    expect(deleteFilesRefusal({ ...(gexec(mixed.chatId) as object), roomsSeen: true } as never)).toBe('roomsSeen')
+    // a room read alone: the room words
+    const room = (await h.api('bob').call(API.createChat, { body: {} })).id
+    addSources(db(), room, [{ type: 'room', id: roomOf('bob') }])
+    expect(seenWhy(gexec(room), 'roomsSeenWhy')).toBe('roomsSeenWhy')
+    // the owner's own chat that listed her own shared folder: her own place, no grant
+    const hers = (await h.api('alice').call(API.createChat, { body: {} })).id
+    addSources(db(), hers, [sourceOf(db(), RuleSet.load(db()), dir)])
+    expect(readByGrant(gexec(hers, [], 'alice'))).toBe(false)
+  })
+
+  test('TC-4482: the post card after a folder listing keeps the room check\'s count; a paused share keeps the shared-file words', async () => {
+    // a file alice shares with bob one by one, linked in the post; a room of bob's with someone it was not shared with
+    wr('users/alice/one-by-one.md', 'one by one')
+    await h.api('alice').call(API.putFileShares, { body: { path: 'users/alice/one-by-one.md', add: [{ subjectType: 'user', subjectId: 'bob' }], remove: [] } })
+    const link = ((await h.api('alice').call(API.fileLink, { body: { path: 'users/alice/one-by-one.md' } })) as { id: string }).id
+    const room = (db().query("SELECT m.room_id id FROM room_members m WHERE m.user_id = 'bob' AND EXISTS (SELECT 1 FROM room_members o WHERE o.room_id = m.room_id AND o.user_id NOT IN ('bob', 'alice')) LIMIT 1").get() as { id: string }).id
+    const body = `see /f/${link}`
+    // control: a chat with no shared folder read counts who cannot open the linked shared file
+    const plain = (await h.api('bob').call(API.createChat, { body: {} })).id
+    expect(grantSourceCant(gexec(plain), body, room)).toBeGreaterThan(0)
+    // after a listing of a shared folder: the room check's own count stands (its people are not in this count)
+    const dir = folder(), id = shareDir(dir)
+    bucket()
+    const listed = await turn(`look\n${fake({ tool: 'list', args: { path: `/f/${id}` } })}`)
+    expect(grantSourceCant(gexec(listed.chatId), body, room)).toBeNull()
+    // the share paused (or ended) later: the words still say a shared file was read
+    db().query('UPDATE file_shares SET paused_at = ? WHERE id = ?').run(new Date().toISOString(), id)
+    try { expect(seenWhy(gexec(listed.chatId), 'roomsSeenWhy')).toBe('sharedFileSeenWhy') } finally { db().query('UPDATE file_shares SET paused_at = NULL WHERE id = ?').run(id) }
   })
 
   test('(R) a scheduled run cannot list or read a shared folder (T34)', async () => {
