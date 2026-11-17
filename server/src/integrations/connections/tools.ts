@@ -1312,9 +1312,11 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
             : ` (the service offers ${offered.total} tools; ${saved.length} were saved when the connection was last checked; if the user needs one that is not here, say so: whoever manages the connection can check it again in its settings)`
         const offNote = skipped ? ` (${skipped} more turned off by whoever manages this connection; do not try to reach them another way)` : ''
         const shared = sharedAccount(row)
-        if (!entries.length && skipped && offered === null) lines.push(`- ${row.name} (${who} connection${shared}, MCP server): every tool is turned off by whoever manages this connection (they can turn them on in its settings)`)
-        else if (direct) lines.push(`- ${row.name} (${who} connection${shared}, MCP server): ${entries.length} tools named ${key}__…${capped}${offNote}`)
-        else lines.push(`- ${row.name} (${who} connection${shared}, MCP server): ${entries.length} tools, not loaded: look them up with find_tools and run them with call_tool (see "Tools to look up")${capped}${offNote}`)
+        // no "MCP server" here: the AI repeated it to people ("Calendar MCP server", AI scenario CON-01.calendar,
+        // 2026-11-17); the tool names say how to call them
+        if (!entries.length && skipped && offered === null) lines.push(`- ${row.name} (${who} connection${shared}): every tool is turned off by whoever manages this connection (they can turn them on in its settings)`)
+        else if (direct) lines.push(`- ${row.name} (${who} connection${shared}): ${entries.length} tools named ${key}__…${capped}${offNote}`)
+        else lines.push(`- ${row.name} (${who} connection${shared}): ${entries.length} tools, not loaded: look them up with find_tools and run them with call_tool (see "Tools to look up")${capped}${offNote}`)
       }
       // admins' templates for this person that they have not connected yet: the AI offers the card for their own key
       // when they ask for the service (connect_service with the template's id). Never another member's connection.
