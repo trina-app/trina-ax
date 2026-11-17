@@ -1,0 +1,1 @@
+- When you move a chat into a team project, the Move dialog now says the chat stays "Only me" and offers **Move and share**. It moves the chat and then asks to share it with the project's people.
