@@ -129,10 +129,10 @@ describe('a new team skill with a form file', () => {
     } finally { gone('leave-1') }
   })
 
-  test('"Don\'t save" on the SKILL.md: nothing saved, and the form written again asks on its own card', async () => {
+  test('"Don\'t save" on the SKILL.md: nothing saved; the form written again is only held again (no skill there)', async () => {
     try {
       const r = await turn(oneSave('leave-2'), ['skip'])
-      expect(r.cards.length).toBe(2)
+      expect(r.cards.length).toBe(1)
       expect(r.cards[0]!.preview?.files?.length).toBe(1)
       expect(fs.existsSync(abs('skills/leave-2/SKILL.md'))).toBe(false)
       expect(fs.existsSync(abs('skills/leave-2/assets/form.md'))).toBe(false)

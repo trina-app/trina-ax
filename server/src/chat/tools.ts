@@ -409,13 +409,15 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       if (isError && text) { const ro = readOnlyFor(exec, text); if (ro) return ro }
       // a skill saved in a shared chat: one quiet line in the answer that the people here can see it
       const skillNote = exec.sharedSkillNote(name, args, isError)
+      // a new skill's SKILL.md saved with held files on its card: write them again unchanged (chat/skill-held.ts)
+      const heldNote = exec.heldSaveNote(name, args, isError)
       const placed = exec.placementNote(tools.has('move_files'))
       // a search of the team files by the main AI (a sub-agent has no rooms tool): the person's rooms that mention the
       // same words, counted (chat/room-hint.ts); only where the rooms tool is offered (never a shared, confidential,
       // draft, template or guest chat) and a room read stays in this chat (no scheduled run, Slack or side chat)
       const main = !caller || caller.files === exec.files
       const rooms = name === 'grep' && !isError && main && !guest && hintsHere(exec, tools.has('rooms')) ? roomHint(exec, (args as { pattern?: unknown } | null)?.pattern) : null
-      return [placed, skillNote, rooms].filter(Boolean).join('\n') || undefined
+      return [placed, skillNote, heldNote, rooms].filter(Boolean).join('\n') || undefined
     },
     // edit_files (mcp/protocol.ts): after a room read one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {

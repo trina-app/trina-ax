@@ -158,6 +158,11 @@ export const TEXT = {
   skillWiden: t('{ai}가 읽은 내용({sources})은 볼 수 있는 사람이 더 적어요. {target}에 저장하면 {n}명이 볼 수 있어요.',
     '{ai} read content fewer people can see ({sources}) before this save. {n, plural, one {# person} other {# people}} can see {target}.',
     '{ai} membaca konten yang hanya bisa dilihat lebih sedikit orang ({sources}) sebelum menyimpan ini. {target} bisa dilihat {n} orang.', "{ai}は閲覧できる人が少ない内容（{sources}）を読んでから保存しようとしています。{target}は{n}人が閲覧できます。", "{ai} leyó contenido que menos personas pueden ver ({sources}) antes de guardar esto. {target} es visible para {n, plural, one {# persona} other {# personas}}.", "{ai}在保存前读取了可见范围更小的内容（{sources}）。{target}有{n, plural, one {#人} other {#人}}可以看到。"),
+  /** the skill card's line when it also saves a new skill's held files (chat/turn.ts askSkillWrite, docs/decisions/
+   * 20261117-new-skill-files-on-card.md): how many and their names; the card lists each with its text */
+  skillWithFiles: t('이 스킬과 함께 파일 {n}개도 저장해요: {names}. 아래에서 내용을 볼 수 있어요.',
+    'This also saves {n, plural, one {# file} other {# files}} that come with the skill: {names}. You can see the content below.',
+    'Ini juga menyimpan {n} berkas yang menyertai skill ini: {names}. Isinya bisa Anda lihat di bawah.', "このスキルと一緒にファイル{n}件も保存します：{names}。内容は下で確認できます。", "También guarda {n, plural, one {# archivo} other {# archivos}} de la habilidad: {names}. Puede ver el contenido abajo.", "同时还会保存这个技能附带的{n}个文件：{names}。可以在下方查看内容。"),
   scopeMine: t('내 개인 폴더나 앱 안 브라우저', 'your personal folder or the in-app browser', 'folder pribadi Anda atau browser di aplikasi', "自分の個人フォルダーまたはアプリ内ブラウザー", "su carpeta personal o el navegador integrado", "你的个人文件夹或应用内浏览器"),
   scopeRoot: t('팀 폴더 맨 위', 'the top of the team folder', 'bagian atas folder tim', "チームフォルダーの最上位", "la raíz de la carpeta del equipo", "团队文件夹顶层"),
   // a team path on a card, in words (place-words.ts): the team folder's top, and another person's folder by their name

@@ -2983,6 +2983,7 @@ export const zh: Record<MessageKey, string> = {
   'ask.skillDoes': '用途：',
   'ask.skillParts': '组成：',
   'ask.skillShowFile': '查看文件',
+  'ask.skillFiles': '同时保存的文件 {count} 个（点按查看内容）：',
   "ask.detailSize": "{n, plural, one {#个字符} other {#个字符}}",
   "ask.detailAll": "显示全部",
   "ask.detailLess": "收起",

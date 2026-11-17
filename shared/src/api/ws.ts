@@ -123,6 +123,10 @@ export const SkillWritePreview = z.object({
   added: z.number().int().nonnegative(),
   removed: z.number().int().nonnegative(),
   truncated: z.boolean(),
+  /** a new skill's other files that this one card also saves (docs/decisions/20261117-new-skill-files-on-card.md): plain
+   * text files the AI wrote into the new skill's folder before its SKILL.md, held until this card. Each with its size,
+   * its first lines and its whole text: nothing is saved that the card does not show */
+  files: z.array(z.object({ path: RelPath, size: z.number().int().nonnegative(), lines: z.string().max(1000), text: z.string().max(20_000), truncated: z.boolean() })).max(5).optional(),
 })
 export type SkillWritePreview = z.infer<typeof SkillWritePreview>
 

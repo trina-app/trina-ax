@@ -1,7 +1,7 @@
 # A new skill: the name asked once, one save card, plain words on the card
 
 - Date: 2026-11-17
-- Status: accepted (the merge waits for the owner's OK: one Save covers more than one file in a skills folder)
+- Status: accepted; its pass-through for other files is superseded by [20261117-new-skill-files-on-card.md](20261117-new-skill-files-on-card.md)
 - Supersedes: none (extends 20261116-skill-save-one-card.md)
 - Branch: fix/qa-man-052 (QA hands-on AI row MAN-052)
 

@@ -2988,6 +2988,7 @@ export const es: Record<MessageKey, string> = {
   'ask.skillDoes': 'Qué hace:',
   'ask.skillParts': 'Partes:',
   'ask.skillShowFile': 'Ver el archivo',
+  'ask.skillFiles': '{count, plural, one {También se guarda con ella (# archivo, toque para ver su texto):} other {También se guardan con ella (# archivos, toque uno para ver su texto):}}',
   'ask.detailSize': "{n, plural, one {# carácter} other {# caracteres}}",
   'ask.detailAll': "Ver todo",
   'ask.detailLess': "Ver menos",
