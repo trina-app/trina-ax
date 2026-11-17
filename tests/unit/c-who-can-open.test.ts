@@ -304,21 +304,19 @@ describe('post to a room: who cannot open the file, one card for the post and th
     h.ctx.db.query("INSERT OR IGNORE INTO room_members (room_id, user_id, joined_at) SELECT ?, 'gus', joined_at FROM room_members WHERE room_id = ? LIMIT 1").run(rooms.marketing, rooms.marketing)
     try {
       const before = shareAudits()
-      const r = await turn('alice', post({ room: rooms.marketing, text: `Here it is: ${link('users/alice/offer.txt')}` }), { answer: 'send' })
-      // exactly one card in the whole turn, and it names the view: the count and the file, from the server's records
+      // (own words: no copy can go, so Send's yes gives the view; a post whose files go as copies is b-post-to-room's)
+      const r = await turn('alice', post({ room: rooms.marketing, own_words: true, text: `Here it is: ${link('users/alice/offer.txt')}` }), { answer: 'send' })
+      // exactly one card in the whole turn, and it says who Send lets open the file, from the server's records
       const cards = cardsOf(r.turnId)
       expect(cards).toHaveLength(1)
       const q = cards[0]!.data.request.question
-      // only the option that grants says so; the files choice sends a copy instead and says nothing about it
-      const opts = cards[0]!.data.request.options as { label: string; value: string }[]
-      expect(opts.find((o) => o.value === 'send')!.label).toBe('Send (1 person can then open offer.txt)')
-      expect(opts.filter((o) => o.label.includes('can then open')).map((o) => o.value)).toEqual(['send'])
-      expect(q).not.toContain('able to open')
-      // the same card does not also say they can't open it, and names nobody
+      // QA TC-4791: who, by name, in one line under the question (the card goes to the asker alone); the guest, who is
+      // never given a file, on the line of who still cannot open it; the choices are Send and Don't send only
+      expect(q).toContain("Erin Yoo can't open the file yet; sending shares it with them.")
+      expect(q).toContain("Gus Guest can't open the linked file.")
       expect(q).not.toContain("2 people can't open")
-      expect(q).toContain("1 person can't open 1 linked file.")
-      expect(q).not.toContain('Erin')
-      expect(cards[0]!.data.request.options.map((o) => o.value)).toContain('send')
+      const opts = cards[0]!.data.request.options as { label: string; value: string }[]
+      expect(opts.map((o) => [o.label, o.value]).filter(([, v]) => v !== '__always')).toEqual([['Send', 'send'], ["Don't send", 'no']])
       // both effects: the post went, and erin (only erin) can open the file now
       const out = JSON.parse(r.content)
       expect(out.status).toBe('sent')
@@ -374,9 +372,9 @@ describe('post to a room: who cannot open the file, one card for the post and th
     put('users/alice/offer-3.txt', 'third')
     const { updateTeamSettings } = await import('../../server/src/admin/settings')
     const chatId = (await h.api('alice').call(API.createChat, { body: {} })).id
-    const s = await h.api('alice').call(API.sendMessage, { params: { id: chatId }, body: { content: post({ room: rooms.marketing, text: `Third: ${link('users/alice/offer-3.txt')}` }), clientMessageId: cm(), attachmentIds: [] } })
+    const s = await h.api('alice').call(API.sendMessage, { params: { id: chatId }, body: { content: post({ room: rooms.marketing, own_words: true, text: `Third: ${link('users/alice/offer-3.txt')}` }), clientMessageId: cm(), attachmentIds: [] } })
     const c = await socks.alice!.next('turn.request', (f) => f.data.turnId === s.turnId)
-    expect((c.data.request as { options: { label: string; value: string }[] }).options.find((o) => o.value === 'send')!.label).toBe('Send (1 person can then open offer-3.txt)')
+    expect((c.data.request as { question: string }).question).toContain("Erin Yoo can't open the file yet; sending shares it with them.")
     updateTeamSettings(h.ctx.db, { memberFileShares: false })
     try {
       await h.api('alice').call(API.answerTurn, { params: { id: s.turnId }, body: { kind: 'ask_user', requestId: c.data.request.requestId, answer: 'send' } })
@@ -395,7 +393,7 @@ describe('post to a room: who cannot open the file, one card for the post and th
   test('someone who joins the room while the card waits: nothing is posted or shared (the card named the people)', async () => {
     put('users/alice/offer-join.txt', 'join')
     const chatId = (await h.api('alice').call(API.createChat, { body: {} })).id
-    const s = await h.api('alice').call(API.sendMessage, { params: { id: chatId }, body: { content: post({ room: rooms.marketing, text: `Join: ${link('users/alice/offer-join.txt')}` }), clientMessageId: cm(), attachmentIds: [] } })
+    const s = await h.api('alice').call(API.sendMessage, { params: { id: chatId }, body: { content: post({ room: rooms.marketing, own_words: true, text: `Join: ${link('users/alice/offer-join.txt')}` }), clientMessageId: cm(), attachmentIds: [] } })
     const c = await socks.alice!.next('turn.request', (f) => f.data.turnId === s.turnId)
     h.ctx.db.query("INSERT INTO room_members (room_id, user_id, joined_at) SELECT ?, 'tess', joined_at FROM room_members WHERE room_id = ? LIMIT 1").run(rooms.marketing, rooms.marketing)
     try {
@@ -456,9 +454,10 @@ describe('post to a room: who cannot open the file, one card for the post and th
     expect(await run('alice', fix!.id)).toMatchObject({ state: 'done', doneCount: 1 })
   })
 
-  test('not my file: the people are counted, not named; Ask <owner> sends the request for them; I cannot use Let them view on it', async () => {
+  test('not my file: the button counts the people, not named; Ask <owner> sends the request for them; I cannot use Let them view on it', async () => {
     put('groups/marketing/erins-rates.txt', 'rates', 'erin')
-    const r = await turn('alice', post({ room: rooms.all, text: `Rates: ${link('groups/marketing/erins-rates.txt')}` }), { answer: 'send' })
+    // (own words: the file stays a link; Send with a copy is b-post-to-room's)
+    const r = await turn('alice', post({ room: rooms.all, own_words: true, text: `Rates: ${link('groups/marketing/erins-rates.txt')}` }), { answer: 'send' })
     const [fix] = fixesOf(r.steps, 'post_to_room')
     // bob and tess cannot open it (carol and dana are admins, erin is in Marketing)
     expect(fix).toMatchObject({ kind: 'ask_owner', file: 'erins-rates.txt', owner: 'Erin Yoo', count: 2, state: 'open' })

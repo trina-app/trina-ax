@@ -1,7 +1,8 @@
 // post_to_room's card (server/src/chat/post-to-room.ts; the mock scripts it with "postroomcard"): the room and its people
-// on top, the note apart under 내 이름으로 보일 한마디, all of the text (folded past 600 characters), the lines that apply,
-// the files [파일도 함께 보내기] attaches, three buttons only with files; a thread names the asked message. After 보내기
-// the step names the room and has 보기. SHOTS_DIR=<folder>: each card, and the step after it, at 1440 and 390, light and
+// on top, who cannot open the file by name and that Send shares it, the note apart under 내 이름으로 보일 한마디, all of the
+// text formatted (no "**", no size; folded past 600 characters), the files Send attaches; Send / Don't send, with 항상
+// 허용 between them and the reason under them (QA TC-4791); a thread names the asked message. After 보내기 the step names
+// the room and has 보기. SHOTS_DIR=<folder>: each card, and the step after it, at 1440 and 390, light and
 // dark.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -29,7 +30,7 @@ for (const width of [1440, 390]) {
   test.describe(`${width} px`, () => {
     test.beforeEach(async ({ page }) => { await page.setViewportSize({ width, height: width > 400 ? 900 : 844 }) })
 
-    test('with files: three buttons, the note under my name, the lines, the file list; 보기 on the step after 보내기', async ({ page }) => {
+    test('with files: Send, Always allow, Don\'t send; who cannot open it; the text formatted; 보기 on the step after 보내기', async ({ page }) => {
       await reset(page)
       const errors = watchConsole(page)
       await signIn(page)
@@ -37,11 +38,18 @@ for (const width of [1440, 390]) {
       const card = page.getByTestId('ask-card')
       await expect(card).toHaveAttribute('data-kind', 'buttons')
       await expect(card).toContainText('#전체(24명)에 보낼까요?')
+      await expect(card).toContainText('김민지, 이수진 님 외 2명은 아직 파일을 열 수 없어요. 보내면 함께 공유돼요.')
       await expect(card).toContainText('3명은 이 내용의 일부 출처(shared/재무/)를 볼 수 없어요.')
       await expect(card).toContainText('내 이름으로 보일 한마디')
-      await expect(card).toContainText('shared/재무/4분기-매출.xlsx')
+      await expect(card.getByTestId('ask-note')).toContainText('여기에 대화 메시지')
+      // the text formatted as the room will show it: bold, no "**", no size
+      const body = card.locator('[data-testid="ask-detail-text"][data-format="markdown"]').last()
+      await expect(body.locator('strong').first()).toHaveText('4분기 매출 요약')
+      await expect(body).not.toContainText('**')
+      await expect(card.getByTestId('ask-detail-size')).toHaveCount(0)
+      await expect(card).toContainText('팀 폴더 › 재무 › 4분기-매출.xlsx')
       // (in the server's order; a computer shows the main one on the right, a phone on top)
-      await expect(card.getByRole('button')).toHaveText(['보내기', '파일도 함께 보내기', '보내지 않기'])
+      await expect(card.getByRole('button')).toHaveText(['보내기', '항상 허용', '보내지 않기'])
       await shot(page, 'files')
       await card.getByRole('button', { name: '보내기', exact: true }).click()
       await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done')
