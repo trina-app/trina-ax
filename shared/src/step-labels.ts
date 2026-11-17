@@ -85,6 +85,8 @@ export const FILE_STEP_VERB: Record<string, T> = {
   // the files shared with the person, listed when the AI asks (server/src/chat/shared-with-me-tool.ts), and what they have
   // open now (server/src/chat/looking-at.ts)
   shared_with_me: t('공유받은 파일 확인', 'Check files shared with you', 'Periksa berkas yang dibagikan kepada Anda', '共有されたファイルを確認', 'Ver archivos compartidos con usted', '查看共享给你的文件'),
+  // the comments under answers in this chat (server/src/chat/answer-comments.ts)
+  answer_comments: t('스레드 답글 읽기', 'Read thread replies', 'Baca balasan utas', 'スレッドの返信を読む', 'Leer respuestas del hilo', '读取话题回复'),
   looking_at: t('열어 둔 화면 확인', 'Check what you have open', 'Periksa yang sedang Anda buka', '開いている画面を確認', 'Ver lo que tiene abierto', '查看你打开的内容'),
   // the AI changes a team project's members after the person's yes on its card (server/src/chat/project-members.ts):
   // "프로젝트 멤버 바꾸기 · 견적"
@@ -325,7 +327,7 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'rooms': { const w = roomWord(a.room ?? a.person); return `${verb}${a.query ? ` "${clip(a.query, 60)}"` : ''}${w ? ` · ${clip(w, 60)}` : ''}` }
     case 'room_read': { const w = roomWord(a.room); return w ? `${verb} · ${clip(w, 60)}` : verb! }
     case 'room_file': { const w = roomWord(a.file); return w ? `${verb} · ${clip(w, 60)}` : verb! }
-    case 'chat_file': return verb!
+    case 'chat_file': case 'answer_comments': return verb!
     case 'post_to_room': { const w = roomWord(a.room); return w ? `${verb} · ${clip(w, 60)}` : verb! }
     case 'change_project_members': return a.project ? `${verb} · ${clip(a.project, 60)}` : verb!
     // the folder by its own name (its last part): the path stays out of the step

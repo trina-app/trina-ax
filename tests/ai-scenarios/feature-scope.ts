@@ -31,7 +31,7 @@ export const FEATURE_SCOPE: Record<string, Scope> = {
   'chat.conversation': { reach: 'acts', tools: ['set_title', 'ask_user'] },
   'chat.list': { reach: 'explains' },
   'chat.list-folders': { reach: 'explains' },
-  'chat.threads': { reach: 'explains' },
+  'chat.threads': { reach: 'acts', tools: ['answer_comments'], why: 'reads the comments under answers in the chat it is in when asked (QA MAN-003)' },
   'chat.edit-regenerate': { reach: 'explains' },
   'chat.cards': { reach: 'acts', tools: ['ask_user'] },
   'chat.sources': { reach: 'acts', tools: ['read', 'grep'] },

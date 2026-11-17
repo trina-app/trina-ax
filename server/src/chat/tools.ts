@@ -5,6 +5,7 @@ import { confidentialChat, localTool } from "../safe-ops/confidential"
 import { stampOutputOf } from '../tools/stamp-pdf'
 import { commentDocxOutput } from '../tools/comment-docx'
 import { chatFileOffered, chatFileTool } from './chat-file-tool'
+import { answerCommentsOff, answerCommentsTool } from './answer-comments'
 import path from 'node:path'
 import { z } from 'zod'
 import { AskUserInput, ConnectServiceInput, EDIT_FILES_DESCRIPTION, EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS, FindSkillsInput, ForgetInput, MoveSkillInput, RememberInput, SetTitleInput, SkillInput, uuidv7 } from '@mycel/shared'
@@ -204,6 +205,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // a file sent from the computer in a chat shared with people (chat/chat-file-tool.ts): read as this person while they
   // see the chat; only where the chat holds such files or is shared with people
   if (chatFileOffered(exec)) add(chatFileTool(exec))
+  // the comments under answers in this chat, read as this person while they see the chat (chat/answer-comments.ts):
+  // a shared chat or one that still holds replies; never a scheduled run, Slack, a confidential, template or restricted
+  // run, nor a sub-agent (PARENT_ONLY_TOOLS)
+  if (!answerCommentsOff(exec)) add(answerCommentsTool(exec))
   // the AI posts to one of the person's rooms, a thread there or a teammate, after their yes on one server card
   // (chat/post-to-room.ts): in their own chat and in a shared one (as the turn's own person, SHARED_TOOLS), never in a
   // confidential, draft or template chat, a scheduled run or a question from Slack (postToRoomOff)

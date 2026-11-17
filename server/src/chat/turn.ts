@@ -2992,6 +2992,8 @@ export class TurnExec {
     // who_can_open reads no file: in a shared chat it answers only about the chat itself and a file the asker named or
     // attached in their own message (chat/who-can-open.ts)
     if (tool === 'who_can_open') return []
+    // answer_comments reads only this chat's threads, which its people see beside the chat (chat/answer-comments.ts)
+    if (tool === 'answer_comments') return []
     const a = input && typeof input === 'object' ? input as Record<string, unknown> : {}
     const fx = this.rt.files.fx, rules = this.rt.files.rules()
     let me: Principal

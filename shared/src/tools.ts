@@ -444,6 +444,12 @@ export const SharedWithMeInput = z.strictObject({
 })
 /** looking_at (server/src/chat/looking-at.ts): what the user has open in the app now; no parameters */
 export const LookingAtInput = z.strictObject({})
+/** answer_comments (server/src/chat/answer-comments.ts; docs/decisions/20261117-ai-reads-answer-comments.md): read-only.
+ * The comments people left under answers in this chat (each answer's thread beside the chat). */
+export const AnswerCommentsInput = z.strictObject({
+  message_id: z.string().trim().min(1).max(100).optional().describe('The answer whose comments to read: its message id. Leave it out to get the answers in this chat that have comments, the most recent first.'),
+  limit: z.number().int().min(1).max(50).optional().describe('How many comments to show per answer, the newest (default 20, at most 50).'),
+})
 /** change_project_members in a person's own chat (server/src/chat/project-members.ts): people and groups added to or
  * removed from a team project after their yes on the server's card. Names as the user wrote them; an id only from the
  * candidates the tool gave back for that name. */
@@ -520,6 +526,7 @@ export const OTHER_TOOLS = {
   share_folder: { input: ShareFolderInput, output: TextOutput },
   shared_with_me: { input: SharedWithMeInput, output: TextOutput },
   looking_at: { input: LookingAtInput, output: TextOutput },
+  answer_comments: { input: AnswerCommentsInput, output: TextOutput },
   change_project_members: { input: ChangeProjectMembersInput, output: TextOutput },
   who_can_open: { input: WhoCanOpenInput, output: TextOutput },
   change_folder_access: { input: ChangeFolderAccessInput, output: TextOutput },

@@ -34,7 +34,11 @@ export function lookingOf(pathname: string, search: string, panel: SidePanel | n
     project(q.get('project'))
   } else if (p[0] === 'c') {
     screen = 'chat'
-    if (isUuid7(p[1])) ids.chatId = p[1]
+    if (isUuid7(p[1])) {
+      ids.chatId = p[1]
+      // an answer's thread beside the chat (/c/<chat>/t/<answer>): the AI's answer_comments puts it first
+      if (p[2] === 't' && isUuid7(p[3])) ids.threadRootId = p[3]
+    }
   } else if (p[0] === 'rooms') {
     screen = p[1] ? 'room' : 'rooms'
     if (isUuid7(p[1])) {

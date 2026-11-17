@@ -6646,7 +6646,7 @@ export const zh: Record<MessageKey, string> = {
   "chat.thread.inTrash": "这个对话在回收站中。",
   "chat.thread.notShared": "这个对话已不再共享，所以不能再回复。",
   "chat.thread.full": "这个话题的回复已满。请在对话中继续。",
-  "chat.thread.peopleOnly": "只有这个对话里的人能看到回复。只有有人把回复发给{name}时，{name}才会读取。",
+  "chat.thread.peopleOnly": "只有这个对话里的人能看到回复。只有有人向{name}问起回复时，{name}才会读取。",
   "chat.thread.sendToAi": "发送给{name}",
   "chat.thread.editBefore": "发送前可以修改。",
   "chat.thread.answerAt": "{name}的回答 · {time}",
