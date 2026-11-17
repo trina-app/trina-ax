@@ -14,10 +14,13 @@ import type { Database } from 'bun:sqlite'
 import { atLeast, loadPrincipal, RuleSet } from '../policy/access'
 import type { tr } from './i18n'
 import { quotesOnBranch } from './read-rooms'
-import { isFileSource, readScope, viewersOf } from './read-scope'
+import { isFileSource, readScope, viewersOf, type ReadSource } from './read-scope'
 
 type TrKey = Parameters<typeof tr>[0]
 export interface GrantReadExec { spec: { chatId: string; userId: string; assistantId?: string | null }; rt: { db: Database }; files?: { readPaths?: ReadonlySet<string>; grantReadPaths?: ReadonlySet<string> } }
+
+/** The place as the folder rules alone open it: a source from inside a shared folder without its share. */
+const ownPlace = (s: ReadSource): ReadSource => (s.type === 'user' && s.share ? { type: 'user', id: s.id } : s)
 
 /** Did this chat read a file its person can open only through a grant? */
 export function readByGrant(exec: GrantReadExec): boolean {
@@ -31,7 +34,9 @@ export function readByGrant(exec: GrantReadExec): boolean {
     if (!me) return false
     const rules = RuleSet.load(db)
     for (const p of pending ?? []) if (!atLeast(rules.access(me, p.split('/').filter(Boolean)), 'read')) return true
-    return scope.some((s) => !viewersOf(db, rules, s, [me]).has(me.id))
+    // a place inside a folder someone shares (a `user` source with its share, read-scope.ts sourceOf) is judged without
+    // the share: its readers include the person only through that grant, which is what is asked here (QA TC-4482)
+    return scope.some((s) => !viewersOf(db, rules, ownPlace(s), [me]).has(me.id))
   } catch {
     return false
   }
