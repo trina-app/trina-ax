@@ -81,15 +81,30 @@ export async function seedFixture(o: { base: string; setupToken: string | null; 
     if (!x) throw new Error(`fixture: no user ${u}`)
     return x.id
   }
-  // personal files, each uploaded by its person into their own folder (the server makes users/<name>/ itself)
-  for (const u of fs.readdirSync(PERSONAL_FILES)) {
-    const c = await login(o.base, u, PASSWORD)
-    for (const name of fs.readdirSync(path.join(PERSONAL_FILES, u))) {
+  // personal files, each uploaded by its person into their own folder (the server makes users/<name>/ itself); a folder in
+  // personal/<name>/ goes in with its files
+  const putPersonal = async (c: ApiClient, folder: string, dir: string) => {
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      const name = ent.name.normalize('NFC')
+      if (ent.isDirectory()) {
+        try { await c.call(API.mkdir, { body: { path: `${folder}/${name}` } }) } catch (e) { if (!(e instanceof ApiError && e.status === 409)) throw e }
+        await putPersonal(c, `${folder}/${name}`, path.join(dir, ent.name))
+        continue
+      }
       try {
-        await c.call(API.upload, { body: { fields: { folder: `users/${u}`, name: name.normalize('NFC'), onExists: 'fail' }, file: new Blob([fs.readFileSync(path.join(PERSONAL_FILES, u, name))]), filename: name.normalize('NFC') } })
+        await c.call(API.upload, { body: { fields: { folder, name, onExists: 'fail' }, file: new Blob([fs.readFileSync(path.join(dir, ent.name))]), filename: name } })
       } catch (e) { if (!(e instanceof ApiError && e.status === 409)) throw e }
     }
   }
+  for (const u of fs.readdirSync(PERSONAL_FILES)) await putPersonal(await login(o.base, u, PASSWORD), `users/${u}`, path.join(PERSONAL_FILES, u))
+  // what sora shared by name (for the "shared with me" cases): her visit memo with hana, her proposal folder with daniel.
+  // Both are view only; a share that the server refuses (a team without file sharing) is only said, the cases then fail as setup.
+  const sora0 = await login(o.base, 'sora', PASSWORD)
+  const share = async (p: string, who: string) => {
+    try { await sora0.call(API.putFileShares, { body: { path: p, add: [{ subjectType: 'user', subjectId: id(who) }], remove: [] } }) } catch (e) { o.log(`fixture: could not share ${p} with ${who}: ${e instanceof Error ? e.message : e}`) }
+  }
+  await share('users/sora/거래처-방문-메모.md', 'hana')
+  await share('users/sora/제안서-초안', 'daniel')
   // Daniel works in English
   const daniel = await login(o.base, 'daniel', PASSWORD)
   await daniel.call(API.updateMe, { body: { locale: 'en' } })

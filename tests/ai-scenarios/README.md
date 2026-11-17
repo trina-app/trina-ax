@@ -39,7 +39,7 @@ room), the result is "setup", never a personal chat in its place, and it is not 
 project and group people, where the team skills are, "Always allow") is read when the run starts and compared after
 every case ([`lib/state-guard.ts`](lib/state-guard.ts)): a change is recorded on the case's result (`drift`) and put
 back before the next case. Cases that may make such a change (`changesState`, or a feature such as admin.folders,
-projects.members, skills.move) run alone after the others. Room members and live file links are only recorded.
+projects.members, skills.move) run alone after the others. Room members (of the rooms there at the start) and who a file or folder is shared with are put back too, through the room's and the Share dialog's own calls, as a member of the room or as the file's owner.
 
 Nothing here touches a real team. The fixture is a fictional company, and its password is in
 [`fixture/seed.ts`](fixture/seed.ts) because the server is local and thrown away.
@@ -82,6 +82,7 @@ folder):
 - a scanned visit report (image-only PDF);
 - a client CSV;
 - a Korean voice memo (m4a);
+- in 이소라's own files: a visit memo shared by name with 최하나 and a folder 제안서-초안 (two drafts) shared with Daniel, for the "shared with me" and folder-share cases;
 - an expense policy;
 - a payroll memo in a limited folder (admins only);
 - personal notes;
@@ -221,6 +222,9 @@ bun run ai:scenarios flows report              # the latest default run plus the
 Each `flows run` starts on a fresh data folder with the company as seeded: the server is reset (its dev environment
 and relay mode kept), so a share or an "Always allow" from the default run cannot carry into the `--always` run.
 `--keep-state` runs on the server as it is.
+
+The mock services keep one state file, so the flows that use them run one after another in a single lane and each starts
+from the mock data as made (a mail one flow drafted is never seen by another); the other flows use the remaining workers.
 
 - **Groups:** sharing and links (first), office, people, making (a proposal, a deck, a video, a report, all kept
   small), spreadsheets, documents, connectors, PDF, guest.

@@ -282,16 +282,25 @@ async function runFlows(): Promise<string> {
   if (mocks) mocksReset(HOME)
   const env = { base: BASE, dataDir: DATA, teamRoot: TEAM, fixture, runId: id, commit: commit(), log: say, mockState: mocks?.state, mockUrl: mocks?.url, cardMode: always ? 'always' as const : 'once' as const }
   say(`flows ${id}: ${flows.length} flows (cards: ${env.cardMode}), results in ${dir}`)
-  const queue = [...flows]
+  // The mock services keep ONE state file (a mailbox, Notion pages, ...), so the flows that use them run one after another
+  // in a single lane, each starting from the mock data as made (FL-08's judge once saw a mail that FL-12 drafted in the
+  // same run). The other flows never touch it and run in the remaining lanes.
+  const usesMock = (f: Flow) => f.mocked || JSON.stringify(f.steps).includes('{{mock:')
+  const mockQueue = flows.filter(usesMock), plainQueue = flows.filter((f) => !usesMock(f))
   const jobs = Math.max(1, Number(opt('--jobs') ?? 2))
-  await Promise.all(Array.from({ length: Math.min(jobs, queue.length) }, async () => {
+  const lane = async (queue: Flow[], fresh: boolean) => {
     for (let f = queue.shift(); f; f = queue.shift()) {
+      if (fresh) mocksReset(HOME)
       const r = await runFlow(f, env)
       fs.writeFileSync(path.join(dir, `${f.id}.json`), JSON.stringify(r, null, 1))
       await cleanUp({ changed: flowChanged(r) } as CaseResult)
       say(`${f.id}: ${r.firstBroken ? `first failed check at step ${r.firstBroken}` : 'every check passed'}`)
     }
-  }))
+  }
+  await Promise.all([
+    ...(mockQueue.length ? [lane(mockQueue, true)] : []),
+    ...Array.from({ length: Math.min(Math.max(1, jobs - (mockQueue.length ? 1 : 0)), plainQueue.length) }, () => lane(plainQueue, false)),
+  ])
   return id
 }
 const readFlowResults = (id: string): FlowResult[] => fs.readdirSync(runDir(id)).filter((f) => /^FL-\d+\.json$/.test(f)).map((f) => JSON.parse(fs.readFileSync(path.join(runDir(id), f), 'utf8')))

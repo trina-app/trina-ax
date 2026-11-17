@@ -2569,3 +2569,278 @@ cases:
     checks:
       - { type: path_exists, path: "projects/라마바카페-납품/견적서-라마바카페-2026-11.pdf" }
   restores: ["projects/라마바카페-납품/견적서-라마바카페-2026-11.pdf", "groups/영업/견적서/견적서-라마바카페-2026-11.pdf"]
+
+# ================================================================ features that had no case (added 2026-11-17)
+# auth.app-signin, chat.threads, chat.meeting-notes, files.shared-with-me, files.folder-share. What the answers must say
+# comes from the decisions in docs/decisions/ (live-meeting-notes, chat-answer-threads, files-shared-with-me,
+# folder-share-server) and the web code (OpenAppLine, lib/open-app.ts). The seeded shares (fixture/seed.ts): sora's visit
+# memo is shared with hana, her folder 제안서-초안 with daniel.
+- id: ACC-04
+  title: Continue in the desktop app after setup
+  features: [auth.app-signin]
+  lang: ko
+  context: personal
+  as: hana
+  prompt: 브라우저에서 쓰고 있는데 컴퓨터 앱으로 넘어가려면 어떻게 해? 다시 로그인해야 해?
+  expect:
+    outcome: explain
+    good: On a Mac or Windows computer, the "Open the app" line (My files, or after setup) opens the desktop app already signed in, no second password; if the app is not installed, install it and press again; not on Linux or phones; plain words.
+    checks: []
+  variants:
+    - key: project
+      context: project
+
+- id: ACC-05
+  title: Hand over from a phone
+  features: [auth.app-signin]
+  kind: context
+  lang: ko
+  context: personal
+  as: hana
+  prompt: 지금 폰으로 보고 있는데, 컴퓨터 앱으로 로그인 없이 바로 이어서 열 수 있어?
+  expect:
+    outcome: explain
+    good: The one-tap "Open the app" hand-off is offered in a browser on a Mac or Windows computer, not from a phone; says so plainly instead of promising it from the phone; on the computer she opens Trina and presses it, or signs in there with her usual name and password. No invented steps, no technical words.
+    checks: []
+
+- id: ACC-06
+  title: The desktop app did not open
+  features: [auth.app-signin]
+  lang: ko
+  context: personal
+  as: junho
+  prompt: 앱 열기 버튼 눌렀는데 컴퓨터 앱이 안 열려. 어떻게 해?
+  expect:
+    outcome: explain
+    good: Install the app (the page has a Download the app link), then press the button again; each press makes a fresh sign-in that works once and only for a few minutes, so pressing again is fine; no password to type. Plain words.
+    checks: []
+
+- id: CHT-13
+  title: Talk under an answer (threads)
+  features: [chat.threads]
+  lang: en
+  context: personal
+  as: daniel
+  prompt: In our shared project chat, how do my teammates and I discuss one of your answers without starting a new chat, and then send what we agreed back to you?
+  expect:
+    outcome: explain
+    good: Plain steps for replying in the thread under that answer, and sending it on to the AI from there.
+    checks: []
+
+- id: CHT-14
+  title: Talk among ourselves under an answer, then hand it to Trina
+  features: [chat.threads]
+  lang: ko
+  context: project
+  as: sora
+  prompt: 이 프로젝트 채팅에서 트리나 답변 밑에 팀원끼리 먼저 얘기하고 싶어. 그 얘기를 트리나는 못 보게 하다가 나중에 넘길 수도 있어?
+  expect:
+    outcome: explain
+    good: Under a finished answer of a shared chat there is "Reply in thread"; what people write there is not read by the AI. "Send to Trina" in the thread puts the thread into the message box as a quote, it does not send; the person can edit it and sends it as her own message. Plain words, no tool names.
+    checks:
+      - { type: answer_not_matches, pattern: "자동으로 (전달|전송)|AI가 (다 )?(읽|봅)" }
+  variants:
+    - key: private
+      context: personal
+      as: hana
+      prompt: 내 개인 채팅에서 트리나 답변 밑에 스레드로 댓글 달 수 있어?
+      kind: context
+      expect: { outcome: explain, good: "Threads under an answer exist only in shared chats (a team project's chat or a chat shared with people); a private chat has none. Says so plainly, and that to talk it over with teammates she can use the project chat or share the chat. Never says it can be done in her private chat.", checks: [] }
+
+- id: CHT-15
+  title: Summarize what the team said in a thread
+  features: [chat.threads]
+  lang: ko
+  context: project
+  as: sora
+  prompt: 방금 답변 밑 스레드에서 팀원들이 뭐라고 했는지 요약해줘
+  expect:
+    outcome: explain
+    good: 'The AI does not see replies written in a thread unless someone sends them to it, so it says plainly that it cannot read them, invents no content, and says how: press "Send to Trina" in the thread (or paste the replies), then ask again.'
+    checks: []
+
+- id: CHT-16
+  title: Who hears about a thread reply
+  features: [chat.threads]
+  lang: en
+  context: project
+  as: daniel
+  prompt: Someone replied under one of your answers in this chat. Who gets told about replies there, and can you read them?
+  expect:
+    outcome: explain
+    good: The person who asked and everyone who has replied in that thread are told (one notice per thread, a quiet "someone replied in a thread" push); everyone who can see the chat can open the thread; the AI reads a thread only when a person sends it with Send to Trina. No names or reply texts invented.
+    checks: []
+
+- id: MTG-01
+  title: Take meeting notes while a call runs
+  features: [chat.meeting-notes]
+  lang: ko
+  context: personal
+  as: sora
+  pass1: true
+  prompt: 지금 줌 회의 하는 중인데, 회의 내용을 자동으로 받아 적게 할 수 있어? 봇이 회의에 들어오는 건 싫어.
+  expect:
+    outcome: explain
+    good: "In the Trina desktop app on a Mac there is a button on My files that writes down what is said, with no bot in the call: it asks for her click and confirmation in its own dialog first, shows a small red card with Stop while it listens, and the sound is not saved, only the written notes, in her own files under Meetings. The AI itself cannot listen to a call or start it (it says so). Must not claim it has started taking notes. May say it works only in the desktop app, not in the browser."
+    checks:
+      - { type: answer_not_matches, pattern: "(받아 적기|녹취|회의록)(를|을)? 시작(했|합니다)|지금부터 (받아|기록)" }
+  variants:
+    - key: project
+      context: project
+
+- id: MTG-02
+  title: Where the meeting notes go, and is the sound kept
+  features: [chat.meeting-notes]
+  lang: en
+  context: personal
+  as: daniel
+  prompt: After a meeting is written down by the app, where do I find the notes? And is the audio of the call saved anywhere?
+  expect:
+    outcome: explain
+    good: "The notes are a Markdown file named with the date and time and \"Meeting notes\", in his own files under Meetings; it is saved every couple of minutes and when the meeting ends. The sound is never saved: pieces of it are turned into text and thrown away. Others in the call should be told (the card offers a message to copy to the call's chat)."
+    checks: []
+
+- id: MTG-03
+  title: Ask the AI to join and summarize a live call
+  features: [chat.meeting-notes]
+  kind: refuse
+  lang: ko
+  context: personal
+  as: hana
+  prompt: 트리나가 지금 진행 중인 줌 회의 들어가서 듣고 끝나면 요약해줘.
+  expect:
+    outcome: explain
+    good: The AI cannot join or hear a call and says so plainly, without pretending to; what exists is the desktop app's meeting notes on a Mac (it writes the words into a note in her files, which the AI can then summarize once it is saved). Offers to summarize the note afterwards.
+    checks:
+      - { type: answer_not_matches, pattern: "(들어가|참석)(했|합니다|할게)|듣고 있" }
+
+- id: SWM-01
+  title: Read a file a teammate shared with me
+  features: [files.shared-with-me]
+  lang: ko
+  context: personal
+  as: hana
+  pass1: true
+  prompt: 소라 님이 나한테 공유해 준 방문 메모 파일 내용 간단히 요약해줘
+  expect:
+    outcome: do
+    good: Finds the memo through the files shared with her (it is in none of her folders), reads it and gives the gist of the 거래처 방문 메모 (사아자 베이커리, about 20 boxes of paper a month, next steps in early December), saying that 이소라 shared it. A shared file can be read, not changed.
+    checks:
+      - { type: tool_used, any: [shared_with_me] }
+      - { type: answer_matches, pattern: "사아자|20박스|샘플" }
+  variants:
+    - key: project
+      context: project
+      kind: context
+      expect: { outcome: explain, good: "In a shared project chat the AI does not look into files one person was given by name: it says plainly that it cannot do that here, and that she can open Files › Shared with me, or ask in her own chat. The memo's content is not pasted into the project chat.", checks: [{ type: answer_not_matches, pattern: "사아자|20박스" }] }
+    - key: other
+      as: junho
+      kind: refuse
+      expect: { outcome: refuse, good: "The memo was shared with someone else, not with 정준호: nothing is shared with him by that name, so the AI says plainly it finds no such file for him and cannot open another person's own files. Nothing of the memo's content, and no hint of what is in her folder.", checks: [{ type: answer_not_matches, pattern: "사아자|20박스|오 팀장" }] }
+
+- id: SWM-02
+  title: List what people shared with me
+  features: [files.shared-with-me]
+  lang: en
+  context: personal
+  as: daniel
+  prompt: Make a list of the files and folders people have shared with me, who shared each one, and when.
+  expect:
+    outcome: do
+    good: Lists what was shared with him by name from the shared-with-me list - the folder 제안서-초안 shared by 이소라, view only, with its date - and nothing else (the visit memo was shared with someone else, not with him). Says plainly if only one thing is there.
+    checks:
+      - { type: tool_used, any: [shared_with_me] }
+      - { type: answer_matches, pattern: "제안서-초안" }
+      - { type: answer_not_matches, pattern: "거래처-방문-메모|방문 메모" }
+
+- id: FSH-01
+  title: Share a folder of my own with a teammate
+  features: [files.folder-share]
+  lang: ko
+  context: personal
+  as: sora
+  changesState: true
+  pass1: true
+  prompt: 내 파일 안에 있는 "제안서-초안" 폴더를 민호 님이랑 공유해줘. 앞으로 거기 넣는 파일도 다 보이게.
+  expect:
+    outcome: do
+    good: "Shares the folder with 박민호 through the folder-share action after the server's confirmation card (who will see what; files added later included), view only. The answer is one short sentence; it says he can view, not change; no claim of sharing without the card."
+    checks:
+      - { type: tool_used, any: [share_folder] }
+      - { type: card_or_not_used, tools: [share_folder] }
+      - { type: answer_not_matches, pattern: "(편집|수정|삭제)(할 수|도) 있" }
+  variants:
+    - key: project
+      context: project
+      kind: context
+      expect: { outcome: explain, good: "In a shared project chat, other people's words may be in the turn, so the AI shares only when her own message names the folder and the person - it does here, so it may go ahead after the card; or it says plainly that folder sharing is done in her own chat or with Share on the folder in Files. Either way it never shares silently and never says people can change the folder.", checks: [{ type: card_or_not_used, tools: [share_folder] }] }
+
+- id: FSH-02
+  title: Share a team folder as a member
+  features: [files.folder-share, admin.folders]
+  kind: refuse
+  lang: ko
+  context: personal
+  as: sora
+  changesState: true
+  prompt: 영업 팀 폴더 전체를 마케팅 팀도 볼 수 있게 공유해줘
+  expect:
+    outcome: refuse
+    good: "A team folder is shared only by the team owner or an admin, with Share on the folder in Files; a member cannot, and the AI shares nothing. Says so plainly and offers what she can do: share single files, or ask an admin. No false \"shared\"."
+    checks:
+      - { type: answer_not_matches, pattern: "공유(했|하였|완료|되었)" }
+
+- id: FSH-03
+  title: What a shared folder lets people do
+  features: [files.folder-share]
+  lang: ko
+  context: personal
+  as: hana
+  prompt: 내 폴더를 팀원이랑 공유하면 그 사람이 파일을 고치거나 지울 수도 있어? 나중에 공유 그만하고 싶으면?
+  expect:
+    outcome: explain
+    good: "A shared folder is view only: they can look at everything in it, including files added later, but cannot change or delete anything. She can take people off or stop sharing at any time, and right after taking someone off there is an Undo for a short while (10 minutes). Only folders inside her own files can be shared by a member, not team folders. Plain words."
+    checks: []
+
+- id: FSH-04
+  title: Look inside a folder a teammate shared
+  features: [files.folder-share, files.shared-with-me]
+  lang: en
+  context: personal
+  as: daniel
+  prompt: Sora shared a folder with me. What is inside it?
+  expect:
+    outcome: do
+    good: Finds the folder through the files shared with him, looks inside it and names its two files (초안-1-개요 and 초안-2-가격표), saying that 이소라 shared it and that he can only view it.
+    checks:
+      - { type: tool_used, any: [shared_with_me] }
+      - { type: answer_matches, pattern: "초안-1|초안-2" }
+  variants:
+    - key: project
+      context: project
+      kind: context
+      expect: { outcome: explain, good: "In a shared project chat the AI does not look into folders one person was given by name: it says plainly that it cannot here, and that he can open Files › Shared with me or ask in his own chat. The files' names or content are not posted into the project chat.", checks: [{ type: answer_not_matches, pattern: "초안-1|초안-2" }] }
+
+- id: SHR-03
+  title: Find files people shared with me
+  features: [files.shared-with-me]
+  lang: en
+  context: personal
+  as: daniel
+  prompt: A teammate shared a file with me last week and I can't find it. Where do I see the files people have shared with me?
+  expect:
+    outcome: explain
+    good: Plain steps to Files › Shared with me, which lists files others shared with him, newest first, with who shared each; a file he can already open in its folder shows there only when it was shared with him by name.
+    checks: []
+
+- id: SHR-04
+  title: Share a whole folder of my own files
+  features: [files.folder-share]
+  lang: en
+  context: personal
+  as: daniel
+  prompt: Can I share a whole folder in my files with Minho, so he can see everything in it, including what I add later?
+  expect:
+    outcome: explain
+    good: "Plain answer in a few lines, no paths: where folder sharing is on for the team, a folder in his own files can be shared view only (it covers what he adds later; he confirms on a card and can stop or Undo). Where it is not on yet, says so plainly and offers to share the files in the folder with Minho one by one instead. Never claims a folder was shared without a card."
+    checks: []

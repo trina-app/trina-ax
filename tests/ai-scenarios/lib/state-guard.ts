@@ -6,8 +6,9 @@
 // result and puts it back through the public API (as the owner, or as the person for their own allowances).
 //
 // Put back: folder rules (project members are rules on the project folder too) and Limit access, group members, team
-// skills moved out of their seeded folder, "Always allow" choices. Only recorded (no public way back that keeps the
-// fixture as seeded): room members and live file links.
+// skills moved out of their seeded folder, "Always allow" choices, the members of the rooms that were there at the start
+// (invite / remove through the room's own API, as a member of it) and the people and groups a file is shared with (the
+// file's owner removes or re-adds them; a link that was made stays, it opens for nobody without a grant).
 import { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -49,7 +50,8 @@ export function stateOf(dataDir: string, teamRoot: string): State {
       skills: skillDirs(teamRoot),
       always: q(db, 'SELECT user_id, kind FROM card_always_allow'),
       rooms: q(db, 'SELECT room_id, user_id FROM room_members'),
-      links: q(db, "SELECT path, owner_id, kind FROM file_shares WHERE state = 'live'").map((s) => s.normalize('NFC')),
+      // one line per grant: path | owner | who it is shared with
+      links: q(db, "SELECT s.path, COALESCE(s.owner_id, ''), g.subject_type, g.subject_id FROM file_share_grants g JOIN file_shares s ON s.id = g.share_id WHERE s.state = 'live'").map((s) => s.normalize('NFC')),
     }
   } finally { db.close() }
 }
@@ -152,6 +154,38 @@ export async function resetTo(base: State, now: State, d: ResetDeps, again: () =
       const api = await d.as(u)
       for (const a of (await api.call(API.listAiAllowances)).items) if (a.kind === 'card' && a.card === kind) await api.call(API.deleteAiAllowance, { params: { id: a.id } })
     } catch (e) { d.log(`reset always ${u} ${kind}: ${e instanceof Error ? e.message : e}`) }
+  }
+  // room members: of the rooms that existed at the start, as a member of that room (its manager, or an owner or admin in it)
+  const roomIds = new Set(base.rooms.map((l) => l.split('|')[0]!))
+  const rWas = new Map<string, string[]>(), rIs = new Map<string, string[]>()
+  for (const [src, dst] of [[base.rooms, rWas], [now.rooms, rIs]] as const) for (const l of src) { const [r, u] = l.split('|') as [string, string]; dst.set(r, [...(dst.get(r) ?? []), u]) }
+  for (const room of roomIds) {
+    const was = rWas.get(room) ?? [], is = rIs.get(room) ?? []
+    const add = was.filter((u) => !is.includes(u)), drop = is.filter((u) => !was.includes(u))
+    if (!add.length && !drop.length) continue
+    const stay = was.filter((u) => is.includes(u)).map((u) => d.username(u)).filter((u): u is string => !!u)
+    for (const who of [...stay, 'jiwoo']) {
+      try {
+        const api = await d.as(who)
+        if (add.length) await api.call(API.inviteRoomMembers, { params: { id: room }, body: { userIds: add } })
+        for (const u of drop) await api.call(API.removeRoomMember, { params: { id: room, userId: u } })
+        break
+      } catch (e) { d.log(`reset room ${room} as ${who}: ${e instanceof Error ? e.message : e}`) }
+    }
+  }
+  // file shares: grants given during the case are taken back, grants that were removed come back, by the file's owner
+  // (a team file: the team owner)
+  const grants = (lines: string[]) => { const m = new Map<string, Set<string>>(); for (const l of lines) { const [path, owner, type, id] = l.split('|') as [string, string, string, string]; const k = `${path}|${owner}`; (m.get(k) ?? m.set(k, new Set()).get(k)!).add(`${type}|${id}`) } return m }
+  const lWas = grants(base.links), lIs = grants(now.links)
+  for (const k of new Set([...lWas.keys(), ...lIs.keys()])) {
+    const w = lWas.get(k) ?? new Set<string>(), i = lIs.get(k) ?? new Set<string>()
+    const subj = (x: string) => { const [subjectType, subjectId] = x.split('|') as ['user' | 'group', string]; return { subjectType, subjectId } }
+    const add = [...w].filter((x) => !i.has(x)).map(subj), remove = [...i].filter((x) => !w.has(x)).map(subj)
+    if (!add.length && !remove.length) continue
+    const [path, ownerId] = k.split('|') as [string, string]
+    try { await (await d.as((ownerId && d.username(ownerId)) || 'jiwoo')).call(API.putFileShares, { body: { path, add, remove } }) } catch (e) {
+      try { await d.owner.call(API.putFileShares, { body: { path, add, remove } }) } catch { d.log(`reset file share ${path}: ${e instanceof Error ? e.message : e}`) }
+    }
   }
   return driftOf(base, again())
 }
