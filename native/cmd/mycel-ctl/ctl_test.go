@@ -437,20 +437,33 @@ func TestUpdateRollBackThenForwardIsOk(t *testing.T) {
 	t.Cleanup(func() { rollbackGrace = old })
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	k := base64.StdEncoding.EncodeToString(pub)
-	stf := filepath.Join(tb.base, "app/state.json")
 	rb := `{"at":"x","from":"0.2.0","to":"0.1.0","result":"rolled_back","detail":"not healthy within 2m0s"}`
+	// No timers here: the bootstrap acts inside `update`'s own looks (one health request each, 0.5 s apart:
+	// rollbackGrace/4), so a look can never come a few ms before or after a step. Look 0 is the first after the switch.
+	//   look 3 (1.5 s or later): state.json says forward; `update` reads it in the same look and starts a new health
+	//           wait of 3 s
+	//   look 7 (3.5 s or later, past the grace of 2 s and the first health wait of 3 s): the new version answers,
+	//           2 s into the forward's wait of 3 s
+	// The timers this replaces (forward after 1.2 s, the answer 2 s later) failed in CI when a look and a step fell
+	// together (2026-11-11 and 11-12), and the state was written in place: a look could read an empty file.
+	var look atomic.Int32
+	look.Store(-1)
+	onHealth := func(string, int) {
+		if look.Load() < 0 {
+			return // before the switch
+		}
+		switch look.Load() {
+		case 3:
+			tb.writeState(`{"format":1,"current":"0.1.0","previous":null,"pending":null,"pendingSince":null,"attempts":0,"history":[` + rb + `],"forward":"0.2.0"}`)
+		case 6:
+			tb.health.Store("0.2.0") // from the next look on
+		}
+		look.Add(1)
+	}
+	tb.onHealth.Store(&onHealth)
 	updateHooks(t, tb, func(v string) {
-		os.WriteFile(stf, []byte(`{"format":1,"current":"0.1.0","previous":null,"pending":null,"pendingSince":null,"attempts":0,"history":[`+rb+`]}`), 0o644)
-		// update looks every 0.5 s (rollbackGrace/4). The forward at 1.2 s is seen at the 1.5 s look, so its own health
-		// wait ends at 4.5 s; v answers at 3.2 s: past the grace (2 s) and the first health wait (3 s), seen at the 3.5 s
-		// look, a second before the end. v used to answer at exactly 3 s, the end of the forward's wait less one look:
-		// a look a few ms early missed it and the next came too late (CI on Linux, 2026-11-11 and 11-12).
-		go func() {
-			time.Sleep(1200 * time.Millisecond)
-			os.WriteFile(stf, []byte(`{"format":1,"current":"0.1.0","previous":null,"pending":null,"pendingSince":null,"attempts":0,"history":[`+rb+`],"forward":"0.2.0"}`), 0o644)
-			time.Sleep(2000 * time.Millisecond)
-			tb.health.Store(v)
-		}()
+		tb.writeState(`{"format":1,"current":"0.1.0","previous":null,"pending":null,"pendingSince":null,"attempts":0,"history":[` + rb + `]}`)
+		look.Store(0)
 	})
 	arch := filepath.Join(t.TempDir(), "g.tar.zst")
 	mkArchive(t, signedBundle(t, "0.2.0", priv, "old launcher"), arch, nil)
@@ -459,6 +472,10 @@ func TestUpdateRollBackThenForwardIsOk(t *testing.T) {
 	json.Unmarshal([]byte(out), &r)
 	if code != 0 || r.Result != "ok" {
 		t.Fatalf("%d %+v", code, r)
+	}
+	// reported at the first answer of the new version (look 7), not earlier and not a look later
+	if n := look.Load(); n != 8 {
+		t.Fatalf("reported after %d looks, want 8", n)
 	}
 }
 
@@ -678,6 +695,7 @@ func TestUpdateWaitsForTheEngineCheck(t *testing.T) {
 			pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 			k := base64.StdEncoding.EncodeToString(pub)
 			why := "the AI engine cannot start with this version, so every AI answer would fail: bwrap: Can't find source path /var/lib/mycel/app/current/native/mycel-bridge: Permission denied"
+			// both are written in the health server's goroutine, under its lock, and read after `update` has returned
 			pendingLooks := 0
 			decided := false
 			onHealth := func(v string, seen int) {
