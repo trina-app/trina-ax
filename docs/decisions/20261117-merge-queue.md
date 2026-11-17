@@ -89,12 +89,20 @@
   CSC_IDENTITY_AUTO_DISCOVERY=false bun run --cwd desktop dist:mac && bun scripts/ci/dmg-check.ts desktop/release
   ```
 - **How a session merges:** after the independent review and the quick checks,
-  `gh pr merge <n> --merge --match-head-commit <sha>`. With a queue gh (2.96, `pkg/cmd/pr/merge`) does not merge: it
-  calls `enablePullRequestAutoMerge` with the expected head (so `--match-head-commit` is honoured: a newer push
-  refuses), and GitHub adds the pull request to the queue once its checks pass ("will be added to the merge queue for
-  dev when ready"). `--merge` only prints that the queue sets the method; `--auto` changes nothing; `--delete-branch`
-  is refused with a queue; `--admin` skips the queue and is never used. The repository has `allow_auto_merge: false`;
-  whether gh's call still enqueues is item 1 of the switch-on checklist. If it is refused, sessions enqueue directly:
+  `bun scripts/ci/enqueue.ts <n> <head sha>` (shortcut: `bun run queue <n> <head sha>`; QA TC-4593). The script looks
+  the pull request up with `gh` (base dev, open, not a draft), refuses a SHA that is not the current head (a prefix of
+  7+ characters is enough; without a SHA it uses and prints the current head), refuses while the required check
+  "typecheck, native, unit, fast fuzz, web, relay" is running or has failed on that head (it says so and prints
+  `gh pr checks <n>`), then calls the GraphQL mutation `enqueuePullRequest` with `expectedHeadOid` and prints the queue
+  position and state. A pull request already in the queue is reported and exits 0. `--admin` skips the queue and is
+  never used; `--delete-branch` is not used either.
+
+  **Why not `gh pr merge <n> --merge --match-head-commit <sha>`:** with a queue gh (2.96) does not merge, it calls
+  `enablePullRequestAutoMerge`, and the repository has `allow_auto_merge: false`, so it fails with "Auto merge is not
+  allowed for this repository", also when the required check is already green (found on 2026-11-17, item 1 of the
+  switch-on checklist). `enqueuePullRequest` does not need auto-merge and was used for real that day.
+
+  Fallback when the script cannot be used, the raw GraphQL:
 
   ```bash
   id=$(gh pr view <n> --json id -q .id)
@@ -105,7 +113,7 @@
   <branch>` (workflow_dispatch, mode full). Its required check lands on the branch's head commit, which is the pull
   request's head. There is no label for this: a label event would cancel and restart the PR's run and flash a red
   required check.
-- **Hotfix or release PR (jump the queue):** a repository admin adds it at the front, in the pull request's merge box or:
+- **Hotfix or release PR (jump the queue):** a repository admin adds it at the front, in the pull request's merge box or with `bun scripts/ci/enqueue.ts <n> <sha> --jump` (the same mutation with `jump: true`; raw form):
 
   ```bash
   id=$(gh pr view <n> --json id -q .id)
@@ -117,7 +125,7 @@
 - **Removed from the queue:** GitHub removes an entry whose required check fails, times out, or that conflicts with
   dev. Open the failing `merge_group` run (Actions, event "merge_group", branch `gh-readonly-queue/dev/pr-<n>-…`),
   fix the cause on the branch and push; the pull request's quick checks run and the session queues it again with the
-  same command. Do not merge dev into the branch only to rerun CI; merge dev only to fix a conflict. A failure caused
+  same `enqueue.ts` command. Do not merge dev into the branch only to rerun CI; merge dev only to fix a conflict. A failure caused
   by an entry ahead (the entry was rebuilt) needs no change: queue it again.
 - **Known gaps:**
   - An admin can bypass the queue with `gh pr merge --admin` (the ruleset's bypass actor, the admin role in
@@ -137,9 +145,9 @@
   (3) run the checklist below with `MERGE_QUEUE` still unset; (4) `gh variable set MERGE_QUEUE --body on`. The reverse
   of (1)/(2) would queue entries that no workflow tests.
 - **Switch-on checklist** (step 3; small test PRs to dev, nothing else queued):
-  1. `gh pr merge <n> --merge --match-head-commit <sha>` puts the PR in the queue while the repository has
-     `allow_auto_merge: false` (the PR shows "Queued"; `gh pr view <n> --json isInMergeQueue`). If refused, use the
-     `enqueuePullRequest` command above and write the outcome here.
+  1. Outcome (2026-11-17): `gh pr merge <n> --merge --match-head-commit <sha>` does NOT work while the repository has
+     `allow_auto_merge: false` ("Auto merge is not allowed for this repository"); `enqueuePullRequest` does, now
+     wrapped by `scripts/ci/enqueue.ts` (the PR shows "Queued"; `gh pr view <n> --json isInMergeQueue`).
   2. Its `merge_group` run reports "typecheck, native, unit, fast fuzz, web, relay" (mode full) and the PR lands.
   3. The push run on dev after it shows `mode=tested` in "what changed", and its head SHA equals the `merge_group`
      run's head SHA.
@@ -155,7 +163,8 @@
   during the switch. The `merge_group` trigger can stay in ci.yml: nothing sends it without a queue.
 - **Incident note:** if the ruleset or its merge queue rule is ever disabled, for any reason (a runner outage, a
   release), delete the variable `MERGE_QUEUE` first, then do (c) above.
-- **Tests:** `tests/unit/ci-merge-queue.test.ts` (the required check runs on `merge_group`, `needs` only the scope /
+- **Tests:** `tests/unit/ci-enqueue.test.ts` (the enqueue script: arguments, SHA match, check decision, GraphQL body, refusals) and
+  `tests/unit/ci-merge-queue.test.ts` (the required check runs on `merge_group`, `needs` only the scope /
   docs / build and test jobs, the mode of each event, the check's verdict for each mode, no label trigger, no macOS /
   Windows workflow on `merge_group`, the Linux jobs off the queue, the settings block above with `ALLGREEN`).
   `actionlint` on ci.yml and desktop.yml.
