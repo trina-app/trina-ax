@@ -160,3 +160,5 @@
   Windows workflow on `merge_group`, the Linux jobs off the queue, the settings block above with `ALLGREEN`).
   `actionlint` on ci.yml and desktop.yml.
 - **Version impact:** none (CI only).
+
+- **Switched on:** the `merge_queue` rule was applied to the dev ruleset on 2026-11-17 at 05:48 UTC, right after 0.5.12 was published; the workflow change merged as #1193 (1c44220d0). The switch-on checklist above is run with this pull request (docs only) first.
