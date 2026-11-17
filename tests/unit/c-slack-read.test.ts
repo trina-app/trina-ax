@@ -163,8 +163,20 @@ describe('the AI\'s Slack tools: bot token, conversations the bot and the person
     expect(a.prompt).toContain('There is no Slack search')
     const d = build('dana')
     expect(d.tools).toEqual([])
-    expect(d.prompt).toContain('has not linked their Slack account')
+    expect(d.prompt).toContain('has not linked their own Slack account')
+    expect(d.prompt).toContain('Checked by the server for this answer: Slack is added for this team')
     for (const x of [a, d]) expect(x.prompt).toContain('never through connect_service')
+    // Slack not added for the team yet (QA TC-4528): said as checked, with both ways: the team's (an owner or admin) and the
+    // person's own link after that
+    h.ctx.db.query('UPDATE slack_config SET enabled = 0').run()
+    try {
+      const n = build('dana')
+      expect(n.tools).toEqual([])
+      expect(n.prompt).toContain('Checked by the server for this answer: Slack is not added for this team yet')
+      expect(n.prompt).toContain('Admin › Connected apps › Slack')
+      expect(n.prompt).toContain('each person links their own Slack account once in Settings › Connectors › Slack')
+      expect(n.prompt).toContain('A member cannot add Slack for the whole team, but links their own once it is added.')
+    } finally { h.ctx.db.query('UPDATE slack_config SET enabled = 1').run() }
     expect(isSlack('Slack', undefined)).toBe(true)
     expect(isSlack('My service', 'https://mcp.slack.com/sse')).toBe(true)
     expect(isSlack('Slackware notes', undefined)).toBe(false)
