@@ -19,7 +19,8 @@
   own label, not a word the AI made up.
 - **SYS-04 (product and judge): what the AI does with versions.** The person block said only where earlier versions are.
   It now also says the AI can show who saved each version and what changed (read with versions,
-  [20261117-ai-file-versions.md](20261117-ai-file-versions.md)), and that bringing one back is the person's Restore there.
+  [20261117-ai-file-versions.md](20261117-ai-file-versions.md)), and that bringing one back is the person's Restore
+  button there, named as their app shows it ("되돌리기" in Korean).
   One run had offered to restore the old content itself. The failing run's offers (compare versions, move attached files
   into a team folder) were true: the judge saw no action for them in that turn. It is now told what the AI can do when
   asked.
@@ -30,15 +31,18 @@
   date; it now gets the case's start time in the zone the turn was sent with. The runner now sends a zone with every
   turn, the case's or else the team's, as the web app does. No product change.
 - **CHT-02 (case and runner, not the product).** In every run the AI asked first, with choices. The runner then answered
-  "네, 그렇게 해주세요. 알아서 정해서 진행해 주세요." (`GO_ON`) and pressed yes on the app's cards. Each room post went
+  "네, 그렇게 해주세요. 알아서 정해서 진행해 주세요." (`GO_ON`; a question with options and no free text gets its first
+  option) and pressed yes on the app's cards. Each room post went
   through post_to_room's card naming the room, its 3 people and the whole text (a post's card is skipped only when the
-  person's own message names the place, or under their Always allow). So the person's yes was there. Saving a new file in
+  person's own message names the place, after a send they already pressed for that room in the same chat, or under
+  their Always allow). So the person's yes was there. Saving a new file in
   a project chat's own project folder reaches nobody who does not already see that chat; where a save widened who sees
   it (run c, after reading company-wide notes), the save card asked. The "third copy" and "fourth" were not duplicate
   posts: post_to_room is idempotent within an answer (`ai-<turnId>-<n>`). Runs a, b and c of the same case ran back to
   back on one server, and nothing removed the earlier runs' posts (run b's question: "you already resent it at 23:49").
-  - The case now says what "decide yourself" allows: pick and say which; a room post only through the card answered
-    yes; nothing posted twice in one answer; no file replaced.
+  - The case now says what "decide yourself" allows: pick and say which; a room post only after the person's yes (the
+    card, their own message naming the place, or an earlier send to that room in this chat); nothing posted twice in
+    one answer; no file replaced.
   - The judge is told that a server card's answer is the person's own press and an AI question's answer their reply.
   - After each case the runner deletes the room messages its AI posted, as their sender. The AI's room reads leave
     deleted messages out.

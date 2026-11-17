@@ -61,6 +61,8 @@ describe('the person block', () => {
     expect(t).toContain('you can show who saved each version and what changed (read with versions)')
     expect(t).toContain('bringing one back is the person\'s Restore there (the current one is kept as a version too)')
     expect(say({ connectedFolders: false })).toContain('read with versions')
+    // the button by the label the person's app shows
+    expect(say({ connectedFolders: true }, 'ko')).toContain('bringing one back is the person\'s Restore ("되돌리기") there')
   })
 
   test('situationOf says whether this install has connected folders (a hosted team does not)', () => {

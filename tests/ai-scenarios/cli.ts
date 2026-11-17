@@ -142,6 +142,9 @@ async function cleanUp(r: CaseResult, actor?: string) {
   // the AI's room posts are deleted by their sender (the case's person): a later case, or the same case run again on
   // this server, read "the quote was posted 3 times tonight" and answered from that (CHT-02, dev f394c9258,
   // 2026-11-17). A deleted message is left out of what the AI reads (server/src/rooms/reader.ts).
+  // a post whose result the transcript did not keep cannot be found here: said, so a leftover is known
+  const unread = r.turns.flatMap((t) => t.tools).filter((x) => x.name === 'post_to_room' && x.ok && !x.result).length
+  if (unread) say(`clean-up ${r.id}: ${unread} room post(s) without a result in the transcript: not deleted, check the room`)
   if (actor) for (const p of roomPostsOf(r)) {
     try { await (await as(actor)).call(API.deleteRoomMessage, { params: { id: p.roomId, messageId: p.messageId } }) } catch (e) { say(`clean-up room post ${p.messageId}: ${e instanceof Error ? e.message : e}`) }
   }

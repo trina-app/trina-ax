@@ -84,7 +84,7 @@ const CaseFields = {
    * (cases of the features in STATE_FEATURES do so anyway) */
   changesState: z.boolean().default(false),
   /** the asker's device time zone, sent with each turn as the web app does (IANA, e.g. Asia/Jakarta; QA TC-4549):
-   * the AI gives its times in it. Without it no zone is sent (the team's is used). */
+   * the AI gives its times in it. Without it the team's zone is sent (lib/run-case.ts). */
   timeZone: z.string().optional(),
   /** in the first, representative pass (`run --first-pass`) */
   pass1: z.boolean().default(false),

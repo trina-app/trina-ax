@@ -284,6 +284,7 @@ describe('size: it is in every turn', () => {
   // the cap was 900; 1,200 since the five places of 2026-11-17 (docs/decisions/20261117-ai-app-map-five-places.md: the
   // longest form, an owner's or admin's in Korean, measured about 1,189 after the other lines were cut); 1,250 since
   // where a chat is shared (docs/decisions/20261117-ai-facts-and-gaps.md: about 1,241)
+  // (fix/answer-slips, 2026-11-17: the longest form, staff in Korean, about 1,242: 8 to spare)
   test('at most 20 lines and about 1,250 tokens in its longest form, in every language', () => {
     for (const view of ['staff', 'member', 'shared'] as const) for (const L of ['ko', 'en', 'ja', 'zh', 'es', 'id'] as const) for (const devEnv of [true, false]) for (const pickModel of view === 'shared' ? [undefined] : view === 'staff' ? [true] : [true, false]) {
       const s = appMapSection({ view, managed: true, devEnv, office: false, pickModel }, L)

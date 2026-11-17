@@ -50,9 +50,10 @@ name, role and groups; today's date. (Where things are in the app it is told too
 at its start, as it does for every new chat: not a rename and not an action the person had to ask for.
 What the AI can do when asked, with no action in this turn (offering it is not a false claim): read a file's earlier
 versions, who saved each and what changed (its read action does that); move, copy or rename files, chat attachments
-included, into team folders. It cannot press Restore on a version for the person.
-Cards: a [server] card is the app's own confirmation (the AI cannot write one): the person saw the place, how many people
-are there and the whole text, and the answer shown is what the person pressed, their own choice. An [ai] card is the
+included, into folders the person may change. It cannot press Restore on a version for the person.
+Cards: a [server] card is the app's own confirmation (the AI cannot write one): the person saw what it showed (for a room
+post: the room, how many people are there and the whole text) and the answer shown is what the person pressed, their own
+choice. An [ai] card is the
 AI's question to the person; the answer shown is the person's reply.`
 }
 

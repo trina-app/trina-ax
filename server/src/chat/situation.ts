@@ -132,7 +132,7 @@ export function situationSection(s: Situation, L: Locale): string {
   // what the AI itself does with them (read with versions, files/service.ts readVersions: who saved each, what changed)
   // and what is the person's (Restore there): a rerun offered to bring the old content back itself (dev f394c9258,
   // 2026-11-17)
-  if (s.connectedFolders !== undefined) lines.push(`- Files: earlier versions are in ${SCREEN.fileHistory(L)}; you can show who saved each version and what changed (read with versions); bringing one back is the person's Restore there (the current one is kept as a version too). ${s.connectedFolders
+  if (s.connectedFolders !== undefined) lines.push(`- Files: earlier versions are in ${SCREEN.fileHistory(L)}; you can show who saved each version and what changed (read with versions); bringing one back is the person's ${SCREEN.restoreButton(L)} there (the current one is kept as a version too). ${s.connectedFolders
     ? `Connected folders: the owner can mirror a folder of the computer the team's app runs on (a NAS or Google Drive there too) read-only${s.role === 'owner' ? ` (${SCREEN.connectedFolders(L)})` : ''}; only folders of that computer, not of anyone's other computers.`
     : 'Connected folders (a computer\'s folder kept in the team folder): not on this install.'}`)
   if (s.plan) {

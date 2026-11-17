@@ -161,6 +161,8 @@ const LABEL = {
   handover: t('팀장 넘기기', 'Transfer ownership', 'Serahkan kepemilikan', 'オーナーを引き継ぐ', 'Ceder la propiedad', '转让所有权'),
   // a file's ⋯ › Version history on the Files screen (web files.history)
   history: t('버전 기록', 'Version history', 'Riwayat versi', 'バージョン履歴', 'Historial de versiones', '版本历史'),
+  /** Version history's button (web common.restore) */
+  restore: t('되돌리기', 'Restore', 'Pulihkan', '復元', 'Restaurar', '恢复'),
   // Admin › System › Connected folders (web connected.title)
   connectedFolders: t('연결 폴더', 'Connected folders', 'Folder tersambung', '接続済みフォルダー', 'Carpetas conectadas', '已连接的文件夹'),
   // a shared project chat's title menu (web chat.continuePrivately)
@@ -195,6 +197,7 @@ export const SCREEN = {
   /** the owner's handover: Admin › Members & invites, the person's ⋯ menu */
   handover: (L: Locale) => `Admin › Members & invites › a person's ⋯ › Transfer ownership ("${LABEL.admin[L]} › ${LABEL.members[L]}", "${LABEL.handover[L]}")`,
   fileHistory: (L: Locale) => `the file's ⋯ › Version history on the Files screen ("${LABEL.files[L]}", "${LABEL.history[L]}")`,
+  restoreButton: (L: Locale) => `Restore ("${LABEL.restore[L]}")`,
   connectedFolders: (L: Locale) => `Admin › System › Connected folders ("${LABEL.admin[L]} › ${LABEL.system[L]} › ${LABEL.connectedFolders[L]}")`,
   rooms: (L: Locale) => `Conversations ("${LABEL.rooms[L]}")`,
   sideChat: (L: Locale) => `the room's side panel ("${LABEL.sideChat[L].replace('{name}', AI_NAME[L])}")`,
