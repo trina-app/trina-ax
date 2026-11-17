@@ -74,7 +74,7 @@ export const REMOVED_BY_REMOVE_ACCOUNT: readonly string[] = [
 
 /** Columns that hold a person's id without a foreign key to users(id) (the coverage test reads them with the ones that
  * have one, so they are decided too). */
-export const USER_COLUMNS_WITHOUT_FK: readonly string[] = ['room_app_viewers.user_id', 'chat_thread_replies.author_id', 'chat_thread_notices.by_user', 'access_requests.owner_id', 'access_requests.decided_by', 'storage_notices.by_user']
+export const USER_COLUMNS_WITHOUT_FK: readonly string[] = ['room_app_viewers.user_id', 'chat_thread_replies.author_id', 'chat_thread_notices.by_user', 'access_requests.owner_id', 'access_requests.decided_by', 'storage_notices.by_user', 'room_message_mentions.user_id']
 
 /**
  * Columns that point at users(id) and stay after the account is deleted, with the reason (the coverage test checks
@@ -97,6 +97,7 @@ export const KEPT_WITH_ACCOUNT: Record<string, string> = {
   'room_files.user_id': 'files they sent in shared rooms stay for the room, under the tombstone name',
   'room_messages.author_id': 'messages they sent in shared rooms stay, under the tombstone name (the delete page says so)',
   'room_messages.asked_by': 'as author_id',
+  'room_message_mentions.user_id': 'where a message mentions them, kept by triggers from room_messages.mentions (which keeps their id like author_id): goes when the message is deleted, its mentions cleared or the room goes',
   'chat_thread_notices.by_user': 'other people\'s Inbox notices name the newest replier only while that account is active (chat/threads.ts chatThreadNoticeOut); the id alone stays until the notice is read or ages out',
   'access_requests.owner_id': 'whose chat or project another person asked to open: the key of the per-owner daily limit (chat/access-requests.ts), never shown; the request goes with the asker\'s account or ages with its target',
   'access_requests.decided_by': 'who answered another person\'s request (Share or Decline), never shown to anyone; the audit log has the history',
