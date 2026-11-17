@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-17 05:49
 - Branch: `fix/ai-wording-narration`
-- Status: in progress
+- Status: done
 - Where: server/src/chat. Why: the notes are text pieces of the answer stream, which chat/narration.ts holds for chat/turn.ts.
 - Version impact: patch, a fix in which text pieces the answer keeps; no API, data or prompt change
 
@@ -50,4 +50,11 @@ is never touched, people words, report words, titles, Markdown, links, quotes an
 
 ## Result
 
-(filled in at the end)
+Real AI (Claude Code engine, relay on, runner from test/ai-scenarios), 82 Korean cases (the 20 leaking cases and a
+62-case sample) + flows FL-19, FL-25, 3 runs each side:
+- before (dev fed7a4a5e): 9 / 9 / 9 Korean answers with an English work note; FL-19 1 / 1 / 1.
+- after (this branch): 0 / 0 / 1 (ROOM-03.reply: "This is the only thread about Saturday delivery, so I'll post the reply
+  there."); flows 0 / 0 (third flow run skipped).
+- dropped pieces after: 34, all notes; real content lost: 0.
+Two independent reviews; both rounds of findings fixed (work notes only before a real call, note shape required for a
+named work thing, words said to people and warnings kept, copy check tolerant of small edits).

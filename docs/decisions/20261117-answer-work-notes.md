@@ -58,5 +58,7 @@ Plan: docs/AGENTS/plan/20261117-0549-ai-wording-narration.md.
   draft rarely has a note's shape, so it is kept by the rules above); notes with measurements ("191mm + 15mm margin …"), notes in another Latin language ("Ich lese die 9
   Dateien …"), notes in the answer's own language, and showing dropped notes in the steps area. The log still gives only
   the number of dropped pieces, never their text.
+- **Measured with the real AI** (82 Korean cases × 3 runs, plus FL-19/FL-25): answers with an English work note went
+  from 9 / 9 / 9 (dev) to 0 / 0 / 1; FL-19 from 1 / 1 / 1 to 0 / 0; 34 pieces dropped, all notes, 0 real content lost.
 - 0 prompt tokens: the stream and the saved answer stay the same (a held piece is never sent until decided).
 - Version impact: patch (no API, no migration).
