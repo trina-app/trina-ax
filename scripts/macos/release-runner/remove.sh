@@ -39,6 +39,16 @@ if [ -n "$UID_" ]; then
   find /private/tmp /private/var/tmp -xdev -user "$U" -delete 2>/dev/null
 fi
 
+echo "== disk images on the volume"
+for dev in $(hdiutil info 2>/dev/null | awk -v v="$V/" '
+    /^image-path/ {img = substr($0, index($0, ":") + 2); keep = (index(img, v) == 1); next}
+    /^\/dev\/disk/ && (keep || index($0, v) > 0) {print $1}
+    /^====/ {keep = 0}' | sort -u); do
+  hdiutil detach -force "$dev" >/dev/null 2>&1
+done
+launchctl bootout system/app.trina.ci.selftest 2>/dev/null
+rm -f /Library/LaunchDaemons/app.trina.ci.selftest.plist
+
 echo "== pf"
 pfctl -q -a com.apple/260.trina-ci -F all 2>/dev/null
 pfctl -q -a com.apple/260.trina-ci -t trina_ci_lan6 -T kill 2>/dev/null

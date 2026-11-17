@@ -110,8 +110,8 @@ say "control folder $D"
 launchctl bootout system/app.trina.ci.runner 2>/dev/null || true
 install -d -o root -g wheel -m 755 "$D" "$D/run"
 install -d -o root -g wheel -m 700 "$D/secrets"
-chflags -R nouchg "$D" 2>/dev/null || true
-install -o root -g wheel -m 755 "$HERE/supervisor.sh" "$HERE/job-started.sh" "$HERE/job-completed.sh" "$HERE/pf-load.sh" "$D/"
+chflags -R nouchg "$D" 2>/dev/null || true  # (an older setup made runner-dist immutable)
+install -o root -g wheel -m 755 "$HERE/supervisor.sh" "$HERE/selftest.sh" "$HERE/job-started.sh" "$HERE/job-completed.sh" "$HERE/pf-load.sh" "$D/"
 install -o root -g wheel -m 644 "$HERE/runner.sb" "$HERE/pf.anchor" "$D/"
 printf '%s\n' "$OWNER_HOME" > "$D/owner-home"; chmod 644 "$D/owner-home"
 rm -rf "$D/runner-dist" "$D/node"
@@ -120,7 +120,6 @@ tar -xzf "$RUNNER_TGZ" -C "$D/runner-dist"
 tar -xzf "$NODE_TGZ" -C "$D/node" --strip-components 1
 chown -R root:wheel "$D/runner-dist" "$D/node"
 chmod -R go-w "$D/runner-dist" "$D/node"
-chflags -R uchg "$D/runner-dist" "$D/node"
 install -d -o root -g wheel -m 755 "$LOGDIR"
 
 say "GitHub token (root only)"
@@ -218,9 +217,35 @@ IMG="$V/tmp/selftest.dmg"
 works "sandbox: hdiutil create/attach/detach like dmg-builder" sbx /bin/bash -c "hdiutil create -quiet -size 20m -fs HFS+ -volname 'Trina AX selftest' '$IMG' && dev=\$(hdiutil attach -nobrowse -noautoopen -noverify '$IMG' | awk '/Apple_HFS/ {print \$1}') && touch '/Volumes/Trina AX selftest/x' && hdiutil detach -quiet \"\$dev\" && rm -f '$IMG'"
 rm -rf "$V/home" "$V/tmp"
 
+say "checks in the jobs' own context (one-shot LaunchDaemon, SessionCreate, as $U in the sandbox)"
+cat > /Library/LaunchDaemons/app.trina.ci.selftest.plist <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>app.trina.ci.selftest</string>
+  <key>ProgramArguments</key><array><string>$D/selftest.sh</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>SessionCreate</key><true/>
+  <key>LaunchOnlyOnce</key><true/>
+</dict></plist>
+EOF
+chown root:wheel /Library/LaunchDaemons/app.trina.ci.selftest.plist; chmod 644 /Library/LaunchDaemons/app.trina.ci.selftest.plist
+rm -f "$D/run/selftest.done"
+launchctl bootout system/app.trina.ci.selftest 2>/dev/null || true
+launchctl bootstrap system /Library/LaunchDaemons/app.trina.ci.selftest.plist
+for _ in $(seq 1 120); do [ -f "$D/run/selftest.done" ] && break; sleep 1; done
+launchctl bootout system/app.trina.ci.selftest 2>/dev/null || true
+rm -f /Library/LaunchDaemons/app.trina.ci.selftest.plist
+if [ -f "$D/run/selftest.done" ]; then
+  grep -E '^(PASS|FAIL) ' "$D/run/selftest.out"
+  fails=$((fails + $(grep -c '^FAIL ' "$D/run/selftest.out")))
+else
+  echo "FAIL the daemon-context checks did not finish (see $D/run/selftest.out)"; fails=$((fails + 1))
+fi
+
 say "runner"
 launchctl bootstrap system /Library/LaunchDaemons/app.trina.ci.runner.plist
-for _ in $(seq 1 30); do grep -q "waiting for a job" "$LOGDIR/runner.log" 2>/dev/null && break; sleep 2; done
-works "a one-time runner is waiting for a job" grep -q "waiting for a job" "$LOGDIR/runner.log"
+for _ in $(seq 1 60); do grep -q "Listening for Jobs" "$LOGDIR/runner.log" 2>/dev/null && break; sleep 2; done
+works "a one-time runner is connected and listening for jobs" grep -q "Listening for Jobs" "$LOGDIR/runner.log"
 echo
 if [ "$fails" = 0 ]; then echo "setup.sh: done, all checks passed"; else echo "setup.sh: done, $fails check(s) FAILED"; exit 1; fi

@@ -4,7 +4,7 @@
 ;; The runner account _trinaci already has no permission on other users' homes (its own group, not staff, plus a deny
 ;; ACL on the admin's home). This adds what file permissions cannot express on a Mac shared with other work:
 ;;   - no file access under /Users at all; under /Volumes only its own volume and the dmg images a release build mounts
-;;     (/Volumes/Trina…, /Volumes/Mycel…: electron-builder's dmg-builder attaches without -mountpoint);
+;;     (/Volumes/Trina AX <version>: electron-builder's dmg-builder attaches without -mountpoint; dmg.title);
 ;;   - no connections to Unix sockets in /tmp, /private/var/tmp or /Users (local databases, dev servers' sockets);
 ;;   - no TCP/UDP to localhost (browsers' debugging ports, local servers, agents). pf (pf.anchor) also blocks the
 ;;     machine's own addresses, the LAN and private networks for this account, which a sandbox cannot name;
@@ -21,7 +21,7 @@
 (deny file-read* file-write* (subpath "/Volumes"))
 (allow file-read-metadata file-read-data (literal "/Volumes"))
 (allow file-read* file-write* (subpath "/Volumes/TrinaCI"))
-(allow file-read* file-write* (regex #"^/Volumes/(Trina|trina|Mycel|mycel)"))
+(allow file-read* file-write* (regex #"^/Volumes/Trina AX( |$)"))
 
 (deny network-outbound (remote unix-socket (subpath "/private/tmp")))
 (deny network-outbound (remote unix-socket (subpath "/private/var/tmp")))

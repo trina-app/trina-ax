@@ -593,10 +593,13 @@ v\* tag may use it, each job gets a fresh one-time runner, and the runner accoun
   whisper-cli PR 검사)과 그 워크플로들의 Run workflow는 hosted에 남는다.
 - 문 두 겹: (1) 러너의 job-started hook(`/Library/TrinaCI/job-started.sh`, 워크플로가 건너뛸 수 없다)과 (2) 각 job의 첫 step
   "Release Mac runner guard"(self-hosted에서만). 둘 다 `github.repository == trina-app/trina-ax`, 이벤트 push 또는 workflow_dispatch,
-  ref `refs/tags/v*`, `github.workflow_ref`가 `trina-app/trina-ax/.github/workflows/release.yml@refs/tags/v*`일 때만 통과한다. hook이
-  거절하면 그 job의 `Runner.Worker`를 바로 끝낸다(`if: always()` step도 돌지 않는다).
+  ref `refs/tags/v*`, `github.workflow_ref`가 `trina-app/trina-ax/.github/workflows/release.yml@refs/tags/v*`일 때만 통과한다. hook은
+  태그의 커밋이 main에 있는지도 본다(공개 API `compare/main...<sha>`가 identical/behind; prepare와 같은 규칙). 태그 ruleset을 건너뛸 수
+  있는 사람(maintain·admin)이 아무 커밋에 태그를 달아 자기 release.yml을 가져오는 길을 막는다. hook이 거절하면 그 job의
+  `Runner.Worker`를 바로 끝낸다(`if: always()` step도 돌지 않는다).
 - 레포 설정: 바깥 기여자의 fork PR 워크플로는 모두 승인이 있어야 돈다(`approval_policy: all_external_contributors`, 2026-11-17).
-- v\* 태그는 태그 ruleset으로 막혀 있다(10장). 태그를 달 수 있는 사람만 이 맥에서 코드를 돌릴 수 있다.
+- v\* 태그는 태그 ruleset으로 막혀 있다(10장). 그래도 maintain·admin 역할은 ruleset을 건너뛸 수 있다. 이 맥에서 도는 코드는 main에
+  들어간(리뷰된) 커밋뿐이다.
 - 남는 것: 거절당할 job도 러너를 잠깐 차지한다(한 번에 하나).
 
 **격리 (isolation)**
@@ -612,7 +615,7 @@ v\* tag may use it, each job gets a fresh one-time runner, and the runner accoun
   job마다 `$RUNNER_TEMP`에 키체인을 만들고 끝에 지운다.
 - 이 맥에 있는 비밀은 하나: 일회용 러너를 받아 오는 fine-grained 토큰(trina-app-admin, 저장소 trina-ax 하나, Administration: Read and
   write). `/Library/TrinaCI/secrets/github-auth.header`(root 600)에 있고 러너 계정은 읽지 못한다. curl이 파일에서 바로 읽는다(argv에 없다).
-- 남는 위험: `/tmp`에 남이 world-readable로 둔 파일은 읽힌다(세션의 임시 파일은 700 폴더에 둔다).
+- 남는 위험: `/tmp`에 남이 world-readable로 둔 파일은 읽힌다(세션의 임시 파일은 700 폴더에 둔다). 무언가 pf를 `com.apple` anchor 없이 다시 올리면 다음 1분 검사까지 pf 규칙이 빠진다(샌드박스의 localhost·소켓 차단은 그대로).
 
 **매번 새로 (ephemeral)**
 
@@ -620,10 +623,11 @@ v\* tag may use it, each job gets a fresh one-time runner, and the runner accoun
 
 1. `_trinaci`의 프로세스를 모두 끝내고(kill -9), launchd job·crontab·`/tmp`의 파일·Apple 임시/캐시 폴더를 지우고, 볼륨의 HOME,
    TMPDIR, 러너 폴더를 통째로 지운다. 남는 것이 있으면 job을 더 받지 않는다(로그에 남긴다).
-2. root 소유 원본(`/Library/TrinaCI/runner-dist`)에서 러너 폴더를 새로 만든다. 프로그램과 `.env`(job hook)·`.path`는 root 소유에
-   `uchg`. 자동 업데이트는 없다.
+2. root 소유 원본(`/Library/TrinaCI/runner-dist`)에서 러너 폴더를 새로 복사한다(`.env`에 job hook, `.path`). 이 폴더는 `_trinaci`
+   소유다: 러너가 일회용 등록을 거기에 쓰고, GitHub이 새 버전을 내면 그 안에서 스스로 업데이트한다. 어차피 job 뒤에 통째로 지운다.
 3. GitHub에 일회용(JIT) 러너 설정을 받아(`generate-jitconfig`) `_trinaci`로 샌드박스 안에서 돌린다. 러너는 job 하나를 받고 끝나며,
-   GitHub이 그 등록을 지운다. job이 러너 자격 증명을 읽어도 그 job이 끝나면 쓸모가 없다.
+   supervisor가 그 등록을 지운다(job을 받지 않고 끝난 것도). job이 러너 자격 증명을 읽어도 그 job이 끝나면 쓸모가 없다. 1분 안에
+   끝나면(업데이트 실패, GitHub 오류) 5분 쉰다. job이 붙인 디스크 이미지도 떼고, 계정의 `/var/folders` 폴더 전체를 지운다.
 
 job 사이에 남는 도구 캐시(setup-bun, setup-go, bun 캐시, 내려받은 actions)는 없다. job-completed hook도 같은 것을 지운다(보조).
 
@@ -654,13 +658,15 @@ curl -fsSLO https://nodejs.org/dist/v22.23.5/node-v22.23.5-darwin-arm64.tar.gz
 sudo bash <레포>/scripts/macos/release-runner/setup.sh
 ```
 
-setup.sh는 끝에 `PASS`/`FAIL` 검사를 찍는다(관리자 홈·`.ssh`·키체인·토큰을 못 읽음, crontab·launchctl 안 됨, localhost·LAN 차단,
+setup.sh는 두 번 검사한다: 관리자의 sudo로 한 번, 그리고 job과 같은 맥락(일회성 LaunchDaemon `app.trina.ci.selftest`, SessionCreate,
+`_trinaci`로 샌드박스 안, `selftest.sh`)에서 한 번(인터넷, swiftc, notarytool, node, job 키체인에 .p12 넣기와 key partition list,
+`/Volumes/Trina AX …`에 dmg 붙이기). codesign 자체는 믿을 수 있는 인증서가 있어야 해서 첫 릴리스 job이 진짜 검사다. 끝에 `PASS`/`FAIL`을 찍는다(관리자 홈·`.ssh`·키체인·토큰을 못 읽음, crontab·launchctl 안 됨, localhost·LAN 차단,
 인터넷·swiftc·notarytool·node·job 키체인·dmg 붙이기는 됨, 일회용 러너가 job을 기다림). 그 뒤 GitHub → Settings → Actions → Runners에
 `trina-mac-…`가 Idle인지 보고 레포 변수 `RELEASE_MAC_RUNNER`를 `trina-mac-release`로 바꾼다. hosted로 돌아가려면 변수를
 `macos-15`(또는 `macos-15-intel`)로 되돌린다. 커밋은 필요 없다.
 
-러너 업데이트(자동 업데이트가 없으니 GitHub이 옛 버전을 거절하기 전에): setup.sh의 `RUNNER_VERSION`·`RUNNER_SHA256`을 새 릴리스로
-바꾸고, 새 tarball을 받아 setup.sh를 다시 돌린다.
+러너 업데이트: 새 actions/runner가 나오면 일회용 러너가 job마다 스스로 내려받아 업데이트한다(느려질 뿐). setup.sh의
+`RUNNER_VERSION`·`RUNNER_SHA256`을 새 릴리스로 바꾸고 새 tarball을 받아 setup.sh를 다시 돌리면 그 시간이 없어진다.
 
 로그: `/private/var/log/trina-ci/runner.log`(supervisor와 러너), `/private/var/log/trina-ci/pf.log`.
 

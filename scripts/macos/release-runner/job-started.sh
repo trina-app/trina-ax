@@ -10,7 +10,8 @@
 # A failing hook marks the job failed but the runner may still run the job's `if: always()` steps, so a refusal also
 # kills this job's Runner.Worker (found by walking up from this hook's parent, exact pid): nothing of the job runs.
 # The runner is one-time (supervisor.sh), so the next job gets a fresh runner after root has cleaned up.
-set -u
+# The runner runs hooks with bash -e -o pipefail: set +e, so a cleanup command that fails never fails a trusted job.
+set -u +e +o pipefail
 PATH=/usr/bin:/bin:/usr/sbin:/sbin
 VOLUME=/Volumes/TrinaCI
 MIN_FREE_GB=20
@@ -42,12 +43,27 @@ case "${GITHUB_WORKFLOW_REF:-}" in
   *) fail "workflow '${GITHUB_WORKFLOW_REF:-}' (only release.yml at a v* tag)" ;;
 esac
 
+# the tagged commit must be on main (as release.yml's prepare requires): someone who may bypass the tag ruleset could
+# otherwise tag any commit and bring their own release.yml. Public API, no token: identical/behind = on main.
+cmp=""
+for _ in 1 2 3; do
+  cmp=$(curl -fsS -m 20 "https://api.github.com/repos/trina-app/trina-ax/compare/main...${GITHUB_SHA:-none}?per_page=1" 2>/dev/null | /usr/bin/jq -r '.status // empty' 2>/dev/null)
+  [ -n "$cmp" ] && break
+  sleep 5
+done
+case "$cmp" in
+  identical | behind) ;;
+  "") fail "could not check that ${GITHUB_SHA:-?} is on main (GitHub API); run the job again" ;;
+  *) fail "commit ${GITHUB_SHA:-?} is not on main ($cmp)" ;;
+esac
+
 # the volume has a quota (setup.sh); a job that would hit it is better refused here than half-built
 free_gb=$(df -g "$VOLUME" 2>/dev/null | awk 'NR==2 {print $4}')
 [ -n "$free_gb" ] && [ "$free_gb" -ge "$MIN_FREE_GB" ] || fail "only ${free_gb:-?} GB free on $VOLUME (needs $MIN_FREE_GB)"
 
 # a previous job's leftovers in HOME (tool installs, caches, keychains, git config) never reach this job
 if [ "${HOME:-}" = "$VOLUME/home" ]; then
+  chmod -R u+rwX "$HOME" 2>/dev/null
   find "$HOME" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null
   security list-keychains -d user -s 2>/dev/null
 fi
