@@ -218,6 +218,36 @@ test('no side chat yet: the empty line; the first question makes a side chat of 
   }
 })
 
+test('the box has the mic right before send, as every message box (voice input off for the team: no mic)', async () => {
+  signIn()
+  serve(null)
+  const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
+  try {
+    await m.until(() => !!m.find('side-chat-empty'), 'the empty line')
+    const tools = m.get('side-chat-tools')
+    const mic = tools.querySelector('[data-testid="voice-button"]')!
+    expect(mic.getAttribute('aria-label')).toBe(en('voice.start'))
+    expect(mic.hasAttribute('disabled')).toBe(false)
+    // the clip, then the mic, then send
+    const order = [...tools.querySelectorAll('[data-testid]')].map((e) => e.getAttribute('data-testid'))
+    expect(order.filter((id) => ['side-chat-attach', 'voice-button', 'side-chat-send'].includes(id!))).toEqual(['side-chat-attach', 'voice-button', 'side-chat-send'])
+    // the live region is there before a recording, so its first words are read
+    expect(m.get('voice-live').textContent).toBe('')
+  } finally {
+    await m.unmount()
+  }
+  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name }, server: { allChatsConfidential: false }, team: { voiceInput: false } } as unknown as Me } })
+  serve(null)
+  const off = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
+  try {
+    await off.until(() => !!off.find('side-chat-empty'), 'the empty line')
+    expect(off.find('voice-button')).toBeNull()
+    expect(off.get('side-chat-send')).toBeTruthy()
+  } finally {
+    await off.unmount()
+  }
+})
+
 test('opened, it is a new chat: the room\'s earlier side chat is not shown but listed in 🕘, where it opens', async () => {
   signIn()
   const id = uuidv7()
