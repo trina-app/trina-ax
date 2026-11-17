@@ -36,6 +36,7 @@ import { MeetingControl } from './meeting-control'
 import type { TeamsStore } from './teams-store'
 import { clearFailed, clearSessionData, type ClearResult } from './clear-session'
 import { debug } from './debug'
+import { DirectDownloads } from './downloads'
 import { PAGE_BUSY_GLOBAL, resumePage, type Resume, type ResumeWindow } from '../common/update-guard'
 
 export type Mode = 'welcome' | 'team' | 'offline'
@@ -89,6 +90,9 @@ export interface AppWindowOptions {
   answerFileChoosers?: boolean
   /** the Mac App Store build: no signup link on the first-run screen (common/address.ts firstRunLinks) */
   macAppStore?: boolean
+  /** the computer's Downloads folder, where the team page's downloads go with no save window (main/downloads.ts);
+   * null keeps the save window (the Mac App Store build) */
+  downloadsDir?: () => string | null
   /** the team list changed (the menu is rebuilt) */
   onTeamsChanged(): void
 }
@@ -133,6 +137,8 @@ export class AppWindow {
   private recheckTimer?: NodeJS.Timeout
   private lastCheck = 0
   private configuredSessions = new WeakSet<Session>()
+  /** the team page's downloads: straight into Downloads, the page shows the notice (main/downloads.ts) */
+  readonly downloads = new DirectDownloads({ dir: () => this.o.downloadsDir?.() ?? null })
   /** each team page session's folder window picks (common/folder-access.ts), forgotten when the person changes */
   private folderGrants = new WeakMap<Session, FolderGrants>()
   /** "Find work files on this computer" (./work-files.ts): the app's own consent dialog, the look, the reads by id */
@@ -949,6 +955,7 @@ export class AppWindow {
   private configureAppSession(ses: Session) {
     if (this.configuredSessions.has(ses)) return
     this.configuredSessions.add(ses)
+    this.downloads.attach(ses)
     this.folderGrants.set(ses, hardenAppSession(ses, () => this.allowedOrigins(), (why) => this.folderRefused(why)))
     pinCertificates(
       ses,

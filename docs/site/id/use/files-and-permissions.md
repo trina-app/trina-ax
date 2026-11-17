@@ -125,6 +125,7 @@ Ketika Anda berkata "ringkas ini" atau "balas di thread itu" tanpa menyebut nama
 ![File di ponsel: Recent files, Team folders, Project folders, My files dan Trash](../../images/files/files-phone.webp "File di ponsel")
 
 - **Unggah** file atau seluruh folder dari layar File.
+- **Unduh**: di aplikasi desktop, file yang Anda unduh langsung masuk ke folder Unduhan di komputer Anda, dan pemberitahuannya menawarkan **Tampilkan di folder**. File dengan nama yang sama tidak ditimpa: file baru disimpan sebagai "nama (1)". Di browser, browser yang menentukan tempat unduhan disimpan.
 - **Riwayat versi**: setiap perubahan menyimpan versi yang bisa Anda buka atau pulihkan.
 - **Sampah**: **File › Sampah** mencantumkan apa yang bisa Anda pulihkan, berdasarkan nama dan tempat asalnya ("price-sheet.xlsx · Seluruh perusahaan › Sales"). File yang dihapus lebih dari sekali tampil sebagai satu baris dengan salinan-salinannya: **Pulihkan** mengembalikan yang terbaru, dan membuka baris itu memulihkan salinan lainnya. Jika daftar berisi hapusan orang lain, **Dihapus oleh saya** hanya menampilkan milik Anda. Item dihapus permanen setelah masa simpan tim (Admin › Pengaturan tim, 30 hari secara bawaan); setiap baris menyebutkan kapan.
 - **Format**: AI membaca teks dari file PDF, Office, dan HWP/HWPX, serta melihat foto dan halaman hasil pindaian sebagai gambar (admin bisa mematikannya). Server Linux tidak menjalankan OCR.
