@@ -3436,6 +3436,20 @@ export class TurnExec {
    * under skills/, or the tool itself will refuse the call: the tool reports that).
    */
   async confirmSkillWrite(tool: string, args: unknown, files: TurnFiles = this.files): Promise<{ refusal: string; summary: string } | null> {
+    // one skill card at a time (the AI often saves a new skill's files in parallel calls): a later call then sees the
+    // answer to the card before it, so a new skill's other files need no card of their own (QA MAN-052, below)
+    const run = this.skillCards.then(() => this.askSkillWrite(tool, args, files))
+    this.skillCards = run.catch(() => undefined)
+    return run
+  }
+
+  /** skill cards of this turn, one after the other (confirmSkillWrite) */
+  private skillCards: Promise<unknown> = Promise.resolve()
+  /** the folders of new skills whose SKILL.md the person said Save to in this turn (askSkillWrite): the other new files
+   * in that folder in this turn need no card of their own (QA MAN-052, docs/decisions/20261117-new-skill-one-card.md) */
+  private newSkillYes = new Set<string>()
+
+  private async askSkillWrite(tool: string, args: unknown, files: TurnFiles): Promise<{ refusal: string; summary: string } | null> {
     if (tool !== 'write' && tool !== 'edit' && tool !== 'make_file' && tool !== 'edit_hwp') return null
     const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
     // a file a tool produces (make_file, edit_hwp): the card shows the file, not a text diff
@@ -3502,6 +3516,19 @@ export class TurnExec {
     // chat/schedule-cover.ts) stay as they are
     const w = dead || this.spec.clientKind === 'schedule' ? undefined : widenOf(tool, args, (x) => this.hwpTarget(x))
     const need = w ? this.widenNeed(w.target, w.extra) : null
+    // a new file in the folder of a new skill the person said Save to in this turn (its SKILL.md's card showed the skill
+    // and who will see it): saved without a card of its own, as one save of one skill (QA MAN-052: a skill made from a
+    // form showed two cards, SKILL.md and the form). Not an existing file, not another SKILL.md, not when this save
+    // would also show content the SKILL.md's yes did not cover to more people
+    const folder = skillFolderOf(r.rel)
+    if (!r.exists && folder && this.newSkillYes.has(folder) && !/(^|\/)SKILL\.md$/i.test(r.rel) && !dead) {
+      const allowed = this.widenAllowed.get(folder)
+      if (!need || (allowed && need.narrower.every((s) => allowed.has(sourceKey(s))))) {
+        this.files.skillApprovals.set(r.rel, approval)
+        if (need) this.allowWidening(need)
+        return null
+      }
+    }
     const wide = need ? this.widenSources(need) : null
     const preview: SkillWritePreview = { kind: 'skill_write', path: r.rel, isNew: !r.exists, skillName: skill?.name ?? null, ...(problem ? { problem } : {}), ...(same ? { sameName: { text: same.text, hidden: same.hidden } } : {}), diff, added: d?.added ?? 0, removed: d?.removed ?? 0, truncated: d?.truncated ?? false }
     const options = dead
@@ -3522,6 +3549,8 @@ export class TurnExec {
     const picked = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
     if (picked === 'save' && !dead) {
       this.files.skillApprovals.set(r.rel, approval)
+      // a new skill's SKILL.md: its other new files in this turn go with this yes (above)
+      if (!r.exists && skill && folder && /(^|\/)SKILL\.md$/i.test(r.rel) && skillFolderOf(r.rel) === folder) this.newSkillYes.add(folder)
       // the yes (or the person's "Always allow" for skill saves) covers saving there where more people can see
       if (need) this.allowWidening(need)
       return null
@@ -4396,4 +4425,14 @@ export function roomRefsBlock(content: string, readable: boolean | string = true
       also: 'Say so if the request needs one, and do not guess what the room says',
       next: `the user can ask in a chat of their own (a new AI chat), or open the room in ${SCREEN.rooms(locale)} and ask in ${SCREEN.sideChat(locale)}`,
     })}\n</room_refs>`
+}
+
+/** The folder of the one skill `rel` is inside (skills/<name>, groups/<g>/skills/<name>, projects/<p>/skills/<name>),
+ * or null when `rel` is not below one (a skill root itself, a rule file at the top of a root, any other path). */
+export function skillFolderOf(rel: string): string | null {
+  const root = skillRootOf(rel)
+  if (!root) return null
+  const segs = rel.split('/')
+  const depth = root.kind === 'team' ? 1 : 3
+  return segs.length > depth + 1 && segs[depth] ? segs.slice(0, depth + 1).join('/') : null
 }
