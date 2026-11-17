@@ -183,6 +183,11 @@ export const SPECS: Record<string, Spec> = {
     } },
   acceptInvite: { skipPositive: true, build: (c, w) => c.post(`/api/invites/${w.ids.inviteToken}/accept`, { username: 'newbie' + Math.random().toString(36).slice(2, 7), name: 'New Bie', password: 'Fresh-pass-Owl-3321-xy' }), scope: 'byLevel' },
   passwordResetInfo: { build: (c, w) => c.get(`/api/password-resets/${w.ids.resetToken}`), scope: 'byLevel' },
+  // the desktop app's one-time sign-in code (server/src/auth/app-signin.ts): every signed-in person makes their own (a
+  // guest is off the list); a made-up code signs nobody in
+  appSignIn: { build: (c) => c.post('/api/auth/app-signin'), scope: 'byLevel' },
+  redeemAppSignIn: { skipPositive: true, build: (c) => c.post('/api/auth/app-signin/redeem', { code: 'A'.repeat(43) }), scope: 'byLevel',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: a made-up app sign-in code signed in: ${r.text}`) } },
   completePasswordReset: { skipPositive: true, build: (c, w) => c.post(`/api/password-resets/${w.ids.resetToken}`, { password: 'Changed-pass-Fox-9087-qq' }), scope: 'byLevel',
     todo: {}, },
 
