@@ -207,8 +207,16 @@ func TestResizeOrientationAndMetadata(t *testing.T) {
 	if c.Width != 100 || c.Height != 200 {
 		t.Fatalf("upright: %dx%d", c.Width, c.Height)
 	}
-	if bytes.Contains(out, []byte("Exif")) || bytes.Contains(out, []byte("GPS-SECRET-PLACE")) || orientation(out) != 1 {
-		t.Fatal("photo details reached the copy")
+	// the details stay by default (the owner, 2026-11-17), with the orientation reset: the pixels are upright now
+	if !bytes.Contains(out, []byte("Exif")) || orientation(out) != 1 {
+		t.Fatal("the photo's details were not kept, or the orientation was not reset")
+	}
+	none, err := Resize(b, ResizeSpec{Side: 200, Details: DetailsNone})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(none, []byte("Exif")) || bytes.Contains(none, []byte("GPS-SECRET-PLACE")) || orientation(none) != 1 {
+		t.Fatal("details reached a copy that asked for none")
 	}
 	im, err := jpeg.Decode(bytes.NewReader(out))
 	if err != nil {

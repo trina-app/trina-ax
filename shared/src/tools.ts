@@ -208,7 +208,7 @@ export const SplitPdfInput = z.strictObject({
 // Smaller copies of photos (server/src/tools/resize-images.ts, docs/decisions/20261117-resize-photos.md)
 const photoSide = z.number().int().min(16).max(20_000)
 export const ResizeImagesInput = z.strictObject({
-  paths: z.array(relPath).min(1).max(20).describe('The photos (JPEG, PNG or WebP), 1-20, e.g. ["groups/Marketing/photos/IMG_2041.jpg"]'),
+  paths: z.array(relPath).min(1).max(20).describe('The photos (JPEG, PNG, WebP or HEIC), 1-20, e.g. ["groups/Marketing/photos/IMG_2041.jpg"]'),
   longest_side: photoSide.optional().describe('The longest side in pixels, e.g. 1200; the other side follows'),
   width: photoSide.optional().describe('The width in pixels ("1200 px wide"); the height follows'),
   max_mb: z.number().min(0.01).max(30).optional().describe('The most each copy may weigh, in MB ("under 2MB" = 2, "500KB" = 0.5); may be given with longest_side or width'),
@@ -216,6 +216,8 @@ export const ResizeImagesInput = z.strictObject({
   output: optRelPath.describe('Only for one photo: where to save the copy (default: "<name>-<word>.<ext>" next to it)'),
   output_folder: optRelPath.describe('Where the copies go (default: next to each original)'),
   replace: z.boolean().optional().describe('true only when the user explicitly asks to replace the originals (read each in this turn first; the old version stays in its history)'),
+  remove_details: z.enum(['location', 'all']).optional().describe('Only when the user asks: "location" removes where the photo was taken ("without the location"), "all" removes every photo detail (location, time taken, camera). Left out, the copies keep them'),
+  format: z.enum(['jpeg', 'png']).optional().describe('Only when the user names a format for the copies. Left out: JPEG stays JPEG, PNG stays PNG, HEIC and WebP become JPEG'),
 }).refine((v) => v.longest_side !== undefined || v.width !== undefined || v.max_mb !== undefined || v.preset !== undefined, { message: 'give longest_side, width, max_mb or preset' })
   .refine((v) => v.preset === undefined || (v.longest_side === undefined && v.width === undefined && v.max_mb === undefined), { message: 'give either preset or the numbers, not both' })
   .refine((v) => v.output === undefined || v.paths.length === 1, { message: 'output is only for one photo; use output_folder for several' })

@@ -776,7 +776,7 @@ export class FileService {
   /** A converter's refusal as the note the AI gets (other errors go on to the caller). */
   private visionFailure(ctx: ToolCtx, e: unknown): string {
     const code = e instanceof ToolError ? e.code : ''
-    const key = ({ vision_too_large: 'tooLarge', vision_unsupported: 'unsupported', vision_damaged: 'damaged', vision_heavy: 'heavy', vision_busy: 'busy', vision_unavailable: 'unavailable' } as const)[code as 'vision_busy']
+    const key = ({ vision_too_large: 'tooLarge', vision_unsupported: 'unsupported', vision_damaged: 'damaged', vision_heavy: 'heavy', vision_busy: 'busy', vision_unavailable: 'unavailable', vision_no_heic: 'noHeic' } as const)[code as 'vision_busy']
     if (!key) throw e
     return visionText(this.db, ctx.user.id, key)
   }

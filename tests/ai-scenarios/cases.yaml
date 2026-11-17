@@ -538,7 +538,7 @@ cases:
   prompt: 마케팅 사진 폴더 IMG 사진 두 장 가로 600px로 줄여서 따로 저장해줘
   expect:
     outcome: do
-    good: Two new copies 600 px wide next to the originals; says each new size, links each copy by name, says the originals are untouched and the location was removed; no technical words.
+    good: Two new copies 600 px wide next to the originals; says each new size, links each copy by name, says the originals are untouched; does not say the location or other details were removed; no technical words.
     checks:
       - { type: tool_used, any: [resize_images] }
       - { type: image, file: "groups/마케팅/**/IMG_2041?*.{jpg,jpeg}", maxWidth: 600 }
