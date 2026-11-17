@@ -26,7 +26,7 @@ import { useLocale, useT } from '../../i18n'
 import { pinnedRooms, shownInLists } from '../../lib/rooms'
 import { useRooms } from '../../store/rooms'
 import { DROP_OVER, FolderIcon, FolderMenu, FoldersLabelWords, NewFolderButton, NewFolderRow, RoomFolderPillView, roomFolderBold, roomFolderPill, useFolderActions, useFolders, useDropTarget } from '../nav/NavFolders'
-import { RoomRow, roomSections, SECTION_WORD } from '../nav/RoomsList'
+import { RoomRow, RoomSectionAction, roomSections, SECTION_WORD } from '../nav/RoomsList'
 import { useRoomTitle } from '../rooms/RoomIcon'
 import { groupHead, groupRows, PanelSection, panelRowBox } from './PanelFrame'
 import { useFolds } from './folds'
@@ -133,6 +133,7 @@ export function RoomsByKind() {
         count={s.rooms.length}
         {...foldedLook(s.rooms, 'chats-panel-section-pill')}
         keep={folded && shown.length ? <RoomRows rooms={shown} section={s.key} /> : undefined}
+        action={s.key === 'pinned' ? undefined : <RoomSectionAction section={s.key} />}
         labelTestId="chats-panel-label"
         // a row's open menu is drawn past the section's box: content-visibility clips what is inside (it contains paint),
         // so the section is drawn plainly while one is open

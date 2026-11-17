@@ -14,7 +14,7 @@ description: Sentry、GitHub、Google フォーム、Stripe、Jira、HubSpot な
 
 **設定 › コネクター** から始めることもできます。Sentry、Notion、Stripe、Atlassian（Jira）の行の下に
 **トークにアプリを追加** があります。アプリを追加できるトークだけが表示され、選ぶとそのサービスのガイドが開いた状態で
-トークが開きます。まだない場合は、先に **新しいトーク** で始めてください。
+トークが開きます。まだない場合は、先に **新規メッセージ** で始めてください。
 
 ![アプリを追加：メッセージはトークルームの全員に表示されるという説明、その下に Google フォーム、その他のアプリ、GitHub、Sentry](../../images/room-apps/picker.webp "アプリを追加")
 

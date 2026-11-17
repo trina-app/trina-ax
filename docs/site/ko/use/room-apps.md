@@ -23,7 +23,7 @@ description: Sentry, GitHub, Google 설문지, Stripe, Jira, HubSpot 같은 서�
 
 **설정 › 커넥터**에서 시작할 수도 있어요. Sentry, Notion, Stripe, Atlassian(Jira) 줄 아래에 **대화방에 앱 추가**가
 있어요. 내가 앱을 추가할 수 있는 대화방만 나오고, 하나를 고르면 그 서비스의 안내가 열린 채로 대화방이 열려요. 고를 대화방이
-없으면 먼저 **새 대화**로 하나 시작하세요.
+없으면 먼저 **새 메시지**로 하나 시작하세요.
 
 ![앱 추가: 메시지가 대화방의 모두에게 보인다는 안내, 그 아래 Google 설문지, 다른 앱, GitHub, Sentry](../../images/room-apps/picker.webp "앱 추가")
 

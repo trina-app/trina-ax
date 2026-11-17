@@ -27,8 +27,12 @@ import { GuestTagFor } from '../GuestTag'
 import { isGuestMe, personIsGuest } from '../../lib/guests'
 import { isAdmin } from '../../store/session'
 import { useRoomTitle } from './RoomIcon'
+import { isPrivateChannel } from '../../lib/rooms'
 
-export type PickerMode = { kind: 'new'; preselect?: string[] } | { kind: 'invite'; roomId: string }
+/** `new`: New message (no name: one person opens the DM, two or more the group DM of those people, made or reopened);
+ * `channel`: Create a channel (a name is required: a private channel); `invite`: add people to a room
+ * (docs/decisions/20261117-named-groups-private-channels.md). */
+export type PickerMode = { kind: 'new'; preselect?: string[] } | { kind: 'channel' } | { kind: 'invite'; roomId: string }
 
 export function PeoplePicker({ open, onClose, mode = { kind: 'new' } }: { open: boolean; onClose: () => void; mode?: PickerMode }) {
   if (!open) return null
@@ -78,6 +82,7 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
   const groups = usePickerGroups()
   const navigate = useNavigate()
   const inviting = mode.kind === 'invite' ? mode.roomId : null
+  const channel = mode.kind === 'channel'
   const room = useRooms((s) => (inviting ? s.rooms.find((r) => r.id === inviting) : undefined))
   const inRoom = useRooms((s) => (inviting ? s.members[inviting] : undefined))
   useEffect(() => {
@@ -135,13 +140,13 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
   const max = inviting ? ROOM_GROUP_MAX - (room?.memberCount ?? 1) : isGuestMe(me) ? 1 : ROOM_GROUP_MAX - 1
   const over = picked.length > max
   // a new group with a guest in it (ticked first, then someone else): the guest's one place is elsewhere already
-  const groupWithGuest = !inviting && picked.length >= 2 && picked.some((id) => personIsGuest(people?.find((p) => p.id === id)))
+  const groupWithGuest = !inviting && (channel || picked.length >= 2) && picked.some((id) => personIsGuest(people?.find((p) => p.id === id)))
   const toggle = (id: string) => { setOnePlace(null); setPicked((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id])) }
   const allIn = (ids: string[]) => ids.every((id) => picked.includes(id))
   const toggleGroup = (ids: string[]) => setPicked((l) => (allIn(ids) ? l.filter((x) => !ids.includes(x)) : [...l, ...ids.filter((x) => !l.includes(x))]))
 
   const go = async () => {
-    if (busy || !picked.length || over || groupWithGuest) return
+    if (busy || !picked.length || over || groupWithGuest || (channel && !name.trim())) return
     setBusy(true)
     try {
       if (inviting) {
@@ -149,7 +154,7 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
         onClose()
         return
       }
-      const r = picked.length === 1 ? await useRooms.getState().openDm(picked[0]!) : await useRooms.getState().createGroup(picked, name)
+      const r = channel ? await useRooms.getState().createGroup(picked, name) : picked.length === 1 ? await useRooms.getState().openDm(picked[0]!) : await useRooms.getState().createGroup(picked, null)
       onClose()
       navigate(`/rooms/${r.id}`)
     } catch (e) {
@@ -164,20 +169,13 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
   if (guestInvite && room) return <GuestInviteDialog place={{ kind: 'room', id: room.id, name: roomTitle(room) }} onClose={onClose} onCancel={() => setGuestInvite(false)} />
   if (guestInvite && !inviting) return <GuestInviteFlow onClose={onClose} onCancel={() => setGuestInvite(false)} />
 
-  const group = !inviting && picked.length >= 2
-  const action = inviting ? t('rooms.picker.invite') : group ? t('rooms.picker.createGroup') : t('rooms.picker.start')
+  const action = inviting ? t(room && isPrivateChannel(room) ? 'rooms.info.invitePrivate' : 'rooms.info.addPeople') : channel ? t('rooms.picker.createPrivate') : t('rooms.picker.start')
   const footer = (
     <>
-      {group && (
-        <label className="w-full">
-          <span className="sr-only">{t('rooms.picker.name')}</span>
-          <input value={name} onChange={(e) => setName(e.target.value)} maxLength={ROOM_NAME_MAX} placeholder={t('rooms.picker.name')} className={inputCls} data-testid="picker-name" />
-        </label>
-      )}
       <p className={clsx('mr-auto text-sm', over || groupWithGuest ? 'text-danger' : 'text-muted')} role={over || groupWithGuest ? 'alert' : undefined} data-testid="picker-count">
         {over ? t('rooms.picker.tooMany', { max: ROOM_GROUP_MAX }) : groupWithGuest ? t('guest.onePlaceShort') : picked.length > 0 ? t('rooms.picker.selected', { n: picked.length }) : ''}
       </p>
-      <Button variant="primary" disabled={!picked.length || over || groupWithGuest} busy={busy} onClick={() => void go()} data-testid="picker-go">
+      <Button variant="primary" disabled={!picked.length || over || groupWithGuest || (channel && !name.trim())} busy={busy} onClick={() => void go()} data-testid="picker-go">
         {action}
       </Button>
     </>
@@ -186,17 +184,24 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
   // the rows' words line up with the dialog's 20px (16px on a phone)
   const list = 'px-2 max-sm:px-1'
   return (
-    <Modal open onClose={onClose} title={inviting ? t('rooms.picker.invite') : t('rooms.newChat')} width={420} footer={footer}>
+    <Modal open onClose={onClose} title={inviting ? action : channel ? t('rooms.section.newChannel') : t('rooms.newChat')} width={420} footer={footer}>
       <div className="-mx-5 -mt-5 border-b border-line px-5 py-3 max-sm:-mx-4 max-sm:px-4">
+        {/* Create a channel: its name first, labelled and required (a group DM has none: New message), then the people */}
+        {channel && (
+          <label className="mb-3 block">
+            <span className="mb-1 block text-sm font-medium text-ink">{t('rooms.info.nameLabelChannel')}</span>
+            <input autoFocus data-autofocus value={name} onChange={(e) => setName(e.target.value)} maxLength={ROOM_NAME_MAX} required aria-required className={inputCls} data-testid="picker-name" />
+          </label>
+        )}
         <label className="relative block">
           <span className="sr-only">{t('rooms.people.search')}</span>
           <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
-          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('rooms.people.search')} className={`${inputCls} pl-9`} data-testid="people-search" />
+          <input autoFocus={!channel} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('rooms.people.search')} className={`${inputCls} pl-9`} data-testid="people-search" />
         </label>
       </div>
       {(mayInviteGuest || mayInviteGuestAnywhere) && (
         <ul className="-mx-5 border-b border-line px-2 py-1 max-sm:-mx-4 max-sm:px-1" data-testid="picker-guest">
-          <InviteGuestRow place={mayInviteGuest ? 'room' : 'any'} onOpen={() => setGuestInvite(true)} />
+          <InviteGuestRow place={mayInviteGuest ? 'room' : 'any'} privateRoom={!!room && isPrivateChannel(room)} onOpen={() => setGuestInvite(true)} />
         </ul>
       )}
       {onePlace && !(onePlace.guestId && people?.some((p) => p.id === onePlace.guestId)) && <OnePlaceNote admin={isAdmin(me)} className="pt-3" />}
