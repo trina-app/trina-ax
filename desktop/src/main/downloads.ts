@@ -6,12 +6,16 @@
 // the download's number only: the page never names a path, and only a file this app saved is shown.
 //
 // The save window stays, as before, when: the page has not said it shows the notice (a team server from before this:
-// a file would land with no word), the Mac App Store build (it may not write to Downloads without the window), or the
-// folder cannot be used.
-import { existsSync, mkdirSync, rmSync } from 'node:fs'
+// a file would land with no word), the Mac App Store build (it may not write to Downloads without the window), the
+// folder cannot be used, the file is of a type that runs code (common/downloads.ts runsCode), or the page already saved
+// DIRECT_SAVES_MAX files within DIRECT_SAVES_WINDOW_MS. A saved file gets the "downloaded from the internet" mark that
+// Electron does not add by itself (the Mac's quarantine, Windows' Zone.Identifier), so the system still asks before it
+// opens something risky.
+import { execFile } from 'node:child_process'
+import { existsSync, mkdirSync, writeFile } from 'node:fs'
 import { basename } from 'node:path'
 import { shell, type Session, type WebContents } from 'electron'
-import { downloadOutcome, pickDownloadPath } from '../common/downloads'
+import { SaveBurst, downloadOutcome, pickDownloadPath, quarantineValue, runsCode, zoneIdentifierText } from '../common/downloads'
 import { debug } from './debug'
 
 /** What the page hears when a download ends (DesktopBridge.downloads.onDone). */
@@ -20,12 +24,39 @@ export interface DownloadDone { id: number; name: string; ok: boolean }
 /** How many finished downloads "Show in folder" still knows. */
 const REMEMBERED = 50
 
+/**
+ * Marks a saved file as downloaded, as a browser does: the Mac's com.apple.quarantine (Gatekeeper asks before it opens
+ * an app or script) or Windows' Zone.Identifier (SmartScreen, Office's Protected View). Never throws: a failure is logged.
+ */
+export function markDownloaded(path: string, o: { url?: string; referrer?: string; platform?: NodeJS.Platform; now?: number } = {}): Promise<void> {
+  const platform = o.platform ?? process.platform
+  return new Promise((done) => {
+    try {
+      if (platform === 'darwin') {
+        execFile('/usr/bin/xattr', ['-w', 'com.apple.quarantine', quarantineValue(o.now ?? Date.now()), path], (err) => {
+          if (err) debug('downloads quarantine', err.message)
+          done()
+        })
+      } else if (platform === 'win32') {
+        writeFile(`${path}:Zone.Identifier`, zoneIdentifierText({ url: o.url, referrer: o.referrer }), (err) => {
+          if (err) debug('downloads zone', err.message)
+          done()
+        })
+      } else done()
+    } catch (err) {
+      debug('downloads mark', err)
+      done()
+    }
+  })
+}
+
 export class DirectDownloads {
   /** paths downloads are on their way to (lower case: the Mac's and Windows' folders do not tell case apart) */
   private inFlight = new Set<string>()
   private saved = new Map<number, string>()
   private ready = new WeakSet<WebContents>()
   private watched = new WeakSet<WebContents>()
+  private bursts = new WeakMap<WebContents, SaveBurst>()
   private next = 1
 
   /** `dir`: the Downloads folder, or null where the save window stays (the Mac App Store build). */
@@ -49,6 +80,8 @@ export class DirectDownloads {
         dir = null
       }
       if (!dir || !wc || wc.isDestroyed() || !this.ready.has(wc)) return
+      // a file that runs code is never dropped without the person choosing it
+      if (runsCode(item.getFilename())) return
       let path: string | null = null
       try {
         mkdirSync(dir, { recursive: true })
@@ -57,31 +90,35 @@ export class DirectDownloads {
         debug('downloads folder', err)
       }
       if (!path) return
+      // many files at once from one page: the save window again (a browser asks before "multiple downloads")
+      let burst = this.bursts.get(wc)
+      if (!burst) this.bursts.set(wc, (burst = new SaveBurst()))
+      if (!burst.take()) return
       const key = path.toLowerCase()
       const picked = path
+      const url = item.getURL()
+      const referrer = wc.getURL()
       this.inFlight.add(key)
       item.setSavePath(picked)
       const id = this.next++
-      item.once('done', (_done, state) => {
+      // an interrupted download that cannot go on frees its name at once (Chromium removes the part that arrived)
+      item.on('updated', (_e, state) => {
+        if (state === 'interrupted' && !item.canResume()) this.inFlight.delete(key)
+      })
+      item.once('done', async (_done, state) => {
         this.inFlight.delete(key)
         const outcome = downloadOutcome(state)
-        const at = item.getSavePath() || picked
-        // a part of a file that did not arrive is not left behind (the path was free when it was picked)
-        if (outcome !== 'saved') {
-          try {
-            rmSync(picked, { force: true })
-          } catch {
-            // nothing was written, or it is gone already
-          }
-        }
         if (!outcome) return
+        const at = item.getSavePath() || picked
         if (outcome === 'saved') {
+          await markDownloaded(at, { url, referrer })
           this.saved.set(id, at)
           for (const old of this.saved.keys()) {
             if (this.saved.size <= REMEMBERED) break
             this.saved.delete(old)
           }
         }
+        // the saved name, "(1)" and all: the person has to know which file it is
         if (!wc.isDestroyed()) wc.send('bridge:download', { id, name: basename(at), ok: outcome === 'saved' } satisfies DownloadDone)
       })
     })

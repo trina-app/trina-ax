@@ -2,7 +2,19 @@
 // TC-4638): the name is not trusted, a file that is there is never replaced, the path stays inside the folder.
 import { describe, expect, test } from 'bun:test'
 import { posix, win32 } from 'node:path'
-import { DOWNLOAD_FALLBACK_NAME, DOWNLOAD_NAME_MAX_BYTES, downloadOutcome, pickDownloadPath, safeDownloadName } from '../../desktop/src/common/downloads'
+import {
+  DIRECT_SAVES_MAX,
+  DIRECT_SAVES_WINDOW_MS,
+  DOWNLOAD_FALLBACK_NAME,
+  DOWNLOAD_NAME_MAX_BYTES,
+  SaveBurst,
+  downloadOutcome,
+  pickDownloadPath,
+  quarantineValue,
+  runsCode,
+  safeDownloadName,
+  zoneIdentifierText,
+} from '../../desktop/src/common/downloads'
 
 describe('safeDownloadName', () => {
   test('an ordinary name is kept as it is', () => {
@@ -35,6 +47,12 @@ describe('safeDownloadName', () => {
     expect(safeDownloadName('nul.txt')).toBe('_nul.txt')
     expect(safeDownloadName('COM1.pdf')).toBe('_COM1.pdf')
     expect(safeDownloadName('console.log')).toBe('console.log')
+    expect(safeDownloadName('CONIN$')).toBe('_CONIN$')
+    expect(safeDownloadName('conout$.txt')).toBe('_conout$.txt')
+    expect(safeDownloadName('nul .txt')).toBe('_nul .txt')
+    expect(safeDownloadName('COM¹.pdf')).toBe('_COM¹.pdf')
+    expect(safeDownloadName('lpt9')).toBe('_lpt9')
+    expect(safeDownloadName('company.pdf')).toBe('company.pdf')
   })
   test('nothing usable: the fallback name', () => {
     for (const raw of ['', '   ', '///', '\\', undefined, null, 7, {}]) expect(safeDownloadName(raw)).toBe(DOWNLOAD_FALLBACK_NAME)
@@ -92,4 +110,70 @@ test('downloadOutcome: a cancel says nothing, anything else that is not complete
   expect(downloadOutcome('completed')).toBe('saved')
   expect(downloadOutcome('cancelled')).toBeNull()
   expect(downloadOutcome('interrupted')).toBe('failed')
+})
+
+describe('runsCode: these keep the save window', () => {
+  test('Mac and Windows types that run code', () => {
+    for (const n of ['x.app', 'run.command', 'a.tool', 'a.terminal', 'a.sh', 'a.zsh', 'a.bash', 'a.pkg', 'a.mpkg', 'a.dmg', 'a.jar', 'a.webloc', 'a.inetloc', 'a.fileloc', 'a.scpt', 'a.applescript', 'a.workflow', 'a.action'])
+      expect(runsCode(n)).toBe(true)
+    for (const n of ['a.exe', 'a.msi', 'a.msix', 'a.msixbundle', 'a.appx', 'a.appxbundle', 'a.bat', 'a.cmd', 'a.com', 'a.scr', 'a.ps1', 'a.psm1', 'a.vbs', 'a.vbe', 'a.js', 'a.jse', 'a.wsf', 'a.wsh', 'a.hta', 'a.lnk', 'a.url', 'a.scf', 'a.reg', 'a.cpl', 'a.inf', 'a.pif', 'a.application'])
+      expect(runsCode(n)).toBe(true)
+  })
+  test('the last extension decides', () => {
+    expect(runsCode('a.pdf.exe')).toBe(true)
+    expect(runsCode('a.exe.pdf')).toBe(false)
+  })
+  test('any case, trailing dots and spaces, a path or marks in front', () => {
+    expect(runsCode('SETUP.EXE')).toBe(true)
+    expect(runsCode('setup.Exe. . ')).toBe(true)
+    expect(runsCode('..\\..\\run.bat')).toBe(true)
+    expect(runsCode('invoice\u202Efdp.exe')).toBe(true)
+  })
+  test('documents and names with no extension go straight in', () => {
+    for (const n of ['report.pdf', 'sheet.xlsx', '견적서.hwp', 'photo.png', 'notes', 'archive.tar.gz', 'exe', 'app', 'a.json', '', undefined]) expect(runsCode(n)).toBe(false)
+  })
+})
+
+describe('SaveBurst: three direct saves in ten seconds from one page', () => {
+  test('the fourth within the window is refused, and allowed again once the window has passed', () => {
+    let t = 1_000_000
+    const b = new SaveBurst(() => t)
+    for (let i = 0; i < DIRECT_SAVES_MAX; i++) expect(b.take()).toBe(true)
+    expect(b.take()).toBe(false)
+    t += DIRECT_SAVES_WINDOW_MS - 1
+    expect(b.take()).toBe(false)
+    t += 1
+    expect(b.take()).toBe(true)
+  })
+  test('saves spread out are never refused', () => {
+    let t = 0
+    const b = new SaveBurst(() => t)
+    for (let i = 0; i < 20; i++) {
+      expect(b.take()).toBe(true)
+      t += 4000
+    }
+  })
+  test('refused tries do not count', () => {
+    let t = 0
+    const b = new SaveBurst(() => t)
+    for (let i = 0; i < 3; i++) b.take()
+    for (let i = 0; i < 5; i++) expect(b.take()).toBe(false)
+    t = DIRECT_SAVES_WINDOW_MS
+    expect(b.take()).toBe(true)
+  })
+})
+
+describe('the downloaded-from-the-internet mark', () => {
+  test('quarantine value: 0083, hex seconds, the app', () => {
+    expect(quarantineValue(1_700_000_000_123)).toBe('0083;6553f100;Trina AX;')
+    expect(quarantineValue(0, 'a;b')).toBe('0083;0;ab;')
+  })
+  test('zone text: zone 3, web addresses only, no user name or password', () => {
+    expect(zoneIdentifierText()).toBe('[ZoneTransfer]\r\nZoneId=3\r\n')
+    expect(zoneIdentifierText({ url: 'https://user:pw@team.example/api/files/1', referrer: 'https://team.example/rooms/2' })).toBe(
+      '[ZoneTransfer]\r\nZoneId=3\r\nReferrerUrl=https://team.example/rooms/2\r\nHostUrl=https://team.example/api/files/1\r\n',
+    )
+    for (const url of ['blob:https://team.example/abc', 'data:text/plain,hi', 'file:///etc/passwd', 'javascript:x', 'not a url', 'https://a.example/\r\nZoneId=0', 7])
+      expect(zoneIdentifierText({ url, referrer: url })).toBe('[ZoneTransfer]\r\nZoneId=3\r\n')
+  })
 })

@@ -24,7 +24,7 @@
   of `name (1).ext` … `name (999).ext` is taken, as browsers do.
 - **The notice is the page's own toast,** not a new component and not a system notification: "Saved to Downloads" with
   the saved name on the quiet second line and one action, **Show in folder**. A failed or interrupted download says
-  "Couldn't download {name}. Try again." and the part that arrived is removed. A cancel says nothing.
+  "Couldn't download {name}. Try again." A cancel says nothing.
 - **The page names no path.** The app tells the page `{ id, name, ok }` (`DesktopBridge.downloads.onDone`); Show in
   folder sends the number back (`downloads.show(id)`) and the app opens the folder with the file it saved under that
   number selected (the last 50; the Downloads folder itself when the file was moved since). A page cannot make the app
@@ -39,11 +39,29 @@
   - The in-app browser pane (other websites, the AI drives it): its session is another one and is not touched. A
     website saving files with no question, while the AI clicks, is a different decision.
   - No setting for another folder, no list of downloads, no progress: the lean version first.
-- **Risk taken:** a page of the team (or an artifact frame allowed to download) can now put a file into Downloads
-  without the person confirming a window, as any website can in a browser. The name cannot leave the folder or replace
-  a file, and the notice names every file saved.
+- **Risk taken:** a page of the team (or an artifact frame allowed to download) can put a file into Downloads without
+  the person confirming a window. A browser that does this guards it three ways: it marks the file as downloaded from
+  the internet (the Mac's quarantine, Windows' Mark of the Web), it warns before keeping a dangerous type, and it asks
+  before a page starts many downloads. Electron does none of these on its own (`setSavePath` writes no
+  `com.apple.quarantine`, checked with Electron 44), so the app does them:
+  - **Types that run code keep the save window** (`runsCode`): on the Mac `app command tool terminal sh zsh bash pkg
+    mpkg dmg jar webloc inetloc fileloc scpt applescript workflow action`, on Windows `exe msi msix msixbundle appx
+    appxbundle bat cmd com scr ps1 psm1 vbs vbe js jse wsf wsh hta lnk url scf reg cpl inf pif application`. The last
+    extension of the cleaned name decides, in any case (`a.pdf.exe` asks, `a.exe.pdf` does not).
+  - **Every saved file gets the mark** (`markDownloaded`): `com.apple.quarantine` (`0083;<time>;Trina AX;`, through
+    `xattr` with no shell) on the Mac, a `Zone.Identifier` stream with `ZoneId=3` and the http(s) addresses (never a
+    blob or data address, no user name or password) on Windows. Gatekeeper, SmartScreen and Office's Protected View
+    then treat it as they treat a browser's download. A failure to mark is logged, not shown.
+  - **Three direct saves in ten seconds from one page,** then the save window again until the ten seconds pass
+    (`SaveBurst`).
+
+  The name cannot leave the folder or replace a file, and the notice names every file saved. The notice says the saved
+  name, `report (1).pdf` included, because that is how the person finds the file; a page can tell from it that a file
+  of that name was already in Downloads. That is accepted: it learns a name it chose, not what the file holds.
+- **A failed download:** Chromium removes the part that arrived itself, so the app deletes nothing (it could otherwise
+  remove a file that is not its own). An interrupted download that cannot resume frees its name at once.
 - **Tests:** `tests/unit/e-desktop-downloads.test.ts` (names, numbering, the path stays inside, Windows paths, two at
-  once), `web/test/unit/desktop-downloads.test.ts` (the notice, the action by number, nothing without the bridge). By
+  once, types that run code, the save limit, the quarantine and zone text), `web/test/unit/desktop-downloads.test.ts` (the notice, the action by number, nothing without the bridge). By
   hand in the desktop app in dev: the same file twice, both names in the folder, the notice in light and dark.
   `MYCEL_DESKTOP_TEST_DOWNLOADS` names a stand-in folder in an unpacked app.
 - **Version impact:** patch.
