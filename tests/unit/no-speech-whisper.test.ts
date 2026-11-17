@@ -54,4 +54,15 @@ T('voice input with no speech, whisper-cli for real', () => {
       expect(await text('said.wav')).toMatch(want)
     }
   })
+  // review of TC-4581: quiet speech (peak -43 to -50 dBFS) was emptied though whisper was sure of it
+  test.skipIf(!fs.existsSync('/usr/bin/say') || !fs.existsSync('/usr/bin/afconvert'))('quiet words 30-36 dB down are kept: "Thanks.", "Thank you."', async () => {
+    for (const [words, down, want] of [['Thanks.', 30, /thank/i], ['Thank you.', 36, /thank/i]] as const) {
+      const aiff = path.join(dir, 'q.aiff')
+      expect(Bun.spawnSync(['/usr/bin/say', '-o', aiff, words]).exitCode).toBe(0)
+      expect(Bun.spawnSync(['/usr/bin/afconvert', '-f', 'WAVE', '-d', 'LEI16@16000', '-c', '1', aiff, path.join(dir, 'q-full.wav')]).exitCode).toBe(0)
+      const raw = fs.readFileSync(path.join(dir, 'q-full.wav')), d = raw.subarray(raw.indexOf('data') + 8)
+      write('q.wav', (i) => d.readInt16LE(i * 2) / 32768 * db(-down), d.length / 2 / 16000)
+      expect({ words, down, text: await text('q.wav') }).toMatchObject({ words, down, text: expect.stringMatching(want) })
+    }
+  })
 })

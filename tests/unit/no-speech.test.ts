@@ -93,6 +93,52 @@ describe('what the sound holds', () => {
   })
 })
 
+/** `wav` (the app's 16 kHz WAV) with every sample times `gain`, and white noise at `floorDb` dBFS added */
+const under = (w: Uint8Array, gain: number, floorDb: number | null = null) => {
+  const b = Buffer.from(w), r = rand(5)
+  for (let i = 44; i + 1 < b.length; i += 2) b.writeInt16LE(Math.max(-32768, Math.min(32767, Math.round(b.readInt16LE(i) * gain + (floorDb === null ? 0 : db(floorDb) * 32768 * r())))), i)
+  return b
+}
+const sayWav = (dir: string, words: string, voice: string[] = []) => {
+  const aiff = path.join(dir, 'a.aiff'), out = path.join(dir, 'a.wav')
+  expect(Bun.spawnSync(['/usr/bin/say', ...voice, '-o', aiff, words]).exitCode).toBe(0)
+  expect(Bun.spawnSync(['/usr/bin/afconvert', '-f', 'WAVE', '-d', 'LEI16@16000', '-c', '1', aiff, out]).exitCode).toBe(0)
+  // as the app's piece: a plain 44-byte header (pieceWav) with afconvert's samples
+  const raw = fs.readFileSync(out), d = raw.subarray(raw.indexOf('data') + 8)
+  return pieceWav(Float32Array.from({ length: d.length / 2 }, (_, i) => d.readInt16LE(i * 2) / 32768))
+}
+const canSay = fs.existsSync('/usr/bin/say') && fs.existsSync('/usr/bin/afconvert')
+
+describe('quiet speech is speech; a beep or noise at any level is not (review of TC-4581)', () => {
+  test.skipIf(!canSay)('real single words 30-40 dB down (peak -40 to -55 dBFS), with and without a room noise floor: speech, and a learned line on them is kept', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'no-speech-q-'))
+    try {
+      const ko = Bun.spawnSync(['/usr/bin/say', '-v', '?']).stdout.toString().includes('Yuna')
+      const words: [string, string[]][] = [['Thanks.', []], ['Thank you.', []], ['yes', []], ['ok', []], ['Minjun', []], ...(ko ? [['\uB124', ['-v', 'Yuna']], ['\uAC10\uC0AC\uD569\uB2C8\uB2E4', ['-v', 'Yuna']]] as [string, string[]][] : [])]
+      for (const [w, voice] of words) {
+        const loud = sayWav(dir, w, voice)
+        for (const down of [30, 36, 40]) for (const floor of [null, -75]) {
+          const s = soundOf(under(loud, db(-down), floor))!
+          expect({ w, down, floor, like: s.speechLike, silent: silent(s) }).toEqual({ w, down, floor, like: true, silent: false })
+          // whisper sure, or a word on the learned list ("Thanks", "감사합니다"): kept
+          expect(keepSpeech(said(w), s, false).text).toBe(w)
+        }
+      }
+    } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+  }, 120_000)
+  test('a beep or white noise at -30 to -55 dBFS, alone or over a room noise floor, is not speech: its learned line is dropped', () => {
+    for (const level of [-30, -40, -50, -55]) for (const floor of [null, -75, -70]) {
+      const pad = (f: (i: number) => number) => wav((i) => (i > 8000 && i < 16000 ? f(i) : 0), 1.5)
+      const b = soundOf(under(pad((i) => db(level) * Math.sin(2 * Math.PI * 1000 * i / RATE)), 1, floor))!
+      expect({ level, floor, beep: b.speechLike }).toEqual({ level, floor, beep: false })
+      expect(keepSpeech(said('Thank you.'), b, false).text).toBe('')
+      const n = soundOf(under(noise(2, level), 1, floor))!
+      expect({ level, floor, noise: n.speechLike }).toEqual({ level, floor, noise: false })
+      expect(keepSpeech(said('you'), n, false).text).toBe('')
+    }
+  })
+})
+
 describe('keepSpeech', () => {
   test('whisper\'s marks for sound with no words are never words', () => {
     for (const t of ['(beep)', '[BLANK_AUDIO]', '(Music)', '[음악]', '♪', '♪ ♪', '*click*', '（拍手）']) expect(NOT_WORDS.test(t), t).toBe(true)
@@ -148,19 +194,35 @@ describe("whisper's own signals", () => {
     expect(whisperUnsure(r)).toBe(true)
     expect(keepSpeech(r, soundOf(noise(2, -45)), whisperUnsure(r)).text).toBe('')
     const t = parseWhisperJson(JSON.stringify(thanksJson))
-    expect(t.sure).toBeCloseTo(0.85, 3)
+    expect(t.sure).toBeCloseTo(0.92, 3)
     expect(whisperUnsure(t)).toBe(false)
     expect(keepSpeech(t, soundOf(speechLike(3)), whisperUnsure(t)).text).toBe('- Thank you.')
+    // CJK: whisper-cli keeps the probability of a character's first byte piece, which can be low on a word it was sure
+    // of; the mean of the first three letters decides then (a loop over noise stays unsure: 0.06, 0.07, 0.84)
+    const cjk = { result: { language: 'zh' }, transcription: [{ offsets: { from: 0, to: 900 }, text: ' 好的', tokens: [tok('[_BEG_]', 0.9), tok(' 好', 0.12), tok('的', 0.95), tok('。', 0.9)] }] }
+    expect(whisperUnsure(parseWhisperJson(JSON.stringify(cjk)))).toBe(false)
+    const loop = { result: { language: 'nn' }, transcription: [{ offsets: { from: 0, to: 3000 }, text: ' ḍ ḍ ḍ ḍ', tokens: [tok(' ḍ', 0.06), tok(' ḍ', 0.07), tok(' ḍ', 0.84), tok(' ḍ', 0.87)] }] }
+    expect(whisperUnsure(parseWhisperJson(JSON.stringify(loop)))).toBe(true)
+    const geo = { result: { language: 'nn' }, transcription: [{ offsets: { from: 0, to: 2000 }, text: ' ლლლ', tokens: [tok(' ლ', 0.08), tok('ლ', 0.48), tok('ლ', 0.84)] }] }
+    expect(whisperUnsure(parseWhisperJson(JSON.stringify(geo)))).toBe(true)
     // -oj without tokens: no signal
     expect(whisperUnsure(parseWhisperJson(JSON.stringify({ transcription: [{ offsets: { from: 0, to: 1 }, text: ' hi' }] })))).toBe(false)
   })
   test('OpenRouter: a line whisper calls no speech is dropped; a high no_speech_prob or a low avg_logprob is unsure', () => {
     const seg = (text: string, no_speech_prob: number, avg_logprob: number) => ({ start: 0, end: 1, text, no_speech_prob, avg_logprob })
-    const r = parseOpenRouter({ text: ' Thank you. Send it', segments: [seg(' Thank you.', 0.9, -1.3), { ...seg(' Send it', 0.02, -0.2), start: 1, end: 2 }] }, { language: 'en', durationSec: 2 })
+    const raw = parseOpenRouter({ text: ' Thank you. Send it', segments: [seg(' Thank you.', 0.9, -1.3), { ...seg(' Send it', 0.02, -0.2), start: 1, end: 2 }] }, { language: 'en', durationSec: 2 })
+    // the parse keeps every line (a file read's transcript is not changed); voice input and meeting pieces drop it
+    expect(raw.text).toBe('Thank you. Send it')
+    expect(raw.segments).toHaveLength(2)
+    const r = openRouterSpeech(raw, soundOf(speechLike(4)))
     expect(r.text).toBe('Send it')
     expect(r.segments).toEqual([{ start: 1, end: 2, text: 'Send it' }])
-    expect(r.noSpeech).toBe(0.02)
-    expect(openRouterUnsure(r)).toBe(false)
+    // the least likely no-speech line: one line of silence after speech does not make the answer unsure
+    expect(raw.noSpeech).toBe(0.02)
+    const tail = parseOpenRouter({ text: 'Send it. Thank you.', segments: [seg('Send it.', 0.02, -0.2), { ...seg('Thank you.', 0.8, -0.6), start: 1, end: 2 }] }, { language: 'en', durationSec: 2 })
+    expect(tail.noSpeech).toBe(0.02)
+    expect(openRouterUnsure(tail)).toBe(false)
+    expect(openRouterSpeech(tail, soundOf(beep())).text).toBe('Send it. Thank you.')
     // a hallucination whisper was fairly sure of: kept by the parse, dropped on a beep, kept on speech
     const h = parseOpenRouter({ text: 'Thank you.', segments: [seg('Thank you.', 0.7, -0.5)] }, { language: 'en', durationSec: 1 })
     expect(h.text).toBe('Thank you.')
