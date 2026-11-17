@@ -184,7 +184,7 @@ di bagian atas mengumpulkan pesan yang menyebut nama Anda dan utas yang Anda iku
 
 Untuk mengirim pesan ke satu orang, klik foto atau namanya di samping pesan (@mention orang itu, atau barisnya di daftar anggota percakapan, juga bisa). Sebuah kartu kecil terbuka dengan nama dan jabatannya: **Kirim pesan** membuka obrolan 1:1 Anda dengan orang itu. Di ponsel, kartu terbuka dari bawah layar. Kartu Anda sendiri berisi **Edit profil**. Aplikasi dan orang yang sudah tidak ada di tim tidak punya kartu; tamu hanya bisa mengirim pesan ke orang di obrolan grup atau proyeknya.
 
-Untuk mengajak orang dari luar tim, pilih **Undang tamu** saat Anda menambahkan orang ke obrolan grup atau proyek. [Baca tentang tamu](guests.md).
+Untuk mengajak orang dari luar tim, pilih **Undang tamu** saat Anda menambahkan orang ke saluran privat, obrolan grup, atau proyek. [Baca tentang tamu](guests.md).
 
 ![Daftar Obrolan: Mentions & threads, Saluran dengan Everyone dan Marketing, lalu Pesan langsung dengan satu obrolan grup dan satu pesan langsung](../../images/chats/rooms-list.webp "Daftar Obrolan")
 
@@ -220,8 +220,8 @@ lalu klik **✕** (atau pilih **Hapus pratinjau** di menu pesan).
 
 ### Tamu
 
-Orang dari luar tim, misalnya agensi atau klien, bisa bergabung ke obrolan grup atau proyek sebagai
-tamu, dan berada di paling banyak satu obrolan grup dan satu proyek. Di obrolan grup, buka anggotanya (nama di bagian atas), **Undang orang**, lalu **Undang tamu**; di
+Orang dari luar tim, misalnya agensi atau klien, bisa bergabung ke saluran privat, obrolan grup, atau proyek sebagai
+tamu, dan berada di paling banyak satu saluran privat atau obrolan grup, dan satu proyek. Di saluran privat atau obrolan grup, buka anggotanya (nama di bagian atas), **Undang orang**, lalu **Undang tamu**; di
 proyek, **Tambah orang** di **Anggota**. Tuliskan untuk siapa tautan itu dan apakah ia mendapat AI, lalu **Buat tautan**. Tautan itu
 hanya bisa dipakai satu kali: kirimkan sendiri kepadanya.
 

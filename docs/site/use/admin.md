@@ -23,7 +23,7 @@ permissions, invite your team, prepare a team skill, make the first backup. A fi
 | **Activity** | Usage, Activity log |
 | **Team** | Team settings, System |
 
-**Members & invites** also lists the guests: people from outside the team, each in one group chat and one project at most. [Read about guests](guests.md).
+**Members & invites** also lists the guests: people from outside the team, each in one private channel or group chat, and one project, at most. [Read about guests](guests.md).
 
 :::note
 Earlier versions had the AI accounts on their own **AI connections** page, next to **AI engines**. Both are one
@@ -49,7 +49,7 @@ Claude or OpenAI account. Each row shows whether that engine is ready.
 #### Invite the team
 Start with a small pilot group, then confirm roles and folder access. **Members & invites** also lists the team's [guests](#guests).
 Under the list, **Invite links** shows only the links that still work: the team invite link and invite links nobody
-has used yet. A used or expired link, or a guest link whose group chat or project is gone, leaves the list; who joined is in the member list and in the [Activity log](#activity-log).
+has used yet. A used or expired link, or a guest link whose private channel, group chat or project is gone, leaves the list; who joined is in the member list and in the [Activity log](#activity-log).
 
 #### Add a first skill
 Copy a starter skill and review its result against the sources. [Read about skills](team-skills.md).
@@ -83,11 +83,11 @@ was last used. The **⋯** menu of an account has Check again, Move up / down, r
 
 ## Guests
 
-**Admin › Members & invites** ends with **Guests**: people from outside the team, each in a group chat and a project at most, who
+**Admin › Members & invites** ends with **Guests**: people from outside the team, each in a private channel or group chat and a project at most, who
 do not take seats. Each row says where the guest is and which AI they have. Its **⋯** menu has **Change AI** (no AI,
 their own sign-in, or a team AI account with a monthly limit), **Make team member** and **Remove guest**. Members invite
-guests themselves from a group chat or a project ([Guests](chats-and-projects.md#guests)). Owners and admins can
-also choose **Invite people** › **Guest** here and pick the one group chat or project ([Guests: From Admin](guests.md#from-admin)). A team with no guests
+guests themselves from a private channel, a group chat or a project ([Guests](chats-and-projects.md#guests)). Owners and admins can
+also choose **Invite people** › **Guest** here and pick the one private channel, group chat or project ([Guests: From Admin](guests.md#from-admin)). A team with no guests
 has no **Guests** section; pick **Guests** in the list of roles to check. On Admin **Home**, the **Guests** card opens
 Members & invites with only the guests listed.
 

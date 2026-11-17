@@ -38,6 +38,11 @@ export const ROOM_SPECS: Record<string, Spec> = {
       if (dm.status !== 403) throw new Error(`a DM was renamed: ${dm.status}`)
       const g = await w.as[who].req('PATCH', `/api/rooms/${w.ids.groupRoom}`, { name: C.groupName })
       if (g.status !== 200) throw new Error(`a group chat member could not rename it: ${g.status}`)
+      // a group room with a name is a private channel and keeps one: '' or null is refused (TC-4554)
+      for (const name of ['', null]) {
+        const e = await w.as[who].req('PATCH', `/api/rooms/${w.ids.groupRoom}`, { name })
+        if (e.status !== 400) throw new Error(`a private channel's name was emptied: ${e.status}`)
+      }
       // my own notification level for the room (docs/DECISIONS.md "대화방 알림 설정"): a member sets it, back to the default
       for (const notifyLevel of ['mentions', null]) {
         const n = await w.as[who].req('PATCH', `/api/rooms/${w.ids.dmRoom}`, { notifyLevel })

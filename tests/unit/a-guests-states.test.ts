@@ -180,7 +180,7 @@ test('a removed guest: switched on while their place is there; said plainly why 
   expect((await guestRow(owner, g2.id)).guest?.placeOut).toBe('gone')
   const r2 = await owner.try('PATCH', `/api/admin/users/${g2.id}`, { status: 'active' })
   expect(r2.body.error.params).toMatchObject({ reason: 'guest_no_place', placeOut: 'gone' })
-  expect(AUTH_MESSAGES.guestNoPlaceGone.en).toBe("Their group chat or project is gone, so there's nothing to bring them back to. Invite them again or make them a team member.")
+  expect(AUTH_MESSAGES.guestNoPlaceGone.en).toBe("Their private channel, group chat or project is gone, so there's nothing to bring them back to. Invite them again or make them a team member.")
   // the way out it offers works: made a team member (a member needs no place), on again
   expect(await owner.call('POST', `/api/admin/users/${g2.id}/convert-guest`)).toMatchObject({ role: 'member', status: 'active' })
 })

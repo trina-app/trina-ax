@@ -166,7 +166,7 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
       setBusy(false)
     }
   }
-  if (guestInvite && room) return <GuestInviteDialog place={{ kind: 'room', id: room.id, name: roomTitle(room) }} onClose={onClose} onCancel={() => setGuestInvite(false)} />
+  if (guestInvite && room) return <GuestInviteDialog place={{ kind: 'room', id: room.id, name: roomTitle(room), privateChannel: isPrivateChannel(room) }} onClose={onClose} onCancel={() => setGuestInvite(false)} />
   if (guestInvite && !inviting) return <GuestInviteFlow onClose={onClose} onCancel={() => setGuestInvite(false)} />
 
   const action = inviting ? t(room && isPrivateChannel(room) ? 'rooms.info.invitePrivate' : 'rooms.info.addPeople') : channel ? t('rooms.picker.createPrivate') : t('rooms.picker.start')
@@ -196,7 +196,9 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
         <label className="relative block">
           <span className="sr-only">{t('rooms.people.search')}</span>
           <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
-          <input autoFocus={!channel} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('rooms.people.search')} className={`${inputCls} pl-9`} data-testid="people-search" />
+          {/* New message (and Add people): the cursor starts here, not on the dialog's Close (the dialog focuses
+              [data-autofocus] first); Create a channel starts on its name */}
+          <input autoFocus={!channel} data-autofocus={channel ? undefined : true} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('rooms.people.search')} className={`${inputCls} pl-9`} data-testid="people-search" />
         </label>
       </div>
       {(mayInviteGuest || mayInviteGuestAnywhere) && (

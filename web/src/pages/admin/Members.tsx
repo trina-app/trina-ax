@@ -65,6 +65,7 @@ import { GuestChoiceButtons, GuestChoiceForm, GuestChoicePanel, InviteKindTabs, 
 import { BudgetForm, budgetExceeded, budgetLimitText, budgetUsedText, loadBudgets, personBudgets } from './BudgetForm'
 import { inviteGuestName } from '../../lib/guests'
 import { useProjects } from '../../store/projects'
+import { isPrivateChannel } from '../../lib/rooms'
 import { useRooms } from '../../store/rooms'
 import { useRoomTitle } from '../../components/rooms/RoomIcon'
 
@@ -163,7 +164,9 @@ export default function Members() {
     // the place's name comes with the link (Invite.guestPlace.name; an older server sent a project's only); a room
     // with no name of its own: its title when I am in it (guest walkthrough S8)
     const name = pl.name || (pl.kind === 'project' ? projectsById[pl.id]?.name : room && roomTitle(room))
-    return name ? t(pl.kind === 'room' ? 'guest.admin.room' : 'guest.admin.project', { place: name }) : t(pl.kind === 'room' ? 'guest.admin.inviteRoom' : 'guest.admin.inviteProject')
+    // the server's name is a room's own (a private channel); a title from my rooms list is a group DM's unless it has one
+    const groupDm = pl.kind === 'room' && !pl.name && !!room && !isPrivateChannel(room)
+    return name ? t(pl.kind === 'room' ? (groupDm ? 'guest.admin.roomGroup' : 'guest.admin.room') : 'guest.admin.project', { place: name }) : t(pl.kind === 'room' ? 'guest.admin.inviteRoom' : 'guest.admin.inviteProject')
   }
   // only the links that still work: a used or expired one says nothing new (the person is in the lists below)
   const openInvites = invites.data && openInviteLinks(invites.data)

@@ -420,11 +420,18 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
             <ChevronLeft size={20} aria-hidden />
           </Link>
         </Tooltip>
-        {/* the room's mark beside its name: computers only (on a phone the name is enough; a DM's picture is on the
-            person's messages) */}
+        {/* the room's mark beside its name. A phone shows it too, small (lock for a private channel, # for a team
+            channel, the people mark for everyone and a group DM), so a private channel reads as one at 390; it sits in
+            the back button's empty right padding (taps go through to it). A DM has none there: its picture is on the
+            person's messages and the name is enough */}
         {room && (
           <span className="flex shrink-0 max-md:hidden">
             <RoomIcon room={room} size={24} presence />
+          </span>
+        )}
+        {room && room.kind !== 'dm' && (
+          <span className="pointer-events-none -ml-1.5 flex shrink-0 md:hidden" data-testid="room-header-icon">
+            <RoomIcon room={room} size={16} />
           </span>
         )}
         {/* the name opens the room's info (its name, 초대하기, the members); beside it how many are in it, and
