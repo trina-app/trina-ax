@@ -1,5 +1,5 @@
-// Voice input's pieces in a message box (lib/useVoiceInput.ts), the same in the AI chat's Composer and a room's or
-// thread's RoomComposer:
+// Voice input's pieces in a message box (lib/useVoiceInput.ts), the same in the AI chat's Composer, a room's or
+// thread's RoomComposer and the ✦ side chat's box (rooms/SideChatPanel.tsx):
 // - VoiceBar: stands where the box was while recording: ✕ (cancel), the red dot, a short line (how a hold ends; once,
 //   for a clicked recording on a computer, that Space can be held), the input level, the time (the time left in the
 //   last 30 seconds), ✓ (the words go to the box).
@@ -88,7 +88,8 @@ export function VoiceMic({ voice, mic, disabled = false, tip = false, className 
   )
 }
 
-export function VoiceHeld({ text, className, style, testId }: { text: string; className?: string; style?: CSSProperties; testId: string }) {
+/** `textClass`: the box's own text size where it is not the reading size (the ✦ side chat's box: text-sm) */
+export function VoiceHeld({ text, className, style, testId, textClass = 'text-reading leading-reading' }: { text: string; className?: string; style?: CSSProperties; testId: string; textClass?: string }) {
   const el = useRef<HTMLParagraphElement>(null)
   // the newest words stay in sight when the text is taller than the box
   useLayoutEffect(() => {
@@ -96,7 +97,7 @@ export function VoiceHeld({ text, className, style, testId }: { text: string; cl
     if (p) p.scrollTop = p.scrollHeight
   }, [text])
   return (
-    <p ref={el} aria-hidden style={style} className={clsx('overflow-hidden text-reading leading-reading break-words whitespace-pre-wrap', className)} data-testid={testId}>
+    <p ref={el} aria-hidden style={style} className={clsx('overflow-hidden break-words whitespace-pre-wrap', textClass, className)} data-testid={testId}>
       {text}
     </p>
   )
