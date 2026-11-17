@@ -242,6 +242,8 @@ export interface VersionReads {
 export const VERSION_DIFF_MAX_CHARS = 8000
 /** ...and the most text of either side that is compared at all (above it: "too large to compare") */
 export const VERSION_DIFF_TEXT_MAX = 2 * 1024 * 1024
+/** ...and the most bytes of a plain text file (either side) that are read for it */
+export const VERSION_DIFF_BYTES_MAX = 6 * 1024 * 1024
 const NO_VERSIONS = (rel: string) => `'${rel}': no earlier versions are kept that you can see. The file has not been overwritten since it was made, or its earlier versions are not available to you.`
 
 /** A read made by a file's link names the file by that link, not by its path: only in our own words around the file
@@ -557,8 +559,11 @@ export class FileService {
       for (const p of places ?? []) ctx.files.readPaths.add(p)
       let oldBytes: Uint8Array | 'gone' | 'large' = 'gone'
       // the stored copy can be gone or unreadable (the history store's own errors) or over the read limit: the list stays
-      if (places) try { oldBytes = this.versions!.bytes(ctx.user.id, base.id, readMaxBytes()) } catch (e) { if (e instanceof ToolError && /too large/.test(e.message)) oldBytes = 'large' }
-      if (oldBytes === 'gone') diff = `Changes (${label}): the content of version ${base.version} is no longer kept, so it cannot be compared.`
+      // a plain text file is read whole on both sides: over the cap by its stored size, not read at all
+      if (places && !isOffice(r.rel) && Math.max(r.st!.size, base.size) > VERSION_DIFF_BYTES_MAX) oldBytes = 'large'
+      else if (places) try { oldBytes = this.versions!.bytes(ctx.user.id, base.id, readMaxBytes()) } catch (e) { if (e instanceof ToolError && /too large/.test(e.message)) oldBytes = 'large' }
+      if (!places) diff = `Changes (${label}): could not be compared (where version ${base.version} was saved cannot be checked now, e.g. its folder is in the trash); only the list above.`
+      else if (oldBytes === 'gone') diff = `Changes (${label}): the content of version ${base.version} is no longer kept, so it cannot be compared.`
       else if (oldBytes === 'large') diff = `Changes (${label}): the file is too large to compare here; only the list above.`
       else try {
         const now = await extractText(r.rel, readRegular(r.abs, readMaxBytes(), r.st).bytes, tools, ctx.signal)

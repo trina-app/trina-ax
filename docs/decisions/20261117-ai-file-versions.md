@@ -41,11 +41,20 @@
 - **Read scope:** the compared version's text is shown, so the places it was saved in (the path at save time and the
   live path of its folder) join the turn's read scope too. A file moved out of a narrower folder then keeps that
   folder's audience for a later save, room post or share.
+  - A version whose folder is in the trash is listed but not compared. That folder's rules are put aside with it, and
+    the old path alone would be judged by today's rules (often the folder above, which everyone can see). This fails
+    closed.
+  - The connector checks each read-scope path for read access. Those paths may no longer exist, and a folder on the
+    way may be gone too. Such a place is taken as recorded, still only where the folder rules let the person read.
+  - In safe-operations mode, publishing an artifact after a read with versions asks for a plain read first, as it
+    already does after grep.
 - **Edge cases:** the file list, a file link and a file in a shared folder are resolved first, as a plain read does.
   The file list has no versions, so it answers "no earlier versions", never "not found". The list of versions is always
   given; only the comparison is left out, with a plain reason, when:
   - the old version's stored copy is gone;
-  - either side's text is over 2 MB;
+  - either side's text is over 2 MB, or a plain text file is over 6 MB (checked by its stored size before anything is
+    read);
+  - where the version was saved cannot be checked now ("could not be compared");
   - the file is binary;
   - the changed part is too long to compare line by line. Then it is shown whole as removed and added, and the result
     says the counts mean nothing.
@@ -60,7 +69,9 @@
   - a Word file's text changes;
   - a file moved out of a narrower folder (its old place joins the read scope; a member who cannot read that place sees
     only later versions);
-  - a version whose folder is in the trash;
+  - a version whose folder is in the trash (hidden from a member; listed but not compared for an admin);
+  - through the connector (`tests/unit/remote-mcp-tools.test.ts`): a file moved out of a personal folder (the read works,
+    and a wider save is refused afterwards), and a whole folder moved;
   - a binary file, a file too large to compare, and a version whose stored copy is gone;
   - a change too long to compare line by line.
 

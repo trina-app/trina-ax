@@ -1884,11 +1884,15 @@ export class TeamFiles {
    * Where a version's content was saved, as team paths for a turn's read scope (the AI's read with `versions` shows
    * its text): the path at save time and the live path of the folders row it was judged by (a folder renamed since
    * keeps its rules under the new name; a folder in the trash stands for the path it had). Paths under the system
-   * folder are left out. Only for a version the caller may see (versionRow).
+   * folder are left out. Only for a version the caller may see (versionRow). Throws for a version whose folder is in
+   * the trash (fail closed: its audience cannot be named by a live path).
    */
   versionPlaces(userId: string, versionId: string): string[] {
     const user = this.principal(userId)
     const v = this.versionRow(user, this.rules(), versionId)
+    // its folder is in the trash: that folder's rules are parked, and the old path would be judged by today's rules
+    // (often the folder above, everyone): no place can stand for its audience, so the caller does not compare it
+    if (this.versionInTrash(v)) throw new ToolError('the folder of this version is in the trash', 'folder_in_trash')
     const out = new Set<string>()
     if (v.path_at_save) out.add(v.path_at_save)
     const f = v.folder_id ? this.folderLivePath(v.folder_id) : null

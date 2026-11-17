@@ -157,6 +157,14 @@ describe('read with versions (TC-4547)', () => {
     const r = await read('alice', { file_path: out, versions: true })
     expect(r.isError).toBe(false)
     expect(r.text).not.toContain('pay A')
+    // an admin sees the list, but the version is not compared: its folder's audience is parked in the trash, and the
+    // old path alone would be judged by today's rules (fail closed)
+    const c = await read('carol', { file_path: out, versions: true })
+    expect(c.isError).toBe(false)
+    expect(c.text).toContain('version 1')
+    expect(c.text).toMatch(/could not be compared/)
+    expect(c.text).not.toContain('-pay A')
+    expect([...c.files.readPaths].some((p) => p.includes('salaries'))).toBe(false)
   })
 
   test('a binary file, a very large one, and a version whose stored copy is gone keep the list', async () => {
@@ -175,6 +183,11 @@ describe('read with versions (TC-4547)', () => {
     const g = await read('alice', { file_path: big, versions: true })
     expect(g.isError).toBe(false)
     expect(g.text).toMatch(/too large to compare/)
+    // a plain text file over 6 MB is not read at all for the comparison
+    const huge = 'shared/qa/huge.txt'
+    saveVersion(A.ctx.db, A.team, huge, Buffer.from('a\n'), { userId: 'erin', turnId: null })
+    fs.writeFileSync(path.join(A.team, ...huge.split('/')), Buffer.alloc(7 * 1024 * 1024, 98))
+    expect((await read('alice', { file_path: huge, versions: true })).text).toMatch(/too large to compare/)
 
     const gone = 'shared/qa/gone.md'
     await save('alice', gone, 'old\n', null)
