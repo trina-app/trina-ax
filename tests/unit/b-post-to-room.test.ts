@@ -356,6 +356,14 @@ describe('where it may not post', () => {
     expect(side).toContain('"스레드에 보내기"')
     expect(side).not.toContain('do not say you posted anything')
     expect(sideRoomSection({ id: 'r', kind: 'team', name: 'design' }, 'ko')).toContain('do not say you posted anything')
+    // the box's "Looking at this thread" chip (docs/decisions/20261117-thread-plus-trina.md): the line it puts on a
+    // question means that thread, read with room_read; a question without it is about the room
+    for (const post of [true, false]) {
+      const s = sideRoomSection({ id: 'r', kind: 'team', name: 'design' }, 'en', post)
+      expect(s).toContain('A question whose first line is "> 🧵 <who> · <when> (thread_id <id> in this room)" was asked while the user had that thread open beside this chat')
+      expect(s).toContain('Read it with room_read and that thread id before you answer')
+      expect(s).toContain('A question without that line is about the room as a whole.')
+    }
   })
 })
 

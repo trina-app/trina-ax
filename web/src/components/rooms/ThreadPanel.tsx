@@ -9,7 +9,8 @@
 // the focus and the end of the thread is in sight. A thread I cannot see (I joined after its root, it is gone) says so.
 // `alone`: a message that cannot have a thread (an AI answer only its asker sees), shown by itself from what this window
 // has, with no reply count and no box. `closeX`: the ✕ at every width, never the phone's ‹ (the file viewer's sheet on a
-// phone, which closes back to the file).
+// phone, which closes back to the file). `covered`: under the side chat (pages/Room.tsx, where one panel fits): nothing
+// in it is marked read.
 import clsx from 'clsx'
 import { ChevronLeft, Loader2, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
@@ -37,7 +38,7 @@ const ALONE_GONE = new ApiError(404, { code: 'not_found', message: '' })
 /** `highlight`: a message a link points at (an Inbox row), the root or a reply, scrolled to and marked once. `frame`
  * false: the column around it is the caller's (RoomSideColumn). `alone`: `rootId` is a message without a thread, shown
  * by itself. */
-export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose, onAskTrina, onAskFile, focusBox = false, highlight = null, frame = true, alone = false, closeX = false }: { roomId: string; rootId: string; roomTitle: string; members: UserRef[]; meId: string | null; onClose: () => void; onAskTrina?: (m: RoomMessage, ask?: string) => void; onAskFile?: (seed: SideSeed) => void; focusBox?: boolean; highlight?: string | null; frame?: boolean; alone?: boolean; closeX?: boolean }) {
+export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose, onAskTrina, onAskFile, focusBox = false, highlight = null, frame = true, alone = false, closeX = false, covered = false }: { roomId: string; rootId: string; roomTitle: string; members: UserRef[]; meId: string | null; onClose: () => void; onAskTrina?: (m: RoomMessage, ask?: string) => void; onAskFile?: (seed: SideSeed) => void; focusBox?: boolean; highlight?: string | null; frame?: boolean; alone?: boolean; closeX?: boolean; covered?: boolean }) {
   const t = useT()
   const locale = useLocale()
   // a DM whose other person left the team: the thread reads, nobody writes in it (pages/Room.tsx says so under the room)
@@ -71,14 +72,14 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
   const tryRead = useCallback(() => {
     const el = scroller.current
     const tv = alone ? undefined : useRooms.getState().threadViews[placeKey(roomId, rootId)]
-    if (!el || !tv || tv.loading || !tv.root) return
+    if (!el || !tv || tv.loading || !tv.root || covered) return
     // on screen and looked at (the phone app: on screen; lib/attention.ts)
     if (!lookingAt()) return
     if (el.scrollHeight - el.scrollTop - el.clientHeight > 80) return
     // my position in a thread I follow (the server leaves it alone when I do not follow it)
     const seq = newestSeq(tv.replies)
     if (seq > 0) void useRooms.getState().markThreadRead(roomId, rootId, seq)
-  }, [roomId, rootId, alone])
+  }, [roomId, rootId, alone, covered])
   useEffect(() => {
     tryRead()
   }, [tryRead, last?.seq, root?.thread?.newReplies, view?.loading])

@@ -12,11 +12,16 @@
 // A thread (/rooms/:roomId/t/:messageId, components/rooms/ThreadPanel.tsx) opens beside the room on computers and over
 // it on phones; while threads I follow have new replies, a small thread mark in the header opens the newest of them.
 // Until it is closed or ✦ is used, one line under the header says what ✦ is (components/rooms/RoomAskHint.tsx).
-// ✦ opens my Trina side chat (components/rooms/SideChatPanel.tsx) in the same place: one of the two at a time, in the
-// room's right column (components/rooms/RoomSideColumn.tsx). Which one shows is in the rooms store (side), so the file
-// viewer can start the same way. Its ✕ (‹ on a phone), ✦ again, leaving the room and the thread that took its place
-// closing close the side chat: the next ✦ opens it afresh (store/sideChats.ts open). ✦ while that thread is open brings
-// the same chat back, and so does ✦ after 보기 under an answer opened the thread (SideChatPanel.tsx threadClosedOn).
+// ✦ opens my Trina side chat (components/rooms/SideChatPanel.tsx) on the room's right too (components/rooms/
+// RoomSideColumn.tsx). A thread and the side chat show together (docs/decisions/20261117-thread-plus-trina.md;
+// lib/roomColumns.ts): room, thread, side chat as three columns where the page's row holds them (the conversation list
+// folds away first: components/rail/railPanel.ts); in a narrower row the thread and the side chat share it half and
+// half over the room, which waits under them; where only one panel fits (a sheet, a phone) the side chat is over the
+// thread and its ✕ or ‹ goes back to it. With a thread open the side chat's box says it is looking at that thread
+// (SideChatPanel.tsx `thread`). Whether the side chat shows is in the rooms store (side), so the file viewer can start
+// the same way. Its ✕ (‹ on a phone), ✦ again and leaving the room close the side chat: the next ✦ opens it afresh
+// (store/sideChats.ts open). Where only one panel fits, a thread that opens takes its place (✦ brings the same chat
+// back), and that thread closing closes it (SideChatPanel.tsx threadClosedOn).
 // Beside the bell, the room's "⋯" (components/rooms/RoomMenu.tsx: 알림 설정, 이름 바꾸기 for those who may, 링크 복사,
 // and 대화방 나가기 or 숨기기 by kind). A room I hid opens all the same (a link, a notice, the full list) and is shown again by opening it
 // (docs/DECISIONS.md "대화 숨기기").
@@ -32,14 +37,18 @@ import { isUuid7, type RoomMember, type RoomMessage } from '@mycel/shared/api'
 import { isApiError } from '../lib/api'
 import { lookingAt, onWindowFocus } from '../lib/attention'
 import { readUpTo, roomEmptyKey, threadClosing, threadOpening } from '../lib/rooms'
+import { roomColumns, useElementWidth } from '../lib/roomColumns'
+import { getSidePanel } from '../lib/sidePanel'
+import { PANEL_ALWAYS_BOTH_PX } from '../components/rail/railPanel'
+import { PANEL_ID } from '../components/panels/PanelFrame'
 import { useBackLink } from '../lib/back'
 import { useOverlayEntry } from '../lib/backCloses'
 import { holdPlace, listPlace, restorePlace, ROOM_ROW, useStickToBottom } from '../lib/stickToBottom'
 import { useT } from '../i18n'
 import { usePeople, usePeopleList, useReadPeopleFor } from '../store/people'
-import { keptFor, keptPlace, useRooms, type PendingSend, type RoomPlace } from '../store/rooms'
+import { findMessage, keptFor, keptPlace, placeKey, useRooms, type PendingSend, type RoomPlace } from '../store/rooms'
 import { useMe } from '../store/session'
-import { useSideChats } from '../store/sideChats'
+import { sideChatOf, useSideChats } from '../store/sideChats'
 import { MembersDialog } from '../components/rooms/MembersDialog'
 import { PeoplePicker, type PickerMode } from '../components/rooms/PeoplePicker'
 import { RoomComposer } from '../components/rooms/RoomComposer'
@@ -51,7 +60,7 @@ import { mayManageApps, useRoomApps } from '../store/roomApps'
 import { isAppService } from '../lib/roomApps'
 import { RoomNotifyMenu, roomNotify } from '../components/rooms/RoomNotifyMenu'
 import { ThreadPanel } from '../components/rooms/ThreadPanel'
-import { roomLeft, SideChatPanel, threadClosedOn, type SideSeed } from '../components/rooms/SideChatPanel'
+import { handOffDone, handOffToThread, roomLeft, SideChatPanel, threadClosedOn, type SideSeed, type SideThread } from '../components/rooms/SideChatPanel'
 import { RoomSideColumn } from '../components/rooms/RoomSideColumn'
 import { RoomAskHint, useRoomAskHint } from '../components/rooms/RoomAskHint'
 import { AiMark } from '../components/rooms/AiFace'
@@ -85,8 +94,12 @@ const NO_PENDING: PendingSend[] = []
 const ROOM_ROW_ID = messageDomId('')
 const ROOM_PLACE_ROWS = `[id^="${ROOM_ROW_ID}"]`
 
-/** the thread or side chat as a sheet over the room (a narrow computer window) */
+/** the thread or side chat as a sheet over the room (a narrow computer window), or the side chat over the thread
+ * where only one panel fits */
 const SHEET = 'absolute inset-0 z-20 border-l-0! shadow-xl'
+/** the thread and the side chat half and half over the room (a row too narrow for three columns) */
+const PAIR_THREAD = 'absolute inset-y-0 left-0 z-20 w-1/2 border-l-0!'
+const PAIR_SIDE = 'absolute inset-y-0 right-0 z-20 w-1/2'
 
 export default function RoomPage() {
   const { roomId = '', messageId } = useParams()
@@ -133,20 +146,69 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   useReadPeopleFor(memberIds)
   const [missing, setMissing] = useState(false)
   const [showMembers, setShowMembers] = useState(false)
-  // ✦ Trina: my private side chat beside the room (components/rooms/SideChatPanel.tsx), where a thread opens: one of
-  // the two at a time (a thread that opens closes it). In the store (side), gone when the page leaves the room
+  // ✦ Trina: my private side chat beside the room (components/rooms/SideChatPanel.tsx), beside a thread when one is
+  // open. In the store (side), gone when the page leaves the room
   const sideOpen = useRooms((s) => s.side[roomId] === 'trina')
-  const setSideOpen = useCallback((on: boolean) => useRooms.getState().setSide(roomId, on ? 'trina' : null), [roomId])
-  // a thread takes its place (the side chat stays open: ✦ brings it back); the thread closing with nothing in its place,
-  // or the side chat's ✕, ‹ or ✦, closes it
-  useEffect(() => { if (threadId) setSideOpen(false) }, [threadId, setSideOpen])
+  // (opened by the person: a hand-off to a thread, 보기, is over: SideChatPanel.tsx handOffDone)
+  const setSideOpen = useCallback((on: boolean) => {
+    if (on) handOffDone(roomId)
+    useRooms.getState().setSide(roomId, on ? 'trina' : null)
+  }, [roomId])
+  // a phone's header: ‹, the name, ✦ and ⋯ only (QA TC-257)
+  const wide = useMediaQuery('(min-width: 768px)')
+  // a narrow computer window (below 812 px: the 72 px rail and a room of 420 px beside a 320 px thread do not fit;
+  // docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1 "Thread rule"): the thread or the side chat is a sheet over the
+  // room, as on a phone, and the room under it waits as it was
+  const roomy = useMediaQuery('(min-width: 812px)')
+  const sheet = wide && !roomy
+  // the thread and the side chat together (lib/roomColumns.ts), by the width of the page's own row: three columns, the
+  // two over the room, or one at a time (a phone; a row squeezed by a file preview beside the page)
+  const page = useRef<HTMLDivElement>(null)
+  /** The row's width once the conversation list has folded for the two panels (components/rail/railPanel.ts): the
+   * page as it is laid out now, plus the list while it still shows in a window where it folds for them. Read from the
+   * page itself (the render in which the second panel opens comes before the list is gone, and before any resize is
+   * told), so the first frame of the two is already the right layout. null: not laid out (a test). */
+  const rowForBoth = useCallback((): number | null => {
+    const now = page.current?.offsetWidth
+    if (!now) return null
+    const list = window.innerWidth < PANEL_ALWAYS_BOTH_PX ? document.getElementById(PANEL_ID)?.offsetWidth ?? 0 : 0
+    return now + list
+  }, [])
+  // (drawn again whenever the row changes size: a window resize, the list folding, a file preview beside the page)
+  useElementWidth(page)
+  const both = !!threadId && sideOpen
+  const columns = both ? roomColumns(rowForBoth()) : null
+  const pair = columns === 'pair'
+  /** the side chat over the thread */
+  const over = columns === 'one'
+  /** would the room, a thread and the side chat fit as three columns? Not laid out (a test): yes. */
+  const fitsThree = useCallback(() => roomColumns(rowForBoth()) === 'three', [rowForBoth])
+  // the open thread as the side chat's box names it (SideChatPanel.tsx `thread`): its first message, when the window
+  // has it and it can have a thread
+  const threadRoot = useRooms((s) => (threadId ? s.threadViews[placeKey(roomId, threadId)]?.root ?? findMessage(s, roomId, threadId) ?? null : null))
+  const sideThread = useMemo<SideThread | null>(() => {
+    if (!threadRoot) return null
+    const seed = messageSeed(threadRoot, aiName(t))
+    return seed.thread === threadRoot.id ? { rootId: threadRoot.id, author: seed.author, at: seed.at } : null
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadRoot?.id, threadRoot?.author?.name, threadRoot?.app?.name, threadRoot?.visibility, t])
+  // a thread opened from the room while the side chat is open: where the three would not fit as columns it takes the
+  // side chat's place, as before (a click in the room does not make the room give way; the side chat stays open: ✦
+  // brings it back beside the thread). openThread below does that with the click; this is for a thread opened by its
+  // address (a notice, Back or Forward). A thread in place of another keeps what shows. That thread closing with
+  // nothing in its place closes the side chat; so do the side chat's ✕, ‹ or ✦
   const lastThread = useRef(threadId)
   useEffect(() => {
     const was = lastThread.current
     lastThread.current = threadId
+    if (threadId && !was && useRooms.getState().side[roomId] === 'trina' && !fitsThree()) setSideOpen(false)
     if (was && !threadId) threadClosedOn(roomId)
-  }, [threadId, roomId])
+    // the box's "Looking at this thread" chip, taken off for the thread that was open: back for the next one, and for
+    // this one opened again
+    if (was !== threadId && sideChatOf(useSideChats.getState(), roomId).chipOff) useSideChats.getState().patch(roomId, { chipOff: null })
+  }, [threadId, roomId, fitsThree, setSideOpen])
   const closeSide = useCallback(() => {
+    handOffDone(roomId)
     useSideChats.getState().close(roomId)
     setSideOpen(false)
   }, [roomId, setSideOpen])
@@ -155,8 +217,9 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const askHint = useRoomAskHint()
   const seenHint = askHint.seen
   useEffect(() => { if (sideOpen) seenHint() }, [sideOpen, seenHint])
-  // on a phone the side chat fills the screen: Android's Back closes it and the room stays (QA TC-080)
-  useOverlayEntry(sideOpen && !threadId, closeSide)
+  // on a phone the side chat fills the screen: Android's Back closes it and the room stays (QA TC-080), or the thread
+  // it is over
+  useOverlayEntry(sideOpen, closeSide)
   // "Ask Trina about this" on a message (the timeline's or a thread's): the side chat opens with it quoted
   const [sideSeed, setSideSeed] = useState<SideSeed | null>(null)
   // `ask`: a question that goes at once with the message quoted (an app's thread: "Summarise this thread")
@@ -189,21 +252,32 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // or a notice closes to its room
   const openThread = useCallback((id: string, focus = false) => {
     setFocusThread(focus)
+    // the side chat open and no room for three columns: the thread takes its place, in the same step (the list never
+    // folds for a moment in between)
+    if (!threadId && useRooms.getState().side[roomId] === 'trina' && !fitsThree()) setSideOpen(false)
     const to = threadOpening(roomId, id, { threadId, fromRoom })
     navigate(to.path, { replace: to.replace, state: to.state })
-  }, [navigate, roomId, threadId, fromRoom])
+  }, [navigate, roomId, threadId, fromRoom, fitsThree, setSideOpen])
   const closeThread = useCallback(() => {
     const to = threadClosing(roomId, fromRoom)
     if (to === -1) navigate(-1)
     else navigate(to.path, { replace: to.replace })
   }, [navigate, roomId, fromRoom])
+  // "View" under an answer the side chat sent to a thread: the thread at the reply, in place of the one that is open
+  // (the thread's ✕ still steps back to the room once). Where the side chat would hide it (over the thread; three
+  // columns that do not fit), the side chat steps aside as a hand-off: ✦ brings the same chat back
+  const viewThread = useCallback((rootId: string, messageId: string) => {
+    if (over || (!threadId && !fitsThree())) handOffToThread(roomId)
+    if (over) setSideOpen(false)
+    const to = threadOpening(roomId, rootId, { threadId, fromRoom })
+    navigate(`${to.path}?m=${messageId}`, { replace: to.replace, state: to.state })
+  }, [navigate, roomId, threadId, fromRoom, over, fitsThree, setSideOpen])
   // "Ask Trina about this file" in the file preview of a file of this room (lib/sideChatAsk.ts)
   useEffect(() => onAskTrinaInRoom((a) => {
     if (a.roomId !== roomId) return
-    if (threadId) closeThread()
     setSideSeed(a.seed)
     setSideOpen(true)
-  }), [roomId, threadId, closeThread, setSideOpen])
+  }), [roomId, setSideOpen])
   // 초대하기: into this group chat, or from a DM a new group chat with the other person ticked (the DM stays)
   const [picker, setPicker] = useState<PickerMode | null>(null)
   // from the room info and from the header's "⋯" (its first row: Invite a guest, in a group chat)
@@ -214,33 +288,55 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // the "⋯"'s 알림 설정 opens the bell's own menu (a phone shows no bell: the keyboard then goes back to the "⋯")
   const [notifyRequest, setNotifyRequest] = useState(0)
   const moreRef = useRef<HTMLButtonElement>(null)
-  // a phone's header: ‹, the name, ✦ and ⋯ only (QA TC-257)
-  const wide = useMediaQuery('(min-width: 768px)')
-  // a narrow computer window (below 812 px: the 72 px rail and a room of 420 px beside a 320 px thread do not fit;
-  // docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1 "Thread rule"): the thread or the side chat is a sheet over the
-  // room, as on a phone, and the room under it waits as it was
-  const roomy = useMediaQuery('(min-width: 812px)')
-  const sheet = wide && !roomy
-  // the sheet over the room (below 812 px): the keyboard goes into it as it opens and back to
-  // where it was in the room as it closes; Esc closes it (not while a menu or dialog of its own is open)
-  const sheetOpen = sheet && !!(threadId || sideOpen)
+  // panels over the room (a sheet below 812 px; the thread and the side chat half and half in a row too narrow for
+  // three columns): the keyboard goes into the panel that opened and, when the room shows again, back to where it was
+  // in the room; Esc closes one panel a press: the one the keyboard is in, else the side chat first, then the thread
+  // (not while a menu or dialog of its own is open, nor while an input method composes). Beside the room, as columns,
+  // Esc closes nothing: there it belongs to the mention list, an edit, a menu
+  const covering = wide && ((sheet && !!(threadId || sideOpen)) || pair || over)
+  // a room under panels is out of sight: nothing in it is read (tryRead)
+  const covered = useRef(covering)
+  covered.current = covering
   useEffect(() => {
-    if (!sheetOpen) return
+    if (!covering) return
     const before = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const el = document.querySelector<HTMLElement>('[data-sheet]')
-    if (el && !el.contains(document.activeElement)) el.focus({ preventScroll: true })
+    return () => {
+      requestAnimationFrame(() => {
+        const panels = '[data-testid="room-thread"], [data-testid="room-side-chat"]'
+        if (document.activeElement?.closest(panels)) return
+        // a panel stays beside the room (the other one closed): the keyboard goes on in it
+        const box = document.querySelector<HTMLElement>(panels)?.querySelector<HTMLElement>('textarea')
+        if (box) box.focus({ preventScroll: true })
+        else if (before?.isConnected) before.focus({ preventScroll: true })
+      })
+    }
+  }, [covering])
+  useEffect(() => {
+    if (!covering) return
+    // the panel on top (the last one drawn): the side chat when both are open
+    const sheets = [...document.querySelectorAll<HTMLElement>('[data-sheet]:not([inert])')]
+    if (sheets.length && !sheets.some((el) => el.contains(document.activeElement))) {
+      const el = sheets.at(-1)!
+      ;(el.matches('[role="dialog"]') ? el : el.querySelector<HTMLElement>('textarea') ?? el).focus({ preventScroll: true })
+    }
+    // a file preview beside the page closes first (the app frame's Esc, components/Layout.tsx, which leaves it alone
+    // only under a dialog): seen before that handler runs, whichever of the two listens first
+    let preview = false
+    const onKeyFirst = (e: KeyboardEvent) => { if (e.key === 'Escape') preview = !!getSidePanel() && !document.querySelector('[role="dialog"]') }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.defaultPrevented || document.querySelector('[role="menu"], [role="dialog"]:not([data-sheet])')) return
+      if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing || e.keyCode === 229 || preview || document.querySelector('[role="menu"], [role="dialog"]:not([data-sheet])')) return
       e.preventDefault()
-      if (threadId) closeThread()
+      const inThread = pair && !!document.activeElement?.closest('[data-testid="room-thread"]')
+      if (threadId && (inThread || !sideOpen)) closeThread()
       else closeSide()
     }
+    window.addEventListener('keydown', onKeyFirst, true)
     window.addEventListener('keydown', onKey)
     return () => {
+      window.removeEventListener('keydown', onKeyFirst, true)
       window.removeEventListener('keydown', onKey)
-      if (before?.isConnected) requestAnimationFrame(() => before.focus({ preventScroll: true }))
     }
-  }, [sheetOpen, threadId, closeThread, closeSide])
+  }, [covering, pair, threadId, sideOpen, closeThread, closeSide])
   usePeopleList()
   // opened while I hid it (a link, a notice, the full list): it is in my lists again. Only as it opens, and only when
   // that was a choice (openedByChoice): hiding it from here leaves the room in place of this entry (store/rooms.ts
@@ -352,8 +448,9 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     const r = s.rooms.find((x) => x.id === roomId)
     const th = s.timeline
     if (!el || !r || !th || th.roomId !== roomId) return
-    // the timeline out of sight (a phone shows the thread over it): nothing in it is read
-    if (!el.clientHeight) return
+    // the timeline out of sight (a phone shows the thread over it; panels over the room on a computer): nothing in it
+    // is read
+    if (!el.clientHeight || covered.current) return
     // on screen and looked at (the phone app: on screen; lib/attention.ts)
     if (!lookingAt()) return
     // up to the newest message shown (lib/rooms.ts readUpTo: not while a page loads, not over unread ones not loaded)
@@ -368,7 +465,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // on a phone closing: after the list has drawn it)
   useEffect(() => {
     tryRead()
-  }, [tryRead, last?.seq, messages[0]?.seq, timeline?.loading, timeline?.error, detached, room?.lastReadSeq, room?.unreadCount, threadId, sideOpen])
+  }, [tryRead, last?.seq, messages[0]?.seq, timeline?.loading, timeline?.error, detached, room?.lastReadSeq, room?.unreadCount, threadId, sideOpen, covering])
   useEffect(() => {
     window.addEventListener('focus', tryRead)
     document.addEventListener('visibilitychange', tryRead)
@@ -411,9 +508,9 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const muted = !!room && roomNotify(room).level === 'off'
 
   return (
-    <div className={clsx('flex h-full', sheet && 'relative')} data-testid="room-page">
+    <div ref={page} className="relative flex h-full" data-columns={columns ?? undefined} data-testid="room-page">
     {/* a file dropped anywhere on the room's column (not on the thread or side chat beside it) goes into its box */}
-    <FileDropZone className={clsx('flex h-full min-w-0 flex-1 flex-col', (threadId || sideOpen) && 'max-md:hidden')} inert={(sheet && !!(threadId || sideOpen)) || undefined} data-testid="room">
+    <FileDropZone className={clsx('flex h-full min-w-0 flex-1 flex-col', (threadId || sideOpen) && 'max-md:hidden')} inert={covering || undefined} data-testid="room">
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-2 max-md:gap-1 max-md:pl-0.5 sm:px-4" data-testid="room-header">
         <Tooltip label={t('tabs.back')}>
           <Link to="/rooms" replace onClick={backLink} aria-label={t('tabs.back')} className="inline-flex items-center justify-center rounded-md p-3 text-muted hover:bg-hover hover:text-ink md:hidden" data-testid="room-back">
@@ -484,7 +581,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
         {/* ✦: not for a guest whose invite gives them no AI (components/GuestView.tsx useGuestAiOff) */}
         {room && !guestNoAi && (
           <IconButton tip label={t('sideChat.open', { name: aiName(t) })} className={clsx('touch-hit shrink-0', sideOpen && 'bg-hover')} aria-pressed={sideOpen}
-            onClick={() => { if (sideOpen) closeSide(); else { if (threadId) closeThread(); setSideOpen(true) } }} data-testid="room-side-chat-button">
+            onClick={() => { if (sideOpen) closeSide(); else setSideOpen(true) }} data-testid="room-side-chat-button">
             <AiMark />
           </IconButton>
         )}
@@ -505,7 +602,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
           />
         )}
       </div>
-      {room && askHint.show && !guestNoAi && <RoomAskHint onAsk={() => { if (threadId) closeThread(); setSideOpen(true) }} onClose={askHint.seen} />}
+      {room && askHint.show && !guestNoAi && <RoomAskHint onAsk={() => setSideOpen(true)} onClose={askHint.seen} />}
       <div className="relative flex min-h-0 flex-1 flex-col">
       <div ref={scroller} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto" data-testid="room-scroller">
         <div ref={content} className="mx-auto max-w-[780px] px-4 pt-2 pb-6">
@@ -560,16 +657,20 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
       />
       <PeoplePicker open={!!picker} onClose={() => setPicker(null)} mode={picker ?? undefined} />
     </FileDropZone>
-    {/* the room's right column: the thread in the address, else my Trina side chat */}
-    {threadId ? (
-      <RoomSideColumn label={t('rooms.thread')} testId="room-thread" divider={sheet ? undefined : 'thread'} className={sheet ? SHEET : undefined} modal={sheet} data-sheet={sheet ? '' : undefined}>
-        <ThreadPanel frame={false} key={threadId} roomId={roomId} rootId={threadId} roomTitle={room ? title(room) : ''} members={members} meId={meId} onClose={closeThread} onAskTrina={(m, ask) => { closeThread(); askTrina(m, ask) }} focusBox={focusThread} highlight={target} />
+    {/* the room's right: the thread in the address and my Trina side chat, each alone or the two together (three
+        columns; half and half over the room; the side chat over the thread where one panel fits) */}
+    {threadId && (
+      <RoomSideColumn label={t('rooms.thread')} testId="room-thread" divider={sheet || columns === 'pair' || columns === 'three' ? undefined : 'thread'} shared={columns === 'three'}
+        className={pair ? PAIR_THREAD : sheet ? SHEET : undefined} modal={sheet && !pair} data-sheet={sheet || pair ? '' : undefined} inert={over}>
+        <ThreadPanel frame={false} key={threadId} roomId={roomId} rootId={threadId} roomTitle={room ? title(room) : ''} members={members} meId={meId} onClose={closeThread} onAskTrina={askTrina} focusBox={focusThread} highlight={target} covered={over} />
       </RoomSideColumn>
-    ) : sideOpen ? (
-      <RoomSideColumn label={t('sideChat.title', { name: aiName(t) })} testId="room-side-chat" divider={sheet ? undefined : 'side-chat'} className={sheet ? SHEET : undefined} modal={sheet} data-sheet={sheet ? '' : undefined}>
-        <SideChatPanel frame={false} key={roomId} roomId={roomId} roomTitle={room ? title(room) : ''} seed={sideSeed} onClose={closeSide} />
+    )}
+    {sideOpen && (
+      <RoomSideColumn label={t('sideChat.title', { name: aiName(t) })} testId="room-side-chat" divider={both || sheet ? undefined : 'side-chat'} shared={columns === 'three'}
+        className={pair ? PAIR_SIDE : sheet || over ? SHEET : undefined} modal={sheet && !pair} data-sheet={sheet || pair || over ? '' : undefined}>
+        <SideChatPanel frame={false} key={roomId} roomId={roomId} roomTitle={room ? title(room) : ''} seed={sideSeed} onClose={closeSide} thread={sideThread} onViewThread={viewThread} />
       </RoomSideColumn>
-    ) : null}
+    )}
     </div>
   )
 }

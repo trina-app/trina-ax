@@ -3,7 +3,9 @@
 // - MeetingNotesCard: while a meeting runs (on any page), one small card: the red dot and time, Stop, the consent line
 //   with "Copy a message for the call's chat", and the words as they come (folds to the first row). After the meeting:
 //   saved with Open, nothing said, or a failed save with Try again. Notes the app kept from a meeting the page could not
-//   save (the window closed) are offered once with Save.
+//   save (the window closed) are offered once with Save. On a conversation's page with a thread or the ✦ side chat on
+//   its right, the card sits above that panel's message box, not on it (a computer; docs/decisions/
+//   20261117-thread-plus-trina.md).
 // The note is written to My files › Meetings every 2 minutes and when the meeting ends (the same file, replaced), as
 // plain Markdown, by whatever ended it (Stop here, the menu bar, silence, a refusal).
 // Not here on purpose: a meetings list (My files › Meetings is the list), a summary, speaker names, a language picker,
@@ -11,7 +13,7 @@
 import clsx from 'clsx'
 import { ChevronDown, ChevronUp, Copy, Mic, Square, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { matchPath, useLocation, useNavigate } from 'react-router-dom'
 import { create } from 'zustand'
 import { MEETINGS_DIR, PRODUCT, type DesktopMeetingLine, type DesktopMeetingState } from '@mycel/shared'
 import type { MeetingStatus } from '@mycel/shared/api'
@@ -22,6 +24,7 @@ import { isGuestMe } from '../lib/guests'
 import { meetingBridge, mergeLines, noteMarkdown, notePath } from '../lib/meetingNotes'
 import { uploadFile } from '../lib/upload'
 import { useLocale, useT } from '../i18n'
+import { useRooms } from '../store/rooms'
 import { useMeStrict } from '../store/session'
 import { Button, IconButton } from './ui'
 import { Tooltip } from './Tooltip'
@@ -124,6 +127,10 @@ export function MeetingNotesCard() {
   const wordsRef = useRef(words)
   wordsRef.current = words
   const m = meetingBridge(desktop())
+  // a conversation with a panel on its right (a thread, the side chat): the panel's message box is in this corner
+  const { pathname } = useLocation()
+  const roomId = matchPath('/rooms/:roomId/*', pathname)?.params.roomId ?? null
+  const besidePanel = useRooms((s) => !!roomId && (s.side[roomId] === 'trina' || !!matchPath('/rooms/:roomId/t/:messageId', pathname)))
   const { state, lines, done, startedAt } = useMeeting()
   const [now, setNow] = useState(Date.now())
   const [copied, setCopied] = useState(false)
@@ -214,7 +221,8 @@ export function MeetingNotesCard() {
     : done === 'unsaved' ? t('meeting.unsavedFound') : ''
   return (
     <section ref={card} role="region" aria-label={t('meeting.listening')} data-testid="meeting-card"
-      className="fixed bottom-4 right-4 z-40 flex max-h-[min(20rem,60vh)] w-[min(22rem,calc(100vw-2rem))] flex-col rounded-xl border border-line bg-surface shadow-lg max-md:bottom-20">
+      data-raised={besidePanel || undefined}
+      className={clsx('fixed right-4 z-40 flex max-h-[min(20rem,60vh)] w-[min(22rem,calc(100vw-2rem))] flex-col rounded-xl border border-line bg-surface shadow-lg max-md:bottom-20', besidePanel ? 'md:bottom-48' : 'md:bottom-4')}>
       <header className="flex items-center gap-2 px-3 py-2">
         {listening && (
           <span className="relative flex h-2.5 w-2.5 shrink-0" aria-hidden>

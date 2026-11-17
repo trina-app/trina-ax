@@ -602,6 +602,20 @@ test("the column starts on Trina when the room page's side chat was open: the sa
   await expect(pageSide.getByTestId('side-chat-input')).toHaveValue('acme 초안')
 })
 
+test("with a thread beside the page's side chat, a file opened from the thread starts the column on its thread; both stay on the page", async ({ page }) => {
+  await openRoom(page, { at: `/rooms/${ROOM_ID}/t/${id(1)}` })
+  await page.getByTestId('room-side-chat-button').click()
+  await expect(page.getByTestId('room-side-chat')).toBeVisible()
+  await expect(page.getByTestId('room-thread')).toBeVisible()
+  await openChip(page.getByTestId('thread-scroller'), 'acme-reply.md')
+  await expect(fileDialog(page, 'acme-reply.md')).toBeVisible()
+  await expect(column(page)).toHaveAttribute('data-show', 'thread')
+  await page.keyboard.press('Escape')
+  await expect(viewer(page)).toHaveCount(0)
+  await expect(page.getByTestId('room-side-chat')).toBeVisible()
+  await expect(page.getByTestId('room-thread')).toBeVisible()
+})
+
 test('the side chat beside a file takes a pasted picture, and the room page\'s side chat has the same one', async ({ page, browserName }) => {
   test.skip(browserName !== 'chromium', 'pastes through the page clipboard (Chromium)')
   await openRoom(page)
