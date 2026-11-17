@@ -15,7 +15,7 @@ type Ev = { text: string } | 'tool' | 'end'
 function run(hold: NarrationHold, evs: Ev[], n = 7): string {
   let out = ''
   for (const e of evs) {
-    if (e === 'tool') out += hold.toolStart()
+    if (e === 'tool') out += hold.toolStart({ path: 'shared' }) // a call of the main AI, its arguments known
     else if (e === 'end') out += hold.flush()
     else for (let i = 0; i < e.text.length; i += n) out += hold.push(e.text.slice(i, i + n))
   }
@@ -50,12 +50,132 @@ describe('NarrationHold', () => {
       'The existing file uses the pattern "매장-전경.jpg", so I’ll match it.', 'The only thread is on the first message; check it.',
       'Let me check the folder.', 'Reading the price list.', 'Checking both files.', 'Let me check.', 'Found it.',
     ]) expect(dropped(line), line).toBe(true)
-    // kept on purpose (review of #1066, second round: an opening like these is also how content starts; keeping a line
-    // is the safe way to be wrong)
+    // still kept: a quoted pattern with a colon reads like a label (the 11-17 rule drops the others of this list:
+    // LEAKED_1117 below)
     for (const line of [
-      'Following the existing naming pattern (매장-전경.jpg).', 'Existing pattern: "매장-전경.jpg" (hyphenated Korean).',
-      'Existing naming pattern: "매장-전경.jpg" — Korean with hyphen.', "User's own dictated words.",
-      'The Saturday delivery question is in the thread under the copy paper price message.',
+      'Existing pattern: "매장-전경.jpg" (hyphenated Korean).',
+    ]) expect(dropped(line), line).toBe(false)
+  })
+
+  // the notes the AI scenario runs of 2026-11-17 still leaked into Korean answers after #1066 (catalog run 01-18-18, the
+  // access rerun and the flow runs): short notes to itself before a call, in no fixed opening (decision
+  // 20261117-answer-work-notes)
+  const LEAKED_1117 = [
+    'Find the price list first.', 'Find the price list file first.', 'Need to find the sales folder.', 'Need to find the contract draft.',
+    'Need to find the CSV/scan.', 'Need to find the CSV.', 'I need to find the CSV first.', 'Need to find the CSV file in team drive.',
+    'Need to find the scanned visit report.', 'Need to find the scan file.', 'Find the CSV first.', 'Find the shared meeting notes.',
+    'Only one thread; read it.', "Only one thread; check whether it's about Saturday delivery.", 'No dedicated room; search messages.',
+    'Search may miss variants; read both rooms.', 'No message mentions Saturday directly; check the one thread.',
+    'No top-level message mentions Saturday; check the thread.', 'The quote-writer skill matches; load it.', 'Matches quote-writer skill. Load it.',
+    "Skills folder is read-only for this user, but I'll attempt the edit and let the server decide.",
+    'Let me also check for skill folders by file name.', 'Let me check page 2 is actually blank first.', 'Let me check page 2 first.',
+    'Checking page 2 before removing.', 'Let me check both statements before merging.', "Nine files. I'll read them in parallel.",
+    'No subfolders; save at project top.', 'No subfolders; save at project root.',
+    'The project folder has no subfolders; files sit at the top, so save there.',
+    "This is the company seal, so I'll stamp it on the PDF.", 'The other file in the folder is named in a "word-word.jpg" style, so I\'ll follow that.',
+    "Page 2 is the last page, so I'll use the default.", 'Leaving page out (default is the last page, which is page 2).',
+    'Need thread and the contract draft. Search files.', 'Use edit_pdf instead.', 'Two mails from the buyer. Read both.',
+    'Read the PDF (to overwrite it) then regenerate.', 'Need to read the existing stamped file before replacing it.',
+    "The new chart looks right, so I'll save it over the original file.", 'Now the PDF, via a print page with the chart drawn in.',
+    "The user asked to save this link's content, so fetching it is what they requested.", 'The user asked to save the page behind this link. Fetch it.',
+    'Try without the tracking parameters once.',
+    "User's own dictated words.",
+    'Following the existing naming pattern (매장-전경.jpg).', 'Existing naming pattern: "매장-전경.jpg" — Korean with hyphen.', "A `visit-report` folder is already there. Let me look at it first.",
+  ]
+
+  test('the notes that leaked on 11-17 are dropped before a call', () => {
+    for (const line of LEAKED_1117) expect(dropped(line), line).toBe(true)
+  })
+
+  test('the same notes as the last piece (no call after them) are kept: position decides, not the words', () => {
+    for (const line of LEAKED_1117) expect(run(ko(), [{ text: '확인했어요.\n\n' }, 'tool', { text: line }, 'end']), line).toBe('확인했어요.\n\n' + line)
+  })
+
+  test('a note that is copied into the next call (a message posted, a file written) or that the person wrote is content', () => {
+    const line = 'No price list in sales; check the shared folder.'
+    expect(dropped(line)).toBe(true)
+    const posted = new NarrationHold('ko')
+    expect(run(posted, [{ text: line }])).toBe('')
+    expect(posted.toolStart({ room: 'r1', text: line })).toBe(line)
+    const written = new NarrationHold('ko')
+    run(written, [{ text: 'Save to project root.' }])
+    expect(written.toolStart({ file_path: 'projects/x/memo.md', content: '# Memo\n\nSave to project root. Ask Sora first.' })).toBe('Save to project root.')
+    const quoted = new NarrationHold('ko', '이 문장 다듬어줘 Find the price list first')
+    run(quoted, [{ text: 'Find the price list first.' }])
+    expect(quoted.toolStart({ path: 'shared' })).toBe('Find the price list first.')
+    // a call whose arguments do not hold the note still drops it
+    const other = new NarrationHold('ko', '단가표 찾아줘')
+    run(other, [{ text: 'Find the price list first.' }])
+    expect(other.toolStart({ query: '단가표' })).toBe('')
+  })
+
+  test('English content before a call that names work things is kept when it speaks to people or is a title', () => {
+    for (const piece of ['Hi all, the updated price list is in the shared folder.', 'Please find the attached file.', 'Your file is ready.',
+      'We moved the meeting notes to the project folder.', 'Thanks for the report.', 'Q3 Sales Report', 'Project Phoenix Kickoff Notes',
+      'Lamaba Cafe Price List', 'The user guide is attached.', 'Dear team, the contract is signed.', 'Read more at https://example.com/file'])
+      expect(run(ko(), [{ text: piece }, 'tool', { text: '\n\n끝.' }, 'end']), piece).toBe(piece + '\n\n끝.')
+  })
+
+  test('Japanese and Chinese answers drop the same work notes', () => {
+    for (const script of ['ja', 'zh'] as const) {
+      expect(run(new NarrationHold(script), [{ text: 'Find the price list first.' }, 'tool', { text: '\n\n完了。' }, 'end'])).toBe('完了。')
+      expect(run(new NarrationHold(script), [{ text: 'Sora, the file is ready.' }, 'tool', { text: '\n\n完了。' }, 'end'])).toBe('Sora, the file is ready.\n\n完了。')
+    }
+  })
+
+  test('a work note is dropped only before a real call: thinking, a stop or an error keep it (review of the 11-17 rule)', () => {
+    const h = ko()
+    h.push('Find the price list first.')
+    expect(h.toolStart()).toBe('Find the price list first.') // no arguments: thinking / stop / error
+    const s = ko()
+    s.push('Let me check the folder.')
+    expect(s.toolStart()).toBe('') // #1066's status openings drop there as before
+  })
+
+  test('the review\'s probe: orders and plans said to people, common office words, sentence-case titles are kept', () => {
+    for (const piece of ['Read the attached file before the meeting.', 'Use the link below to sign the contract.',
+      'Check the invoice against the PO before paying.', 'Use code SAVE10 at checkout.', 'Read the contract carefully; the penalty clause changed.',
+      'Find attached the signed copy.', "I'll send the invoice tomorrow.", "I'll call the client after lunch.", 'Project kickoff on Monday.',
+      'Server maintenance tonight.', 'Drive safely.', 'The project is on hold.', 'This version is final.', 'Edit: the deadline moved to Friday.',
+      'Photos from the event.', 'Error: file not found.', 'Q3 project plan', 'Server migration checklist', 'Photo release form',
+      'Draft agreement for Acme Corp', 'New hire onboarding project', 'Send it and/or post it.', 'This user has admin rights.',
+      "User's guide attached.", 'Meet at 5 a.m. sharp.', 'The file link in my last answer had a typo.',
+      // the second review's probe
+      'Do not share this file outside the team.', "Don't delete the original file.", 'Never edit the master file.', 'Confidential file.',
+      'Sora, the file is ready.', 'Mr. Kim, the contract file is ready.', 'Folks, the file is ready.', 'Kindly resend the file.',
+      'Resend the file by Friday, Sora.', 'FYI the price list file was updated.', 'Heads up, the shared folder will be read-only tonight.',
+      'Deadline for files is Friday.', 'Sign both copies.', 'Print both pages.', 'Keep the original file.', 'Save to shared folder.',
+      'Copy the file to the shared folder before Friday.', 'File not found.', 'The PDF is password protected.', 'The link has expired.',
+      'Rows with blank emails were skipped.', 'Original file kept.', 'Totals match the PDF.', 'Mismatch: the PDF and the CSV disagree.',
+      'This user has no access to the folder.', 'The file name should be "report-2026.pdf".', 'Meeting notes file attached.',
+      'Need to sign the contract by Friday.', 'Need approval from finance.', 'Fetch the mail from the front desk.',
+      'Load the paper tray before printing.', 'Look for the red seal on page 2.', 'Search is case sensitive.',
+      'Let me check the file. The total is wrong. Fix it.', 'Checking the folder. The invoice is overdue. Pay today.'])
+      expect(run(ko(), [{ text: piece }, 'tool', { text: '\n\n끝.' }, 'end']), piece).toBe(piece + '\n\n끝.')
+  })
+
+  test('a piece posted with small changes (Markdown, HTML, an emoji, an entity) still counts as copied', () => {
+    const cases: [string, unknown][] = [
+      ['Price list updated. Check the shared folder.', { text: '📢 Price list updated! Check the shared folder.' }],
+      ['The updated price list is in the shared folder.', { text: '**The updated price list** is in the shared folder.' }],
+      ['The updated price list is in the shared folder.', { html: '<p>The updated price list is in the <b>shared folder</b>.</p>' }],
+      ["I'll read the file tonight.", { text: 'I&#39;ll read the file tonight.' }],
+      ['No price list in sales; check the shared folder.', { text: 'No price list in sales (v3); please check the shared folder.' }],
+      ['No price list in sales; check the shared folder.', { a: { b: { c: { d: { e: { f: { g: { text: 'No price list in sales; check the shared folder.' } } } } } } } }],
+    ]
+    for (const [piece, input] of cases) {
+      const h = ko()
+      h.push(piece)
+      expect(h.toolStart(input), piece).toBe(piece)
+    }
+  })
+
+  test('known gaps: kept although they are notes (numbers with units, another language, Markdown)', () => {
+    for (const line of [
+      'The seal box: top 191mm + 15mm margin = 206mm from page top, left 110+15=125mm, box 50×26. Seal ~22mm wide centered: x≈139, y≈208.',
+      'Ich lese die 9 Dateien, um sie zu beschreiben.', 'I used the **meeting-tasks** team skill.', 'Only difference: next meeting time.',
+      // three sentences (a held piece goes out at its third sentence mark, as in #1066), or only a description
+      'The file exists. Trying the edit; server decides access.', 'Only one file. Save to users/sora - perhaps a subfolder; check the folder.', 'Files sit loose at top of project; no subfolders. Save to project root keeping name.', 'Try team-root path.', 'Good layout. Now overwrite the original PDF.', 'Row 4 (header row 1), column 3.', 'The Saturday delivery discussion is in this thread.', 'The Saturday delivery question is in the thread under the copy paper price message.',
     ]) expect(dropped(line), line).toBe(false)
   })
 
@@ -207,6 +327,19 @@ describe('a turn with an English line before a tool call', () => {
     expect(t.done).toBe(t.stored)
     expect(t.stored).not.toContain('Let me check')
     expect(t.stored).toBe('단가표를 확인했어요. \n\nDear Mr. Smith, thank you for your order.')
+  })
+
+  test.skipIf(!native)('Korean: a work note in no fixed opening is dropped; one copied into the call is kept (11-17)', async () => {
+    const t = await turn('ko', '단가표 찾아줘\n' + fake(
+      { say: 'Find the price list first.' },
+      { tool: 'read', args: { file_path: 'shared/없는-파일.txt' } },
+      { say: 'Only one file; read it.' },
+      { tool: 'read', args: { file_path: 'shared/only one file; read it' } },
+      { say: '단가표가 없어요.' },
+    ))
+    expect(t.streamed).toBe(t.stored)
+    expect(t.done).toBe(t.stored)
+    expect(t.stored).toBe('Only one file; read it.\n\n단가표가 없어요.')
   })
 
   test.skipIf(!native)('Korean, ending on a tool call: the dropped line does not come back as the whole text', async () => {

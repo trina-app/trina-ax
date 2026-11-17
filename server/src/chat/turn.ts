@@ -685,7 +685,7 @@ export class TurnExec {
     const chat = rt.store.chatRow(spec.chatId)
     const userMsg = rt.store.messageRow(spec.userMessageId)
     if (!chat || !userMsg) { this.error = engineError('crash', spec.locale); return }
-    this.narration = new NarrationHold(narrationScript(spec.locale, userMsg.content, this.previousUserText(userMsg.parent_id)))
+    this.narration = new NarrationHold(narrationScript(spec.locale, userMsg.content, this.previousUserText(userMsg.parent_id)), userMsg.content)
     if (this.oldRoomSession) { this.error = engineError('crash', spec.locale); return }
     // a shared project chat is never confidential (read-only while safe operations are on), and runs only while its
     // person still sees its project (access may have gone while the turn waited in the queue)
@@ -1607,7 +1607,8 @@ export class TurnExec {
         // a status line in another script before the call is dropped here (chat/narration.ts); the main AI's calls only
         // a sub-agent's call leaves the main AI's piece undecided (only the redactor's end goes out)
         if (e.parentId) this.emitText(this.answerText.flush())
-        else { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart()))); this.flushText() }
+        // (a piece copied into the call's arguments is content: a message it posts, a file it writes)
+        else { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart(e.input)))); this.flushText() }
         this.attemptHadOutput = true
         this.producedOutput = true
         // which agent made the call: the gate gives a sub-agent's calls that sub-agent's own state (TurnFiles.forCall)
