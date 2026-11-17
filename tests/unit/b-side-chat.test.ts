@@ -83,6 +83,13 @@ test('a group chat saves where its people can open it (the smallest group they s
   const owner1 = (h.ctx.db.query("SELECT id FROM users WHERE role = 'owner'").get() as { id: string }).id
   const designPath = (h.ctx.db.query("SELECT f.path FROM groups g JOIN folders f ON f.id = g.folder_id WHERE g.name = 'design'").get() as { path: string }).path
   expect(await saveIn({ kind: 'group', userIds: [nora.id, owner1], name: 'with boss' })).toBe(designPath)
+  // the Everyone room is the company's: shared/, also when everyone in it today happens to share one group (#1094's rule)
+  // (everyone but the owner is put into studio first: otto was in no group, so the group rule would pick studio)
+  await owner.call('PATCH', `/api/admin/groups/${design.id}`, { memberIds: [mia.id, nora.id, pia.id, otto.id] })
+  const everyone = ((await mia.client.call('GET', '/api/rooms')).items as any[]).find((r) => r.kind === 'all')
+  expect(everyone).toBeTruthy()
+  const side = await mia.client.call('POST', '/api/chats', { sideRoomId: everyone.id })
+  expect(sideRoomOf(h.ctx.db, side.id, mia.id, h.ctx.files)!.saveIn).toBe('shared')
   // a 1:1 stays private: the person's own folder, also with someone of the same group
   expect(await saveIn({ kind: 'dm', userId: pia.id })).toBe(`users/${mia.id}`)
   expect(await saveIn({ kind: 'dm', userId: otto.id })).toBe(`users/${mia.id}`)

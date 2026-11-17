@@ -5,6 +5,7 @@ import { fileBatchUrl, fileLinkUrl, isGoogleRequestable, type InboxNotification,
 import { api, API, errorText } from '../../lib/api'
 import { connectionHref, connectorHref, CONNECTORS_HOME } from '../../lib/connectors'
 import { firstRunText } from '../../lib/teamGoal'
+import { formatSize } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { accessChanged, reloadAsked } from '../../store/live'
 import { peekCached, rememberCached } from '../../store/listCache'
@@ -166,6 +167,12 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   // an own connection other than Google Drive that needs a sign-in again, by its name (QA TC-2945)
   if (item.code === 'connection.reconnect' && item.connection) return t('notifications.event.connection.reconnectNamed', { name: item.connection.name })
   if (item.code === 'integration.template' || item.code === 'integration.template_reconnect') return templateText(item, t)
+  // the team's disk is filling (owners and admins): how full, and the files in conversations once measured (none: not
+  // named); one no
+  // longer an admin gets no numbers and falls through to the plain words below
+  if (item.code === 'storage.filling' && item.storage) return !item.storage.roomsBytes
+    ? t('notifications.event.storage.fillingPct', { pct: item.storage.percent })
+    : t('notifications.event.storage.fillingRooms', { pct: item.storage.percent, size: formatSize(item.storage.roomsBytes, locale) })
   const title = item.schedule?.title
   // a sign-in template: the member signs in with their own account; a key template: their own key (QA TC-3052)
   if (item.code === 'schedule.failure' && item.needsKey) return title
@@ -272,6 +279,8 @@ export function noticeLink(item: InboxNotification): { to: string; testId: strin
   if (item.link === 'account_deletion') return { to: '/settings/account/delete', testId: 'notification-deletion-due-link' }
   if (item.link === 'admin_members') return { to: `/admin/members?member=${encodeURIComponent(item.sourceId)}`, testId: 'notification-deletion-link' }
   if (item.link === 'skills') return { to: skillsLink(item), testId: 'notification-skills-link' }
+  // the disk filling: the storage card (a phone's System › Storage; a computer lands on the card)
+  if (item.link === 'admin_storage') return { to: '/admin/system/storage', testId: 'notification-storage-link' }
   return null
 }
 

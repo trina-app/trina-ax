@@ -14,6 +14,9 @@
 // attachments'. Only a picture of at most 50 MB is read whole (its metadata is cut out); a larger one is a plain file.
 // reconcile() runs at every start: after a restore the database and the folder may be from different moments; a file
 // without its row is set aside in .system/rooms-orphans/ for 30 days, a row without its file is only counted.
+// sweep() (the rooms' one-minute tick) also runs, once a day, the purge of those set-aside batches and purgeArchived():
+// the files of a conversation that was archived more than 30 days ago (nobody is in it, nobody can open it and nothing
+// brings it back) go with their rows; its messages stay (docs/decisions/20261116-archived-room-files-purge.md).
 // fromTeamFile() makes a room upload from a team file the sender may read now ("대화방에 보내기" attaching the files an
 // answer links to, chat/answer-share.ts): the same limits (≤ 50 MB, the storage check), then create().
 // teamCopy() is the same copy for a phone's attach sheet (POST /api/rooms/:id/team-file), kept as an unsent upload until
@@ -56,6 +59,11 @@ import { canSee, fileOut, memberRow, messageRow, roomRow, type FileRow } from '.
 export const UNSENT_FILE_MS = 24 * 3600_000
 /** A person's team-file copies not sent yet (teamCopy), in bytes, all rooms together: four 50 MB files, or many small ones */
 export const TEAM_COPIES_UNSENT_MAX = 200 * 1024 * 1024
+/** The daily part of sweep(): the set-aside batches and the archived conversations' files. */
+export const DAILY_MS = 24 * 3600_000
+/** purgeArchived: rows per statement, and how long one run may take before it goes on at the next tick */
+const PURGE_BATCH = 100
+const PURGE_BUDGET_MS = 2000
 /** Room files without a database row are kept this long in .system/rooms-orphans/ (reconcile). */
 export const ORPHAN_KEEP_MS = 30 * 86400_000
 /** a picture's thumbnail beside it: <file id>.thumb.jpg, or .thumb.png for one with transparency (uploads/image.ts) */
@@ -78,6 +86,8 @@ export class RoomFiles {
   private reserved = new Map<string, number>()
   /** teamCopy: the copies on their way, by person, room, team path and stamp */
   private copying = new Map<string, Promise<RoomFile>>()
+  /** when the daily part of sweep() last ran (null: not since this start, so the first tick runs it) */
+  private dailyAt: number | null = null
   root() { return path.join(this.ctx.files.fx.root, PRODUCT.systemDir, 'rooms') }
   private dir(roomId: string) { return path.join(this.root(), roomId) }
   private abs(f: Pick<FileRow, 'room_id' | 'id'>) { return path.join(this.dir(f.room_id), f.id) }
@@ -523,12 +533,66 @@ export class RoomFiles {
     return { refreshed }
   }
 
-  /** Uploads never sent, and files of rooms that are gone. */
+  /** Uploads never sent; once a day, the set-aside batches older than 30 days and the files of conversations archived
+   * more than 30 days ago (purgeArchived). */
   sweep(now = Date.now()) {
     const cutoff = new Date(now - UNSENT_FILE_MS).toISOString()
     const rows = this.ctx.db.query('DELETE FROM room_files WHERE message_id IS NULL AND created_at < ? RETURNING id, room_id').all(cutoff) as Pick<FileRow, 'id' | 'room_id'>[]
     for (const f of rows) { fs.rmSync(this.abs(f), { force: true }); this.removeThumbs(f) }
+    // a clock set back: the day starts again from now, so the daily part does not stop
+    if (this.dailyAt !== null && now < this.dailyAt) this.dailyAt = now
+    if (this.dailyAt === null || now - this.dailyAt >= DAILY_MS) {
+      // each on its own: one that fails (a share that refuses a delete) neither stops the other nor runs again every
+      // minute; it is tried again the next day
+      let archived = { files: 0, more: false }, batches = 0
+      try { archived = this.purgeArchived(now) } catch (e) { this.ctx.log.warn('archived conversations\' files not purged', { err: e }) }
+      try { batches = this.purgeOrphans(now) } catch (e) { this.ctx.log.warn('set-aside room files not purged', { err: e }) }
+      // not done (the time ran out on a large conversation): the next tick goes on
+      if (!archived.more) this.dailyAt = now
+      if (archived.files || batches) this.ctx.log.info('room files checked', { archivedFilesPurged: archived.files, orphanBatchesPurged: batches })
+    }
     return rows.length
+  }
+
+  /**
+   * The files of conversations archived more than ORPHAN_KEEP_MS ago, and still without a member (the rule that makes
+   * them unreachable, checked here, not assumed): their rows go, then each file and its thumbnails, then the
+   * conversation's empty folder. The messages stay. Nothing when the room files folder is not there (a share not
+   * mounted: the rows would go while the bytes stay on the share) or when the clock looks wrong (earlier than the newest
+   * room file or the newest archive). At most PURGE_BUDGET_MS a run; `more`: there is more to do.
+   */
+  purgeArchived(now = Date.now(), o: { batch?: number; budgetMs?: number } = {}): { files: number; more: boolean } {
+    const out = { files: 0, more: false }
+    if (!this.teamFolderPresent()) return out
+    try { if (!fs.statSync(this.root()).isDirectory()) return out } catch { return out }
+    const newest = this.ctx.db.query('SELECT MAX(created_at) t FROM room_files').get() as { t: string | null }
+    const archived = this.ctx.db.query('SELECT MAX(archived_at) t FROM rooms').get() as { t: string | null }
+    if ((newest.t && now < Date.parse(newest.t)) || (archived.t && now < Date.parse(archived.t))) {
+      this.ctx.log.warn('the clock is earlier than the newest room file or archive; archived conversations keep their files', { newest: newest.t, archived: archived.t })
+      return out
+    }
+    const cutoff = new Date(now - ORPHAN_KEEP_MS).toISOString()
+    const batch = o.batch ?? PURGE_BATCH
+    const del = this.ctx.db.query(`DELETE FROM room_files WHERE id IN (SELECT f.id FROM room_files f JOIN rooms r ON r.id = f.room_id
+      WHERE r.archived_at IS NOT NULL AND r.archived_at < ? AND NOT EXISTS (SELECT 1 FROM room_members m WHERE m.room_id = r.id) LIMIT ${Math.max(1, Math.floor(batch))})
+      RETURNING id, room_id`)
+    const until = Date.now() + (o.budgetMs ?? PURGE_BUDGET_MS)
+    const rooms = new Set<string>()
+    let failed = 0
+    for (;;) {
+      const rows = del.all(cutoff) as Pick<FileRow, 'id' | 'room_id'>[]
+      // the rows are gone: a file that cannot be removed now is set aside by the next start's check (reconcile)
+      for (const f of rows) {
+        try { fs.rmSync(this.abs(f), { force: true }); this.removeThumbs(f) } catch { failed++ }
+        rooms.add(f.room_id)
+      }
+      out.files += rows.length
+      if (rows.length < batch) break
+      if (Date.now() > until) { out.more = true; break }
+    }
+    for (const r of rooms) try { fs.rmdirSync(this.dir(r)) } catch { /* not empty: an unsent upload's file, gone tomorrow */ }
+    if (failed) this.ctx.log.warn('some files of archived conversations could not be removed', { failed })
+    return out
   }
 }
 

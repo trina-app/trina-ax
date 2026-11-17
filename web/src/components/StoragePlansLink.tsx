@@ -11,7 +11,8 @@ import { isAdmin, useMe, useSession } from '../store/session'
  * undefined: another error, no page (a team without a plan page), or a store app, which shows no purchase link
  * (lib/desktop.ts noPurchaseLinks; lib/api.ts storeSafeError only words the 409 seat refusal, so it is dropped here). */
 export function storagePlansUrl(e: unknown, store = noPurchaseLinks()): string | undefined {
-  if (store || !isApiError(e, 'storage_full')) return undefined
+  // 507 storage_full, or an upload session's 413 for the disk (uploads/sessions.ts reason 'disk_full')
+  if (store || !(isApiError(e, 'storage_full') || (isApiError(e, 'payload_too_large') && e.body.params?.reason === 'disk_full'))) return undefined
   const url = e.body.params?.manageUrl
   return typeof url === 'string' && /^https?:\/\//.test(url) ? url : undefined
 }

@@ -85,7 +85,7 @@ function checkNewPassword(pw: string, username: string | null, locale: Locale, f
 export const viaOf = (info: { via: string; tunnel?: boolean; tailnet?: boolean }): string => info.tunnel ? 'internet' : info.tailnet ? 'tailnet' : info.via
 
 /** Count an unknown/invalid token against the caller's IP and refuse while over the limit. */
-function tokenGuard(ctx: AppContext, ip: string | null): { fail(): void } {
+export function tokenGuard(ctx: AppContext, ip: string | null): { fail(): void } {
   const a = authOf(ctx)
   const keys = tokenIpKeys(ip)
   const wait = a.limiter.retryAfter(keys)

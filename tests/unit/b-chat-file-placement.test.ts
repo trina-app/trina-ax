@@ -280,4 +280,23 @@ describe('the note in a chat turn', () => {
     expect(RULE).toContain('A file made from another one (a PDF of a deck, a copy in another format) goes next to it unless the user names another place.')
     expect(RULE).toContain('Never move, rename or regroup files the user did not ask about.')
   })
+
+  // AI flow FL-15, always mode on dev 552bcfd56: a new deck made next to the team's deck it had read got the note, and
+  // a turn later the AI made "발표자료" and moved the deck there unasked. A new file beside a file of its kind that the
+  // turn read there follows the folder's own way: no note. Another kind, or nothing read there, still gets it.
+  test('a new file beside a file of the same kind the turn read there gets none', async () => {
+    put('groups/marketing/team-deck.md', '# Team deck\n')
+    const beside = await ask(h, socks.alice!, 'alice', await chat('alice'), fake(
+      { tool: 'read', args: { file_path: 'groups/marketing/team-deck.md' } }, write('groups/marketing/new-deck.md')))
+    expect(beside.done.content).toContain('Created groups/marketing/new-deck.md')
+    expect(beside.done.content).not.toContain(NOTE)
+    const other = await ask(h, socks.alice!, 'alice', await chat('alice'), fake(
+      { tool: 'read', args: { file_path: 'groups/marketing/team-deck.md' } }, write('groups/marketing/new-deck.html', '<h1>x</h1>\n')))
+    expect(other.done.content).toContain(`${NOTE} "groups/marketing/new-deck.html" was saved directly in "groups/marketing/"`)
+    // a file of the same kind read in another folder (a subfolder) does not count: the note comes
+    put('groups/marketing/campaigns/plan.md', '# Plan\n')
+    const away = await ask(h, socks.alice!, 'alice', await chat('alice'), fake(
+      { tool: 'read', args: { file_path: 'groups/marketing/campaigns/plan.md' } }, write('groups/marketing/plan-copy.md')))
+    expect(away.done.content).toContain(`${NOTE} "groups/marketing/plan-copy.md" was saved directly in "groups/marketing/"`)
+  })
 })

@@ -17,6 +17,7 @@ import { HttpError } from '../http/errors'
 import { authorize } from '../policy/authorize'
 import { badSegment } from '../policy/names'
 import { assertStorageRoom } from '../system/storage'
+import { planManageUrl } from '../system/limits'
 import { fileError } from '../team-files/errors'
 import { hashFile } from '../team-files/place'
 import type { TeamFiles } from '../team-files/service'
@@ -89,7 +90,12 @@ export class UploadSessions {
     // the team disk near full or over the plan's limit (system/storage.ts): 507 storage_full before anything is written.
     // The hard cap counts the open sessions too, or several at once could pass it.
     assertStorageRoom(size, reserved)
-    if (free < size + reserved + DISK_MARGIN) fileError('payload_too_large', 'diskFull')
+    // reason 'disk_full': a room's box tells it apart from the file-size refusal (web rooms/storageRefusal.tsx); on a small
+    // hosted disk this 1 GB margin can come before the guard's reserve, so the plan's page goes with it as with a 507
+    if (free < size + reserved + DISK_MARGIN) {
+      const plans = planManageUrl()
+      fileError('payload_too_large', 'diskFull', undefined, { reason: 'disk_full', ...(plans ? { manageUrl: plans } : {}) })
+    }
     const id = newId()
     const fd = fs.openSync(this.part(id), fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600)
     try { fs.ftruncateSync(fd, size) } finally { fs.closeSync(fd) }

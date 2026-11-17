@@ -6,7 +6,8 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { runInNewContext } from 'node:vm'
-import { answersAgain, asksOutside, certTrouble, desktopPagePath, firstRunLinks, healthVerdict, officeCertPage, offlineRetryDelay, OFFLINE_RETRY_MS, linkFromArgv, LINK_SCHEME, readDesktopLink, hostOf, INSTALL_DOCS, isGatewayDown, isLoopbackHost, isSignInPath, onThisComputer, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
+import { answersAgain, asksOutside, certTrouble, desktopPagePath, firstRunLinks, healthVerdict, officeCertPage, offlineRetryDelay, OFFLINE_RETRY_MS, linkFromArgv, LINK_SCHEME, readDesktopLink, retypablePath, hostOf, INSTALL_DOCS, isGatewayDown, isLoopbackHost, isSignInPath, onThisComputer, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
+import { resumePage } from '../../desktop/src/common/update-guard'
 import { errorResult, MAX_ITEMS, toBrowserResult } from '../../desktop/src/common/browser-result'
 import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, UI_LOCALES, type UiKey, type UiLocale } from '../../desktop/src/common/i18n'
 import { parseKeyCombo, redactUrl } from '../../desktop/src/common/input'
@@ -312,6 +313,35 @@ describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
     expect(opener).not.toMatch(/addTeam|fetch|loadURL/)
     expect(win).toMatch(/offerLink\(raw: string\) \{\n\s*if \(this\.openLinkedPage\(raw\)\) return\n\s*const p = readDesktopLink\(raw\)/)
   })
+  test('the one-time sign-in link (web "Continue in the Mac app") opens its page; only in a link from outside', () => {
+    const code = 'Zm9vYmFyYmF6cXV4MDEyMzQ1Njc4OWFiY2RlZmdoaWo'
+    expect(code).toHaveLength(43)
+    const team = `https://acme.${TEAM_DOMAIN}`
+    expect(readDesktopLink(link(`${team}/app-signin#c=${code}`))).toMatchObject({ ok: true, host: `acme.${TEAM_DOMAIN}`, hosted: true, entryPath: `/app-signin#c=${code}` })
+    // the code's shape: newToken exactly, the code alone in the fragment, no query
+    for (const inner of [`${team}/app-signin#c=${code}x`, `${team}/app-signin#c=${code.slice(1)}`, `${team}/app-signin#c=${code}&x=1`, `${team}/app-signin?c=${code}`, `${team}/app-signin?x=1#c=${code}`, `${team}/app-signin`])
+      expect(readDesktopLink(link(inner))).toEqual({ ok: false, error: 'link' })
+    // the outer link with a fragment of its own is no link (the code must be inside url=)
+    expect(readDesktopLink(`${link(`${team}/app-signin`)}#c=${code}`)).toBeNull()
+    // never this machine, never http
+    expect(readDesktopLink(link(`https://127.0.0.1/app-signin#c=${code}`))).toEqual({ ok: false, error: 'insecure' })
+    expect(readDesktopLink(link(`http://acme.${TEAM_DOMAIN}/app-signin#c=${code}`))).toEqual({ ok: false, error: 'insecure' })
+    // the first-run box refuses it (typed or pasted), so a code never opens the team's start in its place
+    expect(parseTeamAddress(`${team}/app-signin#c=${code}`)).toEqual({ ok: false, error: 'invalid' })
+    // it is never a page link (opened at once without ④): it always goes through ④
+    expect(desktopPagePath(link(`${team}/app-signin#c=${code}`))).toBeNull()
+    // the "renamed" answer's next address goes back through the box: the team's start then
+    expect(retypablePath(`/app-signin#c=${code}`)).toBe('/')
+    expect(retypablePath('/invite/abc')).toBe('/invite/abc')
+    // an update restart never opens it again
+    expect(resumePage('t1', `${team}/app-signin#c=${code}`, [team])).toBeNull()
+    expect(resumePage('t1', `${team}/app-signin`, [team])).toBeNull()
+    // the address shows on that page in the app
+    expect(isSignInPath('/app-signin')).toBe(true)
+    // a page that failed to load is logged without its fragment
+    const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
+    expect(win).toContain("debug('team page failed to load', code, url.split('#')[0])")
+  })
   test('the link in a command line (Windows, Linux; a second instance)', () => {
     const l = link('https://acme.trina.app/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk')
     expect(linkFromArgv(['/Applications/X.app/Contents/MacOS/X', '--allow-file-access-from-files', l])).toBe(l)
@@ -331,7 +361,7 @@ describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
     // offerLink fetches nothing; answerLink connects only with the gate's offer
     const offer = win.slice(win.indexOf('  offerLink(raw: string) {'), win.indexOf('  async answerLink('))
     expect(offer).not.toMatch(/fetch|addTeam|openTeam|loadURL/)
-    expect(win).toMatch(/const offer = this\.linkGate\.answer\(yes, host, Date\.now\(\)\)[\s\S]{0,200}if \(!offer\) return null[\s\S]{0,80}return this\.addTeam\(offer\.origin \+ offer\.entryPath, true\)/)
+    expect(win).toMatch(/const offer = this\.linkGate\.answer\(yes, host, Date\.now\(\)\)[\s\S]{0,200}if \(!offer\) return null[\s\S]{0,300}return this\.addTeam\(offer\.origin, true, offer\.entryPath\)/)
     // ④ counts from when the screen says it is up, and a team view taking over drops a waiting link
     expect(win).toContain('this.linkGate.shown(id, Date.now())')
     expect(win).toMatch(/async openTeam\(id: string, entryPath = '\/', o: \{ startup\?: boolean \} = \{\}\) \{[\s\S]{0,300}this\.linkGate\.clear\(\)/)

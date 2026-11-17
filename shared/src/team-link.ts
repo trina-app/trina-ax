@@ -12,6 +12,10 @@ export interface TeamInputOptions {
   teamDomain: string | null
   /** plain http to this machine (localhost, *.localhost, 127.x, [::1]) is allowed: the desktop app, for development */
   loopbackHttp: boolean
+  /** the desktop app's one-time sign-in link (`/app-signin#c=<code>`, web /open-app) is read: only for a link that
+   * opened the desktop app from outside (desktop/src/common/address.ts readDesktopLink). The box and the phone refuse
+   * it: the code is for the app on the computer whose browser asked for it. */
+  appSignIn?: boolean
 }
 
 /**
@@ -28,7 +32,7 @@ export interface TeamInputOk {
   origin: string
   /** acme.trina.app, with a port when it has one: what the apps show (never Unicode) */
   host: string
-  /** the page to open first: '/', '/invite/<token>' or '/join#t=<token>' */
+  /** the page to open first: '/', '/invite/<token>', '/join#t=<token>' or (appSignIn only) '/app-signin#c=<code>' */
   entryPath: string
   /** the team name of a hosted address (acme of acme.trina.app), for "'acme' 팀을 찾지 못했어요" */
   name: string | null
@@ -47,6 +51,8 @@ const EMAIL = /^[^\s@/:]+@[^\s@/:]+\.[^\s@/:]+$/
  * newToken); a shorter one is a link cut off on the way */
 const TOKEN = /^[A-Za-z0-9_-]{43,200}$/
 const JOIN_TOKEN = TOKEN
+/** the desktop app's one-time sign-in code: newToken exactly (server/src/auth/app-signin.ts) */
+const APP_SIGNIN_CODE = /^[A-Za-z0-9_-]{43}$/
 /** an http(s) address inside text: ASCII address characters only, so it ends at a space, a quote, a parenthesis or the
  * Korean word glued to it ("https://…/join#t=abc입니다") */
 const URL_IN_TEXT = /https?:\/\/[A-Za-z0-9\-._~:/?#@!$&*+,;=%[\]]+/gi
@@ -189,14 +195,23 @@ export function parseTeamInput(raw: string, o: TeamInputOptions): TeamInput {
     const token = frag.get('t') ?? ''
     return JOIN_TOKEN.test(token) && !u.search ? { ...base, entryPath: `/join#t=${token}` } : { ok: false, error: 'link' }
   }
+  // the desktop app's sign-in link: `#c=<code>` and nothing else, no query; refused where it is not for (the box, the
+  // phone), so a code never opens the team's start in its place either
+  if (/^\/app-signin\/?$/i.test(path)) {
+    if (!o.appSignIn) return { ok: false, error: 'invalid' }
+    if (u.search) return { ok: false, error: 'link' }
+    const frag = new URLSearchParams(u.hash.replace(/^#/, ''))
+    const code = frag.get('c') ?? ''
+    return APP_SIGNIN_CODE.test(code) && [...frag.keys()].length === 1 ? { ...base, entryPath: `/app-signin#c=${code}` } : { ok: false, error: 'link' }
+  }
   // any other page (an address copied from a browser's address bar): the team opens at its start
   return { ...base, entryPath: '/' }
 }
 
-/** The team's own sign-in pages (/login, /invite/…, /join, /setup, /reset-password/…), in any letter case. The apps show
- * the team address there and on every page until the team said who is signed in (GET /api/me). */
+/** The team's own sign-in pages (/login, /invite/…, /join, /setup, /reset-password/…, /app-signin), in any letter case.
+ * The apps show the team address there and on every page until the team said who is signed in (GET /api/me). */
 export function isSignInPath(pathname: string): boolean {
-  return /^\/(login|join|setup)\/?$/i.test(pathname) || /^\/(invite|reset-password)\//i.test(pathname)
+  return /^\/(login|join|setup|app-signin)\/?$/i.test(pathname) || /^\/(invite|reset-password)\//i.test(pathname)
 }
 
 /** Whether the app shows the team address it connected to above or below the page: on the sign-in pages, and on every

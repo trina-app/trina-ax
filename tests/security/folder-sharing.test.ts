@@ -199,7 +199,8 @@ describe('3. a change that gives more access asks first', () => {
     // C: docs/c lets the group edit; inner says "only people added here", then back to "same as above"
     await admin.call('POST', '/api/admin/folders', { path: 'docs/c', create: false, limited: true, rules: [g('write')] })
     await admin.call('POST', '/api/admin/folders', { path: 'docs/c/inner', create: false, limited: true, rules: [user(idOf('alice'), 'read')] })
-    expect((await decide('docs/c/inner', (d) => ({ ...d, basic: 'follow' })))?.widen).toBe(true)
+    // (since P2 the draft carries the folder's limit; "same as above" there is Settings › Limit access turned off)
+    expect((await decide('docs/c/inner', (d) => ({ ...d, basic: 'follow', limited: false })))?.widen).toBe(true)
     // D: docs/d: the group can view, everyone can edit; the group's row removed
     await admin.call('POST', '/api/admin/folders', { path: 'docs/d', create: false, rules: [g('read'), every('write')] })
     // (access adds up: everyone edits there already, so the group's "can view" lowered nobody; removing it gives nobody more)

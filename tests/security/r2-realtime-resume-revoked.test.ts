@@ -116,12 +116,16 @@ describe('realtime resume after access was revoked', () => {
 
   test('the access_changed notice published with the change is still replayed to a window that saw everything before it', async () => {
     await owner.ok('PATCH', `/api/admin/groups/${fin.id}`, { memberIds: ['carol', 'bob'] })
+    // the window stays open through the removal, so it has seen everything before it: the events the re-add above may
+    // still publish a moment later too (its team room, its history). Closed only then, it resumes from just before the
+    // notice. (Taking hello.seq instead raced those late events: one landed between the hello and the removal, the
+    // removal dropped it with the rest of the buffer, and the resume was rightly a resync; CI, PR #1088.)
     const s0 = await open(bob, { windowId: `win-bob-${++n}` })
     const hello = await s0.next('hello')
-    s0.close(); await s0.closedWith()
-    // nothing else happens to bob before the removal: his window has seen everything up to `hello.seq`
     await owner.ok('PATCH', `/api/admin/groups/${fin.id}`, { memberIds: ['carol'] })
-    const s = await resume(bob, `win-bob-${n}`, hello.epoch, hello.seq)
+    const notice = await s0.next('notice', (f) => f.data.code === 'access_changed')
+    s0.close(); await s0.closedWith()
+    const s = await resume(bob, `win-bob-${n}`, hello.epoch, notice.seq - 1)
     expect(s.frames[0]).toMatchObject({ type: 'hello', resumed: true })
     expect(s.frames.some((f) => f.type === 'notice' && (f as any).data.code === 'access_changed')).toBe(true)
     s.close()
