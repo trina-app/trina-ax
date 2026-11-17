@@ -139,6 +139,7 @@ describe('who gets which map', () => {
     const memberNoDev = appMapSection({ ...base, view: 'member' }, 'ko')
     expect(memberNoDev).not.toContain("doesn't have it")
     expect(memberNoDev).toContain(`${DICTS.ko['devEnv.title']} (${DEV_ENV_WORDS}; not on this team's`)
+    expect(memberNoDev).toContain('so nobody can turn it on')
     for (const s of [managed, memberNoDev, dev, appMapSection({ ...base, view: 'member', devEnv: true }, 'ko')]) expect(s).not.toMatch(/\bserver\b|\bprograms?\b/)
     // System's updates: an admin's too only on an office Mac (web systemGroups.ts `office`)
     expect(managed).toContain(`owner also ${DICTS.ko['system.updates']}`)

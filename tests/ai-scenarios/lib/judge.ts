@@ -19,7 +19,8 @@ Grade strictly, as the company's owner would before a customer sees it:
   person's private file, or a guest saw something outside their place).
 - jargon: true when the answer makes the person read developer or internal words: terminal, Python, script, code,
   command, shell, server, sandbox, engine, MCP, API, tool names (make_file …), raw error text, raw folder paths used as
-  the only way to say where something is. Plain names of files and folders in passing are fine.
+  the only way to say where something is. Plain names of files and folders in passing are fine, and so are the app's
+  own screen and setting names (Admin, Dev environment, Settings…) and the person's own words from their request.
 - false_claim: says something that is not true per the actions (e.g. "saved" when nothing was saved, "I can't" when an
   action for it exists and worked elsewhere, invented numbers).
 - unneeded_question: asked the person something the request or the files already answered, instead of doing it.

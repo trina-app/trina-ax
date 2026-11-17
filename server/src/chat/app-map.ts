@@ -94,7 +94,7 @@ export function appMapSection(o: AppMapInput, L: Locale): string {
   ]
   if (o.view === 'member') {
     // situation.ts's member line already names folders, groups, connected apps, plugins, AI accounts and team settings
-    lines.push(`- Also the owner's or an admin's, in ${q('admin.title')}: invites, roles (admins: the owner only), a forgotten password (they make a reset link), guests, handover, usage and limits, activity log, time zone, voice input, system (storage, updates, backups, team address), ${q('devEnv.title')} (${DEV_ENV_WORDS}${o.devEnv ? '' : `; not on ${here}`}).`)
+    lines.push(`- Also the owner's or an admin's, in ${q('admin.title')}: invites, roles (admins: the owner only), a forgotten password (they make a reset link), guests, handover, usage and limits, activity log, time zone, voice input, system (storage, updates, backups, team address), ${q('devEnv.title')} (${DEV_ENV_WORDS}${o.devEnv ? '' : `; not on ${here}, so nobody can turn it on`}).`)
     return lines.join('\n')
   }
   lines.push(
