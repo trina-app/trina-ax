@@ -11,24 +11,16 @@ import type { Database } from 'bun:sqlite'
 import { ROOM_FILE_MAX } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { audit } from '../admin/audit'
-import { getSetting, setSetting, teamTimeZone } from '../admin/settings'
+import { getSetting, setSetting } from '../admin/settings'
 import { notificationsOf } from '../notifications/service'
-import { zonedParts } from './time-zone'
+import { CLEANUP_KEY, cleanupAskedAt, cleanupDayOf as dayOf } from './storage-cleanup-asked'
 import { SEE_MEMBER_SQL } from '../rooms/store'
 import { dmPairOk } from '../rooms/guest-reach'
 
-/** { day: 'YYYY-MM-DD' in the team's time zone, at: ISO time } of the last ask */
-export const CLEANUP_KEY = 'system.storageCleanupAsked'
+export { CLEANUP_KEY, cleanupAskedAt }
+
 export const CLEANUP_OVER = ROOM_FILE_MAX
 export const CLEANUP_OVER_FALLBACK = 100 * 1024 * 1024
-
-const dayOf = (db: Database, t: Date) => { const p = zonedParts(t, teamTimeZone(db)); return `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')}` }
-
-/** The last ask while it is still that day in the team's time zone, else null (GET /api/admin/storage cleanupAskedAt). */
-export function cleanupAskedAt(db: Database, now = new Date()): string | null {
-  const v = getSetting<{ day: string; at: string } | null>(db, CLEANUP_KEY)
-  return v && v.day === dayOf(db, now) ? v.at : null
-}
 
 /** The people whose own files in conversations take more than `over` bytes together (see the header): the files
  * "Files you sent" lists them (rooms/search.ts listMyRoomFiles): a message of theirs they still see (SEE_MEMBER_SQL), in
