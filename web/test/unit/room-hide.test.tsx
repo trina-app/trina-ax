@@ -103,7 +103,7 @@ describe('the menu by kind', () => {
     // "앱 추가" (docs/DECISIONS.md "Apps posting in rooms"): any member of a group chat or a DM; a team room's and the
     // everyone room's only for owners and admins (this person is a member)
     const apps = ko('roomApps.menuAdd')
-    const want = [[pin, words[0], ko('rooms.info.rename'), apps, words[1], ko('rooms.info.leave')], [pin, words[0], apps, words[1], ko('rooms.menu.hideDm')], [pin, ...words, ko('rooms.menu.hide')], [pin, ...words, ko('rooms.menu.hide')]]
+    const want = [[pin, words[0], ko('rooms.info.rename'), apps, words[1], ko('rooms.info.leavePrivate')], [pin, words[0], apps, words[1], ko('rooms.menu.hideDm')], [pin, ...words, ko('rooms.menu.hide')], [pin, ...words, ko('rooms.menu.hide')]]
     for (const [i, r] of rs.entries()) {
       const m = await mount(<MemoryRouter><Menu id={r.id} /></MemoryRouter>)
       try {
@@ -130,7 +130,7 @@ describe('the menu by kind', () => {
     }
   })
 
-  test('이름 바꾸기: the info\'s name field in a prompt (its hint, the name an empty field goes back to); saved, and empty goes back', async () => {
+  test('이름 바꾸기 of a private channel (a named group room): a name is required, so it stays a channel', async () => {
     useSession.setState({ status: { kind: 'signed-in', me } } as never)
     const r = room({ kind: 'group', name: 'Plan', canRename: true, groupId: null, peers: [BEN, CY] })
     useRooms.setState({ rooms: [r], loaded: true })
@@ -141,15 +141,36 @@ describe('the menu by kind', () => {
       await m.click('room-menu-rename')
       const input = await m.until(() => m.find('dialog-input'), 'the prompt')
       expect(input.getAttribute('value') ?? (input as unknown as { value: string }).value).toBe('Plan')
-      // empty shows the members' names, as the info's field does
-      expect(input.getAttribute('placeholder')).toBe(`${BEN.name}, ${CY.name}`)
-      expect(body(m).textContent).toContain(ko('rooms.info.nameHintGroup'))
+      expect(body(m).textContent).toContain(ko('rooms.info.nameLabelPrivate'))
+      // no way back to an unnamed group DM from here
       await m.type(input, '  ')
-      expect(m.get('dialog-confirm').getAttribute('disabled')).toBeNull()
+      expect(m.get('dialog-confirm').getAttribute('disabled')).not.toBeNull()
+      await m.type(input, 'Launch')
       await m.click('dialog-confirm')
       await m.until(() => sent.find((x) => x.key === `PATCH /api/rooms/${r.id}`), 'the PATCH')
-      expect(sent.find((x) => x.key === `PATCH /api/rooms/${r.id}`)!.body).toEqual({ name: null })
-      await m.until(() => useRooms.getState().rooms[0]!.name === null, 'the server\'s copy')
+      expect(sent.find((x) => x.key === `PATCH /api/rooms/${r.id}`)!.body).toEqual({ name: 'Launch' })
+    } finally { await m.unmount() }
+  })
+
+  test('a group DM (no name) offers "Turn into a private channel" in place of 이름 바꾸기: the name it is given moves it to Channels', async () => {
+    useSession.setState({ status: { kind: 'signed-in', me } } as never)
+    const r = room({ kind: 'group', name: null, canRename: true, groupId: null, peers: [BEN, CY] })
+    useRooms.setState({ rooms: [r], loaded: true })
+    renamed = (name) => ({ ...r, name })
+    const m = await mount(<MemoryRouter><RoomMenu room={r} /><DialogHost /></MemoryRouter>)
+    try {
+      await m.click('room-menu')
+      expect(menuItems(m)).toContain(ko('rooms.menu.makePrivate'))
+      expect(menuItems(m)).toContain(ko('rooms.info.leave'))
+      await m.click('room-menu-rename')
+      const input = await m.until(() => m.find('dialog-input'), 'the prompt')
+      expect(body(m).textContent).toContain(ko('rooms.menu.makePrivateBody'))
+      expect(m.get('dialog-confirm').getAttribute('disabled')).not.toBeNull()
+      await m.type(input, 'Launch')
+      await m.click('dialog-confirm')
+      await m.until(() => sent.find((x) => x.key === `PATCH /api/rooms/${r.id}`), 'the PATCH')
+      expect(sent.find((x) => x.key === `PATCH /api/rooms/${r.id}`)!.body).toEqual({ name: 'Launch' })
+      await m.until(() => useRooms.getState().rooms[0]!.name === 'Launch', 'the server\'s copy')
     } finally { await m.unmount() }
   })
 
