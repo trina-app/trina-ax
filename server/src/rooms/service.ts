@@ -32,7 +32,7 @@
 // room_messages (author_kind 'ai', asked_by = who asked); an unposted private preview (visibility 'private') is filtered
 // everywhere (canSee / SEE_SQL) and makes no notice (notify()).
 import type { Database } from 'bun:sqlite'
-import { DEFAULT_LOCALE, inQuietHours, roomAlert, roomLevel, ROOM_GROUP_MAX, ROOM_REACTION_EMOJI_MAX, type Locale, type RoomAlertSettings, type RoomNotifyLevel, type Room, type RoomMember, type RoomMessage, type RoomMessagesPage, type RoomReaction, type RoomReactionEmoji, type RoomReadState, type RoomFileSearchPage, type RoomSearchPage, type RoomThreadPage, type RoomThreadReadState, type ServerEventInput, type MessageLinkAudience } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, inQuietHours, roomAlert, roomLevel, ROOM_GROUP_MAX, ROOM_REACTION_EMOJI_MAX, type Locale, type RoomAlertSettings, type RoomNotifyLevel, type Room, type RoomMember, type RoomMessage, type RoomMessagesPage, type RoomReaction, type RoomReactionEmoji, type RoomReadState, type RoomFileSearchPage, type MyRoomFilesPage, type RoomSearchPage, type RoomThreadPage, type RoomThreadReadState, type ServerEventInput, type MessageLinkAudience } from '@mycel/shared/api'
 import { cardLinks, keptAfterEdit, snapshotOf, snapshotOut, prepareLinkPreviews, readStored, seesLinked, snapshotAllowed, snapshotsAtSend, wipeSnapshotsOf, writeStored } from './link-previews'
 import { decodeCursor, encodeCursor } from '../chat/store'
 import type { AppContext } from '../context'
@@ -54,7 +54,7 @@ import {
 import { roomFilesOf } from './files'
 import { historyKinds, openHistories } from './history'
 import { countedUnreadIn } from './inbox'
-import { searchRoomFiles, searchRoomMessages, type SearchInput } from './search'
+import { searchRoomFiles, searchRoomMessages, type SearchInput, listMyRoomFiles } from './search'
 import { tr } from '../chat/i18n'
 import { roomMentionAllIn } from '@mycel/shared/api'
 import { loadPrincipal, type Principal, type RuleSet } from '../policy/access'
@@ -638,6 +638,13 @@ export class Rooms {
   searchFiles(userId: string, o: SearchInput): RoomFileSearchPage {
     this.syncFor(userId)
     return searchRoomFiles(this.db, userId, o)
+  }
+
+  /** "Files you sent": my own files in my rooms, largest first (rooms/search.ts listMyRoomFiles); my team rooms'
+   * histories opened first, as for the search. */
+  listMyFiles(userId: string, o: { cursor?: string; limit?: number }): MyRoomFilesPage {
+    this.syncFor(userId)
+    return listMyRoomFiles(this.db, userId, o)
   }
 
   /** Team files a person copied in with a phone's attach sheet (rooms/files.ts teamCopy), now sent in message

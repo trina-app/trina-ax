@@ -406,6 +406,8 @@ function Storage() {
                   ))}
                 </ul>
               )}
+              {/* the people who sent files in conversations clean them up; the owner and admins can ask them all at once */}
+              {!!s.breakdown?.rooms && <AskCleanup askedAt={s.cleanupAskedAt ?? null} />}
               {/* any kept bytes (KB under 1 MB): a small set-aside folder is still on the disk (QA TC-2284) */}
               {!!s.breakdown?.kept && s.breakdown.kept > 0 && <p className="text-xs text-faint" data-testid="storage-kept">{t('storage.kept', { size: formatSize(s.breakdown.kept, locale) })}</p>}
               {(s.measuredAt || s.planDiskGiB !== null) && (
@@ -420,6 +422,31 @@ function Storage() {
         }}
       </Loadable>
     </Card>
+  )
+}
+
+/** "Ask people to clean up" (system/storage-cleanup.ts; docs/decisions/20261116-room-files-cleanup.md): a notice to each
+ * person whose files in conversations take the most space. The page never learns who or how many. Once a day for the
+ * team: then "Asked today" for every admin. */
+function AskCleanup({ askedAt }: { askedAt: string | null }) {
+  const t = useT()
+  const [asked, setAsked] = useState(askedAt)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => setAsked(askedAt), [askedAt])
+  const ask = async () => {
+    const ok = await confirmDialog({ title: t('storage.askConfirmTitle'), body: t('storage.askConfirmBody'), confirm: t('storage.askConfirm') })
+    if (!ok) return
+    setBusy(true)
+    try { setAsked((await api.call(API.askStorageCleanup)).askedAt) }
+    catch { toast({ level: 'error', text: t('storage.askFailed') }) }
+    finally { setBusy(false) }
+  }
+  return (
+    <div className="max-sm:[&>button]:w-full">
+      <Button size="sm" busy={busy} disabled={!!asked} onClick={() => void ask()} data-testid="storage-ask-cleanup">
+        {asked ? t('storage.askedToday') : t('storage.askCleanup')}
+      </Button>
+    </div>
   )
 }
 

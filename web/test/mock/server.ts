@@ -568,6 +568,8 @@ export class MockServer {
   integrationTemplates: (Omit<IntegrationTemplate, 'connected'> & { version: number })[] = []
   /** Team AX Cloud (server/src/system/deployment.ts): /__test/cloud switches it on until the next reset */
   cloud = false
+  /** "Ask people to clean up" pressed (until the next reset) */
+  cleanupAskedAt: string | null = null
   /** the 7-day team goal Home shows owners and admins (onboarding G): none unless /__test/team-goal sets one */
   teamGoal: TeamGoal | null = null
   /** Home's frequent skills (GET /api/skills/popular): none unless /__test/popular-skills names some by path */
@@ -661,6 +663,7 @@ export class MockServer {
     this.serverVersion = '0.1.0'
     this.aiList = undefined
     this.cloud = false
+    this.cleanupAskedAt = null
     this.teamGoal = null
     this.popular = []
     this.oftenAsked = { team: [], groups: {} }
@@ -2993,6 +2996,13 @@ export class MockServer {
       }
     },
     // and the files sent with them, by name (every word), newest first, like the server's
+    // like server/src/rooms/search.ts listMyRoomFiles: my own files of messages not deleted, largest first
+    listMyRoomFiles: (c) => {
+      const items = this.rooms.flatMap((room) => (this.roomMessages.get(room.id) ?? []).filter((m) => !m.deletedAt && !m.event && m.authorKind !== 'ai' && m.author?.id === c.user.id).flatMap((m) => m.files.map((file) => ({ m, room, file }))))
+        .sort((a, b) => b.file.size - a.file.size)
+      const rooms = [...new Set(items.map((x) => x.room))].map((r) => ({ id: r.id, kind: r.kind, name: r.name, peers: r.peers, memberCount: r.memberCount }))
+      return { items: items.map(({ m, file }) => ({ file, messageId: m.id, roomId: m.roomId, threadRootId: m.threadRootId ?? null, author: m.author, createdAt: m.createdAt })), rooms, nextCursor: null, totalBytes: items.reduce((n, x) => n + x.file.size, 0) }
+    },
     searchRoomFiles: (c) => {
       const words = String(c.query.q ?? '').trim().toLowerCase().split(/\s+/).filter(Boolean)
       const items = this.rooms.flatMap((room) => (this.roomMessages.get(room.id) ?? []).filter((m) => !m.deletedAt && !m.event).flatMap((m) => m.files.filter((f) => words.every((w) => f.name.toLowerCase().includes(w))).map((file) => ({ m, room, file }))))
@@ -4706,8 +4716,10 @@ export class MockServer {
     storage: () => ({
       totalBytes: 50 * 1024 ** 3, usedBytes: 41 * 1024 ** 3, freeBytes: 9 * 1024 ** 3, percent: 82, level: 'warn', reserveBytes: 1024 ** 3, writesRefused: false, graceEndsAt: null,
       breakdown: { kept: 1.2 * 1024 ** 3, rooms: 6.4 * 1024 ** 3, team: 23.6 * 1024 ** 3, history: 4 * 1024 ** 3, trash: 3 * 1024 ** 3, backups: 2 * 1024 ** 3, models: 0.5 * 1024 ** 3, data: 0.3 * 1024 ** 3, app: 0.2 * 1024 ** 3, other: 1024 ** 3 },
-      measuredAt: now(), planDiskGiB: this.cloud ? 50 : null,
+      measuredAt: now(), planDiskGiB: this.cloud ? 50 : null, cleanupAskedAt: this.cleanupAskedAt,
     }),
+    // like server/src/system/storage-cleanup.ts: once a day, the answer only the time
+    askStorageCleanup: () => ({ askedAt: (this.cleanupAskedAt ??= now()) }),
     // like server/src/system/managed.ts: the plan card and the operator's notices on Team AX Cloud (none self-hosted)
     plan: (c) => ({
       plan: this.cloud ? {

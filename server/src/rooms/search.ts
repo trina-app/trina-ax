@@ -33,7 +33,7 @@
 // (tests/unit/b-rooms-file-search.test.ts times 20,000). The cursor is below the page's last hit (a file they see).
 import type { Database } from 'bun:sqlite'
 import { searchWords } from '@mycel/shared'
-import { ROOM_REF_RE, ROOM_SEARCH_PAGE_MAX, ROOM_SEARCH_SNIPPET_MAX, type RoomFileSearchHit, type RoomFileSearchPage, type RoomSearchHit, type RoomSearchPage, type RoomSearchRoom } from '@mycel/shared/api'
+import { ROOM_REF_RE, ROOM_SEARCH_PAGE_MAX, ROOM_SEARCH_SNIPPET_MAX, type MyRoomFilesPage, type RoomFileSearchHit, type RoomFileSearchPage, type RoomSearchHit, type RoomSearchPage, type RoomSearchRoom } from '@mycel/shared/api'
 import { decodeCursor, encodeCursor } from '../chat/store'
 import { fail } from '../http/errors'
 import { myRooms, type Mine } from './reader'
@@ -128,8 +128,13 @@ export function searchRoomFiles(db: Database, userId: string, o: SearchInput): R
   // the last one kept below
   const last = page.at(-1)
   const nextCursor = rows.length > limit && last ? encodeCursor({ f: String(last.fr) }) : null
-  // canSee on each (a second check), then, per room, what messagesOut would withhold from its member (one of their
-  // hidden old answers or in its thread: a third check), as the room shows it: never a withheld message's files
+  return { ...fileHits(db, userId, mine, page), nextCursor }
+}
+
+/** The files of a page of rows of the room files query, as the room shows them, and their rooms: canSee on each (a
+ * second check), then, per room, what messagesOut would withhold from its member (one of their hidden old answers or
+ * in its thread: a third check): never a withheld message's files. */
+function fileHits(db: Database, userId: string, mine: Map<string, Mine>, page: (MessageRow & { file_id: string })[]): { items: RoomFileSearchHit[]; rooms: RoomSearchRoom[] } {
   const seen = page.filter((h) => { const m = mine.get(h.room_id); return !!m && canSee(db, h, m.me) })
   const withheld = new Set<string>()
   for (const roomId of new Set(seen.map((h) => h.room_id))) for (const id of hiddenAmong(db, seen.filter((h) => h.room_id === roomId), mine.get(roomId)!.me)) withheld.add(id)
@@ -144,7 +149,35 @@ export function searchRoomFiles(db: Database, userId: string, o: SearchInput): R
     items.push({ file: fileOut(f), messageId: h.id, roomId: h.room_id, threadRootId: h.thread_root_id ?? null, author: h.author_kind === 'ai' || !h.author_id ? null : people.get(h.author_id) ?? null, createdAt: h.created_at })
   }
   const rooms: RoomSearchRoom[] = [...new Set(items.map((i) => i.roomId))].map((id) => { const m = mine.get(id)!; return { id, kind: m.room.kind, ...roomNaming(db, m.room, userId) } })
-  return { items, rooms, nextCursor }
+  return { items, rooms }
+}
+
+/** Mine only: the rows of the rooms I am in now, of a message of mine that is sent, not deleted and that I see. */
+const MINE_WHERE = `f.user_id = ? AND f.message_id IS NOT NULL AND m.author_kind = 'user' AND m.author_id = f.user_id
+  AND f.room_id IN (SELECT value FROM json_each(?)) AND m.deleted_at IS NULL AND m.event IS NULL AND ${SEE_MEMBER_SQL}`
+const MINE_FROM = `room_files f CROSS JOIN room_messages m ON m.id = f.message_id AND m.room_id = f.room_id
+    CROSS JOIN room_members mm ON mm.room_id = m.room_id AND mm.user_id = f.user_id`
+
+/** "Files you sent" (docs/decisions/20261116-room-files-cleanup.md): my files in the rooms I am in now, of my messages
+ * I still see, largest first (equal sizes oldest first: the index's own order), by the index room_files_by_sender
+ * (migration 414); the cursor is the last row's (size, rowid). totalBytes: all of them together, with the first page.
+ * The same checks as the search on each row. */
+export function listMyRoomFiles(db: Database, userId: string, o: { cursor?: string; limit?: number }): MyRoomFilesPage {
+  const cur = decodeCursor(o.cursor, ['s', 'f'])
+  if (o.cursor && (!cur || !/^\d{1,18}$/.test(cur.s) || !/^\d{1,18}$/.test(cur.f))) fail('validation', undefined, { fields: { 'query.cursor': 'invalid cursor' } })
+  const limit = Math.min(ROOM_SEARCH_PAGE_MAX, Math.max(1, o.limit ?? ROOM_SEARCH_DEFAULT))
+  const mine = new Map(myRooms(db, userId).map((m) => [m.room.id, m]))
+  if (!mine.size) return { items: [], rooms: [], nextCursor: null, totalBytes: 0 }
+  const ids = JSON.stringify([...mine.keys()])
+  const rows = db.query(`SELECT f.rowid AS fr, f.size AS fsize, f.id AS file_id, ${COLS} FROM ${MINE_FROM}
+    WHERE ${MINE_WHERE}${cur ? ' AND (f.size < ? OR (f.size = ? AND f.rowid > ?))' : ''} ORDER BY f.size DESC, f.rowid LIMIT ?`)
+    .all(userId, ids, ...(cur ? [Number(cur.s), Number(cur.s), Number(cur.f)] : []), limit + 1) as (MessageRow & { fr: number; fsize: number; file_id: string })[]
+  const page = rows.slice(0, limit)
+  const last = page.at(-1)
+  const nextCursor = rows.length > limit && last ? encodeCursor({ s: String(last.fsize), f: String(last.fr) }) : null
+  // the total with the first page only (a later page answers 0: the app keeps the first one's)
+  const total = cur ? 0 : (db.query(`SELECT COALESCE(SUM(f.size), 0) AS n FROM ${MINE_FROM} WHERE ${MINE_WHERE}`).get(userId, ids) as { n: number }).n
+  return { ...fileHits(db, userId, mine, page), nextCursor, totalBytes: total }
 }
 
 /** The text around the first match (the word found first, `q` a word or the words), on one line: room links as
