@@ -6,7 +6,7 @@
 // everyone room) and nothing to start, sign-in opens their place, and a removed guest's sign-in page says why.
 import { expect, test, type Page } from '@playwright/test'
 import { uuidv7, type GuestAiChoice } from '@mycel/shared/api'
-import { reset } from './helpers'
+import { reset, signIn } from './helpers'
 
 const GROUP = uuidv7()
 const EVERYONE = uuidv7()
@@ -315,6 +315,38 @@ test.describe('computer', () => {
     await expect(page.getByTestId('guest-no-ai')).toHaveCount(0)
     await page.getByTestId('rail-ai').click()
     await expect(page.getByTestId('composer-input')).toBeVisible()
+  })
+
+  // QA TC-4575: speech to text is not on a guest's list (the server refuses every recording: tests/unit/
+  // a-guests-speech.test.ts), so no box shows a guest the mic, and Space held in a box stays a Space
+  test('a guest with Team AI has no mic: not in the room\'s box, the ✦ side chat\'s box nor Ask Trina\'s, while a member has it', async ({ page }) => {
+    await guestIn(page, { kind: 'room', id: GROUP }, TEAM_AI)
+    await expect(page).toHaveURL(new RegExp(`/rooms/${GROUP}$`))
+    await expect(page.getByTestId('room-input')).toBeVisible()
+    await expect(page.getByTestId('room-send')).toBeVisible()
+    await expect(page.getByTestId('voice-button')).toHaveCount(0)
+    await page.getByTestId('room-input').click()
+    await page.keyboard.down('Space')
+    await page.waitForTimeout(700)
+    await page.keyboard.up('Space')
+    await expect(page.getByTestId('voice-bar')).toHaveCount(0)
+    await expect(page.getByTestId('room-input')).toHaveValue(' ')
+    await page.getByTestId('room-side-chat-button').click()
+    const side = page.getByTestId('side-chat-panel')
+    await expect(side.getByTestId('side-chat-input')).toBeVisible()
+    await expect(side.getByTestId('side-chat-send')).toBeVisible()
+    await expect(page.getByTestId('voice-button')).toHaveCount(0)
+    await page.getByTestId('rail-ai').click()
+    await expect(page.getByTestId('composer-input')).toBeVisible()
+    await expect(page.getByTestId('voice-button')).toHaveCount(0)
+    // a member of the same team has the mic in the same boxes
+    await page.context().clearCookies()
+    await signIn(page, { username: 'bob', password: 'bob password 1' })
+    await expect(page.getByTestId('composer-input')).toBeVisible()
+    await expect(page.getByTestId('voice-button')).toBeVisible()
+    await page.goto(`/rooms/${GROUP}`)
+    await expect(page.getByTestId('room-input')).toBeVisible()
+    await expect(page.getByTestId('room-composer').getByTestId('voice-button')).toBeVisible()
   })
 
   test("a guest with Team AI whose account cannot answer here: 트리나 and ✦ stay, the box says why", async ({ page }) => {

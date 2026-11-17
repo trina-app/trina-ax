@@ -1494,6 +1494,8 @@ func (u *updater) updateApp(dir, v string) error {
 	if !systemd {
 		sw = append(sw, "--restart") // the running server stops itself; the bootstrap (under supervise) starts v
 	}
+	// the newest history entry before this switch: a roll-back of v recorded by an earlier try is not this try's
+	histBefore := u.lastHistory()
 	if out, err := u.runAsSrv(sw, nil); err != nil {
 		return fmt.Errorf("switch: %v %s", err, strings.TrimSpace(out))
 	}
@@ -1515,11 +1517,17 @@ func (u *updater) updateApp(dir, v string) error {
 		if h["ok"] == true && h["version"] == v {
 			// the bootstrap keeps a version that answers health only once its engine check passed (QA TC-3523,
 			// native/cmd/mycel-bootstrap/enginecheck.go): while state.json still has v pending it may roll back yet
-			if !u.stillPending(v) {
+			// The answer and the state are two reads: the bootstrap may roll v back between them (v answered health,
+			// then state.json says rolled back, no longer pending). "Not pending" alone is then not "kept": a roll-back
+			// the bootstrap recorded for v since the switch goes to the roll-back wait below, unless it went forward to
+			// v again. It was reported "ok" (exit 0) for a version that no longer ran.
+			pending := u.stillPending(v)
+			rolledBackNow := u.rolledBack(v) != "" && u.lastHistory() != histBefore && !u.forwardTo(v)
+			if !pending && !rolledBackNow {
 				u.res.Result = "ok"
 				return nil
 			}
-			if !checkSeen {
+			if pending && !checkSeen {
 				checkSeen = true
 				if d := time.Now().Add(engineCheckWait); d.After(deadline) {
 					deadline = d
@@ -1661,6 +1669,29 @@ func (u *updater) stillPending(v string) bool {
 		Pending *string `json:"pending"`
 	}
 	return json.Unmarshal(b, &st) == nil && st.Pending != nil && *st.Pending == v
+}
+
+// lastHistory reads app/state.json: its newest history entry as written, with the number of entries ("" = no file,
+// no entry). It tells a roll-back the bootstrap recorded since a switch from one an earlier try left there.
+func (u *updater) lastHistory() string {
+	b, err := os.ReadFile(filepath.Join(u.e.base, "app", "state.json"))
+	if err != nil {
+		return ""
+	}
+	var st struct {
+		History []json.RawMessage `json:"history"`
+	}
+	if json.Unmarshal(b, &st) != nil || len(st.History) == 0 {
+		return ""
+	}
+	// read and written again, so the same entry compares equal whoever wrote the file (the server's switch writes the
+	// whole file again with its own JSON spelling: "<" where Go writes "\u003c")
+	var last any
+	if json.Unmarshal(st.History[len(st.History)-1], &last) != nil {
+		return ""
+	}
+	b, _ = json.Marshal(last)
+	return fmt.Sprintf("%d %s", len(st.History), b)
 }
 
 // rolledBack reads app/state.json: the bootstrap recorded a roll-back away from v (returns its detail).

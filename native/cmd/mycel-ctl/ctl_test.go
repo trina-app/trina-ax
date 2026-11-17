@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -29,10 +30,15 @@ import (
 // testBase builds <tmp>/base with root/, run/, app/versions/<from>, config/server.json, install.json and
 // firewall.conf.json, all owned by the test's uid (which plays root: rootUID).
 type testBase struct {
-	t        *testing.T
-	base     string
-	port     int
-	health   atomic.Value // version /api/health reports
+	t      *testing.T
+	base   string
+	port   int
+	health atomic.Value // version /api/health reports
+	// onHealth, when set, runs inside each /api/health request with the version about to be answered and how many
+	// requests got that version before (0 = the first). The caller (`update`) is waiting for this answer, so what the
+	// hook does happens at a known point of its loop: after it asked, before it reads state.json. Tests use it in place
+	// of a timer ("the bootstrap decides after 1.5 s"), which raced with the loop's own clock on a slow runner.
+	onHealth atomic.Pointer[func(v string, seen int)]
 	fakeBin  string
 	sysCalls string
 }
@@ -67,8 +73,17 @@ func newTestBase(t *testing.T, from string) *testBase {
 	must(t, err)
 	tb.port = ln.Addr().(*net.TCPAddr).Port
 	tb.health.Store(from)
+	var healthMu sync.Mutex
+	answered := map[string]int{}
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		v := tb.health.Load().(string)
+		healthMu.Lock()
+		seen := answered[v]
+		answered[v]++
+		if f := tb.onHealth.Load(); f != nil {
+			(*f)(v, seen)
+		}
+		healthMu.Unlock()
 		if m, ok := strings.CutPrefix(v, "migrating:"); ok {
 			w.WriteHeader(503)
 			fmt.Fprintf(w, `{"ok":false,"status":"migrating","version":%q}`, m)
@@ -92,6 +107,19 @@ func newTestBase(t *testing.T, from string) *testBase {
 	must(t, os.WriteFile(filepath.Join(tb.fakeBin, "nft"), []byte("#!/bin/sh\nif [ \"$1\" = -j ]; then cat '"+fixture+"'; exit 0; fi\nif [ \"$1\" = -f ]; then cat >/dev/null; [ -f '"+tb.fakeBin+"/nft-fail' ] && { echo 'Error: syntax'; exit 1; }; exit 0; fi\nexit 0\n"), 0o755))
 	must(t, os.WriteFile(filepath.Join(tb.fakeBin, "systemctl"), []byte("#!/bin/sh\necho \"$*\" >> '"+tb.sysCalls+"'\n"), 0o755))
 	return tb
+}
+
+// writeState replaces app/state.json the way the bootstrap does (a temporary file, then a rename): a reader never
+// sees a half-written file. os.WriteFile on the file itself empties it first, and `update` read that as "no state".
+func (tb *testBase) writeState(js string) {
+	tb.t.Helper()
+	f := filepath.Join(tb.base, "app/state.json")
+	// Error, not Fatal: tests call this from the health server's goroutine too
+	if err := os.WriteFile(f+".tmp", []byte(js), 0o644); err != nil {
+		tb.t.Error(err)
+	} else if err := os.Rename(f+".tmp", f); err != nil {
+		tb.t.Error(err)
+	}
 }
 
 func must(t *testing.T, err error) {
@@ -409,20 +437,33 @@ func TestUpdateRollBackThenForwardIsOk(t *testing.T) {
 	t.Cleanup(func() { rollbackGrace = old })
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	k := base64.StdEncoding.EncodeToString(pub)
-	stf := filepath.Join(tb.base, "app/state.json")
 	rb := `{"at":"x","from":"0.2.0","to":"0.1.0","result":"rolled_back","detail":"not healthy within 2m0s"}`
+	// No timers here: the bootstrap acts inside `update`'s own looks (one health request each, 0.5 s apart:
+	// rollbackGrace/4), so a look can never come a few ms before or after a step. Look 0 is the first after the switch.
+	//   look 3 (1.5 s or later): state.json says forward; `update` reads it in the same look and starts a new health
+	//           wait of 3 s
+	//   look 7 (3.5 s or later, past the grace of 2 s and the first health wait of 3 s): the new version answers,
+	//           2 s into the forward's wait of 3 s
+	// The timers this replaces (forward after 1.2 s, the answer 2 s later) failed in CI when a look and a step fell
+	// together (2026-11-11 and 11-12), and the state was written in place: a look could read an empty file.
+	var look atomic.Int32
+	look.Store(-1)
+	onHealth := func(string, int) {
+		if look.Load() < 0 {
+			return // before the switch
+		}
+		switch look.Load() {
+		case 3:
+			tb.writeState(`{"format":1,"current":"0.1.0","previous":null,"pending":null,"pendingSince":null,"attempts":0,"history":[` + rb + `],"forward":"0.2.0"}`)
+		case 6:
+			tb.health.Store("0.2.0") // from the next look on
+		}
+		look.Add(1)
+	}
+	tb.onHealth.Store(&onHealth)
 	updateHooks(t, tb, func(v string) {
-		os.WriteFile(stf, []byte(`{"format":1,"current":"0.1.0","previous":null,"pending":null,"pendingSince":null,"attempts":0,"history":[`+rb+`]}`), 0o644)
-		// update looks every 0.5 s (rollbackGrace/4). The forward at 1.2 s is seen at the 1.5 s look, so its own health
-		// wait ends at 4.5 s; v answers at 3.2 s: past the grace (2 s) and the first health wait (3 s), seen at the 3.5 s
-		// look, a second before the end. v used to answer at exactly 3 s, the end of the forward's wait less one look:
-		// a look a few ms early missed it and the next came too late (CI on Linux, 2026-11-11 and 11-12).
-		go func() {
-			time.Sleep(1200 * time.Millisecond)
-			os.WriteFile(stf, []byte(`{"format":1,"current":"0.1.0","previous":null,"pending":null,"pendingSince":null,"attempts":0,"history":[`+rb+`],"forward":"0.2.0"}`), 0o644)
-			time.Sleep(2000 * time.Millisecond)
-			tb.health.Store(v)
-		}()
+		tb.writeState(`{"format":1,"current":"0.1.0","previous":null,"pending":null,"pendingSince":null,"attempts":0,"history":[` + rb + `]}`)
+		look.Store(0)
 	})
 	arch := filepath.Join(t.TempDir(), "g.tar.zst")
 	mkArchive(t, signedBundle(t, "0.2.0", priv, "old launcher"), arch, nil)
@@ -431,6 +472,10 @@ func TestUpdateRollBackThenForwardIsOk(t *testing.T) {
 	json.Unmarshal([]byte(out), &r)
 	if code != 0 || r.Result != "ok" {
 		t.Fatalf("%d %+v", code, r)
+	}
+	// reported at the first answer of the new version (look 7), not earlier and not a look later
+	if n := look.Load(); n != 8 {
+		t.Fatalf("reported after %d looks, want 8", n)
 	}
 }
 
@@ -634,6 +679,10 @@ func TestStatusChecksTheLiveTable(t *testing.T) {
 // QA TC-3523: the new version answers /api/health while the bootstrap still checks that the AI engine can start with
 // it (state.json keeps it pending). `update` waits for that: a version the bootstrap then rolls back is reported
 // rolled_back with the bootstrap's reason, one it keeps is ok.
+// The bootstrap decides while `update` waits for its third health answer of the new version, so `update` has seen
+// "healthy and pending" twice, and reads the decision right after an answer that still says the new version. For a
+// roll-back that is the order that used to be reported "ok": healthy, and no longer pending (CI, 2026-11-17: a 1.5 s
+// timer in this test met the loop's look at 1.5 s).
 func TestUpdateWaitsForTheEngineCheck(t *testing.T) {
 	for _, keep := range []bool{false, true} {
 		t.Run(fmt.Sprintf("kept %v", keep), func(t *testing.T) {
@@ -645,30 +694,42 @@ func TestUpdateWaitsForTheEngineCheck(t *testing.T) {
 			t.Cleanup(func() { rollbackGrace = old })
 			pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 			k := base64.StdEncoding.EncodeToString(pub)
-			stf := filepath.Join(tb.base, "app/state.json")
 			why := "the AI engine cannot start with this version, so every AI answer would fail: bwrap: Can't find source path /var/lib/mycel/app/current/native/mycel-bridge: Permission denied"
+			// both are written in the health server's goroutine, under its lock, and read after `update` has returned
+			pendingLooks := 0
+			decided := false
+			onHealth := func(v string, seen int) {
+				if v != "0.2.0" {
+					return
+				}
+				if seen < 2 {
+					pendingLooks++
+					return
+				}
+				if decided {
+					return
+				}
+				decided = true
+				if keep {
+					tb.writeState(`{"format":1,"current":"` + v + `","previous":"0.1.0","pending":null,"pendingSince":null,"attempts":0,"history":[{"at":"x","from":"0.1.0","to":"` + v + `","result":"ok","detail":null}]}`)
+					return
+				}
+				b, _ := json.Marshal(why)
+				tb.writeState(`{"format":1,"current":"0.1.0","previous":null,"pending":null,"pendingSince":null,"attempts":0,"history":[{"at":"x","from":"` + v + `","to":"0.1.0","result":"rolled_back","detail":` + string(b) + `}]}`)
+				tb.health.Store("0.1.0") // the answers after this one are the old version's
+			}
+			tb.onHealth.Store(&onHealth)
 			updateHooks(t, tb, func(v string) {
-				os.WriteFile(stf, []byte(`{"format":1,"current":"0.1.0","previous":"0.1.0","pending":"`+v+`","pendingSince":"x","attempts":0,"history":[]}`), 0o644)
+				tb.writeState(`{"format":1,"current":"0.1.0","previous":"0.1.0","pending":"` + v + `","pendingSince":"x","attempts":0,"history":[]}`)
 				tb.health.Store(v) // healthy at once, still pending
-				go func() {
-					time.Sleep(1500 * time.Millisecond)
-					if keep {
-						os.WriteFile(stf, []byte(`{"format":1,"current":"`+v+`","previous":"0.1.0","pending":null,"pendingSince":null,"attempts":0,"history":[{"at":"x","from":"0.1.0","to":"`+v+`","result":"ok","detail":null}]}`), 0o644)
-						return
-					}
-					b, _ := json.Marshal(why)
-					os.WriteFile(stf, []byte(`{"format":1,"current":"0.1.0","previous":null,"pending":null,"pendingSince":null,"attempts":0,"history":[{"at":"x","from":"`+v+`","to":"0.1.0","result":"rolled_back","detail":`+string(b)+`}]}`), 0o644)
-					tb.health.Store("0.1.0")
-				}()
 			})
 			arch := filepath.Join(t.TempDir(), "g.tar.zst")
 			mkArchive(t, signedBundle(t, "0.2.0", priv, "old launcher"), arch, nil)
-			began := time.Now()
 			code, out, errs := tb.ctl("", "update", "--bundle", arch, "--pubkey", k, "--json")
 			var r UpdateResult
 			json.Unmarshal([]byte(out), &r)
-			if took := time.Since(began); took < 1500*time.Millisecond {
-				t.Fatalf("reported after %v, before the bootstrap settled: %d %+v", took, code, r)
+			if !decided || pendingLooks != 2 {
+				t.Fatalf("reported before the bootstrap settled (healthy and pending seen %d times, decided %v): %d %+v", pendingLooks, decided, code, r)
 			}
 			if keep {
 				if code != 0 || r.Result != "ok" {

@@ -1,4 +1,4 @@
-// Voice input for a message box (the AI chat's Composer, a room's and a thread's RoomComposer): the microphone
+// Voice input for a message box (the AI chat's Composer, a room's and a thread's RoomComposer, the ✦ side chat's box): the microphone
 // (lib/recorder.ts), the upload (kind 'transcribe', with the chat when there is one) and its job, and the moves of
 // lib/voiceInput.ts: hold Space in the box, click the mic, or press and hold it with a finger. The words go to the end
 // of the box and are never sent by themselves. While the job runs, its own label shows (the first recording on a

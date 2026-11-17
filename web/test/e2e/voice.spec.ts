@@ -1,9 +1,9 @@
 // Voice input in the browser (lib/useVoiceInput.ts, components/VoiceBar.tsx): the mic and a transcription job into the
 // box; the chat a recording names and the confidential note; holding Space (a computer: this Chromium hovers with a fine
 // pointer) in the AI chat's box and a room's, a short tap typing a space, Esc, the job's own label while it runs, a
-// click in a room (with the hint to hold Space next time), no mic while "this server" lacks its tools; the wave moving
-// with the microphone's sound, and the line that says so when the microphone gives none. Words go into the box and are
-// never sent by themselves.
+// click in a room (with the hint to hold Space next time), the ✦ side chat's box, no mic while "this server" lacks its
+// tools; the wave moving with the microphone's sound, and the line that says so when the microphone gives none. Words go
+// into the box and are never sent by themselves.
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
 import { ROOM_ID, routeRoom } from './rooms-mock'
@@ -414,6 +414,112 @@ test.describe('rooms', () => {
     await expect(page.getByTestId('room-voice-error')).toHaveText('모든 채팅이 기밀로 다뤄지는 동안에는 녹음을 바깥 음성 서비스(OpenRouter)로 보내지 않아서 대화에서 음성 입력을 쓸 수 없어요. 글로 입력해 주세요.')
     await expect(page.getByRole('group', { name: '녹음 중' })).toHaveCount(0)
     expect(await transcribeChats(page)).toEqual([])
+  })
+
+  // the ✦ side chat's box (rooms/SideChatPanel.tsx, docs/decisions/20261117-side-chat-mic.md)
+  const openSide = async (page: Page) => {
+    await routeRoom(page, { members: [{ id: 'sora', name: '소라님' }], messages: [ROOT] })
+    await signIn(page)
+    await page.goto(`/rooms/${ROOM_ID}`)
+    await page.getByTestId('room-side-chat-button').click()
+    const side = page.getByTestId('room-side-chat')
+    await expect(side.getByTestId('side-chat-empty')).toBeVisible()
+    return side
+  }
+
+  test('the ✦ side chat: the mic right before send; a click records until ✓, Space held records too; the words go into its box, nothing is sent, and the recording names the side chat', async ({ page }) => {
+    await reset(page)
+    const side = await openSide(page)
+    const input = side.getByTestId('side-chat-input')
+    // the text on top; in the row under it the clip on the left, the mic right before send, as in the room's box
+    const [clip, text, mic, send] = await Promise.all([side.getByTestId('side-chat-attach'), input, side.getByRole('button', { name: MIC }), side.getByTestId('side-chat-send')].map(async (l) => (await l.boundingBox())!))
+    expect(clip!.x).toBeLessThan(mic!.x)
+    expect(mic!.x + mic!.width).toBeLessThanOrEqual(send!.x)
+    for (const c of [clip!, mic!, send!]) expect(c.y).toBeGreaterThanOrEqual(text!.y + text!.height - 1)
+    const box = (await side.getByTestId('side-chat-box').boundingBox())!
+    await side.getByRole('button', { name: MIC }).click()
+    const bar = side.getByRole('group', { name: '녹음 중' })
+    await expect(bar).toHaveAttribute('data-mode', 'toggle')
+    // the box keeps its size while the bar stands in the row's place; the placeholder stays on top
+    await expect(side.getByTestId('side-chat-text-held')).toHaveText('이 대화에 대해 트리나에게 묻기…')
+    const recording = (await side.getByTestId('side-chat-box').boundingBox())!
+    expect(Math.abs(recording.height - box.height)).toBeLessThanOrEqual(1)
+    expect(Math.abs(recording.y - box.y)).toBeLessThanOrEqual(1)
+    // one recording at a time: the room's mic beside it waits
+    await expect(page.getByTestId('room-composer').getByRole('button', { name: MIC })).toBeDisabled()
+    await page.waitForTimeout(800)
+    await bar.getByRole('button', { name: '녹음 끝내기' }).click()
+    await expect(input).toHaveValue('받아쓴 문장입니다')
+    await expect(input).toBeFocused()
+    await expect(page.getByTestId('room-composer').getByRole('button', { name: MIC })).toBeEnabled()
+    // never sent by itself: no side chat was made, and the room got nothing
+    await page.waitForTimeout(300)
+    await expect(side.getByTestId('side-chat-empty')).toBeVisible()
+    await expect(page.getByTestId('room-input')).toHaveValue('')
+    expect(await transcribeChats(page)).toEqual([null])
+    // sent by the person: the side chat is made; the next recording names it (Space held in the box)
+    const asked = page.waitForRequest((r) => r.method() === 'POST' && /^\/api\/chats\/[^/]+\/messages$/.test(new URL(r.url()).pathname))
+    await side.getByTestId('side-chat-send').click()
+    const chatId = new URL((await asked).url()).pathname.split('/')[3]!
+    await expect(input).toHaveValue('')
+    await input.click()
+    await page.keyboard.press('Space')
+    await expect(input).toHaveValue(' ')
+    await input.fill('')
+    await holdSpace(page)
+    await expect(input).toHaveValue('받아쓴 문장입니다')
+    await expect(input).toBeFocused()
+    expect(await transcribeChats(page)).toEqual([null, chatId])
+    // Esc throws a recording away: the box is as it was
+    await side.getByRole('button', { name: MIC }).click()
+    await expect(bar).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(bar).toHaveCount(0)
+    await expect(input).toHaveValue('받아쓴 문장입니다')
+    // "New chat" during a recording: the recording goes with the chat it was for, and the new chat's box is empty
+    await side.getByRole('button', { name: MIC }).click()
+    await expect(bar).toBeVisible()
+    await side.getByTestId('side-chat-new').click()
+    await expect(bar).toHaveCount(0)
+    await expect(input).toHaveValue('')
+    await expect(side.getByRole('button', { name: MIC })).toBeEnabled()
+    expect(await transcribeChats(page)).toEqual([null, chatId])
+  })
+
+  test('the ✦ side chat with voice input through OpenRouter: the words show above the bar while recording', async ({ page }) => {
+    await reset(page)
+    await speech(page, 'openrouter', true)
+    const side = await openSide(page)
+    await side.getByTestId('side-chat-input').fill('my draft')
+    await side.getByRole('button', { name: MIC }).click()
+    const bar = side.getByRole('group', { name: '녹음 중' })
+    await expect(side.getByTestId('side-chat-text-held')).toContainText('my draft 받아쓴 문장입니다', { timeout: 12_000 })
+    await expect(bar).toBeVisible()
+    await bar.getByRole('button', { name: '녹음 끝내기' }).click()
+    await expect(bar).toHaveCount(0)
+    await expect(side.getByTestId('side-chat-input')).toHaveValue(/^my draft 받아쓴 문장입니다( 받아쓴 문장입니다)*$/)
+    const log = (await (await page.request.post('/__test/log')).json()) as string[]
+    expect(log).toContain('POST /api/transcribe/piece')
+    expect(log).not.toContain('POST /api/transcribe')
+    await expect(side.getByTestId('side-chat-empty')).toBeVisible()
+  })
+
+  test('the ✦ side chat while every chat is confidential and voice input goes to OpenRouter: it says why instead of recording; voice input off: no mic', async ({ page }) => {
+    await reset(page)
+    expect((await page.request.post('/__test/confidential', { data: { all: true } })).ok()).toBeTruthy()
+    await speech(page, 'openrouter', true)
+    const side = await openSide(page)
+    await side.getByRole('button', { name: MIC }).click()
+    await expect(side.getByTestId('side-chat-voice-error')).toContainText(NOTE)
+    await expect(page.getByRole('group', { name: '녹음 중' })).toHaveCount(0)
+    expect(await transcribeChats(page)).toEqual([])
+    // "this server" without its tools: voice input can't be used, so no mic in the side chat either
+    await speech(page, 'local')
+    expect((await page.request.post('/__test/speech-host', { data: { localMissing: ['ffmpeg'] } })).ok()).toBeTruthy()
+    await page.reload()
+    await page.getByTestId('room-side-chat-button').click()
+    await expect(side.getByTestId('side-chat-input')).toBeVisible()
+    await expect(side.getByRole('button', { name: MIC })).toHaveCount(0)
   })
 })
 
