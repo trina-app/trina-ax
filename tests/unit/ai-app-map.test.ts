@@ -154,7 +154,7 @@ describe('the places people asked about (scenario catalog 2026-11-17)', () => {
       const s = appMapSection({ ...base, view }, 'ko')
       const want = [
         `${DICTS.ko['settings.security']} (${DICTS.ko['auth.changePassword']}; ${DICTS.ko['settings.devices']}`, DICTS.ko['status.set'], DICTS.ko['presence.setAway'],
-        DICTS.ko['rooms.info.rename'], DICTS.ko['rooms.info.invite'], DICTS.ko['rooms.react'], `${DICTS.ko['inbox.title']} (a tab of its own)`, DICTS.ko['chat.pin'],
+        DICTS.ko['rooms.info.rename'], DICTS.ko['rooms.info.invite'], DICTS.ko['rooms.react'], `${DICTS.ko['inbox.title']}.`, DICTS.ko['chat.pin'],
         DICTS.ko['integrations.title'], `${DICTS.ko['projects.title']} › ${DICTS.ko['projects.new']}`,
       ]
       for (const w of want) expect({ view, w, there: s.includes(w) }).toEqual({ view, w, there: true })
@@ -172,7 +172,9 @@ describe('the places people asked about (scenario catalog 2026-11-17)', () => {
     }
     // a member: who does it, not the Admin page's buttons
     const member = appMapSection({ ...base, view: 'member' }, 'ko')
-    expect(member).toContain('invites, a forgotten password (they make a reset link)')
+    expect(member).toContain('invites, roles (admins: the owner only), a forgotten password (they make a reset link)')
+    // making someone an admin is the owner's (admin/users.ts ownerOnlyAdmins)
+    expect(appMapSection(base, 'en')).toContain('roles (admins: owner only)')
     expect(member).not.toContain(DICTS.ko['members.resetLinkButton'])
   })
 })
