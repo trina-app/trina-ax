@@ -66,7 +66,7 @@ export function savePlaceFor(db: Database, files: FileService, r: { id: string; 
   }
   // only the company-wide folder holds them all: is anyone in the team outside the room?
   const inRoom = new Set(members.map((p) => p.id))
-  const team = (db.query("SELECT id FROM users WHERE status = 'active' AND deleted_at IS NULL AND role != 'guest'").all() as { id: string }[])
+  const team = (db.query("SELECT id FROM users WHERE status = 'active' AND deleted_at IS NULL AND guest = 0").all() as { id: string }[])
   const outside = team.some((u) => !inRoom.has(u.id))
   const mayShare = isStaff(me) || getTeamSettings(db).memberFileShares !== false
   const others = members.filter((p) => p.id !== me.id)
