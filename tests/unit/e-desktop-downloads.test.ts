@@ -1,7 +1,9 @@
 // The desktop app saves the team page's downloads straight into Downloads (desktop/src/common/downloads.ts, QA
 // TC-4638): the name is not trusted, a file that is there is never replaced, the path stays inside the folder.
-import { describe, expect, mock, test } from 'bun:test'
-import { posix, win32 } from 'node:path'
+import { describe, expect, test } from 'bun:test'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, posix, win32 } from 'node:path'
 import {
   DIRECT_SAVES_MAX,
   DIRECT_SAVES_WINDOW_MS,
@@ -15,6 +17,7 @@ import {
   safeDownloadName,
   zoneIdentifierText,
 } from '../../desktop/src/common/downloads'
+import { DirectDownloads } from '../../desktop/src/main/downloads'
 
 describe('safeDownloadName', () => {
   test('an ordinary name is kept as it is', () => {
@@ -167,7 +170,7 @@ describe('SaveBurst: three direct saves in ten seconds from one page', () => {
 
 describe('the downloaded-from-the-internet mark', () => {
   test('quarantine value: 0083, hex seconds, the app', () => {
-    expect(quarantineValue(1_700_000_000_123)).toBe('0083;6553f100;Trina AX;')
+    expect(quarantineValue(1_700_000_000_123, 'Office')).toBe('0083;6553f100;Office;')
     expect(quarantineValue(0, 'a;b')).toBe('0083;0;ab;')
   })
   test('zone text: zone 3, web addresses only, no user name or password', () => {
@@ -180,12 +183,7 @@ describe('the downloaded-from-the-internet mark', () => {
   })
 })
 
-describe('DirectDownloads: every finished download is marked, the save window\'s too', async () => {
-  mock.module('electron', () => ({ shell: { showItemInFolder: () => {}, openPath: async () => '' } }))
-  const { DirectDownloads } = await import('../../desktop/src/main/downloads')
-  const { mkdtempSync, rmSync } = await import('node:fs')
-  const { tmpdir } = await import('node:os')
-  const { join } = await import('node:path')
+describe('DirectDownloads: every finished download is marked, the save window\'s too', () => {
 
   type Handler = (...a: any[]) => unknown
   function fakeItem(name: string, url = 'https://team.example/api/files/1') {

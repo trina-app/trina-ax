@@ -135,7 +135,7 @@ export class SaveBurst {
 }
 
 /** The Mac's quarantine mark for a downloaded file: flags 0083, the time in hex seconds, the app that downloaded it. */
-export function quarantineValue(nowMs: number, app = 'Trina AX'): string {
+export function quarantineValue(nowMs: number, app: string): string {
   return `0083;${Math.floor(nowMs / 1000).toString(16)};${app.replace(/;/g, '')};`
 }
 

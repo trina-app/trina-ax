@@ -45,16 +45,17 @@
   before a page starts many downloads. Electron does none of these on its own (`setSavePath` writes no
   `com.apple.quarantine`, checked with Electron 44), so the app does them:
   - **Types that run code keep the save window** (`runsCode`): on the Mac `app command tool terminal sh zsh bash pkg
-    mpkg dmg jar webloc inetloc fileloc scpt scptd applescript workflow action`, on Windows `exe msi msix msixbundle appx
-    appxbundle bat cmd com scr ps1 psm1 vbs vbe vb js jse wsf wsh wsc sct hta lnk url scf reg cpl inf pif application
-    appref-ms settingcontent-ms library-ms search-ms msp mst chm xll jnlp diagcab`, and disk images `iso img vhd vhdx`.
+    mpkg dmg jar webloc inetloc fileloc scpt scptd applescript workflow action`, on Windows `exe msi msix msixbundle
+    appx appxbundle bat cmd com scr ps1 psm1 vbs vbe vb js jse wsf wsh wsc sct hta lnk url scf reg cpl inf pif
+    application appref-ms settingcontent-ms library-ms search-ms msp mst chm xll jnlp diagcab`, and disk images `iso img
+    vhd vhdx`.
     The last extension of the cleaned name decides, in any case (`a.pdf.exe` asks, `a.exe.pdf` does not).
   - **Every file the team page downloads gets the mark** (`markDownloaded`), whether the app saved it or the person
     chose the place in the save window (a runnable file, the save limit, an older team server): `com.apple.quarantine`
-    (`0083;<time>;Trina AX;`, through `xattr` with no shell) on the Mac, a `Zone.Identifier` stream with `ZoneId=3` and
-    the http(s) addresses (never a blob or data address, no user name or password) on Windows. Gatekeeper, SmartScreen
-    and Office's Protected View then treat it as they treat a browser's download. A failure to mark is logged, not
-    shown. The Mac App Store build is left to its sandbox, which marks the files it writes.
+    (`0083;<time>;<the app's name>;`, through `xattr` with no shell) on the Mac, a `Zone.Identifier` stream with
+    `ZoneId=3` and the http(s) addresses (never a blob or data address, no user name or password) on Windows.
+    Gatekeeper, SmartScreen and Office's Protected View then treat it as they treat a browser's download. A failure to
+    mark is logged, not shown. The Mac App Store build is left to its sandbox, which marks the files it writes.
   - **Three direct saves in ten seconds from one page,** then the save window again until the ten seconds pass
     (`SaveBurst`).
 

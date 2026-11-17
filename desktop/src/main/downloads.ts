@@ -14,9 +14,13 @@
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, writeFile } from 'node:fs'
 import { basename } from 'node:path'
-import { shell, type Session, type WebContents } from 'electron'
+import { PRODUCT } from '@mycel/shared'
+import type { Session, WebContents } from 'electron'
 import { SaveBurst, downloadOutcome, pickDownloadPath, quarantineValue, runsCode, zoneIdentifierText } from '../common/downloads'
 import { debug } from './debug'
+
+// Electron is loaded only where it is used (show), so a test can load this file with no Electron mock
+const electron = (): typeof import('electron') => require('electron')
 
 /** What the page hears when a download ends (DesktopBridge.downloads.onDone). */
 export interface DownloadDone { id: number; name: string; ok: boolean }
@@ -33,7 +37,7 @@ export function markDownloaded(path: string, o: { url?: string; referrer?: strin
   return new Promise((done) => {
     try {
       if (platform === 'darwin') {
-        execFile('/usr/bin/xattr', ['-w', 'com.apple.quarantine', quarantineValue(o.now ?? Date.now()), path], (err) => {
+        execFile('/usr/bin/xattr', ['-w', 'com.apple.quarantine', quarantineValue(o.now ?? Date.now(), PRODUCT.displayName), path], (err) => {
           if (err) debug('downloads quarantine', err.message)
           done()
         })
@@ -136,11 +140,11 @@ export class DirectDownloads {
   show(id: number) {
     const path = this.saved.get(id)
     if (!path) return
-    if (existsSync(path)) shell.showItemInFolder(path)
+    if (existsSync(path)) electron().shell.showItemInFolder(path)
     else {
       try {
         const dir = this.o.dir()
-        if (dir) void shell.openPath(dir)
+        if (dir) void electron().shell.openPath(dir)
       } catch {
         // no folder to open
       }
