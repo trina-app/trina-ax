@@ -4,7 +4,7 @@
 import { afterAll, afterEach, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { generateTeamKey } from '@mycel/shared/relay-protocol'
+import { DEFAULTS, generateTeamKey } from '@mycel/shared/relay-protocol'
 import { F_WORK, rssMb, spawnFakeTeam, until, waitHttp } from '../lib/f-relay'
 import { chat, debug, expectedSha, lat, logLines, sh, startStack, sum, type Stack } from './harness'
 
@@ -123,7 +123,15 @@ describe('conformance (Node 25 relay, separate team-server process)', () => {
     ac.abort()
     const d1 = await until(async () => { const d = await debug(S!.base, 'fa'); return d.cancelAt ? d : null }, 3000, 'GET cancel')
     expect(d1.cancelAt - tAbort).toBeLessThan(1000)
-    expect(d1.produced - got).toBeLessThan(4 * MB)
+    // Bounded by flow control, not a fixed number. What the team server made beyond what this reader got is what
+    // sat in the pipe at the abort, plus window already granted: the relay returns window as soon as the
+    // browser-side socket accepts a write, so that connection's kernel buffers (send + receive, autotuned up to
+    // this host's limits: 8 MB on macOS, 36 MB on GitHub's runners) can hold bytes, plus one window in flight, one
+    // window queued on the team side and a producer chunk on each side of that queue. Production during the cancel
+    // latency is not extra: it only spends that granted window (measured: the producer keeps pulling up to ~90 ms
+    // after the abort under load and the total does not grow). Without backpressure the producer floods the queue.
+    const inPipe = socketBufferMax() + 2 * DEFAULTS.initialWindow + 2 * 65536
+    expect(d1.produced - got).toBeLessThan(inPipe)
     // 2) throttled curl killed
     const p2 = Bun.spawn(['curl', '-s', '--limit-rate', '1M', '-o', '/dev/null', `${S.base}/bytes?n=${1000 * MB}&rid=ck`])
     await Bun.sleep(1500)
@@ -146,7 +154,7 @@ describe('conformance (Node 25 relay, separate team-server process)', () => {
     p4.kill(9)
     const d4 = await until(async () => { const d = await debug(S!.base, 'pk'); return d.cancelAt ? d : null }, 3000, 'POST stream cancel')
     expect(d4.cancelAt - tKill4).toBeLessThan(1000)
-    notes.t4 = { getCancelMs: d1.cancelAt - tAbort, curlKillCancelMs: d2.cancelAt - tKill, uploadKillErrorMs: d3.errorAt - tKill3, postStreamCancelMs: d4.cancelAt - tKill4 }
+    notes.t4 = { getUnreadMB: +((d1.produced - got) / MB).toFixed(2), getAllowedMB: +(inPipe / MB).toFixed(1), getCancelMs: d1.cancelAt - tAbort, curlKillCancelMs: d2.cancelAt - tKill, uploadKillErrorMs: d3.errorAt - tKill3, postStreamCancelMs: d4.cancelAt - tKill4 }
   }, 60_000)
 
   test('t5 half-open team server (SIGSTOP): offline within the silence limit, clear errors, clean resume after SIGCONT', async () => {
