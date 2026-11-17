@@ -16,9 +16,10 @@ on:
   # dev has a merge queue (docs/decisions/20261117-merge-queue.md): a pull request to dev runs the quick jobs only
   # (what changed, typecheck/docs/native, the phone app); the queue runs everything on each queued entry (merge_group,
   # the PR on top of dev and of the entries ahead of it). The required check "typecheck, native, unit, fast fuzz, web,
-  # relay" reports on both. `labeled`: the label full-ci on a pull request runs everything there too.
+  # relay" reports on both. The whole suite on a pull request's branch on demand: `gh workflow run ci.yml --ref <branch>`
+  # (workflow_dispatch, mode full; its required check lands on the branch's head commit, the PR's head). No label
+  # trigger: any label would cancel and restart the PR's run and flash a red required check.
   pull_request:
-    types: [opened, synchronize, reopened, labeled]
   merge_group:
     types: [checks_requested]
   workflow_dispatch:
@@ -55,12 +56,12 @@ jobs:
   # build. Otherwise `mode` (docs/decisions/20261117-merge-queue.md) picks the jobs:
   #   quick   a pull request to dev while the repository variable MERGE_QUEUE is "on" (set it only after dev's ruleset
   #           has the merge queue rule; unset it first to turn the queue off): typecheck, docs, native (+ the phone app
-  #           job); the unit shards and "fast fuzz, web, relay" are skipped (the merge queue runs them). The label
-  #           full-ci runs everything (full) instead.
+  #           job); the unit shards and "fast fuzz, web, relay" are skipped (the merge queue runs them).
   #   tested  the push to dev made by the merge queue (actor github-merge-queue[bot]): the queue fast-forwards dev to
   #           the entry's commit it has just tested, so this SHA passed every job already; only the Linux jobs run.
   #   full    everything else: a queued entry (merge_group), a pull request to main (main's ruleset needs the check),
-  #           any other push to dev (an admin merge past the queue) or main, a manual run, a release's call.
+  #           any other push to dev (an admin merge past the queue) or main, a manual run (`gh workflow run ci.yml
+  #           --ref <branch>`), a release's call.
   # The required check (check job) passes on each path only when the jobs of that path passed.
   scope:
     name: what changed
@@ -74,7 +75,7 @@ jobs:
         if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         with:
           # pull_request: the PR's merge commit and its first parent (the base): their difference is what the PR changes.
-          # merge_group: the entry's commit; its base is fetched below (a diff of two commits needs only their trees)
+          # merge_group: the entry's commit; its parent is fetched below (a diff of two commits needs only their trees)
           fetch-depth: 2
           persist-credentials: false
       - id: diff
@@ -83,7 +84,6 @@ jobs:
           REF: ${{ github.ref }}
           ACTOR: ${{ github.actor }}
           BASE_REF: ${{ github.base_ref }}
-          FULL_CI_LABEL: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci') }}
           GROUP_BASE: ${{ github.event.merge_group.base_sha }}
           CALLED: ${{ inputs.ref != '' && inputs.ref != null }}
           MERGE_QUEUE: ${{ vars.MERGE_QUEUE }}
@@ -93,10 +93,13 @@ jobs:
           if [ "$EVENT" = pull_request ]; then
             files=$(git diff --name-only HEAD^1 HEAD)
           elif [ "$EVENT" = merge_group ]; then
-            # this entry and every entry ahead of it, against dev as the queue found it
+            # merge_group.base_sha is the entry's PARENT: the entry ahead of it in the queue (dev only for the first
+            # entry), so this is what this one pull request adds. The docs-only shortcut is safe only because dev's
+            # queue is ALLGREEN (every entry must pass its own checks); with HEADGREEN a failing code entry followed by
+            # a docs-only one could land on doc checks alone (docs/decisions/20261117-merge-queue.md).
             # (a failed fetch only costs the docs-only shortcut: the entry runs everything)
             if git fetch --no-tags --depth=1 origin "$GROUP_BASE"; then files=$(git diff --name-only "$GROUP_BASE" HEAD)
-            else echo "::warning::could not fetch the queue's base $GROUP_BASE; running every job"; fi
+            else echo "::warning::could not fetch the entry's parent $GROUP_BASE; running every job"; fi
           fi
           if [ -n "$files" ]; then
             echo "$files"
@@ -105,7 +108,7 @@ jobs:
           mode=full
           if [ "$CALLED" = true ]; then
             mode=full
-          elif [ "$EVENT" = pull_request ] && [ "$BASE_REF" = dev ] && [ "$MERGE_QUEUE" = on ] && [ "$FULL_CI_LABEL" != true ]; then
+          elif [ "$EVENT" = pull_request ] && [ "$BASE_REF" = dev ] && [ "$MERGE_QUEUE" = on ]; then
             mode=quick
           elif [ "$EVENT" = push ] && [ "$REF" = refs/heads/dev ] && [ "$ACTOR" = 'github-merge-queue[bot]' ]; then
             mode=tested
