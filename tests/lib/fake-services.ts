@@ -300,6 +300,8 @@ export class FakeServices {
     const p = u.pathname
     // ---- MCP servers ----
     if (p === '/mcp-open') return this.mcp(again(), auth)
+    // lets anyone start a session but lists its tools only after a sign-in it does not publish (no metadata)
+    if (p === '/mcp-half') return /"tools\/list"/.test(body) ? new Response('no', { status: 401 }) : this.mcp(again(), auth)
     if (p === '/mcp-key') return auth === `Bearer ${MCP_KEY}` ? this.mcp(again(), auth) : new Response('no', { status: 401 })
     if (p === '/mcp-header') return req.headers.get('x-api-key') === MCP_KEY ? this.mcp(again(), auth) : new Response('no', { status: 401 })
     if (p === '/mcp-redirect') return new Response(null, { status: 307, headers: { location: `${this.base}/mcp-open` } })

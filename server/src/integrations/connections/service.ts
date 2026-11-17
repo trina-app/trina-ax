@@ -1013,7 +1013,7 @@ export class Integrations {
    * the desktop app with the port of its one-time return address on 127.0.0.1 (`loopbackPort`: desktop/src/common/
    * sign-in-return.ts), else 'desktop' without one (an app from before it), 'web' or 'mobile'. The answer says
    * `loopback` when the service is signed in at through that address, so the app keeps it open. */
-  async authorize(viewer: Viewer, session: string, id: string, origin: string, locale: Locale, from: { client: 'web' | 'desktop' | 'mobile'; loopbackPort?: number | null } = { client: 'web' }): Promise<{ flowId: string; authorizationUrl: string; expiresAt: string; loopback?: boolean }> {
+  async authorize(viewer: Viewer, session: string, id: string, origin: string, locale: Locale, from: { client: 'web' | 'desktop' | 'mobile'; loopbackPort?: number | null } = { client: 'web' }): Promise<{ flowId: string; authorizationUrl: string; expiresAt: string; loopback?: boolean } | { connected: true }> {
     const L = locale
     const row = this.manageable(viewer, id)
     if (row.auth !== 'oauth') fail('validation', say('notOauth', L))
@@ -1043,8 +1043,21 @@ export class Integrations {
       } else {
         // the server's 401 names its metadata (WWW-Authenticate); without one the well-known addresses are tried
         let header = ''
-        try { await new McpClient(row.url, async () => [], this.net).start() } catch (e) { if (e instanceof McpError && e.code === 'unauthorized') header = e.detail }
-        const found = await discover(row.url, this.net, header)
+        const bare = new McpClient(row.url, async () => [], this.net)
+        let open = false
+        try { await bare.start(); open = true } catch (e) { if (e instanceof McpError && e.code === 'unauthorized') header = e.detail }
+        let found: Awaited<ReturnType<typeof discover>>
+        try { found = await discover(row.url, this.net, header) } catch (e) {
+          // no sign-in to find, and the server let us in and lists its tools without one (a public server such as
+          // DeepWiki, QA TC-4771): it is a connection with no sign-in, as if chosen under Advanced. Only one never
+          // signed in, without its own app and not from a template (a template's members bring their own key or
+          // sign-in). The requests go through the same address rules (this.net) as every other.
+          if (open && e instanceof NetError && e.reason === 'oauth_unsupported' && !app && !row.secret_enc && !row.template_id && !row.google_app && await this.listsWithoutSignIn(bare)) {
+            await this.update(viewer, id, { auth: 'none' }, L)
+            return { connected: true }
+          }
+          throw e
+        }
         // an own app asks for its scopes when it names them (Google's servers list every scope they know)
         setup = app?.scope ? { ...found, scope: app.scope } : found
       }
@@ -1082,6 +1095,11 @@ export class Integrations {
         VALUES (?,?,?,?,?,?,'pending',?,?,?,?)`).run(flowId, id, row.version, viewer.id, session, hash(state), sealed.enc, sealed.keyVersion, expiresAt, iso(this.now()))
     })()
     return { flowId, authorizationUrl: authorizationUrl(secret, state, challenge), expiresAt, ...(client.redirectUri.startsWith('http://127.0.0.1:') ? { loopback: true } : {}) }
+  }
+
+  /** The server, reached with no key or sign-in, lists its tools (a 401 or 403 there, or any other failure: it does not) */
+  private async listsWithoutSignIn(c: McpClient): Promise<boolean> {
+    try { await c.listTools(); return true } catch { return false }
   }
 
   /** The client a sign-in without an own app uses (oauth.ts chooseClient): the app registered for the same server
