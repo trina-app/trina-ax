@@ -115,7 +115,7 @@ export function situationSection(s: Situation, L: Locale): string {
   else if (s.ai === 'team') lines.push(`- AI: your answers use an AI account the team set up${staff ? ` (${SCREEN.adminProviders(L)})` : ''}. ${ownAi}`)
   // everyone answers on that one sign-in (app-config.ts local-login): asked "can I switch to my own Claude account?", the
   // AI sent people to Settings or Admin pages to add one (AI scenario CON-07, 2026-11-17)
-  else if (s.ai === 'host') lines.push(`- AI: your answers use the AI sign-in of the computer this server runs on${staff ? ` (${SCREEN.adminProviders(L)})` : ', set up by the owner'}. It serves everyone: nobody can switch to their own AI account here; another account means ${staff ? 'signing that computer in to it' : 'the owner signs that computer in to it'}.`)
+  else if (s.ai === 'host') lines.push(`- AI: your answers use the AI sign-in of the computer this server runs on${staff ? ` (${SCREEN.adminProviders(L)} shows it but cannot change it)` : ', set up by the owner'}. It serves everyone: nobody can switch to their own AI account here; another account means ${staff ? 'signing in again on that computer itself, not in the app' : 'the owner signs in again on that computer itself'}.`)
   else lines.push(`- AI: ${ownAi}`)
   lines.push(`- Their own AI usage and limits are in ${SCREEN.usage(L)}.`)
   // a card needs someone in the app: never in Slack or a scheduled run

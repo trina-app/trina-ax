@@ -32,9 +32,10 @@ describe('the person block', () => {
   test('CON-07: on the computer\'s own sign-in nobody switches to their own AI account', () => {
     const member = say({ ai: 'host' })
     expect(member).toContain('It serves everyone: nobody can switch to their own AI account here')
-    expect(member).toContain('the owner signs that computer in to it')
+    expect(member).toContain('the owner signs in again on that computer itself')
     expect(member).not.toContain('Admin › AI providers')
-    expect(say({ role: 'owner', ai: 'host' })).toContain('another account means signing that computer in to it')
+    expect(say({ role: 'owner', ai: 'host' })).toContain('(Admin › AI providers shows it but cannot change it)')
+    expect(say({ role: 'owner', ai: 'host' })).toContain('another account means signing in again on that computer itself, not in the app')
     // not said where the team's own or a person's own AI accounts answer
     expect(say({ ai: 'team' })).not.toContain('nobody can switch')
     expect(say({ ai: 'own' })).not.toContain('nobody can switch')
