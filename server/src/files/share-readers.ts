@@ -93,6 +93,18 @@ export function privateToMe(db: Database, me: string, segs: readonly string[]): 
   return segs[0] === 'users' && segs[1] === me && shareReaders(db, segs).size === 0
 }
 
+/** A live share row (a file's link or a folder share, paused or not, with people on it or not yet) at `segs` or at any
+ * folder above it: a row whose people may open it, or may be added by its owner's earlier link (a request) without the
+ * file changing. Stricter than shareReaders, which counts only the people on it now: the test for "nobody else can open
+ * this" before a change goes without a card (chat/turn.ts ownFolderTarget). Fails closed: an error says yes. */
+export function anyShareAt(db: Database, segs: readonly string[]): boolean {
+  try {
+    if (!segs.length) return false
+    const paths = segs.map((_, i) => segs.slice(0, i + 1).join('/'))
+    return !!db.query(`SELECT 1 FROM file_shares WHERE state = 'live' AND path IN (${paths.map(() => '?').join(',')}) LIMIT 1`).get(...paths)
+  } catch { return true }
+}
+
 /** The nearest live, unpaused folder share row at or above `segs` that a receiver would open this path through, or
  * null (also for a path a receiver cannot see: a hidden, temp, project or skill place inside the folder). */
 export function shareAbove(db: Database, segs: readonly string[]): string | null {
