@@ -18,6 +18,8 @@ import { roomsOf } from '../../server/src/rooms/service'
 import { roomFilesOf } from '../../server/src/rooms/files'
 import { newLinkId } from '../../server/src/files/shares'
 import { madeInChat } from '../../server/src/chat/shared-actions'
+import { pngRgbaOf } from '../lib/images'
+import { makePagedPdf } from '../lib/pdf'
 
 setDefaultTimeout(120_000)
 // the fake engine's directives, their strings spelled as JSON escapes (the person's own words are only the test's)
@@ -52,7 +54,7 @@ async function teamRoom(memberIds: string[] = ['alice', 'erin', 'carol', 'dana']
   return r.id
 }
 const at = (rel: string) => path.join(h.team, rel)
-const put = (rel: string, body = 'x\n') => { fs.mkdirSync(path.dirname(at(rel)), { recursive: true }); fs.writeFileSync(at(rel), body) }
+const put = (rel: string, body: string | Uint8Array = 'x\n') => { fs.mkdirSync(path.dirname(at(rel)), { recursive: true }); fs.writeFileSync(at(rel), body) }
 const exists = (rel: string) => fs.existsSync(at(rel))
 const read = (rel: string) => fs.readFileSync(at(rel), 'utf8')
 const values = (c: Ask) => c.options?.map((o) => o.value) ?? []
@@ -235,5 +237,61 @@ describe('the guard still holds: a card each', () => {
     const r = await run('alice', chat, `fix\n${fake({ tool: 'read', args: { file_path: draft } }, { tool: 'save_room_file', args: { room: roomId, file: f.id, save_as: draft }, sayResult: true }, { say: 'x' })}`)
     expect(r.cards).toHaveLength(1)
     expect(read(draft)).toBe('my quote v1\n')
+  })
+})
+
+// QA TC-4703: the PDF tools making a NEW file in the person's own folder after a room read (an explicit output, or the
+// tool's own name next to the PDF) go without the room card, as write and make_file do; replacing a file the chat did
+// not make, or saving outside the person's own folder, still asks
+describe('PDF tools: a new output in the person\'s own folder (TC-4703)', () => {
+  const pdf = () => makePagedPdf([['Quote'], ['Terms (seal)']])
+  const seal = () => pngRgbaOf(40, 40, (x, y) => ((x - 19.5) ** 2 + (y - 19.5) ** 2 < 18 ** 2 ? [200, 0, 0, 255] : [0, 0, 0, 0]))
+  async function pdfSetup(name: string) {
+    const s = await setup(name)
+    put(`${s.dir}/form.pdf`, pdf())
+    put(`${s.dir}/b.pdf`, pdf())
+    put(`${s.dir}/seal.png`, seal())
+    return s
+  }
+  test('stamp_pdf, edit_pdf, merge_pdfs and split_pdf into new own-folder files: no card', async () => {
+    const { roomId, dir } = await pdfSetup('pdfnew')
+    const chat = await newChat('alice')
+    const r = await run('alice', chat, `fill it\n${fake(roomRead(roomId),
+      { tool: 'stamp_pdf', args: { file_path: `${dir}/form.pdf`, image: `${dir}/seal.png`, output: `${dir}/out/stamped.pdf` }, sayResult: true },
+      { tool: 'stamp_pdf', args: { file_path: `${dir}/form.pdf`, image: `${dir}/seal.png` }, sayResult: true },
+      { tool: 'edit_pdf', args: { file_path: `${dir}/form.pdf`, operations: [{ remove_pages: '2' }], output: `${dir}/out/one-page` }, sayResult: true },
+      { tool: 'edit_pdf', args: { file_path: `${dir}/form.pdf`, operations: [{ remove_pages: '2' }] }, sayResult: true },
+      { tool: 'merge_pdfs', args: { files: [`${dir}/form.pdf`, `${dir}/b.pdf`], output: `${dir}/out/both.pdf` }, sayResult: true },
+      { tool: 'merge_pdfs', args: { files: [`${dir}/form.pdf`, `${dir}/b.pdf`] }, sayResult: true },
+      { tool: 'split_pdf', args: { file_path: `${dir}/form.pdf`, every: 1 }, sayResult: true },
+      { say: 'done' })}`)
+    expect(r.cards.map((c) => c.question)).toEqual([])
+    expect(exists(`${dir}/out/stamped.pdf`)).toBe(true)
+    expect(exists(`${dir}/out/one-page.pdf`)).toBe(true)
+    expect(exists(`${dir}/out/both.pdf`)).toBe(true)
+    const names = fs.readdirSync(at(dir))
+    // the tools' own names next to the PDF: a stamped copy, an edited copy, a merged one and two parts
+    expect(names.filter((n) => n.startsWith('form (')).length).toBeGreaterThanOrEqual(5)
+    expect(labels(r.done, 'stamp_pdf').every((l) => l.endsWith(OWN))).toBe(true)
+  })
+  test('still a card: replacing a PDF the chat did not make, an output over such a file, an output outside the own folder, a split into a group folder', async () => {
+    const { roomId, dir } = await pdfSetup('pdfguard')
+    put(`${dir}/old.pdf`, pdf())
+    const g = `groups/marketing/own-pdf-${uuidv7().slice(-6)}`
+    fs.mkdirSync(at(g), { recursive: true })
+    const chat = await newChat('alice')
+    const before = read(`${dir}/old.pdf`)
+    const r = await run('alice', chat, `fill it\n${fake(roomRead(roomId),
+      { tool: 'read', args: { file_path: `${dir}/form.pdf` } },
+      { tool: 'edit_pdf', args: { file_path: `${dir}/form.pdf`, operations: [{ remove_pages: '2' }], replace: true }, sayResult: true },
+      { tool: 'read', args: { file_path: `${dir}/old.pdf` } },
+      { tool: 'stamp_pdf', args: { file_path: `${dir}/form.pdf`, image: `${dir}/seal.png`, output: `${dir}/old.pdf` }, sayResult: true },
+      { tool: 'stamp_pdf', args: { file_path: `${dir}/form.pdf`, image: `${dir}/seal.png`, output: `${g}/stamped.pdf` }, sayResult: true },
+      { tool: 'split_pdf', args: { file_path: `${dir}/form.pdf`, every: 1, output_folder: g }, sayResult: true },
+      { say: 'done' })}`)
+    expect(r.cards).toHaveLength(4)
+    expect(read(`${dir}/old.pdf`)).toBe(before)
+    expect(exists(`${g}/stamped.pdf`)).toBe(false)
+    expect(fs.readdirSync(at(g))).toEqual([])
   })
 })

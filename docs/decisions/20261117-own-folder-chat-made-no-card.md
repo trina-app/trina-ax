@@ -31,6 +31,16 @@
     post, which keep their own cards. Never a skill, a person's skills folder, an instruction file (CLAUDE.md,
     AGENTS.md, GEMINI.md, SKILL.md), a hidden folder (.attachments), a plugin's folder or a project's folder; never in
     a confidential chat, a chat shared with others now, or a restricted turn.
+- **The PDF tools (QA TC-4703):** stamp_pdf, edit_pdf, merge_pdfs and split_pdf making a NEW file in the person's own
+  folder after a room read go without the room card too, as write and make_file did (the own-folder rule for new
+  files). Every place the call may write must qualify (chat/turn.ts ownFolderPdf): an explicit output (".pdf" added as
+  the tool does), edit_pdf's replace (the PDF itself: an existing file, so only one this answer or this chat made), and
+  without an output the tool's own new name in the PDF's folder (merge_pdfs: the first file's; split_pdf: its
+  output_folder), plus the PDF itself when this answer wrote it (a PDF the AI made in this turn may be changed in
+  place, docs/decisions/20261117-stamp-own-fresh-pdf.md). The source may be any PDF the person can read (a room file's
+  copy, a group file): the output is still only theirs. Replacing a PDF the chat did not make, an output over such a
+  file, and any output outside the person's own folder keep the card. writeTargetOf itself is unchanged (the room
+  grants, the explicit-save rule and scheduled runs read it), so this widens only the own-folder rule.
 - **Unchanged:** saving to a group folder or a shared folder, changing a file the chat did not make, and anything
   others can see keep their cards. The wider-audience card (a save where more people can see than can see what the
   chat read) is not touched. The step says "saved without asking: your own folder", as for a new file there.
@@ -55,5 +65,6 @@
 - **Results:** FL-08 and FL-12, default and always, before and after: see the PR.
 - **Tests:** tests/unit/b-own-folder-chat-made.test.ts (FL-08's own-folder cards gone; a card each for a shared
   personal subfolder, a file with a link, a file there before, one made by another chat, one the person changed, a
-  copied file, a renamed file, a skill file, an instruction file, a group folder and a room file saved over the draft).
+  copied file, a renamed file, a skill file, an instruction file, a group folder and a room file saved over the draft; the PDF tools' new own-folder outputs, and a card for a replace,
+  an output over a file the chat did not make, a team-folder output and a split into a group folder).
 - **Version impact:** patch (fewer cards; no schema change).
