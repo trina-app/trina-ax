@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { inOneDrive, lookRoots, scanRoots, WorkFileSessions, type WorkDirent, type WorkFs, type WorkRoot, type WorkStat } from '../../desktop/src/common/work-files'
 import { findDocs } from '../../web/src/lib/teamFiles'
-import { docsFromScan, forAiRecent, workCandidates } from '../../web/src/lib/workFiles'
+import { docsFromScan, forAiRecent, personalList, workCandidates } from '../../web/src/lib/workFiles'
 
 type Node = { kind: 'dir'; children: Record<string, Node>; mtimeMs?: number } | { kind: 'file'; size: number; mtimeMs: number; ino: bigint; bytes?: Uint8Array } | { kind: 'link'; to: string }
 let ino = 100n
@@ -614,6 +614,10 @@ describe('MAN-057 (2026-11-17, Windows 11): "quote" found nothing in Documents â
     // never suggested and never sent to the AI: a text note of a few lines (tooSmall)
     expect(workCandidates(docs, NOW)).toEqual([])
     expect(forAiRecent(docs, NO_WORDS, NOW)).toEqual([])
+    // nor in the "May be personal" fold: a small file with a personal-looking path is found by name only
+    const mine = docs.map((d) => ({ ...d, personal: true }))
+    expect(personalList(mine, NOW)).toEqual([])
+    expect(personalList([{ ...mine[0]!, size: 9000 }], NOW).map((d) => d.name)).toEqual([mine[0]!.name])
   })
 
   test('the index path lists them too (Windows Search answered in time)', async () => {

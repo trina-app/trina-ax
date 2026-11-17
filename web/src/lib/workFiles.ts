@@ -349,6 +349,10 @@ export function notWork(d: Pick<LocalDoc, 'folder' | 'name' | 'ext' | 'size'>): 
   return autoNamed(d.name) || tooSmall(d.ext, d.size)
 }
 
+/** The "May be personal" fold: recent personal-looking files, never one that is no work file (a text note of a few lines,
+ * a program's name: notWork). Those are found by name only (MAN-057: the app lists small files for the search). */
+export const personalList = <T extends LocalDoc>(docs: readonly T[], now = Date.now()): T[] => docs.filter((d) => d.personal && !notWork(d) && isRecentDoc(d, now))
+
 /** Names that differ only in their numbers, in one folder, of one type: from this many on they are a series. */
 const SERIES_MIN = 4
 

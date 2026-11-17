@@ -28,7 +28,7 @@ import type { FolderPlan, FolderUpload } from '../../lib/folderUpload'
 import { taggedRun, useRuns, type Run } from '../../lib/folderRuns'
 import { formatSize, intlTag } from '../../lib/format'
 import { findAlready, findDocs, rankEntries, tick, type LocalDoc } from '../../lib/teamFiles'
-import { cloudName, companyMatch, confirmAdd, docsFromScan, fullDiskLater, setFullDiskLater, FIND_WORK_FILES_GUIDE, forAiRecent, FROM_COMPUTER, isRecentDoc, lookWords, offersWide, overBytes, ROOT_FOLDER, rootNotes, runFolder, selectAll, touched, undoRun, WorkFileReadError, workFilesBridge, workList, type CompanyWordsLike, type RunMade, type WorkFilesBridge } from '../../lib/workFiles'
+import { cloudName, companyMatch, confirmAdd, docsFromScan, fullDiskLater, setFullDiskLater, FIND_WORK_FILES_GUIDE, forAiRecent, FROM_COMPUTER, lookWords, offersWide, overBytes, personalList, ROOT_FOLDER, rootNotes, runFolder, selectAll, touched, undoRun, WorkFileReadError, workFilesBridge, workList, type CompanyWordsLike, type RunMade, type WorkFilesBridge } from '../../lib/workFiles'
 import { takeResume } from '../../lib/workFilesResume'
 import { FullDiskAccess } from './FullDiskAccess'
 import { useFolderWords } from '../../lib/folderLabels'
@@ -270,7 +270,7 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const list = useMemo(() => workList(docs, words, picks, Date.now(), ticks, sentKeys ?? undefined), [docs, words, picks, sentKeys])
   const work = list.shown
-  const personal = useMemo(() => docs.filter((d) => d.personal && isRecentDoc(d)), [docs])
+  const personal = useMemo(() => personalList(docs), [docs])
   /** looked at but in neither group: found by name */
   const rest = docs.length - work.length - personal.length
   const found = q ? findDocs(docs, q) : null
