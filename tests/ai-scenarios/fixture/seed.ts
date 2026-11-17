@@ -20,6 +20,9 @@ export const GUEST = { username: 'partner', name: '라마바카페 구매담당'
 export const TEAM_ZONE = 'Asia/Seoul'
 export const PROJECT = { name: '라마바카페 납품', folderPath: 'projects/라마바카페-납품' }
 export const ROOM_NAME = '라마바카페 건'
+export const LEADS_ROOM_NAME = 'leads'
+/** files people sent in chat rooms (not team files): fixture/chatfiles/, made by make-files.py */
+export const CHAT_FILES = path.join(import.meta.dir, 'chatfiles')
 
 export const COMPANY: DemoCompany = {
   teamName: '가나다오피스',
@@ -30,6 +33,8 @@ export const COMPANY: DemoCompany = {
     { username: 'daniel', name: 'Daniel Kim', role: 'member', group: '영업' },
     { username: 'hana', name: '최하나', role: 'member', group: '마케팅' },
     { username: 'junho', name: '정준호', role: 'member', group: '재무' },
+    { username: 'kanghyun', name: '이강현', role: 'member', group: null },
+    { username: 'minji', name: '김민지', role: 'member', group: null },
   ],
   groups: [
     { name: '영업', description: '거래처, 견적, 계약' },
@@ -73,7 +78,7 @@ const login = async (base: string, username: string, password: string) => {
   return new ApiClient({ baseUrl: base, token: r.token! })
 }
 
-export async function seedFixture(o: { base: string; setupToken: string | null; log: (s: string) => void }): Promise<FixtureState> {
+export async function seedFixture(o: { base: string; setupToken: string | null; log: (s: string) => void; dataDir?: string }): Promise<FixtureState> {
   // 1. people, groups, folder rules, the project, the team files
   await seedDemo({ baseUrl: o.base, setupToken: o.setupToken, company: COMPANY, ownerPassword: PASSWORD, locale: 'ko', log: o.log })
   const owner = await login(o.base, 'jiwoo', PASSWORD)
@@ -146,6 +151,49 @@ export async function seedFixture(o: { base: string; setupToken: string | null; 
     const quote = 'groups/영업/견적서/견적서-라마바카페-2026-11.pdf'
     const f = await sora.call(API.uploadRoomFile, { params: { id: room.id }, body: { fields: {}, file: new Blob([fs.readFileSync(path.join(FIXTURE_FILES, quote))], { type: 'application/pdf' }), filename: '견적서-라마바카페-초안.pdf' } })
     await sora.call(API.sendRoomMessage, { params: { id: room.id }, body: { body: '지난번 보낸 견적서 초안이에요.', fileIds: [f.id], mentions: [], clientMessageId: crypto.randomUUID() } })
+  }
+
+  // 3b. files sent in chat (the "find a file somebody sent me in a room" cases): all file-only messages whose text never
+  //     names the file. (a) sora -> kanghyun DM: 계좌신고서.xlsx, dated a week ago; (b) the group chat `leads` (sora, daniel,
+  //     kanghyun) with a thread under the root whose replies are only files (사업자등록증.pdf, 리드-목록.xlsx); (c) minji -> sora
+  //     DM: 견적서-민지.xlsx.
+  {
+    const kanghyun = await login(o.base, 'kanghyun', PASSWORD)
+    const minji = await login(o.base, 'minji', PASSWORD)
+    const mimeOf = (n: string) => n.endsWith('.pdf') ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    const sendFile = async (c: ApiClient, roomId: string, name: string, text: string, threadRootId?: string) => {
+      const f = await c.call(API.uploadRoomFile, { params: { id: roomId }, body: { fields: {}, file: new Blob([fs.readFileSync(path.join(CHAT_FILES, name))], { type: mimeOf(name) }), filename: name } })
+      const m = await c.call(API.sendRoomMessage, { params: { id: roomId }, body: { body: text, fileIds: [f.id], ...(threadRootId ? { threadRootId } : {}), mentions: [], clientMessageId: crypto.randomUUID() } })
+      await Bun.sleep(50)
+      return { message: m, file: f }
+    }
+    const dmK = await sora.call(API.createRoom, { body: { kind: 'dm', userId: id('kanghyun') } })
+    const sentReport = await sendFile(sora, dmK.id, '계좌신고서.xlsx', '보내드려요')
+    let leads = (await sora.call(API.listRooms)).items.find((r) => r.name === LEADS_ROOM_NAME)
+    const backdate: { roomId: string; messageId: string; fileId: string; daysAgo: number }[] = [{ roomId: dmK.id, messageId: sentReport.message.id, fileId: sentReport.file.id, daysAgo: 7 }]
+    if (!leads) {
+      leads = await sora.call(API.createRoom, { body: { kind: 'group', userIds: [id('daniel'), id('kanghyun')], name: LEADS_ROOM_NAME } })
+      const root = await sora.call(API.sendRoomMessage, { params: { id: leads.id }, body: { body: '신규 리드 서류 여기 모아둘게요', mentions: [], clientMessageId: crypto.randomUUID() } })
+      await sendFile(sora, leads.id, '사업자등록증.pdf', '올렸어요', root.id)
+      await sendFile(sora, leads.id, '리드-목록.xlsx', '이것도요', root.id)
+    }
+    const dmM = await minji.call(API.createRoom, { body: { kind: 'dm', userId: id('sora') } })
+    await sendFile(minji, dmM.id, '견적서-민지.xlsx', '확인 부탁드려요')
+    // The public API cannot backdate: set created_at of the 계좌신고서 message and its room_files row to 7 days ago directly in
+    // the server's SQLite (WAL mode, a short write with a busy timeout; the server is idle while seeding). Without a data
+    // folder the message keeps today's date and the "last week" wording of the case is then only approximate.
+    if (o.dataDir) {
+      const { Database } = await import('bun:sqlite')
+      const db = new Database(path.join(o.dataDir, 'app.db'))
+      db.exec('PRAGMA busy_timeout = 10000')
+      for (const b of backdate) {
+        const at = new Date(Date.now() - b.daysAgo * 86400_000).toISOString()
+        db.query('UPDATE room_messages SET created_at = ? WHERE id = ?').run(at, b.messageId)
+        db.query('UPDATE room_files SET created_at = ? WHERE id = ?').run(at, b.fileId)
+        o.log(`backdated ${b.messageId} to ${at}`)
+      }
+      db.close()
+    } else o.log('fixture: no data folder, the 계좌신고서 message keeps today\'s date')
   }
 
   // 4. a guest: the client's buyer, invited into the project by the owner (no AI on a server that runs on this Mac's own

@@ -59,12 +59,15 @@ Nothing here touches a real team. The fixture is a fictional company, and its pa
 | daniel | Daniel Kim | member | 영업 | writes English |
 | hana | 최하나 | member | 마케팅 | in the project, not in the room |
 | junho | 정준호 | member | 재무 | in neither the project nor the room |
+| kanghyun | 이강현 | member | | the other side of a DM and a member of the leads chat |
+| minji | 김민지 | member | | sends a quote file in a DM |
 | partner | | guest | | a guest of the project |
 
 **Places**
 
 - A personal chat for each person.
 - The team project **라마바카페 납품**, with its shared chat: members 영업 and hana.
+- Files sent in chat as file-only messages ([`fixture/chatfiles`](fixture/chatfiles), made by `make-files.py`): a DM sora → kanghyun with `계좌신고서.xlsx` (its date is set to a week ago in the server's SQLite after seeding, because the API cannot backdate); the group chat **leads** (sora, daniel, kanghyun) with a root message and a thread whose replies are `사업자등록증.pdf` and `리드-목록.xlsx`; a DM minji → sora with `견적서-민지.xlsx`. No message text names its file.
 - The group chat **라마바카페 건** (sora, daniel, minho), with five messages, a thread and a PDF sent into it. Each
   member also has the ✦ side chat beside it.
 

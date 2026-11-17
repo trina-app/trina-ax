@@ -365,6 +365,77 @@ def cover_letter(path):
     c.save()
 
 
+# Files that people send in team chat rooms (not team files): fixture/chatfiles/, uploaded by seed.ts into rooms.
+CHAT_OUT = os.path.join(HERE, 'chatfiles')
+
+
+def chat_out(name):
+    os.makedirs(CHAT_OUT, exist_ok=True)
+    return os.path.join(CHAT_OUT, name)
+
+
+def account_report_xlsx(path):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = '계좌신고서'
+    ws['A1'] = '계좌 신고서 (양식, 가상)'
+    ws['A1'].font = Font(bold=True, size=14)
+    rows = [('거래처명', '가나다상사(테스트)'), ('은행', '가나다은행(가짜)'), ('계좌번호', '000-0000-0000-00 (가짜)'),
+            ('예금주', '홍길동(가짜)'), ('사업자등록번호', '000-00-00000'), ('담당자 연락처', ''), ('신고일', ''), ('담당자 서명', '')]
+    for i, (k, v) in enumerate(rows, start=3):
+        ws.cell(row=i, column=1, value=k).font = Font(bold=True)
+        ws.cell(row=i, column=2, value=v)
+    ws.column_dimensions['A'].width = 18
+    ws.column_dimensions['B'].width = 32
+    wb.save(path)
+
+
+def business_license_pdf(path):
+    c = canvas.Canvas(path, pagesize=A4)
+    w, h = A4
+    c.setTitle('사업자등록증 (가상)')
+    c.setFont('KRB', 22)
+    c.drawCentredString(w / 2, h - 90, '사 업 자 등 록 증')
+    c.setFont('KR', 12)
+    for i, t in enumerate(['(일반과세자) 이 문서는 테스트용 가짜 서류입니다.', '상호: 가나다상사(테스트)', '대표자: 홍길동(가짜)',
+                           '사업자등록번호: 000-00-00000', '개업연월일: 2020년 1월 1일', '사업장 소재지: 서울특별시 가나구 다라로 1 (가상)',
+                           '업태: 도소매  종목: 사무용품']):
+        c.drawString(70, h - 150 - i * 30, t)
+    c.showPage()
+    c.save()
+
+
+def lead_list_xlsx(path):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = '리드'
+    ws.append(['업체', '담당', '상태'])
+    for r in [('다라치과(가상)', '이소라', '연락 전'), ('마바학원(가상)', 'Daniel', '견적 보냄'), ('바사카페(가상)', '이소라', '통화 완료')]:
+        ws.append(list(r))
+    wb.save(path)
+
+
+def quote_minji_xlsx(path):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = '견적서'
+    ws['A1'] = '견적서 (가상)'
+    ws['A1'].font = Font(bold=True, size=14)
+    ws.append([])
+    ws.append(['품목', '수량', '단가', '금액'])
+    for name, q, u in [('A4 복사용지 (박스)', 10, 27000), ('볼펜 0.5mm (갑)', 20, 6000), ('포스트잇 (팩)', 5, 9800)]:
+        ws.append([name, q, u, q * u])
+    ws.append(['합계(공급가액)', '', '', 439000])
+    wb.save(path)
+
+
+def chat_files():
+    account_report_xlsx(chat_out('계좌신고서.xlsx'))
+    business_license_pdf(chat_out('사업자등록증.pdf'))
+    lead_list_xlsx(chat_out('리드-목록.xlsx'))
+    quote_minji_xlsx(chat_out('견적서-민지.xlsx'))
+
+
 def main():
     # the text files next to these (Markdown, CSV, skills) are written by hand and kept
     os.makedirs(OUT, exist_ok=True)
@@ -388,6 +459,7 @@ def main():
     cover_letter(out('groups/영업/계약서/계약서-송부-커버레터.pdf'))
     shutil.copy(os.path.join(REPO, 'tests/fixtures/hwp/agreement.hwpx'), out('shared/양식/업무협약서-초안.hwpx'))
     shutil.copy(os.path.join(REPO, 'tests/fixtures/hwp/notice.hwpx'), out('shared/양식/공문-박람회-협조요청.hwpx'))
+    chat_files()
     print('written to', OUT)
 
 

@@ -93,7 +93,7 @@ async function up(o: { reset?: boolean; devenv?: boolean; relay?: boolean } = {}
   if (!(await healthy())) throw new Error(`the server did not answer on ${BASE}; see ${LOG}`)
   let setupToken: string | null = null
   try { setupToken = fs.readFileSync(path.join(DATA, 'setup-token'), 'utf8').trim() || null } catch {}
-  const state = await seedFixture({ base: BASE, setupToken, log: (s) => say(s) })
+  const state = await seedFixture({ base: BASE, setupToken, log: (s) => say(s), dataDir: DATA })
   fs.writeFileSync(STATE, JSON.stringify(state, null, 1))
   let relayOn = false
   try { relayOn = fs.readFileSync(path.join(HOME, 'relay-mode'), 'utf8').trim() === '1' } catch {}

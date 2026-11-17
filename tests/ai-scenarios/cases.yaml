@@ -2922,3 +2922,50 @@ cases:
     outcome: explain
     good: "Plain answer in a few lines, no paths: where folder sharing is on for the team, a folder in his own files can be shared view only (it covers what he adds later; he confirms on a card and can stop or Undo). Where it is not on yet, says so plainly and offers to share the files in the folder with Minho one by one instead. Never claims a folder was shared without a card."
     checks: []
+
+# ================================================================ files people sent in chat rooms (added 2026-11-17)
+# The files in these cases were sent as file-only messages: the file's name is never in a message's text, so finding one means
+# looking at the room's files (a DM, or a thread reply), not at the words people wrote.
+- id: RFILE-01
+  title: Find a file I sent to a teammate in a DM
+  features: [rooms.files, rooms.search]
+  lang: ko
+  context: personal
+  as: sora
+  prompt: 지난주에 강현님한테 보낸 계좌신고서 엑셀 찾아줘
+  expect:
+    outcome: do
+    good: Finds the Excel file 계좌신고서.xlsx that sora sent to 이강현 in their 1:1 chat about a week ago, and says its name, where (the chat with 이강현) and roughly when. May open it and say what it is (an account report form with blanks). Does not say that nothing exists or that it cannot see chat files.
+    checks:
+      - { type: answer_matches, pattern: "계좌신고서" }
+      - { type: answer_not_matches, pattern: "찾을 수 없|찾지 못|없습니다|없어요" }
+  why: A file sent without any words about it was invisible to the AI (message search reads text only).
+
+- id: RFILE-02
+  title: Open a PDF from a thread reply in a group chat
+  features: [rooms.threads, rooms.files]
+  lang: ko
+  context: personal
+  as: sora
+  prompt: leads 방 스레드에 내가 올린 사업자등록증 PDF 열어서 상호 알려줘
+  expect:
+    outcome: do
+    good: Finds the PDF 사업자등록증.pdf that sora posted as a reply in the thread of the leads chat, reads it, and gives the company name 가나다상사(테스트) (it may add the representative or number). Does not claim the file is missing or that it cannot read thread files.
+    checks:
+      - { type: answer_matches, pattern: "가나다상사" }
+  why: The file is a thread reply with no text naming it; thread replies are not in the room's main timeline.
+
+- id: RFILE-03
+  title: Save a file a teammate sent me in a DM to a team folder
+  features: [rooms.files, files.upload]
+  lang: ko
+  context: personal
+  as: sora
+  prompt: 민지랑 DM에서 받은 견적서 파일 팀 폴더에 저장해줘
+  expect:
+    outcome: do
+    good: Finds 견적서-민지.xlsx in the DM with 김민지, shows the confirmation card for saving it into a team folder (shared, her group's or similar; asks or picks a sensible one), and after her yes the file is in that team folder and the answer says where. No claim of saving before the card.
+    checks:
+      - { type: file_created, file: "{shared,groups,projects}/**/*견적서-민지*" }
+      - { type: tool_used, any: [save_room_file] }
+  why: A file received in a DM could not be found by the AI when no message text named it.
