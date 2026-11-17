@@ -125,6 +125,9 @@ const NO_ANSWER = /^(failed to fetch|load failed|networkerror when attempting to
 /** No answer at all: one of those TypeErrors, or any TypeError while the browser says it is offline. Another TypeError
  * is a fault in the page ("x is not a function") and is not sent again, nor waited on for 10 minutes. */
 export const noAnswer = (e: unknown) => e instanceof TypeError && (NO_ANSWER.test(e.message.trim()) || offline())
+/** The browser could not read the file's bytes (a folder dropped as a file, a file moved or taken away since it was
+ * picked, one the system does not let it read): a DOMException of the read, not a lost connection (TC-4483). */
+export const unreadableFile = (e: unknown) => e instanceof DOMException && (e.name === 'NotFoundError' || e.name === 'NotReadableError' || e.name === 'SecurityError')
 // a file that cannot be read (a DOMException), an answer that is not what was asked for or a fault in the page is not made
 // better by sending again
 const retryable = (e: unknown) => noAnswer(e) || (e instanceof ApiError && ((e.status >= 500 && e.code !== 'storage_full') || e.code === 'rate_limited' || e.code === 'unavailable'))

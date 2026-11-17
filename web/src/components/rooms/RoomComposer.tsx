@@ -41,7 +41,7 @@ import { api, API, errorText, roomFileUrl } from '../../lib/api'
 import { markBusy } from '../../lib/busy'
 import { formatSize } from '../../lib/format'
 import { NO_UPLOADS, nextUploadKey, roomTarget as targetOf, setPlaceUploads, useRoomUploads, type RoomUpload } from '../../store/roomUploads'
-import { cancelUpload, SINGLE_REQUEST_MAX, uploadFile, uploadPercent } from '../../lib/upload'
+import { cancelUpload, SINGLE_REQUEST_MAX, unreadableFile, uploadFile, uploadPercent } from '../../lib/upload'
 import { UploadLabel } from '../UploadLabel'
 import { pastedFiles } from '../../lib/paste'
 import { useVoiceInput } from '../../lib/useVoiceInput'
@@ -66,6 +66,7 @@ import { MENTION_ALL_WORDS, pickedInMessage, useEveryone, useMentionMenu } from 
 import { useTextSize } from '../../lib/textSize'
 import { usePanelExpanded } from '../../lib/sidePanel'
 import { useFileDrop } from '../chat/ComposerFiles'
+import { withoutFolders } from '../../lib/fileDrop'
 import { useDropTarget } from '../FileDropZone'
 import { storagePlansUrl } from '../StoragePlansLink'
 import { isStorageFull, RefusalLinks, storageFullText } from './storageRefusal'
@@ -295,6 +296,8 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   const failure = (e: unknown): Pick<Upload, 'error' | 'plans' | 'full'> => {
     const locale = currentLocale()
     if (isStorageFull(e)) return { error: undefined, plans: storagePlansUrl(e), full: true }
+    // a file the browser could not read is not a lost connection (TC-4483)
+    if (unreadableFile(e)) return { error: translate(locale, 'composer.unreadable') }
     return { error: errorText(e, locale, translate(locale, 'error.network')), plans: storagePlansUrl(e) }
   }
   /** A large file from this computer (one that goes in pieces) says what happens to it: waiting for its turn, being
@@ -317,8 +320,13 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     }
   }
 
-  const addFiles = (picked: File[]) => {
+  /** `dropFolders`: the folders a drop held besides (lib/fileDrop.ts filesOfDrop). A folder is never a chip: one line
+   * says so, however many there were; the files beside them go on as usual (TC-4483). */
+  const addFiles = async (all: File[], dropFolders = 0) => {
     const room = ROOM_FILES_MAX - files.length
+    const sorted = await withoutFolders(all)
+    if (dropFolders + sorted.folders) toast({ level: 'warn', text: t('composer.folders') })
+    const picked = sorted.files
     if (picked.length > room) toast({ level: 'warn', text: t('rooms.tooMany', { n: ROOM_FILES_MAX }) })
     const added: Upload[] = []
     for (const file of picked.slice(0, Math.max(0, room))) {
@@ -451,7 +459,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
           hidden
           data-testid="room-file-input"
           onChange={(e) => {
-            addFiles(Array.from(e.target.files ?? []))
+            void addFiles(Array.from(e.target.files ?? []))
             e.target.value = ''
           }}
         />
@@ -477,7 +485,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
         const pasted = pastedFiles(e.clipboardData)
         if (pasted.length) {
           e.preventDefault()
-          addFiles(pasted)
+          void addFiles(pasted)
         }
       }}
       onKeyDown={(e) => {
