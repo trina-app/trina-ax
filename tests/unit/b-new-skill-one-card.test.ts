@@ -77,6 +77,14 @@ test('heldFileOk: only a plain text file of the skill may wait for the SKILL.md 
   expect(ok('skills/x/assets/SKILL.md')).toBe(false)
   expect(ok('skills/x/CLAUDE.md')).toBe(false)
   expect(ok('skills/x/AGENTS.md')).toBe(false)
+  // every instruction name with more after it (security review): CLAUDE.local.md, AGENTS.override.md, AGENT.md …
+  for (const n of ['CLAUDE.local.md', 'claude.local.md', 'AGENTS.override.md', 'GEMINI.local.md', 'AGENT.md', 'copilot-instructions.md', 'skill-notes.md']) expect(ok(`skills/x/${n}`)).toBe(false)
+  // a skill whose own folder is a steering name (a plugin's commands/ or agents/)
+  expect(heldFileOk('skills/commands', 'skills/commands/deploy.md', FORM)).toBe(false)
+  expect(heldFileOk('skills/agents', 'skills/agents/form.md', FORM)).toBe(false)
+  // invisible or direction-changing characters in the path or the text
+  expect(ok('skills/x/references\u200b/g.md')).toBe(false)
+  expect(ok('skills/x/assets/form.md', 'Name:\u202e reversed\n')).toBe(false)
   expect(ok('skills/x/references/guide.md')).toBe(false)
   expect(ok('skills/x/scripts/fill.md')).toBe(false)
   expect(ok('skills/x/run.sh', 'echo hi')).toBe(false)

@@ -3456,7 +3456,10 @@ export class TurnExec {
   private skillCards?: Promise<unknown> = Promise.resolve()
   /** a new skill's plain text files written before its SKILL.md in this turn, by the skill's folder: not saved, shown
    * on the SKILL.md card (QA MAN-052, docs/decisions/20261117-new-skill-files-on-card.md, chat/skill-held.ts) */
-  private skillHeld?: Map<string, Map<string, HeldFile>> = new Map()
+  private skillHeld?: Map<string, Map<string, HeldFile<WidenNeed>>> = new Map()
+  /** new skills' folders whose SKILL.md the person said Save to in this turn: nothing more is held for them (a file
+   * checked before the SKILL.md reached the disk would wait for a card that never comes; it gets its own card) */
+  private skillSaved?: Set<string> = new Set()
   /** held files the person said Save to on their skill's card in this turn: path → the exact bytes' hash. The AI's
    * second write of exactly those bytes saves with no card; anything else asks */
   private skillHeldYes?: Map<string, string> = new Map()
@@ -3559,10 +3562,10 @@ export class TurnExec {
     // held, not saved, and shown on the SKILL.md card with the skill (QA MAN-052: two cards of raw text for one skill).
     // Never in a scheduled run (nobody sees a card there) or with "Always allow" for skill saves on (no card to show it)
     if (tool === 'write' && after !== null && !r.exists && folder && !manifest && this.spec.clientKind !== 'schedule' && alwaysHere(this.alwaysPlace(), 'skill_save') !== 'on'
-      && !fs.existsSync(path.join(fs_.fx.root, folder)) && heldFileOk(folder, r.rel, after)) {
-      const held = (this.skillHeld ??= new Map()).get(folder) ?? new Map<string, HeldFile>()
+      && !this.skillSaved?.has(folder) && !fs.existsSync(path.join(fs_.fx.root, folder)) && heldFileOk(folder, r.rel, after)) {
+      const held = (this.skillHeld ??= new Map()).get(folder) ?? new Map<string, HeldFile<WidenNeed>>()
       if (held.has(r.rel) || held.size < HELD_MAX_FILES) {
-        held.set(r.rel, heldFile(r.rel, after))
+        held.set(r.rel, heldFile(r.rel, after, need))
         this.skillHeld.set(folder, held)
         return { refusal: heldRefusal(r.rel, folder), summary: `${tool} -> held for the new skill's card (not saved yet)` }
       }
@@ -3592,8 +3595,15 @@ export class TurnExec {
     if (picked === 'save' && !dead) {
       this.files.skillApprovals.set(r.rel, approval)
       // a new skill's SKILL.md: the held files its card showed are approved for exactly those bytes (above)
+      if (folder && manifest && !r.exists) (this.skillSaved ??= new Set()).add(folder)
       if (held?.size) {
-        for (const f of held.values()) (this.skillHeldYes ??= new Map()).set(f.rel, f.sha)
+        const shown = new Set((need?.narrower ?? []).map(sourceKey))
+        for (const f of held.values()) {
+          ;(this.skillHeldYes ??= new Map()).set(f.rel, f.sha)
+          // its own folder (assets/) where more people can see: covered when this card said so for the same sources
+          // and no more people (else its second write asks the wider-audience card)
+          if (f.need && need && f.need.viewers <= need.viewers && f.need.narrower.every((x) => shown.has(sourceKey(x)))) this.allowWidening(f.need)
+        }
         ;(this.skillHeldNote ??= new Map()).set(r.rel, [...held.keys()])
       }
       // the yes (or the person's "Always allow" for skill saves) covers saving there where more people can see

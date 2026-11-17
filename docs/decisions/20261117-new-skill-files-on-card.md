@@ -21,11 +21,15 @@
   - **Exact bytes.** Save records each held file's sha256 for this answer. The AI's second write of exactly those bytes,
     after SKILL.md exists, saves with no card. Different bytes, another path, a later answer, or a "Don't save" ask on
     their own card (or are only held again while no SKILL.md is there). The wider-audience check still runs on that
-    write; the SKILL.md card's yes for that folder and those sources covers it, anything new asks.
+    write: the held file's own folder (assets/) is covered by the SKILL.md card's yes only for the same sources and no
+    more people than that card named; anything new asks. Once a SKILL.md got its Save, nothing more is held for that
+    folder in the answer (a file checked before the SKILL.md reached the disk gets its own card, never a dead hold).
   - **What may be held** (structural, no text matching): `.md .txt .csv .tsv` inside the skill's folder, at most
-    16,000 bytes, no NUL, no skill header (`---` first), not instruction-named (SKILL, CLAUDE, AGENTS, GEMINI, COPILOT,
-    CURSOR, .cursorrules …), not in a hidden folder or a steering folder (references/, scripts/, bin/, agents/,
-    commands/, hooks/, rules/, prompts/), at most 5 per skill. Everything else (scripts, code, HTML, Word/Excel/HWP
+    16,000 bytes, no NUL, no skill header (`---` first), not instruction-named (SKILL, CLAUDE, AGENT(S), GEMINI, COPILOT,
+    CURSOR, CODEX … with anything after the name, such as CLAUDE.local.md or AGENTS.override.md; *instructions.md;
+    .cursorrules …), not in a hidden folder or a steering folder (references/, scripts/, bin/, agents/, commands/,
+    hooks/, rules/, prompts/; the skill's own folder name counts too), no invisible or direction-changing characters
+    in the path or the text, at most 5 per skill. Everything else (scripts, code, HTML, Word/Excel/HWP
     made by make_file or edit_hwp, files of an existing skill, files after the SKILL.md) keeps its own card with its
     own text.
   - **Not held** in a scheduled run (nobody sees a card) or when the person has Always allow for skill saves on (no
@@ -39,6 +43,11 @@
   new allow-lists in rooms, guests and engines.
 - **Accepted residual:** a held file's text could contain words an AI would follow later (an injected form). It is on
   the card, folded, with its first lines visible; the person saw it before Save. The SKILL.md decides when it is read.
+- **Independent review (Opus):** ship with fixes. Must-fix in: instruction names with more after the base name
+  (CLAUDE.local.md, AGENTS.override.md, AGENT.md, copilot-instructions.md) were held. Also in: the skill folder's own
+  name as a steering folder, invisible characters, the wider-audience cover for assets/, no hold after a SKILL.md Save.
+  Accepted note: Always allow turned on between the hold and the SKILL.md card approves the held files unseen, as any
+  skill save under Always allow is (Rule A).
 - **Tests:** tests/unit/b-new-skill-one-card.test.ts (one card listing the form; held write not saved; SKILL.md first
   still two cards; no; changed text; script and references/ not held; rename; later answer; existing skill),
   web/test/unit/ask-card-new-skill.test.tsx (the list, size, first lines, folded text).

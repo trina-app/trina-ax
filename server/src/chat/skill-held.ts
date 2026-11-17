@@ -5,6 +5,7 @@
 // bytes, and the AI's second write of the same bytes saves with no card (chat/turn.ts askSkillWrite). Instructions,
 // scripts, code and anything that looks like a skill never wait here: they keep their own card with their own text.
 import crypto from 'node:crypto'
+import { hiddenText } from '../integrations/connections/service'
 
 /** at most this many files wait for one SKILL.md card (more: their own cards) */
 export const HELD_MAX_FILES = 5
@@ -20,10 +21,10 @@ const PLAIN = /\.(md|txt|csv|tsv)$/i
  * instructions, scripts/ code), and folders other tools load instructions from */
 const STEERING_DIRS = new Set(['references', 'reference', 'scripts', 'script', 'bin', 'agents', 'commands', 'hooks', 'rules', 'prompts'])
 /** files tools load as instructions by their name */
-const INSTRUCTION_NAME = /^(SKILL|CLAUDE|AGENTS|GEMINI|COPILOT|CURSOR)(\.[^.]*)?$|^\.?(cursorrules|windsurfrules|clinerules)$/i
+const INSTRUCTION_NAME = /^(SKILL|CLAUDE|AGENTS?|GEMINI|COPILOT|CURSOR|CODEX|WINDSURF|CLINE)([._-].*)?$|^\.?(cursorrules|windsurfrules|clinerules)$|instructions?\.md$/i
 
 /** One file held for its skill's card: the bytes the card shows and a Save approves. */
-export interface HeldFile { rel: string; text: string; sha: string; size: number }
+export interface HeldFile<N = unknown> { rel: string; text: string; sha: string; size: number; need?: N | null }
 
 /** May `text` at `rel` (actual names, as the file layer resolved them) wait for the SKILL.md card of the skill in
  * `folder`? A plain text file inside that folder (not at a hidden, steering or instruction path), small, with no NUL
@@ -34,14 +35,18 @@ export function heldFileOk(folder: string, rel: string, text: string): boolean {
   const name = inner.at(-1) ?? ''
   if (!name || !PLAIN.test(name) || INSTRUCTION_NAME.test(name)) return false
   if (inner.some((s) => !s || s.startsWith('.'))) return false
-  if (inner.slice(0, -1).some((s) => STEERING_DIRS.has(s.toLowerCase()))) return false
+  // the skill's own folder name too (a skill called "commands" or "agents" would be such a folder for a plugin)
+  if ([folder.split('/').at(-1) ?? '', ...inner.slice(0, -1)].some((s) => STEERING_DIRS.has(s.toLowerCase()))) return false
+  // invisible or direction-changing characters in the path or the text (zero-width, bidi, tags): what the card shows
+  // would not be what is there
+  if (hiddenText(rel) || hiddenText(text)) return false
   if (text.includes('\0') || Buffer.byteLength(text, 'utf8') > HELD_MAX_BYTES) return false
   if (/^﻿?[ \t]*---[ \t]*\r?$/m.test(text.split('\n', 1)[0] ?? '')) return false
   return true
 }
 
-export function heldFile(rel: string, text: string): HeldFile {
-  return { rel, text, sha: crypto.createHash('sha256').update(Buffer.from(text, 'utf8')).digest('hex'), size: Buffer.byteLength(text, 'utf8') }
+export function heldFile<N>(rel: string, text: string, need?: N | null): HeldFile<N> {
+  return { rel, text, need, sha: crypto.createHash('sha256').update(Buffer.from(text, 'utf8')).digest('hex'), size: Buffer.byteLength(text, 'utf8') }
 }
 
 /** The card's list (SkillWritePreview.files): every held file with its size, first lines and whole text. */
