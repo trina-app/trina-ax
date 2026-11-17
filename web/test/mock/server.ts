@@ -3878,7 +3878,7 @@ export class MockServer {
     updateUser: (c) => {
       // a removed guest switched on with nothing to bring them back to (admin/users.ts: 409 guest_no_place, placeOut)
       const gOut = c.body.status === 'active' ? this.guests.get(c.params.id)?.out : undefined
-      if (gOut) throw new Fail('conflict', 409, "Their group chat or project is gone, so there's nothing to bring them back to.", undefined, { reason: 'guest_no_place', placeOut: gOut })
+      if (gOut) throw new Fail('conflict', 409, "Their private channel, group chat or project is gone, so there's nothing to bring them back to.", undefined, { reason: 'guest_no_place', placeOut: gOut })
       const { locale, ...rest } = c.body
       const u = Object.assign(this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404), Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)))
       if (locale !== undefined) u.localeChoice = locale

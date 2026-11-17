@@ -187,7 +187,7 @@ at the top collects the messages that name you and the threads you follow.
 
 To message one person, click their photo or name beside a message (an @mention of them, or their row in a conversation's member list, works too). A small card opens with their name and title: **Message** opens your direct message with them. On a phone the card opens from the bottom of the screen. Your own card has **Edit profile** instead. Apps, and people who are no longer in the team, have no card; a guest can message only the people in their group chat or project.
 
-To bring in someone from outside the team, choose **Invite a guest** when you add people to a group chat or a project. [Read about guests](guests.md).
+To bring in someone from outside the team, choose **Invite a guest** when you add people to a private channel, a group chat or a project. [Read about guests](guests.md).
 
 ![The Chats list: Mentions & threads, Channels with Everyone and Marketing, then Direct messages with a group chat and a direct message](../images/chats/rooms-list.webp "The Chats list")
 
@@ -223,8 +223,8 @@ and click **✕** (or choose **Remove preview** in the message's menu).
 
 ### Guests
 
-Someone from outside the team, such as an agency or a client, can join a group chat or a project as a guest, and be
-in one group chat and one project at most. In a group chat open its members (the name at the top), **Add people**, then **Invite a guest**; in
+Someone from outside the team, such as an agency or a client, can join a private channel, a group chat or a project as a guest, and be
+in one private channel or group chat, and one project, at most. In a private channel or group chat open its members (the name at the top), **Add people**, then **Invite a guest**; in
 a project, **Share** at the top of its page. Say who the link is for and whether they get AI, then **Create link**. The link
 works once: send it to them yourself.
 

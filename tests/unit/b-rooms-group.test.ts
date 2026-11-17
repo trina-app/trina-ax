@@ -246,6 +246,35 @@ test('remove: the manager, or an owner or admin in it, takes someone out (never 
   expect((await nora.client.try('DELETE', `/api/rooms/${dm.id}/members/${pia.id}`)).status).toBe(403)
 })
 
+test('a private channel keeps its name: emptying it is refused for its manager and a member; a group DM can be named (TC-4554)', async () => {
+  const { mia, nora, otto, messages, makeGroup } = await setup()
+  const patch = (c: Client, id: string, body: unknown) => c.try('PATCH', `/api/rooms/${id}`, body)
+  // a group DM (no name) can be given one: it becomes a private channel
+  const g = await makeGroup(mia.client, [nora.id, otto.id])
+  expect(g.name).toBeNull()
+  expect((await patch(nora.client, g.id, { name: 'Launch' })).body.name).toBe('Launch')
+  const seq = (await mia.client.call('GET', `/api/rooms/${g.id}`)).lastSeq
+  // '', spaces or null: 400 (the field named), for the manager (mia made it) and a member alike; nothing is written
+  for (const c of [mia.client, nora.client]) {
+    for (const name of ['', '   ', null]) {
+      const r = await patch(c, g.id, { name })
+      expect(r.status).toBe(400)
+      expect(r.body.error.code).toBe('validation')
+      expect(r.body.error.fields?.['body.name']).toBeTruthy()
+    }
+  }
+  const after = await mia.client.call('GET', `/api/rooms/${g.id}`)
+  expect(after).toMatchObject({ name: 'Launch', lastSeq: seq })
+  expect((await messages(otto.client, g.id)).at(-1).event).toEqual({ type: 'renamed', name: 'Launch' })
+  // a new name is still fine, and so is a level change with no name in the body
+  expect((await patch(mia.client, g.id, { name: 'Launch 2' })).body.name).toBe('Launch 2')
+  expect((await patch(nora.client, g.id, { notifyLevel: 'mentions' })).status).toBe(200)
+  // a group DM with no name: an empty name changes nothing (still allowed, as before)
+  const dmGroup = await makeGroup(nora.client, [mia.id, otto.id])
+  expect((await patch(nora.client, dmGroup.id, { name: '' })).status).toBe(200)
+  expect((await patch(nora.client, dmGroup.id, { name: null })).body.name).toBeNull()
+})
+
 test('rename: group chats by any member; team and everyone rooms by an owner or admin in them; never a DM', async () => {
   const { owner, ada, mia, nora, otto, group, rooms, messages, makeGroup, hub } = await setup()
   const g = await makeGroup(mia.client, [nora.id, otto.id])
@@ -260,9 +289,9 @@ test('rename: group chats by any member; team and everyone rooms by an owner or 
   const seq = (await mia.client.call('GET', `/api/rooms/${g.id}`)).lastSeq
   await patch(mia.client, g.id, { name: '주간 회의' })
   expect((await mia.client.call('GET', `/api/rooms/${g.id}`)).lastSeq).toBe(seq)
-  // '' or null: back to the members' names
-  expect((await patch(mia.client, g.id, { name: '' })).body.name).toBeNull()
-  expect((await messages(otto.client, g.id)).at(-1).event).toEqual({ type: 'renamed', name: null })
+  // '' or null: refused once it has a name (a private channel stays a channel, TC-4554; its own test below)
+  expect((await patch(mia.client, g.id, { name: '' })).status).toBe(400)
+  expect((await mia.client.call('GET', `/api/rooms/${g.id}`)).lastSeq).toBe(seq)
   // the name's rules: at most ROOM_NAME_MAX characters after trimming, no control characters or bidi overrides
   expect((await patch(mia.client, g.id, { name: 'x'.repeat(ROOM_NAME_MAX + 1) })).status).toBe(400)
   expect((await patch(mia.client, g.id, { name: `  ${'가'.repeat(ROOM_NAME_MAX)}  ` })).status).toBe(200)
@@ -439,6 +468,11 @@ test(`at most ${GROUPS_PER_HOUR} new group chats an hour per person, with a 429 
   expect(over.status).toBe(429)
   expect(over.body.error).toMatchObject({ code: 'rate_limited', retryAfter: expect.any(Number) })
   expect(over.body.error.message).toContain(String(GROUPS_PER_HOUR))
+  // a group DM being made says group chats; a private channel being made says private channels (one count for both)
+  expect(over.body.error.message).toContain('새 그룹 대화는')
+  const overNamed = await mia.client.try('POST', '/api/rooms', { kind: 'group', userIds: [nora.id], name: 'One more' })
+  expect(overNamed.status).toBe(429)
+  expect(overNamed.body.error.message).toContain('새 비공개 채널과 그룹 대화는')
   // another person has their own count; a DM is not a group chat
   expect((await nora.client.try('POST', '/api/rooms', { kind: 'group', userIds: [mia.id, otto.id] })).status).toBe(201)
   expect((await mia.client.try('POST', '/api/rooms', { kind: 'dm', userId: otto.id })).status).toBe(201)
