@@ -7,7 +7,7 @@ import { CI_SKIPPED, split, timesFromLog, timesFromLogs, unitFiles } from '../..
 import times from '../../scripts/ci/unit-times.json'
 
 // the shard count of .github/workflows/ci.yml's unit matrix
-const SHARDS = 7
+const SHARDS = 6
 
 test(`every unit test file is in exactly one of the ${SHARDS} shards, and the split does not change between runs`, () => {
   const files = unitFiles()

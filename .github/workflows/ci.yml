@@ -1,4 +1,4 @@
-# CI: typecheck (incl. web + desktop; the phone app in its own job), native build, unit tests (in 7 shards at once:
+# CI: typecheck (incl. web + desktop; the phone app in its own job), native build, unit tests (in 6 shards at once:
 # scripts/ci/unit-shard.ts), fast fuzz, web tests + build, relay suite, and the Linux job with unprivileged accounts in Docker.
 # Real-engine tests (Claude Code / Codex logins, model calls) never run here: they need the owner's accounts and
 # run locally with `bun run test:stage1`.
@@ -135,9 +135,9 @@ jobs:
 
   # The unit tests took ~30 of the ~35 minutes of one job. They now run as 7 jobs at once
   # (scripts/ci/unit-shard.ts spreads the files by their earlier times), beside the static checks and the
-  # fuzz / web / relay job; none of them waits for another (all need only `scope`). 7 shards: ~6 minutes of tests each,
-  # about as long as "fast fuzz, web, relay", and a full run holds 9 long jobs, so two queued entries (18) plus a pull
-  # request's quick run fit the org's 20 (docs/decisions/20261117-faster-full-run.md). Each job sets up the same tools as before. The last job keeps the old job's name, the
+  # fuzz / web / relay job; none of them waits for another (all need only `scope`). 6 shards: ~7 minutes of tests each.
+  # A queued entry still runs 10 jobs, as with 5 shards: its phone app typecheck runs at the end of this job instead of
+  # in its own job (the queue builds 4 entries at once on the org's 20 runners; docs/decisions/20261117-faster-full-run.md). Each job sets up the same tools as before. The last job keeps the old job's name, the
   # check the default branch's ruleset requires: it passes only when every job above it passed.
   static:
     name: typecheck, docs, native
@@ -229,9 +229,29 @@ jobs:
             native/bin/
             !native/bin/hwp/**
           retention-days: 7
+      # a queued entry (merge_group): the phone app typecheck of the mobile job below, here instead of a job of its own,
+      # so the entry runs 10 jobs with 6 unit shards. The same steps; last in the job, so Node never changes the steps
+      # above. (The mobile job keeps its name everywhere else: main's ruleset requires "Mobile app typecheck".)
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: github.event_name == 'merge_group'
+        with:
+          node-version: 26.12.1
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      # advisory, as the mobile job was on a queued entry (dev does not require it): a failure shows on the step and in
+      # the run's annotations but does not fail this job
+      - name: Phone app install (locked, no install scripts; only an unreachable registry skips the typecheck)
+        id: mobile-install
+        if: github.event_name == 'merge_group'
+        continue-on-error: true
+        run: bash mobile/scripts/ci-install.sh
+      - name: Phone app typecheck
+        if: github.event_name == 'merge_group' && steps.mobile-install.outputs.installed == 'true'
+        continue-on-error: true
+        run: npm --prefix mobile run typecheck
 
   unit:
-    name: unit tests (${{ matrix.shard }}/7)
+    name: unit tests (${{ matrix.shard }}/6)
     needs: scope
     # mode full only: skipped on a pull request to dev (the merge queue runs it) and on the queue's push to dev
     if: needs.scope.outputs.docs_only != 'true' && needs.scope.outputs.mode == 'full'
@@ -242,7 +262,7 @@ jobs:
       fail-fast: false
       matrix:
         # the count is also in the job name and the test step below, and in tests/unit/ci-unit-shard.test.ts SHARDS
-        shard: [1, 2, 3, 4, 5, 6, 7]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -325,8 +345,8 @@ jobs:
         run: bun run prepare:hwp
       # tests/unit and tests/security (TC-3846: the security suite never ran in CI before); files a Linux runner cannot
       # run are listed with their reason in scripts/ci/unit-shard.ts CI_SKIPPED and printed here
-      - name: Unit + security tests, shard ${{ matrix.shard }} of 7
-        run: bun scripts/ci/unit-shard.ts ${{ matrix.shard }} 7
+      - name: Unit + security tests, shard ${{ matrix.shard }} of 6
+        run: bun scripts/ci/unit-shard.ts ${{ matrix.shard }} 6
 
   other:
     name: fast fuzz, web, relay
@@ -472,6 +492,8 @@ jobs:
     # registry that stays unreachable warns and skips (mobile/scripts/ci-install.sh); a lockfile or integrity problem
     # and a type error fail the job.
     name: Mobile app typecheck
+    # a queued entry runs these steps at the end of "typecheck, docs, native" instead (one job fewer per entry)
+    if: github.event_name != 'merge_group'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
