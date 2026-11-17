@@ -76,7 +76,8 @@ export const rowTag = 'ml-auto max-w-[40%] shrink-0 truncate text-meta font-norm
  * ListIcon). `meta`: a second line, small and faint ("나만 · 3시간 전", a notice's time). `end`: what sits at the row's
  * right (a count, a dot, a ›). `selected`: the place on screen (aria-current, a fill); `unread`: semibold in ink.
  * `metaKeep`: the end of the second line that is never cut (a file's time and size): when the line is too long, `meta`
- * before it is shortened with "…" and `metaKeep` stays whole, after a " · " (QA TC-4729).
+ * before it is shortened with "…" and `metaKeep` stays whole, after a " · " (QA TC-4729). Keep it short (a time, a
+ * size): it is never cut, so a long one would run past the row.
  * `wrap`: the name may take two lines. `nameTitle`: the whole name on hover when it is cut. `disabled`: a button row
  * that does nothing now (a picker's row already added): no hover fill. `face`: the icon box of a list of people (ListIcon).
  * `lead`: small marks right before the name (a chat's pin, its shared icon). `tag`: the row's trailing tag (rowTag).
