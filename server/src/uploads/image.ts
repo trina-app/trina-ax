@@ -2,7 +2,9 @@
 // isolated ffmpeg (tools/isolate.ts). No ffmpeg: no thumbnail (the endpoint falls back to small originals).
 import fs from 'node:fs'
 import path from 'node:path'
-import { which } from '../config'
+import { nativeBinDir, which } from '../config'
+import { heicRefusal, heicToJpeg, heicTools, isHeic, PREVIEW_INPUT_MAX } from '../files/heic-preview'
+import { imageSlot } from '../files/vision'
 import { makeWorkDir, runIsolated } from '../tools/isolate'
 import { exifOrientation } from './metadata'
 
@@ -97,6 +99,8 @@ export interface ThumbOptions {
  * from a first ffmpeg run; any byte under 255 makes it a PNG. When that look fails the JPEG one is made, as before.
  * The file is written under a temporary name and renamed, so a reader never gets half of it. */
 export async function makeThumbnail(src: string, dstBase: string, max = 320, workBase?: string, ffmpeg = which('ffmpeg'), o: ThumbOptions = {}): Promise<ThumbExt | null> {
+  // room and chat files are stored without their name: a HEIC is known by its first bytes too
+  if (isHeic(src) || looksHeic(firstBytes(src))) return o.transparentOnly ? null : heicThumbnail(src, dstBase, max, o)
   if (!ffmpeg) return null
   const alphaPossible = mayHaveAlpha(firstBytes(src))
   if (o.transparentOnly && !alphaPossible) return null
@@ -127,14 +131,50 @@ export async function makeThumbnail(src: string, dstBase: string, max = 320, wor
     const ok = png ? b.length > 8 && PNG_SIG.every((x, i) => b[i] === x) : b.length >= 4 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff
     if (r.code !== 0 || !ok) return null
     const ext: ThumbExt = png ? 'png' : 'jpg'
-    const dst = `${dstBase}.${ext}`
-    const tmp = `${dst}.${process.pid}-${Math.random().toString(36).slice(2)}.tmp`
-    fs.mkdirSync(path.dirname(dst), { recursive: true, mode: 0o700 })
-    try {
-      fs.writeFileSync(tmp, b, { mode: 0o600 })
-      fs.chmodSync(tmp, 0o600)
-      fs.renameSync(tmp, dst)
-    } finally { fs.rmSync(tmp, { force: true }) }
+    writeThumb(dstBase, ext, b)
     return ext
   } finally { fs.rmSync(work, { recursive: true, force: true }) }
+}
+
+const HEIC_BRANDS = new Set(['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'mif1', 'msf1'])
+/** a HEIF still image by its file-type box (major brand) */
+export const looksHeic = (b: Uint8Array): boolean => b.length >= 12 && Buffer.from(b.subarray(4, 8)).toString('latin1') === 'ftyp' && HEIC_BRANDS.has(Buffer.from(b.subarray(8, 12)).toString('latin1'))
+
+function writeThumb(dstBase: string, ext: ThumbExt, b: Uint8Array) {
+  const dst = `${dstBase}.${ext}`
+  const tmp = `${dst}.${process.pid}-${Math.random().toString(36).slice(2)}.tmp`
+  fs.mkdirSync(path.dirname(dst), { recursive: true, mode: 0o700 })
+  try {
+    fs.writeFileSync(tmp, b, { mode: 0o600 })
+    fs.chmodSync(tmp, 0o600)
+    fs.renameSync(tmp, dst)
+  } finally { fs.rmSync(tmp, { force: true }) }
+}
+
+/**
+ * An iPhone photo (HEIC / HEIF): browsers other than Safari cannot draw it, and ffmpeg decodes only the first tile of
+ * a phone HEIC. Decoded like the file panel preview (files/heic-preview.ts: the declared size checked first, then
+ * heif-dec or macOS ImageIO, isolated), then made small by the Go helper (`mycel-safeops resize`: upright pixels, no
+ * photo details, JPEG), in the image conversion slots (files/vision.ts: a few at a time, so twenty photos in one chat
+ * do not start twenty decoders). null: no decoder or helper here, or a too large photo; a damaged one throws (the
+ * callers keep no thumbnail either way, and the chip shows the picture icon).
+ */
+async function heicThumbnail(src: string, dstBase: string, max: number, o: ThumbOptions): Promise<ThumbExt | null> {
+  const st = fs.statSync(src)
+  if (st.size > PREVIEW_INPUT_MAX) return null
+  const bytes = fs.readFileSync(src)
+  if (heicRefusal(bytes)) return null
+  const helper = path.join(nativeBinDir(), 'mycel-safeops')
+  if (!fs.existsSync(helper)) return null
+  const decoded = await imageSlot(() => heicToJpeg(bytes, heicTools(), o.signal, { maxPx: max }), o.signal)
+  if (!decoded) return null
+  // details none (2) + JPEG (4) + upright (16)
+  const r = await imageSlot(() => runIsolated({
+    cmd: helper, args: ['resize', String(max), '0', '0', '0', '22'], stdin: decoded, timeoutMs: 30_000, maxRssMiB: 1536,
+    maxStdout: THUMB_MAX_BYTES, background: o.background, signal: o.signal, env: { GOMAXPROCS: '2', GOMEMLIMIT: '800MiB' },
+  }), o.signal)
+  const b = r.stdout
+  if (r.code !== 0 || !(b.length >= 4 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff)) return null
+  writeThumb(dstBase, 'jpg', b)
+  return 'jpg'
 }

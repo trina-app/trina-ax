@@ -9,6 +9,13 @@
 // decodes only the first 512x512 tile of a tiled phone HEIC; measured with ffmpeg 7.1 and 8.0).
 // No converter: the caller gets null and the web shows the "cannot preview" panel.
 //
+// Before any converter runs, the sizes the file declares are read (heicSize: the `ispe` property of every image item,
+// the primary one first): a file whose primary image or any other image is over 50 megapixels or 65,535 px a side is
+// refused undecoded (a decompression bomb), and so is a file that declares no primary image size, names a property it
+// does not have, or holds more boxes than any photo. A derived image (a grid of tiles, an overlay) is decoded at its
+// own output size, which `ispe` may understate; for those the converter's time, memory and work-folder limits are the
+// backstop (review of feat/photos-heic-keep-meta).
+//
 // Limits: input at most PREVIEW_INPUT_MAX bytes, output at most PREVIEW_OUTPUT_MAX bytes, a time, memory and
 // work-folder limit per run, at most PREVIEW_RUNS_MAX runs at the same time and at most PREVIEW_QUEUE_MAX conversions
 // waiting. Fairness: one person runs at most PREVIEW_PER_USER_MAX conversion (less than PREVIEW_RUNS_MAX, so another
@@ -90,27 +97,132 @@ export function heicTools(): HeicTools {
 
 const isJpeg = (b: Uint8Array) => b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff
 
+/** the most pixels and the longest side of an image any converter is asked to decode (safeops.VisionPixelMax, VisionSideInMax) */
+export const HEIC_PIXELS_MAX = 50_000_000
+export const HEIC_SIDE_MAX = 65_535
+
+/**
+ * The size a HEIC / HEIF file declares for its primary image (ISO/IEC 23008-12: meta > pitm, iprp > ipco ispe, ipma),
+ * read from the box headers only, with every offset checked; `largest`: the largest image item it declares (a grid's
+ * tiles, thumbnails, other top-level images: heif-dec decodes every top-level image). null: no primary image size
+ * (not a HEIF file, or a damaged one).
+ */
+export function heicSize(b: Uint8Array): { width: number; height: number; largest: number; longest: number } | null {
+  const v = new DataView(b.buffer, b.byteOffset, b.byteLength)
+  const type = (at: number) => String.fromCharCode(b[at]!, b[at + 1]!, b[at + 2]!, b[at + 3]!)
+  /** the child boxes of [from, to): [type, payload start, payload end], at most 4096 */
+  let capped = false
+  const boxes = (from: number, to: number): [string, number, number][] => {
+    const out: [string, number, number][] = []
+    for (let p = from; p + 8 <= to;) {
+      // more boxes than any photo has: refused as damaged (a filler could hide a large image past a cap)
+      if (out.length >= 4096) { capped = true; break }
+      let size = v.getUint32(p)
+      let head = 8
+      if (size === 1) {
+        if (p + 16 > to) break
+        const big = v.getBigUint64(p + 8)
+        if (big > BigInt(to - p)) break
+        size = Number(big)
+        head = 16
+      } else if (size === 0) size = to - p
+      if (size < head || p + size > to) break
+      out.push([type(p + 4), p + head, p + size])
+      p += size
+    }
+    return out
+  }
+  if (b.length < 16 || type(4) !== 'ftyp') return null
+  const meta = boxes(0, b.length).find(([t]) => t === 'meta')
+  if (!meta || meta[1] + 4 > meta[2]) return null
+  const inMeta = boxes(meta[1] + 4, meta[2])
+  const pitm = inMeta.find(([t]) => t === 'pitm')
+  const iprp = inMeta.find(([t]) => t === 'iprp')
+  if (!pitm || !iprp || pitm[1] + 6 > pitm[2]) return null
+  const primary = b[pitm[1]] === 0 ? v.getUint16(pitm[1] + 4) : pitm[1] + 8 <= pitm[2] ? v.getUint32(pitm[1] + 4) : -1
+  const inIprp = boxes(iprp[1], iprp[2])
+  const ipco = inIprp.find(([t]) => t === 'ipco')
+  if (!ipco) return null
+  // the properties, 1-based; ispe: version/flags, then width and height
+  const props = boxes(ipco[1], ipco[2])
+  const ispe = (i: number) => {
+    const p = props[i - 1]
+    if (!p || p[0] !== 'ispe' || p[1] + 12 > p[2]) return null
+    return { width: v.getUint32(p[1] + 4), height: v.getUint32(p[1] + 8) }
+  }
+  let largest = 0, longest = 0
+  for (let i = 1; i <= props.length; i++) {
+    const s = ispe(i)
+    if (s) { largest = Math.max(largest, s.width * s.height); longest = Math.max(longest, s.width, s.height) }
+  }
+  let found: { width: number; height: number } | null = null
+  for (const [t, from, to] of inIprp) {
+    if (t !== 'ipma' || from + 8 > to) continue
+    const version = b[from]!, wide = (b[from + 3]! & 1) === 1
+    const count = v.getUint32(from + 4)
+    let p = from + 8
+    for (let e = 0; e < count && p < to; e++) {
+      const idSize = version < 1 ? 2 : 4
+      if (p + idSize + 1 > to) return null
+      const id = idSize === 2 ? v.getUint16(p) : v.getUint32(p)
+      const n = b[p + idSize]!
+      p += idSize + 1
+      if (p + n * (wide ? 2 : 1) > to) return null
+      for (let k = 0; k < n; k++) {
+        const index = wide ? v.getUint16(p) & 0x7fff : b[p]! & 0x7f
+        p += wide ? 2 : 1
+        // a property that is not there: damaged (never skipped past a size check)
+        if (index > props.length) return null
+        if (id === primary && !found) found = ispe(index)
+      }
+    }
+  }
+  return found && !capped ? { ...found, largest, longest } : null
+}
+
+/** null: the file may be decoded; else why not ('too_large': over the pixel limits, 'damaged': no primary image size) */
+export function heicRefusal(b: Uint8Array): 'too_large' | 'damaged' | null {
+  const s = heicSize(b)
+  if (!s || s.width < 1 || s.height < 1) return 'damaged'
+  return s.largest > HEIC_PIXELS_MAX || s.longest > HEIC_SIDE_MAX ? 'too_large' : null
+}
+
+/** How a photo is decoded: for the preview and the AI (the default), or for a smaller copy that keeps its details. */
+export interface HeicDecode {
+  /** keep the photo's EXIF (heif-dec keeps it anyway; macOS ImageIO only with --meta) at JPEG quality 92 */
+  keepMeta?: boolean
+  /** longest side of the macOS JPEG (default PREVIEW_MAX_PX; heif-dec keeps the full size) */
+  maxPx?: number
+  /** largest JPEG accepted (default PREVIEW_OUTPUT_MAX) */
+  outputMax?: number
+}
+
 /** A failed converter run: why, and whether the next converter may still try (not after a time / memory / disk kill). */
 interface Failed { why: string; stop: boolean }
 const failed = (why: string, killed: string | null = null): Failed => ({ why, stop: !!killed })
 
 /**
- * A JPEG of the primary image of a HEIC / HEIF file. null: no converter on this machine. Throws ToolError
- * 'preview_failed' when the converters failed (a damaged file, a time or memory limit). When a converter is stopped by
- * a limit, the next one does not run (a crafted file would only use the next limit as well).
+ * A JPEG of the primary image of a HEIC / HEIF file, its pixels upright (the tag in its EXIF, when there is one, may
+ * still name the old orientation: Debian 12's heif-convert). null: no converter on this machine. Throws ToolError
+ * 'too_large' for a file over the pixel limits and 'preview_failed' when the file declares no primary image size or
+ * the converters failed (a damaged file, a time or memory limit). When a converter is stopped by a limit, the next one
+ * does not run (a crafted file would only use the next limit as well).
  */
-export async function heicToJpeg(bytes: Uint8Array, tools: HeicTools, signal?: AbortSignal): Promise<Buffer | null> {
+export async function heicToJpeg(bytes: Uint8Array, tools: HeicTools, signal?: AbortSignal, o: HeicDecode = {}): Promise<Buffer | null> {
   if (!tools.heifDec && !tools.imageIo) return null
+  const refused = heicRefusal(bytes)
+  if (refused === 'too_large') throw new ToolError('the photo is over 50 megapixels or 65,535 px a side', 'too_large')
+  if (refused) throw new ToolError('could not make a preview of the photo (no primary image size)', 'preview_failed')
   let why = ''
   let stop = false
   if (tools.heifDec) {
-    const r = await viaHeifDec(tools.heifDec, bytes, signal)
+    const r = await viaHeifDec(tools.heifDec, bytes, signal, o)
     if (Buffer.isBuffer(r)) return r
     ;({ why, stop } = r)
   }
   if (tools.imageIo && !stop) {
     signal?.throwIfAborted()
-    const r = await viaImageIo(tools.imageIo, bytes, signal)
+    const r = await viaImageIo(tools.imageIo, bytes, signal, o)
     if (Buffer.isBuffer(r)) return r
     why = r.why
   }
@@ -118,7 +230,8 @@ export async function heicToJpeg(bytes: Uint8Array, tools: HeicTools, signal?: A
   throw new ToolError(`could not make a preview of the photo (${why})`, 'preview_failed')
 }
 
-async function viaHeifDec(bin: string, bytes: Uint8Array, signal?: AbortSignal): Promise<Buffer | Failed> {
+async function viaHeifDec(bin: string, bytes: Uint8Array, signal?: AbortSignal, o: HeicDecode = {}): Promise<Buffer | Failed> {
+  const outMax = o.outputMax ?? PREVIEW_OUTPUT_MAX
   const work = makeWorkDir()
   try {
     await fs.promises.writeFile(path.join(work, 'in.heic'), bytes, { mode: 0o600 })
@@ -127,8 +240,8 @@ async function viaHeifDec(bin: string, bytes: Uint8Array, signal?: AbortSignal):
     // heif-dec writes one JPEG for each top-level image: the work folder limit stops a file with many large images
     const r = await runIsolated({
       cmd: bin, workDir: work, timeoutMs: PREVIEW_TIMEOUT_MS, maxRssMiB: PREVIEW_RSS_MIB, maxStdout: 1024 * 1024, signal,
-      maxWorkBytes: bytes.length + 2 * PREVIEW_OUTPUT_MAX,
-      args: [...(modern ? ['--quiet', '--codec-threads', '1'] : []), '-q', '85', 'in.heic', 'out.jpg'],
+      maxWorkBytes: bytes.length + 2 * outMax,
+      args: [...(modern ? ['--quiet', '--codec-threads', '1'] : []), '-q', o.keepMeta ? '92' : '85', 'in.heic', 'out.jpg'],
     })
     if (r.killed) return failed(`heif-dec: stopped (${r.killed})`, r.killed)
     if (r.code !== 0) return failed(`heif-dec: ${r.stderr.trim().split('\n')[0]?.slice(0, 200) || 'exit ' + r.code}`)
@@ -136,9 +249,9 @@ async function viaHeifDec(bin: string, bytes: Uint8Array, signal?: AbortSignal):
     // top-level image, which is the primary image in phone photos (not in every file). Each is read without following
     // a link (tools/isolate.ts readOutput): heif-dec taken over by the photo could leave a link to another file there.
     for (const name of ['out.jpg', 'out-1.jpg', 'out-primary.jpg']) {
-      const got = readOutput(work, name, PREVIEW_OUTPUT_MAX)
+      const got = readOutput(work, name, outMax)
       if (!got.ok && got.why === 'missing') continue
-      if (!got.ok && got.why === 'too_large') return failed(`the JPEG is over ${PREVIEW_OUTPUT_MAX / 1024 / 1024} MB`)
+      if (!got.ok && got.why === 'too_large') return failed(`the JPEG is over ${outMax / 1024 / 1024} MB`)
       if (!got.ok) return failed('heif-dec wrote no plain file')
       return isJpeg(got.bytes) ? got.bytes : failed('heif-dec wrote no JPEG')
     }
@@ -146,10 +259,10 @@ async function viaHeifDec(bin: string, bytes: Uint8Array, signal?: AbortSignal):
   } finally { fs.rmSync(work, { recursive: true, force: true }) }
 }
 
-async function viaImageIo(bin: string, bytes: Uint8Array, signal?: AbortSignal): Promise<Buffer | Failed> {
+async function viaImageIo(bin: string, bytes: Uint8Array, signal?: AbortSignal, o: HeicDecode = {}): Promise<Buffer | Failed> {
   const r = await runIsolated({
-    cmd: bin, args: ['--jpeg', String(PREVIEW_MAX_PX)], stdin: bytes, timeoutMs: PREVIEW_TIMEOUT_MS,
-    maxRssMiB: PREVIEW_RSS_MIB, maxStdout: PREVIEW_OUTPUT_MAX, signal,
+    cmd: bin, args: ['--jpeg', String(o.maxPx ?? PREVIEW_MAX_PX), ...(o.keepMeta ? ['--meta'] : [])], stdin: bytes, timeoutMs: PREVIEW_TIMEOUT_MS,
+    maxRssMiB: PREVIEW_RSS_MIB, maxStdout: o.outputMax ?? PREVIEW_OUTPUT_MAX, signal,
   })
   if (r.killed) return failed(`mycel-ocr: stopped (${r.killed})`, r.killed)
   if (r.code !== 0) return failed(`mycel-ocr: ${r.stderr.trim().split('\n')[0]?.slice(0, 200) || 'exit ' + r.code}`)
