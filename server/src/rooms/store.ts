@@ -453,14 +453,21 @@ function lastMessage(db: Database, roomId: string, viewer: MemberRow): RoomLastM
   return { id: m.id, seq: m.seq, author, excerpt: m.deleted_at ? '' : excerpt(text.replace(/\s+/g, ' ').trim(), EXCERPT_LIST), fileCount: files, deleted: !!m.deleted_at, createdAt: m.created_at, ...(app ? { app } : {}) }
 }
 
+/** unreadCount reads at most this many messages for its number (one more than it can answer). */
+const UNREAD_COUNTED = MAX_UNREAD + 1
 /** Unread messages of the timeline for `viewer`: after their read position, theirs to see, not their own, not deleted,
  * no event line, no reply that stays in its thread. */
 export function unreadCount(db: Database, roomId: string, viewer: MemberRow): { n: number; mentioned: boolean } {
   const from = Math.max(viewer.last_read_seq, viewer.visible_from_seq)
-  const r = db.query(`SELECT COUNT(*) n, MAX(${MENTIONS_SQL}) men FROM room_messages m
-    WHERE m.room_id = ? AND m.seq > ? AND ${SEE_SQL} AND ${TIMELINE_SQL} AND m.deleted_at IS NULL AND m.event IS NULL AND m.app_quiet = 0 AND (m.author_id IS NULL OR m.author_id <> ?)`)
-    .get(viewer.user_id, viewer.user_id, roomId, from, ...seeArgs(viewer), viewer.user_id) as { n: number; men: number | null }
-  return { n: Math.min(MAX_UNREAD, r.n), mentioned: !!r.men }
+  const unread = `m.room_id = ? AND m.seq > ? AND ${SEE_SQL} AND ${TIMELINE_SQL} AND m.deleted_at IS NULL AND m.event IS NULL AND m.app_quiet = 0 AND (m.author_id IS NULL OR m.author_id <> ?)`
+  const args = [roomId, from, ...seeArgs(viewer), viewer.user_id]
+  // counted up to UNREAD_COUNTED only: the answer stops at MAX_UNREAD, and a person far behind in a big room made every
+  // read count the whole rest of it (TC-4772)
+  const r = db.query(`SELECT COUNT(*) n, MAX(men) men FROM (SELECT ${MENTIONS_SQL} men FROM room_messages m WHERE ${unread} LIMIT ${UNREAD_COUNTED})`)
+    .get(viewer.user_id, viewer.user_id, ...args) as { n: number; men: number | null }
+  // a mention past those rows still counts: looked for in the rest only when they had none
+  const mentioned = !!r.men || (r.n >= UNREAD_COUNTED && !!db.query(`SELECT 1 FROM room_messages m WHERE ${unread} AND ${MENTIONS_SQL} LIMIT 1`).get(...args, viewer.user_id, viewer.user_id))
+  return { n: Math.min(MAX_UNREAD, r.n), mentioned }
 }
 
 /** The newest position of the timeline `viewer` can see (an event line's too), 0 for none: the room's own counter would
