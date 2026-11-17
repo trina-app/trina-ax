@@ -6576,6 +6576,8 @@ export const es: Record<MessageKey, string> = {
   "stepFix.shareProject": "Compartir con el proyecto",
   "stepFix.chatShared": "Compartido con el proyecto {file}.",
   "chat.project.movedPrivate": "Se movió a {name}. Solo usted puede verlo.",
+  "chat.project.staysPrivate": "Después de moverlo, el chat sigue en “Solo yo”. Las personas del proyecto lo ven solo cuando usted lo comparte.",
+  "chat.project.moveAndShare": "Mover y compartir",
   "notifications.event.file.access_requestedFor": "{by} pidió que comparta \"{name}\" con {for}",
   "fileRequest.approvedFor": "Lo compartió con {for}",
   "linkAccess.needAccess": "Necesita acceso",
