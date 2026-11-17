@@ -33,6 +33,7 @@ import { UploadSessions } from '../uploads/sessions'
 import { publishChanges } from './changes'
 import { atLeast, loadPrincipal, RuleSet } from '../policy/access'
 import { TeamFiles } from './service'
+import { readRegular } from '../files/store'
 import { fileSharesOf } from '../files/shares'
 import { listSharedFolder, sharedFolderChild } from '../files/shared-folder-reads'
 
@@ -83,6 +84,20 @@ export function componentC(ctx: AppContext): ComponentC {
     // inside a folder shared with them, by its link only (files/shared-folder-reads.ts)
     folderList: (user, files, input, L) => listSharedFolder(ctx, user, files, input, L),
     folderChild: (user, input, L) => sharedFolderChild(ctx, user, input, L),
+  }
+  // the AI's read with `versions` (docs/decisions/20261117-ai-file-versions.md): the rows the Files screen's Version
+  // history shows the caller, by name only (a ref without a users row carries its id as the name: no name then)
+  const named = (u: { id: string; name: string } | null | undefined) => (u && u.name !== u.id ? u.name : null)
+  ctx.files.versions = {
+    async list(userId, rel) {
+      let h: Awaited<ReturnType<TeamFiles['history']>>
+      try { h = await files.history(userId, rel) } catch (e) { if (e instanceof HttpError) return null; throw e }
+      return {
+        current: h.current ? { version: h.current.version, by: named(h.current.author), at: h.current.at } : null,
+        items: h.items.filter((v) => v.kind !== 'conflict_copy').map((v) => ({ id: v.id, version: v.version, size: v.size, by: named(v.savedBy), replacedBy: named(v.author), replacedAt: v.createdAt, viaAi: !!v.turnId })),
+      }
+    },
+    bytes(userId, versionId, max) { return readRegular(files.versionFile(userId, versionId).abs, max).bytes },
   }
   const teamRefs = new TeamFileRefs(ctx, files)
   const attachments = new Attachments(ctx, files, teamRefs)

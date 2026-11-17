@@ -4,7 +4,10 @@
 // between the current file and the previous version (or a chosen one), with exactly the access a read of the file has:
 // a file the caller cannot read looks like one that does not exist, and other people's personal folders never open.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import fs from 'node:fs'
+import path from 'node:path'
 import { makeHandler } from '../../server/src/mcp/protocol'
+import { saveVersion } from '../../server/src/files/store'
 import { jsonBody, makeCApp, sha256hex, type CApp, type Person } from '../lib/c-app'
 
 setDefaultTimeout(30_000)
@@ -48,8 +51,8 @@ describe('read with versions (TC-4547)', () => {
     expect(r.text).toContain('-line two: check sign-in\n')
     expect(r.text).toContain('+line two: check sign-in and sign-out')
     expect(r.text).not.toContain('-line three')
-    // times are UTC ISO, like the other file tools
-    expect(r.text).toMatch(/\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ/)
+    // times in UTC, in the form list gives them
+    expect(r.text).toMatch(/\d{4}-\d\d-\d\d \d\d:\d\d UTC/)
     // the file joins the turn's read scope (what a later save that widens the audience is judged by), but it is not
     // "read" for read-before-write: the AI did not get the whole current text
     expect(r.files.readPaths.has(p)).toBe(true)
@@ -99,5 +102,26 @@ describe('read with versions (TC-4547)', () => {
       expect(r.text).not.toContain('two')
     }
     expect((await read('bob', { file_path: f, versions: true })).text).toContain('+two')
+  })
+
+  // a Word file: both versions turned into text by the extractor a read uses (pandoc), then compared
+  const pandoc = Bun.which('pandoc')
+  test.skipIf(!pandoc)('a Word file shows its text changes', async () => {
+    const docx = (text: string) => {
+      const md = path.join(A.data, `v-${crypto.randomUUID()}.md`), out = md.replace(/\.md$/, '.docx')
+      fs.writeFileSync(md, text)
+      expect(Bun.spawnSync([pandoc!, md, '-o', out]).exitCode).toBe(0)
+      return fs.readFileSync(out)
+    }
+    const f = 'shared/qa/brief.docx'
+    const abs = path.join(A.team, ...f.split('/'))
+    const before = docx('Budget: 100\n\nOwner: Alice\n')
+    saveVersion(A.ctx.db, A.team, f, before, { userId: 'erin', turnId: null })
+    fs.writeFileSync(abs, docx('Budget: 250\n\nOwner: Alice\n'))
+    const r = await read('alice', { file_path: f, versions: true })
+    expect(r.isError).toBe(false)
+    expect(r.text).toContain('-Budget: 100')
+    expect(r.text).toContain('+Budget: 250')
+    expect(r.text).not.toContain('-Owner')
   })
 })
