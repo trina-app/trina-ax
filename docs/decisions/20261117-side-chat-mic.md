@@ -23,17 +23,21 @@
   outside service: the note under the box instead of a recording (`voiceBlockedHere`, the chat's wording, not the
   room's), and the server refuses it either way.
 - **Server:** no change. `assertVoiceChat` already takes the caller's own chat, which a side chat is; nobody else's
-  side chat passes it. Guests as before: speech to text is off their endpoint list, so a guest's recording is refused.
+  side chat passes it. Guests as before: speech to text is off their endpoint list (see "Guests have no mic").
 - **One recording at a time:** the room's box, a thread's box and the side chat's box share the one microphone
   (`useVoiceInput`'s owner): while one records, the others' mics wait.
 - **Another chat:** "New chat" or a chat opened from 🕘 while recording throws the recording away (it was for the chat
   shown), without putting words back into the other chat's box. The first question or file making the side chat does
   not.
 - **Left out:** in the file viewer's column Esc is the viewer's (it is a dialog), as for a thread's box there: ✕ on the
-  bar cancels a recording. The mic still shows for a guest and their recording is refused, as in a room's box today (a
-  separate finding, QA TC-4575, not changed here). The phone's side chat keeps its two-row box (not the room's one-line
-  box).
+  bar cancels a recording. The phone's side chat keeps its two-row box (not the room's one-line box).
+- **Guests have no mic** (QA TC-4575, the owner's side, 2026-11-17): the server takes no recording from a guest (an
+  upload session for one, `POST /api/transcribe` and `/api/transcribe/piece` are 403: `tests/unit/a-guests-speech.test.ts`),
+  but every box showed a guest the mic, which then failed. `micState` (`web/src/lib/voice.ts`) now answers `hidden` for
+  `me.user.role === 'guest'`, so the room's box, a thread's, the side chat's and Ask Trina's show none and Space stays a
+  Space. No server change.
 - **Tests:** `web/test/unit/side-chat.test.tsx` (the mic before send; none with voice input off),
   `web/test/e2e/voice.spec.ts` "rooms" (a click, Space held, Esc, "New chat" while recording, the chat named, the box's size while recording, the
-  room's mic waiting, live words, the confidential note, no mic without the server's tools).
+  room's mic waiting, live words, the confidential note, no mic without the server's tools);
+  `web/test/unit/voice.test.ts` and `web/test/e2e/guest-view.spec.ts` (a guest has no mic in any box, a member has).
 - **Version impact:** patch.
