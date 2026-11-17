@@ -53,11 +53,22 @@ export function wwwAuthenticate(h: string): Record<string, string> {
   return out
 }
 
-const get = async (url: string, net: NetOptions) => {
+/** `seen.failed`: an address that could not be read (5xx, a redirect, a network error), as opposed to one that clearly
+ * has nothing (4xx, or an answer that is not a JSON object) */
+const get = async (url: string, net: NetOptions, seen?: { failed: boolean }) => {
   try {
     const r = await jsonRequest(url, { method: 'GET', headers: [['Accept', 'application/json']] }, net)
+    if (r.status >= 500 && seen) seen.failed = true
     return r.status === 200 ? r.json : null
-  } catch (e) { if (e instanceof NetError && (e.reason === 'timeout' || e.reason === 'tls')) throw e; return null }
+  } catch (e) { if (e instanceof NetError && (e.reason === 'timeout' || e.reason === 'tls')) throw e; if (seen) seen.failed = true; return null }
+}
+
+/** No sign-in at all: neither a protected-resource nor an authorization-server document answered at any address, and
+ * every address answered (none failed or was down). Still `oauth_unsupported` for every caller; only authorize tells
+ * it apart (a server that then works without a key is a connection with no sign-in, service.ts). Metadata that
+ * answered but cannot be used (another resource or issuer, no S256, no code) stays a plain `oauth_unsupported`. */
+export class NoSignInFound extends NetError {
+  constructor() { super('oauth_unsupported') }
 }
 
 /** Where to sign in for the MCP server at `mcpUrl`. Throws NetError('oauth_unsupported') when it offers no usable sign-in.
@@ -66,8 +77,9 @@ export async function discover(mcpUrl: string, net: NetOptions, header = ''): Pr
   const u = new URL(mcpUrl)
   const h = wwwAuthenticate(header)
   const candidates = [httpsUrl(h.resource_metadata), `${u.origin}/.well-known/oauth-protected-resource${u.pathname === '/' ? '' : u.pathname}`, `${u.origin}/.well-known/oauth-protected-resource`]
+  const seen = { failed: false }
   let prm: Record<string, any> | null = null
-  for (const c of [...new Set(candidates.filter((x): x is string => !!x))]) if ((prm = await get(c, net))) break
+  for (const c of [...new Set(candidates.filter((x): x is string => !!x))]) if ((prm = await get(c, net, seen))) break
   let resource = canonicalResource(mcpUrl)
   let issuer = u.origin
   if (prm) {
@@ -87,8 +99,8 @@ export async function discover(mcpUrl: string, net: NetOptions, header = ''): Pr
     ? [`${iu.origin}/.well-known/oauth-authorization-server${p}`, `${iu.origin}/.well-known/openid-configuration${p}`, `${iu.origin}${p}/.well-known/openid-configuration`]
     : [`${iu.origin}/.well-known/oauth-authorization-server`, `${iu.origin}/.well-known/openid-configuration`]
   let meta: Record<string, any> | null = null
-  for (const m of metaUrls) if ((meta = await get(m, net))) break
-  if (!meta) throw new NetError('oauth_unsupported')
+  for (const m of metaUrls) if ((meta = await get(m, net, seen))) break
+  if (!meta) throw !prm && !seen.failed ? new NoSignInFound() : new NetError('oauth_unsupported')
   if (typeof meta.issuer === 'string' && trimSlash(meta.issuer) !== trimSlash(issuer)) throw new NetError('oauth_unsupported')
   const authMethods = Array.isArray(meta.token_endpoint_auth_methods_supported) ? meta.token_endpoint_auth_methods_supported.filter((m: unknown): m is string => typeof m === 'string') : null
   const methods = meta.code_challenge_methods_supported

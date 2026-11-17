@@ -18,7 +18,7 @@ import { checkHostName, isLocalAddress, isPublicAddress } from '../../tools/web-
 import { secretHider } from './hide'
 import { MCP_CALL_IDLE_MS, MCP_CALL_TIMEOUT_MS, MCP_LIST_TIMEOUT_MS, McpClient, McpError } from './mcp'
 import { NetError, serviceRequest, TIMEOUT_MS, type NetOptions, type NetResponse } from './net'
-import { authorizationUrl, CALLBACK_PATH, canonicalResource, chooseClient, discover, documentOrigins, GrantError, issuerMatches, loopbackClient, loopbackPortOk, manualServer, ownClient, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens, type OwnClient } from './oauth'
+import { authorizationUrl, CALLBACK_PATH, canonicalResource, chooseClient, discover, documentOrigins, GrantError, issuerMatches, loopbackClient, loopbackPortOk, manualServer, NoSignInFound, ownClient, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens, type OwnClient } from './oauth'
 import {
   accessOf, activeUser, clientAad, clientInfo, connectionAad, disabledTools, flowAad, getRow, isAdmin, MAX_DISABLED_TOOLS, mayUse, offByTeam, requestSignedIn, savedTools, SecretBox, secretHere, selectRows, setAccess, StoreError, templateClientAad, templateCovers, toolListsOf, usable, view,
   type ClientInfo, type FlowRow, type Row, type Viewer,
@@ -40,6 +40,8 @@ const WAITING = "(auth = 'oauth' AND secret_enc IS NULL)"
 /** how many of a person's own connections wait for a sign-in, at most (they do not count toward MAX_PERSONAL) */
 export const MAX_PERSONAL_WAITING = MAX_PERSONAL
 const isWaiting = (r: Pick<Row, 'auth' | 'secret_enc'>) => r.auth === 'oauth' && !r.secret_enc
+/** update's `only`: the connection is not as it was read any more (nothing written) */
+class Moved extends Error {}
 /** connections that count toward a person's own limits: their own, not made from a template, not a Google app */
 const countsAsOwn = (r: Pick<Row, 'scope' | 'template_id' | 'google_app'>) => r.scope === 'personal' && !r.template_id && !r.google_app
 
@@ -304,9 +306,12 @@ export class Integrations {
     return view(this.db, checked, viewer, L)
   }
 
-  async update(viewer: Viewer, id: string, patch: IntegrationPatch, locale: Locale): Promise<Integration> {
+  /** `only`: write only while the connection is still as it was read then (same version, address, and no sign-in
+   * stored), else Moved with nothing written; `via`: a change the server made by itself, named in the audit entry */
+  async update(viewer: Viewer, id: string, patch: IntegrationPatch, locale: Locale, opts: { only?: Pick<Row, 'version' | 'url'>; via?: string } = {}): Promise<Integration> {
     const L = locale
     const row = this.manageable(viewer, id)
+    if (opts.only && (row.version !== opts.only.version || row.url !== opts.only.url || row.secret_enc)) throw new Moved()
     // made from an admin's template: the address, sign-in method, header, name and notes are the template's (a key
     // must only ever go where the admin registered); the member changes only their key and the write rule
     if (row.template_id) {
@@ -383,7 +388,7 @@ export class Integrations {
     const accessChanged = !!patch.access && JSON.stringify(accessBefore) !== JSON.stringify(accessAfter)
     if (accessChanged) changed.push('access')
     if (changed.length || secret !== 'kept') {
-      audit(this.db, { actor: viewer.id, action: 'integration.update', target: id, detail: { ...auditDetail(next), changed, secret, ...(accessChanged ? { access: { before: accessBefore, after: accessAfter } } : {}) } })
+      audit(this.db, { actor: viewer.id, action: 'integration.update', target: id, detail: { ...auditDetail(next), changed, secret, ...(opts.via ? { via: opts.via } : {}), ...(accessChanged ? { access: { before: accessBefore, after: accessAfter } } : {}) } })
     }
     if (old?.type === 'oauth' && (secret !== 'kept')) void this.revokeTokens(old)
     const cur = getRow(this.db, id)!
@@ -1048,13 +1053,14 @@ export class Integrations {
         try { await bare.start(); open = true } catch (e) { if (e instanceof McpError && e.code === 'unauthorized') header = e.detail }
         let found: Awaited<ReturnType<typeof discover>>
         try { found = await discover(row.url, this.net, header) } catch (e) {
-          // no sign-in to find, and the server let us in and lists its tools without one (a public server such as
-          // DeepWiki, QA TC-4771): it is a connection with no sign-in, as if chosen under Advanced. Only one never
-          // signed in, without its own app and not from a template (a template's members bring their own key or
-          // sign-in). The requests go through the same address rules (this.net) as every other.
-          if (open && e instanceof NetError && e.reason === 'oauth_unsupported' && !app && !row.secret_enc && !row.template_id && !row.google_app && await this.listsWithoutSignIn(bare)) {
-            await this.update(viewer, id, { auth: 'none' }, L)
-            return { connected: true }
+          // no sign-in at all (no metadata answered anywhere, and nothing was down: NoSignInFound), and the server let
+          // us in and lists its tools without one (a public server such as DeepWiki, QA TC-4771): it is a connection
+          // with no sign-in, as if chosen under Advanced. Only one never signed in, without its own app and not from a
+          // template (a template's members bring their own key or sign-in). The requests go through the same address
+          // rules (this.net) as every other.
+          if (open && e instanceof NoSignInFound && !app && !row.secret_enc && !row.template_id && !row.google_app && await this.listsWithoutSignIn(bare)) {
+            const done = await this.noSignIn(viewer, row, L)
+            if (done) return done
           }
           throw e
         }
@@ -1095,6 +1101,18 @@ export class Integrations {
         VALUES (?,?,?,?,?,?,'pending',?,?,?,?)`).run(flowId, id, row.version, viewer.id, session, hash(state), sealed.enc, sealed.keyVersion, expiresAt, iso(this.now()))
     })()
     return { flowId, authorizationUrl: authorizationUrl(secret, state, challenge), expiresAt, ...(client.redirectUri.startsWith('http://127.0.0.1:') ? { loopback: true } : {}) }
+  }
+
+  /** The connection as read before the probe becomes one with no sign-in, only while it is still that (a sign-in that
+   * finished meanwhile, or an address changed, wins: null, and the old answer is given). `{ connected }` only when its
+   * check then connected it; else null too (the row keeps no sign-in, with the check's reason). */
+  private async noSignIn(viewer: Viewer, row: Row, L: Locale): Promise<{ connected: true } | null> {
+    let v: Integration
+    try { v = await this.update(viewer, row.id, { auth: 'none' }, L, { only: { version: row.version, url: row.url }, via: 'no_signin_probe' }) } catch (e) {
+      if (e instanceof Moved) return null
+      throw e
+    }
+    return v.status === 'connected' ? { connected: true } : null
   }
 
   /** The server, reached with no key or sign-in, lists its tools (a 401 or 403 there, or any other failure: it does not) */
