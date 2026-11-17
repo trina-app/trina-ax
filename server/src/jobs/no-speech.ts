@@ -126,31 +126,41 @@ const weak = (s: Sound | null): boolean => !!s && !s.speechLike
 /** whisper's marks for sound with no words: [BLANK_AUDIO], (beep), (music), [music in Korean], ♪, *click* */
 export const NOT_WORDS = /^\s*(?:[[(（][^\])）]{0,40}[\])）]|\*[^*]{0,40}\*|[♪♫♬\s]+)\s*$/
 
-/** Words of whisper's sound tags inside a line ("[Coughing] Please send …", "(upbeat music)", "[BLANK_AUDIO]", QA
- * TC-4674): a bracketed part is a tag only when it is short (SOUND_TAG_WORDS words at most) and names a sound with one
- * of these words, so what a person said in brackets ("[draft]", "(see the attachment)") stays. Korean as escapes. */
-const SOUND_WORD = new RegExp('(?:^|[^\\p{L}])(?:' + [
-  'music\\w*', 'song', 'singing', 'sings?', 'humming', 'hums?', 'whistl\\w*', 'instrumental', 'melody',
-  'laugh\\w*', 'chuckl\\w*', 'giggl\\w*', 'cough\\w*', 'sneez\\w*', 'sniff\\w*', 'sigh\\w*', 'breath\\w*', 'gasp\\w*',
-  'groan\\w*', 'yawn\\w*', 'snor\\w*', 'throat', 'crying', 'cries', 'sob\\w*', 'scream\\w*', 'grunt\\w*', 'exhal\\w*', 'inhal\\w*',
-  'applause', 'clap\\w*', 'cheer\\w*', 'beep\\w*', 'blank_audio', 'blank audio', 'silence', 'noise\\w*',
-  'inaudible', 'indistinct', 'unintelligible', 'clicks?', 'clicking', 'typing', 'footsteps', 'knock(?:s|ing)', 'doorbell',
-  'door (?:closes|closing|opens|opening|slams|creaks)', 'ringing', 'chim(?:es|ing)', 'buzz(?:es|ing)', 'thud', 'bangs?', 'banging',
-  'thunder', 'wind blowing', 'murmur\\w*', 'mumbl\\w*', 'chatter\\w*', 'bark(?:s|ing)', 'vibrat\\w*', 'sound effects?', 'sfx', 'no speech',
-  'foreign language', 'speaking \\p{L}+', 'speaks \\p{L}+',
-  'musik', 'tertawa', 'batuk', 'tepuk tangan', 'hening', 'm\\u00fasica', 'risas?', 'aplausos?', 'silencio', 'ruido',
-].join('|') + ')(?=$|[^\\p{L}])|\\uC74C\\uC545|\\uC6C3\\uC74C|\\uAE30\\uCE68|\\uBC15\\uC218|\\uCE68\\uBB35|\\uC18C\\uC74C|\\uD55C\\uC228|' +
-  '音楽|音乐|笑|拍手|咳|無音|静音|沉默|掌声|ノイズ|噪音', 'iu')
-const SOUND_TAG_WORDS = 5
-const BRACKETED = /\s*(?:\[([^\]\n]{1,40})\]|\(([^)\n]{1,40})\)|（([^）\n]{1,40})）|\*([^*\n]{1,40})\*)\s*/g
-/** One line without whisper's sound tags and music notes; real bracketed words kept. */
+/** Whisper's sound tags inside a line ("[Coughing] Please send …", "(upbeat music)", "[BLANK_AUDIO]", QA TC-4674). A
+ * bracketed part is a tag only when ALL of it is one: a sound word alone, or with one word before it (upbeat music,
+ * phone ringing) or after it (door closes, speaking Japanese). Exact word forms, no prefixes, so what a person said in
+ * brackets stays: "(line of sight)", "(music festival budget)", "(cheers team)", "[draft]". Chinese, Japanese and Korean
+ * tags match only as the whole inside. Korean as escapes (server code holds no Hangul). */
+const SOUND = '(?:music|musical|instrumental|singing|humming|whistling|laugh|laughs|laughing|laughter|chuckles?|chuckling|giggles?|giggling|' +
+  'cough|coughs|coughing|sneezes?|sneezing|sniffs?|sniffing|sniffles|sighs?|sighing|breathing|breathes|gasps?|gasping|groans?|groaning|' +
+  'yawns?|yawning|snoring|crying|sobbing|screams?|screaming|grunts?|grunting|applause|applauding|clapping|claps|cheering|cheers|' +
+  'beep|beeps|beeping|blank_audio|silence|noise|static|inaudible|indistinct|unintelligible|clicking|clicks|typing|footsteps|knocking|' +
+  'knocks|ringing|rings|chimes|chiming|buzzing|buzzes|thud|bang|bangs|banging|thunder|murmuring|mumbling|mumbles|chatter|chattering|' +
+  'barking|barks|vibrating|vibrates|pause|outro|intro|sfx|musik|tertawa|batuk|tepuk tangan|hening|música|risas|aplausos|silencio|ruido|tos)'
+/** a word that makes a bracketed part read as a person's words ("(our music)", "(the applause)") */
+const PLAIN_WORD = /^(?:the|a|an|of|for|to|in|on|at|is|are|was|here|there|who|my|our|your|his|her|their|its|from|about|list|team|and|or|with|this|that|no|not|please|me|you|we|i)$/i
+/** what may follow a sound word in a tag ("music playing", "laughter continues") */
+const AFTER = '(?:continues|continuing|playing|plays|fades|fading|stops|ends|starts|swells|intensifies|loudly|softly|nearby)'
+const SOUND_TAG = new RegExp(
+  `^(?:\\p{L}+\\s+)?${SOUND}$|^${SOUND}\\s+${AFTER}$|^(?:sound effects?|no speech|no audio|foreign language|speaking (?:in )?(?:a )?(?:foreign language|\\p{L}+)|speaks \\p{L}+|door (?:closes|closing|opens|opening|slams|creaks)|phone (?:ringing|rings|buzzing|vibrating))$`,
+  'iu')
+/** whole-inside tags in Chinese, Japanese and Korean (music, laughter, applause, cough, silence, noise, a sigh; Korean
+ * words for music, laughter, applause, a cough, silence, noise and a sigh, optionally with the word for "sound") */
+const CJK_TAG = /^(?:音楽|音乐|笑|笑い(?:声)?|笑声|拍手|掌声|咳|咳嗽|無音|无声|静音|沉默|ノイズ|噪音|(?:\uC74C\uC545|\uC6C3\uC74C|\uBC15\uC218|\uAE30\uCE68|\uCE68\uBB35|\uC18C\uC74C|\uD55C\uC228|\uBB34\uC74C)(?:\s*\uC18C\uB9AC)?)$/u
+const BRACKETED = /[ \t]*(?:\[([^\]\n]{1,40})\]|\(([^)\n]{1,40})\)|（([^）\n]{1,40})）|\*([^*\s]{1,30})\*)[ \t]*/g
+/** a bracketed part (its inside) that is one of whisper's sound tags */
+export function soundTag(inner: string): boolean {
+  const t = inner.trim().replace(/\s+/g, ' ')
+  if (CJK_TAG.test(t)) return true
+  const words = t.split(' ')
+  // "speaking in Korean" may hold "in"; elsewhere a plain word means a person said it
+  return SOUND_TAG.test(t) && (/^speaking /i.test(t) || !words.some((w) => PLAIN_WORD.test(w)))
+}
+/** One line without whisper's sound tags and music notes; real bracketed words kept, line breaks kept. */
 export function withoutSoundTags(text: string): string {
-  const t = text.replace(BRACKETED, (m, a?: string, b?: string, c?: string, d?: string) => {
-    const inner = (a ?? b ?? c ?? d ?? '').trim()
-    const tag = inner.split(/\s+/).length <= SOUND_TAG_WORDS && SOUND_WORD.test(inner)
-    return tag ? ' ' : m
-  }).replace(/\s*[♪♫♬]+\s*/g, ' ')
-  return t === text ? text : t.replace(/\s+/g, ' ').trim()
+  const t = text.replace(BRACKETED, (m, a?: string, b?: string, c?: string, d?: string) => (soundTag(a ?? b ?? c ?? d ?? '') ? ' ' : m))
+    .replace(/[ \t]*[♪♫♬]+[ \t]*/g, ' ')
+  return t === text ? text : t.split('\n').map((l) => l.replace(/[ \t]+/g, ' ').trim()).join('\n').trim()
 }
 /** An answer without whisper's sound tags in its text and lines (a line left empty goes) */
 export function stripSoundTags<T extends Heard>(r: T): T {

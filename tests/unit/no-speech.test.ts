@@ -10,6 +10,7 @@ import { pieceWav } from '@mycel/shared/speech-pieces'
 import { keepSpeech, learnedLine, NOT_WORDS, silent, soundOf, stripSoundTags, withoutSoundTags } from '../../server/src/jobs/no-speech'
 import { parseWhisperJson, whisperUnsure } from '../../server/src/jobs/transcribe'
 import { openRouterUnsure, parseOpenRouter, openRouterSpeech } from '../../server/src/jobs/openrouter-stt'
+import { pieceOf, saysOtherLanguage } from '../../server/src/files/media'
 
 const RATE = 16_000
 const db = (d: number) => 10 ** (d / 20)
@@ -203,10 +204,22 @@ describe('sound tags inside a line (TC-4674: "[Coughing] Please send a quarterly
     ]
     for (const [t, want] of cases) expect(withoutSoundTags(t), t).toBe(want)
   })
-  test('what a person said in brackets stays', () => {
+  test('what a person said in brackets stays, also when it holds a sound word (review of TC-4674)', () => {
     for (const t of ['Send the [draft] today', 'Read it (see the attachment) first', 'call (555) 1234', 'Meet at [Room 3]',
-      'the budget (marketing and sales) is fine', 'the ring (light) is on', 'the ToS (terms of service) changed', 'a (rain check) then', '[참고] 보고서'])
+      'the budget (marketing and sales) is fine', 'the ring (light) is on', 'the ToS (terms of service) changed', 'a (rain check) then', '[참고] 보고서',
+      '(see the song list)', '(cheers team)', '(breathing room in the budget)', '(click here)', 'the (music festival) budget', 'Ask Kevin (who sings) to join',
+      'call me (doorbell camera) later', '(line of sight)', '(soba lunch)', '(Snorkel trip)', '(inhaler)', '(beeper)', '[Cheerios]', '(musical chairs)',
+      '(whistleblower policy)', '(breathtaking view)', '(clapboard)', '(noise cancelling headphones)', '(silence is golden)', '(clicks per day)',
+      '(foreign language support)', '[no speech yet]', '(ringing endorsement)', '(applause from the board)', '(cough syrup)', '(bang for the buck)',
+      '(our music)', '(la música del evento)', '(silencio el lunes)', '(sigh of relief) we closed', '(微笑服务)', '[笑顔プロジェクト]', '(咳嗽药)',
+      '(웃음 포인트 정리)', '(음악 저작권)'])
       expect(withoutSoundTags(t), t).toBe(t)
+  })
+  test('more of whisper\'s tags; line breaks of a text-only answer stay', () => {
+    for (const t of ['[Music]', '[Applause]', '(sighs)', '[inaudible]', '(audience laughter)', '(door closes)', '[Pause]', '(laughter continues)', '[static]',
+      '(speaking in foreign language)', '[박수]', '[웃음]', '[무음]', '[咳]', '(音乐)', '*laughs*'])
+      expect(withoutSoundTags(`${t} ok`), t).toBe('ok')
+    expect(withoutSoundTags('Line one\nLine two (music)')).toBe('Line one\nLine two')
   })
   test('in voice input and transcripts: keepSpeech and the OpenRouter answer drop the tag, a line that was only a tag goes', () => {
     const r = keepSpeech({ text: '[Coughing] Please send a quarterly sales report', language: 'en', durationSec: 3, segments: [{ start: 0, end: 3, text: ' [Coughing] Please send a quarterly sales report' }] }, soundOf(speechLike()), false)
@@ -219,6 +232,11 @@ describe('sound tags inside a line (TC-4674: "[Coughing] Please send a quarterly
     const or = openRouterSpeech({ text: '[Coughing] Please send it', language: 'en', durationSec: 2, segments: [{ start: 0, end: 2, text: '[Coughing] Please send it' }] }, soundOf(speechLike()))
     expect(or.text).toBe('Please send it')
     // unchanged answers are the same object
+    // a file's or recording's piece: the tag goes at the end (pieceOf), after the language retry read whisper's raw
+    // answer, so "[foreign language]" still asks again without the language
+    const raw = { text: '', language: 'en', durationSec: 4, segments: [{ start: 0, end: 2, text: '[Coughing] Please send it' }, { start: 2, end: 4, text: '(music)' }] }
+    expect(pieceOf(raw, 10, 4).segments).toEqual([{ start: 10, end: 12, text: 'Please send it' }])
+    expect(saysOtherLanguage({ text: '', language: 'en', durationSec: 1, segments: [{ start: 0, end: 1, text: '[foreign language]' }] })).toBe(true)
     const same = { text: 'Send the [draft]', language: 'en', durationSec: 1, segments: [{ start: 0, end: 1, text: 'Send the [draft]' }] }
     expect(stripSoundTags(same)).toBe(same)
   })

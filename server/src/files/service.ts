@@ -48,7 +48,6 @@ import { JobFailure } from '../jobs/service'
 import { FREE_USED, HOSTED_SPEECH_MODEL, hostedSpeechFreeHours } from '../credentials/hosted-speech'
 import { converterInputName, ensureModel, missingLocalTools, modelDownloading, modelOnDisk, modelReady, transcribeConfig, WHISPER_MODELS, whisperFile, type TranscribeConfig } from '../jobs/transcribe'
 import { openRouterAudio, openRouterServed, sendToOpenRouter, wavData, type OpenRouterAnswer } from '../jobs/openrouter-stt'
-import { stripSoundTags } from '../jobs/no-speech'
 import { keepLongRetry, LONG_PIECE_SEC, longRetryLanguage } from '../jobs/speech-language'
 import { pieceTurn, pieceWait } from '../jobs/whisper-turns'
 import * as media from './media'
@@ -933,14 +932,12 @@ export class FileService {
    * else the WAV. `again`: whether OpenRouter may get the sound once more after a provider failure (sendToOpenRouter). */
   async mediaTranscribe(p: MediaSpeech, work: string, wavName: string, wav: Buffer, o: { signal?: AbortSignal; timeoutMs: number; language?: string; send?: { bytes: Buffer; format: string }; again?: () => boolean }): Promise<MediaAnswer> {
     // 16 kHz mono 16-bit PCM: 32 000 bytes a second
-    // whisper's sound tags ("[Coughing]", "(music)") are not words of the transcript (jobs/no-speech.ts, TC-4674)
-    if (p.provider === 'openrouter') return stripSoundTags(await sendToOpenRouter(this.speech, p.key, p.model, o.send?.bytes ?? wav, o.send?.format ?? 'wav', { signal: o.signal, timeoutMs: o.timeoutMs, seconds: (wavData(wav)?.length ?? Math.max(0, wav.length - 44)) / 32_000, language: o.language, again: o.again }))
+    if (p.provider === 'openrouter') return sendToOpenRouter(this.speech, p.key, p.model, o.send?.bytes ?? wav, o.send?.format ?? 'wav', { signal: o.signal, timeoutMs: o.timeoutMs, seconds: (wavData(wav)?.length ?? Math.max(0, wav.length - 44)) / 32_000, language: o.language, again: o.again })
     // no temperature fallback: it took a piece of odd sound 5 times as long, which the read's plan cannot hold; and how
     // sure whisper.cpp is of the language it heard (a short piece alone may be told the team's language)
     let languageP: number | undefined
     const r = await whisperFile(this.speech, p.modelPath, work, wavName, { signal: o.signal, timeoutMs: o.timeoutMs, language: o.language, noFallback: true, onLanguage: (_l, p) => { languageP = p } })
-    const heard = stripSoundTags(r)
-    return languageP === undefined ? heard : { ...heard, languageP }
+    return languageP === undefined ? r : { ...r, languageP }
   }
 
   /** The local model's first download (jobs/transcribe.ts ensureModel: one at a time, sha256 checked), waited for while
