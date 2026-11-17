@@ -113,25 +113,45 @@ describe('conformance (Node 25 relay, separate team-server process)', () => {
 
   test('t4 cancel: aborts reach the team server (GET, slow curl kill, upload kill, POST with a streaming answer)', async () => {
     S = await startStack(PORT, { name: 'tfour' })
-    // 1) fetch reading at full speed, aborted after 20 MB
-    const ac = new AbortController()
-    const r = await fetch(`${S.base}/bytes?n=${1000 * MB}&rid=fa`, { signal: ac.signal })
-    const rd = r.body!.getReader()
-    let got = 0
-    while (got < 20 * MB) got += (await rd.read()).value!.byteLength
+    // 1) a visitor reading at full speed stops at 20 MB, then aborts. Node's http client, not Bun's fetch: a paused
+    // Node response stops reading its socket (as a browser does), while Bun 1.3's fetch keeps draining the socket
+    // into memory after its reader stops (measured on Linux: all 1000 MB were made), which would hide the relay.
+    const visitor = Bun.spawn(['node', '-e', `
+      let got = 0
+      const req = require('node:http').get(process.argv[1], (res) => res.on('data', (b) => {
+        got += b.length
+        if (got >= ${20 * MB} && !res.isPaused()) { res.pause(); process.stdout.write(got + '\\n') }
+      }))
+      req.on('error', () => {})
+      process.stdin.on('data', () => { req.destroy(); process.stdout.write('aborted\\n') })
+      process.stdin.on('end', () => process.exit()) // the test ended without an abort`, `${S.base}/bytes?n=${1000 * MB}&rid=fa`], { stdin: 'pipe', stdout: 'pipe' })
+    const out = visitor.stdout.getReader()
+    let outText = ''
+    const line = async () => {
+      while (!outText.includes('\n')) { const c = await out.read(); if (c.done) throw new Error('visitor exited'); outText += new TextDecoder().decode(c.value) }
+      const i = outText.indexOf('\n'), l = outText.slice(0, i)
+      outText = outText.slice(i + 1)
+      return l
+    }
+    const got = Number(await line())
+    // The reader stopped. Flow control must stop the producer once the pipe is full: the relay returns window as
+    // soon as the visitor's socket accepts a write, so that connection's kernel buffers (send + receive, autotuned
+    // up to this host's limits: 8 MB on macOS, 36 MB on GitHub's runners) may hold bytes, plus one window in flight,
+    // one window queued on the team side and a producer chunk on each side of that queue (as in t2).
+    // Without flow control the producer keeps going until the 1000 MB are made.
+    const stalled = await until(async () => { const d = await debug(S!.base, 'fa'); return Date.now() - d.lastPullAt > 500 ? d : null }, 5000, 'producer stops for a reader that stopped')
+    expect(stalled.doneAt).toBe(0)
+    expect(stalled.produced - got).toBeLessThan(socketBufferMax() + 2 * DEFAULTS.initialWindow + 2 * 65536)
     const tAbort = Date.now()
-    ac.abort()
+    visitor.stdin.write('abort\n')
+    visitor.stdin.flush()
+    expect(await line()).toBe('aborted')
+    visitor.kill(9)
     const d1 = await until(async () => { const d = await debug(S!.base, 'fa'); return d.cancelAt ? d : null }, 3000, 'GET cancel')
     expect(d1.cancelAt - tAbort).toBeLessThan(1000)
-    // Bounded by flow control, not a fixed number. What the team server made beyond what this reader got is what
-    // sat in the pipe at the abort, plus window already granted: the relay returns window as soon as the
-    // browser-side socket accepts a write, so that connection's kernel buffers (send + receive, autotuned up to
-    // this host's limits: 8 MB on macOS, 36 MB on GitHub's runners) can hold bytes, plus one window in flight, one
-    // window queued on the team side and a producer chunk on each side of that queue. Production during the cancel
-    // latency is not extra: it only spends that granted window (measured: the producer keeps pulling up to ~90 ms
-    // after the abort under load and the total does not grow). Without backpressure the producer floods the queue.
-    const inPipe = socketBufferMax() + 2 * DEFAULTS.initialWindow + 2 * 65536
-    expect(d1.produced - got).toBeLessThan(inPipe)
+    // The abort grants no new window, so the team server makes at most one more window and chunk, whatever the
+    // buffer sizes. A relay that keeps returning window after the visitor left fails here on every host.
+    expect(d1.produced - stalled.produced).toBeLessThan(DEFAULTS.initialWindow + 65536)
     // 2) throttled curl killed
     const p2 = Bun.spawn(['curl', '-s', '--limit-rate', '1M', '-o', '/dev/null', `${S.base}/bytes?n=${1000 * MB}&rid=ck`])
     await Bun.sleep(1500)
@@ -154,7 +174,7 @@ describe('conformance (Node 25 relay, separate team-server process)', () => {
     p4.kill(9)
     const d4 = await until(async () => { const d = await debug(S!.base, 'pk'); return d.cancelAt ? d : null }, 3000, 'POST stream cancel')
     expect(d4.cancelAt - tKill4).toBeLessThan(1000)
-    notes.t4 = { getUnreadMB: +((d1.produced - got) / MB).toFixed(2), getAllowedMB: +(inPipe / MB).toFixed(1), getCancelMs: d1.cancelAt - tAbort, curlKillCancelMs: d2.cancelAt - tKill, uploadKillErrorMs: d3.errorAt - tKill3, postStreamCancelMs: d4.cancelAt - tKill4 }
+    notes.t4 = { stalledUnreadMB: +((stalled.produced - got) / MB).toFixed(2), afterAbortBytes: d1.produced - stalled.produced, getCancelMs: d1.cancelAt - tAbort, curlKillCancelMs: d2.cancelAt - tKill, uploadKillErrorMs: d3.errorAt - tKill3, postStreamCancelMs: d4.cancelAt - tKill4 }
   }, 60_000)
 
   test('t5 half-open team server (SIGSTOP): offline within the silence limit, clear errors, clean resume after SIGCONT', async () => {
