@@ -166,6 +166,9 @@ export interface TurnPerson {
   /** "Allow all websites" (rule ①d) may apply to this turn: asked from the person's app and shown as it runs (not a
    * scheduled run, a Slack question, a draft or a turn the server started). Absent: never */
   allSitesHere?(): boolean
+  /** may this turn keep and use the person's card approvals of the chat (chat/card-approvals.ts; TurnExec.mayUseApprovals):
+   * their own live turn, not a shared chat */
+  cardApprovals?(): boolean
   /** the person's "Allow all websites" changed on this turn's card: tell their open windows */
   webAccessChanged?(): void
 }

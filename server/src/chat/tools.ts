@@ -2,6 +2,7 @@ import { confidentialChat, localTool } from "../safe-ops/confidential"
 // The tools of one turn besides the six file tools: B's remember / forget / ask_user / connect_service / set_title and the browser pane tools
 // (desktop window only), plus whatever other components registered in ctx.services.turnTools (C: make_file,
 // share_file, artifact, web_fetch). Served over the same MCP connection as the file tools (mcp__team__<name>).
+import { stampOutputOf } from '../tools/stamp-pdf'
 import { commentDocxOutput } from '../tools/comment-docx'
 import { chatFileOffered, chatFileTool } from './chat-file-tool'
 import path from 'node:path'
@@ -479,6 +480,13 @@ export function widenOf(name: string, args: unknown, hwpTarget?: (args: unknown)
     const target = hwpTarget ? hwpTarget(a) : typeof a.output === 'string' ? hwpOutputPath(a.output, typeof a.file_path === 'string' ? a.file_path : '') : a.file_path
     return typeof target === 'string' ? { target, extra: typeof a.output === 'string' && typeof a.file_path === 'string' ? [a.file_path] : [] } : undefined
   }
+  // stamp_pdf (tools/stamp-pdf.ts) with an output: the stamped copy carries the PDF's and the picture's bytes; asked
+  // here so that after a room read its room card and its wider-audience card are one card (the tool's own check then
+  // finds this yes). Without an output it saves a new name next to the PDF, which only the tool knows: its own card
+  const stampOut = name === 'stamp_pdf' ? stampOutputOf(a.output) : null
+  if (stampOut !== null && typeof a.file_path === 'string') {
+    return { target: stampOut, extra: [...(stampOut === a.file_path.trim() ? [] : [a.file_path]), ...(typeof a.image === 'string' ? [a.image] : [])] }
+  }
   // comment_docx (tools/comment-docx.ts): the document itself, or a new .docx made from it
   if (name === 'comment_docx' && typeof a.file_path === 'string') return typeof a.output === 'string' ? { target: commentDocxOutput(a.output), extra: [a.file_path] } : { target: a.file_path, extra: [] }
   return undefined
@@ -560,6 +568,7 @@ export function turnPerson(exec: TurnExec): TurnPerson {
     // steps shown as they run (not a scheduled run, a Slack question, a draft or a turn the server started). Rooms,
     // shared chats and chats that read rooms too (the owner's call, 2026-11-11)
     allSitesHere: () => LIVE_CLIENTS.has(exec.spec.clientKind ?? '') && !exec.restricted,
+    cardApprovals: () => exec.mayUseApprovals(),
     // a team file attached to a connection's send (integrations/connections/tools.ts): a file the person's own
     // message did not bring (named or attached it, or the AI wrote it new in this answer) keeps the card, in every
     // chat: a file name a teammate chose reaches the AI in a chat that read nothing too (chat/shared-actions.ts)

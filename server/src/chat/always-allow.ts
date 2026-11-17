@@ -16,7 +16,7 @@ import { isConfidentialChat } from '../safe-ops/confidential'
 import { tr } from './i18n'
 
 /** The apps a person asks from and watches the answer in. */
-const LIVE_CLIENTS: ReadonlySet<string> = new Set(['web', 'desktop', 'mobile'])
+export const LIVE_CLIENTS: ReadonlySet<string> = new Set(['web', 'desktop', 'mobile'])
 
 /** The team lets people choose "Always allow" (Admin › Team settings; on unless an admin turns it off). */
 export const teamAllowsAlways = (db: Database): boolean => getTeamSettings(db).roomAlwaysAllow !== false

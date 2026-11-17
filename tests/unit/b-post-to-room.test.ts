@@ -363,9 +363,11 @@ describe('a side chat: this room, or the asked message\'s thread', () => {
     const thread = await threadAs('erin', rooms.marketing, root.id)
     expect(thread.at(-1)).toMatchObject({ body: 'Summary: rules are in.', threadRootId: root.id, sharedAnswer: { at: 0, cut: false } })
     expect(JSON.parse(first.content)).toMatchObject({ status: 'sent', thread_id: root.id })
-    // a follow-up without a quote keeps the thread
-    const again = await turn('alice', 'shorter\n' + post({ text: 'Rules are in.' }), { chat: first.chatId, answer: 'send' })
-    expect(again.card!.question).toContain("thread of 'Venue sent the exhibitor rules.'")
+    // a follow-up without a quote keeps the thread; [보내기] for that thread above covers it for the rest of the chat
+    // (docs/decisions/20261117-card-approved-once-per-chat.md): no second card
+    const again = await turn('alice', 'shorter\n' + post({ text: 'Rules are in.' }), { chat: first.chatId })
+    expect(again.card).toBeNull()
+    expect(JSON.parse(again.content)).toMatchObject({ status: 'sent', thread_id: root.id })
     expect((await threadAs('erin', rooms.marketing, root.id)).at(-1)!.body).toBe('Rules are in.')
     // naming the room: the room itself
     const toRoom = await turn('alice', 'the room itself this time\n' + post({ room: rooms.marketing, text: 'For everyone here.' }), { chat: first.chatId, answer: 'send' })
