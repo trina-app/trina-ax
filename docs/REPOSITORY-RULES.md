@@ -20,7 +20,7 @@ PR은 `CHANGELOG.md`를 고치지 않는다. 사용자에게 보이는 변경은
 
 ## PR을 올리기 전에
 
-- PR을 푸시하기 전에 `bun run check:prepush`를 돌린다. origin/dev를 가져와 CI의 "typecheck, docs, native" 중 빠른 검사(typecheck·docs·변경 기록·마이그레이션 번호, native 빌드는 제외)와 i18n·제품 이름·한글 리터럴·도구 목록 테스트를 dev 기준으로 돌린다. 브랜치가 dev보다 뒤처졌으면 "origin/dev를 먼저 병합하라"고 알려 준다.
+- PR을 푸시하기 전에 `bun run check:prepush`를 돌린다. origin/dev를 가져와 CI의 "typecheck, docs, native, relay" 중 빠른 검사(typecheck·docs·변경 기록·마이그레이션 번호, native 빌드는 제외)와 i18n·제품 이름·한글 리터럴·도구 목록 테스트를 dev 기준으로 돌린다. 브랜치가 dev보다 뒤처졌으면 "origin/dev를 먼저 병합하라"고 알려 준다.
 - 서버 테스트는 CI와 같은 Bun 1.3.12로 돌린다(`bun:sqlite` 동작이 버전마다 다르다).
 - 도구를 추가하는 PR은 테스트의 정확한 도구 목록(`c-tools`, `i-wiring`, `b-browser`)도 함께 고친다.
 - 주석과 코드에 제품 이름을 쓰지 않고 `<app>`이라고 쓴다.
@@ -31,7 +31,7 @@ PR은 `CHANGELOG.md`를 고치지 않는다. 사용자에게 보이는 변경은
 
 dev에는 merge queue가 있다(결정: [decisions/20261117-merge-queue.md](decisions/20261117-merge-queue.md)). 저장소 변수 `MERGE_QUEUE`가 `on`일 때:
 
-1. PR을 연다. PR에서는 빠른 검사만 돈다: "what changed", "typecheck, docs, native", "Mobile app typecheck", 필수 검사 "typecheck, native, unit, fast fuzz, web, relay"(unit 5개와 fuzz/web/relay는 건너뛴 채 통과).
+1. PR을 연다. PR에서는 빠른 검사만 돈다: "what changed", "typecheck, docs, native, relay"(relay는 큐에서만), "Mobile app typecheck", 필수 검사 "typecheck, native, unit, fast fuzz, web, relay"(unit 6개와 fuzz/web, relay는 건너뛴 채 통과).
 2. 독립 리뷰를 받는다.
 3. `gh pr merge <번호> --merge --match-head-commit <리뷰한 head SHA>`로 큐에 넣는다. 병합이 아니라 큐 등록이다(검사가 아직이면 통과하는 대로 들어간다). `--admin`과 `--delete-branch`는 쓰지 않는다.
 4. 큐가 dev 최신 위에 PR을 얹은 커밋(`merge_group`)에서 전체 검사를 돌린다. 통과하면 dev에 들어가고, 실패하면 실패한 검사와 함께 큐에서 빠진다.

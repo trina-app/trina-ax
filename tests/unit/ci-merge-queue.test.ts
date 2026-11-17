@@ -49,7 +49,7 @@ describe('the required check reports on every event', () => {
     for (const id of ['linux-docker', 'linux-bundle', 'linux-install']) {
       expect(ci.jobs[id]!.if).toBe("github.event_name != 'pull_request' && github.event_name != 'merge_group'")
     }
-    // its own job except on a queued entry, where "typecheck, docs, native" runs the same steps (one job fewer)
+    // its own job except on a queued entry, where "typecheck, docs, native, relay" runs the same steps (one job fewer)
     expect(ci.jobs.mobile!.if).toBe("github.event_name != 'merge_group'")
     const own = (ci.jobs.mobile!.steps ?? []).map((x) => x.run).filter(Boolean)
     const inStatic = (ci.jobs.static!.steps ?? []).filter((x) => (x as { if?: string }).if?.startsWith("github.event_name == 'merge_group'"))

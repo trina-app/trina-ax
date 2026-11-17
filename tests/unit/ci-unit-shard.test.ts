@@ -49,12 +49,6 @@ test("times come from a CI log: from one file's header to the next, the last to 
   expect(timesFromLog(log)).toEqual({ 'tests/unit/a.test.ts': 2.5, 'tests/unit/b.test.ts': 1, 'tests/security/c.test.ts': 5 })
 })
 
-test('the times file knows nearly every file (a stale one leaves new files at the median and unbalances the shards)', () => {
-  const files = unitFiles()
-  const unknown = files.filter((f) => !(f in times))
-  expect(unknown.length).toBeLessThanOrEqual(Math.ceil(files.length * 0.2))
-})
-
 test('several logs give each file its median time', () => {
   const log = (a: number, b: number) => [
     `2026-11-09T07:06:00.0000000Z ##[group]tests/unit/a.test.ts:`,

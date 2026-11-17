@@ -133,14 +133,15 @@ jobs:
       - run: bun run features:check
       - run: bun run check:docs
 
-  # The unit tests took ~30 of the ~35 minutes of one job. They now run as 7 jobs at once
+  # The unit tests took ~30 of the ~35 minutes of one job. They now run as 6 jobs at once
   # (scripts/ci/unit-shard.ts spreads the files by their earlier times), beside the static checks and the
   # fast fuzz / web job; none of them waits for another (all need only `scope`). 6 shards: ~7 minutes of tests each.
   # A queued entry still runs 10 jobs, as with 5 shards: its phone app typecheck runs at the end of this job instead of
   # in its own job (the queue builds 4 entries at once on the org's 20 runners; docs/decisions/20261117-faster-full-run.md). Each job sets up the same tools as before. The last job keeps the old job's name, the
   # check the default branch's ruleset requires: it passes only when every job above it passed.
   static:
-    name: typecheck, docs, native
+    # relay: the relay suite runs here in full mode (skipped on a pull request's quick run)
+    name: typecheck, docs, native, relay
     needs: scope
     # every mode but `tested` (the queue's own push to dev: this commit passed it as a queued entry)
     if: needs.scope.outputs.docs_only != 'true' && needs.scope.outputs.mode != 'tested'
@@ -236,7 +237,8 @@ jobs:
         with:
           # the production relay's runtime (versions.json node-relay; relay/deploy/install-node.sh pins the tarball)
           node-version: 26.12.1
-          cache: npm
+          # npm's download cache only where the phone app is installed here (a queued entry)
+          cache: ${{ github.event_name == 'merge_group' && 'npm' || '' }}
           cache-dependency-path: mobile/package-lock.json
       - name: Relay conformance and hardening (real Node 26 relay)
         if: needs.scope.outputs.mode == 'full'
@@ -325,7 +327,9 @@ jobs:
       # the native programs kept between runs, keyed on native/ (its Go sources, go.sum and build.sh) and the Go version:
       # the build is reproducible (-trimpath, -buildvcs=false), so the same key means the same bytes. ~45 s per job on
       # a hit. The static job always builds them and runs go vet / go test.
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      # restore only here; the save below runs on a push (main, or a push to dev past the queue). A queued entry reads
+      # main's caches and its own ref's, which nothing reads again, so it never saves (the repo's 10 GB of caches).
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         id: native-cache
         with:
           path: |
@@ -342,6 +346,17 @@ jobs:
           n=$(find native/bin/darwin-amd64 native/bin/darwin-arm64 native/bin/linux-amd64 native/bin/linux-arm64 -type f 2>/dev/null | wc -l)
           if [ "$HIT" = true ] && [ "$n" -ge 28 ]; then echo "native programs from the cache ($n files)"; exit 0; fi
           ARCHS="amd64 arm64" bash native/build.sh
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        if: github.event_name == 'push' && steps.native-cache.outputs.cache-hit != 'true'
+        # several jobs of one run may try; the first saves, the others only warn
+        continue-on-error: true
+        with:
+          path: |
+            native/bin/darwin-amd64
+            native/bin/darwin-arm64
+            native/bin/linux-amd64
+            native/bin/linux-arm64
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
       # the pinned rhwp CLI (prepare:hwp checks its sha256 and downloads it only when missing or different)
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -417,7 +432,9 @@ jobs:
       # the native programs kept between runs, keyed on native/ (its Go sources, go.sum and build.sh) and the Go version:
       # the build is reproducible (-trimpath, -buildvcs=false), so the same key means the same bytes. ~45 s per job on
       # a hit. The static job always builds them and runs go vet / go test.
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      # restore only here; the save below runs on a push (main, or a push to dev past the queue). A queued entry reads
+      # main's caches and its own ref's, which nothing reads again, so it never saves (the repo's 10 GB of caches).
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         id: native-cache
         with:
           path: |
@@ -434,6 +451,17 @@ jobs:
           n=$(find native/bin/darwin-amd64 native/bin/darwin-arm64 native/bin/linux-amd64 native/bin/linux-arm64 -type f 2>/dev/null | wc -l)
           if [ "$HIT" = true ] && [ "$n" -ge 28 ]; then echo "native programs from the cache ($n files)"; exit 0; fi
           ARCHS="amd64 arm64" bash native/build.sh
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        if: github.event_name == 'push' && steps.native-cache.outputs.cache-hit != 'true'
+        # several jobs of one run may try; the first saves, the others only warn
+        continue-on-error: true
+        with:
+          path: |
+            native/bin/darwin-amd64
+            native/bin/darwin-arm64
+            native/bin/linux-amd64
+            native/bin/linux-arm64
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
       # the pinned rhwp CLI (prepare:hwp checks its sha256 and downloads it only when missing or different)
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -451,7 +479,7 @@ jobs:
           # match has moved; English at /demo/, every other language at /demo/<locale>/
           DEMO_BASE=/demo/ bun run --cwd web build:demo
           for l in ko id ja es zh; do DEMO_LOCALE=$l DEMO_BASE=/demo/$l/ DEMO_OUT=dist-demo-$l bun run --cwd web build:demo || exit 1; done
-      # the relay suite runs in "typecheck, docs, native" (full mode), which ends ~2 min before the unit shards; this job
+      # the relay suite runs in "typecheck, docs, native, relay" (full mode), which ends ~2 min before the unit shards; this job
       # keeps ~3 min of room for an advisory step before it would outlast the longest shard
 
   check:
@@ -494,7 +522,7 @@ jobs:
     # registry that stays unreachable warns and skips (mobile/scripts/ci-install.sh); a lockfile or integrity problem
     # and a type error fail the job.
     name: Mobile app typecheck
-    # a queued entry runs these steps at the end of "typecheck, docs, native" instead (one job fewer per entry)
+    # a queued entry runs these steps at the end of "typecheck, docs, native, relay" instead (one job fewer per entry)
     if: github.event_name != 'merge_group'
     runs-on: ubuntu-24.04
     timeout-minutes: 10

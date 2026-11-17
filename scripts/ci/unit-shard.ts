@@ -103,7 +103,11 @@ if (import.meta.main) {
       console.error('usage: bun scripts/ci/unit-shard.ts <index> <total>')
       process.exit(2)
     }
-    const shard = split(unitFiles(), times, total)[index - 1]!
+    const files = unitFiles()
+    const unknown = files.filter((f) => !(f in times)).length
+    // never fails a run (a failing check would block the queue that the refresh has to go through): a warning only
+    if (unknown > files.length * 0.2) console.log(`::warning::scripts/ci/unit-times.json has no time for ${unknown} of ${files.length} test files; the shards drift apart. Refresh it (docs/decisions/20261117-faster-full-run.md)`)
+    const shard = split(files, times, total)[index - 1]!
     console.log(`unit + security tests, shard ${index}/${total}: ${shard.files.length} files, ~${shard.seconds}s expected`)
     for (const [f, why] of Object.entries(CI_SKIPPED)) console.log(`not run in CI: ${f} (${why})`)
     const p = Bun.spawnSync(['bun', 'test', ...shard.files.map((f) => `./${f}`)], { cwd: ROOT, stdout: 'inherit', stderr: 'inherit', env: process.env })
