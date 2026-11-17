@@ -89,7 +89,7 @@ test('one person ticked opens our DM; the name field shows only with two or more
   }
 })
 
-test('a group ticks its people at once (me left out); two or more make a group chat with the name typed', async () => {
+test('New message: a group ticks its people at once (me left out); two or more make a group DM, with no name field', async () => {
   const { m, tick, rowOf } = await open()
   try {
     // channels are under the Chats list's word for them, each with the count its header shows: the team room's
@@ -97,16 +97,36 @@ test('a group ticks its people at once (me left out); two or more make a group c
     expect(m.container.ownerDocument!.body.textContent).toContain(ko('rooms.section.team'))
     expect(rowOf('picker-group', GROUP.name).textContent).toContain(ko('rooms.members', { n: team.memberCount }))
     expect(team.memberCount).toBe(3)
+    expect(m.container.ownerDocument!.body.textContent).toContain(ko('rooms.newChat'))
     // I am never in the list
     expect(m.container.ownerDocument!.body.querySelectorAll('[data-testid="people-row"]').map((r) => r.textContent)).not.toContain(ME.name)
     await tick('picker-group', GROUP.name)
     expect(m.get('picker-count').textContent).toBe(ko('rooms.picker.selected', { n: 2 }))
     expect(m.get('picker-go').textContent).toBe(ko('rooms.picker.createGroup'))
-    await m.type('picker-name', '  주간 회의 ')
+    // a group DM has no name of its own (a name makes a private channel: Create a channel)
+    expect(m.find('picker-name')).toBeNull()
     await tick('people-row', LONG.name)
     await m.click('picker-go')
     await m.until(() => sent.find((s) => s.key === 'POST /api/rooms'), 'the request')
-    expect(sent.find((s) => s.key === 'POST /api/rooms')!.body).toEqual({ kind: 'group', userIds: [BEN.id, CY.id, LONG.id], name: '주간 회의' })
+    expect(sent.find((s) => s.key === 'POST /api/rooms')!.body).toEqual({ kind: 'group', userIds: [BEN.id, CY.id, LONG.id] })
+  } finally {
+    await m.unmount()
+  }
+})
+
+test('Create a channel: the name is required; one person is enough; it is sent with the name (a private channel)', async () => {
+  const { m, tick } = await open({ kind: 'channel' })
+  try {
+    expect(m.container.ownerDocument!.body.textContent).toContain(ko('rooms.section.newChannel'))
+    await tick('people-row', BEN.name)
+    expect(m.get('picker-go').textContent).toBe(ko('rooms.picker.createPrivate'))
+    // no name yet: nothing to create
+    expect(m.get('picker-go').getAttribute('disabled')).not.toBeNull()
+    await m.type('picker-name', '  주간 회의 ')
+    expect(m.get('picker-go').getAttribute('disabled')).toBeNull()
+    await m.click('picker-go')
+    await m.until(() => sent.find((s) => s.key === 'POST /api/rooms'), 'the request')
+    expect(sent.find((s) => s.key === 'POST /api/rooms')!.body).toEqual({ kind: 'group', userIds: [BEN.id], name: '주간 회의' })
   } finally {
     await m.unmount()
   }
@@ -135,7 +155,7 @@ test('inviting into a group chat leaves out the people already in it', async () 
     expect(names.some((n) => n.includes('Cy Park'))).toBe(true)
     expect(m.find('picker-name')).toBeNull()
     await tick('people-row', 'Cy Park')
-    expect(m.get('picker-go').textContent).toBe(ko('rooms.picker.invite'))
+    expect(m.get('picker-go').textContent).toBe(ko('rooms.info.addPeople'))
     await m.click('picker-go')
     await m.until(() => sent.find((s) => s.key === `POST /api/rooms/${chat.id}/members`), 'the request')
     expect(sent.find((s) => s.key === `POST /api/rooms/${chat.id}/members`)!.body).toEqual({ userIds: [CY.id] })

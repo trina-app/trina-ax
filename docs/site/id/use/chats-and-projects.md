@@ -167,14 +167,19 @@ Percakapan di **Obrolan** (saluran dan pesan langsung, termasuk obrolan grup) di
 Hanya Anda yang melihat sematan Anda. Sematan hilang saat Anda keluar dari percakapan atau menyembunyikannya. Anda bisa menyematkan sampai 50 percakapan.
 
 Daftar **Obrolan** menampilkan setiap percakapan: sematan Anda, folder Anda, lalu **Saluran** (saluran Semua lebih dulu, lalu
-menurut nama) dan **Pesan langsung** (obrolan 1:1 dan obrolan grup digabung, yang terbaru lebih dulu, masing-masing dengan wajah para anggotanya). Percakapan yang Anda sembunyikan ada di balik **Percakapan tersembunyi (N)**.
+menurut nama; saluran privat bergembok) dan **Pesan langsung** (obrolan 1:1 dan obrolan grup tanpa nama digabung, yang terbaru lebih dulu, masing-masing dengan wajah para anggotanya). Percakapan yang Anda sembunyikan ada di balik **Percakapan tersembunyi (N)**.
+
+Tanda **+** di samping **Saluran** adalah **Buat saluran**: pilih orang dan beri nama, maka jadilah saluran privat yang
+hanya bisa dilihat mereka. Tanda **+** di samping **Pesan langsung** adalah **Pesan baru**: pilih satu orang untuk pesan
+langsung, atau beberapa orang untuk obrolan grup dengan nama mereka (jika sudah ada obrolan dengan orang yang persis sama,
+obrolan itu yang dibuka). Untuk menjadikan obrolan grup saluran privat, pilih **···** › **Jadikan saluran privat** dan beri nama.
 
 Obrolan langsung dengan seseorang yang sudah keluar dari tim menampilkan "<nama> sudah keluar dari tim" dan tidak memiliki kotak pesan. Riwayatnya tetap bisa dibaca.
 
 ## Obrolan tim
 
 **Obrolan** di bilah kiri (di ponsel, tab **Obrolan**) adalah tempat orang saling berbicara: **Saluran**
-(satu untuk semua orang di tim, dan satu per grup) dan **Pesan langsung** (obrolan 1:1 dan obrolan grup). **Mention & thread**
+(satu untuk semua orang di tim, satu per grup, dan saluran privat tempat Anda bergabung) dan **Pesan langsung** (obrolan 1:1 dan obrolan grup). **Mention & thread**
 di bagian atas mengumpulkan pesan yang menyebut nama Anda dan utas yang Anda ikuti.
 
 Untuk mengirim pesan ke satu orang, klik foto atau namanya di samping pesan (@mention orang itu, atau barisnya di daftar anggota percakapan, juga bisa). Sebuah kartu kecil terbuka dengan nama dan jabatannya: **Kirim pesan** membuka obrolan 1:1 Anda dengan orang itu. Di ponsel, kartu terbuka dari bawah layar. Kartu Anda sendiri berisi **Edit profil**. Aplikasi dan orang yang sudah tidak ada di tim tidak punya kartu; tamu hanya bisa mengirim pesan ke orang di obrolan grup atau proyeknya.

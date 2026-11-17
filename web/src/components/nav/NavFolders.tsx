@@ -106,9 +106,15 @@ export function NewFolderRow({ kind, className }: { kind: NavFolderKind; classNa
 export function NewFolderButton({ kind }: { kind: NavFolderKind }) {
   const t = useT()
   const act = useFolderActions(kind)
+  return <SectionAddButton label={t('navFolders.new')} onClick={() => void act.create()} testId={`${kind}-folder-new`} />
+}
+
+/** A section header's "+" (the folders' New folder, the Chats list's Create a channel and New message): one size and
+ * look for every section action, its words on hover and for screen readers. */
+export function SectionAddButton({ label, onClick, testId }: { label: string; onClick: () => void; testId: string }) {
   return (
-    <Tooltip label={t('navFolders.new')}>
-      <button type="button" aria-label={t('navFolders.new')} onClick={() => void act.create()} className="touch-hit flex size-6 items-center justify-center rounded text-faint hover:bg-hover hover:text-ink" data-testid={`${kind}-folder-new`}>
+    <Tooltip label={label}>
+      <button type="button" aria-label={label} onClick={onClick} className="touch-hit flex size-6 items-center justify-center rounded text-faint hover:bg-hover hover:text-ink" data-testid={testId}>
         <Plus size={14} aria-hidden />
       </button>
     </Tooltip>

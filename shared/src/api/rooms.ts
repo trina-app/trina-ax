@@ -593,11 +593,13 @@ export const RoomMember = z.object({ user: UserRef, joinedAt: IsoTime })
 export type RoomMember = z.infer<typeof RoomMember>
 
 /** dm: the DM with this person (the existing one when there is one). group: a new group chat of me and these people
- * (at least two others; several group chats of the same people are fine), optionally named. Only active people of this
+ * (a private channel when named; a group DM, at least two others, when not: the server opens the group DM of exactly
+ * these people if there is one), optionally named. Only active people of this
  * team. Team rooms and the everyone room are made by the server, never through the API. */
 export const CreateRoomBody = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('dm'), userId: UserId }).strict(),
-  z.object({ kind: z.literal('group'), userIds: z.array(UserId).min(2).max(ROOM_GROUP_MAX - 1), name: RoomName.nullable().optional() }).strict(),
+  // a name makes a private channel (one other person is enough); none a group DM (two or more others): rooms/service.ts createGroup
+  z.object({ kind: z.literal('group'), userIds: z.array(UserId).min(1).max(ROOM_GROUP_MAX - 1), name: RoomName.nullable().optional() }).strict(),
 ])
 export type CreateRoomBody = z.infer<typeof CreateRoomBody>
 /** notifyLevel: my level for this room (null: back to my default). muted: the older apps' switch (true is 'off', false

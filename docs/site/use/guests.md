@@ -25,7 +25,7 @@ Next to a guest's name you see a **Guest** tag, and a chat or project with guest
 - **To a group chat:** anyone in that chat.
 - **To a project:** the person who made the project, or an owner or admin.
 
-You don't have to open the chat or project first: **New conversation** starts with **Invite a guest**, and owners and
+You don't have to open the chat or project first: **New message** starts with **Invite a guest**, and owners and
 admins also find **Guest** in **Invite people** and in **Admin › Members & invites › Invite people**. See
 [Without opening the chat or project](#without-opening-the-chat-or-project) and [From Admin](#from-admin) below.
 
@@ -36,7 +36,7 @@ messages, but only to the people in their own chat or project.
 
 :::steps
 #### Open the add list
-In a group chat, choose **⋯** at the top, then **Add to group chat** (or click the group chat's name, then **Add to group chat**). In
+In a group chat, choose **⋯** at the top, then **Add people** (or click the group chat's name, then **Add people**). In
 a team project, choose **Share** at the top of the project's page. The first row is **Invite a guest**.
 
 ![The add list of a group chat: Invite a guest at the top, then a guest who is already in another project, with where they are and Make team member](../images/guests/add-people.webp "Invite a guest, in the add list")
@@ -60,7 +60,7 @@ A link works only while the person who made it can still invite. If they leave t
 
 ### Without opening the chat or project
 
-- **New conversation** (the **+** above your conversations): the first row is **Invite a guest**.
+- **New message** (the **+** above your conversations): the first row is **Invite a guest**.
 - **Invite people** (owners and admins: the team menu under the team's logo, search, or **Me** on a phone): choose
   **Guest** at the top of the dialog (**Team member** is picked to start with). The dialog's title then reads
   **Invite a guest**.

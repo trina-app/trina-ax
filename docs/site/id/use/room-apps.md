@@ -24,7 +24,7 @@ berubah seiring perkembangannya.
 
 Anda juga bisa mulai dari **Pengaturan › Konektor**. Sentry, Notion, Stripe, dan Atlassian (untuk Jira) punya
 **Tambah ke percakapan** di bawah barisnya. Hanya percakapan tempat Anda boleh menambah aplikasi yang muncul; pilih
-satu dan percakapan itu terbuka dengan panduan layanan tersebut. Jika belum ada, mulai satu dengan **Percakapan baru**.
+satu dan percakapan itu terbuka dengan panduan layanan tersebut. Jika belum ada, mulai satu dengan **Pesan baru**.
 
 ![Add an app: pesannya muncul di ruang obrolan untuk semua orang di sana, lalu Google Forms, Other app, GitHub dan Sentry](../../images/room-apps/picker.webp "Tambah aplikasi")
 

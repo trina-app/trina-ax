@@ -326,7 +326,7 @@ export const TEXT = {
   /** a post linking a file the sender has only through a share (/f/ link): people in the room who cannot open it */
   postRoomSharedFileCant: t('{n}명은 {file} 파일을 열 수 없어요. 나에게만 공유된 파일이에요.', "{n, plural, one {# person} other {# people}} there can't open {file}: it was shared with you, not with them.", '{n} orang di sana tidak bisa membuka {file}: berkas itu dibagikan kepada Anda, bukan kepada mereka.', '{n, plural, one {#人} other {#人}}は「{file}」を開けません。あなたに共有されたファイルで、その人たちには共有されていません。', '{n, plural, one {# persona} other {# personas}} no {n, plural, one {puede} other {pueden}} abrir {file}: se compartió con usted, no con ellas.', '{n, plural, one {#人} other {#人}}打不开“{file}”：它只共享给了你，没有共享给他们。'),
   postRoomPlaceRoom: t('{name} 대화', '{name} conversation', 'Percakapan {name}', 'トーク「{name}」', 'Conversación {name}', '聊天“{name}”'),
-  postRoomConversation: t('1:1 대화·그룹 대화', 'Direct messages and group chats', 'Pesan langsung dan obrolan grup', '1:1トーク・グループトーク', 'Mensajes directos y chats de grupo', '私信和群聊'),
+  postRoomConversation: t('다이렉트 메시지·비공개 채널', 'Direct messages and private channels', 'Pesan langsung dan saluran privat', 'ダイレクトメッセージ・プライベートチャンネル', 'Mensajes directos y canales privados', '私信和私密频道'),
   roomSharedAnswerEdit: t('대화에 보낸 AI 답변은 고칠 수 없어요. 지우고 다시 보내 주세요.', 'An AI answer sent to a conversation cannot be edited. Delete it and send it again.', 'Jawaban AI yang dikirim ke percakapan tidak bisa diubah. Hapus lalu kirim lagi.', "トークに送ったAIの回答は編集できません。削除してから送り直してください。", "Una respuesta de la IA enviada a una conversación no se puede editar. Elimínela y vuelva a enviarla.", "发送到聊天的AI回答无法编辑。请删除后重新发送。"),
   webSearch: STEP_TEXT.webSearch,
   webSearchRunning: STEP_TEXT.webSearchRunning,
