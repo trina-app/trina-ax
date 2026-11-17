@@ -137,7 +137,9 @@ for (const vp of WIDTHS) {
       await expect(chip).toHaveCount(0)
     })
 
-    test("a room's box: the same full reason and the same ✕ target", async ({ page }) => {
+    // a conversation's chip says who can help, not "empty the trash" (d14775e16, docs/decisions/
+    // 20261116-storage-full-notices.md): Olga is the owner, so her words and "See what uses the space", in full
+    test("a room's box: the full reason for an owner and the same ✕ target", async ({ page }) => {
       await reset(page, { teamLocale: 'en', usersFollowTeam: true })
       await signIn(page)
       await routeRoom(page, { members: [{ id: 'ben', name: 'Ben' }], messages: [{ id: '019a5f00-0000-7000-8000-000000000001', author: { id: 'ben', name: 'Ben' }, body: 'Send the report please' }] })
@@ -147,7 +149,8 @@ for (const vp of WIDTHS) {
       const chip = page.getByTestId('room-file-chip')
       await expect(chip).toHaveAttribute('data-status', 'failed')
       const why = chip.getByRole('status')
-      await expect(why).toContainText(FULL)
+      await expect(why).toContainText(t['rooms.storageFull'])
+      await expect(chip.getByTestId('room-storage-full-see')).toHaveText(t['rooms.storageFullSee'])
       await notCut(why)
       const x = (await chip.getByTestId('chip-remove').boundingBox())!
       const min = vp.w < 768 ? 44 : 24

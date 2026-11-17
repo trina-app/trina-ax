@@ -209,11 +209,14 @@ for (const touch of [true, false])
     await expect(page.getByTestId('new-folder-button')).toHaveCount(0)
   })
 
-  test('Settings: Profile\'s theme and text size, Usage\'s period and the team\'s usage link', async ({ page }) => {
+  test('Settings: Profile\'s theme, language and text size, Usage\'s period and the team\'s usage link', async ({ page }) => {
     await signIn(page)
     await page.goto('/settings/profile')
     await expect(page.getByTestId('text-size')).toBeAttached()
-    await expectTargets(page, '[role="radiogroup"] [role="radio"]', 5)
+    // the theme's three; the language is one row with a sheet since ab0b0abd2 / 59971c01e (owner 2026-11-16), no longer
+    // a row of radios
+    await expectTargets(page, '[role="radiogroup"] [role="radio"]', 3)
+    await expectTargets(page, 'button[data-testid="profile-locale"]')
     await expectTargets(page, '[data-testid="text-size"]')
     await page.goto('/settings/usage')
     await expect(page.getByTestId('my-usage-team-link')).toBeAttached()
