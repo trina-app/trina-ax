@@ -2300,7 +2300,9 @@ cases:
   variants:
     - key: member
       as: daniel
-      expect: { outcome: explain, good: An admin's setting; plain words; no invented status., checks: [] }
+      # "not available on this team's app" is the true status (the app map says so every turn); the 11-17 rerun's judge
+      # called it invented
+      expect: { outcome: explain, good: "An owner's or admin's setting, not available on this team's app (true: the AI is told so); what it would change, in plain words; no other invented status.", checks: [] }
 
 # ================================================================ system (explains)
 - id: SYS-01

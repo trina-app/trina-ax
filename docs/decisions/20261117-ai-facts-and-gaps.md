@@ -26,6 +26,10 @@
 - **The dev environment in everyday words** ("the AI does heavier work itself, e.g. big data files"; not on this team's
   app; for owners and admins also that it comes with how the app was installed), without "server" and "runs programs",
   which came back in answers to members (ADM-07.member).
+- **No "server" in what the AI is told about where it runs.** "I'd be able to do more on the team's server" still
+  reached a member (ADM-07.member) from "You run on the team's Trina AX server" ("Where you run") and "the computer
+  this server runs on" (the situation's AI line). Both now name the team's app and the computer it runs on; a hosted
+  team's is "run for the team by the service in the cloud".
 - **The own-chat thread line** now says the AI in that chat reads a thread when someone asks, as the 11-17 decision
   made it (the shared chat's own section already said so).
 - **Not product bugs (the runner, `tests/ai-scenarios`):**

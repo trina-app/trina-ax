@@ -4,8 +4,9 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API } from '@mycel/shared/api'
 import { appOf, situationOf, situationSection, serverWhere, type Situation } from '../../server/src/chat/situation'
-import { buildTurnContext, buildTurnPrompt, environmentSection, ENVIRONMENT, type PromptInput } from '../../server/src/chat/prompt'
+import { buildTurnContext, buildTurnPrompt, environmentSection, ENVIRONMENT, GUEST_ENVIRONMENT, type PromptInput } from '../../server/src/chat/prompt'
 import { SCREEN } from '../../server/src/policy/refusal'
+import { PRODUCT } from '@mycel/shared'
 import { setPlanForTests } from '../../server/src/system/limits'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { DICTS } from '../../web/src/i18n'
@@ -85,7 +86,9 @@ describe('the block per state', () => {
 
   test('Office Mac (the server\'s own sign-in): not "your own account", not the team\'s AI connections', () => {
     const t = say({ ai: 'host' })
-    expect(t).toContain('the AI sign-in of the computer this server runs on, set up by the owner')
+    expect(t).toContain(`the AI sign-in of the computer the team's ${PRODUCT.displayName} runs on, set up by the owner`)
+    // no "server" for the AI to repeat (ADM-07.member, 2026-11-17)
+    expect(t).not.toMatch(/\bservers?\b/)
     expect(t).not.toContain('They can add their own AI sign-in')
     expect(say({ role: 'owner', ai: 'host' })).toContain('runs on (Admin › AI providers')
   })
@@ -166,6 +169,9 @@ describe('where the server runs', () => {
     expect(environmentSection('selfhost')).toContain('a computer the team runs itself')
     expect(ENVIRONMENT).toBe(environmentSection('selfhost'))
     for (const k of ['hosted', 'office', 'selfhost', 'dev'] as const) expect(environmentSection(k)).toContain('NOT on the user\'s computer')
+    // no "server" for the AI to repeat: "I'd do more on the team's server" reached a member (ADM-07.member, 2026-11-17)
+    for (const k of ['hosted', 'office', 'selfhost', 'dev'] as const) for (const sub of [false, true]) expect(environmentSection(k, sub)).not.toMatch(/\bservers?\b/i)
+    expect(GUEST_ENVIRONMENT).not.toMatch(/\bservers?\b/i)
   })
 })
 
