@@ -229,14 +229,16 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
               </div>
             )}
             {first.event ? <EventLine m={first} /> : (
-            <div className="flex gap-3 pt-2" data-testid="room-run">
+            <div className="flex gap-3 pt-2 max-md:pt-3" data-testid="room-run">
               <RunAvatar m={first} />
               <div className="min-w-0 flex-1">
-                {/* (a <div>: a person's name is a button with its card under it, components/PersonCard.tsx) */}
+                {/* (a <div>: a person's name is a button with its card under it, components/PersonCard.tsx). A phone: the
+                    name takes taps from 44 px (index.css touch-hit-start, drawn over what follows), so the run's top gap
+                    is 12 px (it never reaches the message above) and the emoji and a quote's jump sit above it */}
                 <div className="flex items-baseline gap-2" data-testid="room-run-head">
                   {/* an app's message: its name (who set it up, a tap away) and the "App" tag, never a person */}
                   {first.app ? <AppSender roomId={roomId} app={first.app} /> : first.authorKind === 'ai' || !first.author ? <span className="truncate text-sm font-medium text-ink">{first.authorKind === 'ai' ? t('rooms.aiName') : t('rooms.goneUser')}</span> : <PersonButton user={first.author} look="name" className="text-sm font-medium text-ink" boxClassName="flex min-w-0" testId="room-run-name">{nameOf(first.author)}</PersonButton>}
-                  {first.authorKind !== 'ai' && first.author && <StatusEmoji userId={first.author.id} tap className="-ml-1 self-center text-sm select-none" />}
+                  {first.authorKind !== 'ai' && first.author && <StatusEmoji userId={first.author.id} tap className="relative z-[2] -ml-1 self-center text-sm select-none" />}
                   {!first.app && first.authorKind !== 'ai' && first.author && <GuestTagFor userId={first.author.id} />}
                   <time dateTime={first.createdAt} title={formatDateTime(first.createdAt, locale)} className={clsx('shrink-0 text-xs text-faint', repeats[i] && 'max-md:hidden')} data-repeat={repeats[i] ? '' : undefined}>
                     {timeOf(first.createdAt, locale)}
@@ -575,7 +577,7 @@ function Quote({ q, onJump }: { q: RoomQuote; onJump?: () => void }) {
   // the jump is a button over the whole quote, and the links in the excerpt sit above it (a link inside a button is no
   // link); an excerpt the server cut with "…" at its length leaves an address cut there as text
   return (
-    <div className={clsx('mt-0.5 mb-1 block max-w-full border-l-2 border-line-strong pl-2 text-left text-xs', onJump && 'relative hover:border-ink')} data-testid="message-quote">
+    <div className={clsx('mt-0.5 mb-1 block max-w-full border-l-2 border-line-strong pl-2 text-left text-xs', onJump && 'relative z-[2] hover:border-ink')} data-testid="message-quote">
       {onJump && <button type="button" onClick={onJump} aria-labelledby={`${ids}n ${ids}t`} className="absolute inset-0 -left-0.5 rounded-sm" data-testid="message-quote-jump" />}
       <span id={`${ids}n`} className="block truncate font-medium text-muted">{q.app ? q.app.name : nameOf(q.author) ?? t('rooms.goneUser')}</span>
       <span id={`${ids}t`} className="block truncate text-faint [&_a]:relative">

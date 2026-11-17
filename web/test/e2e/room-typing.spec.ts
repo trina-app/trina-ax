@@ -32,6 +32,12 @@ async function tell(page: Page, userId: string, typing = true, threadRootId: str
   const r = await page.request.post('/__test/typing', { data: { roomId: ROOM_ID, threadRootId, userId, typing } })
   expect(r.ok()).toBeTruthy()
 }
+/** the page in `scheme`, once it is drawn so: the app sets its `dark` class on the media change a moment later
+ * (lib/theme.ts), and a contrast check read before that met the other theme's colours (a flake at 390, 2026-11-17) */
+async function scheme(page: Page, colorScheme: 'light' | 'dark') {
+  await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' })
+  await expect.poll(() => page.evaluate(() => document.documentElement.classList.contains('dark'))).toBe(colorScheme === 'dark')
+}
 const sentFrames = async (page: Page) => ((await (await page.request.get('/__test/typing')).json()) as { sent: { roomId: string; threadRootId: string | null; typing: boolean }[] }).sent
 const line = (page: Page, where = page.getByTestId('room')) => where.getByTestId('room-typing-line').first()
 /** the box's place once the page has settled (fonts, banners, the first scroll): two readings 200 ms apart agree */
@@ -154,8 +160,8 @@ async function checkOverMessages(page: Page) {
 
 test('scrolled up: the line has the page\'s background over the messages and stays under "to newest"', async ({ page }) => {
   await openScrolledUp(page)
-  for (const scheme of ['light', 'dark'] as const) {
-    await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' })
+  for (const theme of ['light', 'dark'] as const) {
+    await scheme(page, theme)
     await checkOverMessages(page)
   }
 })
@@ -173,26 +179,26 @@ test('screenshots at 1440: the room and a thread with the line (light and dark)'
   const shot = shots(page)
   await page.setViewportSize({ width: 1440, height: 900 })
   await openRoom(page)
-  for (const scheme of ['light', 'dark'] as const) {
-    await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' })
+  for (const theme of ['light', 'dark'] as const) {
+    await scheme(page, theme)
     await page.goto(`/rooms/${ROOM_ID}`)
     await expect(page.getByTestId('room-input')).toBeVisible()
     await tell(page, SORA.id)
     await tell(page, MINSU.id)
     await expect(line(page)).toHaveText('김소라님과 이민수님이 입력 중…')
-    await shot(`typing-room-1440-${scheme}`)
+    await shot(`typing-room-1440-${theme}`)
     await page.goto(`/rooms/${ROOM_ID}/t/${ROOT.id}`)
     const thread = page.getByTestId('room-thread')
     await expect(thread.getByTestId('room-input')).toBeVisible()
     await tell(page, BOB.id, true, ROOT.id)
     await expect(line(page, thread)).toHaveText('Bob님이 입력 중…')
-    await shot(`typing-thread-1440-${scheme}`)
+    await shot(`typing-thread-1440-${theme}`)
   }
   await openScrolledUp(page)
-  for (const scheme of ['light', 'dark'] as const) {
-    await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' })
+  for (const theme of ['light', 'dark'] as const) {
+    await scheme(page, theme)
     await checkOverMessages(page)
-    await shot(`typing-scrolled-up-1440-${scheme}`)
+    await shot(`typing-scrolled-up-1440-${theme}`)
   }
 })
 
@@ -215,25 +221,25 @@ test.describe('phone', () => {
     const last = (await page.getByTestId('room-message').last().boundingBox())!
     expect(last.y + last.height).toBeLessThanOrEqual(r.y + 1)
     // readable words (contrast) in both themes
-    for (const scheme of ['light', 'dark'] as const) {
-      await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' })
+    for (const theme of ['light', 'dark'] as const) {
+      await scheme(page, theme)
       const axe = await new AxeBuilder({ page }).include('[data-testid="room-typing-line"]').withRules(['color-contrast']).analyze()
       expect(axe.violations).toEqual([])
     }
     if (!process.env.SHOTS_DIR) return
     const shot = shots(page)
-    for (const scheme of ['light', 'dark'] as const) {
-      await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' })
+    for (const theme of ['light', 'dark'] as const) {
+      await scheme(page, theme)
       await tell(page, SORA.id)
       await tell(page, MINSU.id)
       await expect(line(page)).toHaveText('김소라님과 이민수님이 입력 중…')
-      await shot(`typing-room-390-${scheme}`)
+      await shot(`typing-room-390-${theme}`)
     }
     await openScrolledUp(page)
-    for (const scheme of ['light', 'dark'] as const) {
-      await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' })
+    for (const theme of ['light', 'dark'] as const) {
+      await scheme(page, theme)
       await checkOverMessages(page)
-      await shot(`typing-scrolled-up-390-${scheme}`)
+      await shot(`typing-scrolled-up-390-${theme}`)
     }
   })
 })

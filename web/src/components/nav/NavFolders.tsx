@@ -110,11 +110,12 @@ export function NewFolderButton({ kind }: { kind: NavFolderKind }) {
 }
 
 /** A section header's "+" (the folders' New folder, the Chats list's Create a channel and New message): one size and
- * look for every section action, its words on hover and for screen readers. */
+ * look for every section action, its words on hover and for screen readers. A finger gets 44px: on a phone from touch-hit,
+ * on a touch screen wider than a phone a 44px box that takes only the 24px slot (as list/List.tsx GroupChevron). */
 export function SectionAddButton({ label, onClick, testId }: { label: string; onClick: () => void; testId: string }) {
   return (
     <Tooltip label={label}>
-      <button type="button" aria-label={label} onClick={onClick} className="touch-hit flex size-6 items-center justify-center rounded text-faint hover:bg-hover hover:text-ink" data-testid={testId}>
+      <button type="button" aria-label={label} onClick={onClick} className="touch-hit flex size-6 items-center justify-center rounded text-faint hover:bg-hover hover:text-ink md:pointer-coarse:-m-2.5 md:pointer-coarse:size-11" data-testid={testId}>
         <Plus size={14} aria-hidden />
       </button>
     </Tooltip>

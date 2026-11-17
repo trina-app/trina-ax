@@ -361,6 +361,17 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--c-accent); }
   }
 }
 
+/* touch-hit-start: the same 44px box for a control with something tappable just before it (a message's name beside its
+   photo): 44px high around its middle, and from its start as wide as it is or 44px, so it never reaches back over the
+   control before it. Drawn over what follows it (z-index 1: a message's text starts right under its name, and a later
+   positioned row would take those taps). Truncate goes on a child: a box that clips would cut the tap box. */
+@utility touch-hit-start {
+  @media (max-width: 767.98px) {
+    position: relative;
+    &::after { content: ""; position: absolute; z-index: 1; top: 50%; inset-inline-start: 0; width: max(100%, 44px); height: max(100%, 44px); transform: translateY(-50%); }
+  }
+}
+
 /* A row that scrolls sideways (useEdgeFade in components/ui.tsx): an edge with more behind it fades out, in both
    themes (a mask, not a colour), and a tab scrolled into view keeps a margin from the edge instead of sitting cut. */
 .edge-fade { --fade: 1.75rem; scroll-padding-inline: 2rem; }

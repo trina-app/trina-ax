@@ -8,6 +8,9 @@
 // - no_access without canAsk, for whatever reason (never shared, confidential, nobody left to answer…): one plain line,
 //   no button, the same for every reason (the server does not say which);
 // - anything else (unknown, a guest, a failed read): the page's own not-found (`fallback`).
+// - `staff`: the owner or an admin, for whom no ask is possible on a chat of a team project they could add themselves
+//   to (the decision: they keep "add yourself in Projects", never an ask): the page's own not-found, whose line says
+//   so, in place of the plain line.
 import { Lock } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { FILE_REQUEST_NOTE_MAX, type AccessKind, type LinkAccessView } from '@mycel/shared/api'
@@ -16,7 +19,7 @@ import { formatDate } from '../lib/format'
 import { useLocale, useT } from '../i18n'
 import { Button, Skeleton, inputCls } from './ui'
 
-export function LinkAskAccess({ kind, id, onOpen, fallback }: { kind: AccessKind; id: string; onOpen: () => void; fallback: ReactNode }) {
+export function LinkAskAccess({ kind, id, onOpen, fallback, staff = false }: { kind: AccessKind; id: string; onOpen: () => void; fallback: ReactNode; staff?: boolean }) {
   const [view, setView] = useState<LinkAccessView | 'failed' | null>(null)
   useEffect(() => {
     let live = true
@@ -30,7 +33,7 @@ export function LinkAskAccess({ kind, id, onOpen, fallback }: { kind: AccessKind
   }, [view])
   if (view === null) return <Card testId="link-access-loading"><Skeleton lines={3} className="w-full" /></Card>
   if (view === 'failed' || view.status !== 'no_access') return <>{fallback}</>
-  if (!view.canAsk) return <CantAsk kind={kind} />
+  if (!view.canAsk) return staff ? <>{fallback}</> : <CantAsk kind={kind} />
   return <AskCard kind={kind} id={id} askedAt={view.askedAt} onOpen={onOpen} />
 }
 

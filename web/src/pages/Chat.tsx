@@ -560,8 +560,9 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
     return <NoLongerShared userId={me.user.id} chatId={chatId} />
   // a teammate's link to a chat I am not in: Ask for access when the chat can be shared with me (QA TC-4185,
   // docs/decisions/20261116-chat-project-ask-access.md); else, and for an address that was never a chat, the one page
+  // (the owner and admins: that page when no ask is possible, with its "add yourself in Projects" line)
   if (loadError && isApiError(loadError, 'not_found'))
-    return <LinkAskAccess kind="chat" id={chatId} onOpen={() => { setLoading(true); void load() }} fallback={
+    return <LinkAskAccess kind="chat" id={chatId} staff={isAdmin(me)} onOpen={() => { setLoading(true); void load() }} fallback={
       <div className="flex h-full flex-col justify-center" data-testid="chat-not-found">
         <EmptyState screen title={t('chat.notFound')}>
           {/* one text for every chat that cannot be opened (a chat only its creator sees, one deleted, one of a project
