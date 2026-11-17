@@ -53,3 +53,37 @@ test('a change to an existing skill keeps the open diff, no summary', async () =
     removeDom()
   }
 })
+
+// The other files of a new skill on its one card (docs/decisions/20261117-new-skill-files-on-card.md): each listed by
+// name, size and first lines, its whole text one click away; nothing saved that the card does not show
+test('a new skill with a form file: the form listed with its size and first lines, its text folded', async () => {
+  installDom()
+  const FORM = '# Leave request\n\n- Name:\n- First day off:\n'
+  const p = preview({ files: [{ path: 'skills/leave-request/assets/form.md', size: Buffer.byteLength(FORM), lines: '# Leave request\n- Name:', text: FORM, truncated: false }] })
+  const m = await mount(<AskCard req={{ request: card(p) }} onAnswer={async () => {}} />)
+  try {
+    const list = m.get('skill-preview-files')
+    expect(list.textContent).toContain(translate('en', 'ask.skillFiles', { count: 1 }))
+    const row = m.get('skill-preview-held')
+    expect(row.textContent).toContain('form.md')
+    expect(row.textContent).toContain(`${Buffer.byteLength(FORM)} B`)
+    expect(row.textContent).toContain('# Leave request')
+    const text = m.get('skill-preview-held-text')
+    expect(text.closest('details')?.hasAttribute('open')).toBe(false)
+    expect(text.textContent).toBe(FORM)
+  } finally {
+    await m.unmount()
+    removeDom()
+  }
+})
+
+test('no files: no list', async () => {
+  installDom()
+  const m = await mount(<AskCard req={{ request: card(preview()) }} onAnswer={async () => {}} />)
+  try {
+    expect(m.html()).not.toContain('skill-preview-files')
+  } finally {
+    await m.unmount()
+    removeDom()
+  }
+})
