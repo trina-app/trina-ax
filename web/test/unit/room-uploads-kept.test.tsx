@@ -6,7 +6,7 @@
 //   file again to continue.", and the same file chosen again takes its place.
 // - Nothing of one person stays for the next, and a file the server has removed by now (a day) is not brought back.
 // - A send refused because its file is gone does not put the file back in the box.
-import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, setSystemTime, test } from 'bun:test'
 import { act } from 'react'
 import { ROOM_FILES_MAX, type Me, type RoomFile } from '@mycel/shared/api'
 import { RoomComposer } from '../../src/components/rooms/RoomComposer'
@@ -27,6 +27,24 @@ const status = useSession.getState().status
 const conn = useUi.getState().conn
 beforeAll(() => { installDom(); useLocaleStore.setState({ locale: 'en' }) })
 afterAll(() => { removeDom(); useLocaleStore.setState({ locale }) })
+/** this file's clock (a room file's id carries its time, compared with the clock's): fixed, so no test depends on when
+ * it runs or on the one before it */
+const NOW = Date.UTC(2026, 10, 17, 9, 0, 0)
+/** every test starts from a page with nothing in it and an empty tab, whatever ran before it in this process (another
+ * file may have left uploads, a session or App.tsx's watch of the session behind) */
+function freshPage() {
+  forgetRoomUploads()
+  _reloadRoomUploadsForTest()
+  sessionStorage.clear()
+  localStorage.clear()
+  teamCopies.clear()
+  useRooms.getState().reset()
+}
+beforeEach(() => {
+  setSystemTime(new Date(NOW))
+  useSession.setState({ status: { kind: 'loading' } as never })
+  freshPage()
+})
 afterEach(() => {
   globalThis.fetch = realFetch
   forgetRoomUploads()
@@ -37,6 +55,7 @@ afterEach(() => {
   useRooms.getState().reset()
   useSession.setState({ status })
   useUi.setState({ toasts: [], conn })
+  setSystemTime()
 })
 
 const MB = 1024 * 1024
@@ -44,14 +63,19 @@ const r = room({ name: 'launch', lastSeq: 1, lastReadSeq: 1 })
 const signIn = (who: { id: string; name: string } = ME) => useSession.setState({ status: { kind: 'signed-in', me: { user: { id: who.id, name: who.name, role: 'member' }, team: { name: 'Acme' }, server: { allChatsConfidential: false } } as unknown as Me } })
 /** a room file's id made at `at` (UUID v7: its first 48 bits are the time) */
 const idAt = (at: number, n = 1) => { const h = at.toString(16).padStart(12, '0'); return `${h.slice(0, 8)}-${h.slice(8)}-7000-8000-${String(n).padStart(12, '0')}` }
-const roomFile = (o: Partial<RoomFile> = {}): RoomFile => ({ id: idAt(Date.now()), name: 'film.mov', size: 2048 * MB, mime: 'video/quicktime', kind: 'video', thumb: false, ...o })
+const roomFile = (o: Partial<RoomFile> = {}): RoomFile => ({ id: idAt(NOW), name: 'film.mov', size: 2048 * MB, mime: 'video/quicktime', kind: 'video', thumb: false, ...o })
 const picked = (name = 'film.mov', size = 600 * MB) => ({ name, size, type: 'video/quicktime', lastModified: 42 }) as File
 const done = (f: RoomFile, o: Partial<RoomUpload> = {}): RoomUpload => ({ key: Math.random(), file: { name: f.name, size: f.size, lastModified: 42 } as File, status: 'done', roomFile: f, abort: new AbortController(), ...o })
 const going = (file: File, o: Partial<RoomUpload> = {}): RoomUpload => ({ key: Math.random(), file, status: 'uploading', abort: new AbortController(), ...o })
-/** the page loads again: nothing in memory, what the tab remembers stays, the same (or another) person is signed in */
+/** The page loads again: nothing in memory, what the tab remembers stays, the same (or another) person is signed in;
+ * `now`: the clock moved on to then. The restore runs before the sign-in is seen: once App.tsx is loaded in this
+ * process (a test here, or another file before this one), its watch of the session restores at the sign-in with the
+ * clock as it is, and only the first restore of a page load counts (CI failure in batch #1202: the files came back
+ * fresh because App.tsx restored before the restore with the later time). */
 function reload(who: { id: string; name: string } | null = ME, now?: number) {
   _reloadRoomUploadsForTest()
-  if (who) { signIn(who); restoreRoomUploads(who.id, undefined, now) }
+  if (now !== undefined) setSystemTime(new Date(now))
+  if (who) { restoreRoomUploads(who.id, undefined, now); signIn(who) }
 }
 const here = (place = r.id) => useRoomUploads.getState().byPlace[place] ?? []
 const kept = () => JSON.parse(sessionStorage.getItem(ROOM_UPLOADS_KEY) ?? 'null') as { userId: string; byPlace: Record<string, unknown[]> } | null
@@ -84,7 +108,7 @@ describe('the page does not reload by itself over a file not sent', () => {
   })
 
   test('a file the server has removed by now (not sent for a day) holds no reload', () => {
-    const now = Date.now()
+    const now = NOW
     setPlaceUploads(r.id, [done(roomFile({ id: idAt(now - KEPT_UPLOAD_MS - 1000) }))])
     expect(holdsRoomUploads(now)).toBe(false)
     setPlaceUploads(r.id, [done(roomFile({ id: idAt(now - KEPT_UPLOAD_MS + 60_000) }))])
@@ -95,7 +119,7 @@ describe('the page does not reload by itself over a file not sent', () => {
 describe('a reload the person makes keeps the box\'s files, in this tab', () => {
   test('a file that was up comes back ready to send, in its own box', () => {
     reload()
-    const film = roomFile(), photo = roomFile({ id: idAt(Date.now(), 2), name: 'plan.png', size: 4 * MB, mime: 'image/png', kind: 'image', thumb: true, width: 800, height: 600 })
+    const film = roomFile(), photo = roomFile({ id: idAt(NOW, 2), name: 'plan.png', size: 4 * MB, mime: 'image/png', kind: 'image', thumb: true, width: 800, height: 600 })
     setPlaceUploads(r.id, [done(film)])
     setPlaceUploads(`${r.id}/root-1`, [done(photo)])
     expect(kept()?.userId).toBe(ME.id)
@@ -188,10 +212,15 @@ describe('a reload the person makes keeps the box\'s files, in this tab', () => 
 
   test('a file the server has removed by now is not brought back', () => {
     reload()
-    const now = Date.now()
-    setPlaceUploads(r.id, [done(roomFile({ id: idAt(now, 1) })), done(roomFile({ id: idAt(now, 2), name: 'b.mov' }))])
-    reload(ME, now + KEPT_UPLOAD_MS + 60_000)
-    expect(here()).toEqual([])
+    setPlaceUploads(r.id, [done(roomFile({ id: idAt(NOW, 1) })), done(roomFile({ id: idAt(NOW, 2), name: 'b.mov' }))])
+    setPlaceUploads(`${r.id}/root-1`, [done(roomFile({ id: idAt(NOW, 3), name: 'c.mov' }))])
+    // an hour less than a day later: all three are still there
+    reload(ME, NOW + KEPT_UPLOAD_MS - 60_000)
+    expect(here()).toHaveLength(2)
+    expect(here(`${r.id}/root-1`)).toHaveLength(1)
+    // a minute past: none comes back, in no box, and the tab forgets them
+    reload(ME, NOW + KEPT_UPLOAD_MS + 60_000)
+    expect(useRoomUploads.getState().byPlace).toEqual({})
     expect(kept()).toBeNull()
   })
 
@@ -240,7 +269,7 @@ describe('nothing of one person stays for the next', () => {
 
   test('a box that is full: the stopped file chosen again still takes its chip\'s place, another file is refused', async () => {
     reload()
-    setPlaceUploads(r.id, [going(picked()), ...Array.from({ length: ROOM_FILES_MAX - 1 }, (_, i) => done(roomFile({ id: idAt(Date.now(), i + 1), name: `clip-${i}.mov` })))])
+    setPlaceUploads(r.id, [going(picked()), ...Array.from({ length: ROOM_FILES_MAX - 1 }, (_, i) => done(roomFile({ id: idAt(NOW, i + 1), name: `clip-${i}.mov` })))])
     reload()
     expect(here()).toHaveLength(ROOM_FILES_MAX)
     globalThis.fetch = (async () => new Promise<Response>(() => {})) as unknown as typeof fetch
@@ -257,6 +286,18 @@ describe('nothing of one person stays for the next', () => {
       for (const f of here()) f.abort.abort()
       await m.unmount()
     }
+  })
+
+  test('with App.tsx\'s watch of the session loaded, a reload a day later still brings back no file the server removed', async () => {
+    await import('../../src/App')
+    reload()
+    setPlaceUploads(r.id, [done(roomFile({ id: idAt(NOW, 1) }))])
+    // the page loads a day later; the sign-in arrives (App.tsx restores with the clock as it is then)
+    _reloadRoomUploadsForTest()
+    setSystemTime(new Date(NOW + KEPT_UPLOAD_MS + 60_000))
+    signIn()
+    expect(useRoomUploads.getState().byPlace).toEqual({})
+    expect(kept()).toBeNull()
   })
 
   test('the page loads and nobody is signed in: the tab\'s memory goes (App.tsx)', async () => {
