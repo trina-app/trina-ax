@@ -11,6 +11,13 @@ import type { Locale } from '@mycel/shared/api'
  * drops it when it is a short line in Latin letters with none of the answer's own script; anything else lets it out
  * as it was. The last piece (no tool call after it) is always kept: an English email asked for in a Korean chat is
  * the answer, not a status line.
+ *
+ * 2026-11-17 (docs/decisions/20261117-answer-work-notes.md): a piece before a call is also dropped when it is a note
+ * about the work in no fixed opening ("Find the price list first.", "Only one thread; read it."): it names the work
+ * (a file, a folder, a thread, a page, a skill …), gives itself an order or a plan, or talks about "the user", and it
+ * neither speaks to people (you, we, team, hi, please …) nor is a title. Position stays the main rule: only a piece
+ * followed by a call, never the last one, and never one copied into that call's arguments or taken from the person's
+ * message.
  */
 
 /** The answer's own script, by the answer language: only languages that do not use Latin letters. */
@@ -38,7 +45,7 @@ const ASKS_FOR_OTHER_LANGUAGE = new RegExp([
 
 /** The longest piece (trimmed) that can be dropped, and at most this many sentences and lines. */
 export const NARRATION_MAX_CHARS = 200
-const NARRATION_MAX_SENTENCES = 2
+const NARRATION_MAX_SENTENCES = 3
 const NARRATION_MAX_LINES = 2
 
 /** What the AI does while it works: the verbs of a status line ("Let me check …", "Now renaming …"; "now" only with
@@ -57,6 +64,34 @@ const STATUS_OPENING = new RegExp(`^(?:(?:(?:let me|i'll|i will)\\s+${WORK}\\b${
 const STATUS_PLAN = new RegExp(`[,;]\\s*(?:so\\s+|then\\s+)?(?:(?:i'll|i will|let me)\\s+${WORK}\\b${NOT_PHRASAL}|(?:check|verify)\\s+(?:it|this|that|them|both)\\b(?!\\s+out))|\\bthe user\\s+(?:wants|asked|needs|said|request)`, 'i')
 /** Content that looks like a status line: always kept. */
 const CONTENT_LINE = /^let me know|^let me introduce|^i'?m (?:happy|pleased|excited|writing)|^i am writing|out of (?:the )?office|^looking forward|^following up|[?!]/i
+/** A note about the work (2026-11-17): what the AI works on, by name ("the CSV", "both rooms", "page 2", "edit_pdf",
+ * "users/sora") … */
+const WORK_NOUN = /\b(?:file|files|filename|folders?|subfolders?|threads?|rooms?|messages?|mails?|pages?|skills?|cop(?:y|ies)|drafts?|scan|scanned|csv|pdf|docx|xlsx|pptx|hwpx?|path|links?|rows?|columns?|header|seal|stamped|chart|project|root|server|drive|tool|parameters?|statements?|original|version|photos?|images?|naming|edit)\b|\b[a-z]+_[a-z_]+\b|\b[a-z]+\/[a-z]/i
+/** … an order to itself at the start of a sentence ("Need to find …", "Search files.", "Use edit_pdf instead.") … */
+const SELF_ORDER = /(?:^|[.;:]\s+)(?:(?:i\s+)?need\s+(?:to\s+)?|find|search|read|load|use|save|check|try|fetch|open|look\s+(?:for|at)|overwrite|regenerate)\b/i
+/** … a plan of its own ("I'll read them in parallel", "Let me also check …") … */
+const OWN_PLAN = /\b(?:i'll|i will|let me|i'm going to|i am going to)\s+(?:also\s+|now\s+|first\s+|just\s+)?[a-z]+/i
+/** … or the person as "the user" ("Skills folder is read-only for this user", "User's own dictated words."). */
+const THE_USER = /\b(?:the|this) user(?:'s|\s+(?:wants|asked|asks|needs|said|says|requested|is|has|can|cannot|can't|may|might|didn't|doesn't|did|would|only|probably|explicitly))\b|\bfor (?:the|this) user\b|^user's\b/i
+/** Words said to people: content, never a note ("Hi all, the price list is in the shared folder.", "Your file is ready."). */
+const TO_PEOPLE = /\bteam\s*[,!]|\b(?:you|your|yours|we|our|ours|us|everyone|hi|hello|hey|dear|please|thanks|thank|regards|cheers|welcome)\b/i
+/** A title: two or more words, every word of four letters or more capitalised ("Q3 Sales Report"). */
+const isTitle = (t: string) => {
+  const words = t.replace(/[.:]$/, '').split(/\s+/).filter(Boolean)
+  return words.length >= 2 && words.filter((w) => /^[A-Za-z]{4,}/.test(w)).every((w) => /^[A-Z]/.test(w)) && words.some((w) => /^[A-Z][a-z]/.test(w))
+}
+/** A report to the person, not a note: what the AI did, could not do or can do ("I didn't change the original.", "I
+ * can't open that chat.", "I used the quote skill."), what a source says, a piece that adds to the answer ("Also, …",
+ * "According to …", "One note: …") or leads into what follows ("…:"). */
+const REPORT = /\bi (?:can|could|can't|cannot|couldn't|didn't|did not|haven't|have not|have no|don't|do not|wasn't|won't|found|changed|left|made|saved|moved|updated|sent|stamped|put|wrote|used|added|removed|kept)\b|\bi've\b|\b(?:says|said|shows|showed)\b|^(?:also|one note|note|according to|however|but|so|btw|by the way|for example)\b|:$/i
+/** A note about the work, in no fixed opening (whole piece, names and `code` taken out): an order or plan of its own,
+ * "the user", or a short line (100 characters at most) that names the work. */
+const isWorkNote = (t: string) => {
+  t = t.trim()
+  if (TO_PEOPLE.test(t) || REPORT.test(t) || isTitle(t)) return false
+  return SELF_ORDER.test(t) || OWN_PLAN.test(t) || THE_USER.test(t) || (WORK_NOUN.test(t) && t.length <= 100)
+}
+
 /** typographic dashes, apostrophes and ellipses count as ASCII (the model writes "—" and "I’ll") */
 const plainPunct = (s: string) => s.replace(/[\u2013\u2014]/g, '-').replace(/[\u2018\u2019]/g, "'").replace(/\u2026/g, '...')
 
@@ -88,7 +123,7 @@ const withoutNames = (s: string) => s.replace(/(?<!`)`[^`\n]+`(?!`)/g, '')
 /** Markers of content: a link or address, Markdown (heading, list, bold, table, code, quote), quote marks, a number
  * with a unit or a currency ("Total: 42 files", "339,400 KRW", "$5"). */
 const CONTENT = /https?:\/\/|www\.|\]\(|```|~~~|\*\*|__|\||^\s*(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|>)/m
-const CONTENT_WORDS = /["“”«»「」『』]|[$€£¥₩]\s*\d|\d[\d,.]*\s*(?:%|[A-Za-z]+\b)/
+const CONTENT_WORDS = /["“”«»「」『』]|[$€£¥₩]\s*\d|(?<!\b(?:page|pages|row|rows|column|columns|step|line|slide|sheet|tab)\s+)\b\d[\d,.]*\s*(?:%|(?!(?:is|are|was|were|of|and|or|to|in|on|at|for|with|by|from|as|the|a|an|first|before|after|then|instead|again|only|too)\b)[A-Za-z]+\b)/
 
 /** The piece is surely not a status line, so it can go out now. partial: the piece is still coming (its last word may
  * be a file name not yet whole, its opening not yet known). */
@@ -105,12 +140,34 @@ function mustKeep(piece: string, script: AnswerScript, partial = false): boolean
   if ((t.match(/[.!?;:](?=\s|$)/g) ?? []).length > NARRATION_MAX_SENTENCES) return true
   if (CONTENT_LINE.test(t)) return true
   // still coming: "…, so I'll …" may be on its way, so only the whole piece decides
-  if (!partial && !STATUS_OPENING.test(t) && !STATUS_PLAN.test(t)) return true
+  if (!partial && !STATUS_OPENING.test(t) && !STATUS_PLAN.test(t) && !isWorkNote(withoutNames(t))) return true
   return false
 }
 
+/** Text for "is this piece copied there": lower case, plain punctuation, single spaces, no end mark. */
+const norm = (s: string) => plainPunct(s).toLowerCase().replace(/\s+/g, ' ').trim().replace(/[.!?:;]+$/, '')
+
+/** Every string in a call's arguments, joined. */
+function argText(input: unknown, out: string[] = [], depth = 0): string[] {
+  if (depth > 6 || out.length > 200) return out
+  if (typeof input === 'string') out.push(input)
+  else if (Array.isArray(input)) for (const v of input) argText(v, out, depth + 1)
+  else if (input && typeof input === 'object') for (const v of Object.values(input)) argText(v, out, depth + 1)
+  return out
+}
+
+/** The piece is in the next call's arguments (a message it posts, a file it writes) or in the person's message: it is
+ * content shown before it is used, not a note. */
+function copied(piece: string, input: unknown, message: string): boolean {
+  const p = norm(piece)
+  if (p.length < 8) return false
+  if (norm(message).includes(p)) return true
+  return norm(argText(input).join('\n')).includes(p)
+}
+
 /** A whole piece that is a status line: it has Latin letters and nothing marks it as content. */
-const isStatusLine = (piece: string, script: AnswerScript) => /[A-Za-z]/.test(piece) && !mustKeep(piece, script)
+const isStatusLine = (piece: string, script: AnswerScript, input: unknown, message: string) =>
+  /[A-Za-z]/.test(piece) && !mustKeep(piece, script) && !copied(piece, input, message)
 
 const leadingSpace = (s: string) => /^\s*/.exec(s)![0]
 
@@ -124,7 +181,8 @@ export class NarrationHold {
   /** how many pieces were dropped, for the log */
   dropped = 0
 
-  constructor(private readonly script: AnswerScript | null) {}
+  /** script: narrationScript(); message: the person's message (a piece taken from it is content) */
+  constructor(private readonly script: AnswerScript | null, private readonly message = '') {}
 
   /** The part of the piece held back now. */
   get held(): string { return this.buf }
@@ -138,12 +196,13 @@ export class NarrationHold {
     return this.release()
   }
 
-  /** A tool call ends the piece: '' when it was a status line, else what was held. */
-  toolStart(): string {
+  /** A tool call ends the piece: '' when it was a status line, else what was held. input: the call's arguments, when
+   * known (a piece copied into them is content). */
+  toolStart(input?: unknown): string {
     if (!this.script) return ''
     const piece = this.buf
     this.decided = false
-    if (isStatusLine(piece, this.script)) {
+    if (isStatusLine(piece, this.script, input, this.message)) {
       this.buf = ''
       if (this.lead === null) this.lead = leadingSpace(piece)
       this.dropped++
