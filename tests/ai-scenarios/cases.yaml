@@ -290,6 +290,22 @@ cases:
       prompt: 통화 녹음 내용 알려주세요
       expect: { outcome: refuse, good: The recording is outside the guest's project; plain words (or no AI)., checks: [{ type: answer_not_matches, pattern: "토요일" }] }
 
+- id: VIEW-09
+  title: Look at an iPhone photo (HEIC)
+  features: [files.view]
+  lang: ko
+  context: personal
+  as: hana
+  prompt: 마케팅 행사 폴더에 있는 이 아이폰 사진에 뭐가 있어?
+  expect:
+    outcome: do
+    good: Opens the HEIC photo (does not say it cannot open HEIC) and describes it - a red apple on a table with a yellow "SALE 30%" sign.
+    checks:
+      - { type: tool_used, any: [read] }
+      - { type: answer_matches, pattern: "사과|apple" }
+      - { type: answer_matches, pattern: "SALE|세일|30" }
+      - { type: answer_not_matches, pattern: "(열 수 없|볼 수 없|지원하지 않|지원되지 않|can'?t open|cannot open)" }
+
 # ================================================================ files.edit (make and change documents)
 - id: EDIT-01
   title: Merge two delivery statements into one PDF
@@ -552,6 +568,26 @@ cases:
     - key: devenv
       install: linux-devenv
       expect: { outcome: do, good: Two smaller copies., checks: [{ type: file_created, file: "groups/마케팅/**/*.{jpg,jpeg,png,webp}" }] }
+    # iPhone photos (HEIC): the copy is a JPEG and the AI says so; the photo's details (time, camera, location) stay unless asked
+    - key: heic
+      prompt: 마케팅 사진 폴더에 있는 이 아이폰 사진들 크기 줄여줘
+      expect:
+        outcome: do
+        good: Makes two smaller JPEG copies of IMG_3001.HEIC and IMG_3002.HEIC and says the copies are JPEG files (the originals stay). Does NOT say the location was removed or that details were stripped, because nobody asked. No technical words (EXIF, tool names).
+        checks:
+          - { type: tool_used, any: [resize_images] }
+          - { type: image, file: "groups/마케팅/사진/*.{jpg,jpeg}", count: 2, format: jpeg, maxWidth: 2999, gps: kept, details: kept }
+          - { type: answer_matches, pattern: "JPEG|JPG|제이펙" }
+          - { type: answer_not_matches, pattern: "위치.{0,12}(제거|삭제|뺐|뺀|지웠|없앴|없애|빼고)" }
+    - key: heic-location
+      prompt: 마케팅 행사 폴더에 있는 이 아이폰 사진 위치 정보 빼고 줄여줘
+      expect:
+        outcome: do
+        good: Makes one smaller JPEG copy of IMG_3003.HEIC without the location (the time and camera may stay), and says plainly that the location was removed and that the copy is a JPEG. No technical words.
+        checks:
+          - { type: tool_used, any: [resize_images] }
+          - { type: image, file: "groups/마케팅/행사/*.{jpg,jpeg}", count: 1, format: jpeg, maxWidth: 2999, gps: removed, details: kept }
+          - { type: answer_matches, pattern: "위치" }
 
 - id: EDIT-17
   title: Edit a Markdown note in place

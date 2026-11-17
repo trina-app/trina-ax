@@ -229,6 +229,41 @@ def photo(path, label, colors, size=(1200, 800)):
     im.save(path)
 
 
+def heic_photo(path, kind, gps, taken):
+    """An iPhone-style HEIC: 3024 x 2016, camera, time and a GPS location in its EXIF (made with macOS sips)."""
+    W, H = 1600, 1066
+    f = path + '.tmp.jpg'
+    if kind == 'apple':
+        im = Image.new('RGB', (W, H), (205, 215, 225))
+        d = ImageDraw.Draw(im)
+        d.rectangle((0, 640, W, H), fill=(150, 100, 55))
+        d.ellipse((560, 300, 1040, 780), fill=(205, 35, 40))
+        d.ellipse((640, 340, 800, 460), fill=(235, 110, 110))
+        d.line((800, 320, 830, 210), fill=(90, 55, 25), width=22)
+        d.ellipse((830, 200, 980, 270), fill=(70, 160, 60))
+        d.ellipse((520, 760, 1080, 830), fill=(110, 70, 35))
+        d.rectangle((1050, 80, 1560, 260), fill=(250, 230, 40))
+        d.text((1305, 170), 'SALE 30%', font=ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc', 96), fill=(200, 20, 20), anchor='mm')
+    else:
+        im = Image.new('RGB', (W, H), (235, 225, 205))
+        d = ImageDraw.Draw(im)
+        d.rectangle((0, 700, W, H), fill=(120, 85, 55))
+        d.rectangle((600, 380, 1000, 760), fill=(250, 250, 250), outline=(120, 120, 120), width=6)
+        d.ellipse((600, 350, 1000, 430), fill=(90, 50, 25))
+        d.arc((950, 450, 1150, 650), 270, 90, fill=(250, 250, 250), width=40)
+        d.text((800, 600), 'COFFEE', font=ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc', 70), fill=(40, 40, 120), anchor='mm')
+    im = im.resize((3024, 2016), Image.LANCZOS)  # an iPhone's own size
+    e = Image.Exif()
+    e[0x010F] = 'Apple'
+    e[0x0110] = 'iPhone 15 Pro'
+    e.get_ifd(0x8769)[0x9003] = taken
+    g = e.get_ifd(0x8825)
+    g[1], g[2], g[3], g[4] = 'N', gps[0], 'E', gps[1]
+    im.save(f, quality=88, exif=e)
+    subprocess.run(['sips', '-s', 'format', 'heic', '-s', 'formatOptions', '55', f, '--out', path], check=True, capture_output=True)
+    os.remove(f)
+
+
 def scanned_pdf(path):
     """An image-only PDF that looks like a scanned paper (slightly turned, grey, noisy): no text layer."""
     W, H = 1240, 1754
@@ -345,6 +380,9 @@ def main():
     photo(out('groups/마케팅/사진/매장-전경.jpg'), '매장 전경 (예시)', [(40, 70, 90), (230, 180, 90), (90, 140, 120), (200, 90, 70)])
     photo(out('groups/마케팅/사진/IMG_2041.jpg'), '신제품 볼펜 (예시)', [(240, 240, 235), (30, 60, 160), (220, 60, 60), (40, 40, 40)])
     photo(out('groups/마케팅/사진/IMG_2042.jpg'), '재생지 박스 (예시)', [(200, 190, 160), (120, 100, 70), (240, 230, 200), (90, 120, 60)])
+    heic_photo(out('groups/마케팅/사진/IMG_3001.HEIC'), 'apple', ((37.0, 33.0, 59.0), (126.0, 58.0, 40.0)), '2026:11:10 14:05:09')
+    heic_photo(out('groups/마케팅/사진/IMG_3002.HEIC'), 'cup', ((35.0, 10.0, 20.0), (129.0, 4.0, 10.0)), '2026:11:11 09:30:00')
+    heic_photo(out('groups/마케팅/행사/IMG_3003.HEIC'), 'apple', ((37.0, 34.0, 10.0), (127.0, 0.0, 5.0)), '2026:11:12 11:00:00')
     scanned_pdf(out('projects/라마바카페-납품/방문보고서-스캔.pdf'))
     scanned_contract(out('projects/라마바카페-납품/계약서-서명본-스캔.pdf'))
     cover_letter(out('groups/영업/계약서/계약서-송부-커버레터.pdf'))
