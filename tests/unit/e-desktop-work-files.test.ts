@@ -7,6 +7,8 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { inOneDrive, lookRoots, scanRoots, WorkFileSessions, type WorkDirent, type WorkFs, type WorkRoot, type WorkStat } from '../../desktop/src/common/work-files'
+import { findDocs } from '../../web/src/lib/teamFiles'
+import { docsFromScan, forAiRecent, workCandidates } from '../../web/src/lib/workFiles'
 
 type Node = { kind: 'dir'; children: Record<string, Node>; mtimeMs?: number } | { kind: 'file'; size: number; mtimeMs: number; ino: bigint; bytes?: Uint8Array } | { kind: 'link'; to: string }
 let ino = 100n
@@ -567,7 +569,7 @@ describe('owner 2026-11-15: "they\'re work files, but it only brought really use
     expect(r.files.map((x) => x.name)).toContain('Board deck.pptx')
   })
 
-  test('a walked folder\'s files opened lately (Spotlight, the recent lists) join the walk even when it was cut; tiny notes are left out', async () => {
+  test('a walked folder\'s files opened lately (Spotlight, the recent lists) join the walk even when it was cut; a tiny note is listed for search', async () => {
     const NOW = Date.UTC(2026, 10, 15)
     const many = Object.fromEntries(Array.from({ length: 50 }, (_, i) => [`x${i}.mp4`, file()]))
     const f = fakeFs(home({ Documents: dir(), Desktop: dir({ ...many, Deep: dir({ Deeper: dir({ 'Opened plan.pdf': file(9000, NOW - 86_400_000) }) }), 'todo.txt': file(300, NOW) }), Downloads: dir() }))
@@ -576,7 +578,49 @@ describe('owner 2026-11-15: "they\'re work files, but it only brought really use
       recentIn: async () => [{ path: '/Users/alex/Desktop/Deep/Deeper/Opened plan.pdf', used: NOW - 3600_000, modified: null, useCount: 3, size: null, origins: [], authors: [], org: null, listed: true }],
     })
     expect(r.roots[0]!.cut).toBe(true)
-    expect(r.files.map((x) => x.name)).toEqual(['Opened plan.pdf'])
-    expect(r.files[0]).toMatchObject({ folder: 'Deep/Deeper', used: NOW - 3600_000, listed: true })
+    // the page keeps todo.txt (300 bytes) out of its picks (web notWork); the app lists it so search by name finds it
+    expect(r.files.map((x) => x.name).sort()).toEqual(['Opened plan.pdf', 'todo.txt'])
+    expect(r.files.find((x) => x.name === 'Opened plan.pdf')).toMatchObject({ folder: 'Deep/Deeper', used: NOW - 3600_000, listed: true })
+  })
+})
+
+describe('MAN-057 (2026-11-17, Windows 11): "quote" found nothing in Documents › QA desktop test › Quotes', () => {
+  // the PC's Documents as the walk saw it: code projects (skipped by softwareFolder), a folder too deep (the cut line),
+  // and three quotes of 27 to 53 bytes that the walk reached and then dropped as too small
+  const NOW = Date.UTC(2026, 10, 17, 9)
+  const NO_WORDS = { names: [], domains: [], people: [] }
+  const tree = () => fakeFs(home({
+    Documents: dir({
+      project: dir({ app: dir({ 'package.json': file(), 'CLAUDE.md': file(9000, NOW) }) }, NOW - 4 * 86_400_000),
+      Codex: dir({ a: dir({ b: dir({ c: dir({ d: dir({ 'deep.md': file(9000) }) }) }) }) }),
+      'QA desktop test': dir({
+        Quotes: dir({ 'Quote-Hanbit-Q1001.txt': file(53, NOW), 'Quote-Sora-Q1002.txt': file(47, NOW), 'Price-list-2026.txt': file(38, NOW), 'empty.txt': file(0, NOW) }, NOW),
+        Other: dir({ 'lunch.txt': file(27, NOW) }, NOW),
+      }, NOW),
+    }),
+    Desktop: dir(),
+    Downloads: dir(),
+  }))
+
+  test('the walk lists the small quotes (an empty file stays out); the page finds them by name and keeps them out of the picks', async () => {
+    const f = tree()
+    const r = await lookRoots(ROOTS, f.fs, { platform: 'win32', newId: () => `id${n++}`, now: () => NOW, index: async () => null })
+    expect(r.roots[0]).toMatchObject({ how: 'walk', cut: true })
+    const names = r.files.map((x) => x.name).sort()
+    expect(names).toEqual(['Price-list-2026.txt', 'Quote-Hanbit-Q1001.txt', 'Quote-Sora-Q1002.txt', 'lunch.txt'])
+    const docs = docsFromScan(r.files, async () => ({ ok: false, reason: 'unknown' }))
+    // the search matches the path inside the folder (Quotes/…): all three files of the Quotes folder
+    expect(findDocs(docs, 'quote').map((d) => d.name).sort()).toEqual(['Price-list-2026.txt', 'Quote-Hanbit-Q1001.txt', 'Quote-Sora-Q1002.txt'])
+    // never suggested and never sent to the AI: a text note of a few lines (tooSmall)
+    expect(workCandidates(docs, NOW)).toEqual([])
+    expect(forAiRecent(docs, NO_WORDS, NOW)).toEqual([])
+  })
+
+  test('the index path lists them too (Windows Search answered in time)', async () => {
+    const f = tree()
+    const at = (p: string, size: number) => ({ path: `/Users/alex/Documents/QA desktop test/${p}`, used: null, modified: NOW, useCount: null, size, origins: [], authors: [], org: null })
+    const r = await lookRoots([ROOTS[0]!], f.fs, { platform: 'darwin', newId: () => `id${n++}`, now: () => NOW, index: async () => [at('Quotes/Quote-Hanbit-Q1001.txt', 53), at('Quotes/empty.txt', 0)] })
+    expect(r.roots[0]).toMatchObject({ how: 'index' })
+    expect(r.files.map((x) => x.name)).toEqual(['Quote-Hanbit-Q1001.txt'])
   })
 })
