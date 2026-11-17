@@ -87,6 +87,13 @@ export const PPTX_PDF_HINT =
   '(text, pictures, tables, colours and shapes in their places). Use this whenever the user wants a deck as a PDF: never rewrite the slides as ' +
   'Markdown or HTML for it. The result says what could not be drawn (charts, diagrams); tell the user that. '
 
+/** make_file's words for pictures in a .docx or .pptx (tools/index.ts). Before it, an AI asked for a Word contract with
+ * the company seal beside its signature mark said a picture cannot go into a Word file and made a PDF (scenario catalog EDIT-06). */
+export const OFFICE_PICTURE_HINT =
+  'Pictures in Word and PowerPoint: a Markdown image ![seal](shared/stamps/seal.png){width=3cm} becomes a real picture in the .docx or .pptx, ' +
+  'placed where it stands in the text (after the signature line for a seal, such as "(\uC778)") at the width given (cm, in, px or %). To add a picture to an ' +
+  'existing Word file, read it and make a new .docx with its text and the picture (a new name; the original stays): never say a picture cannot go into a Word file. '
+
 /** make_file's description where this server prints HTML (tools/index.ts). Before it, an AI asked to turn a quote's
  * .html into a PDF rewrote it as Markdown tables (losing its navy headers, highlights, merged cells and A4 layout) and
  * told the person to print it from Chrome. */
