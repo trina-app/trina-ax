@@ -2988,7 +2988,7 @@ export const ja: Record<MessageKey, string> = {
   'ask.skillDoes': 'できること:',
   'ask.skillParts': '構成:',
   'ask.skillShowFile': 'ファイルを表示',
-  'ask.skillFiles': '一緒に保存されるファイル{count}件（タップで内容を表示）：',
+  'ask.skillFiles': '{count, plural, one {一緒に保存されるファイル#件（開くと内容を表示）：} other {一緒に保存されるファイル#件（開くと内容を表示）：}}',
   'ask.detailSize': "{n, plural, one {#文字} other {#文字}}",
   'ask.detailAll': "すべて表示",
   'ask.detailLess': "折りたたむ",
