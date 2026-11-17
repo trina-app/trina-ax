@@ -241,6 +241,7 @@ export const en: Record<MessageKey, string> = {
   "guest.admin.hideLeftRemoved": "Hide guests who left or were removed",
   "guest.admin.room": "Private channel · {place}",
   "guest.admin.roomGroup": "Group chat · {place}",
+  "guest.admin.groupChat": "Group chat",
   "guest.admin.project": "Project · {place}",
   "guest.admin.outLeft": "No longer in '{place}'",
   "guest.admin.outLeftSelf": "Left '{place}' on their own",

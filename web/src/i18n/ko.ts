@@ -240,6 +240,7 @@ export const ko = {
   "guest.admin.hideLeftRemoved": "나간·내보낸 게스트 숨기기",
   "guest.admin.room": "비공개 채널 · {place}",
   "guest.admin.roomGroup": "그룹 대화 · {place}",
+  "guest.admin.groupChat": "그룹 대화",
   "guest.admin.project": "프로젝트 · {place}",
   "guest.admin.outLeft": "'{place}'에 이제 없어요",
   "guest.admin.outLeftSelf": "'{place}'에서 직접 나갔어요",

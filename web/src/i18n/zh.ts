@@ -238,6 +238,7 @@ export const zh: Record<MessageKey, string> = {
   "guest.admin.hideLeftRemoved": "隐藏已退出或已移除的访客",
   "guest.admin.room": "私密频道 · {place}",
   "guest.admin.roomGroup": "群聊 · {place}",
+  "guest.admin.groupChat": "群聊",
   "guest.admin.project": "项目 · {place}",
   "guest.admin.outLeft": "已不在“{place}”中",
   "guest.admin.outLeftSelf": "自己退出了“{place}”",

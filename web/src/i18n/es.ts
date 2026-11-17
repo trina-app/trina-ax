@@ -238,6 +238,7 @@ export const es: Record<MessageKey, string> = {
   "guest.admin.hideLeftRemoved": "Ocultar invitados que salieron o se quitaron",
   "guest.admin.room": "Canal privado · {place}",
   "guest.admin.roomGroup": "Chat de grupo · {place}",
+  "guest.admin.groupChat": "Chat de grupo",
   "guest.admin.project": "Proyecto · {place}",
   "guest.admin.outLeft": "Ya no está en '{place}'",
   "guest.admin.outLeftSelf": "Salió de '{place}' por su cuenta",

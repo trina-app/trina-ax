@@ -238,6 +238,7 @@ export const ja: Record<MessageKey, string> = {
   "guest.admin.hideLeftRemoved": "退出・外したゲストを隠す",
   "guest.admin.room": "プライベートチャンネル · {place}",
   "guest.admin.roomGroup": "グループトーク · {place}",
+  "guest.admin.groupChat": "グループトーク",
   "guest.admin.project": "プロジェクト · {place}",
   "guest.admin.outLeft": "「{place}」にはもういません",
   "guest.admin.outLeftSelf": "自分で「{place}」を退出しました",
