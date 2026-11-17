@@ -4,7 +4,7 @@
 // sends anything: a file goes to a room only when the person presses send in that room's box (RoomComposer.tsx).
 // While one is on its way: the room's row in the lists shows it (components/nav/RoomsList.tsx RoomUploadMark), the page
 // does not reload by itself (lib/busy.ts, lib/reload-guard.ts), and closing or reloading the tab asks first (the
-// browser's own "leave this page?"). While a box holds a file that is up and not sent yet (or one a reload stopped)
+// browser's own "leave this page?"). While a box holds a file that is up and not sent yet
 // the page does not reload by itself either (lib/reload-guard.ts, holdsRoomUploads): QA TC-4327, a 2 GB file was
 // up, the page reloaded for an update a moment later and its chip was gone.
 // A reload the person makes (the Reload button of "A new version is ready", the browser's own) keeps them: this tab
@@ -82,11 +82,12 @@ export const KEPT_UPLOAD_MS = 23 * 3600_000
 const madeAt = (id: string) => Number.parseInt(id.replace(/-/g, '').slice(0, 12), 16)
 const fresh = (f: RoomFile, now: number) => madeAt(f.id) > now - KEPT_UPLOAD_MS
 
-/** A room box holds a file a reload by itself would take from under the person's hands: on its way, up and not sent
- * (while the server still has it), or stopped by a reload. One that failed for its own reason holds nothing: it
- * cannot be sent, and no reload keeps it (lib/reload-guard.ts). */
+/** A room box holds a file a reload by itself would take from under the person's hands: on its way, or up and not
+ * sent (while the server still has it: at most a day, so a forgotten file does not hold updates for good). A failed
+ * one holds nothing: it cannot be sent as it is, and one a reload stopped comes back the same after the next
+ * (lib/reload-guard.ts). */
 export const holdsRoomUploads = (now = Date.now()) =>
-  Object.values(useRoomUploads.getState().byPlace).some((list) => list.some((f) => f.status === 'uploading' || !!f.stopped || (f.status === 'done' && !!f.roomFile && fresh(f.roomFile, now))))
+  Object.values(useRoomUploads.getState().byPlace).some((list) => list.some((f) => f.status === 'uploading' || (f.status === 'done' && !!f.roomFile && fresh(f.roomFile, now))))
 
 /** the team files copied in this tab (by the copy's id): their team path and how many more people they reach, so a send
  * the server refused brings them back into the box with the line under the files (RoomComposer.tsx) */
@@ -164,7 +165,9 @@ function kept(f: RoomUpload): KeptUpload | null {
   return (f.status === 'uploading' && !f.teamPath) || f.stopped ? base : null
 }
 
-function forgetKept(s: TabStore | null = tab()) {
+/** what the tab remembers goes (also: the page loaded and nobody is signed in, App.tsx: the names of the last person's
+ * files do not wait here for whoever signs in next) */
+export function forgetKept(s: TabStore | null = tab()) {
   written = null
   try { s?.removeItem(ROOM_UPLOADS_KEY) } catch { /* storage blocked */ }
 }

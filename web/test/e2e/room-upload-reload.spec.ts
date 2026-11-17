@@ -19,7 +19,7 @@ const json = (body: unknown, status = 200) => ({ status, contentType: 'applicati
 /** a room file's id made now (UUID v7: the time first), as the server makes it */
 const fileId = () => { const h = Date.now().toString(16).padStart(12, '0'); return `${h.slice(0, 8)}-${h.slice(8)}-7000-8000-00000000f101` }
 const REPORT = { name: '3분기 보고서.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 report') }
-const STOPPED = '페이지를 새로 고치면서 업로드가 멈췄어요. 같은 파일을 다시 선택하면 이어서 올려요.'
+const STOPPED = '페이지를 새로 고치면서 파일 올리기가 멈췄어요. 같은 파일을 다시 선택하면 이어서 올려요.'
 
 async function openRoom(page: Page) {
   await reset(page)

@@ -4357,7 +4357,7 @@ export const en: Record<MessageKey, string> = {
   "rooms.uploading": "Uploading {name}…",
   "rooms.uploadingMark": "Uploading a file",
   "rooms.uploadStopped": "Upload stopped when the page reloaded. Choose the file again to continue.",
-  "rooms.filesGone": "The attached files are no longer available, so the message was not sent. Attach them again.",
+  "rooms.filesGone": "An attached file is no longer available, so the message was not sent. Attach your files again.",
   "rooms.tooBig": "{name} is larger than {max} and can't be sent.",
   "rooms.storageFull": "There isn't enough space on the team's storage for this file.",
   "rooms.storageFullAsk": "There isn't enough space on the team's storage for this file. Ask an admin to free some space.",

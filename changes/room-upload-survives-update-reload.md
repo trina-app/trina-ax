@@ -4,5 +4,5 @@
   yourself brings the file back, ready to send.
 - An upload that was still running when the page reloaded now says so in the message box: "Upload stopped when the
   page reloaded. Choose the file again to continue." Choosing the same file continues from what was already uploaded.
-- A message whose attached file is no longer on the server (not sent for a day) comes back to the box without the file
-  and says to attach it again. It used to come back with the same file and fail every time.
+- A message whose attached file is no longer on the server (not sent for a day) comes back to the box without its files
+  and says to attach them again. It used to come back with the same file and fail every time.

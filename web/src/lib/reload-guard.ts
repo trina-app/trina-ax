@@ -16,7 +16,7 @@ import { useUi } from '../store/ui'
  * streaming on screen, a message still being sent or marked "not sent" (it lives only in this tab's memory, chats
  * store `local`), or a reply typed in a room's box, also one whose box is not on screen now (store/rooms.ts roomDrafts;
  * kept on this device too, but a reload by itself would still take the box away under the person's hands), or a file in
- * a room's box that is up and not sent yet, or that a reload stopped (store/roomUploads.ts; QA TC-4327: the page
+ * a room's box that is up and not sent yet (store/roomUploads.ts; QA TC-4327: the page
  * reloaded for an update a moment after a 2 GB file was up, before the person could press send. A reload they make
  * themselves keeps it, in this tab).
  */

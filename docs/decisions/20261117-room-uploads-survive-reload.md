@@ -10,12 +10,14 @@
   was gone from the message box: the person had to choose the file again, and nothing said so.
 - **Why:** the page holds its own reload while a file is on its way (`lib/busy.ts` "upload"), but not once it is up and
   waiting for Send; and the box's files were only in the page's memory (`store/roomUploads.ts`).
-- **Rule 1, the page waits:** a file in a conversation box that is up and not sent (or that a reload stopped) holds
+- **Rule 1, the page waits:** a file in a conversation box that is up and not sent holds
   every reload the page makes by itself (`lib/reload-guard.ts`: after an update, for a page part of the old build, the
   desktop app's restart to install), as a typed reply already does. "A new version is ready." stays with its Reload
-  button. A file that failed for its own reason holds nothing, and neither does one older than 23 hours (the server
-  removes a file not sent within 24: `rooms/files.ts` `UNSENT_FILE_MS`), so a forgotten file does not hold updates for
-  good.
+  button. A failed file holds nothing (one a reload stopped comes back the same after the next reload), and neither
+  does one older than 23 hours (the server removes a file not sent within 24: `rooms/files.ts` `UNSENT_FILE_MS`), so a
+  forgotten file does not hold updates for good. The 23 hours are read from the file's id (its time on the server)
+  against this computer's clock: a clock far ahead only turns the wait off, one far behind is caught by the refused
+  send below.
 - **Rule 2, the person's own reload keeps them:** the files of each box are remembered in the tab (`sessionStorage`,
   `mycel.roomUploads`) and are the boxes' files again after the page loads for the same person.
   - Up and not sent: back as it was, ready to send (the server still has it). A team file keeps its line about who it
@@ -31,12 +33,15 @@
   when the person asks it to, still drops the box's files (the browser asks first while one is on its way; the server
   removes them after a day). The desktop app does not restart by itself while a box holds one.
 - **A file that is gone anyway** (a tab left for a day, a tab duplicated by the browser and sent from both): the send is
-  refused (`body.fileIds`), and the message now comes back to the box without those files with "The attached files are
-  no longer available, so the message was not sent. Attach them again." It used to come back with the same files and
-  fail every time.
-- **Nothing of one person for the next:** signing out, a sign-in that ends, another person signing in and "clear this
-  browser's data" forget the tab's copy; one left by another person is removed, never shown. A page load that cannot
-  reach the server (it is restarting) leaves the copy alone until the person is known again.
+  refused (`body.fileIds`), and the message now comes back to the box without its files with "An attached file is no
+  longer available, so the message was not sent. Attach your files again." It used to come back with the same files
+  and fail every time. The server does not say which file is gone, so all of that message's files go from the box,
+  also those it still has (they are removed after a day); naming the missing ones would need a server change, left
+  for when it is asked for.
+- **Nothing of one person for the next:** signing out, a sign-in that ends (while the page is open, or found ended
+  when it loads), another person signing in and "clear this browser's data" forget the tab's copy; one left by another
+  person is removed, never shown. A page load that cannot reach the server (it is restarting) leaves the copy alone
+  until the person is known again.
 - **No server change.** A list of "my unsent files in this conversation" on the server was not needed: it could not
   say which box (the conversation's or a thread's) a file was in.
 - **Tests:** `web/test/unit/room-uploads-kept.test.tsx`, `web/test/e2e/room-upload-reload.spec.ts` (1440 and 390 px).

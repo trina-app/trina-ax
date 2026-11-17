@@ -8,13 +8,13 @@
 // - A send refused because its file is gone does not put the file back in the box.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act } from 'react'
-import type { Me, RoomFile } from '@mycel/shared/api'
+import { ROOM_FILES_MAX, type Me, type RoomFile } from '@mycel/shared/api'
 import { RoomComposer } from '../../src/components/rooms/RoomComposer'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { isBusy } from '../../src/lib/busy'
 import { clearLocalData, ROOM_UPLOADS_KEY } from '../../src/lib/localData'
 import { mayReloadNow, reloadWouldLose, unfinishedWork } from '../../src/lib/reload-guard'
-import { _reloadRoomUploadsForTest, dropRoomUploads, forgetRoomUploads, holdsRoomUploads, KEPT_UPLOAD_MS, restoreRoomUploads, setPlaceUploads, teamCopies, useRoomUploads, type RoomUpload } from '../../src/store/roomUploads'
+import { _reloadRoomUploadsForTest, dropRoomUploads, forgetKept, forgetRoomUploads, holdsRoomUploads, KEPT_UPLOAD_MS, restoreRoomUploads, setPlaceUploads, teamCopies, useRoomUploads, type RoomUpload } from '../../src/store/roomUploads'
 import { useRooms } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
 import { useUi } from '../../src/store/ui'
@@ -58,7 +58,7 @@ const kept = () => JSON.parse(sessionStorage.getItem(ROOM_UPLOADS_KEY) ?? 'null'
 
 describe('the page does not reload by itself over a file not sent', () => {
   test('a file that is up and not sent holds the reload; sent or taken out, the reload is free again', () => {
-    useUi.setState({ conn: 'online' })
+    useUi.setState({ conn: 'open' })
     expect(mayReloadNow()).toBe(true)
     setPlaceUploads(r.id, [done(roomFile())])
     // not an upload on its way (the "upload" mark is for those), and still a reload would lose it
@@ -78,9 +78,9 @@ describe('the page does not reload by itself over a file not sent', () => {
     setPlaceUploads(`${r.id}/root-1`, [])
     setPlaceUploads(r.id, [{ ...going(picked()), status: 'failed', error: 'The storage is full.' }])
     expect(reloadWouldLose()).toBe(false)
-    // one a reload stopped still waits for the person: it holds
+    // nor one a reload stopped: it comes back the same after the next reload, and must not hold updates for good
     setPlaceUploads(r.id, [{ ...going(picked()), status: 'failed', stopped: true }])
-    expect(reloadWouldLose()).toBe(true)
+    expect(reloadWouldLose()).toBe(false)
   })
 
   test('a file the server has removed by now (not sent for a day) holds no reload', () => {
@@ -236,6 +236,40 @@ describe('nothing of one person stays for the next', () => {
     setPlaceUploads(r.id, [done(roomFile())])
     clearLocalData()
     expect(kept()).toBeNull()
+  })
+
+  test('a box that is full: the stopped file chosen again still takes its chip\'s place, another file is refused', async () => {
+    reload()
+    setPlaceUploads(r.id, [going(picked()), ...Array.from({ length: ROOM_FILES_MAX - 1 }, (_, i) => done(roomFile({ id: idAt(Date.now(), i + 1), name: `clip-${i}.mov` })))])
+    reload()
+    expect(here()).toHaveLength(ROOM_FILES_MAX)
+    globalThis.fetch = (async () => new Promise<Response>(() => {})) as unknown as typeof fetch
+    const m = await mount(<RoomComposer roomId={r.id} members={[ME, BEN]} meId={ME.id} onSent={() => {}} />)
+    try {
+      const dt = { types: ['Files'], files: [picked('extra.mov'), picked()], dropEffect: 'none', getData: () => '' }
+      for (const type of ['dragenter', 'dragover', 'drop']) await act(async () => { m.get('room-composer').dispatchEvent(Object.assign(new FakeEvent(type, { bubbles: true, cancelable: true }), { dataTransfer: dt, relatedTarget: null })) })
+      expect(here()).toHaveLength(ROOM_FILES_MAX)
+      expect(here().some((f) => f.stopped)).toBe(false)
+      expect(here().map((f) => f.file.name)).not.toContain('extra.mov')
+      expect(here().at(-1)!.file.name).toBe('film.mov')
+      expect(useUi.getState().toasts.map((t) => t.text)).toEqual([translate('en', 'rooms.tooMany', { n: ROOM_FILES_MAX })])
+    } finally {
+      for (const f of here()) f.abort.abort()
+      await m.unmount()
+    }
+  })
+
+  test('the page loads and nobody is signed in: the tab\'s memory goes (App.tsx)', async () => {
+    reload()
+    setPlaceUploads(r.id, [done(roomFile())])
+    _reloadRoomUploadsForTest()
+    // App.tsx's watch of the session, as the page loads it
+    await import('../../src/App')
+    useSession.setState({ status: { kind: 'error', error: 'unreachable' } as never })
+    expect(kept()).not.toBeNull()
+    useSession.setState({ status: { kind: 'signed-out' } as never })
+    expect(kept()).toBeNull()
+    forgetKept()
   })
 
   test('a broken or foreign value in the tab\'s memory is ignored', () => {
