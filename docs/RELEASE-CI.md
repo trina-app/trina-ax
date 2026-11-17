@@ -583,6 +583,16 @@ self-hosted 러너. 이 레포는 공개라 누구나 PR을 열 수 있다. 그�
 러너를 쓴다. When GitHub's hosted macOS pools have no capacity, the release's Mac jobs run on one office Mac. Only release.yml at a
 v\* tag may use it, each job gets a fresh one-time runner, and the runner account cannot reach the rest of the Mac.
 
+**지금 상태: 꺼져 있음 (준비만, 2026-11-17).** hosted 맥 러너가 돌아와 0.5.11은 hosted에서 빌드·서명·공증됐다. 이 맥에는 아무것도
+설치되지 않았다(계정, 볼륨, 데몬, GitHub 러너 등록 없음). 워크플로 변경은 레포 변수 `RELEASE_MAC_RUNNER`가 `trina-mac-release`일 때만
+이 러너를 고르므로, 쓰지 않는 동안 아무 비용도 없다. Status: off; nothing is installed. The workflows pick this runner only when
+`RELEASE_MAC_RUNNER=trina-mac-release`.
+
+**켜기 (switch on, hosted 맥이 다시 없을 때)**: 아래 "설치" 1–3(토큰, 받기, `sudo bash ~/.tfx/mac-runner/root-steps.sh` =
+`setup.sh`)이 모두 PASS면 변수 하나로 켠다: `gh variable set RELEASE_MAC_RUNNER --repo trina-app/trina-ax --body trina-mac-release`. 끄기는
+같은 변수를 `macos-15`(또는 `macos-15-intel`)로. 설치가 남아 있어도 변수가 hosted를 가리키면 이 맥은 job을 받지 않는다(러너는
+기다리기만 한다; 완전히 치우려면 "지우기").
+
 **누가 쓸 수 있나 (who may run on it)**
 
 - 라벨은 `trina-mac-release` 하나뿐인 레포 러너(`trina-mac-<시각>`). `self-hosted`·`macOS`·`ARM64` 라벨이 없어 `runs-on: [self-hosted]`
@@ -607,15 +617,16 @@ v\* tag may use it, each job gets a fresh one-time runner, and the runner accoun
 - 계정 `_trinaci`: 숨김, 일반(관리자 아님), 자기 그룹(staff 아님), 암호·로그인 셸 없음, `cron.deny`·`at.deny`에 있다. 러너는 이
   계정으로 돈다(관리자 계정이 아니다). 관리자 홈(750, staff)에는 그룹이 달라 못 들어가고, `_trinaci` deny ACL을 하나 더 둔다.
 - 러너와 모든 step은 샌드박스 `runner.sb` 안에서 돈다: `/Users` 아래 전부 금지, `/Volumes`는 자기 볼륨과 빌드가 붙이는 dmg
-  (`/Volumes/Trina…`)만, `/tmp`·`/Users`의 Unix 소켓(로컬 DB 등) 금지, localhost TCP 금지, `launchctl`·`crontab`·`at` 실행 금지.
-- pf(`com.apple/260.trina-ci`, 루트 데몬 `app.trina.ci.pf`가 부팅 때와 1분마다 올린다)가 이 계정의 소켓에서 이 맥 자신의 주소,
-  loopback, LAN(IPv4 사설 대역, 이 맥 IPv6 주소의 /64), Tailscale, link-local로 가는 TCP/UDP를 막는다. 인터넷은 열려 있다. pf 규칙이
+  (`/Volumes/Trina AX …`)만, `/tmp`·`/private/var/tmp` 전부 금지(다른 세션의 파일과 로컬 DB 소켓; TMPDIR은 볼륨에 있다), localhost TCP 금지,
+  `launchctl`·`crontab`·`at` 실행 금지.
+- pf(`com.apple/260.trina-ci`, 루트 데몬 `app.trina.ci.pf`가 부팅 때와 1분마다 올린다)가 이 계정의 소켓에서 lo0의 모든 것(샌드박스가
+  이름 붙이지 못하는 `::ffff:127.0.0.1` 같은 IPv4-mapped 주소 포함), 이 맥 자신의 주소, LAN(IPv4 사설 대역, 이 맥 IPv6 주소의 /64), Tailscale, link-local로 가는 TCP/UDP를 막는다. 인터넷은 열려 있다. pf 규칙이
   이번 부팅에 올라가지 않았으면 러너를 시작하지 않는다.
 - **이 계정에는 인증서도 키도 암호도 없다.** 서명은 지금처럼 레포 비밀값(`MAC_DEVELOPER_ID_P12_*`, `APPLE_API_*`, "맥 앱" 절)으로
   job마다 `$RUNNER_TEMP`에 키체인을 만들고 끝에 지운다.
 - 이 맥에 있는 비밀은 하나: 일회용 러너를 받아 오는 fine-grained 토큰(trina-app-admin, 저장소 trina-ax 하나, Administration: Read and
   write). `/Library/TrinaCI/secrets/github-auth.header`(root 600)에 있고 러너 계정은 읽지 못한다. curl이 파일에서 바로 읽는다(argv에 없다).
-- 남는 위험: `/tmp`에 남이 world-readable로 둔 파일은 읽힌다(세션의 임시 파일은 700 폴더에 둔다). 무언가 pf를 `com.apple` anchor 없이 다시 올리면 다음 1분 검사까지 pf 규칙이 빠진다(샌드박스의 localhost·소켓 차단은 그대로).
+- 남는 위험: 무언가 pf를 `com.apple` anchor 없이 다시 올리면 다음 1분 검사까지 pf 규칙이 빠진다(샌드박스의 localhost·소켓 차단은 그대로).
 
 **매번 새로 (ephemeral)**
 
@@ -660,7 +671,8 @@ sudo bash <레포>/scripts/macos/release-runner/setup.sh
 
 setup.sh는 두 번 검사한다: 관리자의 sudo로 한 번, 그리고 job과 같은 맥락(일회성 LaunchDaemon `app.trina.ci.selftest`, SessionCreate,
 `_trinaci`로 샌드박스 안, `selftest.sh`)에서 한 번(인터넷, swiftc, notarytool, node, job 키체인에 .p12 넣기와 key partition list,
-`/Volumes/Trina AX …`에 dmg 붙이기). codesign 자체는 믿을 수 있는 인증서가 있어야 해서 첫 릴리스 job이 진짜 검사다. 끝에 `PASS`/`FAIL`을 찍는다(관리자 홈·`.ssh`·키체인·토큰을 못 읽음, crontab·launchctl 안 됨, localhost·LAN 차단,
+`/Volumes/Trina AX …`에 dmg 붙이기; 그리고 막혀야 할 것: localhost와 `::ffff:` 주소, LAN, `/tmp`, `/Users`, hook이 거절하면
+`Runner.Worker`가 끝나는지). codesign 자체는 믿을 수 있는 인증서가 있어야 해서 첫 릴리스 job이 진짜 검사다. 끝에 `PASS`/`FAIL`을 찍는다(관리자 홈·`.ssh`·키체인·토큰을 못 읽음, crontab·launchctl 안 됨, localhost·LAN 차단,
 인터넷·swiftc·notarytool·node·job 키체인·dmg 붙이기는 됨, 일회용 러너가 job을 기다림). 그 뒤 GitHub → Settings → Actions → Runners에
 `trina-mac-…`가 Idle인지 보고 레포 변수 `RELEASE_MAC_RUNNER`를 `trina-mac-release`로 바꾼다. hosted로 돌아가려면 변수를
 `macos-15`(또는 `macos-15-intel`)로 되돌린다. 커밋은 필요 없다.

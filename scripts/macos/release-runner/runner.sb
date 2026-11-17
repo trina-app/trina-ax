@@ -5,9 +5,11 @@
 ;; ACL on the admin's home). This adds what file permissions cannot express on a Mac shared with other work:
 ;;   - no file access under /Users at all; under /Volumes only its own volume and the dmg images a release build mounts
 ;;     (/Volumes/Trina AX <version>: electron-builder's dmg-builder attaches without -mountpoint; dmg.title);
-;;   - no connections to Unix sockets in /tmp, /private/var/tmp or /Users (local databases, dev servers' sockets);
-;;   - no TCP/UDP to localhost (browsers' debugging ports, local servers, agents). pf (pf.anchor) also blocks the
-;;     machine's own addresses, the LAN and private networks for this account, which a sandbox cannot name;
+;;   - no /tmp or /private/var/tmp at all (other sessions' files and sockets, e.g. local databases; TMPDIR is on the
+;;     volume) and no Unix sockets under /Users;
+;;   - no TCP/UDP to localhost (browsers' debugging ports, local servers, agents). SBPL's "localhost" misses
+;;     IPv4-mapped IPv6 (::ffff:127.0.0.1); pf (pf.anchor) blocks all loopback traffic of this account, the machine's
+;;     own addresses, the LAN and private networks, which a sandbox cannot name;
 ;;   - no launchctl, crontab or at: nothing a job starts may outlive it outside this sandbox (cron.deny/at.deny too).
 ;; One layer of several: the gate is the job-started hook, the clean slate is root's supervisor.sh.
 ;; Everything else stays allowed (Xcode, codesign, security, hdiutil, notarytool over HTTPS), as a release build needs.
@@ -23,6 +25,8 @@
 (allow file-read* file-write* (subpath "/Volumes/TrinaCI"))
 (allow file-read* file-write* (regex #"^/Volumes/Trina AX( |$)"))
 
+(deny file-read* file-write* (subpath "/private/tmp") (subpath "/private/var/tmp"))
+(allow file-read-metadata (literal "/private/tmp") (literal "/private/var/tmp"))
 (deny network-outbound (remote unix-socket (subpath "/private/tmp")))
 (deny network-outbound (remote unix-socket (subpath "/private/var/tmp")))
 (deny network-outbound (remote unix-socket (subpath "/Users")))

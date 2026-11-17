@@ -8,7 +8,9 @@
 # GITHUB_* variables cannot be overridden by a workflow's env (the runner sets them). For a called workflow
 # (mac-app.yml, mac-whisper.yml) GITHUB_WORKFLOW_REF is the caller's, release.yml.
 # A failing hook marks the job failed but the runner may still run the job's `if: always()` steps, so a refusal also
-# kills this job's Runner.Worker (found by walking up from this hook's parent, exact pid): nothing of the job runs.
+# kills this account's Runner.Worker and then every process of the account (kill -9 -1 as a non-root user reaches
+# only its own processes): nothing of the job runs. pkill/kill work in the sandbox; ps does not (setuid programs
+# cannot start inside sandbox-exec).
 # The runner is one-time (supervisor.sh), so the next job gets a fresh runner after root has cleaned up.
 # The runner runs hooks with bash -e -o pipefail: set +e, so a cleanup command that fails never fails a trusted job.
 set -u +e +o pipefail
@@ -18,14 +20,10 @@ MIN_FREE_GB=20
 
 fail() {
   echo "::error::trina-mac-release runner refused this job: $*"
-  p=$PPID
-  for _ in 1 2 3 4 5 6 7 8; do
-    [ -n "$p" ] && [ "$p" -gt 1 ] || break
-    case "$(ps -o command= -p "$p" 2>/dev/null)" in
-      *Runner.Worker*) kill -9 "$p" 2>/dev/null; break ;;
-    esac
-    p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
-  done
+  [ "$(id -u)" != 0 ] || exit 1
+  pkill -9 -U "$(id -u)" -f 'bin/Runner\.Worker' 2>/dev/null
+  pkill -9 -U "$(id -u)" -f 'bin/Runner\.Listener' 2>/dev/null
+  kill -9 -1 2>/dev/null
   exit 1
 }
 
@@ -45,15 +43,22 @@ esac
 
 # the tagged commit must be on main (as release.yml's prepare requires): someone who may bypass the tag ruleset could
 # otherwise tag any commit and bring their own release.yml. Public API, no token: identical/behind = on main.
-cmp=""
+cmp=""; http=""
 for _ in 1 2 3; do
-  cmp=$(curl -fsS -m 20 "https://api.github.com/repos/trina-app/trina-ax/compare/main...${GITHUB_SHA:-none}?per_page=1" 2>/dev/null | /usr/bin/jq -r '.status // empty' 2>/dev/null)
+  body=$(curl -sS -m 20 -w '\n%{http_code}' "https://api.github.com/repos/trina-app/trina-ax/compare/main...${GITHUB_SHA:-none}?per_page=1" 2>/dev/null)
+  http=${body##*$'\n'}
+  cmp=$(printf '%s' "${body%$'\n'*}" | /usr/bin/jq -r '.status // empty' 2>/dev/null)
   [ -n "$cmp" ] && break
+  [ "$http" = 404 ] && break
   sleep 5
 done
 case "$cmp" in
   identical | behind) ;;
-  "") fail "could not check that ${GITHUB_SHA:-?} is on main (GitHub API); run the job again" ;;
+  "") case "$http" in
+        403 | 429) fail "GitHub API rate limit (unauthenticated, shared office IP): could not check that ${GITHUB_SHA:-?} is on main; run the job again later" ;;
+        404) fail "commit ${GITHUB_SHA:-?} is not in trina-app/trina-ax" ;;
+        *) fail "could not check that ${GITHUB_SHA:-?} is on main (GitHub API HTTP ${http:-?}); run the job again" ;;
+      esac ;;
   *) fail "commit ${GITHUB_SHA:-?} is not on main ($cmp)" ;;
 esac
 

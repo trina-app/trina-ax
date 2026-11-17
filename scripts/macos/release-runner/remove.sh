@@ -23,16 +23,22 @@ launchctl bootout system/app.trina.ci.pf 2>/dev/null
 rm -f /Library/LaunchDaemons/app.trina.ci.runner.plist /Library/LaunchDaemons/app.trina.ci.pf.plist
 UID_=$(id -u "$U" 2>/dev/null || true)
 if [ -n "$UID_" ]; then
-  for d in DARWIN_USER_TEMP_DIR DARWIN_USER_CACHE_DIR; do
-    p=$(sudo -u "$U" /usr/bin/getconf "$d" 2>/dev/null)
-    case "$p" in /var/folders/*/[TC]/ | /private/var/folders/*/[TC]/) rm -rf "$p" ;; esac
-  done
+  t=$(sudo -u "$U" /usr/bin/getconf DARWIN_USER_TEMP_DIR 2>/dev/null)
   for _ in 1 2 3 4 5; do
-    pids=$(ps -axo pid=,uid= | awk -v u="$UID_" '$2 == u {print $1}')
+    pids=$(ps -axo pid=,uid=,ruid= | awk -v u="$UID_" '$2 == u || $3 == u {print $1}')
     [ -z "$pids" ] && break
     # shellcheck disable=SC2086
     kill -9 $pids 2>/dev/null; sleep 1
   done
+  if [ -n "$(ps -axo pid=,uid=,ruid= | awk -v u="$UID_" '$2 == u || $3 == u {print $1}')" ]; then
+    echo "processes of $U survive kill -9: not deleting the account (run remove.sh again after a restart)" >&2
+    KEEP_ACCOUNT=1
+  fi
+  # the account's whole /var/folders entry (0/ T/ C/ X/)
+  case "$t" in
+    /var/folders/*/*/T/ | /private/var/folders/*/*/T/)
+      parent=${t%T/}; [ "$(stat -f %u "$parent" 2>/dev/null)" = "$UID_" ] && rm -rf "${parent%/}" ;;
+  esac
   launchctl bootout "user/$UID_" 2>/dev/null
   launchctl bootout "gui/$UID_" 2>/dev/null
   crontab -u "$U" -r 2>/dev/null
@@ -40,8 +46,9 @@ if [ -n "$UID_" ]; then
 fi
 
 echo "== disk images on the volume"
-for dev in $(hdiutil info 2>/dev/null | awk -v v="$V/" '
+for dev in $(hdiutil info 2>/dev/null | awk -v v="$V/" -v u="$U" '
     /^image-path/ {img = substr($0, index($0, ":") + 2); keep = (index(img, v) == 1); next}
+    /^mounting user/ {if ($NF == u) keep = 1; next}
     /^\/dev\/disk/ && (keep || index($0, v) > 0) {print $1}
     /^====/ {keep = 0}' | sort -u); do
   hdiutil detach -force "$dev" >/dev/null 2>&1
@@ -74,11 +81,14 @@ if diskutil info "$V" >/dev/null 2>&1; then
   UUID=$(diskutil info -plist "$V" | plutil -extract VolumeUUID raw -)
   DEV=$(diskutil info -plist "$V" | plutil -extract DeviceIdentifier raw -)
   chflags -R nouchg "$V" 2>/dev/null
+  tmutil removeexclusion -v "$V" >/dev/null 2>&1
   diskutil apfs deleteVolume "$DEV"
   [ -n "$UUID" ] && sed -i '' "/UUID=$UUID/d" /etc/fstab
 fi
 
 echo "== account"
-dscl . -delete "/Users/$U" 2>/dev/null
-dscl . -delete "/Groups/$U" 2>/dev/null
+if [ -z "${KEEP_ACCOUNT:-}" ]; then
+  dscl . -delete "/Users/$U" 2>/dev/null
+  dscl . -delete "/Groups/$U" 2>/dev/null
+fi
 echo "remove.sh: done"

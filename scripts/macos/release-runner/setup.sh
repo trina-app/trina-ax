@@ -108,6 +108,14 @@ chown root:wheel "$V"; chmod 755 "$V"
 
 say "control folder $D"
 launchctl bootout system/app.trina.ci.runner 2>/dev/null || true
+# a running one-time runner of an earlier setup ends with the daemon; make sure nothing of the account is left
+UID_=$(id -u "$U")
+for _ in 1 2 3 4 5; do
+  pids=$(ps -axo pid=,uid=,ruid= | awk -v u="$UID_" '$2 == u || $3 == u {print $1}')
+  [ -z "$pids" ] && break
+  # shellcheck disable=SC2086
+  kill -9 $pids 2>/dev/null; sleep 1
+done
 install -d -o root -g wheel -m 755 "$D" "$D/run"
 install -d -o root -g wheel -m 700 "$D/secrets"
 chflags -R nouchg "$D" 2>/dev/null || true  # (an older setup made runner-dist immutable)
@@ -244,8 +252,11 @@ else
 fi
 
 say "runner"
+# only what this start writes counts (runner.log keeps earlier runs)
+LOGSIZE=0; [ -f "$LOGDIR/runner.log" ] && LOGSIZE=$(stat -f %z "$LOGDIR/runner.log")
+newlog() { tail -c "+$((LOGSIZE + 1))" "$LOGDIR/runner.log" 2>/dev/null; }
 launchctl bootstrap system /Library/LaunchDaemons/app.trina.ci.runner.plist
-for _ in $(seq 1 60); do grep -q "Listening for Jobs" "$LOGDIR/runner.log" 2>/dev/null && break; sleep 2; done
-works "a one-time runner is connected and listening for jobs" grep -q "Listening for Jobs" "$LOGDIR/runner.log"
+for _ in $(seq 1 60); do newlog | grep -q "Listening for Jobs" && break; sleep 2; done
+if newlog | grep -q "Listening for Jobs"; then echo "PASS a one-time runner is connected and listening for jobs"; else echo "FAIL the runner did not reach Listening for Jobs (see $LOGDIR/runner.log)"; fails=$((fails + 1)); fi
 echo
 if [ "$fails" = 0 ]; then echo "setup.sh: done, all checks passed"; else echo "setup.sh: done, $fails check(s) FAILED"; exit 1; fi

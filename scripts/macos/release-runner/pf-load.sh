@@ -22,7 +22,7 @@ done
 ok=1
 pfctl -s rules 2>/dev/null | grep -q 'anchor "com.apple/\*"' || { log "no com.apple/* anchor: loading /etc/pf.conf"; pfctl -q -f /etc/pf.conf 2>/dev/null; }
 pfctl -q -a "$ANCHOR" -f "$D/pf.anchor" || { log "loading $D/pf.anchor failed"; ok=0; }
-[ "$(pfctl -a "$ANCHOR" -s rules 2>/dev/null | grep -c 'block drop out quick')" -ge 3 ] || { log "rules not in $ANCHOR"; ok=0; }
+[ "$(pfctl -a "$ANCHOR" -s rules 2>/dev/null | grep -c 'block drop out quick')" -ge 4 ] || { log "rules not in $ANCHOR"; ok=0; }
 # the /64 of every global IPv6 address of this Mac (the LAN's neighbours; pf masks the host bits)
 LAN6=$(ifconfig 2>/dev/null | awk '$1 == "inet6" && $2 !~ /^fe80/ && $2 != "::1" && $2 !~ /^f[cd]/ {sub(/%.*/, "", $2); print $2 "/64"}' | sort -u)
 if [ -n "$LAN6" ]; then

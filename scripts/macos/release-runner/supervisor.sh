@@ -59,8 +59,9 @@ wipe_tree() { # delete a tree _trinaci could write into, whatever flags or modes
 
 detach_images() { # disk images a job attached: backed by a file on the volume, or mounted under it
   local dev
-  for dev in $(hdiutil info 2>/dev/null | awk -v v="$V/" '
+  for dev in $(hdiutil info 2>/dev/null | awk -v v="$V/" -v u="$U" '
       /^image-path/ {img = substr($0, index($0, ":") + 2); keep = (index(img, v) == 1); next}
+      /^mounting user/ {if ($NF == u) keep = 1; next}
       /^\/dev\/disk/ && (keep || index($0, v) > 0) {print $1}
       /^====/ {keep = 0}' | sort -u); do
     hdiutil detach -force "$dev" >/dev/null 2>&1
@@ -109,6 +110,11 @@ rotate_log() { # copy and truncate: launchd keeps writing to the same open file
   if [ -f "$LOG" ] && [ "$(stat -f %z "$LOG")" -gt 52428800 ]; then cp -f "$LOG" "$LOG.1" && : > "$LOG"; fi
   return 0
 }
+
+# one-time runners left from a stop or reboot in the middle (offline, named trina-mac-*)
+for id in $(gh_api "$REPO_API/actions/runners?per_page=100" 2>>"$LOG" | /usr/bin/jq -r '.runners[]? | select(.status == "offline" and (.name | startswith("trina-mac-"))) | .id' 2>/dev/null); do
+  gh_api -o /dev/null -X DELETE "$REPO_API/actions/runners/$id" 2>>"$LOG" && log "deleted stale one-time runner $id"
+done
 
 while :; do
   rotate_log

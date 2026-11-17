@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-16 19:24
 - Branch: `ci/mac-self-hosted-runner`
-- Status: in progress
+- Status: done (kit ready, switched off: hosted macOS runners came back for 0.5.11)
 - Where: `.github/workflows/`, `scripts/macos/release-runner/`, `docs/RELEASE-CI.md`. Why: GitHub's hosted macOS pools have no runners and the 0.5.10 Mac release jobs keep getting cancelled; the owner asked to use our Mac.
 - Version impact: none (CI and host setup only)
 
@@ -45,4 +45,9 @@ the first real job is the re-run of the 0.5.10 Mac jobs.
 
 ## Result
 
-(filled in at the end)
+Ready but off. Nothing is installed on the Mac and no runner is registered; the workflow changes pick the self-hosted
+runner only when `RELEASE_MAC_RUNNER=trina-mac-release`. Changed from the plan after three independent security
+reviews: a root supervisor with a one-time (JIT) runner per job instead of a long-lived runner with cleanup hooks
+(any job could read a long-lived runner's credentials and poison later jobs); the job-started hook also requires the
+tagged commit to be on main and kills the job on refusal; /tmp and loopback in any address family are blocked;
+checks run in the jobs' own launchd context. Switching on: docs/RELEASE-CI.md 13.
