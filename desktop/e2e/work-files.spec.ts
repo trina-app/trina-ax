@@ -21,7 +21,7 @@ const QUOTE = 'QUOTE'.padEnd(4096, '.')
 function fakeHome(dir: string): string {
   const home = join(dir, 'home')
   mkdirSync(join(home, 'Documents', 'company'), { recursive: true })
-  // real sizes: the look skips documents under 1 KB and text files under 2 KB (no work document is that small)
+  // real sizes: the page keeps documents under 1 KB and text files under 2 KB out of its picks (no work document is that small)
   writeFileSync(join(home, 'Documents', 'Quote template.xlsx'), QUOTE)
   writeFileSync(join(home, 'Documents', 'notes.txt'), 'NOTES'.padEnd(4096, '.'))
   writeFileSync(join(home, 'Documents', 'company', 'proposal.pdf'), 'PROPOSAL'.padEnd(8192, '.'))

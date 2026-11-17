@@ -209,9 +209,10 @@ const failed = (why: string, killed: string | null = null): Failed => ({ why, st
  * does not run (a crafted file would only use the next limit as well).
  */
 export async function heicToJpeg(bytes: Uint8Array, tools: HeicTools, signal?: AbortSignal, o: HeicDecode = {}): Promise<Buffer | null> {
-  if (!tools.heifDec && !tools.imageIo) return null
+  // the declared size first, on every server: an oversized photo is refused from its header, with or without a decoder
   const refused = heicRefusal(bytes)
   if (refused === 'too_large') throw new ToolError('the photo is over 50 megapixels or 65,535 px a side', 'too_large')
+  if (!tools.heifDec && !tools.imageIo) return null
   if (refused) throw new ToolError('could not make a preview of the photo (no primary image size)', 'preview_failed')
   let why = ''
   let stop = false
