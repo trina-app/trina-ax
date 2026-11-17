@@ -11,13 +11,13 @@
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
 import { act } from 'react'
 import { MemoryRouter } from 'react-router-dom'
-import { hideThreadRef, SIDE_CHAT_SEND, threadRefOf, threadRefToken, uuidv7, type Me } from '@mycel/shared/api'
+import { hideThreadRef, nearestThreadOf, SIDE_CHAT_SEND, sideQuoteOf, threadLineOf, threadRefOf, threadRefToken, uuidv7, type Me } from '@mycel/shared/api'
 import { AssistantMessage, UserMessage } from '../../src/components/chat/Messages'
-import { SideChatPanel, withQuote } from '../../src/components/rooms/SideChatPanel'
+import { SideChatPanel, withQuote, withThread } from '../../src/components/rooms/SideChatPanel'
 import type { SentHere } from '../../src/components/rooms/SendHere'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { messageSeed } from '../../src/lib/sideChatAsk'
-import { keepThreadRef, quotedOf, sendTargets, type SendTarget } from '../../src/lib/sideChatSend'
+import { keepThreadRef, quotedOf, sendTargets, shownQuestion, type SendTarget } from '../../src/lib/sideChatSend'
 import { useChats } from '../../src/store/chats'
 import { useRooms } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
@@ -102,6 +102,63 @@ test('the nearest earlier question that quotes something decides; a follow-up ke
   expect([...old.values()]).toEqual([null, null])
   // regenerate: another answer to the same question (the branch shows it in place of the first) goes the same way
   expect(sendTargets([q('q1', quoteOf(ROOT, 'x')), a('a1-again')]).get('a1-again')?.rootId).toBe(ROOT)
+})
+
+// ---------------- the thread line (the box's "Looking at this thread" chip) ----------------
+test('a thread line: the thread\'s id with who and when, no message text; read back as a thread, never as a quoted message or a file', () => {
+  const line = withThread({ rootId: ROOT, author: 'Ben', at: '2026-11-05T09:00:00.000Z' }, 'what was decided?', time)
+  expect(line).toBe(`> 🧵 Ben · Nov 5, 9:00 AM${threadRefToken(ROOT)}\n\nwhat was decided?`)
+  expect(threadRefOf(line)).toBe(ROOT)
+  expect(threadLineOf(line)).toEqual({ line: `> 🧵 Ben · Nov 5, 9:00 AM${threadRefToken(ROOT)}`, rootId: ROOT, author: 'Ben', at: 'Nov 5, 9:00 AM', question: 'what was decided?' })
+  expect(sideQuoteOf(line)).toEqual({ kind: 'thread', author: 'Ben', at: 'Nov 5, 9:00 AM', question: 'what was decided?' })
+  // a name with a line break cannot end the line early
+  expect(withThread({ rootId: ROOT, author: 'Be\nn', at: 'x' }, 'q', time).split('\n')).toHaveLength(3)
+  // files alone with the chip on: the line and nothing under it
+  expect(threadLineOf(withThread({ rootId: ROOT, author: 'Ben', at: 'x' }, '', time))?.question).toBe('')
+  // not a thread line: no id, a quoted message under the header, a file, a line further down
+  expect(threadLineOf('> 🧵 Ben · Nov 5\n\nq')).toBeNull()
+  expect(threadLineOf(`> 🧵 Ben · Nov 5${threadRefToken(ROOT)}\n> its text\n\nq`)).toBeNull()
+  expect(threadLineOf('> 📎 brief.pdf (file_id f-1 in this room)\n\nq')).toBeNull()
+  expect(threadLineOf(`hello\n> 🧵 Ben · Nov 5${threadRefToken(ROOT)}\n\nq`)).toBeNull()
+  expect(sideQuoteOf(quoteOf(ROOT, 'logo drafts?'))?.kind).toBe('message')
+  expect(sideQuoteOf('> 📎 brief.pdf (file_id f-1 in this room)\n\nq')?.kind).toBe('file')
+})
+
+test('a thread line counts for its own question only: the chip off (or the thread closed) is the room again; a quote still carries on', () => {
+  const lineOf = (root: string, ask: string) => withThread({ rootId: root, author: 'Ben', at: 'x' }, ask, time)
+  const t = sendTargets([
+    q('q1', lineOf(ROOT, 'what was decided?')), a('a1'),
+    q('q2', lineOf(ROOT, 'shorter')), a('a2'),
+    // the chip taken off: no line
+    q('q3', 'and in the room?'), a('a3'),
+    q('q4', 'more'), a('a4'),
+    // another thread open beside the chat
+    q('q5', lineOf(ROOT2, 'this one?')), a('a5'),
+    // a quoted message carries on, as before
+    q('q6', quoteOf(ROOT, 'logo drafts?')), a('a6'),
+    q('q7', 'shorter'), a('a7'),
+    q('q8', lineOf(ROOT2, 'back to the thread')), a('a8'),
+    q('q9', 'and now?'), a('a9'),
+  ])
+  expect(['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7', 'a8', 'a9'].map((id) => t.get(id)?.rootId ?? null)).toEqual([ROOT, ROOT, null, null, ROOT2, ROOT, ROOT, ROOT2, null])
+  // who started the thread, without the line's mark (the confirm step and the menu name it)
+  expect(t.get('a1')).toEqual({ rootId: ROOT, head: 'Ben · Nov 5, 9:00 AM', text: '' })
+  // the same rule for the AI's post_to_room (shared nearestThreadOf: the questions above an answer, the nearest first)
+  expect(nearestThreadOf([lineOf(ROOT, 'q')])).toBe(ROOT)
+  expect(nearestThreadOf(['and in the room?', lineOf(ROOT, 'q')])).toBeNull()
+  expect(nearestThreadOf(['shorter', quoteOf(ROOT, 'x'), lineOf(ROOT2, 'q')])).toBe(ROOT)
+  expect(nearestThreadOf(['shorter', '> 📎 brief.pdf (file_id f-1 in this room)\n\nq', lineOf(ROOT2, 'q')])).toBeNull()
+  expect(nearestThreadOf(['plain', 'plainer'])).toBeNull()
+})
+
+test('a question with a thread line is copied and edited without it, and an edit keeps it', () => {
+  const original = withThread({ rootId: ROOT, author: 'Ben', at: 'x' }, 'what was decided?', time)
+  expect(shownQuestion(original)).toBe('what was decided?')
+  expect(keepThreadRef('what was decided, in Korean?', original)).toBe(original.replace('what was decided?', 'what was decided, in Korean?'))
+  expect(threadRefOf(keepThreadRef('anything else', original))).toBe(ROOT)
+  // a quoted message as before: shown without its token
+  expect(shownQuestion(quoteOf(ROOT, 'logo drafts?'))).toBe(hideThreadRef(quoteOf(ROOT, 'logo drafts?')))
+  expect(shownQuestion('plain')).toBe('plain')
 })
 
 test('an edit keeps the token while the quote\'s header line is the same; a quote rewritten or taken out leaves it', () => {

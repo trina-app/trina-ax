@@ -8,7 +8,8 @@
 //   store/sideChats.ts), with the file quoted when ✦ in the viewer's bar asked about it (its file_id goes with the
 //   question and the AI reads it with room_file). A step keeps it and quotes nothing new; "스레드로 돌아가기" at its top
 //   brings the file's thread back.
-// It starts on the side chat when the room page had it open (the rooms store's side), else on the thread. The bar's
+// It starts on the side chat when the room page shows it alone (the rooms store's side), else on the thread: also
+// when the page shows a thread beside the side chat, so a picture opened from that thread starts on its thread. The bar's
 // toggle hides and shows it; a panel's ✕ hides it too. For the side chat that is not a close (the same chat shows again,
 // in the column or a phone's sheet); closing the viewer after it showed the side chat is, also from the thread, unless
 // the room page has it open (the next ✦ opens it afresh: SideChatPanel.tsx viewerClosedOn). 400 px wide; the stage
@@ -21,6 +22,7 @@
 import clsx from 'clsx'
 import { ChevronLeft } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { matchPath } from 'react-router-dom'
 import type { RoomMember, RoomMessage } from '@mycel/shared/api'
 import { closeImageViewer, sheetSnap, type RoomPlace } from '../../lib/imageViewer'
 import { getSidePanel } from '../../lib/sidePanel'
@@ -47,9 +49,10 @@ export interface ViewerColumnState {
   focus: boolean
 }
 
-/** The column's state for one opening of the viewer, starting as the room page's right side is. */
+/** The column's state for one opening of the viewer, starting as the room page's right side is: on the side chat when
+ * the page shows it without a thread. */
 export function useViewerColumn(roomId: string | null) {
-  const [state, setState] = useState<ViewerColumnState>(() => ({ open: true, show: roomId && useRooms.getState().side[roomId] === 'trina' ? 'trina' : 'thread', seed: null, focus: false }))
+  const [state, setState] = useState<ViewerColumnState>(() => ({ open: true, show: roomId && useRooms.getState().side[roomId] === 'trina' && !matchPath('/rooms/:roomId/t/:messageId', globalThis.location?.pathname ?? '') ? 'trina' : 'thread', seed: null, focus: false }))
   // this opening of the viewer showed the side chat: the viewer closing (or leaving the room's files) closes it, also
   // when the column is back on the thread
   const showed = useRef(false)

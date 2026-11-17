@@ -2,8 +2,8 @@
 // and beside it the list of the place: 트리나, 대화, 프로젝트 (every project I see, panels/ProjectsPanel.tsx), 파일 (its places: recent files, team and project folders, 내
 // 파일, the trash) and 활동 (the notices that are not conversations). Admin's own menu is its list
 // (pages/admin/AdminLayout.tsx), so nothing is lit and no panel shows there. The panel
-// folds away by itself below 1052 px while a thread, the room's ✦ side chat or a side panel is open (railPanel.ts), and
-// may be hidden there by the person. What is on screen is remembered as what is open in its place (lib/rail.ts).
+// folds away by itself below 1052 px while a thread, the room's ✦ side chat or a side panel is open, and below 1448 px
+// while a room shows its thread and side chat together (railPanel.ts), and may be hidden below 1052 px by the person. What is on screen is remembered as what is open in its place (lib/rail.ts).
 import { useEffect } from 'react'
 import { matchPath, useLocation } from 'react-router-dom'
 import { rememberRail, useRailHere } from '../../lib/rail'
@@ -17,7 +17,7 @@ import { ProjectsPanel } from '../panels/ProjectsPanel'
 import { TrinaPanel } from '../panels/TrinaPanel'
 import { useMediaQuery } from '../ui'
 import { Rail } from './Rail'
-import { PANEL_ALWAYS_PX, panelState, useRailPanel } from './railPanel'
+import { PANEL_ALWAYS_BOTH_PX, PANEL_ALWAYS_PX, panelState, useRailPanel } from './railPanel'
 
 /** whether this place has a list panel and how it shows now */
 function useRailPanelShown(): { has: boolean; state: ReturnType<typeof panelState> } {
@@ -34,7 +34,10 @@ function useRailPanelShown(): { has: boolean; state: ReturnType<typeof panelStat
   const side = useRooms((s) => !!roomId && s.side[roomId] === 'trina')
   const panel = !!useSidePanel()
   const hidden = useRailPanel((s) => s.hidden)
-  return { has, state: panelState({ wide, crowded: thread || side || panel, hidden }) }
+  // a room with its thread and its side chat both open: three columns, which need the list's width below 1448 px
+  const wideForBoth = useMediaQuery(`(min-width: ${PANEL_ALWAYS_BOTH_PX}px)`)
+  const both = side && !!matchPath('/rooms/:roomId/t/:messageId', pathname) && !wideForBoth
+  return { has, state: panelState({ wide, crowded: thread || side || panel, hidden, both }) }
 }
 
 /** `onList`: told whether the list panel shows (Layout.tsx's skip link "목록으로") */

@@ -198,6 +198,10 @@ answers with what you may open. When an answer is worth sharing, **Send** under 
 message (or in the thread when you asked about one message). If some people in the conversation cannot open a file the answer
 used, the app tells you first and waits for your yes.
 
+With a thread open, **✦** opens the side chat beside the thread, and both stay on screen (in a small window the
+conversation makes way for the two). The side chat's box then says **Looking at this thread**: your question is about that
+thread, and the answer can go straight into it. Press **✕** on that line to ask about the whole conversation instead.
+
 ![The Marketing channel: a message that names Jordan, a thread with 2 replies, and Trina's answer sent from the side chat](../images/chats/room.webp "A channel")
 
 #### Reply in a thread

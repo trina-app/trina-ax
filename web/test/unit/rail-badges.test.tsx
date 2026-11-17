@@ -8,7 +8,8 @@ import { translate, useLocaleStore } from '../../src/i18n'
 import { BottomTabs } from '../../src/components/BottomTabs'
 import { Rail } from '../../src/components/rail/Rail'
 import { activityMark, aiMark, chatsMark, unreadRooms } from '../../src/components/rail/railBadges'
-import { panelState } from '../../src/components/rail/railPanel'
+import { PANEL_ALWAYS_BOTH_PX, panelState } from '../../src/components/rail/railPanel'
+import { THREE_MIN } from '../../src/lib/roomColumns'
 import { useInbox } from '../../src/store/inbox'
 import { useChats } from '../../src/store/chats'
 import { useRooms } from '../../src/store/rooms'
@@ -50,6 +51,16 @@ describe('panel', () => {
     expect(panelState({ wide: false, crowded: true, hidden: false })).toBe('folded')
     expect(panelState({ wide: false, crowded: false, hidden: true })).toBe('hidden')
     expect(panelState({ wide: false, crowded: true, hidden: true })).toBe('hidden')
+  })
+  test('a room with its thread and side chat both open: folded below 1448 px, whatever the person chose; back when one closes', () => {
+    // (`both`: the two are open and the window is narrower than PANEL_ALWAYS_BOTH_PX)
+    expect(panelState({ wide: true, crowded: true, hidden: false, both: true })).toBe('folded')
+    expect(panelState({ wide: true, crowded: true, hidden: true, both: true })).toBe('folded')
+    expect(panelState({ wide: false, crowded: true, hidden: false, both: true })).toBe('folded')
+    expect(panelState({ wide: false, crowded: true, hidden: true, both: true })).toBe('hidden')
+    expect(panelState({ wide: true, crowded: true, hidden: false, both: false })).toBe('shown')
+    // the rail at its widest, the list at its widest and the three columns
+    expect(PANEL_ALWAYS_BOTH_PX).toBe(88 + 300 + THREE_MIN)
   })
 })
 

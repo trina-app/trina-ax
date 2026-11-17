@@ -11,7 +11,8 @@ import { MemoryRouter, Route, Routes, useNavigate, type NavigateFunction } from 
 import { MESSAGE_ATTACHMENTS_MAX, PRODUCT_NAMED_AFTER_AI, SIDE_CHAT_QUICK, SIDE_CHAT_SEND, uuidv7, type Attachment, type Chat, type Me, type Message as MessageT, type ServerEvent } from '@mycel/shared/api'
 import { AssistantMessage } from '../../src/components/chat/Messages'
 import ShareToRoom from '../../src/components/chat/ShareToRoom'
-import { SideChatPanel, withQuote } from '../../src/components/rooms/SideChatPanel'
+import { SideChatPanel, withQuote, withThread } from '../../src/components/rooms/SideChatPanel'
+import { formatDateTime } from '../../src/lib/format'
 import { askTrinaInRoom, fileSeed, messageSeed, onAskTrinaInRoom } from '../../src/lib/sideChatAsk'
 import { RoomMessages } from '../../src/components/rooms/RoomMessages'
 import { useViewerColumn, ViewerColumn } from '../../src/components/rooms/ViewerColumn'
@@ -964,30 +965,69 @@ test('"Ask Trina about this" on a message after the side chat was closed: a new 
   }
 })
 
-test('a thread in the side chat\'s place: ✦ brings the same chat back; the thread closed with nothing in its place closes it', async () => {
+test('a thread beside the side chat: both show; the box\'s chip names the thread and a question carries its line; ✕ takes it off; the thread closing leaves the chat open', async () => {
   signIn()
   const { made } = serve(null, [], { turns: true })
   useRooms.setState({ rooms: [team], loaded: true })
   const m = await roomPage()
+  const sent = () => calls.filter((c) => c.method === 'POST' && /^\/api\/chats\/[^/]+\/messages$/.test(c.path)).map((c) => (c.body as { content: string }).content)
   try {
     await m.until(() => !!m.find('room-message'), 'the room')
     await openSide(m)
-    await askInSide(m, 'what did I miss?')
+    // no thread: no chip, the room's line and starters
+    expect(m.find('side-chat-thread-chip')).toBeNull()
+    expect(m.find('side-chat-context')).not.toBeNull()
+    expect(m.find('side-chat-starter-catchUp')).not.toBeNull()
+    // a thread opens: the side chat stays beside it (docs/decisions/20261117-thread-plus-trina.md), its box says so
+    await act(async () => { await go(`/rooms/${team.id}/t/${root.id}`) })
+    await m.until(() => !!m.find('room-thread') && !!m.find('side-chat-thread-chip'), 'the thread beside the side chat, its chip in the box')
+    expect(m.find('side-chat-panel')).not.toBeNull()
+    expect(m.get('side-chat-thread-chip').textContent).toBe(en('sideChat.threadChip'))
+    expect(m.get('side-chat-thread-chip-off').getAttribute('aria-label')).toBe(en('sideChat.threadChipOff'))
+    expect(m.get('side-chat-input').getAttribute('placeholder')).toBe(en('sideChat.placeholderThread', { name: aiName((k) => en(k)) }))
+    // one line says what is looked at, and the one starter is the thread's
+    expect(m.find('side-chat-context')).toBeNull()
+    expect(m.find('side-chat-starter-catchUp')).toBeNull()
+    expect(m.get('side-chat-starter-thread').textContent).toBe(en('roomApps.chipThread'))
+    // a question with the chip on: the thread line on top (who started it, when, its id), no message text
+    await askInSide(m, 'what was decided?')
+    expect(sent().at(-1)).toBe(withThread({ rootId: root.id, author: BEN.name, at: root.createdAt }, 'what was decided?', (iso) => formatDateTime(iso, 'en')))
+    expect(sent().at(-1)!.split('\n')).toEqual([expect.stringMatching(new RegExp(`^> 🧵 ${BEN.name} · .+ \\(thread_id ${root.id} in this room\\)$`)), '', 'what was decided?'])
+    // its bubble: the "Thread" mark, never the line
+    const bubble = m.get('user-text').textContent ?? ''
+    expect(m.get('user-quote-thread').textContent).toContain(`${en('rooms.thread')} · ${BEN.name}`)
+    expect(bubble).toContain('what was decided?')
+    expect(bubble.includes('thread_id') || bubble.includes('🧵')).toBe(false)
     answerEnds(made)
     await m.until(() => answerDone(m), 'the answer')
-    // a thread takes the column; ✦ switches back to the same chat
-    await act(async () => { await go(`/rooms/${team.id}/t/${root.id}`) })
-    await m.until(() => !!m.find('room-thread') && !m.find('side-chat-panel'), 'the thread in its place')
-    await openSide(m)
-    expect(m.find('room-thread')).toBeNull()
-    expect(count(m, 'user-message')).toBe(1)
-    // the thread again, then closed (Back): the column is empty, the side chat closed with it
-    await act(async () => { await go(`/rooms/${team.id}/t/${root.id}`) })
-    await m.until(() => !!m.find('room-thread'), 'the thread')
+    // ✕: no chip, the room's placeholder, and the next question goes as typed
+    await m.click('side-chat-thread-chip-off')
+    expect(m.find('side-chat-thread-chip')).toBeNull()
+    expect(useSideChats.getState().byRoom[team.id]!.chipOff).toBe(root.id)
+    expect(m.get('side-chat-input').getAttribute('placeholder')).toBe(en('sideChat.placeholder', { name: aiName((k) => en(k)) }))
+    await askInSide(m, 'and in the room?')
+    expect(sent().at(-1)).toBe('and in the room?')
+    answerEnds(made)
+    // the thread closed: the side chat is still there, the same chat; the chip's ✕ is forgotten with the thread
     await act(async () => { await go(`/rooms/${team.id}`) })
     await m.until(() => !m.find('room-thread'), 'the thread closed')
-    await openSide(m)
-    expect(fresh(m)).toBe(true)
+    expect(m.find('side-chat-panel')).not.toBeNull()
+    expect(count(m, 'user-message')).toBe(2)
+    expect(useSideChats.getState().byRoom[team.id]!.chipOff).toBeNull()
+    // opened again: the chip is back
+    await act(async () => { await go(`/rooms/${team.id}/t/${root.id}`) })
+    await m.until(() => !!m.find('side-chat-thread-chip'), 'the chip again')
+    // a quoted message takes the chip's place while it shows
+    await m.click('message-ask-trina')
+    await m.until(() => !!m.find('side-chat-quote'), 'the message quoted')
+    expect(m.find('side-chat-thread-chip')).toBeNull()
+    expect(m.find('room-thread')).not.toBeNull()
+    await m.click('side-chat-quote-remove')
+    expect(m.find('side-chat-thread-chip')).not.toBeNull()
+    // ✦ closes the side chat; the thread stays
+    await m.click('room-side-chat-button')
+    expect(m.find('side-chat-panel')).toBeNull()
+    expect(m.find('room-thread')).not.toBeNull()
   } finally {
     await m.unmount()
   }

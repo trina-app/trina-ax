@@ -93,7 +93,8 @@ function lineTitle(line: string, known?: KnownSecrets): string | null {
 export function placeholderTitle(content: string, atts: Pick<Attachment, 'name' | 'source'>[] = [], known?: KnownSecrets, sideChat = false): string {
   const quote = sideChat ? sideQuoteOf(content) : null
   if (quote) {
-    const subject = quote.kind === 'file' ? quote.name : placeholderTitle(quote.text, [], known)
+    // (a thread line names no message: the question is the title)
+    const subject = quote.kind === 'file' ? quote.name : quote.kind === 'thread' ? '' : placeholderTitle(quote.text, [], known)
     const quick = sideQuickOf(quote.question)
     if (quick) return lineTitle(subject ? `${SIDE_CHAT_QUICK[quick.key].label[quick.locale]}: ${subject}` : SIDE_CHAT_QUICK[quick.key].label[quick.locale], known) ?? ''
     return placeholderTitle(quote.question.trim() ? quote.question : subject, atts, known)

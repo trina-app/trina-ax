@@ -157,14 +157,40 @@ export const hideThreadRef = (text: string): string => text.replace(THREAD_REF_R
 /** Does a side chat question start with a quote (a message or a file of the room asked about)? */
 export const quotesRoom = (content: string) => content.startsWith('> ')
 /**
+ * The thread line (docs/decisions/20261117-thread-plus-trina.md): the first line of a side chat question asked while
+ * a thread was open beside the chat with the box's "Looking at this thread" chip on (web SideChatPanel withThread):
+ * `> 🧵 <who started it> · <when> (thread_id <id> in this room)`, then an empty line and the question. A quote's
+ * header with no message under it: the app sends the thread's id only, and the AI reads the thread with room_read, which
+ * checks what this person may read. The app shows it as a small mark, never as text, and hides it in copy and edit.
+ */
+export const THREAD_LINE = '> 🧵 '
+/** A question that starts with a thread line: the line as it was sent, its thread, who started it and when as the line
+ * says, and the question under it; null for anything else (a quoted message has lines under its header). */
+export function threadLineOf(content: string): { line: string; rootId: string; author: string; at: string; question: string } | null {
+  if (!content.startsWith(THREAD_LINE)) return null
+  const end = content.indexOf('\n')
+  const line = end < 0 ? content : content.slice(0, end)
+  const rootId = threadRefOf(line)
+  const rest = end < 0 ? '' : content.slice(end)
+  if (!rootId || (rest && !rest.startsWith('\n\n'))) return null
+  const head = hideThreadRef(line).slice(THREAD_LINE.length), at = head.lastIndexOf(' · ')
+  return { line, rootId, author: at < 0 ? head : head.slice(0, at), at: at < 0 ? '' : head.slice(at + 3), question: rest.slice(2) }
+}
+/**
  * Where an answer of a side chat goes (docs/DECISIONS.md "Trina side chat: send here"), from the questions above it on its
  * branch, the nearest first: the first that quotes something decides, its token's thread, or the room (null) when it has
  * none (a file, a message that cannot have a thread, an older chat); a follow-up without a quote keeps what an earlier
- * one said. No question quotes anything: the room. One rule for the button under an answer (web lib/sideChatSend.ts) and
- * the AI's post_to_room (server chat/post-to-room.ts).
+ * one said. A thread line (threadLineOf) counts for its own question only: the box puts it on every question while its
+ * chip is on, so a later question without it was asked with the chip off and goes to the room. No question quotes
+ * anything: the room. One rule for the button under an answer (web lib/sideChatSend.ts) and the AI's post_to_room
+ * (server chat/post-to-room.ts).
  */
 export function nearestThreadOf(questionsNearestFirst: Iterable<string>): string | null {
-  for (const q of questionsNearestFirst) if (quotesRoom(q)) return threadRefOf(q)
+  let own = true
+  for (const q of questionsNearestFirst) {
+    if (quotesRoom(q)) return !own && threadLineOf(q) ? null : threadRefOf(q)
+    own = false
+  }
   return null
 }
 
@@ -175,7 +201,11 @@ export function nearestThreadOf(questionsNearestFirst: Iterable<string>): string
 export type SideQuote =
   | { kind: 'message'; author: string; at: string; text: string; question: string }
   | { kind: 'file'; name: string; question: string }
+  /** a thread line: the thread that was open beside the chat (who started it, when) */
+  | { kind: 'thread'; author: string; at: string; question: string }
 export function sideQuoteOf(content: string): SideQuote | null {
+  const thread = threadLineOf(content)
+  if (thread) return { kind: 'thread', author: thread.author, at: thread.at, question: thread.question }
   const shown = hideThreadRef(content)
   if (!shown.startsWith('> ')) return null
   const cut = shown.indexOf('\n\n')

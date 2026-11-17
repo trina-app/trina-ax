@@ -16,7 +16,7 @@
 // there (Message.withheld: it used something I cannot open, and I did not see the chat then) is one faint line in its
 // place, the rooms' words ("볼 수 없는 자료를 참고한 답이라 가려졌어요"), with only its branch switch.
 import clsx from 'clsx'
-import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, Copy, History, Info, Loader2, MessageSquareReply, MessageSquareShare, Paperclip, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
+import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, Copy, History, Info, Loader2, MessageSquareReply, MessageSquareShare, MessagesSquare, Paperclip, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, chatErrorReason, ERROR_MESSAGES, hideThreadRef, isDefaultErrorMessage, sideQuoteOf, skillLabel, type Attachment, type EngineId, type SideQuote, type Step, type UserRef } from '@mycel/shared/api'
@@ -58,7 +58,7 @@ import SuggestSkillDialog from '../SuggestSkillDialog'
 import ShareToRoom from './ShareToRoom'
 import { SendHere, SendHereNote, type SentHere } from '../rooms/SendHere'
 import { MenuButton, useLongPress, type MenuItem } from '../rooms/MenuButton'
-import { keepThreadRef, type SendTarget } from '../../lib/sideChatSend'
+import { keepThreadRef, shownQuestion, type SendTarget } from '../../lib/sideChatSend'
 import FileSummary from './FileSummary'
 import SourcesList from './SourcesList'
 import { StepFixes } from './StepFix'
@@ -223,8 +223,8 @@ export function AttachmentView({ a, align = 'end', chatId }: { a: Attachment; al
  * then the rest of the question, in place of "/meeting-tasks …" (the command is what was sent and what runs; copy and
  * edit keep it). A command no skill of the person's has stays as it was typed. In a room's side chat (`quotes`; also
  * opened as a full chat) a question about a message or a file (shared rooms.ts sideQuoteOf) shows that as a quote on top,
- * as the side chat's box showed it before it went (who, when, its lines; a file by its name), never its Markdown or the
- * thread it names; the question below it. Folded (`clamp`, a long question) the quote shows its first 3 lines and 전체
+ * as the side chat's box showed it before it went (who, when, its lines; a file by its name; the thread that was open
+ * beside the chat as "Thread · who · when"), never its Markdown or the thread it names; the question below it. Folded (`clamp`, a long question) the quote shows its first 3 lines and 전체
  * 보기 opens it too. Other chats show a quote typed by hand as it was typed. */
 export function UserText({ content: sent, clamp, quotes = false }: { content: string; clamp: boolean; quotes?: boolean }) {
   const quote = quotes ? sideQuoteOf(sent) : null
@@ -254,12 +254,18 @@ export function UserText({ content: sent, clamp, quotes = false }: { content: st
 /** The room's message or file a side chat question is about, as a quote at the top of the bubble; `clamp`: its first 3
  * lines (the message is folded: 전체 보기 shows the rest) */
 function SideQuoteBlock({ quote, clamp }: { quote: SideQuote; clamp: boolean }) {
+  const t = useT()
   return (
     <blockquote className="mb-1.5 border-l-2 border-line-strong pl-2 text-xs leading-5" data-testid="user-quote">
       {quote.kind === 'file' ? (
         <p className="flex min-w-0 items-center gap-1 text-muted" data-testid="user-quote-file">
           <Paperclip size={12} aria-hidden className="shrink-0" />
           <span className="truncate">{quote.name}</span>
+        </p>
+      ) : quote.kind === 'thread' ? (
+        <p className="flex min-w-0 items-center gap-1 text-muted" data-testid="user-quote-thread">
+          <MessagesSquare size={12} aria-hidden className="shrink-0" />
+          <span className="truncate"><span className="font-medium text-ink">{t('rooms.thread')}</span>{quote.author && ` · ${quote.author}`}{quote.at && <span className="text-faint"> · {quote.at}</span>}</span>
         </p>
       ) : (
         <>
@@ -359,8 +365,9 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, showAutho
   const t = useT()
   const [editing, setEditing] = useState(false)
   // the box shows a "#" room token as "#<title>"; what is sent again keeps its room (lib/roomRefs.ts); a side chat's
-  // quote shows without its thread, which goes back on while the quote's header line stays (lib/sideChatSend.ts)
-  const shown = hideThreadRef(m.content)
+  // quote shows without its thread, which goes back on while the quote's header line stays (lib/sideChatSend.ts); a
+  // thread line (the box's "Looking at this thread" chip put it there) is not shown at all and stays on an edit
+  const shown = shownQuestion(m.content)
   const [draft, setDraft] = useState(() => fromWire(shown).text)
   /** the edited text looks like a key: it waits for "Send anyway" (SecretWarning) */
   const secret = useSecretHold(draft)
