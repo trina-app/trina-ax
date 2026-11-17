@@ -6,7 +6,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { ALERT_KEY, assertStorageRoom, assertStorageRoomForAI, cappedSnapshot, configureStorageGuard, GRACE_KEY, GRACE_MS, GRACE_TOLD_KEY, levelOf, reserveBytes, snapshotOf, storageRoom, storageState, treeBytes, type GuardStore, type StatFs } from '../../server/src/system/storage'
+import { ALERT_KEY, NOTICE_KEY, assertStorageRoom, assertStorageRoomForAI, cappedSnapshot, configureStorageGuard, GRACE_KEY, GRACE_MS, GRACE_TOLD_KEY, levelOf, reserveBytes, snapshotOf, storageRoom, storageState, treeBytes, type GuardStore, type StatFs } from '../../server/src/system/storage'
 import type { AppConfig } from '../../server/src/app-config'
 import { openDb } from '../../server/src/db'
 import { silentLogger } from '../../server/src/log'
@@ -321,6 +321,58 @@ describe('the monitor and the API', () => {
     expect(ops.storage.checkAlert()).toBe(false)
     expect(getSetting<string>(h.ctx.db, ALERT_KEY)).toBeTruthy()
     expect(h.ctx.db.query("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'storage.warn'").get()).toEqual({ n: 1 })
+  })
+  test('a notice kept in the Inbox: owner and admins only, at 80% and again at 95%, at most once a day each; it opens the storage card', async () => {
+    const ops = getOps(h.ctx)!
+    const db = h.ctx.db
+    const admin = (await addMember(h, owner, { username: 'ada', role: 'admin' })).client
+    const T0 = Date.parse('2026-12-20T00:00:00.000Z')
+    let now = T0
+    configureStorageGuard({ root: h.ctx.config.teamRoot, statfs: () => s, now: () => now })
+    for (const k of Object.values(NOTICE_KEY)) db.query('DELETE FROM settings WHERE key = ?').run(k)
+    db.query('DELETE FROM storage_notices').run() // the 80% test above kept one for the owner
+    const rows = () => db.query("SELECT u.username AS who, n.percent, n.rooms_bytes FROM storage_notices n JOIN users u ON u.id = n.user_id WHERE n.event_type = 'storage.filling' ORDER BY n.created_at, u.username").all() as { who: string; percent: number; rooms_bytes: number | null }[]
+    await ops.storage.measure()
+    const rooms = ops.storage.status().breakdown!.rooms!
+
+    s = disk(50 * GiB, 10 * GiB)
+    ops.storage.checkAlert()
+    expect(rows()).toEqual([]) // under 80%: nothing
+    s = disk(50 * GiB, 41 * GiB)
+    ops.storage.checkAlert()
+    expect(rows()).toEqual([{ who: 'ada', percent: 82, rooms_bytes: rooms }, { who: 'olga', percent: 82, rooms_bytes: rooms }])
+    now = T0 + 3600_000
+    ops.storage.checkAlert()
+    expect(rows()).toHaveLength(2) // not again within a day
+    s = disk(50 * GiB, 48 * GiB)
+    ops.storage.checkAlert()
+    expect(rows().slice(2).map((r) => [r.who, r.percent])).toEqual([['ada', 96], ['olga', 96]]) // 95% is told the same day
+    now = T0 + 2 * 3600_000
+    ops.storage.checkAlert()
+    expect(rows()).toHaveLength(4)
+    s = disk(50 * GiB, 45 * GiB) // a dip to 90% the same day: the 95% notice counted for 80% too
+    now = T0 + 3 * 3600_000
+    ops.storage.checkAlert()
+    expect(rows()).toHaveLength(4)
+    s = disk(50 * GiB, 48 * GiB)
+    now = T0 + 25 * 3600_000
+    ops.storage.checkAlert()
+    expect(rows()).toHaveLength(6) // a day later, still full: told again
+    // one current fact: the older ones count as read, so a full disk for days is one unread row
+    expect(db.query("SELECT COUNT(*) AS n FROM storage_notices n JOIN users u ON u.id = n.user_id WHERE u.username = 'ada' AND n.read_at IS NULL").get()).toEqual({ n: 1 })
+
+    // in the Inbox: the words' numbers and the storage card; never for a member
+    const item = (await admin.call('GET', '/api/notifications')).items.find((i: { code: string }) => i.code === 'storage.filling')
+    expect(item).toMatchObject({ link: 'admin_storage', storage: { percent: 96, roomsBytes: rooms } })
+    expect((await member.call('GET', '/api/notifications')).items.some((i: { code: string }) => i.code === 'storage.filling')).toBe(false)
+    expect(JSON.stringify(item)).not.toMatch(/room-secret|resignation/)
+    // demoted: the words stay, the link goes (the storage card is not theirs now); the later tests count one admin
+    db.query("UPDATE users SET role = 'member' WHERE username = 'ada'").run()
+    const after = (await admin.call('GET', '/api/notifications')).items.find((i: { code: string }) => i.code === 'storage.filling')
+    expect(after).toMatchObject({ link: null })
+    expect(after.storage).toBeUndefined() // no number of the team's files for someone no longer an admin
+    configureStorageGuard({ root: h.ctx.config.teamRoot, statfs: () => s })
+    s = disk(50 * GiB, 10 * GiB)
   })
   test('over the plan on a larger disk: the regular check starts the grace period with no write, tells once, the API shows the capped view', async () => {
     const ops = getOps(h.ctx)!

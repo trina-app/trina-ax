@@ -8,7 +8,7 @@
 // not smaller than the disk: the real disk, as before.
 //
 // Levels: below 80% ok; from 80% the owner and admins are told (a notice, at most once per 24 h, audited as
-// storage.warn); from 90% diagnostics warn; from 95% diagnostics fail. Writes into the team folder are refused (507
+// storage.warn; and a notice kept in their Inbox at 80% and again at 95%, at most once per 24 h each); from 90% diagnostics warn; from 95% diagnostics fail. Writes into the team folder are refused (507
 // storage_full) when the free space minus the write would drop under max(512 MiB, 2% of the disk): AI write / edit /
 // make_file, file saves, uploads, chat attachments. The refusal applies where the resource limits apply (Linux, a plan:
 // system/limits.ts); a Mac keeps its own checks (upload sessions' 1 GB margin, backups' 2 GB) and behaviour.
@@ -50,6 +50,8 @@ export const FULL_PERCENT = 95
 const SNAPSHOT_MS = 30_000
 const ALERT_EVERY_MS = 24 * 3600_000
 export const ALERT_KEY = 'system.storageWarnAt'
+/** when the Inbox notice for 80 % / 95 % was last kept (ISO time), apart from the toast's ALERT_KEY */
+export const NOTICE_KEY = { 80: 'system.storageNoticeAt.80', 95: 'system.storageNoticeAt.95' } as const
 /** when usage first went over the plan's limit (ISO time; null or missing = not over) */
 export const GRACE_KEY = 'system.storageOverSince'
 /** when the owner and admins were last told that a grace period started (ISO time) */
@@ -287,6 +289,9 @@ export interface MonitorOptions {
   notify: (message: Record<Locale, string>) => void
   /** the Mac's absolute rule decides the disk check here (not a Linux production install): the card follows it */
   absoluteRule?: () => boolean
+  /** keep a notice in the Inbox of the owner and admins (notifications/service.ts notifyStorageFilling): from 80 %, and
+   * again from 95 %, at most once per 24 h each; `roomsBytes` the files in conversations as last measured */
+  record?: (threshold: 80 | 95, percent: number, roomsBytes: number | null, at: string) => void
   /** storage.warn, or storage.grace when a grace period starts */
   audit: (detail: Record<string, unknown>, action?: 'storage.warn' | 'storage.grace') => void
 }
@@ -381,6 +386,7 @@ export class StorageMonitor {
     // a state kept after a dip under the limit tells nobody: the team is not over now
     if (since !== null && isOver(s.usedBytes, s.totalBytes) && this.tellGrace(s, since, refusedBy(real, 0, since))) return true
     if (levelOf(s.percent) === 'ok') return false
+    this.keepNotice(s.percent)
     const last = getSetting<string>(this.o.db, ALERT_KEY)
     if (last && this.now() - Date.parse(last) < ALERT_EVERY_MS) return false
     setSetting(this.o.db, ALERT_KEY, new Date(this.now()).toISOString())
@@ -388,6 +394,24 @@ export class StorageMonitor {
     this.o.audit({ percent: s.percent, freeBytes: s.freeBytes, totalBytes: s.totalBytes })
     this.o.notify({ ko: ALERT.ko(p), en: ALERT.en(p), id: ALERT.id(p), ja: ALERT.ja(p), es: ALERT.es(p), zh: ALERT.zh(p) })
     return true
+  }
+
+  /** From 80 %: a notice kept in the Inbox of the owner and admins, so one who was away still finds it (the toast only
+   * reaches who is online). Its own clock per threshold: 80 % today and 95 % an hour later are both told; each again at
+   * most once per 24 h while the disk stays there (a 95 % notice holds back the 80 % one too). The grace-period message
+   * above does not hold it back: it comes on the next check. */
+  private keepNotice(percent: number) {
+    // whole percent, as the storage card rounds it: the threshold and the words never disagree
+    const shown = Math.round(percent)
+    if (!this.o.record || shown < WARN_PERCENT) return
+    const threshold = shown >= FULL_PERCENT ? 95 : 80
+    const last = getSetting<string>(this.o.db, NOTICE_KEY[threshold])
+    if (last && this.now() - Date.parse(last) < ALERT_EVERY_MS) return
+    const at = new Date(this.now()).toISOString()
+    setSetting(this.o.db, NOTICE_KEY[threshold], at)
+    // a 95 % notice counts for 80 % too: a dip to 90 % the same day says nothing new
+    if (threshold === 95) setSetting(this.o.db, NOTICE_KEY[80], at)
+    this.o.record(threshold, shown, this.breakdown?.rooms ?? null, at)
   }
 
   /** GET /api/admin/storage */
