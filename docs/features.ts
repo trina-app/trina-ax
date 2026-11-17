@@ -174,7 +174,7 @@ export const FEATURES: Feature[] = [
 
   // ---------------- System ----------------
   { id: 'system.storage', name: 'Storage use', area: 'System', endpoints: ['storage'], screens: ['/admin/system', '/admin/system/storage'] },
-  { id: 'system.updates', name: 'Server updates', area: 'System', endpoints: ['updateStatus', 'startUpdate', 'officeUpdateStatus', 'officeUpdateAction'], screens: ['/admin/system/updates'] },
+  { id: 'system.updates', name: 'Server updates', area: 'System', endpoints: ['updateStatus', 'startUpdate', 'officeUpdateStatus', 'officeUpdateAction', 'officeClaudeMcpNotice'], screens: ['/admin/system/updates'] },
   { id: 'system.health', name: 'Health and diagnostics', area: 'System', endpoints: ['diagnostics'], screens: ['/admin/system/health'] },
   { id: 'system.connection', name: 'Team address and office network', area: 'System', endpoints: ['connection', 'updateConnection', 'connectInfo', 'lanFailure'], screens: ['/admin/system/connection'] },
   { id: 'system.backups', name: 'Backups and restore', area: 'System', endpoints: ['listBackups', 'startBackup', 'startRestore'], screens: ['/admin/system/backups'] },
