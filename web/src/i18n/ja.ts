@@ -4311,6 +4311,8 @@ export const ja: Record<MessageKey, string> = {
   "rooms.removeFile": "{name}を外す",
   "rooms.uploading": "{name}をアップロード中…",
   "rooms.uploadingMark": "ファイルをアップロード中",
+  "rooms.uploadStopped": "ページを再読み込みしたため、アップロードが止まりました。同じファイルをもう一度選ぶと続きから再開します。",
+  "rooms.filesGone": "添付したファイルがもう残っていないため、メッセージを送信できませんでした。もう一度添付してください。",
   "rooms.tooBig": "{name}は{max}を超えているため送信できません。",
   "rooms.storageFull": "チームのストレージに、このファイルを送る空き容量がありません。",
   "rooms.storageFullAsk": "チームのストレージに、このファイルを送る空き容量がありません。管理者に空き容量を作ってもらってください。",

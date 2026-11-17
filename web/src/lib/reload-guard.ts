@@ -7,6 +7,7 @@ import { mergeDraft } from './composerDraft'
 import { readDraft, writeDraft } from './localData'
 import { useChats } from '../store/chats'
 import { keepRoomDrafts, roomDrafts } from '../store/rooms'
+import { holdsRoomUploads } from '../store/roomUploads'
 import { useSession } from '../store/session'
 import { useUi } from '../store/ui'
 
@@ -14,19 +15,24 @@ import { useUi } from '../store/ui'
  * A reload now would lose something: an upload, a non-empty draft or a recording (lib/busy.ts), an answer still
  * streaming on screen, a message still being sent or marked "not sent" (it lives only in this tab's memory, chats
  * store `local`), or a reply typed in a room's box, also one whose box is not on screen now (store/rooms.ts roomDrafts;
- * kept on this device too, but a reload by itself would still take the box away under the person's hands).
+ * kept on this device too, but a reload by itself would still take the box away under the person's hands), or a file in
+ * a room's box that is up and not sent yet, or that a reload stopped (store/roomUploads.ts; QA TC-4327: the page
+ * reloaded for an update a moment after a 2 GB file was up, before the person could press send. A reload they make
+ * themselves keeps it, in this tab).
  */
 export function reloadWouldLose(): boolean {
   if (isBusy()) return true
+  if (holdsRoomUploads()) return true
   if ([...roomDrafts.values()].some((d) => d.trim())) return true
   return Object.values(useChats.getState().threads).some((th) => th.messages.some((m) => m.status === 'streaming' || !!m.local))
 }
 
 /** Something a reload would lose for good and that the person can finish: an upload, a recording (or its
  * transcription), a message still being sent or marked "not sent" (a draft is kept in this browser; an answer that
- * streams goes on on the server). */
+ * streams goes on on the server). Also a file in a room's box not sent yet: a reload keeps it, but it never goes by
+ * itself, so a page part that waits for it must not say "loads by itself" (components/ChunkErrorBoundary.tsx). */
 export function unfinishedWork(): boolean {
-  if (isBusy('upload') || isBusy('recording')) return true
+  if (isBusy('upload') || isBusy('recording') || holdsRoomUploads()) return true
   return Object.values(useChats.getState().threads).some((th) => th.messages.some((m) => !!m.local))
 }
 

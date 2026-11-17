@@ -4354,6 +4354,8 @@ export const ko = {
   "rooms.removeFile": "{name} 빼기",
   "rooms.uploading": "{name} 올리는 중…",
   "rooms.uploadingMark": "파일 올리는 중",
+  "rooms.uploadStopped": "페이지를 새로 고치면서 업로드가 멈췄어요. 같은 파일을 다시 선택하면 이어서 올려요.",
+  "rooms.filesGone": "첨부한 파일이 더 이상 남아 있지 않아 메시지를 보내지 못했어요. 파일을 다시 첨부해 주세요.",
   "rooms.tooBig": "{max}보다 큰 파일은 보낼 수 없어요: {name}",
   "rooms.storageFull": "팀 저장 공간이 부족해서 이 파일을 보낼 수 없어요.",
   "rooms.storageFullAsk": "팀 저장 공간이 부족해서 이 파일을 보낼 수 없어요. 관리자에게 공간을 비워 달라고 해 주세요.",

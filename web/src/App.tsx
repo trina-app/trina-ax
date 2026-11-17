@@ -38,7 +38,7 @@ import { resetAdminReads } from './store/adminPeople'
 import { useRailMemory } from './lib/rail'
 import { setBeforePersonSwitch, useMe, useSession } from './store/session'
 import { isGuestMe } from './lib/guests'
-import { forgetRoomUploads } from './store/roomUploads'
+import { forgetRoomUploads, restoreRoomUploads } from './store/roomUploads'
 import { clearLocalData } from './lib/localData'
 import { forgetStepsSeen } from './lib/welcome'
 import Layout from './components/Layout'
@@ -184,6 +184,15 @@ setBeforePersonSwitch(() => {
 const mediaKeyOf = (s: ReturnType<typeof useSession.getState>) => (s.status.kind === 'signed-in' ? s.status.me.session?.mediaKey ?? null : null)
 setMediaKey(mediaKeyOf(useSession.getState()))
 useSession.subscribe((s) => setMediaKey(mediaKeyOf(s)))
+
+// the files this tab's room boxes held before the page loaded again are there again (store/roomUploads.ts), for the
+// person they belong to and before their screens draw; not while a forced password change is in the way (the session's
+// stores are emptied until it is done: useSessionLifecycle below)
+const restoreUploadsOf = (s: ReturnType<typeof useSession.getState>) => {
+  if (s.status.kind === 'signed-in' && !s.status.me.user.mustChangePassword) restoreRoomUploads(s.status.me.user.id)
+}
+restoreUploadsOf(useSession.getState())
+useSession.subscribe(restoreUploadsOf)
 
 /** The page load after another person signed in over the signed-in one (tests replace it). */
 export const personSwitch = { reload: () => location.reload() }
