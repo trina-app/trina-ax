@@ -5,8 +5,10 @@ import { describe, expect, mock, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-// the main process's Electron parts are not used here (the dialog and the menu bar item are injected / off)
-mock.module('electron', () => ({ dialog: {}, Menu: {}, nativeImage: {}, shell: {}, Tray: class {} }))
+// the main process's Electron parts are not used here (the dialog and the menu bar item are injected / off). The names
+// a later test file imports from its own mock (office-update-desktop-updater: app, session, …) are here too: in one
+// test process the first mock fixes the module's export names, and CI on Linux can run this file first.
+mock.module('electron', () => ({ dialog: {}, Menu: {}, nativeImage: {}, shell: {}, Tray: class {}, app: {}, session: {}, powerMonitor: {}, BaseWindow: {}, autoUpdater: {} }))
 const { MeetingControl, NO_CALL_SOUND_MS } = await import('../../desktop/src/main/meeting-control')
 import type { DesktopMeetingState } from '../../shared/src/desktop-bridge'
 
