@@ -2784,6 +2784,8 @@ export class TurnExec {
     if (tool === 'edit_pdf' && a.replace === true) places.push({ p: srcRel, mayBeNew: false })
     else if (out) places.push({ p: out, mayBeNew: true })
     else {
+      // the tool's own name keeps the PDF's: a hidden PDF gets a hidden result, which the own-folder rule never takes
+      if (srcRel.split('/').at(-1)!.startsWith('.')) return null
       places.push({ p: inDir(tool === 'split_pdf' && str(a.output_folder) ? str(a.output_folder)! : srcDir), mayBeNew: true })
       // without an output, stamp_pdf and edit_pdf may change a PDF this answer made in place
       if ((tool === 'stamp_pdf' || tool === 'edit_pdf') && this.rt.db.query("SELECT 1 FROM file_events WHERE turn_id = ? AND path = ? AND action IN ('create', 'update') LIMIT 1").get(this.id, srcRel)) places.push({ p: srcRel, mayBeNew: false })

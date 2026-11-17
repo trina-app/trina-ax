@@ -277,6 +277,7 @@ describe('PDF tools: a new output in the person\'s own folder (TC-4703)', () => 
   test('still a card: replacing a PDF the chat did not make, an output over such a file, an output outside the own folder, a split into a group folder', async () => {
     const { roomId, dir } = await pdfSetup('pdfguard')
     put(`${dir}/old.pdf`, pdf())
+    put(`${dir}/.hidden.pdf`, pdf())
     const g = `groups/marketing/own-pdf-${uuidv7().slice(-6)}`
     fs.mkdirSync(at(g), { recursive: true })
     const chat = await newChat('alice')
@@ -288,8 +289,9 @@ describe('PDF tools: a new output in the person\'s own folder (TC-4703)', () => 
       { tool: 'stamp_pdf', args: { file_path: `${dir}/form.pdf`, image: `${dir}/seal.png`, output: `${dir}/old.pdf` }, sayResult: true },
       { tool: 'stamp_pdf', args: { file_path: `${dir}/form.pdf`, image: `${dir}/seal.png`, output: `${g}/stamped.pdf` }, sayResult: true },
       { tool: 'split_pdf', args: { file_path: `${dir}/form.pdf`, every: 1, output_folder: g }, sayResult: true },
+      { tool: 'stamp_pdf', args: { file_path: `${dir}/.hidden.pdf`, image: `${dir}/seal.png` }, sayResult: true },
       { say: 'done' })}`)
-    expect(r.cards).toHaveLength(4)
+    expect(r.cards).toHaveLength(5)
     expect(read(`${dir}/old.pdf`)).toBe(before)
     expect(exists(`${g}/stamped.pdf`)).toBe(false)
     expect(fs.readdirSync(at(g))).toEqual([])
