@@ -12,8 +12,9 @@ import { MeetingSession, type MeetingLine, type PieceAnswer } from '@mycel/share
 
 export const LIVE_RATE = 16_000
 /** the first piece of a recording ends at the first short pause (FIRST_PAUSE_MS) after FIRST_MIN_MS of speech, or by
- * FIRST_PIECE_MS at the quietest moment of its last second (talking without a pause: 1.6-2.5 s), so the first words show in about 3-4 s (measured on OpenRouter: a 4 s cut gave 5.4-5.9 s, the
- * answer taking 1.3-1.6 s); later pieces go up to the cutter's 15 s at its usual 1 s pause */
+ * FIRST_PIECE_MS at the quietest moment of its last second (talking without a pause: 1.6-2.5 s), so the first words
+ * show in about 3-4 s (measured on OpenRouter: a 4 s cut gave 5.4-5.9 s, the answer taking 1.3-1.6 s); later pieces go
+ * up to the cutter's 15 s at its usual 1 s pause */
 export const FIRST_PIECE_MS = 2_500
 export const FIRST_MIN_MS = 1_500
 export const FIRST_PAUSE_MS = 300
