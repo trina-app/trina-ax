@@ -270,7 +270,7 @@ describe('Settings › Notifications "File sharing"', () => {
       // the other switches are untouched by it
       expect((await alice.call('GET', '/api/notification-preferences')).chatShares).toBe(true)
     } finally { await ph.p.stop() }
-  })
+  }, 30_000) // adds many members (password hashing): slow on a busy CI runner
 
   test('switched off without the settings call (an older app, a race), then a new request: cancelled at send time', async () => {
     const p = `users/${ids.alice}/race.txt`

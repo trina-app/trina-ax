@@ -678,6 +678,8 @@ export function endSessions(file: string): void {
     db.transaction(() => {
       db.run('DELETE FROM sessions')
       if (has('password_resets')) db.run('DELETE FROM password_resets WHERE used_at IS NULL')
+      // the desktop app's one-time sign-in codes (auth/app-signin.ts): 3 minutes anyway, none survives a restore
+      if (has('app_signin_codes')) db.run('DELETE FROM app_signin_codes')
       if (has('invites')) db.run('DELETE FROM invites WHERE used_at IS NULL')
       // the team invite link too (auth/team-links.ts): one revoked after the copy was made would open again, with its
       // old count of uses. Revoked rather than deleted: its address then says "ask for a new link".

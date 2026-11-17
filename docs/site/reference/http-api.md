@@ -45,6 +45,8 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `GET` | `/api/invites/:token` | Anyone | What an invite link is for (team name, role, still valid?). |
 | `GET` | `/api/password-resets/:token` | Anyone | What a password reset link is for (whose account, still valid?). |
 | `POST` | `/api/password-resets/:token` | Anyone | Set a new password with a one-time reset link; ends every other session and signs in. |
+| `POST` | `/api/auth/app-signin` | Signed in | Make a one-time code (3 minutes) that signs the desktop app in as me. Cookie sessions only; rate-limited; my earlier codes stop working. |
+| `POST` | `/api/auth/app-signin/redeem` | Anyone | Sign in with a one-time code from appSignIn (once, within 3 minutes). Sets the session cookie. |
 | `POST` | `/api/invites/:token/accept` | Anyone | Create the account from an invite link and sign in. |
 
 ## Chats and projects

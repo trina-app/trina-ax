@@ -1,7 +1,9 @@
 // CI's unit test shards (scripts/ci/unit-shard.ts, .github/workflows/ci.yml "unit"): every test file runs in exactly
 // one shard, the split is the same in every job, and the shards come out near the same length.
 import { expect, test } from 'bun:test'
-import { split, timesFromLog, unitFiles } from '../../scripts/ci/unit-shard'
+import fs from 'node:fs'
+import path from 'node:path'
+import { CI_SKIPPED, split, timesFromLog, unitFiles } from '../../scripts/ci/unit-shard'
 import times from '../../scripts/ci/unit-times.json'
 
 test('every unit test file is in exactly one of the 5 shards, and the split does not change between runs', () => {
@@ -16,6 +18,18 @@ test('every unit test file is in exactly one of the 5 shards, and the split does
   expect(Math.max(...secs)).toBeLessThanOrEqual(Math.min(...secs) * 1.25)
 })
 
+test('the security tests run in the shards too (TC-3846); a file left out is named with a reason and exists', () => {
+  const files = unitFiles()
+  expect(files).toContain('tests/security/permission-matrix.test.ts')
+  expect(files).toContain('tests/security/r2-realtime-resume-revoked.test.ts')
+  const root = path.resolve(import.meta.dir, '..', '..')
+  for (const [f, why] of Object.entries(CI_SKIPPED)) {
+    expect(fs.existsSync(path.join(root, f))).toBe(true)
+    expect(why.length).toBeGreaterThan(10)
+    expect(files).not.toContain(f)
+  }
+})
+
 test('a file without a time counts as the median; one shard takes everything', () => {
   const s = split(['a', 'b', 'c', 'new'], { a: 10, b: 1, c: 1 }, 2)
   expect(s.map((x) => x.files)).toEqual([['a'], ['b', 'c', 'new']])
@@ -26,7 +40,8 @@ test("times come from a CI log: from one file's header to the next, the last to 
   const log = [
     '2026-11-09T07:06:11.5000000Z ##[group]tests/unit/a.test.ts:',
     '2026-11-09T07:06:14.0000000Z ##[group]tests/unit/b.test.ts:',
+    '2026-11-09T07:06:15.0000000Z ##[group]tests/security/c.test.ts:',
     '2026-11-09T07:06:20.0000000Z  12 pass',
   ].join('\n')
-  expect(timesFromLog(log)).toEqual({ 'tests/unit/a.test.ts': 2.5, 'tests/unit/b.test.ts': 6 })
+  expect(timesFromLog(log)).toEqual({ 'tests/unit/a.test.ts': 2.5, 'tests/unit/b.test.ts': 1, 'tests/security/c.test.ts': 5 })
 })

@@ -313,6 +313,8 @@ export class MockServer {
   deletionRequests = new Map<string, string>()
   /** people whose latest sign-in used a temporary password (Me.session.tempLogin while they must change it) */
   tempLogins = new Set<string>()
+  /** the desktop app's one-time sign-in codes (server/src/auth/app-signin.ts): code → who and until when; spent on redeem */
+  appCodes = new Map<string, { userId: string; until: number }>()
   users: User[] = []
   /** members who told an admin that Trina isn't ready (POST /api/me/ai-not-ready/tell; GET /api/me/ai-access notReadyTold) */
   notReadyTold = new Set<string>()
@@ -2615,6 +2617,23 @@ export class MockServer {
       return { cookie: this.startSession(u!), body: { me: this.me(u!, '') } }
     },
     logout: () => ({ cookie: `${DEV_SESSION_COOKIE}=; Path=/; Max-Age=0`, body: undefined }),
+    // "Continue in the Mac app" (server/src/auth/app-signin.ts): a code per person (the earlier one goes), 3 minutes, once
+    appSignIn: (c) => {
+      for (const [k, v] of this.appCodes) if (v.userId === c.user.id) this.appCodes.delete(k)
+      const code = (uuidv7() + uuidv7()).replace(/-/g, '').slice(0, 43)
+      const until = Date.now() + 3 * 60_000
+      this.appCodes.set(code, { userId: c.user.id, until })
+      return { code, expiresAt: new Date(until).toISOString() }
+    },
+    redeemAppSignIn: (c) => {
+      const a = this.appCodes.get(c.body.code)
+      // like the server: never in place of another person's sign-in, and the code stays unspent
+      if (a && a.until > Date.now() && c.user && c.user.id !== a.userId) fail('conflict', 409, 'This app is signed in as someone else on this team. Sign out first, then press the button in your browser again.', undefined, { reason: 'signed_in_as_other' })
+      this.appCodes.delete(c.body.code)
+      const u = a && a.until > Date.now() ? this.users.find((x) => x.id === a.userId && x.status === 'active') : undefined
+      if (!u) fail('gone', 410, 'This link has expired. Press the button in your browser again, or sign in with your password.')
+      return { cookie: this.startSession(u!), body: { me: this.me(u!, '') } }
+    },
     me: (c) => this.me(c.user, ''),
     // team chat rooms and the people directory (the sidebar and the phone's 대화 tab read them on every page): like a
     // server whose people are in no room yet, and the active people by name only (server/src/routes/people.ts)

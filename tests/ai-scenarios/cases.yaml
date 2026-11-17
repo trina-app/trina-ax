@@ -2046,6 +2046,18 @@ cases:
     good: Points to Settings › usage and account deletion; no invented numbers.
     checks: []
 
+
+- id: ACC-04
+  title: Continue in the desktop app after setup
+  features: [auth.app-signin]
+  lang: ko
+  context: personal
+  as: hana
+  prompt: 브라우저에서 쓰고 있는데 컴퓨터 앱으로 넘어가려면 어떻게 해? 다시 로그인해야 해?
+  expect:
+    outcome: explain
+    good: On a Mac or Windows computer, the "Open the app" line (My files, or after setup) opens the desktop app already signed in, no second password; if the app is not installed, install it and press again; not on Linux or phones; plain words.
+    checks: []
 - id: HOME-01
   title: What can I do here
   features: [home.start, onboarding.member-welcome, onboarding.welcome, onboarding.goal]

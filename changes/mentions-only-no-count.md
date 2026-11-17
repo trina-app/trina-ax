@@ -1,1 +1,0 @@
-- A conversation set to **Mentions only** (every channel by default) no longer shows a number for plain messages, as in Slack: its name turns bold, and nothing is added to its folder, the Chats count, the window title, the Dock or the phone's app icon. A message that mentions you shows **@** and counts everywhere. **All messages** and **Off** conversations look as before.
