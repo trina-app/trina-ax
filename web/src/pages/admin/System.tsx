@@ -13,7 +13,7 @@ import clsx from 'clsx'
 import { settingDesc, settingName } from '../../components/settings/SettingRow'
 import { createContext, useCallback, useContext, useEffect, useId, useState, type ReactNode } from 'react'
 import { Link, Navigate, useLocation, useParams } from 'react-router-dom'
-import type { ConnectionMode, LastRestore, PlanStatus } from '@mycel/shared/api'
+import type { ConnectionMode, LastRestore, PlanStatus, StorageBreakdown } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatDateTime, formatRelative, formatSize } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
@@ -355,7 +355,12 @@ function Health({ rev }: { rev: number }) {
   )
 }
 
-const STORAGE_PARTS = ['team', 'history', 'trash', 'backups', 'models', 'data', 'app', 'other'] as const
+// rooms: the files sent in conversations, one number (absent from an older server: no line, never a made-up 0)
+const STORAGE_PARTS = ['team', 'rooms', 'history', 'trash', 'backups', 'models', 'data', 'app', 'other'] as const
+/** The storage card's lines, in order: a part the server did not send is left out. */
+export function storageLines(b: StorageBreakdown): [(typeof STORAGE_PARTS)[number], number][] {
+  return STORAGE_PARTS.flatMap((k) => (b[k] === undefined ? [] : [[k, b[k]] as [(typeof STORAGE_PARTS)[number], number]]))
+}
 const LEVEL_TONE = { ok: 'ok', warn: 'warn', high: 'warn', full: 'danger' } as const
 
 /** Storage use of the team disk (system/storage.ts): one line with the state, a thin bar, then what uses the space. */
@@ -393,10 +398,10 @@ function Storage() {
               {s.breakdown && (
                 // two columns of quiet rows; a wide gap, so one column's size does not run into the next column's name
                 <ul className="grid gap-x-10 sm:grid-cols-2" data-testid="storage-breakdown">
-                  {STORAGE_PARTS.map((k) => (
-                    <li key={k} className="flex justify-between gap-4 border-b border-line py-1.5">
+                  {storageLines(s.breakdown).map(([k, bytes]) => (
+                    <li key={k} className="flex justify-between gap-4 border-b border-line py-1.5" data-testid={`storage-part-${k}`}>
                       <span className="min-w-0 text-muted">{t(`storage.part.${k}`)}</span>
-                      <span className="shrink-0 tabular-nums">{formatSize(s.breakdown![k], locale)}</span>
+                      <span className="shrink-0 tabular-nums">{formatSize(bytes, locale)}</span>
                     </li>
                   ))}
                 </ul>

@@ -229,6 +229,19 @@ export const CompletePasswordResetBody = z.object({
   tokenMode: z.enum(['cookie', 'bearer']).default('cookie'),
 })
 
+/** A one-time code that signs the desktop app in as the person who asked for it in their browser ("Continue in the Mac
+ * app", web /open-app; server/src/auth/app-signin.ts). The browser opens `<scheme>://open?url=<team>/app-signin#c=<code>`;
+ * the app's page redeems it. 32 random bytes (base64url, 43 characters), 3 minutes, one use, one live code per person. */
+export const AppSignInCode = z.object({ code: z.string(), expiresAt: IsoTime })
+export type AppSignInCode = z.infer<typeof AppSignInCode>
+/** The body of the redeem, shaped like the sign-in's. Cookie only: the desktop app keeps its session in a cookie; and
+ * always a desktop session (a code lifted off the link makes no session that passes for a browser or a phone). */
+export const RedeemAppSignInBody = z.object({
+  code: z.string().min(1).max(200),
+  client: z.literal('desktop').default('desktop'),
+  tokenMode: z.enum(['cookie']).default('cookie'),
+})
+
 export const UpdateMeBody = z.object({
   name: PersonName.optional(),
   /** a language, or null = follow the team default */
@@ -292,6 +305,10 @@ export const AUTH = {
   inviteInfo: endpoint({ method: 'GET', path: '/api/invites/:token', auth: 'public', owner: 'A', response: InviteInfo, summary: 'What an invite link is for (team name, role, still valid?).' }),
   passwordResetInfo: endpoint({ method: 'GET', path: '/api/password-resets/:token', auth: 'public', owner: 'A', response: PasswordResetInfo, summary: 'What a password reset link is for (whose account, still valid?).' }),
   completePasswordReset: endpoint({ method: 'POST', path: '/api/password-resets/:token', auth: 'public', owner: 'A', body: CompletePasswordResetBody, response: LoginResponse, summary: 'Set a new password with a one-time reset link; ends every other session and signs in.' }),
+  // "Continue in the Mac app" after setup (web /open-app): the browser's cookie session makes a one-time code, the
+  // desktop app's /app-signin page spends it (server/src/auth/app-signin.ts). Never a GET: the code is a sign-in
+  appSignIn: endpoint({ method: 'POST', path: '/api/auth/app-signin', auth: 'user', owner: 'A', response: AppSignInCode, summary: 'Make a one-time code (3 minutes) that signs the desktop app in as me. Cookie sessions only; rate-limited; my earlier codes stop working.' }),
+  redeemAppSignIn: endpoint({ method: 'POST', path: '/api/auth/app-signin/redeem', auth: 'public', owner: 'A', body: RedeemAppSignInBody, response: LoginResponse, summary: 'Sign in with a one-time code from appSignIn (once, within 3 minutes). Sets the session cookie.' }),
   acceptInvite: endpoint({ method: 'POST', path: '/api/invites/:token/accept', auth: 'public', owner: 'A', status: 201, body: AcceptInviteBody, response: LoginResponse, summary: 'Create the account from an invite link and sign in.' }),
 } as const
 

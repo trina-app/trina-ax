@@ -3714,6 +3714,22 @@ export class TurnExec {
   }
 
   // ---------------- files ----------------
+  /** A file of the same folder and kind (`ext`) whose content this turn's agents read (the source list, not the hashes
+   * an edit or write leaves), other than `rel` and other than files this turn made, and still there. */
+  private readBeside(rel: string, folder: string, ext: string): boolean {
+    let made: Set<string> | null = null
+    for (const e of this.files.sources.entries()) {
+      const f = e.path
+      if (f === rel || !e.via.has('read')) continue
+      const n = f.slice(f.lastIndexOf('/') + 1), i = n.lastIndexOf('.')
+      if (f.split('/').slice(0, -1).join('/') !== folder || i <= 0 || n.slice(i).toLowerCase() !== ext) continue
+      made ??= new Set((this.rt.db.query("SELECT path FROM file_events WHERE turn_id = ? AND action IN ('create', 'upload')").all(this.id) as { path: string }[]).map((x) => x.path))
+      if (made.has(f)) continue
+      try { if (fs.statSync(path.join(this.rt.files.fx.root, ...f.split('/'))).isFile()) return true } catch { /* gone */ }
+    }
+    return false
+  }
+
   /** the team paths this turn's tools created or changed (file-link-repair.ts: a link to one of them by its name) */
   private turnFilePaths(): string[] {
     return (this.rt.db.query("SELECT DISTINCT path FROM file_events WHERE turn_id = ? AND action IN ('create', 'update', 'upload')").all(this.id) as { path: string }[]).map((r) => r.path)
@@ -3739,7 +3755,12 @@ export class TurnExec {
         // made from a file in the same folder (make_file's PDF of a deck, a docx of a draft; its source only, not an
         // embedded picture or template): it belongs next to its source, and the note made the AI move the source too into a folder nobody asked for (AI flow FL-15, 11-17)
         const besideSource = typeof d.from === 'string' && folderOf(d.from) === folderOf(r.path)
-        if (!d.folder && !d.conflictCopyOf && !d.conflictOf && !renamed && !besideSource) this.loosePlaced.push(r.path)
+        // made beside a file of the same kind this turn read there (a new deck from the team's deck): the folder's own
+        // way. The note made the AI regroup both into a "발표자료" folder nobody asked for, a turn later (AI flow FL-15,
+        // always mode on dev 552bcfd56)
+        const extOf = (p: string) => { const n = p.slice(p.lastIndexOf('/') + 1); const i = n.lastIndexOf('.'); return i > 0 ? n.slice(i).toLowerCase() : '' }
+        const besideRead = !!extOf(r.path) && this.readBeside(r.path, folderOf(r.path), extOf(r.path))
+        if (!d.folder && !d.conflictCopyOf && !d.conflictOf && !renamed && !besideSource && !besideRead) this.loosePlaced.push(r.path)
       }
     }
     if (changes.length) this.rt.publishFileChanges(changes)

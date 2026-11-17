@@ -1,5 +1,6 @@
 // Route module "auth" — owner: component A (docs/WORKPLAN.md).
-// Implements: AUTH (setup, login, logout, password, me, sessions, invite info/accept, password reset links) and
+// Implements: AUTH (setup, login, logout, password, me, sessions, invite info/accept, password reset links, the desktop
+// app's one-time sign-in codes) and
 // ACCOUNT_DELETION (a person's request to have their account deleted: routes/account-deletion.ts)
 // Contract: shared/src/api/auth.ts, shared/src/api/account-deletion.ts
 import { API } from '@mycel/shared/api'
@@ -12,6 +13,7 @@ import { forgetUserName } from '../chat/runtime'
 import { fail } from '../http/errors'
 import { acceptInvite, changePassword, completeReset, inviteInfo, login, resetInfo, setup, setupStatusFor } from '../auth/accounts'
 import { authOf, installAuth } from '../auth/service'
+import { mintAppSignIn, redeemAppSignIn, voidAppSignInCodes } from '../auth/app-signin'
 import { startSweeper } from '../auth/sweeper'
 import { registerAccountsCleanup } from '../auth/account-removal'
 import { getUser, setUserLocale } from '../auth/users'
@@ -56,11 +58,17 @@ export const authRoutes: RouteModule = {
 
     kit.handle(API.logout, ({ c, auth }) => {
       a().revokeSession(auth.session.id, 'logout')
+      // a desktop sign-in code made in this browser goes with the sign-out (auth/app-signin.ts)
+      voidAppSignInCodes(ctx.db, auth.user.id)
       if (auth.via === 'cookie') a().clearCookie(c)
       // a shared computer: the browser forgets what it kept of this person (room pictures of this sign-in, the bodies
       // of private answers it stored to check again), so nothing of it is left for the next person (auth/media-key.ts)
       c.header('Clear-Site-Data', '"cache"')
     })
+
+    // "Continue in the Mac app" (web /open-app): a one-time code for the desktop app, and its redeem there
+    kit.handle(API.appSignIn, ({ c }) => mintAppSignIn(c, ctx))
+    kit.handle(API.redeemAppSignIn, ({ c, body }) => redeemAppSignIn(c, ctx, body))
 
     kit.handle(API.changePassword, async ({ c, body }) => {
       await changePassword(c, ctx, body)
