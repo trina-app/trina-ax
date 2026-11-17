@@ -344,8 +344,12 @@ describe('in a chat', () => {
     const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user', 15_000)
     // the room is in the chat's read scope and shared/ is wider: one card, the wider-audience card, which also asks for
     // the change (docs/DECISIONS.md "대화방에서 새 파일은 미리 허용": one card per call), with what it writes
-    expect(card.data.request).toMatchObject({ origin: 'server', options: [{ value: 'save' }, { value: '__always' }, { value: 'skip' }], details: [{ fields: [{ value: 'Save' }, { value: W(target) }], text: 'after the room\n' }] })
-    expect((card.data.request as { question: string }).question).toContain('Messages from your conversations')
+    // (QA TC-4815: the question names the place, so no Action or File row repeats it; no size; the text formatted)
+    expect(card.data.request).toMatchObject({ origin: 'server', options: [{ value: 'save' }, { value: '__always' }, { value: 'skip' }], details: [{ text: 'after the room\n', noSize: true, markdown: true }] })
+    expect((card.data.request as { details: { fields?: unknown }[] }).details[0]!.fields).toBeUndefined()
+    // why it asks: the small line under the buttons (this chat is not the room's side chat), not the question
+    expect((card.data.request as { note?: string }).note).toContain('Messages from your conversations')
+    expect((card.data.request as { question: string }).question).not.toContain('Messages from your conversations')
     expect((card.data.request as { question: string }).question).toContain(W(target))
     await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'skip' } })
     await ws.alice!.next('message.done', (f) => f.data.message.turnId === turnId, 30_000)
@@ -354,7 +358,7 @@ describe('in a chat', () => {
     const third = await h.api('alice').call(API.sendMessage, { params: { id: chat }, body: { content: fake({ tool: 'read', args: { file_path: target } }, { tool: 'write', args: { file_path: target, content: 'with a yes\n' } }, { say: 'saved' }), clientMessageId: cm(), attachmentIds: [] } })
     // the room is in the chat's read scope: saving where more people can see (shared/) is the one card, naming the room
     const card3 = await ws.alice!.next('turn.request', (f) => f.data.turnId === third.turnId && f.data.request.kind === 'ask_user', 15_000)
-    expect((card3.data.request as { question: string }).question).toMatch(/This came from .+ \(\d+ (person|people)\)\. Save it to .+ \(\d+ (person|people), \d+ of them can’t see where it came from\)\?/)
+    expect((card3.data.request as { question: string }).question).toMatch(/^Save to .+ \(\d+ (person|people)\)\? \d+ of them can’t see the chat it came from\.\nIt came from .+ \(\d+ (person|people)\)\./)
     await h.api('alice').call(API.answerTurn, { params: { id: third.turnId }, body: { kind: 'ask_user', requestId: card3.data.request.requestId, answer: 'save' } })
     await ws.alice!.next('message.done', (f) => f.data.message.turnId === third.turnId, 30_000)
     expect(fs.readFileSync(abs(), 'utf8')).toBe('with a yes\n')

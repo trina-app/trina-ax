@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-17 17:32
 - Branch: `fix/save-card-plain`
-- Status: in progress
+- Status: done
 - Where: component B chat (`server/src/chat/turn.ts` askWidening and confirmRoomChange, `server/src/chat/i18n.ts`,
   `server/src/chat/share-words.ts`). Why: the card and its words are built there; the web card already formats a
   detail marked `markdown` (PR #1235).

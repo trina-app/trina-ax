@@ -18,6 +18,7 @@ import type { Locale } from '@mycel/shared/api'
 import type { FileShares } from '../files/shares'
 import { hiddenEntry } from '../policy/names'
 import { SCREEN } from '../policy/refusal'
+import { carriesAddress, opaqueParts } from '../tools/url-gate'
 import { placeWords } from './place-words'
 import { tr } from './i18n'
 import { alwaysHere, type AlwaysPlace } from './always-allow'
@@ -193,6 +194,18 @@ export function plainQuote(s: string): string {
     .replace(/`+([^`\n]+)`+/g, '$1')
     .replace(/^\s{0,3}(?:#{1,6}\s+|>\s?|[-*+]\s+|\d+[.)]\s+)/gm, '')
     .replace(/\*\*|__|~~|`/g, '')
+}
+
+/** A Markdown link or image ("](") or an autolink ("<…>"): formatted, it would show its words and hide its target
+ * (mailto:, tel:, a relative or # link), so such a text stays as written on a card (review of #1235) */
+const HIDES_TARGET = /\]\(|<[^<>\s]+>/
+
+/** May a card show this text formatted with the chat's Markdown renderer (ConfirmDetail.markdown)? Only when nothing in
+ * it could hide where a link goes: no web address, no long random-looking part, no Markdown link or image, no autolink.
+ * The send-to-room card (chat/post-to-room.ts, QA TC-4791) and the save-where-more-people-can-see card (chat/turn.ts
+ * askWidening, QA TC-4815) use the same rule. */
+export function formatsSafely(text: string): boolean {
+  return opaqueParts(text).length === 0 && !carriesAddress(text) && !HIDES_TARGET.test(text)
 }
 
 /** A post's text as its card shows it: without the bold marks ("**3 tips**" reads "3 tips"; QA TC-4060, MAN-013/014/015).

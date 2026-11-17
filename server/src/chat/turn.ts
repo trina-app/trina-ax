@@ -43,7 +43,8 @@ import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlo
 import { sideRoomOf } from './side-room'
 import { saveAudienceNote } from './save-audience'
 import { quotesAppOnBranch, readRooms, withoutQuoteLines } from './read-rooms'
-import { grantOnly, othersSource, seenWhy } from './grant-reads'
+import { formatsSafely } from './share-words'
+import { grantOnly, othersSource, roomsReadOnly, seenWhy } from './grant-reads'
 import { componentC } from '../team-files/component'
 import { looseArea, placementNote } from './file-placement'
 import { FileLinkRepair, fileLinkResolver } from './file-link-repair'
@@ -2337,6 +2338,27 @@ export class TurnExec {
       ...(d.marks ? { marks: d.marks.map((m) => this.redact(m)) } : {}),
     }))
   }
+  /** What the wider-audience card shows of a call the room card would show (roomCardDetails; QA TC-4815,
+   * docs/decisions/20261117-save-card-plain.md): the question already says it saves and where, so the Action row goes,
+   * and so does a File row that names that same place; the other rows stay (a source, a template, a save-as name). No
+   * size. The text of a whole file written (write, make_file) is formatted with the chat's Markdown renderer when
+   * nothing in it could hide where a link goes (share-words.ts formatsSafely), never for an instruction file (a planted
+   * instruction stays exactly as written). */
+  private widenCardDetails(tool: string, details: ConfirmDetailT[], need: WidenNeed, instruction: boolean): ConfirmDetailT[] {
+    const L = this.spec.locale
+    const action = tr('roomAiChangeAction', L)
+    const file = tr('roomAiChangeFile', L)
+    const place = this.place(need.segs.join('/'))
+    const whole = tool === 'write' || tool === 'make_file'
+    return details.map((d) => {
+      const fields = d.fields?.filter((f) => f.name !== action && !(f.name === file && f.value === place))
+      const { fields: _old, ...rest } = d
+      return {
+        ...rest, ...(fields?.length ? { fields } : {}), noSize: true,
+        ...(whole && !instruction && !d.exact && d.text && formatsSafely(d.text) ? { markdown: true as const } : {}),
+      }
+    })
+  }
   /** a tool's own words for the room card (TurnTool.card), or null for the shared ones */
   toolCard(tool: string, input: unknown): ToolCard | null {
     return this.toolSet?.card?.(tool, input, this.spec.locale) ?? null
@@ -2520,6 +2542,9 @@ export class TurnExec {
     })
     // the same call needs the wider-audience card too: that one card, with what the call writes; its yes is the room's
     const need = o.widen && !o.noCover ? this.widenNeed(o.widen.target, o.widen.extra, undefined, o.widen.read) : null
+    // ...whose card shows what the call writes in fewer words (QA TC-4815): no Action row, no File row that repeats the
+    // question's place, no size, and a written file's text formatted when nothing in it could hide a link's target
+    const widenDetails = need ? this.widenCardDetails(tool, details, need, w.targets.some(instructionLike)) : details
     // the person's own message of this turn asks to save (docs/decisions/20261116-room-link-save-one-prompt.md, QA
     // TC-3830): a NEW file where no more people can see it than can see what this chat read (no widening card) goes
     // without the room card. It overwrites nothing and widens nothing, so a room message steering it can only add a
@@ -2536,7 +2561,7 @@ export class TurnExec {
     const approvedHere = !!fileTarget && roomAlways !== 'on' && this.mayUseApprovals() && approved(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, kind: 'file_change', target: fileTarget })
     if (approvedHere) {
       if (need) {
-        const no = await this.askWidening(need, { details, extra: instruction })
+        const no = await this.askWidening(need, { details: widenDetails, extra: instruction })
         if (no) return refuse(no.end, { also: `More people can see '${need.segs.join('/')}' (${need.viewers}) than can see what this chat read; do not save it anywhere else that more people can see`, names: [need.segs.join('/')] })
       } else if (o.main !== false) this.coverStep(tool, 'chatOnceStep')
       this.roomAllowed.add(key)
@@ -2545,7 +2570,7 @@ export class TurnExec {
     const keepApproval = () => { if (fileTarget && this.mayUseApprovals()) noteApproval(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, kind: 'file_change', target: fileTarget }) }
     if (roomAlways === 'on') {
       if (need) {
-        const no = await this.askWidening(need, { details, extra: instruction })
+        const no = await this.askWidening(need, { details: widenDetails, extra: instruction })
         if (no) return refuse(no.end, { also: `More people can see '${need.segs.join('/')}' (${need.viewers}) than can see what this chat read; do not save it anywhere else that more people can see`, names: [need.segs.join('/')] })
       }
       this.roomAllowed.add(key)
@@ -2553,7 +2578,11 @@ export class TurnExec {
     }
     if (need) {
       // the room's card too: "Always allow" for saving wider alone never skips it (both choices are needed; review of #678)
-      const no = await this.askWidening(need, { details, extra: instruction, lead: `${tr(seenWhy(this, 'roomsSeenWhy'), L)} `, room: true })
+      // why changes are asked here goes in the small line under the buttons (as on the send-to-room card, #1235), and none
+      // when every room this chat read is its side chat's own room (grant-reads.ts roomsReadOnly); the card still shows
+      const side = sideRoomOf(this.rt.db, this.spec.chatId, this.spec.userId)?.id ?? ''
+      const why = this.shared || this.othersWrote || !roomsReadOnly(this, side) ? tr(seenWhy(this, 'roomsSeenWhy'), L) : ''
+      const no = await this.askWidening(need, { details: widenDetails, extra: instruction, ...(why ? { why } : {}), room: true })
       // one card for both: the room's reason and next step (a save elsewhere needs the same card here), and where it saves
       if (no) return refuse(no.end, { also: `The same card also asked because more people can see '${need.segs.join('/')}' (${need.viewers}) than can see what this chat read; do not save it anywhere else that more people can see`, names: [need.segs.join('/')] })
       this.roomAllowed.add(key)
@@ -3374,12 +3403,17 @@ export class TurnExec {
     })
   }
 
-  /** The wider-audience card for `need` (widenNeed). `details`, `extra` and `lead`: a room change asked on this same
+  /** The wider-audience card for `need` (widenNeed). `details`, `extra` and `why`: a room change asked on this same
    * card (what the call writes, the room card's line for an instruction file, and in the person's own chat why changes
-   * are asked); its yes then covers that change too. Returns the refusal for the tool and how the card ended, or null. */
-  private async askWidening(need: WidenNeed, o: { binding?: string; details?: ConfirmDetailT[]; extra?: string; lead?: string; room?: boolean } = {}): Promise<{ text: string; end: CardEnd } | null> {
+   * are asked: the small line under the buttons, docs/decisions/20261117-save-card-plain.md); its yes then covers that
+   * change too. Returns the refusal for the tool and how the card ended, or null. */
+  private async askWidening(need: WidenNeed, o: { binding?: string; details?: ConfirmDetailT[]; extra?: string; why?: string; room?: boolean } = {}): Promise<{ text: string; end: CardEnd } | null> {
     const L = this.spec.locale
-    const { from, fromForAi } = this.widenSources(need)
+    const { from, fromForAi, chats } = this.widenSources(need)
+    // one plain question: the place and how many can see it there, how many of them cannot see where it came from, and
+    // on its own line where it came from with how many can see that (QA TC-4815; the facts of PR #1232's words)
+    const blind = need.blind > 0 ? ` ${tr(chats ? 'widenBlindChat' : 'widenBlind', L, { m: String(need.blind) })}` : ''
+    const question = `${tr('widenConfirm', L, { target: this.place(need.segs.join('/')), n: String(need.viewers) })}${blind}\n${tr('widenSource', L, { sources: from })}`
     // `room`: this card is the room's card too (confirmRoomChange). Its "Always allow" is the person's own for both kinds
     // at once (changes after a room read, and saves where more people can see): a person who meets this card first can
     // reach it here (owner 2026-11-14, QA TC-1292); it is offered while the room kind is off (with both on there is no card)
@@ -3390,8 +3424,9 @@ export class TurnExec {
     const { value: answer, missing } = await ask({
       // the place in words, not its path; a PowerPoint's SHA-256 (safe operations) is not on the card: the approval is
       // bound to those bytes on the server (o.binding, safe-ops/publication.ts) and the hash is in the activity log
-      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: (o.lead ?? '') + tr('widenConfirm', L, { ai: aiCalled(L), sources: from, target: this.place(need.segs.join('/')), n: String(need.viewers), m: String(need.blind) }) + (o.extra ?? ''),
+      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: question + (o.extra ?? ''),
       options: [{ label: tr('widenSave', L), value: 'save' }, { label: tr('widenDont', L), value: 'skip' }], multiple: false, allowText: false,
+      ...(o.why ? { note: o.why } : {}),
       ...(o.details?.length ? { details: o.details } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest & { options: { label: string; value: string }[] })
@@ -3420,7 +3455,7 @@ export class TurnExec {
    * the server's name only (any member of a group chat may set its own name). A shared chat's read scope also holds what
    * other people's turns read there (also once it stopped being shared: a deleted project's chat, the rollback guard): a
    * place this person cannot see themselves is not named to them. */
-  private widenSources(need: WidenNeed): { from: string; fromForAi: string } {
+  private widenSources(need: WidenNeed): { from: string; fromForAi: string; chats: boolean } {
     const me = this.livePrincipal()
     const L = this.spec.locale
     const labels = { mine: tr('scopeMine', L), root: tr('scopeRoot', L), room: tr('scopeRoom', L), chat: tr('scopeChatFiles', L) }
@@ -3436,7 +3471,9 @@ export class TurnExec {
       const c = sourceViewerCount(this.rt.db, rules, s, reader)
       return c.onlyReader ? tr('widenFromYou', L, { source: l }) : tr('widenFrom', L, { source: l, n: String(c.n) })
     }
-    return { from: [...new Set(need.narrower.map(counted))].join(', '), fromForAi: [...new Set(need.narrower.map((s) => label(s, false)))].join(', ') }
+    // every source a conversation the person sees (a room, a chat, Slack): "the chat it came from"; else "where it came from"
+    const chats = need.narrower.every((s) => (s.type === 'room' || s.type === 'chat' || s.type === 'slack') && !hidden(s))
+    return { from: [...new Set(need.narrower.map(counted))].join(', '), fromForAi: [...new Set(need.narrower.map((s) => label(s, false)))].join(', '), chats }
   }
 
   /** A yes to saving where more people can see (askWidening, or the skill card that carries it): these sources for that
@@ -3757,7 +3794,10 @@ export class TurnExec {
   async askAlways(kind: CardAlwaysKind, request: TurnRequest & { options: { label: string; value: string }[] }, yes: string, o: { onAlways?: () => void; label?: 'cardAlways' | 'cardAlwaysSkills' } = {}): Promise<CardAnswer> {
     let missing: CardAnswer['missing'] = null
     const value = await withAlways(this.alwaysPlace(), kind, request.options, yes, async (options, more) => {
-      const r = await this.askPerson({ ...request, options, ...more } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
+      // a card's own note (why it asks: the wider-audience card's room reason) stays, before what Always allow covers
+      const own = (request as { note?: string }).note
+      const note = [own, more.note].filter(Boolean).join(' ')
+      const r = await this.askPerson({ ...request, options, ...more, ...(note ? { note } : {}) } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
       missing = r.missing
       // the person picked "Always allow" on this card (what else the card covers is kept by the caller)
       if ((Array.isArray(r.value) && r.value.length === 1 ? r.value[0] : r.value) === ALWAYS_VALUE) o.onAlways?.()
