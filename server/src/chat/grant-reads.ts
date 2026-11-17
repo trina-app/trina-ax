@@ -76,3 +76,26 @@ const FILE_WORDS = { roomsSeenWhy: 'sharedFileSeenWhy', roomsSeenConfirm: 'share
 export function seenWhy<K extends keyof typeof FILE_WORDS>(exec: GrantReadExec, key: K): TrKey {
   return grantOnly(exec) ? FILE_WORDS[key] : key
 }
+
+/** Did every room's words in this chat come from `roomId` alone (QA TC-4791)? The room it read (the read scope), its
+ * side chat's room and a quoted message (in that room's side chat only) all name that one room, and nothing came in
+ * through a share grant, another chat or Slack. A post back to that room then tells its people nothing they could not
+ * read there, so its card does not lead with "messages from your conversations came in here" (the card itself still
+ * shows: only the words depend on this). False on any doubt: a chat with no room source at all, a quote outside the
+ * room's side chat, an error. Callers leave out shared chats and chats others write in (their messages are other
+ * people's words that no room source records). */
+export function roomsReadOnly(exec: GrantReadExec, roomId: string): boolean {
+  if (!roomId) return false
+  try {
+    const db = exec.rt.db
+    if (readByGrant(exec)) return false
+    const scope = readScope(db, exec.spec.chatId) ?? []
+    if (scope.some((s) => s.type === 'chat' || s.type === 'slack' || (s.type === 'room' && s.id !== roomId))) return false
+    const side = (db.query('SELECT side_room_id FROM chats WHERE id = ?').get(exec.spec.chatId) as { side_room_id: string | null } | null)?.side_room_id ?? null
+    if (side && side !== roomId) return false
+    if (side !== roomId && !!exec.spec.assistantId && quotesOnBranch(db, exec.spec.assistantId)) return false
+    return side === roomId || scope.some((s) => s.type === 'room')
+  } catch {
+    return false
+  }
+}

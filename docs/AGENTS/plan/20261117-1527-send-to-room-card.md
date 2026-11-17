@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-17 15:27
 - Branch: `fix/send-to-room-card`
-- Status: in progress
+- Status: done
 - Where: component B chat tools (`server/src/chat/post-to-room.ts`, `server/src/chat/i18n.ts`) and the web card
   (`web/src/components/chat/AskCard.tsx`). Why: the card and its words are built there (see docs/REPOSITORY-RULES.md)
 - Version impact: patch (the same card with fewer words and choices; no new setting, table or screen)
@@ -42,4 +42,7 @@ docs/decisions/20261117-send-to-room-card-two-buttons.md
 
 ## Result
 
-(filled in at the end)
+Built as planned. Before/after screenshots (1440 and 390, light and dark, en and ko) are in the PR, taken on a
+throwaway copy of the local QA team with the scripted AI. Send goes with the files as copies when they can go and grants
+the view for the person's own files that cannot; "Always allow" kept as on every other card; the reason line moved
+under the buttons and is left out when the only room read is the one posted to.

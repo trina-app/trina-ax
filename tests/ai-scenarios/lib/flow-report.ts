@@ -169,7 +169,7 @@ const ACTIONS: { kind: string; card: RegExp; asked: RegExp }[] = [
   { kind: 'connector write', card: /에 이 내용을 보내려고 해요|wants to send this to/i, asked: /바꿔|고쳐|추가|만들|올려|달아|옮겨|보내|넣어|update|add|create|comment|move|send|change/i },
   { kind: 'open address', card: /주소를 열려고|open this address/i, asked: /https?:\/\//i },
   { kind: 'skill save', card: /팀 스킬|스킬\/규칙|team skill/i, asked: /스킬|skill/i },
-  { kind: 'send', card: /보낼까요|올릴까요|보내기 전에|post (it|this)|send (it|this)/i, asked: /보내|올려|전달|답글|남겨|달아|공유|send|post|forward|reply/i },
+  { kind: 'send', card: /보낼까요|올릴까요|보내기 전에|post (it|this)|send (it|this|to)/i, asked: /보내|올려|전달|답글|남겨|달아|공유|send|post|forward|reply/i },
   { kind: 'save', card: /저장할까요|저장하려고|save (it|this)/i, asked: /저장|만들어|넣어|옮겨|save|make|create|put/i },
   { kind: 'delete', card: /지울까요|휴지통|delete/i, asked: /지워|삭제|빼|delete|remove/i },
   { kind: 'change', card: /바꾸기 전에|이 작업을 하려고|파일 수정/i, asked: /고쳐|바꿔|수정|추가|넣어|edit|change|fix|update/i },

@@ -18,7 +18,7 @@ import { waitFor } from '../lib/wait'
 import { CONFIRMED } from '../lib/schedule-card'
 import { roomsOf } from '../../server/src/rooms/service'
 import type { TurnTool } from '../../server/src/services'
-import { namesRecipient, postRefusal, postToRoomOff } from '../../server/src/chat/post-to-room'
+import { namesRecipient, peopleWords, postRefusal, postToRoomOff } from '../../server/src/chat/post-to-room'
 import { HttpError } from '../../server/src/http/errors'
 import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
 import { ROOMS_SEEN_READ_ONLY_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
@@ -64,7 +64,7 @@ beforeAll(async () => {
 })
 afterAll(async () => { for (const s of Object.values(socks)) s.close(); await h?.close() })
 
-type Card = { question: string; origin?: string; options?: { label: string; value: string }[]; details?: { label: string; text: string; collapsedAt?: number; marks?: string[] }[]; buttons?: boolean }
+type Card = { question: string; origin?: string; options?: { label: string; value: string }[]; details?: { label: string; text: string; collapsedAt?: number; marks?: string[]; markdown?: boolean }[]; buttons?: boolean; note?: string }
 /** One turn of `user` in `chatId` (a new chat when absent): the card it raised (answered with `answer`; null: left to time
  * out), what the AI said, and the answer's steps. */
 async function turn(user: string, content: string, o: { chat?: string; side?: string; answer?: string | null; meanwhile?: () => void | Promise<void> } = {}) {
@@ -97,7 +97,8 @@ describe('the card, and the post', () => {
     // a server card (the AI cannot write one): the room as bob sees it, its number of people, nothing at stake
     expect(r.card!.origin).toBe('server')
     expect(r.card!.question).toBe('#전체(5명)에 보낼까요?')
-    expect(r.card!.details).toEqual([{ label: '보낼 내용', text }])
+    // (formatted on the card as the room shows it, with the chat's Markdown renderer: QA TC-4791)
+    expect(r.card!.details).toEqual([{ label: '보낼 내용', text, markdown: true }])
     expect(r.card!.options!.map((x) => [x.label, x.value])).toEqual([['보내기', 'send'], ['항상 허용', '__always'], ['보내지 않기', 'no']])
     expect(r.card!.buttons).toBe(true)
     // bob's message: the text as the AI's answer, no note, no mention; the others get it
@@ -133,7 +134,7 @@ describe('the card, and the post', () => {
     const r = await turn('bob', post({ room: '전체', text: '보내지 말 것', note: '공유드려요' }), { answer: 'no' })
     // the note goes too, as bob's own words: on the card apart from the text
     // ...labelled so bob sees it will show under his name (the AI wrote it)
-    expect(r.card!.details).toEqual([{ label: '내 이름으로 보일 한마디', text: '공유드려요' }, { label: '보낼 내용', text: '보내지 말 것' }])
+    expect(r.card!.details).toEqual([{ label: '내 이름으로 보일 한마디', text: '공유드려요', markdown: true }, { label: '보낼 내용', text: '보내지 말 것', markdown: true }])
     expect(r.content).toContain('The user chose not to send it, so nothing was posted to #전체')
     expect(r.content).toContain('Do not post it another way unless the user asks again')
     expect(r.steps.find((s) => s.tool === 'post_to_room')).toMatchObject({ label: '대화에 보내기 · #전체', detail: '보내지 않았어요' })
@@ -169,20 +170,61 @@ describe('the card, and the post', () => {
     // [보내기] would also let bob open the file (alice may share it): that option says so itself, and the "can't open"
     // line is gone for him (docs/decisions/20261117-post-to-room-one-card.md); with the files the copy goes instead, so
     // the two choices read the same otherwise and there is no "With the files" line
-    expect(r.card!.question).toBe("Send this to #Everyone (5 people)?\n\n1 person there can't see some of the sources of this (groups/marketing/).\nEveryone in this conversation will see it, including people who join later.")
-    // "Always allow" on a card that offers the linked files too, as "Always send with the files" (its own kind,
-    // post_files: docs/decisions/20261116-always-allow-more-cards.md); four answers, no buttons
-    expect(r.card!.options!.map((x) => [x.label, x.value])).toEqual([['Send (1 person can then open launch-plan.md)', 'send'], ['Send with the files', 'send_files'], ['Always send with the files', '__always'], ["Don't send", 'no']])
-    expect(r.card!.buttons).toBeUndefined()
-    // the file that [파일도 함께 보내기] attaches, by its place in words and its name (chat/share-words.ts)
+    // (QA TC-4791: one plain question, who cannot open the file by name and what Send does about it, two choices; Send
+    // goes with the files, so the copy lets Bob open it)
+    expect(r.card!.question).toBe("Send to #Everyone (5 people)?\n\nBob Lee can't open the file yet; sending shares it with them.\n1 person there can't see some of the sources of this (groups/marketing/).\nEveryone in this conversation will see it, including people who join later.")
+    // "Always allow" as on every other server card (the quiet middle button and its note); on this card it answers as
+    // Send, with the files (its own kind, post_files: docs/decisions/20261116-always-allow-more-cards.md)
+    expect(r.card!.options!.map((x) => [x.label, x.value])).toEqual([['Send', 'send_files'], ['Always allow', '__always'], ["Don't send", 'no']])
+    expect(r.card!.buttons).toBe(true)
+    // the file Send attaches, by its place in words and its name (chat/share-words.ts)
     // (the card says a linked team file by its place and name; the message keeps the link: QA TC-4059)
-    expect(r.card!.details!.map((d) => [d.label, d.text])).toEqual([['What will be sent', 'Plan: Groups › marketing › launch-plan.md'], ['Attached with “Send with the files”', 'Groups › marketing › launch-plan.md']])
+    expect(r.card!.details!.map((d) => [d.label, d.text])).toEqual([['What will be sent', 'Plan: Groups › marketing › launch-plan.md'], ['Files sent with it', 'Groups › marketing › launch-plan.md']])
     const m = (await messagesAs('alice', rooms.all)).at(-1)!
     expect(m.body).toBe(text)
     expect(m.files.map((f) => f.name)).toEqual(['launch-plan.md'])
     expect(audits('alice').at(-1)).toMatchObject({ target: m.id, confirmed: true, files: 1, via: 'ai' })
     // the copy went, so nobody was given the team file itself
     expect(h.ctx.db.query("SELECT 1 FROM file_share_grants g JOIN file_shares s ON s.id = g.share_id WHERE s.path = 'groups/marketing/launch-plan.md'").get()).toBeNull()
+  })
+})
+
+describe('the card\'s words (QA TC-4791)', () => {
+  const SEEN = '여기에 대화 메시지(다른 사람이 쓴 글)가 들어와서'
+  const noteOf = (c: Card | null) => c?.note ?? ''
+
+  test('every room this chat read is the one the post goes to: no "messages came in here" line (the card still shows)', async () => {
+    // a side chat of the everyone room reads its room and posts back to it
+    const side = (await h.api('bob').call(API.createChat, { body: { sideRoomId: rooms.all } })).id
+    const r = await turn('bob', [fake({ tool: 'room_read', args: { room: rooms.all } }), post({ text: '방 요약: 출시일 12월 3일' })].join('\n'), { chat: side, answer: 'no' })
+    expect(h.ctx.db.query('SELECT rooms_seen FROM chats WHERE id = ?').get(side)).toEqual({ rooms_seen: 1 })
+    expect(r.card!.question).toBe('#전체(5명)에 보낼까요?')
+    expect(noteOf(r.card)).not.toContain(SEEN)
+    // an own chat that read only that room, posting to it: the same
+    const own = await turn('bob', [fake({ tool: 'room_read', args: { room: rooms.all } }), post({ room: rooms.all, text: '전체방 요약' })].join('\n'), { answer: 'no' })
+    expect(own.card!.question).toBe('#전체(5명)에 보낼까요?')
+    expect(noteOf(own.card)).not.toContain(SEEN)
+  })
+
+  test('another room read too, or a quote outside the room\'s side chat: the line stays, under the buttons', async () => {
+    const side = (await h.api('bob').call(API.createChat, { body: { sideRoomId: rooms.all } })).id
+    const other = await turn('bob', [fake({ tool: 'room_read', args: { room: rooms.finance } }), fake({ tool: 'room_read', args: { room: rooms.all } }), post({ text: '두 방 요약' })].join('\n'), { chat: side, answer: 'no' })
+    expect(noteOf(other.card)).toContain(SEEN)
+    expect(other.card!.question).not.toContain(SEEN)
+    // a quoted message in an ordinary chat: whose words they are is not known, so the line stays
+    const quoted = await turn('bob', ['> 누군가 쓴 글', fake({ tool: 'room_read', args: { room: rooms.all } }), post({ room: rooms.all, text: '인용 요약' })].join('\n'), { answer: 'no' })
+    expect(noteOf(quoted.card)).toContain(SEEN)
+  })
+
+  test('people are named as the card names them: up to three, then the first two and how many more', () => {
+    expect(peopleWords(['Maria'], 'en')).toBe('Maria')
+    expect(peopleWords(['Maria', 'Tom'], 'en')).toBe('Maria and Tom')
+    expect(peopleWords(['Maria', 'Tom', 'Ana'], 'en')).toBe('Maria, Tom, and Ana')
+    expect(peopleWords(['Maria', 'Tom', 'Ana', 'Bo', 'Cy'], 'en')).toBe('Maria, Tom, and 3 others')
+    expect(peopleWords(['Maria', 'Tom', 'Ana', 'Bo'], 'en')).toBe('Maria, Tom, and 2 others')
+    expect(peopleWords(['김민지', '이수진'], 'ko')).toBe('김민지, 이수진 님')
+    expect(peopleWords(['김민지', '이수진', '박하나', '최다은'], 'ko')).toBe('김민지, 이수진 님 외 2명')
+    expect(peopleWords(['Ana', 'Bo', 'Cy', 'Di'], 'ja')).toBe('Ana、Boさんほか2人')
   })
 })
 
@@ -219,7 +261,7 @@ describe('"Always send with the files" (post_files)', () => {
     const linked = (t: string) => [fake({ tool: 'read', args: { file_path: 'groups/marketing/launch-plan-3.md' } }), post({ text: t })].join('\n')
     // without the choice: the card, with "Always send with the files" offered (the person's choice counts here)
     const first = await turn('alice', `launch-plan-3.md 방에 올려줘\n${linked(text)}`, { chat: side, answer: 'no' })
-    expect(first.card!.options!.map((x) => x.value)).toEqual(['send', 'send_files', '__always', 'no'])
+    expect(first.card!.options!.map((x) => x.value)).toEqual(['send_files', '__always', 'no'])
     keepAlways(h.ctx.db, 'alice', 'post_files', null)
     try {
       // with it: no card, sent with its files, also where alice's own words do not name the file (the owner's rule)
@@ -340,9 +382,11 @@ describe('where it may not post', () => {
   test('after a room read: its own card only, no room card in front of it', async () => {
     const r = await turn('bob', [fake({ tool: 'room_read', args: { room: rooms.finance } }), post({ room: rooms.all, text: '재무방 요약' })].join('\n'), { answer: 'send' })
     expect(h.ctx.db.query('SELECT rooms_seen FROM chats WHERE id = ?').get(r.chatId)).toEqual({ rooms_seen: 1 })
-    // the first and only card is post_to_room's, with the room card's line on top (docs/DECISIONS.md "내 AI 채팅에서 대화방
-    // 읽기", fewer cards after a room read) and what the finance room's messages mean for the others
-    expect(r.card!.question).toMatch(/^여기에 대화 메시지\(다른 사람이 쓴 글\)가 들어와서, 무언가를 바꾸기 전에 먼저 물어봐요\.\n\n#전체\(5명\)에 보낼까요\?\n\n\d명은 이 내용의 일부 출처\(Finance 대화\)를 볼 수 없어요\.\n나중에 들어오는 사람을 포함해 이 대화의 모두가 보게 돼요\.$/)
+    // the first and only card is post_to_room's, with the room card's line (docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기",
+    // fewer cards after a room read) in the small line under the buttons (QA TC-4791), and what the finance room's
+    // messages mean for the others: another room than the one posted to, so the line stays
+    expect(r.card!.question).toMatch(/^#전체\(5명\)에 보낼까요\?\n\n\d명은 이 내용의 일부 출처\(Finance 대화\)를 볼 수 없어요\.\n나중에 들어오는 사람을 포함해 이 대화의 모두가 보게 돼요\.$/)
+    expect(r.card!.note).toMatch(/^여기에 대화 메시지\(다른 사람이 쓴 글\)가 들어와서, 무언가를 바꾸기 전에 먼저 물어봐요\./)
     expect(JSON.parse(r.content.slice(r.content.indexOf('{"status"')))).toMatchObject({ status: 'sent' })
   })
 
@@ -372,7 +416,7 @@ describe('a side chat: this room, or the asked message\'s thread', () => {
     const root = await h.api('alice').call(API.sendRoomMessage, { params: { id: rooms.marketing }, body: { body: 'Venue sent the exhibitor rules.', clientMessageId: cm(), mentions: [], fileIds: [] } })
     const quote = `> Alice Kim · Nov 9, 2026, 7:04 PM${threadRefToken(root.id)}\n> Venue sent the exhibitor rules.\n\n`
     const first = await turn('alice', quote + 'Summarize it for the thread\n' + post({ text: 'Summary: rules are in.' }), { side: rooms.marketing, answer: 'send' })
-    expect(first.card!.question).toBe("Send this to the thread of 'Venue sent the exhibitor rules.' in #Marketing (2 people)?")
+    expect(first.card!.question).toBe("Send to the thread of 'Venue sent the exhibitor rules.' in #Marketing (2 people)?")
     const thread = await threadAs('erin', rooms.marketing, root.id)
     expect(thread.at(-1)).toMatchObject({ body: 'Summary: rules are in.', threadRootId: root.id, sharedAnswer: { at: 0, cut: false } })
     expect(JSON.parse(first.content)).toMatchObject({ status: 'sent', thread_id: root.id })
@@ -384,7 +428,7 @@ describe('a side chat: this room, or the asked message\'s thread', () => {
     expect((await threadAs('erin', rooms.marketing, root.id)).at(-1)!.body).toBe('Rules are in.')
     // naming the room: the room itself
     const toRoom = await turn('alice', 'the room itself this time\n' + post({ room: rooms.marketing, text: 'For everyone here.' }), { chat: first.chatId, answer: 'send' })
-    expect(toRoom.card!.question).toBe('Send this to #Marketing (2 people)?')
+    expect(toRoom.card!.question).toBe('Send to #Marketing (2 people)?')
     const inRoom = (await messagesAs('erin', rooms.marketing)).at(-1)!
     expect(inRoom.body).toBe('For everyone here.')
     expect(inRoom.threadRootId).toBeUndefined()
@@ -402,7 +446,7 @@ describe('a side chat: this room, or the asked message\'s thread', () => {
     expect(r.card!.question).toContain('in #Marketing (2 people)?')
     expect((await threadAs('erin', rooms.marketing, r2.id)).at(-1)!.body).toBe('Answer: 10M')
     const side = await turn('alice', post({ text: 'Hello room' }), { side: rooms.marketing, answer: 'send' })
-    expect(side.card!.question).toBe('Send this to #Marketing (2 people)?')
+    expect(side.card!.question).toBe('Send to #Marketing (2 people)?')
     expect((await messagesAs('erin', rooms.marketing)).at(-1)!.body).toBe('Hello room')
   })
 })
@@ -486,7 +530,7 @@ describe('injection, retries and changes', () => {
       },
     })
     try {
-      expect(r.card!.question).toBe("Send this to #Everyone (5 people)?\n\n1 person there can't see some of the sources of this (groups/marketing/).\nEveryone in this conversation will see it, including people who join later.")
+      expect(r.card!.question).toBe("Send to #Everyone (5 people)?\n\n1 person there can't see some of the sources of this (groups/marketing/).\nEveryone in this conversation will see it, including people who join later.")
       expect(r.content).toContain('changed while the card waited')
       expect(r.content).toContain('call post_to_room again so they see a new card')
       expect(authored(rooms.all, 'alice')).toBe(before)
@@ -550,8 +594,8 @@ describe('to a teammate by name', () => {
     const before = audits('alice').length
     const r = await turn('alice', post({ room: 'Gina', text, own_words: true }), { answer: 'send', meanwhile: () => { during = dmOf('alice', 'gina') } })
     expect(r.card!.origin).toBe('server')
-    expect(r.card!.question).toBe('Send this to Gina Han in a new 1:1 chat?')
-    expect(r.card!.details).toEqual([{ label: 'Your message, sent under your name', text }])
+    expect(r.card!.question).toBe('Send to Gina Han in a new 1:1 chat?')
+    expect(r.card!.details).toEqual([{ label: 'Your message', text, markdown: true }])
     // nothing made while the card waited
     expect(during).toBeNull()
     const dm = dmOf('alice', 'gina')!
@@ -574,14 +618,19 @@ describe('to a teammate by name', () => {
   test('the 1:1 chat is there now: an AI summary goes to it quoted as the AI\'s answer, as before', async () => {
     const dm = dmOf('alice', 'gina')!
     const r = await turn('alice', post({ room: 'Gina Han', text: 'Summary: launch moved to Dec 3.' }), { answer: 'send' })
-    expect(r.card!.question).toBe('Send this to 1:1 chat with Gina Han (2 people)?')
-    expect(r.card!.details).toEqual([{ label: 'What will be sent', text: 'Summary: launch moved to Dec 3.' }])
+    expect(r.card!.question).toBe('Send to 1:1 chat with Gina Han (2 people)?')
+    expect(r.card!.details).toEqual([{ label: 'What will be sent', text: 'Summary: launch moved to Dec 3.', markdown: true }])
     const m = (await messagesAs('alice', dm)).at(-1)!
     expect(m.body).toBe('Summary: launch moved to Dec 3.')
-    // bold marks: the card shows the words without "**" (QA TC-4060); the message keeps them (the room shows bold)
+    // bold marks: the card formats the text as the room will (QA TC-4791, after TC-4060's "**3 tips**"): the marks stay in
+    // the text and the card draws them as bold; the message keeps them too
     const b = await turn('alice', post({ room: 'Gina Han', text: '**3 tips** for a __polite__ follow-up' }), { answer: 'send' })
-    expect(b.card!.details![0]!.text).toBe('3 tips for a polite follow-up')
+    expect(b.card!.details![0]).toMatchObject({ text: '**3 tips** for a __polite__ follow-up', markdown: true })
     expect((await messagesAs('alice', dm)).at(-1)!.body).toBe('**3 tips** for a __polite__ follow-up')
+    // a text with a web address stays as written (a formatted link would hide where it goes), still without bold marks
+    const u = await turn('alice', post({ room: 'Gina Han', text: '**Agenda**: [the plan](https://example.com/plan)' }), { answer: 'no' })
+    expect(u.card!.details![0]!.text).toBe('Agenda: [the plan](https://example.com/plan)')
+    expect(u.card!.details![0]!.markdown).toBeUndefined()
     expect(m.sharedAnswer).toEqual({ at: 0, cut: false })
     const a = audits('alice').at(-1)!
     expect(a.ownWords).toBeUndefined()
@@ -590,7 +639,7 @@ describe('to a teammate by name', () => {
 
   test('[Don\'t send] or no answer: nothing sent and no 1:1 chat made', async () => {
     const no = await turn('alice', post({ room: 'Hana Kim', text: 'Lunch at 12?', own_words: true }), { answer: 'no' })
-    expect(no.card!.question).toBe('Send this to Hana Kim in a new 1:1 chat?')
+    expect(no.card!.question).toBe('Send to Hana Kim in a new 1:1 chat?')
     expect(no.content).toContain('The user chose not to send it')
     expect(dmOf('alice', 'hana')).toBeNull()
     const late = await turn('alice', post({ room: 'Hana Kim', text: 'Lunch at 1?', own_words: true }), { answer: null })
@@ -605,7 +654,7 @@ describe('to a teammate by name', () => {
     expect(r.content).toContain('Ask the user which one they mean')
     for (const [id, name] of [['hana', 'Hana Kim'], ['hanap', 'Hana Park'], ['hanak', 'Hana Kimura']]) expect(r.content).toContain(`- ${name} · a teammate, no 1:1 chat with the user yet · room="person:${id}"`)
     const pick = await turn('alice', post({ room: 'person:hanap', text: 'Lunch?', own_words: true }), { answer: 'no' })
-    expect(pick.card!.question).toBe('Send this to Hana Park in a new 1:1 chat?')
+    expect(pick.card!.question).toBe('Send to Hana Park in a new 1:1 chat?')
     expect(dmOf('alice', 'hanap')).toBeNull()
   })
 
@@ -657,7 +706,7 @@ describe('to a teammate by name', () => {
     expect(authored(dm, 'alice')).toBe(before)
     // her name in full is that 1:1 chat, with no question
     const full = await turn('alice', post({ room: 'Hana Kim', text: 'Lunch?', own_words: true }), { answer: 'no' })
-    expect(full.card!.question).toBe('Send this to 1:1 chat with Hana Kim (2 people)?')
+    expect(full.card!.question).toBe('Send to 1:1 chat with Hana Kim (2 people)?')
     // B: a 1:1 chat with "Gina Han"; "Gina Hanson", a teammate named in full, holds that name
     h.ctx.db.query("INSERT INTO users (id, username, name, role, status) VALUES ('ginah', 'ghanson', 'Gina Hanson', 'member', 'active')").run()
     try {
@@ -672,10 +721,12 @@ describe('to a teammate by name', () => {
     put('users/alice/notes.md', 'my notes')
     const text = 'See [notes.md](/files/view?path=users/alice/notes.md)'
     const r = await turn('alice', post({ room: 'person:hanap', text }), { answer: 'no' })
-    expect(r.card!.question).toBe("Send this to Hana Park in a new 1:1 chat?\n\n1 person can't open 1 linked file.\nWith the files, everyone there can see it.")
+    // Send goes with the file (a copy): it says who that lets in
+    expect(r.card!.question).toBe("Send to Hana Park in a new 1:1 chat?\n\nHana Park can't open the file yet; sending shares it with them.")
     expect(r.card!.options!.map((x) => x.value)).toContain('send_files')
     const own = await turn('alice', post({ room: 'person:hanap', text, own_words: true }), { answer: 'no' })
-    expect(own.card!.question).toBe("Send this to Hana Park in a new 1:1 chat?\n\n1 person can't open 1 linked file.")
+    // own words go without copies, and nobody can be given a view before the chat exists: who still cannot open it
+    expect(own.card!.question).toBe("Send to Hana Park in a new 1:1 chat?\n\nHana Park can't open the linked file.")
     expect(own.card!.options!.map((x) => x.value)).not.toContain('send_files')
     expect(dmOf('alice', 'hanap')).toBeNull()
   })
@@ -725,7 +776,7 @@ describe('to a teammate by name', () => {
     }
     // the name in full is that 1:1 chat
     const full = await turn('alice', post({ room: 'Al', text: 'Lunch?', own_words: true }), { answer: 'no' })
-    expect(full.card!.question).toBe('Send this to 1:1 chat with Al (2 people)?')
+    expect(full.card!.question).toBe('Send to 1:1 chat with Al (2 people)?')
   })
 
   test('the sending limit reached while the card waits: refused before the 1:1 chat is made, nothing left behind', async () => {
@@ -787,9 +838,9 @@ describe('a shared chat: as the person whose turn it is, behind their card', () 
     const r = await turn('bob', `저것들 테스도 볼 수 있게 공유해줘\n${post({ room: 'Tess Yoon', text }).replace('Tess Yoon', '\\u0054ess Yoon')}`, { chat: chatId, answer: 'send_files' })
     expect(r.card!.origin).toBe('server')
     expect(r.card!.question.split('\n')[0]).toBe('Tess Yoon님과의 새 1:1 대화로 보낼까요?')
-    expect(r.card!.options!.map((x) => x.value)).toEqual(['send', 'send_files', 'no'])
+    expect(r.card!.options!.map((x) => x.value)).toEqual(['send_files', 'no'])
     // (linked team files by place and name on the card, QA TC-4059)
-    expect(r.card!.details!.map((d) => [d.label, d.text])).toEqual([['보낼 내용', '사진 두 장 보내요: 내 폴더 › photo-1.png 내 폴더 › photo-2.png'], ['[파일도 함께 보내기]로 첨부할 파일', '내 폴더 › photo-1.png\n내 폴더 › photo-2.png']])
+    expect(r.card!.details!.map((d) => [d.label, d.text])).toEqual([['보낼 내용', '사진 두 장 보내요: 내 폴더 › photo-1.png 내 폴더 › photo-2.png'], ['함께 보낼 파일', '내 폴더 › photo-1.png\n내 폴더 › photo-2.png']])
     // the card went to bob, never to alice, who sees the chat
     expect(cardsTo('bob', r.turnId)).toBe(1)
     expect(cardsTo('alice', r.turnId)).toBe(0)

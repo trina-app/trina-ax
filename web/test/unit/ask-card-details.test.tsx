@@ -90,3 +90,21 @@ test('alert lines (the AI\'s members card: a name not in the person\'s own messa
     removeDom()
   }
 })
+
+test('a message as the room will show it (markdown: post_to_room\'s card) is formatted, with no "**" and no size (QA TC-4791)', async () => {
+  const { loadMarkdown } = await import('../../src/components/LazyMarkdown')
+  await loadMarkdown()
+  installDom()
+  const m = await mount(<AskCard req={{ request: card([{ label: 'What will be sent', text: '**Weekly summary**\n\n- Launch moved to **Dec 3**', markdown: true }]) }} onAnswer={async () => {}} />)
+  try {
+    const box = m.get('ask-detail-text')
+    expect(box.getAttribute('data-format')).toBe('markdown')
+    expect(box.querySelector('strong')?.textContent).toBe('Weekly summary')
+    expect(box.querySelector('li')?.textContent).toBe('Launch moved to Dec 3')
+    expect(box.textContent).not.toContain('**')
+    expect(m.html()).not.toContain('data-testid="ask-detail-size"')
+  } finally {
+    await m.unmount()
+    removeDom()
+  }
+})

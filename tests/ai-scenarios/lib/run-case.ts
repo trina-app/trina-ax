@@ -134,7 +134,9 @@ export async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string,
         const decline = mode === 'decline'
         const opts = req.options ?? []
         const answer = server ? pickCard(opts, mode) : decline ? null : req.options?.length && !req.allowText ? req.options[0]!.value : (c.reply ?? GO_ON[c.lang])
-        cards.push({ kind: server ? 'server-card' : 'ai-question', origin: server ? 'server' : 'ai', question: req.question.slice(0, 400), answer, options: opts.map((o) => o.label), hasAlways: opts.some(isAlways) })
+        // (a server card's small line under its buttons says why it asks: kept with the question, so the flow report still
+        // sees it; QA TC-4791 moved the post card's reason there)
+        cards.push({ kind: server ? 'server-card' : 'ai-question', origin: server ? 'server' : 'ai', question: [req.question, server ? req.note : ''].filter(Boolean).join('\n').slice(0, 400), answer, options: opts.map((o) => o.label), hasAlways: opts.some(isAlways) })
         await api.call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: req.requestId, answer } }).catch(() => {})
       } else if (req.kind === 'dev_env_site' || req.kind === 'browser_site') {
         cards.push({ kind: req.kind, origin: 'server', question: 'host' in req ? String(req.host) : '', answer: 'once' })

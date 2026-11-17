@@ -461,6 +461,6 @@ describe('through the tools', () => {
     const all = ((await h.api('alice').call(API.listRooms)).items as { id: string; kind: string }[]).find((x) => x.kind === 'all')!.id
     const root = await h.api('bob').call(API.sendRoomMessage, { params: { id: all }, body: { body: '**Q4 plan** is `ready`', clientMessageId: cm(), mentions: [], fileIds: [] } })
     const r = await turn('alice', fake({ tool: 'post_to_room', args: { room: all, thread_id: root.id, text: 'Noted.' }, sayResult: true }), { answer: 'no' })
-    expect(r.card!.question.split('\n')[0]).toMatch(/^Send this to the thread of 'Q4 plan is ready' in #/)
+    expect(r.card!.question.split('\n')[0]).toMatch(/^Send to the thread of 'Q4 plan is ready' in #/)
   })
 })
