@@ -432,7 +432,8 @@ export function searchRooms(db: Database, userId: string, tz: string, o: SearchO
   // a search finds the words, not the meaning: asked to add a teammate's room comment, the AI searched the client's name,
   // missed "제안서에 무료 배송 조건도 넣어주세요" (no client name in it) and said the teammate had written nothing (AI flow
   // FL-14, 2026-11-17)
-  const wordsOnly = words.length ? ` Only messages with ${words.length === 1 ? 'this word' : 'these words'} are found: before you say someone did not write something, or that a room does not have it, read the room with room_read.` : ''
+  // one room: read its newest messages; all rooms: only the room where it would have been said, not every room
+  const wordsOnly = !words.length ? '' : ` Only messages with ${words.length === 1 ? 'this word' : 'these words'} are found: before you say someone did not write something${o.room !== undefined ? ', or that this room does not have it, read the room\'s newest messages with room_read.' : ', read the newest messages of the room where they would have said it with room_read (not every room).'}`
   if (!top.length) return { text: `No messages the user can see ${what || 'match'}${o.room !== undefined ? ' in that room' : ' in their rooms'}.${limits}${wordsOnly}`, seen: [], ok: true, count: 0 }
   // each room's messages as its member sees them (files, threads), then in time order again
   const seen = new Map<string, number>()

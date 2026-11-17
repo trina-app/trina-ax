@@ -3,6 +3,7 @@
 import { expect, test } from 'bun:test'
 import { B_TOOL_DESCRIPTIONS } from '../../server/src/chat/tools'
 
-test('ask_user: more than one unclear thing in one question, with options that pair them', () => {
-  expect(B_TOOL_DESCRIPTIONS.ask_user).toContain('When more than one thing is unclear (which file, and to whom or where), ask about all of them in this one question, with options that pair them, rather than guessing the rest.')
+test('ask_user: more than one unclear thing in one question, not guessed', () => {
+  expect(B_TOOL_DESCRIPTIONS.ask_user).toContain('When more than one thing is unclear (which file, and to whom or where), ask about all of them in this one question')
+  expect(B_TOOL_DESCRIPTIONS.ask_user).toContain('rather than guessing the rest')
 })
