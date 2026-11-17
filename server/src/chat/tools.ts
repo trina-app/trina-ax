@@ -21,7 +21,7 @@ import { st as skillText } from '../skills/text'
 import { audit as auditLog } from '../admin/audit'
 import { HttpError } from '../http/errors'
 import { foldKey } from '../policy/names'
-import { frequentSkills, matchSkills, resolveSkill, shortDescription, skillTag, usageScores } from './skill-list'
+import { frequentSkills, matchSkills, resolveSkill, shortDescription, skillTag, skillTitleText, usageScores } from './skill-list'
 import { addSources, sourceOf, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
 import { atLeast, isStaff, type Principal } from '../policy/access'
@@ -32,7 +32,7 @@ import { alwaysHere, withAlways } from './always-allow'
 import { fromAsker, othersWordsIn } from './shared-actions'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
 import type { StoredStep } from './store'
-import { cardEndShort, endOfText, readOnlyNote, type CardOutcome } from '../policy/refusal'
+import { cardEndShort, endOfText, projectNotFoundNote, readOnlyNote, type CardOutcome } from '../policy/refusal'
 import type { TurnFiles } from '../files/service'
 import { extractUrls, gateUrl, type ConfirmExtra, type TurnPerson } from '../tools/url-gate'
 import { ToolError } from '../policy/errors'
@@ -407,6 +407,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // a read-only refusal: who can give write access, and the person's own folder (B2, policy/refusal.ts); the
       // tool's own text stays as it is (the same for every caller)
       if (isError && text) { const ro = readOnlyFor(exec, text); if (ro) return ro }
+      // "not found or no access" on a team project the person is not in: they are not a member (the same for a missing
+      // project; policy/refusal.ts projectNotFoundNote). A guest's AI says who invited them instead (guestSection).
+      if (isError && text && !guest) { const pn = notMemberFor(exec, text); if (pn) return pn }
       // a skill saved in a shared chat: one quiet line in the answer that the people here can see it
       const skillNote = exec.sharedSkillNote(name, args, isError)
       const placed = exec.placementNote(tools.has('move_files'))
@@ -516,6 +519,14 @@ export function readOnlyFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spec'
     userId: exec.spec.userId, sees: (segs) => atLeast(rules.access(me, segs), 'read'), button: !group,
     nameable: (segs) => !group || !!exec.roomReadable?.(segs.join('/')),
   })
+}
+
+/** After "not found or no access" on projects/ or a team project the person cannot read: they are not a member of a
+ * project there (policy/refusal.ts projectNotFoundNote; scenario PRJ-01.outsider). */
+export function notMemberFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal'>, text: string): string | null {
+  if (!text.startsWith('Access denied: not found or no access')) return null
+  const rules = exec.rt.files.rules(), me = exec.livePrincipal()
+  return projectNotFoundNote(text, (segs) => atLeast(rules.access(me, segs), 'read'))
 }
 
 /** The audit line's words for a room card's refusal and a shared chat's read refusal: what happened (a scheduled run
@@ -717,7 +728,7 @@ function skillTools(exec: TurnExec): Tool[] {
         const scores = usageScores(rt.db, spec.userId, skills.map((s) => s.path))
         const hits = matchSkills(skills, a.data.query, { scores })
         const q = neutralizeTags(clipName(a.data.query, 80))
-        const line = (s: Skill) => `- ${neutralizeTags(clipName(s.name, 64))}${skillTag(s, neutralizeTags)}${s.description.trim() ? ': ' + neutralizeTags(shortDescription(s.description, 300)) : ''} (${s.path})`
+        const line = (s: Skill) => `- ${neutralizeTags(clipName(s.name, 64))}${skillTitleText(s, neutralizeTags)}${skillTag(s, neutralizeTags)}${s.description.trim() ? ': ' + neutralizeTags(shortDescription(s.description, 300)) : ''} (${s.path})`
         const searched = `${skills.length} skill${skills.length === 1 ? '' : 's'} searched`
         if (!hits.length) {
           if (!skills.length) return { ...text([`No skill this user can use matches "${q}" (${searched}).`, ...managedLines(user, a.data.query, line)].join('\n')), summary: 'find_skills -> 0 found' }
