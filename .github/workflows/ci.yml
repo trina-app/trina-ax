@@ -375,7 +375,8 @@ jobs:
     # mode full only, like the unit shards
     if: needs.scope.outputs.docs_only != 'true' && needs.scope.outputs.mode == 'full'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # 20 + the browser tests' guard set (merge_group only, its own 10-minute cap: it can never time the job out)
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -481,6 +482,61 @@ jobs:
           for l in ko id ja es zh; do DEMO_LOCALE=$l DEMO_BASE=/demo/$l/ DEMO_OUT=dist-demo-$l bun run --cwd web build:demo || exit 1; done
       # the relay suite runs in "typecheck, docs, native, relay" (full mode), which ends ~2 min before the unit shards; this job
       # keeps ~3 min of room for an advisory step before it would outlast the longest shard
+      #
+      # ADVISORY: a guard set of the web browser tests (web/package.json e2e:guard; docs/RELEASE-CI.md "14."), on a
+      # queued entry only. continue-on-error: a red guard never fails this job, so the required check ("typecheck,
+      # native, unit, fast fuzz, web, relay") is decided as before; the step summary says pass/fail and lists the failed
+      # spec:line. Chromium, one worker (the mock team server holds shared state), against the build above. A phone's
+      # font as in feature-map.yml (Roboto as sans-serif and system-ui), so the specs that measure text against its box
+      # draw it as a phone does. Its own time cap, so a hung browser never takes the job past its timeout. To be made
+      # required after ~20 green queue runs (RELEASE-CI.md); until then a red guard is read, not waited on.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        if: github.event_name == 'merge_group'
+        continue-on-error: true
+        with:
+          path: ~/.cache/ms-playwright
+          # (web/package.json pins @playwright/test; an older browser left in the cache is replaced by the install)
+          key: playwright-${{ runner.os }}-${{ hashFiles('web/package.json') }}
+          restore-keys: playwright-${{ runner.os }}-
+      - name: Browser tests, guard set (advisory)
+        id: e2e-guard
+        if: github.event_name == 'merge_group'
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/e2e-guard.json
+        run: |
+          cd web
+          # Chromium's system packages and the phone font through apt, tried again as the Tools step does
+          for try in 1 2 3 4 5; do
+            bunx playwright install-deps chromium && sudo apt-get -o Acquire::Retries=3 install -y -qq --no-install-recommends fonts-roboto-unhinted && break
+            [ "$try" = 5 ] && exit 1
+            echo "::warning::browser packages failed (try $try of 5); trying again in $((try * 20)) s"; sleep $((try * 20))
+          done
+          sudo install -m 644 test/e2e/fonts/phone-font.conf /etc/fonts/conf.d/99-mycel-e2e-phone-font.conf
+          fc-cache -f
+          bunx playwright install chromium
+          bun run e2e:guard --reporter=line,json
+      - name: Guard set in the run summary
+        if: ${{ !cancelled() && github.event_name == 'merge_group' && steps.e2e-guard.outcome != 'skipped' }}
+        continue-on-error: true
+        env:
+          OUTCOME: ${{ steps.e2e-guard.outcome }}
+          REPORT: ${{ runner.temp }}/e2e-guard.json
+        run: |
+          if [ "$OUTCOME" = success ]; then echo "### Browser tests, guard set (advisory): ✅ passed" >> "$GITHUB_STEP_SUMMARY"
+          else echo "### Browser tests, guard set (advisory): ❌ $OUTCOME (does not fail this job)" >> "$GITHUB_STEP_SUMMARY"; fi
+          bun scripts/features/e2e-failures.ts "$REPORT" "guard set" >> "$GITHUB_STEP_SUMMARY"
+          [ "$OUTCOME" = success ] || echo "::warning::advisory browser tests (guard set): $OUTCOME, see the run summary and the web-e2e-guard-results artifact"
+      - name: Guard set traces (on failure)
+        if: ${{ !cancelled() && steps.e2e-guard.outcome == 'failure' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: web-e2e-guard-results
+          path: web/test-results
+          retention-days: 7
+          if-no-files-found: ignore
 
   check:
     # the name the dev and main rulesets require (and release.yml's test needs): every job of this run's mode passed.
