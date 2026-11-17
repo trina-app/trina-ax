@@ -513,16 +513,23 @@ export function postToRoomTool(exec: TurnExec): Tool {
         let viewDone: StepFix | null = null, canOpenNow = '', viewFailed = ''
         if (shownView && !explicit && !byChat && !byAlways && roomId) {
           const offer = shareFixes.saveView(spec.userId, spec.chatId, shownView, { roomId, place: title })
+          const it = shownView.files.length === 1 ? 'the file' : 'the files'
+          // (a grant that reached nobody, or threw part-way: the offer the card made is taken back, the AI is told, and
+          // fixesAfterPost offers the button for whoever still cannot open it)
+          const failed = (why: string) => {
+            shareFixes.drop(spec.userId, offer.id)
+            viewFailed = `The post went, but giving those people access to ${it} did not work for everyone${why}: some or all of them cannot open ${shownView.files.length === 1 ? 'it' : 'them'} yet. `
+          }
           try {
             const res = shareFixes.run(spec.userId, offer.id, L)
             if (res.state === 'done') {
               viewDone = { ...offer, state: 'done', ...(res.doneCount !== undefined ? { doneCount: res.doneCount } : {}), ...(res.left ? { left: res.left } : {}) }
-              const n = res.doneCount ?? offer.count
-              canOpenNow = `${n} ${n === 1 ? 'person' : 'people'} there can now open ${shownView.files.length === 1 ? 'the file' : 'the files'}: the user's yes on the same card covered it. Tell them so in one short sentence, without naming anyone.`
-            }
+              const reached = res.doneCount ?? offer.count
+              const leftOut = res.left ? ` ${res.left} more ${res.left === 1 ? 'person' : 'people'} there still cannot open it.` : ''
+              canOpenNow = `${reached} ${reached === 1 ? 'person' : 'people'} there can now open ${it}: the user's yes on the same card covered it.${leftOut} Tell them so in one short sentence, without naming anyone.`
+            } else failed(' (nobody it was for could be reached any more)')
           } catch (e) {
-            shareFixes.drop(spec.userId, offer.id)
-            viewFailed = `The post went, but giving those people access to ${shownView.files.length === 1 ? 'the file' : 'the files'} did not work, so they cannot open ${shownView.files.length === 1 ? 'it' : 'them'} yet. `
+            failed('')
             rt.log.warn('post_to_room: the view the card named was not given', { err: e })
           }
         }

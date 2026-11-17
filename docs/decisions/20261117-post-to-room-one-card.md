@@ -33,8 +33,9 @@ offers store (`server/src/files/share-fixes.ts`), because the card and the offer
   - The post fails or is refused (someone joined while the card waited, the person lost access, the sending limit):
     nothing is posted and nothing is shared.
   - The post went and the grant fails (the person may no longer share it, the team turned off members' sharing while
-    the card waited): the post stays, nobody is given the file, the AI is told in one sentence, and the button comes
-    back under the answer when it can still be used. The offer the card made is deleted.
+    the card waited), reaches nobody, or stops part-way through several files: the post stays, the AI is told that some
+    or all of them cannot open it yet, and the button comes back under the answer for whoever still cannot open it. The
+    offer the card made is deleted.
   - The grant runs as the tap does (`ShareFixes.run`): checked again now, only people still in the room who still
     cannot open the file, never a guest or someone who joined since, audited `file.share` with `via: 'ai'`.
 - **Why:** the precedent is #1168, which made stamp_pdf's room card and its "more people can see" card one card. Here

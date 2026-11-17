@@ -381,7 +381,7 @@ describe('post to a room: who cannot open the file, one card for the post and th
       expect(out.status).toBe('sent')
       expect(postedIn(rooms.marketing, s.turnId)).toBe(1)
       expect(grants('users/alice/offer-3.txt')).toEqual([])
-      expect(out.cannot_open).toContain('The post went, but giving those people access to the file did not work')
+      expect(out.cannot_open).toContain('The post went, but giving those people access to the file did not work for everyone')
       expect(out.can_open_now).toBeUndefined()
       // no offer of that card is left behind
       expect((h.ctx.db.query("SELECT COUNT(*) n FROM share_fix_offers WHERE chat_id = ? AND kind = 'let_view' AND state = 'open'").get(chatId) as { n: number }).n).toBe(0)
