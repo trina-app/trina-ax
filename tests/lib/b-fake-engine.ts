@@ -200,17 +200,29 @@ function closeBlock() {
   }
   if (blockOpen) { out({ type: 'stream_event', event: { type: 'content_block_stop', index: 0 } }); blockOpen = false }
 }
-async function say(text: string) {
+/** what an echo says (the instructions, the message, the tool list…) streams in at most this many deltas */
+const ECHO_DELTAS = 100
+/** `chunk`: characters per delta (each delta is followed by a 2 ms pause) */
+async function say(text: string, chunk = 7) {
   if (!text || stopped) return
   if (codex) { codexText += text; return }
   if (!blockOpen) { out({ type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } } }); blockOpen = true }
-  for (let i = 0; i < text.length; i += 7) {
-    const d = text.slice(i, i + 7)
+  for (let i = 0; i < text.length; i += chunk) {
+    const d = text.slice(i, i + chunk)
     answer += d
     out({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: d } } })
     await Bun.sleep(2)
   }
 }
+
+/**
+ * What an echo directive says back (the instructions, the message, the history, the tool list, argv…): the same text
+ * as say, in at most ECHO_DELTAS deltas. At say's 7 characters per 2 ms pause, echoing the ~24,000-character
+ * instructions took 3,400 deltas and 8-9 s on a quiet Mac and over 15 s on a loaded CI runner, so a test with two
+ * echoes ran into its 30 s limit (b-chat "lost stash", dev CI 2026-11-16) as the instructions grew. Streaming in
+ * small pieces is tested with say, not with echoes.
+ */
+const sayEcho = (text: string) => say(text, Math.max(7, Math.ceil(text.length / ECHO_DELTAS)))
 
 async function saySplit(text: string) {
   if (codex || !text) return say(text)
@@ -538,8 +550,8 @@ for (const d of directives) {
   else if (d.crashOnce) {
     const marker = path.join(process.cwd(), '.crashed-once')
     if (!fs.existsSync(marker)) { fs.writeFileSync(marker, '1'); process.exit(3) }
-  } else if (d.echo === 'system') await say(system)
-  else if (d.echo === 'message') await say(message)
+  } else if (d.echo === 'system') await sayEcho(system)
+  else if (d.echo === 'message') await sayEcho(message)
   else if (d.echo === 'model') await say(`model=${model}`)
   else if (d.echo === 'resume') await say(`resumed=${resumed}`)
   else if (d.model !== undefined) await callModel(String(d.model), true, d.modelExtra && typeof d.modelExtra === 'object' ? d.modelExtra : {})
@@ -548,7 +560,7 @@ for (const d of directives) {
     let reached = false
     try { await fetch(String(d.direct), { signal: AbortSignal.timeout(3000) }); reached = true } catch {}
     await say(`direct=${reached ? 'reached' : 'blocked'}`)
-  } else if (d.echo === 'history') await say(history.map((h) => `${h.role}: ${h.text.split('\n')[0]}`).join(' | ') || '(no history)')
+  } else if (d.echo === 'history') await sayEcho(history.map((h) => `${h.role}: ${h.text.split('\n')[0]}`).join(' | ') || '(no history)')
   else if (d.echo === 'codexEnv') {
     const home = process.env.CODEX_HOME ?? ''
     let auth: any = null
@@ -556,7 +568,7 @@ for (const d of directives) {
     const px = process.env.HTTPS_PROXY ? new URL(process.env.HTTPS_PROXY) : null
     const conf = (k: string) => { const a = argv.find((x) => x.startsWith(k + '=')); return a ? a.slice(k.length + 1).replace(/^"|"$/g, '') : null }
     const tok = auth?.tokens?.access_token ?? auth?.OPENAI_API_KEY ?? ''
-    await say(JSON.stringify({ codexHome: path.relative(process.cwd(), home), account: auth?.tokens?.account_id ?? null, authMode: auth?.auth_mode ?? null,
+    await sayEcho(JSON.stringify({ codexHome: path.relative(process.cwd(), home), account: auth?.tokens?.account_id ?? null, authMode: auth?.auth_mode ?? null,
       turnToken: /^mpx_[A-Za-z0-9_-]{43}$/.test(tok), refresh: auth?.tokens?.refresh_token ?? null,
       homeEmpty: fs.readdirSync(process.env.HOME!).length === 0,
       proxyUser: px?.username ?? null, proxyHost: px ? `${px.hostname}:${px.port}` : null, sslCertFile: process.env.SSL_CERT_FILE ?? null,
@@ -583,7 +595,7 @@ for (const d of directives) {
       }
     }
     walk(process.cwd())
-    await say(Buffer.from(seen.join('\n')).toString('base64'))
+    await sayEcho(Buffer.from(seen.join('\n')).toString('base64'))
   } else if (d.refreshAuth) {
     const f = path.join(process.env.CODEX_HOME!, 'auth.json')
     const j = JSON.parse(fs.readFileSync(f, 'utf8'))
@@ -623,18 +635,18 @@ for (const d of directives) {
     await say(status)
   } else if (d.agents) await runAgents(d.agents, Number(d.lateAgentLine ?? 0))
   else if (d.init) { /* reported in the init event above */ }
-  else if (d.echo === 'agents') { const f = arg('--agents'); await say(f && fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '(no --agents)') }
-  else if (d.echo === 'subagentPrompt') { const f = arg('--append-subagent-system-prompt-file'); await say(f && fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '(none)') }
-  else if (d.echo === 'args') await say(JSON.stringify(argv))
+  else if (d.echo === 'agents') { const f = arg('--agents'); await sayEcho(f && fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '(no --agents)') }
+  else if (d.echo === 'subagentPrompt') { const f = arg('--append-subagent-system-prompt-file'); await sayEcho(f && fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '(none)') }
+  else if (d.echo === 'args') await sayEcho(JSON.stringify(argv))
   else if (d.echo === 'tools') {
     await startBridge()
     const l = br ? await rpc('tools/list', {}) : { result: { tools: [] } }
-    await say((l.result?.tools ?? []).map((t: any) => t.name).sort().join(','))
+    await sayEcho((l.result?.tools ?? []).map((t: any) => t.name).sort().join(','))
   } else if (d.echo === 'toolDescriptions') {
     // every tool's name and description as the engine is given them (tests/unit/b-guests-prompt.test.ts)
     await startBridge()
     const l = br ? await rpc('tools/list', {}) : { result: { tools: [] } }
-    await say(JSON.stringify(Object.fromEntries((l.result?.tools ?? []).map((t: any) => [t.name, String(t.description ?? '')]))))
+    await sayEcho(JSON.stringify(Object.fromEntries((l.result?.tools ?? []).map((t: any) => [t.name, String(t.description ?? '')]))))
   }
 }
 finish()
