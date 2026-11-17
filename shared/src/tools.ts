@@ -403,6 +403,7 @@ export const ShareWithPersonInput = z.strictObject({
 export const StopSharingInput = z.strictObject({
   paths: z.array(relPath).min(1).max(10).describe('The files to stop sharing (1-10): files the user owns, or team files for an admin.'),
   people: z.array(z.string().min(1).max(200)).min(1).max(10).optional().describe('Who loses access: a teammate\'s or a group\'s name as the user wrote it, or person:<id> / group:<id> from the candidates a previous call gave. Leave it out to stop sharing the files with everyone they were shared with.'),
+  same_name: z.boolean().optional().describe('true when paths are the several files that fit one name the user gave: the tool keeps only those the user can stop sharing (with the people named) and acts on that one, or returns those to ask about, or says why none can be.'),
 })
 /** share_folder (server/src/chat/share-folder.ts; docs/decisions/20261116-share-folder-tool.md): a folder in the user's
  * own files for teammates or groups, view only, files added later included; an add always behind the server's card.

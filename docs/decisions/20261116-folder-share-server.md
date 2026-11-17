@@ -57,6 +57,9 @@ review). Plan of this part: [20261116-1224-folder-share-server.md](../AGENTS/pla
   the rows go, and the archive their folder lands in is never shared.
 - **Gate:** none of this is reachable by people until the web part opens `config.folderShares` (no config key or
   environment variable sets it). It opens only after the widening checks are merged.
+  - Update: gate removed, always on (owner 2026-11-17). `server/src/files/folder-share-gate.ts`, `config.folderShares` and every closed-state path
+    (`folder_shares_soon`) are gone. `Me.server.folderShares` stays, always `true`: web, desktop and phone builds from
+    before show folder sharing only when it is `true`.
 - **Left out here** (later parts of the design): counting share readers where "more people will see this" is decided,
   the dev environment's write refusal, the AI's tools, the screens. The design's shared-files mark
   (`chats.shared_files_seen`) is not built: the `chats.others_words` mark (migration 410, the #1109 batch) replaces it.

@@ -28,8 +28,7 @@
 //   access, plus three things authorize does not do: the path's syntax is checked before it touches the disk
 //   (childSegs), the result must still be inside the shared folder, and receiverSees() must accept it.
 // - Stopping is always the owner's: taking people off and Stop never ask the team switch.
-// - The gate: until config.folderShares is true nobody can share a folder (PUT answers 400 folder_shares_soon; the
-//   dialog's read and the link answer is_folder as before this work).
+// - No rollout gate: folder sharing is always on (owner 2026-11-17).
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
@@ -37,7 +36,6 @@ import type { AppContext } from '../context'
 import { audit } from '../admin/audit'
 import { alwaysOn, teamAllowsAlways } from '../chat/always-allow'
 import { saveFolderId } from './folder-id'
-import { folderSharesOpen } from './folder-share-gate'
 import { HttpError } from '../http/errors'
 import type { Principal, RuleSet } from '../policy/access'
 import { authorize, type Authorized } from '../policy/authorize'
@@ -150,16 +148,10 @@ export class FolderShares {
   private get db() { return this.ctx.db }
   private get fx() { return this.ctx.files.fx }
   private get shares() { return fileSharesOf(this.ctx) }
-  /** the rollout gate (app-config.ts folderShares): off on every server until the web part opens it */
-  gateOn(): boolean { return folderSharesOpen(this.ctx.config) }
-
-  /** Does a call about the folder at `segs` come here? With the gate closed nothing does but a change on the caller's
-   * own files (answered `folder_shares_soon`): the dialog's read and the link answer is_folder, as before this work.
-   * A team folder's read comes here once the gate is open (`blocked: team_folder`); its change and link never do. */
+  /** Does a call about the folder at `segs` come here? Every read does (a team folder's answers `blocked: team_folder`);
+   * a change and a link only for a folder in someone's own files. */
   takes(_me: Principal, segs: readonly string[], what: 'view' | 'change' | 'link'): boolean {
-    if (what === 'view') return this.gateOn()
-    if (segs[0] !== 'users') return false
-    return what === 'change' || this.gateOn()
+    return what === 'view' || segs[0] === 'users'
   }
 
   // ---------------- which folder ----------------
@@ -261,14 +253,13 @@ export class FolderShares {
    * Add and remove people and groups on the caller's own folder, stop sharing it, or resume a paused share (PUT
    * /api/files/shares; the AI tool later). Every check runs on every call:
    *   everyone: an active member, not a guest; the folder is users/<caller>/…, a real directory they may write;
-   *   add:      the gate; the place may be shared; the disk keeps birth times; the team switch is on; the share is not
+   *   add:      the place may be shared; the disk keeps birth times; the team switch is on; the share is not
    *             paused; one send token before the people are checked; the people as for a file; at most 50 on it and
    *             100 shared folders per owner;
    *   remove, stop: nothing more (an owner can always stop, also with the team switch off, also when paused);
    *   resume:   the place and the disk; the row takes the folder that is there now.
    */
   change(me: Principal, rel0: string, add: readonly Subject[], remove0: readonly Subject[], L: Locale, via: Via = 'dialog', o: { quiet?: boolean; tokenTaken?: boolean; stop?: boolean; resume?: boolean; stepId?: string | null; turnId?: string | null } = {}): { view: FileSharesView; added: string[] } {
-    if (!this.gateOn()) throw new HttpError('validation', msg('folderSoon', L), { params: { reason: 'folder_shares_soon' } })
     const r = this.mine(me, rel0, L)
     const place = sharePlaceBlock(this.db, r.segs)
     const view = (undo?: { id: string; until: string } | null) => ({ view: { ...this.view(me, this.shares.rules(), r, L), ...(undo ? { undo } : {}) }, added: [] as string[] })
@@ -390,7 +381,7 @@ export class FolderShares {
   }
   /** For something in the caller's own files: the shared folders above it, nearest first (GET /api/files/shares). */
   throughOf(me: Principal, segs: readonly string[], L: Locale): { through?: NonNullable<FileSharesView['through']> } {
-    if (!this.gateOn() || ownerIn(segs) !== me.id) return {}
+    if (ownerIn(segs) !== me.id) return {}
     const paths = sharePaths(segs, false)
     if (!paths.length) return {}
     const rows = this.db.query(`SELECT s.id, s.path FROM file_shares s WHERE s.kind = 'folder' AND s.state = 'live' AND s.paused_at IS NULL AND s.path IN (${paths.map(() => '?').join(',')}) AND ${WITH_PEOPLE}`).all(...paths) as { id: string; path: string }[]
@@ -403,7 +394,7 @@ export class FolderShares {
    * (share-places.ts receiverSees: not a hidden, temp, project or skill place), as the share's own listing and
    * share-readers.ts count it. One query (GET /api/files/tree). */
   entryMarks(me: Principal, parent: readonly string[]): ((name: string) => 'own' | 'through' | undefined) | null {
-    if (!this.gateOn() || parent[0] !== 'users' || parent[1] !== me.id) return null
+    if (parent[0] !== 'users' || parent[1] !== me.id) return null
     const rel = parent.join('/')
     const above = sharePaths(parent)
     const rows = this.db.query(`SELECT s.path, s.kind, s.paused_at FROM file_shares s WHERE s.state = 'live' AND ${WITH_PEOPLE}

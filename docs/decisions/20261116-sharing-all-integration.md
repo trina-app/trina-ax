@@ -61,6 +61,7 @@
     already open it through the shared folder" (it only knew file shares and folder rules).
   - With the gate closed (`FOLDER_SHARES_OPEN = false`), B1's interim path stays: "I can't share the whole folder yet,
     but I can share the N files in it".
+    - Update: gate removed, always on (owner 2026-11-17). The gate, its closed path and the interim words are gone.
 - **Tests:** b-share-folder (kind offered, picked, final; file kind does not cover folders; a stop still asks; admin
   team folder → change_folder_access; the words; who_can_open through a shared folder; the gate closed path),
   c-folder-access-tool (kind offered with its note, picked, final with audit `always`, M8 skipped when on, links kept),

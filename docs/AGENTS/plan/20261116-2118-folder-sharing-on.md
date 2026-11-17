@@ -18,6 +18,7 @@ sentence that nothing would change.
 In:
 - `FOLDER_SHARES_OPEN = true` (server/src/files/folder-share-gate.ts). It stays a switch in code only: no config key, no
   environment variable; tests close it with `config.folderShares: false`.
+  - Update: gate removed, always on (owner 2026-11-17): the switch, `config.folderShares` and the closed-state tests are removed.
 - Tests that assumed the closed default: they now close it explicitly (the closed path keeps its tests) or expect open.
 - change_folder_access: when the plan changes nobody's access (no counted change here, none in a folder inside, none for
   whoever joins later), no card, nothing saved, audit reason `no_change`, one sentence in the person's language (six).

@@ -6438,13 +6438,10 @@ export class MockServer {
   // fileLinks and its people in fileGrants, by the folder's path. Whatever is inside opens by the link and a path inside
   // it (sub) for the people on it, view only; nested shares add up; a paused share opens for nobody until its owner
   // resumes it. A removal answers an undo id (10 minutes, the remover only, once). Test-only: POST /__test/folder-shares
-  // {on?: the gate (open by default, as on every server; on: false closes it), world?: Bob's folders (users/bob/Work with Plan.md, Budget.csv,
+  // {world?: Bob's folders (users/bob/Work with Plan.md, Budget.csv,
   // Q4/Notes.md and a hidden file; users/bob/Drafts; users/bob/downloads), paused?: [path] (the folder on the server is not
   // the one shared; the owner gets the notice), blocked?: {path: reason} (disk, run_active, project), wide?: the
   // caller has Always allow on for wider saves, undoExpired?: every undo has expired}.
-  /** the rollout gate (server/src/files/folder-share-gate.ts): open, as on the server; POST /__test/folder-shares
-   * {on: false} closes it */
-  folderSharesOn = true
   /** shared folders whose folder on the server is not the one shared: nobody opens them until the owner resumes */
   folderPaused = new Set<string>()
   folderBlocks = new Map<string, FolderShareBlock>()
@@ -6855,7 +6852,7 @@ export class MockServer {
       return { files: rows.filter(([q]) => !isFolder(q)).length, folders: rows.filter(([q]) => isFolder(q)).length, people: people.size, names: rows.slice(0, 5).map(([q]) => ({ name: base(q), folder: isFolder(q) })) }
     }
     const through = (p: string, u: User) => {
-      if (!this.folderSharesOn || ownerOf(p) !== u.id) return {}
+      if (ownerOf(p) !== u.id) return {}
       const rows = above(p, false).filter((f) => shared(f) && !this.folderPaused.has(f))
       return rows.length ? { through: rows.slice(0, 8).map((f) => ({ path: f, name: base(f), people: this.fileSharesView(f, u).people })) } : {}
     }
@@ -6894,7 +6891,6 @@ export class MockServer {
         return { ...r, ...through(p, c.user) }
       }
       if (this.access(p, c.user) === 'none') fail('not_found', 404)
-      if (!this.folderSharesOn) fail('validation', 400, 'This is a folder.', undefined, { reason: 'is_folder' })
       return view(p, c.user)
     }
     const basePut = h.putFileShares!
@@ -6917,7 +6913,6 @@ export class MockServer {
         return { ...r, ...through(p, c.user), ...(u ? { undo: u } : {}) }
       }
       if (this.access(p, c.user) === 'none') fail('not_found', 404)
-      if (!this.folderSharesOn) fail('validation', 400, 'Folders can\'t be shared yet.', undefined, { reason: 'folder_shares_soon' })
       if (!p.startsWith('users/')) fail('validation', 400, 'This is a folder.', undefined, { reason: 'is_folder' })
       if (ownerOf(p) !== c.user.id) fail('forbidden', 403, 'Only the owner can share this folder.', undefined, { reason: 'file_share_not_owner' })
       const block = blockOf(p, c.user)
@@ -6975,7 +6970,7 @@ export class MockServer {
     const baseLink = h.fileLink!
     h.fileLink = (c) => {
       const p: string = c.body.path
-      if (!isFolder(p) || !this.folderSharesOn || ownerOf(p) !== c.user.id || !p.startsWith('users/')) return baseLink(c)
+      if (!isFolder(p) || ownerOf(p) !== c.user.id || !p.startsWith('users/')) return baseLink(c)
       const block = blockOf(p, c.user)
       if (block) placeRefusal(block)
       const id = this.fileLinkOf(p)
@@ -6994,7 +6989,7 @@ export class MockServer {
     /** the shared folder `id` opens `sub` for `u`: by its owner, or a live, unpaused share at or above it */
     const openChild = (id: string, sub: unknown, u: User): { root: string; p: string } | null => {
       const root = this.fileLinks.get(id)
-      if (!root || !isFolder(root) || !this.folderSharesOn || u.role === 'guest') return null
+      if (!root || !isFolder(root) || u.role === 'guest') return null
       if (this.folderPaused.has(root)) return null
       const p = inside(root, sub)
       if (!p || !this.files.has(p)) return null
@@ -7015,7 +7010,7 @@ export class MockServer {
       }
       const owner = this.users.find((u) => u.id === ownerOf(root))
       const waiting = this.fileRequests.find((r) => r.path === root && r.userId === c.user.id && r.state === 'pending')
-      const canAsk = this.folderSharesOn && !this.folderPaused.has(root) && !!owner && !(owner.role === 'member' && !this.settings.memberFileShares)
+      const canAsk = !this.folderPaused.has(root) && !!owner && !(owner.role === 'member' && !this.settings.memberFileShares)
       return { status: 'no_access', canAsk, askedAt: waiting?.at ?? null }
     }
     h.sharedFolderList = (c) => {
@@ -7050,7 +7045,7 @@ export class MockServer {
     const baseAsk = h.requestFileAccess!
     h.requestFileAccess = (c) => {
       const root = this.fileLinks.get(c.params.id!)
-      if (root && isFolder(root) && (!this.folderSharesOn || this.folderPaused.has(root))) fail('forbidden', 403, undefined, undefined, { reason: 'file_request_off' })
+      if (root && isFolder(root) && this.folderPaused.has(root)) fail('forbidden', 403, undefined, undefined, { reason: 'file_request_off' })
       return baseAsk(c)
     }
 
@@ -7059,7 +7054,7 @@ export class MockServer {
     h.sharedWithMe = async (c) => {
       const r = (await baseMine(c)) as { items: { linkId: string; name: string; sharedBy: string | null; sharedAt: string; kind?: 'folder' }[]; next: string | null }
       const files = r.items.filter((i) => !isFolder(this.fileLinks.get(i.linkId) ?? ''))
-      const folders = !this.folderSharesOn ? [] : [...this.fileGrants.keys()].filter((p) => isFolder(p) && ownerOf(p) !== c.user.id && !this.folderPaused.has(p) && (this.fileGrants.get(p) ?? []).some((x) => reaches(x, c.user))).map((p) => {
+      const folders = [...this.fileGrants.keys()].filter((p) => isFolder(p) && ownerOf(p) !== c.user.id && !this.folderPaused.has(p) && (this.fileGrants.get(p) ?? []).some((x) => reaches(x, c.user))).map((p) => {
         const g = (this.fileGrants.get(p) ?? []).filter((x) => reaches(x, c.user)).map((x) => this.fileGrantMeta.get(`${p}\u0000${key(x)}`) ?? { by: ownerOf(p), at: '2026-11-01T09:00:00.000Z' }).sort((a, b) => b.at.localeCompare(a.at))[0]!
         return { linkId: this.fileLinkOf(p), name: base(p), sharedBy: this.users.find((u) => u.id === g.by)?.name ?? null, sharedAt: g.at, kind: 'folder' as const }
       })
@@ -7069,7 +7064,7 @@ export class MockServer {
     h.tree = async (c) => {
       const r = (await baseTree(c)) as TreeResponse
       const p = r.path
-      if (!this.folderSharesOn || !p.startsWith(`users/${c.user.id}`)) return r
+      if (!p.startsWith(`users/${c.user.id}`)) return r
       const covered = above(p).some((f) => shared(f) && !this.folderPaused.has(f))
       return { ...r, entries: r.entries.map((e) => ((this.fileGrants.get(e.path)?.length ?? 0) > 0 ? { ...e, shared: 'own' as const } : covered ? { ...e, shared: 'through' as const } : e)) }
     }
@@ -7078,7 +7073,7 @@ export class MockServer {
     const baseMove = h.move!
     h.move = (c) => {
       const to: string = c.body.to
-      if (this.folderSharesOn && c.body.askWiden && !c.body.confirm && ownerOf(to) === c.user.id && to.startsWith('users/')) {
+      if (c.body.askWiden && !c.body.confirm && ownerOf(to) === c.user.id && to.startsWith('users/')) {
         const added = this.users.filter((u) => u.id !== c.user.id && grantFor(parentOf(to), u) !== null && grantFor(c.body.from, u) === null).length
         if (added > 0) throw new Fail('conflict', 409, undefined, undefined, { reason: 'audience_widened', viewersAdded: added })
       }
@@ -7108,11 +7103,11 @@ export class MockServer {
     const baseMe = this.me.bind(this)
     this.me = (u, sid) => {
       const m = baseMe(u, sid)
-      return this.folderSharesOn ? { ...m, server: { ...m.server, folderShares: true as const } } : m
+      // always true, as on the server (kept for builds from before; the web does not read it)
+      return { ...m, server: { ...m.server, folderShares: true as const } }
     }
     const baseReset = this.reset.bind(this)
     this.reset = (o) => {
-      this.folderSharesOn = true
       this.folderPaused = new Set()
       this.folderBlocks = new Map()
       this.folderWideSaves = false
@@ -7122,8 +7117,7 @@ export class MockServer {
     const baseControl = this.testControl.bind(this)
     this.testControl = async (p, req) => {
       if (p !== '/__test/folder-shares') return baseControl(p, req)
-      const body = (await req.json().catch(() => ({}))) as { on?: boolean; world?: boolean; paused?: string[]; blocked?: Record<string, FolderShareBlock>; wide?: boolean; undoExpired?: boolean; grants?: { path: string; to: Sub; by: string; at?: string }[] }
-      if (body.on !== undefined) this.folderSharesOn = body.on
+      const body = (await req.json().catch(() => ({}))) as { world?: boolean; paused?: string[]; blocked?: Record<string, FolderShareBlock>; wide?: boolean; undoExpired?: boolean; grants?: { path: string; to: Sub; by: string; at?: string }[] }
       if (body.wide !== undefined) this.folderWideSaves = body.wide
       for (const [k, v] of Object.entries(body.blocked ?? {})) this.folderBlocks.set(k, v)
       if (body.undoExpired) for (const s of this.shareUndos.values()) s.until = 0

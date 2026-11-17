@@ -2,7 +2,7 @@
 // one Share dialog for a folder (what it holds, why it can't be shared for each reason, Paused + Resume, the saves line,
 // the Everyone line, the people through a folder above with no ✕, Stop sharing only with people on it and its question
 // naming nested files AND folders, Undo after a removal), the pure words (holds, people, what stays shared), which of my
-// folders are offered at all, and the gate: while it is closed the Files chip and the admin line show nothing new.
+// folders are offered at all. Folder sharing is always on (its rollout gate was removed, owner 2026-11-17).
 import { afterAll, afterEach, beforeAll, beforeEach, expect, setDefaultTimeout, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
 import { offersFolderShare, SHARE_KEPT_NAMES } from '@mycel/shared'
@@ -22,11 +22,11 @@ setDefaultTimeout(30_000)
 const en = (k: Parameters<typeof translate>[1], p: Record<string, string | number> = {}) => translate('en', k, p)
 const t = en as never as Parameters<typeof holdsText>[0]
 const PATH = 'users/bob/Work'
-const meWith = (o: { folderShares?: boolean; role?: 'member' | 'admin' } = {}) => ({
+const meWith = (o: { role?: 'member' | 'admin' } = {}) => ({
   user: { id: 'bob', username: 'bob', name: 'Bob', email: null, role: o.role ?? 'member', locale: 'en', localeChoice: null, mustChangePassword: false, prefs: {} },
   groups: [], team: { name: 'Acme', defaultLocale: 'en', chatTrashRetentionDays: 14 },
   session: { id: '01900000-0000-7000-8000-00000000000a', client: 'web', expiresAt: '2026-12-04T00:00:00.000Z' },
-  server: { version: '0', dev: false, deployment: 'self', ...(o.folderShares ? { folderShares: true } : {}) },
+  server: { version: '0', dev: false, deployment: 'self' },
 }) as unknown as Me
 const OLGA = { subjectType: 'user' as const, subjectId: 'olga', name: 'Olga' }
 const DANA = { subjectType: 'user' as const, subjectId: 'dana', name: 'Dana' }
@@ -63,7 +63,7 @@ beforeEach(() => {
   answer = base()
   useLocaleStore.setState({ locale: 'en' })
   useUi.setState({ toasts: [] } as never)
-  useSession.setState({ status: { kind: 'signed-in', me: meWith({ folderShares: true }) } } as never)
+  useSession.setState({ status: { kind: 'signed-in', me: meWith() } } as never)
 })
 afterEach(() => useSession.setState({ status }))
 afterAll(() => {
@@ -239,21 +239,8 @@ test('Everyone on the team: a folder has its own sentence', async () => {
   }
 })
 
-test('the gate closed: my folder\'s chip is today\'s and asks nothing new; the admin line does not show', async () => {
-  useSession.setState({ status: { kind: 'signed-in', me: meWith({ folderShares: false, role: 'admin' }) } } as never)
-  const m = await mount(<MemoryRouter><FolderAccessChip path={PATH} access="write" project={null} onOpen={() => {}} /><FolderShareNotice /></MemoryRouter>)
-  try {
-    const chip = await m.until(() => m.find('folder-access-chip'), 'the chip')
-    expect(chip.getAttribute('data-kind')).toBe('onlyYou')
-    expect(calls.some((c) => c.url.startsWith('/api/files/shares'))).toBe(false)
-    expect(m.find('admin-folder-share-notice')).toBeNull()
-  } finally {
-    await m.unmount()
-  }
-})
-
-test('the gate open: my shared folder\'s chip says Shared with whom; an admin reads the one-time line', async () => {
-  useSession.setState({ status: { kind: 'signed-in', me: meWith({ folderShares: true, role: 'admin' }) } } as never)
+test('my shared folder\'s chip says Shared with whom (no Me.server.folderShares needed); an admin reads the one-time line', async () => {
+  useSession.setState({ status: { kind: 'signed-in', me: meWith({ role: 'admin' }) } } as never)
   const m = await mount(<MemoryRouter><FolderAccessChip path={PATH} access="write" project={null} onOpen={() => {}} own={{ shared: true, through: 'Work', paused: false, people: [OLGA, DANA] }} /><FolderShareNotice /></MemoryRouter>)
   try {
     const chip = m.get('folder-access-chip')

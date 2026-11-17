@@ -28,7 +28,6 @@ import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT
 import { api, API, errorText } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
 import { LOCALES, useLocale, useT } from '../../i18n'
-import { useFolderSharesOn } from '../../lib/folder-share'
 import { isOwner, useMeStrict, useSession } from '../../store/session'
 import { toast } from '../../store/ui'
 import { Button, confirmDialog, Field, inputCls, Switch, useMediaQuery } from '../../components/ui'
@@ -49,7 +48,6 @@ import FileListSettings from './FileList'
 export default function TeamSettingsPage() {
   const t = useT()
   // folder sharing open: the members switch names folders too
-  const folderShares = useFolderSharesOn()
   const me = useMeStrict()
   const signedIn = useSession((s) => s.signedIn)
   const act = useAction()
@@ -258,7 +256,7 @@ export default function TeamSettingsPage() {
                         <SwitchRow id="ts-project-creators" testId="team-project-creators" value={f.projectCreators !== 'admins'} onChange={(v) => setF({ ...f, projectCreators: v ? 'members' : 'admins' })} title={t('teamSettings.projectCreators')} desc={t('teamSettings.row.projectCreatorsDesc')} />
                         {/* a member shares a file of theirs with chosen people (QA TC-3093): on by default; the owner may remove
                             every file share at once */}
-                        <SwitchRow id="ts-member-file-shares" testId="team-member-file-shares" value={f.memberFileShares} onChange={(v) => setF({ ...f, memberFileShares: v })} title={t(folderShares ? 'teamSettings.memberFileFolderShares' : 'teamSettings.memberFileShares')} desc={t(folderShares ? 'teamSettings.row.memberFileFolderSharesDesc' : 'teamSettings.row.memberFileSharesDesc')} />
+                        <SwitchRow id="ts-member-file-shares" testId="team-member-file-shares" value={f.memberFileShares} onChange={(v) => setF({ ...f, memberFileShares: v })} title={t('teamSettings.memberFileFolderShares')} desc={t('teamSettings.row.memberFileFolderSharesDesc')} />
                         {owner && <RemoveFileShares />}
                         {/* Home's "what my group often asks" (docs/DECISIONS.md "Home: what my group often asks"): on by default */}
                         <SwitchRow id="ts-often-asked" testId="team-often-asked" value={f.oftenAsked} onChange={(v) => setF({ ...f, oftenAsked: v })} title={t('teamSettings.oftenAsked')} desc={t('teamSettings.row.oftenAskedDesc')} />

@@ -12,7 +12,7 @@
 // message. "Everyone on the team" (QA TC-3509) is the search's first option, with one line before the press that the
 // whole team, also people who join later, will be able to open it. A refusal (403 not the owner or sharing off, 400, 429) says why in the server's words.
 // A folder in the person's own files (folder sharing, docs/AGENTS/plan/20261116-1330-folder-share-web.md) opens this same
-// dialog once the server says folder sharing is open (Me.server.folderShares): the server's answer has kind 'folder', and
+// dialog: the server's answer has kind 'folder', and
 // FolderShareParts.tsx adds what a folder needs (what it holds, why it can't be shared, Paused + Resume, Stop sharing
 // with Undo). A file or folder inside a shared folder lists the people of the folders above it ("through Work"), with no
 // ✕ there. Taking people off is always the owner's, also while the team switch is off; it answers with Undo.

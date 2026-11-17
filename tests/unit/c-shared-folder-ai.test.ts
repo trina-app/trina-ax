@@ -21,7 +21,6 @@ import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { newLinkId } from '../../server/src/files/shares'
 import { saveFolderId } from '../../server/src/files/folder-id'
 import { folderSharesOf } from '../../server/src/files/folder-shares'
-import { FOLDER_SHARES_OPEN } from '../../server/src/files/folder-share-gate'
 import { folderLinkOf, sharedFolderChild, sharedFoldersWith } from '../../server/src/files/shared-folder-reads'
 import { TurnFiles, type ToolCtx } from '../../server/src/files/service'
 import { componentC } from '../../server/src/team-files/component'
@@ -87,10 +86,6 @@ afterAll(async () => {
   dropAlways(db(), 'bob', 'card:share_files')
   for (const s of Object.values(socks)) s.close()
   await h?.close()
-})
-
-test('the gate is open by default; these tests reach the folder rows directly either way', () => {
-  expect(FOLDER_SHARES_OPEN).toBe(true)
 })
 
 describe('list and read by link, never by path', () => {
