@@ -304,7 +304,7 @@ export function overlayBackCases() {
     await page.goto('/rooms')
     await expect(page.getByTestId('rooms-page')).toBeVisible()
     await page.getByTestId('topbar-new-dm').click()
-    const picker = page.getByRole('dialog', { name: '새 대화' })
+    const picker = page.getByRole('dialog', { name: '새 메시지' })
     await expect(picker).toBeVisible()
     await back(page)
     await expect(picker).toHaveCount(0)
