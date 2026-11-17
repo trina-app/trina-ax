@@ -97,6 +97,8 @@ export const FOLDER_TEXT = {
   yesRemoveLinks: t('바꾸고 파일 공유도 없애기', 'Change and remove file shares', 'Ubah dan hapus bagikan berkas', '変更してファイル共有も外す', 'Cambiar y quitar los archivos compartidos', '修改并取消文件共享'),
   yesKeepLinks: t('바꾸고 파일 공유는 두기', 'Change, keep file shares', 'Ubah, pertahankan bagikan berkas', '変更してファイル共有は残す', 'Cambiar y mantener los archivos compartidos', '修改但保留文件共享'),
   no: t('취소', 'Cancel', 'Batal', 'キャンセル', 'Cancelar', '取消'),
+  /** the plan changes nobody's access (the same people, with the same access, before and after): no card (QA TC-4390) */
+  noChange: t('바꿔도 달라지는 게 없어요. {folder} 폴더는 지금과 같은 사람들이 같은 권한으로 열 수 있어요.', 'Nothing would change: the same people can open {folder}, with the same access, before and after.', 'Tidak ada yang berubah: orang yang sama tetap bisa membuka {folder} dengan akses yang sama.', '変更しても何も変わりません。{folder}は今と同じ人が同じ権限で開けます。', 'No cambiaría nada: las mismas personas pueden abrir {folder}, con el mismo acceso, antes y después.', '不会有任何变化：修改前后，能打开{folder}的人和权限都一样。'),
 } satisfies Record<string, L6>
 // (Spanish: "¿Quitar a {who}…" with "el grupo Ventas" reads "al grupo Ventas": shared/src/es-contract.ts)
 const fill = (s: string, v: Record<string, string | number>, L: Locale) => esContract(fillPlurals(s, v, L).replace(/\{(\w+)\}/g, (_, k) => esMark(L, String(v[k] ?? ''))))
@@ -277,6 +279,11 @@ export function folderAccessToolFor(exec: FolderExec): Tool {
     const planned = planFor(path, subject, input.action, input.access, L)
     if ('text' in planned) return refused(planned.reason, planned.text, path)
     const p = planned
+    // nobody's access changes, here or in a folder inside, today or for whoever joins later (they already open it
+    // through a group, everyone or a folder above): no card, nothing saved, one plain sentence (QA TC-4390: the card
+    // offered "Change" with the same people before and after)
+    if (!p.preview.changes.some((c) => c.count > 0) && !p.preview.below.some((b) => b.less || b.more) && !p.preview.belowMore && !p.preview.latentMore)
+      return refused('no_change', `${NONE}: this change would not change who can open the folder or what they can do there (the same people, with the same access, before and after), so nothing was asked or saved. Tell the user exactly this one sentence and nothing more: "${say('noChange', L, { folder: p.place })}"`, path)
 
     if (state.declined) return refused('declined', refusal({ done: NONE, why: { kind: 'declined' }, also: 'The user said no to a folder access card earlier in this answer, so no other is asked in it; do not change it another way', next: cardNext('declined') }), path)
     if (state.shown >= MAX_FOLDER_CARDS) return refused('too_many', refusal({ done: NONE, why: { kind: 'limit', limit: `at most ${MAX_FOLDER_CARDS} folder access cards in one answer`, resets: 'with the user\'s next message' }, next: 'tell the user what is left; they can ask again in a new message' }), path)
