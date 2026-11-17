@@ -14,7 +14,10 @@ import { officeHomeOf } from '../routes/office-update'
 
 /** names listed at most; the rest are counted */
 export const NOTICE_NAMES = 20
-/** audit entries read at most (one per removal; a turn that plants again and again makes many) */
+/** a connection's name shown as it is: letters, digits and a few signs, at most 80 */
+const SAFE_NAME = /^[\p{L}\p{N}][\p{L}\p{N} ._@:+-]{0,79}$/u
+/** audit entries read at most (the oldest first: the notice is about when it started; each entry keeps at most 20 names,
+ * so moreNames can undercount, which a notice may) (one per removal; a turn that plants again and again makes many) */
 const ENTRIES = 500
 
 /** `p` with the home folder as ~ */
@@ -27,18 +30,21 @@ export function claudeMcpNotice(ctx: Pick<AppContext, 'config'> & { db: Database
   if (!rows.length) return null
   const dir = claudeMcpBackupDir(ctx)
   const names = new Set<string>()
+  const other = new Set<string>()
   for (const r of rows) {
     let d: { names?: unknown; backup?: unknown } = {}
     try { d = JSON.parse(r.detail ?? '{}') } catch {}
     const listed = Array.isArray(d.names) ? d.names.map(String) : typeof d.backup === 'string' ? backupNames(dir, d.backup) ?? [] : []
-    for (const n of listed) { const v = n.replace(/\s+/g, ' ').trim().slice(0, 80); if (v) names.add(v) }
+    // a name an AI turn may have planted goes into a card the owner trusts: plain visible characters only (no control,
+    // format, bidi or zero-width ones), else it is not listed by name
+    for (const n of listed) { const v = n.replace(/\s+/g, ' ').trim(); if (SAFE_NAME.test(v)) names.add(v); else if (v) other.add(v) }
   }
   const all = [...names]
   const inst = officeHomeOf(ctx.config)
   return {
     firstAt: rows[0]!.at,
     names: all.slice(0, NOTICE_NAMES),
-    moreNames: Math.max(0, all.length - NOTICE_NAMES),
+    moreNames: Math.max(0, all.length - NOTICE_NAMES) + other.size,
     backupFolder: tilde(dir, home),
     teamax: tilde(inst ? path.join(inst, 'teamax') : path.join(home, 'TeamAX', 'teamax'), home),
   }

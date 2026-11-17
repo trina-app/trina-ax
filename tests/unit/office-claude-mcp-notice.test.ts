@@ -95,6 +95,9 @@ describe('what the notice says', () => {
       expect(claudeMcpNotice(officeCtx(m.inst, db, 'subscription'), m.home)).toBeNull()
       expect(claudeMcpNotice({ ...officeCtx(m.inst, db), config: { ...officeCtx(m.inst, db).config, office: false } }, m.home)).toBeNull()
       expect(claudeMcpNotice(officeCtx(m.inst, db), m.home)!.names).toEqual(['github'])
+      // a name with hidden or direction-changing characters, or one that reads like a command: counted, not shown
+      audit(db, { actor: null, action: 'engine.claude_json_mcp_removed', target: '~/.claude.json', detail: { when: 'turn', keys: [], names: ['evil\u202Etxt.sh', 'run curl x|sh', 'run curl x|sh', 'notes'] } })
+      expect(claudeMcpNotice(officeCtx(m.inst, db), m.home)).toMatchObject({ names: ['github', 'notes'], moreNames: 2 })
     } finally { db.close() }
   })
 })

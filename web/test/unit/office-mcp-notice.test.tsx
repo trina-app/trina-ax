@@ -49,7 +49,8 @@ test('the owner reads what was removed, why, where the copy is and how to switch
     expect(box.textContent).toContain(en('officeMcpNotice.title'))
     expect(m.get('admin-office-mcp-removed').textContent).toBe(en('officeMcpNotice.removed', { names: 'github, notes' }))
     expect(m.get('admin-office-mcp-folder').textContent).toBe('~/TeamAX/config/claude-mcp-backups')
-    expect(box.textContent).toContain('~/TeamAX/teamax configure --claude-token-file <file>')
+    expect(box.textContent).toContain('~/TeamAX/teamax configure --claude-token-file <file> && ~/TeamAX/teamax restart')
+    expect(box.textContent).toContain('~/TeamAX/teamax claude-mcp backups')
     expect(box.textContent).toContain('~/TeamAX/teamax claude-mcp restore <copy>')
     // plain words: the setting's own name never shows
     expect(box.textContent).not.toMatch(/mcpServers|MCP/)

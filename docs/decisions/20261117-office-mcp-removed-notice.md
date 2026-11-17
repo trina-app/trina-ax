@@ -19,10 +19,15 @@
   `names` (the servers of `mcpServers` and `enabledMcpjsonServers`, at most 20). For entries written before that, the
   names come from the copy the entry names (only a file of the copies folder by its base name). There is no new table
   and no migration. Endpoint: `GET /api/admin/office-claude-mcp-notice` (owner).
+- **Names are data an AI turn may have planted:** only names of plain letters, digits and a few signs (at most 80) are
+  shown; others are counted. The card says that a copy saved after an AI answer may hold something the AI added, and to
+  put back only connections the owner recognises (the restore command lists each one and asks again).
 - **Words:** "Claude Code connections", never "mcpServers" or "MCP". The commands stay as they are: the owner of an
   office Mac ran the installer in Terminal, and the docs use the same commands.
 - **Left out:** stopping the guard on update, or switching such installs to the token mode on their own. The guard is a
   security boundary, and the switch needs a token only the owner can make. The card also shows on a new install, after
   the installer already asked. Once is harmless there.
+- **Retention:** the notice reads the audit list. If the audit cleanup removed every removal entry before the owner
+  opened Admin, the card does not show. Accepted for a one-time notice.
 - **Tests:** `tests/unit/office-claude-mcp-notice.test.ts`, `web/test/unit/office-mcp-notice.test.tsx`.
 - **Version impact:** server and web; no migration. New screen text in six languages.

@@ -44,11 +44,11 @@ export function OfficeMcpNotice() {
           </div>
           <div>
             <p className="text-muted">{t('officeMcpNotice.switch')}</p>
-            <code className={code}>{`${notice.teamax} configure --claude-token-file <file>`}</code>
+            <code className={code}>{`${notice.teamax} configure --claude-token-file <file> && ${notice.teamax} restart`}</code>
           </div>
           <div>
             <p className="text-muted">{t('officeMcpNotice.restore')}</p>
-            <code className={code}>{`${notice.teamax} claude-mcp restore <copy>`}</code>
+            <code className={code}>{`${notice.teamax} claude-mcp backups\n${notice.teamax} claude-mcp restore <copy>`}</code>
           </div>
           <Button size="sm" variant="primary" onClick={seen} data-testid="admin-office-mcp-ok">{t('officeMcpNotice.ok')}</Button>
         </div>
