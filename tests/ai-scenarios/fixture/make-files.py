@@ -473,7 +473,31 @@ def quote_daeun_xlsx(path):
     wb.save(path)
 
 
+def account_form_pdf(path):
+    """A one-page blank account-report form (text layer, empty fields, a "(인)" sign spot lower right)."""
+    c = canvas.Canvas(path, pagesize=A4)
+    w, h = A4
+    c.setTitle('계좌 신고서 양식 (가상)')
+    c.setFont('KRB', 22)
+    c.drawCentredString(w / 2, h - 90, '계 좌 신 고 서')
+    c.setFont('KR', 10)
+    c.drawCentredString(w / 2, h - 112, '(양식, 테스트용 가짜 서류)')
+    c.setFont('KR', 13)
+    y = h - 180
+    for label in ['상호', '사업자등록번호', '대표자', '은행', '계좌번호', '예금주']:
+        c.drawString(70, y, label + ' :')
+        c.line(190, y - 3, 500, y - 3)
+        y -= 44
+    c.setFont('KR', 12)
+    c.drawString(70, y - 20, '위와 같이 계좌를 신고합니다.')
+    c.drawString(70, y - 44, '신고일 :        년     월     일')
+    c.drawRightString(500, y - 110, '신고인  대표자          (인)')
+    c.showPage()
+    c.save()
+
+
 def chat_files():
+    account_form_pdf(chat_out('계좌신고서-양식.pdf'))
     refund_account_xlsx(chat_out('환불계좌-신청서.xlsx'))
     bankbook_pdf(chat_out('통장사본.pdf'))
     quote_daeun_xlsx(chat_out('견적서-다은.xlsx'))

@@ -3011,3 +3011,21 @@ cases:
     checks:
       - { type: file_created, file: "{shared,groups,projects}/**/*견적서-다은*" }
       - { type: tool_used, any: [save_room_file] }
+
+- id: RFILE-07
+  title: Fill and seal a form a teammate posted in a thread
+  features: [rooms.threads, rooms.files, files.edit]
+  lang: ko
+  context: personal
+  as: sora
+  prompt: leads 스레드에 강현님이 올린 계좌신고서 양식 우리 회사 정보로 채워서 직인 찍어줘
+  expect:
+    outcome: do
+    good: "Finds 계좌신고서-양식.pdf in the thread of the leads chat (posted by 이강현) and gets it itself, without asking sora to download or attach it (a copy of the room file goes into her own files). Fills 상호, 사업자등록번호, 대표자, 은행, 계좌번호 and 예금주 from the company's own information in the team files (shared/회사정보/회사-기본정보.md: 가나다오피스 주식회사(가상), 000-00-00001, 박가상(가짜), 가나다은행(가짜), 000-0000-0000-01 (가짜)), invents no numbers, puts the company seal (shared/도장/회사직인.png) at the (인) spot, checks the result, and says where the new PDF is. The room's own file stays as it was. Asks only for something that is really not anywhere (the date, for instance)."
+    checks:
+      - { type: file_created, file: "{users/sora,shared,groups,projects}/**/*.pdf" }
+      - { type: pdf_text, file: "{users/sora,shared,groups,projects}/**/*.pdf", text: "가나다오피스" }
+      - { type: pdf_text, file: "{users/sora,shared,groups,projects}/**/*.pdf", text: "000-00-00001" }
+      - { type: pdf_image_on_page, file: "{users/sora,shared,groups,projects}/**/*.pdf", page: 1 }
+      - { type: tool_used, any: [save_room_file] }
+  why: A form a teammate posted in a thread has to be fetched from the room before it can be filled and stamped; the AI used to ask the person to download it.

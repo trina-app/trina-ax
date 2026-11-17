@@ -178,6 +178,8 @@ export async function seedFixture(o: { base: string; setupToken: string | null; 
       const root = await sora.call(API.sendRoomMessage, { params: { id: leads.id }, body: { body: '신규 리드 서류 여기 모아둘게요', mentions: [], clientMessageId: crypto.randomUUID() } })
       await sendFile(sora, leads.id, '사업자등록증.pdf', '올렸어요', root.id)
       await sendFile(sora, leads.id, '리드-목록.xlsx', '이것도요', root.id)
+      // kanghyun's reply: a blank account-report form (PDF) to fill and seal (RFILE-07)
+      await sendFile(kanghyun, leads.id, '계좌신고서-양식.pdf', '양식 올려요', root.id)
     }
     const dmM = await minji.call(API.createRoom, { body: { kind: 'dm', userId: id('sora') } })
     await sendFile(minji, dmM.id, '견적서-민지.xlsx', '확인 부탁드려요')
