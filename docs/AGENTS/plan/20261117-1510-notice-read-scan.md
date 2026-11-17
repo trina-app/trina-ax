@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-17 15:10
 - Branch: `fix/notice-read-scan`
-- Status: in progress
+- Status: done
 - Where: trina-ax `server/src/rooms/service.ts` (markNoticesRead, markThreadNoticesRead) and `server/src/rooms/store.ts`
   (unreadCount). Why: room reading is Team AX core and the slow queries live there.
 - Version impact: patch, a speed fix with no change to what people see.
@@ -38,4 +38,12 @@ None new.
 
 ## Result
 
-(filled in at the end)
+Measured under Bun 1.3.12 (SQLite 3.51.0), in-memory DB with the real migrations:
+
+- markNoticesRead: 0.38 / 4.3 / 49 / 157 ms at 1k / 10k / 100k / 300k messages before, 0.02 ms at every size after;
+  the same notices marked. The plan is now a search of room_messages by id per unread notice.
+- markThreadNoticesRead: the same change (it listed every reply of the thread).
+- unreadCount with everything unread: 4 / 58 / 121 ms at 10k / 100k / 300k before, 0.4 ms after when a mention is among
+  the first 1000 rows. When none of them mentions the person the mention check still reads the rest (4 / 39 / 103 ms):
+  a later fix needs an index for mentions (a migration).
+- Tests: tests/unit/b-rooms-notice-read.test.ts.
