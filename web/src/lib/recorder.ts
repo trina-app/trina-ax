@@ -1,6 +1,10 @@
 // Microphone recorder for voice input (ported from Saram web/src/lib/recorder.ts): elapsed time and a live input
 // level for the meter. The recording goes to POST /api/transcribe (a job) and the text lands in the composer.
+// Live (start's `onSamples`, lib/liveDictation.ts): no recording file; the sound goes out as 16 kHz samples while it is
+// recorded, through a ScriptProcessor (deprecated, but in every browser and WebView; an AudioWorklet would need a
+// module URL the page's script rules allow).
 import { useEffect, useRef, useState } from 'react'
+import { downsampler } from './liveDictation'
 
 /** A recording format the browser supports (Chrome/Firefox: webm/opus, Safari: mp4/aac). */
 function pickMime() {
@@ -39,8 +43,11 @@ export function useRecorder() {
   }
   useEffect(() => cleanup, [])
 
-  const start = async () => {
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') throw new RecorderError('unsupported')
+  /** `live` in the answer: the samples go out (false: asked for, but the browser keeps the sound paused, so the whole
+   * recording is kept as a file instead) */
+  const start = async (o: { onSamples?: (samples: Float32Array) => void } = {}): Promise<{ live: boolean }> => {
+    let live = o.onSamples
+    if (!navigator.mediaDevices?.getUserMedia || (live ? typeof AudioContext === 'undefined' : typeof MediaRecorder === 'undefined')) throw new RecorderError('unsupported')
     let s: MediaStream
     try {
       s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
@@ -48,26 +55,34 @@ export function useRecorder() {
       throw new RecorderError('denied')
     }
     stream.current = s
-    const mime = pickMime()
-    const r = new MediaRecorder(s, mime ? { mimeType: mime } : undefined)
-    chunks.current = []
-    r.ondataavailable = (e) => { if (e.data.size) chunks.current.push(e.data) }
-    r.onstop = () => {
-      const type = r.mimeType || mime || 'audio/webm'
-      const ext = type.includes('mp4') ? 'm4a' : type.includes('ogg') ? 'ogg' : 'webm'
-      const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')
-      const blob = new Blob(chunks.current, { type })
-      resolveStop.current?.(blob.size ? new File([blob], `voice-${stamp}.${ext}`, { type }) : null)
-      resolveStop.current = null
-    }
-    r.start(1000)
-    rec.current = r
+    rec.current = null
 
     const ac = new AudioContext()
     ctx.current = ac
+    // a context made after the question about the microphone (outside the tap) may start paused; live words need it
+    // running, else the recording is kept whole as before
+    if (ac.state !== 'running') {
+      try {
+        await Promise.race([ac.resume(), new Promise((r) => setTimeout(r, 1000))])
+      } catch { /* still paused: below */ }
+      if ((ac.state as AudioContextState) !== 'running') live = undefined
+    }
+    if (!live) startFile(s)
     const analyser = ac.createAnalyser()
     analyser.fftSize = 512
-    ac.createMediaStreamSource(s).connect(analyser)
+    const source = ac.createMediaStreamSource(s)
+    source.connect(analyser)
+    if (live) {
+      const proc = ac.createScriptProcessor(4096, 1, 1)
+      const down = downsampler(ac.sampleRate)
+      proc.onaudioprocess = (e) => {
+        const out = down(e.inputBuffer.getChannelData(0))
+        if (out.length) live(out)
+      }
+      // it only runs while connected to the output; nothing is written to it, so nothing is heard
+      source.connect(proc)
+      proc.connect(ac.destination)
+    }
     const data = new Uint8Array(analyser.fftSize)
     const tick = () => {
       analyser.getByteTimeDomainData(data)
@@ -82,13 +97,36 @@ export function useRecorder() {
     const t0 = Date.now()
     timer.current = setInterval(() => setSeconds(Math.floor((Date.now() - t0) / 1000)), 250)
     setState('recording')
+    return { live: !!live }
   }
 
-  /** Stop and return the recording (null if nothing was captured). */
+  /** the whole recording as one file (MediaRecorder): stop() hands it over */
+  const startFile = (s: MediaStream) => {
+    const mime = pickMime()
+    const r = new MediaRecorder(s, mime ? { mimeType: mime } : undefined)
+    chunks.current = []
+    r.ondataavailable = (e) => { if (e.data.size) chunks.current.push(e.data) }
+    r.onstop = () => {
+      const type = r.mimeType || mime || 'audio/webm'
+      const ext = type.includes('mp4') ? 'm4a' : type.includes('ogg') ? 'ogg' : 'webm'
+      const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')
+      const blob = new Blob(chunks.current, { type })
+      resolveStop.current?.(blob.size ? new File([blob], `voice-${stamp}.${ext}`, { type }) : null)
+      resolveStop.current = null
+    }
+    r.start(1000)
+    rec.current = r
+  }
+
+  /** Stop and return the recording (null if nothing was captured, and always when live: the samples went out already). */
   const stop = () =>
     new Promise<File | null>((resolve) => {
       const r = rec.current
-      if (!r || r.state === 'inactive') return resolve(null)
+      if (!r || r.state === 'inactive') {
+        cleanup()
+        setState('idle')
+        return resolve(null)
+      }
       resolveStop.current = resolve
       r.stop()
       cleanup()

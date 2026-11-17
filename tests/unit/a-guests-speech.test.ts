@@ -24,6 +24,8 @@ test('a guest\'s upload for transcription is refused (403); a member\'s is not; 
   const member = await mia.client.try('POST', '/api/upload-sessions', body)
   expect(member.status).not.toBe(403)
   expect((await g.client.try('POST', '/api/transcribe', {})).status).toBe(403)
+  // voice input while recording: off their list too
+  expect((await g.client.try('POST', '/api/transcribe/piece', {})).status).toBe(403)
   // the guest's own folder is theirs (an upload session into it starts)
   const own = await g.client.try('POST', '/api/upload-sessions', { target: { kind: 'path', path: `users/${g.id}/notes.txt` }, size: 10, sha256: sha })
   expect(own.status).toBe(201)

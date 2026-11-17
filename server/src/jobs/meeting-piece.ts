@@ -1,18 +1,24 @@
-// Meeting notes (docs/AGENTS/plan/20261116-1903-live-meeting-notes.md): the desktop app cuts a meeting's sound into
-// pieces at pauses (desktop/src/common/meeting/chunker.ts) and sends each here (POST /api/meetings/piece). The server
-// turns it into text with the team's voice input setting and answers at once:
+// Pieces of speech (shared/src/speech-pieces.ts cuts them at pauses): the desktop app's meeting notes
+// (docs/AGENTS/plan/20261116-1903-live-meeting-notes.md, POST /api/meetings/piece) and the web app's voice input while
+// the person talks (docs/AGENTS/plan/20261117-0143-voice-live-text.md, POST /api/transcribe/piece) send each piece
+// here. The server turns it into text with the team's voice input setting and answers at once:
 // - 'openrouter': the app's WAV as it is (sendToOpenRouter: zero data retention requested, the second try, the hosting
 //   key's free-hours meter). No ffmpeg per piece.
 // - 'local': whisper.cpp on this server in a video piece's kind of turn (whisper-turns.ts pieceTurn: voice input goes
 //   first, a piece waits at most MEETING_TURN_WAIT_MS). Meetings measure their own speed here (in memory); a server
 //   that cannot keep up says so before a meeting starts (GET /api/meetings/status).
 // - 'off', no key, no whisper-cli: refused. Safe operations 1A (sound never leaves the server) refuses OpenRouter.
+// Voice input ('voice'): the route checks the chat as POST /api/transcribe does (the caller's, never a confidential
+// chat's sound to OpenRouter); its own pieces at once and a per-person limit a minute (VOICE_PIECES_PER_MIN,
+// VOICE_SOUND_SEC_PER_MIN: someone talking makes at most 60 s of sound a minute), and no meeting speed check (it is
+// not a meeting that must keep up). Every OpenRouter piece goes through the free-hours meter with its seconds of sound,
+// as one recording does.
 // The piece is checked (the app's fixed 44-byte WAV header, at most MEETING_PIECE_MAX_SEC), used and deleted.
 import fs from 'node:fs'
 import path from 'node:path'
 import { MEETING_PIECE_MAX_SEC, type Locale, type MeetingPieceResult, type MeetingStatus } from '@mycel/shared/api'
 import { fail, modelReady, ensureModel, whisperFile, WHISPER_MODELS, type TranscribeConfig } from './transcribe'
-import { sendToOpenRouter, SPEECH_NO_KEY, SPEECH_OFF } from './openrouter-stt'
+import { sendToOpenRouter, SPEECH_CONFIDENTIAL, SPEECH_NO_KEY, SPEECH_OFF } from './openrouter-stt'
 import { pieceTurn } from './whisper-turns'
 import { JobFailure } from './service'
 
@@ -25,6 +31,12 @@ export const MEETING_PIECES_IN_FLIGHT = 2
 export const MEETING_TURN_WAIT_MS = 20_000
 /** the longest a piece may take */
 export const MEETING_PIECE_TIMEOUT_MS = 60_000
+/** voice input: pieces of one person at once (one recording sends at most two) */
+export const VOICE_PIECES_IN_FLIGHT = 2
+/** voice input: the window of the per-person limit, and what it allows in it */
+export const VOICE_LIMIT_WINDOW_MS = 60_000
+export const VOICE_PIECES_PER_MIN = 40
+export const VOICE_SOUND_SEC_PER_MIN = 120
 /** pieces measured before the speed counts (the first after a pause loads the model from disk and is not counted) */
 const SPEED_MIN_PIECES = 3
 /** the speed is the sum of whisper time over the sum of sound of the pieces of the last MEETING_SPEED_WINDOW_MS */
@@ -66,16 +78,18 @@ export const MEETING_NOT_READY = () => fail(
   'unavailable', 'not_ready')
 /** the person already has MEETING_PIECES_IN_FLIGHT pieces under way: the app sends this one again shortly */
 export class MeetingInFlight extends Error { constructor() { super('in_flight'); this.name = 'MeetingInFlight' } }
+/** voice input: the person sent more than the per-person limit allows in a minute; `retryAfter` seconds until it does */
+export class PieceTooFast extends Error { constructor(public retryAfter: number) { super('too_fast'); this.name = 'PieceTooFast' } }
 /** voice input is off here (no provider, no whisper-cli): a final refusal with its reason */
 const OFF = () => { const f = SPEECH_OFF(); return new JobFailure('conflict', f.messages, 'off') }
 const NO_KEY = () => { const f = SPEECH_NO_KEY(); return new JobFailure('conflict', f.messages, 'no_key') }
 /** the request was closed by the app before the answer */
 export class MeetingGone extends Error { constructor() { super('gone'); this.name = 'MeetingGone' } }
 const NOT_A_PIECE = () => fail(
-  '회의 소리 조각을 읽을 수 없어요.',
-  "This piece of the meeting's sound can't be read.",
-  'Potongan suara rapat ini tidak dapat dibaca.',
-  '会議の音声の断片を読み取れません。', 'No se puede leer este fragmento del sonido de la reunión.', '无法读取这段会议声音。', 'bad_request', 'not_wav')
+  '소리 조각을 읽을 수 없어요.',
+  "This piece of sound can't be read.",
+  'Potongan suara ini tidak dapat dibaca.',
+  '音声の断片を読み取れません。', 'No se puede leer este fragmento de sonido.', '无法读取这段声音。', 'bad_request', 'not_wav')
 
 /** The piece is the app's WAV: RIFF/WAVE, one 16-byte PCM fmt chunk, 16-bit, mono, 16 kHz, then the data chunk to the
  * end of the file, within MEETING_PIECE_MAX_SEC. Returns its length in seconds, or null. */
@@ -131,7 +145,25 @@ export interface MeetingDeps {
   speed: MeetingSpeed
 }
 
+/** pieces under way per person and use ('meeting:<id>', 'voice:<id>'): a meeting and voice input never wait for each other */
 const inFlight = new Map<string, number>()
+/** voice input's pieces of the last VOICE_LIMIT_WINDOW_MS per person: when and how long */
+const voiceSent = new Map<string, { at: number; sec: number }[]>()
+/** tests: forget every count */
+export function resetPieceLimitsForTests() { inFlight.clear(); voiceSent.clear() }
+/** voice input's limit a minute: seconds until `sec` more fits, 0 when it fits now (then it is counted) */
+function voiceLimit(userId: string, sec: number, now = Date.now()): number {
+  const from = now - VOICE_LIMIT_WINDOW_MS
+  const recent = (voiceSent.get(userId) ?? []).filter((p) => p.at > from)
+  const total = recent.reduce((n, p) => n + p.sec, 0)
+  if (recent.length >= VOICE_PIECES_PER_MIN || total + sec > VOICE_SOUND_SEC_PER_MIN) {
+    voiceSent.set(userId, recent)
+    return Math.max(1, Math.ceil((recent[0]!.at + VOICE_LIMIT_WINDOW_MS - now) / 1000))
+  }
+  recent.push({ at: now, sec })
+  voiceSent.set(userId, recent)
+  return 0
+}
 /** the last failed first-use model download (meetingStatus waits MEETING_MODEL_RETRY_MS before another) */
 let modelFailedAt = -Infinity
 
@@ -156,15 +188,23 @@ export async function meetingStatus(deps: MeetingDeps): Promise<MeetingStatus> {
   return { state: 'getting_ready', modelMb: Math.round(spec.size / 1_000_000), progress: Math.min(1, have / spec.size) }
 }
 
-/** Turn one piece (a server-owned file, removed here whatever happens) into lines. Throws a JobFailure (localized) or
- * an Error('busy') while the person has MEETING_PIECES_IN_FLIGHT pieces under way. */
-export async function meetingPiece(deps: MeetingDeps, userId: string, file: string, o: { language?: string; locale: Locale; signal?: AbortSignal }): Promise<MeetingPieceResult> {
+/** A meeting's piece (speechPiece for meeting notes). */
+export function meetingPiece(deps: MeetingDeps, userId: string, file: string, o: { language?: string; locale: Locale; signal?: AbortSignal }): Promise<MeetingPieceResult> {
+  return speechPiece(deps, userId, file, { ...o, use: 'meeting' })
+}
+
+/** Turn one piece (a server-owned file, removed here whatever happens) into lines. Throws a JobFailure (localized),
+ * MeetingInFlight while the person has their use's pieces under way, or (voice input) PieceTooFast over the limit a
+ * minute. */
+export async function speechPiece(deps: MeetingDeps, userId: string, file: string, o: { language?: string; locale: Locale; signal?: AbortSignal; use: 'meeting' | 'voice' }): Promise<MeetingPieceResult> {
+  const voice = o.use === 'voice'
+  const slot = `${o.use}:${userId}`
   try {
-    if ((inFlight.get(userId) ?? 0) >= MEETING_PIECES_IN_FLIGHT) throw new MeetingInFlight()
+    if ((inFlight.get(slot) ?? 0) >= (voice ? VOICE_PIECES_IN_FLIGHT : MEETING_PIECES_IN_FLIGHT)) throw new MeetingInFlight()
     const provider = deps.provider()
     if (provider === 'off') throw OFF()
     // sound never leaves this server (Safe operations 1A): refused before the piece is read
-    if (provider === 'openrouter' && deps.confidential()) throw MEETING_CONFIDENTIAL()
+    if (provider === 'openrouter' && deps.confidential()) throw voice ? SPEECH_CONFIDENTIAL() : MEETING_CONFIDENTIAL()
     let seconds: number | null = null
     let bytes: Buffer | null = null
     {
@@ -181,8 +221,12 @@ export async function meetingPiece(deps: MeetingDeps, userId: string, file: stri
     }
     if (seconds === null) throw NOT_A_PIECE()
     const lang = o.language && /^[a-z]{2}$/.test(o.language) ? o.language : undefined
+    if (voice) {
+      const wait = voiceLimit(userId, seconds)
+      if (wait > 0) throw new PieceTooFast(wait)
+    }
 
-    inFlight.set(userId, (inFlight.get(userId) ?? 0) + 1)
+    inFlight.set(slot, (inFlight.get(slot) ?? 0) + 1)
     const ac = new AbortController()
     const stop = () => ac.abort(new Error('aborted'))
     o.signal?.addEventListener('abort', stop, { once: true })
@@ -195,7 +239,8 @@ export async function meetingPiece(deps: MeetingDeps, userId: string, file: stri
         r = await sendToOpenRouter(deps.stt, or.key, or.model, bytes!, 'wav', { language: lang, signal: ac.signal, seconds })
       } else {
         if (!deps.stt.whisperBin) throw OFF()
-        if (deps.speed.tooSlow()) throw MEETING_TOO_SLOW()
+        // a meeting must keep up with two tracks; voice input only waits a little longer
+        if (!voice && deps.speed.tooSlow()) throw MEETING_TOO_SLOW()
         const model = await modelReady(deps.stt)
         if (!model) throw MEETING_NOT_READY()
         let t0 = 0
@@ -229,9 +274,9 @@ export async function meetingPiece(deps: MeetingDeps, userId: string, file: stri
     } finally {
       clearTimeout(timer)
       o.signal?.removeEventListener('abort', stop)
-      const n = (inFlight.get(userId) ?? 1) - 1
-      if (n > 0) inFlight.set(userId, n)
-      else inFlight.delete(userId)
+      const n = (inFlight.get(slot) ?? 1) - 1
+      if (n > 0) inFlight.set(slot, n)
+      else inFlight.delete(slot)
     }
   } finally { fs.rmSync(file, { force: true }) }
 }
