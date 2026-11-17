@@ -110,7 +110,7 @@ function selected(all: Case[]): Case[] {
   const ids = opt('--case')?.split(',').map((s) => s.trim())
   const feature = opt('--feature')
   const pass1 = firstPass(all)
-  return all.filter((c) => (!ids || ids.some((i) => c.id === i || c.id.startsWith(`${i}.`))) && (!feature || c.features.some((f) => f === feature || f.startsWith(`${feature}.`)))
+  return all.filter((c) => (!ids || ids.some((i) => c.id === i || (!process.env.AISCEN_EXACT && c.id.startsWith(`${i}.`)))) && (!feature || c.features.some((f) => f === feature || f.startsWith(`${feature}.`)))
     && !(flag('--first-pass') && !pass1.has(c.id)) && !(flag('--skip-fix-in-progress') && c.fixInProgress))
 }
 const commit = () => Bun.spawnSync(['git', 'rev-parse', '--short', 'HEAD'], { cwd: ROOT }).stdout.toString().trim()

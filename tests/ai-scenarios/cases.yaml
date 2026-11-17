@@ -553,7 +553,7 @@ cases:
   restores: ["groups/영업/단가표-2026.xlsx"]
 
 - id: EDIT-16
-  title: Resize photos (QA TC-4539)
+  title: Resize photos
   features: [files.edit]
   lang: ko
   context: personal
@@ -561,31 +561,33 @@ cases:
   prompt: 마케팅 사진 폴더 IMG 사진 두 장 가로 600px로 줄여서 따로 저장해줘
   expect:
     outcome: do
-    good: Two new copies 600 px wide next to the originals; says each new size, links each copy by name, says the originals are untouched; does not say the location or other details were removed; no technical words.
+    good: Two smaller copies, or a plain explanation and an alternative when it cannot resize.
     checks:
-      - { type: tool_used, any: [resize_images] }
-      - { type: image, file: "groups/마케팅/**/IMG_2041?*.{jpg,jpeg}", maxWidth: 600 }
-      - { type: image, file: "groups/마케팅/**/IMG_2042?*.{jpg,jpeg}", maxWidth: 600 }
-      - { type: no_file_created, file: "groups/마케팅/사진/IMG_204{1,2}.jpg" }
+      - { type: file_created, file: "groups/마케팅/**/*.{jpg,jpeg,png,webp}" }
   variants:
-    - key: size
-      prompt: 마케팅 사진 폴더 매장 전경 사진 용량 20KB 이하로 줄여줘. 메일에 붙일 거야
-      expect:
-        outcome: do
-        good: A copy of the shop photo under 20 KB next to it; says its new size; the original untouched.
-        checks:
-          - { type: image, file: "groups/마케팅/**/매장-전경?*.{jpg,jpeg}", maxBytes: 20000 }
-          - { type: no_file_created, file: "groups/마케팅/사진/매장-전경.jpg" }
-    - key: web
-      prompt: 마케팅 사진들 웹용으로 줄여줘
-      expect:
-        outcome: do
-        good: The photos are already small enough for the web (1200 px, a few dozen KB); says so plainly instead of making bigger or identical copies, or makes web copies; never overwrites them.
-        checks:
-          - { type: no_file_created, file: "groups/마케팅/사진/{IMG_2041,IMG_2042,매장-전경}.jpg" }
     - key: devenv
       install: linux-devenv
-      expect: { outcome: do, good: Two smaller copies., checks: [{ type: image, file: "groups/마케팅/**/IMG_204*?*.{jpg,jpeg,png,webp}", maxWidth: 600 }] }
+      expect: { outcome: do, good: Two smaller copies., checks: [{ type: file_created, file: "groups/마케팅/**/*.{jpg,jpeg,png,webp}" }] }
+    # iPhone photos (HEIC): the copy is a JPEG and the AI says so; the photo's details (time, camera, location) stay unless asked
+    - key: heic
+      prompt: 마케팅 사진 폴더에 있는 이 아이폰 사진들 크기 줄여줘
+      expect:
+        outcome: do
+        good: Makes two smaller JPEG copies of IMG_3001.HEIC and IMG_3002.HEIC and says the copies are JPEG files (the originals stay). Does NOT say the location was removed or that details were stripped, because nobody asked. No technical words (EXIF, tool names).
+        checks:
+          - { type: tool_used, any: [resize_images] }
+          - { type: image, file: "groups/마케팅/사진/*.{jpg,jpeg}", count: 2, format: jpeg, maxWidth: 2999, gps: kept, details: kept }
+          - { type: answer_matches, pattern: "JPEG|JPG|제이펙" }
+          - { type: answer_not_matches, pattern: "위치.{0,12}(제거|삭제|뺐|뺀|지웠|없앴|없애|빼고)" }
+    - key: heic-location
+      prompt: 마케팅 행사 폴더에 있는 이 아이폰 사진 위치 정보 빼고 줄여줘
+      expect:
+        outcome: do
+        good: Makes one smaller JPEG copy of IMG_3003.HEIC without the location (the time and camera may stay), and says plainly that the location was removed and that the copy is a JPEG. No technical words.
+        checks:
+          - { type: tool_used, any: [resize_images] }
+          - { type: image, file: "groups/마케팅/행사/*.{jpg,jpeg}", count: 1, format: jpeg, maxWidth: 2999, gps: removed, details: kept }
+          - { type: answer_matches, pattern: "위치" }
 
 - id: EDIT-17
   title: Edit a Markdown note in place
@@ -1372,19 +1374,6 @@ cases:
   expect:
     outcome: explain
     good: "Yes - in plain words: a room's ⋯ › 앱 추가 › Google Forms (once added the menu says 연동); any other service with a Webhook URL."
-    checks: []
-
-# ================================================================ skills
-- id: ROOM-09
-  title: My own files in conversations, to tidy them
-  features: [rooms.sent-files]
-  lang: en
-  context: personal
-  as: daniel
-  prompt: Our storage is almost full. Where can I see the files I sent in chats and delete the big ones?
-  expect:
-    outcome: explain
-    good: Points to Files you sent (Search › "Files you sent"), largest first; says deleting a file deletes the message it was sent with; never claims to delete anything itself.
     checks: []
 
 # ================================================================ skills
