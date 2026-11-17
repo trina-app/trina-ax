@@ -26,7 +26,11 @@
     "typecheck, docs, native" (the same install script and typecheck; ~30 s on a job that is not the longest) and
     the "Mobile app typecheck" job is skipped. It stays advisory there as before (`continue-on-error`: dev does not
     require it). Everywhere else the job runs under its own name, which main's ruleset requires.
-  - The unit shards and "fast fuzz, web, relay" restore the native programs from actions/cache, keyed on
+  - The relay suite (~2 min with Node's setup) moved from "fast fuzz, web, relay" (now "fast fuzz, web") to the end
+    of "typecheck, docs, native", full mode only (a pull request's quick run stays quick). That job ended ~4 min
+    before the unit shards and now ends ~1.5 min before them; "fast fuzz, web" ends ~3 min before them, the room for
+    the advisory web e2e guard (~3.3 min, merge-group only) that fix/web-e2e-drift adds to it next.
+  - The unit shards and "fast fuzz, web" restore the native programs from actions/cache, keyed on
     `hashFiles('native/**')` and the Go version (the build is reproducible: same key, same bytes). A hit must hold
     all 28 programs, otherwise the job builds them as before. "typecheck, docs, native" still builds them and runs
     `go vet` / `go test` on every run. A merge-group run reads the caches of main (the default branch) and its own;
@@ -37,6 +41,7 @@
   runner wait. The required check's own runner wait (~2.5 min after the last job) is GitHub's queue; with hosted
   runners every job needs one.
 - **Expected:** a queued entry still runs 10 jobs. The longest job ~8 min instead of ~12.7 (shard ~1 min setup with
-  a native hit + ~7.1 min tests; fuzz/web/relay ~7.3 min), about the same runner minutes per entry (the native
-  cache saves ~45 s in six jobs, the extra shard adds one setup).
+  a native hit + ~7.1 min tests); "typecheck, docs, native" ~6.5 min; "fast fuzz, web" ~5 min, ~8.3 min with the
+  e2e guard. About the same runner minutes per entry (the native cache saves ~45 s in six jobs, the extra shard adds
+  one setup).
 - **Version impact:** none (CI only).
