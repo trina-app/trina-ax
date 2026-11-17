@@ -27,7 +27,7 @@ import { isStaff } from '../policy/access'
 import { isGuestUser } from '../credentials/guest-ai'
 import { tr } from './i18n'
 import { neutralizeTags } from './prompt'
-import { actionOff, askerPicks, askerText, asksToSend, attachedPaths, madeInTurn, mainOnly, namesFile, namesFileLoose, namedInFull, namesGroup, namesRecipient, ownWords, soleNames, asksFor, SHARE_ASK } from './shared-actions'
+import { actionOff, askerPicks, askerText, asksToSend, attachedPaths, madeInTurn, mainOnly, namesFile, namesFileCore, namesFileLoose, namedInFull, namesGroup, namesRecipient, ownWords, soleNames, asksFor, SHARE_ASK } from './shared-actions'
 import { readRooms } from './read-rooms'
 import { seenWhy } from './grant-reads'
 import { lookedFile, lookedPerson } from './looking-at'
@@ -129,6 +129,8 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         const asked = others ? askerText(db, spec.userMessageId) : ''
         const attached = others ? attachedPaths(db, spec.userMessageId) : new Set<string>()
         const plan: { path: string; name: string; owner: { id: string; name: string } | null }[] = []
+        /** a file passed the asker-named rule only by its name without the date or number: the card always shows */
+        let coreNamed = false
         // a folder: what can be shared instead (its files), never "folders can't be shared" as the end
         // (chat/share-words.ts); where share_folder is offered, the user's own folder goes
         // to that tool. In a shared chat nothing of the folder is listed (the AI writes where everyone reads)
@@ -186,7 +188,10 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
           }
           // another member's message must not pick the asker's files: in a chat others wrote in, a file the asker brought
           // into this turn only
-          if ((members || (others && !on)) && !(attached.has(v.path) || namesFile(asked, v.path) || madeInTurn(db, spec.turnId, v.path))) {
+          // (a file named only without its date or number, namesFileCore, passes here but always gets the card below)
+          const byCore = !(attached.has(v.path) || namesFile(asked, v.path) || madeInTurn(db, spec.turnId, v.path)) && namesFileCore(asked, v.path)
+          if (byCore && (members || (others && !on))) coreNamed = true
+          if ((members || (others && !on)) && !(attached.has(v.path) || namesFile(asked, v.path) || madeInTurn(db, spec.turnId, v.path) || byCore)) {
             return no(`Nothing was shared: in a chat other people write in, a file is shared only when the user named it in their own message, attached it, or you made it in this answer. Ask the user to say which file to share.`, 'refused: file not from the asker')
           }
           plan.push({ path: v.path, name: v.path.split('/').pop() ?? v.path, owner: v.owner })
@@ -274,7 +279,7 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         // the card offers "Always allow" on its first showing wherever the choice counts, and once on it is final (Rule A,
         // #1143): a target from the screen (fromLook) only stops the explicit-ask skip above, never the person's own choice
         // (docs/decisions/20261116-sharing-all-integration.md)
-        const place = alwaysOk ? exec.alwaysPlace?.() : null
+        const place = alwaysOk && !coreNamed ? exec.alwaysPlace?.() : null
         // why the card asks first, ONE line for the reason that matters most: the target came from the screen, then rooms or a
         // shared file read here, then content someone else wrote (docs/decisions/20261116-ai-sharing-integration.md)
         const whyLine = whyFirst(L, { fromLook, seenLine, others: othersWordsCard(exec, 'share_files', alwaysOk) })
@@ -354,7 +359,8 @@ export const isGuest = (db: import('bun:sqlite').Database, id: string) => !!db.q
  * exists: a group the user is not in reads the same as none (SHARE_NO.nobody). */
 export const looksLikeGroup = (ref: string): boolean => {
   const r = foldName(ref)
-  return r.startsWith(GROUP_REF) || GROUP_WORDS.some((w) => r.endsWith(foldName(w)) && r.length > foldName(w).length)
+  // (" team" and " group" with their space: "Steam" is no group)
+  return r.startsWith(GROUP_REF) || GROUP_WORDS.some((w) => { const g = w.normalize('NFKC').toLowerCase(); return r.endsWith(g) && r.length > g.length })
 }
 
 /** The groups `ref` names that the user may share with: their own (the team owner and admins: any). */

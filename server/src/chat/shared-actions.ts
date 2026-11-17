@@ -118,9 +118,10 @@ const AFTER_PERSON = `${HONORIFIC}(?:\\uC774\\uC5D0\\uAC8C|\\uC774\\uD55C\\uD14C
 /** "(가) 볼 수 / 보게" names a person only with 이/가 or 님/씨 on the name ("바로 볼 수 있게" is an adverb) */
 const SEES_AFTER_HONORIFIC = '\\s?(?:\\uB2D8|\\uC528)(?:\\uC774|\\uAC00)?\\s?(?:\\uBCFC\\s?\\uC218(?!\\s?\\uC5C6)|\\uBCF4\\uAC8C|\\uBCF4\\uB3C4\\uB85D)'
 const JOIN_KO = '(?:\\uC774\\uD558\\uACE0|\\uC774\\uB791|\\uD558\\uACE0|\\uB791|\\uC640|\\uACFC)'
-/** "(님)이랑/랑/와/과/하고 공유" right after a name: share WITH that person ("민호 님이랑 공유해줘", AI scenario FSH-01,
- * 2026-11-17). Only with the share word itself next to it: "민호 님과 회의한 내용 공유해줘" is about a meeting with 민호 */
-const JOIN_SHARE_KO = `${HONORIFIC}${JOIN_KO}\\s?\\uACF5\\uC720`
+/** "(님)이랑/랑/와/과/하고 공유해줘" right after a name: share WITH that person ("민호 님이랑 공유해줘", AI scenario
+ * FSH-01, 2026-11-17). Only with the request itself next to it (공유해 + 줘, 주세요, 주시겠어요, 주십시오, 달라): "민호 님과
+ * 회의한 내용", "민호랑 공유했던 견적서", "민호랑 공유하면 안 되니까" name nobody to share with */
+const JOIN_SHARE_KO = `${HONORIFIC}${JOIN_KO}\\s?\\uACF5\\uC720\\s?\\uD574\\s?(?:\\uC918|\\uC8FC\\uC138\\uC694|\\uC8FC\\uC2DC\\uACA0|\\uC8FC\\uC2ED\\uC2DC\\uC624|\\uB2EC\\uB77C)`
 const AFTER_PLACE = '(?:\\uC5D0\\uB2E4\\uAC00|\\uBC29\\uC73C\\uB85C|\\uCC44\\uB110\\uC5D0|\\uC5D0\\uB2E4|\\uD55C\\uD14C|\\uBC29\\uC5D0|\\uC5D0\\uAC8C|\\uC5D0|\\uAED8)'
 function holdsAsRecipient(text: string, n: string, place: boolean, peers: readonly string[] = []): boolean {
   if (!holdsName(text, n)) return false
@@ -206,9 +207,22 @@ export function namesFile(said: string, rel: string): boolean {
   if (!text) return false
   const name = fold(rel.split('/').pop() ?? '')
   const stem = name.replace(/\.[^.]+$/, '')
-  if ([fold(rel), name, stem].some((n) => n.length >= 3 && holds(text, n))) return true
-  const core = coreName(stem)
-  return core !== stem && core.length >= 3 && holdsCore(text, core)
+  return [fold(rel), name, stem].some((n) => n.length >= 3 && holds(text, n))
+}
+
+/** The asker's words name this file only without the date or number at its end ("단가표" for 단가표-2026.xlsx;
+ * coreName), with no other date or number right after it. Weaker than namesFile: several files can share one such
+ * name, so it never skips a card (share_with_person shows its card whatever "Always allow" says) and the explicit-ask
+ * skip and who_can_open do not use it. */
+export function namesFileCore(said: string, rel: string): boolean {
+  const text = fold(said)
+  const raw = (rel.split('/').pop() ?? '').replace(/\.[^.]+$/, '')
+  const stem = fold(raw), core = coreName(stem)
+  if (text && core !== stem && core.length >= 3 && holdsCore(text, core)) return true
+  // (a Hangul name also without its separators: "견적서 라마바카페" for 견적서-라마바카페-2026-11.pdf)
+  const squash = (x: string) => fold(x).replace(/[\s_.\-]+/g, '')
+  const sq = squash(coreName(raw))
+  return sq !== squash(raw) && HANGUL.test(sq) && sq.length >= 3 && new RegExp(`${escapeRe(sq)}(?!v?\\d)`, 'u').test(squash(said))
 }
 
 /** The name without its date or number (coreName) in the person's words, with no other date or number right after it
@@ -372,12 +386,8 @@ export const asksFor = (verbs: RegExp, said: string): boolean => verbs.test(said
 export function namesFileLoose(said: string, rel: string): boolean {
   if (namesFile(said, rel)) return true
   const squash = (x: string) => fold(x).replace(/[\s_.\-]+/g, '')
-  const raw = (rel.split('/').pop() ?? '').replace(/\.[^.]+$/, '')
-  const said0 = squash(said)
-  const full = squash(raw), core = squash(coreName(raw))
-  if (HANGUL.test(full) && full.length >= 3 && said0.includes(full)) return true
-  // (also without the date or number at its end, with no other one right after it in the person's words)
-  return core !== full && HANGUL.test(core) && core.length >= 3 && new RegExp(`${escapeRe(core)}(?!v?\\d)`, 'u').test(said0)
+  const stem = squash((rel.split('/').pop() ?? '').replace(/\.[^.]+$/, ''))
+  return HANGUL.test(stem) && stem.length >= 3 && squash(said).includes(stem)
 }
 
 /** A person or place named in full in the person's words (a full name, a username, a room's name; two letters at

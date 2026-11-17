@@ -426,10 +426,14 @@ describe('the read card', () => {
     // a search that names the project folder itself says it too (once a turn)
     const named = await ask('alice', chat.id, fake({ tool: 'glob', args: { pattern: '**/*', path: 'projects/falcon' }, sayResult: true }))
     expect(named.done.content).toContain(PROJECT_SEARCH_NOTE)
-    // "/": the team root as alice can open it; marketing and her own folder are not bob's, so the card asks first
-    const wide = await askWithCard('alice', chat.id, fake({ tool: 'grep', args: { pattern: 'Autumn', path: '/' }, sayResult: true }), 'share')
-    expect((wide.card as { question: string }).question).toContain('your personal folder')
+    // "/": the team root as alice can open it, without her own folder; marketing is not bob's, so the card asks first
+    const wide = await askWithCard('alice', chat.id, fake({ tool: 'grep', args: { pattern: 'Autumn|Draft Q4', path: '/' }, sayResult: true }), 'share')
+    expect((wide.card as { question: string }).question).not.toContain('your personal folder')
     expect(wide.done.content).toContain('groups/marketing/campaign-brief.md')
+    expect(wide.done.content).not.toContain('users/alice')
+    const wideGlob = await askWithCard('alice', chat.id, fake({ tool: 'glob', args: { pattern: '**/*.md', path: '/' }, sayResult: true }), 'share')
+    expect(wideGlob.done.content).toContain('groups/marketing/campaign-brief.md')
+    expect(wideGlob.done.content).not.toContain('users/alice')
     expect(wide.done.content).not.toContain(PROJECT_SEARCH_NOTE)
     // a no reads nothing from there
     const no = await askWithCard('alice', chat.id, fake({ tool: 'glob', args: { pattern: '**/campaign-brief.md', path: '/' }, sayResult: true }), 'skip')

@@ -34,7 +34,7 @@ import { threadLook } from './thread-look'
 import { alwaysHere, withAlways } from './always-allow'
 import { fromAsker, othersWordsIn } from './shared-actions'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
-import { inProjectOnly } from './search-path'
+import { inProjectOnly, SKIP_OWN, wholeTeamPath } from './search-path'
 import type { StoredStep } from './store'
 import { cardEndShort, endOfText, projectNotFoundNote, readOnlyNote, readOnlySkillLine, type CardOutcome } from '../policy/refusal'
 import type { TurnFiles } from '../files/service'
@@ -436,7 +436,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // Files screen with a version history
       const fact = !main || guest ? null : fileNoteOnce(exec, fileNote({ name, isError, args, text, hangulOff: () => !hwpWritingOn(exec.rt.ctx), makeFile: tools.has('make_file') }), exec.spec.locale)
       // a shared project chat's search that stayed in the project folder: that it did, and how to look further, once
-      const scope = !isError && args && typeof args === 'object' && projectOnly.has(args) ? exec.projectSearchNote() : null
+      // (the main AI's own call: a sub-agent's search must not use up the one note: review finding 5)
+      const scope = main && !isError && args && typeof args === 'object' && projectOnly.has(args) ? exec.projectSearchNote() : null
       return [placed, skillNote, heldNote, rooms, fact, scope].filter(Boolean).join('\n') || undefined
     },
     // edit_files (mcp/protocol.ts): after a room read one card for the whole batch, before its first file
@@ -464,6 +465,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
           // a project chat's search in the project folder (no path, or a path in it): its result says it looked only
           // there (afterFileTool; AI scenario FIND-01.project also named the project folder itself)
           if (exec.shared.kind === 'project' && inProjectOnly((args as { path?: unknown }).path, exec.shared.project.folder_path)) projectOnly.add(args)
+          // "/" in a project chat: every team folder the asker can open, never their own folder (SKIP_OWN)
+          if (exec.shared.kind === 'project' && wholeTeamPath((args as { path?: unknown }).path)) SKIP_OWN.add(args)
           Object.assign(args, exec.sharedArgs(name, args))
         }
         const sharedNo = await exec.confirmSharedRead(name, args, { step: !caller || caller.files === exec.files })

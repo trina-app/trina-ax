@@ -6,7 +6,7 @@
 // - FIND-01: a shared project chat's search without a path says it stayed in the project folder, and "/" looks further.
 // Korean as escapes (no Korean text outside the language tables).
 import { describe, expect, test } from 'bun:test'
-import { coreName, namesFile, namesFileLoose, namesRecipient } from '../../server/src/chat/shared-actions'
+import { coreName, namesFile, namesFileCore, namesFileLoose, namesRecipient } from '../../server/src/chat/shared-actions'
 import { looksLikeGroup } from '../../server/src/chat/share-with-person'
 import { SHARE_NO } from '../../server/src/chat/share-words'
 import { sharedSection } from '../../server/src/chat/prompt'
@@ -26,6 +26,10 @@ describe('FSH-01: a person named with "(님)이랑 / 와 / 하고" right before 
     // a meeting with 민호, shared with nobody named
     expect(namesRecipient('\uBBFC\uD638 \uB2D8\uACFC \uD68C\uC758\uD55C \uB0B4\uC6A9 \uACF5\uC720\uD574\uC918', '\uBBFC\uD638', MINHO)).toBe(false)
     expect(namesRecipient('\uBBFC\uD638 \uB2D8\uC774\uB791 \uAC19\uC774 \uC4F4 \uBCF4\uACE0\uC11C \uACF5\uC720\uD574\uC918', '\uBBFC\uD638', MINHO)).toBe(false)
+    // only the request itself: not a past share, a "don't", or one that did not happen (review finding 1)
+    expect(namesRecipient('\uBBFC\uD638\uB791 \uACF5\uC720\uD558\uBA74 \uC548 \uB418\uB2C8\uAE4C \uC9C0\uC218\uD55C\uD14C\uB9CC \uACF5\uC720\uD574\uC918', '\uBBFC\uD638', MINHO)).toBe(false)
+    expect(namesRecipient('\uBBFC\uD638 \uB2D8\uC774\uB791 \uACF5\uC720\uD588\uB358 \uACAC\uC801\uC11C \uC9C0\uC218\uD55C\uD14C \uACF5\uC720\uD574\uC918', '\uBBFC\uD638', MINHO)).toBe(false)
+    expect(namesRecipient('"Q4" \uD3F4\uB354, \uBBFC\uD638\uB791 \uACF5\uC720 \uC548 \uB41C \uAC70 \uC9C0\uC218\uD55C\uD14C \uACF5\uC720\uD574\uC918', '\uBBFC\uD638', MINHO)).toBe(false)
     // another person's name is not 민호
     expect(namesRecipient('\uC9C0\uC6B0 \uB2D8\uC774\uB791 \uACF5\uC720\uD574\uC918', '\uBBFC\uD638', MINHO)).toBe(false)
   })
@@ -39,18 +43,22 @@ describe('SHR-01: a file named without the date or number at its end', () => {
     expect(coreName('Q4 plan')).toBe('Q4 plan')
     expect(coreName('2026')).toBe('2026')
   })
-  test('namesFile', () => {
-    expect(namesFile('\uB2E8\uAC00\uD45C \uB9C8\uCF00\uD305\uD300\uB3C4 \uBCFC \uC218 \uC788\uAC8C \uACF5\uC720\uD574\uC918', 'groups/\uC601\uC5C5/\uB2E8\uAC00\uD45C-2026.xlsx')).toBe(true)
-    expect(namesFile('share the report with Jun', 'users/u/report_v2.docx')).toBe(true)
+  test('namesFileCore: weaker than namesFile, which keeps its old rule (no card is skipped and who_can_open is unchanged)', () => {
+    expect(namesFileCore('\uB2E8\uAC00\uD45C \uB9C8\uCF00\uD305\uD300\uB3C4 \uBCFC \uC218 \uC788\uAC8C \uACF5\uC720\uD574\uC918', 'groups/\uC601\uC5C5/\uB2E8\uAC00\uD45C-2026.xlsx')).toBe(true)
+    expect(namesFile('\uB2E8\uAC00\uD45C \uB9C8\uCF00\uD305\uD300\uB3C4 \uBCFC \uC218 \uC788\uAC8C \uACF5\uC720\uD574\uC918', 'groups/\uC601\uC5C5/\uB2E8\uAC00\uD45C-2026.xlsx')).toBe(false)
+    expect(namesFileCore('share the report with Jun', 'users/u/report_v2.docx')).toBe(true)
+    expect(namesFile('share the report with Jun', 'users/u/report_v2.docx')).toBe(false)
+    expect(namesFileCore('\uACAC\uC801\uC11C \uB77C\uB9C8\uBC14\uCE74\uD398 \uACF5\uC720\uD574\uC918', 'projects/x/\uACAC\uC801\uC11C-\uB77C\uB9C8\uBC14\uCE74\uD398-2026-11.pdf')).toBe(true)
+    expect(namesFileLoose('\uACAC\uC801\uC11C \uB77C\uB9C8\uBC14\uCE74\uD398 \uACF5\uC720\uD574\uC918', 'projects/x/\uACAC\uC801\uC11C-\uB77C\uB9C8\uBC14\uCE74\uD398-2026-11.pdf')).toBe(false)
     // a part of the name that is not all of it but its date is not enough
-    expect(namesFile('\uACAC\uC801\uC11C \uACF5\uC720\uD574\uC918', 'projects/x/\uACAC\uC801\uC11C-\uB77C\uB9C8\uBC14\uCE74\uD398-2026-11.pdf')).toBe(false)
-    expect(namesFileLoose('\uACAC\uC801\uC11C \uB77C\uB9C8\uBC14\uCE74\uD398 \uACF5\uC720\uD574\uC918', 'projects/x/\uACAC\uC801\uC11C-\uB77C\uB9C8\uBC14\uCE74\uD398-2026-11.pdf')).toBe(true)
+    expect(namesFileCore('\uACAC\uC801\uC11C \uACF5\uC720\uD574\uC918', 'projects/x/\uACAC\uC801\uC11C-\uB77C\uB9C8\uBC14\uCE74\uD398-2026-11.pdf')).toBe(false)
     // another date or number right after the name names another file
-    expect(namesFile('ledger-3.txt please', 'users/bob/ledger-4.txt')).toBe(false)
-    expect(namesFile('\uB2E8\uAC00\uD45C-2025 \uACF5\uC720\uD574\uC918', 'groups/\uC601\uC5C5/\uB2E8\uAC00\uD45C-2026.xlsx')).toBe(false)
-    expect(namesFileLoose('\uACAC\uC801\uC11C \uB77C\uB9C8\uBC14\uCE74\uD398 2025 \uACF5\uC720\uD574\uC918', 'projects/x/\uACAC\uC801\uC11C-\uB77C\uB9C8\uBC14\uCE74\uD398-2026-11.pdf')).toBe(false)
-    // "report" inside another word is not the file
-    expect(namesFile('share the reports page', 'users/u/report_v2.docx')).toBe(false)
+    expect(namesFileCore('ledger-3.txt please', 'users/bob/ledger-4.txt')).toBe(false)
+    expect(namesFileCore('\uB2E8\uAC00\uD45C-2025 \uACF5\uC720\uD574\uC918', 'groups/\uC601\uC5C5/\uB2E8\uAC00\uD45C-2026.xlsx')).toBe(false)
+    expect(namesFileCore('\uACAC\uC801\uC11C \uB77C\uB9C8\uBC14\uCE74\uD398 2025 \uACF5\uC720\uD574\uC918', 'projects/x/\uACAC\uC801\uC11C-\uB77C\uB9C8\uBC14\uCE74\uD398-2026-11.pdf')).toBe(false)
+    // "report" inside another word is not the file; a name with nothing cut is namesFile's
+    expect(namesFileCore('share the reports page', 'users/u/report_v2.docx')).toBe(false)
+    expect(namesFileCore('share notes.md', 'users/u/notes.md')).toBe(false)
   })
   test('a group the member is not in: the plain limit and the options, the same whether such a group exists', () => {
     expect(looksLikeGroup('\uB9C8\uCF00\uD305\uD300')).toBe(true)
@@ -61,6 +69,7 @@ describe('SHR-01: a file named without the date or number at its end', () => {
     const t = SHARE_NO.nobody('\uB9C8\uCF00\uD305\uD300', { group: true, staff: false })
     expect(t).toContain('the user is not in a group by that name, and a member shares files only with groups they are in')
     expect(t).toContain('sharing it with the people of that group by name')
+    expect(t).toContain('ask for the names once, in your answer (not with ask_user)')
     expect(t).toContain('asking the team owner or an admin')
     expect(t).toMatch(/^Nothing was shared: /)
     // an admin shares with any group: no such group exists, so no member's limit
@@ -84,7 +93,8 @@ describe('SWM-01 and FIND-01: what a shared project chat tells the AI', () => {
     // the note's searches: no path, or the project folder itself or a folder in it; never "/" or another folder
     for (const p of [undefined, '', '.', 'projects/falcon', './projects/falcon/', 'Projects/Falcon/docs']) expect([p, inProjectOnly(p, 'projects/falcon')]).toEqual([p, true])
     for (const p of ['/', 'groups', 'projects', 'projects/falcon-2', 'users/alice']) expect([p, inProjectOnly(p, 'projects/falcon')]).toEqual([p, false])
-    expect(PROJECT_SEARCH_NOTE).toContain('Searched only this project\'s folder')
-    expect(PROJECT_SEARCH_NOTE).toContain('search again with path "/"')
+    expect(PROJECT_SEARCH_NOTE).toContain('Only this project\'s folder was searched')
+    expect(PROJECT_SEARCH_NOTE).toContain('search again before you answer, with path "/"')
+    expect(PROJECT_SEARCH_NOTE).toContain('(not their own folder)')
   })
 })

@@ -69,7 +69,7 @@ import type { ChatRuntime } from './runtime'
 import { blankTeamAttachment, stopReasonOf, type MessageRow } from './store'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { buildToolSet, widenOf, type ChatToolSet } from './tools'
-import { noSearchPath, PROJECT_SEARCH_NOTE, wholeTeamPath } from './search-path'
+import { noSearchPath, PROJECT_SEARCH_NOTE, SKIP_OWN, wholeTeamPath } from './search-path'
 import type { ToolCard } from '../services'
 import { ConnectOutcome, type ConnectCard } from './connect-service'
 import { devEnvFlag, mayUseDevEnv } from '../devenv/setting'
@@ -3043,7 +3043,8 @@ export class TurnExec {
           if (readable(f ? f.split('/') : [])) out.push(sourceOf(this.rt.db, rules, f))
         }
         const mine = fold(`users/${me.id}`)
-        if (bases.some((b) => b === '' || b === 'users' || b === mine || b.startsWith(mine + '/'))) out.push({ type: 'user', id: me.id })
+        // (a project chat's "/" search leaves the person's own folder out: SKIP_OWN, files/service.ts)
+        if (!(input && typeof input === 'object' && SKIP_OWN.has(input)) && bases.some((b) => b === '' || b === 'users' || b === mine || b.startsWith(mine + '/'))) out.push({ type: 'user', id: me.id })
       } else {
         // the names a listing shows: each folder the person sees there by its name (who else would see that name), the
         // files by the folder's readers; a folder they cannot list at all: what note() makes of the path

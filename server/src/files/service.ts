@@ -1,4 +1,5 @@
 // The six file tools (list/glob/grep/read/write/edit) plus the human-side operations that share their rules.
+import { SKIP_OWN } from '../chat/search-path'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
@@ -192,6 +193,10 @@ export class TurnFiles {
   }
 }
 
+/** The folders a search call leaves out: the person's own folder for a shared project chat's "/" search (SKIP_OWN). */
+const skipOwnOf = (rawArgs: unknown, ctx: ToolCtx): string[] => (rawArgs && typeof rawArgs === 'object' && SKIP_OWN.has(rawArgs) ? [`users/${ctx.user.id}`] : [])
+const skippedBy = (skip: readonly string[], p: string) => skip.some((s) => p === s || p.startsWith(s + '/'))
+
 export interface ToolCtx {
   signal?: AbortSignal
   user: Principal
@@ -322,8 +327,9 @@ export class FileService {
     try {
       switch (tool) {
         case 'list': return this.list(ctx, ListInput.parse(rawArgs ?? {}))
-        case 'glob': return await this.glob(ctx, GlobInput.parse(rawArgs))
-        case 'grep': return await this.grep(ctx, GrepInput.parse(rawArgs))
+        // a shared project chat's "/" search leaves out the person's own folder (chat/search-path.ts SKIP_OWN)
+        case 'glob': return await this.glob(ctx, GlobInput.parse(rawArgs), skipOwnOf(rawArgs, ctx))
+        case 'grep': return await this.grep(ctx, GrepInput.parse(rawArgs), skipOwnOf(rawArgs, ctx))
         case 'read': return await this.read(ctx, ReadInput.parse(rawArgs))
         case 'write': return this.write(ctx, WriteInput.parse(rawArgs))
         case 'edit': return this.edit(ctx, EditInput.parse(rawArgs))
@@ -412,17 +418,17 @@ export class FileService {
     return file ? { rules, rel: segs.join('/'), segs, file } : null
   }
 
-  async glob(ctx: ToolCtx, a: { pattern: string; path?: string }): Promise<ToolOutput> {
+  async glob(ctx: ToolCtx, a: { pattern: string; path?: string }, skip: readonly string[] = []): Promise<ToolOutput> {
     if (a.pattern.startsWith('/') || a.pattern.split('/').includes('..')) throw new Denied('glob patterns must be relative and must not contain ..')
     const { rules, r, isFile } = this.base(ctx, a.path)
-    const res = await globFiles({ fx: this.fx, rules, user: ctx.user, rg: this.cfg.rg, timeoutMs: this.cfg.grepTimeoutMs, office: this.office }, r.segs, isFile, a.pattern.normalize('NFC'))
+    const res = await globFiles({ fx: this.fx, rules, user: ctx.user, rg: this.cfg.rg, timeoutMs: this.cfg.grepTimeoutMs, office: this.office, skip }, r.segs, isFile, a.pattern.normalize('NFC'))
     // the person's file lists that the pattern matches come first (they stand in for a real file of that name)
     if (!isFile) {
       const fold = (x: string) => (this.fx.caseInsensitive ? x.toLowerCase() : x)
       const g = new Bun.Glob(fold(a.pattern.normalize('NFC')))
       const prefix = r.segs.length ? r.segs.join('/') + '/' : ''
       const match = (p: string) => g.match(fold(p.startsWith(prefix) ? p.slice(prefix.length) : p)) || g.match(fold(p))
-      const lists = [...this.virtualUnder(ctx, rules, r.segs, match).keys()].sort()
+      const lists = [...this.virtualUnder(ctx, rules, r.segs, match).keys()].filter((p) => !skippedBy(skip, p)).sort()
       if (lists.length) {
         // a real file of that name (any letter case) in a folder with a list: the list stands in for it
         const shadowed = new Set(lists.map((l) => l.slice(0, l.lastIndexOf('/'))))
@@ -438,14 +444,14 @@ export class FileService {
     return { text, summary: `glob ${r.rel || '.'} pattern(len=${a.pattern.length}) -> ${res.files.length} files` }
   }
 
-  async grep(ctx: ToolCtx, a: any): Promise<ToolOutput> {
+  async grep(ctx: ToolCtx, a: any, skip: readonly string[] = []): Promise<ToolOutput> {
     // a file list named as the path: its lines only (it is not on disk)
     const vp = this.virtualPath(ctx, a.path)
     const { rules, r, isFile } = vp ? { rules: vp.rules, r: authorize(this.fx, vp.rules, ctx.user, vp.segs.slice(0, -1).join('/'), 'list'), isFile: false } : this.base(ctx, a.path)
-    const virtual = vp ? new Map([[vp.rel, vp.file.text]]) : isFile ? new Map<string, string>() : new Map([...this.virtualUnder(ctx, rules, r.segs)].map(([k, v]) => [k, v.text]))
+    const virtual = vp ? new Map([[vp.rel, vp.file.text]]) : isFile ? new Map<string, string>() : new Map([...this.virtualUnder(ctx, rules, r.segs)].filter(([k]) => !skippedBy(skip, k)).map(([k, v]) => [k, v.text]))
     const ctxN = a['-C'] ?? 0
     // the person's own background share, not the shared "system" owner (one AI grep must not fill the queue for all)
-    const res = await grepFiles({ fx: this.fx, rules, user: ctx.user, rg: this.cfg.rg, timeoutMs: this.cfg.grepTimeoutMs, office: this.office, virtual, virtualOnly: !!vp }, r.segs, isFile, {
+    const res = await grepFiles({ fx: this.fx, rules, user: ctx.user, rg: this.cfg.rg, timeoutMs: this.cfg.grepTimeoutMs, office: this.office, virtual, virtualOnly: !!vp, skip }, r.segs, isFile, {
       officeOwner: ctx.user.id, pattern: a.pattern, glob: a.glob, type: a.type, mode: a.output_mode ?? 'files_with_matches', ignoreCase: a['-i'],
       lineNumbers: a['-n'] ?? true, before: a['-B'] ?? ctxN, after: a['-A'] ?? ctxN, limit: a.head_limit ?? 200, multiline: a.multiline,
       lang: personLocale(this.db, ctx.user.id),

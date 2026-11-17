@@ -13,17 +13,21 @@
   shared with one person are not reachable in a shared chat.
 - **Rule 1, a search kept in the project folder says so (FIND-01).** In a shared project chat, grep and glob without a
   path still look in the project folder only (the read gate's default, unchanged). The first result of a turn from a
-  search that looked only in the project folder (no path, or a path that is the project folder or inside it: the AI
+  main-AI search that looked only in the project folder (no path, or a path that is the project folder or inside it: the AI
   also named the project folder itself) now ends with one note (`PROJECT_SEARCH_NOTE`, `server/src/chat/search-path.ts`): only the project folder was
   searched; other team folders and the user's own folder were not; search again with path `"/"` to look further.
   The note names no folder: the AI writes where everyone in the chat reads.
-- **Rule 2, `"/"` alone is the whole team folder in a shared project chat.** `TurnExec.sharedArgs` turns path `"/"`
-  (that string alone) into the team root as the asker can open it. The read card asks first for every place there
-  that some of the chat's people cannot open, the asker's own folder included, as for any wider path; a no reads
-  nothing. Any other path without a folder ("", ".", "./") still stays in the project folder, and a chat shared with
+- **Rule 2, `"/"` alone is the whole team folder in a shared project chat, without the asker's own folder.**
+  `TurnExec.sharedArgs` turns path `"/"` (that string alone) into the team root as the asker can open it, and the
+  call leaves out `users/<asker>` (`SKIP_OWN`: files/service.ts glob and grep, files/search.ts `skip`, the file
+  lists, and `sharedSources`, so the card does not list it either). The read card asks first for every place there
+  that some of the chat's people cannot open, as for any wider path; a no reads nothing. The own folder is left out
+  because the read card's "Always allow" (`shared_read`) is one choice for every place: a person who allowed a group
+  folder did not choose to put their own files into a shared chat with a one-character path (review finding). Any other path without a folder ("", ".", "./") still stays in the project folder, and a chat shared with
   chosen people keeps its own rule (one folder everyone may read). The instructions say the same in the search line.
-  - The asker's own folder is never searched silently in a shared chat: it is in the card's places, and the files
-    shared with them one by one are not reachable at all (Rule 4).
+  - The asker's own folder is searched in a shared chat only by its own path, as before (behind the read card, or
+    the person's own "Always allow"); files shared with them one by one are not reachable at all (Rule 4). The note
+    is given for the main AI's own searches only (a sub-agent's search does not use it up).
 - **Rule 3, the share tools say their plain limits.**
   - `share_with_person` checks every recipient before the files: a recipient nobody matches is said first. A member
     who names a group by its form ("마케팅팀", "Sales team", `group:<id>`) gets the plain limit: they are not in a group by
@@ -31,12 +35,18 @@
     or ask the team owner or an admin). The text is the same whether such a group exists or not, as before: a group
     the user is not in still reads like none (20261116-ai-share-words.md).
   - A file is named in the asker's own words also by its name without the date, number or version at its end
-    (`coreName`: "단가표" names 단가표-2026.xlsx, "report" names report_v2.docx). Used where a shared chat needs the asker
-    to have named the file (`namesFile`, `namesFileLoose`: share_with_person, stop_sharing, who_can_open, the
-    explicit-ask skip). The card still shows the exact file before anything is shared.
-  - A person is named as a recipient also by "(님/씨)이랑 / 랑 / 와 / 과 / 하고" right before the share word 공유
-    ("민호 님이랑 공유해줘"). Only with the share word next to it: "민호 님과 회의한 내용 공유해줘" still names nobody.
-    `share_folder`'s "every person in the asker's own words" rule and the "Always allow counts" rule read it the same.
+    (`namesFileCore`, `coreName`: "단가표" names 단가표-2026.xlsx, "report" names report_v2.docx; never with another date
+    or number right after it: "ledger-3" does not name ledger-4.txt). Only for share_with_person's rule that a file in
+    a chat others wrote in is one the asker named, and such a file always gets the card, also under "Always allow":
+    several files can share one such name. `namesFile` and `namesFileLoose` keep their old rule, so the explicit-ask
+    skip, stop_sharing and who_can_open are unchanged.
+  - The group refusal says the AI cannot see who is in a group the user is not in, so it asks for the names once in
+    its answer, not on an ask_user card with nothing to offer as choices (SHR-01 reruns asked twice).
+  - A person is named as a recipient also by "(님/씨)이랑 / 랑 / 와 / 과 / 하고" right before the request 공유해줘
+    (공유해 + 줘, 주세요, 주시겠어요, 주십시오, 달라: "민호 님이랑 공유해줘"). Only the request: "민호 님과 회의한 내용
+    공유해줘", "민호랑 공유했던 견적서 …", "민호랑 공유하면 안 되니까 …" still name nobody (review finding).
+    `share_folder`'s "every person in the asker's own words" rule, the "Always allow counts" rule and the explicit-ask
+    skip of share_with_person and post_to_room (namedInFull) read it the same.
 - **Rule 4, files shared with one person are not in a shared chat (SWM-01).** The shared chat's "Not available here"
   line now lists the files and folders teammates shared with the asker one by one, with where they are
   (Files › Shared with me, in the asker's language) and that they are the asker's alone: the AI does not search the
