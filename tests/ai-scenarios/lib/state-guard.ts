@@ -108,7 +108,13 @@ export async function resetTo(base: State, now: State, d: ResetDeps, again: () =
       const f = folders.get(p)
       try {
         const want = was.get(p)
-        if (want && f) await d.owner.call(API.putFolderRules, { params: { id: f.id }, body: { rules: want.rules, limited: want.limited, ...(f.rulesHash ? { expectedHash: f.rulesHash } : {}) } })
+        // a team project's folder: its people change only through the project (the folder rules API refuses it)
+        const project = want && p.startsWith('projects/') ? (await d.owner.call(API.listProjects, { query: { manage: '1' } })).items.find((x) => x.folderPath.normalize('NFC') === p) : undefined
+        if (want && project) {
+          const access = await d.owner.call(API.getProjectAccess, { params: { id: project.id } })
+          const participants = want.rules.filter((r) => r.access === 'write' && (r.subjectType === 'user' || r.subjectType === 'group') && r.subjectId).map((r) => ({ subjectType: r.subjectType as 'user' | 'group', subjectId: r.subjectId! }))
+          await d.owner.call(API.putProjectParticipants, { params: { id: project.id }, body: { participants, expectedHash: access.rulesHash } })
+        } else if (want && f) await d.owner.call(API.putFolderRules, { params: { id: f.id }, body: { rules: want.rules, limited: want.limited, ...(f.rulesHash ? { expectedHash: f.rulesHash } : {}) } })
         else if (want) await d.owner.call(API.createFolder, { body: { path: p, rules: want.rules, ...(want.limited ? { limited: true } : {}) } })
         else if (f && !f.keep) await d.owner.call(API.deleteFolder, { params: { id: f.id } })
       } catch (e) { d.log(`reset rules ${p}: ${e instanceof Error ? e.message : e}`) }
