@@ -12,7 +12,7 @@ import { updateTeamSettings } from '../../server/src/admin/settings'
 import { credentialsOf } from '../../server/src/credentials/store'
 import { writeHostedSpeechKey, writeSpeechKey, HOSTED_SPEECH_KEY_SETTING } from '../../server/src/credentials/speech-key'
 import { chargeHostedSpeech, hostedSpeechUsage, HOSTED_SPEECH_DEFAULT_FREE_HOURS, HOSTED_SPEECH_USAGE_SETTING } from '../../server/src/credentials/hosted-speech'
-import { resetPieceLimitsForTests, VOICE_SOUND_SEC_PER_MIN } from '../../server/src/jobs/meeting-piece'
+import { resetPieceLimitsForTests, VOICE_PIECES_PER_MIN, VOICE_SOUND_SEC_PER_MIN } from '../../server/src/jobs/meeting-piece'
 import { makeCApp, type CApp } from '../lib/c-app'
 
 const KEY = 'sk-or-v1-FAKE-TEST-KEY-VOICE-PIECE-0123456789abcdef'
@@ -20,11 +20,14 @@ const HOSTED = 'sk-or-v1-HOSTED-VOICE-CANARY-' + '0c'.repeat(20)
 let A: CApp
 const C = () => componentC(A.ctx)
 const hits: { auth: string | null; body: any }[] = []
+const HELLO = () => Response.json({ text: 'hello there', language: 'en', duration: 2, segments: [{ start: 0.2, end: 1.8, text: ' hello there' }] })
+/** answers for the next requests, in order (then HELLO) */
+let replies: (() => Response)[] = []
 const fake = Bun.serve({
   port: 0, hostname: '127.0.0.1',
   async fetch(req) {
     hits.push({ auth: req.headers.get('authorization'), body: await req.json().catch(() => null) })
-    return Response.json({ text: 'hello there', language: 'en', duration: 2, segments: [{ start: 0.2, end: 1.8, text: ' hello there' }] })
+    return (replies.shift() ?? HELLO)()
   },
 })
 let savedUrl = ''
@@ -42,6 +45,7 @@ afterAll(async () => {
 })
 beforeEach(() => {
   hits.length = 0
+  replies = []
   resetPieceLimitsForTests()
   A.ctx.db.query('DELETE FROM settings WHERE key IN (?, ?)').run(HOSTED_SPEECH_USAGE_SETTING, HOSTED_SPEECH_KEY_SETTING)
   updateTeamSettings(A.ctx.db, { speechProvider: 'openrouter' })
@@ -150,5 +154,61 @@ describe('cost and limits', () => {
     expect(hits).toHaveLength(n)
     expect((await send(piece(15), {}, 'bob')).status).toBe(200)
     expect(leftovers()).toEqual([])
+  })
+})
+
+describe('the language hint (the app\'s language)', () => {
+  const said = (text: string, language: string, logprob: number) => () => Response.json({ text, language, duration: 2, segments: [{ start: 0, end: 2, text, avg_logprob: logprob }] })
+  test('goes to OpenRouter with the piece; a sure answer is kept, one request', async () => {
+    replies = [said('안녕하세요', 'korean', -0.1)]
+    const r = await send(piece(2), { language: 'ko' })
+    expect(r.status).toBe(200)
+    expect(hits).toHaveLength(1)
+    expect(hits[0]!.body.language).toBe('ko')
+    expect(r.body.lines[0].text).toBe('안녕하세요')
+    expect(r.body.language).toBe('ko')
+  })
+  test('whisper unsure of the hinted answer (a translation): the piece goes once more without it and the surer answer wins', async () => {
+    replies = [said('이제 금요일에 입장해 봅시다.', 'korean', -0.9), said("Let's go in on Friday.", 'english', -0.15)]
+    const r = await send(piece(2), { language: 'ko' })
+    expect(r.status).toBe(200)
+    expect(hits).toHaveLength(2)
+    expect(hits[1]!.body.language).toBeUndefined()
+    expect(r.body.lines[0].text).toBe("Let's go in on Friday.")
+    expect(r.body.language).toBe('en')
+  })
+  test('the "foreign language" caption with the hint: the answer without it is kept', async () => {
+    replies = [said('(speaking in foreign language)', 'english', -0.3), said('おはようございます', 'japanese', -0.2)]
+    const r = await send(piece(2), { language: 'en' })
+    expect(r.body.lines[0].text).toBe('おはようございます')
+  })
+  test('a provider that refuses the language field (400): sent again without it, no error', async () => {
+    replies = [() => new Response('bad field', { status: 400 })]
+    const r = await send(piece(2), { language: 'ko' })
+    expect(r.status).toBe(200)
+    expect(hits).toHaveLength(2)
+    expect(hits[0]!.body.language).toBe('ko')
+    expect(hits[1]!.body.language).toBeUndefined()
+    expect(leftovers()).toEqual([])
+  })
+  test('meeting notes keep a 400 as a refusal (the hint retry is voice input\'s only)', async () => {
+    replies = [() => new Response('bad field', { status: 400 })]
+    const fd = new FormData()
+    fd.set('language', 'ko')
+    fd.set('file', new File([new Uint8Array(piece(2))], 'piece.wav'))
+    const r = await A.json('/api/meetings/piece', { method: 'POST', body: fd, as: 'alice' })
+    expect(r.status).toBeGreaterThanOrEqual(400)
+    expect(hits).toHaveLength(1)
+  })
+})
+
+describe('limits in normal speech', () => {
+  test('a minute of dictation (a short first piece, then pieces at each pause) stays well inside the limits', async () => {
+    // talking the whole minute (60 s of sound at most): a 2 s first piece, then short sentences of 3-5 s, each its own
+    // piece: 15 pieces, more than people make in a minute
+    const lengths = [2, ...Array.from({ length: 14 }, (_, i) => 3 + (i % 3))]
+    expect(lengths.length).toBeLessThan(VOICE_PIECES_PER_MIN / 2)
+    expect(lengths.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(VOICE_SOUND_SEC_PER_MIN / 2)
+    for (const sec of lengths) expect((await send(piece(sec))).status).toBe(200)
   })
 })

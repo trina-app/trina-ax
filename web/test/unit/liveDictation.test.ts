@@ -46,6 +46,17 @@ describe('live dictation', () => {
     expect(words).toEqual(['hello there', 'world'])
     expect(done).toEqual({ heard: true, refusal: null, lost: false })
   })
+  test('talking without a pause: the first piece goes out within 2.5 s of speech', async () => {
+    const at: number[] = []
+    let samples = 0
+    const d = new LiveDictation({ send: async () => { at.push(samples / LIVE_RATE); return { ok: true, lines: [{ start: 0, end: 1, text: 'x' }] } }, onWords: () => {}, onRefused: () => {} })
+    const parts = [tone(2500, 0.0005), tone(8000, 0.2)]
+    for (const p of parts) for (let i = 0; i < p.length; i += 1024) { const f = p.subarray(i, i + 1024); samples += f.length; d.push(f) }
+    await d.finish()
+    // 2.5 s of quiet first, then at most 2.5 s of speech
+    expect(at[0]!).toBeLessThanOrEqual(5.1)
+    expect(at[0]!).toBeGreaterThanOrEqual(4)
+  })
   test('Stop sends the piece being collected', async () => {
     const sent: Uint8Array[] = []
     const words: string[] = []

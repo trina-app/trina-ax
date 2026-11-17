@@ -273,7 +273,7 @@ export async function transcribeOpenRouter(cfg: TranscribeConfig, key: string, m
  * now (the caller's checks for new sound), asked before that second try; false keeps the first failure.
  */
 export async function sendToOpenRouter(cfg: TranscribeConfig, key: string, model: string, audio: Uint8Array, format: string,
-  o: { language?: string; signal?: AbortSignal; timeoutMs?: number; seconds?: number | null; again?: () => boolean }): Promise<OpenRouterAnswer> {
+  o: { language?: string; signal?: AbortSignal; timeoutMs?: number; seconds?: number | null; again?: () => boolean; hintOnly?: boolean }): Promise<OpenRouterAnswer> {
   if (audio.byteLength > OPENROUTER_MAX_BYTES) throw TOO_LARGE()
   const lang = o.language && /^[a-z]{2}$/.test(o.language) ? o.language : undefined
   const body = JSON.stringify({
@@ -284,7 +284,12 @@ export async function sendToOpenRouter(cfg: TranscribeConfig, key: string, model
     provider: openRouterRouting(),
   })
   const res = await postAudio(cfg, key, body, { signal: o.signal, timeoutMs: o.timeoutMs, seconds: o.seconds ?? null, again: o.again })
-  if (!res.ok) { await res.body?.cancel().catch(() => {}); throw openRouterFailure(res.status) }
+  if (!res.ok) {
+    await res.body?.cancel().catch(() => {})
+    // `hintOnly`: the language was only a hint; a provider that refuses the field (400) gets the sound without it
+    if (o.hintOnly && lang && res.status === 400) return sendToOpenRouter(cfg, key, model, audio, format, { ...o, language: undefined, hintOnly: false })
+    throw openRouterFailure(res.status)
+  }
   let j: OrAnswer
   try { j = await res.json() as OrAnswer } catch (e) {
     if (o.signal?.aborted) throw e

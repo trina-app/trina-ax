@@ -191,11 +191,16 @@ export function useVoiceInput(o: VoiceInputOptions) {
     opts.current.replace(before, { from: p, removed: cur.length - p, inserted: before.length - p })
   }
 
-  /** one piece to the server, its answer as the piece session reads it (a refusal's reason decides a second try) */
-  const sendPiece = async (wav: Uint8Array, signal: AbortSignal): Promise<PieceAnswer> => {
+  /** one piece to the server, its answer as the piece session reads it (a refusal's reason decides a second try).
+   * `told.language`: the app's language (the person's, else the team's) as a hint, so a short first piece is not heard
+   * as another language; once the server hears another language (it drops a hint whisper was unsure of), the rest of
+   * the recording goes without it. */
+  const sendPiece = async (wav: Uint8Array, signal: AbortSignal, told: { language: string | null }): Promise<PieceAnswer> => {
     const chatId = opts.current.chatId
+    const language = told.language
     try {
-      const r = await api.call(API.transcribePiece, { body: { fields: chatId ? { chatId } : {}, file: new Blob([new Uint8Array(wav)], { type: 'audio/wav' }), filename: 'piece.wav' }, signal })
+      const r = await api.call(API.transcribePiece, { body: { fields: { ...(chatId ? { chatId } : {}), ...(language ? { language } : {}) }, file: new Blob([new Uint8Array(wav)], { type: 'audio/wav' }), filename: 'piece.wav' }, signal })
+      if (language && r.language && r.language !== language && r.lines.length) told.language = null
       return { ok: true, lines: r.lines }
     } catch (e) {
       if (!(e instanceof ApiError) || signal.aborted) throw e
@@ -213,10 +218,11 @@ export function useVoiceInput(o: VoiceInputOptions) {
           const st = useSession.getState().status
           // a team whose voice input goes to OpenRouter: the words show while recording
           if (st.kind !== 'signed-in' || st.me.team?.voiceInputOutside !== true) return rec.current.start().then(() => {})
+          const told = { language: /^[a-z]{2}$/.test(words.current.locale) ? (words.current.locale as string) : null }
           const l: { run: LiveDictation; before: string | null } = {
             before: null,
             run: new LiveDictation({
-              send: sendPiece,
+              send: (wav, signal) => sendPiece(wav, signal, told),
               onWords: (said) => {
                 if (live.current !== l) return
                 if (l.before === null) l.before = opts.current.text

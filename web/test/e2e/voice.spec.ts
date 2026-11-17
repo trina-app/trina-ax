@@ -99,7 +99,7 @@ test('voice input through OpenRouter shows the words while recording; ✓ finish
   await signIn(page)
   await page.getByRole('button', { name: MIC }).click()
   await expect(page.getByRole('group', { name: '녹음 중' })).toBeVisible()
-  // the first piece is cut by 4 s at the latest: its words show above the bar while it still records
+  // the first piece is cut by 2.5 s of speech at the latest: its words show above the bar while it still records
   await expect(page.getByTestId('composer-text-held')).toContainText('받아쓴 문장입니다', { timeout: 12_000 })
   await expect(page.getByRole('group', { name: '녹음 중' })).toBeVisible()
   await page.getByRole('button', { name: '녹음 끝내기' }).click()
@@ -108,6 +108,10 @@ test('voice input through OpenRouter shows the words while recording; ✓ finish
   const log = (await (await page.request.post('/__test/log')).json()) as string[]
   expect(log).toContain('POST /api/transcribe/piece')
   expect(log).not.toContain('POST /api/transcribe')
+  // each piece names the app's language (Korean here) as a hint
+  const hints = (await (await page.request.post('/__test/piece-languages')).json()) as (string | null)[]
+  expect(hints.length).toBeGreaterThan(0)
+  expect(hints.every((h) => h === 'ko')).toBe(true)
   expect((await transcribeChats(page)).every((c) => c === null)).toBe(true)
 })
 

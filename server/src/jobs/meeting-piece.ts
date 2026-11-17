@@ -20,6 +20,7 @@ import { MEETING_PIECE_MAX_SEC, type Locale, type MeetingPieceResult, type Meeti
 import { fail, modelReady, ensureModel, whisperFile, WHISPER_MODELS, type TranscribeConfig } from './transcribe'
 import { sendToOpenRouter, SPEECH_CONFIDENTIAL, SPEECH_NO_KEY, SPEECH_OFF } from './openrouter-stt'
 import { pieceTurn } from './whisper-turns'
+import { confidence, saysOtherLanguage, UNSURE_LOGPROB, type ScoredAnswer } from './speech-language'
 import { JobFailure } from './service'
 
 /** above this (seconds of whisper, model loading included, per second of sound) a server cannot keep up with a
@@ -103,6 +104,21 @@ export function pieceSeconds(head: Uint8Array, size: number): number | null {
   if (data !== size - 44 || data % 2) return null
   const sec = data / 32_000
   return sec > 0 && sec <= MEETING_PIECE_MAX_SEC ? sec : null
+}
+
+/** a hinted answer that may be in the wrong language: only the "foreign language" caption, or whisper unsure of it */
+export function hintDoubtful(r: ScoredAnswer): boolean {
+  return saysOtherLanguage(r) || (!!r.scored && confidence(r.scored) < UNSURE_LOGPROB)
+}
+/** the answer without the hint replaces the hinted one: words where the hinted one had only the caption, or whisper
+ * surer of it by HINT_MARGIN */
+const HINT_MARGIN = 0.1
+export function keepUntold(told: ScoredAnswer, free: ScoredAnswer): boolean {
+  if (!free.text.trim() || saysOtherLanguage(free)) return false
+  if (saysOtherLanguage(told)) return true
+  if (!told.scored || !free.scored) return false
+  const over = Math.max(told.scored.covered, free.scored.covered)
+  return confidence(free.scored, over) > confidence(told.scored, over) + HINT_MARGIN
 }
 
 /** whisper's marks for sound with no words ([BLANK_AUDIO], (music), [음악]) are not lines */
@@ -236,7 +252,15 @@ export async function speechPiece(deps: MeetingDeps, userId: string, file: strin
       if (provider === 'openrouter') {
         const or = deps.openRouter()
         if (!or) throw NO_KEY()
-        r = await sendToOpenRouter(deps.stt, or.key, or.model, bytes!, 'wav', { language: lang, signal: ac.signal, seconds })
+        let got = await sendToOpenRouter(deps.stt, or.key, or.model, bytes!, 'wav', { language: lang, signal: ac.signal, seconds, hintOnly: voice })
+        // voice input's language is the app's, only a hint: whisper told a language the person did not speak translates
+        // (speech-language.ts) and is unsure of it, or writes the "foreign language" caption; then the piece goes once
+        // more without it, and the answer whisper is surer of is kept
+        if (voice && lang && hintDoubtful(got)) {
+          const free = await sendToOpenRouter(deps.stt, or.key, or.model, bytes!, 'wav', { signal: ac.signal, seconds }).catch(() => null)
+          if (free && keepUntold(got, free)) got = free
+        }
+        r = got
       } else {
         if (!deps.stt.whisperBin) throw OFF()
         // a meeting must keep up with two tracks; voice input only waits a little longer
