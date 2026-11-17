@@ -89,7 +89,7 @@ With **Read conversations** the app reads your conversations (channels, includin
 
 | Tool | What it does |
 |---|---|
-| `rooms` | Your conversations (name, kind, unread count, last activity, `room_id`), or with `query`, `person`, `since` or `until` the messages you can see that match. |
+| `rooms` | Your conversations (name, kind, unread count, last activity, `room_id`), or with `query`, `person`, `from_me`, `with_person`, `files`, `since` or `until` the messages you can see that match. `query` also matches the names of files sent with a message, and each match lists its files with their `file_id`. |
 | `room_read` | One conversation's newest messages (default 50, at most 200) or one thread (`thread`), with authors, times, files (`file_id`) and the members with their `user_id`. |
 | `room_file` | The text of a file sent in a conversation: documents, spreadsheets, presentations, Hangul files and PDFs (the text layer). Pictures, video and audio are not read here. |
 | `room_send` | With **Write in conversations**: a message as you in one of your conversations (`room` is its `room_id`), or a reply in a thread (`thread`: the id of its first message), with `mentions` by `user_id`. |

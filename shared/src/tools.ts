@@ -355,8 +355,11 @@ export const SaveUrlOutput = z.object({ url: z.string(), path: z.string(), size:
 const when = z.string().min(1).max(40)
 /** rooms: the rooms the person is in now, or (with query, person, since or until) the messages they can see that match */
 export const RoomsInput = z.strictObject({
-  query: z.string().min(1).max(200).optional().describe('Words to look for in the messages (all of them, any case). Without query, person, since and until the rooms are listed.'),
+  query: z.string().min(1).max(200).optional().describe('Words to look for (all of them, any case), each in a message\'s text or in the name of a file sent with it; a file type word ("excel", "pdf", "docx", "photo") matches files of that type. Without query, person, from_me, with_person, files, since and until the rooms are listed.'),
   person: z.string().min(1).max(100).optional().describe('Only messages written by this person (their name or part of it, e.g. "Minji").'),
+  from_me: z.boolean().optional().describe('Only messages the user sent themself ("the file I sent").'),
+  with_person: z.string().min(1).max(100).optional().describe('Only rooms this person is in: their 1:1 chat with the user, the group chats and team rooms they share, not the room for everyone ("what I sent to Minji").'),
+  files: z.boolean().optional().describe('Only messages that came with files (each hit names the file and its file_id).'),
   room: z.string().min(1).max(200).optional().describe('Only this room (its name, the other person\'s name for a 1:1 chat, or its id). Without a search it narrows the list.'),
   since: when.optional().describe('Messages from this date or time on, e.g. "2026-11-01" or "2026-11-01T09:00" (the team\'s time zone).'),
   until: when.optional().describe('Messages before this date or time (a date alone: up to the end of that day).'),
