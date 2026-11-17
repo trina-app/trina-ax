@@ -6638,7 +6638,7 @@ export const es: Record<MessageKey, string> = {
   "chat.thread.inTrash": "Este chat está en la papelera.",
   "chat.thread.notShared": "Este chat ya no se comparte, así que no admite respuestas nuevas.",
   "chat.thread.full": "Este hilo está lleno. Continúe en el chat.",
-  "chat.thread.peopleOnly": "Solo las personas de este chat ven las respuestas. {name} las lee solo cuando alguien se las envía a {name}.",
+  "chat.thread.peopleOnly": "Solo las personas de este chat ven las respuestas. {name} las lee solo cuando alguien de aquí le pregunta a {name} por ellas.",
   "chat.thread.sendToAi": "Enviar a {name}",
   "chat.thread.editBefore": "Puede editarlo antes de enviarlo.",
   "chat.thread.answerAt": "Respuesta de {name} · {time}",

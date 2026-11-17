@@ -6682,7 +6682,7 @@ export const id: Record<MessageKey, string> = {
   "chat.thread.inTrash": "Obrolan ini ada di Sampah.",
   "chat.thread.notShared": "Obrolan ini tidak dibagikan lagi, jadi tidak bisa dibalas.",
   "chat.thread.full": "Utas ini sudah penuh. Lanjutkan di obrolan.",
-  "chat.thread.peopleOnly": "Hanya orang di obrolan ini yang melihat balasan. {name} membacanya hanya saat seseorang mengirimkannya ke {name}.",
+  "chat.thread.peopleOnly": "Hanya orang di obrolan ini yang melihat balasan. {name} membacanya hanya saat seseorang di sini bertanya kepada {name} tentang balasan itu.",
   "chat.thread.sendToAi": "Kirim ke {name}",
   "chat.thread.editBefore": "Anda bisa mengubahnya sebelum mengirim.",
   "chat.thread.answerAt": "Jawaban {name} · {time}",

@@ -6638,7 +6638,7 @@ export const ja: Record<MessageKey, string> = {
   "chat.thread.inTrash": "このチャットはゴミ箱にあります。",
   "chat.thread.notShared": "このチャットは共有されなくなったため、返信できません。",
   "chat.thread.full": "このスレッドは返信がいっぱいです。チャットで続けてください。",
-  "chat.thread.peopleOnly": "返信はこのチャットのメンバーだけが見られます。{name}が読むのは、誰かが{name}に送ったときだけです。",
+  "chat.thread.peopleOnly": "返信はこのチャットのメンバーだけが見られます。{name}が読むのは、誰かが{name}に返信のことを尋ねたときだけです。",
   "chat.thread.sendToAi": "{name}に送る",
   "chat.thread.editBefore": "送信前に編集できます。",
   "chat.thread.answerAt": "{name}の回答 · {time}",

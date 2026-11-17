@@ -190,7 +190,7 @@ export function wideningAnswers(db: Database, rules: { now: RuleSet; after: Rule
       case 'room': return words.room.replace('{name}', roomName(db, s.id))
       case 'slack': return slackPlaceName(s)
       // a chat's own files (chat/chat-files.ts): the chat is the place
-      case 'chat': return words.chat ?? 'files sent in a shared chat'
+      case 'chat': return words.chat ?? 'files or comments in a shared chat'
     }
   }
   const items: WideningItem[] = []

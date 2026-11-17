@@ -173,7 +173,7 @@ export function viewersOf(db: Database, rules: RuleSet, s: ReadSource, people: P
   if (s.type === 'drive_share') return shareRow(db, s.id) ? shareUsers(db, s.id) : new Set()
   if (s.type === 'slack') return new Set(people.some((p) => p.id === s.userId) ? [s.userId] : [])
   if (s.type === 'room') return roomViewers(db, s.id, people, s.fromSeq, reader)
-  if (s.type === 'chat') return chatViewers(db, s.id, people)
+  if (s.type === 'chat') return chatViewers(db, s.id, people, rules)
   if (s.type === 'name') { const segs = nameSegs(s.path); return new Set(people.filter((p) => rules.canList(p, segs)).map((p) => p.id)) }
   let segs: string[] = []
   if (s.type === 'folder') {
@@ -184,12 +184,20 @@ export function viewersOf(db: Database, rules: RuleSet, s: ReadSource, people: P
   return new Set(people.filter((p) => atLeast(rules.access(p, segs), 'read')).map((p) => p.id))
 }
 
-/** Who sees a chat's own files now (chat/chat-files.ts): a chat shared with people, its people; else its creator alone
- * (a chat gone: nobody). Only active people of `people`. */
-export function chatViewers(db: Database, chatId: string, people: Principal[]): Set<string> {
-  const c = db.query('SELECT id, user_id, people_shared_at, project_id FROM chats WHERE id = ?').get(chatId) as { id: string; user_id: string; people_shared_at: string | null; project_id: string | null } | null
+/** Who sees a chat's own files and its answers' comments now (chat/chat-files.ts, chat/answer-comments.ts): a chat shared
+ * with people, its people; a team project's shared chat (with `rules`), whoever may read the project's folder now (none
+ * while it is in the trash), guests but its creator left out, as chat/shared.ts Audiences.ofChat; else its creator
+ * alone (a chat gone: nobody). Only active people of `people`. */
+export function chatViewers(db: Database, chatId: string, people: Principal[], rules?: RuleSet): Set<string> {
+  const c = db.query('SELECT id, user_id, people_shared_at, project_id, shared_at FROM chats WHERE id = ?').get(chatId) as { id: string; user_id: string; people_shared_at: string | null; project_id: string | null; shared_at: string | null } | null
   if (!c) return new Set()
-  const ids = isPeopleRow(c) ? peopleAudience(db, c) : [c.user_id]
+  let ids = isPeopleRow(c) ? peopleAudience(db, c) : [c.user_id]
+  if (!isPeopleRow(c) && rules && c.shared_at && c.project_id) {
+    const p = db.query('SELECT folder_path, trashed_with FROM projects WHERE id = ?').get(c.project_id) as { folder_path: string; trashed_with: string | null } | null
+    const segs = !p ? null : p.folder_path === '' ? [] : p.folder_path.split('/')
+    const guests = new Set((db.query('SELECT id FROM users WHERE guest = 1').all() as { id: string }[]).map((r) => r.id))
+    ids = !p || p.trashed_with !== null || !segs ? [] : people.filter((x) => (x.id === c.user_id || !guests.has(x.id)) && atLeast(rules.access(x, segs), 'read')).map((x) => x.id)
+  }
   return new Set(ids.filter((id) => people.some((p) => p.id === id)))
 }
 

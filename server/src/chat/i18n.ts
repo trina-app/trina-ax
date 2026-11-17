@@ -164,7 +164,7 @@ export const TEXT = {
   placeTop: t('팀 폴더 맨 위', 'Top of the team folder', 'Bagian atas folder tim', "チームフォルダーの最上位", "Raíz de la carpeta del equipo", "团队文件夹顶层"),
   placeOther: t('{name}님의 폴더', "{name}'s folder", 'Folder {name}', "{name}さんのフォルダー", "Carpeta de {name}", "{name}的文件夹"),
   scopeRoom: t("'{name}' 대화의 메시지", "messages of the conversation '{name}'", "pesan di percakapan '{name}'", "トーク「{name}」のメッセージ", "mensajes de la conversación «{name}»", "聊天“{name}”的消息"),
-  scopeChatFiles: t('공유 채팅에 올린 파일', 'files sent in a shared chat', 'berkas yang dikirim di obrolan bersama', '共有チャットに送ったファイル', 'archivos enviados en un chat compartido', '共享对话中发送的文件'),
+  scopeChatFiles: t('공유 채팅의 파일이나 답글', 'files or comments in a shared chat', 'berkas atau balasan di obrolan bersama', '共有チャットのファイルや返信', 'archivos o respuestas de un chat compartido', '共享对话中的文件或回复'),
   roomMentionAll: t('전체 대화방에서는 팀장과 관리자만 @전체를 쓸 수 있어요.', 'In the everyone room, only the owner and admins can use @everyone.', 'Di ruang Semua, hanya owner dan admin yang bisa memakai @semua.', "全員のトークで@全員を使えるのはオーナーと管理者だけです。", "En la sala Todos, solo el propietario y los administradores pueden usar @todos.", "在所有人群聊中，只有所有者和管理员可以使用@everyone。"),
   roomGroupLimit: t('새 그룹 대화는 한 시간에 {n}개까지 만들 수 있어요. {minutes}분 뒤에 다시 만들어 주세요.', 'You can make up to {n} new group chats an hour. Try again in {minutes} min.', 'Anda bisa membuat hingga {n} obrolan grup baru per jam. Coba lagi dalam {minutes} menit.', "新しいグループトークは1時間に{n}件まで作成できます。{minutes}分後にもう一度お試しください。", "Puede crear hasta {n} chats de grupo nuevos por hora. Inténtelo de nuevo en {minutes} min.", "每小时最多可以新建{n}个群聊。请在{minutes}分钟后重试。"),
   /** a room's change card for a new file ({folder}: where, {file}: its name) and for a file this answer made */

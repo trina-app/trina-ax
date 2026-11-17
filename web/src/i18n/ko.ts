@@ -6682,7 +6682,7 @@ export const ko = {
   "chat.thread.inTrash": "이 채팅은 휴지통에 있어요.",
   "chat.thread.notShared": "이 채팅은 이제 공유되지 않아서 답글을 달 수 없어요.",
   "chat.thread.full": "이 스레드는 답글이 가득 찼어요. 채팅에서 이어가 주세요.",
-  "chat.thread.peopleOnly": "이 채팅을 보는 사람만 답글을 봐요. 누군가 {name}에게 보낼 때만 {name}가 읽어요.",
+  "chat.thread.peopleOnly": "이 채팅을 보는 사람만 답글을 봐요. 누군가 {name}에게 물어볼 때만 {name}가 읽어요.",
   "chat.thread.sendToAi": "{name}에게 보내기",
   "chat.thread.editBefore": "보내기 전에 고칠 수 있어요.",
   "chat.thread.answerAt": "{name}의 답 · {time}",

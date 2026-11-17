@@ -6684,7 +6684,7 @@ export const en: Record<MessageKey, string> = {
   "chat.thread.inTrash": "This chat is in the trash.",
   "chat.thread.notShared": "This chat isn't shared anymore, so no new replies.",
   "chat.thread.full": "This thread is full. Continue in the chat.",
-  "chat.thread.peopleOnly": "Only people in this chat see replies. {name} reads them only when someone sends them to {name}.",
+  "chat.thread.peopleOnly": "Only people in this chat see replies. {name} reads them only when someone here asks {name} about them.",
   "chat.thread.sendToAi": "Send to {name}",
   "chat.thread.editBefore": "You can edit it before sending.",
   "chat.thread.answerAt": "{name}'s answer · {time}",

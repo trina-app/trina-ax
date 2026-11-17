@@ -44,6 +44,8 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   // "why can't Jun see this chat?" (chat/who-can-open.ts): read-only; there only the chat itself and a file the asker
   // named or attached
   'who_can_open',
+  // "use the price Bob put in the thread" (chat/answer-comments.ts): read-only, this chat's comments the asker sees
+  'answer_comments',
 ])
 
 /** The arguments that name where a call writes, per tool: a shared chat's read card counts them only when something
@@ -127,6 +129,8 @@ export const ROOMS_SEEN_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   ...ROOM_READ_ONLY_TOOLS, 'rooms', 'room_read', 'room_file', 'set_title', 'remember', 'post_to_room', 'share_with_person', 'stop_sharing', 'share_folder', 'change_project_members', 'change_folder_access', 'who_can_open', 'find_tools', 'schedule_list', 'drive_search', 'drive_list', 'drive_read',
   // they list names only and change nothing (chat/shared-with-me-tool.ts, chat/looking-at.ts)
   'shared_with_me', 'looking_at',
+  // the comments under answers in this chat, read like a room (chat/answer-comments.ts): it changes nothing
+  'answer_comments',
 ])
 /** ...and the in-app browser's reading tools, only in a turn that has the browser (by name otherwise: no exemption) */
 export const ROOMS_SEEN_BROWSER_READ_TOOLS: ReadonlySet<string> = new Set(['read_page', 'get_page_text', 'find', 'tabs_context', 'read_console_messages', 'read_network_requests'])
@@ -148,7 +152,7 @@ export const ROOMS_SEEN_OWN_CARD_TOOLS: ReadonlySet<string> = new Set(['schedule
  * skipped there. So does `rooms`: its list names other rooms (a group chat's name is its members' words) without
  * putting them in the read scope, so their members would not be weighed.
  */
-export const OWN_CHAT_TEAM_TOOLS: ReadonlySet<string> = new Set([...ROOM_FILE_TOOLS, 'room_read', 'set_title', 'remember'])
+export const OWN_CHAT_TEAM_TOOLS: ReadonlySet<string> = new Set([...ROOM_FILE_TOOLS, 'room_read', 'answer_comments', 'set_title', 'remember'])
 
 /**
  * Tools that by themselves bring nothing another person wrote into a person's own chat (chat/turn.ts noteOthersTool;
