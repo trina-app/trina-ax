@@ -118,35 +118,43 @@ describe('conformance (Node 25 relay, separate team-server process)', () => {
     // into memory after its reader stops (measured on Linux: all 1000 MB were made), which would hide the relay.
     const visitor = Bun.spawn(['node', '-e', `
       let got = 0
-      const req = require('node:http').get(process.argv[1], (res) => res.on('data', (b) => {
-        got += b.length
-        if (got >= ${20 * MB} && !res.isPaused()) { res.pause(); process.stdout.write(got + '\\n') }
-      }))
+      const req = require('node:http').get(process.argv[1], (res) => {
+        res.on('end', () => process.exit(1)) // a short or error body: fail at once, not at the test timeout
+        res.on('data', (b) => {
+          got += b.length
+          if (got >= ${20 * MB} && !res.isPaused()) { res.pause(); process.stdout.write(got + '\\n') }
+        })
+      })
       req.on('error', () => {})
       process.stdin.on('data', () => { req.destroy(); process.stdout.write('aborted\\n') })
       process.stdin.on('end', () => process.exit()) // the test ended without an abort`, `${S.base}/bytes?n=${1000 * MB}&rid=fa`], { stdin: 'pipe', stdout: 'pipe' })
-    const out = visitor.stdout.getReader()
-    let outText = ''
-    const line = async () => {
-      while (!outText.includes('\n')) { const c = await out.read(); if (c.done) throw new Error('visitor exited'); outText += new TextDecoder().decode(c.value) }
-      const i = outText.indexOf('\n'), l = outText.slice(0, i)
-      outText = outText.slice(i + 1)
-      return l
+    let got = 0, tAbort = 0
+    let stalled!: Record<string, number>
+    try {
+      const out = visitor.stdout.getReader()
+      let outText = ''
+      const line = async () => {
+        while (!outText.includes('\n')) { const c = await out.read(); if (c.done) throw new Error('visitor exited'); outText += new TextDecoder().decode(c.value) }
+        const i = outText.indexOf('\n'), l = outText.slice(0, i)
+        outText = outText.slice(i + 1)
+        return l
+      }
+      got = Number(await line())
+      // The reader stopped. Flow control must stop the producer once the pipe is full: the relay returns window as
+      // soon as the visitor's socket accepts a write, so that connection's kernel buffers (send + receive, autotuned
+      // up to this host's limits: 8 MB on macOS, 36 MB on GitHub's runners) may hold bytes, plus one window in flight,
+      // one window queued on the team side and a producer chunk on each side of that queue (as in t2).
+      // Without flow control the producer keeps going until the 1000 MB are made.
+      stalled = await until(async () => { const d = await debug(S!.base, 'fa'); return Date.now() - d.lastPullAt > 500 ? d : null }, 5000, 'producer stops for a reader that stopped')
+      expect(stalled.doneAt).toBe(0)
+      expect(stalled.produced - got).toBeLessThan(socketBufferMax() + 2 * DEFAULTS.initialWindow + 2 * 65536)
+      tAbort = Date.now()
+      visitor.stdin.write('abort\n')
+      visitor.stdin.flush()
+      expect(await line()).toBe('aborted')
+    } finally {
+      visitor.kill(9) // also when an assertion above fails: no Node child outlives the test
     }
-    const got = Number(await line())
-    // The reader stopped. Flow control must stop the producer once the pipe is full: the relay returns window as
-    // soon as the visitor's socket accepts a write, so that connection's kernel buffers (send + receive, autotuned
-    // up to this host's limits: 8 MB on macOS, 36 MB on GitHub's runners) may hold bytes, plus one window in flight,
-    // one window queued on the team side and a producer chunk on each side of that queue (as in t2).
-    // Without flow control the producer keeps going until the 1000 MB are made.
-    const stalled = await until(async () => { const d = await debug(S!.base, 'fa'); return Date.now() - d.lastPullAt > 500 ? d : null }, 5000, 'producer stops for a reader that stopped')
-    expect(stalled.doneAt).toBe(0)
-    expect(stalled.produced - got).toBeLessThan(socketBufferMax() + 2 * DEFAULTS.initialWindow + 2 * 65536)
-    const tAbort = Date.now()
-    visitor.stdin.write('abort\n')
-    visitor.stdin.flush()
-    expect(await line()).toBe('aborted')
-    visitor.kill(9)
     const d1 = await until(async () => { const d = await debug(S!.base, 'fa'); return d.cancelAt ? d : null }, 3000, 'GET cancel')
     expect(d1.cancelAt - tAbort).toBeLessThan(1000)
     // The abort grants no new window, so the team server makes at most one more window and chunk, whatever the
