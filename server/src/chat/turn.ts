@@ -126,6 +126,8 @@ import { publicStep, type ChatRow, type ProjectRow, type StoredStep } from './st
 import { inPeopleAudience, isPeopleRow, peopleAudience } from './chat-audience'
 import { SEARCH_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
 import { shownTimeZone } from '../system/time-zone'
+import { mayManageProject, projectMembersBy } from './projects'
+import { membersView } from './project-access'
 
 /** A search's path that names no folder: none, empty, or only separators and "." ("/", "./", "//", "\\", " . ") —
  * the team root, which a shared chat never searches by default (TurnExec.sharedArgs). */
@@ -817,7 +819,12 @@ export class TurnExec {
     const skills = usableSkills ?? (this.roomReadable ? allSkills.filter((s) => this.roomReadable!(s.path)) : allSkills)
     const skillScores = usageScores(rt.db, spec.userId, skills.map((s) => s.path))
     const skillList = buildSkillList(skills, { order: chatSkillOrder(rt.db, spec.chatId, spec.userId, () => descriptionOrder(skills, skillScores)), tag: neutralizeTags })
-    const shared = this.shared ? { project: this.shared.kind === 'project' ? this.shared.project.name : null, audience: this.sharedAudience().length, asker: this.principal.name } : null
+    // a shared project chat: who changes its members when this person may not (prompt.ts sharedSection)
+    const sharedProject = this.shared?.kind === 'project' ? this.shared.project : null
+    const shared = this.shared ? {
+      project: sharedProject ? sharedProject.name : null, audience: this.sharedAudience().length, asker: this.principal.name,
+      members: sharedProject ? projectMembersBy(rt.db, sharedProject, membersView(rt.ctx, sharedProject, this.principal, mayManageProject(rt.files, this.principal, sharedProject))) : null,
+    } : null
     // a chat opened from a room's side panel (✦ Trina): the room, while the person is still in it and it is not archived
     const sideRoom = sideRoomOf(rt.db, spec.chatId, spec.userId, rt.files)
     // who the person is and where (chat/situation.ts): their role and what it may open, the app, whose AI answers, what
