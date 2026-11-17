@@ -280,13 +280,18 @@ describe('a PDF the AI made in this turn (FL-08: the quote made in the team fold
     expect(r.isError, r.text).toBe(false)
     expect(r.text).toContain(`Saved a new version of ${rel} with the image on it; the previous version is in its file history.`)
     // a wrong spot is fixed by making the PDF again, not by stamping the stamped file a second time
-    expect(r.text).toContain('make the PDF again the same way (same output) and stamp it again')
+    expect(r.text).toContain('redo the steps that made the PDF (same output) and stamp it again')
     expect(fs.readFileSync(file(rel)).equals(before)).toBe(false)
     // no "(stamped)" copy and no unstamped copy anywhere else
     expect(fs.readdirSync(file('groups/marketing/quotes')).filter((n) => n.startsWith('quote-fresh'))).toEqual(['quote-fresh.pdf'])
     expect((A.ctx.db.query('SELECT COUNT(*) AS n FROM file_versions WHERE path = ?').get(rel) as { n: number }).n).toBe(1)
     const ev = A.ctx.db.query('SELECT action, detail FROM file_events WHERE path = ? ORDER BY id DESC LIMIT 1').get(rel) as { action: string; detail: string }
     expect([ev.action, JSON.parse(ev.detail).tool]).toEqual(['update', 'stamp_pdf'])
+    // a second stamp without output lands on the same file too (a signature after the seal): one file, two versions
+    const again = await call('stamp_pdf', { file_path: rel, image: 'groups/marketing/seal.png', position: 'top-left' })
+    expect(again.text).toContain(`Saved a new version of ${rel} with the image on it`)
+    expect(fs.readdirSync(file('groups/marketing/quotes')).filter((n) => n.startsWith('quote-fresh'))).toEqual(['quote-fresh.pdf'])
+    expect((A.ctx.db.query('SELECT COUNT(*) AS n FROM file_versions WHERE path = ?').get(rel) as { n: number }).n).toBe(2)
   })
 
   test('a named output still wins; a file only read, made in an earlier turn, or saved over since is not changed', async () => {
@@ -309,6 +314,14 @@ describe('a PDF the AI made in this turn (FL-08: the quote made in the team fold
     put('groups/marketing/quotes/quote-touched.pdf', bluePdf(2))
     const touched = await call2('stamp_pdf', { file_path: 'groups/marketing/quotes/quote-touched.pdf', image: 'groups/marketing/seal.png' })
     expect(touched.text).toContain(`Saved groups/marketing/quotes/${stamped('quote-touched')}; groups/marketing/quotes/quote-touched.pdf is unchanged.`)
+    // and the AI looks at it again (as it does before placing a seal): still theirs, still a copy (review of this branch)
+    const call3 = turn('alice')
+    await call3('edit_pdf', { file_path: 'groups/marketing/quotes/form-named.pdf', operations: [{ keep_pages: '1' }], output: 'groups/marketing/quotes/quote-reread.pdf' })
+    put('groups/marketing/quotes/quote-reread.pdf', bluePdf(2))
+    expect((await call3('read', { file_path: 'groups/marketing/quotes/quote-reread.pdf', pages: '1' })).isError).toBe(false)
+    const reread = await call3('stamp_pdf', { file_path: 'groups/marketing/quotes/quote-reread.pdf', image: 'groups/marketing/seal.png' })
+    expect(reread.text).toContain(`Saved groups/marketing/quotes/${stamped('quote-reread')}; groups/marketing/quotes/quote-reread.pdf is unchanged.`)
+    // a PDF saved from the web or a room is someone else's: not changed in place (only make_file and the PDF tools count)
   })
 })
 

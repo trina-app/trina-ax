@@ -15,7 +15,9 @@
   the team folder as "(직인 전)" (1 run). In one run the canonical name in the team folder was the *unstamped* file and
   the stamped one was "(직인).pdf". The cause was the tool's shape, not an unclear skill.
 - **Rule:** stamp_pdf and edit_pdf without `output` change the input file in place when the AI made that PDF itself in
-  this turn and its bytes are still the ones it wrote (`madeThisTurn`: in the turn's written files, hash unchanged).
+  this turn and its bytes are still the ones it wrote (`madeThisTurn`: the turn-wide hash `madeHashes` that make_file and
+  the PDF tools record when they save, plus this agent's own read hash; a re-read after someone saved over it does not
+  count, and a file saved from the web or a room with save_url / save_room_file is not "made").
   The result is a new version; the version without the seal stays in the file history. Any other PDF (only read,
   made in an earlier turn, saved over by someone since) keeps the old default: a new file "<name> (stamped).pdf" /
   "(edited).pdf" next to it. A named `output` always wins. The tool descriptions, the `output` field and the PDF tools

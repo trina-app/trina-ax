@@ -278,6 +278,9 @@ describe('edit_pdf on a PDF the AI made in this turn', () => {
     expect(r.text).toContain(`This is a new version of ${D}/fresh.pdf; the previous version is in its file history.`)
     expect((await PDFDocument.load(fs.readFileSync(file(`${D}/fresh.pdf`)))).getPageCount()).toBe(2)
     expect(fs.readdirSync(file(D)).filter((n) => n.startsWith('fresh ('))).toEqual([])
+    expect((A.ctx.db.query('SELECT COUNT(*) AS n FROM file_versions WHERE path = ?').get(`${D}/fresh.pdf`) as { n: number }).n).toBe(1)
+    const ev = A.ctx.db.query('SELECT action FROM file_events WHERE path = ? ORDER BY id DESC LIMIT 1').get(`${D}/fresh.pdf`) as { action: string }
+    expect(ev.action).toBe('update')
     // the person's file, only read: a copy, as before
     await call('read', { file_path: `${D}/fresh-src.pdf`, pages: '1' })
     const theirs = await call('edit_pdf', { file_path: `${D}/fresh-src.pdf`, operations: [{ remove_pages: '3' }] })

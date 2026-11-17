@@ -59,17 +59,19 @@ export const STAMP_PDF_DESCRIPTION = 'Put an image (a company seal, a signature,
   'It cannot change the text of a PDF; a PDF locked with a password cannot be stamped.'
 
 /**
- * A PDF the AI made in this turn (make_file, edit_pdf …, so it is in the turn's written files) whose bytes are still
- * the ones it wrote: its own fresh draft, which a stamp or a page edit without `output` changes in place rather than
+ * A PDF the AI made in this turn (make_file or a PDF tool; not one it saved from the web or a room) whose bytes are
+ * still the ones it wrote: its own fresh draft, which a stamp or a page edit without `output` changes in place rather than
  * leaving an unchanged copy next to the result. Anything else (a file it only read, one someone saved over since) is
  * the person's file and stays as it is.
  */
 export function madeThisTurn(c: ToolCtx, rel: string, bytes: Uint8Array): boolean {
-  return c.files.filesWritten.has(rel) && c.files.readHashes.get(rel) === sha256(bytes)
+  const sha = sha256(bytes)
+  // the bytes the turn made (a re-read after someone saved over it does not count) and this agent's own view of them
+  return c.files.madeHashes.get(rel) === sha && c.files.readHashes.get(rel) === sha
 }
 
 /** Where stamp_pdf saves when `output` is given (trimmed, ".pdf" added when missing), or null (none given: a new name
- * next to the original, which only the tool works out). Also the target of its cards (chat/tools.ts widenOf, chat/turn.ts
+ * next to the original, or the AI's own PDF of this turn itself, which only the tool works out). Also the target of its cards (chat/tools.ts widenOf, chat/turn.ts
  * fileChangeTarget), so a card names the file the tool writes. */
 export function stampOutputOf(output: unknown): string | null {
   if (typeof output !== 'string' || output.trim() === '') return null
@@ -142,14 +144,14 @@ export async function stampPdfFile(ctx: AppContext, files: TeamFiles, c: ToolCtx
 export function stampPdfText(r: StampedPdf, link: string): string {
   const x = r.report
   const where = r.conflictCopyOf
-    ? `'${r.conflictCopyOf}' already exists and was not read in this turn, so the stamped PDF was saved as '${r.path}'. Tell the user about both.`
+    ? `'${r.conflictCopyOf}' already exists and was not read in this turn (or changed after the read), so the stamped PDF was saved as '${r.path}'. Tell the user about both.`
     : r.path === r.source ? `Saved a new version of ${r.path} with the image on it; the previous version is in its file history. Link for the user: ${link}`
     : `Saved ${r.path}; ${r.source} is unchanged. Link for the user: ${link}`
   const at = `The image is on page ${x.page} of ${x.pages}: ${x.rectMm.width} x ${x.rectMm.height} mm, ${x.rectMm.x} mm from the left and ${x.rectMm.y} mm from the top (the page is ${x.pageMm.width} x ${x.pageMm.height} mm).`
   const redo = r.fresh
-    ? `make the PDF again the same way (same output) and stamp it again with another position (stamping this file again would put a second image on it)`
+    ? `redo the steps that made the PDF (same output) and stamp it again with another position (stamping this file again would put a second image on it)`
     : `stamp the original again with another position and output: '${r.path}' (that replaces this copy instead of making another one)`
   const check = `Check it before you answer: read '${r.path}' with pages: "${x.page}" and as_images: true, and look at where the image landed; if it covers text or sits in the wrong place, ${redo}.`
-  const signed = x.signed ? ' The original PDF had a digital signature; tell the user that the stamped copy no longer carries a valid signature.' : ''
+  const signed = x.signed ? ` The original PDF had a digital signature; tell the user that the stamped ${r.path === r.source ? 'version' : 'copy'} no longer carries a valid signature.` : ''
   return `${where}\n${at}\n${check}${signed}`
 }
