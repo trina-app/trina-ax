@@ -629,11 +629,24 @@ describe('security review 2', () => {
     db.transaction(() => { for (let i = 0; i < 50; i++) { const id = crypto.randomUUID(); tids.push(id); tIns.run(id, ids.ada, `Scale ${i}`, `${fake.base}/mcp-key`, now, now); aIns.run(id, g) } })()
     try {
       const service = notificationsOf(h.ctx)
-      const t0 = performance.now()
-      const told = service.offerTemplates({ limit: 100_000 })
-      const first = performance.now() - t0
+      // Count the statements that read who a template reaches, and time those reads. The old loops ran 1-3 of them
+      // per template and person; the set query is one. The whole pass is not on the clock: its 1000 notice writes are
+      // work any correct pass does, and a busy CI runner stretched them past 1.5 s (1688 ms seen, 300 ms here).
+      const reads: string[] = []
+      let first = 0
+      const query = db.query
+      db.query = ((sql: string) => {
+        const st = query.call(db, sql)
+        if (!/integration_template_access/.test(sql)) return st
+        reads.push(sql)
+        const all = st.all
+        return Object.assign(Object.create(st), { all: (...a: unknown[]) => { const t0 = performance.now(); try { return all.apply(st, a as never) } finally { first += performance.now() - t0 } } })
+      }) as typeof db.query
+      let told: number
+      try { told = service.offerTemplates({ limit: 100_000 }) } finally { db.query = query }
       // 50 templates x the 20 group members, nobody else (the old loops took seconds here)
       expect(told).toBe(50 * 20)
+      expect(reads).toHaveLength(1)
       expect(first).toBeLessThan(1500)
       const offers = db.query(`SELECT count(*) n, count(DISTINCT user_id) u FROM integration_template_offers WHERE template_id IN (${tids.map(() => '?').join(',')})`).get(...tids) as { n: number; u: number }
       expect(offers).toEqual({ n: 1000, u: 20 })
