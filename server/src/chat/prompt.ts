@@ -708,7 +708,7 @@ export function skillsSection(files: FileService, user: Principal, list?: SkillL
 }
 
 /** In every skill block: a running number written in a skill (a quote or invoice number) is a format, not a value. */
-export const RUNNING_NUMBER_RULE = 'If the skill numbers what it makes (a quote, invoice or order number such as Q-YYYYMMDD-01 or No. 001), the number it shows is only the format. Before you name or number a new one, list the folder you save it in and use the next free number after the highest one already there (for the same day or series); never reuse a number and never overwrite an earlier file. A revision of the same document keeps its number.'
+export const RUNNING_NUMBER_RULE = 'If the skill numbers what it makes (a quote, invoice or order number such as Q-YYYYMMDD-01 or No. 001), the number it shows is only the format, unless the skill says where its numbers come from or gives a fixed one. Before you name or number a new one, list the folder you save it in and use the next free number after the highest one already there (for the same day or series); never reuse a number, and never overwrite an earlier document with a new one. A revision of the same document keeps its number.'
 
 /** The skill the person invoked with "/<name>" (in front of their message for this turn), or one the AI loaded with
  * the skill tool (its result). */

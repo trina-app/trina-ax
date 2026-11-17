@@ -19,16 +19,18 @@
     read the last quote first. So the result depended on whether the AI chose to look.
 - **Rule:** every skill block the AI gets (a "/name" skill in front of the message, or the skill tool's result,
   `chat/prompt.ts` skillBlock) carries one fixed line, `RUNNING_NUMBER_RULE`: a quote, invoice or order number that a
-  skill shows (Q-YYYYMMDD-01, No. 001) is only its format; before naming or numbering a new one, list the folder it is
-  saved in and use the next free number after the highest one there (same day or series); never reuse a number or
-  overwrite an earlier file; a revision of the same document keeps its number.
+  skill shows (Q-YYYYMMDD-01, No. 001) is only its format, unless the skill says where its numbers come from or gives a
+  fixed one; before naming or numbering a new one, list the folder it is saved in and use the next free number after
+  the highest one there (same day or series); never reuse a number or overwrite an earlier document with a new one; a
+  revision of the same document keeps its number.
 - **Why there:** hand-written skills (like this one) and form skills from the generator (`onboarding/form-skill.ts`,
   whose number blank the AI "works out itself") both reach the AI through skillBlock, so one English line covers every
   skill in every language, with no new card and no change to the skill files teams wrote.
 - **Left out:** a server-side counter or a make_file check that refuses a used number. A counter would need to know
   each team's numbering format; the existing conflict copy already keeps an earlier file from being overwritten. Two
   people making a quote in the same folder within the same seconds can still get the same number; revisit if a real
-  team reports it.
+  team reports it. A skill read with the plain file read (while editing it) and skills used from other AI apps
+  through the company plugin do not pass through skillBlock and do not get the line.
 - **Tests:** `tests/unit/skill-running-number.test.ts` (the rule is in both the invoked and the loaded block, before
   the skill's own text). Real-AI check: a Quotes folder that already holds Q-<today>-01; make a new quote with the
   skill; expect Q-<today>-02.
