@@ -29656,8 +29656,7 @@ pick)" let that weak match through whatever the AI said.
   - names a program gave (`autoNamed`): `f(8).txt`, `image001.png`, "Untitled" / "New Text Document" with no more
     words (six languages), a hash or UUID, a random id (16+ letters and digits, digits in four places or more; never a
     CamelCase name), a messenger's chat export, README/CHANGELOG/LICENSE/CONTRIBUTING as bare names in text;
-  - documents under 1 KB and text files (txt, md, csv, rtf) under 2 KB (`tooSmall`; the page applies it. The app still
-    lists them, so search by name finds every file the look saw: MAN-057, 2026-11-17).
+  - documents under 1 KB and text files (txt, md, csv, rtf) under 2 KB (`tooSmall`).
 - **Copies and series** (page, `workCandidates`, recent files only): "X (1)", "Copy of X", "X - 복사본", "X copy 2"
   are dropped when a recent X is in the same folder (a copy downloaded again lately stays when its original is old);
   four or more names that differ only in their numbers, in one folder, of one type, show the newest only, and none when
