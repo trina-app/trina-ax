@@ -3,6 +3,8 @@ import { FILE_TOOLS, type FileToolName } from '@mycel/shared'
 import type { AppContext } from '../../context'
 import { TurnFiles } from '../../files/service'
 import { authorize } from '../../policy/authorize'
+import { ToolError } from '../../policy/errors'
+import { atLeast } from '../../policy/access'
 import { listSkills, skillInfo } from '../../chat/skills'
 import { sourceKey, sourceOf } from '../../chat/read-scope'
 import { teamRuleFiles } from '../../chat/prompt'
@@ -167,8 +169,15 @@ export class RemoteTools {
         const rules = this.ctx.files.rules()
         const sources = new Map([...scope.sources, ...scopeSources(this.ctx.db, scope.grantId, scope.key, oauth.now())].map(s => [sourceKey(s), s]))
         for (const path of m.files.readPaths) {
-          const allowed = authorize(this.ctx.files.fx, rules, user, path, 'read')
-          const source = sourceOf(this.ctx.db, rules, allowed.rel); sources.set(sourceKey(source), source)
+          // a read with versions adds the places an old version was saved in (files/service.ts readVersions), which a
+          // move or rename can have left empty, folders on the way included: those are taken as recorded, still only
+          // where the person may read by the folder rules
+          let rel: string
+          try { rel = authorize(this.ctx.files.fx, rules, user, path, 'read', { mustExist: false }).rel } catch (e) {
+            if (!(e instanceof ToolError && e.code === 'not_found') || !atLeast(rules.access(user, path.split('/').filter(Boolean)), 'read')) throw e
+            rel = path
+          }
+          const source = sourceOf(this.ctx.db, rules, rel); sources.set(sourceKey(source), source)
         }
         if (sources.size > SCOPE_SOURCES_MAX) return result(scopeFull(scope), true)
         saveScope(this.ctx.db, scope, [...sources.values()], oauth.now())
