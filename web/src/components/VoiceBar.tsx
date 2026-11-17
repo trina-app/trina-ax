@@ -6,12 +6,14 @@
 // - VoiceMic: the mic (a click toggles; on touch screens a finger held on it talks), a spinner on it while
 //   transcribing; nothing while voice input can't be used on this server (lib/voice.ts micState).
 // - VoiceLive: the polite live region (녹음 중, 텍스트로 바꾸는 중, 텍스트를 넣었어요). Always there, so a change is read.
+// - VoiceHeld: the box's text while recording (it cannot be typed in then), kept scrolled to its end, so the words of a
+//   live recording (lib/liveDictation.ts) show as they come in.
 // - VoiceProgress: the job's own label (a model download, a conversion) over a box that has text; an empty box shows it
 //   as its placeholder.
 // Ping and level movement only without reduced motion.
 import clsx from 'clsx'
 import { Check, Loader2, Mic, X } from 'lucide-react'
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, type CSSProperties } from 'react'
 import { useT } from '../i18n'
 import { fmtDuration } from '../lib/format'
 import type { VoiceInputState } from '../lib/useVoiceInput'
@@ -83,6 +85,20 @@ export function VoiceMic({ voice, mic, disabled = false, tip = false, className 
     >
       {voice.transcribing ? <Loader2 size={18} className="animate-spin" aria-hidden /> : <Mic size={18} aria-hidden />}
     </IconButton>
+  )
+}
+
+export function VoiceHeld({ text, className, style, testId }: { text: string; className?: string; style?: CSSProperties; testId: string }) {
+  const el = useRef<HTMLParagraphElement>(null)
+  // the newest words stay in sight when the text is taller than the box
+  useLayoutEffect(() => {
+    const p = el.current
+    if (p) p.scrollTop = p.scrollHeight
+  }, [text])
+  return (
+    <p ref={el} aria-hidden style={style} className={clsx('overflow-hidden text-reading leading-reading break-words whitespace-pre-wrap', className)} data-testid={testId}>
+      {text}
+    </p>
   )
 }
 

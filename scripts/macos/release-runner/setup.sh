@@ -9,8 +9,10 @@
 # job. It is stored as /Library/TrinaCI/secrets/github-auth.header (root 600; the runner account cannot read it).
 # It is needed only when none is stored yet (or to replace it): from the file given (read, then deleted), else typed
 # at a hidden prompt. Never printed, never in argv.
-# Downloads it expects (pinned versions and sha256 below), in ~/.tfx/mac-runner-stage/ of the admin:
-#   actions-runner-osx-arm64-$RUNNER_VERSION.tar.gz, node-$NODE_VERSION-darwin-arm64.tar.gz
+# Downloads it expects, in ~/.tfx/mac-runner-stage/ of the admin:
+#   actions-runner-osx-arm64-$RUNNER_VERSION.tar.gz (pinned below: the one list does not hold the runner), and the
+#   Node.js of scripts/system/packages.json for darwin-arm64 (its file name, address and sha256 come from the list;
+#   setup.sh prints the address when the file is missing)
 # What it makes:
 #   - the hidden standard account _trinaci (own group, not staff, not admin, no password, no login shell), listed in
 #     cron.deny and at.deny;
@@ -34,8 +36,6 @@ D=/Library/TrinaCI
 LOGDIR=/private/var/log/trina-ci
 RUNNER_VERSION=2.338.2
 RUNNER_SHA256=25a065af409ffa317ab4d5a3b614dd15fc9c40f2172bc1b35a1b1258e919a388
-NODE_VERSION=v22.23.5
-NODE_SHA256=e7131995759b61a0170b646010d2ad35a5d37b4cb0d471f3e8317eac6f742f3d
 REPO_API=https://api.github.com/repos/trina-app/trina-ax
 JOB_PATH=/usr/bin:/bin:/usr/sbin:/sbin:$D/node/bin
 
@@ -44,6 +44,18 @@ say() { printf '\n== %s\n' "$*"; }
 die() { echo "setup.sh: $*" >&2; exit 1; }
 regular() { [ -f "$1" ] && [ ! -L "$1" ]; }
 
+# Node.js for the jobs: the one list's darwin-arm64 pin (scripts/system/packages.json; docs/DECISIONS.md "One list of
+# system packages"), read through packages.sh with macOS's own jq (/usr/bin/jq), never a pin of this script's own
+PK_LIST="$HERE/../../system/packages.json"
+# never a reader or folder from the environment (sudo -E): only this checkout's list, read with /usr/bin/jq
+PK_BUN=
+PK_OPT=/opt/trina
+[ -f "$PK_LIST" ] || die "no $PK_LIST: run from the repository checkout"
+. "$HERE/../../system/packages.sh"
+NODE_LINE=$(pk_flat | awk -F '\t' '$1 == "F" && $2 == "node" && $3 == "darwin-arm64" { print $4 " " $5 " " $6 }' | head -n 1) || die "cannot read $PK_LIST"
+read -r NODE_VERSION NODE_URL NODE_SHA256 <<<"$NODE_LINE"
+[ -n "${NODE_SHA256:-}" ] || die "no darwin-arm64 Node.js in $PK_LIST"
+
 [ "$(id -u)" = 0 ] || die "run with sudo"
 [ "$(uname -m)" = arm64 ] || die "Apple silicon only"
 OWNER=${SUDO_USER:?run with sudo from the admin account}
@@ -51,7 +63,7 @@ OWNER_HOME=$(dscl . -read "/Users/$OWNER" NFSHomeDirectory | awk '{print $2}')
 [ -d "$OWNER_HOME" ] || die "no home for $OWNER"
 STAGE="$OWNER_HOME/.tfx/mac-runner-stage"
 RUNNER_TGZ="$STAGE/actions-runner-osx-arm64-$RUNNER_VERSION.tar.gz"
-NODE_TGZ="$STAGE/node-$NODE_VERSION-darwin-arm64.tar.gz"
+NODE_TGZ="$STAGE/${NODE_URL##*/}"
 # switching on is owner-only (docs/RELEASE-CI.md 13): confirm at the prompt, or TRINA_CI_OWNER_OK=yes without a terminal
 if [ "${TRINA_CI_OWNER_OK:-}" != yes ]; then
   [ -t 0 ] || die "switching the release Mac runner on needs the owner's OK: run in a terminal, or set TRINA_CI_OWNER_OK=yes"
@@ -67,7 +79,7 @@ if [ "$TOKEN_FILE" != - ]; then
   [ -n "$TOKEN" ] || die "empty token"
 fi
 regular "$RUNNER_TGZ" && [ "$(shasum -a 256 "$RUNNER_TGZ" | awk '{print $1}')" = "$RUNNER_SHA256" ] || die "runner tarball missing or sha256 mismatch: $RUNNER_TGZ"
-regular "$NODE_TGZ" && [ "$(shasum -a 256 "$NODE_TGZ" | awk '{print $1}')" = "$NODE_SHA256" ] || die "Node.js tarball missing or sha256 mismatch: $NODE_TGZ"
+regular "$NODE_TGZ" && [ "$(shasum -a 256 "$NODE_TGZ" | awk '{print $1}')" = "$NODE_SHA256" ] || die "Node.js $NODE_VERSION tarball missing or sha256 mismatch: $NODE_TGZ (download $NODE_URL)"
 
 say "account $U"
 if ! dscl . -read "/Users/$U" >/dev/null 2>&1; then
@@ -133,7 +145,7 @@ printf '%s\n' "$OWNER_HOME" > "$D/owner-home"; chmod 644 "$D/owner-home"
 rm -rf "$D/runner-dist" "$D/node"
 install -d -o root -g wheel -m 755 "$D/runner-dist" "$D/node"
 tar -xzf "$RUNNER_TGZ" -C "$D/runner-dist"
-tar -xzf "$NODE_TGZ" -C "$D/node" --strip-components 1
+tar -xf "$NODE_TGZ" -C "$D/node" --strip-components 1
 chown -R root:wheel "$D/runner-dist" "$D/node"
 chmod -R go-w "$D/runner-dist" "$D/node"
 install -d -o root -g wheel -m 755 "$LOGDIR"

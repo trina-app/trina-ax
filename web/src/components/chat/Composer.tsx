@@ -48,7 +48,7 @@ import { micState, voiceBlockedHere } from '../../lib/voice'
 import { useConfidentialChat } from '../../lib/confidential'
 import { usePanelExpanded } from '../../lib/sidePanel'
 import { registerComposer } from '../../lib/teamAttach'
-import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
+import { VoiceBar, VoiceHeld, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { useLocale, useT } from '../../i18n'
 import { useMe } from '../../store/session'
 import { isGuestMe } from '../../lib/guests'
@@ -661,15 +661,17 @@ export default function Composer({
             // a phone's card keeps its height: the text as it was on top (it cannot be typed in while recording), the
             // bar in the tools' row, ✕ and ✓ where + and send were
             <>
-              <p aria-hidden style={{ height: heldHeight.current }} className={clsx('overflow-hidden text-reading leading-reading break-words whitespace-pre-wrap', fieldMax, fieldPad, text ? 'text-ink' : 'text-faint')} data-testid="composer-text-held">
-                {text || hint}
-              </p>
+              <VoiceHeld text={text || hint} style={{ height: heldHeight.current }} className={clsx(fieldMax, fieldPad, text ? 'text-ink' : 'text-faint')} testId="composer-text-held" />
               {/* as tall as the tools' row, with ✓ 40 px below 640 px (VoiceBar): 4 px less padding there */}
               <VoiceBar voice={voice} className="box-content min-h-9 px-3 pt-1 pb-2.5 max-sm:pt-0.5 max-sm:pb-2" />
             </>
           ) : (
-            // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where "+" (phones) and send were
-            <VoiceBar voice={voice} className={clsx('box-content min-h-composer-line py-1 pr-2 max-md:pr-1', phone ? 'pl-1.5' : 'pl-3')} />
+            // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where "+" (phones) and send were; once a
+            // live recording put words in, the box's text shows above it
+            <>
+              {voice.heard && <VoiceHeld text={text} className={clsx('max-h-32 pt-3 text-ink', phone ? 'px-3' : 'px-5')} testId="composer-text-held" />}
+              <VoiceBar voice={voice} className={clsx('box-content min-h-composer-line py-1 pr-2 max-md:pr-1', phone ? 'pl-1.5' : 'pl-3')} />
+            </>
           )
         ) : (
           <>

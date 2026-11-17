@@ -14,7 +14,7 @@ import type { AppContext } from '../context'
 import { JobServiceImpl } from '../jobs/service'
 import { transcribe, type TranscribeConfig } from '../jobs/transcribe'
 import { cleanMediaWork, localModelName, recordLocalSpeed } from '../files/media'
-import { meetingPiece, meetingStatus, MeetingSpeed, type MeetingDeps } from '../jobs/meeting-piece'
+import { meetingPiece, meetingStatus, MeetingSpeed, speechPiece, type MeetingDeps } from '../jobs/meeting-piece'
 import type { MeetingPieceResult, MeetingStatus } from '@mycel/shared/api'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { SPEECH_CONFIDENTIAL, SPEECH_NO_KEY, SPEECH_OFF, transcribeOpenRouter } from '../jobs/openrouter-stt'
@@ -56,6 +56,8 @@ export interface ComponentC {
    * (jobs/meeting-piece.ts) with the team's voice input setting */
   meetingPiece(userId: string, file: string, o: { language?: string; signal?: AbortSignal }): Promise<MeetingPieceResult>
   meetingStatus(): Promise<MeetingStatus>
+  /** voice input while recording: one piece (the route checked the chat with checkTranscribe) */
+  voicePiece(userId: string, file: string, o: { language?: string; signal?: AbortSignal }): Promise<MeetingPieceResult>
   /** run every retention sweep now (also runs hourly) */
   sweep(): Record<string, number>
 }
@@ -161,6 +163,9 @@ export function componentC(ctx: AppContext): ComponentC {
       return meetingPiece(meeting, userId, file, { language: o.language, locale: locale(userId), signal: o.signal })
     },
     meetingStatus: () => meetingStatus(meeting),
+    voicePiece(userId, file, o) {
+      return speechPiece(meeting, userId, file, { language: o.language, locale: locale(userId), signal: o.signal, use: 'voice' })
+    },
     sweep() {
       const r: Record<string, number> = {}
       const run = (k: string, f: () => number | Record<string, number>) => {

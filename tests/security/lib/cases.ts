@@ -555,6 +555,9 @@ export const SPECS: Record<string, Spec> = {
   getJob: { build: (c, w) => c.get(`/api/jobs/${w.ids.jobAlice}`), scope: 'own-alice' },
   cancelJob: { build: (c, w) => c.post(`/api/jobs/${w.ids.jobAlice}/cancel`), scope: 'own-alice' },
   transcribe: { build: (c, w) => c.req('POST', '/api/transcribe', undefined, { form: tform(w.ids.chatA) }), scope: 'own-alice-chat' },
+  // voice input while recording: the same chat check as a whole recording (alice's chat only); the world has voice input
+  // off, so an allowed caller's piece is refused (409) too
+  transcribePiece: { skipPositive: true, build: (c, w) => c.req('POST', '/api/transcribe/piece', undefined, { form: tform(w.ids.chatA) }), scope: 'own-alice-chat' },
   // meeting notes (desktop app): any signed-in member for themselves; guests are not on the allow-list. The world has
   // voice input off, so a piece is refused (409) for an allowed caller too: covered by the deny matrix
   meetingStatus: { build: (c) => c.get('/api/meetings/status'), scope: 'self' },
