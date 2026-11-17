@@ -42,6 +42,7 @@ import { useAiAccess } from '../../store/aiAccess'
 import { retryFolderUpload, startFolderUpload, stopFolderUpload, useFolderUploadsSettled } from '../FolderUploads'
 import { useTeamPrepared } from './TeamPrepared'
 import { failedReason, FindWorkFiles } from './FindWorkFiles'
+import { OpenAppLine } from './OpenAppLine'
 import { cloudName, workFilesBridge } from '../../lib/workFiles'
 import { hasResume, takeResume } from '../../lib/workFilesResume'
 import { TickFold, TickRow, TickSearch } from './TickList'
@@ -489,6 +490,8 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
         <StepHead title={t('welcome.teamFiles.phoneTitle')} desc={sorted ? t('welcome.teamFiles.phoneDescShared', { shared: sharedName }) : t('welcome.teamFiles.phoneDesc')} />
         <TeamReach team={place.who} groupId={place.groupId} />
         {notes}
+        {/* a narrow Mac or Windows browser: the app finds the files (never on a real phone: components/onboarding/OpenAppLine.tsx) */}
+        <OpenAppLine />
         <div className="space-y-2">
           <Button variant="primary" className="w-full" disabled={stepBusy} onClick={() => filesInput.current?.click()} data-testid="welcome-team-files-pick-files">
             <Upload size={14} aria-hidden /> {t('welcome.teamFiles.pickFiles')}
@@ -520,6 +523,8 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
           {draft.blocked && <MacBlocked folder={draft.blocked} />}
           {draft.empty && draft.tooBig > 0 && <p className="text-label text-muted" data-testid="team-files-too-big">{t('welcome.teamFiles.tooBig', { n: draft.tooBig })}</p>}
           <p className="text-label text-muted" data-testid="welcome-team-files-hint">{t(how === 'handle' && !isDesktop() ? (windows() ? 'welcome.teamFiles.hintChromeWindows' : 'welcome.teamFiles.hintChrome') : 'welcome.teamFiles.hintInput')}</p>
+          {/* in a computer's browser, where the app's "Find work files on this computer" would be (lib/open-app.ts) */}
+          {!computer && <OpenAppLine />}
           <TeamReach team={place.who} groupId={place.groupId} />
           {notes}
         </div>

@@ -313,6 +313,8 @@ export class MockServer {
   deletionRequests = new Map<string, string>()
   /** people whose latest sign-in used a temporary password (Me.session.tempLogin while they must change it) */
   tempLogins = new Set<string>()
+  /** the desktop app's one-time sign-in codes (server/src/auth/app-signin.ts): code → who and until when; spent on redeem */
+  appCodes = new Map<string, { userId: string; until: number }>()
   users: User[] = []
   /** members who told an admin that Trina isn't ready (POST /api/me/ai-not-ready/tell; GET /api/me/ai-access notReadyTold) */
   notReadyTold = new Set<string>()
@@ -345,6 +347,8 @@ export class MockServer {
     | { kind: 'lead_joined'; inviteId: string; leadFor: string; joinerId: string; joinedAt: string }
     | { kind: 'transferred'; me: 'from' | 'to' | 'other'; fromId: string; toId: string; fromName: string; toName: string; ended: { teamAi: number; driveShares: number; failed: number } }
     | { kind: 'reauth_locked' }
+    // the team's disk filling (server/src/notifications/service.ts storageNotice): owners and admins
+    | { kind: 'storage_filling'; percent: number; roomsBytes: number | null }
     // a member's ask to add an app (server/src/integrations/service-requests.ts): one per owner or admin and app, and
     // the member's "ready" once they can connect it
     | { kind: 'service_request'; service: RequestableService }
@@ -1454,6 +1458,11 @@ export class MockServer {
   inboxItem(n: MockServer['inbox'][number]): InboxNotification {
     if (n.kind === 'service_request' || n.kind === 'service_ready') return this.serviceNoticeItem(n)
     const viewer = this.users.find((x) => x.id === n.userId)
+    if (n.kind === 'storage_filling') {
+      // like the server: the numbers and the storage card only while the reader is the owner or an admin
+      const staff = !!viewer && (viewer.role === 'owner' || viewer.role === 'admin')
+      return { id: n.id, eventType: 'storage.filling', sourceId: `80:${n.createdAt}`, code: 'storage.filling', createdAt: n.createdAt, readAt: n.readAt, chatId: null, link: staff ? 'admin_storage' : null, outcome: null, ...(staff ? { storage: { percent: n.percent, roomsBytes: n.roomsBytes } } : {}) }
+    }
     if (n.kind === 'chat_shared') {
       // who shared it while the account is there; the chat while the reader still sees it (link 'chat' then), else gone
       const who = this.users.find((x) => x.id === n.byId)
@@ -2605,6 +2614,23 @@ export class MockServer {
       return { cookie: this.startSession(u!), body: { me: this.me(u!, '') } }
     },
     logout: () => ({ cookie: `${DEV_SESSION_COOKIE}=; Path=/; Max-Age=0`, body: undefined }),
+    // "Continue in the Mac app" (server/src/auth/app-signin.ts): a code per person (the earlier one goes), 3 minutes, once
+    appSignIn: (c) => {
+      for (const [k, v] of this.appCodes) if (v.userId === c.user.id) this.appCodes.delete(k)
+      const code = (uuidv7() + uuidv7()).replace(/-/g, '').slice(0, 43)
+      const until = Date.now() + 3 * 60_000
+      this.appCodes.set(code, { userId: c.user.id, until })
+      return { code, expiresAt: new Date(until).toISOString() }
+    },
+    redeemAppSignIn: (c) => {
+      const a = this.appCodes.get(c.body.code)
+      // like the server: never in place of another person's sign-in, and the code stays unspent
+      if (a && a.until > Date.now() && c.user && c.user.id !== a.userId) fail('conflict', 409, 'This app is signed in as someone else on this team. Sign out first, then press the button in your browser again.', undefined, { reason: 'signed_in_as_other' })
+      this.appCodes.delete(c.body.code)
+      const u = a && a.until > Date.now() ? this.users.find((x) => x.id === a.userId && x.status === 'active') : undefined
+      if (!u) fail('gone', 410, 'This link has expired. Press the button in your browser again, or sign in with your password.')
+      return { cookie: this.startSession(u!), body: { me: this.me(u!, '') } }
+    },
     me: (c) => this.me(c.user, ''),
     // team chat rooms and the people directory (the sidebar and the phone's 대화 tab read them on every page): like a
     // server whose people are in no room yet, and the active people by name only (server/src/routes/people.ts)
@@ -4674,7 +4700,7 @@ export class MockServer {
     // like server/src/system/storage.ts: a 50 GB disk, 41 GB used (over 80%); the plan on Team AX Cloud
     storage: () => ({
       totalBytes: 50 * 1024 ** 3, usedBytes: 41 * 1024 ** 3, freeBytes: 9 * 1024 ** 3, percent: 82, level: 'warn', reserveBytes: 1024 ** 3, writesRefused: false, graceEndsAt: null,
-      breakdown: { kept: 1.2 * 1024 ** 3, team: 30 * 1024 ** 3, history: 4 * 1024 ** 3, trash: 3 * 1024 ** 3, backups: 2 * 1024 ** 3, models: 0.5 * 1024 ** 3, data: 0.3 * 1024 ** 3, app: 0.2 * 1024 ** 3, other: 1024 ** 3 },
+      breakdown: { kept: 1.2 * 1024 ** 3, rooms: 6.4 * 1024 ** 3, team: 23.6 * 1024 ** 3, history: 4 * 1024 ** 3, trash: 3 * 1024 ** 3, backups: 2 * 1024 ** 3, models: 0.5 * 1024 ** 3, data: 0.3 * 1024 ** 3, app: 0.2 * 1024 ** 3, other: 1024 ** 3 },
       measuredAt: now(), planDiskGiB: this.cloud ? 50 : null,
     }),
     // like server/src/system/managed.ts: the plan card and the operator's notices on Team AX Cloud (none self-hosted)
@@ -6059,6 +6085,8 @@ export class MockServer {
       this.deckTier = body.tier === 'standard' || body.tier === 'deep' ? body.tier : 'quick'
     }
     else if (p === '/__test/cloud') this.cloud = body.on !== false
+    // {percent, roomsBytes?}: the 80 % / 95 % notice in every owner's and admin's Inbox (server/src/notifications/service.ts notifyStorageFilling)
+    else if (p === '/__test/storage-notice') for (const u of this.users.filter((x) => (x.role === 'owner' || x.role === 'admin') && x.status === 'active')) this.note(u.id, { kind: 'storage_filling', percent: Number(body.percent), roomsBytes: body.roomsBytes == null ? null : Number(body.roomsBytes) })
     else if (p === '/__test/google-apps') { this.googleApps.control(body); this.settleServiceRequests() }
     else if (p === '/__test/plugin-previous') this.plugins.control(body as { id: string; version: string; trusted: boolean; untrusted?: boolean })
     else if (p === '/__test/member-welcome') this.memberWelcome = (body.welcome as MemberWelcome | null | undefined) ?? null

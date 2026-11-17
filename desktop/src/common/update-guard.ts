@@ -117,6 +117,8 @@ export function resumePage(teamId: string, pageUrl: string, origins: string[]): 
   let u: URL
   try { u = new URL(pageUrl) } catch { return null }
   if (!origins.includes(u.origin)) return null
+  // the one-time sign-in page is never opened again (its code is spent; the page takes it out of the address at once)
+  if (/^\/app-signin\/?$/i.test(u.pathname)) return null
   const path = u.pathname + u.search + u.hash
   return safePath(path) ? { teamId, path } : null
 }

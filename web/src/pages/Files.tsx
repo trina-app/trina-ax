@@ -70,6 +70,7 @@ import { isOwnPath, offersFolderShare, useFolderSharesOn, useOwnFolderShare } fr
 import FolderUploads, { startFolderUpload, useFolderUploadsSettled } from '../components/FolderUploads'
 import { TeamFilesEntry } from '../components/onboarding/TeamFilesStep'
 import { useFindWorkFilesEntry } from '../components/onboarding/FindWorkFiles'
+import { OpenAppLine } from '../components/onboarding/OpenAppLine'
 import SuggestSkillDialog from '../components/SuggestSkillDialog'
 import { SkillIssues } from '../components/SkillIssues'
 import { isSkillsPath } from '../lib/skillIssues'
@@ -1145,6 +1146,9 @@ function Files() {
           <FileUploads here={path} />
           <FolderUploads here={path} />
           <TeamFilesEntry here={path} />
+          {/* My files in a Mac or Windows browser: where the app's "Find work files on this computer" would be, one quiet
+              line that the app does that (components/onboarding/OpenAppLine.tsx; never a guest, a phone or inside the apps) */}
+          {path === `users/${me.user.id}` && <OpenAppLine className="mx-4 mb-2 px-1.5 max-md:mt-3 sm:mx-6" />}
           {/* computer files over the list go to this folder; over a folder row, into that folder (the row shows it) */}
           <div className={clsx('scroll-thin relative min-h-0 flex-1 overflow-y-auto px-2 pb-6 sm:px-4', drag && !over && 'bg-accent-soft/40 ring-2 ring-accent ring-inset')}>
             {phone && (
