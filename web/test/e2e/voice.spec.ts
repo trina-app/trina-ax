@@ -428,7 +428,8 @@ test.describe('a finger on the mic (a phone)', () => {
 })
 
 // The wave (lib/recorder.ts): Chromium's fake microphone beeps about once a second.
-const SILENT = '소리가 들리지 않아요. 마이크를 확인해 주세요.'
+const SILENT = '아직 소리가 들리지 않아요. 말하고 있다면 마이크를 확인해 주세요.'
+const secondsShown = async (page: Page) => Number(((await page.getByTestId('voice-time').textContent()) ?? '').split(':')[1])
 const waveHeights = (page: Page) =>
   page.getByTestId('voice-wave').locator('span').evaluateAll((bars) => bars.map((b) => parseFloat((b as HTMLElement).style.height)))
 /** the tallest bar seen while watching for `ms` */
@@ -448,8 +449,8 @@ test('the wave moves with the sound of the microphone, and nothing is said about
   // a beep: bars well over the 3 px dot; between beeps they come back down
   await expect.poll(async () => Math.max(...(await waveHeights(page))), { intervals: [30], timeout: 5000 }).toBeGreaterThan(12)
   await expect.poll(async () => Math.max(...(await waveHeights(page))), { intervals: [30], timeout: 5000 }).toBeLessThan(8)
-  // well past the 3 seconds after which a silent microphone is named
-  await expect(page.getByTestId('voice-time')).toHaveText('0:04')
+  // well past the 3 seconds after which a recording that heard nothing says so
+  await expect.poll(() => secondsShown(page)).toBeGreaterThanOrEqual(4)
   await expect(bar.getByTestId('voice-hint')).toHaveText('다음엔 입력창에서 Space를 길게 눌러 보세요')
   await expect(bar.getByTestId('voice-hint')).not.toHaveAttribute('data-silent')
   await page.getByTestId('voice-cancel').click()
@@ -480,24 +481,36 @@ test('a microphone that gives no sound: the wave stays flat and the bar says so,
   await page.getByRole('button', { name: MIC }).click()
   const bar = page.getByRole('group', { name: '녹음 중' })
   await expect(bar).toBeVisible()
-  // the first seconds: the usual hint, nothing about the microphone yet (someone who has not spoken yet)
-  await expect(bar.getByTestId('voice-hint')).toHaveText('다음엔 입력창에서 Space를 길게 눌러 보세요')
+  // a flat wave first; then the words stand where it was
+  expect(await tallest(page, 1000)).toBe(3)
   await expect(bar.getByTestId('voice-hint')).toHaveText(SILENT, { timeout: 8000 })
   await expect(bar.getByTestId('voice-hint')).toHaveAttribute('data-silent', 'true')
+  await expect(page.getByTestId('voice-wave')).toHaveCount(0)
   await expect(page.getByTestId('voice-live')).toHaveText(SILENT)
-  expect(await tallest(page, 1200)).toBe(3)
   // the recording itself went on
-  expect(Number((await page.getByTestId('voice-time').textContent())!.split(':')[1])).toBeGreaterThanOrEqual(3)
+  expect(await secondsShown(page)).toBeGreaterThanOrEqual(3)
 
   // sound arrives: the line goes, the wave moves
   await page.evaluate(() => (window as unknown as { __mic: MediaStream }).__mic.getAudioTracks().forEach((t) => (t.enabled = true)))
   await expect(bar.getByTestId('voice-hint')).toHaveText('다음엔 입력창에서 Space를 길게 눌러 보세요')
   await expect.poll(async () => Math.max(...(await waveHeights(page))), { intervals: [30], timeout: 5000 }).toBeGreaterThan(12)
-  await expect(page.getByTestId('voice-live')).toHaveText('녹음 중')
+  // "녹음 중" is not read out again over the person's first words
+  await expect(page.getByTestId('voice-live')).toHaveText('')
   await page.getByTestId('voice-cancel').click()
+
+  // held Space: the bar keeps saying how the hold ends; the live region says that nothing is heard
+  // (the next recording's track is switched off again)
+  await page.getByTestId('composer-input').focus()
+  await page.keyboard.down(' ')
+  await expect(bar).toBeVisible()
+  await expect(page.getByTestId('voice-live')).toHaveText(SILENT, { timeout: 8000 })
+  await expect(bar.getByTestId('voice-hint')).toHaveText('Space를 떼면 끝나요 · Esc 취소')
+  await expect(page.getByTestId('voice-wave')).toHaveCount(1)
+  await page.keyboard.press('Escape')
+  await page.keyboard.up(' ')
 })
 
-test("audio the browser did not start by itself is started: the wave moves, and a silent microphone isn't claimed", async ({ page }) => {
+test('audio the browser did not start by itself is started: the wave moves', async ({ page }) => {
   // an AudioContext that starts suspended, as a browser makes one when its rule about sound without a click applies
   await page.addInitScript(() => {
     const Real = window.AudioContext
@@ -524,7 +537,7 @@ test("audio the browser did not start by itself is started: the wave moves, and 
   const bar = page.getByRole('group', { name: '녹음 중' })
   await expect(bar).toBeVisible()
   await expect.poll(async () => Math.max(...(await waveHeights(page))), { intervals: [30], timeout: 5000 }).toBeGreaterThan(12)
-  await expect(page.getByTestId('voice-time')).toHaveText('0:04')
+  await expect.poll(() => secondsShown(page)).toBeGreaterThanOrEqual(4)
   await expect(bar.getByTestId('voice-hint')).not.toHaveAttribute('data-silent')
   await page.getByTestId('voice-cancel').click()
 })

@@ -681,7 +681,7 @@ export const ja: Record<MessageKey, string> = {
   'voice.holdSpace': "Spaceを離すと終了 · Escでキャンセル",
   'voice.holdTouch': "指を離すと終了 · スライドでキャンセル",
   'voice.tryHold': "次回は入力欄でSpaceを長押ししてみてください",
-  'voice.silent': "音が聞こえません。マイクを確認してください。",
+  'voice.silent': "まだ音が聞こえません。話している場合は、マイクを確認してください。",
   'voice.left': "残り{time}",
   'voice.liveTranscribing': "テキストに変換中",
   'voice.liveInserted': "テキストを入力しました",

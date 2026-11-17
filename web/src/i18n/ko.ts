@@ -697,7 +697,7 @@ export const ko = {
   'voice.holdSpace': 'Space를 떼면 끝나요 · Esc 취소',
   'voice.holdTouch': '손을 떼면 끝나요 · 밀어서 취소',
   'voice.tryHold': '다음엔 입력창에서 Space를 길게 눌러 보세요',
-  'voice.silent': '소리가 들리지 않아요. 마이크를 확인해 주세요.',
+  'voice.silent': '아직 소리가 들리지 않아요. 말하고 있다면 마이크를 확인해 주세요.',
   'voice.left': '{time} 남음',
   'voice.liveTranscribing': '텍스트로 바꾸는 중',
   'voice.liveInserted': '텍스트를 넣었어요',

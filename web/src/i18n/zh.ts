@@ -680,7 +680,7 @@ export const zh: Record<MessageKey, string> = {
   "voice.holdSpace": "松开空格键完成 · Esc 取消",
   "voice.holdTouch": "松开手指完成 · 滑开取消",
   "voice.tryHold": "下次可以在消息框中按住空格键",
-  "voice.silent": "听不到声音。请检查麦克风。",
+  "voice.silent": "还没有听到声音。如果你正在说话，请检查麦克风。",
   "voice.left": "剩余{time}",
   "voice.liveTranscribing": "正在转为文字",
   "voice.liveInserted": "已添加文字",

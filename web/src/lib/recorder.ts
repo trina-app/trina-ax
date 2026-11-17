@@ -2,7 +2,8 @@
 // level for the meter. The recording goes to POST /api/transcribe (a job) and the text lands in the composer.
 // A microphone that gives no sound (muted, switched off, the wrong input picked, another program holding it) records
 // without an error and the wave stays a row of dots: after SILENT_AFTER_MS with nothing heard since the start,
-// `silent` says so until the first sound (lib/useVoiceInput.ts shows "We can't hear anything…" in the bar).
+// `silent` says so until the first sound (lib/useVoiceInput.ts shows "No sound yet…" in the bar). Someone who has not
+// spoken yet looks the same from here, so the words say only that.
 import { useEffect, useRef, useState } from 'react'
 
 /** A recording format the browser supports (Chrome/Firefox: webm/opus, Safari: mp4/aac). */
@@ -110,7 +111,7 @@ export function useRecorder() {
     let heard = false
     let said = false
     // the time the level was watched: frames only (a tab in the background draws none, and what was said meanwhile was
-    // not seen)
+    // not seen), and only while the browser's audio runs
     let watched = 0
     let last = t0
     const tick = () => {
@@ -119,7 +120,7 @@ export function useRecorder() {
       setLevel(lv)
       if (!heard) {
         const at = Date.now()
-        watched += Math.min(100, at - last)
+        if (ac.state === 'running') watched += Math.min(100, at - last)
         last = at
         if (lv > HEARD_LEVEL) {
           heard = true

@@ -698,7 +698,7 @@ export const en: Record<MessageKey, string> = {
   'voice.holdSpace': 'Release Space to finish · Esc to cancel',
   'voice.holdTouch': 'Lift to finish · Slide away to cancel',
   'voice.tryHold': 'Next time, hold Space in the message box',
-  'voice.silent': "We can't hear anything. Check your microphone.",
+  'voice.silent': "No sound yet. If you're speaking, check your microphone.",
   'voice.left': '{time} left',
   'voice.liveTranscribing': 'Converting to text',
   'voice.liveInserted': 'Text added',
