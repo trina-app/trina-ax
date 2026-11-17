@@ -23,9 +23,12 @@
   One run had offered to restore the old content itself. The failing run's offers (compare versions, move attached files
   into a team folder) were true: the judge saw no action for them in that turn. It is now told what the AI can do when
   asked.
-- **EDIT-17 (judge): the AI has the time of day.** Every turn's instructions carry the local time in the team zone
-  (`timeLine`). The run started at 23:52 in Seoul, so "it is already night" was true. The judge knew only the date; it now
-  gets the case's start time in the team zone. No product change.
+- **EDIT-17 (judge): the AI has the time of day.** Every turn's instructions carry the local time in the person's
+  device zone, sent with each turn, else the team zone (`timeLine`, `shownTimeZone`, #1199). The runner sent no zone for
+  EDIT-17, so every run got the team zone, Asia/Seoul: the same zone each run, the fallback a real web app never needs.
+  Run b started at 14:53:58 UTC, 23:53 on a Tuesday in Seoul, so "it is already night" was true. The judge knew only the
+  date; it now gets the case's start time in the zone the turn was sent with. The runner now sends a zone with every
+  turn, the case's or else the team's, as the web app does. No product change.
 - **CHT-02 (case and runner, not the product).** In every run the AI asked first, with choices. The runner then answered
   "네, 그렇게 해주세요. 알아서 정해서 진행해 주세요." (`GO_ON`) and pressed yes on the app's cards. Each room post went
   through post_to_room's card naming the room, its 3 people and the whole text (a post's card is skipped only when the

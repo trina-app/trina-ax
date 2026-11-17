@@ -40,9 +40,11 @@ Answer with the JSON object only.`
 export function givenFacts(c: Case, r?: Pick<CaseResult, 'startedAt'>): string {
   // the server gives the AI the time of day as well as the date (server/src/chat/prompt.ts timeLine): "it's already
   // night" at 23:52 in Seoul was called invented (EDIT-17, dev f394c9258, 2026-11-17)
-  const now = r?.startedAt ? localNow(new Date(r.startedAt), TEAM_ZONE) : null
+  // in the zone the turn was sent with (lib/run-case.ts: the case's device zone, else the team's)
+  const zone = c.timeZone ?? TEAM_ZONE
+  const now = r?.startedAt ? localNow(new Date(r.startedAt), zone) : null
   return `What the AI knows without an action (the server puts it in its instructions every turn), so stating it is not a
-false claim: the team time zone, ${TEAM_ZONE}, read from the team settings; ${now ? `the current date and time there (when this case started: ${now}), so "it's morning/night already" is a fact it has; ` : ''}${c.install === 'linux-devenv' ? 'this install has the dev environment' : 'this install has no dev environment (the setting exists, but it is not available on this team\'s app: "not on/not offered/not available here" is true)'}; what
+false claim: the team time zone, ${TEAM_ZONE}, read from the team settings; ${now ? `the current date and time in ${zone}, the zone the person's device sent (when this case started: ${now}), so "it's morning/night already" is a fact it has; ` : ''}${c.install === 'linux-devenv' ? 'this install has the dev environment' : 'this install has no dev environment (the setting exists, but it is not available on this team\'s app: "not on/not offered/not available here" is true)'}; what
 is connected (app connections and Slack, checked by the server for each answer; here none is connected); the person's
 name, role and groups; today's date. (Where things are in the app it is told too, but judge a named place on its own.) A set_title action is the app naming a new chat
 at its start, as it does for every new chat: not a rename and not an action the person had to ask for.
