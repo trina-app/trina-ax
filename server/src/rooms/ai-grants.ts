@@ -26,6 +26,7 @@ import { getTeamSettings } from '../admin/settings'
 import { newId, nowIso } from '../db'
 import { loadPrincipal, type Principal, type RuleSet } from '../policy/access'
 import { authorize, type FsCtx } from '../policy/authorize'
+import { readersAt, shareReaders } from '../files/share-readers'
 import { members, memberRow, roomAuditRef, roomOut, roomRow, type RoomRow } from './store'
 
 /** how long a grant lasts */
@@ -50,13 +51,16 @@ function activePeople(db: Database): Principal[] {
  * what access, like tools/file-moves.ts compares audiences (identities, never names, leave this module). People with no
  * access are left out: a new account that cannot open the folder changes nothing. */
 export function folderAudience(db: Database, rules: RuleSet, segs: readonly string[]): string {
-  const rows = activePeople(db).flatMap((p) => { const a = rules.access(p, segs); return a === 'none' ? [] : [`${p.id}\u0000${a}`] }).sort()
+  // (a folder share's people read it too: files/share-readers.ts)
+  const shared = shareReaders(db, segs)
+  const rows = activePeople(db).flatMap((p) => { const r = rules.access(p, segs); const a = r === 'none' && shared.has(p.id) ? 'read' : r; return a === 'none' ? [] : [`${p.id}\u0000${a}`] }).sort()
   return crypto.createHash('sha256').update(JSON.stringify(rows)).digest('hex')
 }
 
 /** The active people who may read `segs` (the wider-audience check's target readers, chat/turn.ts widenNeed). */
 export function readersOf(db: Database, rules: RuleSet, segs: readonly string[]): string[] {
-  return activePeople(db).filter((p) => rules.access(p, segs) !== 'none').map((p) => p.id)
+  // the folder rules, and a folder share's people when `segs` is inside one (files/share-readers.ts)
+  return [...readersAt(db, rules, segs, activePeople(db))]
 }
 
 /** Which folder on disk `segs` (actual names) is: its device and inode, so a folder renamed away and another made with

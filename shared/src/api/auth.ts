@@ -63,6 +63,9 @@ export const Me = z.object({
     /** voice input goes to an outside service (OpenRouter): a confidential chat's composer says it is not used there
      * (the server refuses it either way). Absent: on this server, off, or an older server. */
     voiceInputOutside: z.literal(true).optional(),
+    /** voice input recordings go up as 16 kHz WAV: the server decodes with macOS's own programs (an Apple silicon Mac
+     * without ffmpeg), which do not open the webm/opus browsers record. Absent: the browser's own recording. */
+    voiceInputWav: z.literal(true).optional(),
     /** days a deleted chat stays in the chat trash, and days a deleted account's chats and memories stay (Admin > Team
      * settings chatTrashRetentionDays; the purge uses the current value). Absent (older server) = the default, 7. */
     chatTrashRetentionDays: z.number().int().min(1).max(365).optional(),
@@ -125,6 +128,9 @@ export const Me = z.object({
      * 'folder' = a self-installed server without a feed (the owner copies the release's files in). Absent: an office Mac
      * (teamax desktop add), dev, a hosted tenant without a feed, or an older server. */
     windowsApp: z.enum(['feed', 'folder']).optional(),
+    /** folder sharing is open on this server (server/src/files/folder-shares.ts gateOn): a person can share a folder in
+     * their own files. Absent = closed (or an older server): the web shows nothing of it. */
+    folderShares: z.literal(true).optional(),
   }),
   /** last password reset by an admin / owner recovery: settings shows "last reset: who, when" (tab 5). by null = owner recovery on the server Mac */
   passwordReset: z.object({ by: UserRef.nullable(), at: IsoTime }).nullable().optional(),

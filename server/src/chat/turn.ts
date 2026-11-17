@@ -35,11 +35,15 @@ import { nameFromUrl } from '../tools/save-url'
 import { badSegment, hiddenEntry } from '../policy/names'
 import { TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
+import { fileSharesOf } from '../files/shares'
+import { SERVER_OWN_FOLDERS } from '../files/own-folders'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, instructionFiles, neutralizeTags, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
 import { sideRoomOf } from './side-room'
-import { quotesAppOnBranch, readRooms } from './read-rooms'
+import { quotesAppOnBranch, readRooms, withoutQuoteLines } from './read-rooms'
+import { seenWhy } from './grant-reads'
 import { componentC } from '../team-files/component'
 import { looseArea, placementNote } from './file-placement'
+import { FileLinkRepair, fileLinkResolver } from './file-link-repair'
 import { buildAgentDefinitions, initProblem, LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS, PARENT_ONLY_TOOLS, SUBTASK_STEPS_KEPT, subtaskSummary } from './subagents'
 import { getTeamSettings } from '../admin/settings'
 import { everyoneMayUse, invokedSkill, isGroupSkill, listSkills, mayNotUse, ownPersonalSkill, projectOfFolder, projectSkillSections, sameSkillName, skillAlias, skillFolder, skillTier, widerSkillsNamed, type ChatProject, type SkillScope } from './skills'
@@ -61,7 +65,7 @@ import { DISK_FULL_TEXT, diskAlmostFull, isDiskFullError } from '../system/stora
 import type { ChatRuntime } from './runtime'
 import { blankTeamAttachment, stopReasonOf, type MessageRow } from './store'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
-import { buildToolSet, type ChatToolSet } from './tools'
+import { buildToolSet, widenOf, type ChatToolSet } from './tools'
 import type { ToolCard } from '../services'
 import { ConnectOutcome, type ConnectCard } from './connect-service'
 import { devEnvFlag, mayUseDevEnv } from '../devenv/setting'
@@ -105,8 +109,9 @@ import { shareMergeOf, shareMergeSystemPrompt, type ShareMergeScope } from '../s
 import { backdateChat, DEMO_REPLAY_TOOL, demoReplayFor, runReplay } from '../demo/replay'
 import { getUser } from '../auth/users'
 import { findRoomFile, localTime } from '../rooms/reader'
-import { namedPaths, OWN_CHAT_TEAM_TOOLS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_OWN_CARD_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
+import { namedPaths, OWN_CHAT_TEAM_TOOLS, OWN_WORDS_TOOLS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_OWN_CARD_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
 import { auditOnceUse, authorsWrite, everyoneWrites, folderAudience, folderId, grantFor, grantsOn, readersOf, ruledBetween, within } from '../rooms/ai-grants'
+import { privateToMe } from '../files/share-readers'
 import { wouldSeeFrom } from '../rooms/history'
 import { isOwnerOrAdmin, roomRow } from '../rooms/store'
 import { ext } from '../files/extract'
@@ -148,6 +153,9 @@ export const SESSION_STASH_MAX = 20 * 1024 * 1024
  * Tool.widen): `target` the team path it saves at, `extra` team files whose bytes it copies, `read` other places its
  * bytes come from (save_room_file: the room of the file, from its message on). */
 export interface WidenOf { target: string; extra: string[]; read?: ReadSource[] }
+/** The wider-audience card's facts (TurnExec.widenNeed): where it saves, its folder, the narrower places read, how many
+ * people can see the target. */
+export interface WidenNeed { segs: string[]; dir: string; narrower: ReadSource[]; viewers: number }
 /** A room whose words are in a session, and the oldest message of it that was read (null: none; TurnExec.sessionRooms) */
 type SessionRoom = { id: string; from: number | null }
 
@@ -188,9 +196,8 @@ const HIDDEN_STEP_TOOLS = new Set(['set_title'])
 const OWN_HASH_MAX = 64 * 1024 * 1024
 /** the bytes of own files hashed for one call (noteOwnReads): more counts as outside, unhashed */
 const OWN_HASH_BUDGET = 128 * 1024 * 1024
-/** the folders right under users/<id>/ the server names itself (tools/save-url.ts, chat/room-tools.ts, video, exports,
- * personal projects): their names carry nobody's words (noteOwnNames) */
-const SERVER_OWN_FOLDERS: ReadonlySet<string> = new Set(['downloads', 'images', 'videos', 'exports', 'projects'])
+// the folders right under users/<id>/ the server names itself: their names carry nobody's words (noteOwnNames). The
+// list lives in files/own-folders.ts (files/share-places.ts reads the same one: none of them is ever shared)
 /** the names traced for one call (noteOwnNames: files and folders together, a listing's files included): more counts as
  * outside */
 const OWN_NAMES_MAX = 500
@@ -238,6 +245,12 @@ export type LauncherStop = 'update' | 'update-root' | 'restart'
 function launcherStopOf(signal: unknown): LauncherStop | null {
   return signal === 'update' ? 'update' : signal === 'update-root' ? 'update-root' : signal === 'shutdown' ? 'restart' : null
 }
+
+/** Words of a request to save or write something down, in the product's languages (the person's own message: an
+ * explicit save; docs/decisions/20261116-room-link-save-one-prompt.md). Escapes: no Korean text outside the language tables. */
+const SAVE_ASK = new RegExp(['\\uC800\\uC7A5(?!\\uC18C)', '\\uD30C\\uC77C\\uB85C', '\\uAE30\\uB85D\\uD574', '\\bsave\\b', '\\bwrite (it|this|that) down\\b', '\\bsimpan\\b', '\\u4FDD\\u5B58', '\\bguard(a|ar|e)\\b'].join('|'), 'iu')
+/** "don't save": 저장하지 / 저장 말고 / 저장 안, don't save, do not save, jangan simpan, no guardes */
+const SAVE_NOT = new RegExp(['\\uC800\\uC7A5\\s*(\\uD558\\uC9C0|\\uB9D0|\\uC548)', "\\b(don'?t|do not|never)\\s+save\\b", '\\bjangan\\s+simpan\\b', '\\bno\\s+guard'].join('|'), 'iu')
 
 export class TurnExec {
   content = ''
@@ -439,6 +452,8 @@ export class TurnExec {
    * (integrations/connections/redact.ts); read again after each tool call (a call may refresh a token) */
   private redactorNow: Redactor | null = null
   private readonly answerText = new RedactingText(() => this.redactor())
+  /** team-file links whose path the AI typed wrong, pointed at the file their label names (chat/file-link-repair.ts) */
+  private readonly fileLinks = new FileLinkRepair((p, label) => fileLinkResolver(this.rt.files, () => this.livePrincipal(), () => this.turnFilePaths())(p, label))
   /** English status lines before a tool call, held until the call decides them (chat/narration.ts); set once the
    * person's message is read */
   private narration = new NarrationHold(null)
@@ -744,7 +759,7 @@ export class TurnExec {
     if (!resume && userMsg.parent_id === null) this.newSession()
     // outside content the instructions themselves carry (a Slack thread asked from, integrations/slack/read.ts): in
     // the read scope and marked, after a new session cleared the marks
-    if (toolSet.seen.length) { addSources(rt.db, spec.chatId, toolSet.seen); this.taint() }
+    if (toolSet.seen.length) { addSources(rt.db, spec.chatId, toolSet.seen); this.taint(); this.markOthersWords() }
     // a shared project chat: other people's messages on this branch are outside content (remember protection; no
     // memories are kept here anyway), and the folder lists, skills, team rules and company profile the AI is shown are
     // only what everyone who sees the chat may read (chat/shared.ts)
@@ -764,7 +779,7 @@ export class TurnExec {
     this.projectFolder = project?.folderPath ?? null
     // a project's own skills: only in its chats, as the person sees the project now
     this.skillProject = project ? { id: project.id, name: project.name, folderPath: project.folderPath } : null
-    if (rt.projectTaints(project, spec.userId)) this.taint()
+    if (rt.projectTaints(project, spec.userId)) { this.taint(); this.markOthersWords() }
     // project instructions go into the prompt: their folder joins the read scope (tab 7)
     if (project && project.instructions.trim()) addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), project.folderPath)])
     if (hasAttachments(userMsg)) this.taint() // attached files are outside content too (tab 3 "remember 보호")
@@ -798,7 +813,7 @@ export class TurnExec {
     const skillList = buildSkillList(skills, { order: chatSkillOrder(rt.db, spec.chatId, spec.userId, () => descriptionOrder(skills, skillScores)), tag: neutralizeTags })
     const shared = this.shared ? { project: this.shared.kind === 'project' ? this.shared.project.name : null, audience: this.sharedAudience().length, asker: this.principal.name } : null
     // a chat opened from a room's side panel (✦ Trina): the room, while the person is still in it and it is not archived
-    const sideRoom = sideRoomOf(rt.db, spec.chatId, spec.userId)
+    const sideRoom = sideRoomOf(rt.db, spec.chatId, spec.userId, rt.files)
     // who the person is and where (chat/situation.ts): their role and what it may open, the app, whose AI answers, what
     // they may add themselves; never in a shared chat (prompt.ts SHARED_PROMPT_SECTIONS)
     // `managed`: the same check as the guest gate above (Codex runs on the team's connections on an installed server
@@ -810,6 +825,12 @@ export class TurnExec {
     const appMap = guestTurn || spec.clientKind === 'schedule' || this.templateScope ? null
       : { view: appMapView(this.principal.role, !!this.shared), managed: isManaged(rt.ctx.config), devEnv: devEnvFlag(), office: !!rt.ctx.config.office }
     const runKind = runKindOf(rt.ctx.config)
+    // the read tools open a file shared with the person one by one (FileService.readAuth), and shared_with_me lists them
+    // when the AI asks (chat/shared-with-me-tool.ts: no list in every turn): only in the person's own chat
+    // (not from Slack: the answer may go to a channel; not a template run: its reads stay inside its own folder by the
+    // folder rules)
+    // never in a scheduled run: nobody watches it, and a file another member shared must not act there
+    this.files.grantReads = !this.shared && !guestPrompt && !this.restricted && !confidential && !this.slackChat && !this.templateScope && spec.clientKind !== 'schedule'
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone,
       // personal memories are not part of a shared project chat
@@ -878,7 +899,7 @@ export class TurnExec {
     // (chat/runtime.ts projectTaints) and as the skill tool's load is (chat/tools.ts): a team, group or project skill
     // (anyone who may write its folder may have written it). Only the person's own personal skill is their own words
     // (QA TC-326: "/weekly-report" of a group skill kept a memory with no card)
-    if (invoked && !ownPersonalSkill(invoked.skill.path, spec.userId)) this.taint()
+    if (invoked && !ownPersonalSkill(invoked.skill.path, spec.userId)) { this.taint(); this.markOthersWords() }
     else if (invoked) this.noteOwnSkill(invoked.skill.path)
     // a scheduled task's run: nobody is watching (waitForPerson answers at once), and the AI is told so
     let scheduled = ''
@@ -1565,7 +1586,7 @@ export class TurnExec {
       case 'thinking':
         // more comes after thinking: a held status line is dropped as before a call, anything else goes out before the
         // thinking step (its place in the answer stays right)
-        this.emitText(this.answerText.push(this.narration.toolStart()))
+        this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart())))
         this.flushText()
         if (!this.thinkingStep) this.thinkingStep = this.addStep({ kind: 'thinking', label: tr('thinking', this.spec.locale), status: 'running' })
         return
@@ -1580,7 +1601,7 @@ export class TurnExec {
         // a status line in another script before the call is dropped here (chat/narration.ts); the main AI's calls only
         // a sub-agent's call leaves the main AI's piece undecided (only the redactor's end goes out)
         if (e.parentId) this.emitText(this.answerText.flush())
-        else { this.emitText(this.answerText.push(this.narration.toolStart())); this.flushText() }
+        else { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart()))); this.flushText() }
         this.attemptHadOutput = true
         this.producedOutput = true
         // which agent made the call: the gate gives a sub-agent's calls that sub-agent's own state (TurnFiles.forCall)
@@ -1731,12 +1752,12 @@ export class TurnExec {
   }
 
   /** Engine text: let out (streamed and saved) through the redactor; the end that could start a secret waits. */
-  appendText(t: string) { this.emitText(this.answerText.push(this.narration.push(t))) }
+  appendText(t: string) { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.push(t)))) }
   /** Everything held back (an undecided piece, the redactor's end), let out now (before a step, a retry's separator,
    * the end). */
-  flushText() { this.emitText(this.answerText.push(this.narration.flush())); this.emitText(this.answerText.flush()) }
+  flushText() { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.flush()) + this.fileLinks.flush())); this.emitText(this.answerText.flush()) }
   /** The answer so far as the engine wrote it, the part still held back included (separator checks). */
-  get writtenText(): string { return this.content + this.answerText.held + this.narration.held }
+  get writtenText(): string { return this.content + this.answerText.held + this.fileLinks.held + this.narration.held }
   /** The person's message before this one (a short "ok" or "continue" answers in that message's language), or null. */
   private previousUserText(parentId: string | null): string | null {
     let cur = parentId
@@ -1752,6 +1773,7 @@ export class TurnExec {
   /** Discard the answer text from `at` on (streamed and saved), the part still held back included. */
   private discardTextFrom(at: number) {
     this.answerText.clear()
+    this.fileLinks.clear()
     this.narration.clear()
     if (at >= this.content.length) return
     this.content = this.content.slice(0, at)
@@ -1828,6 +1850,12 @@ export class TurnExec {
    * patch waits for the step's tool_start. FIFO per tool matches because every tool that patches its step runs one at a
    * time: only the read-only tools run side by side (mcp/socket.ts, PARALLEL_READ_TOOLS), and none of them patches.
    */
+  /** The id of `tool`'s step that is running now (the one patchToolStep would patch), or null: share_folder writes it on
+   * its undo snapshot (files/share-undo.ts). Reads only. */
+  runningStepId(tool: string): string | null {
+    return this.runningStep(tool)?.id ?? null
+  }
+
   patchToolStep(tool: string, patch: (s: Step) => Partial<StoredStep>) {
     const s = this.runningStep(tool)
     if (s) { this.patched.add(s.id); this.updateStep(s.id, patch(s)); return }
@@ -1865,7 +1893,7 @@ export class TurnExec {
    * sessions that carry the branch history keep the mark: the history holds what was seen before. */
   private newSession() {
     // the mark of outside sources goes with the read scope
-    this.rt.db.query('UPDATE chats SET session_tainted = 0, room_outside = 0 WHERE id = ?').run(this.spec.chatId)
+    this.rt.db.query('UPDATE chats SET session_tainted = 0, room_outside = 0, others_words = 0 WHERE id = ?').run(this.spec.chatId)
     clearScope(this.rt.db, this.spec.chatId)
   }
   taint() { this.rt.db.query('UPDATE chats SET session_tainted = 1 WHERE id = ?').run(this.spec.chatId); this.syncOutsideMark() }
@@ -1882,6 +1910,80 @@ export class TurnExec {
   markOutside() {
     this.rt.db.query('UPDATE chats SET room_outside = 1 WHERE id = ? AND room_outside = 0').run(this.spec.chatId)
     this.syncOutsideMark()
+  }
+
+  /**
+   * Content another person wrote came into this chat (chats.others_words, migration 412; docs/decisions/
+   * 20261116-always-allow-more-cards.md "Content written by others"): a team file someone else wrote or changed, a
+   * file shared with the person, a web page or search, a connected service's answer, a room's file, another person's
+   * skill or project instructions. Kept until a new session, as the session carries what was read. From then on an
+   * action that reaches other people goes without its card under the person's "Always allow" only for what their own
+   * message names (chat/shared-actions.ts othersWordsIn). Narrower than `tainted`: the person's own uploads and
+   * attachments, and their own files an AI turn of theirs wrote on nothing from others, are not other people's words.
+   */
+  markOthersWords() {
+    // (a mark that could not be kept still counts for this turn: fails closed)
+    try { this.rt.db.query('UPDATE chats SET others_words = 1 WHERE id = ? AND others_words = 0').run(this.spec.chatId) } catch (e) { this.othersWordsUnkept = true; this.rt.log.warn('others-words mark failed', { err: e, turn: this.id }) }
+  }
+  private othersWordsUnkept = false
+  /** ...read each time (a tool can set it during the turn); a chat row that is gone counts as marked */
+  get othersWords(): boolean {
+    if (this.othersWordsUnkept) return true
+    try {
+      const c = this.rt.db.query('SELECT others_words AS o FROM chats WHERE id = ?').get(this.spec.chatId) as { o: number } | null
+      return !c || !!c.o
+    } catch { return true }
+  }
+  /** A tool that may bring in what another person wrote (rooms/ai-tools.ts OWN_WORDS_TOOLS: anything not listed, fails
+   * closed). A connection's own tools mark the chat when the service answers (connections/tools.ts noteAnswer): the
+   * call that sends is not yet something read. */
+  private noteOthersTool(tool: string) {
+    if (OWN_WORDS_TOOLS.has(tool) || this.toolSet?.connection(tool)) return
+    this.markOthersWords()
+  }
+  /**
+   * Files whose content went to the model (TurnFiles.readPaths, a team attachment): one that someone other than this
+   * person wrote or changed marks the chat (markOthersWords). A file read through a share grant always does, counts
+   * as a room read for the rest of the chat (markRoomsSeen) and as something from outside the chat's rooms
+   * (markOutside: no room card is skipped after it).
+   */
+  private noteOthersReads(paths: Iterable<string>) {
+    if (this.files.grantReadPaths.size) {
+      // a file another member put in front of this person, as a room message is: the chat counts as having read rooms
+      // for good (chats.rooms_seen: no new session clears it), so every gate of a room read applies from here on
+      // (readRooms: the room card, delete_files, skill_files, remember, a connection's write, project members)
+      this.files.grantReadPaths.clear()
+      this.markOthersWords()
+      this.markRoomsSeen()
+      this.markOutside()
+    }
+    if (this.othersWords) return
+    const budget = { left: OWN_HASH_BUDGET }
+    for (const p of paths) if (this.othersWroteFile(p, budget)) return this.markOthersWords()
+  }
+  /**
+   * Did someone other than this person write what `rel` holds? Every event that gave the file content (back through
+   * moves and renames, a copy's source too) must be this person's own; one by another person, a history cut short or
+   * a file outside their own folder with no known history counts as someone else's. A version an AI turn of theirs
+   * wrote carries what that turn's chat had seen (fileOutsideLevel: anything but this chat's own branch).
+   */
+  private othersWroteFile(rel: string, budget: { left: number }, depth = 0): boolean {
+    if (depth > 4) return true
+    const me = this.spec.userId
+    try {
+      const { entries, cut } = fileTimelineWalk(this.rt.db, rel, { limit: FILE_TIMELINE_MAX })
+      if (cut) return true
+      let known = false
+      for (const e of entries) {
+        if (!CONTENT_KINDS.has(e.kind)) continue
+        known = true
+        if (e.userId !== me) return true
+        if (e.kind === 'copied' && e.from && this.othersWroteFile(e.from, budget, depth + 1)) return true
+      }
+      // no known history: the person's own folder is theirs (a sync, a change outside the app); anywhere else is not
+      if (!known && rel !== `users/${me}` && !rel.startsWith(`users/${me}/`)) return true
+      return this.fileOutsideLevel(rel, 0, budget) >= 1
+    } catch { return true }
   }
 
   /**
@@ -1932,7 +2034,9 @@ export class TurnExec {
    * imported stays theirs), so planted text cannot come back through a skill the AI saved (QA TC-326). */
   noteOwnSkill(rel: string) {
     if (!ownPersonalSkill(rel, this.spec.userId)) return
-    this.applyOutside(this.fileOutsideLevel(rel))
+    const level = this.fileOutsideLevel(rel)
+    if (level >= 1) this.markOthersWords()
+    this.applyOutside(level)
   }
 
   /** What an own-folder read or name carried (noteOwnReads, noteOwnNames): 1 taints the chat, 2 also marks it outside. */
@@ -2218,6 +2322,7 @@ export class TurnExec {
   }
   /** web results, browser pages, files outside the person's own folder = content someone else wrote */
   noteTaint(tool: string, input: unknown) {
+    this.noteOthersTool(tool)
     // what the in-app browser showed (pages the person is signed in to) counts as seen by this person only (tab 7)
     if (BROWSER_TOOL_NAMES.has(tool)) addSources(this.rt.db, this.spec.chatId, [{ type: 'user', id: this.spec.userId, via: 'browser' }])
     if (tool === 'WebSearch' || tool === 'web_search' || tool === 'web_fetch' || BROWSER_TOOL_NAMES.has(tool)) return this.taint()
@@ -2394,6 +2499,12 @@ export class TurnExec {
     })
     // the same call needs the wider-audience card too: that one card, with what the call writes; its yes is the room's
     const need = o.widen && !o.noCover ? this.widenNeed(o.widen.target, o.widen.extra, undefined, o.widen.read) : null
+    // the person's own message of this turn asks to save (docs/decisions/20261116-room-link-save-one-prompt.md, QA
+    // TC-3830): a NEW file where no more people can see it than can see what this chat read (no widening card) goes
+    // without the room card. It overwrites nothing and widens nothing, so a room message steering it can only add a
+    // file the same people could read anyway; an existing file, a skill or instruction file still asks
+    // (not kept for the turn: the same call once the file exists asks)
+    if (!need && !o.noCover && this.askedToSave() && this.newPlainFile(tool, input, o.widen)) return null
     // the person's "Always allow" for changes after a room read (chat/always-allow.ts; the owner, 2026-11-13): no room
     // card; a save where more people can see still has its own card (with its own "Always allow")
     const roomAlways = alwaysHere(this.alwaysPlace(), 'room_change')
@@ -2407,7 +2518,7 @@ export class TurnExec {
     }
     if (need) {
       // the room's card too: "Always allow" for saving wider alone never skips it (both choices are needed; review of #678)
-      const no = await this.askWidening(need, { details, extra: instruction, lead: `${tr('roomsSeenWhy', L)} `, room: true })
+      const no = await this.askWidening(need, { details, extra: instruction, lead: `${tr(seenWhy(this, 'roomsSeenWhy'), L)} `, room: true })
       // one card for both: the room's reason and next step (a save elsewhere needs the same card here), and where it saves
       if (no) return refuse(no.end, { also: `The same card also asked because more people can see '${need.segs.join('/')}' (${need.viewers}) than can see what this chat read; do not save it anywhere else that more people can see`, names: [need.segs.join('/')] })
       this.roomAllowed.add(key)
@@ -2424,9 +2535,9 @@ export class TurnExec {
     // connected service says it reads and asks to allow it; it changes nothing (QA TC-285)
     const reads = this.readsOnly(tool, input)
     const question = target
-      ? `${tr('roomsSeenWhy', L)} ` + tr(target.isNew ? 'roomAiConfirmNew' : 'roomAiConfirmMade', L, { ai: aiCalled(L), folder: this.place(target.segs.slice(0, -1).join('/')), file: target.segs.at(-1)! })
-      : reads ? tr('roomsSeenConfirmRead', L, { what, ai: aiCalled(L) })
-      : tr('roomsSeenConfirm', L, { what, ai: aiCalled(L) })
+      ? `${tr(seenWhy(this, 'roomsSeenWhy'), L)} ` + tr(target.isNew ? 'roomAiConfirmNew' : 'roomAiConfirmMade', L, { ai: aiCalled(L), folder: this.place(target.segs.slice(0, -1).join('/')), file: target.segs.at(-1)! })
+      : reads ? tr(seenWhy(this, 'roomsSeenConfirmRead'), L, { what, ai: aiCalled(L) })
+      : tr(seenWhy(this, 'roomsSeenConfirm'), L, { what, ai: aiCalled(L) })
     const { value: answer, missing } = await this.askPerson({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: question + instruction,
       options: [{ label: tr('roomAiConfirmYes', L), value: 'allow' }, ...(always ? [{ label: tr('cardAlways', L), value: ALWAYS_VALUE }] : []), { label: tr('roomAiConfirmNo', L), value: 'skip' }],
@@ -2550,6 +2661,32 @@ export class TurnExec {
     } catch { return null }
   }
 
+  /** The person's own message of this turn asks to save or write down something ("파일로 저장해줘", "save it"). */
+  private askedToSave(): boolean {
+    // a scheduled run's message is the task's text, not the person asking now; a message the app sent for them neither
+    if (this.spec.clientKind === 'schedule') return false
+    const m = this.rt.db.query('SELECT content, auto_sent FROM messages WHERE id = ?').get(this.spec.userMessageId) as { content: string | null; auto_sent: number | null } | null
+    if (!m || m.auto_sent) return false
+    const said = withoutQuoteLines(m.content ?? '')
+    return SAVE_ASK.test(said) && !SAVE_NOT.test(said)
+  }
+
+  /** A write of a file that is not there yet (no skill, instruction file, hidden name or project folder): what an
+   * explicit save may add without the room card. */
+  private newPlainFile(tool: string, input: unknown, widen?: WidenOf): boolean {
+    try {
+      if (confidentialChat(this.rt.db, this.spec.chatId)) return false
+      const t = tool === 'save_room_file' ? (widen?.target ? { path: widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input, (src) => this.sourceRel(src))
+      if (!t?.mayBeNew) return false
+      const r = authorize(this.rt.files.fx, this.rt.files.rules(), this.livePrincipal(), t.path, 'write', { createDirs: true })
+      if (r.exists || componentC(this.rt.ctx).files.aiTrashed(r.rel)) return false
+      // inside a folder (not a file at the team root), no hidden name, skill, instruction file, managed or project folder
+      if (r.segs.length < 2 || r.segs.some((x) => x.startsWith('.')) || inSkills(r.rel) || instructionLike(r.rel) || this.inProjectFolder(r.rel)) return false
+      if (this.rt.files.fx.managed?.managerOf(r.segs) || this.rt.files.fx.managed?.managerOf(r.segs.slice(0, -1))) return false
+      return true
+    } catch { return false }
+  }
+
   /**
    * In the person's own chat after a room read: the file in their own folder a call makes, when it needs no card, else
    * null (docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기"). write, make_file or edit_hwp making a new file, or edit, write or
@@ -2569,6 +2706,8 @@ export class TurnExec {
       const r = authorize(fx, this.rt.files.rules(), this.livePrincipal(), t.path, 'write', { createDirs: true })
       const segs = r.segs
       if (segs.length < 3 || segs[0] !== 'users' || segs[1] !== this.spec.userId) return null
+      // only where nobody else reads it: a folder the person shares has its people (files/share-readers.ts)
+      if (!privateToMe(this.rt.db, this.spec.userId, segs)) return null
       if (r.exists && (!r.st?.isFile() || !this.roomMadeHere(r.rel))) return null
       if (!r.exists && !t.mayBeNew) return null
       // a path an AI turn put in the trash (delete_files) is not a new file: writing it again without a card would put
@@ -2785,7 +2924,10 @@ export class TurnExec {
   sharedSources(tool: string, input: unknown): ReadSource[] {
     // share_with_person reads nothing into the chat: it grants the asker's own files to someone, behind their own card,
     // and gives back only the names the asker gave and the links (chat/share-with-person.ts)
-    if (tool === 'share_with_person') return []
+    if (tool === 'share_with_person' || tool === 'stop_sharing' || tool === 'share_folder') return []
+    // who_can_open reads no file: in a shared chat it answers only about the chat itself and a file the asker named or
+    // attached in their own message (chat/who-can-open.ts)
+    if (tool === 'who_can_open') return []
     const a = input && typeof input === 'object' ? input as Record<string, unknown> : {}
     const fx = this.rt.files.fx, rules = this.rt.files.rules()
     let me: Principal
@@ -3027,6 +3169,9 @@ export class TurnExec {
     addSources(this.rt.db, this.spec.chatId, add)
     // a file of the person's own folder carries what the chat that wrote it had seen, as when the AI reads it
     if (given.length) this.noteOwnReads(given)
+    // a team file the person attached that someone else wrote: its content is other people's words (which file to send
+    // is still the person's own choice: chat/shared-actions.ts fromAsker)
+    if (given.length) this.noteOthersReads(given)
     return refused.size ? now.map((a) => (refused.has(a.id) ? blankTeamAttachment(a) : a)) : now
   }
 
@@ -3041,6 +3186,8 @@ export class TurnExec {
     // the names of the person's own files and folders the AI was shown carry what the chat that made them had seen
     // (noteOwnNames), in every chat (a listing alone too)
     this.noteOwnNames(this.files.namePaths, this.files.listedNames, paths)
+    // a file someone else wrote is other people's words; a read through a share grant counts whatever else was read
+    this.noteOthersReads(paths)
     if (!paths.size && !names?.size && !listed?.size) return
     const rules = this.rt.files.rules()
     // reads the answer's source list records (with their sha256: "대화방에 보내기" goes by those files) apart from the
@@ -3099,7 +3246,7 @@ export class TurnExec {
    * chat's read scope) need the wider-audience card now? Its card's facts, or null (no card: nothing narrower was read,
    * the person allowed these sources for that folder in this answer, or the policy refuses the path, which the tool
    * reports). The person as they are now (a disabled account throws: the caller fails closed). */
-  widenNeed(target: string, extraSources: string[] = [], binding?: string, read: readonly ReadSource[] = []): { segs: string[]; dir: string; narrower: ReadSource[]; viewers: number } | null {
+  widenNeed(target: string, extraSources: string[] = [], binding?: string, read: readonly ReadSource[] = []): WidenNeed | null {
     this.noteReads()
     const fs_ = this.rt.files
     const rules = fs_.rules()
@@ -3143,17 +3290,9 @@ export class TurnExec {
   /** The wider-audience card for `need` (widenNeed). `details`, `extra` and `lead`: a room change asked on this same
    * card (what the call writes, the room card's line for an instruction file, and in the person's own chat why changes
    * are asked); its yes then covers that change too. Returns the refusal for the tool and how the card ended, or null. */
-  private async askWidening(need: { segs: string[]; dir: string; narrower: ReadSource[]; viewers: number }, o: { binding?: string; details?: ConfirmDetailT[]; extra?: string; lead?: string; room?: boolean } = {}): Promise<{ text: string; end: CardEnd } | null> {
-    const me = this.livePrincipal()
+  private async askWidening(need: WidenNeed, o: { binding?: string; details?: ConfirmDetailT[]; extra?: string; lead?: string; room?: boolean } = {}): Promise<{ text: string; end: CardEnd } | null> {
     const L = this.spec.locale
-    const labels = { mine: tr('scopeMine', L), root: tr('scopeRoot', L), room: tr('scopeRoom', L), chat: tr('scopeChatFiles', L) }
-    // the card names a room by its own name (shown to the person as text); the refusal the AI reads back by the
-    // server's name only (any member of a group chat may set its own name)
-    // a shared chat's read scope also holds what other people's turns read there (also once it stopped being shared: a
-    // deleted project's chat, the rollback guard): a place this person cannot see themselves is not named to them
-    const label = (s: ReadSource, own: boolean) => ((this.shared || this.othersWrote) && !this.seesSource(s, me) ? tr('sharedScopeOther', L) : sourceLabel(this.rt.db, s, this.spec.userId, labels, own ? { ownNames: true, place: (p) => this.place(p) } : {}))
-    const from = [...new Set(need.narrower.map((s) => label(s, true)))].join(', ')
-    const fromForAi = [...new Set(need.narrower.map((s) => label(s, false)))].join(', ')
+    const { from, fromForAi } = this.widenSources(need)
     // `room`: this card is the room's card too (confirmRoomChange). Its "Always allow" is the person's own for both kinds
     // at once (changes after a room read, and saves where more people can see): a person who meets this card first can
     // reach it here (owner 2026-11-14, QA TC-1292); it is offered while the room kind is off (with both on there is no card)
@@ -3170,11 +3309,7 @@ export class TurnExec {
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest & { options: { label: string; value: string }[] })
     if (answer === 'save' || (Array.isArray(answer) && answer.length === 1 && answer[0] === 'save')) {
-      if (!o.binding) {
-        const set = this.widenAllowed.get(need.dir) ?? new Set<string>()
-        for (const s of need.narrower) set.add(sourceKey(s))
-        this.widenAllowed.set(need.dir, set)
-      }
+      if (!o.binding) this.allowWidening(need)
       return null
     }
     const end: CardEnd = missing ?? 'declined'
@@ -3191,6 +3326,27 @@ export class TurnExec {
         names: [target],
       }),
     }
+  }
+
+  /** The narrower places a widening card names: in the person's words (`from`) and as the AI reads them back
+   * (`fromForAi`). The card names a room by its own name (shown to the person as text); the refusal the AI reads back by
+   * the server's name only (any member of a group chat may set its own name). A shared chat's read scope also holds what
+   * other people's turns read there (also once it stopped being shared: a deleted project's chat, the rollback guard): a
+   * place this person cannot see themselves is not named to them. */
+  private widenSources(need: WidenNeed): { from: string; fromForAi: string } {
+    const me = this.livePrincipal()
+    const L = this.spec.locale
+    const labels = { mine: tr('scopeMine', L), root: tr('scopeRoot', L), room: tr('scopeRoom', L), chat: tr('scopeChatFiles', L) }
+    const label = (s: ReadSource, own: boolean) => ((this.shared || this.othersWrote) && !this.seesSource(s, me) ? tr('sharedScopeOther', L) : sourceLabel(this.rt.db, s, this.spec.userId, labels, own ? { ownNames: true, place: (p) => this.place(p) } : {}))
+    return { from: [...new Set(need.narrower.map((s) => label(s, true)))].join(', '), fromForAi: [...new Set(need.narrower.map((s) => label(s, false)))].join(', ') }
+  }
+
+  /** A yes to saving where more people can see (askWidening, or the skill card that carries it): these sources for that
+   * folder need no card again in this answer (widenNeed). */
+  private allowWidening(need: WidenNeed): void {
+    const set = this.widenAllowed.get(need.dir) ?? new Set<string>()
+    for (const s of need.narrower) set.add(sourceKey(s))
+    this.widenAllowed.set(need.dir, set)
   }
 
   /** May this person see where a read-scope source is (its folder, by name)? */
@@ -3275,6 +3431,14 @@ export class TurnExec {
     // a wider one's name would never run, so the card offers another name or the wider one instead of saving
     const same = skill ? this.sameNameElsewhere(me, skill.name, r.rel, project ? 'project' : 'wider', L) : null
     const dead = !!same?.hidden && !r.exists
+    // the same save's wider-audience check (confirmWidening, after this card): asked on this card, so one yes covers
+    // both and the person sees one card with everything the wider-audience card says (owner 2026-11-16, docs/decisions/
+    // 20261116-skill-save-one-card.md); a name that is taken saves nothing, so its card does not ask it. Not in a
+    // scheduled run: nobody sees a card there, so its wider-audience check and the task's card cover (confirmWidening,
+    // chat/schedule-cover.ts) stay as they are
+    const w = dead || this.spec.clientKind === 'schedule' ? undefined : widenOf(tool, args, (x) => this.hwpTarget(x))
+    const need = w ? this.widenNeed(w.target, w.extra) : null
+    const wide = need ? this.widenSources(need) : null
     const preview: SkillWritePreview = { kind: 'skill_write', path: r.rel, isNew: !r.exists, skillName: skill?.name ?? null, ...(problem ? { problem } : {}), ...(same ? { sameName: { text: same.text, hidden: same.hidden } } : {}), diff, added: d?.added ?? 0, removed: d?.removed ?? 0, truncated: d?.truncated ?? false }
     const options = dead
       ? [{ label: st('renameSave', L), value: 'rename' }, ...(same!.fix ? [{ label: st(same!.fix.label, L), value: 'fix' }] : []), { label: st('dont', L), value: 'skip' }]
@@ -3286,15 +3450,20 @@ export class TurnExec {
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(),
       // a project's skills folder no live project has (yet): saved there, no chat follows it
       // the file and its folder in words (팀 스킬 › 회의록 › SKILL.md, place-words.ts); the preview's path shows on hover
-      question: project ? (project.live ? st('confirmProject', L, { project: project.project.name, path: this.place(r.rel), what }) : st('confirmProjectNone', L, { folder: this.place(project.folder), path: this.place(r.rel), what })) : group ? st('confirmGroup', L, { group: group.name, path: this.place(r.rel), what }) : st('confirm', L, { path: this.place(r.rel), what }),
+      question: (project ? (project.live ? st('confirmProject', L, { project: project.project.name, path: this.place(r.rel), what }) : st('confirmProjectNone', L, { folder: this.place(project.folder), path: this.place(r.rel), what })) : group ? st('confirmGroup', L, { group: group.name, path: this.place(r.rel), what }) : st('confirm', L, { path: this.place(r.rel), what }))
+        + (need && wide ? '\n\n' + tr('skillWiden', L, { ai: aiCalled(L), sources: wide.from, target: this.place(r.rel), n: String(need.viewers) }) : ''),
       options, multiple: false, allowText: false, preview, ...(options.length === 3 ? { buttons: true as const } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest & { options: { label: string; value: string }[] })
     const picked = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
     if (picked === 'save' && !dead) {
       this.files.skillApprovals.set(r.rel, approval)
+      // the yes (or the person's "Always allow" for skill saves) covers saving there where more people can see
+      if (need) this.allowWidening(need)
       return null
     }
+    // the save also went where more people can see (the card said so): the AI is told that too
+    const wider = need && wide ? ` Saving there would also put it where more people can see (${need.viewers}) than can see what you read in this chat (${wide.fromForAi}); do not save it anywhere else that more people can see either.` : ''
     auditLog(this.rt.db, { actor: this.spec.userId, action: 'skills.ai_write_refused', target: r.rel, detail: { tool, turnId: this.id, chatId: this.spec.chatId, answer: answer === null || answer === undefined ? 'none' : picked === 'rename' || picked === 'fix' ? picked : 'declined', ...(group ? { group: { id: group.id, name: group.name } } : {}), ...(project ? { project: { id: project.project.id, name: project.project.name } } : {}) } })
     if (dead && picked === 'rename') {
       return {
@@ -3318,7 +3487,7 @@ export class TurnExec {
         refusal: refusal({
           done: `Nothing was saved to '${r.rel}' in ${where}.`,
           why: cardReason(missing),
-          also: 'Do not save it there or in another skills folder unless the user asks again',
+          also: `Do not save it there or in another skills folder unless the user asks again${wider ? `.${wider.slice(0, -1)}` : ''}`,
           next: missing === 'unattended' ? 'you may save it in the user\'s personal folder instead and say so; the user can save it as a skill in a chat, where they answer the card' : 'the user can ask again and answer the card; you may offer to save it in their personal folder instead',
           names: [r.rel],
         }),
@@ -3327,18 +3496,18 @@ export class TurnExec {
     }
     if (project) {
       return {
-        refusal: `The user did not allow saving '${r.rel}' in the skills of the project "${neutralizeTags(project.project.name)}" (skills the AI follows in that project's chats), so nothing was saved. Do not save it there or in another skills folder unless the user asks again; you may offer to save it in their personal folder instead.`,
+        refusal: `The user did not allow saving '${r.rel}' in the skills of the project "${neutralizeTags(project.project.name)}" (skills the AI follows in that project's chats), so nothing was saved. Do not save it there or in another skills folder unless the user asks again; you may offer to save it in their personal folder instead.${wider}`,
         summary: `${tool} -> not allowed by the user (project skills)`,
       }
     }
     if (group) {
       return {
-        refusal: `The user did not allow saving '${r.rel}' in the skills of the group "${neutralizeTags(group.name)}" (skills every member of that group's AI follows), so nothing was saved. Do not save it there or in another skills folder unless the user asks again; you may offer to save it in their personal folder instead.`,
+        refusal: `The user did not allow saving '${r.rel}' in the skills of the group "${neutralizeTags(group.name)}" (skills every member of that group's AI follows), so nothing was saved. Do not save it there or in another skills folder unless the user asks again; you may offer to save it in their personal folder instead.${wider}`,
         summary: `${tool} -> not allowed by the user (group skills)`,
       }
     }
     return {
-      refusal: `The user did not allow saving '${r.rel}' under skills/ (team skills and team rules every teammate's AI follows), so nothing was saved. Do not save it there or anywhere else in skills/ unless the user asks again; you may offer to save it in their personal folder instead.`,
+      refusal: `The user did not allow saving '${r.rel}' under skills/ (team skills and team rules every teammate's AI follows), so nothing was saved. Do not save it there or anywhere else in skills/ unless the user asks again; you may offer to save it in their personal folder instead.${wider}`,
       summary: `${tool} -> not allowed by the user (team skills)`,
     }
   }
@@ -3545,6 +3714,11 @@ export class TurnExec {
   }
 
   // ---------------- files ----------------
+  /** the team paths this turn's tools created or changed (file-link-repair.ts: a link to one of them by its name) */
+  private turnFilePaths(): string[] {
+    return (this.rt.db.query("SELECT DISTINCT path FROM file_events WHERE turn_id = ? AND action IN ('create', 'update', 'upload')").all(this.id) as { path: string }[]).map((r) => r.path)
+  }
+
   /** After every tool call: new file_events of this turn -> files.changed for everyone who can see the path. */
   afterTool() {
     // a tool may mark the chat itself (a connection's or Google Drive's answer taints it): on the turn before its next call
@@ -3562,7 +3736,10 @@ export class TurnExec {
         const d = parseJson(r.detail)
         const folderOf = (p: string) => p.split('/').slice(0, -1).join('/')
         const renamed = typeof d.movedFrom === 'string' && folderOf(d.movedFrom) === folderOf(r.path)
-        if (!d.folder && !d.conflictCopyOf && !d.conflictOf && !renamed) this.loosePlaced.push(r.path)
+        // made from a file in the same folder (make_file's PDF of a deck, a docx of a draft; its source only, not an
+        // embedded picture or template): it belongs next to its source, and the note made the AI move the source too into a folder nobody asked for (AI flow FL-15, 11-17)
+        const besideSource = typeof d.from === 'string' && folderOf(d.from) === folderOf(r.path)
+        if (!d.folder && !d.conflictCopyOf && !d.conflictOf && !renamed && !besideSource) this.loosePlaced.push(r.path)
       }
     }
     if (changes.length) this.rt.publishFileChanges(changes)
@@ -3702,7 +3879,7 @@ export class TurnExec {
   /** The end state in the DB; returns the answer's status. */
   private finishState(): MessageStatus {
     // stopped or failed with a status line held: it is dropped like before a call (anything else goes out)
-    this.finishStep('text', () => { if (this.stopReason || this.error) this.emitText(this.answerText.push(this.narration.toolStart())); this.flushText() })
+    this.finishStep('text', () => { if (this.stopReason || this.error) this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart()))); this.flushText() })
     if (this.narration.dropped) this.rt.log.info('status lines left out of the answer', { turn: this.id, pieces: this.narration.dropped })
     this.finishStep('held answers', () => this.dropHeldAnswers())
     // the whole answer once more: an escaped or base64 form of a secret cut across two pieces (message.done below

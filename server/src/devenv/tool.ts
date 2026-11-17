@@ -68,6 +68,7 @@ const devServerText = (preview: boolean) => runPlatform() === 'darwin' ? MAC_DEV
 export const srtShellDescription = (preview: boolean) => 'Run a shell command in the dev environment (bash, git, node, npm, python3, pip, ffmpeg, chromium) on the team server. '
   + 'The command can read the team folders that the person of this chat may open; other folders are not there. '
   + 'It can write only the folder it starts in and the person\'s own folder users/<id>: every other team folder is read-only in a command, also where the person may write. To save a file in another team folder, use the file tools. '
+  + 'A folder in users/<id> that the person shares with other people is read-only in a command too: write the file somewhere else, then move it in with move_files, which asks the person first. '
   + 'Team folders are under $TRINA_TEAM, with the same paths as in the file tools. '
   + 'In a project chat the command starts in the project folder, and changes there are shared with the team and recorded with your name. '
   + 'In a chat with no project it starts in the chat\'s own work folder ($TRINA_WORK), which only this chat uses and which the file tools do not show: copy a result the person needs into their own folder users/<id>, or into another team folder they can write with the file tools. '

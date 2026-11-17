@@ -8,7 +8,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { ChunkErrorBoundary } from '../../src/components/ChunkErrorBoundary'
 import { _resetChunkReloadForTest, CHUNK_RELOAD_GUARD_MS, CHUNK_RELOAD_KEY, isChunkLoadError, reloadForChunkError, reloadOnce } from '../../src/lib/chunk-reload'
-import { keepUnsentAsDrafts, mayReloadNow, reloadWouldLose, serverUnreachable, unfinishedWork } from '../../src/lib/reload-guard'
+import { answerDesktop, keepUnsentAsDrafts, mayReloadNow, reloadWouldLose, serverUnreachable, unfinishedWork } from '../../src/lib/reload-guard'
 import { markBusy } from '../../src/lib/busy'
 import { readDraft, writeDraft } from '../../src/lib/localData'
 import { useChats } from '../../src/store/chats'
@@ -434,5 +434,17 @@ describe('the service worker keeps only the current build', () => {
     expect(pwaFile('sw.js')).toContain(`const CACHE = 'mycel-static-dev'`)
     expect(pwaFile('sw.js', a)).not.toContain('__STATIC_BUILD__')
     expect(() => pwaFile('sw.js', "x'; evil()")).toThrow(/bad build id/)
+  })
+})
+
+describe('the desktop app asks before an update restart', () => {
+  test('window.__mycelBusy follows what a reload would lose (an unsaved edit marks a draft)', () => {
+    const w: { __mycelBusy?: () => boolean } = {}
+    answerDesktop(w)
+    expect(w.__mycelBusy?.()).toBe(!mayReloadNow())
+    const release = markBusy('draft')
+    expect(w.__mycelBusy?.()).toBe(true)
+    release()
+    expect(w.__mycelBusy?.()).toBe(!mayReloadNow())
   })
 })

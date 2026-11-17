@@ -179,7 +179,7 @@ test("the app's picker in a room: the picked photo is uploaded to the room as th
   expect(body).toMatch(/filename="IMG_0001\.png"\r\nContent-Type: image\/png/)
   // WebKit's route shows no file part's bytes; Chromium's does
   if (browserName === 'chromium') expect(uploads[0]!.includes(PNG)).toBe(true)
-  // a room takes files up to 10 GB since #1104 (docs/decisions/20261116-room-file-upload-memory.md), more than the
+  // a room takes files up to 1 GB (docs/decisions/20261116-room-file-limit-1gb.md), more than the
   // bridge's 50 MB: as in an AI chat, the message offers the input (WebKit's picker has no such limit)
   await pickNext(page, [], ['long-video.mov'])
   await photoLibrary(page, 'room-attach')

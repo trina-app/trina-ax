@@ -1,5 +1,5 @@
 // The largest file a guest may upload (docs/decisions/20261116-guest-room-file-limit.md): the team's choice
-// (TeamSettings.guestFileMax: 100 MB unless the owner or an admin raised it to 1 GB or 10 GB), for every upload a guest
+// (TeamSettings.guestFileMax: 100 MB unless the owner or an admin raised it to 1 GB), for every upload a guest
 // makes: a file sent in a room, a file put in their project's folder, a file attached to an AI chat. Read from the
 // person's role and the setting at every upload, where an upload starts and again where its file is kept, so a limit
 // lowered meanwhile holds. Members are not limited here (each kind of upload has its own limit).
@@ -12,7 +12,8 @@ import { personLocale } from '../files/media-text'
 import { HttpError } from '../http/errors'
 
 /** The guest's limit in bytes, or null for anyone who is not a guest. A stored value that is not one of the choices
- * counts as the smallest. */
+ * counts as the smallest, except a stored '10gb' from before rooms took at most 1 GB, which reads as '1gb'
+ * (admin/settings.ts getTeamSettings). */
 export function guestUploadMax(db: Database, userId: string): number | null {
   if (!isGuestUser(db, userId)) return null
   return GUEST_FILE_MAX[getTeamSettings(db).guestFileMax] ?? GUEST_FILE_MAX['100mb']

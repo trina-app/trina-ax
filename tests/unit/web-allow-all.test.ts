@@ -177,16 +177,45 @@ describe('with the switch on', () => {
       await expect(gate(chat, u, person(null, asked))).rejects.toThrow(/did not allow/)
       expect(asked).toHaveLength(1)
     }
-    // the server's exit address unknown (web_fetch and save_url pass it; the browser tools never do)
-    const asked: Asked[] = []
-    await expect(gate(chat, 'https://plain.example/', person(null, asked), { egressKnown: false })).rejects.toThrow(/did not allow/)
-    expect(asked).toHaveLength(1)
+    // the server's exit address unknown (web_fetch and save_url pass it; the browser tools never do): what is not plain
+    // still asks (docs/decisions/20261116-always-allow-more-cards.md)
+    for (const u of ['https://203.0.113.9/x', 'https://x.example/doc/aB3dE5fG7hJ9kL1mN3pQ5rT', `https://x.example/?q=${'a'.repeat(201)}`]) {
+      const asked: Asked[] = []
+      await expect(gate(chat, u, person(null, asked), { egressKnown: false })).rejects.toThrow(/did not allow/)
+      expect(asked).toHaveLength(1)
+    }
     // a confidential chat
     const secret = await chatOf()
     db().query('INSERT OR IGNORE INTO safe_ops_chats (chat_id) VALUES (?)').run(secret)
     const conf: Asked[] = []
     await expect(gate(secret, 'https://plain.example/', person(null, conf))).rejects.toThrow(/did not allow/)
     expect(conf).toHaveLength(1)
+  })
+
+  test('the exit address unknown (FL-05): the card offers it, and once on a plain address opens without the card', async () => {
+    const chat = await chatOf('alice', 'https://typed.example/ 이 페이지 뭐하는 데야?')
+    const asked: Asked[] = []
+    expect(await gate(chat, 'https://typed.example/', person(ALL_SITES_ANSWER, asked), { egressKnown: false })).toBe('confirmed')
+    expect(asked[0]!.question).toContain("doesn't lead to a device inside your network")
+    // no "this site in this conversation" (①b stays off while the address is unknown), "Allow all websites" offered
+    expect(values(asked[0])).toEqual(['allow', ALL_SITES_ANSWER, 'deny'])
+    expect(webAllowAll(db(), 'alice')).toBe(true)
+    const later: Asked[] = []
+    expect(await gate(chat, 'https://other-plain.example/news', person(null, later), { egressKnown: false })).toBe('all')
+    expect(later).toEqual([])
+    // never another member's switch: bob's turn in the same state still asks
+    const bobs: Asked[] = []
+    await expect(gate(await chatOf('bob'), 'https://other-plain.example/news', person(null, bobs), { egressKnown: false, user: 'bob' })).rejects.toThrow(/did not allow/)
+    expect(bobs).toHaveLength(1)
+    // a number address, an echo and a run nobody watches still ask (or stay closed)
+    rememberUrls(db(), chat, ['https://echo-unknown.example/p?d=hello'], 'fetched', () => true)
+    for (const u of ['https://203.0.113.9/x', 'https://echo-unknown.example/p?d=hello']) {
+      const a: Asked[] = []
+      await expect(gate(chat, u, person(null, a), { egressKnown: false })).rejects.toThrow(/did not allow/)
+      expect(a).toHaveLength(1)
+      expect(values(a[0]) ?? []).not.toContain(ALL_SITES_ANSWER)
+    }
+    await expect(gate(chat, 'https://other-plain.example/news', person(null, [], { unattended: true }), { egressKnown: false })).rejects.toThrow(/does not know its own public internet address/)
   })
 
   test('an echo asks, under a site allowed in the chat (①b) and under the switch (①d)', async () => {

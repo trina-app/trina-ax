@@ -4,8 +4,11 @@
 // read; this module holds the converter runs, the limits, the time and frame arithmetic, the transcript cache and the
 // media slot.
 //
-// - Linux servers (ffmpeg and ffprobe come from the distribution: an apt dependency, never bundled). A Mac server says
-//   video and audio are not supported there yet (AVFoundation is phase 2).
+// - Linux servers (ffmpeg and ffprobe come from the distribution: an apt dependency, never bundled).
+// - An Apple silicon Mac (docs/decisions/20261116-mac-local-speech.md): macOS's own afinfo / afconvert / avconvert
+//   (jobs/mac-audio.ts, isolated the same way) give the sound, decoded once per read and cut here into the transcript's
+//   pieces (macProbeMedia, macAudioWav); no frames of a video are made there (the read says so). An Intel Mac says
+//   video and audio are not read there.
 // - Every ffmpeg / ffprobe run is a converter run (tools/isolate.ts: bwrap without network, read-only system, only the
 //   read's own work folder; the converter cgroup on Linux) with allow-lists of protocols (file), demuxers and decoders
 //   (decoder names, not codec names, checked on Debian 12's ffmpeg 5.1 and Debian 13's 7.1), `-threads 1`, a time and
@@ -23,6 +26,7 @@ import { ToolError } from '../policy/errors'
 import { readOutput, runIsolated } from '../tools/isolate'
 import { OPENROUTER_MAX_BYTES, wavData } from '../jobs/openrouter-stt'
 import { saysOtherLanguage, writingSystem } from '../jobs/speech-language'
+import { macSound, macToWavFile, macWavPiece, macWavSeconds, type MacAudioTools, type MacSource } from '../jobs/mac-audio'
 
 export { saysOtherLanguage, writingSystem }
 
@@ -219,7 +223,11 @@ const INPUT_GUARD = ['-protocol_whitelist', 'file', '-format_whitelist', FORMATS
 const WORK_SLACK = 64 * 1024 ** 2
 const workCap = (work: string, name: string) => { try { return fs.statSync(path.join(work, name)).size + WORK_SLACK } catch { return WORK_SLACK } }
 
-export interface MediaTools { ffmpeg: string; ffprobe: string }
+export interface FfmpegTools { ffmpeg: string; ffprobe: string }
+/** an Apple silicon Mac's own audio programs (jobs/mac-audio.ts) */
+export interface MacMediaTools { mac: MacAudioTools }
+export type MediaTools = FfmpegTools | MacMediaTools
+export const isMacTools = (t: MediaTools): t is MacMediaTools => 'mac' in t
 
 /** What a read uses of ffprobe's answer (nothing else of it is kept). */
 export interface MediaInfo {
@@ -234,6 +242,8 @@ export interface MediaInfo {
   audio: { index: number; codec: string; channels: number | null; sampleRate: number | null } | null
   /** a cover picture (attached_pic) and no other picture: an audio file */
   cover: boolean
+  /** a video whose pictures this server does not open (a Mac: only its sound); `video` is null */
+  pictureUnread?: true
 }
 
 const num = (v: unknown): number | null => {
@@ -285,7 +295,7 @@ function refused(r: { killed: string | null; code: number | null; stderr: string
 }
 
 /** ffprobe of `name` in the work folder `work`. Throws ToolError media_* (never converter text). */
-export async function probeMedia(tools: MediaTools, work: string, name: string, signal?: AbortSignal, timeoutMs = PROBE_TIMEOUT_MS): Promise<MediaInfo> {
+export async function probeMedia(tools: FfmpegTools, work: string, name: string, signal?: AbortSignal, timeoutMs = PROBE_TIMEOUT_MS): Promise<MediaInfo> {
   const r = await runIsolated({
     cmd: tools.ffprobe, workDir: work, signal, timeoutMs: Math.min(PROBE_TIMEOUT_MS, timeoutMs), maxRssMiB: PROBE_RSS_MIB, maxStdout: 1024 * 1024, maxWorkBytes: workCap(work, name),
     args: ['-v', 'error', '-threads', '1', ...INPUT_GUARD,
@@ -300,7 +310,7 @@ export async function probeMedia(tools: MediaTools, work: string, name: string, 
 }
 
 /** The length of a file that does not say (a browser's MediaRecorder webm): its packets read through without decoding. */
-export async function scanDuration(tools: MediaTools, work: string, name: string, signal?: AbortSignal, timeoutMs = SCAN_TIMEOUT_MS): Promise<number | null> {
+export async function scanDuration(tools: FfmpegTools, work: string, name: string, signal?: AbortSignal, timeoutMs = SCAN_TIMEOUT_MS): Promise<number | null> {
   const r = await runIsolated({
     cmd: tools.ffmpeg, workDir: work, signal, timeoutMs: Math.min(SCAN_TIMEOUT_MS, timeoutMs), maxRssMiB: PROBE_RSS_MIB, maxStdout: 4 * 1024 * 1024, maxWorkBytes: workCap(work, name),
     args: ['-nostdin', '-hide_banner', '-loglevel', 'error', '-threads', '1', ...INPUT_GUARD, '-i', name, '-map', '0', '-c', 'copy', '-f', 'null', '-progress', 'pipe:1', '-nostats', '-'],
@@ -317,7 +327,7 @@ export async function scanDuration(tools: MediaTools, work: string, name: string
 export const frameable = (v: NonNullable<MediaInfo['video']>) => v.width <= MEDIA_MAX_SIDE && v.height <= MEDIA_MAX_SIDE && v.width * v.height <= MEDIA_MAX_PIXELS
 
 /** One frame at `t` seconds as a PNG (longest side at most `px`, square pixels, 8-bit RGB), on stdout. */
-export async function framePng(tools: MediaTools, work: string, name: string, stream: number, t: number, px: number, signal?: AbortSignal, timeoutMs = FRAME_TIMEOUT_MS): Promise<Buffer> {
+export async function framePng(tools: FfmpegTools, work: string, name: string, stream: number, t: number, px: number, signal?: AbortSignal, timeoutMs = FRAME_TIMEOUT_MS): Promise<Buffer> {
   const r = await runIsolated({
     cmd: tools.ffmpeg, workDir: work, signal, timeoutMs: Math.min(FRAME_TIMEOUT_MS, timeoutMs), maxRssMiB: FRAME_RSS_MIB, maxStdout: FRAME_PNG_MAX, maxWorkBytes: workCap(work, name),
     args: ['-nostdin', '-hide_banner', '-loglevel', 'error', '-threads', '1', ...INPUT_GUARD, '-ss', t.toFixed(3), '-i', name,
@@ -336,7 +346,7 @@ export async function framePng(tools: MediaTools, work: string, name: string, st
  * the work folder and read back without following a link; the file stays for whisper.cpp, the caller removes it. No
  * tags: ffmpeg copies a file's title and comment into the WAV's LIST chunk by default, and the WAV may go to
  * OpenRouter. */
-export async function audioWav(tools: MediaTools, work: string, name: string, stream: number, start: number, seconds: number, out: string,
+export async function audioWav(tools: FfmpegTools, work: string, name: string, stream: number, start: number, seconds: number, out: string,
   o: { signal?: AbortSignal; timeoutMs?: number; inputBytes: number }): Promise<Buffer> {
   const r = await runIsolated({
     cmd: tools.ffmpeg, workDir: work, signal: o.signal, timeoutMs: Math.min(AUDIO_TIMEOUT_MS, o.timeoutMs ?? AUDIO_TIMEOUT_MS), maxRssMiB: AUDIO_RSS_MIB,
@@ -348,6 +358,43 @@ export async function audioWav(tools: MediaTools, work: string, name: string, st
   const got = readOutput(work, out, OPENROUTER_MAX_BYTES)
   if (!got.ok) throw new ToolError(`no sound (${got.why})`, got.why === 'too_large' ? 'media_heavy' : 'media_damaged')
   return got.bytes
+}
+
+// ---------------- an Apple silicon Mac (jobs/mac-audio.ts) ----------------
+/** the whole sound of a read, decoded once into its work folder; the pieces are cut from it */
+const MAC_FULL_WAV = 'mac-full.wav'
+/** afinfo and the decode of the whole file: a few seconds for an hour of AAC; the rest of the read's time is the limit */
+const MAC_DECODE_MS = 5 * 60_000
+
+/** the sound a Mac read found in its work folder (macProbeMedia), for its pieces */
+const macSources = new Map<string, MacSource>()
+
+/** What a read of `name` uses on a Mac: its sound (afinfo; avconvert takes it out of a video afinfo cannot open). It is
+ * decoded only when a piece is needed (macAudioWav), so a read that transcribes nothing (voice input off, a guest, every
+ * piece cached) decodes nothing. `video`: the file is a video; its pictures are not read there
+ * (MediaInfo.pictureUnread). Throws ToolError media_* as probeMedia does, and media_mac_format / media_mac_no_sound. */
+export async function macProbeMedia(tools: MacMediaTools, work: string, name: string, video: boolean, signal?: AbortSignal, timeoutMs = MAC_DECODE_MS): Promise<MediaInfo> {
+  const from = await macSound(tools.mac, work, name, { signal, timeoutMs: Math.min(MAC_DECODE_MS, timeoutMs), maxSeconds: MEDIA_MAX_SECONDS })
+  macSources.set(work, from)
+  return {
+    durationSec: from.sound.durationSec, format: from.sound.format, video: null, cover: false,
+    audio: { index: 0, codec: from.sound.codec, channels: from.sound.channels, sampleRate: from.sound.sampleRate },
+    ...(video ? { pictureUnread: true as const } : {}),
+  }
+}
+
+/** A piece of the sound, as audioWav gives it: a plain 16 kHz mono WAV written to `out` in the work folder (whisper.cpp
+ * reads it there; the caller removes it). The first piece of a read decodes the whole sound once (afconvert has no
+ * seek), within `timeoutMs`. */
+export async function macAudioWav(tools: MacMediaTools, work: string, start: number, seconds: number, out: string, o: { signal?: AbortSignal; timeoutMs: number }): Promise<Buffer> {
+  const from = macSources.get(work)
+  if (!from) throw new ToolError('the sound was not probed', 'media_damaged')
+  if (!macWavSeconds(work, MAC_FULL_WAV)) await macToWavFile(tools.mac, work, from, MAC_FULL_WAV, { signal: o.signal, timeoutMs: Math.min(MAC_DECODE_MS, o.timeoutMs) })
+  const wav = macWavPiece(work, MAC_FULL_WAV, start, seconds)
+  if (!wav || wav.length <= 44) throw new ToolError('no sound in that part', 'media_damaged')
+  if (wav.length > OPENROUTER_MAX_BYTES) throw new ToolError('the piece is too large', 'media_heavy')
+  fs.writeFileSync(path.join(work, out), wav, { flag: 'wx', mode: 0o600 })
+  return wav
 }
 
 // ---------------- times ----------------
@@ -476,7 +523,7 @@ export function assertWork(dir: string) {
   if (!workIntact(dir)) throw new ToolError('the work folder was replaced', 'media_damaged')
 }
 /** Removes the folder (a link left in its place: the link, never what it points at). */
-export function dropWork(dir: string) { active.delete(dir); fs.rmSync(dir, { recursive: true, force: true }) }
+export function dropWork(dir: string) { active.delete(dir); macSources.delete(dir); fs.rmSync(dir, { recursive: true, force: true }) }
 /** At start: no media read survives a restart, so every vid-* folder left in the work folder goes now (a crash could
  * leave a 1 GB copy there for the 24 h scratch sweep). Folders of reads running in this process are kept. */
 export function cleanMediaWork(base: string): number {

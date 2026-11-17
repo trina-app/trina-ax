@@ -1,5 +1,6 @@
 // A guest's file limit (docs/decisions/20261116-guest-room-file-limit.md): 100 MB unless the owner or an admin
-// raises it in Admin (TeamSettings.guestFileMax: 100 MB, 1 GB or 10 GB); members send up to 10 GB whatever it says.
+// raises it in Admin (TeamSettings.guestFileMax: 100 MB or 1 GB); members send up to 1 GB in a room whatever it says
+// (docs/decisions/20261116-room-file-limit-1gb.md), and a guest is never allowed more than a member.
 // Checked on the server from the sender's role at upload time, where an upload session starts and again where any
 // upload is kept (one request, a finished session), in plain words with the guest's own limit.
 import crypto from 'node:crypto'
@@ -7,6 +8,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
 import { GUEST_FILE_MAX, ROOM_FILE_MAX } from '@mycel/shared/api'
+import { setSetting } from '../../server/src/admin/settings'
 import { HttpError } from '../../server/src/http/errors'
 import { roomFilesOf } from '../../server/src/rooms/files'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
@@ -42,7 +44,7 @@ const kept = async (userId: string, room: string, size: number) => {
   try { await roomFilesOf(h.ctx).create(userId, room, 'video.mov', sparse(size), 'b'.repeat(64)); return 'kept' } catch (e) { return e instanceof HttpError ? `${e.code}: ${e.message}` : `threw ${String(e)}` }
 }
 
-test('by default a guest sends up to 100 MB; a member up to 10 GB; the guest is told their own limit', async () => {
+test('by default a guest sends up to 100 MB; a member up to 1 GB; the guest is told their own limit', async () => {
   const { mia, room, g } = await setup()
   expect((await g.client.call('GET', '/api/me')).team.uploadMaxBytes).toBe(100 * MB)
   expect((await mia.client.call('GET', '/api/me')).team.uploadMaxBytes).toBeUndefined()
@@ -54,23 +56,34 @@ test('by default a guest sends up to 100 MB; a member up to 10 GB; the guest is 
   expect(err.code).toBe('payload_too_large')
   expect(err.params).toEqual({ reason: 'room_file_too_large', maxBytes: 100 * MB })
   expect(err.message).toMatch(/100 MB/)
-  expect(err.message).not.toMatch(/10 GB/)
-  // a member in the same room is not held to it
+  expect(err.message).not.toMatch(/GB/)
+  // a member in the same room is not held to it, only to the room's 1 GB, in plain words
+  expect(ROOM_FILE_MAX).toBe(1024 * MB)
   expect((await start(mia.client, room, ROOM_FILE_MAX)).status).toBe(201)
-  expect((await start(mia.client, room, ROOM_FILE_MAX + 1)).status).toBe(413)
+  const big = await start(mia.client, room, ROOM_FILE_MAX + 1)
+  expect(big.status).toBe(413)
+  const bigErr = ((await big.json()) as { error: { message: string; params: { reason: string; maxBytes: number } } }).error
+  expect(bigErr.params).toEqual({ reason: 'room_file_too_large', maxBytes: 1024 * MB })
+  expect(bigErr.message).toBe('이 파일은 대화에 보내기엔 너무 커요. 1 GB까지 보낼 수 있어요.')
   // where any upload is kept (a finished session; one request and a team file's copy pass the same check, but carry at
   // most 50 MB each, under the smallest guest limit): the same limit, from the role then
   expect(await kept(g.id, room, 100 * MB)).toBe('kept')
   expect(await kept(g.id, room, 100 * MB + 1)).toMatch(/^payload_too_large: .*100 MB/)
   expect(await kept(mia.id, room, 100 * MB + 1)).toBe('kept')
+  // a member's finished upload: 1 GB is kept, one byte more is not
+  expect(await kept(mia.id, room, ROOM_FILE_MAX)).toBe('kept')
+  expect(await kept(mia.id, room, ROOM_FILE_MAX + 1)).toMatch(/^payload_too_large: .*1 GB/)
 })
 
-test('the owner or an admin raises it (1 GB, 10 GB); a member cannot; lowering it again holds at once', async () => {
+test('the owner or an admin raises it to 1 GB, never more; a member cannot; lowering it again holds at once', async () => {
   const { owner, ada, mia, room, g } = await setup()
   expect((await owner.call('GET', '/api/admin/settings')).guestFileMax).toBe('100mb')
-  expect((await mia.client.raw('PATCH', '/api/admin/settings', { guestFileMax: '10gb' })).status).toBe(403)
-  expect((await g.client.raw('PATCH', '/api/admin/settings', { guestFileMax: '10gb' })).status).toBe(403)
+  expect((await mia.client.raw('PATCH', '/api/admin/settings', { guestFileMax: '1gb' })).status).toBe(403)
+  expect((await g.client.raw('PATCH', '/api/admin/settings', { guestFileMax: '1gb' })).status).toBe(403)
   expect((await ada.client.raw('PATCH', '/api/admin/settings', { guestFileMax: '5gb' })).status).toBe(400)
+  // 10 GB is no choice any more: above a member's 1 GB
+  expect((await owner.raw('PATCH', '/api/admin/settings', { guestFileMax: '10gb' })).status).toBe(400)
+  expect(Object.keys(GUEST_FILE_MAX)).toEqual(['100mb', '1gb'])
 
   await ada.client.call('PATCH', '/api/admin/settings', { guestFileMax: '1gb' })
   expect((await g.client.call('GET', '/api/me')).team.uploadMaxBytes).toBe(GUEST_FILE_MAX['1gb'])
@@ -81,9 +94,13 @@ test('the owner or an admin raises it (1 GB, 10 GB); a member cannot; lowering i
   expect(((await over.json()) as { error: { message: string } }).error.message).toMatch(/1 GB/)
   expect(await kept(g.id, room, 200 * MB)).toBe('kept')
 
-  await owner.call('PATCH', '/api/admin/settings', { guestFileMax: '10gb' })
+  // 10 GB picked before this change, still stored: read as the member limit (1 GB), never above it
+  setSetting(h.ctx.db, 'guestFileMax', '10gb')
+  expect((await owner.call('GET', '/api/admin/settings')).guestFileMax).toBe('1gb')
+  expect((await g.client.call('GET', '/api/me')).team.uploadMaxBytes).toBe(ROOM_FILE_MAX)
   expect((await start(g.client, room, ROOM_FILE_MAX)).status).toBe(201)
   expect((await start(g.client, room, ROOM_FILE_MAX + 1)).status).toBe(413)
+  expect(await kept(g.id, room, ROOM_FILE_MAX + 1)).toMatch(/^payload_too_large: .*1 GB/)
 
   // lowered while a larger upload was on its way: it is not kept when it completes
   await owner.call('PATCH', '/api/admin/settings', { guestFileMax: '100mb' })

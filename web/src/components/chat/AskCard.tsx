@@ -26,6 +26,7 @@ import { toast } from '../../store/ui'
 import { useSession } from '../../store/session'
 import { Button, inputCls } from '../ui'
 import { SecretWarning, useSecretHold } from './SecretWarning'
+import { ShareAskRows } from './ShareCard'
 
 type AnswerBody = Parameters<ReturnType<typeof useChats.getState>['answer']>[1]
 
@@ -143,11 +144,14 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
         <p className="flex items-center gap-1.5 text-xs font-medium text-warn">
           <ShieldAlert size={14} aria-hidden /> {t('ask.serverTitle')}
         </p>
-        <p id={`${name}-q`} className="mt-1 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]">
-          {r.question}
-        </p>
+        {/* a share or a stop (AskUserRequest.share): the files and people as rows, the card its result card becomes */}
+        {r.share ? <ShareAskRows ask={r.share} titleId={`${name}-q`} /> : (
+          <p id={`${name}-q`} className="mt-1 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]">
+            {r.question}
+          </p>
+        )}
         {r.preview && <div className="mt-2.5"><SkillPreview p={r.preview} /></div>}
-        {r.details?.length ? <Details items={r.details} plain /> : null}
+        {!r.share && r.details?.length ? <Details items={r.details} plain /> : null}
         <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
           {error && <span role="alert" className="mr-auto text-xs text-danger">{error}</span>}
           <Button size="sm" variant="ghost" disabled={busy} busy={busy && picked[0] === no.value} onClick={() => pick(no.value)} data-testid="ask-no">
@@ -174,12 +178,14 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
         <p className="flex items-center gap-1.5 text-xs font-medium text-warn">
           <ShieldAlert size={14} aria-hidden /> {t('ask.serverTitle')}
         </p>
-        <p id={`${name}-q`} className="mt-1 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]">
-          {r.question}
-        </p>
+        {r.share ? <ShareAskRows ask={r.share} titleId={`${name}-q`} /> : (
+          <p id={`${name}-q`} className="mt-1 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]">
+            {r.question}
+          </p>
+        )}
         {/* a project skill whose name is taken elsewhere: another name, or the one that runs (docs/DECISIONS.md "Project skills") */}
         {r.preview && <div className="mt-2.5"><SkillPreview p={r.preview} /></div>}
-        {r.details?.length ? <Details items={r.details} plain /> : null}
+        {!r.share && r.details?.length ? <Details items={r.details} plain /> : null}
         <ChoiceRow
           className="mt-3"
           busy={busy}
@@ -225,6 +231,9 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
               ))}
             </div>
           )}
+          {/* a server card with four choices (the team folder card that also asks about file shares, with "Always allow"):
+              its line about the file shares and what "Always allow" covers, as on the button cards */}
+          {fromServer && r.note && <p className="whitespace-pre-wrap text-xs text-muted" data-testid="ask-note">{r.note}</p>}
           {allowText && (
             <textarea
               ref={textRef}

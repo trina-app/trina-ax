@@ -157,7 +157,7 @@ const LABEL = {
   continuePrivately: t('나만 보는 채팅에서 이어 하기', 'Continue in a chat only you see', 'Lanjutkan di obrolan yang hanya Anda lihat', '自分だけのチャットで続ける', 'Continuar en un chat que solo ve usted', '在只有你能看到的对话中继续'),
 } satisfies Record<string, L5>
 // the AI's name in the side panel's button (web sideChat.open {name}; chat/i18n.ts aiCalled)
-const AI_NAME = PRODUCT_NAMED_AFTER_AI ? t('트리나', 'Trina', 'Trina', 'トリナ', 'Trina', 'Trina') : t('AI', 'AI', 'AI', 'AI', 'IA', 'AI')
+export const AI_NAME = PRODUCT_NAMED_AFTER_AI ? t('트리나', 'Trina', 'Trina', 'トリナ', 'Trina', 'Trina') : t('AI', 'AI', 'AI', 'AI', 'IA', 'AI')
 
 /** Where a person does something themselves, by the names their app shows (`L`). */
 export const SCREEN = {

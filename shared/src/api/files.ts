@@ -98,6 +98,9 @@ export const CopyBody = z.object({
   baseSha256: z.string().regex(/^[0-9a-f]{64}$/).nullable().optional(),
   dryRun: z.boolean().default(false),
   onExists: z.enum(['fail', 'replace', 'rename']).default('rename'),
+  /** the person said yes to more people seeing the copy: a copy into a folder its owner shares answers 409 conflict
+   * {params: {reason: 'audience_widened', viewersAdded}} without it */
+  confirm: z.boolean().optional(),
 })
 export const CopyResult = z.union([
   z.object({ path: RelPath, sha256: z.string() }),
@@ -133,7 +136,12 @@ export const HistoryResponse = z.object({
 })
 export type HistoryResponse = z.infer<typeof HistoryResponse>
 /** Restore an old version of a file (the current content becomes a new version first). */
-export const RestoreVersionBody = z.object({ path: RelPath, versionId: Uuid7 })
+/** confirm: the version goes back into a folder its owner shares, to people who never had it (409 conflict
+ * {params: {reason: 'audience_widened', viewersAdded}} without it) */
+export const RestoreVersionBody = z.object({ path: RelPath, versionId: Uuid7, confirm: z.boolean().optional() })
+/** POST /api/files/trash/:id/restore?confirm=1: it goes back into a folder its owner shared since it was trashed (409
+ * conflict {params: {reason: 'audience_widened', viewersAdded}} without it). No body, as before */
+export const RestoreTrashQuery = z.object({ confirm: QueryBool.optional() })
 /** mine: only items the caller deleted */
 export const TrashQuery = PageQuery.extend({ mine: QueryBool.optional() })
 
@@ -327,7 +335,7 @@ export const FILES = {
   versionDownload: endpoint({ method: 'GET', path: '/api/files/history/:versionId/download', auth: 'user', owner: 'C', response: stream(true), summary: 'Download an old version (read access to its path).' }),
   restoreVersion: endpoint({ method: 'POST', path: '/api/files/restore', auth: 'user', owner: 'C', body: RestoreVersionBody, response: SaveResult, summary: 'Restore an old version of a file.' }),
   trash: endpoint({ method: 'GET', path: '/api/files/trash', auth: 'user', owner: 'C', query: TrashQuery, response: page(TrashItem), summary: 'Trash items the caller could restore (write access to the original path; a team project\'s own folder, named as the project: the owner, admins and its creator while a member).' }),
-  restoreTrash: endpoint({ method: 'POST', path: '/api/files/trash/:id/restore', auth: 'user', owner: 'C', response: MoveResult, summary: 'Put a trashed item back (write access to the original path; " (restored)", in the team language, is added when the name is taken).' }),
+  restoreTrash: endpoint({ method: 'POST', path: '/api/files/trash/:id/restore', auth: 'user', owner: 'C', query: RestoreTrashQuery, response: MoveResult, summary: 'Put a trashed item back (write access to the original path; " (restored)", in the team language, is added when the name is taken).' }),
   purgeTrash: endpoint({ method: 'DELETE', path: '/api/files/trash/:id', auth: 'admin', owner: 'C', response: empty, status: 204, summary: 'Delete a trashed item for good (admin or owner). A team project\'s own folder: the project is deleted for good with it, as DELETE /api/projects/:id does.' }),
 
   uploadAttachment: endpoint({ method: 'POST', path: '/api/uploads', auth: 'user', owner: 'C', status: 201, body: multipart(AttachmentUploadFields, SMALL_UPLOAD_MAX), response: Attachment, summary: 'Attach a file (≤ 50 MB) to an own chat: stored in users/<me>/.attachments/<chatId>/. In a shared project chat the caller sees: saved in the project\'s chat attachments folder (named in the team\'s language, made when missing; a taken name gets " (2)") and attached as a team file (source team); 403 shared_upload_read_only without write access there.' }),

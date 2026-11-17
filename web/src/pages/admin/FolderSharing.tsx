@@ -22,6 +22,7 @@ import { addNamed, removeNamed, setNamed, type Draft } from '../../lib/access-ed
 import { isPersonalPath, isSkillsPath } from '../../lib/access-view'
 import { aboveRows, askTitle, peopleOf, audienceOf, generalLevel, hasPanel, inheritedOf, inProjects, latentLines, outcomeLines, parentOf, pickable, pickBasic, removedPeople, sameOutcome, saveAsk, type AboveRow } from '../../lib/folder-sharing'
 import { useFolderName } from '../../lib/folderLabels'
+import { markBusy } from '../../lib/busy'
 import { useLocale, useT } from '../../i18n'
 import { Button, ErrorNote, Skeleton, Switch, confirmDialog } from '../../components/ui'
 import { Avatar } from '../../components/Avatar'
@@ -172,9 +173,14 @@ function Body({ path, project, projectOf, onSwap, onLeave, guard, list, footer, 
   }, [guard])
   useEffect(() => {
     if (!edited) return
+    // nothing reloads or restarts by itself over the changes (web update, desktop update restart)
+    const release = markBusy('draft')
     const ask = (e: BeforeUnloadEvent) => e.preventDefault()
     window.addEventListener('beforeunload', ask)
-    return () => window.removeEventListener('beforeunload', ask)
+    return () => {
+      release()
+      window.removeEventListener('beforeunload', ask)
+    }
   }, [edited])
 
   // a person or group just added: its select takes the focus

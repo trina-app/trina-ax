@@ -188,7 +188,7 @@ describe('speech: a planted link is never sent or used as the transcript', () =>
     const t = C().transcribe
     const modelDir = fs.mkdtempSync(path.join(A.data, 'model-'))
     fs.writeFileSync(path.join(modelDir, 'ggml-fake.bin'), Buffer.alloc(16))
-    Object.assign(t, { ffmpegBin: null, whisperBin: TRUE, modelDir, sharedModelDir: null, modelOverride: { file: 'ggml-fake.bin', size: 16, sha256: 'x' } })
+    Object.assign(t, { ffmpegBin: null, mac: null, whisperBin: TRUE, modelDir, sharedModelDir: null, modelOverride: { file: 'ggml-fake.bin', size: 16, sha256: 'x' } })
     const other = otherFolder()
     plant = swapWork(other)
     const j = await job('voice.wav')
@@ -203,7 +203,7 @@ describe('speech: a planted link is never sent or used as the transcript', () =>
     const t = C().transcribe
     const modelDir = fs.mkdtempSync(path.join(A.data, 'model-'))
     fs.writeFileSync(path.join(modelDir, 'ggml-fake.bin'), Buffer.alloc(16))
-    Object.assign(t, { ffmpegBin: null, whisperBin: TRUE, modelDir, sharedModelDir: null, modelOverride: { file: 'ggml-fake.bin', size: 16, sha256: 'x' } })
+    Object.assign(t, { ffmpegBin: null, mac: null, whisperBin: TRUE, modelDir, sharedModelDir: null, modelOverride: { file: 'ggml-fake.bin', size: 16, sha256: 'x' } })
     plant = (dir) => link(secret.json, dir, 'out.json')
     const j = await job('voice.wav')
     expect(runs).toBe(1)

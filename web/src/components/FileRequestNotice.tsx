@@ -30,7 +30,7 @@ export function FileRequestExtras({ item, onRead, onChanged }: { item: InboxNoti
     }
   }
   const gone = f.gone || state === 'closed'
-  const done = state === 'approved' ? t('fileRequest.approved', { by: f.by ?? '' }) : state === 'declined' ? t('fileRequest.declined') : gone ? t('fileRequest.gone') : null
+  const done = state === 'approved' ? (f.for ? t('fileRequest.approvedFor', { for: f.for }) : t('fileRequest.approved', { by: f.by ?? '' })) : state === 'declined' ? t('fileRequest.declined') : gone ? t('fileRequest.gone') : null
   return (
     <div className="mt-1 space-y-2" data-testid="file-request" data-state={gone ? 'closed' : state}>
       {f.note && !gone && <p className="text-sm break-words whitespace-pre-wrap text-muted" data-testid="file-request-note">“{f.note}”</p>}

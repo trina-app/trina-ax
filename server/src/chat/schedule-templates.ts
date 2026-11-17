@@ -1,4 +1,5 @@
 // Templates are dormant until a signed-in person explicitly creates one. No content or file operations here.
+import { privateToMe } from '../files/share-readers'
 import crypto from 'node:crypto'
 import { CreateScheduleFromTemplate, type Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
@@ -21,7 +22,8 @@ export function validateTemplateFolders(ctx: AppContext, userId: string, sourceP
     const source = authorize(ctx.files.fx, rules, p, sourcePath, 'read')
     const output = authorize(ctx.files.fx, rules, p, outputPath, 'write', { createDirs: true })
     if (!source.st?.isDirectory() || (output.exists && !output.st?.isDirectory())) throw new Error('folder required')
-    if (output.segs[0] !== 'users' || output.segs[1] !== userId) throw new Error('private output required')
+    // private: the person's own folder, and nobody else on it (not inside a folder they share: files/share-readers.ts)
+    if (output.segs[0] !== 'users' || output.segs[1] !== userId || !privateToMe(ctx.db, userId, output.segs)) throw new Error('private output required')
     return { sourcePath: source.rel, outputPath: output.rel }
   } catch { throw new HttpError('not_found') }
 }

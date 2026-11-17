@@ -74,6 +74,19 @@ export function dropAlways(db: Database, userId: string, id: string): boolean {
   return n > 0
 }
 
+/** The words of a card's "Always allow" option: the usual, the skill-save card's, the room post card that offers the
+ * linked files ("Always send with the files": which of its two yeses it keeps). */
+export type AlwaysLabel = 'cardAlways' | 'cardAlwaysSkills' | 'cardAlwaysFiles'
+
+/** A kind whose "Always allow" risk is said in its own words on the card (the folder cards). */
+const KIND_NOTE: Partial<Record<CardAlwaysKind, 'cardAlwaysNoteShareFolder' | 'cardAlwaysNoteFolderAccess'>> = {
+  share_folder: 'cardAlwaysNoteShareFolder', folder_access: 'cardAlwaysNoteFolderAccess',
+}
+
+/** For a tool result when the person's own "Always allow" let the call run without its card (QA, integrate/sharing-all
+ * final run 2026-11-17: the AI said "You approved the change" though no card was shown). */
+export const RAN_UNDER_ALWAYS = 'No card was shown: the user chose "Always allow" for this kind of change earlier, so it ran without asking them. Say so in plain words if it matters (for example "Done. You set Trina to do this without asking; you can change that in Settings › Allowed for Trina."); never say they approved, confirmed or pressed anything this time.'
+
 /** The value a card's "Always allow" answer carries (never one of a card's own values). */
 export const ALWAYS_VALUE = '__always'
 
@@ -81,16 +94,17 @@ export const ALWAYS_VALUE = '__always'
  * One card with "Always allow": `options` are the card's own (yes first, the no last); `yes` the value that lets the
  * call go on. On already: `yes` at once, no card. Offered: "Always allow" goes in before the last option, and picking it
  * keeps the choice and answers `yes`. Otherwise the card as it was. `ask` raises the card with the options given and
- * returns the raw answer. `label`: the option's words (a card of its own words, the skill-save card's).
+ * returns the raw answer. `label`: the option's words (a card of its own words: the skill-save card's, the room post
+ * card that offers the linked files).
  */
 export async function withAlways(p: AlwaysPlace | null | undefined, kind: CardAlwaysKind, options: { label: string; value: string }[], yes: string,
-  ask: (options: { label: string; value: string }[], extra: { buttons?: true; note?: string }) => Promise<unknown>, label: 'cardAlways' | 'cardAlwaysSkills' = 'cardAlways'): Promise<unknown> {
+  ask: (options: { label: string; value: string }[], extra: { buttons?: true; note?: string }) => Promise<unknown>, label: AlwaysLabel = 'cardAlways'): Promise<unknown> {
   const here = alwaysHere(p, kind)
   if (here === 'on') return yes
   if (here !== 'offer' || options.length < 2) return ask(options, {})
   if (!p) return ask(options, {})
   const opts = [...options.slice(0, -1), { label: tr(label, p.locale), value: ALWAYS_VALUE }, options.at(-1)!]
-  const answer = await ask(opts, { ...(opts.length === 3 ? { buttons: true as const } : {}), note: tr('cardAlwaysNote', p.locale) })
+  const answer = await ask(opts, { ...(opts.length === 3 ? { buttons: true as const } : {}), note: tr(KIND_NOTE[kind] ?? 'cardAlwaysNote', p.locale) })
   const v = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
   if (v === ALWAYS_VALUE) {
     keepAlways(p.db, p.userId, kind, p.turnId)
