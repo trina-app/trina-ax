@@ -18,6 +18,8 @@ interface RoomSavesState {
 }
 
 const asked = new Set<string>()
+/** counts resets: a saved list asked before one is not kept */
+let resets = 0
 
 export const useRoomSaves = create<RoomSavesState>((set) => ({
   byRoom: {},
@@ -25,8 +27,10 @@ export const useRoomSaves = create<RoomSavesState>((set) => ({
   load(roomId) {
     if (asked.has(roomId)) return
     asked.add(roomId)
+    const era = resets
     api.call(API.roomSavedFiles, { params: { id: roomId } }).then(
-      (r) => set((s) => ({ byRoom: { ...s.byRoom, [roomId]: { ...s.byRoom[roomId], ...Object.fromEntries(r.items.map((i) => [i.fileId, i.path])) } } })),
+      // a reply that started before someone else signed in is the last person's: dropped
+      (r) => era === resets && set((s) => ({ byRoom: { ...s.byRoom, [roomId]: { ...s.byRoom[roomId], ...Object.fromEntries(r.items.map((i) => [i.fileId, i.path])) } } })),
       // not known: the chips offer the save, which finds the file there (the same bytes count as saved); asked again on
       // the next page load, not by every chip
       () => undefined,
@@ -45,6 +49,7 @@ export const useRoomSaves = create<RoomSavesState>((set) => ({
 
 /** for tests: forget what was asked */
 export function resetRoomSaves() {
+  resets++
   asked.clear()
   useRoomSaves.setState({ byRoom: {}, sheet: null })
 }
