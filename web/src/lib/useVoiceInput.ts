@@ -3,11 +3,16 @@
 // lib/voiceInput.ts: hold Space in the box, click the mic, or press and hold it with a finger. The words go to the end
 // of the box and are never sent by themselves. While the job runs, its own label shows (the first recording on a
 // server that still downloads its speech model says so, with how far it is), else "받아쓰는 중…".
+// A team whose voice input goes to OpenRouter (Me.team.voiceInputOutside) is live (lib/liveDictation.ts): pieces go to
+// POST /api/transcribe/piece while recording and their words go to the end of the box as they come (`heard`: the host
+// shows the box's text above the bar then); Stop waits for the last pieces; Esc puts the box back as it was.
 // The host renders components/VoiceBar.tsx (the bar, the mic, the live region) with what this returns and calls
 // onKeyDown from the box's own key handler after its "/", "#" or "@" list had its turn.
 import { useEffect, useLayoutEffect, useReducer, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
-import { SMALL_UPLOAD_MAX, type TranscribeResult } from '@mycel/shared/api'
+import { ApiError, SMALL_UPLOAD_MAX, type TranscribeResult } from '@mycel/shared/api'
+import type { PieceAnswer } from '@mycel/shared/speech-pieces'
 import { api, API, errorText } from './api'
+import { LiveDictation } from './liveDictation'
 import { markBusy } from './busy'
 import { RecorderError, useRecorder } from './recorder'
 import type { TextEdit } from './textTokens'
@@ -144,6 +149,10 @@ export function useVoiceInput(o: VoiceInputOptions) {
   const focusWanted = useRef<{ at: number | null } | null>(null)
   const holdUsed = useSyncExternalStore(watchHoldUsed, holdUsedBefore, () => true)
   const [jobId, setJobId] = useState<string | null>(null)
+  /** the live recording now (null: none, or the whole file is transcribed) and the box's text before it */
+  const live = useRef<{ run: LiveDictation; before: string } | null>(null)
+  /** the live recording's words went into the box */
+  const [heard, setHeard] = useState(false)
   /** the "mic blocked" note while the phone app can open its Settings page (the host shows the button beside it) */
   const [settingsFor, setSettingsFor] = useState<string | null>(null)
   const holdCapable = useMatch(HOLD_QUERY)
@@ -162,12 +171,91 @@ export function useVoiceInput(o: VoiceInputOptions) {
     return errorText(n.error, locale, t('error.network'))
   }
 
+  /** drop the live recording; `restore`: its words go out of the box again (Esc, ✕) */
+  const dropLive = (restore: boolean) => {
+    const l = live.current
+    live.current = null
+    setHeard(false)
+    if (!l) return
+    l.run.cancel()
+    if (!restore || !l.run.heard) return
+    const cur = opts.current.text
+    const before = l.before
+    if (cur === before) return
+    let p = 0
+    while (p < cur.length && p < before.length && cur[p] === before[p]) p++
+    opts.current.replace(before, { from: p, removed: cur.length - p, inserted: before.length - p })
+  }
+
+  /** one piece to the server, its answer as the piece session reads it (a refusal's reason decides a second try) */
+  const sendPiece = async (wav: Uint8Array, signal: AbortSignal): Promise<PieceAnswer> => {
+    const chatId = opts.current.chatId
+    try {
+      const r = await api.call(API.transcribePiece, { body: { fields: chatId ? { chatId } : {}, file: new Blob([new Uint8Array(wav)], { type: 'audio/wav' }), filename: 'piece.wav' }, signal })
+      return { ok: true, lines: r.lines }
+    } catch (e) {
+      if (!(e instanceof ApiError) || signal.aborted) throw e
+      const reason = e.body.params?.reason
+      const { t, locale } = words.current
+      return { ok: false, status: e.status, ...(typeof reason === 'string' ? { reason } : {}), ...(e.body.retryAfter ? { retryAfterSec: e.body.retryAfter } : {}), message: errorText(e, locale, t('error.network')) }
+    }
+  }
+
   const [voice] = useState(
     () =>
       new VoiceInput({
-        start: () => rec.current.start(),
+        start: () => {
+          dropLive(false)
+          const st = useSession.getState().status
+          // a team whose voice input goes to OpenRouter: the words show while recording
+          if (st.kind !== 'signed-in' || st.me.team?.voiceInputOutside !== true) return rec.current.start()
+          const l = {
+            before: opts.current.text,
+            run: new LiveDictation({
+              send: sendPiece,
+              onWords: (said) => {
+                if (live.current !== l) return
+                opts.current.append(said)
+                setHeard(true)
+              },
+              // free hours used up, a confidential chat, voice input turned off: the recording ends with the sentence
+              onRefused: () => {
+                if (live.current === l) void self.current?.finish()
+              },
+            }),
+          }
+          live.current = l
+          return rec.current.start({ onSamples: (samples) => l.run.push(samples) }).catch((e) => {
+            if (live.current === l) dropLive(false)
+            throw e
+          })
+        },
         stop: () => rec.current.stop(),
-        cancel: () => rec.current.cancel(),
+        cancel: () => {
+          rec.current.cancel()
+          dropLive(true)
+        },
+        settle: (signal) => {
+          const l = live.current
+          if (!l) return null
+          return new Promise<boolean>((resolve, reject) => {
+            const abort = () => {
+              if (live.current === l) dropLive(true)
+              reject(signal.reason ?? new Error('aborted'))
+            }
+            if (signal.aborted) return abort()
+            signal.addEventListener('abort', abort, { once: true })
+            l.run.finish().then(({ heard, refusal }) => {
+              signal.removeEventListener('abort', abort)
+              if (live.current === l) {
+                live.current = null
+                setHeard(false)
+              }
+              if (refusal) reject(new Error(refusal))
+              else resolve(heard)
+            }, reject)
+          })
+        },
         transcribe: async (file, signal) => {
           const { t } = words.current
           // a server that decodes with macOS's own programs gets WAV (they do not open the webm browsers record)
@@ -286,6 +374,7 @@ export function useVoiceInput(o: VoiceInputOptions) {
       window.removeEventListener('blur', away)
       document.removeEventListener('visibilitychange', hidden)
       voice.dispose()
+      dropLive(false)
       pressDone.current?.()
       if (owner === voice) setOwner(null)
     }
@@ -346,6 +435,8 @@ export function useVoiceInput(o: VoiceInputOptions) {
     transcribing: phase === 'transcribing',
     /** recording or its words on their way: the box is read-only, nothing is sent */
     busy: voice.busy,
+    /** a live recording put words into the box: the host shows the box's text above the bar while recording */
+    heard: heard && phase === 'recording',
     level: recorder.level,
     seconds: recorder.seconds,
     /** seconds left before the cap, in its last WARN_MS */

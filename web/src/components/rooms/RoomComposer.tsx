@@ -61,7 +61,7 @@ import { Tooltip } from '../Tooltip'
 import { ChipRemove, FAILED_REASON, isLocalImage, PictureTile } from '../ChipThumb'
 import { ImageGroup } from '../ImageViewer'
 import { localItem, roomItem } from '../../lib/imageViewer'
-import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
+import { VoiceBar, VoiceHeld, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { MENTION_ALL_WORDS, pickedInMessage, useEveryone, useMentionMenu } from './useMentionMenu'
 import { useTextSize } from '../../lib/textSize'
 import { usePanelExpanded } from '../../lib/sidePanel'
@@ -174,7 +174,10 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     replace: mention.inputProps.onTextChange,
     append: (said) => {
       const cur = latest.current
-      setText(cur.trim() ? `${cur.trimEnd()} ${said}` : said)
+      const next = cur.trim() ? `${cur.trimEnd()} ${said}` : said
+      // a live recording's next words may come before the box renders again
+      latest.current = next
+      setText(next)
     },
     blocked: voiceBlockedInRoom(me),
     enabled: mic === 'on',
@@ -663,15 +666,17 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
         )}
         {voice.recording ? (
           phone ? (
-            // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where the clip and send were: nothing moves
-            <VoiceBar voice={voice} className="box-content min-h-composer-line py-1.5 pr-3 pl-2" />
+            // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where the clip and send were: nothing moves;
+            // once a live recording put words in, the box's text shows above it
+            <>
+              {voice.heard && <VoiceHeld text={text} className="max-h-32 px-4 pt-2.5 text-ink" testId="room-text-held" />}
+              <VoiceBar voice={voice} className="box-content min-h-composer-line py-1.5 pr-3 pl-2" />
+            </>
           ) : (
             // a computer's box keeps its height: the text as it was on top (it cannot be typed in while recording), the
             // bar in the row's place (as tall as ComposerToolbar), ✕ and ✓ where the clip and send were
             <>
-              <p aria-hidden className={clsx('max-h-[200px] overflow-hidden px-4.5 pt-3 pb-1 text-reading leading-reading break-words whitespace-pre-wrap', text ? 'text-ink' : 'text-faint')} data-testid="room-text-held">
-                {text || placeholder}
-              </p>
+              <VoiceHeld text={text || placeholder} className={clsx('max-h-[200px] px-4.5 pt-3 pb-1', text ? 'text-ink' : 'text-faint')} testId="room-text-held" />
               <VoiceBar voice={voice} className="box-content min-h-9 px-3 pt-1 pb-2.5" />
             </>
           )
