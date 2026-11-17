@@ -4,7 +4,9 @@
 import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
+import { MEETINGS_LABEL, PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
+import { FOLDER_SHARES_OPEN } from '../../server/src/files/folder-share-gate'
 import { APP_MAP_KEYS, APP_MAP_PLACES, appLabel, appMapSection, appMapView, type AppMapInput } from '../../server/src/chat/app-map'
 import { APP_MAP_LABELS } from '../../server/src/chat/app-map-labels'
 import { SHARED_PROMPT_SECTIONS } from '../../server/src/chat/prompt'
@@ -179,15 +181,73 @@ describe('the places people asked about (scenario catalog 2026-11-17)', () => {
   })
 })
 
+describe('five places with no line before (catalog rerun 2026-11-17: ACC-04/05/06, CHT-13/14/16, SHR-03, FSH-03, MTG-01/02)', () => {
+  const LOCALES = ['ko', 'en', 'ja', 'zh', 'es', 'id'] as const
+  const aiNameIn = (L: (typeof LOCALES)[number]) => PRODUCT_NAMED_AFTER_AI ? DICTS[L]['rooms.aiName'] : PRODUCT.shortName
+  test('every form, every language: each place by the label the app shows', () => {
+    for (const view of ['staff', 'member', 'shared'] as const) for (const L of LOCALES) {
+      const s = appMapSection({ ...base, view }, L)
+      const d = DICTS[L] as Record<string, string>
+      const want = [
+        `${d['sidebar.files']} › ${d['filesPanel.shared']}`, // Files › Shared with me
+        d['rooms.replyInThread'], d['chat.thread.sendToAi']!.replace('{name}', aiNameIn(L)), // threads under an answer
+        d['openApp.lineLink'], d['openApp.download'], // the desktop app hand-off
+        d['meeting.entry'], d['meeting.stop'], MEETINGS_LABEL[L], // meeting notes
+        d['folderAccess.menu'], d['fileShare.stop'], d['common.undo'], // folder sharing
+      ]
+      for (const w of want) expect({ view, L, w, there: s.includes(w) }).toEqual({ view, L, w, there: true })
+    }
+  })
+  test('what each one does, as the decisions say', () => {
+    const s = appMapSection({ ...base, view: 'member' }, 'en')
+    // chat-answer-threads: shared chats only, people's words the AI does not read, Send to fills the box
+    expect(s).toMatch(/shared chat/i)
+    expect(s).toContain('the AI does not read')
+    expect(s).toContain('not in a private chat')
+    // app sign-in: a Mac or Windows browser, no second password, not from a phone
+    expect(s).toContain('Mac or Windows browser')
+    expect(s).toContain('no password')
+    // meeting notes: the Mac desktop app, no bot, the sound is not kept, the AI cannot listen or start it
+    expect(s).toContain('Mac desktop app')
+    expect(s).toContain('sound not kept')
+    expect(s).toContain('you cannot listen or start it')
+    // folder sharing: view only, later files too, Undo right after (Files' toast; the server keeps it 10 minutes), team
+    // folders are the owner's or an admin's
+    expect(s).toContain('view only, later files too')
+    expect(s).toContain(`${DICTS.en['common.undo']} right after`)
+    expect(s).toContain('Team folders: owners and admins share')
+  })
+  test('the places are where the map says', () => {
+    const has = (file: string, key: string) => expect({ file, key, there: read(file).includes(`'${key}'`) }).toEqual({ file, key, there: true })
+    has('web/src/components/panels/FilesPanel.tsx', 'filesPanel.shared')
+    has('web/src/components/chat/Messages.tsx', 'rooms.replyInThread')
+    has('web/src/components/chat/ChatThreadPanel.tsx', 'chat.thread.sendToAi')
+    has('web/src/components/onboarding/OpenAppLine.tsx', 'openApp.lineLink')
+    has('web/src/pages/OpenApp.tsx', 'openApp.download')
+    has('web/src/components/MeetingNotes.tsx', 'meeting.entry')
+    has('web/src/components/MeetingNotes.tsx', 'meeting.stop')
+    has('web/src/pages/Files.tsx', 'folderAccess.menu')
+    has('web/src/components/FolderShareParts.tsx', 'fileShare.stop')
+    has('web/src/components/FolderShareParts.tsx', 'common.undo')
+    // the map says a folder can be shared: the gate is open on this build (files/folder-share-gate.ts)
+    expect(FOLDER_SHARES_OPEN).toBe(true)
+    // "Open the app" and "Take meeting notes" are both on My files (Files.tsx)
+    expect(read('web/src/pages/Files.tsx')).toContain('<OpenAppLine')
+    expect(read('web/src/pages/Files.tsx')).toContain('<MeetingNotesEntry')
+  })
+})
+
 describe('size: it is in every turn', () => {
   // a rough count calibrated on the engine's own usage (claude -p, 2026-11-16): Hangul about 1.45 tokens a syllable,
   // other text about 3.6 characters a token
   const tokens = (s: string) => { const h = (s.match(/[가-힣]/g) ?? []).length; return Math.round(h * 1.45 + (s.length - h) / 3.6) }
-  test('at most 20 lines and about 900 tokens in its longest form', () => {
+  // the cap was 900; 1,150 since the five places of 2026-11-17 (docs/decisions/20261117-ai-app-map-five-places.md: they
+  // measured about 255 more after the other lines were cut: the longest form, a shared chat in Korean, about 1,148)
+  test('at most 20 lines and about 1,150 tokens in its longest form', () => {
     for (const view of ['staff', 'member', 'shared'] as const) for (const L of ['ko', 'en', 'ja'] as const) for (const devEnv of [true, false]) {
       const s = appMapSection({ view, managed: true, devEnv, office: false }, L)
       expect({ view, L, devEnv, lines: s.split('\n').length <= 20 }).toEqual({ view, L, devEnv, lines: true })
-      expect({ view, L, devEnv, small: tokens(s) <= 900 }).toEqual({ view, L, devEnv, small: true })
+      expect({ view, L, devEnv, small: tokens(s) <= 1150 }).toEqual({ view, L, devEnv, small: true })
     }
   })
 })
