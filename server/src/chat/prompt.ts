@@ -668,10 +668,10 @@ export function skillsSection(files: FileService, user: Principal, list?: SkillL
   const projectShown = projectRoot && (!roomReadable || roomReadable(projectRoot.root)) ? projectRoot : null
   const canWrite = top.length > 0
   if (!l.total && !canWrite && !groupRoots.length && !projectShown) return ''
-  const lines = ['## Team skills', 'Reusable workflows saved by the team (skills/), the user\'s groups and the user. Each line below is a skill\'s name, the title people see (in quotes: call the skill that to the user), and what it is for.']
+  const lines = ['## Team skills', 'Reusable workflows of the team (skills/), the user\'s groups and the user. Each line: name, title in quotes (call the skill that to the user), what it is for.']
   if (l.total) {
     lines.push(
-      'When a request clearly matches a skill, load it with the skill tool (its name as written below), follow its steps, and say which skill you used. The line here is only its summary.',
+      'When a request clearly matches a skill, load it with the skill tool (its name as written below), follow its steps, and say which skill you used. Load a skill before you follow it: the line here is only its summary.',
       'When the user starts a message with "/<skill name>", the server puts that skill in a <team_skill> block in front of the message instead: follow its steps for this request.',
     )
     if (l.cut) {

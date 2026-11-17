@@ -32,15 +32,23 @@
   - A read-only team skill (skills/…) gets its own next step: only the people who manage team skills change it; in the
     person's own chat the "Suggest as skill" button (in their language) sends the change for review; on request a
     personal copy; "Do not paste the whole changed text for them to copy by hand." Other folders keep their note.
-    The same next step follows a team skill the person may not change when the skill tool loads it: in the first
-    real-AI run after the fix, one answer loaded the skill, never tried the edit, and pasted the whole file.
+    A shorter form of it (about 40 words) follows a team skill the person may not change when the skill tool loads it:
+    in the first real-AI run after the fix, one answer loaded the skill, never tried the edit, and pasted the whole file.
+    The button is named only where the answer has it (`answerHasButtons`): a person's own chat in the app, not a shared
+    chat, a ✦ side chat (its panel shows no Suggest button), a scheduled run, Slack or a restricted turn. The "save in
+    my folder" button of the other read-only notes follows the same check.
   - After `not found or no access` on projects/ or projects/<name>/… that the person cannot read, the file tools add:
     the person is not a member of a project called "<name>", the same answer whether or not one exists (so nothing
-    about the path is revealed), and the person who made it or an admin can add them. projects/ itself refused: they are
-    in no project. Not for guests, and not for a missing file inside a project they are in.
+    about the path is revealed), and the person who made it or an admin can add them. projects/ itself refused (they
+    cannot list it): they are in no project. Not for guests, and not for a missing file inside a project they are in.
+    The check runs on the folder's real name, as authorize resolves it: on a case-insensitive disk (an office Mac) a
+    member who typed projects/atlas for projects/Atlas is not told they are no member.
   - In a shared project chat, when the asker may not change its members, "changing the project's members" leaves the
-    "not available here, continue privately" list, and one line says who does: the creator by name while their account
-    is active (everyone in that chat is a member, and the members dialog names the creator to them too), or an admin.
+    "not available here, continue privately" list, and one line says who does, exactly as the project's page says it
+    (`membersView`): the asker may change them only when the page lets them (membersEditable; a creator of an older
+    project on an admin's folder may not, so is told "an admin" instead of being sent to a private chat that refuses
+    them); the creator is named only when the page names them too (creatorChangesMembers: account active, still writes
+    the folder, the folder theirs to change), else "an admin".
   - The plain-words rule names "the server" among the words not to use.
 - **Not product bugs (runner or judge):**
   - ADM-05.member ("already Seoul"): the time line of every turn gives the team time zone from the team settings
@@ -51,10 +59,11 @@
     setting, and admins cannot turn it on in the app. The case's member expectation ("no invented status") contradicts
     its base expectation ("this install does not have it"). If the wording should say who can add it, that is the app
     map's line (`chat/app-map.ts`, owned elsewhere).
-- **Prompt size:** personal chats: skills section +6 and −7 words, plain-words rule +1: 0 in all. Shared project chats:
+- **Prompt size:** personal chats: skills section −3 words (the header is shorter, "Load a skill before you follow it"
+  stays), plain-words rule +1: −2 in all. Shared project chats:
   the repeated "Everyone who sees this chat would see what they bring in or change." goes (−13; the next sentence gives
   the same reason), so a member who may change members has 13 fewer words; one who may not gets the who-changes line
-  (+15) instead of four list words: +2. Titles add the skill's own title to its line (data, inside the list's 8,000
+  (+15) instead of four list words: +2 (0 with the skills section). Titles add the skill's own title to its line (data, inside the list's 8,000
   character budget).
 - Tests: `tests/unit/ai-wording-jargon.test.ts` (each tool text and instruction line above).
 - Version impact: patch (no API, no migration).

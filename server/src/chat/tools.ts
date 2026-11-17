@@ -25,6 +25,8 @@ import { frequentSkills, matchSkills, resolveSkill, shortDescription, skillTag, 
 import { addSources, sourceOf, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
 import { atLeast, isStaff, type Principal } from '../policy/access'
+import { walk } from '../policy/resolve'
+import { sideRoomOf } from './side-room'
 import { tr } from './i18n'
 import { optionWords, threadOptionWords } from './share-words'
 import { threadLook } from './thread-look'
@@ -511,12 +513,12 @@ function mergeAllows(exec: TurnExec, name: string, args: unknown): boolean {
  * text that happens to say so). A project's creator is mentioned only when the person may read that project folder, and
  * named only where everyone who sees the answer may: in a shared chat the answer reaches all of them, so only when every
  * one of them may read that folder (roomReadable; none known: never), else "the project's creator". */
-export function readOnlyFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spec' | 'shared' | 'roomReadable'>, text: string): string | null {
+export function readOnlyFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spec' | 'shared' | 'roomReadable'> & { restricted?: boolean }, text: string): string | null {
   if (!text.startsWith('Access denied: read-only')) return null
   const rules = exec.rt.files.rules(), me = exec.livePrincipal()
   const group = !!exec.shared
   return readOnlyNote(exec.rt.db, text, exec.spec.locale, {
-    userId: exec.spec.userId, sees: (segs) => atLeast(rules.access(me, segs), 'read'), button: !group,
+    userId: exec.spec.userId, sees: (segs) => atLeast(rules.access(me, segs), 'read'), button: answerHasButtons(exec),
     nameable: (segs) => !group || !!exec.roomReadable?.(segs.join('/')),
   })
 }
@@ -525,8 +527,21 @@ export function readOnlyFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spec'
  * project there (policy/refusal.ts projectNotFoundNote; scenario PRJ-01.outsider). */
 export function notMemberFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal'>, text: string): string | null {
   if (!text.startsWith('Access denied: not found or no access')) return null
-  const rules = exec.rt.files.rules(), me = exec.livePrincipal()
-  return projectNotFoundNote(text, (segs) => atLeast(rules.access(me, segs), 'read'))
+  const rules = exec.rt.files.rules(), me = exec.livePrincipal(), fx = exec.rt.files.fx
+  // the rules compare real folder names, and authorize finds a folder ignoring case on a case-insensitive disk (an
+  // office Mac) but names the path as typed: decide on the real name, as authorize did
+  const real = (segs: string[]) => { const w = walk(fx.root, segs, fx.caseInsensitive); return [...w.actual, ...w.missing] }
+  return projectNotFoundNote(text, { sees: (segs) => atLeast(rules.access(me, real(segs)), 'read'), lists: () => rules.canList(me, real(['projects'])) })
+}
+
+/** Does the answer get the buttons under it ("save in my folder", "Suggest as skill")? Only in a person's own chat in
+ * the app (web Chat.tsx canSuggest={!shared}): not a shared chat, a ✦ side chat (SideChatPanel canSuggest={false}), a
+ * scheduled run, Slack or a restricted turn (a draft or a judge). */
+export function answerHasButtons(exec: Pick<TurnExec, 'rt' | 'spec' | 'shared'> & { restricted?: boolean }): boolean {
+  if (exec.shared || exec.restricted) return false
+  const kind = exec.spec.clientKind
+  if (kind && !LIVE_CLIENTS.has(kind)) return false
+  try { return !sideRoomOf(exec.rt.db, exec.spec.chatId, exec.spec.userId) } catch { return true }
 }
 
 /** The audit line's words for a room card's refusal and a shared chat's read refusal: what happened (a scheduled run
@@ -708,7 +723,7 @@ function skillTools(exec: TurnExec): Tool[] {
         try { recordSkillUse(rt.db, { turnId: spec.turnId, userId: spec.userId, skill, source: 'tool' }) } catch { rt.log.warn('skill usage recording failed', { turn: spec.turnId }) }
         // a team skill the person may not change: what to offer if they ask to change it (scenario SKL-02.member: the AI
         // loaded it, never tried the edit, and pasted the whole changed skill for the person to copy)
-        const ro = readOnlySkillLine(skill.path, !atLeast(rt.files.rules().access(user, skill.path.split('/')), 'write'), spec.locale, !exec.shared)
+        const ro = readOnlySkillLine(skill.path, !atLeast(rt.files.rules().access(user, skill.path.split('/')), 'write'), spec.locale, answerHasButtons(exec))
         return { ...text(skillBlock(skill, '', 'loaded') + (ro ? `\n${ro}` : '')), summary: `skill -> ${isPersonalSkill(skill.path) ? 'a personal skill' : skill.path}` }
       },
     },

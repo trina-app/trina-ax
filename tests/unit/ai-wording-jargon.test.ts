@@ -11,7 +11,10 @@ import { buildSkillList, matchSkills, resolveSkill, skillChanges, skillChangesTe
 import { plainWordsRule, sharedSection, skillBlock, skillHintsBlock } from '../../server/src/chat/prompt'
 import { projectNotFoundNote, readOnlyNote, readOnlySkillLine } from '../../server/src/policy/refusal'
 import { projectMembersBy } from '../../server/src/chat/projects'
-import { notMemberFor } from '../../server/src/chat/tools'
+import { answerHasButtons, notMemberFor } from '../../server/src/chat/tools'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 
 const sk = (p: string, name: string, description: string, title?: string): Skill => ({ path: p, name, description, body: 'steps', ...(title ? { title } : {}) })
 const QUOTE = sk('skills/quote-writer/SKILL.md', 'quote-writer', '거래처 견적서를 만들고 회사 직인을 찍는다.', '견적서 작성')
@@ -81,10 +84,8 @@ describe('a read-only team skill (SKL-02.member)', () => {
   })
 
   test('a loaded team skill the person cannot change says so up front, the same next step', () => {
-    const line = readOnlySkillLine('skills/weekly-report/SKILL.md', true, 'en', true)!
-    expect(line.startsWith('This user cannot change this team skill. If they ask to change it, tell the user in a sentence that only the people who manage team skills change a team skill;')).toBe(true)
-    expect(line).toContain('"Suggest as skill" button under your answer')
-    expect(line).toContain('Do not paste the whole changed text for them to copy by hand.')
+    expect(readOnlySkillLine('skills/weekly-report/SKILL.md', true, 'ko', true)).toBe('This user cannot change this team skill; only the people who manage team skills can. If asked to change it, offer the "스킬로 제안" button under your answer (sends the change for review) or a personal copy that replaces it for them only; never paste the whole changed text.')
+    expect(readOnlySkillLine('skills/weekly-report/SKILL.md', true, 'en', false)).toBe('This user cannot change this team skill; only the people who manage team skills can. If asked to change it, offer a personal copy that replaces it for them only; never paste the whole changed text.')
     expect(readOnlySkillLine('skills/weekly-report/SKILL.md', false, 'en', true)).toBeNull()
     expect(readOnlySkillLine('users/d/skills/x/SKILL.md', true, 'en', true)).toBeNull()
   })
@@ -94,31 +95,61 @@ describe('a read-only team skill (SKL-02.member)', () => {
   })
 })
 
+describe('the buttons under an answer (Suggest as skill, save in my folder)', () => {
+  const db = new Database(':memory:')
+  db.run('CREATE TABLE rooms (id TEXT, kind TEXT, name TEXT, group_id TEXT, archived_at TEXT)')
+  db.run('CREATE TABLE chats (id TEXT, user_id TEXT, side_room_id TEXT)')
+  db.run('CREATE TABLE room_members (room_id TEXT, user_id TEXT)')
+  db.run("INSERT INTO rooms VALUES ('r', 'group', 'Sales', NULL, NULL)")
+  db.run("INSERT INTO chats VALUES ('own', 'u', NULL), ('side', 'u', 'r')")
+  db.run("INSERT INTO room_members VALUES ('r', 'u')")
+  const e = (o: { chatId?: string; clientKind?: string; shared?: boolean; restricted?: boolean }) => ({ rt: { db }, spec: { chatId: o.chatId ?? 'own', userId: 'u', clientKind: o.clientKind ?? 'web' }, shared: o.shared ? {} : null, restricted: !!o.restricted }) as unknown as Parameters<typeof answerHasButtons>[0]
+  test('only a person\'s own chat in the app', () => {
+    expect(answerHasButtons(e({}))).toBe(true)
+    expect(answerHasButtons(e({ clientKind: 'mobile' }))).toBe(true)
+    expect(answerHasButtons(e({ chatId: 'side' }))).toBe(false)
+    expect(answerHasButtons(e({ shared: true }))).toBe(false)
+    expect(answerHasButtons(e({ clientKind: 'schedule' }))).toBe(false)
+    expect(answerHasButtons(e({ clientKind: 'slack' }))).toBe(false)
+    expect(answerHasButtons(e({ restricted: true }))).toBe(false)
+  })
+})
+
 describe('a project the person is not in (PRJ-01.outsider)', () => {
   const none = () => false
   test('projects/<name> they cannot read: not a member of a project there, the same text whether it exists or not', () => {
-    const a = projectNotFoundNote("Access denied: not found or no access: 'projects/라마바카페-납품'", none)!
-    const b = projectNotFoundNote("Access denied: not found or no access: 'projects/없는-프로젝트'", none)!
+    const a = projectNotFoundNote("Access denied: not found or no access: 'projects/라마바카페-납품'", { sees: none, lists: none })!
+    const b = projectNotFoundNote("Access denied: not found or no access: 'projects/없는-프로젝트'", { sees: none, lists: none })!
     expect(a).toBe('Only a project\'s members see it: the user is not a member of a project called "라마바카페-납품" (the same answer whether or not one exists, so do not say whether it does). Next step: say so plainly; if they should be in it, the person who made that project or an admin can add them.')
     expect(b.replace('없는-프로젝트', 'X')).toBe(a.replace('라마바카페-납품', 'X'))
-    expect(projectNotFoundNote("Access denied: not found or no access: 'projects/라마바카페-납품/견적서.pdf'", none)).toBe(a)
+    expect(projectNotFoundNote("Access denied: not found or no access: 'projects/라마바카페-납품/견적서.pdf'", { sees: none, lists: none })).toBe(a)
   })
 
-  test('projects/ itself: they are in no project', () => {
-    expect(projectNotFoundNote("Access denied: not found or no access: 'projects'", none)).toBe('The user is a member of no team project: only a project\'s members see it. Next step: say so plainly; if they should be in one, the person who made it or an admin can add them.')
+  test('projects/ itself only when they cannot list it (in no project)', () => {
+    expect(projectNotFoundNote("Access denied: not found or no access: 'projects'", { sees: none, lists: () => true })).toBeNull()
+    expect(projectNotFoundNote("Access denied: not found or no access: 'projects'", { sees: none, lists: none })).toBe('The user is a member of no team project: only a project\'s members see it. Next step: say so plainly; if they should be in one, the person who made it or an admin can add them.')
   })
 
-  test('the file tools add it after their own refusal, by the person\'s rules', () => {
-    const exec = (level: string) => ({ rt: { files: { rules: () => ({ access: () => level }) } }, livePrincipal: () => ({ id: 'j', role: 'member', groups: [] }) }) as unknown as Parameters<typeof notMemberFor>[0]
+  test('the file tools add it after their own refusal, by the person\'s rules on the real folder name', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nm-'))
+    fs.mkdirSync(path.join(root, 'projects', 'Atlas'), { recursive: true })
+    // a case-insensitive disk (an office Mac): projects/atlas is the folder projects/Atlas, which the member reads
+    const exec = (level: string, caseInsensitive = true) => ({
+      rt: { files: { fx: { root, caseInsensitive }, rules: () => ({ access: (_p: unknown, segs: string[]) => (segs[1] === 'Atlas' ? 'write' : level), canList: () => false }) } },
+      livePrincipal: () => ({ id: 'j', role: 'member', groups: [] }),
+    }) as unknown as Parameters<typeof notMemberFor>[0]
+    expect(notMemberFor(exec('none'), "Access denied: not found or no access: 'projects/atlas/missing.md'")).toBeNull()
+    expect(notMemberFor(exec('none', false), "Access denied: not found or no access: 'projects/atlas/missing.md'")).toContain('not a member of a project called "atlas"')
     expect(notMemberFor(exec('none'), "Access denied: not found or no access: 'projects/p'")).toContain('the user is not a member of a project called "p"')
     expect(notMemberFor(exec('write'), "Access denied: not found or no access: 'projects/p/x.md'")).toBeNull()
     expect(notMemberFor(exec('none'), "Error: the service said: Access denied: not found or no access: 'projects/p'")).toBeNull()
+    fs.rmSync(root, { recursive: true, force: true })
   })
 
   test('a missing file in a project they are in, any other folder, or another error: no note', () => {
-    expect(projectNotFoundNote("Access denied: not found or no access: 'projects/atlas/x.md'", () => true)).toBeNull()
-    expect(projectNotFoundNote("Access denied: not found or no access: 'shared/x.md'", none)).toBeNull()
-    expect(projectNotFoundNote("Access denied: read-only: you cannot change 'projects/atlas/x.md'", none)).toBeNull()
+    expect(projectNotFoundNote("Access denied: not found or no access: 'projects/atlas/x.md'", { sees: () => true, lists: () => true })).toBeNull()
+    expect(projectNotFoundNote("Access denied: not found or no access: 'shared/x.md'", { sees: none, lists: none })).toBeNull()
+    expect(projectNotFoundNote("Access denied: read-only: you cannot change 'projects/atlas/x.md'", { sees: none, lists: none })).toBeNull()
   })
 })
 
@@ -132,11 +163,12 @@ describe('a member asks to change who is in the project from its shared chat (PR
   })
   afterAll(() => db.close())
 
-  test('who changes the members: nobody to name when the person may; else the creator by name, or "who made it"', () => {
-    expect(projectMembersBy(db, { created_by: 'j' }, true)).toBeNull()
-    expect(projectMembersBy(db, { created_by: 'j' }, false)).toBe('김지우 (who made it) or an admin')
-    expect(projectMembersBy(db, { created_by: 'gone' }, false)).toBe('an admin')
-    expect(projectMembersBy(db, { created_by: null }, false)).toBe('an admin')
+  test('who changes the members, as the project page says it (membersView)', () => {
+    expect(projectMembersBy(db, { created_by: 'j' }, { membersEditable: true, creatorChangesMembers: true })).toBeNull()
+    expect(projectMembersBy(db, { created_by: 'j' }, { membersEditable: false, creatorChangesMembers: true })).toBe('김지우 (who made it) or an admin')
+    // a creator who left the project or lost the folder, or an older project on an admin's folder: not named
+    expect(projectMembersBy(db, { created_by: 'j' }, { membersEditable: false, creatorChangesMembers: false })).toBe('an admin')
+    expect(projectMembersBy(db, { created_by: null }, {})).toBe('an admin')
   })
 
   test('the shared project chat says who, and no longer sends them to a private chat for it', () => {
@@ -147,6 +179,14 @@ describe('a member asks to change who is in the project from its shared chat (PR
     const may = sharedSection({ project: '라마바카페 납품', audience: 4, asker: '김지우' }, 'ko')
     expect(may).toContain("changing the project's members")
     expect(may).not.toContain("changes this project's members")
+  })
+})
+
+describe('the skills section keeps "load before you follow" and its size (review)', () => {
+  test('the guard is there and the title line is short', () => {
+    const src = fs.readFileSync(path.join(import.meta.dir, '../../server/src/chat/prompt.ts'), 'utf8')
+    expect(src).toContain('Load a skill before you follow it: the line here is only its summary.')
+    expect(src).toContain("Each line: name, title in quotes (call the skill that to the user), what it is for.")
   })
 })
 

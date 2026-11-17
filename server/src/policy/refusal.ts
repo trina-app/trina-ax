@@ -256,24 +256,25 @@ function teamSkillNext(L: Locale, button: boolean): string {
  * they ask to change it, so the AI need not try the edit first to learn it; null otherwise. */
 export function readOnlySkillLine(rel: string, readOnly: boolean, L: Locale, button: boolean): string | null {
   if (!readOnly || rel.split('/')[0]!.normalize('NFC').toLowerCase() !== 'skills') return null
-  return `This user cannot change this team skill. If they ask to change it, ${teamSkillNext(L, button).replace(/^Next step: t/, 't')}`
+  const suggest = button ? `the "${LABEL.suggest[L]}" button under your answer (sends the change for review) or ` : ''
+  return `This user cannot change this team skill; only the people who manage team skills can. If asked to change it, offer ${suggest}a personal copy that replaces it for them only; never paste the whole changed text.`
 }
 
 /**
  * After "not found or no access" on a team project's path that the person cannot read (`sees`: the project folder,
- * projects/<name>, by the rules): they are not a member of a project there. That is true whether or not the project
+ * projects/<name>, by the rules, on its real name as authorize resolves it; `lists`: may they list projects/): they are not a member of a project there. That is true whether or not the project
  * exists, so the text is the same for both and still says nothing about the path (policy/authorize.ts keeps one answer
  * for both; notFoundNext). projects/ itself refused means they read no project at all. Null for any other text, path or
  * a project they read (a missing file in it). Scenario PRJ-01.outsider: the AI could not tell a person who is not in
  * the project why it found nothing.
  */
-export function projectNotFoundNote(text: string, sees: (segs: string[]) => boolean): string | null {
+export function projectNotFoundNote(text: string, o: { sees: (segs: string[]) => boolean; lists: () => boolean }): string | null {
   const m = /Access denied: not found or no access: '([^']*)'/.exec(text)
   if (!m || text.includes("Only a project's members see it")) return null
   const segs = m[1]!.split('/').filter(Boolean)
   if (segs[0]?.normalize('NFC').toLowerCase() !== 'projects') return null
-  if (segs.length === 1) return "The user is a member of no team project: only a project's members see it. Next step: say so plainly; if they should be in one, the person who made it or an admin can add them."
-  if (sees(segs.slice(0, 2))) return null
+  if (segs.length === 1) return o.lists() ? null : "The user is a member of no team project: only a project's members see it. Next step: say so plainly; if they should be in one, the person who made it or an admin can add them."
+  if (o.sees(segs.slice(0, 2))) return null
   return `Only a project's members see it: the user is not a member of a project called "${oneLine(segs[1]!).replace(/"/g, "'")}" (the same answer whether or not one exists, so do not say whether it does). Next step: say so plainly; if they should be in it, the person who made that project or an admin can add them.`
 }
 
