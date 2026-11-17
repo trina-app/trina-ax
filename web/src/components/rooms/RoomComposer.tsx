@@ -58,7 +58,7 @@ import { toast } from '../../store/ui'
 import { TokenTextarea } from '../TokenTextarea'
 import { Button, IconButton, useMediaQuery } from '../ui'
 import { Tooltip } from '../Tooltip'
-import { ChipRemove, FAILED_REASON, isLocalImage, PictureTile } from '../ChipThumb'
+import { ChipRemove, chipText, FAILED_REASON, isLocalImage, PictureTile } from '../ChipThumb'
 import { ImageGroup } from '../ImageViewer'
 import { localItem, roomItem } from '../../lib/imageViewer'
 import { VoiceBar, VoiceHeld, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
@@ -623,8 +623,9 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
           // pictures are one pane of the image viewer (← →)
           <ImageGroup>
           <ul
-            // a phone: one sideways row (six files and the keyboard would push the text field out of sight)
-            className="scroll-thin flex flex-wrap items-center gap-2 px-3 pt-2 max-md:flex-nowrap max-md:overflow-x-auto max-md:pb-1 max-md:*:shrink-0" aria-label={t('composer.attachments')} data-testid="room-file-chips">
+            // a phone: one sideways row (six files and the keyboard would push the text field out of sight).
+            // @container: a failed chip follows this box's width (ChipThumb.tsx chipText)
+            className="@container scroll-thin flex flex-wrap items-center gap-2 px-3 pt-2 max-md:flex-nowrap max-md:overflow-x-auto max-md:pb-1 max-md:*:shrink-0" aria-label={t('composer.attachments')} data-testid="room-file-chips">
             {files.map((f) =>
               picture(f) ? (
                 // a picture as itself, at once: from this computer, or a photo of a send the server gave back (its room
@@ -657,17 +658,20 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
               ) : (
                 <li key={f.key} className={clsx('inline-flex max-w-full items-center gap-2 rounded-xl border py-1.5 pr-2 pl-2.5 text-xs', f.status === 'failed' ? 'border-danger/40 bg-danger-soft' : 'border-line bg-subtle')} data-testid="room-file-chip" data-status={f.status} data-team={f.teamPath ? '' : undefined}>
                   {f.status === 'uploading' ? <Loader2 size={14} className="animate-spin text-faint" aria-hidden /> : f.teamPath ? <FolderOpen size={14} className="text-accent-text" aria-hidden /> : <FileText size={14} className="text-muted" aria-hidden />}
-                  <span className="max-w-[180px] truncate font-medium">{f.file.name}</span>
-                  {f.status === 'failed' ? (
-                    <span className={FAILED_REASON}>
-                      <span role="status">{failedText(f)}</span>
-                      <RefusalLinks full={!!f.full && staff} plans={f.plans} mine={!!f.full && !staff} />
-                    </span>
-                  ) : (
-                    <span role="status" className="text-faint">
-                      {f.status === 'uploading' ? (says(f) ? <span className="tabular-nums" data-testid="room-file-progress"><UploadLabel progress={f.progress} busy={t('rooms.uploading', { name: f.file.name })} /></span> : <span className="sr-only">{t('rooms.uploading', { name: f.file.name })}</span>) : formatSize(f.file.size, locale)}
-                    </span>
-                  )}
+                  {/* the name and what the chip says: a failed one's reason under the name in a narrow box (chipText) */}
+                  <span className={chipText(f.status === 'failed')}>
+                    <span className="max-w-[180px] truncate font-medium" data-testid="room-file-name">{f.file.name}</span>
+                    {f.status === 'failed' ? (
+                      <span className={FAILED_REASON}>
+                        <span role="status">{failedText(f)}</span>
+                        <RefusalLinks full={!!f.full && staff} plans={f.plans} mine={!!f.full && !staff} />
+                      </span>
+                    ) : (
+                      <span role="status" className="text-faint">
+                        {f.status === 'uploading' ? (says(f) ? <span className="tabular-nums" data-testid="room-file-progress"><UploadLabel progress={f.progress} busy={t('rooms.uploading', { name: f.file.name })} /></span> : <span className="sr-only">{t('rooms.uploading', { name: f.file.name })}</span>) : formatSize(f.file.size, locale)}
+                      </span>
+                    )}
+                  </span>
                   <ChipRemove label={t('rooms.removeFile', { name: f.file.name })} onClick={() => removeFile(f)} />
                 </li>
               ),
