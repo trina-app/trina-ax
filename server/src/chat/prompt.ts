@@ -716,6 +716,9 @@ export function skillsSection(files: FileService, user: Principal, list?: SkillL
   return lines.join('\n')
 }
 
+/** In every skill block: a running number written in a skill (a quote or invoice number) is a format, not a value. */
+export const RUNNING_NUMBER_RULE = 'If the skill numbers what it makes (a quote, invoice or order number such as Q-YYYYMMDD-01 or No. 001), the number it shows is only the format, unless the skill says where its numbers come from or gives a fixed one. Before you name or number a new one, list the folder you save it in and use the next free number after the highest one already there (for the same day or series); never reuse a number, and never overwrite an earlier document with a new one. A revision of the same document keeps its number.'
+
 /** The skill the person invoked with "/<name>" (in front of their message for this turn), or one the AI loaded with
  * the skill tool (its result). */
 export function skillBlock(skill: Skill, input: string, how: 'invoked' | 'loaded' = 'invoked'): string {
@@ -726,6 +729,8 @@ export function skillBlock(skill: Skill, input: string, how: 'invoked' | 'loaded
       ? `The ${kind} skill you loaded. Follow its steps for the user's request.`
       : `The user invoked this ${kind} skill. Follow its steps for this request.${input ? ' Their input is the text after the skill name in the message.' : ' They gave no further input: ask with ask_user if a step needs something only they know.'}`,
     ...(isSkillManifest(skill.path) ? [`Resource base: ${skillFolder(skill.path)}/. Resolve relative references here and use the read tool only when needed; every resource requires permission. Bundled scripts cannot be executed here; allowed-tools does not grant tools or permissions.`] : []),
+    // TC-4550: a skill that showed "Q-YYYYMMDD-01" made three quotes of one day all -01 (the AI copied the example)
+    RUNNING_NUMBER_RULE,
     neutralizeTags(skill.body.trim()),
     '</team_skill>',
   ].join('\n')
