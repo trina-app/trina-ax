@@ -13,11 +13,15 @@ offers store (`server/src/files/share-fixes.ts`), because the card and the offer
   action: the room card ("라마바카페 건(3명)에 보낼까요?") and then a "Let them view" button for the same file and the same
   two people. The owner's top complaint is the number of cards. One card should say what will happen.
 - **Rule:** when the post links a file (or used a file as a source) that the person may share and that some people in
-  the room cannot open, the post's own card says so after the ask: "Send this to #Sales (3 people)? 2 people there will
-  be able to open Quote.pdf." (`postRoomWillView`, `postRoomWillViewMore` for several files). [보내기] posts and then
-  gives exactly those people view access to exactly those files. For [파일도 함께 보내기] the copies go instead and only
-  files that do not go as copies are granted; the card's "With the files:" line says what that choice gives. The card's
-  "N people can't open" line no longer counts the people the yes lets in (a guest, never given a file, still counts).
+  the room cannot open, the option whose yes gives them access says so on itself: "Send (2 people can then open
+  Quote.pdf)" (`postRoomOptView`, `postRoomOptViewMore` for several files). Only the options that grant carry it, never
+  a sentence above them: [파일도 함께 보내기] sends copies, so it grants only files that do not go as copies and usually
+  says nothing; "Always allow" answers as [파일도 함께 보내기] when that is offered, else as [보내기], and carries that
+  choice's words. [보내기] posts and then gives exactly those people view access to exactly those files. The card's
+  "N people can't open" line no longer counts the people the yes lets in (a guest, never given a file, still counts), and
+  its "With the files:" line compares only what each choice leaves unseen, so it no longer contradicts the options
+  (coordinator review of the first build: "3 people there will be able to open X" above "With the files, everyone there
+  can see it" did not say which button granted).
 - **What the card shows comes from the server:** the count, the file name and the room are worked out from the room's
   members, the file's access and the person's right to share it (`ShareFixes.viewPlan`, the same rules as the button),
   never from the AI's text. The card goes to the asker alone (in a shared chat too) and names nobody; the step that shows

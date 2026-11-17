@@ -166,12 +166,13 @@ describe('the card, and the post', () => {
     const text = 'Plan: [launch-plan.md](/files/view?path=groups/marketing/launch-plan.md)'
     const r = await turn('alice', [fake({ tool: 'read', args: { file_path: 'groups/marketing/launch-plan.md' } }), post({ room: rooms.all, text })].join('\n'), { answer: 'send_files' })
     // bob may read neither (carol and dana are admins): one line each, and what attaching the file changes
-    // [보내기] would also let bob open the file (alice may share it): the same card says so, and the "can't open" line
-    // is gone for him (docs/decisions/20261117-post-to-room-one-card.md); with the files the copy goes instead
-    expect(r.card!.question).toBe("Send this to #Everyone (5 people)? 1 person there will be able to open launch-plan.md.\n\n1 person there can't see some of the sources of this (groups/marketing/).\nWith the files: 1 person there can't see some of the sources of this (groups/marketing/).\nEveryone in this conversation will see it, including people who join later.")
+    // [보내기] would also let bob open the file (alice may share it): that option says so itself, and the "can't open"
+    // line is gone for him (docs/decisions/20261117-post-to-room-one-card.md); with the files the copy goes instead, so
+    // the two choices read the same otherwise and there is no "With the files" line
+    expect(r.card!.question).toBe("Send this to #Everyone (5 people)?\n\n1 person there can't see some of the sources of this (groups/marketing/).\nEveryone in this conversation will see it, including people who join later.")
     // "Always allow" on a card that offers the linked files too, as "Always send with the files" (its own kind,
     // post_files: docs/decisions/20261116-always-allow-more-cards.md); four answers, no buttons
-    expect(r.card!.options!.map((x) => [x.label, x.value])).toEqual([['Send', 'send'], ['Send with the files', 'send_files'], ['Always send with the files', '__always'], ["Don't send", 'no']])
+    expect(r.card!.options!.map((x) => [x.label, x.value])).toEqual([['Send (1 person can then open launch-plan.md)', 'send'], ['Send with the files', 'send_files'], ['Always send with the files', '__always'], ["Don't send", 'no']])
     expect(r.card!.buttons).toBeUndefined()
     // the file that [파일도 함께 보내기] attaches, by its place in words and its name (chat/share-words.ts)
     // (the card says a linked team file by its place and name; the message keeps the link: QA TC-4059)

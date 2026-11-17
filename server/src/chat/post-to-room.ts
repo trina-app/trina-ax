@@ -9,8 +9,9 @@
 // of people, all of the text, and only when they apply the lines about people who cannot see some sources or cannot
 // open a linked file; [보내기], [파일도 함께 보내기] (only when files can go with it), [보내지 않기]. Nothing goes without
 // the person's press: a web page, a file or a room message telling the AI to post still meets the card. A file of the
-// person's that some people there cannot open is on the same card ("2 people there will be able to open Quote.pdf"):
-// its yes posts and then lets exactly them view it, one card for both (docs/decisions/20261117-post-to-room-one-card.md).
+// person's that some people there cannot open is on the same card, on the option that grants it ("Send (2 people can
+// then open Quote.pdf)"): its yes posts and then lets exactly them view it, one card for both
+// (docs/decisions/20261117-post-to-room-one-card.md).
 //
 // The checks are the button's (prepareShare / sendShare), with the running answer as the answer: chats.active_leaf_id
 // points to it, so the chat's read scope describes it, and its turn has not ended, so every place of the scope counts
@@ -50,7 +51,7 @@
 // (subagents.ts PARENT_ONLY_TOOLS). Reached anyway (the chat became confidential during the answer, a sub-agent's call)
 // it refuses with why and what to do, as it does for a room that is archived or not mine, a gone thread, content that
 // used earlier answers hidden from some member, a text too long for one message and the sending budget.
-import { RAN_UNDER_ALWAYS, alwaysHere, withAlways } from './always-allow'
+import { ALWAYS_VALUE, RAN_UNDER_ALWAYS, alwaysHere, withAlways } from './always-allow'
 import { approved, noteApproval } from './card-approvals'
 import { actionOff, asksFor, askerPicks, askerText, asksToSend, fold, fromAsker, mainOnly, namedInFull, namesRecipient as namesPlace, othersWordsIn, soleNames, ownWords, POST_ASK } from './shared-actions'
 import { readRooms } from './read-rooms'
@@ -350,7 +351,9 @@ export function postToRoomTool(exec: TurnExec): Tool {
         }
         const viewNone = await planFor(new Set())
         const viewAll = all ? await planFor(first.offered) : null
-        const viewLine = (v: ViewPlan | null) => v ? tr(v.files.length > 1 ? 'postRoomWillViewMore' : 'postRoomWillView', L, { n: String(v.count), file: oneLine(v.name, 60), more: String(v.files.length - 1) }) : ''
+        // what an option's yes lets people open, on that option itself ("Send (3 people can then open Quote.pdf)"): only
+        // the options that grant say it, so the card never reads as if every button did
+        const withView = (label: string, v: ViewPlan | null) => v ? tr(v.files.length > 1 ? 'postRoomOptViewMore' : 'postRoomOptView', L, { label, n: String(v.count), file: oneLine(v.name, 60), more: String(v.files.length - 1) }) : label
         // the people the yes lets open a linked file are not also counted in "N people can't open" on the same card (a
         // guest, never given a file, still is)
         const stillCant = (c: typeof none, attached: ReadonlySet<string>, v: ViewPlan | null): typeof none => {
@@ -361,18 +364,14 @@ export function postToRoomTool(exec: TurnExec): Tool {
         }
         const linesNone = [...linesOf(stillCant(none, new Set(), viewNone), L, sharedFile, sharedCount), ...grantLines]
         const linesAll = all ? [...linesOf(stillCant(all, first.offered, viewAll), L, sharedFile, sharedCount), ...grantLines] : []
-        // (the files choice differs when its lines or what it lets people open differ)
-        const choiceNone = [...linesNone, viewLine(viewNone)].filter(Boolean), choiceAll = [...linesAll, viewLine(viewAll)].filter(Boolean)
-        const extra = all && choiceAll.join('\n') !== choiceNone.join('\n') ? (choiceAll.length ? tr('postRoomWithFiles', L, { line: choiceAll.join(' ') }) : tr('postRoomWithFilesAll', L)) : ''
+        const extra = all && linesAll.join('\n') !== linesNone.join('\n') ? (linesAll.length ? tr('postRoomWithFiles', L, { line: linesAll.join(' ') }) : tr('postRoomWithFilesAll', L)) : ''
         // after a room read (the side chat reads its room) this card is the call's only one (no room card before it,
         // rooms/ai-tools.ts): it leads with the room card's line, as the tools with their own card do (chat/turn.ts ownCard)
         // under the provenance lines, once: people who join later see it too (docs/DECISIONS.md "People who see a shared
         // chat later: nothing new is hidden")
         const laterLine = later && (none.confirm.provenance || all?.confirm.provenance) ? tr('postRoomLater', L) : ''
         const seenLine = exec.roomsSeen ? tr(seenWhy(exec, 'roomsSeenWhy'), L) : ''
-        // (what the yes lets people open goes with the ask itself: "Send this to #Sales (3 people)? 2 people there will be
-        // able to open quote.pdf.")
-        const question = [viewNone ? `${ask} ${viewLine(viewNone)}` : ask, [...linesNone, extra, laterLine].filter(Boolean).join('\n')].filter(Boolean).join('\n\n')
+        const question = [ask, [...linesNone, extra, laterLine].filter(Boolean).join('\n')].filter(Boolean).join('\n\n')
         const shown = first.body.slice(first.at)
         // (on the card a link to a team file reads as its name and place; the message keeps the link: QA TC-4059)
         const fileShares = fileSharesOf(ctx)
@@ -380,8 +379,8 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const shownCard = noBoldMarks(cardTextWords(db, shown, L, spec.userId, (id) => { const o = fileShares.open(spec.userId, id); return o.kind === 'open' ? { path: o.share.path, byGrant: o.by === 'grant', name: o.name } : null }))
         const marks = opaqueParts(shownCard)
         const options = [
-          { label: tr('postRoomSend', L), value: 'send' },
-          ...(all ? [{ label: tr('postRoomSendFiles', L), value: 'send_files' }] : []),
+          { label: withView(tr('postRoomSend', L), viewNone), value: 'send' },
+          ...(all ? [{ label: withView(tr('postRoomSendFiles', L), viewAll), value: 'send_files' }] : []),
           { label: tr('postRoomDont', L), value: 'no' },
         ]
         // "Always allow" for posts to rooms (chat/always-allow.ts; the owner, 2026-11-13): on, the text goes without the
@@ -440,7 +439,9 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const tookBack = () => !!db.query("SELECT 1 FROM room_messages m JOIN turns t ON t.chat_id = ? AND m.client_id LIKE 'ai-' || t.id || '-%' WHERE m.room_id = ? AND m.author_id = ? AND m.deleted_at IS NOT NULL LIMIT 1").get(spec.chatId, roomId, spec.userId)
         const byChat = !explicit && !byAlways && plainPost && !!exec.mayUseApprovals?.() && approved(db, { chatId: spec.chatId, userId: spec.userId, kind: 'room_post', target: postTarget }) && !tookBack()
         const reply = explicit || byChat ? 'send' : await withAlways(place1, all ? 'post_files' : 'post_to_room', options, all ? 'send_files' : 'send', (opts, more) => exec.waitForPerson({
-          kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: whyLine ? `${whyLine}\n\n${question}` : question, options: opts, multiple: false, allowText: false, ...(more.note ? { note: more.note } : {}),
+          kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: whyLine ? `${whyLine}\n\n${question}` : question,
+          // ("Always allow" answers as `all ? send_files : send` this time: it says what that choice lets people open)
+          options: opts.map((o) => o.value === ALWAYS_VALUE ? { ...o, label: withView(o.label, all ? viewAll : viewNone) } : o), multiple: false, allowText: false, ...(more.note ? { note: more.note } : {}),
           details: [
             // the note goes as the person's own words, the text as the AI's answer: apart, as the room shows them
             ...(first.at > 0 ? [{ label: tr('postRoomNote', L), text: first.body.slice(0, first.at).trim() }] : []),

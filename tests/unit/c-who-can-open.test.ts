@@ -309,7 +309,11 @@ describe('post to a room: who cannot open the file, one card for the post and th
       const cards = cardsOf(r.turnId)
       expect(cards).toHaveLength(1)
       const q = cards[0]!.data.request.question
-      expect(q).toContain('1 person there will be able to open offer.txt.')
+      // only the option that grants says so; the files choice sends a copy instead and says nothing about it
+      const opts = cards[0]!.data.request.options as { label: string; value: string }[]
+      expect(opts.find((o) => o.value === 'send')!.label).toBe('Send (1 person can then open offer.txt)')
+      expect(opts.filter((o) => o.label.includes('can then open')).map((o) => o.value)).toEqual(['send'])
+      expect(q).not.toContain('able to open')
       // the same card does not also say they can't open it, and names nobody
       expect(q).not.toContain("2 people can't open")
       expect(q).toContain("1 person can't open 1 linked file.")
@@ -372,7 +376,7 @@ describe('post to a room: who cannot open the file, one card for the post and th
     const chatId = (await h.api('alice').call(API.createChat, { body: {} })).id
     const s = await h.api('alice').call(API.sendMessage, { params: { id: chatId }, body: { content: post({ room: rooms.marketing, text: `Third: ${link('users/alice/offer-3.txt')}` }), clientMessageId: cm(), attachmentIds: [] } })
     const c = await socks.alice!.next('turn.request', (f) => f.data.turnId === s.turnId)
-    expect((c.data.request as { question: string }).question).toContain('1 person there will be able to open offer-3.txt.')
+    expect((c.data.request as { options: { label: string; value: string }[] }).options.find((o) => o.value === 'send')!.label).toBe('Send (1 person can then open offer-3.txt)')
     updateTeamSettings(h.ctx.db, { memberFileShares: false })
     try {
       await h.api('alice').call(API.answerTurn, { params: { id: s.turnId }, body: { kind: 'ask_user', requestId: c.data.request.requestId, answer: 'send' } })
