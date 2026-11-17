@@ -216,6 +216,46 @@ describe('the card\'s words (QA TC-4791)', () => {
     expect(noteOf(quoted.card)).toContain(SEEN)
   })
 
+  test('a quote in the room\'s side chat counts as that room only when the app\'s quote token points to a message there', async () => {
+    const side = (await h.api('bob').call(API.createChat, { body: { sideRoomId: rooms.all } })).id
+    // the app's own quote of a message in #전체 ("Ask Trina about this"): that room's words
+    const here = await h.api('alice').call(API.sendRoomMessage, { params: { id: rooms.all }, body: { body: 'Venue is booked', clientMessageId: cm(), mentions: [], fileIds: [] } })
+    const own = await turn('bob', [`> Alice Kim · now${threadRefToken(here.id)}`, '> Venue is booked', '', fake({ tool: 'room_read', args: { room: rooms.all } }), post({ text: '장소 확정' })].join('\n'), { chat: side, answer: 'no' })
+    expect(noteOf(own.card)).not.toContain(SEEN)
+    // a quote pasted from another room into the same side chat (no token, or a token of another room's message): kept
+    const side2 = (await h.api('bob').call(API.createChat, { body: { sideRoomId: rooms.all } })).id
+    const pasted = await turn('bob', ['> 재무방: 예산은 비공개예요', '', fake({ tool: 'room_read', args: { room: rooms.all } }), post({ text: '예산 요약' })].join('\n'), { chat: side2, answer: 'no' })
+    expect(noteOf(pasted.card)).toContain(SEEN)
+    const there = await h.api('bob').call(API.sendRoomMessage, { params: { id: rooms.finance }, body: { body: 'Budget is private', clientMessageId: cm(), mentions: [], fileIds: [] } })
+    const side3 = (await h.api('bob').call(API.createChat, { body: { sideRoomId: rooms.all } })).id
+    const other = await turn('bob', [`> Bob Lee · now${threadRefToken(there.id)}`, '> Budget is private', '', fake({ tool: 'room_read', args: { room: rooms.all } }), post({ room: rooms.all, text: '예산 요약' })].join('\n'), { chat: side3, answer: 'no' })
+    expect(noteOf(other.card)).toContain(SEEN)
+  })
+
+  test('a teammate\'s file and a plain Send: no copy, the link only; the card counts who cannot open it and names nobody', async () => {
+    put('groups/marketing/erins-plan.md', '# Erin\'s plan')
+    wroteIt('erin', 'groups/marketing/erins-plan.md')
+    const text = 'Plan: [erins-plan.md](/files/view?path=groups/marketing/erins-plan.md)'
+    const r = await turn('alice', [fake({ tool: 'read', args: { file_path: 'groups/marketing/erins-plan.md' } }), post({ room: rooms.all, text })].join('\n'), { answer: 'send' })
+    expect(r.card!.options!.map((x) => x.value).filter((v) => v !== '__always')).toEqual(['send', 'no'])
+    expect(r.card!.question).toContain("1 person can't open 1 linked file.")
+    expect(r.card!.question).not.toContain('Bob')
+    expect(r.card!.details!.map((d) => d.label)).toEqual(['What will be sent'])
+    const m = (await messagesAs('alice', rooms.all)).at(-1)!
+    expect(m.body).toBe(text)
+    expect(m.files).toEqual([])
+    // Ask <owner> follows the post
+    expect(JSON.parse(r.content).cannot_open).toContain('Ask Erin Yoo')
+  })
+
+  test('on a card whose Send carries copies, "Always allow" says what it lets go later', async () => {
+    put('groups/marketing/launch-plan-4.md', '# Launch 4')
+    wroteIt('alice', 'groups/marketing/launch-plan-4.md')
+    const r = await turn('alice', [fake({ tool: 'read', args: { file_path: 'groups/marketing/launch-plan-4.md' } }), post({ room: rooms.all, text: 'Plan: [launch-plan-4.md](/files/view?path=groups/marketing/launch-plan-4.md)' })].join('\n'), { answer: 'no' })
+    expect(r.card!.options!.map((x) => x.value)).toEqual(['send_files', '__always', 'no'])
+    expect(noteOf(r.card)).toContain('later posts will also send their linked files as copies, so everyone there can open them')
+  })
+
   test('people are named as the card names them: up to three, then the first two and how many more', () => {
     expect(peopleWords(['Maria'], 'en')).toBe('Maria')
     expect(peopleWords(['Maria', 'Tom'], 'en')).toBe('Maria and Tom')
@@ -255,6 +295,8 @@ describe('"Always send with the files" (post_files)', () => {
   test('after a room read (a side chat): "Always send with the files" is final; without it the card shows, also for a file my own message names', async () => {
     const { keepAlways, dropAlways } = await import('../../server/src/chat/always-allow')
     put('groups/marketing/launch-plan-3.md', '# Launch 3\nsecret date')
+    // (alice's own file: Send copies only files she may share, review of #1235)
+    wroteIt('alice', 'groups/marketing/launch-plan-3.md')
     const side = (await h.api('alice').call(API.createChat, { body: { sideRoomId: rooms.all } })).id
     const text = 'Plan: [launch-plan-3.md](/files/view?path=groups/marketing/launch-plan-3.md)'
     // (the file's name as JSON escapes in the directive and as a link the test spells apart: alice's words name it or not)
@@ -631,6 +673,11 @@ describe('to a teammate by name', () => {
     const u = await turn('alice', post({ room: 'Gina Han', text: '**Agenda**: [the plan](https://example.com/plan)' }), { answer: 'no' })
     expect(u.card!.details![0]!.text).toBe('Agenda: [the plan](https://example.com/plan)')
     expect(u.card!.details![0]!.markdown).toBeUndefined()
+    // any Markdown link or autolink stays as written too: a formatted mailto:, relative or # link hides its target
+    for (const t of ['Write to [us](mailto:team@example.com)', 'See [the notes](#notes)', 'Mail <team@example.com>']) {
+      const x = await turn('alice', post({ room: 'Gina Han', text: t }), { answer: 'no' })
+      expect(x.card!.details![0]!.markdown).toBeUndefined()
+    }
     expect(m.sharedAnswer).toEqual({ at: 0, cut: false })
     const a = audits('alice').at(-1)!
     expect(a.ownWords).toBeUndefined()

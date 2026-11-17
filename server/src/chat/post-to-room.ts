@@ -9,10 +9,10 @@
 // of people, all of the text (formatted as the room shows it), and only when they apply the lines about who cannot open
 // a file yet and that sending shares it with them (by name), who cannot see some sources, who still cannot open a linked
 // file; [보내기] and [보내지 않기] (docs/decisions/20261117-send-to-room-card-two-buttons.md, QA TC-4791). [보내기] goes
-// with the files when they can go as copies, and lets exactly the people the card named view the person's own files
-// that do not go as copies: its yes posts and then grants, one card for both (docs/decisions/
-// 20261117-post-to-room-one-card.md). Nothing goes without the person's press: a web page, a file or a room message
-// telling the AI to post still meets the card.
+// with copies of the files the person may share or the AI made in this answer (a teammate's file stays a link), and
+// lets exactly the people the card named view the person's own files that do not go as copies: its yes posts and then
+// grants, one card for both (docs/decisions/20261117-post-to-room-one-card.md). Nothing goes without the person's
+// press: a web page, a file or a room message telling the AI to post still meets the card.
 //
 // The checks are the button's (prepareShare / sendShare), with the running answer as the answer: chats.active_leaf_id
 // points to it, so the chat's read scope describes it, and its turn has not ended, so every place of the scope counts
@@ -54,7 +54,7 @@
 // used earlier answers hidden from some member, a text too long for one message and the sending budget.
 import { ALWAYS_VALUE, RAN_UNDER_ALWAYS, alwaysHere, withAlways } from './always-allow'
 import { approved, noteApproval } from './card-approvals'
-import { actionOff, asksFor, askerPicks, askerText, asksToSend, fold, fromAsker, mainOnly, namedInFull, namesRecipient as namesPlace, othersWordsIn, soleNames, ownWords, POST_ASK } from './shared-actions'
+import { actionOff, asksFor, askerPicks, askerText, asksToSend, fold, fromAsker, madeInTurn, mainOnly, namedInFull, namesRecipient as namesPlace, othersWordsIn, soleNames, ownWords, POST_ASK } from './shared-actions'
 import { readRooms } from './read-rooms'
 import { grantOnly, roomsReadOnly, seenWhy } from './grant-reads'
 import { lookedPlace } from './looking-at'
@@ -90,6 +90,9 @@ const text = (t: string, isError = false) => ({ content: [{ type: 'text' as cons
 const zodText = (e: z.ZodError) => 'Invalid input: ' + e.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
 /** one line of a room name or a quote, as the card and the AI are given it */
 const oneLine = (s: string, n: number) => { const v = s.replace(/\s+/g, ' ').trim(); return v.length > n ? `${v.slice(0, n - 1)}…` : v }
+/** A Markdown link or image ("](") or an autolink ("<…>"): formatted, it would show its words and hide its target
+ * (mailto:, tel:, a relative or # link), so such a text stays as written on the card (review of #1235) */
+const HIDES_TARGET = /\]\(|<[^<>\s]+>/
 /** the card folds the text past this many characters ("전체 보기") */
 export const POST_TEXT_FOLD = 600
 
@@ -141,7 +144,7 @@ export function peopleWords(names: readonly string[], L: Locale): string {
 
 /** The card's lines for the choice its Send makes: who cannot see some sources, who still cannot open a linked file
  * after it (by name); none when nothing applies. */
-function linesOf(c: Awaited<ReturnType<typeof shareChoice>>, cant: { files: number; names: string[] }, L: Locale, sharedFile = false, sharedCount: number | null = null): string[] {
+function linesOf(c: Awaited<ReturnType<typeof shareChoice>>, cant: { files: number; people: number; names: string[] }, L: Locale, sharedFile = false, sharedCount: number | null = null): string[] {
   const out: string[] = []
   const p = c.confirm.provenance
   if (p) {
@@ -151,7 +154,8 @@ function linesOf(c: Awaited<ReturnType<typeof shareChoice>>, cant: { files: numb
     const n = sharedFile && sharedCount !== null && p.places.every((x) => x.kind === 'conversation') ? sharedCount : p.people
     if (n > 0 || p.unknown) out.push(p.unknown ? tr('postRoomUnknown', L) : places.length ? tr('postRoomProvenance', L, { n: String(n), places: places.join(', ') }) : tr('postRoomProvenanceNoPlace', L, { n: String(n) }))
   }
-  if (cant.files > 0 && cant.names.length) out.push(tr('postRoomFilesWho', L, { names: peopleWords(cant.names, L), n: String(cant.names.length), files: String(cant.files) }))
+  // by name only when the caller may say who (a file the asker may share, or an admin); else how many
+  if (cant.files > 0 && cant.people > 0) out.push(cant.names.length ? tr('postRoomFilesWho', L, { names: peopleWords(cant.names, L), files: String(cant.files) }) : tr('postRoomFiles', L, { files: String(cant.files), n: String(cant.people) }))
   return out
 }
 
@@ -333,7 +337,19 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const none = await shareChoice(ctx, spec.userId, first, new Set())
         // own words go without copies: a copy stands in for a link only inside the AI's quote (rooms/store.ts
         // attachedLinksOn), so [보내기] sends no copy and the card names who cannot open a linked file
-        const all = !plain && first.offered.size ? await shareChoice(ctx, spec.userId, first, first.offered) : null
+        // Send copies only the files the person may share (their own, or one they may share by the folder rules) and
+        // the files the AI made in this answer (review of #1235, the Drive model of docs/decisions/20261116-ai-share-words.md):
+        // a teammate's file stays a link, the card counts who cannot open it, and "Ask <owner>" follows the post
+        const canShareOf = (() => {
+          const shares = fileSharesOf(ctx), memo = new Map<string, boolean>()
+          return (rel: string) => {
+            let v = memo.get(rel)
+            if (v === undefined) { try { v = shares.view(spec.userId, rel, L).canShare } catch { v = false } memo.set(rel, v) }
+            return v
+          }
+        })()
+        const copies: ReadonlySet<string> = new Set([...first.offered].filter((rel) => canShareOf(rel) || madeInTurn(db, spec.turnId, rel)))
+        const all = !plain && copies.size ? await shareChoice(ctx, spec.userId, first, copies) : null
         // (a new 1:1 chat: the user and the teammate)
         const people = pendingTo ? 2 : memberCount(db, roomId)
         // (the quote without its Markdown marks: a title is plain text, chat/share-words.ts plainQuote)
@@ -360,13 +376,13 @@ export function postToRoomTool(exec: TurnExec): Tool {
           try { return shareFixes.viewPlan(spec.userId, await fileGapsOf(exec, prepared, attached, roomId)) } catch (e) { rt.log.warn('post_to_room: who could open the files not worked out', { err: e }); return null }
         }
         const viewNone = await planFor(new Set())
-        const viewAll = all ? await planFor(first.offered) : null
-        // ---- one Send (QA TC-4791): with the files when they can go, as copies, and the view the card grants for the rest ----
+        const viewAll = all ? await planFor(copies) : null
+        // ---- one Send (QA TC-4791): copies of the files the person may share, and the view the card grants for the rest ----
         // (the card had [보내기], [파일도 함께 보내기] and "Always send with the files": office workers had to work out which
         // one let people open what; now Send is the choice that leaves the fewest people out, and the card says who it lets in)
         const yes = all ? 'send_files' : 'send'
         const chosen = all ?? none
-        const attached: ReadonlySet<string> = all ? first.offered : new Set()
+        const attached: ReadonlySet<string> = all ? copies : new Set()
         const view = all ? viewAll : viewNone
         // the people this Send lets open a file they cannot open now: the copies that go reach everyone there, and the
         // view the card grants reaches exactly the people ShareFixes.viewPlan counted (the server's records, never the AI's)
@@ -378,10 +394,18 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // not counted twice
         const covered = new Map(view ? view.paths.map((p, i) => [p, new Set(view.files[i]!.people)]) : [])
         const left = first.check.rows.filter((r) => !(r.rel && attached.has(r.rel))).map((r) => r.unable.filter((u) => !(r.rel && covered.get(r.rel)?.has(u)))).filter((u) => u.length > 0)
+        // names only where saying who cannot open a file tells the asker nothing about someone else's file: every file
+        // concerned is one they may share (the view plan's set), or they are an admin; otherwise a count (review of #1235)
+        const admin = !!db.query("SELECT 1 FROM users WHERE id = ? AND role IN ('admin', 'owner')").get(spec.userId)
+        const nameable = (rels: (string | null)[]) => admin || rels.every((rel) => !!rel && canShareOf(rel))
         const names = (ids: Iterable<string>) => [...ids].map((id) => nameOf(ctx, id) ?? '').filter(Boolean)
-        const lines = [...linesOf(chosen, { files: left.length, names: names(new Set(left.flat())) }, L, sharedFile, sharedCount), ...grantLines]
-        const letInNames = names(letIn)
-        const shareLine = letInNames.length ? tr('postRoomShareWith', L, { names: peopleWords(letInNames, L), n: String(letInNames.length), files: String(Math.max(1, letFiles)) }) : ''
+        const leftRows = first.check.rows.filter((r) => !(r.rel && attached.has(r.rel)) && r.unable.some((u) => !(r.rel && covered.get(r.rel)?.has(u))))
+        const leftIds = new Set(left.flat())
+        const lines = [...linesOf(chosen, { files: left.length, people: leftIds.size, names: nameable(leftRows.map((r) => r.rel)) ? names(leftIds) : [] }, L, sharedFile, sharedCount), ...grantLines]
+        const letInNames = nameable(first.check.rows.filter((r) => r.rel && attached.has(r.rel) && r.unable.length).map((r) => r.rel)) ? names(letIn) : []
+        const shareLine = !letIn.size ? ''
+          : letInNames.length ? tr('postRoomShareWith', L, { names: peopleWords(letInNames, L), files: String(Math.max(1, letFiles)) })
+          : tr('postRoomShareWithCount', L, { n: String(letIn.size), files: String(Math.max(1, letFiles)) })
         // under the provenance lines, once: people who join later see it too (docs/DECISIONS.md "People who see a shared
         // chat later: nothing new is hidden")
         const laterLine = later && chosen.confirm.provenance ? tr('postRoomLater', L) : ''
@@ -397,10 +421,10 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // formatted as the room will show it (QA TC-4791: the card showed "**"), with the chat's Markdown renderer, unless
         // the text holds a web address or a long random-looking part: a formatted link shows its words and hides where it
         // goes, so such a text stays as written, its marks highlighted, without bold marks (QA TC-4060)
-        const formatted = opaqueParts(worded).length === 0 && !carriesAddress(worded)
+        const formatted = opaqueParts(worded).length === 0 && !carriesAddress(worded) && !HIDES_TARGET.test(worded)
         const shownCard = formatted ? worded : noBoldMarks(worded)
         const marks = formatted ? [] : opaqueParts(shownCard)
-        // two choices (QA TC-4791): Send, which goes with the files when they can go, and Don't send
+        // two choices (QA TC-4791): Send, which goes with copies of the files it may (see copies above), and Don't send
         const options = [
           { label: tr('postRoomSend', L), value: yes },
           { label: tr('postRoomDont', L), value: 'no' },
@@ -415,7 +439,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // ask: their own message of this turn (quoted lines left out) names the place and asks to send or post, brings
         // every linked file (named or attached it, or the AI made it in this answer), and never for own_words
         const mineNamed = () => namesPlace(ownWords(askerText(db, spec.userMessageId)), a.data.room, recipientNames(db, spec.userId, mine?.room ?? null, pendingTo))
-        const alwaysOk = !exec.shared || (!plain && mineNamed() && asksToSend(db, spec.userMessageId) && (!all || fromAsker(db, spec, first.offered)))
+        const alwaysOk = !exec.shared || (!plain && mineNamed() && asksToSend(db, spec.userMessageId) && (!all || fromAsker(db, spec, copies)))
         // where other people's words are in the chat (shared, others write in it, rooms read, content someone else wrote:
         // othersWordsIn) the explicit-ask skip below (our own text match, not the person's choice) never applies
         const marked = othersWordsIn(exec)
@@ -467,13 +491,13 @@ export function postToRoomTool(exec: TurnExec): Tool {
           details: [
             // the note goes as the person's own words, the text as the AI's answer: apart, as the room shows them
             // (formatted too when nothing in it could hide where a link goes: the room shows it formatted)
-            ...(first.at > 0 ? [((t: string) => ({ label: tr('postRoomNote', L), text: t, ...(opaqueParts(t).length === 0 && !carriesAddress(t) ? { markdown: true as const } : {}) }))(first.body.slice(0, first.at).trim())] : []),
+            ...(first.at > 0 ? [((t: string) => ({ label: tr('postRoomNote', L), text: t, ...(opaqueParts(t).length === 0 && !carriesAddress(t) && !HIDES_TARGET.test(t) ? { markdown: true as const } : {}) }))(first.body.slice(0, first.at).trim())] : []),
             // (long random-looking parts marked, as on the other server cards: an address can carry data in them)
             // (own words: exactly the message that goes, with no quote; the label says it goes as theirs)
             { label: tr(plain ? 'postRoomOwnWords' : 'postRoomText', L), text: shownCard, ...(shownCard.length > POST_TEXT_FOLD ? { collapsedAt: POST_TEXT_FOLD } : {}), ...(marks.length ? { marks } : {}), ...(formatted ? { markdown: true as const } : {}) },
             // what Send attaches, by name and place in words, never a team path (a link far down a folded text is not
             // missed; chat/share-words.ts fileWords)
-            ...(all ? [{ label: tr('postRoomFilesToSend', L), text: [...first.offered].map((rel) => fileWords(db, rel, L, spec.userId)).join('\n'), noSize: true }] : []),
+            ...(all ? [{ label: tr('postRoomFilesToSend', L), text: [...copies].map((rel) => fileWords(db, rel, L, spec.userId)).join('\n'), noSize: true }] : []),
           ],
           ...(opts.length === 3 ? { buttons: true as const } : {}),
           expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
@@ -498,7 +522,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // the state the card showed, also when nothing is at stake now (the button sends then): the card named the number
         // of people, and someone added meanwhile was not asked about
         const shownKey = withFiles ? all!.key : none.key
-        const fits = async (p: PreparedShare | PendingShare) => (await shareChoice(ctx, spec.userId, p, withFiles ? first.offered : new Set())).key === shownKey
+        const fits = async (p: PreparedShare | PendingShare) => (await shareChoice(ctx, spec.userId, p, withFiles ? copies : new Set())).key === shownKey
         try { if (!(await fits(again))) return changed() } catch (e) { return refusalOf(e, titleAi, roomId) }
         let target: PreparedShare
         if (pendingTo) {
@@ -520,7 +544,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
         } else target = again as PreparedShare
         let r: ShareAnswerToRoomResult
         try {
-          r = await sendShare(ctx, spec.userId, target, { clientMessageId: share.clientMessageId, ...(threadRootId !== undefined ? { threadRootId } : {}), confirmKey: shownKey, attach: withFiles ? [...first.offered] : [] }, L, { via: 'ai', confirmed: true, ...(opened ? { openedDm: true } : {}) })
+          r = await sendShare(ctx, spec.userId, target, { clientMessageId: share.clientMessageId, ...(threadRootId !== undefined ? { threadRootId } : {}), confirmKey: shownKey, attach: withFiles ? [...copies] : [] }, L, { via: 'ai', confirmed: true, ...(opened ? { openedDm: true } : {}) })
         } catch (e) { return refusalOf(e, titleAi, roomId) }
         if (r.status === 'confirm') return changed()
         // [보내기] on the card (not "Always allow", not the explicit ask), and the post went: this room or thread takes
@@ -560,7 +584,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // who there cannot open a file of it, and the one button for it (never a reason to fail a post that went)
         let cannotOpen = ''
         try {
-          const fx = await fixesAfterPost(exec, target, new Set(withFiles ? first.offered : []), { roomId, place: title })
+          const fx = await fixesAfterPost(exec, target, new Set(withFiles ? copies : []), { roomId, place: title })
           if (fx.fixes.length) { fixes = fx.fixes; cannotOpen = `${viewFailed}${fx.note}` }
         } catch (e) { rt.log.warn('post_to_room: next steps not worked out', { err: e }) }
         if (viewFailed && !cannotOpen) cannotOpen = `${viewFailed}Tell the user so in one short sentence, without naming anyone.`

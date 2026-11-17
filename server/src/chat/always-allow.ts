@@ -79,8 +79,10 @@ export function dropAlways(db: Database, userId: string, id: string): boolean {
 export type AlwaysLabel = 'cardAlways' | 'cardAlwaysSkills'
 
 /** A kind whose "Always allow" risk is said in its own words on the card (the folder cards). */
-const KIND_NOTE: Partial<Record<CardAlwaysKind, 'cardAlwaysNoteShareFolder' | 'cardAlwaysNoteFolderAccess'>> = {
+const KIND_NOTE: Partial<Record<CardAlwaysKind, 'cardAlwaysNoteShareFolder' | 'cardAlwaysNoteFolderAccess' | 'cardAlwaysNotePostFiles'>> = {
   share_folder: 'cardAlwaysNoteShareFolder', folder_access: 'cardAlwaysNoteFolderAccess',
+  // a room post whose Send carries copies of the linked files (chat/post-to-room.ts): what Always allow lets go later
+  post_files: 'cardAlwaysNotePostFiles',
 }
 
 /** For a tool result when the person's own "Always allow" let the call run without its card (QA, integrate/sharing-all
