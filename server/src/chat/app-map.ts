@@ -3,9 +3,9 @@
 // there is such a setting"), sending people to an admin, or saying a feature does not exist (AI scenario check, first
 // run 2026-11-16, root cause #2).
 //
-// One line per place or group of places, at most 20 lines (docs/decisions/20261117-ai-app-map-five-places.md: Shared
-// with me, folder sharing, threads under an answer, Open the app, meeting notes). The places are named by the labels the person's app shows, in their language:
-// each label is a web i18n key (APP_MAP_KEYS), its words in app-map-labels.ts, generated from web/src/i18n by
+// One line per place or group of places, at most 20 lines (docs/decisions/20261117-ai-app-map-five-places.md added
+// Shared with me, folder sharing, threads under an answer, Open the app, meeting notes). The places are named by the
+// labels the person's app shows, in their language: each label is a web i18n key (APP_MAP_KEYS), its words in app-map-labels.ts, generated from web/src/i18n by
 // scripts/app-map-labels.ts; tests/unit/ai-app-map.test.ts fails when a key is gone or its words changed, and when a
 // Settings tab, Admin page, Team settings group or System group named here is gone.
 //
@@ -72,14 +72,18 @@ export function appMapSection(o: AppMapInput, L: Locale): string {
     '## Where things are in the app',
     'Asked where or how in the app: answer from this map, with its labels; not here: say you are not sure, never that it does not exist.',
     `- Chat title menu (its creator): ${q('chat.rename')}. A chat's ⋯ in the list: ${q('chat.pin')}, ${q('navFolders.moveTo')}; ${q('navFolders.new')}. Answer: ${q('chat.regenerate')}; own message: ${q('chat.edit')}.`,
-    `- Shared chat (a project's or shared with people), under a finished answer: ${q('rooms.replyInThread')}: people's talk, the AI does not read it; there ${q('chat.thread.sendToAi')} puts it in the message box to edit and send. Asker and repliers are told; not in a private chat.`,
+    // a shared chat's own section (prompt.ts sharedSection, after this one) says the AI cannot read the thread and what
+    // Send to does (share-words.ts sharedCommentsLine): there only the labels and who is told
+    o.view === 'shared'
+      ? `- Under a finished answer: ${q('rooms.replyInThread')}, then ${q('chat.thread.sendToAi')} (more in the shared chat section); the asker and repliers are told.`
+      : `- Shared chat (a project's or shared with people), under a finished answer: ${q('rooms.replyInThread')}: people's talk, the AI does not read it; there ${q('chat.thread.sendToAi')} puts it in the message box to edit and send. Asker and repliers are told; not in a private chat.`,
     `- ${tr('cardAlways', L)} on a card: not asked again; undo in ${set(PRODUCT_NAMED_AFTER_AI ? 'settings.allowances' : 'settings.allowancesAi')}.`,
-    `- Room ⋯: ${q('chat.pin')}, ${q('roomApps.menuAdd')} (${q('roomApps.menuList')} once it has some): a service posts into the room by its ${q('roomApps.address')}. A group chat's also ${q('rooms.info.rename')}, ${q('rooms.info.addPeople')}; a team room: people follow its group, owners and admins rename.`,
+    `- Room ⋯: ${q('chat.pin')}, ${q('roomApps.menuAdd')} (${q('roomApps.menuList')} once it has some): Google Forms or any service posts into the room by its ${q('roomApps.address')}. A group chat's also ${q('rooms.info.rename')}, ${q('rooms.info.addPeople')}; a team room: people follow its group, owners and admins rename.`,
     `- Room bell or ⋯ › ${q('rooms.menu.notify')}: ${q('rooms.notify.mentions')} / ${q('rooms.notify.off')}. ${q('notifications.quiet')}: ${set('notifications.title')}. Message hover: ${q('rooms.react')}. Mentions, thread replies: ${q('inbox.title')}.`,
-    `- ${q('settings.title')}: ${q('settings.profile')} (photo, name; own AI and model, if allowed), ${q('settings.security')} (${q('auth.changePassword')}; ${q('settings.devices')}: sign one out), ${q('integrations.title')} (own Slack, Google…), ${q('settings.apps')} (phone, computer apps), ${q('settings.about')} (version), ${q('aiApps.title')} (team files from another AI app). Own photo menu: ${q('status.set')}, ${q('presence.setAway')}.`,
+    `- ${q('settings.title')}: ${q('settings.profile')} (photo, name; own AI and model, if allowed), ${q('settings.security')} (${q('auth.changePassword')}; ${q('settings.devices')}: sign one out), ${q('integrations.title')} (own Slack, Google…), ${q('settings.apps')} (phone, computer apps), ${q('settings.about')} (version), ${q('aiApps.title')} (team files from Claude or another AI app). Own photo menu: ${q('status.set')}, ${q('presence.setAway')}.`,
     `- ${q('projects.title')} › ${q('projects.new')}: anyone (the team may keep team projects to owners and admins). ${q('sidebar.skills')}: ${q('skills.catalog.more')} (ready-made; owners and admins see it while some are missing); ${q('skills.catalog.bring')} (on a computer; a member's are reviewed).`,
-    `- ${q('sidebar.files')} › ${q('filesPanel.shared')}: files and folders shared with them, newest first. In ${ownFolderLabel(L)}, a folder's ⋯ › ${q('folderAccess.menu')}: view only, later files too; take people off or ${q('fileShare.stop')} anytime, ${q('common.undo')} right after. Team folders: owners and admins share.`,
-    `- ${q('sidebar.files')} › ${ownFolderLabel(L)}: ${q('files.findWork.entryButton')} (desktop app, not the Mac App Store one); ${q('meeting.entry')} (Mac desktop app, team voice input on: no bot joins, asks first, ${q('meeting.stop')} on its card, sound not kept, notes in ${MEETINGS_LABEL[L]}; you cannot listen or start it); in a Mac or Windows browser ${q('openApp.lineLink')} opens the desktop app signed in, no password (not opened: ${q('openApp.download')}, press again; not from a phone).`,
+    `- ${q('sidebar.files')} › ${q('filesPanel.shared')}: files and folders shared with them, newest first. In ${ownFolderLabel(L)}, a folder's ⋯ › ${q('folderAccess.menu')}: view only, later files too; take people off or ${q('fileShare.stop')} anytime, ${q('common.undo')} right after; the team can turn members' sharing off. Team folders: owners and admins share.`,
+    `- ${q('sidebar.files')} › ${ownFolderLabel(L)}, desktop app (not the Mac App Store one): ${q('files.findWork.entryButton')}; on a Mac ${q('meeting.entry')} (team voice input on: no bot joins, asks first, ${q('meeting.stop')} anytime, sound not kept, notes in ${MEETINGS_LABEL[L]}; the AI cannot listen or start it); in a Mac or Windows browser ${q('openApp.lineLink')} › ${q('openApp.mac')} (or Windows) opens the desktop app signed in, no password (not opened: ${q('openApp.download')}, press again, a new one-time sign-in; not from a phone).`,
   ]
   if (o.view === 'member') {
     // situation.ts's member line already names folders, groups, connected apps, plugins, AI accounts and team settings

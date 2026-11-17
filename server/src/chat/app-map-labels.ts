@@ -50,6 +50,7 @@ export const APP_MAP_LABELS: Readonly<Record<string, Readonly<Record<Locale, str
   "rooms.replyInThread": { ko: "스레드에서 답장", en: "Reply in thread", id: "Balas di utas", ja: "スレッドで返信", es: "Responder en el hilo", zh: "在话题中回复" },
   "chat.thread.sendToAi": { ko: "{name}에게 보내기", en: "Send to {name}", id: "Kirim ke {name}", ja: "{name}に送る", es: "Enviar a {name}", zh: "发送给{name}" },
   "openApp.lineLink": { ko: "앱에서 열기", en: "Open the app", id: "Buka aplikasi", ja: "アプリで開く", es: "Abrir la app", zh: "打开应用" },
+  "openApp.mac": { ko: "Mac 앱에서 계속", en: "Continue in the Mac app", id: "Lanjutkan di aplikasi Mac", ja: "Macアプリで続ける", es: "Continuar en la app de Mac", zh: "在 Mac 应用中继续" },
   "openApp.download": { ko: "앱 내려받기", en: "Download the app", id: "Unduh aplikasi", ja: "アプリをダウンロード", es: "Descargar la app", zh: "下载应用" },
   "meeting.entry": { ko: "회의 기록하기", en: "Take meeting notes", id: "Catat rapat", ja: "会議メモを取る", es: "Tomar notas de la reunión", zh: "记录会议" },
   "meeting.stop": { ko: "멈추기", en: "Stop", id: "Berhenti", ja: "停止", es: "Detener", zh: "停止" },

@@ -184,6 +184,12 @@ describe('the places people asked about (scenario catalog 2026-11-17)', () => {
 describe('five places with no line before (catalog rerun 2026-11-17: ACC-04/05/06, CHT-13/14/16, SHR-03, FSH-03, MTG-01/02)', () => {
   const LOCALES = ['ko', 'en', 'ja', 'zh', 'es', 'id'] as const
   const aiNameIn = (L: (typeof LOCALES)[number]) => PRODUCT_NAMED_AFTER_AI ? DICTS[L]['rooms.aiName'] : PRODUCT.shortName
+  test('a shared chat: the thread line keeps only the labels and who is told (its instructions say the rest)', () => {
+    const s = appMapSection({ ...base, view: 'shared' }, 'en')
+    expect(s).toContain(`- Under a finished answer: ${DICTS.en['rooms.replyInThread']}, then `)
+    expect(s).toContain('the asker and repliers are told')
+    expect(s).not.toContain('not in a private chat')
+  })
   test('every form, every language: each place by the label the app shows', () => {
     for (const view of ['staff', 'member', 'shared'] as const) for (const L of LOCALES) {
       const s = appMapSection({ ...base, view }, L)
@@ -201,21 +207,24 @@ describe('five places with no line before (catalog rerun 2026-11-17: ACC-04/05/0
   test('what each one does, as the decisions say', () => {
     const s = appMapSection({ ...base, view: 'member' }, 'en')
     // chat-answer-threads: shared chats only, people's words the AI does not read, Send to fills the box
-    expect(s).toMatch(/shared chat/i)
+    expect(s).toContain("Shared chat (a project's or shared with people), under a finished answer")
     expect(s).toContain('the AI does not read')
     expect(s).toContain('not in a private chat')
     // app sign-in: a Mac or Windows browser, no second password, not from a phone
-    expect(s).toContain('Mac or Windows browser')
+    expect(s).toContain(`Mac or Windows browser ${DICTS.en['openApp.lineLink']} › ${DICTS.en['openApp.mac']} (or Windows)`)
     expect(s).toContain('no password')
     // meeting notes: the Mac desktop app, no bot, the sound is not kept, the AI cannot listen or start it
-    expect(s).toContain('Mac desktop app')
+    // (only where the helper is: the Mac desktop app, not the Mac App Store build, and the team's voice input is on)
+    expect(s).toContain(`desktop app (not the Mac App Store one): ${DICTS.en['files.findWork.entryButton']}; on a Mac ${DICTS.en['meeting.entry']} (team voice input on`)
     expect(s).toContain('sound not kept')
-    expect(s).toContain('you cannot listen or start it')
+    expect(s).toContain('the AI cannot listen or start it')
     // folder sharing: view only, later files too, Undo right after (Files' toast; the server keeps it 10 minutes), team
     // folders are the owner's or an admin's
     expect(s).toContain('view only, later files too')
     expect(s).toContain(`${DICTS.en['common.undo']} right after`)
     expect(s).toContain('Team folders: owners and admins share')
+    // adding people needs the team's switch for members (files/shares.ts teamOn); taking people off never does
+    expect(s).toContain("the team can turn members' sharing off")
   })
   test('the places are where the map says', () => {
     const has = (file: string, key: string) => expect({ file, key, there: read(file).includes(`'${key}'`) }).toEqual({ file, key, there: true })
@@ -224,6 +233,7 @@ describe('five places with no line before (catalog rerun 2026-11-17: ACC-04/05/0
     has('web/src/components/chat/ChatThreadPanel.tsx', 'chat.thread.sendToAi')
     has('web/src/components/onboarding/OpenAppLine.tsx', 'openApp.lineLink')
     has('web/src/pages/OpenApp.tsx', 'openApp.download')
+    has('web/src/pages/OpenApp.tsx', 'openApp.mac')
     has('web/src/components/MeetingNotes.tsx', 'meeting.entry')
     has('web/src/components/MeetingNotes.tsx', 'meeting.stop')
     has('web/src/pages/Files.tsx', 'folderAccess.menu')
@@ -241,13 +251,13 @@ describe('size: it is in every turn', () => {
   // a rough count calibrated on the engine's own usage (claude -p, 2026-11-16): Hangul about 1.45 tokens a syllable,
   // other text about 3.6 characters a token
   const tokens = (s: string) => { const h = (s.match(/[가-힣]/g) ?? []).length; return Math.round(h * 1.45 + (s.length - h) / 3.6) }
-  // the cap was 900; 1,150 since the five places of 2026-11-17 (docs/decisions/20261117-ai-app-map-five-places.md: they
-  // measured about 255 more after the other lines were cut: the longest form, a shared chat in Korean, about 1,148)
-  test('at most 20 lines and about 1,150 tokens in its longest form', () => {
-    for (const view of ['staff', 'member', 'shared'] as const) for (const L of ['ko', 'en', 'ja'] as const) for (const devEnv of [true, false]) {
+  // the cap was 900; 1,200 since the five places of 2026-11-17 (docs/decisions/20261117-ai-app-map-five-places.md: the
+  // longest form, an owner's or admin's in Korean, measured about 1,177 after the other lines were cut)
+  test('at most 20 lines and about 1,200 tokens in its longest form, in every language', () => {
+    for (const view of ['staff', 'member', 'shared'] as const) for (const L of ['ko', 'en', 'ja', 'zh', 'es', 'id'] as const) for (const devEnv of [true, false]) {
       const s = appMapSection({ view, managed: true, devEnv, office: false }, L)
       expect({ view, L, devEnv, lines: s.split('\n').length <= 20 }).toEqual({ view, L, devEnv, lines: true })
-      expect({ view, L, devEnv, small: tokens(s) <= 1150 }).toEqual({ view, L, devEnv, small: true })
+      expect({ view, L, devEnv, small: tokens(s) <= 1200 }).toEqual({ view, L, devEnv, small: true })
     }
   })
 })

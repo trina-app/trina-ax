@@ -1,4 +1,4 @@
-# The AI's app map names five more places, and its size cap moves from 900 to 1,150
+# The AI's app map names five more places, and its size cap moves from 900 to 1,200
 
 - Date: 2026-11-17
 - Status: accepted
@@ -15,18 +15,21 @@ Plan: [docs/AGENTS/plan/20261117-0702-ai-wording-app-map.md](../AGENTS/plan/2026
   - **Files › Shared with me:** the files and folders shared with the person, newest first
     ([files-shared-with-me](20261116-files-shared-with-me.md)).
   - **Folder sharing:** in My files, a folder's ⋯ › Share: view only, later files too; take people off or Stop sharing
-    at any time, Undo right after; team folders are shared by owners and admins
+    at any time, Undo right after; the team can turn members' sharing off (files/shares.ts `teamOn`: adding needs it,
+    taking people off never does); team folders are shared by owners and admins
     ([folder-share-server](20261116-folder-share-server.md); the gate FOLDER_SHARES_OPEN is open, and the test fails
     if it closes). "Undo right after", not "for 10 minutes": the server keeps an undo 10 minutes, but in Files it is
     a toast of at most 15 seconds; only the AI's own card keeps the button longer.
   - **Threads under an answer:** a finished answer of a shared chat (a project's or one shared with people) has Reply in
     thread; the AI does not read it; Send to <AI> there puts it in the message box to edit and send; the asker and the
-    repliers are told; not in a private chat ([chat-answer-threads](20261116-chat-answer-threads.md)). `{name}` in a
-    label is now filled with the AI's name.
-  - **Open the app:** in a Mac or Windows browser, My files' Open the app opens the desktop app signed in, no password;
-    if it does not open, Download the app and press again; not from a phone (lib/open-app.ts).
+    repliers are told; not in a private chat ([chat-answer-threads](20261116-chat-answer-threads.md)). In a shared chat
+    the line keeps only the labels and who is told: that chat's own section (share-words.ts `sharedCommentsLine`) already
+    says the rest. `{name}` in a label is now filled with the AI's name.
+  - **Open the app:** in a Mac or Windows browser, My files' Open the app › Continue in the Mac app (or Windows) opens
+    the desktop app signed in, no password; if it does not open, Download the app and press again (each press is a new
+    one-time sign-in); not from a phone (lib/open-app.ts, pages/OpenApp.tsx).
   - **Meeting notes:** shipped on this base (Meeting notes 1/4–4/4 merged, no flag): My files › Take meeting notes in
-    the Mac desktop app when the team has voice input; no bot joins, it asks first, Stop on its card, the sound is not
+    the Mac desktop app (not the Mac App Store build: it ships no helper) when the team has voice input; no bot joins, it asks first, Stop at any time, the sound is not
     kept, the notes go to My files › Meetings; the AI cannot listen or start it
     ([live-meeting-notes](20261116-live-meeting-notes.md)).
 - **Size:** measured the size test's way (Hangul 1.45 tokens a syllable, other text 3.6 characters a token), managed
@@ -34,17 +37,19 @@ Plan: [docs/AGENTS/plan/20261117-0702-ai-wording-app-map.md](../AGENTS/plan/2026
 
   | form | before | after |
   |---|---|---|
-  | shared chat, Korean (the longest) | 893 | 1,148 |
-  | owner or admin, Korean | 886 | 1,141 |
-  | member, Korean | 639 | 894 |
-  | shared chat, English | 668 | 872 |
+  | owner or admin, Korean (the longest after) | 886 | 1,177 |
+  | shared chat, Korean (the longest before) | 893 | 1,151 |
+  | member, Korean | 639 | 931 |
+  | owner or admin, English | 661 | 899 |
 
-  The five places alone measured about 300 tokens in Korean. The rest of the map was cut first (a shorter opening line,
-  "Google Forms or" and "their own … accounts" dropped, the photo menu, projects and skills merged into the lines
-  beside them, the find-work-files line merged into the My files line), about 45 tokens, and lines stay at most 20 (19
-  for an owner or admin). A third of the map could not be cut further without dropping places people asked about in
-  earlier catalog runs. So the cap moves to **1,150**: about 255 more tokens in every fresh session's instructions for a
-  Korean owner or admin, about 205 in English.
+  The five places alone measured about 330 tokens in Korean. The rest of the map was cut first (a shorter opening line,
+  "their own … accounts" dropped, the photo menu, projects and skills merged into the lines beside them, the
+  find-work-files line merged into the My files line, the shared chat's thread line cut to its labels), about 40
+  tokens, and lines stay at most 20 (19 for an owner or admin). The other lines each name places people asked about in
+  earlier catalog runs (the independent review kept "Google Forms or" and "Claude or" for ROOM-08 and the Claude case).
+  So the cap moves to **1,200**: about 290 more tokens in every fresh session's instructions for a Korean owner or
+  admin, about 240 in English, with about 20 tokens of room. The size test now checks all six languages (Spanish, the
+  longest of the others, about 1,010).
 - **Not split out:** the map is part of a fresh session's instructions, built once per session (turn.ts), so a line
   "only when relevant" would hang on the session's first message, and the catalog's questions came from personal and
   project chats alike. A help tool (`where_is`) stays rejected for the reasons in the first decision.
