@@ -302,10 +302,11 @@ export class FakeServices {
     if (p === '/mcp-open') return this.mcp(again(), auth)
     // lets anyone start a session but lists its tools only after a sign-in it does not publish (no metadata)
     // open without a key, but they publish sign-in metadata that cannot be used (another issuer), or whose address is down
-    if (p === '/mcp-badmeta' || p === '/mcp-down') return this.mcp(again(), auth)
+    if (p === '/mcp-badmeta' || p === '/mcp-down' || p === '/mcp-limited') return this.mcp(again(), auth)
     if (p === '/.well-known/oauth-protected-resource/mcp-badmeta') return Response.json({ resource: `${this.base}/mcp-badmeta`, authorization_servers: [`${this.base}/as-bad`] })
     if (p === '/.well-known/oauth-authorization-server/as-bad') return Response.json({ issuer: 'https://someone-else.example', authorization_endpoint: `${this.base}/as-bad/authorize`, token_endpoint: `${this.base}/as-bad/token`, code_challenge_methods_supported: ['S256'] })
     if (p === '/.well-known/oauth-protected-resource/mcp-down') return new Response('busy', { status: 503 })
+    if (p === '/.well-known/oauth-protected-resource/mcp-limited') return new Response('slow down', { status: 429 })
     if (p === '/mcp-half') return /"tools\/list"/.test(body) ? new Response('no', { status: 401 }) : this.mcp(again(), auth)
     if (p === '/mcp-key') return auth === `Bearer ${MCP_KEY}` ? this.mcp(again(), auth) : new Response('no', { status: 401 })
     if (p === '/mcp-header') return req.headers.get('x-api-key') === MCP_KEY ? this.mcp(again(), auth) : new Response('no', { status: 401 })

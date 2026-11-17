@@ -74,6 +74,13 @@ describe('a server that needs no sign-in, added with sign-in', () => {
     expect(getRow(h.ctx.db, c.id)).toMatchObject({ auth: 'oauth', status: 'needs_auth' })
   })
 
+  test('the metadata address is rate limited (429), tools listed without a key: not "no sign-in", not switched', async () => {
+    const c = await add('/mcp-limited')
+    const r = await olga.try('POST', `/api/integrations/${c.id}/authorize`, {})
+    expect(r.status).toBe(400)
+    expect(getRow(h.ctx.db, c.id)).toMatchObject({ auth: 'oauth', status: 'needs_auth' })
+  })
+
   test('a sign-in that finishes while the probe runs: its tokens stay, nothing is switched', async () => {
     const c = await add('/mcp-open')
     let release!: () => void

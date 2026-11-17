@@ -53,12 +53,12 @@ export function wwwAuthenticate(h: string): Record<string, string> {
   return out
 }
 
-/** `seen.failed`: an address that could not be read (5xx, a redirect, a network error), as opposed to one that clearly
- * has nothing (4xx, or an answer that is not a JSON object) */
+/** `seen.failed`: an address that could not be read (5xx, 408, 429, a redirect, a network error), as opposed to one
+ * that clearly has nothing (another 4xx, or an answer that is not a JSON object) */
 const get = async (url: string, net: NetOptions, seen?: { failed: boolean }) => {
   try {
     const r = await jsonRequest(url, { method: 'GET', headers: [['Accept', 'application/json']] }, net)
-    if (r.status >= 500 && seen) seen.failed = true
+    if ((r.status >= 500 || r.status === 408 || r.status === 429) && seen) seen.failed = true
     return r.status === 200 ? r.json : null
   } catch (e) { if (e instanceof NetError && (e.reason === 'timeout' || e.reason === 'tls')) throw e; if (seen) seen.failed = true; return null }
 }
