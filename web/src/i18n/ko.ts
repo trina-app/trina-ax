@@ -2297,7 +2297,7 @@ export const ko = {
   'groups.none': '부서가 없어요.',
   'groups.noMembers': '구성원 없음',
   'groups.deleteTitle': '"{name}" 부서를 삭제할까요?',
-  'groups.deleteBody': '이 부서에 걸린 폴더 권한도 함께 지워져요.',
+  'groups.deleteBody': '이 부서에 걸린 폴더 권한도 함께 지워져요. 부서 대화가 있으면 닫히고, 거기서 보낸 파일은 30일 뒤에 지워져요.',
   'groups.deleteAiOff': '이 부서만 쓰던 AI 연결이 꺼져요: {names}',
 
   'rules.everyone': '모두',

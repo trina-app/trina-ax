@@ -2266,7 +2266,7 @@ export const ja: Record<MessageKey, string> = {
   'groups.none': "グループはまだありません。",
   'groups.noMembers': "メンバーなし",
   'groups.deleteTitle': "グループ\"{name}\"を削除しますか？",
-  'groups.deleteBody': "このグループに付与したフォルダーの権限も削除されます。",
+  'groups.deleteBody': "このグループに付与したフォルダーの権限も削除されます。グループのトークがあれば閉じられ、そこで送ったファイルは30日後に削除されます。",
   'groups.deleteAiOff': "このグループだけが使うAI接続はオフになります: {names}",
   'rules.everyone': "全員",
   'rules.group': "グループ",

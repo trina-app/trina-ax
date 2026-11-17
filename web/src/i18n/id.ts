@@ -2298,7 +2298,7 @@ export const id: Record<MessageKey, string> = {
   'groups.none': 'Belum ada grup.',
   'groups.noMembers': 'Belum ada anggota',
   'groups.deleteTitle': 'Hapus grup "{name}"?',
-  'groups.deleteBody': 'Izin folder untuk grup ini ikut dihapus.',
+  'groups.deleteBody': 'Izin folder untuk grup ini ikut dihapus. Jika grup ini punya percakapan, percakapan itu ditutup, dan berkas yang dikirim di sana dihapus setelah 30 hari.',
   'groups.deleteAiOff': 'Koneksi AI yang hanya dipakai grup ini dimatikan: {names}',
 
   'rules.everyone': 'Semua orang',
