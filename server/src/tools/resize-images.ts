@@ -10,7 +10,10 @@
 //   the old one in its history); an `output` that names an existing file the AI did not read gets a conflict copy;
 // - every copy carries the bytes of its photo: the wider-audience check of make_file (confirmSources);
 // - never into a skill folder.
-// JPEG, PNG and WebP only: HEIC and the rest are refused in plain words naming the file.
+// JPEG, PNG, WebP and HEIC (the iPhone's format: decoded first by heif-dec or macOS ImageIO, files/heic-preview.ts,
+// after its declared size is checked; the copy is a JPEG). The rest is refused in plain words naming the file.
+// The copies keep the photo's details (time taken, camera, location) unless the person asks to remove the location or
+// all of them (remove_details; the owner, 2026-11-17: "왜 위치 정보를 빼?").
 import fs from 'node:fs'
 import path from 'node:path'
 import type { z } from 'zod'
@@ -19,7 +22,7 @@ import type { Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { teamDefaultLocale } from '../admin/settings'
 import { ext } from '../files/extract'
-import { isHeic } from '../files/heic-preview'
+import { heicRefusal, heicToJpeg, isHeic } from '../files/heic-preview'
 import type { ToolCtx } from '../files/service'
 import { readRegular } from '../files/store'
 import { imageSlot } from '../files/vision'
@@ -28,7 +31,7 @@ import { Denied, ToolError } from '../policy/errors'
 import { skillRootOf } from '../skills/guard'
 import { checkRegular, freeName } from '../team-files/place'
 import type { TeamFiles } from '../team-files/service'
-import { displaySize } from '../uploads/image'
+import { displaySize, imageSize } from '../uploads/image'
 import { makeWorkDir, runIsolated } from './isolate'
 import { confirmSources, placeProduced, type MadeFile } from './make-file'
 
@@ -52,22 +55,38 @@ export const RESIZE_TOTAL_MAX = 200 * 1024 * 1024
 const RESIZE_OUTPUT_MAX = 48 * 1024 * 1024
 const RESIZE_TIMEOUT_MS = 60_000
 const RESIZE_RSS_MIB = 1536
-const PHOTO_EXT = new Set(['jpg', 'jpeg', 'png', 'webp'])
+const PHOTO_EXT = new Set(['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'])
+/** the options number of the helper: details + 4 * format + 16 * upright (safeops.ResizeOptions) */
+const DETAILS = { keep: 0, location: 1, all: 2 } as const
+const FORMAT = { auto: 0, jpeg: 1, png: 2 } as const
 
-export const RESIZE_IMAGES_DESCRIPTION = 'Make smaller copies of photos (JPEG, PNG, WebP) in the team folder, 1-20 at a time: by the longest side in pixels ' +
+export const RESIZE_IMAGES_DESCRIPTION = 'Make smaller copies of photos (JPEG, PNG, WebP, and HEIC from iPhones) in the team folder, 1-20 at a time: by the longest side in pixels ' +
   '(longest_side), by the width (width, for "1200 px wide"), by the most each copy may weigh (max_mb, for "under 2MB"; may be combined with a size), ' +
-  'or by a preset (preset: "smaller" = half, "email", "web"). The aspect ratio is kept, a photo is never made larger, a phone photo stays upright, ' +
-  'and location and other photo details are removed from the copies. Each copy is a new file "<name>-<word>.<ext>" next to its original (or in output_folder; ' +
-  'output names the copy of a single photo); the originals stay as they are. A WebP copy is saved as JPEG (PNG when it has see-through parts). ' +
-  'HEIC (iPhone) photos cannot be read here: say so plainly and suggest saving them as JPEG first. ' +
+  'or by a preset (preset: "smaller" = half, "email", "web"). The aspect ratio is kept, a photo is never made larger, and a phone photo stays upright. ' +
+  'The copies keep the photo details (time taken, camera, location); remove_details: "location" or "all" only when the user asks to remove them. ' +
+  'Each copy is a new file "<name>-<word>.<ext>" next to its original (or in output_folder; ' +
+  'output names the copy of a single photo); the originals stay as they are. A HEIC or WebP copy is saved as JPEG (a WebP with see-through parts as PNG), ' +
+  'or in the format the user names (format). ' +
   'Replace the originals (replace: true) only when the user explicitly asks for that, after reading each of them.'
 
 const human = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${Math.round(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`)
 const dims = (s: { width: number; height: number } | null) => (s ? `${s.width}×${s.height}` : 'size unknown')
 
 interface Photo { rel: string; segs: string[]; abs: string; st: fs.Stats; name: string }
-interface Made { src: string; made: MadeFile; before: string; after: string; fromWebp: boolean; bigger: boolean }
-export interface ResizeResult { made: Made[]; skipped: string[]; replaced: boolean }
+/** what happened to a copy's photo details (the helper's "resize: details=... location=..." line) */
+export interface Details { details: 'kept' | 'removed' | 'none'; location: 'kept' | 'removed' | 'none' }
+interface Made { src: string; made: MadeFile; before: string; after: string; fromWebp: boolean; fromHeic: boolean; bigger: boolean; meta: Details }
+export interface ResizeResult { made: Made[]; skipped: string[]; replaced: boolean; removeDetails?: 'location' | 'all' }
+
+const STATES = new Set(['kept', 'removed', 'none'])
+/** the helper's report line; an older helper without one: unknown (treated as nothing said) */
+export function detailsLine(stderr: string): Details | null {
+  const m = /^resize: details=(\w+) location=(\w+)$/m.exec(stderr)
+  return m && STATES.has(m[1]!) && STATES.has(m[2]!) ? { details: m[1] as Details['details'], location: m[2] as Details['location'] } : null
+}
+
+/** what the AI is told about an iPhone photo on a server without a HEIC decoder: one plain sentence, no jargon */
+export const NO_HEIC = 'is an iPhone photo (HEIC), and this server cannot open iPhone photos. Tell the user in one plain sentence that this server can\'t open iPhone photos (HEIC) and that they can save the photo as JPEG and upload it again; no technical words'
 
 /** The helper's fixed refusal lines (stderr) -> what the AI is told about that photo (never converter text). */
 function refusal(line: string, name: string, before: string, size: number, maxBytes: number): string {
@@ -103,8 +122,7 @@ export async function resizeImages(ctx: AppContext, files: TeamFiles, c: ToolCtx
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; name the photos in it`, 'is_folder')
     if (photos.some((x) => x.rel === r.rel)) continue
     const name = r.segs[r.segs.length - 1]!
-    if (isHeic(name)) { skipped.push(`'${r.rel}' is an HEIC photo (the iPhone's format), which cannot be read here; it can be saved as JPEG first (on the iPhone: share it with "Save as JPEG", or set Settings > Camera > Formats > Most Compatible)`); continue }
-    if (!PHOTO_EXT.has(ext(name))) { skipped.push(`'${r.rel}' is not a JPEG, PNG or WebP photo; only those can be made smaller here`); continue }
+    if (!PHOTO_EXT.has(ext(name))) { skipped.push(`'${r.rel}' is not a JPEG, PNG, WebP or HEIC photo; only those can be made smaller here`); continue }
     const st = checkRegular(r.abs)
     if (st.size > RESIZE_INPUT_MAX) { skipped.push(`'${r.rel}' is larger than ${RESIZE_INPUT_MAX / 1048576} MB, too large to work on here`); continue }
     total += st.size
@@ -120,6 +138,7 @@ export async function resizeImages(ctx: AppContext, files: TeamFiles, c: ToolCtx
     for (const ph of photos) {
       if (!c.files.readHashes.has(ph.rel)) throw new ToolError(`to replace '${ph.rel}' (its old version stays in its history), read it in this turn first. Replace it only when the user asked for that; otherwise leave replace out to save a copy next to it`)
       if (ext(ph.name) === 'webp') throw new ToolError(`'${ph.rel}' is a WebP, and its copy is a JPEG or PNG, so it cannot replace the original; leave replace out to save the copy next to it`)
+      if (isHeic(ph.name)) throw new ToolError(`'${ph.rel}' is an iPhone photo (HEIC), and its copy is a JPEG, so it cannot replace the original; leave replace out to save the copy next to it`)
     }
   }
   // where each copy goes, with write access checked now (before any conversion): a read-only place stops the call
@@ -143,14 +162,36 @@ export async function resizeImages(ctx: AppContext, files: TeamFiles, c: ToolCtx
   const work = makeWorkDir(path.join(ctx.config.dataDir, 'work'))
   try {
     // 1. every copy made (in the work folder, never in memory all at once)
-    const done: { ph: Photo; produced: string; e: string; before: string; after: string; fromWebp: boolean; bigger: boolean }[] = []
+    const done: { ph: Photo; produced: string; e: string; before: string; after: string; fromWebp: boolean; fromHeic: boolean; bigger: boolean; meta: Details }[] = []
+    const details = DETAILS[a.remove_details ?? 'keep']
     for (const [i, ph] of photos.entries()) {
       c.signal?.throwIfAborted()
       const bytes = readRegular(ph.abs, RESIZE_INPUT_MAX, ph.st).bytes
       ctx.files.quarantine.assertBytes(bytes)
-      const before = dims(displaySize(bytes))
+      const heic = isHeic(ph.name)
+      let input: Uint8Array = bytes
+      let before = dims(displaySize(bytes))
+      if (heic) {
+        // decoded first (its declared size checked before any decoder runs), as upright JPEG pixels with the details
+        const refused = heicRefusal(bytes)
+        if (refused) { skipped.push(refused === 'too_large' ? `'${ph.rel}' is too large to work on here (over 50 megapixels or a side over 65,535 pixels)` : `'${ph.rel}' is damaged and could not be read`); continue }
+        if (!tools.heic.heifDec && !tools.heic.imageIo) { skipped.push(`'${ph.rel}' ${NO_HEIC}`); continue }
+        let decoded: Buffer | null = null
+        try {
+          decoded = await imageSlot(() => heicToJpeg(bytes, tools.heic, c.signal, { keepMeta: true, maxPx: 16384, outputMax: RESIZE_INPUT_MAX }), c.signal)
+        } catch (e) {
+          c.signal?.throwIfAborted()
+          skipped.push(e instanceof ToolError && /stopped \((?!workdir\))/.test(e.message) ? `'${ph.rel}' took too long or needed too much memory to make smaller` : `'${ph.rel}' is damaged and could not be read`)
+          continue
+        }
+        if (!decoded) { skipped.push(`'${ph.rel}' ${NO_HEIC}`); continue }
+        input = decoded
+        before = dims(imageSize(decoded))
+      }
+      const format = FORMAT[a.format ?? (heic ? 'jpeg' : 'auto')]
+      const options = details + 4 * format + (heic ? 16 : 0)
       const r = await imageSlot(() => runIsolated({
-        cmd: tools.normalizer!, args: ['resize', String(side), String(width), String(permille), String(maxBytes)], stdin: bytes,
+        cmd: tools.normalizer!, args: ['resize', String(side), String(width), String(permille), String(maxBytes), String(options)], stdin: input,
         timeoutMs: RESIZE_TIMEOUT_MS, maxRssMiB: RESIZE_RSS_MIB, maxStdout: RESIZE_OUTPUT_MAX + 1, signal: c.signal,
         // the Go runtime collects before it nears the memory limit (review: a 50 MP photo peaked at 1555 MiB without it)
         env: { GOMAXPROCS: '2', GOMEMLIMIT: '800MiB' },
@@ -163,12 +204,13 @@ export async function resizeImages(ctx: AppContext, files: TeamFiles, c: ToolCtx
       const png = out.length > 8 && out.readUInt32BE(0) === 0x89504e47
       if (!jpeg && !png) { skipped.push(`'${ph.rel}' is damaged and could not be read`); continue }
       const e = png ? 'png' : ext(ph.name) === 'jpeg' ? 'jpeg' : 'jpg'
+      const meta = detailsLine(r.stderr) ?? { details: 'none', location: 'none' }
       // replace writes the copy under the original's name: only when the content is that name's format (a PNG named
       // .jpg would get PNG bytes back under .jpg)
       if (replace && (png !== (ext(ph.name) === 'png'))) { skipped.push(`'${ph.rel}' holds a ${png ? 'PNG' : 'JPEG'} picture under another format's name, so it was not replaced; leave replace out to save a copy next to it`); continue }
       const produced = path.join(work, `${i}.${e}`)
       fs.writeFileSync(produced, out, { flag: 'wx', mode: 0o600 })
-      done.push({ ph, produced, e, before, after: `${dims(displaySize(out))}, ${human(out.length)}; was ${before}, ${human(bytes.length)}`, fromWebp: ext(ph.name) === 'webp', bigger: out.length >= bytes.length })
+      done.push({ ph, produced, e, before, after: `${dims(displaySize(out))}, ${human(out.length)}; was ${before}, ${human(bytes.length)}`, fromWebp: ext(ph.name) === 'webp', fromHeic: heic, bigger: out.length >= bytes.length, meta })
     }
     if (!done.length) throw new ToolError(`nothing was made smaller: ${skipped.join('; ')}`)
 
@@ -198,15 +240,35 @@ export async function resizeImages(ctx: AppContext, files: TeamFiles, c: ToolCtx
     const made: Made[] = []
     for (const [i, d] of done.entries()) {
       try {
-        made.push({ src: d.ph.rel, made: await placeProduced(ctx, files, c, targets[i]!.segs, d.produced, 'resize_images'), before: d.before, after: d.after, fromWebp: d.fromWebp, bigger: d.bigger })
+        made.push({ src: d.ph.rel, made: await placeProduced(ctx, files, c, targets[i]!.segs, d.produced, 'resize_images'), before: d.before, after: d.after, fromWebp: d.fromWebp, fromHeic: d.fromHeic, bigger: d.bigger, meta: d.meta })
       } catch (e) {
         if (!made.length || !(e instanceof Error)) throw e
         const T = e instanceof Denied ? Denied : ToolError
         throw new T(`${e.message}. Copies already saved: ${made.map((m) => m.made.path).join(', ')}; the others were not saved`)
       }
     }
-    return { made, skipped, replaced: replace }
+    return { made, skipped, replaced: replace, removeDetails: a.remove_details }
   } finally { fs.rmSync(work, { recursive: true, force: true }) }
+}
+
+const list = (ms: Made[]) => ms.map((m) => `'${m.made.path}'`).join(', ')
+
+/** What the AI says about the photo details: only what really happened to them, and nothing by default. */
+function detailsText(r: ResizeResult): string {
+  if (r.removeDetails === 'all') {
+    const none = r.made.filter((m) => m.meta.details === 'none')
+    return 'The photo details (location, time taken, camera) were removed from the copies, as asked; say so in a few words.' +
+      (none.length ? ` (${list(none)} had none to begin with.)` : '')
+  }
+  if (r.removeDetails === 'location') {
+    const removed = r.made.filter((m) => m.meta.location === 'removed')
+    const none = r.made.filter((m) => m.meta.location !== 'removed')
+    return [
+      removed.length ? `The location was removed from ${list(removed)}, as asked; the other photo details (time taken, camera) were kept. Say so in a few words.` : '',
+      none.length ? `${list(none)} had no location in ${none.length === 1 ? 'it' : 'them'}, so there was nothing to remove; say so.` : '',
+    ].filter(Boolean).join(' ')
+  }
+  return 'The copies keep the photo details of their originals (time taken, camera, and the location where a photo has one). Do not say anything was removed from them; mention the details only if the user asks.'
 }
 
 /** The tool result for the AI: each copy with its new size and link, what was not done, and what to tell the user. */
@@ -219,11 +281,14 @@ export function resizeResultText(r: ResizeResult, link: (p: string) => string): 
     ? 'These are new versions of the originals; the previous versions are in their file history.'
     : `The original${r.made.length === 1 ? ' is' : 's are'} unchanged.`)
   for (const s of r.skipped) lines.push(`Not done: ${s}.`)
-  const bigger = r.made.filter((m) => m.bigger)
+  // a HEIC packs a photo tighter than a JPEG can: its copy being heavier is said with the HEIC line
+  const bigger = r.made.filter((m) => m.bigger && !m.fromHeic)
   if (bigger.length) lines.push(`${bigger.map((m) => `'${m.made.path}'`).join(', ')} ${bigger.length === 1 ? 'has' : 'have'} fewer pixels but ${bigger.length === 1 ? 'is not a smaller file than its original' : 'are not smaller files than their originals'} (the original was already tightly compressed); tell the user, and offer a target file size (max_mb) if they wanted a lighter file.`)
   const webp = r.made.filter((m) => m.fromWebp)
   if (webp.length) lines.push(`${webp.map((m) => `'${m.src}'`).join(', ')} ${webp.length === 1 ? 'is a WebP; its copy is' : 'are WebP; their copies are'} ${webp.every((m) => /\.png$/i.test(m.made.path)) ? 'PNG' : 'JPEG'} (WebP copies cannot be written here); tell the user.`)
-  lines.push('Location and other photo details (camera, time taken) were removed from the copies; say in a few words that the location was removed. ' +
-    'Tell the user each copy\'s new pixel size and file size, link each copy by its name, and say the originals are untouched' + (replacedAny ? ' (here: replaced, with the old versions in their history)' : '') + '.')
+  const heic = r.made.filter((m) => m.fromHeic)
+  if (heic.length) lines.push(`${heic.map((m) => `'${m.src}'`).join(', ')} ${heic.length === 1 ? 'is an iPhone photo (HEIC); its copy is' : 'are iPhone photos (HEIC); their copies are'} ${heic.every((m) => /\.png$/i.test(m.made.path)) ? 'PNG' : 'JPEG'}, which opens everywhere; tell the user in a few words.${heic.some((m) => m.bigger) ? ` HEIC stores photos more tightly than JPEG, so ${list(heic.filter((m) => m.bigger))} ${heic.filter((m) => m.bigger).length === 1 ? 'is' : 'are'} not lighter than the original file; if they wanted a lighter file, offer a target size (max_mb).` : ''}`)
+  lines.push(detailsText(r))
+  lines.push('Tell the user each copy\'s new pixel size and file size, link each copy by its name, and say the originals are untouched' + (replacedAny ? ' (here: replaced, with the old versions in their history)' : '') + '.')
   return lines.join('\n')
 }

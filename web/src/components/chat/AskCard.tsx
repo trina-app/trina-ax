@@ -378,9 +378,35 @@ function SkillPreview({ p }: { p: SkillWritePreview }) {
         <p className="px-3 py-2 text-xs text-muted">{p.diff}</p>
       )}
       {p.truncated && <p className="border-t border-line px-3 py-1 text-micro text-faint">{t('ask.skillTruncated')}</p>}
+      {p.files?.length ? <HeldFiles files={p.files} /> : null}
       {p.problem && <p className="border-t border-line bg-warn-soft px-3 py-1.5 text-xs text-warn" data-testid="skill-preview-problem">{issueText(t, { path: p.path, problem: p.problem })}</p>}
       {/* a skill of the same name at another level the person sees: which one runs (the server's words) */}
       {p.sameName && <p className="border-t border-line bg-warn-soft px-3 py-1.5 text-xs text-warn" data-testid="skill-preview-same-name" data-hidden={p.sameName.hidden || undefined}>{p.sameName.text}</p>}
+    </div>
+  )
+}
+
+/** A new skill's other files that the same card saves (a form, a template; docs/decisions/
+ * 20261117-new-skill-files-on-card.md): each by name, size and first lines, its whole text one click away. */
+function HeldFiles({ files }: { files: NonNullable<SkillWritePreview['files']> }) {
+  const t = useT()
+  return (
+    <div className="border-t border-line px-3 py-2 text-sm" data-testid="skill-preview-files">
+      <p className="text-muted">{t('ask.skillFiles', { count: files.length })}</p>
+      <ul className="mt-1 space-y-1">
+        {files.map((f) => (
+          <li key={f.path} data-testid="skill-preview-held">
+            <details>
+              <summary className="cursor-pointer">
+                <span className="font-medium" title={f.path}>{f.path.split('/').at(-1)}</span>{' '}
+                <span className="font-mono text-xs text-faint">{f.size} B</span>
+                {f.lines && <span className="block whitespace-pre-wrap pl-4 text-xs text-muted [overflow-wrap:anywhere]">{f.lines}</span>}
+              </summary>
+              <pre className="scroll-thin mt-1 max-h-64 overflow-auto rounded bg-subtle px-3 py-1 font-mono text-code-sm leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]" data-testid="skill-preview-held-text">{f.text}</pre>
+            </details>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

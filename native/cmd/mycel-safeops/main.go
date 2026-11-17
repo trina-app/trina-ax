@@ -1,8 +1,8 @@
 // Fixed helper. The 1A modes (png, jpeg, webp, heic, pptx and the broker operations) run only inside the qualified
 // converter sandbox; `vision` (the image the AI sees on read, server/src/files/vision.ts) runs in the ordinary
 // converter isolation (server/src/tools/isolate.ts), and so does `resize` (smaller copies of photos,
-// server/src/tools/resize-images.ts). No mode takes a path or command; resize's only arguments are four bounded
-// decimal numbers, checked here and again in safeops.Resize.
+// server/src/tools/resize-images.ts). No mode takes a path or command; resize's only arguments are five bounded
+// decimal numbers, checked here and again in safeops.Resize; vision takes at most the fixed word `upright`.
 package main
 
 import (
@@ -18,8 +18,12 @@ import (
 )
 
 func main() {
-	if len(os.Args) == 6 && os.Args[1] == "resize" {
+	if len(os.Args) == 7 && os.Args[1] == "resize" {
 		resize(os.Args[2:])
+		return
+	}
+	if len(os.Args) == 3 && os.Args[1] == "vision" && os.Args[2] == "upright" {
+		vision(true)
 		return
 	}
 	if len(os.Args) > 2 {
@@ -66,7 +70,7 @@ func main() {
 	}
 	mode := os.Args[1]
 	if mode == "vision" {
-		vision()
+		vision(false)
 		return
 	}
 	limit := int64(safeops.InputMax)
@@ -119,14 +123,20 @@ func main() {
 }
 
 // vision: stdin (at most safeops.VisionInputMax bytes) -> one normalized JPEG on stdout. A refusal exits 3 with one
-// fixed reason line on stderr ("vision: pixel limit" ...), never text taken from the input.
-func vision() {
+// fixed reason line on stderr ("vision: pixel limit" ...), never text taken from the input. upright: the pixels are
+// upright already (a HEIC decoded by the server), so the orientation tag is ignored.
+func vision(upright bool) {
 	b, err := safeops.ReadBounded(os.Stdin, safeops.VisionInputMax)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, safeops.ErrVisionBytes)
 		os.Exit(3)
 	}
-	out, err := safeops.Vision(b)
+	var out []byte
+	if upright {
+		out, err = safeops.VisionUpright(b)
+	} else {
+		out, err = safeops.Vision(b)
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(3)
@@ -136,11 +146,12 @@ func vision() {
 	}
 }
 
-// resize <longest side> <width> <permille> <max bytes>: stdin (at most safeops.ResizeInputMax bytes) -> one new JPEG or
-// PNG on stdout. 0 leaves a control out. A refusal exits 3 with one fixed reason line on stderr ("resize: pixel
-// limit" ...), never text taken from the input.
+// resize <longest side> <width> <permille> <max bytes> <options>: stdin (at most safeops.ResizeInputMax bytes) -> one
+// new JPEG or PNG on stdout. 0 leaves a size control out; options = details + 4*format + 16*upright
+// (safeops.ResizeOptions). Done: one fixed line on stderr, "resize: details=<kept|removed|none> location=<...>". A
+// refusal exits 3 with one fixed reason line on stderr ("resize: pixel limit" ...), never text taken from the input.
 func resize(args []string) {
-	n := make([]int, 4)
+	n := make([]int, 5)
 	for i, a := range args {
 		if len(a) < 1 || len(a) > 9 {
 			fmt.Fprintln(os.Stderr, safeops.ErrResizeSpec)
@@ -159,11 +170,17 @@ func resize(args []string) {
 		fmt.Fprintln(os.Stderr, safeops.ErrResizeBytes)
 		os.Exit(3)
 	}
-	out, err := safeops.Resize(b, safeops.ResizeSpec{Side: n[0], Width: n[1], Permille: n[2], MaxBytes: n[3]})
+	details, format, upright, ok := safeops.ResizeOptions(n[4])
+	if !ok {
+		fmt.Fprintln(os.Stderr, safeops.ErrResizeSpec)
+		os.Exit(2)
+	}
+	out, info, err := safeops.ResizeWithInfo(b, safeops.ResizeSpec{Side: n[0], Width: n[1], Permille: n[2], MaxBytes: n[3], Details: details, Format: format, Upright: upright})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(3)
 	}
+	fmt.Fprintf(os.Stderr, "resize: details=%s location=%s\n", info.Details, info.Location)
 	if _, err = os.Stdout.Write(out); err != nil {
 		os.Exit(1)
 	}

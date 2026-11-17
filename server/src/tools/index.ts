@@ -206,7 +206,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
     name: 'resize_images',
     description: RESIZE_IMAGES_DESCRIPTION,
     input: ResizeImagesInput,
-    describe: (a) => `resize_images ${a.paths.length} photo${a.paths.length === 1 ? '' : 's'}${a.preset ? ` ${a.preset}` : ''}${a.longest_side ? ` side ${a.longest_side}` : ''}${a.width ? ` width ${a.width}` : ''}${a.max_mb ? ` max ${a.max_mb} MB` : ''}${a.replace ? ' replace' : a.output_folder ? ` -> ${a.output_folder}` : a.output ? ` -> ${a.output}` : ''}`,
+    describe: (a) => `resize_images ${a.paths.length} photo${a.paths.length === 1 ? '' : 's'}${a.preset ? ` ${a.preset}` : ''}${a.longest_side ? ` side ${a.longest_side}` : ''}${a.width ? ` width ${a.width}` : ''}${a.max_mb ? ` max ${a.max_mb} MB` : ''}${a.remove_details ? ` remove ${a.remove_details}` : ''}${a.format ? ` as ${a.format}` : ''}${a.replace ? ' replace' : a.output_folder ? ` -> ${a.output_folder}` : a.output ? ` -> ${a.output}` : ''}`,
     async run(a, t) {
       const r = await resizeImages(ctx, c.files, t, a)
       return {

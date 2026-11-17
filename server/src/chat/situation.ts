@@ -11,13 +11,13 @@
 // people's to know).
 import type { Database } from 'bun:sqlite'
 import { PRODUCT } from '@mycel/shared'
-import type { Locale } from '@mycel/shared/api'
+import { ACCOUNT_DELETION_GRACE_DAYS, type Locale } from '@mycel/shared/api'
 import { allowedCredentialKinds, isManaged, type AppConfig } from '../app-config'
 import { getTeamSettings } from '../admin/settings'
 import { personalConnectionsAllowed } from '../credentials/policy'
 import { resolveCredential, type CredEngine } from '../credentials/resolve'
 import { isGuestUser } from '../credentials/guest-ai'
-import type { RunKind } from '../system/deployment'
+import { featuresOf, type RunKind } from '../system/deployment'
 import { currentPlan } from '../system/limits'
 import { guestLimit } from '../auth/guests'
 import { SCREEN } from '../policy/refusal'
@@ -42,6 +42,9 @@ export interface Situation {
   plan: { name: string | null; people: number | null; guests: number | null } | null
   /** this answer can read public web pages (web search is off for guests, confidential and restricted chats) */
   web: boolean
+  /** this install can mirror a folder of its computer into the team folder (system/deployment.ts connectedFolders:
+   * not on a hosted team or a demo); absent: not said */
+  connectedFolders?: boolean
 }
 
 /** The app from the session's client kind and whether this answer has the desktop browser. */
@@ -73,6 +76,7 @@ export function situationOf(ctx: { db: Database; config: AppConfig }, p: { userI
     // guests: the cap the server applies (auth/guests.ts guestLimit: 3 while the plan file has none)
     plan: plan ? { name: plan.display?.name?.[p.locale] ?? plan.display?.name?.en ?? null, people: plan.maxActiveMembers ?? null, guests: safe(() => guestLimit(), null) } : null,
     web: p.webSearch ?? true,
+    connectedFolders: safe(() => featuresOf(ctx.config).connectedFolders, false),
   }
 }
 
@@ -109,7 +113,9 @@ export function situationSection(s: Situation, L: Locale): string {
   const ownAi = s.ownAi ? `They can add their own AI sign-in in ${SCREEN.ownProviders(L)}.` : `Adding their own AI account is turned off for this team${staff ? ` (${SCREEN.adminProviders(L)})` : ' by an admin: do not suggest it'}.`
   if (s.ai === 'own') lines.push(`- AI: your answers use their own AI account (${SCREEN.ownProviders(L)}).`)
   else if (s.ai === 'team') lines.push(`- AI: your answers use an AI account the team set up${staff ? ` (${SCREEN.adminProviders(L)})` : ''}. ${ownAi}`)
-  else if (s.ai === 'host') lines.push(`- AI: your answers use the AI sign-in of the computer this server runs on${staff ? ` (${SCREEN.adminProviders(L)})` : ', set up by the owner'}.`)
+  // everyone answers on that one sign-in (app-config.ts local-login): asked "can I switch to my own Claude account?", the
+  // AI sent people to Settings or Admin pages to add one (AI scenario CON-07, 2026-11-17)
+  else if (s.ai === 'host') lines.push(`- AI: your answers use the AI sign-in of the computer this server runs on${staff ? ` (${SCREEN.adminProviders(L)} shows it but cannot change it)` : ', set up by the owner'}. It serves everyone: nobody can switch to their own AI account here; another account means ${staff ? 'signing in again on that computer itself, not in the app' : 'the owner signs in again on that computer itself'}.`)
   else lines.push(`- AI: ${ownAi}`)
   lines.push(`- Their own AI usage and limits are in ${SCREEN.usage(L)}.`)
   // a card needs someone in the app: never in Slack or a scheduled run
@@ -117,6 +123,15 @@ export function situationSection(s: Situation, L: Locale): string {
   lines.push(s.ownConnectors
     ? `- Their own connected services (their accounts at other services) are in ${SCREEN.connectors(L)}${card ? ', or connect one with a card in this chat' : ''}.`
     : `- Adding their own connected services is turned off for this team by an admin${staff ? '' : ': do not offer to connect one for them; the team\'s connected apps are an admin\'s'}.`)
+  // leaving: a member or an admin deletes their own account, the owner hands the team over first (AccountDeletion.tsx;
+  // asked "how do I delete my account?", the AI said only an admin can: AI scenario ACC-03, 2026-11-17)
+  lines.push(s.role === 'owner'
+    ? `- Deleting their account: not as the owner; first hand the team over (${SCREEN.handover(L)}), then ${SCREEN.deleteAccount(L)}.`
+    : `- Deleting their account: themselves, in ${SCREEN.deleteAccount(L)}; done ${ACCOUNT_DELETION_GRACE_DAYS} days later, cancellable until then.`)
+  // earlier versions and connected folders (AI scenario SYS-04, 2026-11-17: "I don't know where the version history is")
+  if (s.connectedFolders !== undefined) lines.push(`- Files: earlier versions are in ${SCREEN.fileHistory(L)}. ${s.connectedFolders
+    ? `Connected folders: the owner can mirror a folder of the computer the team's app runs on (a NAS or Google Drive there too) read-only${s.role === 'owner' ? ` (${SCREEN.connectedFolders(L)})` : ''}; only folders of that computer, not of anyone's other computers.`
+    : 'Connected folders (a computer\'s folder kept in the team folder): not on this install.'}`)
   if (s.plan) {
     const caps = [s.plan.people !== null ? `up to ${s.plan.people} active people including the owner` : '', s.plan.guests !== null ? `${s.plan.guests} guests` : ''].filter(Boolean).join(', and ')
     lines.push(`- Team plan: ${s.plan.name ? `${oneLine(s.plan.name)}${caps ? ` (${caps})` : ''}` : caps || 'set by the hosting service'}; ${SCREEN.adminSystem(L)} shows it.`)

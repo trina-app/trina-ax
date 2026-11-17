@@ -8,10 +8,11 @@ import type { Case, CaseResult } from './types'
 
 const cell = (s: string) => s.replace(/\|/g, '\\|').replace(/\s+/g, ' ').trim()
 
-export type Status = 'pass' | 'fail' | 'fail (fix in progress)' | 'blocked' | 'not judged'
+export type Status = 'pass' | 'fail' | 'fail (fix in progress)' | 'blocked' | 'setup' | 'not judged'
 export function statusOf(c: Case, r: CaseResult | undefined): Status {
   if (!r) return 'not judged'
   if (r.error?.startsWith('blocked:')) return 'blocked'
+  if (r.error?.startsWith('setup:')) return 'setup'
   if (!r.judge) return 'not judged'
   if (r.judge.pass) return 'pass'
   return c.fixInProgress ? 'fail (fix in progress)' : 'fail'
@@ -28,12 +29,12 @@ export function writeReport(cases: Case[], results: CaseResult[], dir: string, a
   const lines: string[] = []
   const r0 = results[0]
   lines.push(`# AI scenario run ${r0?.runId ?? ''}`, '')
-  lines.push(`Commit ${r0?.commit ?? '?'}. ${ran.length} cases: ${count('pass')} pass, ${count('fail')} fail, ${count('fail (fix in progress)')} fail with a fix in progress, ${count('blocked')} blocked, ${count('not judged')} not judged.`, '')
+  lines.push(`Commit ${r0?.commit ?? '?'}. ${ran.length} cases: ${count('pass')} pass, ${count('fail')} fail, ${count('fail (fix in progress)')} fail with a fix in progress, ${count('blocked')} blocked, ${count('setup')} setup (the case cannot run as written), ${count('not judged')} not judged.`, '')
   lines.push(`Engine turns: ${turns.length}, model ${[...new Set(turns.map((t) => t.model).filter(Boolean))].join(', ') || '?'}. Tokens: ${sum((t) => t.usage.inputTokens).toLocaleString('en')} input, ${sum((t) => t.usage.outputTokens).toLocaleString('en')} output, ${sum((t) => t.usage.cacheReadTokens).toLocaleString('en')} cache read, ${sum((t) => t.usage.cacheWriteTokens).toLocaleString('en')} cache write; ${sum((t) => t.usage.apiCalls)} model calls; list-price equivalent $${sum((t) => t.usage.costUsd).toFixed(2)} (paid by this Mac's Claude subscription, not billed). Time ${Math.round(sum((t) => t.ms) / 60000)} min of turns.`, '')
   lines.push('| Case | Feature | Kind | Context | As | Install | Expected | Result | Why |', '|---|---|---|---|---|---|---|---|---|')
   for (const c of ran) {
     const r = byId.get(c.id)!
-    const why = r.error?.startsWith('blocked:') ? r.error : r.judge ? `${r.judge.root_cause !== 'none' ? `[${r.judge.root_cause}] ` : ''}${r.judge.why}` : r.error ?? ''
+    const why = r.error?.startsWith('blocked:') || r.error?.startsWith('setup:') ? r.error : r.judge ? `${r.judge.root_cause !== 'none' ? `[${r.judge.root_cause}] ` : ''}${r.judge.why}` : r.error ?? ''
     lines.push(`| ${c.id} ${cell(c.title)} | ${c.features[0]} | ${c.kind} | ${c.context} | ${c.as} | ${c.install} | ${c.expect.outcome} | ${st.get(c.id)} | ${cell(why)} |`)
   }
   lines.push('', '## Failures by root cause', '')

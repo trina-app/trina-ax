@@ -44,6 +44,14 @@ export const VISION_TEXT = {
     es: 'Este servidor no tiene un conversor de imágenes para la IA, por lo que la imagen no se puede mostrar.',
     zh: '这台服务器没有转换发送给 AI 的图片的工具，所以无法显示图片。',
   },
+  noHeic: {
+    ko: '이 서버에서는 아이폰 사진(HEIC)을 열 수 없어요. JPEG로 저장해서 다시 올려 주세요.',
+    en: 'This server can\'t open iPhone photos (HEIC). Save the photo as JPEG and upload it again.',
+    id: 'Server ini tidak dapat membuka foto iPhone (HEIC). Simpan foto sebagai JPEG lalu unggah lagi.',
+    ja: 'このサーバーでは iPhone の写真（HEIC）を開けません。JPEG で保存してからもう一度アップロードしてください。',
+    es: 'Este servidor no puede abrir fotos de iPhone (HEIC). Guarde la foto como JPEG y vuelva a subirla.',
+    zh: '这台服务器无法打开 iPhone 照片（HEIC）。请把照片存为 JPEG 后重新上传。',
+  },
   tooLarge: {
     ko: '이미지가 너무 커서(5천만 화소 또는 32MB 초과) 보여 줄 수 없어요.',
     en: 'The image is too large to show (over 50 megapixels or 32 MB).',

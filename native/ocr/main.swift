@@ -9,6 +9,9 @@
 //       only when a team turned image viewing off.
 //   mycel-ocr --jpeg N  < image   (a JPEG of the image, longest side at most N px, rotated as the file asks; the
 //                                  HEIC / HEIF preview of the file panel and of AI reads, heic-preview.ts)
+//   mycel-ocr --jpeg N --meta < image   (the same at quality 0.92, keeping the photo's EXIF, GPS, TIFF and IPTC
+//                                  details with the orientation set to 1: a HEIC photo the AI makes a smaller copy of,
+//                                  tools/resize-images.ts; whether the location stays is decided after, by mycel-safeops)
 //   mycel-ocr --layer  < pdf      (the text layer of every page, no recognition; each page ends with a form feed,
 //                                  like pdftotext: AI reads on a Mac without poppler, server/src/files/vision.ts)
 //   mycel-ocr --page P --px N  < pdf   (page P, 1-based, drawn on white with its /Rotate, longest side N px, as a
@@ -22,6 +25,7 @@ import Vision
 
 var maxPages = 100
 var jpegMax = 0
+var keepMeta = false
 var layerOnly = false
 var pageNo = 0
 var pagePx = 0
@@ -30,6 +34,7 @@ while let a = args.popFirst() {
   if a == "--max-pages", let v = args.popFirst(), let n = Int(v), n > 0 { maxPages = n }
   if a == "--jpeg", let v = args.popFirst(), let n = Int(v), n > 0 { jpegMax = min(n, 16384) }
   if a == "--layer" { layerOnly = true }
+  if a == "--meta" { keepMeta = true }
   if a == "--page", let v = args.popFirst(), let n = Int(v), n > 0 { pageNo = n }
   if a == "--px", let v = args.popFirst(), let n = Int(v), n > 0 { pagePx = min(n, 4096) }
 }
@@ -87,7 +92,22 @@ func jpeg(_ data: Data, _ maxPx: Int) -> Never {
   guard let img = CGImageSourceCreateThumbnailAtIndex(src, CGImageSourceGetPrimaryImageIndex(src), opts as CFDictionary) else { fail("could not decode the image", 1) }
   let out = NSMutableData()
   guard let dst = CGImageDestinationCreateWithData(out as CFMutableData, "public.jpeg" as CFString, 1, nil) else { fail("could not write a JPEG", 1) }
-  CGImageDestinationAddImage(dst, onWhite(img), [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
+  var props: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: keepMeta ? 0.92 : 0.85]
+  if keepMeta, let p = CGImageSourceCopyPropertiesAtIndex(src, CGImageSourceGetPrimaryImageIndex(src), nil) as? [CFString: Any] {
+    for k in [kCGImagePropertyExifDictionary, kCGImagePropertyGPSDictionary, kCGImagePropertyTIFFDictionary, kCGImagePropertyIPTCDictionary] {
+      if let v = p[k] { props[k] = v }
+    }
+    // the pixels are upright now (the thumbnail applied the orientation)
+    if var tiff = props[kCGImagePropertyTIFFDictionary] as? [CFString: Any] {
+      tiff[kCGImagePropertyTIFFOrientation] = 1
+      // the HEIC's tile size says nothing about a JPEG
+      tiff.removeValue(forKey: kCGImagePropertyTIFFTileWidth)
+      tiff.removeValue(forKey: kCGImagePropertyTIFFTileLength)
+      props[kCGImagePropertyTIFFDictionary] = tiff
+    }
+    props[kCGImagePropertyOrientation] = 1
+  }
+  CGImageDestinationAddImage(dst, onWhite(img), props as CFDictionary)
   guard CGImageDestinationFinalize(dst) else { fail("could not write a JPEG", 1) }
   FileHandle.standardOutput.write(out as Data)
   exit(0)

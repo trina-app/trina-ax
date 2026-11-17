@@ -8,6 +8,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { modelImage, normalizeForModel, pdfPagePng, type VisionTools } from '../../server/src/files/vision'
+/** a real HEIC (its declared size passes the check before decoding), so the planted converter runs */
+const HEIC_FIXTURE = new Uint8Array(fs.readFileSync(path.join(import.meta.dir, '..', 'fixtures', 'exif', 'photo-gps.heic')))
 
 const TRUE = fs.existsSync('/usr/bin/true') ? '/usr/bin/true' : '/bin/true'
 /** prints its arguments without end: stopped by the output limit */
@@ -44,7 +46,7 @@ describe('a converter that replaced its work folder: the read says damaged, not 
   })
   test('the HEIC decoder (heif-dec)', async () => {
     swap = true
-    expect(await codeOf(modelImage('photo.heic', new Uint8Array(64), tools({ heic: { heifDec: TRUE, imageIo: null } })))).toBe('vision_damaged')
+    expect(await codeOf(modelImage('photo.heic', HEIC_FIXTURE, tools({ heic: { heifDec: TRUE, imageIo: null } })))).toBe('vision_damaged')
     expect(swaps).toBe(1)
   })
   test('a limit still says too heavy: the normalizer writing more than one image block is stopped (output)', async () => {

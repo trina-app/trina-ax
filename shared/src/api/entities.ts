@@ -38,6 +38,9 @@ export const UserPrefs = z.object({
   /** an owner's or admin's one-time line on Admin › Home that members can now share folders in their own files
    * (docs/AGENTS/plan/20261116-1330-folder-share-web.md) was closed: it never shows again */
   folderShareNotice: z.literal('seen').optional().catch(undefined),
+  /** the office owner's one-time notice on Admin › Home that the server removed Claude Code connections from this Mac
+   * (server/src/office/claude-mcp-notice.ts) was closed: it never shows again */
+  officeMcpNotice: z.literal('seen').optional().catch(undefined),
   /** my lists' folds (ListFolds); a stored value that does not read reads as absent, never hiding the other preferences */
   listFolds: ListFolds.optional().catch(undefined),
 })

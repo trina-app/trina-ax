@@ -4,7 +4,9 @@
 // - Images (png, jpg, gif, webp, heic, tiff, bmp) and PDF pages without a text layer go to the model as one new JPEG
 //   each: decoded and rebuilt from pixels by the Go normalizer `mycel-safeops vision` (native/internal/safeops/
 //   vision.go): longest side 1568 px, at most 1 MiB, transparency on white, EXIF orientation applied, no metadata
-//   (EXIF, GPS, XMP, ICC, comments) copied. HEIC is first decoded by heif-dec or macOS ImageIO (heic-preview.ts).
+//   (EXIF, GPS, XMP, ICC, comments) copied. HEIC is first decoded by heif-dec or macOS ImageIO (heic-preview.ts),
+//   after its declared size is checked, and normalized as upright pixels (`vision upright`): Claude takes only JPEG,
+//   PNG, GIF and WebP. A server without a HEIC decoder says so in one plain sentence (vision_no_heic).
 // - PDF pages: the text layer comes from pdftotext (or PDFKit, `mycel-ocr --layer`, on a Mac without poppler);
 //   pages are drawn by pdftoppm (Linux) or PDFKit (`mycel-ocr --page`, macOS) and normalized the same way.
 // - Every converter runs in the converter isolation (tools/isolate.ts: bwrap + converter cgroup on Linux,
@@ -153,12 +155,13 @@ const REFUSALS: [string, string][] = [
   ['vision: unsupported format', 'vision_unsupported'], ['vision: corrupt image', 'vision_damaged'], ['vision: output limit', 'vision_heavy'],
 ]
 
-/** One image file's bytes -> the JPEG the model sees. Throws ToolError vision_* (never converter text). */
-export async function normalizeForModel(bytes: Uint8Array, tools: VisionTools, signal?: AbortSignal): Promise<Buffer> {
+/** One image file's bytes -> the JPEG the model sees. Throws ToolError vision_* (never converter text). `upright`: the
+ * pixels are upright already (a decoded HEIC), the orientation tag is ignored. */
+export async function normalizeForModel(bytes: Uint8Array, tools: VisionTools, signal?: AbortSignal, upright = false): Promise<Buffer> {
   if (!tools.normalizer) throw new ToolError('the image normalizer (mycel-safeops) is missing', 'vision_unavailable')
   if (bytes.byteLength > VISION_INPUT_MAX) throw new ToolError('image over the input limit', 'vision_too_large')
   const r = await slot(() => runIsolated({
-    cmd: tools.normalizer!, args: ['vision'], stdin: bytes, timeoutMs: CONVERT_TIMEOUT_MS, maxRssMiB: CONVERT_RSS_MIB,
+    cmd: tools.normalizer!, args: upright ? ['vision', 'upright'] : ['vision'], stdin: bytes, timeoutMs: CONVERT_TIMEOUT_MS, maxRssMiB: CONVERT_RSS_MIB,
     maxStdout: VISION_OUTPUT_MAX + 1, signal, env: { GOMAXPROCS: '2' },
   }), signal)
   signal?.throwIfAborted()
@@ -180,10 +183,11 @@ export async function modelImage(name: string, bytes: Uint8Array, tools: VisionT
   let decoded: Buffer | null
   try { decoded = await slot(() => heicToJpeg(bytes, tools.heic, signal), signal) } catch (e) {
     signal?.throwIfAborted()
+    if (e instanceof ToolError && e.code === 'too_large') throw new ToolError('the HEIC photo is over the pixel limits', 'vision_too_large')
     throw new ToolError('the HEIC photo could not be decoded', e instanceof ToolError && /stopped \((?!workdir\))/.test(e.message) ? 'vision_heavy' : 'vision_damaged')
   }
-  if (!decoded) throw new ToolError('no HEIC decoder on this server', 'vision_unavailable')
-  return normalizeForModel(decoded, tools, signal)
+  if (!decoded) throw new ToolError('no HEIC decoder on this server', 'vision_no_heic')
+  return normalizeForModel(decoded, tools, signal, true)
 }
 
 // ---------------- PDFs ----------------

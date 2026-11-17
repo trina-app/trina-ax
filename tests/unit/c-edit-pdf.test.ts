@@ -268,6 +268,27 @@ describe('edit_pdf: each operation, as a new file next to the original', () => {
   })
 })
 
+describe('edit_pdf on a PDF the AI made in this turn', () => {
+  test('changed in place without output (a new version); a file it only read gets a copy next to it', async () => {
+    put(`${D}/fresh-src.pdf`, pdf('F', 3))
+    const call = turn('alice')
+    expect((await call('edit_pdf', { file_path: `${D}/fresh-src.pdf`, operations: [{ keep_pages: 'all' }], output: `${D}/fresh.pdf` })).isError).toBe(false)
+    const r = await call('edit_pdf', { file_path: `${D}/fresh.pdf`, operations: [{ remove_pages: '3' }] })
+    expect(r.isError, r.text).toBe(false)
+    expect(r.text).toContain(`This is a new version of ${D}/fresh.pdf; the previous version is in its file history.`)
+    expect((await PDFDocument.load(fs.readFileSync(file(`${D}/fresh.pdf`)))).getPageCount()).toBe(2)
+    expect(fs.readdirSync(file(D)).filter((n) => n.startsWith('fresh ('))).toEqual([])
+    expect((A.ctx.db.query('SELECT COUNT(*) AS n FROM file_versions WHERE path = ?').get(`${D}/fresh.pdf`) as { n: number }).n).toBe(1)
+    const ev = A.ctx.db.query('SELECT action FROM file_events WHERE path = ? ORDER BY id DESC LIMIT 1').get(`${D}/fresh.pdf`) as { action: string }
+    expect(ev.action).toBe('update')
+    // the person's file, only read: a copy, as before
+    await call('read', { file_path: `${D}/fresh-src.pdf`, pages: '1' })
+    const theirs = await call('edit_pdf', { file_path: `${D}/fresh-src.pdf`, operations: [{ remove_pages: '3' }] })
+    expect(theirs.text).toContain(`Saved ${D}/fresh-src (${word('edited')}).pdf (2 pages).`)
+    expect((await PDFDocument.load(fs.readFileSync(file(`${D}/fresh-src.pdf`)))).getPageCount()).toBe(3)
+  })
+})
+
 describe('merge_pdfs and split_pdf', () => {
   test('merge in the order given, with pages of one; a free name next to the first', async () => {
     put(`${D}/quote-a.pdf`, pdf('A', 2))

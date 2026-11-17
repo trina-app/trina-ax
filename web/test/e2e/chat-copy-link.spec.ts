@@ -1,7 +1,9 @@
 // 링크 복사 on an AI chat (docs/AGENTS/plan: chat-copy-link): in a shared project chat the header's "⋯" copies the chat's
 // address (<origin>/c/<id>, nothing else) and the toast says how many project members can open it. Someone who reads the
-// project folder opens the link and sees the chat; someone who does not gets the same "not found" page as for an address
-// that was never a chat (no word on whether it exists); a signed-out person signs in and lands on the chat.
+// project folder opens the link and sees the chat; an admin who does not gets the "not found" page with its "add yourself
+// in Projects" line, the same as for an address that was never a chat (no word on whether it exists); a member gets the
+// link page of docs/decisions/20261116-chat-project-ask-access.md (efcb894aa); a signed-out person signs in and lands on
+// the chat.
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { CSRF_HEADER, uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
@@ -12,6 +14,7 @@ const post = (page: Page, path: string, data: object) => page.request.post(path,
 const patch = (page: Page, path: string, data: object) => page.request.patch(path, { headers: { [CSRF_HEADER]: '1' }, data })
 const KO = { shared: /링크를 복사했어요 · \d+명이 열 수 있어요/, private: '링크를 복사했어요 · 나만 열 수 있어요', notFound: '이 채팅을 열 수 없어요.', copy: '링크 복사',
   onlyMe: '나만 열 수 있는 채팅이에요. 링크를 받은 사람은 열 수 없어요.',
+  cantAsk: '여기에는 권한을 요청할 수 없어요. 링크를 보낸 사람에게 물어보세요.',
   why: '만든 사람만 볼 수 있는 채팅이거나, 삭제됐거나, 내가 멤버가 아닌 프로젝트의 채팅일 수 있어요. 링크를 보낸 사람에게 나와 공유해 달라고 해 주세요.' }
 
 async function windowOf(browser: Browser, who?: typeof BOB) {
@@ -49,11 +52,15 @@ test('copy a link in a shared project chat: a member opens it, a non-member gets
 
   // the folder is read by Olga and Bob only: Dana (an admin without access) gets the page every missing chat gets
   expect((await post(page, '/__test/restrict', { path: 'marketing', users: ['olga', 'bob'] })).ok()).toBeTruthy()
+  // (an admin never asks for a team project's chat: she adds herself in Projects, which the page says)
   const dana = await windowOf(browser, DANA)
   await dana.goto(link)
   await expect(dana.getByText(KO.notFound)).toBeVisible()
+  await expect(dana.getByTestId('chat-not-found-manage')).toBeVisible()
+  await expect(dana.getByTestId('link-access-page')).toHaveCount(0)
   await dana.goto(`/c/${uuidv7()}`)
   await expect(dana.getByText(KO.notFound)).toBeVisible()
+  await expect(dana.getByTestId('chat-not-found-manage')).toBeVisible()
   await dana.context().close()
 
   // signed out: the sign-in page keeps the path, and the chat opens after it
@@ -81,9 +88,10 @@ test('a private chat: the toast says only I can open it', async ({ page }) => {
 
 // QA TC-919, TC-948, TC-949 (owner report 2026-11-13): a private chat in a team project ("Only me", from before, or
 // brought in; docs/DECISIONS.md "Team project chats shared by default"). Its copied link says nobody else can open it,
-// with "멤버와 공유"; a member who opens it gets the page every chat that cannot be opened gets, which says the likely
-// reason and what to ask for, the same for an address that was never a chat; no admin line for a member.
-test('a private chat in a team project: the toast says others cannot open it, a member reads why on the not-found page', async ({ page, browser }) => {
+// with "멤버와 공유"; a member who opens it gets the link page's one plain line (a private chat of a team project can
+// never be asked for: efcb894aa), and an address that was never a chat the not-found page with the likely reason; no
+// admin line for a member.
+test('a private chat in a team project: the toast says others cannot open it, a member reads that it cannot be asked for', async ({ page, browser }) => {
   await reset(page)
   await signIn(page)
   const p = await post(page, '/api/projects', { name: 'Launch', scope: 'team', folderPath: 'marketing', instructions: '' })
@@ -103,11 +111,11 @@ test('a private chat in a team project: the toast says others cannot open it, a 
   await expect(page.getByTestId('share-chat-cancel')).toBeVisible()
   await page.getByTestId('share-chat-cancel').click()
 
-  // Bob reads marketing/ (a member of Launch) but the chat is not shared: the one page, with the reason; no admin line
+  // Bob reads marketing/ (a member of Launch) but the chat is not shared: the plain line, no button, nothing of the chat
   const bob = await windowOf(browser, BOB)
   await bob.goto(link)
-  await expect(bob.getByText(KO.notFound)).toBeVisible()
-  await expect(bob.getByTestId('chat-not-found-why')).toHaveText(KO.why)
+  await expect(bob.getByTestId('link-access-cant-ask-line')).toHaveText(KO.cantAsk)
+  await expect(bob.getByTestId('link-access-ask-button')).toHaveCount(0)
   await expect(bob.getByTestId('chat-not-found-manage')).toHaveCount(0)
   if (dir) await bob.screenshot({ path: `${dir}/not-found-member-1440.png` })
   // the same page for an address that was never a chat (no word on whether it exists)

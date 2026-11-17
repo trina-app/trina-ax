@@ -59,7 +59,8 @@ export function judgeInput(c: Case, r: CaseResult, people: string): string {
     `### Turn ${i + 1}`,
     `Person: ${t.prompt}`,
     `Actions: ${t.tools.map((x) => `${x.name}${x.ok ? '' : ' (FAILED)'} ${JSON.stringify(x.input).slice(0, 300)}${x.result ? ` -> ${x.result.slice(0, 200).replace(/\s+/g, ' ')}` : ''}`).join('\n  ') || 'none'}`,
-    `Cards shown: ${t.cards.map((k) => `[${k.origin}] ${k.question} -> ${k.answer}`).join('; ') || 'none'}`,
+    `Cards shown: ${t.cards.filter((k) => !k.kind.startsWith('step-fix:')).map((k) => `[${k.origin}] ${k.question} -> ${k.answer}`).join('; ') || 'none'}`,
+    `Buttons the app showed under the answer (offers the person may press, from the server): ${t.cards.filter((k) => k.kind.startsWith('step-fix:')).map((k) => k.question).join('; ') || 'none'}`,
     `Status: ${t.status}${t.error ? ` (${t.error})` : ''}`,
     `AI answer:\n${t.answer || '(empty)'}`,
   ].join('\n')).join('\n\n')
