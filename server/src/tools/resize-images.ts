@@ -66,7 +66,7 @@ const human = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${Math.round(
 const dims = (s: { width: number; height: number } | null) => (s ? `${s.width}×${s.height}` : 'size unknown')
 
 interface Photo { rel: string; segs: string[]; abs: string; st: fs.Stats; name: string }
-interface Made { src: string; made: MadeFile; before: string; after: string; fromWebp: boolean }
+interface Made { src: string; made: MadeFile; before: string; after: string; fromWebp: boolean; bigger: boolean }
 export interface ResizeResult { made: Made[]; skipped: string[]; replaced: boolean }
 
 /** The helper's fixed refusal lines (stderr) -> what the AI is told about that photo (never converter text). */
@@ -143,7 +143,7 @@ export async function resizeImages(ctx: AppContext, files: TeamFiles, c: ToolCtx
   const work = makeWorkDir(path.join(ctx.config.dataDir, 'work'))
   try {
     // 1. every copy made (in the work folder, never in memory all at once)
-    const done: { ph: Photo; produced: string; e: string; before: string; after: string; fromWebp: boolean }[] = []
+    const done: { ph: Photo; produced: string; e: string; before: string; after: string; fromWebp: boolean; bigger: boolean }[] = []
     for (const [i, ph] of photos.entries()) {
       c.signal?.throwIfAborted()
       const bytes = readRegular(ph.abs, RESIZE_INPUT_MAX, ph.st).bytes
@@ -151,7 +151,9 @@ export async function resizeImages(ctx: AppContext, files: TeamFiles, c: ToolCtx
       const before = dims(displaySize(bytes))
       const r = await imageSlot(() => runIsolated({
         cmd: tools.normalizer!, args: ['resize', String(side), String(width), String(permille), String(maxBytes)], stdin: bytes,
-        timeoutMs: RESIZE_TIMEOUT_MS, maxRssMiB: RESIZE_RSS_MIB, maxStdout: RESIZE_OUTPUT_MAX + 1, signal: c.signal, env: { GOMAXPROCS: '2' },
+        timeoutMs: RESIZE_TIMEOUT_MS, maxRssMiB: RESIZE_RSS_MIB, maxStdout: RESIZE_OUTPUT_MAX + 1, signal: c.signal,
+        // the Go runtime collects before it nears the memory limit (review: a 50 MP photo peaked at 1555 MiB without it)
+        env: { GOMAXPROCS: '2', GOMEMLIMIT: '800MiB' },
       }), c.signal)
       if (r.killed === 'aborted') c.signal?.throwIfAborted()
       if (r.killed) { skipped.push(r.killed === 'workdir' ? `'${ph.rel}' is damaged and could not be read` : `'${ph.rel}' took too long or needed too much memory to make smaller`); continue }
@@ -161,9 +163,12 @@ export async function resizeImages(ctx: AppContext, files: TeamFiles, c: ToolCtx
       const png = out.length > 8 && out.readUInt32BE(0) === 0x89504e47
       if (!jpeg && !png) { skipped.push(`'${ph.rel}' is damaged and could not be read`); continue }
       const e = png ? 'png' : ext(ph.name) === 'jpeg' ? 'jpeg' : 'jpg'
+      // replace writes the copy under the original's name: only when the content is that name's format (a PNG named
+      // .jpg would get PNG bytes back under .jpg)
+      if (replace && (png !== (ext(ph.name) === 'png'))) { skipped.push(`'${ph.rel}' holds a ${png ? 'PNG' : 'JPEG'} picture under another format's name, so it was not replaced; leave replace out to save a copy next to it`); continue }
       const produced = path.join(work, `${i}.${e}`)
       fs.writeFileSync(produced, out, { flag: 'wx', mode: 0o600 })
-      done.push({ ph, produced, e, before, after: `${dims(displaySize(out))}, ${human(out.length)}; was ${before}, ${human(bytes.length)}`, fromWebp: ext(ph.name) === 'webp' })
+      done.push({ ph, produced, e, before, after: `${dims(displaySize(out))}, ${human(out.length)}; was ${before}, ${human(bytes.length)}`, fromWebp: ext(ph.name) === 'webp', bigger: out.length >= bytes.length })
     }
     if (!done.length) throw new ToolError(`nothing was made smaller: ${skipped.join('; ')}`)
 
@@ -186,13 +191,14 @@ export async function resizeImages(ctx: AppContext, files: TeamFiles, c: ToolCtx
       }
       return allowed(rel, d.ph)
     })
-    for (const [i, d] of done.entries()) await confirmSources(ctx, files, c, targets[i]!.rel, targets[i]!.segs, [d.ph.rel])
+    // (a copy that replaces its own photo carries nothing new: edit_pdf leaves the original out the same way)
+    for (const [i, d] of done.entries()) await confirmSources(ctx, files, c, targets[i]!.rel, targets[i]!.segs, targets[i]!.rel === d.ph.rel ? [] : [d.ph.rel])
 
     // 3. placed one by one; a later one refused (a limit, a rule changed): say which copies are already saved
     const made: Made[] = []
     for (const [i, d] of done.entries()) {
       try {
-        made.push({ src: d.ph.rel, made: await placeProduced(ctx, files, c, targets[i]!.segs, d.produced, 'resize_images'), before: d.before, after: d.after, fromWebp: d.fromWebp })
+        made.push({ src: d.ph.rel, made: await placeProduced(ctx, files, c, targets[i]!.segs, d.produced, 'resize_images'), before: d.before, after: d.after, fromWebp: d.fromWebp, bigger: d.bigger })
       } catch (e) {
         if (!made.length || !(e instanceof Error)) throw e
         const T = e instanceof Denied ? Denied : ToolError
@@ -213,6 +219,8 @@ export function resizeResultText(r: ResizeResult, link: (p: string) => string): 
     ? 'These are new versions of the originals; the previous versions are in their file history.'
     : `The original${r.made.length === 1 ? ' is' : 's are'} unchanged.`)
   for (const s of r.skipped) lines.push(`Not done: ${s}.`)
+  const bigger = r.made.filter((m) => m.bigger)
+  if (bigger.length) lines.push(`${bigger.map((m) => `'${m.made.path}'`).join(', ')} ${bigger.length === 1 ? 'has' : 'have'} fewer pixels but ${bigger.length === 1 ? 'is not a smaller file than its original' : 'are not smaller files than their originals'} (the original was already tightly compressed); tell the user, and offer a target file size (max_mb) if they wanted a lighter file.`)
   const webp = r.made.filter((m) => m.fromWebp)
   if (webp.length) lines.push(`${webp.map((m) => `'${m.src}'`).join(', ')} ${webp.length === 1 ? 'is a WebP; its copy is' : 'are WebP; their copies are'} ${webp.every((m) => /\.png$/i.test(m.made.path)) ? 'PNG' : 'JPEG'} (WebP copies cannot be written here); tell the user.`)
   lines.push('Location and other photo details (camera, time taken) were removed from the copies; say in a few words that the location was removed. ' +

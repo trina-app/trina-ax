@@ -356,3 +356,39 @@ func TestResizeDecompressionBomb(t *testing.T) {
 		t.Fatalf("webp frame: %v", err)
 	}
 }
+
+// a 12 MP photo-like PNG at 95% of its size and with a target size, within the server's 60 s (review of
+// feat/resize-photos: the best compression level took 80 s for one copy)
+func TestResizeLargePngInTime(t *testing.T) {
+	if testing.Short() {
+		t.Skip("large images")
+	}
+	im := photo(4032, 3024, 10)
+	for i := range im.Pix { // milder noise: a phone screenshot-sized PNG of about 10-20 MB, under the input limit
+		if i%4 != 3 {
+			im.Pix[i] = im.Pix[i] &^ 0x1f
+		}
+	}
+	p := encodePNG(t, im)
+	if len(p) > ResizeInputMax {
+		t.Fatalf("fixture %d bytes", len(p))
+	}
+	start := time.Now()
+	if _, err := Resize(p, ResizeSpec{Side: 3800}); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d > 20*time.Second {
+		t.Fatalf("one copy took %v", d)
+	}
+	start = time.Now()
+	out, err := Resize(p, ResizeSpec{MaxBytes: len(p) / 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) > len(p)/5 {
+		t.Fatalf("%d over %d", len(out), len(p)/5)
+	}
+	if d := time.Since(start); d > 40*time.Second {
+		t.Fatalf("a target size took %v", d)
+	}
+}

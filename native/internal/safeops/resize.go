@@ -17,6 +17,7 @@ import (
 	"image/jpeg"
 	"image/png"
 	"math"
+	"runtime/debug"
 
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
@@ -127,12 +128,17 @@ func Resize(b []byte, s ResizeSpec) ([]byte, error) {
 	// premultiplied RGBA once (draw's fast paths for YCbCr, Gray, NRGBA ...): halving and scaling average it
 	src := image.NewRGBA(image.Rect(0, 0, sw, sh))
 	draw.Draw(src, src.Bounds(), im, im.Bounds().Min, draw.Src)
+	// the decoded picture is not needed any more: give its memory back before scaling (a 50 MP photo held twice went
+	// over the converters' memory limit in the review)
 	im = nil
+	debug.FreeOSMemory()
 	alpha := !src.Opaque()
 	out := "jpeg"
 	if format == "png" || (format == "webp" && alpha) {
 		out = "png"
 	}
+	bw, bh := tw, th
+	f := 1.0
 	for round := 0; round < 12; round++ {
 		enc, err := encodeScaled(src, o, tw, th, out, s.MaxBytes)
 		if err != nil {
@@ -146,9 +152,10 @@ func Resize(b []byte, s ResizeSpec) ([]byte, error) {
 		}
 		// over the target: smaller by the square root of the byte ratio (bytes follow the pixel count), at least 8%
 		// and at most half per round
-		f := math.Sqrt(float64(s.MaxBytes)/float64(len(enc))) * 0.95
-		f = math.Max(0.5, math.Min(0.92, f))
-		nw, nh := max(1, int(float64(tw)*f)), max(1, int(float64(th)*f))
+		// (one factor for both sides, from the first size, so the aspect ratio does not drift over the rounds)
+		step := math.Sqrt(float64(s.MaxBytes)/float64(len(enc))) * 0.95
+		f *= math.Max(0.5, math.Min(0.92, step))
+		nw, nh := max(1, int(math.Round(float64(bw)*f))), max(1, int(math.Round(float64(bh)*f)))
 		if max(nw, nh) < resizeMinSide {
 			return nil, ErrResizeTarget
 		}
@@ -214,10 +221,12 @@ func encodeScaled(src *image.RGBA, o, tw, th int, out string, maxBytes int) ([]b
 		turned := image.NewRGBA(r.Bounds())
 		draw.Draw(turned, turned.Bounds(), r, image.Point{}, draw.Src)
 		pic = turned
+		dst = nil
 	}
 	var buf bytes.Buffer
 	if out == "png" {
-		if err := (&png.Encoder{CompressionLevel: png.BestCompression}).Encode(&buf, pic); err != nil {
+		// the default level: BestCompression took 27 s on a 12 MP picture for 3% fewer bytes (review), past the time limit
+		if err := (&png.Encoder{CompressionLevel: png.DefaultCompression}).Encode(&buf, pic); err != nil {
 			return nil, ErrResizeCorrupt
 		}
 		return buf.Bytes(), nil
