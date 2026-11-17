@@ -3438,16 +3438,17 @@ export class TurnExec {
   async confirmSkillWrite(tool: string, args: unknown, files: TurnFiles = this.files): Promise<{ refusal: string; summary: string } | null> {
     // one skill card at a time (the AI often saves a new skill's files in parallel calls): a later call then sees the
     // answer to the card before it, so a new skill's other files need no card of their own (QA MAN-052, below)
-    const run = this.skillCards.then(() => this.askSkillWrite(tool, args, files))
+    // (read with ??: some callers build a TurnExec without its constructor)
+    const run = (this.skillCards ?? Promise.resolve()).then(() => this.askSkillWrite(tool, args, files))
     this.skillCards = run.catch(() => undefined)
     return run
   }
 
   /** skill cards of this turn, one after the other (confirmSkillWrite) */
-  private skillCards: Promise<unknown> = Promise.resolve()
+  private skillCards?: Promise<unknown> = Promise.resolve()
   /** the folders of new skills whose SKILL.md the person said Save to in this turn (askSkillWrite): the other new files
    * in that folder in this turn need no card of their own (QA MAN-052, docs/decisions/20261117-new-skill-one-card.md) */
-  private newSkillYes = new Set<string>()
+  private newSkillYes?: Set<string> = new Set<string>()
 
   private async askSkillWrite(tool: string, args: unknown, files: TurnFiles): Promise<{ refusal: string; summary: string } | null> {
     if (tool !== 'write' && tool !== 'edit' && tool !== 'make_file' && tool !== 'edit_hwp') return null
@@ -3521,7 +3522,7 @@ export class TurnExec {
     // form showed two cards, SKILL.md and the form). Not an existing file, not another SKILL.md, not when this save
     // would also show content the SKILL.md's yes did not cover to more people
     const folder = skillFolderOf(r.rel)
-    if (!r.exists && folder && this.newSkillYes.has(folder) && !/(^|\/)SKILL\.md$/i.test(r.rel) && !dead) {
+    if (!r.exists && folder && this.newSkillYes?.has(folder) && !/(^|\/)SKILL\.md$/i.test(r.rel) && !dead) {
       const allowed = this.widenAllowed.get(folder)
       if (!need || (allowed && need.narrower.every((s) => allowed.has(sourceKey(s))))) {
         this.files.skillApprovals.set(r.rel, approval)
@@ -3550,7 +3551,7 @@ export class TurnExec {
     if (picked === 'save' && !dead) {
       this.files.skillApprovals.set(r.rel, approval)
       // a new skill's SKILL.md: its other new files in this turn go with this yes (above)
-      if (!r.exists && skill && folder && /(^|\/)SKILL\.md$/i.test(r.rel) && skillFolderOf(r.rel) === folder) this.newSkillYes.add(folder)
+      if (!r.exists && skill && folder && /(^|\/)SKILL\.md$/i.test(r.rel) && skillFolderOf(r.rel) === folder) (this.newSkillYes ??= new Set()).add(folder)
       // the yes (or the person's "Always allow" for skill saves) covers saving there where more people can see
       if (need) this.allowWidening(need)
       return null
