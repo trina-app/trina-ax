@@ -7,7 +7,10 @@
 //                       the source is a file). "Let them view" when the sender may share it, else "Ask <owner>".
 //                       Sources that are not files (a room, a connected service, an earlier conversation) get nothing:
 //                       their warning stays as it was, and content that used answers hidden from a member is still
-//                       never sent (chat/answer-share.ts, answer_share_hidden).
+//                       never sent (chat/answer-share.ts, answer_share_hidden). When post_to_room's card was shown,
+//                       its yes already gave "Let them view" (fileGapsOf + ShareFixes.viewPlan before the card,
+//                       docs/decisions/20261117-post-to-room-one-card.md): what is left here is "Ask <owner>" and
+//                       people that grant could not reach.
 //   refusedShareFixes   share_with_person refused a path: someone else's file ("Ask <owner> to share it"), a team
 //                       folder asked by a member, or the team's switch for members' sharing off ("Ask an admin", one
 //                       kind with a reason on the offer).
@@ -26,9 +29,10 @@ import type { TurnExec } from './turn'
 
 type Exec = Pick<TurnExec, 'rt' | 'spec'>
 
-/** The offers after a post, and what the tool's result says about them (English, for the AI). */
-export async function fixesAfterPost(exec: Exec, p: PreparedShare, attached: ReadonlySet<string>, o: { roomId: string; place: string }): Promise<{ fixes: StepFix[]; note: string }> {
-  const ctx = exec.rt.ctx
+/** The files of a post that some people in the room cannot open, each with those people: by path (a file the sender
+ * reads by the folder rules) or by link id (one they have only through a share). What fixesAfterPost offers after the
+ * post, and what post_to_room's card works out before it (ShareFixes.viewPlan). */
+export async function fileGapsOf(exec: Exec, p: PreparedShare, attached: ReadonlySet<string>, roomId: string): Promise<({ path: string; people: string[] } | { share: string; people: string[] })[]> {
   const by = new Map<string, Set<string>>()
   const add = (path: string, people: readonly string[]) => { const s = by.get(path) ?? by.set(path, new Set()).get(path)!; for (const id of people) s.add(id) }
   // a linked file that did not go as a copy and some member cannot open
@@ -41,12 +45,19 @@ export async function fixesAfterPost(exec: Exec, p: PreparedShare, attached: Rea
   const byLink = new Map<string, string[]>()
   // a file the sender reads by the folder rules (their own one too) goes by its path: "Let them view" when theirs to
   // share; one they have only through a share goes by its link id: "Ask <owner>"
-  for (const g of fileLinksCant(exec, p.body, o.roomId)) {
+  for (const g of fileLinksCant(exec, p.body, roomId)) {
     if (g.byGrant) byLink.set(g.id, g.missing)
     else if (!attached.has(g.path)) add(g.path, g.missing)
   }
-  if (!by.size && !byLink.size) return { fixes: [], note: '' }
-  const fixes = shareFixesOf(ctx).forFiles(exec.spec.userId, exec.spec.chatId, [...[...by].map(([path, people]) => ({ path, people: [...people] })), ...[...byLink].map(([share, people]) => ({ share, people }))], o)
+  return [...[...by].map(([path, people]) => ({ path, people: [...people] })), ...[...byLink].map(([share, people]) => ({ share, people }))]
+}
+
+/** The offers after a post, and what the tool's result says about them (English, for the AI). */
+export async function fixesAfterPost(exec: Exec, p: PreparedShare, attached: ReadonlySet<string>, o: { roomId: string; place: string }): Promise<{ fixes: StepFix[]; note: string }> {
+  const ctx = exec.rt.ctx
+  const gaps = await fileGapsOf(exec, p, attached, o.roomId)
+  if (!gaps.length) return { fixes: [], note: '' }
+  const fixes = shareFixesOf(ctx).forFiles(exec.spec.userId, exec.spec.chatId, gaps, o)
   if (!fixes.length) return { fixes, note: '' }
   const n = fixes.reduce((x, f) => Math.max(x, f.count), 0)
   // each button by the label the person sees on it, in their language (in a chat others read, an owner's name is left out)

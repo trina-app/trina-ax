@@ -52,6 +52,9 @@ type Payload =
   // the team turned off members' file sharing: ask to turn it on, for the person's own file (by its link id)
   | { kind: 'ask_admin'; reason: 'switch'; share: string; admins: string[] }
   | { kind: 'share_project'; projectId: string }
+/** A "Let them view" worked out before anything is saved (ShareFixes.viewPlan): the first file's name, the files by
+ * link id with the people for each, their paths (same order), the guests left out, and how many people in all. */
+export interface ViewPlan { name: string; files: FileOf[]; paths: string[]; guests: ReadonlySet<string>; count: number }
 interface Row { id: string; user_id: string; chat_id: string; kind: StepFix['kind']; payload: string; state: StepFix['state']; done_count: number | null }
 
 const baseName = (p: string) => p.split('/').pop() ?? p
@@ -97,10 +100,54 @@ export class ShareFixes {
    * give nothing. `place`: the room as the person sees it.
    */
   forFiles(userId: string, chatId: string, files: readonly ({ path: string; people: readonly string[] } | { share: string; people: readonly string[] })[], o: { roomId?: string; place?: string; named?: boolean } = {}): StepFix[] {
+    const p = this.plan(userId, files)
+    if (!p) return []
+    const out: StepFix[] = []
+    if (p.view.files.length) out.push(this.saveView(userId, chatId, p.view, o))
+    for (const e of p.ask.values()) {
+      const c = this.common(e.name, e.files, e.guests, o.place)
+      const id = this.save(userId, chatId, { kind: 'ask_owner', files: e.files, ...(o.roomId ? { roomId: o.roomId } : {}) })
+      out.push({ id, kind: 'ask_owner', ...c.base, ...(o.named ? { people: this.names(c.all) } : {}), ...(e.owner ? { owner: e.owner } : {}) })
+    }
+    return out
+  }
+
+  /**
+   * The "Let them view" part of forFiles, worked out and NOT saved: the files the person may share and, for each, the
+   * people who cannot open it (the same rules as forFiles). post_to_room shows it on its one card before the post
+   * ("2 people there will be able to open quote.pdf") and, on the person's yes, saves it with saveView and runs it
+   * (docs/decisions/20261117-post-to-room-one-card.md). Null: nothing the person may grant.
+   */
+  viewPlan(userId: string, files: readonly ({ path: string; people: readonly string[] } | { share: string; people: readonly string[] })[]): ViewPlan | null {
+    const p = this.plan(userId, files)
+    if (!p || !p.view.files.length) return null
+    return { name: p.view.name, files: p.view.files, paths: p.view.paths, guests: p.view.guests, count: new Set(p.view.files.flatMap((f) => f.people)).size }
+  }
+
+  /** Save a let_view offer exactly as planned (its files, its people), for the person to run (a tap, or the post card's
+   * yes: run right after). */
+  saveView(userId: string, chatId: string, v: Pick<ViewPlan, 'name' | 'files' | 'guests'>, o: { roomId?: string; place?: string } = {}): StepFix {
+    const c = this.common(v.name, v.files, v.guests, o.place)
+    const id = this.save(userId, chatId, { kind: 'let_view', files: v.files, ...(o.roomId ? { roomId: o.roomId } : {}) })
+    return { id, kind: 'let_view', ...c.base, people: this.names(c.all) }
+  }
+
+  /** Take back an offer nobody saw (the post card's grant that failed: the step gets forFiles' own offer instead). */
+  drop(userId: string, id: string): void {
+    this.db.query('DELETE FROM share_fix_offers WHERE id = ? AND user_id = ?').run(id, userId)
+  }
+
+  private common(name: string, fs: FileOf[], guests: ReadonlySet<string>, place?: string) {
+    const all = [...new Set(fs.flatMap((x) => x.people))]
+    return { all, base: { file: plainLabel(name, 200), ...(fs.length > 1 ? { moreFiles: fs.length - 1 } : {}), ...(place ? { place: plainLabel(place, 200) } : {}), count: all.length, ...(guests.size ? { guests: guests.size } : {}), state: 'open' as const } }
+  }
+
+  /** forFiles' rules, nothing saved: the files the person may share (view) and, per owner, the others (ask). */
+  private plan(userId: string, files: readonly ({ path: string; people: readonly string[] } | { share: string; people: readonly string[] })[]) {
     const me = loadPrincipal(this.db, userId)
-    if (!me || me.role === 'guest') return []
+    if (!me || me.role === 'guest') return null
     const shares = fileSharesOf(this.ctx)
-    const view: { name: string; files: FileOf[]; guests: Set<string> } = { name: '', files: [], guests: new Set() }
+    const view: { name: string; files: FileOf[]; paths: string[]; guests: Set<string> } = { name: '', files: [], paths: [], guests: new Set() }
     const ask = new Map<string, { owner: string; name: string; files: FileOf[]; guests: Set<string> }>()
     for (const f of files.slice(0, FIX_FILES_MAX)) {
       // by its path: a file the folder lets the person read (the Share dialog's view of it). By its link id: a file they
@@ -123,6 +170,7 @@ export class ShareFixes {
         if (!people.length) continue
         if (!view.files.length) view.name = baseName(v.path)
         view.files.push({ share: link, people })
+        view.paths.push(v.path)
         for (const g of guests) view.guests.add(g)
         continue
       }
@@ -134,22 +182,7 @@ export class ShareFixes {
       entry.files.push({ share: link, people })
       for (const g of guests) entry.guests.add(g)
     }
-    const out: StepFix[] = []
-    const common = (name: string, fs: FileOf[], guests: Set<string>) => {
-      const all = [...new Set(fs.flatMap((x) => x.people))]
-      return { all, base: { file: plainLabel(name, 200), ...(fs.length > 1 ? { moreFiles: fs.length - 1 } : {}), ...(o.place ? { place: plainLabel(o.place, 200) } : {}), count: all.length, ...(guests.size ? { guests: guests.size } : {}), state: 'open' as const } }
-    }
-    if (view.files.length) {
-      const c = common(view.name, view.files, view.guests)
-      const id = this.save(userId, chatId, { kind: 'let_view', files: view.files, ...(o.roomId ? { roomId: o.roomId } : {}) })
-      out.push({ id, kind: 'let_view', ...c.base, people: this.names(c.all) })
-    }
-    for (const e of ask.values()) {
-      const c = common(e.name, e.files, e.guests)
-      const id = this.save(userId, chatId, { kind: 'ask_owner', files: e.files, ...(o.roomId ? { roomId: o.roomId } : {}) })
-      out.push({ id, kind: 'ask_owner', ...c.base, ...(o.named ? { people: this.names(c.all) } : {}), ...(e.owner ? { owner: e.owner } : {}) })
-    }
-    return out
+    return { view, ask }
   }
 
   /** The team's owner and admins a member's "Ask an admin" goes to: active, the owner first, at most FIX_ADMINS_MAX. */
