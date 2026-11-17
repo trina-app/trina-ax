@@ -526,7 +526,9 @@ describe('re-review of part 5', () => {
   test('Windows never walks OneDrive-moved folders; a Mac looks at its cloud drives before walking; enrich keeps the deadline', () => {
     const ctl = readFileSync(join(import.meta.dir, '../../desktop/src/main/work-files.ts'), 'utf8')
     expect(ctl).toContain("noWalk: (root) => root.id === 'cloud' || root.oneDrive,")
-    expect(ctl).toContain("process.platform === 'win32' ? [...others, ...folders, ...cloud] : [...others, ...cloud, ...folders]")
+    // Windows (MAN-057): the messengers' folders, then the three folders (walked, never waiting for Windows Search), then
+    // the work folders and the cloud drives
+    expect(ctl).toContain("process.platform === 'win32' ? [...messengers, ...folders, ...work, ...cloud] : [...others, ...cloud, ...folders]")
     const common = readFileSync(join(import.meta.dir, '../../desktop/src/common/work-files.ts'), 'utf8')
     expect(common).toContain('deadline: Math.min(Date.now() + FALLBACK_LIMITS.rootMs, o.deadline ?? Infinity)')
   })
