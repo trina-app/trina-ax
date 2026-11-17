@@ -63,6 +63,7 @@ import { PRODUCT } from '@mycel/shared'
 import { typstJobs } from '../system/limits'
 import { assertStorageRoomForAI } from '../system/storage'
 import { deckMismatch, deckShape, type Deck, type DeckShape } from './pptx-check'
+import { pictureBesideText } from './pptx-picture'
 import { readDeckIsolated } from '../safe-ops/deck-check'
 import { findPdfBrowser, HTML_PDF_LIMITS, HtmlPdfError, htmlPdfUnavailable, renderHtmlPdf, renderSlot, serverFontDirs } from '../files/html-pdf'
 import { safeOpsEnabled } from '../safe-ops/runner'
@@ -315,7 +316,11 @@ export class MakeFile {
           const ast = JSON.parse(got.bytes.toString('utf8'))
           images = this.copyImages(c, ast, baseDir, work)
           sources.push(...images)
-          if (a.format === 'pptx') shape = deckShape(ast)
+          if (a.format === 'pptx') {
+            shape = deckShape(ast)
+            // a picture next to text keeps the slide's title and bullets, with no second caption (TC-4445)
+            pictureBesideText(ast, shape.level)
+          }
           input = freshName(work, 'tree', 'json')
           fs.writeFileSync(path.join(work, input), JSON.stringify(ast), { flag: 'wx', mode: 0o600 })
           from = 'json'

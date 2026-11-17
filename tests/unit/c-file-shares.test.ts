@@ -441,7 +441,7 @@ describe('Remove all (the team owner)', () => {
     expect((await admin.try('DELETE', '/api/admin/file-shares')).status).toBe(403)
     expect((await alice.try('GET', '/api/admin/file-shares')).status).toBe(403)
     expect(await owner.call('DELETE', '/api/admin/file-shares')).toEqual(c)
-    expect(await admin.call('GET', '/api/admin/file-shares')).toEqual({ files: 0, people: 0 })
+    expect(await admin.call('GET', '/api/admin/file-shares')).toEqual({ files: 0, folders: 0, people: 0 }) // folder sharing is on: folders counted apart
     expect(h.ctx.db.query("SELECT action FROM audit_log WHERE action = 'file.shares_removed_all'").get()).toBeTruthy()
     void fileSharesOf
   })
