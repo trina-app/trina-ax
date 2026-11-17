@@ -57,6 +57,7 @@ import { ImageGroup } from '../components/ImageViewer'
 import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
 import { RoomMenu } from '../components/rooms/RoomMenu'
 import { mayManageApps, useRoomApps } from '../store/roomApps'
+import { SaveToTeamSheet } from '../components/rooms/SaveToTeamSheet'
 import { isAppService } from '../lib/roomApps'
 import { RoomNotifyMenu, roomNotify } from '../components/rooms/RoomNotifyMenu'
 import { ThreadPanel } from '../components/rooms/ThreadPanel'
@@ -656,6 +657,8 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
         onInvite={invitePeople}
       />
       <PeoplePicker open={!!picker} onClose={() => setPicker(null)} mode={picker ?? undefined} />
+      {/* "Save to team folder" of a file in the timeline or the thread (store/roomSaves.ts) */}
+      <SaveToTeamSheet />
     </FileDropZone>
     {/* the room's right: the thread in the address and my Trina side chat, each alone or the two together (three
         columns; half and half over the room; the side chat over the thread where one panel fits) */}

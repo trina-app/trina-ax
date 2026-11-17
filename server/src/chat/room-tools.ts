@@ -46,6 +46,7 @@ import { instructionLike, type TurnExec, type WidenOf } from './turn'
 import { inSkills } from '../skills/guard'
 import { componentC } from '../team-files/component'
 import { placeProduced } from '../tools/make-file'
+import { recordRoomFileSave } from '../rooms/file-saves'
 import { Denied, ToolError } from '../policy/errors'
 import { callKey } from './schedule-cover'
 import { authorize } from '../policy/authorize'
@@ -511,6 +512,8 @@ async function saveRoomFile(exec: TurnExec, files: TurnFiles, a: SaveArgs, named
       // a save a scheduled task's card covered: checked again right before the copy is placed (chat/schedule-cover.ts)
       ...(call ? { beforePlace: () => { const no = exec.scheduleCover?.recheck(callKey(call.tool, call.args)); if (no) throw new ToolError(no) } } : {}) }
     const made = await placeProduced(rt.ctx, componentC(rt.ctx).files, c, target.split('/').filter(Boolean), tmp, 'save_room_file', undefined, { turnBytes: false, detail: { type: file.mime } })
+    // the room file's place, for its "In team folder" link (rooms/file-saves.ts)
+    recordRoomFileSave(rt.ctx, file.id, made.path, made.sha256, made.size)
     const note = made.conflictCopyOf ? ` ${made.conflictCopyOf} already existed and was not read in this turn, so this was saved as a copy next to it; the original is unchanged.` : ''
     return { ...text(`Saved a copy of "${neutralizeTags(file.name.replace(/[\r\n"]+/g, ' ').slice(0, 200))}" from that room as ${made.path} (${made.size} bytes).${note}`), summary: `save_room_file -> ${made.path} (${made.size} B)` }
   } catch (e) {

@@ -66,7 +66,7 @@ export const SCANNED_PAGE_CHARS = 20
 export const PDF_TEXT_MAX = 200_000
 
 const CONVERT_TIMEOUT_MS = 30_000
-const CONVERT_RSS_MIB = 1024
+export const CONVERT_RSS_MIB = 1024
 /** conversions at the same time on this server; more wait (VISION_QUEUE_MAX at most, then 'busy') */
 export const VISION_PARALLEL = 3
 const VISION_QUEUE_MAX = 32
