@@ -413,7 +413,7 @@ prepare는 비밀값의 키가 목록에 없으면 멈춘다. 그래서 2를 건
    2. GitHub Release의 서명된 `*-linux-amd64.tar.gz` kit를 받아 `SHA256SUMS.sig`로 확인한다. `mycel-enroll`·`mycel-link`는 같은 태그에서 빌드한다(`native/build.sh`, 고정 Go).
    3. AWS 로그인: GitHub OIDC(`aws-actions/configure-aws-credentials`, SHA 고정). 저장된 AWS 키는 어디에도 없다. 세션은 4시간.
    4. `scripts/image/build-ami.sh`로 ap-northeast-2에서 AMI를 만든다(`--tag ax:built-by=release-ci`). 같은 릴리스의 앞선 시도가 만든 AMI가 있으면 그것을 쓴다.
-   5. `build-ami.sh --manifest-v2 --copy-to ap-southeast-1`(키 없이): 싱가포르로 복사하고 v2 목록을 쓴다. 그다음 짧은 서명 단계가 목록에 릴리스 키로 서명한다(`ax-template-v1\n<templateVersion>\n<sha256>`, 스크립트·hostd와 같은 메시지). 키는 그 단계의 몇 초 동안만 `$RUNNER_TEMP`의 600 파일로 있고 바로 지운다. 이 템플릿의 서명된 목록이 피드에 이미 있으면(앞선 시도가 목록까지 올리고 멈춤) 새로 만들지 않고 그것을 받아 쓴다. 새로 만들면 `builtAt`이 달라 피드가 받지 않는다.
+   5. `build-ami.sh --manifest-v2 --copy-to ap-southeast-1 --copy-to us-east-1`(키 없이, `AMI_COPY_TO`): 싱가포르와 버지니아로 차례로 복사하고 v2 목록을 쓴다. 그다음 짧은 서명 단계가 목록에 릴리스 키로 서명한다(`ax-template-v1\n<templateVersion>\n<sha256>`, 스크립트·hostd와 같은 메시지). 키는 그 단계의 몇 초 동안만 `$RUNNER_TEMP`의 600 파일로 있고 바로 지운다. 이 템플릿의 서명된 목록이 피드에 이미 있으면(앞선 시도가 목록까지 올리고 멈춤) 새로 만들지 않고 그것을 받아 쓴다. 새로 만들면 `builtAt`이 달라 피드가 받지 않는다.
    6. `scripts/release/publish-ami.ts`: 목록, `.sha256`, `.sig`를 `server/<version>/`에 올리고 마지막에 `team-image.json`을 올린다. 올리기 전에 서명을 이 제품의 키로 확인하고, 피드에 다른 바이트가 있으면 덮어쓰지 않고 멈춘다.
    7. `scripts/image/ami-prune.sh`: 지역마다 CI가 만든 이미지(`ax:managed=ami` + `ax:built-by=release-ci`) 중 최근 3개 릴리스의 것만 남기고 나머지는 등록 해제 + 스냅샷 삭제. 순서는 만든 날짜가 아니라 `ax:template`의 버전 순서다(옛 태그로 손으로 돌린 run이 새 릴리스의 이미지를 밀어내지 않는다). 방금 올린 이미지, 손으로 만든 이미지, `ax:keep=true` 태그가 있는 이미지, 아직 인스턴스가 쓰는 이미지, EC2 launch template(최신·기본 버전)이 쓰는 이미지는 지우지 않는다. launch template을 읽지 못하면 그 지역에서는 아무것도 지우지 않는다.
    8. 취소·실패하면 마지막 단계가 상태 파일로 `build-ami.sh --cleanup`을 돌려 빌더·작업 볼륨·보안 그룹을 지운다. 상태 파일은 `ami-build-state` 아티팩트로도 남긴다(7일).
@@ -441,7 +441,7 @@ prepare는 비밀값의 키가 목록에 없으면 멈춘다. 그래서 2를 건
 4. **GitHub OIDC 공급자**(계정에 아직 없으면): IAM → Identity providers → OpenID Connect, URL `https://token.actions.githubusercontent.com`, audience `sts.amazonaws.com`.
 5. **역할을 만든다**(예: `trina-team-image-ci`).
    - 신뢰 정책: [`docs/runbooks/team-image-trust-policy.json`](runbooks/team-image-trust-policy.json). `<ACCOUNT_ID>`를 바꾼다. subject가 `repo:trina-app/trina-ax:environment:release:job_workflow_ref:trina-app/trina-ax/.github/workflows/team-image.yml@refs/tags/v*` 또는 immutable 꼴 `repo:trina-app@349611973/trina-ax@1436599521:environment:release:job_workflow_ref:trina-app/trina-ax/.github/workflows/team-image.yml@refs/tags/v*`인 토큰만 받는다(`StringLike`에 두 값의 목록, 3이 필요). 즉 environment `release`의 `team-image.yml`이 `v*` 태그에서 돌 때만이다. fork PR은 OIDC 토큰을 받지 못한다. 이 조건은 1·2(태그 대상 제한, 태그 ruleset)와 함께여야 뜻이 있다: `v*` 태그를 만들 수 있는 사람은 그 태그의 `team-image.yml`을 바꿀 수 있다.
-   - 권한 정책: [`docs/runbooks/team-image-iam-policy.json`](runbooks/team-image-iam-policy.json). `<ACCOUNT_ID>`, `<AMI_SUBNET_ID>`, 그 서브넷의 `<AMI_VPC_ID>`를 바꾼다. `<AMI_SUBNET_ID_2C>`, `<AMI_SUBNET_ID_2B>`는 같은 VPC의 2c·2b 서브넷이다(2026-11-17부터 운영 역할 `trina-team-image-ci`에 세 서브넷이 다 들어 있다). 다른 영역 서브넷을 쓰지 않으면 그 줄들은 지운다. 두 지역(ap-northeast-2, ap-southeast-1) 밖은 모두 거부. 만드는 것은 `ax:managed=ami-build`(빌더·작업 볼륨·보안 그룹) 또는 `ax:managed=ami` + `ax:built-by=release-ci`(AMI·스냅샷) 태그를 달아야만 되고, 지우기·종료·등록 해제는 그 태그가 있는 것만 된다. 빌더는 아마존 목록의 공개 이미지(`ec2:Owner` `amazon` + `ec2:Public` `true`)로만, 작업 볼륨은 Debian 계정(136693071363)의 스냅샷으로만 만든다(다른 스냅샷으로 볼륨을 만들어 읽을 수 없다). 조건이 둘로 나뉜 이유: Debian 공개 AMI 같은 아마존 목록 이미지는 요청의 `ec2:Owner`가 계정 번호가 아니라 `"amazon"`이고, 그 루트 스냅샷은 `ec2:Owner`가 소유 계정 번호(136693071363)이며 `ec2:Public`이 없다(v0.5.5 첫 실행이 `RunInstances`, 다음 실행이 `CreateVolume`에서 거부됨). Debian 이미지 고르기는 `build-ami.sh`가 소유자 136693071363으로 한다. IAM 권한(`iam:*`, `PassRole`)은 없다.
+   - 권한 정책: [`docs/runbooks/team-image-iam-policy.json`](runbooks/team-image-iam-policy.json). `<ACCOUNT_ID>`, `<AMI_SUBNET_ID>`, 그 서브넷의 `<AMI_VPC_ID>`를 바꾼다. `<AMI_SUBNET_ID_2C>`, `<AMI_SUBNET_ID_2B>`는 같은 VPC의 2c·2b 서브넷이다(2026-11-17부터 운영 역할 `trina-team-image-ci`에 세 서브넷이 다 들어 있다). 다른 영역 서브넷을 쓰지 않으면 그 줄들은 지운다. 세 지역(ap-northeast-2, ap-southeast-1, us-east-1) 밖은 모두 거부. `AMI_COPY_TO`에 지역을 더하기 전에 운영 역할 `trina-team-image-ci`의 이 목록에 먼저 더한다(아니면 복사가 거부되고 run 전체가 실패한다). 만드는 것은 `ax:managed=ami-build`(빌더·작업 볼륨·보안 그룹) 또는 `ax:managed=ami` + `ax:built-by=release-ci`(AMI·스냅샷) 태그를 달아야만 되고, 지우기·종료·등록 해제는 그 태그가 있는 것만 된다. 빌더는 아마존 목록의 공개 이미지(`ec2:Owner` `amazon` + `ec2:Public` `true`)로만, 작업 볼륨은 Debian 계정(136693071363)의 스냅샷으로만 만든다(다른 스냅샷으로 볼륨을 만들어 읽을 수 없다). 조건이 둘로 나뉜 이유: Debian 공개 AMI 같은 아마존 목록 이미지는 요청의 `ec2:Owner`가 계정 번호가 아니라 `"amazon"`이고, 그 루트 스냅샷은 `ec2:Owner`가 소유 계정 번호(136693071363)이며 `ec2:Public`이 없다(v0.5.5 첫 실행이 `RunInstances`, 다음 실행이 `CreateVolume`에서 거부됨). Debian 이미지 고르기는 `build-ami.sh`가 소유자 136693071363으로 한다. IAM 권한(`iam:*`, `PassRole`)은 없다.
    - 최대 세션 시간(MaxSessionDuration)을 **4시간**(14400초)으로 올린다. 워크플로가 4시간을 요청한다.
    - 계정의 EBS 기본 암호화 키가 고객 관리 키(CMK)면 그 키의 `kms:CreateGrant`, `kms:Decrypt`, `kms:GenerateDataKeyWithoutPlaintext`, `kms:ReEncrypt*`, `kms:DescribeKey`를 더한다(AWS 관리 키 `aws/ebs`면 필요 없다).
 6. **레포 변수**(Settings → Secrets and variables → Actions → Variables, 비밀값이 아니다):
@@ -462,14 +462,14 @@ prepare는 비밀값의 키가 목록에 없으면 멈춘다. 그래서 2를 건
 | 복사·서명·올리기 | AMI는 남아 있다 | Re-run failed jobs. 같은 릴리스의 AMI를 다시 쓰고(아직 `pending`이면 기다린다), 복사는 client token으로 두 번 생기지 않는다. 목록이 이미 피드에 있으면 그것을 받아 쓰고 `team-image.json`만 올린다 |
 | publish-ami: `names another image already` | 그 릴리스에 다른 이미지가 이미 올라가 있다 | 덮어쓰지 않는다. 다음 릴리스를 기다리거나 사람이 본다 |
 
-**정리(최근 3개)**: 컨트롤 플레인이 새 팀에 쓰는 템플릿은 최근 3개 릴리스 안에 있어야 한다(자동 템플릿, F1c). CI는 컨트롤 플레인의 설정을 읽지 못한다. 오래된 이미지를 남기려면 `aws ec2 create-tags --resources ami-… <snap-…> --tags Key=ax:keep,Value=true`(두 지역 모두).
+**정리(최근 3개)**: 컨트롤 플레인이 새 팀에 쓰는 템플릿은 최근 3개 릴리스 안에 있어야 한다(자동 템플릿, F1c). CI는 컨트롤 플레인의 설정을 읽지 못한다. 오래된 이미지를 남기려면 `aws ec2 create-tags --resources ami-… <snap-…> --tags Key=ax:keep,Value=true`(모든 지역).
 
 ### 비용 (한 번 빌드)
 
 - 빌더 t3a.medium 약 30–45분 ≈ $0.04, 작업·루트 볼륨 gp3 20 GiB × 2 약 1시간 ≈ $0.01, 공인 IPv4 1시간 ≈ $0.005.
-- 싱가포르 복사: 지역 간 전송 약 $0.08/GB × 실제 쓴 블록(이미지 약 4–6 GB) ≈ $0.3–0.5.
-- 합 **≈ $0.4–0.6 / 빌드**. GitHub 러너는 공개 레포라 무료.
-- 보관: 스냅샷 약 $0.05/GB-월 × 4–6 GB × 2지역 × 최근 3개 ≈ **월 $1.2–1.8**(정리가 그 이상 쌓이지 않게 한다).
+- 싱가포르·버지니아 복사: 지역 간 전송 약 $0.08/GB(서울에서 나가는 쪽) × 실제 쓴 블록(이미지 약 4–6 GB) × 2지역 ≈ $0.6–1.0.
+- 합 **≈ $0.7–1.1 / 빌드**. GitHub 러너는 공개 레포라 무료.
+- 보관: 스냅샷 약 $0.05/GB-월 × 4–6 GB × 3지역 × 최근 3개 ≈ **월 $1.8–2.7**(정리가 그 이상 쌓이지 않게 한다).
 
 ## 11. 윈도우 코드 서명 (Microsoft Artifact Signing)
 
