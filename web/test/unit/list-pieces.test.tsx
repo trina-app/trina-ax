@@ -145,6 +145,31 @@ describe('ListRow: actions, a row menu, refs, the <li>, the tag', () => {
       await m.unmount()
     }
   })
+  test('metaKeep (QA TC-4729): the meta is cut first, the kept end (a file\'s time and size) never shrinks or wraps', async () => {
+    const m = await mount(
+      <ul>
+        <ListRow name="report.pdf" meta="Direct message · A very long member name" metaKeep="5:41 PM · 2 KB" metaTestId="meta" />
+        <ListRow name="photo.png" metaKeep="5:41 PM · 2 KB" metaTestId="alone" />
+      </ul>,
+    )
+    try {
+      const line = m.get('meta')
+      expect(line.className).toContain('flex')
+      expect(line.className).toContain('whitespace-nowrap')
+      expect(line.className).toContain('text-meta')
+      const [cut, kept] = Array.from(line.children)
+      expect(cut.className).toContain('truncate')
+      expect(cut.className).toContain('min-w-0')
+      expect(cut.getAttribute('title')).toBe('Direct message · A very long member name')
+      expect(kept.className).toContain('shrink-0')
+      expect(kept.className).not.toContain('truncate')
+      expect(line.textContent).toBe('Direct message · A very long member name · 5:41 PM · 2 KB')
+      // no meta: the kept end alone, without a leading dot
+      expect(m.get('alone').textContent).toBe('5:41 PM · 2 KB')
+    } finally {
+      await m.unmount()
+    }
+  })
 })
 
 describe('ListSection and ListHeading', () => {
