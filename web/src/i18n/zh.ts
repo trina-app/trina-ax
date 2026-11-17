@@ -4309,6 +4309,8 @@ export const zh: Record<MessageKey, string> = {
   "rooms.removeFile": "移除{name}",
   "rooms.uploading": "正在上传{name}…",
   "rooms.uploadingMark": "正在上传文件",
+  "rooms.uploadStopped": "页面重新加载后，上传已停止。重新选择该文件即可继续。",
+  "rooms.filesGone": "附加的文件已不可用，消息未发送。请重新添加文件。",
   "rooms.tooBig": "{name}超过{max}，无法发送。",
   "rooms.storageFull": "团队存储空间不足，无法发送此文件。",
   "rooms.storageFullAsk": "团队存储空间不足，无法发送此文件。请让管理员释放一些空间。",

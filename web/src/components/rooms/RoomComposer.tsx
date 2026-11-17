@@ -40,7 +40,7 @@ import { ROOM_FILE_MAX, ROOM_FILES_MAX, ROOM_MESSAGE_MAX, SMALL_UPLOAD_MAX, type
 import { api, API, errorText, roomFileUrl } from '../../lib/api'
 import { markBusy } from '../../lib/busy'
 import { formatSize } from '../../lib/format'
-import { NO_UPLOADS, nextUploadKey, roomTarget as targetOf, setPlaceUploads, useRoomUploads, type RoomUpload } from '../../store/roomUploads'
+import { NO_UPLOADS, nextUploadKey, roomTarget as targetOf, setPlaceUploads, teamCopies, useRoomUploads, type RoomUpload } from '../../store/roomUploads'
 import { cancelUpload, SINGLE_REQUEST_MAX, unreadableFile, uploadFile, uploadPercent } from '../../lib/upload'
 import { UploadLabel } from '../UploadLabel'
 import { pastedFiles } from '../../lib/paste'
@@ -78,10 +78,6 @@ import { RoomTypingLine } from './RoomTypingLine'
 import { MessageLinkChoice, useLinkChoice } from './MessageLinkChoice'
 
 type Upload = RoomUpload
-
-/** the team files copied in this tab (by the copy's id): their team path and how many more people they reach, so a send
- * the server refused brings them back into the box with the line under the files */
-const teamCopies = new Map<string, { path: string; unable: number }>()
 
 /** It shows as a picture (a square, not a file chip): one from this computer, or a photo of a send the server gave back (its room thumbnail). */
 const picture = (u: Upload) => isLocalImage(u.file) || (u.roomFile?.kind === 'image' && !!u.roomFile.thumb)
@@ -296,7 +292,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   }, [autoFocus])
   const roomTarget = (file: File) => targetOf(roomId, file)
   /** a failed file's words: a full disk's by the role I have now (an upload can outlive a role change and this box) */
-  const failedText = (f: Upload) => (f.full ? storageFullText(staff, locale) : f.error)
+  const failedText = (f: Upload) => (f.stopped ? t('rooms.uploadStopped') : f.full ? storageFullText(staff, locale) : f.error)
   /** a failed file's words, in the language of this moment (the box may be gone by now: another room). A full disk
    * is only marked (its words follow the role at render: failedText); the rest as the server words it */
   const failure = (e: unknown): Pick<Upload, 'error' | 'plans' | 'full'> => {
@@ -329,22 +325,31 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   /** `dropFolders`: the folders a drop held besides (lib/fileDrop.ts filesOfDrop). A folder is never a chip: one line
    * says so, however many there were; the files beside them go on as usual (TC-4483). */
   const addFiles = async (all: File[], dropFolders = 0) => {
-    const room = ROOM_FILES_MAX - files.length
     const sorted = await withoutFolders(all)
     if (dropFolders + sorted.folders) toast({ level: 'warn', text: t('composer.folders') })
     const picked = sorted.files
-    if (picked.length > room) toast({ level: 'warn', text: t('rooms.tooMany', { n: ROOM_FILES_MAX }) })
+    // (the box as it is now: sorting the folders out took a moment, and a file may have come or gone meanwhile)
+    const files = useRoomUploads.getState().byPlace[key] ?? NO_UPLOADS
+    // a file the page's reload stopped (store/roomUploads.ts `stopped`) picked again: the pick takes that chip's place
+    // (no room is needed for it), and a large one goes on from the pieces the server has (lib/upload.ts)
+    const again = new Set<number>()
+    let count = files.length, over = false
     const added: Upload[] = []
-    for (const file of picked.slice(0, Math.max(0, room))) {
+    for (const file of picked) {
+      const twin = files.find((f) => f.stopped && !again.has(f.key) && f.file.name === file.name && f.file.size === file.size)
+      if (!twin && count >= ROOM_FILES_MAX) { over = true; continue }
       // refused here, before a checksum of a huge file is made (the server refuses it too, before any byte is sent)
       if (file.size > fileMax) {
         toast({ level: 'warn', text: t('rooms.tooBig', { name: file.name, max: formatSize(fileMax, locale) }) })
         continue
       }
+      if (twin) again.add(twin.key)
+      else count++
       added.push({ key: nextUploadKey(), file, status: 'uploading', abort: new AbortController() })
     }
+    if (over) toast({ level: 'warn', text: t('rooms.tooMany', { n: ROOM_FILES_MAX }) })
     if (!added.length) return
-    setFiles((list) => [...list, ...added])
+    setFiles((list) => [...list.filter((x) => !again.has(x.key)), ...added])
     for (const u of added) void upload(u)
   }
 
@@ -382,7 +387,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
 
   // files dropped on the column around the box (the room's, the thread's: FileDropZone) come here, with its checks: a box
   // with no room left for one more refuses the whole drop. Outside every column the box takes drops on itself.
-  const inZone = useDropTarget({ files: addFiles, refusal: () => (files.length >= ROOM_FILES_MAX ? t('rooms.tooMany', { n: ROOM_FILES_MAX }) : null) })
+  const inZone = useDropTarget({ files: addFiles, refusal: () => (files.filter((f) => !f.stopped).length >= ROOM_FILES_MAX ? t('rooms.tooMany', { n: ROOM_FILES_MAX }) : null) })
   const { drag, dropProps } = useFileDrop({ files: inZone ? undefined : addFiles })
 
   const removeFile = (u: Upload) => {

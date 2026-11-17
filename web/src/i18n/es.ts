@@ -4323,6 +4323,8 @@ export const es: Record<MessageKey, string> = {
   "rooms.removeFile": "Quitar {name}",
   "rooms.uploading": "Subiendo {name}…",
   "rooms.uploadingMark": "Subiendo un archivo",
+  "rooms.uploadStopped": "La subida se detuvo al recargar la página. Vuelva a elegir el archivo para continuar.",
+  "rooms.filesGone": "Un archivo adjunto ya no está disponible, así que el mensaje no se envió. Adjunte los archivos de nuevo.",
   "rooms.tooBig": "{name} supera {max} y no se puede enviar.",
   "rooms.storageFull": "No hay espacio suficiente en el almacenamiento del equipo para este archivo.",
   "rooms.storageFullAsk": "No hay espacio suficiente en el almacenamiento del equipo para este archivo. Pida a un administrador que libere espacio.",

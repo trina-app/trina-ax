@@ -4367,6 +4367,8 @@ export const id: Record<MessageKey, string> = {
   "rooms.removeFile": "Hapus {name}",
   "rooms.uploading": "Mengunggah {name}…",
   "rooms.uploadingMark": "Mengunggah berkas",
+  "rooms.uploadStopped": "Unggahan berhenti saat halaman dimuat ulang. Pilih berkasnya lagi untuk melanjutkan.",
+  "rooms.filesGone": "Berkas yang dilampirkan sudah tidak tersedia, jadi pesan tidak terkirim. Lampirkan lagi.",
   "rooms.tooBig": "{name} lebih besar dari {max} dan tidak bisa dikirim.",
   "rooms.storageFull": "Ruang penyimpanan tim tidak cukup untuk berkas ini.",
   "rooms.storageFullAsk": "Ruang penyimpanan tim tidak cukup untuk berkas ini. Minta admin untuk mengosongkan sebagian ruang.",
