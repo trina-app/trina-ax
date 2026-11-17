@@ -66,8 +66,9 @@
     line, and saving an edit keeps it (`lib/sideChatSend.ts shownQuestion`, `keepThreadRef`; in a side chat only: a
     line of that shape typed by hand in another chat is text like any other);
   - the answer offers **Send to thread** for that thread, and `post_to_room` goes there;
-  - an empty chat offers one starter, **Summarize this thread**, and the "Looking at <room> with you" line is not drawn
-    (one line says what is looked at).
+  - an empty chat offers one starter, **Summarize this thread**, its first line says "Ask … about this thread" (the
+    conversation's words again with the chip off), and the "Looking at <room> with you" line is not drawn (one line
+    says what is looked at).
 - **✕** takes the chip off for the open thread (`store/sideChats.ts chipOff`): questions go as typed, about the room.
   It is back when the thread is closed and opened again, another opens, or the side chat is closed and opened. A message quoted with "Ask ✦ about this"
   takes the chip's place while its card shows. No chip for a guest whose AI cannot read the room.
@@ -80,7 +81,8 @@
 
 - **Keyboard.** Beside the room (columns) Esc closes nothing, as before. Where panels cover the room (the pair, a
   sheet) Esc closes one a press: the one the keyboard is in, else the side chat, then the thread; never while a menu
-  or dialog of its own is open, never while an input method composes (Esc there cancels the composition), and after a
+  or dialog of its own is open, never while an input method composes (Esc there cancels the composition), after a recording in a box (voice input's
+  own Esc throws the recording away first and the panel stays), and after a
   file preview beside the page (the app frame's Esc closes that first). The pair is two labelled regions over an inert
   room, not two modal dialogs. Tab order is room, thread, side chat.
 - **Marked read.** A room under panels and a thread under the side chat are out of sight: nothing in them is marked
