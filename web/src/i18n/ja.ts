@@ -6576,6 +6576,8 @@ export const ja: Record<MessageKey, string> = {
   "stepFix.shareProject": "プロジェクトに共有",
   "stepFix.chatShared": "プロジェクト「{file}」に共有しました。",
   "chat.project.movedPrivate": "プロジェクト「{name}」に移動しました。見られるのは自分だけです。",
+  "chat.project.staysPrivate": "移動しても、このチャットは「自分のみ」のままです。共有すると、プロジェクトのメンバーが見られます。",
+  "chat.project.moveAndShare": "移動して共有",
   "notifications.event.file.access_requestedFor": "{by} が「{name}」を {for} と共有するよう頼みました",
   "fileRequest.approvedFor": "{for} と共有しました",
   "linkAccess.needAccess": "アクセス権が必要です",

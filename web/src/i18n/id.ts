@@ -6620,6 +6620,8 @@ export const id: Record<MessageKey, string> = {
   "stepFix.shareProject": "Bagikan ke proyek",
   "stepFix.chatShared": "Dibagikan ke proyek {file}.",
   "chat.project.movedPrivate": "Dipindahkan ke {name}. Hanya Anda yang bisa melihatnya.",
+  "chat.project.staysPrivate": "Setelah dipindahkan, obrolan ini tetap “Hanya saya”. Orang di proyek baru bisa melihatnya setelah Anda membagikannya.",
+  "chat.project.moveAndShare": "Pindahkan dan bagikan",
   "notifications.event.file.access_requestedFor": "{by} meminta Anda membagikan \"{name}\" kepada {for}",
   "fileRequest.approvedFor": "Anda membagikannya dengan {for}",
   "linkAccess.needAccess": "Anda perlu akses",

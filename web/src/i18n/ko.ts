@@ -6620,6 +6620,8 @@ export const ko = {
   "stepFix.shareProject": "프로젝트에 공유",
   "stepFix.chatShared": "{file} 프로젝트에 공유했어요.",
   "chat.project.movedPrivate": "'{name}' 프로젝트로 옮겼어요. 지금은 나만 볼 수 있어요.",
+  "chat.project.staysPrivate": "옮긴 뒤에도 이 채팅은 '나만 보기'예요. 공유해야 프로젝트 사람들이 볼 수 있어요.",
+  "chat.project.moveAndShare": "옮기고 공유하기",
   "notifications.event.file.access_requestedFor": "{by}님이 \"{name}\"을(를) {for}님에게 공유해 달라고 요청했어요",
   "fileRequest.approvedFor": "{for}님에게 공유했어요",
   "linkAccess.needAccess": "권한이 필요해요",

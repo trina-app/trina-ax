@@ -6548,6 +6548,8 @@ export const zh: Record<MessageKey, string> = {
   "stepFix.shareProject": "共享给项目",
   "stepFix.chatShared": "已共享给项目 {file}。",
   "chat.project.movedPrivate": "已移到{name}。目前只有你能看到。",
+  "chat.project.staysPrivate": "移动后，这个对话仍然是“仅自己”。共享之后，项目里的人才能看到。",
+  "chat.project.moveAndShare": "移动并共享",
   "notifications.event.file.access_requestedFor": "{by} 请你把“{name}”共享给 {for}",
   "fileRequest.approvedFor": "你已与 {for} 共享",
   "linkAccess.needAccess": "你需要访问权限",
