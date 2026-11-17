@@ -21,7 +21,7 @@ In:
 - Chats and rooms (`useVoiceInput`, `VoiceBar`, `Composer`, `RoomComposer`) when the team's voice input goes to
   OpenRouter (`Me.team.voiceInputOutside`).
 - The browser takes the microphone's sound as 16 kHz samples and cuts it at pauses with the meeting cutter (Yogurt
-  rules, MIT, NOTICE): a piece ends at 1 s of quiet or 15 s; the first piece of a recording at 5 s, so words show
+  rules, MIT, NOTICE): a piece ends at 1 s of quiet or 15 s; the first piece of a recording at 4 s, so words show
   early even when the person talks without a pause.
 - Each piece goes to a new `POST /api/transcribe/piece` as it closes (at most two at a time, retries by reason as
   meeting notes do). Its words go into the box in recording order, even when answers come back out of order.

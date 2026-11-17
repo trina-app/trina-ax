@@ -44,7 +44,7 @@ describe('live dictation', () => {
     answers[0]!({ ok: true, lines: [{ start: 0, end: 1, text: 'hello' }, { start: 1, end: 2, text: 'there' }] })
     const done = await d.finish()
     expect(words).toEqual(['hello there', 'world'])
-    expect(done).toEqual({ heard: true, refusal: null })
+    expect(done).toEqual({ heard: true, refusal: null, lost: false })
   })
   test('Stop sends the piece being collected', async () => {
     const sent: Uint8Array[] = []
@@ -53,7 +53,7 @@ describe('live dictation', () => {
     // still talking when Stop is pressed: no pause has closed the piece
     feed(d, [tone(2500, 0.0005), tone(1500, 0.2)])
     expect(sent).toHaveLength(0)
-    expect(await d.finish()).toEqual({ heard: true, refusal: null })
+    expect(await d.finish()).toEqual({ heard: true, refusal: null, lost: false })
     expect(sent).toHaveLength(1)
     expect(words).toEqual(['last words'])
   })
@@ -61,7 +61,7 @@ describe('live dictation', () => {
     let sent = 0
     const d = new LiveDictation({ send: async () => { sent++; return { ok: true, lines: [] } }, onWords: () => {}, onRefused: () => {} })
     feed(d, [tone(4000, 0.0005)])
-    expect(await d.finish()).toEqual({ heard: false, refusal: null })
+    expect(await d.finish()).toEqual({ heard: false, refusal: null, lost: false })
     expect(sent).toBe(0)
   })
   test('cancel: the request on its way is aborted and its words never come', async () => {
@@ -83,6 +83,27 @@ describe('live dictation', () => {
     const done = await d.finish()
     expect(refused).toEqual(["This month's free hours are used up."])
     expect(done.refusal).toBe("This month's free hours are used up.")
+  })
+  test('a piece that never gets an answer (no connection) is reported as lost; the words that came stay', async () => {
+    let n = 0
+    const words: string[] = []
+    const d = new LiveDictation({
+      send: async () => { if (n++ === 0) return { ok: true, lines: [{ start: 0, end: 1, text: 'came' }] }; throw new TypeError('Failed to fetch') },
+      onWords: (w) => words.push(w), onRefused: () => { throw new Error('no refusal') }, sleep: async () => {},
+    })
+    feed(d, sentence())
+    await Bun.sleep(0)
+    feed(d, [tone(1500, 0.2)])
+    const done = await d.finish()
+    expect(words).toEqual(['came'])
+    expect(done.lost).toBe(true)
+  })
+  test('a short quiet "yes" on Stop is still sent', async () => {
+    let sent = 0
+    const d = new LiveDictation({ send: async () => { sent++; return { ok: true, lines: [{ start: 0, end: 0.3, text: 'yes' }] } }, onWords: () => {}, onRefused: () => {} })
+    feed(d, [tone(2500, 0.0005), tone(400, 0.02)])
+    expect((await d.finish()).heard).toBe(true)
+    expect(sent).toBe(1)
   })
   test("wordsOf joins a piece's lines and drops empty ones", () => {
     expect(wordsOf([{ track: 'me', startMs: 0, endMs: 1, text: ' a ' }, { track: 'me', startMs: 1, endMs: 2, text: '' }, { track: 'me', startMs: 2, endMs: 3, text: 'b' }])).toBe('a b')

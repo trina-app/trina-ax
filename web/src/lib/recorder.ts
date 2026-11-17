@@ -43,8 +43,10 @@ export function useRecorder() {
   }
   useEffect(() => cleanup, [])
 
-  const start = async (o: { onSamples?: (samples: Float32Array) => void } = {}) => {
-    const live = o.onSamples
+  /** `live` in the answer: the samples go out (false: asked for, but the browser keeps the sound paused, so the whole
+   * recording is kept as a file instead) */
+  const start = async (o: { onSamples?: (samples: Float32Array) => void } = {}): Promise<{ live: boolean }> => {
+    let live = o.onSamples
     if (!navigator.mediaDevices?.getUserMedia || (live ? typeof AudioContext === 'undefined' : typeof MediaRecorder === 'undefined')) throw new RecorderError('unsupported')
     let s: MediaStream
     try {
@@ -54,12 +56,18 @@ export function useRecorder() {
     }
     stream.current = s
     rec.current = null
-    if (!live) startFile(s)
 
     const ac = new AudioContext()
     ctx.current = ac
-    // (a context made after the question about the microphone may start suspended)
-    void ac.resume?.().catch(() => {})
+    // a context made after the question about the microphone (outside the tap) may start paused; live words need it
+    // running, else the recording is kept whole as before
+    if (ac.state !== 'running') {
+      try {
+        await Promise.race([ac.resume(), new Promise((r) => setTimeout(r, 1000))])
+      } catch { /* still paused: below */ }
+      if ((ac.state as AudioContextState) !== 'running') live = undefined
+    }
+    if (!live) startFile(s)
     const analyser = ac.createAnalyser()
     analyser.fftSize = 512
     const source = ac.createMediaStreamSource(s)
@@ -89,6 +97,7 @@ export function useRecorder() {
     const t0 = Date.now()
     timer.current = setInterval(() => setSeconds(Math.floor((Date.now() - t0) / 1000)), 250)
     setState('recording')
+    return { live: !!live }
   }
 
   /** the whole recording as one file (MediaRecorder): stop() hands it over */

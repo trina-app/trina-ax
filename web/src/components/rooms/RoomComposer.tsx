@@ -185,6 +185,9 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     onError: setVoiceError,
     afterFocus: mention.inputProps.onSelect,
   })
+  // another room or thread in the same box: a recording for the last one goes (its words stay with that room's draft)
+  const abandonVoice = voice.abandon
+  useEffect(() => () => abandonVoice(), [key]) // eslint-disable-line react-hooks/exhaustive-deps
   // the draft keeps its mentions too
   useEffect(() => {
     if (editingNow.current) return

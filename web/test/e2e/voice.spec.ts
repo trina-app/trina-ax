@@ -99,7 +99,7 @@ test('voice input through OpenRouter shows the words while recording; ✓ finish
   await signIn(page)
   await page.getByRole('button', { name: MIC }).click()
   await expect(page.getByRole('group', { name: '녹음 중' })).toBeVisible()
-  // the first piece is cut by 5 s at the latest: its words show above the bar while it still records
+  // the first piece is cut by 4 s at the latest: its words show above the bar while it still records
   await expect(page.getByTestId('composer-text-held')).toContainText('받아쓴 문장입니다', { timeout: 12_000 })
   await expect(page.getByRole('group', { name: '녹음 중' })).toBeVisible()
   await page.getByRole('button', { name: '녹음 끝내기' }).click()

@@ -85,6 +85,8 @@ const join = (wins: Win[]) => {
 export interface ChunkerOptions {
   /** the first piece of each track is cut at this length instead of MAX_PIECE_MS (voice input: words show early) */
   firstMaxMs?: number
+  /** clearly spoken sound a piece needs (default MIN_CLEAR_MS; voice input asks for less: a short "yes" is meant) */
+  minClearMs?: number
 }
 
 export interface Chunker {
@@ -104,7 +106,7 @@ export function chunker(onPiece: (p: Piece) => void, opts: ChunkerOptions = {}):
   const emit = (track: Track, st: State, startMs: number, wins: Win[]) => {
     if (wins.filter((w) => w.voiced).length < MIN_VOICED_WINS) return
     const clearMs = wins.filter((w) => w.clear).length * 100
-    if (clearMs < MIN_CLEAR_MS) return
+    if (clearMs < (opts.minClearMs ?? MIN_CLEAR_MS)) return
     st.emitted++
     onPiece({ track, startMs, samples: join(wins), clearMs })
   }
@@ -271,7 +273,7 @@ export class MeetingSession {
   async finish(): Promise<MeetingLine[]> {
     if (!this.stopped) { this.cut.flush(); this.stoppedAt = Date.now() }
     this.stopped = true
-    if (this.running || this.queue.length) {
+    if (!this.dropped && (this.running || this.queue.length)) {
       // every caller waits for the same end (a Stop and a refusal during it); never longer than MEETING_FINISH_MS
       let timer: ReturnType<typeof setTimeout> | undefined
       await new Promise<void>((r) => {
@@ -283,7 +285,8 @@ export class MeetingSession {
     return this.all()
   }
 
-  /** Throw it all away (voice input's Esc): no more sending, no more lines handed over, finish() resolves at once. */
+  /** Throw it all away (voice input's Esc): no more sending, no more lines handed over, finish() resolves at once (a
+   * request still on its way is left to end by itself; its answer is dropped). */
   cancel() {
     this.dropped = true
     this.stopped = true

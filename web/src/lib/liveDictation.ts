@@ -5,13 +5,18 @@
 // is answered first. lib/useVoiceInput.ts puts them at the end of the box.
 // Stop (finish): the piece being collected goes out and this waits for the rest. Cancel: nothing more is sent or
 // handed over. A refusal (free hours used up, a confidential chat, voice input turned off) ends it with the server's
-// sentence; the words already handed over stay.
+// sentence; the words already handed over stay. A piece that never got an answer (no connection, the server busy
+// after its tries) is reported by finish() as `lost`.
+import { MEETING_RETRY_REASONS } from '@mycel/shared/api'
 import { MeetingSession, type MeetingLine, type PieceAnswer } from '@mycel/shared/speech-pieces'
 
 export const LIVE_RATE = 16_000
 /** the first piece of a recording is cut by this length at the latest, so the first words show within a few seconds
  * even when the person talks without a pause; later pieces go up to the cutter's 15 s */
-export const FIRST_PIECE_MS = 5_000
+export const FIRST_PIECE_MS = 4_000
+/** clearly spoken sound a piece needs before it is sent: lower than meeting notes' 300 ms, since a person dictating
+ * means it, and a short quiet "yes" must not be dropped */
+export const MIN_CLEAR_MS = 200
 
 export interface LiveDictationDeps {
   /** POST /api/transcribe/piece; `signal` is aborted by cancel() */
@@ -20,6 +25,8 @@ export interface LiveDictationDeps {
   onWords(text: string): void
   /** it cannot go on: the server's sentence (called once) */
   onRefused(message: string): void
+  /** the wait before a piece is sent again (tests) */
+  sleep?(ms: number): Promise<void>
 }
 
 /** A piece's lines as one run of words. */
@@ -31,12 +38,20 @@ export class LiveDictation {
   private readonly session: MeetingSession
   private readonly abort = new AbortController()
   private refusal: string | null = null
+  /** pieces whose last try got no answer (the same bytes go to every try of a piece) */
+  private readonly unanswered = new Set<Uint8Array>()
   /** words were handed over */
   heard = false
 
   constructor(d: LiveDictationDeps) {
     this.session = new MeetingSession({
-      send: (wav) => d.send(wav, this.abort.signal),
+      send: async (wav) => {
+        this.unanswered.add(wav)
+        const a = await d.send(wav, this.abort.signal)
+        // a refusal to send again later is not an answer yet
+        if (a.ok || !a.reason || !MEETING_RETRY_REASONS.includes(a.reason)) this.unanswered.delete(wav)
+        return a
+      },
       onLines: () => {},
       onOrdered: (lines) => {
         const said = wordsOf(lines)
@@ -49,7 +64,8 @@ export class LiveDictation {
         this.refusal = message
         d.onRefused(message)
       },
-      chunker: { firstMaxMs: FIRST_PIECE_MS },
+      chunker: { firstMaxMs: FIRST_PIECE_MS, minClearMs: MIN_CLEAR_MS },
+      ...(d.sleep ? { sleep: d.sleep } : {}),
     })
   }
 
@@ -58,10 +74,11 @@ export class LiveDictation {
     if (samples.length && !this.abort.signal.aborted) this.session.push({ track: 'me', samples })
   }
 
-  /** Stop: the last piece goes out; resolves when every piece is answered (or given up). `refusal`: why it stopped. */
-  async finish(): Promise<{ heard: boolean; refusal: string | null }> {
+  /** Stop: the last piece goes out; resolves when every piece is answered (or given up). `refusal`: why it stopped;
+   * `lost`: a piece got no answer, so words may be missing. */
+  async finish(): Promise<{ heard: boolean; refusal: string | null; lost: boolean }> {
     await this.session.finish()
-    return { heard: this.heard, refusal: this.refusal }
+    return { heard: this.heard, refusal: this.refusal, lost: this.unanswered.size > 0 }
   }
 
   /** Esc / ✕: nothing more is sent or handed over; requests on their way are aborted. */

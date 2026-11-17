@@ -149,8 +149,11 @@ export function useVoiceInput(o: VoiceInputOptions) {
   const focusWanted = useRef<{ at: number | null } | null>(null)
   const holdUsed = useSyncExternalStore(watchHoldUsed, holdUsedBefore, () => true)
   const [jobId, setJobId] = useState<string | null>(null)
-  /** the live recording now (null: none, or the whole file is transcribed) and the box's text before it */
-  const live = useRef<{ run: LiveDictation; before: string } | null>(null)
+  /** the live recording now (null: none, or the whole file is transcribed) and the box's text before its first words
+   * (taken then, not at the start: a hold of Space has just taken its typed Space back, and the box shows that by now) */
+  const live = useRef<{ run: LiveDictation; before: string | null } | null>(null)
+  /** abandon(): the recording goes without putting the box back (the box now shows another room's text) */
+  const noRestore = useRef(false)
   /** the live recording's words went into the box */
   const [heard, setHeard] = useState(false)
   /** the "mic blocked" note while the phone app can open its Settings page (the host shows the button beside it) */
@@ -178,10 +181,11 @@ export function useVoiceInput(o: VoiceInputOptions) {
     setHeard(false)
     if (!l) return
     l.run.cancel()
-    if (!restore || !l.run.heard) return
-    const cur = opts.current.text
     const before = l.before
-    if (cur === before) return
+    if (!restore || noRestore.current || before === null) return
+    // (always, even when the last render does not show the newest words yet: they are on their way to the box, and this
+    // comes after them)
+    const cur = opts.current.text
     let p = 0
     while (p < cur.length && p < before.length && cur[p] === before[p]) p++
     opts.current.replace(before, { from: p, removed: cur.length - p, inserted: before.length - p })
@@ -208,13 +212,14 @@ export function useVoiceInput(o: VoiceInputOptions) {
           dropLive(false)
           const st = useSession.getState().status
           // a team whose voice input goes to OpenRouter: the words show while recording
-          if (st.kind !== 'signed-in' || st.me.team?.voiceInputOutside !== true) return rec.current.start()
-          const l = {
-            before: opts.current.text,
+          if (st.kind !== 'signed-in' || st.me.team?.voiceInputOutside !== true) return rec.current.start().then(() => {})
+          const l: { run: LiveDictation; before: string | null } = {
+            before: null,
             run: new LiveDictation({
               send: sendPiece,
               onWords: (said) => {
                 if (live.current !== l) return
+                if (l.before === null) l.before = opts.current.text
                 opts.current.append(said)
                 setHeard(true)
               },
@@ -225,10 +230,16 @@ export function useVoiceInput(o: VoiceInputOptions) {
             }),
           }
           live.current = l
-          return rec.current.start({ onSamples: (samples) => l.run.push(samples) }).catch((e) => {
-            if (live.current === l) dropLive(false)
-            throw e
-          })
+          return rec.current.start({ onSamples: (samples) => l.run.push(samples) }).then(
+            (r) => {
+              // the browser would not run the sound for live words (a phone that keeps it paused): the whole recording
+              if (!r.live && live.current === l) dropLive(false)
+            },
+            (e) => {
+              if (live.current === l) dropLive(false)
+              throw e
+            },
+          )
         },
         stop: () => rec.current.stop(),
         cancel: () => {
@@ -245,13 +256,14 @@ export function useVoiceInput(o: VoiceInputOptions) {
             }
             if (signal.aborted) return abort()
             signal.addEventListener('abort', abort, { once: true })
-            l.run.finish().then(({ heard, refusal }) => {
+            l.run.finish().then(({ heard, refusal, lost }) => {
               signal.removeEventListener('abort', abort)
               if (live.current === l) {
                 live.current = null
                 setHeard(false)
               }
-              if (refusal) reject(new Error(refusal))
+              // a piece that never got an answer: some words may be missing (those that came stay)
+              if (refusal || lost) reject(new Error(refusal ?? words.current.t('error.network')))
               else resolve(heard)
             }, reject)
           })
@@ -522,6 +534,16 @@ export function useVoiceInput(o: VoiceInputOptions) {
     },
     finish: () => void voice.finish(),
     cancel: () => voice.cancel(),
+    /** the box now belongs to another place (a room switched without a new box): the recording goes, and its words are
+     * not taken out of the box that shows now */
+    abandon: () => {
+      noRestore.current = true
+      try {
+        voice.cancel()
+      } finally {
+        noRestore.current = false
+      }
+    },
   }
 }
 

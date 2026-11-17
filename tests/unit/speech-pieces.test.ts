@@ -83,6 +83,14 @@ describe('in cut order', () => {
     expect(ordered).toEqual([])
   })
 
+  test('cancel with requests still on their way: finish does not wait for them', async () => {
+    const s = new MeetingSession({ send: () => new Promise<PieceAnswer>(() => {}), onLines: () => {}, onStop: () => {} })
+    threeSentences(s)
+    s.cancel()
+    const r = await Promise.race([s.finish().then(() => 'done'), Bun.sleep(500).then(() => 'waited')])
+    expect(r).toBe('done')
+  })
+
   test('a refusal gives up the pieces still waiting and hands over what came before it', async () => {
     let n = 0
     const ordered: string[] = []

@@ -11,7 +11,7 @@ Plan: docs/AGENTS/plan/20261117-0143-voice-live-text.md.
   recording. Send pieces while recording so the first words show within a few seconds. Stop is the end: transcribe
   what was recorded and finish, with no "Try again" and no new states.
 - **Rule:** when `Me.team.voiceInputOutside` is true, the web app records 16 kHz samples (no recording file), cuts
-  them at pauses with the meeting notes' cutter (`shared/src/speech-pieces.ts`, Yogurt rules; the first piece by 5 s,
+  them at pauses with the meeting notes' cutter (`shared/src/speech-pieces.ts`, Yogurt rules; the first piece by 4 s,
   the rest by 15 s) and sends each to `POST /api/transcribe/piece` as it closes, at most two at once. Words go to the
   end of the box in recording order (`MeetingSession.onOrdered`). Stop sends the last piece and waits for the rest;
   Esc puts the box back as it was before the recording; a final refusal ends the recording with its sentence and keeps
