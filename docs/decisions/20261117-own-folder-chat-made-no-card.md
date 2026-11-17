@@ -13,8 +13,10 @@
 - **Rule:** in the person's own chat after a room read (or other people's words), with Always allow off, writing or
   changing a file goes without the room card when all of these hold (chat/turn.ts ownFolderTarget):
   - **(a) only the person can open it.** The file is inside users/<them>/ and the real audience check says nobody else
-    can open it: no share row at the file or at any folder above it (a file's link or a folder share, paused, or with
-    nobody on it yet: files/share-readers.ts anyShareAt), no folder share's people (privateToMe), and no folder rule
+    can open it: no share row at the file or at any folder above it that lets anyone in (a file's or a folder's share
+    with a person, a group or the whole team on it, paused too: files/share-readers.ts sharedWithAnyoneAt; a bare link
+    id with nobody on it, which the app makes when a room post links the file or a "let them view" button is offered,
+    lets nobody in), no folder share's people (privateToMe), and no folder rule
     that lets another person read it (rooms/ai-grants.ts readersOf). Not the path alone.
   - **(b) this chat made it.** From the server's own file events (chat/shared-actions.ts madeInChat, next to
     madeInTurn): the newest "create" at that path is a row of one of this person's turns in this chat, written by
@@ -46,6 +48,9 @@
   made in the same answer (that hole was older than this change). Optional, not done: re-checking the own-folder pass
   right before make_file or edit_hwp writes after another card waited (only a parallel sub-agent call could change the
   file's audience in that gap; calls that change things run one at a time).
+- **First real-AI rerun:** FL-08 default went 7 → 6, not 5: the unstamped PDF still asked, because posting the quote
+  to the room offered a "let them view" button for it, which made the file's link id (nobody on it). The first version
+  counted any share row as "others can open it"; a row counts now only when someone is on it.
 - **Rule A is unchanged:** Always allow stays final; this rule is for people who have not chosen it.
 - **Results:** FL-08 and FL-12, default and always, before and after: see the PR.
 - **Tests:** tests/unit/b-own-folder-chat-made.test.ts (FL-08's own-folder cards gone; a card each for a shared

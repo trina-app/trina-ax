@@ -3,7 +3,8 @@
 // docs/decisions/20261117-own-folder-chat-made-no-card.md). Reproduces FL-08 of the AI flow check (tests/ai-scenarios,
 // 2026-11-17 default mode on dev with #1168): the quote's page and its unstamped copy, both made by the same chat in the
 // person's own folder in its first answer, asked a room card each when the chat fixed them after reading the room.
-// The guard holds, a card each, for: a personal subfolder shared with someone (a folder share, a file's link), a file
+// A bare link with nobody on it (made when a room post linked the file) does not count as shared. The guard holds, a
+// card each, for: a personal subfolder shared with someone (a folder share), a file shared with someone, a file
 // this chat did not make (there before, made by another chat, changed by the person since), a copied or renamed file,
 // a skill or instruction file, a group folder, and a room's file saved over the chat's draft (save_room_file).
 // The fixture team: alice and erin in marketing (groups/marketing: alice, erin, carol, dana), bob in finance.
@@ -125,15 +126,30 @@ describe('FL-08: files this chat made in the person\'s own folder', () => {
   })
 })
 
+describe('FL-08 rerun: a link nobody is on', () => {
+  test('a chat-made file whose link was made (a room post linked it, a "let them view" button was offered) but given to nobody: still no card', async () => {
+    const { roomId, dir } = await setup('linked')
+    const pdf = `${dir}/quote.md`
+    const chat = await newChat('alice')
+    await run('alice', chat, `draft\n${fake(write(pdf, 'v1\n'), { say: 'ok' })}`)
+    // the link row files/shares.ts linkFor makes on first use (share-fixes.ts when it offers [볼 수 있게 하기]): no people
+    share(pdf, 'file', [])
+    const r = await run('alice', chat, `fix\n${fake(roomRead(roomId), ...fix(pdf, 'v2\n'), { say: 'x' })}`)
+    expect(r.cards.map((c) => c.question)).toEqual([])
+    expect(read(pdf)).toBe('v2\n')
+  })
+})
+
 describe('the guard still holds: a card each', () => {
-  test('a personal subfolder shared with someone (a folder share), a file with a link (even with nobody on it yet)', async () => {
+  test('a personal subfolder shared with someone (a folder share), a file shared with someone (paused too)', async () => {
     const { roomId, dir } = await setup('shared')
     const a = `${dir}/sub/a.md`, b = `${dir}/b.md`
     const chat = await newChat('alice')
     await run('alice', chat, `draft\n${fake(write(a, 'a v1\n'), write(b, 'b v1\n'), { say: 'ok' })}`)
     expect(madeInChat(h.ctx.db, chat, 'alice', a)).toBe(true)
     share(`${dir}/sub`, 'folder', ['erin'])
-    share(b, 'file', [])
+    const fileShare = share(b, 'file', ['erin'])
+    h.ctx.db.query('UPDATE file_shares SET paused_at = ? WHERE id = ?').run(new Date().toISOString(), fileShare)
     const r = await run('alice', chat, `fix\n${fake(roomRead(roomId), ...fix(a, 'PLANTED\n'), ...fix(b, 'PLANTED\n'), { say: 'x' })}`)
     expect(r.cards).toHaveLength(2)
     expect(r.cards[0]!.question).toContain(WHY)

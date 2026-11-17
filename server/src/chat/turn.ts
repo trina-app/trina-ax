@@ -113,7 +113,7 @@ import { getUser } from '../auth/users'
 import { findRoomFile, localTime } from '../rooms/reader'
 import { namedPaths, OWN_CHAT_TEAM_TOOLS, OWN_WORDS_TOOLS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_OWN_CARD_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
 import { auditOnceUse, authorsWrite, everyoneWrites, folderAudience, folderId, grantFor, grantsOn, readersOf, ruledBetween, within } from '../rooms/ai-grants'
-import { anyShareAt, privateToMe } from '../files/share-readers'
+import { privateToMe, sharedWithAnyoneAt } from '../files/share-readers'
 import { madeInChat } from './shared-actions'
 import { wouldSeeFrom } from '../rooms/history'
 import { isOwnerOrAdmin, roomRow } from '../rooms/store'
@@ -2751,13 +2751,14 @@ export class TurnExec {
   }
 
   /** Nobody but this person can open `segs` (actual names, inside their own folder) in any way now: no share row at it
-   * or above it (a file's link or a folder share, paused, without people yet: files/share-readers.ts anyShareAt), and
+   * or above it that lets anyone in (a file's or a folder's, paused too: files/share-readers.ts sharedWithAnyoneAt;
+   * a bare link id with nobody on it lets nobody in), and
    * no folder rule lets anyone else read it (rooms/ai-grants.ts readersOf: every active person the rules let read it,
    * a folder share's people too). The real audience check, not the path alone. Fails closed. */
   private onlyMine(segs: readonly string[]): boolean {
     try {
       if (segs.length < 3 || segs[0] !== 'users' || segs[1] !== this.spec.userId) return false
-      if (anyShareAt(this.rt.db, segs)) return false
+      if (sharedWithAnyoneAt(this.rt.db, segs)) return false
       return readersOf(this.rt.db, this.rt.files.rules(), segs).every((id) => id === this.spec.userId)
     } catch { return false }
   }

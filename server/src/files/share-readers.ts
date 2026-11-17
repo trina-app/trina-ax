@@ -93,15 +93,18 @@ export function privateToMe(db: Database, me: string, segs: readonly string[]): 
   return segs[0] === 'users' && segs[1] === me && shareReaders(db, segs).size === 0
 }
 
-/** A live share row (a file's link or a folder share, paused or not, with people on it or not yet) at `segs` or at any
- * folder above it: a row whose people may open it, or may be added by its owner's earlier link (a request) without the
- * file changing. Stricter than shareReaders, which counts only the people on it now: the test for "nobody else can open
- * this" before a change goes without a card (chat/turn.ts ownFolderTarget). Fails closed: an error says yes. */
-export function anyShareAt(db: Database, segs: readonly string[]): boolean {
+/** A live share row (a file's or a folder's, paused or not) at `segs` or at any folder above it that gives anyone
+ * access: one with a grant (a person, a group, the whole team), whether or not that account is active now. A row with
+ * no grant is only a link id (files/shares.ts linkFor makes one on first use, e.g. when a room post links the file or
+ * a "let them view" button is offered): opening it still needs read access, so it lets nobody in. Stricter than
+ * shareReaders (active members only, folder rows only): the test for "nobody else can open this" before a change goes
+ * without a card (chat/turn.ts onlyMine). Fails closed: an error says yes. */
+export function sharedWithAnyoneAt(db: Database, segs: readonly string[]): boolean {
   try {
     if (!segs.length) return false
     const paths = segs.map((_, i) => segs.slice(0, i + 1).join('/'))
-    return !!db.query(`SELECT 1 FROM file_shares WHERE state = 'live' AND path IN (${paths.map(() => '?').join(',')}) LIMIT 1`).get(...paths)
+    return !!db.query(`SELECT 1 FROM file_shares s WHERE s.state = 'live' AND s.path IN (${paths.map(() => '?').join(',')})
+      AND EXISTS(SELECT 1 FROM file_share_grants g WHERE g.share_id = s.id) LIMIT 1`).get(...paths)
   } catch { return true }
 }
 
