@@ -19,6 +19,7 @@ import { JobLine } from './jobs'
 import { OwnerSetup } from './OwnerChecklist'
 import { OldProjectsCard } from './OldProjectsCard'
 import { FolderShareNotice } from './FolderShareNotice'
+import { OfficeMcpNotice } from './OfficeMcpNotice'
 import { names, useAdminOverview, type AttentionItem, type State } from './overview'
 
 export default function Home() {
@@ -65,6 +66,9 @@ export default function Home() {
 
       {/* once, when folder sharing opens: members can now share folders in their own files */}
       <FolderShareNotice />
+
+      {/* office mode, once, for the owner: Claude Code connections removed from this Mac (updated installs got no word) */}
+      <OfficeMcpNotice />
 
       {owner && <OwnerSetup />}
 

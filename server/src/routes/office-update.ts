@@ -12,6 +12,7 @@ import { msg } from '../auth/messages'
 import type { AppConfig } from '../app-config'
 import { fail } from '../http/errors'
 import { loadSettings } from '../office/settings'
+import { claudeMcpNotice } from '../office/claude-mcp-notice'
 import { readUpdateState, requestUpdate, updateLabel, updateView, writeUpdateSettings } from '../office/update'
 import type { RouteModule } from './module'
 import { feature } from '../system/deployment'
@@ -49,6 +50,9 @@ export const officeUpdateRoutes: RouteModule = {
       const home = officeHomeOf(ctx.config)
       return home ? view(home) : null
     })
+
+    // the owner's one-time notice that Claude Code connections were removed from this Mac (office/claude-mcp-notice.ts)
+    kit.handle(API.officeClaudeMcpNotice, () => claudeMcpNotice(ctx))
 
     kit.handle(API.officeUpdateAction, async ({ c, body, auth }) => {
       const locale = c.get('locale')
