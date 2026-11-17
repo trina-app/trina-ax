@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { nativeBinDir, which } from '../config'
 import { heicRefusal, heicToJpeg, heicTools, isHeic, PREVIEW_INPUT_MAX } from '../files/heic-preview'
+import { imageSlot } from '../files/vision'
 import { makeWorkDir, runIsolated } from '../tools/isolate'
 import { exifOrientation } from './metadata'
 
@@ -154,22 +155,24 @@ function writeThumb(dstBase: string, ext: ThumbExt, b: Uint8Array) {
  * An iPhone photo (HEIC / HEIF): browsers other than Safari cannot draw it, and ffmpeg decodes only the first tile of
  * a phone HEIC. Decoded like the file panel preview (files/heic-preview.ts: the declared size checked first, then
  * heif-dec or macOS ImageIO, isolated), then made small by the Go helper (`mycel-safeops resize`: upright pixels, no
- * photo details, JPEG). null: no decoder here, a damaged or too large photo (the chip shows the picture icon).
+ * photo details, JPEG), in the image conversion slots (files/vision.ts: a few at a time, so twenty photos in one chat
+ * do not start twenty decoders). null: no decoder or helper here, or a too large photo; a damaged one throws (the
+ * callers keep no thumbnail either way, and the chip shows the picture icon).
  */
 async function heicThumbnail(src: string, dstBase: string, max: number, o: ThumbOptions): Promise<ThumbExt | null> {
   const st = fs.statSync(src)
   if (st.size > PREVIEW_INPUT_MAX) return null
   const bytes = fs.readFileSync(src)
   if (heicRefusal(bytes)) return null
-  const decoded = await heicToJpeg(bytes, heicTools(), o.signal, { maxPx: max })
-  if (!decoded) return null
   const helper = path.join(nativeBinDir(), 'mycel-safeops')
   if (!fs.existsSync(helper)) return null
+  const decoded = await imageSlot(() => heicToJpeg(bytes, heicTools(), o.signal, { maxPx: max }), o.signal)
+  if (!decoded) return null
   // details none (2) + JPEG (4) + upright (16)
-  const r = await runIsolated({
+  const r = await imageSlot(() => runIsolated({
     cmd: helper, args: ['resize', String(max), '0', '0', '0', '22'], stdin: decoded, timeoutMs: 30_000, maxRssMiB: 1536,
     maxStdout: THUMB_MAX_BYTES, background: o.background, signal: o.signal, env: { GOMAXPROCS: '2', GOMEMLIMIT: '800MiB' },
-  })
+  }), o.signal)
   const b = r.stdout
   if (r.code !== 0 || !(b.length >= 4 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff)) return null
   writeThumb(dstBase, 'jpg', b)

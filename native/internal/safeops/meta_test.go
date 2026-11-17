@@ -369,3 +369,71 @@ func TestResizeRealPhotoDetails(t *testing.T) {
 		t.Fatal("GPS pointer left")
 	}
 }
+
+// review of feat/photos-heic-keep-meta: removing the location fails closed on unusual GPS layouts, and the report
+// matches what is written
+func TestRemoveLocationFailsClosed(t *testing.T) {
+	secret := []byte("GPS-SECRET-PLACE")
+	gps := []tiffEntry{{tag: 0x001c, typ: 7, count: 16, data: secret}}
+	cases := map[string][]byte{
+		// two GPS pointers in IFD0
+		"two pointers": buildTiff([][]tiffEntry{{{tag: 0x8825, typ: 4, count: 1, ifd: 1}, {tag: 0x8825, typ: 4, count: 1, ifd: 2}}, gps, gps}, nil),
+		// a GPS pointer inside the EXIF IFD
+		"pointer in EXIF IFD": buildTiff([][]tiffEntry{{{tag: 0x8769, typ: 4, count: 1, ifd: 1}}, {{tag: 0x8825, typ: 4, count: 1, ifd: 2}}, gps}, nil),
+	}
+	for name, exif := range cases {
+		src := jpegSegs(encJPEG(t, photo(200, 100, 3), 90), app(0xe1, exifSig, exif))
+		out, info, err := ResizeWithInfo(src, ResizeSpec{Side: 100, Details: DetailsNoLocation})
+		if err != nil {
+			t.Fatal(name, err)
+		}
+		if bytes.Contains(out, secret) || info.Location != "removed" {
+			t.Fatalf("%s: location left (%+v)", name, info)
+		}
+	}
+	// the maker note is zeroed with the location (some cameras keep place names there)
+	mk := buildTiff([][]tiffEntry{{{tag: 0x8769, typ: 4, count: 1, ifd: 1}, {tag: 0x8825, typ: 4, count: 1, ifd: 2}}, {{tag: 0x927c, typ: 7, count: 12, data: []byte("CITY-SEOUL!!")}}, gps}, nil)
+	out, err := Resize(jpegSegs(encJPEG(t, photo(200, 100, 3), 90), app(0xe1, exifSig, mk)), ResizeSpec{Side: 100, Details: DetailsNoLocation})
+	if err != nil || bytes.Contains(out, []byte("CITY-SEOUL")) {
+		t.Fatalf("maker note kept: %v", err)
+	}
+}
+
+func TestReportMatchesWhatIsWritten(t *testing.T) {
+	// a PNG with an EXIF block too large for a JPEG segment, copied as JPEG: left out, and reported as none
+	big := buildTiff([][]tiffEntry{{{tag: 0x010f, typ: 7, count: 70000, data: bytes.Repeat([]byte("M"), 70000)}, {tag: 0x8825, typ: 4, count: 1, ifd: 1}}, {{tag: 0x0001, typ: 2, count: 2, data: []byte("N\x00")}}}, nil)
+	var pngBuf bytes.Buffer
+	if err := png.Encode(&pngBuf, photo(200, 100, 3)); err != nil {
+		t.Fatal(err)
+	}
+	p := pngBuf.Bytes()
+	src := append(append(append([]byte{}, p[:33]...), (photoMeta{exif: big}).pngChunks()...), p[33:]...)
+	out, info, err := ResizeWithInfo(src, ResizeSpec{Side: 100, Format: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if jpegMeta(out).exif != nil || info.Location != "none" || info.Details != "none" {
+		t.Fatalf("report %+v, exif in copy %v", info, jpegMeta(out).exif != nil)
+	}
+}
+
+func TestPngOrientationApplied(t *testing.T) {
+	// a PNG whose EXIF says 6: turned like a JPEG, so the reset tag matches the pixels
+	var pngBuf bytes.Buffer
+	if err := png.Encode(&pngBuf, photo(400, 200, 3)); err != nil {
+		t.Fatal(err)
+	}
+	p := pngBuf.Bytes()
+	ex := buildTiff([][]tiffEntry{{{tag: 0x0112, typ: 3, count: 1, data: u16(6)}}}, nil)
+	src := append(append(append([]byte{}, p[:33]...), (photoMeta{exif: ex}).pngChunks()...), p[33:]...)
+	out, err := Resize(src, ResizeSpec{Side: 200})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := config(t, out); c.Width != 100 || c.Height != 200 {
+		t.Fatalf("not turned: %dx%d", c.Width, c.Height)
+	}
+	if tiffOrientation(pngMeta(out).exif) != 1 {
+		t.Fatal("tag not reset")
+	}
+}

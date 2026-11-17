@@ -215,8 +215,9 @@ func inflate(b []byte, max int) []byte {
 	return out
 }
 
-// prepare: the details the copy (w x h, upright) carries under `mode`, and what happened to them.
-func (m photoMeta) prepare(mode, w, h int) (photoMeta, ResizeInfo) {
+// prepare: the details the copy (w x h, upright, format out) carries under `mode`, and what happened to them. A block
+// the copy's format cannot hold (a JPEG segment is at most 64 KB) is left out here, so the report says what is written.
+func (m photoMeta) prepare(mode, w, h int, out string) (photoMeta, ResizeInfo) {
 	var exifGPS bool
 	var exif []byte
 	if m.exif != nil {
@@ -227,8 +228,16 @@ func (m photoMeta) prepare(mode, w, h int) (photoMeta, ResizeInfo) {
 			exif = nil
 		}
 	}
+	if out != "png" {
+		if exif != nil && len(exifSig)+len(exif) > jpegSegMax {
+			exif, exifGPS = nil, false
+		}
+		if m.xmp != nil && len(xmpSig)+len(m.xmp) > jpegSegMax {
+			m.xmp = nil
+		}
+	}
 	hadGPS := exifGPS || (m.xmp != nil && xmpGPS.Match(m.xmp))
-	had := exif != nil || m.xmp != nil
+	had := exif != nil || m.xmp != nil || exifGPS
 	info := ResizeInfo{Details: "none", Location: "none"}
 	if had {
 		info.Details = "kept"
@@ -310,6 +319,36 @@ func (t tiffBlock) blank(off uint64) {
 	clear(t.b[off : off+2+12*uint64(n)+4])
 }
 
+// tiffOrientation: the orientation (1-8) a TIFF block's IFD0 names; 1 without one
+func tiffOrientation(b []byte) int {
+	if len(b) < 8 {
+		return 1
+	}
+	t := tiffBlock{b: b}
+	switch string(b[:2]) {
+	case "II":
+		t.o = binary.LittleEndian
+	case "MM":
+		t.o = binary.BigEndian
+	default:
+		return 1
+	}
+	off := uint64(t.o.Uint32(b[4:]))
+	n, ok := t.ifd(off)
+	if !ok {
+		return 1
+	}
+	for i := 0; i < n; i++ {
+		e := t.entry(off, i)
+		if t.o.Uint16(e) == 0x112 && t.o.Uint16(e[2:]) == 3 && t.o.Uint32(e[4:]) == 1 {
+			if v := int(t.o.Uint16(e[8:])); v >= 1 && v <= 8 {
+				return v
+			}
+		}
+	}
+	return 1
+}
+
 // fixExif edits a TIFF block in place: orientation 1, the copy's pixel size, no thumbnail and, with noGPS, no GPS IFD.
 // hadGPS: the block held a location. ok false: not a TIFF block this code can edit safely (the caller leaves it out).
 func fixExif(b []byte, w, h int, noGPS bool) (hadGPS, ok bool) {
@@ -333,7 +372,7 @@ func fixExif(b []byte, w, h int, noGPS bool) (hadGPS, ok bool) {
 	if !good {
 		return false, false
 	}
-	gpsIdx, gpsOff, exifOff := -1, uint64(0), uint64(0)
+	gpsIdx, gpsOff, exifOff, gpsSeen := -1, uint64(0), uint64(0), 0
 	for i := 0; i < n; i++ {
 		e := t.entry(ifd0, i)
 		tag, typ, cnt := t.o.Uint16(e), t.o.Uint16(e[2:]), t.o.Uint32(e[4:])
@@ -342,8 +381,34 @@ func fixExif(b []byte, w, h int, noGPS bool) (hadGPS, ok bool) {
 			t.o.PutUint16(e[8:], 1)
 		case tag == 0x8769 && cnt == 1:
 			exifOff = uint64(t.o.Uint32(e[8:]))
-		case tag == 0x8825 && cnt == 1:
+		case tag == 0x8825:
+			gpsSeen++
 			gpsIdx, gpsOff = i, uint64(t.o.Uint32(e[8:]))
+		}
+	}
+	if en, good := t.ifd(exifOff); good {
+		for i := 0; i < en; i++ {
+			e := t.entry(exifOff, i)
+			switch t.o.Uint16(e) {
+			case 0x8825:
+				// a GPS pointer where it does not belong (some writers): counted, so it is never kept unseen
+				gpsSeen++
+			case 0x927c:
+				// the maker note: some cameras keep place names there; zeroed with the location
+				if noGPS {
+					size := tiffTypeSize[t.o.Uint16(e[2:])] * uint64(t.o.Uint32(e[4:]))
+					if v := uint64(t.o.Uint32(e[8:])); size > 4 && v+size <= uint64(len(b)) {
+						clear(b[v : v+size])
+					}
+				}
+			}
+		}
+	}
+	// the location removed on request fails closed: unless there is exactly one GPS pointer, in IFD0, to a GPS IFD this
+	// code can read, the whole block is left out (and the location reported removed)
+	if noGPS && gpsSeen > 0 {
+		if _, good := t.ifd(gpsOff); gpsSeen != 1 || gpsIdx < 0 || !good || t.o.Uint32(t.entry(ifd0, gpsIdx)[4:]) != 1 {
+			return true, false
 		}
 	}
 	// the EXIF pixel size: the copy's
@@ -374,7 +439,7 @@ func fixExif(b []byte, w, h int, noGPS bool) (hadGPS, ok bool) {
 	}
 	if gpsIdx >= 0 {
 		gn, good := t.ifd(gpsOff)
-		hadGPS = good && gn > 0
+		hadGPS = (good && gn > 0) || gpsSeen > 1
 		if noGPS {
 			t.blank(gpsOff)
 			// the pointer leaves IFD0: later entries and the next pointer move up one entry

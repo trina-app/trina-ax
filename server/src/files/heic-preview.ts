@@ -11,7 +11,10 @@
 //
 // Before any converter runs, the sizes the file declares are read (heicSize: the `ispe` property of every image item,
 // the primary one first): a file whose primary image or any other image is over 50 megapixels or 65,535 px a side is
-// refused undecoded (a decompression bomb), and so is a file that declares no primary image size.
+// refused undecoded (a decompression bomb), and so is a file that declares no primary image size, names a property it
+// does not have, or holds more boxes than any photo. A derived image (a grid of tiles, an overlay) is decoded at its
+// own output size, which `ispe` may understate; for those the converter's time, memory and work-folder limits are the
+// backstop (review of feat/photos-heic-keep-meta).
 //
 // Limits: input at most PREVIEW_INPUT_MAX bytes, output at most PREVIEW_OUTPUT_MAX bytes, a time, memory and
 // work-folder limit per run, at most PREVIEW_RUNS_MAX runs at the same time and at most PREVIEW_QUEUE_MAX conversions
@@ -108,9 +111,12 @@ export function heicSize(b: Uint8Array): { width: number; height: number; larges
   const v = new DataView(b.buffer, b.byteOffset, b.byteLength)
   const type = (at: number) => String.fromCharCode(b[at]!, b[at + 1]!, b[at + 2]!, b[at + 3]!)
   /** the child boxes of [from, to): [type, payload start, payload end], at most 4096 */
+  let capped = false
   const boxes = (from: number, to: number): [string, number, number][] => {
     const out: [string, number, number][] = []
-    for (let p = from; p + 8 <= to && out.length < 4096;) {
+    for (let p = from; p + 8 <= to;) {
+      // more boxes than any photo has: refused as damaged (a filler could hide a large image past a cap)
+      if (out.length >= 4096) { capped = true; break }
       let size = v.getUint32(p)
       let head = 8
       if (size === 1) {
@@ -165,11 +171,13 @@ export function heicSize(b: Uint8Array): { width: number; height: number; larges
       for (let k = 0; k < n; k++) {
         const index = wide ? v.getUint16(p) & 0x7fff : b[p]! & 0x7f
         p += wide ? 2 : 1
+        // a property that is not there: damaged (never skipped past a size check)
+        if (index > props.length) return null
         if (id === primary && !found) found = ispe(index)
       }
     }
   }
-  return found ? { ...found, largest, longest } : null
+  return found && !capped ? { ...found, largest, longest } : null
 }
 
 /** null: the file may be decoded; else why not ('too_large': over the pixel limits, 'damaged': no primary image size) */

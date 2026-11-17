@@ -24,8 +24,9 @@ Plan: docs/AGENTS/plan/20261117-0300-resize-images.md. Scenario case EDIT-16.
   orientation is reset to 1 because the pixels are turned upright (also `tiff:Orientation` in the XMP), the EXIF pixel
   size is the copy's, and the EXIF thumbnail (the old picture, not turned) is left out. Comments and other segments are
   not carried. `remove_details: "location"` ("위치 정보 빼고"), only when the person asks: the GPS IFD and the values
-  it points to are zeroed and its pointer leaves IFD0, and the XMP (which can hold GPS too) is left out; `"all"`: no
-  EXIF, XMP or ICC. A block that is not a TIFF the code can check is left out rather than copied unchecked. The helper
+  it points to are zeroed and its pointer leaves IFD0, the maker note (some cameras keep place names there) is zeroed,
+  and the XMP (which can hold GPS too) is left out; it fails closed: unless there is exactly one GPS pointer, in IFD0, to
+  a GPS IFD the code can read, the whole EXIF block is left out. `"all"`: no EXIF, XMP or ICC. A block that is not a TIFF the code can check is left out rather than copied unchecked. The helper
   reports what happened (`resize: details=… location=…` on stderr), so the AI says "the location was removed" only
   when one was, "it had no location" when there was none, and nothing about details by default. The details count
   toward a `max_mb` target. Keeping the ICC profile also fixes the less saturated Display P3 copies.
@@ -51,8 +52,11 @@ Plan: docs/AGENTS/plan/20261117-0300-resize-images.md. Scenario case EDIT-16.
   - Windows: no HEIC decoder (no server path there has one); the plain sentence below.
   - Before any decoder runs, the size the file declares is read from the box headers (heicSize: the `ispe` of the
     primary item, and the largest of every image item, since heif-dec decodes every top-level image): over 50
-    megapixels or 65,535 px a side is refused undecoded, no primary size is "damaged". The decoded JPEG then goes
-    through the Go helper's own pixel checks. A file with several top-level images uses `out-1.jpg`, the primary one
+    megapixels or 65,535 px a side is refused undecoded; no primary size, an association to a property that is not
+    there, or more than 4,096 boxes is "damaged". A derived image (a grid of tiles, an overlay) decodes at its own
+    output size, which `ispe` may understate: there the converter's time, memory and work-folder limits are the
+    backstop. The decoded JPEG then goes through the Go helper's own pixel checks. HEIC thumbnails share the image
+    conversion slots (a few at a time). A file with several top-level images uses `out-1.jpg`, the primary one
     in phone photos (as the preview does).
   - No decoder on an install: one plain sentence, "이 서버에서는 아이폰 사진(HEIC)을 열 수 없어요. JPEG로 저장해서 다시
     올려 주세요" (`vision_no_heic` / VISION_TEXT.noHeic for reads; the same words asked of the AI for resize_images).
@@ -94,6 +98,9 @@ Plan: docs/AGENTS/plan/20261117-0300-resize-images.md. Scenario case EDIT-16.
   was). The prompt rule asks for exactly that, in plain words.
 - **Left out:** cropping, rotating on request, a format change without a size change, folders as input
   (the AI lists the folder and names the photos).
+- **Review (feat/photos-heic-keep-meta, an independent reviewer):** fixed the box-cap bypass of the size check, the
+  location removal that failed open on unusual EXIF, a report of "kept" for a block too large for a JPEG segment,
+  thumbnails outside the conversion slots, and PNG / WebP copies whose EXIF orientation was reset without turning them.
 - **Tests:** native/internal/safeops/resize_test.go (sizes, never larger, target size, orientation, transparency,
   WebP, decompression bombs, refusals), meta_test.go (details kept, location removed, all removed, PNG, upright,
   target size with details, hostile EXIF), tests/unit/c-photos-heic.test.ts (HEIC resize, AI read of HEIC, declared

@@ -87,6 +87,19 @@ describe('the size a HEIC declares, read before decoding', () => {
     expect(heicRefusal(declaring(HEIC, 70_000, 10))).toBe('too_large')
     expect(heicRefusal(Buffer.from('not a photo at all, just text'))).toBe('damaged')
     expect(heicRefusal(HEIC.subarray(0, 200))).toBe('damaged')
+    // a property index past the properties there, or more boxes than any photo: damaged (review: 4095 filler boxes hid
+    // a 60000x60000 image past a cap)
+    const bad = Buffer.from(HEIC)
+    const ipma = bad.indexOf('ipma')
+    // the first association's index byte (version 0, 8-bit indexes): far past the properties
+    bad[ipma + 4 + 4 + 4 + 2 + 1] = 0x7f
+    expect(heicRefusal(bad)).toBe('damaged')
+    const ipco = HEIC.indexOf('ipco') - 4
+    const filler = Buffer.alloc(4100 * 8)
+    for (let i = 0; i < 4100; i++) { filler.writeUInt32BE(8, i * 8); filler.write('free', i * 8 + 4, 'latin1') }
+    const grown = Buffer.from(HEIC)
+    const inflated = Buffer.concat([grown.subarray(0, ipco + 8), filler, grown.subarray(ipco + 8)])
+    expect(heicRefusal(inflated)).toBe('damaged')
     // cut anywhere: never a throw
     for (let n = 0; n < HEIC.length; n += 97) heicRefusal(HEIC.subarray(0, n))
   })

@@ -138,9 +138,12 @@ func ResizeWithInfo(b []byte, s ResizeSpec) ([]byte, ResizeInfo, error) {
 	if !visionSize(sw, sh) {
 		return nil, info, ErrResizePixels
 	}
+	// the details are read first: the orientation comes from the same EXIF block the copy carries (a PNG or WebP can
+	// have one too), so the pixels are turned exactly when the tag is reset
+	meta := readMeta(b, format)
 	o := 1
-	if format == "jpeg" && !s.Upright {
-		o = orientation(b)
+	if !s.Upright {
+		o = tiffOrientation(meta.exif)
 	}
 	// the size as shown: orientations 5-8 turn the picture a quarter
 	vw, vh := sw, sh
@@ -152,7 +155,6 @@ func ResizeWithInfo(b []byte, s ResizeSpec) ([]byte, ResizeInfo, error) {
 	if tw == vw && th == vh && (s.MaxBytes == 0 || len(b) <= s.MaxBytes) && s.Format == 0 {
 		return nil, info, ErrResizeUnchanged
 	}
-	meta := readMeta(b, format)
 	// premultiplied RGBA once (draw's fast paths for YCbCr, Gray, NRGBA ...): halving and scaling average it
 	src := image.NewRGBA(image.Rect(0, 0, sw, sh))
 	draw.Draw(src, src.Bounds(), im, im.Bounds().Min, draw.Src)
@@ -174,7 +176,7 @@ func ResizeWithInfo(b []byte, s ResizeSpec) ([]byte, ResizeInfo, error) {
 	bw, bh := tw, th
 	f := 1.0
 	for round := 0; round < 12; round++ {
-		m, mi := meta.prepare(s.Details, tw, th)
+		m, mi := meta.prepare(s.Details, tw, th, out)
 		info = mi
 		budget := s.MaxBytes
 		if budget > 0 {
