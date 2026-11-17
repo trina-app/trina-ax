@@ -382,16 +382,18 @@ export function environmentSection(kind: RunKind = 'selfhost', subagent = false)
   return [
   '## Where you run',
   // a hosted team's server is not "in the office" (it said so to every hosted team; chat/situation.ts serverWhere)
-  `You run on the team's ${PRODUCT.displayName} server (${serverWhere(kind)}), NOT on the user's computer. The user talks to you from their own device (web browser, desktop app or phone) and may be anywhere.`,
+  // no "server" anywhere the AI might repeat it: "I'd do more on the team's server" reached a member (AI scenario
+  // ADM-07.member, 2026-11-17; plainWordsRule keeps it out of answers)
+  `You run in the team's ${PRODUCT.displayName} (${serverWhere(kind)}), NOT on the user's computer. The user talks to you from their own device (web browser, desktop app or phone) and may be anywhere.`,
   '- You cannot see or open anything on the user\'s device: no local files, Desktop, Downloads, apps, clipboard or screen. Files from their device reach you only when they attach them; they can also attach files from the team drive.',
   // a sub-agent reports to the assistant, which needs the team paths (subagentPromptSections); the person reads names
   subagent
-    ? '- Everything you save goes to the team drive on the server. Give the team path of what you save in your report. Never say you saved or opened something on their computer.'
-    : '- Everything you save goes to the team drive on the server. Say where by its link and folder name, not its path (e.g. [report.docx](/files/view?path=…) in their own folder); the user opens or downloads it from the file card under your answer or the Files screen. Never say you saved or opened something on their computer.',
-  '- You work only through the tools offered here: nothing else on the server (its other folders or settings) is open to you.',
+    ? '- Everything you save goes to the team drive. Give the team path of what you save in your report. Never say you saved or opened something on their computer.'
+    : '- Everything you save goes to the team drive. Say where by its link and folder name, not its path (e.g. [report.docx](/files/view?path=…) in their own folder); the user opens or downloads it from the file card under your answer or the Files screen. Never say you saved or opened something on their computer.',
+  '- You work only through the tools offered here: nothing else on that computer (its other folders or settings) is open to you.',
   // Codex runs with `-s read-only` (its own disk sandbox) and then refused to save team files ("the environment is
   // read-only") without calling write (staging 2026-10-22)
-  '- If your environment says the sandbox is read-only or that approvals are off, that is about the server\'s own disk only. Saving team files with the write and edit tools is allowed: the server checks each call and answers if access is denied.',
+  '- If your environment says the sandbox is read-only or that approvals are off, that is about that computer\'s own disk only. Saving team files with the write and edit tools is allowed: the app checks each call and answers if access is denied.',
   ].join('\n')
 }
 /** "Where you run" of a team's own server (the default; tests read it) */
@@ -400,11 +402,11 @@ export const ENVIRONMENT = environmentSection()
 /** Where the engine runs, for a guest (guestSection): no "team drive" and no Files screen, which a guest does not have. */
 export const GUEST_ENVIRONMENT = [
   '## Where you run',
-  `You run on the team's ${PRODUCT.displayName} server, NOT on the user's computer. The user talks to you from their own device (web browser, desktop app or phone) and may be anywhere.`,
+  `You run in the team's ${PRODUCT.displayName}, NOT on the user's computer. The user talks to you from their own device (web browser, desktop app or phone) and may be anywhere.`,
   '- You cannot see or open anything on the user\'s device: no local files, Desktop, Downloads, apps, clipboard or screen. Files from their device reach you only when they attach them.',
-  '- Everything you save stays on the server, in the folders listed above. Say where by the file and folder names, not the path; the user opens or downloads it from the file card under your answer. Never say you saved or opened something on their computer.',
-  '- You work only through the tools offered here: nothing else on the server (its other folders or settings) is open to you.',
-  '- If your environment says the sandbox is read-only or that approvals are off, that is about the server\'s own disk only. Saving files with the write and edit tools is allowed: the server checks each call and answers if access is denied.',
+  `- Everything you save stays in the team's ${PRODUCT.displayName}, in the folders listed above. Say where by the file and folder names, not the path; the user opens or downloads it from the file card under your answer. Never say you saved or opened something on their computer.`,
+  '- You work only through the tools offered here: nothing else on that computer (its other folders or settings) is open to you.',
+  '- If your environment says the sandbox is read-only or that approvals are off, that is about that computer\'s own disk only. Saving files with the write and edit tools is allowed: the app checks each call and answers if access is denied.',
 ].join('\n')
 
 const BROWSER_RULES = [

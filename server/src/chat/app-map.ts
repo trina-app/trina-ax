@@ -46,6 +46,10 @@ export interface AppMapInput {
   office: boolean
 }
 
+/** What the dev environment does, in everyday words: "server" and "programs" came back in answers to members (AI
+ * scenario ADM-07.member, 2026-11-17). */
+export const DEV_ENV_WORDS = 'the AI does heavier work itself, e.g. big data files'
+
 /** Which form a person's turn gets: a shared chat's role-neutral one, an owner's or admin's, a member's. */
 export const appMapView = (role: string, shared: boolean): AppMapInput['view'] => shared ? 'shared' : role === 'owner' || role === 'admin' ? 'staff' : 'member'
 
@@ -71,12 +75,15 @@ export function appMapSection(o: AppMapInput, L: Locale): string {
   const lines = [
     '## Where things are in the app',
     'Asked where or how in the app: answer from this map, with its labels; not here: say you are not sure, never that it does not exist.',
-    `- Chat title menu (its creator): ${q('chat.rename')}. A chat's ⋯ in the list: ${q('chat.pin')}, ${q('navFolders.moveTo')}; ${q('navFolders.new')}. Answer: ${q('chat.regenerate')}; own message: ${q('chat.edit')}.`,
-    // a shared chat's own section (prompt.ts sharedSection, after this one) says the AI cannot read the thread and what
-    // Send to does (share-words.ts sharedCommentsLine): there only the labels and who is told
+    // where a chat is shared (web HeaderShare in the chat's title row, chatMenuItems "Share"; lib/sharedChat.ts
+    // shareKindOf): asked "how do I show this chat to Daniel?", the AI said it did not know where (AI scenario CHT-04.how)
+    `- Chat title menu (its creator): ${q('chat.rename')}; top right ${q('projects.share')} (its starter): with people or groups, who then see it all and can ask (a team project's chat: with its members). A chat's ⋯ in the list: ${q('chat.pin')}, ${q('navFolders.moveTo')}; ${q('navFolders.new')}. Answer: ${q('chat.regenerate')}; own message: ${q('chat.edit')}.`,
+    // a shared chat's own section (prompt.ts sharedSection, after this one) says how the AI reads the thread
+    // (share-words.ts answerCommentsLine): there only the labels and who is told
     o.view === 'shared'
       ? `- Under a finished answer: ${q('rooms.replyInThread')}, then ${q('chat.thread.sendToAi')} (more in the shared chat section); the asker and repliers are told.`
-      : `- Shared chat (a project's or shared with people), under a finished answer: ${q('rooms.replyInThread')}: people's talk, the AI does not read it; there ${q('chat.thread.sendToAi')} puts it in the message box to edit and send. Asker and repliers are told; not in a private chat.`,
+      // the AI there reads a thread when someone asks (docs/decisions/20261117-ai-reads-answer-comments.md)
+      : `- Shared chat (a project's or shared with people), under a finished answer: ${q('rooms.replyInThread')}: people's talk; the AI there reads it when someone asks, or ${q('chat.thread.sendToAi')} puts it in the message box. Asker and repliers are told; not in a private chat.`,
     `- ${tr('cardAlways', L)} on a card: not asked again; undo in ${set(PRODUCT_NAMED_AFTER_AI ? 'settings.allowances' : 'settings.allowancesAi')}.`,
     `- Room ⋯: ${q('chat.pin')}, ${q('roomApps.menuAdd')} (${q('roomApps.menuList')} once it has some): Google Forms or any service posts into the room by its ${q('roomApps.address')}. A group chat's also ${q('rooms.info.rename')}, ${q('rooms.info.addPeople')}; a team room: people follow its group, owners and admins rename.`,
     `- Room bell or ⋯ › ${q('rooms.menu.notify')}: ${q('rooms.notify.mentions')} / ${q('rooms.notify.off')}. ${q('notifications.quiet')}: ${set('notifications.title')}. Message hover: ${q('rooms.react')}. Mentions, thread replies: ${q('inbox.title')}.`,
@@ -87,7 +94,7 @@ export function appMapSection(o: AppMapInput, L: Locale): string {
   ]
   if (o.view === 'member') {
     // situation.ts's member line already names folders, groups, connected apps, plugins, AI accounts and team settings
-    lines.push(`- Also the owner's or an admin's, in ${q('admin.title')}: invites, roles (admins: the owner only), a forgotten password (they make a reset link), guests, handover, usage and limits, activity log, time zone, voice input, system (storage, updates, backups, team address), ${o.devEnv ? `${q('devEnv.title')} (lets the AI run programs for you)` : `${q('devEnv.title')} (the AI runs programs; only on a server set up for it, not this one)`}.`)
+    lines.push(`- Also the owner's or an admin's, in ${q('admin.title')}: invites, roles (admins: the owner only), a forgotten password (they make a reset link), guests, handover, usage and limits, activity log, time zone, voice input, system (storage, updates, backups, team address), ${q('devEnv.title')} (${DEV_ENV_WORDS}${o.devEnv ? '' : `; not on ${here}, so nobody can turn it on`}).`)
     return lines.join('\n')
   }
   lines.push(
@@ -98,7 +105,7 @@ export function appMapSection(o: AppMapInput, L: Locale): string {
       ? `- Guest AI (${q('guest.invite.ai')}, at invite or on their row): ${q('guest.ai.none')} / ${q('guest.ai.own')} / ${q('guest.ai.team')} with a monthly limit.`
       : `- Guest AI: not on ${here}.`,
     `- ${q('admin.usage')}: who used how much. ${q('admin.audit')}: who did what.`,
-    `- ${q('admin.settings')}: ${q('teamSettings.section.general')} (${q('teamSettings.timeZone')}), ${q('budgets.title')}, ${q('speech.title')}, ${q('teamSettings.group.engine')} (team AI and model, who may pick)${o.devEnv ? `, ${q('devEnv.title')} (lets the AI run programs for you)` : `; ${q('devEnv.title')} (the AI runs programs): only on a server set up for it, not this one`}.`,
+    `- ${q('admin.settings')}: ${q('teamSettings.section.general')} (${q('teamSettings.timeZone')}), ${q('budgets.title')}, ${q('speech.title')}, ${q('teamSettings.group.engine')} (team AI and model, who may pick)${o.devEnv ? `, ${q('devEnv.title')} (${DEV_ENV_WORDS})` : `; ${q('devEnv.title')} (${DEV_ENV_WORDS}): not on ${here}, it comes with how the app was installed`}.`,
     `- ${q('admin.plugins')}: Hangul (HWP) writing. ${q('admin.providers')}: team AI accounts.`,
     o.office
       ? `- ${q('admin.system')}: ${q('storage.title')}, ${q('system.updates')}; owner also ${q('system.backups')}, ${q('system.export')}, ${q('system.connection')} (${q('system.address')}).`

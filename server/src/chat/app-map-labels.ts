@@ -17,6 +17,7 @@ export const APP_MAP_LABELS: Readonly<Record<string, Readonly<Record<Locale, str
   "navFolders.moveTo": { ko: "폴더로 옮기기", en: "Move to folder", id: "Pindahkan ke folder", ja: "フォルダへ移動", es: "Mover a una carpeta", zh: "移到文件夹" },
   "chat.regenerate": { ko: "다시 생성", en: "Regenerate", id: "Buat ulang", ja: "再生成", es: "Volver a generar", zh: "重新生成" },
   "chat.edit": { ko: "메시지 수정", en: "Edit message", id: "Ubah pesan", ja: "メッセージを編集", es: "Editar mensaje", zh: "编辑消息" },
+  "projects.share": { ko: "공유", en: "Share", id: "Bagikan", ja: "共有", es: "Compartir", zh: "共享" },
   "settings.security": { ko: "보안·기기", en: "Security & devices", id: "Keamanan & perangkat", ja: "セキュリティと端末", es: "Seguridad y dispositivos", zh: "安全与设备" },
   "auth.changePassword": { ko: "비밀번호 바꾸기", en: "Change password", id: "Ganti kata sandi", ja: "パスワードを変更", es: "Cambiar contraseña", zh: "修改密码" },
   "settings.devices": { ko: "로그인한 기기", en: "Signed-in devices", id: "Perangkat yang masuk", ja: "ログイン中の端末", es: "Dispositivos con sesión iniciada", zh: "已登录的设备" },

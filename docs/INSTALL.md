@@ -742,7 +742,9 @@ sudo -u _axserver env MYCEL_CONFIG="$B/config/server.json" "$B/app/current/bin/b
 The bootstrap can restore the prior app after startup failure (120 seconds without a response or three crashes). This does not restore database or team-file state; use a compatible release and the pre-update backup for data recovery. Full role-account replacement-host recovery has not been validated here.
 
 **Backups.**
-- Nightly after 03:00, kept 14 days: a full backup every 7 days, incremental in between.
+- Nightly at 03:00 in the team's time zone (or the team's window start on a hosted server), or as soon as the server
+  is on after a night it missed; the first one right after install. Kept 14 days: a full backup every 7 days,
+  incremental in between.
 - **Back up now** is in Admin → System → Backups.
 - Backups hold the database and the team folder. Restoring one in Admin → System → Backups restores the
   **database only** (accounts, chats, settings) and asks for your password; the team files stay as they are. To get

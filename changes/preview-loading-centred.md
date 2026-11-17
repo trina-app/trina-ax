@@ -1,0 +1,1 @@
+- The wait while a file preview opens (the side panel, the Files screen, a file in a room or chat, a shared link) now shows the spinner and "Loading…" in the middle of the preview, not in its top-left corner. The page keeps its size when the file appears.
