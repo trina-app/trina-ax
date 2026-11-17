@@ -756,6 +756,38 @@ export const RoomTeamFileBody = z.object({ path: RelPath }).strict()
 export const RoomTeamFile = z.object({ file: RoomFile, unable: z.number().int().nonnegative() })
 export type RoomTeamFile = z.infer<typeof RoomTeamFile>
 
+// ---------------- "Save to team folder" on a room file (docs/decisions/20261117-room-file-save-btn.md) ----------------
+/** files of one message saved with one sheet, at most */
+export const ROOM_SAVE_FILES_MAX = 10
+/** a room file this viewer can open in the team folder: where (a team path they may read) */
+export const RoomSavedFile = z.object({ fileId: Uuid7, path: RelPath })
+export type RoomSavedFile = z.infer<typeof RoomSavedFile>
+export const RoomSavedFiles = z.object({ items: z.array(RoomSavedFile) })
+export const RoomSavePlanBody = z.object({
+  fileIds: z.array(Uuid7).min(1).max(ROOM_SAVE_FILES_MAX),
+  /** the folder the person picked: its audience instead of a suggestion */
+  folder: RelPath.optional(),
+}).strict()
+/** `outside`: how many active people can open the folder and are not in the conversation now (a count, never who) */
+const SaveFolder = z.object({ path: RelPath, outside: z.number().int().nonnegative() })
+export const RoomSavePlan = z.object({
+  /** the message's files: `savedPath` when this one is in the team folder already where the viewer can open it */
+  files: z.array(z.object({ id: Uuid7, name: z.string(), size: z.number().int().nonnegative(), savedPath: RelPath.optional() })),
+  /** the folder to pre-select: suggested by name, or one the person recently saved to; null when none fits or a file
+   * looks personal */
+  suggestion: SaveFolder.extend({ why: z.enum(['suggested', 'recent']) }).nullable(),
+  /** a file looks like a personal document (an ID, a bank book, a resident number): no suggestion, a gentle note */
+  sensitive: z.boolean(),
+  /** the picked folder (body.folder), checked writable */
+  folder: SaveFolder.optional(),
+})
+export type RoomSavePlan = z.infer<typeof RoomSavePlan>
+export const RoomSaveBody = z.object({ fileIds: z.array(Uuid7).min(1).max(ROOM_SAVE_FILES_MAX), folder: RelPath }).strict()
+/** each file's team path; `existed`: the same bytes were there already; `nextTo`: a different file had the name, so the
+ * copy is beside it */
+export const RoomSaveResult = z.object({ saved: z.array(z.object({ fileId: Uuid7, path: RelPath, existed: z.boolean(), nextTo: RelPath.optional() })) })
+export type RoomSaveResult = z.infer<typeof RoomSaveResult>
+
 // ---------------- the confirm before content goes to a room ("대화방에 보내기", a room AI preview) ----------------
 /** at most this many rows in a "confirm": past it the rest of the answer's links is one more row nothing is told about
  * (everyone else counted) */
@@ -843,6 +875,9 @@ export const ROOMS = {
   uploadRoomFile: endpoint({ method: 'POST', path: '/api/rooms/:id/files', auth: 'user', owner: 'B', status: 201, body: multipart(RoomFileUploadFields, SMALL_UPLOAD_MAX), response: RoomFile, summary: 'Upload a file (≤ 50 MB) to send in a room I am in; stored outside the team folder, readable by the room\'s members once sent. A larger file (up to 1 GB): an upload session with target room (POST /api/upload-sessions).' }),
   attachRoomTeamFile: endpoint({ method: 'POST', path: '/api/rooms/:id/team-file', auth: 'user', owner: 'B', status: 201, body: RoomTeamFileBody, response: RoomTeamFile, summary: 'Copy a team-folder file I may read now (not a folder, a link or a quarantined file: 404 like a missing one; ≤ 50 MB) as my upload to send in a room I am in, readable by the room\'s members once sent; with how many other members cannot open the team file (a count). The same unchanged file again before sending: that copy again; past 200 MB of my unsent copies: 409 team_copies_full. Audited when sent (room.team_file).' }),
   roomFile: endpoint({ method: 'GET', path: '/api/rooms/:id/files/:fileId', auth: 'user', owner: 'B', query: RoomFileQuery, response: stream(true), summary: 'A file sent in a room I am in (membership checked on every read); thumb=1 for an image preview, download=1 as an attachment. Inline, a page or script type is sent as text/plain with a sandbox CSP: never a page of the app. A file on the safety check\'s download-only list is sent only with download=1 (503 quarantined otherwise).' }),
+  roomSavedFiles: endpoint({ method: 'GET', path: '/api/rooms/:id/saved-files', auth: 'user', owner: 'B', response: RoomSavedFiles, summary: 'Files of a room I am in that were saved to the team folder and that I can open there now: the place still holds the same bytes and my access allows reading it. Not for guests.' }),
+  roomSavePlan: endpoint({ method: 'POST', path: '/api/rooms/:id/save-plan', auth: 'user', owner: 'B', body: RoomSavePlanBody, response: RoomSavePlan, summary: 'What the "Save to team folder" sheet shows for files of a room I can see: each file (and where it is saved already), one folder I can write to pre-select (matched by name, no AI; none for a file that looks like a personal document) or, with folder, that folder checked; how many people outside the conversation can see it (a count). Rate limited like the Move picker\'s suggestions. Not for guests.' }),
+  saveRoomFilesToTeam: endpoint({ method: 'POST', path: '/api/rooms/:id/save-to-team', auth: 'user', owner: 'B', body: RoomSaveBody, response: RoomSaveResult, summary: 'Copy files of a room I can see into a team folder I may write, byte for byte (each ≤ 50 MB, not on the download-only list, never into skills/ or as an instruction file). Never overwrites: the same bytes there already count as saved; a different file of that name stays and the copy goes next to it. Recorded in the file history. Not for guests.' }),
   roomFileHwpPreview: endpoint({ method: 'GET', path: '/api/rooms/:id/files/:fileId/hwp-preview', auth: 'user', owner: 'B', query: HwpPreviewQuery, response: HwpPreviewPage, summary: 'One page of a Hangul file (HWP, HWPX) sent in a room I am in, as a PNG from the HWP Preview plugin: the team file preview\'s renderer, limits and cache. Checked on every request as reading the file inline is: a member, the message visible to me and not deleted (404 otherwise), not on the download-only list (503 quarantined). The plugin off or not usable here: 503 unavailable with params.reason disabled, as for a team file. Pages are 1-based.' }),
 } as const
 

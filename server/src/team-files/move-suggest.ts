@@ -314,9 +314,15 @@ export async function moveSuggestions(files: TeamFiles, userId: string, paths: r
     const { stem, ext } = splitName(name)
     return { name, words: [...new Set([...words(stem), ...lineWords(lines(a.rel))])].slice(0, WORDS_PER_FILE), ext }
   })
+  return await suggestFor(files, user, rules, lines, queries, items.slice(0, FILES_SCORED).map((a) => nameOf(a.rel)), skip, moved)
+}
+
+/** The suggested and recent folders for `queries` (files named `names`): the walk of the folders `user` can write, the
+ * rank, the person's ✕ and their recent folders. Shared by the Move picker and a room file's "Save to team folder"
+ * (rooms/save-to-team.ts), whose files are not in the team folder yet. */
+async function suggestFor(files: TeamFiles, user: Principal, rules: RuleSet, lines: (rel: string) => Fields | null, queries: readonly Query[], names: readonly string[], skip: (rel: string) => boolean = () => false, moved: readonly string[] = []): Promise<MoveSuggestions> {
   // ✕ for any of the files' names (suggestion_dismissals)
-  const no = dismissed(files, userId)
-  const names = items.slice(0, FILES_SCORED).map((a) => nameOf(a.rel))
+  const no = dismissed(files, user.id)
   const wasDismissed = (folder: string) => names.some((n) => no.has(dismissKey(folder, n)))
   let suggested: MoveSuggestions['suggested'] = []
   if (queries.some((q) => q.words.length)) {
@@ -326,6 +332,29 @@ export async function moveSuggestions(files: TeamFiles, userId: string, paths: r
   const taken = new Set(suggested.map((s) => s.path))
   const recent = recentFolders(files, user, rules, (rel) => skip(rel) || taken.has(rel) || wasDismissed(rel)).map((p) => ({ path: p }))
   return { suggested, recent }
+}
+
+/** Words a file brings besides its own name (a room file's room name and message): after the file's own, up to this */
+export const CONTEXT_WORDS = 8
+
+/**
+ * Suggested and recent folders for files that are not in the team folder yet (a room file before "Save to team folder"):
+ * each by its name and the words of where it was sent (`context`, after the name's own words). The same rate limit, walk
+ * and rank as the Move picker; nothing is read that the person could not see there.
+ */
+export async function suggestForNames(files: TeamFiles, userId: string, items: readonly { name: string; context?: string }[]): Promise<MoveSuggestions> {
+  admit(userId)
+  const user = files.principal(userId)
+  const rules = files.rules()
+  const lines = (() => { try { return fileListOf(files.ctx).lineFields(user, rules) } catch { return () => null } })()
+  const scored = items.slice(0, FILES_SCORED)
+  const queries: Query[] = scored.map((it) => {
+    const { stem, ext } = splitName(it.name)
+    const own = words(stem).slice(0, WORDS_PER_FILE)
+    const more = it.context ? words(it.context).filter((w) => !own.includes(w)).slice(0, CONTEXT_WORDS) : []
+    return { name: it.name, words: [...own, ...more], ext }
+  })
+  return await suggestFor(files, user, rules, lines, queries, scored.map((it) => it.name))
 }
 
 /** ✕ on a suggestion: never this folder again for files named like these (per person). The folder must be one they can
