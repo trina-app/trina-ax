@@ -12,7 +12,7 @@ import { PASSWORD, type FixtureState } from '../fixture/seed'
 import { runChecks } from './checks'
 import type { Case, CaseResult, CardSeen, ToolCall, TurnRecord } from './types'
 
-export interface Env { base: string; dataDir: string; teamRoot: string; fixture: FixtureState; runId: string; commit: string; log: (s: string) => void; mockState?: string }
+export interface Env { base: string; dataDir: string; teamRoot: string; fixture: FixtureState; runId: string; commit: string; log: (s: string) => void; mockState?: string; mockUrl?: string }
 
 /** Every file under the team folder (team path -> size:mtime); hidden folders (versions, trash) left out. */
 export function snapshot(root: string): Map<string, string> {
@@ -87,7 +87,7 @@ function transcriptLines(dataDir: string, chatId: string): string[] {
 }
 
 export type CardMode = 'once' | 'always' | 'decline'
-const isAlways = (o: { label: string; value: string }) => /always|항상/i.test(`${o.value} ${o.label}`)
+const isAlways = (o: { label: string; value: string }) => /always|항상|all_sites/i.test(`${o.value} ${o.label}`)
 /** the answer to a server card: once = go ahead this time only; always = the "always allow" choice when the card has one
  * (else go ahead); decline = the card's no (its last choice, as the app orders them) */
 export function pickCard(opts: { label: string; value: string }[], mode: CardMode): string | null {
@@ -168,6 +168,13 @@ export async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string,
   }
   // still none: the steps the app shows under the answer (names and ok only, no inputs)
   if (!t.tools.length && m?.steps.length) t = { ...t, tools: m.steps.filter((x) => x.tool).map((x) => ({ name: x.tool!.replace(/^mcp__[^_]+__/, ''), input: { label: x.label }, ok: x.status === 'ok' })) }
+  // the buttons the server put under the answer's steps (Step.fixes: "Ask <owner>", "Let them view", ...): the person
+  // sees them as the next step, so the judge does too (they are offers, not cards that were answered)
+  for (const st of m?.steps ?? []) {
+    for (const f of ((st as { fixes?: { kind: string; file?: string; owner?: string; count?: number; state?: string }[] }).fixes ?? [])) {
+      cards.push({ kind: `step-fix:${f.kind}`, origin: 'server', question: `${f.kind} for ${f.file ?? '?'}${f.owner ? ` (asks ${f.owner})` : ''}${f.count !== undefined ? `, ${f.count} people` : ''}; ${f.state ?? 'open'}`.slice(0, 400), answer: null })
+    }
+  }
   const rec: TurnRecord = {
     prompt,
     status: slow ? 'slow' : m?.status ?? 'timeout',
@@ -192,10 +199,19 @@ export async function login(base: string, username: string): Promise<ApiClient> 
 export async function openChat(api: ApiClient, env: Env, c: Case): Promise<string> {
   const f = env.fixture
   try { return await openChatIn(api, f, c) } catch (e) {
-    // the app refused to open the chat (a guest outside their place): a chat of their own, so the refusal shows on send
-    if (e instanceof ApiError) return (await api.call(API.createChat, { body: {} })).id
+    // the app refused to open the chat (a guest outside their place): a chat of their own, so the refusal shows on send.
+    // Only for a guest: a case meant for a shared project chat never runs quietly in a personal chat instead (on
+    // 2026-11-17 two admin cases did, and their answers were graded as if the project's members had seen them).
+    if (e instanceof ApiError && c.context === 'guest') return (await api.call(API.createChat, { body: {} })).id
+    if (e instanceof ApiError) throw new SetupError(`${c.as} cannot open a chat in the ${c.context === 'project' ? 'project' : 'room'} (${e.message}): the case needs someone who can`)
     throw e
   }
+}
+
+/** The case cannot run as written (the fixture does not give its person the place it names): reported as "setup", never
+ * judged. */
+export class SetupError extends Error {
+  constructor(why: string) { super(`setup: ${why}`) }
 }
 async function openChatIn(api: ApiClient, f: FixtureState, c: Case): Promise<string> {
   if (c.context === 'personal') return (await api.call(API.createChat, { body: {} })).id
@@ -230,6 +246,8 @@ export async function runCase(c: Case, env: Env): Promise<CaseResult> {
     const chatId = await openChat(api, env, c)
     res.chatId = chatId
     try { res.chatShared = !!(await api.call(API.getChat, { params: { id: chatId } })).shared } catch {}
+    // a shared project chat case runs in a chat the server calls shared, or not at all
+    if (c.context === 'project' && !res.chatShared) throw new SetupError(`the chat ${c.as} opened in the project is not a shared chat`)
     let lines = 0
     for (const p of [c.prompt, ...c.followUps]) {
       const r = await oneTurn(api, env, c, chatId, p, lines)
