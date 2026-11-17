@@ -1,0 +1,1 @@
+- The docs, `llms.txt` and the Microsoft Store listing now say Trina hosting runs in AWS Seoul, Virginia or Singapore. They said Seoul only.
