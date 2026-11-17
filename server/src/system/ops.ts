@@ -53,6 +53,9 @@ export const ENGINE_HOST_DETAIL = 'kept, but the AI engine could not start on th
 /** after a failed nightly backup, the next try waits this long */
 export const DAILY_BACKUP_RETRY_MS = 60 * 60_000
 
+/** the nightly backup starts inside [start, start + this) in the team's time zone */
+export const DAILY_BACKUP_WINDOW_MIN = 180
+
 const RANK: Record<CheckStatus, number> = { ok: 0, unknown: 1, warn: 2, fail: 3 }
 export const worst = (xs: CheckStatus[]): CheckStatus => xs.reduce<CheckStatus>((a, b) => (RANK[b] > RANK[a] ? b : a), 'ok')
 
@@ -892,20 +895,28 @@ export class OpsService {
     return 120 + (crypto.createHash('sha256').update(installId(this.ctx.db)).digest().readUInt16BE(0) % 180)
   }
 
-  /** Nightly backup: once a day after the start time in the team's time zone (or any time when the last one is over
-   * 30 h old). */
+  /** Nightly backup (QA TC-4755): the first one right after install (no daily backup yet); after that once a night,
+   * inside the window [start, start + 3 h) in the team's time zone; or at any time when the last one is over 30 h old
+   * (the server was off at night). "Once a night": the last daily backup was not in the same night, the team-local date
+   * of (wall time - start), so a window that crosses midnight is one night and a DST night that repeats an hour does
+   * not run twice. The old rule ("20 h since the last one and after the start time") was true until midnight, and the
+   * backup time walked 4 h earlier every day into working hours. */
   shouldRunDailyBackup(): boolean {
     const now = this.now()
     const last = this.backups.metas().filter((m) => m.kind === 'daily').at(-1)
-    const age = last ? now.getTime() - Date.parse(last.createdAt) : Infinity
-    if (age < 20 * 3600_000) return false
     // a failed attempt waits an hour (this check runs every 10 minutes; without the wait a backup that keeps failing
     // read and compressed the whole team folder six times an hour)
     const err = this.backups.lastError()
     const errAt = err ? Date.parse(err.at) : NaN
     if (Number.isFinite(errAt) && now.getTime() - errAt < DAILY_BACKUP_RETRY_MS && (!last || errAt > Date.parse(last.createdAt))) return false
-    const p = zonedParts(now, teamTimeZone(this.ctx.db))
-    return p.h * 60 + p.min >= this.backupStartMinute() || age > 30 * 3600_000
+    if (!last) return true
+    const lastAt = new Date(last.createdAt)
+    if (now.getTime() - lastAt.getTime() > 30 * 3600_000) return true
+    const tz = teamTimeZone(this.ctx.db), start = this.backupStartMinute()
+    const p = zonedParts(now, tz)
+    if ((p.h * 60 + p.min - start + 1440) % 1440 >= DAILY_BACKUP_WINDOW_MIN) return false
+    const night = (t: Date) => { const q = zonedParts(t, tz); return new Date(Date.UTC(q.y, q.m - 1, q.d, q.h, q.min) - start * 60_000).toISOString().slice(0, 10) }
+    return night(lastAt) !== night(now)
   }
 
   start() {

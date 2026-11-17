@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-17 15:09
 - Branch: `fix/nightly-backup-window`
-- Status: in progress
+- Status: done
 - Where: trina-ax `server/src/system/ops.ts` (`shouldRunDailyBackup`). Why: the backup schedule is Linux run-base core.
 - Version impact: patch, the nightly backup no longer drifts into working hours.
 
@@ -49,4 +49,6 @@ the new `tests/unit/p1-backup-window.test.ts`, under Bun 1.3.12.
 
 ## Result
 
-Filled in at the end.
+Built as planned: rule in `shouldRunDailyBackup`, `DAILY_BACKUP_WINDOW_MIN` = 180, docs in INSTALL.md and
+INSTALL-LINUX.md, decision `docs/decisions/20261117-nightly-backup-window.md`. Seoul, install 14:00, 14 days: before
+`14:10, 10:10, 06:10, 03:00, 23:00, 19:00, 15:00, ...`, after `14:10, 03:00, 03:00, ...`. PR to dev.

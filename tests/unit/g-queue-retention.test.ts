@@ -1,6 +1,6 @@
 // Queue caps (L07): the in-memory turn queue and job queue cannot grow without end (429 + Retry-After; a scheduled run
 // waits a minute). Retention (L08): the tables that grow with every turn are pruned hourly in batches. The nightly
-// backup's start (L09): 03:00 in the team's zone, spread over 02:00–04:59 by install id on Team AX Cloud.
+// backup (L09): inside 03:00–06:00 in the team's zone; the start spread over 02:00–04:59 by install id on Team AX Cloud.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import path from 'node:path'
 import { getChatRuntime, QUEUE_PER_USER, QUEUE_TEAM_MIN } from '../../server/src/chat/runtime'
@@ -130,18 +130,20 @@ describe('nightly backup start (L09)', () => {
   test('03:00 in the team\'s zone; on Team AX Cloud 02:00 + 0–179 min, fixed per install', () => {
     let now = new Date('2026-10-21T17:30:00Z') // 02:30 in Seoul, 17:30 in UTC
     const ops = new OpsService(h.ctx, { now: () => now, engines: async () => [] })
-    // the last nightly backup 21 h ago: not due by age (20–30 h), so the time of day decides
+    // the last nightly backup 21 h ago (the night before): not over 30 h old, so the window decides
     const last = () => [{ kind: 'daily', createdAt: new Date(now.getTime() - 21 * 3600_000).toISOString() }]
     ;(ops.backups as unknown as { metas: () => unknown[] }).metas = last
     expect(ops.backupStartMinute()).toBe(180)
     const fresh = () => ops.shouldRunDailyBackup()
     // updateTeamSettings drops the 60 s zone cache, like the PATCH route
     updateTeamSettings(h.ctx.db, { timeZone: 'UTC' })
-    expect(fresh()).toBe(true) // 17:30 UTC is after 03:00
+    expect(fresh()).toBe(false) // 17:30 UTC is outside 03:00–06:00 (the old rule ran it: "after 03:00", QA TC-4755)
     updateTeamSettings(h.ctx.db, { timeZone: 'Asia/Seoul' })
     expect(fresh()).toBe(false) // 02:30 KST is before 03:00
     now = new Date('2026-10-21T18:05:00Z') // 03:05 KST
     expect(fresh()).toBe(true)
+    now = new Date('2026-10-21T21:05:00Z') // 06:05 KST: the window has closed
+    expect(fresh()).toBe(false)
     h.ctx.config.deployment = 'hosted'
     try {
       const m = ops.backupStartMinute()
