@@ -47,7 +47,9 @@ cmp=""; http=""
 for _ in 1 2 3; do
   body=$(curl -sS -m 20 -w '\n%{http_code}' "https://api.github.com/repos/trina-app/trina-ax/compare/main...${GITHUB_SHA:-none}?per_page=1" 2>/dev/null)
   http=${body##*$'\n'}
-  cmp=$(printf '%s' "${body%$'\n'*}" | /usr/bin/jq -r '.status // empty' 2>/dev/null)
+  cmp=""
+  # error replies carry a "status" too (e.g. "404"): read it only from a 200
+  [ "$http" = 200 ] && cmp=$(printf '%s' "${body%$'\n'*}" | /usr/bin/jq -r '.status // empty' 2>/dev/null)
   [ -n "$cmp" ] && break
   [ "$http" = 404 ] && break
   sleep 5

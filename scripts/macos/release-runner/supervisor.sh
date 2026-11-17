@@ -113,7 +113,7 @@ rotate_log() { # copy and truncate: launchd keeps writing to the same open file
 
 # one-time runners left from a stop or reboot in the middle (offline, named trina-mac-*)
 for id in $(gh_api "$REPO_API/actions/runners?per_page=100" 2>>"$LOG" | /usr/bin/jq -r '.runners[]? | select(.status == "offline" and (.name | startswith("trina-mac-"))) | .id' 2>/dev/null); do
-  gh_api -o /dev/null -X DELETE "$REPO_API/actions/runners/$id" 2>>"$LOG" && log "deleted stale one-time runner $id"
+  gh_api -f -o /dev/null -X DELETE "$REPO_API/actions/runners/$id" 2>>"$LOG" && log "deleted stale one-time runner $id"
 done
 
 while :; do

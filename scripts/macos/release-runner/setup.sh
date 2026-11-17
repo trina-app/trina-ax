@@ -121,8 +121,9 @@ for _ in 1 2 3 4 5; do
   pids=$(ps -axo pid=,uid=,ruid= | awk -v u="$UID_" '$2 == u || $3 == u {print $1}')
   [ -z "$pids" ] && break
   # shellcheck disable=SC2086
-  kill -9 $pids 2>/dev/null; sleep 1
+  kill -9 $pids 2>/dev/null || true; sleep 1
 done
+[ -z "$(ps -axo pid=,uid=,ruid= | awk -v u="$UID_" '$2 == u || $3 == u {print $1}')" ] || die "processes of $U survive kill -9; restart the Mac and run again"
 install -d -o root -g wheel -m 755 "$D" "$D/run"
 install -d -o root -g wheel -m 700 "$D/secrets"
 chflags -R nouchg "$D" 2>/dev/null || true  # (an older setup made runner-dist immutable)
