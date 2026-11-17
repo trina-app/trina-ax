@@ -126,6 +126,44 @@ const weak = (s: Sound | null): boolean => !!s && !s.speechLike
 /** whisper's marks for sound with no words: [BLANK_AUDIO], (beep), (music), [music in Korean], ♪, *click* */
 export const NOT_WORDS = /^\s*(?:[[(（][^\])）]{0,40}[\])）]|\*[^*]{0,40}\*|[♪♫♬\s]+)\s*$/
 
+/** Words of whisper's sound tags inside a line ("[Coughing] Please send …", "(upbeat music)", "[BLANK_AUDIO]", QA
+ * TC-4674): a bracketed part is a tag only when it is short (SOUND_TAG_WORDS words at most) and names a sound with one
+ * of these words, so what a person said in brackets ("[draft]", "(see the attachment)") stays. Korean as escapes. */
+const SOUND_WORD = new RegExp('(?:^|[^\\p{L}])(?:' + [
+  'music\\w*', 'song', 'singing', 'sings?', 'humming', 'hums?', 'whistl\\w*', 'instrumental', 'melody',
+  'laugh\\w*', 'chuckl\\w*', 'giggl\\w*', 'cough\\w*', 'sneez\\w*', 'sniff\\w*', 'sigh\\w*', 'breath\\w*', 'gasp\\w*',
+  'groan\\w*', 'yawn\\w*', 'snor\\w*', 'throat', 'crying', 'cries', 'sob\\w*', 'scream\\w*', 'grunt\\w*', 'exhal\\w*', 'inhal\\w*',
+  'applause', 'clap\\w*', 'cheer\\w*', 'beep\\w*', 'blank_audio', 'blank audio', 'silence', 'noise\\w*',
+  'inaudible', 'indistinct', 'unintelligible', 'clicks?', 'clicking', 'typing', 'footsteps', 'knock(?:s|ing)', 'doorbell',
+  'door (?:closes|closing|opens|opening|slams|creaks)', 'ringing', 'chim(?:es|ing)', 'buzz(?:es|ing)', 'thud', 'bangs?', 'banging',
+  'thunder', 'wind blowing', 'murmur\\w*', 'mumbl\\w*', 'chatter\\w*', 'bark(?:s|ing)', 'vibrat\\w*', 'sound effects?', 'sfx', 'no speech',
+  'foreign language', 'speaking \\p{L}+', 'speaks \\p{L}+',
+  'musik', 'tertawa', 'batuk', 'tepuk tangan', 'hening', 'm\\u00fasica', 'risas?', 'aplausos?', 'silencio', 'ruido',
+].join('|') + ')(?=$|[^\\p{L}])|\\uC74C\\uC545|\\uC6C3\\uC74C|\\uAE30\\uCE68|\\uBC15\\uC218|\\uCE68\\uBB35|\\uC18C\\uC74C|\\uD55C\\uC228|' +
+  '音楽|音乐|笑|拍手|咳|無音|静音|沉默|掌声|ノイズ|噪音', 'iu')
+const SOUND_TAG_WORDS = 5
+const BRACKETED = /\s*(?:\[([^\]\n]{1,40})\]|\(([^)\n]{1,40})\)|（([^）\n]{1,40})）|\*([^*\n]{1,40})\*)\s*/g
+/** One line without whisper's sound tags and music notes; real bracketed words kept. */
+export function withoutSoundTags(text: string): string {
+  const t = text.replace(BRACKETED, (m, a?: string, b?: string, c?: string, d?: string) => {
+    const inner = (a ?? b ?? c ?? d ?? '').trim()
+    const tag = inner.split(/\s+/).length <= SOUND_TAG_WORDS && SOUND_WORD.test(inner)
+    return tag ? ' ' : m
+  }).replace(/\s*[♪♫♬]+\s*/g, ' ')
+  return t === text ? text : t.replace(/\s+/g, ' ').trim()
+}
+/** An answer without whisper's sound tags in its text and lines (a line left empty goes) */
+export function stripSoundTags<T extends Heard>(r: T): T {
+  if (r.segments?.length) {
+    const segments = r.segments.map((l) => ({ ...l, text: withoutSoundTags(l.text) }))
+    if (segments.every((l, i) => l.text === r.segments![i]!.text)) return r
+    const kept = segments.filter((l) => l.text.trim())
+    return { ...r, segments: kept, text: kept.map((l) => l.text.trim()).join(' ').replace(/\s+/g, ' ').trim() }
+  }
+  const text = withoutSoundTags(r.text)
+  return text === r.text ? r : { ...r, text }
+}
+
 /** Lines whisper learned from video subtitles and writes for sound with no speech, compared whole after
  * normalize(): English, Korean, Japanese, Chinese, Indonesian, Spanish (Korean as escapes: server code holds no
  * Hangul) */
@@ -161,7 +199,9 @@ export type Heard = TranscribeResult & { segments?: Line[] }
  * first-word probability, OpenRouter's no-speech probability / avg_logprob). Returns the answer with no text and no
  * lines when nothing in it was speech, else with only the marks taken out.
  */
-export function keepSpeech<T extends Heard>(r: T, sound: Sound | null, unsure: boolean): T {
+export function keepSpeech<T extends Heard>(r0: T, sound: Sound | null, unsure: boolean): T {
+  // "[Coughing] Please send …": the tag goes, the words stay (TC-4674); a line that was only tags is dropped below
+  const r = stripSoundTags(r0)
   const lines = (r.segments?.length ? r.segments : r.text.trim() ? [{ start: 0, end: r.durationSec ?? 0, text: r.text }] : [])
     .filter((l) => l.text.trim() && !NOT_WORDS.test(l.text))
   const none = { ...r, text: '', segments: [] }

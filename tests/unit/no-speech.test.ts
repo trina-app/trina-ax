@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { pieceWav } from '@mycel/shared/speech-pieces'
-import { keepSpeech, learnedLine, NOT_WORDS, silent, soundOf } from '../../server/src/jobs/no-speech'
+import { keepSpeech, learnedLine, NOT_WORDS, silent, soundOf, stripSoundTags, withoutSoundTags } from '../../server/src/jobs/no-speech'
 import { parseWhisperJson, whisperUnsure } from '../../server/src/jobs/transcribe'
 import { openRouterUnsure, parseOpenRouter, openRouterSpeech } from '../../server/src/jobs/openrouter-stt'
 
@@ -179,6 +179,48 @@ describe('keepSpeech', () => {
     // no sound to look at (a format the server did not decode): learned lines only when whisper was unsure
     expect(keepSpeech(said('Thank you.'), null, false).text).toBe('Thank you.')
     expect(keepSpeech(said('Thank you.'), null, true).text).toBe('')
+  })
+})
+
+describe('sound tags inside a line (TC-4674: "[Coughing] Please send a quarterly sales report")', () => {
+  test('whisper\'s tags go, the words stay; in six languages', () => {
+    const cases: [string, string][] = [
+      ['[Coughing] Please send a quarterly sales report', 'Please send a quarterly sales report'],
+      ['(upbeat music) Hello everyone', 'Hello everyone'],
+      ['Send it today [BLANK_AUDIO]', 'Send it today'],
+      ['(Laughter) Great, thanks', 'Great, thanks'],
+      ['[MUSIC PLAYING] Hi', 'Hi'],
+      ['*coughs* okay, next slide', 'okay, next slide'],
+      ['(phone ringing) Yes, speaking', 'Yes, speaking'],
+      ['[speaking Korean] yes', 'yes'],
+      ['♪ la la ♪', 'la la'],
+      ['[음악] 안녕하세요', '안녕하세요'],
+      ['[기침] 보고서 보내줘', '보고서 보내줘'],
+      ['（拍手）ありがとう', 'ありがとう'],
+      ['(笑声) 好的', '好的'],
+      ['[Musik] halo semua', 'halo semua'],
+      ['[Risas] vale', 'vale'],
+    ]
+    for (const [t, want] of cases) expect(withoutSoundTags(t), t).toBe(want)
+  })
+  test('what a person said in brackets stays', () => {
+    for (const t of ['Send the [draft] today', 'Read it (see the attachment) first', 'call (555) 1234', 'Meet at [Room 3]',
+      'the budget (marketing and sales) is fine', 'the ring (light) is on', 'the ToS (terms of service) changed', 'a (rain check) then', '[참고] 보고서'])
+      expect(withoutSoundTags(t), t).toBe(t)
+  })
+  test('in voice input and transcripts: keepSpeech and the OpenRouter answer drop the tag, a line that was only a tag goes', () => {
+    const r = keepSpeech({ text: '[Coughing] Please send a quarterly sales report', language: 'en', durationSec: 3, segments: [{ start: 0, end: 3, text: ' [Coughing] Please send a quarterly sales report' }] }, soundOf(speechLike()), false)
+    expect(r.text).toBe('Please send a quarterly sales report')
+    expect(r.segments).toEqual([{ start: 0, end: 3, text: 'Please send a quarterly sales report' }])
+    // no lines, only text (a provider that gives none)
+    expect(keepSpeech({ text: '(coughing) send it', language: 'en', durationSec: 2 }, soundOf(speechLike()), false).text).toBe('send it')
+    // only tags: nothing was recognized
+    expect(keepSpeech({ text: '[Coughing] (music)', language: 'en', durationSec: 2, segments: [{ start: 0, end: 2, text: '[Coughing] (music)' }] }, soundOf(speechLike()), false)).toMatchObject({ text: '', segments: [] })
+    const or = openRouterSpeech({ text: '[Coughing] Please send it', language: 'en', durationSec: 2, segments: [{ start: 0, end: 2, text: '[Coughing] Please send it' }] }, soundOf(speechLike()))
+    expect(or.text).toBe('Please send it')
+    // unchanged answers are the same object
+    const same = { text: 'Send the [draft]', language: 'en', durationSec: 1, segments: [{ start: 0, end: 1, text: 'Send the [draft]' }] }
+    expect(stripSoundTags(same)).toBe(same)
   })
 })
 
