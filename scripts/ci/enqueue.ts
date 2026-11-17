@@ -89,7 +89,7 @@ export function decide(state: CheckState, number: number, head: string): Decisio
 }
 
 export const ENQUEUE_MUTATION =
-  'mutation($id:ID!,$sha:GitObjectID!,$jump:Boolean){enqueuePullRequest(input:{pullRequestId:$id,expectedHeadOid:$sha,jump:$jump}){mergeQueueEntry{position state}}}'
+  'mutation($id:ID! $sha:GitObjectID! $jump:Boolean){enqueuePullRequest(input:{pullRequestId:$id,expectedHeadOid:$sha,jump:$jump}){mergeQueueEntry{position state}}}'
 
 /** the gh arguments for the mutation (`-F jump=true` is sent only with --jump) */
 export function enqueueArgs(id: string, sha: string, jump: boolean): string[] {
