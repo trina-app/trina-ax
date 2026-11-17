@@ -6764,7 +6764,7 @@ export const ko = {
   "fileLink.stoppedBy": "{name}님이 이 파일 공유를 중지했어요",
   "shareCard.note.keptOwn": "안에서 따로 공유된 채로 남는 항목: {what}",
   "meeting.entry": "회의 기록하기",
-  "meeting.listening": "회의 기록 중",
+  "meeting.listening": "기록 중",
   "meeting.stop": "멈추기",
   "meeting.consent": "통화하는 사람들에게 기록 중이라고 알려 주세요.",
   "meeting.copyNote": "통화 채팅에 붙여 넣을 안내 복사",

@@ -76,6 +76,8 @@ for (const lang of ['en', 'ko'] as const) {
           await expect(entry).toBeVisible()
           await shot('1-entry')
           await entry.click()
+          // the pointer away from the header (the button it pressed is gone, another would look hovered)
+          await page.mouse.move(700, 450)
         } else {
           // the phone width of a narrow desktop window: the header keeps its buttons
           await page.evaluate(() => (window as unknown as { mycelDesktop: { meeting: { start(): Promise<unknown> } } }).mycelDesktop.meeting.start())

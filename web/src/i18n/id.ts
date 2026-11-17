@@ -6764,7 +6764,7 @@ export const id: Record<MessageKey, string> = {
   "fileLink.stoppedBy": "{name} berhenti membagikan berkas ini",
   "shareCard.note.keptOwn": "Di dalamnya tetap dibagikan secara terpisah: {what}.",
   "meeting.entry": "Catat rapat",
-  "meeting.listening": "Mencatat rapat",
+  "meeting.listening": "Mencatat",
   "meeting.stop": "Berhenti",
   "meeting.consent": "Beri tahu semua orang di panggilan bahwa Anda sedang mencatat.",
   "meeting.copyNote": "Salin pesan untuk obrolan panggilan",

@@ -6720,7 +6720,7 @@ export const es: Record<MessageKey, string> = {
   "fileLink.stoppedBy": "{name} dejó de compartir este archivo",
   "shareCard.note.keptOwn": "Dentro siguen compartidos por separado: {what}.",
   "meeting.entry": "Tomar notas de la reunión",
-  "meeting.listening": "Tomando notas de la reunión",
+  "meeting.listening": "Tomando notas",
   "meeting.stop": "Detener",
   "meeting.consent": "Avise a todos en la llamada de que está tomando notas.",
   "meeting.copyNote": "Copiar un mensaje para el chat de la llamada",

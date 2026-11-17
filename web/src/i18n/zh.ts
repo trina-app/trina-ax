@@ -6692,7 +6692,7 @@ export const zh: Record<MessageKey, string> = {
   "fileLink.stoppedBy": "{name}已停止共享此文件",
   "shareCard.note.keptOwn": "其中仍单独共享的内容：{what}",
   "meeting.entry": "记录会议",
-  "meeting.listening": "正在记录会议",
+  "meeting.listening": "正在记录",
   "meeting.stop": "停止",
   "meeting.consent": "请告诉通话中的每个人你正在记录。",
   "meeting.copyNote": "复制一条发到通话聊天的消息",

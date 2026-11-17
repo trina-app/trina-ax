@@ -222,7 +222,8 @@ export function MeetingNotesCard() {
             <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-danger" />
           </span>
         )}
-        <span className="min-w-0 flex-1 text-sm font-medium" role="status">{headline}</span>
+        {/* one line while listening (the dot and the time say it is live); the results may wrap */}
+        <span className={clsx('min-w-0 flex-1 text-sm font-medium', listening && 'truncate')} role="status" title={listening ? headline : undefined}>{headline}</span>
         {listening && <span className="shrink-0 text-sm tabular-nums text-muted" data-testid="meeting-time">{clock(now - (state.startedAt ?? now))}</span>}
         {listening && (
           <Button size="sm" variant="secondary" busy={working} onClick={async () => { setWorking(true); try { await m.stop() } finally { setWorking(false) } }} data-testid="meeting-stop">
@@ -253,7 +254,8 @@ export function MeetingNotesCard() {
       {!listening && (state.problem === 'silence' || state.problem === 'too_long') && <p className="border-t border-line px-3 py-2 text-xs text-muted" role="status">{state.problem === 'silence' ? t('meeting.endedSilence') : t('meeting.endedLong')}</p>}
       {!listening && state.problem === 'stopped' && state.message && <p className="border-t border-line px-3 py-2 text-xs text-danger" role="alert">{state.message}</p>}
       {listening && !folded && (
-        <ol ref={list} className="min-h-12 flex-1 space-y-2 overflow-y-auto border-t border-line px-3 py-2 text-sm" data-testid="meeting-lines">
+        // the words fade out under the consent line, so a line cut at the top reads as scrolled, not broken
+        <ol ref={list} className="min-h-12 flex-1 space-y-2 overflow-y-auto border-t border-line px-3 pb-2 pt-3 text-sm [mask-image:linear-gradient(to_bottom,transparent,black_1rem)]" data-testid="meeting-lines">
           {!lines.length && <li className="text-muted">{t('meeting.listeningEmpty')}</li>}
           {lines.map((l) => (
             <li key={`${l.track}:${l.startMs}:${l.endMs}`} className="flex gap-2">

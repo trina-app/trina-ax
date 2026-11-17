@@ -6720,7 +6720,7 @@ export const ja: Record<MessageKey, string> = {
   "fileLink.stoppedBy": "{name}さんがこのファイルの共有を停止しました",
   "shareCard.note.keptOwn": "中で個別に共有されたまま残るもの: {what}",
   "meeting.entry": "会議メモを取る",
-  "meeting.listening": "会議メモを取っています",
+  "meeting.listening": "メモ中",
   "meeting.stop": "停止",
   "meeting.consent": "通話の参加者にメモを取っていることを伝えてください。",
   "meeting.copyNote": "通話のチャット用メッセージをコピー",

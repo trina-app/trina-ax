@@ -6767,7 +6767,7 @@ export const en: Record<MessageKey, string> = {
   "fileLink.stoppedBy": "{name} stopped sharing this file",
   "shareCard.note.keptOwn": "Still shared on their own inside it: {what}.",
   "meeting.entry": "Take meeting notes",
-  "meeting.listening": "Taking meeting notes",
+  "meeting.listening": "Taking notes",
   "meeting.stop": "Stop",
   "meeting.consent": "Let everyone in the call know you're taking notes.",
   "meeting.copyNote": "Copy a message for the call's chat",
