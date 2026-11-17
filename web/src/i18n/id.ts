@@ -701,6 +701,7 @@ export const id: Record<MessageKey, string> = {
   'voice.holdSpace': 'Lepas Spasi untuk selesai · Esc untuk batal',
   'voice.holdTouch': 'Angkat jari untuk selesai · Geser untuk batal',
   'voice.tryHold': 'Lain kali, tahan Spasi di kotak pesan',
+  'voice.silent': 'Belum ada suara. Jika Anda sedang berbicara, periksa mikrofon Anda.',
   'voice.left': 'sisa {time}',
   'voice.liveTranscribing': 'Mengubah ke teks',
   'voice.liveInserted': 'Teks ditambahkan',

@@ -430,14 +430,25 @@ export function useVoiceInput(o: VoiceInputOptions) {
    * turn, that it waits */
   const progressText = phase !== 'transcribing' ? null : jobWaiting(job) ? t('voice.waiting') : jobLabel(job)
   const leftMs = CAP_MS - recorder.seconds * 1000
+  /** recording, and nothing was heard since it started (lib/recorder.ts), until the first sound */
+  const nothingYet = phase === 'recording' && recorder.silent
+  /** the bar says so where the wave was (a row of dots then), in place of the hint of a recording that ends with ✓. A
+   * hold keeps its own hint, the only place that says how it ends; the live region says it for both. */
+  const silent = nothingYet && voice.mode !== 'hold'
+  // once said, "녹음 중" is not read out again when the first sound comes (the person is talking by then)
+  const saidSilent = useRef(false)
+  if (phase !== 'recording') saidSilent.current = false
+  else if (nothingYet) saidSilent.current = true
   const hint =
     phase !== 'recording'
       ? null
-      : voice.mode === 'hold'
-        ? t(voice.via === 'touch' ? 'voice.holdTouch' : 'voice.holdSpace')
-        : voice.via === 'click' && holdCapable && !holdUsed
-          ? t('voice.tryHold')
-          : null
+      : silent
+        ? t('voice.silent')
+        : voice.mode === 'hold'
+          ? t(voice.via === 'touch' ? 'voice.holdTouch' : 'voice.holdSpace')
+          : voice.via === 'click' && holdCapable && !holdUsed
+            ? t('voice.tryHold')
+            : null
 
   return {
     phase,
@@ -454,6 +465,8 @@ export function useVoiceInput(o: VoiceInputOptions) {
     /** seconds left before the cap, in its last WARN_MS */
     left: phase === 'recording' && leftMs <= WARN_MS ? Math.max(0, Math.ceil(leftMs / 1000)) : null,
     hint,
+    /** the hint is the "no sound yet" line, and it stands where the wave was */
+    silent,
     /** the note text that gets an "Open Settings" button (inside the phone app, a blocked mic), else null: the host
      * shows the button only while its note still says this */
     settingsFor,
@@ -462,7 +475,7 @@ export function useVoiceInput(o: VoiceInputOptions) {
     /** another box (the room's, the thread's) records or transcribes now: this mic waits */
     busyElsewhere,
     /** the live region's words */
-    live: voice.live === 'recording' ? t('voice.recording') : voice.live === 'transcribing' ? t('voice.liveTranscribing') : voice.live === 'inserted' ? t('voice.liveInserted') : '',
+    live: nothingYet ? t('voice.silent') : voice.live === 'recording' ? (saidSilent.current ? '' : t('voice.recording')) : voice.live === 'transcribing' ? t('voice.liveTranscribing') : voice.live === 'inserted' ? t('voice.liveInserted') : '',
     progressText,
     /** the box's placeholder while transcribing */
     transcribingText: progressText ?? t('voice.transcribing'),
