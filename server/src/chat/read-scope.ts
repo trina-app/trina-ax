@@ -184,6 +184,30 @@ export function viewersOf(db: Database, rules: RuleSet, s: ReadSource, people: P
   return new Set(people.filter((p) => atLeast(rules.access(p, segs), 'read')).map((p) => p.id))
 }
 
+/** How many active people may read what came from `s` now (viewersOf): the wider-audience card's "(3 people)" beside
+ * each source (docs/decisions/20261117-ai-save-my-files-default.md). */
+export function sourceViewerCount(db: Database, rules: RuleSet, s: ReadSource, reader?: string | null): { n: number; onlyReader: boolean } {
+  const v = viewersOf(db, rules, s, activePeople(db), reader)
+  return { n: v.size, onlyReader: v.size === 1 && !!reader && v.has(reader) }
+}
+
+/** Who may open a team path now, as people are counted on screen: the active people (`people`, loaded once by the
+ * caller for several paths) the folder rules and a folder share let read it (files/share-readers.ts readersAt), and
+ * whether that is the whole team: every active person who is not a guest (`teamSize` of them). The save's audience
+ * line (chat/save-audience.ts) says it from this, never from a guess. */
+export function pathAudience(db: Database, rules: RuleSet, segs: readonly string[], people: readonly Principal[]): { ids: Set<string>; wholeTeam: boolean; teamSize: number } {
+  const ids = readersAt(db, rules, segs, people)
+  const team = people.filter((p) => p.role !== 'guest')
+  return { ids, wholeTeam: team.length > 1 && team.every((p) => ids.has(p.id)), teamSize: team.length }
+}
+
+/** The active people for pathAudience, once per tool result; null on a team larger than `max` (the walk is skipped, as
+ * files/access-routes.ts folderAccess does). */
+export function audiencePeople(db: Database, max: number): Principal[] | null {
+  const n = (db.query("SELECT COUNT(*) n FROM users WHERE status = 'active' AND deleted_at IS NULL").get() as { n: number }).n
+  return n > max ? null : activePeople(db)
+}
+
 /** Who sees a chat's own files and its answers' comments now (chat/chat-files.ts, chat/answer-comments.ts): a chat shared
  * with people, its people; a team project's shared chat (with `rules`), whoever may read the project's folder now (none
  * while it is in the trash), guests but its creator left out, as chat/shared.ts Audiences.ofChat; else its creator

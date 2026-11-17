@@ -131,7 +131,7 @@ export interface FileAccess {
 }
 
 /** Every active account but guests are looked at for a list (each a rule walk): a team past this size gets counts only. */
-const WALK_MAX = 2000
+export const WALK_MAX = 2000
 const activeIds = (ctx: AppContext): string[] => (ctx.db.query("SELECT id FROM users WHERE status = 'active' AND deleted_at IS NULL ORDER BY name, id LIMIT ?").all(WALK_MAX + 1) as { id: string }[]).map((r) => r.id)
 
 /**

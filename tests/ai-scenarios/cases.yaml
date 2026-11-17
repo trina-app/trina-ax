@@ -3046,3 +3046,35 @@ cases:
       - { type: pdf_image_on_page, file: "{users/sora,shared,groups,projects}/**/*.pdf", page: 1 }
       - { type: tool_used, any: [save_room_file] }
   why: A form a teammate posted in a thread has to be fetched from the room before it can be filled and stamped; the AI used to ask the person to download it.
+
+- id: SAVE-01
+  title: A summary with no place named goes to My files
+  features: [rooms.messages, files.edit]
+  lang: ko
+  context: personal
+  as: sora
+  prompt: leads 대화방 내용 회의록으로 요약해서 파일로 저장해줘
+  expect:
+    outcome: do
+    good: "Reads the leads group chat, writes the summary as a file in her own folder (My files), says where it is, and says who can open it only as the save's result says (only her), never \"everyone in the room\". Does not put it in Company-wide (shared/) or a department folder on its own, and does not ask where first."
+    checks:
+      - { type: file_created, file: "users/sora/**" }
+      - { type: no_file_created, file: "shared/**" }
+      - { type: no_file_created, file: "groups/**" }
+  variants:
+    - key: named
+      prompt: leads 대화방 내용 회의록으로 요약해서 전사 공유 회의록 폴더에 저장해줘
+      expect:
+        outcome: do
+        good: "Saves it in the company-wide meeting-notes folder she named, after the card that says where it came from (the leads chat, 3 people) and how many people can see that folder; says who can open it as the save's result says."
+        checks:
+          - { type: file_created, file: "shared/**" }
+    - key: room-side
+      context: room-side
+      prompt: 이 방 대화 회의록으로 요약해서 파일로 저장해줘
+      expect:
+        outcome: do
+        good: "Reads this room (라마바카페 건: sora, daniel, minho) and saves the notes at the room's save place (the department folder all three share, or her own folder followed by a share with daniel and minho), not in Company-wide; does not ask where first. Says who can open the file exactly as the save's (and any share's) result says, never \"everyone in the room\" unless that result says all of the room's people can open it."
+        checks:
+          - { type: no_file_created, file: "shared/**" }
+  why: QA TC-4792 (MAN-026/027) — a 3-person room's notes went to Company-wide (10 people) and the answer said everyone in the room could open them (docs/decisions/20261117-ai-save-my-files-default.md).
