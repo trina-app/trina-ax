@@ -20,12 +20,31 @@ PR은 `CHANGELOG.md`를 고치지 않는다. 사용자에게 보이는 변경은
 
 ## PR을 올리기 전에
 
-- PR을 푸시하기 전에 `bun run check:prepush`를 돌린다. origin/dev를 가져와 CI의 "typecheck, docs, native" 중 빠른 검사(typecheck·docs·변경 기록·마이그레이션 번호, native 빌드는 제외)와 i18n·제품 이름·한글 리터럴·도구 목록 테스트를 dev 기준으로 돌린다. 브랜치가 dev보다 뒤처졌으면 "origin/dev를 먼저 병합하라"고 알려 준다.
+- PR을 푸시하기 전에 `bun run check:prepush`를 돌린다. origin/dev를 가져와 CI의 "typecheck, docs, native, relay" 중 빠른 검사(typecheck·docs·변경 기록·마이그레이션 번호, native 빌드는 제외)와 i18n·제품 이름·한글 리터럴·도구 목록 테스트를 dev 기준으로 돌린다. 브랜치가 dev보다 뒤처졌으면 "origin/dev를 먼저 병합하라"고 알려 준다.
 - 서버 테스트는 CI와 같은 Bun 1.3.12로 돌린다(`bun:sqlite` 동작이 버전마다 다르다).
 - 도구를 추가하는 PR은 테스트의 정확한 도구 목록(`c-tools`, `i-wiring`, `b-browser`)도 함께 고친다.
 - 주석과 코드에 제품 이름을 쓰지 않고 `<app>`이라고 쓴다.
 - 서버 코드에 한글 리터럴을 넣지 않는다. 화면 글은 i18n 표에서 가져온다(인도네시아어는 "kamu"가 아니라 "Anda").
 - dev를 병합한 뒤에는 다시 돌린다. 병합이 새 i18n 키·도구·마이그레이션 번호를 가져온다. 다른 열린 PR이 쓰는 마이그레이션 번호는 `gh`가 있을 때 경고로 알려 준다(Bun 버전이 다를 때도 경고).
+
+## PR이 dev에 들어가는 길 (merge queue)
+
+dev에는 merge queue가 있다(결정: [decisions/20261117-merge-queue.md](decisions/20261117-merge-queue.md)). 저장소 변수 `MERGE_QUEUE`가 `on`일 때:
+
+1. PR을 연다. PR에서는 빠른 검사만 돈다: "what changed", "typecheck, docs, native, relay"(relay는 큐에서만), "Mobile app typecheck", 필수 검사 "typecheck, native, unit, fast fuzz, web, relay"(unit 6개와 fuzz/web, relay는 건너뛴 채 통과).
+2. 독립 리뷰를 받는다.
+3. `bun scripts/ci/enqueue.ts <번호> <리뷰한 head SHA>`(또는 `bun run queue <번호> <SHA>`)로 큐에 넣는다. 병합이 아니라 큐 등록이다. 스크립트는 PR(dev 대상, 열림, 초안 아님)과 head SHA(7자 이상 앞부분이면 된다)를 확인하고, 필수 검사가 아직 돌고 있거나 실패했으면 큐에 넣지 않고 알려 준다. `gh pr merge <번호> --merge --match-head-commit <SHA>`는 **쓰지 않는다**: gh가 자동 병합을 켜려 하는데 이 저장소는 자동 병합이 꺼져 있어 "Auto merge is not allowed for this repository"로 실패한다(검사가 이미 초록이어도). 스크립트가 쓰는 것은 GraphQL `enqueuePullRequest`(`expectedHeadOid`)이고, 스크립트가 안 될 때의 대안으로 결정 문서에 원문 명령이 있다. `--admin`과 `--delete-branch`는 쓰지 않는다. 관리자는 핫픽스·릴리스 PR에만 `--jump`를 붙인다.
+4. 큐가 dev 최신 위에 PR을 얹은 커밋(`merge_group`)에서 전체 검사를 돌린다. 통과하면 dev에 들어가고, 실패하면 실패한 검사와 함께 큐에서 빠진다.
+5. 빠졌으면 `merge_group` 실행(Actions, 브랜치 `gh-readonly-queue/dev/pr-<번호>-…`)에서 원인을 보고 브랜치에 고쳐 푸시한 뒤 3의 같은 명령을 다시 한다. 앞 항목 탓이면 고칠 것 없이 다시 넣는다.
+
+- CI를 다시 돌리려고 dev를 브랜치에 병합하지 않는다. dev 병합은 충돌을 풀 때만 한다.
+- 전체 검사는 PR마다 큐에서 한 번 돈다(묶음마다 한 번이 아니다). 작고 관련된 변경은 한 PR로 묶어서 큐에 넣는다.
+- 위험한 PR은 큐에 넣기 전에 `gh workflow run ci.yml --ref <브랜치>`로 전체 검사를 돌린다(라벨은 쓰지 않는다). 핫픽스·릴리스 PR은 관리자가 큐 맨 앞으로 넣을 수 있다(진행 중인 항목이 모두 다시 돈다, `bun scripts/ci/enqueue.ts <번호> <SHA> --jump`).
+- Desktop 워크플로의 PR 작업(Desktop e2e, Mac dmg 검사, Windows 설치 프로그램)은 `desktop/` 등 `desktop.yml`의 경로를 건드린 PR에서 그대로 돈다. 참고용이고 큐에는 절대 들어가지 않는다. 그런 PR은 큐에 넣기 **전에** 이 세 결과를 확인한다.
+- 호스팅 macOS 러너가 모자라면 Mac 작업을 로컬에서 돌리고 결과를 PR에 남긴다(Bun 1.3.12, `CI=true`, 서명 없음):
+  - `bun install --frozen-lockfile && bun run build:web && bun run prepare:hwp`
+  - `cd desktop && bun build.ts && bunx playwright test -c e2e/ci.config.ts`
+  - `CSC_IDENTITY_AUTO_DISCOVERY=false bun run --cwd desktop dist:mac && bun scripts/ci/dmg-check.ts desktop/release`
 
 ## 공개 기여 / Public contributions
 

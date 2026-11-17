@@ -21,6 +21,15 @@ describe('mic visibility', () => {
   })
 })
 
+describe('mic visibility for a guest', () => {
+  test('a guest never sees the mic (the server refuses a guest\'s recording), whatever the team\'s switch says', () => {
+    const guest = (voiceInput?: boolean) => ({ user: { role: 'guest' as const }, team: { name: 'T', defaultLocale: 'en' as const, ...(voiceInput === undefined ? {} : { voiceInput }) } })
+    expect(micState(guest(true))).toBe('hidden')
+    expect(micState(guest())).toBe('hidden')
+    expect(micState(guest(false))).toBe('hidden')
+  })
+})
+
 describe('confidential chats', () => {
   const team = (outside?: true) => ({ team: { name: 'T', defaultLocale: 'en' as const, voiceInput: true, ...(outside ? { voiceInputOutside: outside } : {}) } })
   test('voice input that goes to OpenRouter is not used in a confidential chat', () => {

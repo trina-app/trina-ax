@@ -1,8 +1,8 @@
 // A folder in a person's own files, shared with teammates or groups (server/src/files/folder-shares.ts,
 // share-places.ts, share-undo.ts, team-files/stream-checked.ts; docs/decisions/20261116-folder-share-server.md).
 // What must hold (the tests the security review of the design asked for are marked (R)):
-//  1. With the gate closed (a one-line switch in code, open by default; tests close it with config.folderShares) nobody
-//     can share a folder, by any route.
+//  1. Folder sharing is always on (its rollout gate was removed, owner 2026-11-17); an id endpoint opens nothing
+//     without its row.
 //  2. A shared folder opens only by its link id, for the people on it: names, sizes, times and current bytes. Never by
 //     path, never versions, history or text; the folder rules are untouched (admins too stay out of users/<id>/).
 //  3. Places the server keeps are never shared, by name in every case, width, Unicode form and language (R).
@@ -76,41 +76,10 @@ beforeAll(async () => {
 afterAll(() => h.close())
 beforeEach(() => { bucket() })
 
-describe('1. the gate', () => {
-  let g: Harness, o: Client, m: Client, mid: string
-  beforeAll(async () => {
-    g = await harness('sec-folder-shares-gate', { folderShares: false })
-    o = await withOwner(g)
-    const a = await addMember(g, o, { username: 'mina' })
-    m = a.client; mid = a.id
-    fs.mkdirSync(path.join(g.ctx.files.fx.root, 'users', mid, 'Work'), { recursive: true })
-    fs.writeFileSync(path.join(g.ctx.files.fx.root, 'users', mid, 'Work', 'a.txt'), 'a')
-  }, 60_000)
-  afterAll(() => g.close())
-  test('closed: no route makes a folder share, and the answers are the ones before this work', async () => {
-    expect(g.ctx.config.folderShares).toBe(false)
-    const p = `users/${mid}/Work`
-    const put = await m.try('PUT', '/api/files/shares', { path: p, add: [user('someone')], remove: [] })
-    expect(put.status).toBe(400)
-    expect(reason(put)).toBe('folder_shares_soon')
-    for (const body of [{ stop: true }, { resume: true }, { remove: [user('x')] }]) expect(reason(await m.try('PUT', '/api/files/shares', { path: p, add: [], remove: [], ...body }))).toBe('folder_shares_soon')
-    const get = await m.try('GET', '/api/files/shares' + '?path=' + encodeURIComponent(p))
-    expect(get.status).toBe(400)
-    expect(reason(get)).toBe('is_folder')
-    const link = await m.try('POST', '/api/files/link', { path: p })
-    expect(reason(link)).toBe('is_folder')
-    const batch = await m.call('POST', '/api/files/shares/batch', { paths: [p], add: [user(mid)] }).catch((e) => e)
-    expect(JSON.stringify(batch)).not.toContain('"shared":["')
-    expect((g.ctx.db.query('SELECT COUNT(*) n FROM file_shares').get() as { n: number }).n).toBe(0)
-    // the counts answer has no new field while the gate is closed
-    expect(await o.call('GET', '/api/admin/file-shares')).toEqual({ files: 0, people: 0 })
-    // a listing of the person's own files carries no shared mark
-    const tree = await m.call('GET', '/api/files/tree' + '?path=' + encodeURIComponent(`users/${mid}`))
-    expect(tree.entries.every((e: { shared?: string }) => e.shared === undefined)).toBe(true)
-  })
+describe('1. no row, no folder', () => {
   test('a folder row cannot be reached even if one existed: every id endpoint needs the row to open', async () => {
     const id = 'A'.repeat(22)
-    for (const u of [`/api/files/shared/${id}/list`, `/api/files/shared/${id}/entry?sub=a.txt`, `/api/files/shared/${id}/download?sub=a.txt`]) expect((await m.try('GET', u).catch(() => ({ status: 404 }))).status).toBe(404)
+    for (const u of [`/api/files/shared/${id}/list`, `/api/files/shared/${id}/entry?sub=a.txt`, `/api/files/shared/${id}/download?sub=a.txt`]) expect((await bob.try('GET', u).catch(() => ({ status: 404 }))).status).toBe(404)
   })
 })
 
@@ -253,7 +222,7 @@ describe('2. a shared folder opens by its link, for the people on it, and nothin
     expect(b.shared).toEqual([mine('solo.txt')])
     expect(b.failed).toMatchObject([{ path: mine('Area51', 'Other'), reason: 'is_folder' }])
     expect(h.ctx.db.query("SELECT 1 FROM file_shares WHERE path = ? AND state = 'live'").get(mine('Area51', 'Other'))).toBeNull()
-    // chat/share-with-person.ts calls change(): a folder is refused there whatever the gate says
+    // chat/share-with-person.ts calls change(): a folder is refused there
     let err: any
     try { fileSharesOf(h.ctx).change(ids.alice, mine('Area51', 'Other'), [user(ids.dana)], [], 'en', 'ai') } catch (e) { err = e }
     expect(err?.extra?.params?.reason).toBe('is_folder')

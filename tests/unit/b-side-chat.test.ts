@@ -5,6 +5,7 @@
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
 import { SIDE_CHAT_QUICK, threadRefToken, uuidv7 } from '@mycel/shared/api'
 import { sideRoomOf } from '../../server/src/chat/side-room'
+import { updateTeamSettings } from '../../server/src/admin/settings'
 import { quotesOnBranch, readRooms } from '../../server/src/chat/read-rooms'
 import { allowedSections, sideRoomSection, SHARED_PROMPT_SECTIONS } from '../../server/src/chat/prompt'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
@@ -77,8 +78,30 @@ test('a group chat saves where its people can open it (the smallest group they s
   }
   // everyone in it is in studio: its folder
   expect(await saveIn({ kind: 'group', userIds: [nora.id, pia.id], name: 'launch' })).toBe(studioPath)
-  // otto is in no group: only the company-wide folder holds them all
-  expect(await saveIn({ kind: 'group', userIds: [nora.id, otto.id], name: 'mixed' })).toBe('shared')
+  // otto is in no group: only the company-wide folder holds them all, and pia (and the owner's team) are outside the
+  // room. The own folder, then a share with the room's other people (QA MAN-026: notes from a 3-person room landed in
+  // Company-wide › Meeting notes, 10 people)
+  const mixed = async () => {
+    const room = await mia.client.call('POST', '/api/rooms', { kind: 'group', userIds: [nora.id, otto.id], name: 'mixed' })
+    const chat = await mia.client.call('POST', '/api/chats', { sideRoomId: room.id })
+    return sideRoomOf(h.ctx.db, chat.id, mia.id, h.ctx.files)!
+  }
+  const m = await mixed()
+  expect(m.saveIn).toBe(`users/${mia.id}`)
+  expect(m.shareWith?.sort()).toEqual(['NORA', 'OTTO'])
+  const mixedLine = sideRoomSection({ id: 'r', kind: 'group', name: 'mixed', saveIn: m.saveIn, shareWith: m.shareWith })
+  expect(mixedLine).toContain(`save it in users/${mia.id}/`)
+  expect(mixedLine).toContain('with share_with_person')
+  expect(mixedLine).toContain('"NORA", "OTTO"')
+  expect(mixedLine).toContain('Do not put it in the company-wide folder (shared/) instead')
+  expect(mixedLine).toContain('do not ask where first')
+  // members may not share their own files: the company-wide folder as before (its wider-audience card asks)
+  updateTeamSettings(h.ctx.db, { memberFileShares: false })
+  try {
+    const off = await mixed()
+    expect(off.saveIn).toBe('shared')
+    expect(off.shareWith).toBeUndefined()
+  } finally { updateTeamSettings(h.ctx.db, { memberFileShares: true }) }
   // the owner reads every group's folder: only the others decide, and the smallest group they share wins (design: 2)
   const owner1 = (h.ctx.db.query("SELECT id FROM users WHERE role = 'owner'").get() as { id: string }).id
   const designPath = (h.ctx.db.query("SELECT f.path FROM groups g JOIN folders f ON f.id = g.folder_id WHERE g.name = 'design'").get() as { path: string }).path

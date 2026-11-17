@@ -137,7 +137,8 @@ for (const vp of WIDTHS) {
       await expect(chip).toHaveCount(0)
     })
 
-    test("a room's box: the same full reason and the same ✕ target", async ({ page }) => {
+    // since #1159 a room's box says it in the room's own words, by role (rooms.storageFull*): not the server's text
+    test("a room's box: the room's own full reason and the same ✕ target", async ({ page }) => {
       await reset(page, { teamLocale: 'en', usersFollowTeam: true })
       await signIn(page)
       await routeRoom(page, { members: [{ id: 'ben', name: 'Ben' }], messages: [{ id: '019a5f00-0000-7000-8000-000000000001', author: { id: 'ben', name: 'Ben' }, body: 'Send the report please' }] })
@@ -147,7 +148,7 @@ for (const vp of WIDTHS) {
       const chip = page.getByTestId('room-file-chip')
       await expect(chip).toHaveAttribute('data-status', 'failed')
       const why = chip.getByRole('status')
-      await expect(why).toContainText(FULL)
+      await expect(why).toContainText("There isn't enough space on the team's storage for this file.")
       await notCut(why)
       const x = (await chip.getByTestId('chip-remove').boundingBox())!
       const min = vp.w < 768 ? 44 : 24

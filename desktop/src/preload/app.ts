@@ -1,6 +1,6 @@
 // Preload of the team page (sandboxed, contextIsolation). Exposes window.mycelDesktop (shared/src/desktop-bridge.ts)
 // and nothing else: browser relay functions, pane open/close/state, connection state, notifications (a click opens the
-// address the page named; Settings › Notifications' test notification), the dock badge, the window's focus, a picture put on the clipboard (이미지 복사), team list and the teams menu, and
+// address the page named; Settings › Notifications' test notification), downloads (a notice when one ends, Show in folder by its number), the dock badge, the window's focus, a picture put on the clipboard (이미지 복사), team list and the teams menu, and
 // a connector sign-in's one-time return address (its port only), Settings > Browser (read the site setting, back to asking, remove / clear always-allowed sites; "all" only asks the
 // main process, which shows its own confirmation dialog).
 // The main process re-checks every call: top frame only, team origin only (main/main.ts, common/trust.ts).
@@ -9,7 +9,7 @@ import type { DesktopBridge } from '@mycel/shared'
 import { keepPageFocus } from '../common/keyboard-focus'
 
 // constants come from the main process: this preload stays free of shared runtime code (zod etc.)
-const info = ipcRenderer.sendSync('bridge:info') as { global: string; bridgeVersion: number; appVersion: string; platform: DesktopBridge['platform']; store?: boolean; workFiles?: number; workFilesWide?: number; meeting?: number } | null
+const info = ipcRenderer.sendSync('bridge:info') as { global: string; bridgeVersion: number; appVersion: string; platform: DesktopBridge['platform']; store?: boolean; workFiles?: number; workFilesWide?: number; meeting?: number; downloads?: boolean } | null
 
 const on = (channel: string) => (cb: (payload: any) => void) => {
   const handler = (_e: IpcRendererEvent, payload: unknown) => cb(payload)
@@ -56,6 +56,20 @@ const bridge: DesktopBridge = {
   setTheme: (theme) => ipcRenderer.send('bridge:set-theme', String(theme)),
   folderProblem: (name) => ipcRenderer.invoke('bridge:folder-problem', String(name)),
   copyImage: (png) => ipcRenderer.invoke('bridge:copy-image', png instanceof Uint8Array ? png : new Uint8Array(0)),
+  // downloads go straight into the Downloads folder once the page listens (it shows the notice); not in the Mac App
+  // Store build. The page names a download by its number, never a path
+  ...(info?.downloads
+    ? {
+        downloads: {
+          onDone: (cb: (d: { id: number; name: string; ok: boolean }) => void) => {
+            const off = on('bridge:download')(cb)
+            ipcRenderer.send('bridge:downloads-ready')
+            return off
+          },
+          show: (id: number) => ipcRenderer.send('bridge:download-show', Number(id)),
+        },
+      }
+    : {}),
   // "Find work files on this computer": only when the app offers it (not the Mac App Store build); the page names no path
   ...(info?.workFiles
     ? {

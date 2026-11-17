@@ -1,4 +1,4 @@
-# CI: typecheck (incl. web + desktop; the phone app in its own job), native build, unit tests (in 5 shards at once:
+# CI: typecheck (incl. web + desktop; the phone app in its own job), native build, unit tests (in 6 shards at once:
 # scripts/ci/unit-shard.ts), fast fuzz, web tests + build, relay suite, and the Linux job with unprivileged accounts in Docker.
 # Real-engine tests (Claude Code / Codex logins, model calls) never run here: they need the owner's accounts and
 # run locally with `bun run test:stage1`.
@@ -13,7 +13,15 @@ on:
     # had 14; with these six left out a pull request needs 9 (2026-11-10, jobs waited up to 30 min in the queue).
     # A push to dev cancels the run of the push before it (concurrency below), so a burst of merges tests the last one.
     branches: [main, dev]
+  # dev has a merge queue (docs/decisions/20261117-merge-queue.md): a pull request to dev runs the quick jobs only
+  # (what changed, typecheck/docs/native, the phone app); the queue runs everything on each queued entry (merge_group,
+  # the PR on top of dev and of the entries ahead of it). The required check "typecheck, native, unit, fast fuzz, web,
+  # relay" reports on both. The whole suite on a pull request's branch on demand: `gh workflow run ci.yml --ref <branch>`
+  # (workflow_dispatch, mode full; its required check lands on the branch's head commit, the PR's head). No label
+  # trigger: any label would cancel and restart the PR's run and flash a red required check.
   pull_request:
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
   workflow_call:
     inputs:
@@ -24,7 +32,10 @@ on:
 
 concurrency:
   # a called run (release.yml, msstore.yml) has its own group per calling workflow: a push to main never cancels it, and
-  # a store package's tests never cancel the release's tests of the same commit (github.workflow is the caller's name)
+  # a store package's tests never cancel the release's tests of the same commit (github.workflow is the caller's name).
+  # A pull request: refs/pull/<n>/merge, so a new push stops that PR's older run. A queued entry (merge_group):
+  # refs/heads/gh-readonly-queue/dev/pr-<n>-<sha>, one ref per entry, so entries never cancel each other; a rebuilt
+  # entry gets a new ref of its own.
   group: ci-${{ inputs.ref && format('call-{0}-{1}', github.workflow, inputs.ref) || github.ref }}
   cancel-in-progress: true
 
@@ -40,31 +51,70 @@ env:
   PANDOC_VERSION: 3.9.0.2
 
 jobs:
-  # A pull request that changes only Markdown directly in docs/, docs/decisions/ or changes/ (decisions, fragments) runs the
-  # doc checks alone (docs job below), not the ~10 minutes of builds and tests: those files reach no build. Anything
-  # else, a push, a manual or a called run runs everything. The required check (check job) passes on either path.
+  # A pull request or queued entry that changes only Markdown directly in docs/, docs/decisions/ or changes/ (decisions,
+  # fragments) runs the doc checks alone (docs job below), not the ~10 minutes of builds and tests: those files reach no
+  # build. Otherwise `mode` (docs/decisions/20261117-merge-queue.md) picks the jobs:
+  #   quick   a pull request to dev while the repository variable MERGE_QUEUE is "on" (set it only after dev's ruleset
+  #           has the merge queue rule; unset it first to turn the queue off): typecheck, docs, native (+ the phone app
+  #           job); the unit shards, "fast fuzz, web" and the relay suite are skipped (the merge queue runs them).
+  #   tested  the push to dev made by the merge queue (actor github-merge-queue[bot]): the queue fast-forwards dev to
+  #           the entry's commit it has just tested, so this SHA passed every job already; only the Linux jobs run.
+  #   full    everything else: a queued entry (merge_group), a pull request to main (main's ruleset needs the check),
+  #           any other push to dev (an admin merge past the queue) or main, a manual run (`gh workflow run ci.yml
+  #           --ref <branch>`), a release's call.
+  # The required check (check job) passes on each path only when the jobs of that path passed.
   scope:
     name: what changed
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     outputs:
       docs_only: ${{ steps.diff.outputs.docs_only }}
+      mode: ${{ steps.diff.outputs.mode }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         with:
-          # the pull request's merge commit and its first parent (the base): their difference is what the PR changes
+          # pull_request: the PR's merge commit and its first parent (the base): their difference is what the PR changes.
+          # merge_group: the entry's commit; its parent is fetched below (a diff of two commits needs only their trees)
           fetch-depth: 2
           persist-credentials: false
       - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          ACTOR: ${{ github.actor }}
+          BASE_REF: ${{ github.base_ref }}
+          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          CALLED: ${{ inputs.ref != '' && inputs.ref != null }}
+          MERGE_QUEUE: ${{ vars.MERGE_QUEUE }}
         run: |
           docs_only=false
-          if [ "${{ github.event_name }}" = pull_request ]; then
+          files=""
+          if [ "$EVENT" = pull_request ]; then
             files=$(git diff --name-only HEAD^1 HEAD)
+          elif [ "$EVENT" = merge_group ]; then
+            # merge_group.base_sha is the entry's PARENT: the entry ahead of it in the queue (dev only for the first
+            # entry), so this is what this one pull request adds. The docs-only shortcut is safe only because dev's
+            # queue is ALLGREEN (every entry must pass its own checks); with HEADGREEN a failing code entry followed by
+            # a docs-only one could land on doc checks alone (docs/decisions/20261117-merge-queue.md).
+            # (a failed fetch only costs the docs-only shortcut: the entry runs everything)
+            if git fetch --no-tags --depth=1 origin "$GROUP_BASE"; then files=$(git diff --name-only "$GROUP_BASE" HEAD)
+            else echo "::warning::could not fetch the entry's parent $GROUP_BASE; running every job"; fi
+          fi
+          if [ -n "$files" ]; then
             echo "$files"
-            if [ -n "$files" ] && ! printf '%s\n' "$files" | grep -Ev '^(docs|docs/decisions|changes)/[^/]+\.md$' > /dev/null; then docs_only=true; fi
+            if ! printf '%s\n' "$files" | grep -Ev '^(docs|docs/decisions|changes)/[^/]+\.md$' > /dev/null; then docs_only=true; fi
+          fi
+          mode=full
+          if [ "$CALLED" = true ]; then
+            mode=full
+          elif [ "$EVENT" = pull_request ] && [ "$BASE_REF" = dev ] && [ "$MERGE_QUEUE" = on ]; then
+            mode=quick
+          elif [ "$EVENT" = push ] && [ "$REF" = refs/heads/dev ] && [ "$ACTOR" = 'github-merge-queue[bot]' ]; then
+            mode=tested
           fi
           echo "docs_only=$docs_only" | tee -a "$GITHUB_OUTPUT"
+          echo "mode=$mode" | tee -a "$GITHUB_OUTPUT"
 
   docs:
     name: docs only
@@ -83,14 +133,18 @@ jobs:
       - run: bun run features:check
       - run: bun run check:docs
 
-  # The unit tests took ~30 of the ~35 minutes of one job. They now run as 5 jobs at once
+  # The unit tests took ~30 of the ~35 minutes of one job. They now run as 6 jobs at once
   # (scripts/ci/unit-shard.ts spreads the files by their earlier times), beside the static checks and the
-  # fuzz / web / relay job. Each job sets up the same tools as before. The last job keeps the old job's name, the
+  # fast fuzz / web job; none of them waits for another (all need only `scope`). 6 shards: ~7 minutes of tests each.
+  # A queued entry still runs 10 jobs, as with 5 shards: its phone app typecheck runs at the end of this job instead of
+  # in its own job (the queue builds 4 entries at once on the org's 20 runners; docs/decisions/20261117-faster-full-run.md). Each job sets up the same tools as before. The last job keeps the old job's name, the
   # check the default branch's ruleset requires: it passes only when every job above it passed.
   static:
-    name: typecheck, docs, native
+    # relay: the relay suite runs here in full mode (skipped on a pull request's quick run)
+    name: typecheck, docs, native, relay
     needs: scope
-    if: needs.scope.outputs.docs_only != 'true'
+    # every mode but `tested` (the queue's own push to dev: this commit passed it as a queued entry)
+    if: needs.scope.outputs.docs_only != 'true' && needs.scope.outputs.mode != 'tested'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -176,18 +230,47 @@ jobs:
             native/bin/
             !native/bin/hwp/**
           retention-days: 7
+      # Node last in the job, so it never changes the steps above. Full mode only: the relay suite (moved here from
+      # "fast fuzz, web", which then has room for more) and, on a queued entry, the phone app typecheck.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: needs.scope.outputs.mode == 'full'
+        with:
+          # the production relay's runtime (versions.json node-relay; relay/deploy/install-node.sh pins the tarball)
+          node-version: 26.12.1
+          # npm's download cache only where the phone app is installed here (a queued entry)
+          cache: ${{ github.event_name == 'merge_group' && 'npm' || '' }}
+          cache-dependency-path: mobile/package-lock.json
+      - name: Relay conformance and hardening (real Node 26 relay)
+        if: needs.scope.outputs.mode == 'full'
+        run: bun run test:relay
+      # a queued entry (merge_group): the phone app typecheck of the mobile job below, here instead of a job of its own,
+      # so the entry runs 10 jobs with 6 unit shards. The same steps. (The mobile job keeps its name everywhere else:
+      # main's ruleset requires "Mobile app typecheck".)
+      # advisory, as the mobile job was on a queued entry (dev does not require it): a failure shows on the step and in
+      # the run's annotations but does not fail this job
+      - name: Phone app install (locked, no install scripts; only an unreachable registry skips the typecheck)
+        id: mobile-install
+        if: github.event_name == 'merge_group'
+        continue-on-error: true
+        run: bash mobile/scripts/ci-install.sh
+      - name: Phone app typecheck
+        if: github.event_name == 'merge_group' && steps.mobile-install.outputs.installed == 'true'
+        continue-on-error: true
+        run: npm --prefix mobile run typecheck
 
   unit:
-    name: unit tests (${{ matrix.shard }}/5)
+    name: unit tests (${{ matrix.shard }}/6)
     needs: scope
-    if: needs.scope.outputs.docs_only != 'true'
+    # mode full only: skipped on a pull request to dev (the merge queue runs it) and on the queue's push to dev
+    if: needs.scope.outputs.docs_only != 'true' && needs.scope.outputs.mode == 'full'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
       # every shard runs to the end: one failing shard does not hide another's failures
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5]
+        # the count is also in the job name and the test step below, and in tests/unit/ci-unit-shard.test.ts SHARDS
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -241,8 +324,39 @@ jobs:
           fi
           bwrap --unshare-all --ro-bind / / true
       - run: bun install --frozen-lockfile
+      # the native programs kept between runs, keyed on native/ (its Go sources, go.sum and build.sh) and the Go version:
+      # the build is reproducible (-trimpath, -buildvcs=false), so the same key means the same bytes. ~45 s per job on
+      # a hit. The static job always builds them and runs go vet / go test.
+      # restore only here; the save below runs on a push (main, or a push to dev past the queue). A queued entry reads
+      # main's caches and its own ref's, which nothing reads again, so it never saves (the repo's 10 GB of caches).
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        id: native-cache
+        with:
+          path: |
+            native/bin/darwin-amd64
+            native/bin/darwin-arm64
+            native/bin/linux-amd64
+            native/bin/linux-arm64
+          key: native-bin-${{ runner.os }}-go${{ env.GO_VERSION }}-${{ hashFiles('native/**') }}
       - name: Native build (darwin + linux, amd64 + arm64)
-        run: ARCHS="amd64 arm64" bash native/build.sh
+        env:
+          HIT: ${{ steps.native-cache.outputs.cache-hit }}
+        run: |
+          # a hit must hold every program (5 per darwin arch, 9 per linux arch); anything less builds them again
+          n=$(find native/bin/darwin-amd64 native/bin/darwin-arm64 native/bin/linux-amd64 native/bin/linux-arm64 -type f 2>/dev/null | wc -l)
+          if [ "$HIT" = true ] && [ "$n" -ge 28 ]; then echo "native programs from the cache ($n files)"; exit 0; fi
+          ARCHS="amd64 arm64" bash native/build.sh
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        if: github.event_name == 'push' && steps.native-cache.outputs.cache-hit != 'true'
+        # several jobs of one run may try; the first saves, the others only warn
+        continue-on-error: true
+        with:
+          path: |
+            native/bin/darwin-amd64
+            native/bin/darwin-arm64
+            native/bin/linux-amd64
+            native/bin/linux-arm64
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
       # the pinned rhwp CLI (prepare:hwp checks its sha256 and downloads it only when missing or different)
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -252,13 +366,14 @@ jobs:
         run: bun run prepare:hwp
       # tests/unit and tests/security (TC-3846: the security suite never ran in CI before); files a Linux runner cannot
       # run are listed with their reason in scripts/ci/unit-shard.ts CI_SKIPPED and printed here
-      - name: Unit + security tests, shard ${{ matrix.shard }} of 5
-        run: bun scripts/ci/unit-shard.ts ${{ matrix.shard }} 5
+      - name: Unit + security tests, shard ${{ matrix.shard }} of 6
+        run: bun scripts/ci/unit-shard.ts ${{ matrix.shard }} 6
 
   other:
-    name: fast fuzz, web, relay
+    name: fast fuzz, web
     needs: scope
-    if: needs.scope.outputs.docs_only != 'true'
+    # mode full only, like the unit shards
+    if: needs.scope.outputs.docs_only != 'true' && needs.scope.outputs.mode == 'full'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -314,8 +429,39 @@ jobs:
           fi
           bwrap --unshare-all --ro-bind / / true
       - run: bun install --frozen-lockfile
+      # the native programs kept between runs, keyed on native/ (its Go sources, go.sum and build.sh) and the Go version:
+      # the build is reproducible (-trimpath, -buildvcs=false), so the same key means the same bytes. ~45 s per job on
+      # a hit. The static job always builds them and runs go vet / go test.
+      # restore only here; the save below runs on a push (main, or a push to dev past the queue). A queued entry reads
+      # main's caches and its own ref's, which nothing reads again, so it never saves (the repo's 10 GB of caches).
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        id: native-cache
+        with:
+          path: |
+            native/bin/darwin-amd64
+            native/bin/darwin-arm64
+            native/bin/linux-amd64
+            native/bin/linux-arm64
+          key: native-bin-${{ runner.os }}-go${{ env.GO_VERSION }}-${{ hashFiles('native/**') }}
       - name: Native build (darwin + linux, amd64 + arm64)
-        run: ARCHS="amd64 arm64" bash native/build.sh
+        env:
+          HIT: ${{ steps.native-cache.outputs.cache-hit }}
+        run: |
+          # a hit must hold every program (5 per darwin arch, 9 per linux arch); anything less builds them again
+          n=$(find native/bin/darwin-amd64 native/bin/darwin-arm64 native/bin/linux-amd64 native/bin/linux-arm64 -type f 2>/dev/null | wc -l)
+          if [ "$HIT" = true ] && [ "$n" -ge 28 ]; then echo "native programs from the cache ($n files)"; exit 0; fi
+          ARCHS="amd64 arm64" bash native/build.sh
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        if: github.event_name == 'push' && steps.native-cache.outputs.cache-hit != 'true'
+        # several jobs of one run may try; the first saves, the others only warn
+        continue-on-error: true
+        with:
+          path: |
+            native/bin/darwin-amd64
+            native/bin/darwin-arm64
+            native/bin/linux-amd64
+            native/bin/linux-arm64
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
       # the pinned rhwp CLI (prepare:hwp checks its sha256 and downloads it only when missing or different)
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -333,33 +479,42 @@ jobs:
           # match has moved; English at /demo/, every other language at /demo/<locale>/
           DEMO_BASE=/demo/ bun run --cwd web build:demo
           for l in ko id ja es zh; do DEMO_LOCALE=$l DEMO_BASE=/demo/$l/ DEMO_OUT=dist-demo-$l bun run --cwd web build:demo || exit 1; done
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          # the production relay's runtime (versions.json node-relay; relay/deploy/install-node.sh pins the tarball)
-          node-version: 26.12.1
-      - name: Relay conformance and hardening (real Node 26 relay)
-        run: bun run test:relay
+      # the relay suite runs in "typecheck, docs, native, relay" (full mode), which ends ~2 min before the unit shards; this job
+      # keeps ~3 min of room for an advisory step before it would outlast the longest shard
 
   check:
-    # the name the default branch's ruleset requires (and release.yml's test needs): every job above passed
+    # the name the dev and main rulesets require (and release.yml's test needs): every job of this run's mode passed.
+    # It runs on every event (always()), so the required name reports on a pull request, on a queued entry
+    # (merge_group) and on a push alike; a merge queue entry with no report would wait until the queue's time-out.
+    # Only the jobs above are in `needs`: the phone app, the Linux jobs and desktop.yml's macOS / Windows jobs are not
+    # required on dev and never hold up a queued entry.
     name: typecheck, native, unit, fast fuzz, web, relay
     needs: [scope, docs, static, unit, other]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
-      - name: Every job passed
+      - name: Every job of this mode passed
         env:
           DOCS_ONLY: ${{ needs.scope.outputs.docs_only }}
+          MODE: ${{ needs.scope.outputs.mode }}
           SCOPE: ${{ needs.scope.result }}
           DOCS: ${{ needs.docs.result }}
-          RESULTS: ${{ needs.static.result }} ${{ needs.unit.result }} ${{ needs.other.result }}
+          STATIC: ${{ needs.static.result }}
+          HEAVY: ${{ needs.unit.result }} ${{ needs.other.result }}
         run: |
-          echo "scope: $SCOPE, docs only: $DOCS_ONLY, docs: $DOCS, static, unit, other: $RESULTS"
+          echo "scope: $SCOPE, mode: $MODE, docs only: $DOCS_ONLY, docs: $DOCS, static: $STATIC, unit + other: $HEAVY"
           [ "$SCOPE" = success ] || exit 1
-          # a docs-only pull request: the doc checks passed (the build and test jobs were skipped on purpose)
+          # docs only: the doc checks passed (the build and test jobs were skipped on purpose)
           if [ "$DOCS_ONLY" = true ]; then [ "$DOCS" = success ]; exit; fi
-          for r in $RESULTS; do [ "$r" = success ] || exit 1; done
+          case "$MODE" in
+            # the queue's push to dev: the same commit passed every job as a queued entry
+            tested) [ "$STATIC" = skipped ] || exit 1 ;;
+            # a pull request to dev: typecheck, docs, native passed; the unit shards, fuzz/web and relay run in the queue
+            quick) [ "$STATIC" = success ] || exit 1; for r in $HEAVY; do [ "$r" = skipped ] || exit 1; done ;;
+            full) [ "$STATIC" = success ] || exit 1; for r in $HEAVY; do [ "$r" = success ] || exit 1; done ;;
+            *) echo "unknown mode '$MODE'"; exit 1 ;;
+          esac
 
   mobile:
     # The phone app (mobile/) has its own npm lockfile, and the root typecheck leaves it out. Its own job, so it never
@@ -367,6 +522,8 @@ jobs:
     # registry that stays unreachable warns and skips (mobile/scripts/ci-install.sh); a lockfile or integrity problem
     # and a type error fail the job.
     name: Mobile app typecheck
+    # a queued entry runs these steps at the end of "typecheck, docs, native, relay" instead (one job fewer per entry)
+    if: github.event_name != 'merge_group'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -389,8 +546,9 @@ jobs:
 
   linux-docker:
     name: Linux attack suite (T1, bwrap + nftables + cgroups in Docker)
-    # not on a pull request: on the merge to dev, on main and in a release's test run (see `on:` above)
-    if: github.event_name != 'pull_request'
+    # not on a pull request and not on a queued entry (not required on dev: a queued entry never waits on it): on the
+    # push to dev, on main and in a release's test run (see `on:` above)
+    if: github.event_name != 'pull_request' && github.event_name != 'merge_group'
     # amd64 and arm64: the seccomp table, the whisper CPU pick and bwrap's behaviour differ by architecture.
     strategy:
       fail-fast: false
@@ -450,8 +608,9 @@ jobs:
 
   linux-bundle:
     name: Linux release bundle (L19) + verify-bundle
-    # not on a pull request: on the merge to dev, on main and in a release's test run (see `on:` above)
-    if: github.event_name != 'pull_request'
+    # not on a pull request and not on a queued entry (not required on dev: a queued entry never waits on it): on the
+    # push to dev, on main and in a release's test run (see `on:` above)
+    if: github.event_name != 'pull_request' && github.event_name != 'merge_group'
     strategy:
       fail-fast: false
       matrix:
@@ -506,8 +665,9 @@ jobs:
 
   linux-install:
     name: Linux install test (T2, systemd on a VM runner)
-    # not on a pull request: on the merge to dev, on main and in a release's test run (see `on:` above)
-    if: github.event_name != 'pull_request'
+    # not on a pull request and not on a queued entry (not required on dev: a queued entry never waits on it): on the
+    # push to dev, on main and in a release's test run (see `on:` above)
+    if: github.event_name != 'pull_request' && github.event_name != 'merge_group'
     # paths filter and the daily schedule are enforced in the real feed; here the job just has to be correct.
     strategy:
       fail-fast: false

@@ -108,6 +108,15 @@ describe('placeholder from the first message', () => {
     expect(placeholderTitle('> Sam · Nov 9, 2026, 7:04 PM\n> Venue sent the exhibitor rules.\n\nWhat do we need to change?')).toBe('Sam · Nov 9, 2026, 7:04 PM')
     expect(sideQuoteOf('> to be or not to be\nthat is the question')).toBeNull()
   })
+
+  test('a question with a thread line (the box\'s "Looking at this thread" chip): the question, never the line', () => {
+    const line = `> 🧵 Sam · Nov 9, 2026, 7:04 PM${threadRefToken('019a5f00-0000-7000-8000-000000000501')}`
+    expect(sideQuoteOf(`${line}\n\nWhat was decided?`)).toEqual({ kind: 'thread', author: 'Sam', at: 'Nov 9, 2026, 7:04 PM', question: 'What was decided?' })
+    expect(placeholderTitle(`${line}\n\nWhat was decided?`, [], undefined, true)).toBe('What was decided?')
+    // files alone: the file's name, not who started the thread
+    expect(placeholderTitle(`${line}\n\n`, [{ name: 'shot.png', source: 'upload' }], undefined, true)).toBe('shot.png')
+    expect(placeholderTitle(`${line}\n\n`, [], undefined, true)).toBe('')
+  })
 })
 
 describe("the AI's title", () => {

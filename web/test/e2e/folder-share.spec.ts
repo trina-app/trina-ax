@@ -3,9 +3,9 @@
 // holds, later files follow, the Everyone line), the "Shared" chip and marks in Files ("Shared through Work"), the
 // receiver's Shared with me and the read-only folder page (one level, a folder inside, a file inside), Stop sharing that
 // names nested shares (files and folders) with the server's Undo, places that are never shared, no guests, a paused
-// share (the owner's Resume, the receiver's closed card), the admin's one-time line and counts, and the gate: while it
-// is closed none of it shows. Axe on every new surface. FOLDER_SHARE_SHOTS names a folder: every state is shot there at
-// 1440 and 390, light and dark.
+// share (the owner's Resume, the receiver's closed card), the admin's one-time line and counts. Folder sharing is always
+// on (its rollout gate was removed, owner 2026-11-17). Axe on every new surface. FOLDER_SHARE_SHOTS names a folder:
+// every state is shot there at 1440 and 390, light and dark.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
@@ -22,12 +22,12 @@ const WORK = 'users/bob/Work'
 
 const post = (page: Page, url: string, data: unknown = {}) => page.request.post(url, { headers: { [CSRF_HEADER]: '1' }, data })
 
-type World = { on?: boolean; paused?: string[]; blocked?: Record<string, string>; wide?: boolean; grants?: { path: string; to: { subjectType: 'user' | 'group'; subjectId: string }; by: string; at?: string }[] }
-/** Bob's folders (users/bob/Work with Plan.md, Budget.csv, Q4/Notes.md and a hidden file; Drafts; downloads); the gate
- * open unless `on: false`; signed in as `who` (Bob) */
+type World = { paused?: string[]; blocked?: Record<string, string>; wide?: boolean; grants?: { path: string; to: { subjectType: 'user' | 'group'; subjectId: string }; by: string; at?: string }[] }
+/** Bob's folders (users/bob/Work with Plan.md, Budget.csv, Q4/Notes.md and a hidden file; Drafts; downloads); signed in
+ * as `who` (Bob) */
 async function world(page: Page, o: World = {}, who = BOB): Promise<Record<string, string>> {
   await reset(page, { teamLocale: 'en', usersFollowTeam: true, withAdmin: true })
-  const r = await post(page, '/__test/folder-shares', { on: o.on ?? true, world: true, ...o })
+  const r = await post(page, '/__test/folder-shares', { world: true, ...o })
   expect(r.ok()).toBeTruthy()
   await signIn(page, who)
   return ((await r.json()) as { links: Record<string, string> }).links
@@ -84,37 +84,6 @@ async function look(page: Page, name: string, o: { phone?: () => Promise<void>; 
 
 test.describe.configure({ timeout: SHOTS ? 300_000 : 90_000 })
 test.beforeEach(async ({ page }) => { await page.setViewportSize({ width: 1440, height: 900 }) })
-
-test('gate closed: Files, the dialog, Shared with me, the link page and Admin show nothing of folder sharing', async ({ page, browser }) => {
-  const links = await world(page, { on: false, grants: [{ path: WORK, to: { subjectType: 'user', subjectId: 'olga' }, by: 'bob' }] })
-  await page.goto('/files?path=users/bob')
-  await expect(row(page, 'Work')).toBeVisible()
-  // no Shared mark on the folder that has a row with people, and Share opens today's "only you" panel, not the dialog
-  await expect(page.getByTestId('file-shared')).toHaveCount(0)
-  await rowMenu(page, 'Work', t['folderAccess.menu'])
-  await expect(page.getByTestId('folder-access-panel')).toBeVisible()
-  await expect(page.getByTestId('file-share-dialog')).toHaveCount(0)
-  await page.keyboard.press('Escape')
-  // the folder's own chip is today's "Only you see it"
-  await page.goto(`/files?path=${encodeURIComponent(WORK)}`)
-  await expect(page.getByTestId('folder-access-chip')).toHaveAttribute('data-kind', 'onlyYou')
-  await expect(page.getByTestId('file-shared')).toHaveCount(0)
-  // the server answers a folder as it did before this work
-  const r = await page.request.get(`/api/files/shares?path=${encodeURIComponent(WORK)}`)
-  expect(r.status()).toBe(400)
-  // the receiver: no folder in Shared with me, and the folder's link is closed
-  const olga = await windowOf(browser, page, OLGA)
-  await olga.goto('/files?view=shared')
-  await expect(olga.getByTestId('shared-file').filter({ hasText: 'Work' })).toHaveCount(0)
-  await olga.goto(`/f/${links[WORK]}`)
-  await expect(olga.getByTestId('file-link-closed')).toBeVisible()
-  // Admin: the switch says files only; no one-time line
-  await olga.goto('/admin')
-  await expect(olga.getByTestId('admin-folder-share-notice')).toHaveCount(0)
-  await olga.goto('/admin/settings')
-  await expect(olga.getByTestId('team-member-file-shares')).toContainText(t['teamSettings.memberFileShares'])
-  await olga.context().close()
-})
 
 test('share a folder from Files: the dialog, the Shared marks; the receiver finds it in Shared with me and opens it, a folder inside and a file inside', async ({ page, browser }) => {
   await world(page)

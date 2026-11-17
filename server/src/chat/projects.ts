@@ -70,6 +70,20 @@ export function mayManageProject(files: FileService, user: Principal, p: Project
 }
 
 /**
+ * Who changes a project's members, for a person who may not, as the project's page says it (`view`: project-access.ts
+ * membersView; `membersEditable`: the person may, then null): its creator by name only where the page names them too
+ * (`creatorChangesMembers`: account active, still writes the folder, the folder theirs to change; web
+ * projects.membersByCreator), else "an admin". For a shared project chat's instructions (prompt.ts sharedSection).
+ * Scenario PRJ-03.project: a member was sent to a private chat that refuses them as well.
+ */
+export function projectMembersBy(db: Database, p: { created_by: string | null }, view: { membersEditable?: boolean; creatorChangesMembers?: boolean }): string | null {
+  if (view.membersEditable) return null
+  const u = view.creatorChangesMembers && p.created_by ? db.query("SELECT name FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(p.created_by) as { name: string } | null : null
+  const name = u?.name.replace(/\s+/g, ' ').replace(/[<>"]/g, ' ').trim().slice(0, 80)
+  return name ? `${name} (who made it) or an admin` : 'an admin'
+}
+
+/**
  * A project that is still there, in projects/<name>, which this person (the owner or an admin) may add themselves to and
  * does not read now: "only its members can use it now" (docs/DECISIONS.md "Projects from before the update: one card,
  * Add me to these"). The Inbox notice and the Scheduled page say so of a task paused for it. Never its name or folder.

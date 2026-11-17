@@ -21,7 +21,7 @@ folder, undang anggota tim, siapkan skill tim, buat backup pertama. Langkah yang
 | **Aktivitas** | Pemakaian, Log aktivitas |
 | **Tim** | Pengaturan tim, Sistem |
 
-**Anggota & undangan** juga mencantumkan tamu: orang dari luar tim yang berada di paling banyak satu obrolan grup dan satu proyek. [Baca tentang tamu](guests.md).
+**Anggota & undangan** juga mencantumkan tamu: orang dari luar tim yang berada di paling banyak satu saluran privat atau obrolan grup, dan satu proyek. [Baca tentang tamu](guests.md).
 
 :::note
 Versi sebelumnya menempatkan akun AI di halaman tersendiri, **AI connections**, di samping **AI engines**. Sekarang
@@ -47,7 +47,7 @@ Claude atau OpenAI yang berwenang. Setiap baris menunjukkan apakah mesin itu sud
 #### Undang tim
 Mulailah dengan kelompok uji coba kecil, lalu pastikan peran dan akses folder sudah benar. **Anggota & undangan** juga mencantumkan [tamu](#tamu) tim.
 Di bawah daftar, **Link undangan** hanya menampilkan tautan yang masih berlaku: tautan undangan tim dan tautan undangan
-yang belum dipakai siapa pun. Tautan yang sudah dipakai atau kedaluwarsa, atau tautan tamu yang obrolan grup atau proyeknya sudah tidak ada, hilang dari daftar; siapa yang bergabung tercatat di daftar anggota dan di [Log aktivitas](#log-aktivitas).
+yang belum dipakai siapa pun. Tautan yang sudah dipakai atau kedaluwarsa, atau tautan tamu yang saluran privat, obrolan grup, atau proyeknya sudah tidak ada, hilang dari daftar; siapa yang bergabung tercatat di daftar anggota dan di [Log aktivitas](#log-aktivitas).
 
 #### Tambahkan skill pertama
 Salin skill awal dan periksa hasilnya terhadap sumbernya. [Baca tentang skill](team-skills.md).
@@ -82,12 +82,12 @@ terakhir dipakai. Menu **⋯** sebuah akun berisi Cek lagi, Naikkan / turunkan, 
 
 ## Tamu
 
-**Admin › Anggota & undangan** diakhiri dengan **Tamu**: orang dari luar tim, masing-masing di paling banyak satu obrolan grup dan satu
+**Admin › Anggota & undangan** diakhiri dengan **Tamu**: orang dari luar tim, masing-masing di paling banyak satu saluran privat atau obrolan grup, dan satu
 proyek, yang tidak memakai kursi. Setiap baris menunjukkan di mana tamu itu berada dan AI apa yang dimilikinya. Menu
 **⋯**-nya berisi **Ubah AI** (tanpa AI, masuk dengan akun sendiri, atau akun AI tim dengan batas bulanan), **Jadikan
-anggota tim**, dan **Keluarkan tamu**. Anggota mengundang tamu sendiri dari obrolan grup atau proyek
+anggota tim**, dan **Keluarkan tamu**. Anggota mengundang tamu sendiri dari saluran privat, obrolan grup, atau proyek
 ([Tamu](chats-and-projects.md#tamu)). Owner dan admin juga bisa memilih **Undang ke tim** › **Tamu** di sini lalu
-memilih satu obrolan grup atau proyek ([Tamu: Dari Admin](guests.md#dari-admin)). Tim yang tidak punya tamu
+memilih satu saluran privat, obrolan grup, atau proyek ([Tamu: Dari Admin](guests.md#dari-admin)). Tim yang tidak punya tamu
 tidak memiliki bagian **Tamu**; pilih **Tamu** di daftar peran untuk memeriksanya.
 
 ![Admin › Anggota & undangan › Tamu di ponsel: Morgan Reyes, di obrolan grup Launch email, dengan No AI](../../images/admin/guests.webp "Tamu")
@@ -128,7 +128,7 @@ Mulai versi 0.4.0. Di versi 0.3.0 dan sebelumnya, semua ini beserta mesinnya ada
 
 ## Sistem
 
-**Admin › Sistem** menampilkan penyimpanan tim, versi dan pembaruan, kesehatan server, cara tim menjangkau server, folder yang terhubung, backup, dan ekspor, sebagai bagian-bagian sederhana. Penyimpanan menampilkan file yang dikirim orang di percakapan pada barisnya sendiri, **Berkas di percakapan**: satu angka untuk seluruh tim, tidak pernah per orang atau per percakapan. File dari chat dan percakapan yang dihapus dihitung di **Berkas tim** ("Berkas tim mencakup 120 MB dari chat dan percakapan yang dihapus, yang dibuang setelah 30 hari"): file itu disimpan 30 hari agar bisa dikembalikan. Saat disk 80% penuh, dan lagi pada 95%, owner dan admin menemukan pemberitahuan di **Aktivitas** (paling banyak sekali sehari untuk masing-masing) yang membuka kartu ini. Jika berkas yang dikirim di percakapan tidak muat, anggota atau tamu membaca bahwa ruangnya tidak cukup dan diminta menghubungi admin; owner dan admin mendapat **Lihat apa yang memakai ruang**. Kesehatan mencantumkan apa yang perlu diperhatikan lebih dulu, seperti mesin yang belum ada, pemeriksaan yang gagal, atau pembaruan otomatis yang dimatikan; pemeriksaan yang lolos dilipat menjadi satu baris dengan **Lihat detail**. Admin yang bukan owner melihat paket, penyimpanan, dan, di Mac kantor, pembaruan otomatis. Agar disk kecil tidak penuh, backup tidak menyertakan folder yang dibangun ulang secara otomatis, dan cache yang tidak dipakai siapa pun selama 14 hari dibersihkan. File Anda sendiri tidak pernah disentuh. Jika pembaruan menunggu tugas yang sedang berjalan selesai, Sistem memberitahukannya; tersedia **Tunggu, lalu perbarui** atau **Tetap perbarui sekarang**.
+**Admin › Sistem** menampilkan penyimpanan tim, versi dan pembaruan, kesehatan server, cara tim menjangkau server, folder yang terhubung, backup, dan ekspor, sebagai bagian-bagian sederhana. Penyimpanan menampilkan file yang dikirim orang di percakapan pada barisnya sendiri, **Berkas di percakapan**: satu angka untuk seluruh tim, tidak pernah per orang atau per percakapan. File dari chat dan percakapan yang dihapus dihitung di **Berkas tim** ("Berkas tim mencakup 120 MB dari chat dan percakapan yang dihapus, yang dibuang setelah 30 hari"): file itu disimpan 30 hari agar bisa dikembalikan. Saat disk 80% penuh, dan lagi pada 95%, owner dan admin menemukan pemberitahuan di **Aktivitas** (paling banyak sekali sehari untuk masing-masing) yang membuka kartu ini. Jika berkas yang dikirim di percakapan tidak muat, anggota atau tamu membaca bahwa ruangnya tidak cukup dan diminta menghubungi admin, dengan **Lihat berkas yang Anda kirim**; owner dan admin mendapat **Lihat apa yang memakai ruang**. Di bawah baris-barisnya, **Minta orang merapikan** mengirim pemberitahuan kepada orang yang berkasnya di percakapan paling banyak memakai ruang, agar menghapus yang tidak lagi diperlukan (sekali sehari; Anda tidak melihat siapa). Kesehatan mencantumkan apa yang perlu diperhatikan lebih dulu, seperti mesin yang belum ada, pemeriksaan yang gagal, atau pembaruan otomatis yang dimatikan; pemeriksaan yang lolos dilipat menjadi satu baris dengan **Lihat detail**. Admin yang bukan owner melihat paket, penyimpanan, dan, di Mac kantor, pembaruan otomatis. Agar disk kecil tidak penuh, backup tidak menyertakan folder yang dibangun ulang secara otomatis, dan cache yang tidak dipakai siapa pun selama 14 hari dibersihkan. File Anda sendiri tidak pernah disentuh. Jika pembaruan menunggu tugas yang sedang berjalan selesai, Sistem memberitahukannya; tersedia **Tunggu, lalu perbarui** atau **Tetap perbarui sekarang**.
 
 ![Admin di ponsel: satu daftar area admin, dengan lima tab di bagian bawah](../../images/admin/admin-phone.webp "Admin di ponsel")
 

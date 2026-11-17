@@ -1,4 +1,4 @@
-// Voice input for a message box (the AI chat's Composer, a room's and a thread's RoomComposer): the microphone
+// Voice input for a message box (the AI chat's Composer, a room's and a thread's RoomComposer, the ✦ side chat's box): the microphone
 // (lib/recorder.ts), the upload (kind 'transcribe', with the chat when there is one) and its job, and the moves of
 // lib/voiceInput.ts: hold Space in the box, click the mic, or press and hold it with a finger. The words go to the end
 // of the box and are never sent by themselves. While the job runs, its own label shows (the first recording on a
@@ -191,11 +191,16 @@ export function useVoiceInput(o: VoiceInputOptions) {
     opts.current.replace(before, { from: p, removed: cur.length - p, inserted: before.length - p })
   }
 
-  /** one piece to the server, its answer as the piece session reads it (a refusal's reason decides a second try) */
-  const sendPiece = async (wav: Uint8Array, signal: AbortSignal): Promise<PieceAnswer> => {
+  /** one piece to the server, its answer as the piece session reads it (a refusal's reason decides a second try).
+   * `told.language`: the app's language (the person's, else the team's) as a hint, so a short first piece is not heard
+   * as another language; once the server says it did not use it (the provider refused it, or whisper doubted it and
+   * the answer without it was kept), the rest of the recording goes without it. */
+  const sendPiece = async (wav: Uint8Array, signal: AbortSignal, told: { language: string | null }): Promise<PieceAnswer> => {
     const chatId = opts.current.chatId
+    const language = told.language
     try {
-      const r = await api.call(API.transcribePiece, { body: { fields: chatId ? { chatId } : {}, file: new Blob([new Uint8Array(wav)], { type: 'audio/wav' }), filename: 'piece.wav' }, signal })
+      const r = await api.call(API.transcribePiece, { body: { fields: { ...(chatId ? { chatId } : {}), ...(language ? { language } : {}) }, file: new Blob([new Uint8Array(wav)], { type: 'audio/wav' }), filename: 'piece.wav' }, signal })
+      if (r.hinted === false) told.language = null
       return { ok: true, lines: r.lines }
     } catch (e) {
       if (!(e instanceof ApiError) || signal.aborted) throw e
@@ -213,10 +218,11 @@ export function useVoiceInput(o: VoiceInputOptions) {
           const st = useSession.getState().status
           // a team whose voice input goes to OpenRouter: the words show while recording
           if (st.kind !== 'signed-in' || st.me.team?.voiceInputOutside !== true) return rec.current.start().then(() => {})
+          const told = { language: /^[a-z]{2}$/.test(words.current.locale) ? (words.current.locale as string) : null }
           const l: { run: LiveDictation; before: string | null } = {
             before: null,
             run: new LiveDictation({
-              send: sendPiece,
+              send: (wav, signal) => sendPiece(wav, signal, told),
               onWords: (said) => {
                 if (live.current !== l) return
                 if (l.before === null) l.before = opts.current.text
@@ -430,14 +436,25 @@ export function useVoiceInput(o: VoiceInputOptions) {
    * turn, that it waits */
   const progressText = phase !== 'transcribing' ? null : jobWaiting(job) ? t('voice.waiting') : jobLabel(job)
   const leftMs = CAP_MS - recorder.seconds * 1000
+  /** recording, and nothing was heard since it started (lib/recorder.ts), until the first sound */
+  const nothingYet = phase === 'recording' && recorder.silent
+  /** the bar says so where the wave was (a row of dots then), in place of the hint of a recording that ends with ✓. A
+   * hold keeps its own hint, the only place that says how it ends; the live region says it for both. */
+  const silent = nothingYet && voice.mode !== 'hold'
+  // once said, "녹음 중" is not read out again when the first sound comes (the person is talking by then)
+  const saidSilent = useRef(false)
+  if (phase !== 'recording') saidSilent.current = false
+  else if (nothingYet) saidSilent.current = true
   const hint =
     phase !== 'recording'
       ? null
-      : voice.mode === 'hold'
-        ? t(voice.via === 'touch' ? 'voice.holdTouch' : 'voice.holdSpace')
-        : voice.via === 'click' && holdCapable && !holdUsed
-          ? t('voice.tryHold')
-          : null
+      : silent
+        ? t('voice.silent')
+        : voice.mode === 'hold'
+          ? t(voice.via === 'touch' ? 'voice.holdTouch' : 'voice.holdSpace')
+          : voice.via === 'click' && holdCapable && !holdUsed
+            ? t('voice.tryHold')
+            : null
 
   return {
     phase,
@@ -454,6 +471,8 @@ export function useVoiceInput(o: VoiceInputOptions) {
     /** seconds left before the cap, in its last WARN_MS */
     left: phase === 'recording' && leftMs <= WARN_MS ? Math.max(0, Math.ceil(leftMs / 1000)) : null,
     hint,
+    /** the hint is the "no sound yet" line, and it stands where the wave was */
+    silent,
     /** the note text that gets an "Open Settings" button (inside the phone app, a blocked mic), else null: the host
      * shows the button only while its note still says this */
     settingsFor,
@@ -462,7 +481,7 @@ export function useVoiceInput(o: VoiceInputOptions) {
     /** another box (the room's, the thread's) records or transcribes now: this mic waits */
     busyElsewhere,
     /** the live region's words */
-    live: voice.live === 'recording' ? t('voice.recording') : voice.live === 'transcribing' ? t('voice.liveTranscribing') : voice.live === 'inserted' ? t('voice.liveInserted') : '',
+    live: nothingYet ? t('voice.silent') : voice.live === 'recording' ? (saidSilent.current ? '' : t('voice.recording')) : voice.live === 'transcribing' ? t('voice.liveTranscribing') : voice.live === 'inserted' ? t('voice.liveInserted') : '',
     progressText,
     /** the box's placeholder while transcribing */
     transcribingText: progressText ?? t('voice.transcribing'),

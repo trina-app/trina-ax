@@ -97,6 +97,8 @@ describe('the table', () => {
     expect(screenOf('/connectors').tab).toBe('me')
     expect(screenOf('/settings/connectors/gmail').tab).toBe('me')
     expect(screenOf('/trash').tab).toBe('ai')
+    // "Files you sent": a page of the conversations' tab, under its list
+    expect(screenOf('/sent-files')).toMatchObject({ tab: 'chats', parent: '/rooms' })
     expect(screenOf('/activity').tab).toBe('me')
     expect(screenOf('/welcome').tab).toBeNull()
     // 프로젝트: its list, a project, its new chat and files; 파일: the team folder, its Trash and a file

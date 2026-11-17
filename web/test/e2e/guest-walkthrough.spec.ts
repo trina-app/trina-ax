@@ -129,14 +129,14 @@ test.describe('the cap and the link', () => {
     await page.getByTestId('guest-invite-create').click()
     const msg = page.getByTestId('guest-invite-message')
     await expect(msg).toContainText("안녕하세요, Olga입니다.")
-    await expect(msg).toContainText("'견적 준비' 그룹 대화에 초대할게요. 이 그룹 대화만 보여요.")
+    await expect(msg).toContainText("'견적 준비' 비공개 채널에 초대할게요. 이 비공개 채널만 보여요.")
     await expect(page.getByTestId('guest-invite-url')).toContainText('/invite/')
     // Copy message is the main action, Copy link beside it, Done in the footer
     await expect(page.getByTestId('guest-invite-copy-message')).toHaveClass(/bg-accent/)
     await expect(page.getByTestId('guest-invite-copy')).not.toHaveClass(/bg-accent/)
     await page.getByTestId('guest-invite-copy-message').click()
     const copied = await page.evaluate(() => navigator.clipboard.readText())
-    expect(copied).toContain("'견적 준비' 그룹 대화에 초대할게요")
+    expect(copied).toContain("'견적 준비' 비공개 채널에 초대할게요")
     expect(copied).toMatch(/\/invite\/\S+$/)
     // N3: the this-computer note (the mock runs on 127.0.0.1) says "to someone", not "to a team member"
     await expect(page.getByTestId('local-link-note')).toContainText('다른 사람에게 보내려면')
@@ -145,7 +145,7 @@ test.describe('the cap and the link', () => {
     // S8: Admin's invite list names the room
     await page.goto('/admin/members')
     await expect(page.getByTestId('invite-list')).toContainText('견적 준비')
-    await expect(page.getByTestId('invite-list')).not.toContainText(ko('guest.admin.inviteRoom'))
+    await expect(page.getByTestId('invite-list')).not.toContainText(ko('guest.admin.inviteRoomGroup'))
   })
 })
 
@@ -206,9 +206,9 @@ test.describe("the guest's invite page", () => {
     const { ctx, page: g } = await signedOutPage(browser, { locale: 'en-US' })
     await g.goto(link)
     await expect(g.getByRole('heading', { level: 1 })).toContainText('invited you')
-    await expect(g.getByTestId('invite-guest-place')).toContainText("You'll join only the '견적 준비' group chat")
+    await expect(g.getByTestId('invite-guest-place')).toContainText("You'll join only the '견적 준비' private channel")
     await g.getByTestId('auth-locale').selectOption('ko')
-    await expect(g.getByTestId('invite-guest-place')).toContainText("'견적 준비' 그룹 대화에만 들어가요")
+    await expect(g.getByTestId('invite-guest-place')).toContainText("'견적 준비' 비공개 채널에만 들어가요")
     await ctx.close()
     // a member invite stays in the team's language (with its offer line)
     const member = await post(page, '/api/admin/invites', { role: 'member', groupIds: [] })

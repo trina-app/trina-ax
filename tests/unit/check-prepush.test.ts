@@ -39,4 +39,9 @@ test('hints name the usual fixes', () => {
   expect(hintsFor('check:i18n', 'id.some.key: "kamu" (say Anda)')[0]).toContain('Anda')
   expect(hintsFor('test ', 'no literal product name in user-facing source')[0]).toContain('<app>')
   expect(hintsFor('typecheck', 'error TS2322')).toEqual([])
+  // the guards added on 2026-11-17, one hint each
+  expect(hintsFor('test ', '(fail) every function that counts readers and every users/ shortcut is reviewed for folder shares')[0]).toContain('c-reader-counters')
+  expect(hintsFor('test ', 'error: add each to a cleanup hook (auth/account-removal.ts) or to KEPT_WITH_ACCOUNT with the reason')[0]).toContain('account-cleanup.ts')
+  expect(hintsFor('test ', '(fail) every install path reads the list > no script or container file pins a download of its own')[0]).toContain('packages.json')
+  expect(hintsFor('test ', 'error: the catalog does not hold together:\n- feature auth.app-signin has no line in tests/ai-scenarios/feature-scope.ts')[0]).toContain('feature-scope.ts')
 })

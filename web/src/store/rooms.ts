@@ -833,9 +833,13 @@ export const useRooms = create<RoomsState>((set, get) => {
         setPending(roomId, (list) => list.filter((x) => x.clientMessageId !== p.clientMessageId))
         // team files I may no longer open: the server took those copies out (params.files), so they do not come back
         const out = e.body.params?.reason === 'team_file_access' ? new Set(String(e.body.params.files ?? '').split(',')) : null
-        const back = out ? { ...p, files: p.files.filter((f) => !out.has(f.id)) } : p
+        // a file the server no longer has as mine to send (not sent within a day and removed, or sent from another tab
+        // meanwhile; likelier since a reload brings a box's files back, store/roomUploads.ts): the words come back
+        // without the files, which could only be refused again, and the line says to attach them again
+        const gone = !out && !!e.body.fields?.['body.fileIds'] && p.files.length > 0
+        const back = out ? { ...p, files: p.files.filter((f) => !out.has(f.id)) } : gone ? { ...p, files: [] } : p
         set((s) => ({ returned: { ...s.returned, [placeKey(roomId, p.threadRootId)]: back } }))
-        toast({ level: 'warn', text: error })
+        toast({ level: 'warn', text: gone ? t('rooms.filesGone') : error })
         return
       }
       setPending(roomId, (list) => list.map((x) => (x.clientMessageId === p.clientMessageId ? { ...x, state: 'failed', error } : x)))

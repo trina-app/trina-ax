@@ -35,7 +35,7 @@ test('owner invites a guest into a group chat: name, AI with all three choices, 
   await page.getByTestId('invite-guest-row').click()
   const dialog = page.getByTestId('guest-invite-dialog')
   await expect(dialog).toBeVisible()
-  await expect(page.getByTestId('guest-invite-where')).toContainText("'견적 준비' 그룹 대화만")
+  await expect(page.getByTestId('guest-invite-where')).toContainText("'견적 준비' 비공개 채널만")
   // AI is off by default; the owner sees all three. Without a team AI account, Team AI is off and says where to add one
   await expect(page.getByTestId('guest-ai-none')).toBeChecked()
   await expect(page.getByTestId('guest-ai-team')).toBeVisible()
@@ -201,7 +201,7 @@ test('a guest already in another group chat is greyed out in the add list: where
   expect((await page.request.post('/__test/guest', { data: { id: 'gina', name: 'Gina', place: { kind: 'room', id: other } } })).ok()).toBeTruthy()
   await openRoomAdd(page)
   const row = page.getByTestId('people-row-elsewhere').filter({ hasText: 'Gina' })
-  await expect(row).toContainText("'다른 대화' 그룹 대화에 있어요")
+  await expect(row).toContainText("'다른 대화' 비공개 채널에 있어요")
   await expect(row.getByTestId('picker-tick')).toHaveCount(0)
   // Make team member opens its dialog right here; once done, Gina can be ticked
   await row.getByTestId('guest-elsewhere-convert').click()
@@ -232,7 +232,7 @@ test('a new chat: a guest in a group chat can be in a 1:1 chat, not a new group'
   await page.getByTestId('people-row').filter({ hasText: 'Gina' }).getByTestId('picker-tick').uncheck()
   // with someone else ticked first, Gina is greyed out
   await page.getByTestId('people-row').filter({ hasText: 'Olga' }).getByTestId('picker-tick').check()
-  await expect(page.getByTestId('people-row-elsewhere').filter({ hasText: 'Gina' })).toContainText("'견적 준비' 그룹 대화에 있어요")
+  await expect(page.getByTestId('people-row-elsewhere').filter({ hasText: 'Gina' })).toContainText("'견적 준비' 비공개 채널에 있어요")
 })
 
 test('a refused add (409 guest_one_place) still says why', async ({ page }) => {
@@ -248,7 +248,7 @@ test('a refused add (409 guest_one_place) still says why', async ({ page }) => {
   const row = page.getByTestId('people-row').first()
   await row.getByTestId('picker-tick').check()
   await page.getByTestId('picker-go').click()
-  await expect(page.getByTestId('guest-one-place')).toContainText('게스트는 그룹 대화 하나와 프로젝트 하나까지 들어갈 수 있어요')
+  await expect(page.getByTestId('guest-one-place')).toContainText('게스트는 비공개 채널이나 그룹 대화 하나와 프로젝트 하나까지 들어갈 수 있어요')
 })
 
 test("a project's members dialog: a guest of another project shows greyed out in the search, with no Add; a member sees no Make team member", async ({ page }) => {
@@ -263,7 +263,7 @@ test("a project's members dialog: a guest of another project shows greyed out in
   await page.getByTestId('project-share').click()
   await page.getByTestId('project-participants-search').fill('Gina')
   const row = page.getByTestId('participant-elsewhere-user-gina')
-  await expect(row).toContainText('게스트는 그룹 대화 하나와 프로젝트 하나까지 들어갈 수 있어요')
+  await expect(row).toContainText('게스트는 비공개 채널이나 그룹 대화 하나와 프로젝트 하나까지 들어갈 수 있어요')
   await expect(row).not.toContainText('다른 프로젝트')
   await expect(row.getByText('추가', { exact: true })).toHaveCount(0)
   await expect(row.getByTestId('guest-elsewhere-convert')).toHaveCount(0)

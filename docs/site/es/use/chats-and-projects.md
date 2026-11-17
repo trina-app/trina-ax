@@ -183,7 +183,7 @@ arriba, reúne los mensajes que le mencionan y los hilos que sigue.
 
 Para escribir a una sola persona, haga clic en su foto o en su nombre junto a un mensaje (también sirve una @mención o su fila en la lista de miembros de una conversación). Se abre una tarjeta pequeña con su nombre y su cargo: **Enviar mensaje** abre su chat 1:1 con esa persona. En un teléfono la tarjeta se abre desde la parte inferior de la pantalla. Su propia tarjeta tiene **Editar perfil**. Las aplicaciones y las personas que ya no están en el equipo no tienen tarjeta; un invitado solo puede escribir a las personas de su chat de grupo o de su proyecto.
 
-Para traer a alguien de fuera del equipo, elija **Invitar a un invitado** al añadir personas a un chat de grupo o a un proyecto. [Más información sobre los invitados](guests.md).
+Para traer a alguien de fuera del equipo, elija **Invitar a un invitado** al añadir personas a un canal privado, a un chat de grupo o a un proyecto. [Más información sobre los invitados](guests.md).
 
 ![La lista Chats: Menciones e hilos, Canales con Todos (Everyone) y Marketing, y Mensajes directos con una conversación de grupo y un mensaje directo](../../images/chats/rooms-list.webp "La lista Chats")
 
@@ -193,6 +193,10 @@ El botón **✦** arriba de una sala abre al lado un chat lateral con Trina. Sol
 responde con lo que usted puede abrir. Cuando vale la pena compartir una respuesta, **Enviar a la sala** debajo de ella la pone en la sala como mensaje suyo
 (**Enviar al hilo** si preguntó sobre un mensaje). Si algunas personas de la sala no pueden abrir un archivo que usó la respuesta,
 la app se lo dice antes y espera su confirmación.
+
+Con un hilo abierto, **✦** abre el chat lateral junto al hilo y los dos siguen en pantalla (en una ventana pequeña la
+sala les deja el sitio). El cuadro del chat lateral dice entonces **Viendo este hilo**: su pregunta trata de ese hilo y la
+respuesta puede ir directamente a él. Pulse **✕** en esa línea para preguntar sobre toda la conversación.
 
 ![El canal Marketing: un mensaje que menciona a Jordan, un hilo con 2 respuestas y la respuesta de Trina enviada desde el chat lateral](../../images/chats/room.webp "Un canal")
 
@@ -219,8 +223,8 @@ y haga clic en **✕** (o elija **Quitar vista previa** en el menú del mensaje)
 
 ### Invitados
 
-Una persona de fuera del equipo, como una agencia o un cliente, puede unirse a un chat de grupo o a un proyecto como
-invitado, y estar como máximo en un chat de grupo y en un proyecto. En un chat de grupo, abra sus miembros (el nombre de arriba), **Invitar personas** y luego **Invitar a un invitado**; en
+Una persona de fuera del equipo, como una agencia o un cliente, puede unirse a un canal privado, a un chat de grupo o a un proyecto como
+invitado, y estar como máximo en un canal privado o chat de grupo, y en un proyecto. En un canal privado o chat de grupo, abra sus miembros (el nombre de arriba), **Invitar personas** y luego **Invitar a un invitado**; en
 un proyecto, **Añadir personas** en **Miembros**. Indique para quién es el enlace y si tendrá IA, y luego pulse **Crear enlace**. El enlace
 funciona una sola vez: envíeselo usted mismo.
 
@@ -291,6 +295,8 @@ Empiece un chat desde la página del proyecto, o lleve un chat a él con **Mover
 ## Encontrar cualquier cosa
 
 Pulse ⌘K (Ctrl+K en Windows) o elija **Buscar** bajo **Preguntar a Trina** para encontrar chats, mensajes de sus conversaciones, proyectos, archivos, habilidades, tareas programadas y conexiones MCP. [Más información sobre la búsqueda y la configuración](settings-and-search.md).
+
+**Archivos que envió.** Escriba "Archivos que envió" en Buscar, o ábralo desde un aviso, para ver los archivos que envió en sus conversaciones, los más grandes primero, con el espacio que ocupan. Eliminar uno elimina el mensaje con el que se envió, para todos en la conversación.
 
 ## Chats eliminados
 

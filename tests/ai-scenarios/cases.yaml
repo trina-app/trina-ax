@@ -530,7 +530,7 @@ cases:
   restores: ["groups/영업/단가표-2026.xlsx"]
 
 - id: EDIT-16
-  title: Resize photos
+  title: Resize photos (QA TC-4539)
   features: [files.edit]
   lang: ko
   context: personal
@@ -538,13 +538,31 @@ cases:
   prompt: 마케팅 사진 폴더 IMG 사진 두 장 가로 600px로 줄여서 따로 저장해줘
   expect:
     outcome: do
-    good: Two smaller copies, or a plain explanation and an alternative when it cannot resize.
+    good: Two new copies 600 px wide next to the originals; says each new size, links each copy by name, says the originals are untouched and the location was removed; no technical words.
     checks:
-      - { type: file_created, file: "groups/마케팅/**/*.{jpg,jpeg,png,webp}" }
+      - { type: tool_used, any: [resize_images] }
+      - { type: image, file: "groups/마케팅/**/IMG_2041?*.{jpg,jpeg}", maxWidth: 600 }
+      - { type: image, file: "groups/마케팅/**/IMG_2042?*.{jpg,jpeg}", maxWidth: 600 }
+      - { type: no_file_created, file: "groups/마케팅/사진/IMG_204{1,2}.jpg" }
   variants:
+    - key: size
+      prompt: 마케팅 사진 폴더 매장 전경 사진 용량 20KB 이하로 줄여줘. 메일에 붙일 거야
+      expect:
+        outcome: do
+        good: A copy of the shop photo under 20 KB next to it; says its new size; the original untouched.
+        checks:
+          - { type: image, file: "groups/마케팅/**/매장-전경?*.{jpg,jpeg}", maxBytes: 20000 }
+          - { type: no_file_created, file: "groups/마케팅/사진/매장-전경.jpg" }
+    - key: web
+      prompt: 마케팅 사진들 웹용으로 줄여줘
+      expect:
+        outcome: do
+        good: The photos are already small enough for the web (1200 px, a few dozen KB); says so plainly instead of making bigger or identical copies, or makes web copies; never overwrites them.
+        checks:
+          - { type: no_file_created, file: "groups/마케팅/사진/{IMG_2041,IMG_2042,매장-전경}.jpg" }
     - key: devenv
       install: linux-devenv
-      expect: { outcome: do, good: Two smaller copies., checks: [{ type: file_created, file: "groups/마케팅/**/*.{jpg,jpeg,png,webp}" }] }
+      expect: { outcome: do, good: Two smaller copies., checks: [{ type: image, file: "groups/마케팅/**/IMG_204*?*.{jpg,jpeg,png,webp}", maxWidth: 600 }] }
 
 - id: EDIT-17
   title: Edit a Markdown note in place
@@ -1223,6 +1241,13 @@ cases:
       as: sora
       prompt: 라마바카페 건 방에서 정한 단가 여기 정리해줘
       expect: { outcome: explain, good: Rooms are not read in a shared chat (its members may not be in the room); says so plainly and offers the side chat or her own chat., checks: [] }
+    # TC-4549: a Jakarta browser on a Seoul team read every time two hours late (11:08 where the room showed 9:08 AM).
+    # The device zone goes with the turn; the times said must be the ones her screen shows.
+    - key: viewer-zone
+      context: personal
+      timeZone: Asia/Jakarta
+      prompt: In the Lamaba Cafe group chat, who said what about the price and at what time? Short list with times.
+      expect: { outcome: do, good: "Lists who said what about the price with the time of each message in Jakarta time (WIB, UTC+7), the times the room shows on her device: two hours earlier than the Seoul times in the team setting. No Seoul times; no 'KST'.", checks: [{ type: answer_matches, pattern: "27,?000" }, { type: answer_not_matches, pattern: "KST|Seoul" }] }
 
 - id: ROOM-03
   title: Thread replies
@@ -1340,6 +1365,18 @@ cases:
   expect:
     outcome: explain
     good: Yes - explains adding an app to a room (Integrations › Apps, a webhook address) in plain words.
+    checks: []
+
+- id: ROOM-09
+  title: My own files in conversations, to tidy them
+  features: [rooms.sent-files]
+  lang: en
+  context: personal
+  as: daniel
+  prompt: Our storage is almost full. Where can I see the files I sent in chats and delete the big ones?
+  expect:
+    outcome: explain
+    good: Points to Files you sent (Search › "Files you sent"), largest first; says deleting a file deletes the message it was sent with; never claims to delete anything itself.
     checks: []
 
 # ================================================================ skills
@@ -1579,6 +1616,11 @@ cases:
       expect: { outcome: explain, good: Schedules are not made from a shared chat; says plainly where she can make it., checks: [{ type: tool_not_used, tools: [schedule_create] }] }
     - key: room
       context: room-side
+    # TC-4549 review: her device is in Jakarta, the team in Seoul. Schedules run in the team zone, so 9:00 for her is
+    # 11:00 in the schedule; she is told 9:00 (her time).
+    - key: viewer-zone
+      timeZone: Asia/Jakarta
+      expect: { outcome: do, good: "Sets the reminder for Thursday at 11:00 in the team zone (Seoul), which is 09:00 on her Jakarta device, after the card, and tells her 9 AM (her time). A schedule at 09:00 Seoul (07:00 for her) is wrong.", checks: [{ type: tool_used, any: [schedule_create] }] }
     - key: guest
       context: guest
       as: partner

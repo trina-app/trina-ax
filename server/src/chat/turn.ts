@@ -125,6 +125,9 @@ import { clearChatFolder } from './forget'
 import { publicStep, type ChatRow, type ProjectRow, type StoredStep } from './store'
 import { inPeopleAudience, isPeopleRow, peopleAudience } from './chat-audience'
 import { SEARCH_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
+import { shownTimeZone } from '../system/time-zone'
+import { mayManageProject, projectMembersBy } from './projects'
+import { membersView } from './project-access'
 
 /** A search's path that names no folder: none, empty, or only separators and "." ("/", "./", "//", "\\", " . ") —
  * the team root, which a shared chat never searches by default (TurnExec.sharedArgs). */
@@ -172,6 +175,9 @@ export interface TurnSpec extends QueueTiming {
   engine: EngineId
   model: string | null
   locale: Locale
+  /** the person's device time zone sent with the turn (a known IANA name; routes/chats.ts turnZone): the AI gives its
+   * times in it, the screen shows them in it (QA TC-4549). None: the team's (a scheduled run, an older app). */
+  timeZone?: string
   /** the chat's engine is switched off: this turn runs on the team default (step note) */
   substitutedFrom?: EngineId
 }
@@ -681,7 +687,7 @@ export class TurnExec {
     const chat = rt.store.chatRow(spec.chatId)
     const userMsg = rt.store.messageRow(spec.userMessageId)
     if (!chat || !userMsg) { this.error = engineError('crash', spec.locale); return }
-    this.narration = new NarrationHold(narrationScript(spec.locale, userMsg.content, this.previousUserText(userMsg.parent_id)))
+    this.narration = new NarrationHold(narrationScript(spec.locale, userMsg.content, this.previousUserText(userMsg.parent_id)), userMsg.content)
     if (this.oldRoomSession) { this.error = engineError('crash', spec.locale); return }
     // a shared project chat is never confidential (read-only while safe operations are on), and runs only while its
     // person still sees its project (access may have gone while the turn waited in the queue)
@@ -813,7 +819,12 @@ export class TurnExec {
     const skills = usableSkills ?? (this.roomReadable ? allSkills.filter((s) => this.roomReadable!(s.path)) : allSkills)
     const skillScores = usageScores(rt.db, spec.userId, skills.map((s) => s.path))
     const skillList = buildSkillList(skills, { order: chatSkillOrder(rt.db, spec.chatId, spec.userId, () => descriptionOrder(skills, skillScores)), tag: neutralizeTags })
-    const shared = this.shared ? { project: this.shared.kind === 'project' ? this.shared.project.name : null, audience: this.sharedAudience().length, asker: this.principal.name } : null
+    // a shared project chat: who changes its members when this person may not (prompt.ts sharedSection)
+    const sharedProject = this.shared?.kind === 'project' ? this.shared.project : null
+    const shared = this.shared ? {
+      project: sharedProject ? sharedProject.name : null, audience: this.sharedAudience().length, asker: this.principal.name,
+      members: sharedProject ? projectMembersBy(rt.db, sharedProject, membersView(rt.ctx, sharedProject, this.principal, mayManageProject(rt.files, this.principal, sharedProject))) : null,
+    } : null
     // a chat opened from a room's side panel (✦ Trina): the room, while the person is still in it and it is not archived
     const sideRoom = sideRoomOf(rt.db, spec.chatId, spec.userId, rt.files)
     // who the person is and where (chat/situation.ts): their role and what it may open, the app, whose AI answers, what
@@ -834,7 +845,7 @@ export class TurnExec {
     // never in a scheduled run: nobody watches it, and a file another member shared must not act there
     this.files.grantReads = !this.shared && !guestPrompt && !this.restricted && !confidential && !this.slackChat && !this.templateScope && spec.clientKind !== 'schedule'
     const promptInput = (fresh: boolean): PromptInput => ({
-      user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone,
+      user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone, personTimeZone: spec.timeZone,
       // personal memories are not part of a shared project chat
       memories: this.shared ? [] : rt.memoriesForPrompt(spec.userId), project, browser: this.browser, tools: extraTools,
       // the web or a phone: the AI says the desktop app has the browser (prompt.ts NO_BROWSER_RULE)
@@ -1603,7 +1614,8 @@ export class TurnExec {
         // a status line in another script before the call is dropped here (chat/narration.ts); the main AI's calls only
         // a sub-agent's call leaves the main AI's piece undecided (only the redactor's end goes out)
         if (e.parentId) this.emitText(this.answerText.flush())
-        else { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart()))); this.flushText() }
+        // (a piece copied into the call's arguments is content: a message it posts, a file it writes)
+        else { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart(e.input)))); this.flushText() }
         this.attemptHadOutput = true
         this.producedOutput = true
         // which agent made the call: the gate gives a sub-agent's calls that sub-agent's own state (TurnFiles.forCall)
@@ -2834,6 +2846,9 @@ export class TurnExec {
   /** The words a cover adds to this call's step, for a tool that patches its own step once per call ('' for none). */
   takeStepSuffix(tool: string): string { return this.stepSuffixes.get(tool)?.shift() ?? '' }
 
+  /** The zone of the times this turn shows the model and the person: the device's, else the team's (QA TC-4549). */
+  get shownZone(): string { return shownTimeZone(this.spec.timeZone, this.rt.timeZone) }
+
   /** A file of this room by its id, as the person sees it (rooms/reader.ts findRoomFile), for the card: its name, who
    * sent it, when and how big (two files may share a name), or null. The room the call names (save_room_file's `room`),
    * named first as they see it ("#leads"). */
@@ -2841,11 +2856,11 @@ export class TurnExec {
     const room = roomRef
     if (!room || !ref) return null
     try {
-      const f = findRoomFile(this.rt.db, this.spec.userId, room, ref, this.rt.timeZone)
+      const f = findRoomFile(this.rt.db, this.spec.userId, room, ref, this.shownZone)
       if ('text' in f) return null
       const size = f.file.size >= 1024 * 1024 ? `${(f.file.size / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(f.file.size / 1024))} KB`
       const where = `#${f.title.replace(/\s+/g, ' ').trim().slice(0, 80)}, `
-      return `${f.file.name} (${where}${f.author ?? '?'}, ${localTime(f.message.created_at, this.rt.timeZone)}, ${size})`
+      return `${f.file.name} (${where}${f.author ?? '?'}, ${localTime(f.message.created_at, this.shownZone)}, ${size})`
     } catch { return null }
   }
 
@@ -3436,6 +3451,21 @@ export class TurnExec {
    * under skills/, or the tool itself will refuse the call: the tool reports that).
    */
   async confirmSkillWrite(tool: string, args: unknown, files: TurnFiles = this.files): Promise<{ refusal: string; summary: string } | null> {
+    // one skill card at a time (the AI often saves a new skill's files in parallel calls): a later call then sees the
+    // answer to the card before it, so a new skill's other files need no card of their own (QA MAN-052, below)
+    // (read with ??: some callers build a TurnExec without its constructor)
+    const run = (this.skillCards ?? Promise.resolve()).then(() => this.askSkillWrite(tool, args, files))
+    this.skillCards = run.catch(() => undefined)
+    return run
+  }
+
+  /** skill cards of this turn, one after the other (confirmSkillWrite) */
+  private skillCards?: Promise<unknown> = Promise.resolve()
+  /** the folders of new skills whose SKILL.md the person said Save to in this turn (askSkillWrite): the other new files
+   * in that folder in this turn need no card of their own (QA MAN-052, docs/decisions/20261117-new-skill-one-card.md) */
+  private newSkillYes?: Set<string> = new Set<string>()
+
+  private async askSkillWrite(tool: string, args: unknown, files: TurnFiles): Promise<{ refusal: string; summary: string } | null> {
     if (tool !== 'write' && tool !== 'edit' && tool !== 'make_file' && tool !== 'edit_hwp') return null
     const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
     // a file a tool produces (make_file, edit_hwp): the card shows the file, not a text diff
@@ -3502,6 +3532,19 @@ export class TurnExec {
     // chat/schedule-cover.ts) stay as they are
     const w = dead || this.spec.clientKind === 'schedule' ? undefined : widenOf(tool, args, (x) => this.hwpTarget(x))
     const need = w ? this.widenNeed(w.target, w.extra) : null
+    // a new file in the folder of a new skill the person said Save to in this turn (its SKILL.md's card showed the skill
+    // and who will see it): saved without a card of its own, as one save of one skill (QA MAN-052: a skill made from a
+    // form showed two cards, SKILL.md and the form). Not an existing file, not another SKILL.md, not when this save
+    // would also show content the SKILL.md's yes did not cover to more people
+    const folder = skillFolderOf(r.rel)
+    if (!r.exists && folder && this.newSkillYes?.has(folder) && !/(^|\/)SKILL\.md$/i.test(r.rel) && !dead) {
+      const allowed = this.widenAllowed.get(folder)
+      if (!need || (allowed && need.narrower.every((s) => allowed.has(sourceKey(s))))) {
+        this.files.skillApprovals.set(r.rel, approval)
+        if (need) this.allowWidening(need)
+        return null
+      }
+    }
     const wide = need ? this.widenSources(need) : null
     const preview: SkillWritePreview = { kind: 'skill_write', path: r.rel, isNew: !r.exists, skillName: skill?.name ?? null, ...(problem ? { problem } : {}), ...(same ? { sameName: { text: same.text, hidden: same.hidden } } : {}), diff, added: d?.added ?? 0, removed: d?.removed ?? 0, truncated: d?.truncated ?? false }
     const options = dead
@@ -3522,6 +3565,8 @@ export class TurnExec {
     const picked = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
     if (picked === 'save' && !dead) {
       this.files.skillApprovals.set(r.rel, approval)
+      // a new skill's SKILL.md: its other new files in this turn go with this yes (above)
+      if (!r.exists && skill && folder && /(^|\/)SKILL\.md$/i.test(r.rel) && skillFolderOf(r.rel) === folder) (this.newSkillYes ??= new Set()).add(folder)
       // the yes (or the person's "Always allow" for skill saves) covers saving there where more people can see
       if (need) this.allowWidening(need)
       return null
@@ -4396,4 +4441,14 @@ export function roomRefsBlock(content: string, readable: boolean | string = true
       also: 'Say so if the request needs one, and do not guess what the room says',
       next: `the user can ask in a chat of their own (a new AI chat), or open the room in ${SCREEN.rooms(locale)} and ask in ${SCREEN.sideChat(locale)}`,
     })}\n</room_refs>`
+}
+
+/** The folder of the one skill `rel` is inside (skills/<name>, groups/<g>/skills/<name>, projects/<p>/skills/<name>),
+ * or null when `rel` is not below one (a skill root itself, a rule file at the top of a root, any other path). */
+export function skillFolderOf(rel: string): string | null {
+  const root = skillRootOf(rel)
+  if (!root) return null
+  const segs = rel.split('/')
+  const depth = root.kind === 'team' ? 1 : 3
+  return segs.length > depth + 1 && segs[depth] ? segs.slice(0, depth + 1).join('/') : null
 }

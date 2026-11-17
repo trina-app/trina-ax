@@ -166,10 +166,13 @@ describe('the card, and the post', () => {
     const text = 'Plan: [launch-plan.md](/files/view?path=groups/marketing/launch-plan.md)'
     const r = await turn('alice', [fake({ tool: 'read', args: { file_path: 'groups/marketing/launch-plan.md' } }), post({ room: rooms.all, text })].join('\n'), { answer: 'send_files' })
     // bob may read neither (carol and dana are admins): one line each, and what attaching the file changes
-    expect(r.card!.question).toBe("Send this to #Everyone (5 people)?\n\n1 person there can't see some of the sources of this (groups/marketing/).\n1 person can't open 1 linked file.\nWith the files: 1 person there can't see some of the sources of this (groups/marketing/).\nEveryone in this conversation will see it, including people who join later.")
+    // [보내기] would also let bob open the file (alice may share it): that option says so itself, and the "can't open"
+    // line is gone for him (docs/decisions/20261117-post-to-room-one-card.md); with the files the copy goes instead, so
+    // the two choices read the same otherwise and there is no "With the files" line
+    expect(r.card!.question).toBe("Send this to #Everyone (5 people)?\n\n1 person there can't see some of the sources of this (groups/marketing/).\nEveryone in this conversation will see it, including people who join later.")
     // "Always allow" on a card that offers the linked files too, as "Always send with the files" (its own kind,
     // post_files: docs/decisions/20261116-always-allow-more-cards.md); four answers, no buttons
-    expect(r.card!.options!.map((x) => [x.label, x.value])).toEqual([['Send', 'send'], ['Send with the files', 'send_files'], ['Always send with the files', '__always'], ["Don't send", 'no']])
+    expect(r.card!.options!.map((x) => [x.label, x.value])).toEqual([['Send (1 person can then open launch-plan.md)', 'send'], ['Send with the files', 'send_files'], ['Always send with the files', '__always'], ["Don't send", 'no']])
     expect(r.card!.buttons).toBeUndefined()
     // the file that [파일도 함께 보내기] attaches, by its place in words and its name (chat/share-words.ts)
     // (the card says a linked team file by its place and name; the message keeps the link: QA TC-4059)
@@ -178,6 +181,8 @@ describe('the card, and the post', () => {
     expect(m.body).toBe(text)
     expect(m.files.map((f) => f.name)).toEqual(['launch-plan.md'])
     expect(audits('alice').at(-1)).toMatchObject({ target: m.id, confirmed: true, files: 1, via: 'ai' })
+    // the copy went, so nobody was given the team file itself
+    expect(h.ctx.db.query("SELECT 1 FROM file_share_grants g JOIN file_shares s ON s.id = g.share_id WHERE s.path = 'groups/marketing/launch-plan.md'").get()).toBeNull()
   })
 })
 
@@ -351,6 +356,14 @@ describe('where it may not post', () => {
     expect(side).toContain('"스레드에 보내기"')
     expect(side).not.toContain('do not say you posted anything')
     expect(sideRoomSection({ id: 'r', kind: 'team', name: 'design' }, 'ko')).toContain('do not say you posted anything')
+    // the box's "Looking at this thread" chip (docs/decisions/20261117-thread-plus-trina.md): the line it puts on a
+    // question means that thread, read with room_read; a question without it is about the room
+    for (const post of [true, false]) {
+      const s = sideRoomSection({ id: 'r', kind: 'team', name: 'design' }, 'en', post)
+      expect(s).toContain('A question whose first line is "> 🧵 <who> · <when> (thread_id <id> in this room)" was asked while the user had that thread open beside this chat')
+      expect(s).toContain('Read it with room_read and that thread id before you answer')
+      expect(s).toContain('A question without that line is about the room as a whole.')
+    }
   })
 })
 

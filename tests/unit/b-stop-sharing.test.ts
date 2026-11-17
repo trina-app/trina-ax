@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { API } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
-import { matchOnFile, stopSharingOff } from '../../server/src/chat/stop-sharing'
+import { matchOnFile, stopCandidates, stopSharingOff } from '../../server/src/chat/stop-sharing'
 import { cardStill } from '../../server/src/chat/share-card'
 import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
 import { ROOMS_SEEN_READ_ONLY_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
@@ -277,5 +277,59 @@ describe('where it is not offered, the lists, the helpers', () => {
     const many = cardStill([Array.from({ length: 7 }, (_, i) => p(`u${i}`, { kind: 'everyone' }))])
     expect(many.still).toHaveLength(5)
     expect(many.stillMore).toBe(2)
+  })
+})
+
+// QA (qa.trina.app 2026-11-17): "Stop sharing QA-plan.md with qa-member2" asked "which one?" over four files of that
+// name, two of them team copies the person could never change. With same_name the tool keeps only the ones it can act on.
+describe('several files of one name (same_name)', () => {
+  const teamCopy = (rel: string, share: boolean) => {
+    put(rel, rel)
+    h.ctx.db.query("INSERT INTO file_events (turn_id, user_id, path, action) VALUES (NULL, 'alice', ?, 'create')").run(rel)
+    return share ? fileSharesOf(h.ctx).change('alice', rel, [user('tess')], [], 'en').share.id : null
+  }
+
+  test('my copy and two team copies: no question, the stop acts on my copy and says which', async () => {
+    const mine = shared('bob', 'users/bob/QA-plan.md', [user('tess')])
+    const team = teamCopy('shared/qa/QA-plan.md', true)!
+    teamCopy('shared/QA-plan.md', false)
+    const paths = ['users/bob/QA-plan.md', 'shared/qa/QA-plan.md', 'shared/QA-plan.md']
+    expect(stopCandidates(h.ctx.db, fileSharesOf(h.ctx), 'bob', paths, ['Tess Yoon'], 'en').map((c) => c.why?.reason ?? 'ok')).toEqual(['ok', 'not_owner', 'not_owner'])
+    const r = await turn('bob', `Stop sharing QA-plan.md with Tess Yoon\n${stop({ paths, people: ['Tess Yoon'], same_name: true })}`)
+    expect(cardsTo('bob', r.turnId)).toBe(0)
+    const out = JSON.parse(r.content)
+    expect(out.status).toBe('stopped')
+    expect(out.files).toBe(1)
+    expect(out.which).toContain('"QA-plan.md" in ')
+    expect(out.which).not.toContain('users/')
+    expect(opens('tess', mine)).toBe('no_access')
+    expect(opens('tess', team)).toBe('open')
+  })
+
+  test('two of my shared copies and a team copy: the question offers only my two', async () => {
+    const a = shared('bob', 'users/bob/one/QA-two.md', [user('tess')])
+    const b = shared('bob', 'users/bob/two/QA-two.md', [user('tess')])
+    teamCopy('shared/QA-two.md', true)
+    const paths = ['users/bob/one/QA-two.md', 'users/bob/two/QA-two.md', 'shared/QA-two.md']
+    const r = await turn('bob', `Stop sharing QA-two.md with Tess Yoon\n${stop({ paths, people: ['Tess Yoon'], same_name: true })}`)
+    expect(cardsTo('bob', r.turnId)).toBe(0)
+    expect(r.content).toContain('Nothing was changed: 2 of the files')
+    expect(r.content).toContain('do not offer them')
+    expect(r.content).toContain('path "users/bob/one/QA-two.md"')
+    expect(r.content).toContain('path "users/bob/two/QA-two.md"')
+    expect(r.content).not.toContain('shared/QA-two.md')
+    expect(opens('tess', a)).toBe('open')
+    expect(opens('tess', b)).toBe('open')
+  })
+
+  test('none can: said plainly with why for each and the next step', async () => {
+    put('users/bob/QA-none.md', 'x')
+    teamCopy('shared/QA-none.md', true)
+    const r = await turn('bob', `Stop sharing QA-none.md with Tess Yoon\n${stop({ paths: ['users/bob/QA-none.md', 'shared/QA-none.md'], people: ['Tess Yoon'], same_name: true })}`)
+    expect(r.content).toContain('none of the 2 files of that name')
+    expect(r.content).toContain('not shared with anyone one by one')
+    expect(r.content).toContain("Alice Kim's file")
+    expect(r.content).toContain('Next step:')
+    expect(r.content).not.toContain('users/bob')
   })
 })

@@ -46,6 +46,22 @@ export function inviteGuest(info: InviteInfo): { place: GuestPlaceView | null; a
   return info.role === 'guest' ? { place: info.guestPlace ?? null, ai: info.guestAi ?? null } : null
 }
 
+/** The words for a guest's place when its name is the only thing known. A guest's room is always a group room (a group
+ * chat or a private channel), so the room's own name decides the wording, as lib/rooms.ts isPrivateChannel does: a
+ * name = a private channel, no name = a group chat. A project always has a name; one without (an older server) and a
+ * place that is not sent at all get the general words (null). */
+export function roomWording(place: { kind: PlaceKind; name?: string | null } | null | undefined): 'privateChannel' | 'groupChat' | 'project' | null {
+  if (!place) return null
+  if (place.kind === 'project') return place.name?.trim() ? 'project' : null
+  return place.name?.trim() ? 'privateChannel' : 'groupChat'
+}
+
+/** The guest invite page's line for the place (guest.join.*). */
+export const joinLineKey = (place: GuestPlaceView | null): 'guest.join.room' | 'guest.join.roomGroup' | 'guest.join.project' | 'guest.join.some' => {
+  const w = roomWording(place)
+  return w === 'privateChannel' ? 'guest.join.room' : w === 'groupChat' ? 'guest.join.roomGroup' : w === 'project' ? 'guest.join.project' : 'guest.join.some'
+}
+
 /** Why a removed guest is not in their place (User.guest.placeOut): left it, its project in the trash, or gone. */
 export type GuestPlaceOut = NonNullable<NonNullable<User['guest']>['placeOut']>
 

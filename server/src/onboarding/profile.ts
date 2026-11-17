@@ -114,6 +114,15 @@ export function profileFactLines(p: CompanyProfileInput, max = PROFILE_BLOCK_MAX
   return out
 }
 
+/** What a saved profile says about the company, as JSON text to look a number or a name up in: its fields without
+ * `updatedAt` and `colors`. The time of the save is not a fact about the company: with it, "34" or "2026" counted as
+ * "written in the profile" whenever the save's minute or year happened to be that number (the intro deck's number
+ * check, tests/unit/b-intro-deck). A colour code is not one either ("#ff2010" does not say 2010). */
+export function profileFactsJson(p: CompanyProfile): string {
+  const { updatedAt: _savedAt, colors: _colors, ...facts } = p
+  return JSON.stringify(facts)
+}
+
 /** The profile file as `user` may read it (folder rules of skills/), or null: no file, no access, not JSON. */
 export function readCompanyProfile(files: FileService, user: Principal): CompanyProfile | null {
   try {
