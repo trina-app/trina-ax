@@ -17,8 +17,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { MEETING_PIECE_MAX_SEC, type Locale, type MeetingPieceResult, type MeetingStatus } from '@mycel/shared/api'
-import { fail, modelReady, ensureModel, whisperFile, WHISPER_MODELS, type TranscribeConfig } from './transcribe'
-import { sendToOpenRouter, SPEECH_CONFIDENTIAL, SPEECH_NO_KEY, SPEECH_OFF } from './openrouter-stt'
+import { fail, modelReady, ensureModel, whisperFile, whisperUnsure, WHISPER_MODELS, type TranscribeConfig } from './transcribe'
+import { openRouterSpeech, sendToOpenRouter, SPEECH_CONFIDENTIAL, SPEECH_NO_KEY, SPEECH_OFF } from './openrouter-stt'
+import { keepSpeech, NOT_WORDS, silent, soundOf, type Sound } from './no-speech'
 import { pieceTurn } from './whisper-turns'
 import { confidence, saysOtherLanguage, scriptOf, UNSURE_LOGPROB, writingSystem, type ScoredAnswer } from './speech-language'
 import { JobFailure } from './service'
@@ -128,9 +129,6 @@ export function keepUntold(told: ScoredAnswer, free: ScoredAnswer): boolean {
   return sure >= UNSURE_LOGPROB && sure > confidence(told.scored, over) + HINT_MARGIN
 }
 
-/** whisper's marks for sound with no words ([BLANK_AUDIO], (music), [음악]) are not lines */
-const NOT_WORDS = /^\s*[[(（][^\])）]{0,40}[\])）]\s*$/
-
 /** This server's speed on meeting pieces: whisper.cpp's time (not the wait for the turn) over the sound, summed over
  * the pieces of the last MEETING_SPEED_WINDOW_MS (whisper reads a 30 s window whatever it gets, so a short piece's own
  * ratio says little). The first piece after a quiet spell loads the model from disk and is not counted. Old pieces are
@@ -236,18 +234,22 @@ export async function speechPiece(deps: MeetingDeps, userId: string, file: strin
         const st = fs.fstatSync(fd)
         const head = Buffer.alloc(44)
         if (st.isFile() && fs.readSync(fd, head, 0, 44, 0) === 44) seconds = pieceSeconds(head, st.size)
-        if (seconds !== null && provider === 'openrouter') {
+        // the whole piece (at most MEETING_PIECE_MAX_SEC, about 500 KB): OpenRouter's body, and the sound check
+        if (seconds !== null) {
           bytes = Buffer.alloc(st.size)
           if (fs.readSync(fd, bytes, 0, st.size, 0) !== st.size) seconds = null
         }
       } finally { fs.closeSync(fd) }
     }
     if (seconds === null) throw NOT_A_PIECE()
+    const sound: Sound | null = soundOf(bytes!)
     const lang = o.language && /^[a-z]{2}$/.test(o.language) ? o.language : undefined
     if (voice) {
       const wait = voiceLimit(userId, seconds)
       if (wait > 0) throw new PieceTooFast(wait)
     }
+    // a piece with no sound goes to no model (jobs/no-speech.ts): no whisper.cpp turn, no OpenRouter request
+    if (silent(sound)) return { lines: [], language: null }
 
     inFlight.set(slot, (inFlight.get(slot) ?? 0) + 1)
     const ac = new AbortController()
@@ -271,7 +273,8 @@ export async function speechPiece(deps: MeetingDeps, userId: string, file: strin
           if (free && keepUntold(got, free)) got = { ...free, hinted: false }
         }
         hinted = got.hinted
-        r = got
+        // whisper's words for noise or a beep are not lines (jobs/no-speech.ts)
+        r = openRouterSpeech(got, sound)
       } else {
         if (!deps.stt.whisperBin) throw OFF()
         // a meeting must keep up with two tracks; voice input only waits a little longer
@@ -290,12 +293,13 @@ export async function speechPiece(deps: MeetingDeps, userId: string, file: strin
             // no temperature fallback, as a video read's pieces (whisper-turns, transcribe.ts whisperFile noFallback)
             // (voice input's hint is the app's language, not the speaker's: whisper.cpp told it would translate, so it
             // guesses there)
-            return await whisperFile(deps.stt, model, work, 'piece.wav', { language: voice ? undefined : lang, signal: both, timeoutMs: MEETING_PIECE_TIMEOUT_MS, noFallback: true })
+            return await whisperFile(deps.stt, model, work, 'piece.wav', { language: voice ? undefined : lang, signal: both, timeoutMs: MEETING_PIECE_TIMEOUT_MS, noFallback: true, tokens: true })
           } finally { fs.rmSync(work, { recursive: true, force: true }) }
         }, { signal: ac.signal, waitMs: MEETING_TURN_WAIT_MS })
         if (!got.ok) throw MEETING_BUSY()
         deps.speed.record(Date.now() - t0, seconds)
-        r = got.value
+        // whisper's words for noise or a beep are not lines (jobs/no-speech.ts)
+        r = keepSpeech(got.value, sound, whisperUnsure(got.value))
       }
       const lines = (r.segments?.length ? r.segments : r.text ? [{ start: 0, end: seconds, text: r.text }] : [])
         .map((l) => { const start = Math.min(seconds!, Math.max(0, l.start)); return { start, end: Math.min(seconds!, Math.max(start, l.end)), text: l.text.replace(/\s+/g, ' ').trim() } })
