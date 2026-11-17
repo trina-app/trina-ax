@@ -1021,6 +1021,16 @@ describe('the intro deck with real team files (a real app, the fake engine)', ()
       expect(q).toContain('slides[1] (about) statement: the number "34" is not in the sources')
       expect(q).toContain('slides[1] (about) facts[0].value: the number "2010" is not in the sources')
       expect(q).not.toContain('"48"')
+      // the time the profile was saved is not a fact of the company: a profile saved in 2010, at minute 34, allows
+      // neither number (this test failed in CI whenever it ran during minute 34 of an hour)
+      const file = path.join(h.team, 'skills/company-profile.json')
+      const saved = fs.readFileSync(file, 'utf8')
+      try {
+        fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(saved), updatedAt: '2010-03-04T12:34:56.000Z' }))
+        const r = (await problems(withSlide(1, (s) => ({ ...s, statement: '고객사 34곳에 부품을 만듭니다', facts: [{ label: '설립', value: '2010년' }] }) as DeckSlide))).join('\n')
+        expect(r).toContain('statement: the number "34" is not in the sources')
+        expect(r).toContain('facts[0].value: the number "2010" is not in the sources')
+      } finally { fs.writeFileSync(file, saved) }
     })
 
     test('names as written (NFKC, spaces aside): customers, certifications, people; a quote word for word', async () => {
