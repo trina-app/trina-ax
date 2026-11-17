@@ -616,8 +616,10 @@ export const FILE_LIST_RULE = 'Each folder may have a _FILES.md that lists what 
  * none. "Answer in English unless the user writes in another language" let a Korean request from a person whose app is
  * in English get an English answer in a shared project chat full of English tool results (AI scenario SKL-03.project,
  * 2026-11-17). */
-export const answerLanguageLine = (locale: Locale) =>
-  `Answer in the language the user writes their message in, even when it is not their app's language (${LANGUAGE[locale]}); in ${LANGUAGE[locale]} only when the message has no language of its own (just a file, a link or a name). If they ask for another language, use that.`
+export const answerLanguageLine = (locale: Locale, subagent = false) => subagent
+  // a sub-agent's "message" is the assistant's task text, often English: it keeps the app language first
+  ? `Answer in ${LANGUAGE[locale]} unless the user writes in another language or asks otherwise.`
+  : `Answer in the language the user writes their message in, even when it is not their app's language (${LANGUAGE[locale]}); in ${LANGUAGE[locale]} only when the message has no language of its own (just a file, a link or a name). If they ask for another language, use that.`
 
 /** After the answer-language line: the short text between tool calls is in the answer too (docs/DECISIONS.md "One
  * language in the answer"; A9 S17: Korean answers began with "Verify:" or "Let me check…"). What the person asks for in
@@ -659,7 +661,7 @@ function personLines(files: FileService, i: PromptInput, subagent = false): stri
     i.tools.includes('delete_files') ? '' : i.guest ? GUEST_NO_DELETE_RULE : deleteRule(i.locale),
     i.confidential ? confidentialRule(i.confidential) : '',
     timeLine(now, i.timeZone, i.personTimeZone),
-    answerLanguageLine(i.locale),
+    answerLanguageLine(i.locale, subagent),
     // last, after the time line (it changes every minute): the instructions before that line stay as they were
     subagent ? SUBAGENT_LANGUAGE_RULE : LANGUAGE_RULE,
   ].filter((l) => l !== '')

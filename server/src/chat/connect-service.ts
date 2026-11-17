@@ -194,7 +194,7 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
     let way: ReturnType<typeof googleAppWay>
     try {
       const v = googleAppsOf(rt.ctx).view(viewer.id, gApp)
-      way = googleAppWay({ name: APP_NAMES[gApp], status: v.status, reason: v.reason }, isAdmin(viewer.role), L)
+      way = googleAppWay({ name: APP_NAMES[gApp], status: v.status, reason: v.reason, serviceDown: v.serviceDown, shared: v.shared ?? null }, isAdmin(viewer.role), L)
     } catch { way = { connected: false, text: `${APP_NAMES[gApp]} cannot be connected for this account now.` } }
     return early(way.text, way.connected ? 'google app connected' : 'google app', !way.connected)
   }

@@ -112,6 +112,8 @@ export function answerCommentsTool(exec: TurnExec): Tool {
       const onScreen = look?.items.find((x) => x.screen === 'chat' && x.chatId === spec.chatId && x.threadRootId)?.threadRootId ?? null
 
       let roots: string[]
+      /** threads with comments that exist in this chat but are not read here (hidden from the asker or from someone) */
+      let held = 0
       const wanted = a.data.message_id?.trim()
       if (wanted) {
         const g = gate(wanted)
@@ -131,11 +133,17 @@ export function answerCommentsTool(exec: TurnExec): Tool {
           if (roots.length >= ANSWER_COMMENTS_THREADS + 1) break
           const g = gate(id)
           if (g && g !== 'hidden') roots.push(g.root.id)
+          else held++
         }
+        held += all.length - all.filter((x) => !mine.has(x) || own(x)).length
       }
       const more = roots.length > ANSWER_COMMENTS_THREADS
       roots = roots.slice(0, ANSWER_COMMENTS_THREADS)
-      if (!roots.length) return { ...text('No comments under answers in this chat that the user can see: nobody has replied under an answer here (comments show at once; none are waiting). Say so plainly and never guess what was said.'), summary: `${ANSWER_COMMENTS_TOOL} -> none` }
+      // "nobody has replied" only when no thread has comments at all (AI scenario CHT-15: the AI said they "may show up
+      // later"); threads held back (hidden from some who see the chat) are said as such, never as none
+      if (!roots.length) return held
+        ? { ...text('No comments under answers in this chat can be read here: the threads that have comments are under answers some people who see this chat cannot see. The user can open the thread and quote what they need. Never guess what was said.'), summary: `${ANSWER_COMMENTS_TOOL} -> held: answers hidden from some` }
+        : { ...text('No comments under answers in this chat: nobody has replied under an answer here (comments show at once; none are waiting). Say so plainly and never guess what was said.'), summary: `${ANSWER_COMMENTS_TOOL} -> none` }
 
       const blocks: string[] = []
       let size = 0, shownThreads = 0, shownComments = 0, full = false

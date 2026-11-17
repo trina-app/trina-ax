@@ -32,11 +32,17 @@ export function googleAppAsked(name: string | undefined, url: string | undefined
 }
 
 /** What the AI is told, by the app's state for this person (GoogleApps.view). `connected` true: not a refusal. */
-export function googleAppWay(app: { name: string; status: GoogleAppView['status']; reason: GoogleAppView['reason'] }, admin: boolean, L: Locale): { text: string; connected: boolean } {
+export function googleAppWay(app: { name: string; status: GoogleAppView['status']; reason: GoogleAppView['reason']; serviceDown?: boolean; shared?: { status: 'connected' | 'needs_reconnect' } | null }, admin: boolean, L: Locale): { text: string; connected: boolean } {
   const page = SCREEN.connectors(L, app.name)
   const builtIn = `${app.name} is one of the app's built-in Google apps: it connects on its own page, never with connect_service or an address (do not look one up).`
   const meanwhile = 'Ask nothing about the task until it is connected, and offer what you can do now (a draft, or the details for them to add themselves).'
-  if (app.status === 'connected') return { connected: true, text: `${app.name} is already connected for this person. Its tools are yours in this chat; if you do not have them now, from the person's next message.` }
+  const tools = 'Its tools are yours in this chat; if you do not have them now, from the person\'s next message.'
+  // connected but its tools cannot be reached right now (GoogleAppView.serviceDown): it comes back by itself
+  if (app.status === 'connected' && app.serviceDown) return { connected: false, text: `${app.name} is connected for this person, but it is not answering right now; it comes back by itself. Next step: say so in one sentence and offer to try again in a while. ${meanwhile}` }
+  if (app.status === 'connected') return { connected: true, text: `${app.name} is already connected for this person. ${tools}` }
+  // the team's shared account this person may use (Admin › Connected apps): it is theirs too, nothing to connect
+  if (app.shared?.status === 'connected') return { connected: true, text: `${app.name} is connected for this person through the team's shared account. ${tools}` }
+  if (app.shared?.status === 'needs_reconnect' && app.status === 'disconnected') return { connected: false, text: `${builtIn} The team's shared ${app.name} account this person uses needs a new sign-in: ${admin ? `they do it in ${SCREEN.adminMcp(L)} › ${app.name}` : 'the owner or an admin does it'}; they can also connect their own account in ${page}. Next step: tell them so in one or two sentences. ${meanwhile}` }
   if (app.status === 'needs_reconnect') return { connected: false, text: `${builtIn} It needs a new sign-in: the person presses Reconnect in ${page}. Next step: tell them so in one sentence. ${meanwhile}` }
   if (app.reason === 'unsupported') return { connected: false, text: `${builtIn} It is not available on this team's app yet, so nobody can connect it now. Next step: say so plainly in one sentence, with no technical words. ${meanwhile}` }
   if (app.reason === 'service_limited') return { connected: false, text: `${builtIn} It is not open to everyone yet (it opens once Google has approved it), so it cannot be connected now. Next step: say so plainly in one sentence. ${meanwhile}` }

@@ -53,6 +53,17 @@ describe('what the AI is told', () => {
     expect(googleAppWay(app('disconnected', 'unsupported'), true, 'en').text).toContain("not available on this team's app yet, so nobody can connect it now")
     expect(googleAppWay(app('disconnected', 'service_limited'), false, 'en').text).toContain('once Google has approved it')
   })
+  test('the team\'s shared account: connected through it; one that needs a sign-in is an admin\'s to fix', () => {
+    expect(googleAppWay({ ...app('disconnected', 'not_set_up'), shared: { status: 'connected' } }, false, 'en')).toEqual({ connected: true, text: expect.stringContaining("through the team's shared account") })
+    const stale = googleAppWay({ ...app('disconnected'), shared: { status: 'needs_reconnect' } }, false, 'en').text
+    expect(stale).toContain('the owner or an admin does it')
+    expect(googleAppWay({ ...app('disconnected'), shared: { status: 'needs_reconnect' } }, true, 'en').text).toMatch(/they do it in Admin › Connected apps .* › Google Calendar/)
+  })
+  test('connected but not answering now: says so, not "its tools are yours"', () => {
+    const w = googleAppWay({ ...app('connected'), serviceDown: true }, false, 'en')
+    expect(w.connected).toBe(false)
+    expect(w.text).toContain('not answering right now')
+  })
   test('needs a new sign-in: Reconnect on its page', () => {
     expect(googleAppWay(app('needs_reconnect'), false, 'ko').text).toContain('presses Reconnect in Settings › Connectors › Google Calendar')
   })

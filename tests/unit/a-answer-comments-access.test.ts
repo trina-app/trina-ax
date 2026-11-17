@@ -105,7 +105,7 @@ describe('who reads which comments', () => {
     answered(chat.id, mia.id)
     const r = await turnOf(mia.id, chat.id).call()
     expect(r.summary).toBe('answer_comments -> none')
-    expect(r.text).toContain('nobody has replied under an answer here (comments show at once; none are waiting)')
+    expect(r.text).toContain('No comments under answers in this chat: nobody has replied under an answer here (comments show at once; none are waiting)')
     expect(r.text).toContain('never guess what was said')
   })
 
@@ -190,7 +190,11 @@ describe('who reads which comments', () => {
       const r = await turnOf(mia.id, chat.id).call({ message_id: a })
       expect(r.text).not.toContain('HIDDEN-ANSWER-COMMENT')
       expect(r.summary).toBe('answer_comments -> held: answer hidden from some')
-      expect((await turnOf(mia.id, chat.id).call()).text).not.toContain('HIDDEN-ANSWER-COMMENT')
+      const listed = await turnOf(mia.id, chat.id).call()
+      expect(listed.text).not.toContain('HIDDEN-ANSWER-COMMENT')
+      // held back, never "nobody has replied" (review of fix/catalog-1117g)
+      expect(listed.summary).toBe('answer_comments -> held: answers hidden from some')
+      expect(listed.text).not.toContain('nobody has replied')
     } finally { setHiddenAnswersCutover(db(), was) }
   })
 

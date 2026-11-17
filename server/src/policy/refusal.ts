@@ -267,7 +267,7 @@ const notSuggest = (L: Locale, what: string) => `"${LABEL.suggest[L]}" under an 
  */
 function teamSkillNext(L: Locale): string {
   return 'Next step: tell the user in a sentence that only the people who manage team skills (the owner, admins, or whoever they chose) change a team skill; then offer, a line each: ' +
-    'you write a short message for them saying what to change, which the user sends them; or, if they ask, you save a personal copy with the change, which replaces the team skill for them only. ' +
+    'you write a short message for them saying what to change, which the user sends them themselves (you cannot send it); or, if they ask, you save a personal copy with the change, which replaces the team skill for them only (not for a change that drops an approval or check the team requires: then only the message). ' +
     `${notSuggest(L, 'an existing one')} Do not paste the whole changed text for them to copy by hand.`
 }
 
@@ -275,7 +275,7 @@ function teamSkillNext(L: Locale): string {
  * they ask to change it, so the AI need not try the edit first to learn it; null otherwise. */
 export function readOnlySkillLine(rel: string, readOnly: boolean, L: Locale): string | null {
   if (!readOnly || rel.split('/')[0]!.normalize('NFC').toLowerCase() !== 'skills') return null
-  return `This user cannot change this team skill; only the people who manage team skills can. If asked to change it, offer to write a short message for them saying what to change, or a personal copy that replaces it for them only. ${notSuggest(L, 'this one')} Never paste the whole changed text.`
+  return `This user cannot change this team skill; only the people who manage team skills can. If asked to change it, offer to write a short message for them saying what to change (the user sends it; you cannot), or a personal copy that replaces it for them only (not when the change drops an approval or check the team requires). ${notSuggest(L, 'this one')} Never paste the whole changed text.`
 }
 
 /**

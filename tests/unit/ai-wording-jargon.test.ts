@@ -74,7 +74,7 @@ describe('a read-only team skill (SKL-02.member)', () => {
     const note = readOnlyNote(db, t, 'ko', { userId: 'd', sees: () => true, button: true })!
     expect(note).toBe("Write access to 'skills/weekly-report/SKILL.md': an admin can give it (in Admin › Folder permissions (\"관리자 › 폴더 권한\")). " +
       'Next step: tell the user in a sentence that only the people who manage team skills (the owner, admins, or whoever they chose) change a team skill; then offer, a line each: ' +
-      'you write a short message for them saying what to change, which the user sends them; or, if they ask, you save a personal copy with the change, which replaces the team skill for them only. ' +
+      'you write a short message for them saying what to change, which the user sends them themselves (you cannot send it); or, if they ask, you save a personal copy with the change, which replaces the team skill for them only (not for a change that drops an approval or check the team requires: then only the message). ' +
       '"스킬로 제안" under an answer suggests a new skill, never a change to an existing one: do not offer it for this. Do not paste the whole changed text for them to copy by hand.')
     expect(note).not.toContain('users/')
     expect(note).not.toContain('button under your answer')
@@ -88,7 +88,7 @@ describe('a read-only team skill (SKL-02.member)', () => {
   })
 
   test('a loaded team skill the person cannot change says so up front, the same next step', () => {
-    expect(readOnlySkillLine('skills/weekly-report/SKILL.md', true, 'ko')).toBe('This user cannot change this team skill; only the people who manage team skills can. If asked to change it, offer to write a short message for them saying what to change, or a personal copy that replaces it for them only. "스킬로 제안" under an answer suggests a new skill, never a change to this one: do not offer it for this. Never paste the whole changed text.')
+    expect(readOnlySkillLine('skills/weekly-report/SKILL.md', true, 'ko')).toBe('This user cannot change this team skill; only the people who manage team skills can. If asked to change it, offer to write a short message for them saying what to change (the user sends it; you cannot), or a personal copy that replaces it for them only (not when the change drops an approval or check the team requires). "스킬로 제안" under an answer suggests a new skill, never a change to this one: do not offer it for this. Never paste the whole changed text.')
     expect(readOnlySkillLine('skills/weekly-report/SKILL.md', false, 'en')).toBeNull()
     expect(readOnlySkillLine('users/d/skills/x/SKILL.md', true, 'en')).toBeNull()
   })
