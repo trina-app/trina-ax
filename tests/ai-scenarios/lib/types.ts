@@ -26,6 +26,8 @@ export const Check = z.discriminatedUnion('type', [
   /** page N is shown turned by `deg` (0 = upright): the page's own rotation, or a page laid out the other way round */
   z.object({ type: z.literal('pdf_upright'), file: z.string(), page: z.number().int().positive() }),
   z.object({ type: z.literal('xlsx'), file: z.string(), header: z.string().optional(), formula: z.boolean().optional(), chart: z.boolean().optional(), cell: z.object({ ref: z.string(), equals: z.union([z.string(), z.number()]) }).optional() }),
+  /** a new or changed photo: its shown size (EXIF orientation applied) and bytes at most these (resize_images, EDIT-16) */
+  z.object({ type: z.literal('image'), file: z.string(), maxSide: z.number().int().positive().optional(), maxWidth: z.number().int().positive().optional(), maxBytes: z.number().int().positive().optional() }),
   z.object({ type: z.literal('docx_contains'), file: z.string(), text: z.string() }),
   z.object({ type: z.literal('pptx_slides'), file: z.string(), min: z.number().int().positive() }),
   z.object({ type: z.literal('file_contains'), path: z.string(), text: z.string() }),

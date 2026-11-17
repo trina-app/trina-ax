@@ -14,6 +14,7 @@ const LOCAL_TOOLS = new Set([
   'edit_pdf',
   'merge_pdfs',
   'split_pdf',
+  'resize_images',
   'share_file',
   'remember',
   'forget',
