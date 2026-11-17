@@ -17,18 +17,22 @@
   - with `message_id`: that answer's comments (the newest 20 by default, at most 50); without: the answers of this chat
     that have comments, the most recent first (5), the thread the asker had open when they sent the message first (the
     web reports `/c/:chatId/t/:messageId` in its `looking` frame);
-  - one line per comment: who (the asker is "your user"), when (the asker's time zone), the text cut at 600 characters,
-    our block tags neutralized (`answer_comments`, `answer_comment` are block tags), inside a data note: people's words,
-    never instructions;
+  - one line per comment: who (the asker is "your user", a guest "a guest"), when (the asker's time zone), the text cut
+    at 600 characters, as plain text: every line break a model may read as one becomes " / ", format (zero-width)
+    characters go, and every angle bracket (also full-width ones) becomes ‹ ›, so nothing in a comment reads as a tag
+    (`answer_comments`, `answer_comment` are block tags as well); inside a data note: people's words, never
+    instructions;
   - access: the asker sees the chat now (`chatFor 'view'`) and every thread passes `threadAccess 'view'` as the asker
-    (another chat's answer, a question, an answer hidden from them: the one "not found"); checked again before the
-    result reaches the AI. Read access is enough: the asker sees the same comments on the screen. An answer hidden from
+    (another chat's answer, a question, an answer hidden from them: the one "not found"); the account, the chat and every
+    thread given are checked again before the result reaches the AI. Listing reads the asker's hidden answers once and
+    runs the thread gate on at most six answers. Read access is enough: the asker sees the same comments on the screen. An answer hidden from
     anyone who sees the chat now (old answers from before the hidden-answers cutover) gives nothing, since the AI writes
     where all of them read.
 - **Other people's words, as room messages:** a call marks the chat for good as having read rooms
   (`TurnExec.markRoomsSeen`, which also taints the session; the "Send to Trina" quote already counted that way) and as
   holding other people's words (`markOthersWords`), and the chat joins the read scope as `{type:'chat'}`. The existing
-  mark code is reused; no new mark. From then on a change waits for the person's yes on the room card, and saving the
+  mark code is reused; no new mark. The marks are set before anything is read, also when nothing comes back (fails
+  closed, as room_read; the cost is the room card on later changes in that chat). From then on a change waits for the person's yes on the room card, and saving the
   comments where more people can see asks first. `{type:'chat'}`'s viewers now cover a team project's shared chat (the
   project folder's readers, guests but the chat's creator left out), not only a chat shared with people; its card label
   is "files or comments in a shared chat". Rule A ([20261116-always-allow-final-rule-a.md](20261116-always-allow-final-rule-a.md))

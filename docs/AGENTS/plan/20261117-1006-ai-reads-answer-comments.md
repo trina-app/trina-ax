@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-17 10:06
 - Branch: `feat/ai-reads-answer-comments`
-- Status: in progress
+- Status: done
 - Where: trina-ax `server/src/chat/` (a new read-only tool, the prompt line), `shared/src` (its input and step label),
   `web/src` (the thread panel's note, the thread a window shows). Why: chat threads and the AI's tools are Team AX core.
 - Version impact: minor, the AI can do something new in shared chats.
@@ -55,4 +55,9 @@ docs/decisions/20261117-ai-reads-answer-comments.md
 
 ## Result
 
-(filled in at the end)
+Built as planned. Two changes on the way: `{type:'chat'}` read-scope viewers now cover a team project's shared chat (it
+was its creator alone, so a save into the project folder after a read asked as a widening), and its card label says
+"files or comments in a shared chat". An independent review found no access hole; its hardening (plain-text comments:
+every angle bracket, format character and line break neutralized; the hidden check repeated before delivery; one hidden
+set for listing; "a guest" label) is in. Hands-on on a private copy of QA-Acme with the scripted AI: the comment's price
+reached the quote after the room card.
