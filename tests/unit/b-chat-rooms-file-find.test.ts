@@ -250,7 +250,7 @@ describe('second review round', () => {
     const r = await roomTool(h.ctx, h.ctx.files.principal('alice'), 'rooms', { from_me: true, with_person: 'Erin', files: true }, {} as TurnFiles, {} as never)
     const t = r.content.map((c) => (c.type === 'text' ? c.text : '')).join('')
     expect(t).toContain(`file_id=${form.id}`)
-    expect(r.seen.map((x) => x.id)).toEqual(expect.arrayContaining([dmId, leadsId]))
+    expect(r.seen.map((x) => ('id' in x ? x.id : ''))).toEqual(expect.arrayContaining([dmId, leadsId]))
     const bob = await roomTool(h.ctx, h.ctx.files.principal('bob'), 'rooms', { query: '계좌신고서' }, {} as TurnFiles, {} as never)
     expect(bob.content.map((c) => (c.type === 'text' ? c.text : '')).join('')).not.toContain(form.id)
   })
