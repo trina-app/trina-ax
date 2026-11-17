@@ -40,7 +40,7 @@ import { SERVER_OWN_FOLDERS } from '../files/own-folders'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, instructionFiles, neutralizeTags, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
 import { sideRoomOf } from './side-room'
 import { quotesAppOnBranch, readRooms, withoutQuoteLines } from './read-rooms'
-import { othersSource, seenWhy } from './grant-reads'
+import { grantOnly, othersSource, seenWhy } from './grant-reads'
 import { componentC } from '../team-files/component'
 import { looseArea, placementNote } from './file-placement'
 import { FileLinkRepair, fileLinkResolver } from './file-link-repair'
@@ -2494,7 +2494,7 @@ export class TurnExec {
       also: more ? `${roomWhy()}. ${more.also}` : roomWhy(),
       ...(more ? { names: more.names } : {}),
       next: end === 'unattended'
-        ? `a scheduled run that read a room changes nothing but new files in the user's own folder (nobody is there to answer the card): save it as a new file in users/${this.spec.userId} instead and say so, or the user can do it in a chat, where they answer the card, or start a new chat that does not read rooms`
+        ? `a scheduled run that read ${othersSource(this, 'a room')} changes nothing but new files in the user's own folder (nobody is there to answer the card): save it as a new file in users/${this.spec.userId} instead and say so, or the user can do it in a chat, where they answer the card, or start a new chat that does not read ${grantOnly(this) ? 'it' : 'rooms'}`
         : end === 'declined' ? cardNext(end) : 'the user can ask again in this chat and answer the card',
     })
     // the same call needs the wider-audience card too: that one card, with what the call writes; its yes is the room's

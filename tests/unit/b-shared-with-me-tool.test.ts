@@ -12,6 +12,7 @@ import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { dropAlways, keepAlways } from '../../server/src/chat/always-allow'
 import { othersSource, readByGrant, seenWhy, SHARED_FILE_SOURCE } from '../../server/src/chat/grant-reads'
 import { DELETE_REFUSAL, deleteFilesRefusal } from '../../server/src/chat/delete-files'
+import { skillFilesRefusal } from '../../server/src/chat/skill-files'
 import { tr } from '../../server/src/chat/i18n'
 import { GUEST_TURN_TOOLS } from '../../server/src/chat/guest-tools'
 import { readRooms } from '../../server/src/chat/read-rooms'
@@ -274,9 +275,12 @@ describe('a file read through a grant is other people\'s words', () => {
     expect(deleteFilesRefusal(seen)).toBe('sharedFile')
     expect(DELETE_REFUSAL.sharedFile).toContain('a file someone shared with the user')
     expect(DELETE_REFUSAL.sharedFile).not.toContain('chat room')
+    const intoSkills = { path: 'users/bob/payroll.md', to_folder: 'skills' }
+    expect(skillFilesRefusal({ ...(seen as object), spec: { userId: 'bob', chatId: chat, assistantId: '', clientKind: 'web' } } as never, intoSkills)!.text).toContain(`read ${SHARED_FILE_SOURCE}`)
     addSources(h.ctx.db, chat, [{ type: 'room', id: financeRoom }])
     expect(othersSource(seen, 'ROOM')).toBe('ROOM')
     expect(deleteFilesRefusal(seen)).toBe('roomsSeen')
+    expect(skillFilesRefusal({ ...(seen as object), spec: { userId: 'bob', chatId: chat, assistantId: '', clientKind: 'web' } } as never, intoSkills)!.text).toContain('read a team chat room')
 
     // end to end: bob's AI reads alice's shared file, then tries to delete one of his files; then a change whose card nobody answers
     const id = await linkOf('alice', 'users/alice/quote.md')
@@ -289,6 +293,8 @@ describe('a file read through a grant is other people\'s words', () => {
     expect(d.content).toContain('a file someone shared with the user')
     expect(d.content).not.toContain('team chat rooms')
     expect(fs.existsSync(path.join(h.ctx.files.fx.root, 'users/bob/payroll.md'))).toBe(true)
+    const audit = h.ctx.db.query("SELECT json_extract(detail, '$.outcome') o, json_extract(detail, '$.reason') r FROM audit_log WHERE action = 'files.ai_trash' AND json_extract(detail, '$.turnId') = ?").all(d.turnId)
+    expect(audit).toEqual([{ o: 'refused', r: 'sharedFile' }])
     const write = fake({ tool: 'write', args: { file_path: 'groups/finance/declined-after-shared.md', content: 'x' }, sayResult: true })
     // (left unanswered: the card runs out, and the refusal says why every change here asks)
     const w = await turn('bob', `${read}\n${write}`, { answer: null })

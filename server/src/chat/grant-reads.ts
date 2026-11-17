@@ -62,5 +62,5 @@ const FILE_WORDS = { roomsSeenWhy: 'sharedFileSeenWhy', roomsSeenConfirm: 'share
 /** The sentence that says why this chat asks first: about a file shared with the person when that is the cause and no
  * room's words came in, else the room sentence as before. Never throws (words only: the room sentence on any doubt). */
 export function seenWhy<K extends keyof typeof FILE_WORDS>(exec: GrantReadExec, key: K): TrKey {
-  try { return readByGrant(exec) && !roomCameIn(exec) ? FILE_WORDS[key] : key } catch { return key }
+  return grantOnly(exec) ? FILE_WORDS[key] : key
 }

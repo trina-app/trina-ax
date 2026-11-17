@@ -24,7 +24,7 @@ import { planFolderAction, runFolderAction, type FolderActionInput, type FolderP
 import { levelFolder, levelLabel, peopleNames, peopleText, seesWho, type Level } from '../skills/move'
 import { st } from '../skills/text'
 import { neutralizeTags } from './prompt'
-import { grantOnly } from './grant-reads'
+import { grantOnly, SHARED_FILE_SOURCE } from './grant-reads'
 import { readRooms } from './read-rooms'
 import type { TurnExec } from './turn'
 
@@ -38,7 +38,7 @@ const bad = (t: string, summary: string) => ({ ...text(t, true), summary: `${SKI
 const clip = (s: string, n = 120) => { const t = s.replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t }
 const nothing = (why: string, next: string) => `Nothing was changed. Why: ${why}. Next step: ${next}.`
 /** S7's reason: other people's words came into this chat (chat/read-rooms.ts) */
-const roomReadWhy = (exec: TurnExec) => `this chat ${grantOnly(exec) ? 'read a file someone shared with the user (other people\'s words, not the user\'s own)' : 'read a team chat room or quotes another person\'s message (other people\'s words)'}, so nothing is put into a skill folder from it`
+const roomReadWhy = (exec: TurnExec) => `this chat ${grantOnly(exec) ? `read ${SHARED_FILE_SOURCE}` : 'read a team chat room or quotes another person\'s message (other people\'s words)'}, so nothing is put into a skill folder from it`
 
 /** Why this chat or this caller gets no skill_files card at all (null: go on). `files`: the calling agent's state (a
  * sub-agent's, or a call whose agent is not known, is not the main AI's). */
