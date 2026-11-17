@@ -20,9 +20,9 @@ In:
   for in its last second). Later pieces unchanged (1 s pause, 15 s).
 - Every piece names the app's language (the person's, else the team default) as a language hint; the server passes it
   to OpenRouter (and whisper.cpp). It is only a hint: a provider that refuses the field (400) gets the piece without
-  it; an answer whisper is unsure of (a translation, below UNSURE_LOGPROB) or only the "foreign language" caption is
-  sent once more without the hint and the surer answer is kept; once an answer comes back in another language, the
-  rest of that recording goes without the hint.
+  it; an answer whisper is very unsure of (below -0.6) or only the "foreign language" caption is sent once more without
+  the hint, kept only when whisper is sure of it and it is in its own script; the answer then says `hinted: false` and
+  the rest of that recording goes without the hint.
 - Limits: unchanged (two at once, 40 pieces and 120 s of sound a minute); a test checks a minute of dictation with the
   short first piece stays well inside them.
 
