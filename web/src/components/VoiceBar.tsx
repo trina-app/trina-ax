@@ -1,8 +1,9 @@
 // Voice input's pieces in a message box (lib/useVoiceInput.ts), the same in the AI chat's Composer and a room's or
 // thread's RoomComposer:
 // - VoiceBar: stands where the box was while recording: ✕ (cancel), the red dot, a short line (how a hold ends; once,
-//   for a clicked recording on a computer, that Space can be held), the input level, the time (the time left in the
-//   last 30 seconds), ✓ (the words go to the box).
+//   for a clicked recording on a computer, that Space can be held; or, when nothing was heard for the first seconds,
+//   that we hear nothing, until the first sound), the input level, the time (the time left in the last 30 seconds),
+//   ✓ (the words go to the box).
 // - VoiceMic: the mic (a click toggles; on touch screens a finger held on it talks), a spinner on it while
 //   transcribing; nothing while voice input can't be used on this server (lib/voice.ts micState).
 // - VoiceLive: the polite live region (녹음 중, 텍스트로 바꾸는 중, 텍스트를 넣었어요). Always there, so a change is read.
@@ -14,6 +15,7 @@ import { Check, Loader2, Mic, X } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { useT } from '../i18n'
 import { fmtDuration } from '../lib/format'
+import { waveBarPx } from '../lib/recorder'
 import type { VoiceInputState } from '../lib/useVoiceInput'
 import type { MicState } from '../lib/voice'
 import { Tooltip } from './Tooltip'
@@ -39,13 +41,13 @@ export function VoiceBar({ voice, className }: { voice: VoiceInputState; classNa
         <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-danger" />
       </span>
       {voice.hint && (
-        <span className="min-w-0 shrink text-xs leading-snug break-keep text-muted" data-testid="voice-hint">
+        <span className={clsx('min-w-0 shrink text-xs leading-snug break-keep', voice.silent ? 'text-ink' : 'text-muted')} data-testid="voice-hint" data-silent={voice.silent || undefined}>
           {voice.hint}
         </span>
       )}
-      <div className="flex h-8 min-w-8 flex-1 items-center gap-[3px] overflow-hidden" aria-hidden>
+      <div className="flex h-8 min-w-8 flex-1 items-center gap-[3px] overflow-hidden" aria-hidden data-testid="voice-wave">
         {Array.from({ length: 32 }, (_, i) => (
-          <span key={i} className="w-[3px] shrink-0 rounded-full bg-ink motion-safe:transition-[height] motion-safe:duration-100" style={{ height: `${Math.max(3, voice.level * 32 * (0.4 + 0.6 * Math.abs(Math.sin((i + voice.seconds) * 1.7))))}px` }} />
+          <span key={i} className="w-[3px] shrink-0 rounded-full bg-ink motion-safe:transition-[height] motion-safe:duration-100" style={{ height: `${waveBarPx(voice.level, i, voice.seconds)}px` }} />
         ))}
       </div>
       <span className={clsx('shrink-0 text-sm tabular-nums', voice.left !== null ? 'font-medium text-danger' : 'text-muted')} data-testid="voice-time">

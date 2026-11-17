@@ -1,8 +1,9 @@
 // Voice input in the browser (lib/useVoiceInput.ts, components/VoiceBar.tsx): the mic and a transcription job into the
 // box; the chat a recording names and the confidential note; holding Space (a computer: this Chromium hovers with a fine
 // pointer) in the AI chat's box and a room's, a short tap typing a space, Esc, the job's own label while it runs, a
-// click in a room (with the hint to hold Space next time), no mic while "this server" lacks its tools. Words go into the
-// box and are never sent by themselves.
+// click in a room (with the hint to hold Space next time), no mic while "this server" lacks its tools; the wave moving
+// with the microphone's sound, and the line that says so when the microphone gives none. Words go into the box and are
+// never sent by themselves.
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
 import { ROOM_ID, routeRoom } from './rooms-mock'
@@ -424,4 +425,106 @@ test.describe('a finger on the mic (a phone)', () => {
     await expect(input).toHaveValue('')
     expect(await transcribeChats(page)).toEqual([null, null])
   })
+})
+
+// The wave (lib/recorder.ts): Chromium's fake microphone beeps about once a second.
+const SILENT = '소리가 들리지 않아요. 마이크를 확인해 주세요.'
+const waveHeights = (page: Page) =>
+  page.getByTestId('voice-wave').locator('span').evaluateAll((bars) => bars.map((b) => parseFloat((b as HTMLElement).style.height)))
+/** the tallest bar seen while watching for `ms` */
+const tallest = async (page: Page, ms: number) => {
+  let max = 0
+  for (const end = Date.now() + ms; Date.now() < end; await page.waitForTimeout(40)) max = Math.max(max, ...(await waveHeights(page)))
+  return max
+}
+
+test('the wave moves with the sound of the microphone, and nothing is said about the microphone', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.getByRole('button', { name: MIC }).click()
+  const bar = page.getByRole('group', { name: '녹음 중' })
+  await expect(bar).toBeVisible()
+  expect(await waveHeights(page)).toHaveLength(32)
+  // a beep: bars well over the 3 px dot; between beeps they come back down
+  await expect.poll(async () => Math.max(...(await waveHeights(page))), { intervals: [30], timeout: 5000 }).toBeGreaterThan(12)
+  await expect.poll(async () => Math.max(...(await waveHeights(page))), { intervals: [30], timeout: 5000 }).toBeLessThan(8)
+  // well past the 3 seconds after which a silent microphone is named
+  await expect(page.getByTestId('voice-time')).toHaveText('0:04')
+  await expect(bar.getByTestId('voice-hint')).toHaveText('다음엔 입력창에서 Space를 길게 눌러 보세요')
+  await expect(bar.getByTestId('voice-hint')).not.toHaveAttribute('data-silent')
+  await page.getByTestId('voice-cancel').click()
+
+  // held Space takes the same microphone path
+  await page.getByTestId('composer-input').focus()
+  await page.keyboard.down(' ')
+  await expect(bar).toBeVisible()
+  await expect.poll(async () => Math.max(...(await waveHeights(page))), { intervals: [30], timeout: 5000 }).toBeGreaterThan(12)
+  await page.keyboard.press('Escape')
+  await page.keyboard.up(' ')
+})
+
+test('a microphone that gives no sound: the wave stays flat and the bar says so, until the first sound', async ({ page }) => {
+  // the microphone's track switched off: it records, and every sample is silence (a muted or wrong input does the same)
+  await page.addInitScript(() => {
+    const md = navigator.mediaDevices
+    const real = md.getUserMedia.bind(md)
+    md.getUserMedia = async (c) => {
+      const s = await real(c)
+      s.getAudioTracks().forEach((t) => (t.enabled = false))
+      ;(window as unknown as { __mic: MediaStream }).__mic = s
+      return s
+    }
+  })
+  await reset(page)
+  await signIn(page)
+  await page.getByRole('button', { name: MIC }).click()
+  const bar = page.getByRole('group', { name: '녹음 중' })
+  await expect(bar).toBeVisible()
+  // the first seconds: the usual hint, nothing about the microphone yet (someone who has not spoken yet)
+  await expect(bar.getByTestId('voice-hint')).toHaveText('다음엔 입력창에서 Space를 길게 눌러 보세요')
+  await expect(bar.getByTestId('voice-hint')).toHaveText(SILENT, { timeout: 8000 })
+  await expect(bar.getByTestId('voice-hint')).toHaveAttribute('data-silent', 'true')
+  await expect(page.getByTestId('voice-live')).toHaveText(SILENT)
+  expect(await tallest(page, 1200)).toBe(3)
+  // the recording itself went on
+  expect(Number((await page.getByTestId('voice-time').textContent())!.split(':')[1])).toBeGreaterThanOrEqual(3)
+
+  // sound arrives: the line goes, the wave moves
+  await page.evaluate(() => (window as unknown as { __mic: MediaStream }).__mic.getAudioTracks().forEach((t) => (t.enabled = true)))
+  await expect(bar.getByTestId('voice-hint')).toHaveText('다음엔 입력창에서 Space를 길게 눌러 보세요')
+  await expect.poll(async () => Math.max(...(await waveHeights(page))), { intervals: [30], timeout: 5000 }).toBeGreaterThan(12)
+  await expect(page.getByTestId('voice-live')).toHaveText('녹음 중')
+  await page.getByTestId('voice-cancel').click()
+})
+
+test("audio the browser did not start by itself is started: the wave moves, and a silent microphone isn't claimed", async ({ page }) => {
+  // an AudioContext that starts suspended, as a browser makes one when its rule about sound without a click applies
+  await page.addInitScript(() => {
+    const Real = window.AudioContext
+    // (plain fields: the test runner's helpers for private ones are not in the page)
+    window.AudioContext = class extends Real {
+      suspended_: Promise<void>
+      resumed_ = false
+      constructor(o?: AudioContextOptions) {
+        super(o)
+        this.suspended_ = super.suspend()
+      }
+      override get state() {
+        return this.resumed_ ? super.state : 'suspended'
+      }
+      override resume() {
+        this.resumed_ = true
+        return this.suspended_.then(() => super.resume())
+      }
+    }
+  })
+  await reset(page)
+  await signIn(page)
+  await page.getByRole('button', { name: MIC }).click()
+  const bar = page.getByRole('group', { name: '녹음 중' })
+  await expect(bar).toBeVisible()
+  await expect.poll(async () => Math.max(...(await waveHeights(page))), { intervals: [30], timeout: 5000 }).toBeGreaterThan(12)
+  await expect(page.getByTestId('voice-time')).toHaveText('0:04')
+  await expect(bar.getByTestId('voice-hint')).not.toHaveAttribute('data-silent')
+  await page.getByTestId('voice-cancel').click()
 })

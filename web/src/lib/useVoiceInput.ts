@@ -329,14 +329,18 @@ export function useVoiceInput(o: VoiceInputOptions) {
    * turn, that it waits */
   const progressText = phase !== 'transcribing' ? null : jobWaiting(job) ? t('voice.waiting') : jobLabel(job)
   const leftMs = CAP_MS - recorder.seconds * 1000
+  /** recording, and nothing was heard since it started (lib/recorder.ts): the bar says so until the first sound */
+  const silent = phase === 'recording' && recorder.silent
   const hint =
     phase !== 'recording'
       ? null
-      : voice.mode === 'hold'
-        ? t(voice.via === 'touch' ? 'voice.holdTouch' : 'voice.holdSpace')
-        : voice.via === 'click' && holdCapable && !holdUsed
-          ? t('voice.tryHold')
-          : null
+      : silent
+        ? t('voice.silent')
+        : voice.mode === 'hold'
+          ? t(voice.via === 'touch' ? 'voice.holdTouch' : 'voice.holdSpace')
+          : voice.via === 'click' && holdCapable && !holdUsed
+            ? t('voice.tryHold')
+            : null
 
   return {
     phase,
@@ -351,6 +355,8 @@ export function useVoiceInput(o: VoiceInputOptions) {
     /** seconds left before the cap, in its last WARN_MS */
     left: phase === 'recording' && leftMs <= WARN_MS ? Math.max(0, Math.ceil(leftMs / 1000)) : null,
     hint,
+    /** the hint is the "nothing heard" line */
+    silent,
     /** the note text that gets an "Open Settings" button (inside the phone app, a blocked mic), else null: the host
      * shows the button only while its note still says this */
     settingsFor,
@@ -359,7 +365,7 @@ export function useVoiceInput(o: VoiceInputOptions) {
     /** another box (the room's, the thread's) records or transcribes now: this mic waits */
     busyElsewhere,
     /** the live region's words */
-    live: voice.live === 'recording' ? t('voice.recording') : voice.live === 'transcribing' ? t('voice.liveTranscribing') : voice.live === 'inserted' ? t('voice.liveInserted') : '',
+    live: silent ? t('voice.silent') : voice.live === 'recording' ? t('voice.recording') : voice.live === 'transcribing' ? t('voice.liveTranscribing') : voice.live === 'inserted' ? t('voice.liveInserted') : '',
     progressText,
     /** the box's placeholder while transcribing */
     transcribingText: progressText ?? t('voice.transcribing'),
