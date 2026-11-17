@@ -136,7 +136,7 @@ export function refusedShareFixes(exec: Exec, path: string, refs: readonly strin
   if (!people.length) return { fixes: [], note: '' }
   const fixes = shareFixesOf(ctx).forFiles(exec.spec.userId, exec.spec.chatId, [{ path, people }], { named: true })
   const fix = fixes.find((f) => f.kind === 'ask_owner')
-  return fix ? { fixes: [fix], note: `The user has a button on the card: "Ask ${fix.owner ? 'the owner' : 'an admin'} to share it" (the file's owner gets the request and decides; view only). Tell them so in one short sentence${exec.rt.store.chatRow(exec.spec.chatId)?.people_shared_at ? ', without naming anyone' : ''}.` } : { fixes: [], note: '' }
+  return fix ? { fixes: [fix], note: `The user has a button on the card: ${fix.owner ? 'the one that asks the file\'s owner' : '"Ask an admin"'} (${fix.owner ? 'the owner' : 'an admin'} gets the request and decides; view only). Tell them so in one short sentence${exec.rt.store.chatRow(exec.spec.chatId)?.people_shared_at ? ', without naming anyone' : ''}.` } : { fixes: [], note: '' }
 }
 
 /** share_with_person was asked to share a file the user has only through a share (someone else's file, shared with

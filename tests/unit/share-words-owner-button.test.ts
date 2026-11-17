@@ -4,6 +4,7 @@
 import { describe, expect, test } from 'bun:test'
 import { SHARE_NO } from '../../server/src/chat/share-words'
 import { DICTS } from '../../web/src/i18n'
+import { tr } from '../../server/src/chat/i18n'
 
 describe('the "ask the owner" next step', () => {
   test('own chat: the button by its label with the owner\'s name', () => {
@@ -13,8 +14,9 @@ describe('the "ask the owner" next step', () => {
     const t = SHARE_NO.notOwner('a.pdf', null, 'owner')
     expect(t).not.toContain('"Ask the owner"')
     expect(t).toContain("a button that asks the file's owner")
-    // the app has no button called "Ask the owner"
-    expect(Object.values(DICTS.en)).not.toContain('Ask the owner')
+    // the card's button is "Ask <owner>" (the server's fixButtonAskOwner), never "Ask the owner"
+    expect(tr('fixButtonAskOwner', 'en', { owner: 'Sora' })).toBe('Ask Sora')
+    expect(DICTS.en['stepFix.askOwner']).not.toContain('the owner')
   })
   test('ask an admin stays quoted', () => {
     expect(SHARE_NO.notOwner('a.pdf', null, 'admin')).toContain('an "Ask an admin" button')

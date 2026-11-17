@@ -93,7 +93,7 @@ describe('the places it names still exist', () => {
     has('web/src/components/onboarding/FindWorkFiles.tsx', 'files.findWork.entryButton')
     has('web/src/pages/Settings.tsx', 'settings.myEngine.model')
     // the 2026-11-17 catalog's "where is it" misses (ACC-01/02, ROOM-07, CON-04, PRJ-04)
-    for (const k of ['chat.pin', 'rooms.info.rename', 'rooms.info.invite', 'rooms.menu.copyLink']) has('web/src/components/rooms/RoomMenu.tsx', k)
+    for (const k of ['chat.pin', 'rooms.info.rename', 'rooms.info.invite']) has('web/src/components/rooms/RoomMenu.tsx', k)
     has('web/src/components/nav/AccountMenu.tsx', 'status.set')
     has('web/src/components/nav/AccountMenu.tsx', 'presence.setAway')
     for (const k of ['members.inviteToTeam', 'members.inviteMore', 'teamLink.title', 'members.resetLinkButton', 'members.reset']) has('web/src/pages/admin/Members.tsx', k)
@@ -133,10 +133,10 @@ describe('who gets which map', () => {
     expect(dev).toContain(DICTS.ko['devEnv.title'])
     // without it: the setting is named, only on a server set up for it, never "does not exist" (PRJ-05, ADM-07)
     expect(managed).not.toContain("doesn't have it")
-    expect(managed).toContain(`${DICTS.ko['devEnv.title']} (lets the AI run programs for you) shows there only on a server set up for it`)
+    expect(managed).toContain(`${DICTS.ko['devEnv.title']} (the AI runs programs): only on a server set up for it, not this one`)
     const memberNoDev = appMapSection({ ...base, view: 'member' }, 'ko')
     expect(memberNoDev).not.toContain("doesn't have it")
-    expect(memberNoDev).toContain(`${DICTS.ko['devEnv.title']} (lets the AI run programs for you; only on a server set up for it`)
+    expect(memberNoDev).toContain(`${DICTS.ko['devEnv.title']} (the AI runs programs; only on a server set up for it, not this one)`)
     // System's updates: an admin's too only on an office Mac (web systemGroups.ts `office`)
     expect(managed).toContain(`owner also ${DICTS.ko['system.updates']}`)
     expect(appMapSection({ ...base, office: true }, 'ko')).not.toContain(`owner also ${DICTS.ko['system.updates']}`)
@@ -153,12 +153,17 @@ describe('the places people asked about (scenario catalog 2026-11-17)', () => {
     for (const view of ['staff', 'member', 'shared'] as const) {
       const s = appMapSection({ ...base, view }, 'ko')
       const want = [
-        `${DICTS.ko['settings.security']} (${DICTS.ko['auth.changePassword']}; ${DICTS.ko['settings.devices']}`, DICTS.ko['profile.photo'], DICTS.ko['status.set'], DICTS.ko['presence.setAway'],
-        DICTS.ko['rooms.info.rename'], DICTS.ko['rooms.info.invite'], DICTS.ko['rooms.react'], `${DICTS.ko['inbox.title']} in the left bar`, DICTS.ko['chat.pin'],
+        `${DICTS.ko['settings.security']} (${DICTS.ko['auth.changePassword']}; ${DICTS.ko['settings.devices']}`, DICTS.ko['status.set'], DICTS.ko['presence.setAway'],
+        DICTS.ko['rooms.info.rename'], DICTS.ko['rooms.info.invite'], DICTS.ko['rooms.react'], `${DICTS.ko['inbox.title']} (a tab of its own)`, DICTS.ko['chat.pin'],
         DICTS.ko['integrations.title'], `${DICTS.ko['projects.title']} › ${DICTS.ko['projects.new']}`,
       ]
       for (const w of want) expect({ view, w, there: s.includes(w) }).toEqual({ view, w, there: true })
     }
+  })
+  test('a room\'s rename and add people are a group chat\'s; project creation can be owners and admins only', () => {
+    const s = appMapSection({ ...base, view: 'member' }, 'en')
+    expect(s).toContain(`A group chat's also ${DICTS.en['rooms.info.rename']}, ${DICTS.en['rooms.info.invite']}; a team room: people follow its group, owners and admins rename`)
+    expect(s).toContain('the team may keep team projects to owners and admins')
   })
   test('owners and admins: invites and the team link, a forgotten password, groups, the team\'s connections and asking a member to connect', () => {
     for (const view of ['staff', 'shared'] as const) {
@@ -177,10 +182,10 @@ describe('size: it is in every turn', () => {
   // other text about 3.6 characters a token
   const tokens = (s: string) => { const h = (s.match(/[가-힣]/g) ?? []).length; return Math.round(h * 1.45 + (s.length - h) / 3.6) }
   test('at most 20 lines and about 900 tokens in its longest form', () => {
-    for (const view of ['staff', 'member', 'shared'] as const) for (const L of ['ko', 'en', 'ja'] as const) {
-      const s = appMapSection({ view, managed: true, devEnv: true, office: false }, L)
-      expect({ view, L, lines: s.split('\n').length <= 20 }).toEqual({ view, L, lines: true })
-      expect({ view, L, small: tokens(s) <= 900 }).toEqual({ view, L, small: true })
+    for (const view of ['staff', 'member', 'shared'] as const) for (const L of ['ko', 'en', 'ja'] as const) for (const devEnv of [true, false]) {
+      const s = appMapSection({ view, managed: true, devEnv, office: false }, L)
+      expect({ view, L, devEnv, lines: s.split('\n').length <= 20 }).toEqual({ view, L, devEnv, lines: true })
+      expect({ view, L, devEnv, small: tokens(s) <= 900 }).toEqual({ view, L, devEnv, small: true })
     }
   })
 })

@@ -70,28 +70,28 @@ export function appMapSection(o: AppMapInput, L: Locale): string {
     'Asked where or how to do something in the app, answer from this map with its labels. Not here: say you are not sure, not that it does not exist.',
     `- Chat title menu (its creator): ${q('chat.rename')}. A chat's ⋯ in the list: ${q('chat.pin')}, ${q('navFolders.moveTo')}; ${q('navFolders.new')}. Answer: ${q('chat.regenerate')}; own message: ${q('chat.edit')}.`,
     `- ${tr('cardAlways', L)} on a card: not asked again; undo in ${set(PRODUCT_NAMED_AFTER_AI ? 'settings.allowances' : 'settings.allowancesAi')}.`,
-    `- Room ⋯: ${q('chat.pin')}, ${q('rooms.info.rename')}, ${q('rooms.info.invite')}, ${q('rooms.menu.copyLink')}, ${q('roomApps.menuAdd')} (${q('roomApps.menuList')} once it has some): Google Forms or any service with a ${q('roomApps.address')} posts into the room.`,
-    `- Room bell or ⋯ › ${q('rooms.menu.notify')}: ${q('rooms.notify.mentions')} / ${q('rooms.notify.off')}. ${q('notifications.quiet')}: ${set('notifications.title')}. Message hover: ${q('rooms.react')}. Mentions, thread replies: ${q('inbox.title')} in the left bar.`,
-    `- ${q('settings.title')}: ${q('settings.profile')} (${q('profile.photo')}, name; their AI and model, if allowed), ${q('settings.security')} (${q('auth.changePassword')}; ${q('settings.devices')}: sign one out), ${q('integrations.title')} (their own Slack, Google… accounts), ${q('settings.apps')} (phone, Mac, Windows apps), ${q('settings.about')} (version), ${q('aiApps.title')} (team files from Claude or another AI app).`,
-    `- Own photo, bottom left (phone: its menu): ${q('status.set')} (status message), ${q('presence.setAway')}.`,
-    `- ${q('projects.title')} › ${q('projects.new')}: anyone on the team.`,
+    `- Room ⋯: ${q('chat.pin')}, ${q('roomApps.menuAdd')} (${q('roomApps.menuList')} once it has some): Google Forms or any service posts into the room by its ${q('roomApps.address')}. A group chat's also ${q('rooms.info.rename')}, ${q('rooms.info.invite')}; a team room: people follow its group, owners and admins rename.`,
+    `- Room bell or ⋯ › ${q('rooms.menu.notify')}: ${q('rooms.notify.mentions')} / ${q('rooms.notify.off')}. ${q('notifications.quiet')}: ${set('notifications.title')}. Message hover: ${q('rooms.react')}. Mentions, thread replies: ${q('inbox.title')} (a tab of its own).`,
+    `- ${q('settings.title')}: ${q('settings.profile')} (photo, name; their AI and model, if allowed), ${q('settings.security')} (${q('auth.changePassword')}; ${q('settings.devices')}: sign one out), ${q('integrations.title')} (their own Slack, Google… accounts), ${q('settings.apps')} (phone, Mac, Windows apps), ${q('settings.about')} (version), ${q('aiApps.title')} (team files from Claude or another AI app).`,
+    `- Own photo menu: ${q('status.set')}, ${q('presence.setAway')}.`,
+    `- ${q('projects.title')} › ${q('projects.new')}: anyone (the team may keep team projects to owners and admins).`,
     `- ${q('sidebar.skills')}: ${q('skills.catalog.more')} (ready-made; owners and admins see it while some are missing); ${q('skills.catalog.bring')} (on a computer; a member's are reviewed).`,
     `- Desktop app only, not the Mac App Store one: ${q('sidebar.files')} › ${ownFolderLabel(L)} › ${q('files.findWork.entryButton')}.`,
   ]
   if (o.view === 'member') {
     // situation.ts's member line already names folders, groups, connected apps, plugins, AI accounts and team settings
-    lines.push(`- Also the owner's or an admin's, in ${q('admin.title')}: invites, a forgotten password (they make a reset link), guests, handover, usage and limits, activity log, time zone, voice input, system (storage, updates, backups, team address), ${o.devEnv ? `${q('devEnv.title')} (lets the AI run programs for you)` : `${q('devEnv.title')} (lets the AI run programs for you; only on a server set up for it, and ${here} is not)`}.`)
+    lines.push(`- Also the owner's or an admin's, in ${q('admin.title')}: invites, a forgotten password (they make a reset link), guests, handover, usage and limits, activity log, time zone, voice input, system (storage, updates, backups, team address), ${o.devEnv ? `${q('devEnv.title')} (lets the AI run programs for you)` : `${q('devEnv.title')} (the AI runs programs; only on a server set up for it, not this one)`}.`)
     return lines.join('\n')
   }
   lines.push(
     `Pages of ${q('admin.title')}${o.view === 'shared' ? ' (owners and admins only)' : ''} (say ${q('admin.title')} › page):`,
-    `- ${q('admin.members')}: ${q('members.inviteToTeam')} (or ${q('members.inviteMore')} › ${q('teamLink.title')}), roles; a person's ⋯: ${q('members.resetLinkButton')} or ${q('members.reset')} (a forgotten password); owner: ${q('handover.menu')}; ${q('guest.admin.title')}. ${q('admin.groups')} (team rooms follow them).`,
+    `- ${q('admin.members')}: ${q('members.inviteToTeam')} (or ${q('members.inviteMore')} › ${q('teamLink.title')}), roles; a person's ⋯: ${q('members.resetLinkButton')} or ${q('members.reset')} (a forgotten password); owner: ${q('handover.menu')}; ${q('guest.admin.title')}. ${q('admin.groups')}.`,
     `- ${q('admin.integrations')}: the team's shared ones (Slack…); ${q('integrations.requests.add')}: one person links their own.`,
     o.managed
       ? `- Guest AI (${q('guest.invite.ai')}, at invite or on their row): ${q('guest.ai.none')} / ${q('guest.ai.own')} / ${q('guest.ai.team')} with a monthly limit.`
       : `- Guest AI: not on ${here}.`,
     `- ${q('admin.usage')}: who used how much. ${q('admin.audit')}: who did what.`,
-    `- ${q('admin.settings')}: ${q('teamSettings.section.general')} (${q('teamSettings.timeZone')}), ${q('budgets.title')}, ${q('speech.title')}, ${q('teamSettings.group.engine')} (team AI and model, who may pick)${o.devEnv ? `, ${q('devEnv.title')} (lets the AI run programs for you)` : `; ${q('devEnv.title')} (lets the AI run programs for you) shows there only on a server set up for it, and ${here} is not`}.`,
+    `- ${q('admin.settings')}: ${q('teamSettings.section.general')} (${q('teamSettings.timeZone')}), ${q('budgets.title')}, ${q('speech.title')}, ${q('teamSettings.group.engine')} (team AI and model, who may pick)${o.devEnv ? `, ${q('devEnv.title')} (lets the AI run programs for you)` : `; ${q('devEnv.title')} (the AI runs programs): only on a server set up for it, not this one`}.`,
     `- ${q('admin.plugins')}: Hangul (HWP) writing. ${q('admin.providers')}: team AI accounts.`,
     o.office
       ? `- ${q('admin.system')}: ${q('storage.title')}, ${q('system.updates')}; owner also ${q('system.backups')}, ${q('system.export')}, ${q('system.connection')} (${q('system.address')}).`

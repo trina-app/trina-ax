@@ -6,12 +6,12 @@ export const APP_MAP_KEYS = [
   // chats
   'chat.rename', 'chat.pin', 'navFolders.new', 'navFolders.moveTo', 'chat.regenerate', 'chat.edit',
   // account: Settings › Profile and Security & devices, the status from the account menu
-  'profile.photo', 'settings.security', 'auth.changePassword', 'settings.devices', 'status.set', 'presence.setAway',
+  'settings.security', 'auth.changePassword', 'settings.devices', 'status.set', 'presence.setAway',
   // cards and allowances (the card's own "Always allow" is the server's: chat/i18n.ts cardAlways)
   'settings.allowances', 'settings.allowancesAi',
   // rooms
   'roomApps.menuAdd', 'roomApps.menuList', 'roomApps.address', 'rooms.menu.notify', 'rooms.notify.mentions', 'rooms.notify.off',
-  'rooms.info.rename', 'rooms.info.invite', 'rooms.menu.copyLink', 'rooms.react',
+  'rooms.info.rename', 'rooms.info.invite', 'rooms.react',
   // Settings
   'notifications.title', 'notifications.quiet', 'settings.apps', 'settings.about', 'aiApps.title', 'settings.profile', 'integrations.title',
   // skills, files
