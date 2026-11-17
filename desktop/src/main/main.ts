@@ -15,6 +15,7 @@
  *                              (../common/update-verify.ts verificationRequired; a packaged app always checks)
  *   MYCEL_DESKTOP_TEST_FILE_CHOOSER  1: answer the team page's file input with the app's own dialog, as the Mac App
  *                              Store build does (common/file-chooser.ts)
+ *   MYCEL_DESKTOP_TEST_DOWNLOADS  a folder that stands in for the computer's Downloads folder (main/downloads.ts)
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
@@ -281,7 +282,7 @@ function registerIpc() {
   // team page bridge (shared/src/desktop-bridge.ts); store: a Mac App Store or Microsoft Store build, where Settings >
   // Apps offers no installer
   ipcMain.on('bridge:info', (e) => {
-    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process), workFiles: workFilesVersion({ platform: process.platform, mas: process.mas }), workFilesWide: workFilesVersion({ platform: process.platform, mas: process.mas }) ? WORK_FILES_WIDE_VERSION : 0, meeting: process.mas ? 0 : (win?.meeting.version() ?? 0) } : null
+    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process), workFiles: workFilesVersion({ platform: process.platform, mas: process.mas }), workFilesWide: workFilesVersion({ platform: process.platform, mas: process.mas }) ? WORK_FILES_WIDE_VERSION : 0, meeting: process.mas ? 0 : (win?.meeting.version() ?? 0), downloads: !process.mas } : null
   })
   ipcMain.handle('bridge:browser-run', async (e, raw: unknown) => {
     const call = BrowserCall.safeParse(raw)
@@ -346,6 +347,9 @@ function registerIpc() {
   })
   // the welcome steps' team files: the folder picked last gave nothing to read; 'mac-blocked' when macOS privacy kept the
   // app out of it (a word, never the error's text)
+  // downloads with no save window: the page says it shows the notice, and asks for a saved file by its number only
+  ipcMain.on('bridge:downloads-ready', (e) => fromApp(e) && win!.downloads.pageReady(e.sender))
+  ipcMain.on('bridge:download-show', (e, id: unknown) => fromApp(e) && typeof id === 'number' && Number.isSafeInteger(id) && win!.downloads.show(id))
   ipcMain.handle('bridge:folder-problem', (e, name: unknown) => (fromApp(e) && e.senderFrame ? win!.folderProblem(e.senderFrame.origin, String(name ?? '').slice(0, 1024)) : null))
 
   // meeting notes (main/meeting-control.ts): the page asks; the app shows its own dialog every time and owns the meeting.
@@ -480,6 +484,8 @@ async function createWindow() {
     suggestedTeam: kit.team,
     answerFileChoosers: answersFileChoosers(process.mas === true, app.isPackaged, process.env.MYCEL_DESKTOP_TEST_FILE_CHOOSER),
     macAppStore: process.mas === true,
+    // the Mac App Store build may not write to Downloads without the save window: it keeps the window
+    downloadsDir: () => (process.mas ? null : (!app.isPackaged && process.env.MYCEL_DESKTOP_TEST_DOWNLOADS) || app.getPath('downloads')),
     onTeamsChanged: () => buildMenu(),
     quietStart: resume?.window,
   })
