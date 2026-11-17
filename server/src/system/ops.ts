@@ -53,9 +53,6 @@ export const ENGINE_HOST_DETAIL = 'kept, but the AI engine could not start on th
 /** after a failed nightly backup, the next try waits this long */
 export const DAILY_BACKUP_RETRY_MS = 60 * 60_000
 
-/** the nightly backup starts inside [start, start + this) in the team's time zone */
-export const DAILY_BACKUP_WINDOW_MIN = 180
-
 const RANK: Record<CheckStatus, number> = { ok: 0, unknown: 1, warn: 2, fail: 3 }
 export const worst = (xs: CheckStatus[]): CheckStatus => xs.reduce<CheckStatus>((a, b) => (RANK[b] > RANK[a] ? b : a), 'ok')
 
@@ -895,28 +892,28 @@ export class OpsService {
     return 120 + (crypto.createHash('sha256').update(installId(this.ctx.db)).digest().readUInt16BE(0) % 180)
   }
 
-  /** Nightly backup (QA TC-4755): the first one right after install (no daily backup yet); after that once a night,
-   * inside the window [start, start + 3 h) in the team's time zone; or at any time when the last one is over 30 h old
-   * (the server was off at night). "Once a night": the last daily backup was not in the same night, the team-local date
-   * of (wall time - start), so a window that crosses midnight is one night and a DST night that repeats an hour does
-   * not run twice. The old rule ("20 h since the last one and after the start time") was true until midnight, and the
-   * backup time walked 4 h earlier every day into working hours. */
+  /** Nightly backup (QA TC-4755): the first one right after install (no daily backup yet); after that once a night: when
+   * the last daily backup was in an earlier night than now. The night of an instant is the team-local date of (wall
+   * time - start), so a server that is on runs at the start time (03:00, or the hosted tenant's window start) every
+   * night, and one that was off at the start time runs at the first check after it is back. A start near midnight is one
+   * night across the date change; a DST night that repeats an hour does not run twice, and one that skips the start
+   * hour runs at the first check after it. The night of the last one must be earlier than tonight (not only differ). Backups dated after now (a clock that ran ahead and was set back) do not
+   * count. The old rule ("20 h since the last one and after the start time") was true until midnight, and the backup
+   * time walked 4 h earlier every day into working hours. */
   shouldRunDailyBackup(): boolean {
     const now = this.now()
-    const last = this.backups.metas().filter((m) => m.kind === 'daily').at(-1)
+    const last = this.backups.metas().filter((m) => m.kind === 'daily' && Date.parse(m.createdAt) <= now.getTime()).at(-1)
     // a failed attempt waits an hour (this check runs every 10 minutes; without the wait a backup that keeps failing
-    // read and compressed the whole team folder six times an hour)
+    // read and compressed the whole team folder six times an hour); an error dated after now does not block
     const err = this.backups.lastError()
     const errAt = err ? Date.parse(err.at) : NaN
-    if (Number.isFinite(errAt) && now.getTime() - errAt < DAILY_BACKUP_RETRY_MS && (!last || errAt > Date.parse(last.createdAt))) return false
+    if (Number.isFinite(errAt) && errAt <= now.getTime() && now.getTime() - errAt < DAILY_BACKUP_RETRY_MS && (!last || errAt > Date.parse(last.createdAt))) return false
     if (!last) return true
-    const lastAt = new Date(last.createdAt)
-    if (now.getTime() - lastAt.getTime() > 30 * 3600_000) return true
     const tz = teamTimeZone(this.ctx.db), start = this.backupStartMinute()
-    const p = zonedParts(now, tz)
-    if ((p.h * 60 + p.min - start + 1440) % 1440 >= DAILY_BACKUP_WINDOW_MIN) return false
     const night = (t: Date) => { const q = zonedParts(t, tz); return new Date(Date.UTC(q.y, q.m - 1, q.d, q.h, q.min) - start * 60_000).toISOString().slice(0, 10) }
-    return night(lastAt) !== night(now)
+    // later, not only different: on the night clocks go back, a start inside the repeated hour (02:30) sees the date
+    // before for the next half hour (02:00–02:29 the second time); that must not count as a new night
+    return night(now) > night(new Date(last.createdAt))
   }
 
   start() {
