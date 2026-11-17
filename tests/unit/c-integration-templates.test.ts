@@ -639,11 +639,15 @@ describe('security review 2', () => {
         const st = query.call(db, sql)
         if (!/integration_template_access/.test(sql)) return st
         reads.push(sql)
-        const all = st.all
-        return Object.assign(Object.create(st), { all: (...a: unknown[]) => { const t0 = performance.now(); try { return all.apply(st, a as never) } finally { first += performance.now() - t0 } } })
+        // every call goes to the real statement (its methods need it as `this`), on the clock
+        return new Proxy(st, { get: (target, prop) => {
+          const value = Reflect.get(target, prop, target)
+          if (typeof value !== 'function') return value
+          return (...a: unknown[]) => { const t0 = performance.now(); try { return value.apply(target, a) } finally { first += performance.now() - t0 } }
+        } })
       }) as typeof db.query
       let told: number
-      try { told = service.offerTemplates({ limit: 100_000 }) } finally { db.query = query }
+      try { told = service.offerTemplates({ limit: 100_000 }) } finally { delete (db as { query?: unknown }).query }
       // 50 templates x the 20 group members, nobody else (the old loops took seconds here)
       expect(told).toBe(50 * 20)
       expect(reads).toHaveLength(1)
