@@ -289,52 +289,143 @@ describe('who_can_open, the tool', () => {
   })
 })
 
-describe('post to a room: who cannot open the file, and one tap', () => {
+describe('post to a room: who cannot open the file, one card for the post and the view', () => {
   const link = (rel: string) => `[${rel.split('/').pop()}](/files/view?path=${encodeURIComponent(rel)})`
 
-  test('my own file: the step names the people; Let them view shares with exactly them, via ai; someone who joined since is not granted; a guest never', async () => {
+  const cardsOf = (turnId: string) => socks.alice!.frames.filter((f) => f.type === 'turn.request' && (f as { data: { turnId?: string } }).data.turnId === turnId) as unknown as { data: { request: { question: string; options: { value: string }[] } } }[]
+  const shareAudits = () => (h.ctx.db.query("SELECT COUNT(*) n FROM audit_log WHERE action = 'file.share' AND actor_id = 'alice'").get() as { n: number }).n
+  const postedIn = (room: string, turnId: string) => (h.ctx.db.query("SELECT COUNT(*) n FROM room_messages WHERE room_id = ? AND author_id = 'alice' AND client_id LIKE ? AND deleted_at IS NULL").get(room, `ai-${turnId}-%`) as { n: number }).n
+
+  // one card for the post and the view (docs/decisions/20261117-post-to-room-one-card.md; FL-08 step 1 showed the room
+  // card and then a separate "Let them view" for the same step)
+  test('my own file: ONE card says who will be able to open it; its yes posts AND shares with exactly them, via ai; a guest never', async () => {
     put('users/alice/offer.txt', 'the offer')
     // gus the guest is in the room too (he cannot open the file and is never given it)
     h.ctx.db.query("INSERT OR IGNORE INTO room_members (room_id, user_id, joined_at) SELECT ?, 'gus', joined_at FROM room_members WHERE room_id = ? LIMIT 1").run(rooms.marketing, rooms.marketing)
     try {
-    const r = await turn('alice', post({ room: rooms.marketing, text: `Here it is: ${link('users/alice/offer.txt')}` }), { answer: 'send' })
-    const out = JSON.parse(r.content)
-    expect(out.status).toBe('sent')
-    expect(out.cannot_open).toContain('1 person there cannot open the file yet')
-    expect(out.cannot_open).toContain('labelled "Let them view"')
-    expect(out.cannot_open).not.toContain('Erin')
-    const [fix] = fixesOf(r.steps, 'post_to_room')
-    expect(fix).toMatchObject({ kind: 'let_view', file: 'offer.txt', people: ['Erin Yoo'], count: 1, guests: 1, state: 'open' })
-    expect(fix!.place).toContain('Marketing')
-    // tess joins the room after the card
-    h.ctx.db.query("INSERT INTO room_members (room_id, user_id, joined_at) SELECT ?, 'tess', joined_at FROM room_members WHERE room_id = ? LIMIT 1").run(rooms.marketing, rooms.marketing)
-    const before = (h.ctx.db.query("SELECT COUNT(*) n FROM audit_log WHERE action = 'file.share' AND actor_id = 'alice'").get() as { n: number }).n
-    // nobody but alice can run it
-    await expect(run('erin', fix!.id)).rejects.toMatchObject({ status: 404 })
-    expect(await run('alice', fix!.id)).toEqual({ state: 'done', doneCount: 1, left: 1 })
-    expect(grants('users/alice/offer.txt')).toEqual(['erin'])
-    expect(route('tess', 'users/alice/offer.txt')).toBeNull()
-    expect(route('gus', 'users/alice/offer.txt')).toBeNull()
-    const a = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'file.share' AND actor_id = 'alice' ORDER BY id DESC").get() as { detail: string }
-    expect(JSON.parse(a.detail)).toMatchObject({ via: 'ai', people: 1 })
-    expect((h.ctx.db.query("SELECT COUNT(*) n FROM audit_log WHERE action = 'file.share' AND actor_id = 'alice'").get() as { n: number }).n).toBe(before + 1)
-    // the step shows it done from now on; a second tap changes nothing
-    expect(currentFixes(h.ctx.db, [fix!])[0]).toMatchObject({ state: 'done', doneCount: 1 })
-    expect(await run('alice', fix!.id)).toMatchObject({ state: 'done', doneCount: 1 })
-    expect(grants('users/alice/offer.txt')).toEqual(['erin'])
-    // erin opens the path link of the room message through her share
-    expect((await h.api('erin').call(API.grantedFileLink, { query: { path: 'users/alice/offer.txt' } })).id).toMatch(/^[A-Za-z0-9_-]{22}$/)
-    expect((await h.api('tess').call(API.grantedFileLink, { query: { path: 'users/alice/offer.txt' } })).id).toBeNull()
-    expect((await h.api('alice').call(API.grantedFileLink, { query: { path: 'users/alice/offer.txt' } })).id).toBeNull()
-    expect((await h.api('tess').call(API.grantedFileLink, { query: { path: 'users/alice/none.txt' } })).id).toBeNull()
-    } finally { h.ctx.db.query("DELETE FROM room_members WHERE room_id = ? AND user_id IN ('tess', 'gus')").run(rooms.marketing) }
+      const before = shareAudits()
+      const r = await turn('alice', post({ room: rooms.marketing, text: `Here it is: ${link('users/alice/offer.txt')}` }), { answer: 'send' })
+      // exactly one card in the whole turn, and it names the view: the count and the file, from the server's records
+      const cards = cardsOf(r.turnId)
+      expect(cards).toHaveLength(1)
+      const q = cards[0]!.data.request.question
+      expect(q).toContain('1 person there will be able to open offer.txt.')
+      // the same card does not also say they can't open it, and names nobody
+      expect(q).not.toContain("2 people can't open")
+      expect(q).toContain("1 person can't open 1 linked file.")
+      expect(q).not.toContain('Erin')
+      expect(cards[0]!.data.request.options.map((o) => o.value)).toContain('send')
+      // both effects: the post went, and erin (only erin) can open the file now
+      const out = JSON.parse(r.content)
+      expect(out.status).toBe('sent')
+      expect(postedIn(rooms.marketing, r.turnId)).toBe(1)
+      expect(grants('users/alice/offer.txt')).toEqual(['erin'])
+      expect(route('erin', 'users/alice/offer.txt')).not.toBeNull()
+      expect(route('gus', 'users/alice/offer.txt')).toBeNull()
+      expect(shareAudits()).toBe(before + 1)
+      const a = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'file.share' AND actor_id = 'alice' ORDER BY id DESC").get() as { detail: string }
+      expect(JSON.parse(a.detail)).toMatchObject({ via: 'ai', people: 1 })
+      // the AI is told it is done (no names), and there is no button left to press: the step shows it done
+      expect(out.can_open_now).toContain('1 person there can now open the file')
+      expect(out.can_open_now).not.toContain('Erin')
+      expect(out.cannot_open).toBeUndefined()
+      const fixes = fixesOf(r.steps, 'post_to_room')
+      expect(fixes).toHaveLength(1)
+      expect(fixes[0]).toMatchObject({ kind: 'let_view', file: 'offer.txt', state: 'done', doneCount: 1, guests: 1 })
+      expect(fixes.some((f) => f.state === 'open')).toBe(false)
+      // erin opens the path link of the room message through her share
+      expect((await h.api('erin').call(API.grantedFileLink, { query: { path: 'users/alice/offer.txt' } })).id).toMatch(/^[A-Za-z0-9_-]{22}$/)
+    } finally { h.ctx.db.query("DELETE FROM room_members WHERE room_id = ? AND user_id = 'gus'").run(rooms.marketing) }
   })
 
-  test('someone who left the room before the tap is not granted; with nobody left the offer is gone', async () => {
+  test('no on the one card: nothing posted and nothing shared', async () => {
+    put('users/alice/offer-no.txt', 'not this one')
+    const before = shareAudits()
+    const r = await turn('alice', post({ room: rooms.marketing, text: `Not this: ${link('users/alice/offer-no.txt')}` }), { answer: 'no' })
+    expect(cardsOf(r.turnId)).toHaveLength(1)
+    expect(postedIn(rooms.marketing, r.turnId)).toBe(0)
+    expect(grants('users/alice/offer-no.txt')).toEqual([])
+    expect(shareAudits()).toBe(before)
+    expect(fixesOf(r.steps, 'post_to_room')).toEqual([])
+  })
+
+  test('Always allow stays final: no card, the post goes, nothing is shared without a tap (the button stays, as before)', async () => {
+    put('users/alice/offer-always.txt', 'always')
+    const { keepAlways } = await import('../../server/src/chat/always-allow')
+    h.ctx.db.query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run()
+    keepAlways(h.ctx.db, 'alice', 'post_files', null)
+    keepAlways(h.ctx.db, 'alice', 'post_to_room', null)
+    try {
+      // (own words: no "send with the files" choice, so the file stays a link)
+      const r = await turn('alice', post({ room: rooms.marketing, own_words: true, text: `Always: ${link('users/alice/offer-always.txt')}` }))
+      expect(cardsOf(r.turnId)).toHaveLength(0)
+      expect(postedIn(rooms.marketing, r.turnId)).toBe(1)
+      expect(grants('users/alice/offer-always.txt')).toEqual([])
+      const [fix] = fixesOf(r.steps, 'post_to_room')
+      expect(fix).toMatchObject({ kind: 'let_view', people: ['Erin Yoo'], state: 'open' })
+    } finally { h.ctx.db.query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run() }
+  })
+
+  test('the grant fails after the post went (the team turned off members\' sharing while the card waited): the post stays, nothing is shared, the AI is told', async () => {
+    put('users/alice/offer-3.txt', 'third')
+    const { updateTeamSettings } = await import('../../server/src/admin/settings')
+    const chatId = (await h.api('alice').call(API.createChat, { body: {} })).id
+    const s = await h.api('alice').call(API.sendMessage, { params: { id: chatId }, body: { content: post({ room: rooms.marketing, text: `Third: ${link('users/alice/offer-3.txt')}` }), clientMessageId: cm(), attachmentIds: [] } })
+    const c = await socks.alice!.next('turn.request', (f) => f.data.turnId === s.turnId)
+    expect((c.data.request as { question: string }).question).toContain('1 person there will be able to open offer-3.txt.')
+    updateTeamSettings(h.ctx.db, { memberFileShares: false })
+    try {
+      await h.api('alice').call(API.answerTurn, { params: { id: s.turnId }, body: { kind: 'ask_user', requestId: c.data.request.requestId, answer: 'send' } })
+      const done = await socks.alice!.next('message.done', (f) => f.data.messageId === s.assistantMessage.id, 30_000)
+      const out = JSON.parse(done.data.message.content as string)
+      expect(out.status).toBe('sent')
+      expect(postedIn(rooms.marketing, s.turnId)).toBe(1)
+      expect(grants('users/alice/offer-3.txt')).toEqual([])
+      expect(out.cannot_open).toContain('The post went, but giving those people access to the file did not work')
+      expect(out.can_open_now).toBeUndefined()
+      // no offer of that card is left behind
+      expect((h.ctx.db.query("SELECT COUNT(*) n FROM share_fix_offers WHERE chat_id = ? AND kind = 'let_view' AND state = 'open'").get(chatId) as { n: number }).n).toBe(0)
+    } finally { updateTeamSettings(h.ctx.db, { memberFileShares: true }) }
+  })
+
+  test('someone who joins the room while the card waits: nothing is posted or shared (the card named the people)', async () => {
+    put('users/alice/offer-join.txt', 'join')
+    const chatId = (await h.api('alice').call(API.createChat, { body: {} })).id
+    const s = await h.api('alice').call(API.sendMessage, { params: { id: chatId }, body: { content: post({ room: rooms.marketing, text: `Join: ${link('users/alice/offer-join.txt')}` }), clientMessageId: cm(), attachmentIds: [] } })
+    const c = await socks.alice!.next('turn.request', (f) => f.data.turnId === s.turnId)
+    h.ctx.db.query("INSERT INTO room_members (room_id, user_id, joined_at) SELECT ?, 'tess', joined_at FROM room_members WHERE room_id = ? LIMIT 1").run(rooms.marketing, rooms.marketing)
+    try {
+      await h.api('alice').call(API.answerTurn, { params: { id: s.turnId }, body: { kind: 'ask_user', requestId: c.data.request.requestId, answer: 'send' } })
+      const done = await socks.alice!.next('message.done', (f) => f.data.messageId === s.assistantMessage.id, 30_000)
+      expect(done.data.message.content as string).toContain('changed while the card waited')
+      expect(postedIn(rooms.marketing, s.turnId)).toBe(0)
+      expect(grants('users/alice/offer-join.txt')).toEqual([])
+    } finally { h.ctx.db.query("DELETE FROM room_members WHERE room_id = ? AND user_id = 'tess'").run(rooms.marketing) }
+  })
+
+  test('the "Let them view" button itself (Always allow, a new 1:1 chat): only its person runs it, once; someone who joined since is not granted', async () => {
+    put('users/alice/offer-tap.txt', 'tap')
+    const chatId = (await h.api('alice').call(API.createChat, { body: {} })).id
+    const [fix] = shareFixesOf(h.ctx).forFiles('alice', chatId, [{ path: 'users/alice/offer-tap.txt', people: ['erin'] }], { roomId: rooms.marketing, place: '#Marketing' })
+    expect(fix).toMatchObject({ kind: 'let_view', file: 'offer-tap.txt', people: ['Erin Yoo'], count: 1, state: 'open' })
+    // tess joins the room after the offer
+    h.ctx.db.query("INSERT INTO room_members (room_id, user_id, joined_at) SELECT ?, 'tess', joined_at FROM room_members WHERE room_id = ? LIMIT 1").run(rooms.marketing, rooms.marketing)
+    try {
+      await expect(run('erin', fix!.id)).rejects.toMatchObject({ status: 404 })
+      expect(await run('alice', fix!.id)).toEqual({ state: 'done', doneCount: 1, left: 1 })
+      expect(grants('users/alice/offer-tap.txt')).toEqual(['erin'])
+      expect(route('tess', 'users/alice/offer-tap.txt')).toBeNull()
+      expect(currentFixes(h.ctx.db, [fix!])[0]).toMatchObject({ state: 'done', doneCount: 1 })
+      expect(await run('alice', fix!.id)).toMatchObject({ state: 'done', doneCount: 1 })
+      expect(grants('users/alice/offer-tap.txt')).toEqual(['erin'])
+      expect((await h.api('tess').call(API.grantedFileLink, { query: { path: 'users/alice/offer-tap.txt' } })).id).toBeNull()
+    } finally { h.ctx.db.query("DELETE FROM room_members WHERE room_id = ? AND user_id = 'tess'").run(rooms.marketing) }
+  })
+
+  test('the button: someone who left the room before the tap is not granted; with nobody left the offer is gone', async () => {
     put('users/alice/offer-2.txt', 'the second offer')
-    const r = await turn('alice', post({ room: rooms.marketing, text: `Again: ${link('users/alice/offer-2.txt')}` }), { answer: 'send' })
-    const [fix] = fixesOf(r.steps, 'post_to_room')
-    expect(fix).toMatchObject({ kind: 'let_view', people: ['Erin Yoo'] })
+    const chatId = (await h.api('alice').call(API.createChat, { body: {} })).id
+    const [fix] = shareFixesOf(h.ctx).forFiles('alice', chatId, [{ path: 'users/alice/offer-2.txt', people: ['erin'] }], { roomId: rooms.marketing })
     const kept = h.ctx.db.query("SELECT * FROM room_members WHERE room_id = ? AND user_id = 'erin'").get(rooms.marketing) as Record<string, unknown>
     h.ctx.db.query("DELETE FROM room_members WHERE room_id = ? AND user_id = 'erin'").run(rooms.marketing)
     try {
@@ -344,6 +435,21 @@ describe('post to a room: who cannot open the file, and one tap', () => {
       const cols = Object.keys(kept)
       h.ctx.db.query(`INSERT INTO room_members (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...(Object.values(kept) as never[]))
     }
+  })
+
+  test('the button: a let_view offer whose owner lost the right is refused at the tap and stays open', async () => {
+    put('users/alice/offer-4.txt', 'fourth')
+    const chatId = (await h.api('alice').call(API.createChat, { body: {} })).id
+    const [fix] = shareFixesOf(h.ctx).forFiles('alice', chatId, [{ path: 'users/alice/offer-4.txt', people: ['erin'] }], { roomId: rooms.marketing })
+    expect(fix!.kind).toBe('let_view')
+    const { updateTeamSettings } = await import('../../server/src/admin/settings')
+    updateTeamSettings(h.ctx.db, { memberFileShares: false })
+    try {
+      await expect(run('alice', fix!.id)).rejects.toMatchObject({ status: 403 })
+      expect(currentFixes(h.ctx.db, [fix!])[0]!.state).toBe('open')
+      expect(grants('users/alice/offer-4.txt')).toEqual([])
+    } finally { updateTeamSettings(h.ctx.db, { memberFileShares: true }) }
+    expect(await run('alice', fix!.id)).toMatchObject({ state: 'done', doneCount: 1 })
   })
 
   test('not my file: the people are counted, not named; Ask <owner> sends the request for them; I cannot use Let them view on it', async () => {
@@ -370,21 +476,6 @@ describe('post to a room: who cannot open the file, and one tap', () => {
     expect(told).toEqual(['alice'])
     // a request someone asked for bob does not use up bob's own asks
     expect((h.ctx.db.query("SELECT COUNT(*) n FROM file_access_requests WHERE requester_id = 'bob' AND asked_by IS NULL").get() as { n: number }).n).toBe(0)
-  })
-
-  test('a let_view offer whose owner lost the right is refused at the tap and stays open', async () => {
-    put('users/alice/offer-3.txt', 'third')
-    const r = await turn('alice', post({ room: rooms.marketing, text: `Third: ${link('users/alice/offer-3.txt')}` }), { answer: 'send' })
-    const [fix] = fixesOf(r.steps, 'post_to_room')
-    expect(fix!.kind).toBe('let_view')
-    const { updateTeamSettings } = await import('../../server/src/admin/settings')
-    updateTeamSettings(h.ctx.db, { memberFileShares: false })
-    try {
-      await expect(run('alice', fix!.id)).rejects.toMatchObject({ status: 403 })
-      expect(currentFixes(h.ctx.db, [fix!])[0]!.state).toBe('open')
-      expect(grants('users/alice/offer-3.txt')).toEqual([])
-    } finally { updateTeamSettings(h.ctx.db, { memberFileShares: true }) }
-    expect(await run('alice', fix!.id)).toMatchObject({ state: 'done', doneCount: 1 })
   })
 
   test('everyone there can open it: no line, no button', async () => {
