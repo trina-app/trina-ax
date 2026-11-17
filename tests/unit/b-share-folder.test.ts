@@ -18,7 +18,7 @@ import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { SHARE_FOLDER_TOOL_DESCRIPTION, shareFolderOff } from '../../server/src/chat/share-folder'
 import { WHO_CAN_OPEN_DESCRIPTION } from '../../server/src/chat/who-can-open'
 import { namesFolder } from '../../server/src/chat/shared-actions'
-import { FIND_FOLDER_LINE, REFUSAL_NEXT_RULE, REFUSAL_NEXT_RULE_FOLDERS, SHARE_FOLDER_DESCRIPTION, SHARE_FOLDER_RULE, TEAM_FOLDER_CALL } from '../../server/src/chat/share-words'
+import { FIND_FOLDER_LINE, REFUSAL_NEXT_RULE, REFUSAL_NEXT_RULE_FOLDERS, SAME_NAME_ACT_LINE, SHARE_FOLDER_DESCRIPTION, SHARE_FOLDER_RULE, TEAM_FOLDER_CALL } from '../../server/src/chat/share-words'
 import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
 import { OWN_WORDS_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
 import { fileSharesOf } from '../../server/src/files/shares'
@@ -209,6 +209,7 @@ describe('sharing a folder: always the card', () => {
     expect(TEAM_FOLDER_CALL).toContain('call the tool anyway (share_folder, or change_folder_access')
     expect(TEAM_FOLDER_CALL).toContain('"Ask an admin"')
     for (const s of [SHARE_FOLDER_TOOL_DESCRIPTION, SHARE_FOLDER_RULE]) { expect(s).toContain(FIND_FOLDER_LINE); expect(s).toContain(TEAM_FOLDER_CALL) }
+    expect(SHARE_FOLDER_TOOL_DESCRIPTION).toContain(SAME_NAME_ACT_LINE)
     expect(WHO_CAN_OPEN_DESCRIPTION).toContain(FIND_FOLDER_LINE)
     // the gate closed: share_with_person's interim folder words find the folder too; the refusal rule names only the
     // tool that is there (never share_folder)

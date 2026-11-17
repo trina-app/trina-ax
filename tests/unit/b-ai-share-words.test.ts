@@ -16,7 +16,7 @@ import { buildTurnPrompt, ROOMS_POST_RULE, sharedSection, SOURCE_LINK_RULE, type
 import { POST_TO_ROOM_DESCRIPTION, postRefusal } from '../../server/src/chat/post-to-room'
 import { SHARE_WITH_PERSON_DESCRIPTION } from '../../server/src/chat/share-with-person'
 import {
-  CARD_WORDS_RULE, cardTextWords, fileWords, optionWords, threadOptionWords, OTHERS_WORDS_RULE, othersWordsCard, pathsToWords, plainQuote, POST_FILE_DESCRIPTION, POST_FILE_RULE, POST_NO, REFUSAL_NEXT_RULE, SAME_NAME_RULE,
+  CARD_WORDS_RULE, cardTextWords, fileWords, optionWords, threadOptionWords, OTHERS_WORDS_RULE, othersWordsCard, pathsToWords, plainQuote, POST_FILE_DESCRIPTION, POST_FILE_RULE, POST_NO, REFUSAL_NEXT_RULE, SAME_NAME_ACT_LINE, SAME_NAME_RULE,
   sendNotConnectedRule, SHARE_ALREADY_NOTE, SHARE_FOLDER_DESCRIPTION, SHARE_NO, shareableIn, sharedCommentsLine, threadSendToAi, WHICH_THREAD_RULE,
 } from '../../server/src/chat/share-words'
 import { TEXT, tr } from '../../server/src/chat/i18n'
@@ -51,7 +51,11 @@ describe('the rules', () => {
     expect(SAME_NAME_RULE).toContain('if one was made, read or attached in this chat, use it without asking and say which')
     // TC-4091 (the owner's rule, 2026-11-16): reading may answer each one, labelled; an action always asks which one
     expect(SAME_NAME_RULE).toContain('to only read or summarise, you may answer for each of them, each part labelled by its place in words and, for a file shared with the user, who shared it and when')
-    expect(SAME_NAME_RULE).toContain('To act on one (share, post, edit, delete, move, rename), never pick: ask which one')
+    expect(SAME_NAME_RULE).toContain('To act on one (share, stop sharing, post, edit, delete, move, rename), never pick: ask which one')
+    // only the files the user can do that to are choices; one is used without asking; none is said with the next step
+    expect(SAME_NAME_RULE).toContain('offer as choices only the files the user can do that to')
+    expect(SAME_NAME_RULE).toContain('If only one of them can be, use it without asking and say which by its place in words; if none can, say so plainly with the next step.')
+    expect(SHARE_WITH_PERSON_DESCRIPTION).toContain(SAME_NAME_ACT_LINE)
   })
 
   test('no team path in a card\'s question or options either; every option reads differently', () => {
