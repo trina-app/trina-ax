@@ -6,7 +6,6 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { MEETINGS_LABEL, PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
-import { FOLDER_SHARES_OPEN } from '../../server/src/files/folder-share-gate'
 import { APP_MAP_KEYS, APP_MAP_PLACES, appLabel, appMapSection, appMapView, type AppMapInput } from '../../server/src/chat/app-map'
 import { APP_MAP_LABELS } from '../../server/src/chat/app-map-labels'
 import { SHARED_PROMPT_SECTIONS } from '../../server/src/chat/prompt'
@@ -241,8 +240,7 @@ describe('five places with no line before (catalog rerun 2026-11-17: ACC-04/05/0
     has('web/src/pages/Files.tsx', 'folderAccess.menu')
     has('web/src/components/FolderShareParts.tsx', 'fileShare.stop')
     has('web/src/components/FolderShareParts.tsx', 'common.undo')
-    // the map says a folder can be shared: the gate is open on this build (files/folder-share-gate.ts)
-    expect(FOLDER_SHARES_OPEN).toBe(true)
+    // the map says a folder can be shared: folder sharing is always on (its rollout gate was removed on dev)
     // "Open the app" and "Take meeting notes" are both on My files (Files.tsx)
     expect(read('web/src/pages/Files.tsx')).toContain('<OpenAppLine')
     expect(read('web/src/pages/Files.tsx')).toContain('<MeetingNotesEntry')
