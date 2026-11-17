@@ -1,16 +1,12 @@
 // Meeting notes behind the bridge (desktop/src/main/meeting-control.ts): nothing listens without the app's own yes,
 // one meeting at a time, the page hears state and lines, "can't hear the call" while a call app runs and its sound
 // stays silent, and the bridge objects (preload) only where the app offers it.
-import { describe, expect, mock, test } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-// the main process's Electron parts are not used here (the dialog and the menu bar item are injected / off)
-// bun keeps a module mock for every later test file of the same run, so this one also names what the other desktop
-// tests' modules import from electron (office-update-desktop-updater: session, app, …); without them that file fails with
-// "Export named 'session' not found" whenever the two share a CI shard
-mock.module('electron', () => ({ dialog: {}, Menu: {}, nativeImage: {}, shell: {}, Tray: class {}, app: {}, session: {}, powerMonitor: {}, BaseWindow: {}, autoUpdater: {} }))
-const { MeetingControl, NO_CALL_SOUND_MS } = await import('../../desktop/src/main/meeting-control')
+// no Electron here: meeting-control.ts loads its dialog and menu bar item only when used (both are injected / off)
+import { MeetingControl, NO_CALL_SOUND_MS } from '../../desktop/src/main/meeting-control'
 import type { DesktopMeetingState } from '../../shared/src/desktop-bridge'
 
 const frame = (kind: number, samples: Float32Array) => {

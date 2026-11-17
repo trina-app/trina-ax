@@ -1,7 +1,8 @@
 // A folder in a person's own files, shared with teammates or groups (server/src/files/folder-shares.ts,
 // share-places.ts, share-undo.ts, team-files/stream-checked.ts; docs/decisions/20261116-folder-share-server.md).
 // What must hold (the tests the security review of the design asked for are marked (R)):
-//  1. With the gate closed nobody can share a folder, by any route.
+//  1. With the gate closed (a one-line switch in code, open by default; tests close it with config.folderShares) nobody
+//     can share a folder, by any route.
 //  2. A shared folder opens only by its link id, for the people on it: names, sizes, times and current bytes. Never by
 //     path, never versions, history or text; the folder rules are untouched (admins too stay out of users/<id>/).
 //  3. Places the server keeps are never shared, by name in every case, width, Unicode form and language (R).
@@ -58,7 +59,7 @@ const uid = (username: string) => (h.ctx.db.query('SELECT id FROM users WHERE us
 const closedFor = async (c: Client, id: string) => { const r = await c.try('GET', `/api/files/shared/${id}`); return r.status !== 200 || (r.body.status === 'no_access' && r.body.canAsk === false) }
 
 beforeAll(async () => {
-  h = await harness('sec-folder-shares', { folderShares: true })
+  h = await harness('sec-folder-shares')
   root = h.ctx.files.fx.root
   owner = await withOwner(h)
   admin = (await addMember(h, owner, { username: 'adam', role: 'admin' })).client
@@ -78,7 +79,7 @@ beforeEach(() => { bucket() })
 describe('1. the gate', () => {
   let g: Harness, o: Client, m: Client, mid: string
   beforeAll(async () => {
-    g = await harness('sec-folder-shares-gate')
+    g = await harness('sec-folder-shares-gate', { folderShares: false })
     o = await withOwner(g)
     const a = await addMember(g, o, { username: 'mina' })
     m = a.client; mid = a.id
@@ -86,8 +87,8 @@ describe('1. the gate', () => {
     fs.writeFileSync(path.join(g.ctx.files.fx.root, 'users', mid, 'Work', 'a.txt'), 'a')
   }, 60_000)
   afterAll(() => g.close())
-  test('closed by default: no route makes a folder share, and the answers are the ones before this work', async () => {
-    expect(g.ctx.config.folderShares).toBeUndefined()
+  test('closed: no route makes a folder share, and the answers are the ones before this work', async () => {
+    expect(g.ctx.config.folderShares).toBe(false)
     const p = `users/${mid}/Work`
     const put = await m.try('PUT', '/api/files/shares', { path: p, add: [user('someone')], remove: [] })
     expect(put.status).toBe(400)

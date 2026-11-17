@@ -19,7 +19,7 @@ on:
         required: true
         type: string
       runner:
-        description: the hosted macOS runner (empty = the repository variable RELEASE_MAC_RUNNER, else macos-15)
+        description: the macOS runner (empty = the repository variable RELEASE_MAC_RUNNER when release.yml calls this at a v* tag, else macos-15)
         required: false
         default: ""
         type: string
@@ -41,7 +41,7 @@ on:
   workflow_dispatch:
     inputs:
       runner:
-        description: "The hosted macOS runner; empty = RELEASE_MAC_RUNNER, else macos-15"
+        description: "The hosted macOS runner; empty = macos-15 (macos-15-intel when the arm64 pool has no capacity)"
         required: false
         default: ""
         type: string
@@ -64,12 +64,29 @@ env:
 jobs:
   build:
     name: whisper-cli (darwin-arm64, Metal${{ github.event_name == 'pull_request' && ', unsigned' || ', Developer ID, notarized' }})
-    runs-on: ${{ inputs.runner || vars.RELEASE_MAC_RUNNER || 'macos-15' }}
+    # RELEASE_MAC_RUNNER (which may name the self-hosted release Mac, docs/RELEASE-CI.md 13) applies only when release.yml
+    # at a v* tag called this (github.workflow_ref is the caller's); pull requests and "Run workflow" here stay hosted
+    runs-on: ${{ inputs.runner || (startsWith(github.workflow_ref, 'trina-app/trina-ax/.github/workflows/release.yml@refs/tags/v') && vars.RELEASE_MAC_RUNNER) || 'macos-15' }}
     # the build takes 2-4 minutes; Apple's notary service the rest (one submission took 25-35 minutes on 2026-11-15)
     timeout-minutes: 90
     env:
       SIGN: ${{ github.event_name != 'pull_request' }}
     steps:
+      # the self-hosted release Mac (docs/RELEASE-CI.md 13) takes only release.yml at a v* tag of this repository (tag
+      # push or Run workflow with the tag); its job-started hook checks the same on the host before any step
+      - name: Release Mac runner guard
+        if: runner.environment == 'self-hosted'
+        env:
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          refuse() { echo "::error::the self-hosted release Mac runs only release.yml at a v* tag of trina-app/trina-ax: $*"; exit 1; }
+          [ "$REPO" = trina-app/trina-ax ] || refuse "repository $REPO"
+          [ "$EVENT" = push ] || [ "$EVENT" = workflow_dispatch ] || refuse "event $EVENT"
+          [[ "$REF" == refs/tags/v* ]] || refuse "ref $REF"
+          [[ "$WORKFLOW_REF" == "trina-app/trina-ax/.github/workflows/release.yml@refs/tags/v"* ]] || refuse "workflow $WORKFLOW_REF"
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ inputs.ref || github.sha }}

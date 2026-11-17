@@ -144,6 +144,8 @@ export function fileAccess(ctx: AppContext, askerId: string, input: string): Fil
   const shares = fileSharesOf(ctx)
   let v
   try { v = shares.view(askerId, input, 'en') } catch { return null }
+  // a folder (the view answers for one once folder sharing is on): folderAccess answers it, never as a file
+  if (v.kind === 'folder') return null
   const segs = segsOf(v.path)
   const full = v.canShare || v.mine
   const staff = isStaff(me)
