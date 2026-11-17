@@ -75,6 +75,7 @@ export const FEATURE_SCOPE: Record<string, Scope> = {
   'rooms.threads': { reach: 'acts', tools: ['room_read', 'post_to_room'] },
   'rooms.reactions': { reach: 'explains' },
   'rooms.message-links': { reach: 'explains' },
+  'rooms.sent-files': { reach: 'none', why: 'a page of a person\'s own sent files in rooms, not asked of the AI' },
   'rooms.members': { reach: 'explains' },
   'rooms.hide-pin': { reach: 'explains' },
   'rooms.files': { reach: 'acts', tools: ['room_file', 'save_room_file'] },
