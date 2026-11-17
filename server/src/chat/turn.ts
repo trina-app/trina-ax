@@ -2733,6 +2733,9 @@ export class TurnExec {
       // a file this chat made, changed in a later answer (docs/decisions/20261117-own-folder-chat-made-no-card.md):
       // only in the person's own chat (not a chat shared with others now, not a restricted turn), where nobody else can
       // open the file in any way (onlyMine) and the server's file events say this chat made it (madeInChat)
+      // an existing file is changed only by the AI's own writing or a converter (never save_room_file: a room's bytes
+      // as they are over the person's draft; security review of this change)
+      if (r.exists && tool === 'save_room_file') return null
       if (r.exists && (!r.st?.isFile() || !(this.roomMadeHere(r.rel) || (!this.shared && !this.restricted && this.onlyMine(segs) && madeInChat(this.rt.db, this.spec.chatId, this.spec.userId, r.rel))))) return null
       if (!r.exists && !t.mayBeNew) return null
       // a path an AI turn put in the trash (delete_files) is not a new file: writing it again without a card would put

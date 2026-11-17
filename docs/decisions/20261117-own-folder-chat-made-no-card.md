@@ -24,7 +24,8 @@
     (copy_files, move_files, rename_file, the Files screen), a save from the web or a room, an upload, a restore, a
     change by the person on the Files screen, by another chat or by anyone else: not made by this chat.
   - **(c) nothing widens and nothing is special.** Only the writes the own-folder rule already took (write, edit,
-    make_file, edit_hwp, save_room_file's new file): never a share, a move out, a copy, a rename, a delete or a room
+    make_file, edit_hwp, save_room_file's new file); an existing file is never replaced by save_room_file (a room's
+    bytes as they are), also one made in the same answer: never a share, a move out, a copy, a rename, a delete or a room
     post, which keep their own cards. Never a skill, a person's skills folder, an instruction file (CLAUDE.md,
     AGENTS.md, GEMINI.md, SKILL.md), a hidden folder (.attachments), a plugin's folder or a project's folder; never in
     a confidential chat, a chat shared with others now, or a restricted turn.
@@ -40,9 +41,14 @@
   list and the step line), and the draft can be fixed again. A file made from a source (make_file printing the page)
   counts as made by the chat: it is new bytes at a new path, and changing it again destroys nothing but that output;
   the source stays as it was.
+- **Independent review (Opus):** one must-fix, in: save_room_file could save a room's file over a draft the chat made
+  (a teammate's bytes, a format write cannot produce) with no card; an existing file now always asks for it, also one
+  made in the same answer (that hole was older than this change). Optional, not done: re-checking the own-folder pass
+  right before make_file or edit_hwp writes after another card waited (only a parallel sub-agent call could change the
+  file's audience in that gap; calls that change things run one at a time).
 - **Rule A is unchanged:** Always allow stays final; this rule is for people who have not chosen it.
 - **Results:** FL-08 and FL-12, default and always, before and after: see the PR.
 - **Tests:** tests/unit/b-own-folder-chat-made.test.ts (FL-08's own-folder cards gone; a card each for a shared
   personal subfolder, a file with a link, a file there before, one made by another chat, one the person changed, a
-  copied file, a renamed file, a skill file, an instruction file and a group folder).
+  copied file, a renamed file, a skill file, an instruction file, a group folder and a room file saved over the draft).
 - **Version impact:** patch (fewer cards; no schema change).

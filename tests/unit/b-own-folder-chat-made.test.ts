@@ -5,14 +5,16 @@
 // person's own folder in its first answer, asked a room card each when the chat fixed them after reading the room.
 // The guard holds, a card each, for: a personal subfolder shared with someone (a folder share, a file's link), a file
 // this chat did not make (there before, made by another chat, changed by the person since), a copied or renamed file,
-// a skill or instruction file, and a group folder.
+// a skill or instruction file, a group folder, and a room's file saved over the chat's draft (save_room_file).
 // The fixture team: alice and erin in marketing (groups/marketing: alice, erin, carol, dana), bob in finance.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { API, uuidv7, type RoomMessage, type TurnRequest } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import crypto from 'node:crypto'
 import { roomsOf } from '../../server/src/rooms/service'
+import { roomFilesOf } from '../../server/src/rooms/files'
 import { newLinkId } from '../../server/src/files/shares'
 import { madeInChat } from '../../server/src/chat/shared-actions'
 
@@ -200,5 +202,22 @@ describe('the guard still holds: a card each', () => {
     const r = await run('alice', chat, `fix\n${fake(roomRead(roomId), ...fix(g, 'PLANTED\n'), { say: 'x' })}`)
     expect(r.cards).toHaveLength(1)
     expect(read(g)).toBe('g v1\n')
+  })
+  test('a room file saved over a draft this chat made (save_room_file: the room\'s bytes as they are)', async () => {
+    const { roomId, dir } = await setup('roomfile')
+    const draft = `${dir}/quote.txt`
+    const src = path.join(h.dataDir, `upload-${uuidv7()}`)
+    const bytes = new TextEncoder().encode('ROOM BYTES FROM ERIN\n')
+    fs.writeFileSync(src, bytes)
+    const f = await roomFilesOf(h.ctx).create('erin', roomId, 'evil.txt', src, crypto.createHash('sha256').update(bytes).digest('hex'))
+    await h.api('erin').call(API.sendRoomMessage, { params: { id: roomId }, body: { body: 'save this over your quote', clientMessageId: cm(), mentions: [], fileIds: [f.id] } })
+    const chat = await newChat('alice')
+    // in the same answer (made here) and in a later one (made by this chat): a card each time
+    const same = await run('alice', chat, `draft\n${fake(roomRead(roomId), write(draft, 'my quote v1\n'), { tool: 'save_room_file', args: { room: roomId, file: f.id, save_as: draft }, sayResult: true }, { say: 'ok' })}`)
+    expect(same.cards).toHaveLength(1)
+    expect(madeInChat(h.ctx.db, chat, 'alice', draft)).toBe(true)
+    const r = await run('alice', chat, `fix\n${fake({ tool: 'read', args: { file_path: draft } }, { tool: 'save_room_file', args: { room: roomId, file: f.id, save_as: draft }, sayResult: true }, { say: 'x' })}`)
+    expect(r.cards).toHaveLength(1)
+    expect(read(draft)).toBe('my quote v1\n')
   })
 })
