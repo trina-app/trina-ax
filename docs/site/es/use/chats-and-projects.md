@@ -292,6 +292,8 @@ Empiece un chat desde la página del proyecto, o lleve un chat a él con **Mover
 
 Pulse ⌘K (Ctrl+K en Windows) o elija **Buscar** bajo **Preguntar a Trina** para encontrar chats, mensajes de sus conversaciones, proyectos, archivos, habilidades, tareas programadas y conexiones MCP. [Más información sobre la búsqueda y la configuración](settings-and-search.md).
 
+**Archivos que envió.** Escriba "Archivos que envió" en Buscar, o ábralo desde un aviso, para ver los archivos que envió en sus conversaciones, los más grandes primero, con el espacio que ocupan. Eliminar uno elimina el mensaje con el que se envió, para todos en la conversación.
+
 ## Chats eliminados
 
 Al eliminar un chat se mueve a **Historial eliminado**, donde puede recuperarlo durante 7 días de forma predeterminada. Los administradores pueden elegir de 1 a 365 días.

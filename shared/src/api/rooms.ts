@@ -685,6 +685,12 @@ export const RoomFileSearchHit = z.object({
 export type RoomFileSearchHit = z.infer<typeof RoomFileSearchHit>
 export const RoomFileSearchPage = z.object({ items: z.array(RoomFileSearchHit), rooms: z.array(RoomSearchRoom), nextCursor: z.string().nullable() })
 export type RoomFileSearchPage = z.infer<typeof RoomFileSearchPage>
+/** "Files you sent" (docs/decisions/20261116-room-files-cleanup.md): my own files in the conversations I am in now, of
+ * messages that are not deleted, largest first (`cursor` from the last page). */
+export const MyRoomFilesQuery = z.object({ cursor: z.string().max(500).optional(), limit: z.coerce.number().int().min(1).max(ROOM_SEARCH_PAGE_MAX).optional() })
+/** a page of them; `totalBytes`: all of them together, not only this page (sent with the first page; 0 on the next ones) */
+export const MyRoomFilesPage = RoomFileSearchPage.extend({ totalBytes: z.number().nonnegative() })
+export type MyRoomFilesPage = z.infer<typeof MyRoomFilesPage>
 
 export const SendRoomMessageBody = z.object({
   body: z.string().max(ROOM_MESSAGE_MAX),
@@ -824,6 +830,7 @@ export const ROOMS = {
   listRoomMessages: endpoint({ method: 'GET', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomMessagesPage, summary: 'The timeline of a room I am in from my join on (thread replies only when sent to the room too), newest page first, oldest first within it. With around: the page around that message, and newerCursor for the newer ones.' }),
   searchRoomMessages: endpoint({ method: 'GET', path: '/api/room-messages', auth: 'user', owner: 'B', query: RoomSearchQuery, response: RoomSearchPage, summary: 'Search the messages I can see in the rooms, 1:1 and group chats I am in now (q: every word, in any order and any case; Korean by part of a word), newest first, with the text around the first word found and the rooms of the hits.' }),
   searchRoomFiles: endpoint({ method: 'GET', path: '/api/room-files', auth: 'user', owner: 'B', query: RoomSearchQuery, response: RoomFileSearchPage, summary: 'Search the files sent in the rooms, 1:1 and group chats I am in now by name (q: every word, any case), only those of messages I can see, newest first, with the message each was sent with and the rooms of the hits.' }),
+  listMyRoomFiles: endpoint({ method: 'GET', path: '/api/room-files/mine', auth: 'user', owner: 'B', query: MyRoomFilesQuery, response: MyRoomFilesPage, summary: 'The files I sent in the rooms, 1:1 and group chats I am in now, with a message that is not deleted, largest first, with the room of each and how much space they take together ("Files you sent"). Only my own; deleting one is deleting its message.' }),
   sendRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', status: 201, body: SendRoomMessageBody, response: RoomMessage, summary: 'Send a message as myself (never another author), or a reply in a thread, with @mentions (or @everyone, written as the everyone room word of each language: mentionsAll; in the everyone room owners and admins only) and files; DMs, group chats, mentions and followed threads notify.' }),
   listRoomThread: endpoint({ method: 'GET', path: '/api/rooms/:id/messages/:messageId/thread', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomThreadPage, summary: 'A thread in a room I am in: its root and the replies I can see (none of it when I cannot see the root).' }),
   markRoomThreadRead: endpoint({ method: 'POST', path: '/api/rooms/:id/messages/:messageId/thread/read', auth: 'user', owner: 'B', body: MarkRoomReadBody, response: RoomThreadReadState, summary: 'Move my read position in a thread I follow forward to seq; its notices count as read.' }),
