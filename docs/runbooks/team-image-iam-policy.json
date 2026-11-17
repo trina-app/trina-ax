@@ -121,7 +121,8 @@
       "Action": "ec2:RunInstances",
       "Resource": [
         "arn:aws:ec2:ap-northeast-2:<ACCOUNT_ID>:subnet/<AMI_SUBNET_ID>",
-        "arn:aws:ec2:ap-northeast-2:<ACCOUNT_ID>:subnet/<AMI_SUBNET_ID_NEXT_ZONE>",
+        "arn:aws:ec2:ap-northeast-2:<ACCOUNT_ID>:subnet/<AMI_SUBNET_ID_2C>",
+        "arn:aws:ec2:ap-northeast-2:<ACCOUNT_ID>:subnet/<AMI_SUBNET_ID_2B>",
         "arn:aws:ec2:ap-northeast-2:<ACCOUNT_ID>:network-interface/*"
       ]
     },
