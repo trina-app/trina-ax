@@ -19,7 +19,8 @@ export const dropOverCls = 'bg-accent-soft/70 outline-2 outline-offset-[10px] ou
 
 /** A message box as a zone's target: what takes the files, and why it would take none of them now (or null). */
 export interface DropTarget {
-  files: (files: File[]) => void
+  /** `folders`: how many folders the drop held besides (left out: a folder is no attachment) */
+  files: (files: File[], folders?: number) => void
   refusal?: () => string | null
 }
 
@@ -47,7 +48,7 @@ export function FileDropZone({ target, empty, className, children, ...rest }: { 
   }, [])
   const box = () => target ?? attached.current?.current ?? null
   const { drag, refusal, dropProps } = useFileDrop({
-    files: (all) => box()?.files(all),
+    files: (all, folders) => box()?.files(all, folders),
     refusal: () => {
       const b = box()
       return b ? (b.refusal?.() ?? null) : (empty ?? t('drop.noBox'))

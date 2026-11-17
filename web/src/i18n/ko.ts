@@ -654,6 +654,8 @@ export const ko = {
   'composer.teamFile': '팀 파일 · {path}',
   'composer.tooMany': '메시지 하나에 파일은 {n}개까지 첨부할 수 있어요.',
   "composer.fileTooBig": "{max}보다 큰 파일은 첨부할 수 없어요: {name}",
+  'composer.folders': "폴더는 여기로 보낼 수 없어요. 안에 있는 파일을 고르거나 폴더를 먼저 압축해 주세요.",
+  'composer.unreadable': "이 파일을 읽을 수 없어요.",
   'drop.here': '여기에 놓으면 첨부돼요',
   'drop.noBox': "여기에서는 메시지를 보낼 수 없어서 첨부할 수 없어요.",
   'drop.trashed': "휴지통에 있는 채팅이라 첨부할 수 없어요.",

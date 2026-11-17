@@ -655,6 +655,8 @@ export const en: Record<MessageKey, string> = {
   'composer.teamFile': 'Team file · {path}',
   'composer.tooMany': '{n, plural, one {You can attach up to # file to one message.} other {You can attach up to # files to one message.}}',
   'composer.fileTooBig': "{name} is larger than {max} and can't be attached.",
+  'composer.folders': "Folders can't be sent here. Pick the files inside, or zip the folder first.",
+  'composer.unreadable': "This file couldn't be read.",
   'drop.here': 'Drop here to attach',
   'drop.noBox': "Messages can't be sent here, so nothing can be attached.",
   'drop.trashed': "This chat is in the trash, so nothing can be attached.",

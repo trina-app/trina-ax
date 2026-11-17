@@ -208,8 +208,8 @@ export default function Composer({
   // highlight).
   // A team file dragged from the file screen, a preview or a message goes on the box only.
   const noComputer = computer ? null : t('drop.noComputer')
-  const inZone = useDropTarget({ files: (all) => void addFiles(all), refusal: () => noComputer ?? (live.length >= MESSAGE_ATTACHMENTS_MAX ? t('composer.tooMany', { n: MESSAGE_ATTACHMENTS_MAX }) : null) })
-  const { drag: dragOver, refusal: dropRefused, dropProps } = useFileDrop({ files: inZone ? undefined : (all) => void addFiles(all), teamPath: (path) => void addTeamFiles([{ path }]), refusal: (kind) => (kind === 'files' ? noComputer : null) })
+  const inZone = useDropTarget({ files: (all, folders) => void addFiles(all, folders), refusal: () => noComputer ?? (live.length >= MESSAGE_ATTACHMENTS_MAX ? t('composer.tooMany', { n: MESSAGE_ATTACHMENTS_MAX }) : null) })
+  const { drag: dragOver, refusal: dropRefused, dropProps } = useFileDrop({ files: inZone ? undefined : (all, folders) => void addFiles(all, folders), teamPath: (path) => void addTeamFiles([{ path }]), refusal: (kind) => (kind === 'files' ? noComputer : null) })
   const drag = dragOver && !dropRefused
   const [engineMenu, setEngineMenu] = useState(false)
   const [attachMenu, setAttachMenu] = useState(false)

@@ -639,6 +639,8 @@ export const es: Record<MessageKey, string> = {
   'composer.teamFile': "Archivo del equipo · {path}",
   'composer.tooMany': "{n, plural, one {Puede adjuntar hasta # archivo por mensaje.} other {Puede adjuntar hasta # archivos por mensaje.}}",
   'composer.fileTooBig': "{name} supera {max} y no se puede adjuntar.",
+  'composer.folders': "Aquí no se pueden enviar carpetas. Elija los archivos que contiene o comprima la carpeta primero.",
+  'composer.unreadable': "No se pudo leer este archivo.",
   'drop.here': 'Suelte aquí para adjuntar',
   'drop.noBox': "Aquí no se pueden enviar mensajes, así que no se puede adjuntar nada.",
   'drop.trashed': "Este chat está en la papelera, así que no se puede adjuntar nada.",
