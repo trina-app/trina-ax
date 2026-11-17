@@ -6,7 +6,10 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 // the main process's Electron parts are not used here (the dialog and the menu bar item are injected / off)
-mock.module('electron', () => ({ dialog: {}, Menu: {}, nativeImage: {}, shell: {}, Tray: class {} }))
+// bun keeps a module mock for every later test file of the same run, so this one also names what the other desktop
+// tests' modules import from electron (office-update-desktop-updater: session, app, …); without them that file fails with
+// "Export named 'session' not found" whenever the two share a CI shard
+mock.module('electron', () => ({ dialog: {}, Menu: {}, nativeImage: {}, shell: {}, Tray: class {}, app: {}, session: {}, powerMonitor: {}, BaseWindow: {}, autoUpdater: {} }))
 const { MeetingControl, NO_CALL_SOUND_MS } = await import('../../desktop/src/main/meeting-control')
 import type { DesktopMeetingState } from '../../shared/src/desktop-bridge'
 
