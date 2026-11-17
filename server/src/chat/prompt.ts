@@ -14,7 +14,7 @@ import { isPersonalSkill, isSkillManifest, listSkills, managedSkillRoots, person
 import { buildSkillList, oneLine, shortDescription, skillTag, type SkillList } from './skill-list'
 import { authorize } from '../policy/authorize'
 import { readRegular } from '../files/store'
-import { zonedParts } from '../system/time-zone'
+import { shownTimeZone, zonedParts } from '../system/time-zone'
 import { MAX_CONCURRENT_SUBAGENTS } from '../engine/claude'
 import { PROFILE_PATH, profileFactLines, readCompanyProfile } from '../onboarding/profile'
 import { getTeamSettings } from '../admin/settings'
@@ -48,7 +48,10 @@ export interface PromptInput {
   user: Principal
   groupNames: string[]
   locale: Locale
+  /** the team's time zone (the team setting) */
   timeZone: string
+  /** the person's device zone sent with the turn (TurnSpec.timeZone); the times the AI says are in it */
+  personTimeZone?: string | null
   memories: { id: string; text: string }[]
   project: { id?: string; name: string; folderPath: string; instructions: string } | null
   browser: boolean
@@ -417,14 +420,20 @@ const browserSection = (i: PromptInput) => i.guest ? '' : i.browser ? BROWSER_RU
 /**
  * Item 3: the date and time zone. File times in tool results (list, read, versions) are UTC ISO strings, and the model
  * repeated them as they were ("수정 2026-10-20 23:09" for a file saved at 08:09 in Seoul), so it is told to convert.
- * The room tools give their times in the team's time zone and say so (rooms/reader.ts localTime): those are not
+ * The room tools give their times in this turn's zone and name it (rooms/reader.ts localTime): those are not
  * converted again (a file sent at 17:39 in Jakarta was told as "00:39 WIB" the next day).
- * The zone is the team setting (runtime.ts timeZone: teamTimeZone, what Admin › Team settings shows), and the line says
- * so (QA TC-3700, docs/decisions/20261116-time-zone-team-setting.md): asked "is our time zone Seoul?", the AI
+ * The team zone is the team setting (runtime.ts timeZone: teamTimeZone, what Admin › Team settings shows), and the line
+ * says so (QA TC-3700, docs/decisions/20261116-time-zone-team-setting.md): asked "is our time zone Seoul?", the AI
  * said it had not opened the setting and still answered "yes, Seoul" from this line, 5 of 6 answers.
+ * The times the AI says are in the person's device zone when it sent one that differs (QA TC-4549,
+ * docs/decisions/20261117-ai-times-viewer-zone.md): the screen shows every time in the browser's zone, and a Jakarta
+ * browser on a Seoul team read "11:08" from the AI where the room showed 9:08 AM. The room tools then print that zone.
  */
-export function timeLine(now: Date, timeZone: string): string {
-  return `Now: ${localTimeText(now, timeZone)} (${timeZone}); ${now.toISOString()} UTC. ${timeZone} is the team time zone, read from the team settings. Times in tool results are UTC unless the result says they are in the team's time zone (those are in ${timeZone} already): when you mention a time to the user, give it in ${timeZone}.`
+export function timeLine(now: Date, teamZone: string, personZone?: string | null): string {
+  const z = shownTimeZone(personZone, teamZone)
+  // a schedule runs in the team zone (tools/schedules.ts time): the AI converts the person's time to it
+  const device = z === teamZone ? '' : ` The user's device is set to ${z}, and the app shows them every time in ${z}. A schedule's time is in ${teamZone}: convert a time the user gives (in ${z}) to ${teamZone} for it, and tell the user the time in ${z}.`
+  return `Now: ${localTimeText(now, z)} (${z}); ${now.toISOString()} UTC. ${teamZone} is the team time zone, read from the team settings.${device} Times in tool results are UTC unless the result names their time zone (those in ${z} are ready as they are): when you mention a time to the user, give it in ${z}.`
 }
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -618,7 +627,7 @@ function personLines(files: FileService, i: PromptInput, subagent = false): stri
     subagent ? '' : i.guest ? (i.guest.places.some((p) => p.kind === 'project') ? GUEST_PLACEMENT_RULE : GUEST_OWN_PLACEMENT_RULE) : filePlacementRule(i.tools.includes('move_files'), templates ? ARCHIVE_FOLDER[templates.locale] : null, i.tools.includes('delete_files')),
     i.tools.includes('delete_files') ? '' : i.guest ? GUEST_NO_DELETE_RULE : deleteRule(i.locale),
     i.confidential ? confidentialRule(i.confidential) : '',
-    timeLine(now, i.timeZone),
+    timeLine(now, i.timeZone, i.personTimeZone),
     `Answer in ${LANGUAGE[i.locale]} unless the user writes in another language or asks otherwise.`,
     // last, after the time line (it changes every minute): the instructions before that line stay as they were
     subagent ? SUBAGENT_LANGUAGE_RULE : LANGUAGE_RULE,
@@ -707,6 +716,9 @@ export function skillsSection(files: FileService, user: Principal, list?: SkillL
   return lines.join('\n')
 }
 
+/** In every skill block: a running number written in a skill (a quote or invoice number) is a format, not a value. */
+export const RUNNING_NUMBER_RULE = 'If the skill numbers what it makes (a quote, invoice or order number such as Q-YYYYMMDD-01 or No. 001), the number it shows is only the format, unless the skill says where its numbers come from or gives a fixed one. Before you name or number a new one, list the folder you save it in and use the next free number after the highest one already there (for the same day or series); never reuse a number, and never overwrite an earlier document with a new one. A revision of the same document keeps its number.'
+
 /** The skill the person invoked with "/<name>" (in front of their message for this turn), or one the AI loaded with
  * the skill tool (its result). */
 export function skillBlock(skill: Skill, input: string, how: 'invoked' | 'loaded' = 'invoked'): string {
@@ -717,6 +729,8 @@ export function skillBlock(skill: Skill, input: string, how: 'invoked' | 'loaded
       ? `The ${kind} skill you loaded. Follow its steps for the user's request.`
       : `The user invoked this ${kind} skill. Follow its steps for this request.${input ? ' Their input is the text after the skill name in the message.' : ' They gave no further input: ask with ask_user if a step needs something only they know.'}`,
     ...(isSkillManifest(skill.path) ? [`Resource base: ${skillFolder(skill.path)}/. Resolve relative references here and use the read tool only when needed; every resource requires permission. Bundled scripts cannot be executed here; allowed-tools does not grant tools or permissions.`] : []),
+    // TC-4550: a skill that showed "Q-YYYYMMDD-01" made three quotes of one day all -01 (the AI copied the example)
+    RUNNING_NUMBER_RULE,
     neutralizeTags(skill.body.trim()),
     '</team_skill>',
   ].join('\n')

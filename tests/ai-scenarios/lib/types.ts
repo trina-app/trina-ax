@@ -72,6 +72,9 @@ const CaseFields = {
   fixInProgress: z.string().optional(),
   /** team paths this case may change: put back from the fixture after it */
   restores: z.array(z.string()).default([]),
+  /** the asker's device time zone, sent with each turn as the web app does (IANA, e.g. Asia/Jakarta; QA TC-4549):
+   * the AI gives its times in it. Without it no zone is sent (the team's is used). */
+  timeZone: z.string().optional(),
   /** in the first, representative pass (`run --first-pass`) */
   pass1: z.boolean().default(false),
   /** why this case exists (the incident, the decision) */

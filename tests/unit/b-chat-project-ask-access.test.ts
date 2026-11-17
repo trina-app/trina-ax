@@ -378,6 +378,12 @@ describe('the push', () => {
     return { p, sent, tick }
   }
   const later = () => new Promise((r) => setTimeout(r, 5))
+  // the askers of the day's cap below: 12 new members, each a few password hashes (64 MiB argon2id), took 3-7.5 s on CI
+  // runners inside the test and ran past bun's 5 s limit. Made here, side by side (the server runs 4 hashes at once).
+  let askers: Client[] = []
+  beforeAll(async () => {
+    askers = (await Promise.all(Array.from({ length: FILE_REQUEST_PUSHES_PER_DAY + 2 }, (_, i) => addMember(h, owner, { username: `asker${i}` })))).map((m) => m.client)
+  }, 60_000)
 
   test('pushed to whoever answers: the code and ids only, the tap opens the request; answered: not any more', async () => {
     const chatId = await chatOf(alice, 'SECRET pushed')
@@ -413,8 +419,7 @@ describe('the push', () => {
   })
 
   test(`at most ${FILE_REQUEST_PUSHES_PER_DAY} request pushes a day, file and chat requests together`, async () => {
-    const askers: Client[] = []
-    for (let i = 0; i < FILE_REQUEST_PUSHES_PER_DAY + 2; i++) askers.push((await addMember(h, owner, { username: `asker${i}` })).client)
+    expect(askers).toHaveLength(FILE_REQUEST_PUSHES_PER_DAY + 2)
     h.ctx.db.query('DELETE FROM access_request_push_deliveries WHERE notification_id IN (SELECT id FROM access_request_notices WHERE user_id = ?)').run(ids.olga)
     h.ctx.db.query('DELETE FROM file_share_push_deliveries WHERE notification_id IN (SELECT id FROM file_share_notices WHERE user_id = ?)').run(ids.olga)
     const ph = phones([ids.olga])
@@ -436,7 +441,7 @@ describe('the push', () => {
       expect(codes.some((s) => s.payload.code === 'access.requested')).toBe(true)
       expect(codes.some((s) => s.payload.code === 'file.access_requested')).toBe(true)
     } finally { await ph.p.stop() }
-  }, 30_000) // adds 12 members (password hashing): over 5 s on a busy CI runner (PR #1088)
+  })
 })
 
 describe('account removal', () => {

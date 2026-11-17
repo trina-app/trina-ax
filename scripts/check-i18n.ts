@@ -61,7 +61,12 @@ export function auditI18n() {
       const relative = `${dir}/${file}`
       // signed protocol fixtures shared byte for byte with Trina Cloud (zh is optional there, as ja/es once were)
       if (relative === 'shared/src/cloud-protocol/vectors.ts') continue
-      const source = ts.createSourceFile(relative, fs.readFileSync(path.join(root, relative), 'utf8'), ts.ScriptTarget.Latest, true)
+      const text = fs.readFileSync(path.join(root, relative), 'utf8')
+      // A locale table needs a `ko` key and a helper a `ko` parameter, so a file without the word `ko` has neither:
+      // skip the TypeScript parse (about 1 in 10 files has it; parsing all of them took 2.7-4.3 s of bun's 5 s
+      // test limit on CI). openrouter-stt.ts calls an imported helper, so it is always parsed.
+      if (!/\bko\b/.test(text) && relative !== 'server/src/jobs/openrouter-stt.ts') continue
+      const source = ts.createSourceFile(relative, text, ts.ScriptTarget.Latest, true)
       const checkValues = (values: Map<string | undefined, ts.Expression>, location: string) => {
         const reference = values.get('en')
         if (!reference) return

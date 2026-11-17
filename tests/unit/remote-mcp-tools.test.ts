@@ -21,7 +21,7 @@ async function setup(name: string, scope = 'mcp:read mcp:write offline_access', 
   const token = oauth.token({ client_id: c.client_id, code, grant_type: 'authorization_code', code_verifier: verifier, redirect_uri: redirect, resource: oauth.resource() }).access_token
   const mine = `users/${auth.user.id}/private.txt`, other = `users/${member.id}/private.txt`
   for (const p of [mine, other, 'shared/public.txt']) { fs.mkdirSync(path.dirname(path.join(h.ctx.config.teamRoot, p)), { recursive: true }); fs.writeFileSync(path.join(h.ctx.config.teamRoot, p), 'synthetic private contents') }
-  return { h, auth, oauth, tools, token, mine, other, member }
+  return { h, auth, oauth, tools, token, mine, other, member, owner }
 }
 test('only read scope tools are advertised; arbitrary tool families and writes are unavailable', async () => {
   // a member: an owner's or admin's connection also gets the group tools (remote-mcp-groups.test.ts)
@@ -199,4 +199,32 @@ test('the connector never lists or runs delete_files, with every scope', async (
   expect(r.content[0]!.text).toBe('Unknown tool.')
   expect(fs.readFileSync(path.join(f.h.ctx.config.teamRoot, f.mine), 'utf8')).toBe('synthetic private contents')
   expect(f.h.ctx.db.query('SELECT COUNT(*) AS n FROM trash_items').get()).toEqual({ n: 0 })
+})
+test('read with versions of a file moved out of a personal folder works, and its old place keeps the scope narrow', async () => {
+  const f = await setup('versions-moved')
+  const from = `users/${f.auth.user.id}/drafts/plan.md`, to = 'shared/plan.md'
+  const sha = (t: string) => new Bun.CryptoHasher('sha256').update(t).digest('hex')
+  await f.owner.call('PUT', '/api/files/content', { path: from, content: 'budget 100\n', baseSha256: null })
+  await f.owner.call('PUT', '/api/files/content', { path: from, content: 'budget 250\n', baseSha256: sha('budget 100\n') })
+  await f.owner.call('POST', '/api/files/move', { from, to })
+  expect(fs.existsSync(path.join(f.h.ctx.config.teamRoot, from))).toBe(false)
+  const r = await f.tools.call(f.token, 'read', { file_path: to, versions: true })
+  expect(r.isError).toBeUndefined()
+  expect(r.content[0]!.text).toContain('-budget 100')
+  // the old version came from the personal folder: a save where more people can see is refused, as after a private read
+  const wide = await f.tools.call(f.token, 'write', { file_path: 'shared/leak.txt', content: 'budget 100' })
+  expect(wide.isError).toBe(true)
+  expect(wide.content[0]!.text).toContain('more people')
+})
+test('read with versions after a whole folder moved (the old folder is gone too) works through the connector', async () => {
+  const f = await setup('versions-folder')
+  const dir = `users/${f.auth.user.id}/notes`, from = `${dir}/plan.md`
+  const sha = (t: string) => new Bun.CryptoHasher('sha256').update(t).digest('hex')
+  await f.owner.call('PUT', '/api/files/content', { path: from, content: 'one\n', baseSha256: null })
+  await f.owner.call('PUT', '/api/files/content', { path: from, content: 'two\n', baseSha256: sha('one\n') })
+  await f.owner.call('POST', '/api/files/move', { from: dir, to: 'shared/notes' })
+  expect(fs.existsSync(path.join(f.h.ctx.config.teamRoot, dir))).toBe(false)
+  const r = await f.tools.call(f.token, 'read', { file_path: 'shared/notes/plan.md', versions: true })
+  expect(r.isError).toBeUndefined()
+  expect(r.content[0]!.text).toContain('-one')
 })
