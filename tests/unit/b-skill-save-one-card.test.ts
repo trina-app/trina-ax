@@ -103,8 +103,7 @@ describe('a new team skill after reading something fewer people can see', () => 
         { tool: 'write', args: { file_path: 'shared/visit-summary.md', content: 'Summary\n' }, sayResult: true },
       ), ['save'])
       expect(r.cards.length).toBe(1)
-      expect(r.cards[0]!.question).toContain('This came from ')
-      expect(r.cards[0]!.question).toMatch(/Save it to .+ \(\d+ (person|people), \d+ of them can’t see where it came from\)\?/)
+      expect(r.cards[0]!.question).toMatch(/^Save to .+ \(\d+ (person|people)\)\? \d+ of them can’t see where it came from\.\nIt came from .+\./)
       expect(fs.existsSync(abs('shared/visit-summary.md'))).toBe(true)
     } finally { fs.rmSync(abs('shared/visit-summary.md'), { force: true }) }
   })

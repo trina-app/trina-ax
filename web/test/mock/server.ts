@@ -1999,27 +1999,28 @@ export class MockServer {
       pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } })
     }
     if (/postroomcard/i.test(prompt)) {
-      // like server/src/chat/post-to-room.ts: ONE card with the room and its people, the note apart (under my name), all
-      // of the text (folded past 600), the lines that apply, the files [파일도 함께 보내기] attaches; after a yes the step
-      // names the room and keeps where it went (Step.posted) for its 보기
+      // like server/src/chat/post-to-room.ts: ONE card with the room and its people, who cannot open the file by name and
+      // that Send shares it, the note apart (under my name), all of the text formatted (folded past 600), the files Send
+      // attaches; Send / Don't send, with "Always allow" between them and the reason in the small line under them (QA
+      // TC-4791); after a yes the step names the room and keeps where it went (Step.posted) for its 보기
       const requestId = 'pr1'
       const files = /files/i.test(prompt), long = /long/i.test(prompt), thread = /thread/i.test(prompt)
       const text = long
         ? Array.from({ length: 24 }, (_, i) => `${i + 1}. ${['신규 고객 문의가 늘었어요', '견적 회신이 평균 2일 걸려요', '다음 주 박람회 부스 준비', '할인 정책은 금요일 회의에서 정해요'][i % 4]} (영업팀 주간 정리 ${i + 1}번째 항목)`).join('\n')
-        : files ? '4분기 매출 요약\n- 합계: 12억 4천만 원 (전 분기보다 8% 늘었어요)\n- 자세한 표: [4분기-매출.xlsx](/files/view?path=shared/재무/4분기-매출.xlsx)'
+        : files ? '**4분기 매출 요약**\n- 합계: **12억 4천만 원** (전 분기보다 8% 늘었어요)\n- 자세한 표: 팀 폴더 › 재무 › 4분기-매출.xlsx'
         : thread ? '시안 2개는 수요일까지 받아요. 피드백은 금요일 회의 전에 이 스레드에 모아 주세요.'
         : '오늘 회의 요약\n- 출시일: 12월 3일\n- 담당: 영업팀'
       const question = thread ? "#영업팀(12명)에서 '로고 시안 언제까지 받을 수 있을까요?' 메시지의 스레드에 보낼까요?"
-        : files ? '#전체(24명)에 보낼까요?\n\n3명은 이 내용의 일부 출처(shared/재무/)를 볼 수 없어요.\n링크된 파일 1개를 4명이 열 수 없어요.\n파일도 함께 보내면: 3명은 이 내용의 일부 출처(shared/재무/)를 볼 수 없어요.'
+        : files ? '#전체(24명)에 보낼까요?\n\n김민지, 이수진 님 외 2명은 아직 파일을 열 수 없어요. 보내면 함께 공유돼요.\n3명은 이 내용의 일부 출처(shared/재무/)를 볼 수 없어요.'
         : '#영업팀(12명)에 보낼까요?'
       const request: TurnRequest = {
         kind: 'ask_user', origin: 'server', requestId, allowText: false, multiple: false, question,
-        options: [{ label: '보내기', value: 'send' }, ...(files ? [{ label: '파일도 함께 보내기', value: 'send_files' }] : []), { label: '보내지 않기', value: 'no' }],
-        ...(files ? { buttons: true as const } : {}),
+        options: [{ label: '보내기', value: files ? 'send_files' : 'send' }, ...(files ? [{ label: '항상 허용', value: '__always' }] : []), { label: '보내지 않기', value: 'no' }],
+        ...(files ? { buttons: true as const, note: '여기에 대화 메시지(다른 사람이 쓴 글)가 들어와서, 무언가를 바꾸기 전에 먼저 물어봐요. 항상 허용하면 웹페이지나 파일을 읽은 뒤에도 이런 확인은 다시 묻지 않아요.' } : {}),
         details: [
-          ...(files ? [{ label: '내 이름으로 보일 한마디', text: '4분기 매출 요약 공유드려요' }] : []),
-          { label: '보낼 내용', text, ...(long ? { collapsedAt: 600 } : {}) },
-          ...(files ? [{ label: '[파일도 함께 보내기]로 첨부할 파일', text: 'shared/재무/4분기-매출.xlsx' }] : []),
+          ...(files ? [{ label: '내 이름으로 보일 한마디', text: '4분기 매출 요약 공유드려요', markdown: true as const }] : []),
+          { label: '보낼 내용', text, markdown: true as const, ...(long ? { collapsedAt: 600 } : {}) },
+          ...(files ? [{ label: '함께 보낼 파일', text: '팀 폴더 › 재무 › 4분기-매출.xlsx', noSize: true }] : []),
         ],
       }
       const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
@@ -2029,7 +2030,7 @@ export class MockServer {
       const answer = await new Promise((r) => this.pendingAsk.set(turnId, r))
       this.openAsks.delete(turnId)
       pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
-      const sent = answer === 'send' || answer === 'send_files'
+      const sent = answer === 'send' || answer === 'send_files' || answer === '__always'
       const room = thread || !files ? '#영업팀' : '#전체'
       put(step({ id: 'P1', kind: 'tool', tool: 'post_to_room', label: `대화에 보내기 · ${room}`, status: 'ok', endedAt: now(),
         ...(sent ? { posted: { roomId: '019a5f00-0000-7000-8000-00000000a001', messageId: '019a5f00-0000-7000-8000-00000000a002', ...(thread ? { threadRootId: '019a5f00-0000-7000-8000-00000000a003' } : {}) } } : { detail: '보내지 않았어요' }) }))

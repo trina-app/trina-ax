@@ -10,7 +10,9 @@ export const SERVICE_CATALOG = [
   // https://developer.atlassian.com/cloud/rovo-mcp/ (2026-11-12) gives v2; the v1 address still works for users outside
   // the v2 rollout cohort (https://developer.atlassian.com/cloud/rovo-mcp/changelog/), so a connection saved there
   // stays Atlassian's
-  { id: 'atlassian', name: 'Atlassian', url: 'https://mcp.atlassian.com/v2/mcp', otherUrls: ['https://mcp.atlassian.com/v1/mcp'], aliases: ['아틀라시안', 'jira', '지라', 'confluence', '컨플루언스'] },
+  // its organization admins keep a list of the domains allowed to sign in (Atlassian Administration > Rovo MCP server >
+  // Domains); a team's address that is not on it gets "Your admin has blocked this domain" and no Accept (QA TC-4770)
+  { id: 'atlassian', name: 'Atlassian', url: 'https://mcp.atlassian.com/v2/mcp', otherUrls: ['https://mcp.atlassian.com/v1/mcp'], adminAllowsDomains: true, aliases: ['아틀라시안', 'jira', '지라', 'confluence', '컨플루언스'] },
   // https://www.canva.dev/blog/developers/canva-mcp-ga/ (2026-10-27) gives https://api.canva.com/connect/v1/mcp, signed
   // in with "your app's OAuth client" (no dynamic client registration there); the list keeps mcp.canva.com/mcp, which
   // still signs in without an app of one's own, and counts the documented one as Canva's too
@@ -91,6 +93,13 @@ export function officialService(url: string): CatalogService | undefined {
   if (u.protocol !== 'https:' || u.username || u.password || u.search || u.hash) return undefined
   const path = u.pathname.replace(/\/+$/, '')
   return SERVICE_CATALOG.find((c) => officialUrls(c).some((x) => { const o = new URL(x); return o.host === u.host && o.pathname.replace(/\/+$/, '') === path }))
+}
+
+/** A listed service whose organization admins must allow the team's address before anyone can sign in (Atlassian):
+ * the sign-in wait says what its "blocked this domain" page means. */
+export function adminAllowsDomains(url: string): boolean {
+  const c = officialService(url)
+  return !!c && 'adminAllowsDomains' in c && c.adminAllowsDomains === true
 }
 
 /** Two addresses that are official addresses of the same listed service (Atlassian's v1 and v2): one service, never a

@@ -65,7 +65,7 @@ beforeAll(async () => {
 })
 afterAll(async () => { for (const s of Object.values(socks)) s.close(); await h?.close() })
 
-type Card = { question: string; origin?: string; options?: { label: string; value: string }[]; details?: { label: string; text: string }[] }
+type Card = { question: string; note?: string; origin?: string; options?: { label: string; value: string }[]; details?: { label: string; text: string }[] }
 async function turn(who: string, content: string, o: { chat?: string; answer?: string | null } = {}) {
   const chatId = o.chat ?? (await h.api(who).call(API.createChat, { body: {} })).id
   const r = await h.api(who).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
@@ -253,8 +253,9 @@ describe('a file read through a grant is other people\'s words', () => {
     const write = fake({ tool: 'write', args: { file_path: 'groups/finance/after-shared.md', content: 'x' }, sayResult: true })
     const r = await turn('bob', `${read}\n${write}`, { answer: null })
     // (bob's language in the fixture is Korean)
-    expect(r.card!.question).toContain(tr('sharedFileSeenWhy', 'ko').slice(0, 20))
-    expect(r.card!.question).not.toContain(tr('roomsSeenWhy', 'ko').slice(0, 12))
+    // (the wider-audience card says why under its buttons, QA TC-4815)
+    expect(r.card!.note).toContain(tr('sharedFileSeenWhy', 'ko').slice(0, 20))
+    expect(r.card!.note).not.toContain(tr('roomsSeenWhy', 'ko').slice(0, 12))
     for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
       for (const k of ['sharedFileSeenWhy', 'sharedFileSeenConfirm', 'sharedFileSeenConfirmRead'] as const) {
         expect(tr(k, l).length).toBeGreaterThan(10)
@@ -298,7 +299,7 @@ describe('a file read through a grant is other people\'s words', () => {
     const write = fake({ tool: 'write', args: { file_path: 'groups/finance/declined-after-shared.md', content: 'x' }, sayResult: true })
     // (left unanswered: the card runs out, and the refusal says why every change here asks)
     const w = await turn('bob', `${read}\n${write}`, { answer: null })
-    expect(w.card!.question).toContain(tr('sharedFileSeenWhy', 'ko').slice(0, 20))
+    expect(w.card!.note).toContain(tr('sharedFileSeenWhy', 'ko').slice(0, 20))
     expect(w.content).toContain('a file someone shared with the user')
     expect(w.content).not.toContain('team chat rooms')
     expect(fs.existsSync(path.join(h.ctx.files.fx.root, 'groups/finance/declined-after-shared.md'))).toBe(false)

@@ -34,7 +34,7 @@ beforeAll(async () => {
 })
 afterAll(async () => { for (const s of Object.values(ws)) s.close(); await h.close() })
 
-type Card = { requestId: string; question: string; options?: { value: string }[] }
+type Card = { requestId: string; question: string; note?: string; options?: { value: string }[]; details?: { label: string; text: string; fields?: { name: string; value: string }[]; noSize?: boolean; markdown?: true }[] }
 async function run(user: string, chatId: string, content: string, answer: (c: Card) => string = () => 'skip') {
   const r = await h.api(user).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
   const cards: Card[] = []
@@ -100,8 +100,11 @@ describe('a place the person names', () => {
     expect(no.cards).toHaveLength(1)
     expect(fs.existsSync(at('shared/Meeting notes/sunday-no.md'))).toBe(false)
     const q = no.cards[0]!.question
-    expect(q).toContain(`This came from messages of the conversation 'leads-${rooms}' (2 people). Save it to ${W('shared/Meeting notes/sunday-no.md')} (${n} people, ${n - 2} of them can’t see where it came from)?`)
+    // one plain question, the source on its own line (QA TC-4815)
+    expect(q).toBe(`Save to ${W('shared/Meeting notes/sunday-no.md')} (${n} people)? ${n - 2} of them can’t see the chat it came from.\nIt came from messages of the conversation 'leads-${rooms}' (2 people).`)
     expect(q).not.toContain('read content fewer people can see')
+    // her own chat read the room: why it asks is the small line under the buttons
+    expect(no.cards[0]!.note).toContain("Messages from your conversations (other people's words) came in here, so changes are asked first.")
 
     const yes = await run('alice', await newChat('alice'), `Save the summary in Company-wide › Meeting notes\n${fake({ tool: 'room_read', args: { room: roomId } }, write('shared/Meeting notes/sunday.md'))}`, () => 'save')
     expect(yes.cards).toHaveLength(1)
@@ -118,8 +121,8 @@ describe('a place the person names', () => {
     const r = await run('alice', await newChat('alice'), `Save it in the ${dir} folder\n${fake({ tool: 'room_read', args: { room: roomId } }, write(`${dir}/overlap.md`))}`, () => 'skip')
     expect(r.cards).toHaveLength(1)
     // the place: alice, erin and the owners/admins who read every group folder; all but alice miss the room
-    expect(r.cards[0]!.question).toMatch(new RegExp(`\\((\\d+) people, (\\d+) of them can’t see where it came from\\)\\?$`))
-    const [, n, m] = r.cards[0]!.question.match(/\((\d+) people, (\d+) of them/)!
+    expect(r.cards[0]!.question).toMatch(/^Save to .+ \((\d+) people\)\? (\d+) of them can’t see the chat it came from\.\n/)
+    const [, n, m] = r.cards[0]!.question.match(/\((\d+) people\)\? (\d+) of them/)!
     expect(Number(m)).toBe(Number(n) - 1)
     expect(Number(n)).toBeGreaterThanOrEqual(2)
     expect(fs.existsSync(at(`${dir}/overlap.md`))).toBe(false)
@@ -128,15 +131,67 @@ describe('a place the person names', () => {
   test('the card in the other languages keeps the facts: source with its count, place with its count', () => {
     const from = tr('widenFrom', 'ko', { source: "'leads' 대화의 메시지", n: '3' })
     expect(from).toBe("'leads' 대화의 메시지(3명)")
-    expect(tr('widenConfirm', 'ko', { sources: from, target: '전사 공유 › 회의록', n: '10', m: '7' })).toBe("이 내용은 'leads' 대화의 메시지(3명)에서 왔어요. 전사 공유 › 회의록(10명, 그중 7명은 나온 곳을 볼 수 없음)에 저장할까요?")
-    expect(tr('widenConfirm', 'en', { sources: 'x (3 people)', target: 'Sales › x', n: '3', m: '1' })).toBe('This came from x (3 people). Save it to Sales › x (3 people, 1 of them can’t see where it came from)?')
-    expect(tr('widenConfirm', 'id', { sources: 'x (3 orang)', target: 'Company-wide', n: '10', m: '7' })).toBe('Ini berasal dari x (3 orang). Simpan ke Company-wide (10 orang, 7 di antaranya tidak bisa melihat asalnya)?')
-    expect(tr('widenConfirm', 'es', { sources: 'x', target: 'y', n: '10', m: '1' })).toBe('Esto viene de x. ¿Guardarlo en y (10 personas; 1 no puede ver de dónde viene)?')
-    expect(tr('widenConfirm', 'es', { sources: 'x', target: 'y', n: '10', m: '7' })).toContain('7 no pueden ver')
-    expect(tr('widenConfirm', 'ja', { sources: 'x', target: 'y', n: '10', m: '7' })).toContain('（10人、うち7人は元の場所を見られません）')
-    expect(tr('widenConfirm', 'zh', { sources: 'x', target: 'y', n: '10', m: '7' })).toContain('其中7人看不到内容的来源')
+    // QA TC-4815: the question, how many there cannot see the source, and the source on its own line
+    expect(tr('widenConfirm', 'ko', { target: '부서 › 영업 › 회의록 › x.md', n: '4' })).toBe('부서 › 영업 › 회의록 › x.md(4명)에 저장할까요?')
+    expect(tr('widenBlindChat', 'ko', { m: '1' })).toBe('그중 1명은 원래 대화를 못 봐요.')
+    expect(tr('widenBlind', 'ko', { m: '1' })).toBe('그중 1명은 원래 있던 곳을 못 봐요.')
+    expect(tr('widenSource', 'ko', { sources: from })).toBe("'leads' 대화의 메시지(3명)에서 가져온 내용이에요.")
+    expect(tr('widenConfirm', 'en', { target: 'Sales › Meeting notes › x.md', n: '4' })).toBe('Save to Sales › Meeting notes › x.md (4 people)?')
+    expect(tr('widenBlindChat', 'en', { m: '1' })).toBe('1 of them can’t see the chat it came from.')
+    expect(tr('widenBlind', 'en', { m: '7' })).toBe('7 of them can’t see where it came from.')
+    expect(tr('widenSource', 'en', { sources: 'x (3 people)' })).toBe('It came from x (3 people).')
+    expect(tr('widenConfirm', 'id', { target: 'Company-wide', n: '10' })).toBe('Simpan ke Company-wide (10 orang)?')
+    expect(tr('widenBlind', 'id', { m: '7' })).toBe('7 di antaranya tidak bisa melihat asalnya.')
+    expect(tr('widenConfirm', 'es', { target: 'y', n: '10' })).toBe('¿Guardar en y (10 personas)?')
+    expect(tr('widenBlind', 'es', { m: '7' })).toContain('7 de ellas no pueden ver')
+    expect(tr('widenConfirm', 'ja', { target: 'y', n: '10' })).toBe('y（10人）に保存しますか？')
+    expect(tr('widenBlind', 'ja', { m: '7' })).toBe('うち7人は元の場所を見られません。')
+    expect(tr('widenBlind', 'zh', { m: '7' })).toBe('其中7人看不到内容的来源。')
     expect(tr('widenFromYou', 'es', { source: 'su carpeta personal' })).toBe('su carpeta personal (solo usted)')
     expect(tr('widenFromYou', 'id', { source: 'folder pribadi Anda' })).toBe('folder pribadi Anda (hanya Anda)')
+  })
+})
+
+describe('the card in fewer words (QA TC-4815)', () => {
+  const reason = 'Messages from your conversations'
+  test('in the side chat of the one room it read: no reason line (grant-reads.ts roomsReadOnly), the card still asks', async () => {
+    const roomId = await groupChat('alice', ['bob'])
+    const chat = await newChat('alice', { sideRoomId: roomId })
+    const n = activeTeam()
+    const r = await run('alice', chat, `Save it in Company-wide\n${fake({ tool: 'room_read', args: { room: roomId } }, write('shared/side-same.md', '# Notes\n\n**Decided:** the new price list.\n'))}`, () => 'skip')
+    expect(r.cards).toHaveLength(1)
+    expect(fs.existsSync(at('shared/side-same.md'))).toBe(false)
+    const c = r.cards[0]!
+    expect(c.question).toBe(`Save to ${W('shared/side-same.md')} (${n} people)? ${n - 2} of them can’t see the chat it came from.\nIt came from messages of the conversation 'leads-${rooms}' (2 people).`)
+    expect(c.question).not.toContain(reason)
+    expect(c.note ?? '').not.toContain(reason)
+    // the buttons and Always allow are as before
+    expect(c.options?.map((o) => o.value)).toEqual(['save', '__always', 'skip'])
+    // the preview: no Action row and no File row that repeats the place, no size, formatted
+    expect(c.details).toHaveLength(1)
+    expect(c.details![0]!.fields).toBeUndefined()
+    expect(c.details![0]!).toMatchObject({ text: '# Notes\n\n**Decided:** the new price list.\n', noSize: true, markdown: true })
+  })
+
+  test('a side chat that read another room keeps the reason, under the buttons', async () => {
+    const roomId = await groupChat('alice', ['bob'])
+    const other = await groupChat('alice', ['bob'])
+    const chat = await newChat('alice', { sideRoomId: roomId })
+    const r = await run('alice', chat, `Save it in Company-wide\n${fake({ tool: 'room_read', args: { room: other } }, write('shared/side-other.md'))}`, () => 'skip')
+    expect(r.cards).toHaveLength(1)
+    expect(r.cards[0]!.note).toContain(reason)
+    expect(r.cards[0]!.question).not.toContain(reason)
+    expect(fs.existsSync(at('shared/side-other.md'))).toBe(false)
+  })
+
+  test('a text with a link or an autolink stays as written (the #1235 rule), still without a size', async () => {
+    const roomId = await groupChat('alice', ['bob'])
+    for (const [i, text] of ['See [the list](/files/view?path=shared%2Fx.md)\n', 'Mail <mailto:a@example.com>\n'].entries()) {
+      const r = await run('alice', await newChat('alice', { sideRoomId: roomId }), `Save it in Company-wide\n${fake({ tool: 'room_read', args: { room: roomId } }, write(`shared/side-link-${i}.md`, text))}`, () => 'skip')
+      expect(r.cards).toHaveLength(1)
+      expect(r.cards[0]!.details![0]!.markdown).toBeUndefined()
+      expect(r.cards[0]!.details![0]!).toMatchObject({ text, noSize: true })
+    }
   })
 })
 

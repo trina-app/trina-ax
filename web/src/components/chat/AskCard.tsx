@@ -27,6 +27,7 @@ import { useSession } from '../../store/session'
 import { Button, inputCls } from '../ui'
 import { SecretWarning, useSecretHold } from './SecretWarning'
 import { ShareAskRows } from './ShareCard'
+import { Markdown } from '../LazyMarkdown'
 
 type AnswerBody = Parameters<ReturnType<typeof useChats.getState>['answer']>[1]
 
@@ -461,7 +462,7 @@ function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) 
                 <div>
                   <p className="flex items-baseline gap-2 text-xs text-faint">
                     <span className="min-w-0 flex-1">{d.label}</span>
-                    {!d.noSize && <span data-testid="ask-detail-size">{t('ask.detailSize', { n: d.text.length })}</span>}
+                    {!d.noSize && !d.markdown && <span data-testid="ask-detail-size">{t('ask.detailSize', { n: d.text.length })}</span>}
                   </p>
                   <div className="mt-1 border-l-2 border-line">
                     <DetailText d={d} plain />
@@ -479,7 +480,7 @@ function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) 
         <div key={i} className="overflow-hidden rounded-lg border border-line" data-testid="ask-detail">
           <div className="flex flex-wrap items-center gap-2 border-b border-line bg-subtle px-3 py-1.5 text-xs">
             <span className="min-w-0 flex-1 font-medium">{d.label}</span>
-            {d.text && !d.noSize && (
+            {d.text && !d.noSize && !d.markdown && (
               <span className="text-faint" data-testid="ask-detail-size">
                 {t('ask.detailSize', { n: d.text.length })}
               </span>
@@ -534,7 +535,8 @@ function Exact({ d, plain, children }: { d: ConfirmDetail; plain?: boolean; chil
 }
 
 /** A detail's text: all of it, or with `collapsedAt` its start and the rest one click away (a room change card's
- * preview of what a call writes; the size above always counts all of it). */
+ * preview of what a call writes; the size above always counts all of it). `markdown` (a message as the room will show
+ * it: post_to_room's card) is formatted with the chat's renderer, in the same scrolling box. */
 function DetailText({ d, plain }: { d: ConfirmDetail; plain?: boolean }) {
   const t = useT()
   const [open, setOpen] = useState(false)
@@ -542,14 +544,20 @@ function DetailText({ d, plain }: { d: ConfirmDetail; plain?: boolean }) {
   const text = long && !open ? `${d.text.slice(0, d.collapsedAt).trimEnd()}…` : d.text
   return (
     <>
-      <pre
-        className={clsx('scroll-thin max-h-64 overflow-auto font-mono text-code-sm leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]', plain ? 'py-0.5 pl-3' : 'px-3 py-2')}
-        tabIndex={0}
-        aria-label={d.label}
-        data-testid="ask-detail-text"
-      >
-        <Marked text={text} marks={d.marks} alerts={d.alerts} />
-      </pre>
+      {d.markdown ? (
+        <div className={clsx('scroll-thin max-h-64 overflow-auto', plain ? 'py-0.5 pl-3' : 'px-3 py-2')} tabIndex={0} aria-label={d.label} data-testid="ask-detail-text" data-format="markdown">
+          <Markdown text={text} size="small" />
+        </div>
+      ) : (
+        <pre
+          className={clsx('scroll-thin max-h-64 overflow-auto font-mono text-code-sm leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]', plain ? 'py-0.5 pl-3' : 'px-3 py-2')}
+          tabIndex={0}
+          aria-label={d.label}
+          data-testid="ask-detail-text"
+        >
+          <Marked text={text} marks={d.marks} alerts={d.alerts} />
+        </pre>
+      )}
       {long && (
         <button
           type="button"

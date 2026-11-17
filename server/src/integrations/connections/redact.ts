@@ -5,36 +5,48 @@
 // below), the steps, the audit lines (tool_events) and the chat title. The person's own message is kept as typed
 // (the AI's history needs it).
 import type { AppContext } from '../../context'
-import { HIDDEN, secretRegex, secretValuesOf } from './hide'
-import { integrationsOf } from './service'
+import { errorForLog, hideWith, matchesAny, secretRegexes, secretValuesOf } from './hide'
+import { integrationsOf, WITHHELD } from './service'
 
 export interface Redactor {
-  /** the text with every form of every value replaced by HIDDEN */
+  /** the text with every form of every value replaced by HIDDEN (WITHHELD for any text when `withheld`) */
   hide(text: string): string
   /** the values (for the stream's carry-over); empty: hide changes nothing */
   readonly values: readonly string[]
-  readonly re: RegExp | null
+  /** the regular expressions, applied in order (hide.ts secretRegexes); empty: nothing to look for */
+  readonly res: readonly RegExp[]
+  /** the keys could not be made into a hider (QA TC-4770): nothing is let out unchecked, every text is WITHHELD */
+  readonly withheld?: boolean
 }
 
-const NONE: Redactor = { hide: (s) => s, values: [], re: null }
+const NONE: Redactor = { hide: (s) => s, values: [], res: [] }
+/** fails closed: what cannot be checked is not shown */
+export const WITHHOLDING: Redactor = { hide: (s) => (s ? WITHHELD : s), values: [], res: [], withheld: true }
 
+/** a redactor that changes nothing (no stored keys): callers may skip it */
+export const nothingToHide = (r: Redactor) => !r.withheld && r.res.length === 0
+/** whether a form of a value is in `text` (a withholding redactor: any text) */
+export const holdsKey = (r: Redactor, text: string) => (r.withheld ? !!text : matchesAny(r.res, text))
+
+/** SecretTooLarge (hide.ts) when a value cannot be hidden: the callers below fail closed */
 export function redactorOf(values: Iterable<string | null | undefined>): Redactor {
   const vs = secretValuesOf(values)
-  const re = secretRegex(vs)
-  if (!re) return NONE
-  return { hide: (s) => (s ? s.replace(re, HIDDEN) : s), values: vs, re }
+  const res = secretRegexes(vs)
+  if (!res.length) return NONE
+  return { hide: (s) => (s ? hideWith(res, s) : s), values: vs, res }
 }
 
-/** The redactor of this person's stored connection secrets now. A failure to read them leaves the text as it is (and
- * is logged): the tools' own hiding (tools.ts `hiding`) still withholds an answer it cannot check. */
+/** The redactor of this person's stored connection secrets now. A secret that cannot be opened is left out (the tools'
+ * own hiding, tools.ts `hiding`, still withholds an answer it cannot check); a failure to read them or to build the
+ * hider is logged and fails closed: the redactor withholds every text (QA TC-4770). */
 export function redactorFor(ctx: AppContext, userId: string): Redactor {
   try {
     const has = ctx.db.query('SELECT 1 FROM integrations WHERE secret_enc IS NOT NULL LIMIT 1').get()
     if (!has) return NONE
     return redactorOf(integrationsOf(ctx).secretsFor(userId))
   } catch (e) {
-    ctx.log?.warn('reading connection secrets for redaction failed', { err: e })
-    return NONE
+    ctx.log?.warn('reading connection secrets for redaction failed', { err: errorForLog(e) })
+    return WITHHOLDING
   }
 }
 
@@ -51,7 +63,7 @@ export function completeRedactorFor(ctx: AppContext, userId: string): Redactor |
     const values = integrationsOf(ctx).allSecretsFor(userId)
     return values ? redactorOf(values) : null
   } catch (e) {
-    ctx.log?.warn('reading connection secrets for the memory clean-up failed', { err: e })
+    ctx.log?.warn('reading connection secrets for the memory clean-up failed', { err: errorForLog(e) })
     return null
   }
 }
@@ -75,7 +87,8 @@ export function hideKeysInStoredMemories(ctx: AppContext): number {
   for (const u of users) {
     let r = completeRedactorFor(ctx, u.user_id)
     if (!r) { complete = false; r = redactorFor(ctx, u.user_id) }
-    if (r.re) hiders.push({ userId: u.user_id, r })
+    if (r.withheld) { complete = false; continue }
+    if (r.res.length) hiders.push({ userId: u.user_id, r })
   }
   db.transaction(() => {
     for (const { userId, r } of hiders) {
@@ -135,6 +148,8 @@ export function formCarryLength(text: string, values: readonly string[]): number
  */
 export class RedactingText {
   private pending = ''
+  /** a withholding redactor: WITHHELD was let out once, the rest of the text goes nowhere */
+  private saidWithheld = false
   constructor(private redactor: () => Redactor) {}
 
   /** the part of the text so far that can be let out now */
@@ -152,14 +167,18 @@ export class RedactingText {
     const text = this.pending
     if (!text) return ''
     const r = this.redactor()
-    if (!r.re) { this.pending = ''; return text }
+    if (r.withheld) { this.pending = ''; if (this.saidWithheld) return ''; this.saidWithheld = true; return r.hide(text) }
+    if (!r.res.length) { this.pending = ''; return text }
     let cut = all ? text.length : text.length - Math.max(carryLength(text, r.values), formCarryLength(text, r.values))
-    if (cut < text.length) {
-      // a whole form of a value across the cut stays with the held part (it is hidden together)
-      r.re.lastIndex = 0
-      for (const m of text.matchAll(r.re)) {
-        if (m.index! < cut && m.index! + m[0].length > cut) { cut = m.index!; break }
-        if (m.index! >= cut) break
+    // a whole form of a value across the cut stays with the held part (it is hidden together), for every regular
+    // expression of the chain: moving the cut back can put it inside another one's match, so until none crosses it
+    for (let moved = cut < text.length; moved;) {
+      moved = false
+      for (const re of r.res) {
+        for (const m of text.matchAll(re)) {
+          if (m.index! >= cut) break
+          if (m.index! + m[0].length > cut) { cut = m.index!; moved = true; break }
+        }
       }
     }
     this.pending = text.slice(cut)

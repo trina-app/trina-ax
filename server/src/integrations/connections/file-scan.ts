@@ -10,7 +10,8 @@ import { authorize } from '../../policy/authorize'
 import type { Principal } from '../../policy/access'
 import { readRegular } from '../../files/store'
 import { notifyStoredKeyFiles } from '../../notifications/service'
-import { redactorOf, redactorFor, type Redactor } from './redact'
+import { errorForLog } from './hide'
+import { holdsKey, nothingToHide, redactorOf, redactorFor, type Redactor } from './redact'
 import { integrationsOf } from './service'
 
 export const FILE_SCAN_KEY = 'files.storedKeyScan'
@@ -51,7 +52,7 @@ function keysOf(ctx: AppContext, userId: string): { r: Redactor; complete: boole
   try {
     const all = integrationsOf(ctx).allSecretsFor(userId)
     if (all) return { r: redactorOf(all), complete: true }
-  } catch (e) { ctx.log?.warn('reading connection secrets for the file check failed', { err: e }) }
+  } catch (e) { ctx.log?.warn('reading connection secrets for the file check failed', { err: errorForLog(e) }) }
   return { r: redactorFor(ctx, userId), complete: false }
 }
 
@@ -101,7 +102,9 @@ export async function findKeysInOldFiles(ctx: AppContext, o: { limits?: typeof F
       try {
         const keys = keysOf(ctx, userId)
         if (!keys.complete) complete = false
-        if (keys.r.re) who = { r: keys.r, p: files.principal(userId) }
+        // keys that could not be made into a hider: looked for at the next start
+        if (keys.r.withheld) complete = false
+        else if (!nothingToHide(keys.r)) who = { r: keys.r, p: files.principal(userId) }
       } catch { /* an account that is gone or disabled: nobody to tell */ }
       people.set(userId, who)
     }
@@ -119,7 +122,7 @@ export async function findKeysInOldFiles(ctx: AppContext, o: { limits?: typeof F
     result.scanned++
     const texts = [textOf(abs, limits.bytes, seen), textOf(cache, limits.bytes)]
     sinceBytes += texts[0]!.read + texts[1]!.read
-    const holds = texts.some(({ text }) => text !== null && text.search(who.r.re!) >= 0)
+    const holds = texts.some(({ text }) => text !== null && holdsKey(who.r, text))
     if (!holds) continue
     result.found++
     const list = found.get(userId) ?? []
