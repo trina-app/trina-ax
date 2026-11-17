@@ -3051,6 +3051,12 @@ export class MockServer {
       const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
       return { items: [{ id: c.user.id, name: c.user.name }, ...room.peers].map((user) => ({ user, joinedAt: room.createdAt })) }
     },
+    // "Save to team folder" (server/src/rooms/save-to-team.ts): this mock keeps no room files of its own (the specs answer
+    // the room through page.route, test/e2e/rooms-mock.ts), so nothing is saved yet; a spec routes the plan and the save
+    roomSavedFiles: (c) => {
+      this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
+      return { items: [] }
+    },
     // "팀 파일" in a room's box (server/src/routes/rooms.ts attachRoomTeamFile, short): a team file I may read becomes my
     // upload in a room of POST /__test/rooms; the room's other people (its peers) who cannot open it are counted
     attachRoomTeamFile: (c) => {
