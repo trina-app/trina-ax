@@ -490,14 +490,6 @@ jobs:
       # font as in feature-map.yml (Roboto as sans-serif and system-ui), so the specs that measure text against its box
       # draw it as a phone does. Its own time cap, so a hung browser never takes the job past its timeout. To be made
       # required after ~20 green queue runs (RELEASE-CI.md); until then a red guard is read, not waited on.
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        if: github.event_name == 'merge_group'
-        continue-on-error: true
-        with:
-          path: ~/.cache/ms-playwright
-          # (web/package.json pins @playwright/test; an older browser left in the cache is replaced by the install)
-          key: playwright-${{ runner.os }}-${{ hashFiles('web/package.json') }}
-          restore-keys: playwright-${{ runner.os }}-
       - name: Browser tests, guard set (advisory)
         id: e2e-guard
         if: github.event_name == 'merge_group'
@@ -515,6 +507,8 @@ jobs:
           done
           sudo install -m 644 test/e2e/fonts/phone-font.conf /etc/fonts/conf.d/99-mycel-e2e-phone-font.conf
           fc-cache -f
+          # no browser cache: a merge_group cache is saved under its own ref and never read again (repo caches are full);
+          # the Chromium download takes ~20 s
           bunx playwright install chromium
           bun run e2e:guard --reporter=line,json
       - name: Guard set in the run summary
