@@ -1,0 +1,1 @@
+- In a group chat's ✦ side chat, "save the notes from that link" no longer puts the file in the company-wide folder when no team folder holds just the room's people. Trina saves it in your own folder and asks once to share it with the room's other people, so only they can open it.
