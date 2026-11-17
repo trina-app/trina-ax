@@ -77,7 +77,9 @@ test('채널 만들기 asks for a name; 새 메시지 has no name field', async 
   await panel(page).getByTestId('rooms-new-channel').click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByRole('heading')).toHaveText(t['rooms.section.newChannel'])
-  await expect(dialog.getByTestId('picker-name')).toBeVisible()
+  // the name first, labelled, with the focus
+  await expect(dialog.getByTestId('picker-name')).toBeFocused()
+  await expect(dialog.getByText(t['rooms.info.nameLabelChannel'])).toBeVisible()
   await dialog.getByTestId('people-row').first().getByTestId('picker-tick').check()
   // one person and no name: nothing to create yet
   await expect(dialog.getByTestId('picker-go')).toBeDisabled()
@@ -93,6 +95,6 @@ test('채널 만들기 asks for a name; 새 메시지 has no name field', async 
   await rows.nth(0).getByTestId('picker-tick').check()
   await rows.nth(1).getByTestId('picker-tick').check()
   await expect(page.getByRole('dialog').getByTestId('picker-name')).toHaveCount(0)
-  await expect(page.getByRole('dialog').getByTestId('picker-go')).toHaveText(t['rooms.picker.createGroup'])
+  await expect(page.getByRole('dialog').getByTestId('picker-go')).toHaveText(t['rooms.picker.start'])
   expect(created).toEqual([])
 })

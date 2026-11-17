@@ -16,8 +16,8 @@ group room are core.
   only spaces), titled by their people with the face stack, by latest activity. Private channels sort with the other
   channels by name, Everyone first. A room moves at once when its name changes (the existing room.updated event).
 - **Rule: two ways in, one dialog.** The Channels header has a "+" **Create a channel**: the people picker with a
-  required name (one other person is enough); the result is a private channel. The Direct messages header has a "+"
-  **New message**: the same picker with no name field; one person opens or makes the 1:1, two or more make a group DM,
+  required name, asked first with its label and the focus (one other person is enough); the result is a private channel. The Direct messages header has a "+"
+  **New message**: the same picker with no name field and "Start conversation" as its button; one person opens or makes the 1:1, two or more make a group DM,
   and the server opens the group DM of exactly those people if I am in one already (a named room never counts). The
   panel's top "+", the phone's top bar, ⌘K's "Message" and `/rooms?new=1` keep opening the picker, now as **New
   message** (the key `rooms.newChat` is renamed in words only), so there are two flows, not three. A guest gets neither

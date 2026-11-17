@@ -102,7 +102,7 @@ test('New message: a group ticks its people at once (me left out); two or more m
     expect(m.container.ownerDocument!.body.querySelectorAll('[data-testid="people-row"]').map((r) => r.textContent)).not.toContain(ME.name)
     await tick('picker-group', GROUP.name)
     expect(m.get('picker-count').textContent).toBe(ko('rooms.picker.selected', { n: 2 }))
-    expect(m.get('picker-go').textContent).toBe(ko('rooms.picker.createGroup'))
+    expect(m.get('picker-go').textContent).toBe(ko('rooms.picker.start'))
     // a group DM has no name of its own (a name makes a private channel: Create a channel)
     expect(m.find('picker-name')).toBeNull()
     await tick('people-row', LONG.name)
