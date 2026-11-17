@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-17 01:43
 - Branch: `feat/voice-live-text`
-- Status: in progress
+- Status: done
 - Where: trina-ax `web/src/lib` (voice input), `shared/src` (the piece cutter and sender, moved from the desktop app),
   `server/src/jobs` + `server/src/routes/jobs.ts` (a voice input piece path). Why: voice input is Team AX core (chat,
   rooms, AI connection); the meeting-notes pieces (#1149, #1155) are already there to reuse.
@@ -76,4 +76,17 @@ refusal), `voiceInput` live finish; web e2e voice specs; ui-polish screenshots 1
 
 ## Result
 
-(filled in at the end)
+Built as planned, on OpenRouter teams only. Differences and additions after the independent review:
+- First piece cut by 4 s (5 s in the first draft); a piece needs 200 ms of clear speech (meeting notes keep 300 ms),
+  so a short quiet word on Stop is still sent.
+- Esc puts the box back to its text before the first words (taken at the first words, after a hold of Space took its
+  Space back), even when the newest words are not rendered yet.
+- A piece that never got an answer ends the recording with the network note; the words that came stay.
+- A browser that keeps the sound paused (no running AudioContext within 1 s) records the whole file as before.
+- A room switched in the same box drops the recording for the last room. Leaving a chat mid-recording keeps the words
+  already shown in its draft.
+- Measured (mock server, Chromium fake microphone, continuous sound): first piece sent 5.4 s after the mic click
+  with a 5 s first cut, 4 s cut now; words in the box ~0.4 s after the answer. The real OpenRouter round trip could
+  not be measured from this Mac (no OpenRouter key here, qa.trina.app has voice input off); to be checked on
+  qa.trina.app or a hosted team with a key.
+- UI check: 1440 / 390, light / dark, chat and room; the words show above the bar with the box's padding.
