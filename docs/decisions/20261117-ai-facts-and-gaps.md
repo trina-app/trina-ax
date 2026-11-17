@@ -15,12 +15,17 @@
   its first bytes), the size in pixels as shown (EXIF orientation applied), and whether it has see-through parts: the
   background (all four corners), some, or none. A picture that cannot have them (JPEG, a PNG without alpha or tRNS) is
   "none" with no look; one that can is shrunk to 32 × 32 alpha by an isolated ffmpeg, as thumbnails already are
-  (`uploads/image.ts seeThrough`). No ffmpeg, a HEIC or a failed look: that part is left out, never guessed.
+  (`uploads/image.ts seeThrough`), only after the normalizer took the picture, in the image conversion slots, under the
+  converters' 1 GiB cap and only up to 50 million pixels (ffmpeg decodes the whole picture). A look that finds
+  nothing see-through says "the background is not see-through", not "none" (one see-through pixel in a big picture
+  averages away). No ffmpeg, a HEIC, a too large picture or a failed look: that part is left out, never guessed.
 - **Where a chat is shared** is in the app map: Share at the top right of the chat, by its starter; people or groups
   then see all of it and can ask; a team project's chat is shared with its members (CHT-04.how: the AI said it did not
-  know where and offered workarounds). This costs about 37 tokens in the longest form, so the cap is 1,250.
+  know where and offered workarounds). The longest form (an owner's or admin's, in Korean) grows from about 1,189 to
+  about 1,241 tokens, so the cap is 1,250.
 - **The dev environment in everyday words** ("the AI does heavier work itself, e.g. big data files"; not on this team's
-  app), without "server" and "runs programs", which came back in answers to members (ADM-07.member).
+  app; for owners and admins also that it comes with how the app was installed), without "server" and "runs programs",
+  which came back in answers to members (ADM-07.member).
 - **The own-chat thread line** now says the AI in that chat reads a thread when someone asks, as the 11-17 decision
   made it (the shared chat's own section already said so).
 - **Not product bugs (the runner, `tests/ai-scenarios`):**

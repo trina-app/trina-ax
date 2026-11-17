@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { nativeBinDir, which } from '../config'
 import { heicRefusal, heicToJpeg, heicTools, isHeic, PREVIEW_INPUT_MAX } from '../files/heic-preview'
-import { imageSlot } from '../files/vision'
+import { CONVERT_RSS_MIB, imageSlot } from '../files/vision'
 import { makeWorkDir, runIsolated } from '../tools/isolate'
 import { exifOrientation } from './metadata'
 
@@ -83,41 +83,51 @@ export function imageFormat(b: Uint8Array): 'PNG' | 'JPEG' | 'GIF' | 'WebP' | 'H
 }
 
 /** How see-through a picture is: `background` (its four corners are see-through: a seal or logo on nothing), `some`
- * (some pixels, not the corners), `none`; null when it could not be looked at. */
-export type SeeThrough = 'background' | 'some' | 'none'
+ * (some pixels, not the corners), `opaque` (it has an alpha channel and the look found nothing see-through: said as "the
+ * background is not see-through", since one see-through pixel in a big picture averages away), `none` (it cannot have
+ * see-through pixels: JPEG, a PNG without alpha or tRNS); null when it could not be looked at. */
+export type SeeThrough = 'background' | 'some' | 'opaque' | 'none'
 /** the side of the alpha sample: small, and its corners are the picture's corners */
 const ALPHA_SAMPLE = 32
+/** pictures larger than this are not looked at (the normalizer refuses them for the model anyway; ffmpeg decodes the
+ * whole picture: 12000 x 12000 took 667 MB) */
+const ALPHA_LOOK_MAX_PIXELS = 50_000_000
 
 /**
- * Whether a picture has see-through pixels, and where: a picture that cannot have them (mayHaveAlpha: JPEG, a PNG
- * without alpha or tRNS) is `none` without a look; one that can is shrunk to 32 x 32 by an isolated ffmpeg (its alpha
- * only, one byte a pixel, as makeThumbnail looks), and its corners decide. The AI's own picture of an image is drawn on
- * white (mycel-safeops vision), so without this it cannot tell a transparent seal from a white one (AI scenario
- * VIEW-05, 2026-11-17). null: no ffmpeg, a format ffmpeg could not read, or a format this does not know.
+ * Whether a picture has see-through pixels, and where: a picture that cannot have them (mayHaveAlpha) is `none` without
+ * a look; one that can is shrunk to 32 x 32 by an isolated ffmpeg (its alpha only, one byte a pixel, as makeThumbnail
+ * looks), in the image conversion slots and under the converters' memory cap, and its corners decide. The AI's own
+ * picture of an image is drawn on white (mycel-safeops vision), so without this it cannot tell a transparent seal from
+ * a white one (AI scenario VIEW-05, 2026-11-17). null: no ffmpeg, too large, a format ffmpeg could not read, or one
+ * this does not know (a HEIC can carry an alpha picture too, rarely: not looked at).
  */
 export async function seeThrough(bytes: Uint8Array, o: { ffmpeg?: string | null; workBase?: string; signal?: AbortSignal } = {}): Promise<SeeThrough | null> {
   const format = imageFormat(bytes)
-  // a HEIC photo can carry an alpha picture too, rarely: not looked at
   if (!format || format === 'HEIC') return null
   if (!mayHaveAlpha(bytes.subarray(0, 64 * 1024))) return 'none'
+  const size = imageSize(bytes)
+  if (!size || size.width * size.height > ALPHA_LOOK_MAX_PIXELS) return null
   const ffmpeg = o.ffmpeg === undefined ? which('ffmpeg') : o.ffmpeg
   if (!ffmpeg) return null
-  const work = makeWorkDir(o.workBase)
-  try {
-    const input = path.join(work, `in.${format.toLowerCase()}`)
-    fs.writeFileSync(input, bytes, { mode: 0o600 })
-    const n = ALPHA_SAMPLE
-    const r = await runIsolated({
-      cmd: ffmpeg, workDir: work, timeoutMs: 20_000, maxStdout: n * n + 1, signal: o.signal,
-      args: ['-nostdin', '-hide_banner', '-loglevel', 'error', '-i', path.basename(input), '-frames:v', '1', '-vf', `scale=${n}:${n}:flags=area,format=rgba,alphaextract`, '-f', 'rawvideo', '-pix_fmt', 'gray', 'pipe:1'],
-    })
-    const a = r.stdout
-    if (r.code !== 0 || a.length !== n * n) return null
-    // a corner counts as see-through when it is mostly so (the shrink averages the edge of a seal into it)
-    const corners = [a[0]!, a[n - 1]!, a[n * (n - 1)]!, a[n * n - 1]!]
-    if (corners.every((x) => x < 64)) return 'background'
-    return a.some((x) => x < 255) ? 'some' : 'none'
-  } finally { fs.rmSync(work, { recursive: true, force: true }) }
+  return imageSlot(async () => {
+    const work = makeWorkDir(o.workBase)
+    try {
+      const input = path.join(work, `in.${format.toLowerCase()}`)
+      fs.writeFileSync(input, bytes, { mode: 0o600 })
+      const n = ALPHA_SAMPLE
+      const r = await runIsolated({
+        cmd: ffmpeg, workDir: work, timeoutMs: 20_000, maxRssMiB: CONVERT_RSS_MIB, maxStdout: n * n + 1, signal: o.signal,
+        args: ['-nostdin', '-hide_banner', '-loglevel', 'error', '-i', path.basename(input), '-frames:v', '1', '-vf', `scale=${n}:${n}:flags=area,format=rgba,alphaextract`, '-f', 'rawvideo', '-pix_fmt', 'gray', 'pipe:1'],
+      })
+      const a = r.stdout
+      if (r.code !== 0 || a.length !== n * n) return null
+      // a corner counts as see-through when it is mostly so (the shrink averages the edge of a seal into it, and a
+      // picture half see-through everywhere has a half see-through background)
+      const corners = [a[0]!, a[n - 1]!, a[n * (n - 1)]!, a[n * n - 1]!]
+      if (corners.every((x) => x < 192)) return 'background'
+      return a.some((x) => x < 255) ? 'some' : 'opaque'
+    } finally { fs.rmSync(work, { recursive: true, force: true }) }
+  }, o.signal)
 }
 
 /** One line on a picture for the AI: its format, its size as shown (EXIF orientation applied) and how see-through it
@@ -128,7 +138,8 @@ export function imageFactsLine(bytes: Uint8Array, see: SeeThrough | null): strin
   const parts = [format, size ? `${size.width} × ${size.height} pixels` : null].filter(Boolean)
   const alpha = see === 'background' ? 'see-through background (shown white in your picture of it)'
     : see === 'some' ? 'some see-through parts, not the background (shown white in your picture of it)'
-      : see === 'none' ? 'no see-through parts' : null
+      : see === 'opaque' ? 'the background is not see-through'
+        : see === 'none' ? 'no see-through parts' : null
   if (alpha) parts.push(alpha)
   return parts.length ? `Read from the file itself: ${parts.join(', ')}. Say these as facts when asked.` : ''
 }

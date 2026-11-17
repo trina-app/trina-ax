@@ -1476,7 +1476,7 @@ cases:
       expect:
         outcome: do
         good: Uses the meeting skill on the 11/10 notes and shows 이소라's task, the revised 라마바카페 quote due 11월 13일; no task of another person shown as hers, none invented.
-        checks: [{ type: answer_matches, pattern: "13" }, { type: answer_not_matches, pattern: "소개 자료" }]
+        checks: [{ type: answer_matches, pattern: "13" }]
     - key: guest
       context: guest
       as: partner

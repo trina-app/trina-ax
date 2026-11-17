@@ -634,15 +634,16 @@ export class FileService {
     const full = this.imageBudget(ctx, 0)
     if (full) return { text: full, summary: `read ${r.rel} -> image not shown (turn image limit)` }
     const src = this.boundSource(ctx, r, VISION_INPUT_MAX)
-    // the file's own format, size and see-through parts (uploads/image.ts): the picture below is drawn on white, and a
-    // size read off it is a guess ("about 600 x 600", AI scenario VIEW-05, 2026-11-17)
-    const see = this.seeThrough(src.bytes, ctx.signal).catch(() => null)
     let jpeg: Buffer
     try { jpeg = await this.modelImage(src.rel, src.bytes, ctx.signal) } catch (e) {
       ctx.signal?.throwIfAborted()
       const note = this.visionFailure(ctx, e)
       return { text: note, isError: true, summary: `read ${r.rel} -> image not shown (${(e as ToolError).code})` }
     }
+    // the file's own format, size and see-through parts (uploads/image.ts): the picture below is drawn on white, and a
+    // size read off it is a guess ("about 600 x 600", AI scenario VIEW-05, 2026-11-17). Looked at only once the
+    // normalizer took the picture (it refuses huge ones first)
+    const facts = imageFactsLine(src.bytes, await this.seeThrough(src.bytes, ctx.signal).catch(() => null))
     ctx.signal?.throwIfAborted()
     const over = this.imageBudget(ctx, jpeg.length)
     if (over) return { text: over, summary: `read ${r.rel} -> image not shown (turn image limit)` }
@@ -653,8 +654,6 @@ export class FileService {
     ctx.files.sources.note(src.rel, 'read', { agent: ctx.files.agent, sha256: src.hash })
     ctx.files.imageBytes += jpeg.length
     ctx.files.imageCount++
-    const facts = imageFactsLine(src.bytes, await see)
-    ctx.signal?.throwIfAborted()
     const text = `Image ${src.rel} (shown below).${facts ? ` ${facts}` : ''}`
     return { text, content: [{ type: 'text', text }, { type: 'image', mimeType: 'image/jpeg', data: jpeg.toString('base64') }], beforeDelivery,
       summary: `read ${src.rel} -> image ${jpeg.length}B` }

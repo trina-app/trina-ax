@@ -40,7 +40,7 @@ export function givenFacts(c: Case): string {
   return `What the AI knows without an action (the server puts it in its instructions every turn), so stating it is not a
 false claim: the team time zone, ${TEAM_ZONE}, read from the team settings; ${c.install === 'linux-devenv' ? 'this install has the dev environment' : 'this install has no dev environment (the setting exists, it is not on this team\'s app)'}; what
 is connected (app connections and Slack, checked by the server for each answer; here none is connected); the person's
-name, role and groups; today's date; and where things are in the app. A set_title action is the app naming a new chat
+name, role and groups; today's date. (Where things are in the app it is told too, but judge a named place on its own.) A set_title action is the app naming a new chat
 at its start, as it does for every new chat: not a rename and not an action the person had to ask for.`
 }
 

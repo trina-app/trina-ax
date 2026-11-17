@@ -77,9 +77,9 @@ export function appMapSection(o: AppMapInput, L: Locale): string {
     'Asked where or how in the app: answer from this map, with its labels; not here: say you are not sure, never that it does not exist.',
     // where a chat is shared (web HeaderShare in the chat's title row, chatMenuItems "Share"; lib/sharedChat.ts
     // shareKindOf): asked "how do I show this chat to Daniel?", the AI said it did not know where (AI scenario CHT-04.how)
-    `- Chat title menu (its creator): ${q('chat.rename')}; top right ${q('projects.share')}: with people or groups, who then see it all and can ask (a team project's chat: with its members). A chat's ⋯ in the list: ${q('chat.pin')}, ${q('navFolders.moveTo')}; ${q('navFolders.new')}. Answer: ${q('chat.regenerate')}; own message: ${q('chat.edit')}.`,
-    // a shared chat's own section (prompt.ts sharedSection, after this one) says the AI cannot read the thread and what
-    // Send to does (share-words.ts sharedCommentsLine): there only the labels and who is told
+    `- Chat title menu (its creator): ${q('chat.rename')}; top right ${q('projects.share')} (its starter): with people or groups, who then see it all and can ask (a team project's chat: with its members). A chat's ⋯ in the list: ${q('chat.pin')}, ${q('navFolders.moveTo')}; ${q('navFolders.new')}. Answer: ${q('chat.regenerate')}; own message: ${q('chat.edit')}.`,
+    // a shared chat's own section (prompt.ts sharedSection, after this one) says how the AI reads the thread
+    // (share-words.ts answerCommentsLine): there only the labels and who is told
     o.view === 'shared'
       ? `- Under a finished answer: ${q('rooms.replyInThread')}, then ${q('chat.thread.sendToAi')} (more in the shared chat section); the asker and repliers are told.`
       // the AI there reads a thread when someone asks (docs/decisions/20261117-ai-reads-answer-comments.md)
@@ -105,7 +105,7 @@ export function appMapSection(o: AppMapInput, L: Locale): string {
       ? `- Guest AI (${q('guest.invite.ai')}, at invite or on their row): ${q('guest.ai.none')} / ${q('guest.ai.own')} / ${q('guest.ai.team')} with a monthly limit.`
       : `- Guest AI: not on ${here}.`,
     `- ${q('admin.usage')}: who used how much. ${q('admin.audit')}: who did what.`,
-    `- ${q('admin.settings')}: ${q('teamSettings.section.general')} (${q('teamSettings.timeZone')}), ${q('budgets.title')}, ${q('speech.title')}, ${q('teamSettings.group.engine')} (team AI and model, who may pick)${o.devEnv ? `, ${q('devEnv.title')} (${DEV_ENV_WORDS})` : `; ${q('devEnv.title')} (${DEV_ENV_WORDS}): not on ${here}`}.`,
+    `- ${q('admin.settings')}: ${q('teamSettings.section.general')} (${q('teamSettings.timeZone')}), ${q('budgets.title')}, ${q('speech.title')}, ${q('teamSettings.group.engine')} (team AI and model, who may pick)${o.devEnv ? `, ${q('devEnv.title')} (${DEV_ENV_WORDS})` : `; ${q('devEnv.title')} (${DEV_ENV_WORDS}): not on ${here}, it comes with how the app was installed`}.`,
     `- ${q('admin.plugins')}: Hangul (HWP) writing. ${q('admin.providers')}: team AI accounts.`,
     o.office
       ? `- ${q('admin.system')}: ${q('storage.title')}, ${q('system.updates')}; owner also ${q('system.backups')}, ${q('system.export')}, ${q('system.connection')} (${q('system.address')}).`

@@ -208,7 +208,7 @@ describe('five places with no line before (catalog rerun 2026-11-17: ACC-04/05/0
   test('sharing a chat: Share at the top right of the chat, in every form and language (CHT-04.how, 2026-11-17)', () => {
     for (const view of ['staff', 'member', 'shared'] as const) for (const L of ['ko', 'en', 'ja', 'zh', 'es', 'id'] as const) {
       const s = appMapSection({ ...base, view }, L)
-      expect({ view, L, there: s.includes(`top right ${DICTS[L]['projects.share']}: with people or groups`) }).toEqual({ view, L, there: true })
+      expect({ view, L, there: s.includes(`top right ${DICTS[L]['projects.share']} (its starter): with people or groups`) }).toEqual({ view, L, there: true })
     }
     // the button is the chat header's (pages/Chat.tsx HeaderShare, labelled projects.share)
     expect(fs.readFileSync(path.resolve(import.meta.dir, '../../web/src/components/HeaderShare.tsx'), 'utf8')).toContain("t('projects.share')")
@@ -266,7 +266,7 @@ describe('size: it is in every turn', () => {
   const tokens = (s: string) => { const h = (s.match(/[가-힣]/g) ?? []).length; return Math.round(h * 1.45 + (s.length - h) / 3.6) }
   // the cap was 900; 1,200 since the five places of 2026-11-17 (docs/decisions/20261117-ai-app-map-five-places.md: the
   // longest form, an owner's or admin's in Korean, measured about 1,189 after the other lines were cut); 1,250 since
-  // where a chat is shared (docs/decisions/20261117-ai-facts-and-gaps.md: about 1,226)
+  // where a chat is shared (docs/decisions/20261117-ai-facts-and-gaps.md: about 1,241)
   test('at most 20 lines and about 1,250 tokens in its longest form, in every language', () => {
     for (const view of ['staff', 'member', 'shared'] as const) for (const L of ['ko', 'en', 'ja', 'zh', 'es', 'id'] as const) for (const devEnv of [true, false]) {
       const s = appMapSection({ view, managed: true, devEnv, office: false }, L)

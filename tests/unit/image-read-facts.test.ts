@@ -51,7 +51,17 @@ describe('the facts, from the file itself', () => {
   test.skipIf(!ffmpeg)('the pixels decide: a seal on nothing, a hole in the middle, an alpha channel all opaque', async () => {
     expect(await seeThrough(seal())).toBe('background')
     expect(await seeThrough(holed())).toBe('some')
-    expect(await seeThrough(opaqueRgba())).toBe('none')
+    // an alpha channel the look finds all opaque: "the background is not see-through", never "none" (one see-through
+    // pixel in a big picture averages away)
+    expect(await seeThrough(opaqueRgba())).toBe('opaque')
+    expect(imageFactsLine(opaqueRgba(), 'opaque')).toContain('the background is not see-through')
+    // half see-through everywhere: the background is see-through too
+    expect(await seeThrough(pngRgbaOf(40, 40, () => [210, 30, 30, 128]))).toBe('background')
+  })
+  test('a picture too large to look at is not looked at (ffmpeg decodes it whole)', async () => {
+    // an RGBA header that says 10000 x 10000: refused before any run (the ffmpeg given does not exist)
+    const big = Buffer.from(pngRgbaOf(4, 4, () => CLEAR)); big.writeUInt32BE(10000, 16); big.writeUInt32BE(10000, 20)
+    expect(await seeThrough(big, { ffmpeg: '/nonexistent/ffmpeg' })).toBeNull()
   })
 })
 
