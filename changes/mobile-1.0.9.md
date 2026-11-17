@@ -1,0 +1,1 @@
+- **Phone app 1.0.9** (App Store and Google Play): the start screen is light, also when the phone is in dark mode.
