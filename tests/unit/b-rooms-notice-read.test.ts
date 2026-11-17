@@ -5,7 +5,7 @@
 // 1000 and still finds a mention past those rows.
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
 import { roomsOf } from '../../server/src/rooms/service'
-import { MAX_UNREAD, memberRow, unreadCount } from '../../server/src/rooms/store'
+import { MAX_UNREAD, memberRow, TIMELINE_SQL, unreadCount } from '../../server/src/rooms/store'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
 
 setDefaultTimeout(120_000)
@@ -91,18 +91,19 @@ test('marking read looks each notice message up by its id, not a list of the roo
   const { nora, room, db, msg, notice } = await setup()
   db.transaction(() => { for (let s = 1000; s < 21000; s++) msg(room.id, s) })()
   notice(nora.id, room.id, msg(room.id, 21000))
-  db.exec('ANALYZE')
   // the same statements as rooms/service.ts markNoticesRead and markThreadNoticesRead
   const src = await Bun.file(new URL('../../server/src/rooms/service.ts', import.meta.url)).text()
   const body = (name: string) => src.slice(src.indexOf(`  ${name}(`), src.indexOf('\n  }\n', src.indexOf(`  ${name}(`)))
-  for (const name of ['markNoticesRead', 'markThreadNoticesRead']) {
+  // production never runs ANALYZE, so the plan is checked without statistics first, then with them
+  for (const stats of [false, true]) for (const name of ['markNoticesRead', 'markThreadNoticesRead']) {
+    if (stats && name === 'markNoticesRead') db.exec('ANALYZE')
     const sql = body(name).match(/UPDATE room_notices[\s\S]*?`\)\.run/)?.[0].slice(0, -'`).run'.length)
     expect(sql, name).toBeTruthy()
-    const text = sql!.replace('${TIMELINE_SQL}', '(m.thread_root_id IS NULL OR m.also_in_room = 1)')
+    const text = sql!.replace('${TIMELINE_SQL}', TIMELINE_SQL)
     const args = name === 'markNoticesRead' ? ['now', nora.id, room.id, 21000, room.id, 21000] : ['now', nora.id, room.id, 21000, room.id, 'root', 21000]
     const plan = (db.query('EXPLAIN QUERY PLAN ' + text).all(...args) as { detail: string }[]).map((p) => p.detail)
-    expect(plan.some((d) => /SEARCH m USING INDEX sqlite_autoindex_room_messages_1 \(id=\?\)/.test(d)), `${name}: ${plan.join(' | ')}`).toBe(true)
-    expect(plan.some((d) => /LIST SUBQUERY|SCAN m\b/.test(d)), `${name}: ${plan.join(' | ')}`).toBe(false)
+    expect(plan.some((d) => /SEARCH m USING INDEX sqlite_autoindex_room_messages_1 \(id=\?\)/.test(d)), `${name}, stats ${stats}: ${plan.join(' | ')}`).toBe(true)
+    expect(plan.some((d) => /LIST SUBQUERY|SCAN m\b/.test(d)), `${name}, stats ${stats}: ${plan.join(' | ')}`).toBe(false)
   }
 })
 

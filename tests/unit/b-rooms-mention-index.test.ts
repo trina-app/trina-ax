@@ -182,3 +182,9 @@ test('migration 416 fills room_message_mentions from the messages written before
   db.query('DELETE FROM rooms WHERE id = ?').run(room.id)
   expect((db.query('SELECT COUNT(*) n FROM room_message_mentions WHERE room_id = ?').get(room.id) as { n: number }).n).toBe(0)
 })
+
+test('the three room_message_mentions triggers survive all migrations (a rebuild of room_messages would drop them silently)', async () => {
+  const { db } = await setup()
+  const names = (db.query(`SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'room_messages' AND name LIKE 'room_message_mentions_%' ORDER BY name`).all() as { name: string }[]).map((r) => r.name)
+  expect(names).toEqual(['room_message_mentions_delete', 'room_message_mentions_insert', 'room_message_mentions_update'])
+})

@@ -162,9 +162,6 @@ test('a clock that ran ahead and was set back: its future-dated backups do not c
     // after the correction the first try fails: the next waits an hour
     let failed = false
     const r = simulate({ tz, install: [2026, 10, 20, 14, 0], clock, failAt: (t) => !failed && t >= ahead[1] && (failed = true) })
-    // when the clock jumps ahead the server sees a new night and backs up once; otherwise one a real night at most (a
-    // future-dated "last one" made it back up at every 10-minute check and switched the failure wait off, or, compared
-    // as later-than, stopped the backups until the clock reached it)
     // when the clock jumps ahead, and again when it is set back, the server sees a night with no backup and backs up
     // once; never more (a future-dated "last one" made it back up at every 10-minute check and switched the failure
     // wait off, or, compared as later-than, stopped the backups until the clock reached it)
