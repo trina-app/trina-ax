@@ -34,7 +34,7 @@ import { threadLook } from './thread-look'
 import { alwaysHere, withAlways } from './always-allow'
 import { fromAsker, othersWordsIn } from './shared-actions'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
-import { noSearchPath, wholeTeamPath } from './search-path'
+import { inProjectOnly } from './search-path'
 import type { StoredStep } from './store'
 import { cardEndShort, endOfText, projectNotFoundNote, readOnlyNote, readOnlySkillLine, type CardOutcome } from '../policy/refusal'
 import type { TurnFiles } from '../files/service'
@@ -461,8 +461,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         const noPlace = exec.sharedSearchRefusal(name, args)
         if (noPlace) return { refusal: noPlace, summary: `${name} -> not searched: no folder everyone in the shared chat reads` }
         if (SEARCH_TOOLS.has(name) && args && typeof args === 'object') {
-          // a project chat's search without a path stays in the project folder: its result says so (afterFileTool)
-          if (exec.shared.kind === 'project' && noSearchPath((args as { path?: unknown }).path) && !wholeTeamPath((args as { path?: unknown }).path)) projectOnly.add(args)
+          // a project chat's search in the project folder (no path, or a path in it): its result says it looked only
+          // there (afterFileTool; AI scenario FIND-01.project also named the project folder itself)
+          if (exec.shared.kind === 'project' && inProjectOnly((args as { path?: unknown }).path, exec.shared.project.folder_path)) projectOnly.add(args)
           Object.assign(args, exec.sharedArgs(name, args))
         }
         const sharedNo = await exec.confirmSharedRead(name, args, { step: !caller || caller.files === exec.files })

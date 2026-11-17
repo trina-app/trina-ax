@@ -12,8 +12,9 @@
   "민호 님이랑 공유해줘" as naming 민호, a share refusal that hid the real limit behind another rule, and no fact that files
   shared with one person are not reachable in a shared chat.
 - **Rule 1, a search kept in the project folder says so (FIND-01).** In a shared project chat, grep and glob without a
-  path still look in the project folder only (the read gate's default, unchanged). The first such result of a turn
-  now ends with one note (`PROJECT_SEARCH_NOTE`, `server/src/chat/search-path.ts`): only the project folder was
+  path still look in the project folder only (the read gate's default, unchanged). The first result of a turn from a
+  search that looked only in the project folder (no path, or a path that is the project folder or inside it: the AI
+  also named the project folder itself) now ends with one note (`PROJECT_SEARCH_NOTE`, `server/src/chat/search-path.ts`): only the project folder was
   searched; other team folders and the user's own folder were not; search again with path `"/"` to look further.
   The note names no folder: the AI writes where everyone in the chat reads.
 - **Rule 2, `"/"` alone is the whole team folder in a shared project chat.** `TurnExec.sharedArgs` turns path `"/"`

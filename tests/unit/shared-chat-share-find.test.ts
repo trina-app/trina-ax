@@ -10,7 +10,7 @@ import { coreName, namesFile, namesFileLoose, namesRecipient } from '../../serve
 import { looksLikeGroup } from '../../server/src/chat/share-with-person'
 import { SHARE_NO } from '../../server/src/chat/share-words'
 import { sharedSection } from '../../server/src/chat/prompt'
-import { noSearchPath, PROJECT_SEARCH_NOTE, wholeTeamPath } from '../../server/src/chat/search-path'
+import { inProjectOnly, noSearchPath, PROJECT_SEARCH_NOTE, wholeTeamPath } from '../../server/src/chat/search-path'
 
 const MINHO = { names: ['\uBC15\uBBFC\uD638', 'minho'], person: true }
 
@@ -81,6 +81,9 @@ describe('SWM-01 and FIND-01: what a shared project chat tells the AI', () => {
     expect(wholeTeamPath(' / ')).toBe(true)
     for (const p of ['', '.', './', '//', undefined]) expect(wholeTeamPath(p)).toBe(false)
     expect(noSearchPath('/')).toBe(true)
+    // the note's searches: no path, or the project folder itself or a folder in it; never "/" or another folder
+    for (const p of [undefined, '', '.', 'projects/falcon', './projects/falcon/', 'Projects/Falcon/docs']) expect([p, inProjectOnly(p, 'projects/falcon')]).toEqual([p, true])
+    for (const p of ['/', 'groups', 'projects', 'projects/falcon-2', 'users/alice']) expect([p, inProjectOnly(p, 'projects/falcon')]).toEqual([p, false])
     expect(PROJECT_SEARCH_NOTE).toContain('Searched only this project\'s folder')
     expect(PROJECT_SEARCH_NOTE).toContain('search again with path "/"')
   })

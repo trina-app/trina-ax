@@ -12,4 +12,13 @@ export const wholeTeamPath = (p: unknown): boolean => typeof p === 'string' && p
 /** What a search that stayed in a shared project chat's folder tells the AI, once a turn (the AI took a project-only
  * result for the whole team folder: AI scenario FIND-01.project, 2026-11-17). Names no folder: the AI writes where
  * everyone in the chat reads. */
-export const PROJECT_SEARCH_NOTE = `(Searched only this project's folder: in this shared chat grep and glob without a path stay there, so files in other team folders and in the user's own folder were not looked at. When the file may be elsewhere, search again with path "${WHOLE_TEAM_PATH}": it looks through every team folder the user can open, and where some people here cannot open one, the user is asked first on a card only they see. Until then, do not call a result here the only one, and do not say a file does not exist.)`
+export const PROJECT_SEARCH_NOTE = `(Searched only this project's folder: files in other team folders and in the user's own folder were not looked at (in this shared chat grep and glob without a path stay in the project folder). When the file may be elsewhere, search again with path "${WHOLE_TEAM_PATH}": it looks through every team folder the user can open, and where some people here cannot open one, the user is asked first on a card only they see. Until then, do not call a result here the only one, and do not say a file does not exist.)`
+/** A shared project chat's search that looks only in the project folder: no path (sharedArgs keeps it there), or a
+ * path that is the project folder or inside it. "/" and any other folder are not. */
+export const inProjectOnly = (p: unknown, projectFolder: string): boolean => {
+  if (wholeTeamPath(p)) return false
+  if (noSearchPath(p)) return true
+  const norm = (x: string) => x.normalize('NFC').replace(/\\/g, '/').split('/').filter((s) => s && s !== '.').join('/').toLowerCase()
+  const k = norm(p as string), d = norm(projectFolder)
+  return !!d && (k === d || k.startsWith(d + '/'))
+}

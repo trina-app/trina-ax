@@ -423,6 +423,9 @@ describe('the read card', () => {
     // once a turn
     expect(quiet.done.content.split(PROJECT_SEARCH_NOTE).length).toBe(2)
     expect(PROJECT_SEARCH_NOTE).not.toMatch(/groups|marketing|users\//)
+    // a search that names the project folder itself says it too (once a turn)
+    const named = await ask('alice', chat.id, fake({ tool: 'glob', args: { pattern: '**/*', path: 'projects/falcon' }, sayResult: true }))
+    expect(named.done.content).toContain(PROJECT_SEARCH_NOTE)
     // "/": the team root as alice can open it; marketing and her own folder are not bob's, so the card asks first
     const wide = await askWithCard('alice', chat.id, fake({ tool: 'grep', args: { pattern: 'Autumn', path: '/' }, sayResult: true }), 'share')
     expect((wide.card as { question: string }).question).toContain('your personal folder')
