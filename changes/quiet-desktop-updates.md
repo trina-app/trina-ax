@@ -1,4 +1,0 @@
-- The desktop app no longer asks you to restart for an update. A downloaded update installs when you quit the app, or by itself when the computer has been idle for a while and nothing would be lost (an upload, a draft, a recording, pages in the in-app browser); the app then opens the page you had open.
-- Mac: opening Trina AX again right after quitting no longer cancels the update. Before, a click on the Dock icon while the update was still being installed (10 seconds to a minute) kept the old version and asked to restart again.
-- Mac: an app run straight from the dmg or from Downloads now says in one line that it can't update itself there, with "Move to Applications". If an update still didn't apply after two tries, one line offers the download page instead of asking again.
-- A file being edited in the side panel, or unsaved folder sharing changes, now also keep the page from reloading by itself after a server update.

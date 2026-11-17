@@ -10,6 +10,7 @@ import path from 'node:path'
 import type { Session } from 'electron'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { FrameReader, MeetingSession, type MeetingLine, type PieceAnswer } from '../common/meeting/session'
+import { rmsOf } from '../common/meeting/chunker'
 
 export const MEETING_PIECE_PATH = '/api/meetings/piece'
 const PIECE_TIMEOUT_MS = 75_000
@@ -46,6 +47,8 @@ export interface MeetingEvents {
   onStop(message: string | null): void
   onState(s: { microphone: boolean; callSound: boolean; callApps: string[] }): void
   onBacklog?(waiting: number): void
+  /** each frame's loudness per track (the "can't hear the call" check) */
+  onLevel?(track: 'me' | 'others', rms: number): void
 }
 
 export class MeetingRun {
@@ -73,7 +76,12 @@ export class MeetingRun {
     child.stdin!.on('error', () => {})
     const onData = (b: Buffer) => {
       if (this.ended) return
-      try { for (const f of this.reader.push(b)) this.session.push(f) } catch {
+      try {
+        for (const f of this.reader.push(b)) {
+          this.session.push(f)
+          if (this.o.events.onLevel) this.o.events.onLevel(f.track, rmsOf(f.samples))
+        }
+      } catch {
         // a broken stream: stop once (later chunks would fail on the same bytes)
         child.stdout!.off('data', onData)
         void this.stop()

@@ -32,6 +32,7 @@ import { keyboardBack, keyboardTaken, keyboardTarget } from '../common/keyboard-
 import { paneFromEdge, paneGrab, paneKeyWidth, paneLimits, paneWidthFor, readPaneFraction, settlePane } from '../common/pane-width'
 import type { FolderGrants } from '../common/folder-access'
 import { WorkFilesController } from './work-files'
+import { MeetingControl } from './meeting-control'
 import type { TeamsStore } from './teams-store'
 import { clearFailed, clearSessionData, type ClearResult } from './clear-session'
 import { debug } from './debug'
@@ -150,6 +151,18 @@ export class AppWindow {
       this.sendHostbar()
     },
   })
+  /** meeting notes (./meeting-control.ts): the app's own start dialog, one meeting for the open team, a menu bar item */
+  readonly meeting = new MeetingControl({
+    win: () => (this.win.isDestroyed() ? null : this.win),
+    locale: () => this.o.locale(),
+    team: () => (this.app && !this.app.webContents.isDestroyed() && this.team && this.currentOrigin && this.signedIn ? { id: this.team.id, userId: this.meetingUser, origin: this.currentOrigin, session: this.app.webContents.session } : null),
+    state: (st) => this.send(this.app, 'bridge:meeting-state-changed', st),
+    lines: (l) => this.send(this.app, 'bridge:meeting-lines-changed', l),
+    lastInput: () => this.appInputAt,
+    dataDir: electronApp.getPath('userData'),
+  })
+  /** the person the meeting started for (a sign-in of another person on this page ends it) */
+  private meetingUser: string | null = null
   /** when the person last pressed a key or the mouse on the team page (Electron's input events: no page script makes
    * them); Find work files reads it (WorkFilesController.add, a remembered yes) */
   private appInputAt = 0
@@ -332,6 +345,8 @@ export class AppWindow {
     this.win.on('blur', () => this.sendFocus(false))
     this.win.on('close', () => {
       this.saveWindow()
+      // a meeting ends with its window (its lines stay on this computer until the page saves them: meeting-control.ts)
+      void this.meeting.stop()
       // close the views while the window still exists (WebContentsView contents are not closed with it)
       this.disposeTeam()
       for (const v of [this.shell, this.chrome, this.hostbar]) if (!v.webContents.isDestroyed()) v.webContents.close()
@@ -531,6 +546,7 @@ export class AppWindow {
   async removeTeam(id: string): Promise<void> {
     const team = findTeam(this.teams, id)
     if (!team) return
+    if (this.meetingHolds(id, true)) return
     // the "isn't answering" line named this team: it goes with it (QA of #990: it stayed after the last team was removed)
     if (this.localStart?.team === id) {
       // only while that line is still the one shown (a refused link may have replaced it)
@@ -599,9 +615,19 @@ export class AppWindow {
 
   /** Open a remembered team; `entryPath` is the page a pasted link leads to ('/invite/<t>', '/join#t=<t>'), else '/'.
    * `startup`: the app opens it by itself at start (openLast), nobody picked it. */
+  /** a meeting belongs to the open team: another team waits until it is stopped (said in the app's own dialog) */
+  private meetingHolds(id: string, removing = false): boolean {
+    // a reload opens the same team again: that is allowed; removing the meeting's own team is not (others are)
+    if (!this.meeting.running()) return false
+    if (removing ? id !== this.meeting.teamId() : id === this.meeting.teamId()) return false
+    if (!this.win.isDestroyed()) void dialog.showMessageBox(this.win, { type: 'info', message: t(this.o.locale(), 'meeting.switchBusy'), noLink: true })
+    return true
+  }
+
   async openTeam(id: string, entryPath = '/', o: { startup?: boolean } = {}) {
     const team = findTeam(this.teams, id)
     if (!team) return
+    if (this.meetingHolds(id)) return
     this.startupLocal = o.startup && onThisComputer(team.origin) ? id : null
     // a team view takes over: a link that waited on ④ waits no more (it would come back confirmable later)
     this.linkGate.clear()
@@ -1045,6 +1071,9 @@ export class AppWindow {
   /** The folders picked in the team page's folder window belong to the person who picked them (docs/DECISIONS.md
    * "W6"): a sign-out or another person signing in on this team forgets them. */
   private folderPerson(me: MeResult) {
+    // signed out (the server said so, not a busy answer), or another person signed in on this page: the meeting ends
+    if (!me.signedIn || (this.meetingUser && me.userId !== this.meetingUser)) void this.meeting.stop()
+    if (me.signedIn) this.meetingUser = me.userId
     if (this.app && !this.app.webContents.isDestroyed()) this.folderGrants.get(this.app.webContents.session)?.person(me)
     this.workFiles.person(me)
   }
