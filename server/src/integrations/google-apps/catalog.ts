@@ -147,7 +147,7 @@ export function appTools(app: GoogleAppId, tools: readonly RemoteTool[]): Remote
       delete props.return_base64
       props[ATTACHMENT_NAME_ARG] = { type: 'string', maxLength: 300, description: 'the attachment\'s file name as the message listed it (e.g. "invoice.pdf"), so it is read as the right kind of file' }
       props[ATTACHMENT_SIZE_ARG] = { type: 'integer', minimum: 0, description: 'the attachment\'s size in bytes as the message listed it, when it gave one' }
-      tool = { ...tool, inputSchema: { ...schema, properties: props }, description: `${t.description} The attachment is read for you as text (PDF, Hangul, Word, Excel, PowerPoint) or shown as a picture; to keep a copy in the team files when the user asks, save it with save_url into the user's own folder unless they name another one.`.slice(0, 1000) }
+      tool = { ...tool, inputSchema: { ...schema, properties: props }, description: `${t.description} The attachment is read for you as text (PDF, Hangul, Word, Excel, PowerPoint) or shown as a picture; to keep the original file in the team files when the user asks, save it with save_connector_file (the handle in the result) into the user's own folder unless they name another one.`.slice(0, 1000) }
     }
     // a team file as an attachment: by its handle, which the server swaps for the file after the card
     // (connections/team-attach.ts); first, so a long description of the library's does not cut it off

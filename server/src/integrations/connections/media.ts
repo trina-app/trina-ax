@@ -1,5 +1,6 @@
 // Images, audio and embedded files that a connection's MCP answer carries inline (image / audio content blocks,
-// `resource.blob`), kept for a while so the AI can save one with save_url("mcp-file:<id>") without the service being
+// `resource.blob`), and Gmail attachments the AI read (google-apps/attachments.ts), kept for a while so the AI can save
+// one with save_url or save_connector_file ("mcp-file:<id>", tools/save-connector-file.ts) without the service being
 // asked again, and without the bytes ever going through the AI's text (docs/DECISIONS.md "save_url").
 //   <data>/connection-media/<chat id>/<id>.bin + <id>.json (who, which connection, what it is), 0600 in 0700 folders
 //   kept 24 hours; at most 200 MiB per chat, 1 GiB per person and 4 GiB server-wide (the oldest go first); one item is
@@ -20,7 +21,7 @@ export const MEDIA_PREFIX = 'mcp-file:'
 const ID = /^[A-Za-z0-9_-]{22}$/
 const CHAT = /^[A-Za-z0-9-]{1,64}$/
 
-export interface MediaMeta { id: string; chatId: string; userId: string; integrationId: string; size: number; sha256: string; kind: FileKind['name'] | null; declared: string; createdAt: number }
+export interface MediaMeta { id: string; chatId: string; userId: string; integrationId: string; size: number; sha256: string; kind: FileKind['name'] | null; declared: string; createdAt: number; /** the file's name as the service gave it (a Gmail attachment's, a Drive file's), cleaned; save_connector_file names the copy by it */ name?: string }
 export interface MediaItem { file: string; meta: MediaMeta }
 
 const root = (dataDir: string) => path.join(dataDir, 'connection-media')
@@ -69,7 +70,7 @@ function evictToFit(all: { dir: string; meta: MediaMeta }[], pick: (m: MediaMeta
 }
 
 /** Keep one inline item for this chat; the handle (mcp-file:<id>) and what the bytes are (sniffed, not declared). */
-export function putMedia(dataDir: string, o: { chatId: string; userId: string; integrationId: string; bytes: Buffer; declared: string }, limits: { chat?: number; user?: number; total?: number } = {}): MediaMeta | null {
+export function putMedia(dataDir: string, o: { chatId: string; userId: string; integrationId: string; bytes: Buffer; declared: string; name?: string | null }, limits: { chat?: number; user?: number; total?: number } = {}): MediaMeta | null {
   const chatMax = limits.chat ?? MEDIA_CHAT_MAX
   const userMax = limits.user ?? MEDIA_USER_MAX
   const totalMax = limits.total ?? MEDIA_TOTAL_MAX
@@ -91,6 +92,7 @@ export function putMedia(dataDir: string, o: { chatId: string; userId: string; i
     id, chatId: o.chatId, userId: o.userId, integrationId: o.integrationId, size: o.bytes.length,
     sha256: crypto.createHash('sha256').update(o.bytes).digest('hex'), kind: sniffKind(o.bytes.subarray(0, 64))?.name ?? null,
     declared: o.declared.slice(0, 100), createdAt: now,
+    ...(o.name ? { name: o.name.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 200) } : {}),
   }
   fs.writeFileSync(path.join(dir, `${id}.bin`), o.bytes, { mode: 0o600, flag: 'wx' })
   fs.writeFileSync(path.join(dir, `${id}.json`), JSON.stringify(meta), { mode: 0o600, flag: 'wx' })

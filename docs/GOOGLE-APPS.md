@@ -100,9 +100,10 @@ older apps and changes nothing, and a stored `integrations.googleApps.<app>.memb
 - Docs and Sheets read tools say to use `drive_read` for a plain "what does this file say" question, and to use them
   to read a document's structure (paragraphs, cells, ranges) before editing.
 - Gmail attachments are read like a Drive file (PDF text, Hangul, Word, Excel, PowerPoint, pictures through the
-  existing readers), never handed to the AI as base64. A copy goes into the team files only when the person asks: a
-  PDF or a picture with `save_url` (kept for the chat like a connection's file), anything else from its text with the
-  file tools, into the person's own folder unless they name another one. An attachment over about 18 MB is not read
+  existing readers), never handed to the AI as base64. A copy goes into the team files only when the person asks: every
+  attachment is kept for the chat like a connection's file, and `save_connector_file` saves the original bytes (any
+  kind), into the person's own folder unless they name another one
+  ([decision](decisions/20261118-save-connector-file.md)). An attachment over about 18 MB is not read
   (its base64 would not fit in one 25 MB answer): the AI is told so in plain words, from the size the message listed
   (`file_size`, then not fetched at all) or from the answer itself.
 
