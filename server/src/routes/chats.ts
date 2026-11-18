@@ -233,6 +233,30 @@ function busyCheck(rt: ChatRuntime, a: ChatAccess, locale: Locale, me: string) {
   fail('conflict', tr('turnInProgress', locale))
 }
 
+/** A send in a shared chat goes after the messages of whoever has waited longer (chat/shared-waiting.ts): 409
+ * shared_chat_next (naming nobody); that browser keeps its messages waiting and tries again. */
+function nextCheck(rt: ChatRuntime, a: ChatAccess, locale: Locale, me: string) {
+  if (!a.shared) return
+  if (rt.sharedWaiting.ahead(a.row.id, me)) fail('conflict', tr('sharedChatNext', locale), { params: { reason: 'shared_chat_next' } })
+}
+
+/** PUT /api/chats/:id/waiting: at most this many a minute per person and chat (the browser says it every 15 s and on
+ * each change) */
+const WAITING_PER_MINUTE = 30
+const waitingCallsOf = new WeakMap<AppContext, Map<string, number[]>>()
+function waitingLimit(ctx: AppContext, key: string, now = Date.now()): void {
+  const calls = waitingCallsOf.get(ctx) ?? new Map<string, number[]>()
+  waitingCallsOf.set(ctx, calls)
+  const recent = (calls.get(key) ?? []).filter((t) => now - t < 60_000)
+  if (recent.length >= WAITING_PER_MINUTE) {
+    calls.set(key, recent)
+    fail('rate_limited', undefined, { retryAfter: Math.max(1, Math.ceil((60_000 - (now - recent[0]!)) / 1000)) })
+  }
+  recent.push(now)
+  calls.set(key, recent)
+  if (calls.size > 10_000) for (const [k, ts] of calls) if (!ts.some((t) => now - t < 60_000)) calls.delete(k)
+}
+
 /** Switching versions (selectBranch) waits for the chat's answer, whoever asked: one plain 409 for everyone. */
 function branchBusyCheck(rt: ChatRuntime, a: ChatAccess, locale: Locale) {
   if (rt.activeTurn(a.row.id)) fail('conflict', tr('branchWhileAnswering', locale), { params: { reason: 'branch_while_answering' } })
@@ -737,7 +761,11 @@ export const chatsRoutes: RouteModule = {
       const again = rt.existingTurn(chat.id, body.clientMessageId, auth.user.id)
       if (again) return again
       busy(a, c.get('locale'), auth.user.id)
-      const parentId = body.parentId === undefined ? chat.active_leaf_id : body.parentId
+      nextCheck(rt, a, c.get('locale'), auth.user.id)
+      // a waiting message of a shared chat (`after`: the end its sender last saw): under the newest end of that branch,
+      // so turns that came since are kept and a version someone switched to meanwhile is not where it lands
+      const after = body.parentId === undefined && body.after ? messageInChat(rt, chat.id, body.after) : null
+      const parentId = after ? rt.store.newestLeafUnder(chat.id, after.id) : body.parentId === undefined ? chat.active_leaf_id : body.parentId
       if (parentId) {
         const p = messageInChat(rt, chat.id, parentId)
         if (p.role !== 'assistant') fail('validation', tr('badParent', c.get('locale')), { fields: { 'body.parentId': 'must be an answer' } })
@@ -749,12 +777,26 @@ export const chatsRoutes: RouteModule = {
       checkBudget(ctx, auth.user.id, c.get('locale'))
       const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
       try {
-        return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom, timeZone: turnZone(body.timeZone),
+        const started = rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom, timeZone: turnZone(body.timeZone),
           user: { parentId, content: body.content, attachments: atts, clientMessageId: body.clientMessageId } })
+        // sent: their place in line is gone (more of theirs waiting go to the back); the others hear how many still wait
+        if (a.shared && rt.sharedWaiting.sent(chat.id, auth.user.id)) rt.publishChat(auth.user.id, chat.id, 'updated')
+        return started
       } catch (e) {
         if (isClientIdClash(e)) { const r = rt.existingTurn(chat.id, body.clientMessageId, auth.user.id); if (r) return r }
         throw e
       }
+    })
+
+    // how many of my messages wait in a shared chat (chat/shared-waiting.ts); the others hear how many wait in all
+    kit.handle(API.putChatWaiting, ({ c, params, body, auth }) => {
+      const a = chatOf(rt, c, auth, params.id, 'continue')
+      if (!a.shared) return
+      waitingLimit(ctx, `${auth.user.id}:${a.row.id}`)
+      // just after their own send: not taken (a refresh that left before it); 409 waiting_after_send, said again later
+      if (body.count > 0 && rt.sharedWaiting.tooSoon(a.row.id, auth.user.id)) fail('conflict', undefined, { params: { reason: 'waiting_after_send', retryAfter: 4 } })
+      // the others hear it only when someone starts or stops waiting (Chat.shared.waiting counts people)
+      if (rt.sharedWaiting.declare(a.row.id, auth.user.id, body.count)) rt.publishChat(a.row.user_id, a.row.id, 'updated')
     })
 
     // a shared chat: only the person whose turn it is stops it

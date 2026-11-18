@@ -4,7 +4,7 @@
 // (tools/file-moves.ts), resize_images (tools/resize-images.ts: smaller copies of photos), unzip_file (tools/unzip.ts: the files of a zip), query_data (tools/query-data.ts: SQL over data files). Inputs are the shared contracts
 // (shared/src/tools.ts); the engine sees mcp__team__<name>.
 import { registerHwpRender } from './hwp-render'
-import { ArtifactInput, EditHwpInput, MakeFileInput, QueryDataInput, ResizeImagesInput, UnzipFileInput, SaveUrlInput, ShareFileInput, StampPdfInput, EditPdfInput, MergePdfsInput, SplitPdfInput, WebFetchInput } from '@mycel/shared'
+import { ArtifactInput, EditHwpInput, MakeFileInput, QueryDataInput, ResizeImagesInput, UnzipFileInput, SaveUrlInput, SaveConnectorFileInput, ShareFileInput, StampPdfInput, EditPdfInput, MergePdfsInput, SplitPdfInput, WebFetchInput } from '@mycel/shared'
 import { editHwpFile, editHwpFileText } from './edit-hwp'
 import { STAMP_PDF_DESCRIPTION, stampPdfFile, stampPdfText } from './stamp-pdf'
 import { EDIT_PDF_DESCRIPTION, editPdfFile, MERGE_PDFS_DESCRIPTION, mergePdfFiles, pdfResultText, SPLIT_PDF_DESCRIPTION, splitPdfFile, type PdfResult } from './pdf-tools'
@@ -30,6 +30,7 @@ import { registerPromoVideo } from '../promo-video/tool'
 import { registerIntroDeck } from '../intro-deck/tool'
 import { registerScheduleTools, SCHEDULE_TOOL_NAMES } from './schedules'
 import { registerDriveTools, DRIVE_TOOL_NAMES } from './drive'
+import { saveConnectorFile, SAVE_CONNECTOR_FILE_DESCRIPTION } from './save-connector-file'
 import { registerFileMoveTools, FILE_MOVE_TOOL_NAMES } from './file-moves'
 import { extractUrls, gateUrl, rememberUrls, TEXT as GATE_TEXT, type WebPageFailure } from './url-gate'
 import { redirectGuard, webEcho } from './connection-urls'
@@ -352,6 +353,9 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
   registerScheduleTools(ctx, reg)
   for (const name of SCHEDULE_TOOL_NAMES) exposeToTurns(name)
   if (registerDriveTools(ctx, reg)) for (const name of DRIVE_TOOL_NAMES) exposeToTurns(name)
+  // a Gmail attachment or a Drive file saved as the original file (tools/save-connector-file.ts)
+  reg.register({ name: 'save_connector_file', description: SAVE_CONNECTOR_FILE_DESCRIPTION, input: SaveConnectorFileInput, describe: (a) => `save_connector_file ${a.file}`, run: (a, t) => saveConnectorFile(ctx, a, t) })
+  exposeToTurns('save_connector_file')
   // the company's promo video (promo-video/tool.ts, docs/DECISIONS.md "V"): slots in, our template out
   registerPromoVideo(ctx, reg)
   exposeToTurns('promo_video')

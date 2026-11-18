@@ -323,6 +323,8 @@ export class MakeFile {
           const got = readOutput(work, 'ast.json', MAX_AST)
           if (!got.ok) throw new ToolError(got.why === 'too_large' ? 'the document is too large to convert' : 'the converter produced no file')
           const ast = JSON.parse(got.bytes.toString('utf8'))
+          // raw markup for the writer (`...`{=openxml}) would go into the file as it is: refused (TC-4941)
+          checkRawMarkup(ast)
           images = this.copyImages(c, ast, baseDir, work)
           sources.push(...images)
           if (a.format === 'pptx') {
@@ -797,6 +799,41 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
   files.extractText(rel)
   publishChanges(ctx, [{ path: rel, action, by: { id: c.user.id, name: c.user.name }, turnId: c.turnId }])
   return { path: rel, size, sha256: sha, ...(conflictOf ? { conflictCopyOf: conflictOf } : {}) }
+}
+
+/** Raw formats pandoc's docx, pptx and typst writers ignore: their blocks are dropped (\newpage, \pagebreak). */
+const IGNORED_RAW = new Set(['tex', 'latex'])
+/** Raw formats left in the tree: the docx, pptx and typst writers never copy them into the file. */
+const HARMLESS_RAW = new Set(['html', 'html4', 'html5', 'markdown'])
+
+/**
+ * Raw markup in pandoc's tree of a Markdown document (QA TC-4941): pandoc copies a RawBlock / RawInline of the output's
+ * own format into the file unchanged, so `<w:instrText>DDEAUTO ...</w:instrText>`{=openxml} became a DDE field in
+ * word/document.xml (and {=typst} raw code in a PDF). Any raw format other than HTML and Markdown is refused, nothing
+ * saved; TeX ones (`\newpage`), which these writers ignore anyway, are emptied. Walks the whole tree, metadata
+ * included.
+ */
+export function checkRawMarkup(ast: unknown): void {
+  const stack: unknown[] = [ast]
+  while (stack.length) {
+    const v = stack.pop()
+    if (Array.isArray(v)) { for (const x of v) if (x && typeof x === 'object') stack.push(x); continue }
+    if (!v || typeof v !== 'object') continue
+    const node = v as { t?: unknown; c?: unknown }
+    if (node.t === 'RawBlock' || node.t === 'RawInline') {
+      const format = Array.isArray(node.c) ? String(node.c[0]).toLowerCase() : ''
+      if (IGNORED_RAW.has(format)) {
+        // an empty Div / Span in its place: the writers write nothing for it
+        const block = node.t === 'RawBlock'
+        node.t = block ? 'Div' : 'Span'
+        node.c = [['', [], []], []]
+        continue
+      }
+      if (!HARMLESS_RAW.has(format)) throw new ToolError(`raw ${format.replace(/[^a-z0-9_-]/g, '').slice(0, 20) || 'unknown'} markup (\`...\`{=${format.replace(/[^a-z0-9_-]/g, '').slice(0, 20)}} or a \`\`\`{=...} block) cannot go into a file made here; write it as plain Markdown; nothing was saved`)
+      continue
+    }
+    for (const x of Object.values(node)) if (x && typeof x === 'object') stack.push(x)
+  }
 }
 
 function convertError(tool: string, stderr: string, killed: string | null, work: string): string {

@@ -51,8 +51,9 @@ export interface Cfb {
   streams: Map<string, CfbEntry>
 }
 
-/** Reads a compound file; CfbError when it is not one this module can vouch for. */
-export function readCfb(b: Uint8Array, limits = CFB_LIMITS): Cfb {
+/** Reads a compound file; CfbError when it is not one this module can vouch for. `want`: only the streams it takes
+ * get their bytes (the others are still checked, their data stays empty): hwp.ts leaves a big file's pictures out. */
+export function readCfb(b: Uint8Array, limits = CFB_LIMITS, want?: (path: string) => boolean): Cfb {
   if (!isCfb(b) || b.length < SECTOR) bad('not a compound file')
   const v = new DataView(b.buffer, b.byteOffset, b.byteLength)
   const u16 = (o: number) => v.getUint16(o, true)
@@ -165,7 +166,8 @@ export function readCfb(b: Uint8Array, limits = CFB_LIMITS): Cfb {
   for (const e of entries) {
     if (e.type !== 2) continue
     const n = size(e)
-    if (n >= CUTOFF) e.data = bytesOf(chain(start(e), e.path, Math.ceil(n / SECTOR)), n, e.path)
+    if (want && !want(e.path)) { if (n >= CUTOFF) chain(start(e), e.path, Math.ceil(n / SECTOR)) }
+    else if (n >= CUTOFF) e.data = bytesOf(chain(start(e), e.path, Math.ceil(n / SECTOR)), n, e.path)
     else if (n > 0) {
       const out = new Uint8Array(n)
       let at = 0

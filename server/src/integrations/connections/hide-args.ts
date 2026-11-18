@@ -50,6 +50,7 @@ const KEEP: Record<string, readonly string[]> = {
   move_files: ['paths'],
   copy_files: ['paths'],
   save_url: ['url'],
+  save_connector_file: ['file'],
   save_room_file: ['room', 'file'],
   generate_video: [],
   promo_video: ['sources', 'logo'],
