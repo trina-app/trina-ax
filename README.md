@@ -21,6 +21,8 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 ## Set up once. Your whole team gets it.
 
+**One AI account for the whole team.** Connect one Claude or OpenAI API key, or a plan whose terms allow it, and everyone asks with it, with token limits per person, group or team.
+
 One person sets things up on the team server. Everyone's AI has it from their first question, in the browser or the apps. Nobody else installs Claude Code or copies skills; at most they sign in to their own accounts.
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/set-up-once-en-dark.webp"><img src="docs/images/readme/v4/set-up-once-en-light.webp" width="100%" alt="One person sets up the AI account, Google, apps, the company API, Slack, skills and team files once on the Trina server, and Alex on Mac, Mina on iPhone, Sam on Windows, Leo in a browser and Jordan on Android all get them in their AI."></picture>
@@ -37,15 +39,19 @@ One person sets things up on the team server. Everyone's AI has it from their fi
 
 <table>
 <tr>
-<td width="40%" rowspan="2"><img src="docs/site/images/connect/add-by-address-key.webp" alt="The admin's Add an app for the team dialog: name, MCP address, key, for everyone in the team, one connection for the team"><br><sub>Add an app for the whole team</sub></td>
-<td width="60%"><img src="docs/images/readme/v4/team-drive.webp" alt="The team drive: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>One team drive</sub></td>
+<td colspan="2"><img src="docs/images/readme/v4/connected-apps.webp" alt="Admin › Connected apps, applying to everyone in the team: Google Drive, Gmail, Calendar, Docs and Sheets (one setup, then every member just signs in to Google), Slack, Notion, Linear, Atlassian, Canva, and Add one by its address"><br><sub>Admin › Connected apps: set up once for everyone in the team</sub></td>
 </tr>
 <tr>
-<td width="60%"><img src="docs/images/readme/v4/team-skills.webp" alt="Team skills list with Bring my skills"><br><sub>Team skills, or bring your own</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-drive.webp" alt="The team drive: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>One team drive</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-skills.webp" alt="Team skills list with Bring my skills"><br><sub>Team skills, or bring your own</sub></td>
 </tr>
 </table>
 
 ## What everyone does with it
+
+**Team chat, like Slack.** Channels for everyone and each group, private channels, direct messages, group chats, threads and @mentions, on the web, desktop and phone. Trina is in every conversation.
+
+<img src="docs/site/images/chats/room.webp" width="100%" alt="The Marketing channel: a message that names Jordan, a thread with 2 replies, and Trina's answer sent from the side chat">
 
 **Ask beside any room, send in one click.** A side chat only you see; one click sends Trina's answer into the room.
 
@@ -82,6 +88,16 @@ One person sets things up on the team server. Everyone's AI has it from their fi
 - **Trina hosting:** no server to run. 14-day free trial, then a monthly plan. [Pricing](https://ax.trina.app/pricing)
 - **Apps:** [Mac, iPhone, Android and Windows](https://ax.trina.app/download), or any browser.
 - **Self-host:** your own Linux server, Docker or an office Mac. Free. [Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [Office Mac](docs/OFFICE.en.md) · [Install with your AI agent](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
+
+<b>Self-host with Docker</b> (Linux, or a Mac with OrbStack)
+
+```sh
+git clone https://github.com/trina-app/trina-ax.git && cd trina-ax/docker
+cp env.example .env && docker compose up -d --build
+docker compose exec trina-ax trina-ax-setup-link   # open the link and create the owner
+```
+
+Newer and less tested than the Linux install; an Ubuntu 24.04 server needs one host setting first. [Docker guide](docs/INSTALL-DOCKER.md)
 
 <b>Try it on your computer in 10 minutes</b> (fictional team, AI off)
 

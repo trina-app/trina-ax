@@ -21,6 +21,8 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 ## 只需设置一次，全队都能用
 
+**一个 AI 账户，全队共用。** 接入一个 Claude 或 OpenAI 的 API 密钥（或条款允许的套餐），全队都用它提问，可按人、群组或团队设置 token 上限。
+
 一个人在团队服务器上设置好，每个人的 AI 从第一个问题起就能用上，无论在浏览器还是应用里。其他人不用装 Claude Code，也不用复制技能；最多只是登录自己的账户。
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/set-up-once-zh-dark.webp"><img src="docs/images/readme/v4/set-up-once-zh-light.webp" width="100%" alt="一个人在 Trina 服务器上把 AI 账户、Google、应用、公司 API、Slack、技能和团队文件设置一次，用 Mac 的 Alex、用 iPhone 的 Mina、用 Windows 的 Sam、用浏览器的 Leo 和用 Android 的 Jordan，他们的 AI 都能用上。"></picture>
@@ -37,15 +39,19 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 <table>
 <tr>
-<td width="40%" rowspan="2"><img src="docs/site/images/connect/add-by-address-key.webp" alt="管理员为团队添加应用的窗口：名称、MCP 地址、密钥、全队使用、团队共用一个连接"><br><sub>为全队添加应用</sub></td>
-<td width="60%"><img src="docs/images/readme/v4/team-drive.webp" alt="团队云盘：Company-wide、Groups、Projects、Team skills、Personal"><br><sub>一个团队云盘</sub></td>
+<td colspan="2"><img src="docs/images/readme/v4/connected-apps.webp" alt="适用于全队的 管理 › 已连接的应用：Google Drive、Gmail、Calendar、Docs、Sheets（设置一次，每个成员只需登录 Google）、Slack、Notion、Linear、Atlassian、Canva，以及按地址添加"><br><sub>管理 › 已连接的应用：设置一次，全队都能用</sub></td>
 </tr>
 <tr>
-<td width="60%"><img src="docs/images/readme/v4/team-skills.webp" alt="团队技能列表和 Bring my skills"><br><sub>团队技能，也能带来你自己的</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-drive.webp" alt="团队云盘：Company-wide、Groups、Projects、Team skills、Personal"><br><sub>一个团队云盘</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-skills.webp" alt="团队技能列表和 Bring my skills"><br><sub>团队技能，也能带来你自己的</sub></td>
 </tr>
 </table>
 
 ## 每个人用它做什么
+
+**像 Slack 一样的团队聊天。** 全员和群组频道、私有频道、私信、群聊、话题和 @提及，网页、桌面和手机都能用，每个对话里都有 Trina。
+
+<img src="docs/site/images/chats/room.webp" width="100%" alt="Marketing 频道：一条提到 Jordan 的消息、一个有 2 条回复的话题，以及从侧边聊天发出的 Trina 回答">
 
 **在任何对话旁边提问，一键发出。** 侧边聊天只有你能看到；点一下，Trina 的回答就发到对话里。
 
@@ -82,6 +88,16 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 - **Trina 托管：** 不用自己运维服务器。14 天免费试用，之后按月订阅。[套餐](https://ax.trina.app/pricing)
 - **应用：** [Mac、iPhone、Android 和 Windows](https://ax.trina.app/download)，或任何浏览器。
 - **自托管：** 你们自己的 Linux 服务器、Docker 或办公室 Mac。免费。[Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [办公室 Mac](docs/OFFICE.en.md) · [用 AI 助手安装](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
+
+<b>用 Docker 自托管</b>（Linux，或装了 OrbStack 的 Mac）
+
+```sh
+git clone https://github.com/trina-app/trina-ax.git && cd trina-ax/docker
+cp env.example .env && docker compose up -d --build
+docker compose exec trina-ax trina-ax-setup-link   # 打开链接，创建所有者账户
+```
+
+这种方式比 Linux 安装新，测试也较少；Ubuntu 24.04 服务器需要先做一项主机设置。[Docker 指南](docs/INSTALL-DOCKER.md)
 
 <b>10 分钟在你的电脑上试用</b>（虚构团队，AI 关闭）
 
