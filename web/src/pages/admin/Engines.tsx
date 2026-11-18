@@ -16,6 +16,7 @@ import { useEffect, useId, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { setupReturnStep } from '../../lib/welcome'
 import { CompactRow } from '../../components/CompactRow'
+import { SupportDetails } from '../../components/SupportDetails'
 import type { EngineId, EngineStatus } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { optimistic, optimisticPending, optimisticPendingKeys } from '../../lib/optimistic'
@@ -24,7 +25,7 @@ import { useLocale, useT } from '../../i18n'
 import { isAdmin, useMeStrict } from '../../store/session'
 import { Badge, Button, Field, Switch, inputCls, useMediaQuery } from '../../components/ui'
 import { AdminPageHeader, Loadable, useAction, useLoad } from './common'
-import { ENGINE_FAMILY, HowOrderWorks, ProviderAccounts, ProviderLogo, accountsNeedLook, addAccountBelow, useTeamCredentials, type ProviderMark } from './Credentials'
+import { ENGINE_FAMILY, ProviderAccounts, ProviderLogo, accountsNeedLook, addAccountBelow, useTeamCredentials, type ProviderMark } from './Credentials'
 import { ExtLink } from '../../components/integrations/AppDetail'
 import { useEngines } from '../../store/engines'
 import { enginesChanged } from '../../store/live'
@@ -93,7 +94,6 @@ export default function Engines() {
                 addBelow={!!ENGINE_FAMILY[engine.id] && addAccountBelow(tc, ENGINE_FAMILY[engine.id]!)}
                 initiallyOpen checking={checking === engine.id} onCheck={() => void check(engine.id)} onToggle={(v) => void toggle(engine.id, v)} onApiSaved={apiSaved} />
             </ul>
-            {tc.state.data && ENGINE_FAMILY[engine.id] && <HowOrderWorks />}
           </section>
         ) : null}
       </Loadable>
@@ -130,7 +130,6 @@ export default function Engines() {
                 />
               ))}
             </ul>}
-            {tc.state.data && !phone && <HowOrderWorks pricesAsOf={tc.state.data.pricesAsOf} />}
           </>
         )}
       </Loadable>
@@ -245,6 +244,8 @@ function EngineRow({ e, accounts, addBelow = false, accountsShown, phone, page, 
           {e.beta && <p className="text-xs leading-relaxed text-muted" data-testid="engine-beta"><span className="font-medium text-warn">{t('engines.beta')}</span> · {hint}</p>}
           {!e.beta && hint && <p className="text-xs leading-relaxed text-muted">{hint}</p>}
           {ok && e.detail && !technical && <p className="text-xs text-muted" data-testid="engine-ok-detail">{e.detail}</p>}
+          {/* a failed check: what the engine printed, for support, closed by default (the line above says what to do) */}
+          {e.errorDetail && <SupportDetails text={e.errorDetail} testId="engine-error-detail" />}
           <div className="space-y-0.5 text-xs text-faint">
             <p>{[e.version && `v${e.version}`, mode].filter(Boolean).join(' · ')}</p>
             {models && <p>{t('engines.models', { list: models })}</p>}

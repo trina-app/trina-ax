@@ -71,8 +71,10 @@ Orang yang mengoperasikan server, sistem operasinya, atau penyimpanannya bisa me
 **Admin › Penyedia AI**, yang pertama di grup Koneksi, memiliki satu baris per mesin (Claude Code, Codex, API) dengan
 logo, status, dan sakelar nyala/mati. Jika ada yang salah, satu baris singkat di bawah namanya menjelaskan cara
 memperbaikinya. Di bawah Claude Code dan Codex ada akun-akun yang dipakai tim untuk menjawab, sesuai urutan dicobanya,
-masing-masing dengan logo, paket, dan statusnya, serta **Tambah akun** untuk owner dan admin. **Cara urutan bekerja** di
-bawah daftar menjelaskan urutannya.
+masing-masing dengan logo, paket, dan statusnya, serta **Tambah akun** untuk owner dan admin. Akun teratas yang berfungsi
+dipakai lebih dulu; jika satu akun ditolak atau mencapai batasnya, akun berikutnya yang dipakai. Untuk mengubah urutan,
+owner dan admin menyeret akun lewat pegangannya (⠿) di kiri, di komputer maupun ponsel. Dengan keyboard: Tab ke
+pegangan, Spasi untuk mengambil akun, tombol panah untuk memindahkan, Spasi untuk meletakkan, Escape untuk membatalkan.
 
 Klik nama mesin untuk membuka detailnya: cara masuknya, setiap model, kapan terakhir diperiksa, **Cek lagi**, dan untuk
 owner dan admin, formulir mesin API. Klik nama akun untuk melihat siapa yang memakainya, pemakaian bulan ini, dan kapan

@@ -497,6 +497,9 @@ export const EngineStatus = z.object({
   limitedUntil: IsoTime.nullable().optional(),
   /** what is missing, in the user's language (e.g. "owner must run `claude setup-token`") */
   detail: z.string().nullable(),
+  /** a failed check: what the engine printed, for support only (keys, tokens and home folders taken out, cut short).
+   * The card's line is `detail`; this stays behind "Show details" (Admin › AI providers, admins only) */
+  errorDetail: z.string().max(1000).optional(),
   models: z.array(z.object({ id: z.string(), label: z.string() })),
   checkedAt: IsoTime.nullable(),
   /** still being verified on this installation (Codex on the engine account): labelled beta, owner-only, never the

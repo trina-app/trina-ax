@@ -15,7 +15,7 @@ import type { WorkCloudProvider, WorkFileMeta, WorkFileRead, WorkFolderId, WorkR
 import { browserOwnerChange, type MeResult } from './browser-owner'
 import { isRecent, type IndexedFile } from './work-index'
 import { cloudProviderOf, placeOf, type Place } from './work-places'
-import { folderKey, macBlocked } from './folder-access'
+import { folderKey, isUncPath, macBlocked, refusedShare } from './folder-access'
 
 export type { Found }
 export const WORK_ROOTS: readonly WorkFolderId[] = ['documents', 'desktop', 'downloads']
@@ -48,6 +48,10 @@ export interface WorkFs {
   realpath(path: string): Promise<string>
   /** open read only, never through a link at the last part */
   open(path: string): Promise<WorkHandle>
+  /** the folder's identity with links followed (stat): what a network share's server shows as a plain folder may be a
+   * junction it resolves itself (scanRoots compares it with guard before and after the folder is read). Absent: not
+   * compared */
+  identity?(path: string): Promise<{ dev: bigint; ino: bigint }>
   /** a Mac: whether the file's content is in the cloud only (SF_DATALESS), so a read downloads it first. Absent: not
    * known before the read (Windows, where the look's index said so: Found.late) */
   cloudOnly?(path: string): Promise<boolean>
@@ -96,6 +100,10 @@ export const READ_MS = 60_000
 export const CLOUD_HINT_MS = 1500
 /** Every later call gets the time left for the folder, but at least this (a call answered in time is never cut short). */
 const CALL_MIN_MS = 1000
+/** A folder's lstat that only orders the walk (its date), or that only tells a Windows link from a real file, waits this
+ * long at most: one that does not answer is skipped (the folder goes last), and never holds the rest of the walk until
+ * the folder's time is up (one hung entry among forty answering ones once gave no files at all). */
+const STAT_MS = 1500
 
 /** One file of a look, as the session keeps it: where it was found and what it was then. */
 interface Found {
@@ -139,8 +147,16 @@ export interface ScanOptions {
   /** the roots looked at before this call (their sameKey real paths): a folder of the walk that is one is skipped */
   earlier?: readonly string[]
   /** a network share or another volume the person picked: one file system call at a time (a share that hangs then holds
-   * one of the system's few file threads, not sixteen), and the first that does not answer ends the walk (cut) */
+   * one of the system's few file threads, not sixteen), and the first listing, file lstat or Windows link lstat that does
+   * not answer ends the walk (cut); a folder's date that does not answer stops the ordering (the rest of the folders are
+   * walked as listed) and that folder is not asked again (cut) */
   serial?: boolean
+  /** Windows: the identities a walk must not reach (common/folder-access.ts guardedIdentities: home and every folder
+   * above it, the system's folders): a folder the listing marks as a reparse point that lstat calls a folder (lstat
+   * follows what it cannot read as a link: a OneDrive folder, a volume mounted in a folder, a DFS link), and on a
+   * network share every folder below its top. Only a match refuses: absent, rejected or an identity of 0 refuses
+   * nothing. */
+  guard?: () => Promise<readonly { dev: bigint; ino: bigint }[]>
   /** files listed before this call: by identity (dev:ino) and by path (sameKey); shared across calls */
   seen?: Set<string>
   seenPaths?: Set<string>
@@ -192,6 +208,44 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
     const start = now()
     const left = () => Math.min(lim.rootMs, lim.totalMs - spent) - (now() - start)
     const inTime = <T,>(q: Promise<T>) => within(q, Math.max(CALL_MIN_MS, left()))
+    const statInTime = <T,>(q: Promise<T>) => within(q, Math.min(STAT_MS, Math.max(CALL_MIN_MS, left())))
+    // a picked share whose folder date did not answer: the rest of the walk is not ordered (no more such calls)
+    let unordered = false
+    // a network share (\\nas\company, a mapped drive: its real path is the network one): every folder below its top is
+    // compared by identity with guard, before and after its listing; a reparse point lstat calls a folder (a DFS link)
+    // is walked under the same check (TC-4844)
+    const share = isUncPath(real, p) || isUncPath(root.path, p)
+    let guardIds: Promise<Set<string>> | null = null
+    /** is this identity one of guard's (home, a folder above it, a system folder)? Only a match counts: an identity that
+     * cannot be told (0) or a guard that cannot be had refuses nothing (a NAS without file numbers, a home whose
+     * identity does not answer) */
+    const guarded = async (id: { dev: bigint; ino: bigint }): Promise<boolean> => {
+      if (!o.guard || id.dev === 0n || id.ino === 0n) return false
+      guardIds ??= inTime(o.guard()).then((ids) => new Set(ids.map((x) => `${x.dev}:${x.ino}`)), () => new Set<string>())
+      return (await guardIds).has(`${id.dev}:${id.ino}`)
+    }
+    /** may a folder the listing marked as a reparse point, and lstat then called a folder, be entered. On a share: yes (a
+     * DFS link; its identity is checked when it is listed). Elsewhere only when it stays where its path says (its real
+     * path is that path: a OneDrive folder; a mounted volume or a junction written as a volume or GLOBALROOT target is
+     * not, and a read under it is refused anyway) and its identity is none of guard's */
+    const reparseOk = async (st: WorkStat, path: string): Promise<boolean> => {
+      if (share) return true
+      if (await guarded(st)) return false
+      return sameKey(await statInTime(fs.realpath(path)), p) === sameKey(path, p)
+    }
+    /** a share's folder's identity, links followed ('?' when it cannot be told), or null when it is one of guard's */
+    const shareFolderId = async (path: string): Promise<string | null> => {
+      if (!fs.identity) return '?'
+      let id: { dev: bigint; ino: bigint }
+      try { id = await statInTime(fs.identity(path)) } catch (x) {
+        // one that does not answer in time is told to the walk (it may end it); any other error tells nothing
+        if ((x as { code?: string } | null)?.code === 'ETIMEDOUT') throw x
+        return '?'
+      }
+      return (await guarded(id)) ? null : `${id.dev}:${id.ino}`
+    }
+    // the folders whose date did not answer in time (their parts joined): likely stuck, so never waited on for long again
+    const slow = new Set<string>()
     let docs = 0
     let reported = 0
     const report = (force = false) => {
@@ -208,12 +262,40 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
       const dir = queue.pop()!
       let entries = dir.entries
       if (!entries) {
+        // a folder whose date did not answer: a picked share (one call at a time) is not asked again (cut); elsewhere its
+        // listing gets STAT_MS too, and one that does not answer then is skipped (cut), the rest of the walk goes on
+        const stuck = slow.has(dir.parts.join('\0'))
+        if (stuck && o.serial) { r.cut = true; continue }
+        // a share's folder below its top: its identity, links followed, is none of guard's before it is read (a junction
+        // the server resolves itself shows as a plain folder); one that cannot be told is walked, and one that does not
+        // answer in time ends the walk on a share looked at one call at a time
+        const at = join(p, real, ...dir.parts)
+        let before: string | null = null
+        if (share) {
+          try { before = await shareFolderId(at) } catch {
+            if (o.serial) { r.cut = true; end = true; break }
+            before = '?'
+          }
+          if (!before) continue
+        }
         try {
-          entries = await inTime(fs.readdir(join(p, real, ...dir.parts), Math.max(1, Math.min(lim.folderEntries, lim.walkFiles - r.checked))))
+          const list = fs.readdir(at, Math.max(1, Math.min(lim.folderEntries, lim.walkFiles - r.checked)))
+          entries = await (stuck ? statInTime(list) : inTime(list))
         } catch (e) {
           // a folder that does not answer in time ends this root's look (cut); any other error skips that folder
-          if ((e as { code?: string } | null)?.code === 'ETIMEDOUT') { r.cut = true; end = true; break }
+          if ((e as { code?: string } | null)?.code === 'ETIMEDOUT') { r.cut = true; if (stuck) continue; end = true; break }
           continue
+        }
+        // asked again after the listing: a folder swapped for a junction meanwhile gives another identity (or a guarded
+        // one), and its listing is dropped
+        if (share) {
+          let after: string | null = null
+          try { after = await shareFolderId(at) } catch {
+            if (o.serial) { r.cut = true; end = true; break }
+            after = '?'
+          }
+          // a folder told before and after must be the same one; one told only once is kept unless that once was guarded
+          if (!after || (after !== '?' && before !== '?' && after !== before)) continue
         }
         // a program's or a code project's folder (its .dll files, package.json, bin and lib): not entered further, and
         // the recent lists' files inside it are left out too (lookRoots)
@@ -232,11 +314,20 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
         const name = e.name.normalize('NFC')
         if (!name || neverListed(name)) continue
         let kind = e.kind
+        let reparse: WorkStat | null = null
         // Windows lists every reparse point as a link, OneDrive's online-only files too: lstat tells a real link
         if (kind === 'link' && p === 'win32') {
-          try { kind = (await inTime(fs.lstat(join(p, real, ...dir.parts, e.name)))).kind } catch { continue }
+          // one that does not answer is skipped; on a picked share (one call at a time) it ends the walk, as a file's does
+          try { reparse = await statInTime(fs.lstat(join(p, real, ...dir.parts, e.name))); kind = reparse.kind } catch (x) {
+            if (o.serial && (x as { code?: string } | null)?.code === 'ETIMEDOUT') { r.cut = true; end = true; break }
+            continue
+          }
         }
         if (kind === 'dir') {
+          // a reparse point lstat could not read as a link (it followed it; a link or junction it reads stays skipped):
+          // on a share walked under the identity check (a DFS link), elsewhere only when its real path is its path and it
+          // is not home, a folder above it or a system folder (guard)
+          if (reparse && !(await reparseOk(reparse, join(p, real, ...dir.parts, e.name)).catch(() => false))) continue
           // a browser's "Save page as" folder (its page saved beside it): never entered
           if (savedPage(name, entries.map((x) => x.name))) continue
           if (dir.parts.length + 1 > lim.depth) { r.cut = true; continue }
@@ -274,17 +365,28 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
         })
       }
       const next = dirs.filter((d) => !cloud.has(join(p, real, ...d)))
-      // each folder's date (its lstat, 16 at a time) orders the walk; one that does not answer goes last
+      // each folder's date (its lstat, 16 at a time, each within STAT_MS) orders the walk; one that does not answer is
+      // skipped and goes last, and the folders beside it are still walked (a hung lstat never ends the walk: a folder
+      // whose listing does not answer does, keeping what was found)
       const step = o.serial ? 1 : 16
-      for (let i = 0; i < next.length && !end; i += step) {
-        if (left() <= 0) break
+      const undated: string[][] = []
+      let i = 0
+      for (; i < next.length && !end && !unordered; i += step) {
+        if (left() <= 0 || o.stopped?.()) break
         const b = next.slice(i, i + step)
         let stuck = false
-        const st = await Promise.all(b.map((d) => inTime(fs.lstat(join(p, real, ...d))).catch((e: unknown) => { if ((e as { code?: string } | null)?.code === 'ETIMEDOUT') stuck = true; return null })))
-        b.forEach((d, j) => queue.push({ parts: d, mtimeMs: st[j]?.mtimeMs ?? 0 }))
-        // a picked share that stops answering: nothing more is asked of it
-        if (stuck && o.serial) { r.cut = true; end = true }
+        const st = await Promise.all(b.map((d) => statInTime(fs.lstat(join(p, real, ...d))).catch((e: unknown) => {
+          if ((e as { code?: string } | null)?.code === 'ETIMEDOUT') { stuck = true; slow.add(d.join('\0')) }
+          return null
+        })))
+        b.forEach((d, j) => { const m = st[j]?.mtimeMs; if (m === undefined) undated.push(d); else queue.push({ parts: d, mtimeMs: m }) })
+        // a picked share (one call at a time) that did not answer one: no more dates are asked of it, the rest of its
+        // folders are walked in the order listed
+        if (stuck && o.serial) unordered = true
       }
+      // the folders with no date (not asked: the share stopped answering or the time ran out; then the ones that did not
+      // answer, last of all): still walked, after the dated ones of their level
+      for (const d of [...next.slice(i), ...undated]) queue.push({ parts: d, mtimeMs: -Infinity })
       let halt = false
       // the documents found in this folder are all checked, even when a limit ended the folder's listing (end): only Stop,
       // the time and a drive that stops answering end the checks themselves
@@ -724,22 +826,30 @@ export function scanAsk(raw: unknown): { wide: boolean; words: string[] } {
  * a dot folder, node_modules, an app bundle), or the system's own (Windows, Program Files, ProgramData, another
  * person's Users folder; a Mac's /System, /private, /usr, /Applications …). A Mac's cloud drives (~/Library/CloudStorage/…,
  * iCloud Drive's ~/Library/Mobile Documents/…) count from their own folder on. A drive's letter is no folder name.
- * `home`: the person's home folder (another person's is refused). */
+ * `home`: the person's home folder (another person's is refused). A network share (\\nas\company\…) counts from
+ * below its share name, as a drive from below its letter (a share of a drive's top holds Windows and Users too); a
+ * device path, an admin share (C$, ADMIN$) and WSL's are refused (common/folder-access.ts refusedShare). */
 export function pickRefused(path: string, platform: string, home?: string): boolean {
   const lib = platform === 'win32' ? win32 : posix
   const parts = lib.normalize(path).split(lib.sep).filter(Boolean)
   const low = parts.map((x) => x.toLowerCase())
+  let from = 0
   if (platform === 'win32') {
-    const top = low[0] && /^[a-z]:$/.test(low[0]) ? low[1] : low[0]
+    if (refusedShare(path, platform)) return true
+    // where the folders below a drive or a share start: after "C:", after "\\server\share"
+    const unc = isUncPath(path, platform)
+    const at = unc ? 2 : low[0] && /^[a-z]:$/.test(low[0]) ? 1 : 0
+    const top = low[at]
     if (top && /^(windows|program files( \(x86\))?|programdata|\$recycle\.bin|system volume information|recovery|perflogs)$/.test(top)) return true
     // C:\Users\other: only the person's own
-    const at = low[0] && /^[a-z]:$/.test(low[0]) ? 1 : 0
     if (low[at] === 'users' && low.length > at + 1 && home) {
       const own = lib.normalize(home).toLowerCase().split(lib.sep).filter(Boolean)
-      if (low[at + 1] !== own[at + 1] && !(own[at] === 'users' && low[at + 1] === 'public')) return true
+      const ownAt = own[0] && /^[a-z]:$/.test(own[0]) ? 1 : 0
+      if (low[at + 1] !== own[ownAt + 1] && !(own[ownAt] === 'users' && low[at + 1] === 'public')) return true
     }
+    // the server's name is no folder name
+    if (unc) from = 1
   }
-  let from = 0
   if (platform === 'darwin') {
     if (low[0] && /^(system|private|usr|bin|sbin|etc|var|tmp|cores|opt|applications|library|dev)$/.test(low[0])) return true
     if (low[0] === 'users' && low.length > 1 && home) {

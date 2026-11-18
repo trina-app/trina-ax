@@ -160,6 +160,120 @@ describe('the look through Documents, Desktop and Downloads', () => {
     expect(r.files.map((x) => x.name).sort()).toEqual(['b.pdf', 'cloud.docx'])
   })
 
+  describe('TC-4844: a folder reached through a reparse point that lstat follows (Windows paths through the posix fake)', () => {
+    // libuv's lstat follows a reparse point it cannot read as a link (a volume mounted in a folder, a OneDrive folder, a
+    // DFS link, an unknown tag) and calls it a folder, with the identity of what it leads to; a link or junction it reads
+    // stays a link. HOME/DRIVE: the identities of C:\Users\Alex and C:\ (guardedIdentities).
+    const HOME = { dev: 7n, ino: 70n }
+    const DRIVE = { dev: 7n, ino: 5n }
+    const OTHER = { dev: 7n, ino: 900n }
+    const st = (kind: WorkStat['kind'], id: { dev: bigint; ino: bigint }): WorkStat => ({ kind, size: 0, mtimeMs: 0, ...id })
+    /** the entries named in `marks` are listed as links and lstat gives `marks[name]`; a UNC path is its own real path;
+     * identity (stat, links followed) gives `ids[name]`, else what lstat followed to, else a number of the folder's own */
+    const reparse = (f: ReturnType<typeof fakeFs>, marks: Record<string, WorkStat>, ids: Record<string, { dev: bigint; ino: bigint } | Error> = {}): WorkFs => ({
+      ...f.fs,
+      readdir: async (p, max) => (await f.fs.readdir(p, max)).map((d) => (marks[d.name] ? { ...d, kind: 'link' } : d)),
+      lstat: async (p) => marks[p.split(/[\\/]/).pop()!] ?? f.fs.lstat(p),
+      realpath: async (p) => (/^[\\/]{2}/.test(p) ? p : f.fs.realpath(p)),
+      identity: async (p) => {
+        f.calls.push(`identity ${p}`)
+        const name = p.split(/[\\/]/).pop()!
+        const id = ids[name] ?? marks[name]
+        if (id instanceof Error) throw id
+        return id ? { dev: id.dev, ino: id.ino } : { dev: 7n, ino: BigInt(1000 + p.length) }
+      },
+    })
+    const tree = () => dir({
+      'Team.docx': file(),
+      // what each reparse point leads to, as the server or the volume shows it when it is entered
+      Back: dir({ 'Alex secret.pdf': file() }),
+      CVol: dir({ 'drive top.pdf': file() }),
+      // a volume mounted in a folder locally; a DFS link on a share
+      Mount: dir({ 'other volume.pdf': file() }),
+      Junction: dir({ 'linked.pdf': file() }),
+      // a junction the share's server resolves itself and lists as a plain folder (no reparse mark): only its identity
+      // (stat, links followed) tells
+      Plain: dir({ 'Alex plain.pdf': file() }),
+      Sales: dir({ 'quote.xlsx': file() }),
+    })
+    const marks = { Back: st('dir', HOME), CVol: st('dir', DRIVE), Mount: st('dir', OTHER), Junction: st('link', HOME) }
+    const entered = (f: ReturnType<typeof fakeFs>) => f.calls.filter((c) => c.startsWith('readdir')).map((c) => c.split('/').pop()).sort()
+    const shareTree = () => fakeFs({ localhost: dir({ TrinaQAShare: dir({ Team: tree() }) }), nas: dir({ company: dir({ Team: tree() }) }), NAS: dir({ Company: dir({ Team: tree() }) }) })
+    const SHARE: WorkRoot = { id: 'folder', path: '\\\\localhost\\TrinaQAShare\\Team', oneDrive: false }
+    const ALL_BUT_LINK = ['Alex plain.pdf', 'Alex secret.pdf', 'Team.docx', 'drive top.pdf', 'other volume.pdf', 'quote.xlsx']
+
+    test('a picked network share walks a DFS link and plain folders, never a link or junction lstat reads, nor a folder that is home, above it or a system folder by identity', async () => {
+      for (const path of ['\\\\localhost\\TrinaQAShare\\Team', '//nas/company/Team', '\\\\NAS\\Company\\Team']) {
+        const f = shareTree()
+        const r = await scanRoots([{ id: 'folder', path, oneDrive: false }], reparse(f, marks, { Plain: HOME }), opts({ platform: 'win32', serial: true, guard: async () => [HOME, DRIVE] }))
+        expect(r.files.map((x) => x.name).sort()).toEqual(['Team.docx', 'other volume.pdf', 'quote.xlsx'])
+        expect(entered(f)).toEqual(['Mount', 'Sales', 'Team'])
+        // each folder below the share's top is asked its identity before it is read, and again after its listing
+        expect(f.calls.filter((c) => c.startsWith('identity')).map((c) => c.split(/[\\/]/).pop()).sort()).toEqual(['Back', 'CVol', 'Mount', 'Mount', 'Plain', 'Sales', 'Sales'])
+      }
+    })
+
+    test('on a share only a match with guard refuses: an identity that cannot be told, or no guard, walks on; one that does not answer ends a walk one call at a time; a swap drops the listing', async () => {
+      const run = async (fs: (f: ReturnType<typeof fakeFs>) => WorkFs, over: Partial<Parameters<typeof scanRoots>[2]> = {}) => {
+        const f = shareTree()
+        const r = await scanRoots([SHARE], fs(f), opts({ platform: 'win32', serial: true, guard: async () => [HOME, DRIVE], ...over }))
+        return { names: r.files.map((x) => x.name).sort(), entered: entered(f), cut: r.roots[0]!.cut }
+      }
+      // a NAS that gives file number 0, or errors: walked (only the link lstat reads is skipped)
+      const unknown = { Back: { dev: 7n, ino: 0n }, CVol: new Error('EIO'), Mount: { dev: 0n, ino: 9n }, Plain: new Error('EACCES'), Sales: { dev: 7n, ino: 0n } }
+      expect((await run((f) => reparse(f, marks, unknown))).names).toEqual(ALL_BUT_LINK)
+      // no guard, or a guard that cannot be had (home does not answer): nothing matches, all walked
+      expect((await run((f) => reparse(f, marks, { Plain: HOME }), { guard: undefined })).names).toEqual(ALL_BUT_LINK)
+      expect((await run((f) => reparse(f, marks, { Plain: HOME }), { guard: async () => { throw new Error('home cannot be told') } })).names).toEqual(ALL_BUT_LINK)
+      // one that never answers: the walk ends there (cut), with what it found
+      const hung = await run((f) => ({ ...reparse(f, marks), identity: () => new Promise(() => {}) }))
+      expect(hung).toMatchObject({ names: ['Team.docx'], entered: ['Team'], cut: true })
+      // a folder swapped for a junction between the check and its listing: another identity after, the listing is dropped
+      const swapped = await run((f) => {
+        const fs = reparse(f, marks)
+        let n = 0
+        return { ...fs, identity: async (q) => (q.endsWith('Sales') && n++ > 0 ? HOME : fs.identity!(q)) }
+      })
+      expect(swapped.names).not.toContain('quote.xlsx')
+      expect(swapped.entered).toContain('Sales')
+      // a local folder is not asked its identity (a plain folder there is a real one; Windows marks every reparse point)
+      const f = fakeFs({ 'D:': dir({ Work: tree() }) })
+      await scanRoots([{ id: 'folder', path: 'D:\\Work', oneDrive: false }], reparse(f, marks), opts({ platform: 'win32', guard: async () => [HOME, DRIVE] }))
+      expect(f.calls.some((c) => c.startsWith('identity'))).toBe(false)
+    })
+
+    test('a local folder enters one when its real path is its own and it is not home, a folder above it or a system folder', async () => {
+      const local = () => fakeFs({ 'D:': dir({ Work: tree() }) })
+      const root: WorkRoot = { id: 'folder', path: 'D:\\Work', oneDrive: false }
+      const run = async (over: Partial<Parameters<typeof scanRoots>[2]>, fs: (f: ReturnType<typeof fakeFs>) => WorkFs = (f) => reparse(f, marks)) => {
+        const f = local()
+        const r = await scanRoots([root], fs(f), opts({ platform: 'win32', ...over }))
+        return { names: r.files.map((x) => x.name).sort(), entered: entered(f) }
+      }
+      // a OneDrive folder (or a volume whose real path is its own) is walked; one onto the profile or the drive's top is
+      // not; a junction lstat reads as a link never is
+      expect(await run({ guard: async () => [HOME, DRIVE] })).toEqual({ names: ['Alex plain.pdf', 'Team.docx', 'other volume.pdf', 'quote.xlsx'], entered: ['Mount', 'Plain', 'Sales', 'Work'] })
+      // no guard, or one that fails (home does not answer): only a match refuses, so OneDrive folders are still walked
+      for (const guard of [undefined, async () => { throw new Error('home cannot be told') }]) {
+        expect((await run(guard ? { guard } : {})).names).toEqual(ALL_BUT_LINK)
+      }
+      // an identity of 0 (a file system that cannot tell) is walked
+      expect((await run({ guard: async () => [HOME, DRIVE] }, (f) => reparse(f, { ...marks, Mount: st('dir', { dev: 7n, ino: 0n }) }))).names).toContain('other volume.pdf')
+      // a mounted volume, or a junction written as a volume or GLOBALROOT target: its real path is not its path, so it is
+      // not entered even when its identity is no guarded one (a read under it would be refused anyway)
+      const gone = await run({ guard: async () => [HOME, DRIVE] }, (f) => { const fs = reparse(f, marks); return { ...fs, realpath: async (q) => (q.endsWith('Mount') ? '\\\\?\\Volume{0b1c}\\' : fs.realpath(q)) } })
+      expect(gone.names).not.toContain('other volume.pdf')
+      expect(gone.entered).not.toContain('Mount')
+    })
+
+    test('macOS and Linux never ask lstat about a link: it is not entered at all', async () => {
+      const f = fakeFs({ srv: dir({ Work: tree() }) })
+      const r = await scanRoots([{ id: 'folder', path: '/srv/Work', oneDrive: false }], reparse(f, marks), opts({ platform: 'linux', guard: async () => [] }))
+      expect(r.files.map((x) => x.name).sort()).toEqual(['Alex plain.pdf', 'Team.docx', 'quote.xlsx'])
+      expect(f.calls.some((c) => c.startsWith('lstat') && /Back|CVol|Mount|Junction/.test(c))).toBe(false)
+    })
+  })
+
   test('macOS privacy (EPERM) marks that folder blocked and the look goes on; a missing folder is missing', async () => {
     const f = fakeFs(home({ Documents: dir({ 'a.pdf': file() }), Desktop: dir({ 'b.pdf': file() }) }), { denied: new Set(['/Users/alex/Desktop']) })
     const r = await scanRoots(ROOTS, f.fs, opts())
@@ -569,6 +683,46 @@ describe('owner 2026-11-15: "they\'re work files, but it only brought really use
     expect(r.files.map((x) => x.name)).toContain('Board deck.pptx')
   })
 
+  // Mac QA of the picked-folder look (2026-11-18): one sub-folder's lstat (its date, for the walk's order) never answered
+  // while its 39 siblings answered in 15 ms; the look waited the whole folder time (10 s) and gave no files at all
+  const hung = (o: { serial: boolean; listHangs: boolean }) => test(`a folder whose date never answers is skipped; its siblings' files come back (${o.serial ? 'one call at a time' : 'in parallel'}${o.listHangs ? ', its listing hangs too' : ''})`, async () => {
+    const subs = Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`Folder ${i}`, dir({ [`Doc ${i}.pdf`]: file(5000) }, Date.UTC(2026, 9, 1 + (i % 28)))]))
+    const f = fakeFs(home({ Picked: dir(subs) }))
+    const dateCalls: string[] = []
+    const fs: WorkFs = {
+      ...f.fs,
+      lstat: (p) => {
+        if (/\/Folder \d+$/.test(p)) dateCalls.push(p)
+        return p.endsWith('/Folder 7') ? new Promise(() => {}) : new Promise((ok) => setTimeout(ok, 15)).then(() => f.fs.lstat(p))
+      },
+      readdir: (p, max) => (o.listHangs && p.endsWith('/Folder 7') ? new Promise(() => {}) : f.fs.readdir(p, max)),
+    }
+    const picked: WorkRoot = { id: 'documents', path: '/Users/alex/Picked', oneDrive: false }
+    const t0 = Date.now()
+    const r = await lookRoots([picked], fs, { platform: 'darwin', newId: () => `id${n++}`, index: async () => null, deadline: Date.now() + 10_000, ...(o.serial ? { serial: true } : {}) })
+    expect(Date.now() - t0).toBeLessThan(6000)
+    const siblings = Array.from({ length: 40 }, (_, i) => `Doc ${i}.pdf`).filter((x) => x !== 'Doc 7.pdf')
+    const listed = f.calls.filter((c) => c.startsWith('readdir /Users/alex/Picked/'))
+    if (o.serial) {
+      // one call at a time: no more folder dates after the one that hung, and that folder is not asked again (cut)
+      expect(dateCalls.at(-1)).toBe('/Users/alex/Picked/Folder 7')
+      expect(listed).not.toContain('readdir /Users/alex/Picked/Folder 7')
+      expect(r.roots[0]).toMatchObject({ state: 'ok', cut: true })
+      expect(r.files.map((x) => x.name).sort()).toEqual(siblings.sort())
+    } else if (o.listHangs) {
+      // its listing waited only a moment, after all the others, and is skipped (cut)
+      expect(r.roots[0]).toMatchObject({ state: 'ok', cut: true })
+      expect(r.files.map((x) => x.name).sort()).toEqual(siblings.sort())
+    } else {
+      // only its date hung: it is walked after all the others, and its own file comes back too
+      expect(listed.at(-1)).toBe('readdir /Users/alex/Picked/Folder 7')
+      expect(r.files.map((x) => x.name).sort()).toEqual([...siblings, 'Doc 7.pdf'].sort())
+    }
+  }, 15_000)
+  hung({ serial: false, listHangs: false })
+  hung({ serial: false, listHangs: true })
+  hung({ serial: true, listHangs: false })
+
   test('a walked folder\'s files opened lately (Spotlight, the recent lists) join the walk even when it was cut; a tiny note is listed for search', async () => {
     const NOW = Date.UTC(2026, 10, 15)
     const many = Object.fromEntries(Array.from({ length: 50 }, (_, i) => [`x${i}.mp4`, file()]))
@@ -793,6 +947,16 @@ describe('MAN-057, second look (2026-11-17): a big Documents left the quotes out
     expect(pickRefused('C:\\Users\\Public\\Documents', 'win32', 'C:\\Users\\alex')).toBe(false)
     for (const x of ['/System/Library', '/private/etc', '/usr/local', '/Applications/Numbers.app', '/Users/bo/Documents', '/Library/Preferences']) expect(pickRefused(x, 'darwin', '/Users/alex')).toBe(true)
     expect(pickRefused('/Users/Shared/Team', 'darwin', '/Users/alex')).toBe(false)
+    // network shares (QA TC-4813): a share counts from below its name, as a drive from below its letter
+    for (const x of ['\\\\nas\\company\\Sales', '\\\\localhost\\TrinaQAShare\\Team', '\\\\localhost\\TrinaQAShare', '\\\\nas\\Finance$\\2026', '\\\\localhost\\CDrive\\Users\\alex\\Documents', '\\\\localhost\\CDrive\\Users\\Public\\Documents']) expect(pickRefused(x, 'win32', 'C:\\Users\\alex')).toBe(false)
+    for (const x of [
+      // admin shares, device paths, WSL's, a path with no share
+      '\\\\host\\C$\\Users\\alex\\Documents', '\\\\host\\c$', '\\\\host\\ADMIN$', '\\\\?\\C:\\Work', '\\\\.\\C:\\Work', '\\\\?\\UNC\\nas\\company\\Sales', '\\\\wsl$\\Ubuntu\\home\\alex', '\\\\nas',
+      // the system's folders and another person's on a share of a drive's top
+      '\\\\localhost\\CDrive\\Windows\\System32', '\\\\localhost\\CDrive\\Program Files\\Acme', '\\\\localhost\\CDrive\\ProgramData', '\\\\localhost\\CDrive\\Users\\bo\\Documents',
+      // the apps' data and never-listed folders on a share
+      '\\\\localhost\\CDrive\\Users\\alex\\AppData\\Roaming', '\\\\nas\\company\\.git', '\\\\nas\\company\\app\\node_modules',
+    ]) expect(pickRefused(x, 'win32', 'C:\\Users\\alex')).toBe(true)
   })
 
   test('"Choose a folder…": inside one of the three folders (case, separators), or a folder of its own; never a whole path', () => {
@@ -844,7 +1008,13 @@ describe('MAN-057, second look (2026-11-17): a big Documents left the quotes out
     // only after a look (the consent window's yes), never home or above, never the apps' data
     const pick = ctl.slice(ctl.indexOf('async pickFolder('), ctl.indexOf('private async consent('))
     expect(pick).toContain('if (!this.sessions.has(origin)) return { state: \'cancelled\' }')
-    expect(pick).toContain('opensHome(realPicked, FOLDER_SYSTEM, process.platform)')
+    expect(pick).toContain('opensHome(realPicked, FOLDER_SYSTEM, process.platform, { shares: true })')
+    // the picked folder's walk lets the same share through, and a share is looked at one call at a time
+    expect(ctl).toContain('allowed: async (root) => !(await opensHome(root.path, FOLDER_SYSTEM, process.platform, { shares: true })),')
+    expect(pick).toContain("realPicked.startsWith('\\\\\\\\')")
+    // the other looks keep refusing every network path (the three folders' look and the wide look)
+    expect(ctl).toContain('allowed: async (root) => !(await opensHome(root.path, FOLDER_SYSTEM, process.platform)),')
+    expect(ctl).toContain('allowed: async (root: WorkRoot) => !(await opensHome(root.path, FOLDER_SYSTEM, process.platform)),')
     expect(pick).toContain('pickRefused(realPicked, process.platform, ')
     // a page script cannot open the window again and again: the person's own press, and a pause after each answer
     expect(pick).toContain('Date.now() - this.o.lastInput() > PERSON_INPUT_MS && !this.o.assistive()')

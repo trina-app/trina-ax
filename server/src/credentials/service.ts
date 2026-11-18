@@ -14,7 +14,7 @@ import { candidates, familyOfKind, MEMBER_OWN_KEY, memberOwnAllowed } from './re
 import { personalConnectionsAllowed, SHARED_SUBSCRIPTIONS_KEY, sharedSubscriptionsAllowed } from './policy'
 import { SealError } from './seal'
 import {
-  ASSIGNEES_GONE, CLAUDE_TOKEN_LIFETIME_MS, fingerprintOf, getRow, listRows, mainSecret, metaOf, noticeMember, noticeOwners, otherGateway, secretOf, SUBSCRIPTION, toCredential, writeSecret,
+  ASSIGNEES_GONE, CLAUDE_TOKEN_LIFETIME_MS, fingerprintOf, getRow, listRows, mainSecret, metaOf, NO_CREDIT, noticeMember, noticeOwners, otherGateway, secretOf, SUBSCRIPTION, toCredential, writeSecret,
   type CredCtx, type CredMeta, type CredRow, type Secrets,
 } from './store'
 import { formatProblem, verifySecret } from './validate'
@@ -327,7 +327,10 @@ export async function checkCredential(cc: CredCtx, id: string, actor: string, lo
       const v = await verifySecret(cc, row.kind as ApiKind, mainSecret(row.kind, s))
       upstreamStatus = v.upstreamStatus
       result = v.result === 'refused' ? 'invalid' : v.result
-      if (v.result === 'ok') cc.db.query("UPDATE engine_credentials SET status = 'ok', status_code = NULL, checked_at = ?, updated_at = ? WHERE id = ?").run(now, now, id)
+      // an out-of-credit hold (store.ts NO_CREDIT) ends with it: the admin re-checks after adding credit, and a key that
+      // is still out of credit is held again by its next request. Never left as a bare limit (rate_limited, the Codex
+      // fallback). Other limits keep their end time.
+      if (v.result === 'ok') cc.db.query(`UPDATE engine_credentials SET status = 'ok', limited_until = CASE WHEN status_code = '${NO_CREDIT}' THEN NULL ELSE limited_until END, status_code = NULL, checked_at = ?, updated_at = ? WHERE id = ?`).run(now, now, id)
       else if (v.result === 'refused') cc.db.query("UPDATE engine_credentials SET status = 'invalid', status_code = 'upstream_' || ?, updated_at = ? WHERE id = ?").run(String(v.upstreamStatus), now, id)
     }
   }

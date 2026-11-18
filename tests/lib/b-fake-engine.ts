@@ -34,6 +34,8 @@
 //                                            Office own-login (ANTHROPIC_CUSTOM_HEADERS set): a fixed stand-in login
 //                                            (FAKE_MAC_LOGIN, never a real login file) as the Bearer + the custom headers.
 //                                            "modelExtra": {...} adds fields to the request body (mcp_servers, tools ...)
+//                                            "cliAuthText": true: a 401 / 403 ends with Claude Code's wording
+//                                            ("Failed to authenticate. API Error: …"); also with "modelAny"
 //   @fake {"echo": "secrets"}                say whether a model credential is visible in env / argv (it must not be)
 //   @fake {"direct": "http://127.0.0.1:N/"}  try to reach an address other than the proxy; says direct=blocked|reached
 //   @fake {"echo": "codexEnv"}               (Codex) say what the turn got: the (placeholder) login in CODEX_HOME, the
@@ -309,6 +311,8 @@ function ownLoginHeaders(): Record<string, string> | null {
   out.authorization = 'Bearer ' + FAKE_MAC_LOGIN
   return out
 }
+/** the directive asked for Claude Code's wording of a 401 / 403 ("Failed to authenticate. API Error: …") */
+let cliAuthText = false
 async function callModel(prompt: string, speak = true, extra: Record<string, unknown> = {}) {
   const base = process.env.ANTHROPIC_BASE_URL
   if (!base) return finish({ error: 'no ANTHROPIC_BASE_URL' })
@@ -321,7 +325,7 @@ async function callModel(prompt: string, speak = true, extra: Record<string, unk
       body: JSON.stringify({ model: 'claude-sonnet-4-5', max_tokens: 200, stream: true, messages: [{ role: 'user', content: prompt }], ...extra }),
     })
   } catch (e) { return finish({ error: `API Error: Connection error (${(e as Error).message})` }) }
-  if (!r.ok) return finish({ error: `API Error: ${r.status} ${(await r.text()).slice(0, 300)}` })
+  if (!r.ok) return finish({ error: `${cliAuthText && (r.status === 401 || r.status === 403) ? 'Failed to authenticate. ' : ''}API Error: ${r.status} ${(await r.text()).slice(0, 300)}` })
   let buf = ''
   const dec = new TextDecoder()
   for await (const chunk of r.body as unknown as AsyncIterable<Uint8Array>) {
@@ -511,6 +515,7 @@ if (!directives.length && resumed && message.includes('\n[The connect card is fi
 }
 if (!directives.length) await say('echo: ' + (message.split('\n')[0] ?? ''))
 for (const d of directives) {
+  cliAuthText = d.cliAuthText === true
   if (stopped) break
   if (d.say !== undefined) await say(String(d.say))
   else if (d.tool) {

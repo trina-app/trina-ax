@@ -10,9 +10,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { EngineEvent } from '@mycel/shared'
+import type { Locale } from '@mycel/shared/api'
 import { apiEngineFetch } from '../system/egress'
 import { claudeCost, claudePrice, openaiCost, openaiPrice } from '../credentials/prices'
 import { LinkGuard } from './api-links'
+import { dropEmptyLinks, FailedSteps, failedStepsNote, ReadLog } from './api-honest'
 
 /** `setBy: 'admin'`: the address was set by an admin, not the owner: it is checked to be a public address before every call
  * (system/egress.ts apiEngineFetch), as the address may name a private place through DNS or a redirect */
@@ -118,7 +120,7 @@ export function redact(text: string, key: string | null): string {
 const MODEL_MISSING = /model_not_found|no such model|(invalid|unknown) model\b|not a valid model|model\b[^\n]{0,120}?\b(not[ _-]?found|does not exist|is not available|is not a valid)/i
 
 /**
- * A provider's refusal -> the turn's error, by kind: auth (401/403), rate_limit (429), context (too long),
+ * A provider's refusal -> the turn's error, by kind: auth (401/403), provider_busy (429), context (too long),
  * model_not_found, endpoint_unreachable (404 without a model word: the address is wrong), provider_error (anything
  * else, with its status). `status` 0 = no HTTP status (an error inside the stream). The message is for the log only.
  */
@@ -127,7 +129,8 @@ export function errorOf(status: number, body: string, key: string | null = null)
   const st = status > 0 ? { status } : {}
   const message = status > 0 ? `HTTP ${status}: ${text}` : text
   if (status === 401 || status === 403) return { type: 'error', code: 'auth', message, ...st }
-  if (status === 429) return { type: 'error', code: 'rate_limit', message, ...st }
+  // the provider is busy or limits the model there: not this team's usage limit (QA TC-4832)
+  if (status === 429) return { type: 'error', code: 'provider_busy', message, ...st }
   if ((status === 400 || status === 413 || status === 0) && /context|too long|maximum.*tokens|token limit/i.test(body)) return { type: 'error', code: 'context', message, ...st }
   if (MODEL_MISSING.test(body)) return { type: 'error', code: 'model_not_found', message, ...st }
   if (status === 404) return { type: 'error', code: 'endpoint_unreachable', message, ...st }
@@ -162,19 +165,15 @@ export function usageEvent(model: string, u: any, requestId: string | undefined)
 /** How long a provider may take to start answering (response headers); the stream itself has no limit here. */
 export const HEADERS_TIMEOUT_MS = 90_000
 
-interface Send { fetchFn: typeof fetch; headersTimeoutMs: number; guard: LinkGuard; activity?: () => void }
-/** One streamed completion: text deltas out as events; returns the tool calls and whether the model stopped. */
+/** `round`: the completion's text so far and whether it asked for a tool, kept by the caller, so the text of a round
+ * that ends in an error or a Stop can still be shown */
+interface Send { fetchFn: typeof fetch; headersTimeoutMs: number; activity?: () => void; round: { text: string; calls: boolean } }
+/** One streamed completion: returns its text and tool calls (null: it failed, the error event went out). No text goes
+ * out here: a round that asks for tools is not the answer (QA TC-4830), and that is known only at its end. */
 async function complete(conf: ApiEngineConf, messages: ChatMessage[], tools: unknown[], emit: (e: EngineEvent) => void, signal: AbortSignal, o: Send): Promise<{ text: string; calls: ToolCall[] } | null> {
-  const { guard } = o
-  // the text the guard still holds goes out at the end of every completion (normal end, error or abort)
-  try { return await stream(conf, messages, tools, emit, signal, o) } finally {
-    const rest = guard.flush()
-    if (rest) emit({ type: 'text', delta: rest })
-  }
-}
-
-async function stream(conf: ApiEngineConf, messages: ChatMessage[], tools: unknown[], emit: (e: EngineEvent) => void, signal: AbortSignal, o: Send): Promise<{ text: string; calls: ToolCall[] } | null> {
-  const { fetchFn, headersTimeoutMs, guard } = o
+  const { fetchFn, headersTimeoutMs, round } = o
+  round.text = ''
+  round.calls = false
   const key = conf.key
   // OpenRouter reports the request's cost in the usage only when asked (other providers refuse unknown fields)
   const openrouter = /^https:\/\/openrouter\.ai\//.test(conf.baseUrl + '/')
@@ -230,10 +229,10 @@ async function stream(conf: ApiEngineConf, messages: ChatMessage[], tools: unkno
       if (!d) continue
       if (typeof d.content === 'string' && d.content) {
         text += d.content
-        const shown = guard.push(d.content)
-        if (shown) emit({ type: 'text', delta: shown })
+        round.text = text
       }
       for (const tc of d.tool_calls ?? []) {
+        round.calls = true
         const i = typeof tc.index === 'number' ? tc.index : calls.length
         const c = (calls[i] ??= { id: '', name: '', args: '' })
         if (tc.id) c.id = tc.id
@@ -249,6 +248,8 @@ async function stream(conf: ApiEngineConf, messages: ChatMessage[], tools: unkno
   // arguments half written). Nothing more is sent: another round would cost again and could only repeat the cut
   if (finish === 'length') {
     emit({ type: 'error', code: 'output_limit', message: 'the model stopped at its output limit (finish_reason length)' })
+    // its cut tool call never runs: the text it wrote is what the answer has, and stays with the error
+    round.calls = false
     return null
   }
   // the instructions name the tools mcp__team__<name> (the other engines' spelling): the handler knows <name>
@@ -270,8 +271,15 @@ function toolContent(out: string, links: string[]): string {
  * answer and the loop goes on, so the model can correct the call (QA B-API-1). Team-file links in the answer must
  * come from a tool result, the instructions or the message (engine/api-links.ts); `publicOrigins` are this server's
  * own addresses, so absolute links to them are checked too.
+ * The answer says what really happened (docs/decisions/20261118-api-engine-honest.md, engine/api-honest.ts): the text
+ * of a round that calls tools is held back, and the answer is the last round's text (or the last text the model wrote,
+ * when that round has none); empty links lose their brackets; a save that would wipe most of a file read in this
+ * answer is refused before it runs; a step that failed and was not done again adds one server line in `locale` when
+ * the answer does not say so.
  */
 export async function runApiAgent(o: { conf: ApiEngineConf; systemPrompt: string; message: string; rpc: Rpc; emit: (e: EngineEvent) => void; signal: AbortSignal; fetchFn?: typeof fetch; maxSteps?: number; headersTimeoutMs?: number; publicOrigins?: readonly string[]
+  /** the language of the line the server adds about a failed step (default en) */
+  locale?: Locale
   /** before each round after the first (the turn checks the person's budget; a used-up one aborts `signal`) */
   beforeRound?: () => void
   /** each chunk of a model stream: a sign of life for the turn's stall guard (chat/turn.ts STALL_TIMEOUT_MS) */
@@ -291,21 +299,43 @@ export async function runApiAgent(o: { conf: ApiEngineConf; systemPrompt: string
   // links that earlier answers of this chat showed (history in the instructions or the message) stay allowed
   guard.allow(o.systemPrompt)
   guard.allow(o.message)
+  const reads = new ReadLog()
+  const failed = new FailedSteps()
+  // the last non-empty text of a round that called tools: the answer when the last round wrote none
+  let lastText = ''
+  /** the answer's text out, in one piece: empty links as their label, team links no tool gave as plain text */
+  const show = (raw: string): string => {
+    const text = guard.clean(dropEmptyLinks(raw))
+    if (text) o.emit({ type: 'text', delta: text })
+    return text
+  }
+  /** the answer ends: its text, then the server's own line about a failed step when the text does not say so */
+  const finish = (raw: string) => {
+    const text = show(raw.trim() ? raw : lastText)
+    const note = failedStepsNote(failed.tools(), text, o.locale ?? 'en')
+    if (note) o.emit({ type: 'text', delta: `${!text || text.endsWith('\n\n') ? '' : text.endsWith('\n') ? '\n' : '\n\n'}${note}` })
+  }
+  // the round being streamed: what it wrote so far and whether it asked for a tool
+  const round = { text: '', calls: false }
+  /** a round that ended early (a provider error, a cut stream, Stop): what it wrote stays, unless it asked for a tool */
+  const showCut = () => { if (!round.calls && round.text.trim()) show(round.text) }
   const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt }, { role: 'user', content: o.message }]
   for (let step = 0; step < (o.maxSteps ?? MAX_STEPS); step++) {
     if (step > 0) o.beforeRound?.()
     if (o.signal.aborted) return
     if (step > 0 && o.toolsChanged?.()) tools = await listTools()
     let r: Awaited<ReturnType<typeof complete>>
-    try { r = await complete(o.conf, messages, tools, o.emit, o.signal, { fetchFn, headersTimeoutMs: o.headersTimeoutMs ?? HEADERS_TIMEOUT_MS, guard, activity: o.activity }) } catch (e) {
+    try { r = await complete(o.conf, messages, tools, o.emit, o.signal, { fetchFn, headersTimeoutMs: o.headersTimeoutMs ?? HEADERS_TIMEOUT_MS, activity: o.activity, round }) } catch (e) {
+      showCut()
       if (o.signal.aborted) return
       // refused connection, unknown host, no answer in time, a cut stream, an address the cloud does not allow
       const why = (e as Error)?.cause instanceof Error ? `${(e as Error).message}: ${((e as Error).cause as Error).message}` : String((e as Error)?.message ?? e)
       o.emit({ type: 'error', code: 'endpoint_unreachable', message: `the model API could not be reached: ${redact(why, o.conf.key).slice(0, 200)}` })
       return
     }
-    if (!r) return
-    if (!r.calls.length) { o.emit({ type: 'done' }); return }
+    if (!r) { showCut(); return }
+    if (!r.calls.length) { finish(r.text); o.emit({ type: 'done' }); return }
+    if (r.text.trim()) lastText = r.text
     // stopped while this round answered (Stop, or the budget its usage used up): its tool calls are not run
     if (o.signal.aborted) return
     messages.push({ role: 'assistant', content: r.text || null, tool_calls: r.calls.map((c) => ({ id: c.id, type: 'function', function: { name: c.name, arguments: c.args || '{}' } })) })
@@ -315,22 +345,28 @@ export async function runApiAgent(o: { conf: ApiEngineConf; systemPrompt: string
       o.emit({ type: 'tool_start', id: c.id, name: c.name, summary: c.name, input: args ?? {} })
       let out = ''
       let ok = false
-      if (args === null) out = 'Error: the arguments were not valid JSON'
+      // a save that would wipe most of a file this answer read is refused here, the file untouched (TC-4829)
+      const checked = args === null ? null : reads.check(c.name, args)
+      if (checked === null) out = 'Error: the arguments were not valid JSON'
+      else if (checked.refusal) out = `Error: ${checked.refusal}`
       else {
         try {
-          const res = await o.rpc({ jsonrpc: '2.0', id: c.id, method: 'tools/call', params: { name: c.name, arguments: args } })
+          const res = await o.rpc({ jsonrpc: '2.0', id: c.id, method: 'tools/call', params: { name: c.name, arguments: checked.args } })
           out = (res?.result?.content ?? []).map((x: { text?: string }) => x.text ?? '').join('\n') || (res?.error ? `Error: ${res.error.message}` : '')
           ok = !res?.result?.isError && !res?.error
         } catch (e) {
           out = `Error: the tool failed: ${String((e as Error)?.message ?? e).slice(0, 300)}`
         }
       }
+      reads.note(c.name, checked?.args ?? args, ok, out)
+      failed.note(c.name, checked?.args ?? args, ok)
       o.emit({ type: 'tool_end', id: c.id, ok, output: out.slice(0, 4000) })
       messages.push({ role: 'tool', tool_call_id: c.id, content: toolContent(out, guard.allow(out)) })
       if (o.signal.aborted) return
     }
   }
   // the per-answer limit of tool rounds: the turn records it (stopReason 'tool_limit') and the chat offers "continue"
+  finish('')
   o.emit({ type: 'limit', kind: 'turns' })
   o.emit({ type: 'done' })
 }

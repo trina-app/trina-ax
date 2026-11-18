@@ -22,7 +22,7 @@ export const SUBSCRIPTION_KINDS: readonly CredentialKind[] = ['anthropic-oauth',
 export const KIND_ENGINE: Record<CredentialKind, 'claude-code' | 'codex'> = { 'anthropic-oauth': 'claude-code', 'anthropic-api-key': 'claude-code', chatgpt: 'codex', 'openai-api-key': 'codex' }
 
 /** what the screen shows (stored status + what is computed now); `detail` is in the caller's language */
-export const CredentialState = z.enum(['ok', 'unverified', 'expiring', 'expired', 'invalid', 'needs_reconnect', 'limited', 'over_limit', 'disabled', 'kind_off', 'sharing_off'])
+export const CredentialState = z.enum(['ok', 'unverified', 'expiring', 'expired', 'invalid', 'needs_reconnect', 'no_credit', 'limited', 'over_limit', 'disabled', 'kind_off', 'sharing_off'])
 export type CredentialState = z.infer<typeof CredentialState>
 export const CredentialAssignment = z.object({ subjectType: z.enum(['group', 'user']), subjectId: z.string().min(1).max(64) })
 export type CredentialAssignment = z.infer<typeof CredentialAssignment>

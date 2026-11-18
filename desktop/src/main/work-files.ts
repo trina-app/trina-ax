@@ -7,13 +7,13 @@
 import { randomBytes } from 'node:crypto'
 import { posix, win32 } from 'node:path'
 import { constants } from 'node:fs'
-import { lstat, open, opendir, realpath } from 'node:fs/promises'
+import { lstat, open, opendir, realpath, stat } from 'node:fs/promises'
 import { app, dialog, shell, type BaseWindow } from 'electron'
 import { addView, consentView, covered, memoryKey, PERSON_INPUT_MS, placeKeys, type ConsentMemory, type ConsentView } from '../common/work-consent'
 import type { ConsentAsk } from './work-consent-window'
 import { WORK_FILES_BRIDGE_VERSION, WORK_FILES_WIDE_VERSION, type FullDiskState, type WorkCloudProvider, type WorkFileAdd, type WorkFileRead, type WorkFileScan, type WorkFolderId, type WorkRootId } from '@mycel/shared'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
-import { opensHome } from '../common/folder-access'
+import { guardedIdentities, opensHome } from '../common/folder-access'
 import { FALLBACK_LIMITS, inOneDrive, lookRoots, lookWide, pickRefused, pickTarget, WORK_ROOTS, WorkFileSessions, type WorkFs, type WorkRoot, type WorkStat } from '../common/work-files'
 import { execFile } from 'node:child_process'
 import { considered, neverListed } from '@mycel/shared/file-scan'
@@ -41,12 +41,19 @@ const READING_IDLE_MS = 15_000
 /** After two Cancels in a row in the Add window, the next one waits this long */
 const ADD_NO_QUIET_MS = 60_000
 
+/** what a walk's folder reached through a reparse point that is no link must not be (common/work-files.ts guard) */
+const REPARSE_GUARD = () => guardedIdentities(FOLDER_SYSTEM, process.platform)
+
 const kindOf = (d: { isFile(): boolean; isDirectory(): boolean; isSymbolicLink(): boolean }): WorkStat['kind'] =>
   d.isSymbolicLink() ? 'link' : d.isFile() ? 'file' : d.isDirectory() ? 'dir' : 'other'
 
 /** node:fs as the look and the reads see it: lstat and readdir never follow a link; open adds O_NOFOLLOW where the
  * system has it (Windows has none: the read checks the file's identity after opening instead). */
 export const NODE_WORK_FS: WorkFs = {
+  identity: async (path) => {
+    const s = await stat(path, { bigint: true })
+    return { dev: s.dev, ino: s.ino }
+  },
   // opendir, read entry by entry: a folder of millions stops at `max`
   readdir: async (path, max) => {
     const out: { name: string; kind: WorkStat['kind'] }[] = []
@@ -219,7 +226,12 @@ export class WorkFilesController {
         deadline: Date.now() + FALLBACK_LIMITS.rootMs,
         stopped: () => this.stopped || generation !== this.generation,
         onProgress: (p) => { if (generation === this.generation) this.o.progress(p) },
-        allowed: async (root) => !(await opensHome(root.path, FOLDER_SYSTEM, process.platform)),
+        // the person's own pick: a NAS or company share may be looked at (never an admin share, a device path or one
+        // that reaches home: opensHome shares)
+        allowed: async (root) => !(await opensHome(root.path, FOLDER_SYSTEM, process.platform, { shares: true })),
+        // a reparse point that is no link (a mounted volume, a OneDrive folder): never on a share, elsewhere never home,
+        // a folder above it or a system folder (TC-4844)
+        guard: REPARSE_GUARD,
         index: async () => (winCloud ? (await windowsIndex(roots.map((r) => r.path), null)).index : null),
         ...(winCloud ? { noWalk: () => true } : {}),
         ...(o.picked.serial ? { serial: true } : {}),
@@ -237,6 +249,7 @@ export class WorkFilesController {
       onProgress: (p) => { if (generation === this.generation) this.o.progress(p) },
       // never the home folder or one that holds it (Documents moved to C:\Users\alex, a Desktop linked to home)
       allowed: async (root) => !(await opensHome(root.path, FOLDER_SYSTEM, process.platform)),
+      guard: REPARSE_GUARD,
       // Windows: Windows Search with the recent lists; a Mac walks (faster than listing through Spotlight) and asks
       // Spotlight about the newest documents
       index: async () => (process.platform === 'win32' ? (await (win ??= windowsIndex(roots.map((r) => r.path), downloads))).index : null),
@@ -272,6 +285,7 @@ export class WorkFilesController {
       stopped,
       onProgress: (p: { root: WorkRootId; place?: string; checked: number; docs: number; done: number }) => { if (generation === this.generation) this.o.progress(p) },
       allowed: async (root: WorkRoot) => !(await opensHome(root.path, FOLDER_SYSTEM, process.platform)),
+      guard: REPARSE_GUARD,
       rootLimits: (root: WorkRoot) => (root.place !== undefined ? PLACE_LIMITS : {}),
       newId: () => randomBytes(12).toString('base64url'),
     }
@@ -396,8 +410,10 @@ export class WorkFilesController {
       if (!picked || generation !== this.generation || !this.sessions.has(origin)) return { state: 'cancelled' }
       const realPicked = await realpath(picked).catch(() => null)
       const home = app.getPath('home')
-      // never home or one that holds it, the apps' data or the system's folders (common/work-files.ts pickRefused)
-      if (!realPicked || (await opensHome(realPicked, FOLDER_SYSTEM, process.platform)) || pickRefused(realPicked, process.platform, await realpath(home).catch(() => home))) return { state: 'cancelled' }
+      // never home or one that holds it, the apps' data or the system's folders (common/work-files.ts pickRefused). A
+      // NAS or company share (\\nas\company, a mapped drive: realpath gives its network path) is fine; an admin share
+      // (C$, ADMIN$), a device path or a share that reaches home is not (common/folder-access.ts refusedShare)
+      if (!realPicked || (await opensHome(realPicked, FOLDER_SYSTEM, process.platform, { shares: true })) || pickRefused(realPicked, process.platform, await realpath(home).catch(() => home))) return { state: 'cancelled' }
       const realRoots = await Promise.all(roots.map((x) => realpath(x.path).catch(() => null)))
       const at = pickTarget(realPicked, realRoots, process.platform)
       const inRoot = at.root >= 0 ? roots[at.root]! : null

@@ -2,7 +2,7 @@
 // screen from Electron's powerMonitor, for the team page's "in use" and so for holding phone pushes
 // (docs/DECISIONS.md "Phone notifications when I'm away").
 import { expect, test } from 'bun:test'
-import { ComputerReporter, readSystemActivity, SYSTEM_IDLE_THRESHOLD_S, type SystemActivity } from '../../desktop/src/common/system-activity'
+import { ComputerReporter, readSystemActivity, SYSTEM_IDLE_THRESHOLD_S, UNSUPPORTED_RETRY_MS, type SystemActivity } from '../../desktop/src/common/system-activity'
 
 test('idle seconds become ms; locked is told; the 10-minute threshold is asked', () => {
   let asked = 0
@@ -65,6 +65,35 @@ test('reporter: an older server (404) or a refusal (403) is not asked again unti
   await m.r.report({ locked: false, idleMs: 0 })
   expect(m.posts).toHaveLength(3)
   expect(m.signedOut()).toBe(1)
+})
+
+test('reporter: a server that updates itself under an open app (404, then the call) is asked again after a while, with no team opened (QA TC-4834)', async () => {
+  let now = 1_000_000
+  const posts: number[] = []
+  const o = { status: 404 }
+  const r = new ComputerReporter({ team: () => ({ origin: 'https://acme.example', signedIn: true }), post: async () => { posts.push(now); return o.status }, now: () => now })
+  await r.report({ locked: false, idleMs: 0 })
+  // the older server: not asked on every 30 s tick
+  for (let i = 0; i < 9; i++) { now += 30_000; await r.report({ locked: false, idleMs: 0 }) }
+  r.farewell()
+  expect(posts).toHaveLength(1)
+  // it updated itself (at night, the app left open): asked again once the wait is over, and reported to from then on
+  o.status = 204
+  now = 1_000_000 + UNSUPPORTED_RETRY_MS
+  await r.report({ locked: false, idleMs: 0 })
+  now += 30_000
+  await r.report({ locked: false, idleMs: 0 })
+  expect(posts).toHaveLength(3)
+  // a refusal (403) waits the same way
+  o.status = 403
+  now += 30_000
+  await r.report({ locked: false, idleMs: 0 })
+  now += 30_000
+  await r.report({ locked: false, idleMs: 0 })
+  expect(posts).toHaveLength(4)
+  now += UNSUPPORTED_RETRY_MS
+  await r.report({ locked: false, idleMs: 0 })
+  expect(posts).toHaveLength(5)
 })
 
 test('reporter: a lock while a tick is on its way is not lost: the newest word goes right after', async () => {
