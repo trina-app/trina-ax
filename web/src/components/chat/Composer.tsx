@@ -38,8 +38,9 @@ import { composerRadius } from './composerBox'
 import clsx from 'clsx'
 import { ArrowUp, Camera, CirclePause, Clock, FolderOpen, Hourglass, Loader2, MessageCircleQuestion, Monitor, Plus, Smartphone, Square, ChevronDown, WifiOff } from 'lucide-react'
 import { useEffect, useId, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react'
-import { isUuid7, MESSAGE_ATTACHMENTS_MAX, type Attachment, type EngineId, type FileEntry } from '@mycel/shared/api'
+import { isUuid7, MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, type Attachment, type EngineId, type FileEntry } from '@mycel/shared/api'
 import { errorText, isApiError, isConnectionError } from '../../lib/api'
+import { textOverLimit } from '../../lib/longPaste'
 import { waitForUpdate, waitsForUpdate } from '../../lib/serverUpdating'
 import { markBusy } from '../../lib/busy'
 import { readDraft, writeDraft } from '../../lib/localData'
@@ -379,6 +380,11 @@ export default function Composer({
     // the chip is the command: "/<name> question" (the space after the name keeps it a command, as the "/" menu writes it)
     // a "#" room goes as its token (its id), so the AI reads exactly that room
     const body = chosen ? `/${chosen.name} ${wired}`.trimEnd() : wired
+    // longer than a message holds (typed or dictated; a long paste went in as a file): said here, the text kept
+    if (textOverLimit(body)) {
+      setSending(false)
+      return setError(t('composer.textTooLong', { max: MESSAGE_TEXT_MAX.toLocaleString(locale) }))
+    }
     const atts = attachments()
     try {
       await onSend(body, atts)

@@ -23,7 +23,7 @@ import clsx from 'clsx'
 import { FileAudio, FileText, FolderOpen, Loader2 } from 'lucide-react'
 import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent } from 'react'
 import { CHAT_FILES_FOLDER } from '@mycel/shared'
-import { DEFAULT_LOCALE, MESSAGE_ATTACHMENTS_MAX, UPLOAD_SESSION_MAX, uuidv7, type Attachment } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, UPLOAD_SESSION_MAX, uuidv7, type Attachment } from '@mycel/shared/api'
 import { api, API, errorText, thumbnailUrl } from '../../lib/api'
 import { markBusy } from '../../lib/busy'
 import { SIGNED_OUT } from '../../lib/localData'
@@ -33,6 +33,8 @@ import { openFilePreview, openTeamFile } from '../../lib/sidePanel'
 import { loadChips, patchStash, readStash, saveChips, shareStash, subscribeStash, TEAM_FILE_DRAG_TYPE, writeStash, type AttachResult } from '../../lib/teamAttach'
 import { cancelUpload, splitOversize, unreadableFile, uploadFile, uploadPercent, type UploadProgress } from '../../lib/upload'
 import { pastedFiles } from '../../lib/paste'
+import { pastedTextFile, pasteOverLimit, type PasteTarget } from '../../lib/longPaste'
+import { toast } from '../../store/ui'
 import { dragKind, filesOfDrop, withoutFolders, type DropKind } from '../../lib/fileDrop'
 import { attachmentItem, localItem } from '../../lib/imageViewer'
 import { useFolderWords } from '../../lib/folderLabels'
@@ -232,14 +234,25 @@ export function useComposerFiles({ userId, draftId, ensureChat, onError, reload 
       for (const f of filesRef.current) f.abort.abort()
       setFiles(() => [])
     },
-    /** files pasted into the box's text (a screenshot, a copied file) are attached, not pasted as text */
+    /** files pasted into the box's text (a screenshot, a copied file) are attached, not pasted as text. Text that would
+     * take the box over what a message holds is never cut (lib/longPaste.ts): it goes in as a text file where the box
+     * takes files from this computer and has room for one more, else the paste is refused with the reason. */
     onPaste: (e: ClipboardEvent<HTMLElement>) => {
       // files are not taken here: the paste goes on as text (a screenshot alone adds nothing)
       const pasted = computer ? pastedFiles(e.clipboardData) : []
       if (pasted.length) {
         e.preventDefault()
         void addFiles(pasted)
+        return
       }
+      const box = e.currentTarget as HTMLElement & Partial<PasteTarget>
+      const text = e.clipboardData?.getData?.('text/plain') ?? ''
+      if (typeof box.value !== 'string' || !pasteOverLimit({ value: box.value, selectionStart: box.selectionStart ?? null, selectionEnd: box.selectionEnd ?? null }, text)) return
+      e.preventDefault()
+      const max = MESSAGE_TEXT_MAX.toLocaleString(locale)
+      if (!computer || room() < 1) return onError(t('composer.textTooLong', { max }))
+      void addFiles([pastedTextFile(text, t('composer.pastedTextName'))])
+      toast({ level: 'info', text: t('composer.pastedAsFile', { max }) })
     },
     /** a file input's pick (the input is emptied, so the same file can be picked again) */
     onPicked: (e: ChangeEvent<HTMLInputElement>) => {

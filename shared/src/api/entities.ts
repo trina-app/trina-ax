@@ -385,6 +385,9 @@ export type Attachment = z.infer<typeof Attachment>
 /** At most this many attachments (uploads and team files together) per message: 100, what one model request may hold
  * in pictures (a person attaches 60 photos and asks about all of them, docs/decisions/20261118-limits-images.md). */
 export const MESSAGE_ATTACHMENTS_MAX = 100
+/** At most this many characters of text per AI chat message (send and edit; both message boxes, the full chat's and
+ * the side chat's, say so before sending, and a longer paste goes in as a text file: web/src/lib/longPaste.ts). */
+export const MESSAGE_TEXT_MAX = 200_000
 
 /** A next step under an AI step (Step.fixes): a line the server wrote, and one button that runs
  * POST /api/share-fixes/:id/run as the person. Names are people's display names as the server read them.
