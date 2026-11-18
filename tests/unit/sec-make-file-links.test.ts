@@ -72,10 +72,14 @@ const problem = (xml: string) => fieldsOf(xml).map(fieldProblem).find(Boolean) ?
 
 describe('Word fields (pure)', () => {
   test('allow-list: only known-safe fields pass; the refused set and anything unknown do not', () => {
-    for (const name of [...UNSAFE_FIELDS, 'DATABASE', 'RD', 'MACROBUTTON', 'ADDIN', 'PRIVATE', 'GOTOR', 'MADEUPFIELD'])
+    for (const name of [...UNSAFE_FIELDS, 'DATABASE', 'RD', 'PRIVATE', 'LINK', 'IMPORT', 'GOTOR', 'MADEUPFIELD'])
       expect(problem(complex([`${name} x`])), name).not.toBeNull()
     for (const name of SAFE_FIELDS) if (name !== 'HYPERLINK' && name !== '=') expect(problem(complex([`${name} `])), name).toBeNull()
     expect(problem(`<w:fldSimple w:instr="=SUM(A1:A3)"/>`)).toBeNull()
+  })
+  test('N4: template placeholders, citations and shapes stay (MACROBUTTON, ADDIN, SHAPE fetch nothing)', () => {
+    for (const code of ['MACROBUTTON NoMacro [Click here to type]', 'ADDIN ZOTERO_ITEM CSL_CITATION {"citationID":"a"}', 'ADDIN EN.CITE <EndNote/>', 'SHAPE  \\* MERGEFORMAT'])
+      expect(problem(complex([code.replace(/</g, '&lt;').replace(/>/g, '&gt;')])), code).toBeNull()
   })
   test('HYPERLINK only to the web, mail or a bookmark', () => {
     for (const t of ['file:///c:/x.exe', 'ms-word:x', '..\\x.exe', '\\\\host\\s'])
@@ -90,6 +94,18 @@ describe('Word fields (pure)', () => {
     const outerField = codes.find((f) => f.nested)!
     expect(outerField.nestedName).toBe(true)
     expect(fieldProblem(outerField)).toContain('name is made by another field')
+  })
+  test('N1: a quote or backslash before the nested field does not count as the name; an empty name with a nested field is refused', () => {
+    const quote = `<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText>QUOTE 68 68 69</w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>`
+    for (const before of ['"', ' "', '\\', ' \\ "']) {
+      const outer = `<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve">${before}</w:instrText></w:r>${quote}<w:r><w:instrText xml:space="preserve">" "c:\\cmd.exe"</w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>`
+      const f = fieldsOf(outer).find((x) => x.nested)!
+      expect(f.nestedName, JSON.stringify(before)).toBe(true)
+      expect(fieldProblem(f)).toContain('name is made by another field')
+    }
+    // an empty name with a field inside it is refused even when not flagged as the name
+    expect(fieldProblem({ code: '  "" ', nested: true, nestedName: false })).toContain('name is made by another field')
+    expect(fieldProblem({ code: '', nested: false, nestedName: false })).toBeNull()
   })
   test('complex field joined across runs; nested fields are their own codes', () => {
     expect(fieldsOf(complex([' DDE', 'AUTO c:\\x "a" '])).map((f) => fieldName(f.code))).toEqual(['DDEAUTO'])
@@ -143,6 +159,23 @@ describe('checkOfficeLinks (worker, saxes)', () => {
     }
     expect(() => checkOfficeLinks('docx', pkg({ ...baseDocx(), 'word/header1.xml': `<w:h xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:fldSimple w:instr="RD &quot;\\\\h\\a.docx&quot;"/></w:h>` }))).toThrow(/RD field/)
   })
+  test('N2: a field in a part outside word/, or with no instrText marker in its UTF-8 text, is found; UTF-16 is refused', () => {
+    const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+    expect(() => checkOfficeLinks('docx', pkg({ ...baseDocx(), 'custom/body.dat': `<w:document xmlns:w="${W}"><w:body><w:p><w:fldSimple w:instr="INCLUDETEXT &quot;x&quot;"/></w:p></w:body></w:document>` }))).toThrow(/custom\/body\.dat has a INCLUDETEXT/)
+    // the element name written with a character reference cannot be; but a prefix other than w: is read by namespace
+    expect(() => checkOfficeLinks('docx', pkg({ ...baseDocx(), 'word/header2.xml': `<q:hdr xmlns:q="${W}"><q:p><q:fldSimple q:instr="DDEAUTO a b"/></q:p></q:hdr>` }))).toThrow(/DDEAUTO/)
+    const u16 = new Uint8Array([0xff, 0xfe, ...Buffer.from(`<w:hdr xmlns:w="${W}"><w:fldSimple w:instr="DDEAUTO a b"/></w:hdr>`, 'utf16le')])
+    expect(() => checkOfficeLinks('docx', writeZip([...readZip(pkg(baseDocx())), { name: 'word/header3.xml', data: u16 }]))).toThrow(/UTF-16/)
+  })
+  test('N3: a rebuilt settings.xml keeps tab, line feed and carriage return in a docVar value', () => {
+    const val = 'line1&#10;line2&#9;tab&#13;cr'
+    const parts = { ...baseDocx(),
+      'word/settings.xml': `<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:attachedTemplate r:id="rId1"/><w:docVars><w:docVar w:name="v" w:val="${val}"/></w:docVars></w:settings>`,
+      'word/_rels/settings.xml.rels': rels(`<Relationship Id="rId1" Type="${R}attachedTemplate" Target="file:///C:/Normal.dotm" TargetMode="External"/>`) }
+    const out = new TextDecoder().decode(readZip(checkOfficeLinks('docx', pkg(parts))).find((e) => e.name === 'word/settings.xml')!.data)
+    expect(out).not.toContain('attachedTemplate')
+    expect(out).toContain(`w:val="${val}"`)
+  })
   test('an attached template (Normal.dotm, or a share) is taken out; good links and page fields stay', () => {
     const parts = { ...baseDocx('<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:fldSimple w:instr=" PAGE "/></w:p></w:body></w:document>'),
       'word/settings.xml': '<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:attachedTemplate r:id="rId1"/><w:zoom w:percent="100"/></w:settings>',
@@ -187,7 +220,59 @@ const uriTargets = async (bytes: Uint8Array): Promise<string[]> => {
   return out
 }
 
+/** a PDF with the given dicts set on the catalog (OpenAction, AA, Outlines) or on a page (AA, Annots), built raw */
+async function craftedPdf(build: (d: PDFDocument) => void): Promise<Uint8Array> {
+  const d = await PDFDocument.create()
+  d.addPage([200, 200])
+  build(d)
+  return await d.save()
+}
+/** every action dict left in the PDF with its /S and its target (URI, F, JS) */
+async function actionsIn(bytes: Uint8Array): Promise<string[]> {
+  const d = await PDFDocument.load(bytes)
+  const out: string[] = []
+  const K = (k: string) => PDFName.of(k)
+  for (const [, o] of d.context.enumerateIndirectObjects()) {
+    const visit = (x: unknown) => {
+      if (!(x instanceof Object) || !('get' in (x as object))) return
+      const dict = x as any
+      if (typeof dict.get !== 'function' || typeof dict.entries !== 'function') return
+      const s = d.context.lookup(dict.get(K('S')))
+      if (s instanceof PDFName) out.push(`${s.decodeText()} ${['URI', 'F', 'JS'].map((k) => { const v = d.context.lookup(dict.get(K(k))) as any; return v?.decodeText?.() ?? '' }).join('')}`)
+      for (const [, v] of dict.entries()) if (!(v instanceof PDFName)) visit(v)
+    }
+    visit(o)
+  }
+  return out
+}
+
 describe('sanitizePdfLinks (pure)', () => {
+  test('N5: GoToR, Launch, JavaScript in /OpenAction and /AA, a URI in an outline, an indirect /S: all made inert', async () => {
+    const cases: [string, (d: PDFDocument) => void][] = [
+      ['GoToR link', (d) => { d.getPage(0).node.set(PDFName.of('Annots'), d.context.obj([d.context.obj({ Type: 'Annot', Subtype: 'Link', Rect: [0, 0, 9, 9], A: d.context.obj({ S: 'GoToR', F: PDFString.of('\\\\evil\\s\\a.pdf'), D: [0, 'Fit'] }) })])) }],
+      ['Launch OpenAction', (d) => { d.catalog.set(PDFName.of('OpenAction'), d.context.obj({ S: 'Launch', F: PDFString.of('C:\\Windows\\calc.exe') })) }],
+      ['JavaScript OpenAction', (d) => { d.catalog.set(PDFName.of('OpenAction'), d.context.obj({ S: 'JavaScript', JS: PDFString.of('app.alert(1)') })) }],
+      ['JavaScript page AA', (d) => { d.getPage(0).node.set(PDFName.of('AA'), d.context.obj({ O: d.context.obj({ S: 'JavaScript', JS: PDFString.of('app.alert(2)') }) })) }],
+      ['catalog AA', (d) => { d.catalog.set(PDFName.of('AA'), d.context.obj({ WC: d.context.obj({ S: 'Launch', F: PDFString.of('x.exe') }) })) }],
+      ['URI in an outline', (d) => {
+        const item = d.context.register(d.context.obj({ Title: PDFString.of('go'), A: d.context.obj({ S: 'URI', URI: PDFString.of('file:///C:/x.exe') }) }))
+        d.catalog.set(PDFName.of('Outlines'), d.context.obj({ Type: 'Outlines', First: item, Last: item, Count: 1 }))
+      }],
+      ['indirect /S', (d) => {
+        const s = d.context.register(PDFName.of('URI'))
+        d.catalog.set(PDFName.of('OpenAction'), d.context.obj({ S: s, URI: d.context.register(PDFString.of('ms-msdt:/id x')) }))
+      }],
+    ]
+    for (const [name, build] of cases) {
+      const r = await sanitizePdfLinks(await craftedPdf(build))
+      expect(r.removed, name).toBeGreaterThanOrEqual(1)
+      const left = (await actionsIn(r.bytes)).filter((a) => a !== 'URI ')
+      expect(left, name).toEqual([])
+    }
+    // an internal GoTo (a link to a page of the same PDF) is left alone
+    const internal = await sanitizePdfLinks(await craftedPdf((d) => { d.catalog.set(PDFName.of('OpenAction'), d.context.obj({ S: 'GoTo', D: [d.getPage(0).ref, 'Fit'] })) }))
+    expect(internal.removed).toBe(0)
+  })
   test('a URI annotation to file:, a share or javascript: is made inert; a web link stays', async () => {
     for (const bad of ['file:///C:/x.exe', '\\\\host\\s\\x.exe', 'javascript:alert(1)', 'ms-msdt:x']) {
       const r = await sanitizePdfLinks(await pdfWith(bad))

@@ -16,8 +16,8 @@
 // or ">" in an attribute value is seen for what it is, and a part that is not well-formed or has a DTD is refused.
 // The template is untrusted, so this runs only in the office worker (office-worker.ts), never in the server process.
 import { ToolError } from '../policy/errors'
-import { fieldProblem, UNSAFE_FIELDS } from './office-rules'
-import { attrNS, dropElements, fieldCodes, relationshipsOf, REL_NS } from './office-xml'
+import { UNSAFE_FIELDS } from './office-rules'
+import { attrNS, dropElements, fieldCodes, isUtf16, relationshipsOf, REL_NS, scanWordFields } from './office-xml'
 import { checkZip, isZip } from './zip-guard'
 import { readZip, writeZip, type ZipEntry } from './zip-write'
 
@@ -44,15 +44,6 @@ export function relationships(xml: string, part = 'part', what = 'file'): { type
   return relationshipsOf(xml, part, fail)
 }
 
-/** UTF-16 (a byte order mark, or "<" with a zero byte next to it): Word always writes UTF-8, and a UTF-16 part would
- * not be scanned as text, so such a part is refused rather than skipped (security review) */
-const utf16 = (d: Uint8Array) => (d[0] === 0xff && d[1] === 0xfe) || (d[0] === 0xfe && d[1] === 0xff) || (d[0] === 0x3c && d[1] === 0x00) || (d[0] === 0x00 && d[1] === 0x3c)
-/** the part starts with "<" (after an optional UTF-8 byte order mark and white space): XML, or text pretending to be */
-function looksXml(d: Uint8Array): boolean {
-  let i = d[0] === 0xef && d[1] === 0xbb && d[2] === 0xbf ? 3 : 0
-  while (i < d.length && (d[i] === 0x20 || d[i] === 0x09 || d[i] === 0x0a || d[i] === 0x0d)) i++
-  return d[i] === 0x3c
-}
 const ownerOf = (relsName: string) => relsName.replace(/(^|\/)_rels\/([^/]+)\.rels$/i, '$1$2')
 
 /** Checks the template and returns its bytes with any attached template taken out (the bytes to hand to pandoc). */
@@ -80,16 +71,11 @@ export function checkOfficeTemplate(kind: 'docx' | 'pptx', bytes: Uint8Array): U
         if (r.external && (r.type !== 'hyperlink')) bad(what, `it refers to something outside the file (${r.type || 'a relationship'} in ${e.name}), which would be fetched when a new file is opened`)
       }
     }
-    // every XML part, wherever it is and whatever its name: _rels/.rels and [Content_Types].xml can put the main
-    // document or a header anywhere in the package (security review); a part is XML when it starts with "<"
-    if (utf16(e.data)) bad(what, `${e.name} is UTF-16 text, which Office does not write in these files`)
-    if (kind === 'docx' && !/\.rels$/i.test(e.name) && looksXml(e.data)) {
-      for (const f of fieldCodes(text(e.data), e.name, fail)) {
-        const why = fieldProblem(f)
-        if (why) bad(what, `${e.name} has ${why}`)
-      }
-    }
   }
+  // Word fields in every XML part, wherever it is (shared with the finished-file check, office-xml.ts scanWordFields);
+  // UTF-16 parts are refused for either kind
+  if (kind === 'docx') scanWordFields(entries, fail, fail)
+  else for (const e of entries) if (isUtf16(e.data)) bad(what, `${e.name} is UTF-16 text, which Office does not write in these files`)
   if (!stripOwners.size) return bytes
   const dec = new TextDecoder()
   const enc = new TextEncoder()

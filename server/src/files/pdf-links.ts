@@ -4,8 +4,9 @@
 // javascript: or ms-msdt: would print to a PDF whose links open those when clicked (QA TC-4949). Before the PDF is
 // saved, every action in it is read: a URI action to a web page or a mail address stays, and anything else — another
 // scheme, a share, a relative path, or an action that launches a file, opens another document, runs JavaScript or
-// submits a form — is turned into a link that does nothing. The Markdown path has no links of its own (pandoc's tree
-// is cleaned first), but a PDF from pandoc runs through this too, so one place covers them all.
+// submits a form — is turned into a link that does nothing. It runs in renderHtmlPdf, so every browser-printed PDF
+// (make_file from .html or a deck, and the preview's "save as PDF") is covered. The Markdown PDF path (typst) does not
+// go through it: its links are cleaned in pandoc's tree before typst runs (tools/office-links.ts).
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFStream, PDFString, type PDFObject } from 'pdf-lib'
 import { allowedLinkTarget } from './office-rules'
 
@@ -34,9 +35,10 @@ export async function sanitizePdfLinks(pdf: Uint8Array): Promise<{ bytes: Uint8A
     removed++
   }
   const considerAction = (d: PDFDict) => {
-    const s = nameOf(d.get(K('S')))
+    // /S and /URI may be indirect objects: resolved, so a reference cannot hide the action type or target
+    const s = nameOf(ctx.lookup(d.get(K('S'))))
     if (s === 'URI') {
-      const uri = str(d.get(K('URI'))) ?? ''
+      const uri = str(ctx.lookup(d.get(K('URI')))) ?? ''
       if (!allowedLinkTarget(uri) || uri.startsWith('#')) neutralise(d)
     } else if (s && ACTION_TYPES.has(s)) {
       neutralise(d)
@@ -51,7 +53,7 @@ export async function sanitizePdfLinks(pdf: Uint8Array): Promise<{ bytes: Uint8A
     seen.add(o)
     const d = o instanceof PDFStream ? o.dict : o instanceof PDFDict ? o : undefined
     if (d) {
-      if (nameOf(d.get(K('S'))) !== undefined || d.get(K('URI')) !== undefined) considerAction(d)
+      if (d.get(K('S')) !== undefined || d.get(K('URI')) !== undefined) considerAction(d)
       for (const [, v] of d.entries()) if (!(v instanceof PDFName)) walk(v, depth + 1)
       return
     }

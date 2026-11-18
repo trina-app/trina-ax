@@ -11,8 +11,8 @@
 // Every .rels and every XML part is read with saxes (namespaces resolved); a part that is not well-formed is refused.
 // This runs only in the office worker (office-worker.ts), never in the server process, because the bytes are untrusted.
 import { ToolError } from '../policy/errors'
-import { allowedLinkTarget, fieldProblem } from './office-rules'
-import { attrNS, dropElements, fieldCodes, relationshipsOf, REL_NS } from './office-xml'
+import { allowedLinkTarget } from './office-rules'
+import { attrNS, dropElements, relationshipsOf, REL_NS, scanWordFields } from './office-xml'
 import { checkZip, isZip } from './zip-guard'
 import { readZip, writeZip, type ZipEntry } from './zip-write'
 
@@ -61,15 +61,8 @@ export function checkOfficeLinks(kind: 'docx' | 'pptx' | 'xlsx', bytes: Uint8Arr
     }
   }
 
-  // Word fields in any XML part of a .docx (document, headers, footers, notes, numbering, glossary)
-  if (kind === 'docx') {
-    for (const e of entries) {
-      if (/\.rels$/i.test(e.name) || !/^word\/.*\.xml$/i.test(e.name)) continue
-      const xml = dec.decode(e.data)
-      if (!/instrText|fldSimple/.test(xml)) continue
-      for (const f of fieldCodes(xml, e.name, fail)) { const why = fieldProblem(f); if (why) fail(e.name, `has ${why}`) }
-    }
-  }
+  // Word fields in every XML part of a .docx, wherever it is, UTF-16 refused: the same scan as the template check
+  if (kind === 'docx') scanWordFields(entries, fail, fail)
 
   if (!stripOwners.size) return bytes
   // take the attached template out: its relationship(s) in the .rels, and the w:attachedTemplate element in the owner

@@ -4,7 +4,7 @@
 // both of which run only in the office worker, never in the server process. A ToolError names the first problem.
 import { SaxesParser, type SaxesTagNS } from 'saxes'
 import { ToolError } from '../policy/errors'
-import type { FieldCode } from './office-rules'
+import { fieldProblem, type FieldCode } from './office-rules'
 
 /** the WordprocessingML namespaces (transitional and strict) and the package relationships namespace */
 export const W_NS = new Set(['http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'http://purl.oclc.org/ooxml/wordprocessingml/main'])
@@ -58,14 +58,15 @@ export function fieldCodes(xml: string, part: string, fail: (part: string, why: 
       if (t.local !== 'fldChar') return
       const type = attrNS(t, W_NS, 'fldCharType')
       if (type === 'begin') {
-        // a field opening inside the name of the field above (nothing but white space read yet): that name is built by a field
+        // a field opening inside the name of the field above (nothing but white space, quotes or backslashes read
+        // yet, as in { "{QUOTE 68 68 69}" ... }): that name is built by a field
         if (top?.reading) { top.nested = true; if (!top.nameStarted) top.nestedName = true }
         stack.push({ code: '', reading: true, nested: false, nameStarted: false, nestedName: false })
       } else if (type === 'separate' && top) end(top)
       else if (type === 'end') { const f = stack.pop(); if (f) end(f) }
     },
     close: (t) => { if (W_NS.has(t.uri) && (t.local === 'instrText' || t.local === 'delInstrText') && !t.isSelfClosing) inInstr = Math.max(0, inInstr - 1) },
-    text: (s) => { const top = stack[stack.length - 1]; if (inInstr && top?.reading) { top.code += s; if (s.trim()) top.nameStarted = true } },
+    text: (s) => { const top = stack[stack.length - 1]; if (inInstr && top?.reading) { top.code += s; if (/[^\s"\\]/.test(s)) top.nameStarted = true } },
   })
   for (const f of stack) end(f)
   return out
@@ -85,7 +86,9 @@ export function relationshipsOf(xml: string, part: string, fail: (part: string, 
   return out
 }
 
-const escAttr = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
+// tab, line feed and carriage return as character references: a parser turns them into spaces otherwise (attribute
+// value normalisation), which would change a docVar value in a rebuilt settings.xml
+const escAttr = (s: string) => s.replace(/[&<>"\t\n\r]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\t': '&#9;', '\n': '&#10;', '\r': '&#13;' })[c]!)
 const escText = (s: string) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!)
 
 /**
@@ -115,4 +118,31 @@ export function dropElements(xml: string, part: string, fail: (part: string, why
   })
   const decl = /^\s*<\?xml[^?]*\?>/.exec(xml)?.[0] ?? '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
   return decl + parts.join('')
+}
+
+/** UTF-16 (a byte order mark, or "<" with a zero byte next to it): Word always writes UTF-8, and a UTF-16 part would
+ * not be scanned as text, so such a part is refused rather than skipped (security review of #1281) */
+export const isUtf16 = (d: Uint8Array) => (d[0] === 0xff && d[1] === 0xfe) || (d[0] === 0xfe && d[1] === 0xff) || (d[0] === 0x3c && d[1] === 0x00) || (d[0] === 0x00 && d[1] === 0x3c)
+/** the part starts with "<" (after an optional UTF-8 byte order mark and white space): XML, or text pretending to be */
+export function looksXml(d: Uint8Array): boolean {
+  let i = d[0] === 0xef && d[1] === 0xbb && d[2] === 0xbf ? 3 : 0
+  while (i < d.length && (d[i] === 0x20 || d[i] === 0x09 || d[i] === 0x0a || d[i] === 0x0d)) i++
+  return d[i] === 0x3c
+}
+
+/**
+ * The Word-field scan both checks use (the template check, office-template.ts, and the finished-file check,
+ * office-links-check.ts), so they cannot differ: every part of the package, wherever it is and whatever its name
+ * (_rels/.rels and [Content_Types].xml can put the main document or a header anywhere), UTF-16 refused, and every
+ * part that starts with "<" (not a .rels) read for its fields. `problem(part, why)` is called for the first field
+ * that is not allowed; `fail` for a part that cannot be read.
+ */
+export function scanWordFields(entries: { name: string; data: Uint8Array }[], fail: (part: string, why: string) => never, problem: (part: string, why: string) => never): void {
+  for (const e of entries) {
+    if (isUtf16(e.data)) fail(e.name, 'is UTF-16 text, which Office does not write in these files')
+    if (/\.rels$/i.test(e.name) || !looksXml(e.data)) continue
+    let xml: string
+    try { xml = new TextDecoder('utf-8', { fatal: true }).decode(e.data) } catch { return fail(e.name, 'is not UTF-8 text') }
+    for (const f of fieldCodes(xml, e.name, fail)) { const why = fieldProblem(f); if (why) problem(e.name, `has ${why}`) }
+  }
 }

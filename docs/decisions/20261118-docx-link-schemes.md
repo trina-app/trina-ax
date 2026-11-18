@@ -27,8 +27,11 @@ Plan: docs/AGENTS/plan/20261118-1700-docx-link-schemes.md.
     relationship must be a hyperlink to an allowed target, and an internal one may not name a scheme, a share or a
     backslash path; a linked object, frame or subdocument is refused. Every Word part: a field must be on the allow-list
     in `office-rules.ts` (page numbers, dates, references, a HYPERLINK to an allowed target), so DDE, DDEAUTO,
-    INCLUDETEXT, INCLUDEPICTURE, IMPORT, LINK, DATABASE, RD, MACROBUTTON, ADDIN, PRIVATE, an unknown field, or a field
-    whose name is built by a nested field, is refused. Nothing is saved then.
+    INCLUDETEXT, INCLUDEPICTURE, IMPORT, LINK, DATABASE, RD, PRIVATE, an unknown field, or a field whose name is built
+    by a nested field (quotes and backslashes before it do not count as a name, and an empty name with a field inside
+    is refused) is refused. MACROBUTTON, ADDIN and SHAPE are allowed: they fetch nothing, a .docx holds no macros, and
+    template placeholders and Zotero / EndNote citations use them. The field scan is the one #1281's template check
+    uses (every XML part wherever it is, UTF-16 refused). Nothing is saved then.
   - A PDF from an .html page or a deck has its link annotations filtered before it is saved (`files/pdf-links.ts`,
     pdf-lib): a URI action to a web page or a mail address stays, and any other URI, or an action that launches a file,
     opens another document, runs JavaScript or submits a form, is made inert. The Markdown PDF path (typst) needs no

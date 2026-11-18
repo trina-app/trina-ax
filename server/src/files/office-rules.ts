@@ -43,10 +43,13 @@ export const SAFE_FIELDS = new Set([
   'FORMTEXT', 'FORMCHECKBOX', 'FORMDROPDOWN', 'IF', 'COMPARE', 'SET', 'ASK', 'FILLIN', 'QUOTE', 'BARCODE',
   'DISPLAYBARCODE', 'MERGEFIELD', 'MERGEREC', 'MERGESEQ', 'NEXT', 'NEXTIF', 'SKIPIF', 'ADDRESSBLOCK', 'GREETINGLINE',
   'CITATION', 'BIBLIOGRAPHY', '=',
+  // fetch nothing, and a .docx holds no macros: template placeholders (MACROBUTTON NoMacro [Click here]) and
+  // Zotero / EndNote citations (ADDIN ...) use them, SHAPE wraps a drawing (security review N4)
+  'MACROBUTTON', 'ADDIN', 'SHAPE',
 ])
 /** Word fields that run something or read from outside the document: named in the refusal */
 export const UNSAFE_FIELDS = new Set(['DDE', 'DDEAUTO', 'INCLUDETEXT', 'INCLUDEPICTURE', 'INCLUDE', 'IMPORT', 'LINK', 'DATABASE', 'RD',
-  'MACROBUTTON', 'AUTOTEXTLIST', 'AUTOTEXT', 'GLOSSARY', 'PRIVATE', 'ADDIN', 'EMBED', 'SHAPE'])
+  'AUTOTEXTLIST', 'AUTOTEXT', 'GLOSSARY', 'PRIVATE', 'EMBED'])
 
 /** The words of a field code: "quoted text" or runs without spaces. */
 export function fieldWordsOf(code: string): string[] {
@@ -66,7 +69,8 @@ export interface FieldCode { code: string; nested: boolean; nestedName: boolean 
 export function fieldProblem(f: FieldCode): string | null {
   if (f.nestedName) return 'a field whose name is made by another field'
   const name = fieldName(f.code)
-  if (!name) return null
+  // an empty name with a field inside it: Word may take the nested field's result as the name
+  if (!name) return f.nested ? 'a field whose name is made by another field' : null
   if (UNSAFE_FIELDS.has(name)) return `a ${name.slice(0, 20)} field, which runs or fetches something when the file is opened`
   if (!SAFE_FIELDS.has(name)) return `a ${name.replace(/[^A-Z0-9=_-]/g, '').slice(0, 20) || 'unknown'} field, which is not one of the fields allowed in files made here`
   if (name !== 'HYPERLINK') return null
