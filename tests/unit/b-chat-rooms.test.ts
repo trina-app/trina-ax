@@ -455,7 +455,8 @@ describe('in a chat', () => {
 
 describe('room_file on a big file (limits audit 1 #23)', () => {
   test('a 40 MB export sent in a room is read up to the read limit, not refused at 32 MB', async () => {
-    const roomId = await groupChat('alice', ['erin', 'carol'], 'big export')
+    // erin makes this room: alice's own group chats are already near the 10-an-hour limit in this file
+    const roomId = await groupChat('erin', ['alice', 'carol'], 'big export')
     const src = path.join(h.dataDir, `room-file-${uuidv7()}.csv`)
     const row = 'id,name,amount,region,note\n'
     fs.writeFileSync(src, 'id,name,amount,region,note\n' + `1,Acme,100,Seoul,${'x'.repeat(80)}\n`.repeat(Math.ceil((40 << 20) / 98)))
