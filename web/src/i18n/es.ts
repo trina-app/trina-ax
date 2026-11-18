@@ -3172,6 +3172,7 @@ export const es: Record<MessageKey, string> = {
   'audit.act.credential.check': "Comprobó una conexión de IA",
   'audit.act.credential.rejected': "El proveedor rechazó una conexión de IA",
   'audit.act.credential.limited': "Una conexión de IA alcanzó su límite de uso",
+  'audit.act.credential.no_credit': 'Una conexión de IA se quedó sin crédito de API',
   'audit.act.credential.refreshed': "Renovó una sesión de ChatGPT",
   'audit.act.credential.refresh_failed': "No se pudo renovar una sesión de ChatGPT",
   'audit.act.credential.decrypt_failed': "No se pudo descifrar una conexión de IA (clave)",

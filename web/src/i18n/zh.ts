@@ -3167,6 +3167,7 @@ export const zh: Record<MessageKey, string> = {
   "audit.act.credential.check": "检查了AI连接",
   "audit.act.credential.rejected": "服务商拒绝了AI连接",
   "audit.act.credential.limited": "AI连接达到了用量上限",
+  "audit.act.credential.no_credit": "AI连接的API额度已用完",
   "audit.act.credential.refreshed": "刷新了ChatGPT登录",
   "audit.act.credential.refresh_failed": "无法刷新ChatGPT登录",
   "audit.act.credential.decrypt_failed": "无法打开AI连接（密钥）",

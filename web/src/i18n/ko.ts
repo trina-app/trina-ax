@@ -3212,6 +3212,7 @@ export const ko = {
   'audit.act.credential.check': 'AI 연결 다시 확인',
   'audit.act.credential.rejected': '공급자가 AI 연결을 거절함',
   'audit.act.credential.limited': 'AI 연결이 사용 한도에 닿음',
+  'audit.act.credential.no_credit': 'AI 연결의 API 크레딧이 떨어짐',
   'audit.act.credential.refreshed': 'ChatGPT 로그인 갱신',
   'audit.act.credential.refresh_failed': 'ChatGPT 로그인 갱신 실패',
   'audit.act.credential.decrypt_failed': 'AI 연결을 풀 수 없음(열쇠)',

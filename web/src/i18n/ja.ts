@@ -3172,6 +3172,7 @@ export const ja: Record<MessageKey, string> = {
   'audit.act.credential.check': "AI接続を確認",
   'audit.act.credential.rejected': "プロバイダーがAI接続を拒否",
   'audit.act.credential.limited': "AI接続が使用量の上限に到達",
+  'audit.act.credential.no_credit': 'AI接続のAPIクレジットが切れた',
   'audit.act.credential.refreshed': "ChatGPTのログインを更新",
   'audit.act.credential.refresh_failed': "ChatGPTのログインを更新できませんでした",
   'audit.act.credential.decrypt_failed': "AI接続を復号できませんでした（キー）",

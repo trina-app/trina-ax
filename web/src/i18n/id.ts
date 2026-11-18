@@ -3213,6 +3213,7 @@ export const id: Record<MessageKey, string> = {
   'audit.act.credential.check': 'Memeriksa koneksi AI',
   'audit.act.credential.rejected': 'Penyedia menolak koneksi AI',
   'audit.act.credential.limited': 'Koneksi AI mencapai batas pemakaian',
+  'audit.act.credential.no_credit': 'Koneksi AI kehabisan kredit API',
   'audit.act.credential.refreshed': 'Memperbarui login ChatGPT',
   'audit.act.credential.refresh_failed': 'Login ChatGPT gagal diperbarui',
   'audit.act.credential.decrypt_failed': 'Koneksi AI tidak bisa dibuka (kunci)',
