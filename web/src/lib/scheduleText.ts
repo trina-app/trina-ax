@@ -30,9 +30,26 @@ export const onceDate = (date: string | null | undefined, locale: Locale) => {
   return new Intl.DateTimeFormat(TAG[locale] ?? locale, { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!)))
 }
 
-/** "Weekdays (Mon–Fri) at 09:00", in the team's time zone (the times the server keeps). */
-export const repeatText = (s: Schedule, t: T, locale: Locale) =>
-  t(`schedules.repeat.${s.repeat}` as MessageKey, { time: s.time, date: onceDate(s.date, locale), day: String(s.day ?? ''), weekday: weekdayName(s.weekday ?? 0, locale) })
+/** An interval as its biggest whole unit: 90 → 90 minutes, 120 → 2 hours, 2880 → 2 days. */
+export function intervalUnit(minutes: number): { n: number; unit: 'minutes' | 'hours' | 'days' } {
+  if (minutes > 0 && minutes % 1440 === 0) return { n: minutes / 1440, unit: 'days' }
+  if (minutes > 0 && minutes % 60 === 0) return { n: minutes / 60, unit: 'hours' }
+  return { n: minutes, unit: 'minutes' }
+}
+
+/** "Weekdays (Mon–Fri) at 09:00", in the team's time zone (the times the server keeps); several days of the week as the
+ * language lists them, the last day of the month, every N minutes, hours or days, a cron schedule as written. */
+export function repeatText(s: Schedule, t: T, locale: Locale): string {
+  const days = s.weekdays?.length ? s.weekdays : [s.weekday ?? 0]
+  const weekday = new Intl.ListFormat(TAG[locale] ?? locale, { type: 'conjunction' }).format(days.map((d) => weekdayName(d, locale)))
+  if (s.repeat === 'interval') {
+    const { n, unit } = intervalUnit(s.everyMinutes ?? 0)
+    return t(`schedules.repeat.interval.${unit}` as MessageKey, { n: String(n), time: s.time, date: onceDate(s.date, locale) })
+  }
+  if (s.repeat === 'cron') return t('schedules.repeat.cron', { cron: s.cron ?? '' })
+  if (s.repeat === 'monthly' && s.day === 'last') return t('schedules.repeat.monthlyLast', { time: s.time })
+  return t(`schedules.repeat.${s.repeat}` as MessageKey, { time: s.time, date: onceDate(s.date, locale), day: String(s.day ?? ''), weekday })
+}
 
 /** on · paused · waiting for its owner's check ("다시 확인") · a one-time task that ran or whose time passed */
 export type ScheduleState = 'on' | 'paused' | 'review' | 'completed' | 'expired'

@@ -18,7 +18,8 @@ import type { AppContext } from '../context'
 import { HttpError } from '../http/errors'
 import { tr } from './i18n'
 import type { ChatRuntime } from './runtime'
-import { needsReview, nextRun, ScheduleInput, scheduleList, type ScheduleRow } from './schedules'
+import { inputTiming, needsReview, nextRun, ScheduleInput, scheduleList, type ScheduleRow } from './schedules'
+import { isOnce, storedTiming } from './schedule-timing'
 import { templatePrompt, templateTitle, validateTemplateFolders } from './schedule-templates'
 import { egressOf } from '../tools/egress'
 import { cardScope, scheduleCard, scheduleOptions, scopeBinding, taskConnections, taskScope, writableConnections } from '../tools/schedules'
@@ -38,10 +39,13 @@ function checked(ctx: AppContext, rt: ChatRuntime, userId: string, s: ScheduleRo
   if (s.template_id) throw new HttpError('conflict', tr('scheduleKind', L), { params: { reason: 'schedule_template' } })
   // only the field the repeat uses is kept (a weekly task carries no day of the month)
   const parsed = ScheduleInput.safeParse({
-    title: e.title, prompt: e.prompt, repeat: e.repeat, time: e.time,
-    weekday: e.repeat === 'weekly' ? e.weekday ?? undefined : undefined,
+    title: e.title, prompt: e.prompt, repeat: e.repeat, time: e.repeat === 'cron' ? e.time || undefined : e.time,
+    weekday: e.repeat === 'weekly' && !e.weekdays?.length ? e.weekday ?? undefined : undefined,
+    weekdays: e.repeat === 'weekly' && e.weekdays?.length ? e.weekdays : undefined,
     day: e.repeat === 'monthly' ? e.day ?? undefined : undefined,
-    date: e.repeat === 'once' ? e.date ?? undefined : undefined,
+    date: e.repeat === 'once' || e.repeat === 'interval' ? e.date ?? undefined : undefined,
+    everyMinutes: e.repeat === 'interval' ? e.everyMinutes ?? undefined : undefined,
+    cron: e.repeat === 'cron' ? e.cron ?? undefined : undefined,
   })
   if (!parsed.success) {
     const fields = Object.fromEntries(parsed.error.issues.map((i) => [`body.${String(i.path[0] ?? '')}`, tr('scheduleField', L)]))
@@ -54,8 +58,11 @@ function checked(ctx: AppContext, rt: ChatRuntime, userId: string, s: ScheduleRo
     if (!p) throw new HttpError('validation', tr('scheduleProject', L), { fields: { 'body.projectId': tr('scheduleProject', L) } })
     project = { id: e.projectId, name: p.name }
   }
-  const next = nextRun({ repeat: input.repeat, time: input.time, weekday: input.weekday ?? null, day: input.day ?? null, date: input.date ?? null }, now, rt.timeZone)
-  if (!next) throw new HttpError('validation', tr('schedulePast', L), { fields: { 'body.date': tr('schedulePast', L), 'body.time': tr('schedulePast', L) } })
+  // the timing as it is stored (chat/schedule-timing.ts: the kinds an older build does not know in `rule`)
+  const timing = inputTiming(input, now, rt.timeZone)
+  const stored = storedTiming(timing)
+  const next = nextRun(stored, now, rt.timeZone)
+  if (!next) throw new HttpError('validation', tr('schedulePast', L), { fields: timing.repeat === 'cron' ? { 'body.cron': tr('schedulePast', L) } : { 'body.date': tr('schedulePast', L), 'body.time': tr('schedulePast', L) } })
   // the connections the edited task names, and the ones it may send to now (an edit of the time keeps them on offer);
   // never every "allow" connection the person can use
   const writable = taskConnections(writableConnections(ctx, userId), input, new Set(scheduleList(s.write_connections)))
@@ -67,15 +74,15 @@ function checked(ctx: AppContext, rt: ChatRuntime, userId: string, s: ScheduleRo
   }
   if (scope.badKeep) throw new HttpError('validation', tr('scheduleSaveSources', L), { fields: { 'body.saveSources': tr('scheduleSaveSources', L) } })
   // what a run can open on this server now (tools/egress.ts): the card promises nothing it cannot keep
-  const card = scheduleCard(input, writable.map((r) => r.name), L, 'edit', { urlsOpen: egressOf(ctx).known, project: project?.name ?? null, scope: cardScope(ctx.db, userId, L, scope.save, scope.sources, scope.sends) })
+  const card = scheduleCard({ ...input, ...timing }, writable.map((r) => r.name), L, 'edit', { urlsOpen: egressOf(ctx).known, project: project?.name ?? null, scope: cardScope(ctx.db, userId, L, scope.save, scope.sources, scope.sends) })
   const options = scheduleOptions(L, writable.length > 0 || scope.sends.length > 0, 'edit')
   // what the answer approves: the task as it will be, the connections offered, the save folder, its places and the pinned
   // own connections (not the wording)
   const requestId = 'schedule-edit-' + crypto.createHash('sha256').update(JSON.stringify({
-    id: s.id, title: input.title, prompt: input.prompt, repeat: input.repeat, time: input.time, weekday: input.weekday ?? null, day: input.day ?? null, date: input.date ?? null,
+    id: s.id, title: input.title, prompt: input.prompt, repeat: stored.repeat, time: stored.time, weekday: stored.weekday, day: stored.day, date: stored.date, rule: stored.rule,
     project: project?.id ?? null, urls: card.urls, connections: writable.map((r) => `${r.id}:${r.version}`).sort(), options: options.map((o) => o.value), scope: scopeBinding(scope),
   })).digest('hex').slice(0, 48)
-  return { input, project, next, writable, card, options, requestId, scope }
+  return { input, stored, project, next, writable, card, options, requestId, scope }
 }
 
 /** POST /api/schedules/:id/edit: the card for the edited task. Nothing changes yet. */
@@ -88,29 +95,29 @@ export function editCard(ctx: AppContext, rt: ChatRuntime, userId: string, id: s
  * with what the card showed; "cancel": nothing changes. */
 export function saveTask(ctx: AppContext, rt: ChatRuntime, userId: string, id: string, e: ScheduleTaskEdit & { requestId: string; answer: string }, L: Locale, now = new Date()): ScheduleRow {
   const s = own(rt, userId, id)
-  const { input, project, next, writable, card, options, requestId, scope } = checked(ctx, rt, userId, s, e, L, now)
+  const { input, stored, project, next, writable, card, options, requestId, scope } = checked(ctx, rt, userId, s, e, L, now)
   // a card that no longer matches first (its answers may have changed with it), then only its own answers
   if (e.requestId !== requestId) throw new HttpError('conflict', tr('scheduleCardChanged', L), { params: { reason: 'schedule_card_changed' } })
   if (!options.some((o) => o.value === e.answer)) throw new HttpError('validation', tr('answerNotOption', L))
   if (e.answer === 'cancel') return s
   const connections = e.answer === 'save_write' ? writable.map((r) => r.id) : []
   const cols = scopeColumns(scope.save, scope.sources, e.answer === 'save_write' ? scope.sends.map((x) => ({ connectionId: x.connectionId, pins: x.pins })) : [])
-  const after = { title: input.title, prompt: input.prompt, repeat: input.repeat, time: input.time, weekday: input.weekday ?? null, day: input.day ?? null, date: input.date ?? null }
+  const after = { title: input.title, prompt: input.prompt, ...stored }
   const changed = [
     ...(after.title !== s.title ? ['title'] : []), ...(after.prompt !== s.prompt ? ['prompt'] : []),
-    ...(after.repeat !== s.repeat || after.time !== s.time || after.weekday !== s.weekday || after.day !== s.day || after.date !== s.date ? ['schedule'] : []),
+    ...(after.repeat !== s.repeat || after.time !== s.time || after.weekday !== s.weekday || after.day !== s.day || after.date !== s.date || after.rule !== (s.rule ?? null) ? ['schedule'] : []),
     ...((project?.id ?? null) !== s.project_id ? ['project'] : []),
     ...(cols.save_folder !== (s.save_folder ?? null) ? ['save_folder'] : []), ...(cols.save_sources !== (s.save_sources ?? null) ? ['save_sources'] : []),
     ...(cols.personal_sends !== (s.personal_sends ?? null) ? ['personal_sends'] : []),
   ]
   // a one-time task given a new time is a new occurrence: it can be turned on again (resumeBlockedReason)
-  const rearm = after.repeat === 'once' && changed.includes('schedule')
+  const rearm = isOnce(after) && changed.includes('schedule')
   const on = !!s.enabled
   ctx.db.transaction(() => {
-    ctx.db.query(`UPDATE schedules SET title=?, prompt=?, repeat=?, time=?, weekday=?, day=?, date=?, project_id=?, allowed_urls=?, write_connections=?, confirmed_at=?,
+    ctx.db.query(`UPDATE schedules SET title=?, prompt=?, repeat=?, time=?, weekday=?, day=?, date=?, rule=?, project_id=?, allowed_urls=?, write_connections=?, confirmed_at=?,
       review_since=NULL, enabled=?, next_run_at=?, pending_due_at=NULL, retry_at=NULL, last_run_at=CASE WHEN ? THEN NULL ELSE last_run_at END,
       save_folder=?, save_folder_id=?, save_rule=?, save_readers=?, save_sources=?, personal_sends=?, save_lapsed_at=NULL, save_lapse_reason=NULL WHERE id=? AND user_id=?`)
-      .run(after.title, after.prompt, after.repeat, after.time, after.weekday, after.day, after.date, project?.id ?? null,
+      .run(after.title, after.prompt, after.repeat, after.time, after.weekday, after.day, after.date, after.rule, project?.id ?? null,
         card.urls.length ? JSON.stringify(card.urls) : null, connections.length ? JSON.stringify(connections) : null, now.toISOString(),
         on ? 1 : 0, on ? next!.toISOString() : null, rearm ? 1 : 0,
         cols.save_folder, cols.save_folder_id, cols.save_rule, cols.save_readers, cols.save_sources, cols.personal_sends, s.id, userId)

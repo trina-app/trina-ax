@@ -19,6 +19,7 @@ import { tr } from './i18n'
 import type { ChatRuntime } from './runtime'
 import { needsReview, nextRun, type ScheduleRow } from './schedules'
 import { scopeColumns, type SaveLapse } from './schedule-scope'
+import { timingOf } from './schedule-timing'
 import { egressOf } from '../tools/egress'
 import { cardScope, scheduleCard, scheduleOptions, scopeBinding, taskConnections, taskScope, writableConnections } from '../tools/schedules'
 
@@ -36,7 +37,8 @@ function scopeNow(ctx: AppContext, s: ScheduleRow, L: Locale, strict: boolean) {
 const recheck = (s: ScheduleRow) => !needsReview(s) && !!s.save_folder && !!s.save_lapsed_at
 
 function build(ctx: AppContext, s: ScheduleRow, L: Locale) {
-  const input = { title: s.title, prompt: s.prompt, repeat: s.repeat, time: s.time, weekday: s.weekday ?? undefined, day: s.day ?? undefined, date: s.date ?? undefined }
+  // the timing as stored (chat/schedule-timing.ts: `rule` holds the kinds the old columns cannot)
+  const input = { title: s.title, prompt: s.prompt, ...timingOf(s) }
   const again = recheck(s)
   // only the connections the task names (never every "allow" connection the person can use); nobody ever allowed it any
   // (a lapse's check keeps the connections as they are: it is about the save folder only)
@@ -48,7 +50,7 @@ function build(ctx: AppContext, s: ScheduleRow, L: Locale) {
   // what the answer approves: the task as it is, the connections offered and the save scope (not the wording, which
   // follows the language)
   const requestId = (again ? 'schedule-recheck-' : 'schedule-review-') + crypto.createHash('sha256').update(JSON.stringify({
-    id: s.id, title: s.title, prompt: s.prompt, repeat: s.repeat, time: s.time, weekday: s.weekday, day: s.day, date: s.date, project: s.project_id,
+    id: s.id, title: s.title, prompt: s.prompt, repeat: s.repeat, time: s.time, weekday: s.weekday, day: s.day, date: s.date, ...(s.rule ? { rule: s.rule } : {}), project: s.project_id,
     urls: card.urls, connections: writable.map((r) => `${r.id}:${r.version}`).sort(), options: options.map((o) => o.value), scope: scopeBinding(scope),
   })).digest('hex').slice(0, 48)
   return { card, options, requestId, writable, scope, again }
@@ -107,9 +109,14 @@ export function confirmReview(ctx: AppContext, rt: ChatRuntime, userId: string, 
 
 /** GET /api/admin/schedule-reviews: tasks paused until their owners confirm them again. No title, no instruction. */
 export function awaitingReview(ctx: AppContext) {
-  const rows = ctx.db.query(`SELECT s.id, s.repeat, s.time, s.weekday, s.day, s.date, s.review_since, u.id AS user_id, u.name AS user_name
+  const rows = ctx.db.query(`SELECT s.id, s.repeat, s.time, s.weekday, s.day, s.date, s.rule, s.review_since, u.id AS user_id, u.name AS user_name
     FROM schedules s JOIN users u ON u.id = s.user_id
     WHERE s.template_id IS NULL AND s.confirmed_at IS NULL AND s.review_since IS NOT NULL AND u.deleted_at IS NULL
-    ORDER BY s.review_since, u.name, s.id LIMIT 500`).all() as { id: string; repeat: ScheduleRow['repeat']; time: string; weekday: number | null; day: number | null; date: string | null; review_since: string | null; user_id: string; user_name: string }[]
-  return { items: rows.map((r) => ({ id: r.id, user: { id: r.user_id, name: r.user_name }, repeat: r.repeat, time: r.time, weekday: r.weekday, day: r.day, date: r.date, reviewSince: r.review_since })) }
+    ORDER BY s.review_since, u.name, s.id LIMIT 500`).all() as { id: string; repeat: ScheduleRow['repeat']; time: string; weekday: number | null; day: number | null; date: string | null; rule: string | null; review_since: string | null; user_id: string; user_name: string }[]
+  return { items: rows.map((r) => {
+    const t = timingOf(r)
+    // the kinds kept in `rule` add their own fields (chat/schedule-timing.ts); the five first kinds stay as they were
+    return { id: r.id, user: { id: r.user_id, name: r.user_name }, repeat: t.repeat, time: t.time, weekday: t.weekdays?.[0] ?? null, day: t.day, date: t.date,
+      ...(r.rule ? { weekdays: t.weekdays, everyMinutes: t.everyMinutes, cron: t.cron } : {}), reviewSince: r.review_since }
+  }) }
 }

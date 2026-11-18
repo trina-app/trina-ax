@@ -15,7 +15,7 @@ import type { AppContext } from '../context'
 import type { ToolCtx } from '../files/service'
 import { ToolError } from '../policy/errors'
 import { getChatRuntime } from '../chat/runtime'
-import { describeSchedule, needsReview, ScheduleInput, zonedParts, type ScheduleInput as ScheduleInputT, type ScheduleRow, type ScheduleRow as ScheduleRowT } from '../chat/schedules'
+import { describeSchedule, inputTiming, needsReview, ScheduleInput, zonedParts, type ScheduleInput as ScheduleInputT, type ScheduleRow, type ScheduleRow as ScheduleRowT } from '../chat/schedules'
 import { namesTemplate } from '../integrations/connections/schedule-needs'
 import { redactorFor } from '../integrations/connections/redact'
 import { usable, type Row } from '../integrations/connections/store'
@@ -24,6 +24,9 @@ import type { ToolRegistry } from './registry'
 import { extractUrls, MAX_UNCONFIRMED_QUERY, opaqueParts, type ConfirmExtra } from './url-gate'
 import { cardSources, cleanPins, makeSaveFolder, MAX_PINS, MAX_SOURCES, resolveSaveFolder, saveFolderChanged, resolveSources, rowSends, rowSources, scopeKey, sourceForAi, sourceText, withRules, type PersonalSend, type SaveFolder, type SaveLapse, type ScopeSource } from '../chat/schedule-scope'
 import type { Database } from 'bun:sqlite'
+import { MAX_EVERY_MINUTES, REPEATS, timingOf, type TimingSource } from '../chat/schedule-timing'
+import { Audiences, isSharedRow } from '../chat/shared'
+import type { ChatRow } from '../chat/store'
 
 export const SCHEDULE_TOOL_NAMES = ['schedule_create', 'schedule_list', 'schedule_delete'] as const
 
@@ -34,11 +37,14 @@ export const SCHEDULE_TIME_DESCRIPTION = 'HH:MM, 24-hour, in the team\'s time zo
 const CreateInput = z.object({
   title: z.string().max(80).describe('Short name, e.g. "Weekly meeting digest"'),
   prompt: z.string().max(4000).describe('The full instruction to run each time, written so it works without this conversation (name the folders and the output)'),
-  repeat: z.enum(['once', 'daily', 'weekdays', 'weekly', 'monthly']),
-  time: z.string().describe(SCHEDULE_TIME_DESCRIPTION),
-  weekday: z.number().int().min(0).max(6).optional().describe('weekly: 0 = Sunday … 6 = Saturday'),
-  day: z.number().int().min(1).max(28).optional().describe('monthly: 1–28'),
-  date: z.string().optional().describe('once: YYYY-MM-DD'),
+  repeat: z.enum(REPEATS).describe('once; daily; weekdays (Mon–Fri); weekly (one or more days: weekdays); monthly (day 1–31 or "last"); interval (every N minutes: every_minutes, e.g. 60 = every hour, counted from date + time); cron (any other pattern: cron). Any frequency the user asks for is fine.'),
+  time: z.string().optional().describe(`${SCHEDULE_TIME_DESCRIPTION}. Every kind but cron needs it; for interval it is when the counting starts`),
+  weekday: z.number().int().min(0).max(6).optional().describe('weekly, one day: 0 = Sunday … 6 = Saturday'),
+  weekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7).optional().describe('weekly, several days: e.g. [1, 4] = Monday and Thursday'),
+  day: z.union([z.number().int().min(1).max(31), z.literal('last')]).optional().describe('monthly: 1–31 (a month without that day has no run), or "last" for the last day of the month'),
+  date: z.string().optional().describe('once: YYYY-MM-DD; interval: the day counting starts (default today)'),
+  every_minutes: z.number().int().min(1).max(MAX_EVERY_MINUTES).optional().describe('interval: minutes between runs (60 = hourly, 180 = every 3 hours)'),
+  cron: z.string().max(200).optional().describe('cron: five fields "minute hour day-of-month month day-of-week" in the team\'s time zone, e.g. "*/15 9-18 * * 1-5" (every 15 minutes in working hours on weekdays) or "0 18 L * *" (18:00 on the last day of the month; L = last day)'),
   connections: z.array(z.string().max(200)).max(20).optional().describe('Only when a run must call tools of a connected service that change something there (post a message, upload, add a record: any tool whose description says it changes something at the service): those connections, by their names under "Connected services": team connections set to send without asking, or the user\'s own (personal) connections, which also need send_to. Leave it out otherwise.'),
   send_to: z.array(z.object({
     connection: z.string().max(200).describe('one of the user\'s own connections in `connections`'),
@@ -48,11 +54,16 @@ const CreateInput = z.object({
   reads: z.array(z.string().max(1000)).max(MAX_SOURCES).optional().describe('The places runs read whose content may go into save_to although fewer people can see them: "my folder", team folder paths, and rooms as #[name](room:<id>) or their ids. A run that read anything else that fewer people can see does not save there. Rooms listed here also let a run that read them send to the user\'s own connections at their pinned recipients (never to a team connection after a room read).'),
 })
 
-function turnInfo(ctx: AppContext, t: ToolCtx): { projectId: string | null; scheduled: boolean } {
-  if (!t.turnId) return { projectId: null, scheduled: false }
-  const r = ctx.db.query('SELECT c.project_id, t.client_kind FROM turns t JOIN chats c ON c.id = t.chat_id WHERE t.id = ?').get(t.turnId) as { project_id: string | null; client_kind: string | null } | null
-  return { projectId: r?.project_id ?? null, scheduled: r?.client_kind === 'schedule' }
+/** The turn's project, whether it is a scheduled run, and the shared chat it is in (null: the person's own chat). */
+function turnInfo(ctx: AppContext, t: ToolCtx): { projectId: string | null; scheduled: boolean; sharedChat: string | null } {
+  if (!t.turnId) return { projectId: null, scheduled: false, sharedChat: null }
+  const r = ctx.db.query('SELECT c.id, c.project_id, c.shared_at, c.people_shared_at, t.client_kind FROM turns t JOIN chats c ON c.id = t.chat_id WHERE t.id = ?').get(t.turnId) as { id: string; project_id: string | null; shared_at: string | null; people_shared_at: string | null; client_kind: string | null } | null
+  return { projectId: r?.project_id ?? null, scheduled: r?.client_kind === 'schedule', sharedChat: r && isSharedRow(r) ? r.id : null }
 }
+
+/** In a shared chat the person's other tasks are theirs alone (their titles and instructions): schedule_list and
+ * schedule_delete there see only the tasks made in that chat, whose runs post there. */
+const visibleIn = (sharedChat: string | null) => (s: ScheduleRow) => sharedChat === null || s.chat_id === sharedChat
 
 type L5 = Record<Locale, string>
 const fill = (t: string, v: Record<string, string>) => t.replace(/\{(\w+)\}/g, (m, k: string) => v[k] ?? m)
@@ -230,6 +241,23 @@ export const TEXT = {
   weekdays: { ko: '평일(월–금) {time}', en: 'every weekday (Mon–Fri) at {time}', id: 'setiap hari kerja (Sen–Jum) pukul {time}', ja: '平日（月〜金） {time}', es: 'cada día laborable (lun–vie) a las {time}', zh: '每个工作日（周一至周五） {time}' } satisfies L5,
   weekly: { ko: '매주 {weekday} {time}', en: 'every {weekday} at {time}', id: 'setiap {weekday} pukul {time}', ja: '毎週{weekday} {time}', es: 'cada {weekday} a las {time}', zh: '每{weekday} {time}' } satisfies L5,
   monthly: { ko: '매월 {day}일 {time}', en: 'every month on day {day} at {time}', id: 'setiap bulan tanggal {day} pukul {time}', ja: '毎月{day}日 {time}', es: 'cada mes el día {day} a las {time}', zh: '每月{day}日 {time}' } satisfies L5,
+  /** day 29–31: a month without that day has no run (chat/schedule-timing.ts) */
+  monthlyLate: { ko: '매월 {day}일 {time} ({day}일이 없는 달은 건너뛰어요)', en: 'every month on day {day} at {time} (skipped in months without a day {day})', id: 'setiap bulan tanggal {day} pukul {time} (dilewati pada bulan tanpa tanggal {day})', ja: '毎月{day}日 {time}（{day}日がない月は実行しません）', es: 'cada mes el día {day} a las {time} (se salta en los meses sin día {day})', zh: '每月{day}日 {time}（没有{day}日的月份跳过）' } satisfies L5,
+  monthlyLast: { ko: '매월 마지막 날 {time}', en: 'on the last day of every month at {time}', id: 'setiap hari terakhir bulan pukul {time}', ja: '毎月末日 {time}', es: 'el último día de cada mes a las {time}', zh: '每月最后一天 {time}' } satisfies L5,
+  intervalMinutes: { ko: '{start}부터 {n}분마다', en: 'every {n} minutes, from {start}', id: 'setiap {n} menit, mulai {start}', ja: '{start}から{n}分ごと', es: 'cada {n} minutos, desde el {start}', zh: '从{start}起每{n}分钟' } satisfies L5,
+  intervalHours: { ko: '{start}부터 {n}시간마다', en: 'every {n} hours, from {start}', id: 'setiap {n} jam, mulai {start}', ja: '{start}から{n}時間ごと', es: 'cada {n} horas, desde el {start}', zh: '从{start}起每{n}小时' } satisfies L5,
+  intervalDays: { ko: '{start}부터 {n}일마다', en: 'every {n} days, from {start}', id: 'setiap {n} hari, mulai {start}', ja: '{start}から{n}日ごと', es: 'cada {n} días, desde el {start}', zh: '从{start}起每{n}天' } satisfies L5,
+  /** a cron schedule, as written (its five fields in the team's time zone) */
+  cron: { ko: '반복 일정(cron) {cron}', en: 'on the cron schedule {cron}', id: 'dengan jadwal cron {cron}', ja: 'cronスケジュール {cron}', es: 'con el horario cron {cron}', zh: '按 cron 计划 {cron}' } satisfies L5,
+  /** a task made in a shared chat: its runs post there (docs/decisions/20261118-shared-schedules-any-frequency.md) */
+  sharedChat: {
+    ko: '실행 결과는 이 공유 채팅에 올라가요. 지금 {n}명이 이 채팅을 볼 수 있어요. 실행은 내 권한으로 하고, 이 채팅의 일부 사람이 열 수 없는 곳은 읽지 않아요.',
+    en: 'Each run posts its result in this shared chat, which {n} people can see now. Runs work with your access and skip places some people here cannot open.',
+    id: 'Setiap kali berjalan, hasilnya diposting di obrolan bersama ini, yang sekarang dapat dilihat {n} orang. Tugas berjalan dengan akses Anda dan melewati tempat yang tidak bisa dibuka sebagian orang di sini.',
+    ja: '実行結果はこの共有チャットに投稿されます。今{n}人がこのチャットを見られます。実行はあなたの権限で行われ、ここにいる一部の人が開けない場所は読みません。',
+    es: 'Cada ejecución publica su resultado en este chat compartido, que ahora pueden ver {n} personas. Las ejecuciones usan su acceso y omiten los lugares que algunas personas de aquí no pueden abrir.',
+    zh: '每次运行的结果会发到这个共享对话中，现在有{n}人能看到它。运行使用你的权限，并跳过这里有些人打不开的地方。',
+  } satisfies L5,
 } as const
 
 export type CardMode = 'create' | 'review' | 'edit' | 'recheck'
@@ -267,13 +295,24 @@ export function cardScope(db: Database, userId: string, L: Locale, save: SaveFol
   }
 }
 
-/** The schedule in the person's language ("매주 월요일 09:00"), for the card. */
-export function scheduleWhen(s: Pick<ScheduleInputT, 'repeat' | 'time' | 'weekday' | 'day' | 'date'>, L: Locale): string {
-  const weekday = s.weekday === undefined ? '' : new Intl.DateTimeFormat(L, { weekday: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2024, 0, 7 + s.weekday)))
+/** The schedule in the person's language ("매주 월요일 09:00"), for the card: a row, ScheduleInput's fields or a
+ * Timing (chat/schedule-timing.ts). */
+export function scheduleWhen(src: TimingSource, L: Locale): string {
+  const s = timingOf(src)
+  const dayName = (n: number) => new Intl.DateTimeFormat(L, { weekday: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2024, 0, 7 + n)))
+  // several days of the week as the language lists them ("월요일 및 목요일", "Monday and Thursday")
+  const weekday = new Intl.ListFormat(L, { type: 'conjunction' }).format((s.weekdays ?? []).map(dayName))
   // a one-time task's day in the person's words ("Nov 10, 2026"), not the stored form (QA TC-092; the Scheduled pages
   // do the same, web/src/lib/scheduleText.ts onceDate); read and shown in UTC, so it is never shifted
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s.date ?? '')
   const date = m ? new Intl.DateTimeFormat(L, { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!))) : s.date ?? ''
+  if (s.repeat === 'interval') {
+    const n = s.everyMinutes ?? 0
+    const key = n % 1440 === 0 ? 'intervalDays' : n % 60 === 0 ? 'intervalHours' : 'intervalMinutes'
+    return fill(TEXT[key][L], { n: String(key === 'intervalDays' ? n / 1440 : key === 'intervalHours' ? n / 60 : n), start: `${date} ${s.time}` })
+  }
+  if (s.repeat === 'cron') return fill(TEXT.cron[L], { cron: `"${s.cron ?? ''}"` })
+  if (s.repeat === 'monthly' && (s.day === 'last' || (typeof s.day === 'number' && s.day > 28))) return fill(TEXT[s.day === 'last' ? 'monthlyLast' : 'monthlyLate'][L], { time: s.time, day: String(s.day) })
   return fill(TEXT[s.repeat][L], { time: s.time, date, day: String(s.day ?? ''), weekday })
 }
 
@@ -282,7 +321,7 @@ export function scheduleWhen(s: Pick<ScheduleInputT, 'repeat' | 'time' | 'weekda
  * 'edit': the person changed a task in Settings (chat/schedule-edit.ts), with the project it runs in, if any.
  * `urlsOpen`: can a run open addresses without a person on this server now? Not while it does not know its own exit
  * address (tools/egress.ts egressOf): then every address needs a person, and the card says so instead of promising. */
-export function scheduleCard(input: Pick<ScheduleInputT, 'title' | 'prompt' | 'repeat' | 'time' | 'weekday' | 'day' | 'date'>, connections: string[], L: Locale, mode: CardMode = 'create', o: { urlsOpen?: boolean; project?: string | null; scope?: CardScope; why?: SaveLapse } = {}): { question: string; urls: string[]; longQuery: string[]; extra: ConfirmExtra } {
+export function scheduleCard(input: Pick<ScheduleInputT, 'title' | 'prompt'> & TimingSource, connections: string[], L: Locale, mode: CardMode = 'create', o: { urlsOpen?: boolean; project?: string | null; scope?: CardScope; why?: SaveLapse; sharedWith?: number } = {}): { question: string; urls: string[]; longQuery: string[]; extra: ConfirmExtra } {
   const open = o.urlsOpen !== false
   const urls = [...new Set(extractUrls(input.prompt))]
   // a query over MAX_UNCONFIRMED_QUERY characters always needs a person (url-gate.ts ③): runs never open such an
@@ -299,6 +338,8 @@ export function scheduleCard(input: Pick<ScheduleInputT, 'title' | 'prompt' | 'r
   if (promptMarks.length) lines.push(TEXT.opaque[L])
   if (connections.length) lines.push(fill(TEXT.connections[L], { names: connections.join(', ') }))
   lines.push(...scopeLines(o.scope, L))
+  // made in a shared chat: its runs post there, for everyone who sees it
+  if (o.sharedWith !== undefined) lines.push(fill(TEXT.sharedChat[L], { n: String(o.sharedWith) }))
   const details = [{ label: TEXT.labelPrompt[L], text: input.prompt, ...(promptMarks.length ? { marks: promptMarks } : {}) }]
   if (opens.length) { const t = opens.join('\n'); const m = opaqueParts(t); details.push({ label: TEXT[open ? 'labelUrls' : 'labelUrlsBlocked'][L], text: t, ...(m.length ? { marks: m } : {}) }) }
   if (longQuery.length) {
@@ -463,16 +504,19 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
       'Runs are unattended (no questions, nothing that needs a confirmation), so write the prompt to work on its own. Only web addresses written in the prompt (shown on the card) open in a run without asking. ' +
       'A run sends or changes something at a connected service only when the task names that connection (in `connections`, or its name in the title or prompt) and the user allows it on the card; name one only when runs need to send there.',
     input: CreateInput,
-    describe: (a) => `schedule_create ${a.repeat} ${a.time}`,
+    describe: (a) => `schedule_create ${a.repeat} ${a.repeat === 'cron' ? a.cron ?? '' : a.time ?? ''}`,
     async run(input, t) {
       const info = turnInfo(ctx, t)
       if (info.scheduled) throw new ToolError('a scheduled run cannot create scheduled tasks')
+      // made in a shared chat: its runs post there, as this person (Schedules.start), for everyone who sees it then
+      const shared = info.sharedChat ? ctx.db.query('SELECT * FROM chats WHERE id = ?').get(info.sharedChat) as ChatRow | null : null
       // the person's stored connection keys are hidden in the title and the prompt the AI wrote, before the card shows
       // them and before they are saved, as in the answer and the steps (redact.ts; QA TC-2981). A run uses the stored
       // connection, never a key written in its prompt.
       const hide = redactorFor(ctx, t.user.id).hide
-      const a = { ...input, title: hide(input.title), prompt: hide(input.prompt) }
-      const parsed = ScheduleInput.safeParse({ ...a, projectId: info.projectId ?? undefined })
+      const { every_minutes: everyMinutes, ...rest } = input
+      const a = { ...rest, title: hide(input.title), prompt: hide(input.prompt) }
+      const parsed = ScheduleInput.safeParse({ ...a, ...(everyMinutes !== undefined ? { everyMinutes } : {}), projectId: info.projectId ?? undefined })
       if (!parsed.success) throw new ToolError(parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '))
       // what would be refused anyway is refused before the person is asked
       rt.schedules.check(t.user.id, parsed.data)
@@ -494,7 +538,9 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
       // the card says what a run can open on this server (right after a start, once the exit address check has had a moment)
       await egressSettled(ctx)
       const urlsOpen = egressOf(ctx).known
-      const card = scheduleCard(parsed.data, offered.map((r) => r.name), L, 'create', { urlsOpen, scope: cardScope(ctx.db, t.user.id, L, scope.save, scope.sources, scope.sends) })
+      const timing = inputTiming(parsed.data, new Date(), rt.timeZone)
+      const card = scheduleCard({ ...parsed.data, ...timing }, offered.map((r) => r.name), L, 'create', { urlsOpen, scope: cardScope(ctx.db, t.user.id, L, scope.save, scope.sources, scope.sends),
+        ...(shared ? { sharedWith: new Audiences(ctx.db, ctx.files).ofChat(shared).length } : {}) })
       const options = scheduleOptions(L, offered.length > 0 || scope.sends.length > 0)
       const answer = person.choose
         ? await person.choose(card.question, options, card.extra)
@@ -521,23 +567,25 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
       const own = answer === 'create_write' ? scope.sends : []
       let s: ScheduleRow
       try {
-        s = rt.schedules.create(t.user.id, parsed.data, new Date(), { allowedUrls: card.urls, writeConnections: sends.map((r) => r.id), save, sources: scope.sources, personalSends: own.map((x) => ({ connectionId: x.connectionId, pins: x.pins })) })
+        s = rt.schedules.create(t.user.id, parsed.data, new Date(), { allowedUrls: card.urls, writeConnections: sends.map((r) => r.id), save, sources: scope.sources, personalSends: own.map((x) => ({ connectionId: x.connectionId, pins: x.pins })) }, { chatId: shared?.id ?? null })
       } catch (e) { made?.drop(); throw e }
       made?.record()
       const blocked = !urlsOpen && card.urls.length > card.longQuery.length ? ' This server does not know its own public internet address yet, so its runs cannot open the web addresses in the prompt until it does (the card said so); tell the user.' : ''
       const longQuery = card.longQuery.length ? ` Its runs never open ${card.longQuery.length === 1 ? 'the address' : `the ${card.longQuery.length} addresses`} with a query over ${MAX_UNCONFIRMED_QUERY} characters: such an address always needs a person to confirm it (the card said so); tell the user.` : ''
       const sendNote = sends.length ? ` Its runs may send to ${sends.map((r) => r.name).join(', ')} without asking.` : offered.length || scope.sends.length ? ' The user chose that its runs never send to connected services; tell the user if the task needs that.' : ''
       const scopeText = scopeNote(ctx.db, t.user.id, save, scope.sources, own, !!scope.save?.create)
-      return { text: `Scheduled "${s.title}": ${describeSchedule(s)}. First run: ${local(s.next_run_at)}. Id ${s.id}. The user can turn it off on the Scheduled page.${blocked}${longQuery}${sendNote}${scopeText}`, summary: `schedule_create ${s.id} ${s.repeat} ${s.time} (confirmed by the user${sends.length ? `, may send to ${sends.length} connections` : ''}${scope.save ? ', save folder' : ''}${own.length ? `, ${own.length} pinned own connections` : ''})`, structured: { id: s.id, nextRunAt: s.next_run_at } }
+      const here = shared ? ' Its runs post their results in this shared chat, as this user, and skip places some people here cannot open.' : ''
+      return { text: `Scheduled "${s.title}": ${describeSchedule(s)}. First run: ${local(s.next_run_at)}. Id ${s.id}. The user can turn it off on the Scheduled page.${here}${blocked}${longQuery}${sendNote}${scopeText}`, summary: `schedule_create ${s.id} ${timingOf(s).repeat} ${s.time}${shared ? ' in a shared chat' : ''} (confirmed by the user${sends.length ? `, may send to ${sends.length} connections` : ''}${scope.save ? ', save folder' : ''}${own.length ? `, ${own.length} pinned own connections` : ''})`, structured: { id: s.id, nextRunAt: s.next_run_at } }
     },
   })
   reg.register({
     name: 'schedule_list',
-    description: 'List the user\'s scheduled tasks (id, schedule, next run, prompt).',
+    description: 'List the user\'s scheduled tasks (id, schedule, next run, prompt). In a shared chat: only the tasks made in this chat.',
     input: z.object({}),
     run(_a, t) {
-      const all = rt.schedules.list(t.user.id)
-      return { text: all.length ? all.map(line).join('\n') : 'The user has no scheduled tasks.', summary: `schedule_list -> ${all.length}` }
+      const here = turnInfo(ctx, t).sharedChat
+      const all = rt.schedules.list(t.user.id).filter(visibleIn(here))
+      return { text: all.length ? all.map(line).join('\n') : here ? 'No scheduled task of the user posts in this shared chat (their other tasks are listed only in a chat only they see).' : 'The user has no scheduled tasks.', summary: `schedule_list -> ${all.length}${here ? ' (this shared chat)' : ''}` }
     },
   })
   reg.register({
@@ -546,7 +594,10 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
     input: z.object({ id: z.string().min(1).max(64) }),
     describe: (a) => `schedule_delete ${a.id}`,
     run(a, t) {
-      if (!rt.schedules.delete(t.user.id, a.id)) throw new ToolError(`no scheduled task ${a.id} of this user`)
+      const here = turnInfo(ctx, t).sharedChat
+      const s = rt.schedules.get(t.user.id, a.id)
+      // in a shared chat only a task made there (the same answer as for one that is not there)
+      if (!s || !visibleIn(here)(s) || !rt.schedules.delete(t.user.id, a.id)) throw new ToolError(`no scheduled task ${a.id} of this user${here ? ' made in this shared chat (other tasks are deleted on the Scheduled page or in a chat only they see)' : ''}`)
       return { text: `Deleted scheduled task ${a.id}.`, summary: `schedule_delete ${a.id}` }
     },
   })

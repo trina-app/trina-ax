@@ -23,7 +23,7 @@ export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
 /**
  * The only tools a shared project chat gets (docs/DECISIONS.md "Shared project chats"; an allowlist: a tool added later
  * is not offered there until it is listed). Its transcript is seen by everyone who sees its project, so: no memories, no
- * chat title, no Google Drive, no schedules, nothing on a computer or in the person's signed-in
+ * chat title, no Google Drive, nothing on a computer or in the person's signed-in
  * browser, no room reading (rooms, room_read, room_file, save_room_file). Posting is there (docs/DECISIONS.md "Sending
  * to a person or a room from a shared chat"): post_to_room sends as the person whose turn it is, after their yes on its
  * card, which only they see; it brings nothing into the chat. The connections' tools are not listed here: chat/tools.ts
@@ -57,6 +57,13 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   // "unzip this" (devenv/tool.ts): a command sees only what everyone in the chat may read
   // (docs/decisions/20261118-devenv-shared-chats.md)
   'box_shell',
+  // "every Monday at 9, summarize this here" (tools/schedules.ts): behind the asker's card; a task made here runs as
+  // them, in this chat, with its gates (chat/schedules.ts postsInto); list and delete see only this chat's tasks
+  // (docs/decisions/20261118-shared-schedules-any-frequency.md)
+  'schedule_create', 'schedule_list', 'schedule_delete',
+  // videos (tools/higgsfield.ts behind the asker's card; promo-video/: the chat's artifact, its material and pictures
+  // weighed by the read card like any named file, namedPaths)
+  'generate_video', 'promo_video', 'save_promo_video',
 ])
 
 /** The arguments that name where a call writes, per tool: a shared chat's read card counts them only when something
@@ -79,6 +86,14 @@ export function namedPaths(tool: string, input: unknown): { key: string; value: 
       const st = op?.stamp_image as { image?: unknown } | undefined
       if (typeof ins?.file === 'string') out.push({ key: 'insert_pdf.file', value: ins.file })
       if (typeof st?.image === 'string') out.push({ key: 'stamp_image.image', value: st.image })
+    }
+  }
+  // promo_video's logo and the pictures of its beats (promo-video/spec.ts): team files whose content goes into the video
+  if (tool === 'promo_video') {
+    if (typeof a.logo === 'string') out.push({ key: 'logo', value: a.logo })
+    for (const beat of ['promise', 'work', 'proof']) {
+      const pic = (a[beat] as { picture?: unknown } | undefined)?.picture
+      if (typeof pic === 'string') out.push({ key: `${beat}.picture`, value: pic })
     }
   }
   if (tool === 'merge_pdfs' && Array.isArray(a.files)) {

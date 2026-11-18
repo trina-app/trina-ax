@@ -35,7 +35,11 @@ import { checkLapse, scopeColumns, type PersonalSend, type SaveFolder, type Scop
 import { inZone } from '../policy/zone'
 import { volumeKey } from '../policy/names'
 import { canRead, membersOnlyNow } from './projects'
+import { chatFor } from './shared'
+import type { ChatRow } from './store'
 import { updateWaitingFor } from '../system/update-wait'
+import { CronError, describeTiming, isOnce, MAX_EVERY_MINUTES, nextOf, parseCron, REPEATS, storedTiming, timingOf, type LegacyRepeat, type Timing, type TimingSource } from './schedule-timing'
+import { zonedDay } from '../system/time-zone'
 
 /** One entry of a task's run history (Schedules.runs; shared/src/api/schedules.ts ScheduleRun). */
 export type ScheduleRunItem = { id: string; status: 'running' | LastOutcome; startedAt: string; endedAt: string | null; chatId: string | null; error: string | null; needName?: string; needSignIn?: true }
@@ -53,21 +57,33 @@ const TICK_MS = 30_000
 export const ScheduleInput = z.object({
   title: z.string().trim().min(1).max(80),
   prompt: z.string().trim().min(3).max(4000),
-  repeat: z.enum(['once', 'daily', 'weekdays', 'weekly', 'monthly']),
-  time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'HH:MM (24-hour)'),
+  repeat: z.enum(REPEATS),
+  // a cron schedule carries its own times (chat/schedule-timing.ts); every other kind needs one
+  time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'HH:MM (24-hour)').optional(),
   weekday: z.number().int().min(0).max(6).optional().describe('weekly: 0 = Sunday … 6 = Saturday'),
-  day: z.number().int().min(1).max(28).optional().describe('monthly: day of the month, 1–28'),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('once: YYYY-MM-DD'),
+  weekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7).optional().describe('weekly: several days, 0 = Sunday … 6 = Saturday'),
+  day: z.union([z.number().int().min(1).max(31), z.literal('last')]).optional().describe('monthly: day of the month, 1–31, or "last"'),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('once: YYYY-MM-DD; interval: the day it starts counting from'),
+  everyMinutes: z.number().int().min(1).max(MAX_EVERY_MINUTES).optional().describe('interval: minutes between runs'),
+  cron: z.string().trim().min(1).max(200).optional().describe('cron: five fields in the team\'s time zone'),
   projectId: z.string().optional(),
 }).superRefine((s, c) => {
-  if (s.repeat === 'weekly' && s.weekday === undefined) c.addIssue({ code: 'custom', path: ['weekday'], message: 'weekly needs a weekday' })
+  if (s.repeat !== 'cron' && !s.time) c.addIssue({ code: 'custom', path: ['time'], message: 'needs a time (HH:MM)' })
+  if (s.repeat === 'weekly' && s.weekday === undefined && !s.weekdays?.length) c.addIssue({ code: 'custom', path: ['weekday'], message: 'weekly needs a weekday' })
   if (s.repeat === 'monthly' && s.day === undefined) c.addIssue({ code: 'custom', path: ['day'], message: 'monthly needs a day' })
   if (s.repeat === 'once' && !s.date) c.addIssue({ code: 'custom', path: ['date'], message: 'once needs a date' })
+  if (s.repeat === 'interval' && !s.everyMinutes) c.addIssue({ code: 'custom', path: ['everyMinutes'], message: 'interval needs everyMinutes' })
+  if (s.repeat === 'cron') {
+    if (!s.cron) c.addIssue({ code: 'custom', path: ['cron'], message: 'cron needs a cron expression' })
+    else try { parseCron(s.cron) } catch (e) { c.addIssue({ code: 'custom', path: ['cron'], message: e instanceof CronError ? e.message : 'not a cron expression' }) }
+  }
 })
 export type ScheduleInput = z.infer<typeof ScheduleInput>
 
 export interface ScheduleRow {
-  id: string; user_id: string; title: string; prompt: string; repeat: ScheduleInput['repeat']; time: string
+  /** `repeat` and the columns after it as an older build reads them; `rule` (migration 421) holds the kinds it does not
+   * know (chat/schedule-timing.ts): read a row's timing with timingOf */
+  id: string; user_id: string; title: string; prompt: string; repeat: LegacyRepeat; time: string
   weekday: number | null; day: number | null; date: string | null; project_id: string | null; enabled: number
   template_id: string | null; template_version: number | null; template_source_path: string | null; template_output_path: string | null
   pending_due_at: string | null; retry_at: string | null; deferred_count: number
@@ -85,6 +101,10 @@ export interface ScheduleRow {
    * recipients, and a lapse (the folder moved or its rules changed: runs save in the own folder until confirmed again) */
   save_folder?: string | null; save_folder_id?: string | null; save_rule?: string | null; save_readers?: number | null
   save_sources?: string | null; personal_sends?: string | null; save_lapsed_at?: string | null; save_lapse_reason?: string | null
+  /** chat/schedule-timing.ts: the kinds an older build does not know (migration 421) */
+  rule?: string | null
+  /** the shared chat the task was made in: its runs post there (migration 421; docs/decisions/20261118-shared-schedules-any-frequency.md) */
+  chat_id?: string | null
 }
 
 /** What the person approved on a scheduled task's card (tools/schedules.ts, chat/schedule-review.ts). Its presence is
@@ -106,41 +126,25 @@ export function scheduleList(v: string | null | undefined): string[] {
 // ---------------- time zone arithmetic (system/time-zone.ts; re-exported for the callers that import them here) ----------------
 export { zonedParts, zonedToUtc } from '../system/time-zone'
 
-/** The first run strictly after `after` (null: a once-schedule whose time has passed). */
-export function nextRun(s: Pick<ScheduleRow, 'repeat' | 'time' | 'weekday' | 'day' | 'date'>, after: Date, tz: string): Date | null {
-  const [hh, mm] = s.time.split(':').map(Number) as [number, number]
-  if (s.repeat === 'once') {
-    const [y, m, d] = s.date!.split('-').map(Number) as [number, number, number]
-    const t = zonedToUtc(y, m, d, hh, mm, tz)
-    return t > after ? t : null
-  }
-  const start = zonedParts(after, tz)
-  for (let i = 0; i < 370; i++) {
-    const day = new Date(Date.UTC(start.y, start.m - 1, start.d + i))
-    const y = day.getUTCFullYear(), m = day.getUTCMonth() + 1, d = day.getUTCDate(), wd = day.getUTCDay()
-    const ok = s.repeat === 'daily' || (s.repeat === 'weekdays' && wd >= 1 && wd <= 5) || (s.repeat === 'weekly' && wd === s.weekday) || (s.repeat === 'monthly' && d === s.day)
-    if (!ok) continue
-    const t = zonedToUtc(y, m, d, hh, mm, tz)
-    if (t > after) return t
-  }
-  return null
+/** The first run strictly after `after` (null: a once-schedule whose time has passed, a cron schedule that never comes). */
+export function nextRun(s: TimingSource, after: Date, tz: string): Date | null {
+  return nextOf(s, after, tz)
 }
 
 /** "every weekday at 09:00" etc., for lists and the AI. */
-export function describeSchedule(s: Pick<ScheduleRow, 'repeat' | 'time' | 'weekday' | 'day' | 'date'>): string {
-  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-  switch (s.repeat) {
-    case 'once': return `once on ${s.date} at ${s.time}`
-    case 'daily': return `every day at ${s.time}`
-    case 'weekdays': return `every weekday (Mon–Fri) at ${s.time}`
-    case 'weekly': return `every ${days[s.weekday ?? 0]} at ${s.time}`
-    case 'monthly': return `every month on day ${s.day} at ${s.time}`
-  }
+export function describeSchedule(s: TimingSource): string {
+  return describeTiming(s)
+}
+
+/** ScheduleInput's timing as it is stored: an interval without a start counts from today (team zone), a cron task
+ * keeps "00:00" in the old time column. */
+export function inputTiming(input: ScheduleInput, now: Date, tz: string): Timing {
+  return timingOf({ ...input, time: input.time ?? '00:00', date: input.repeat === 'interval' ? input.date ?? zonedDay(now, tz) : input.date ?? null })
 }
 
 /** The block in front of a scheduled run's message (the AI must not wait for anyone). `allows`: what this task's card
  * let its runs do without a card (chat/schedule-cover.ts runAllowance), said instead of "everything is declined". */
-export function scheduledRunBlock(title: string, when: string, allows?: string | null): string {
+export function scheduledRunBlock(title: string, when: string, allows?: string | null, shared = false): string {
   return [
     `<scheduled_run title="${title.replace(/["<>]/g, "'")}">`,
     // what cannot happen in a run, and that it is not the person's no (docs/DECISIONS.md "Refusals say why, who and what
@@ -148,6 +152,8 @@ export function scheduledRunBlock(title: string, when: string, allows?: string |
     // allowed without a card (chat/schedule-cover.ts runAllowance)
     `This message was sent automatically by the user's scheduled task (${when}). Nobody is watching this chat now: do not ask questions or wait for answers. No confirmation card is shown in a run, so a step that needs the user's yes on one is skipped: saving where more people can see it than what you read, moving or copying files to where other people see them, changing skills, any change after reading a team chat room, connecting a service, making a video, opening more web addresses than a run may open without asking. That is not the user refusing anything.${allows ? ' What the user allowed for this task on its card goes on without one:' : ''}`,
     ...(allows ? [allows] : []),
+    // a task made in a shared chat runs there (docs/decisions/20261118-shared-schedules-any-frequency.md)
+    ...(shared ? ['This run is in the shared chat the task was made in: everyone who sees this chat reads your answer. Reading a place some of them cannot open needs the user\'s yes on a card, so it is skipped in a run; say so in the summary without naming the place.'] : []),
     'Do the task with what you can find, save files in the user\'s personal folder unless the task names another folder, and end with a short summary of what you did and found, with each skipped step and that the user can do it in a chat (or change the task on the Scheduled page).',
     '</scheduled_run>',
   ].join('\n')
@@ -168,21 +174,22 @@ export class Schedules {
   check(userId: string, input: ScheduleInput, now = new Date()): Date {
     const n = (this.db.query('SELECT count(*) AS n FROM schedules WHERE user_id = ?').get(userId) as { n: number }).n
     if (n >= SCHEDULES_PER_PERSON) throw new ToolError(`at most ${SCHEDULES_PER_PERSON} scheduled tasks per person; delete one first`)
-    const next = nextRun({ repeat: input.repeat, time: input.time, weekday: input.weekday ?? null, day: input.day ?? null, date: input.date ?? null }, now, this.rt.timeZone)
-    if (!next) throw new ToolError('that time has already passed')
+    const timing = inputTiming(input, now, this.rt.timeZone)
+    const next = nextRun(timing, now, this.rt.timeZone)
+    if (!next) throw new ToolError(timing.repeat === 'cron' ? 'that cron schedule never comes' : 'that time has already passed')
     return next
   }
 
-  create(userId: string, input: ScheduleInput, now = new Date(), approval?: ScheduleApproval): ScheduleRow {
+  create(userId: string, input: ScheduleInput, now = new Date(), approval?: ScheduleApproval, o: { chatId?: string | null } = {}): ScheduleRow {
     const next = this.check(userId, input, now)
-    const s = { repeat: input.repeat, time: input.time, weekday: input.weekday ?? null, day: input.day ?? null, date: input.date ?? null }
+    const s = storedTiming(inputTiming(input, now, this.rt.timeZone))
     const id = newId()
     const scope = scopeColumns(approval?.save ?? null, approval?.sources ?? [], approval?.personalSends ?? [])
     this.db.query(`INSERT INTO schedules (id, user_id, title, prompt, repeat, time, weekday, day, date, project_id, next_run_at, allowed_urls, write_connections, confirmed_at,
-      save_folder, save_folder_id, save_rule, save_readers, save_sources, personal_sends)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, userId, input.title, input.prompt, s.repeat, s.time, s.weekday, s.day, s.date, input.projectId ?? null, next.toISOString(),
+      save_folder, save_folder_id, save_rule, save_readers, save_sources, personal_sends, rule, chat_id)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, userId, input.title, input.prompt, s.repeat, s.time, s.weekday, s.day, s.date, input.projectId ?? null, next.toISOString(),
       approval?.allowedUrls.length ? JSON.stringify(approval.allowedUrls) : null, approval?.writeConnections.length ? JSON.stringify(approval.writeConnections) : null,
-      approval ? now.toISOString() : null, scope.save_folder, scope.save_folder_id, scope.save_rule, scope.save_readers, scope.save_sources, scope.personal_sends)
+      approval ? now.toISOString() : null, scope.save_folder, scope.save_folder_id, scope.save_rule, scope.save_readers, scope.save_sources, scope.personal_sends, s.rule, o.chatId ?? null)
     return this.get(userId, id)!
   }
 
@@ -196,7 +203,7 @@ export class Schedules {
 
   /** Disabled one-time tasks cannot replay a consumed occurrence or move a past due time. */
   resumeBlockedReason(s: ScheduleRow, now = new Date()): 'completed' | 'expired' | null {
-    if (s.enabled || s.repeat !== 'once') return null
+    if (s.enabled || !isOnce(s)) return null
     if (s.last_run_at) return 'completed'
     return nextRun(s, now, this.rt.timeZone) ? null : 'expired'
   }
@@ -339,13 +346,25 @@ export class Schedules {
     const at = cur?.[1] ?? null, after = cur?.[2] ?? null
     const rows = this.db.query(`SELECT * FROM (
       SELECT t.id, t.status code, t.run_outcome, t.started_at at, t.ended_at ended, c.id chat, t.error, NULL need, NULL need_tpl FROM turns t
-        LEFT JOIN chats c ON c.id = t.chat_id AND c.user_id = t.user_id AND c.deleted_at IS NULL
+        LEFT JOIN chats c ON c.id = t.chat_id AND c.deleted_at IS NULL AND (c.user_id = t.user_id OR c.id = (SELECT chat_id FROM schedules WHERE id = t.schedule_id))
         WHERE t.schedule_id=? AND t.user_id=?
       UNION ALL SELECT id, code, NULL, created_at, NULL, NULL, NULL, NULL, NULL FROM schedule_outcomes WHERE schedule_id=? AND user_id=?
       UNION ALL SELECT id, 'needs_key', NULL, created_at, NULL, NULL, NULL, template_name, template_id FROM schedule_template_skips WHERE schedule_id=? AND user_id=?
       UNION ALL SELECT id, 'project_gone', NULL, created_at, NULL, NULL, NULL, NULL, NULL FROM schedule_project_skips WHERE schedule_id=? AND user_id=?
     ) WHERE (? IS NULL OR at < ? OR (at = ? AND id < ?)) ORDER BY at DESC, id DESC LIMIT ?`)
       .all(id, userId, id, userId, id, userId, id, userId, at, at, at, after, limit + 1) as { id: string; code: string; run_outcome: string | null; at: string; ended: string | null; chat: string | null; error: string | null; need: string | null; need_tpl: string | null }[]
+    // a run in the shared chat the task was made in (someone else's chat): linked while its owner may still open it
+    const sees = new Map<string, boolean>()
+    const linked = (chat: string | null) => {
+      if (!chat) return null
+      let v = sees.get(chat)
+      if (v === undefined) {
+        const own = (this.db.query('SELECT user_id FROM chats WHERE id = ?').get(chat) as { user_id: string } | null)?.user_id === userId
+        try { v = own || !!chatFor(this.rt, userId, chat, 'view') } catch { v = false }
+        sees.set(chat, v)
+      }
+      return v ? chat : null
+    }
     const items = rows.slice(0, limit).map((r): ScheduleRunItem => {
       let status: ScheduleRunItem['status']
       if (r.code === 'queued' || r.code === 'running') status = 'running'
@@ -355,7 +374,7 @@ export class Schedules {
       } else status = r.code as ScheduleRunItem['status']
       // a failed run's error as its chat showed it (chat/i18n.ts engineError, in the owner's language): one short line
       const error = status === 'error' && r.error ? (r.error.split('\n').find((l) => l.trim())?.trim().slice(0, 200) ?? null) : null
-      return { id: r.id, status, startedAt: r.at, endedAt: r.ended, chatId: r.chat, error, ...(r.need !== null ? { needName: r.need } : {}),
+      return { id: r.id, status, startedAt: r.at, endedAt: r.ended, chatId: linked(r.chat), error, ...(r.need !== null ? { needName: r.need } : {}),
         ...(r.need_tpl && templateSignsIn(this.db, r.need_tpl) ? { needSignIn: true as const } : {}) }
     })
     const last = rows.length > limit ? items[items.length - 1] : undefined
@@ -412,7 +431,7 @@ export class Schedules {
       if (running) { this.noteWaiting(s, originalDue, running, now); continue }
       // Durable before admission: crash here leaves this exact occurrence pending for the next process.
       this.db.query('UPDATE schedules SET pending_due_at=COALESCE(pending_due_at,?) WHERE id=?').run(originalDue, s.id)
-      const next = s.repeat === 'once' ? null : nextRun(s, now, this.rt.timeZone)
+      const next = isOnce(s) ? null : nextRun(s, now, this.rt.timeZone)
       const commit = (chatId: string | null) => {
         this.db.query('UPDATE schedules SET next_run_at=?,enabled=?,last_run_at=?,last_chat_id=COALESCE(?,last_chat_id),pending_due_at=NULL,retry_at=NULL WHERE id=?')
           .run(next?.toISOString() ?? null, next ? 1 : 0, now.toISOString(), chatId, s.id)
@@ -525,15 +544,21 @@ export class Schedules {
     const p = zonedParts(now, this.rt.timeZone)
     const date = `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')}`
     const id = newId(), ts = now.toISOString()
+    // a task made in a shared chat posts there (docs/decisions/20261118-shared-schedules-any-frequency.md): the run is a
+    // turn in that chat as its owner, with every gate of that chat (chat/turn.ts: a read some of its people cannot open
+    // needs the owner's card, and nobody answers one in a run). While its owner cannot continue that chat (taken out of
+    // it, the chat deleted, its project gone) the run is a new chat of theirs, as for any task
+    const into = this.postsInto(s)
+    if (into) rememberUrls(this.db, into.id, scheduleList(s.allowed_urls), 'allowed')
     const turn = this.rt.createTurn({
-      chat: () => {
+      chat: into ?? (() => {
         this.db.query("INSERT INTO chats(id,user_id,project_id,title,title_source,engine,model,created_at,updated_at) VALUES(?,?,?,?,'schedule',?,?,?,?)")
           .run(id, s.user_id, project ? s.project_id : null, `${s.title} · ${date}`, fresh.engine, fresh.model, ts, ts)
         // the run's message is the AI's text (auto_sent): only the addresses the person saw on the schedule's card open
         // without asking (docs/DECISIONS.md "Outbound web channels")
         rememberUrls(this.db, id, scheduleList(s.allowed_urls), 'allowed')
         return this.rt.store.chatRow(id)!
-      },
+      }),
       userId: s.user_id, locale, windowId: null, clientKind: 'schedule', engine: te.engine, model: te.model, ...(te.substitutedFrom ? { substitutedFrom: te.substitutedFrom } : {}),
       scheduled: { id: s.id, dueAt: originalDue, commit: (chatId) => {
         commit(chatId)
@@ -541,9 +566,23 @@ export class Schedules {
           .run(s.template_source_path, s.template_output_path, s.id, originalDue)
       } },
       // Keep the client contract <=64 chars; uniqueness is the durable two-column occurrence key.
-      user: { parentId: null, content: s.prompt, attachments: [], clientMessageId: `${how === 'manual' ? 'n' : 's'}-${s.id}-${Date.parse(originalDue)}` },
+      user: { parentId: into?.active_leaf_id ?? null, content: s.prompt, attachments: [], clientMessageId: `${how === 'manual' ? 'n' : 's'}-${s.id}-${Date.parse(originalDue)}` },
     })
     return turn.assistantMessage.chatId
+  }
+
+  /** The shared chat a task's runs post in: the one it was made in, while its owner may still continue it (chatFor
+   * 'continue': in its audience now, not deleted, not read-only), under its newest answer; else null (a new chat). */
+  postsInto(s: Pick<ScheduleRow, 'id' | 'user_id' | 'chat_id'>): ChatRow | null {
+    if (!s.chat_id) return null
+    let row: ChatRow
+    try { row = chatFor(this.rt, s.user_id, s.chat_id, 'continue').row } catch {
+      this.rt.log.info('scheduled run goes to a new chat: its owner cannot continue the shared chat it was made in', { schedule: s.id })
+      return null
+    }
+    // the newest answer it continues under (a message left without an answer: the answer before it)
+    const leaf = row.active_leaf_id ? this.rt.store.messageRow(row.active_leaf_id) : null
+    return leaf && leaf.role !== 'assistant' ? { ...row, active_leaf_id: leaf.parent_id } : row
   }
 
   /** The team's time zone changed (Admin > Settings): every enabled schedule's next run is computed again in it. */
