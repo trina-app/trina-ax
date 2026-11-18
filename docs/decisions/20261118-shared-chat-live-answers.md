@@ -35,7 +35,9 @@
   before. The question itself still reaches the others by reading the messages when the turn starts (no
   `message.created` to them).
 - **Tests:** `tests/unit/b-shared-chat-live.test.ts` (the text live and over REST, the end as bob sees it, nothing of
-  alice's turn events; a step naming a place bob cannot see; security: alice's own connection before and after her
-  card, its key, step details; a later joiner gets nothing of an answer built on her connection, live or over REST;
-  someone who stops seeing the chat gets nothing more at once), `tests/unit/b-shared-chats.test.ts` (updated).
+  alice's turn events; a step naming a place bob cannot see), `tests/security/shared-chat-live.test.ts` (alice's own
+  connection before and after her card, its key, step details; a later joiner gets nothing of an answer built on her
+  connection, live or over REST; someone who stops seeing the chat gets nothing more at once; people outside a project
+  chat or a chat shared with people get nothing), `tests/unit/b-shared-chats.test.ts` (updated), the e2e
+  `web/test/e2e/shared-project-chats.spec.ts` (Bob sees the first half of Olga's answer while it runs).
 - **Version impact:** minor (new behaviour in shared chats, no API shape change).
