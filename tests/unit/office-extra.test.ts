@@ -100,7 +100,7 @@ describe.skipIf(!pandoc)('Word: headers, footers and comments (R2-FMT-04, R2-FMT
     const text = await extractText('a.docx', new Uint8Array(z), tools)
     // pandoc ignores the flag and reads the body; the missing parts are named, never guessed
     expect(text).toContain('본문 X-1.')
-    expect(text).toMatch(/=== The headers, footers and comments of this file were not read \(.*encrypted.*\) ===/)
+    expect(text).toMatch(/=== The headers, footers, comments and chart data of this file were not read \(.*encrypted.*\) ===/)
   })
 })
 

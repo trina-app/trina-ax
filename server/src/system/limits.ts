@@ -29,9 +29,12 @@ export const DEFAULT_CONCURRENCY = 3
 /** read tool limit without a plan (files/store.ts READ_MAX) */
 export const DEFAULT_READ_MAX_MIB = 200
 export const DEFAULT_BACKUP_RETENTION_DAYS = 14
-/** office documents parsed inside the server process (xlsx / xls / ods / hwp / hwpx) above this are refused where
- * limits apply: a 200 MB spreadsheet expanded in memory could take the whole tenant down */
-export const IN_PROCESS_PARSE_MAX = 32 * MIB
+/** office documents read by the office worker (xlsx / xls / ods / hwp / hwpx, and the extra parts of docx / pptx)
+ * above this are refused where limits apply, counted without their pictures and media (files/zip-slim.ts). The same as
+ * the read limit and unzip_file: a big .xlsx is read a sheet piece at a time (files/sheet-stream.ts), and the worker's
+ * own memory and time limits (files/extract.ts, the converter cgroup) bound the rest
+ * (docs/decisions/20261118-limits-office-read.md; it was 32 MB while every workbook was held whole in memory) */
+export const IN_PROCESS_PARSE_MAX = 200 * MIB
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 

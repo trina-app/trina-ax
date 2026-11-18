@@ -528,6 +528,7 @@ export class FileService {
     const e = ext(a.file_path)
     const kind = mediaKind(a.file_path)
     if ((a.pages !== undefined || a.as_images) && e !== 'pdf') throw new ToolError('pages and as_images are only for PDF files', 'bad_pages')
+    if ((a.sheet !== undefined || a.range !== undefined) && !SHEET_EXT.has(e)) throw new ToolError('sheet and range are only for spreadsheets (.xlsx, .xls, .ods)', 'bad_range')
     if ((a.time !== undefined || a.frames !== undefined || a.transcript !== undefined) && !kind) throw new ToolError('time, frames and transcript are only for video and audio files', 'bad_media_args')
     if (kind) return this.readMedia(ctx, a, kind)
     if (isVisionImage(a.file_path)) return this.readImage(ctx, a)
@@ -620,7 +621,9 @@ export class FileService {
     const { bytes, st } = readRegular(r.abs, readMaxBytes(), r.st)
     // inside a shared folder: the bytes come from the very file openChild checked (no swap in between)
     if (ctx.sharedChild?.rel === r.rel && identity(st) !== identity(r.st!)) throw new Denied(safeText(this.db, ctx.user.id, 'changed'))
-    const text = await extractText(r.rel, bytes, { pandoc: this.cfg.pandoc, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr, quarantine: this.quarantine }, ctx.signal)
+    // a spreadsheet's sheet and range (files/sheet-stream.ts): those rows only, under their own `# sheet:` label
+    const sheet = a.sheet !== undefined || a.range !== undefined ? { sheet: a.sheet, range: a.range } : undefined
+    const text = await extractText(r.rel, bytes, { pandoc: this.cfg.pandoc, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr, quarantine: this.quarantine, ...(sheet ? { sheet } : {}) }, ctx.signal)
     const hash = sha256(bytes)
     ctx.files.readHashes.set(r.rel, hash)
     ctx.files.readPaths.add(r.rel)
@@ -1675,7 +1678,9 @@ export class FileService {
   }
 }
 
-type ReadArgs = { file_path: string; offset?: number; limit?: number; pages?: string; as_images?: boolean; time?: string; frames?: number; transcript?: boolean; versions?: boolean | number; version?: number }
+/** formats that take read's `sheet` and `range` */
+const SHEET_EXT = new Set(['xlsx', 'xls', 'ods'])
+type ReadArgs = { file_path: string; offset?: number; limit?: number; pages?: string; as_images?: boolean; sheet?: string; range?: string; time?: string; frames?: number; transcript?: boolean; versions?: boolean | number; version?: number }
 export interface BoundSource { rel: string; bytes: Buffer; hash: string; identity: string }
 /** a provider's answer for a piece; `languageP`: how sure whisper.cpp was of the language it heard (not from
  * OpenRouter); OpenRouter's: how sure whisper was of its words, its generation id and provider (openrouter-stt.ts) */
@@ -1725,8 +1730,8 @@ const identity = (s: fs.Stats) => [s.dev, s.ino, s.size, s.mtimeMs, s.ctimeMs, s
 
 /** The places a read by lines covered (offset / limit given: pages, sheets with their rows, slides, sections); a read
  * of the whole file is the file (no places). */
-function partLocs(rel: string, text: string, a: { offset?: number; limit?: number }): SourceLoc[] {
-  if (a.offset === undefined && a.limit === undefined) return []
+function partLocs(rel: string, text: string, a: { offset?: number; limit?: number; sheet?: string; range?: string }): SourceLoc[] {
+  if (a.offset === undefined && a.limit === undefined && a.sheet === undefined && a.range === undefined) return []
   const off = a.offset ?? 1
   return locsOfRange(text, rel, off, off + (a.limit ?? 2000) - 1, SOURCE_LOCS_MAX)
 }
