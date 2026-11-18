@@ -8,7 +8,8 @@ import { ENGINE_BUILTIN_ALLOWED, EditInput, GlobInput, GrepInput, ListInput, med
 import { lineDiff } from '../skills/diff'
 import { isGuestUser } from '../credentials/guest-ai'
 import { FILE_LIST_NAME, isFileListName, mediaTranscriptsOffSmall, mediaTranscriptsOn, type SpeechHost, type TranscribeResult } from '@mycel/shared/api'
-import { isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
+import { cp949Text, isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
+import { imageFactsLine, seeThrough } from '../uploads/image'
 import type { ServerConfig } from '../config'
 import { getTeamSettings, teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { audit } from '../admin/audit'
@@ -25,7 +26,7 @@ import type { VirtualFile, VirtualFiles } from './virtual'
 import { SOURCE_LOCS_MAX, SourceLog } from './sources'
 import { locsOfRange } from './locations'
 import type { SourceLoc } from '@mycel/shared/api'
-import { atomicWrite, conflictCopyName, fileEvent, moveToTrash, readRegular, recordConflictCopy, saveVersion, sha256 } from './store'
+import { atomicWrite, conflictCopyName, fileEvent, moveToTrash, readHead, readRegular, recordConflictCopy, saveVersion, sha256 } from './store'
 import { newId } from '../db'
 import { consumeSkillApproval, editedText, requireSkillApproval } from '../skills/guard'
 import { skillWriteNote } from '../chat/skills'
@@ -113,6 +114,10 @@ export class TurnFiles {
   imageSources = new Map<string, { hash: string; identity: string }>()
   bytesWritten = 0
   filesWritten = new Set<string>()
+  /** PDFs and documents the AI made in this turn (make_file and the PDF tools, not files it saved from the web or a room)
+   * and the sha256 it wrote, turn-wide: a later read does not change it, so "saved over by someone since" stays
+   * visible (tools/stamp-pdf.ts madeThisTurn) */
+  madeHashes = new Map<string, string>()
   /** saves under skills/ the person confirmed on the server's card in this turn: path -> sha256 of the confirmed
    * bytes, or '*' for a produced file (skills/guard.ts) */
   skillApprovals = new Map<string, string>()
@@ -455,13 +460,21 @@ export class FileService {
       for (const h of res.hits) if (h.loc) locs.set(h.path, [...(locs.get(h.path) ?? []), h.loc])
       for (const f of res.files) if (!virtual.has(f)) ctx.files.sources.note(f, 'grep', { agent: ctx.files.agent, locs: locs.get(f) })
     }
-    return { text: res.text, summary: `grep ${r.rel || '.'} pattern(len=${a.pattern.length}) mode=${a.output_mode ?? 'files_with_matches'} -> ${res.text === 'No matches' ? 0 : res.text.split('\n').length} lines, filtered=${res.stats.filtered}` }
+    // a CSV row without its column names: the AI took 620000 under 월평균주문액 for an unpaid balance of the same number
+    // (AI flow FL-13, 2026-11-17), so the result names each CSV's first line when it is not in it already
+    const text = (a.output_mode ?? 'files_with_matches') === 'content' ? withCsvHeaders(res.text, res.hits.map((h) => h.path).filter((f) => res.files.has(f) && !virtual.has(f)), (f) => {
+      // the very file the check saw (its lstat), as every read of the team folder (store.ts openToRead)
+      try { const c = authorize(this.fx, rules, ctx.user, f, 'read'); return firstLine(readHead(c.abs, CSV_HEADER_BYTES, c.st)) } catch { return null }
+    }) : res.text
+    return { text, summary: `grep ${r.rel || '.'} pattern(len=${a.pattern.length}) mode=${a.output_mode ?? 'files_with_matches'} -> ${text === 'No matches' ? 0 : text.split('\n').length} lines, filtered=${res.stats.filtered}` }
   }
 
   // ---------------- read ----------------
   /** Converter seams (tests replace them): an image file -> the model's JPEG, a PDF page -> the model's JPEG. */
   modelImage(name: string, bytes: Uint8Array, signal?: AbortSignal) { return modelImage(name, bytes, this.visionTools(), signal) }
   pdfPageImage(bytes: Uint8Array, page: number, signal?: AbortSignal) { return pdfPageImage(bytes, page, this.visionTools(), signal) }
+  /** Seam (tests replace it): how see-through a picture is, by an isolated ffmpeg look (uploads/image.ts). */
+  seeThrough(bytes: Uint8Array, signal?: AbortSignal) { return seeThrough(bytes, { workBase: path.join(this.cfg.dataDir, 'work'), signal }) }
   visionTools(): VisionTools { return visionTools({ nativeBin: this.cfg.nativeBin, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr, which }) }
 
   async read(ctx: ToolCtx, a: ReadArgs): Promise<ToolOutput> {
@@ -627,6 +640,10 @@ export class FileService {
       const note = this.visionFailure(ctx, e)
       return { text: note, isError: true, summary: `read ${r.rel} -> image not shown (${(e as ToolError).code})` }
     }
+    // the file's own format, size and see-through parts (uploads/image.ts): the picture below is drawn on white, and a
+    // size read off it is a guess ("about 600 x 600", AI scenario VIEW-05, 2026-11-17). Looked at only once the
+    // normalizer took the picture (it refuses huge ones first)
+    const facts = imageFactsLine(src.bytes, await this.seeThrough(src.bytes, ctx.signal).catch(() => null))
     ctx.signal?.throwIfAborted()
     const over = this.imageBudget(ctx, jpeg.length)
     if (over) return { text: over, summary: `read ${r.rel} -> image not shown (turn image limit)` }
@@ -637,7 +654,7 @@ export class FileService {
     ctx.files.sources.note(src.rel, 'read', { agent: ctx.files.agent, sha256: src.hash })
     ctx.files.imageBytes += jpeg.length
     ctx.files.imageCount++
-    const text = `Image ${src.rel} (shown below).`
+    const text = `Image ${src.rel} (shown below).${facts ? ` ${facts}` : ''}`
     return { text, content: [{ type: 'text', text }, { type: 'image', mimeType: 'image/jpeg', data: jpeg.toString('base64') }], beforeDelivery,
       summary: `read ${src.rel} -> image ${jpeg.length}B` }
   }
@@ -879,7 +896,7 @@ export class FileService {
   /** A converter's refusal as the note the AI gets (other errors go on to the caller). */
   private visionFailure(ctx: ToolCtx, e: unknown): string {
     const code = e instanceof ToolError ? e.code : ''
-    const key = ({ vision_too_large: 'tooLarge', vision_unsupported: 'unsupported', vision_damaged: 'damaged', vision_heavy: 'heavy', vision_busy: 'busy', vision_unavailable: 'unavailable' } as const)[code as 'vision_busy']
+    const key = ({ vision_too_large: 'tooLarge', vision_unsupported: 'unsupported', vision_damaged: 'damaged', vision_heavy: 'heavy', vision_busy: 'busy', vision_unavailable: 'unavailable', vision_no_heic: 'noHeic' } as const)[code as 'vision_busy']
     if (!key) throw e
     return visionText(this.db, ctx.user.id, key)
   }
@@ -1718,3 +1735,41 @@ function numberedLines(rel: string, text: string, a: { offset?: number; limit?: 
 
 const short = (p: unknown) => (typeof p === 'string' ? p.slice(0, 200) : '')
 function human(n: number) { return n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB` }
+
+/** how much of a CSV is read for its first line */
+const CSV_HEADER_BYTES = 4096
+const CSV_EXT = /\.(csv|tsv)$/i
+/** column-name lines one result adds at most (a grep over a folder of monthly exports stays small) */
+const CSV_HEADERS_MAX = 10
+
+/** A file's first line as text (UTF-8, or legacy Korean CP949 as Excel saves it; no BOM, at most 500 characters), or
+ * null when it is neither. */
+export function firstLine(bytes: Uint8Array): string | null {
+  const nl = bytes.indexOf(10)
+  const head = nl >= 0 ? bytes.subarray(0, nl) : bytes
+  if (!head.length || head.includes(0)) return null
+  const text = isUtf8(head) ? Buffer.from(head).toString('utf8') : cp949Text(head)
+  if (text === null) return null
+  const line = text.replace(/^\uFEFF/, '').replace(/\r$/, '')
+  return line.trim() ? line.slice(0, 500) : null
+}
+
+/**
+ * A grep result (content mode) with the column names of each CSV/TSV file it shows rows of, when line 1 of that file is
+ * not in it already: one line per file at the end, "<path>:1:<first line>" under a heading. `header`: the file's first
+ * line, or null (not readable as text).
+ */
+export function withCsvHeaders(text: string, paths: string[], header: (path: string) => string | null): string {
+  const lines = text.split('\n')
+  const has = (p: string) => lines.some((l) => l.startsWith(`${p}:1:`) || l.startsWith(`${p}-1-`))
+  const add: string[] = []
+  let more = 0
+  for (const p of new Set(paths)) {
+    if (!CSV_EXT.test(p) || has(p)) continue
+    if (add.length >= CSV_HEADERS_MAX) { more++; continue }
+    const h = header(p)
+    if (h !== null) add.push(`${p}:1:${h}`)
+  }
+  const rest = more ? `\n(${more} more CSV file${more === 1 ? '' : 's'}: read line 1 for the column names)` : ''
+  return add.length ? `${text}\n(Line 1 of ${add.length === 1 ? 'this CSV file: its column names' : 'these CSV files: their column names'})\n${add.join('\n')}${rest}` : text
+}

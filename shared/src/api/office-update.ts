@@ -54,7 +54,26 @@ export type OfficeUpdateStatus = z.infer<typeof OfficeUpdateStatus>
 export const OfficeUpdateAction = z.object({ action: z.enum(['now', 'pause', 'resume']), password: z.string().min(1).max(256).optional() })
 export type OfficeUpdateAction = z.infer<typeof OfficeUpdateAction>
 
+/** Office mode with this Mac's own Claude sign-in: the server takes the Claude Code connections (MCP servers) out of this
+ * Mac user's ~/.claude.json at start and after every AI answer (server/src/engine/claude-json-guard.ts). A new install
+ * asks first; an installation that updated into it gets this one-time notice for the owner in Admin › Home
+ * (server/src/office/claude-mcp-notice.ts). Null: nothing was ever removed, or not that mode. */
+export const OfficeClaudeMcpNotice = z.object({
+  /** the first removal the server recorded */
+  firstAt: IsoTime,
+  /** names of the removed connections (at most 20), each once; empty when only other settings went */
+  names: z.array(z.string()),
+  /** how many more names than listed */
+  moreNames: z.number().int().min(0),
+  /** where the copies are (~ for the home folder) */
+  backupFolder: z.string(),
+  /** the installation's command (~/TeamAX/teamax) for switching and putting them back */
+  teamax: z.string(),
+})
+export type OfficeClaudeMcpNotice = z.infer<typeof OfficeClaudeMcpNotice>
+
 export const OFFICE_UPDATE = {
   officeUpdateStatus: endpoint({ method: 'GET', path: '/api/admin/office-update', auth: 'admin', owner: 'G', response: OfficeUpdateStatus.nullable(), summary: 'Office mode automatic updates: version, channel, next window, last check (null outside office mode).' }),
+  officeClaudeMcpNotice: endpoint({ method: 'GET', path: '/api/admin/office-claude-mcp-notice', auth: 'owner', owner: 'G', response: OfficeClaudeMcpNotice.nullable(), summary: 'Office mode with the Mac\'s own Claude sign-in: which Claude Code connections the server removed from ~/.claude.json and where the copies are, for the owner\'s one-time notice (null when none were removed).' }),
   officeUpdateAction: endpoint({ method: 'POST', path: '/api/admin/office-update', auth: 'admin', owner: 'G', body: OfficeUpdateAction, response: OfficeUpdateStatus, summary: 'Office mode: update now, or turn automatic updates off / on.' }),
 } as const

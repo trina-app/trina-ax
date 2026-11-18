@@ -173,7 +173,7 @@ export function viewersOf(db: Database, rules: RuleSet, s: ReadSource, people: P
   if (s.type === 'drive_share') return shareRow(db, s.id) ? shareUsers(db, s.id) : new Set()
   if (s.type === 'slack') return new Set(people.some((p) => p.id === s.userId) ? [s.userId] : [])
   if (s.type === 'room') return roomViewers(db, s.id, people, s.fromSeq, reader)
-  if (s.type === 'chat') return chatViewers(db, s.id, people)
+  if (s.type === 'chat') return chatViewers(db, s.id, people, rules)
   if (s.type === 'name') { const segs = nameSegs(s.path); return new Set(people.filter((p) => rules.canList(p, segs)).map((p) => p.id)) }
   let segs: string[] = []
   if (s.type === 'folder') {
@@ -184,12 +184,44 @@ export function viewersOf(db: Database, rules: RuleSet, s: ReadSource, people: P
   return new Set(people.filter((p) => atLeast(rules.access(p, segs), 'read')).map((p) => p.id))
 }
 
-/** Who sees a chat's own files now (chat/chat-files.ts): a chat shared with people, its people; else its creator alone
- * (a chat gone: nobody). Only active people of `people`. */
-export function chatViewers(db: Database, chatId: string, people: Principal[]): Set<string> {
-  const c = db.query('SELECT id, user_id, people_shared_at, project_id FROM chats WHERE id = ?').get(chatId) as { id: string; user_id: string; people_shared_at: string | null; project_id: string | null } | null
+/** How many active people may read what came from `s` now (viewersOf): the wider-audience card's "(3 people)" beside
+ * each source (docs/decisions/20261117-ai-save-my-files-default.md). */
+export function sourceViewerCount(db: Database, rules: RuleSet, s: ReadSource, reader?: string | null): { n: number; onlyReader: boolean } {
+  const v = viewersOf(db, rules, s, activePeople(db), reader)
+  return { n: v.size, onlyReader: v.size === 1 && !!reader && v.has(reader) }
+}
+
+/** Who may open a team path now, as people are counted on screen: the active people (`people`, loaded once by the
+ * caller for several paths) the folder rules and a folder share let read it (files/share-readers.ts readersAt), and
+ * whether that is the whole team: every active person who is not a guest (`teamSize` of them). The save's audience
+ * line (chat/save-audience.ts) says it from this, never from a guess. */
+export function pathAudience(db: Database, rules: RuleSet, segs: readonly string[], people: readonly Principal[]): { ids: Set<string>; wholeTeam: boolean; teamSize: number } {
+  const ids = readersAt(db, rules, segs, people)
+  const team = people.filter((p) => p.role !== 'guest')
+  return { ids, wholeTeam: team.length > 1 && team.every((p) => ids.has(p.id)), teamSize: team.length }
+}
+
+/** The active people for pathAudience, once per tool result; null on a team larger than `max` (the walk is skipped, as
+ * files/access-routes.ts folderAccess does). */
+export function audiencePeople(db: Database, max: number): Principal[] | null {
+  const n = (db.query("SELECT COUNT(*) n FROM users WHERE status = 'active' AND deleted_at IS NULL").get() as { n: number }).n
+  return n > max ? null : activePeople(db)
+}
+
+/** Who sees a chat's own files and its answers' comments now (chat/chat-files.ts, chat/answer-comments.ts): a chat shared
+ * with people, its people; a team project's shared chat (with `rules`), whoever may read the project's folder now (none
+ * while it is in the trash), guests but its creator left out, as chat/shared.ts Audiences.ofChat; else its creator
+ * alone (a chat gone: nobody). Only active people of `people`. */
+export function chatViewers(db: Database, chatId: string, people: Principal[], rules?: RuleSet): Set<string> {
+  const c = db.query('SELECT id, user_id, people_shared_at, project_id, shared_at FROM chats WHERE id = ?').get(chatId) as { id: string; user_id: string; people_shared_at: string | null; project_id: string | null; shared_at: string | null } | null
   if (!c) return new Set()
-  const ids = isPeopleRow(c) ? peopleAudience(db, c) : [c.user_id]
+  let ids = isPeopleRow(c) ? peopleAudience(db, c) : [c.user_id]
+  if (!isPeopleRow(c) && rules && c.shared_at && c.project_id) {
+    const p = db.query('SELECT folder_path, trashed_with FROM projects WHERE id = ?').get(c.project_id) as { folder_path: string; trashed_with: string | null } | null
+    const segs = !p ? null : p.folder_path === '' ? [] : p.folder_path.split('/')
+    const guests = new Set((db.query('SELECT id FROM users WHERE guest = 1').all() as { id: string }[]).map((r) => r.id))
+    ids = !p || p.trashed_with !== null || !segs ? [] : people.filter((x) => (x.id === c.user_id || !guests.has(x.id)) && atLeast(rules.access(x, segs), 'read')).map((x) => x.id)
+  }
   return new Set(ids.filter((id) => people.some((p) => p.id === id)))
 }
 

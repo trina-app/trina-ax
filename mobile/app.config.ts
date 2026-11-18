@@ -6,7 +6,7 @@ import { labelSetup, mobileProduct, mobileService } from './src/product.ts'
 import { IOS_USAGE } from './src/strings.ts'
 
 /** Store version (CFBundleShortVersionString / versionName). The build number must grow with every upload. */
-const VERSION = '1.0.8'
+const VERSION = '1.0.9'
 
 /** `MYCEL_MOBILE_EDITION=<name>` reads editions/<name>/branding/mobile.json (only the fields src/product.ts accepts) and
  * the fixed asset names in editions/<name>/branding/mobile/. Without it the neutral Team AX defaults apply. */
@@ -75,7 +75,9 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
       // Camera and microphone for the team page (photo attachment, voice input), as on iOS. Android's WebView has no
       // per-origin grant, but only the team's own origin is ever a top-level page here (src/protocol.ts) and a
       // cross-origin frame cannot ask without the team page delegating it (Permissions Policy). No overlay windows.
-      permissions: ['android.permission.CAMERA', 'android.permission.RECORD_AUDIO'],
+      // MODIFY_AUDIO_SETTINGS (a normal permission, granted at install, no prompt): Chromium's WebView opens no audio
+      // input without it, so getUserMedia failed with the microphone allowed (1.0.8, QA TC-4740).
+      permissions: ['android.permission.CAMERA', 'android.permission.RECORD_AUDIO', 'android.permission.MODIFY_AUDIO_SETTINGS'],
       blockedPermissions: ['android.permission.SYSTEM_ALERT_WINDOW'],
       // app links: verified against https://<team domain>/.well-known/assetlinks.json (a wildcard host is checked at its
       // root); until then Android offers the app in its chooser

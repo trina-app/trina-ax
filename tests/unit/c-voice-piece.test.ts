@@ -21,13 +21,14 @@ let A: CApp
 const C = () => componentC(A.ctx)
 const hits: { auth: string | null; body: any }[] = []
 const HELLO = () => Response.json({ text: 'hello there', language: 'en', duration: 2, segments: [{ start: 0.2, end: 1.8, text: ' hello there' }] })
-/** answers for the next requests, in order (then HELLO) */
+/** answers for the next requests, in order (then reply: HELLO unless a test sets it) */
 let replies: (() => Response)[] = []
+let reply: () => Response = HELLO
 const fake = Bun.serve({
   port: 0, hostname: '127.0.0.1',
   async fetch(req) {
     hits.push({ auth: req.headers.get('authorization'), body: await req.json().catch(() => null) })
-    return (replies.shift() ?? HELLO)()
+    return (replies.shift() ?? reply)()
   },
 })
 let savedUrl = ''
@@ -46,6 +47,7 @@ afterAll(async () => {
 beforeEach(() => {
   hits.length = 0
   replies = []
+  reply = HELLO
   resetPieceLimitsForTests()
   A.ctx.db.query('DELETE FROM settings WHERE key IN (?, ?)').run(HOSTED_SPEECH_USAGE_SETTING, HOSTED_SPEECH_KEY_SETTING)
   updateTeamSettings(A.ctx.db, { speechProvider: 'openrouter' })
@@ -69,6 +71,41 @@ const leftovers = () => {
   }
   return out.filter((f) => !f.startsWith('.'))
 }
+
+/** syllables of a voice whose pitch glides, with pauses: sound that moves like speech (tests/unit/no-speech.test.ts) */
+const spoken = (sec = 1) => pieceWav(Float32Array.from({ length: Math.round(sec * 16000) }, (_, i) => {
+  const t = i % 4000
+  if (t >= 2880) return 0
+  const f0 = 110 + 40 * t / 2880 + 15 * (Math.floor(i / 4000) % 3)
+  let v = 0
+  for (let h = 1; h <= 8; h++) v += Math.sin(2 * Math.PI * f0 * h * i / 16000) / h
+  return 0.1 * Math.sin(Math.PI * t / 2880) * v
+}))
+
+describe('a piece with no speech (QA TC-4581): no stray word', () => {
+  test('silence: nothing is sent, no lines', async () => {
+    const r = await send(pieceWav(new Float32Array(32000)), { chatId: A.chat('alice') })
+    expect(r.status).toBe(200)
+    expect(r.body.lines).toEqual([])
+    expect(hits).toEqual([])
+    expect(leftovers()).toEqual([])
+  })
+  test('a beep heard as "Thank you." (whisper unsure there was speech): no lines', async () => {
+    reply = () => Response.json({ text: ' Thank you.', language: 'en', duration: 2, segments: [{ start: 0, end: 2, text: ' Thank you.', avg_logprob: -0.45, no_speech_prob: 0.72 }] })
+    const r = await send(piece(2))
+    expect(r.status).toBe(200)
+    expect(r.body.lines).toEqual([])
+    expect(hits).toHaveLength(1)
+  })
+  test('a beep heard as "you", with no confidence fields: still no lines (a learned line on a tone)', async () => {
+    reply = () => Response.json({ text: 'you', language: 'en', duration: 2 })
+    expect((await send(piece(2))).body.lines).toEqual([])
+  })
+  test('a person who says "Thank you": kept', async () => {
+    reply = () => Response.json({ text: ' Thank you.', language: 'en', duration: 1, segments: [{ start: 0, end: 1, text: ' Thank you.', avg_logprob: -0.15, no_speech_prob: 0.02 }] })
+    expect((await send(spoken(1))).body.lines).toEqual([{ start: 0, end: 1, text: 'Thank you.' }])
+  })
+})
 
 describe('a piece of voice input', () => {
   test('in the caller\'s chat: the WAV goes to OpenRouter as it is, the lines come back, nothing is left', async () => {
@@ -186,12 +223,13 @@ describe('the language hint (the app\'s language)', () => {
     expect(r.body.hinted).toBeUndefined()
   })
   test('the answer without the hint loses when whisper is unsure of it too, or it is not in its own language\'s script', async () => {
+    // speech-like sound: on a pure tone an unsure answer is a beep's stray words and goes (jobs/no-speech.ts)
     replies = [said('안녕하세요 여러분', 'korean', -0.8), said('こんにちは', 'japanese', -0.5)]
-    const a = await send(piece(2), { language: 'ko' })
+    const a = await send(spoken(2), { language: 'ko' })
     expect(a.body.lines[0].text).toBe('안녕하세요 여러분')
     expect(a.body.hinted).toBeUndefined()
     replies = [said('Selamat pagi semua', 'indonesian', -0.9), said('Selamat pagi semua', 'korean', -0.1)]
-    const b = await send(piece(2), { language: 'id' })
+    const b = await send(spoken(2), { language: 'id' })
     expect(b.body.language).toBe('id')
     expect(hits).toHaveLength(4)
   })

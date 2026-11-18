@@ -123,6 +123,10 @@ export const SkillWritePreview = z.object({
   added: z.number().int().nonnegative(),
   removed: z.number().int().nonnegative(),
   truncated: z.boolean(),
+  /** a new skill's other files that this one card also saves (docs/decisions/20261117-new-skill-files-on-card.md): plain
+   * text files the AI wrote into the new skill's folder before its SKILL.md, held until this card. Each with its size,
+   * its first lines and its whole text: nothing is saved that the card does not show */
+  files: z.array(z.object({ path: RelPath, size: z.number().int().nonnegative(), lines: z.string().max(1000), text: z.string().max(20_000), truncated: z.boolean() })).max(5).optional(),
 })
 export type SkillWritePreview = z.infer<typeof SkillWritePreview>
 
@@ -144,6 +148,10 @@ export const ConfirmDetail = z.object({
   /** `text` is a list of names (files to delete, move or attach), not text that goes out: the card shows no size
    * (QA TC-091: "23 characters" counted the letters of a path) */
   noSize: z.boolean().optional(),
+  /** `text` is a message as a room will show it (post_to_room's card, QA TC-4791): the card formats it with the chat's
+   * Markdown renderer and shows no size. Set only when the text has no web address and no marks, so nothing a link would
+   * hide is hidden. A client that does not know this shows the text as before. */
+  markdown: z.literal(true).optional(),
   /** whole lines of `text` to show in red with a short note after them (the AI's members card: a name that is not in
    * the person's own messages, "내 메시지에 없는 이름이에요"). `text` holds them too, so a client that does not know this
    * still shows every line. */

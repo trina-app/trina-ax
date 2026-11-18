@@ -14,14 +14,21 @@ const ASK_FILE = ko['files.askAi'].replace('{name}', aiName((k: MessageKey) => k
 const BROWSER_NOTE = '마이크 사용이 막혀 있어요. 브라우저 설정에서 마이크를 허용해 주세요.'
 const IOS_NOTE = /^마이크 사용이 막혀 있어요\. iPhone의 설정 › .+에서 마이크를 켜 주세요\./
 
-/** the microphone was refused (as by the browser or by the phone's Settings) */
-const micRefused = (page: Page) => page.addInitScript(() => {
+/** the microphone was refused (as by the browser or by the phone's Settings), and the browser says it is blocked
+ * (`denied`) or would still ask (`prompt`: the question was closed) */
+const micRefused = (page: Page, state: PermissionState = 'denied') => page.addInitScript((state) => {
   navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('Permission denied', 'NotAllowedError'))
-})
+  const query = navigator.permissions.query.bind(navigator.permissions)
+  navigator.permissions.query = (d) => d.name === ('microphone' as PermissionName) ? Promise.resolve({ state, addEventListener() {}, removeEventListener() {} } as unknown as PermissionStatus) : query(d)
+}, state)
+/** the microphone is allowed but does not open: the Android app 1.0.8, whose WebView lacked a permission (QA TC-4740) */
+const micFails = (page: Page, name: string) => page.addInitScript((name) => {
+  navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('Could not start audio source', name))
+}, name)
 /** the phone app's bridge, as the iPhone app installs it before the page's own scripts */
-const phoneApp = (page: Page) => page.addInitScript(() => {
+const phoneApp = (page: Page, platform: 'ios' | 'android' = 'ios') => page.addInitScript((platform) => {
   const w = window as unknown as { mycelMobile: MobileConfig; ReactNativeWebView: { postMessage(raw: string): void }; mobileMessages: MobileMessage[] }
-  w.mycelMobile = { protocol: 1, appVersion: '0.3.0', platform: 'ios', generation: 1, nonce: 'a'.repeat(64), capabilities: ['file-share-v1', 'external-oauth-v1', 'push-permission-v1'] }
+  w.mycelMobile = { protocol: 1, appVersion: '0.3.0', platform, generation: 1, nonce: 'a'.repeat(64), capabilities: ['file-share-v1', 'external-oauth-v1', 'push-permission-v1'] }
   w.mobileMessages = []
   w.ReactNativeWebView = { postMessage(raw) {
     const m = JSON.parse(raw) as MobileMessage
@@ -30,7 +37,7 @@ const phoneApp = (page: Page) => page.addInitScript(() => {
     if (m.type === 'session-reset') { w.mycelMobile = { ...w.mycelMobile, generation: m.generation + 1 }; reply.nextGeneration = m.generation + 1 }
     queueMicrotask(() => window.dispatchEvent(new CustomEvent('mycel:mobile', { detail: reply })))
   } }
-})
+}, platform)
 const sentToApp = (page: Page) => page.evaluate(() => (window as unknown as { mobileMessages: { type: string }[] }).mobileMessages.map((m) => m.type))
 const mic = (page: Page) => page.getByRole('button', { name: /^음성/ })
 
@@ -46,6 +53,35 @@ for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) 
       await expect(page.getByRole('alert').filter({ hasText: '마이크' })).toHaveText(BROWSER_NOTE)
       await expect(page.getByTestId('voice-open-settings')).toHaveCount(0)
       await page.screenshot({ path: `../../shots/mic-browser-${size.width}.png` })
+    })
+
+    test('a browser: a question closed without an answer says to tap the mic again, not "blocked"', async ({ page }) => {
+      await reset(page)
+      await micRefused(page, 'prompt')
+      await signIn(page)
+      await mic(page).click()
+      await expect(page.getByRole('alert').filter({ hasText: '마이크' })).toHaveText(ko['voice.notAllowed'])
+      await expect(page.getByTestId('voice-open-settings')).toHaveCount(0)
+    })
+
+    test('a browser: a microphone that is missing or busy is said as such, never "blocked"', async ({ page }) => {
+      await reset(page)
+      await micFails(page, 'NotReadableError')
+      await signIn(page)
+      await mic(page).click()
+      await expect(page.getByRole('alert').filter({ hasText: '마이크' })).toHaveText(ko['voice.micFailed'])
+    })
+
+    test('the Android app: the microphone allowed but not opening says it could not start, with no Settings button (TC-4740)', async ({ page }) => {
+      await reset(page)
+      await phoneApp(page, 'android')
+      await micFails(page, 'NotFoundError')
+      await signIn(page)
+      await mic(page).click()
+      const note = page.getByRole('alert').filter({ hasText: '마이크' })
+      await expect(note).toHaveText(ko['voice.micFailedApp'])
+      await expect(page.getByTestId('voice-open-settings')).toHaveCount(0)
+      await page.screenshot({ path: `../../shots/mic-app-failed-${size.width}.png` })
     })
 
     test("the phone app: a blocked mic points to the phone's Settings, and the button opens them", async ({ page }) => {

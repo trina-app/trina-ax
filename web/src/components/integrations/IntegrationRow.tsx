@@ -6,11 +6,12 @@
 // ConnectorRow; its page with these actions is ConnectionPage.tsx (until 2026-11-13 an expandable row here).
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { adminAllowsDomains } from '@mycel/shared'
 import type { Group, Integration, IntegrationAccess, IntegrationFlow, User } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError } from '../../lib/api'
 import { closeSignInReturn, openSignInReturn } from '../../lib/desktop'
 import { mobileApp } from '../../lib/mobile'
-import { audienceOf, authorizationUrl, flowReasonKey } from '../../lib/integrations'
+import { audienceOf, authorizationUrl, flowReasonKey, signInReturnHost } from '../../lib/integrations'
 import { openSignInWindow, reserveSignInWindow as reserveWindow, signInPlace } from '../../lib/driveSignIn'
 import { useLocale, useT } from '../../i18n'
 import { SIGN_IN_WAIT_MINUTES, useWaitLimit } from '../../lib/signInWait'
@@ -133,6 +134,16 @@ export function useSignIn(onCompleted: (id: string) => void, onGone?: () => void
       returnPort.current = port
       const r = await api.call(API.authorizeIntegration, { params: { id }, body: port ? { loopbackPort: port } : {} })
       if (g !== generation.current) return
+      // the service needs no sign-in and works without one: the server made it a connection with no sign-in, so there
+      // is no page to open (QA TC-4771); it reads as connected, like a sign-in that finished
+      if ('connected' in r) {
+        popup.current?.close()
+        popup.current = null
+        dropReturn()
+        setS(null)
+        done.current(id)
+        return
+      }
       if (!r.loopback) dropReturn()
       let url: string
       try {
@@ -321,8 +332,9 @@ export function AudienceChip({ access, groups, users }: { access: IntegrationAcc
 }
 
 /** `name`: the connection's (the phone app's "Connect Canva on a computer."); `phone`: in the phone app, which has no
- * desktop download to offer from here (QA TC-262: computer-only steps say "on a computer") */
-export function SignInPanel({ flow, onRetry, onCancel, name, phone = !!mobileApp() }: { flow: SignInState; onRetry: () => void; onCancel: () => void; name?: string; phone?: boolean }) {
+ * desktop download to offer from here (QA TC-262: computer-only steps say "on a computer"); `url`: the connection's
+ * address (a service whose admins allow domains gets a line on its "blocked this domain" page, QA TC-4770) */
+export function SignInPanel({ flow, onRetry, onCancel, name, url, phone = !!mobileApp() }: { flow: SignInState; onRetry: () => void; onCancel: () => void; name?: string; url?: string; phone?: boolean }) {
   const t = useT()
   const failed = !WAITING.has(flow.state)
   return (
@@ -335,6 +347,7 @@ export function SignInPanel({ flow, onRetry, onCancel, name, phone = !!mobileApp
         // a spinner and how long it can take (QA TC-2132): the wait ends by itself (useWaitLimit)
         <WaitLine text={t(flow.away ? 'integrations.signIn.notFinished' : 'integrations.signIn.waiting')} hint={t('connect.wait.limit', { n: SIGN_IN_WAIT_MINUTES })} testId="integration-signin-wait" />
       )}
+      {!failed && name && url && adminAllowsDomains(url) && <p className="text-xs break-words text-faint" data-testid="integration-signin-domains">{t('integrations.signIn.domainBlocked', { name, host: signInReturnHost(flow.url) })}</p>}
       <div className="flex flex-wrap items-center gap-2">
         {!failed && flow.url && (
           <LinkButton variant="primary" size="sm" href={flow.url}>

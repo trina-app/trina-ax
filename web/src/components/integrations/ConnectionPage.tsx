@@ -12,7 +12,8 @@ import { useState, type ReactNode } from 'react'
 import type { Integration } from '@mycel/shared/api'
 import { CONNECTOR_DOCS, connectorFor, connectorLogo, type Connector } from '../../lib/connectors'
 import { formatDateTime } from '../../lib/format'
-import { canSignIn, lastCheckNote, toolsShortfall } from '../../lib/integrations'
+import { computerSignIn, lastCheckNote, signInOffered, toolsShortfall } from '../../lib/integrations'
+import { signsInOnComputer } from '../../lib/desktop'
 import { mobileApp } from '../../lib/mobile'
 import { useLocale, useT } from '../../i18n'
 import { useMe } from '../../store/session'
@@ -44,9 +45,12 @@ const REASON_KIND: Record<string, 'address' | 'notMcp' | 'redirect' | 'key' | 'n
 
 /** Why a connection does not work, and the one thing this reader can do about it, in one line. `manage`: they manage it
  * here; `elsewhere`: they manage it, in Admin › Connectors (an admin on a team connection in Settings); `phone`: the
- * phone app (Edit and sign-in are a computer's); `signIn`: Sign in is on this page. */
-export function errorLine(t: ReturnType<typeof useT>, i: Pick<Integration, 'lastError' | 'lastErrorReason' | 'auth' | 'hasSecret'>, who: { manage: boolean; elsewhere: boolean; phone: boolean; signIn: boolean }): string {
-  const known = i.lastErrorReason ? REASON_KIND[i.lastErrorReason] : undefined
+ * phone app (Edit and sign-in are a computer's); `signIn`: Sign in is on this page; `computer`: this window is an app
+ * on the computer that a service taking only such an app signs in from (lib/desktop.ts signsInOnComputer). */
+export function errorLine(t: ReturnType<typeof useT>, i: Pick<Integration, 'lastError' | 'lastErrorReason' | 'auth' | 'hasSecret'>, who: { manage: boolean; elsewhere: boolean; phone: boolean; signIn: boolean; computer?: boolean }): string {
+  // a sign-in only an app on the computer can do, read in that app: not signed in yet, and it signs in here (the
+  // server's words say to open the desktop app, which is right only elsewhere: QA TC-4794)
+  const known = computerSignIn(i, !!who.computer) ? 'notSignedIn' : i.lastErrorReason ? REASON_KIND[i.lastErrorReason] : undefined
   if (!known) return i.lastError ?? ''
   // waiting for a sign-in that was never finished (stopped at the service, cancelled here, or its window closed): the
   // service refused nothing, there is no sign-in it could refuse (QA TC-3859)
@@ -150,7 +154,8 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
   const ownAllow = !!i.alwaysAllowedByMe || (i.scope === 'personal' && i.writePolicy === 'allow')
   // the team has members' own connections off: kept, not used in chats, not signed in again (QA TC-2930)
   const teamOff = !!i.personalOff
-  const signInHere = manage && canSignIn(i) && !phone && !teamOff
+  const computer = signsInOnComputer()
+  const signInHere = signInOffered(i, { readOnly, phone, computer })
   const items: CardMenuItem[] = [
     ...(manage ? [{ label: t('integrations.refresh'), onSelect: () => void actions.refresh(i), disabled: checking, testId: 'integration-refresh' }] : []),
     ...(signInHere && i.status !== 'needs_auth' && !flow ? [{ label: t(i.hasSecret ? 'integrations.signInAgain' : 'integrations.signIn'), onSelect: () => void actions.signIn.start(i.id), testId: 'integration-signin-again' }] : []),
@@ -172,7 +177,8 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
   )
   // what happened and the one thing to do, in one line: whoever manages it here checks, edits or signs in again; an
   // admin reading a team connection in Settings manages it in Admin; anyone else asks an admin
-  const trouble = failing ? errorLine(t, i, { manage, elsewhere: !!readOnly && i.canManage, phone, signIn: signInHere }) : null
+  // (a sign-in Settings offers on a team connection is done here, not in Admin)
+  const trouble = failing ? errorLine(t, i, { manage: manage || signInHere, elsewhere: !!readOnly && i.canManage && !signInHere, phone, signIn: signInHere, computer }) : null
   const signInLine = i.auth === 'oauth'
     ? (i.hasSecret ? (i.account ? t('integrations.account', { account: i.account }) : t('integrations.signedIn')) : t('connectors.page.notSignedIn'))
     : i.auth === 'none' ? t('connectors.page.signInNone') : t(i.hasSecret ? 'integrations.keySaved' : 'integrations.keyMissing')
@@ -216,7 +222,7 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
         status={(flow || failing || note || alert || teamOff) ? (
           <>
             {teamOff && <Note tone="warn" testId="integration-personal-off">{t('connectors.page.personalOff')}</Note>}
-            {flow && <SignInPanel flow={flow} name={i.name} onRetry={() => void actions.signIn.start(i.id)} onCancel={actions.signIn.cancel} />}
+            {flow && <SignInPanel flow={flow} name={i.name} url={i.url} onRetry={() => void actions.signIn.start(i.id)} onCancel={actions.signIn.cancel} />}
             {trouble && !flow && <Note tone="warn" testId="integration-error">{trouble}</Note>}
             {note && <Note tone="warn" testId="integration-check-failed">{t(note.key, { reason: note.reason, date: note.date ? formatDateTime(note.date, locale) : '' })}</Note>}
             {alert}

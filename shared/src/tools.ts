@@ -147,7 +147,7 @@ export const StampPdfInput = z.strictObject({
   ]).optional().describe('Where on the page: a corner or "center", or { x_mm, y_mm } from the top-left corner of the page as it is shown (default "bottom-right")'),
   width_mm: z.number().min(3).max(1000).optional().describe('The image\'s width on the page in mm (default 30); its height follows the image\'s shape'),
   margin_mm: z.number().min(0).max(200).optional().describe('For a corner or the centre: the space to the page edges in mm (default 15)'),
-  output: optRelPath.describe('Where to save the new PDF (default: "<name> (stamped).pdf" next to the original). An existing file is never overwritten unless you read it in this turn'),
+  output: optRelPath.describe('Where to save the new PDF (default: "<name> (stamped).pdf" next to the original; a PDF you made in this turn gets the image on itself). An existing file is never overwritten unless you read it in this turn'),
 })
 /** edit_pdf, merge_pdfs, split_pdf: page work on existing PDFs, saved as new files (server/src/tools/pdf-tools.ts,
  * server/src/files/pdf-pages.ts). Pages are written like "1,3-5,last", "2-last" or "all". */
@@ -197,7 +197,7 @@ export const EditPdfOperation = z.union([
 export const EditPdfInput = z.strictObject({
   file_path: relPath.describe('The PDF to change'),
   operations: z.array(EditPdfOperation).min(1).max(30).describe('Applied in order; page numbers in each are the pages at that moment'),
-  output: optRelPath.describe('Where to save the new PDF (default: "<name> (edited).pdf" next to the original)'),
+  output: optRelPath.describe('Where to save the new PDF (default: "<name> (edited).pdf" next to the original; a PDF you made in this turn is changed in place)'),
   replace: z.boolean().optional().describe('true only when the user explicitly asks to replace the original (read it in this turn first; its old version stays in its history)'),
 })
 export const MergePdfsInput = z.strictObject({
@@ -213,7 +213,7 @@ export const SplitPdfInput = z.strictObject({
 // Smaller copies of photos (server/src/tools/resize-images.ts, docs/decisions/20261117-resize-photos.md)
 const photoSide = z.number().int().min(16).max(20_000)
 export const ResizeImagesInput = z.strictObject({
-  paths: z.array(relPath).min(1).max(20).describe('The photos (JPEG, PNG or WebP), 1-20, e.g. ["groups/Marketing/photos/IMG_2041.jpg"]'),
+  paths: z.array(relPath).min(1).max(20).describe('The photos (JPEG, PNG, WebP or HEIC), 1-20, e.g. ["groups/Marketing/photos/IMG_2041.jpg"]'),
   longest_side: photoSide.optional().describe('The longest side in pixels, e.g. 1200; the other side follows'),
   width: photoSide.optional().describe('The width in pixels ("1200 px wide"); the height follows'),
   max_mb: z.number().min(0.01).max(30).optional().describe('The most each copy may weigh, in MB ("under 2MB" = 2, "500KB" = 0.5); may be given with longest_side or width'),
@@ -221,6 +221,8 @@ export const ResizeImagesInput = z.strictObject({
   output: optRelPath.describe('Only for one photo: where to save the copy (default: "<name>-<word>.<ext>" next to it)'),
   output_folder: optRelPath.describe('Where the copies go (default: next to each original)'),
   replace: z.boolean().optional().describe('true only when the user explicitly asks to replace the originals (read each in this turn first; the old version stays in its history)'),
+  remove_details: z.enum(['location', 'all']).optional().describe('Only when the user asks: "location" removes where the photo was taken ("without the location"), "all" removes every photo detail (location, time taken, camera). Left out, the copies keep them'),
+  format: z.enum(['jpeg', 'png']).optional().describe('Only when the user names a format for the copies. Left out: JPEG stays JPEG, PNG stays PNG, HEIC and WebP become JPEG'),
 }).refine((v) => v.longest_side !== undefined || v.width !== undefined || v.max_mb !== undefined || v.preset !== undefined, { message: 'give longest_side, width, max_mb or preset' })
   .refine((v) => v.preset === undefined || (v.longest_side === undefined && v.width === undefined && v.max_mb === undefined), { message: 'give either preset or the numbers, not both' })
   .refine((v) => v.output === undefined || v.paths.length === 1, { message: 'output is only for one photo; use output_folder for several' })
@@ -355,8 +357,11 @@ export const SaveUrlOutput = z.object({ url: z.string(), path: z.string(), size:
 const when = z.string().min(1).max(40)
 /** rooms: the rooms the person is in now, or (with query, person, since or until) the messages they can see that match */
 export const RoomsInput = z.strictObject({
-  query: z.string().min(1).max(200).optional().describe('Words to look for in the messages (all of them, any case). Without query, person, since and until the rooms are listed.'),
+  query: z.string().min(1).max(200).optional().describe('Words to look for (all of them, any case), each in a message\'s text or in the name of a file sent with it; a file type word ("excel", "pdf", "docx", "photo") matches files of that type. Without query, person, from_me, with_person, files, since and until the rooms are listed.'),
   person: z.string().min(1).max(100).optional().describe('Only messages written by this person (their name or part of it, e.g. "Minji").'),
+  from_me: z.boolean().optional().describe('Only messages the user sent themself ("the file I sent").'),
+  with_person: z.string().min(1).max(100).optional().describe('Only rooms this person is in: their 1:1 chat with the user, the group chats and team rooms they share, not the room for everyone ("what I sent to Minji").'),
+  files: z.boolean().optional().describe('Only messages that came with files (each hit names the file and its file_id).'),
   room: z.string().min(1).max(200).optional().describe('Only this room (its name, the other person\'s name for a 1:1 chat, or its id). Without a search it narrows the list.'),
   since: when.optional().describe('Messages from this date or time on, e.g. "2026-11-01" or "2026-11-01T09:00" (the team\'s time zone).'),
   until: when.optional().describe('Messages before this date or time (a date alone: up to the end of that day).'),
@@ -444,6 +449,12 @@ export const SharedWithMeInput = z.strictObject({
 })
 /** looking_at (server/src/chat/looking-at.ts): what the user has open in the app now; no parameters */
 export const LookingAtInput = z.strictObject({})
+/** answer_comments (server/src/chat/answer-comments.ts; docs/decisions/20261117-ai-reads-answer-comments.md): read-only.
+ * The comments people left under answers in this chat (each answer's thread beside the chat). */
+export const AnswerCommentsInput = z.strictObject({
+  message_id: z.string().trim().min(1).max(100).optional().describe('The answer whose comments to read: its message id. Leave it out to get the answers in this chat that have comments, the most recent first.'),
+  limit: z.number().int().min(1).max(50).optional().describe('How many comments to show per answer, the newest (default 20, at most 50).'),
+})
 /** change_project_members in a person's own chat (server/src/chat/project-members.ts): people and groups added to or
  * removed from a team project after their yes on the server's card. Names as the user wrote them; an id only from the
  * candidates the tool gave back for that name. */
@@ -520,6 +531,7 @@ export const OTHER_TOOLS = {
   share_folder: { input: ShareFolderInput, output: TextOutput },
   shared_with_me: { input: SharedWithMeInput, output: TextOutput },
   looking_at: { input: LookingAtInput, output: TextOutput },
+  answer_comments: { input: AnswerCommentsInput, output: TextOutput },
   change_project_members: { input: ChangeProjectMembersInput, output: TextOutput },
   who_can_open: { input: WhoCanOpenInput, output: TextOutput },
   change_folder_access: { input: ChangeFolderAccessInput, output: TextOutput },

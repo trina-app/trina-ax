@@ -13,7 +13,7 @@
 import type { Database } from 'bun:sqlite'
 import { atLeast, loadPrincipal, RuleSet } from '../policy/access'
 import type { tr } from './i18n'
-import { quotesOnBranch } from './read-rooms'
+import { quotesOnBranch, quotesOnlyFrom } from './read-rooms'
 import { isFileSource, readScope, viewersOf, type ReadSource } from './read-scope'
 
 type TrKey = Parameters<typeof tr>[0]
@@ -75,4 +75,29 @@ const FILE_WORDS = { roomsSeenWhy: 'sharedFileSeenWhy', roomsSeenConfirm: 'share
  * room's words came in, else the room sentence as before. Never throws (words only: the room sentence on any doubt). */
 export function seenWhy<K extends keyof typeof FILE_WORDS>(exec: GrantReadExec, key: K): TrKey {
   return grantOnly(exec) ? FILE_WORDS[key] : key
+}
+
+/** Did every room's words in this chat come from `roomId` alone (QA TC-4791)? The room it read (the read scope), its
+ * side chat's room and every quoted message (read-rooms.ts quotesOnlyFrom: the app's quote of a message in that room)
+ * all name that one room, and nothing came in
+ * through a share grant, another chat or Slack. A post back to that room then tells its people nothing they could not
+ * read there, so its card does not lead with "messages from your conversations came in here" (the card itself still
+ * shows: only the words depend on this). False on any doubt: a chat with no room source at all, a pasted quote or one
+ * from another room, an error. Callers leave out shared chats and chats others write in (their messages are other
+ * people's words that no room source records). */
+export function roomsReadOnly(exec: GrantReadExec, roomId: string): boolean {
+  if (!roomId) return false
+  try {
+    const db = exec.rt.db
+    if (readByGrant(exec)) return false
+    const scope = readScope(db, exec.spec.chatId) ?? []
+    if (scope.some((s) => s.type === 'chat' || s.type === 'slack' || (s.type === 'room' && s.id !== roomId))) return false
+    const side = (db.query('SELECT side_room_id FROM chats WHERE id = ?').get(exec.spec.chatId) as { side_room_id: string | null } | null)?.side_room_id ?? null
+    if (side && side !== roomId) return false
+    // a quote counts only as the app's own quote of a person's message in that room (its thread token points there)
+    if (exec.spec.assistantId && quotesOnBranch(db, exec.spec.assistantId) && !quotesOnlyFrom(db, exec.spec.assistantId, roomId)) return false
+    return side === roomId || scope.some((s) => s.type === 'room')
+  } catch {
+    return false
+  }
 }

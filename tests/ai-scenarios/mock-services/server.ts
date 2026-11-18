@@ -10,6 +10,20 @@
 import fs from 'node:fs'
 
 type Json = Record<string, unknown>
+/** a mail the AI drafts or sends; attachments by base64 or by link (a team file's share link) */
+interface Mail { id: string; to: string; subject: string; body: string; attachments?: { filename: string; bytes?: number; link?: string }[] }
+/** the attachment of inbox mail m2: a one-page PDF (made-up order sheet), as Gmail would hand it back */
+const ORDER_PDF = Buffer.from(`%PDF-1.4
+1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj
+2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj
+3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 200]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj
+4 0 obj<</Length 88>>stream
+BT /F1 12 Tf 20 150 Td (Order sheet - Lamaba Cafe) Tj 0 -24 Td (A4 paper 25 boxes, 2026-12) Tj ET
+endstream endobj
+5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj
+trailer<</Root 1 0 R>>
+%%EOF
+`)
 interface Tool { name: string; description: string; inputSchema: Json; readOnly: boolean; run(a: Json, s: State): unknown }
 export interface State {
   notion: { pages: { id: string; title: string; body: string; updatedBy?: string }[]; db: { id: string; client: string; status: string; amount: number }[] }
@@ -17,7 +31,7 @@ export interface State {
   docs: { docs: { id: string; title: string; body: string }[] }
   slides: { decks: { id: string; title: string; slides: { title: string; body: string }[] }[] }
   linear: { issues: { id: string; title: string; state: string; comments: string[] }[] }
-  mail: { inbox: { id: string; from: string; subject: string; body: string; date: string }[]; drafts: { id: string; to: string; subject: string; body: string }[]; sent: { id: string; to: string; subject: string; body: string }[] }
+  mail: { inbox: { id: string; from: string; subject: string; body: string; date: string; attachments?: { id: string; filename: string; mime: string }[] }[]; drafts: Mail[]; sent: Mail[] }
   calls: { service: string; tool: string; args: Json; at: string }[]
 }
 
@@ -39,7 +53,10 @@ export function initialState(): State {
     slides: { decks: [{ id: 'k-intro', title: '가나다오피스 소개', slides: [{ title: '회사 소개', body: '사무용품 유통 (가상)' }, { title: '서비스', body: '정기 납품, 익일 배송' }] }] },
     linear: { issues: [{ id: 'ENG-12', title: '견적서 PDF에 직인 자동 삽입', state: 'Todo', comments: [] }, { id: 'ENG-13', title: '거래처 목록 CSV 정리', state: 'In Progress', comments: [] }] },
     mail: {
-      inbox: [{ id: 'm1', from: 'buyer@lamaba.example', subject: 'RE: 수정 견적서', body: '안녕하세요. 27,000원이면 연간 계약 진행하겠습니다. 다만 첫 달은 20박스가 아니라 25박스로 부탁드립니다. 계약서 수정본 보내주세요.', date: '2026-11-16' }],
+      inbox: [
+        { id: 'm1', from: 'buyer@lamaba.example', subject: 'RE: 수정 견적서', body: '안녕하세요. 27,000원이면 연간 계약 진행하겠습니다. 다만 첫 달은 20박스가 아니라 25박스로 부탁드립니다. 계약서 수정본 보내주세요.', date: '2026-11-16' },
+        { id: 'm2', from: 'buyer@lamaba.example', subject: '12월 주문서 첨부', body: '12월 주문서 첨부드립니다. 확인 부탁드려요.', date: '2026-11-16', attachments: [{ id: 'a1', filename: '주문서-2026-12.pdf', mime: 'application/pdf' }] },
+      ],
       drafts: [],
       sent: [],
     },
@@ -47,6 +64,11 @@ export function initialState(): State {
   }
 }
 
+function attachmentsOf(a: Json): Mail['attachments'] {
+  const files = Array.isArray(a.attachments) ? (a.attachments as Json[]).map((x) => ({ filename: String(x.filename ?? 'file'), bytes: Buffer.from(String(x.content_base64 ?? ''), 'base64').length })) : []
+  const links = Array.isArray(a.links) ? (a.links as unknown[]).map((l) => ({ filename: String(l).split('/').pop() ?? 'link', link: String(l) })) : []
+  return [...files, ...links]
+}
 const id = (p: string) => `${p}-${Math.random().toString(36).slice(2, 8)}`
 const obj = (props: Json, required: string[] = []) => ({ type: 'object', properties: props, required })
 const str = { type: 'string' }
@@ -117,15 +139,28 @@ export const SERVICES: Record<string, { title: string; tools: Tool[] }> = {
   gmail: {
     title: 'Gmail (mock)',
     tools: [
-      { name: 'list_inbox', description: 'List the latest mails in the inbox.', inputSchema: obj({}), readOnly: true, run: (_a, s) => s.mail.inbox.map(({ body: _b, ...m }) => m) },
+      { name: 'list_inbox', description: 'List the latest mails in the inbox (with their attachments\' names).', inputSchema: obj({}), readOnly: true, run: (_a, s) => s.mail.inbox.map(({ body: _b, ...m }) => m) },
       { name: 'read_mail', description: 'Read one mail.', inputSchema: obj({ mail_id: str }, ['mail_id']), readOnly: true, run: (a, s) => s.mail.inbox.find((m) => m.id === a.mail_id) ?? { error: 'no such mail' } },
-      { name: 'create_draft', description: 'Save a mail draft.', inputSchema: obj({ to: str, subject: str, body: str }, ['to', 'subject', 'body']), readOnly: false,
-        run: (a, s) => { const d = { id: id('dr'), to: String(a.to), subject: String(a.subject), body: String(a.body) }; s.mail.drafts.push(d); return { draft_id: d.id } } },
-      { name: 'send_mail', description: 'Send a mail (or a saved draft by draft_id).', inputSchema: obj({ to: str, subject: str, body: str, draft_id: str }), readOnly: false,
-        run: (a, s) => { const d = a.draft_id ? s.mail.drafts.find((x) => x.id === a.draft_id) : { id: id('m'), to: String(a.to), subject: String(a.subject), body: String(a.body) }; if (!d) return { error: 'no such draft' }; s.mail.sent.push({ ...d, id: id('sent') }); return { sent: true } } },
+      { name: 'get_attachment', description: 'Get the file attached to a mail (the file itself comes back).', inputSchema: obj({ mail_id: str, attachment_id: str }, ['mail_id', 'attachment_id']), readOnly: true,
+        run: (a, s) => {
+          const at = s.mail.inbox.find((m) => m.id === a.mail_id)?.attachments?.find((x) => x.id === a.attachment_id)
+          if (!at) return { error: 'no such attachment' }
+          return { __content: [{ type: 'resource', resource: { uri: `mock://mail/${a.mail_id}/${at.id}/${encodeURIComponent(at.filename)}`, mimeType: at.mime, blob: ORDER_PDF.toString('base64') } }, { type: 'text', text: `${at.filename} (${ORDER_PDF.length} bytes)` }] }
+        } },
+      { name: 'create_draft', description: 'Save a mail draft. attachments: files as {filename, content_base64}; links: links to put in the mail (e.g. a shared file link).', inputSchema: obj({ to: str, subject: str, body: str, attachments: { type: 'array', items: obj({ filename: str, content_base64: str }) }, links: { type: 'array', items: str } }, ['to', 'subject', 'body']), readOnly: false,
+        run: (a, s) => { const d: Mail = { id: id('dr'), to: String(a.to), subject: String(a.subject), body: String(a.body), attachments: attachmentsOf(a) }; s.mail.drafts.push(d); return { draft_id: d.id, attachments: d.attachments?.length ?? 0 } } },
+      { name: 'send_mail', description: 'Send a mail (or a saved draft by draft_id). attachments: files as {filename, content_base64}; links: links to put in the mail.', inputSchema: obj({ to: str, subject: str, body: str, draft_id: str, attachments: { type: 'array', items: obj({ filename: str, content_base64: str }) }, links: { type: 'array', items: str } }), readOnly: false,
+        run: (a, s) => { const d = a.draft_id ? s.mail.drafts.find((x) => x.id === a.draft_id) : { id: id('m'), to: String(a.to), subject: String(a.subject), body: String(a.body), attachments: attachmentsOf(a) }; if (!d) return { error: 'no such draft' }; s.mail.sent.push({ ...d, id: id('sent') }); return { sent: true, attachments: d.attachments?.length ?? 0 } } },
     ],
   },
 }
+
+/** the shared meeting-notes page of FL-28 (fictional) */
+const NOTES_PAGE = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>주간 영업 회의 - AI 회의록</title></head><body>
+<h1>주간 영업 회의 (2026-11-16)</h1><p>참석: 이소라, Daniel Kim, 박민호 (가상의 회의)</p>
+<h2>요약</h2><ul><li>라마바카페 연간 계약: 27,000원으로 확정, 계약서 금요일 발송</li><li>사아자 베이커리 미수금 620,000원 12/5까지 입금</li><li>신제품 샘플 30개는 금요일 오전 Daniel이 전달</li></ul>
+<h2>할 일</h2><ol><li>이소라: 계약서 최종본 발송 (11/20)</li><li>Daniel: 샘플 전달 (11/20 오전)</li><li>박민호: 결제 조건 확인 (11/19)</li></ol>
+</body></html>`
 
 function arg(n: string) { const i = process.argv.indexOf(`--${n}`); return i >= 0 ? process.argv[i + 1] : undefined }
 
@@ -140,6 +175,11 @@ if (import.meta.main) {
     port, hostname: '127.0.0.1',
     async fetch(req) {
       const url = new URL(req.url)
+      // a public page, as a meeting-notes service (Tiro-style) shares one: no key, any query (utm …) ignored
+      const note = /^\/pub\/notes\/([A-Za-z0-9]+)\/?$/.exec(url.pathname)?.[1]
+      if (note) return new Response(NOTES_PAGE, { headers: { 'content-type': 'text/html; charset=utf-8' } })
+      // a meeting-notes service's share link, /s/<id> (flow FL-28)
+      if (req.method === 'GET' && /^\/s\/[A-Za-z0-9]{8,40}\/?$/.test(url.pathname)) return new Response(`<!doctype html><html><head><meta charset="utf-8"><title>일요일 회의록</title></head><body><h1>일요일 회의록 (11/15)</h1><ul><li>라마바카페 연간계약: 단가 27,000원 확정, 계약서 최종본 금요일까지 (민호)</li><li>샘플 전달: 금요일 오전 (다니엘)</li><li>박람회 부스 신청: 11/25 마감 (하나)</li></ul></body></html>`, { headers: { 'content-type': 'text/html; charset=utf-8' } })
       const svc = /^\/([a-z]+)\/mcp$/.exec(url.pathname)?.[1]
       const def = svc ? SERVICES[svc] : undefined
       if (!def) return new Response('not found', { status: 404 })
@@ -159,7 +199,8 @@ if (import.meta.main) {
         const out = t.run(args, s)
         s.calls.push({ service: svc!, tool: name, args, at: new Date().toISOString() })
         save(s)
-        return reply({ content: [{ type: 'text', text: JSON.stringify(out) }] })
+        const special = (out as { __content?: unknown[] } | null)?.__content
+        return reply({ content: special ?? [{ type: 'text', text: JSON.stringify(out) }] })
       }
       return Response.json({ jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: 'method not found' } })
     },

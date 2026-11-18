@@ -41,6 +41,7 @@ import { fileSharesOf } from '../files/shares'
 import { SERVER_OWN_FOLDERS } from '../files/own-folders'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, instructionFiles, neutralizeTags, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
 import { sideRoomOf } from './side-room'
+import { saveAudienceNote } from './save-audience'
 import { quotesAppOnBranch, readRooms, withoutQuoteLines } from './read-rooms'
 import { grantOnly, othersSource, seenWhy } from './grant-reads'
 import { componentC } from '../team-files/component'
@@ -55,6 +56,7 @@ import { describeSchedule, scheduledRunBlock, type ScheduleRow } from './schedul
 import { callKey, COVER_TOOLS, runAllowance, ScheduleCover } from './schedule-cover'
 import { safeModel, type EngineConfs } from './engines'
 import { aiCalled, engineError, stepLabel, tr, turnLimitError } from './i18n'
+import { HELD_MAX_FILES, heldFile, heldFileOk, heldNote, heldPreview, heldRefusal, type HeldFile } from './skill-held'
 import { placeWords } from './place-words'
 import { recordSkillUse } from '../admin/skill-usage'
 import { noteGoalRun } from '../onboarding/goal'
@@ -71,7 +73,7 @@ import { buildToolSet, widenOf, type ChatToolSet } from './tools'
 import type { ToolCard } from '../services'
 import { ConnectOutcome, type ConnectCard } from './connect-service'
 import { devEnvFlag, mayUseDevEnv } from '../devenv/setting'
-import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, widening, type ReadSource } from './read-scope'
+import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, sourceViewerCount, widening, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
 import { cardEndShort, cardNext, cardReason, refusal, SCREEN, type CardEnd } from '../policy/refusal'
 import { readRegular, sha256, sha256Regular } from '../files/store'
@@ -101,7 +103,7 @@ import { credentialsOf, getRow, metaOf } from '../credentials/store'
 import { dummyAuthJson } from '../credentials/codex-home'
 import { afterUsage } from '../admin/budget-watch'
 import type { QueueTiming } from './fair-queue'
-import { RedactingText, redactorFor, type Redactor } from '../integrations/connections/redact'
+import { nothingToHide, RedactingText, redactorFor, type Redactor } from '../integrations/connections/redact'
 import { DraftPages, draftScopeOf, draftSystemPrompt, inWebScope, type DraftTurn } from '../onboarding/draft'
 import { BrandCollector } from '../onboarding/brand-assets'
 import { skillDraftOf, skillDraftSystemPrompt, type SkillDraftScope } from '../onboarding/skill-draft'
@@ -160,7 +162,9 @@ export const SESSION_STASH_MAX = 20 * 1024 * 1024
 export interface WidenOf { target: string; extra: string[]; read?: ReadSource[] }
 /** The wider-audience card's facts (TurnExec.widenNeed): where it saves, its folder, the narrower places read, how many
  * people can see the target. */
-export interface WidenNeed { segs: string[]; dir: string; narrower: ReadSource[]; viewers: number }
+/** `blind`: how many of the place's readers cannot see at least one of `narrower` now (missingReaders): the card says it,
+ * so an overlap ("3 people" from, "3 people" at the place) never reads as safe (docs/decisions/20261117-ai-save-my-files-default.md) */
+export interface WidenNeed { segs: string[]; dir: string; narrower: ReadSource[]; viewers: number; blind: number }
 /** A room whose words are in a session, and the oldest message of it that was read (null: none; TurnExec.sessionRooms) */
 type SessionRoom = { id: string; from: number | null }
 
@@ -420,6 +424,8 @@ export class TurnExec {
   /** new files of this turn left loose at the top of shared/, a group's folder or the team root that no note named yet
    * (file-placement.ts) */
   private loosePlaced: string[] = []
+  /** new files of this turn whose audience line (chat/save-audience.ts) is not said yet */
+  private newSaved: string[] = []
   private registered = false
   private thinkingStep: Step | null = null
   private toolNames = new Map<string, string>()
@@ -1881,7 +1887,7 @@ export class TurnExec {
   /** a step's words with the person's stored connection secrets hidden (the label may quote the tool's input) */
   private redactStep<T extends Partial<StoredStep>>(s: T): T {
     const r = this.redactor()
-    if (!r.re) return s
+    if (nothingToHide(r)) return s
     const out: T = { ...s }
     if (out.label !== undefined) out.label = r.hide(out.label)
     if (out.sv) out.sv = { ...out.sv, label: r.hide(out.sv.label) }
@@ -2992,6 +2998,8 @@ export class TurnExec {
     // who_can_open reads no file: in a shared chat it answers only about the chat itself and a file the asker named or
     // attached in their own message (chat/who-can-open.ts)
     if (tool === 'who_can_open') return []
+    // answer_comments reads only this chat's threads, which its people see beside the chat (chat/answer-comments.ts)
+    if (tool === 'answer_comments') return []
     const a = input && typeof input === 'object' ? input as Record<string, unknown> : {}
     const fx = this.rt.files.fx, rules = this.rt.files.rules()
     let me: Principal
@@ -3336,7 +3344,14 @@ export class TurnExec {
         .map((d) => new Set(Array.isArray(d.sources) ? d.sources.filter((x): x is string => typeof x === 'string') : []))
       if (keys.some((k) => narrower.every((s) => k.has(sourceKey(s))))) return null
     }
-    return { segs, dir, narrower, viewers: w.targetViewers }
+    // who at the place cannot see where it came from, by the same reader as the read scope's own check (the chat's creator)
+    const blind = new Set(missingReaders(this.rt.db, rules, narrower, readersOf(this.rt.db, rules, segs), this.chatReader()).flatMap((m) => m.missing)).size
+    return { segs, dir, narrower, viewers: w.targetViewers, blind }
+  }
+
+  /** The person whose reads a chat's read scope holds: its creator, as the read scope's own check takes it (read-scope.ts). */
+  private chatReader(): string {
+    return (this.rt.db.query('SELECT user_id FROM chats WHERE id = ?').get(this.spec.chatId) as { user_id: string } | null)?.user_id ?? this.spec.userId
   }
 
   /**
@@ -3375,7 +3390,7 @@ export class TurnExec {
     const { value: answer, missing } = await ask({
       // the place in words, not its path; a PowerPoint's SHA-256 (safe operations) is not on the card: the approval is
       // bound to those bytes on the server (o.binding, safe-ops/publication.ts) and the hash is in the activity log
-      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: (o.lead ?? '') + tr('widenConfirm', L, { ai: aiCalled(L), sources: from, target: this.place(need.segs.join('/')), n: String(need.viewers) }) + (o.extra ?? ''),
+      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: (o.lead ?? '') + tr('widenConfirm', L, { ai: aiCalled(L), sources: from, target: this.place(need.segs.join('/')), n: String(need.viewers), m: String(need.blind) }) + (o.extra ?? ''),
       options: [{ label: tr('widenSave', L), value: 'save' }, { label: tr('widenDont', L), value: 'skip' }], multiple: false, allowText: false,
       ...(o.details?.length ? { details: o.details } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
@@ -3409,8 +3424,19 @@ export class TurnExec {
     const me = this.livePrincipal()
     const L = this.spec.locale
     const labels = { mine: tr('scopeMine', L), root: tr('scopeRoot', L), room: tr('scopeRoom', L), chat: tr('scopeChatFiles', L) }
-    const label = (s: ReadSource, own: boolean) => ((this.shared || this.othersWrote) && !this.seesSource(s, me) ? tr('sharedScopeOther', L) : sourceLabel(this.rt.db, s, this.spec.userId, labels, own ? { ownNames: true, place: (p) => this.place(p) } : {}))
-    return { from: [...new Set(need.narrower.map((s) => label(s, true)))].join(', '), fromForAi: [...new Set(need.narrower.map((s) => label(s, false)))].join(', ') }
+    const hidden = (s: ReadSource) => (this.shared || this.othersWrote) && !this.seesSource(s, me)
+    const label = (s: ReadSource, own: boolean) => (hidden(s) ? tr('sharedScopeOther', L) : sourceLabel(this.rt.db, s, this.spec.userId, labels, own ? { ownNames: true, place: (p) => this.place(p) } : {}))
+    // on the card each source says how many people can see it now ("(3 people)", "(only you)"; docs/decisions/
+    // 20261117-ai-save-my-files-default.md), beside the place's own count; a place someone else opened keeps no count
+    const rules = this.rt.files.rules()
+    const reader = this.chatReader()
+    const counted = (s: ReadSource) => {
+      const l = label(s, true)
+      if (hidden(s)) return l
+      const c = sourceViewerCount(this.rt.db, rules, s, reader)
+      return c.onlyReader ? tr('widenFromYou', L, { source: l }) : tr('widenFrom', L, { source: l, n: String(c.n) })
+    }
+    return { from: [...new Set(need.narrower.map(counted))].join(', '), fromForAi: [...new Set(need.narrower.map((s) => label(s, false)))].join(', ') }
   }
 
   /** A yes to saving where more people can see (askWidening, or the skill card that carries it): these sources for that
@@ -3452,7 +3478,7 @@ export class TurnExec {
    */
   async confirmSkillWrite(tool: string, args: unknown, files: TurnFiles = this.files): Promise<{ refusal: string; summary: string } | null> {
     // one skill card at a time (the AI often saves a new skill's files in parallel calls): a later call then sees the
-    // answer to the card before it, so a new skill's other files need no card of their own (QA MAN-052, below)
+    // answer to the card before it (a new skill's held files, QA MAN-052, below)
     // (read with ??: some callers build a TurnExec without its constructor)
     const run = (this.skillCards ?? Promise.resolve()).then(() => this.askSkillWrite(tool, args, files))
     this.skillCards = run.catch(() => undefined)
@@ -3461,9 +3487,29 @@ export class TurnExec {
 
   /** skill cards of this turn, one after the other (confirmSkillWrite) */
   private skillCards?: Promise<unknown> = Promise.resolve()
-  /** the folders of new skills whose SKILL.md the person said Save to in this turn (askSkillWrite): the other new files
-   * in that folder in this turn need no card of their own (QA MAN-052, docs/decisions/20261117-new-skill-one-card.md) */
-  private newSkillYes?: Set<string> = new Set<string>()
+  /** a new skill's plain text files written before its SKILL.md in this turn, by the skill's folder: not saved, shown
+   * on the SKILL.md card (QA MAN-052, docs/decisions/20261117-new-skill-files-on-card.md, chat/skill-held.ts) */
+  private skillHeld?: Map<string, Map<string, HeldFile<WidenNeed>>> = new Map()
+  /** new skills' folders whose SKILL.md the person said Save to in this turn: nothing more is held for them (a file
+   * checked before the SKILL.md reached the disk would wait for a card that never comes; it gets its own card) */
+  private skillSaved?: Set<string> = new Set()
+  /** held files the person said Save to on their skill's card in this turn: path → the exact bytes' hash. The AI's
+   * second write of exactly those bytes saves with no card; anything else asks */
+  private skillHeldYes?: Map<string, string> = new Map()
+  /** after a SKILL.md save whose card showed held files: those files, for the note the AI reads (heldSaveNote) */
+  private skillHeldNote?: Map<string, string[]> = new Map()
+
+  /** The note after a SKILL.md write whose card also approved held files: write them again unchanged. */
+  heldSaveNote(tool: string, args: unknown, isError: boolean): string | undefined {
+    if (isError || tool !== 'write') return undefined
+    const p = (args as { file_path?: unknown } | null)?.file_path
+    if (typeof p !== 'string' || !this.skillHeldNote?.size) return undefined
+    let rel: string
+    try { rel = authorize(this.rt.files.fx, this.rt.files.rules(), this.livePrincipal(), p, 'write', { createDirs: true }).rel } catch { return undefined }
+    const rels = this.skillHeldNote.get(rel)
+    this.skillHeldNote.delete(rel)
+    return rels?.length ? heldNote(rels) : undefined
+  }
 
   private async askSkillWrite(tool: string, args: unknown, files: TurnFiles): Promise<{ refusal: string; summary: string } | null> {
     if (tool !== 'write' && tool !== 'edit' && tool !== 'make_file' && tool !== 'edit_hwp') return null
@@ -3537,16 +3583,31 @@ export class TurnExec {
     // form showed two cards, SKILL.md and the form). Not an existing file, not another SKILL.md, not when this save
     // would also show content the SKILL.md's yes did not cover to more people
     const folder = skillFolderOf(r.rel)
-    if (!r.exists && folder && this.newSkillYes?.has(folder) && !/(^|\/)SKILL\.md$/i.test(r.rel) && !dead) {
-      const allowed = this.widenAllowed.get(folder)
-      if (!need || (allowed && need.narrower.every((s) => allowed.has(sourceKey(s))))) {
-        this.files.skillApprovals.set(r.rel, approval)
-        if (need) this.allowWidening(need)
-        return null
+    const manifest = /(^|\/)SKILL\.md$/i.test(r.rel)
+    // a held file the person said Save to on its skill's card (it showed these exact bytes), written again after the
+    // SKILL.md was saved: no card of its own. The wider-audience check after this still runs (that card's yes covers it)
+    if (tool === 'write' && !r.exists && folder && this.skillHeldYes?.get(r.rel) === approval && fs.existsSync(path.join(fs_.fx.root, folder, 'SKILL.md'))) {
+      this.skillHeldYes.delete(r.rel)
+      this.files.skillApprovals.set(r.rel, approval)
+      return null
+    }
+    // a plain text file (a form, a template) written into a NEW skill's folder (nothing there yet) before its SKILL.md:
+    // held, not saved, and shown on the SKILL.md card with the skill (QA MAN-052: two cards of raw text for one skill).
+    // Never in a scheduled run (nobody sees a card there) or with "Always allow" for skill saves on (no card to show it)
+    if (tool === 'write' && after !== null && !r.exists && folder && !manifest && this.spec.clientKind !== 'schedule' && alwaysHere(this.alwaysPlace(), 'skill_save') !== 'on'
+      && !this.skillSaved?.has(folder) && !fs.existsSync(path.join(fs_.fx.root, folder)) && heldFileOk(folder, r.rel, after)) {
+      const held = (this.skillHeld ??= new Map()).get(folder) ?? new Map<string, HeldFile<WidenNeed>>()
+      if (held.has(r.rel) || held.size < HELD_MAX_FILES) {
+        held.set(r.rel, heldFile(r.rel, after, need))
+        this.skillHeld.set(folder, held)
+        return { refusal: heldRefusal(r.rel, folder), summary: `${tool} -> held for the new skill's card (not saved yet)` }
       }
     }
+    // the SKILL.md of that new skill: its card also lists (and its Save also approves) the files held for it
+    const held = !r.exists && skill && folder && manifest && !dead ? this.skillHeld?.get(folder) : undefined
+    if (folder && manifest && !r.exists) this.skillHeld?.delete(folder)
     const wide = need ? this.widenSources(need) : null
-    const preview: SkillWritePreview = { kind: 'skill_write', path: r.rel, isNew: !r.exists, skillName: skill?.name ?? null, ...(problem ? { problem } : {}), ...(same ? { sameName: { text: same.text, hidden: same.hidden } } : {}), diff, added: d?.added ?? 0, removed: d?.removed ?? 0, truncated: d?.truncated ?? false }
+    const preview: SkillWritePreview = { kind: 'skill_write', path: r.rel, isNew: !r.exists, skillName: skill?.name ?? null, ...(problem ? { problem } : {}), ...(same ? { sameName: { text: same.text, hidden: same.hidden } } : {}), diff, added: d?.added ?? 0, removed: d?.removed ?? 0, truncated: d?.truncated ?? false, ...(held?.size ? { files: heldPreview(held.values()) } : {}) }
     const options = dead
       ? [{ label: st('renameSave', L), value: 'rename' }, ...(same!.fix ? [{ label: st(same!.fix.label, L), value: 'fix' }] : []), { label: st('dont', L), value: 'skip' }]
       : [{ label: st('save', L), value: 'save' }, { label: st('dont', L), value: 'skip' }]
@@ -3558,15 +3619,27 @@ export class TurnExec {
       // a project's skills folder no live project has (yet): saved there, no chat follows it
       // the file and its folder in words (팀 스킬 › 회의록 › SKILL.md, place-words.ts); the preview's path shows on hover
       question: (project ? (project.live ? st('confirmProject', L, { project: project.project.name, path: this.place(r.rel), what }) : st('confirmProjectNone', L, { folder: this.place(project.folder), path: this.place(r.rel), what })) : group ? st('confirmGroup', L, { group: group.name, path: this.place(r.rel), what }) : st('confirm', L, { path: this.place(r.rel), what }))
-        + (need && wide ? '\n\n' + tr('skillWiden', L, { ai: aiCalled(L), sources: wide.from, target: this.place(r.rel), n: String(need.viewers) }) : ''),
+        + (held?.size ? '\n\n' + tr('skillWithFiles', L, { n: String(held.size), names: [...held.keys()].map((k) => k.split('/').at(-1)!).join(', ') }) : '')
+        + (need && wide ? '\n\n' + tr('skillWiden', L, { ai: aiCalled(L), sources: wide.from, target: this.place(r.rel), n: String(need.viewers), m: String(need.blind) }) : ''),
       options, multiple: false, allowText: false, preview, ...(options.length === 3 ? { buttons: true as const } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest & { options: { label: string; value: string }[] })
     const picked = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
     if (picked === 'save' && !dead) {
       this.files.skillApprovals.set(r.rel, approval)
-      // a new skill's SKILL.md: its other new files in this turn go with this yes (above)
-      if (!r.exists && skill && folder && /(^|\/)SKILL\.md$/i.test(r.rel) && skillFolderOf(r.rel) === folder) (this.newSkillYes ??= new Set()).add(folder)
+      // a new skill's SKILL.md: the held files its card showed are approved for exactly those bytes (above)
+      if (folder && manifest && !r.exists) (this.skillSaved ??= new Set()).add(folder)
+      if (held?.size) {
+        const shown = new Set((need?.narrower ?? []).map(sourceKey))
+        for (const f of held.values()) {
+          ;(this.skillHeldYes ??= new Map()).set(f.rel, f.sha)
+          // its own folder (assets/) where more people can see: covered when this card said so for the same sources
+          // and the same people (folderAudience; else its second write asks the wider-audience card)
+          const aud = (dir: string) => { try { return folderAudience(this.rt.db, this.rt.files.rules(), dir.split('/').filter(Boolean)) } catch { return null } }
+          if (f.need && need && f.need.narrower.every((x) => shown.has(sourceKey(x))) && aud(f.need.dir) !== null && aud(f.need.dir) === aud(need.dir)) this.allowWidening(f.need)
+        }
+        ;(this.skillHeldNote ??= new Map()).set(r.rel, [...held.keys()])
+      }
       // the yes (or the person's "Always allow" for skill saves) covers saving there where more people can see
       if (need) this.allowWidening(need)
       return null
@@ -3856,6 +3929,10 @@ export class TurnExec {
     for (const r of rows) {
       if (r.action === 'create' || r.action === 'update' || r.action === 'delete' || r.action === 'restore') changes.push({ path: r.path, action: r.action, by, turnId: this.id })
       else if (r.action === 'upload') changes.push({ path: r.path, action: 'create', by, turnId: this.id })
+      if (r.action === 'create' || r.action === 'upload') {
+        const d = r.action === 'create' ? parseJson(r.detail) : {}
+        if (!d.folder && !d.conflictOf) this.newSaved.push(r.path)
+      }
       if (r.action === 'create' && looseArea(r.path) !== null) {
         // a new file, not a folder, a conflict copy beside its original or a rename in place
         const d = parseJson(r.detail)
@@ -3889,6 +3966,25 @@ export class TurnExec {
     this.loosePlaced = []
     if (!paths.length || !canMove || this.templateScope) return ''
     try { return placementNote(this.rt.files, this.livePrincipal(), paths, this.roomReadable) } catch { return '' }
+  }
+
+  /**
+   * After a tool call (chat/tools.ts): who can open the new files it saved, from their real folders (chat/save-audience.ts,
+   * docs/decisions/20261117-ai-save-my-files-default.md), or ''. In a ✦ side chat it also counts the room's people, so
+   * the answer never says "everyone in the room can open it" of a folder that is wider or narrower than the room.
+   * `say` false (a sub-agent's call, a guest, a turn where who_can_open is off): the files are dropped without a line.
+   */
+  audienceNote(say = true): string {
+    if (!this.newSaved.length) return ''
+    const paths = this.newSaved
+    this.newSaved = []
+    if (!say) return ''
+    try {
+      const side = sideRoomOf(this.rt.db, this.spec.chatId, this.spec.userId)
+      const room = side ? (this.rt.db.query("SELECT m.user_id FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? AND u.status = 'active' AND u.deleted_at IS NULL").all(side.id) as { user_id: string }[]).map((x) => x.user_id) : null
+      // a shared chat: others read the answer, so no count of the asker's folders (only "only the user" or the whole team)
+      return saveAudienceNote(this.rt.db, this.rt.files.rules(), paths, this.spec.userId, { room, shared: !!this.shared })
+    } catch { return '' }
   }
 
   private fileSummary(): FileChangeSummary | null {

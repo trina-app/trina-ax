@@ -2,11 +2,14 @@ package safeops
 
 // Resize: smaller copies of photos the person asked for (server/src/tools/resize-images.ts, resize_images). It runs in
 // the converter isolation like vision (bwrap + converter cgroup on Linux, sandbox-exec on macOS), reads the untrusted
-// bytes from stdin and writes one new image built from decoded pixels only: no EXIF, GPS, XMP, ICC profile, comment
-// or any other input metadata reaches the copy. The declared size is checked before any pixel is decoded, as in
-// Vision. JPEG stays JPEG, PNG stays PNG; a WebP becomes a JPEG, or a PNG when it has see-through pixels (x/image has
-// no WebP encoder). The EXIF orientation of a JPEG is applied, so the copy shows upright without it. Never larger
-// than the original in pixels. Refusals are fixed reason lines, never text derived from the input.
+// bytes from stdin and writes one new image built from decoded pixels. The photo's details (EXIF with time, camera and
+// location, XMP, ICC profile) are carried over by default, edited in place (meta.go); on request the location or all
+// of them are left out. Nothing else of the input (comments, other segments) reaches the copy. The declared size is
+// checked before any pixel is decoded, as in Vision. JPEG stays JPEG, PNG stays PNG; a WebP becomes a JPEG, or a PNG
+// when it has see-through pixels (x/image has no WebP encoder); Format asks for JPEG or PNG instead. The EXIF
+// orientation of a JPEG is applied and reset to 1, so the copy shows upright everywhere; Upright says the pixels are
+// upright already (a HEIC decoded by the server: Debian 12's heif-convert turns the pixels and keeps the tag). Never
+// larger than the original in pixels. Refusals are fixed reason lines, never text derived from the input.
 
 import (
 	"bytes"
@@ -38,10 +41,23 @@ const (
 	resizeMinSide = 160
 )
 
-// ResizeSpec is what the person asked for. At least one of the four is set; Side and Width cap the picture as shown
-// (after its orientation), Permille scales both sides (500 is half), MaxBytes is the most bytes the copy may have.
+// ResizeSpec is what the person asked for. At least one of the four sizes is set; Side and Width cap the picture as
+// shown (after its orientation), Permille scales both sides (500 is half), MaxBytes is the most bytes the copy may
+// have. Details is DetailsKeep, DetailsNoLocation or DetailsNone (meta.go); Format 0 keeps the input's format (WebP:
+// JPEG or PNG), 1 asks for JPEG, 2 for PNG; Upright: the pixels are upright already, the orientation tag is ignored.
 type ResizeSpec struct {
 	Side, Width, Permille, MaxBytes int
+	Details, Format                 int
+	Upright                         bool
+}
+
+// ResizeOptions packs Details, Format and Upright into the helper's fifth number: details + 4*format + 16*upright.
+func ResizeOptions(n int) (details, format int, upright, ok bool) {
+	if n < 0 || n > 31 {
+		return 0, 0, false, false
+	}
+	details, format, upright = n&3, (n>>2)&3, n&16 != 0
+	return details, format, upright, details <= DetailsNone && format <= 2
 }
 
 var (
@@ -69,52 +85,65 @@ func (s ResizeSpec) valid() bool {
 	if s.MaxBytes != 0 && s.MaxBytes < ResizeMaxBytesMin {
 		return false
 	}
+	if s.Details < 0 || s.Details > DetailsNone || s.Format < 0 || s.Format > 2 {
+		return false
+	}
 	return s.Side != 0 || s.Width != 0 || s.Permille != 0 || s.MaxBytes != 0
 }
 
 // Resize decodes one JPEG, PNG or WebP (format from the content, not the file name) and returns the smaller copy.
 func Resize(b []byte, s ResizeSpec) ([]byte, error) {
+	out, _, err := ResizeWithInfo(b, s)
+	return out, err
+}
+
+// ResizeWithInfo is Resize that also says what happened to the photo's details.
+func ResizeWithInfo(b []byte, s ResizeSpec) ([]byte, ResizeInfo, error) {
+	var info ResizeInfo
 	if !s.valid() {
-		return nil, ErrResizeSpec
+		return nil, info, ErrResizeSpec
 	}
 	if len(b) > ResizeInputMax {
-		return nil, ErrResizeBytes
+		return nil, info, ErrResizeBytes
 	}
 	c, format, err := image.DecodeConfig(bytes.NewReader(b))
 	if err != nil {
 		if errors.Is(err, image.ErrFormat) {
-			return nil, ErrResizeFormat
+			return nil, info, ErrResizeFormat
 		}
-		return nil, ErrResizeCorrupt
+		return nil, info, ErrResizeCorrupt
 	}
 	if !resizeFormats[format] {
-		return nil, ErrResizeFormat
+		return nil, info, ErrResizeFormat
 	}
 	if !visionSize(c.Width, c.Height) {
-		return nil, ErrResizePixels
+		return nil, info, ErrResizePixels
 	}
 	if format == "webp" {
 		if w, h, ok := webpLosslessSize(b); ok && !visionSize(w, h) {
-			return nil, ErrResizePixels
+			return nil, info, ErrResizePixels
 		}
 		if webpAnimated(b) {
-			return nil, ErrResizeAnimated
+			return nil, info, ErrResizeAnimated
 		}
 	}
 	if format == "png" && pngAnimated(b) {
-		return nil, ErrResizeAnimated
+		return nil, info, ErrResizeAnimated
 	}
 	im, _, err := image.Decode(bytes.NewReader(b))
 	if err != nil {
-		return nil, ErrResizeCorrupt
+		return nil, info, ErrResizeCorrupt
 	}
 	sw, sh := im.Bounds().Dx(), im.Bounds().Dy()
 	if !visionSize(sw, sh) {
-		return nil, ErrResizePixels
+		return nil, info, ErrResizePixels
 	}
+	// the details are read first: the orientation comes from the same EXIF block the copy carries (a PNG or WebP can
+	// have one too), so the pixels are turned exactly when the tag is reset
+	meta := readMeta(b, format)
 	o := 1
-	if format == "jpeg" {
-		o = orientation(b)
+	if !s.Upright {
+		o = tiffOrientation(meta.exif)
 	}
 	// the size as shown: orientations 5-8 turn the picture a quarter
 	vw, vh := sw, sh
@@ -122,8 +151,9 @@ func Resize(b []byte, s ResizeSpec) ([]byte, error) {
 		vw, vh = sh, sw
 	}
 	tw, th := resizeTarget(vw, vh, s)
-	if tw == vw && th == vh && (s.MaxBytes == 0 || len(b) <= s.MaxBytes) {
-		return nil, ErrResizeUnchanged
+	// a copy in another format is made even at the same size (a HEIC as JPEG, "as PNG")
+	if tw == vw && th == vh && (s.MaxBytes == 0 || len(b) <= s.MaxBytes) && s.Format == 0 {
+		return nil, info, ErrResizeUnchanged
 	}
 	// premultiplied RGBA once (draw's fast paths for YCbCr, Gray, NRGBA ...): halving and scaling average it
 	src := image.NewRGBA(image.Rect(0, 0, sw, sh))
@@ -137,31 +167,47 @@ func Resize(b []byte, s ResizeSpec) ([]byte, error) {
 	if format == "png" || (format == "webp" && alpha) {
 		out = "png"
 	}
+	switch s.Format {
+	case 1:
+		out = "jpeg"
+	case 2:
+		out = "png"
+	}
 	bw, bh := tw, th
 	f := 1.0
 	for round := 0; round < 12; round++ {
-		enc, err := encodeScaled(src, o, tw, th, out, s.MaxBytes)
-		if err != nil {
-			return nil, err
-		}
-		if s.MaxBytes == 0 || len(enc) <= s.MaxBytes {
-			if len(enc) > ResizeOutputMax {
-				return nil, ErrResizeOutput
+		m, mi := meta.prepare(s.Details, tw, th, out)
+		info = mi
+		budget := s.MaxBytes
+		if budget > 0 {
+			// the details count toward the target size
+			if budget -= metaSize(out, m); budget < ResizeMaxBytesMin/2 {
+				return nil, info, ErrResizeTarget
 			}
-			return enc, nil
+		}
+		enc, err := encodeScaled(src, o, tw, th, out, budget)
+		if err != nil {
+			return nil, info, err
+		}
+		if budget == 0 || len(enc) <= budget {
+			enc = withMeta(enc, out, m)
+			if len(enc) > ResizeOutputMax {
+				return nil, info, ErrResizeOutput
+			}
+			return enc, info, nil
 		}
 		// over the target: smaller by the square root of the byte ratio (bytes follow the pixel count), at least 8%
 		// and at most half per round
 		// (one factor for both sides, from the first size, so the aspect ratio does not drift over the rounds)
-		step := math.Sqrt(float64(s.MaxBytes)/float64(len(enc))) * 0.95
+		step := math.Sqrt(float64(budget)/float64(len(enc))) * 0.95
 		f *= math.Max(0.5, math.Min(0.92, step))
 		nw, nh := max(1, int(math.Round(float64(bw)*f))), max(1, int(math.Round(float64(bh)*f)))
 		if max(nw, nh) < resizeMinSide {
-			return nil, ErrResizeTarget
+			return nil, info, ErrResizeTarget
 		}
 		tw, th = nw, nh
 	}
-	return nil, ErrResizeTarget
+	return nil, info, ErrResizeTarget
 }
 
 // resizeTarget: the shown size after every cap, never larger than the shown size, aspect kept.

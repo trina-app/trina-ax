@@ -56,4 +56,9 @@
   zone). Real AI: `tests/ai-scenarios/cases.yaml` ROOM-02.viewer-zone (the new `timeZone` case field) and
   SCH-01.viewer-zone (a reminder from a Jakarta device is set at 11:00 Seoul), with ADM-05.ask still answered from the
   setting.
+- Checked after the merge (batch #1199): a rerun that printed Seoul times had used the scenario runner of branch
+  test/ai-scenarios, which had no `timeZone` case field; zod dropped it and no zone was sent. With the zone sent, merged
+  dev passed ROOM-02.viewer-zone and SCH-01.viewer-zone 3 of 3 each. Case and variant objects are now strict
+  (`tests/ai-scenarios/lib/types.ts`), so a runner that does not know a case field stops instead of running wrong
+  (`tests/unit/ai-scenarios-catalog.test.ts`).
 - Version impact: patch (an optional request field, no migration).

@@ -3,7 +3,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
-import type { Flow, FlowResult } from './flow'
+import { normUrl, urlsIn, type Flow, type FlowResult } from './flow'
+import { ROOM_NAME } from '../fixture/seed'
 
 export const FlowJudgement = z.object({
   pass: z.boolean(),
@@ -73,7 +74,7 @@ export async function judgeFlow(f: Flow, r: FlowResult): Promise<FlowJudgement> 
 
 /** every prompt each person saw in a flow, and the fatigue flags */
 export function prompts(r: FlowResult) {
-  const list = r.steps.flatMap((s) => (s.turn?.cards ?? []).map((k) => ({ step: s.index, as: s.as, kind: k.kind, origin: k.origin, question: k.question.replace(/\s+/g, ' '), hasAlways: !!k.hasAlways, options: k.options ?? [] })))
+  const list = r.steps.flatMap((s) => [...(s.turn?.cards ?? []), ...(s.uiPrompts ?? [])].map((k) => ({ step: s.index, as: s.as, kind: k.kind, origin: k.origin, question: k.question.replace(/\s+/g, ' '), hasAlways: !!k.hasAlways, options: k.options ?? [] })))
   // the same kind of card again for one person: the first 30 characters of its question, numbers and names taken out
   const key = (q: string) => q.replace(/[0-9]+/g, '#').replace(/[«“"'].*?[»”"']/g, '…').slice(0, 30)
   const seen = new Map<string, number>()
@@ -97,10 +98,10 @@ export function writeFlowReport(flows: Flow[], runs: { label: string; results: F
   const byId = new Map(main.results.map((r) => [r.id, r]))
   const ran = flows.filter((f) => byId.has(f.id))
   const verdict = (r: FlowResult) => (r.judge as unknown as FlowJudgement | undefined)
-  const pass = ran.filter((f) => verdict(byId.get(f.id)!)?.pass).length
+  const pass = ran.filter((f) => verdict(byId.get(f.id)!)?.pass && !absurdPrompts(byId.get(f.id)!, { roomName: ROOM_NAME, afterAlways: runs[1]?.results.find((x) => x.id === f.id) }).length).length
   const turns = main.results.flatMap((r) => r.steps.flatMap((s) => (s.turn ? [s.turn] : [])))
   L.push(`# AI scenario flows: ${main.label}`, '')
-  L.push(`${ran.length} flows: ${pass} pass, ${ran.length - pass} broke. ${turns.length} AI turns, ${turns.reduce((a, t) => a + t.usage.outputTokens, 0).toLocaleString('en')} output tokens, ${turns.reduce((a, t) => a + t.usage.cacheReadTokens, 0).toLocaleString('en')} cache read, list-price equivalent $${turns.reduce((a, t) => a + t.usage.costUsd, 0).toFixed(2)}; ${Math.round(turns.reduce((a, t) => a + t.ms, 0) / 60000)} min of turns.`, '')
+  L.push(`${ran.length} flows: ${pass} pass; ${ran.length - pass} broke or have flagged prompts. ${turns.length} AI turns, ${turns.reduce((a, t) => a + t.usage.outputTokens, 0).toLocaleString('en')} output tokens, ${turns.reduce((a, t) => a + t.usage.cacheReadTokens, 0).toLocaleString('en')} cache read, list-price equivalent $${turns.reduce((a, t) => a + t.usage.costUsd, 0).toFixed(2)}; ${Math.round(turns.reduce((a, t) => a + t.ms, 0) / 60000)} min of turns.`, '')
   L.push('| Flow | Group | Steps | Result | First broken step | Why | Prompts (per person) | Time | Cost |', '|---|---|---|---|---|---|---|---|---|')
   for (const f of ran) {
     const r = byId.get(f.id)!
@@ -110,7 +111,18 @@ export function writeFlowReport(flows: Flow[], runs: { label: string; results: F
     const slow = t.filter((x) => x.status === 'slow').length
     const broken = v?.first_broken_step ?? r.firstBroken
     const say = broken ? f.steps[broken - 1]?.say ?? '' : ''
-    L.push(`| ${f.id} ${cell(f.title)}${f.mocked ? ' (mocked)' : ''}${f.fixInProgress ? ' (fix in progress)' : ''} | ${f.group} | ${f.steps.length} | ${v ? (v.pass ? 'pass' : 'broke') : 'not judged'} | ${broken ? `${broken}: ${cell(say)}` : '-'} | ${v ? `[${v.root_cause}] ${cell(v.why)}` : ''} | ${p.list.length}${Object.keys(p.perPerson).length ? ` (${Object.entries(p.perPerson).map(([a, n]) => `${a} ${n}`).join(', ')})` : ''} | ${Math.round(t.reduce((a, x) => a + x.ms, 0) / 1000)} s${slow ? `, ${slow} slow` : ''} | $${t.reduce((a, x) => a + x.usage.costUsd, 0).toFixed(2)} |`)
+    const fl = absurdPrompts(r, { roomName: ROOM_NAME, afterAlways: runs[1]?.results.find((x) => x.id === f.id) })
+    L.push(`| ${f.id} ${cell(f.title)}${f.mocked ? ' (mocked)' : ''}${f.fixInProgress ? ' (fix in progress)' : ''} | ${f.group} | ${f.steps.length} | ${v ? (v.pass && !fl.length ? 'pass' : v.pass ? `fail (${fl.length} prompt flags)` : `broke${fl.length ? `, ${fl.length} prompt flags` : ''}`) : 'not judged'} | ${broken ? `${broken}: ${cell(say)}` : '-'} | ${v ? `[${v.root_cause}] ${cell(v.why)}` : ''} | ${p.list.length}${Object.keys(p.perPerson).length ? ` (${Object.entries(p.perPerson).map(([a, n]) => `${a} ${n}`).join(', ')})` : ''} | ${Math.round(t.reduce((a, x) => a + x.ms, 0) / 1000)} s${slow ? `, ${slow} slow` : ''} | $${t.reduce((a, x) => a + x.usage.costUsd, 0).toFixed(2)} |`)
+  }
+  const second = runs[1] ? new Map(runs[1].results.map((r) => [r.id, r])) : null
+  const flags = new Map(ran.map((f) => [f.id, absurdPrompts(byId.get(f.id)!, { roomName: ROOM_NAME, afterAlways: second?.get(f.id) })]))
+  L.push('', '## Absurd prompts (each fails its flow)', '', 'A prompt is flagged when it asks about what the person explicitly asked in that message, repeats for the same target in the same chat, opens an address already pasted in the chat or its room (tracking query, fragment and trailing slash ignored), warns about private content that came from that same room, or has no "Always allow"; a flow is also flagged for more than 1 prompt with the defaults or more than 0 after Always allow.', '')
+  const flaggedFlows = ran.filter((f) => flags.get(f.id)!.length)
+  L.push(`${flaggedFlows.length} of ${ran.length} flows have flagged prompts.`, '')
+  for (const f of flaggedFlows) {
+    L.push(`### ${f.id} ${f.title}`)
+    for (const x of flags.get(f.id)!) L.push(`- ${x.step ? `step ${x.step}, ${x.as}: "${x.question}"` : x.question} — **${x.reason}**`)
+    L.push('')
   }
   L.push('', '## Prompts per flow', '', 'Every card, confirmation and question each person saw (default run: the person answers "this time" on a card).', '')
   for (const f of ran) {
@@ -146,4 +158,65 @@ export function writeFlowReport(flows: Flow[], runs: { label: string; results: F
   fs.mkdirSync(path.dirname(file), { recursive: true })
   fs.writeFileSync(file, L.join('\n') + '\n')
   return file
+}
+
+// ---------------- absurd prompts (owner 2026-11-16: "5 prompts to save a teammate's meeting-notes link") ----------------
+export interface Flagged { step: number; as: string; question: string; reason: string }
+
+/** what a server card asks to do, and the words in a person's message that ask for that same thing */
+const ACTIONS: { kind: string; card: RegExp; asked: RegExp }[] = [
+  { kind: 'share', card: /공유할까요|share .*\?|공유하려고/i, asked: /공유|share|보여\s?줘/i },
+  { kind: 'connector write', card: /에 이 내용을 보내려고 해요|wants to send this to/i, asked: /바꿔|고쳐|추가|만들|올려|달아|옮겨|보내|넣어|update|add|create|comment|move|send|change/i },
+  { kind: 'open address', card: /주소를 열려고|open this address/i, asked: /https?:\/\//i },
+  { kind: 'skill save', card: /팀 스킬|스킬\/규칙|team skill/i, asked: /스킬|skill/i },
+  { kind: 'send', card: /보낼까요|올릴까요|보내기 전에|post (it|this)|send (it|this|to)/i, asked: /보내|올려|전달|답글|남겨|달아|공유|send|post|forward|reply/i },
+  { kind: 'save', card: /저장할까요|저장하려고|save (it|this)/i, asked: /저장|만들어|넣어|옮겨|save|make|create|put/i },
+  { kind: 'delete', card: /지울까요|휴지통|delete/i, asked: /지워|삭제|빼|delete|remove/i },
+  { kind: 'change', card: /바꾸기 전에|이 작업을 하려고|파일 수정/i, asked: /고쳐|바꿔|수정|추가|넣어|edit|change|fix|update/i },
+]
+const SAME_ROOM_CONTENT = /대화의 메시지|다른 사람이 쓴 글|messages from (the|this) (room|conversation)|room's messages/i
+/** the place a card is about: a quoted name, a path after ›, or the room's name */
+function target(q: string, roomName: string): string {
+  if (q.includes(roomName)) return roomName
+  const m = /›\s*([^?]+?)(에|을|를|\?|$)/.exec(q) ?? /'([^']+)'|"([^"]+)"/.exec(q)
+  return (m?.[1] ?? m?.[2] ?? '').trim().slice(0, 60)
+}
+
+/** Every prompt of a flow run that should not have been there, with why; and the flow-level counts against the
+ * owner's limits (more than 1 prompt with defaults, more than 0 after Always allow). */
+export function absurdPrompts(r: FlowResult, o: { roomName: string; afterAlways?: FlowResult }): Flagged[] {
+  const out: Flagged[] = []
+  const seen = new Map<string, number>()
+  let total = 0
+  for (const s of r.steps) {
+    const cards = [...(s.turn?.cards ?? []), ...(s.uiPrompts ?? [])]
+    const prompt = s.prompts?.[s.prompts.length - 1] ?? ''
+    for (const k of cards) {
+      total++
+      const q = k.question.replace(/\s+/g, ' ')
+      const flag = (reason: string) => out.push({ step: s.index, as: s.as, question: q.slice(0, 160), reason })
+      if (k.origin !== 'server') continue
+      const act = ACTIONS.find((a) => a.card.test(q))
+      if (act?.kind === 'open address') {
+        const u = (q.match(/https?:\/\/[^\s)<>]+/) ?? [])[0]
+        const nu = u ? normUrl(u) : ''
+        const inPrompt = (s.prompts ?? []).slice(-1).flatMap(urlsIn).map(normUrl)
+        if (nu && inPrompt.includes(nu)) flag('opens an address the person pasted in this very message')
+        else if (nu && (s.seenUrls ?? []).includes(nu)) flag(`opens an address already in this ${s.context === 'room-side' ? 'chat or its room' : 'chat or the group chat'}`)
+      } else if (act && act.asked.test(prompt)) flag(`asks about what ${s.as} explicitly asked for (${act.kind}) in this message`)
+      if (SAME_ROOM_CONTENT.test(q) && (s.context === 'room-side' || q.includes(o.roomName)) && (q.includes(o.roomName) || /스레드|thread|이 방|this room|대화방/i.test(q)))
+        flag('a private-content warning about content that came from that same room')
+      if (!k.hasAlways) flag('this card has no "Always allow"')
+      const key = `${s.as}|${s.chat}|${act?.kind ?? q.slice(0, 20)}|${target(q, o.roomName)}`
+      seen.set(key, (seen.get(key) ?? 0) + 1)
+      if (seen.get(key)! > 1) flag('asks again for the same target in the same chat')
+    }
+  }
+  if (total > 1) out.push({ step: 0, as: '', question: `${total} prompts in the flow`, reason: 'more than 1 prompt with the defaults' })
+  if (o.afterAlways) {
+    const n = o.afterAlways.steps.reduce((a, s) => a + (s.turn?.cards.length ?? 0) + (s.uiPrompts?.length ?? 0), 0)
+    if (n > 0) out.push({ step: 0, as: '', question: `${n} prompts after Always allow: ${o.afterAlways.steps.flatMap((s) => (s.turn?.cards ?? []).map((k) => `step ${s.index} ${k.question.replace(/\s+/g, ' ').slice(0, 50)}`)).join('; ')}`, reason: 'more than 0 prompts after Always allow' })
+  }
+  // one line per prompt and reason (a card that fails several rules is listed under each)
+  return out
 }

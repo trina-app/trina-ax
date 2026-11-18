@@ -1,7 +1,9 @@
 // resize_images through the tool path (the MCP handler, as an engine calls it), QA TC-4539: the longest side, a width, a
 // target file size and the presets; several photos in one call; copies next to the originals ("<name>-<word>.jpg"),
-// never over them unless replace: true after a read; the EXIF orientation applied and the photo details (location)
-// removed; HEIC and other formats refused in plain words; the folder rules (read-only, someone else's file, skills).
+// never over them unless replace: true after a read; the EXIF orientation applied; the photo details (time taken,
+// camera, location) kept by default and removed only on request (the owner, 2026-11-17); iPhone HEIC photos made into
+// JPEG copies, read by the AI as images, and a plain sentence where the server has no HEIC decoder; other formats
+// refused in plain words; the folder rules (read-only, someone else's file, skills).
 // The pixels are handled by `mycel-safeops resize` (native/internal/safeops/resize.go, its own Go tests); the tests
 // that convert skip without the built helper (bun run build:native).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
@@ -43,18 +45,35 @@ function turn(user: Person) {
 const word = () => RESIZE_WORD[teamDefaultLocale(A.ctx.db)]
 const D = 'groups/marketing/photos'
 
-/** the JPEG with an APP1 Exif segment after SOI: Orientation and a GPS IFD with a recognisable string */
+/** the JPEG with an APP1 Exif segment after SOI: Orientation and a GPS IFD whose area information holds a recognisable
+ * string */
 function withExif(jpg: Uint8Array, orient: number): Buffer {
-  const t = Buffer.alloc(8 + 30 + 18 + 16)
+  const t = Buffer.alloc(8 + 30 + 30 + 16)
   t.write('II', 0, 'latin1'); t.writeUInt16LE(42, 2); t.writeUInt32LE(8, 4)
   t.writeUInt16LE(2, 8)
   t.writeUInt16LE(0x0112, 10); t.writeUInt16LE(3, 12); t.writeUInt32LE(1, 14); t.writeUInt16LE(orient, 18)
   t.writeUInt16LE(0x8825, 22); t.writeUInt16LE(4, 24); t.writeUInt32LE(1, 26); t.writeUInt32LE(38, 30)
-  t.writeUInt16LE(1, 38); t.writeUInt16LE(1, 40); t.writeUInt16LE(2, 42); t.writeUInt32LE(2, 44); t.write('N\0', 48, 'latin1')
-  t.write('GPS-SECRET-PLACE', 56, 'latin1')
+  t.writeUInt16LE(2, 38)
+  t.writeUInt16LE(1, 40); t.writeUInt16LE(2, 42); t.writeUInt32LE(2, 44); t.write('N\0', 48, 'latin1')
+  t.writeUInt16LE(0x1c, 52); t.writeUInt16LE(7, 54); t.writeUInt32LE(16, 56); t.writeUInt32LE(68, 60)
+  t.write('GPS-SECRET-PLACE', 68, 'latin1')
   const seg = Buffer.concat([Buffer.from('Exif\0\0', 'latin1'), t])
   const head = Buffer.from([0xff, 0xd8, 0xff, 0xe1, (seg.length + 2) >> 8, (seg.length + 2) & 0xff])
   return Buffer.concat([head, seg, Buffer.from(jpg).subarray(2)])
+}
+
+/** the tags of IFD0 of a JPEG's EXIF (empty without one), with SHORT values */
+function ifd0(jpg: Buffer): Map<number, number> {
+  const out = new Map<number, number>()
+  const at = jpg.indexOf('Exif\0\0', 0, 'latin1')
+  if (at < 0) return out
+  const t = jpg.subarray(at + 6)
+  const le = t.toString('latin1', 0, 2) === 'II'
+  const u16 = (o: number) => (le ? t.readUInt16LE(o) : t.readUInt16BE(o))
+  const u32 = (o: number) => (le ? t.readUInt32LE(o) : t.readUInt32BE(o))
+  const off = u32(4)
+  for (let i = 0; i < u16(off); i++) out.set(u16(off + 2 + 12 * i), u16(off + 2 + 12 * i + 8))
+  return out
 }
 
 describe('the input: one control or a preset, in plain numbers', () => {
@@ -92,7 +111,9 @@ describe('copies next to the originals', () => {
     expect(r.text).toContain('was 1200×800')
     expect(r.text).toMatch(/\[shop-[^\]]+\.jpg\]\(/)
     expect(r.text).toContain('unchanged')
-    expect(r.text).toMatch(/location/i)
+    // the details stay: the AI does not say anything was removed
+    expect(r.text).toContain('keep the photo details')
+    expect(r.text).not.toMatch(/location was removed|were removed/i)
     expect(fs.readFileSync(file(`${D}/shop.jpg`)).equals(before)).toBe(true)
     // a width; a second copy gets a free name
     const w = await call('resize_images', { paths: [`${D}/shop.jpg`], width: 300 })
@@ -132,15 +153,38 @@ describe('copies next to the originals', () => {
     expect(r.text.match(/^Saved /gm)?.length).toBe(3)
   })
 
-  conv('the EXIF orientation is applied and the photo details (GPS) do not reach the copy', async () => {
+  conv('the EXIF orientation is applied; the photo details (GPS included) stay by default, orientation reset', async () => {
     put(`${D}/phone.jpg`, withExif(PHOTO, 6)) // stored 1200x800, shown 800x1200
     const call = turn('alice')
     const r = await call('resize_images', { paths: [`${D}/phone.jpg`], longest_side: 300 })
     expect(r.isError, r.text).toBe(false)
     const out = fs.readFileSync(file(`${D}/phone-${word()}.jpg`))
     expect(displaySize(out)).toEqual({ width: 200, height: 300 })
+    expect(out.includes('GPS-SECRET-PLACE')).toBe(true)
+    expect(ifd0(out).get(0x0112)).toBe(1)
+    expect(ifd0(out).has(0x8825)).toBe(true)
+  })
+
+  conv('the location is removed only on request ("without the location"); all details on request', async () => {
+    put(`${D}/trip.jpg`, withExif(PHOTO, 1))
+    const call = turn('alice')
+    const r = await call('resize_images', { paths: [`${D}/trip.jpg`], longest_side: 300, remove_details: 'location' })
+    expect(r.isError, r.text).toBe(false)
+    const out = fs.readFileSync(file(`${D}/trip-${word()}.jpg`))
     expect(out.includes('GPS-SECRET-PLACE')).toBe(false)
-    expect(out.includes('Exif')).toBe(false)
+    expect(ifd0(out).has(0x8825)).toBe(false)
+    expect(ifd0(out).get(0x0112)).toBe(1)
+    expect(r.text).toMatch(/location was removed/)
+    const all = await call('resize_images', { paths: [`${D}/trip.jpg`], longest_side: 300, remove_details: 'all', output: `${D}/trip-bare.jpg` })
+    expect(all.isError, all.text).toBe(false)
+    const bare = fs.readFileSync(file(`${D}/trip-bare.jpg`))
+    expect(bare.includes('Exif')).toBe(false)
+    expect(all.text).toMatch(/details .* were removed/)
+    // a photo without a location: the AI says there was none to remove, not that it removed one
+    put(`${D}/plain.jpg`, PHOTO)
+    const plain = await call('resize_images', { paths: [`${D}/plain.jpg`], longest_side: 300, remove_details: 'location' })
+    expect(plain.text).toMatch(/had no location/)
+    expect(plain.text).not.toMatch(/location was removed/)
   })
 
   conv('replace only with replace: true after a read: a new version, the old one in its history', async () => {
@@ -162,7 +206,7 @@ describe('copies next to the originals', () => {
 })
 
 describe('what it cannot read, and the folder rules', () => {
-  test('HEIC, GIF and a damaged photo: a plain reason naming the file; nothing saved', async () => {
+  test('GIF and a damaged HEIC: a plain reason naming the file; nothing saved', async () => {
     put(`${D}/iphone.heic`, Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from('ftypheic\0\0\0\0mif1heic', 'latin1')]))
     put(`${D}/anim.gif`, Buffer.from('GIF89a\x01\x00\x01\x00\x00\x00\x00;', 'latin1'))
     const call = turn('alice')
@@ -170,8 +214,7 @@ describe('what it cannot read, and the folder rules', () => {
     const heic = await call('resize_images', { paths: [`${D}/iphone.heic`], longest_side: 800 })
     expect(heic.isError).toBe(true)
     expect(heic.text).toContain('iphone.heic')
-    expect(heic.text).toMatch(/HEIC/)
-    expect(heic.text).toMatch(/JPEG|JPG/)
+    expect(heic.text).toMatch(/damaged/)
     const gif = await call('resize_images', { paths: [`${D}/anim.gif`], longest_side: 800 })
     expect(gif.isError).toBe(true)
     expect(gif.text).toContain('anim.gif')

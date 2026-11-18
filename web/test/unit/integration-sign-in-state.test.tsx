@@ -110,3 +110,27 @@ test('while still in the sign-in window (no return yet): the waiting line, with 
   expect(html).toContain('integration-signin-retry')
   expect(html).toContain('integration-signin-cancel')
 })
+
+test('a service that needs no sign-in (QA TC-4771): the server answers connected, the reserved window closes and it completes at once, with no panel', async () => {
+  const inner = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), 'http://team.localhost')
+    if (url.pathname === `/api/integrations/${ID}/authorize`) return json({ connected: true })
+    return inner(input, init)
+  }) as typeof fetch
+  let closed = 0
+  const reserved = { close: () => { closed++ } } as unknown as Window
+  const box: { s: ReturnType<typeof useSignIn> | null; done: string[] } = { s: null, done: [] }
+  function Probe() {
+    box.s = useSignIn((id) => { box.done.push(id) })
+    return <span data-testid="state">{box.s.state ? box.s.state.state : 'none'}</span>
+  }
+  const m = await mount(<Probe />)
+  try {
+    await act(() => box.s!.start(ID, reserved))
+    await m.settle()
+    expect(box.done).toEqual([ID])
+    expect(closed).toBe(1)
+    expect(m.get('state').textContent).toBe('none')
+  } finally { await m.unmount() }
+})

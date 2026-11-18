@@ -340,13 +340,15 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await bob.getByTestId('chat-gone-home').click()
       await expect(bob).toHaveURL(/\/$/)
       await bob.context().close()
-      // a chat Bob was never in: the general page, which no longer speaks of a project's members
+      // a chat Bob was never in: not "no longer shared", but Ask for access (Olga could share it with him: efcb894aa,
+      // docs/decisions/20261116-chat-project-ask-access.md), with nothing of the chat
       const other = await chatOf(page, 'Never shared')
       const bob2 = await as(browser, BOB)
       await bob2.goto(`/c/${other.chatId}`)
-      await expect(bob2.getByTestId('chat-not-found-why')).toHaveText('만든 사람만 볼 수 있는 채팅이거나, 삭제됐거나, 내가 멤버가 아닌 프로젝트의 채팅일 수 있어요. 링크를 보낸 사람에게 나와 공유해 달라고 해 주세요.')
-      await expect(bob2.getByTestId('chat-not-found')).not.toHaveAttribute('data-gone', 'shared')
-      if (process.env.SHOTS_DIR) await shots(bob2, `2034-general-not-found-${vp.name}`)
+      await expect(bob2.getByTestId('link-access-ask')).toHaveAttribute('data-kind', 'chat')
+      await expect(bob2.getByTestId('link-access-ask')).not.toContainText('Never shared')
+      await expect(bob2.getByTestId('chat-not-found')).toHaveCount(0)
+      if (process.env.SHOTS_DIR) await shots(bob2, `2034-never-shared-ask-${vp.name}`)
       await bob2.context().close()
     })
 

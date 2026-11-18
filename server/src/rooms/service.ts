@@ -1073,14 +1073,16 @@ export class Rooms {
   markNoticesRead(userId: string, roomId: string, seq: number) {
     // a notice whose run goes on past seq (it held a later message back: last_seq) stays unread: what came after is not
     // read yet, and no other notice stands for it (rooms/inbox.ts)
+    // EXISTS by the message's primary key, per unread notice (a person has few): `source_id IN (SELECT ... WHERE room_id
+    // AND seq <= ?)` made SQLite list every message of the room first, on every post and every open (TC-4772)
     const r = this.db.query(`UPDATE room_notices SET read_at = ? WHERE user_id = ? AND room_id = ? AND read_at IS NULL AND (last_seq IS NULL OR last_seq <= ?)
-      AND source_id IN (SELECT m.id FROM room_messages m WHERE m.room_id = ? AND m.seq <= ? AND ${TIMELINE_SQL})`).run(nowIso(), userId, roomId, seq, roomId, seq)
+      AND EXISTS (SELECT 1 FROM room_messages m WHERE m.id = room_notices.source_id AND m.room_id = ? AND m.seq <= ? AND ${TIMELINE_SQL})`).run(nowIso(), userId, roomId, seq, roomId, seq)
     if (r.changes) this.notifySignal(userId)
   }
   /** My notices of the replies in this thread up to `seq` count as read. */
   markThreadNoticesRead(userId: string, roomId: string, rootId: string, seq: number) {
     const r = this.db.query(`UPDATE room_notices SET read_at = ? WHERE user_id = ? AND room_id = ? AND read_at IS NULL AND (last_seq IS NULL OR last_seq <= ?)
-      AND source_id IN (SELECT id FROM room_messages WHERE room_id = ? AND thread_root_id = ? AND seq <= ?)`).run(nowIso(), userId, roomId, seq, roomId, rootId, seq)
+      AND EXISTS (SELECT 1 FROM room_messages m WHERE m.id = room_notices.source_id AND m.room_id = ? AND m.thread_root_id = ? AND m.seq <= ?)`).run(nowIso(), userId, roomId, seq, roomId, rootId, seq)
     if (r.changes) this.notifySignal(userId)
   }
 

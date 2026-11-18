@@ -5,6 +5,7 @@ import { confidentialChat, localTool } from "../safe-ops/confidential"
 import { stampOutputOf } from '../tools/stamp-pdf'
 import { commentDocxOutput } from '../tools/comment-docx'
 import { chatFileOffered, chatFileTool } from './chat-file-tool'
+import { answerCommentsOff, answerCommentsTool } from './answer-comments'
 import path from 'node:path'
 import { z } from 'zod'
 import { AskUserInput, ConnectServiceInput, EDIT_FILES_DESCRIPTION, EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS, FindSkillsInput, ForgetInput, MoveSkillInput, RememberInput, SetTitleInput, SkillInput, uuidv7 } from '@mycel/shared'
@@ -53,6 +54,7 @@ import { SEARCH_TOOLS, SHARED_TOOLS } from '../rooms/ai-tools'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
 import { roomReadTools } from './room-tools'
 import { hintsHere, roomHint } from './room-hint'
+import { fileNote, fileNoteOnce } from './file-notes'
 import { skillFilesTool } from './skill-files'
 import { postToRoomOff, postToRoomTool } from './post-to-room'
 import { shareWithPersonOff, shareWithPersonTool } from './share-with-person'
@@ -103,7 +105,7 @@ const zodText = (e: z.ZodError) => 'Invalid input: ' + e.issues.map((i) => `${i.
 export const B_TOOL_DESCRIPTIONS = {
   remember: 'Remember one lasting fact or preference about the user for future chats (one short sentence, under 300 characters). Only when the user wants it kept. Returns the memory id.',
   forget: 'Forget one memory by its id (the ids are shown in the memories block of your instructions).',
-  ask_user: 'Ask the user a question and wait for the answer. Offer options when you can; allowText also shows a text box on the card. The user can always answer in their own words from the message box instead. Returns {"answer": ...} with an option value or the user\'s own text (a list of them when multiple), or {"skipped": true} when the user does not answer in time.',
+  ask_user: 'Ask the user a question and wait for the answer. When more than one thing is unclear (which file, and to whom or where), ask about all of them in this one question (options for the likeliest pairs, and allowText for the rest) rather than guessing the rest. Offer options when you can; allowText also shows a text box on the card. The user can always answer in their own words from the message box instead. Returns {"answer": ...} with an option value or the user\'s own text (a list of them when multiple), or {"skipped": true} when the user does not answer in time.',
   connect_service: 'Connect a service for the user (an MCP server or an HTTP API: Notion, Linear, GitHub, Higgsfield, any other), or their Google Drive (target google_drive). Fill in the service\'s official address from its documentation (prefer its MCP endpoint, and oauth when it offers sign-in); the user then pastes their key into the card or signs in there. The key never reaches you: never ask for it in the chat. Returns {"connected": true, "name", "status", "tools"} once it works, or {"skipped": true} when the user does not finish the card; without a card, a text says why (a field to fix, a connection that already exists, or what is not allowed). The result says when its tools are offered: in most chats this same answer goes on with them (then do what the request needed them for), else from the user\'s next message.',
   set_title: 'Name this new chat: a short title in the user\'s language that says what the person wants (2-60 characters). Call it once, early in your answer. Never put keys, tokens, passwords, personal data or quotes of the message in it.',
   skill: 'Load one of the user\'s skills (a saved team or personal workflow) by its name as listed under Team skills in your instructions, and get its full steps. Call it when a request matches a skill, before you follow it; then follow the steps and say which skill you used. A folder skill\'s other files are read with read, relative to the folder the result names.',
@@ -204,6 +206,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // a file sent from the computer in a chat shared with people (chat/chat-file-tool.ts): read as this person while they
   // see the chat; only where the chat holds such files or is shared with people
   if (chatFileOffered(exec)) add(chatFileTool(exec))
+  // the comments under answers in this chat, read as this person while they see the chat (chat/answer-comments.ts):
+  // a shared chat or one that still holds replies; never a scheduled run, Slack, a confidential, template or restricted
+  // run, nor a sub-agent (PARENT_ONLY_TOOLS)
+  if (!answerCommentsOff(exec)) add(answerCommentsTool(exec))
   // the AI posts to one of the person's rooms, a thread there or a teammate, after their yes on one server card
   // (chat/post-to-room.ts): in their own chat and in a shared one (as the turn's own person, SHARED_TOOLS), never in a
   // confidential, draft or template chat, a scheduled run or a question from Slack (postToRoomOff)
@@ -391,7 +397,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       const placed = exec.placementNote(tools.has('move_files'))
       // a skill saved in a shared chat (make_file, edit_hwp into a skill folder): one quiet line in the answer
       const skillNote = name === 'make_file' || name === 'edit_hwp' ? exec.sharedSkillNote(name, args, !!out.isError) : null
-      const note = placed && skillNote ? `${placed}\n${skillNote}` : placed || skillNote
+      // who can open what it saved, from the real folder (chat/save-audience.ts); the main AI's own call, not a guest's,
+      // and only where who_can_open is offered (no confidential chat, scheduled run, Slack question or template run)
+      const audience = exec.audienceNote(files === exec.files && !guest && !whoCanOpenOff(exec))
+      const note = [placed, skillNote, audience].filter(Boolean).join('\n')
       // the audit line (tool_events) never repeats a stored connection secret (integrations/connections/redact.ts), and
       // in a chat that read team chat rooms keeps of an address only its site (tools/audit-url.ts): admins read it
       const summary = exec.redact(out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}`)
@@ -414,13 +423,21 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       if (isError && text && !guest) { const pn = notMemberFor(exec, text); if (pn) return pn }
       // a skill saved in a shared chat: one quiet line in the answer that the people here can see it
       const skillNote = exec.sharedSkillNote(name, args, isError)
+      // a new skill's SKILL.md saved with held files on its card: write them again unchanged (chat/skill-held.ts)
+      const heldNote = exec.heldSaveNote(name, args, isError)
       const placed = exec.placementNote(tools.has('move_files'))
       // a search of the team files by the main AI (a sub-agent has no rooms tool): the person's rooms that mention the
       // same words, counted (chat/room-hint.ts); only where the rooms tool is offered (never a shared, confidential,
       // draft, template or guest chat) and a room read stays in this chat (no scheduled run, Slack or side chat)
       const main = !caller || caller.files === exec.files
       const rooms = name === 'grep' && !isError && main && !guest && hintsHere(exec, tools.has('rooms')) ? roomHint(exec, (args as { pattern?: unknown } | null)?.pattern) : null
-      return [placed, skillNote, rooms].filter(Boolean).join('\n') || undefined
+      // the version an edit keeps, a Hangul document that cannot be changed here (chat/file-notes.ts), once a turn
+      // the main AI's own call only: a sub-agent reports to it (its Word copy would be a second one), and a guest has no
+      // Files screen with a version history
+      const fact = !main || guest ? null : fileNoteOnce(exec, fileNote({ name, isError, args, text, hangulOff: () => !hwpWritingOn(exec.rt.ctx), makeFile: tools.has('make_file') }), exec.spec.locale)
+      // who can open what it saved, from the real folder (chat/save-audience.ts), with who_can_open's gates
+      const audience = exec.audienceNote(main && !guest && !whoCanOpenOff(exec))
+      return [placed, skillNote, heldNote, rooms, fact, audience].filter(Boolean).join('\n') || undefined
     },
     // edit_files (mcp/protocol.ts): after a room read one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {

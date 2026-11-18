@@ -24,7 +24,7 @@ import { FileAudio, FileText, FolderOpen, Loader2 } from 'lucide-react'
 import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent } from 'react'
 import { CHAT_FILES_FOLDER } from '@mycel/shared'
 import { DEFAULT_LOCALE, MESSAGE_ATTACHMENTS_MAX, UPLOAD_SESSION_MAX, uuidv7, type Attachment } from '@mycel/shared/api'
-import { api, API, errorText } from '../../lib/api'
+import { api, API, errorText, thumbnailUrl } from '../../lib/api'
 import { markBusy } from '../../lib/busy'
 import { SIGNED_OUT } from '../../lib/localData'
 import { formatSize } from '../../lib/format'
@@ -40,7 +40,7 @@ import { useLocale, useT } from '../../i18n'
 import { myUploadMaxNow, useMe } from '../../store/session'
 import { isGuestMe } from '../../lib/guests'
 import { UploadLabel } from '../UploadLabel'
-import { ChipRemove, FAILED_REASON, isLocalImage, PictureTile } from '../ChipThumb'
+import { ChipRemove, FAILED_REASON, isHeicName, isLocalImage, PictureTile } from '../ChipThumb'
 import { ImageGroup } from '../ImageViewer'
 import { StoragePlansLink, storagePlansUrl } from '../StoragePlansLink'
 
@@ -370,12 +370,15 @@ export function ComposerFileList({ files, onRemove, className }: { files: Pendin
         const open = () => (f.source === 'team' || !f.file || (serverPreview(f.name) && f.attachment?.path) ? openTeamFile(f.attachment?.path ?? f.path!) : openFilePreview({ source: 'local', name: f.name, blob: f.file }))
         // a picture from this computer shows as itself at once, while it uploads (a pasted screenshot too); its
         // words for screen readers, a failure's reason beside it. Both regions stay through the whole upload.
-        if (f.source === 'upload' && f.file && isLocalImage(f.file))
+        // an iPhone photo (HEIC) shows as the server's thumbnail once it is uploaded (a picture icon if none could be made)
+        const heic = f.source === 'upload' && !!f.file && isHeicName(f.name) && f.status !== 'failed'
+        if (f.source === 'upload' && f.file && (isLocalImage(f.file) || heic))
           return (
             <li key={f.id} className="flex max-w-full items-center gap-2 pt-1.5 pr-1.5 text-xs" data-testid="attachment-chip" data-source={f.source} data-status={f.status}>
               <PictureTile
                 name={f.name}
-                file={f.file}
+                file={heic ? undefined : f.file}
+                src={heic && f.attachment ? thumbnailUrl(f.attachment.id) : undefined}
                 busy={f.status === 'uploading'}
                 percent={f.status === 'uploading' ? uploadPercent(f.progress) : null}
                 failed={f.status === 'failed'}

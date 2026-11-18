@@ -15,10 +15,10 @@ import { fail, HttpError } from '../../http/errors'
 import { resolveLayout } from '../../system/layout'
 import { egressOf } from '../../tools/egress'
 import { checkHostName, isLocalAddress, isPublicAddress } from '../../tools/web-fetch'
-import { secretHider } from './hide'
+import { errorForLog, secretHider, SecretTooLarge } from './hide'
 import { MCP_CALL_IDLE_MS, MCP_CALL_TIMEOUT_MS, MCP_LIST_TIMEOUT_MS, McpClient, McpError } from './mcp'
 import { NetError, serviceRequest, TIMEOUT_MS, type NetOptions, type NetResponse } from './net'
-import { authorizationUrl, CALLBACK_PATH, canonicalResource, chooseClient, discover, documentOrigins, GrantError, issuerMatches, loopbackClient, loopbackPortOk, manualServer, ownClient, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens, type OwnClient } from './oauth'
+import { authorizationUrl, CALLBACK_PATH, canonicalResource, chooseClient, discover, documentOrigins, GrantError, issuerMatches, loopbackClient, loopbackPortOk, manualServer, NoSignInFound, ownClient, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens, type OwnClient } from './oauth'
 import {
   accessOf, activeUser, clientAad, clientInfo, connectionAad, disabledTools, flowAad, getRow, isAdmin, MAX_DISABLED_TOOLS, mayUse, offByTeam, requestSignedIn, savedTools, SecretBox, secretHere, selectRows, setAccess, StoreError, templateClientAad, templateCovers, toolListsOf, usable, view,
   type ClientInfo, type FlowRow, type Row, type Viewer,
@@ -40,6 +40,8 @@ const WAITING = "(auth = 'oauth' AND secret_enc IS NULL)"
 /** how many of a person's own connections wait for a sign-in, at most (they do not count toward MAX_PERSONAL) */
 export const MAX_PERSONAL_WAITING = MAX_PERSONAL
 const isWaiting = (r: Pick<Row, 'auth' | 'secret_enc'>) => r.auth === 'oauth' && !r.secret_enc
+/** update's `only`: the connection is not as it was read any more (nothing written) */
+class Moved extends Error {}
 /** connections that count toward a person's own limits: their own, not made from a template, not a Google app */
 const countsAsOwn = (r: Pick<Row, 'scope' | 'template_id' | 'google_app'>) => r.scope === 'personal' && !r.template_id && !r.google_app
 
@@ -304,9 +306,12 @@ export class Integrations {
     return view(this.db, checked, viewer, L)
   }
 
-  async update(viewer: Viewer, id: string, patch: IntegrationPatch, locale: Locale): Promise<Integration> {
+  /** `only`: write only while the connection is still as it was read then (same version, address, and no sign-in
+   * stored), else Moved with nothing written; `via`: a change the server made by itself, named in the audit entry */
+  async update(viewer: Viewer, id: string, patch: IntegrationPatch, locale: Locale, opts: { only?: Pick<Row, 'version' | 'url'>; via?: string } = {}): Promise<Integration> {
     const L = locale
     const row = this.manageable(viewer, id)
+    if (opts.only && (row.version !== opts.only.version || row.url !== opts.only.url || row.secret_enc)) throw new Moved()
     // made from an admin's template: the address, sign-in method, header, name and notes are the template's (a key
     // must only ever go where the admin registered); the member changes only their key and the write rule
     if (row.template_id) {
@@ -383,7 +388,7 @@ export class Integrations {
     const accessChanged = !!patch.access && JSON.stringify(accessBefore) !== JSON.stringify(accessAfter)
     if (accessChanged) changed.push('access')
     if (changed.length || secret !== 'kept') {
-      audit(this.db, { actor: viewer.id, action: 'integration.update', target: id, detail: { ...auditDetail(next), changed, secret, ...(accessChanged ? { access: { before: accessBefore, after: accessAfter } } : {}) } })
+      audit(this.db, { actor: viewer.id, action: 'integration.update', target: id, detail: { ...auditDetail(next), changed, secret, ...(opts.via ? { via: opts.via } : {}), ...(accessChanged ? { access: { before: accessBefore, after: accessAfter } } : {}) } })
     }
     if (old?.type === 'oauth' && (secret !== 'kept')) void this.revokeTokens(old)
     const cur = getRow(this.db, id)!
@@ -808,7 +813,8 @@ export class Integrations {
       if (!v) return () => WITHHELD
       values.push(...v)
     }
-    return secretHider(values)
+    // a value too large to hide (hide.ts SecretTooLarge): fails closed, as an unreadable one
+    try { return secretHider(values) } catch (e) { if (e instanceof SecretTooLarge) return () => WITHHELD; throw e }
   }
 
   private async revokeTokens(s: Secret) {
@@ -883,6 +889,9 @@ export class Integrations {
       // a Google app whose library cannot be reached now: nothing about the connection changed (it comes back by itself)
       if (row.google_app && e instanceof CallError) return getRow(this.db, row.id) ?? row
       const s = statusOf(e)
+      // a failure of our own (not the service's answer) still reads "did not answer like a connector" below; the log
+      // says what it was (QA TC-4770: a hider too large to build failed every check, with nothing in the log)
+      if (!s && !(e instanceof McpError)) this.ctx.log.warn('connection check failed in the server', { id: row.id, err: errorForLog(e) })
       // the row as it is now: a call during the check may have found a sign-in needed (that stays), or an error
       const now = getRow(this.db, row.id)
       if (now && now.version === row.version && now.status === 'needs_auth' && row.status !== 'needs_auth') return now
@@ -1013,7 +1022,7 @@ export class Integrations {
    * the desktop app with the port of its one-time return address on 127.0.0.1 (`loopbackPort`: desktop/src/common/
    * sign-in-return.ts), else 'desktop' without one (an app from before it), 'web' or 'mobile'. The answer says
    * `loopback` when the service is signed in at through that address, so the app keeps it open. */
-  async authorize(viewer: Viewer, session: string, id: string, origin: string, locale: Locale, from: { client: 'web' | 'desktop' | 'mobile'; loopbackPort?: number | null } = { client: 'web' }): Promise<{ flowId: string; authorizationUrl: string; expiresAt: string; loopback?: boolean }> {
+  async authorize(viewer: Viewer, session: string, id: string, origin: string, locale: Locale, from: { client: 'web' | 'desktop' | 'mobile'; loopbackPort?: number | null } = { client: 'web' }): Promise<{ flowId: string; authorizationUrl: string; expiresAt: string; loopback?: boolean } | { connected: true }> {
     const L = locale
     const row = this.manageable(viewer, id)
     if (row.auth !== 'oauth') fail('validation', say('notOauth', L))
@@ -1043,8 +1052,22 @@ export class Integrations {
       } else {
         // the server's 401 names its metadata (WWW-Authenticate); without one the well-known addresses are tried
         let header = ''
-        try { await new McpClient(row.url, async () => [], this.net).start() } catch (e) { if (e instanceof McpError && e.code === 'unauthorized') header = e.detail }
-        const found = await discover(row.url, this.net, header)
+        const bare = new McpClient(row.url, async () => [], this.net)
+        let open = false
+        try { await bare.start(); open = true } catch (e) { if (e instanceof McpError && e.code === 'unauthorized') header = e.detail }
+        let found: Awaited<ReturnType<typeof discover>>
+        try { found = await discover(row.url, this.net, header) } catch (e) {
+          // no sign-in at all (no metadata answered anywhere, and nothing was down: NoSignInFound), and the server let
+          // us in and lists its tools without one (a public server such as DeepWiki, QA TC-4771): it is a connection
+          // with no sign-in, as if chosen under Advanced. Only one never signed in, without its own app and not from a
+          // template (a template's members bring their own key or sign-in). The requests go through the same address
+          // rules (this.net) as every other.
+          if (open && e instanceof NoSignInFound && !app && !row.secret_enc && !row.template_id && !row.google_app && await this.listsWithoutSignIn(bare)) {
+            const done = await this.noSignIn(viewer, row, L)
+            if (done) return done
+          }
+          throw e
+        }
         // an own app asks for its scopes when it names them (Google's servers list every scope they know)
         setup = app?.scope ? { ...found, scope: app.scope } : found
       }
@@ -1082,6 +1105,23 @@ export class Integrations {
         VALUES (?,?,?,?,?,?,'pending',?,?,?,?)`).run(flowId, id, row.version, viewer.id, session, hash(state), sealed.enc, sealed.keyVersion, expiresAt, iso(this.now()))
     })()
     return { flowId, authorizationUrl: authorizationUrl(secret, state, challenge), expiresAt, ...(client.redirectUri.startsWith('http://127.0.0.1:') ? { loopback: true } : {}) }
+  }
+
+  /** The connection as read before the probe becomes one with no sign-in, only while it is still that (a sign-in that
+   * finished meanwhile, or an address changed, wins: null, and the old answer is given). `{ connected }` only when its
+   * check then connected it; else null too (the row keeps no sign-in, with the check's reason). */
+  private async noSignIn(viewer: Viewer, row: Row, L: Locale): Promise<{ connected: true } | null> {
+    let v: Integration
+    try { v = await this.update(viewer, row.id, { auth: 'none' }, L, { only: { version: row.version, url: row.url }, via: 'no_signin_probe' }) } catch (e) {
+      if (e instanceof Moved) return null
+      throw e
+    }
+    return v.status === 'connected' ? { connected: true } : null
+  }
+
+  /** The server, reached with no key or sign-in, lists its tools (a 401 or 403 there, or any other failure: it does not) */
+  private async listsWithoutSignIn(c: McpClient): Promise<boolean> {
+    try { await c.listTools(); return true } catch { return false }
   }
 
   /** The client a sign-in without an own app uses (oauth.ts chooseClient): the app registered for the same server

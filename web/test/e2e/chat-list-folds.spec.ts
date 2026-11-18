@@ -2,7 +2,10 @@
 // my own folders fold, on the phone's Chats tab (390) and in the computer's Chats panel (1440), with one fold key each,
 // kept on the account (prefs.listFolds), so a reload and the other width keep it. Folded, a section says what waits in
 // it: bold, with one pill (how many of its rooms are unread, "@" for a mention; muted rooms left out); on a computer
-// the room on screen stays under its folded section, as in Slack's sidebar.
+// the room on screen stays under its folded section, as in Slack's sidebar. The pill reads the rooms' own counts
+// (roomCounts, docs/decisions/20261116-mentions-only-no-count.md): a channel at "Mentions only" (every channel's default)
+// adds no number for a plain message, only bold, so the rooms here are at "All messages" unless a step says otherwise.
+// A named group is a private channel (d927951c8), so a group DM here has no name.
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER, uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
@@ -10,9 +13,11 @@ import { DICTS } from '../../src/i18n'
 
 const t = DICTS.ko
 const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString()
+const level = (l: 'all' | 'mentions' | 'off') => ({ own: l === 'mentions' ? null : l, byDefault: 'mentions', level: l })
 const room = (name: string, o: Record<string, unknown> = {}) => ({
   id: uuidv7(), kind: 'team', name, groupId: uuidv7(), memberCount: 3, peers: [{ id: 'bob', name: 'Bob' }], createdAt: ago(600), activityAt: ago(5),
-  canRename: false, managerId: null, unreadCount: 0, threadsUnread: 0, nextThreadId: null, mentioned: false, lastReadSeq: 0, lastSeq: 0, lastMessage: null, muted: false, ...o,
+  canRename: false, managerId: null, unreadCount: 0, threadsUnread: 0, nextThreadId: null, mentioned: false, lastReadSeq: 0, lastSeq: 0, lastMessage: null, muted: false,
+  notify: o.muted ? level('off') : level('all'), ...o,
 })
 type R = ReturnType<typeof room>
 const setRooms = async (page: Page, rooms: R[]) => expect((await page.request.post('/__test/rooms', { data: { rooms } })).ok()).toBeTruthy()
@@ -44,7 +49,11 @@ test.describe('a phone (390)', () => {
     await expect(team.getByTestId('rooms-row')).toHaveCount(0)
     await expect(team.getByTestId('rooms-section-pill')).toHaveCount(0)
     await expect(team).not.toHaveAttribute('data-unread', '')
-    // a message arrives in 개발 (no mention): the header turns bold with "1", without a reload
+    // a plain message in a channel at "Mentions only": the header turns bold, with no number
+    await setRooms(page, [{ ...design, unreadCount: 1, lastSeq: 1, notify: level('mentions') }, dev, sales])
+    await expect(team).toHaveAttribute('data-unread', '')
+    await expect(team.getByTestId('rooms-section-pill')).toHaveCount(0)
+    // a message arrives in 개발 (no mention, All messages): the header turns bold with "1", without a reload
     await setRooms(page, [design, { ...dev, unreadCount: 1, lastSeq: 1 }, sales])
     await expect(team.getByTestId('rooms-section-pill')).toHaveAttribute('data-kind', 'unread')
     await expect(team.getByTestId('rooms-section-pill').locator('[aria-hidden]')).toHaveText('1')
@@ -126,7 +135,7 @@ test.describe('a computer (1440)', () => {
 
   test('folds chosen in this browser before (no account copy yet) are sent to the account once', async ({ page }) => {
     await start(page, 1440)
-    await setRooms(page, [room('디자인'), room('주간회의', { kind: 'group' })])
+    await setRooms(page, [room('디자인'), room('', { kind: 'group', name: null, peers: [{ id: 'bob', name: 'Bob' }, { id: 'sora', name: 'Sora' }] })])
     const me = ((await (await page.request.get('/api/me')).json()) as { user: { id: string } }).user.id
     // group chats are listed in Direct messages (docs/decisions/20261116-sidebar-channels-dms.md), so the section is 'dm'
     await page.evaluate((id) => localStorage.setItem(`mycel.trina.groupFolds.${id}`, JSON.stringify({ 'section:chats:dm': 'folded' })), me)

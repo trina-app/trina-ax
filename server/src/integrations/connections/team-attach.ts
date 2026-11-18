@@ -86,7 +86,8 @@ export function readTeamFiles(ctx: AppContext, tc: TurnToolContext, connection: 
   // zip, a PDF's packed streams). Fails closed when the keys cannot be read now.
   const r = completeRedactorFor(ctx, tc.userId)
   if (!r) throw new CallError('Nothing was sent: one of the user\'s stored connection keys could not be read just now, so the file to attach could not be checked for it. Try again in a moment; if it keeps failing, tell the user.', 'refused (stored keys could not be read)')
-  if (r.re) {
+  if (r.withheld) throw new CallError('Nothing was sent: one of the user\'s stored connection keys could not be checked just now, so the file to attach could not be checked for it. Try again in a moment; if it keeps failing, tell the user.', 'refused (stored keys could not be read)')
+  if (r.res.length) {
     for (const f of files) {
       const text = f.bytes.toString('latin1')
       const flat = text.replace(/\s+/g, '')

@@ -10,6 +10,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { NotificationPreferences, QuietHours, RoomNotifyDefault, RoomNotifyLevel } from '@mycel/shared/api'
 import { QUIET_HOURS_DEFAULT } from '@mycel/shared/api'
 import { useT } from '../../i18n'
+import { messagePreviewDescKey } from '../../lib/appWording'
+import { mobileApp } from '../../lib/mobile'
 import { useRooms } from '../../store/rooms'
 import { useMeStrict } from '../../store/session'
 import { inputCls, Switch, useMediaQuery } from '../ui'
@@ -66,7 +68,8 @@ export function RoomNotifySettings({ prefs, onChange }: { prefs: NotificationPre
       </div>
       <PrefRow id="np-thread-replies" title={t('notifications.roomThreadReplies')} desc={t('notifications.roomThreadRepliesDesc')}
         control={<Switch id="np-thread-replies" external describedBy="np-thread-replies-desc" checked={prefs.roomThreadReplies !== false} onChange={(v) => onChange({ roomThreadReplies: v })} label={t('notifications.roomThreadReplies')} testId="notification-thread-replies" />} />
-      <PrefRow id="np-message-preview" title={t('notifications.messagePreview')} desc={t('notifications.messagePreviewDesc')}
+      {/* inside the Android app the words say its notifications do not show the first line yet (QA TC-4692) */}
+      <PrefRow id="np-message-preview" title={t('notifications.messagePreview')} desc={t(messagePreviewDescKey(mobileApp()))}
         control={<Switch id="np-message-preview" external describedBy="np-message-preview-desc" checked={prefs.messagePreview !== false} onChange={(v) => onChange({ messagePreview: v })} label={t('notifications.messagePreview')} testId="notification-message-preview" />} />
       <QuietHoursRow quiet={prefs.quietHours ?? QUIET_HOURS_DEFAULT} onChange={(quietHours) => onChange({ quietHours })} />
       <MutedRooms />

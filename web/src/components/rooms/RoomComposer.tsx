@@ -58,7 +58,7 @@ import { toast } from '../../store/ui'
 import { TokenTextarea } from '../TokenTextarea'
 import { Button, IconButton, useMediaQuery } from '../ui'
 import { Tooltip } from '../Tooltip'
-import { ChipRemove, chipText, FAILED_REASON, isLocalImage, PictureTile } from '../ChipThumb'
+import { ChipRemove, chipText, FAILED_REASON, isHeicName, isLocalImage, PictureTile } from '../ChipThumb'
 import { ImageGroup } from '../ImageViewer'
 import { localItem, roomItem } from '../../lib/imageViewer'
 import { VoiceBar, VoiceHeld, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
@@ -80,7 +80,8 @@ import { MessageLinkChoice, useLinkChoice } from './MessageLinkChoice'
 type Upload = RoomUpload
 
 /** It shows as a picture (a square, not a file chip): one from this computer, or a photo of a send the server gave back (its room thumbnail). */
-const picture = (u: Upload) => isLocalImage(u.file) || (u.roomFile?.kind === 'image' && !!u.roomFile.thumb)
+// an iPhone photo (HEIC) is a picture square from the start: the room's thumbnail once it is sent (a picture icon until then)
+const picture = (u: Upload) => isLocalImage(u.file) || isHeicName(u.file.name) || (u.roomFile?.kind === 'image' && !!u.roomFile.thumb)
 
 /** From this many members (me included) a message with "@전체" asks before it goes. */
 export const MENTION_ALL_CONFIRM = 10
@@ -634,13 +635,13 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                   <PictureTile
                     name={f.file.name}
                     file={isLocalImage(f.file) ? f.file : undefined}
-                    src={isLocalImage(f.file) ? undefined : roomFileUrl(roomId, f.roomFile!.id, { thumb: '1' })}
+                    src={isLocalImage(f.file) || !f.roomFile?.thumb ? undefined : roomFileUrl(roomId, f.roomFile.id, { thumb: '1' })}
                     busy={f.status === 'uploading'}
                     failed={f.status === 'failed'}
                     removeLabel={t('rooms.removeFile', { name: f.file.name })}
                     onRemove={() => removeFile(f)}
                     // its own bytes in the image viewer, or the room's copy the server gave back
-                    item={isLocalImage(f.file) ? localItem(String(f.key), f.file, f.file.name) : roomItem(roomId, f.roomFile!)}
+                    item={isLocalImage(f.file) ? localItem(String(f.key), f.file, f.file.name) : f.roomFile ? roomItem(roomId, f.roomFile) : null}
                   />
                   {/* a large picture says how far it is beside its tile (a small one is there in a moment) */}
                   {f.status === 'failed' ? (

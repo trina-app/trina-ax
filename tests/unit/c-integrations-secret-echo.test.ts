@@ -51,7 +51,7 @@ describe('the stream redactor (redact.ts)', () => {
     const text = 'QA FAKE KEY 0000 is not the key; QA-FAKE-KEY-000 neither. 한글도 그대로.'
     expect(stream(text, 3).join('')).toBe(text)
     const none = redactorOf([])
-    expect(none.re).toBeNull()
+    expect(none.res).toEqual([])
     const pieces = stream(`${KEY} as typed`, 4, none)
     expect(pieces.slice(0, -1).join('')).toBe(`${KEY} as typed`) // every piece let out at once
     expect(pieces.at(-1)).toBe('')

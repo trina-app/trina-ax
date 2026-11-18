@@ -85,19 +85,20 @@ test('sidebar: a hidden room is in no row or count; a row\'s "⋯" on hover, foc
 test('the room header\'s "⋯" by kind; 초대하기 (the add list); 알림 설정 opens the bell\'s levels; 이름 바꾸기; 링크 복사', async ({ page }) => {
   const state = await start(page)
   const items = page.getByRole('menu').getByRole('menuitem')
-  // a group chat: rename (its members may), leave (with the confirm)
+  // a named group room, a private channel since d927951c8 (docs/decisions/20261117-named-groups-private-channels.md):
+  // rename (its members may; it keeps a name), leave (with the confirm)
   await page.goto(`/rooms/${GROUP}`)
   await expect(page.getByTestId('room-title')).toHaveText('디자인 리뷰')
   await page.getByTestId('room-menu').click()
-  await expect(items).toHaveText(['상단에 고정', '그룹 대화에 추가', '알림 설정', '이름 바꾸기', '앱 추가', '링크 복사', '그룹 대화 나가기'])
-  // 이름 바꾸기: the info's name field in a prompt, the members' names where it is empty; the room's info has no 나가기
+  await expect(items).toHaveText(['상단에 고정', '비공개 채널에 추가', '알림 설정', '이름 바꾸기', '앱 추가', '링크 복사', '비공개 채널 나가기'])
+  // 이름 바꾸기: the info's name field in a prompt (a private channel keeps a name: no "empty shows the members' names");
+  // the room's info has no 나가기
   await page.getByTestId('room-menu-rename').click()
   const prompt = page.getByRole('dialog', { name: '이름 바꾸기' })
-  await expect(prompt.getByText('비우면 멤버 이름으로 보여요.')).toBeVisible()
-  const field = prompt.getByRole('textbox', { name: '그룹 대화 이름' })
+  await expect(prompt.getByText('비우면 멤버 이름으로 보여요.')).toHaveCount(0)
+  const field = prompt.getByRole('textbox', { name: '비공개 채널 이름' })
   await expect(field).toHaveValue('디자인 리뷰')
   await expect(field).toBeFocused()
-  await expect(field).toHaveAttribute('placeholder', '김소라, 이민수')
   await field.fill('디자인 리뷰 2차')
   await field.press('Enter')
   await expect.poll(() => state.updated).toEqual([{ roomId: GROUP, body: { name: '디자인 리뷰 2차' } }])
@@ -110,7 +111,7 @@ test('the room header\'s "⋯" by kind; 초대하기 (the add list); 알림 설�
   await expect(page.getByTestId('room-leave')).toHaveCount(0)
   await page.keyboard.press('Escape')
   await page.getByTestId('room-menu').click()
-  await expect(items).toHaveText(['상단에 고정', '그룹 대화에 추가', '알림 설정', '이름 바꾸기', '앱 추가', '링크 복사', '그룹 대화 나가기'])
+  await expect(items).toHaveText(['상단에 고정', '비공개 채널에 추가', '알림 설정', '이름 바꾸기', '앱 추가', '링크 복사', '비공개 채널 나가기'])
   // 알림 설정: the bell's own four levels, the keyboard in them
   await page.getByTestId('room-menu-notify').click()
   await expect(page.getByRole('menuitemradio')).toHaveCount(4)
@@ -125,7 +126,7 @@ test('the room header\'s "⋯" by kind; 초대하기 (the add list); 알림 설�
   // leaving asks first; then the room is gone
   await page.getByTestId('room-menu').click()
   await page.getByTestId('room-menu-leave').click()
-  await page.getByRole('dialog').getByRole('button', { name: '그룹 대화 나가기' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: '비공개 채널 나가기' }).click()
   await expect.poll(() => state.left).toEqual([GROUP])
   await expect(page).toHaveURL(/\/rooms$/)
 

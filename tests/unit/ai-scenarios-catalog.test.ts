@@ -8,6 +8,7 @@ import { FEATURES } from '../../docs/features'
 import { FEATURE_SCOPE } from '../ai-scenarios/feature-scope'
 import { coverage, firstPass, loadCatalog, problems } from '../ai-scenarios/lib/catalog'
 import { COMPANY, FIXTURE_FILES, GUEST } from '../ai-scenarios/fixture/seed'
+import { CaseInput } from '../ai-scenarios/lib/types'
 import { loadFlows } from '../ai-scenarios/cli'
 
 const cases = loadCatalog()
@@ -15,6 +16,15 @@ const cases = loadCatalog()
 describe('AI scenario catalog', () => {
   test('no problems against the feature map', () => {
     expect(problems(cases)).toEqual([])
+  })
+
+  // TC-4549: the runner of another branch dropped the Jakarta cases' `timeZone` without a word, sent no zone and the
+  // rerun reported Seoul times as a product regression
+  test('a case or variant field the runner does not know is refused, not dropped', () => {
+    const base = { id: 'ROOM-99', title: 't', features: ['rooms.messages'], lang: 'en', context: 'personal', as: 'daniel', prompt: 'p', expect: { outcome: 'do', good: 'g' } }
+    expect(CaseInput.safeParse({ ...base, variants: [{ key: 'zone', timeZone: 'Asia/Jakarta' }] }).success).toBe(true)
+    expect(CaseInput.safeParse({ ...base, variants: [{ key: 'zone', deviceZone: 'Asia/Jakarta' }] }).success).toBe(false)
+    expect(CaseInput.safeParse({ ...base, deviceZone: 'Asia/Jakarta' }).success).toBe(false)
   })
 
   test('every case is asked by a fixture person and restores fixture files only', () => {

@@ -723,6 +723,45 @@ gh variable delete RELEASE_MAC_RUNNER --repo trina-app/trina-ax   # unset = host
 `sudo diskutil apfs deleteVolume TrinaCI`(그리고 `/etc/fstab`의 그 UUID 줄), `sudo dscl . -delete /Users/_trinaci`, `sudo dscl . -delete /Groups/_trinaci`.
 이 계정에는 키체인이 따로 없다(job 키체인은 job이 지운다).
 
+## 14. 웹 브라우저 시험 guard set (merge queue, 참고용)
+
+web e2e(Playwright, 2,400개쯤, 한 worker로 ~1.7시간)는 dev push마다 feature-map.yml이 돌리지만 필수 검사가 아니어서, 2026-11-17에
+30개가 아무도 모르게 깨져 있었다. 그래서 병합 큐의 항목(`merge_group`)마다 그중 작은 묶음(**guard set**)을 돌린다.
+
+- **어디서**: ci.yml의 `other` job("fast fuzz, web"), web 빌드 바로 뒤. 새 job은 없다. `merge_group`에서만 돌고 PR·push에서는 건너뛴다.
+- **무엇을**: `bun run --cwd web e2e:guard` (web/package.json): Chromium, worker 하나(모의 팀 서버가 상태를 함께 쓴다). 휴대폰 글꼴은
+  feature-map.yml과 같다(Roboto를 sans-serif·system-ui로, `web/test/e2e/fonts/phone-font.conf`).
+- **참고용(advisory)**: step에 `continue-on-error: true`와 자체 10분 한도가 있어, guard가 빨개도 시간이 넘쳐도 job은 실패하지 않는다. 필수 검사
+  "typecheck, native, unit, fast fuzz, web, relay"의 판정은 전과 같다. 결과는 run summary에 통과/실패와 실패한 `spec:line` 표로 남고, 실패하면
+  `::warning::`과 artifact `web-e2e-guard-results`(trace, 스크린샷, 7일)가 생긴다.
+- **지금 묶음**: `chat-project-ask-access`, `mentions-only-count` (Linux에서 20초쯤, 설치 포함 2분 안쪽). `phone-targets`, `rail.spec`,
+  `session-markers`, `chat-list-folds`는 dev에서 아직 실패해서(fix/web-e2e-drift가 고친다) 빠져 있다. 그 수정이 dev에 들어가면 다시 넣는다
+  (그 넷까지 6개 파일, Linux에서 ~4분).
+- **필수로 올리기**: 큐에서 guard가 연속으로 ~20번 초록이면 `continue-on-error`를 빼서 필수로 만든다(job 이름은 그대로라 ruleset은 안 바꾼다).
+  그 전에 빨간 guard는 읽기만 하고 기다리지 않는다. 깨진 spec은 고치거나(제품 버그) 시험을 고친다(의도한 변경). 묶음에서 빼는 것은 마지막 수단이다.
+- **손으로**: 전체는 `bun run e2e:web`. Linux와 같은 글꼴로 돌리려면 Docker(`mcr.microsoft.com/playwright:v1.64.1-noble` + Bun 1.3.12 +
+  fonts-roboto-unhinted + phone-font.conf)에서 `bun run build:web` 뒤 `cd web && bun run e2e:guard`.
+
+## 15. dev의 웹 e2e (Feature map, feature-map.yml)
+
+`.github/workflows/feature-map.yml`: dev push마다 웹 Playwright 전체(`web/playwright.config.ts`, chromium + webkit, 모의 팀 서버)를
+리눅스 4 shard(shard마다 worker 1개: 모의 서버가 상태를 공유한다)로 돌리고, QA 시트 Features 탭을 고친다(`docs/FEATURES.md`).
+PR·merge queue에는 돌지 않고 필수 검사도 아니다. 따로 밤마다 도는 워크플로는 없다(4f 결정, 2026-11-17).
+
+- **언제**: dev push 중 웹 e2e 결과나 기능 지도가 바뀔 수 있는 경로만: `web/**`, `shared/**`, `server/**`, `mobile/src/**`·`tests/lib/**`
+  (모의 서버와 spec이 import한다), `resources/**`(skill-packs, promo-video, hwp), `scripts/hwp-bundle.ts`·`scripts/release-notices.ts`·
+  `versions.json`·`tsconfig.json`(빌드), `scripts/linux/apparmor-bwrap.in`(변환 격리), `docs/features.ts`·`scripts/features/**`(Features 탭),
+  요약 스크립트, `package.json`, `bun.lock`, 워크플로 자신. 경로 목록은 `tests/unit/ci-web-e2e-summary.test.ts`가 모의 서버·spec의 import와 맞춰 본다. 손으로: `gh workflow run feature-map.yml --ref dev`.
+- **한 번에 하나, 도는 run은 취소하지 않는다**: `concurrency: feature-map-<브랜치>`, `cancel-in-progress: false`. 하나가 돌고 하나만
+  기다리며, 더 새 push가 기다리는 run을 바꾼다(기다리던 run은 job 없이 끝나 러너를 쓰지 않는다). 러너를 아끼는 것은 위의 경로 필터다:
+  run 하나가 러너 ~4개를 30–40분 쓴다. 모든 run이 끝까지 돌므로 이슈는 끝까지 시험한 가장 새 dev 머리를 보여 준다. 시트 쓰기도 중간에 끊기지 않는다. 시트(Features 탭)는 dev run에서만 쓴다: 다른 브랜치를 손으로 돌려도 dev와 겹쳐 쓰지 않는다.
+- **요약과 이슈** (job `summary`, dev push만): shard의 blob 리포트를 `playwright merge-reports`로 합쳐 run summary에 합계와 실패한
+  spec:line·첫 오류 줄을 쓴다(`scripts/ci/web-e2e-summary.ts`). 라벨 `web-e2e-dev`가 붙은 이슈 하나("Web e2e on dev: N failing
+  (날짜, sha)")를 빨간 run에서 열거나 고치고(제목·본문; 댓글은 실패 수가 바뀔 때만), 초록 run에서 닫는다. 모든 shard가 끝까지 돈 run만 이슈를 건드린다
+  (취소된 run·shard는 아니다). `issues: write`는 이 job에만 있다. 합친 HTML 리포트(`playwright-report`)와 shard별 실패 trace는 7일 보관.
+- **리눅스 글꼴**: Roboto를 휴대폰 글꼴로 쓴다(`web/test/e2e/fonts/phone-font.conf`). 크기를 재는 spec(phone-targets, 44 px 검사)은
+  건너뛰지 않는다. 리눅스에서만 실패하면 러너 글꼴·픽셀 탓일 수 있으니 맥에서 다시 돌려 본 뒤 회귀로 판단한다.
+
 ## User-facing release notes
 
 Write the annotated tag message from [the EN/KO release template](../.github/RELEASE_TEMPLATE.md). The workflow carries it into Linux bundles, signed feeds and the GitHub release body. A line `Rollout: all` in it publishes a stable release to every server at once instead of the staged roll-out (section 2); the workflow takes that line out of the notes. Review default changes, artifact names, README/FAQ/llms parity before tagging. Backfilling published release bodies is a separate authorized maintainer action; this docs branch does not publish them.

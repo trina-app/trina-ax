@@ -13,7 +13,9 @@
 // (components/ImageViewer.tsx, like Slack's: the whole window, the pane's other pictures and files by ← →; the page's
 // ImageGroup is the timeline or the thread; docs/DECISIONS.md "The room file viewer"): a photo with its zoom, a
 // document drawn as the side panel draws it, a file with no preview here as its card with the download. The chip has a
-// small download icon of its own. Both read the room's copy through the room (lib/imageViewer.ts roomItem,
+// small download icon of its own, and beside it on hover "Save to team folder" (also in a file's menu, a picture's too;
+// docs/decisions/20261117-room-file-save-btn.md), which once the file is in the team folder where I can open it becomes a
+// quiet link to it. Both read the room's copy through the room (lib/imageViewer.ts roomItem,
 // roomFileItem) and have the download too; the viewer's bar says who sent it, when and where.
 // The room AI's earlier answers (docs/DECISIONS.md "대화방의 트리나"; that AI was removed, "Room @트리나 code removed") are
 // shown like an answer in the AI chat (Markdown) without its steps, with who asked ("○○ 님이 물어봄", a click goes to the
@@ -31,7 +33,7 @@
 // over several messages copies their words as plain text, one message per block under its author and time
 // (lib/messageCopy.ts).
 import clsx from 'clsx'
-import { Copy, Download, FileText, Link2, MessageSquareText, Pencil, Trash2, X } from 'lucide-react'
+import { Copy, Download, FileText, FolderCheck, FolderInput, Link2, MessageSquareText, Pencil, Trash2, X } from 'lucide-react'
 import { createContext, Fragment, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent } from 'react'
 import { parseMessageLinks, ROOM_QUOTE_EXCERPT_MAX, type Locale, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
 import { errorText, roomFileUrl, startDownload } from '../../lib/api'
@@ -80,6 +82,10 @@ import { PersonButton } from '../PersonCard'
 import { copyLinkOf } from '../../lib/messageLinks'
 import { MessageLinkCard } from './MessageLinkCard'
 import { MessageLinkPreviews, useLinkHosts, usePlaceLabel } from './MessageLinkChip'
+import { navigateTo } from '../../lib/nav'
+import { useFolderWords } from '../../lib/folderLabels'
+import { folderOfPath } from '../../lib/roomSave'
+import { useRoomSaves } from '../../store/roomSaves'
 
 const timeOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
 const dayOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { dateStyle: 'full' }).format(new Date(iso))
@@ -229,14 +235,16 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
               </div>
             )}
             {first.event ? <EventLine m={first} /> : (
-            <div className="flex gap-3 pt-2" data-testid="room-run">
+            <div className="flex gap-3 pt-2 max-md:pt-3" data-testid="room-run">
               <RunAvatar m={first} />
               <div className="min-w-0 flex-1">
-                {/* (a <div>: a person's name is a button with its card under it, components/PersonCard.tsx) */}
+                {/* (a <div>: a person's name is a button with its card under it, components/PersonCard.tsx). A phone: the
+                    name takes taps from 44 px (index.css touch-hit-start, drawn over what follows), so the run's top gap
+                    is 12 px (it never reaches the message above) and the emoji and a quote's jump sit above it */}
                 <div className="flex items-baseline gap-2" data-testid="room-run-head">
                   {/* an app's message: its name (who set it up, a tap away) and the "App" tag, never a person */}
                   {first.app ? <AppSender roomId={roomId} app={first.app} /> : first.authorKind === 'ai' || !first.author ? <span className="truncate text-sm font-medium text-ink">{first.authorKind === 'ai' ? t('rooms.aiName') : t('rooms.goneUser')}</span> : <PersonButton user={first.author} look="name" className="text-sm font-medium text-ink" boxClassName="flex min-w-0" testId="room-run-name">{nameOf(first.author)}</PersonButton>}
-                  {first.authorKind !== 'ai' && first.author && <StatusEmoji userId={first.author.id} tap className="-ml-1 self-center text-sm select-none" />}
+                  {first.authorKind !== 'ai' && first.author && <StatusEmoji userId={first.author.id} tap className="relative z-[2] -ml-1 self-center text-sm select-none" />}
                   {!first.app && first.authorKind !== 'ai' && first.author && <GuestTagFor userId={first.author.id} />}
                   <time dateTime={first.createdAt} title={formatDateTime(first.createdAt, locale)} className={clsx('shrink-0 text-xs text-faint', repeats[i] && 'max-md:hidden')} data-repeat={repeats[i] ? '' : undefined}>
                     {timeOf(first.createdAt, locale)}
@@ -294,9 +302,27 @@ const AskFile = createContext<((fileId: string, name: string) => void) | null>(n
 
 /** The right-click menu of a picture or file under a message (components/FileMenu.tsx): 이미지 복사 (a picture),
  * 링크 복사 (its message), 내려받기, 트리나에게 묻기 where the list asks. */
-function useRoomFileMenu(f: RoomFile, item: ViewerItem) {
+function useRoomFileMenu(f: RoomFile, item: ViewerItem, team?: RoomFileSave | null) {
   const ask = useContext(AskFile)
-  return useFileMenu({ name: f.name, image: itemImage(item), link: itemLink(item), download: item.download, ask: ask ? () => ask(f.id, f.name) : null })
+  return useFileMenu({ name: f.name, image: itemImage(item), link: itemLink(item), download: item.download, team: team ? { saved: !!team.saved, run: team.saved ? team.open : team.save } : null, ask: ask ? () => ask(f.id, f.name) : null })
+}
+
+/** "Save to team folder" of a file under a message (docs/decisions/20261117-room-file-save-btn.md): where it is in the
+ * team folder for me (store/roomSaves.ts), opening it there, or the save sheet for the message's files. null for a guest
+ * (no team folder to save to; the server refuses them too). */
+type RoomFileSave = { saved: string | undefined; open: () => void; save: () => void }
+function useRoomFileSave(roomId: string, f: RoomFile, siblings: readonly RoomFile[]): RoomFileSave | null {
+  // (a partial Me, as some tests give, counts as not a guest; the server decides anyway)
+  const guest = useMe()?.user?.role === 'guest'
+  const saved = useRoomSaves((s) => s.byRoom[roomId]?.[f.id])
+  useEffect(() => { if (!guest) useRoomSaves.getState().load(roomId) }, [guest, roomId])
+  if (guest) return null
+  return {
+    saved,
+    open: () => { if (saved) navigateTo(`/files/view?path=${encodeURIComponent(saved)}`) },
+    // the tapped file first, then the message's other files (one sheet for all of them)
+    save: () => useRoomSaves.getState().open(roomId, [f.id, ...siblings.filter((x) => x.id !== f.id).map((x) => x.id)]),
+  }
 }
 
 /** Where the room's pictures and files were sent, for the viewer's bar: "#마케팅에서", "디자인 리뷰에서", "벤 님과의 1:1
@@ -575,7 +601,7 @@ function Quote({ q, onJump }: { q: RoomQuote; onJump?: () => void }) {
   // the jump is a button over the whole quote, and the links in the excerpt sit above it (a link inside a button is no
   // link); an excerpt the server cut with "…" at its length leaves an address cut there as text
   return (
-    <div className={clsx('mt-0.5 mb-1 block max-w-full border-l-2 border-line-strong pl-2 text-left text-xs', onJump && 'relative hover:border-ink')} data-testid="message-quote">
+    <div className={clsx('mt-0.5 mb-1 block max-w-full border-l-2 border-line-strong pl-2 text-left text-xs', onJump && 'relative z-[2] hover:border-ink')} data-testid="message-quote">
       {onJump && <button type="button" onClick={onJump} aria-labelledby={`${ids}n ${ids}t`} className="absolute inset-0 -left-0.5 rounded-sm" data-testid="message-quote-jump" />}
       <span id={`${ids}n`} className="block truncate font-medium text-muted">{q.app ? q.app.name : nameOf(q.author) ?? t('rooms.goneUser')}</span>
       <span id={`${ids}t`} className="block truncate text-faint [&_a]:relative">
@@ -591,9 +617,9 @@ function Files({ roomId, files }: { roomId: string; files: RoomFile[] }) {
     <div className="mt-1 mb-0.5 flex flex-wrap items-start gap-2">
       {files.map((f) =>
         f.kind === 'image' && f.thumb ? (
-          <RoomPicture key={f.id} roomId={roomId} f={f} />
+          <RoomPicture key={f.id} roomId={roomId} f={f} siblings={files} />
         ) : (
-          <FileChip key={f.id} roomId={roomId} f={f} />
+          <FileChip key={f.id} roomId={roomId} f={f} siblings={files} />
         ),
       )}
     </div>
@@ -601,11 +627,12 @@ function Files({ roomId, files }: { roomId: string; files: RoomFile[] }) {
 }
 
 /** A photo under a message: its thumbnail opens the image viewer, with the original read through the room. */
-function RoomPicture({ roomId, f }: { roomId: string; f: RoomFile }) {
+function RoomPicture({ roomId, f, siblings }: { roomId: string; f: RoomFile; siblings: readonly RoomFile[] }) {
   const t = useT()
   const make = (meta: ViewerMetaValue) => roomItem(roomId, f, meta)
   const viewer = useViewerItem(make)
-  const fileMenu = useRoomFileMenu(f, make(useViewerMeta()))
+  // a picture has no icons of its own: "Save to team folder" is in its menu (right-click, long press)
+  const fileMenu = useRoomFileMenu(f, make(useViewerMeta()), useRoomFileSave(roomId, f, siblings))
   return (
     <>
       <Tooltip label={t('rooms.openImage', { name: f.name })}>
@@ -621,20 +648,22 @@ function RoomPicture({ roomId, f }: { roomId: string; f: RoomFile }) {
 /** A file under a message: its name and size open it in the viewer, in the pane's list with its pictures (a document as
  * the side panel draws it; one with no preview here, such as a ZIP, a Hangul file while the HWP preview is off or one
  * past the preview limit, as its card with the download: `data-opens` marks a chip with a preview, lib/preview.ts
- * roomFileOpens), and a small download icon sits at its end (on phones 44px wide, so its tap area never reaches over
+ * roomFileOpens), "Save to team folder" (on hover and focus with a mouse; on a touch screen in the long-press menu) or
+ * its place in the team folder, and a small download icon sits at its end (on phones 44px wide, so its tap area never reaches over
  * the name; touch-hit gives the height). Each button is named by the words on it first (the name and size), then what
  * it does: a screen reader and voice control hear those words (WCAG 2.5.3). */
-function FileChip({ roomId, f }: { roomId: string; f: RoomFile }) {
+function FileChip({ roomId, f, siblings }: { roomId: string; f: RoomFile; siblings: readonly RoomFile[] }) {
   const t = useT()
   const locale = useLocale()
   const me = useMe()
   const make = (meta: ViewerMetaValue) => roomFileItem(roomId, f, me, meta)
   const viewer = useViewerItem(make)
-  const fileMenu = useRoomFileMenu(f, make(useViewerMeta()))
+  const team = useRoomFileSave(roomId, f, siblings)
+  const fileMenu = useRoomFileMenu(f, make(useViewerMeta()), team)
   const download = () => startDownload(roomFileUrl(roomId, f.id, { download: '1' }), f.name)
   const opens = roomFileOpens(f, me)
   return (
-    <span className="inline-flex max-w-full items-stretch rounded-xl border border-line bg-surface text-xs" data-testid="room-file" data-opens={opens ? '' : undefined} data-file-name={f.name} {...fileMenu.bind}>
+    <span className="group/chip inline-flex max-w-full items-stretch rounded-xl border border-line bg-surface text-xs" data-testid="room-file" data-opens={opens ? '' : undefined} data-file-name={f.name} {...fileMenu.bind}>
       {fileMenu.menu}
       <button type="button" ref={viewer.ref} onClick={(e) => !fileMenu.guard(e) && viewer.open()} className="inline-flex min-w-0 items-center gap-2 rounded-l-xl py-1.5 pr-1 pl-2.5 hover:bg-hover" data-testid="room-file-open">
         <FileText size={15} className="shrink-0 text-muted" aria-hidden />
@@ -643,12 +672,41 @@ function FileChip({ roomId, f }: { roomId: string; f: RoomFile }) {
         {/* what the name does: a preview (a file without one opens its card, named by its name alone) */}
         {opens && <span className="sr-only">{t('common.preview')}</span>}
       </button>
+      {/* in the team folder where I can open it: a quiet link to it (its folder's name; the whole place in the tooltip) */}
+      {team?.saved && <InTeamLink path={team.saved} onOpen={team.open} />}
+      {/* not there yet: a small save icon beside the download, seen only on hover and keyboard focus with a mouse; its
+          place is kept (a fixed 24px) so the chip never changes width and a row of chips never re-wraps; on a touch
+          screen it is not there at all (the long-press menu has it) */}
+      {team && !team.saved && (
+        <Tooltip label={t('rooms.save.action')}>
+          <button type="button" onClick={team.save} aria-label={t('rooms.save.actionFor', { name: f.name })} className="inline-flex w-6 shrink-0 items-center justify-center text-faint opacity-0 hover:bg-hover hover:text-ink focus-visible:opacity-100 group-hover/chip:opacity-100 group-focus-within/chip:opacity-100 pointer-coarse:hidden" data-testid="room-file-save">
+            <FolderInput size={13} aria-hidden />
+          </button>
+        </Tooltip>
+      )}
       <Tooltip label={t('common.download')}>
         <button type="button" onClick={download} aria-label={t('rooms.downloadFile', { name: f.name })} className="touch-hit inline-flex shrink-0 items-center justify-center rounded-r-xl pr-2.5 pl-1.5 text-faint hover:bg-hover hover:text-ink max-md:min-w-11 max-md:px-0" data-testid="room-file-download">
           <Download size={13} aria-hidden />
         </button>
       </Tooltip>
     </span>
+  )
+}
+
+/** A room file in the team folder where I can open it: its folder's name, the whole place in the tooltip and the
+ * accessible name ("In team folder · Company-wide › Acme › Quotes"); a tap opens the file. */
+function InTeamLink({ path, onOpen }: { path: string; onOpen: () => void }) {
+  const t = useT()
+  const where = folderOfPath(path, useFolderWords())
+  const label = t('rooms.save.inTeam', { folder: where.full })
+  return (
+    <Tooltip label={label}>
+      <button type="button" onClick={onOpen} aria-label={label} className="touch-hit inline-flex max-w-[140px] shrink-0 items-center gap-1 px-1.5 text-faint hover:bg-hover hover:text-ink" data-testid="room-file-in-team">
+        <FolderCheck size={13} className="shrink-0 text-accent-text" aria-hidden />
+        {/* a phone keeps the file's name readable: the icon alone, the place in its name */}
+        <span className="truncate max-md:hidden">{where.short}</span>
+      </button>
+    </Tooltip>
   )
 }
 

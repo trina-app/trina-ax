@@ -53,6 +53,32 @@ export function quotesOnBranch(db: Database, answerId: string): boolean {
   return rows.some((r) => (r.content ?? '').split('\n').some(isQuoteLine))
 }
 
+/** Does every quote on the branch up to `answerId` come from a person's message in `roomId` (QA TC-4791, review of
+ * #1235)? Each user message that holds a quote line must start with the app's own quote of a room message, whose header
+ * names its thread (threadRefOf) in that room, with no other quote line further down; the thread holds no app's card.
+ * A pasted quote (no token), a quote of another room's message, an app card's quote or a second quote block: false.
+ * True when there is no quote at all. Fails closed. */
+export function quotesOnlyFrom(db: Database, answerId: string, roomId: string): boolean {
+  try {
+    const rows = db.query(`WITH RECURSIVE up(id, parent_id, role, depth) AS (SELECT id, parent_id, role, 0 FROM messages WHERE id = ?
+        UNION ALL SELECT m.id, m.parent_id, m.role, up.depth + 1 FROM messages m JOIN up ON m.id = up.parent_id WHERE up.depth < ${BRANCH_MAX})
+      SELECT m.content content FROM up JOIN messages m ON m.id = up.id WHERE up.role = 'user' AND m.auto_sent = 0 AND instr(m.content, '>') > 0`).all(answerId) as { content: string | null }[]
+    for (const r of rows) {
+      const lines = (r.content ?? '').split('\n')
+      if (!lines.some(isQuoteLine)) continue
+      const ref = threadRefOf(r.content ?? '')
+      if (!ref) return false
+      const end = lines.findIndex((l) => !isQuoteLine(l))
+      if (end >= 0 && lines.slice(end).some(isQuoteLine)) return false
+      if (!db.query('SELECT 1 FROM room_messages WHERE id = ? AND room_id = ? AND app_card IS NULL').get(ref, roomId)) return false
+      if (db.query('SELECT 1 FROM room_messages WHERE thread_root_id = ? AND app_card IS NOT NULL LIMIT 1').get(ref)) return false
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** Does a question on the branch up to `answerId` quote an app's message ("Ask Trina about this" on a card from Sentry,
  * GitHub, a form…; rooms/apps)? Its quote header names the thread it belongs to (shared rooms.ts threadRefOf): an app's
  * card is that thread's first message, or the thread holds one. Such words come from outside services, so the chat is

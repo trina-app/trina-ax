@@ -21,6 +21,8 @@ import * as media from '../../server/src/files/media'
 import { ToolError } from '../../server/src/policy/errors'
 import { openRouterAudio } from '../../server/src/jobs/openrouter-stt'
 import { makeCApp, type CApp } from '../lib/c-app'
+/** a real HEIC (its declared size passes the check before decoding), so the planted converter runs */
+const HEIC_FIXTURE = new Uint8Array(fs.readFileSync(path.join(import.meta.dir, '..', 'fixtures', 'exif', 'photo-gps.heic')))
 
 const TRUE = fs.existsSync('/usr/bin/true') ? '/usr/bin/true' : '/bin/true'
 const CANARY = 'CANARY-bob-private-' + crypto.randomUUID()
@@ -129,7 +131,7 @@ describe('the work folder itself left as a link: the run fails', () => {
   })
   test('HEIC preview: heif-dec leaving its work folder as a link to bob\'s folder is refused', async () => {
     plant = swapWork(otherFolder())
-    const r = await heicToJpeg(new Uint8Array(64), { heifDec: TRUE, imageIo: null }).catch((e) => e)
+    const r = await heicToJpeg(HEIC_FIXTURE, { heifDec: TRUE, imageIo: null }).catch((e) => e)
     expect(runs).toBe(1)
     expect(Buffer.isBuffer(r)).toBe(false)
     noCanary(String(r))
@@ -360,7 +362,7 @@ describe('images: the thumbnail and the HEIC preview come from the converter, ne
   })
   test('HEIC preview: heif-dec leaving out.jpg as a link to bob\'s photo is refused', async () => {
     plant = (dir) => link(secret.jpeg, dir, 'out.jpg')
-    const r = await heicToJpeg(new Uint8Array(64), { heifDec: TRUE, imageIo: null }).catch((e) => e)
+    const r = await heicToJpeg(HEIC_FIXTURE, { heifDec: TRUE, imageIo: null }).catch((e) => e)
     expect(runs).toBe(1)
     expect(Buffer.isBuffer(r)).toBe(false)
     noCanary(String(r))

@@ -453,14 +453,33 @@ function lastMessage(db: Database, roomId: string, viewer: MemberRow): RoomLastM
   return { id: m.id, seq: m.seq, author, excerpt: m.deleted_at ? '' : excerpt(text.replace(/\s+/g, ' ').trim(), EXCERPT_LIST), fileCount: files, deleted: !!m.deleted_at, createdAt: m.created_at, ...(app ? { app } : {}) }
 }
 
-/** Unread messages of the timeline for `viewer`: after their read position, theirs to see, not their own, not deleted,
- * no event line, no reply that stays in its thread. */
+/** unreadCount reads at most this many messages for its number (one more than it can answer). */
+const UNREAD_COUNTED = MAX_UNREAD + 1
+/** Unread messages of the timeline on room_messages `m` (parameters: room, read position, seeArgs, the person): after
+ * their read position, theirs to see, not their own, not deleted, no event line, no reply that stays in its thread. */
+const UNREAD_SQL = `m.room_id = ? AND m.seq > ? AND ${SEE_SQL} AND ${TIMELINE_SQL} AND m.deleted_at IS NULL AND m.event IS NULL AND m.app_quiet = 0 AND (m.author_id IS NULL OR m.author_id <> ?)`
+/** Is one of them a mention of the person? Read from where they are mentioned, never the room's messages (reading every
+ * unread message for it took 120-170 ms at 300k, TC-4796): the messages that pick them (room_message_mentions, kept by
+ * triggers from room_messages.mentions: migration 416), then the ones that mention everyone (the partial index
+ * room_messages_mention_all). Each candidate is checked by the whole rule (UNREAD_SQL and MENTIONS_SQL). Parameters:
+ * room, person, read position, then UNREAD_SQL's, then the person twice (UNREAD_MENTION_PICKED_SQL); UNREAD_SQL's, then
+ * the person twice (UNREAD_MENTION_ALL_SQL). Exported for their query plan guards. */
+export const UNREAD_MENTION_PICKED_SQL = `SELECT 1 FROM room_message_mentions x CROSS JOIN room_messages m ON m.room_id = x.room_id AND m.seq = x.seq
+  WHERE x.room_id = ? AND x.user_id = ? AND x.seq > ? AND ${UNREAD_SQL} AND ${MENTIONS_SQL} LIMIT 1`
+export const UNREAD_MENTION_ALL_SQL = `SELECT 1 FROM room_messages m WHERE ${UNREAD_SQL} AND m.mentions_all = 1 AND ${MENTIONS_SQL} LIMIT 1`
+/** Unread messages of the timeline for `viewer` (UNREAD_SQL), counted up to MAX_UNREAD, and whether one mentions them. */
 export function unreadCount(db: Database, roomId: string, viewer: MemberRow): { n: number; mentioned: boolean } {
   const from = Math.max(viewer.last_read_seq, viewer.visible_from_seq)
-  const r = db.query(`SELECT COUNT(*) n, MAX(${MENTIONS_SQL}) men FROM room_messages m
-    WHERE m.room_id = ? AND m.seq > ? AND ${SEE_SQL} AND ${TIMELINE_SQL} AND m.deleted_at IS NULL AND m.event IS NULL AND m.app_quiet = 0 AND (m.author_id IS NULL OR m.author_id <> ?)`)
-    .get(viewer.user_id, viewer.user_id, roomId, from, ...seeArgs(viewer), viewer.user_id) as { n: number; men: number | null }
-  return { n: Math.min(MAX_UNREAD, r.n), mentioned: !!r.men }
+  const args = [roomId, from, ...seeArgs(viewer), viewer.user_id]
+  // counted up to UNREAD_COUNTED only: the answer stops at MAX_UNREAD, and a person far behind in a big room made every
+  // read count the whole rest of it (TC-4772)
+  const r = db.query(`SELECT COUNT(*) n, MAX(men) men FROM (SELECT ${MENTIONS_SQL} men FROM room_messages m WHERE ${UNREAD_SQL} LIMIT ${UNREAD_COUNTED})`)
+    .get(viewer.user_id, viewer.user_id, ...args) as { n: number; men: number | null }
+  // a mention past those rows still counts: looked for in the rest only when they had none
+  const mentioned = !!r.men || (r.n >= UNREAD_COUNTED && (
+    !!db.query(UNREAD_MENTION_PICKED_SQL).get(roomId, viewer.user_id, from, ...args, viewer.user_id, viewer.user_id)
+    || !!db.query(UNREAD_MENTION_ALL_SQL).get(...args, viewer.user_id, viewer.user_id)))
+  return { n: Math.min(MAX_UNREAD, r.n), mentioned }
 }
 
 /** The newest position of the timeline `viewer` can see (an event line's too), 0 for none: the room's own counter would

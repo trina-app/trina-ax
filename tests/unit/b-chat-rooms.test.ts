@@ -292,6 +292,16 @@ describe('limits and search', () => {
     expect(searchRooms(h.ctx.db, 'alice', TZ, { since: '2026-10-03', until: '2026-10-03', room: roomId }).count).toBe(1)
     expect(searchRooms(h.ctx.db, 'alice', TZ, { query: '100%_예산', room: roomId }).count).toBe(0)
     expect(searchRooms(h.ctx.db, 'alice', TZ, { query: '예산', room: roomId }).seen).toEqual([{ roomId, fromSeq: expect.any(Number) }])
+    // a search finds the words only: read the room before saying someone wrote nothing (AI flow FL-14, 2026-11-17)
+    expect(words.text).toContain('Only messages with this word are found: before you say someone did not write something, or that this room does not have it, read the room\'s newest messages with room_read.')
+    const miss = searchRooms(h.ctx.db, 'alice', TZ, { query: '라마바 카페', room: roomId })
+    expect(miss.count).toBe(0)
+    expect(miss.text).toContain('Only messages with these words are found')
+    // all rooms: only the room where it would have been said, never every room
+    const everywhere = searchRooms(h.ctx.db, 'alice', TZ, { query: 'no-such-words-anywhere' })
+    expect(everywhere.count).toBe(0)
+    expect(everywhere.text).toContain('read the newest messages of the room where they would have said it with room_read (not every room).')
+    expect(searchRooms(h.ctx.db, 'alice', TZ, { person: 'Erin Yoo님', room: roomId }).text).not.toContain('Only messages with')
   })
 })
 
@@ -344,7 +354,7 @@ describe('in a chat', () => {
     const third = await h.api('alice').call(API.sendMessage, { params: { id: chat }, body: { content: fake({ tool: 'read', args: { file_path: target } }, { tool: 'write', args: { file_path: target, content: 'with a yes\n' } }, { say: 'saved' }), clientMessageId: cm(), attachmentIds: [] } })
     // the room is in the chat's read scope: saving where more people can see (shared/) is the one card, naming the room
     const card3 = await ws.alice!.next('turn.request', (f) => f.data.turnId === third.turnId && f.data.request.kind === 'ask_user', 15_000)
-    expect((card3.data.request as { question: string }).question).toContain('wants to save to')
+    expect((card3.data.request as { question: string }).question).toMatch(/This came from .+ \(\d+ (person|people)\)\. Save it to .+ \(\d+ (person|people), \d+ of them can’t see where it came from\)\?/)
     await h.api('alice').call(API.answerTurn, { params: { id: third.turnId }, body: { kind: 'ask_user', requestId: card3.data.request.requestId, answer: 'save' } })
     await ws.alice!.next('message.done', (f) => f.data.message.turnId === third.turnId, 30_000)
     expect(fs.readFileSync(abs(), 'utf8')).toBe('with a yes\n')
