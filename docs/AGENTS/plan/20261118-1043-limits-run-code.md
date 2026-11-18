@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 10:43
 - Branch: `fix/limits-run-code`
-- Status: in progress
+- Status: done
 - Where: Team AX core (server/src/chat, server/src/devenv, web admin). Why: chat, skills and the Linux run base are core (docs/REPOSITORY-RULES.md)
 - Version impact: minor, new behaviour for the AI and a new one-time notice for admins
 
@@ -55,4 +55,5 @@ Unit: prompt lines, agent definitions, box_shell refusals for a sub-agent, offer
 
 ## Result
 
-(at the end)
+Built as planned. Tests: tests/unit/dev-env-subagent.test.ts (new), subagents.test.ts, b-answer-step-limit.test.ts,
+web/test/unit/dev-env-offer.test.tsx. No real-AI run on Linux (srt is Linux only; this Mac cannot run it).
