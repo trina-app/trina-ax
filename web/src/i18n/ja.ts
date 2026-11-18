@@ -3098,6 +3098,7 @@ export const ja: Record<MessageKey, string> = {
   'credentials.state.expired': "期限切れ",
   'credentials.state.invalid': "拒否されました",
   'credentials.state.needs_reconnect': "再接続が必要",
+  'credentials.state.no_credit': 'クレジット切れ',
   'credentials.state.limited': "上限に到達",
   'credentials.state.over_limit': "月間上限を使い切りました",
   'credentials.state.disabled': "オフ",

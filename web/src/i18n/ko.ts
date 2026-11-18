@@ -3138,6 +3138,7 @@ export const ko = {
   'credentials.state.expired': '만료됨',
   'credentials.state.invalid': '거절됨',
   'credentials.state.needs_reconnect': '다시 연결 필요',
+  'credentials.state.no_credit': '크레딧 없음',
   'credentials.state.limited': '한도 도달',
   'credentials.state.over_limit': '월 한도 다 씀',
   'credentials.state.disabled': '꺼짐',

@@ -3140,6 +3140,7 @@ export const en: Record<MessageKey, string> = {
   'credentials.state.expired': 'Expired',
   'credentials.state.invalid': 'Refused',
   'credentials.state.needs_reconnect': 'Needs reconnecting',
+  'credentials.state.no_credit': 'Out of credit',
   'credentials.state.limited': 'Limit reached',
   'credentials.state.over_limit': 'Monthly limit used up',
   'credentials.state.disabled': 'Off',

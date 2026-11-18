@@ -1,32 +1,61 @@
 // What an error answer of Anthropic says about the AI connection that sent the request (QA TC-4835, docs/decisions/
-// 20261118-ai-account-failover.md). 401 (refused) and a long 429 (limit) are handled in model-proxy.ts as before;
-// this names the other answers that are the account's fault, so the turn moves to the next connection and the
-// connection gets a lasting state instead of staying "healthy" while every turn on it fails:
-//   403 (any type)                 the account may not use the API now: a Claude subscription that ended or does not
-//                                  include Claude Code, an organization switched off, a key without permission
-//   400 billing / credit balance   no plan and no credit left: a Claude subscription that ended; an API key out of credit
-// Everything else (other 400s, 404, 5xx, a network failure) says nothing certain about the account: passed on as it
-// came, the connection keeps its state and the turn does not switch.
+// 20261118-ai-account-failover.md). 401 (refused) and a long 429 (limit) are handled in model-proxy.ts as before; this
+// reads the other answers on POST /v1/messages only (never count_tokens: validate.ts treats its OAuth 403 as unclear).
+// Only an answer that is really Anthropic's counts: its JSON error shape ({"type":"error","error":{"type":…}}) and a
+// request-id header, from api.anthropic.com itself (or a loopback test upstream). An edge page, a company proxy, a
+// gateway or a custom upstream never marks an account.
+//   403 permission_error / authentication_error with a known account-level message (organization or account
+//       disabled, no access to Claude Code on this plan, OAuth access revoked or not allowed)   -> marked refused
+//   402 / 400 billing_error, or the exact "credit balance is too low"   -> a subscription: marked refused (plan_ended);
+//                                                                          an API key: held out as out of credit
+//   any other 403 from Anthropic   -> this account is skipped for the rest of the turn, nothing is marked
+//   everything else (other 400s, 404, 5xx, a network failure)   -> passed on, nothing changes, no switch
 import type { CredentialKind } from '@mycel/shared/api'
+import { ANTHROPIC_API } from '../app-config'
 
 export type AccountRefusal =
-  /** marked refused with this status code (store.ts markInvalid): no wait brings it back */
+  /** marked refused with this status code (store.ts markInvalid): no wait brings it back, an admin reconnects */
   | { action: 'invalid'; code: 'plan_ended' | 'upstream_403' }
-  /** out of credit (an API key): kept out like a credit limit (store.ts isCreditLimit), someone has to add credit */
-  | { action: 'credit'; code: 'credit_balance_exhausted' }
+  /** an API key out of credit: held out (store.ts NO_CREDIT) until someone adds credit or the hold ends */
+  | { action: 'no_credit' }
+  /** refused for a reason that may not be the account's (a region, an IP): skip it in this turn only */
+  | { action: 'skip' }
 
-const BILLING = /credit balance|billing|purchase credits|subscription|plan does not|not included in your plan/i
+/** Anthropic's own wording for an account that may not use the API (permission_error / authentication_error) */
+const ACCOUNT_LEVEL = [
+  /\b(organization|account) (has been |is )?(disabled|suspended|deactivated)\b/i,
+  /\bdoes not have access to claude( code)?\b/i,
+  /\bclaude( code)? is not (included|available) (in|on|with) your (plan|subscription)\b/i,
+  /\boauth (authentication|access) is (currently )?not allowed\b/i,
+  /\boauth token has been revoked\b/i,
+]
+const CREDIT_TOO_LOW = /credit balance is too low/i
 
-/** null = not the account's fault (pass it on, change nothing). `body`: the upstream's answer text (JSON or not). */
-export function accountRefusal(status: number, body: string, kind: CredentialKind): AccountRefusal | null {
-  if (status !== 400 && status !== 403) return null
+/** Does an answer from this upstream speak for the account? Anthropic itself, or a loopback test upstream (the config
+ * allows http:// only there), never a gateway or another https:// upstream (a company proxy may answer 403 itself). */
+export function upstreamSpeaksForAccount(upstream: string, gateway: boolean): boolean {
+  if (gateway) return false
+  const u = upstream.replace(/\/+$/, '')
+  if (u === ANTHROPIC_API) return true
+  try { const h = new URL(u); return h.protocol === 'http:' && (h.hostname === '127.0.0.1' || h.hostname === 'localhost') } catch { return false }
+}
+
+/** null = not the account's fault (pass it on, change nothing). `requestId`: the answer's request-id header. */
+export function accountRefusal(o: { path: string; status: number; body: string; requestId: string | null; kind: CredentialKind }): AccountRefusal | null {
+  if (o.path !== '/v1/messages' || !o.requestId) return null
+  if (o.status !== 400 && o.status !== 402 && o.status !== 403) return null
   let type = '', message = ''
   try {
-    const j = JSON.parse(body) as { error?: { type?: unknown; message?: unknown } }
-    type = String(j?.error?.type ?? ''); message = String(j?.error?.message ?? '')
-  } catch { message = body.slice(0, 2000) }
-  const billing = type === 'billing_error' || BILLING.test(message)
-  if (status === 403) return { action: 'invalid', code: kind === 'anthropic-oauth' ? 'plan_ended' : 'upstream_403' }
-  if (!billing) return null
-  return kind === 'anthropic-oauth' ? { action: 'invalid', code: 'plan_ended' } : { action: 'credit', code: 'credit_balance_exhausted' }
+    const j = JSON.parse(o.body) as { type?: unknown; error?: { type?: unknown; message?: unknown } }
+    if (j?.type !== 'error' || !j.error || typeof j.error.type !== 'string') return null
+    type = j.error.type; message = typeof j.error.message === 'string' ? j.error.message : ''
+  } catch { return null }
+  if (o.status === 403) {
+    if ((type === 'permission_error' || type === 'authentication_error') && ACCOUNT_LEVEL.some((re) => re.test(message))) {
+      return { action: 'invalid', code: o.kind === 'anthropic-oauth' ? 'plan_ended' : 'upstream_403' }
+    }
+    return { action: 'skip' }
+  }
+  if (type === 'billing_error' || CREDIT_TOO_LOW.test(message)) return o.kind === 'anthropic-oauth' ? { action: 'invalid', code: 'plan_ended' } : { action: 'no_credit' }
+  return null
 }

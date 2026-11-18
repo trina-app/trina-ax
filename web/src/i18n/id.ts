@@ -3139,6 +3139,7 @@ export const id: Record<MessageKey, string> = {
   'credentials.state.expired': 'Kedaluwarsa',
   'credentials.state.invalid': 'Ditolak',
   'credentials.state.needs_reconnect': 'Perlu dihubungkan ulang',
+  'credentials.state.no_credit': 'Kredit habis',
   'credentials.state.limited': 'Batas tercapai',
   'credentials.state.over_limit': 'Batas bulanan habis',
   'credentials.state.disabled': 'Mati',

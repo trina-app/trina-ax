@@ -3098,6 +3098,7 @@ export const es: Record<MessageKey, string> = {
   'credentials.state.expired': "Vencida",
   'credentials.state.invalid': "Rechazada",
   'credentials.state.needs_reconnect': "Se requiere volver a conectar",
+  'credentials.state.no_credit': 'Sin crédito',
   'credentials.state.limited': "Límite alcanzado",
   'credentials.state.over_limit': "Límite mensual agotado",
   'credentials.state.disabled': "Desactivada",

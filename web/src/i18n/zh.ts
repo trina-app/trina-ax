@@ -3093,6 +3093,7 @@ export const zh: Record<MessageKey, string> = {
   "credentials.state.expired": "已过期",
   "credentials.state.invalid": "被拒绝",
   "credentials.state.needs_reconnect": "需要重新连接",
+  "credentials.state.no_credit": "额度用完",
   "credentials.state.limited": "已达上限",
   "credentials.state.over_limit": "每月上限已用完",
   "credentials.state.disabled": "关闭",

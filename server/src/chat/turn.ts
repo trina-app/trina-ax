@@ -443,7 +443,10 @@ export class TurnExec {
   private proxyError: ApiErrorBody | null = null
   private proxyUnsubscribe: (() => void) | null = null
   /** the attempt's AI connection was refused / at its limit (proxy event): the turn may go on with another one */
-  private credentialFailure: { id: string; reason: 'limited' | 'invalid' | 'needs_reconnect' | 'over_limit' | 'gone'; retryAt: string | null } | null = null
+  private credentialFailure: { id: string; reason: 'limited' | 'invalid' | 'needs_reconnect' | 'over_limit' | 'gone' | 'no_credit' | 'skip'; retryAt: string | null } | null = null
+  /** the attempt called a tool: a switch that is not the proxy's reading of the account (an unknown 403, an engine
+   * sign-in error) must not run its tools again on another account */
+  private attemptCalledTool = false
   /** the AI connection of the latest attempt (audit of the Codex fallback) */
   private lastCredential: string | null = null
   /** this turn's tools (step labels of per-person tools) */
@@ -1057,6 +1060,7 @@ export class TurnExec {
         const parser = new ClaudeStreamParser()
         const errors: EngineEvent[] = []
         this.attemptHadOutput = false
+        this.attemptCalledTool = false
         // the attempt that answers says whether it reached the tool-call limit (not one that was switched or retried)
         this.limitReason = null
         // where this attempt's text starts: a refused attempt's text is discarded from here (below)
@@ -1120,7 +1124,7 @@ export class TurnExec {
         if (crashed || err) rt.log.warn('engine attempt failed', { turn: this.id, engine: 'claude-code', exit, code: err?.code ?? 'crash', stderr: stderr.slice(-2000) })
         // the engine says the account was refused but the proxy saw no refusal it knows (QA TC-4835): this account is
         // skipped for the rest of the turn and the next one answers; its state stays (only the proxy's reading marks it)
-        if (managed && err?.code === 'auth' && !this.attemptHadOutput && !this.credentialFailure && this.lastCredential) {
+        if (managed && err?.code === 'auth' && !this.attemptCalledTool && !this.attemptHadOutput && !this.credentialFailure && this.lastCredential) {
           this.credentialFailure = { id: this.lastCredential, reason: 'invalid', retryAt: null }
           if (this.switchCredential('claude-code', exclude)) { resume = false; sid = crypto.randomUUID(); attempt--; continue }
           this.credentialFailure = null
@@ -1208,13 +1212,15 @@ export class TurnExec {
     const { rt, spec } = this
     const f = this.credentialFailure
     if (!f || this.stopReason || this.budgetHit || this.switches >= 2) return false
+    // a 403 that may not be the account's: only before any tool ran in this attempt
+    if (f.reason === 'skip' && this.attemptCalledTool) return false
     exclude.add(f.id)
     const next = resolveCredential(rt.db, { userId: spec.userId, engine, exclude, allowedKinds: credentialsOf(rt.ctx).allowedKinds })
     if (!next.ok) return false
     this.switches++
     this.credentialFailure = null
     this.proxyError = null
-    const label = tr(f.reason === 'limited' || f.reason === 'over_limit' ? 'credentialSwitchLimit' : 'credentialSwitchInvalid', spec.locale)
+    const label = tr(f.reason === 'limited' || f.reason === 'over_limit' || f.reason === 'no_credit' ? 'credentialSwitchLimit' : 'credentialSwitchInvalid', spec.locale)
     this.addStep({ kind: 'tool', tool: 'engine', label, status: 'ok' })
     rt.hub.publish(spec.userId, { type: 'notice', data: { level: 'info', code: 'engine_credential_switch', message: label } })
     audit(rt.db, { actor: spec.userId, action: 'engine.credential_switch', target: spec.turnId, detail: { from: f.id, to: next.credentialId, reason: f.reason } })
@@ -1633,6 +1639,7 @@ export class TurnExec {
         // (a piece copied into the call's arguments is content: a message it posts, a file it writes)
         else { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart(e.input)))); this.flushText() }
         this.attemptHadOutput = true
+        this.attemptCalledTool = true
         this.producedOutput = true
         // which agent made the call: the gate gives a sub-agent's calls that sub-agent's own state (TurnFiles.forCall)
         this.files.noteToolUse(e.id, e.parentId ?? null)

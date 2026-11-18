@@ -14,9 +14,12 @@ one that works. A member's answer fails with "There's a problem with the AI acco
 
 ## Scope
 
-In: the model proxy reads an Anthropic 403, and a 400 that names billing or credit, as the account's own refusal (marked,
-the turn moves on). A Claude turn whose engine reports a sign-in problem the proxy did not recognise moves on to the next
-account without marking it. A state line for an ended subscription. Tests for each kind of answer.
+In: on `/v1/messages` only, and only for Anthropic's own error answers (JSON shape + request-id, from Anthropic
+itself), the model proxy marks a known account-level 403 and a billing answer (402/400 `billing_error` or the exact
+credit phrase), skips any other 403 in the turn only, and holds an API key that is out of credit with its own reason
+(no rate limit, no Codex fallback). A Claude turn whose engine reports a sign-in problem the proxy did not recognise
+moves on to the next account without marking it, only if no tool ran in the attempt. State lines for an ended
+subscription and for out of credit. Tests for each kind of answer, including those that must not mark.
 Out: a periodic health check of idle accounts; a drag-to-reorder list (the list already has Move up / Move down);
 Codex-side changes (its path already reads 401, plan and credit answers).
 
@@ -34,6 +37,7 @@ docs/decisions/20261118-ai-account-failover.md
 
 ## Result
 
-The turn goes on to the next usable account; the ended account is marked refused ("Refused", with a line that says its
-subscription ended or its plan lacks Claude Code). Tests: `tests/unit/anthropic-refusal.test.ts`,
+The turn goes on to the next usable account. The ended account is marked refused ("Refused", with a line that says its
+subscription ended or its plan lacks Claude Code). After review: marking is narrowed to Anthropic's own account-level
+answers on /v1/messages; an API key out of credit gets an "Out of credit" hold. Tests: `tests/unit/anthropic-refusal.test.ts`,
 `tests/unit/b-credential-failover-kinds.test.ts`.
