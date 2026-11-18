@@ -55,8 +55,6 @@ for (const g of ['groups/marketing', 'groups/finance']) { fs.mkdirSync(`${TEAM}/
 // a project folder inside her group folder (no rule of its own): in a run that starts there, the group folder above is
 // read-only and the project folder is writable inside it
 w('groups/marketing/campaign/plan.md', 'campaign plan\n')
-// a folder of her group limited to alice alone (QA TC-4929): in a chat she shares with erin not even its name shows
-w('groups/marketing/hr-alicealone/pay.md', `${ASKER}-hr`)
 w('users/bob/notes.md', `${CANARY}-bob`)
 w('.system/history/old.bin', `${CANARY}-system`)
 fs.mkdirSync(`${DIR1}/.git/hooks`, { recursive: true }); fs.writeFileSync(`${DIR1}/.git/config`, '[core]\n')
@@ -121,6 +119,8 @@ fs.mkdirSync(WORK, { recursive: true }); fs.mkdirSync(chatWork(BASE, 'chat-2'), 
 w('projects/web/index.html', 'web index\n')
 w('projects/web/docs/guide.md', 'web guide\n')
 w('projects/web/mine/secret.md', `${ASKER}-subfolder`)
+// a folder of her group limited to alice alone (QA TC-4929): in a chat she shares with erin not even its name shows
+w('groups/marketing/hr-alicealone/pay.md', `${ASKER}-hr`)
 fs.writeFileSync(`${TEAM}/users/alice/key.txt`, `${ASKER}-own-folder`)
 fs.mkdirSync(`${WEB}/.git/hooks`, { recursive: true }); fs.writeFileSync(`${WEB}/.git/config`, '[core]\n')
 fs.writeFileSync(path.join(personHome(BASE, ME), '.netrc'), `machine github.com password ${ASKER}-home\n`)
