@@ -43,6 +43,9 @@ export const UserPrefs = z.object({
   officeMcpNotice: z.literal('seen').optional().catch(undefined),
   /** my lists' folds (ListFolds); a stored value that does not read reads as absent, never hiding the other preferences */
   listFolds: ListFolds.optional().catch(undefined),
+  /** 'off': a room message with "@전체" goes without the question first ("Don't ask again" on that question; Settings ›
+   * Notifications › "Ask before notifying everyone" turns it back on). One choice for every room; absent = ask. */
+  mentionAllAsk: z.literal('off').optional().catch(undefined),
 })
 export type UserPrefs = z.infer<typeof UserPrefs>
 

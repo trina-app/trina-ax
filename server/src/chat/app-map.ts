@@ -84,11 +84,10 @@ export function appMapSection(o: AppMapInput, L: Locale): string {
     // a shared chat's own section (prompt.ts sharedSection, after this one) says how the AI reads the thread
     // (share-words.ts answerCommentsLine): there only the labels and who is told
     o.view === 'shared'
-      // "then Send to" read as the only way a thread reaches the AI (CHT-14, CHT-15, 2026-11-17): the AI reads it when
-      // asked (the shared chat section says how); Send to only fills the person's message box (ChatThreadPanel)
-      ? `- Under a finished answer: ${q('rooms.replyInThread')}: people's talk, which you read when asked (shared chat section); its ${q('chat.thread.sendToAi')} fills the person's message box, unsent. Asker and repliers are told.`
+      // the AI reads a thread when asked (the shared chat section says how); there is no button that sends it
+      ? `- Under a finished answer: ${q('rooms.replyInThread')}: people's talk, which you read when asked (shared chat section). Asker and repliers are told.`
       // the AI there reads a thread when someone asks (docs/decisions/20261117-ai-reads-answer-comments.md)
-      : `- Shared chat (a project's or shared with people), under a finished answer: ${q('rooms.replyInThread')}: people's talk; the AI there reads it when someone asks; its ${q('chat.thread.sendToAi')} fills the message box, unsent. Asker and repliers are told; not in a private chat.`,
+      : `- Shared chat (a project's or shared with people), under a finished answer: ${q('rooms.replyInThread')}: people's talk; the AI there reads it when someone asks. Asker and repliers are told; not in a private chat.`,
     `- ${tr('cardAlways', L)} on a card: not asked again; undo in ${set(PRODUCT_NAMED_AFTER_AI ? 'settings.allowances' : 'settings.allowancesAi')}.`,
     `- Room ⋯: ${q('chat.pin')}, ${q('roomApps.menuAdd')} (${q('roomApps.menuList')} once it has some): Google Forms or any service posts into the room by its ${q('roomApps.address')}. A group chat's also ${q('rooms.info.rename')}, ${q('rooms.info.addPeople')}; a team room: people follow its group, owners and admins rename.`,
     `- Room bell or ⋯ › ${q('rooms.menu.notify')}: ${q('rooms.notify.mentions')} / ${q('rooms.notify.off')}. ${q('notifications.quiet')}: ${set('notifications.title')}. Message hover: ${q('rooms.react')}. Mentions, thread replies: ${q('inbox.title')}.`,

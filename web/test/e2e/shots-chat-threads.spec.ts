@@ -1,7 +1,7 @@
 // Screenshots of threads on AI answers in shared chats (docs/decisions/20261116-chat-answer-threads.md), for review by
 // eye: the thread open (beside the chat at 1440, the whole screen at 390) for the owner, an admin, a member and a guest,
 // in English and Korean, light and dark; and, for the owner, the answer's row with "Reply in thread" and the thread
-// line, an empty thread, the chat's box after "Send to Trina", and the read-only line while safe operations are on.
+// line, an empty thread, and the read-only line while safe operations are on.
 // The owner made the chat, so only they see Delete on Bob's replies (the others' views get the server's canDelete false
 // for replies that are not theirs). Only when CHAT_THREADS_SHOTS names a folder.
 import { expect, request, test, type APIRequestContext, type Page } from '@playwright/test'
@@ -93,17 +93,13 @@ for (const loc of ['en', 'ko'] as const) {
         }
         await shot('01-thread')
         if (role !== 'owner') return
-        // the owner's extras: the reply's menu with Delete, the chat's box after Send to Trina, the answer's row, an
+        // the owner's extras: the reply's menu with Delete, the answer's row, an
         // empty thread, and the read-only line under safe operations
         await panel.getByTestId('chat-thread-reply').first().hover()
         await panel.getByTestId('chat-thread-reply-menu').first().click()
         await expect(page.getByTestId('chat-thread-delete')).toBeVisible()
         await shot('02-reply-menu')
         await page.keyboard.press('Escape')
-        await panel.getByTestId('chat-thread-send-to-ai').click()
-        if (vp.name === '390') await expect(page).toHaveURL(new RegExp(`/c/${chatId}$`))
-        await expect(page.getByTestId('composer-input')).toHaveValue(/^> /)
-        await shot('03-sent-to-box')
         await page.goto(`/c/${chatId}`)
         const answer = page.locator(`[data-message-id="${answerId}"]`)
         await answer.hover()

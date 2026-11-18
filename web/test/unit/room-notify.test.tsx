@@ -99,6 +99,13 @@ beforeAll(() => {
       if (failPatch?.(body)) return json({ error: { code: 'internal', message: 'down' } }, 500)
       prefs = { ...prefs, ...body }; return json(prefs)
     }
+    if (key === 'PATCH /api/me') {
+      const cur = useSession.getState().status
+      const had = cur.kind === 'signed-in' ? cur.me.user.prefs : {}
+      const next: Record<string, unknown> = { ...had, ...body.prefs }
+      for (const k of Object.keys(next)) if (next[k] === null) delete next[k]
+      return json({ ...me, user: { ...me.user, prefs: next } })
+    }
     if (key === 'GET /api/push') return json({ configured: false, enabled: false, publicKey: null, subscriptionId: null })
     if (key === 'GET /api/rooms') return json({ items: roomsList, alerts: ALERTS })
     const patch = /^PATCH \/api\/rooms\/(.+)$/.exec(key)
@@ -207,6 +214,30 @@ test('Settings › Notifications: 대화 → 작업·연결 알림 → 이 기�
     expect(m.get('notifications-device').textContent).toContain(ko('notifications.sound'))
     expect(m.find('notification-sound')).toBeTruthy()
     expect(m.find('push-notifications')).toBeTruthy()
+  } finally { await m.unmount() }
+})
+
+test('"Ask before notifying everyone" (QA TC-4864): on by default; off after "Don\'t ask again", the switch turns the question back on', async () => {
+  useSession.setState({ status: { kind: 'signed-in', me: { ...me, user: { ...me.user, prefs: { mentionAllAsk: 'off' } } } } } as never)
+  prefs = defaults()
+  roomsList = []
+  const m = await mount(<MemoryRouter><Notifications /></MemoryRouter>)
+  try {
+    await m.until(() => m.find('notification-ask-everyone'), 'the row')
+    expect(m.get('notifications-rooms').textContent).toContain(ko('notifications.askEveryone'))
+    expect(m.get('notifications-rooms').textContent).toContain(ko('notifications.askEveryoneDesc', { n: 10 }))
+    const checked = () => (m.get('notification-ask-everyone') as unknown as { checked: boolean }).checked
+    expect(checked()).toBe(false)
+    await press(m, 'notification-ask-everyone')
+    await m.until(() => sent.some((s) => s.key === 'PATCH /api/me'), 'the save')
+    // my own preference (every room, every device), not the team's notification settings
+    expect(sent.filter((s) => s.key === 'PATCH /api/me').map((s) => s.body)).toEqual([{ prefs: { mentionAllAsk: null } }])
+    expect(sent.some((s) => s.key === 'PATCH /api/notification-preferences')).toBe(false)
+    await m.until(() => { const st = useSession.getState().status; return st.kind === 'signed-in' && st.me.user.prefs.mentionAllAsk === undefined }, 'the account')
+    expect(checked()).toBe(true)
+    await press(m, 'notification-ask-everyone')
+    await m.until(() => sent.filter((s) => s.key === 'PATCH /api/me').length === 2, 'the second save')
+    expect(sent.filter((s) => s.key === 'PATCH /api/me')[1]!.body).toEqual({ prefs: { mentionAllAsk: 'off' } })
   } finally { await m.unmount() }
 })
 

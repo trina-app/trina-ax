@@ -1,9 +1,7 @@
 // Threads on AI answers in shared chats (docs/decisions/20261116-chat-answer-threads.md, migration 408). Teammates who
 // see a shared chat (a team project's chat, or one shared with people and groups) talk under one finished answer; the
 // AI never takes part, and nothing puts these tables in a turn by itself (no prompt, transcript, room tool, search, Often
-// asked, title, memory or schedule does). Their words reach the AI two ways: "Send to Trina" (the web app quotes the
-// thread into the chat's box, shared chats.ts chatThreadDraft, every line a "> " quote: other people's words to the
-// turn's gates; the presser sends it as their own question), and the AI's answer_comments tool when the user refers to
+// asked, title, memory or schedule does). Their words reach the AI one way: the AI's answer_comments tool when the user refers to
 // them (chat/answer-comments.ts, docs/decisions/20261117-ai-reads-answer-comments.md: this chat only, through
 // threadAccess below, the chat marked as having read rooms).
 //

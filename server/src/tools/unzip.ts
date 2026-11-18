@@ -45,7 +45,7 @@ type UnzipIn = z.output<typeof UnzipFileInput>
 
 export const UNZIP_FILE_DESCRIPTION = 'Unzip a .zip file in the team folder: its files and folders are saved into a folder, with their names kept ' +
   '(Korean names too, also from zips made on Windows). By default a new folder next to the zip, named after it (" (2)" is added when the name is ' +
-  'taken); to_folder puts them into another folder instead (made when missing). Nothing is ever saved over an existing file: a taken name gets " (2)". ' +
+  'taken). Leave to_folder out for the usual "unzip it" / "unzip it here" ask; give it only when the user names another folder (made when missing). Nothing is ever saved over an existing file: a taken name gets " (2)". ' +
   'list_only: true lists what is inside without saving anything. For a zip the user attached in a chat (their .attachments folder), give to_folder ' +
   '(where they want the files). Password-protected, damaged or very large zips, and zips with unsafe paths, are refused and nothing is saved; links ' +
   'and system junk (__MACOSX, .DS_Store) are left out. Other archive types (7z, rar, alz, egg, tar) cannot be opened here.'
@@ -108,7 +108,14 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
     try {
       const bytes = readZip()
       sha = crypto.createHash('sha256').update(bytes).digest('hex')
-      try { plan = detachPlan(planZip(bytes, { unwrap: toFolder === null })) } catch (e) { throw zipRefusal(e, src.rel) ?? e }
+      try {
+        // one folder around everything is dropped when it would be doubled: by default (the new folder is named after
+        // it), and when to_folder already ends in that name ("…/계약-묶음" for a zip of "계약-묶음/…", QA TC-4865)
+        let p = planZip(bytes)
+        const same = (x: string, y: string) => x.normalize('NFC').toLowerCase() === y.normalize('NFC').toLowerCase()
+        if (toFolder !== null && p.top && !same(p.top, toFolder.split('/').at(-1) ?? '')) p = planZip(bytes, { unwrap: false })
+        plan = detachPlan(p)
+      } catch (e) { throw zipRefusal(e, src.rel) ?? e }
     } finally { release() }
   }
   // its names go to the model: the zip counts as read in this chat (also when nothing is saved)
@@ -175,18 +182,36 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
   const dirs = new Map<string, string[]>([['', []]])
   for (const f of plan.files) dirs.set(f.segs.slice(0, -1).join('/'), f.segs.slice(0, -1))
   for (const segs of plan.folders) dirs.set(segs.join('/'), segs)
-  const byAudience = new Map<string, string>()
-  for (const [k, segs] of [...dirs].sort((x, y) => x[1].length - y[1].length)) {
-    let key: string
+  // the audience of a folder as the rules are now (a card can stay open for minutes: rules may change meanwhile), with
+  // the zip's own readers as they are now: a card's answer holds for these files reaching these people from a zip these
+  // people could read; narrowing the zip's folder during a card makes every folder a new question
+  const folderKey = (k: string, segs: string[]): string => {
     try {
-      const at = authorize(fx, rules, c.user, join([...segs, 'x']), 'write', { mustExist: false, createDirs: true }).segs.slice(0, -1)
-      key = readersOf(ctx.db, rules, at).sort().join(',')
-    } catch { key = `!${k}` } // refused there: checked (and refused) on its own
-    if (!byAudience.has(key)) byAudience.set(key, k)
+      const r = files.rules()
+      const at = authorize(fx, r, ctx.files.principal(c.user.id), join([...segs, 'x']), 'write', { mustExist: false, createDirs: true }).segs.slice(0, -1)
+      return `${readersOf(ctx.db, r, at).sort().join(',')}|${readersOf(ctx.db, r, src.segs).sort().join(',')}`
+    } catch { return `!${k}` } // refused there: checked (and refused) on its own
   }
-  for (const k of byAudience.values()) {
+  const ask = async (k: string) => {
     const rel = join([...(k ? k.split('/') : []), plan.files.find((f) => f.segs.slice(0, -1).join('/') === k)?.segs.at(-1) ?? 'x'])
     await confirmSources(ctx, files, c, rel, rel.split('/'), [src.rel])
+  }
+  const ordered = [...dirs].sort((x, y) => x[1].length - y[1].length)
+  const byAudience = new Map<string, string>()
+  for (const [k, segs] of ordered) { const key = folderKey(k, segs); if (!byAudience.has(key)) byAudience.set(key, k) }
+  const covered = new Set<string>()
+  for (const [key, k] of byAudience) { await ask(k); covered.add(key) }
+  // after the cards, every folder again with the rules as they are now: one whose audience no card covered (a rule or a
+  // share changed while a card was open) is asked on its own, until nothing new turns up (QA TC-4854)
+  for (let changed = true; changed;) {
+    changed = false
+    for (const [k, segs] of ordered) {
+      const key = folderKey(k, segs)
+      if (covered.has(key)) continue
+      await ask(k)
+      covered.add(key)
+      changed = true
+    }
   }
 
   const svc = componentC(ctx).files
@@ -217,6 +242,11 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
     release = await slot()
     bytes = readZip()
     if (crypto.createHash('sha256').update(bytes).digest('hex') !== sha) throw new ToolError(`'${src.rel}' changed while this call waited, so nothing was saved. Unzip it again`)
+    // and the audiences once more, with no wait since the slot: a rule or share changed after the last card (or while
+    // this call waited for the slot) refuses the call rather than saving where no card asked (QA TC-4854)
+    for (const [k, segs] of ordered) {
+      if (!covered.has(folderKey(k, segs))) throw new ToolError(`folder access changed while this call waited, so nothing from '${src.rel}' was saved. Tell the user plainly and try again`)
+    }
     const target = ensure([])
     if (target.startsWith('!')) throw new ToolError(`the folder ${folder || 'the team root'} could not be made, so nothing was saved: ${target.slice(1)}`)
     folder = target
