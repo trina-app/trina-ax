@@ -51,6 +51,9 @@ export interface FolderSystem {
    * file system's error (EPERM when macOS privacy keeps the app out of Documents, Desktop or Downloads). Optional: a
    * system without it never reports a problem. */
   readable?(path: string): Promise<void>
+  /** Windows: the system's own names for its folders (%SystemRoot%, %ProgramFiles%, %ProgramData%, %APPDATA% …) that a
+   * share under a name of its own must not lead into (opensHome shares). Optional: home's drive gives the usual ones. */
+  systemFolders?(): string[]
 }
 
 /**
@@ -125,6 +128,32 @@ export function isUncPath(path: string, platform: string): boolean {
   return platform === 'win32' && /^[\\/]{2}/.test(path)
 }
 
+/** A Windows device path (\\?\…, \\.\…): a drive, a volume or a share under another name; never a folder a person
+ * picks. */
+function isDevicePath(path: string): boolean {
+  return /^[\\/]{2}[?.](?:[\\/]|$)/.test(path)
+}
+
+/**
+ * A network path that may be picked as a share (\\nas\company\Sales, and a mapped drive that resolves to one), or why
+ * not. Refused, whatever the server: a device path; a drive's or the system's admin share (C$, ADMIN$, IPC$, PRINT$),
+ * which opens a drive's top, the profile folders or Windows itself under another name; WSL's own (\\wsl$,
+ * \\wsl.localhost: a Linux home, not a share); a path with no share name. Anything else still goes through opensHome's
+ * name and identity checks (a share of the profile or of a folder above it) and pickRefused (the apps' data, the
+ * system's folders on a share of a drive's top).
+ */
+export function refusedShare(path: string, platform: string): boolean {
+  if (platform !== 'win32' || !isUncPath(path, platform)) return false
+  if (isDevicePath(path)) return true
+  const [host = '', share = ''] = path.replace(/^[\\/]+/, '').split(/[\\/]+/)
+  const h = host.toLowerCase()
+  // Windows drops trailing dots and spaces from a name ("C$." is C$)
+  const s = share.toLowerCase().replace(/[. ]+$/, '')
+  if (!h || !s || /[?*]/.test(h) || h === '.' || h === '..') return true
+  if (h === 'wsl$' || h === 'wsl.localhost') return true
+  return /^[a-z]\$$/.test(s) || s === 'admin$' || s === 'ipc$' || s === 'print$'
+}
+
 /** The folder and each folder above it, up to the root. */
 function withParents(path: string, platform: string): string[] {
   const p = platform === 'win32' ? win32 : posix
@@ -146,16 +175,21 @@ const unknownIdentity = (id: FolderIdentity) => id.dev === 0n || id.ino === 0n
  * written and with links resolved, against home as written, resolved and, on macOS, under the Data volume's name;
  * Windows and macOS without case) and by identity (the pick's device and file number against home's and each folder
  * above it: a mapped drive, a share of the profile, a junction or a subst drive onto home). Anything that cannot be
- * told counts as opening home: no home, a network path on Windows, a realpath or stat that fails or takes too long, an
- * identity of 0.
+ * told counts as opening home: no home, a home on a network path, a realpath or stat that fails or takes too long, an
+ * identity of 0. A network path on Windows counts as home too, without asking the network, unless `o.shares`: the
+ * person's own pick in the system's folder window ("Choose a folder…" in find work files, main/work-files.ts), where a
+ * NAS or company share must work. Then a share goes through the same checks (the network is asked: the person's pick
+ * already reached it), and a device path, an admin share or WSL's stays refused, as written and resolved (refusedShare).
  */
-export async function opensHome(path: string, sys: FolderSystem, platform: string): Promise<boolean> {
+export async function opensHome(path: string, sys: FolderSystem, platform: string, o: { shares?: boolean } = {}): Promise<boolean> {
   try {
     const home = sys.home()
     if (!home || !path) return true
-    if (isUncPath(path, platform) || isUncPath(home, platform)) return true
+    if (isUncPath(home, platform)) return true
+    if (isUncPath(path, platform) && (!o.shares || refusedShare(path, platform))) return true
     const [realPath, realHome] = await Promise.all([sys.realpath(path), sys.realpath(home)])
     if (!realPath || !realHome) return true
+    if (o.shares && refusedShare(realPath, platform)) return true
     // by name
     const homes = new Set<string>()
     for (const h of [home, realHome]) {
@@ -175,10 +209,48 @@ export async function opensHome(path: string, sys: FolderSystem, platform: strin
     const above = [...new Set([...withParents(home, platform), ...withParents(realHome, platform)])]
     const [pick, ...homeIds] = await Promise.all([sys.identity(path), ...above.map((a) => sys.identity(a))])
     if (!pick || unknownIdentity(pick) || homeIds.some((h) => !h || unknownIdentity(h))) return true
-    return homeIds.some((h) => h.dev === pick.dev && h.ino === pick.ino)
+    if (homeIds.some((h) => h.dev === pick.dev && h.ino === pick.ino)) return true
+    // a share keeps its own names after realpath (the server resolves its links): what it leads into is told by identity
+    if (o.shares && isUncPath(realPath, platform)) return await shareLeadsAside(realPath, [home, realHome], sys)
+    return false
   } catch {
     return true
   }
+}
+
+/**
+ * A share under a name of its own (\\pc\Everyone for C:\Users, \\pc\Roam for AppData, a junction on a share that the
+ * server resolves) leads into a folder pickRefused would refuse by its local name: the pick or a folder above it, up to
+ * the share's top, has the identity of Windows, a program folder, ProgramData or the person's AppData, or of the folder
+ * that holds home (C:\Users) while the folder below it is not the person's own or Public. Only the pick's own server
+ * and this computer's folders are asked. A pick or a folder above it that cannot be told counts as leading aside; a
+ * system folder this computer does not have is left out. Not caught: a junction on a share made to lead deeper into one
+ * of these (AppData\Roaming\Microsoft) or into another person's profile; Windows' own permissions keep other profiles.
+ */
+async function shareLeadsAside(realPath: string, homes: string[], sys: FolderSystem): Promise<boolean> {
+  const chain = withParents(realPath, 'win32')
+  const guarded = new Set<string>()
+  for (const h of homes) {
+    const drive = win32.parse(h).root
+    if (drive) for (const n of ['Windows', 'Windows\\System32', 'Program Files', 'Program Files (x86)', 'ProgramData', '$Recycle.Bin', 'System Volume Information', 'Recovery', 'PerfLogs']) guarded.add(win32.join(drive, n))
+    for (const n of ['AppData', 'AppData\\Roaming', 'AppData\\Local', 'AppData\\LocalLow']) guarded.add(win32.join(h, n))
+  }
+  for (const f of sys.systemFolders?.() ?? []) if (f && !isUncPath(f, 'win32')) guarded.add(f)
+  const users = [...new Set(homes.map((h) => win32.dirname(win32.normalize(h))))]
+  const own = new Set([...homes.map((h) => win32.basename(win32.normalize(h)).toLowerCase()), 'public'])
+  const maybe = (p: string) => sys.identity(p).catch(() => null)
+  const [ids, guardIds, userIds] = await Promise.all([Promise.all(chain.map((c) => sys.identity(c))), Promise.all([...guarded].map(maybe)), Promise.all(users.map(maybe))])
+  const same = (a: FolderIdentity | null, b: FolderIdentity) => !!a && !unknownIdentity(a) && a.dev === b.dev && a.ino === b.ino
+  for (const [i, id] of ids.entries()) {
+    if (!id || unknownIdentity(id)) return true
+    if (guardIds.some((g) => same(g, id))) return true
+    if (userIds.some((u) => same(u, id))) {
+      // the folder holding home itself was refused above; below it only the person's own folder or Public
+      const below = i > 0 ? win32.basename(chain[i - 1]!).toLowerCase() : ''
+      if (!own.has(below)) return true
+    }
+  }
+  return false
 }
 
 /** The folders picked in one team session's window while the app runs, by origin, for the person signed in. */
