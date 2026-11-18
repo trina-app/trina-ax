@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 09:34
 - Branch: `fix/ai-post-real-mentions`
-- Status: in progress
+- Status: done
 - Where: core (server/src/chat/post-to-room.ts, server/src/rooms/service.ts, shared/src/tools.ts). Why: the post_to_room tool and room mentions are core chat code.
 - Version impact: patch. A post the AI makes for a person can now notify the people it names in that room; nothing else changes.
 
@@ -44,4 +44,7 @@ docs/decisions/20261118-ai-post-real-mentions.md
 
 ## Result
 
-(at the end)
+Done. Independent review: no high finding; fixed a shorter name matching inside a longer or shared one (text and
+asker's words), Always allow / explicit-ask skip with mentions the asker did not name (card shows now), membership
+hints in shared-chat results, the note length check and accounts turned off while the card waited. Tests:
+tests/unit/post-mentions.test.ts, tests/unit/b-post-to-room-mentions.test.ts, web/test/unit/room-messages.test.tsx.
