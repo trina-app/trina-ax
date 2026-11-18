@@ -24,8 +24,10 @@ Plan: docs/AGENTS/plan/20261118-0700-unzip-file.md.
   over 200 MB, an entry that expands more than 100 times above 10 MB. Those zip limits are also the cap per answer:
   all unzip calls of one answer together save at most 200 MB and 5,000 files. The unzipped files do not count against
   the turn's write limits one by one (`maxWriteBytesPerTurn` 50 MB, `maxFilesWrittenPerTurn` 200): a project zip of 300
-  files is normal (coordinator, PR #1262). Every file still goes through the save checks (write access, skills, the
-  wider-audience check, file event).
+  files is normal (coordinator, PR #1262); the counts are plain fields of the turn's file state, so the main AI and its
+  sub-agents share them. A guest keeps the normal per-answer limits (200 files, 50 MB). Every file still goes through
+  the save checks (write access, skills, the wider-audience check, file event). Also refused: a zip that expands more
+  than 100 times in all (above 10 MB), and parts whose local header or data overlap another's (an overlap bomb).
 - **Memory:** at most two unzips run at once on the server (`UNZIP_LIMITS`); another waits up to 20 s, then the AI
   says plainly to try again in a moment. The zip is read inside the slot and let go before any card, and read again
   (same sha256, or refused) for the extraction; each entry is streamed to its work file chunk by chunk, so a call holds
@@ -35,8 +37,10 @@ Plan: docs/AGENTS/plan/20261118-0700-unzip-file.md.
   `desktop.ini`.
 - **Each entry:** inflated on the zlib thread pool with a hard output cap, its real size and CRC compared with the
   directory; a file that fails is named with the files that were saved ("NOT saved: … damaged").
-- **Who sees it:** the wider-audience check for the zip's bytes (confirmSources) at the target and at every folder a file
-  goes into (existing or not: a rule or share above it decides who reads it), before anything is placed; outside a chat a wider target is refused. Never into a
+- **Who sees it:** the wider-audience check for the zip's bytes (confirmSources) at the target, at every folder a file
+  goes into and at every empty folder of the zip (existing or not: a rule or share above it decides who reads it),
+  asked once per distinct audience (the people who can read there) at its shallowest folder, before anything is placed;
+  read access to the zip is asked again after a card; outside a chat a wider target is refused. Never into a
   skills folder. New folders are recorded once something went in, else removed again.
 - **The answer:** the folder linked by its name, how many files with a short list (a summary for many), and plainly
   what was not saved and why. `list_only` lists without saving.

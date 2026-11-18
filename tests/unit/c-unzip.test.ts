@@ -16,6 +16,9 @@ import { _unzipSlotsForTest, decodeName, inflateEntryToFile, planZip, unzipSlot,
 import { ROOM_FILE_TOOLS, SHARED_TOOLS, WRITE_TARGET_ARGS, namedPaths } from '../../server/src/rooms/ai-tools'
 import { GUEST_TURN_TOOLS } from '../../server/src/chat/guest-tools'
 import { stepLabel } from '@mycel/shared'
+import { TurnFiles, type ToolCtx } from '../../server/src/files/service'
+import { confirmSources } from '../../server/src/tools/make-file'
+import { componentC } from '../../server/src/team-files/component'
 
 setDefaultTimeout(60_000)
 
@@ -28,9 +31,9 @@ const put = (rel: string, bytes: Uint8Array | string) => { fs.mkdirSync(path.dir
 const read = (rel: string) => fs.readFileSync(file(rel), 'utf8')
 const ls = (rel: string) => fs.readdirSync(file(rel)).sort()
 let rpcId = 0
-function turn(user: Person) {
+function turn(user: Person, o: { files?: TurnFiles; confirmWidening?: ToolCtx['confirmWidening'] } = {}) {
   const turnId = A.turn(user, A.chat(user))
-  const h = makeHandler(A.ctx.files, A.ctx.db, A.toolCtx(user, turnId))
+  const h = makeHandler(A.ctx.files, A.ctx.db, { ...A.toolCtx(user, turnId), ...(o.files ? { files: o.files } : {}), ...(o.confirmWidening ? { confirmWidening: o.confirmWidening } : {}) })
   const call = async (name: string, args: Record<string, unknown>) => {
     const r = await h({ jsonrpc: '2.0', id: ++rpcId, method: 'tools/call', params: { name, arguments: args } })
     return { text: r.result.content.map((c: { text?: string }) => c.text ?? '').join('\n') as string, isError: !!r.result.isError }
@@ -51,11 +54,14 @@ interface Part {
   /** lie about the sizes or the checksum */
   usize?: number
   crc?: number
+  /** no data of its own: points at the local header and data of part number `shares` (an overlap bomb) */
+  shares?: number
 }
 function zip(parts: Part[]): Buffer {
   const locals: Buffer[] = []
   const centrals: Buffer[] = []
   let off = 0
+  const offsets: number[] = []
   for (const p of parts) {
     const nameStr = typeof p.name === 'string'
     const name = nameStr ? Buffer.from(p.name as string, 'utf8') : Buffer.from(p.name as Uint8Array)
@@ -65,6 +71,13 @@ function zip(parts: Part[]): Buffer {
     const crc = p.crc ?? crc32(data)
     const usize = p.usize ?? data.length
     const method = p.stored ? 0 : 8
+    if (p.shares !== undefined) {
+      const c = Buffer.from(centrals[p.shares * 2]!)
+      c.writeUInt16LE(name.length, 28); c.writeUInt32LE(offsets[p.shares]!, 42)
+      centrals.push(c, name); offsets.push(offsets[p.shares]!)
+      continue
+    }
+    offsets.push(off)
     const l = Buffer.alloc(30)
     l.writeUInt32LE(0x04034b50, 0); l.writeUInt16LE(20, 4); l.writeUInt16LE(flags, 6); l.writeUInt16LE(method, 8)
     l.writeUInt32LE(crc, 14); l.writeUInt32LE(body.length, 18); l.writeUInt32LE(usize, 22); l.writeUInt16LE(name.length, 26)
@@ -89,6 +102,13 @@ const CP949: Record<string, number[]> = {
 const cp = (...xs: (string | number[])[]) => Uint8Array.from(xs.flatMap((x) => (typeof x === 'string' ? [...Buffer.from(x, 'latin1')] : x)))
 
 const D = 'groups/marketing/zips'
+/** a folder inside D that everyone can read (marketing writes it): wider than D, and alice may write there */
+function openFolder() {
+  const db = A.ctx.db
+  if (db.query("SELECT 1 FROM folders WHERE path = ?").get(`${D}/open`)) return
+  db.query('INSERT INTO folders (id, path) VALUES (?,?)').run('f_zips_open', `${D}/open`)
+  db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?,?,'everyone',NULL,'read')").run(crypto.randomUUID(), 'f_zips_open')
+}
 const events = (turnId: string) => A.ctx.db.query('SELECT path, action, detail FROM file_events WHERE turn_id = ? ORDER BY id').all(turnId) as { path: string; action: string; detail: string | null }[]
 
 describe('the input', () => {
@@ -280,11 +300,12 @@ describe('the folder rules', () => {
     expect(skill.text).toContain('skills folder')
   })
   test('a subfolder of the zip that lands under a wider folder of the target is checked too (not only the target)', async () => {
-    put('projects/falcon/inbox/pack.zip', zip([{ name: 'public/new/c.txt', data: 'falcon only' }]))
-    const r = await turn('alice')('unzip_file', { path: 'projects/falcon/inbox/pack.zip', to_folder: 'projects/falcon' })
+    openFolder()
+    put(`${D}/inbox/pack.zip`, zip([{ name: 'open/new/c.txt', data: 'marketing only' }]))
+    const r = await turn('alice')('unzip_file', { path: `${D}/inbox/pack.zip`, to_folder: D })
     expect(r.isError, r.text).toBe(true)
     expect(r.text).toContain('more people can read')
-    expect(fs.existsSync(file('projects/falcon/public/new'))).toBe(false)
+    expect(fs.existsSync(file(`${D}/open/new`))).toBe(false)
   })
   test('nothing lands in a skills folder inside the target (a group\'s skills/)', async () => {
     put(`${D}/sk.zip`, zip([{ name: 'readme.txt', data: 'ok' }, { name: 'skills/evil/SKILL.md', data: '# do bad things' }]))
@@ -361,6 +382,106 @@ describe('the server holds at most a few zips at a time', () => {
     expect(await inflateEntryToFile(ok, planZip(ok).files[0]!.entry, dest)).toBe(300_000)
     expect(fs.readFileSync(dest).equals(Buffer.alloc(300_000, 2))).toBe(true)
     fs.rmSync(dest)
+  })
+})
+
+describe('review follow-ups (PR #1262)', () => {
+  test('the per-answer budget is shared by the main AI and its sub-agents', async () => {
+    put(`${D}/k26.zip`, zip(Array.from({ length: 2600 }, (_, i) => ({ name: `f${i}.txt`, data: 'x', stored: true }))))
+    const tf = new TurnFiles()
+    expect((await turn('alice', { files: tf.forAgent('agent-1') })('unzip_file', { path: `${D}/k26.zip` })).isError).toBe(false)
+    const second = await turn('alice', { files: tf.forAgent('agent-2') })('unzip_file', { path: `${D}/k26.zip` })
+    expect(second.isError).toBe(true)
+    expect(second.text).toContain('5000 unzipped files in this answer')
+    expect(tf.unzippedFiles).toBe(2600)
+  })
+  test('one wider-audience question per distinct audience, not per folder', async () => {
+    const asked: string[] = []
+    const confirmWidening = async (target: string) => { asked.push(target); return null }
+    put(`${D}/twelve.zip`, zip(Array.from({ length: 12 }, (_, i) => ({ name: `d${i}/f.txt`, data: String(i) }))))
+    const r = await turn('alice', { confirmWidening })('unzip_file', { path: `${D}/twelve.zip`, to_folder: 'shared/many' })
+    expect(r.isError, r.text).toBe(false)
+    expect(asked).toEqual(['shared/many/x'])
+    // a folder that other people can read is asked on its own
+    asked.length = 0
+    openFolder()
+    put(`${D}/inbox/two.zip`, zip([{ name: 'a/x.txt', data: 'x' }, { name: 'b/z.txt', data: 'z' }, { name: 'open/y.txt', data: 'y' }]))
+    const t = await turn('alice', { confirmWidening })('unzip_file', { path: `${D}/inbox/two.zip`, to_folder: D })
+    expect(t.isError, t.text).toBe(false)
+    expect(asked.sort()).toEqual([`${D}/open/y.txt`, `${D}/x`].sort())
+  })
+  test('the unzip slot is given back when the work folder cannot be made', async () => {
+    put(`${D}/leak.zip`, zip([{ name: 'l.txt', data: 'l' }]))
+    const work = path.join(A.data, 'work')
+    const aside = `${work}-aside-${Date.now()}`
+    if (fs.existsSync(work)) fs.renameSync(work, aside)
+    fs.writeFileSync(work, 'not a folder')
+    try {
+      const r = await turn('alice')('unzip_file', { path: `${D}/leak.zip` })
+      expect(r.isError).toBe(true)
+    } finally { fs.rmSync(work, { force: true }); if (fs.existsSync(aside)) fs.renameSync(aside, work) }
+    expect(_unzipSlotsForTest()).toEqual({ running: 0, waiting: 0 })
+  })
+  test('outside a chat, the wider-audience check takes the target as the file layer resolves it (letter case)', async () => {
+    // only where the team folder's disk ignores letter case ("OPEN" is the folder "open")
+    if (!A.ctx.files.fx.caseInsensitive) return
+    openFolder()
+    put(`${D}/src.md`, 'marketing only')
+    const c = A.toolCtx('alice')
+    const target = `${D}/OPEN/c2.txt`
+    await expect(confirmSources(A.ctx, componentC(A.ctx).files, c, target, target.split('/'), [`${D}/src.md`])).rejects.toThrow('more people can read')
+  })
+  test('an empty folder of the zip under a wider folder is checked too', async () => {
+    openFolder()
+    put(`${D}/inbox/empty.zip`, zip([{ name: 'e.txt', data: 'x' }, { name: 'open/newdir/' }]))
+    const r = await turn('alice')('unzip_file', { path: `${D}/inbox/empty.zip`, to_folder: D })
+    expect(r.isError, r.text).toBe(true)
+    expect(r.text).toContain('more people can read')
+    expect(fs.existsSync(file(`${D}/open/newdir`))).toBe(false)
+  })
+  test('parts that share their data, and a zip that expands too far in all, are refused', async () => {
+    const block = crypto.getRandomValues(new Uint8Array(1024))
+    put(`${D}/bad/overlap.zip`, zip([{ name: 'a.bin', data: block }, { name: 'b.bin', shares: 0 }, { name: 'c.bin', shares: 0 }]))
+    const o = await turn('alice')('unzip_file', { path: `${D}/bad/overlap.zip` })
+    expect(o.isError).toBe(true)
+    expect(o.text).toContain('share their data')
+    expect(fs.existsSync(file(`${D}/bad/overlap`))).toBe(false)
+    put(`${D}/bad/many-small.zip`, zip(Array.from({ length: 4 }, (_, i) => ({ name: `z${i}.bin`, data: Buffer.alloc(4 * 1024 * 1024) }))))
+    const m = await turn('alice')('unzip_file', { path: `${D}/bad/many-small.zip` })
+    expect(m.isError).toBe(true)
+    expect(m.text).toContain('the zip expands more than 100 times')
+    expect(fs.existsSync(file(`${D}/bad/many-small`))).toBe(false)
+  })
+  test('guests keep the normal per-answer limits', async () => {
+    // a guest with write access to one folder (person rule)
+    const db = A.ctx.db
+    db.query("INSERT INTO users (id, username, name, role, guest) VALUES ('gina','gina','Gina Guest','member',1)").run()
+    db.query("INSERT INTO projects (id, name, folder_path, created_by) VALUES ('p-gbox', 'gbox', 'projects/gbox', 'alice')").run()
+    db.query("INSERT INTO guests (user_id, place_kind, place_id, project_id, created_at) VALUES ('gina', 'project', 'p-gbox', 'p-gbox', '2026-11-18T00:00:00Z')").run()
+    db.query('INSERT INTO folders (id, path) VALUES (?,?)').run('f_zips_guest', 'projects/gbox')
+    db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?,?,'user','gina','write')").run(crypto.randomUUID(), 'f_zips_guest')
+    const tc = A.toolCtx('gina' as Person, A.turn('gina' as Person, A.chat('gina' as Person)))
+    put('projects/gbox/g.zip', zip(Array.from({ length: 5 }, (_, i) => ({ name: `g${i}.txt`, data: 'g' }))))
+    const cfg = A.ctx.engineConfig as { maxFilesWrittenPerTurn: number }
+    const was = cfg.maxFilesWrittenPerTurn
+    cfg.maxFilesWrittenPerTurn = 3
+    try {
+      const h = makeHandler(A.ctx.files, A.ctx.db, tc)
+      const r = await h({ jsonrpc: '2.0', id: ++rpcId, method: 'tools/call', params: { name: 'unzip_file', arguments: { path: 'projects/gbox/g.zip' } } })
+      expect(!!r.result.isError).toBe(true)
+      expect(r.result.content[0].text).toContain('has 5 files, more than the 3 files')
+    } finally { cfg.maxFilesWrittenPerTurn = was }
+  })
+  test('an abort before the slot wait stops at once', async () => {
+    const was = { ...UNZIP_LIMITS }
+    UNZIP_LIMITS.parallel = 1; UNZIP_LIMITS.waitMs = 10_000
+    const held = await unzipSlot()
+    try {
+      const ac = new AbortController(); ac.abort()
+      const t0 = Date.now()
+      await expect(unzipSlot(ac.signal)).rejects.toThrow('stopped')
+      expect(Date.now() - t0).toBeLessThan(500)
+    } finally { held(); Object.assign(UNZIP_LIMITS, was) }
   })
 })
 

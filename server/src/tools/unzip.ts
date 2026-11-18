@@ -34,6 +34,7 @@ import { badSegment } from '../policy/names'
 import { inSkills } from '../skills/guard'
 import { assertStorageRoomForAI } from '../system/storage'
 import { componentC } from '../team-files/component'
+import { readersOf } from '../rooms/ai-grants'
 import { FileError } from '../team-files/errors'
 import { checkRegular, freeName } from '../team-files/place'
 import type { TeamFiles } from '../team-files/service'
@@ -49,9 +50,6 @@ export const UNZIP_FILE_DESCRIPTION = 'Unzip a .zip file in the team folder: its
   '(where they want the files). Password-protected, damaged or very large zips, and zips with unsafe paths, are refused and nothing is saved; links ' +
   'and system junk (__MACOSX, .DS_Store) are left out. Other archive types (7z, rar, alz, egg, tar) cannot be opened here.'
 
-/** unzipped bytes and files per answer (keyed by the turn's file state): unzip_file's files do not count against the
- * turn's file count one by one, so its own budget bounds an AI that unzips again and again */
-const unzippedThisTurn = new WeakMap<object, { bytes: number; files: number }>()
 const human = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${Math.round(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`)
 const clean = (p: string) => p.normalize('NFC').replace(/\\/g, '/').split('/').filter((s) => s !== '' && s !== '.').join('/')
 /** files listed in the answer before "and N more" */
@@ -123,11 +121,20 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
   // what one answer may unzip in all: the zip's own limits (UNZIP_TOTAL_MAX bytes, UNZIP_ENTRIES_MAX files), across its
   // unzip calls. Its files do not count against the turn's write bytes or file count one by one (a project zip of 300
   // files is normal), but unzipping again and again must not write without bound
-  const before = unzippedThisTurn.get(c.files) ?? { bytes: 0, files: 0 }
-  if (before.bytes + plan.total > UNZIP_TOTAL_MAX || before.files + plan.files.length > UNZIP_ENTRIES_MAX) {
-    throw new ToolError(`unzipping '${src.rel}' would save more than ${UNZIP_TOTAL_MAX / 1048576} MB or ${UNZIP_ENTRIES_MAX} unzipped files in this answer, so nothing was saved. Tell the user; they can ask again in a new message`)
+  // (TurnFiles' plain fields: the main AI and every sub-agent view share one budget). A guest keeps the turn's normal
+  // limits (maxFilesWrittenPerTurn, maxWriteBytesPerTurn), checked here up front and again for each file
+  const guest = rules.isGuest(c.user)
+  if (guest) {
+    const room = ctx.engineConfig.maxFilesWrittenPerTurn - c.files.filesWritten.size
+    if (plan.files.length > room) throw new ToolError(`'${src.rel}' has ${plan.files.length} files, more than the ${room} files that can still be saved in this answer, so nothing was saved. Tell the user in plain words`)
+    if (c.files.bytesWritten + plan.total > ctx.engineConfig.maxWriteBytesPerTurn) throw new ToolError(`'${src.rel}' unzips to ${human(plan.total)}, more than can still be saved in this answer, so nothing was saved. Tell the user in plain words`)
+  } else {
+    if (c.files.unzippedBytes + plan.total > UNZIP_TOTAL_MAX || c.files.unzippedFiles + plan.files.length > UNZIP_ENTRIES_MAX) {
+      throw new ToolError(`unzipping '${src.rel}' would save more than ${UNZIP_TOTAL_MAX / 1048576} MB or ${UNZIP_ENTRIES_MAX} unzipped files in this answer, so nothing was saved. Tell the user; they can ask again in a new message`)
+    }
+    c.files.unzippedBytes += plan.total
+    c.files.unzippedFiles += plan.files.length
   }
-  unzippedThisTurn.set(c.files, { bytes: before.bytes + plan.total, files: before.files + plan.files.length })
 
   // where: a new folder next to the zip (named after it, or after the one folder everything sits in), or to_folder
   let folder: string
@@ -161,12 +168,23 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
 
   // the wider-audience check for the zip's bytes: at the target and at every folder a file goes into, before anything
   // is placed so a "no" leaves nothing behind
-  const dirs = new Map<string, string[]>()
+  // Every folder a file goes into and every (empty) folder of the zip, existing or not: who may read a place follows its
+  // path (a rule or a share on a folder above it), not only folders already on disk. Asked once per distinct audience
+  // (the people who can read there, as the file layer resolves the path), at its shallowest folder: a zip of 12 folders
+  // into one place is one card, not 13; a folder that more or other people can read is a card of its own
+  const dirs = new Map<string, string[]>([['', []]])
   for (const f of plan.files) dirs.set(f.segs.slice(0, -1).join('/'), f.segs.slice(0, -1))
-  // every folder a file goes into, existing or not: who may read a place follows its path (a rule or a share on a
-  // folder above it), not only folders already on disk (independent review)
-  const checks = new Set<string>(['', ...dirs.keys()])
-  for (const k of checks) {
+  for (const segs of plan.folders) dirs.set(segs.join('/'), segs)
+  const byAudience = new Map<string, string>()
+  for (const [k, segs] of [...dirs].sort((x, y) => x[1].length - y[1].length)) {
+    let key: string
+    try {
+      const at = authorize(fx, rules, c.user, join([...segs, 'x']), 'write', { mustExist: false, createDirs: true }).segs.slice(0, -1)
+      key = readersOf(ctx.db, rules, at).sort().join(',')
+    } catch { key = `!${k}` } // refused there: checked (and refused) on its own
+    if (!byAudience.has(key)) byAudience.set(key, k)
+  }
+  for (const k of byAudience.values()) {
     const rel = join([...(k ? k.split('/') : []), plan.files.find((f) => f.segs.slice(0, -1).join('/') === k)?.segs.at(-1) ?? 'x'])
     await confirmSources(ctx, files, c, rel, rel.split('/'), [src.rel])
   }
@@ -188,11 +206,15 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
       return r.path
     } catch (e) { return `!${why(e)}` }
   }
+  // after a card the person may no longer read the zip: asked again, as the file layer resolves it now
+  const again = authorize(fx, files.rules(), ctx.files.principal(c.user.id), a.path, 'read')
+  if (again.rel !== src.rel) throw new ToolError(`'${src.rel}' changed while this call waited, so nothing was saved. Unzip it again`)
   // the zip again, in a slot, for the extraction; the same bytes as planned (it may have been saved over during the card)
-  const release = await slot()
-  let bytes: Buffer | null = null
   const work = makeWorkDir(path.join(ctx.config.dataDir, 'work'))
+  let release: (() => void) | null = null
+  let bytes: Buffer | null = null
   try {
+    release = await slot()
     bytes = readZip()
     if (crypto.createHash('sha256').update(bytes).digest('hex') !== sha) throw new ToolError(`'${src.rel}' changed while this call waited, so nothing was saved. Unzip it again`)
     const target = ensure([])
@@ -214,7 +236,7 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
         const name = fs.existsSync(path.join(fx.root, ...dirSegs)) ? freeName(path.join(fx.root, ...dirSegs), want) : want
         const tmp = path.join(work, String(i))
         await inflateEntryToFile(bytes, f.entry, tmp, c.signal)
-        const r = await placeProduced(ctx, files, c, [...dirSegs, name], tmp, 'unzip_file', undefined, { turnBytes: false, turnFiles: false, detail: { from: src.rel } })
+        const r = await placeProduced(ctx, files, c, [...dirSegs, name], tmp, 'unzip_file', undefined, { turnBytes: guest, turnFiles: guest, detail: { from: src.rel } })
         saved.push({ path: r.path, size: r.size, ...(name !== want || r.conflictCopyOf ? { renamedFrom: [...dirSegs, want].join('/') } : {}) })
       } catch (e) {
         if (!(e instanceof Error)) throw e
@@ -223,7 +245,7 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
     }
   } finally {
     bytes = null
-    release()
+    release?.()
     fs.rmSync(work, { recursive: true, force: true })
     // new folders: recorded when something went in (or the zip named them), else taken away again
     if (saved.length || (!plan.files.length && plan.folders.length)) svc.recordFolders(c.user.id, made, { turnId: c.turnId, tool: 'unzip_file' })

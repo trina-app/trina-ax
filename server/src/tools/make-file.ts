@@ -663,7 +663,9 @@ export async function confirmSources(ctx: AppContext, files: TeamFiles, c: ToolC
   const db = ctx.db
   const rules = files.rules()
   const chatId = c.turnId ? (db.query('SELECT chat_id FROM turns WHERE id = ?').get(c.turnId) as { chat_id: string } | null)?.chat_id ?? null : null
-  const w = widening(db, chatId, targetSegs, sources.map((p) => sourceOf(db, rules, p)))
+  // the target as the file layer resolves it (letter case, look-alike spellings): "WIDE/x" is wide/x
+  const at = authorize(files.fx, rules, c.user, target, 'write', { mustExist: false, createDirs: true }).segs
+  const w = widening(db, chatId, at, sources.map((p) => sourceOf(db, rules, p)))
   if (w) throw new Denied(`more people can read '${target}' than the files it is made from; nothing was saved. Save it in a folder that only the people who can read those files can see, or ask the user where to put it.`)
 }
 

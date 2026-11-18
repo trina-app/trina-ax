@@ -92,6 +92,13 @@ const S_IFLNK = 0o120000
  */
 export function planZip(bytes: Uint8Array, o: { unwrap?: boolean } = {}): ZipPlan {
   const entries = readCentral(bytes, { total: UNZIP_TOTAL_MAX, entries: UNZIP_ENTRIES_MAX })
+  // the whole zip may not expand more than ZIP_RATIO_MAX times either (many small parts each under the per-part bound)
+  const declared = entries.reduce((n, e) => n + e.usize, 0)
+  if (declared > ZIP_RATIO_FROM && declared > bytes.length * ZIP_RATIO_MAX) throw new ZipProblem('complex', `the zip expands more than ${ZIP_RATIO_MAX} times`)
+  // every part's local header and data in its own range: parts that share their data (one block named 49 times) are a
+  // bomb made from overlap, never a zip a program writes
+  const ranges = entries.map((e) => { const d = entryData(bytes, e); return [e.local, d.byteOffset - bytes.byteOffset + d.length] as const }).sort((x, y) => x[0] - y[0])
+  for (let i = 1; i < ranges.length; i++) if (ranges[i]![0] < ranges[i - 1]![1]) throw new ZipProblem('complex', 'parts of the zip share their data')
   const items: { segs: string[]; dir: boolean; entry: ZipEntry; name: string }[] = []
   const skipped: ZipPlan['skipped'] = []
   let junk = 0
@@ -179,8 +186,8 @@ export async function inflateEntryToFile(bytes: Uint8Array, e: ZipEntry, dest: s
       await new Promise<void>((resolve, reject) => {
         const inf = zlib.createInflateRaw({ chunkSize: 64 * 1024 })
         let failed = false
-        const fail = (err: Error) => { if (failed) return; failed = true; inf.destroy(); reject(err) }
         const onAbort = () => fail(new ZipProblem('damaged', 'stopped'))
+        const fail = (err: Error) => { if (failed) return; failed = true; signal?.removeEventListener('abort', onAbort); inf.destroy(); reject(err) }
         signal?.addEventListener('abort', onAbort, { once: true })
         inf.on('data', (chunk: Buffer) => {
           if (failed) return
@@ -223,6 +230,7 @@ export function unzipSlot(signal?: AbortSignal): Promise<() => void> {
       if (next) next()
     }
     const grant = () => { unzipRunning++; resolve(release) }
+    if (signal?.aborted) { reject(new ZipProblem('damaged', 'stopped')); return }
     if (unzipRunning < UNZIP_LIMITS.parallel) { grant(); return }
     const go = () => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); grant() }
     const drop = (err: Error) => { const i = unzipWaiting.indexOf(go); if (i >= 0) unzipWaiting.splice(i, 1); clearTimeout(timer); signal?.removeEventListener('abort', onAbort); reject(err) }
