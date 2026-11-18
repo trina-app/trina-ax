@@ -39,6 +39,7 @@ import { scanAsk } from '../common/work-files'
 import { WORK_FILES_WIDE_VERSION } from '@mycel/shared'
 import { debug } from './debug'
 import { HostClassifier } from './pane/classify'
+import { openExternal } from './security'
 import { asSiteAccess } from '../common/site-permissions'
 import { TeamsStore } from './teams-store'
 import { DesktopUpdater } from './updater'
@@ -258,6 +259,11 @@ function registerIpc() {
   ipcMain.on('ui:pane-select', (e, id: string) => fromChrome(e) && win!.pane?.selectTab(String(id)))
   ipcMain.on('ui:pane-close-tab', (e, id: string) => fromChrome(e) && win!.pane?.closeTab(String(id)))
   ipcMain.on('ui:pane-close', (e) => fromChrome(e) && win!.pane?.hide())
+  // ↗ in the toolbar: the page on screen in the person's own browser (security.ts openExternal: http/https only)
+  ipcMain.on('ui:pane-open-external', (e) => {
+    const url = fromChrome(e) ? win!.pane?.externalUrl() : null
+    if (url) openExternal(url)
+  })
   ipcMain.on('ui:pane-stop', (e) => fromChrome(e) && win!.pane?.stop())
   ipcMain.on('ui:pane-answer', (e, a: { id?: string; decision?: string }) => {
     if (!fromChrome(e) || !a?.id) return
