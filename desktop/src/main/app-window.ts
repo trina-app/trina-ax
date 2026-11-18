@@ -29,7 +29,7 @@ import { HostClassifier, sessionResolver } from './pane/classify'
 import { APP_WEB_PREFERENCES, guardAppView, guardUiView, hardenAppSession } from './security'
 import { attachContextMenu, contextMenuOpen } from './context-menu'
 import { keyboardBack, keyboardTaken, keyboardTarget } from '../common/keyboard-focus'
-import { CHROME_RELOAD_DELAY_MS, CHROME_RELOAD_WINDOW_MS, chromeRecovery } from '../common/pane-chrome'
+import { CHROME_RELOAD_DELAY_MS, CHROME_RELOAD_WINDOW_MS, CHROME_RELOADS, chromeRecovery } from '../common/pane-chrome'
 import { paneFromEdge, paneGrab, paneKeyWidth, paneLimits, paneWidthFor, readPaneFraction, settlePane } from '../common/pane-width'
 import type { FolderGrants } from '../common/folder-access'
 import { WorkFilesController } from './work-files'
@@ -351,20 +351,12 @@ export class AppWindow {
       this.chromeLoaded = true
       this.paneWidthTold = ''
       this.sendPaneWidth()
-      const nav = this.chromeNav
-      this.chrome.webContents
-        .executeJavaScript(`!!document.querySelector('#toolbar [data-testid="pane-close"]')`)
-        .then((drawn) => {
-          if (nav !== this.chromeNav) return
-          // the page loaded but drew no toolbar (its script failed): the same as a failed load
-          if (drawn === true) this.chromeUp()
-          else this.chromeFailed('not drawn')
-        })
-        .catch(() => {})
+      this.checkChromeDrawn()
     })
-    // a new toolbar document (a load again, or any other reload of it): the browser waits for it to draw
-    this.chrome.webContents.on('did-start-navigation', (_e, _url, isInPlace, isMainFrame) => {
-      if (!isMainFrame || isInPlace) return
+    // a new toolbar document committed (a load again, or any other reload of it): the browser waits for it to draw.
+    // On commit, not on start: a navigation away from the toolbar that is stopped (security.ts guardUiView, a drop on
+    // it) never replaces the document and must not hide the browser
+    this.chrome.webContents.on('did-navigate', () => {
       this.chromeNav++
       this.chromeLoadFailed = false
       this.chromeLoaded = false
@@ -381,6 +373,7 @@ export class AppWindow {
       this.chromeFailed(`load ${code}`)
     })
     this.chrome.webContents.on('render-process-gone', (_e, d) => {
+      this.chromeLoaded = false
       if (d.reason !== 'clean-exit') this.chromeFailed(d.reason)
     })
     this.win.on('closed', () => clearTimeout(this.chromeRetry))
@@ -823,7 +816,7 @@ export class AppWindow {
         win: this.win,
         chrome: this.chrome,
         onOpenChange: () => {
-          this.chromeOnOpen()
+          this.chromeOnOpen(false)
           this.layout()
         },
         onState: (s) => this.sendPaneState(s),
@@ -1397,10 +1390,25 @@ export class AppWindow {
   }
 
   /** The browser opened while its toolbar is down and no load again is waiting: try it now. */
-  private chromeOnOpen() {
+  private chromeOnOpen(byPerson: boolean) {
     if (!this.chromeDown || this.chromeRetry || !this.pane?.open || this.chrome.webContents.isLoading()) return
-    this.chromeFailures = this.chromeFailures.filter((t) => Date.now() - t < CHROME_RELOAD_WINDOW_MS)
+    // the AI's steps open the browser again and again: they wait for the budget; the person's 🌐 always tries
+    if (!byPerson && this.chromeFailures.filter((t) => Date.now() - t < CHROME_RELOAD_WINDOW_MS).length >= CHROME_RELOADS) return
     this.loadChrome()
+  }
+
+  /** Did the toolbar's page draw its ✕? Yes: the browser is drawn (chromeUp); no, or no answer: as a failed load. */
+  private checkChromeDrawn() {
+    const nav = this.chromeNav
+    const failed = (why: string) => nav === this.chromeNav && this.chromeFailed(why)
+    this.chrome.webContents
+      .executeJavaScript(`!!document.querySelector('#toolbar [data-testid="pane-close"]')`)
+      .then((drawn) => {
+        if (nav !== this.chromeNav) return
+        if (drawn === true) this.chromeUp()
+        else failed('not drawn')
+      })
+      .catch(() => failed('check failed'))
   }
 
   /** The pane's state for the team page: open only while it is drawn (its 🌐 shows what the person sees). */
@@ -1614,10 +1622,12 @@ export class AppWindow {
     if (what === 'open' || (what === 'toggle' && !pane.open)) this.personActed(true)
     // open but not drawn (its toolbar is loading again): the person asks to see it, so try the toolbar now rather
     // than close a browser they cannot see (the team page shows it closed, paneStateForPage)
-    if (what === 'toggle' && pane.open && this.chromeDown) this.chromeOnOpen()
+    if (what !== 'close' && pane.open && this.chromeDown) this.chromeOnOpen(true)
     else if (what === 'open') pane.show()
     else if (what === 'close') pane.hide()
     else pane.toggle()
+    // the person opened it: the toolbar is tried now even after the few loads again (an AI step waits for those)
+    if (what !== 'close' && pane.open) this.chromeOnOpen(true)
   }
 
   /** A tab of the in-app browser got the keyboard: a page load there does not take it from where the person is

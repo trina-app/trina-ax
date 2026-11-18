@@ -166,6 +166,35 @@ test('the 🌐 button with no page yet: the toolbar, one plain line and the addr
     await toggle()
     await expect.poll(async () => (await paneViews(app)).page?.width).toBe(1440)
     expect(await pageOpen()).toBe(false)
+
+    // a navigation away from the toolbar is stopped (security.ts guardUiView): the browser stays drawn
+    await toggle()
+    await expect.poll(async () => (await paneViews(app)).page?.width).toBeLessThan(1440)
+    await c.evaluate(() => {
+      location.href = 'https://example.com/'
+    })
+    await page.waitForTimeout(800)
+    expect((await paneViews(app)).page!.width).toBeLessThan(1440)
+    expect(await pageOpen()).toBe(true)
+
+    // the toolbar keeps ending: after the few loads again the browser closes and the team page is told so; the
+    // person's 🌐 then tries once more and the browser is back
+    const crashAndWait = async () => {
+      await app.evaluate(({ webContents }) => webContents.getAllWebContents().find((w) => w.getURL().endsWith('/pane.html'))!.forcefullyCrashRenderer())
+    }
+    const drawn = async () => (await paneViews(app)).page!.width < 1440
+    for (let i = 0; i < 3; i++) {
+      await crashAndWait()
+      await expect.poll(drawn, { intervals: [20] }).toBe(false)
+      await expect.poll(drawn, { timeout: 15_000 }).toBe(true)
+    }
+    await crashAndWait()
+    await expect.poll(pageOpen, { timeout: 15_000 }).toBe(false)
+    await page.waitForTimeout(1500)
+    expect(await drawn()).toBe(false)
+    await toggle()
+    await expect.poll(drawn, { timeout: 15_000 }).toBe(true)
+    expect(await pageOpen()).toBe(true)
   } finally {
     await close(app)
   }
