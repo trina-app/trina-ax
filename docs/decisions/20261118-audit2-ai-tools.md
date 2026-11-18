@@ -10,21 +10,24 @@
   one person's data from another. The second limits audit found six such limits still on dev.
 - **Rule:**
   1. **rename_files** (TC-4983). One call renames many files or folders in place: `renames` (a list of
-     `{ path, new_name }`) or a pattern (`folder`, `find`, `replace`, `regex`) on the names directly inside one folder.
-     Each item goes through rename_file's checks: the name, skill folders (by the old and the new name), the file
-     layer's access, and a taken name fails that item. There is never a " (2)". Versions, file events with
-     `tool: rename_files`, and one audit line per call. An item that fails is listed, and the rest go on. At most
-     **500** per call (`RENAME_FILES_MAX`): a list over 500 fails the input check. A pattern with more matches renames
-     the first 500 (in the Files screen's order) and says how many are left. Claude Code renames with a shell loop, which
-     has no cap. The cap keeps one call to a few seconds on the server's thread. rename_files is offered wherever
-     rename_file is: shared chats (SHARED_TOOLS), guests (GUEST_TURN_TOOLS), sub-agents (not in PARENT_ONLY_TOOLS), and
-     the room-file and own-words lists. In a shared chat every listed path and a pattern's folder count as read
-     (namedPaths). After a room read, the change card lists each rename. A rename onto an instruction file is seen
-     before the call: for a pattern the server works out the new names itself (tools/rename-pattern.ts, the same code
-     as the tool). More than ROOM_CHANGE_SCAN_MAX names, or a pattern it cannot read, count as one. Stored keys are
-     hidden in new names and in a pattern's replacement. A regular expression with a group that repeats inside a
-     repeat, a choice that repeats, or a back-reference is refused. Names are matched on the server's own thread, and
-     such a pattern can take very long.
+     `{ path, new_name }`) or a pattern (`folder`, `find`, `replace`, `at`) on the names directly inside one folder.
+     The pattern is **plain text**, never a regular expression (review of #1327: names are matched on the server's own
+     thread, and patterns such as `((a)+)+$` took seconds on one 25-character name; no heuristic guard catches them
+     all). `at` is "anywhere" (every occurrence), "start" or "end"; matching is indexOf, linear in the name. Each item
+     goes through rename_file's checks: the name, skill folders (by the old and the new name), the file layer's access,
+     and a taken name fails that item. There is never a " (2)". Versions, file events with `tool: rename_files`, and one
+     audit line per call. An item that fails is listed, and the rest go on. At most **500** per call
+     (`RENAME_FILES_MAX`): a list over 500 fails the input check. A pattern with more matches renames the first 500 (in
+     the Files screen's order) and says how many are left. Claude Code renames with a shell loop, which has no cap; the
+     cap keeps one call to a few seconds. rename_files is offered wherever rename_file is: shared chats (SHARED_TOOLS),
+     guests (GUEST_TURN_TOOLS), sub-agents (not in PARENT_ONLY_TOOLS), and the room-file and own-words lists. In a
+     shared chat every listed path and a pattern's folder count as read (namedPaths). After a room read, the change card
+     lists each rename; for a pattern it lists the files it would rename now, old → new (the first 50, then "+N"), and a
+     rename onto an instruction file is refused there (tools/rename-pattern.ts, the same code as the tool). More than
+     ROOM_CHANGE_SCAN_MAX names count as one. **When it runs**, rename_files refuses any item whose new name is an
+     instruction file (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md, a skill) or a folder that holds one (more than 2,000
+     names inside: refused): the folder may change between the card and the call (review of #1327). One such rename is
+     still possible with rename_file. Stored keys are hidden in new names and in a pattern's replacement.
   2. **drive_read offset** (TC-4984). `offset` (characters, default 0) next to `maxChars`. A cut read gives
      `offset`, `totalChars` and `next` ("call drive_read again with offset N"). Before, the AI could not read past the
      first 100,000 characters of a Drive file.
@@ -47,8 +50,9 @@
      anyway, and a full queue already retries a minute later. The message on the 51st uses the number.
 - **Left out:** Drive OCR and copying Drive files (other audit items). Renaming deeper than one folder by pattern (the AI
   lists those, or calls once per folder). Changing other skill-list code (open PR #1284 changes that file).
-- **Tests:** `c-file-moves` (rename_files list, 200 by pattern in one call, regex groups, 520 in two calls, skill
-  folders, the lists, the room card's targets, step labels), `c-integrations-secret-files` (key hiding), `c-drive-tools`
+- **Tests:** `c-file-moves` (rename_files list, 200 by pattern in one call, start/end, linear-time matching on the
+  patterns that were slow as regular expressions, 520 in two calls, a folder that changes after the card, skill folders,
+  the lists, the room card's targets and file list, step labels), `c-integrations-secret-files` (key hiding), `c-drive-tools`
   (offset), `skill-list` and `c-integration-deferred-tools` (400 characters within the budget, find_tools 25),
   `b-onboarding-profile` (an 8,000-character profile saves and reaches the AI), `c-webfetch` and `download`
   (Accept-Language), `schedule-templates` (50), tool lists in `c-tools`, `i-wiring`, `b-browser`.

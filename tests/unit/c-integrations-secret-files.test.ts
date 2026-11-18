@@ -83,7 +83,7 @@ describe('the arguments a saving tool gets (hide-args.ts)', () => {
     // rename_files (TC-4983): each new name and a pattern's replacement hidden; the paths and the pattern that find files kept
     expect(h('rename_files', { renames: [{ path: `a/${KEY}.md`, new_name: `${KEY}.md` }, { path: 'b.md', new_name: 'c.md' }] }).args)
       .toEqual({ renames: [{ path: `a/${KEY}.md`, new_name: `${HIDDEN}.md` }, { path: 'b.md', new_name: 'c.md' }] })
-    expect(h('rename_files', { folder: `a/${KEY}`, find: KEY, replace: `new-${KEY}` }).args).toEqual({ folder: `a/${KEY}`, find: KEY, replace: `new-${HIDDEN}` })
+    expect(h('rename_files', { folder: `a/${KEY}`, find: KEY, replace: `new-${KEY}`, at: 'start' }).args).toEqual({ folder: `a/${KEY}`, find: KEY, replace: `new-${HIDDEN}`, at: 'start' })
     expect(h('move_files', { paths: [`a/${KEY}`], to_folder: `b/${KEY}` }).args).toEqual({ paths: [`a/${KEY}`], to_folder: `b/${HIDDEN}` })
     expect(h('copy_files', { paths: ['a'], to_folder: `b/${KEY}` }).args).toEqual({ paths: ['a'], to_folder: `b/${HIDDEN}` })
     expect(h('save_url', { url: 'https://x.example/a.png', save_as: `img/${KEY}.png` }).args).toEqual({ url: 'https://x.example/a.png', save_as: `img/${HIDDEN}.png` })

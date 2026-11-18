@@ -46,7 +46,7 @@ const KEEP: Record<string, readonly string[]> = {
   artifact: ['edits'],
   rename_file: ['path'],
   // the paths and the pattern find the files; the new names are hidden (each renames[].new_name, and replace)
-  rename_files: ['folder', 'find', 'regex'],
+  rename_files: ['folder', 'find', 'at'],
   move_files: ['paths'],
   copy_files: ['paths'],
   save_url: ['url'],

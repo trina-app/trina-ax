@@ -27,7 +27,7 @@ import { componentC } from '../team-files/component'
 import { FileError } from '../team-files/errors'
 import type { ToolRegistry } from './registry'
 import { askConfirm } from './url-gate'
-import { patternName, renamePattern, riskyPattern } from './rename-pattern'
+import { instructionLike, patternName } from './rename-pattern'
 
 export const FILE_MOVE_TOOL_NAMES = ['move_files', 'copy_files', 'rename_file', 'rename_files'] as const
 
@@ -58,6 +58,10 @@ const parentOf = (p: string) => p.split('/').slice(0, -1).join('/')
 const join = (folder: string, name: string) => (folder ? `${folder}/${name}` : name)
 
 type Mode = 'move' | 'copy'
+
+/** names looked at inside a folder rename_files renames (more: refused, it might hold an instruction file) */
+const HOLDS_SCAN_MAX = 2000
+const INSTRUCTION_REFUSAL = 'rename_files does not make or move an instruction file (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md or a skill), by its new name or inside a renamed folder; nothing was changed for this item. Use rename_file for it, one at a time'
 
 export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
   const svc = componentC(ctx).files
@@ -199,9 +203,25 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     return svc.move(tc.user.id, p, join(parentOf(p), name), 'fail', { turnId: tc.turnId, tool }).entry.path
   }
 
+  /** Does the folder at `rel` hold an instruction file (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md, a skill) among what
+   * the person sees in it? A file: false. Past HOLDS_SCAN_MAX names: true (it might). */
+  function holdsInstructions(userId: string, rel: string): boolean {
+    const todo = [rel]
+    let seen = 0
+    while (todo.length) {
+      let entries: { path: string; type: string }[]
+      try { entries = svc.tree(userId, todo.pop()!, undefined, Number.MAX_SAFE_INTEGER).entries } catch (e) { if (e instanceof ToolError && e.code === 'not_folder') return false; throw e }
+      for (const e of entries) {
+        if (++seen > HOLDS_SCAN_MAX || instructionLike(e.path)) return true
+        if (e.type === 'folder') todo.push(e.path)
+      }
+    }
+    return false
+  }
+
   /** rename_files: a list of renames, or a find/replace on the names directly inside one folder; each item on its own
    * (one that fails is reported, the rest go on), at most RENAME_FILES_MAX per call. */
-  function renameMany(a: { renames?: { path: string; new_name: string }[]; folder?: string; find?: string; replace?: string; regex?: boolean }, tc: ToolCtx) {
+  function renameMany(a: { renames?: { path: string; new_name: string }[]; folder?: string; find?: string; replace?: string; at?: 'anywhere' | 'start' | 'end' }, tc: ToolCtx) {
     let items: { path: string; new_name: string }[]
     let left = 0
     let where = ''
@@ -212,14 +232,11 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
       const folder = clean(a.folder ?? '')
       where = folder || 'the team root'
       const src = a.find ?? ''
-      if (a.regex && riskyPattern(src)) throw new ToolError('find has a group that repeats inside a repeat (like "(a+)+"), a choice that repeats (like "(a|b)+") or a back-reference, which can take very long; nothing was renamed. Use a simpler pattern, or list the renames')
-      let re: RegExp
-      try { re = renamePattern(src, !!a.regex) } catch (e) { throw new ToolError(`find is not a valid regular expression (${e instanceof Error ? e.message : 'error'}); nothing was renamed`) }
       let entries: { path: string; name: string }[]
       try { entries = svc.tree(tc.user.id, folder, undefined, Number.MAX_SAFE_INTEGER).entries } catch (e) { throw new ToolError(`nothing was renamed: ${why(e, tc)}`) }
       const all: { path: string; new_name: string }[] = []
       for (const e of entries) {
-        const to = patternName(e.name.normalize('NFC'), re, a.replace ?? '', !!a.regex)
+        const to = patternName(e.name.normalize('NFC'), src, a.replace ?? '', a.at ?? 'anywhere')
         if (to !== null) all.push({ path: clean(e.path), new_name: to })
       }
       if (!all.length) return { text: `Nothing was renamed: no name directly inside ${where} has a match for ${JSON.stringify(src)} that changes it.`, isError: true, summary: `rename_files 0/0 in ${folder}` }
@@ -230,7 +247,12 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     const failed: { path: string; error: string }[] = []
     for (const it of items) {
       if (tc.signal?.aborted) { failed.push({ path: it.path, error: 'cancelled' }); continue }
-      try { done.push({ from: it.path, to: renameOne(it.path, it.new_name, tc, 'rename_files') }) } catch (e) { failed.push({ path: it.path, error: why(e, tc) }) }
+      try {
+        // never an instruction file by a batch (its new name, or one inside a renamed folder), checked now and not only on
+        // a room's card before the call: the folder may have changed since (review of #1327); rename_file does one
+        if (instructionLike(join(parentOf(it.path), it.new_name.normalize('NFC'))) || holdsInstructions(tc.user.id, it.path)) throw new ToolError(INSTRUCTION_REFUSAL)
+        done.push({ from: it.path, to: renameOne(it.path, it.new_name, tc, 'rename_files') })
+      } catch (e) { failed.push({ path: it.path, error: why(e, tc) }) }
     }
     const text = [
       done.length ? `Renamed ${done.length}${where ? ` in ${where}` : ''}:\n${done.map((d) => `- ${d.from} -> ${nameOf(d.to)}`).join('\n')}` : 'Nothing was renamed.',
@@ -262,7 +284,7 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
   })
   reg.register({
     name: 'rename_files',
-    description: `Rename many files or folders in place in one call (each stays in its folder), with the same checks as rename_file: either renames, a list of { path, new_name }, or a pattern: folder with find and replace on the names directly inside that folder (plain text, or regex: true for a regular expression with $1 groups). At most ${RENAME_FILES_MAX} per call; when more names match, the answer says how many are left. A name that is taken, or a place the user may not change, fails for that item only. Use it instead of many rename_file calls.`,
+    description: `Rename many files or folders in place in one call (each stays in its folder), with the same checks as rename_file: either renames, a list of { path, new_name }, or a pattern: folder with find and replace on the names directly inside that folder (plain text; at: "start" or "end" for only the start or end of a name). At most ${RENAME_FILES_MAX} per call; when more names match, the answer says how many are left. A name that is taken, or a place the user may not change, fails for that item only. Use it instead of many rename_file calls.`,
     input: RenameFilesInput,
     describe: (a) => (a.renames ? `rename_files ${a.renames.length}` : `rename_files ${a.folder} ${JSON.stringify(a.find)} -> ${JSON.stringify(a.replace ?? '')}`),
     run: (a, tc) => renameMany(a, tc),

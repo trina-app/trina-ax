@@ -310,12 +310,12 @@ export const RenameFilesInput = z.strictObject({
   renames: z.array(z.strictObject({ path: relPath, new_name: newName })).min(1).max(RENAME_FILES_MAX).optional()
     .describe('Each file or folder with its new name (the name only: it stays in its folder), 1-500'),
   folder: relPath.optional().describe('Or by pattern: the folder whose files and folders (directly inside it, not deeper) are renamed'),
-  find: z.string().min(1).max(500).optional().describe('With folder: the text to find in each name (every match is replaced); names without it are left as they are'),
-  replace: z.string().max(255).optional().describe('With folder: what each match becomes (default ""); with regex, $1, $2 … are the groups'),
-  regex: z.boolean().optional().describe('true: find is a JavaScript regular expression, e.g. "^IMG_([0-9]+)" with replace "photo-$1"'),
+  find: z.string().min(1).max(255).optional().describe('With folder: the text to find in each name, as plain text (no wildcards or regular expressions); names without it are left as they are'),
+  replace: z.string().max(255).optional().describe('With folder: what the found text becomes (default "")'),
+  at: z.enum(['anywhere', 'start', 'end']).optional().describe('With folder: "anywhere" (default: every occurrence is replaced), "start" (only when the name starts with find, e.g. find "IMG_" replace "trip-") or "end" (only when it ends with find, e.g. find ".jpeg" replace ".jpg")'),
 }).refine((v) => (v.renames !== undefined) !== (v.folder !== undefined), { message: 'give either renames or folder with find' })
   .refine((v) => v.folder === undefined || v.find !== undefined, { message: 'folder needs find' })
-  .refine((v) => v.renames === undefined || (v.find === undefined && v.replace === undefined && v.regex === undefined), { message: 'find, replace and regex go with folder, not renames' })
+  .refine((v) => v.renames === undefined || (v.find === undefined && v.replace === undefined && v.at === undefined), { message: 'find, replace and at go with folder, not renames' })
 export const RenameFilesOutput = z.object({ renamed: z.array(z.object({ from: z.string(), to: z.string() })), failed: z.array(z.object({ path: z.string(), error: z.string() })), left: z.number() })
 /** The AI's delete_files (server/src/chat/delete-files.ts): items go to the team trash after the person's yes on the
  * server's card. Never part of FILE_TOOLS: the app connector (connectors/remote-mcp/tools.ts) lists those, and it has

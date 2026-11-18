@@ -65,7 +65,6 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
 export const WRITE_TARGET_ARGS: Readonly<Record<string, readonly string[]>> = {
   write: ['file_path'], edit: ['file_path'], make_file: ['output'], edit_hwp: ['output'], stamp_pdf: ['output'], edit_pdf: ['output'], merge_pdfs: ['output'], split_pdf: ['output_folder'], resize_images: ['output', 'output_folder'], unzip_file: ['to_folder'], save_url: ['save_as'],
   move_files: ['to_folder'], copy_files: ['to_folder'], rename_file: ['new_name'],
-  rename_files: ['new_name'],
 }
 
 /** Every team path a call names, nested ones too: the top-level PATH_ARGS, and the files inside edit_pdf's operations
