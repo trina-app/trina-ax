@@ -3662,6 +3662,8 @@ export const en: Record<MessageKey, string> = {
   "localApps.state": "On this computer",
   "localApps.running": "Running",
   "localApps.stopped": "Not running",
+  "localApps.status.desktopOnly": "Works in the desktop app",
+  "localApps.status.otherComputer": "On another computer",
   "localApps.stop": "Stop",
   "localApps.settings": "Settings on this computer",
   "localApps.settingSaved": "Saved",

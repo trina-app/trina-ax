@@ -466,8 +466,13 @@ export function awaitingFirstSignIn(i: Pick<Integration, 'auth' | 'hasSecret'>):
  * the team has members' own connections off → "Off", whatever its state (not used, not signed in again: QA TC-2930);
  * never signed in → "로그인 필요" like its page (QA TC-205), never "Connected" or "Reconnect"; a lapsed sign-in →
  * Reconnect; any other problem → Needs attention. */
-export function connectionRowStatus(i: Pick<Integration, 'auth' | 'hasSecret' | 'status' | 'personalOff'>): 'off' | 'signin' | 'connected' | 'reconnect' | 'attention' {
+/** An app on a computer whose last check came from somewhere else (the web, the phone app, another computer): not a
+ * fault, so it never shows as an error; it says where it works instead (ConnectionPage, ConnectorRow). */
+export const awayFromComputer = (i: Pick<Integration, 'kind' | 'lastErrorReason'>): boolean => i.kind === 'local' && i.lastErrorReason === 'local_offline'
+
+export function connectionRowStatus(i: Pick<Integration, 'auth' | 'hasSecret' | 'status' | 'personalOff'> & Partial<Pick<Integration, 'kind' | 'lastErrorReason'>>): 'off' | 'signin' | 'connected' | 'reconnect' | 'attention' | 'elsewhere' {
   if (i.personalOff) return 'off'
+  if (i.kind && awayFromComputer({ kind: i.kind, lastErrorReason: i.lastErrorReason })) return 'elsewhere'
   if (awaitingFirstSignIn(i)) return 'signin'
   return i.status === 'connected' ? 'connected' : i.status === 'needs_auth' ? 'reconnect' : 'attention'
 }

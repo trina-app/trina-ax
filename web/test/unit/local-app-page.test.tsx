@@ -9,6 +9,7 @@ import { translate, useLocaleStore } from '../../src/i18n'
 import { ConnectionPage } from '../../src/components/integrations/ConnectionPage'
 import { useIntegrationActions } from '../../src/components/integrations/IntegrationRow'
 import { settingLines } from '../../src/components/integrations/LocalApp'
+import { connectionRowStatus } from '../../src/lib/integrations'
 import { installDom, mount, removeDom } from './dom-host'
 
 const locale = useLocaleStore.getState().locale
@@ -62,6 +63,10 @@ test('on the web, its check failed for being away from that computer: one note s
     expect(m.get('local-app-where').textContent).toContain('desktop app on the computer where it was added')
     expect(m.find('integration-error')).toBeNull()
     expect(m.html()).not.toContain(translate('en', 'gapps.signIn'))
+    // not a fault: a neutral "Works in the desktop app", never a red "Error"
+    expect(m.get('connection-status').getAttribute('data-state')).toBe('elsewhere')
+    expect(m.get('connection-status').textContent).toBe(translate('en', 'localApps.status.desktopOnly'))
+    expect(m.get('connection-status').getAttribute('class')).not.toContain('text-danger')
   } finally { await m.unmount() }
 })
 
@@ -75,6 +80,31 @@ test('in the desktop app: each setting says in words whether this computer keeps
     for (let i = 0; i < 20 && !m.get('local-app-settings-state').textContent?.includes(translate('en', 'localApps.settingSaved')); i++) await new Promise((r) => setTimeout(r, 10))
     expect(m.get('local-app-settings-state').textContent).toContain(`ASIDE_TOKEN${translate('en', 'localApps.settingSaved')}`)
   } finally { await m.unmount() }
+})
+
+test('in the desktop app, last checked from another computer: "On another computer"; a real failure stays an error', async () => {
+  ;(globalThis as Record<string, unknown>)[DESKTOP_BRIDGE_GLOBAL] = {
+    bridgeVersion: 1,
+    localApps: { version: 1, run: async () => ({}), cancel() {}, stop() {}, running: async () => [], onRunning: () => () => {}, setSettings: async () => 'saved', settingNames: async () => [] },
+  }
+  const away = await mount(<Page i={{ ...aside, status: 'error', lastError: 'x', lastErrorReason: 'local_offline' }} />)
+  try {
+    expect(away.get('connection-status').getAttribute('data-state')).toBe('elsewhere')
+    expect(away.get('connection-status').textContent).toBe(translate('en', 'localApps.status.otherComputer'))
+  } finally { await away.unmount() }
+  const failed = await mount(<Page i={{ ...aside, status: 'error', lastError: 'The program could not start on this computer.', lastErrorReason: 'local_failed' }} />)
+  try {
+    expect(failed.get('connection-status').getAttribute('data-state')).toBe('error')
+    expect(failed.get('connection-status').textContent).toBe(translate('en', 'integrations.status.error'))
+    expect(failed.find('integration-error')).not.toBeNull()
+  } finally { await failed.unmount() }
+})
+
+test('the list row: away from its computer is neutral, a failure needs attention', () => {
+  const base: Integration = { ...aside, status: 'error' }
+  expect(connectionRowStatus({ ...base, lastErrorReason: 'local_offline' })).toBe('elsewhere')
+  expect(connectionRowStatus({ ...base, lastErrorReason: 'local_failed' })).toBe('attention')
+  expect(connectionRowStatus({ ...base, kind: 'mcp', lastErrorReason: 'local_offline' })).toBe('attention')
 })
 
 test('settings lines: NAME=value only', () => {

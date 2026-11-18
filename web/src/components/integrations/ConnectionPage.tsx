@@ -12,7 +12,7 @@ import { useState, type ReactNode } from 'react'
 import type { Integration } from '@mycel/shared/api'
 import { CONNECTOR_DOCS, connectorFor, connectorLogo, type Connector } from '../../lib/connectors'
 import { formatDateTime } from '../../lib/format'
-import { computerSignIn, lastCheckNote, signInOffered, toolsShortfall } from '../../lib/integrations'
+import { awayFromComputer, computerSignIn, lastCheckNote, signInOffered, toolsShortfall } from '../../lib/integrations'
 import { signsInOnComputer } from '../../lib/desktop'
 import { mobileApp } from '../../lib/mobile'
 import { useLocale, useT } from '../../i18n'
@@ -170,6 +170,9 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
     <span role="status" className="flex items-center gap-1 text-xs text-muted" data-testid="connection-status" data-state="checking"><RefreshCw size={14} className="animate-spin" aria-hidden />{t('connectors.page.checking')}</span>
   ) : teamOff ? (
     <span className="text-xs text-muted" data-testid="connection-status" data-state="personal-off">{t('appConnectors.off')}</span>
+  ) : awayFromComputer(i) ? (
+    // checked from somewhere other than its computer: where it works, never a red "Error" (that is for a real failure)
+    <span className="text-xs text-muted" data-testid="connection-status" data-state="elsewhere">{t(localAppsBridge() ? 'localApps.status.otherComputer' : 'localApps.status.desktopOnly')}</span>
   ) : i.status === 'connected' ? (
     <span className="flex items-center gap-1 text-xs text-ok" data-testid="connection-status" data-state="connected"><Check size={14} aria-hidden />{t('integrations.status.connected')}</span>
   ) : i.status === 'needs_auth' && signInHere ? (
@@ -186,7 +189,7 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
     : i.auth === 'none' ? t('connectors.page.signInNone') : t(i.hasSecret ? 'integrations.keySaved' : 'integrations.keyMissing')
   // an app on a computer, read away from the desktop app: its "works only from the desktop app there" note already says
   // why its check failed there, so the same words do not come twice in a second box
-  const elsewhereOnly = i.kind === 'local' && i.lastErrorReason === 'local_offline' && !localAppsBridge()
+  const elsewhereOnly = awayFromComputer(i) && !localAppsBridge()
   const lastUsed = i.lastUsedAt ? formatDateTime(i.lastUsedAt, locale) : t('integrations.neverUsed')
   const name = c?.name ?? i.name
   const { links, help } = docsRows(t, name, c)

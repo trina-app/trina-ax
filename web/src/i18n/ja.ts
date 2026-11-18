@@ -3617,6 +3617,8 @@ export const ja: Record<MessageKey, string> = {
   "localApps.state": "このパソコン",
   "localApps.running": "実行中",
   "localApps.stopped": "停止中",
+  "localApps.status.desktopOnly": "デスクトップアプリで使えます",
+  "localApps.status.otherComputer": "別のパソコンにあります",
   "localApps.stop": "停止",
   "localApps.settings": "このパソコンの設定",
   "localApps.settingSaved": "保存済み",
