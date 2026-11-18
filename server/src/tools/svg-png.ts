@@ -9,13 +9,18 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { ToolError } from '../policy/errors'
 import { typstJobs } from '../system/limits'
-import { readOutput, runIsolated } from './isolate'
+import { dirBytes, readOutput, runIsolated } from './isolate'
 
 /** the largest SVG drawn */
 export const SVG_MAX = 10 * 1024 * 1024
 /** the PNG is drawn at twice the SVG's size (sharp in a document and on a phone), its longest side at most this */
 export const PNG_MAX_SIDE = 4000
 const PNG_MAX_BYTES = 64 * 1024 * 1024
+/** one drawing: time and memory (a 100 KB SVG of blur filters reached 4.4 GB and ran a full minute without them) */
+export const SVG_TIMEOUT_MS = 20_000
+export const SVG_RSS_MIB = 1024
+/** filter primitives (feGaussianBlur, feTurbulence ...) in one SVG at most: a chart needs none or a few */
+export const SVG_MAX_FILTERS = 50
 
 /** A number in CSS pixels from an SVG length ("400", "400px", "4in", "10cm", "300pt"); null for "100%" and the rest. */
 function cssPx(v: string | undefined): number | null {
@@ -60,6 +65,8 @@ export async function svgToPng(tools: SvgPngTools, svg: Uint8Array, work: string
   if (!tools.typst) throw new ToolError('typst is not installed on the server, so an SVG picture cannot be turned into a PNG here; nothing was saved')
   if (svg.byteLength > SVG_MAX) throw new ToolError(`the SVG picture is larger than ${SVG_MAX / 1024 / 1024} MB; nothing was saved`)
   const text = new TextDecoder().decode(svg)
+  const filters = (text.match(/<(?:[\w-]+:)?fe[A-Z]\w*\b/g) ?? []).length
+  if (filters > SVG_MAX_FILTERS) throw new ToolError(`the SVG picture has ${filters} filter effects (at most ${SVG_MAX_FILTERS}); draw it without them; nothing was saved`)
   const { wPt, hPt } = drawSize(svgSize(text))
   fs.writeFileSync(path.join(work, `${name}.svg`), svg, { flag: 'wx', mode: 0o600 })
   const doc = [
@@ -73,10 +80,14 @@ export async function svgToPng(tools: SvgPngTools, svg: Uint8Array, work: string
   const r = await runIsolated({
     cmd: tools.typst,
     args: ['compile', ...(jobs ? ['--jobs', String(jobs)] : []), ...(tools.fonts ? ['--font-path', tools.fonts] : []), '--root', work, '--format', 'png', '--ppi', '192', `${name}.typ`, `${name}.png`],
-    workDir: work, readPaths: tools.fonts ? [tools.fonts] : [], timeoutMs: 60_000, signal,
+    workDir: work, readPaths: tools.fonts ? [tools.fonts] : [], timeoutMs: SVG_TIMEOUT_MS, signal,
+    // what the work folder holds already (a Word file's other pictures) plus the PNG
+    maxRssMiB: SVG_RSS_MIB, maxWorkBytes: dirBytes(work) + PNG_MAX_BYTES + 1024 * 1024,
   })
   if (r.code !== 0) {
-    if (r.killed === 'timeout') throw new ToolError('drawing the SVG picture took too long; nothing was saved')
+    if (r.killed === 'timeout') throw new ToolError('drawing the SVG picture took too long; make it simpler (fewer shapes, no filter effects); nothing was saved')
+    if (r.killed === 'memory') throw new ToolError('drawing the SVG picture needs too much memory; make it simpler (fewer shapes, no filter effects); nothing was saved')
+    if (r.killed === 'disk') throw new ToolError('the PNG would be too large; nothing was saved')
     const why = r.stderr.split(work + '/').join('').split(work).join('.').split('\n').filter((l) => /error/i.test(l)).slice(0, 2).join(' ').slice(0, 300)
     throw new ToolError(`the SVG picture could not be drawn (${why || 'unknown error'}); check that it is a complete SVG; nothing was saved`)
   }

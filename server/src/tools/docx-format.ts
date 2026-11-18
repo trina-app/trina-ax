@@ -43,6 +43,8 @@ export interface TextMark { color?: string; highlight?: string }
 const markName = (m: TextMark) => [m.color && `Color ${m.color}`, m.highlight && `Highlight ${m.highlight}`].filter(Boolean).join(' ')
 
 type Attr = [string, string[], [string, string][]]
+/** different colour and highlight pairs in one document at most (each is a Word style) */
+export const MAX_TEXT_COLORS = 64
 
 /**
  * In pandoc's tree of a document for Word: every Span and Div with `color` / `highlight` (or the class "mark") gets a
@@ -72,6 +74,7 @@ export function markTextColors(ast: unknown): Map<string, TextMark> {
         // a block's style is a paragraph style: a name of its own, or Word would get two styles with one id
         const name = (node.t === 'Div' ? 'Paragraph ' : '') + markName(m)
         used.set(name, m)
+        if (used.size > MAX_TEXT_COLORS) throw new ToolError(`the document uses more than ${MAX_TEXT_COLORS} different text colours and highlights; use fewer; nothing was saved`)
         attr[1] = classes.filter((c) => c !== 'mark')
         attr[2] = [...kv.filter((p) => !['color', 'colour', 'highlight', 'background', 'custom-style'].includes(String(p[0]).toLowerCase())), ['custom-style', name]]
       }
@@ -95,14 +98,15 @@ function markRpr(m: TextMark): string {
 }
 
 /** styles.xml with each mark's colours on the style pandoc made for it. A style of that name that already has run
- * properties (a template's own) is left as it is. */
+ * properties (a template's own) is left as it is. One pass over the styles, each looked up by its name. */
 export function colorStyles(stylesXml: string, marks: Map<string, TextMark>): string {
-  let out = stylesXml
-  for (const [name, m] of marks) {
-    const re = new RegExp(`(<w:style\\b[^>]*>)((?:(?!</w:style>)[\\s\\S])*?<w:name w:val="${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\s*/>(?:(?!</w:style>)[\\s\\S])*?)(</w:style>)`)
-    out = out.replace(re, (all, open: string, body: string, close: string) => (/<w:rPr\b/.test(body) ? all : `${open}${body}<w:rPr>${markRpr(m)}</w:rPr>${close}`))
-  }
-  return out
+  if (!marks.size) return stylesXml
+  return stylesXml.replace(/<w:style\b[^>]*>[\s\S]*?<\/w:style>/g, (block) => {
+    const name = /<w:name w:val="([^"]*)"/.exec(block)?.[1]
+    const m = name === undefined ? undefined : marks.get(name)
+    if (!m || /<w:rPr\b/.test(block)) return block
+    return `${block.slice(0, -'</w:style>'.length)}<w:rPr>${markRpr(m)}</w:rPr></w:style>`
+  })
 }
 
 /** page sizes in twentieths of a point (w × h, portrait) */

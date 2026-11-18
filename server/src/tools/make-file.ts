@@ -39,7 +39,7 @@ import ExcelJS from 'exceljs'
 import { addCharts, placeCharts, type ChartSheet, type ChartSpec } from './xlsx-chart'
 import { finishDocx, markTextColors, type TextMark } from './docx-format'
 import { applySheetOptions, type SheetOptions, type WrittenSheet } from './xlsx-format'
-import { svgToPng, SVG_MAX } from './svg-png'
+import { svgToPng, SVG_MAX, SVG_RSS_MIB } from './svg-png'
 import type { z } from 'zod'
 import type { MakeFileInput } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
@@ -173,6 +173,11 @@ const MAX_IMAGES = 200
 const MAX_IMAGES_BYTES = 100 * 1024 * 1024
 /** pandoc's JSON tree of a 10 MB Markdown file stays well below this */
 const MAX_AST = 200 * 1024 * 1024
+/** typst making a PDF: its memory, as an SVG picture's (a picture in the document is drawn by the same typst) plus room
+ * for long documents */
+const TYPST_PDF_RSS_MIB = 2 * SVG_RSS_MIB
+/** SVG pictures drawn for one Word or PowerPoint file (each has its own time and memory limit, svg-png.ts) */
+const SVG_MAX_PER_DOCUMENT = 20
 /** a .docx pandoc wrote (its pictures are at most MAX_IMAGES_BYTES) */
 const MAX_DOCX = 256 * 1024 * 1024
 /** pandoc's Typst text of a document (the source is at most MAX_SOURCE) */
@@ -573,6 +578,7 @@ export class MakeFile {
       for (const x of Object.values(node)) if (x && typeof x === 'object') stack.push(x)
     }
     if (!nodes.length) return 0
+    if (new Set(nodes.map((n) => n.c[2][0])).size > SVG_MAX_PER_DOCUMENT) throw new ToolError(`the document has more than ${SVG_MAX_PER_DOCUMENT} SVG pictures; save some as PNG first (format "png") or use fewer; nothing was saved`)
     const fonts = pdfFonts(pdfLanguage(text, teamDefaultLocale(this.ctx.db)))
     const drawn = new Map<string, string>()
     for (const n of nodes) {
@@ -695,8 +701,8 @@ export class MakeFile {
     fs.writeFileSync(path.join(work, doc), pre + body.bytes.toString('utf8'), { flag: 'wx', mode: 0o600 })
     const fonts = this.conv.fonts ?? null
     // Linux bundle's typst: at most 2 threads (system/limits.ts); the bundled fonts readable inside the isolation
-    const r = await runIsolated({ cmd: this.conv.typst, args: typstArgs({ work, doc, fonts, jobs: typstJobs() }), workDir: work, readPaths: fonts ? [fonts] : [], timeoutMs: 120_000 })
-    if (r.code !== 0) throw new ToolError(convertError('typst', r.stderr, r.killed, work))
+    const r = await runIsolated({ cmd: this.conv.typst, args: typstArgs({ work, doc, fonts, jobs: typstJobs() }), workDir: work, readPaths: fonts ? [fonts] : [], timeoutMs: 120_000, maxRssMiB: TYPST_PDF_RSS_MIB })
+    if (r.code !== 0) throw new ToolError(r.killed === 'memory' ? 'making the PDF needs too much memory (a picture or the document is too heavy); nothing was saved' : convertError('typst', r.stderr, r.killed, work))
   }
 
   /** Writes the workbook and its charts (xlsx-chart.ts); returns the number of formula cells, how many of them have

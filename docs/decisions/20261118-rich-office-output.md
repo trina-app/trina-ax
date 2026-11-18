@@ -36,6 +36,11 @@ Plan: docs/AGENTS/plan/20261118-0900-rich-office-output.md.
   and typst renders SVG with resvg. The headless browser is not on every Mac, `sharp`/`resvg` would be new packages, and
   the Go helper has no SVG text. SVG text is drawn in the PDF font list (bundled Noto Sans CJK on Linux, the Mac's own),
   so Korean labels show. typst runs in the converter isolation with `--root` the work folder, like the PDF.
+- **Limits (review of the first version):** at most 64 different colour/highlight pairs per document (5,000 froze the
+  server for seconds in the styles pass, now one pass with a map); an SVG is drawn with 20 s, 1 GiB of memory and its
+  work folder bounded, at most 50 filter effects, at most 20 SVG pictures per Word or PowerPoint file. typst making a
+  PDF gets a 2 GiB memory cap (long documents with CJK fonts need more than one picture). SVG links (absolute, `../`,
+  `file://`, web), external entities, entity loops and `<use>` bombs are refused by typst's SVG reader (tested).
 - **Left out:** these options for PDF and for text in PowerPoint (pandoc's pptx writer has no custom styles); a
   contents page with page numbers; changing an existing Word or Excel file in place (edit_office, another PR).
 - **Tests:** tests/unit/c-make-file-rich.test.ts. Rendered once with LibreOffice 26.8 (docx: colours, highlight,
