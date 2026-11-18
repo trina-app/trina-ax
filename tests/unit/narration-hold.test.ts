@@ -218,6 +218,28 @@ describe('NarrationHold', () => {
     expect(run(ko(), [{ text: '파일을 확인할게요.' }, 'tool', { text: '\n\n다 됐어요.' }, 'end'])).toBe('파일을 확인할게요.\n\n다 됐어요.')
   })
 
+  // 2026-11-18 TC-4865: a real Korean answer after a read-only refusal opened with this line (it paraphrases the write-
+  // access rule of the instructions): before a call, and in one piece with the Korean answer and no call between
+  const READ_ONLY_LINE = 'That folder is listed as read-only, but I should call the tool and let the server decide.'
+  const KO_ANSWER = '폴더에 쓸 권한이 없어서 압축을 풀지 못했어요.\n\n- 압축 파일: 계약-묶음.zip\n- 이유: 읽기 전용 폴더'
+  test('11-18 (TC-4865): the AI thinking aloud about its tools is dropped before a call and at the top of the Korean answer', () => {
+    expect(dropped(READ_ONLY_LINE)).toBe(true)
+    for (const n of [1, 4, 7, 50, 500]) {
+      expect(run(ko(), [{ text: READ_ONLY_LINE }, 'tool', { text: '\n\n' + KO_ANSWER }, 'end'], n), String(n)).toBe(KO_ANSWER)
+      expect(run(ko(), [{ text: READ_ONLY_LINE + '\n\n' + KO_ANSWER }, 'end'], n), String(n)).toBe(KO_ANSWER)
+      expect(run(ko(), [{ text: READ_ONLY_LINE + '\n' + KO_ANSWER }, 'tool', { text: '\n\n끝.' }, 'end'], n), String(n)).toBe(KO_ANSWER + '\n\n끝.')
+    }
+    for (const line of ['I should call the tool and let the server decide.', 'The folder is marked as read-only; just call the tool.', 'I need to try the write; the server decides.'])
+      expect(run(ko(), [{ text: line + '\n\n' + KO_ANSWER }, 'end']), line).toBe(KO_ANSWER)
+    // a status line at the top of the answer goes the same way; content at the top stays
+    expect(run(ko(), [{ text: 'Let me check the folder.\n\n' + KO_ANSWER }, 'end'])).toBe(KO_ANSWER)
+    for (const top of ['Q3 Sales Report', 'Dear Ms. Kim, thank you for the order.', 'Let me know if anything is missing.', 'Total: 42 files'])
+      expect(run(ko(), [{ text: top + '\n\n' + KO_ANSWER }, 'end']), top).toBe(top + '\n\n' + KO_ANSWER)
+    // the person's own words, and an answer in English asked for, are left alone
+    expect(run(new NarrationHold('ko', 'I should call the tool and let the server decide 라고 번역해줘'), [{ text: 'I should call the tool and let the server decide.\n\n' + KO_ANSWER }, 'end'])).toContain('I should call the tool')
+    expect(run(new NarrationHold(null), [{ text: READ_ONLY_LINE + '\n\n' + KO_ANSWER }, 'end'])).toBe(READ_ONLY_LINE + '\n\n' + KO_ANSWER)
+  })
+
   test('the last piece is always kept: an English email asked for in a Korean chat', () => {
     const email = 'Dear Mr. Smith,\n\nThank you for your order. We will ship it on Thursday.\n\nBest regards,\nSora Lee'
     expect(run(ko(), [{ text: '단가표를 읽을게요.' }, 'tool', { text: '\n\n' + email }, 'end'])).toBe('단가표를 읽을게요.\n\n' + email)

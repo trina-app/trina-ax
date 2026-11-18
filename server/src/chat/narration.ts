@@ -99,11 +99,19 @@ const NOTE_MARK = /;|^(?:now|following|existing|leaving|checking|trying|only|no|
 /** … or where it will put something, as an order to itself ("Add under section 1.", "Append it at the end of the
  * notes."; 2026-11-18, EDIT-17.project). */
 const PLACE_ORDER = /^(?:add|append|insert|put|place)\s+(?:(?:it|this|that|them|the (?:line|row|note|entry|item)|a (?:line|row|note|bullet)|one line)\s+)?(?:under|below|beneath|after|before|above|into|at the (?:end|top|bottom|start) of)\b/i
+/** The AI thinking aloud about how it works: the tool it will call, the server deciding access, what its folder list
+ * marks ("That folder is listed as read-only, but I should call the tool and let the server decide.", 2026-11-18
+ * TC-4865: it paraphrased the write-access rule of the instructions). Never said to people; checked before REPORT,
+ * whose "should" would keep it. */
+const META = /\b(?:call|calling|use|using|try|run)\s+(?:the|this|that)\s+tool\b|\blet\s+the\s+server\s+decide\b|\bthe\s+server\s+(?:decides|will\s+decide|checks|will\s+check)\b|\b(?:listed|marked|shown)\s+as\s+read-only\b|\bi\s+(?:should|must|need\s+to)\s+(?:just\s+)?(?:call|attempt|try)\b/i
 /** A note about the work, in no fixed opening (whole piece, names and `code` taken out): an order or plan of its own,
- * "the user", or a short line (100 characters at most) that names the work in a note's shape. */
+ * "the user", the AI's thoughts about its tools (META), or a short line (100 characters at most) that names the work in
+ * a note's shape. */
 const isWorkNote = (t: string) => {
   t = t.trim()
-  if (TO_PEOPLE.test(t) || REPORT.test(t) || isTitle(t)) return false
+  if (TO_PEOPLE.test(t) || isTitle(t)) return false
+  if (META.test(t)) return true
+  if (REPORT.test(t)) return false
   if (ORDER_TO_PEOPLE.test(t) && !NOTE_ORDER.test(t) && !SELF_ORDER.test(t)) return false
   return SELF_ORDER.test(t) || NOTE_ORDER.test(t) || OWN_PLAN.test(t) || THE_USER.test(t) || ((PLACE_ORDER.test(t) || (WORK_NOUN.test(t) && NOTE_MARK.test(t))) && t.length <= 100)
 }
@@ -249,7 +257,26 @@ export class NarrationHold {
     if (!this.script || this.decided) return t
     this.buf += t
     if (!mustKeep(this.buf, this.script, true, false, this.said)) return ''
+    this.dropLeadingNote()
     return this.release()
+  }
+
+  /**
+   * One piece may hold a note line and then the answer itself, with no call between them: "That folder is listed as
+   * read-only, but I should call the tool and let the server decide.\n\n폴더에 쓸 권한이 없어서 …" (2026-11-18 TC-4865,
+   * Korean answer). Once the answer's own script follows a whole first line in Latin letters, that line alone is
+   * judged as a line before a call would be (a work note, never one copied from the person's message), and dropped.
+   */
+  private dropLeadingNote() {
+    const script = this.script!
+    const m = /^(\s*)([^\n]+)\n/.exec(this.buf)
+    if (!m) return
+    const rest = this.buf.slice(m[0].length)
+    if (!SCRIPT_LETTER[script].test(rest) || SCRIPT_LETTER[script].test(m[2]!)) return
+    if (!isStatusLine(m[2]!, script, {}, this.message)) return
+    this.buf = rest.replace(/^\s+/, '')
+    if (this.lead === null) this.lead = m[1]!
+    this.dropped++
   }
 
   /** A tool call ends the piece: '' when it was a status line, else what was held. input: the call's arguments, when
