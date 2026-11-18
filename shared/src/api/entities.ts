@@ -866,25 +866,32 @@ export type AuditEntry = z.infer<typeof AuditEntry>
 export const SpeechProvider = z.enum(['off', 'openrouter', 'local'])
 export type SpeechProvider = z.infer<typeof SpeechProvider>
 export const DEFAULT_SPEECH_MODEL = 'openai/whisper-large-v3-turbo'
-/** A server with this many CPU cores or fewer turns sound into text itself only slowly: on a 2 vCPU box whisper.cpp
- * small took 1.5-1.9 s for each second of speech outside the app (2 and 1 threads) and over 2.5 s inside a read (QA
- * 2026-11-01), so a read gets one to two minutes of a recording. */
-export const SMALL_SERVER_CORES = 2
-/** "Turn video sound into text" (TeamSettings.aiMediaTranscripts) when the admin has not chosen: on when the speech
- * provider is this server (the sound stays here) and it has more than SMALL_SERVER_CORES cores, off on a smaller one
- * (too slow; frames still go), off for OpenRouter with the team's own key (team files' sound would go to a third party
- * the team did not pick for it) and on for OpenRouter with the hosting service's key (`hostedKey`: the hosted plan's
- * speech-to-text, zero data retention, the plan's free hours a month; docs/DECISIONS.md "Hosted speech-to-text"). `cpuCores`:
- * the server's (system/limits.ts cpuBudget; GET /api/admin/speech-host for the settings page). An admin's choice
- * always wins. The one place this default lives (docs/DECISIONS.md "AI reads video and audio"). */
-export const mediaTranscriptsDefault = (provider: SpeechProvider, cpuCores: number, hostedKey = false): boolean =>
-  provider === 'local' ? cpuCores > SMALL_SERVER_CORES : provider === 'openrouter' && hostedKey
-/** whether the default is off only because this server is small (the read and the settings switch say so) */
-export const mediaTranscriptsOffSmall = (provider: SpeechProvider, cpuCores: number): boolean => provider === 'local' && !mediaTranscriptsDefault(provider, cpuCores)
-/** whether AI reads of video and audio files transcribe their sound: never with voice input off. `hostedKey`: OpenRouter
- * goes with the hosting service's key (mediaTranscriptsDefault) */
-export const mediaTranscriptsOn = (s: { speechProvider: SpeechProvider; aiMediaTranscripts: boolean | null }, cpuCores: number, hostedKey = false): boolean =>
-  s.speechProvider !== 'off' && (s.aiMediaTranscripts ?? mediaTranscriptsDefault(s.speechProvider, cpuCores, hostedKey))
+/** The least a server needs to turn sound into text itself by default (whisper.cpp next to the AI, voice input and
+ * other reads): 4 CPU cores and 8 GB of memory (the owner, 2026-11-19). A 2 vCPU box took 1.5-1.9 s for each second
+ * of speech (QA 2026-11-01). The memory floor is a little under 8 GiB: an "8 GB" machine reports less. */
+export const LOCAL_SPEECH_MIN_CORES = 4
+export const LOCAL_SPEECH_MIN_MEMORY = 7.5 * 1024 ** 3
+/** whether a server with `cpuCores` and `memoryBytes` is big enough for local speech-to-text by default */
+export const localSpeechBigEnough = (cpuCores: number, memoryBytes: number): boolean =>
+  cpuCores >= LOCAL_SPEECH_MIN_CORES && memoryBytes >= LOCAL_SPEECH_MIN_MEMORY
+/** Where the server runs, for the default of "Turn video sound into text": `hosted` (the hosting service's server, a
+ * plan), `mac` (an Apple silicon Mac that runs whisper.cpp on its GPU), `bigEnough` (localSpeechBigEnough). */
+export interface MediaTranscriptsHost { hosted: boolean; mac: boolean; bigEnough: boolean }
+/** "Turn video sound into text" (TeamSettings.aiMediaTranscripts) when the admin has not chosen (the owner, 2026-11-19;
+ * docs/decisions/20261119-speech-defaults-no-cap.md): on on a hosted server (whatever provider works there: the plan's
+ * speech-to-text hours are the limit); on when the provider is this server (the sound stays here) on a Mac or on a
+ * server with at least 4 CPU cores and 8 GB (a self-installed Linux server, the Docker image); off on a smaller one
+ * (too slow; frames still go) and off for OpenRouter with the team's own key on a self-installed server (team files'
+ * sound would go to a third party the team did not pick for it). An admin's choice always wins. The one place this
+ * default lives (docs/DECISIONS.md "AI reads video and audio"). */
+export const mediaTranscriptsDefault = (provider: SpeechProvider, host: MediaTranscriptsHost): boolean =>
+  provider !== 'off' && (host.hosted || (provider === 'local' && (host.mac || host.bigEnough)))
+/** whether the default is off only because this server is too small for local speech (the read and the settings switch say so) */
+export const mediaTranscriptsOffSmall = (provider: SpeechProvider, host: MediaTranscriptsHost): boolean =>
+  provider === 'local' && !mediaTranscriptsDefault(provider, host)
+/** whether AI reads of video and audio files transcribe their sound: never with voice input off */
+export const mediaTranscriptsOn = (s: { speechProvider: SpeechProvider; aiMediaTranscripts: boolean | null }, host: MediaTranscriptsHost): boolean =>
+  s.speechProvider !== 'off' && (s.aiMediaTranscripts ?? mediaTranscriptsDefault(s.speechProvider, host))
 /** an OpenRouter model id: "<vendor>/<model>" */
 export const SpeechModel = z.string().max(128).regex(/^[a-z0-9][a-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._:-]*$/)
 
@@ -970,8 +977,8 @@ export const TeamSettings = z.object({
   /** the OpenRouter speech-to-text model */
   speechModel: SpeechModel,
   /** "Turn video sound into text": AI reads of video and audio files transcribe the sound with the speech provider.
-   * null = not chosen: mediaTranscriptsDefault (on for this server unless it is small, off for OpenRouter with the
-   * team's key, on with the hosting service's key). A change of speechProvider
+   * null = not chosen: mediaTranscriptsDefault (on on a hosted server, on for this server on a Mac or a server with
+   * 4 cores and 8 GB, off otherwise). A change of speechProvider
    * puts it back to null, so a choice made for one provider never sends sound to another. */
   aiMediaTranscripts: z.boolean().nullable(),
   /** how long the company intro deck may take (docs/DECISIONS.md "D2", round 2; server/src/intro-deck/tiers.ts):

@@ -13,7 +13,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import type { Database } from 'bun:sqlite'
 import { PlanFile } from '@mycel/shared/cloud-protocol'
-import type { Locale } from '@mycel/shared/api'
+import { localSpeechBigEnough, type Locale } from '@mycel/shared/api'
 import { getSetting } from '../admin/settings'
 import { fail } from '../http/errors'
 
@@ -169,6 +169,33 @@ export function cpuBudget(): number {
   const cores = typeof os.availableParallelism === 'function' ? os.availableParallelism() : os.cpus().length
   const plan = currentPlan()?.cpuCores
   return Math.max(1, plan ? Math.min(cores, plan) : cores)
+}
+/** the memory the server may use: the plan's, else the machine's */
+export function memoryBudget(): number {
+  const plan = currentPlan()?.memoryMiB
+  return plan ? Math.min(os.totalmem(), plan * MIB) : os.totalmem()
+}
+/** A container's cgroup v2 limits (Docker's --cpus and --memory): memory.max and cpu.max at the root of the cgroup
+ * file system this process sees (a container has its own; on a host the root has neither file, and the server unit's
+ * MemoryMax=75% below it is not the machine's size), or null where there is none. os.availableParallelism and
+ * os.totalmem see the host's cores and memory inside a container. */
+export function containerLimits(root = '/sys/fs/cgroup'): { cpus: number | null; memory: number | null } {
+  let cpus: number | null = null, memory: number | null = null
+  try {
+    const m = fs.readFileSync(`${root}/memory.max`, 'utf8').trim()
+    if (/^\d+$/.test(m)) memory = Number(m)
+  } catch {}
+  try {
+    const [q, per] = fs.readFileSync(`${root}/cpu.max`, 'utf8').trim().split(/\s+/)
+    if (q && /^\d+$/.test(q) && per && Number(per) > 0) cpus = Math.max(1, Math.floor(Number(q) / Number(per)))
+  } catch {}
+  return { cpus, memory }
+}
+/** at least 4 CPU cores and 8 GB here (shared localSpeechBigEnough; the owner, 2026-11-19), within a container's or a
+ * unit's limits: local speech-to-text is on by default */
+export function speechBigEnough(root?: string): boolean {
+  const c = containerLimits(root)
+  return localSpeechBigEnough(Math.min(cpuBudget(), c.cpus ?? Infinity), Math.min(memoryBudget(), c.memory ?? Infinity))
 }
 /** ripgrep --threads (null = ripgrep's own choice, all cores: a Mac without a plan) */
 export function rgThreads(): number | null { return limitsActive() ? Math.min(2, cpuBudget()) : null }

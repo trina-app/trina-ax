@@ -140,7 +140,7 @@ describe('not chosen: the team key turns voice input on', () => {
     const s = await owner.call('PATCH', '/api/admin/settings', { auditRetentionDays: 120 })
     expect(s.speechProvider).toBe('openrouter')
     expect(s.aiMediaTranscripts).toBeNull()
-    expect(mediaTranscriptsOn(s, 16, false)).toBe(false)
+    expect(mediaTranscriptsOn(s, { hosted: false, mac: false, bigEnough: true })).toBe(false)
     expect(stored()).toBeNull()
   })
   test("an admin's 'off' wins over the key; without the choice the key counts again", async () => {

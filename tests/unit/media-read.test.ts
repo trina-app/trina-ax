@@ -7,15 +7,15 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, setDefaul
 import fs from 'node:fs'
 import path from 'node:path'
 import { localizeStep, mediaKind, mediaStepKind, stepLabel } from '@mycel/shared'
-import { mediaTranscriptsDefault, mediaTranscriptsOn } from '@mycel/shared/api'
+import { localSpeechBigEnough, mediaTranscriptsDefault, mediaTranscriptsOn } from '@mycel/shared/api'
 import { getTeamSettings, teamDefaultLocale, updateTeamSettings } from '../../server/src/admin/settings'
 import { componentC } from '../../server/src/team-files/component'
 import { credentialsOf } from '../../server/src/credentials/store'
 import { writeSpeechKey } from '../../server/src/credentials/speech-key'
-import { setPlanForTests } from '../../server/src/system/limits'
+import { containerLimits, setPlanForTests, speechBigEnough } from '../../server/src/system/limits'
 import os from 'node:os'
 import { JobFailure } from '../../server/src/jobs/service'
-import { dictationTurn, pieceTurn, setPieceWaitForTests, whisperTurns } from '../../server/src/jobs/whisper-turns'
+import { dictationTurn, pieceTurn, setPieceSlotsForTests, setPieceWaitForTests, whisperTurns } from '../../server/src/jobs/whisper-turns'
 import { whisperFile } from '../../server/src/jobs/transcribe'
 import * as isolate from '../../server/src/tools/isolate'
 import crypto from 'node:crypto'
@@ -99,6 +99,8 @@ const spies: { mockRestore(): void }[] = []
 /** this server's cores (system/limits.ts cpuBudget): 8, a server whose transcripts are on by default, unless a test
  * says otherwise (the machine running the tests may have 2) */
 let cores: ReturnType<typeof spyOn<typeof os, 'availableParallelism'>>
+/** and its memory: 16 GB (local speech is on by default from 4 cores and 8 GB) */
+let memory: ReturnType<typeof spyOn<typeof os, 'totalmem'>>
 let local: { calls: number }
 /** pieces packed for OpenRouter (FileService.mediaSendable: FLAC; here the WAV as it is) */
 let packed = 0
@@ -108,6 +110,8 @@ beforeAll(async () => {
   componentC(A.ctx)
   A.ctx.db.query("UPDATE users SET locale = 'en' WHERE id IN ('alice','bob')").run()
   F().speech.openRouterUrl = `http://127.0.0.1:${fakeOr.port}/api/v1/audio/transcriptions`
+  // a read here ends with its result: the background transcription of the rest is tested on its own below
+  F().backgroundTranscripts = false
   fs.mkdirSync(path.join(A.team, 'users/alice'), { recursive: true })
   setServedDelayForTests(50)
 })
@@ -127,8 +131,9 @@ beforeEach(() => {
   Object.assign(F().speech, { whisperBin: '/usr/bin/true', modelDir: A.data, sharedModelDir: null, modelOverride: { file: 'fake-model.bin', size: 4, sha256: 'x' }, mac: null })
   fs.writeFileSync(path.join(A.data, 'fake-model.bin'), 'abcd')
   cores = spyOn(os, 'availableParallelism').mockReturnValue(8)
+  memory = spyOn(os, 'totalmem').mockReturnValue(16 * 1024 ** 3)
   spies.push(
-    cores,
+    cores, memory,
     spyOn(F(), 'mediaTools').mockReturnValue({ ffmpeg: '/fake/ffmpeg', ffprobe: '/fake/ffprobe' }),
     spyOn(F(), 'mediaProbe').mockImplementation(async () => structuredClone(probe)),
     spyOn(F(), 'mediaDuration').mockResolvedValue(null),
@@ -442,10 +447,16 @@ describe('limits of one result and one turn', () => {
 
 describe('who transcribes, and when sound may leave the server', () => {
   const setKey = (k: string | null) => writeSpeechKey(credentialsOf(A.ctx), k)
-  test('the default follows the provider: on for this server, off for OpenRouter; voice input off means none', async () => {
-    expect(mediaTranscriptsDefault('local', 4)).toBe(true)
-    expect(mediaTranscriptsDefault('openrouter', 16)).toBe(false)
-    expect(mediaTranscriptsOn({ speechProvider: 'off', aiMediaTranscripts: true }, 16)).toBe(false)
+  test('the default follows the provider and the server: on when hosted, on a Mac, on this server with 4 cores and 8 GB; off for the team\'s own OpenRouter key on its own server; voice input off means none', async () => {
+    const own = { hosted: false, mac: false, bigEnough: true }
+    expect(mediaTranscriptsDefault('local', own)).toBe(true)
+    expect(mediaTranscriptsDefault('local', { ...own, bigEnough: false })).toBe(false)
+    expect(mediaTranscriptsDefault('local', { hosted: false, mac: true, bigEnough: false })).toBe(true)
+    expect(mediaTranscriptsDefault('local', { hosted: true, mac: false, bigEnough: false })).toBe(true)
+    expect(mediaTranscriptsDefault('openrouter', own)).toBe(false)
+    expect(mediaTranscriptsDefault('openrouter', { hosted: false, mac: true, bigEnough: true })).toBe(false)
+    expect(mediaTranscriptsDefault('openrouter', { hosted: true, mac: false, bigEnough: false })).toBe(true)
+    expect(mediaTranscriptsOn({ speechProvider: 'off', aiMediaTranscripts: true }, { hosted: true, mac: true, bigEnough: true })).toBe(false)
     updateTeamSettings(A.ctx.db, { speechProvider: 'off' })
     let r = await read({ file_path: put('m1.mp4') })
     expect(r.out.text).toContain('Voice input is off for this team')
@@ -655,15 +666,143 @@ describe('who transcribes, and when sound may leave the server', () => {
       Object.assign(F().speech, { mac: null, baseUrl: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/' })
     }
   })
-  test('this server on a hosted plan: 30-second pieces, at most 2 minutes of new sound a read', async () => {
+  test('this server on a hosted plan: no 2-minute cap (the owner, 2026-11-19); on by default even on 2 cores; a read turns as much as its time holds', async () => {
     setPlanForTests({ cpuCores: 2 } as any)
-    // a 2-core plan starts with the switch off (a small server): the admin turned it on
-    updateTeamSettings(A.ctx.db, { aiMediaTranscripts: true })
+    expect(F().transcriptsHost().hosted).toBe(true)
     probe = audioOnly(600)
     const { out } = await read({ file_path: put('hosted.m4a') })
-    expect(audios).toEqual([0, 30, 60, 90].map((start) => ({ start, seconds: 30 })))
-    expect(out.text).toContain('Here one read turns at most 2 minutes of new sound into text.')
-    expect(out.text).toContain('To read on: time: "2:00-10:00", frames: 0 (in another call).')
+    // before: [0, 30, 60, 90] and "Here one read turns at most 2 minutes of new sound into text."
+    expect(audios.map((a) => a.start)).toEqual(Array.from({ length: 20 }, (_, i) => i * 30))
+    expect(out.text).not.toContain('at most 2 minutes')
+    expect(out.text).not.toContain('To read on')
+    expect(out.text).toContain('words at 570')
+    expect(F().speechHost()).not.toHaveProperty('hostedNewSec')
+  })
+})
+
+describe('the whole recording: what a read has no time for goes on in the background (docs/decisions/20261119-speech-defaults-no-cap.md)', () => {
+  /** whisper.cpp taking 60 s of the read's clock for each 30 s piece, and held at `gate` for the piece at `holdAt` */
+  let gate: Promise<void> | null = null
+  let holdAt = -1
+  const slow = () => spies.push(spyOn(F(), 'mediaTranscribe').mockImplementation(async () => {
+    local.calls++
+    const a = audios[audios.length - 1]!
+    if (a.start === holdAt && gate) await gate
+    clockMs += 60_000
+    return { text: '', language: 'ko', durationSec: 30, segments: said(a.start, a.seconds) }
+  }))
+  beforeEach(() => { F().backgroundTranscripts = true; F().fillRetryMs = 5; gate = null; holdAt = -1; A.ctx.db.query(SPEED).run(); measured(2) })
+  afterEach(async () => { gate = null; await F().fillsSettled(); F().backgroundTranscripts = false; F().fillRetryMs = media.FILL_RETRY_MS })
+
+  test('a 10-minute recording: the read gives what its time held and says the rest is being made; reading again has all of it', async () => {
+    probe = audioOnly(600)
+    slow()
+    const rel = put('bg-meeting.m4a')
+    const a = await read({ file_path: rel })
+    const first = audios.map((x) => x.start)
+    expect(first.length).toBeGreaterThan(0)
+    expect(first.length).toBeLessThan(20)
+    const to = a.out.text.match(/turn the sound from 0:00\.0 to (\S+) into text/)![1]
+    expect(a.out.text).toContain(`The sound from ${to} to 10:00.0 is still being turned into text in the background.`)
+    await F().fillsSettled()
+    // the background made every other piece, each transcribed once
+    expect([...new Set(audios.map((x) => x.start))].sort((x, y) => x - y)).toEqual(Array.from({ length: 20 }, (_, i) => i * 30))
+    expect(local.calls).toBe(20)
+    const bg = A.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'media.transcribe' AND target = ? ORDER BY id").all(rel) as { detail: string }[]
+    expect(bg.map((r) => JSON.parse(r.detail).background ?? false)).toEqual([false, true])
+    // reading again: the whole file from the cache, nothing new
+    audios = []; clockMs = 0
+    const b = await read({ file_path: rel })
+    expect(audios).toEqual([])
+    expect(b.out.text).toContain('words at 570')
+    expect(b.out.text).not.toContain('To read on')
+    expect(b.out.text).not.toContain('in the background')
+  })
+  test('a read of a piece the background is making waits for it (never made twice); a time part is filled only to its end', async () => {
+    probe = audioOnly(600)
+    slow()
+    const rel = put('bg-wait.m4a')
+    let open!: () => void
+    gate = new Promise<void>((r) => { open = r })
+    const a = await read({ file_path: rel, time: '0:00-5:00' })
+    const first = audios.length
+    holdAt = first * 30
+    // the background holds at its first piece; another read of that part waits for it
+    await Bun.sleep(20)
+    const waiting = read({ file_path: rel, time: `${media.timeArg(holdAt)}-${media.timeArg(holdAt + 30)}`, frames: 0 })
+    await Bun.sleep(30)
+    open()
+    const b = await waiting
+    expect(b.out.text).toContain(`words at ${holdAt}`)
+    await F().fillsSettled()
+    expect(audios.filter((x) => x.start === holdAt).length).toBe(1)
+    // "time" asked for 0:00-5:00: nothing past it was transcribed
+    expect(Math.max(...audios.map((x) => x.start))).toBe(270)
+    expect(a.out.text).toContain('to 5:00.0 is still being turned into text in the background')
+  })
+  test('Stop of the turn ends the background transcription; turned off meanwhile, it sends nothing more', async () => {
+    probe = audioOnly(600)
+    slow()
+    const ac = new AbortController()
+    const t = turn()
+    let open!: () => void
+    gate = new Promise<void>((r) => { open = r })
+    await read({ file_path: put('bg-stop.m4a') }, { ctx: { ...A.toolCtx('alice', t), signal: ac.signal } })
+    holdAt = audios.length * 30
+    await Bun.sleep(20)
+    const before = audios.length
+    ac.abort(); open()
+    await F().fillsSettled()
+    expect(audios.length).toBe(before)
+    // switched off while the background runs: the next piece is not made
+    gate = new Promise<void>((r) => { open = r })
+    audios = []; clockMs = 0
+    await read({ file_path: put('bg-off.m4a') })
+    holdAt = audios.length * 30
+    await Bun.sleep(20)
+    const made = audios.length
+    updateTeamSettings(A.ctx.db, { aiMediaTranscripts: false })
+    open()
+    await F().fillsSettled()
+    expect(audios.length).toBe(made)
+    updateTeamSettings(A.ctx.db, { aiMediaTranscripts: null })
+  })
+  test('media reads at once grow with the server: one per 2 cores and 2 GB, 1 to 8; whisper.cpp pieces by cores over threads', async () => {
+    expect(media.mediaParallelFor(2, 4 * 1024 ** 3)).toBe(1)
+    expect(media.mediaParallelFor(4, 8 * 1024 ** 3)).toBe(2)
+    expect(media.mediaParallelFor(8, 16 * 1024 ** 3)).toBe(4)
+    expect(media.mediaParallelFor(16, 4 * 1024 ** 3)).toBe(2)
+    expect(media.mediaParallelFor(64, 512 * 1024 ** 3)).toBe(8)
+    // two reads run side by side on a server that takes two
+    media.setMediaParallelForTests(2)
+    try {
+      let now = 0, most = 0
+      const job = () => media.mediaSlot('alice', async () => { now++; most = Math.max(most, now); await Bun.sleep(20); now-- })
+      await Promise.all([job(), job(), job()])
+      expect(most).toBe(2)
+    } finally { media.setMediaParallelForTests(null) }
+    // two whisper.cpp pieces at once; voice input still stops them all and runs alone
+    setPieceSlotsForTests(2)
+    try {
+      let now = 0, most = 0
+      const piece = () => pieceTurn(async () => { now++; most = Math.max(most, now); await Bun.sleep(20); now--; return 'x' }, { waitMs: 1000 })
+      expect((await Promise.all([piece(), piece()])).every((r) => r.ok)).toBe(true)
+      expect(most).toBe(2)
+      const stopped: string[] = []
+      const run = () => pieceTurn((y) => new Promise((_, rej) => { y.addEventListener('abort', () => { stopped.push('piece'); rej(new Error('aborted')) }) }), { waitMs: 1000 })
+      const r1 = run(), r2 = run()
+      await Bun.sleep(5)
+      expect(await dictationTurn(async () => 'words')).toBe('words')
+      expect([await r1, await r2]).toEqual([{ ok: false, why: 'yielded' }, { ok: false, why: 'yielded' }])
+      expect(stopped).toEqual(['piece', 'piece'])
+      // every slot taken by other pieces (not voice input): 'full'
+      setPieceSlotsForTests(1)
+      let release!: () => void
+      const held = pieceTurn(() => new Promise<string>((r) => { release = () => r('y') }), { waitMs: 1000 })
+      await Bun.sleep(5)
+      expect(await pieceTurn(async () => 'z', { waitMs: 10 })).toEqual({ ok: false, why: 'full' })
+      release(); await held
+    } finally { setPieceSlotsForTests(null) }
   })
 })
 
@@ -824,7 +963,7 @@ describe('slow local transcripts: frames first, measured pieces, small servers, 
   })
   test('the moving average of the speed: the first measurement replaces the default, a piece cut off by its time counts as slower', () => {
     A.ctx.db.query(SPEED).run()
-    expect(F().speechHost()).toMatchObject({ localPieceSec: 30, localSecPerSec: null, hostedNewSec: null })
+    expect(F().speechHost()).toMatchObject({ localPieceSec: 30, localSecPerSec: null })
     const m = media.localModelName('small'), th = F().speech.threads + 1
     expect(media.localSpeed(A.ctx.db, m, th)).toEqual({ secPerSec: media.LOCAL_SPEED_DEFAULT, measured: false })
     expect(media.recordLocalSpeed(A.ctx.db, m, th, 45_000, 30).secPerSec).toBe(1.5)
@@ -840,19 +979,47 @@ describe('slow local transcripts: frames first, measured pieces, small servers, 
     measured(1.2)
     expect(F().speechHost().localSecPerSec).toBe(1.2)
   })
-  test('a server with 2 cores or fewer: off by default with a note why, frames still go; an admin\'s choice wins', async () => {
-    expect(mediaTranscriptsDefault('local', 2)).toBe(false)
-    expect(mediaTranscriptsDefault('local', 3)).toBe(true)
-    expect(mediaTranscriptsDefault('openrouter', 2)).toBe(false)
+  test('a server under 4 cores or 8 GB: off by default with a note why, frames still go; an admin\'s choice wins', async () => {
+    // the owner's rule (2026-11-19): 4 cores and 8 GB; an "8 GB" machine that reports a little less still counts
+    expect(localSpeechBigEnough(4, 8 * 1024 ** 3)).toBe(true)
+    expect(localSpeechBigEnough(4, 7.7 * 1024 ** 3)).toBe(true)
+    expect(localSpeechBigEnough(3, 64 * 1024 ** 3)).toBe(false)
+    expect(localSpeechBigEnough(16, 4 * 1024 ** 3)).toBe(false)
+    expect(F().speechHost()).toMatchObject({ hosted: false, bigEnough: true, memoryGb: 17 })
+    // a Docker container sees the host's cores and memory: its own limits (cgroup v2 at the root it sees) count
+    const cg = fs.mkdtempSync(path.join(os.tmpdir(), 'cgroup-'))
+    try {
+      expect(speechBigEnough(cg)).toBe(true)
+      fs.writeFileSync(path.join(cg, 'memory.max'), 'max\n'); fs.writeFileSync(path.join(cg, 'cpu.max'), 'max 100000\n')
+      expect(containerLimits(cg)).toEqual({ cpus: null, memory: null })
+      expect(speechBigEnough(cg)).toBe(true)
+      fs.writeFileSync(path.join(cg, 'cpu.max'), '200000 100000\n')
+      expect(containerLimits(cg).cpus).toBe(2)
+      expect(speechBigEnough(cg)).toBe(false)
+      fs.writeFileSync(path.join(cg, 'cpu.max'), '400000 100000\n'); fs.writeFileSync(path.join(cg, 'memory.max'), String(4 * 1024 ** 3))
+      expect(speechBigEnough(cg)).toBe(false)
+      fs.writeFileSync(path.join(cg, 'memory.max'), String(8 * 1024 ** 3))
+      expect(speechBigEnough(cg)).toBe(true)
+    } finally { fs.rmSync(cg, { recursive: true, force: true }) }
+    // 3 cores were enough before (more than 2); now they are not
+    cores.mockReturnValue(3)
+    expect(F().speechHost()).toMatchObject({ cpuCores: 3, bigEnough: false })
+    let r = await read({ file_path: put('small3.mp4') })
+    expect(audios).toEqual([])
+    expect(r.out.text).toContain('This computer is too small to turn sound into text quickly')
+    // 8 cores and 4 GB: too little memory
+    cores.mockReturnValue(8); memory.mockReturnValue(4 * 1024 ** 3)
+    expect((await read({ file_path: put('small-mem.mp4') })).out.text).toContain('This computer is too small')
+    memory.mockReturnValue(16 * 1024 ** 3)
     cores.mockReturnValue(2)
     expect(F().speechHost().cpuCores).toBe(2)
-    let r = await read({ file_path: put('small.mp4') })
+    r = await read({ file_path: put('small.mp4') })
     expect(r.images).toBe(12)
     expect(audios).toEqual([])
-    expect(r.out.text).toContain('Turning sound into text takes long here, so it is off. An admin can turn on "Turn video sound into text"')
+    expect(r.out.text).toContain('(it has fewer than 4 CPU cores or less than 8 GB of memory), so it is off. An admin can turn on "Turn video sound into text"')
     expect(r.out.text).not.toContain('To read on')
     A.ctx.db.query("UPDATE users SET locale = 'ko' WHERE id = 'alice'").run()
-    try { expect((await read({ file_path: put('small-ko.mp4') })).out.text).toContain('여기서는 소리를 글로 바꾸는 데 오래 걸려서 꺼 두었어요. 관리자가') }
+    try { expect((await read({ file_path: put('small-ko.mp4') })).out.text).toContain('여기는 소리를 글로 바꾸기에 컴퓨터가 작아서(CPU 4개, 메모리 8GB 미만) 꺼 두었어요. 관리자가') }
     finally { A.ctx.db.query("UPDATE users SET locale = 'en' WHERE id = 'alice'").run() }
     // turned off on purpose: the usual note, not the small-server one
     updateTeamSettings(A.ctx.db, { aiMediaTranscripts: false })
@@ -1288,7 +1455,11 @@ describe('review of the small-server fixes', () => {
 })
 
 describe('the media slot, Stop and the work folder', () => {
-  test('one media read at a time; a person may queue a few (parallel sub-agents), more are busy', async () => {
+  test('one media read at a time on a server that takes one; a person may queue a few (parallel sub-agents), more are busy', async () => {
+    media.setMediaParallelForTests(1)
+    try { await oneAtATime() } finally { media.setMediaParallelForTests(null) }
+  })
+  const oneAtATime = async () => {
     const order: string[] = []
     let release!: () => void
     const gate = new Promise<void>((r) => { release = r })
@@ -1314,7 +1485,7 @@ describe('the media slot, Stop and the work folder', () => {
     hold()
     await held
     expect(media.mediaStats()).toEqual({ running: 0, waiting: 0 })
-  })
+  }
   test('Stop during the transcript ends the read at once; its work folder is gone, and the frames made are not delivered', async () => {
     const ac = new AbortController()
     spies.push(spyOn(F(), 'mediaAudio').mockImplementation(async () => { ac.abort(new Error('stopped by the person')); throw new Error('aborted') }))

@@ -140,12 +140,12 @@ export const MEDIA_TEXT = {
     zh: '这个团队不把视频声音转成文字，所以声音没有转写。管理员可以在“团队设置 › 语音输入”中开启“把视频声音转成文字”。',
   },
   transcriptsOffSmall: {
-    ko: '여기서는 소리를 글로 바꾸는 데 오래 걸려서 꺼 두었어요. 관리자가 팀 설정 › 음성 입력에서 "영상 소리를 글로 바꾸기"를 켤 수 있어요.',
-    en: 'Turning sound into text takes long here, so it is off. An admin can turn on "Turn video sound into text" in Team settings › Voice input.',
-    id: 'Mengubah suara menjadi teks memakan waktu lama di sini, jadi dimatikan. Admin dapat mengaktifkan "Ubah suara video menjadi teks" di Pengaturan tim › Input suara.',
-    ja: 'ここでは音声をテキストにするのに時間がかかるため、オフにしています。管理者が「チーム設定 › 音声入力」で「動画の音声をテキストにする」をオンにできます。',
-    es: 'Convertir el sonido en texto tarda mucho aquí, por eso está desactivado. Un administrador puede activar "Convertir el sonido de los videos en texto" en Configuración del equipo › Entrada de voz.',
-    zh: '在这里把声音转成文字很慢，所以已关闭。管理员可以在“团队设置 › 语音输入”中开启“把视频声音转成文字”。',
+    ko: '여기는 소리를 글로 바꾸기에 컴퓨터가 작아서(CPU 4개, 메모리 8GB 미만) 꺼 두었어요. 관리자가 팀 설정 › 음성 입력에서 "영상 소리를 글로 바꾸기"를 켤 수 있어요.',
+    en: 'This computer is too small to turn sound into text quickly (it has fewer than 4 CPU cores or less than 8 GB of memory), so it is off. An admin can turn on "Turn video sound into text" in Team settings › Voice input.',
+    id: 'Komputer ini terlalu kecil untuk mengubah suara menjadi teks dengan cepat (kurang dari 4 inti CPU atau kurang dari 8 GB memori), jadi dimatikan. Admin dapat mengaktifkan "Ubah suara video menjadi teks" di Pengaturan tim › Input suara.',
+    ja: 'このコンピューターは音声をすばやくテキストにするには小さいため（CPU 4 コア未満、またはメモリ 8 GB 未満）、オフにしています。管理者が「チーム設定 › 音声入力」で「動画の音声をテキストにする」をオンにできます。',
+    es: 'Este equipo es demasiado pequeño para convertir el sonido en texto con rapidez (tiene menos de 4 núcleos de CPU o menos de 8 GB de memoria), por eso está desactivado. Un administrador puede activar "Convertir el sonido de los videos en texto" en Configuración del equipo › Entrada de voz.',
+    zh: '这台电脑太小，无法快速把声音转成文字（CPU 少于 4 核或内存少于 8 GB），所以已关闭。管理员可以在“团队设置 › 语音输入”中开启“把视频声音转成文字”。',
   },
   noKey: {
     ko: '받아쓰기에 쓸 OpenRouter 키가 없어 소리를 받아쓰지 않았어요. 관리자가 팀 설정 › 음성 입력에서 키를 넣을 수 있어요.',
@@ -157,12 +157,30 @@ export const MEDIA_TEXT = {
   },
   /** {hours}: the plan's free hours a month (credentials/hosted-speech.ts hostedSpeechFreeHours) */
   freeUsed: {
-    ko: '이번 달 무료 받아쓰기 {hours}시간을 다 써서 소리를 받아쓰지 않았어요. 다음 달 1일에 다시 생겨요. 관리자가 팀 설정 › 음성 입력에 팀의 OpenRouter 키를 넣으면 바로 이어서 쓸 수 있어요.',
-    en: 'This month\'s {hours} free hours of transcription are used up, so the sound was not transcribed. They come back on the 1st. An admin can add the team\'s own OpenRouter key in Team settings › Voice input to go on now.',
-    id: '{hours} jam transkripsi gratis bulan ini sudah habis, jadi suara tidak ditranskripsi. Jatahnya kembali tanggal 1. Admin dapat menambahkan kunci OpenRouter tim di Pengaturan tim › Input suara untuk lanjut sekarang.',
-    ja: '今月の無料文字起こし{hours}時間を使い切ったため、文字起こししませんでした。来月1日にまた使えます。管理者が「チーム設定 › 音声入力」でチームの OpenRouter キーを追加すれば、すぐに続けられます。',
-    es: 'Se agotaron las {hours} horas gratuitas de transcripción de este mes, por lo que el sonido no se transcribió. Vuelven el día 1. Un administrador puede añadir la clave de OpenRouter del equipo en Configuración del equipo › Entrada de voz para seguir ahora.',
-    zh: '本月{hours}小时的免费转写时长已用完，所以声音没有转写。每月1日会恢复。管理员可以在“团队设置 › 语音输入”中添加团队自己的 OpenRouter 密钥，马上继续使用。',
+    ko: '이번 달 받아쓰기 시간({hours}시간)을 다 써서 소리를 글로 바꾸지 않았어요. 다음 달 1일에 다시 생겨요. 더 쓰려면 팀 소유자가 요금제를 바꾸거나, 관리자가 팀 설정 › 음성 입력에 팀의 OpenRouter 키를 넣으면 돼요.',
+    en: 'This month\'s speech-to-text allowance ({hours} hours) is used up, so the sound was not turned into text. It comes back on the 1st. To get more now, the team owner can change the plan, or an admin can add the team\'s own OpenRouter key in Team settings › Voice input.',
+    id: 'Jatah ubah suara ke teks bulan ini ({hours} jam) sudah habis, jadi suara tidak diubah menjadi teks. Jatahnya kembali tanggal 1. Untuk dapat lebih sekarang, pemilik tim dapat mengganti langganan tim, atau admin dapat menambahkan kunci OpenRouter tim di Pengaturan tim › Input suara.',
+    ja: '今月の文字起こしの枠（{hours}時間）を使い切ったため、音声をテキストにしませんでした。来月1日にまた使えます。今すぐ増やすには、チームのオーナーがプランを変更するか、管理者が「チーム設定 › 音声入力」でチームの OpenRouter キーを追加してください。',
+    es: 'Se agotó la cuota de voz a texto de este mes ({hours} horas), por lo que el sonido no se convirtió en texto. Vuelve el día 1. Para tener más ahora, el propietario del equipo puede cambiar el plan, o un administrador puede añadir la clave de OpenRouter del equipo en Configuración del equipo › Entrada de voz.',
+    zh: '本月的语音转文字额度（{hours}小时）已用完，所以声音没有转成文字。每月1日会恢复。如果现在需要更多，团队所有者可以更换套餐，或者管理员可以在“团队设置 › 语音输入”中添加团队自己的 OpenRouter 密钥。',
+  },
+  /** {hours} as in freeUsed, {to}: how far the text made before goes (it is kept and in this result) */
+  freeUsedPart: {
+    ko: '이번 달 받아쓰기 시간({hours}시간)을 다 써서 {to}까지만 글로 바꿨어요. 거기까지 바꾼 글은 남아 있어요. 다음 달 1일에 다시 생겨요. 더 쓰려면 팀 소유자가 요금제를 바꾸거나, 관리자가 팀 설정 › 음성 입력에 팀의 OpenRouter 키를 넣으면 돼요.',
+    en: 'This month\'s speech-to-text allowance ({hours} hours) is used up, so the sound was turned into text only up to {to}. The text up to there is kept. The allowance comes back on the 1st. To get more now, the team owner can change the plan, or an admin can add the team\'s own OpenRouter key in Team settings › Voice input.',
+    id: 'Jatah ubah suara ke teks bulan ini ({hours} jam) sudah habis, jadi suara hanya diubah menjadi teks sampai {to}. Teks sampai situ tetap disimpan. Jatahnya kembali tanggal 1. Untuk dapat lebih sekarang, pemilik tim dapat mengganti langganan tim, atau admin dapat menambahkan kunci OpenRouter tim di Pengaturan tim › Input suara.',
+    ja: '今月の文字起こしの枠（{hours}時間）を使い切ったため、{to} までしかテキストにできませんでした。そこまでのテキストは残っています。枠は来月1日にまた使えます。今すぐ増やすには、チームのオーナーがプランを変更するか、管理者が「チーム設定 › 音声入力」でチームの OpenRouter キーを追加してください。',
+    es: 'Se agotó la cuota de voz a texto de este mes ({hours} horas), por lo que el sonido solo se convirtió en texto hasta {to}. El texto hasta ahí se conserva. La cuota vuelve el día 1. Para tener más ahora, el propietario del equipo puede cambiar el plan, o un administrador puede añadir la clave de OpenRouter del equipo en Configuración del equipo › Entrada de voz.',
+    zh: '本月的语音转文字额度（{hours}小时）已用完，所以声音只转写到{to}。到那里为止的文字会保留。额度每月1日恢复。如果现在需要更多，团队所有者可以更换套餐，或者管理员可以在“团队设置 › 语音输入”中添加团队自己的 OpenRouter 密钥。',
+  },
+  /** {from}–{to}: the part still being turned into text after this read (FileService fillTranscript) */
+  background: {
+    ko: '{from}–{to}의 소리는 지금 뒤에서 계속 글로 바꾸고 있어요. 이어서 읽으면 끝난 부분은 바로 나오고, 만드는 중인 부분은 기다렸다가 나와요.',
+    en: 'The sound from {from} to {to} is still being turned into text in the background. Reading on gives the parts already done at once and waits for the part being made.',
+    id: 'Suara dari {from} sampai {to} masih diubah menjadi teks di latar belakang. Membaca lanjut langsung memberi bagian yang sudah selesai dan menunggu bagian yang sedang dibuat.',
+    ja: '{from}–{to} の音声は、今もバックグラウンドでテキストにしています。続けて読み取ると、済んだ部分はすぐに、作成中の部分は待ってから出ます。',
+    es: 'El sonido de {from} a {to} se sigue convirtiendo en texto en segundo plano. Al seguir leyendo, las partes ya hechas salen enseguida y se espera a la que se está haciendo.',
+    zh: '{from}到{to}的声音还在后台继续转成文字。接着读取时，已完成的部分会马上给出，正在转写的部分会等它完成。',
   },
   confidential: {
     ko: '기밀 대화에서는 소리를 바깥 서비스로 보내지 않아 받아쓰지 않았어요.',
@@ -187,14 +205,6 @@ export const MEDIA_TEXT = {
     ja: '音声認識モデルをまだダウンロードできていないため、文字起こししませんでした。自動でもう一度ダウンロードするので、数分後にもう一度読み取ればできます。',
     es: 'El modelo de voz aún no se pudo descargar, por lo que el sonido no se transcribió. Se vuelve a intentar automáticamente; leerlo de nuevo en unos minutos funcionará.',
     zh: '语音模型还没能下载下来，所以声音没有转写。会自动重新下载，过几分钟再读取就可以了。',
-  },
-  slow: {
-    ko: '여기서는 한 번 읽을 때 새 소리를 {min}분까지만 글로 바꿔요.',
-    en: 'Here one read turns at most {min} minutes of new sound into text.',
-    id: 'Di sini satu kali baca mengubah paling banyak {min} menit suara baru menjadi teks.',
-    ja: 'ここでは 1 回の読み取りでテキストにできる新しい音声は {min} 分までです。',
-    es: 'Aquí una lectura convierte en texto como máximo {min} minutos de sonido nuevo.',
-    zh: '在这里，每次读取最多把{min}分钟的新声音转成文字。',
   },
   connection: {
     ko: '이 연결로는 한 번에 1분 안에 끝나는 만큼만 받아써요.',

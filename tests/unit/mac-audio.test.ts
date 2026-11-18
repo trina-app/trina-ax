@@ -81,8 +81,12 @@ describe('which servers use it', () => {
     expect(wantsWavRecordings({ ffmpegBin: null, mac: null })).toBe(false)
     expect(localSpeechReady({ whisperBin: '/w', ffmpegBin: null, mac })).toBe(true)
     expect(localSpeechReady({ whisperBin: null, ffmpegBin: null, mac })).toBe(false)
-    // an Intel Mac or Linux with whisper-cli: unchanged, nothing reads 'local' by itself
+    // Linux (the kit, the Docker image) with whisper-cli and ffmpeg reads 'local' by itself only with 4 cores and 8 GB
+    // (the owner, 2026-11-19); a smaller one, or one without ffmpeg, does not
     expect(localSpeechReady({ whisperBin: '/w', ffmpegBin: '/f', mac: null })).toBe(false)
+    expect(localSpeechReady({ whisperBin: '/w', ffmpegBin: '/f', mac: null }, true)).toBe(true)
+    expect(localSpeechReady({ whisperBin: '/w', ffmpegBin: null, mac: null }, true)).toBe(false)
+    expect(localSpeechReady({ whisperBin: null, ffmpegBin: '/f', mac: null }, true)).toBe(false)
   })
 })
 
